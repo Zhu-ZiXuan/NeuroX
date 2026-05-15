@@ -1,0 +1,132 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "neurox"
+version = "0.1.0"
+description = "A PyTorch-based neuromorphic computing simulation framework, for algorithmic accuracy with circuit-level PPA, from device physics to AI models"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Zhu-Zixuan" }]
+dependencies = [
+    "torch>=2.9",
+    "pydantic>=2.0",
+    "PyYAML>=6.0",
+    "tomli-w>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff",
+    "mypy",
+    "pytest",
+    "pytest-cov",
+    "pre-commit",
+    "types-PyYAML",
+]
+doc = [
+    "mkdocs",
+    "mkdocs-material",
+    "mkdocstrings[python]",
+]
+demo = [
+    "torchvision>=0.20.0",
+    "torchao>=0.10.0",
+    "transformers>=4.40.0",
+    "datasets>=2.18.0",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/Zhu-Zixuan/NeuroX"
+"Bug Tracker" = "https://github.com/Zhu-Zixuan/NeuroX/issues"
+
+# Stable user-facing console scripts.  All tools live under
+# ``neurox.tools`` and require explicit CLI arguments (no defaults).
+[project.scripts]
+neurox-calculate-xbar-param-1t1r = "neurox.tools.calculate_xbar_param_1t1r:main"
+neurox-analyze-xbar-error-1t1r   = "neurox.tools.analyze_xbar_error_1t1r:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["neurox*"]
+
+# Ship the bundled ``.toml`` configs so ``Path(__file__).parent``
+# resolves to a real directory both in editable installs and wheel
+# installs.
+[tool.setuptools.package-data]
+"neurox.config" = ["*.toml"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+indent-width = 4
+
+[tool.ruff.lint]
+select = [
+    "F",    # pyflakes
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "UP",   # pyupgrade
+    "SIM",  # flake8-simplify
+    "RUF",  # ruff-specific rules
+    "N",    # pep8-naming
+    "C4",   # flake8-comprehensions
+    "PERF", # perflint
+    "A",    # flake8-builtins
+    "T10",  # flake8-debugger
+    "T20",  # flake8-type-checking
+    "ANN",  # flake8-annotations
+    "G",    # flake8-logging-format
+    "ICN",  # import conventions
+    "TID",  # flake8-tidy-imports
+]
+ignore = [
+    "E501", # line too long
+    "N812", # lowercase imported as non-lowercase
+    "RUF022", # `__all__` is not sorted
+    "F841", # local variable is assigned to but never used
+
+    "A002", # function argument is shadowing a Python builtin
+    "N802", # function name should be lowercase
+    "N803", # argument name should be lowercase
+    "N806", # variable in function should be lowercase
+    "N815", # mixedCase variable in class scope
+]
+
+# Allow fix for all enabled rules (when "--fix") is provided.
+fixable = ["ALL"]
+unfixable = []
+
+[tool.ruff.lint.per-file-ignores]
+"test/**/*.py" = [
+    "ANN", # flake8-annotations
+    "D",   # pydocstyle
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "lf"
+
+[tool.mypy]
+python_version = "3.11"
+namespace_packages = true
+explicit_package_bases = true
+ignore_missing_imports = true
+
+warn_return_any = true
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+disallow_untyped_decorators = false
+check_untyped_defs = true
+no_implicit_optional = true

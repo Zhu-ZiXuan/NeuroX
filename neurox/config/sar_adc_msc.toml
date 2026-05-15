@@ -1,0 +1,17 @@
+[saradcmcs]
+max_bits = 8
+v_ref__V = [0.8,] # 0.9V Vdd, need switch overhead
+
+clk_period__ns = 2.0 # 500MHz for setup
+
+c_unit__fF = 2.0 # typical 28nm MOM cap
+cap_mismatch_sigma_relative = 5e-3
+
+comparator_offset_sigma__V = 3e-3
+comparator_thermal_noise_sigma__V = 5e-4
+
+e_bootstrap__fJ = 20.0
+e_constant_per_bit__fJ = 12.0
+
+leakage_per_inst__uW = 0.5
+area_per_inst__um2 = 250
