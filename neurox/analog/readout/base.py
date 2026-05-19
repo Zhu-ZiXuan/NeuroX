@@ -68,6 +68,8 @@ class ReadOut(nn.Module, ProfiledModule, ConfigDispatchMixin["ReadOutConfig", "R
         T__K: float,
         dtype: torch.dtype,
         stochastic: bool | None,
+        data_num: int,
+        digit_weights: tuple[float, ...],
     ) -> ReadOut:
         """Build the concrete readout implementation for `type(cfg)`.
 
@@ -77,12 +79,22 @@ class ReadOut(nn.Module, ProfiledModule, ConfigDispatchMixin["ReadOutConfig", "R
             T__K: Operating temperature [K].
             dtype: Tensor dtype for internal buffers.
             stochastic: Optional runtime stochastic-control flag.
+            data_num: Number of data per reference group.
+            digit_weights: Per-digit weight vector, length ``digit_num``.
 
         Returns:
             Concrete readout implementation registered for `type(cfg)`.
         """
         impl = cls._lookup_impl(cfg)
-        return impl(cfg=cfg, name=name, T__K=T__K, dtype=dtype, stochastic=stochastic)
+        return impl(
+            cfg=cfg,
+            name=name,
+            T__K=T__K,
+            dtype=dtype,
+            stochastic=stochastic,
+            data_num=data_num,
+            digit_weights=digit_weights,
+        )
 
     def __init__(
         self,
@@ -92,6 +104,8 @@ class ReadOut(nn.Module, ProfiledModule, ConfigDispatchMixin["ReadOutConfig", "R
         T__K: float,
         dtype: torch.dtype,
         stochastic: bool | None,
+        data_num: int,
+        digit_weights: tuple[float, ...],
     ) -> None:
         """Register the instance with :class:`nn.Module` and the profiler.
 
@@ -101,26 +115,19 @@ class ReadOut(nn.Module, ProfiledModule, ConfigDispatchMixin["ReadOutConfig", "R
             T__K: Operating temperature [K].
             dtype: Tensor dtype for internal buffers.
             stochastic: Optional runtime stochastic-control flag.
+            data_num: Number of data per reference group.
+            digit_weights: Per-digit weight vector, length ``digit_num``.
         """
-        del cfg, T__K, dtype, stochastic  # captured by the subclass init
+        del cfg, T__K, dtype, stochastic, data_num, digit_weights  # captured by the subclass init
         nn.Module.__init__(self)
         ProfiledModule.__init__(self, name)
 
     @abstractmethod
-    def fabricate(
-        self,
-        shape: tuple[int, ...],
-        *,
-        data_num: int,
-        digit_weights: Tensor,
-    ) -> None:
+    def fabricate(self, shape: tuple[int, ...]) -> None:
         """Sample static per-instance state over ``shape`` (re-callable).
 
         Args:
             shape: Per-instance fabrication shape.
-            data_num: Number of data per reference group.
-            digit_weights: 1-D per-digit weight vector, shape
-                ``[digit_num]``.
         """
         raise NotImplementedError
 

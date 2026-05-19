@@ -14,5 +14,5 @@ These primitives are intentionally small. They sit at the bottom of the import g
 
 See also:
 
-- `../../architecture/config_and_construction.md`
-- `../../adr/ADR-0001-config-dispatch-and-owned-construction.md`
+- `docs/dev/architecture/config_and_construction.md`
+- `docs/dev/adr/ADR-0001-config-dispatch-and-owned-construction.md`

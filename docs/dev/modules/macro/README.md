@@ -10,7 +10,7 @@
 
 ## Mapping flow
 
-The macro owns one mapper (see [`architecture/mapping.md`](../../architecture/mapping.md)). The mapper holds the tiler and both slicers; the macro itself does not split weights or activations directly.
+The macro owns one mapper (see [`docs/dev/architecture/mapping.md`](docs/dev/architecture/mapping.md)). The mapper holds the tiler and both slicers; the macro itself does not split weights or activations directly.
 
 Per-call:
 
@@ -25,7 +25,7 @@ Macros expose `w_value_range` / `x_value_range` properties describing the intege
 
 See also:
 
-- `../xbar/README.md`
-- `../mapper/README.md`
-- `../digital/README.md`
-- `../../architecture/mapping.md`
+- `docs/dev/modules/xbar/README.md`
+- `docs/dev/modules/mapper/README.md`
+- `docs/dev/modules/digital/README.md`
+- `docs/dev/architecture/mapping.md`

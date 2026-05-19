@@ -20,4 +20,4 @@ These blocks are `@torch.compile`-friendly: per-op constants fold as Inductor co
 
 See also:
 
-- `../../roadmap.md` (gate-level netlist plans for the future digital path)
+- `docs/dev/roadmap.md` (gate-level netlist plans for the future digital path)

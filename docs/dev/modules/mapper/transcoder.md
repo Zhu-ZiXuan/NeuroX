@@ -29,6 +29,6 @@ The transcoder reports `value_range` based on its `(digit_count, digit_radix, en
 
 See also:
 
-- `xbar/slicer/README.md`
-- `xbar/base.md`
-- `../../architecture/mapping.md`
+- `docs/dev/modules/mapper/xbar/slicer/README.md`
+- `docs/dev/modules/mapper/xbar/base.md`
+- `docs/dev/architecture/mapping.md`

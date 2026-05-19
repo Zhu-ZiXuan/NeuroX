@@ -37,7 +37,7 @@ The xbar does **not** expose an aggregate "full logical `w` range" — that rang
 
 ## Output rescale lookup
 
-`XbarConfig.output_rescale_factors` is an externally-calibrated table of `XbarRescaleEntry(adc_mode, adc_bits, rf)` rows. `Xbar.output_rescale_factor` returns the entry matching the runtime `(adc_mode, adc_bits)` operating point. See [`architecture/mapping.md`](../../architecture/mapping.md) for the surrounding flow.
+`XbarConfig.output_rescale_factors` is an externally-calibrated table of `XbarRescaleEntry(adc_mode, adc_bits, rf)` rows. `Xbar.output_rescale_factor` returns the entry matching the runtime `(adc_mode, adc_bits)` operating point. See [`docs/dev/architecture/mapping.md`](docs/dev/architecture/mapping.md) for the surrounding flow.
 
 ## `to_ideal()`
 
@@ -46,4 +46,4 @@ Every concrete xbar implements `to_ideal()`, returning the lossless [`IdealXbar`
 See also:
 
 - `ideal.md`
-- `_1t1r/README.md`
+- `docs/dev/modules/xbar/_1t1r/README.md`

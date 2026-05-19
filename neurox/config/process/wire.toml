@@ -1,6 +1,0 @@
-# Interconnect (wire) capacitance per unit length.
-# Each top-level section: `wire_<node>_<flavor>`.
-
-
-[wire_28_metal]
-c__fF_per_um = 0.2

@@ -24,12 +24,12 @@ These are not polymorphic families — each is a single concrete `nn.Module` the
 
 Each sub-directory holds a polymorphic family driven by `ConfigDispatchMixin`:
 
-- [`dac/`](dac/README.md) — `DAC` family (today: `GeneralDAC`).
-- [`adc/`](adc/README.md) — `ADC` family (today: `GeneralADC`, `McsSarAdc`, `SarAdcMono`).
-- [`tia/`](tia/README.md) — `TIA` family (today: `OpAmpTIA`).
-- [`readout/`](readout/README.md) — `ReadOut` family (today: `OffsetSwitchCapMuxAdcReadOut`).
+- [`dac/`](docs/dev/modules/analog/dac/README.md) — `DAC` family (today: `GeneralDAC`).
+- [`adc/`](docs/dev/modules/analog/adc/README.md) — `ADC` family (today: `GeneralADC`, `McsSarAdc`, `SarAdcMono`).
+- [`tia/`](docs/dev/modules/analog/tia/README.md) — `TIA` family (today: `OpAmpTIA`).
+- [`readout/`](docs/dev/modules/analog/readout/README.md) — `ReadOut` family (today: `OffsetSwitchCapMuxAdcReadOut`).
 
 See also:
 
-- `../../architecture/config_and_construction.md`
-- `../../adr/ADR-0001-config-dispatch-and-owned-construction.md`
+- `docs/dev/architecture/config_and_construction.md`
+- `docs/dev/adr/ADR-0001-config-dispatch-and-owned-construction.md`

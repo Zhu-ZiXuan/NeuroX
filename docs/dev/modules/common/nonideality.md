@@ -13,7 +13,7 @@ Every additive / multiplicative noise comes in two flavours:
 
 ## Toggle contract
 
-Every `apply_*` helper takes a `*, enabled: bool` kw-only parameter and returns the input unchanged when `enabled=False`. Callers pass `enabled=cfg.enable_<source>` straight from the cfg; no helper checks for `None` and no caller writes an `if`-gate. See `architecture/noise_and_toggles.md` for the project-wide rule.
+Every `apply_*` helper takes a `*, enabled: bool` kw-only parameter and returns the input unchanged when `enabled=False`. Callers pass `enabled=cfg.enable_<source>` straight from the cfg; no helper checks for `None` and no caller writes an `if`-gate. See `docs/dev/architecture/noise_and_toggles.md` for the project-wide rule.
 
 ## Provided primitives
 

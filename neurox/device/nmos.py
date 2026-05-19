@@ -180,10 +180,6 @@ class NMOS(nn.Module):
             torch.tensor(nominal_vth__V, dtype=dtype),
             persistent=False,
         )
-        # Sentinel fabricated buffers — :meth:`fabricate` overwrites
-        # them.  Initialised to fresh clones of the nominals (no
-        # expand) so ``.to(device)`` migrates them cleanly even
-        # pre-fabricate.
         self.register_buffer(
             "beta__uA_per_V2",
             self.nominal_beta__uA_per_V2.clone(),

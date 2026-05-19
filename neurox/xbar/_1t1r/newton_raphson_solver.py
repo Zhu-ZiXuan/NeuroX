@@ -12,7 +12,7 @@ import torch.nn.functional as F
 from torch import Tensor
 
 from neurox.analog.clamp_driver import ClampDriver
-from neurox.device import RRAM, RRAMSnapshot, Wire
+from neurox.device import RRAM, RRAMSnapshot
 from neurox.device.nmos import NMOS, NMOSSnapshot
 from neurox.xbar.solver import (
     col_driver_current,
@@ -59,6 +59,11 @@ class NewtonRaphsonSolver1T1R(nn.Module):
     N_UNROLL_OUTER: int = 5
     I_ATOL__uA: float = 1e-3
 
+    bl_segment_r__MOhm: Tensor
+    sl_segment_r__MOhm: Tensor
+    bl_segment_g__uS: Tensor
+    sl_segment_g__uS: Tensor
+
     def __init__(
         self,
         rram: RRAM,
@@ -66,8 +71,8 @@ class NewtonRaphsonSolver1T1R(nn.Module):
         bl_driver: ClampDriver,
         sl_driver: ClampDriver,
         *,
-        bl_wire: Wire,
-        sl_wire: Wire,
+        bl_segment_r__MOhm: Tensor,
+        sl_segment_r__MOhm: Tensor,
     ) -> None:
         """Construct one 1T1R DC solver.
 
@@ -76,16 +81,18 @@ class NewtonRaphsonSolver1T1R(nn.Module):
             nmos: Fabricated access-NMOS model.
             bl_driver: BL clamp driver.
             sl_driver: SL clamp driver.
-            bl_wire: BL wire model.
-            sl_wire: SL wire model.
+            bl_segment_r__MOhm: 1-D BL segment resistances [MOhm], index 0 is driver-to-first.
+            sl_segment_r__MOhm: 1-D SL segment resistances [MOhm], index 0 is driver-to-first.
         """
         super().__init__()
         self.rram = rram
         self.nmos = nmos
         self.bl_driver = bl_driver
         self.sl_driver = sl_driver
-        self.bl_wire = bl_wire
-        self.sl_wire = sl_wire
+        self.register_buffer("bl_segment_r__MOhm", bl_segment_r__MOhm, persistent=False)
+        self.register_buffer("sl_segment_r__MOhm", sl_segment_r__MOhm, persistent=False)
+        self.register_buffer("bl_segment_g__uS", 1.0 / bl_segment_r__MOhm, persistent=False)
+        self.register_buffer("sl_segment_g__uS", 1.0 / sl_segment_r__MOhm, persistent=False)
 
     # ---------------------------------------------------------------
     # Public entry point
@@ -115,11 +122,10 @@ class NewtonRaphsonSolver1T1R(nn.Module):
 
         # --- Load static wire and device state ---
 
-        # Per-segment wire state — owned by the Wire modules.
-        bl_segment_r = self.bl_wire.segment_r__MOhm
-        sl_segment_r = self.sl_wire.segment_r__MOhm
-        bl_segment_g = self.bl_wire.segment_g__uS
-        sl_segment_g = self.sl_wire.segment_g__uS
+        bl_segment_r = self.bl_segment_r__MOhm
+        sl_segment_r = self.sl_segment_r__MOhm
+        bl_segment_g = self.bl_segment_g__uS
+        sl_segment_g = self.sl_segment_g__uS
 
         # Per-solve wire Jacobian templates.
         bl_wire_diag = bl_segment_g + F.pad(bl_segment_g[1:], (0, 1))

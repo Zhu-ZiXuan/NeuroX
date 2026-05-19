@@ -31,4 +31,4 @@ The ideal tile knows nothing about offset coding, reference columns, or any anal
 See also:
 
 - `base.md`
-- `_1t1r/offset.md`
+- `docs/dev/modules/xbar/_1t1r/offset.md`

@@ -6,7 +6,7 @@ This document records the rules for static area / leakage reporting, dynamic ene
 
 Every **circuit module** (anything under `neurox/analog/`, `neurox/digital/`, `neurox/xbar/`, `neurox/macro/`) must inherit `ProfiledModule`. This is non-negotiable.
 
-**Device modules** (`neurox/device/`) do **not** inherit `ProfiledModule`. Device PPA rolls up to the owning circuit — see [`ADR-0002`](../adr/ADR-0002-nmos-is-a-pure-electrical-primitive.md). Device modules expose no `_log_dynamic` / `area_per_inst__um2` / `leakage_per_inst__uW` / `latency_per_op__ns`.
+**Device modules** (`neurox/device/`) do **not** inherit `ProfiledModule`. Device PPA rolls up to the owning circuit — see [`ADR-0002`](docs/dev/adr/ADR-0002-nmos-is-a-pure-electrical-primitive.md). Device modules expose no `_log_dynamic` / `area_per_inst__um2` / `leakage_per_inst__uW` / `latency_per_op__ns`.
 
 ## Required interface
 
@@ -18,15 +18,15 @@ Every `ProfiledModule` exposes:
 
 ## `fabricate(shape)` and `_record_inst_count`
 
-`fabricate(shape, **extras)` records the per-instance count at the **end** of the method body:
+`fabricate(shape)` records the per-instance count at the **end** of the method body:
 
 ```python
-def fabricate(self, shape, **extras):
+def fabricate(self, shape):
     # ... sample static state ...
     self._record_inst_count(shape)
 ```
 
-This is mandatory for every circuit module. The base abstract `fabricate` raises `NotImplementedError`; concrete circuits implement and end with `_record_inst_count`. Circuits with no shape-derived static state still implement `fabricate(shape, **extras)` with a body that consists only of `self._record_inst_count(shape)`.
+This is mandatory for every circuit module. The base abstract `fabricate` raises `NotImplementedError`; concrete circuits implement and end with `_record_inst_count`. Circuits with no shape-derived static state still implement `fabricate(shape)` with a body that consists only of `self._record_inst_count(shape)`.
 
 `shape` is the **circuit-instance count shape**: each cell of a tensor of this shape represents one independent fabricated instance of the module. The shape is multi-dimensional to mirror the tile / batch structure of the surrounding tensor pipeline; the profiler treats it as a count via `math.prod(shape)`.
 
@@ -35,7 +35,7 @@ This is mandatory for every circuit module. The base abstract `fabricate` raises
 When a composite circuit owns child circuit modules:
 
 - Composite's `area_per_inst__um2` and `leakage_per_inst__uW` return **only the composite's own extra cost** (`self.cfg.area_per_inst__um2` etc.).
-- Each child registers its own instance count via its own `fabricate`. The composite's `fabricate` calls every child's `fabricate(child_shape, ...)`.
+- Each child registers its own instance count via its own `fabricate`. The composite's `fabricate` calls every child's `fabricate(child_shape)`.
 - The profiler walks `model.modules()` and sums the `inst_area__um2` / `inst_leakage__uW` of every `ProfiledModule` it finds. Composite and children both contribute their own shares; nothing is double-counted.
 
 Latency aggregation is different: `latency_per_op__ns` on a composite typically returns the **pipeline sum** of children's per-op latency plus the composite's own contribution. Pipeline depth is not a sum of instance counts; the two aggregation modes are by design different.

@@ -22,7 +22,7 @@ from neurox.analog import (
     TIAConfig,
 )
 from neurox.common.validate import ValidateMixin
-from neurox.device import NMOS, RRAM, NMOSConfig, RRAMConfig, Wire, WireConfig
+from neurox.device import NMOS, RRAM, NMOSConfig, RRAMConfig
 
 from .newton_raphson_solver import NewtonRaphsonSolver1T1R, Solver1T1RDCOP
 
@@ -38,19 +38,22 @@ class CircuitCore1T1RConfig(ValidateMixin):
     Attributes:
         wl_pulse_length__ns: Word-line pulse length [ns].
         sl_topology: Source-line sharing topology.
-        row_cell_space__um: WL wire spacing between adjacent physical columns
-            [um].
-        row_first_space__um: WL wire spacing from the driver to the first
-            physical column [um].
-        col_cell_space__um: BL/SL wire spacing between adjacent rows [um].
-        col_first_space__um: BL/SL wire spacing from the driver to the first
-            row [um].
-        bl_r_driver_to_first__MOhm: BL resistance from the driver to the first
-            row [MOhm].
-        bl_r_cell_to_cell__MOhm: BL resistance between adjacent rows [MOhm].
-        sl_r_driver_to_first__MOhm: SL resistance from the driver to the first
-            column [MOhm].
-        sl_r_cell_to_cell__MOhm: SL resistance between adjacent columns [MOhm].
+        row_first_space__um: Row pitch from the driver to the first cell [um].
+        row_cell_space__um: Row pitch between adjacent cells [um].
+        col_first_space__um: Column pitch from the driver to the first cell [um].
+        col_cell_space__um: Column pitch between adjacent cells [um].
+        bl_first_r__MOhm: BL driver-to-first-cell segment resistance [MOhm].
+        bl_first_c__fF: BL driver-to-first-cell segment capacitance [fF].
+        bl_segment_r__MOhm: BL cell-to-cell segment resistance [MOhm].
+        bl_segment_c__fF: BL cell-to-cell segment capacitance [fF].
+        sl_first_r__MOhm: SL driver-to-first-cell segment resistance [MOhm].
+        sl_first_c__fF: SL driver-to-first-cell segment capacitance [fF].
+        sl_segment_r__MOhm: SL cell-to-cell segment resistance [MOhm].
+        sl_segment_c__fF: SL cell-to-cell segment capacitance [fF].
+        wl_first_r__MOhm: WL driver-to-first-cell segment resistance [MOhm].
+        wl_first_c__fF: WL driver-to-first-cell segment capacitance [fF].
+        wl_segment_r__MOhm: WL cell-to-cell segment resistance [MOhm].
+        wl_segment_c__fF: WL cell-to-cell segment capacitance [fF].
         access_nmos_W__um: Access-NMOS width [um].
         access_nmos_L__um: Access-NMOS length [um].
         c_gs_per_um__fF: Access-NMOS gate-to-source capacitance per unit width
@@ -69,23 +72,30 @@ class CircuitCore1T1RConfig(ValidateMixin):
         sl_driver_cfg: SL driver configuration.
         wl_decoder_cfg: WL decoder configuration.
         wl_dac_cfg: WL DAC configuration.
-        bl_wire_cfg: BL wire configuration.
-        sl_wire_cfg: SL wire configuration.
-        wl_wire_cfg: WL wire configuration.
     """
 
     wl_pulse_length__ns: float
     sl_topology: Literal["row_shared", "col_shared"]
 
-    row_cell_space__um: float
     row_first_space__um: float
-    col_cell_space__um: float
+    row_cell_space__um: float
     col_first_space__um: float
+    col_cell_space__um: float
 
-    bl_r_driver_to_first__MOhm: float
-    bl_r_cell_to_cell__MOhm: float
-    sl_r_driver_to_first__MOhm: float
-    sl_r_cell_to_cell__MOhm: float
+    bl_first_r__MOhm: float
+    bl_first_c__fF: float
+    bl_segment_r__MOhm: float
+    bl_segment_c__fF: float
+
+    sl_first_r__MOhm: float
+    sl_first_c__fF: float
+    sl_segment_r__MOhm: float
+    sl_segment_c__fF: float
+
+    wl_first_r__MOhm: float
+    wl_first_c__fF: float
+    wl_segment_r__MOhm: float
+    wl_segment_c__fF: float
 
     access_nmos_W__um: float
     access_nmos_L__um: float
@@ -103,17 +113,14 @@ class CircuitCore1T1RConfig(ValidateMixin):
     sl_driver_cfg: DriverConfig
     wl_decoder_cfg: DecoderConfig
     wl_dac_cfg: DACConfig
-    bl_wire_cfg: WireConfig
-    sl_wire_cfg: WireConfig
-    wl_wire_cfg: WireConfig
 
     def __post_init__(self) -> None:
         self.validate()
 
     def validate(self) -> None:
         self.validate_wl_pulse()
-        self.validate_wire_spacing()
-        self.validate_wire_resistance()
+        self.validate_layout_pitch()
+        self.validate_wire_segments()
         self.validate_access_nmos()
         self.validate_parasitics()
         self.validate_rram_window()
@@ -122,17 +129,20 @@ class CircuitCore1T1RConfig(ValidateMixin):
     def validate_wl_pulse(self) -> None:
         self._require_nonneg(self.wl_pulse_length__ns, "wl_pulse_length__ns")
 
-    def validate_wire_spacing(self) -> None:
-        self._require_pos(self.row_cell_space__um, "row_cell_space__um")
-        self._require_pos(self.row_first_space__um, "row_first_space__um")
-        self._require_pos(self.col_cell_space__um, "col_cell_space__um")
-        self._require_pos(self.col_first_space__um, "col_first_space__um")
+    def validate_layout_pitch(self) -> None:
+        for field in (
+            "row_first_space__um", "row_cell_space__um",
+            "col_first_space__um", "col_cell_space__um",
+        ):
+            self._require_pos(getattr(self, field), field)
 
-    def validate_wire_resistance(self) -> None:
-        self._require_pos(self.bl_r_driver_to_first__MOhm, "bl_r_driver_to_first__MOhm")
-        self._require_pos(self.bl_r_cell_to_cell__MOhm, "bl_r_cell_to_cell__MOhm")
-        self._require_pos(self.sl_r_driver_to_first__MOhm, "sl_r_driver_to_first__MOhm")
-        self._require_pos(self.sl_r_cell_to_cell__MOhm, "sl_r_cell_to_cell__MOhm")
+    def validate_wire_segments(self) -> None:
+        for field in (
+            "bl_first_r__MOhm", "bl_first_c__fF", "bl_segment_r__MOhm", "bl_segment_c__fF",
+            "sl_first_r__MOhm", "sl_first_c__fF", "sl_segment_r__MOhm", "sl_segment_c__fF",
+            "wl_first_r__MOhm", "wl_first_c__fF", "wl_segment_r__MOhm", "wl_segment_c__fF",
+        ):
+            self._require_pos(getattr(self, field), field)
 
     def validate_access_nmos(self) -> None:
         self._require_pos(self.access_nmos_W__um, "access_nmos_W__um")
@@ -250,10 +260,6 @@ class CircuitCore1T1R(nn.Module):
             T__K=T__K,
             dtype=dtype,
         )
-        self.sl_wire = Wire(cfg=cfg.sl_wire_cfg, T__K=T__K, dtype=dtype)
-        self.bl_wire = Wire(cfg=cfg.bl_wire_cfg, T__K=T__K, dtype=dtype)
-        self.wl_wire = Wire(cfg=cfg.wl_wire_cfg, T__K=T__K, dtype=dtype)
-
         # Per-cell access-transistor parasitic caps for energy accounting.
         access_W__um = cfg.access_nmos_W__um
         self._c_gs__fF: float = cfg.c_gs_per_um__fF * access_W__um
@@ -317,38 +323,31 @@ class CircuitCore1T1R(nn.Module):
         self.nmos.fabricate(w_state_idx.shape)
         self.tia.fabricate((phys_col_num,))
 
-        # Energy-model capacitance scalars.
-        wl_wire_cap__fF = self.wl_wire.c__fF_per_um * (
-            self.cfg.row_first_space__um + (phys_col_num - 1) * self.cfg.row_cell_space__um
-        )
+        # Energy-model capacitance scalars: total wire cap = first + (N-1) * segment.
+        wl_wire_cap__fF = self.cfg.wl_first_c__fF + (phys_col_num - 1) * self.cfg.wl_segment_c__fF
         self.c_wl_per_row__fF = wl_wire_cap__fF + phys_col_num * self._c_gs__fF
-        bl_wire_total__fF = self.bl_wire.c__fF_per_um * (
-            self.cfg.col_first_space__um + (row_num - 1) * self.cfg.col_cell_space__um
-        )
+        bl_wire_total__fF = self.cfg.bl_first_c__fF + (row_num - 1) * self.cfg.bl_segment_c__fF
         self.c_bl_per_node__fF = bl_wire_total__fF / row_num + self.rram.c_top__fF
         self.c_x_per_cell__fF = self._c_db__fF + self.rram.c_bot__fF
         self.c_gd_per_cell__fF = self._c_gd__fF
 
         # Per-line segment resistances. Index 0 is the driver-to-first segment.
         bl_segment_r__MOhm = torch.tensor(
-            [self.cfg.bl_r_driver_to_first__MOhm] + [self.cfg.bl_r_cell_to_cell__MOhm] * (row_num - 1),
+            [self.cfg.bl_first_r__MOhm] + [self.cfg.bl_segment_r__MOhm] * (row_num - 1),
             dtype=self.dtype,
         )
         sl_segment_r__MOhm = torch.tensor(
-            [self.cfg.sl_r_driver_to_first__MOhm] + [self.cfg.sl_r_cell_to_cell__MOhm] * (phys_col_num - 1),
+            [self.cfg.sl_first_r__MOhm] + [self.cfg.sl_segment_r__MOhm] * (phys_col_num - 1),
             dtype=self.dtype,
         )
-        self.bl_wire.fabricate(bl_segment_r__MOhm)
-        self.sl_wire.fabricate(sl_segment_r__MOhm)
-
         # Bind the DC solver.
         self.solver = NewtonRaphsonSolver1T1R(
             rram=self.rram,
             nmos=self.nmos,
             bl_driver=self.tia,
             sl_driver=self.sl_driver,
-            bl_wire=self.bl_wire,
-            sl_wire=self.sl_wire,
+            bl_segment_r__MOhm=bl_segment_r__MOhm,
+            sl_segment_r__MOhm=sl_segment_r__MOhm,
         )
 
         self.fabricated_col_num = phys_col_num

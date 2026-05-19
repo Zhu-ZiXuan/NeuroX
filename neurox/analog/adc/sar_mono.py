@@ -166,16 +166,12 @@ class SarAdcMono(ADC):
             [cfg.c_unit__fF * (2**k) for k in range(n_caps)],
             dtype=dtype,
         )
-        # Nominal templates — built once at ``__init__``, never overwritten.
         self.register_buffer("nominal_cap_weights__fF", nominal_cap_weights__fF, persistent=False)
         self.register_buffer(
             "nominal_comparator_offset__V",
             torch.zeros((), dtype=dtype),
             persistent=False,
         )
-        # Sentinel fabricated buffers — :meth:`fabricate` overwrites.
-        # Initialised to fresh clones of the nominals (no expand) so
-        # ``.to(device)`` migrates cleanly even pre-fabricate.
         self.register_buffer(
             "c_p__fF",
             self.nominal_cap_weights__fF.clone(),

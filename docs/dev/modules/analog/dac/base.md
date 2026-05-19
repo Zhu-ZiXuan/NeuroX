@@ -14,7 +14,7 @@ Every concrete `DAC` impl exposes the same explicit signature:
 __init__(self, *, cfg, name, T__K, dtype)
 ```
 
-All four arguments are required, keyword-only, and may not be `None`. The base `__init__` accepts the same signature so the dispatcher in `from_config` type-checks cleanly, but it only consumes `name` for profiler registration — `cfg` / `T__K` / `dtype` stay on the concrete subclass (see [`architecture/state_holding.md`](../../../architecture/state_holding.md)).
+All four arguments are required, keyword-only, and may not be `None`. The base `__init__` accepts the same signature so the dispatcher in `from_config` type-checks cleanly, but it only consumes `name` for profiler registration — `cfg` / `T__K` / `dtype` stay on the concrete subclass (see [`docs/dev/architecture/state_holding.md`](docs/dev/architecture/state_holding.md)).
 
 ## Required subclass surface
 
@@ -28,5 +28,5 @@ Concrete subclasses must implement:
 
 See also:
 
-- `../../../architecture/config_and_construction.md`
-- `../../common/config_dispatch.md`
+- `docs/dev/architecture/config_and_construction.md`
+- `docs/dev/modules/common/config_dispatch.md`

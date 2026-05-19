@@ -2,7 +2,7 @@
 
 Tilers handle **geometry decomposition** only — they take a matrix and decompose it into the xbar's per-tile `(col_num, row_num)` blocks, with automatic padding when the input dimensions are not multiples of the tile shape.
 
-Value decomposition is the [`slicer`](../slicer/README.md)'s job; tilers do not look at integer values.
+Value decomposition is the [`slicer`](docs/dev/modules/mapper/xbar/slicer/README.md)'s job; tilers do not look at integer values.
 
 ## Generic interface
 
@@ -16,5 +16,5 @@ Future tilers (`StridedTiler`, `BlockSparseTiler`, …) will plug into the same 
 
 See also:
 
-- `../base.md`
-- `../../../architecture/mapping.md`
+- `docs/dev/modules/mapper/xbar/base.md`
+- `docs/dev/architecture/mapping.md`

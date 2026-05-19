@@ -26,10 +26,9 @@ from neurox.common.nonideality import (
     StuckAtFaultConfig,
     TelegraphConfig,
 )
-from neurox.device import NMOS, RRAM, Wire
+from neurox.device import NMOS, RRAM
 from neurox.device.nmos import NMOSConfig
 from neurox.device.rram import RRAMConfig
-from neurox.device.wire import WireConfig
 from neurox.xbar import IdealXbar, Offset1T1RXbar, Offset1T1RXbarConfig
 from neurox.xbar.base import Xbar
 
@@ -133,13 +132,6 @@ def apply_noise_overlay(cfg: dict[str, Any], overlay: list[tuple[str, str, Any]]
 # ---------------------------------------------------------------------- #
 
 
-def _build_wire(raw_section: dict[str, Any] | None) -> Wire | None:
-    """Build a :class:`Wire` from a raw TOML section, or ``None``."""
-    if raw_section is None:
-        return None
-    return Wire(WireConfig(**raw_section))
-
-
 def build_physical_xbar(
     cfg: dict[str, Any],
     raw: dict[str, Any],
@@ -147,26 +139,16 @@ def build_physical_xbar(
     device: torch.device,
     dtype: torch.dtype,
 ) -> Offset1T1RXbar:
-    """Instantiate a :class:`Xbar1T1R` from a (cfg, raw) pair on ``device``.
-
-    ``raw`` is the parsed-but-not-typed TOML dict (used for optional
-    wire sections that aren't part of the strict-spec ``cfg``).
-    """
+    """Instantiate a :class:`Xbar1T1R` from a (cfg, raw) pair on ``device``."""
     rram = RRAM(cfg=cfg["rram"], T__K=300.0, dtype=dtype, g_max__uS=cfg["core"].rram_g_max__uS)
     nmos = NMOS(cfg["nmos"], dtype=dtype)
     tia_nmos = NMOS(cfg["tia_nmos"], dtype=dtype)
     tia = OpAmpTIA(cfg["tia"], nmos=tia_nmos, dtype=dtype)
-    sl_wire = _build_wire(raw.get("sl_wire"))
-    bl_wire = _build_wire(raw.get("bl_wire"))
-    wl_wire = _build_wire(raw.get("wl_wire"))
     return Offset1T1RXbar(
         config=cfg["xbar"],
         rram=rram,
         nmos=nmos,
         tia=tia,
-        sl_wire=sl_wire,
-        bl_wire=bl_wire,
-        wl_wire=wl_wire,
         sl_driver=partial(Driver, cfg["sl_driver"], dtype=dtype),
         wl_dac=partial(GeneralDAC, cfg["wl_dac"], dtype=dtype),
         bl_adc=partial(GeneralADC, cfg["bl_adc"], dtype=dtype),

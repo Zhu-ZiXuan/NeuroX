@@ -27,7 +27,7 @@ __init__(self, *, cfg, name, T__K, dtype, stochastic)
 
 ## Floor semantics
 
-ADC boundaries are placed at code edges `B_c = c · LSB`. Stochastic rounding adds `uniform(0, LSB)` jitter before the floor and is unbiased. This matches the `floor_bucketize` kernel in [`common/quant.md`](../../common/quant.md).
+ADC boundaries are placed at code edges `B_c = c · LSB`. Stochastic rounding adds `uniform(0, LSB)` jitter before the floor and is unbiased. This matches the `floor_bucketize` kernel in [`docs/dev/modules/common/quant.md`](docs/dev/modules/common/quant.md).
 
 ## What ADC does not own
 
@@ -38,5 +38,5 @@ ADC boundaries are placed at code edges `B_c = c · LSB`. Stochastic rounding ad
 See also:
 
 - `general.md`, `mcs_sar.md`, `sar_mono.md`
-- `../tia/README.md`
-- `../../common/config_dispatch.md`
+- `docs/dev/modules/analog/tia/README.md`
+- `docs/dev/modules/common/config_dispatch.md`

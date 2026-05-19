@@ -18,6 +18,6 @@ Model rewriting is a workflow concern, not a per-layer concern. Keeping it under
 
 See also:
 
-- `../macro/README.md`
-- `../operator/README.md`
-- `../../roadmap.md`
+- `docs/dev/modules/macro/README.md`
+- `docs/dev/modules/operator/README.md`
+- `docs/dev/roadmap.md`

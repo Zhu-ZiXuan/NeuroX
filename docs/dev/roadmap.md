@@ -40,9 +40,8 @@ NeuroX is a general CiM simulation and benchmarking platform. This document trac
 
 ### Interconnect
 
-- [x] Wire model with per-segment resistance (supplied at fabricate time) and per-unit-length lumped capacitance
+- [x] Per-line segment R / C carried as core-config scalars (BL/SL/WL, first-segment + cell-to-cell)
 - [ ] Distributed RC wire model with on-cell parasitic capacitance
-- [ ] Geometry-driven segment-resistance derivation (currently a caller responsibility)
 
 ## Crossbar Cells and Arrays (`neurox/xbar/`)
 

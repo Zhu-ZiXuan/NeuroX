@@ -69,17 +69,29 @@ wl_pulse_length__ns = 3.0
 # --- SL topology ---
 sl_topology = "row_shared"
 
-# --- Wire geometry ---
-row_cell_space__um = 0.040
+# --- Layout pitch ---
 row_first_space__um = 1.000
-col_cell_space__um = 0.040
+row_cell_space__um = 0.040
 col_first_space__um = 1.000
+col_cell_space__um = 0.040
 
-# --- Wire resistance ---
-bl_r_driver_to_first__MOhm = 5e-6
-bl_r_cell_to_cell__MOhm = 2e-7
-sl_r_driver_to_first__MOhm = 5e-6
-sl_r_cell_to_cell__MOhm = 2e-7
+# --- BL wire segments ---
+bl_first_r__MOhm = 5e-6
+bl_first_c__fF = 0.200
+bl_segment_r__MOhm = 2e-7
+bl_segment_c__fF = 0.008
+
+# --- SL wire segments ---
+sl_first_r__MOhm = 5e-6
+sl_first_c__fF = 0.200
+sl_segment_r__MOhm = 2e-7
+sl_segment_c__fF = 0.008
+
+# --- WL wire segments ---
+wl_first_r__MOhm = 5e-6
+wl_first_c__fF = 0.200
+wl_segment_r__MOhm = 2e-7
+wl_segment_c__fF = 0.008
 
 # --- Access-NMOS sizing ---
 access_nmos_W__um = 0.150
@@ -191,16 +203,6 @@ energy_per_op__fJ = 0.0
 latency_per_op__ns = 0.0
 leakage_per_inst__uW = 0.0
 area_per_inst__um2 = 0.0
-
-
-[xbar.core_cfg.bl_wire_cfg]
-_neurox_use = "process/wire:wire_28_metal"
-
-[xbar.core_cfg.sl_wire_cfg]
-_neurox_use = "process/wire:wire_28_metal"
-
-[xbar.core_cfg.wl_wire_cfg]
-_neurox_use = "process/wire:wire_28_metal"
 
 
 [xbar.readout_cfg]

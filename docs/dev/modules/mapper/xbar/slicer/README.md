@@ -2,7 +2,7 @@
 
 Slicers handle **value decomposition** only — they take a high-precision integer-valued tensor and produce a digit tensor with trailing shape `[..., slice_num, digit_num]`.
 
-Geometry decomposition is the [`tiler`](../tiler/README.md)'s job; slicers are encoding-agnostic about tile shape.
+Geometry decomposition is the [`tiler`](docs/dev/modules/mapper/xbar/tiler/README.md)'s job; slicers are encoding-agnostic about tile shape.
 
 ## Generic interface
 
@@ -40,6 +40,6 @@ Output:
 
 See also:
 
-- `../base.md`
-- `../../transcoder.md`
-- `../../../architecture/mapping.md`
+- `docs/dev/modules/mapper/xbar/base.md`
+- `docs/dev/modules/mapper/transcoder.md`
+- `docs/dev/architecture/mapping.md`

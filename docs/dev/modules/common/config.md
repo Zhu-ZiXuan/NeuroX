@@ -29,6 +29,6 @@ Builders are useful when individual fields are filled in at different points in 
 
 See also:
 
-- `../../architecture/config_and_construction.md`
+- `docs/dev/architecture/config_and_construction.md`
 - `config_dispatch.md`
 - `load_dump.md`

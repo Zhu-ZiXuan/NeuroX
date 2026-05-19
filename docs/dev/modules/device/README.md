@@ -16,11 +16,10 @@ Current files:
 
 - [`nmos.md`](nmos.md) — NMOS transistor primitive (pure electrical).
 - [`rram.md`](rram.md) — resistive memory cell with sinh I-V and the full noise stack.
-- [`wire.md`](wire.md) — interconnect with fabricate-time segment resistance.
 - [`selector.md`](selector.md) — OTS-style threshold selector.
 
 See also:
 
-- `../../architecture/config_and_construction.md`
-- `../../architecture/state_holding.md`
-- `../../adr/ADR-0002-nmos-is-a-pure-electrical-primitive.md`
+- `docs/dev/architecture/config_and_construction.md`
+- `docs/dev/architecture/state_holding.md`
+- `docs/dev/adr/ADR-0002-nmos-is-a-pure-electrical-primitive.md`

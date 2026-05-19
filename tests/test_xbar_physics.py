@@ -38,7 +38,7 @@ from neurox.analog.adc import GeneralADC, GeneralADCConfig
 from neurox.analog.readout import OffsetSwitchCapMuxAdcReadOut, ReadOutConfig
 from neurox.common import T_ROOM__K, dict_configs_from_file, dict_from_file, thermal_voltage__V
 from neurox.config import DEFAULT_1T1R_TOML
-from neurox.device import NMOS, RRAM, NMOSConfig, RRAMConfig, Wire, WireConfig
+from neurox.device import NMOS, RRAM, NMOSConfig, RRAMConfig
 from neurox.digital import Subtractor, SubtractorConfig
 from neurox.xbar import (
     CircuitCore1T1R,
@@ -54,9 +54,6 @@ _SPECS = {
     "nmos": NMOSConfig,
     "tia": OpAmpTIAConfig,
     "tia_nmos": NMOSConfig,
-    "bl_wire": WireConfig,
-    "sl_wire": WireConfig,
-    "wl_wire": WireConfig,
     "sl_driver": DriverConfig,
     "wl_decoder": DecoderConfig,
     "wl_dac": GeneralDACConfig,
@@ -105,18 +102,12 @@ def _build_xbar() -> Offset1T1RXbar:
     nmos_factory = partial(NMOS, cfg["nmos"], T__K=T_ROOM__K, dtype=torch.float64)
     tia_nmos_factory = partial(NMOS, cfg["tia_nmos"], T__K=T_ROOM__K, dtype=torch.float64)
     tia_factory = partial(OpAmpTIA, cfg["tia"], nmos_factory=tia_nmos_factory, dtype=torch.float64)
-    sl_wire_factory = partial(Wire, cfg["sl_wire"], dtype=torch.float64)
-    bl_wire_factory = partial(Wire, cfg["bl_wire"], dtype=torch.float64)
-    wl_wire_factory = partial(Wire, cfg["wl_wire"], dtype=torch.float64)
     core_factory = partial(
         CircuitCore1T1R,
         cfg["core"],
         rram_factory=rram_factory,
         nmos_factory=nmos_factory,
         tia_factory=tia_factory,
-        sl_wire_factory=sl_wire_factory,
-        bl_wire_factory=bl_wire_factory,
-        wl_wire_factory=wl_wire_factory,
         sl_driver_factory=partial(Driver, cfg["sl_driver"], dtype=torch.float64),
         wl_decoder_factory=partial(Decoder, cfg["wl_decoder"]),
         wl_dac_factory=partial(GeneralDAC, cfg["wl_dac"], dtype=torch.float64),

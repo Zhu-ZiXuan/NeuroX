@@ -24,7 +24,7 @@ It owns:
 
 ## Solver-facing contract
 
-`OpAmpTIA` satisfies the [`ClampDriver`](../clamp_driver.md) protocol:
+`OpAmpTIA` satisfies the [`ClampDriver`](docs/dev/modules/analog/clamp_driver.md) protocol:
 
 - it consumes a boundary current and a per-call snapshot;
 - it returns the clamp voltage and the local small-signal sensitivity;

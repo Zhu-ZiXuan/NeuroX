@@ -21,4 +21,4 @@ Static PPA (area, leakage power, leakage energy, latency) is reported through th
 
 See also:
 
-- `../../roadmap.md` (CSV / JSON export and benchmark suite plans)
+- `docs/dev/roadmap.md` (CSV / JSON export and benchmark suite plans)

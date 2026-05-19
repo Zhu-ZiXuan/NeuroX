@@ -11,10 +11,16 @@
 Every concrete readout impl exposes:
 
 ```
-__init__(self, *, cfg, name, T__K, dtype, stochastic)
+__init__(self, *, cfg, name, T__K, dtype, stochastic, data_num, digit_weights)
 ```
 
-`stochastic` is the family-specific extra forwarded straight through to the readout's internal ADC. The base accepts and discards `cfg / T__K / dtype / stochastic` for the dispatcher; the concrete subclass stores them.
+- `cfg / name / T__K / dtype / stochastic` — standard leaf-init bundle.
+- `data_num: int` — number of data per reference group; fixes the data-leg SwitchCap's bank-axis size.
+- `digit_weights: tuple[float, ...]` — per-digit positional weights (length `digit_num`); drives the data-leg SwitchCap's `cap_weights`.
+
+`data_num` and `digit_weights` are structural facts of the consuming xbar / macro and are committed at construction. `digit_weights` is a Python tuple — tensor construction happens inside the leaf SwitchCap.
+
+`ReadOut.from_config(...)` forwards these two arguments through to the registered impl.
 
 ## Leaf-module-only electrical math
 
@@ -31,12 +37,12 @@ The readout chain operates on a grouped lattice keyed by reference-group structu
 - `*prefix` — physical-instance prefix.
 - `*runtime` — runtime tensor prefix (broadcast of `*prefix` with any leading activation batch dims).
 - `group_num` — number of reference groups.
-- `data_num` — number of data per group.
-- `digit_num` — number of digits per data.
+- `data_num` — number of data per group (init-time constant).
+- `digit_num` — number of digits per data (init-time constant; equals `len(digit_weights)`).
 
-`fabricate(shape, *, data_num, digit_weights)` takes the readout container's own virtual-instance shape `(*prefix, group_num)` plus the two independent inputs sizing the data-side bank — the integer `data_num` and the 1-D `digit_weights` template (length `digit_num`).
+`fabricate(shape)` takes only the readout container's own virtual-instance shape `(*prefix, group_num)`; no per-call sizing arguments — both `data_num` and `digit_weights` are already bound at `__init__`.
 
-`readout(v_data_grouped, v_ref_grouped, *, adc_mode, adc_bits)` is the per-VMM kernel; it returns a `ReadOutOutput` with the per-data ADC code plus the post-mux differential voltages.
+`readout(v_data_grouped, v_ref_grouped, *, adc_mode, adc_bits)` is the per-VMM kernel; it returns the per-data ADC code.
 
 ## `readout(...)` vs `forward(...)`
 
@@ -45,4 +51,4 @@ The readout is a non-trainable analog chain and never participates in autograd. 
 See also:
 
 - `offset_switchcap_mux_adc.md`
-- `../../common/config_dispatch.md`
+- `docs/dev/modules/common/config_dispatch.md`

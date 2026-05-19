@@ -29,10 +29,10 @@ No family-specific runtime extras.
 
 ## ClampDriver protocol
 
-A TIA is one concrete implementer of the [`ClampDriver`](../clamp_driver.md) protocol. Solvers consume the clamp boundary structurally through that protocol — they do not import `TIA` directly.
+A TIA is one concrete implementer of the [`ClampDriver`](docs/dev/modules/analog/clamp_driver.md) protocol. Solvers consume the clamp boundary structurally through that protocol — they do not import `TIA` directly.
 
 See also:
 
 - `opamp_tia.md`
-- `../clamp_driver.md`
-- `../../common/config_dispatch.md`
+- `docs/dev/modules/analog/clamp_driver.md`
+- `docs/dev/modules/common/config_dispatch.md`

@@ -11,5 +11,5 @@ Current structure:
 
 See also:
 
-- `../../../architecture/mapping.md`
-- `../../../adr/ADR-0001-config-dispatch-and-owned-construction.md`
+- `docs/dev/architecture/mapping.md`
+- `docs/dev/adr/ADR-0001-config-dispatch-and-owned-construction.md`

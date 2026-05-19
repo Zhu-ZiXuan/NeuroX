@@ -78,7 +78,6 @@ class Offset1T1RXbar(Xbar):
 
     logic_phys_idx: Tensor
     ref_phys_idx: Tensor
-    digit_weights: Tensor
 
     def __init__(
         self,
@@ -96,7 +95,9 @@ class Offset1T1RXbar(Xbar):
         self.T__K = T__K
         self.stochastic: bool | None = stochastic
 
-        # Build the two owned children from the embedded member configs.
+        # Positional weights: ``[r^0, r^1, ..., r^(D-1)]``.
+        self.digit_weights: tuple[float, ...] = tuple(float(cfg.w_digit_radix**k) for k in range(cfg.w_digit_count))
+
         core_name = f"{name}.core"
         readout_name = f"{name}.readout"
         self.core: CircuitCore1T1R = CircuitCore1T1R(
@@ -111,13 +112,10 @@ class Offset1T1RXbar(Xbar):
             T__K=T__K,
             dtype=dtype,
             stochastic=stochastic,
+            data_num=cfg.ref_group_size,
+            digit_weights=self.digit_weights,
         )
 
-        # --- Reference-column index tables ---
-        # Layout per group of ``ref_group_size`` data:
-        #   [d_0.0 ... d_0.{D-1}, d_1.0 ... d_1.{D-1}, ...]
-        # with one ref column at the data-index position
-        # ``ref_location`` of each group.
         n_groups = cfg.col_num // cfg.ref_group_size
         total_logic_cols = cfg.col_num * cfg.w_digit_count
         self.n_ref_cols: int = n_groups
@@ -130,16 +128,6 @@ class Offset1T1RXbar(Xbar):
         )
         self.register_buffer("logic_phys_idx", logic_phys, persistent=False)
         self.register_buffer("ref_phys_idx", ref_phys, persistent=False)
-
-        # Per-digit weight vector ``[radix^0, radix^1, ..., radix^(D-1)]``
-        # of the offset code.  Registered as a non-persistent buffer at
-        # init so ``module.to(device)`` migrates it with the rest of
-        # the xbar.
-        digit_weights = torch.tensor(
-            [cfg.w_digit_radix**k for k in range(cfg.w_digit_count)],
-            dtype=torch.int32,
-        )
-        self.register_buffer("digit_weights", digit_weights, persistent=False)
 
     # -----------------------------------------------------------------
     # Value-domain semantics
@@ -210,12 +198,7 @@ class Offset1T1RXbar(Xbar):
 
         prefix = tuple(w_state_idx.shape[:-2])
         group_num = self.n_ref_cols
-        data_num = self.cfg.ref_group_size
-        self.readout.fabricate(
-            (*prefix, group_num),
-            data_num=data_num,
-            digit_weights=self.digit_weights,
-        )
+        self.readout.fabricate((*prefix, group_num))
 
     def vec_mat_mul(self, x: Tensor) -> Tensor:
         """Run one VMM through the core → readout chain.

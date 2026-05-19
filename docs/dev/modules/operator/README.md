@@ -25,10 +25,10 @@ It does **not** own analog physics, mapping, or aggregation logic — those belo
 ## Training vs. inference
 
 - Inference: `QuantLinear` / `QuantConv2d` consume integer weights / activations and call into the macro for the per-cycle VMM.
-- Training: `HATLinear` / `HATConv2d` add fake-quant kernels, EMA-based activation range tracking, and the STE gradient path so the macro backend can be exercised under autograd. See [`train/README.md`](train/README.md).
+- Training: `HATLinear` / `HATConv2d` add fake-quant kernels, EMA-based activation range tracking, and the STE gradient path so the macro backend can be exercised under autograd. See [`docs/dev/modules/operator/train/README.md`](docs/dev/modules/operator/train/README.md).
 
 See also:
 
-- `../macro/README.md`
-- `../replace/README.md`
-- `train/README.md`
+- `docs/dev/modules/macro/README.md`
+- `docs/dev/modules/replace/README.md`
+- `docs/dev/modules/operator/train/README.md`

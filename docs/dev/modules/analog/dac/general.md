@@ -9,14 +9,14 @@
 `GeneralDACConfig(DACConfig)` carries:
 
 - `code_to_signal: list[float]` — LUT entry per integer code.
-- `drive_thermal: float | None` — Gaussian noise sigma (`None` disables).
+- `drive_thermal__V: float` + `enable_drive_thermal: bool` — additive Gaussian noise sigma on the output and its toggle.
 - `energy_per_op__fJ`, `latency_per_op__ns`, `leakage_per_inst__uW`, `area_per_inst__um2` — PPA / spec.
 
 ## Lifecycle
 
-- `__init__` registers the LUT as a non-persistent buffer (`code_to_signal`) and forwards `name` to the family base for profiler registration. `T__K` is stored but unused — kept for the uniform analog construction signature.
-- `convert(code)` — index `code_to_signal`, apply `drive_thermal` if set, emit per-call dynamic energy through the profiler side channel.
-- `fabricate(shape)` — inherited no-op; the LUT has no shape-derived state.
+- `__init__` builds the `code_to_signal` LUT buffer and forwards `name` to the family base.
+- `convert(code)` — index `code_to_signal`, apply `drive_thermal__V` gated by `enable_drive_thermal`, emit per-call dynamic energy through the profiler side channel.
+- `fabricate(shape)` — no shape-derived state; the body only records the instance count.
 
 The DAC's per-element energy is fully captured by `energy_per_op__fJ`. Set it to `0` whenever the same switching energy is accounted at another stage to avoid double-counting.
 

@@ -20,5 +20,5 @@ They are reproducible **offline** flows: a developer runs them once when tuning 
 
 See also:
 
-- `../analog/adc/README.md`
-- `../xbar/_1t1r/circuit_core.md`
+- `docs/dev/modules/analog/adc/README.md`
+- `docs/dev/modules/xbar/_1t1r/circuit_core.md`

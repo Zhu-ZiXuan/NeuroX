@@ -68,4 +68,4 @@ See also:
 
 - `config.md`
 - `config_dispatch.md`
-- `../../architecture/config_and_construction.md`
+- `docs/dev/architecture/config_and_construction.md`

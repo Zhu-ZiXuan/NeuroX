@@ -8,8 +8,8 @@
 
 `SelectorConfig` carries:
 
-- `vth_nominal__V` — nominal threshold voltage
-- `vth_mismatch` — additive Gaussian mismatch sigma on `vth` (`None` disables mismatch)
+- `vth_nominal__V` — nominal threshold voltage [V].
+- `vth_mismatch__V` + `enable_vth_mismatch` — additive Gaussian mismatch sigma on `vth__V` and its toggle.
 
 Device-level only. Array shape is **not** a config field — it is supplied as an explicit `__init__` argument because shape is a property of the deployment instance, not the device itself.
 
@@ -34,5 +34,5 @@ This split mirrors a real chip: training sees the full mismatch distribution; in
 
 See also:
 
-- `../../architecture/config_and_construction.md`
-- `../../architecture/state_holding.md`
+- `docs/dev/architecture/config_and_construction.md`
+- `docs/dev/architecture/state_holding.md`

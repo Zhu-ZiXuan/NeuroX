@@ -26,5 +26,5 @@ These constraints are documented inside the helpers themselves; respecting them 
 
 See also:
 
-- `_1t1r/newton_raphson_solver.md`
-- `../analog/clamp_driver.md`
+- `docs/dev/modules/xbar/_1t1r/newton_raphson_solver.md`
+- `docs/dev/modules/analog/clamp_driver.md`

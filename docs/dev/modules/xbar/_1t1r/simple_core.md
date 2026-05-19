@@ -12,4 +12,4 @@ See also:
 
 - `circuit_core.md` — the full physical core
 - `newton_raphson_solver.md`
-- `../ideal.md` — the tile-level lossless reference; conceptually adjacent but a fully different abstraction layer
+- `docs/dev/modules/xbar/ideal.md` — the tile-level lossless reference; conceptually adjacent but a fully different abstraction layer

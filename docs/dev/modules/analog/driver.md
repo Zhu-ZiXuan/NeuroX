@@ -27,4 +27,4 @@ The clamp-driver protocol is intentionally separate from the TIA family. Both ar
 See also:
 
 - `clamp_driver.md`
-- `../../architecture/config_and_construction.md`
+- `docs/dev/architecture/config_and_construction.md`

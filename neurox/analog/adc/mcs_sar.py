@@ -141,11 +141,6 @@ class McsSarAdc(ADC):
             sampling-noise model. Must be ``> 0``.
     """
 
-    # ``nominal_c__fF``: LSB-first cap template
-    #   ``[C_unit, C_unit, 2·C_unit, ..., 2^(max_bits-2)·C_unit]`` (length ``max_bits``).
-    # Index 0 is the dummy unit cap; index ``i ≥ 1`` is weight ``2^(i-1) · C_unit``.
-    # ``c_p__fF`` / ``c_n__fF`` are the per-leg fabricated arrays; ``comparator_offset__V``
-    # is the fabricated static threshold offset.
     nominal_c__fF: Tensor
     nominal_comparator_offset__V: Tensor
     c_p__fF: Tensor
@@ -170,20 +165,8 @@ class McsSarAdc(ADC):
         self.dtype = dtype
         self.stochastic: bool | None = stochastic
 
-        # Per-cycle comparator thermal-noise sigma, temperature-scaled
-        # once at init (σ ∝ sqrt(T) for thermal noise; the config sigma
-        # is anchored at 300 K).
         self.comparator_noise_sigma__V: float = cfg.comparator_thermal_noise_sigma__V * math.sqrt(T__K / 300.0)
 
-        # Cap array length = 1 dummy + (max_bits - 1) binary-weighted
-        # caps; the MSB cap (weight 2^(max_bits-1)) is intentionally
-        # absent.  Layout (LSB-first, index 0 = dummy):
-        #     [C_unit, C_unit, 2·C_unit, 4·C_unit, ..., 2^(max_bits-2)·C_unit]
-        # The dummy and the binary-weighted caps live in the same
-        # tensor so ``c_total = c_p__fF.sum(dim=-1)`` is the full
-        # physical array capacitance (= ``2^(max_bits-1) · C_unit``).
-        # Convert-time access into the binary-weighted sub-ladder
-        # skips index 0 (the dummy).
         self.n_caps = cfg.max_bits
 
         c_unit = cfg.c_unit__fF
@@ -198,10 +181,6 @@ class McsSarAdc(ADC):
             persistent=False,
         )
 
-        # Sentinel fabricated buffers — :meth:`fabricate` overwrites
-        # them with shape-dependent tensors.  Initialised to fresh
-        # clones of the nominals (no expand) so ``.to(device)``
-        # migrates cleanly even pre-fabricate.
         self.register_buffer(
             "c_p__fF",
             self.nominal_c__fF.clone(),

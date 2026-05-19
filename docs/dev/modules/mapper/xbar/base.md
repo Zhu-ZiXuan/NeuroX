@@ -12,7 +12,7 @@ Each mapper instance is bound to one xbar tile geometry; one mapper per logical 
 
 ## Why a single mapper owns both slicers
 
-One mapper owns the entire mapping policy — tiler + both slicers — because all three share the tile-geometry and value-range invariants and must stay consistent across calls. See [`architecture/mapping.md`](../../../architecture/mapping.md).
+One mapper owns the entire mapping policy — tiler + both slicers — because all three share the tile-geometry and value-range invariants and must stay consistent across calls. See [`docs/dev/architecture/mapping.md`](docs/dev/architecture/mapping.md).
 
 ## Mapper surface
 
@@ -29,11 +29,11 @@ The contract is intentionally narrow; the slicer / tiler / transcoder abstractio
 - mapper / transcoder use `value_range`;
 - xbar uses `digit_range`.
 
-This keeps complete-value range separate from primitive-digit capability — see [`architecture/mapping.md`](../../../architecture/mapping.md).
+This keeps complete-value range separate from primitive-digit capability — see [`docs/dev/architecture/mapping.md`](docs/dev/architecture/mapping.md).
 
 See also:
 
 - `simple_mapper.md`
-- `slicer/README.md`
-- `tiler/README.md`
-- `../../../adr/ADR-0001-config-dispatch-and-owned-construction.md`
+- `docs/dev/modules/mapper/xbar/slicer/README.md`
+- `docs/dev/modules/mapper/xbar/tiler/README.md`
+- `docs/dev/adr/ADR-0001-config-dispatch-and-owned-construction.md`

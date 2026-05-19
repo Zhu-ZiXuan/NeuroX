@@ -30,7 +30,7 @@ Three lifecycle stages exist for a module's physical state ([`state_holding.md`]
 | Actual value (post-fabrication, with static mismatch) | `<name>__<unit>` (no prefix) | `fabricate(...)` / `program(...)` |
 | Snapshot value (with dynamic noise) | Fields of the `*Snapshot` dataclass returned by `snapshot(*, shape=...)` | `snapshot(...)`; never registered as a buffer |
 
-**SwitchCap exception**: `c_unit__fF` is the unit capacitance value (a PDK constant), not a design-stage nominal. It does not take the `nominal_` prefix. Modules whose shape and topology are themselves runtime fabrication arguments may legitimately have no stable nominal buffer.
+PDK-constant scalars surfaced as buffers (e.g. SwitchCap's `cfg.c_unit__fF` accessed directly through `cfg`) do not need a `nominal_` prefix — the nominal-vs-actual distinction applies to fabricated arrays, not to a single PDK datum that never gets perturbed.
 
 ## Primary-method names
 
@@ -38,7 +38,7 @@ Each circuit / device class exposes one primary method whose name encodes the ph
 
 | Method | Semantics |
 |---|---|
-| `fabricate(shape, **extras) -> None` | Sample static per-instance state over the given instance shape. Re-callable. Must end with `self._record_inst_count(shape)` for circuit modules (see [`profiler_and_ppa.md`](profiler_and_ppa.md)). |
+| `fabricate(shape) -> None` | Sample static per-instance state over the given instance shape. Re-callable. Must end with `self._record_inst_count(shape)` for circuit modules (see [`profiler_and_ppa.md`](profiler_and_ppa.md)). Structural facts threaded through `__init__` instead — `fabricate` is shape-only. |
 | `program(...) -> None` | RRAM-specific weight programming step that takes the integer weight tensor and produces the actual conductance buffer. |
 | `snapshot(*, shape) -> <Name>Snapshot` | Sample a per-call runtime snapshot. Frozen return. |
 | `solve_dc(...) -> <Name>DCOP` | Solve the DC operating point of a circuit or array. Naming is uniform across leaf devices, leaf circuits, composite circuits, and solver classes. |

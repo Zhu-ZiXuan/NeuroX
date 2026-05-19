@@ -7,7 +7,7 @@ The on-disk layout below `modules/` is intended to be **one-to-one** with `neuro
 Current documented areas:
 
 - `common/` — config base + dispatch mixin + load/dump + noise + constants
-- `device/` — NMOS, RRAM, Wire, Selector
+- `device/` — NMOS, RRAM, Selector
 - `analog/` — clamp-driver protocol, AnalogMux, Decoder, Driver, SwitchCap, and the `dac/`, `adc/`, `tia/`, `readout/` polymorphic families
 - `digital/` — accumulator, adders, requantizer
 - `xbar/` — abstract `Xbar`, ideal twin, shared solver primitives, and the `_1t1r/` subtree (`circuit_core`, `newton_raphson_solver`, `offset`, `differential` / `simple_core` placeholders)

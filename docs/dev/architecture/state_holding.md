@@ -21,7 +21,7 @@ The ideal value before any manufacturing variation. Set once and never overwritt
 
 The nominal value plus static manufacturing variation (Pelgrom mismatch, write-noise, retention drift baked into the programmed state, etc.). This is the "true" value present in the silicon for the lifetime of the fabricated module.
 
-**Write moment**: `fabricate(shape, **extras)` for circuits / sized devices; `program(...)` for RRAM-style write paths.
+**Write moment**: `fabricate(shape)` for circuits / sized devices; `program(...)` for RRAM-style write paths.
 
 The actual value is sampled from the nominal value plus the configured static noise distribution. It is registered as a non-persistent buffer so it survives `.to(device)`. It is re-sampled cleanly on every `fabricate(...)` call (see [`fabrication_lifecycle.md`](fabrication_lifecycle.md)).
 
@@ -46,7 +46,6 @@ Examples:
 - `RRAM` owns programmed conductance tensors.
 - `NMOS` owns fabricated `beta__uA_per_V2` / `vth__V`.
 - `OpAmpTIA` owns its fabricated op-amp gain buffer.
-- `Wire` owns fabricated per-segment state.
 
 A parent obtains child state through the child object, not through a duplicate buffer on itself.
 

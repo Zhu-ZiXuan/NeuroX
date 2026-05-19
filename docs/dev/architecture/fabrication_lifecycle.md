@@ -31,19 +31,22 @@ When a module needs shape or weight-programmed state, it should not guess that s
 Every leaf circuit (analog / digital / device) exposes the same canonical `fabricate` signature:
 
 ```python
-def fabricate(self, shape: tuple[int, ...], **extras) -> None: ...
+def fabricate(self, shape: tuple[int, ...]) -> None: ...
 ```
 
 - `shape` is the per-instance fabrication shape — always positional, always present, even when the body is a no-op.
-- Family-specific extras (`cap_ratio`, `data_num`, `digit_weights`, …) are keyword-only arguments appended after `shape`.
+- `fabricate` takes no other arguments. Structural facts (cap widths, per-bank cap counts, per-digit positional weights, …) are bound in `__init__` so the per-instance state sampling stays shape-only.
+- Structural facts threaded through `__init__` must arrive as plain Python types (`int`, `tuple[float, ...]`, …); tensor construction happens once inside the leaf's own `__init__`.
 - A leaf without per-instance state still accepts `shape` and ignores it; this keeps every caller (`xbar`, `readout`, future family-level orchestrators) calling the same lifecycle method.
+
+Tile-level wrappers (`xbar`, `macro`) instead take a programmed weight (`fabricate(w)`) — they fan a single user-facing payload out across the leaf chain. The same shape-only rule applies to every leaf they call into.
 
 ## Re-callability and nominal templates
 
 Every `fabricate(...)` call must be idempotent on its inputs:
 
 - the leaf caches its nominal templates at construction (`nominal_*` buffers / scalars);
-- `fabricate(...)` rebuilds the fabricated buffers from those nominals via `clone().expand(shape)` so a later overwrite cannot leak back through to the nominal;
-- when an associated mismatch / noise sigma is `None`, the fabricated buffer is left as a 1-element view of the nominal (no full-shape memory).
+- `fabricate(...)` rebuilds the fabricated buffers from those nominals via `clone().expand(shape)`;
+- mismatch / noise sources are gated by `cfg.enable_<source>` toggles consumed by the `apply_*` helpers (see [`noise_and_toggles.md`](noise_and_toggles.md)); disabling a source is a toggle change, never a `None`-substitution of a nominal value.
 
 Re-calling `fabricate(...)` after a previous call therefore always restarts from the unchanged nominals — there is no path through which fabricated state accumulates across calls.

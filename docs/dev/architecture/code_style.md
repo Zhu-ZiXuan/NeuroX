@@ -63,10 +63,10 @@ Docstrings should not explain higher-level workflows or global architecture.
 
 #### Lifecycle prose
 
-Method docstrings must not describe lifecycle policy, restart semantics, caching strategy, or state-holding strategy. Those belong in `architecture/fabrication_lifecycle.md` and `architecture/state_holding.md`. The single exception is the `(re-callable)` keyword tag at the end of a `fabricate(...)` summary line, which is allowed and recommended as the minimum interface signal:
+Method docstrings must not describe lifecycle policy, restart semantics, caching strategy, or state-holding strategy. Those belong in `fabrication_lifecycle.md` and `state_holding.md`. The single exception is the `(re-callable)` keyword tag at the end of a `fabricate(...)` summary line, which is allowed and recommended as the minimum interface signal:
 
 ```python
-def fabricate(self, shape, **extras) -> None:
+def fabricate(self, shape: tuple[int, ...]) -> None:
     """Sample static per-instance state over ``shape`` (re-callable).
 
     Args:
@@ -74,7 +74,7 @@ def fabricate(self, shape, **extras) -> None:
     """
 ```
 
-The full re-callability semantics live in `architecture/fabrication_lifecycle.md`; the keyword in the docstring is a pointer, not a restatement.
+The full re-callability semantics live in `fabrication_lifecycle.md`; the keyword in the docstring is a pointer, not a restatement.
 
 ## Inline comments
 
@@ -217,7 +217,7 @@ The "who uses who" graph is therefore asserted exactly once, from the parent sid
 ### Edge cases
 
 - **Abstract base / Protocol docs** are not violations when they describe the contract any future consumer must respect — they intentionally name no specific consumer.
-- **Intra-family references** are allowed: `dac/general.md` may say it is a concrete `DAC` family impl registered via `DAC.from_config`. That is same-layer reference, not upward.
+- **Intra-family references** are allowed: `docs/dev/modules/analog/dac/general.md` may say it is a concrete `DAC` family impl registered via `DAC.from_config`. That is same-layer reference, not upward.
 - **`architecture/` and `adr/`** intentionally take a global view and may cross layers freely. The rule applies to `modules/` and to in-code docstrings / comments only.
 - **Examples in lower-module docs** should use generic placeholder names (`SomeCircuit`, `parent`) rather than naming a specific upper module.
 

@@ -5,9 +5,9 @@ This directory documents the mapper layer — the orchestrator that turns a high
 ## Files
 
 - [`transcoder.md`](transcoder.md) — pure-algorithm signed-digit encoding policy (`true_form` / `complement` / `canonical`).
-- [`xbar/`](xbar/README.md) — the `XbarMapper` family plus the `slicer/` and `tiler/` sub-stacks.
+- [`xbar/`](docs/dev/modules/mapper/xbar/README.md) — the `XbarMapper` family plus the `slicer/` and `tiler/` sub-stacks.
 
 See also:
 
-- `../../architecture/mapping.md`
-- `../xbar/README.md`
+- `docs/dev/architecture/mapping.md`
+- `docs/dev/modules/xbar/README.md`

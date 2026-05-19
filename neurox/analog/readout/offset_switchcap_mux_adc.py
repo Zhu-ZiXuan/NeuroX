@@ -47,13 +47,29 @@ class OffsetSwitchCapMuxAdcReadOut(ReadOut):
         T__K: float,
         dtype: torch.dtype,
         stochastic: bool | None,
+        data_num: int,
+        digit_weights: tuple[float, ...],
     ) -> None:
-        super().__init__(cfg=cfg, name=name, T__K=T__K, dtype=dtype, stochastic=stochastic)
+        super().__init__(
+            cfg=cfg,
+            name=name,
+            T__K=T__K,
+            dtype=dtype,
+            stochastic=stochastic,
+            data_num=data_num,
+            digit_weights=digit_weights,
+        )
+        if data_num <= 0:
+            raise ValueError(f"require: data_num ({data_num}) > 0")
+        if len(digit_weights) < 1:
+            raise ValueError(f"require: len(digit_weights) ({len(digit_weights)}) >= 1")
 
         self.cfg = cfg
         self.T__K = T__K
         self.dtype = dtype
         self.stochastic: bool | None = stochastic
+        self.data_num: int = data_num
+        self.digit_weights: tuple[float, ...] = digit_weights
 
         prefix = name + "."
         self.data_switchcap = SwitchCap(
@@ -61,12 +77,14 @@ class OffsetSwitchCapMuxAdcReadOut(ReadOut):
             name=f"{prefix}data_switchcap",
             T__K=T__K,
             dtype=dtype,
+            cap_weights=digit_weights,
         )
         self.ref_switchcap = SwitchCap(
             cfg=cfg.ref_switchcap_cfg,
             name=f"{prefix}ref_switchcap",
             T__K=T__K,
             dtype=dtype,
+            cap_weights=(1.0,),
         )
         self.analog_mux = AnalogMux(
             cfg=cfg.analog_mux_cfg,
@@ -106,45 +124,23 @@ class OffsetSwitchCapMuxAdcReadOut(ReadOut):
             + self.bl_adc.latency_per_op__ns(bits=adc_bits)
         )
 
-    def fabricate(
-        self,
-        shape: tuple[int, ...],
-        *,
-        data_num: int,
-        digit_weights: Tensor,
-    ) -> None:
+    def fabricate(self, shape: tuple[int, ...]) -> None:
         """Sample static per-instance state over ``shape`` (re-callable).
 
         Args:
             shape: Per-instance fabrication shape
                 ``(*prefix, group_num)``.
-            data_num: Number of data per reference group.
-            digit_weights: 1-D per-digit weight vector, shape
-                ``[digit_num]``.
         """
-        if data_num <= 0:
-            raise ValueError(f"data_num must be > 0, got {data_num}")
-        if digit_weights.ndim != 1:
-            raise ValueError(f"digit_weights must be 1-D, got shape {tuple(digit_weights.shape)}")
         if len(shape) < 1:
             raise ValueError(f"shape must be (*prefix, group_num), got {shape}")
-        readout_shape = shape
-        weights = digit_weights.to(self.dtype)
-        ones = torch.ones(1, dtype=self.dtype, device=weights.device)
 
-        per_group_shape = readout_shape
-        per_group_bcast_shape = (*per_group_shape, 1)
+        self.data_switchcap.fabricate((*shape, self.data_num))
+        self.ref_switchcap.fabricate(shape)
 
-        self.data_switchcap.fabricate(
-            (*per_group_shape, data_num),
-            cap_ratio=weights,
-        )
-        self.ref_switchcap.fabricate(per_group_shape, cap_ratio=ones)
+        self.analog_mux.fabricate((*shape, 1))
+        self.bl_adc.fabricate((*shape, 1))
 
-        self.analog_mux.fabricate(per_group_bcast_shape)
-        self.bl_adc.fabricate(per_group_bcast_shape)
-
-        self._record_inst_count(readout_shape)
+        self._record_inst_count(shape)
 
     def readout(
         self,

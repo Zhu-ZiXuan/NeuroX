@@ -8,10 +8,10 @@ Placeholder — currently empty.
 
 ## Relationship to the physical core
 
-Differential and offset are parallel array-organization schemes; both stand on the same encoding-agnostic physical core abstraction. The current concrete core is `CircuitCore1T1R` (the 1T1R cell topology), but the array scheme itself is decoupled from the cell topology — future core variants slot in without changes to the array-organization files.
+Differential and offset are parallel array-organization schemes; both stand on the same encoding-agnostic physical core abstraction (`CircuitCore1T1R`, the 1T1R cell topology). The array scheme is decoupled from the cell topology — core variants slot in without changes to the array-organization files.
 
 See also:
 
 - `offset.md`
 - `circuit_core.md`
-- `../../../architecture/mapping.md`
+- `docs/dev/architecture/mapping.md`

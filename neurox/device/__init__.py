@@ -3,7 +3,6 @@
 from .nmos import NMOS, NMOSDCOP, NMOSConfig, NMOSSnapshot
 from .rram import RRAM, RRAMDCOP, RRAMConfig, RRAMSnapshot
 from .selector import Selector, SelectorConfig
-from .wire import Wire, WireConfig
 
 __all__ = [
     # --- NMOS ---
@@ -19,7 +18,4 @@ __all__ = [
     # --- Selector ---
     "Selector",
     "SelectorConfig",
-    # --- Wire ---
-    "Wire",
-    "WireConfig",
 ]

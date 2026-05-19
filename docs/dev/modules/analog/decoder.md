@@ -32,6 +32,6 @@ Per-call latency is `n_address_bits · t_gate__ns`. Both are emitted through the
 
 See also:
 
-- `../../architecture/config_and_construction.md`
-- `dac/README.md`
+- `docs/dev/architecture/config_and_construction.md`
+- `docs/dev/modules/analog/dac/README.md`
 

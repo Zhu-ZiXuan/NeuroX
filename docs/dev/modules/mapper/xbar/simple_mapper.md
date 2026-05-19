@@ -33,6 +33,6 @@ The mapper yields one xbar output per slice cycle; cross-cycle aggregation is pe
 See also:
 
 - `base.md`
-- `slicer/README.md`
-- `tiler/README.md`
-- `../../../architecture/mapping.md`
+- `docs/dev/modules/mapper/xbar/slicer/README.md`
+- `docs/dev/modules/mapper/xbar/tiler/README.md`
+- `docs/dev/architecture/mapping.md`

@@ -79,9 +79,10 @@ class SwitchCap(nn.Module, ProfiledModule):
         name: Hierarchical profiler name.
         T__K: Operating temperature [K].
         dtype: Floating-point dtype.
+        cap_weights: Per-cap multipliers on ``cfg.c_unit__fF``.
     """
 
-    c_unit__fF: Tensor
+    nominal_c__fF: Tensor
     c__fF: Tensor
 
     def __init__(
@@ -91,23 +92,28 @@ class SwitchCap(nn.Module, ProfiledModule):
         name: str,
         T__K: float,
         dtype: torch.dtype,
+        cap_weights: tuple[float, ...],
     ) -> None:
         nn.Module.__init__(self)
         ProfiledModule.__init__(self, name)
         if not (T__K > 0.0):
             raise ValueError(f"SwitchCap.T__K ({T__K}) must be > 0")
+        if len(cap_weights) < 1:
+            raise ValueError(f"require: len(cap_weights) ({len(cap_weights)}) >= 1")
+        for k, w in enumerate(cap_weights):
+            if not (w > 0.0):
+                raise ValueError(f"require: cap_weights[{k}] ({w}) > 0")
+
         self.cfg = cfg
         self.T__K: float = T__K
         self.dtype = dtype
+        self.n_caps: int = len(cap_weights)
 
-        self.register_buffer(
-            "c_unit__fF",
-            torch.tensor(cfg.c_unit__fF, dtype=dtype),
-            persistent=False,
-        )
+        nominal_c__fF = cfg.c_unit__fF * torch.tensor(cap_weights, dtype=dtype)
+        self.register_buffer("nominal_c__fF", nominal_c__fF, persistent=False)
         self.register_buffer(
             "c__fF",
-            self.c_unit__fF.clone(),
+            self.nominal_c__fF.clone(),
             persistent=False,
         )
 
@@ -126,20 +132,16 @@ class SwitchCap(nn.Module, ProfiledModule):
         """Settling latency per sample [ns]."""
         return self.cfg.latency_per_op__ns
 
-    def fabricate(self, shape: tuple[int, ...], cap_ratio: Tensor) -> None:
+    def fabricate(self, shape: tuple[int, ...]) -> None:
         """Sample static per-instance state over ``shape`` (re-callable).
 
         Args:
             shape: Per-instance fabrication shape; fabricated
                 ``c__fF`` lands at ``(*shape, n_caps)``.
-            cap_ratio: 1-D per-cap weight template, shape
-                ``[n_caps]``.
         """
         cfg = self.cfg
-        weights = cap_ratio.to(self.dtype)
-        c__fF = self.c_unit__fF.clone().expand(shape).unsqueeze(-1) * weights.unsqueeze(0)
         c__fF = apply_pelgrom_mismatch(
-            c__fF,
+            self.nominal_c__fF.clone().expand(*shape, self.n_caps),
             cfg.cap_mismatch_sigma_relative,
             unit=cfg.c_unit__fF,
             floor=0.1 * cfg.c_unit__fF,

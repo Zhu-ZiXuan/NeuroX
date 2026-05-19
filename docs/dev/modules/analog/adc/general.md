@@ -37,4 +37,4 @@ Per the family signature, `stochastic` is required and resolved at convert time 
 See also:
 
 - `base.md`
-- `../../common/quant.md`
+- `docs/dev/modules/common/quant.md`
