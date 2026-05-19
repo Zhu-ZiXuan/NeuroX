@@ -1,38 +1,7 @@
 """ADC boundary calibration utilities for the differential ADC family.
 
-Two-fold output for a calibrated ADC mode:
-
-1. **Range** — empirical maximum BL signal (post-OpAmpTIA differential
-   voltage ``v_pos - v_neg``, in V) across realistic
-   ``(weight, activation)`` combinations.  Defines ``max_signal``
-   for the highest-precision mode.
-2. **Precision** — required code count derived from the maximum
-   ideal integer state observed.  Defines ``n_bits`` and ``n_states``
-   for the highest-precision mode.
-
-Lower-precision modes are derived from the highest by halving codes
-and shrinking ``max_signal`` proportionally; they share the same
-underlying physical comparator thresholds.
-
-The historical helpers :func:`compute_max_col_diff_current__uA` and
-:func:`compute_adc_boundaries__uA` are preserved as convenience
-wrappers.  Both now emit floor-style boundaries
-(``B_C = C · LSB``) instead of round-style (``B_C = (C - 0.5) · LSB``).
-
-The CLI :mod:`neurox.tools.xbar_adc_boundaries` runs a real-vs-ideal
-xbar comparison over a sweep of inputs and prints a TOML block ready
-to paste into a chip config.  CLI arguments mirror the user spec:
-
-* ``--config <path>`` chip TOML.
-* ``--random N`` ``N`` random input groups; ``N <= 0`` traverses corner
-  cases.
-* ``--noise`` apply physical noise during sampling.
-* ``--visualize`` save a PNG of the signal-vs-code distribution.
-* ``--output <path>`` write the calibrated ``[bl_adc]`` TOML block.
-
-The CLI is intentionally minimal — chip-level studies that need
-deeper post-processing should script around the public helpers
-below.
+See also:
+    docs/dev/modules/tools/README.md
 """
 
 from __future__ import annotations
@@ -41,7 +10,6 @@ import argparse
 import math
 import sys
 from dataclasses import dataclass
-from functools import partial
 from pathlib import Path
 
 import torch
@@ -103,11 +71,6 @@ def compute_adc_boundaries__uA(
 ) -> list[float]:
     """Floor-style ADC boundaries — wrapper around :func:`floor_boundaries_for_mode`.
 
-    Note:
-        Earlier versions placed boundaries at ``(C - 0.5) · LSB`` (round-
-        to-nearest semantics).  The new ADC family uses floor-bucketize,
-        so this helper now produces ``C · LSB`` to match.
-
     Args:
         i_max_diff__uA: Full-scale input swing the ADC must span [uA].
         n_codes: Number of distinguishable output codes (``>= 2``).
@@ -152,24 +115,20 @@ def derive_modes(
     *,
     additional_modes: list[tuple[int, int]] | None = None,
 ) -> list[tuple[int, int, float]]:
-    """Build a list of ``(n_bits, n_states, max_signal)`` mode tuples.
+    """Build ``(n_bits, n_states, max_signal)`` mode tuples.
 
-    Always emits the highest-precision mode at index 0.  Optional
-    additional modes downsample bits and / or codes; their
-    ``max_signal`` shrinks proportionally to ``n_states / n_states_max``.
+    Index 0 is the highest-precision mode. Each additional mode's
+    ``max_signal`` shrinks as ``n_states / n_states_max``.
 
     Args:
         n_bits_max: Highest-precision bit width.
         s_max: Empirical maximum signal at the highest-precision mode.
-        n_states_max: Empirical state count at the highest-precision
-            mode.
-        additional_modes: Optional ``(n_bits, n_states)`` pairs for
-            sub-modes.  Each pair must satisfy
-            ``n_states <= 2 ** n_bits <= 2 ** n_bits_max``.
+        n_states_max: Empirical state count at the highest-precision mode.
+        additional_modes: ``(n_bits, n_states)`` pairs for sub-modes,
+            each satisfying ``n_states <= 2 ** n_bits <= 2 ** n_bits_max``.
 
     Returns:
-        List of ``(n_bits, n_states, max_signal)`` tuples ordered
-        with the highest-precision mode first.
+        Mode tuples ordered with the highest-precision mode first.
     """
     modes: list[tuple[int, int, float]] = [(n_bits_max, n_states_max, s_max)]
     for nb, ns in additional_modes or []:
@@ -195,19 +154,12 @@ def calibrate(
 ) -> CalibrationResult:
     """Run a real-vs-ideal-xbar comparison and fit floor-style boundaries.
 
-    Two-fold output (range + precision):
-
-    * ``s_max`` is the maximum BL signal observed across the sweep.
-    * ``n_states_required`` is ``max(ideal_code) + 1``.
-
     Args:
         config_path: Chip TOML.
-        random_n: Number of random ``(weight, activation)`` groups to
-            sample.  ``<= 0`` enumerates corner cases up to a bounded
-            budget.
-        apply_noise: When True, the physical xbar is built with its
-            configured noise stages active; when False, every noise
-            sub-config is skipped at module construction time.
+        random_n: Number of random ``(weight, activation)`` groups to sample.
+            ``<= 0`` enumerates corner cases.
+        apply_noise: When True, build the physical xbar with all configured
+            noise stages; when False, strip every noise sub-config.
 
     Returns:
         :class:`CalibrationResult`.
@@ -215,143 +167,64 @@ def calibrate(
     Raises:
         ValueError: When ``config_path`` lacks the required sections.
     """
-    # Late imports keep the module's lightweight helpers usable
-    # without dragging in the heavy device / xbar dependency tree.
-    from neurox.analog import (
-        AnalogMux,
-        AnalogMuxConfig,
-        Decoder,
-        DecoderConfig,
-        Driver,
-        DriverConfig,
-        GeneralDAC,
-        GeneralDACConfig,
-        OpAmpTIA,
-        OpAmpTIAConfig,
-        SwitchCap,
-        SwitchCapConfig,
-    )
-    from neurox.analog.adc import McsSarAdc, McsSarAdcConfig
-    from neurox.analog.readout import OffsetSwitchCapMuxAdcReadOut, ReadOutConfig
-    from neurox.common import T_ROOM__K, dict_configs_from_file, dict_from_file
-    from neurox.device import NMOS, RRAM, NMOSConfig, RRAMConfig, Wire, WireConfig
-    from neurox.mapper import SignedDigitTranscoder
-    from neurox.xbar import (
-        Core1T1R,
-        Core1T1RConfig,
-        Offset1T1RXbar,
-        Offset1T1RXbarConfig,
-    )
+    from dataclasses import replace as dc_replace
 
-    specs = {
-        "rram": RRAMConfig,
-        "nmos": NMOSConfig,
-        "tia": OpAmpTIAConfig,
-        "tia_nmos": NMOSConfig,
-        "bl_wire": WireConfig,
-        "sl_wire": WireConfig,
-        "wl_wire": WireConfig,
-        "sl_driver": DriverConfig,
-        "wl_decoder": DecoderConfig,
-        "wl_dac": GeneralDACConfig,
-        "bl_adc": McsSarAdcConfig,
-        "analog_mux": AnalogMuxConfig,
-        "data_switchcap": SwitchCapConfig,
-        "ref_switchcap": SwitchCapConfig,
-        "core": Core1T1RConfig,
-        "readout": ReadOutConfig,
-        "xbar": Offset1T1RXbarConfig,
-    }
-    typed = dict_configs_from_file(specs, config_path)
+    from neurox.common import T_ROOM__K, dataclass_from_file, dict_from_file
+    from neurox.mapper import SignedDigitTranscoder
+    from neurox.xbar import Offset1T1RXbar, Offset1T1RXbarConfig
+
+    xbar_cfg = dataclass_from_file(Offset1T1RXbarConfig, config_path, section="xbar")
 
     if not apply_noise:
-        # Strip every noise sub-config to drive the noise-free analytic
-        # path.  Done by reconstructing each typed config without the
-        # noise-bearing fields.
-        rram_cfg = typed["rram"]
-        typed["rram"] = type(rram_cfg)(
-            **{**rram_cfg.__dict__, "prog_gamma": None, "read_telegraph": None, "read_thermal": None}
+        # Strip every noise sub-config along the ownership chain.
+        core = xbar_cfg.core_cfg
+        readout = xbar_cfg.readout_cfg
+        rram_cfg = dc_replace(
+            core.rram_cfg,
+            prog_gamma=None,
+            read_telegraph=None,
+            read_thermal=None,
         )
-        for nmos_key in ("nmos", "tia_nmos"):
-            nmos_cfg = typed[nmos_key]
-            typed[nmos_key] = type(nmos_cfg)(
-                **{
-                    **nmos_cfg.__dict__,
-                    "A_vt__mV_um": None,
-                    "A_beta_relative__um": None,
-                }
-            )
-        tia_cfg = typed["tia"]
-        typed["tia"] = type(tia_cfg)(**{**tia_cfg.__dict__, "opamp_gain_sigma": None})
+        nmos_cfg = dc_replace(
+            core.nmos_cfg,
+            A_vt__mV_um=None,
+            A_beta_relative__um=None,
+        )
+        tia_nmos_cfg = dc_replace(
+            core.tia_cfg.nmos_cfg,
+            A_vt__mV_um=None,
+            A_beta_relative__um=None,
+        )
+        tia_cfg = dc_replace(
+            core.tia_cfg,
+            opamp_gain_sigma=None,
+            nmos_cfg=tia_nmos_cfg,
+        )
+        core_cfg = dc_replace(core, rram_cfg=rram_cfg, nmos_cfg=nmos_cfg, tia_cfg=tia_cfg)
+        xbar_cfg = dc_replace(xbar_cfg, core_cfg=core_cfg, readout_cfg=readout)
 
-    # Per-core device / circuit / wire module factories — each
-    # ``Core1T1R`` gets its own ``RRAM`` / ``NMOS`` / ``OpAmpTIA``
-    # (OpAmpTIA-internal pseudo-resistor NMOS included) and its own
-    # ``BL`` / ``SL`` / ``WL`` :class:`~neurox.device.Wire`.  Wire
-    # state is per-fabrication (see ``temp/wire.md``).
-    rram_factory = partial(RRAM, typed["rram"], dtype=torch.float64)
-    nmos_factory = partial(NMOS, typed["nmos"], T__K=T_ROOM__K, dtype=torch.float64)
-    tia_nmos_factory = partial(NMOS, typed["tia_nmos"], T__K=T_ROOM__K, dtype=torch.float64)
-    tia_factory = partial(OpAmpTIA, typed["tia"], nmos_factory=tia_nmos_factory, dtype=torch.float64)
-    sl_wire_factory = partial(Wire, typed["sl_wire"], dtype=torch.float64)
-    bl_wire_factory = partial(Wire, typed["bl_wire"], dtype=torch.float64)
-    wl_wire_factory = partial(Wire, typed["wl_wire"], dtype=torch.float64)
-
-    core_factory = partial(
-        Core1T1R,
-        typed["core"],
-        rram_factory=rram_factory,
-        nmos_factory=nmos_factory,
-        tia_factory=tia_factory,
-        sl_wire_factory=sl_wire_factory,
-        bl_wire_factory=bl_wire_factory,
-        wl_wire_factory=wl_wire_factory,
-        sl_driver_factory=partial(Driver, typed["sl_driver"], dtype=torch.float64),
-        wl_decoder_factory=partial(Decoder, typed["wl_decoder"]),
-        wl_dac_factory=partial(GeneralDAC, typed["wl_dac"], dtype=torch.float64),
-        dtype=torch.float64,
-    )
-    xbar_cfg = typed["xbar"]
-    readout_factory = partial(
-        OffsetSwitchCapMuxAdcReadOut,
-        typed["readout"],
-        data_switchcap_factory=partial(SwitchCap, typed["data_switchcap"], T__K=T_ROOM__K, dtype=torch.float64),
-        ref_switchcap_factory=partial(SwitchCap, typed["ref_switchcap"], T__K=T_ROOM__K, dtype=torch.float64),
-        analog_mux_factory=partial(AnalogMux, typed["analog_mux"], dtype=torch.float64),
-        adc_factory=partial(McsSarAdc, typed["bl_adc"], T__K=T_ROOM__K, dtype=torch.float64),
-        dtype=torch.float64,
-    )
+    # Build the xbar directly from the nested config tree.
     physical = Offset1T1RXbar(
         cfg=xbar_cfg,
-        core_factory=core_factory,
-        readout_factory=readout_factory,
+        name="xbar",
+        dtype=torch.float64,
+        T__K=T_ROOM__K,
     )
     physical.eval()
     ideal = physical.to_ideal()
     ideal.eval()
 
-    # Weight transcoder for the tool's calibration sweep — both
-    # ``physical.fabricate`` and ``ideal.fabricate`` now consume an
-    # xbar-native digit tensor, not a logical-weight tensor.  Read
-    # the encoding policy from ``[w_transcoder]`` for parity with
-    # ``example/common/macro_factory.py``.
+    # Weight transcoder for the tool's calibration sweep.
     raw_full = dict_from_file(config_path)
     w_radix = xbar_cfg.w_digit_radix
     w_tc = SignedDigitTranscoder(raw_full["w_transcoder"]["encoding"], w_radix, xbar_cfg.w_digit_count)
 
     col_num = physical.col_num
     row_num = physical.row_num
-    # Activation grid size is the xbar's per-cycle input range
-    # (== 2 for the binary 1T1R WL pulse).
+    # x_states = per-cycle input grid size.
     x_lo, x_hi = physical.x_range
     x_states = x_hi - x_lo + 1
-    # Algorithm-facing signed-weight bound used to seed the
-    # calibration sweep.  Matches the symmetric signed-digit envelope
-    # ``r^D - 1`` the transcoder fits into the xbar — the same value
-    # the macro reports through ``XbarMacro.w_value_range``.  The
-    # transcoder turns each logical value into the digit tensor the
-    # xbar consumes; the xbar's physical ``w_digit_range`` may carry
-    # extra one-sided headroom that the sweep does not exercise.
+    # symmetric signed-digit envelope r^D - 1 the transcoder targets.
     w_max = physical.w_digit_radix**physical.w_digit_count - 1
 
     if random_n > 0:
@@ -382,54 +255,30 @@ def calibrate(
     code_buf: list[torch.Tensor] = []
     s_max = 0.0
     n_states_observed = 0
-    # Grouped readout lattice constants — derived from the xbar's
-    # ``Offset1T1RXbarConfig``.  The readout's ``data_switchcap`` was
-    # fabricated against ``(*prefix, group_num, data_num, digit_num)``
-    # and ``ref_switchcap`` against ``(*prefix, group_num, 1)``.
+    # Grouped readout lattice constants.
     group_num = physical.n_ref_cols
     data_num = xbar_cfg.ref_group_size
     digit_num = xbar_cfg.w_digit_count
 
     for w_i, x_i in zip(weights, activations, strict=True):
-        # Fabricate routes through the offset xbar into Core1T1R; each
-        # owned module fabricates its own internal state.  The
-        # calibration tool reaches into ``physical.core.{rram, nmos,
-        # tia, sl_driver, solver, v_dd_wl__V,
-        # fabricated_col_num, fabricated_row_num}``,
-        # ``physical.{logic_phys_idx, ref_phys_idx}`` and
-        # ``physical.readout.{data_switchcap, ref_switchcap,
-        # analog_mux}`` — calling the readout's leaf circuit kernels
-        # directly so the calibration signal matches the production
-        # chain block-for-block.
-        # Signed-digit-transcode the logical weight into the xbar's
-        # native digit grid before fabricating; both physical and
-        # ideal twin share this contract.
-        # Shape: w_digits -> [col_num, w_digit_count, row_num].
+        # Signed-digit-transcode the logical weight into the xbar-native digit grid.
         w_digits = w_tc.encode(w_i, dim=-2)
         physical.fabricate(w_digits)
         core = physical.core
 
-        # Build the execution shape from the fabricated layout — the
-        # solver expects ``[*batch, phys_col_num, row_num]``.
+        # Build the execution shape from the fabricated layout.
         full_shape = (core.fabricated_col_num, core.fabricated_row_num)
         x_2d = x_i.unsqueeze(0).to(torch.float64)  # [1, row_num]
         wl_logic = x_2d.expand(1, core.fabricated_row_num).squeeze(-2)
         wl_drive = (wl_logic * core.v_dd_wl__V).unsqueeze(-2)
 
-        # One-shot per-VMM runtime sampling.  Fresh per sweep iteration
-        # since each iteration is a distinct VMM (independent dynamic
-        # noise per ``temp/state_holding.md``).  Both BL (OpAmpTIA) and SL
-        # (ideal Driver) clamp boundaries now sample once per VMM and
-        # thread their snapshots through the solver.
+        # One-shot per-VMM runtime sampling.
         rram_snapshot = core.rram.snapshot(shape=full_shape)
         nmos_snapshot = core.nmos.snapshot(shape=full_shape)
         bl_driver_snapshot = core.tia.snapshot(shape=(core.fabricated_col_num,))
         sl_driver_snapshot = core.sl_driver.snapshot(shape=(core.fabricated_row_num,))
 
-        # Reuse the core's solver — it holds the device modules and the
-        # fabricated wire instances, rebuilt on every fabricate.  Wire
-        # state lives on ``core.bl_wire`` / ``core.sl_wire`` and is
-        # read inside the solver (see ``temp/wire.md``).
+        # Reuse the core's solver and fabricated wire state.
         assert core.solver is not None
         result = core.solver.solve(
             wl_drive,
@@ -439,18 +288,8 @@ def calibrate(
             sl_driver_snapshot=sl_driver_snapshot,
         )
 
-        # Reuse the real readout chain end-to-end so the calibration
-        # signal matches block-for-block what the ADC sees in
-        # production.  ``SolverResult`` carries only ``v_bl_clamp``;
-        # re-invoke the OpAmpTIA's ``solve_dc`` with the *same*
-        # ``bl_driver_snapshot`` at the solver's converged clamp-port
-        # current to obtain the consistent ``v_out__V`` — same pattern
-        # ``Core1T1R.forward`` uses.  ``result.i_bl_driver`` is the
-        # boundary-KCL ``delta_v · g`` quantity (see
-        # ``temp/solver.md``); we feed it directly rather than
-        # ``i_cell.sum(-1)``, whose equality only holds on the current
-        # 1-D BL ladder.
-        from neurox.xbar._1t1r.offset_1t1r import _split_logic_and_ref
+        # Reuse the real readout chain end-to-end.
+        from neurox.xbar._1t1r.offset import _split_logic_and_ref
 
         tia_dc = core.tia.solve_dc(
             result.i_bl_driver,
@@ -459,12 +298,7 @@ def calibrate(
         )
         v_out_phys = tia_dc.v_out__V
         v_data_phys, v_ref_phys = _split_logic_and_ref(v_out_phys, physical.logic_phys_idx, physical.ref_phys_idx)
-        # Drive the production readout submodules with the same grouped
-        # lattice the xbar's ``_vec_mat_mul_impl`` uses.  Every value-
-        # domain step happens inside a leaf circuit module; the tool
-        # itself only does shape ops (``unflatten`` / ``unsqueeze`` /
-        # ``expand``) — exactly the project's
-        # "shape-ops-only outside leaves" invariant.
+        # Drive the production readout submodules with the same grouped lattice.
         readout = physical.readout
         v_data_grouped = v_data_phys.unflatten(-1, (group_num, data_num, digit_num))
         v_pos__V, _ = readout.data_switchcap.sample_and_accumulate(v_data_grouped)
@@ -474,10 +308,7 @@ def calibrate(
         v_pos_muxed__V, v_neg_muxed__V, _ = readout.analog_mux.transport(v_pos__V, v_neg__V)
         signal__V = v_pos_muxed__V - v_neg_muxed__V  # [..., group_num, data_num]
 
-        # Ideal arithmetic: per-column integer dot product on the
-        # original logical weights — the ideal twin's digit tensor
-        # collapses back to ``w_i`` via the same ``digit_weights``
-        # it now stores.
+        # Ideal integer dot product on the original logical weights.
         ideal.fabricate(w_digits)
         x_int = x_i.to(torch.int64)
         dot = (w_i.to(torch.int64) * x_int.unsqueeze(0)).sum(dim=-1)
@@ -507,9 +338,7 @@ def calibrate(
 def visualize(result: CalibrationResult, output_path: Path) -> None:
     """Render a histogram of the calibrated signal-vs-code distribution.
 
-    Skips the call gracefully when matplotlib is unavailable so the
-    CLI's other paths still work in headless / minimal-deps
-    environments.
+    No-op when matplotlib is unavailable.
     """
     try:
         import matplotlib

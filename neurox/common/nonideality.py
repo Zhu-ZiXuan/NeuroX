@@ -1,72 +1,7 @@
-"""Non-ideality models for NeuroX device and circuit simulation.
+"""Reusable analog non-ideality kernels and their config dataclasses.
 
-Each non-ideality is described by a frozen dataclass config so device /
-circuit classes pass a single typed object rather than loose scalar
-parameters.  Each ``apply_*`` function is a branch-free elementwise
-expression decorated with ``@torch.compile`` (via the caller) so random
-draws and arithmetic fuse into a single kernel.  This is critical for
-broadcast per-cell tensors: eager execution would allocate ~10
-full-shape intermediates and OOM at AlexNet conv1 scale.
-``torch._dynamo.config.cache_size_limit`` is raised to 128 to prevent
-dynamo fallback across the diverse cell-tensor shapes in a typical
-multi-layer model.
-
-Most ``apply_*`` functions accept ``config=None`` and return the input
-unchanged in that case, so the "is this non-ideality configured?" check
-can be folded out of device / circuit code.  The lone exception is
-:func:`apply_gaussian` — kept deliberately minimal (a one-line
-``x + randn * sigma``) because it is hot enough to be worth fusing
-under ``@torch.compile``; callers handle the ``None`` config check
-themselves and pass ``sigma`` directly.
-
-State-independent vs state-dependent
-------------------------------------
-
-Two flavours of every additive / multiplicative noise:
-
-* **State-independent** — sigma is a config constant; the same
-  distribution is sampled at every element.  Use for "global" noise
-  whose magnitude does not track signal magnitude (eg. comparator
-  thermal noise, stuck-at faults).
-* **State-dependent** — sigma is derived per-element from the input
-  tensor (or from auxiliary tensors passed alongside).  Use for noise
-  whose magnitude grows with conductance state (programming variability,
-  retention drift) or with capacitor area (Pelgrom mismatch, kT/C
-  sampling noise).
-
-Supported non-ideality types
-----------------------------
-- ``StuckAtFaultConfig`` / ``apply_stuck_at_fault``: hard fault, cells
-  permanently stuck at minimum or maximum conductance.
-- ``GaussianConfig`` / ``apply_gaussian``: additive isotropic Gaussian
-  noise (state-independent).
-- ``StateDependentGaussianConfig`` / ``apply_state_dependent_gaussian``:
-  additive Gaussian with sigma linearly proportional to ``|x|``.
-- ``LognormalConfig`` / ``apply_lognormal``: multiplicative log-normal
-  noise (state-independent).
-- ``StateDependentLognormalConfig`` / ``apply_state_dependent_lognormal``:
-  multiplicative log-normal with sigma depending on normalised
-  conductance.
-- ``GammaConfig`` / ``apply_gamma_noise``: multiplicative Gamma noise
-  with constant shape and scale, normalised to unit mean
-  (state-independent).
-- ``StateDependentGammaConfig`` / ``apply_state_dependent_gamma``:
-  multiplicative Gamma noise with state-dependent shape parameter.
-- ``TelegraphConfig`` / ``apply_telegraph_noise``: random telegraph
-  noise (RTN) modelled as a stochastic binary perturbation with
-  Gaussian amplitude (state-independent).
-- ``apply_pelgrom_mismatch``: Pelgrom-law matching variation on
-  binary-weighted unit-cell structures (CDAC capacitors, current-mirror
-  DACs).  σ_k ∝ sqrt(C_k / C_unit) — a state-dependent Gaussian whose
-  sigma scales with cell area.  Takes the per-unit-cell relative sigma
-  ``σ_u`` directly (or ``None`` to skip); no wrapper config dataclass.
-- ``apply_lsb_jitter``: integer LSB stochastic-rounding jitter on
-  digital ADC codes (training-mode coarse fallback).
-
-Specialised noise sources (eg. kT/C sampling noise, where σ depends on
-runtime state — sampling capacitance, temperature) are implemented at
-the call site by computing σ inline and piping through
-:func:`apply_gaussian`.  No dedicated helper is provided.
+See also:
+    docs/dev/modules/common/nonideality.md
 """
 
 from dataclasses import dataclass
@@ -75,13 +10,15 @@ import torch
 import torch._dynamo
 from torch import Tensor
 
+from neurox.common.validate import ValidateMixin
+
 # ---------------------------------------------------------------------------
 # Stuck-at fault
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
-class StuckAtFaultConfig:
+class StuckAtFaultConfig(ValidateMixin):
     """Stuck-at fault probabilities.
 
     Attributes:
@@ -92,10 +29,16 @@ class StuckAtFaultConfig:
     p_at_min: float
     p_at_max: float
 
+    def __post_init__(self) -> None:
+        self.validate()
+
     def validate(self) -> None:
-        """Validate fault probabilities."""
-        if (self.p_at_min < 0.0) or (self.p_at_max < 0.0) or (self.p_at_min + self.p_at_max >= 1.0):
-            raise ValueError(f"Stuck-at fault probabilities not applicable: {self}")
+        self._require_nonneg(self.p_at_min, "p_at_min")
+        self._require_nonneg(self.p_at_max, "p_at_max")
+        if not (self.p_at_min + self.p_at_max < 1.0):
+            raise ValueError(
+                f"require: p_at_min ({self.p_at_min}) + p_at_max ({self.p_at_max}) < 1"
+            )
 
 
 def apply_stuck_at_fault(x: Tensor, config: StuckAtFaultConfig | None, min_val: float, max_val: float) -> Tensor:
@@ -139,7 +82,7 @@ def apply_gaussian(x: Tensor, sigma: float | Tensor) -> Tensor:
 
 
 @dataclass(frozen=True)
-class StateDependentGaussianConfig:
+class StateDependentGaussianConfig(ValidateMixin):
     """State-dependent Gaussian noise config.
 
     Attributes:
@@ -149,6 +92,13 @@ class StateDependentGaussianConfig:
 
     sigma_slope: float
     sigma_intercept: float
+
+    def __post_init__(self) -> None:
+        self.validate()
+
+    def validate(self) -> None:
+        self._require_nonneg(self.sigma_slope, "sigma_slope")
+        self._require_nonneg(self.sigma_intercept, "sigma_intercept")
 
 
 def apply_state_dependent_gaussian(x: Tensor, config: StateDependentGaussianConfig | None) -> Tensor:
@@ -174,7 +124,7 @@ def apply_state_dependent_gaussian(x: Tensor, config: StateDependentGaussianConf
 
 
 @dataclass(frozen=True)
-class LognormalConfig:
+class LognormalConfig(ValidateMixin):
     """Multiplicative log-normal noise config.
 
     Attributes:
@@ -182,6 +132,12 @@ class LognormalConfig:
     """
 
     sigma: float
+
+    def __post_init__(self) -> None:
+        self.validate()
+
+    def validate(self) -> None:
+        self._require_nonneg(self.sigma, "sigma")
 
 
 def apply_lognormal(x: Tensor, config: LognormalConfig | None) -> Tensor:
@@ -200,7 +156,7 @@ def apply_lognormal(x: Tensor, config: LognormalConfig | None) -> Tensor:
 
 
 @dataclass(frozen=True)
-class StateDependentLognormalConfig:
+class StateDependentLognormalConfig(ValidateMixin):
     """State-dependent log-normal noise config.
 
     Attributes:
@@ -214,6 +170,15 @@ class StateDependentLognormalConfig:
     sigma_intercept: float
     min_val: float
     max_val: float
+
+    def __post_init__(self) -> None:
+        self.validate()
+
+    def validate(self) -> None:
+        self._require_nonneg(self.sigma_slope, "sigma_slope")
+        self._require_nonneg(self.sigma_intercept, "sigma_intercept")
+        if not (self.max_val > self.min_val):
+            raise ValueError(f"require: max_val ({self.max_val}) > min_val ({self.min_val})")
 
 
 def apply_state_dependent_lognormal(x: Tensor, config: StateDependentLognormalConfig | None) -> Tensor:
@@ -239,7 +204,7 @@ def apply_state_dependent_lognormal(x: Tensor, config: StateDependentLognormalCo
 
 
 @dataclass(frozen=True)
-class GammaConfig:
+class GammaConfig(ValidateMixin):
     """Multiplicative Gamma noise config (constant shape and scale).
 
     Attributes:
@@ -249,6 +214,13 @@ class GammaConfig:
 
     shape_k: float
     scale_theta: float
+
+    def __post_init__(self) -> None:
+        self.validate()
+
+    def validate(self) -> None:
+        self._require_pos(self.shape_k, "shape_k")
+        self._require_pos(self.scale_theta, "scale_theta")
 
 
 def apply_gamma_noise(x: Tensor, config: GammaConfig | None) -> Tensor:
@@ -270,7 +242,7 @@ def apply_gamma_noise(x: Tensor, config: GammaConfig | None) -> Tensor:
 
 
 @dataclass(frozen=True)
-class StateDependentGammaConfig:
+class StateDependentGammaConfig(ValidateMixin):
     """State-dependent Gamma noise config.
 
     Attributes:
@@ -286,6 +258,15 @@ class StateDependentGammaConfig:
     theta: float
     min_val: float
     max_val: float
+
+    def __post_init__(self) -> None:
+        self.validate()
+
+    def validate(self) -> None:
+        self._require_pos(self.k_intercept, "k_intercept")
+        self._require_pos(self.theta, "theta")
+        if not (self.max_val > self.min_val):
+            raise ValueError(f"require: max_val ({self.max_val}) > min_val ({self.min_val})")
 
 
 def apply_state_dependent_gamma(x: Tensor, config: StateDependentGammaConfig | None) -> Tensor:
@@ -331,7 +312,7 @@ def apply_state_dependent_gamma(x: Tensor, config: StateDependentGammaConfig | N
 
 
 @dataclass(frozen=True)
-class TelegraphConfig:
+class TelegraphConfig(ValidateMixin):
     """Random telegraph noise config.
 
     Attributes:
@@ -344,14 +325,20 @@ class TelegraphConfig:
     amplitude_std: float
     p_high_state: float
 
+    def __post_init__(self) -> None:
+        self.validate()
+
+    def validate(self) -> None:
+        self._require_nonneg(self.amplitude_std, "amplitude_std")
+        if not (0.0 <= self.p_high_state <= 1.0):
+            raise ValueError(f"require: 0 <= p_high_state ({self.p_high_state}) <= 1")
+
 
 def apply_telegraph_noise(x: Tensor, config: TelegraphConfig | None) -> Tensor:
     """Apply random telegraph noise.
 
-    Composed branch-free as ``perturb = amplitude * sign * mask`` so a
-    higher-level ``@torch.compile`` caller (e.g. ``RRAM.read_g__mS``)
-    fuses the three random draws and the float-promoted ``torch.where``
-    intermediate into a single elementwise kernel.
+    Composed branch-free as ``perturb = amplitude * sign * mask`` so
+    the surrounding kernel can fuse the random draws efficiently.
 
     Args:
         x: Input conductance. Shape: arbitrary.
@@ -382,27 +369,16 @@ def apply_pelgrom_mismatch(
 ) -> Tensor:
     """Add Pelgrom-scaled Gaussian mismatch to a binary-weighted ladder.
 
-    A binary-weighted device of value ``X_k = N_k · X_unit`` (built by
-    paralleling ``N_k`` unit cells of value ``X_unit``) inherits a
-    matching sigma
-
-        σ_k = sqrt(N_k) · σ_u · X_unit
-
-    where ``σ_u`` is the per-unit-cell relative sigma (the matching
-    parameter quoted by the foundry).  Used for CDAC capacitor
-    mismatch (``X = C``), current-mirror DACs (``X = I``), etc.
+    Per-cell matching sigma: ``σ_k = √(X_k / X_unit) · σ_u · X_unit``
+    where ``σ_u`` is the per-unit-cell relative sigma.
 
     Args:
-        ideal: Tensor of nominal per-cell values (eg. cap weights in fF).
-            Shape: arbitrary; trailing dim typically indexes the
-            binary-weighted ladder.
-        sigma_relative: Per-unit-cell relative sigma ``σ_u`` (eg.
-            ``0.01`` for 1% matching), or ``None`` to skip.
-        unit: Single-unit-cell value ``X_unit`` (same units as
-            ``ideal``).  Used to convert cell value → number of unit
-            cells fused.
-        floor: Optional minimum clamp applied after sampling so the
-            output stays physical (eg. positive caps).
+        ideal: Tensor of nominal per-cell values.
+        sigma_relative: Per-unit-cell relative sigma ``σ_u``;
+            ``None`` skips mismatch.
+        unit: Single-unit-cell value ``X_unit`` in the same units as
+            ``ideal``.
+        floor: Optional minimum clamp applied after sampling.
 
     Returns:
         Tensor with the same shape / dtype / device as ``ideal``.

@@ -1,29 +1,7 @@
 """BatchNorm folding helper for hardware-aware training.
 
-Folds each ``Conv2d → BatchNorm2d`` (or ``Linear → BatchNorm1d``) pair
-into the weight / bias of the preceding linear op, then replaces the
-BatchNorm module with ``nn.Identity``.  This is the standard
-pre-processing step before QAT / HAT: since BN's affine transform is
-trivially absorbable into a linear layer's parameters, there's no
-reason to keep it as a separate op once its float running stats are
-frozen.
-
-Call ``fold_batchnorm(model)`` *before* :func:`neurox.replace_for_hat`
-so the HAT replacement sees a BN-free graph.  LeNet has no BN, so
-this is a no-op for the current example; it is here for future VGG /
-MobileNet examples.
-
-Limitations (by design, keep Python-level simple):
-
-- Only folds when the BN IMMEDIATELY follows a Conv/Linear at the same
-  ``nn.Module`` level (via ``named_children``).  Skip-connection or
-  separately-scoped BN is left alone.
-- Only handles ``nn.BatchNorm2d`` / ``nn.BatchNorm1d``.  ``LayerNorm``
-  and ``GroupNorm`` are not fold-compatible (they normalize across
-  different axes) and stay as-is.
-- Assumes BN is in eval mode or carries valid running stats.  The
-  caller should have already finished any BN-updating training
-  (typically the float pretraining phase) before folding.
+See also:
+    docs/dev/modules/operator/train/README.md
 """
 
 from __future__ import annotations

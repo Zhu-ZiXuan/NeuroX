@@ -1,11 +1,4 @@
-"""Default configuration files bundled with NeuroX.
-
-Exposes package-anchored paths so callers never have to hard-code
-working-directory-relative strings like ``"neurox/config/xxx.toml"``.
-The paths are resolved from ``__file__``, so they work regardless of
-the caller's CWD or whether ``neurox`` is installed or run from a
-source checkout.
-"""
+"""Default configuration files bundled with NeuroX."""
 
 from pathlib import Path
 

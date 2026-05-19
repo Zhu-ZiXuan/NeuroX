@@ -1,29 +1,7 @@
 """Analyse VMM accuracy of a 1T1R xbar against its lossless ideal twin.
 
-Builds a noiseless :class:`Xbar1T1R` from the supplied chip TOML and
-its matching :class:`IdealXbar` reference (via :meth:`Xbar.to_ideal`).
-Drives both with the same random
-``(W, x)`` pairs and reports how far the physical ADC code vector
-deviates from the ideal — the ideal output is the *expected* answer
-for every (W, x).
-
-With ``--noise``, additionally builds five noisy variants of the
-physical xbar and an "all-noise" combined variant, each compared
-independently against the same ideal reference, so the contribution of
-each noise category to the final ADC-code error can be ranked
-side-by-side:
-
-    1. ``rram_saf``      — RRAM stuck-at-min / stuck-at-max faults.
-    2. ``rram_prog``     — RRAM programming Gamma variation.
-    3. ``rram_read``     — RRAM read-time noise (telegraph + thermal).
-    4. ``nmos_fab``      — NMOS fabrication mismatch (V_th, W, L, μ·Cox).
-    5. ``periphery``     — ADC sampling/comparator/drive thermal,
-                           DAC drive thermal, SL driver drive thermal.
-
-The preset sigma values for each category are kept as module constants so
-the comparison is reproducible from the same TOML — the tool injects
-noise on top of whatever (possibly already-noisy) settings the file
-carries.
+See also:
+    docs/dev/modules/tools/README.md
 """
 
 from __future__ import annotations

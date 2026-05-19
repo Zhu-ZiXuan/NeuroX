@@ -1,30 +1,4 @@
-"""OTS (Ovonic Threshold Switch) selector device model for crossbar arrays.
-
-Physical model overview
------------------------
-An OTS selector is a two-terminal chalcogenide device that remains in a
-high-resistance state until the applied voltage exceeds a threshold
-``Vth`` [V], at which point it switches to a low-resistance conducting state.
-In the crossbar context the selector suppresses sneak-path leakage through
-half-selected cells.
-
-This module models only the threshold voltage distribution across an array —
-the actual switching I-V characteristic is handled by the crossbar solver.
-
-**Threshold voltage mismatch**
-
-    Vth ~ N(vth_nominal, sigma^2)
-
-Mismatch originates from film-thickness and composition variation across the
-die.  Two modes are supported, controlled by ``nn.Module.training``:
-
-* *Training mode*: a fresh Gaussian sample is drawn on every call to
-  ``sample_vth_like``, exposing the optimiser to the full mismatch
-  distribution.
-* *Eval mode*: the mismatch is drawn once and frozen in a persistent buffer
-  (``_vth_static__V``), modelling the fixed threshold map of a fabricated
-  array at inference time.
-"""
+"""Threshold-selector mismatch model."""
 
 from dataclasses import dataclass
 from typing import cast
@@ -34,10 +8,11 @@ import torch.nn as nn
 from torch import Tensor
 
 from neurox.common.nonideality import apply_gaussian
+from neurox.common.validate import ValidateMixin
 
 
 @dataclass(frozen=True)
-class SelectorConfig:
+class SelectorConfig(ValidateMixin):
     """Immutable configuration for an OTS threshold selector.
 
     Attributes:
@@ -51,28 +26,30 @@ class SelectorConfig:
     vth_nominal__V: float
     vth_mismatch: float | None = None
 
+    def __post_init__(self) -> None:
+        self.validate()
+
+    def validate(self) -> None:
+        self._require_nonneg_or_none(self.vth_mismatch, "vth_mismatch")
+
 
 class Selector(nn.Module):
-    """OTS threshold selector with training/eval-mode-dependent Vth variation.
+    """OTS selector with training/eval-mode-dependent threshold variation."""
 
-    In training mode each forward call samples a fresh mismatch realisation.
-    In eval mode the mismatch is drawn once on the first call and cached in
-    ``_vth_static__V``, representing a fixed fabricated array.
-
-    The nominal threshold is stored as a persistent buffer (saved with
-    ``state_dict``); the static mismatch realisation is non-persistent.
-    """
-
-    def __init__(self, config: SelectorConfig, array_shape: tuple[int, ...]) -> None:
-        """Initialize selector mismatch model.
-
-        Args:
-            config: Selector configuration.
-            array_shape: Spatial shape for static mismatch realization.
-        """
+    def __init__(
+        self,
+        *,
+        cfg: SelectorConfig,
+        T__K: float,
+        dtype: torch.dtype,
+        array_shape: tuple[int, ...],
+    ) -> None:
+        """Initialize the selector model."""
         super().__init__()
-        self.config = config
-        self.register_buffer("vth_nominal__V", torch.full(array_shape, config.vth_nominal__V))
+        self.cfg = cfg
+        self.T__K = T__K
+        self.dtype = dtype
+        self.register_buffer("vth_nominal__V", torch.full(array_shape, cfg.vth_nominal__V))
         self.register_buffer("_vth_static__V", torch.empty(array_shape), persistent=False)
         self._static_initialized = False
 
@@ -87,9 +64,9 @@ class Selector(nn.Module):
         return cast(Tensor, self._buffers["_vth_static__V"])
 
     def _sample_vth(self) -> Tensor:
-        if self.config.vth_mismatch is None:
+        if self.cfg.vth_mismatch is None:
             return self.vth_nominal__V_tensor
-        return apply_gaussian(self.vth_nominal__V_tensor, self.config.vth_mismatch)
+        return apply_gaussian(self.vth_nominal__V_tensor, self.cfg.vth_mismatch)
 
     def sample_vth_like(self, reference: Tensor) -> Tensor:
         """Return a threshold voltage tensor compatible with ``reference``.

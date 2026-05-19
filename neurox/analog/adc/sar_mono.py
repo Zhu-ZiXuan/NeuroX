@@ -1,17 +1,7 @@
 """Monotonic (Set-and-Down) differential SAR ADC — placeholder.
 
-Liu et al. *Set-and-Down* / monotonic switching: the larger top plate
-drops by ``V_ref · C_k / C_total`` each cycle while the smaller side
-holds; caps only ever discharge to GND, never re-charge to V_ref
-during the SAR loop.  The single-ended version was retired in the move
-to the differential CDAC topology; a differential Set-and-Down variant
-is planned but :meth:`SarAdcMono.convert` currently raises
-``NotImplementedError``.
-
-Fabrication state (two Pelgrom-mismatched cap arrays + comparator
-offset) is fully wired here — only the convert kernel awaits
-implementation.  Use :class:`neurox.analog.adc.McsSarAdc` for any
-current work that needs a differential SAR.
+See also:
+    docs/dev/modules/analog/adc/sar_mono.md
 """
 
 from dataclasses import dataclass
@@ -24,44 +14,36 @@ from neurox.common.nonideality import (
     apply_pelgrom_mismatch,
 )
 
-from .base import ADC
+from .base import ADC, ADCConfig
 
 
 @dataclass(frozen=True)
-class SarAdcMonoConfig:
+class SarAdcMonoConfig(ADCConfig):
     """Immutable design-parameter config for :class:`SarAdcMono`.
 
     Attributes:
-        max_bits: Physical bit width.  Number of CDAC stages laid out
-            in silicon.  The MSB cap is dropped; the active cap array
-            has ``max_bits - 1`` binary-weighted caps + a dummy cap.
-        v_refs: Supported reference voltages, in input units.
-            ``v_refs[0]`` is the maximum (the calibration anchor).
-        clk_period__ns: SAR comparator clock period.  Latency at
+        max_bits: Physical bit width; active array carries
+            ``max_bits - 1`` binary-weighted caps + a dummy cap.
+        v_refs: Supported reference voltages in input units;
+            ``v_refs[0]`` is the calibration anchor.
+        clk_period__ns: SAR comparator clock period [ns]; latency at
             ``bits`` active bits is ``(bits + 1) · clk_period``.
-        c_unit__fF: Unit capacitance of the binary-weighted CDAC.
-        cap_mismatch_sigma_relative: Per-unit-cap relative-σ Pelgrom
-            sigma (eg. ``0.01`` for 1% matching).  ``None`` = ideal
-            CDAC.
-        comparator_offset: Static Gaussian config on the comparator
-            threshold (sigma in [V]).  ``None`` = no static offset.
-        comparator_noise: Dynamic per-cycle Gaussian comparator noise
-            (sigma in [V]).  ``None`` = no comparator noise.
-        kt_c_noise_enabled: When ``True``, sampling adds a Gaussian
-            of σ = sqrt(k_B · T / C_total) to the held top plates.
-        e_bootstrap__fJ: Constant per-conversion energy charged to
-            the bootstrapped sampling switches.  ``0.0`` to disable.
-        e_compare_per_bit__fJ: Energy per comparator decision
-            (charged on every cycle including the MSB).
-        e_logic_per_bit__fJ: Energy per cycle attributed to the SAR
-            digital logic / register / control path.
-        leakage_per_inst__uW: Static leakage per ADC instance.
-        area_per_inst__um2: Silicon area per ADC instance.
-
-    Note:
-        Operating temperature is intentionally **not** a config field
-        — it is a changeable operating-state quantity passed to the
-        ADC class as an init arg.
+        c_unit__fF: CDAC unit capacitance [fF].
+        cap_mismatch_sigma_relative: Per-unit-cap relative Pelgrom
+            sigma. ``None`` = ideal CDAC.
+        comparator_offset: Static comparator-threshold Gaussian sigma
+            [V]. ``None`` skips static offset.
+        comparator_noise: Per-cycle dynamic comparator-noise Gaussian
+            sigma [V]. ``None`` skips dynamic noise.
+        kt_c_noise_enabled: When ``True``, sampling adds
+            ``σ = √(k_B · T / C_total)`` to the held top plates.
+        e_bootstrap__fJ: Per-conversion sampling-switch overhead [fJ].
+        e_compare_per_bit__fJ: Per-cycle comparator-decision energy
+            [fJ].
+        e_logic_per_bit__fJ: Per-cycle SAR-logic / register overhead
+            [fJ].
+        leakage_per_inst__uW: Static leakage per ADC instance [uW].
+        area_per_inst__um2: Silicon area per ADC instance [μm²].
     """
 
     max_bits: int
@@ -83,43 +65,56 @@ class SarAdcMonoConfig:
     leakage_per_inst__uW: float
     area_per_inst__um2: float
 
-    def __post_init__(self) -> None:
-        if self.max_bits < 2:
-            raise ValueError(
-                f"SarAdcMonoConfig.max_bits ({self.max_bits}) must be >= 2 "
-                f"(MSB-free design needs at least one active cap)"
-            )
-        if not self.v_refs:
-            raise ValueError("SarAdcMonoConfig.v_refs must contain at least one V_ref")
+    def validate(self) -> None:
+        super().validate()
+        self.validate_topology()
+        self.validate_refs()
+        self.validate_timing()
+        self.validate_cdac()
+        self.validate_comparator()
+        self.validate_energy()
+        self.validate_ppa()
+
+    def validate_topology(self) -> None:
+        if not (self.max_bits >= 2):
+            raise ValueError(f"require: max_bits ({self.max_bits}) >= 2")
+
+    def validate_refs(self) -> None:
+        self._require_min_length(self.v_refs, 1, "v_refs")
         for i, v in enumerate(self.v_refs):
-            if not (v > 0.0):
-                raise ValueError(f"SarAdcMonoConfig.v_refs[{i}] ({v}) must be > 0")
-        if self.clk_period__ns <= 0:
-            raise ValueError(f"SarAdcMonoConfig.clk_period__ns ({self.clk_period__ns}) must be > 0")
-        if self.c_unit__fF <= 0:
-            raise ValueError(f"SarAdcMonoConfig.c_unit__fF ({self.c_unit__fF}) must be > 0")
-        if self.e_bootstrap__fJ < 0:
-            raise ValueError(f"SarAdcMonoConfig.e_bootstrap__fJ ({self.e_bootstrap__fJ}) must be >= 0")
-        if self.e_compare_per_bit__fJ < 0:
-            raise ValueError(f"SarAdcMonoConfig.e_compare_per_bit__fJ ({self.e_compare_per_bit__fJ}) must be >= 0")
-        if self.e_logic_per_bit__fJ < 0:
-            raise ValueError(f"SarAdcMonoConfig.e_logic_per_bit__fJ ({self.e_logic_per_bit__fJ}) must be >= 0")
+            self._require_pos(v, f"v_refs[{i}]")
+
+    def validate_timing(self) -> None:
+        self._require_pos(self.clk_period__ns, "clk_period__ns")
+
+    def validate_cdac(self) -> None:
+        self._require_pos(self.c_unit__fF, "c_unit__fF")
+        self._require_nonneg_or_none(self.cap_mismatch_sigma_relative, "cap_mismatch_sigma_relative")
+
+    def validate_comparator(self) -> None:
+        self._require_nonneg_or_none(self.comparator_offset, "comparator_offset")
+        self._require_nonneg_or_none(self.comparator_noise, "comparator_noise")
+
+    def validate_energy(self) -> None:
+        self._require_nonneg(self.e_bootstrap__fJ, "e_bootstrap__fJ")
+        self._require_nonneg(self.e_compare_per_bit__fJ, "e_compare_per_bit__fJ")
+        self._require_nonneg(self.e_logic_per_bit__fJ, "e_logic_per_bit__fJ")
+
+    def validate_ppa(self) -> None:
+        self._require_nonneg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
+        self._require_nonneg(self.area_per_inst__um2, "area_per_inst__um2")
 
 
+@ADC.register_config(SarAdcMonoConfig)
 class SarAdcMono(ADC):
     """Monotonic (Set-and-Down) differential SAR ADC — placeholder.
 
     Args:
-        config: Topology configuration.
+        cfg: Topology configuration.
+        name: Hierarchical profiler name (must be supplied explicitly).
+        dtype: Floating-point dtype for internal voltage arithmetic.
         T__K: Operating temperature in Kelvin.  Drives the kT/C
-            sampling-noise model.  Per project convention temperature
-            is an operating-state init arg, not a config (design)
-            field.  Must be ``> 0``.
-        stochastic: Per-instance switch for additional LSB-jitter
-            stochastic rounding on top of the SAR pipeline.  ``None``
-            (default) follows ``module.training``; ``True`` / ``False``
-            force on / off.
-        dtype: Float dtype for internal voltage arithmetic.
+            sampling-noise model. Must be ``> 0``.
     """
 
     nominal_cap_weights__fF: Tensor
@@ -130,20 +125,20 @@ class SarAdcMono(ADC):
 
     def __init__(
         self,
-        cfg: SarAdcMonoConfig,
         *,
-        name: str = "",
+        cfg: SarAdcMonoConfig,
+        name: str,
         T__K: float,
-        stochastic: bool | None = None,
-        dtype: torch.dtype = torch.float32,
+        dtype: torch.dtype,
+        stochastic: bool | None,
     ) -> None:
-        super().__init__(name=name)
+        super().__init__(cfg=cfg, name=name, T__K=T__K, dtype=dtype, stochastic=stochastic)
         if not (T__K > 0.0):
             raise ValueError(f"SarAdcMono T__K ({T__K}) must be > 0")
         self.cfg = cfg
+        self.T__K: float = T__K
         self.dtype = dtype
         self.stochastic: bool | None = stochastic
-        self.T__K: float = T__K
 
         n_caps = cfg.max_bits - 1
         nominal_cap_weights__fF = torch.tensor(
@@ -176,7 +171,7 @@ class SarAdcMono(ADC):
             persistent=False,
         )
 
-    # --- runtime-mode introspection --- #
+    # --- runtime-mode introspection ---
 
     def available_modes(self) -> tuple[float, ...]:
         """V_ref values the configured CDAC supports, in index order."""
@@ -186,21 +181,13 @@ class SarAdcMono(ADC):
         """Physical CDAC bit width — the maximum active ``bits`` value."""
         return self.cfg.max_bits
 
-    # --- fabricate (static non-idealities) --- #
+    # --- fabricate (static non-idealities) ---
 
     def fabricate(self, shape: tuple[int, ...]) -> None:
-        """Sample the static per-instance non-idealities and store them.
-
-        Each fabricated buffer is rebuilt from its nominal template
-        via ``clone().expand(...)`` so re-calling :meth:`fabricate`
-        always restarts from the unchanged nominal.  When the
-        corresponding sigma is ``None`` the fabricated buffer stays a
-        1-element view (no full-shape memory).
+        """Sample static per-instance state over ``shape`` (re-callable).
 
         Args:
-            shape: Per-instance prefix shape.  ``()`` registers a
-                single shared instance state (one ADC).  A larger
-                shape registers per-instance independent fabrications.
+            shape: Per-instance fabrication shape.
         """
         cfg = self.cfg
         n_caps = cfg.max_bits - 1
@@ -230,7 +217,7 @@ class SarAdcMono(ADC):
 
         self._record_inst_count(shape)
 
-    # --- ABC contract --- #
+    # --- ABC contract ---
 
     @property
     def area_per_inst__um2(self) -> float:
@@ -250,7 +237,7 @@ class SarAdcMono(ADC):
             raise ValueError(f"bits {bits} outside [1, {self.cfg.max_bits}]")
         return (bits + 1) * self.cfg.clk_period__ns
 
-    # --- convert --- #
+    # --- convert ---
 
     def convert(
         self,
@@ -264,7 +251,7 @@ class SarAdcMono(ADC):
         del v_pos__V, v_neg__V, mode, bits
         raise NotImplementedError("Differential monotonic SAR is not yet implemented; use McsSarAdc.")
 
-    # --- shared helpers --- #
+    # --- shared helpers ---
 
     def _validate_runtime_args(self, mode: int, bits: int) -> None:
         """Validate per-call ``(mode, bits)``."""

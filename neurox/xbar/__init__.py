@@ -1,8 +1,9 @@
 """Physical crossbar array implementations."""
 
 from ._1t1r import (
-    Core1T1R,
-    Core1T1RConfig,
+    CircuitCore1T1R,
+    CircuitCore1T1RConfig,
+    Core1T1RDCOP,
     Offset1T1RXbar,
     Offset1T1RXbarConfig,
 )
@@ -10,9 +11,9 @@ from .base import Xbar, XbarConfig, XbarRescaleEntry
 from .ideal import IdealXbar
 
 __all__ = [
-    "Core1T1R",
-    "Core1T1RConfig",
-    "Core1T1ROutput",
+    "CircuitCore1T1R",
+    "CircuitCore1T1RConfig",
+    "Core1T1RDCOP",
     "IdealXbar",
     "Offset1T1RXbar",
     "Offset1T1RXbarConfig",

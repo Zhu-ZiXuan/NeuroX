@@ -1,67 +1,4 @@
-"""Concrete :class:`XbarMapper` composing :class:`Tiler` + :class:`Slicer` s.
-
-A :class:`SimpleMapper` is the default mapper used by ``XbarMacro``.
-It holds three sub-components:
-
-* ``tiler``: shared matrix-tiling primitive.
-* ``x_slicer``: activation-path value decomposer (typically a
-  :class:`~neurox.mapper.xbar.slicer.SerialSlicer`).
-* ``w_slicer``: weight-path value decomposer (typically a
-  :class:`~neurox.mapper.xbar.slicer.SimpleSlicer`).
-
-Decoupling (§5 + §7 of ``temp/mapping.md``)
--------------------------------------------
-* Every runtime method receives the **full** xbar capability set as
-  explicit keyword-only arguments; the mapper internally selects
-  what each sub-component needs.  No method signature is tied to
-  one specific slicer.
-* Slicers see only the unified 3-kwarg contract
-  ``(digit_count, digit_radix, digit_range)``; the mapper does the
-  translation from xbar capabilities to this contract so the slicer
-  and the xbar stay fully decoupled.  ``value_range`` is the
-  slicer's *output*, never an input.
-* Every cross-layer call uses an explicit argument list — no
-  ``**kwargs`` variadics, no ``**dict`` splats — so each interface
-  boundary documents itself in the call site.
-
-Activation translation:
-
-* ``digit_count = 1`` — activation digits are serial; one digit per
-  slice.
-* ``digit_radix = cardinality(x_range)`` — each slice carries one
-  positional digit at the input-grid radix.
-* ``digit_range = x_range`` — for the serial activation path the
-  primitive input grid is the per-digit physical range.
-
-Weight translation:
-
-* ``digit_count = w_digit_count``.
-* ``digit_radix = w_digit_radix``.
-* ``digit_range = w_digit_range``.
-
-Data flow
----------
-weight path:
-
-1. ``w_slicer.slice(w, ...)``:
-   ``[Bw, N, K] -> [Bw, N, K, Sw, D]`` (trailing slice + digit).
-2. ``tiler.tile_w(sliced, plan=w_plan)``:
-   ``[Bw, N, K, Sw, D] -> [Bw, Tr, data_num, Tc, row_num, Sw, D]``.
-3. Mapper permutes + inserts ``M = 1`` / ``Sa = 1`` singletons to
-   reach the macro canonical layout
-   ``[Bw, M=1, Tc, Tr, Sa=1, Sw, data_num, digit_num, row_num]``.
-
-activation path:
-
-1. ``x_slicer.slice(x, ...)``:
-   ``[Bx, M, K] -> [Bx, M, K, Sa, digit_num = 1]``.
-2. ``tiler.tile_x(sliced, plan=x_plan)``:
-   ``[Bx, M, K, Sa, 1] -> [Bx, M, Tc, row_num, Sa, 1]``.
-3. Mapper squeezes the structural ``digit_num = 1``, permutes,
-   and inserts ``Tr = 1`` / ``Sw = 1`` singletons to reach the
-   macro canonical layout
-   ``[Bx, M, Tc, Tr=1, Sa, Sw=1, row_num]``.
-"""
+"""Concrete :class:`XbarMapper` built from a tiler and two slicers."""
 
 from __future__ import annotations
 
@@ -191,26 +128,23 @@ class SimpleMapper(XbarMapper):
         plan = self._tiler.make_x_plan(k=K, row_num=row_num)
 
         x_lo, x_hi = x_range
-        # Shape: [Bx, M, K] -> [Bx, M, K, Sa, digit_num = 1].
+        # Shape: [Bx, M, K] -> [Bx, M, K, Sa, digit_num=1]
         sliced = self._x_slicer.slice(
             x,
             digit_count=1,
             digit_radix=x_hi - x_lo + 1,
             digit_range=(x_lo, x_hi),
         )
-        # Shape: [Bx, M, K, Sa, 1] -> [Bx, M, Tc, row_num, Sa, 1].
+        # Shape: [Bx, M, K, Sa, 1] -> [Bx, M, Tc, row_num, Sa, 1]
         tiled = self._tiler.tile_x(sliced.values, plan=plan)
 
-        # Shape: [Bx, M, Tc, row_num, Sa, 1] -> [Bx, M, Tc, row_num, Sa].
+        # Shape: [Bx, M, Tc, row_num, Sa, 1] -> [Bx, M, Tc, row_num, Sa]
         squeezed = tiled.squeeze(-1)
-        # Shape: [Bx, M, Tc, row_num, Sa] -> [Bx, M, Tc, Sa, row_num].
+        # Shape: [Bx, M, Tc, row_num, Sa] -> [Bx, M, Tc, Sa, row_num]
         transposed = squeezed.transpose(-2, -1)
-        # Insert Sw = 1 between Sa and row_num.
-        # Shape: [Bx, M, Tc, Sa, row_num] -> [Bx, M, Tc, Sa, Sw = 1, row_num].
+        # Shape: [Bx, M, Tc, Sa, row_num] -> [Bx, M, Tc, Sa, Sw=1, row_num]
         with_sw = transposed.unsqueeze(-2)
-        # Insert Tr = 1 between Tc and Sa.
-        # Shape: [Bx, M, Tc, Sa, Sw = 1, row_num] ->
-        #        [Bx, M, Tc, Tr = 1, Sa, Sw = 1, row_num].
+        # Shape: [Bx, M, Tc, Sa, Sw=1, row_num] -> [Bx, M, Tc, Tr=1, Sa, Sw=1, row_num]
         x_xbar = with_sw.unsqueeze(-4)
         return XMappingResult(
             x_xbar=x_xbar,
@@ -239,14 +173,14 @@ class SimpleMapper(XbarMapper):
             row_num=row_num,
         )
 
-        # Shape: [Bw, N, K] -> [Bw, N, K, Sw, D].
+        # Shape: [Bw, N, K] -> [Bw, N, K, Sw, D]
         sliced = self._w_slicer.slice(
             w,
             digit_count=w_digit_count,
             digit_radix=w_digit_radix,
             digit_range=w_digit_range,
         )
-        # Shape: [Bw, N, K, Sw, D] -> [Bw, Tr, data_num, Tc, row_num, Sw, D].
+        # Shape: [Bw, N, K, Sw, D] -> [Bw, Tr, data_num, Tc, row_num, Sw, D]
         tiled = self._tiler.tile_w(sliced.values, plan=plan)
 
         # Permute trailing-6 (Tr, data_num, Tc, row_num, Sw, D) to
@@ -254,16 +188,11 @@ class SimpleMapper(XbarMapper):
         # stay in place.
         B = tiled.ndim - 6
         perm = list(range(B)) + [B + 2, B + 0, B + 4, B + 1, B + 5, B + 3]
-        # Shape: [Bw, Tr, data_num, Tc, row_num, Sw, D] ->
-        #        [Bw, Tc, Tr, Sw, data_num, D, row_num].
+        # Shape: [Bw, Tr, data_num, Tc, row_num, Sw, D] -> [Bw, Tc, Tr, Sw, data_num, D, row_num]
         arranged = tiled.permute(perm)
-        # Insert Sa = 1 between Tr and Sw at absolute position B + 2.
-        # Shape: [Bw, Tc, Tr, Sw, data_num, D, row_num] ->
-        #        [Bw, Tc, Tr, Sa = 1, Sw, data_num, D, row_num].
+        # Shape: [Bw, Tc, Tr, Sw, data_num, D, row_num] -> [Bw, Tc, Tr, Sa=1, Sw, data_num, D, row_num]
         arranged = arranged.unsqueeze(B + 2)
-        # Insert M = 1 between Bw and Tc at absolute position B.
-        # Shape: [Bw, Tc, Tr, Sa = 1, Sw, data_num, D, row_num] ->
-        #        [Bw, M = 1, Tc, Tr, Sa = 1, Sw, data_num, D, row_num].
+        # Shape: [Bw, Tc, Tr, Sa=1, Sw, data_num, D, row_num] -> [Bw, M=1, Tc, Tr, Sa=1, Sw, data_num, D, row_num]
         w_xbar = arranged.unsqueeze(B)
 
         return WMappingResult(

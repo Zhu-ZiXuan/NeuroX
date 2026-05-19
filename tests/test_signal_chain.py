@@ -8,22 +8,20 @@ tests; here we just confirm the per-component contracts hold.
 
 from __future__ import annotations
 
-from functools import partial
-
 import pytest
 import torch
 
 from neurox.analog import (
-    OpAmpTIA,
     AnalogMux,
     AnalogMuxConfig,
     Decoder,
     DecoderConfig,
     GeneralDAC,
     GeneralDACConfig,
+    OpAmpTIA,
     OpAmpTIAConfig,
 )
-from neurox.device import NMOS, NMOSConfig
+from neurox.device import NMOSConfig
 
 
 def _make_tia(
@@ -36,33 +34,25 @@ def _make_tia(
 ) -> OpAmpTIA:
     """Build a OpAmpTIA + internal NMOS pseudo-resistor sized for the tests."""
     nmos_cfg = NMOSConfig(
-        W__um=1.0,
-        L__um=0.06,
-        A_D__um2=0.07,
-        P_D__um=1.14,
-        A_S__um2=0.07,
-        P_S__um=1.14,
         mu0__cm2_per_V_s=200.0,
         c_ox__fF_per_um2=31.4,
         vth0__V=0.40,
-        c_gdo__fF_per_um=0.20,
-        c_gso__fF_per_um=0.20,
-        c_j__fF_per_um2=8.0,
-        c_jsw__fF_per_um=0.15,
         n_factor=1.25,
         T_ref__K=300.0,
         ute=1.5,
         kt1__V=-0.002,
     )
-    nmos_factory = partial(NMOS, nmos_cfg, T__K=300.0, dtype=torch.float64)
     cfg = OpAmpTIAConfig(
         v_ref__V=v_ref__V,
         v_nmos_bias__V=v_nmos_bias__V,
         v_dd__V=v_dd__V,
         opamp_gain=opamp_gain,
         opamp_gain_sigma=opamp_gain_sigma,
+        nmos_cfg=nmos_cfg,
+        pseudo_nmos_W__um=1.0,
+        pseudo_nmos_L__um=0.06,
     )
-    return OpAmpTIA(cfg, nmos_factory=nmos_factory, dtype=torch.float64)
+    return OpAmpTIA(cfg=cfg, name="tia", T__K=300.0, dtype=torch.float64)
 
 
 def test_tia_fabricate_shapes() -> None:
@@ -221,7 +211,7 @@ def test_analog_mux_passthrough() -> None:
     Energy flows through the profiler side channel; ``transport``
     returns only the two analog legs after Phase D.
     """
-    mux = AnalogMux(_make_mux_cfg(energy_per_access__fJ=1.0))
+    mux = AnalogMux(cfg=_make_mux_cfg(energy_per_access__fJ=1.0), name="mux", T__K=300.0, dtype=torch.float32)
     v_pos = torch.tensor([0.1, 0.2, 0.3])
     v_neg = torch.tensor([0.0, 0.1, 0.2])
     out_pos, out_neg = mux.transport(v_pos, v_neg)
@@ -231,7 +221,7 @@ def test_analog_mux_passthrough() -> None:
 
 def test_analog_mux_gain_attenuates_both_legs() -> None:
     """``mux_gain`` scales both legs identically; no inline noise added."""
-    mux = AnalogMux(_make_mux_cfg(mux_gain=0.5))
+    mux = AnalogMux(cfg=_make_mux_cfg(mux_gain=0.5), name="mux", T__K=300.0, dtype=torch.float32)
     v_pos = torch.tensor([0.4, 0.6])
     v_neg = torch.tensor([0.2, 0.3])
     out_pos, out_neg = mux.transport(v_pos, v_neg)
@@ -242,7 +232,7 @@ def test_analog_mux_gain_attenuates_both_legs() -> None:
 def test_analog_mux_cm_noise_is_common_to_both_legs() -> None:
     """CM noise lands with matching sign on both legs (suppressed by diff ADC)."""
     torch.manual_seed(0)
-    mux = AnalogMux(_make_mux_cfg(mux_noise_cm_sigma__V=0.05))
+    mux = AnalogMux(cfg=_make_mux_cfg(mux_noise_cm_sigma__V=0.05), name="mux", T__K=300.0, dtype=torch.float32)
     v_pos = torch.zeros(10_000)
     v_neg = torch.zeros(10_000)
     out_pos, out_neg = mux.transport(v_pos, v_neg)
@@ -255,7 +245,7 @@ def test_analog_mux_cm_noise_is_common_to_both_legs() -> None:
 def test_analog_mux_dm_noise_is_antisymmetric() -> None:
     """DM noise lands with opposite sign on the two legs."""
     torch.manual_seed(0)
-    mux = AnalogMux(_make_mux_cfg(mux_noise_dm_sigma__V=0.05))
+    mux = AnalogMux(cfg=_make_mux_cfg(mux_noise_dm_sigma__V=0.05), name="mux", T__K=300.0, dtype=torch.float32)
     v_pos = torch.zeros(10_000)
     v_neg = torch.zeros(10_000)
     out_pos, out_neg = mux.transport(v_pos, v_neg)
@@ -266,13 +256,18 @@ def test_analog_mux_dm_noise_is_antisymmetric() -> None:
 
 def test_analog_mux_invalid_gain() -> None:
     with pytest.raises(ValueError):
-        AnalogMux(_make_mux_cfg(mux_gain=0.0))
+        AnalogMux(cfg=_make_mux_cfg(mux_gain=0.0), name="mux", T__K=300.0, dtype=torch.float32)
 
 
 def test_decoder_passthrough_drives_dac() -> None:
     """Non-bit-serial decoder passes integer codes straight to the DAC."""
-    dac = GeneralDAC(GeneralDACConfig(code_to_signal=[0.0, 1.2]))
-    dec = Decoder(DecoderConfig(n_address_bits=6, bit_serial=False))
+    dac = GeneralDAC(cfg=GeneralDACConfig(code_to_signal=[0.0, 1.2]), name="dac", T__K=300.0, dtype=torch.float32)
+    dec = Decoder(
+        cfg=DecoderConfig(n_address_bits=6, bit_serial=False),
+        name="dec",
+        T__K=300.0,
+        dtype=torch.float32,
+    )
     code = torch.tensor([0, 1, 1, 0], dtype=torch.long)
     sig = dec.drive(code, dac)
     # DAC LUT lookup: code 0 → 0 V, code 1 → 1.2 V.
@@ -281,8 +276,13 @@ def test_decoder_passthrough_drives_dac() -> None:
 
 def test_decoder_bit_serial_expands_codes() -> None:
     """Bit-serial decoder splits an integer code into ``n_address_bits`` planes."""
-    dac = GeneralDAC(GeneralDACConfig(code_to_signal=[0.0, 1.2]))
-    dec = Decoder(DecoderConfig(n_address_bits=4, bit_serial=True))
+    dac = GeneralDAC(cfg=GeneralDACConfig(code_to_signal=[0.0, 1.2]), name="dac", T__K=300.0, dtype=torch.float32)
+    dec = Decoder(
+        cfg=DecoderConfig(n_address_bits=4, bit_serial=True),
+        name="dec",
+        T__K=300.0,
+        dtype=torch.float32,
+    )
     # Input ``5 = 0b0101`` → bit 0 = 1, bit 1 = 0, bit 2 = 1, bit 3 = 0.
     code = torch.tensor([5], dtype=torch.long)
     sig = dec.drive(code, dac)
@@ -298,4 +298,9 @@ def test_decoder_bit_serial_expands_codes() -> None:
 
 def test_decoder_invalid_address_bits() -> None:
     with pytest.raises(ValueError):
-        Decoder(DecoderConfig(n_address_bits=0))
+        Decoder(
+            cfg=DecoderConfig(n_address_bits=0),
+            name="dec",
+            T__K=300.0,
+            dtype=torch.float32,
+        )

@@ -1,13 +1,4 @@
-"""Inference-only crossbar-backed replacement for ``nn.Conv2d``.
-
-Mirror of :class:`neurox.operator.linear.QuantLinear` for 2-D
-convolutions.  Forward: ``im2col → asymmetric int32 quantize →
-grouped macro.matmul → fold → dequantize``.  State is loaded from a
-NeuroX-flat checkpoint.
-
-Reuses ``run_matmul_pipeline`` from :mod:`neurox.operator.linear` —
-conv is just a regrouping of the same int matmul kernel.
-"""
+"""Inference-only crossbar-backed replacement for ``nn.Conv2d``."""
 
 from typing import Literal, Self
 
@@ -17,9 +8,9 @@ from torch import Tensor
 from torch.nn.modules.utils import _pair
 
 from neurox.macro import NeuroxMacroQuantMatMul
+from neurox.operator.base import NeuroxOperator
+from neurox.operator.linear import run_matmul_pipeline
 
-from ..base import NeuroxOperator
-from ..linear import run_matmul_pipeline
 from ._shared import (
     _build_reversed_padding,
     _conv_padding_args,

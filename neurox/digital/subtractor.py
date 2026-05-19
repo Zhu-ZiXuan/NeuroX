@@ -1,13 +1,7 @@
-"""Subtractor for bipolar weight readout in CiM crossbar macros.
+"""Element-wise integer subtractor for bipolar-readout aggregation.
 
-In a sign-split (differential) crossbar encoding, a signed weight ``w`` is
-decomposed into a positive sub-array ``w+`` and a negative sub-array ``w-``
-such that ``w = w+ - w-``.  After the ADC stage digitises both sub-array
-currents independently, this module computes the true signed MAC contribution
-``y = a - b``, recovering the full bipolar value.
-
-No modular wrap is applied; the result inherits the integer dtype of the
-inputs.  PPA metrics are tracked per-instance for system-level estimation.
+See also:
+    docs/dev/modules/digital/README.md
 """
 
 from dataclasses import dataclass
@@ -16,9 +10,12 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
+from neurox.common.validate import ValidateMixin
+from neurox.profiler import ProfiledModule
+
 
 @dataclass(frozen=True)
-class SubtractorConfig:
+class SubtractorConfig(ValidateMixin):
     """Immutable configuration for a Subtractor instance.
 
     Attributes:
@@ -37,18 +34,29 @@ class SubtractorConfig:
     leakage_per_inst__uW: float = 0.0
     area_per_inst__um2: float = 0.0
 
+    def __post_init__(self) -> None:
+        self.validate()
 
-class Subtractor(nn.Module):
-    """Element-wise subtractor for sign-split crossbar readout.
+    def validate(self) -> None:
+        self.validate_arithmetic()
+        self.validate_ppa()
 
-    Computes ``y = a - b`` where ``a`` and ``b`` are the digitised outputs of
-    the positive and negative sub-arrays respectively.  No saturation or
-    modular wrap is applied; the caller is responsible for ensuring the result
-    fits within the downstream bit width.
-    """
+    def validate_arithmetic(self) -> None:
+        self._require_pos(self.bit_width, "bit_width")
 
-    def __init__(self, config: SubtractorConfig) -> None:
-        super().__init__()
+    def validate_ppa(self) -> None:
+        self._require_nonneg(self.energy_per_op__fJ, "energy_per_op__fJ")
+        self._require_nonneg(self.area_per_inst__um2, "area_per_inst__um2")
+        self._require_nonneg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
+        self._require_nonneg(self.latency_per_op__ns, "latency_per_op__ns")
+
+
+class Subtractor(nn.Module, ProfiledModule):
+    """Element-wise integer subtractor. No saturation or wrap."""
+
+    def __init__(self, config: SubtractorConfig, *, name: str = "") -> None:
+        nn.Module.__init__(self)
+        ProfiledModule.__init__(self, name)
         self.config = config
 
     @property
@@ -66,11 +74,15 @@ class Subtractor(nn.Module):
         """Latency per op in ns."""
         return self.config.latency_per_op__ns
 
-    def fabricate(self) -> None:
-        """Default no-op (Subtractor has no static fabrication state)."""
-        return None
+    def fabricate(self, shape: tuple[int, ...]) -> None:
+        """Sample static per-instance state over ``shape`` (re-callable).
 
-    def operate(self, a: Tensor, b: Tensor) -> tuple[Tensor, Tensor]:
+        Args:
+            shape: Per-instance fabrication shape.
+        """
+        self._record_inst_count(shape)
+
+    def operate(self, a: Tensor, b: Tensor) -> Tensor:
         """Subtract ``b`` from ``a`` element-wise.
 
         Args:
@@ -78,11 +90,9 @@ class Subtractor(nn.Module):
             b: Negative sub-array ADC output (subtrahend).
 
         Returns:
-            A tuple ``(y, dynamic_energy__fJ)`` where ``y = a - b`` and
-            ``dynamic_energy__fJ`` is a per-output-element energy tensor
-            (``shape == y.shape``).  Callers ``.sum()`` at the
-            aggregation boundary for a scalar total.
+            ``y = a - b``.
         """
         y = a - b
         dynamic_energy__fJ = torch.full_like(y, self.config.energy_per_op__fJ, dtype=torch.float32)
-        return y, dynamic_energy__fJ
+        self._log_dynamic(dynamic_energy__fJ, self.config.latency_per_op__ns)
+        return y

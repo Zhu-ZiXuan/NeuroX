@@ -1,17 +1,4 @@
-"""Config base classes with TOML/YAML I/O and builder pattern.
-
-``Config`` is the mixin base for all NeuroX runtime configuration
-dataclasses.  It provides ``from_file`` / ``to_file`` for transparent
-TOML and YAML serialization and a ``from_builder`` bridge to the
-``ConfigBuilder`` pattern.  A single file may hold several configs as
-named top-level tables; pass ``section=`` to pluck one out.
-
-``ConfigBuilder`` is a generic base for staged config construction with
-explicit validation.  Builders are also dataclasses, hold optional
-fields, and implement ``validate`` + ``build`` to produce a ``Config``
-instance.  They share the same ``from_file`` / ``to_file`` interface so
-builder state can be persisted and loaded independently.
-"""
+"""Config base classes with file I/O and builder support."""
 
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -31,18 +18,9 @@ class ValidationError(Exception):
 
 
 class Config:
-    """Base class for NeuroX runtime configuration objects.
+    """Base class for NeuroX configuration dataclasses."""
 
-    Concrete configs are dataclasses that inherit this class to gain
-    TOML/YAML serialization and the ``from_builder`` factory::
-
-        @dataclass
-        class MyConfig(Config):
-            foo: str
-            bar: int
-    """
-
-    # --- file io --- #
+    # --- file io ---
 
     @classmethod
     def from_file(
@@ -75,7 +53,7 @@ class Config:
         """Dump this config to a TOML or YAML file."""
         dataclass_to_file(self, file, encoding=encoding)
 
-    # --- builder bridge --- #
+    # --- builder bridge ---
 
     @classmethod
     def from_builder(cls, builder: "ConfigBuilder[Self]") -> Self:
@@ -87,30 +65,9 @@ class Config:
 
 
 class ConfigBuilder(Generic[C], ABC):
-    """Generic base for staged config construction with validation.
+    """Base class for staged config builders with validation."""
 
-    Concrete builders are dataclasses with optional fields.  They
-    implement ``validate`` to collect errors into a ``ValidationError``
-    and ``build`` to produce the final ``Config`` instance::
-
-        @dataclass
-        class MyConfigBuilder(ConfigBuilder[MyConfig]):
-            foo: str | None = None
-            bar: int | None = None
-
-            def validate(self) -> None:
-                errors: list[Exception] = []
-                if self.foo is None:
-                    errors.append(ValueError("foo is required"))
-                if errors:
-                    raise ValidationError(errors)
-
-            def build(self) -> MyConfig:
-                self.validate()
-                return MyConfig(foo=self.foo, bar=self.bar)
-    """
-
-    # --- subclass hooks --- #
+    # --- subclass hooks ---
 
     @abstractmethod
     def build(self) -> C:
@@ -122,7 +79,7 @@ class ConfigBuilder(Generic[C], ABC):
         """Validate builder fields."""
         raise NotImplementedError
 
-    # --- file io --- #
+    # --- file io ---
 
     @classmethod
     def from_file(

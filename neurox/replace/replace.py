@@ -1,36 +1,7 @@
 """Model conversion API for NeuroX crossbar inference.
 
-The replacement subsystem is **staged**: ``build_evaluator`` is a thin
-wrapper around four public building blocks that users can also call
-individually for staged or selective conversion flows.
-
-Stages
-------
-1. :func:`replace_model` — structurally swap matched float modules for
-   NeuroX crossbar operators using a :class:`ReplacementPolicy` (default:
-   every ``nn.Linear`` → :class:`QuantLinear`, every ``nn.Conv2d`` →
-   :class:`QuantConv2d`).  No state loading, no fabrication.
-2. :func:`load_neurox_state` — load a NeuroX-flat checkpoint into the
-   replaced model.  Strict by default: missing required NeuroX operator
-   buffers raise :class:`NeuroxStateError`.
-3. :func:`bind_output_calibration` — fold each macro's
-   ``output_rescale_factor`` into the freshly-loaded
-   ``(rescale_multiplier, rescale_rshift, bias_int)`` so one
-   checkpoint serves any macro backend.
-4. :func:`fabricate_model` — call ``fabricate()`` on every
-   :class:`NeuroxOperator` so each macro programs its physical
-   device state from the integer weights.
-
-:func:`build_evaluator` orchestrates the four stages in order and
-preserves the one-call user surface.
-
-Example::
-
-    import neurox
-    model = torchvision_like_float_model()
-    model = neurox.build_evaluator(model, "checkpoint.pth", xbar1t1r_macro_factory)
-    model.eval()
-    logits = model(images)
+See also:
+    docs/dev/modules/replace/README.md
 """
 
 import sys
@@ -77,16 +48,7 @@ _REQUIRED_OP_STATE_KEYS: tuple[str, ...] = (
 
 
 def count_unreplaced_ops(model: nn.Module) -> dict[str, int]:
-    """Tabulate every leaf ``nn.Module`` *not* covered by NeuroX operators.
-
-    Walks the module tree but treats every ``NeuroxOperator`` subtree as
-    opaque — analog macro internals (RRAM, NMOS, ADC, etc.) are
-    deliberately *not* counted, since they belong to ops we did replace.
-    Everything that survives a replace pass and isn't inside a
-    ``Quant*`` operator shows up here: typically activation functions
-    (ReLU, GELU), normalisers (LayerNorm), pooling (MaxPool2d),
-    embeddings, dropouts, etc.  These modules still run in float and
-    consume no analog energy.
+    """Tabulate every leaf ``nn.Module`` not covered by a NeuroX operator.
 
     Args:
         model: Replaced or unreplaced model.
@@ -102,8 +64,6 @@ def count_unreplaced_ops(model: nn.Module) -> dict[str, int]:
             counts[type(module).__name__] += 1
             return
         for child in children:
-            # Treat every replaced operator as opaque — its internals
-            # are macro primitives (RRAM/NMOS/ADC), not unreplaced ops.
             if isinstance(child, NeuroxOperator):
                 continue
             walk(child)
@@ -178,10 +138,8 @@ def _replace(
 
     Args:
         model: PyTorch model to transform.
-        macro_factory: Callable that returns a fresh macro instance per layer.
-            Accepts ``name=<qualified module name>`` so the macro and
-            every nested physical module receive a hierarchical
-            profiler identity (e.g. ``fc1.macro.xbar.core.tia``).
+        macro_factory: Callable returning a fresh macro per layer. Receives
+            ``name=<qualified module name>`` for hierarchical profiler IDs.
 
     Returns:
         The same model, mutated in place.
@@ -233,20 +191,13 @@ def replace_model(
 ) -> nn.Module:
     """Structurally replace matched float modules with NeuroX operators.
 
-    When ``policy`` is ``None`` the default rule set replaces every
-    ``nn.Linear`` with :class:`QuantLinear` and every ``nn.Conv2d``
-    with :class:`QuantConv2d`, bound to fresh macros from
-    ``macro_factory(name=qualified_module_name)``.  Provide a
-    :class:`~neurox.replace.policy.ReplacementPolicy` for partial
-    replacement, heterogeneous macros, or predicate-based filtering.
-
     Args:
         model: Float model to transform in place.
-        macro_factory: Callable returning a fresh macro per replaced
-            layer.  Receives ``name=`` so each macro's physical leaves
-            carry a hierarchical profiler identity.
-        policy: Optional :class:`ReplacementPolicy`.  Default rules
-            preserve the legacy ``Linear`` / ``Conv2d`` behavior.
+        macro_factory: Callable returning a fresh macro per replaced layer;
+            accepts ``name=`` for hierarchical profiler IDs.
+        policy: Optional replacement policy. ``None`` replaces every
+            ``nn.Linear`` with :class:`QuantLinear` and every ``nn.Conv2d``
+            with :class:`QuantConv2d`.
         verbose: When ``True``, print a before/after structural report.
         report_file: Output stream for the report (default ``sys.stdout``).
 
@@ -271,21 +222,13 @@ def load_neurox_state(
 ) -> StateBindingReport:
     """Load a NeuroX-flat checkpoint into a replaced model.
 
-    Strict by default: every :class:`QuantLinear` / :class:`QuantConv2d`
-    must receive its full 12-buffer slice (``weight_int``, ``bias_int``,
-    rescale + zero-point + scale + qmin/qmax).  Missing keys raise
-    :class:`NeuroxStateError`; unexpected keys are passed through
-    ``load_state_dict(strict=False)`` so float-side buffers (BN
-    parameters, biases on float layers, …) keep loading.
-
     Args:
         model: Model already processed by :func:`replace_model`.
         checkpoint: Path to a ``neurox_flat`` checkpoint or a pre-loaded
             ``{"schema": "neurox_flat", "state_dict": {...}, ...}`` dict.
         strict: When ``True``, raise :class:`NeuroxStateError` if any
-            replaced operator is missing required buffers.  When
-            ``False`` (relaxed), the missing keys land in the returned
-            report so callers can decide.
+            replaced operator is missing required buffers. When ``False``,
+            missing keys land in the returned report.
 
     Returns:
         :class:`StateBindingReport` with the per-call diagnostic.
@@ -339,15 +282,9 @@ def load_neurox_state(
 def bind_output_calibration(model: nn.Module) -> None:
     """Fold each macro's ``output_rescale_factor`` into the loaded buffers.
 
-    The checkpoint is extracted with ``rescale_factor=1.0`` (macro-
-    agnostic).  After :func:`load_neurox_state`, this function
-    re-derives ``(rescale_multiplier, rescale_rshift, bias_int)`` by
-    multiplying the original ``(sx * sw / sy)`` scale by the target
-    macro's ``rf``.  One checkpoint works with any macro backend.
-
-    Operators whose macro has ``rf == 1.0`` (e.g. :class:`IdealMacro` or
-    a tile whose codes already cover the ideal state range) are
-    skipped — no correction needed.
+    Re-derives ``(rescale_multiplier, rescale_rshift, bias_int)`` by
+    multiplying the checkpointed ``(sx · sw / sy)`` scale by the target
+    macro's ``rf``. Operators with ``rf == 1.0`` are skipped.
     """
     for module in model.modules():
         if not isinstance(module, (QuantLinear, QuantConv2d)):
@@ -359,8 +296,7 @@ def bind_output_calibration(model: nn.Module) -> None:
         sx = module.input_scale.to(torch.float64)
         sy = module.output_scale.to(torch.float64)
 
-        # The old (mult, rshift) encoded ``(sx*sw/sy)`` with ``rf=1``;
-        # ``old_scale = mult / 2^rshift``; new scale = ``old_scale * rf``.
+        # old (mult, rshift) encoded ``(sx·sw/sy)`` at rf=1; new scale = old · rf.
         old_mult = module.rescale_multiplier.to(torch.float64)
         old_rshift = module.rescale_rshift.to(torch.float64)
         old_scale = old_mult / (2.0**old_rshift)
@@ -370,7 +306,7 @@ def bind_output_calibration(model: nn.Module) -> None:
         module.rescale_multiplier.copy_(new_mult)
         module.rescale_rshift.copy_(new_rsh)
 
-        # Bias was folded with ``rf=1``; rescale by ``/rf`` and re-round.
+        # bias was folded at rf=1; rescale by ``/rf`` and re-round.
         int32_info = torch.iinfo(torch.int32)
         module.bias_int.copy_(
             torch.round(module.bias_int.to(torch.float64) / rf)
@@ -378,10 +314,6 @@ def bind_output_calibration(model: nn.Module) -> None:
             .to(torch.int32)
         )
 
-        # Quiet the unused references the linter sees in some
-        # configurations — ``sx`` / ``sy`` are part of the documented
-        # derivation even though the implementation above recovers the
-        # combined scale directly from the stored ``(mult, rshift)``.
         del sx, sy
 
 

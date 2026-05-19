@@ -1,20 +1,7 @@
-"""Tiny min/max observer for hardware-aware training.
+"""Min/max observers (per-tensor / per-channel) for hardware-aware training.
 
-The observer tracks a running ``(min, max)`` of the values it sees via
-exponential moving average and derives ``(scale, zero_point)`` pairs
-on demand.  It is deliberately minimal — no ties to ``torch.ao``
-(deprecated) and no histogram / percentile complexity.  Two observer
-flavors are exposed:
-
-- ``PerTensorObserver``: one ``(scale, zp)`` pair across the whole
-  tensor, asymmetric affine.  Used for activations.
-- ``PerChannelSymmObserver``: per-output-channel ``(scale, zp=0)`` pair,
-  symmetric range ``[-qmax, qmax]``.  Used for weights.
-
-Both implement ``forward(x)`` as an observer hook (no gradient; called
-before the fake-quant step) and ``qparams()`` to fetch the current
-stats.  When ``training=False`` the ``forward`` call is a no-op, so an
-eval pass uses the last-learned ``(scale, zp)`` and doesn't drift.
+See also:
+    docs/dev/modules/operator/train/README.md
 """
 
 import torch
@@ -25,20 +12,13 @@ from torch import Tensor
 class PerTensorObserver(nn.Module):
     """Per-tensor asymmetric affine min/max observer with EMA tracking.
 
-    Args:
-        qmin: Integer min of the target grid (e.g. ``0``).
-        qmax: Integer max of the target grid (e.g. ``15``).
-        momentum: EMA weight on the newest batch.  ``0.1`` tracks slowly
-            and tolerates outliers; ``1.0`` replaces the running stats
-            every call.
+    The ``frozen`` flag (0-d bool buffer) pins ``(min, max)`` after
+    calibration so the stats survive subsequent ``model.train()`` calls.
 
-    The observer has an explicit ``frozen`` flag (persisted as a 0-d
-    bool buffer) so an external caller can pin ``(min, max)`` after a
-    calibration phase and have the stats survive later ``model.train()``
-    calls.  Pure ``self.training``-gating would be reset by the first
-    ``model.train()`` that follows calibration, which destabilises
-    integer-pipeline HAT where observer drift amplifies STE gradient
-    noise batch-over-batch.
+    Args:
+        qmin: Integer min of the target grid.
+        qmax: Integer max of the target grid.
+        momentum: EMA weight on the newest batch.
     """
 
     min_val: Tensor
@@ -66,9 +46,7 @@ class PerTensorObserver(nn.Module):
     def forward(self, x: Tensor) -> None:
         """EMA update of ``(min_val, max_val)`` from ``x``.
 
-        No-op when ``self.training`` is ``False`` OR ``self.frozen`` is
-        set, so the observer is frozen at inference time and stays
-        frozen across ``model.train()`` calls after explicit freezing.
+        No-op when ``self.training`` is ``False`` or ``self.frozen`` is set.
         """
         if not self.training or bool(self.frozen):
             return
@@ -83,7 +61,7 @@ class PerTensorObserver(nn.Module):
 
     def qparams(self) -> tuple[Tensor, Tensor]:
         """Return ``(scale, zero_point)`` as ``(float32, int32)`` tensors."""
-        # Pull zero into the observed range so zero can be represented exactly.
+        # Pull zero into the range so it can be represented exactly.
         min_val = torch.minimum(self.min_val, torch.zeros_like(self.min_val))
         max_val = torch.maximum(self.max_val, torch.zeros_like(self.max_val))
         span = (max_val - min_val).clamp(min=1e-8)
@@ -95,10 +73,8 @@ class PerTensorObserver(nn.Module):
 class PerChannelSymmObserver(nn.Module):
     """Per-channel symmetric min/max observer with EMA tracking.
 
-    Used for weights under the symmetric per-output-channel grid
-    ``[-qmax, +qmax]``; the zero-point is always ``0``.  Carries the
-    same ``frozen`` flag as :class:`PerTensorObserver` so the two
-    observer flavors share a uniform freeze contract.
+    Symmetric grid ``[-qmax, +qmax]`` with ``zero_point = 0``. Same
+    ``frozen`` flag as :class:`PerTensorObserver`.
     """
 
     abs_max: Tensor

@@ -32,7 +32,7 @@ from neurox.mapper.xbar import (
     SimpleMapper,
     SimpleSlicer,
     SimpleTiler,
-    SlicingResult,
+    SlicingPlan,
     TilePlan,
     WMappingResult,
     XMappingResult,
@@ -84,7 +84,7 @@ def test_serial_slicer_output_shape() -> None:
     s = SerialSlicer(slice_num=3, encoding="true_form")
     x = torch.randint(0, 4, (5, 8), dtype=torch.int32)
     out = s.slice(x, digit_count=1, digit_radix=4, digit_range=(0, 3))
-    assert isinstance(out, SlicingResult)
+    assert isinstance(out, SlicingPlan)
     # Trailing-2: [slice_num=3, digit_num=1].
     assert out.values.shape == (5, 8, 3, 1)
     # slice_weights = [r^0, r^1, r^2] = [1, 4, 16].

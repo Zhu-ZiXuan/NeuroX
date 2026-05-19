@@ -66,10 +66,11 @@ from neurox.digital import (
     SubtractorConfig,
 )
 from neurox.macro.xbar_macro import XbarMacro
-from neurox.mapper import SignedDigitTranscoder, XbarMapper
+from neurox.mapper import SignedDigitTranscoder
+from neurox.mapper.xbar import XbarMapper
 from neurox.xbar import (
-    Core1T1R,
-    Core1T1RConfig,
+    CircuitCore1T1R,
+    CircuitCore1T1RConfig,
     IdealXbar,
     Offset1T1RXbar,
     Offset1T1RXbarConfig,
@@ -95,7 +96,7 @@ _SPECS = {
     "digit_subtractor": SubtractorConfig,
     "accumulator": AccumulatorConfig,
     "shift_adder": ShiftAdderConfig,
-    "core": Core1T1RConfig,
+    "core": CircuitCore1T1RConfig,
     "readout": ReadOutConfig,
     "xbar": Offset1T1RXbarConfig,
 }
@@ -147,7 +148,7 @@ def _build_ideal(typed) -> IdealXbar:
 def _build_1t1r(typed) -> Offset1T1RXbar:
     """Build the Xbar1T1R via the new three-layer factory chain.
 
-    See ``temp/1t1r_xbar.md`` + ``temp/state_holding.md``.  Each
+    See ``docs/dev/modules/xbar/_1t1r/README.md`` + ``docs/dev/architecture/state_holding.md``.  Each
     device / circuit module is built per-core via its own factory so
     no fabricated state is shared across cores.  Returned in
     ``eval()`` mode (see :func:`_build_ideal`).
@@ -160,7 +161,7 @@ def _build_1t1r(typed) -> Offset1T1RXbar:
     bl_wire_factory = partial(Wire, typed["bl_wire"], dtype=torch.float64)
     wl_wire_factory = partial(Wire, typed["wl_wire"], dtype=torch.float64)
     core_factory = partial(
-        Core1T1R,
+        CircuitCore1T1R,
         typed["core"],
         rram_factory=rram_factory,
         nmos_factory=nmos_factory,
@@ -441,9 +442,9 @@ class TestLevel3_MacroTiling:
         dot_neg = (x_vec.unsqueeze(-2).float() * w_neg.float()).sum(-1).to(torch.int64)
         y_raw = dot_pos - dot_neg
 
-        y_raw, _ = macro.x_shift_adder.operate(y_raw, xbar.x_states, dim=-3)
-        y_raw, _ = macro.w_shift_adder.operate(y_raw, xbar.w_states, dim=-2)
-        y_raw, _ = macro.col_accumulator.operate(y_raw, dim=-3)
+        y_raw = macro.x_shift_adder.operate(y_raw, xbar.x_states, dim=-3)
+        y_raw = macro.w_shift_adder.operate(y_raw, xbar.w_states, dim=-2)
+        y_raw = macro.col_accumulator.operate(y_raw, dim=-3)
         y_raw = y_raw.flatten(start_dim=-2)[..., :N]
 
         assert torch.equal(y_raw.flatten()[:N], y_ideal.flatten()[:N]), (

@@ -1,22 +1,7 @@
 """Side-channel hardware profiler for NeuroX circuit-level simulation.
 
-``NeuroxProfiler`` is a thread-local context manager that captures hardware
-metrics emitted by physical modules during a forward pass.  Numerical
-functions stay clean — energy / latency / area flow through the
-``ProfiledModule._log_dynamic`` side channel rather than the return path —
-and the profiler is responsible for the central aggregation:
-
-* **Runtime events** (dynamic energy + latency) are appended per physical
-  module call.  Total runtime latency is the sum across events.
-* **Static records** (area + leakage power) are computed at fabrication
-  time and stored on each ``ProfiledModule`` (``_inst_area__um2``,
-  ``_inst_leakage__uW``).  ``analyze_static(model)`` walks the model
-  tree and sums them.
-* **Leakage energy** is *not* logged per-module.  The profiler derives it
-  centrally as ``leakage_power__uW * total_latency__ns`` in ``summary``.
-
-Outside an active context every ``_log_dynamic`` call is a silent no-op,
-so physical modules can be exercised without paying any logging cost.
+See also:
+    docs/dev/modules/profiler/README.md
 """
 
 import threading
@@ -34,8 +19,8 @@ class RuntimeEvent:
     """One dynamic event from a physical module's primary execution call.
 
     Attributes:
-        qualified_name: Hierarchical module identifier (e.g.
-            ``fc1.macro.xbar.core.tia``).
+        qualified_name: Hierarchical module identifier
+            (``<layer>.<owner>...<leaf>``).
         module_type: Short class-name tag of the emitting module.
         dynamic_energy__fJ: Switching energy attributed to this call [fJ].
         latency__ns: Runtime latency contribution for this call [ns].
@@ -68,11 +53,10 @@ class StaticRecord:
 class StaticMetrics:
     """Aggregated static hardware metrics for one model.
 
-    ``leakage_power__uW`` is the static total; ``latency__ns`` is the
-    *dynamic* total runtime latency the profiler observed (default
-    ``0.0`` when produced outside a runtime context).
-    Leakage *energy* is the product ``leakage_power__uW * latency__ns``
-    computed centrally in :meth:`NeuroxProfiler.summary`.
+    Attributes:
+        area__um2: Sum of per-instance area across all profiled modules [μm²].
+        leakage_power__uW: Sum of per-instance leakage power [μW].
+        latency__ns: Dynamic total runtime latency observed during profiling [ns].
     """
 
     area__um2: float = 0.0
@@ -87,7 +71,13 @@ class StaticMetrics:
 
 @dataclass
 class ProfilerReport:
-    """Combined runtime + static report bundle."""
+    """Combined runtime + static report bundle.
+
+    Attributes:
+        events: Runtime events captured during the active profiler context.
+        static_records: Per-module static-metric snapshots.
+        static: Aggregated static metrics across the whole model.
+    """
 
     events: list[RuntimeEvent] = field(default_factory=list)
     static_records: list[StaticRecord] = field(default_factory=list)
@@ -105,17 +95,9 @@ class ProfilerReport:
 class NeuroxProfiler:
     """Context manager that captures physical-module side-channel events.
 
-    Within a ``with NeuroxProfiler() as profiler:`` block, every
-    ``ProfiledModule._log_dynamic`` call appends to ``events``.  Outside
-    a context the calls are no-ops, so production code pays no cost when
-    profiling is not enabled.
-
-    Example::
-
-        with NeuroxProfiler() as profiler:
-            output = model(input_data)
-        report = profiler.report(model)
-        print(profiler.summary(report.static))
+    Inside ``with NeuroxProfiler() as profiler:``, every
+    ``ProfiledModule._log_dynamic`` call appends to ``events``; outside,
+    the calls are no-ops.
 
     Attributes:
         events: Runtime events appended during the active context.
@@ -206,12 +188,7 @@ class NeuroxProfiler:
 
     @staticmethod
     def collect_static(model: nn.Module) -> list[StaticRecord]:
-        """Build a per-module ``StaticRecord`` list by walking ``model``.
-
-        Only modules inheriting :class:`ProfiledModule` contribute; the
-        per-instance area and leakage are already pre-multiplied by the
-        replica count via :meth:`ProfiledModule._record_inst_count`.
-        """
+        """Build a per-module ``StaticRecord`` list by walking ``model``."""
         out: list[StaticRecord] = []
         for module in model.modules():
             if isinstance(module, ProfiledModule):
@@ -227,11 +204,7 @@ class NeuroxProfiler:
 
     @staticmethod
     def analyze_static(model: nn.Module) -> StaticMetrics:
-        """Aggregate static metrics across all ``ProfiledModule`` instances.
-
-        Returns total area and leakage *power* only — leakage *energy*
-        is derived in :meth:`summary` from the dynamic-latency total.
-        """
+        """Aggregate total area and leakage power across all profiled modules."""
         area = 0.0
         leakage = 0.0
         for module in model.modules():
@@ -242,10 +215,7 @@ class NeuroxProfiler:
 
     @staticmethod
     def analyze_model(model: nn.Module) -> ProfilerReport:
-        """Build a static-only ``ProfilerReport`` (no runtime events).
-
-        Useful for area/leakage analysis without running the model.
-        """
+        """Build a static-only ``ProfilerReport`` (no runtime events)."""
         records = NeuroxProfiler.collect_static(model)
         report = ProfilerReport(static_records=records)
         report.static = NeuroxProfiler.analyze_static(model)
@@ -271,9 +241,8 @@ class NeuroxProfiler:
     ) -> str:
         """Format a concise multi-line summary.
 
-        When ``static`` is supplied, leakage *energy* is derived centrally
-        as ``static.leakage_power__uW * self.total_latency__ns`` — the
-        only place in the system where leakage energy is computed.
+        When ``static`` is supplied, leakage energy is added as
+        ``static.leakage_power__uW * self.total_latency__ns``.
         """
         lines: list[str] = []
         if extras is not None:

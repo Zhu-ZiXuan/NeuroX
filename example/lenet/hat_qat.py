@@ -109,7 +109,7 @@ def main() -> None:
 
     device = torch.device(args.device)
 
-    # --- 1. Load float weights --- #
+    # --- 1. Load float weights ---
     float_state = torch.load(args.float_checkpoint, map_location="cpu", weights_only=True)
     model = LeNet5()
     model.load_state_dict(float_state)
@@ -125,10 +125,10 @@ def main() -> None:
             p.requires_grad_(False)
         print(f"KD: alpha_ce={args.kd_alpha}  T={args.kd_temperature}")
 
-    # --- 2. BN fold (no-op for LeNet) --- #
+    # --- 2. BN fold (no-op for LeNet) ---
     neurox.fold_batchnorm(model)
 
-    # --- 3. Replace supported ops with HAT counterparts --- #
+    # --- 3. Replace supported ops with HAT counterparts ---
     # The two CLI knobs (``--config`` and ``--xbar``) fully specify the
     # hardware target: the TOML provides the quant grid, and the
     # chosen xbar kind selects between the physical 1T1R solver and
@@ -150,7 +150,7 @@ def main() -> None:
     train_loader = create_mnist_dataloader(args.dataset_dir, args.batch_size, device, split="train", shuffle=True)
     val_loader = create_mnist_dataloader(args.dataset_dir, args.batch_size, device, split="val")
 
-    # --- 4. Calibration: train-mode forwards to settle observers --- #
+    # --- 4. Calibration: train-mode forwards to settle observers ---
     if args.calibration_batches > 0:
         print(f"Calibrating {args.calibration_batches} batches (train-mode no-grad to settle observers)...")
         model.train()
@@ -167,7 +167,7 @@ def main() -> None:
     n_frozen = neurox.freeze_hat_observers(model)
     print(f"Froze {n_frozen} HAT observers")
 
-    # --- 5. Fine-tune with macro-in-the-loop --- #
+    # --- 5. Fine-tune with macro-in-the-loop ---
     # Adam (over SGD+momentum): HAT gradients through the 16-level
     # output grid are quantisation-noisy, and momentum accumulates that
     # noise into stepwise weight drift that spikes the loss after a
@@ -237,7 +237,7 @@ def main() -> None:
         model.load_state_dict(best_state)
     print(f"Best HAT-eval val_acc: {best_acc:.4f}")
 
-    # --- 6. Extract NeuroX-flat state and save --- #
+    # --- 6. Extract NeuroX-flat state and save ---
     flat = neurox.extract_neurox_state(model)
     args.checkpoint.parent.mkdir(parents=True, exist_ok=True)
     torch.save(

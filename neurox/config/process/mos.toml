@@ -1,0 +1,23 @@
+# MOSFET process / mismatch parameters.
+#
+# Each top-level section names one variant: `<channel>_<node>_<flavor>`
+# (channel ∈ {nmos, pmos}, node = process generation in nm, flavor =
+# threshold flavour e.g. rvt / lvt / hvt).
+#
+# Fields map directly to `NMOSConfig` / `PMOSConfig` field names; no
+# construction directives (no `_neurox_*` keys of any kind).
+#
+# Pelgrom mismatch fields (`A_vt__mV_um`, `A_beta_relative__um`) are
+# optional; omit them to disable that mismatch source.
+
+
+[nmos_28_rvt]
+mu0__cm2_per_V_s = 200.0
+c_ox__fF_per_um2 = 31.4
+vth0__V = 0.40
+
+n_factor = 1.25
+
+T_ref__K = 300.0
+ute = 1.5
+kt1__V = -0.002

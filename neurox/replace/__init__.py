@@ -1,13 +1,4 @@
-"""Inference-side replacement pipeline: the four staged conversion
-functions plus the policy / report machinery.
-
-Also re-exports the profiler symbols so callers that wrote
-``from neurox.replace import NeuroxProfiler`` continue to work.
-
-HAT-side helpers (``HATLinear`` / ``HATConv2d`` / ``replace_for_hat``
-/ ``freeze_hat_observers`` / ``extract_neurox_state`` /
-``fold_batchnorm``) live in :mod:`neurox.operator.train`.
-"""
+"""Inference-side replacement pipeline."""
 
 from neurox.profiler import (
     NeuroxProfiler,

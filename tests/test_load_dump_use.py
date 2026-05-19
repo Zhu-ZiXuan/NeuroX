@@ -1,0 +1,173 @@
+"""Tests for the ``_neurox_use`` cross-file reference directive in ``load_dump``."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+
+import pytest
+
+from neurox.common import dataclass_from_file, resolve_uses
+from neurox.common.load_dump import dict_from_file
+
+
+@dataclass(frozen=True)
+class _Inner:
+    a: float
+    b: float
+
+
+@dataclass(frozen=True)
+class _Outer:
+    name: str
+    inner: _Inner
+
+
+# --- fixtures ---
+
+
+def _write(path: Path, body: str) -> Path:
+    path.write_text(body)
+    return path
+
+
+@pytest.fixture
+def cfg_dir(tmp_path: Path) -> Path:
+    return tmp_path
+
+
+# --- basic resolution ---
+
+
+def test_basic_reference_expands_fragment(cfg_dir: Path) -> None:
+    _write(cfg_dir / "frag.toml", "[piece]\na = 1.0\nb = 2.0\n")
+    _write(cfg_dir / "main.toml", '[outer]\nname = "x"\n[outer.inner]\n_neurox_use = "frag:piece"\n')
+    obj = dataclass_from_file(_Outer, cfg_dir / "main.toml", section="outer")
+    assert obj == _Outer(name="x", inner=_Inner(a=1.0, b=2.0))
+
+
+def test_inline_keys_override_fragment(cfg_dir: Path) -> None:
+    _write(cfg_dir / "frag.toml", "[piece]\na = 1.0\nb = 2.0\n")
+    _write(
+        cfg_dir / "main.toml",
+        '[outer]\nname = "x"\n[outer.inner]\n_neurox_use = "frag:piece"\nb = 9.5\n',
+    )
+    obj = dataclass_from_file(_Outer, cfg_dir / "main.toml", section="outer")
+    assert obj == _Outer(name="x", inner=_Inner(a=1.0, b=9.5))
+
+
+def test_same_fragment_broadcast_to_two_slots(cfg_dir: Path) -> None:
+    @dataclass(frozen=True)
+    class TwoInners:
+        left: _Inner
+        right: _Inner
+
+    _write(cfg_dir / "frag.toml", "[piece]\na = 3.0\nb = 4.0\n")
+    _write(
+        cfg_dir / "main.toml",
+        '[outer.left]\n_neurox_use = "frag:piece"\n[outer.right]\n_neurox_use = "frag:piece"\n',
+    )
+    obj = dataclass_from_file(TwoInners, cfg_dir / "main.toml", section="outer")
+    assert obj == TwoInners(left=_Inner(a=3.0, b=4.0), right=_Inner(a=3.0, b=4.0))
+
+
+def test_suffixless_path_tries_toml_then_yaml(cfg_dir: Path) -> None:
+    _write(cfg_dir / "frag.toml", "[piece]\na = 5.0\nb = 6.0\n")
+    _write(cfg_dir / "main.toml", '[outer]\nname = "y"\n[outer.inner]\n_neurox_use = "frag:piece"\n')
+    obj = dataclass_from_file(_Outer, cfg_dir / "main.toml", section="outer")
+    assert obj == _Outer(name="y", inner=_Inner(a=5.0, b=6.0))
+
+
+def test_explicit_suffix_also_works(cfg_dir: Path) -> None:
+    _write(cfg_dir / "frag.toml", "[piece]\na = 7.0\nb = 8.0\n")
+    _write(cfg_dir / "main.toml", '[outer]\nname = "z"\n[outer.inner]\n_neurox_use = "frag.toml:piece"\n')
+    obj = dataclass_from_file(_Outer, cfg_dir / "main.toml", section="outer")
+    assert obj == _Outer(name="z", inner=_Inner(a=7.0, b=8.0))
+
+
+# --- recursion ---
+
+
+def test_nested_use_inside_fragment_resolves(cfg_dir: Path) -> None:
+    _write(cfg_dir / "leaf.toml", "[atom]\na = 10.0\nb = 20.0\n")
+    _write(cfg_dir / "mid.toml", '[piece]\n_neurox_use = "leaf:atom"\n')
+    _write(cfg_dir / "main.toml", '[outer]\nname = "n"\n[outer.inner]\n_neurox_use = "mid:piece"\n')
+    obj = dataclass_from_file(_Outer, cfg_dir / "main.toml", section="outer")
+    assert obj == _Outer(name="n", inner=_Inner(a=10.0, b=20.0))
+
+
+def test_mid_layer_can_override_leaf(cfg_dir: Path) -> None:
+    _write(cfg_dir / "leaf.toml", "[atom]\na = 10.0\nb = 20.0\n")
+    _write(cfg_dir / "mid.toml", '[piece]\n_neurox_use = "leaf:atom"\nb = 99.0\n')
+    _write(cfg_dir / "main.toml", '[outer]\nname = "n"\n[outer.inner]\n_neurox_use = "mid:piece"\n')
+    obj = dataclass_from_file(_Outer, cfg_dir / "main.toml", section="outer")
+    assert obj == _Outer(name="n", inner=_Inner(a=10.0, b=99.0))
+
+
+def test_main_inline_overrides_chain(cfg_dir: Path) -> None:
+    _write(cfg_dir / "leaf.toml", "[atom]\na = 10.0\nb = 20.0\n")
+    _write(cfg_dir / "mid.toml", '[piece]\n_neurox_use = "leaf:atom"\nb = 99.0\n')
+    _write(
+        cfg_dir / "main.toml",
+        '[outer]\nname = "n"\n[outer.inner]\n_neurox_use = "mid:piece"\nb = 1.0\n',
+    )
+    obj = dataclass_from_file(_Outer, cfg_dir / "main.toml", section="outer")
+    assert obj == _Outer(name="n", inner=_Inner(a=10.0, b=1.0))
+
+
+# --- errors ---
+
+
+def test_cycle_is_rejected(cfg_dir: Path) -> None:
+    _write(cfg_dir / "a.toml", '[piece]\n_neurox_use = "b:piece"\n')
+    _write(cfg_dir / "b.toml", '[piece]\n_neurox_use = "a:piece"\n')
+    _write(cfg_dir / "main.toml", '[outer]\nname = "c"\n[outer.inner]\n_neurox_use = "a:piece"\n')
+    with pytest.raises(ValueError, match="_neurox_use cycle detected"):
+        dataclass_from_file(_Outer, cfg_dir / "main.toml", section="outer")
+
+
+def test_missing_section_raises(cfg_dir: Path) -> None:
+    _write(cfg_dir / "frag.toml", "[piece]\na = 1.0\nb = 2.0\n")
+    _write(cfg_dir / "main.toml", '[outer]\nname = "x"\n[outer.inner]\n_neurox_use = "frag:nonexistent"\n')
+    with pytest.raises(KeyError, match="nonexistent"):
+        dataclass_from_file(_Outer, cfg_dir / "main.toml", section="outer")
+
+
+def test_missing_file_raises(cfg_dir: Path) -> None:
+    _write(cfg_dir / "main.toml", '[outer]\nname = "x"\n[outer.inner]\n_neurox_use = "no_such:piece"\n')
+    with pytest.raises(FileNotFoundError, match="no_such"):
+        dataclass_from_file(_Outer, cfg_dir / "main.toml", section="outer")
+
+
+def test_malformed_use_string_raises(cfg_dir: Path) -> None:
+    _write(cfg_dir / "main.toml", '[outer]\nname = "x"\n[outer.inner]\n_neurox_use = "missing_separator"\n')
+    with pytest.raises(ValueError, match="missing ':'"):
+        dataclass_from_file(_Outer, cfg_dir / "main.toml", section="outer")
+
+
+def test_use_value_must_be_string(cfg_dir: Path) -> None:
+    _write(cfg_dir / "main.toml", '[outer]\nname = "x"\n[outer.inner]\n_neurox_use = 42\n')
+    with pytest.raises(TypeError, match="_neurox_use must be a string"):
+        dataclass_from_file(_Outer, cfg_dir / "main.toml", section="outer")
+
+
+# --- pure dict-level resolver ---
+
+
+def test_resolve_uses_pure_dict_form(cfg_dir: Path) -> None:
+    _write(cfg_dir / "frag.toml", "[piece]\na = 1.0\nb = 2.0\n")
+    raw = {"outer": {"inner": {"_neurox_use": "frag:piece", "b": 5.0}}}
+    expanded = resolve_uses(raw, base_dir=cfg_dir)
+    assert expanded == {"outer": {"inner": {"a": 1.0, "b": 5.0}}}
+
+
+def test_resolve_uses_preserves_no_use_data(cfg_dir: Path) -> None:
+    raw = {"only": {"a": 1, "b": 2}, "list_ish": [1, 2, 3]}
+    assert resolve_uses(raw, base_dir=cfg_dir) == raw
+
+
+def test_dict_from_file_keeps_raw_use(cfg_dir: Path) -> None:
+    _write(cfg_dir / "frag.toml", "[piece]\na = 1.0\nb = 2.0\n")
+    _write(cfg_dir / "main.toml", '[outer.inner]\n_neurox_use = "frag:piece"\n')
+    raw = dict_from_file(cfg_dir / "main.toml")
+    assert raw == {"outer": {"inner": {"_neurox_use": "frag:piece"}}}

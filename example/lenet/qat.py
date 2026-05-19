@@ -188,7 +188,7 @@ def main() -> None:
 
     device = torch.device(args.device)
 
-    # --- 1. Load pretrained float weights --- #
+    # --- 1. Load pretrained float weights ---
     # The float reference model is kept around after export; the extractor
     # needs access to the original ``nn.Linear`` / ``nn.Conv2d`` modules by
     # name to fold bias and re-quantize weights against the learned scales.
@@ -201,7 +201,7 @@ def main() -> None:
     model = model.to(device).eval()
     print(f"Loaded float checkpoint: {args.float_checkpoint}")
 
-    # --- 2. Export to a graph module suitable for QAT prepare --- #
+    # --- 2. Export to a graph module suitable for QAT prepare ---
     # ``torch.export.export`` in torch 2.11 unified the training and
     # inference export paths; the resulting graph module can be put in
     # train mode after ``prepare_qat_pt2e`` inserts the fake-quant ops.
@@ -215,7 +215,7 @@ def main() -> None:
         dynamic_shapes=({0: torch.export.Dim.AUTO},),
     ).module()
 
-    # --- 3. Build the NeuroX-grid quantizer and prepare for QAT --- #
+    # --- 3. Build the NeuroX-grid quantizer and prepare for QAT ---
     quantizer = NeuroXQuantizer(args.x_qmin, args.x_qmax, args.w_qmax)
     prepared = prepare_qat_pt2e(exported, quantizer)
     # Patch train()/eval() onto the exported graph so we can drive the
@@ -229,7 +229,7 @@ def main() -> None:
         f"({2 * args.w_qmax + 1} levels, per-channel symmetric, int8)"
     )
 
-    # --- 4. Fine-tune with fake quantization --- #
+    # --- 4. Fine-tune with fake quantization ---
     train_loader = create_mnist_dataloader(args.dataset_dir, args.batch_size, device, split="train", shuffle=True)
     val_loader = create_mnist_dataloader(args.dataset_dir, args.batch_size, device, split="val")
 
@@ -286,7 +286,7 @@ def main() -> None:
         prepared.load_state_dict(best_state)
     print(f"Best fake-quant val_acc: {best_acc:.4f}")
 
-    # --- 5. Extract BEFORE convert (convert mutates the prepared graph) --- #
+    # --- 5. Extract BEFORE convert (convert mutates the prepared graph) ---
     # ``convert_pt2e`` replaces the FakeQuantize call_module nodes with
     # ``quantize_per_tensor`` / ``dequantize_per_tensor`` call_function
     # ops in place, which drops the scale/zero_point buffers we need for

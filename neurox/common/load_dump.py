@@ -1,36 +1,11 @@
 """Dataclass serialization utilities for TOML and YAML config files.
 
-NeuroX config files are written in TOML (default) or YAML; both preserve
-comments, which is essential for reviewable hardware parameter sets.  JSON
-is intentionally not supported.
-
-Every NeuroX runtime config is a frozen dataclass, so the load/dump path
-has exactly one shape: dict ↔ dataclass.  ``Enum`` fields are encoded as
-their ``.value``; generic container fields (``list[T]``, ``dict[K, V]``,
-``tuple[...]``) recurse element-wise using the annotated types.
-
-The module is layered as follows:
-
-- ``dataclass_from_dict`` / ``dataclass_to_dict``: recursively convert
-  between a dataclass tree and plain dicts suitable for TOML/YAML.  Uses
-  ``typing.get_type_hints`` so nested configs (e.g.
-  ``RRAMConfig.prog_gamma: StateDependentGammaConfig``) are built in one
-  pass.  Unknown keys are silently dropped so older config files stay
-  compatible with added fields.
-- ``merge_dicts``: deep-overlay multiple dicts in descending priority
-  order; used to layer a user override on top of a default config.
-- ``dict_from_toml`` / ``dict_from_yaml``: format-specific dict loaders.
-- ``dict_from_file`` / ``dataclass_from_file`` / ``dataclass_to_file``:
-  format-agnostic entry points dispatching on file suffix (``.toml``,
-  ``.yaml``, ``.yml``).  ``dataclass_from_file`` accepts multiple files
-  (merged in descending priority) and an optional ``section`` to pluck a
-  sub-table from a multi-config file.
-- ``dict_configs_from_file`` / ``dict_configs_to_file``: helpers for
-  multi-config files where each top-level table maps to a distinct
-  dataclass type.
+See also:
+    docs/dev/modules/common/load_dump.md
 """
 
 import tomllib
+import typing
 from collections.abc import Mapping
 from dataclasses import fields, is_dataclass
 from enum import Enum
@@ -44,7 +19,7 @@ import yaml
 T = TypeVar("T")
 
 
-# --- type helpers --- #
+# --- type helpers ---
 
 
 def _is_dataclass_type(tp: Any) -> bool:  # noqa: ANN401
@@ -56,28 +31,67 @@ def _is_enum_type(tp: Any) -> bool:  # noqa: ANN401
 
 
 def _dataclass_field_names(cls: Any) -> set[str]:  # noqa: ANN401
-    """Return the declared field names of a dataclass type.
-
-    Takes ``Any`` so callers with a ``type[T]`` unbound to
-    ``DataclassInstance`` can invoke it without casts.  The caller must
-    have checked ``_is_dataclass_type`` first.
-    """
+    """Return the declared field names of a dataclass type."""
     return {f.name for f in fields(cls)}
 
 
-# --- dict -> dataclass --- #
+# --- dict -> dataclass ---
+
+
+# NeuroX-private extension keys use the ``_neurox_*`` prefix so they
+# are self-identifying as our convention rather than TOML-native syntax.
+
+# ``_neurox_type`` selects the polymorphic-family subclass for a sub-table.
+_TYPE_DISCRIMINATOR = "_neurox_type"
+
+# ``_neurox_use`` references a fragment in another config file as
+# ``"<rel_path>:<section>"``. The fragment supplies the base values for
+# the sub-table; inline keys override the fragment.
+_USE_DIRECTIVE = "_neurox_use"
+
+
+def _resolve_concrete_dataclass(base: type, type_name: str) -> type:
+    """Find a dataclass subclass of ``base`` named ``type_name``.
+
+    ``base`` itself is considered first, then ``base.__subclasses__()`` recursively.
+
+    Raises:
+        TypeError: When no dataclass subclass of ``base`` has the given name.
+    """
+    if base.__name__ == type_name and _is_dataclass_type(base):
+        return base
+    for sub in base.__subclasses__():
+        if sub.__name__ == type_name and _is_dataclass_type(sub):
+            return sub
+        try:
+            return _resolve_concrete_dataclass(sub, type_name)
+        except TypeError:
+            continue
+    raise TypeError(
+        f"No dataclass subclass of {base.__name__} named {type_name!r}; "
+        f"available subclasses: "
+        f"{sorted(c.__name__ for c in base.__subclasses__() if _is_dataclass_type(c)) or '<none>'}"
+    )
 
 
 def _build_value(value: Any, tp: Any) -> Any:  # noqa: ANN401
     """Coerce ``value`` into the annotated type ``tp`` recursively.
 
-    Leaves primitives untouched.  Resolves unions by trying each arm in
-    order and returning the first one that accepts the value.
+    Unions are resolved by trying each arm and returning the first that
+    accepts the value. Polymorphic dataclass fields with a ``_neurox_type``
+    discriminator in the value mapping instantiate the named subclass.
+    ``Literal[...]`` annotations enforce membership in the declared set.
     """
     origin = get_origin(tp)
     args = get_args(tp)
 
-    # --- unions (includes Optional) --- #
+    # --- Literal: enforce membership ---
+    if origin is typing.Literal:
+        if value not in args:
+            raise ValueError(f"value {value!r} not in Literal{list(args)}")
+        return value
+
+    # --- unions (includes Optional) ---
     if origin is Union or origin is UnionType:
         if value is None and NoneType in args:
             return None
@@ -94,19 +108,24 @@ def _build_value(value: Any, tp: Any) -> Any:  # noqa: ANN401
             raise last_exc
         return value
 
-    # --- nested dataclass --- #
+    # --- nested dataclass ---
     if _is_dataclass_type(tp):
         if not isinstance(value, Mapping):
             raise TypeError(f"Expected mapping for {tp.__name__}, got {type(value).__name__}")
+        type_name = value.get(_TYPE_DISCRIMINATOR)
+        if type_name is not None:
+            concrete = _resolve_concrete_dataclass(tp, type_name)
+            filtered = {k: v for k, v in value.items() if k != _TYPE_DISCRIMINATOR}
+            return dataclass_from_dict(concrete, filtered)
         return dataclass_from_dict(tp, value)
 
-    # --- enum --- #
+    # --- enum ---
     if _is_enum_type(tp):
         if isinstance(value, tp):
             return value
         return tp(value)
 
-    # --- generic containers --- #
+    # --- generic containers ---
     if origin in (list, tuple, set, frozenset):
         if not args:
             return value
@@ -123,16 +142,15 @@ def _build_value(value: Any, tp: Any) -> Any:  # noqa: ANN401
         v_tp = args[1]
         return {k: _build_value(v, v_tp) for k, v in value.items()}
 
-    # --- primitive / untyped --- #
+    # --- primitive / untyped ---
     return value
 
 
 def dataclass_from_dict(cls: type[T], data: Mapping[str, Any]) -> T:
     """Build a dataclass instance from a mapping.
 
-    Nested dataclass and ``Enum`` fields are resolved recursively from
-    the annotated types.  Unknown keys are ignored so older config files
-    stay compatible with added fields.
+    Nested dataclass and ``Enum`` fields are resolved recursively.
+    Unknown keys are ignored.
 
     Args:
         cls: Target frozen dataclass type.
@@ -153,7 +171,7 @@ def dataclass_from_dict(cls: type[T], data: Mapping[str, Any]) -> T:
     return cls(**kwargs)
 
 
-# --- dataclass -> dict --- #
+# --- dataclass -> dict ---
 
 
 def _to_primitive(obj: Any) -> Any:  # noqa: ANN401
@@ -172,8 +190,7 @@ def _to_primitive(obj: Any) -> Any:  # noqa: ANN401
 def dataclass_to_dict(obj: Any) -> dict[str, Any]:  # noqa: ANN401
     """Convert a dataclass instance to a plain dict.
 
-    ``Enum`` values are written as their ``.value`` so the output is TOML
-    and YAML serializable without custom representers.
+    ``Enum`` values are written as their ``.value``.
 
     Args:
         obj: Frozen dataclass instance.
@@ -189,7 +206,7 @@ def dataclass_to_dict(obj: Any) -> dict[str, Any]:  # noqa: ANN401
     return result
 
 
-# --- dict merging --- #
+# --- dict merging ---
 
 
 def _deep_fill_defaults(override: dict[str, Any], default: dict[str, Any], strict_type: bool) -> dict[str, Any]:
@@ -230,14 +247,11 @@ def merge_dicts(*dicts: dict[str, Any], strict_type: bool = True) -> dict[str, A
     return merged
 
 
-# --- format-specific loaders / dumpers --- #
+# --- format-specific loaders / dumpers ---
 
 
 def dict_from_toml(file: Path) -> dict[str, Any]:
-    """Load a dict from a TOML file.
-
-    TOML files are read in binary mode as required by ``tomllib``.
-    """
+    """Load a dict from a TOML file."""
     with file.open(mode="rb") as f:
         data = tomllib.load(f)
     if not isinstance(data, dict):
@@ -246,16 +260,13 @@ def dict_from_toml(file: Path) -> dict[str, Any]:
 
 
 def dict_to_toml(data: Mapping[str, Any], file: Path) -> None:
-    """Write a mapping to a TOML file.
-
-    ``None`` values are stripped recursively because TOML has no null.
-    """
+    """Write a mapping to a TOML file. ``None`` values are stripped recursively."""
     with file.open(mode="wb") as f:
         tomli_w.dump(_strip_none(data), f)
 
 
 def _strip_none(data: Any) -> Any:  # noqa: ANN401
-    """Recursively drop ``None`` values so TOML serialization never fails."""
+    """Recursively drop ``None`` values."""
     if isinstance(data, Mapping):
         return {k: _strip_none(v) for k, v in data.items() if v is not None}
     if isinstance(data, list | tuple):
@@ -273,7 +284,7 @@ def dict_from_yaml(file: Path, *, encoding: str | None = "utf-8") -> dict[str, A
 
 
 def dict_to_yaml(data: Mapping[str, Any], file: Path, *, encoding: str | None = "utf-8") -> None:
-    """Write a mapping to a YAML file preserving insertion order."""
+    """Write a mapping to a YAML file."""
     with file.open(mode="w", encoding=encoding) as f:
         yaml.dump(
             data=dict(data),
@@ -284,7 +295,7 @@ def dict_to_yaml(data: Mapping[str, Any], file: Path, *, encoding: str | None = 
         )
 
 
-# --- file interface --- #
+# --- file interface ---
 
 toml_suffixes = {".toml"}
 yaml_suffixes = {".yaml", ".yml"}
@@ -320,6 +331,109 @@ def dict_to_file(data: Mapping[str, Any], file: Path, *, encoding: str | None = 
         raise ValueError(f"Unsupported config suffix '{file.suffix}'. Supported: {sorted(supported_suffixes)}")
 
 
+# --- _neurox_use cross-file references ---
+
+
+def _resolve_fragment_path(rel: str, base_dir: Path) -> Path:
+    """Resolve a ``_neurox_use`` relative path to an existing file.
+
+    Suffix-free paths try ``.toml`` then ``.yaml`` / ``.yml``.
+    """
+    candidate = base_dir / rel
+    if candidate.exists():
+        return candidate
+    if candidate.suffix == "":
+        for suffix in (".toml", ".yaml", ".yml"):
+            with_suffix = candidate.with_suffix(suffix)
+            if with_suffix.exists():
+                return with_suffix
+    raise FileNotFoundError(f"_neurox_use fragment {rel!r} not found relative to {base_dir}")
+
+
+def _parse_use_ref(ref: Any, base_dir: Path) -> tuple[Path, str]:  # noqa: ANN401
+    """Parse ``"<rel_path>:<section>"`` into ``(absolute_path, section_name)``."""
+    if not isinstance(ref, str):
+        raise TypeError(f"_neurox_use must be a string, got {type(ref).__name__}")
+    if ":" not in ref:
+        raise ValueError(f"_neurox_use reference {ref!r} missing ':' (expected '<path>:<section>')")
+    rel, section = ref.split(":", 1)
+    if not rel or not section:
+        raise ValueError(f"_neurox_use reference {ref!r} has empty path or section")
+    return _resolve_fragment_path(rel, base_dir), section
+
+
+def _resolve_uses_in_value(
+    value: Any,  # noqa: ANN401
+    base_dir: Path,
+    *,
+    cache: dict[Path, dict[str, Any]],
+    in_progress: frozenset[tuple[Path, str]],
+) -> Any:  # noqa: ANN401
+    """Recursively resolve ``_neurox_use`` references in ``value``.
+
+    A mapping containing ``_neurox_use`` is replaced by ``merge_dicts(inline, fragment)``;
+    nested ``_neurox_use`` directives inside both the fragment and the inline override
+    are resolved before the merge. Cycles raise ``ValueError``.
+    """
+    if isinstance(value, Mapping):
+        if _USE_DIRECTIVE in value:
+            path, section = _parse_use_ref(value[_USE_DIRECTIVE], base_dir)
+            key = (path, section)
+            if key in in_progress:
+                trail = " -> ".join(f"{p.name}:{s}" for p, s in in_progress)
+                raise ValueError(f"_neurox_use cycle detected: {trail} -> {path.name}:{section}")
+            if path not in cache:
+                cache[path] = dict_from_file(path)
+            root = cache[path]
+            if section not in root:
+                raise KeyError(f"_neurox_use target section {section!r} not found in {path} (keys: {sorted(root)})")
+            target = root[section]
+            if not isinstance(target, Mapping):
+                raise TypeError(
+                    f"_neurox_use target {value[_USE_DIRECTIVE]!r} must be a table, got {type(target).__name__}"
+                )
+            resolved_fragment = _resolve_uses_in_value(
+                dict(target),
+                path.parent,
+                cache=cache,
+                in_progress=in_progress | {key},
+            )
+            inline = {k: v for k, v in value.items() if k != _USE_DIRECTIVE}
+            resolved_inline = _resolve_uses_in_value(
+                inline,
+                base_dir,
+                cache=cache,
+                in_progress=in_progress,
+            )
+            return merge_dicts(resolved_inline, resolved_fragment, strict_type=True)
+        return {k: _resolve_uses_in_value(v, base_dir, cache=cache, in_progress=in_progress) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_resolve_uses_in_value(x, base_dir, cache=cache, in_progress=in_progress) for x in value]
+    return value
+
+
+def resolve_uses(data: dict[str, Any], base_dir: Path) -> dict[str, Any]:
+    """Expand every ``_neurox_use`` directive in ``data`` into the referenced fragment.
+
+    ``_neurox_use = "<rel_path>:<section>"`` pulls the named section from
+    another config file (path relative to ``base_dir``) and uses it as the
+    base for the enclosing sub-table; any other keys present alongside
+    ``_neurox_use`` override the fragment. Resolution is recursive and
+    detects cycles.
+
+    Args:
+        data: Loaded dict from a config file (TOML or YAML).
+        base_dir: Directory for resolving relative ``_neurox_use`` paths.
+
+    Returns:
+        New dict with every ``_neurox_use`` expanded.
+    """
+    result = _resolve_uses_in_value(data, base_dir, cache={}, in_progress=frozenset())
+    if not isinstance(result, dict):
+        raise TypeError(f"_neurox_use resolution expected dict root, got {type(result).__name__}")
+    return result
+
+
 def _pluck_section(data: dict[str, Any], section: str | None) -> dict[str, Any]:
     if section is None:
         return data
@@ -340,11 +454,9 @@ def dataclass_from_file(
 ) -> T:
     """Load a dataclass from one or more config files.
 
-    When several files are given they are merged in descending priority
-    order (the first file wins on conflicts).  When ``section`` is given,
-    the same sub-table is plucked from each file before merging, so a
-    user override file can target a single config inside a multi-config
-    default file.
+    Multiple files are merged in descending priority (first wins). When
+    ``section`` is given, the same sub-table is plucked from each file
+    before merging.
 
     Args:
         cls: Target frozen dataclass type.
@@ -358,7 +470,13 @@ def dataclass_from_file(
     """
     if not files:
         raise ValueError("At least one config file must be provided")
-    raw = [_pluck_section(dict_from_file(f, encoding=encoding), section) for f in files]
+    raw = [
+        _pluck_section(
+            resolve_uses(dict_from_file(f, encoding=encoding), base_dir=f.parent),
+            section,
+        )
+        for f in files
+    ]
     merged = merge_dicts(*raw, strict_type=strict_type)
     return dataclass_from_dict(cls, merged)
 
@@ -368,7 +486,7 @@ def dataclass_to_file(obj: Any, file: Path, *, encoding: str | None = "utf-8") -
     dict_to_file(dataclass_to_dict(obj), file, encoding=encoding)
 
 
-# --- multi-config helpers --- #
+# --- multi-config helpers ---
 
 
 def dict_configs_from_file(
@@ -385,13 +503,11 @@ def dict_configs_from_file(
 
     Example::
 
-        from neurox.config import DEFAULT_1T1R_TOML
-
         configs = dict_configs_from_file(
-            {"rram": RRAMConfig, "bl_wire": WireConfig},
-            DEFAULT_1T1R_TOML,
+            {"foo": FooConfig, "bar": BarConfig},
+            Path("default.toml"),
         )
-        rram_config = configs["rram"]
+        foo_config = configs["foo"]
 
     Args:
         specs: Mapping of section name to target dataclass type.
@@ -404,7 +520,7 @@ def dict_configs_from_file(
     """
     if not files:
         raise ValueError("At least one config file must be provided")
-    raw = [dict_from_file(f, encoding=encoding) for f in files]
+    raw = [resolve_uses(dict_from_file(f, encoding=encoding), base_dir=f.parent) for f in files]
     merged = merge_dicts(*raw, strict_type=strict_type)
     out: dict[str, Any] = {}
     for section, cls in specs.items():

@@ -1,25 +1,15 @@
 """Shared int-domain math for the Linear operators.
 
-Two module-level helpers used by every crossbar-backed operator (the
-inference :class:`QuantLinear`, the HAT :class:`HATLinear`, and — via
-cross-package imports — both Conv2d operators):
-
-- :func:`run_matmul_pipeline` — int matmul → activation-grid clamp →
-  float dequantization.
-- :func:`derive_layer_int_params` — turns the float quantization
-  parameters into the int tensor 5-tuple the macro consumes.
-
-These live in ``linear/_shared.py`` because the matmul kernel is the
-canonical NeuroX operator math; conv just regroups its inputs / outputs
-around the same kernel.
+- :func:`run_matmul_pipeline` — int matmul → activation-grid clamp → float dequant.
+- :func:`derive_layer_int_params` — float quantization params → int 5-tuple
+  consumed by the macro.
 """
 
 import torch
 from torch import Tensor
 
 from neurox.macro.base import NeuroxMacroQuantMatMul
-
-from ..qat_util import derive_multiplier_and_shift_tensor
+from neurox.operator.qat_util import derive_multiplier_and_shift_tensor
 
 
 def run_matmul_pipeline(
@@ -36,10 +26,6 @@ def run_matmul_pipeline(
 ) -> Tensor:
     """Execute one int matmul through the crossbar macro, clamp, dequantize.
 
-    ``output_qmin`` / ``output_qmax`` may be Python ints or 0-d int tensors;
-    callers inside a ``@torch.compile`` region should pass tensor buffers
-    directly to avoid CPU-sync ``.item()`` calls in the compiled graph.
-
     Args:
         input_int: Integer activation tensor already quantized to the grid.
         weight_int: Integer weight tensor already quantized to ``[-w_qmax, +w_qmax]``.
@@ -49,13 +35,12 @@ def run_matmul_pipeline(
         output_zero_point: Scalar int32 output zero-point.
         output_scale: Scalar float32 output scale (used for dequantization).
         output_qmin: Post-rescale clamp lower bound (output activation grid min).
+            Pass tensors inside a ``@torch.compile`` region to avoid CPU-sync.
         output_qmax: Post-rescale clamp upper bound.
         macro: Crossbar macro running the int matmul + rescale.
 
     Returns:
-        Dequantized float output.  Dynamic energy emits through the
-        profiler side channel from every physical leaf inside the
-        macro.
+        Dequantized float output.
     """
     y_int = macro.matmul(
         input_int,
@@ -65,8 +50,7 @@ def run_matmul_pipeline(
         rescale_rshift,
         output_zero_point,
     )
-    # Clamp to the activation grid to match pt2e's Q/DQ saturation at each
-    # layer boundary (see module docstring for rationale).
+    # Match pt2e Q/DQ saturation at the layer boundary.
     y_int = torch.clamp(y_int, output_qmin, output_qmax)
     y_float = (y_int.float() - output_zero_point.float()) * output_scale
     return y_float
@@ -85,67 +69,34 @@ def derive_layer_int_params(
 ) -> tuple[Tensor, Tensor, Tensor, Tensor]:
     """Build the ``(weight_int, bias_int, multiplier, rshift)`` tuple.
 
-    Shared between :class:`HATLinear` / :class:`HATConv2d` (called
-    every forward from the current float weight / bias) and the pt2e
-    extractor in ``example/common/pt2e.py`` (called once at export
-    time).
+    Folds ``rescale_factor`` (ADC-code-to-ideal-state ratio) into a single requantize::
 
-    The crossbar emits ``y_agg`` in ADC-code scale — a factor ``rf``
-    smaller than the ideal integer MAC would produce, where
-    ``rf = N_states / N_codes = macro.output_rescale_factor``.  To
-    collapse the old two-step "ADC-correct → bias → requantize" into
-    a single macro-side requantize, we fold ``rf`` into the params
-    this function returns:
-
-        combined_scale = (s_x * s_w / s_y) * rf
+        combined_scale = (s_x · s_w / s_y) · rf
         (multiplier, rshift) = derive_multiplier_and_shift_tensor(combined_scale)
-        bias_int = round((bias_fp / (s_x * s_w) - zp_x * sum(w_int)) / rf)
-
-    The macro then computes ``requantize(y_agg + bias_int, ...)``
-    in one shot and the math agrees with the unfolded reference up
-    to the unavoidable rounding loss in ``bias_int``.  When
-    ``rf == 1.0`` (e.g. ``IdealMacro`` or an ADC whose codes already
-    cover the ideal state range) the formulas collapse to the
-    original scale-only derivation.
-
-    The output integer dtype for ``weight_int`` is supplied explicitly
-    by the caller — the helper is pure math and does not own the dtype
-    policy.  Callers derive it from ``macro.w_value_range`` via
-    ``NeuroxOperator.weight_dtype_for_range`` so the int buffer always
-    matches the algorithm-side range the macro publishes (e.g.
-    ``w_qmax > 127`` selects ``int16`` instead of saturating to int8).
+        bias_int = round((bias_fp / (s_x · s_w) - zp_x · Σ w_int) / rf)
 
     Args:
-        float_weight: The trained float weight, shape ``[C_out, ...]``.
+        float_weight: Trained float weight, shape ``[C_out, ...]``.
         float_bias: Optional trained float bias, shape ``[C_out]``.
-        input_scale: Activation per-tensor scale, scalar float32.
-        input_zero_point: Activation per-tensor zero-point, scalar int32.
+        input_scale: Activation per-tensor scale.
+        input_zero_point: Activation per-tensor zero-point.
         weight_scale: Per-channel symmetric scale, shape ``[C_out]``.
-        output_scale: Output per-tensor scale, scalar float32 (used only
-            to derive the fixed-point rescale pair).
+        output_scale: Output per-tensor scale.
         w_qmax: Symmetric weight bound for clipping.
-        weight_dtype: Target integer dtype for ``weight_int``; must be
-            wide enough for ``[-w_qmax, +w_qmax]``.
-        rescale_factor: Macro's ``output_rescale_factor``
-            (``N_states / N_codes``).  Multiplied into ``(mult, rshift)``
-            and divided into the folded bias so the macro's single
-            requantize produces correctly-scaled output.
+        weight_dtype: Target integer dtype for ``weight_int``.
+        rescale_factor: Macro's ``output_rescale_factor``; ``1.0`` collapses
+            the formulas to the scale-only case.
 
     Returns:
-        ``(weight_int, bias_int, multiplier, rshift)`` — all on the
-        same device as ``float_weight``; ``weight_int`` has dtype
-        ``weight_dtype``.
+        ``(weight_int, bias_int, multiplier, rshift)``.
     """
     device = float_weight.device
     shape = [weight_scale.shape[0]] + [1] * (float_weight.ndim - 1)
     sw = weight_scale.view(shape).to(device)
     weight_int = torch.round(float_weight / sw).clamp(-w_qmax, w_qmax).to(weight_dtype)
 
-    # Bias fold: subtract the activation zero-point cross-term so the int
-    # MAC accumulator produces the right numerator for the rescale step,
-    # then divide by ``rescale_factor`` to compensate for ``y_agg`` living
-    # in ADC-code scale (see function docstring).  One combined
-    # ``round(...)`` keeps precision loss to ±0.5 ADC-code units.
+    # Subtract zero-point cross-term, then divide by ``rescale_factor`` so
+    # the int MAC output lands on the right post-rescale grid.
     k_axes = tuple(range(1, weight_int.ndim))
     w_sum = weight_int.to(torch.int64).sum(dim=k_axes) if k_axes else weight_int.to(torch.int64)
     sx = input_scale.to(torch.float64).to(device)

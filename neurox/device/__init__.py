@@ -1,7 +1,7 @@
 """NeuroX device models."""
 
-from .nmos import NMOS, NMOSDC, NMOSConfig, NMOSSnapshot
-from .rram import RRAM, RRAMDC, RRAMConfig, RRAMSnapshot
+from .nmos import NMOS, NMOSDCOP, NMOSConfig, NMOSSnapshot
+from .rram import RRAM, RRAMDCOP, RRAMConfig, RRAMSnapshot
 from .selector import Selector, SelectorConfig
 from .wire import Wire, WireConfig
 
@@ -9,12 +9,12 @@ __all__ = [
     # --- NMOS ---
     "NMOS",
     "NMOSConfig",
-    "NMOSDC",
+    "NMOSDCOP",
     "NMOSSnapshot",
     # --- RRAM ---
     "RRAM",
     "RRAMConfig",
-    "RRAMDC",
+    "RRAMDCOP",
     "RRAMSnapshot",
     # --- Selector ---
     "Selector",

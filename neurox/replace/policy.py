@@ -1,13 +1,4 @@
-"""Rule-driven replacement policy.
-
-Replaces the hard-coded ``nn.Linear → QuantLinear`` / ``nn.Conv2d → QuantConv2d``
-walk with an ordered list of :class:`ReplacementRule` predicates evaluated
-per module.  Supports partial replacement, name-based exclusion,
-heterogeneous per-layer macros, and arbitrary shape / attribute predicates.
-
-The default policy preserves the legacy behavior so users who do not pass
-``policy=`` see no change.
-"""
+"""Rule-driven replacement policy."""
 
 from __future__ import annotations
 
@@ -93,18 +84,13 @@ class StructuralReport:
 class ReplacementPolicy:
     """Ordered ruleset + unmatched-module handling.
 
-    Rules are evaluated in priority-descending (then declaration) order;
-    the first match wins, its ``build`` is invoked, and the result is
-    bound onto the parent module.  Replaced subtrees are *not* recursed
-    into — the new operator is considered opaque.
+    Rules evaluate in priority-descending (then declaration) order;
+    first match wins, ``build`` runs, the result is bound on the parent.
+    Replaced subtrees are opaque (not recursed into).
 
-    The ``unmatched`` knob controls the policy when a module is an
-    eligible float fundamental (``nn.Linear`` / ``nn.Conv2d``) but no
-    rule matches it:
-
-    * ``"keep_float"`` (default) — leave the module untouched.
-    * ``"warn"`` — leave it untouched but emit a warning to ``stderr``.
-    * ``"error"`` — raise :class:`ValueError`.
+    ``unmatched`` controls behaviour when an eligible ``nn.Linear`` /
+    ``nn.Conv2d`` is not matched by any rule: ``"keep_float"`` leaves it
+    in place, ``"warn"`` emits a stderr warning, ``"error"`` raises.
     """
 
     def __init__(
@@ -207,12 +193,11 @@ class ReplacementPolicy:
 def default_policy(
     macro_factory: Callable[..., NeuroxMacroQuantMatMul],
 ) -> ReplacementPolicy:
-    """Reconstruct the legacy ``Linear -> QuantLinear``, ``Conv2d -> QuantConv2d`` policy.
+    """Default ``Linear -> QuantLinear``, ``Conv2d -> QuantConv2d`` policy.
 
     Args:
-        macro_factory: Per-layer macro factory.  Called as
-            ``macro_factory(name=qualified_name)`` so every macro
-            carries a hierarchical profiler identity.
+        macro_factory: Per-layer macro factory called as
+            ``macro_factory(name=qualified_name)``.
     """
     return ReplacementPolicy(
         rules=[
@@ -238,19 +223,7 @@ def default_policy(
 def name_excluded_match(
     patterns: str | Iterable[str],
 ) -> Callable[[nn.Module, ReplacementContext], bool]:
-    """Build a ``match`` predicate that *rejects* names matching a glob list.
-
-    Useful as part of a composite predicate that also tests module type;
-    the returned callable returns ``True`` only when the qualified name
-    does NOT match any pattern.  Example::
-
-        excluded = name_excluded_match(["lm_head", "encoder.*.layernorm"])
-        rule = ReplacementRule(
-            name="linear-to-quant-except-head",
-            match=lambda mod, ctx: isinstance(mod, nn.Linear) and excluded(mod, ctx),
-            build=...,
-        )
-    """
+    """``match`` predicate rejecting qualified names that hit any glob pattern."""
     pat_list = [patterns] if isinstance(patterns, str) else list(patterns)
 
     def predicate(mod: nn.Module, ctx: ReplacementContext) -> bool:
@@ -285,25 +258,12 @@ def heterogeneous_macro_policy(
     *,
     unmatched: Literal["keep_float", "warn", "error"] = "keep_float",
 ) -> ReplacementPolicy:
-    """Build a policy mapping qualified-name prefixes to distinct macro factories.
-
-    Each ``(prefix, factory)`` entry produces one rule that matches any
-    eligible ``nn.Linear`` / ``nn.Conv2d`` whose qualified name starts
-    with ``prefix`` (exact match also counts) and routes it through
-    ``factory``.  Rules are ordered by descending prefix length so more
-    specific prefixes win.
+    """Map qualified-name prefixes to distinct macro factories.
 
     Args:
-        assignments: ``{prefix: macro_factory}``.  Use ``""`` as the
-            prefix for a catch-all default.
+        assignments: ``{prefix: macro_factory}``; ``""`` is the catch-all
+            default. Longer prefixes match first.
         unmatched: Behavior for modules not covered by any prefix.
-
-    Example::
-
-        policy = heterogeneous_macro_policy({
-            "encoder": physical_factory,
-            "lm_head": ideal_factory,
-        })
     """
     rules: list[ReplacementRule] = []
     sorted_items = sorted(assignments.items(), key=lambda kv: -len(kv[0]))  # longest prefix first

@@ -167,7 +167,7 @@ def main() -> None:
     spec = derive_quant_spec(args.config)
     macro_factory = build_macro_factory(args.config, xbar=args.xbar)
 
-    # --- 1. Load fine-tuned float weights --- #
+    # --- 1. Load fine-tuned float weights ---
     float_state = torch.load(args.float_checkpoint, map_location="cpu", weights_only=True)
 
     # Teacher: frozen float BERT-small (eval mode, no grad).
@@ -183,10 +183,10 @@ def main() -> None:
     student.load_state_dict(float_state)
     print(f"Loaded float checkpoint: {args.float_checkpoint}")
 
-    # --- 2. BN fold (no-op for BERT) --- #
+    # --- 2. BN fold (no-op for BERT) ---
     neurox.fold_batchnorm(student)
 
-    # --- 3. Replace nn.Linear modules with HATLinear --- #
+    # --- 3. Replace nn.Linear modules with HATLinear ---
     student = neurox.replace_for_hat(student, macro_factory, spec)
     student = student.to(device)
     from neurox.operator import HATConv2d, HATLinear
@@ -216,7 +216,7 @@ def main() -> None:
         max_length=args.max_length,
     )
 
-    # --- 4. Calibration: train-mode forwards to settle observers --- #
+    # --- 4. Calibration: train-mode forwards to settle observers ---
     if args.calibration_batches > 0:
         print(f"Calibrating {args.calibration_batches} batches (no-grad to settle observers)...")
         student.train()
@@ -237,7 +237,7 @@ def main() -> None:
     n_frozen = neurox.freeze_hat_observers(student)
     print(f"Froze {n_frozen} HAT observers")
 
-    # --- 5. Fine-tune with macro-in-the-loop + distillation --- #
+    # --- 5. Fine-tune with macro-in-the-loop + distillation ---
     optimizer = torch.optim.AdamW(
         student.parameters(),
         lr=args.lr,
@@ -282,7 +282,7 @@ def main() -> None:
                 ttids,
             )
 
-            # --- loss components --- #
+            # --- loss components ---
             ce = criterion(student_logits, labels)
             kd = _kd_loss(student_logits, teacher_logits, args.kd_temperature)
             if args.kd_hidden_weight > 0:
@@ -327,7 +327,7 @@ def main() -> None:
         student.load_state_dict(best_state)
     print(f"Best HAT-eval val_acc: {best_acc:.4f}")
 
-    # --- 6. Extract NeuroX-flat state and save --- #
+    # --- 6. Extract NeuroX-flat state and save ---
     flat = neurox.extract_neurox_state(student)
     args.checkpoint.parent.mkdir(parents=True, exist_ok=True)
     torch.save(

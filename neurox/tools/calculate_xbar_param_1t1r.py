@@ -1,42 +1,7 @@
 """1T1R-specific RRAM pre-distortion + ADC boundary calculator.
 
-Given a chip TOML (NMOS + crossbar geometry + WL/BL drive levels) and a
-target programming range ``(g_min, g_max)`` over ``n_states``, derive
-the *pre-distorted* per-state RRAM conductance list whose on-state
-per-cell current ladder is **linear** through the series cascade with
-the NMOS access device, and the matching ADC boundary grid for round
-quantization of the difference current between a logic column and its
-reference column.
-
-Why pre-distortion is required
-------------------------------
-The 1T1R cell is a non-linear voltage divider.  In deep triode the NMOS
-behaves as a linear conductor ``g_on``, but the RRAM follows the sinh
-I-V
-
-    I_cell = g_rram · sinh(α · V_rram) / α            (α > 0)
-    I_cell = g_rram · V_rram                          (α = 0)
-
-with KCL ``I_cell = g_on · V_X`` and ``V_rram = V_BL − V_X``.  Sweeping
-``g_rram`` linearly therefore gives a *non-linear* per-cell current
-ladder; the ADC sees uneven steps and quantization is wasted.  We
-instead pick an ideal linear current ladder and back-solve the
-``g_rram`` value that produces each rung — the analytical inversion is
-
-    V_X      = I_target / g_on
-    V_rram   = V_BL − V_X
-    g_rram   = I_target · α / sinh(α · V_rram)        (α > 0)
-    g_rram   = I_target / V_rram                      (α = 0)
-
-The endpoint values ``I_cell(g_min)`` and ``I_cell(g_max)`` define the
-ladder; intermediate ones are linearly interpolated and then inverted.
-
-The ADC sees the *difference* between a logic column and its reference
-column at the same input vector.  Full-scale per-column swing is
-``row_num · (I_cell_max − I_cell_min)``, and we lay
-``n_codes`` evenly-spaced codes across that range with half-LSB
-boundaries.  The split between this 1T1R-specific cell math and the
-column-level ADC math lives in :mod:`xbar_adc_boundaries`.
+See also:
+    docs/dev/modules/tools/README.md
 """
 
 from __future__ import annotations
@@ -56,13 +21,14 @@ from neurox.tools.xbar_adc_boundaries import (
     compute_adc_boundaries__uA,
     compute_max_col_diff_current__uA,
 )
-from neurox.xbar import Offset1T1RXbarConfig
+from neurox.xbar import CircuitCore1T1RConfig, Offset1T1RXbarConfig
 
 logger = logging.getLogger(__name__)
 
 _SPECS: dict[str, type] = {
     "rram": RRAMConfig,
     "nmos": NMOSConfig,
+    "core": CircuitCore1T1RConfig,
     "wl_dac": GeneralDACConfig,
     "bl_adc": GeneralADCConfig,
     "xbar": Offset1T1RXbarConfig,
@@ -76,17 +42,17 @@ def _fmt_list(values: list[float]) -> str:
     return "[" + ", ".join(_FMT.format(v) for v in values) + "]"
 
 
-def build_nmos(nmos_cfg: NMOSConfig) -> NMOS:
-    """Instantiate the NMOS device model from its config.
+def build_nmos(nmos_cfg: NMOSConfig, core_cfg: CircuitCore1T1RConfig) -> NMOS:
+    """Build the NMOS device at ``T_ref`` (nominal β / V_th, no mismatch)."""
+    return NMOS(
+        nmos_cfg,
+        W__um=core_cfg.access_nmos_W__um,
+        L__um=core_cfg.access_nmos_L__um,
+        T__K=nmos_cfg.T_ref__K,
+    )
 
-    The model is built at the config's reference temperature (so β and
-    V_th are at their nominal values) and without per-cell mismatch —
-    the tool runs a noise-free scalar sweep.
-    """
-    return NMOS(nmos_cfg, T__K=nmos_cfg.T_ref__K)
 
-
-def compute_g_on__uS(nmos_cfg: NMOSConfig, v_dd_wl__V: float) -> float:
+def compute_g_on__uS(nmos_cfg: NMOSConfig, core_cfg: CircuitCore1T1RConfig, v_dd_wl__V: float) -> float:
     """Deep-triode access-device conductance at the WL on-level.
 
     Mirrors the deep-triode limit of :meth:`NMOS.gds__uS` reduced to a
@@ -96,16 +62,22 @@ def compute_g_on__uS(nmos_cfg: NMOSConfig, v_dd_wl__V: float) -> float:
         g_on = β · (V_DD,WL − V_th0)
 
     Args:
-        nmos_cfg: NMOS process / geometry configuration.
+        nmos_cfg: NMOS PDK process / spec configuration.
+        core_cfg: 1T1R core config carrying the access-NMOS design
+            parameters (``access_nmos_W/L__um``).
         v_dd_wl__V: WL drive voltage [V].
 
     Returns:
         Deep-triode conductance ``g_on`` [uS].  Clamped to a tiny
         positive epsilon to avoid sign flips in extreme tails.
     """
-    # Unit derivation (matches NMOS.__init__): cm²/V/s · fF/μm² · μm/μm
-    # = (1e8 μm²)·(1e-15 F)/(V·s·μm²) = 1e-7 A/V² = 1e-1 uA/V².
-    beta = nmos_cfg.mu0__cm2_per_V_s * nmos_cfg.c_ox__fF_per_um2 * 1e-1 * (nmos_cfg.W__um / nmos_cfg.L__um)
+    # cm²/V/s · fF/μm² → 1e-1 uA/V² (matches NMOS.__init__).
+    beta = (
+        nmos_cfg.mu0__cm2_per_V_s
+        * nmos_cfg.c_ox__fF_per_um2
+        * 1e-1
+        * (core_cfg.access_nmos_W__um / core_cfg.access_nmos_L__um)
+    )
     return max(beta * (v_dd_wl__V - nmos_cfg.vth0__V), 1e-12)
 
 
@@ -211,6 +183,7 @@ def compute_state_to_g__uS(
 
 def _log_step_inputs(
     nmos_cfg: NMOSConfig,
+    core_cfg: CircuitCore1T1RConfig,
     v_dd_wl__V: float,
     g_on__uS: float,
     g_min__uS: float,
@@ -229,8 +202,8 @@ def _log_step_inputs(
     """Emit step-by-step derivation traces (idempotent, log-only)."""
     logger.info(
         "step 1: build NMOS model from config (W/L=%s/%s um, V_th=%s V)",
-        _FMT.format(nmos_cfg.W__um),
-        _FMT.format(nmos_cfg.L__um),
+        _FMT.format(core_cfg.access_nmos_W__um),
+        _FMT.format(core_cfg.access_nmos_L__um),
         _FMT.format(nmos_cfg.vth0__V),
     )
 
@@ -275,6 +248,7 @@ def _run(
     """Top-level driver: load config, run all 7 steps, emit results."""
     cfg = dict_configs_from_file(_SPECS, config)
     nmos_cfg: NMOSConfig = cfg["nmos"]
+    core_cfg: CircuitCore1T1RConfig = cfg["core"]
     wl_dac: GeneralDACConfig = cfg["wl_dac"]
     bl_adc: GeneralADCConfig = cfg["bl_adc"]
     xbar_cfg: Offset1T1RXbarConfig = cfg["xbar"]
@@ -286,10 +260,10 @@ def _run(
     row_num = xbar_cfg.row_num
 
     # 1. Build NMOS model.
-    build_nmos(nmos_cfg)
+    build_nmos(nmos_cfg, core_cfg)
 
     # 2. NMOS deep-triode g_on at the configured WL on-level.
-    g_on__uS = compute_g_on__uS(nmos_cfg, v_dd_wl__V)
+    g_on__uS = compute_g_on__uS(nmos_cfg, core_cfg, v_dd_wl__V)
 
     # 3. Cell current range at the (gmin, gmax) endpoints.
     i_cell_min__uA, i_cell_max__uA = compute_cell_current_range__uA(g_min__uS, g_max__uS, g_on__uS, v_bl__V, alpha)
@@ -309,6 +283,7 @@ def _run(
     if not quiet:
         _log_step_inputs(
             nmos_cfg,
+            core_cfg,
             v_dd_wl__V,
             g_on__uS,
             g_min__uS,

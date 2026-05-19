@@ -1,0 +1,10 @@
+# Interconnect (wire) capacitance per unit length.
+#
+# Each top-level section names one variant: `wire_<node>_<flavor>`
+# where flavor identifies the metal layer / dielectric stack.
+#
+# Fields map directly to `WireConfig`; no construction directives.
+
+
+[wire_28_metal]
+c__fF_per_um = 0.2

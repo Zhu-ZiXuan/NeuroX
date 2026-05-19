@@ -1,37 +1,7 @@
-"""SimpleSlicer — direct digitise-then-group.
+"""SimpleSlicer — direct digitise-then-group decomposer.
 
-Use case: weight decomposer.  One algorithm-side scalar is encoded
-in one pass into ``slice_num * digit_count`` radix-``digit_radix``
-digits, then every ``digit_count`` consecutive digits are grouped
-into one xbar-word slice (LSB-first):
-
-    x  ->  [..., slice_num * digit_count]  ->  [..., slice_num, digit_count]
-
-Strategy parameters (owned on the instance):
-
-* ``slice_num`` — outer slice count (shape shorthand ``Sw``).
-* ``encoding`` — signed-digit encoding policy for the single digit
-  string.
-
-Runtime kwargs follow the unified :class:`Slicer` 3-kwarg
-contract — ``value_range`` is the slicer's *output*, not an input:
-
-* ``digit_count``  — inner digit slots ``D`` per xbar-word.
-* ``digit_radix``  — per-digit radix ``r``.
-* ``digit_range``  — unused; kept only for the 3-kwarg contract.
-
-Output (uniform :class:`SlicingResult` contract):
-
-* ``values`` shape: ``[..., slice_num, digit_count]``.
-* ``slice_weights = [1, R, R^2, ...]`` with ``R = r^D``.
-* ``digit_weights = [1, r, r^2, ..., r^{D - 1}]``.
-* ``value_range = SignedDigitTranscoder(encoding, r,
-  slice_num * D).value_range()``.
-
-LSB-first ordering: :meth:`SignedDigitTranscoder.encode` emits
-digits LSB first, so after the unflatten the slice at axis-``-2``
-position ``0`` carries the lowest-order ``D`` digits and the digit
-at axis-``-1`` position ``0`` of each slice is its own LSB.
+See also:
+    docs/dev/modules/mapper/xbar/slicer/README.md
 """
 
 from __future__ import annotations
@@ -41,7 +11,7 @@ from torch import Tensor
 
 from neurox.mapper.transcoder import Encoding, SignedDigitTranscoder
 
-from .base import Slicer, SlicingResult
+from .base import Slicer, SlicingPlan
 
 
 class SimpleSlicer(Slicer):
@@ -108,7 +78,7 @@ class SimpleSlicer(Slicer):
         digit_count: int,
         digit_radix: int,
         digit_range: tuple[int, int],
-    ) -> SlicingResult:
+    ) -> SlicingPlan:
         """Slice ``x`` into ``[..., slice_num, digit_count]`` digit slots.
 
         Args:
@@ -123,9 +93,10 @@ class SimpleSlicer(Slicer):
             digit_radix=digit_radix,
         )
 
-        # Shape: [...] -> [..., slice_num * digit_count] (LSB first).
+        # LSB-first digit ordering.
+        # Shape: [...] -> [..., slice_num * digit_count]
         flat_digits = transcoder.encode(x, dim=-1)
-        # Shape: [..., slice_num * digit_count] -> [..., slice_num, digit_count].
+        # Shape: [..., slice_num * digit_count] -> [..., slice_num, digit_count]
         values = flat_digits.unflatten(-1, (self._slice_num, digit_count))
 
         slice_radix = self._slice_radix(digit_count=digit_count, digit_radix=digit_radix)
@@ -139,7 +110,7 @@ class SimpleSlicer(Slicer):
             dtype=values.dtype,
             device=values.device,
         )
-        return SlicingResult(
+        return SlicingPlan(
             values=values,
             slice_weights=slice_weights,
             digit_weights=digit_weights,

@@ -1,21 +1,7 @@
 """HAT (hardware-aware training) replacement for ``nn.Linear``.
 
-``HATLinear`` keeps the original float ``weight`` / ``bias`` as
-trainable ``nn.Parameter`` objects, uses running min/max observers to
-discover input / output activation ranges, fake-quantizes via straight-
-through estimator, and runs the SAME crossbar macro in the forward
-pass so the loss sees real hardware effects (ADC clipping, IR drop,
-read noise).  Gradients flow back through the float-reference linear
-path (STE), keeping training stable without needing backward-
-compatible hardware models.
-
-Reuses two helpers from :mod:`._shared`:
-
-- ``run_matmul_pipeline``: int matmul → activation-grid clamp → float
-  dequant.  HAT's hardware-effect path goes through it unchanged.
-- ``derive_layer_int_params``: ``(s_x, zp_x, s_w, s_y, zp_y)`` →
-  ``(weight_int, bias_int, multiplier, rshift)``.  Called every
-  forward from the current float weight + observer outputs.
+See also:
+    docs/dev/modules/operator/train/README.md
 """
 
 from typing import Self
@@ -26,38 +12,22 @@ import torch.nn.functional as F
 from torch import Tensor
 
 from neurox.macro.base import NeuroxMacroQuantMatMul
+from neurox.operator.base import NeuroxOperator
+from neurox.operator.spec import QuantSpec
+from neurox.operator.train.fake_quant import fake_quant_ste, fake_quant_symm_per_channel_ste
+from neurox.operator.train.observer import PerChannelSymmObserver, PerTensorObserver
 
-from ..base import NeuroxOperator
-from ..spec import QuantSpec
-from ..train.fake_quant import fake_quant_ste, fake_quant_symm_per_channel_ste
-from ..train.observer import PerChannelSymmObserver, PerTensorObserver
 from ._shared import derive_layer_int_params, run_matmul_pipeline
 
 
 class HATLinear(nn.Linear):
     """Hardware-aware QAT replacement for ``nn.Linear``.
 
-    Inherits ``nn.Linear`` to keep float ``weight`` / ``bias`` as
-    trainable ``nn.Parameter`` objects — optimizers and schedulers use
-    them unchanged.  Each forward:
-
-    1. Observe input range (EMA) and derive ``(s_x, zp_x)``.
-    2. Observe per-channel weight range and derive ``s_w``.
-    3. Fake-quantize input + weight via STE; run
-       ``F.linear(x_fq, w_fq, bias)`` as the float reference (gradient
-       path, output observer input).
-    4. Observe output range and derive ``(s_y, zp_y)``.
-    5. Convert to int via ``derive_layer_int_params``, then call the
-       shared ``run_matmul_pipeline`` against the macro — this is the
-       hardware-effect path.
-    6. STE-combine: ``y = y_float + (y_hw - y_float).detach()`` so the
-       forward returns the hardware output but the backward uses the
-       smooth float-reference gradient.
-
-    The macro instance is held as a submodule so ``.train()`` /
-    ``.eval()`` / ``.to(device)`` propagate automatically; while
-    ``self.training`` is True, the macro re-fabricates its physical
-    state from the current (updated) weight each forward call.
+    Float ``weight`` / ``bias`` stay trainable; each forward observes
+    input / weight / output ranges, fake-quantizes input + weight,
+    runs both a float reference (gradient path) and the
+    macro-backed hardware path, and STE-combines them so the
+    backward uses the smooth float gradient.
     """
 
     def __init__(
@@ -120,24 +90,24 @@ class HATLinear(nn.Linear):
         return self
 
     def forward(self, input: Tensor) -> Tensor:
-        # --- 1. Observe + derive activation qparams --- #
+        # --- 1. Observe + derive activation qparams ---
         self.act_observer(input)
         s_x, zp_x = self.act_observer.qparams()
 
-        # --- 2. Observe + derive per-channel weight qparams --- #
+        # --- 2. Observe + derive per-channel weight qparams ---
         self.weight_observer(self.weight)
         s_w, _ = self.weight_observer.qparams()
 
-        # --- 3. Float reference forward with fake-quant (STE) --- #
+        # --- 3. Float reference forward with fake-quant (STE) ---
         x_fq = fake_quant_ste(input, s_x, zp_x, self.spec.x_qmin, self.spec.x_qmax)
         w_fq = fake_quant_symm_per_channel_ste(self.weight, s_w, self.spec.w_qmax)
         y_float = F.linear(x_fq, w_fq, self.bias)
 
-        # --- 4. Observe + derive output qparams --- #
+        # --- 4. Observe + derive output qparams ---
         self.out_observer(y_float)
         s_y, zp_y = self.out_observer.qparams()
 
-        # --- 5. Hardware forward through the macro --- #
+        # --- 5. Hardware forward through the macro ---
         with torch.no_grad():
             x_int = torch.clamp(torch.round(input / s_x + zp_x.float()), self.spec.x_qmin, self.spec.x_qmax).to(
                 torch.int32
@@ -167,7 +137,7 @@ class HATLinear(nn.Linear):
                 self.macro,
             )
 
-        # --- 6. STE: forward is hardware, backward is float --- #
+        # --- 6. STE: forward is hardware, backward is float ---
         return y_float + (y_hw - y_float).detach()
 
     @torch.no_grad()

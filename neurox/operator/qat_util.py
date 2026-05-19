@@ -1,18 +1,7 @@
 """Fixed-point scale derivation for hardware-compatible integer rescaling.
 
-Converts a float scale factor ``s`` (ratio of input scale * weight scale to
-output scale) into an ``(int32 multiplier, int32 right-shift)`` pair such
-that ``(x * multiplier) >> shift ≈ x * s`` for any integer ``x``.
-
-The decomposition uses ``math.frexp`` / ``torch.frexp`` to extract the IEEE
-significand and exponent, then scales the significand to fill an N-bit
-integer where N = ``mult_bits`` (configurable, default 8).  The formula is:
-
-    scale ≈ multiplier / 2^shift,    multiplier ∈ [0, 2^mult_bits - 1]
-
-Keeping ``mult_bits`` small (e.g. 8) ensures ``x * multiplier`` stays
-within int32 for any accumulator value ``x`` that fits in the remaining
-``32 - mult_bits`` bits — no int64 intermediate is needed.
+See also:
+    docs/dev/modules/operator/README.md
 """
 
 import math

@@ -41,8 +41,8 @@ from neurox.config import DEFAULT_1T1R_TOML
 from neurox.device import NMOS, RRAM, NMOSConfig, RRAMConfig, Wire, WireConfig
 from neurox.digital import Subtractor, SubtractorConfig
 from neurox.xbar import (
-    Core1T1R,
-    Core1T1RConfig,
+    CircuitCore1T1R,
+    CircuitCore1T1RConfig,
     Offset1T1RXbar,
     Offset1T1RXbarConfig,
 )
@@ -65,7 +65,7 @@ _SPECS = {
     "data_switchcap": SwitchCapConfig,
     "ref_switchcap": SwitchCapConfig,
     "digit_subtractor": SubtractorConfig,
-    "core": Core1T1RConfig,
+    "core": CircuitCore1T1RConfig,
     "readout": ReadOutConfig,
     "xbar": Offset1T1RXbarConfig,
 }
@@ -94,7 +94,7 @@ def _compute_nmos_ref_conductance(
 def _build_xbar() -> Offset1T1RXbar:
     """Build a 64x64 xbar via the new three-layer factory chain.
 
-    See ``temp/1t1r_xbar.md`` + ``temp/state_holding.md`` — ``Core1T1R``
+    See ``docs/dev/modules/xbar/_1t1r/README.md`` + ``docs/dev/architecture/state_holding.md`` — ``CircuitCore1T1R``
     owns the array physics, ``ReadOut`` does the voltage-domain
     weighted-sum, and ``Offset1T1RXbar`` is the mapping layer.  Every
     device / circuit module is built per-core from its own factory so
@@ -109,7 +109,7 @@ def _build_xbar() -> Offset1T1RXbar:
     bl_wire_factory = partial(Wire, cfg["bl_wire"], dtype=torch.float64)
     wl_wire_factory = partial(Wire, cfg["wl_wire"], dtype=torch.float64)
     core_factory = partial(
-        Core1T1R,
+        CircuitCore1T1R,
         cfg["core"],
         rram_factory=rram_factory,
         nmos_factory=nmos_factory,

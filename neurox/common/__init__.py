@@ -1,12 +1,7 @@
-"""Common utilities for NeuroX.
-
-Importing this package also installs the project-wide ``torch._dynamo``
-configuration.  ``neurox.common`` is a transitive dependency of every
-other ``neurox.*`` sub-package, so the bootstrap fires exactly once on
-the first ``from neurox.<sub> import ...`` regardless of entry point.
-"""
+"""NeuroX common utilities."""
 
 from .config import Config, ConfigBuilder, ValidationError
+from .config_dispatch import ConfigDispatchMixin
 from .load_dump import (
     dataclass_from_dict,
     dataclass_from_file,
@@ -17,6 +12,7 @@ from .load_dump import (
     dict_from_file,
     dict_to_file,
     merge_dicts,
+    resolve_uses,
 )
 from .physical_constant import (
     ELEM_CHARGE__C,
@@ -35,6 +31,7 @@ from .quant import (
 __all__ = [
     "Config",
     "ConfigBuilder",
+    "ConfigDispatchMixin",
     "ELEM_CHARGE__C",
     "EPS_0__F_per_m",
     "K_BOLTZMANN__J_per_K",
@@ -50,6 +47,7 @@ __all__ = [
     "dict_to_file",
     "floor_bucketize",
     "merge_dicts",
+    "resolve_uses",
     "stochastic_floor_div",
     "stochastic_floor_to_int",
     "thermal_voltage__V",

@@ -1,41 +1,7 @@
 """Row decoder + WL driver wrapper.
 
-A real chip's WL path is:
-
-1. The decoder receives an N-bit row address.
-2. The decoder asserts one of ``2^N`` row-select lines (or all of
-   them in parallel for VMM operation).
-3. The driver buffers the row-select to drive the WL load through
-   the WL DAC's voltage levels.
-
-Prior to this redesign the xbar wired the WL DAC directly with no
-explicit decoder/driver entity, which left:
-
-* Row-address energy unaccounted for.
-* The bit-serial input mode (one DAC pulse per input bit) hard-
-  baked into the mapper.
-
-The :class:`Decoder` class consumes per-row integer codes from the
-macro's Sa loop and (a) feeds them straight to the WL DAC for the
-default parallel-multibit case or (b) expands each code into
-``log2(N)`` bit-cycles when ``bit_serial`` is on.  Either way the
-xbar sees a single ``(signal, energy)`` pair per call.
-
-Latency / energy
-----------------
-
-Decoder gate-delay::
-
-    t_op = (n_address_bits) · t_gate__ns
-
-Energy per row access::
-
-    E = (n_address_bits · C_gate__fF · V_DD²)            (fJ)
-        + n_address_bits · driver_energy_per_row__fJ
-        + E_overhead
-
-When bit_serial is on, the macro multiplies through by the bit-cycle
-count itself; we accumulate energy here per single drive call.
+See also:
+    docs/dev/modules/analog/decoder.md
 """
 
 from __future__ import annotations
@@ -46,11 +12,14 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
+from neurox.common.validate import ValidateMixin
+from neurox.profiler import ProfiledModule
+
 from .dac import DAC
 
 
 @dataclass(frozen=True)
-class DecoderConfig:
+class DecoderConfig(ValidateMixin):
     """Immutable configuration for :class:`Decoder`.
 
     Attributes:
@@ -87,20 +56,58 @@ class DecoderConfig:
     leakage_per_inst__uW: float = 0.0
     area_per_inst__um2: float = 0.0
 
+    def __post_init__(self) -> None:
+        self.validate()
 
-class Decoder(nn.Module):
+    def validate(self) -> None:
+        self.validate_address()
+        self.validate_drive()
+        self.validate_energy()
+        self.validate_ppa()
+
+    def validate_address(self) -> None:
+        self._require_pos(self.n_address_bits, "n_address_bits")
+        self._require_pos(self.fanout, "fanout")
+
+    def validate_drive(self) -> None:
+        self._require_nonneg(self.drive_strength__uA, "drive_strength__uA")
+
+    def validate_energy(self) -> None:
+        self._require_nonneg(self.c_gate__fF, "c_gate__fF")
+        self._require_nonneg(self.v_dd__V, "v_dd__V")
+        self._require_nonneg(self.t_gate__ns, "t_gate__ns")
+        self._require_nonneg(self.e_overhead__fJ, "e_overhead__fJ")
+
+    def validate_ppa(self) -> None:
+        self._require_nonneg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
+        self._require_nonneg(self.area_per_inst__um2, "area_per_inst__um2")
+
+
+class Decoder(nn.Module, ProfiledModule):
     """Row decoder + driver, wraps a WL DAC.
 
     Args:
         cfg: Topology configuration.
+        name: Hierarchical profiler name.
+        T__K: Operating temperature [K].
+        dtype: Floating-point dtype.
     """
 
-    def __init__(self, cfg: DecoderConfig, *, name: str = "") -> None:
-        super().__init__()
+    def __init__(
+        self,
+        *,
+        cfg: DecoderConfig,
+        name: str,
+        T__K: float,
+        dtype: torch.dtype,
+    ) -> None:
+        nn.Module.__init__(self)
+        ProfiledModule.__init__(self, name)
         if cfg.n_address_bits < 1:
             raise ValueError(f"Decoder n_address_bits ({cfg.n_address_bits}) must be >= 1")
-        self._neurox_name = name
         self.cfg = cfg
+        self.dtype = dtype
+        self.T__K = T__K
 
         self._t_op__ns: float = cfg.n_address_bits * cfg.t_gate__ns
         # fF · V² = fJ — no scaling factor needed.
@@ -128,39 +135,21 @@ class Decoder(nn.Module):
         return self._t_op__ns
 
     def fabricate(self, shape: tuple[int, ...]) -> None:
-        """Default no-op — Decoder has no static fabrication state today.
-
-        The unified ``fabricate(shape)`` signature is kept for
-        lifecycle consistency with the other readout-chain modules
-        (per ``temp/fabricate.md``).  A future iteration may introduce
-        static per-row mismatch sized over ``shape``; until then the
-        call has nothing to do.
+        """Sample static per-instance state over ``shape`` (re-callable).
 
         Args:
-            shape: Reserved for future per-row static mismatch.
-                Ignored today.
+            shape: Per-instance fabrication shape.
         """
-        return
+        self._record_inst_count(shape)
 
     def drive(self, x_int: Tensor, dac: DAC) -> Tensor:
         """Decode integer per-row codes and drive the DAC.
 
-        Non-bit-serial mode (default): hands ``x_int`` straight to
-        ``dac.convert(x_int)``.
-
-        Bit-serial mode: expands ``x_int`` into ``n_bits`` codes via
-        ``torch.bitwise_and`` and concatenates the new bit-cycle
-        axis at ``dim=-3`` (the macro's existing Sa axis is
-        preserved; bit-cycle is inserted as a finer cycling
-        dimension).  The DAC sees codes in ``{0, 1}`` per bit.
-
-        Decoder dynamic energy and the wrapped DAC's energy are
-        emitted as profiler side-channel events.
+        Bit-serial mode inserts a new bit-cycle axis at ``dim=-3``,
+        one pulse per bit.
 
         Args:
-            x_int: Per-row integer codes from the macro's Sa loop.
-                Shape: ``[..., row_size]`` (or with whatever leading
-                axes the macro has).
+            x_int: Per-row integer codes, shape ``[..., row_size]``.
             dac: WL DAC the decoder feeds.
 
         Returns:
@@ -175,12 +164,6 @@ class Decoder(nn.Module):
             x_int = torch.stack(bit_planes, dim=-2)
 
         signal = dac.convert(x_int)
-        # Decoder's own per-call energy as a side-channel event.
         if self._e_per_call__fJ > 0.0:
-            # ``getattr`` because Decoder is currently name-only (not
-            # ``ProfiledModule``); when the project adds it the call
-            # short-circuits cleanly.
-            log = getattr(self, "_log_dynamic", None)
-            if callable(log):
-                log(self._e_per_call__fJ, self._t_op__ns)
+            self._log_dynamic(self._e_per_call__fJ, self._t_op__ns)
         return signal

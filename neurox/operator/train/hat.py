@@ -1,23 +1,7 @@
 """HAT pipeline helpers: replace, freeze observers, extract state.
 
-Three functions form the user-facing surface of the
-hardware-aware-training flow:
-
-1. :func:`replace_for_hat` — swap every supported ``nn.Linear`` /
-   ``nn.Conv2d`` for its HAT counterpart, each bound to a fresh
-   macro and the same :class:`QuantSpec`.
-2. :func:`freeze_hat_observers` — after a calibration pass, pin every
-   observer's ``(min, max)`` / ``abs_max`` so STE-noisy training
-   updates don't drift the quantization grid.
-3. :func:`extract_neurox_state` — collect a NeuroX-flat state_dict
-   from the trained model, ready to feed
-   :func:`neurox.build_evaluator` at eval time.
-
-HAT operator classes (``HATLinear`` / ``HATConv2d``) live next to
-their inference counterparts in :mod:`neurox.operator.linear` and
-:mod:`neurox.operator.conv`; they are imported lazily inside each
-function to break the package-level cycle (``train`` is imported by
-those modules in turn for the observer / STE helpers).
+See also:
+    docs/dev/modules/operator/train/README.md
 """
 
 from __future__ import annotations
@@ -28,8 +12,8 @@ import torch
 import torch.nn as nn
 
 from neurox.macro.base import NeuroxMacroQuantMatMul
+from neurox.operator.spec import QuantSpec
 
-from ..spec import QuantSpec
 from .observer import PerChannelSymmObserver, PerTensorObserver
 
 
@@ -42,37 +26,18 @@ def replace_for_hat(
 ) -> nn.Module:
     """Swap every ``nn.Linear`` / ``nn.Conv2d`` for its HAT counterpart.
 
-    Every supported module is replaced with a :class:`HATLinear` /
-    :class:`HATConv2d` bound to a fresh macro instance (via
-    ``macro_factory``) and the given :class:`QuantSpec`.  Modules NOT
-    in the supported set (ReLU, MaxPool, BatchNorm, LayerNorm,
-    Softmax, ...) are left alone — they run in float between the
-    quantized layers.  Use :func:`neurox.fold_batchnorm` *before* this
-    call when your model has BN following a Conv / Linear; folding
-    collapses the BN into the linear op's weights so the HAT layer
-    owns the whole Conv-BN (or Linear-BN) behavior.
-
     Args:
-        model: The float model (already BN-folded if applicable).
-            Weights are reused in place — the HAT modules keep the
-            original ``nn.Parameter`` objects so optimizer state is
-            preserved.
-        macro_factory: Callable returning a fresh macro per layer.
-            Receives the qualified module name as ``name=`` kwarg.
-        spec: Quantization grid applied uniformly to every replaced
-            layer.  For per-layer customization, call this function
-            with different ``spec`` values on sub-models, or
-            post-process the replaced model.
+        model: Float model (already BN-folded if applicable).
+        macro_factory: Callable returning a fresh macro per layer;
+            receives the qualified module name as ``name=`` kwarg.
+        spec: Quantization grid applied to every replaced layer.
         exclude: Optional set of qualified module names to skip.
-            Useful to keep the first / last layers in float when they
-            are known to be quantization-sensitive.
 
     Returns:
-        The same model object (mutated in place), with HAT modules in
-        place of supported float ops.
+        The same model object, mutated in place.
     """
-    from ..conv import HATConv2d, QuantConv2d
-    from ..linear import HATLinear, QuantLinear
+    from neurox.operator.conv import HATConv2d, QuantConv2d
+    from neurox.operator.linear import HATLinear, QuantLinear
 
     skip = exclude or set()
 
@@ -124,8 +89,8 @@ def extract_neurox_state(model: nn.Module) -> dict[str, torch.Tensor]:
     for a model that has been re-replaced with :class:`QuantLinear` /
     :class:`QuantConv2d` at eval time.
     """
-    from ..conv import HATConv2d
-    from ..linear import HATLinear
+    from neurox.operator.conv import HATConv2d
+    from neurox.operator.linear import HATLinear
 
     state: dict[str, torch.Tensor] = {}
     quantized_prefixes: set[str] = set()

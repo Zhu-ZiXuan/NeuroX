@@ -1,19 +1,7 @@
-"""Shift-adder for multi-digit CiM partial-product recombination.
+"""Shift-adder for multi-digit partial-product recombination.
 
-When a weight or activation is decomposed into ``N`` digits of a radix-``r``
-number system (e.g. two 4-bit nibbles of a radix-16 value), each digit is
-processed by a separate crossbar sub-array pass.  This module recombines those
-partial results by computing the weighted positional sum
-
-    y = sum_i(x[..., i] * scale^i)   for i in 0 .. N-1
-
-and wrapping into the signed ``bit_width``-bit range via modular arithmetic.
-An optional ``init_val`` accumulates a prior partial sum, supporting chained
-multi-pass recombination.
-
-PPA metrics are tracked per-instance for system-level estimation; physical
-instance count is set externally by the parent macro at fabricate time via
-``ProfiledModule._record_inst_count``.
+See also:
+    docs/dev/modules/digital/README.md
 """
 
 from dataclasses import dataclass
@@ -22,11 +10,12 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
+from neurox.common.validate import ValidateMixin
 from neurox.profiler import ProfiledModule
 
 
 @dataclass(frozen=True)
-class ShiftAdderConfig:
+class ShiftAdderConfig(ValidateMixin):
     """Immutable configuration for a ShiftAdder instance.
 
     Attributes:
@@ -46,16 +35,25 @@ class ShiftAdderConfig:
     leakage_per_inst__uW: float = 0.0
     area_per_inst__um2: float = 0.0
 
+    def __post_init__(self) -> None:
+        self.validate()
+
+    def validate(self) -> None:
+        self.validate_arithmetic()
+        self.validate_ppa()
+
+    def validate_arithmetic(self) -> None:
+        self._require_pos(self.bit_width, "bit_width")
+
+    def validate_ppa(self) -> None:
+        self._require_nonneg(self.energy_per_op__fJ, "energy_per_op__fJ")
+        self._require_nonneg(self.area_per_inst__um2, "area_per_inst__um2")
+        self._require_nonneg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
+        self._require_nonneg(self.latency_per_op__ns, "latency_per_op__ns")
+
 
 class ShiftAdder(nn.Module, ProfiledModule):
-    """Weighted positional-sum unit for digit recombination.
-
-    Multiplies each digit slice along ``dim`` by the corresponding power of
-    ``scale`` (i.e. ``scale^0, scale^1, ...``), sums the scaled digits, and
-    wraps the result into the signed ``bit_width``-bit range.  Models the
-    shift-and-add tree that follows the per-digit ADC readout stage in a
-    bit-serial or digit-serial CiM macro.
-    """
+    """Weighted positional-sum unit for digit recombination."""
 
     def __init__(self, config: ShiftAdderConfig, *, name: str = "") -> None:
         nn.Module.__init__(self)
@@ -77,25 +75,22 @@ class ShiftAdder(nn.Module, ProfiledModule):
         """Latency per op in ns."""
         return self.config.latency_per_op__ns
 
-    def fabricate(self) -> None:
-        """No-op: ShiftAdder's instance count is set by the parent macro."""
-        return None
+    def fabricate(self, shape: tuple[int, ...]) -> None:
+        """Sample static per-instance state over ``shape`` (re-callable).
+
+        Args:
+            shape: Per-instance fabrication shape.
+        """
+        self._record_inst_count(shape)
 
     def operate(self, x: Tensor, scale: int, dim: int = -1, init_val: Tensor | None = None) -> Tensor:
         """Compute the radix-weighted digit sum and wrap to ``bit_width`` bits.
 
-        Each index ``i`` along ``dim`` represents digit position ``i``, weighted
-        by ``scale^i``.  The final result is optionally offset by ``init_val``
-        before being returned (without an additional modular wrap on that offset).
-        Dynamic energy and latency emit through the profiler side channel.
-
         Args:
-            x: Integer digit tensor.  The size of ``dim`` equals the number of
-                digit positions ``N``.
-            scale: Radix of the digit representation (e.g. 2 for bit-serial,
-                16 for nibble-serial).
-            dim: Axis indexing the digit positions (default: ``-1``).
-            init_val: Optional partial-sum tensor to add after the modular wrap,
+            x: Integer digit tensor; size of ``dim`` is the digit count.
+            scale: Radix of the digit representation.
+            dim: Axis indexing the digit positions.
+            init_val: Optional partial-sum tensor added after the modular wrap,
                 broadcastable to the output shape.
 
         Returns:

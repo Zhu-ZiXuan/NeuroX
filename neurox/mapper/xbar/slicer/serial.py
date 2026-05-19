@@ -1,34 +1,7 @@
-"""SerialSlicer — radix-``r`` positional decomposition, ``digit_num = 1``.
+"""SerialSlicer — radix-``r`` positional decomposition with ``digit_num=1``.
 
-Use case: activation serializer.  One unsigned algorithm-side scalar
-is decomposed into ``slice_num`` digits at radix ``r = len(digit_range)``;
-each digit can directly drive one xbar input cycle.
-
-Strategy parameters (owned on the instance):
-
-* ``slice_num`` — digit count (shape shorthand ``Sa``).
-* ``encoding`` — signed-digit encoding policy.
-
-Runtime kwargs follow the unified :class:`Slicer` 3-kwarg
-contract — ``value_range`` is the slicer's *output*, not an input:
-
-* ``digit_count``  — must equal ``1`` (the output's structural
-  digit axis is a singleton).
-* ``digit_radix``  — must equal ``len(digit_range)``.
-* ``digit_range``  — the xbar's primitive input grid (must be
-  unsigned, ``[0, r - 1]``).
-
-Output (uniform :class:`SlicingResult` contract):
-
-* ``values`` shape: ``[..., slice_num, digit_num = 1]``.
-* ``slice_weights = [1, r, r^2, ..., r^{slice_num - 1}]``.
-* ``digit_weights = [1]`` (single digit per slice, no inner radix).
-* ``value_range = (0, r^slice_num - 1)``.
-
-The base ``value_range`` of a positional-radix digit string lives
-on :class:`SignedDigitTranscoder.value_range`; this slicer composes
-that envelope and trims it to the unsigned half because activation
-values are non-negative.
+See also:
+    docs/dev/modules/mapper/xbar/slicer/README.md
 """
 
 from __future__ import annotations
@@ -38,11 +11,11 @@ from torch import Tensor
 
 from neurox.mapper.transcoder import Encoding, SignedDigitTranscoder
 
-from .base import Slicer, SlicingResult
+from .base import Slicer, SlicingPlan
 
 
 class SerialSlicer(Slicer):
-    """Radix-``r`` serial decomposition with structural ``digit_num = 1``.
+    """Radix-``r`` serial decomposition with structural ``digit_num=1``.
 
     Args:
         slice_num: Number of per-cycle digits (shape shorthand ``Sa``).
@@ -98,7 +71,7 @@ class SerialSlicer(Slicer):
         digit_count: int,
         digit_radix: int,
         digit_range: tuple[int, int],
-    ) -> SlicingResult:
+    ) -> SlicingPlan:
         """Decompose ``x`` into ``slice_num`` radix-``r`` digits.
 
         Args:
@@ -116,7 +89,7 @@ class SerialSlicer(Slicer):
         )
         # Shape: [...] -> [..., slice_num].
         encoded = transcoder.encode(x, dim=-1)
-        # Shape: [..., slice_num] -> [..., slice_num, digit_num = 1].
+        # Shape: [..., slice_num] -> [..., slice_num, digit_num=1].
         values = encoded.unsqueeze(-1)
         slice_weights = torch.tensor(
             [radix**i for i in range(self._slice_num)],
@@ -125,7 +98,7 @@ class SerialSlicer(Slicer):
         )
         digit_weights = torch.ones(1, dtype=values.dtype, device=values.device)
         envelope = transcoder.value_range()
-        return SlicingResult(
+        return SlicingPlan(
             values=values,
             slice_weights=slice_weights,
             digit_weights=digit_weights,

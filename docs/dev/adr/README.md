@@ -1,0 +1,13 @@
+# Architectural Decision Records
+
+ADRs record why NeuroX chose a particular design.
+
+Use ADRs for decisions that are:
+
+- cross-cutting
+- long-lived
+- likely to be questioned again
+- chosen from multiple real alternatives, with the trade-off worth recording
+- sensitive to numerical correctness or performance edges that the code itself cannot self-document
+
+Module docs describe the current design. ADRs explain why the project chose that design and what alternatives were rejected.

@@ -1,23 +1,9 @@
 """Shared utilities for multi-mode physics-based ADCs.
 
-The physics-based topologies (SAR, Pipeline, Cyclic, Ramp) share a
-uniform-bin boundary derivation and a mode-selection convention.
-Putting both in one place keeps the subclass implementations focused
-on their topology-specific energy and latency formulas.
-
-Boundary derivation
--------------------
-A multi-mode ADC stores **one** comparator-threshold list — the
-highest-precision-mode list — and lower-precision modes draw a
-sub-sampled subset.  Concretely, for the active mode with
-``n_codes_active`` codes and ``max_signal_active``:
-
-    LSB     = max_signal_active / n_codes_active
-    bound_c = c · LSB                                 c ∈ {1, …, n_codes_active − 1}
-
-Floor semantics: a signal above ``bound_c`` produces code ``c+`` (i.e.
-the count of thresholds it exceeds).  Stochastic rounding adds
-``uniform(0, LSB)`` jitter before the floor and is unbiased.
+For each active mode with ``n_codes_active`` codes and
+``max_signal_active`` the LSB is ``max_signal_active / n_codes_active``
+and thresholds are placed at ``c · LSB`` for
+``c ∈ {1, …, n_codes_active - 1}`` (floor semantics).
 """
 
 from __future__ import annotations

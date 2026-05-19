@@ -1,16 +1,7 @@
 """HAT (hardware-aware training) replacement for ``nn.Conv2d``.
 
-Structured the same way as :class:`neurox.operator.linear.HATLinear`:
-observers learn activation ranges, fake-quant via STE drives the
-gradient path, and the macro runs the same im2col + grouped matmul
-the inference operator does — with its hardware effects included —
-to drive the forward value.
-
-Reuses the inference-side im2col plumbing from :mod:`._shared` so the
-two operators share the exact same unfold / reshape / fold geometry,
-and the int-domain pipeline + int-params derivation from
-:mod:`neurox.operator.linear` (``run_matmul_pipeline``,
-``derive_layer_int_params``).
+See also:
+    docs/dev/modules/operator/train/README.md
 """
 
 from typing import Literal, Self
@@ -21,12 +12,12 @@ import torch.nn.functional as F
 from torch import Tensor
 
 from neurox.macro.base import NeuroxMacroQuantMatMul
+from neurox.operator.base import NeuroxOperator
+from neurox.operator.linear import derive_layer_int_params, run_matmul_pipeline
+from neurox.operator.spec import QuantSpec
+from neurox.operator.train.fake_quant import fake_quant_ste, fake_quant_symm_per_channel_ste
+from neurox.operator.train.observer import PerChannelSymmObserver, PerTensorObserver
 
-from ..base import NeuroxOperator
-from ..linear import derive_layer_int_params, run_matmul_pipeline
-from ..spec import QuantSpec
-from ..train.fake_quant import fake_quant_ste, fake_quant_symm_per_channel_ste
-from ..train.observer import PerChannelSymmObserver, PerTensorObserver
 from ._shared import (
     _build_reversed_padding,
     _conv_padding_args,
@@ -131,15 +122,15 @@ class HATConv2d(nn.Conv2d):
         return self
 
     def forward(self, input: Tensor) -> Tensor:
-        # --- 1. Observe + derive activation qparams --- #
+        # --- 1. Observe + derive activation qparams ---
         self.act_observer(input)
         s_x, zp_x = self.act_observer.qparams()
 
-        # --- 2. Observe + derive per-channel weight qparams --- #
+        # --- 2. Observe + derive per-channel weight qparams ---
         self.weight_observer(self.weight)
         s_w, _ = self.weight_observer.qparams()
 
-        # --- 3. Float reference via F.conv2d on fake-quant inputs + weight --- #
+        # --- 3. Float reference via F.conv2d on fake-quant inputs + weight ---
         x_fq = fake_quant_ste(input, s_x, zp_x, self.spec.x_qmin, self.spec.x_qmax)
         w_fq = fake_quant_symm_per_channel_ste(self.weight, s_w, self.spec.w_qmax)
         y_float = F.conv2d(
@@ -152,11 +143,11 @@ class HATConv2d(nn.Conv2d):
             self.groups,
         )
 
-        # --- 4. Observe + derive output qparams --- #
+        # --- 4. Observe + derive output qparams ---
         self.out_observer(y_float)
         s_y, zp_y = self.out_observer.qparams()
 
-        # --- 5. Hardware forward via unfold/fold + macro --- #
+        # --- 5. Hardware forward via unfold/fold + macro ---
         with torch.no_grad():
             unfolded, batch_shape, out_h, out_w = _unfold_input(
                 input,

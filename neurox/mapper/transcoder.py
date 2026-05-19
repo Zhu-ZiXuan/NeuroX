@@ -1,42 +1,7 @@
-"""Data-representation transcoders used by the xbar mappers.
+"""Signed-digit transcoders: integer ↔ digit-list conversion.
 
-The xbar-macro mapping layer is split into a unified
-:class:`neurox.mapper.xbar.XbarMapper` (composed of a tiler plus an
-activation slicer + a weight slicer).  Each slicer composes one or
-more :class:`SignedDigitTranscoder` instances at call time; this
-file owns the underlying digit encode / decode math and the base
-``value_range`` of a single positional-radix digit string.
-
-A ``Transcoder`` converts an integer tensor into a per-digit signed
-representation suitable for programming individual crossbar cells.
-The slicer inserts the digit axis at the appropriate position
-before the mapper tiles the tensor into the physical layout.
-
-Supported encodings (selected by string literal at construction time):
-
-``"true_form"``
-    Sign-magnitude decomposition.  The magnitude is split into
-    ``digit_num`` base-``radix`` digits; each is multiplied by the
-    original sign.  Digits lie in ``[-(r-1), r-1]``.
-
-``"complement"``
-    Radix-``r`` complement.  Lower digits are extracted via successive
-    ``% radix`` / ``// radix`` steps; the MSB is sign-corrected in
-    place so every digit decodes with a positive ``radix**i`` weight.
-    Digits lie in ``[0, r-1]`` except the MSB which is in
-    ``[-(r-1), r-1]``.
-
-``"canonical"``
-    Canonical signed digit (non-adjacent form) encoding that minimises
-    the non-zero digit count via carry propagation.  Digits lie in
-    ``[-(r//2), r//2]``.
-
-Digit ordering: LSB first (``digits[..., 0, ...]`` is always the
-least-significant digit).
-
-Decoding: :meth:`Transcoder.decode` recovers the original integer from
-any scheme by computing the positional weighted sum
-``sum_i(digit[i] * radix**i)``.
+See also:
+    docs/dev/modules/mapper/transcoder.md
 """
 
 from abc import ABC, abstractmethod
@@ -47,12 +12,7 @@ from torch import Tensor
 
 
 class Transcoder(ABC):
-    """Base class for data-representation converters.
-
-    Subclasses must implement ``encode``, ``decode``, ``value_range``,
-    and expose ``digit_num`` (the size of the axis inserted by
-    ``encode``) plus ``radix`` (the positional base).
-    """
+    """Abstract data-representation converter."""
 
     @abstractmethod
     def encode(self, x: Tensor, *, dim: int = -1) -> Tensor:
@@ -82,13 +42,7 @@ class Transcoder(ABC):
 
     @abstractmethod
     def value_range(self) -> tuple[int, int]:
-        """Inclusive integer range a single digit string can represent.
-
-        Returns the algorithm-side ``(lo, hi)`` envelope of the
-        ``(encoding, radix, digit_num)`` triple — the range any
-        scalar consumed by :meth:`encode` is expected to lie in and
-        :meth:`decode` is guaranteed to reproduce.
-        """
+        """Inclusive integer range a single digit string can represent."""
         raise NotImplementedError
 
     @property
@@ -100,11 +54,7 @@ class Transcoder(ABC):
     @property
     @abstractmethod
     def radix(self) -> int:
-        """Positional radix ``r`` of the digit representation.
-
-        Each digit position ``i`` carries weight ``r**i`` when
-        :meth:`decode` reconstructs the integer from its digits.
-        """
+        """Positional radix ``r`` of the digit representation."""
         raise NotImplementedError
 
 
@@ -113,9 +63,6 @@ Encoding: TypeAlias = Literal["true_form", "complement", "canonical"]
 
 class SignedDigitTranscoder(Transcoder):
     """Transcoder converting 2's-complement integers to signed-digit form.
-
-    Each instance is bound to a fixed ``(encoding, radix, digit_num)``
-    triple so callers pass only the tensor and axis.
 
     Args:
         encoding: ``"true_form"``, ``"complement"``, or ``"canonical"``.
@@ -140,7 +87,7 @@ class SignedDigitTranscoder(Transcoder):
     def digit_num(self) -> int:
         return self._digit_num
 
-    # --- public interface --- #
+    # --- public interface ---
 
     def encode(self, x: Tensor, *, dim: int = -1) -> Tensor:
         """Encode integer tensor into signed-digit form.
@@ -163,8 +110,6 @@ class SignedDigitTranscoder(Transcoder):
     def decode(self, digits: Tensor, *, dim: int = -1) -> Tensor:
         """Decode a signed-digit tensor back to integers.
 
-        Computes ``sum_i(digit[i] * radix**i)`` along ``dim``.
-
         Args:
             digits: Signed-digit tensor.
             dim: Axis of the digit dimension to reduce.
@@ -182,22 +127,11 @@ class SignedDigitTranscoder(Transcoder):
         return (digits * scales.view(*shape)).sum(dim=dim)
 
     def value_range(self) -> tuple[int, int]:
-        """Inclusive integer range one digit string of this transcoder represents.
-
-        All three encodings reconstruct the same algorithm-side
-        envelope ``[-(r^D - 1), r^D - 1]`` where ``r = radix`` and
-        ``D = digit_num`` — ``true_form`` covers it symmetrically by
-        construction, and ``complement`` / ``canonical`` reach the
-        same magnitude through the sign-corrected MSB.  Single-
-        positional-radix digit strings always have a value_range
-        symmetric about zero, so the slicers above this layer can
-        rely on that envelope without caring which encoding is in
-        use.
-        """
+        """Symmetric envelope ``[-(r^D - 1), r^D - 1]``."""
         n_max = self._radix**self._digit_num - 1
         return -n_max, n_max
 
-    # --- encoding implementations --- #
+    # --- encoding implementations ---
 
     def _encode_true_form(self, x: Tensor, dim: int) -> Tensor:
         sign = x.sign()

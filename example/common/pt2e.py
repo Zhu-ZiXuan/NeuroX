@@ -211,7 +211,7 @@ def _extract_layer(
     output-rescale math in one shot (see
     ``derive_layer_int_params`` docstring for the derivation).
     """
-    # --- read fake-quant stats from the prepared graph --- #
+    # --- read fake-quant stats from the prepared graph ---
     input_fq = _resolve_fq(graph, node.args[0])
     weight_fq_node = node.args[1]
     weight_fq = _resolve_fq(graph, weight_fq_node)
@@ -223,7 +223,7 @@ def _extract_layer(
     weight_scale, _ = _read_scale_zp(weight_fq)  # symmetric: zp = 0
     output_scale, output_zp = _read_scale_zp(output_fq)
 
-    # --- pull quant bounds from the fake-quant modules --- #
+    # --- pull quant bounds from the fake-quant modules ---
     x_qmin = int(input_fq.quant_min)
     x_qmax = int(input_fq.quant_max)
     y_qmin = int(output_fq.quant_min)
@@ -232,7 +232,7 @@ def _extract_layer(
     w_qmax = int(weight_fq.quant_max)
     assert w_qmin == -w_qmax, f"weight range must be symmetric, got [{w_qmin}, {w_qmax}]"
 
-    # --- quantize QAT-trained weight + fold QAT-trained bias --- #
+    # --- quantize QAT-trained weight + fold QAT-trained bias ---
     # Pull the trained float weight from the prepared graph, not from the
     # pre-QAT float reference: pt2e updates the underlying float parameters
     # during fine-tuning, so the reference model would produce mis-quantized
@@ -263,7 +263,7 @@ def _extract_layer(
         rescale_factor=rescale_factor,
     )
 
-    # --- derive the fixed-point requantizer pair --- #
+    # --- derive the fixed-point requantizer pair ---
     # Multiply ``(s_x * s_w / s_y)`` by ``rescale_factor`` so the macro
     # can fuse ADC-scale → ideal-scale conversion into its single
     # requantize step.

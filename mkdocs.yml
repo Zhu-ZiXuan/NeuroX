@@ -34,34 +34,112 @@ plugins:
         python:
           paths: [neurox]
           options:
-            docstring_style: google # use google style docstrings
-            members_order: alphabetical # order members alphabetically
-            show_signature: true # show function/method signatures
-            show_signature_annotations: true # show type annotations in signatures
-            show_source: false # do not show source code
-            show_root_heading: false # do not show root heading
-            show_category_heading: true # show category headings
+            docstring_style: google
+            members_order: alphabetical
+            show_signature: true
+            show_signature_annotations: true
+            show_source: false
+            show_root_heading: false
+            show_category_heading: true
 
+# Navigation mirrors the on-disk ``docs/`` layout.
+# - ``dev/``: long-lived internal documentation (architecture rules, module-level
+#   design notes, ADRs).  The module index under ``dev/modules/`` is the
+#   developer's primary entry point.
+# - ``user/``: end-user guides (currently only ``examples.md``; the rest of the
+#   user docs are still TODO).
 nav:
-  - Home: index.md
-  - User Guide:
-      - Installation: user/installation.md
-      - Quick Start: user/quickstart.md
-      - Examples (LeNet, BERT): user/examples.md
-      - FAQ: user/faq.md
-  - Design:
-      - Architecture: design/architecture.md
-      - Hardware-Aware Training: design/hat_training.md
-      - 1T1R Circuit Solver: design/solver_1t1r.md
-      - API Interfaces: design/api_interfaces.md
-      - Reference Analysis: design/reference_analysis.md
   - Development:
-      - Contributing: ../CONTRIBUTING.md
-      - Environment Setup: development/env_setup.md
-      - Testing Guide: development/testing_guide.md
-      - Debugging Tips: development/debugging_tips.md
-      - Release Process: development/release_process.md
-      - Roadmap: development/roadmap.md
+      - Overview: dev/README.md
+      - Roadmap: dev/roadmap.md
+      - Architecture:
+          - Overview: dev/architecture/README.md
+          - Code Style: dev/architecture/code_style.md
+          - Config and Construction: dev/architecture/config_and_construction.md
+          - Fabrication Lifecycle: dev/architecture/fabrication_lifecycle.md
+          - State Holding: dev/architecture/state_holding.md
+          - Mapping: dev/architecture/mapping.md
+      - Modules:
+          - Overview: dev/modules/README.md
+          - common:
+              - Overview: dev/modules/common/README.md
+              - config: dev/modules/common/config.md
+              - config_dispatch: dev/modules/common/config_dispatch.md
+              - load_dump: dev/modules/common/load_dump.md
+              - nonideality: dev/modules/common/nonideality.md
+              - physical_constant: dev/modules/common/physical_constant.md
+              - quant: dev/modules/common/quant.md
+          - device:
+              - Overview: dev/modules/device/README.md
+              - nmos: dev/modules/device/nmos.md
+              - rram: dev/modules/device/rram.md
+              - wire: dev/modules/device/wire.md
+              - selector: dev/modules/device/selector.md
+          - analog:
+              - Overview: dev/modules/analog/README.md
+              - clamp_driver: dev/modules/analog/clamp_driver.md
+              - analog_mux: dev/modules/analog/analog_mux.md
+              - decoder: dev/modules/analog/decoder.md
+              - driver: dev/modules/analog/driver.md
+              - switch_cap: dev/modules/analog/switch_cap.md
+              - dac:
+                  - Overview: dev/modules/analog/dac/README.md
+                  - base: dev/modules/analog/dac/base.md
+                  - general: dev/modules/analog/dac/general.md
+              - adc:
+                  - Overview: dev/modules/analog/adc/README.md
+                  - base: dev/modules/analog/adc/base.md
+                  - general: dev/modules/analog/adc/general.md
+                  - mcs_sar: dev/modules/analog/adc/mcs_sar.md
+                  - sar_mono: dev/modules/analog/adc/sar_mono.md
+              - tia:
+                  - Overview: dev/modules/analog/tia/README.md
+                  - base: dev/modules/analog/tia/base.md
+                  - opamp_tia: dev/modules/analog/tia/opamp_tia.md
+              - readout:
+                  - Overview: dev/modules/analog/readout/README.md
+                  - base: dev/modules/analog/readout/base.md
+                  - offset_switchcap_mux_adc: dev/modules/analog/readout/offset_switchcap_mux_adc.md
+          - digital:
+              - Overview: dev/modules/digital/README.md
+          - xbar:
+              - Overview: dev/modules/xbar/README.md
+              - base: dev/modules/xbar/base.md
+              - ideal: dev/modules/xbar/ideal.md
+              - solver: dev/modules/xbar/solver.md
+              - 1T1R:
+                  - Overview: dev/modules/xbar/_1t1r/README.md
+                  - circuit_core: dev/modules/xbar/_1t1r/circuit_core.md
+                  - newton_raphson_solver: dev/modules/xbar/_1t1r/newton_raphson_solver.md
+                  - offset: dev/modules/xbar/_1t1r/offset.md
+                  - differential: dev/modules/xbar/_1t1r/differential.md
+                  - simple_core: dev/modules/xbar/_1t1r/simple_core.md
+          - mapper:
+              - Overview: dev/modules/mapper/README.md
+              - transcoder: dev/modules/mapper/transcoder.md
+              - xbar:
+                  - Overview: dev/modules/mapper/xbar/README.md
+                  - base: dev/modules/mapper/xbar/base.md
+                  - simple_mapper: dev/modules/mapper/xbar/simple_mapper.md
+                  - slicer: dev/modules/mapper/xbar/slicer/README.md
+                  - tiler: dev/modules/mapper/xbar/tiler/README.md
+          - macro:
+              - Overview: dev/modules/macro/README.md
+          - operator:
+              - Overview: dev/modules/operator/README.md
+              - train: dev/modules/operator/train/README.md
+          - profiler:
+              - Overview: dev/modules/profiler/README.md
+          - replace:
+              - Overview: dev/modules/replace/README.md
+          - tools:
+              - Overview: dev/modules/tools/README.md
+      - ADR:
+          - Overview: dev/adr/README.md
+          - "ADR-0001 Config dispatch and owned construction": dev/adr/ADR-0001-config-dispatch-and-owned-construction.md
+          - "ADR-0002 NMOS is a pure electrical primitive": dev/adr/ADR-0002-nmos-is-a-pure-electrical-primitive.md
+  - User Guide:
+      - Examples: user/examples.md
 
 markdown_extensions:
   - admonition

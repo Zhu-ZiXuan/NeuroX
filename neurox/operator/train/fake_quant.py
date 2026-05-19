@@ -1,17 +1,7 @@
 """Differentiable fake-quantize helpers (STE) for hardware-aware training.
 
-The straight-through estimator (STE) lets HAT operators see the
-quantization grid in the forward pass while keeping the backward
-identity, so gradients still match the float reference.  The forward
-quantizes to integer codes and dequantizes back; the backward swap
-``(x_fq - x).detach()`` flips the gradient path through ``x``
-unchanged.
-
-Two flavors mirror the observer side:
-
-- :func:`fake_quant_ste` — per-tensor asymmetric (activations).
-- :func:`fake_quant_symm_per_channel_ste` — per-output-channel
-  symmetric (weights).
+See also:
+    docs/dev/modules/operator/train/README.md
 """
 
 import torch

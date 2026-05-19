@@ -26,7 +26,7 @@
   ``value_range()`` method.
 - **`IdealMacro` constructor takes explicit value-range tuples**
   (``x_value_range=...``, ``w_value_range=...``) instead of
-  ``w_bits`` / ``x_bits``.  Per §11 of ``temp/mapping.md``, this
+  ``w_bits`` / ``x_bits``.  Per §11 of ``docs/dev/architecture/mapping.md``, this
   matches the real ``XbarMacro``'s range surface so the two macro
   families share one operator-facing API.
 - **`col_num` / `row_num` reclassified as geometry capability** —
@@ -59,7 +59,7 @@
   explicit keyword argument to every mapper call.  Every cross-
   class call site now documents its full argument list inline.
 - **`SimpleSlicer.value_range()` enforces the reachable-domain
-  contract** (``temp/mapping.md`` §9) — if the supplied
+  contract** (``docs/dev/architecture/mapping.md`` §9) — if the supplied
   ``digit_range`` cannot cover the signed-digit envelope, the
   strategy is unencodable and ``value_range`` raises rather than
   reporting an inflated range that ``slice()`` would later refuse.
@@ -71,7 +71,7 @@
 ### Removed
 
 - **Self-justifying positional-radix invariant checks** inside
-  both slicers (``temp/mapping.md`` §10) — the slicers no longer
+  both slicers (``docs/dev/architecture/mapping.md`` §10) — the slicers no longer
   re-validate that they emitted positional powers of their radix
   immediately after constructing them with the same formula.
   External misuse can't reach those tensors and the assertion
@@ -88,7 +88,7 @@
   derive their own ``value_range`` and never hardcode the digit-
   string range formula.
 - **Positional-radix invariant check** on both slicers
-  (per ``temp/mapping.md`` §12.3 Plan A).  ``SerialSlicer`` and
+  (per ``docs/dev/architecture/mapping.md`` §12.3 Plan A).  ``SerialSlicer`` and
   ``SimpleSlicer`` validate that the emitted ``slice_weights`` /
   ``digit_weights`` are exactly the positional powers of the
   relevant radix.
@@ -195,7 +195,7 @@
 ### Changed
 
 - **Mapper owns its static strategy parameters** (per
-  ``temp/fix.md`` §2.2 / §8).  ``SerialXMapper.__init__`` takes
+  ``docs/dev/architecture/config_and_construction.md`` §2.2 / §8).  ``SerialXMapper.__init__`` takes
   ``x_slice_num`` + ``x_encoding``.  ``SimpleWMapper.__init__``
   takes ``w_slice_num`` + ``w_encoding`` + ``w_slice_encoding``.
   Each mapper exposes its strategy params as read-only properties.
@@ -211,7 +211,7 @@
   - ``XbarWMapper.map_w(w, *, col_num, row_num, w_digit_count,
     w_digit_radix, w_digit_range)``
 - **`XbarMacro` is a pure orchestrator again** (per
-  ``temp/fix.md`` §2.3 / §6).  The constructor no longer takes
+  ``docs/dev/architecture/config_and_construction.md`` §2.3 / §6).  The constructor no longer takes
   ``x_slice_num`` / ``w_slice_num`` / encoding kwargs.  Inside
   ``fabricate`` / ``matmul`` / ``x_levels`` / ``w_levels`` the
   macro reads xbar capabilities into plain locals and threads them
@@ -235,7 +235,7 @@
 
 ### Changed
 
-- **Mappers are now stateless pure tools** (per ``temp/fix.md``
+- **Mappers are now stateless pure tools** (per ``docs/dev/architecture/config_and_construction.md``
   §1.2 / §2 / §5 / §8 / §9).  ``SerialXMapper`` and
   ``SimpleWMapper`` are constructed with no arguments.  They hold
   no buffers, no xbar reference, no capability snapshot, and no
@@ -247,7 +247,7 @@
   explicit keyword arguments at call time.  Internal transcoders
   are built per call.
 - **`XbarMacro` becomes the strategy owner and capability
-  dispatcher** (per ``temp/fix.md`` §1.3 / §3 / §6).  The
+  dispatcher** (per ``docs/dev/architecture/config_and_construction.md`` §1.3 / §3 / §6).  The
   constructor now takes the strategy parameters directly:
   ``x_slice_num``, ``w_slice_num``, ``x_encoding``, ``w_encoding``,
   ``w_slice_encoding``.  Inside ``fabricate`` / ``matmul`` /
@@ -283,7 +283,7 @@
 
 ### Changed
 
-- **`XbarMacro` is a pure orchestrator** (per ``temp/fix.md`` §2).
+- **`XbarMacro` is a pure orchestrator** (per ``docs/dev/architecture/config_and_construction.md`` §2).
   The constructor goes back to accepting ``x_mapper`` and
   ``w_mapper`` as already-built instances; the
   ``sa_num / sw_num / x_encoding / w_encoding / slice_encoding``
@@ -303,7 +303,7 @@
   / ``w_digit_radix`` / ``w_digit_range`` / ``sw_num`` /
   ``slice_encoding`` kwargs are gone.
 - **Variable rename to non-shorthand names** (per
-  ``temp/fix.md`` §4): ``sa_num`` → ``x_slice_num``,
+  ``docs/dev/architecture/config_and_construction.md`` §4): ``sa_num`` → ``x_slice_num``,
   ``sa_radix`` → ``x_slice_radix``, ``sw_num`` → ``w_slice_num``,
   ``sw_radix`` → ``w_slice_radix``.  ``Sa / Sw / Tc / Tr / M``
   remain only as shape-annotation shorthand.  Tile counts use
@@ -331,14 +331,14 @@
 ### Changed
 
 - **`XbarMacro.__init__` now owns the mapping strategy parameters
-  directly** (per ``temp/fix.md`` §7).  The constructor takes
+  directly** (per ``docs/dev/architecture/config_and_construction.md`` §7).  The constructor takes
   ``sa_num``, ``sw_num``, ``x_encoding``, ``w_encoding``,
   ``slice_encoding`` and builds the underlying transcoders +
   ``SerialXMapper`` + ``SimpleWMapper`` internally.  The macro is
   the source of truth for ``Sa`` / ``Sw`` / encoding choices;
   mappers stay pure tools that carry no hidden policy.
 - **`SimpleWMapper` accepts `slice_encoding` explicitly** (per
-  ``temp/fix.md`` §8).  The slicer's encoding is no longer the
+  ``docs/dev/architecture/config_and_construction.md`` §8).  The slicer's encoding is no longer the
   hardcoded ``"true_form"``; it now arrives from the macro and is
   forwarded into the slicer's :class:`SignedDigitTranscoder`.
 - **`example/common/macro_factory.py`** reads strategy parameters
@@ -424,7 +424,7 @@
 
 ### Changed
 
-- **Unified shape contract** per ``temp/macro_shape.md``:
+- **Unified shape contract** per ``docs/dev/architecture/mapping.md``:
   - Weight: ``[Bw, M=1, Tc, Tr, Sa=1, Sw, data_num, digit_num, row_num]``.
     ``M = 1`` now sits BEFORE ``Tc`` (previously was between ``Tc``
     and ``Tr``); the result is a clean canonical leading

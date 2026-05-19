@@ -1,15 +1,7 @@
-"""Digital accumulator for CiM tile reduction.
+"""Digital modular-arithmetic accumulator over an integer-tensor axis.
 
-Reduces ADC output codes along one tile axis (e.g., columns within a tile)
-by summing all elements and wrapping the result into the signed ``bit_width``-bit
-range via modular arithmetic: ``y = (sum(x) + 2^(bw-1)) % 2^bw - 2^(bw-1)``.
-
-The modular wrap models finite-width adder carry truncation; overflow silently
-aliases rather than saturating. PPA metrics (energy, latency, leakage, area)
-are tracked per-instance for system-level estimation; physical instance count
-is set externally by the parent macro at fabricate time via
-``ProfiledModule._record_inst_count`` and dynamic energy / latency emit
-through the profiler side channel from ``operate``.
+See also:
+    docs/dev/modules/digital/README.md
 """
 
 from dataclasses import dataclass
@@ -18,11 +10,12 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
+from neurox.common.validate import ValidateMixin
 from neurox.profiler import ProfiledModule
 
 
 @dataclass(frozen=True)
-class AccumulatorConfig:
+class AccumulatorConfig(ValidateMixin):
     """Immutable configuration for an Accumulator instance.
 
     Attributes:
@@ -41,6 +34,22 @@ class AccumulatorConfig:
     latency_per_op__ns: float = 0.0
     leakage_per_inst__uW: float = 0.0
     area_per_inst__um2: float = 0.0
+
+    def __post_init__(self) -> None:
+        self.validate()
+
+    def validate(self) -> None:
+        self.validate_arithmetic()
+        self.validate_ppa()
+
+    def validate_arithmetic(self) -> None:
+        self._require_pos(self.bit_width, "bit_width")
+
+    def validate_ppa(self) -> None:
+        self._require_nonneg(self.energy_per_op__fJ, "energy_per_op__fJ")
+        self._require_nonneg(self.area_per_inst__um2, "area_per_inst__um2")
+        self._require_nonneg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
+        self._require_nonneg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
 class Accumulator(nn.Module, ProfiledModule):
@@ -72,14 +81,13 @@ class Accumulator(nn.Module, ProfiledModule):
         """Latency per op in ns."""
         return self.config.latency_per_op__ns
 
-    def fabricate(self) -> None:
-        """No-op: Accumulator has no shape-driven state.
+    def fabricate(self, shape: tuple[int, ...]) -> None:
+        """Sample static per-instance state over ``shape`` (re-callable).
 
-        Instance count is supplied by the parent macro via
-        :meth:`ProfiledModule._record_inst_count` after the macro's
-        own fabricate step determines the replica count.
+        Args:
+            shape: Per-instance fabrication shape.
         """
-        return None
+        self._record_inst_count(shape)
 
     def operate(self, x: Tensor, dim: int) -> Tensor:
         """Sum ``x`` along ``dim`` and wrap into the signed ``bit_width`` range.

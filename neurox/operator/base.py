@@ -1,17 +1,4 @@
-"""Base class for quantized NeuroX operators.
-
-``NeuroxOperator`` is the eval-only base for the crossbar-backed
-replacements of ``nn.Linear`` / ``nn.Conv2d``.  Concrete subclasses
-hold integer weight buffers and quantization parameters populated by
-``load_state_dict`` from a pre-computed NeuroX-flat state_dict (see
-``neurox.loader.pt2e.pt2e_to_neurox_state``).  NeuroX does not run QAT
-itself — the quantization-aware training step is handled by the user's
-own pipeline (e.g. ``torchao.quantization.pt2e``).
-
-``forward`` quantizes float input to int32, delegates to
-``macro.matmul`` for crossbar simulation, and dequantizes the int32
-output back to float.
-"""
+"""Base class for quantized NeuroX operators."""
 
 from abc import ABC, abstractmethod
 
@@ -25,12 +12,7 @@ from .spec import QuantSpec
 
 
 def weight_dtype_for_range(w_min: int, w_max: int) -> torch.dtype:
-    """Pick the smallest signed integer dtype that covers ``[w_min, w_max]``.
-
-    The integer dtype is the encoding carrier for the algorithm-side
-    weight range published by the macro (``w_value_range``).  Range is
-    the source of truth; the dtype is purely derived from it.
-    """
+    """Pick the smallest signed integer dtype that covers ``[w_min, w_max]``."""
     if w_min >= -128 and w_max <= 127:
         return torch.int8
     if w_min >= -32768 and w_max <= 32767:
@@ -79,18 +61,9 @@ class NeuroxOperator(nn.Module, ABC):
     ) -> None:
         """Fail fast if ``spec`` cannot be mapped onto ``macro``'s grids.
 
-        Called from each HAT operator's ``__init__`` so range mismatches
-        surface at model-build time, never deep in a training forward.
-        Checks two contracts:
-
-        1. Symmetric weight bound ``[-w_qmax, +w_qmax]`` must fit inside
-           ``macro.w_value_range``.
-        2. Activation grid ``[x_qmin, x_qmax]`` must fit inside
-           ``macro.x_value_range``.
-
-        Output grid ``[y_qmin, y_qmax]`` is intentionally not checked —
-        it is the operator-side boundary between layers and need not
-        equal the macro's input grid.
+        Checks that ``[-w_qmax, +w_qmax]`` fits inside ``macro.w_value_range``
+        and ``[x_qmin, x_qmax]`` fits inside ``macro.x_value_range``. Output
+        grid is not checked.
 
         Raises:
             ValueError: If either weight or activation range exceeds
@@ -106,8 +79,7 @@ class NeuroxOperator(nn.Module, ABC):
         x_lo, x_hi = macro.x_value_range
         if spec.x_qmin < x_lo or spec.x_qmax > x_hi:
             raise ValueError(
-                f"QuantSpec x-range [{spec.x_qmin}, {spec.x_qmax}] "
-                f"exceeds macro.x_value_range {macro.x_value_range}"
+                f"QuantSpec x-range [{spec.x_qmin}, {spec.x_qmax}] exceeds macro.x_value_range {macro.x_value_range}"
             )
 
     @abstractmethod
@@ -133,10 +105,7 @@ class NeuroxOperator(nn.Module, ABC):
     ) -> Tensor:
         """Quantize float input to int32 using the loaded activation scale/zp.
 
-        Accepts ``qmin`` / ``qmax`` as either Python ints or 0-d int tensors.
-        Callers in compiled regions should pass the tensor buffers directly
-        (via ``self.input_qmin``, not ``self.input_qmin.item()``) to avoid
-        an implicit CPU sync inside the compiled graph.
+        Pass tensor buffers (not ``.item()``) when inside a compiled region.
         """
         return torch.clamp(torch.round(input / scale + zero_point.float()), qmin, qmax).to(torch.int32)
 

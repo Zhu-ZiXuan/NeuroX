@@ -1,220 +1,25 @@
 # Default 1T1R macro configuration for NeuroX.
 #
-# Ready-to-use parameter set that wires together device, circuit, digital
-# and macro configs for a complete, runnable 1T1R system.  Loaded via
-# ``neurox.common.dict_configs_from_file`` (or ``Config.from_file`` with
-# ``section=``) — no code imports this file, users must pass its path
-# explicitly.  Each top-level table maps one-to-one to a ``*Config``
-# dataclass in ``neurox/``.
+# Every TOML table maps to one config dataclass.
+#
+# Parameter categories:
+#   * **工艺** — process-pure physical params; live under ``process/`` and
+#     are pulled in via the ``_neurox_use = "<file>:<section>"`` directive
+#     (fragment as base, inline keys override).
+#   * **设计** — chip-level design knobs (geometry, pulse, ref-column…).
+#   * **规格** — noise / mismatch / PPA / latency / energy.
+#   * **运行时** — never in this file (``dtype``, ``T__K``, runtime
+#     tensors, fabricate ``shape`` — all passed at construction /
+#     fabricate time).
+#
+# Top-level orchestration tables (``[w_transcoder]``, ``[x_transcoder]``,
+# ``[digit_adder]``, ``[accumulator]``, ``[shift_adder]``) remain flat
+# because the macro layer (outside the xbar tree) consumes them directly.
 
 
-# ---------------------------------------------------------------------------
-# NMOS access transistor (28 nm HKMG RVT physical device model)
-# ---------------------------------------------------------------------------
-[nmos]
-# Geometry
-W__um = 0.150
-L__um = 0.028
-A_D__um2 = 0.0105
-P_D__um = 0.290
-A_S__um2 = 0.0105
-P_S__um = 0.290
-
-# Process electrical at T_ref
-mu0__cm2_per_V_s = 200.0
-c_ox__fF_per_um2 = 31.4
-vth0__V = 0.40                             # 28 nm RVT typical
-
-# Parasitic capacitance densities (per μm).
-c_gdo__fF_per_um = 0.20
-c_gso__fF_per_um = 0.20
-c_j__fF_per_um2 = 8.0
-c_jsw__fF_per_um = 0.15
-
-# Subthreshold (SPICE NFACTOR): SS = n · V_T · ln(10)
-# n_factor = 1.25 @ 300 K ⇒ SS ≈ 74.4 mV/dec, typical for 28 nm RVT.
-n_factor = 1.25
-
-# Temperature coefficients (BSIM-style)
-T_ref__K = 300.0                           # reference T for vth0 / mu0
-ute = 1.5                                  # μ(T) = μ0 · (T/T_ref)^(-ute)
-kt1__V = -0.002                            # V_th(T) = vth0 + kt1 · (T/T_ref - 1)
-
-# Optional per-cell Pelgrom mismatch.  Uncomment to enable; both
-# coefficients give σ scaling as 1 / sqrt(W · L).
-# A_vt__mV_um = 3.0                      # ~3 mV·μm; σ_Vt = A_vt / sqrt(W·L)
-# A_beta_relative__um = 2.0e-3             # σ_β / β = A_β / sqrt(W·L)
-
-
-# ---------------------------------------------------------------------------
-# RRAM device
-# ---------------------------------------------------------------------------
-[rram]
-state_to_g_map__uS = [10.0, 39.7, 69.7, 100.0]  # 4-state device [uS]
-nonlinearity_alpha = 0.5
-
-drift_decay_rate = 3e-2                    # power-law drift exponent
-drift_t0 = 1.0                             # reference time t0 [s]
-
-c_top__fF = 0.1                            # BL-side electrode parasitic [fF]
-c_bot__fF = 0.1                            # Node-X-side electrode parasitic [fF]
-
-# [rram.prog_gamma]                          # state-dependent programming variation
-# k_slope = 0.0                              # with write verification
-# k_intercept = 500                          # CV = 4.47%, reasonable range 3% ~ 5%
-# theta = 2.5e-3                               # mean = k * theta
-# min_val = 0.01
-# max_val = 0.1
-
-# [rram.read_telegraph]                      # random telegraph noise
-# amplitude_mean = 3e-3
-# amplitude_std = 5e-4
-# p_high_state = 0.5
-
-# [rram.read_thermal]                        # additive read thermal noise [uS]
-# sigma = 1e-1
-
-
-# ---------------------------------------------------------------------------
-# Interconnect wires (BL / SL / WL share the same metal stack here)
-# ---------------------------------------------------------------------------
-# Per-segment resistance is supplied directly through [core] below
-# (``bl_r_*__MOhm`` / ``sl_r_*__MOhm``) — Wire itself is now
-# topology-agnostic and only needs the lumped per-length capacitance
-# used by the energy path (see temp/wire.md).
-[bl_wire]
-c__fF_per_um = 0.2
-
-[sl_wire]
-c__fF_per_um = 0.2
-
-[wl_wire]
-c__fF_per_um = 0.2
-
-# ---------------------------------------------------------------------------
-# TIA — non-linear BL clamp + I→V stage (op-amp with NMOS pseudo-resistor)
-# ---------------------------------------------------------------------------
-# The TIA owns the BL clamp.  ``v_ref__V`` is the target clamp voltage
-# (op-amp inverting-input reference); finite op-amp gain causes the
-# actual ``bl_drive`` to droop below it under heavy column draw.
-[tia]
-v_ref__V = 0.2
-v_nmos_bias__V = 0.9         # pseudo-resistor gate bias (tie to VDD)
-v_dd__V = 0.9                # op-amp supply rail — hard clip on tia_v
-opamp_gain = 30.0            # nominal open-loop gain
-# opamp_gain_sigma = 0.05    # relative Pelgrom-style mismatch (σ/μ)
-leakage_per_inst__uW = 1.0   # covers the op-amp's quiescent bias
-area_per_inst__um2 = 10.0
-latency_per_op__ns = 2.0
-
-
-# ---------------------------------------------------------------------------
-# TIA-internal pseudo-resistor NMOS — separate device from the array's
-# access NMOS.  Sized larger (wider W) so its triode-region capacity
-# absorbs the column's max current without immediately saturating.
-# ---------------------------------------------------------------------------
-[tia_nmos]
-W__um = 1.000
-L__um = 0.060
-A_D__um2 = 0.0700
-P_D__um = 1.140
-A_S__um2 = 0.0700
-P_S__um = 1.140
-mu0__cm2_per_V_s = 200.0
-c_ox__fF_per_um2 = 31.4
-vth0__V = 0.40
-c_gdo__fF_per_um = 0.20
-c_gso__fF_per_um = 0.20
-c_j__fF_per_um2 = 8.0
-c_jsw__fF_per_um = 0.15
-n_factor = 1.25
-T_ref__K = 300.0
-ute = 1.5
-kt1__V = -0.002
-
-
-# ---------------------------------------------------------------------------
-# BL differential ADC — reads (v_pos − v_neg) in voltage domain after the
-# bundled readout chain (data SwitchCap + ref SwitchCap + AnalogMux).
-# Uses the V_cm-based MCS differential SAR topology; the macro selects the
-# runtime operating point via ``[xbar].adc_mode`` / ``[xbar].adc_bits``.
-# ---------------------------------------------------------------------------
-[bl_adc]
-max_bits = 8                       # physical CDAC depth — sets the SAR loop budget
-v_refs__V = [0.8, 0.4, 0.2]         # strictly-decreasing list of selectable references
-
-clk_period__ns = 2.0
-c_unit__fF = 2.0
-cap_mismatch_sigma_relative = 5e-3
-comparator_offset_sigma__V = 3e-3
-comparator_thermal_noise_sigma__V = 5e-4
-enable_thermal_noise = false
-
-e_bootstrap__fJ = 20.0
-e_constant_per_bit__fJ = 12.0
-
-leakage_per_inst__uW = 0.5
-area_per_inst__um2 = 250
-
-# ---------------------------------------------------------------------------
-# WL DAC: binary gate driver (two levels)
-# ---------------------------------------------------------------------------
-[wl_dac]
-code_to_signal = [0.0, 1.2]
-energy_per_op__fJ = 0.0
-latency_per_op__ns = 0.0
-leakage_per_inst__uW = 0.0
-area_per_inst__um2 = 0.0
-
-# [wl_dac.drive_thermal]
-# sigma = 1e-2
-
-# ---------------------------------------------------------------------------
-# WL decoder: wraps the WL DAC.  Currently constructed for PPA accounting
-# but not invoked in the forward path; a future commit will wire it in.
-# ---------------------------------------------------------------------------
-[wl_decoder]
-n_address_bits = 6
-fanout = 4
-drive_strength__uA = 1000.0
-bit_serial = false
-c_gate__fF = 0.5
-v_dd__V = 1.2
-t_gate__ns = 0.05
-e_overhead__fJ = 0.0
-leakage_per_inst__uW = 0.0
-area_per_inst__um2 = 0.0
-
-# ---------------------------------------------------------------------------
-# Analog MUX: differential transport between readout and ADC.  Inline in the
-# forward path; default ``mux_gain = 1.0`` with both noise sigmas omitted is
-# a pure pass-through.  CM/DM transport noise can be enabled by uncommenting
-# the corresponding sigma below.
-# ---------------------------------------------------------------------------
-[analog_mux]
-energy_per_access__fJ = 0.0
-mux_gain = 1.0
-mux_noise_cm_sigma__V = 1e-3
-mux_noise_dm_sigma__V = 1e-3
-leakage_per_inst__uW = 0.0
-area_per_inst__um2 = 0.0
-latency_per_op__ns = 0.0
-
-# ---------------------------------------------------------------------------
-# SL driver: constant-voltage analog driver
-# ---------------------------------------------------------------------------
-[sl_driver]
-drive_value = 0.0
-latency_per_op__ns = 0.0
-leakage_per_inst__uW = 0.0
-area_per_inst__um2 = 0.0
-
-# [sl_driver.drive_thermal]
-# sigma = 5e-3
-
-# ---------------------------------------------------------------------------
+# ===========================================================================
 # Digital datapath: adder / accumulator / shift-adder
-# ---------------------------------------------------------------------------
+# ===========================================================================
 [digit_adder]
 bit_width = 32
 area_per_inst__um2 = 40.0
@@ -236,16 +41,11 @@ leakage_per_inst__uW = 1.5
 latency_per_op__ns = 0.5
 energy_per_op__fJ = 80.0
 
-# ---------------------------------------------------------------------------
+# ===========================================================================
 # Transcoders: macro-layer encoding policy for weight and activation.
-# ``w_digit_radix`` and ``w_digit_count`` are xbar-level capabilities
-# (see ``[xbar]`` below) — only the encoding policy (true_form /
-# complement / canonical) is a pure-algorithm knob and lives here.
-# The macro builds a ``SignedDigitTranscoder`` from
-# ``[w_transcoder].encoding`` + ``[xbar].w_digit_radix`` + ``[xbar].w_digit_count``
-# and uses it to turn each logical weight tile into the digit tensor
-# the xbar consumes.
-# ---------------------------------------------------------------------------
+# ``w_digit_radix`` / ``w_digit_count`` live on the xbar (capabilities);
+# only the pure-algorithm policy lives here.
+# ===========================================================================
 [w_transcoder]
 encoding = "true_form"
 
@@ -253,94 +53,14 @@ encoding = "true_form"
 encoding = "true_form"
 digit_num = 4
 
-# ---------------------------------------------------------------------------
-# Physical 1T1R core: shape-independent array-physics knobs
-# ---------------------------------------------------------------------------
-# These fields describe the array boundary (WL pulse window, wire
-# geometry) and live with the ``Core1T1R`` physical core rather than
-# the encoding-specific ``[xbar]`` table.  See
-# ``temp/1t1r_xbar.md`` and ``doc/design/core_1t1r.md``.
-[core]
-wl_pulse_length__ns = 3.0  # WL-high window t_pulse — thermal integration window
 
-# Source-line topology — see temp/wire.md.  Only "row_shared" is
-# implemented today; "col_shared" raises NotImplementedError at
-# Core1T1R.fabricate time.
-sl_topology = "row_shared"
-
-# Geometric spacings — used only by the lumped wire-capacitance
-# energy term (c__fF_per_um × geometric_length).  Per-segment wire
-# resistance is supplied directly below.
-row_cell_space__um = 0.040
-row_first_space__um = 1.000
-col_cell_space__um = 0.040
-col_first_space__um = 1.000
-
-# Direct per-segment wire resistance [MOhm].  Replaces the previous
-# r__MOhm_per_um × spacing derivation (see temp/wire.md).  Numerical
-# defaults reproduce the legacy r__MOhm_per_um=5e-6 over the spacings
-# above (driver-to-first ≈ 5e-6 × 1.000 um = 5e-6 MOhm; cell-to-cell
-# ≈ 5e-6 × 0.040 um = 2e-7 MOhm).
-bl_r_driver_to_first__MOhm = 5e-6
-bl_r_cell_to_cell__MOhm = 2e-7
-sl_r_driver_to_first__MOhm = 5e-6
-sl_r_cell_to_cell__MOhm = 2e-7
-
-# ---------------------------------------------------------------------------
-# Readout front-end: data-side SwitchCap (passive charge-share averager) +
-# algebraic reference baseline between the core's TIA outputs and the
-# differential ADC (see temp/switch_cap.md).
-# ---------------------------------------------------------------------------
-# ``[data_switchcap]`` and ``[ref_switchcap]`` carry the physical
-# SwitchCap knobs for the data and reference legs respectively; the
-# bundled :class:`OffsetSwitchCapMuxAdcReadOut` builds one SwitchCap
-# instance from each.  Splitting the two banks lets the ref leg keep
-# unit-weight semantics with potentially different physics tuning
-# (cap size, kT/C noise).  The per-digit weight vector is computed
-# by ``Offset1T1RXbar.fabricate`` from the xbar's ``w_digit_radix``
-# / ``w_digit_count`` and passed to ``ReadOut.fabricate`` directly —
-# not a TOML field.  ``T__K`` is also passed directly (operating
-# state, not a design field).
-# ---------------------------------------------------------------------------
-[data_switchcap]
-c_unit__fF = 5.0
-cap_mismatch_sigma_relative = 0.005
-enable_thermal_noise = false
-energy_per_sample_overhead__fJ = 0.0
-leakage_per_inst__uW = 0.0
-area_per_inst__um2 = 0.0
-latency_per_op__ns = 0.0
-
-[ref_switchcap]
-c_unit__fF = 5.0
-cap_mismatch_sigma_relative = 0.005
-enable_thermal_noise = false
-energy_per_sample_overhead__fJ = 0.0
-leakage_per_inst__uW = 0.0
-area_per_inst__um2 = 0.0
-latency_per_op__ns = 0.0
-
-# ---------------------------------------------------------------------------
-# ``[readout]`` carries orchestrator-only knobs — the SwitchCap
-# physics live in the two sections above; AnalogMux / ADC physics
-# live in their own sections.
-# ---------------------------------------------------------------------------
-[readout]
-energy_per_op__fJ = 0.0
-leakage_per_inst__uW = 0.0
-area_per_inst__um2 = 0.0
-latency_per_op__ns = 0.0
-
-# ---------------------------------------------------------------------------
-# Offset-coded 1T1R xbar (mapping layer): logical → physical encoding,
-# reference-column placement, tile-level PPA.  Array-physics knobs moved
-# to [core] above.
-# ---------------------------------------------------------------------------
-# Output rescale is now an externally-calibrated lookup keyed by
-# ``(adc_mode, adc_bits)`` — see ``[[xbar.output_rescale_factors]]``
-# entries below.  ``XbarMacro`` reads the active row at the configured
-# ``adc_mode`` / ``adc_bits`` and folds it into the operator's
-# requantizer at HAT-forward time.
+# ===========================================================================
+# Offset-coded 1T1R xbar — root of the device tree.
+# ===========================================================================
+# Mapping-layer knobs (logical→physical encoding, reference-column
+# placement, tile-level PPA, runtime ADC operating point, externally-
+# calibrated rescale lookup).  Sub-tables below carry the physical
+# core and readout chain.
 [xbar]
 col_num = 64               # data per row (logical N tile size)
 row_num = 64               # WLs per tile (K dimension)
@@ -349,41 +69,190 @@ area_per_inst__um2 = 500.0
 leakage_per_inst__uW = 5.0
 latency_per_op__ns = 5.0   # outer op cycle: settling + sample + convert + recover
 
-# Per-data digit-shift-add (offset coding).  With w_digit_count=1 and
-# w_digit_radix=2 each cell stores a digit in [-1, 0, 1] shifted into
-# the 0/1/2 RRAM-state range; the matching ref column sits at state
-# w_state_offset (= 1 for w_digit_radix=2) representing digit 0.  Set
-# w_digit_count > 1 to span each data across multiple physical
-# columns and absorb the digit-shift-add into the analog domain.
-# The signed-digit encoding policy (true_form / complement /
-# canonical) is a *macro-layer* knob and lives in ``[w_transcoder]``;
-# the xbar exposes only the digit grid it accepts.
+# Per-data digit-shift-add (offset coding).  See doc/design/core_1t1r.md
+# and doc/design/signal_chain.md for the full semantics.
 w_digit_count = 1
 w_digit_radix = 2
 w_state_offset = 1
 
-# Reference-column scheme — semantics now at the *data* level.  Each
-# group of ``ref_group_size`` data shares one ref column; the ref is
-# inserted at digit-position ``ref_location * w_digit_count`` within
-# each group's physical layout.
+# Reference-column scheme — semantics at the *data* level.
 ref_group_size = 16
 ref_location = 8
 
-# Runtime ADC operating point — passed to ``bl_adc.convert /
-# latency_per_op__ns`` on every call and used as the lookup key for
-# ``output_rescale_factors`` below.  ``adc_mode`` selects the
-# reference (multi-mode SAR uses this for V_ref index; behavioural
-# ADCs ignore beyond strict 0); ``adc_bits`` is the active bit width.
+# Runtime ADC operating point — lookup key for ``output_rescale_factors``.
 adc_mode = 0
 adc_bits = 4
 
-# Externally-calibrated ``(adc_mode, adc_bits) -> rescale-factor``
-# table; the active row at the (adc_mode, adc_bits) above is folded
-# into the operator's requantizer.  Each ``rf`` satisfies
-# ``floor(M_ideal * rf) == code``.  When the table is empty
-# ``output_rescale_factor`` defaults to 1.0 (the unit-rescale path
-# used by fake / smoke-test configurations).
+# Externally-calibrated ``(adc_mode, adc_bits) -> rescale-factor`` table.
 [[xbar.output_rescale_factors]]
 adc_mode = 0
 adc_bits = 4
 rf = 4.0625    # 65/16 = (row_num * (radix^digits - 1) * (x_states - 1) + 1) / 2^adc_bits
+
+
+# ---------------------------------------------------------------------------
+# Physical 1T1R core
+# ---------------------------------------------------------------------------
+# Shape-independent array-physics knobs plus the embedded device,
+# circuit, and wire member configs.
+[xbar.core_cfg]
+wl_pulse_length__ns = 3.0  # WL-high window t_pulse — thermal integration window
+sl_topology = "row_shared"
+
+# Geometric spacings for the lumped wire-cap energy term.
+row_cell_space__um = 0.040
+row_first_space__um = 1.000
+col_cell_space__um = 0.040
+col_first_space__um = 1.000
+
+# Direct per-segment wire resistance [MOhm].
+bl_r_driver_to_first__MOhm = 5e-6
+bl_r_cell_to_cell__MOhm = 2e-7
+sl_r_driver_to_first__MOhm = 5e-6
+sl_r_cell_to_cell__MOhm = 2e-7
+
+# Access-NMOS design parameters owned by the core.
+access_nmos_W__um = 0.150
+access_nmos_L__um = 0.028
+
+# Per-cell access-NMOS parasitic-cap densities along the channel width
+# [fF/μm]; per-cell ``C_x = c_x_per_um__fF · access_nmos_W__um``.
+c_gs_per_um__fF = 0.6396
+c_gd_per_um__fF = 0.6396
+c_db_per_um__fF = 0.85
+
+
+# ---------------------------------------------------------------------------
+# Core sub-members — devices, wires, and the BL-clamp / drive blocks.
+# ---------------------------------------------------------------------------
+
+# RRAM device — pulled from process fragment.
+[xbar.core_cfg.rram_cfg]
+_neurox_use = "process/rram:rram_28_4state"
+
+# Access-NMOS PDK — pulled from process fragment.
+# (W/L live in [xbar.core_cfg] above as design parameters.)
+[xbar.core_cfg.nmos_cfg]
+_neurox_use = "process/mos:nmos_28_rvt"
+
+# BL clamp driver — op-amp + NMOS pseudo-resistor TIA.  ``_neurox_type``
+# selects the concrete subclass of the polymorphic ``TIAConfig`` field.
+[xbar.core_cfg.tia_cfg]
+_neurox_type = "OpAmpTIAConfig"
+v_ref__V = 0.2
+v_nmos_bias__V = 0.9
+v_dd__V = 0.9
+opamp_gain = 30.0
+leakage_per_inst__uW = 1.0
+area_per_inst__um2 = 10.0
+latency_per_op__ns = 2.0
+pseudo_nmos_W__um = 1.000
+pseudo_nmos_L__um = 0.060
+
+# Pseudo-resistor NMOS PDK — same variant as the array access-NMOS.
+[xbar.core_cfg.tia_cfg.nmos_cfg]
+_neurox_use = "process/mos:nmos_28_rvt"
+
+# SL driver — constant-voltage analog driver.
+[xbar.core_cfg.sl_driver_cfg]
+drive_value = 0.0
+latency_per_op__ns = 0.0
+leakage_per_inst__uW = 0.0
+area_per_inst__um2 = 0.0
+
+# WL decoder — wraps the WL DAC.
+[xbar.core_cfg.wl_decoder_cfg]
+n_address_bits = 6
+fanout = 4
+drive_strength__uA = 1000.0
+bit_serial = false
+c_gate__fF = 0.5
+v_dd__V = 1.2
+t_gate__ns = 0.05
+e_overhead__fJ = 0.0
+leakage_per_inst__uW = 0.0
+area_per_inst__um2 = 0.0
+
+# WL DAC — binary gate driver.  ``_neurox_type`` picks the concrete
+# subclass of the polymorphic ``DACConfig`` field.
+[xbar.core_cfg.wl_dac_cfg]
+_neurox_type = "GeneralDACConfig"
+code_to_signal = [0.0, 1.2]
+energy_per_op__fJ = 0.0
+latency_per_op__ns = 0.0
+leakage_per_inst__uW = 0.0
+area_per_inst__um2 = 0.0
+
+# Wires — same metal/dielectric stack across all three axes.
+[xbar.core_cfg.bl_wire_cfg]
+_neurox_use = "process/wire:wire_28_metal"
+
+[xbar.core_cfg.sl_wire_cfg]
+_neurox_use = "process/wire:wire_28_metal"
+
+[xbar.core_cfg.wl_wire_cfg]
+_neurox_use = "process/wire:wire_28_metal"
+
+
+# ---------------------------------------------------------------------------
+# Readout chain — offset-coded data + ref SwitchCap, AnalogMux, ADC.
+# ---------------------------------------------------------------------------
+# Orchestrator-level energy / PPA knobs plus the embedded SwitchCap /
+# Mux / ADC member configs.  ``OffsetSwitchCapMuxAdcReadOut.__init__``
+# builds every child directly from these — ADC dispatched
+# polymorphically via ``ADC.from_config`` keyed on ``type(adc_cfg)``.
+# ``_neurox_type`` picks the concrete subclass of the polymorphic
+# ``ReadOutConfig`` field.
+[xbar.readout_cfg]
+_neurox_type = "OffsetSwitchCapMuxAdcReadOutConfig"
+energy_per_op__fJ = 0.0
+leakage_per_inst__uW = 0.0
+area_per_inst__um2 = 0.0
+latency_per_op__ns = 0.0
+
+# Data-side SwitchCap (per-digit-weighted cap bank).
+[xbar.readout_cfg.data_switchcap_cfg]
+c_unit__fF = 5.0
+cap_mismatch_sigma_relative = 0.005
+enable_thermal_noise = false
+energy_per_sample_overhead__fJ = 0.0
+leakage_per_inst__uW = 0.0
+area_per_inst__um2 = 0.0
+latency_per_op__ns = 0.0
+
+# Reference-side SwitchCap (one unit cap per ref column).
+[xbar.readout_cfg.ref_switchcap_cfg]
+c_unit__fF = 5.0
+cap_mismatch_sigma_relative = 0.005
+enable_thermal_noise = false
+energy_per_sample_overhead__fJ = 0.0
+leakage_per_inst__uW = 0.0
+area_per_inst__um2 = 0.0
+latency_per_op__ns = 0.0
+
+# Analog MUX — differential transport between readout and ADC.
+[xbar.readout_cfg.analog_mux_cfg]
+energy_per_access__fJ = 0.0
+mux_gain = 1.0
+mux_noise_cm_sigma__V = 1e-3
+mux_noise_dm_sigma__V = 1e-3
+leakage_per_inst__uW = 0.0
+area_per_inst__um2 = 0.0
+latency_per_op__ns = 0.0
+
+# Differential ADC — V_cm-based MCS SAR.  ``_neurox_type`` picks the
+# concrete subclass of the polymorphic ``ADCConfig`` field.
+[xbar.readout_cfg.adc_cfg]
+_neurox_type = "McsSarAdcConfig"
+max_bits = 8
+v_refs__V = [0.8, 0.4, 0.2]
+clk_period__ns = 2.0
+c_unit__fF = 2.0
+cap_mismatch_sigma_relative = 5e-3
+comparator_offset_sigma__V = 3e-3
+comparator_thermal_noise_sigma__V = 5e-4
+enable_thermal_noise = false
+e_bootstrap__fJ = 20.0
+e_constant_per_bit__fJ = 12.0
+leakage_per_inst__uW = 0.5
+area_per_inst__um2 = 250

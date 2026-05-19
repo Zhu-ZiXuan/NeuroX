@@ -1,16 +1,4 @@
-"""Shared im2col / fold plumbing for the Conv2d operators.
-
-Both :class:`QuantConv2d` and :class:`HATConv2d` regroup their input
-tensor into ``[batch_flat, groups, L, K]`` form before delegating to
-the same macro matmul kernel that the Linear operators use.  These
-helpers package the unfold / reshape / fold geometry so the two
-operators share one source of truth — any conv-layout fix lands in
-both at once.
-
-The functions are kept private (``_``-prefixed) since they're not
-intended as a public API; they live here only to be re-used between
-``quant_conv2d.py`` and ``hat_conv2d.py``.
-"""
+"""Shared im2col / fold plumbing for the Conv2d operators."""
 
 import torch.nn as nn
 import torch.nn.functional as F

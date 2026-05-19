@@ -43,7 +43,8 @@ from neurox.digital import (
 from neurox.macro.base import NeuroxMacroQuantMatMul
 from neurox.macro.ideal import IdealMacro
 from neurox.macro.xbar_macro import XbarMacro
-from neurox.mapper import SignedDigitTranscoder, XbarMapper
+from neurox.mapper import SignedDigitTranscoder
+from neurox.mapper.xbar import XbarMapper
 from neurox.operator.base import NeuroxOperator
 from neurox.operator.conv import QuantConv2d
 from neurox.operator.linear import QuantLinear, derive_layer_int_params
