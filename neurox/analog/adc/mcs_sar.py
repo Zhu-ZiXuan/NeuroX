@@ -161,11 +161,11 @@ class McsSarAdc(ADC):
             raise ValueError(f"McsSarAdc T__K ({T__K}) must be > 0")
 
         self.cfg = cfg
-        self.T__K: float = T__K
+        self.T__K = T__K
         self.dtype = dtype
-        self.stochastic: bool | None = stochastic
+        self.stochastic = stochastic
 
-        self.comparator_noise_sigma__V: float = cfg.comparator_thermal_noise_sigma__V * math.sqrt(T__K / 300.0)
+        self.comparator_noise_sigma__V = cfg.comparator_thermal_noise_sigma__V * math.sqrt(T__K / 300.0)
 
         self.n_caps = cfg.max_bits
 

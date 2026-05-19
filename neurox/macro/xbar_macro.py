@@ -44,8 +44,8 @@ class XbarMacro(nn.Module):
         self.x_shift_adder = x_shift_adder
         self.requantizer = requantizer
 
-        self._serial_op_num: int = 0
-        self._w_parallel_size: int = 0
+        self._serial_op_num = 0
+        self._w_parallel_size = 0
         self._x_shape_cached: tuple[int, ...] = ()
 
     def extra_repr(self) -> str:

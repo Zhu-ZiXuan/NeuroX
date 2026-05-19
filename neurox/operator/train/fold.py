@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import torch
 import torch.nn as nn
-from torch import Tensor
 
 
 def _fold_conv_bn(conv: nn.Conv2d, bn: nn.BatchNorm2d) -> None:
@@ -26,7 +25,7 @@ def _fold_conv_bn(conv: nn.Conv2d, bn: nn.BatchNorm2d) -> None:
         if conv.bias is None:
             # Allocate a bias so the folded offset lands somewhere.
             conv.bias = nn.Parameter(torch.zeros(conv.out_channels, dtype=conv.weight.dtype, device=conv.weight.device))
-        folded_bias: Tensor = (conv.bias - bn.running_mean) * scale + beta
+        folded_bias = (conv.bias - bn.running_mean) * scale + beta
         conv.bias.copy_(folded_bias.to(conv.bias.dtype))
 
 
@@ -44,7 +43,7 @@ def _fold_linear_bn(linear: nn.Linear, bn: nn.BatchNorm1d) -> None:
             linear.bias = nn.Parameter(
                 torch.zeros(linear.out_features, dtype=linear.weight.dtype, device=linear.weight.device)
             )
-        folded_bias: Tensor = (linear.bias - bn.running_mean) * scale + beta
+        folded_bias = (linear.bias - bn.running_mean) * scale + beta
         linear.bias.copy_(folded_bias.to(linear.bias.dtype))
 
 

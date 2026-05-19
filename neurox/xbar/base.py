@@ -109,11 +109,9 @@ class Xbar(nn.Module, ProfiledModule, ABC):
 
         self.col_num = cfg.col_num
         self.row_num = cfg.row_num
-        self._adc_mode: int = cfg.adc_mode
-        self._adc_bits: int = cfg.adc_bits
-        self._rescale_lut: dict[tuple[int, int], float] = {
-            (e.adc_mode, e.adc_bits): e.rf for e in cfg.output_rescale_factors
-        }
+        self._adc_mode = cfg.adc_mode
+        self._adc_bits = cfg.adc_bits
+        self._rescale_lut = {(e.adc_mode, e.adc_bits): e.rf for e in cfg.output_rescale_factors}
 
     # ----- PPA properties (delegated to the immutable config) -----
 

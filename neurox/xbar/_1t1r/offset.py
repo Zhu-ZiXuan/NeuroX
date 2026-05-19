@@ -13,7 +13,7 @@ from neurox.analog.readout import ReadOut, ReadOutConfig
 from neurox.xbar.base import Xbar, XbarConfig
 from neurox.xbar.ideal import IdealXbar
 
-from .circuit_core import CircuitCore1T1R, CircuitCore1T1RConfig, Core1T1RDCOP
+from .circuit_core import CircuitCore1T1R, CircuitCore1T1RConfig
 
 # ---------------------------------------------------------------------------
 # 1. Config
@@ -93,20 +93,20 @@ class Offset1T1RXbar(Xbar):
         self.cfg = cfg
         self.dtype = dtype
         self.T__K = T__K
-        self.stochastic: bool | None = stochastic
+        self.stochastic = stochastic
 
         # Positional weights: ``[r^0, r^1, ..., r^(D-1)]``.
-        self.digit_weights: tuple[float, ...] = tuple(float(cfg.w_digit_radix**k) for k in range(cfg.w_digit_count))
+        self.digit_weights = tuple(float(cfg.w_digit_radix**k) for k in range(cfg.w_digit_count))
 
         core_name = f"{name}.core"
         readout_name = f"{name}.readout"
-        self.core: CircuitCore1T1R = CircuitCore1T1R(
+        self.core = CircuitCore1T1R(
             cfg=cfg.core_cfg,
             name=core_name,
             T__K=T__K,
             dtype=dtype,
         )
-        self.readout: ReadOut = ReadOut.from_config(
+        self.readout = ReadOut.from_config(
             cfg=cfg.readout_cfg,
             name=readout_name,
             T__K=T__K,
@@ -118,8 +118,8 @@ class Offset1T1RXbar(Xbar):
 
         n_groups = cfg.col_num // cfg.ref_group_size
         total_logic_cols = cfg.col_num * cfg.w_digit_count
-        self.n_ref_cols: int = n_groups
-        self.physical_col_num: int = total_logic_cols + n_groups
+        self.n_ref_cols = n_groups
+        self.physical_col_num = total_logic_cols + n_groups
 
         logic_phys, ref_phys = _build_ref_indices(
             n_groups=n_groups,
@@ -211,7 +211,7 @@ class Offset1T1RXbar(Xbar):
             ADC-code tensor with primitive trailing ``[data_num]``.
         """
         # Shape: [..., row_num] -> [..., 1, row_num].
-        core_dcop: Core1T1RDCOP = self.core.solve_dc(x.unsqueeze(-2))
+        core_dcop = self.core.solve_dc(x.unsqueeze(-2))
 
         v_data_phys = core_dcop.v_out_phys.index_select(-1, self.logic_phys_idx)
         v_ref_phys = core_dcop.v_out_phys.index_select(-1, self.ref_phys_idx)

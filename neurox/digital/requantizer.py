@@ -71,7 +71,7 @@ class Requantizer(nn.Module, ProfiledModule):
         nn.Module.__init__(self)
         ProfiledModule.__init__(self, name)
         self.config = config
-        self.stochastic: bool | None = stochastic
+        self.stochastic = stochastic
 
     @property
     def area_per_inst__um2(self) -> float:

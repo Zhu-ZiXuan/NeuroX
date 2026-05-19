@@ -123,7 +123,7 @@ class OpAmpTIA(TIA):
         self.T__K = T__K
         self.dtype = dtype
 
-        self.nmos: NMOS = NMOS(
+        self.nmos = NMOS(
             cfg=cfg.nmos_cfg,
             T__K=T__K,
             dtype=dtype,
@@ -131,11 +131,11 @@ class OpAmpTIA(TIA):
             L__um=cfg.pseudo_nmos_L__um,
         )
 
-        self.sigma_opamp_gain: float = cfg.opamp_gain * cfg.opamp_gain_sigma
+        self.sigma_opamp_gain = cfg.opamp_gain * cfg.opamp_gain_sigma
 
-        self.softclip_center__V: float = cfg.v_dd__V / 2.0
-        self.softclip_half_span__V: float = cfg.v_dd__V / 2.0
-        self.softclip_softness__V: float = cfg.output_saturation_softness__V
+        self.softclip_center__V = cfg.v_dd__V / 2.0
+        self.softclip_half_span__V = cfg.v_dd__V / 2.0
+        self.softclip_softness__V = cfg.output_saturation_softness__V
 
         self.register_buffer(
             "nominal_opamp_gain",

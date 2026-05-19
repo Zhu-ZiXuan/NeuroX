@@ -67,9 +67,9 @@ class OffsetSwitchCapMuxAdcReadOut(ReadOut):
         self.cfg = cfg
         self.T__K = T__K
         self.dtype = dtype
-        self.stochastic: bool | None = stochastic
-        self.data_num: int = data_num
-        self.digit_weights: tuple[float, ...] = digit_weights
+        self.stochastic = stochastic
+        self.data_num = data_num
+        self.digit_weights = digit_weights
 
         prefix = name + "."
         self.data_switchcap = SwitchCap(
@@ -92,7 +92,7 @@ class OffsetSwitchCapMuxAdcReadOut(ReadOut):
             T__K=T__K,
             dtype=dtype,
         )
-        self.bl_adc: ADC = ADC.from_config(
+        self.bl_adc = ADC.from_config(
             cfg=cfg.adc_cfg,
             name=f"{prefix}bl_adc",
             T__K=T__K,

@@ -105,9 +105,9 @@ class SwitchCap(nn.Module, ProfiledModule):
                 raise ValueError(f"require: cap_weights[{k}] ({w}) > 0")
 
         self.cfg = cfg
-        self.T__K: float = T__K
+        self.T__K = T__K
         self.dtype = dtype
-        self.n_caps: int = len(cap_weights)
+        self.n_caps = len(cap_weights)
 
         nominal_c__fF = cfg.c_unit__fF * torch.tensor(cap_weights, dtype=dtype)
         self.register_buffer("nominal_c__fF", nominal_c__fF, persistent=False)

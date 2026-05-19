@@ -254,7 +254,7 @@ class CircuitCore1T1R(nn.Module):
             W__um=cfg.access_nmos_W__um,
             L__um=cfg.access_nmos_L__um,
         )
-        self.tia: TIA = TIA.from_config(
+        self.tia = TIA.from_config(
             cfg=cfg.tia_cfg,
             name=f"{prefix}tia",
             T__K=T__K,
@@ -262,9 +262,9 @@ class CircuitCore1T1R(nn.Module):
         )
         # Per-cell access-transistor parasitic caps for energy accounting.
         access_W__um = cfg.access_nmos_W__um
-        self._c_gs__fF: float = cfg.c_gs_per_um__fF * access_W__um
-        self._c_gd__fF: float = cfg.c_gd_per_um__fF * access_W__um
-        self._c_db__fF: float = cfg.c_db_per_um__fF * access_W__um
+        self._c_gs__fF = cfg.c_gs_per_um__fF * access_W__um
+        self._c_gd__fF = cfg.c_gd_per_um__fF * access_W__um
+        self._c_db__fF = cfg.c_db_per_um__fF * access_W__um
 
         self.sl_driver = Driver(cfg=cfg.sl_driver_cfg, name=f"{prefix}sl_driver", T__K=T__K, dtype=dtype)
         self.wl_decoder = Decoder(cfg=cfg.wl_decoder_cfg, name=f"{prefix}wl_decoder", T__K=T__K, dtype=dtype)
@@ -275,7 +275,7 @@ class CircuitCore1T1R(nn.Module):
             dtype=dtype,
         )
 
-        self.v_dd_wl__V: float = float(self.wl_dac.code_to_signal[1].item())
+        self.v_dd_wl__V = float(self.wl_dac.code_to_signal[1].item())
 
         self.register_buffer(
             "state_to_g_map__uS",
@@ -283,18 +283,18 @@ class CircuitCore1T1R(nn.Module):
             persistent=False,
         )
 
-        self.w_states: int = len(cfg.state_to_g_map__uS)
-        self.x_states: int = 2
+        self.w_states = len(cfg.state_to_g_map__uS)
+        self.x_states = 2
 
         # Shape-dependent capacitances and the solver are set up in fabricate().
         self.solver: NewtonRaphsonSolver1T1R
 
-        self.fabricated_row_num: int = 0
-        self.fabricated_col_num: int = 0
-        self.c_wl_per_row__fF: float = 0.0
-        self.c_bl_per_node__fF: float = 0.0
-        self.c_x_per_cell__fF: float = 0.0
-        self.c_gd_per_cell__fF: float = 0.0
+        self.fabricated_row_num = 0
+        self.fabricated_col_num = 0
+        self.c_wl_per_row__fF = 0.0
+        self.c_bl_per_node__fF = 0.0
+        self.c_x_per_cell__fF = 0.0
+        self.c_gd_per_cell__fF = 0.0
 
     # -----------------------------------------------------------------
     # Fabrication

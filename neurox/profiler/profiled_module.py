@@ -35,10 +35,10 @@ class ProfiledModule:
     """
 
     def __init__(self, name: str) -> None:
-        self._neurox_name: str = name
-        self._inst_count: int = 0
-        self._inst_area__um2: float = 0.0
-        self._inst_leakage__uW: float = 0.0
+        self._neurox_name = name
+        self._inst_count = 0
+        self._inst_area__um2 = 0.0
+        self._inst_leakage__uW = 0.0
 
     @property
     def qualified_name(self) -> str:

@@ -102,7 +102,7 @@ class ReplacementPolicy:
         if unmatched not in ("keep_float", "warn", "error"):
             raise ValueError(f"unmatched must be 'keep_float', 'warn', or 'error'; got {unmatched!r}")
         # Stable sort: priority desc, declaration order preserved within.
-        self.rules: tuple[ReplacementRule, ...] = tuple(sorted(rules, key=lambda r: -r.priority))
+        self.rules = tuple(sorted(rules, key=lambda r: -r.priority))
         self.unmatched = unmatched
 
     def apply(

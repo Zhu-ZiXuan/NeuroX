@@ -158,6 +158,33 @@ Rules:
 - no trailing `#` after the closing `---`;
 - numbered steps are allowed when the method contains a sequence of three or more ordered procedural phases (`# --- 1. Foo ---`, `# --- 2. Bar ---`, …); two-step or unordered blocks should use plain labels without numbers.
 
+## Type annotations
+
+Goal: every name carries a clear, accurate type for static checking — but only where the type is not already obvious from context. Redundant annotations duplicate information that the right-hand side already proves, and the duplication will eventually drift out of sync with reality.
+
+### Always annotate
+
+- **Function and method signatures**: every parameter and the return type.
+- **Class-level attribute declarations** that are not paired with an immediate-and-obvious value at the declaration site: buffer / parameter type hints on `nn.Module` subclasses, dataclass fields, `Protocol` attribute declarations, forward declarations like ``self.solver: SolverType`` (no assignment).
+- **Empty containers** at any scope: ``out: list[T] = []`` / ``out: dict[K, V] = {}`` / ``buf: tuple[int, ...] = ()``. Mypy infers these as ``list[Any]`` / ``dict[Any, Any]`` / ``tuple[()]`` without the annotation.
+
+### Never annotate (drop the redundant one)
+
+Inside function / method bodies, drop the annotation when the right-hand side trivially fixes the type:
+
+- `self.foo = foo` when ``foo`` is a typed parameter or attribute.
+- `self.count = len(xs)` — ``len`` returns ``int``.
+- `self.x = 0` / `self.x = 0.0` / `self.x = ""` — literal of obvious type.
+- `self.x = float(...)` / `int(...)` / `tuple(...)` — builtin constructor's return is unambiguous.
+- `dcop = self.solver.solve_dc(...)` — the called method's typed return is the source of truth.
+- `self.x = cfg.field * cfg.other` — arithmetic on already-typed scalars.
+
+The same rule applies to local variables, not just `self.*` assignments.
+
+### Why
+
+Duplicating a type at the assignment site creates a second source of truth that maintenance will have to keep in lockstep with the signature, the dataclass field, or the call's return type. When the upstream type changes, the annotation at the assignment is the easiest one to forget — and mypy will keep accepting the stale annotation as long as it remains a supertype of the actual value. So redundant annotations don't make the code safer; they only add a quiet way to lie.
+
 ## Noise / mismatch configuration
 
 Non-ideality, mismatch, and dynamic-noise fields follow a separate uniform rule documented in [`noise_and_toggles.md`](noise_and_toggles.md): every source carries a fully-populated parameter and a paired `enable_<source>: bool` toggle; `None` is forbidden in cfg fields; runtime helpers in `neurox/common/nonideality.py` take an `*, enabled: bool` kwarg.

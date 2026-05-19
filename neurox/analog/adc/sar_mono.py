@@ -157,9 +157,9 @@ class SarAdcMono(ADC):
         if not (T__K > 0.0):
             raise ValueError(f"SarAdcMono T__K ({T__K}) must be > 0")
         self.cfg = cfg
-        self.T__K: float = T__K
+        self.T__K = T__K
         self.dtype = dtype
-        self.stochastic: bool | None = stochastic
+        self.stochastic = stochastic
 
         n_caps = cfg.max_bits - 1
         nominal_cap_weights__fF = torch.tensor(

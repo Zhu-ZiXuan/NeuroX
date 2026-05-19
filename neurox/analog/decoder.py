@@ -109,9 +109,9 @@ class Decoder(nn.Module, ProfiledModule):
         self.dtype = dtype
         self.T__K = T__K
 
-        self._t_op__ns: float = cfg.n_address_bits * cfg.t_gate__ns
+        self._t_op__ns = cfg.n_address_bits * cfg.t_gate__ns
         # fF · V² = fJ — no scaling factor needed.
-        self._e_per_call__fJ: float = cfg.n_address_bits * cfg.c_gate__fF * cfg.v_dd__V**2 + cfg.e_overhead__fJ
+        self._e_per_call__fJ = cfg.n_address_bits * cfg.c_gate__fF * cfg.v_dd__V**2 + cfg.e_overhead__fJ
 
     @property
     def bit_serial(self) -> bool:

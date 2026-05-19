@@ -193,10 +193,8 @@ class NMOS(nn.Module):
 
         # Pelgrom area-scaled sigmas precomputed once.
         nominal_isqrt_area__per_um = 1.0 / math.sqrt(W__um * L__um)
-        self.sigma_vth__V: float = cfg.A_vt__mV_um * 1e-3 * nominal_isqrt_area__per_um
-        self.sigma_beta__uA_per_V2: float = (
-            nominal_beta__uA_per_V2 * cfg.A_beta_relative__um * nominal_isqrt_area__per_um
-        )
+        self.sigma_vth__V = cfg.A_vt__mV_um * 1e-3 * nominal_isqrt_area__per_um
+        self.sigma_beta__uA_per_V2 = nominal_beta__uA_per_V2 * cfg.A_beta_relative__um * nominal_isqrt_area__per_um
 
     def fabricate(self, shape: tuple[int, ...]) -> None:
         """Sample static per-instance state over ``shape`` (re-callable).

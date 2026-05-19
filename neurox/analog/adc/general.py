@@ -116,7 +116,7 @@ class GeneralADC(ADC):
         self.cfg = cfg
         self.dtype = dtype
         self.T__K = T__K
-        self.stochastic: bool | None = stochastic
+        self.stochastic = stochastic
 
         boundaries_t = torch.tensor(cfg.boundaries, dtype=dtype)
         if boundaries_t.numel() < 1:
@@ -126,11 +126,11 @@ class GeneralADC(ADC):
         self.register_buffer("drive_value", torch.tensor(cfg.drive_value, dtype=dtype), persistent=False)
 
         n_codes = boundaries_t.numel() + 1
-        self._n_bits: int = max(math.ceil(math.log2(n_codes)), 1)
+        self._n_bits = max(math.ceil(math.log2(n_codes)), 1)
 
         # Average spacing → stochastic-jitter LSB estimate.
         if boundaries_t.numel() >= 2:
-            self._lsb_estimate: float = float((boundaries_t[1:] - boundaries_t[:-1]).mean().item())
+            self._lsb_estimate = float((boundaries_t[1:] - boundaries_t[:-1]).mean().item())
         else:
             self._lsb_estimate = float(boundaries_t.item())
 

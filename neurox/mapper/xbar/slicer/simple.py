@@ -38,7 +38,7 @@ class SimpleSlicer(Slicer):
         if slice_num < 1:
             raise ValueError(f"require: slice_num ({slice_num}) >= 1")
         self._slice_num = slice_num
-        self._encoding: Encoding = encoding
+        self._encoding = encoding
 
     @property
     def slice_num(self) -> int:
