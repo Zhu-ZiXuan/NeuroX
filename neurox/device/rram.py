@@ -24,67 +24,67 @@ from neurox.common.validate import ValidateMixin
 
 @dataclass(frozen=True)
 class RRAMConfig(ValidateMixin):
-    """Static RRAM configuration.
+    """Static RRAM device configuration.
 
     Attributes:
-        state_to_g_map__uS: Conductance lookup table [uS] indexed by the
-            programmed discrete state.
+        g_min__uS: Minimum programmable conductance [uS].
         nonlinearity_alpha: Hyperbolic-sine I-V nonlinearity factor [1/V].
         drift_decay_rate: Power-law drift exponent.
         drift_t0: Reference drift time [s].
         c_top__fF: Top-electrode parasitic capacitance per cell [fF].
         c_bot__fF: Bottom-electrode parasitic capacitance per cell [fF].
-        prog_gamma: Optional programming-variation model.
-        read_telegraph: Optional telegraph-noise model.
-        read_thermal: Optional Gaussian read-noise sigma [uS].
-        stuck_at: Optional stuck-at fault model.
+        read_thermal__uS: Gaussian read-noise sigma [uS].
+        prog_gamma: Programming-variation model parameters.
+        read_telegraph: Telegraph-noise model parameters.
+        stuck_at: Stuck-at fault model parameters.
+        enable_read_thermal: Apply ``read_thermal__uS`` at snapshot time.
+        enable_prog_gamma: Apply ``prog_gamma`` at program time.
+        enable_read_telegraph: Apply ``read_telegraph`` at snapshot time.
+        enable_stuck_at: Apply ``stuck_at`` at program time.
     """
 
-    state_to_g_map__uS: list[float]
+    # --- Working range ---
+    g_min__uS: float
 
+    # --- I-V nonlinearity ---
     nonlinearity_alpha: float
 
+    # --- Drift ---
     drift_decay_rate: float
     drift_t0: float
 
+    # --- Per-cell parasitics ---
     c_top__fF: float
     c_bot__fF: float
 
-    prog_gamma: StateDependentGammaConfig | None = None
+    # --- Read thermal noise ---
+    read_thermal__uS: float
+    enable_read_thermal: bool
 
-    read_telegraph: TelegraphConfig | None = None
-    read_thermal: float | None = None
+    # --- Programming Gamma ---
+    prog_gamma: StateDependentGammaConfig
+    enable_prog_gamma: bool
 
-    stuck_at: StuckAtFaultConfig | None = None
+    # --- Read telegraph noise ---
+    read_telegraph: TelegraphConfig
+    enable_read_telegraph: bool
 
-    @property
-    def num_states(self) -> int:
-        """Number of available discrete conductance states."""
-        return len(self.state_to_g_map__uS)
-
-    @property
-    def g_min__uS(self) -> float:
-        """Minimum ideal conductance derived from state levels."""
-        return self.state_to_g_map__uS[0]
-
-    @property
-    def g_max__uS(self) -> float:
-        """Maximum ideal conductance derived from state levels."""
-        return self.state_to_g_map__uS[-1]
+    # --- Stuck-at fault ---
+    stuck_at: StuckAtFaultConfig
+    enable_stuck_at: bool
 
     def __post_init__(self) -> None:
         self.validate()
 
     def validate(self) -> None:
-        self.validate_states()
+        self.validate_range()
         self.validate_iv()
         self.validate_drift()
         self.validate_parasitics()
         self.validate_noise()
 
-    def validate_states(self) -> None:
-        self._require_min_length(self.state_to_g_map__uS, 2, "state_to_g_map__uS")
-        self._require_strictly_increasing(self.state_to_g_map__uS, "state_to_g_map__uS")
+    def validate_range(self) -> None:
+        self._require_nonneg(self.g_min__uS, "g_min__uS")
 
     def validate_iv(self) -> None:
         self._require_nonneg(self.nonlinearity_alpha, "nonlinearity_alpha")
@@ -99,7 +99,7 @@ class RRAMConfig(ValidateMixin):
 
     def validate_noise(self) -> None:
         # Nested *Config self-validates in its own __post_init__.
-        self._require_nonneg_or_none(self.read_thermal, "read_thermal")
+        self._require_nonneg(self.read_thermal__uS, "read_thermal__uS")
 
 
 @dataclass(frozen=True)
@@ -129,7 +129,6 @@ class RRAMSnapshot:
 class RRAM(nn.Module):
     """Stateful RRAM array model."""
 
-    state_to_g_map__uS: Tensor
     g__uS: Tensor
 
     def __init__(
@@ -138,6 +137,7 @@ class RRAM(nn.Module):
         cfg: RRAMConfig,
         T__K: float,
         dtype: torch.dtype,
+        g_max__uS: float,
     ) -> None:
         """Construct one stateful RRAM model.
 
@@ -145,22 +145,20 @@ class RRAM(nn.Module):
             cfg: RRAM configuration.
             T__K: Operating temperature [K].
             dtype: Tensor dtype for internal buffers.
+            g_max__uS: Maximum programmable conductance [uS].
         """
         super().__init__()
+
+        if not (g_max__uS > cfg.g_min__uS):
+            raise ValueError(f"require: g_max__uS ({g_max__uS}) > cfg.g_min__uS ({cfg.g_min__uS})")
 
         self.cfg = cfg
         self.dtype = dtype
         self.T__K = T__K
         self.g_min__uS = cfg.g_min__uS
-        self.g_max__uS = cfg.g_max__uS
+        self.g_max__uS = g_max__uS
 
-        self.register_buffer("state_to_g_map__uS", torch.tensor(cfg.state_to_g_map__uS, dtype=dtype), persistent=False)
         self.register_buffer("g__uS", torch.empty(0, dtype=dtype), persistent=False)
-
-    @property
-    def num_states(self) -> int:
-        """Number of discrete conductance states."""
-        return self.cfg.num_states
 
     @property
     def c_top__fF(self) -> float:
@@ -172,21 +170,25 @@ class RRAM(nn.Module):
         """Bottom-electrode (Node-X-side) parasitic capacitance per cell [fF]."""
         return self.cfg.c_bot__fF
 
-    def program(self, state: Tensor, t_elapsed: float = 0.0) -> None:
-        """Program the stored conductance state.
+    def program(self, target_g__uS: Tensor, t_elapsed: float = 0.0) -> None:
+        """Program the stored conductance.
 
         Args:
-            state: Integer state-index tensor in `[0, num_states - 1]`.
+            target_g__uS: Target conductance tensor [uS].
             t_elapsed: Time elapsed since programming [s].
         """
-        g__uS = self.state_to_g_map__uS[state.long()]
-        g__uS = apply_state_dependent_gamma(g__uS, self.cfg.prog_gamma)
+        g__uS = target_g__uS.to(dtype=self.dtype).clamp(self.g_min__uS, self.g_max__uS)
+        g__uS = apply_state_dependent_gamma(g__uS, self.cfg.prog_gamma, enabled=self.cfg.enable_prog_gamma)
         if self.cfg.drift_decay_rate > 0.0 and t_elapsed > self.cfg.drift_t0:
             drift_factor = (t_elapsed / self.cfg.drift_t0) ** (-self.cfg.drift_decay_rate)
             g__uS = g__uS * drift_factor
 
         g__uS = apply_stuck_at_fault(
-            x=g__uS, config=self.cfg.stuck_at, min_val=self.g_min__uS, max_val=self.g_max__uS
+            x=g__uS,
+            config=self.cfg.stuck_at,
+            min_val=self.g_min__uS,
+            max_val=self.g_max__uS,
+            enabled=self.cfg.enable_stuck_at,
         )
 
         g__uS = g__uS.clamp(self.g_min__uS, self.g_max__uS)
@@ -203,9 +205,8 @@ class RRAM(nn.Module):
             Per-call snapshot of the fabricated state.
         """
         g__uS = self.g__uS.expand(shape)
-        g__uS = apply_telegraph_noise(g__uS, self.cfg.read_telegraph)
-        if self.cfg.read_thermal is not None:
-            g__uS = apply_gaussian(g__uS, self.cfg.read_thermal)
+        g__uS = apply_telegraph_noise(g__uS, self.cfg.read_telegraph, enabled=self.cfg.enable_read_telegraph)
+        g__uS = apply_gaussian(g__uS, self.cfg.read_thermal__uS, enabled=self.cfg.enable_read_thermal)
         g__uS = g__uS.clamp(self.g_min__uS, self.g_max__uS)
         return RRAMSnapshot(g__uS=g__uS)
 

@@ -2,24 +2,28 @@
 
 ## Current role
 
-`RRAM` owns the programmed and read-time behaviour of one resistive memory device array:
+`RRAM` models one resistive memory device array with a continuous programmable conductance:
 
-- state-to-conductance mapping
-- programming noise
-- drift
-- read noise and stuck-at effects
+- programming-time non-idealities (state-dependent Gamma, stuck-at, drift)
+- read-time non-idealities (telegraph, thermal)
 - programmed conductance state ownership
+- continuous I-V law (linear or `sinh`-nonlinear)
 
 ## Config boundary
 
-`RRAMConfig` remains a device config:
+`RRAMConfig` carries the device's intrinsic physics and per-cell parasitics:
 
-- process-like device parameters
-- device-level non-ideality / spec parameters
-- intrinsic top / bottom parasitic capacitances of the memory cell
+- `g_min__uS`
+- `nonlinearity_alpha`, `drift_decay_rate`, `drift_t0`
+- `c_top__fF`, `c_bot__fF`
+- optional `prog_gamma`, `read_telegraph`, `read_thermal`, `stuck_at`
 
-Unlike the access-NMOS parasitics, these capacitances are treated as intrinsic to the device / cell model rather than circuit-owned layout choices.
+`g_max__uS` is passed at `__init__` time as a separate kwarg; it is a design value bounded by external current limiting, not an intrinsic device parameter.
+
+## Programming interface
+
+`RRAM.program(target_g__uS, t_elapsed=0.0)` accepts a target-conductance tensor in the device's conductance domain. The device clamps to `[g_min__uS, g_max__uS]`, applies programming Gamma, drift, and stuck-at faults, clamps again, and stores the result in `self.g__uS`.
 
 ## State holding
 
-`RRAM.fabricate(...)` / `program(...)` materializes programmed conductance state inside the `RRAM` instance. Runtime reads consume explicit snapshots rather than forcing parent circuits to duplicate the state.
+`program(...)` materialises the programmed conductance state inside the `RRAM` instance. Runtime reads consume explicit `snapshot(shape=...)` samples.

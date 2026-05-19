@@ -158,6 +158,10 @@ Rules:
 - no trailing `#` after the closing `---`;
 - numbered steps are allowed when the method contains a sequence of three or more ordered procedural phases (`# --- 1. Foo ---`, `# --- 2. Bar ---`, …); two-step or unordered blocks should use plain labels without numbers.
 
+## Noise / mismatch configuration
+
+Non-ideality, mismatch, and dynamic-noise fields follow a separate uniform rule documented in [`noise_and_toggles.md`](noise_and_toggles.md): every source carries a fully-populated parameter and a paired `enable_<source>: bool` toggle; `None` is forbidden in cfg fields; runtime helpers in `neurox/common/nonideality.py` take an `*, enabled: bool` kwarg.
+
 ## Relationship with `docs/dev/`
 
 `docs/dev/` is the canonical home for:

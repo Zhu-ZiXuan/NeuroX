@@ -11,18 +11,22 @@ Every additive / multiplicative noise comes in two flavours:
 - **State-independent** — sigma is a config constant; the same distribution is sampled at every element. Use for noise whose magnitude does not track signal magnitude (comparator thermal noise, stuck-at faults).
 - **State-dependent** — sigma is derived per-element from the input tensor (or auxiliary tensors). Use for noise whose magnitude grows with conductance state (programming variability, retention drift) or with cell area (Pelgrom mismatch, kT/C sampling).
 
+## Toggle contract
+
+Every `apply_*` helper takes a `*, enabled: bool` kw-only parameter and returns the input unchanged when `enabled=False`. Callers pass `enabled=cfg.enable_<source>` straight from the cfg; no helper checks for `None` and no caller writes an `if`-gate. See `architecture/noise_and_toggles.md` for the project-wide rule.
+
 ## Provided primitives
 
-- `apply_stuck_at_fault(tensor, cfg)` — Bernoulli stuck-at fault parameterised by `StuckAtFaultConfig`.
-- `apply_gaussian(tensor, sigma)` — additive isotropic Gaussian draw (state-independent). Takes `sigma` directly so it inlines tightly under `@torch.compile`; the `sigma is None` guard is handled at the call site.
-- `apply_state_dependent_gaussian(tensor, cfg)` — additive Gaussian with sigma proportional to `|x|`.
-- `apply_lognormal(tensor, cfg)` — multiplicative log-normal.
-- `apply_state_dependent_lognormal(tensor, cfg)` — multiplicative log-normal with sigma depending on normalised conductance.
-- `apply_gamma_noise(tensor, cfg)` — multiplicative Gamma noise normalised to unit mean.
-- `apply_state_dependent_gamma(tensor, cfg)` — Gamma noise with state-dependent shape parameter.
-- `apply_telegraph_noise(tensor, cfg)` — RTN-style binary-state perturbation with Gaussian amplitude.
-- `apply_pelgrom_mismatch(tensor, sigma_relative, *, unit, floor)` — Pelgrom-area-scaled multiplicative mismatch (σ_k ∝ √(C_k / C_unit)) with a positive floor. Takes `sigma_relative` directly, no wrapper config.
-- `apply_lsb_jitter(tensor, lsb)` — uniform LSB-jitter for stochastic rounding.
+- `apply_stuck_at_fault(tensor, cfg, min_val, max_val, *, enabled)` — Bernoulli stuck-at fault parameterised by `StuckAtFaultConfig`.
+- `apply_gaussian(tensor, sigma, *, enabled)` — additive isotropic Gaussian draw (state-independent). Takes `sigma` directly so it inlines tightly under `@torch.compile`.
+- `apply_state_dependent_gaussian(tensor, cfg, *, enabled)` — additive Gaussian with sigma proportional to `|x|`.
+- `apply_lognormal(tensor, cfg, *, enabled)` — multiplicative log-normal.
+- `apply_state_dependent_lognormal(tensor, cfg, *, enabled)` — multiplicative log-normal with sigma depending on normalised conductance.
+- `apply_gamma_noise(tensor, cfg, *, enabled)` — multiplicative Gamma noise normalised to unit mean.
+- `apply_state_dependent_gamma(tensor, cfg, *, enabled)` — Gamma noise with state-dependent shape parameter.
+- `apply_telegraph_noise(tensor, cfg, *, enabled)` — RTN-style binary-state perturbation with Gaussian amplitude.
+- `apply_pelgrom_mismatch(tensor, sigma_relative, *, unit, floor, enabled)` — Pelgrom-area-scaled multiplicative mismatch (σ_k ∝ √(C_k / C_unit)) with a positive floor. Takes `sigma_relative` directly, no wrapper config.
+- `apply_lsb_jitter(tensor, *, n_bits, enabled)` — uniform LSB-jitter for stochastic rounding.
 
 The associated config dataclasses (`TelegraphConfig`, `StateDependentGammaConfig`, `StuckAtFaultConfig`, …) live in this file as the single canonical set of spec dataclasses for the kernels above.
 

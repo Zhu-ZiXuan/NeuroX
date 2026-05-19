@@ -25,9 +25,9 @@ class GeneralDACConfig(DACConfig):
             ``code_to_signal[i]`` is the nominal analog output in [V]
             for digital code ``i``.  Length equals the number of input
             codes.
-        drive_thermal: Gaussian thermal noise sigma added to each
-            output sample after LUT lookup [V].  ``None`` skips this
-            noise.
+        drive_thermal__V: Gaussian thermal noise sigma added to each
+            output sample after LUT lookup [V].
+        enable_drive_thermal: Apply ``drive_thermal__V`` at convert time.
         energy_per_op__fJ: Dynamic energy per conversion operation
             [fJ].
         latency_per_op__ns: Conversion latency per operation [ns].
@@ -36,12 +36,15 @@ class GeneralDACConfig(DACConfig):
         area_per_inst__um2: Silicon area per DAC instance [um^2].
     """
 
+    # --- LUT ---
     code_to_signal: list[float]
 
-    drive_thermal: float | None = None
+    # --- Drive thermal noise ---
+    drive_thermal__V: float
+    enable_drive_thermal: bool
 
+    # --- Energy / PPA ---
     energy_per_op__fJ: float = 0.0
-
     latency_per_op__ns: float = 0.0
     leakage_per_inst__uW: float = 0.0
     area_per_inst__um2: float = 0.0
@@ -56,7 +59,7 @@ class GeneralDACConfig(DACConfig):
         self._require_min_length(self.code_to_signal, 1, "code_to_signal")
 
     def validate_noise(self) -> None:
-        self._require_nonneg_or_none(self.drive_thermal, "drive_thermal")
+        self._require_nonneg(self.drive_thermal__V, "drive_thermal__V")
 
     def validate_ppa(self) -> None:
         self._require_nonneg(self.energy_per_op__fJ, "energy_per_op__fJ")
@@ -120,10 +123,11 @@ class GeneralDAC(DAC):
         Returns:
             Float analog voltages [V], same shape as ``code``.
         """
-        signal = self.code_to_signal[code]
-
-        if self.cfg.drive_thermal is not None:
-            signal = apply_gaussian(signal, self.cfg.drive_thermal)
+        signal = apply_gaussian(
+            self.code_to_signal[code],
+            self.cfg.drive_thermal__V,
+            enabled=self.cfg.enable_drive_thermal,
+        )
 
         if self.cfg.energy_per_op__fJ != 0.0:
             dynamic_energy__fJ = torch.full_like(signal, self.cfg.energy_per_op__fJ, dtype=torch.float32)

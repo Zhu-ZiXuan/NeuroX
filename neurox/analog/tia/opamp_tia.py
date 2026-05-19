@@ -4,7 +4,7 @@ See also:
     docs/dev/modules/analog/tia/opamp_tia.md
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import torch
 from torch import Tensor
@@ -15,7 +15,7 @@ from neurox.device.nmos import NMOS, NMOSConfig, NMOSSnapshot
 from .base import TIA, TIAConfig
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class OpAmpTIAConfig(TIAConfig):
     """Configuration for :class:`OpAmpTIA`.
 
@@ -23,37 +23,34 @@ class OpAmpTIAConfig(TIAConfig):
         v_nmos_bias__V: Pseudo-resistor gate bias [V].
         v_dd__V: Supply rail [V].
         opamp_gain: Nominal open-loop gain; must be > 1.
-        opamp_gain_sigma: Optional relative mismatch (``σ/μ``) on
-            ``opamp_gain``. ``None`` disables.
+        opamp_gain_sigma: Relative mismatch (``σ/μ``) on ``opamp_gain``.
+        enable_opamp_gain_sigma: Apply ``opamp_gain_sigma`` at fabricate
+            time.
         nmos_cfg: PDK config for the pseudo-resistor NMOS.
         pseudo_nmos_W__um: Pseudo-resistor channel width [μm].
         pseudo_nmos_L__um: Pseudo-resistor channel length [μm].
         output_saturation_softness__V: Softness scale [V] for the
-            ``tanh`` output-rail limiter. ``None`` defaults to ``v_dd / 2``.
+            ``tanh`` output-rail limiter.
     """
 
-    v_nmos_bias__V: float = 0.0
-    v_dd__V: float = 0.0
-    opamp_gain: float = 1.0
+    # --- Bias / supply ---
+    v_nmos_bias__V: float
+    v_dd__V: float
 
-    opamp_gain_sigma: float | None = None
+    # --- Op-amp gain ---
+    opamp_gain: float
 
-    nmos_cfg: NMOSConfig = field(
-        default_factory=lambda: NMOSConfig(
-            mu0__cm2_per_V_s=200.0,
-            c_ox__fF_per_um2=31.4,
-            vth0__V=0.40,
-            n_factor=1.25,
-            T_ref__K=300.0,
-            ute=1.5,
-            kt1__V=-0.002,
-        )
-    )
+    # --- Op-amp gain mismatch ---
+    opamp_gain_sigma: float
+    enable_opamp_gain_sigma: bool
 
-    pseudo_nmos_W__um: float = 1.0
-    pseudo_nmos_L__um: float = 0.06
+    # --- Pseudo-resistor NMOS ---
+    nmos_cfg: NMOSConfig
+    pseudo_nmos_W__um: float
+    pseudo_nmos_L__um: float
 
-    output_saturation_softness__V: float | None = None
+    # --- Output rail limiter ---
+    output_saturation_softness__V: float
 
     def validate(self) -> None:
         super().validate()
@@ -63,8 +60,8 @@ class OpAmpTIAConfig(TIAConfig):
     def validate_opamp(self) -> None:
         if not (self.opamp_gain > 1.0):
             raise ValueError(f"require: opamp_gain ({self.opamp_gain}) > 1.0")
-        self._require_nonneg_or_none(self.opamp_gain_sigma, "opamp_gain_sigma")
-        self._require_pos_or_none(self.output_saturation_softness__V, "output_saturation_softness__V")
+        self._require_nonneg(self.opamp_gain_sigma, "opamp_gain_sigma")
+        self._require_pos(self.output_saturation_softness__V, "output_saturation_softness__V")
 
     def validate_pseudo_nmos(self) -> None:
         self._require_pos(self.pseudo_nmos_W__um, "pseudo_nmos_W__um")
@@ -72,9 +69,7 @@ class OpAmpTIAConfig(TIAConfig):
         if not (self.v_dd__V > self.v_ref__V):
             raise ValueError(f"require: v_dd__V ({self.v_dd__V}) > v_ref__V ({self.v_ref__V})")
         if not (self.v_nmos_bias__V > self.v_ref__V):
-            raise ValueError(
-                f"require: v_nmos_bias__V ({self.v_nmos_bias__V}) > v_ref__V ({self.v_ref__V})"
-            )
+            raise ValueError(f"require: v_nmos_bias__V ({self.v_nmos_bias__V}) > v_ref__V ({self.v_ref__V})")
 
 
 @dataclass(frozen=True)
@@ -136,17 +131,11 @@ class OpAmpTIA(TIA):
             L__um=cfg.pseudo_nmos_L__um,
         )
 
-        self.sigma_opamp_gain: float | None = (
-            cfg.opamp_gain * cfg.opamp_gain_sigma if cfg.opamp_gain_sigma is not None else None
-        )
+        self.sigma_opamp_gain: float = cfg.opamp_gain * cfg.opamp_gain_sigma
 
         self.softclip_center__V: float = cfg.v_dd__V / 2.0
         self.softclip_half_span__V: float = cfg.v_dd__V / 2.0
-        self.softclip_softness__V: float = (
-            cfg.output_saturation_softness__V
-            if cfg.output_saturation_softness__V is not None
-            else self.softclip_half_span__V
-        )
+        self.softclip_softness__V: float = cfg.output_saturation_softness__V
 
         self.register_buffer(
             "nominal_opamp_gain",
@@ -193,9 +182,11 @@ class OpAmpTIA(TIA):
         """
         self.nmos.fabricate(shape)
 
-        opamp_gain = self.nominal_opamp_gain.clone().expand(shape)
-        if self.sigma_opamp_gain is not None:
-            opamp_gain = apply_gaussian(opamp_gain, self.sigma_opamp_gain)
+        opamp_gain = apply_gaussian(
+            self.nominal_opamp_gain.clone().expand(shape),
+            self.sigma_opamp_gain,
+            enabled=self.cfg.enable_opamp_gain_sigma,
+        )
         self.register_buffer("opamp_gain", opamp_gain, persistent=False)
         self._record_inst_count(shape)
 

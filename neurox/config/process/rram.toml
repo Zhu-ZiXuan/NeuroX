@@ -1,17 +1,41 @@
 # RRAM device parameters.
-#
-# Each top-level section names one variant: `<class>_<node>_<flavor>`
-# where flavor encodes the cell behaviour (`4state` discrete, `binary`,
-# `analog`, ...).
-#
-# Fields map directly to `RRAMConfig` field names; no construction
-# directives (no `_neurox_*` keys of any kind).
+# Each top-level section: `<class>_<node>_<flavor>`.
 
 
 [rram_28_4state]
-state_to_g_map__uS = [10.0, 39.7, 69.7, 100.0]
+
+# --- Working range ---
+g_min__uS = 10.0
+
+# --- I-V nonlinearity ---
 nonlinearity_alpha = 0.5
+
+# --- Drift ---
 drift_decay_rate = 0.03
 drift_t0 = 1.0
+
+# --- Per-cell parasitics ---
 c_top__fF = 0.1
 c_bot__fF = 0.1
+
+# --- Read thermal noise ---
+read_thermal__uS = 0.002
+
+# --- Programming Gamma ---
+[rram_28_4state.prog_gamma]
+k_slope = 0.0
+k_intercept = 100.0
+theta = 1.0
+min_val = 10.0
+max_val = 100.0
+
+# --- Read telegraph noise ---
+[rram_28_4state.read_telegraph]
+amplitude_mean = 0.005
+amplitude_std = 0.001
+p_high_state = 0.01
+
+# --- Stuck-at fault ---
+[rram_28_4state.stuck_at]
+p_at_min = 0.001
+p_at_max = 0.001

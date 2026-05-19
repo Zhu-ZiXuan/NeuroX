@@ -38,15 +38,7 @@ def _dataclass_field_names(cls: Any) -> set[str]:  # noqa: ANN401
 # --- dict -> dataclass ---
 
 
-# NeuroX-private extension keys use the ``_neurox_*`` prefix so they
-# are self-identifying as our convention rather than TOML-native syntax.
-
-# ``_neurox_type`` selects the polymorphic-family subclass for a sub-table.
 _TYPE_DISCRIMINATOR = "_neurox_type"
-
-# ``_neurox_use`` references a fragment in another config file as
-# ``"<rel_path>:<section>"``. The fragment supplies the base values for
-# the sub-table; inline keys override the fragment.
 _USE_DIRECTIVE = "_neurox_use"
 
 
@@ -347,18 +339,18 @@ def _resolve_fragment_path(rel: str, base_dir: Path) -> Path:
             with_suffix = candidate.with_suffix(suffix)
             if with_suffix.exists():
                 return with_suffix
-    raise FileNotFoundError(f"_neurox_use fragment {rel!r} not found relative to {base_dir}")
+    raise FileNotFoundError(f"{_USE_DIRECTIVE} fragment {rel!r} not found relative to {base_dir}")
 
 
 def _parse_use_ref(ref: Any, base_dir: Path) -> tuple[Path, str]:  # noqa: ANN401
     """Parse ``"<rel_path>:<section>"`` into ``(absolute_path, section_name)``."""
     if not isinstance(ref, str):
-        raise TypeError(f"_neurox_use must be a string, got {type(ref).__name__}")
+        raise TypeError(f"{_USE_DIRECTIVE} must be a string, got {type(ref).__name__}")
     if ":" not in ref:
-        raise ValueError(f"_neurox_use reference {ref!r} missing ':' (expected '<path>:<section>')")
+        raise ValueError(f"{_USE_DIRECTIVE} reference {ref!r} missing ':' (expected '<path>:<section>')")
     rel, section = ref.split(":", 1)
     if not rel or not section:
-        raise ValueError(f"_neurox_use reference {ref!r} has empty path or section")
+        raise ValueError(f"{_USE_DIRECTIVE} reference {ref!r} has empty path or section")
     return _resolve_fragment_path(rel, base_dir), section
 
 
@@ -381,16 +373,18 @@ def _resolve_uses_in_value(
             key = (path, section)
             if key in in_progress:
                 trail = " -> ".join(f"{p.name}:{s}" for p, s in in_progress)
-                raise ValueError(f"_neurox_use cycle detected: {trail} -> {path.name}:{section}")
+                raise ValueError(f"{_USE_DIRECTIVE} cycle detected: {trail} -> {path.name}:{section}")
             if path not in cache:
                 cache[path] = dict_from_file(path)
             root = cache[path]
             if section not in root:
-                raise KeyError(f"_neurox_use target section {section!r} not found in {path} (keys: {sorted(root)})")
+                raise KeyError(
+                    f"{_USE_DIRECTIVE} target section {section!r} not found in {path} (keys: {sorted(root)})"
+                )
             target = root[section]
             if not isinstance(target, Mapping):
                 raise TypeError(
-                    f"_neurox_use target {value[_USE_DIRECTIVE]!r} must be a table, got {type(target).__name__}"
+                    f"{_USE_DIRECTIVE} target {value[_USE_DIRECTIVE]!r} must be a table, got {type(target).__name__}"
                 )
             resolved_fragment = _resolve_uses_in_value(
                 dict(target),
@@ -430,7 +424,7 @@ def resolve_uses(data: dict[str, Any], base_dir: Path) -> dict[str, Any]:
     """
     result = _resolve_uses_in_value(data, base_dir, cache={}, in_progress=frozenset())
     if not isinstance(result, dict):
-        raise TypeError(f"_neurox_use resolution expected dict root, got {type(result).__name__}")
+        raise TypeError(f"{_USE_DIRECTIVE} resolution expected dict root, got {type(result).__name__}")
     return result
 
 

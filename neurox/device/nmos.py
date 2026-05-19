@@ -36,19 +36,21 @@ class NMOSConfig(ValidateMixin):
         kt1__V: V_th temperature coefficient [V], per
             ``V_th(T) = vth0 + kt1 · (T / T_ref - 1)``.
         A_vt__mV_um: Pelgrom V_th matching coefficient [mV·μm];
-            ``σ_Vt = A_vt · 1e-3 / sqrt(W · L)``. ``None`` skips
-            V_th mismatch.
+            ``σ_Vt = A_vt · 1e-3 / sqrt(W · L)``.
         A_beta_relative__um: Pelgrom relative-β matching coefficient
             [μm]; ``σ_β / β = A_beta_relative / sqrt(W · L)``.
-            ``None`` skips β mismatch.
+        enable_A_vt_mismatch: Apply ``A_vt`` Pelgrom mismatch at
+            fabricate time.
+        enable_A_beta_mismatch: Apply ``A_beta_relative`` Pelgrom
+            mismatch at fabricate time.
     """
 
-    # --- Process parameters ---
+    # --- Process electrical ---
     mu0__cm2_per_V_s: float
     c_ox__fF_per_um2: float
     vth0__V: float
 
-    # --- Subthreshold parameters ---
+    # --- Subthreshold ---
     n_factor: float
 
     # --- Temperature coefficients ---
@@ -56,9 +58,13 @@ class NMOSConfig(ValidateMixin):
     ute: float
     kt1__V: float
 
-    # --- Fabricate mismatch ---
-    A_vt__mV_um: float | None = None
-    A_beta_relative__um: float | None = None
+    # --- V_th Pelgrom mismatch ---
+    A_vt__mV_um: float
+    enable_A_vt_mismatch: bool
+
+    # --- β Pelgrom mismatch ---
+    A_beta_relative__um: float
+    enable_A_beta_mismatch: bool
 
     def __post_init__(self) -> None:
         self.validate()
@@ -78,8 +84,8 @@ class NMOSConfig(ValidateMixin):
         self._require_pos(self.T_ref__K, "T_ref__K")
 
     def validate_mismatch(self) -> None:
-        self._require_nonneg_or_none(self.A_vt__mV_um, "A_vt__mV_um")
-        self._require_nonneg_or_none(self.A_beta_relative__um, "A_beta_relative__um")
+        self._require_nonneg(self.A_vt__mV_um, "A_vt__mV_um")
+        self._require_nonneg(self.A_beta_relative__um, "A_beta_relative__um")
 
 
 @dataclass(frozen=True)
@@ -189,13 +195,11 @@ class NMOS(nn.Module):
             persistent=False,
         )
 
-        # Fabricate mismatch sigmas (Pelgrom area scaling)
+        # Pelgrom area-scaled sigmas precomputed once.
         nominal_isqrt_area__per_um = 1.0 / math.sqrt(W__um * L__um)
-        self.sigma_vth__V = cfg.A_vt__mV_um * 1e-3 * nominal_isqrt_area__per_um if cfg.A_vt__mV_um is not None else None
-        self.sigma_beta__uA_per_V2 = (
+        self.sigma_vth__V: float = cfg.A_vt__mV_um * 1e-3 * nominal_isqrt_area__per_um
+        self.sigma_beta__uA_per_V2: float = (
             nominal_beta__uA_per_V2 * cfg.A_beta_relative__um * nominal_isqrt_area__per_um
-            if cfg.A_beta_relative__um is not None
-            else None
         )
 
     def fabricate(self, shape: tuple[int, ...]) -> None:
@@ -204,14 +208,18 @@ class NMOS(nn.Module):
         Args:
             shape: Per-instance fabrication shape.
         """
-        beta__uA_per_V2 = self.nominal_beta__uA_per_V2.clone().expand(shape)
-        if self.sigma_beta__uA_per_V2 is not None:
-            beta__uA_per_V2 = apply_gaussian(beta__uA_per_V2, self.sigma_beta__uA_per_V2)
+        beta__uA_per_V2 = apply_gaussian(
+            self.nominal_beta__uA_per_V2.clone().expand(shape),
+            self.sigma_beta__uA_per_V2,
+            enabled=self.cfg.enable_A_beta_mismatch,
+        )
         self.register_buffer("beta__uA_per_V2", beta__uA_per_V2, persistent=False)
 
-        vth__V = self.nominal_vth__V.clone().expand(shape)
-        if self.sigma_vth__V is not None:
-            vth__V = apply_gaussian(vth__V, self.sigma_vth__V)
+        vth__V = apply_gaussian(
+            self.nominal_vth__V.clone().expand(shape),
+            self.sigma_vth__V,
+            enabled=self.cfg.enable_A_vt_mismatch,
+        )
         self.register_buffer("vth__V", vth__V, persistent=False)
 
     def snapshot(self, *, shape: tuple[int, ...]) -> NMOSSnapshot:

@@ -30,7 +30,8 @@ def _make_tia(
     v_ref__V: float = 0.2,
     v_dd__V: float = 0.9,
     v_nmos_bias__V: float = 0.9,
-    opamp_gain_sigma: float | None = None,
+    opamp_gain_sigma: float = 0.0,
+    enable_opamp_gain_sigma: bool = False,
 ) -> OpAmpTIA:
     """Build a OpAmpTIA + internal NMOS pseudo-resistor sized for the tests."""
     nmos_cfg = NMOSConfig(
@@ -41,6 +42,10 @@ def _make_tia(
         T_ref__K=300.0,
         ute=1.5,
         kt1__V=-0.002,
+        A_vt__mV_um=0.0,
+        A_beta_relative__um=0.0,
+        enable_A_vt_mismatch=False,
+        enable_A_beta_mismatch=False,
     )
     cfg = OpAmpTIAConfig(
         v_ref__V=v_ref__V,
@@ -48,9 +53,11 @@ def _make_tia(
         v_dd__V=v_dd__V,
         opamp_gain=opamp_gain,
         opamp_gain_sigma=opamp_gain_sigma,
+        enable_opamp_gain_sigma=enable_opamp_gain_sigma,
         nmos_cfg=nmos_cfg,
         pseudo_nmos_W__um=1.0,
         pseudo_nmos_L__um=0.06,
+        output_saturation_softness__V=v_dd__V / 2.0,
     )
     return OpAmpTIA(cfg=cfg, name="tia", T__K=300.0, dtype=torch.float64)
 
@@ -187,16 +194,18 @@ def test_tia_solve_dc_sensitivity_matches_finite_difference() -> None:
 def _make_mux_cfg(**overrides) -> AnalogMuxConfig:
     """Build an :class:`AnalogMuxConfig` with every field explicit.
 
-    Configs no longer carry defaults — tests must spell out every
-    field.  This helper provides a baseline pass-through configuration
-    (``mux_gain=1.0``, both noise sigmas ``None``, zero energy / PPA)
-    that individual tests override with the field(s) they exercise.
+    Baseline = pass-through (``mux_gain=1.0``, both noise toggles off,
+    zero energy / PPA). Tests override the field(s) they exercise; pass
+    a sigma alone to disable that channel, or pair it with the matching
+    ``enable_*`` toggle to engage it.
     """
     base = dict(
         energy_per_access__fJ=0.0,
         mux_gain=1.0,
-        mux_noise_cm_sigma__V=None,
-        mux_noise_dm_sigma__V=None,
+        mux_noise_cm_sigma__V=0.0,
+        mux_noise_dm_sigma__V=0.0,
+        enable_mux_noise_cm=False,
+        enable_mux_noise_dm=False,
         leakage_per_inst__uW=0.0,
         area_per_inst__um2=0.0,
         latency_per_op__ns=0.0,
@@ -232,7 +241,12 @@ def test_analog_mux_gain_attenuates_both_legs() -> None:
 def test_analog_mux_cm_noise_is_common_to_both_legs() -> None:
     """CM noise lands with matching sign on both legs (suppressed by diff ADC)."""
     torch.manual_seed(0)
-    mux = AnalogMux(cfg=_make_mux_cfg(mux_noise_cm_sigma__V=0.05), name="mux", T__K=300.0, dtype=torch.float32)
+    mux = AnalogMux(
+        cfg=_make_mux_cfg(mux_noise_cm_sigma__V=0.05, enable_mux_noise_cm=True),
+        name="mux",
+        T__K=300.0,
+        dtype=torch.float32,
+    )
     v_pos = torch.zeros(10_000)
     v_neg = torch.zeros(10_000)
     out_pos, out_neg = mux.transport(v_pos, v_neg)
@@ -245,7 +259,12 @@ def test_analog_mux_cm_noise_is_common_to_both_legs() -> None:
 def test_analog_mux_dm_noise_is_antisymmetric() -> None:
     """DM noise lands with opposite sign on the two legs."""
     torch.manual_seed(0)
-    mux = AnalogMux(cfg=_make_mux_cfg(mux_noise_dm_sigma__V=0.05), name="mux", T__K=300.0, dtype=torch.float32)
+    mux = AnalogMux(
+        cfg=_make_mux_cfg(mux_noise_dm_sigma__V=0.05, enable_mux_noise_dm=True),
+        name="mux",
+        T__K=300.0,
+        dtype=torch.float32,
+    )
     v_pos = torch.zeros(10_000)
     v_neg = torch.zeros(10_000)
     out_pos, out_neg = mux.transport(v_pos, v_neg)
@@ -261,7 +280,12 @@ def test_analog_mux_invalid_gain() -> None:
 
 def test_decoder_passthrough_drives_dac() -> None:
     """Non-bit-serial decoder passes integer codes straight to the DAC."""
-    dac = GeneralDAC(cfg=GeneralDACConfig(code_to_signal=[0.0, 1.2]), name="dac", T__K=300.0, dtype=torch.float32)
+    dac = GeneralDAC(
+        cfg=GeneralDACConfig(code_to_signal=[0.0, 1.2], drive_thermal__V=0.0, enable_drive_thermal=False),
+        name="dac",
+        T__K=300.0,
+        dtype=torch.float32,
+    )
     dec = Decoder(
         cfg=DecoderConfig(n_address_bits=6, bit_serial=False),
         name="dec",
@@ -276,7 +300,12 @@ def test_decoder_passthrough_drives_dac() -> None:
 
 def test_decoder_bit_serial_expands_codes() -> None:
     """Bit-serial decoder splits an integer code into ``n_address_bits`` planes."""
-    dac = GeneralDAC(cfg=GeneralDACConfig(code_to_signal=[0.0, 1.2]), name="dac", T__K=300.0, dtype=torch.float32)
+    dac = GeneralDAC(
+        cfg=GeneralDACConfig(code_to_signal=[0.0, 1.2], drive_thermal__V=0.0, enable_drive_thermal=False),
+        name="dac",
+        T__K=300.0,
+        dtype=torch.float32,
+    )
     dec = Decoder(
         cfg=DecoderConfig(n_address_bits=4, bit_serial=True),
         name="dec",

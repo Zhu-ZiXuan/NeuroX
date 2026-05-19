@@ -32,22 +32,6 @@ class ValidateMixin:
             raise ValueError(f"require: {name} ({value}) >= 0")
 
     @staticmethod
-    def _require_nonneg_or_none(value: float | None, name: str) -> None:
-        """Raise if ``value`` is not ``None`` and is negative."""
-        if value is None:
-            return
-        if not (value >= 0.0):
-            raise ValueError(f"require: {name} ({value}) >= 0 or None")
-
-    @staticmethod
-    def _require_pos_or_none(value: float | None, name: str) -> None:
-        """Raise if ``value`` is not ``None`` and is not strictly positive."""
-        if value is None:
-            return
-        if not (value > 0.0):
-            raise ValueError(f"require: {name} ({value}) > 0 or None")
-
-    @staticmethod
     def _require_strictly_increasing(seq: Iterable[int | float], name: str) -> None:
         """Raise if ``seq`` is not strictly increasing."""
         for prev, curr in pairwise(seq):

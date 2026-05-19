@@ -15,12 +15,12 @@
 
 ## NeuroX-private extension keys
 
-The loader recognises two **vendor-namespaced** extension keys that are NeuroX-private (not part of TOML / YAML syntax):
+The loader recognises two NeuroX-private string-valued keys:
 
 - `_neurox_type` — polymorphic-dataclass discriminator
 - `_neurox_use` — cross-file fragment reference
 
-The `_neurox_*` prefix marks these as self-identifying NeuroX extensions; any new directive added later follows the same pattern. To external tools and pure TOML parsers these are ordinary string-valued keys with no special meaning — the semantics come entirely from `load_dump.py`.
+External TOML / YAML parsers treat them as ordinary strings.
 
 ## Recursive dataclass coercion
 
@@ -56,13 +56,13 @@ Any sub-table may carry a `_neurox_use = "<rel_path>:<section>"` directive. The 
 
 ### Device-fragment purity rule
 
-By convention, files under `neurox/config/process/` are **pure physical-parameter records**:
+Files under `neurox/config/process/` carry only physical parameters:
 
 - one file per device class (`mos.toml`, `rram.toml`, `wire.toml`, …)
-- one top-level table per variant, named `<class>_<node>_<flavor>` (e.g., `[nmos_28_rvt]`, `[rram_28_4state]`, `[wire_28_metal]`)
-- contains **only** physical parameters — no `_neurox_*` keys of any kind
+- one top-level table per variant, named `<class>_<node>_<flavor>`
+- no `_neurox_*` keys
 
-Macro / architecture configs reference these fragments via `_neurox_use`. The macro file is where `_neurox_type` and other construction directives live; the device file stays portable across project boundaries.
+`_neurox_use` / `_neurox_type` live in the consuming macro / architecture configs.
 
 See also:
 

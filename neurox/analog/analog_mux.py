@@ -22,20 +22,31 @@ class AnalogMuxConfig(ValidateMixin):
     Attributes:
         energy_per_access__fJ: Per-access dynamic energy [fJ].
         mux_gain: Scalar transport gain applied to both legs.
-        mux_noise_cm_sigma__V: Optional common-mode noise sigma [V];
-            same sign on both legs, cancels in a differential ADC.
-        mux_noise_dm_sigma__V: Optional differential-mode noise
-            sigma [V]; added to ``v_pos`` and subtracted from
-            ``v_neg``, so it survives a differential ADC.
+        mux_noise_cm_sigma__V: Common-mode noise sigma [V]; same sign
+            on both legs, cancels in a differential ADC.
+        mux_noise_dm_sigma__V: Differential-mode noise sigma [V];
+            added to ``v_pos`` and subtracted from ``v_neg``, so it
+            survives a differential ADC.
+        enable_mux_noise_cm: Apply ``mux_noise_cm_sigma__V`` per call.
+        enable_mux_noise_dm: Apply ``mux_noise_dm_sigma__V`` per call.
         leakage_per_inst__uW: Static leakage per instance [uW].
         area_per_inst__um2: Silicon area per instance [μm²].
         latency_per_op__ns: Per-access latency [ns].
     """
 
-    energy_per_access__fJ: float
+    # --- Gain ---
     mux_gain: float
-    mux_noise_cm_sigma__V: float | None
-    mux_noise_dm_sigma__V: float | None
+
+    # --- Common-mode noise ---
+    mux_noise_cm_sigma__V: float
+    enable_mux_noise_cm: bool
+
+    # --- Differential-mode noise ---
+    mux_noise_dm_sigma__V: float
+    enable_mux_noise_dm: bool
+
+    # --- Energy / PPA ---
+    energy_per_access__fJ: float
     leakage_per_inst__uW: float
     area_per_inst__um2: float
     latency_per_op__ns: float
@@ -52,8 +63,8 @@ class AnalogMuxConfig(ValidateMixin):
         self._require_pos(self.mux_gain, "mux_gain")
 
     def validate_noise(self) -> None:
-        self._require_nonneg_or_none(self.mux_noise_cm_sigma__V, "mux_noise_cm_sigma__V")
-        self._require_nonneg_or_none(self.mux_noise_dm_sigma__V, "mux_noise_dm_sigma__V")
+        self._require_nonneg(self.mux_noise_cm_sigma__V, "mux_noise_cm_sigma__V")
+        self._require_nonneg(self.mux_noise_dm_sigma__V, "mux_noise_dm_sigma__V")
 
     def validate_ppa(self) -> None:
         self._require_nonneg(self.energy_per_access__fJ, "energy_per_access__fJ")
@@ -126,18 +137,14 @@ class AnalogMux(nn.Module, ProfiledModule):
         v_neg_muxed__V = gain * v_neg__V
 
         # CM: same sign on both legs. DM: +pos, −neg.
-        sigma_cm__V = self.cfg.mux_noise_cm_sigma__V
-        if sigma_cm__V is not None and sigma_cm__V > 0.0:
-            zeros = torch.zeros_like(v_pos_muxed__V)
-            n_cm__V = apply_gaussian(zeros, sigma_cm__V)
-            v_pos_muxed__V = v_pos_muxed__V + n_cm__V
-            v_neg_muxed__V = v_neg_muxed__V + n_cm__V
-        sigma_dm__V = self.cfg.mux_noise_dm_sigma__V
-        if sigma_dm__V is not None and sigma_dm__V > 0.0:
-            zeros = torch.zeros_like(v_pos_muxed__V)
-            n_dm__V = apply_gaussian(zeros, sigma_dm__V)
-            v_pos_muxed__V = v_pos_muxed__V + n_dm__V
-            v_neg_muxed__V = v_neg_muxed__V - n_dm__V
+        zeros = torch.zeros_like(v_pos_muxed__V)
+        n_cm__V = apply_gaussian(zeros, self.cfg.mux_noise_cm_sigma__V, enabled=self.cfg.enable_mux_noise_cm)
+        v_pos_muxed__V = v_pos_muxed__V + n_cm__V
+        v_neg_muxed__V = v_neg_muxed__V + n_cm__V
+
+        n_dm__V = apply_gaussian(zeros, self.cfg.mux_noise_dm_sigma__V, enabled=self.cfg.enable_mux_noise_dm)
+        v_pos_muxed__V = v_pos_muxed__V + n_dm__V
+        v_neg_muxed__V = v_neg_muxed__V - n_dm__V
 
         dynamic_energy__fJ = torch.full_like(v_pos__V, self.cfg.energy_per_access__fJ)
         self._log_dynamic(dynamic_energy__fJ, self.cfg.latency_per_op__ns)

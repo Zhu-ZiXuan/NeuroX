@@ -2,6 +2,7 @@
 
 See also:
     docs/dev/modules/common/nonideality.md
+    docs/dev/architecture/noise_and_toggles.md
 """
 
 from dataclasses import dataclass
@@ -36,24 +37,30 @@ class StuckAtFaultConfig(ValidateMixin):
         self._require_nonneg(self.p_at_min, "p_at_min")
         self._require_nonneg(self.p_at_max, "p_at_max")
         if not (self.p_at_min + self.p_at_max < 1.0):
-            raise ValueError(
-                f"require: p_at_min ({self.p_at_min}) + p_at_max ({self.p_at_max}) < 1"
-            )
+            raise ValueError(f"require: p_at_min ({self.p_at_min}) + p_at_max ({self.p_at_max}) < 1")
 
 
-def apply_stuck_at_fault(x: Tensor, config: StuckAtFaultConfig | None, min_val: float, max_val: float) -> Tensor:
+def apply_stuck_at_fault(
+    x: Tensor,
+    config: StuckAtFaultConfig,
+    min_val: float,
+    max_val: float,
+    *,
+    enabled: bool,
+) -> Tensor:
     """Replace cells with stuck-at-min / stuck-at-max values.
 
     Args:
         x: Input conductance. Shape: arbitrary.
-        config: Stuck-at fault probabilities, or ``None`` to skip.
+        config: Stuck-at fault probabilities.
         min_val: Stuck-at-min replacement value.
         max_val: Stuck-at-max replacement value.
+        enabled: Master toggle. ``False`` returns ``x`` unchanged.
 
     Returns:
         Conductance with stuck-at faults applied. Shape: same as ``x``.
     """
-    if config is None:
+    if not enabled:
         return x
     rand_mask = torch.rand_like(x)
     p_min = config.p_at_min
@@ -68,16 +75,19 @@ def apply_stuck_at_fault(x: Tensor, config: StuckAtFaultConfig | None, min_val: 
 # ---------------------------------------------------------------------------
 
 
-def apply_gaussian(x: Tensor, sigma: float | Tensor) -> Tensor:
+def apply_gaussian(x: Tensor, sigma: float | Tensor, *, enabled: bool) -> Tensor:
     """Apply additive Gaussian noise.
 
     Args:
-        x: Input tensor..
+        x: Input tensor.
         sigma: Standard deviation of the additive noise.
+        enabled: Master toggle. ``False`` returns ``x`` unchanged.
 
     Returns:
-        Noisy tensor.  Shape: same as ``x``.
+        Noisy tensor. Shape: same as ``x``.
     """
+    if not enabled:
+        return x
     return x + torch.randn_like(x) * sigma
 
 
@@ -101,18 +111,23 @@ class StateDependentGaussianConfig(ValidateMixin):
         self._require_nonneg(self.sigma_intercept, "sigma_intercept")
 
 
-def apply_state_dependent_gaussian(x: Tensor, config: StateDependentGaussianConfig | None) -> Tensor:
+def apply_state_dependent_gaussian(
+    x: Tensor,
+    config: StateDependentGaussianConfig,
+    *,
+    enabled: bool,
+) -> Tensor:
     """Apply Gaussian noise whose sigma scales with the magnitude of ``x``.
 
     Args:
         x: Input conductance. Shape: arbitrary.
-        config: Slope and intercept of the per-element sigma, or ``None``
-            to skip.
+        config: Slope and intercept of the per-element sigma.
+        enabled: Master toggle. ``False`` returns ``x`` unchanged.
 
     Returns:
         Noisy tensor. Shape: same as ``x``.
     """
-    if config is None:
+    if not enabled:
         return x
     sigma = config.sigma_slope * x.abs() + config.sigma_intercept
     return x + torch.randn_like(x) * sigma
@@ -140,17 +155,18 @@ class LognormalConfig(ValidateMixin):
         self._require_nonneg(self.sigma, "sigma")
 
 
-def apply_lognormal(x: Tensor, config: LognormalConfig | None) -> Tensor:
+def apply_lognormal(x: Tensor, config: LognormalConfig, *, enabled: bool) -> Tensor:
     """Apply multiplicative log-normal noise.
 
     Args:
         x: Input conductance. Shape: arbitrary.
-        config: Log-normal sigma, or ``None`` to skip.
+        config: Log-normal sigma.
+        enabled: Master toggle. ``False`` returns ``x`` unchanged.
 
     Returns:
         Noisy tensor. Shape: same as ``x``.
     """
-    if config is None:
+    if not enabled:
         return x
     return x * torch.exp(torch.randn_like(x) * config.sigma)
 
@@ -181,17 +197,23 @@ class StateDependentLognormalConfig(ValidateMixin):
             raise ValueError(f"require: max_val ({self.max_val}) > min_val ({self.min_val})")
 
 
-def apply_state_dependent_lognormal(x: Tensor, config: StateDependentLognormalConfig | None) -> Tensor:
+def apply_state_dependent_lognormal(
+    x: Tensor,
+    config: StateDependentLognormalConfig,
+    *,
+    enabled: bool,
+) -> Tensor:
     """Apply log-normal noise whose sigma depends on normalised state.
 
     Args:
         x: Input conductance. Shape: arbitrary.
-        config: State-dependent sigma config, or ``None`` to skip.
+        config: State-dependent sigma config.
+        enabled: Master toggle. ``False`` returns ``x`` unchanged.
 
     Returns:
         Noisy tensor. Shape: same as ``x``.
     """
-    if config is None:
+    if not enabled:
         return x
     x_norm = (x - config.min_val) / (config.max_val - config.min_val + 1e-12)
     sigma = x_norm * (-config.sigma_slope) + config.sigma_intercept
@@ -223,17 +245,18 @@ class GammaConfig(ValidateMixin):
         self._require_pos(self.scale_theta, "scale_theta")
 
 
-def apply_gamma_noise(x: Tensor, config: GammaConfig | None) -> Tensor:
+def apply_gamma_noise(x: Tensor, config: GammaConfig, *, enabled: bool) -> Tensor:
     """Apply multiplicative Gamma noise normalised to unit mean.
 
     Args:
         x: Input tensor. Shape: arbitrary.
-        config: Constant Gamma config, or ``None`` to skip.
+        config: Constant Gamma config.
+        enabled: Master toggle. ``False`` returns ``x`` unchanged.
 
     Returns:
         Noisy tensor. Shape: same as ``x``.
     """
-    if config is None:
+    if not enabled:
         return x
     gamma_dist = torch.distributions.Gamma(config.shape_k, 1.0 / config.scale_theta)
     gamma_sample = gamma_dist.sample(x.shape).to(x.device, x.dtype)
@@ -269,7 +292,12 @@ class StateDependentGammaConfig(ValidateMixin):
             raise ValueError(f"require: max_val ({self.max_val}) > min_val ({self.min_val})")
 
 
-def apply_state_dependent_gamma(x: Tensor, config: StateDependentGammaConfig | None) -> Tensor:
+def apply_state_dependent_gamma(
+    x: Tensor,
+    config: StateDependentGammaConfig,
+    *,
+    enabled: bool,
+) -> Tensor:
     """Apply state-dependent Gamma noise normalised to unit mean.
 
     PyTorch's gamma sampler requires float32 or higher; the function
@@ -278,12 +306,13 @@ def apply_state_dependent_gamma(x: Tensor, config: StateDependentGammaConfig | N
 
     Args:
         x: Input conductance. Shape: arbitrary.
-        config: State-dependent Gamma config, or ``None`` to skip.
+        config: State-dependent Gamma config.
+        enabled: Master toggle. ``False`` returns ``x`` unchanged.
 
     Returns:
         Noisy tensor. Shape: same as ``x``.
     """
-    if config is None:
+    if not enabled:
         return x
     in_dtype = x.dtype
     needs_cast = in_dtype not in (torch.float32, torch.float64)
@@ -334,7 +363,7 @@ class TelegraphConfig(ValidateMixin):
             raise ValueError(f"require: 0 <= p_high_state ({self.p_high_state}) <= 1")
 
 
-def apply_telegraph_noise(x: Tensor, config: TelegraphConfig | None) -> Tensor:
+def apply_telegraph_noise(x: Tensor, config: TelegraphConfig, *, enabled: bool) -> Tensor:
     """Apply random telegraph noise.
 
     Composed branch-free as ``perturb = amplitude * sign * mask`` so
@@ -342,12 +371,13 @@ def apply_telegraph_noise(x: Tensor, config: TelegraphConfig | None) -> Tensor:
 
     Args:
         x: Input conductance. Shape: arbitrary.
-        config: Random telegraph noise config, or ``None`` to skip.
+        config: Random telegraph noise config.
+        enabled: Master toggle. ``False`` returns ``x`` unchanged.
 
     Returns:
         Noisy tensor. Shape: same as ``x``.
     """
-    if config is None:
+    if not enabled:
         return x
     amplitude = torch.randn_like(x) * config.amplitude_std + config.amplitude_mean
     sign = torch.where(torch.rand_like(x) < 0.5, -1.0, 1.0).to(dtype=x.dtype)
@@ -362,10 +392,11 @@ def apply_telegraph_noise(x: Tensor, config: TelegraphConfig | None) -> Tensor:
 
 def apply_pelgrom_mismatch(
     ideal: Tensor,
-    sigma_relative: float | None,
+    sigma_relative: float,
     *,
     unit: float,
     floor: float | None = None,
+    enabled: bool,
 ) -> Tensor:
     """Add Pelgrom-scaled Gaussian mismatch to a binary-weighted ladder.
 
@@ -374,16 +405,16 @@ def apply_pelgrom_mismatch(
 
     Args:
         ideal: Tensor of nominal per-cell values.
-        sigma_relative: Per-unit-cell relative sigma ``σ_u``;
-            ``None`` skips mismatch.
+        sigma_relative: Per-unit-cell relative sigma ``σ_u``.
         unit: Single-unit-cell value ``X_unit`` in the same units as
             ``ideal``.
         floor: Optional minimum clamp applied after sampling.
+        enabled: Master toggle. ``False`` returns ``ideal`` unchanged.
 
     Returns:
         Tensor with the same shape / dtype / device as ``ideal``.
     """
-    if sigma_relative is None or sigma_relative <= 0.0:
+    if not enabled:
         return ideal
     sigma = torch.sqrt(ideal / unit) * (sigma_relative * unit)
     out = ideal + torch.randn_like(ideal) * sigma
@@ -406,13 +437,13 @@ def apply_lsb_jitter(
     """Add a Bernoulli(0.5) ±0/+1 LSB jitter to an integer code.
 
     Coarse stochastic-rounding fallback for ADCs whose physical model
-    does not already inject per-cycle randomness.  Output is clamped
-    to ``[0, 2 ** n_bits - 1]``.
+    does not already inject per-cycle randomness. Output is clamped to
+    ``[0, 2 ** n_bits - 1]``.
 
     Args:
         code: Integer code tensor.
         n_bits: Active bit width (used for the upper clamp).
-        enabled: Master toggle.  ``False`` returns ``code`` unchanged.
+        enabled: Master toggle. ``False`` returns ``code`` unchanged.
 
     Returns:
         Jittered code with the same dtype / device as ``code``.

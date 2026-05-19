@@ -176,28 +176,29 @@ def calibrate(
     xbar_cfg = dataclass_from_file(Offset1T1RXbarConfig, config_path, section="xbar")
 
     if not apply_noise:
-        # Strip every noise sub-config along the ownership chain.
+        # Flip every device-level noise toggle off along the ownership chain.
         core = xbar_cfg.core_cfg
         readout = xbar_cfg.readout_cfg
         rram_cfg = dc_replace(
             core.rram_cfg,
-            prog_gamma=None,
-            read_telegraph=None,
-            read_thermal=None,
+            enable_prog_gamma=False,
+            enable_read_telegraph=False,
+            enable_read_thermal=False,
+            enable_stuck_at=False,
         )
         nmos_cfg = dc_replace(
             core.nmos_cfg,
-            A_vt__mV_um=None,
-            A_beta_relative__um=None,
+            enable_A_vt_mismatch=False,
+            enable_A_beta_mismatch=False,
         )
         tia_nmos_cfg = dc_replace(
             core.tia_cfg.nmos_cfg,
-            A_vt__mV_um=None,
-            A_beta_relative__um=None,
+            enable_A_vt_mismatch=False,
+            enable_A_beta_mismatch=False,
         )
         tia_cfg = dc_replace(
             core.tia_cfg,
-            opamp_gain_sigma=None,
+            enable_opamp_gain_sigma=False,
             nmos_cfg=tia_nmos_cfg,
         )
         core_cfg = dc_replace(core, rram_cfg=rram_cfg, nmos_cfg=nmos_cfg, tia_cfg=tia_cfg)

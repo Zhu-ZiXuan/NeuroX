@@ -16,21 +16,25 @@ class SelectorConfig(ValidateMixin):
     """Immutable configuration for an OTS threshold selector.
 
     Attributes:
-        vth_nominal__V: Nominal threshold voltage ``Vth`` [V] shared across
-            all cells before mismatch is applied.
-        vth_mismatch: Additive Gaussian mismatch on ``Vth`` [V]; sigma
-            captures within-die process variation.  ``None`` disables
-            mismatch — every cell uses the nominal threshold.
+        vth_nominal__V: Nominal threshold voltage ``Vth`` [V] shared
+            across all cells before mismatch is applied.
+        vth_mismatch__V: Additive Gaussian mismatch on ``Vth`` [V].
+        enable_vth_mismatch: Apply ``vth_mismatch__V`` per cell at
+            sampling time.
     """
 
+    # --- Nominal threshold ---
     vth_nominal__V: float
-    vth_mismatch: float | None = None
+
+    # --- V_th mismatch ---
+    vth_mismatch__V: float
+    enable_vth_mismatch: bool
 
     def __post_init__(self) -> None:
         self.validate()
 
     def validate(self) -> None:
-        self._require_nonneg_or_none(self.vth_mismatch, "vth_mismatch")
+        self._require_nonneg(self.vth_mismatch__V, "vth_mismatch__V")
 
 
 class Selector(nn.Module):
@@ -64,9 +68,11 @@ class Selector(nn.Module):
         return cast(Tensor, self._buffers["_vth_static__V"])
 
     def _sample_vth(self) -> Tensor:
-        if self.cfg.vth_mismatch is None:
-            return self.vth_nominal__V_tensor
-        return apply_gaussian(self.vth_nominal__V_tensor, self.cfg.vth_mismatch)
+        return apply_gaussian(
+            self.vth_nominal__V_tensor,
+            self.cfg.vth_mismatch__V,
+            enabled=self.cfg.enable_vth_mismatch,
+        )
 
     def sample_vth_like(self, reference: Tensor) -> Tensor:
         """Return a threshold voltage tensor compatible with ``reference``.

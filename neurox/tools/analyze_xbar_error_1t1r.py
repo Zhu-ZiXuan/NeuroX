@@ -152,7 +152,7 @@ def build_physical_xbar(
     ``raw`` is the parsed-but-not-typed TOML dict (used for optional
     wire sections that aren't part of the strict-spec ``cfg``).
     """
-    rram = RRAM(cfg["rram"], dtype=dtype)
+    rram = RRAM(cfg=cfg["rram"], T__K=300.0, dtype=dtype, g_max__uS=cfg["core"].rram_g_max__uS)
     nmos = NMOS(cfg["nmos"], dtype=dtype)
     tia_nmos = NMOS(cfg["tia_nmos"], dtype=dtype)
     tia = OpAmpTIA(cfg["tia"], nmos=tia_nmos, dtype=dtype)

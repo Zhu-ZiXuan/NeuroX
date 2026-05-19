@@ -1,25 +1,7 @@
-# Default 1T1R macro configuration for NeuroX.
-#
+# Default 1T1R macro configuration.
 # Every TOML table maps to one config dataclass.
-#
-# Parameter categories:
-#   * **工艺** — process-pure physical params; live under ``process/`` and
-#     are pulled in via the ``_neurox_use = "<file>:<section>"`` directive
-#     (fragment as base, inline keys override).
-#   * **设计** — chip-level design knobs (geometry, pulse, ref-column…).
-#   * **规格** — noise / mismatch / PPA / latency / energy.
-#   * **运行时** — never in this file (``dtype``, ``T__K``, runtime
-#     tensors, fabricate ``shape`` — all passed at construction /
-#     fabricate time).
-#
-# Top-level orchestration tables (``[w_transcoder]``, ``[x_transcoder]``,
-# ``[digit_adder]``, ``[accumulator]``, ``[shift_adder]``) remain flat
-# because the macro layer (outside the xbar tree) consumes them directly.
 
 
-# ===========================================================================
-# Digital datapath: adder / accumulator / shift-adder
-# ===========================================================================
 [digit_adder]
 bit_width = 32
 area_per_inst__um2 = 40.0
@@ -41,11 +23,6 @@ leakage_per_inst__uW = 1.5
 latency_per_op__ns = 0.5
 energy_per_op__fJ = 80.0
 
-# ===========================================================================
-# Transcoders: macro-layer encoding policy for weight and activation.
-# ``w_digit_radix`` / ``w_digit_count`` live on the xbar (capabilities);
-# only the pure-algorithm policy lives here.
-# ===========================================================================
 [w_transcoder]
 encoding = "true_form"
 
@@ -54,113 +31,138 @@ encoding = "true_form"
 digit_num = 4
 
 
-# ===========================================================================
-# Offset-coded 1T1R xbar — root of the device tree.
-# ===========================================================================
-# Mapping-layer knobs (logical→physical encoding, reference-column
-# placement, tile-level PPA, runtime ADC operating point, externally-
-# calibrated rescale lookup).  Sub-tables below carry the physical
-# core and readout chain.
 [xbar]
-col_num = 64               # data per row (logical N tile size)
-row_num = 64               # WLs per tile (K dimension)
 
+# --- Tile size ---
+col_num = 64
+row_num = 64
+
+# --- PPA ---
 area_per_inst__um2 = 500.0
 leakage_per_inst__uW = 5.0
-latency_per_op__ns = 5.0   # outer op cycle: settling + sample + convert + recover
+latency_per_op__ns = 5.0
 
-# Per-data digit-shift-add (offset coding).  See doc/design/core_1t1r.md
-# and doc/design/signal_chain.md for the full semantics.
+# --- Weight encoding ---
 w_digit_count = 1
 w_digit_radix = 2
 w_state_offset = 1
 
-# Reference-column scheme — semantics at the *data* level.
+# --- Reference-column scheme ---
 ref_group_size = 16
 ref_location = 8
 
-# Runtime ADC operating point — lookup key for ``output_rescale_factors``.
+# --- ADC operating point ---
 adc_mode = 0
 adc_bits = 4
 
-# Externally-calibrated ``(adc_mode, adc_bits) -> rescale-factor`` table.
 [[xbar.output_rescale_factors]]
 adc_mode = 0
 adc_bits = 4
-rf = 4.0625    # 65/16 = (row_num * (radix^digits - 1) * (x_states - 1) + 1) / 2^adc_bits
+rf = 4.0625
 
 
-# ---------------------------------------------------------------------------
-# Physical 1T1R core
-# ---------------------------------------------------------------------------
-# Shape-independent array-physics knobs plus the embedded device,
-# circuit, and wire member configs.
 [xbar.core_cfg]
-wl_pulse_length__ns = 3.0  # WL-high window t_pulse — thermal integration window
+
+# --- Pulse timing ---
+wl_pulse_length__ns = 3.0
+
+# --- SL topology ---
 sl_topology = "row_shared"
 
-# Geometric spacings for the lumped wire-cap energy term.
+# --- Wire geometry ---
 row_cell_space__um = 0.040
 row_first_space__um = 1.000
 col_cell_space__um = 0.040
 col_first_space__um = 1.000
 
-# Direct per-segment wire resistance [MOhm].
+# --- Wire resistance ---
 bl_r_driver_to_first__MOhm = 5e-6
 bl_r_cell_to_cell__MOhm = 2e-7
 sl_r_driver_to_first__MOhm = 5e-6
 sl_r_cell_to_cell__MOhm = 2e-7
 
-# Access-NMOS design parameters owned by the core.
+# --- Access-NMOS sizing ---
 access_nmos_W__um = 0.150
 access_nmos_L__um = 0.028
 
-# Per-cell access-NMOS parasitic-cap densities along the channel width
-# [fF/μm]; per-cell ``C_x = c_x_per_um__fF · access_nmos_W__um``.
+# --- Access-NMOS parasitic-cap densities ---
 c_gs_per_um__fF = 0.6396
 c_gd_per_um__fF = 0.6396
 c_db_per_um__fF = 0.85
 
+# --- RRAM design window + state map ---
+rram_g_max__uS = 100.0
+state_to_g_map__uS = [10.0, 39.7, 69.7, 100.0]
 
-# ---------------------------------------------------------------------------
-# Core sub-members — devices, wires, and the BL-clamp / drive blocks.
-# ---------------------------------------------------------------------------
 
-# RRAM device — pulled from process fragment.
 [xbar.core_cfg.rram_cfg]
 _neurox_use = "process/rram:rram_28_4state"
 
-# Access-NMOS PDK — pulled from process fragment.
-# (W/L live in [xbar.core_cfg] above as design parameters.)
+# --- Noise toggles ---
+enable_read_thermal = false
+enable_prog_gamma = false
+enable_read_telegraph = false
+enable_stuck_at = false
+
+
 [xbar.core_cfg.nmos_cfg]
 _neurox_use = "process/mos:nmos_28_rvt"
 
-# BL clamp driver — op-amp + NMOS pseudo-resistor TIA.  ``_neurox_type``
-# selects the concrete subclass of the polymorphic ``TIAConfig`` field.
+# --- Mismatch toggles ---
+enable_A_vt_mismatch = false
+enable_A_beta_mismatch = false
+
+
 [xbar.core_cfg.tia_cfg]
 _neurox_type = "OpAmpTIAConfig"
+
+# --- Reference / supply ---
 v_ref__V = 0.2
 v_nmos_bias__V = 0.9
 v_dd__V = 0.9
+
+# --- Op-amp gain ---
 opamp_gain = 30.0
-leakage_per_inst__uW = 1.0
-area_per_inst__um2 = 10.0
-latency_per_op__ns = 2.0
+
+# --- Op-amp gain mismatch ---
+opamp_gain_sigma = 0.0
+enable_opamp_gain_sigma = false
+
+# --- Pseudo-resistor NMOS ---
 pseudo_nmos_W__um = 1.000
 pseudo_nmos_L__um = 0.060
 
-# Pseudo-resistor NMOS PDK — same variant as the array access-NMOS.
+# --- Output rail limiter ---
+output_saturation_softness__V = 0.45
+
+# --- PPA ---
+leakage_per_inst__uW = 1.0
+area_per_inst__um2 = 10.0
+latency_per_op__ns = 2.0
+
 [xbar.core_cfg.tia_cfg.nmos_cfg]
 _neurox_use = "process/mos:nmos_28_rvt"
 
-# SL driver — constant-voltage analog driver.
+# --- Mismatch toggles ---
+enable_A_vt_mismatch = false
+enable_A_beta_mismatch = false
+
+
 [xbar.core_cfg.sl_driver_cfg]
+
+# --- Drive ---
 drive_value = 0.0
+
+# --- Drive thermal noise ---
+drive_thermal__V = 0.0
+enable_drive_thermal = false
+
+# --- PPA ---
 latency_per_op__ns = 0.0
 leakage_per_inst__uW = 0.0
 area_per_inst__um2 = 0.0
 
-# WL decoder — wraps the WL DAC.
+
 [xbar.core_cfg.wl_decoder_cfg]
 n_address_bits = 6
 fanout = 4
@@ -173,17 +175,24 @@ e_overhead__fJ = 0.0
 leakage_per_inst__uW = 0.0
 area_per_inst__um2 = 0.0
 
-# WL DAC — binary gate driver.  ``_neurox_type`` picks the concrete
-# subclass of the polymorphic ``DACConfig`` field.
+
 [xbar.core_cfg.wl_dac_cfg]
 _neurox_type = "GeneralDACConfig"
+
+# --- LUT ---
 code_to_signal = [0.0, 1.2]
+
+# --- Drive thermal noise ---
+drive_thermal__V = 0.0
+enable_drive_thermal = false
+
+# --- Energy / PPA ---
 energy_per_op__fJ = 0.0
 latency_per_op__ns = 0.0
 leakage_per_inst__uW = 0.0
 area_per_inst__um2 = 0.0
 
-# Wires — same metal/dielectric stack across all three axes.
+
 [xbar.core_cfg.bl_wire_cfg]
 _neurox_use = "process/wire:wire_28_metal"
 
@@ -194,65 +203,106 @@ _neurox_use = "process/wire:wire_28_metal"
 _neurox_use = "process/wire:wire_28_metal"
 
 
-# ---------------------------------------------------------------------------
-# Readout chain — offset-coded data + ref SwitchCap, AnalogMux, ADC.
-# ---------------------------------------------------------------------------
-# Orchestrator-level energy / PPA knobs plus the embedded SwitchCap /
-# Mux / ADC member configs.  ``OffsetSwitchCapMuxAdcReadOut.__init__``
-# builds every child directly from these — ADC dispatched
-# polymorphically via ``ADC.from_config`` keyed on ``type(adc_cfg)``.
-# ``_neurox_type`` picks the concrete subclass of the polymorphic
-# ``ReadOutConfig`` field.
 [xbar.readout_cfg]
 _neurox_type = "OffsetSwitchCapMuxAdcReadOutConfig"
+
+# --- Energy / PPA ---
 energy_per_op__fJ = 0.0
 leakage_per_inst__uW = 0.0
 area_per_inst__um2 = 0.0
 latency_per_op__ns = 0.0
 
-# Data-side SwitchCap (per-digit-weighted cap bank).
+
 [xbar.readout_cfg.data_switchcap_cfg]
+
+# --- Unit capacitance ---
 c_unit__fF = 5.0
+
+# --- Cap mismatch (Pelgrom) ---
 cap_mismatch_sigma_relative = 0.005
-enable_thermal_noise = false
+enable_cap_mismatch = true
+
+# --- Sampling thermal noise (kT/C) ---
+enable_sampling_thermal_noise = false
+
+# --- Energy / PPA ---
 energy_per_sample_overhead__fJ = 0.0
 leakage_per_inst__uW = 0.0
 area_per_inst__um2 = 0.0
 latency_per_op__ns = 0.0
 
-# Reference-side SwitchCap (one unit cap per ref column).
+
 [xbar.readout_cfg.ref_switchcap_cfg]
+
+# --- Unit capacitance ---
 c_unit__fF = 5.0
+
+# --- Cap mismatch (Pelgrom) ---
 cap_mismatch_sigma_relative = 0.005
-enable_thermal_noise = false
+enable_cap_mismatch = true
+
+# --- Sampling thermal noise (kT/C) ---
+enable_sampling_thermal_noise = false
+
+# --- Energy / PPA ---
 energy_per_sample_overhead__fJ = 0.0
 leakage_per_inst__uW = 0.0
 area_per_inst__um2 = 0.0
 latency_per_op__ns = 0.0
 
-# Analog MUX — differential transport between readout and ADC.
+
 [xbar.readout_cfg.analog_mux_cfg]
-energy_per_access__fJ = 0.0
+
+# --- Gain ---
 mux_gain = 1.0
+
+# --- Common-mode noise ---
 mux_noise_cm_sigma__V = 1e-3
+enable_mux_noise_cm = true
+
+# --- Differential-mode noise ---
 mux_noise_dm_sigma__V = 1e-3
+enable_mux_noise_dm = true
+
+# --- Energy / PPA ---
+energy_per_access__fJ = 0.0
 leakage_per_inst__uW = 0.0
 area_per_inst__um2 = 0.0
 latency_per_op__ns = 0.0
 
-# Differential ADC — V_cm-based MCS SAR.  ``_neurox_type`` picks the
-# concrete subclass of the polymorphic ``ADCConfig`` field.
+
 [xbar.readout_cfg.adc_cfg]
 _neurox_type = "McsSarAdcConfig"
+
+# --- Topology ---
 max_bits = 8
+
+# --- References + timing ---
 v_refs__V = [0.8, 0.4, 0.2]
 clk_period__ns = 2.0
+
+# --- CDAC unit ---
 c_unit__fF = 2.0
+
+# --- Cap mismatch (Pelgrom) ---
 cap_mismatch_sigma_relative = 5e-3
+enable_cap_mismatch = true
+
+# --- Comparator static offset ---
 comparator_offset_sigma__V = 3e-3
+enable_comparator_offset = true
+
+# --- Comparator thermal noise (per-cycle) ---
 comparator_thermal_noise_sigma__V = 5e-4
-enable_thermal_noise = false
+enable_comparator_thermal_noise = true
+
+# --- Sampling thermal noise (kT/C) ---
+enable_sampling_thermal_noise = false
+
+# --- Energy ---
 e_bootstrap__fJ = 20.0
 e_constant_per_bit__fJ = 12.0
+
+# --- PPA ---
 leakage_per_inst__uW = 0.5
 area_per_inst__um2 = 250

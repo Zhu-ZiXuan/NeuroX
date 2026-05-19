@@ -23,22 +23,29 @@ class SwitchCapConfig(ValidateMixin):
     Attributes:
         c_unit__fF: Unit capacitance [fF].
         cap_mismatch_sigma_relative: Per-unit-cap Pelgrom relative
-            sigma. ``None`` skips mismatch.
-        enable_thermal_noise: Per-cap kT/C settling-noise toggle.
+            sigma.
+        enable_cap_mismatch: Apply ``cap_mismatch_sigma_relative`` at
+            fabricate time.
+        enable_sampling_thermal_noise: Apply kT/C settling noise at
+            sample time.
         energy_per_sample_overhead__fJ: Per-bank switching overhead [fJ].
         leakage_per_inst__uW: Static leakage per bank [uW].
         area_per_inst__um2: Silicon area per bank [μm²].
         latency_per_op__ns: Settling latency per sample [ns].
     """
 
+    # --- Unit capacitance ---
     c_unit__fF: float
 
-    cap_mismatch_sigma_relative: float | None
+    # --- Cap mismatch (Pelgrom) ---
+    cap_mismatch_sigma_relative: float
+    enable_cap_mismatch: bool
 
-    enable_thermal_noise: bool
+    # --- Sampling thermal noise (kT/C) ---
+    enable_sampling_thermal_noise: bool
 
+    # --- Energy / PPA ---
     energy_per_sample_overhead__fJ: float
-
     leakage_per_inst__uW: float
     area_per_inst__um2: float
     latency_per_op__ns: float
@@ -55,7 +62,7 @@ class SwitchCapConfig(ValidateMixin):
         self._require_pos(self.c_unit__fF, "c_unit__fF")
 
     def validate_noise(self) -> None:
-        self._require_nonneg_or_none(self.cap_mismatch_sigma_relative, "cap_mismatch_sigma_relative")
+        self._require_nonneg(self.cap_mismatch_sigma_relative, "cap_mismatch_sigma_relative")
 
     def validate_ppa(self) -> None:
         self._require_nonneg(self.energy_per_sample_overhead__fJ, "energy_per_sample_overhead__fJ")
@@ -136,6 +143,7 @@ class SwitchCap(nn.Module, ProfiledModule):
             cfg.cap_mismatch_sigma_relative,
             unit=cfg.c_unit__fF,
             floor=0.1 * cfg.c_unit__fF,
+            enabled=cfg.enable_cap_mismatch,
         )
         self.register_buffer("c__fF", c__fF, persistent=False)
         self._record_inst_count(shape)
@@ -151,13 +159,10 @@ class SwitchCap(nn.Module, ProfiledModule):
             Node voltage with shape ``(*batch, *bank_shape)``.
         """
         c__fF = self.c__fF
-        if self.cfg.enable_thermal_noise:
-            # kT/C settling noise: kt__fJ = k_B·T·1e15 so kt/c lands in V².
-            kt__fJ = K_BOLTZMANN__J_per_K * self.T__K * 1e15
-            sigma__V = torch.sqrt(kt__fJ / c__fF)
-            v_hold__V = apply_gaussian(v_in__V, sigma__V)
-        else:
-            v_hold__V = v_in__V
+        # kT/C settling noise: kt__fJ = k_B·T·1e15 so kt/c lands in V².
+        kt__fJ = K_BOLTZMANN__J_per_K * self.T__K * 1e15
+        sigma__V = torch.sqrt(kt__fJ / c__fF)
+        v_hold__V = apply_gaussian(v_in__V, sigma__V, enabled=self.cfg.enable_sampling_thermal_noise)
         # Σ Q_k / Σ C_k, Q_k taken from the held voltage.
         c_total__fF = c__fF.sum(dim=-1)
         v_out__V = torch.sum(c__fF * v_hold__V, dim=-1) / c_total__fF

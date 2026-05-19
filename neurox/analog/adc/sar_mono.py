@@ -30,13 +30,19 @@ class SarAdcMonoConfig(ADCConfig):
             ``bits`` active bits is ``(bits + 1) · clk_period``.
         c_unit__fF: CDAC unit capacitance [fF].
         cap_mismatch_sigma_relative: Per-unit-cap relative Pelgrom
-            sigma. ``None`` = ideal CDAC.
-        comparator_offset: Static comparator-threshold Gaussian sigma
-            [V]. ``None`` skips static offset.
-        comparator_noise: Per-cycle dynamic comparator-noise Gaussian
-            sigma [V]. ``None`` skips dynamic noise.
-        kt_c_noise_enabled: When ``True``, sampling adds
-            ``σ = √(k_B · T / C_total)`` to the held top plates.
+            sigma.
+        comparator_offset_sigma__V: Static comparator-threshold Gaussian
+            sigma [V].
+        comparator_thermal_noise_sigma__V: Per-cycle dynamic
+            comparator-noise Gaussian sigma [V].
+        enable_cap_mismatch: Apply ``cap_mismatch_sigma_relative`` at
+            fabricate time.
+        enable_comparator_offset: Apply
+            ``comparator_offset_sigma__V`` at fabricate time.
+        enable_comparator_thermal_noise: Apply
+            ``comparator_thermal_noise_sigma__V`` per SAR cycle.
+        enable_sampling_thermal_noise: Apply kT/C sampling thermal
+            noise on the held top plates.
         e_bootstrap__fJ: Per-conversion sampling-switch overhead [fJ].
         e_compare_per_bit__fJ: Per-cycle comparator-decision energy
             [fJ].
@@ -46,22 +52,37 @@ class SarAdcMonoConfig(ADCConfig):
         area_per_inst__um2: Silicon area per ADC instance [μm²].
     """
 
+    # --- Topology ---
     max_bits: int
-    v_refs: tuple[float, ...]
 
+    # --- References + timing ---
+    v_refs: tuple[float, ...]
     clk_period__ns: float
+
+    # --- CDAC unit ---
     c_unit__fF: float
 
-    cap_mismatch_sigma_relative: float | None
-    comparator_offset: float | None
-    comparator_noise: float | None
+    # --- Cap mismatch (Pelgrom) ---
+    cap_mismatch_sigma_relative: float
+    enable_cap_mismatch: bool
 
-    kt_c_noise_enabled: bool
+    # --- Comparator static offset ---
+    comparator_offset_sigma__V: float
+    enable_comparator_offset: bool
 
+    # --- Comparator thermal noise (per-cycle) ---
+    comparator_thermal_noise_sigma__V: float
+    enable_comparator_thermal_noise: bool
+
+    # --- Sampling thermal noise (kT/C) ---
+    enable_sampling_thermal_noise: bool
+
+    # --- Energy ---
     e_bootstrap__fJ: float
     e_compare_per_bit__fJ: float
     e_logic_per_bit__fJ: float
 
+    # --- PPA ---
     leakage_per_inst__uW: float
     area_per_inst__um2: float
 
@@ -89,11 +110,11 @@ class SarAdcMonoConfig(ADCConfig):
 
     def validate_cdac(self) -> None:
         self._require_pos(self.c_unit__fF, "c_unit__fF")
-        self._require_nonneg_or_none(self.cap_mismatch_sigma_relative, "cap_mismatch_sigma_relative")
+        self._require_nonneg(self.cap_mismatch_sigma_relative, "cap_mismatch_sigma_relative")
 
     def validate_comparator(self) -> None:
-        self._require_nonneg_or_none(self.comparator_offset, "comparator_offset")
-        self._require_nonneg_or_none(self.comparator_noise, "comparator_noise")
+        self._require_nonneg(self.comparator_offset_sigma__V, "comparator_offset_sigma__V")
+        self._require_nonneg(self.comparator_thermal_noise_sigma__V, "comparator_thermal_noise_sigma__V")
 
     def validate_energy(self) -> None:
         self._require_nonneg(self.e_bootstrap__fJ, "e_bootstrap__fJ")
@@ -192,24 +213,26 @@ class SarAdcMono(ADC):
         cfg = self.cfg
         n_caps = cfg.max_bits - 1
 
-        c_p__fF = self.nominal_cap_weights__fF.clone().expand(*shape, n_caps)
         c_p__fF = apply_pelgrom_mismatch(
-            c_p__fF,
+            self.nominal_cap_weights__fF.clone().expand(*shape, n_caps),
             cfg.cap_mismatch_sigma_relative,
             unit=cfg.c_unit__fF,
             floor=0.1 * cfg.c_unit__fF,
+            enabled=cfg.enable_cap_mismatch,
         )
-        c_n__fF = self.nominal_cap_weights__fF.clone().expand(*shape, n_caps)
         c_n__fF = apply_pelgrom_mismatch(
-            c_n__fF,
+            self.nominal_cap_weights__fF.clone().expand(*shape, n_caps),
             cfg.cap_mismatch_sigma_relative,
             unit=cfg.c_unit__fF,
             floor=0.1 * cfg.c_unit__fF,
+            enabled=cfg.enable_cap_mismatch,
         )
 
-        comparator_offset__V = self.nominal_comparator_offset__V.clone().expand(shape)
-        if cfg.comparator_offset is not None:
-            comparator_offset__V = apply_gaussian(comparator_offset__V, cfg.comparator_offset)
+        comparator_offset__V = apply_gaussian(
+            self.nominal_comparator_offset__V.clone().expand(shape),
+            cfg.comparator_offset_sigma__V,
+            enabled=cfg.enable_comparator_offset,
+        )
 
         self.register_buffer("c_p__fF", c_p__fF, persistent=False)
         self.register_buffer("c_n__fF", c_n__fF, persistent=False)

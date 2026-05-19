@@ -59,6 +59,10 @@ class CircuitCore1T1RConfig(ValidateMixin):
             [fF/um].
         c_db_per_um__fF: Access-NMOS drain-to-body capacitance per unit width
             [fF/um].
+        rram_g_max__uS: Maximum programmable RRAM conductance [uS].
+        state_to_g_map__uS: State-index to target-conductance lookup
+            table [uS]. Strictly increasing; endpoints must lie inside
+            ``[rram_cfg.g_min__uS, rram_g_max__uS]``.
         rram_cfg: RRAM device configuration.
         nmos_cfg: NMOS device configuration.
         tia_cfg: BL clamp-driver configuration.
@@ -90,7 +94,9 @@ class CircuitCore1T1RConfig(ValidateMixin):
     c_gd_per_um__fF: float
     c_db_per_um__fF: float
 
-    # Owned member configs.
+    rram_g_max__uS: float
+    state_to_g_map__uS: list[float]
+
     rram_cfg: RRAMConfig
     nmos_cfg: NMOSConfig
     tia_cfg: TIAConfig
@@ -110,6 +116,8 @@ class CircuitCore1T1RConfig(ValidateMixin):
         self.validate_wire_resistance()
         self.validate_access_nmos()
         self.validate_parasitics()
+        self.validate_rram_window()
+        self.validate_state_map()
 
     def validate_wl_pulse(self) -> None:
         self._require_nonneg(self.wl_pulse_length__ns, "wl_pulse_length__ns")
@@ -134,6 +142,26 @@ class CircuitCore1T1RConfig(ValidateMixin):
         self._require_nonneg(self.c_gs_per_um__fF, "c_gs_per_um__fF")
         self._require_nonneg(self.c_gd_per_um__fF, "c_gd_per_um__fF")
         self._require_nonneg(self.c_db_per_um__fF, "c_db_per_um__fF")
+
+    def validate_rram_window(self) -> None:
+        if not (self.rram_g_max__uS > self.rram_cfg.g_min__uS):
+            raise ValueError(
+                f"require: rram_g_max__uS ({self.rram_g_max__uS}) > rram_cfg.g_min__uS ({self.rram_cfg.g_min__uS})"
+            )
+
+    def validate_state_map(self) -> None:
+        self._require_min_length(self.state_to_g_map__uS, 2, "state_to_g_map__uS")
+        self._require_strictly_increasing(self.state_to_g_map__uS, "state_to_g_map__uS")
+        if self.state_to_g_map__uS[0] < self.rram_cfg.g_min__uS:
+            raise ValueError(
+                f"require: state_to_g_map__uS[0] ({self.state_to_g_map__uS[0]}) >= "
+                f"rram_cfg.g_min__uS ({self.rram_cfg.g_min__uS})"
+            )
+        if self.state_to_g_map__uS[-1] > self.rram_g_max__uS:
+            raise ValueError(
+                f"require: state_to_g_map__uS[-1] ({self.state_to_g_map__uS[-1]}) <= "
+                f"rram_g_max__uS ({self.rram_g_max__uS})"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -181,6 +209,8 @@ class Core1T1RDCOP:
 class CircuitCore1T1R(nn.Module):
     """Shape-independent 1T1R core: devices, boundary circuits, and solver."""
 
+    state_to_g_map__uS: Tensor
+
     def __init__(
         self,
         *,
@@ -206,7 +236,7 @@ class CircuitCore1T1R(nn.Module):
 
         # Build the owned children from the embedded member configs.
         prefix = name + "."
-        self.rram = RRAM(cfg=cfg.rram_cfg, T__K=T__K, dtype=dtype)
+        self.rram = RRAM(cfg=cfg.rram_cfg, T__K=T__K, dtype=dtype, g_max__uS=cfg.rram_g_max__uS)
         self.nmos = NMOS(
             cfg=cfg.nmos_cfg,
             T__K=T__K,
@@ -241,8 +271,13 @@ class CircuitCore1T1R(nn.Module):
 
         self.v_dd_wl__V: float = float(self.wl_dac.code_to_signal[1].item())
 
-        # Capability surface; constant for the lifetime of the core.
-        self.w_states: int = self.rram.num_states
+        self.register_buffer(
+            "state_to_g_map__uS",
+            torch.tensor(cfg.state_to_g_map__uS, dtype=dtype),
+            persistent=False,
+        )
+
+        self.w_states: int = len(cfg.state_to_g_map__uS)
         self.x_states: int = 2
 
         # Shape-dependent capacitances and the solver are set up in fabricate().
@@ -259,13 +294,14 @@ class CircuitCore1T1R(nn.Module):
     # Fabrication
     # -----------------------------------------------------------------
 
-    def fabricate(self, w_phys: Tensor) -> None:
-        """Program the core from one physical weight tensor.
+    def fabricate(self, w_state_idx: Tensor) -> None:
+        """Program the core from one state-index tensor.
 
         Args:
-            w_phys: Physical weight tensor. Shape: [..., phys_col_num, row_num].
+            w_state_idx: State-index tensor in ``[0, w_states - 1]``.
+                Shape: [..., phys_col_num, row_num].
         """
-        *_, phys_col_num, row_num = w_phys.shape
+        *_, phys_col_num, row_num = w_state_idx.shape
         if not (phys_col_num > 1):
             raise ValueError(f"require: phys_col_num ({phys_col_num}) > 1")
         if not (row_num > 1):
@@ -276,8 +312,9 @@ class CircuitCore1T1R(nn.Module):
                 "build; only 'row_shared' is implemented today"
             )
 
-        self.rram.program(w_phys)
-        self.nmos.fabricate(w_phys.shape)
+        target_g__uS = self.state_to_g_map__uS[w_state_idx.long()]
+        self.rram.program(target_g__uS)
+        self.nmos.fabricate(w_state_idx.shape)
         self.tia.fabricate((phys_col_num,))
 
         # Energy-model capacitance scalars.
@@ -449,14 +486,12 @@ class CircuitCore1T1R(nn.Module):
         )
         e_thermal__fJ = array_power__uW * self.cfg.wl_pulse_length__ns
 
-
         # --- E_WL_drive: wire + C_gs ground caps at WL ---
 
         # Inactive rows contribute zero (V_WL^(1) = 0 for binary DAC).
         # Unit: fF · V² = fJ.
         # Shape: [...]
         e_wl_ground__fJ = wl_logic.sum(dim=-1) * self.c_wl_per_row__fF * v_dd_wl * v_dd_wl
-
 
         # --- E_BL_recover at Node X: C_db + c_bot ground caps ---
 
@@ -465,14 +500,12 @@ class CircuitCore1T1R(nn.Module):
         # Shape: [...]
         e_bl_x_ground__fJ = (v_clamp__V.squeeze(-1) * self.c_x_per_cell__fF * delta_v_x__V.sum(dim=-1)).sum(dim=-1)
 
-
         # --- E_BL_recover at BL nodes: wire + c_top ground caps ---
 
         # E_per_node = V_BL_clamp · C_BL_node · (V_BL_clamp - V_BL^(1)).
         delta_v_bl__V = v_clamp__V - v_bl_node__V
         # Shape: [...]
         e_bl_node__fJ = (v_clamp__V * self.c_bl_per_node__fF * delta_v_bl__V).sum(dim=(-2, -1))
-
 
         # --- E_Cgd: Miller-coupled gate-drain cap ---
 

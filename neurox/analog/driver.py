@@ -16,16 +16,21 @@ class DriverConfig(ValidateMixin):
 
     Attributes:
         drive_value: Ideal clamp voltage [V].
-        drive_thermal: Optional per-solve Gaussian thermal noise [V].
+        drive_thermal__V: Per-solve Gaussian thermal noise sigma [V].
+        enable_drive_thermal: Apply ``drive_thermal__V`` at snapshot time.
         latency_per_op__ns: Latency per operation [ns].
         leakage_per_inst__uW: Leakage power per instance [uW].
         area_per_inst__um2: Area per instance [um^2].
     """
 
+    # --- Drive ---
     drive_value: float
 
-    drive_thermal: float | None = None
+    # --- Drive thermal noise ---
+    drive_thermal__V: float
+    enable_drive_thermal: bool
 
+    # --- PPA ---
     latency_per_op__ns: float = 0.0
     leakage_per_inst__uW: float = 0.0
     area_per_inst__um2: float = 0.0
@@ -38,7 +43,7 @@ class DriverConfig(ValidateMixin):
         self.validate_ppa()
 
     def validate_drive(self) -> None:
-        self._require_nonneg_or_none(self.drive_thermal, "drive_thermal")
+        self._require_nonneg(self.drive_thermal__V, "drive_thermal__V")
 
     def validate_ppa(self) -> None:
         self._require_nonneg(self.area_per_inst__um2, "area_per_inst__um2")
@@ -143,9 +148,11 @@ class Driver(nn.Module):
         Returns:
             Per-call snapshot of the fabricated state.
         """
-        v_clamp__V = self.nominal_drive_value.clone().expand(shape)
-        if self.cfg.drive_thermal is not None:
-            v_clamp__V = apply_gaussian(v_clamp__V, self.cfg.drive_thermal)
+        v_clamp__V = apply_gaussian(
+            self.nominal_drive_value.clone().expand(shape),
+            self.cfg.drive_thermal__V,
+            enabled=self.cfg.enable_drive_thermal,
+        )
         return DriverSnapshot(v_clamp__V=v_clamp__V)
 
     def solve_dc(

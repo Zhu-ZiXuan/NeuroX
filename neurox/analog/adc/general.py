@@ -29,25 +29,43 @@ class GeneralADCConfig(ADCConfig):
             define ``N + 1`` output codes ``[0, N]``.
         drive_value: BL-clamp reference voltage [V].
         input_transform: ``"linear"`` (identity) or ``"log2"``.
-        sampling_noise: Input-referred Gaussian sampling-stage noise.
-        comparator_noise: Per-comparator threshold offset noise.
-        drive_thermal: Gaussian thermal noise on the drive output.
+        sampling_noise__V: Input-referred Gaussian sampling-stage
+            noise sigma [V].
+        comparator_noise__V: Per-comparator threshold offset noise
+            sigma [V].
+        drive_thermal__V: Gaussian thermal noise sigma on the drive
+            output [V].
+        enable_sampling_noise: Apply ``sampling_noise__V`` at convert
+            time.
+        enable_comparator_noise: Apply ``comparator_noise__V`` at
+            convert time.
+        enable_drive_thermal: Apply ``drive_thermal__V`` at drive time.
         energy_per_op__fJ: Dynamic energy per conversion.
         latency_per_op__ns: Conversion latency.
         leakage_per_inst__uW: Static leakage power per instance.
         area_per_inst__um2: Silicon area per instance.
     """
 
+    # --- Bucketize boundaries ---
     boundaries: list[float]
 
+    # --- Sampling noise ---
+    sampling_noise__V: float
+    enable_sampling_noise: bool
+
+    # --- Comparator noise ---
+    comparator_noise__V: float
+    enable_comparator_noise: bool
+
+    # --- Drive thermal noise ---
+    drive_thermal__V: float
+    enable_drive_thermal: bool
+
+    # --- Drive reference + input transform ---
     drive_value: float = 0.0
-
-    sampling_noise: float | None = None
-    comparator_noise: float | None = None
-    drive_thermal: float | None = None
-
     input_transform: Literal["linear", "log2"] = "linear"
 
+    # --- Energy / PPA ---
     energy_per_op__fJ: float = 0.0
     latency_per_op__ns: float = 0.0
     leakage_per_inst__uW: float = 0.0
@@ -64,9 +82,9 @@ class GeneralADCConfig(ADCConfig):
         self._require_strictly_increasing(self.boundaries, "boundaries")
 
     def validate_noise(self) -> None:
-        self._require_nonneg_or_none(self.sampling_noise, "sampling_noise")
-        self._require_nonneg_or_none(self.comparator_noise, "comparator_noise")
-        self._require_nonneg_or_none(self.drive_thermal, "drive_thermal")
+        self._require_nonneg(self.sampling_noise__V, "sampling_noise__V")
+        self._require_nonneg(self.comparator_noise__V, "comparator_noise__V")
+        self._require_nonneg(self.drive_thermal__V, "drive_thermal__V")
 
     def validate_ppa(self) -> None:
         self._require_nonneg(self.energy_per_op__fJ, "energy_per_op__fJ")
@@ -159,16 +177,20 @@ class GeneralADC(ADC):
             ``int16`` code tensor shaped like ``v_pos__V``.
         """
         self._validate_runtime_args(mode, bits)
-        signal = v_pos__V - v_neg__V
-
-        if self.cfg.sampling_noise is not None:
-            signal = apply_gaussian(signal, self.cfg.sampling_noise)
+        signal = apply_gaussian(
+            v_pos__V - v_neg__V,
+            self.cfg.sampling_noise__V,
+            enabled=self.cfg.enable_sampling_noise,
+        )
 
         if self.cfg.input_transform == "log2":
             signal = torch.log2(signal.clamp_min(1e-12))
 
-        if self.cfg.comparator_noise is not None:
-            signal = apply_gaussian(signal, self.cfg.comparator_noise)
+        signal = apply_gaussian(
+            signal,
+            self.cfg.comparator_noise__V,
+            enabled=self.cfg.enable_comparator_noise,
+        )
 
         code = floor_bucketize(
             signal,
@@ -195,10 +217,11 @@ class GeneralADC(ADC):
             ``drive_value`` broadcast to ``shape``, with optional Gaussian
             thermal noise.
         """
-        signal = self.drive_value.expand(shape)
-        if self.cfg.drive_thermal is not None:
-            signal = apply_gaussian(signal, self.cfg.drive_thermal)
-        return signal
+        return apply_gaussian(
+            self.drive_value.expand(shape),
+            self.cfg.drive_thermal__V,
+            enabled=self.cfg.enable_drive_thermal,
+        )
 
     # --- shared helpers ---
 

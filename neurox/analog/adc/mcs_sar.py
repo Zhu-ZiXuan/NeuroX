@@ -35,14 +35,19 @@ class McsSarAdcConfig(ADCConfig):
             ``bits`` active bits is ``(bits + 1) · clk_period``.
         c_unit__fF: CDAC unit capacitance [fF].
         cap_mismatch_sigma_relative: Per-unit-cap relative Pelgrom
-            sigma. ``None`` = ideal CDAC.
+            sigma.
         comparator_offset_sigma__V: Static Gaussian sigma on the
-            comparator threshold [V]. ``None`` skips static offset.
+            comparator threshold [V].
         comparator_thermal_noise_sigma__V: Per-cycle Gaussian sigma
-            for thermal comparator noise [V]. ``None`` skips dynamic
-            comparator noise.
-        enable_thermal_noise: When ``True``, sampling adds
-            ``σ = √(k_B · T / C_total)`` to the held top plates.
+            for thermal comparator noise [V].
+        enable_cap_mismatch: Apply ``cap_mismatch_sigma_relative`` at
+            fabricate time.
+        enable_comparator_offset: Apply
+            ``comparator_offset_sigma__V`` at fabricate time.
+        enable_comparator_thermal_noise: Apply
+            ``comparator_thermal_noise_sigma__V`` per SAR cycle.
+        enable_sampling_thermal_noise: Apply kT/C sampling thermal
+            noise on the held top plates.
         e_bootstrap__fJ: Per-conversion bootstrapped sampling-switch
             overhead [fJ].
         e_constant_per_bit__fJ: Per-cycle SAR strobe / logic / control
@@ -51,22 +56,36 @@ class McsSarAdcConfig(ADCConfig):
         area_per_inst__um2: Silicon area per ADC instance [μm²].
     """
 
+    # --- Topology ---
     max_bits: int
-    v_refs__V: tuple[float, ...]
 
+    # --- References + timing ---
+    v_refs__V: tuple[float, ...]
     clk_period__ns: float
 
+    # --- CDAC unit ---
     c_unit__fF: float
-    cap_mismatch_sigma_relative: float | None
 
-    comparator_offset_sigma__V: float | None
-    comparator_thermal_noise_sigma__V: float | None
+    # --- Cap mismatch (Pelgrom) ---
+    cap_mismatch_sigma_relative: float
+    enable_cap_mismatch: bool
 
-    enable_thermal_noise: bool
+    # --- Comparator static offset ---
+    comparator_offset_sigma__V: float
+    enable_comparator_offset: bool
 
+    # --- Comparator thermal noise (per-cycle) ---
+    comparator_thermal_noise_sigma__V: float
+    enable_comparator_thermal_noise: bool
+
+    # --- Sampling thermal noise (kT/C) ---
+    enable_sampling_thermal_noise: bool
+
+    # --- Energy ---
     e_bootstrap__fJ: float
     e_constant_per_bit__fJ: float
 
+    # --- PPA ---
     leakage_per_inst__uW: float
     area_per_inst__um2: float
 
@@ -95,11 +114,11 @@ class McsSarAdcConfig(ADCConfig):
 
     def validate_cdac(self) -> None:
         self._require_pos(self.c_unit__fF, "c_unit__fF")
-        self._require_nonneg_or_none(self.cap_mismatch_sigma_relative, "cap_mismatch_sigma_relative")
+        self._require_nonneg(self.cap_mismatch_sigma_relative, "cap_mismatch_sigma_relative")
 
     def validate_comparator(self) -> None:
-        self._require_nonneg_or_none(self.comparator_offset_sigma__V, "comparator_offset_sigma__V")
-        self._require_nonneg_or_none(self.comparator_thermal_noise_sigma__V, "comparator_thermal_noise_sigma__V")
+        self._require_nonneg(self.comparator_offset_sigma__V, "comparator_offset_sigma__V")
+        self._require_nonneg(self.comparator_thermal_noise_sigma__V, "comparator_thermal_noise_sigma__V")
 
     def validate_energy(self) -> None:
         self._require_nonneg(self.e_bootstrap__fJ, "e_bootstrap__fJ")
@@ -153,14 +172,8 @@ class McsSarAdc(ADC):
 
         # Per-cycle comparator thermal-noise sigma, temperature-scaled
         # once at init (σ ∝ sqrt(T) for thermal noise; the config sigma
-        # is anchored at 300 K).  Stored as a Python float (or None when
-        # comparator noise is disabled) so the SAR loop only pays the
-        # cheap branch on the optional path.
-        self.comparator_noise_sigma__V: float | None = (
-            cfg.comparator_thermal_noise_sigma__V * math.sqrt(T__K / 300.0)
-            if cfg.comparator_thermal_noise_sigma__V is not None
-            else None
-        )
+        # is anchored at 300 K).
+        self.comparator_noise_sigma__V: float = cfg.comparator_thermal_noise_sigma__V * math.sqrt(T__K / 300.0)
 
         # Cap array length = 1 dummy + (max_bits - 1) binary-weighted
         # caps; the MSB cap (weight 2^(max_bits-1)) is intentionally
@@ -226,24 +239,26 @@ class McsSarAdc(ADC):
         cfg = self.cfg
 
         # Two independently-sampled cap arrays for the differential CDAC.
-        c_p__fF = self.nominal_c__fF.clone().expand(*shape, self.n_caps)
         c_p__fF = apply_pelgrom_mismatch(
-            c_p__fF,
+            self.nominal_c__fF.clone().expand(*shape, self.n_caps),
             cfg.cap_mismatch_sigma_relative,
             unit=cfg.c_unit__fF,
             floor=0.1 * cfg.c_unit__fF,
+            enabled=cfg.enable_cap_mismatch,
         )
-        c_n__fF = self.nominal_c__fF.clone().expand(*shape, self.n_caps)
         c_n__fF = apply_pelgrom_mismatch(
-            c_n__fF,
+            self.nominal_c__fF.clone().expand(*shape, self.n_caps),
             cfg.cap_mismatch_sigma_relative,
             unit=cfg.c_unit__fF,
             floor=0.1 * cfg.c_unit__fF,
+            enabled=cfg.enable_cap_mismatch,
         )
 
-        comparator_offset__V = self.nominal_comparator_offset__V.clone().expand(shape)
-        if cfg.comparator_offset_sigma__V is not None:
-            comparator_offset__V = apply_gaussian(comparator_offset__V, cfg.comparator_offset_sigma__V)
+        comparator_offset__V = apply_gaussian(
+            self.nominal_comparator_offset__V.clone().expand(shape),
+            cfg.comparator_offset_sigma__V,
+            enabled=cfg.enable_comparator_offset,
+        )
 
         self.register_buffer("c_p__fF", c_p__fF, persistent=False)
         self.register_buffer("c_n__fF", c_n__fF, persistent=False)
@@ -310,10 +325,13 @@ class McsSarAdc(ADC):
         v_n_top__V = 2 * v_cm__V - v_neg__V
 
         # sample thermal noise: sigma_V² = k_B · T / C_total.
-        if cfg.enable_thermal_noise:
-            kt__fJ = K_BOLTZMANN__J_per_K * self.T__K * 1e15
-            v_p_top__V = apply_gaussian(v_p_top__V, torch.sqrt(kt__fJ / c_p_total__fF))
-            v_n_top__V = apply_gaussian(v_n_top__V, torch.sqrt(kt__fJ / c_n_total__fF))
+        kt__fJ = K_BOLTZMANN__J_per_K * self.T__K * 1e15
+        v_p_top__V = apply_gaussian(
+            v_p_top__V, torch.sqrt(kt__fJ / c_p_total__fF), enabled=cfg.enable_sampling_thermal_noise
+        )
+        v_n_top__V = apply_gaussian(
+            v_n_top__V, torch.sqrt(kt__fJ / c_n_total__fF), enabled=cfg.enable_sampling_thermal_noise
+        )
 
         # Sample energy: input source charges the bottom-plate caps from V_cm to V_in.
         e_p_sample__fJ = c_p_total__fF * v_pos__V * torch.clamp_min(v_pos__V - v_cm__V, 0)
@@ -378,10 +396,11 @@ class McsSarAdc(ADC):
         Returns:
             Bool tensor; ``True`` means the positive leg won.
         """
-        sigma__V = self.comparator_noise_sigma__V
-        v_diff__V = v_pos__V - v_neg__V
-        if sigma__V is not None:
-            v_diff__V = apply_gaussian(v_diff__V, sigma__V)
+        v_diff__V = apply_gaussian(
+            v_pos__V - v_neg__V,
+            self.comparator_noise_sigma__V,
+            enabled=self.cfg.enable_comparator_thermal_noise,
+        )
         return v_diff__V > self.comparator_offset__V
 
     # --- shared helpers ---
