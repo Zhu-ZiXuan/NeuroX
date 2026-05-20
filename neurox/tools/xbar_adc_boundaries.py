@@ -32,7 +32,7 @@ def compute_max_col_diff_current__uA(
         i_cell_min__uA: Per-cell on-state current at the HRS RRAM.
 
     Returns:
-        ``row_num * (I_cell_max − I_cell_min)`` [uA].
+        ``row_num * (I_cell_max - I_cell_min)`` [uA].
     """
     if row_num <= 0:
         raise ValueError(f"row_num ({row_num}) must be positive")
@@ -170,7 +170,7 @@ def calibrate(
     from dataclasses import replace as dc_replace
 
     from neurox.common import T_ROOM__K, dataclass_from_file, dict_from_file
-    from neurox.mapper import SignedDigitTranscoder
+    from neurox.mapper.transcoder import Transcoder
     from neurox.xbar import Offset1T1RXbar, Offset1T1RXbarConfig
 
     xbar_cfg = dataclass_from_file(Offset1T1RXbarConfig, config_path, section="xbar")
@@ -218,7 +218,11 @@ def calibrate(
     # Weight transcoder for the tool's calibration sweep.
     raw_full = dict_from_file(config_path)
     w_radix = xbar_cfg.w_digit_radix
-    w_tc = SignedDigitTranscoder(raw_full["w_transcoder"]["encoding"], w_radix, xbar_cfg.w_digit_count)
+    w_tc = Transcoder.create(
+        raw_full["w_transcoder"]["encoding"],
+        radix=w_radix,
+        digit_num=xbar_cfg.w_digit_count,
+    )
 
     col_num = physical.col_num
     row_num = physical.row_num
@@ -342,9 +346,9 @@ def visualize(result: CalibrationResult, output_path: Path) -> None:
     No-op when matplotlib is unavailable.
     """
     try:
-        import matplotlib
+        import matplotlib as mpl
 
-        matplotlib.use("Agg")
+        mpl.use("Agg")
         import matplotlib.pyplot as plt
     except ImportError:
         sys.stderr.write("[xbar_adc_boundaries] matplotlib not installed — skipping --visualize\n")
@@ -385,8 +389,8 @@ def _format_toml(result: CalibrationResult) -> str:
         "boundaries = [",
     ]
     for b in result.boundaries:
-        lines.append(f"    {b:.6g},")
-    lines.append("]")
+        lines.extend(f"    {b:.6g},")
+    lines.extend("]")
     return "\n".join(lines) + "\n"
 
 
@@ -433,10 +437,7 @@ def main(argv: list[str] | None = None) -> int:
         sys.stdout.write(block)
 
     if args.visualize:
-        if args.output is None:
-            png_path = Path("xbar_adc_boundaries.png")
-        else:
-            png_path = args.output.with_suffix(".png")
+        png_path = Path("xbar_adc_boundaries.png") if args.output is None else args.output.with_suffix(".png")
         visualize(result, png_path)
         sys.stdout.write(f"Wrote visualization to {png_path}\n")
 

@@ -11,8 +11,8 @@ Current documented areas:
 - `analog/` — clamp-driver protocol, AnalogMux, Decoder, Driver, SwitchCap, and the `dac/`, `adc/`, `tia/`, `readout/` polymorphic families
 - `digital/` — accumulator, adders, requantizer
 - `xbar/` — abstract `Xbar`, ideal twin, shared solver primitives, and the `_1t1r/` subtree (`circuit_core`, `newton_raphson_solver`, `offset`, `differential` / `simple_core` placeholders)
-- `mapper/` — `transcoder` plus the `xbar/` sub-stack (`base`, `simple_mapper`, `slicer/`, `tiler/`)
-- `macro/` — `XbarMacro` + `IdealMacro` orchestration layer
+- `mapper/` — `transcoder` plus the `xbar/slicer/` value-domain primitive
+- `macro/` — `XbarMacro` (abstract) + concrete modes (`InterXbarSliceMacro`, `IntraXbarSliceMacro`) + `IdealMacro`
 - `operator/` — quantised operator surface + `train/` HAT path
 - `profiler/` — `ProfiledModule` + `NeuroxProfiler` side channel
 - `replace/` — model-rewriting pipeline

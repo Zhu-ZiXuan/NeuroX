@@ -13,7 +13,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
-from neurox.common.config_dispatch import ConfigDispatchMixin
+from neurox.common.registry_dispatch import RegistryDispatchMixin
 from neurox.common.validate import ValidateMixin
 from neurox.profiler import ProfiledModule
 
@@ -56,7 +56,7 @@ class ReadOutConfig(ValidateMixin):
 # ---------------------------------------------------------------------------
 
 
-class ReadOut(nn.Module, ProfiledModule, ConfigDispatchMixin["ReadOutConfig", "ReadOut"], ABC):
+class ReadOut(nn.Module, ProfiledModule, RegistryDispatchMixin[type["ReadOutConfig"], "ReadOut"], ABC):
     """Abstract base class for voltage-domain readout chains."""
 
     @classmethod
@@ -85,7 +85,7 @@ class ReadOut(nn.Module, ProfiledModule, ConfigDispatchMixin["ReadOutConfig", "R
         Returns:
             Concrete readout implementation registered for `type(cfg)`.
         """
-        impl = cls._lookup_impl(cfg)
+        impl = cls._lookup_impl(type(cfg))
         return impl(
             cfg=cfg,
             name=name,

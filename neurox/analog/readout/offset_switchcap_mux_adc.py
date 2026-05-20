@@ -35,7 +35,7 @@ class OffsetSwitchCapMuxAdcReadOutConfig(ReadOutConfig):
     adc_cfg: ADCConfig
 
 
-@ReadOut.register_config(OffsetSwitchCapMuxAdcReadOutConfig)
+@ReadOut.register_key(OffsetSwitchCapMuxAdcReadOutConfig)
 class OffsetSwitchCapMuxAdcReadOut(ReadOut):
     """Offset-coded readout: data and ref switch-cap banks, mux, and ADC."""
 

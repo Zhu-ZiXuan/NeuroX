@@ -15,11 +15,7 @@ import torch
 import torch.nn as nn
 
 from neurox.macro.base import NeuroxMacroQuantMatMul
-from neurox.operator import (
-    NeuroxOperator,
-    QuantConv2d,
-    QuantLinear,
-)
+from neurox.operator import NeuroxOperator, QuantConv2d, QuantLinear
 from neurox.operator.qat_util import derive_multiplier_and_shift_tensor
 
 from .state import NeuroxStateError, StateBindingReport

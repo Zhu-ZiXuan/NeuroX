@@ -1,87 +1,101 @@
-"""Tests for the tiler / slicer / mapper trio.
-
-Covers:
-
-* :class:`SerialSlicer` — radix-r decomposition with structural
-  ``digit_num = 1`` (activation path).
-* :class:`SimpleSlicer` — slice-first-then-digitize, configurable
-  slice / digit encodings (weight path).
-* :class:`SimpleTiler` — N/K right-pad-and-unflatten with separate
-  ``make_w_plan`` / ``make_x_plan`` factories.
-* :class:`SimpleMapper` — composes tiler + slicers and produces
-  the macro canonical layout via ``map_x`` / ``map_w``.  Every
-  runtime method takes the full xbar capability kwarg set; the
-  mapper internally translates those caps into the unified
-  ``Slicer`` 3-kwarg contract so a concrete slicer is fully
-  interchangeable from the mapper's point of view.
-
-Tests pass each argument explicitly (no ``**kwargs`` splats) to
-mirror the production contract: every cross-class call documents
-its full argument list inline.  ``value_range`` is the slicer's
-*output*, never an input.
-"""
+"""Tests for the value-domain mapper primitives and the xbar macro pipeline."""
 
 from __future__ import annotations
 
 import pytest
 import torch
 
-from neurox.mapper.transcoder import SignedDigitTranscoder
-from neurox.mapper.xbar import (
-    SerialSlicer,
-    SimpleMapper,
-    SimpleSlicer,
-    SimpleTiler,
-    SlicingPlan,
-    TilePlan,
-    WMappingResult,
-    XMappingResult,
+from neurox.digital import (
+    AccumulatorConfig,
+    RequantizerConfig,
+    ShiftAdderConfig,
 )
+from neurox.macro.xbar import (
+    InterXbarSliceMacro,
+    InterXbarSliceMacroConfig,
+    IntraXbarSliceMacro,
+    IntraXbarSliceMacroConfig,
+    XbarMacro,
+)
+from neurox.mapper.transcoder import (
+    CanonicalTranscoder,
+    ComplementTranscoder,
+    Transcoder,
+    TrueFormTranscoder,
+)
+from neurox.mapper.xbar.slicer import (
+    SerialSlicer,
+    SimpleSlicer,
+    SlicingPlan,
+)
+from neurox.xbar import IdealXbar, XbarConfig, XbarRescaleEntry
 
-# --- SignedDigitTranscoder.value_range -----------------------------------
+# --- Transcoder value_range per encoding ---------------------------------
 
 
-def test_transcoder_value_range_symmetric() -> None:
-    t = SignedDigitTranscoder("true_form", radix=2, digit_num=3)
+def test_true_form_value_range_symmetric() -> None:
+    t = TrueFormTranscoder(radix=2, digit_num=3)
     # r=2, D=3 -> envelope (-(2^3 - 1), 2^3 - 1) = (-7, 7).
     assert t.value_range() == (-7, 7)
+
+
+def test_complement_value_range_asymmetric() -> None:
+    # r=2, D=3 -> [-1*4, 1*4 - 1] = [-4, 3].
+    assert ComplementTranscoder(radix=2, digit_num=3).value_range() == (-4, 3)
+    # r=4, D=4 -> [-2*64, 2*64 - 1] = [-128, 127].
+    assert ComplementTranscoder(radix=4, digit_num=4).value_range() == (-128, 127)
+    # r=3, D=2 (odd radix) -> [-1*3, 2*3 - 1] = [-3, 5].
+    assert ComplementTranscoder(radix=3, digit_num=2).value_range() == (-3, 5)
+
+
+def test_canonical_value_range_tighter_than_true_form() -> None:
+    # r=4, D=4 -> M = 3*64 + 3*4 = 204; true-form bound would be 255.
+    assert CanonicalTranscoder(radix=4, digit_num=4).value_range() == (-204, 204)
+    # r=2, D=3 -> M = 1*4 + 1*1 = 5; true-form bound would be 7.
+    assert CanonicalTranscoder(radix=2, digit_num=3).value_range() == (-5, 5)
+
+
+def test_transcoder_create_dispatches_on_encoding() -> None:
+    assert isinstance(Transcoder.create("true_form", radix=2, digit_num=3), TrueFormTranscoder)
+    assert isinstance(Transcoder.create("complement", radix=2, digit_num=3), ComplementTranscoder)
+    assert isinstance(Transcoder.create("canonical", radix=2, digit_num=3), CanonicalTranscoder)
 
 
 # --- SerialSlicer ---------------------------------------------------------
 
 
 def test_serial_slicer_value_range_and_radix() -> None:
-    s = SerialSlicer(slice_num=4, encoding="true_form")
+    s = SerialSlicer(slice_num=4)
     # digit_range = (0, 1) -> radix = 2 -> Sa=4 -> range = (0, 2^4 - 1) = (0, 15).
     assert s.value_range(digit_count=1, digit_radix=2, digit_range=(0, 1)) == (0, 15)
     assert s.slice_radix(digit_count=1, digit_radix=2, digit_range=(0, 1)) == 2
 
 
 def test_serial_slicer_rejects_signed_grid() -> None:
-    s = SerialSlicer(slice_num=4, encoding="true_form")
+    s = SerialSlicer(slice_num=4)
     with pytest.raises(ValueError, match="digit_range lo"):
         s.value_range(digit_count=1, digit_radix=3, digit_range=(-1, 1))
 
 
 def test_serial_slicer_rejects_inner_digit_axis() -> None:
-    s = SerialSlicer(slice_num=4, encoding="true_form")
+    s = SerialSlicer(slice_num=4)
     with pytest.raises(ValueError, match="digit_count"):
         s.value_range(digit_count=2, digit_radix=2, digit_range=(0, 1))
 
 
 def test_serial_slicer_rejects_mismatched_radix() -> None:
-    s = SerialSlicer(slice_num=4, encoding="true_form")
+    s = SerialSlicer(slice_num=4)
     with pytest.raises(ValueError, match="digit_radix"):
         s.value_range(digit_count=1, digit_radix=4, digit_range=(0, 1))
 
 
 def test_serial_slicer_slice_num_zero_rejected() -> None:
     with pytest.raises(ValueError, match="slice_num"):
-        SerialSlicer(slice_num=0, encoding="true_form")
+        SerialSlicer(slice_num=0)
 
 
 def test_serial_slicer_output_shape() -> None:
-    s = SerialSlicer(slice_num=3, encoding="true_form")
+    s = SerialSlicer(slice_num=3)
     x = torch.randint(0, 4, (5, 8), dtype=torch.int32)
     out = s.slice(x, digit_count=1, digit_radix=4, digit_range=(0, 3))
     assert isinstance(out, SlicingPlan)
@@ -96,7 +110,7 @@ def test_serial_slicer_output_shape() -> None:
 
 def test_serial_slicer_decode_roundtrip() -> None:
     torch.manual_seed(0)
-    s = SerialSlicer(slice_num=3, encoding="true_form")
+    s = SerialSlicer(slice_num=3)
     x = torch.randint(0, 4, (8, 8), dtype=torch.int32)
     out = s.slice(x, digit_count=1, digit_radix=4, digit_range=(0, 3))
     # Decode = collapse slice axis with positional weights, then squeeze digit_num=1.
@@ -150,310 +164,148 @@ def test_simple_slicer_slice_num_zero_rejected() -> None:
         SimpleSlicer(slice_num=0, encoding="true_form")
 
 
-# --- SimpleTiler ----------------------------------------------------------
+# --- chunk_pad_along (geometric primitive) -------------------------------
 
 
-def test_simple_tiler_w_plan_no_padding() -> None:
-    t = SimpleTiler()
-    plan = t.make_w_plan(n=8, k=8, col_num=8, row_num=8)
-    assert isinstance(plan, TilePlan)
-    assert plan.logical_out_dim == 8
-    assert plan.logical_in_dim == 8
-    assert plan.row_tile_num == 1
-    assert plan.col_tile_num == 1
-    assert plan.data_num == 8
-    assert plan.row_num == 8
-    assert plan.n_pad == 0
-    assert plan.k_pad == 0
+def test_chunk_pad_no_padding() -> None:
+    t = torch.arange(16.0)
+    out = XbarMacro.chunk_pad_along(t, axis=0, chunk_size=4)
+    # n=16, chunk=4 -> (4, 4).
+    assert out.shape == (4, 4)
+    assert torch.equal(out.flatten(), t)
 
 
-def test_simple_tiler_w_plan_with_padding() -> None:
-    t = SimpleTiler()
-    plan = t.make_w_plan(n=10, k=20, col_num=8, row_num=8)
-    assert plan.row_tile_num == 2
-    assert plan.col_tile_num == 3
-    assert plan.n_pad == 6  # 2*8 - 10
-    assert plan.k_pad == 4  # 3*8 - 20
+def test_chunk_pad_with_padding() -> None:
+    t = torch.arange(13.0)
+    out = XbarMacro.chunk_pad_along(t, axis=0, chunk_size=16)
+    # n=13, chunk=16 -> (1, 16) with 3 trailing zeros.
+    assert out.shape == (1, 16)
+    assert torch.equal(out[0, :13], t)
+    assert torch.equal(out[0, 13:], torch.zeros(3))
 
 
-def test_simple_tiler_x_plan_only_carries_k_geometry() -> None:
-    t = SimpleTiler()
-    plan = t.make_x_plan(k=20, row_num=8)
-    # K-only geometry is non-zero; N-side fields are placeholders 0.
-    assert plan.col_tile_num == 3
-    assert plan.row_num == 8
-    assert plan.k_pad == 4
-    assert plan.logical_in_dim == 20
-    assert plan.logical_out_dim == 0
-    assert plan.row_tile_num == 0
-    assert plan.data_num == 0
-    assert plan.n_pad == 0
+def test_chunk_pad_negative_axis() -> None:
+    t = torch.arange(60.0).reshape(3, 4, 5)
+    out = XbarMacro.chunk_pad_along(t, axis=-1, chunk_size=3)
+    # axis=-1, size=5 pads to 6, then (2, 3) inserted at axis=-1.
+    assert out.shape == (3, 4, 2, 3)
 
 
-def test_simple_tiler_w_plan_rejects_zero_n() -> None:
-    t = SimpleTiler()
-    with pytest.raises(ValueError, match=r"n"):
-        t.make_w_plan(n=0, k=8, col_num=8, row_num=8)
+def test_chunk_pad_rejects_bad_chunk_size() -> None:
+    t = torch.arange(8.0)
+    with pytest.raises(ValueError, match="chunk_size"):
+        XbarMacro.chunk_pad_along(t, axis=0, chunk_size=0)
 
 
-def test_simple_tiler_tile_w_shape() -> None:
-    t = SimpleTiler()
-    plan = t.make_w_plan(n=8, k=8, col_num=8, row_num=8)
-    # Input: [N=8, K=8, slice_num=2, digit_num=3].
-    w = torch.zeros((8, 8, 2, 3), dtype=torch.int32)
-    out = t.tile_w(w, plan=plan)
-    # Output: [Tr=1, data_num=8, Tc=1, row_num=8, slice_num=2, digit_num=3].
-    assert out.shape == (1, 8, 1, 8, 2, 3)
+def test_chunk_pad_rejects_out_of_range_axis() -> None:
+    t = torch.arange(8.0)
+    with pytest.raises(ValueError, match="axis"):
+        XbarMacro.chunk_pad_along(t, axis=3, chunk_size=4)
 
 
-def test_simple_tiler_tile_x_shape() -> None:
-    t = SimpleTiler()
-    plan = t.make_x_plan(k=8, row_num=8)
-    # Input: [M=5, K=8, slice_num=3, digit_num=1].
-    x = torch.zeros((5, 8, 3, 1), dtype=torch.int32)
-    out = t.tile_x(x, plan=plan)
-    # Output: [M=5, Tc=1, row_num=8, slice_num=3, digit_num=1].
-    assert out.shape == (5, 1, 8, 3, 1)
+# --- End-to-end mode consistency (13 / 3 / 16 case) ----------------------
+
+# 13 logical weights, Sw=3 slices, col_num=16 — the canonical case from
+# the architecture discussion.  IntraXbar packs 5 weights × 3 slices per
+# xbar with 1 idle col; InterXbar uses one Sw plane per xbar with 3 idle
+# cols.  Both must reproduce torch.matmul exactly.
 
 
-# --- SimpleMapper ---------------------------------------------------------
+@pytest.fixture
+def small_ideal_xbar() -> IdealXbar:
+    cfg = XbarConfig(
+        col_num=16, row_num=16, adc_mode=0, adc_bits=0,
+        output_rescale_factors=(XbarRescaleEntry(adc_mode=0, adc_bits=0, rf=1.0),),
+    )
+    xbar = IdealXbar(
+        cfg, x_range=(0, 1),
+        w_digit_count=1, w_digit_radix=4, w_digit_range=(-3, 3),
+    )
+    xbar.eval()
+    return xbar
 
 
-def _make_mapper(*, x_slice_num: int = 4, w_slice_num: int = 1) -> SimpleMapper:
-    return SimpleMapper(
-        tiler=SimpleTiler(),
-        x_slicer=SerialSlicer(slice_num=x_slice_num, encoding="true_form"),
-        w_slicer=SimpleSlicer(slice_num=w_slice_num, encoding="true_form"),
+def _make_macro_configs(*, w_slice_num: int, x_slice_num: int) -> dict[str, object]:
+    return dict(
+        w_slice_num=w_slice_num, x_slice_num=x_slice_num,
+        w_encoding="true_form",
+        col_accumulator_cfg=AccumulatorConfig(bit_width=32),
+        sa_shift_adder_cfg=ShiftAdderConfig(bit_width=32),
+        sw_shift_adder_cfg=ShiftAdderConfig(bit_width=32),
+        requantizer_cfg=RequantizerConfig(bit_width=32),
     )
 
 
-def test_simple_mapper_value_ranges() -> None:
-    m = _make_mapper(x_slice_num=4, w_slice_num=1)
-    # x: radix=2, Sa=4 -> (0, 15).
-    assert m.x_value_range(
-        x_range=(0, 1),
-        col_num=8,
-        row_num=8,
-        w_digit_count=3,
-        w_digit_radix=2,
-        w_digit_range=(-1, 1),
-    ) == (0, 15)
-    # w: r=2, D=3, Sw=1 -> (-7, 7).
-    assert m.w_value_range(
-        x_range=(0, 1),
-        col_num=8,
-        row_num=8,
-        w_digit_count=3,
-        w_digit_radix=2,
-        w_digit_range=(-1, 1),
-    ) == (-7, 7)
-
-
-def test_simple_mapper_slice_radixes() -> None:
-    m = _make_mapper(x_slice_num=4, w_slice_num=1)
-    assert m.x_slice_radix(
-        x_range=(0, 1),
-        col_num=8,
-        row_num=8,
-        w_digit_count=3,
-        w_digit_radix=2,
-        w_digit_range=(-1, 1),
-    ) == 2
-    assert m.w_slice_radix(
-        x_range=(0, 1),
-        col_num=8,
-        row_num=8,
-        w_digit_count=3,
-        w_digit_radix=2,
-        w_digit_range=(-1, 1),
-    ) == 8
-
-
-def test_simple_mapper_map_x_shape() -> None:
-    m = _make_mapper(x_slice_num=3)
-    x = torch.randint(0, 4, (5, 8), dtype=torch.int32)
-    out = m.map_x(
-        x,
-        x_range=(0, 3),
-        col_num=8,
-        row_num=8,
-        w_digit_count=3,
-        w_digit_radix=2,
-        w_digit_range=(-1, 1),
-    )
-    assert isinstance(out, XMappingResult)
-    # Layout [M, Tc, Tr=1, Sa, Sw=1, row_num].
-    M, _Tc, Tr, Sa, Sw, row_num = out.x_xbar.shape
-    assert M == 5
-    assert Tr == 1
-    assert Sa == 3
-    assert Sw == 1
-    assert row_num == 8
-    # slice_weights = [1, 4, 16] (Sa positional weights at radix 4).
-    assert torch.equal(out.slice_weights.cpu(), torch.tensor([1, 4, 16], dtype=out.x_xbar.dtype))
-    assert out.logical_batch_shape == ()
-
-
-def test_simple_mapper_map_x_preserves_leading_batch() -> None:
-    m = _make_mapper()
-    x = torch.randint(0, 2, (2, 3, 5, 8), dtype=torch.int32)
-    out = m.map_x(
-        x,
-        x_range=(0, 1),
-        col_num=8,
-        row_num=8,
-        w_digit_count=3,
-        w_digit_radix=2,
-        w_digit_range=(-1, 1),
-    )
-    assert out.logical_batch_shape == (2, 3)
-
-
-def test_simple_mapper_map_w_shape_single_slice() -> None:
-    m = _make_mapper(w_slice_num=1)
-    w = torch.randint(-3, 4, (8, 8), dtype=torch.int32)
-    out = m.map_w(
-        w,
-        x_range=(0, 1),
-        col_num=8,
-        row_num=8,
-        w_digit_count=3,
-        w_digit_radix=2,
-        w_digit_range=(-1, 1),
-    )
-    assert isinstance(out, WMappingResult)
-    # Layout [M=1, Tc, Tr, Sa=1, Sw, data_num, digit_num, row_num].
-    M, Tc, Tr, Sa, Sw, data_num, digit_num, row_num = out.w_xbar.shape
-    assert M == 1
-    assert Tc == 1
-    assert Tr == 1
-    assert Sa == 1
-    assert Sw == 1
-    assert data_num == 8
-    assert digit_num == 3
-    assert row_num == 8
-    assert out.slice_weights.shape == (1,)
-    assert out.slice_weights.item() == 1
-    assert out.logical_out_dim == 8
-    assert out.row_tile_num == 1
-    assert out.col_tile_num == 1
-
-
-def test_simple_mapper_map_w_shape_multi_slice() -> None:
-    m = _make_mapper(w_slice_num=2)
-    w = torch.randint(-30, 31, (8, 8), dtype=torch.int32)
-    out = m.map_w(
-        w,
-        x_range=(0, 1),
-        col_num=8,
-        row_num=8,
-        w_digit_count=3,
-        w_digit_radix=2,
-        w_digit_range=(-1, 1),
-    )
-    M, Tc, Tr, Sa, Sw, data_num, digit_num, row_num = out.w_xbar.shape
-    assert (M, Tc, Tr, Sa, Sw, data_num, digit_num, row_num) == (1, 1, 1, 1, 2, 8, 3, 8)
-    assert torch.equal(out.slice_weights.cpu(), torch.tensor([1, 8], dtype=out.w_xbar.dtype))
-
-
-def test_simple_mapper_map_w_handles_padding() -> None:
-    m = _make_mapper(w_slice_num=1)
-    w = torch.randint(-3, 4, (10, 20), dtype=torch.int32)
-    out = m.map_w(
-        w,
-        x_range=(0, 1),
-        col_num=8,
-        row_num=8,
-        w_digit_count=3,
-        w_digit_radix=2,
-        w_digit_range=(-1, 1),
-    )
-    _, _, _, _, _, data_num, digit_num, row_num = out.w_xbar.shape
-    assert data_num == 8
-    assert digit_num == 3
-    assert row_num == 8
-    assert out.logical_out_dim == 10
-    assert out.row_tile_num == 2
-    assert out.col_tile_num == 3
-
-
-def test_simple_mapper_map_w_decode_roundtrip_single_slice() -> None:
+def test_inter_xbar_matches_torch_matmul(small_ideal_xbar: IdealXbar) -> None:
     torch.manual_seed(0)
-    m = _make_mapper(w_slice_num=1)
-    w = torch.randint(-7, 8, (8, 8), dtype=torch.int32)
-    out = m.map_w(
-        w,
-        x_range=(0, 1),
-        col_num=8,
-        row_num=8,
-        w_digit_count=3,
-        w_digit_radix=2,
-        w_digit_range=(-1, 1),
+    macro = InterXbarSliceMacro(
+        cfg=InterXbarSliceMacroConfig(**_make_macro_configs(w_slice_num=3, x_slice_num=4)),
+        xbar=small_ideal_xbar,
     )
-    # w_xbar layout: [M=1, Tc=1, Tr=1, Sa=1, Sw=1, data_num=8, D=3, row_num=8].
-    transcoder = SignedDigitTranscoder("true_form", radix=2, digit_num=3)
-    decoded = transcoder.decode(out.w_xbar, dim=-2)
-    while decoded.ndim > 2:
-        decoded = decoded.squeeze(0)
-    assert torch.equal(decoded, w)
+    macro.eval()
+    n, k, m = 13, 20, 8
+    w = torch.randint(-63, 64, (n, k), dtype=torch.int32)
+    x = torch.randint(0, 16, (m, k), dtype=torch.int32)
+    macro.fabricate(w)
+    mult = torch.ones(n, dtype=torch.int32)
+    shift = torch.zeros(n, dtype=torch.int32)
+    y = macro.matmul(x, w, None, mult, shift, None)
+    y_ref = (x.float() @ w.float().T).to(torch.int32)
+    assert torch.equal(y, y_ref)
 
 
-def test_simple_mapper_map_w_decode_roundtrip_multi_slice() -> None:
+def test_intra_xbar_matches_torch_matmul(small_ideal_xbar: IdealXbar) -> None:
     torch.manual_seed(0)
-    m = _make_mapper(w_slice_num=2)
-    w = torch.randint(-63, 64, (8, 8), dtype=torch.int32)
-    out = m.map_w(
-        w,
-        x_range=(0, 1),
-        col_num=8,
-        row_num=8,
-        w_digit_count=3,
-        w_digit_radix=2,
-        w_digit_range=(-1, 1),
+    macro = IntraXbarSliceMacro(
+        cfg=IntraXbarSliceMacroConfig(**_make_macro_configs(w_slice_num=3, x_slice_num=4)),
+        xbar=small_ideal_xbar,
     )
-    transcoder = SignedDigitTranscoder("true_form", radix=2, digit_num=3)
-    per_slice = transcoder.decode(out.w_xbar, dim=-2)
-    weights = out.slice_weights.view(-1, 1, 1).to(per_slice.dtype)
-    combined = (per_slice * weights).sum(dim=-3)
-    while combined.ndim > 2:
-        combined = combined.squeeze(0)
-    assert torch.equal(combined, w)
+    macro.eval()
+    # 5 weights per xbar, 1 idle col, 3 Tr tiles for N=13.
+    assert macro._weights_per_xbar == 5
+    assert macro._used_data_num == 15
+    assert macro._idle_per_xbar == 1
+    n, k, m = 13, 20, 8
+    w = torch.randint(-63, 64, (n, k), dtype=torch.int32)
+    x = torch.randint(0, 16, (m, k), dtype=torch.int32)
+    macro.fabricate(w)
+    mult = torch.ones(n, dtype=torch.int32)
+    shift = torch.zeros(n, dtype=torch.int32)
+    y = macro.matmul(x, w, None, mult, shift, None)
+    y_ref = (x.float() @ w.float().T).to(torch.int32)
+    assert torch.equal(y, y_ref)
 
 
-def test_simple_mapper_method_ignores_unused_caps() -> None:
-    """Vary an unused cap on a method; the result is unchanged.
-
-    Demonstrates that the macro can pass the full kwarg set without
-    a concrete mapper accidentally coupling to caps it doesn't need.
-    """
-    m = _make_mapper(x_slice_num=3, w_slice_num=1)
-    a = m.x_value_range(
-        x_range=(0, 3),
-        col_num=8,
-        row_num=8,
-        w_digit_count=3,
-        w_digit_radix=2,
-        w_digit_range=(-1, 1),
+def test_inter_and_intra_xbar_agree(small_ideal_xbar: IdealXbar) -> None:
+    """Cross-mode consistency: same w/x, same int output."""
+    torch.manual_seed(0)
+    cfg_kwargs = _make_macro_configs(w_slice_num=3, x_slice_num=4)
+    inter = InterXbarSliceMacro(
+        cfg=InterXbarSliceMacroConfig(**cfg_kwargs),
+        xbar=small_ideal_xbar,
     )
-    # Vary the weight-side caps + col_num (all irrelevant for x_value_range).
-    b = m.x_value_range(
-        x_range=(0, 3),
-        col_num=4,
-        row_num=8,
-        w_digit_count=2,
-        w_digit_radix=3,
-        w_digit_range=(-2, 2),
+    inter.eval()
+    intra = IntraXbarSliceMacro(
+        cfg=IntraXbarSliceMacroConfig(**cfg_kwargs),
+        # Fresh xbar so intra's fabricate does not stomp inter's.
+        xbar=IdealXbar(
+            XbarConfig(
+                col_num=16, row_num=16, adc_mode=0, adc_bits=0,
+                output_rescale_factors=(XbarRescaleEntry(adc_mode=0, adc_bits=0, rf=1.0),),
+            ),
+            x_range=(0, 1),
+            w_digit_count=1, w_digit_radix=4, w_digit_range=(-3, 3),
+        ),
     )
-    assert a == b
+    intra.eval()
 
-
-# --- IdealMacro (explicit value_range constructor) -----------------------
-
-
-def test_ideal_macro_publishes_supplied_ranges() -> None:
-    from neurox.macro.ideal import IdealMacro
-
-    m = IdealMacro(x_value_range=(-7, 7), w_value_range=(-3, 3))
-    assert m.x_value_range == (-7, 7)
-    assert m.w_value_range == (-3, 3)
-    assert m.output_rescale_factor == 1.0
+    n, k, m = 13, 20, 8
+    w = torch.randint(-63, 64, (n, k), dtype=torch.int32)
+    x = torch.randint(0, 16, (m, k), dtype=torch.int32)
+    inter.fabricate(w)
+    intra.fabricate(w)
+    mult = torch.ones(n, dtype=torch.int32)
+    shift = torch.zeros(n, dtype=torch.int32)
+    y_inter = inter.matmul(x, w, None, mult, shift, None)
+    y_intra = intra.matmul(x, w, None, mult, shift, None)
+    assert torch.equal(y_inter, y_intra)

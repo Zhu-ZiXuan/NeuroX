@@ -9,7 +9,7 @@
 - analog mux transport;
 - differential ADC conversion.
 
-It is one concrete `ReadOut` family implementation registered via `ReadOut.register_config(OffsetSwitchCapMuxAdcReadOutConfig)`.
+It is one concrete `ReadOut` family implementation registered via `ReadOut.register_key(OffsetSwitchCapMuxAdcReadOutConfig)`.
 
 ## Ownership and construction
 

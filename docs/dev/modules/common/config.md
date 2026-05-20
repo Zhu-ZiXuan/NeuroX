@@ -7,7 +7,7 @@
 - `Config` — the optional base class that gives a frozen dataclass `from_file(...)` / `to_file(...)` plus a `from_builder(...)` bridge.
 - `ConfigBuilder` — a generic staged-construction base for configs that need validation across multiple optional fields before they can be finalised.
 
-The polymorphic-family dispatch mixin lives in [`config_dispatch.py`](config_dispatch.md), not here.
+The polymorphic-family dispatch mixin lives in [`registry_dispatch.py`](registry_dispatch.md), not here.
 
 ## File-IO layer
 
@@ -30,5 +30,5 @@ Builders are useful when individual fields are filled in at different points in 
 See also:
 
 - `docs/dev/architecture/config_and_construction.md`
-- `config_dispatch.md`
+- `registry_dispatch.md`
 - `load_dump.md`

@@ -93,7 +93,7 @@ class GeneralADCConfig(ADCConfig):
         self._require_nonneg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
-@ADC.register_config(GeneralADCConfig)
+@ADC.register_key(GeneralADCConfig)
 class GeneralADC(ADC):
     """Boundary-bucketize ADC with three Gaussian noise stages.
 

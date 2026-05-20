@@ -13,7 +13,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
-from neurox.common.config_dispatch import ConfigDispatchMixin
+from neurox.common.registry_dispatch import RegistryDispatchMixin
 from neurox.common.validate import ValidateMixin
 from neurox.profiler import ProfiledModule
 
@@ -67,7 +67,7 @@ class ADCMode(ValidateMixin):
         return self.max_signal / self.n_codes
 
 
-class ADC(nn.Module, ProfiledModule, ConfigDispatchMixin["ADCConfig", "ADC"], ABC):
+class ADC(nn.Module, ProfiledModule, RegistryDispatchMixin[type["ADCConfig"], "ADC"], ABC):
     """Abstract base class for ADC implementations."""
 
     @classmethod
@@ -92,7 +92,7 @@ class ADC(nn.Module, ProfiledModule, ConfigDispatchMixin["ADCConfig", "ADC"], AB
         Returns:
             Concrete ADC implementation registered for `type(cfg)`.
         """
-        impl = cls._lookup_impl(cfg)
+        impl = cls._lookup_impl(type(cfg))
         return impl(cfg=cfg, name=name, T__K=T__K, dtype=dtype, stochastic=stochastic)
 
     def __init__(

@@ -12,7 +12,7 @@ Every block is a thin `nn.Module` carrying a `*Config` dataclass with the standa
 
 ## Composition
 
-None of the digital blocks form a polymorphic family, so they are not part of the `ConfigDispatchMixin` infrastructure — they are leaf circuits instantiated directly by concrete class name.
+None of the digital blocks form a polymorphic family, so they are not part of the `RegistryDispatchMixin` infrastructure — they are leaf circuits instantiated directly by concrete class name.
 
 ## `@torch.compile` fusion
 

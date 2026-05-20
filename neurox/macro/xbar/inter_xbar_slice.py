@@ -1,0 +1,290 @@
+"""Inter-xbar slice macro: ``Sw`` distributed across xbar planes (Strategy 1).
+
+See also:
+    docs/dev/modules/macro/xbar/inter_xbar_slice.md
+"""
+
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass
+
+import torch
+from torch import Tensor
+
+from neurox.digital import (
+    Accumulator,
+    AccumulatorConfig,
+    Requantizer,
+    RequantizerConfig,
+    ShiftAdder,
+    ShiftAdderConfig,
+)
+from neurox.mapper.transcoder import Encoding
+from neurox.mapper.xbar.slicer import SerialSlicer, SimpleSlicer
+from neurox.xbar import Xbar
+
+from .base import XbarMacro, XbarMacroConfig
+
+
+@dataclass(frozen=True)
+class InterXbarSliceMacroConfig(XbarMacroConfig):
+    """Configuration for :class:`InterXbarSliceMacro`.
+
+    Attributes:
+        w_slice_num: Per-weight Sw slice count.
+        x_slice_num: Per-activation Sa slice count.
+        w_encoding: Signed-digit encoding for the weight slicer.
+        col_accumulator_cfg: Tc-axis cross-tile accumulator config.
+        sa_shift_adder_cfg: Sa-axis intra-xbar shift-adder config.
+        sw_shift_adder_cfg: Sw-axis cross-xbar shift-adder config.
+        requantizer_cfg: Output requantizer config.
+    """
+
+    w_slice_num: int
+    x_slice_num: int
+    w_encoding: Encoding
+
+    col_accumulator_cfg: AccumulatorConfig
+    sa_shift_adder_cfg: ShiftAdderConfig
+    sw_shift_adder_cfg: ShiftAdderConfig
+    requantizer_cfg: RequantizerConfig
+
+    def validate(self) -> None:
+        super().validate()
+        self._require_pos(self.w_slice_num, "w_slice_num")
+        self._require_pos(self.x_slice_num, "x_slice_num")
+
+
+@XbarMacro.register_key(InterXbarSliceMacroConfig)
+class InterXbarSliceMacro(XbarMacro):
+    """Xbar macro that distributes weight slices across separate xbar planes.
+
+    One xbar plane holds one ``Sw`` slice index across every logical weight.
+    """
+
+    def __init__(
+        self,
+        *,
+        cfg: InterXbarSliceMacroConfig,
+        xbar: Xbar,
+        name: str = "",
+    ) -> None:
+        super().__init__(cfg=cfg, xbar=xbar, name=name)
+
+        self.cfg = cfg
+        self.xbar = xbar
+
+        self.w_slicer = SimpleSlicer(slice_num=cfg.w_slice_num, encoding=cfg.w_encoding)
+        self.x_slicer = SerialSlicer(slice_num=cfg.x_slice_num)
+
+        prefix = f"{name}." if name else ""
+        self.col_accumulator = Accumulator(cfg.col_accumulator_cfg, name=f"{prefix}col_accumulator")
+        self.sa_shift_adder = ShiftAdder(cfg.sa_shift_adder_cfg, name=f"{prefix}sa_shift_adder")
+        self.sw_shift_adder = ShiftAdder(cfg.sw_shift_adder_cfg, name=f"{prefix}sw_shift_adder")
+        self.requantizer = Requantizer(cfg.requantizer_cfg, name=f"{prefix}requantizer")
+
+        self._w_parallel_size = 0
+        self._serial_op_num = 0
+        self._x_shape_cached: tuple[int, ...] = ()
+
+    def extra_repr(self) -> str:
+        """One-line summary shown by ``print(model)``."""
+        return (
+            f"xbar={type(self.xbar).__name__}, "
+            f"row_num={self.xbar.row_num}, col_num={self.xbar.col_num}, "
+            f"w_value_range={self.w_value_range}, x_value_range={self.x_value_range}"
+        )
+
+    def __repr__(self) -> str:
+        """Compact repr that hides internals from ``print(model)``."""
+        return f"{type(self).__name__}({self.extra_repr()})"
+
+    # --- value-range / rescale ---
+
+    @property
+    def w_value_range(self) -> tuple[int, int]:
+        """Inclusive algorithm-side weight range — delegated to the slicer."""
+        return self.w_slicer.value_range(
+            digit_count=self.xbar.w_digit_count,
+            digit_radix=self.xbar.w_digit_radix,
+            digit_range=self.xbar.w_digit_range,
+        )
+
+    @property
+    def x_value_range(self) -> tuple[int, int]:
+        """Inclusive algorithm-side activation range — delegated to the slicer."""
+        x_lo, x_hi = self.xbar.x_range
+        return self.x_slicer.value_range(
+            digit_count=1,
+            digit_radix=x_hi - x_lo + 1,
+            digit_range=(x_lo, x_hi),
+        )
+
+    @property
+    def output_rescale_factor(self) -> float:
+        """Forwarded from the xbar."""
+        return self.xbar.output_rescale_factor
+
+    # --- slice radixes ---
+
+    def _w_slice_radix(self) -> int:
+        return self.w_slicer.slice_radix(
+            digit_count=self.xbar.w_digit_count,
+            digit_radix=self.xbar.w_digit_radix,
+            digit_range=self.xbar.w_digit_range,
+        )
+
+    def _x_slice_radix(self) -> int:
+        x_lo, x_hi = self.xbar.x_range
+        return self.x_slicer.slice_radix(
+            digit_count=1,
+            digit_radix=x_hi - x_lo + 1,
+            digit_range=(x_lo, x_hi),
+        )
+
+    # --- organize ---
+
+    def _organize_w(self, weight: Tensor) -> Tensor:
+        """Map a logical weight tensor into xbar-native layout.
+
+        Args:
+            weight: Integer weight tensor of shape ``[..., N, K]``.
+
+        Returns:
+            Tensor of shape
+            ``[..., M=1, Tc, Tr, Sa=1, Sw, data_num, D, row_num]``.
+        """
+        col_num = self.xbar.col_num
+        row_num = self.xbar.row_num
+
+        # Shape: [..., N, K] -> [..., N, K, Sw, D]
+        sliced = self.w_slicer.slice(
+            weight,
+            digit_count=self.xbar.w_digit_count,
+            digit_radix=self.xbar.w_digit_radix,
+            digit_range=self.xbar.w_digit_range,
+        ).values
+
+        # Shape: [..., N, K, Sw, D] -> [..., Tr, data_num, K, Sw, D]
+        tiled = self.chunk_pad_along(sliced, axis=-4, chunk_size=col_num)
+        # Shape: [..., Tr, data_num, K, Sw, D] -> [..., Tr, data_num, Tc, row_num, Sw, D]
+        tiled = self.chunk_pad_along(tiled, axis=-3, chunk_size=row_num)
+
+        # Shape: [..., Tr, data_num, Tc, row_num, Sw, D] -> [..., Tc, Tr, Sw, data_num, D, row_num]
+        b = tiled.ndim - 6
+        perm = [*range(b), b + 2, b + 0, b + 4, b + 1, b + 5, b + 3]
+        arranged = tiled.permute(perm)
+
+        # Shape: [..., Tc, Tr, Sw, data_num, D, row_num] -> [..., Tc, Tr, Sa=1, Sw, data_num, D, row_num]
+        arranged = arranged.unsqueeze(b + 2)
+        # Shape: [..., Tc, Tr, Sa=1, Sw, data_num, D, row_num] -> [..., M=1, Tc, Tr, Sa=1, Sw, data_num, D, row_num]
+        arranged = arranged.unsqueeze(b)
+        return arranged
+
+    def _organize_x(self, x: Tensor) -> Tensor:
+        """Map a logical activation tensor into xbar-native layout.
+
+        Args:
+            x: Integer activation tensor of shape ``[..., M, K]``.
+
+        Returns:
+            Tensor of shape ``[..., M, Tc, Tr=1, Sa, Sw=1, row_num]``.
+        """
+        x_lo, x_hi = self.xbar.x_range
+        # Shape: [..., M, K] -> [..., M, K, Sa, digit_num=1]
+        sliced = self.x_slicer.slice(
+            x,
+            digit_count=1,
+            digit_radix=x_hi - x_lo + 1,
+            digit_range=(x_lo, x_hi),
+        ).values
+
+        # Shape: [..., M, K, Sa, digit_num=1] -> [..., M, Tc, row_num, Sa, digit_num=1]
+        tiled = self.chunk_pad_along(sliced, axis=-3, chunk_size=self.xbar.row_num)
+
+        # Shape: [..., M, Tc, row_num, Sa, digit_num=1] -> [..., M, Tc, row_num, Sa]
+        squeezed = tiled.squeeze(-1)
+        # Shape: [..., M, Tc, row_num, Sa] -> [..., M, Tc, Sa, row_num]
+        transposed = squeezed.transpose(-2, -1)
+        # Shape: [..., M, Tc, Sa, row_num] -> [..., M, Tc, Sa, Sw=1, row_num]
+        with_sw = transposed.unsqueeze(-2)
+        # Shape: [..., M, Tc, Sa, Sw=1, row_num] -> [..., M, Tc, Tr=1, Sa, Sw=1, row_num]
+        x_mapped = with_sw.unsqueeze(-4)
+        return x_mapped
+
+    # --- lifecycle ---
+
+    def fabricate(self, weight: Tensor) -> None:
+        """Map one weight tensor and program the xbar (re-callable).
+
+        Args:
+            weight: Integer weight tensor of shape ``[..., N, K]``.
+        """
+        organized = self._organize_w(weight)
+        self.xbar.fabricate(organized)
+
+        *w_batch, _m, _tc, row_tile_num, _sa, w_slice_num = organized.shape[:-3]
+        self._w_parallel_size = math.prod(w_batch)
+        n_logical = weight.shape[-2]
+        self.col_accumulator.fabricate((self._w_parallel_size, w_slice_num, row_tile_num))
+        self.sw_shift_adder.fabricate((self._w_parallel_size, row_tile_num))
+        self.sa_shift_adder.fabricate((self._w_parallel_size, row_tile_num))
+        self.requantizer.fabricate((self._w_parallel_size, n_logical))
+
+    @torch.no_grad()
+    @torch.compile(dynamic=True)
+    def matmul(
+        self,
+        input: Tensor,
+        weight: Tensor,
+        bias: Tensor | None,
+        rescale_multiplier: Tensor,
+        rescale_rshift: Tensor,
+        output_zero_point: Tensor | None,
+    ) -> Tensor:
+        """Execute one integer matrix multiply.
+
+        Args:
+            input: Integer activation of shape ``[..., M, K]``.
+            weight: Integer weight of shape ``[..., N, K]``.
+            bias: Optional integer bias of shape ``[..., N]``.
+            rescale_multiplier: Per-output fixed-point multiplier.
+            rescale_rshift: Per-output right-shift amount.
+            output_zero_point: Optional output zero point.
+
+        Returns:
+            Integer output of shape ``[..., M, N]`` in ``input.dtype``.
+        """
+        n_logical = weight.shape[-2]
+        x_dtype = input.dtype
+
+        if self.training:
+            self.xbar.fabricate(self._organize_w(weight))
+
+        x = self._organize_x(input)
+
+        if not self.training and self._x_shape_cached != x.shape:
+            self._x_shape_cached = x.shape
+            sa_dim = self._x_shape_cached[-3]
+            batch_m_prod = math.prod(self._x_shape_cached[:-6])
+            self._serial_op_num = batch_m_prod * sa_dim // max(self._w_parallel_size, 1)
+
+        x_slice_radix = self._x_slice_radix()
+        w_slice_radix = self._w_slice_radix()
+
+        # Shape: [..., M, Tc, Tr=1, Sa, Sw=1, row_num] -> [..., M, Tc, Tr, Sa, Sw, data_num]
+        y = self.xbar.vec_mat_mul(x)
+        # Shape: [..., M, Tc, Tr, Sa, Sw, data_num] -> [..., M, Tc, Tr, Sw, data_num]
+        y = self.sa_shift_adder.operate(y, x_slice_radix, dim=-3)
+        # Shape: [..., M, Tc, Tr, Sw, data_num] -> [..., M, Tc, Tr, data_num]
+        y = self.sw_shift_adder.operate(y, w_slice_radix, dim=-2)
+        # Shape: [..., M, Tc, Tr, data_num] -> [..., M, Tr, data_num]
+        y = self.col_accumulator.operate(y, dim=-3)
+        # Shape: [..., M, Tr, data_num] -> [..., M, Tr * data_num] -> [..., M, N]
+        y = y.flatten(start_dim=-2)[..., :n_logical]
+        if bias is not None:
+            y = y + bias
+
+        y = self.requantizer.operate(y, rescale_multiplier, rescale_rshift, output_zero_point)
+        return y.to(x_dtype)

@@ -129,7 +129,7 @@ class McsSarAdcConfig(ADCConfig):
         self._require_nonneg(self.area_per_inst__um2, "area_per_inst__um2")
 
 
-@ADC.register_config(McsSarAdcConfig)
+@ADC.register_key(McsSarAdcConfig)
 class McsSarAdc(ADC):
     """V_cm-based (MCS) differential SAR ADC.
 

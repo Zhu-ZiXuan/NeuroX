@@ -12,7 +12,7 @@ from dataclasses import dataclass
 import torch
 import torch.nn as nn
 
-from neurox.common.config_dispatch import ConfigDispatchMixin
+from neurox.common.registry_dispatch import RegistryDispatchMixin
 from neurox.common.validate import ValidateMixin
 from neurox.profiler import ProfiledModule
 
@@ -46,7 +46,7 @@ class TIAConfig(ValidateMixin):
         self._require_nonneg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
-class TIA(nn.Module, ProfiledModule, ConfigDispatchMixin["TIAConfig", "TIA"], ABC):
+class TIA(nn.Module, ProfiledModule, RegistryDispatchMixin[type["TIAConfig"], "TIA"], ABC):
     """Abstract base for transimpedance-amp clamp drivers."""
 
     def __init__(
@@ -72,7 +72,7 @@ class TIA(nn.Module, ProfiledModule, ConfigDispatchMixin["TIAConfig", "TIA"], AB
         dtype: torch.dtype,
     ) -> TIA:
         """Build the concrete impl registered for ``type(cfg)``."""
-        impl = cls._lookup_impl(cfg)
+        impl = cls._lookup_impl(type(cfg))
         return impl(cfg=cfg, name=name, T__K=T__K, dtype=dtype)
 
     @property

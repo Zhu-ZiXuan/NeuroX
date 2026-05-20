@@ -31,6 +31,41 @@ encoding = "true_form"
 digit_num = 4
 
 
+[macro]
+_neurox_type = "InterXbarSliceMacroConfig"
+
+# --- Slice counts ---
+w_slice_num = 1
+x_slice_num = 4
+
+# --- Slice encodings ---
+w_encoding = "true_form"
+
+[macro.col_accumulator_cfg]
+bit_width = 32
+area_per_inst__um2 = 60.0
+leakage_per_inst__uW = 1.0
+latency_per_op__ns = 0.5
+energy_per_op__fJ = 50.0
+
+[macro.sa_shift_adder_cfg]
+bit_width = 32
+area_per_inst__um2 = 75.0
+leakage_per_inst__uW = 1.5
+latency_per_op__ns = 0.5
+energy_per_op__fJ = 80.0
+
+[macro.sw_shift_adder_cfg]
+bit_width = 32
+area_per_inst__um2 = 75.0
+leakage_per_inst__uW = 1.5
+latency_per_op__ns = 0.5
+energy_per_op__fJ = 80.0
+
+[macro.requantizer_cfg]
+bit_width = 32
+
+
 [xbar]
 
 # --- Tile size ---

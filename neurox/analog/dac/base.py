@@ -9,7 +9,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
-from neurox.common.config_dispatch import ConfigDispatchMixin
+from neurox.common.registry_dispatch import RegistryDispatchMixin
 from neurox.common.validate import ValidateMixin
 from neurox.profiler import ProfiledModule
 
@@ -25,7 +25,7 @@ class DACConfig(ValidateMixin):
         pass
 
 
-class DAC(nn.Module, ProfiledModule, ConfigDispatchMixin["DACConfig", "DAC"], ABC):
+class DAC(nn.Module, ProfiledModule, RegistryDispatchMixin[type["DACConfig"], "DAC"], ABC):
     """Abstract base class for DAC models."""
 
     def __init__(
@@ -51,7 +51,7 @@ class DAC(nn.Module, ProfiledModule, ConfigDispatchMixin["DACConfig", "DAC"], AB
         dtype: torch.dtype,
     ) -> DAC:
         """Build the concrete DAC model for ``type(cfg)``."""
-        impl = cls._lookup_impl(cfg)
+        impl = cls._lookup_impl(type(cfg))
         return impl(cfg=cfg, name=name, T__K=T__K, dtype=dtype)
 
     @property

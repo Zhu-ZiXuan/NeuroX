@@ -83,7 +83,7 @@ class TestStaticAggregation:
 
         # Expected contributors for the ideal-tile macro (no SAR ADC):
         # - col_accumulator: 60 um2 area, 1.0 uW leakage
-        # - w_shift_adder + x_shift_adder: 75 um2 each, 1.5 uW each
+        # - sw_shift_adder + sa_shift_adder: 75 um2 each, 1.5 uW each
         # - requantizer: 0 (TOML default)
         # - IdealXbar: 0 (no area in the bare XbarConfig)
         # - each inst_count is 1 for tile-fitting weight
@@ -99,8 +99,8 @@ class TestStaticAggregation:
         names = {m.qualified_name for m in macro.modules() if isinstance(m, ProfiledModule)}
         assert "model.fc1.macro.xbar" in names
         assert "model.fc1.macro.col_accumulator" in names
-        assert "model.fc1.macro.w_shift_adder" in names
-        assert "model.fc1.macro.x_shift_adder" in names
+        assert "model.fc1.macro.sw_shift_adder" in names
+        assert "model.fc1.macro.sa_shift_adder" in names
         assert "model.fc1.macro.requantizer" in names
 
     def test_collect_static_records(self) -> None:
@@ -111,7 +111,7 @@ class TestStaticAggregation:
         # Accumulator area = 60 * 1
         assert by_name["m.col_accumulator"].area__um2 == pytest.approx(60.0)
         # ShiftAdder leakage = 1.5 * 1
-        assert by_name["m.w_shift_adder"].leakage_power__uW == pytest.approx(1.5)
+        assert by_name["m.sw_shift_adder"].leakage_power__uW == pytest.approx(1.5)
 
 
 # ---------------------------------------------------------------------------

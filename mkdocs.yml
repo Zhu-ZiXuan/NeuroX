@@ -64,7 +64,7 @@ nav:
           - common:
               - Overview: dev/modules/common/README.md
               - config: dev/modules/common/config.md
-              - config_dispatch: dev/modules/common/config_dispatch.md
+              - registry_dispatch: dev/modules/common/registry_dispatch.md
               - load_dump: dev/modules/common/load_dump.md
               - nonideality: dev/modules/common/nonideality.md
               - physical_constant: dev/modules/common/physical_constant.md

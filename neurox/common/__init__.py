@@ -1,7 +1,6 @@
 """NeuroX common utilities."""
 
 from .config import Config, ConfigBuilder, ValidationError
-from .config_dispatch import ConfigDispatchMixin
 from .load_dump import (
     dataclass_from_dict,
     dataclass_from_file,
@@ -27,11 +26,12 @@ from .quant import (
     stochastic_floor_to_int,
     use_stochastic,
 )
+from .registry_dispatch import RegistryDispatchMixin
 
 __all__ = [
     "Config",
     "ConfigBuilder",
-    "ConfigDispatchMixin",
+    "RegistryDispatchMixin",
     "ELEM_CHARGE__C",
     "EPS_0__F_per_m",
     "K_BOLTZMANN__J_per_K",

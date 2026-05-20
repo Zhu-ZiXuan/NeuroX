@@ -1,15 +1,12 @@
-# Xbar Mapper Stack
+# Xbar Value-Domain Primitives
 
-This directory documents the current xbar-mapping stack.
+This directory documents the value-domain mapping primitives shared by every xbar macro mode.
 
-Current structure:
+## Public surface
 
-- `XbarMapper` owns one tiler, one x slicer, and one w slicer
-- `Tiler` handles geometry decomposition only
-- `Slicer` handles value decomposition only
-- `SimpleSlicer` uses direct digitise-then-group
+- `Slicer` ABC — decomposes integers into `[..., slice_num, digit_num]`.
+  - `SerialSlicer` — `Sa` path; `digit_num == 1`.
+  - `SimpleSlicer` — `Sw` path; slice-first-then-digitize.
+- `SlicingPlan` — frozen dataclass carrying decomposed values, slice / digit positional weights, and the algorithm-side value range.
 
-See also:
-
-- `docs/dev/architecture/mapping.md`
-- `docs/dev/adr/ADR-0001-config-dispatch-and-owned-construction.md`
+For macro-level geometric chunking (tile), use the chunk-and-pad staticmethod on the xbar macro abstract base — see [`docs/dev/architecture/xbar_macro.md`](../../../architecture/xbar_macro.md).

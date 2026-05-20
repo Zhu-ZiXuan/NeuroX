@@ -5,7 +5,7 @@ This directory documents the `neurox.common` package — the lowest-level utilit
 `neurox.common` carries no domain logic. It provides:
 
 - config base classes and config I/O (`config.py`, `load_dump.py`)
-- the polymorphic-family dispatch mixin (`config_dispatch.py`)
+- the polymorphic-family dispatch mixin (`registry_dispatch.py`)
 - shared physical constants (`physical_constant.py`)
 - shared non-ideality kernels (`nonideality.py`)
 - shared quantisation helpers (`quant.py`)

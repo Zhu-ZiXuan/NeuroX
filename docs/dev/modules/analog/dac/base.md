@@ -2,7 +2,7 @@
 
 ## Current role
 
-`DAC` is the abstract base for the DAC family. It carries only the system-level scaffolding — the per-family registry inherited from `ConfigDispatchMixin[DACConfig, DAC]`, profiler registration, and the family-level `from_config(...)` classmethod.
+`DAC` is the abstract base for the DAC family. It carries only the system-level scaffolding — the per-family registry inherited from `RegistryDispatchMixin[type[DACConfig], DAC]`, profiler registration, and the family-level `from_config(...)` classmethod.
 
 `DACConfig` is the empty marker config used as the polymorphic-field type on parent configs.
 
@@ -29,4 +29,4 @@ Concrete subclasses must implement:
 See also:
 
 - `docs/dev/architecture/config_and_construction.md`
-- `docs/dev/modules/common/config_dispatch.md`
+- `docs/dev/modules/common/registry_dispatch.md`

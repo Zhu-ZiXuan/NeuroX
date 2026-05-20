@@ -126,7 +126,7 @@ class SarAdcMonoConfig(ADCConfig):
         self._require_nonneg(self.area_per_inst__um2, "area_per_inst__um2")
 
 
-@ADC.register_config(SarAdcMonoConfig)
+@ADC.register_key(SarAdcMonoConfig)
 class SarAdcMono(ADC):
     """Monotonic (Set-and-Down) differential SAR ADC — placeholder.
 

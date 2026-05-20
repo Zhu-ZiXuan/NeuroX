@@ -226,7 +226,7 @@ A "lower module" is one that the other side imports / constructs / owns; an "upp
 
 ### What lower-module docs must not say
 
-- The name of any specific upper module (`CircuitCore1T1R`, `XbarMacro`, `OffsetSwitchCapMuxAdcReadOut`, …).
+- The name of any specific upper module.
 - Sentences of the form "is used by X", "is owned by X", "is the default in the Y path".
 - Workflow descriptions that step through an upper module's lifecycle.
 

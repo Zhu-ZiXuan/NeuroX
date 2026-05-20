@@ -68,11 +68,11 @@ Families with multiple concrete implementations use:
 - one concrete config class per concrete implementation
 - one concrete implementation class per concrete config
 
-Each concrete implementation registers its config type on the family base via `ConfigDispatchMixin`.
+Each concrete implementation registers its config type on the family base via `RegistryDispatchMixin[type[<Family>Config], <Family>]`.
 
-The base class then exposes a family-specific `from_config(...)` classmethod. `ConfigDispatchMixin` does not provide `from_config(...)`; it only provides:
+The base class exposes a family-specific `from_config(...)` classmethod that materialises the registry key from a config instance (`type(cfg)`) and instantiates the impl. `RegistryDispatchMixin` does not provide `from_config(...)`; it only provides:
 
-- `register_config(...)`
+- `register_key(...)`
 - `_lookup_impl(...)`
 
 This keeps dispatch generic while preserving explicit family-level runtime arguments.
@@ -98,17 +98,16 @@ Example:
 
 The project does **not** force one global `from_config(...)` signature across all families.
 
-## Current mixin rule
+## Mixin rule
 
-`ConfigDispatchMixin[CfgT, ImplT]` is generic and only solves the registry / lookup problem.
+`RegistryDispatchMixin[KeyT, ImplT]` is generic and only solves the registry / lookup problem. For config-class-keyed dispatch the family parametrises it as `RegistryDispatchMixin[type[<Family>Config], <Family>]`; for string-discriminator dispatch (e.g. Transcoder) the family parametrises it as `RegistryDispatchMixin[<DiscriminatorLiteral>, <Family>]`.
 
-Each family still declares its own:
+Each family declares its own:
 
-- `_config_registry`
-- `from_config(...)`
+- factory classmethod (`from_config(...)`, `create(...)`, etc.)
 - family-specific constructor rules
 
-This keeps static typing precise without turning construction into a global black box.
+The registry attribute `_impl_registry` is materialised automatically by the mixin per family root; families do not declare it by hand.
 
 ## Config validation
 

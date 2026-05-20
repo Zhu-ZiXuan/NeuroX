@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from neurox.mapper import SignedDigitTranscoder
+from neurox.mapper.transcoder import CanonicalTranscoder
 
 
 def _canonical_representable_range(radix: int, digits: int) -> tuple[int, int]:
@@ -16,7 +16,7 @@ class TestCanonicalEncoder:
 
         assert min_val <= int(x.item()) <= max_val, "测试输入超出目标表示范围"
 
-        tc = SignedDigitTranscoder("canonical", radix=4, digit_num=4)
+        tc = CanonicalTranscoder(radix=4, digit_num=4)
         encoded = tc.encode(x)
         expected = torch.tensor([[-1, 0, 0, 1]], dtype=torch.int32)
 
@@ -30,7 +30,7 @@ class TestCanonicalEncoder:
 
         assert torch.all((x >= min_val) & (x <= max_val)), "测试输入超出目标表示范围"
 
-        tc = SignedDigitTranscoder("canonical", radix=radix, digit_num=digits)
+        tc = CanonicalTranscoder(radix=radix, digit_num=digits)
         encoded = tc.encode(x)
         decoded_x = tc.decode(encoded)
         assert torch.equal(decoded_x, x), "负数或零的编解码失败"
@@ -42,7 +42,7 @@ class TestCanonicalEncoder:
         min_val, max_val = _canonical_representable_range(radix=radix, digits=digits)
         x = torch.randint(min_val, max_val + 1, size=(1000,), dtype=torch.int32)
 
-        tc = SignedDigitTranscoder("canonical", radix=radix, digit_num=digits)
+        tc = CanonicalTranscoder(radix=radix, digit_num=digits)
         encoded = tc.encode(x)
         decoded_x = tc.decode(encoded)
 
@@ -56,7 +56,7 @@ class TestCanonicalEncoder:
         min_val, max_val = _canonical_representable_range(radix=radix, digits=digits)
         x = torch.randint(min_val, max_val + 1, size=shape, dtype=torch.int32)
 
-        tc = SignedDigitTranscoder("canonical", radix=radix, digit_num=digits)
+        tc = CanonicalTranscoder(radix=radix, digit_num=digits)
         encoded = tc.encode(x)
 
         expected_shape = (*shape, digits)
@@ -72,7 +72,7 @@ class TestCanonicalEncoder:
         min_val, max_val = _canonical_representable_range(radix=radix, digits=digits)
         x = torch.randint(min_val, max_val + 1, size=(128, 128), dtype=torch.int32)
 
-        tc = SignedDigitTranscoder("canonical", radix=radix, digit_num=digits)
+        tc = CanonicalTranscoder(radix=radix, digit_num=digits)
 
         def encode_fn(t: torch.Tensor) -> torch.Tensor:
             return tc.encode(t)

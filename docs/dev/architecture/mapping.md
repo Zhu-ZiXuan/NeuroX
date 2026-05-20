@@ -1,61 +1,29 @@
 # Mapping Architecture
 
-This document records the current mapping split below `macro`.
+This document records the value-domain primitives that every xbar macro mode reuses. Higher-level macro structure (organize / aggregate / mode subclass) lives in [`xbar_macro.md`](xbar_macro.md).
 
-## Layer split
+## Layered split
 
-Mapping is divided into:
+- **Transcoder** — pure integer ↔ digit-list math. One concrete subclass per encoding policy (true-form, radix-complement, canonical signed-digit), all built from the same `Transcoder` ABC.
+- **Slicer** — decomposes an integer tensor into a trailing `[..., slice_num, digit_num]` pair. The activation path uses a slicer with `digit_num == 1` and a hard-coded unsigned true-form encoding; the weight path uses a slice-first-then-digitise slicer whose encoding is configurable.
 
-- `macro`: orchestrates xbar + mapper + digital aggregation
-- `mapper`: owns complete mapping semantics
-- `tiler`: geometry-only decomposition
-- `slicer`: value decomposition to `[..., slice_num, digit_num]`
-- `transcoder`: pure digit math
-- `xbar`: primitive analog VMM with primitive capabilities
+## Slicer contract
 
-## Key rules
+Every slicer returns a `SlicingPlan` dataclass with trailing-2 axes `[slice_num, digit_num]`. The runtime interface is driven by three keyword arguments:
 
-### Macro owns one mapper
+- `digit_count` — xbar-internal digit count per cell.
+- `digit_radix` — xbar-internal per-digit radix.
+- `digit_range` — primitive cell value range.
 
-The macro does not separately own an `x_mapper` and a `w_mapper`. Instead, one mapper owns:
+`value_range` and `slice_radix` are slicer *outputs*, not inputs.
 
-- one shared tiler
-- one x slicer
-- one w slicer
+## Encoding policy as a string discriminator
 
-### Tiling and slicing are separate
+Configs and TOML carry the encoding choice as the string discriminator `"true_form" | "complement" | "canonical"`. Materialise the corresponding subclass through `Transcoder.create(encoding, *, radix, digit_num)`. The activation-side slicer takes no encoding parameter — its primitive grid is unsigned, so the encoding is fixed to true-form.
 
-- tiling handles matrix decomposition / padding / tile layout
-- slicing handles value decomposition
+## Naming convention
 
-They are distinct steps, but both are part of mapping, so the mapper owns both through composition.
+- Slicer / transcoder / macro APIs use `value_range` for the algorithm-side complete-value range.
+- Xbar uses `digit_range` for the primitive single-cell range.
 
-### Slicer contract
-
-Every slicer returns values with trailing shape:
-
-- `[..., slice_num, digit_num]`
-
-The generic slicer interface is driven by:
-
-- `digit_count`
-- `digit_radix`
-- `digit_range`
-
-`value_range` is a slicer output, not a slicer input.
-
-### SimpleSlicer
-
-`SimpleSlicer` is direct digitise-then-group:
-
-1. encode the original integer into `slice_num * digit_count` digits
-2. reshape into `[..., slice_num, digit_count]`
-
-There is no outer / inner two-stage transcoder in the current design.
-
-### Naming
-
-- mapper / macro / transcoder use `value_range`
-- xbar uses `digit_range`
-
-This keeps complete-value range separate from primitive-digit capability.
+This keeps the algorithm-side range distinct from the primitive-cell range.

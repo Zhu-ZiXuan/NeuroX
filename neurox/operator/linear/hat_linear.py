@@ -82,7 +82,7 @@ class HATLinear(nn.Linear):
         and STE behavior.  The macro, however, must always re-fabricate
         from the *current* weight (which is changing every optimizer
         step), so we keep it in training mode regardless — that branch
-        of ``XbarMacro.matmul`` is what re-derives the physical state
+        of the macro's ``matmul`` is what re-derives the physical state
         from the freshly-updated weight tensor.
         """
         super().train(mode)

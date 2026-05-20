@@ -59,7 +59,7 @@ def compute_g_on__uS(nmos_cfg: NMOSConfig, core_cfg: CircuitCore1T1RConfig, v_dd
     noise-free scalar formula evaluated at ``T = T_ref``::
 
         β  = μ0 · C_ox · (W / L)
-        g_on = β · (V_DD,WL − V_th0)
+        g_on = β · (V_DD,WL - V_th0)
 
     Args:
         nmos_cfg: NMOS PDK process / spec configuration.
@@ -91,7 +91,7 @@ def solve_cell_current__uA(
 
     Solves the 1-D non-linear KCL
 
-        g_rram · sinh(α · (V_BL − V_X)) / α = g_on · V_X
+        g_rram · sinh(α · (V_BL - V_X)) / α = g_on · V_X
 
     by Newton iteration starting from ``V_X = V_BL / 2``.  ``α = 0``
     short-circuits to the closed-form ohmic solution.
@@ -157,7 +157,7 @@ def invert_to_g_rram__uS(
 
     Inverts the cascade in one step: ``V_X`` is fixed by the NMOS
     branch (``V_X = I/g_on``), then ``g_rram`` follows directly from
-    the RRAM I-V evaluated at ``V_rram = V_BL − V_X``.
+    the RRAM I-V evaluated at ``V_rram = V_BL - V_X``.
     """
     v_x = i_target__uA / g_on__uS
     v_rram = v_bl__V - v_x

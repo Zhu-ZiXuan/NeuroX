@@ -67,5 +67,5 @@ Files under `neurox/config/process/` carry only physical parameters:
 See also:
 
 - `config.md`
-- `config_dispatch.md`
+- `registry_dispatch.md`
 - `docs/dev/architecture/config_and_construction.md`

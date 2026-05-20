@@ -1,9 +1,13 @@
-"""Logical crossbar macros."""
+"""Logical crossbar macros.
+
+See also:
+    docs/dev/modules/macro/README.md
+"""
 
 from .base import NeuroxMacroQuantMatMul
-from .xbar_macro import XbarMacro
+from .ideal import IdealMacro
 
 __all__ = [
+    "IdealMacro",
     "NeuroxMacroQuantMatMul",
-    "XbarMacro",
 ]

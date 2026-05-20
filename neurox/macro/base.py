@@ -1,4 +1,10 @@
-"""Protocol definitions for NeuroX macro models."""
+"""Cross-macro Protocol shared by every concrete macro implementation.
+
+See also:
+    docs/dev/modules/macro/README.md
+"""
+
+from __future__ import annotations
 
 from typing import Protocol
 
@@ -6,7 +12,7 @@ from torch import Tensor
 
 
 class NeuroxMacroQuantMatMul(Protocol):
-    """Protocol for macros that perform quantized-integer matrix multiply.
+    """Structural contract every macro impl satisfies.
 
     Attributes:
         w_value_range: Inclusive integer weight range accepted by the macro.
@@ -29,10 +35,10 @@ class NeuroxMacroQuantMatMul(Protocol):
     def output_rescale_factor(self) -> float: ...
 
     def fabricate(self, weight: Tensor) -> None:
-        """Prepare the macro for one logical weight tensor.
+        """Prepare the macro for one logical weight tensor (re-callable).
 
         Args:
-            weight: Integer weight tensor. Shape: [..., N, K].
+            weight: Integer weight tensor. Shape: ``[..., N, K]``.
         """
         ...
 
@@ -48,14 +54,14 @@ class NeuroxMacroQuantMatMul(Protocol):
         """Execute one integer matrix multiply.
 
         Args:
-            input: Integer activation tensor. Shape: [..., M, K].
-            weight: Integer weight tensor. Shape: [..., N, K].
-            bias: Optional integer bias tensor. Shape: [..., N].
+            input: Integer activation tensor. Shape: ``[..., M, K]``.
+            weight: Integer weight tensor. Shape: ``[..., N, K]``.
+            bias: Optional integer bias tensor. Shape: ``[..., N]``.
             rescale_multiplier: Per-output fixed-point multiplier.
             rescale_rshift: Per-output right-shift amount.
             output_zero_point: Optional output zero point.
 
         Returns:
-            Integer output tensor. Shape: [..., M, N].
+            Integer output tensor. Shape: ``[..., M, N]``.
         """
         ...

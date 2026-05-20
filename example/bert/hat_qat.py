@@ -3,7 +3,7 @@
 Replaces every ``nn.Linear`` in the BERT model — Q/K/V/output
 attention projections, FFN intermediate / output, pooler, and the
 classification head — with ``HATLinear`` bound to a fresh
-``XbarMacro`` instance per layer backed by the lossless
+xbar macro instance per layer backed by the lossless
 :class:`IdealXbar` tile derived from the physical chip.  Embeddings,
 LayerNorm, GELU, and the attention softmax stay in float (NeuroX
 doesn't touch them).

@@ -9,7 +9,7 @@ from __future__ import annotations
 import torch
 from torch import Tensor
 
-from neurox.mapper.transcoder import Encoding, SignedDigitTranscoder
+from neurox.mapper.transcoder import Encoding, Transcoder
 
 from .base import Slicer, SlicingPlan
 
@@ -17,16 +17,16 @@ from .base import Slicer, SlicingPlan
 class SimpleSlicer(Slicer):
     """Direct digitise-then-group signed-digit decomposer.
 
-    Strategy: encode the input into a single radix-``digit_radix``
-    digit string of length ``slice_num * digit_count``, then
-    unflatten the trailing axis into ``[slice_num, digit_count]``.
+    Strategy: encode the input into a single radix-``digit_radix`` digit
+    string of length ``slice_num * digit_count``, then unflatten the
+    trailing axis into ``[slice_num, digit_count]``. The encoding
+    choice is forwarded to the transcoder; digit-grid compatibility
+    with the xbar's primitive cells is a caller-side invariant.
 
     Args:
         slice_num: Number of macro-external xbar-word slices
-            (shape shorthand ``Sw``).  Any ``slice_num >= 1`` is
-            supported.
-        encoding: Signed-digit encoding policy for the unified
-            digit string.
+            (shape shorthand ``Sw``). Any ``slice_num >= 1`` is supported.
+        encoding: Signed-digit encoding policy for the unified digit string.
     """
 
     def __init__(
@@ -122,14 +122,14 @@ class SimpleSlicer(Slicer):
         *,
         digit_count: int,
         digit_radix: int,
-    ) -> SignedDigitTranscoder:
+    ) -> Transcoder:
         # One transcoder covers the entire ``slice_num * digit_count``
         # digit string; the slicer just regroups its output.
         if digit_count < 1:
             raise ValueError(f"require: digit_count ({digit_count}) >= 1")
         if digit_radix < 2:
             raise ValueError(f"require: digit_radix ({digit_radix}) >= 2")
-        return SignedDigitTranscoder(
+        return Transcoder.create(
             self._encoding,
             radix=digit_radix,
             digit_num=self._slice_num * digit_count,

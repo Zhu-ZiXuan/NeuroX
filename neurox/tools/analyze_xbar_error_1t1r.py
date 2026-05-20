@@ -16,10 +16,11 @@ from typing import Any
 
 import torch
 
-from neurox.analog import Driver, GeneralDAC, OpAmpTIA, OpAmpTIAConfig
+from neurox.analog import Driver
 from neurox.analog.adc import GeneralADC, GeneralADCConfig
-from neurox.analog.dac import GeneralDACConfig
+from neurox.analog.dac import GeneralDAC, GeneralDACConfig
 from neurox.analog.driver import DriverConfig
+from neurox.analog.tia import OpAmpTIA, OpAmpTIAConfig
 from neurox.common import dict_configs_from_file, dict_from_file
 from neurox.common.nonideality import (
     StateDependentGammaConfig,
@@ -29,8 +30,7 @@ from neurox.common.nonideality import (
 from neurox.device import NMOS, RRAM
 from neurox.device.nmos import NMOSConfig
 from neurox.device.rram import RRAMConfig
-from neurox.xbar import IdealXbar, Offset1T1RXbar, Offset1T1RXbarConfig
-from neurox.xbar.base import Xbar
+from neurox.xbar import IdealXbar, Offset1T1RXbar, Offset1T1RXbarConfig, Xbar
 
 logger = logging.getLogger(__name__)
 
@@ -193,8 +193,8 @@ def compare_against_ideal(
     col = physical.col_num
     row = physical.row_num
     # Algorithm-facing signed-weight bound — symmetric signed-digit
-    # envelope ``r^D - 1`` (matches ``XbarMacro.w_value_range`` / the
-    # transcoder's natural output range).
+    # envelope ``r^D - 1`` (matches the macro's ``w_value_range`` /
+    # the transcoder's natural output range).
     w_max = physical.w_digit_radix**physical.w_digit_count - 1
     x_max = physical.x_range[1]
     adc_levels = 1 << physical.config.adc_bits

@@ -7,7 +7,7 @@ End-to-end HAT pipeline (no pt2e):
    models that have BN).
 3. ``replace_for_hat`` swaps every supported ``nn.Linear`` /
    ``nn.Conv2d`` for its HAT counterpart, bound to a fresh
-   ``XbarMacro`` instance per layer backed by the lossless
+   xbar macro instance per layer backed by the lossless
    :class:`IdealXbar` tile derived from the physical chip.  Other
    modules (ReLU, MaxPool, Flatten, ...) stay in float.
 4. Fine-tune with the ideal macro in the forward pass — same ADC

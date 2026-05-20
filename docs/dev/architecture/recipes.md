@@ -42,7 +42,7 @@ Adding a new ADC, DAC, TIA, or ReadOut implementation. Lives under the family's 
 
 1. [config]      Define `<Name><Family>Config(<Family>Config)` extending the family base config → [`config_and_construction.md` §Family bases](config_and_construction.md)
 2. [validate]    `validate_<group>()` methods in the new config → [`code_style.md` §Configuration validation](code_style.md)
-3. [class]       `class <Name><Family>(<Family>)`; register via `@<Family>.register_config(<Name><Family>Config)` → [`config_and_construction.md` §Family bases](config_and_construction.md), [`ADR-0001`](docs/dev/adr/ADR-0001-config-dispatch-and-owned-construction.md)
+3. [class]       `class <Name><Family>(<Family>)`; register via `@<Family>.register_key(<Name><Family>Config)` → [`config_and_construction.md` §Family bases](config_and_construction.md), [`ADR-0001`](docs/dev/adr/ADR-0001-config-dispatch-and-owned-construction.md)
 4. [init]        Use the family-wide signature (`cfg, name, T__K, dtype` + family-specific extras like `stochastic`); call `super().__init__(...)` → [`config_and_construction.md` §Family-wide init](config_and_construction.md)
 5. [fabricate]   Implement `fabricate(self, shape: tuple[int, ...])`; end with `self._record_inst_count(shape)`. Family-specific structural facts go through `__init__`, not `fabricate` → [`fabrication_lifecycle.md` §Canonical signature](fabrication_lifecycle.md)
 6. [primary]     Implement the family primary method (`convert`, `solve_dc`, `readout`, …) → [`naming_conventions.md` §Primary-method names](naming_conventions.md)
@@ -55,22 +55,23 @@ Adding a new ADC, DAC, TIA, or ReadOut implementation. Lives under the family's 
 Creating a polymorphic-family namespace (sibling of `ADC`, `DAC`, `TIA`, `ReadOut`). Rare.
 
 1. [adr]         Write an ADR explaining why the new family is needed and what alternatives were rejected → [`docs/dev/adr/README.md`](docs/dev/adr/README.md)
-2. [base-config] `<Family>Config` frozen dataclass (often empty, a marker for `ConfigDispatchMixin`) → [`config_and_construction.md` §Family bases](config_and_construction.md)
-3. [base-class]  `class <Family>(nn.Module, ProfiledModule, ConfigDispatchMixin["<Family>Config", "<Family>"], ABC)` with `from_config(...)` classmethod, family-wide `__init__` signature, and abstract primary methods → [`config_and_construction.md` §Family bases](config_and_construction.md), [`ADR-0001`](docs/dev/adr/ADR-0001-config-dispatch-and-owned-construction.md)
+2. [base-config] `<Family>Config` frozen dataclass (often empty, a marker for the dispatch registry) → [`config_and_construction.md` §Family bases](config_and_construction.md)
+3. [base-class]  `class <Family>(nn.Module, ProfiledModule, RegistryDispatchMixin[type["<Family>Config"], "<Family>"], ABC)` with `from_config(...)` classmethod, family-wide `__init__` signature, and abstract primary methods → [`config_and_construction.md` §Family bases](config_and_construction.md), [`ADR-0001`](docs/dev/adr/ADR-0001-config-dispatch-and-owned-construction.md)
 4. [contracts]   Declare abstract `fabricate`, the primary method (`convert` / `solve_dc` / `readout` / …), `area_per_inst__um2`, `leakage_per_inst__uW`, `latency_per_op__ns` → [`profiler_and_ppa.md` §Required interface](profiler_and_ppa.md), [`naming_conventions.md` §Primary-method names](naming_conventions.md)
 5. [docs-base]   Write `docs/dev/modules/<path>/base.md` (or family `README.md`) describing the protocol surface in abstract terms (no specific consumer names) → [`code_style.md` §Documentation dependency direction](code_style.md)
 6. [first-impl]  Add at least one concrete impl (see "Add a new concrete member" recipe above)
 
-## Add a new mapper-layer module (slicer, tiler, transcoder, mapper)
+## Add a new value-domain primitive (slicer, transcoder)
 
-These do not form polymorphic families with `ConfigDispatchMixin`; they are abstract bases with direct concrete subclasses.
+Slicer is an abstract base with direct concrete subclasses (callers instantiate the concrete class by name). Transcoder uses `RegistryDispatchMixin[Encoding, "Transcoder"]` so concrete subclasses self-register on a string discriminator and `Transcoder.create(encoding, ...)` dispatches.
 
-1. [base]        Abstract class (`Slicer`, `Tiler`, `Transcoder`, `XbarMapper`) declares the family's runtime kwarg trio and the primary method's signature → [`mapping.md`](mapping.md)
-2. [class]       Concrete subclass; constructor takes its static policy parameters explicitly (encoding, slice_num, …) → [`mapping.md`](mapping.md)
-3. [primary]     Implement the primary method (`slice`, `tile_w` / `tile_x`, `encode` / `decode`, `map_w` / `map_x`) → [`naming_conventions.md` §Primary-method names](naming_conventions.md)
-4. [output]      Use `*Plan` for static geometry returns, `*Result` for algorithm results, raw `Tensor` for one-tensor returns → [`naming_conventions.md` §Class suffixes](naming_conventions.md)
-5. [export]      Owning package `__init__.py` exports the concrete class + any `*Plan` / `*Result` types in its public type annotations → [`naming_conventions.md` §Class suffixes](naming_conventions.md)
-6. [doc]         Write `docs/dev/modules/mapper/.../<name>.md` → [`code_style.md` §Module docs](code_style.md)
+1. [base]        Abstract class (`Slicer`, `Transcoder`) declares the family's runtime kwarg trio and the primary method's signature → [`mapping.md`](mapping.md)
+2. [class]       Concrete subclass; constructor takes its static policy parameters explicitly (radix, slice_num, …) → [`mapping.md`](mapping.md)
+3. [register]    For a registry-dispatched family (Transcoder): add `@<Family>.register_key("<discriminator>")` on the concrete subclass; for direct-instantiation families (Slicer): omit this step → [`docs/dev/modules/common/registry_dispatch.md`](docs/dev/modules/common/registry_dispatch.md)
+4. [primary]     Implement the primary method (`slice`, `encode` / `decode`) → [`naming_conventions.md` §Primary-method names](naming_conventions.md)
+5. [output]      Use `*Plan` for static geometry returns, `*Result` for algorithm results, raw `Tensor` for one-tensor returns → [`naming_conventions.md` §Class suffixes](naming_conventions.md)
+6. [export]      Owning package `__init__.py` exports the concrete class + any `*Plan` / `*Result` types in its public type annotations → [`naming_conventions.md` §Class suffixes](naming_conventions.md)
+7. [doc]         Write `docs/dev/modules/mapper/.../<name>.md` → [`code_style.md` §Module docs](code_style.md)
 
 ## Add a new operator
 

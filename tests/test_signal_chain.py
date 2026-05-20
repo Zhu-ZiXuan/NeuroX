@@ -16,11 +16,9 @@ from neurox.analog import (
     AnalogMuxConfig,
     Decoder,
     DecoderConfig,
-    GeneralDAC,
-    GeneralDACConfig,
-    OpAmpTIA,
-    OpAmpTIAConfig,
 )
+from neurox.analog.dac import GeneralDAC, GeneralDACConfig
+from neurox.analog.tia import OpAmpTIA, OpAmpTIAConfig
 from neurox.device import NMOSConfig
 
 

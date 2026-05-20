@@ -142,17 +142,24 @@ def dataclass_from_dict(cls: type[T], data: Mapping[str, Any]) -> T:
     """Build a dataclass instance from a mapping.
 
     Nested dataclass and ``Enum`` fields are resolved recursively.
-    Unknown keys are ignored.
+    A top-level ``_neurox_type`` discriminator dispatches to the named
+    subclass of ``cls``.  Unknown keys are ignored.
 
     Args:
         cls: Target frozen dataclass type.
         data: Source mapping.
 
     Returns:
-        Instance of ``cls``.
+        Instance of ``cls`` (or its named subclass).
     """
     if not _is_dataclass_type(cls):
         raise TypeError(f"{cls.__name__} is not a dataclass type")
+    type_name = data.get(_TYPE_DISCRIMINATOR)
+    if type_name is not None:
+        concrete = _resolve_concrete_dataclass(cls, type_name)
+        if concrete is not cls:
+            filtered = {k: v for k, v in data.items() if k != _TYPE_DISCRIMINATOR}
+            return dataclass_from_dict(concrete, filtered)  # type: ignore[return-value]
     hints = get_type_hints(cls)
     names = _dataclass_field_names(cls)
     kwargs: dict[str, Any] = {}

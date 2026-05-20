@@ -68,7 +68,7 @@ class GeneralDACConfig(DACConfig):
         self._require_nonneg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
-@DAC.register_config(GeneralDACConfig)
+@DAC.register_key(GeneralDACConfig)
 class GeneralDAC(DAC):
     """General DAC model."""
 

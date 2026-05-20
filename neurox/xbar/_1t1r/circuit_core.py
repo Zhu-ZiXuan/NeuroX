@@ -12,15 +12,13 @@ import torch.nn as nn
 from torch import Tensor
 
 from neurox.analog import (
-    DAC,
-    TIA,
-    DACConfig,
     Decoder,
     DecoderConfig,
     Driver,
     DriverConfig,
-    TIAConfig,
 )
+from neurox.analog.dac import DAC, DACConfig
+from neurox.analog.tia import TIA, TIAConfig
 from neurox.common.validate import ValidateMixin
 from neurox.device import NMOS, RRAM, NMOSConfig, RRAMConfig
 
@@ -131,16 +129,27 @@ class CircuitCore1T1RConfig(ValidateMixin):
 
     def validate_layout_pitch(self) -> None:
         for field in (
-            "row_first_space__um", "row_cell_space__um",
-            "col_first_space__um", "col_cell_space__um",
+            "row_first_space__um",
+            "row_cell_space__um",
+            "col_first_space__um",
+            "col_cell_space__um",
         ):
             self._require_pos(getattr(self, field), field)
 
     def validate_wire_segments(self) -> None:
         for field in (
-            "bl_first_r__MOhm", "bl_first_c__fF", "bl_segment_r__MOhm", "bl_segment_c__fF",
-            "sl_first_r__MOhm", "sl_first_c__fF", "sl_segment_r__MOhm", "sl_segment_c__fF",
-            "wl_first_r__MOhm", "wl_first_c__fF", "wl_segment_r__MOhm", "wl_segment_c__fF",
+            "bl_first_r__MOhm",
+            "bl_first_c__fF",
+            "bl_segment_r__MOhm",
+            "bl_segment_c__fF",
+            "sl_first_r__MOhm",
+            "sl_first_c__fF",
+            "sl_segment_r__MOhm",
+            "sl_segment_c__fF",
+            "wl_first_r__MOhm",
+            "wl_first_c__fF",
+            "wl_segment_r__MOhm",
+            "wl_segment_c__fF",
         ):
             self._require_pos(getattr(self, field), field)
 
@@ -509,7 +518,7 @@ class CircuitCore1T1R(nn.Module):
         # --- E_Cgd: Miller-coupled gate-drain cap ---
 
         # Combined WL + BL supply energy per cell:
-        #   E = C_gd · (V_WL^(1) + V_BL_clamp) · (V_WL^(1) + V_BL_clamp − V_X^(1))
+        #   E = C_gd · (V_WL^(1) + V_BL_clamp) · (V_WL^(1) + V_BL_clamp - V_X^(1))
         sum_voltage__V = v_wl_state1__V + v_clamp__V
         delta_v_miller__V = sum_voltage__V - v_x_node__V
         # Shape: [...]

@@ -136,7 +136,7 @@ class AnalogMux(nn.Module, ProfiledModule):
         v_pos_muxed__V = gain * v_pos__V
         v_neg_muxed__V = gain * v_neg__V
 
-        # CM: same sign on both legs. DM: +pos, −neg.
+        # CM: same sign on both legs. DM: +pos, -neg.
         zeros = torch.zeros_like(v_pos_muxed__V)
         n_cm__V = apply_gaussian(zeros, self.cfg.mux_noise_cm_sigma__V, enabled=self.cfg.enable_mux_noise_cm)
         v_pos_muxed__V = v_pos_muxed__V + n_cm__V

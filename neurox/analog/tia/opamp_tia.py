@@ -102,7 +102,7 @@ class OpAmpTIASnapshot:
     nmos_snapshot: NMOSSnapshot
 
 
-@TIA.register_config(OpAmpTIAConfig)
+@TIA.register_key(OpAmpTIAConfig)
 class OpAmpTIA(TIA):
     """Non-linear OpAmpTIA clamp driver."""
 
@@ -210,7 +210,7 @@ class OpAmpTIA(TIA):
     G_EFF_MAX__uS: float = -1e-6
 
     def _softclip_eval(self, v_out_lin__V: Tensor) -> tuple[Tensor, Tensor]:
-        """Smooth output-rail limiter ``c + h · tanh((x − c) / s)`` and its derivative.
+        """Smooth output-rail limiter ``c + h · tanh((x - c) / s)`` and its derivative.
 
         Args:
             v_out_lin__V: Pre-clip op-amp output [V].
@@ -265,7 +265,7 @@ class OpAmpTIA(TIA):
                 vs__V=v_clamp,
                 snapshot=nmos_snapshot,
             )
-            # df/dVclamp = ∂I/∂v_d · (−A · g_clip) + ∂I/∂v_s
+            # df/dVclamp = ∂I/∂v_d · (-A · g_clip) + ∂I/∂v_s
             dvout_dvclamp = -opamp_gain * g_clip
             df_dVclamp = (nmos_dc.did_dvd__uS * dvout_dvclamp + nmos_dc.did_dvs__uS).clamp(max=self.G_EFF_MAX__uS)
             residual = nmos_dc.ids__uA - i_port__uA

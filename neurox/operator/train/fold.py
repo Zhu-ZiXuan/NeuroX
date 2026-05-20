@@ -60,7 +60,7 @@ def fold_batchnorm(model: nn.Module) -> nn.Module:
         children = list(module.named_children())
         # We're matching (prev, curr) pairs; use an index so we can swap out both.
         for idx in range(len(children) - 1):
-            prev_name, prev_mod = children[idx]
+            _prev_name, prev_mod = children[idx]
             curr_name, curr_mod = children[idx + 1]
             if isinstance(prev_mod, nn.Conv2d) and isinstance(curr_mod, nn.BatchNorm2d):
                 _fold_conv_bn(prev_mod, curr_mod)

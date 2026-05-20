@@ -51,4 +51,4 @@ The readout is a non-trainable analog chain and never participates in autograd. 
 See also:
 
 - `offset_switchcap_mux_adc.md`
-- `docs/dev/modules/common/config_dispatch.md`
+- `docs/dev/modules/common/registry_dispatch.md`
