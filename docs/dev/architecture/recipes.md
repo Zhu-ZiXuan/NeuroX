@@ -65,11 +65,11 @@ Creating a polymorphic-family namespace (sibling of `ADC`, `DAC`, `TIA`, `ReadOu
 
 Slicer is an abstract base with direct concrete subclasses (callers instantiate the concrete class by name). Transcoder uses `RegistryDispatchMixin[Encoding, "Transcoder"]` so concrete subclasses self-register on a string discriminator and `Transcoder.create(encoding, ...)` dispatches.
 
-1. [base]        Abstract class (`Slicer`, `Transcoder`) declares the family's runtime kwarg trio and the primary method's signature → [`mapping.md`](mapping.md)
-2. [class]       Concrete subclass; constructor takes its static policy parameters explicitly (radix, slice_num, …) → [`mapping.md`](mapping.md)
+1. [base]        Abstract class (`Slicer`, `Transcoder`) declares only the externally observable surface: the primary method and any abstract `@property` (e.g. `value_range`, `slice_radix`, `slice_weights` on `Slicer`). No shared `__init__` or stored state if subclass init signatures diverge. → [`mapping.md`](mapping.md)
+2. [class]       Concrete subclass; constructor takes only the parameters the subclass itself consumes. Structural defaults of a particular subclass stay internal — do not surface them as caller-side kwargs. The per-call signature carries only the input tensor. → [`mapping.md`](mapping.md)
 3. [register]    For a registry-dispatched family (Transcoder): add `@<Family>.register_key("<discriminator>")` on the concrete subclass; for direct-instantiation families (Slicer): omit this step → [`docs/dev/modules/common/registry_dispatch.md`](docs/dev/modules/common/registry_dispatch.md)
 4. [primary]     Implement the primary method (`slice`, `encode` / `decode`) → [`naming_conventions.md` §Primary-method names](naming_conventions.md)
-5. [output]      Use `*Plan` for static geometry returns, `*Result` for algorithm results, raw `Tensor` for one-tensor returns → [`naming_conventions.md` §Class suffixes](naming_conventions.md)
+5. [output]      Return raw `Tensor` for one-tensor returns; reserve `*Plan` / `*Result` dataclasses for the case when a method must return multiple runtime-computed tensors that have no useful identity as instance state. Static geometry stays on the producing class as `@property` → [`code_style.md` §Property vs method](code_style.md), [`naming_conventions.md` §Class suffixes](naming_conventions.md)
 6. [export]      Owning package `__init__.py` exports the concrete class + any `*Plan` / `*Result` types in its public type annotations → [`naming_conventions.md` §Class suffixes](naming_conventions.md)
 7. [doc]         Write `docs/dev/modules/mapper/.../<name>.md` → [`code_style.md` §Module docs](code_style.md)
 

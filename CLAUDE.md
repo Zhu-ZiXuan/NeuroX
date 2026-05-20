@@ -6,6 +6,7 @@ No need to clean all ruff or mypy error or warning, treat them as helper.
 Check for available cuda devices (both memory and utility) before running every task.
 Update the docs when finish a task.
 Always use English in code and doc, be concise and precise, no unnecessary newline.
+Never change `git` status in any condition.
 Read `docs/dev/architecture.md` for detail requirements for this project.
 
 Key library version:

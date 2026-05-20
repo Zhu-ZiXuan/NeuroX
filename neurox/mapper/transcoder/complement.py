@@ -42,6 +42,7 @@ class ComplementTranscoder(Transcoder):
         all_digits[-1] = torch.where(msb >= (radix + 1) // 2, msb - radix, msb)
         return torch.stack(all_digits, dim=dim)
 
+    @property
     def value_range(self) -> tuple[int, int]:
         """Asymmetric envelope ``[-⌊r/2⌋·r^(D-1), ⌈r/2⌉·r^(D-1) - 1]``."""
         r = self._radix

@@ -12,7 +12,7 @@ neurox/mapper/transcoder/
 └── canonical.py   # CanonicalTranscoder, registered under "canonical"
 ```
 
-Each concrete subclass overrides only `encode()` and `value_range()`; the ABC supplies the shared `decode()` (positional weighted sum) and the `radix` / `digit_num` properties.
+Each concrete subclass overrides the `encode()` method and the `value_range` `@property`; the ABC supplies the shared `decode()` (positional weighted sum) and the `radix` / `digit_num` properties.
 
 ## Encoding policies
 

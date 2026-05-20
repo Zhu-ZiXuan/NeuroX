@@ -15,7 +15,7 @@ Dataclasses returned or accepted at module boundaries use one of the following s
 | `*Config` | Frozen design / spec configuration for a circuit, device, or family. | `NMOSConfig`, `OpAmpTIAConfig`, `OffsetSwitchCapMuxAdcReadOutConfig` |
 | `*Snapshot` | Per-call runtime snapshot of a module's working state, sampled at `snapshot(*, shape=...)` time. Carries only `Tensor` fields and nested `*Snapshot` instances. Frozen. | `NMOSSnapshot`, `RRAMSnapshot`, `OpAmpTIASnapshot`, `DriverSnapshot` |
 | `*DCOP` | DC operating point — return type of any `solve_dc(...)` method. Carries the solved electrical quantities (voltages, currents, sensitivities). Frozen. | `NMOSDCOP`, `RRAMDCOP`, `OpAmpTIADCOP`, `DriverDCOP`, `Core1T1RDCOP`, `Solver1T1RDCOP` |
-| `*Plan` | Static geometry / decomposition plan computed once and reused per execution. Frozen. | `SlicingPlan` |
+| `*Plan` | Static geometry / decomposition plan computed once and reused per execution. Frozen. | — |
 | `*Result` | Result of an offline algorithm or iterative solver loop (i.e. neither runtime snapshot, nor DC operating point, nor a static plan). Frozen. | `CalibrationResult` |
 
 When a return type is just one tensor, return the tensor directly — do not wrap it in a one-field dataclass.

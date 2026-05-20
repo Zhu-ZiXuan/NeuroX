@@ -80,6 +80,7 @@ class Transcoder(RegistryDispatchMixin[Encoding, "Transcoder"], ABC):
         shape[dim] = digits.size(dim)
         return (digits * scales.view(*shape)).sum(dim=dim)
 
+    @property
     @abstractmethod
     def value_range(self) -> tuple[int, int]:
         """Inclusive integer range one digit string can losslessly represent."""

@@ -47,6 +47,7 @@ class CanonicalTranscoder(Transcoder):
             all_digits.append(torch.where(carry, rem - radix, rem))
         return torch.stack(all_digits, dim=dim)
 
+    @property
     def value_range(self) -> tuple[int, int]:
         """Symmetric envelope ``[-M, M]`` with ``M = Σ_j (r-1)·r^(D-1-2j)``."""
         max_abs = sum((self._radix - 1) * (self._radix**power) for power in range(self._digit_num - 1, -1, -2))

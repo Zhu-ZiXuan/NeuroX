@@ -185,6 +185,27 @@ The same rule applies to local variables, not just `self.*` assignments.
 
 Duplicating a type at the assignment site creates a second source of truth that maintenance will have to keep in lockstep with the signature, the dataclass field, or the call's return type. When the upstream type changes, the annotation at the assignment is the easiest one to forget — and mypy will keep accepting the stale annotation as long as it remains a supertype of the actual value. So redundant annotations don't make the code safer; they only add a quiet way to lie.
 
+## Property vs method
+
+The public surface of a class distinguishes properties from methods by the **nature of the returned value**, not by ergonomic preference.
+
+### Rules
+
+- Use `@property` if **all three** hold:
+  - the return is fully determined at `__init__` time (or by intrinsic instance state),
+  - it has no dynamic component (no per-call input dependency, no time-varying ambient state),
+  - accessing it does not mutate the instance.
+- Use a method in every other case. Concretely, return from a method when the value depends on the call's arguments, when it depends on time-varying ambient state, or when computing it mutates the instance.
+
+### Where a value lives
+
+- A value that is fixed at construction time, or that simply names a piece of intrinsic instance state, lives as a `@property` on the instance.
+- A value that is dynamically determined by a method's inputs is returned from that method.
+
+### Caveat — no synthetic state
+
+A dynamic, one-shot value must not be cached into instance state purely so that it can be exposed as a property. That dishonestly promotes a method-shaped operation into the property surface and grows the instance's apparent state. If a value cannot be derived without per-call input, keep it as a method return.
+
 ## Noise / mismatch configuration
 
 Non-ideality, mismatch, and dynamic-noise fields follow a separate uniform rule documented in [`noise_and_toggles.md`](noise_and_toggles.md): every source carries a fully-populated parameter and a paired `enable_<source>: bool` toggle; `None` is forbidden in cfg fields; runtime helpers in `neurox/common/nonideality.py` take an `*, enabled: bool` kwarg.

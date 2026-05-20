@@ -75,8 +75,17 @@ class InterXbarSliceMacro(XbarMacro):
         self.cfg = cfg
         self.xbar = xbar
 
-        self.w_slicer = SimpleSlicer(slice_num=cfg.w_slice_num, encoding=cfg.w_encoding)
-        self.x_slicer = SerialSlicer(slice_num=cfg.x_slice_num)
+        x_lo, x_hi = xbar.x_range
+        self.w_slicer = SimpleSlicer(
+            slice_num=cfg.w_slice_num,
+            digit_count=xbar.w_digit_count,
+            digit_radix=xbar.w_digit_radix,
+            encoding=cfg.w_encoding,
+        )
+        self.x_slicer = SerialSlicer(
+            slice_num=cfg.x_slice_num,
+            digit_radix=x_hi - x_lo + 1,
+        )
 
         prefix = f"{name}." if name else ""
         self.col_accumulator = Accumulator(cfg.col_accumulator_cfg, name=f"{prefix}col_accumulator")
@@ -105,43 +114,17 @@ class InterXbarSliceMacro(XbarMacro):
     @property
     def w_value_range(self) -> tuple[int, int]:
         """Inclusive algorithm-side weight range — delegated to the slicer."""
-        return self.w_slicer.value_range(
-            digit_count=self.xbar.w_digit_count,
-            digit_radix=self.xbar.w_digit_radix,
-            digit_range=self.xbar.w_digit_range,
-        )
+        return self.w_slicer.value_range
 
     @property
     def x_value_range(self) -> tuple[int, int]:
         """Inclusive algorithm-side activation range — delegated to the slicer."""
-        x_lo, x_hi = self.xbar.x_range
-        return self.x_slicer.value_range(
-            digit_count=1,
-            digit_radix=x_hi - x_lo + 1,
-            digit_range=(x_lo, x_hi),
-        )
+        return self.x_slicer.value_range
 
     @property
     def output_rescale_factor(self) -> float:
         """Forwarded from the xbar."""
         return self.xbar.output_rescale_factor
-
-    # --- slice radixes ---
-
-    def _w_slice_radix(self) -> int:
-        return self.w_slicer.slice_radix(
-            digit_count=self.xbar.w_digit_count,
-            digit_radix=self.xbar.w_digit_radix,
-            digit_range=self.xbar.w_digit_range,
-        )
-
-    def _x_slice_radix(self) -> int:
-        x_lo, x_hi = self.xbar.x_range
-        return self.x_slicer.slice_radix(
-            digit_count=1,
-            digit_radix=x_hi - x_lo + 1,
-            digit_range=(x_lo, x_hi),
-        )
 
     # --- organize ---
 
@@ -159,12 +142,7 @@ class InterXbarSliceMacro(XbarMacro):
         row_num = self.xbar.row_num
 
         # Shape: [..., N, K] -> [..., N, K, Sw, D]
-        sliced = self.w_slicer.slice(
-            weight,
-            digit_count=self.xbar.w_digit_count,
-            digit_radix=self.xbar.w_digit_radix,
-            digit_range=self.xbar.w_digit_range,
-        ).values
+        sliced = self.w_slicer.slice(weight)
 
         # Shape: [..., N, K, Sw, D] -> [..., Tr, data_num, K, Sw, D]
         tiled = self.chunk_pad_along(sliced, axis=-4, chunk_size=col_num)
@@ -191,14 +169,8 @@ class InterXbarSliceMacro(XbarMacro):
         Returns:
             Tensor of shape ``[..., M, Tc, Tr=1, Sa, Sw=1, row_num]``.
         """
-        x_lo, x_hi = self.xbar.x_range
         # Shape: [..., M, K] -> [..., M, K, Sa, digit_num=1]
-        sliced = self.x_slicer.slice(
-            x,
-            digit_count=1,
-            digit_radix=x_hi - x_lo + 1,
-            digit_range=(x_lo, x_hi),
-        ).values
+        sliced = self.x_slicer.slice(x)
 
         # Shape: [..., M, K, Sa, digit_num=1] -> [..., M, Tc, row_num, Sa, digit_num=1]
         tiled = self.chunk_pad_along(sliced, axis=-3, chunk_size=self.xbar.row_num)
@@ -270,8 +242,8 @@ class InterXbarSliceMacro(XbarMacro):
             batch_m_prod = math.prod(self._x_shape_cached[:-6])
             self._serial_op_num = batch_m_prod * sa_dim // max(self._w_parallel_size, 1)
 
-        x_slice_radix = self._x_slice_radix()
-        w_slice_radix = self._w_slice_radix()
+        x_slice_radix = self.x_slicer.slice_radix
+        w_slice_radix = self.w_slicer.slice_radix
 
         # Shape: [..., M, Tc, Tr=1, Sa, Sw=1, row_num] -> [..., M, Tc, Tr, Sa, Sw, data_num]
         y = self.xbar.vec_mat_mul(x)

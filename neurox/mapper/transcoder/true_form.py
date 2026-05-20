@@ -40,6 +40,7 @@ class TrueFormTranscoder(Transcoder):
             all_digits.append(rem * sign)
         return torch.stack(all_digits, dim=dim)
 
+    @property
     def value_range(self) -> tuple[int, int]:
         """Symmetric envelope ``[-(r^D - 1), r^D - 1]``."""
         n_max = self._radix**self._digit_num - 1
