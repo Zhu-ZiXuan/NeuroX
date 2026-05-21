@@ -14,7 +14,7 @@ from torch.utils.data import DataLoader
 from example.common import build_macro_factory, run_evaluate
 from example.lenet.data import create_mnist_dataloader
 from example.lenet.model import LeNet5
-from neurox.config import DEFAULT_1T1R_TOML
+from neurox.config import DEFAULT_1T1R_MACRO_TOML
 
 
 def main() -> None:
@@ -25,7 +25,7 @@ def main() -> None:
     parser.add_argument(
         "--config",
         type=Path,
-        default=DEFAULT_1T1R_TOML,
+        default=DEFAULT_1T1R_MACRO_TOML,
         help="Chip TOML (defaults to the bundled 1T1R reference).",
     )
     parser.add_argument(

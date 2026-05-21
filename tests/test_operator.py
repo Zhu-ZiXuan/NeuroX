@@ -37,7 +37,7 @@ from neurox.analog import Driver, DriverConfig
 from neurox.analog.dac import GeneralDAC, GeneralDACConfig
 from neurox.analog.adc import GeneralADC, GeneralADCConfig
 from neurox.common import dict_configs_from_file, dict_from_file
-from neurox.config import DEFAULT_1T1R_TOML
+from neurox.config import DEFAULT_1T1R_MACRO_TOML
 from neurox.device import NMOS, RRAM, NMOSConfig, RRAMConfig
 from neurox.digital import (
     Accumulator,
@@ -56,7 +56,7 @@ from neurox.operator.conv import QuantConv2d
 from neurox.operator.linear import QuantLinear, derive_layer_int_params
 from neurox.xbar import Offset1T1RXbar, Offset1T1RXbarConfig
 
-CONFIG_FILE = DEFAULT_1T1R_TOML
+CONFIG_FILE = DEFAULT_1T1R_MACRO_TOML
 
 _SPECS = {
     "rram": RRAMConfig,

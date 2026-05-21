@@ -62,14 +62,14 @@ class GeneralADCConfig(ADCConfig):
     enable_drive_thermal: bool
 
     # --- Drive reference + input transform ---
-    drive_value: float = 0.0
-    input_transform: Literal["linear", "log2"] = "linear"
+    drive_value: float
+    input_transform: Literal["linear", "log2"]
 
     # --- Energy / PPA ---
-    energy_per_op__fJ: float = 0.0
-    latency_per_op__ns: float = 0.0
-    leakage_per_inst__uW: float = 0.0
-    area_per_inst__um2: float = 0.0
+    energy_per_op__fJ: float
+    latency_per_op__ns: float
+    leakage_per_inst__uW: float
+    area_per_inst__um2: float
 
     def validate(self) -> None:
         super().validate()
@@ -110,13 +110,11 @@ class GeneralADC(ADC):
         name: str,
         T__K: float,
         dtype: torch.dtype,
-        stochastic: bool | None,
     ) -> None:
-        super().__init__(cfg=cfg, name=name, T__K=T__K, dtype=dtype, stochastic=stochastic)
+        super().__init__(cfg=cfg, name=name, T__K=T__K, dtype=dtype)
         self.cfg = cfg
         self.dtype = dtype
         self.T__K = T__K
-        self.stochastic = stochastic
 
         boundaries_t = torch.tensor(cfg.boundaries, dtype=dtype)
         if boundaries_t.numel() < 1:
@@ -197,7 +195,6 @@ class GeneralADC(ADC):
             self.boundaries,
             out_dtype=torch.int16,
             training=self.training,
-            override=self.stochastic,
             lsb=self._lsb_estimate,
         )
 

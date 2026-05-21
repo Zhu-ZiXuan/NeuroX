@@ -21,9 +21,18 @@ The same per-tile xbar-native digit tensor feeds a physical xbar or its `to_idea
 
 The ideal tile knows nothing about offset coding, reference columns, or any analog-domain digit-shift-add — every encoding detail lives in the physical xbar that produced it.
 
+## How to obtain one
+
+Two equivalent paths, both producing the same lossless tile:
+
+- **From a physical tile**: `physical.to_ideal()`. The base `Xbar.to_ideal` builds an `IdealXbarConfig` from the source xbar's `XbarConfig` fields plus its abstract `x_range` / `w_digit_*` properties, then instantiates `IdealXbar` directly. Macros use this path when their build-time `ideal_xbar=True` toggle is set.
+- **Standalone**: `Xbar.from_config(cfg=IdealXbarConfig(...), ...)` (or, equivalently, the direct `IdealXbar(cfg=IdealXbarConfig(...), ...)` constructor). `IdealXbarConfig` carries the four structural fields (`x_range`, `w_digit_count`, `w_digit_radix`, `w_digit_range`) that an ideal tile cannot derive from a base `XbarConfig` alone. This path is the only way to materialise an ideal tile when no physical twin exists.
+
+`IdealXbar.to_ideal()` returns `self` — an ideal tile is its own ideal counterpart.
+
 ## When to use the ideal twin
 
-- **Tests**: every xbar test that compares the physical result to an integer truth uses the ideal twin as reference. `xbar.to_ideal()` is the canonical way to obtain it.
+- **Tests**: every xbar test that compares the physical result to an integer truth uses the ideal twin as reference.
 - **Calibration**: the ADC-boundary tool runs the physical and ideal xbars against the same random inputs and uses the gap to pick comparator thresholds.
 
 `IdealXbar` is a **tile-level** reference: it bypasses analog physics but still publishes the full xbar capability surface. A lossless reference at coarser granularity belongs at that coarser layer, not here.

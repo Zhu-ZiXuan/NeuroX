@@ -23,7 +23,6 @@ from neurox.digital import (
 )
 from neurox.mapper.transcoder import Encoding
 from neurox.mapper.xbar.slicer import SerialSlicer, SimpleSlicer
-from neurox.xbar import Xbar
 
 from .base import XbarMacro, XbarMacroConfig
 
@@ -66,18 +65,26 @@ class IntraXbarSliceMacro(XbarMacro):
     remaining ``col_num - (col_num // Sw) * Sw`` cells per xbar are idle.
     """
 
+    cfg: IntraXbarSliceMacroConfig
+
     def __init__(
         self,
         *,
         cfg: IntraXbarSliceMacroConfig,
-        xbar: Xbar,
-        name: str = "",
+        name: str,
+        T__K: float,
+        dtype: torch.dtype,
+        ideal_xbar: bool,
     ) -> None:
-        super().__init__(cfg=cfg, xbar=xbar, name=name)
-
+        super().__init__(
+            cfg=cfg,
+            name=name,
+            T__K=T__K,
+            dtype=dtype,
+            ideal_xbar=ideal_xbar,
+        )
         self.cfg = cfg
-        self.xbar = xbar
-
+        xbar = self.xbar
         if cfg.w_slice_num > xbar.col_num:
             raise ValueError(f"require: w_slice_num ({cfg.w_slice_num}) <= xbar.col_num ({xbar.col_num})")
         self._weights_per_xbar = xbar.col_num // cfg.w_slice_num
@@ -173,7 +180,7 @@ class IntraXbarSliceMacro(XbarMacro):
         unflat = sliced.unflatten(-4, (tr, wpx))
 
         # Shape: [..., Tr, wpx, K, Sw, D] -> [..., Tr, wpx, Tc, row_num, Sw, D]
-        tiled = self.chunk_pad_along(unflat, axis=-3, chunk_size=row_num)
+        tiled = self.chunk_pad_along(unflat, axis=-3, chunk_size=row_num, pad_value=0)
 
         # Shape: [..., Tr, wpx, Tc, row_num, Sw, D] -> [..., Tc, Tr, wpx, Sw, D, row_num]
         b = tiled.ndim - 6
@@ -207,7 +214,7 @@ class IntraXbarSliceMacro(XbarMacro):
         sliced = self.x_slicer.slice(x)
 
         # Shape: [..., M, K, Sa, digit_num=1] -> [..., M, Tc, row_num, Sa, digit_num=1]
-        tiled = self.chunk_pad_along(sliced, axis=-3, chunk_size=self.xbar.row_num)
+        tiled = self.chunk_pad_along(sliced, axis=-3, chunk_size=self.xbar.row_num, pad_value=0)
 
         # Shape: [..., M, Tc, row_num, Sa, digit_num=1] -> [..., M, Tc, row_num, Sa]
         squeezed = tiled.squeeze(-1)
@@ -287,9 +294,9 @@ class IntraXbarSliceMacro(XbarMacro):
         # Shape: [..., M, Tc, Tr, Sa, wpx*Sw] -> [..., M, Tc, Tr, Sa, wpx, Sw]
         y = y.unflatten(-1, (wpx, sw))
         # Shape: [..., M, Tc, Tr, Sa, wpx, Sw] -> [..., M, Tc, Tr, Sa, wpx]
-        y = self.sw_shift_adder.operate(y, w_slice_radix, dim=-1)
+        y = self.sw_shift_adder.operate(y, w_slice_radix, dim=-1, init_val=None)
         # Shape: [..., M, Tc, Tr, Sa, wpx] -> [..., M, Tc, Tr, wpx]
-        y = self.sa_shift_adder.operate(y, x_slice_radix, dim=-2)
+        y = self.sa_shift_adder.operate(y, x_slice_radix, dim=-2, init_val=None)
         # Shape: [..., M, Tc, Tr, wpx] -> [..., M, Tr, wpx]
         y = self.col_accumulator.operate(y, dim=-3)
         # Shape: [..., M, Tr, wpx] -> [..., M, Tr * wpx] -> [..., M, N]

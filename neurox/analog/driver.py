@@ -31,9 +31,9 @@ class DriverConfig(ValidateMixin):
     enable_drive_thermal: bool
 
     # --- PPA ---
-    latency_per_op__ns: float = 0.0
-    leakage_per_inst__uW: float = 0.0
-    area_per_inst__um2: float = 0.0
+    latency_per_op__ns: float
+    leakage_per_inst__uW: float
+    area_per_inst__um2: float
 
     def __post_init__(self) -> None:
         self.validate()
@@ -160,7 +160,7 @@ class Driver(nn.Module):
         i_port__uA: Tensor,
         snapshot: DriverSnapshot,
         *,
-        v_clamp_init__V: Tensor | None = None,
+        v_clamp_init__V: Tensor | None,
     ) -> DriverDCOP:
         """Solve the ideal clamp at the present port current.
 
@@ -183,7 +183,7 @@ class Driver(nn.Module):
         i_port__uA: Tensor,
         snapshot: DriverSnapshot,
         *,
-        v_clamp_init__V: Tensor | None = None,
+        v_clamp_init__V: Tensor | None,
     ) -> tuple[Tensor, Tensor]:
         """Return the tuple-based clamp result required by the solver.
 

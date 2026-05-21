@@ -18,7 +18,7 @@ from neurox.common.quant import floor_bucketize
 from .base import ADCMode
 
 
-def derive_uniform_boundaries(mode: ADCMode, *, dtype: torch.dtype = torch.float32) -> Tensor:
+def derive_uniform_boundaries(mode: ADCMode, *, dtype: torch.dtype) -> Tensor:
     """Build the floor-style boundary list for one ADC mode.
 
     Boundaries are placed at code edges ``c · LSB`` so that
@@ -63,7 +63,6 @@ def quantize_with_jitter(
     *,
     lsb: float,
     training: bool,
-    override: bool | None,
 ) -> Tensor:
     """Floor-bucketize with optional uniform jitter scaled to ``lsb``.
 
@@ -75,7 +74,6 @@ def quantize_with_jitter(
         boundaries: Floor-style threshold tensor.
         lsb: Bin width (used to size the stochastic jitter).
         training: ``module.training`` flag.
-        override: Per-config force flag (``None`` = follow training).
 
     Returns:
         ``int16`` code tensor of shape ``signal.shape``.
@@ -85,6 +83,5 @@ def quantize_with_jitter(
         boundaries,
         out_dtype=torch.int16,
         training=training,
-        override=override,
         lsb=lsb,
     )

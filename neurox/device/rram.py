@@ -170,7 +170,7 @@ class RRAM(nn.Module):
         """Bottom-electrode (Node-X-side) parasitic capacitance per cell [fF]."""
         return self.cfg.c_bot__fF
 
-    def program(self, target_g__uS: Tensor, t_elapsed: float = 0.0) -> None:
+    def program(self, target_g__uS: Tensor, t_elapsed: float) -> None:
         """Program the stored conductance.
 
         Args:

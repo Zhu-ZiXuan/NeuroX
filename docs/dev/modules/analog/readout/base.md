@@ -11,10 +11,10 @@
 Every concrete readout impl exposes:
 
 ```
-__init__(self, *, cfg, name, T__K, dtype, stochastic, data_num, digit_weights)
+__init__(self, *, cfg, name, T__K, dtype, data_num, digit_weights)
 ```
 
-- `cfg / name / T__K / dtype / stochastic` — standard leaf-init bundle.
+- `cfg / name / T__K / dtype` — standard leaf-init bundle.
 - `data_num: int` — number of data per reference group; fixes the data-leg SwitchCap's bank-axis size.
 - `digit_weights: tuple[float, ...]` — per-digit positional weights (length `digit_num`); drives the data-leg SwitchCap's `cap_weights`.
 

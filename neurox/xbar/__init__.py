@@ -8,13 +8,14 @@ from ._1t1r import (
     Offset1T1RXbarConfig,
 )
 from .base import Xbar, XbarConfig, XbarRescaleEntry
-from .ideal import IdealXbar
+from .ideal import IdealXbar, IdealXbarConfig
 
 __all__ = [
     "CircuitCore1T1R",
     "CircuitCore1T1RConfig",
     "Core1T1RDCOP",
     "IdealXbar",
+    "IdealXbarConfig",
     "Offset1T1RXbar",
     "Offset1T1RXbarConfig",
     "Xbar",

@@ -21,5 +21,5 @@ class ClampDriver(Protocol):
         i_port__uA: Tensor,
         snapshot: object,
         *,
-        v_clamp_init__V: Tensor | None = None,
+        v_clamp_init__V: Tensor | None,
     ) -> tuple[Tensor, Tensor]: ...

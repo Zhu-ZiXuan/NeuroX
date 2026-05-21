@@ -27,7 +27,7 @@ from neurox.mapper.xbar.slicer import (
     SerialSlicer,
     SimpleSlicer,
 )
-from neurox.xbar import IdealXbar, XbarConfig, XbarRescaleEntry
+from neurox.xbar import IdealXbarConfig, XbarRescaleEntry
 
 # --- Transcoder value_range per encoding ---------------------------------
 
@@ -163,7 +163,7 @@ def test_simple_slicer_digit_radix_too_small_rejected() -> None:
 
 def test_chunk_pad_no_padding() -> None:
     t = torch.arange(16.0)
-    out = XbarMacro.chunk_pad_along(t, axis=0, chunk_size=4)
+    out = XbarMacro.chunk_pad_along(t, axis=0, chunk_size=4, pad_value=0)
     # n=16, chunk=4 -> (4, 4).
     assert out.shape == (4, 4)
     assert torch.equal(out.flatten(), t)
@@ -171,7 +171,7 @@ def test_chunk_pad_no_padding() -> None:
 
 def test_chunk_pad_with_padding() -> None:
     t = torch.arange(13.0)
-    out = XbarMacro.chunk_pad_along(t, axis=0, chunk_size=16)
+    out = XbarMacro.chunk_pad_along(t, axis=0, chunk_size=16, pad_value=0)
     # n=13, chunk=16 -> (1, 16) with 3 trailing zeros.
     assert out.shape == (1, 16)
     assert torch.equal(out[0, :13], t)
@@ -180,7 +180,7 @@ def test_chunk_pad_with_padding() -> None:
 
 def test_chunk_pad_negative_axis() -> None:
     t = torch.arange(60.0).reshape(3, 4, 5)
-    out = XbarMacro.chunk_pad_along(t, axis=-1, chunk_size=3)
+    out = XbarMacro.chunk_pad_along(t, axis=-1, chunk_size=3, pad_value=0)
     # axis=-1, size=5 pads to 6, then (2, 3) inserted at axis=-1.
     assert out.shape == (3, 4, 2, 3)
 
@@ -188,13 +188,13 @@ def test_chunk_pad_negative_axis() -> None:
 def test_chunk_pad_rejects_bad_chunk_size() -> None:
     t = torch.arange(8.0)
     with pytest.raises(ValueError, match="chunk_size"):
-        XbarMacro.chunk_pad_along(t, axis=0, chunk_size=0)
+        XbarMacro.chunk_pad_along(t, axis=0, chunk_size=0, pad_value=0)
 
 
 def test_chunk_pad_rejects_out_of_range_axis() -> None:
     t = torch.arange(8.0)
     with pytest.raises(ValueError, match="axis"):
-        XbarMacro.chunk_pad_along(t, axis=3, chunk_size=4)
+        XbarMacro.chunk_pad_along(t, axis=3, chunk_size=4, pad_value=0)
 
 
 # --- End-to-end mode consistency (13 / 3 / 16 case) ----------------------
@@ -205,38 +205,74 @@ def test_chunk_pad_rejects_out_of_range_axis() -> None:
 # cols.  Both must reproduce torch.matmul exactly.
 
 
-@pytest.fixture
-def small_ideal_xbar() -> IdealXbar:
-    cfg = XbarConfig(
-        col_num=16, row_num=16, adc_mode=0, adc_bits=0,
+def _small_ideal_xbar_cfg() -> IdealXbarConfig:
+    """16x16 ideal-xbar cfg with rf=1.0 and radix-4 single-digit cells.
+
+    The lossless ``IdealXbar`` reproduces ``torch.matmul`` exactly,
+    so this fixture is enough to validate the macro pipeline's
+    slice / organize / aggregate maths.
+    """
+    return IdealXbarConfig(
+        col_num=16,
+        row_num=16,
+        adc_mode=0,
+        adc_bits=0,
         output_rescale_factors=(XbarRescaleEntry(adc_mode=0, adc_bits=0, rf=1.0),),
+        latency_per_op__ns=0.0,
+        leakage_per_inst__uW=0.0,
+        area_per_inst__um2=0.0,
+        x_range=(0, 1),
+        w_digit_count=1,
+        w_digit_radix=4,
+        w_digit_range=(-3, 3),
     )
-    xbar = IdealXbar(
-        cfg, x_range=(0, 1),
-        w_digit_count=1, w_digit_radix=4, w_digit_range=(-3, 3),
+
+
+def _zero_ppa_digital() -> dict[str, object]:
+    return dict(
+        energy_per_op__fJ=0.0,
+        latency_per_op__ns=0.0,
+        leakage_per_inst__uW=0.0,
+        area_per_inst__um2=0.0,
     )
-    xbar.eval()
-    return xbar
 
 
 def _make_macro_configs(*, w_slice_num: int, x_slice_num: int) -> dict[str, object]:
+    ppa = _zero_ppa_digital()
     return dict(
-        w_slice_num=w_slice_num, x_slice_num=x_slice_num,
+        xbar_cfg=_small_ideal_xbar_cfg(),
+        w_slice_num=w_slice_num,
+        x_slice_num=x_slice_num,
         w_encoding="true_form",
-        col_accumulator_cfg=AccumulatorConfig(bit_width=32),
-        sa_shift_adder_cfg=ShiftAdderConfig(bit_width=32),
-        sw_shift_adder_cfg=ShiftAdderConfig(bit_width=32),
-        requantizer_cfg=RequantizerConfig(bit_width=32),
+        col_accumulator_cfg=AccumulatorConfig(bit_width=32, **ppa),
+        sa_shift_adder_cfg=ShiftAdderConfig(bit_width=32, **ppa),
+        sw_shift_adder_cfg=ShiftAdderConfig(bit_width=32, **ppa),
+        requantizer_cfg=RequantizerConfig(bit_width=32, **ppa),
     )
 
 
-def test_inter_xbar_matches_torch_matmul(small_ideal_xbar: IdealXbar) -> None:
-    torch.manual_seed(0)
+def _build_inter(cfg: InterXbarSliceMacroConfig, name: str) -> InterXbarSliceMacro:
     macro = InterXbarSliceMacro(
-        cfg=InterXbarSliceMacroConfig(**_make_macro_configs(w_slice_num=3, x_slice_num=4)),
-        xbar=small_ideal_xbar,
+        cfg=cfg, name=name, T__K=300.0, dtype=torch.float32, ideal_xbar=False,
     )
     macro.eval()
+    return macro
+
+
+def _build_intra(cfg: IntraXbarSliceMacroConfig, name: str) -> IntraXbarSliceMacro:
+    macro = IntraXbarSliceMacro(
+        cfg=cfg, name=name, T__K=300.0, dtype=torch.float32, ideal_xbar=False,
+    )
+    macro.eval()
+    return macro
+
+
+def test_inter_xbar_matches_torch_matmul() -> None:
+    torch.manual_seed(0)
+    macro = _build_inter(
+        InterXbarSliceMacroConfig(**_make_macro_configs(w_slice_num=3, x_slice_num=4)),
+        name="test_inter",
+    )
     n, k, m = 13, 20, 8
     w = torch.randint(-63, 64, (n, k), dtype=torch.int32)
     x = torch.randint(0, 16, (m, k), dtype=torch.int32)
@@ -248,14 +284,12 @@ def test_inter_xbar_matches_torch_matmul(small_ideal_xbar: IdealXbar) -> None:
     assert torch.equal(y, y_ref)
 
 
-def test_intra_xbar_matches_torch_matmul(small_ideal_xbar: IdealXbar) -> None:
+def test_intra_xbar_matches_torch_matmul() -> None:
     torch.manual_seed(0)
-    macro = IntraXbarSliceMacro(
-        cfg=IntraXbarSliceMacroConfig(**_make_macro_configs(w_slice_num=3, x_slice_num=4)),
-        xbar=small_ideal_xbar,
+    macro = _build_intra(
+        IntraXbarSliceMacroConfig(**_make_macro_configs(w_slice_num=3, x_slice_num=4)),
+        name="test_intra",
     )
-    macro.eval()
-    # 5 weights per xbar, 1 idle col, 3 Tr tiles for N=13.
     assert macro._weights_per_xbar == 5
     assert macro._used_data_num == 15
     assert macro._idle_per_xbar == 1
@@ -270,28 +304,17 @@ def test_intra_xbar_matches_torch_matmul(small_ideal_xbar: IdealXbar) -> None:
     assert torch.equal(y, y_ref)
 
 
-def test_inter_and_intra_xbar_agree(small_ideal_xbar: IdealXbar) -> None:
+def test_inter_and_intra_xbar_agree() -> None:
     """Cross-mode consistency: same w/x, same int output."""
     torch.manual_seed(0)
-    cfg_kwargs = _make_macro_configs(w_slice_num=3, x_slice_num=4)
-    inter = InterXbarSliceMacro(
-        cfg=InterXbarSliceMacroConfig(**cfg_kwargs),
-        xbar=small_ideal_xbar,
+    inter = _build_inter(
+        InterXbarSliceMacroConfig(**_make_macro_configs(w_slice_num=3, x_slice_num=4)),
+        name="test_inter",
     )
-    inter.eval()
-    intra = IntraXbarSliceMacro(
-        cfg=IntraXbarSliceMacroConfig(**cfg_kwargs),
-        # Fresh xbar so intra's fabricate does not stomp inter's.
-        xbar=IdealXbar(
-            XbarConfig(
-                col_num=16, row_num=16, adc_mode=0, adc_bits=0,
-                output_rescale_factors=(XbarRescaleEntry(adc_mode=0, adc_bits=0, rf=1.0),),
-            ),
-            x_range=(0, 1),
-            w_digit_count=1, w_digit_radix=4, w_digit_range=(-3, 3),
-        ),
+    intra = _build_intra(
+        IntraXbarSliceMacroConfig(**_make_macro_configs(w_slice_num=3, x_slice_num=4)),
+        name="test_intra",
     )
-    intra.eval()
 
     n, k, m = 13, 20, 8
     w = torch.randint(-63, 64, (n, k), dtype=torch.int32)

@@ -9,6 +9,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
@@ -16,12 +17,19 @@ from torch import Tensor
 from neurox.common.registry_dispatch import RegistryDispatchMixin
 from neurox.common.validate import ValidateMixin
 from neurox.profiler import ProfiledModule
-from neurox.xbar import Xbar
+from neurox.xbar import Xbar, XbarConfig
 
 
 @dataclass(frozen=True)
 class XbarMacroConfig(ValidateMixin):
-    """Abstract config base for :class:`XbarMacro` subclasses."""
+    """Abstract config base for :class:`XbarMacro` subclasses.
+
+    Attributes:
+        xbar_cfg: Owned physical-xbar config; the macro constructs the
+            xbar from this field via ``Xbar.from_config(...)``.
+    """
+
+    xbar_cfg: XbarConfig
 
     def __post_init__(self) -> None:
         self.validate()
@@ -34,27 +42,55 @@ class XbarMacro(nn.Module, ProfiledModule, RegistryDispatchMixin[type["XbarMacro
     """Abstract base for xbar-backed quantised-MAC macros.
 
     Args:
-        cfg: Concrete subclass config; captured by the subclass init.
-        xbar: Pre-built physical xbar instance.
+        cfg: Concrete subclass config.
         name: Hierarchical profiler name.
+        T__K: Operating temperature in kelvin.
+        dtype: Analog forward-path dtype.
+        ideal_xbar: When ``True``, the macro replaces its physical xbar
+            with the lossless ideal twin returned by ``xbar.to_ideal()``.
     """
 
-    def __init__(self, *, cfg: XbarMacroConfig, xbar: Xbar, name: str = "") -> None:
-        del cfg, xbar  # captured by the subclass init
+    xbar: Xbar
+
+    def __init__(
+        self,
+        *,
+        cfg: XbarMacroConfig,
+        name: str,
+        T__K: float,
+        dtype: torch.dtype,
+        ideal_xbar: bool,
+    ) -> None:
         nn.Module.__init__(self)
         ProfiledModule.__init__(self, name)
+        prefix = f"{name}." if name else ""
+        xbar = Xbar.from_config(
+            cfg=cfg.xbar_cfg,
+            name=f"{prefix}xbar",
+            T__K=T__K,
+            dtype=dtype,
+        )
+        self.xbar = xbar.to_ideal() if ideal_xbar else xbar
 
     @classmethod
     def from_config(
         cls,
         *,
         cfg: XbarMacroConfig,
-        xbar: Xbar,
-        name: str = "",
+        name: str,
+        T__K: float,
+        dtype: torch.dtype,
+        ideal_xbar: bool,
     ) -> XbarMacro:
         """Build the concrete impl registered for ``type(cfg)``."""
         impl = cls._lookup_impl(type(cfg))
-        return impl(cfg=cfg, xbar=xbar, name=name)
+        return impl(
+            cfg=cfg,
+            name=name,
+            T__K=T__K,
+            dtype=dtype,
+            ideal_xbar=ideal_xbar,
+        )
 
     # --- value-range / rescale contract ---
 
@@ -120,7 +156,7 @@ class XbarMacro(nn.Module, ProfiledModule, RegistryDispatchMixin[type["XbarMacro
         *,
         axis: int,
         chunk_size: int,
-        pad_value: int = 0,
+        pad_value: int,
     ) -> Tensor:
         """Right-pad ``t`` along ``axis`` to a multiple of ``chunk_size``, then
         split that axis into ``(num_chunks, chunk_size)``.

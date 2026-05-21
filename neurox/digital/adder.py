@@ -24,11 +24,11 @@ class AdderConfig(ValidateMixin):
 
     bit_width: int
 
-    energy_per_op__fJ: float = 0.0
+    energy_per_op__fJ: float
 
-    latency_per_op__ns: float = 0.0
-    leakage_per_inst__uW: float = 0.0
-    area_per_inst__um2: float = 0.0
+    latency_per_op__ns: float
+    leakage_per_inst__uW: float
+    area_per_inst__um2: float
 
     def __post_init__(self) -> None:
         self.validate()
@@ -50,7 +50,7 @@ class AdderConfig(ValidateMixin):
 class Adder(nn.Module, ProfiledModule):
     """Element-wise integer adder. No saturation or wrap."""
 
-    def __init__(self, config: AdderConfig, *, name: str = "") -> None:
+    def __init__(self, config: AdderConfig, *, name: str) -> None:
         nn.Module.__init__(self)
         ProfiledModule.__init__(self, name)
         self.config = config

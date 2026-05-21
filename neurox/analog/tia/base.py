@@ -30,9 +30,9 @@ class TIAConfig(ValidateMixin):
 
     v_ref__V: float
 
-    leakage_per_inst__uW: float = 0.0
-    area_per_inst__um2: float = 0.0
-    latency_per_op__ns: float = 0.0
+    leakage_per_inst__uW: float
+    area_per_inst__um2: float
+    latency_per_op__ns: float
 
     def __post_init__(self) -> None:
         self.validate()

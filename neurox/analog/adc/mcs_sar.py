@@ -16,7 +16,6 @@ from neurox.common.nonideality import (
     apply_pelgrom_mismatch,
 )
 from neurox.common.physical_constant import K_BOLTZMANN__J_per_K
-from neurox.common.quant import use_stochastic
 
 from .base import ADC, ADCConfig
 
@@ -154,16 +153,14 @@ class McsSarAdc(ADC):
         name: str,
         T__K: float,
         dtype: torch.dtype,
-        stochastic: bool | None,
     ) -> None:
-        super().__init__(cfg=cfg, name=name, T__K=T__K, dtype=dtype, stochastic=stochastic)
+        super().__init__(cfg=cfg, name=name, T__K=T__K, dtype=dtype)
         if not (T__K > 0.0):
             raise ValueError(f"McsSarAdc T__K ({T__K}) must be > 0")
 
         self.cfg = cfg
         self.T__K = T__K
         self.dtype = dtype
-        self.stochastic = stochastic
 
         self.comparator_noise_sigma__V = cfg.comparator_thermal_noise_sigma__V * math.sqrt(T__K / 300.0)
 
@@ -356,7 +353,7 @@ class McsSarAdc(ADC):
         code = apply_lsb_jitter(
             code,
             n_bits=bits,
-            enabled=use_stochastic(training=self.training, override=self.stochastic),
+            enabled=self.training,
         )
         code = code.clamp(min=0, max=(1 << bits) - 1)
         self._log_dynamic(e_dynamic__fJ, self.latency_per_op__ns(bits=bits))

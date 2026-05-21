@@ -10,38 +10,26 @@ import torch
 from torch import Tensor
 
 
-def use_stochastic(*, training: bool, override: bool | None) -> bool:
-    """Resolve the active stochastic-rounding flag.
-
-    Args:
-        training: ``module.training`` from the calling ``nn.Module``.
-        override: Per-config force flag; ``None`` follows ``training``.
-
-    Returns:
-        ``True`` when stochastic rounding should be applied.
-    """
-    return training if override is None else override
-
-
 def stochastic_floor_div(
     numerator: Tensor,
     rshift: Tensor | int,
     *,
     training: bool,
-    override: bool | None,
 ) -> Tensor:
     """Compute ``numerator >> rshift`` with optional unbiased jitter.
+
+    Stochastic rounding is applied when ``training`` is ``True`` and
+    skipped otherwise.
 
     Args:
         numerator: Integer tensor to be shifted.
         rshift: Right-shift amount; scalar or broadcastable tensor.
         training: ``module.training`` flag from the caller.
-        override: Per-config force flag; ``None`` follows ``training``.
 
     Returns:
         Quotient tensor (same dtype as ``numerator``).
     """
-    if not use_stochastic(training=training, override=override):
+    if not training:
         return numerator >> rshift
 
     if isinstance(rshift, int):
@@ -71,21 +59,21 @@ def stochastic_floor_to_int(
     *,
     out_dtype: torch.dtype,
     training: bool,
-    override: bool | None,
 ) -> Tensor:
     """Float→int floor quantizer with optional unbiased jitter.
+
+    Stochastic rounding is applied when ``training`` is ``True``.
 
     Args:
         signal: Float input.
         lsb: Per-bin step size in ``signal``'s units.
         out_dtype: Target integer dtype.
         training: ``module.training`` flag.
-        override: Per-config force flag.
 
     Returns:
         Integer code tensor with dtype ``out_dtype``.
     """
-    if use_stochastic(training=training, override=override):
+    if training:
         jitter = torch.rand(signal.shape, device=signal.device, dtype=signal.dtype) * lsb
         signal = signal + jitter
     return torch.floor(signal / lsb).to(out_dtype)
@@ -97,10 +85,11 @@ def floor_bucketize(
     *,
     out_dtype: torch.dtype,
     training: bool,
-    override: bool | None,
-    lsb: Tensor | float | None = None,
+    lsb: Tensor | float,
 ) -> Tensor:
     """Bucketize against ``boundaries`` with floor semantics + optional jitter.
+
+    Stochastic rounding is applied when ``training`` is ``True``.
 
     Args:
         signal: Float input.
@@ -108,16 +97,12 @@ def floor_bucketize(
             ``[n_codes - 1]``. Code edges: ``B_c = c · LSB``.
         out_dtype: Target integer dtype.
         training: ``module.training`` flag.
-        override: Per-config force flag.
-        lsb: Bin width used to size the stochastic jitter; required
-            iff stochastic rounding is active.
+        lsb: Bin width used to size the stochastic jitter.
 
     Returns:
         Code tensor in ``[0, n_codes - 1]``.
     """
-    if use_stochastic(training=training, override=override):
-        if lsb is None:
-            raise ValueError("floor_bucketize: lsb is required when stochastic rounding is active")
+    if training:
         jitter = torch.rand(signal.shape, device=signal.device, dtype=signal.dtype) * lsb
         signal = signal + jitter
     # ``right=True`` gives floor semantics: signal at an exact

@@ -30,11 +30,11 @@ class RequantizerConfig(ValidateMixin):
 
     bit_width: int
 
-    energy_per_op__fJ: float = 0.0
+    energy_per_op__fJ: float
 
-    latency_per_op__ns: float = 0.0
-    leakage_per_inst__uW: float = 0.0
-    area_per_inst__um2: float = 0.0
+    latency_per_op__ns: float
+    leakage_per_inst__uW: float
+    area_per_inst__um2: float
 
     def __post_init__(self) -> None:
         self.validate()
@@ -57,21 +57,18 @@ class Requantizer(nn.Module, ProfiledModule):
     """Multiply-shift requantizer for integer-MAC rescaling.
 
     Computes ``y = (x · multiplier) >> rshift [+ output_zero_point]``.
-    Optional unbiased stochastic rounding adds a uniform
-    ``[0, 1 << rshift)`` jitter before the shift.
+    Stochastic rounding adds a uniform ``[0, 1 << rshift)`` jitter before
+    the shift whenever ``self.training`` is ``True``.
 
     Args:
         config: Immutable cost / bit-width configuration.
         name: Hierarchical profiler name.
-        stochastic: Per-instance stochastic-rounding switch;
-            ``None`` follows ``module.training``.
     """
 
-    def __init__(self, config: RequantizerConfig, *, name: str = "", stochastic: bool | None = None) -> None:
+    def __init__(self, config: RequantizerConfig, *, name: str) -> None:
         nn.Module.__init__(self)
         ProfiledModule.__init__(self, name)
         self.config = config
-        self.stochastic = stochastic
 
     @property
     def area_per_inst__um2(self) -> float:
@@ -112,7 +109,6 @@ class Requantizer(nn.Module, ProfiledModule):
             x * multiplier,
             rshift,
             training=self.training,
-            override=self.stochastic,
         )
         if output_zero_point is not None:
             y = y + output_zero_point

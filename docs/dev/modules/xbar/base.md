@@ -2,9 +2,11 @@
 
 ## Current role
 
-`Xbar` is the abstract base for the physical-crossbar primitive. Every concrete xbar (offset-coded 1T1R, future differential 1T1R, ideal twin) inherits this class and implements the same primitive shape contract.
+`Xbar` is the abstract base for the physical-crossbar primitive. Every concrete xbar (offset-coded 1T1R, future differential 1T1R, ideal twin) inherits this class and implements the same primitive shape contract. The family uses `RegistryDispatchMixin[type[XbarConfig], Xbar]`; concrete subclasses register on their concrete config type via `@Xbar.register_key(<Subclass>Config)`.
 
-`XbarConfig` is the base config carrying tile geometry, the runtime ADC operating point, the `(adc_mode, adc_bits) → rescale_factor` lookup, and tile-level PPA fields.
+`Xbar.from_config(cls, *, cfg, name, T__K, dtype)` is the family constructor: it looks up the impl class from `type(cfg)` and forwards the runtime trio. Direct instantiation of a concrete subclass is allowed; `from_config` is the polymorphic entry that owning macros use.
+
+`XbarConfig` is the base config carrying tile geometry, the runtime ADC operating point, the `(adc_mode, adc_bits) → rescale_factor` lookup, and tile-level PPA fields. All fields are required; the physical-layer no-defaults rule applies.
 
 ## Primitive shape contract
 
@@ -41,7 +43,9 @@ The xbar does **not** expose an aggregate "full logical `w` range" — that rang
 
 ## `to_ideal()`
 
-Every concrete xbar implements `to_ideal()`, returning the lossless [`IdealXbar`](ideal.md) twin that carries the same value-domain contract and the same rescale lookup but no analog physics. The ideal twin is the reference both for unit tests and for integer-truth comparisons during calibration.
+`Xbar.to_ideal() -> IdealXbar` is a **concrete** base method. It auto-forwards every `XbarConfig` field from `self.cfg` plus the four abstract structural properties (`x_range`, `w_digit_*`) into an `IdealXbarConfig`, then instantiates `IdealXbar`. Concrete xbars do not override it; `IdealXbar.to_ideal()` overrides to `return self`. `IdealXbar` is registered on `IdealXbarConfig`, so the same lossless tile is reachable through either `physical.to_ideal()` or `Xbar.from_config(cfg=IdealXbarConfig(...))`.
+
+The base also owns the runtime trio. `Xbar.__init__` stores `self.cfg`, `self.T__K`, and `self.dtype`; subclasses receive these through the family signature and pass them through `super().__init__(...)` without re-assigning. Subclass-specific state (digit-weight tables, owned children, lookup buffers) is the only thing a subclass init has to write. Stochastic-vs-deterministic rounding inside the quantisers downstream of the xbar tracks `self.training`; there is no separate `stochastic` knob.
 
 See also:
 

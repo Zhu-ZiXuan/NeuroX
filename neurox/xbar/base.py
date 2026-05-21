@@ -4,15 +4,23 @@ See also:
     docs/dev/modules/xbar/base.md
 """
 
+from __future__ import annotations
+
 import math
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass, fields
+from typing import TYPE_CHECKING
 
+import torch
 import torch.nn as nn
 from torch import Tensor
 
+from neurox.common.registry_dispatch import RegistryDispatchMixin
 from neurox.common.validate import ValidateMixin
 from neurox.profiler import ProfiledModule
+
+if TYPE_CHECKING:
+    from .ideal import IdealXbar
 
 
 @dataclass(frozen=True)
@@ -61,13 +69,13 @@ class XbarConfig(ValidateMixin):
     col_num: int
     row_num: int
 
-    adc_mode: int = 0
-    adc_bits: int = 0
-    output_rescale_factors: tuple[XbarRescaleEntry, ...] = field(default_factory=tuple)
+    adc_mode: int
+    adc_bits: int
+    output_rescale_factors: tuple[XbarRescaleEntry, ...]
 
-    latency_per_op__ns: float = 0.0
-    leakage_per_inst__uW: float = 0.0
-    area_per_inst__um2: float = 0.0
+    latency_per_op__ns: float
+    leakage_per_inst__uW: float
+    area_per_inst__um2: float
 
     def __post_init__(self) -> None:
         self.validate()
@@ -94,18 +102,33 @@ class XbarConfig(ValidateMixin):
         self._require_nonneg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
-class Xbar(nn.Module, ProfiledModule, ABC):
+class Xbar(nn.Module, ProfiledModule, RegistryDispatchMixin[type["XbarConfig"], "Xbar"], ABC):
     """Abstract base class for a physical crossbar tile.
 
     Args:
         cfg: Tile geometry, runtime ADC operating point, and PPA.
         name: Hierarchical instance name used by the profiler.
+        T__K: Operating temperature [K].
+        dtype: Tensor dtype for internal buffers.
     """
 
-    def __init__(self, cfg: XbarConfig, *, name: str = "") -> None:
+    cfg: XbarConfig
+    T__K: float
+    dtype: torch.dtype
+
+    def __init__(
+        self,
+        *,
+        cfg: XbarConfig,
+        name: str,
+        T__K: float,
+        dtype: torch.dtype,
+    ) -> None:
         nn.Module.__init__(self)
         ProfiledModule.__init__(self, name)
-        self.config = cfg
+        self.cfg = cfg
+        self.T__K = T__K
+        self.dtype = dtype
 
         self.col_num = cfg.col_num
         self.row_num = cfg.row_num
@@ -113,22 +136,35 @@ class Xbar(nn.Module, ProfiledModule, ABC):
         self._adc_bits = cfg.adc_bits
         self._rescale_lut = {(e.adc_mode, e.adc_bits): e.rf for e in cfg.output_rescale_factors}
 
+    @classmethod
+    def from_config(
+        cls,
+        *,
+        cfg: XbarConfig,
+        name: str,
+        T__K: float,
+        dtype: torch.dtype,
+    ) -> Xbar:
+        """Build the concrete impl registered for ``type(cfg)``."""
+        impl = cls._lookup_impl(type(cfg))
+        return impl(cfg=cfg, name=name, T__K=T__K, dtype=dtype)
+
     # ----- PPA properties (delegated to the immutable config) -----
 
     @property
     def area_per_inst__um2(self) -> float:
         """Area per instance in um2."""
-        return self.config.area_per_inst__um2
+        return self.cfg.area_per_inst__um2
 
     @property
     def leakage_per_inst__uW(self) -> float:
         """Leakage per instance in uW."""
-        return self.config.leakage_per_inst__uW
+        return self.cfg.leakage_per_inst__uW
 
     @property
     def latency_per_op__ns(self) -> float:
         """Latency per op in ns."""
-        return self.config.latency_per_op__ns
+        return self.cfg.latency_per_op__ns
 
     # ----- Value-domain semantics (abstract) -----
 
@@ -204,3 +240,31 @@ class Xbar(nn.Module, ProfiledModule, ABC):
             Output tensor with primitive trailing ``[data_num]``.
         """
         raise NotImplementedError
+
+    def to_ideal(self) -> IdealXbar:
+        """Return the lossless :class:`IdealXbar` counterpart of this tile.
+
+        The base implementation builds an :class:`IdealXbarConfig` by
+        forwarding every ``XbarConfig`` field from ``self.cfg`` and
+        adding the four structural fields read off the abstract
+        ``x_range`` / ``w_digit_*`` properties. ``IdealXbar.to_ideal``
+        overrides this to ``return self``.
+        """
+        # Local import — the ``ideal`` module imports from this file,
+        # so the symbol is only safe to resolve at call time.
+        from .ideal import IdealXbar, IdealXbarConfig
+
+        base_kwargs = {f.name: getattr(self.cfg, f.name) for f in fields(XbarConfig)}
+        ideal_cfg = IdealXbarConfig(
+            **base_kwargs,
+            x_range=self.x_range,
+            w_digit_count=self.w_digit_count,
+            w_digit_radix=self.w_digit_radix,
+            w_digit_range=self.w_digit_range,
+        )
+        return IdealXbar(
+            cfg=ideal_cfg,
+            name=self.qualified_name,
+            T__K=self.T__K,
+            dtype=self.dtype,
+        )

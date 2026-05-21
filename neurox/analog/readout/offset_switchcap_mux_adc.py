@@ -46,7 +46,6 @@ class OffsetSwitchCapMuxAdcReadOut(ReadOut):
         name: str,
         T__K: float,
         dtype: torch.dtype,
-        stochastic: bool | None,
         data_num: int,
         digit_weights: tuple[float, ...],
     ) -> None:
@@ -55,7 +54,6 @@ class OffsetSwitchCapMuxAdcReadOut(ReadOut):
             name=name,
             T__K=T__K,
             dtype=dtype,
-            stochastic=stochastic,
             data_num=data_num,
             digit_weights=digit_weights,
         )
@@ -67,7 +65,6 @@ class OffsetSwitchCapMuxAdcReadOut(ReadOut):
         self.cfg = cfg
         self.T__K = T__K
         self.dtype = dtype
-        self.stochastic = stochastic
         self.data_num = data_num
         self.digit_weights = digit_weights
 
@@ -97,7 +94,6 @@ class OffsetSwitchCapMuxAdcReadOut(ReadOut):
             name=f"{prefix}bl_adc",
             T__K=T__K,
             dtype=dtype,
-            stochastic=stochastic,
         )
 
     @property

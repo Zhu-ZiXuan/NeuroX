@@ -56,6 +56,9 @@ def _make_tia(
         pseudo_nmos_W__um=1.0,
         pseudo_nmos_L__um=0.06,
         output_saturation_softness__V=v_dd__V / 2.0,
+        leakage_per_inst__uW=0.0,
+        area_per_inst__um2=0.0,
+        latency_per_op__ns=0.0,
     )
     return OpAmpTIA(cfg=cfg, name="tia", T__K=300.0, dtype=torch.float64)
 
@@ -83,7 +86,7 @@ def test_tia_solve_dc_zero_current() -> None:
     tia.fabricate((4,))
     runtime = tia.snapshot(shape=(4,))
     i_in = torch.zeros(4, dtype=torch.float64)
-    dc = tia.solve_dc(i_in, runtime)
+    dc = tia.solve_dc(i_in, runtime, v_clamp_init__V=None)
     # NMOS off: v_out = v_clamp.
     assert torch.allclose(dc.v_out__V, dc.v_clamp__V, atol=1e-6)
     # Equilibrium stays within a few percent of the pure-linear
@@ -98,7 +101,7 @@ def test_tia_solve_dc_monotone_in_linear_region() -> None:
     tia.fabricate((5,))
     runtime = tia.snapshot(shape=(5,))
     i_in = torch.tensor([0.0, 5.0, 15.0, 30.0, 60.0], dtype=torch.float64)
-    dc = tia.solve_dc(i_in, runtime)
+    dc = tia.solve_dc(i_in, runtime, v_clamp_init__V=None)
 
     # v_out is monotonically non-decreasing with input current.
     diffs = dc.v_out__V[1:] - dc.v_out__V[:-1]
@@ -133,8 +136,8 @@ def test_tia_solve_dc_smooth_saturation_near_vdd() -> None:
     # 10 uA is well below the saturation knee for this 1-um W device;
     # 800 uA pushes the pseudo-resistor's triode capacity to where the
     # op-amp output is approaching the rail.
-    dc_lin = tia.solve_dc(torch.tensor([10.0], dtype=torch.float64), runtime)
-    dc_sat = tia.solve_dc(torch.tensor([800.0], dtype=torch.float64), runtime)
+    dc_lin = tia.solve_dc(torch.tensor([10.0], dtype=torch.float64), runtime, v_clamp_init__V=None)
+    dc_sat = tia.solve_dc(torch.tensor([800.0], dtype=torch.float64), runtime, v_clamp_init__V=None)
 
     # v_out approaches the upper rail (allow ``==`` in floating point).
     assert torch.all(dc_sat.v_out__V <= 0.9 + 1e-9)
@@ -150,7 +153,7 @@ def test_tia_solve_dc_smooth_saturation_near_vdd() -> None:
 
     # Continuity across the saturation knee: a small bump in i_in
     # produces a small bump in v_out, not a discontinuous jump.
-    dc_more = tia.solve_dc(torch.tensor([801.0], dtype=torch.float64), runtime)
+    dc_more = tia.solve_dc(torch.tensor([801.0], dtype=torch.float64), runtime, v_clamp_init__V=None)
     assert torch.all((dc_more.v_out__V - dc_sat.v_out__V).abs() < 1e-3)
 
 
@@ -160,7 +163,7 @@ def test_tia_solve_dc_residual_is_small() -> None:
     tia.fabricate((6,))
     runtime = tia.snapshot(shape=(6,))
     i_in = torch.tensor([0.0, 1.0, 3.0, 10.0, 30.0, 60.0], dtype=torch.float64)
-    dc = tia.solve_dc(i_in, runtime)
+    dc = tia.solve_dc(i_in, runtime, v_clamp_init__V=None)
     # NMOS current at the converged operating point should match i_in
     # (when not in the clip / saturation regime — pick currents below
     # the saturation knee for this sized device).
@@ -180,9 +183,9 @@ def test_tia_solve_dc_sensitivity_matches_finite_difference() -> None:
     tia.fabricate((4,))
     runtime = tia.snapshot(shape=(4,))
     i_in = torch.tensor([1.0, 10.0, 30.0, 60.0], dtype=torch.float64)
-    dc = tia.solve_dc(i_in, runtime)
+    dc = tia.solve_dc(i_in, runtime, v_clamp_init__V=None)
     h = 1e-3
-    dc_eps = tia.solve_dc(i_in + h, runtime)
+    dc_eps = tia.solve_dc(i_in + h, runtime, v_clamp_init__V=None)
     fd_dVclamp = (dc_eps.v_clamp__V - dc.v_clamp__V) / h
     fd_dVout = (dc_eps.v_out__V - dc.v_out__V) / h
     assert torch.allclose(dc.dVclamp_dI__MOhm, fd_dVclamp, atol=1e-7, rtol=1e-4)
@@ -279,13 +282,32 @@ def test_analog_mux_invalid_gain() -> None:
 def test_decoder_passthrough_drives_dac() -> None:
     """Non-bit-serial decoder passes integer codes straight to the DAC."""
     dac = GeneralDAC(
-        cfg=GeneralDACConfig(code_to_signal=[0.0, 1.2], drive_thermal__V=0.0, enable_drive_thermal=False),
+        cfg=GeneralDACConfig(
+            code_to_signal=[0.0, 1.2],
+            drive_thermal__V=0.0,
+            enable_drive_thermal=False,
+            energy_per_op__fJ=0.0,
+            latency_per_op__ns=0.0,
+            leakage_per_inst__uW=0.0,
+            area_per_inst__um2=0.0,
+        ),
         name="dac",
         T__K=300.0,
         dtype=torch.float32,
     )
     dec = Decoder(
-        cfg=DecoderConfig(n_address_bits=6, bit_serial=False),
+        cfg=DecoderConfig(
+            n_address_bits=6,
+            fanout=4,
+            drive_strength__uA=1000.0,
+            bit_serial=False,
+            c_gate__fF=0.5,
+            v_dd__V=1.0,
+            t_gate__ns=0.05,
+            e_overhead__fJ=0.0,
+            leakage_per_inst__uW=0.0,
+            area_per_inst__um2=0.0,
+        ),
         name="dec",
         T__K=300.0,
         dtype=torch.float32,
@@ -299,13 +321,32 @@ def test_decoder_passthrough_drives_dac() -> None:
 def test_decoder_bit_serial_expands_codes() -> None:
     """Bit-serial decoder splits an integer code into ``n_address_bits`` planes."""
     dac = GeneralDAC(
-        cfg=GeneralDACConfig(code_to_signal=[0.0, 1.2], drive_thermal__V=0.0, enable_drive_thermal=False),
+        cfg=GeneralDACConfig(
+            code_to_signal=[0.0, 1.2],
+            drive_thermal__V=0.0,
+            enable_drive_thermal=False,
+            energy_per_op__fJ=0.0,
+            latency_per_op__ns=0.0,
+            leakage_per_inst__uW=0.0,
+            area_per_inst__um2=0.0,
+        ),
         name="dac",
         T__K=300.0,
         dtype=torch.float32,
     )
     dec = Decoder(
-        cfg=DecoderConfig(n_address_bits=4, bit_serial=True),
+        cfg=DecoderConfig(
+            n_address_bits=4,
+            fanout=4,
+            drive_strength__uA=1000.0,
+            bit_serial=True,
+            c_gate__fF=0.5,
+            v_dd__V=1.0,
+            t_gate__ns=0.05,
+            e_overhead__fJ=0.0,
+            leakage_per_inst__uW=0.0,
+            area_per_inst__um2=0.0,
+        ),
         name="dec",
         T__K=300.0,
         dtype=torch.float32,
@@ -325,9 +366,15 @@ def test_decoder_bit_serial_expands_codes() -> None:
 
 def test_decoder_invalid_address_bits() -> None:
     with pytest.raises(ValueError):
-        Decoder(
-            cfg=DecoderConfig(n_address_bits=0),
-            name="dec",
-            T__K=300.0,
-            dtype=torch.float32,
+        DecoderConfig(
+            n_address_bits=0,
+            fanout=4,
+            drive_strength__uA=1000.0,
+            bit_serial=False,
+            c_gate__fF=0.5,
+            v_dd__V=1.0,
+            t_gate__ns=0.05,
+            e_overhead__fJ=0.0,
+            leakage_per_inst__uW=0.0,
+            area_per_inst__um2=0.0,
         )

@@ -328,7 +328,7 @@ class CircuitCore1T1R(nn.Module):
             )
 
         target_g__uS = self.state_to_g_map__uS[w_state_idx.long()]
-        self.rram.program(target_g__uS)
+        self.rram.program(target_g__uS, t_elapsed=0.0)
         self.nmos.fabricate(w_state_idx.shape)
         self.tia.fabricate((phys_col_num,))
 

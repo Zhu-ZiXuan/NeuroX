@@ -44,19 +44,29 @@ This distinction explains why fabricate and matmul cannot share a uniform "reduc
 
 The abstract base declares signatures only; it does **not** provide a template method, and intermediate tensor shapes are subclass concerns:
 
-- a polymorphic `from_config(cls, *, cfg, xbar, name="")` classmethod that dispatches on the concrete config type.
+- a polymorphic `from_config(cls, *, cfg, name, T__K, dtype, ideal_xbar)` classmethod that dispatches on the concrete config type.
 - abstract `w_value_range / x_value_range / output_rescale_factor` properties.
 - abstract `fabricate(weight)` and `matmul(input, weight, bias, mult, rshift, zp)`.
 - a static chunk-and-pad helper — the one shared geometric primitive.
 
-A subclass writes its own `fabricate` and `matmul` end to end; the base does not orchestrate.
+The base owns construction: it reads `cfg.xbar_cfg` (an `XbarConfig` subclass) and builds the xbar through `Xbar.from_config(...)`. When `ideal_xbar=True` it replaces the freshly-built physical tile with its lossless twin via `physical.to_ideal()`. A subclass writes its own `fabricate` and `matmul` end to end; the base does not orchestrate run-time logic.
+
+## Family-wide construction signature
+
+Every concrete xbar-macro mode follows the same kwarg-only `__init__` / `from_config` signature:
+
+```
+*, cfg, name, T__K, dtype, ideal_xbar
+```
+
+`T__K` and `dtype` propagate to the xbar and to every analog/digital child that consumes them. `ideal_xbar` is a build-time toggle paired with the analog/ideal swap. Stochastic-vs-deterministic rounding is governed exclusively by `self.training` at the consuming quantiser — there is no constructor-time override. None of these arguments carry a default — see [`code_style.md` §Physical-layer no defaults](code_style.md).
 
 ## Adding a new mode
 
-1. Define a concrete config dataclass extending the base config, declaring all sub-module configs the mode needs (slicer params, reducer configs, …).
+1. Define a concrete config dataclass extending the base config, declaring all sub-module configs the mode needs (slicer params, reducer configs, …). `xbar_cfg: XbarConfig` is inherited from the base config; concrete subclasses do not redeclare it.
 2. Define a concrete macro subclass and register it against the concrete config with the family registry decorator.
-3. Build sub-modules in `__init__` from the config; store the xbar handle and the slicers / reducers as `nn.Module` children.
+3. Forward the family signature into `super().__init__(...)` so the base builds `self.xbar`. Build slicers / reducers from the cfg as `nn.Module` children; do not re-store `cfg` or `xbar` — the base owns them.
 4. Implement the mode-specific organize for W and X as private methods of the subclass.
-5. Implement `fabricate(weight)` to call organize → `xbar.fabricate` and pre-warm reducer shapes.
+5. Implement `fabricate(weight)` to call organize → `self.xbar.fabricate` and pre-warm reducer shapes.
 6. Implement `matmul(...)` to organize → primitive VMM → aggregate (the dual of organize) → requantize.
 7. Add full shape annotations on every reshape / permute step, marking placeholder axes as `=1`.

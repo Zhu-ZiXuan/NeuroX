@@ -24,7 +24,6 @@ from .quant import (
     floor_bucketize,
     stochastic_floor_div,
     stochastic_floor_to_int,
-    use_stochastic,
 )
 from .registry_dispatch import RegistryDispatchMixin
 
@@ -51,5 +50,4 @@ __all__ = [
     "stochastic_floor_div",
     "stochastic_floor_to_int",
     "thermal_voltage__V",
-    "use_stochastic",
 ]

@@ -78,7 +78,6 @@ class ADC(nn.Module, ProfiledModule, RegistryDispatchMixin[type["ADCConfig"], "A
         name: str,
         T__K: float,
         dtype: torch.dtype,
-        stochastic: bool | None,
     ) -> ADC:
         """Build the concrete ADC implementation for `type(cfg)`.
 
@@ -87,13 +86,12 @@ class ADC(nn.Module, ProfiledModule, RegistryDispatchMixin[type["ADCConfig"], "A
             name: Profiler/debug name.
             T__K: Operating temperature [K].
             dtype: Tensor dtype for internal buffers.
-            stochastic: Optional runtime stochastic-control flag.
 
         Returns:
             Concrete ADC implementation registered for `type(cfg)`.
         """
         impl = cls._lookup_impl(type(cfg))
-        return impl(cfg=cfg, name=name, T__K=T__K, dtype=dtype, stochastic=stochastic)
+        return impl(cfg=cfg, name=name, T__K=T__K, dtype=dtype)
 
     def __init__(
         self,
@@ -102,7 +100,6 @@ class ADC(nn.Module, ProfiledModule, RegistryDispatchMixin[type["ADCConfig"], "A
         name: str,
         T__K: float,
         dtype: torch.dtype,
-        stochastic: bool | None,
     ) -> None:
         """Register the instance with :class:`nn.Module` and the profiler.
 
@@ -111,9 +108,8 @@ class ADC(nn.Module, ProfiledModule, RegistryDispatchMixin[type["ADCConfig"], "A
             name: Profiler/debug name.
             T__K: Operating temperature [K].
             dtype: Tensor dtype for internal buffers.
-            stochastic: Optional runtime stochastic-control flag.
         """
-        del cfg, T__K, dtype, stochastic  # captured by the subclass init
+        del cfg, T__K, dtype  # captured by the subclass init
         nn.Module.__init__(self)
         ProfiledModule.__init__(self, name)
 

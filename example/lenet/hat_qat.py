@@ -39,7 +39,7 @@ from example.common import build_macro_factory, derive_quant_spec
 from example.lenet.data import create_mnist_dataloader
 from example.lenet.model import LeNet5
 from neurox import replace as neurox
-from neurox.config import DEFAULT_1T1R_TOML
+from neurox.config import DEFAULT_1T1R_MACRO_TOML
 
 
 def _validate(model: nn.Module, loader: DataLoader, device: torch.device) -> float:
@@ -70,7 +70,7 @@ def main() -> None:
     parser.add_argument(
         "--config",
         type=Path,
-        default=DEFAULT_1T1R_TOML,
+        default=DEFAULT_1T1R_MACRO_TOML,
         help="Chip TOML (bundled default covers the reference 1T1R tile).",
     )
     parser.add_argument(

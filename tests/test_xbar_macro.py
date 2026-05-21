@@ -58,7 +58,7 @@ from neurox.analog.tia import OpAmpTIA, OpAmpTIAConfig
 from neurox.analog.adc import GeneralADC, GeneralADCConfig
 from neurox.analog.readout import OffsetSwitchCapMuxAdcReadOut, ReadOutConfig
 from neurox.common import T_ROOM__K, dict_configs_from_file, dict_from_file, thermal_voltage__V
-from neurox.config import DEFAULT_1T1R_TOML
+from neurox.config import DEFAULT_1T1R_MACRO_TOML
 from neurox.device import NMOS, RRAM, NMOSConfig, RRAMConfig
 from neurox.digital import (
     Accumulator,
@@ -79,7 +79,7 @@ from neurox.xbar import (
     Offset1T1RXbarConfig,
 )
 
-CONFIG_FILE = DEFAULT_1T1R_TOML
+CONFIG_FILE = DEFAULT_1T1R_MACRO_TOML
 
 _SPECS = {
     "rram": RRAMConfig,

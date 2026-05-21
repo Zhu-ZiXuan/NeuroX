@@ -67,7 +67,6 @@ class ReadOut(nn.Module, ProfiledModule, RegistryDispatchMixin[type["ReadOutConf
         name: str,
         T__K: float,
         dtype: torch.dtype,
-        stochastic: bool | None,
         data_num: int,
         digit_weights: tuple[float, ...],
     ) -> ReadOut:
@@ -78,7 +77,6 @@ class ReadOut(nn.Module, ProfiledModule, RegistryDispatchMixin[type["ReadOutConf
             name: Profiler/debug name.
             T__K: Operating temperature [K].
             dtype: Tensor dtype for internal buffers.
-            stochastic: Optional runtime stochastic-control flag.
             data_num: Number of data per reference group.
             digit_weights: Per-digit weight vector, length ``digit_num``.
 
@@ -91,7 +89,6 @@ class ReadOut(nn.Module, ProfiledModule, RegistryDispatchMixin[type["ReadOutConf
             name=name,
             T__K=T__K,
             dtype=dtype,
-            stochastic=stochastic,
             data_num=data_num,
             digit_weights=digit_weights,
         )
@@ -103,7 +100,6 @@ class ReadOut(nn.Module, ProfiledModule, RegistryDispatchMixin[type["ReadOutConf
         name: str,
         T__K: float,
         dtype: torch.dtype,
-        stochastic: bool | None,
         data_num: int,
         digit_weights: tuple[float, ...],
     ) -> None:
@@ -114,11 +110,10 @@ class ReadOut(nn.Module, ProfiledModule, RegistryDispatchMixin[type["ReadOutConf
             name: Profiler/debug name.
             T__K: Operating temperature [K].
             dtype: Tensor dtype for internal buffers.
-            stochastic: Optional runtime stochastic-control flag.
             data_num: Number of data per reference group.
             digit_weights: Per-digit weight vector, length ``digit_num``.
         """
-        del cfg, T__K, dtype, stochastic, data_num, digit_weights  # captured by the subclass init
+        del cfg, T__K, dtype, data_num, digit_weights  # captured by the subclass init
         nn.Module.__init__(self)
         ProfiledModule.__init__(self, name)
 

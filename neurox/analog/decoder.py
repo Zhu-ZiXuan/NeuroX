@@ -40,21 +40,21 @@ class DecoderConfig(ValidateMixin):
         area_per_inst__um2: Silicon area per instance.
     """
 
-    n_address_bits: int = 6
-    fanout: int = 4
+    n_address_bits: int
+    fanout: int
 
-    drive_strength__uA: float = 1000.0
+    drive_strength__uA: float
 
-    bit_serial: bool = False
+    bit_serial: bool
 
-    c_gate__fF: float = 0.5
-    v_dd__V: float = 1.0
-    t_gate__ns: float = 0.05
+    c_gate__fF: float
+    v_dd__V: float
+    t_gate__ns: float
 
-    e_overhead__fJ: float = 0.0
+    e_overhead__fJ: float
 
-    leakage_per_inst__uW: float = 0.0
-    area_per_inst__um2: float = 0.0
+    leakage_per_inst__uW: float
+    area_per_inst__um2: float
 
     def __post_init__(self) -> None:
         self.validate()

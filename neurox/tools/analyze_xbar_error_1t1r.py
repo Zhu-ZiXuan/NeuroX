@@ -197,7 +197,7 @@ def compare_against_ideal(
     # the transcoder's natural output range).
     w_max = physical.w_digit_radix**physical.w_digit_count - 1
     x_max = physical.x_range[1]
-    adc_levels = 1 << physical.config.adc_bits
+    adc_levels = 1 << physical.cfg.adc_bits
 
     diffs: list[torch.Tensor] = []
     for w_trial in range(n_rand_w):

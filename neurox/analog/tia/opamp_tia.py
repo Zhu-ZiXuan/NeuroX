@@ -231,7 +231,7 @@ class OpAmpTIA(TIA):
         i_port__uA: Tensor,
         snapshot: OpAmpTIASnapshot,
         *,
-        v_clamp_init__V: Tensor | None = None,
+        v_clamp_init__V: Tensor | None,
     ) -> OpAmpTIADCOP:
         """Solve the closed-loop OpAmpTIA at one port current.
 
@@ -301,7 +301,7 @@ class OpAmpTIA(TIA):
         i_port__uA: Tensor,
         snapshot: OpAmpTIASnapshot,
         *,
-        v_clamp_init__V: Tensor | None = None,
+        v_clamp_init__V: Tensor | None,
     ) -> tuple[Tensor, Tensor]:
         """`ClampDriver`-protocol wrapper around :meth:`solve_dc`.
 

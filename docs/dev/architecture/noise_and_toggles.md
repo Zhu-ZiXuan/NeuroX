@@ -77,7 +77,7 @@ No `if` branches at the call site, no `None` checks inside the helpers, no speci
 
 - Numerical hyperparameters that are not noise (e.g. softclip softness, learning rates). These follow the regular "required field" rule but do not need a paired toggle.
 - Boolean construction modes that already act as toggles (e.g. `bit_serial: bool` on the decoder, `input_transform: Literal["linear", "log2"]`). These are structural choices, not noise.
-- Master training-mode flags such as `training` / `stochastic` carried by `nn.Module` itself; those are runtime, not cfg.
+- The training-mode flag (`self.training`) carried by `nn.Module` itself; that is runtime, not cfg. Stochastic-rounding kernels in `neurox/common/quant.py` consume it directly — there is no separate `stochastic` override knob.
 
 ## Adding a new noise source
 

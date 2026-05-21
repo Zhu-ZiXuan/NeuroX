@@ -29,11 +29,11 @@ class ShiftAdderConfig(ValidateMixin):
 
     bit_width: int
 
-    energy_per_op__fJ: float = 0.0
+    energy_per_op__fJ: float
 
-    latency_per_op__ns: float = 0.0
-    leakage_per_inst__uW: float = 0.0
-    area_per_inst__um2: float = 0.0
+    latency_per_op__ns: float
+    leakage_per_inst__uW: float
+    area_per_inst__um2: float
 
     def __post_init__(self) -> None:
         self.validate()
@@ -55,7 +55,7 @@ class ShiftAdderConfig(ValidateMixin):
 class ShiftAdder(nn.Module, ProfiledModule):
     """Weighted positional-sum unit for digit recombination."""
 
-    def __init__(self, config: ShiftAdderConfig, *, name: str = "") -> None:
+    def __init__(self, config: ShiftAdderConfig, *, name: str) -> None:
         nn.Module.__init__(self)
         ProfiledModule.__init__(self, name)
         self.config = config
@@ -83,7 +83,7 @@ class ShiftAdder(nn.Module, ProfiledModule):
         """
         self._record_inst_count(shape)
 
-    def operate(self, x: Tensor, scale: int, dim: int = -1, init_val: Tensor | None = None) -> Tensor:
+    def operate(self, x: Tensor, scale: int, dim: int, init_val: Tensor | None) -> Tensor:
         """Compute the radix-weighted digit sum and wrap to ``bit_width`` bits.
 
         Args:

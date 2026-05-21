@@ -206,6 +206,23 @@ The public surface of a class distinguishes properties from methods by the **nat
 
 A dynamic, one-shot value must not be cached into instance state purely so that it can be exposed as a property. That dishonestly promotes a method-shaped operation into the property surface and grows the instance's apparent state. If a value cannot be derived without per-call input, keep it as a method return.
 
+## Physical-layer no defaults
+
+Inside the physical layer — every module under `neurox/device/`, `neurox/analog/`, `neurox/digital/`, `neurox/xbar/`, and `neurox/macro/` — the surface is strictly no-default:
+
+- **Config dataclass fields** carry no default. Every chip TOML must declare every field explicitly. `field(default_factory=...)` is also forbidden.
+- **Function and method parameters** (including `__init__`) carry no default. Every call site spells out every argument. Applies to every callable, not just constructors.
+
+The rule applies to the source-of-truth declarations under the physical layer. Class-level `Final`-style constants (e.g. `N_NEWTON: int = 4` used as `self.N_NEWTON`) are not parameters and not config fields — they stay as written. Local-variable type annotations on empty containers (`out: list[int] = []`) are also untouched; see *Always annotate* above.
+
+### Why
+
+A default value is a hidden second source of truth. When a TOML omits a PPA field, the implicit `0.0` quietly disables the contribution; when a call site omits a kwarg, the implicit value silently picks a behaviour. Both break under refactor and both hide configuration drift. Forcing every value into the call site makes the active configuration legible and makes "what did this run actually use" answerable from the inputs alone. The cost is verbosity at construction; the buyback is no more silent regressions through stale defaults.
+
+### When you need to add a field
+
+Adding a field to a physical-layer config or callable means updating every chip TOML and every call site in the same change. There is no "add with a default, migrate later" path. If a field is truly optional, model it explicitly with `Optional[T]` plus an enable toggle (the noise / mismatch pattern below).
+
 ## Noise / mismatch configuration
 
 Non-ideality, mismatch, and dynamic-noise fields follow a separate uniform rule documented in [`noise_and_toggles.md`](noise_and_toggles.md): every source carries a fully-populated parameter and a paired `enable_<source>: bool` toggle; `None` is forbidden in cfg fields; runtime helpers in `neurox/common/nonideality.py` take an `*, enabled: bool` kwarg.
@@ -258,7 +275,7 @@ Each upper-module doc carries its **own** description of:
 - which child modules / configs it owns;
 - the role each child plays inside it;
 - how it constructs each child (direct `__init__` vs. family `from_config`);
-- how it propagates the runtime trio (`name`, `T__K`, `dtype`) and any family-specific extras (`stochastic`, …) into its children.
+- how it propagates the runtime trio (`name`, `T__K`, `dtype`) and any family-specific extras (`ideal_xbar`, …) into its children.
 
 The "who uses who" graph is therefore asserted exactly once, from the parent side.
 

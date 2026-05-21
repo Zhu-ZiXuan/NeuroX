@@ -16,10 +16,10 @@
 Every concrete ADC impl exposes the same explicit signature:
 
 ```
-__init__(self, *, cfg, name, T__K, dtype, stochastic)
+__init__(self, *, cfg, name, T__K, dtype)
 ```
 
-`stochastic` is the family-specific extra: when `True` LSB-level dither is injected before bucketize; when `False` the kernel falls through to deterministic floor semantics; `None` defers to `module.training`. The base accepts and discards `cfg / T__K / dtype / stochastic` so the dispatcher type-checks; concrete subclasses store them on `self`.
+The base accepts and discards `cfg / T__K / dtype` so the dispatcher type-checks; concrete subclasses store them on `self`. Stochastic-vs-deterministic rounding is governed by `self.training` at `convert` time — there is no constructor-time override flag.
 
 ## Runtime multi-mode
 

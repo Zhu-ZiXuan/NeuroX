@@ -22,17 +22,14 @@
 2. Optional sampling noise (input-referred jitter).
 3. Optional `log2` domain transform.
 4. Optional comparator noise (per-threshold offset).
-5. Optional uniform LSB-jitter for stochastic rounding when `self.stochastic` resolves to `True`.
+5. Optional uniform LSB-jitter for stochastic rounding when `self.training` is `True`.
 6. `floor_bucketize` against `boundaries` → `int16` code.
 
 The class is single-mode: `mode == 0` and `bits == n_bits_implied_by_boundaries` are the only legal runtime pair.
 
-## Per-instance `stochastic`
+## Training-mode rounding
 
-Per the family signature, `stochastic` is required and resolved at convert time via `common.quant.use_stochastic(stochastic_flag, training)`:
-
-- `True` / `False` force the rounding mode on / off
-- `None` follows `module.training`
+Stochastic-vs-deterministic rounding is driven exclusively by `self.training` (the standard `nn.Module` flag). Switch between `model.train()` and `model.eval()` to toggle behaviour; there is no per-instance override.
 
 See also:
 

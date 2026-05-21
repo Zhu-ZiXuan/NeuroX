@@ -11,7 +11,6 @@ from torch import Tensor
 
 from neurox.analog.readout import ReadOut, ReadOutConfig
 from neurox.xbar.base import Xbar, XbarConfig
-from neurox.xbar.ideal import IdealXbar
 
 from .circuit_core import CircuitCore1T1R, CircuitCore1T1RConfig
 
@@ -73,9 +72,11 @@ class Offset1T1RXbarConfig(XbarConfig):
 # ---------------------------------------------------------------------------
 
 
+@Xbar.register_key(Offset1T1RXbarConfig)
 class Offset1T1RXbar(Xbar):
     """Offset-coded 1T1R crossbar tile."""
 
+    cfg: Offset1T1RXbarConfig
     logic_phys_idx: Tensor
     ref_phys_idx: Tensor
 
@@ -86,14 +87,8 @@ class Offset1T1RXbar(Xbar):
         name: str,
         T__K: float,
         dtype: torch.dtype,
-        stochastic: bool | None,
     ) -> None:
-        super().__init__(cfg, name=name)
-
-        self.cfg = cfg
-        self.dtype = dtype
-        self.T__K = T__K
-        self.stochastic = stochastic
+        super().__init__(cfg=cfg, name=name, T__K=T__K, dtype=dtype)
 
         # Positional weights: ``[r^0, r^1, ..., r^(D-1)]``.
         self.digit_weights = tuple(float(cfg.w_digit_radix**k) for k in range(cfg.w_digit_count))
@@ -111,7 +106,6 @@ class Offset1T1RXbar(Xbar):
             name=readout_name,
             T__K=T__K,
             dtype=dtype,
-            stochastic=stochastic,
             data_num=cfg.ref_group_size,
             digit_weights=self.digit_weights,
         )
@@ -161,23 +155,6 @@ class Offset1T1RXbar(Xbar):
     # -----------------------------------------------------------------
     # Public API
     # -----------------------------------------------------------------
-
-    def to_ideal(self) -> IdealXbar:
-        """Build the noise-free :class:`IdealXbar` twin of this tile."""
-        return IdealXbar(
-            cfg=XbarConfig(
-                col_num=self.cfg.col_num,
-                row_num=self.cfg.row_num,
-                adc_mode=self.cfg.adc_mode,
-                adc_bits=self.cfg.adc_bits,
-                output_rescale_factors=self.cfg.output_rescale_factors,
-            ),
-            name=self.qualified_name,
-            x_range=self.x_range,
-            w_digit_count=self.w_digit_count,
-            w_digit_radix=self.w_digit_radix,
-            w_digit_range=self.w_digit_range,
-        )
 
     def fabricate(self, w: Tensor) -> None:
         """Lay out an xbar-native digit tensor onto the physical array.

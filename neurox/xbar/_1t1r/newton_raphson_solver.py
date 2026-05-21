@@ -170,8 +170,8 @@ class NewtonRaphsonSolver1T1R(nn.Module):
         i_bl_driver_in__uA = i_cell_init.sum(dim=-1)
         # Shape: [..., num_col, num_row] -> [..., num_row]
         i_sl_driver_in__uA = -i_cell_init.sum(dim=-2)
-        v_bl_clamp__V, _ = self.bl_driver.solve_clamp(i_bl_driver_in__uA, bl_driver_snapshot)
-        v_sl_drive__V, _ = self.sl_driver.solve_clamp(i_sl_driver_in__uA, sl_driver_snapshot)
+        v_bl_clamp__V, _ = self.bl_driver.solve_clamp(i_bl_driver_in__uA, bl_driver_snapshot, v_clamp_init__V=None)
+        v_sl_drive__V, _ = self.sl_driver.solve_clamp(i_sl_driver_in__uA, sl_driver_snapshot, v_clamp_init__V=None)
         # Shape: [..., num_col] -> [..., num_col, 1]
         v_bl_clamp_grid__V = v_bl_clamp__V.unsqueeze(-1)
         # Shape: [..., num_row] -> [..., 1, num_row]

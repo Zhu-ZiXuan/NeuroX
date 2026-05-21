@@ -208,8 +208,8 @@ def calibrate(
     physical = Offset1T1RXbar(
         cfg=xbar_cfg,
         name="xbar",
-        dtype=torch.float64,
         T__K=T_ROOM__K,
+        dtype=torch.float64,
     )
     physical.eval()
     ideal = physical.to_ideal()

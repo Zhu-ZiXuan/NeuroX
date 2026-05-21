@@ -93,7 +93,7 @@ Different families may expose different explicit runtime parameters.
 
 Example:
 
-- `ADC.from_config(...)` may carry `stochastic`
+- `XbarMacro.from_config(...)` carries `ideal_xbar`
 - `TIA.from_config(...)` does not
 
 The project does **not** force one global `from_config(...)` signature across all families.
