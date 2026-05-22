@@ -176,7 +176,7 @@ If a check is already enforced by static analysis or by the deserialiser, do not
 
 ### Literal at deserialization
 
-`neurox/common/load_dump.py:_build_value` enforces `Literal[...]` allowed sets at TOML / YAML load time. A field annotated `Literal["row_shared", "col_shared"]` rejects unknown values during deserialisation; `validate*` does not need to repeat the check.
+`neurox/common/load_dump.py:_build_value` enforces `Literal[...]` allowed sets at TOML / YAML load time. A field annotated `Literal["mode_a", "mode_b"]` rejects unknown values during deserialisation; `validate*` does not need to repeat the check.
 
 ### Helpers
 

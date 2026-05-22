@@ -33,9 +33,6 @@ rescale_factor = 4.0625
 # --- Pulse timing ---
 wl_pulse_length__ns = 3.0
 
-# --- SL topology ---
-sl_topology = "row_shared"
-
 # --- Layout pitch ---
 row_first_space__um = 1.000
 row_cell_space__um = 0.040
@@ -138,19 +135,6 @@ enable_drive_thermal = false
 
 # --- PPA ---
 latency_per_op__ns = 0.0
-leakage_per_inst__uW = 0.0
-area_per_inst__um2 = 0.0
-
-
-[xbar.core_cfg.wl_decoder_cfg]
-n_address_bits = 6
-fanout = 4
-drive_strength__uA = 1000.0
-bit_serial = false
-c_gate__fF = 0.5
-v_dd__V = 1.2
-t_gate__ns = 0.05
-e_overhead__fJ = 0.0
 leakage_per_inst__uW = 0.0
 area_per_inst__um2 = 0.0
 

@@ -83,11 +83,11 @@ def col_wire_kcl_residual(
     segment_g: Tensor,
     i_inject: Tensor,
 ) -> Tensor:
-    """KCL residual at every node of a column-oriented (BL) wire.
+    """KCL residual at every node of a column-oriented wire.
 
-    The BL wire runs along ``dim=-1`` (the ``row_num`` axis); the
-    driver sits at index 0. Per-segment conductances ``segment_g[k]``
-    map index 0 to the driver-to-first segment and index ``k`` to the
+    The wire runs along ``dim=-1`` (the ``row_num`` axis); the driver
+    sits at index 0. Per-segment conductances ``segment_g[k]`` map index
+    0 to the driver-to-first segment and index ``k`` to the
     ``node-(k-1) → node-k`` segment.
 
     Args:
@@ -123,7 +123,7 @@ def row_wire_kcl_residual(
     segment_g: Tensor,
     i_inject: Tensor,
 ) -> Tensor:
-    """KCL residual at every node of a row-oriented (SL / WL) wire.
+    """KCL residual at every node of a row-oriented wire.
 
     Same structure as :func:`col_wire_kcl_residual` along ``dim=-2``.
 
@@ -156,13 +156,13 @@ def col_driver_current(
     v_drive: Tensor,
     segment_g: Tensor,
 ) -> Tensor:
-    """Net current from each BL driver into the wire [uA].
+    """Net current from a column-oriented-wire driver into the wire [uA].
 
     Args:
-        v_node: BL wire node voltages [V]. Shape
+        v_node: Wire node voltages [V]. Shape
             ``[..., col_num, row_num]``.
-        v_drive: BL driver voltage [V]. Shape ``[..., col_num, 1]``.
-        segment_g: BL per-segment conductance [uS] — only
+        v_drive: Driver voltage [V]. Shape ``[..., col_num, 1]``.
+        segment_g: Per-segment conductance [uS] — only
             ``segment_g[0]`` is read.
 
     Returns:
@@ -177,13 +177,13 @@ def row_driver_current(
     v_drive: Tensor,
     segment_g: Tensor,
 ) -> Tensor:
-    """Net current from each SL / WL driver into the wire [uA].
+    """Net current from a row-oriented-wire driver into the wire [uA].
 
     Args:
-        v_node: SL wire node voltages [V]. Shape
+        v_node: Wire node voltages [V]. Shape
             ``[..., col_num, row_num]``.
-        v_drive: SL driver voltage [V]. Shape ``[..., 1, row_num]``.
-        segment_g: SL per-segment conductance [uS] — only
+        v_drive: Driver voltage [V]. Shape ``[..., 1, row_num]``.
+        segment_g: Per-segment conductance [uS] — only
             ``segment_g[0]`` is read.
 
     Returns:

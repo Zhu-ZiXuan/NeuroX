@@ -108,6 +108,11 @@ class GeneralDAC(DAC):
         """Latency per op [ns]."""
         return self.cfg.latency_per_op__ns
 
+    @property
+    def code_max(self) -> int:
+        """Maximum valid input code (inclusive); valid codes lie in ``[0, code_max]``."""
+        return len(self.cfg.code_to_signal) - 1
+
     def convert(self, code: Tensor) -> Tensor:
         """Convert integer digital codes to float analog voltages.
 

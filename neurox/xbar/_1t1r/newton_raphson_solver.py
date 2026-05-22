@@ -7,7 +7,6 @@ See also:
 from dataclasses import dataclass
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
@@ -17,8 +16,6 @@ from neurox.device.nmos import NMOS, NMOSSnapshot
 from neurox.xbar.solver import (
     col_driver_current,
     col_wire_kcl_residual,
-    row_driver_current,
-    row_wire_kcl_residual,
     solve_tridiagonal,
 )
 
@@ -33,14 +30,14 @@ class Solver1T1RDCOP:
 
     Attributes:
         i_bl_driver: BL driver current [uA]. Shape: [..., num_col].
-        i_sl_driver: SL driver current [uA]. Shape: [..., num_row].
+        i_sl_driver: SL driver current [uA]. Shape: [..., num_col].
         v_bl_node: BL node voltages [V]. Shape: [..., num_col, num_row].
         v_sl_node: SL node voltages [V]. Shape: [..., num_col, num_row].
         v_x_node: Internal access-transistor drain voltages [V]. Shape:
             [..., num_col, num_row].
         i_cell: Cell currents [uA]. Shape: [..., num_col, num_row].
         v_bl_clamp: BL clamp voltages [V]. Shape: [..., num_col].
-        v_sl_drive: SL drive voltages [V]. Shape: [..., num_row].
+        v_sl_drive: SL drive voltages [V]. Shape: [..., num_col].
     """
 
     i_bl_driver: Tensor
@@ -53,46 +50,39 @@ class Solver1T1RDCOP:
     v_sl_drive: Tensor
 
 
-class NewtonRaphsonSolver1T1R(nn.Module):
-    """Stateful 1T1R DC solver coupled to BL and SL clamp drivers."""
+class NewtonRaphsonSolver1T1R:
+    """Plain stateless 1T1R DC solver.
+
+    Holds long-lived references to RRAM / NMOS / BL / SL drivers via ``__init__``;
+    never owns buffers, parameters, snapshots, runtime caches, or any other
+    PyTorch-registered objects, and is deliberately not an ``nn.Module``.
+    New instance state must not be added in future revisions — all per-call
+    inputs (wire tensors, snapshots) flow in through ``solve_dc`` kwargs.
+    """
 
     N_UNROLL_OUTER: int = 5
     I_ATOL__uA: float = 1e-3
 
-    bl_segment_r__MOhm: Tensor
-    sl_segment_r__MOhm: Tensor
-    bl_segment_g__uS: Tensor
-    sl_segment_g__uS: Tensor
-
     def __init__(
         self,
+        *,
         rram: RRAM,
         nmos: NMOS,
         bl_driver: ClampDriver,
         sl_driver: ClampDriver,
-        *,
-        bl_segment_r__MOhm: Tensor,
-        sl_segment_r__MOhm: Tensor,
     ) -> None:
-        """Construct one 1T1R DC solver.
+        """Bind the solver to its 1T1R device and boundary-driver instances.
 
         Args:
             rram: Programmed RRAM device model.
             nmos: Fabricated access-NMOS model.
             bl_driver: BL clamp driver.
             sl_driver: SL clamp driver.
-            bl_segment_r__MOhm: 1-D BL segment resistances [MOhm], index 0 is driver-to-first.
-            sl_segment_r__MOhm: 1-D SL segment resistances [MOhm], index 0 is driver-to-first.
         """
-        super().__init__()
         self.rram = rram
         self.nmos = nmos
         self.bl_driver = bl_driver
         self.sl_driver = sl_driver
-        self.register_buffer("bl_segment_r__MOhm", bl_segment_r__MOhm, persistent=False)
-        self.register_buffer("sl_segment_r__MOhm", sl_segment_r__MOhm, persistent=False)
-        self.register_buffer("bl_segment_g__uS", 1.0 / bl_segment_r__MOhm, persistent=False)
-        self.register_buffer("sl_segment_g__uS", 1.0 / sl_segment_r__MOhm, persistent=False)
 
     # ---------------------------------------------------------------
     # Public entry point
@@ -100,8 +90,12 @@ class NewtonRaphsonSolver1T1R(nn.Module):
 
     def solve_dc(
         self,
-        v_wl_drive__V: Tensor,
         *,
+        v_wl_drive__V: Tensor,
+        bl_segment_r__MOhm: Tensor,
+        sl_segment_r__MOhm: Tensor,
+        bl_segment_g__uS: Tensor,
+        sl_segment_g__uS: Tensor,
         rram_snapshot: RRAMSnapshot,
         nmos_snapshot: NMOSSnapshot,
         bl_driver_snapshot: object,
@@ -111,6 +105,14 @@ class NewtonRaphsonSolver1T1R(nn.Module):
 
         Args:
             v_wl_drive__V: WL drive voltage tensor [V]. Shape: [..., 1, num_row].
+            bl_segment_r__MOhm: 1-D BL segment resistances [MOhm]; index 0 is
+                driver-to-first.
+            sl_segment_r__MOhm: 1-D SL segment resistances [MOhm]; index 0 is
+                driver-to-first.
+            bl_segment_g__uS: BL segment conductances [uS], reciprocal of
+                ``bl_segment_r__MOhm``.
+            sl_segment_g__uS: SL segment conductances [uS], reciprocal of
+                ``sl_segment_r__MOhm``.
             rram_snapshot: Per-solve RRAM snapshot.
             nmos_snapshot: Per-solve NMOS snapshot.
             bl_driver_snapshot: Per-solve BL driver snapshot.
@@ -120,14 +122,13 @@ class NewtonRaphsonSolver1T1R(nn.Module):
             Complete steady-state solution for the current VMM.
         """
 
-        # --- Load static wire and device state ---
+        # --- Per-solve wire Jacobian templates ---
 
-        bl_segment_r = self.bl_segment_r__MOhm
-        sl_segment_r = self.sl_segment_r__MOhm
-        bl_segment_g = self.bl_segment_g__uS
-        sl_segment_g = self.sl_segment_g__uS
+        bl_segment_r = bl_segment_r__MOhm
+        sl_segment_r = sl_segment_r__MOhm
+        bl_segment_g = bl_segment_g__uS
+        sl_segment_g = sl_segment_g__uS
 
-        # Per-solve wire Jacobian templates.
         bl_wire_diag = bl_segment_g + F.pad(bl_segment_g[1:], (0, 1))
         bl_wire_offdiag = -bl_segment_g[1:]
         sl_wire_diag = sl_segment_g + F.pad(sl_segment_g[1:], (0, 1))
@@ -168,14 +169,12 @@ class NewtonRaphsonSolver1T1R(nn.Module):
         # seeds before the boundary KCL is available.
         # Shape: [..., num_col, num_row] -> [..., num_col]
         i_bl_driver_in__uA = i_cell_init.sum(dim=-1)
-        # Shape: [..., num_col, num_row] -> [..., num_row]
-        i_sl_driver_in__uA = -i_cell_init.sum(dim=-2)
+        i_sl_driver_in__uA = -i_cell_init.sum(dim=-1)
         v_bl_clamp__V, _ = self.bl_driver.solve_clamp(i_bl_driver_in__uA, bl_driver_snapshot, v_clamp_init__V=None)
         v_sl_drive__V, _ = self.sl_driver.solve_clamp(i_sl_driver_in__uA, sl_driver_snapshot, v_clamp_init__V=None)
         # Shape: [..., num_col] -> [..., num_col, 1]
         v_bl_clamp_grid__V = v_bl_clamp__V.unsqueeze(-1)
-        # Shape: [..., num_row] -> [..., 1, num_row]
-        v_sl_drive_grid__V = v_sl_drive__V.unsqueeze(-2)
+        v_sl_drive_grid__V = v_sl_drive__V.unsqueeze(-1)
 
         # --- Warm start phase 2: first-order wire voltages ---
 
@@ -188,16 +187,16 @@ class NewtonRaphsonSolver1T1R(nn.Module):
         # Shape: [..., num_col, num_row]
         v_bl_node = v_bl_clamp_grid__V - torch.cumsum(i_bl_downstream * bl_segment_r_broadcast, dim=-1)
 
-        # SL wire runs along dim=-2, driver at index 0, cell currents
+        # SL wire runs along dim=-1, driver at index 0, cell currents
         # ``i_inject = -i_cell`` (cell sources +i_cell into SL).
         # Matching seed on the SL ladder.
         sl_shape_broadcast = [1] * rram_state_g_snapshot.ndim
-        sl_shape_broadcast[-2] = num_col
+        sl_shape_broadcast[-1] = num_row
         sl_segment_r_broadcast = sl_segment_r.view(sl_shape_broadcast)
         i_sl_inject = -i_cell_init
-        i_sl_downstream = torch.flip(torch.cumsum(torch.flip(i_sl_inject, [-2]), -2), [-2])
+        i_sl_downstream = torch.flip(torch.cumsum(torch.flip(i_sl_inject, [-1]), -1), [-1])
         # Shape: [..., num_col, num_row]
-        v_sl_node = v_sl_drive_grid__V - torch.cumsum(i_sl_downstream * sl_segment_r_broadcast, dim=-2)
+        v_sl_node = v_sl_drive_grid__V - torch.cumsum(i_sl_downstream * sl_segment_r_broadcast, dim=-1)
 
         # --- Outer Newton loop ---
 
@@ -216,7 +215,7 @@ class NewtonRaphsonSolver1T1R(nn.Module):
 
             # Refresh the clamp boundaries from the latest port current.
             i_bl_driver_in__uA = (v_bl_clamp__V - v_bl_node.select(-1, 0)) * bl_driver_segment_g__uS
-            i_sl_driver_in__uA = (v_sl_drive__V - v_sl_node.select(-2, 0)) * sl_driver_segment_g__uS
+            i_sl_driver_in__uA = (v_sl_drive__V - v_sl_node.select(-1, 0)) * sl_driver_segment_g__uS
             v_bl_clamp__V, r_bl_driver_in__MOhm = self.bl_driver.solve_clamp(
                 i_bl_driver_in__uA,
                 bl_driver_snapshot,
@@ -229,11 +228,10 @@ class NewtonRaphsonSolver1T1R(nn.Module):
             )
             # Shape: [..., num_col] -> [..., num_col, 1]
             v_bl_clamp_grid__V = v_bl_clamp__V.unsqueeze(-1)
-            # Shape: [..., num_row] -> [..., 1, num_row]
-            v_sl_drive_grid__V = v_sl_drive__V.unsqueeze(-2)
+            v_sl_drive_grid__V = v_sl_drive__V.unsqueeze(-1)
 
             f_bl_kcl = col_wire_kcl_residual(v_bl_node, v_bl_clamp_grid__V, bl_segment_g, i_cell)
-            f_sl_kcl = row_wire_kcl_residual(v_sl_node, v_sl_drive_grid__V, sl_segment_g, -i_cell)
+            f_sl_kcl = col_wire_kcl_residual(v_sl_node, v_sl_drive_grid__V, sl_segment_g, -i_cell)
             dv_bl_node = self._solve_driver_newton_rank1(
                 v_bl_node,
                 f_bl_kcl,
@@ -252,7 +250,7 @@ class NewtonRaphsonSolver1T1R(nn.Module):
                 driver_segment_g__uS=sl_driver_segment_g__uS,
                 wire_diag=sl_wire_diag,
                 wire_offdiag=sl_wire_offdiag,
-                dim=-2,
+                dim=-1,
             )
             v_bl_node = v_bl_node + dv_bl_node
             v_sl_node = v_sl_node + dv_sl_node
@@ -260,7 +258,7 @@ class NewtonRaphsonSolver1T1R(nn.Module):
         # --- Gather boundary outputs ---
 
         i_bl_driver = col_driver_current(v_bl_node, v_bl_clamp_grid__V, bl_segment_g)
-        i_sl_driver = row_driver_current(v_sl_node, v_sl_drive_grid__V, sl_segment_g)
+        i_sl_driver = col_driver_current(v_sl_node, v_sl_drive_grid__V, sl_segment_g)
         return Solver1T1RDCOP(
             i_bl_driver=i_bl_driver,
             i_sl_driver=i_sl_driver,

@@ -14,3 +14,4 @@ Current layering:
 - physical devices and peripherals live in the core
 - fabricated state stays in the owning leaf modules
 - runtime snapshots are sampled per call and threaded through the solver
+- the Newton-Raphson solver is a plain stateless helper bound to the core; it is not part of the core's PyTorch module tree and carries no buffers or registered state

@@ -5,15 +5,12 @@ See also:
 """
 
 from dataclasses import dataclass
-from typing import Literal
 
 import torch
 import torch.nn as nn
 from torch import Tensor
 
 from neurox.analog import (
-    Decoder,
-    DecoderConfig,
     Driver,
     DriverConfig,
 )
@@ -22,7 +19,7 @@ from neurox.analog.tia import TIA, TIAConfig
 from neurox.common.mixin import FabricateMixin, ValidateMixin
 from neurox.device import NMOS, RRAM, NMOSConfig, RRAMConfig
 
-from .newton_raphson_solver import NewtonRaphsonSolver1T1R, Solver1T1RDCOP
+from .newton_raphson_solver import NewtonRaphsonSolver1T1R
 
 # ---------------------------------------------------------------------------
 # Config
@@ -35,7 +32,6 @@ class CircuitCore1T1RConfig(ValidateMixin):
 
     Attributes:
         wl_pulse_length__ns: Word-line pulse length [ns].
-        sl_topology: Source-line sharing topology.
         row_first_space__um: Row pitch from the driver to the first cell [um].
         row_cell_space__um: Row pitch between adjacent cells [um].
         col_first_space__um: Column pitch from the driver to the first cell [um].
@@ -68,12 +64,10 @@ class CircuitCore1T1RConfig(ValidateMixin):
         nmos_cfg: NMOS device configuration.
         tia_cfg: BL clamp-driver configuration.
         sl_driver_cfg: SL driver configuration.
-        wl_decoder_cfg: WL decoder configuration.
         wl_dac_cfg: WL DAC configuration.
     """
 
     wl_pulse_length__ns: float
-    sl_topology: Literal["row_shared", "col_shared"]
 
     row_first_space__um: float
     row_cell_space__um: float
@@ -109,7 +103,6 @@ class CircuitCore1T1RConfig(ValidateMixin):
     nmos_cfg: NMOSConfig
     tia_cfg: TIAConfig
     sl_driver_cfg: DriverConfig
-    wl_decoder_cfg: DecoderConfig
     wl_dac_cfg: DACConfig
 
     def __post_init__(self) -> None:
@@ -192,19 +185,17 @@ class CircuitCore1T1RConfig(ValidateMixin):
 class Core1T1RDCOP:
     """Per-VMM DC operating point of a fabricated 1T1R core.
 
-    Carries the solver's array-internal state plus the post-clamp BL
-    output voltage. Fields are flattened from the solver and TIA results;
-    callers read them directly without further nesting.
-
     Attributes:
         i_bl_driver: BL driver current [uA]. Shape: [..., phys_col_num].
-        i_sl_driver: SL driver current [uA]. Shape: [..., row_num].
+        i_sl_driver: SL driver current [uA]. Shape: [..., phys_col_num].
         v_bl_node: BL node voltages [V]. Shape: [..., phys_col_num, row_num].
         v_sl_node: SL node voltages [V]. Shape: [..., phys_col_num, row_num].
         v_x_node: Access-NMOS drain voltages [V]. Shape: [..., phys_col_num, row_num].
         i_cell: Cell currents [uA]. Shape: [..., phys_col_num, row_num].
         v_bl_clamp: BL clamp voltages [V]. Shape: [..., phys_col_num].
-        v_sl_drive: SL drive voltages [V]. Shape: [..., row_num].
+        v_sl_drive: SL drive voltages [V]. Shape: [..., phys_col_num].
+        v_wl_drive: WL drive voltages [V] as produced by the WL DAC.
+            Shape: [..., row_num].
         v_out_phys: BL clamp output voltage at the converged port
             current [V]. Shape: [..., phys_col_num].
     """
@@ -217,6 +208,7 @@ class Core1T1RDCOP:
     i_cell: Tensor
     v_bl_clamp: Tensor
     v_sl_drive: Tensor
+    v_wl_drive: Tensor
     v_out_phys: Tensor
 
 
@@ -229,6 +221,12 @@ class CircuitCore1T1R(FabricateMixin, nn.Module):
     """Shape-independent 1T1R core: devices, boundary circuits, and solver."""
 
     state_to_g_map__uS: Tensor
+    bl_segment_r__MOhm: Tensor
+    sl_segment_r__MOhm: Tensor
+    bl_segment_g__uS: Tensor
+    sl_segment_g__uS: Tensor
+    bl_segment_c__fF: Tensor
+    sl_segment_c__fF: Tensor
 
     def __init__(
         self,
@@ -252,11 +250,6 @@ class CircuitCore1T1R(FabricateMixin, nn.Module):
         """
         super().__init__()
 
-        if cfg.sl_topology != "row_shared":
-            raise NotImplementedError(
-                f"sl_topology={cfg.sl_topology!r} is reserved for a future "
-                "build; only 'row_shared' is implemented today"
-            )
         if len(w_layout_shape) < 2:
             raise ValueError(
                 f"w_layout_shape must have at least 2 trailing dims (phys_col_num, row_num); got {w_layout_shape}"
@@ -274,7 +267,6 @@ class CircuitCore1T1R(FabricateMixin, nn.Module):
         self._w_layout_shape = tuple(w_layout_shape)
         self._inst_shape = tuple(prefix)
 
-        # Build the owned children from the embedded member configs.
         sub_prefix = name + "."
         self.rram = RRAM(
             cfg=cfg.rram_cfg,
@@ -298,23 +290,15 @@ class CircuitCore1T1R(FabricateMixin, nn.Module):
             dtype=dtype,
             T__K=T__K,
         )
-        # Per-cell access-transistor parasitic caps for energy accounting.
         access_W__um = cfg.access_nmos_W__um
-        self._c_gs__fF = cfg.c_gs_per_um__fF * access_W__um
-        self._c_gd__fF = cfg.c_gd_per_um__fF * access_W__um
-        self._c_db__fF = cfg.c_db_per_um__fF * access_W__um
+        self.c_gs_per_cell__fF = cfg.c_gs_per_um__fF * access_W__um
+        self.c_gd_per_cell__fF = cfg.c_gd_per_um__fF * access_W__um
+        self.c_db_per_cell__fF = cfg.c_db_per_um__fF * access_W__um
 
         self.sl_driver = Driver(
             cfg=cfg.sl_driver_cfg,
             name=f"{sub_prefix}sl_driver",
-            inst_shape=(row_num,),
-            dtype=dtype,
-            T__K=T__K,
-        )
-        self.wl_decoder = Decoder(
-            cfg=cfg.wl_decoder_cfg,
-            name=f"{sub_prefix}wl_decoder",
-            inst_shape=(),
+            inst_shape=(phys_col_num,),
             dtype=dtype,
             T__K=T__K,
         )
@@ -326,8 +310,6 @@ class CircuitCore1T1R(FabricateMixin, nn.Module):
             T__K=T__K,
         )
 
-        self.v_dd_wl__V = float(self.wl_dac.code_to_signal[1].item())
-
         self.register_buffer(
             "state_to_g_map__uS",
             torch.tensor(cfg.state_to_g_map__uS, dtype=dtype),
@@ -335,33 +317,39 @@ class CircuitCore1T1R(FabricateMixin, nn.Module):
         )
 
         self.w_states = len(cfg.state_to_g_map__uS)
-        self.x_states = 2
+        self.x_states = self.wl_dac.code_max + 1
 
-        # Energy-model capacitance scalars: total wire cap = first + (N-1) * segment.
-        wl_wire_cap__fF = cfg.wl_first_c__fF + (phys_col_num - 1) * cfg.wl_segment_c__fF
-        self.c_wl_per_row__fF = wl_wire_cap__fF + phys_col_num * self._c_gs__fF
-        bl_wire_total__fF = cfg.bl_first_c__fF + (row_num - 1) * cfg.bl_segment_c__fF
-        self.c_bl_per_node__fF = bl_wire_total__fF / row_num + self.rram.c_top__fF
-        self.c_x_per_cell__fF = self._c_db__fF + self.rram.c_bot__fF
-        self.c_gd_per_cell__fF = self._c_gd__fF
+        self.c_wl_wire_per_row__fF = cfg.wl_first_c__fF + (phys_col_num - 1) * cfg.wl_segment_c__fF
 
-        # Per-line segment resistances. Index 0 is the driver-to-first segment.
+        # Per-line segment buffers; index 0 is the driver-to-first segment.
         bl_segment_r__MOhm = torch.tensor(
             [cfg.bl_first_r__MOhm] + [cfg.bl_segment_r__MOhm] * (row_num - 1),
             dtype=dtype,
         )
         sl_segment_r__MOhm = torch.tensor(
-            [cfg.sl_first_r__MOhm] + [cfg.sl_segment_r__MOhm] * (phys_col_num - 1),
+            [cfg.sl_first_r__MOhm] + [cfg.sl_segment_r__MOhm] * (row_num - 1),
             dtype=dtype,
         )
-        # Bind the DC solver.
+        bl_segment_c__fF = torch.tensor(
+            [cfg.bl_first_c__fF] + [cfg.bl_segment_c__fF] * (row_num - 1),
+            dtype=dtype,
+        )
+        sl_segment_c__fF = torch.tensor(
+            [cfg.sl_first_c__fF] + [cfg.sl_segment_c__fF] * (row_num - 1),
+            dtype=dtype,
+        )
+        self.register_buffer("bl_segment_r__MOhm", bl_segment_r__MOhm, persistent=False)
+        self.register_buffer("sl_segment_r__MOhm", sl_segment_r__MOhm, persistent=False)
+        self.register_buffer("bl_segment_g__uS", 1.0 / bl_segment_r__MOhm, persistent=False)
+        self.register_buffer("sl_segment_g__uS", 1.0 / sl_segment_r__MOhm, persistent=False)
+        self.register_buffer("bl_segment_c__fF", bl_segment_c__fF, persistent=False)
+        self.register_buffer("sl_segment_c__fF", sl_segment_c__fF, persistent=False)
+
         self.solver = NewtonRaphsonSolver1T1R(
             rram=self.rram,
             nmos=self.nmos,
             bl_driver=self.tia,
             sl_driver=self.sl_driver,
-            bl_segment_r__MOhm=bl_segment_r__MOhm,
-            sl_segment_r__MOhm=sl_segment_r__MOhm,
         )
 
         self.fabricated_col_num = phys_col_num
@@ -394,15 +382,18 @@ class CircuitCore1T1R(FabricateMixin, nn.Module):
         """Run one DC solve on the fabricated 1T1R core.
 
         Args:
-            x: Binary word-line logic tensor. Shape: [..., row_num].
+            x: WL DAC input-code tensor. Shape: [..., row_num].
 
         Returns:
             Core DC operating point for the current VMM.
         """
 
-        # --- Infer the broadcast execution shape ---
+        # --- Insert the WL fanout dim and infer the broadcast execution shape ---
 
-        # Execution shape is determined by the programmed RRAM layout and the input.
+        # ``Tensor.expand`` cannot insert a dim mid-rank; the WL fanout dim
+        # must be unsqueezed in before broadcasting against the RRAM grid.
+        # Shape: [..., row_num] -> [..., 1, row_num]
+        x = x.unsqueeze(-2)
         full_shape = torch.broadcast_shapes(self.rram.g__uS.shape, x.shape)
         *batch, _phys_col_num, row_num = full_shape
 
@@ -411,46 +402,38 @@ class CircuitCore1T1R(FabricateMixin, nn.Module):
         rram_snapshot = self.rram.snapshot(shape=full_shape)
         nmos_snapshot = self.nmos.snapshot(shape=full_shape)
         bl_driver_snapshot = self.tia.snapshot(shape=(*batch, self.fabricated_col_num))
-        sl_driver_snapshot = self.sl_driver.snapshot(shape=(*batch, row_num))
+        sl_driver_snapshot = self.sl_driver.snapshot(shape=(*batch, self.fabricated_col_num))
 
-        # --- Expand the logical WL input into solver layout ---
+        # --- Convert WL DAC codes into the per-cell gate-drive voltage ---
 
-        # Shape: [..., row_num] -> [..., 1, row_num]
-        x = x.expand(*batch, 1, row_num)
-        # Shape: [..., 1, row_num] -> [..., row_num]
-        wl_logic = x.squeeze(-2)
         v_wl_drive__V = self.wl_dac.convert(x)
 
         # --- Solve the array DC operating point ---
 
         solver_dcop = self.solver.solve_dc(
-            v_wl_drive__V,
+            v_wl_drive__V=v_wl_drive__V,
+            bl_segment_r__MOhm=self.bl_segment_r__MOhm,
+            sl_segment_r__MOhm=self.sl_segment_r__MOhm,
+            bl_segment_g__uS=self.bl_segment_g__uS,
+            sl_segment_g__uS=self.sl_segment_g__uS,
             rram_snapshot=rram_snapshot,
             nmos_snapshot=nmos_snapshot,
             bl_driver_snapshot=bl_driver_snapshot,
             sl_driver_snapshot=sl_driver_snapshot,
         )
 
-        # --- Accumulate analog-side dynamic energy ---
-
-        array_energy__fJ = self._compute_array_energy__fJ(
-            solver_dcop=solver_dcop,
-            wl_logic=wl_logic,
-        )
-        self.tia._log_dynamic(array_energy__fJ, self.tia.cfg.latency_per_op__ns)
-
         # --- Recover the BL output clamp voltage ---
 
-        # Re-evaluate the BL clamp at the converged port current to recover ``v_out``.
         clamp_dcop = self.tia.solve_dc(
             solver_dcop.i_bl_driver,
             bl_driver_snapshot,
             v_clamp_init__V=solver_dcop.v_bl_clamp,
         )
-        # Shape: [..., phys_col_num]
         v_out_phys = clamp_dcop.v_out__V
 
-        return Core1T1RDCOP(
+        # --- Assemble the core DCOP ---
+
+        core_dcop = Core1T1RDCOP(
             i_bl_driver=solver_dcop.i_bl_driver,
             i_sl_driver=solver_dcop.i_sl_driver,
             v_bl_node=solver_dcop.v_bl_node,
@@ -459,93 +442,77 @@ class CircuitCore1T1R(FabricateMixin, nn.Module):
             i_cell=solver_dcop.i_cell,
             v_bl_clamp=solver_dcop.v_bl_clamp,
             v_sl_drive=solver_dcop.v_sl_drive,
+            v_wl_drive=v_wl_drive__V.squeeze(-2),
             v_out_phys=v_out_phys,
         )
+
+        # --- Accumulate analog-side dynamic energy ---
+
+        array_energy__fJ = self._compute_array_energy__fJ(core_dcop)
+        self.tia._log_dynamic(array_energy__fJ, self.tia.cfg.latency_per_op__ns)
+
+        return core_dcop
 
     # -----------------------------------------------------------------
     # Dynamic-energy aggregation
     # -----------------------------------------------------------------
 
-    def _compute_array_energy__fJ(
-        self,
-        solver_dcop: Solver1T1RDCOP,
-        wl_logic: Tensor,
-    ) -> Tensor:
-        """Compute per-VMM array-internal dynamic energy.
+    def _compute_array_energy__fJ(self, dcop: Core1T1RDCOP) -> Tensor:
+        """Per-VMM array-internal energy [fJ]. Shape: [...batch...]."""
 
-        Args:
-            solver_dcop: Converged solver DC operating point for one VMM.
-            wl_logic: Binary WL logic tensor. Shape: [..., row_num].
+        v_wl__V = dcop.v_wl_drive
+        v_bl__V = dcop.v_bl_node
+        v_sl__V = dcop.v_sl_node
+        v_x__V = dcop.v_x_node
+        v_bl_clamp__V = dcop.v_bl_clamp
+        v_sl_drive__V = dcop.v_sl_drive
+        pulse__ns = self.cfg.wl_pulse_length__ns
 
-        Returns:
-            Array-internal dynamic energy [fJ]. Shape: [...].
-        """
+        # --- DC conduction ---
 
-        # --- Solver outputs ---
+        # Shape: [..., phys_col_num] -> [...]
+        array_power__uW = (v_bl_clamp__V * dcop.i_bl_driver).sum(dim=-1) + (
+            v_sl_drive__V * dcop.i_sl_driver
+        ).sum(dim=-1)
+        e_dc_cond__fJ = array_power__uW * pulse__ns
 
-        # Shape: [..., phys_col_num]
-        i_bl_driver__uA = solver_dcop.i_bl_driver
-        # Shape: [..., row_num]
-        i_sl_driver__uA = solver_dcop.i_sl_driver
-        # Shape: [..., phys_col_num, row_num]
-        v_bl_node__V = solver_dcop.v_bl_node
-        # Shape: [..., phys_col_num, row_num]
-        v_x_node__V = solver_dcop.v_x_node
-        # Shape: [..., phys_col_num]
-        v_bl_clamp__V = solver_dcop.v_bl_clamp
-        # Shape: [..., row_num]
-        v_sl_drive__V = solver_dcop.v_sl_drive
+        # --- Capacitive cycling ---
 
-        # --- Broadcast setup ---
+        # Shape: [..., phys_col_num] -> [..., phys_col_num, row_num]
+        v_bl_left__V = torch.cat((v_bl_clamp__V.unsqueeze(-1), v_bl__V[..., :-1]), dim=-1)
+        # Shape: [..., phys_col_num] -> [..., phys_col_num, row_num]
+        v_sl_left__V = torch.cat((v_sl_drive__V.unsqueeze(-1), v_sl__V[..., :-1]), dim=-1)
 
-        v_dd_wl = self.v_dd_wl__V
+        # Shape: [..., row_num] -> [...]
+        e_wl_wire_cap__fJ = (self.c_wl_wire_per_row__fF * v_wl__V.square()).sum(dim=-1)
+
+        # Shape: [..., phys_col_num, row_num] -> [...]
+        bl_seg_q__V2 = (v_bl_left__V.square() + v_bl_left__V * v_bl__V + v_bl__V.square()) / 3.0
+        e_bl_wire_cap__fJ = (self.bl_segment_c__fF * bl_seg_q__V2).sum(dim=(-2, -1))
+
+        # Shape: [..., phys_col_num, row_num] -> [...]
+        sl_seg_q__V2 = (v_sl_left__V.square() + v_sl_left__V * v_sl__V + v_sl__V.square()) / 3.0
+        e_sl_wire_cap__fJ = (self.sl_segment_c__fF * sl_seg_q__V2).sum(dim=(-2, -1))
+
+        # Shape: [..., phys_col_num, row_num] -> [...]
+        e_rram_top__fJ = (self.rram.c_top__fF * v_bl__V.square()).sum(dim=(-2, -1))
+        e_rram_bot__fJ = (self.rram.c_bot__fF * v_x__V.square()).sum(dim=(-2, -1))
+        e_nmos_db__fJ = (self.c_db_per_cell__fF * v_x__V.square()).sum(dim=(-2, -1))
+
         # Shape: [..., row_num] -> [..., 1, row_num]
-        v_wl_state1__V = (v_dd_wl * wl_logic).unsqueeze(-2)
-        # Shape: [..., phys_col_num] -> [..., phys_col_num, 1]
-        v_clamp__V = v_bl_clamp__V.unsqueeze(-1)
+        v_wl_grid__V = v_wl__V.unsqueeze(-2)
+        # Shape: [..., phys_col_num, row_num] -> [...]
+        e_nmos_gs__fJ = (self.c_gs_per_cell__fF * (v_wl_grid__V - v_sl__V).square()).sum(dim=(-2, -1))
+        e_nmos_gd__fJ = (self.c_gd_per_cell__fF * (v_wl_grid__V - v_x__V).square()).sum(dim=(-2, -1))
 
-        # Every per-term ``e_*__fJ`` below collapses to ``[*batch]``;
-        # leading shape comments only flag the changed (reduced) axes.
-
-        # --- E_thermal: steady-state Joule dissipation over the WL pulse ---
-
-        # Supply-power balance:
-        #   P = V_bl · I_bl_into_array + V_sl · I_sl_into_array
-        # (driver-into-wire sign convention).  Unit: uW · ns = fJ.
-        # Shape: [...]
-        array_power__uW = torch.sum(v_bl_clamp__V * i_bl_driver__uA, dim=-1) + torch.sum(
-            v_sl_drive__V * i_sl_driver__uA, dim=-1
+        return (
+            e_dc_cond__fJ
+            + e_wl_wire_cap__fJ
+            + e_bl_wire_cap__fJ
+            + e_sl_wire_cap__fJ
+            + e_rram_top__fJ
+            + e_rram_bot__fJ
+            + e_nmos_db__fJ
+            + e_nmos_gs__fJ
+            + e_nmos_gd__fJ
         )
-        e_thermal__fJ = array_power__uW * self.cfg.wl_pulse_length__ns
-
-        # --- E_WL_drive: wire + C_gs ground caps at WL ---
-
-        # Inactive rows contribute zero (V_WL^(1) = 0 for binary DAC).
-        # Unit: fF · V² = fJ.
-        # Shape: [...]
-        e_wl_ground__fJ = wl_logic.sum(dim=-1) * self.c_wl_per_row__fF * v_dd_wl * v_dd_wl
-
-        # --- E_BL_recover at Node X: C_db + c_bot ground caps ---
-
-        # E_per_cell = V_BL_clamp · C_X · (V_BL_clamp - V_X^(1)).
-        delta_v_x__V = v_clamp__V - v_x_node__V
-        # Shape: [...]
-        e_bl_x_ground__fJ = (v_clamp__V.squeeze(-1) * self.c_x_per_cell__fF * delta_v_x__V.sum(dim=-1)).sum(dim=-1)
-
-        # --- E_BL_recover at BL nodes: wire + c_top ground caps ---
-
-        # E_per_node = V_BL_clamp · C_BL_node · (V_BL_clamp - V_BL^(1)).
-        delta_v_bl__V = v_clamp__V - v_bl_node__V
-        # Shape: [...]
-        e_bl_node__fJ = (v_clamp__V * self.c_bl_per_node__fF * delta_v_bl__V).sum(dim=(-2, -1))
-
-        # --- E_Cgd: Miller-coupled gate-drain cap ---
-
-        # Combined WL + BL supply energy per cell:
-        #   E = C_gd · (V_WL^(1) + V_BL_clamp) · (V_WL^(1) + V_BL_clamp - V_X^(1))
-        sum_voltage__V = v_wl_state1__V + v_clamp__V
-        delta_v_miller__V = sum_voltage__V - v_x_node__V
-        # Shape: [...]
-        e_cgd__fJ = (sum_voltage__V * self.c_gd_per_cell__fF * delta_v_miller__V).sum(dim=(-2, -1))
-
-        return e_thermal__fJ + e_wl_ground__fJ + e_bl_x_ground__fJ + e_bl_node__fJ + e_cgd__fJ

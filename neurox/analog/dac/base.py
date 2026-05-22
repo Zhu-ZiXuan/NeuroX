@@ -73,6 +73,12 @@ class DAC(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["DACConfig
         """Latency per op [ns]."""
         raise NotImplementedError
 
+    @property
+    @abstractmethod
+    def code_max(self) -> int:
+        """Maximum valid input code (inclusive); valid codes lie in ``[0, code_max]``."""
+        raise NotImplementedError
+
     @abstractmethod
     def convert(self, code: Tensor) -> Tensor:
         """Convert integer digital codes to float analog signals.

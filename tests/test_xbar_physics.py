@@ -24,22 +24,21 @@ pytestmark = pytest.mark.skip(
     reason="Fixtures need rewriting to the Xbar.from_config-based construction path."
 )
 
+from pathlib import Path as _Path
+
 from neurox.analog import (
     AnalogMux,
     AnalogMuxConfig,
-    Decoder,
-    DecoderConfig,
     Driver,
     DriverConfig,
     SwitchCap,
     SwitchCapConfig,
 )
-from neurox.analog.dac import GeneralDAC, GeneralDACConfig
-from neurox.analog.tia import OpAmpTIA, OpAmpTIAConfig
 from neurox.analog.adc import GeneralADC, GeneralADCConfig
+from neurox.analog.dac import GeneralDAC, GeneralDACConfig
 from neurox.analog.readout import OffsetSwitchCapMuxAdcReadOut, ReadOutConfig
+from neurox.analog.tia import OpAmpTIA, OpAmpTIAConfig
 from neurox.common import T_ROOM__K, dict_configs_from_file, dict_from_file, thermal_voltage__V
-from pathlib import Path as _Path
 from neurox.device import NMOS, RRAM, NMOSConfig, RRAMConfig
 from neurox.digital import Subtractor, SubtractorConfig
 from neurox.xbar import (
@@ -57,7 +56,6 @@ _SPECS = {
     "tia": OpAmpTIAConfig,
     "tia_nmos": NMOSConfig,
     "sl_driver": DriverConfig,
-    "wl_decoder": DecoderConfig,
     "wl_dac": GeneralDACConfig,
     "bl_adc": GeneralADCConfig,
     "analog_mux": AnalogMuxConfig,
@@ -111,7 +109,6 @@ def _build_xbar() -> Offset1T1RXbar:
         nmos_factory=nmos_factory,
         tia_factory=tia_factory,
         sl_driver_factory=partial(Driver, cfg["sl_driver"], dtype=torch.float64),
-        wl_decoder_factory=partial(Decoder, cfg["wl_decoder"]),
         wl_dac_factory=partial(GeneralDAC, cfg["wl_dac"], dtype=torch.float64),
         dtype=torch.float64,
     )

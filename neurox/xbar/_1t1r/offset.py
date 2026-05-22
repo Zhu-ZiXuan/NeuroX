@@ -135,8 +135,8 @@ class Offset1T1RXbar(Xbar):
 
     @property
     def x_range(self) -> tuple[int, int]:
-        """1T1R activation grid — binary WL pulses per VMM cycle."""
-        return (0, 1)
+        """Inclusive single-cycle integer input range, derived from the WL DAC."""
+        return (0, self.core.wl_dac.code_max)
 
     @property
     def w_digit_count(self) -> int:
@@ -199,8 +199,7 @@ class Offset1T1RXbar(Xbar):
         Returns:
             ADC-code tensor with primitive trailing ``[col_num]``.
         """
-        # Shape: [..., row_num] -> [..., 1, row_num].
-        core_dcop = self.core.solve_dc(x.unsqueeze(-2))
+        core_dcop = self.core.solve_dc(x)
 
         v_data_phys = core_dcop.v_out_phys.index_select(-1, self.logic_phys_idx)
         v_ref_phys = core_dcop.v_out_phys.index_select(-1, self.ref_phys_idx)
