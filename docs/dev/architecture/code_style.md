@@ -268,7 +268,7 @@ def program(self, w: Tensor) -> None:
 # Macro integer matmul (Protocol, XbarMacro abstract, four XbarMacro impls — Direct / InterArraySlice / IntraArraySlice / Ideal).
 # Matches torch.matmul semantics (pure matmul, no bias). Bias add and
 # requantize live in the operator layer.
-def matmul(self, input: Tensor) -> Tensor:
+def matmul(self, input: Tensor, *, adc_operation_point: AdcOperationPoint) -> Tensor:
     """Execute one integer matrix multiply against the programmed weight state.
 
     Matches ``torch.matmul`` semantics (pure matmul, no bias). Bias add
@@ -276,23 +276,30 @@ def matmul(self, input: Tensor) -> Tensor:
 
     Args:
         input: Integer activation tensor. Shape: ``[..., M, K]``.
+        adc_operation_point: Runtime ADC operating point.
 
     Returns:
         Integer pre-requantize output tensor. Shape: ``[..., M, N]``.
     """
 
 # Xbar analog VMM (Xbar abstract, IdealXbar, Offset1T1RXbar).
-def vec_mat_mul(self, x: Tensor) -> Tensor:
+def vec_mat_mul(self, x: Tensor, *, adc_operation_point: AdcOperationPoint) -> Tensor:
     """Run one analog VMM through the tile.
 
     Args:
         x: Activation tensor with primitive trailing ``[row_num]``.
             Entries must lie in :attr:`x_range`; leading dims are
             broadcast-only.
+        adc_operation_point: Runtime ADC operating point.
 
     Returns:
         ADC-code tensor with primitive trailing ``[col_num]``.
     """
+
+# Macro / Xbar ADC rescale-factor lookup (XbarMacro abstract + four impls;
+# Xbar concrete base method).
+def adc_rescale_factor(self, adc_operation_point: AdcOperationPoint) -> float:
+    """Rescale factor for ``adc_operation_point``; raises ``KeyError`` if uncalibrated."""
 ```
 
 ### Properties — one-line entries
@@ -320,12 +327,17 @@ def w_value_range(self) -> tuple[int, int]:
 def x_value_range(self) -> tuple[int, int]:
     """Inclusive integer activation range accepted by the macro."""
 
+# ADC operating-point surface (Xbar abstract + concrete impls; XbarMacro abstract + four impls).
 @property
-def output_rescale_factor(self) -> float:
-    """Ratio of the ideal partial-product max to the actual tile output max."""
+def adc_mode_num(self) -> int:
+    """Number of supported ADC operating points; valid ``adc_mode`` values are ``[0, mode_num)``."""
+
+@property
+def adc_max_bits(self) -> int:
+    """Maximum supported ``adc_bits`` value."""
 ```
 
-**Exception — `latency_per_op__ns(*, bits/adc_bits)`**: ADC and Readout publish a parametric latency (per-conversion or per-VMM-pipeline). Keep the site-specific extended docstring because the signature carries a `bits` keyword the canonical short form cannot describe.
+**Exception — `latency_per_op__ns(*, adc_operation_point)`**: ADC and Readout publish a parametric latency (per-conversion or per-VMM-pipeline). Keep the site-specific extended docstring because the signature carries the operating point the canonical short form cannot describe.
 
 **Exception — `w_digit_range` on `Offset1T1RXbar`**: the offset-coded array's docstring explains the `(-o, S - 1 - o)` derivation, which is offset-specific and worth keeping verbatim.
 

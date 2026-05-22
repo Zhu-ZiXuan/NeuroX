@@ -9,6 +9,7 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor
 
+from neurox.analog.adc import AdcOperationPoint
 from neurox.analog.readout import ReadOut, ReadOutConfig
 from neurox.xbar.base import Xbar, XbarConfig
 
@@ -54,8 +55,6 @@ class Offset1T1RXbarConfig(XbarConfig):
         if not (self.w_digit_radix > 1):
             raise ValueError(f"require: w_digit_radix ({self.w_digit_radix}) > 1")
         self._require_nonneg(self.w_state_offset, "w_state_offset")
-        if not (self.adc_bits >= 1):
-            raise ValueError(f"require: adc_bits ({self.adc_bits}) >= 1")
 
     def validate_ref_layout(self) -> None:
         self._require_pos(self.ref_group_size, "ref_group_size")
@@ -159,6 +158,16 @@ class Offset1T1RXbar(Xbar):
         states = self.core.w_states
         return (-offset, states - 1 - offset)
 
+    @property
+    def adc_mode_num(self) -> int:
+        """Number of supported ADC operating points; valid ``adc_mode`` values are ``[0, mode_num)``."""
+        return self.readout.adc_mode_num
+
+    @property
+    def adc_max_bits(self) -> int:
+        """Maximum supported ``adc_bits`` value."""
+        return self.readout.adc_max_bits
+
     # -----------------------------------------------------------------
     # Public API
     # -----------------------------------------------------------------
@@ -179,12 +188,13 @@ class Offset1T1RXbar(Xbar):
         w_state_idx = _insert_ref_cols(w_logic, self.logic_phys_idx, self.physical_col_num) + self.cfg.w_state_offset
         self.core.program(w_state_idx)
 
-    def vec_mat_mul(self, x: Tensor) -> Tensor:
+    def vec_mat_mul(self, x: Tensor, *, adc_operation_point: AdcOperationPoint) -> Tensor:
         """Run one VMM through the core → readout chain.
 
         Args:
             x: Activation tensor with primitive trailing
                 ``[row_num]``.
+            adc_operation_point: Runtime ADC operating point.
 
         Returns:
             ADC-code tensor with primitive trailing ``[col_num]``.
@@ -202,8 +212,7 @@ class Offset1T1RXbar(Xbar):
         code = self.readout.readout(
             v_data_grouped,
             v_ref_phys,
-            adc_mode=self._adc_mode,
-            adc_bits=self._adc_bits,
+            adc_operation_point=adc_operation_point,
         )
 
         y = code.flatten(start_dim=-2)

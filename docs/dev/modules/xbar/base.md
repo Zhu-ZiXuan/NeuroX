@@ -6,14 +6,14 @@
 
 `Xbar.from_config(cls, *, cfg, name, inst_shape, dtype, T__K)` is the family constructor: it looks up the impl class from `type(cfg)` and forwards the runtime arguments. Direct instantiation of a concrete subclass is allowed; `from_config` is the polymorphic entry that owning macros use.
 
-`XbarConfig` is the base config carrying tile geometry, the runtime ADC operating point, the `(adc_mode, adc_bits) → rescale_factor` lookup, and tile-level PPA fields. All fields are required; the physical-layer no-defaults rule applies.
+`XbarConfig` is the base config carrying tile geometry, the `(adc_mode, adc_bits) → rescale_factor` calibration table (`adc_calibration`), and tile-level PPA fields. The active `AdcOperationPoint` is threaded into `vec_mat_mul`; the xbar exposes `adc_mode_num` / `adc_max_bits` (delegated from its ADC / readout chain) and `adc_rescale_factor(adc_operation_point) -> float`. All fields are required; the physical-layer no-defaults rule applies.
 
 ## Primitive shape contract
 
 The generic xbar publishes exactly two shape contracts:
 
 - `program(w)` — weight digit tensor whose shape matches `self._w_layout_shape = (*inst_shape, col_num, w_digit_count, row_num)`. The trailing three dims are owned by the xbar (derived from cfg and the subclass-specific structural properties); only `inst_shape` is supplied at construction. Every entry must lie in `w_digit_range`.
-- `vec_mat_mul(x)` — activation tensor with primitive trailing dims `[row_num]`; returns an output tensor with primitive trailing dims `[data_num]`. Entries of `x` must lie in `x_range`.
+- `vec_mat_mul(x, *, adc_operation_point)` — activation tensor with primitive trailing dims `[row_num]`; returns an output tensor with primitive trailing dims `[data_num]`. Entries of `x` must lie in `x_range`; `adc_operation_point` selects the ADC operating point used for output digitisation.
 
 These are the **only** shape semantics the generic xbar exposes. Any additional leading axes wrapped around `(*data_num, digit_num, row_num)` are broadcast against the fabricated per-cell state without further interpretation by the xbar.
 
@@ -39,7 +39,7 @@ The xbar does **not** expose an aggregate "full logical `w` range" — that rang
 
 ## Output rescale lookup
 
-`XbarConfig.output_rescale_factors` is an externally-calibrated table of `XbarRescaleEntry(adc_mode, adc_bits, rf)` rows. `Xbar.output_rescale_factor` returns the entry matching the runtime `(adc_mode, adc_bits)` operating point. See [`docs/dev/architecture/mapping.md`](docs/dev/architecture/mapping.md) for the surrounding flow.
+`XbarConfig.adc_calibration` is an externally-calibrated table of `AdcCalibrationRecord(adc_mode, adc_bits, rescale_factor)` rows. `Xbar.adc_rescale_factor(adc_operation_point)` returns the rescale factor matching the runtime operating point. See [`docs/dev/architecture/mapping.md`](docs/dev/architecture/mapping.md) for the surrounding flow.
 
 ## `to_ideal()`
 
@@ -52,7 +52,7 @@ The xbar does **not** expose an aggregate "full logical `w` range" — that rang
 - `__init__` stores `self.cfg`, `self.T__K`, `self.dtype`, and records `self._inst_shape`. `self._w_layout_shape` is exposed as a property derived from `inst_shape + cfg + subclass geometry`. Sub-modules (when present, e.g. `core` + `readout` in `Offset1T1RXbar`) are constructed here with derived shapes.
 - `fabricate()` is the inherited auto-cascade. Each concrete xbar overrides `_sample_fabricate_mismatch` only if it owns mismatch state directly; in the offset-1T1R lineage the actual state lives in the device children, so `_sample_fabricate_mismatch` is the default no-op and the cascade fans into the children.
 - `program(w)` (abstract) writes the programmed digit state. `IdealXbar` reassigns `self.digits = w`; physical xbars push `w` through their slicer / reference-column scatter and call the underlying core's `program(...)`.
-- `vec_mat_mul(x)` is the pure-forward read.
+- `vec_mat_mul(x, *, adc_operation_point)` is the pure-forward read.
 
 Stochastic-vs-deterministic rounding inside the quantisers downstream of the xbar tracks `self.training`; there is no separate `stochastic` knob.
 

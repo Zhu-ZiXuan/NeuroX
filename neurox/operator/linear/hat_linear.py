@@ -48,6 +48,7 @@ class HATLinear(nn.Linear):
         self.name = name
         self.spec = spec
         self.macro = macro
+        self.adc_operation_point = NeuroxOperator.default_adc_operation_point(macro)
         self.act_observer = PerTensorObserver(spec.x_qmin, spec.x_qmax)
         self.out_observer = PerTensorObserver(spec.y_qmin, spec.y_qmax)
         self.weight_observer = PerChannelSymmObserver(out_features, spec.w_qmax)
@@ -123,11 +124,11 @@ class HATLinear(nn.Linear):
                 output_scale=s_y,
                 w_qmax=self.spec.w_qmax,
                 weight_dtype=weight_dtype,
-                rescale_factor=self.macro.output_rescale_factor,
+                rescale_factor=self.macro.adc_rescale_factor(self.adc_operation_point),
             )
             self.macro.program(w_int)
             self.macro.fabricate()
-            y_int = self.macro.matmul(x_int)
+            y_int = self.macro.matmul(x_int, adc_operation_point=self.adc_operation_point)
             y_int = y_int + b_int.to(torch.int32).unsqueeze(-2)
             y_int = stochastic_floor_div(
                 y_int.to(torch.int32) * mult.to(torch.int32).unsqueeze(-2),
@@ -143,16 +144,10 @@ class HATLinear(nn.Linear):
 
     @torch.no_grad()
     def extract_neurox_state(self, prefix: str) -> dict[str, Tensor]:
-        """Emit the 12-buffer NeuroX-flat entries for this layer.
+        """Emit the NeuroX-flat per-layer state_dict entries with ``rescale_factor=1.0``.
 
-        Called after training to produce the state_dict that
-        ``neurox.build_evaluator`` consumes.  The stored
-        ``(rescale_multiplier, rescale_rshift, bias_int)`` use
-        ``rescale_factor=1.0`` — i.e. the ideal-integer scale, with no
-        macro-specific ADC rescale baked in.  ``build_evaluator``'s
-        ``bind_output_calibration`` folds the *target* macro's
-        ``output_rescale_factor`` into the buffers at load time, so one
-        checkpoint serves any macro backend.
+        No macro-specific ADC rescale is baked into the stored
+        ``(rescale_multiplier, rescale_rshift, bias_int)``.
         """
         s_x, zp_x = self.act_observer.qparams()
         s_w, _ = self.weight_observer.qparams()

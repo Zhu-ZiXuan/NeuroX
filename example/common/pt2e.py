@@ -144,10 +144,11 @@ def _fold_bias(
     operator's inline multiply-shift requantize.  The cross-term absorbs
     the activation zero-point shift; the division by ``rescale_factor``
     compensates for the fact that ``y_agg`` emitted by the crossbar is
-    already in ADC-code scale (``rf`` codes ≈ 1 ideal-integer state),
-    so adding an ideal-scale bias before the requantize would over-weight
-    it by ``rf``.  See ``neurox.operator.linear.derive_layer_int_params``
-    for the algebraic derivation.
+    already in ADC-code scale (``rescale_factor`` codes ≈ 1 ideal-integer
+    state), so adding an ideal-scale bias before the requantize would
+    over-weight it by ``rescale_factor``.  See
+    ``neurox.operator.linear.derive_layer_int_params`` for the algebraic
+    derivation.
     """
     device = w_int.device
     # Sum integer weights across all non-out-channel dims.
@@ -157,7 +158,7 @@ def _fold_bias(
     sx = input_scale.to(torch.float64).to(device)
     zp_x = input_zero_point.to(torch.float64).to(device)
     sw = weight_scale.to(torch.float64).to(device)
-    rf = float(rescale_factor) if rescale_factor != 0.0 else 1.0
+    rescale_factor_safe = float(rescale_factor) if rescale_factor != 0.0 else 1.0
 
     if bias_float is not None:
         scale = (sx * sw).clamp(min=1e-30)
@@ -166,7 +167,7 @@ def _fold_bias(
         bias_ideal = torch.zeros(out_features, dtype=torch.float64, device=device)
 
     cross = zp_x * w_sum.to(torch.float64)
-    folded = torch.round((bias_ideal - cross) / rf)
+    folded = torch.round((bias_ideal - cross) / rescale_factor_safe)
     int32_info = torch.iinfo(torch.int32)
     return folded.clamp(min=int32_info.min, max=int32_info.max).to(torch.int32)
 
@@ -267,9 +268,9 @@ def _extract_layer(
     # Multiply ``(s_x * s_w / s_y)`` by ``rescale_factor`` so the macro
     # can fuse ADC-scale → ideal-scale conversion into its single
     # requantize step.
-    rf = float(rescale_factor) if rescale_factor != 0.0 else 1.0
+    rescale_factor_safe = float(rescale_factor) if rescale_factor != 0.0 else 1.0
     combined_scale = (
-        input_scale.cpu().to(torch.float64) * weight_scale_cpu.to(torch.float64) * rf
+        input_scale.cpu().to(torch.float64) * weight_scale_cpu.to(torch.float64) * rescale_factor_safe
     ) / output_scale.cpu().to(torch.float64).clamp(min=1e-30)
     rescale_multiplier, rescale_rshift = derive_multiplier_and_shift_tensor(combined_scale.to(torch.float32))
 
@@ -314,7 +315,7 @@ def pt2e_to_neurox_state(
             was exported to produce ``prepared``.  Used only to forward
             non-quantized state (e.g. BN running stats).  Weights and biases
             for quantized layers are always read from ``prepared``.
-        rescale_factor: Target macro's ``output_rescale_factor``
+        rescale_factor: Target macro's ``adc_rescale_factor(adc_operation_point)``
             (``N_states / N_codes``).  Multiplied into ``(mult, rshift)``
             and divided into the folded bias so the operator's inline
             requantize produces correctly-scaled output.  Pass

@@ -4,7 +4,7 @@
 
 ## Public surface
 
-- `NeuroxMacroQuantMatMul` — structural Protocol every macro impl satisfies. Method surface: `fabricate()` (no-arg static-mismatch resample), `program(weight)` (write the static weight state), `matmul(input)` (forward against the programmed state — pure int matmul, matches `torch.matmul`; bias and requantize live in the operator). Property surface: `w_value_range / x_value_range / output_rescale_factor`.
+- `NeuroxMacroQuantMatMul` — structural Protocol every macro impl satisfies. Method surface: `fabricate()` (no-arg static-mismatch resample), `program(weight)` (write the static weight state), `matmul(input, *, adc_operation_point)` (forward against the programmed state at the runtime ADC operating point — pure int matmul, matches `torch.matmul`; bias and requantize live in the operator), `adc_rescale_factor(adc_operation_point)` (rescale-factor lookup). Property surface: `w_value_range`, `x_value_range`, `adc_mode_num`, `adc_max_bits`.
 - [`xbar/`](xbar/README.md) — the XbarMacro family lives entirely under this subpackage. `XbarMacro` is the abstract registry root; `XbarMacro.from_config(cfg, name, w_logical_shape, dtype, T__K, ideal_xbar)` is the single factory entry. Concrete members: `DirectXbarMacro`, `InterArraySliceXbarMacro`, `IntraArraySliceXbarMacro` (xbar-using; each declares its own `xbar_cfg`), plus the degenerate `IdealXbarMacro` (no xbar; lossless integer-matmul reference, [doc](xbar/ideal.md)).
 
 ## Architecture rules

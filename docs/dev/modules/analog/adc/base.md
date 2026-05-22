@@ -7,9 +7,9 @@
 - the per-family `config_type → impl_class` registry (via `RegistryMixin[type[ADCConfig], ADC]`)
 - the family-level `from_config(...)` classmethod
 - profiler registration
-- the abstract `convert(...)`, `latency_per_op__ns(*, bits)`, `area_per_inst__um2`, `leakage_per_inst__uW` contracts every concrete ADC must implement.
+- the abstract `convert(...)`, `latency_per_op__ns(*, adc_operation_point)`, `mode_num`, `max_bits`, `area_per_inst__um2`, `leakage_per_inst__uW` contracts every concrete ADC must implement.
 
-`ADCConfig` is the empty family-base marker used by the `RegistryMixin` dispatch surface (every concrete ADC config subclasses it). `ADCMode` is the small `(n_bits, n_states, max_signal)` dataclass used by the multi-mode subclasses' calibration LUTs.
+`ADCConfig` is the empty family-base marker used by the `RegistryMixin` dispatch surface (every concrete ADC config subclasses it). `ADCMode` is the small `(n_bits, n_states, max_signal)` dataclass used by the multi-mode subclasses' calibration LUTs. `AdcOperationPoint` is the frozen `(adc_mode, adc_bits)` runtime selection bundled and threaded through `convert` / `latency_per_op__ns` and the upper xbar / macro / operator stack; `AdcCalibrationRecord` is one row of the xbar's `(adc_mode, adc_bits) → rescale_factor` calibration table.
 
 ## Family-wide init signature
 
@@ -23,7 +23,7 @@ __init__(self, *, cfg, name, inst_shape, dtype, T__K)
 
 ## Runtime multi-mode
 
-`convert(v_pos__V, v_neg__V, *, mode, bits)` and `latency_per_op__ns(*, bits)` take their operating point as **per-call** keyword arguments. Single-mode subclasses honour the contract by validating `mode == 0` and `bits == max_bits`; multi-mode SAR variants accept any pair inside their configured envelope.
+`convert(v_pos__V, v_neg__V, *, adc_operation_point)` and `latency_per_op__ns(*, adc_operation_point)` take their operating point as a **per-call** keyword `AdcOperationPoint`. Single-mode subclasses honour the contract by validating `adc_mode == 0` and `adc_bits == max_bits`; multi-mode SAR variants accept any pair inside their configured envelope. `mode_num` exposes the number of supported operating points; `max_bits` exposes the maximum bit width.
 
 ## Floor semantics
 

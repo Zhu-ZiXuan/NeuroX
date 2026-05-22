@@ -17,7 +17,7 @@ from neurox.common.nonideality import (
 )
 from neurox.common.physical_constant import K_BOLTZMANN__J_per_K
 
-from .base import ADC, ADCConfig
+from .base import ADC, ADCConfig, AdcOperationPoint
 
 
 @dataclass(frozen=True)
@@ -202,8 +202,14 @@ class McsSarAdc(ADC):
         """V_ref values the configured CDAC supports, in index order."""
         return self.cfg.v_refs__V
 
+    @property
+    def mode_num(self) -> int:
+        """Number of operating points — one per supported V_ref."""
+        return len(self.cfg.v_refs__V)
+
+    @property
     def max_bits(self) -> int:
-        """Physical CDAC bit width — the maximum active ``bits`` value."""
+        """Physical CDAC bit width — the maximum ``adc_bits`` value."""
         return self.cfg.max_bits
 
     # --- fabricate (static non-idealities) ---
@@ -246,12 +252,13 @@ class McsSarAdc(ADC):
         """Static leakage per instance [uW]."""
         return self.cfg.leakage_per_inst__uW
 
-    def latency_per_op__ns(self, *, bits: int) -> float:
-        """Per-conversion latency ``(bits + 1) · clk_period__ns``.
+    def latency_per_op__ns(self, *, adc_operation_point: AdcOperationPoint) -> float:
+        """Per-conversion latency ``(adc_bits + 1) · clk_period__ns``.
 
         Args:
-            bits: Active bit width, ``1 ≤ bits ≤ max_bits``.
+            adc_operation_point: Runtime operating point.  ``1 ≤ bits ≤ max_bits``.
         """
+        bits = adc_operation_point.adc_bits
         if not (1 <= bits <= self.cfg.max_bits):
             raise ValueError(f"bits {bits} outside [1, {self.cfg.max_bits}]")
         return (bits + 1) * self.cfg.clk_period__ns
@@ -263,24 +270,24 @@ class McsSarAdc(ADC):
         v_pos__V: Tensor,
         v_neg__V: Tensor,
         *,
-        mode: int,
-        bits: int,
+        adc_operation_point: AdcOperationPoint,
     ) -> Tensor:
         """V_cm-based (MCS) differential SAR conversion.
 
         Args:
             v_pos__V: Positive-side input voltage.
             v_neg__V: Negative-side input voltage, same shape.
-            mode: V_ref index.
-            bits: Active bit width, ``1 ≤ bits ≤ max_bits``.
+            adc_operation_point: Runtime operating point. ``adc_operation_point.adc_mode`` selects V_ref;
+                ``adc_operation_point.adc_bits`` sets active resolution.
 
         Returns:
-            Code tensor in ``[0, 2 ** bits - 1]``.
+            Code tensor in ``[0, 2 ** adc_operation_point.adc_bits - 1]``.
         """
-        self._validate_runtime_args(mode, bits)
+        self._validate_runtime_args(adc_operation_point)
+        bits = adc_operation_point.adc_bits
 
         cfg = self.cfg
-        v_ref__V = cfg.v_refs__V[mode]
+        v_ref__V = cfg.v_refs__V[adc_operation_point.adc_mode]
         v_cm__V = 0.5 * v_ref__V
 
         c_p__fF = self.c_p__fF
@@ -350,7 +357,7 @@ class McsSarAdc(ADC):
             enabled=self.training,
         )
         code = code.clamp(min=0, max=(1 << bits) - 1)
-        self._log_dynamic(e_dynamic__fJ, self.latency_per_op__ns(bits=bits))
+        self._log_dynamic(e_dynamic__fJ, self.latency_per_op__ns(adc_operation_point=adc_operation_point))
         return code
 
     def _compare(self, v_pos__V: Tensor, v_neg__V: Tensor) -> Tensor:
@@ -375,9 +382,11 @@ class McsSarAdc(ADC):
 
     # --- shared helpers ---
 
-    def _validate_runtime_args(self, mode: int, bits: int) -> None:
-        """Validate per-call ``(mode, bits)``."""
+    def _validate_runtime_args(self, adc_operation_point: AdcOperationPoint) -> None:
+        """Validate per-call ``adc_operation_point``."""
         cfg = self.cfg
+        bits = adc_operation_point.adc_bits
+        mode = adc_operation_point.adc_mode
         if not (0 <= mode < len(cfg.v_refs__V)):
             raise ValueError(f"mode {mode} outside [0, {len(cfg.v_refs__V)})")
         if not (1 <= bits <= cfg.max_bits):

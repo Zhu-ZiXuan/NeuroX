@@ -14,7 +14,7 @@ Every `ProfileMixin` exposes:
 
 - `area_per_inst__um2: float` — property. Silicon area of a single instance of this module.
 - `leakage_per_inst__uW: float` — property. Static leakage of a single instance.
-- `latency_per_op__ns` — property when the per-op latency is fixed; method when it depends on a runtime operating point. The method form takes the operating-point arguments by keyword (e.g. `latency_per_op__ns(*, bits: int) -> float`).
+- `latency_per_op__ns` — property when the per-op latency is fixed; method when it depends on a runtime operating point. The method form takes the operating point by keyword (e.g. `latency_per_op__ns(*, adc_operation_point: AdcOperationPoint) -> float`).
 
 ## `_log_static` and the `_inst_shape` contract
 

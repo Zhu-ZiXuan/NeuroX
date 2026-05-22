@@ -41,7 +41,7 @@ def __init__(self, *, cfg, name, inst_shape, dtype, T__K) -> None: ...
 
 def fabricate(self) -> None: ...      # auto-cascade (via FabricateMixin)
 def program(self, w) -> None: ...     # write tile-native digit state
-def vec_mat_mul(self, x) -> Tensor: ...
+def vec_mat_mul(self, x, *, adc_operation_point) -> Tensor: ...
 ```
 
 - `inst_shape` is the per-instance multiplicity prefix. The full digit-tensor shape received by `program(w)` is `(*inst_shape, col_num, w_digit_count, row_num)`, derived inside the xbar from `inst_shape + cfg + subclass geometry` and exposed as `self._w_layout_shape` for validation only.
@@ -55,7 +55,7 @@ def __init__(self, *, cfg, name, w_logical_shape, dtype, T__K, ideal_xbar) -> No
 
 def fabricate(self) -> None: ...                                              # auto-cascade
 def program(self, weight) -> None: ...                                        # logical → organize → child program
-def matmul(self, input) -> Tensor: ...                                        # pure int matmul; matches torch.matmul
+def matmul(self, input, *, adc_operation_point) -> Tensor: ...                # pure int matmul; matches torch.matmul
 ```
 
 - `w_logical_shape` is the operator-facing weight shape, typically `(*prefix, N, K)` (linear) or `(groups, out/g, in/g·kh·kw)` (grouped conv).

@@ -16,6 +16,41 @@ from torch import Tensor
 from neurox.common.mixin import FabricateMixin, ProfileMixin, RegistryMixin, ValidateMixin
 
 
+@dataclass(frozen=True, slots=True)
+class AdcOperationPoint:
+    """ADC operating point — the runtime selection passed per call.
+
+    Attributes:
+        adc_mode: Operating-point index, ``[0, mode_num)``.
+        adc_bits: Active bit width, ``1 ≤ adc_bits ≤ max_bits``.
+    """
+
+    adc_mode: int
+    adc_bits: int
+
+
+@dataclass(frozen=True)
+class AdcCalibrationRecord(ValidateMixin):
+    """One row of the ADC ``adc_operation_point → rescale_factor`` lookup table.
+
+    Attributes:
+        adc_mode: Operating-point index.
+        adc_bits: Active bit width.
+        rescale_factor: Rescale factor; ``floor(M_ideal * rescale_factor) == code``.
+    """
+
+    adc_mode: int
+    adc_bits: int
+    rescale_factor: float
+
+    def __post_init__(self) -> None:
+        self.validate()
+
+    def validate(self) -> None:
+        self._require_nonneg(self.adc_mode, "adc_mode")
+        self._require_nonneg(self.adc_bits, "adc_bits")
+
+
 @dataclass(frozen=True)
 class ADCConfig(ValidateMixin):
     """Base config for ADC implementations."""
@@ -105,14 +140,26 @@ class ADC(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["ADCConfig
         ProfileMixin.__init__(self, name)
         self._inst_shape = inst_shape
 
+    @property
+    @abstractmethod
+    def mode_num(self) -> int:
+        """Number of operating points the ADC supports — valid ``adc_mode``
+        values lie in ``[0, mode_num)``."""
+        raise NotImplementedError
+
+    @property
+    @abstractmethod
+    def max_bits(self) -> int:
+        """Physical bit width — the maximum ``adc_bits`` value."""
+        raise NotImplementedError
+
     @abstractmethod
     def convert(
         self,
         v_pos__V: Tensor,
         v_neg__V: Tensor,
         *,
-        mode: int,
-        bits: int,
+        adc_operation_point: AdcOperationPoint,
     ) -> Tensor:
         """Digitise a differential analog voltage into an integer code.
 
@@ -121,22 +168,21 @@ class ADC(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["ADCConfig
                 arbitrary.
             v_neg__V: Negative-side analog input voltage [V].  Same
                 shape as ``v_pos__V``.
-            mode: Runtime operating-point index.  ``[0, n_modes)``.
-            bits: Active bit width for this conversion.
+            adc_operation_point: Runtime operating point.
 
         Returns:
-            Integer code tensor in ``[0, 2 ** bits - 1]``, same shape
-            as ``v_pos__V``.  Dynamic energy and latency are emitted
-            through the profiler side channel.
+            Integer code tensor in ``[0, 2 ** adc_operation_point.adc_bits - 1]``, same
+            shape as ``v_pos__V``.  Dynamic energy and latency are
+            emitted through the profiler side channel.
         """
         raise NotImplementedError
 
     @abstractmethod
-    def latency_per_op__ns(self, *, bits: int) -> float:
+    def latency_per_op__ns(self, *, adc_operation_point: AdcOperationPoint) -> float:
         """Return the per-conversion latency [ns].
 
         Args:
-            bits: Active bit width.
+            adc_operation_point: Runtime operating point.
 
         Returns:
             Latency in [ns].

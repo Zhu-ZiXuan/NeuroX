@@ -73,6 +73,7 @@ class HATConv2d(nn.Conv2d):
         self.name = name
         self.spec = spec
         self.macro = macro
+        self.adc_operation_point = NeuroxOperator.default_adc_operation_point(macro)
         self.act_observer = PerTensorObserver(spec.x_qmin, spec.x_qmax)
         self.out_observer = PerTensorObserver(spec.y_qmin, spec.y_qmax)
         self.weight_observer = PerChannelSymmObserver(out_channels, spec.w_qmax)
@@ -174,7 +175,7 @@ class HATConv2d(nn.Conv2d):
                 output_scale=s_y,
                 w_qmax=self.spec.w_qmax,
                 weight_dtype=weight_dtype,
-                rescale_factor=self.macro.output_rescale_factor,
+                rescale_factor=self.macro.adc_rescale_factor(self.adc_operation_point),
             )
 
             out_per_group = self.out_channels // self.groups
@@ -185,7 +186,7 @@ class HATConv2d(nn.Conv2d):
 
             self.macro.program(w_grouped)
             self.macro.fabricate()
-            y_int = self.macro.matmul(unfolded_int)
+            y_int = self.macro.matmul(unfolded_int, adc_operation_point=self.adc_operation_point)
             y_int = y_int + b_grouped.to(torch.int32).unsqueeze(-2)
             y_int = stochastic_floor_div(
                 y_int.to(torch.int32) * mult_grouped.to(torch.int32).unsqueeze(-2),
@@ -201,12 +202,10 @@ class HATConv2d(nn.Conv2d):
 
     @torch.no_grad()
     def extract_neurox_state(self, prefix: str) -> dict[str, Tensor]:
-        """Emit the 12-buffer NeuroX-flat entries for this layer.
+        """Emit the NeuroX-flat per-layer state_dict entries with ``rescale_factor=1.0``.
 
-        Stored with ``rescale_factor=1.0`` — macro-agnostic ideal
-        integer scale.  ``build_evaluator``'s ``bind_output_calibration``
-        folds the target macro's ``output_rescale_factor`` in at load
-        time.
+        No macro-specific ADC rescale is baked into the stored
+        ``(rescale_multiplier, rescale_rshift, bias_int)``.
         """
         s_x, zp_x = self.act_observer.qparams()
         s_w, _ = self.weight_observer.qparams()

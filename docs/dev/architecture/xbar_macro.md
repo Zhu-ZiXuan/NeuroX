@@ -47,8 +47,8 @@ This distinction explains why `program` and `matmul` cannot share a uniform "red
 The abstract base declares signatures only; it does **not** provide a template method, and intermediate tensor shapes are subclass concerns:
 
 - a polymorphic `from_config(cls, *, cfg, name, w_logical_shape, dtype, T__K, ideal_xbar)` classmethod that dispatches on the concrete config type via `RegistryMixin`.
-- abstract `w_value_range / x_value_range / output_rescale_factor` properties.
-- abstract `program(weight)` and `matmul(input)` (pure int matmul, matches `torch.matmul`; bias add and requantize live in the operator).
+- abstract `w_value_range / x_value_range` value-grid properties, abstract `adc_mode_num / adc_max_bits` ADC-surface properties, abstract `adc_rescale_factor(adc_operation_point) -> float` method.
+- abstract `program(weight)` and `matmul(input, *, adc_operation_point)` (pure int matmul, matches `torch.matmul`; bias add and requantize live in the operator).
 - `_build_xbar(*, xbar_cfg, inst_shape) -> Xbar` instance helper used by xbar-using subclasses to construct their tile (applies `.to_ideal()` when `ideal_xbar=True`). The base does not presume the concrete cfg carries an `xbar_cfg`, so xbar-using subclasses pass it in explicitly.
 - a static chunk-and-pad helper — the one shared geometric primitive.
 
@@ -72,5 +72,5 @@ Every family member follows the same kwarg-only `__init__` / `from_config` signa
 4. Forward the family signature into `super().__init__(...)`, then call `self.xbar = self._build_xbar(xbar_cfg=cfg.xbar_cfg, inst_shape=...)`. The `inst_shape` is derived from `w_logical_shape + cfg.xbar_cfg.col_num / row_num + slice counts` symbolically. Build slicers / reducers from the cfg as `nn.Module` children.
 5. Implement the mode-specific organize for W and X as private methods of the subclass.
 6. Implement `program(weight)` to organize → `self.xbar.program` and pre-warm reducer shapes.
-7. Implement `matmul(input)` to organize → primitive VMM → aggregate (the dual of organize). The macro returns pre-requantize int output; the operator owns bias add and rescale.
+7. Implement `matmul(input, *, adc_operation_point)` to organize → primitive VMM (threading `adc_operation_point` into `self.xbar.vec_mat_mul(...)`) → aggregate (the dual of organize). The macro returns pre-requantize int output; the operator owns bias add and rescale.
 8. Add full shape annotations on every reshape / permute step, marking placeholder axes as `=1`.

@@ -11,7 +11,7 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor
 
-from neurox.analog.adc import ADC, ADCConfig
+from neurox.analog.adc import ADC, ADCConfig, AdcOperationPoint
 from neurox.analog.analog_mux import AnalogMux, AnalogMuxConfig
 from neurox.analog.switch_cap import SwitchCap, SwitchCapConfig
 
@@ -115,18 +115,28 @@ class OffsetSwitchCapMuxAdcReadOut(ReadOut):
         """Static leakage per instance [uW]."""
         return self.cfg.leakage_per_inst__uW
 
-    def latency_per_op__ns(self, *, adc_bits: int) -> float:
-        """Per-VMM pipeline latency [ns]: ``orch + data_sc + ref_sc + mux + bl_adc(adc_bits)``.
+    @property
+    def adc_mode_num(self) -> int:
+        """Number of supported ADC operating points; valid ``adc_mode`` values are ``[0, mode_num)``."""
+        return self.bl_adc.mode_num
+
+    @property
+    def adc_max_bits(self) -> int:
+        """Maximum supported ``adc_bits`` value."""
+        return self.bl_adc.max_bits
+
+    def latency_per_op__ns(self, *, adc_operation_point: AdcOperationPoint) -> float:
+        """Per-VMM pipeline latency [ns]: ``orch + data_sc + ref_sc + mux + bl_adc(adc_operation_point)``.
 
         Args:
-            adc_bits: Active ADC bit width.
+            adc_operation_point: Runtime ADC operating point.
         """
         return (
             self.cfg.latency_per_op__ns
             + self.data_switchcap.latency_per_op__ns
             + self.ref_switchcap.latency_per_op__ns
             + self.analog_mux.latency_per_op__ns
-            + self.bl_adc.latency_per_op__ns(bits=adc_bits)
+            + self.bl_adc.latency_per_op__ns(adc_operation_point=adc_operation_point)
         )
 
     def readout(
@@ -134,8 +144,7 @@ class OffsetSwitchCapMuxAdcReadOut(ReadOut):
         v_data_grouped__V: Tensor,
         v_ref_grouped__V: Tensor,
         *,
-        adc_mode: int,
-        adc_bits: int,
+        adc_operation_point: AdcOperationPoint,
     ) -> Tensor:
         """Run one VMM through data S/H → ref S/H → MUX → ADC.
 
@@ -144,8 +153,7 @@ class OffsetSwitchCapMuxAdcReadOut(ReadOut):
                 shape ``(*runtime, group_num, data_num, digit_num)``.
             v_ref_grouped__V: Per-reference-column voltages [V],
                 shape ``(*runtime, group_num)``.
-            adc_mode: ADC operating-point index.
-            adc_bits: ADC bit width.
+            adc_operation_point: Runtime ADC operating point.
 
         Returns:
             Integer ADC code tensor.
@@ -163,8 +171,7 @@ class OffsetSwitchCapMuxAdcReadOut(ReadOut):
         code = self.bl_adc.convert(
             v_pos__V=v_pos__V,
             v_neg__V=v_neg__V,
-            mode=adc_mode,
-            bits=adc_bits,
+            adc_operation_point=adc_operation_point,
         )
 
         if self.cfg.energy_per_op__fJ > 0.0:

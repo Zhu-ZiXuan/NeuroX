@@ -10,6 +10,8 @@ from typing import Protocol
 
 from torch import Tensor
 
+from neurox.analog.adc import AdcOperationPoint
+
 
 class NeuroxMacroQuantMatMul(Protocol):
     """Structural contract every macro impl satisfies.
@@ -17,16 +19,17 @@ class NeuroxMacroQuantMatMul(Protocol):
     Attributes:
         w_value_range: Inclusive integer weight range accepted by the macro.
         x_value_range: Inclusive integer activation range accepted by the macro.
-        output_rescale_factor: Ratio between the macro output scale and the
-            ideal integer partial-product scale.
+        adc_mode_num: Number of ADC operating points the macro supports.
+        adc_max_bits: Maximum ``adc_bits`` value the macro's ADC supports.
 
     Methods:
+        adc_rescale_factor: Rescale factor for a given ``adc_operation_point``.
         fabricate: Resample static manufacturing variation across the macro
             tree. No arguments.
         program: Write the macro's static weight state from one logical
             integer weight tensor.
         matmul: Execute one integer matrix multiply against the programmed
-            weight state.
+            weight state for the given ``adc_operation_point``.
     """
 
     @property
@@ -40,8 +43,17 @@ class NeuroxMacroQuantMatMul(Protocol):
         ...
 
     @property
-    def output_rescale_factor(self) -> float:
-        """Ratio of the ideal partial-product max to the actual tile output max."""
+    def adc_mode_num(self) -> int:
+        """Number of ADC operating points the macro supports."""
+        ...
+
+    @property
+    def adc_max_bits(self) -> int:
+        """Maximum ``adc_bits`` value the macro's ADC supports."""
+        ...
+
+    def adc_rescale_factor(self, adc_operation_point: AdcOperationPoint) -> float:
+        """Rescale factor for ``adc_operation_point``."""
         ...
 
     def fabricate(self) -> None:
@@ -57,7 +69,7 @@ class NeuroxMacroQuantMatMul(Protocol):
         """
         ...
 
-    def matmul(self, input: Tensor) -> Tensor:
+    def matmul(self, input: Tensor, *, adc_operation_point: AdcOperationPoint) -> Tensor:
         """Execute one integer matrix multiply against the programmed weight state.
 
         Matches ``torch.matmul`` semantics (pure matmul, no bias). Bias add
@@ -65,6 +77,7 @@ class NeuroxMacroQuantMatMul(Protocol):
 
         Args:
             input: Integer activation tensor. Shape: ``[..., M, K]``.
+            adc_operation_point: Runtime ADC operating point.
 
         Returns:
             Integer pre-requantize output tensor. Shape: ``[..., M, N]``.

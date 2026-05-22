@@ -2,7 +2,7 @@
 
 This directory documents the physical-crossbar layer.
 
-The xbar layer owns physical-array semantics and exposes the primitive shape contract — `fabricate(w)` and `vec_mat_mul(x)` — plus a runtime `(adc_mode, adc_bits) → rescale_factor` lookup.
+The xbar layer owns physical-array semantics and exposes the primitive shape contract — `program(w)` and `vec_mat_mul(x, *, adc_operation_point)` — plus a runtime `(adc_mode, adc_bits) → rescale_factor` lookup.
 
 ## Top-level files
 

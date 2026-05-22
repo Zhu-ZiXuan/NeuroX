@@ -42,7 +42,7 @@ The readout chain operates on a grouped lattice keyed by reference-group structu
 
 The readout's own instance shape `(*prefix, group_num)` is committed via `inst_shape` at `__init__`; `fabricate()` is the inherited auto-cascade trigger and takes no shape argument.
 
-`readout(v_data_grouped, v_ref_grouped, *, adc_mode, adc_bits)` is the per-VMM kernel; it returns the per-data ADC code.
+`readout(v_data_grouped, v_ref_grouped, *, adc_operation_point)` is the per-VMM kernel; it returns the per-data ADC code.
 
 ## `readout(...)` vs `forward(...)`
 

@@ -13,6 +13,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
+from neurox.analog.adc import AdcOperationPoint
 from neurox.common.mixin import FabricateMixin, ProfileMixin, RegistryMixin, ValidateMixin
 
 # ---------------------------------------------------------------------------
@@ -119,8 +120,7 @@ class ReadOut(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["ReadO
         v_data_grouped__V: Tensor,
         v_ref_grouped__V: Tensor,
         *,
-        adc_mode: int,
-        adc_bits: int,
+        adc_operation_point: AdcOperationPoint,
     ) -> Tensor:
         """Run one VMM through the readout chain.
 
@@ -129,8 +129,7 @@ class ReadOut(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["ReadO
                 [..., group_num, data_num, digit_num].
             v_ref_grouped__V: Reference-path voltages [V]. Shape:
                 [..., group_num].
-            adc_mode: Runtime ADC operating-point index.
-            adc_bits: Runtime ADC bit width.
+            adc_operation_point: Runtime ADC operating point.
 
         Returns:
             Integer ADC code tensor.
@@ -150,10 +149,22 @@ class ReadOut(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["ReadO
         raise NotImplementedError
 
     @abstractmethod
-    def latency_per_op__ns(self, *, adc_bits: int) -> float:
+    def latency_per_op__ns(self, *, adc_operation_point: AdcOperationPoint) -> float:
         """Return the per-VMM pipeline latency [ns].
 
         Args:
-            adc_bits: Runtime ADC bit width.
+            adc_operation_point: Runtime ADC operating point.
         """
+        raise NotImplementedError
+
+    @property
+    @abstractmethod
+    def adc_mode_num(self) -> int:
+        """Number of supported ADC operating points; valid ``adc_mode`` values are ``[0, mode_num)``."""
+        raise NotImplementedError
+
+    @property
+    @abstractmethod
+    def adc_max_bits(self) -> int:
+        """Maximum supported ``adc_bits`` value."""
         raise NotImplementedError

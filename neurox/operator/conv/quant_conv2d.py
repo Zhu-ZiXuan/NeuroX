@@ -65,6 +65,7 @@ class QuantConv2d(NeuroxOperator):
             raise ValueError("out_channels must be divisible by groups.")
 
         self.macro = macro
+        self.adc_operation_point = self.default_adc_operation_point(macro)
         self.name = name
         self.in_channels = in_channels
         self.out_channels = out_channels

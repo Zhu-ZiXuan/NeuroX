@@ -9,8 +9,8 @@ Abstract registry root for the XbarMacro family, declared in `neurox/macro/xbar/
   - `from_config(cls, *, cfg, name, w_logical_shape, dtype, T__K, ideal_xbar)` polymorphic dispatcher (uses `RegistryMixin` keyed on `type(cfg)`).
   - Base `__init__` with the same signature; records `self._w_logical_shape` and stashes the construction context (`_macro_dtype`, `_macro_T__K`, `_ideal_xbar`, `_macro_name`). The base does **not** declare an `xbar` attribute — xbar-using subclasses declare and build it themselves.
   - `self._build_xbar(*, xbar_cfg, inst_shape) -> Xbar` helper that calls `Xbar.from_config(...)` and applies `.to_ideal()` when `ideal_xbar=True`. `xbar_cfg` is passed in explicitly so the base does not presume the concrete cfg carries one.
-  - Abstract `w_value_range / x_value_range / output_rescale_factor` properties.
-  - Abstract `program(weight)` and `matmul(input)` (no weight in matmul — the subclass reads its own programmed state; matches `torch.matmul` semantics, bias and requantize live in the operator).
+  - Abstract `w_value_range / x_value_range` value-grid properties and `adc_mode_num / adc_max_bits` ADC-surface properties; abstract method `adc_rescale_factor(adc_operation_point) -> float`.
+  - Abstract `program(weight)` and `matmul(input, *, adc_operation_point)` (no weight in matmul — the subclass reads its own programmed state; matches `torch.matmul` semantics, bias and requantize live in the operator).
   - Static `chunk_pad_along(t, *, axis, chunk_size, pad_value)` — shared geometric helper. `pad_value` has no default per the physical-layer rule.
 
 The base provides **no** template method for the run path. Concrete subclasses write their own `program` and `matmul` end to end; the base only owns construction scaffolding, the xbar build helper, and the static tensor helper.

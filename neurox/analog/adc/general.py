@@ -16,7 +16,7 @@ from torch import Tensor
 from neurox.common.nonideality import apply_gaussian
 from neurox.common.quant import floor_bucketize
 
-from .base import ADC, ADCConfig
+from .base import ADC, ADCConfig, AdcOperationPoint
 
 
 @dataclass(frozen=True)
@@ -138,6 +138,16 @@ class GeneralADC(ADC):
     # --- ADC interface ---
 
     @property
+    def mode_num(self) -> int:
+        """Single-mode ADC — only ``adc_mode = 0`` is valid."""
+        return 1
+
+    @property
+    def max_bits(self) -> int:
+        """Boundary-implied bit width."""
+        return self._n_bits
+
+    @property
     def area_per_inst__um2(self) -> float:
         """Silicon area per instance [um^2]."""
         return self.cfg.area_per_inst__um2
@@ -147,9 +157,9 @@ class GeneralADC(ADC):
         """Static leakage per instance [uW]."""
         return self.cfg.leakage_per_inst__uW
 
-    def latency_per_op__ns(self, *, bits: int) -> float:
-        if bits != self._n_bits:
-            raise ValueError(f"GeneralADC: bits ({bits}) must equal self._n_bits ({self._n_bits})")
+    def latency_per_op__ns(self, *, adc_operation_point: AdcOperationPoint) -> float:
+        if adc_operation_point.adc_bits != self._n_bits:
+            raise ValueError(f"GeneralADC: bits ({adc_operation_point.adc_bits}) must equal self._n_bits ({self._n_bits})")
         return self.cfg.latency_per_op__ns
 
     def convert(
@@ -157,21 +167,20 @@ class GeneralADC(ADC):
         v_pos__V: Tensor,
         v_neg__V: Tensor,
         *,
-        mode: int,
-        bits: int,
+        adc_operation_point: AdcOperationPoint,
     ) -> Tensor:
         """Quantise a differential analog voltage to an integer code (floor-bucketize).
 
         Args:
             v_pos__V: Positive-side analog input voltage [V].
             v_neg__V: Negative-side analog input voltage [V], same shape.
-            mode: Operating-point index; must be ``0``.
-            bits: Active bit width; must equal the boundary-implied bit width.
+            adc_operation_point: Runtime operating point. ``adc_operation_point.adc_mode`` must be ``0``;
+                ``adc_operation_point.adc_bits`` must equal the boundary-implied bit width.
 
         Returns:
             ``int16`` code tensor shaped like ``v_pos__V``.
         """
-        self._validate_runtime_args(mode, bits)
+        self._validate_runtime_args(adc_operation_point)
         signal = apply_gaussian(
             v_pos__V - v_neg__V,
             self.cfg.sampling_noise__V,
@@ -219,8 +228,8 @@ class GeneralADC(ADC):
 
     # --- shared helpers ---
 
-    def _validate_runtime_args(self, mode: int, bits: int) -> None:
-        if mode != 0:
-            raise ValueError(f"GeneralADC: mode ({mode}) must be 0")
-        if bits != self._n_bits:
-            raise ValueError(f"GeneralADC: bits ({bits}) must equal self._n_bits ({self._n_bits})")
+    def _validate_runtime_args(self, adc_operation_point: AdcOperationPoint) -> None:
+        if adc_operation_point.adc_mode != 0:
+            raise ValueError(f"GeneralADC: mode ({adc_operation_point.adc_mode}) must be 0")
+        if adc_operation_point.adc_bits != self._n_bits:
+            raise ValueError(f"GeneralADC: bits ({adc_operation_point.adc_bits}) must equal self._n_bits ({self._n_bits})")

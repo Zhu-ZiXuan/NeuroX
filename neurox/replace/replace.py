@@ -157,25 +157,14 @@ def _replace(
 
 
 def fabricate_model(model: nn.Module) -> None:
-    """Resample static manufacturing variation across every crossbar operator.
-
-    Drives ``op.fabricate()`` (FabricateMixin auto-cascade) on every
-    :class:`NeuroxOperator`. Pair with :func:`program_model` to fully
-    set up the macro state.
-    """
+    """Resample static manufacturing variation across every :class:`NeuroxOperator` in ``model``."""
     for module in model.modules():
         if isinstance(module, NeuroxOperator):
             module.fabricate()
 
 
 def program_model(model: nn.Module) -> None:
-    """Write static weight state across every crossbar operator.
-
-    Drives ``op.program()`` on every :class:`NeuroxOperator`. Called at
-    inference setup after :func:`load_neurox_state` /
-    :func:`bind_output_calibration`, and again after every weight update
-    in QAT.
-    """
+    """Write static weight state across every :class:`NeuroxOperator` in ``model``."""
     for module in model.modules():
         if isinstance(module, NeuroxOperator):
             module.program()
@@ -280,36 +269,38 @@ def load_neurox_state(
 
 
 def bind_output_calibration(model: nn.Module) -> None:
-    """Fold each macro's ``output_rescale_factor`` into the loaded buffers.
+    """Fold each macro's ``adc_rescale_factor(adc_operation_point)`` into the loaded buffers.
 
     Re-derives ``(rescale_multiplier, rescale_rshift, bias_int)`` by
     multiplying the checkpointed ``(sx · sw / sy)`` scale by the target
-    macro's ``rf``. Operators with ``rf == 1.0`` are skipped.
+    macro's ``rescale_factor``. Operators with ``rescale_factor == 1.0``
+    are skipped.
     """
     for module in model.modules():
         if not isinstance(module, (QuantLinear, QuantConv2d)):
             continue
-        rf = module.macro.output_rescale_factor
-        if rf == 1.0:
+        rescale_factor = module.macro.adc_rescale_factor(module.adc_operation_point)
+        if rescale_factor == 1.0:
             continue
 
         sx = module.input_scale.to(torch.float64)
         sy = module.output_scale.to(torch.float64)
 
-        # old (mult, rshift) encoded ``(sx·sw/sy)`` at rf=1; new scale = old · rf.
+        # old (mult, rshift) encoded ``(sx·sw/sy)`` at rescale_factor=1;
+        # new scale = old · rescale_factor.
         old_mult = module.rescale_multiplier.to(torch.float64)
         old_rshift = module.rescale_rshift.to(torch.float64)
         old_scale = old_mult / (2.0**old_rshift)
-        new_scale = old_scale * rf
+        new_scale = old_scale * rescale_factor
 
         new_mult, new_rsh = derive_multiplier_and_shift_tensor(new_scale.to(torch.float32))
         module.rescale_multiplier.copy_(new_mult)
         module.rescale_rshift.copy_(new_rsh)
 
-        # bias was folded at rf=1; rescale by ``/rf`` and re-round.
+        # bias was folded at rescale_factor=1; rescale by ``/rescale_factor`` and re-round.
         int32_info = torch.iinfo(torch.int32)
         module.bias_int.copy_(
-            torch.round(module.bias_int.to(torch.float64) / rf)
+            torch.round(module.bias_int.to(torch.float64) / rescale_factor)
             .clamp(min=int32_info.min, max=int32_info.max)
             .to(torch.int32)
         )

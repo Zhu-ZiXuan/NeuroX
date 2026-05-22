@@ -11,6 +11,8 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor
 
+from neurox.analog.adc import AdcOperationPoint
+
 from .base import XbarMacro, XbarMacroConfig
 
 
@@ -29,22 +31,18 @@ class IdealXbarMacroConfig(XbarMacroConfig):
 
 @XbarMacro.register_key(IdealXbarMacroConfig)
 class IdealXbarMacro(XbarMacro):
-    """Lossless reference replacement for any :class:`XbarMacro`.
+    """Degenerate ``XbarMacro``: stores the integer weight and runs ``torch.matmul`` against it.
 
-    No xbar tile, no slicing, no transcoding — just stores the integer
-    weight and computes ``torch.matmul`` against it. Useful as the
-    noise-free ground truth when isolating QAT issues from analog / IO
-    modelling, and as the contract conformance baseline for the rest of
-    the family.
+    No xbar tile, no slicing, no transcoding. ``dtype``, ``T__K``, and
+    ``ideal_xbar`` are accepted for API uniformity and ignored.
 
     Args:
-        cfg: :class:`IdealXbarMacroConfig`.
+        cfg: Concrete configuration dataclass.
         name: Hierarchical instance name used by the profiler.
         w_logical_shape: Logical weight shape ``(*prefix, N, K)`` bound to ``program(...)``.
-        dtype: Tensor dtype for internal buffers. Accepted for API
-            uniformity; ignored by the integer matmul.
-        T__K: Operating temperature [K]. Accepted for API uniformity; ignored.
-        ideal_xbar: Accepted for API uniformity; ignored (no xbar to swap).
+        dtype: Tensor dtype for internal buffers.
+        T__K: Operating temperature [K].
+        ideal_xbar: When True, the macro replaces its physical xbar with the lossless ideal twin returned by xbar.to_ideal().
     """
 
     cfg: IdealXbarMacroConfig
@@ -79,7 +77,7 @@ class IdealXbarMacro(XbarMacro):
 
         self._log_static()
 
-    # --- value-range / rescale ---
+    # --- value-range / ADC surface ---
 
     @property
     def w_value_range(self) -> tuple[int, int]:
@@ -92,8 +90,18 @@ class IdealXbarMacro(XbarMacro):
         return self.cfg.x_value_range
 
     @property
-    def output_rescale_factor(self) -> float:
-        """Ratio of the ideal partial-product max to the actual tile output max."""
+    def adc_mode_num(self) -> int:
+        """Number of supported ADC operating points; valid ``adc_mode`` values are ``[0, mode_num)``."""
+        return 1
+
+    @property
+    def adc_max_bits(self) -> int:
+        """Maximum supported ``adc_bits`` value. ``0`` is the sentinel meaning the macro applies no output quantization."""
+        return 0
+
+    def adc_rescale_factor(self, adc_operation_point: AdcOperationPoint) -> float:
+        """Rescale factor for ``adc_operation_point``; raises ``KeyError`` if uncalibrated."""
+        del adc_operation_point  # accepted for API uniformity
         return 1.0
 
     # --- lifecycle ---
@@ -111,7 +119,7 @@ class IdealXbarMacro(XbarMacro):
 
     @torch.no_grad()
     @torch.compile(dynamic=True)
-    def matmul(self, input: Tensor) -> Tensor:
+    def matmul(self, input: Tensor, *, adc_operation_point: AdcOperationPoint) -> Tensor:
         """Execute one integer matrix multiply against the programmed weight state.
 
         Matches ``torch.matmul`` semantics (pure matmul, no bias). Bias add
@@ -119,9 +127,11 @@ class IdealXbarMacro(XbarMacro):
 
         Args:
             input: Integer activation tensor. Shape: ``[..., M, K]``.
+            adc_operation_point: Runtime ADC operating point.
 
         Returns:
             Integer pre-requantize output tensor. Shape: ``[..., M, N]``.
         """
+        del adc_operation_point  # accepted for API uniformity
         weight = self.weight
         return torch.matmul(input.to(torch.int64), weight.to(torch.int64).transpose(-2, -1))

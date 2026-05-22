@@ -68,8 +68,8 @@ python -m example.bert.evaluate \
   `example/bert/macro.toml` (which pulls the 1T1R xbar reference from
   `neurox/presets/xbar/1t1r_28nm.toml` via `_neurox_use_preset`). To
   change the ADC resolution, edit the `[bl_adc].boundaries` list and
-  update `[xbar].output_rescale_factor` accordingly; the CLI has no
-  hardware knobs.
+  add a matching `[[xbar.adc_calibration]]` record accordingly; the CLI
+  has no hardware knobs.
 - **ADC resolution and depth**: the bundled 16-level (4-bit) ADC
   collapses BERT-small's signal to chance accuracy — 26 linear
   layers compound per-tile quantization noise past the signal floor.

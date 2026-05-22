@@ -14,6 +14,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
+from neurox.analog.adc import AdcOperationPoint
 from neurox.common.mixin import FabricateMixin, ProfileMixin, RegistryMixin, ValidateMixin
 from neurox.xbar import Xbar, XbarConfig
 
@@ -101,7 +102,7 @@ class XbarMacro(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["Xba
         """Macros aggregate leakage from children; no own contribution."""
         return 0.0
 
-    # --- value-range / rescale contract ---
+    # --- value-range contract ---
 
     @property
     @abstractmethod
@@ -115,10 +116,23 @@ class XbarMacro(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["Xba
         """Inclusive integer activation range accepted by the macro."""
         raise NotImplementedError
 
+    # --- ADC operating-point surface ---
+
     @property
     @abstractmethod
-    def output_rescale_factor(self) -> float:
-        """Ratio of the ideal partial-product max to the actual tile output max."""
+    def adc_mode_num(self) -> int:
+        """Number of ADC operating points the macro supports."""
+        raise NotImplementedError
+
+    @property
+    @abstractmethod
+    def adc_max_bits(self) -> int:
+        """Maximum ``adc_bits`` value the macro's ADC supports."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def adc_rescale_factor(self, adc_operation_point: AdcOperationPoint) -> float:
+        """Rescale factor for ``adc_operation_point`` (delegates into the embedded xbar)."""
         raise NotImplementedError
 
     # --- lifecycle ---
@@ -134,7 +148,7 @@ class XbarMacro(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["Xba
         raise NotImplementedError
 
     @abstractmethod
-    def matmul(self, input: Tensor) -> Tensor:
+    def matmul(self, input: Tensor, *, adc_operation_point: AdcOperationPoint) -> Tensor:
         """Execute one integer matrix multiply against the programmed weight state.
 
         Matches ``torch.matmul`` semantics (pure matmul, no bias). Bias add
@@ -142,6 +156,7 @@ class XbarMacro(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["Xba
 
         Args:
             input: Integer activation tensor. Shape: ``[..., M, K]``.
+            adc_operation_point: Runtime ADC operating point.
 
         Returns:
             Integer pre-requantize output tensor. Shape: ``[..., M, N]``.

@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
+from neurox.analog.adc import AdcOperationPoint
 from neurox.common.quant import stochastic_floor_div
 from neurox.macro import NeuroxMacroQuantMatMul
 
@@ -31,10 +32,17 @@ class NeuroxOperator(nn.Module, ABC):
     Attributes:
         name: Qualified module name used for profiler event labelling.
         macro: Crossbar macro that owns physical state and executes matmul.
+        adc_operation_point: Active ADC operating point chosen at construction time.
     """
 
     name: str
     macro: NeuroxMacroQuantMatMul
+    adc_operation_point: AdcOperationPoint
+
+    @staticmethod
+    def default_adc_operation_point(macro: NeuroxMacroQuantMatMul) -> AdcOperationPoint:
+        """Default operating point — ``adc_mode = 0``, ``adc_bits = adc_max_bits``."""
+        return AdcOperationPoint(adc_mode=0, adc_bits=macro.adc_max_bits)
 
     @staticmethod
     def assert_integer_tensor(tensor: Tensor, tensor_name: str) -> None:
@@ -85,21 +93,12 @@ class NeuroxOperator(nn.Module, ABC):
 
     @abstractmethod
     def fabricate(self) -> None:
-        """Re-sample the macro's static manufacturing variation.
-
-        Drives ``self.macro.fabricate()`` (FabricateMixin auto-cascade). Called
-        once at inference setup and once before each forward in noise-aware
-        training.
-        """
+        """Re-sample static manufacturing variation across this operator and its macro."""
         raise NotImplementedError
 
     @abstractmethod
     def program(self) -> None:
-        """Write the macro's static weight state from the loaded int weights.
-
-        Drives ``self.macro.program(weight_int)``. Called once at inference
-        setup and once after every weight update in QAT.
-        """
+        """Write the macro's static weight state from the loaded int weights."""
         raise NotImplementedError
 
     def _validate_weight_range(self, weight_int: Tensor) -> None:
@@ -161,7 +160,7 @@ class NeuroxOperator(nn.Module, ABC):
         Returns:
             Dequantized float output.
         """
-        y_int = self.macro.matmul(input_int)
+        y_int = self.macro.matmul(input_int, adc_operation_point=self.adc_operation_point)
         y_int = y_int + bias_int.to(torch.int32).unsqueeze(-2)
         y_int = stochastic_floor_div(
             y_int.to(torch.int32) * rescale_multiplier.to(torch.int32).unsqueeze(-2),

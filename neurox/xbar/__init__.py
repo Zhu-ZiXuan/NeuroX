@@ -7,7 +7,7 @@ from ._1t1r import (
     Offset1T1RXbar,
     Offset1T1RXbarConfig,
 )
-from .base import Xbar, XbarConfig, XbarRescaleEntry
+from .base import Xbar, XbarConfig
 from .ideal import IdealXbar, IdealXbarConfig
 
 __all__ = [
@@ -20,5 +20,4 @@ __all__ = [
     "Offset1T1RXbarConfig",
     "Xbar",
     "XbarConfig",
-    "XbarRescaleEntry",
 ]

@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 import torch
 
+from neurox.analog.adc import AdcCalibrationRecord, AdcOperationPoint
 from neurox.digital import AccumulatorConfig, ShiftAdderConfig
 from neurox.macro.xbar import (
     DirectXbarMacro,
@@ -17,7 +18,13 @@ from neurox.macro.xbar import (
     IntraArraySliceXbarMacroConfig,
     XbarMacro,
 )
-from neurox.xbar import IdealXbarConfig, XbarRescaleEntry
+from neurox.xbar import IdealXbarConfig
+
+# Test-only sentinel: ``adc_bits == 0`` instructs IdealXbar to skip ADC
+# quantization and the signed clamp, so macro outputs equal ``torch.matmul``
+# exactly — the same behaviour ``IdealXbarMacro`` provides natively.
+_TEST_ADC_BITS = 0
+_TEST_ADC_OP = AdcOperationPoint(adc_mode=0, adc_bits=_TEST_ADC_BITS)
 
 
 def _ideal_xbar_cfg(
@@ -28,14 +35,14 @@ def _ideal_xbar_cfg(
     w_digit_count: int = 1,
     w_digit_radix: int = 4,
     w_digit_range: tuple[int, int] = (-3, 3),
-    rf: float = 1.0,
+    rescale_factor: float = 1.0,
 ) -> IdealXbarConfig:
     return IdealXbarConfig(
         col_num=col_num,
         row_num=row_num,
-        adc_mode=0,
-        adc_bits=0,
-        output_rescale_factors=(XbarRescaleEntry(adc_mode=0, adc_bits=0, rf=rf),),
+        adc_calibration=(
+            AdcCalibrationRecord(adc_mode=0, adc_bits=_TEST_ADC_BITS, rescale_factor=rescale_factor),
+        ),
         latency_per_op__ns=0.0,
         leakage_per_inst__uW=0.0,
         area_per_inst__um2=0.0,
@@ -43,6 +50,8 @@ def _ideal_xbar_cfg(
         w_digit_count=w_digit_count,
         w_digit_radix=w_digit_radix,
         w_digit_range=w_digit_range,
+        adc_mode_num=1,
+        adc_max_bits=_TEST_ADC_BITS,
     )
 
 
@@ -67,10 +76,10 @@ def _direct_cfg(
     *,
     x_range: tuple[int, int] = (0, 1),
     w_digit_count: int = 1,
-    rf: float = 1.0,
+    rescale_factor: float = 1.0,
 ) -> DirectXbarMacroConfig:
     return DirectXbarMacroConfig(
-        xbar_cfg=_ideal_xbar_cfg(x_range=x_range, w_digit_count=w_digit_count, rf=rf),
+        xbar_cfg=_ideal_xbar_cfg(x_range=x_range, w_digit_count=w_digit_count, rescale_factor=rescale_factor),
         w_encoding="true_form",
         col_accumulator_cfg=_accumulator_cfg(),
     )
@@ -93,10 +102,10 @@ def _slice_cfg(
     x_slice_num: int,
     x_range: tuple[int, int] = (0, 1),
     w_digit_count: int = 1,
-    rf: float = 1.0,
+    rescale_factor: float = 1.0,
 ) -> dict[str, object]:
     return {
-        "xbar_cfg": _ideal_xbar_cfg(x_range=x_range, w_digit_count=w_digit_count, rf=rf),
+        "xbar_cfg": _ideal_xbar_cfg(x_range=x_range, w_digit_count=w_digit_count, rescale_factor=rescale_factor),
         "w_slice_num": w_slice_num,
         "x_slice_num": x_slice_num,
         "w_encoding": "true_form",
@@ -180,7 +189,7 @@ def _build_intra(
 
 def _assert_macro_matches_torch(macro: XbarMacro, weight: torch.Tensor, activation: torch.Tensor) -> torch.Tensor:
     macro.program(weight)
-    actual = macro.matmul(activation)
+    actual = macro.matmul(activation, adc_operation_point=_TEST_ADC_OP)
     expected = torch.matmul(activation.to(torch.int64), weight.transpose(-1, -2).to(torch.int64))
     assert actual.shape == expected.shape
     assert torch.equal(actual.to(torch.int64), expected)
@@ -369,7 +378,10 @@ def test_direct_and_inter_slice_one_agree() -> None:
 
     direct.program(weight)
     inter.program(weight)
-    assert torch.equal(direct.matmul(activation), inter.matmul(activation))
+    assert torch.equal(
+        direct.matmul(activation, adc_operation_point=_TEST_ADC_OP),
+        inter.matmul(activation, adc_operation_point=_TEST_ADC_OP),
+    )
 
 
 def test_inter_and_intra_slice_macros_agree() -> None:
@@ -384,7 +396,10 @@ def test_inter_and_intra_slice_macros_agree() -> None:
 
     inter.program(weight)
     intra.program(weight)
-    assert torch.equal(inter.matmul(activation), intra.matmul(activation))
+    assert torch.equal(
+        inter.matmul(activation, adc_operation_point=_TEST_ADC_OP),
+        intra.matmul(activation, adc_operation_point=_TEST_ADC_OP),
+    )
 
 
 @pytest.mark.parametrize(
@@ -473,38 +488,42 @@ def test_ideal_xbar_macro_public_properties() -> None:
     )
     assert macro.w_value_range == (-11, 13)
     assert macro.x_value_range == (-5, 7)
-    assert macro.output_rescale_factor == 1.0
+    assert macro.adc_mode_num == 1
+    assert macro.adc_max_bits == 0
+    assert macro.adc_rescale_factor(AdcOperationPoint(adc_mode=0, adc_bits=0)) == 1.0
 
 
 def test_direct_xbar_macro_public_properties() -> None:
     macro = _build_direct(
-        _direct_cfg(x_range=(0, 3), w_digit_count=2, rf=2.5),
+        _direct_cfg(x_range=(0, 3), w_digit_count=2, rescale_factor=2.5),
         name="direct_props",
         w_logical_shape=(13, 20),
     )
     assert macro.w_value_range == (-15, 15)
     assert macro.x_value_range == (0, 3)
-    assert macro.output_rescale_factor == 2.5
+    assert macro.adc_mode_num == 1
+    assert macro.adc_max_bits == _TEST_ADC_BITS
+    assert macro.adc_rescale_factor(_TEST_ADC_OP) == 2.5
 
 
 def test_inter_array_slice_xbar_macro_public_properties() -> None:
     cfg = InterArraySliceXbarMacroConfig(
-        **_slice_cfg(w_slice_num=3, x_slice_num=2, x_range=(0, 3), w_digit_count=2, rf=3.0)
+        **_slice_cfg(w_slice_num=3, x_slice_num=2, x_range=(0, 3), w_digit_count=2, rescale_factor=3.0)
     )
     macro = _build_inter(cfg, name="inter_props", w_logical_shape=(13, 20))
     assert macro.w_value_range == (-4095, 4095)
     assert macro.x_value_range == (0, 15)
-    assert macro.output_rescale_factor == 3.0
+    assert macro.adc_rescale_factor(_TEST_ADC_OP) == 3.0
 
 
 def test_intra_array_slice_xbar_macro_public_properties() -> None:
     cfg = IntraArraySliceXbarMacroConfig(
-        **_slice_cfg(w_slice_num=3, x_slice_num=2, x_range=(0, 3), w_digit_count=2, rf=3.0)
+        **_slice_cfg(w_slice_num=3, x_slice_num=2, x_range=(0, 3), w_digit_count=2, rescale_factor=3.0)
     )
     macro = _build_intra(cfg, name="intra_props", w_logical_shape=(13, 20))
     assert macro.w_value_range == (-4095, 4095)
     assert macro.x_value_range == (0, 15)
-    assert macro.output_rescale_factor == 3.0
+    assert macro.adc_rescale_factor(_TEST_ADC_OP) == 3.0
 
 
 @pytest.mark.parametrize(

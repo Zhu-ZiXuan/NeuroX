@@ -10,8 +10,8 @@ Degenerate XbarMacro family member, declared in `neurox/macro/xbar/ideal.py`. Lo
 - `IdealXbarMacro` — registered via `@XbarMacro.register_key(IdealXbarMacroConfig)`.
   - Init signature matches the family root: `(*, cfg, name, w_logical_shape, dtype, T__K, ideal_xbar)`. `dtype`, `T__K`, and `ideal_xbar` are accepted for API uniformity and ignored.
   - `program(weight)` stores the integer weight tensor verbatim into `self.weight`.
-  - `matmul(input)` does `torch.matmul(input.float(), weight.float().T)` and rounds back to the input dtype.
-  - `output_rescale_factor == 1.0` (no analog gain to undo).
+  - `matmul(input, *, adc_operation_point)` widens to `int64` and runs `torch.matmul(input, weight.T)` — pure integer, no quantization. `adc_operation_point` is accepted for API uniformity and ignored.
+  - ADC surface is sentinel-valued: `adc_mode_num == 1`, `adc_max_bits == 0`, `adc_rescale_factor(adc_operation_point) == 1.0`. The `adc_max_bits == 0` sentinel propagates into the operator's default `AdcOperationPoint(adc_mode=0, adc_bits=0)`, which `IdealXbar` (when used as a sibling member) interprets as "skip output quantization".
 
 ## When to use
 

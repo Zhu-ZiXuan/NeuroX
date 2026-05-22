@@ -51,10 +51,6 @@ _neurox_type = "IdealXbarConfig"
 col_num = 64
 row_num = 64
 
-# --- ADC operating point ---
-adc_mode = 0
-adc_bits = 4
-
 # --- PPA ---
 latency_per_op__ns = 5.0
 leakage_per_inst__uW = 5.0
@@ -66,10 +62,14 @@ w_digit_count = 1
 w_digit_radix = 2
 w_digit_range = [-1, 2]
 
-[[macro.xbar_cfg.output_rescale_factors]]
+# --- ADC operating-point metadata (matches the physical 1T1R xbar preset) ---
+adc_mode_num = 3
+adc_max_bits = 4
+
+[[macro.xbar_cfg.adc_calibration]]
 adc_mode = 0
 adc_bits = 4
-rf = 4.0625
+rescale_factor = 4.0625
 
 
 [macro.col_accumulator_cfg]

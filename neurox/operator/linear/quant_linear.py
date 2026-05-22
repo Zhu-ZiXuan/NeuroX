@@ -57,6 +57,7 @@ class QuantLinear(NeuroxOperator):
         super().__init__()
 
         self.macro = macro
+        self.adc_operation_point = self.default_adc_operation_point(macro)
         self.name = name
         self.in_features = in_features
         self.out_features = out_features

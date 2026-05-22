@@ -14,34 +14,11 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
+from neurox.analog.adc import AdcCalibrationRecord, AdcOperationPoint
 from neurox.common.mixin import FabricateMixin, ProfileMixin, RegistryMixin, ValidateMixin
 
 if TYPE_CHECKING:
     from .ideal import IdealXbar
-
-
-@dataclass(frozen=True)
-class XbarRescaleEntry(ValidateMixin):
-    """One row of the ``(adc_mode, adc_bits) -> rf`` lookup table.
-
-    Attributes:
-        adc_mode: ADC operating-point index (e.g. multi-V_ref SAR
-            reference selection).
-        adc_bits: Active ADC bit width.
-        rf: Rescale factor such that ``floor(M_ideal * rf) == code``
-            where ``M_ideal`` is the ideal tile-level output value.
-    """
-
-    adc_mode: int
-    adc_bits: int
-    rf: float
-
-    def __post_init__(self) -> None:
-        self.validate()
-
-    def validate(self) -> None:
-        self._require_nonneg(self.adc_mode, "adc_mode")
-        self._require_nonneg(self.adc_bits, "adc_bits")
 
 
 @dataclass(frozen=True)
@@ -52,12 +29,10 @@ class XbarConfig(ValidateMixin):
         col_num: Number of columns per tile (cells aggregating to
             one output).
         row_num: Number of rows per tile (cells sharing one input).
-        adc_mode: Runtime ADC operating-point index; also selects
-            the active entry in :attr:`output_rescale_factors`.
-        adc_bits: Runtime ADC bit width; second key for the rescale
-            lookup.
-        output_rescale_factors: Externally-calibrated ``(adc_mode,
-            adc_bits) -> rf`` entries; ``floor(M_ideal · rf) == code``.
+        adc_calibration: Externally-calibrated ``(adc_mode, adc_bits) →
+            rescale_factor`` records; ``floor(M_ideal · rescale_factor) ==
+            code``. Lists the set of ADC operating points the tile
+            supports.
         latency_per_op__ns: Array read latency per op [ns].
         leakage_per_inst__uW: Static leakage per tile instance [uW].
         area_per_inst__um2: Silicon area per tile instance [μm²].
@@ -66,9 +41,7 @@ class XbarConfig(ValidateMixin):
     col_num: int
     row_num: int
 
-    adc_mode: int
-    adc_bits: int
-    output_rescale_factors: tuple[XbarRescaleEntry, ...]
+    adc_calibration: tuple[AdcCalibrationRecord, ...]
 
     latency_per_op__ns: float
     leakage_per_inst__uW: float
@@ -79,7 +52,7 @@ class XbarConfig(ValidateMixin):
 
     def validate(self) -> None:
         self.validate_geometry()
-        self.validate_adc_mode()
+        self.validate_adc_calibration()
         self.validate_ppa()
 
     def validate_geometry(self) -> None:
@@ -89,9 +62,9 @@ class XbarConfig(ValidateMixin):
         if not (self.row_num > 1):
             raise ValueError(f"require: row_num ({self.row_num}) > 1")
 
-    def validate_adc_mode(self) -> None:
-        self._require_nonneg(self.adc_mode, "adc_mode")
-        self._require_nonneg(self.adc_bits, "adc_bits")
+    def validate_adc_calibration(self) -> None:
+        if len(self.adc_calibration) == 0:
+            raise ValueError("require: adc_calibration must contain at least one entry")
 
     def validate_ppa(self) -> None:
         self._require_nonneg(self.area_per_inst__um2, "area_per_inst__um2")
@@ -134,9 +107,9 @@ class Xbar(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["XbarConf
 
         self.col_num = cfg.col_num
         self.row_num = cfg.row_num
-        self._adc_mode = cfg.adc_mode
-        self._adc_bits = cfg.adc_bits
-        self._rescale_lut = {(e.adc_mode, e.adc_bits): e.rf for e in cfg.output_rescale_factors}
+        self._rescale_lut: dict[AdcOperationPoint, float] = {
+            AdcOperationPoint(adc_mode=e.adc_mode, adc_bits=e.adc_bits): e.rescale_factor for e in cfg.adc_calibration
+        }
 
         # `_log_static` is called by the concrete subclass at the end of its
         # ``__init__`` — base does not call to avoid double-recording.
@@ -206,17 +179,28 @@ class Xbar(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["XbarConf
         """
         raise NotImplementedError
 
-    # ----- Output rescale -----
+    # ----- ADC operating-point surface -----
 
     @property
-    def output_rescale_factor(self) -> float:
-        """Rescale factor for the active ``(adc_mode, adc_bits)``.
+    @abstractmethod
+    def adc_mode_num(self) -> int:
+        """Number of ADC operating points the tile supports."""
+        raise NotImplementedError
+
+    @property
+    @abstractmethod
+    def adc_max_bits(self) -> int:
+        """Maximum ``adc_bits`` value the tile's ADC supports."""
+        raise NotImplementedError
+
+    def adc_rescale_factor(self, adc_operation_point: AdcOperationPoint) -> float:
+        """Rescale factor for ``adc_operation_point``.
 
         Raises:
-            KeyError: When no entry matches the active operating point.
+            KeyError: When ``adc_operation_point`` is absent from the calibrated LUT. The
+                caller owns validity — no defensive check here.
         """
-        key = (self._adc_mode, self._adc_bits)
-        return self._rescale_lut[key]
+        return self._rescale_lut[adc_operation_point]
 
     # ----- Lifecycle -----
 
@@ -233,13 +217,14 @@ class Xbar(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["XbarConf
         raise NotImplementedError
 
     @abstractmethod
-    def vec_mat_mul(self, x: Tensor) -> Tensor:
+    def vec_mat_mul(self, x: Tensor, *, adc_operation_point: AdcOperationPoint) -> Tensor:
         """Run one analog VMM through the tile.
 
         Args:
             x: Activation tensor with primitive trailing
                 ``[row_num]``. Entries must lie in :attr:`x_range`;
                 leading dims are broadcast-only.
+            adc_operation_point: Runtime ADC operating point.
 
         Returns:
             Output tensor with primitive trailing ``[col_num]``.
@@ -250,8 +235,8 @@ class Xbar(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["XbarConf
         """Return the lossless :class:`IdealXbar` counterpart of this tile.
 
         The new ``IdealXbar`` inherits this tile's per-instance
-        multiplicity. ``IdealXbar.to_ideal`` overrides this to
-        ``return self``.
+        multiplicity and ADC operating-point metadata. ``IdealXbar.to_ideal``
+        overrides this to ``return self``.
         """
         # Local import — the ``ideal`` module imports from this file,
         # so the symbol is only safe to resolve at call time.
@@ -264,6 +249,8 @@ class Xbar(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["XbarConf
             w_digit_count=self.w_digit_count,
             w_digit_radix=self.w_digit_radix,
             w_digit_range=self.w_digit_range,
+            adc_mode_num=self.adc_mode_num,
+            adc_max_bits=self.adc_max_bits,
         )
         return IdealXbar(
             cfg=ideal_cfg,

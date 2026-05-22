@@ -26,9 +26,9 @@ def derive_layer_int_params(
 
     Folds ``rescale_factor`` (ADC-code-to-ideal-state ratio) into a single requantize::
 
-        combined_scale = (s_x · s_w / s_y) · rf
+        combined_scale = (s_x · s_w / s_y) · rescale_factor
         (multiplier, rshift) = derive_multiplier_and_shift_tensor(combined_scale)
-        bias_int = round((bias_fp / (s_x · s_w) - zp_x · Σ w_int) / rf)
+        bias_int = round((bias_fp / (s_x · s_w) - zp_x · Σ w_int) / rescale_factor)
 
     Args:
         float_weight: Trained float weight, shape ``[C_out, ...]``.
@@ -39,7 +39,7 @@ def derive_layer_int_params(
         output_scale: Output per-tensor scale.
         w_qmax: Symmetric weight bound for clipping.
         weight_dtype: Target integer dtype for ``weight_int``.
-        rescale_factor: Macro's ``output_rescale_factor``; ``1.0`` collapses
+        rescale_factor: Macro's ``adc_rescale_factor(adc_operation_point)``; ``1.0`` collapses
             the formulas to the scale-only case.
 
     Returns:
@@ -57,15 +57,15 @@ def derive_layer_int_params(
     sx = input_scale.to(torch.float64).to(device)
     zp_x = input_zero_point.to(torch.float64).to(device)
     sw_f64 = weight_scale.to(torch.float64).to(device)
-    rf = rescale_factor if rescale_factor != 0.0 else 1.0
+    rescale_factor_safe = rescale_factor if rescale_factor != 0.0 else 1.0
     if float_bias is not None:
         bias_ideal = float_bias.to(torch.float64).to(device) / (sx * sw_f64).clamp(min=1e-30)
     else:
         bias_ideal = torch.zeros(float_weight.shape[0], dtype=torch.float64, device=device)
-    folded = torch.round((bias_ideal - zp_x * w_sum.to(torch.float64)) / rf)
+    folded = torch.round((bias_ideal - zp_x * w_sum.to(torch.float64)) / rescale_factor_safe)
     int32_info = torch.iinfo(torch.int32)
     bias_int = folded.clamp(min=int32_info.min, max=int32_info.max).to(torch.int32)
 
-    combined = (sx * sw_f64) * rf / output_scale.to(torch.float64).to(device).clamp(min=1e-30)
+    combined = (sx * sw_f64) * rescale_factor_safe / output_scale.to(torch.float64).to(device).clamp(min=1e-30)
     multiplier, rshift = derive_multiplier_and_shift_tensor(combined.to(torch.float32))
     return weight_int, bias_int, multiplier, rshift

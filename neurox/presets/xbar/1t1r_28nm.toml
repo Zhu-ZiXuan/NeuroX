@@ -21,14 +21,11 @@ w_state_offset = 1
 ref_group_size = 16
 ref_location = 8
 
-# --- ADC operating point ---
+# --- ADC ``adc_operation_point → rescale_factor`` lookup table ---
+[[xbar.adc_calibration]]
 adc_mode = 0
 adc_bits = 4
-
-[[xbar.output_rescale_factors]]
-adc_mode = 0
-adc_bits = 4
-rf = 4.0625
+rescale_factor = 4.0625
 
 
 [xbar.core_cfg]
@@ -247,7 +244,8 @@ latency_per_op__ns = 0.0
 _neurox_type = "McsSarAdcConfig"
 
 # --- Topology ---
-max_bits = 8
+# Sized to the LUT calibration above: a single (mode=0, bits=4) point.
+max_bits = 4
 
 # --- References + timing ---
 v_refs__V = [0.8, 0.4, 0.2]

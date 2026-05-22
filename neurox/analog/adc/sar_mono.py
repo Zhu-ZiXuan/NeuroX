@@ -14,7 +14,7 @@ from neurox.common.nonideality import (
     apply_pelgrom_mismatch,
 )
 
-from .base import ADC, ADCConfig
+from .base import ADC, ADCConfig, AdcOperationPoint
 
 
 @dataclass(frozen=True)
@@ -194,8 +194,14 @@ class SarAdcMono(ADC):
         """V_ref values the configured CDAC supports, in index order."""
         return self.cfg.v_refs
 
+    @property
+    def mode_num(self) -> int:
+        """Number of operating points — one per supported V_ref."""
+        return len(self.cfg.v_refs)
+
+    @property
     def max_bits(self) -> int:
-        """Physical CDAC bit width — the maximum active ``bits`` value."""
+        """Physical CDAC bit width — the maximum ``adc_bits`` value."""
         return self.cfg.max_bits
 
     # --- fabricate (static non-idealities) ---
@@ -238,15 +244,15 @@ class SarAdcMono(ADC):
         """Static leakage per instance [uW]."""
         return self.cfg.leakage_per_inst__uW
 
-    def latency_per_op__ns(self, *, bits: int) -> float:
+    def latency_per_op__ns(self, *, adc_operation_point: AdcOperationPoint) -> float:
         """Per-conversion latency at the runtime bit width.
 
         Args:
-            bits: Active bit width — required.  ``1 ≤ bits ≤ max_bits``.
+            adc_operation_point: Runtime operating point.  ``1 ≤ adc_operation_point.adc_bits ≤ max_bits``.
         """
-        if not (1 <= bits <= self.cfg.max_bits):
-            raise ValueError(f"bits {bits} outside [1, {self.cfg.max_bits}]")
-        return (bits + 1) * self.cfg.clk_period__ns
+        if not (1 <= adc_operation_point.adc_bits <= self.cfg.max_bits):
+            raise ValueError(f"bits {adc_operation_point.adc_bits} outside [1, {self.cfg.max_bits}]")
+        return (adc_operation_point.adc_bits + 1) * self.cfg.clk_period__ns
 
     # --- convert ---
 
@@ -255,19 +261,18 @@ class SarAdcMono(ADC):
         v_pos__V: Tensor,
         v_neg__V: Tensor,
         *,
-        mode: int,
-        bits: int,
+        adc_operation_point: AdcOperationPoint,
     ) -> Tensor:
         """Differential monotonic SAR conversion — not yet implemented."""
-        del v_pos__V, v_neg__V, mode, bits
+        del v_pos__V, v_neg__V, adc_operation_point
         raise NotImplementedError("Differential monotonic SAR is not yet implemented; use McsSarAdc.")
 
     # --- shared helpers ---
 
-    def _validate_runtime_args(self, mode: int, bits: int) -> None:
-        """Validate per-call ``(mode, bits)``."""
+    def _validate_runtime_args(self, adc_operation_point: AdcOperationPoint) -> None:
+        """Validate per-call ``adc_operation_point``."""
         cfg = self.cfg
-        if not (0 <= mode < len(cfg.v_refs)):
-            raise ValueError(f"mode {mode} outside [0, {len(cfg.v_refs)})")
-        if not (1 <= bits <= cfg.max_bits):
-            raise ValueError(f"bits {bits} outside [1, {cfg.max_bits}]")
+        if not (0 <= adc_operation_point.adc_mode < len(cfg.v_refs)):
+            raise ValueError(f"mode {adc_operation_point.adc_mode} outside [0, {len(cfg.v_refs)})")
+        if not (1 <= adc_operation_point.adc_bits <= cfg.max_bits):
+            raise ValueError(f"bits {adc_operation_point.adc_bits} outside [1, {cfg.max_bits}]")
