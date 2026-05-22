@@ -16,7 +16,7 @@ Family signature: `__init__(*, cfg, name, inst_shape)`. The block records its pr
 
 ## Composition
 
-None of the digital blocks form a polymorphic family, so they are not part of the `RegistryDispatchMixin` infrastructure — they are leaf circuits instantiated directly by concrete class name.
+None of the digital blocks form a polymorphic family, so they are not part of the `RegistryMixin` infrastructure — they are leaf circuits instantiated directly by concrete class name.
 
 ## `@torch.compile` fusion
 

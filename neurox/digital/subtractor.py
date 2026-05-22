@@ -10,9 +10,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
-from neurox.common.fabricate import FabricateMixin
-from neurox.common.validate import ValidateMixin
-from neurox.profiler import ProfiledModule
+from neurox.common.mixin import FabricateMixin, ProfileMixin, ValidateMixin
 
 
 @dataclass(frozen=True)
@@ -52,7 +50,7 @@ class SubtractorConfig(ValidateMixin):
         self._require_nonneg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
-class Subtractor(FabricateMixin, nn.Module, ProfiledModule):
+class Subtractor(FabricateMixin, nn.Module, ProfileMixin):
     """Element-wise integer subtractor. No saturation or wrap."""
 
     def __init__(
@@ -63,10 +61,10 @@ class Subtractor(FabricateMixin, nn.Module, ProfiledModule):
         inst_shape: tuple[int, ...],
     ) -> None:
         nn.Module.__init__(self)
-        ProfiledModule.__init__(self, name)
+        ProfileMixin.__init__(self, name)
         self.cfg = cfg
         self._inst_shape = inst_shape
-        self._record_inst_count(inst_shape)
+        self._log_static()
 
     @property
     def area_per_inst__um2(self) -> float:

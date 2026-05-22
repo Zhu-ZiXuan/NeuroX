@@ -1,9 +1,9 @@
-"""Tests for the side-channel profiler and ``ProfiledModule`` mixin.
+"""Tests for the side-channel profiler and ``ProfileMixin`` mixin.
 
 Phase A contract:
 
 * physical modules log dynamic energy + latency through ``_log_dynamic``;
-* fabrication records ``_inst_count`` on every ``ProfiledModule``;
+* fabrication records ``_inst_count`` on every ``ProfileMixin``;
 * ``NeuroxProfiler.analyze_static`` sums area + leakage power from those;
 * the profiler's ``summary`` derives leakage *energy* centrally from
   static leakage power and total runtime latency.
@@ -16,7 +16,8 @@ import torch
 
 from neurox.config import DEFAULT_1T1R_MACRO_TOML
 from neurox.digital import Accumulator, AccumulatorConfig, Requantizer, RequantizerConfig, ShiftAdder, ShiftAdderConfig
-from neurox.profiler import NeuroxProfiler, ProfiledModule
+from neurox.common.mixin import ProfileMixin
+from neurox.common.profiler import NeuroxProfiler
 from example.common.macro_factory import build_macro_factory
 
 
@@ -41,8 +42,8 @@ def _program_small(macro) -> None:
 # ---------------------------------------------------------------------------
 
 
-class TestProfiledModuleMixin:
-    """``ProfiledModule`` builds a complete instance even without nn.Module."""
+class TestProfileMixin:
+    """``ProfileMixin`` builds a complete instance even without nn.Module."""
 
     def test_name_qualified_module_type(self) -> None:
         cfg = AccumulatorConfig(
@@ -56,7 +57,7 @@ class TestProfiledModuleMixin:
         assert acc.qualified_name == "fc1.macro.col_accumulator"
         assert acc.module_type == "Accumulator"
 
-    def test_record_inst_count_int(self) -> None:
+    def test_log_static_int(self) -> None:
         cfg = AccumulatorConfig(
             bit_width=32,
             energy_per_op__fJ=0.0,
@@ -69,7 +70,7 @@ class TestProfiledModuleMixin:
         assert acc.inst_area__um2 == pytest.approx(60.0 * 8)
         assert acc.inst_leakage__uW == pytest.approx(1.0 * 8)
 
-    def test_record_inst_count_shape(self) -> None:
+    def test_log_static_shape(self) -> None:
         cfg = ShiftAdderConfig(
             bit_width=32,
             energy_per_op__fJ=0.0,
@@ -122,7 +123,7 @@ class TestStaticAggregation:
         macro = _build_ideal_macro(name="model.fc1.macro")
         _program_small(macro)
 
-        names = {m.qualified_name for m in macro.modules() if isinstance(m, ProfiledModule)}
+        names = {m.qualified_name for m in macro.modules() if isinstance(m, ProfileMixin)}
         assert "model.fc1.macro.xbar" in names
         assert "model.fc1.macro.col_accumulator" in names
         assert "model.fc1.macro.sw_shift_adder" in names
@@ -240,8 +241,8 @@ class TestLeakageEnergyCentralized:
             acc.operate(x, dim=-1)  # one event with latency 2.0 ns
             acc.operate(x, dim=-1)  # second event, total latency 4.0 ns
 
-        # analyze_static on a single ProfiledModule (wrap in dummy parent)
-        from neurox.profiler.profiler import StaticMetrics
+        # analyze_static on a single ProfileMixin (wrap in dummy parent)
+        from neurox.common.profiler import StaticMetrics
         static = StaticMetrics(
             area__um2=acc._inst_area__um2,
             leakage_power__uW=acc._inst_leakage__uW,
@@ -252,7 +253,7 @@ class TestLeakageEnergyCentralized:
         assert "leakage_energy_total_fJ: 60.0000" in out
 
     def test_static_metrics_derived_property(self) -> None:
-        from neurox.profiler.profiler import StaticMetrics
+        from neurox.common.profiler import StaticMetrics
         s = StaticMetrics(area__um2=100.0, leakage_power__uW=2.5, latency__ns=4.0)
         assert s.leakage_energy__fJ == pytest.approx(10.0)
 
@@ -266,9 +267,9 @@ class TestCompositeOwnership:
     """Composite modules (Xbar, ReadOut) thread names but never double-log."""
 
     def test_macro_walk_no_duplicate_inst_area(self) -> None:
-        """No two ProfiledModule contributions share the same qualified_name."""
+        """No two ProfileMixin contributions share the same qualified_name."""
         macro = _build_ideal_macro(name="m")
         _program_small(macro)
 
-        names = [m.qualified_name for m in macro.modules() if isinstance(m, ProfiledModule)]
+        names = [m.qualified_name for m in macro.modules() if isinstance(m, ProfileMixin)]
         assert len(names) == len(set(names)), f"duplicates in {names}"

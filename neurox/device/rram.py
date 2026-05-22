@@ -10,7 +10,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
-from neurox.common.fabricate import FabricateMixin
+from neurox.common.mixin import FabricateMixin, ValidateMixin
 from neurox.common.nonideality import (
     StateDependentGammaConfig,
     StuckAtFaultConfig,
@@ -20,7 +20,6 @@ from neurox.common.nonideality import (
     apply_stuck_at_fault,
     apply_telegraph_noise,
 )
-from neurox.common.validate import ValidateMixin
 
 
 @dataclass(frozen=True)

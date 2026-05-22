@@ -149,7 +149,7 @@ class OpAmpTIA(TIA):
             self.nominal_opamp_gain.clone(),
             persistent=False,
         )
-        self._record_inst_count(inst_shape)
+        self._log_static()
 
     # --- ClampDriver protocol accessor ---
 

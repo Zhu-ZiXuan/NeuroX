@@ -139,6 +139,8 @@ class InterXbarSliceMacro(XbarMacro):
         self._serial_op_num = 0
         self._x_shape_cached: tuple[int, ...] = ()
 
+        self._log_static()
+
     def extra_repr(self) -> str:
         """One-line summary shown by ``print(model)``."""
         return (

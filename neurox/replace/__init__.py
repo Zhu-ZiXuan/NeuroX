@@ -1,14 +1,5 @@
 """Inference-side replacement pipeline."""
 
-from neurox.profiler import (
-    NeuroxProfiler,
-    ProfiledModule,
-    ProfilerReport,
-    RuntimeEvent,
-    StaticMetrics,
-    StaticRecord,
-)
-
 from .policy import (
     ReplacementContext,
     ReplacementPolicy,
@@ -33,14 +24,12 @@ from .replace import (
 from .state import NeuroxStateError, StateBindingReport
 
 __all__ = [
-    # --- profiler (re-exported for convenience) ---
-    "NeuroxProfiler",
-    "ProfiledModule",
-    "ProfilerReport",
-    "RuntimeEvent",
-    "StaticMetrics",
-    "StaticRecord",
-    # --- replace pipeline (staged surface) ---
+    "NeuroxStateError",
+    "ReplacementContext",
+    "ReplacementPolicy",
+    "ReplacementRule",
+    "StateBindingReport",
+    "StructuralReport",
     "bind_output_calibration",
     "build_evaluator",
     "by_attr_match",
@@ -52,12 +41,6 @@ __all__ = [
     "load_neurox_state",
     "name_excluded_match",
     "program_model",
-    "NeuroxStateError",
-    "ReplacementContext",
-    "ReplacementPolicy",
-    "ReplacementRule",
     "replace_model",
     "report_replacement",
-    "StateBindingReport",
-    "StructuralReport",
 ]

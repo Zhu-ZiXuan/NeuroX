@@ -14,7 +14,7 @@ Current documented areas:
 - `mapper/` — `transcoder` plus the `xbar/slicer/` value-domain primitive
 - `macro/` — `XbarMacro` (abstract) + concrete modes (`InterXbarSliceMacro`, `IntraXbarSliceMacro`) + `IdealMacro`
 - `operator/` — quantised operator surface + `train/` HAT path
-- `profiler/` — `ProfiledModule` + `NeuroxProfiler` side channel
+- `profiler/` — `ProfileMixin` + `NeuroxProfiler` side channel
 - `replace/` — model-rewriting pipeline
 - `tools/` — offline calibration / analysis CLIs
 

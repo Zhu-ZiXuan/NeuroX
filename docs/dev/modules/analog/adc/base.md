@@ -4,12 +4,12 @@
 
 `ADC` is the abstract base for the ADC family. It carries:
 
-- the per-family `config_type → impl_class` registry (via `RegistryDispatchMixin[type[ADCConfig], ADC]`)
+- the per-family `config_type → impl_class` registry (via `RegistryMixin[type[ADCConfig], ADC]`)
 - the family-level `from_config(...)` classmethod
 - profiler registration
 - the abstract `convert(...)`, `latency_per_op__ns(*, bits)`, `area_per_inst__um2`, `leakage_per_inst__uW` contracts every concrete ADC must implement.
 
-`ADCConfig` is the empty family-base marker used by the `RegistryDispatchMixin` dispatch surface (every concrete ADC config subclasses it). `ADCMode` is the small `(n_bits, n_states, max_signal)` dataclass used by the multi-mode subclasses' calibration LUTs.
+`ADCConfig` is the empty family-base marker used by the `RegistryMixin` dispatch surface (every concrete ADC config subclasses it). `ADCMode` is the small `(n_bits, n_states, max_signal)` dataclass used by the multi-mode subclasses' calibration LUTs.
 
 ## Family-wide init signature
 

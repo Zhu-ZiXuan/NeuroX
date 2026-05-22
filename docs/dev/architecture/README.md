@@ -30,7 +30,7 @@ These layers must stay separate; the same rule is never restated across all thre
 ### Runtime
 
 - [`compile_policy.md`](compile_policy.md) — where `@torch.compile` is applied (macro entry only), forbidden behaviours on the compiled path, the one intentional graph break.
-- [`profiler_and_ppa.md`](profiler_and_ppa.md) — `ProfiledModule` interface, `fabricate` → `_record_inst_count` rule, composite-module PPA aggregation, side-channel dynamic-energy logging.
+- [`profiler_and_ppa.md`](profiler_and_ppa.md) — `ProfileMixin` interface, `_log_static` ordering rule, composite-module PPA aggregation, side-channel dynamic-energy logging.
 
 ### Mapping
 

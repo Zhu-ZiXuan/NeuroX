@@ -2,7 +2,7 @@
 
 ## Current role
 
-`Xbar` is the abstract base for the physical-crossbar primitive. Every concrete xbar (offset-coded 1T1R, future differential 1T1R, ideal twin) inherits this class and implements the same primitive shape contract. The family uses `RegistryDispatchMixin[type[XbarConfig], Xbar]`; concrete subclasses register on their concrete config type via `@Xbar.register_key(<Subclass>Config)`.
+`Xbar` is the abstract base for the physical-crossbar primitive. Every concrete xbar (offset-coded 1T1R, future differential 1T1R, ideal twin) inherits this class and implements the same primitive shape contract. The family uses `RegistryMixin[type[XbarConfig], Xbar]`; concrete subclasses register on their concrete config type via `@Xbar.register_key(<Subclass>Config)`.
 
 `Xbar.from_config(cls, *, cfg, name, w_layout_shape, dtype, T__K)` is the family constructor: it looks up the impl class from `type(cfg)` and forwards the runtime arguments. Direct instantiation of a concrete subclass is allowed; `from_config` is the polymorphic entry that owning macros use.
 

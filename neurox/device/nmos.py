@@ -12,10 +12,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
-from neurox.common.fabricate import FabricateMixin
+from neurox.common.mixin import FabricateMixin, ValidateMixin
 from neurox.common.nonideality import apply_gaussian
 from neurox.common.physical_constant import thermal_voltage__V
-from neurox.common.validate import ValidateMixin
 
 
 @dataclass(frozen=True)

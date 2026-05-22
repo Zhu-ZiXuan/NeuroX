@@ -6,9 +6,8 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
-from neurox.common.fabricate import FabricateMixin
+from neurox.common.mixin import FabricateMixin, ValidateMixin
 from neurox.common.nonideality import apply_gaussian
-from neurox.common.validate import ValidateMixin
 
 
 @dataclass(frozen=True)

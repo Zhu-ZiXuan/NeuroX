@@ -1,8 +1,8 @@
-# `neurox/common/registry_dispatch.py`
+# `neurox/common/mixin/registry.py`
 
 ## Current role
 
-`RegistryDispatchMixin[KeyT, ImplT]` is a generic mixin that gives an abstract family root a `key → impl_class` registry plus a typed `_lookup_impl(key)` helper. Family roots that need polymorphic dispatch on either a config class or a string discriminator inherit it once with concrete type parameters.
+`RegistryMixin[KeyT, ImplT]` is a generic mixin that gives an abstract family root a `key → impl_class` registry plus a typed `_lookup_impl(key)` helper. Family roots that need polymorphic dispatch on either a config class or a string discriminator inherit it once with concrete type parameters.
 
 It deliberately does **not** provide a single `from_*(...)` classmethod. Each family root declares its own factory (e.g. `from_config(...)`, `create(...)`) with the family's exact runtime-parameter signature, because different families need different explicit runtime parameters.
 
@@ -19,7 +19,7 @@ The mixin is `Generic[KeyT, ImplT]`:
 
 ## Per-family registry lifecycle
 
-`RegistryDispatchMixin.__init_subclass__` materialises a fresh `_impl_registry: dict[object, type]` on the **family root** the first time a subclass introduces the mixin. Sibling families therefore never share entries. Concrete impls inherit the family root's registry; their own `__init_subclass__` short-circuits because some ancestor already owns the dict.
+`RegistryMixin.__init_subclass__` materialises a fresh `_impl_registry: dict[object, type]` on the **family root** the first time a subclass introduces the mixin. Sibling families therefore never share entries. Concrete impls inherit the family root's registry; their own `__init_subclass__` short-circuits because some ancestor already owns the dict.
 
 Family roots must not redeclare `_impl_registry` by hand. The mixin encapsulates that mechanism entirely.
 

@@ -10,7 +10,7 @@ A device is an electrical primitive (transistor, memristor, wire, selector). Dev
 
 1. [config]      Define `<Name>Config` dataclass; process + spec only → [`config_and_construction.md` §Device layer](config_and_construction.md)
 2. [validate]    `validate_<group>()` methods, called from `__post_init__` → [`code_style.md` §Configuration validation](code_style.md)
-3. [class]       `class <Name>(nn.Module)` — devices do **not** inherit `ProfiledModule` → [`profiler_and_ppa.md` §Who profiles](profiler_and_ppa.md)
+3. [class]       `class <Name>(nn.Module)` — devices do **not** inherit `ProfileMixin` → [`profiler_and_ppa.md` §Who profiles](profiler_and_ppa.md)
 4. [init]        Design parameters go to `__init__` arguments, not the config → [`config_and_construction.md` §Device layer](config_and_construction.md)
 5. [units]       Apply unit conversion from config units to tensor units inside `__init__` → [`physical_units.md` §Config units](physical_units.md)
 6. [nominal]     Register `nominal_<name>__<unit>` buffers for design-stage values → [`state_holding.md` §Nominal value](state_holding.md)
@@ -26,8 +26,8 @@ A leaf circuit is a non-polymorphic analog or digital block (Decoder, Driver, Sw
 
 1. [config]      Define `<Name>Config` dataclass; design + spec + member-config fields → [`config_and_construction.md` §Circuit layer](config_and_construction.md)
 2. [validate]    `validate_<group>()` methods, called from `__post_init__` → [`code_style.md` §Configuration validation](code_style.md)
-3. [class]       `class <Name>(nn.Module, ProfiledModule)` → [`profiler_and_ppa.md` §Required interface](profiler_and_ppa.md)
-4. [init]        Standard family signature `__init__(self, *, cfg, name, inst_shape, dtype, T__K)` — every kwarg is required, no defaults anywhere in the physical layer; convert config units in `__init__`; record `self._inst_shape = inst_shape` and call `self._record_inst_count(inst_shape)` → [`physical_units.md` §Config units](physical_units.md), [`code_style.md` §Physical-layer no defaults](code_style.md)
+3. [class]       `class <Name>(nn.Module, ProfileMixin)` → [`profiler_and_ppa.md` §Required interface](profiler_and_ppa.md)
+4. [init]        Standard family signature `__init__(self, *, cfg, name, inst_shape, dtype, T__K)` — every kwarg is required, no defaults anywhere in the physical layer; convert config units in `__init__`; set `self._inst_shape = inst_shape` and call `self._log_static()` once at the end after `self.cfg` is set → [`physical_units.md` §Config units](physical_units.md), [`code_style.md` §Physical-layer no defaults](code_style.md), [`profiler_and_ppa.md` §`_log_static`](profiler_and_ppa.md)
 5. [nominal]     Register `nominal_<name>__<unit>` buffers (Tensor) or store Python scalars for design-stage values → [`state_holding.md` §Nominal value](state_holding.md)
 6. [mixin]       Inherit `FabricateMixin`; override `_sample_fabricate_mismatch(self) -> None` to refresh actual-value buffers from nominals + static mismatch at `self._inst_shape`; use buffer reassignment, not `register_buffer` → [`fabrication_lifecycle.md` §Canonical signatures](fabrication_lifecycle.md), [`code_style.md` §FabricateMixin and buffer reassignment](code_style.md)
 7. [PPA]         `area_per_inst__um2`, `leakage_per_inst__uW`, `latency_per_op__ns` properties (or method when latency depends on runtime args) → [`profiler_and_ppa.md` §Required interface](profiler_and_ppa.md)
@@ -56,14 +56,14 @@ Creating a polymorphic-family namespace (sibling of `ADC`, `DAC`, `TIA`, `ReadOu
 
 1. [adr]         Write an ADR explaining why the new family is needed and what alternatives were rejected → [`docs/dev/adr/README.md`](docs/dev/adr/README.md)
 2. [base-config] `<Family>Config` frozen dataclass (often empty, a marker for the dispatch registry) → [`config_and_construction.md` §Family bases](config_and_construction.md)
-3. [base-class]  `class <Family>(FabricateMixin, nn.Module, ProfiledModule, RegistryDispatchMixin[type["<Family>Config"], "<Family>"], ABC)` with `from_config(...)` classmethod, family-wide `__init__` signature, and abstract primary methods → [`config_and_construction.md` §Family bases](config_and_construction.md), [`ADR-0001`](docs/dev/adr/ADR-0001-config-dispatch-and-owned-construction.md)
+3. [base-class]  `class <Family>(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["<Family>Config"], "<Family>"], ABC)` with `from_config(...)` classmethod, family-wide `__init__` signature, and abstract primary methods → [`config_and_construction.md` §Family bases](config_and_construction.md), [`ADR-0001`](docs/dev/adr/ADR-0001-config-dispatch-and-owned-construction.md)
 4. [contracts]   Declare the primary method (`convert` / `solve_dc` / `readout` / …), `area_per_inst__um2`, `leakage_per_inst__uW`, `latency_per_op__ns`; `fabricate()` is provided by `FabricateMixin` and subclasses override `_sample_fabricate_mismatch` only → [`profiler_and_ppa.md` §Required interface](profiler_and_ppa.md), [`naming_conventions.md` §Primary-method names](naming_conventions.md)
 5. [docs-base]   Write `docs/dev/modules/<path>/base.md` (or family `README.md`) describing the protocol surface in abstract terms (no specific consumer names) → [`code_style.md` §Documentation dependency direction](code_style.md)
 6. [first-impl]  Add at least one concrete impl (see "Add a new concrete member" recipe above)
 
 ## Add a new value-domain primitive (slicer, transcoder)
 
-Slicer is an abstract base with direct concrete subclasses (callers instantiate the concrete class by name). Transcoder uses `RegistryDispatchMixin[Encoding, "Transcoder"]` so concrete subclasses self-register on a string discriminator and `Transcoder.create(encoding, ...)` dispatches.
+Slicer is an abstract base with direct concrete subclasses (callers instantiate the concrete class by name). Transcoder uses `RegistryMixin[Encoding, "Transcoder"]` so concrete subclasses self-register on a string discriminator and `Transcoder.create(encoding, ...)` dispatches.
 
 1. [base]        Abstract class (`Slicer`, `Transcoder`) declares only the externally observable surface: the primary method and any abstract `@property` (e.g. `value_range`, `slice_radix`, `slice_weights` on `Slicer`). No shared `__init__` or stored state if subclass init signatures diverge. → [`mapping.md`](mapping.md)
 2. [class]       Concrete subclass; constructor takes only the parameters the subclass itself consumes. Structural defaults of a particular subclass stay internal — do not surface them as caller-side kwargs. The per-call signature carries only the input tensor. → [`mapping.md`](mapping.md)

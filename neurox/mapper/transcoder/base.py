@@ -12,12 +12,12 @@ from typing import Literal, TypeAlias
 import torch
 from torch import Tensor
 
-from neurox.common.registry_dispatch import RegistryDispatchMixin
+from neurox.common.mixin import RegistryMixin
 
 Encoding: TypeAlias = Literal["true_form", "complement", "canonical"]
 
 
-class Transcoder(RegistryDispatchMixin[Encoding, "Transcoder"], ABC):
+class Transcoder(RegistryMixin[Encoding, "Transcoder"], ABC):
     """Fixed-length positional signed-digit transcoder.
 
     Holds the shared positional-radix state ``(radix, digit_num)`` and

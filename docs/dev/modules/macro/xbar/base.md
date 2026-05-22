@@ -5,8 +5,8 @@ Abstract base for xbar-backed macros, declared in `neurox/macro/xbar/base.py`.
 ## Public surface
 
 - `XbarMacroConfig` — frozen dataclass with `xbar_cfg: XbarConfig`. Concrete subclass configs extend it with their own slicer / reducer fields and register via `_neurox_type`.
-- `XbarMacro` — abstract `FabricateMixin + nn.Module + ProfiledModule` with:
-  - `from_config(cls, *, cfg, name, w_logical_shape, dtype, T__K, ideal_xbar)` polymorphic dispatcher (uses `RegistryDispatchMixin` keyed on `type(cfg)`).
+- `XbarMacro` — abstract `FabricateMixin + nn.Module + ProfileMixin` with:
+  - `from_config(cls, *, cfg, name, w_logical_shape, dtype, T__K, ideal_xbar)` polymorphic dispatcher (uses `RegistryMixin` keyed on `type(cfg)`).
   - Base `__init__` with the same signature; records `self._w_logical_shape` and stashes the construction context. The base does **not** build the xbar — that is the concrete subclass's job because the xbar's `w_layout_shape` is derived from the subclass-specific organize / slice logic.
   - `self._build_xbar(xbar_w_layout_shape) -> Xbar` helper that calls `Xbar.from_config(...)` with the derived shape and applies `.to_ideal()` when `ideal_xbar=True`.
   - Abstract `w_value_range / x_value_range / output_rescale_factor` properties.

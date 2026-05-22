@@ -78,9 +78,9 @@ Families with multiple concrete implementations use:
 - one concrete config class per concrete implementation
 - one concrete implementation class per concrete config
 
-Each concrete implementation registers its config type on the family base via `RegistryDispatchMixin[type[<Family>Config], <Family>]`.
+Each concrete implementation registers its config type on the family base via `RegistryMixin[type[<Family>Config], <Family>]`.
 
-The base class exposes a family-specific `from_config(...)` classmethod that materialises the registry key from a config instance (`type(cfg)`) and instantiates the impl. `RegistryDispatchMixin` does not provide `from_config(...)`; it only provides:
+The base class exposes a family-specific `from_config(...)` classmethod that materialises the registry key from a config instance (`type(cfg)`) and instantiates the impl. `RegistryMixin` does not provide `from_config(...)`; it only provides:
 
 - `register_key(...)`
 - `_lookup_impl(...)`
@@ -110,7 +110,7 @@ The project does **not** force one global `from_config(...)` signature across al
 
 ## Mixin rule
 
-`RegistryDispatchMixin[KeyT, ImplT]` is generic and only solves the registry / lookup problem. For config-class-keyed dispatch the family parametrises it as `RegistryDispatchMixin[type[<Family>Config], <Family>]`; for string-discriminator dispatch (e.g. Transcoder) the family parametrises it as `RegistryDispatchMixin[<DiscriminatorLiteral>, <Family>]`.
+`RegistryMixin[KeyT, ImplT]` is generic and only solves the registry / lookup problem. For config-class-keyed dispatch the family parametrises it as `RegistryMixin[type[<Family>Config], <Family>]`; for string-discriminator dispatch (e.g. Transcoder) the family parametrises it as `RegistryMixin[<DiscriminatorLiteral>, <Family>]`.
 
 Each family declares its own:
 
@@ -121,10 +121,10 @@ The registry attribute `_impl_registry` is materialised automatically by the mix
 
 ## Config validation
 
-Every frozen config inherits `ValidateMixin` (from `neurox/common/validate.py`) and defines exactly the same two methods, even when one or both are empty:
+Every frozen config inherits `ValidateMixin` (from `neurox/common/mixin/validate.py`) and defines exactly the same two methods, even when one or both are empty:
 
 ```python
-from neurox.common.validate import ValidateMixin
+from neurox.common.mixin import ValidateMixin
 
 
 @dataclass(frozen=True)
@@ -180,7 +180,7 @@ If a check is already enforced by static analysis or by the deserialiser, do not
 
 ### Helpers
 
-`ValidateMixin` (in `neurox/common/validate.py`) provides the runtime-check helpers as `@staticmethod` methods accessed via `self.`:
+`ValidateMixin` (in `neurox/common/mixin/validate.py`) provides the runtime-check helpers as `@staticmethod` methods accessed via `self.`:
 
 - `self._require_pos(value, name)`
 - `self._require_nonneg(value, name)`

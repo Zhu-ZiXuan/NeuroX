@@ -22,7 +22,7 @@ These are not polymorphic families — each is a single concrete `nn.Module` the
 
 ## Polymorphic families
 
-Each sub-directory holds a polymorphic family driven by `RegistryDispatchMixin` keyed on the concrete config class:
+Each sub-directory holds a polymorphic family driven by `RegistryMixin` keyed on the concrete config class:
 
 - [`dac/`](docs/dev/modules/analog/dac/README.md) — `DAC` family (today: `GeneralDAC`).
 - [`adc/`](docs/dev/modules/analog/adc/README.md) — `ADC` family (today: `GeneralADC`, `McsSarAdc`, `SarAdcMono`).

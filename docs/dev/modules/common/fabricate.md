@@ -1,4 +1,4 @@
-# `neurox/common/fabricate.py`
+# `neurox/common/mixin/fabricate.py`
 
 ## Current role
 

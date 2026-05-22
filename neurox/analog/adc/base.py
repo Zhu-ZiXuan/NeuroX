@@ -13,10 +13,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
-from neurox.common.fabricate import FabricateMixin
-from neurox.common.registry_dispatch import RegistryDispatchMixin
-from neurox.common.validate import ValidateMixin
-from neurox.profiler import ProfiledModule
+from neurox.common.mixin import FabricateMixin, ProfileMixin, RegistryMixin, ValidateMixin
 
 
 @dataclass(frozen=True)
@@ -68,7 +65,7 @@ class ADCMode(ValidateMixin):
         return self.max_signal / self.n_codes
 
 
-class ADC(FabricateMixin, nn.Module, ProfiledModule, RegistryDispatchMixin[type["ADCConfig"], "ADC"], ABC):
+class ADC(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["ADCConfig"], "ADC"], ABC):
     """Abstract base class for ADC implementations."""
 
     @classmethod
@@ -116,7 +113,7 @@ class ADC(FabricateMixin, nn.Module, ProfiledModule, RegistryDispatchMixin[type[
         """
         del cfg, dtype, T__K  # captured by the subclass init
         nn.Module.__init__(self)
-        ProfiledModule.__init__(self, name)
+        ProfileMixin.__init__(self, name)
         self._inst_shape = inst_shape
 
     @abstractmethod

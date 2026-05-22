@@ -19,8 +19,7 @@ from neurox.analog import (
 )
 from neurox.analog.dac import DAC, DACConfig
 from neurox.analog.tia import TIA, TIAConfig
-from neurox.common.fabricate import FabricateMixin
-from neurox.common.validate import ValidateMixin
+from neurox.common.mixin import FabricateMixin, ValidateMixin
 from neurox.device import NMOS, RRAM, NMOSConfig, RRAMConfig
 
 from .newton_raphson_solver import NewtonRaphsonSolver1T1R, Solver1T1RDCOP

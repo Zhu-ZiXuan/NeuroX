@@ -38,7 +38,7 @@ Each circuit / device class exposes one primary method whose name encodes the ph
 
 | Method | Semantics |
 |---|---|
-| `fabricate(shape) -> None` | Sample static per-instance state over the given instance shape. Re-callable. Must end with `self._record_inst_count(shape)` for circuit modules (see [`profiler_and_ppa.md`](profiler_and_ppa.md)). Structural facts threaded through `__init__` instead — `fabricate` is shape-only. |
+| `fabricate() -> None` | Inherited from `FabricateMixin`; auto-cascades the static-mismatch resample across self + children. Subclasses override `_sample_fabricate_mismatch(self)` only. Per-instance shape is bound at `__init__` via `inst_shape` / `w_layout_shape` / `w_logical_shape`; static PPA is recorded by `self._log_static()` at the end of the concrete subclass's `__init__` (see [`profiler_and_ppa.md`](profiler_and_ppa.md)). |
 | `program(...) -> None` | RRAM-specific weight programming step that takes the integer weight tensor and produces the actual conductance buffer. |
 | `snapshot(*, shape) -> <Name>Snapshot` | Sample a per-call runtime snapshot. Frozen return. |
 | `solve_dc(...) -> <Name>DCOP` | Solve the DC operating point of a circuit or array. Naming is uniform across leaf devices, leaf circuits, composite circuits, and solver classes. |
@@ -54,7 +54,7 @@ Each circuit / device class exposes one primary method whose name encodes the ph
 
 ## Module hierarchy names (profiler)
 
-Every `ProfiledModule` receives a hierarchical `name` constructed by the owning parent. Names use `.` as separator and reflect the ownership tree:
+Every `ProfileMixin` receives a hierarchical `name` constructed by the owning parent. Names use `.` as separator and reflect the ownership tree:
 
 ```
 <layer>.<owner>.<leaf>

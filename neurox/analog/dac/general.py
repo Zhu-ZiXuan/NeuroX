@@ -91,7 +91,7 @@ class GeneralDAC(DAC):
         self.dtype = dtype
 
         self.register_buffer("code_to_signal", torch.tensor(cfg.code_to_signal, dtype=dtype), persistent=False)
-        self._record_inst_count(inst_shape)
+        self._log_static()
 
     @property
     def area_per_inst__um2(self) -> float:

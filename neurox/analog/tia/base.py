@@ -12,10 +12,7 @@ from dataclasses import dataclass
 import torch
 import torch.nn as nn
 
-from neurox.common.fabricate import FabricateMixin
-from neurox.common.registry_dispatch import RegistryDispatchMixin
-from neurox.common.validate import ValidateMixin
-from neurox.profiler import ProfiledModule
+from neurox.common.mixin import FabricateMixin, ProfileMixin, RegistryMixin, ValidateMixin
 
 
 @dataclass(frozen=True)
@@ -47,7 +44,7 @@ class TIAConfig(ValidateMixin):
         self._require_nonneg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
-class TIA(FabricateMixin, nn.Module, ProfiledModule, RegistryDispatchMixin[type["TIAConfig"], "TIA"], ABC):
+class TIA(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["TIAConfig"], "TIA"], ABC):
     """Abstract base for transimpedance-amp clamp drivers."""
 
     def __init__(
@@ -62,7 +59,7 @@ class TIA(FabricateMixin, nn.Module, ProfiledModule, RegistryDispatchMixin[type[
         """Register the instance with :class:`nn.Module` and the profiler."""
         del cfg, dtype, T__K  # captured by the subclass init
         nn.Module.__init__(self)
-        ProfiledModule.__init__(self, name)
+        ProfileMixin.__init__(self, name)
         self._inst_shape = inst_shape
 
     @classmethod

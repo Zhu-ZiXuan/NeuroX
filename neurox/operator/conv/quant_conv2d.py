@@ -133,7 +133,7 @@ class QuantConv2d(NeuroxOperator):
         """Resample the macro's static manufacturing variation.
 
         Profiler static aggregation is driven by per-physical-module
-        ``_record_inst_count`` calls inside the macro/xbar cascade —
+        ``_log_static`` calls inside the macro/xbar cascade —
         no operator-side ``log_*`` call.
         """
         self.macro.fabricate()
@@ -168,7 +168,7 @@ class QuantConv2d(NeuroxOperator):
         rescale_m = self.rescale_multiplier.view(self.groups, out_per_group)
         rescale_s = self.rescale_rshift.view(self.groups, out_per_group)
 
-        # Dynamic energy flows through the ProfiledModule side channel
+        # Dynamic energy flows through the ProfileMixin side channel
         # from every physical leaf; the operator does not log here.
         output_int_float = run_matmul_pipeline(
             unfolded_int,

@@ -187,7 +187,7 @@ class SarAdcMono(ADC):
             persistent=False,
         )
 
-        self._record_inst_count(inst_shape)
+        self._log_static()
 
     # --- runtime-mode introspection ---
 

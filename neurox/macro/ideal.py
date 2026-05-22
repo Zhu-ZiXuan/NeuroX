@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
-from neurox.common.fabricate import FabricateMixin
+from neurox.common.mixin import FabricateMixin
 
 
 class IdealMacro(FabricateMixin, nn.Module):

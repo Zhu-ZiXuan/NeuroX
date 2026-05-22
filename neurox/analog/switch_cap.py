@@ -10,11 +10,9 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
-from neurox.common.fabricate import FabricateMixin
+from neurox.common.mixin import FabricateMixin, ProfileMixin, ValidateMixin
 from neurox.common.nonideality import apply_gaussian, apply_pelgrom_mismatch
 from neurox.common.physical_constant import K_BOLTZMANN__J_per_K
-from neurox.common.validate import ValidateMixin
-from neurox.profiler import ProfiledModule
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -72,7 +70,7 @@ class SwitchCapConfig(ValidateMixin):
         self._require_nonneg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
-class SwitchCap(FabricateMixin, nn.Module, ProfiledModule):
+class SwitchCap(FabricateMixin, nn.Module, ProfileMixin):
     """Bottom-plate-sampled cap bank with passive charge-share averaging.
 
     Args:
@@ -98,7 +96,7 @@ class SwitchCap(FabricateMixin, nn.Module, ProfiledModule):
         cap_weights: tuple[float, ...],
     ) -> None:
         nn.Module.__init__(self)
-        ProfiledModule.__init__(self, name)
+        ProfileMixin.__init__(self, name)
         if not (T__K > 0.0):
             raise ValueError(f"SwitchCap.T__K ({T__K}) must be > 0")
         if len(cap_weights) < 1:
@@ -120,7 +118,7 @@ class SwitchCap(FabricateMixin, nn.Module, ProfiledModule):
             self.nominal_c__fF.clone(),
             persistent=False,
         )
-        self._record_inst_count(inst_shape)
+        self._log_static()
 
     @property
     def area_per_inst__um2(self) -> float:

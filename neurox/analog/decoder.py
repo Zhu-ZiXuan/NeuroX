@@ -12,9 +12,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
-from neurox.common.fabricate import FabricateMixin
-from neurox.common.validate import ValidateMixin
-from neurox.profiler import ProfiledModule
+from neurox.common.mixin import FabricateMixin, ProfileMixin, ValidateMixin
 
 from .dac import DAC
 
@@ -84,7 +82,7 @@ class DecoderConfig(ValidateMixin):
         self._require_nonneg(self.area_per_inst__um2, "area_per_inst__um2")
 
 
-class Decoder(FabricateMixin, nn.Module, ProfiledModule):
+class Decoder(FabricateMixin, nn.Module, ProfileMixin):
     """Row decoder + driver, wraps a WL DAC.
 
     Args:
@@ -105,7 +103,7 @@ class Decoder(FabricateMixin, nn.Module, ProfiledModule):
         T__K: float,
     ) -> None:
         nn.Module.__init__(self)
-        ProfiledModule.__init__(self, name)
+        ProfileMixin.__init__(self, name)
         if cfg.n_address_bits < 1:
             raise ValueError(f"Decoder n_address_bits ({cfg.n_address_bits}) must be >= 1")
         self.cfg = cfg
@@ -117,7 +115,7 @@ class Decoder(FabricateMixin, nn.Module, ProfiledModule):
         # fF · V² = fJ — no scaling factor needed.
         self._e_per_call__fJ = cfg.n_address_bits * cfg.c_gate__fF * cfg.v_dd__V**2 + cfg.e_overhead__fJ
 
-        self._record_inst_count(inst_shape)
+        self._log_static()
 
     @property
     def bit_serial(self) -> bool:

@@ -4,7 +4,7 @@
 
 `TIA` is the abstract base for the transimpedance-amp clamp-driver family. It carries:
 
-- the per-family `config_type → impl_class` registry (via `RegistryDispatchMixin[type[TIAConfig], TIA]`)
+- the per-family `config_type → impl_class` registry (via `RegistryMixin[type[TIAConfig], TIA]`)
 - the family-level `from_config(...)` classmethod
 - profiler registration
 - the abstract `v_ref__V` property every concrete TIA must implement

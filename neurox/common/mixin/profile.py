@@ -7,7 +7,6 @@ See also:
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 import torch
@@ -16,16 +15,18 @@ if TYPE_CHECKING:
     from torch import Tensor
 
 
-class ProfiledModule:
+class ProfileMixin:
     """Mixin for any physical module that emits profiler events.
 
     Subclasses must:
 
-    * pass ``name`` into ``ProfiledModule.__init__`` from their own init;
+    * pass ``name`` into ``ProfileMixin.__init__`` from their own init;
+    * set ``self._inst_shape: tuple[int, ...]`` in their own init;
     * expose ``area_per_inst__um2``, ``leakage_per_inst__uW``,
       ``latency_per_op__ns`` properties;
-    * call ``self._record_inst_count(n)`` whenever the physical replica
-      count changes (typically in ``fabricate``);
+    * call ``self._log_static()`` once at the end of the most-derived
+      concrete ``__init__``, after ``self.cfg`` and ``self._inst_shape``
+      are set;
     * call ``self._log_dynamic(dyn_energy__fJ, latency__ns)`` at the end
       of each primary execution method.
 
@@ -34,11 +35,13 @@ class ProfiledModule:
         module_type: Short class-name tag included in every event.
     """
 
+    _inst_shape: tuple[int, ...]
+
     def __init__(self, name: str) -> None:
         self._neurox_name = name
-        self._inst_count = 0
-        self._inst_area__um2 = 0.0
-        self._inst_leakage__uW = 0.0
+        # `_inst_count` / `_inst_area__um2` / `_inst_leakage__uW` are intentionally
+        # NOT pre-initialised — they are populated by ``_log_static()`` and accessing
+        # them earlier surfaces as ``AttributeError`` so a forgotten call is loud.
 
     @property
     def qualified_name(self) -> str:
@@ -50,25 +53,22 @@ class ProfiledModule:
 
     @property
     def inst_count(self) -> int:
-        """Number of physical replicas recorded by ``_record_inst_count``."""
+        """Total fabrication instance count; set by :meth:`_log_static`."""
         return self._inst_count
 
     @property
     def inst_area__um2(self) -> float:
-        """Cached ``area_per_inst__um2 * inst_count`` (fJ-free total)."""
+        """Cached ``area_per_inst__um2 * inst_count``; set by :meth:`_log_static`."""
         return self._inst_area__um2
 
     @property
     def inst_leakage__uW(self) -> float:
-        """Cached ``leakage_per_inst__uW * inst_count``."""
+        """Cached ``leakage_per_inst__uW * inst_count``; set by :meth:`_log_static`."""
         return self._inst_leakage__uW
 
-    def _record_inst_count(self, n: int | Sequence[int]) -> None:
-        """Pre-multiply per-instance area and leakage by the replica count.
-
-        Accepts an integer count or a shape tuple (product of the shape).
-        """
-        count = n if isinstance(n, int) else math.prod(n)
+    def _log_static(self) -> None:
+        """Cache static PPA from ``self._inst_shape`` × per-instance values."""
+        count = math.prod(self._inst_shape)
         self._inst_count = count
         self._inst_area__um2 = self.area_per_inst__um2 * count  # type: ignore[attr-defined]
         self._inst_leakage__uW = self.leakage_per_inst__uW * count  # type: ignore[attr-defined]
@@ -79,7 +79,7 @@ class ProfiledModule:
 
         Tensor energies are summed and ``.item()``-coerced internally.
         """
-        from .profiler import NeuroxProfiler  # local import: avoid cycle
+        from neurox.common.profiler import NeuroxProfiler  # local import: avoid cycle
 
         profiler = NeuroxProfiler.get_current()
         if profiler is None:

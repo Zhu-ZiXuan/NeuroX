@@ -10,10 +10,8 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
-from neurox.common.fabricate import FabricateMixin
+from neurox.common.mixin import FabricateMixin, ProfileMixin, ValidateMixin
 from neurox.common.quant import stochastic_floor_div
-from neurox.common.validate import ValidateMixin
-from neurox.profiler import ProfiledModule
 
 
 @dataclass(frozen=True)
@@ -54,7 +52,7 @@ class RequantizerConfig(ValidateMixin):
         self._require_nonneg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
-class Requantizer(FabricateMixin, nn.Module, ProfiledModule):
+class Requantizer(FabricateMixin, nn.Module, ProfileMixin):
     """Multiply-shift requantizer for integer-MAC rescaling.
 
     Computes ``y = (x · multiplier) >> rshift [+ output_zero_point]``.
@@ -75,10 +73,10 @@ class Requantizer(FabricateMixin, nn.Module, ProfiledModule):
         inst_shape: tuple[int, ...],
     ) -> None:
         nn.Module.__init__(self)
-        ProfiledModule.__init__(self, name)
+        ProfileMixin.__init__(self, name)
         self.cfg = cfg
         self._inst_shape = inst_shape
-        self._record_inst_count(inst_shape)
+        self._log_static()
 
     @property
     def area_per_inst__um2(self) -> float:

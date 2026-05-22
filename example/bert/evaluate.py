@@ -21,8 +21,9 @@ from example.bert.data import create_sst2_dataloader
 from example.bert.model import create_bert_small
 from example.common import build_macro_factory
 from neurox import replace as neurox
+from neurox.common.profiler import NeuroxProfiler
 from neurox.config import DEFAULT_1T1R_MACRO_TOML
-from neurox.replace import NeuroxProfiler, count_xbar_layers
+from neurox.replace import count_xbar_layers
 
 
 def main() -> None:

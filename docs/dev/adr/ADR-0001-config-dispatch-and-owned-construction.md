@@ -20,7 +20,7 @@ NeuroX now uses:
 - config trees that mirror ownership trees
 - owner-constructs-child semantics
 - family bases with concrete config subclasses
-- `RegistryDispatchMixin` keyed on the concrete config class for impl registry / lookup
+- `RegistryMixin` keyed on the concrete config class for impl registry / lookup
 - family-specific `from_config(...)` methods with explicit parameters
 
 The mixin does **not** provide a universal `from_config(...)`. Families keep control of their own runtime parameters.

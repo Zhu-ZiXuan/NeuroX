@@ -58,7 +58,7 @@ The shape / dtype / device of the cached buffer must match the runtime path; oth
 
 ## Allowed exceptions
 
-- `@torch.compiler.disable` on `ProfiledModule._log_dynamic`. This is the **only intentional graph break** on the runtime path. It is necessary because the profiler reads `threading.local` and mutates a Python list; both are untraceable by dynamo. The break is local — it happens at the end of each primary method, after all the kernel math, so fusion inside the kernel is unaffected. See [`profiler_and_ppa.md`](profiler_and_ppa.md) for the trade-off discussion.
+- `@torch.compiler.disable` on `ProfileMixin._log_dynamic`. This is the **only intentional graph break** on the runtime path. It is necessary because the profiler reads `threading.local` and mutates a Python list; both are untraceable by dynamo. The break is local — it happens at the end of each primary method, after all the kernel math, so fusion inside the kernel is unaffected. See [`profiler_and_ppa.md`](profiler_and_ppa.md) for the trade-off discussion.
 - `tensor.shape[i]` / `tensor.size(i)` / `tensor.ndim` return Python `int` without CPU sync — safe.
 - `.detach()` (without `.item()`) — safe.
 - `with torch.no_grad():` / `with torch.enable_grad():` blocks — safe, although `enable_grad` makes dynamo more conservative; the only current use is inside `xbar/solver.py:elementwise_diff`.

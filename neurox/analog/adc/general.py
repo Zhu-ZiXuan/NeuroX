@@ -133,7 +133,7 @@ class GeneralADC(ADC):
         else:
             self._lsb_estimate = float(boundaries_t.item())
 
-        self._record_inst_count(inst_shape)
+        self._log_static()
 
     # --- ADC interface ---
 

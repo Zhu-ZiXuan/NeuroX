@@ -103,7 +103,7 @@ class OffsetSwitchCapMuxAdcReadOut(ReadOut):
             dtype=dtype,
             T__K=T__K,
         )
-        self._record_inst_count(inst_shape)
+        self._log_static()
 
     @property
     def area_per_inst__um2(self) -> float:

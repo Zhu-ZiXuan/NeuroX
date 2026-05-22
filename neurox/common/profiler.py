@@ -11,7 +11,7 @@ from typing import Self
 
 import torch.nn as nn
 
-from .profiled_module import ProfiledModule
+from .mixin import ProfileMixin
 
 
 @dataclass(frozen=True)
@@ -96,7 +96,7 @@ class NeuroxProfiler:
     """Context manager that captures physical-module side-channel events.
 
     Inside ``with NeuroxProfiler() as profiler:``, every
-    ``ProfiledModule._log_dynamic`` call appends to ``events``; outside,
+    ``ProfileMixin._log_dynamic`` call appends to ``events``; outside,
     the calls are no-ops.
 
     Attributes:
@@ -127,7 +127,7 @@ class NeuroxProfiler:
         return getattr(cls._local, "current", None)
 
     # ----------------------------------------------------------------
-    # Side-channel entry point (called by ProfiledModule._log_dynamic)
+    # Side-channel entry point (called by ProfileMixin._log_dynamic)
     # ----------------------------------------------------------------
 
     def _append_runtime_event(
@@ -191,7 +191,7 @@ class NeuroxProfiler:
         """Build a per-module ``StaticRecord`` list by walking ``model``."""
         out: list[StaticRecord] = []
         for module in model.modules():
-            if isinstance(module, ProfiledModule):
+            if isinstance(module, ProfileMixin):
                 out.append(
                     StaticRecord(
                         qualified_name=module.qualified_name,
@@ -208,7 +208,7 @@ class NeuroxProfiler:
         area = 0.0
         leakage = 0.0
         for module in model.modules():
-            if isinstance(module, ProfiledModule):
+            if isinstance(module, ProfileMixin):
                 area += module.inst_area__um2
                 leakage += module.inst_leakage__uW
         return StaticMetrics(area__um2=area, leakage_power__uW=leakage, latency__ns=0.0)

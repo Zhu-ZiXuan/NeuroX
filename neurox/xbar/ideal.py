@@ -97,6 +97,8 @@ class IdealXbar(Xbar):
         )
         self.register_buffer("digit_weights", digit_weights, persistent=False)
 
+        self._log_static()
+
     @property
     def x_range(self) -> tuple[int, int]:
         return self.cfg.x_range

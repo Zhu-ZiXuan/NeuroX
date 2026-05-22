@@ -63,7 +63,7 @@ class TestStage3ExecutionAndProfiling:
         assert neurox.StaticMetrics is not None
         assert neurox.RuntimeEvent is not None
         assert neurox.StaticRecord is not None
-        assert neurox.ProfiledModule is not None
+        assert neurox.ProfileMixin is not None
 
 
 class TestRoundtripImportOnly:

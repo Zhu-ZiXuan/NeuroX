@@ -1,42 +1,50 @@
 # Profiler and PPA Accounting
 
-This document records the rules for static area / leakage reporting, dynamic energy logging, and the `ProfiledModule` side channel.
+This document records the rules for static area / leakage reporting, dynamic energy logging, and the `ProfileMixin` side channel.
 
 ## Who profiles, who does not
 
-Every **circuit module** (anything under `neurox/analog/`, `neurox/digital/`, `neurox/xbar/`, `neurox/macro/`) must inherit `ProfiledModule`. This is non-negotiable.
+Every **circuit module** (anything under `neurox/analog/`, `neurox/digital/`, `neurox/xbar/`, `neurox/macro/`) must inherit `ProfileMixin`. This is non-negotiable.
 
-**Device modules** (`neurox/device/`) do **not** inherit `ProfiledModule`. Device PPA rolls up to the owning circuit — see [`ADR-0002`](docs/dev/adr/ADR-0002-nmos-is-a-pure-electrical-primitive.md). Device modules expose no `_log_dynamic` / `area_per_inst__um2` / `leakage_per_inst__uW` / `latency_per_op__ns`.
+**Device modules** (`neurox/device/`) do **not** inherit `ProfileMixin`. Device PPA rolls up to the owning circuit — see [`ADR-0002`](docs/dev/adr/ADR-0002-nmos-is-a-pure-electrical-primitive.md). Device modules expose no `_log_dynamic` / `area_per_inst__um2` / `leakage_per_inst__uW` / `latency_per_op__ns`.
 
 ## Required interface
 
-Every `ProfiledModule` exposes:
+Every `ProfileMixin` exposes:
 
 - `area_per_inst__um2: float` — property. Silicon area of a single instance of this module.
 - `leakage_per_inst__uW: float` — property. Static leakage of a single instance.
 - `latency_per_op__ns` — property when the per-op latency is fixed; method when it depends on a runtime operating point. The method form takes the operating-point arguments by keyword (e.g. `latency_per_op__ns(*, bits: int) -> float`).
 
-## `fabricate(shape)` and `_record_inst_count`
+## `_log_static` and the `_inst_shape` contract
 
-`fabricate(shape)` records the per-instance count at the **end** of the method body:
+Every `ProfileMixin` records its static PPA via `_log_static()` — no argument; reads `self._inst_shape` and the subclass's `area_per_inst__um2 / leakage_per_inst__uW` properties to populate `_inst_count / _inst_area__um2 / _inst_leakage__uW`.
 
 ```python
-def fabricate(self, shape):
-    # ... sample static state ...
-    self._record_inst_count(shape)
+def __init__(self, *, cfg, name, inst_shape, dtype, T__K) -> None:
+    super().__init__(...)              # ProfileMixin.__init__ stores name
+    self._inst_shape = inst_shape      # FabricateMixin + ProfileMixin contract
+    self.cfg = cfg                     # subclass-specific
+    # ... register buffers / derive scalars ...
+    self._log_static()                  # only the most-derived concrete subclass calls
 ```
 
-This is mandatory for every circuit module. The base abstract `fabricate` raises `NotImplementedError`; concrete circuits implement and end with `_record_inst_count`. Circuits with no shape-derived static state still implement `fabricate(shape)` with a body that consists only of `self._record_inst_count(shape)`.
+Rules:
 
-`shape` is the **circuit-instance count shape**: each cell of a tensor of this shape represents one independent fabricated instance of the module. The shape is multi-dimensional to mirror the tile / batch structure of the surrounding tensor pipeline; the profiler treats it as a count via `math.prod(shape)`.
+- `_log_static()` is called **exactly once** at the end of the most-derived concrete subclass's `__init__`. Family bases (e.g. `ADC`, `DAC`, `TIA`, `ReadOut`, `Xbar`, `XbarMacro`) do **not** call it themselves — avoids double-recording.
+- Required ordering: `self.cfg = cfg` and `self._inst_shape = inst_shape` must be set before the call, because the property pair `area_per_inst__um2 / leakage_per_inst__uW` reads `self.cfg.*`.
+- Modules with no own static PPA (currently the `XbarMacro` family) override `area_per_inst__um2 = 0.0` / `leakage_per_inst__uW = 0.0` properties and still call `_log_static()`, contributing 0 to the static rollup.
+- The fields `_inst_count / _inst_area__um2 / _inst_leakage__uW` are **not pre-initialised** on `ProfileMixin`. Forgetting `_log_static()` surfaces as `AttributeError` on the first profiler walk, not a silent zero.
+
+`_inst_shape` is the **circuit-instance count shape**: each cell of a tensor of this shape represents one independent fabricated instance of the module. Multi-dimensional to mirror the tile / batch structure; the profiler treats it as a count via `math.prod(_inst_shape)`.
 
 ## Composite-module PPA aggregation
 
 When a composite circuit owns child circuit modules:
 
-- Composite's `area_per_inst__um2` and `leakage_per_inst__uW` return **only the composite's own extra cost** (`self.cfg.area_per_inst__um2` etc.).
-- Each child registers its own instance count via its own `fabricate`. The composite's `fabricate` calls every child's `fabricate(child_shape)`.
-- The profiler walks `model.modules()` and sums the `inst_area__um2` / `inst_leakage__uW` of every `ProfiledModule` it finds. Composite and children both contribute their own shares; nothing is double-counted.
+- Composite's `area_per_inst__um2` and `leakage_per_inst__uW` return **only the composite's own extra cost** (`self.cfg.area_per_inst__um2` etc.). For `XbarMacro` and similar pure orchestration nodes that own no silicon themselves, both properties return `0.0`.
+- Each child records its own instance count via its own `_log_static()` at construction (the child's `inst_shape` was bound by the composite's `__init__`).
+- The profiler walks `model.modules()` and sums the `inst_area__um2` / `inst_leakage__uW` of every `ProfileMixin` it finds. Composite and children both contribute their own shares; nothing is double-counted.
 
 Latency aggregation is different: `latency_per_op__ns` on a composite typically returns the **pipeline sum** of children's per-op latency plus the composite's own contribution. Pipeline depth is not a sum of instance counts; the two aggregation modes are by design different.
 

@@ -137,6 +137,8 @@ class Offset1T1RXbar(Xbar):
         self.register_buffer("logic_phys_idx", logic_phys, persistent=False)
         self.register_buffer("ref_phys_idx", ref_phys, persistent=False)
 
+        self._log_static()
+
     # -----------------------------------------------------------------
     # Value-domain semantics
     # -----------------------------------------------------------------

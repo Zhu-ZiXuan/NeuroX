@@ -9,10 +9,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
-from neurox.common.fabricate import FabricateMixin
-from neurox.common.registry_dispatch import RegistryDispatchMixin
-from neurox.common.validate import ValidateMixin
-from neurox.profiler import ProfiledModule
+from neurox.common.mixin import FabricateMixin, ProfileMixin, RegistryMixin, ValidateMixin
 
 
 @dataclass(frozen=True)
@@ -26,7 +23,7 @@ class DACConfig(ValidateMixin):
         pass
 
 
-class DAC(FabricateMixin, nn.Module, ProfiledModule, RegistryDispatchMixin[type["DACConfig"], "DAC"], ABC):
+class DAC(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["DACConfig"], "DAC"], ABC):
     """Abstract base class for DAC models."""
 
     def __init__(
@@ -41,7 +38,7 @@ class DAC(FabricateMixin, nn.Module, ProfiledModule, RegistryDispatchMixin[type[
         """Register the instance with :class:`nn.Module` and the profiler."""
         del cfg, dtype, T__K  # captured by the subclass init
         nn.Module.__init__(self)
-        ProfiledModule.__init__(self, name)
+        ProfileMixin.__init__(self, name)
         self._inst_shape = inst_shape
 
     @classmethod

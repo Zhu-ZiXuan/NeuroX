@@ -1,19 +1,19 @@
 """Top-level NeuroX API."""
 
+from neurox.common.mixin import ProfileMixin
+from neurox.common.profiler import (
+    NeuroxProfiler,
+    ProfilerReport,
+    RuntimeEvent,
+    StaticMetrics,
+    StaticRecord,
+)
 from neurox.operator import QuantSpec
 from neurox.operator.train import (
     extract_neurox_state,
     fold_batchnorm,
     freeze_hat_observers,
     replace_for_hat,
-)
-from neurox.profiler import (
-    NeuroxProfiler,
-    ProfiledModule,
-    ProfilerReport,
-    RuntimeEvent,
-    StaticMetrics,
-    StaticRecord,
 )
 from neurox.replace import (
     NeuroxStateError,
@@ -57,7 +57,7 @@ __all__ = [
     "program_model",
     "replace_model",
     "NeuroxProfiler",
-    "ProfiledModule",
+    "ProfileMixin",
     "ProfilerReport",
     "RuntimeEvent",
     "StaticMetrics",

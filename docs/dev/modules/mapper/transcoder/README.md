@@ -26,7 +26,7 @@ Each concrete subclass overrides the `encode()` method and the `value_range` `@p
 
 ## Discriminator-driven factory
 
-`Transcoder` parametrises `RegistryDispatchMixin[Encoding, "Transcoder"]`. Each concrete subclass self-registers via a class decorator:
+`Transcoder` parametrises `RegistryMixin[Encoding, "Transcoder"]`. Each concrete subclass self-registers via a class decorator:
 
 ```python
 @Transcoder.register_key("true_form")

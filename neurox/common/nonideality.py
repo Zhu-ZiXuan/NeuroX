@@ -8,10 +8,9 @@ See also:
 from dataclasses import dataclass
 
 import torch
-import torch._dynamo
 from torch import Tensor
 
-from neurox.common.validate import ValidateMixin
+from neurox.common.mixin import ValidateMixin
 
 # ---------------------------------------------------------------------------
 # Stuck-at fault

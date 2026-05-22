@@ -6,7 +6,6 @@ See also:
 
 from __future__ import annotations
 
-import math
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, fields
 from typing import TYPE_CHECKING
@@ -15,10 +14,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
-from neurox.common.fabricate import FabricateMixin
-from neurox.common.registry_dispatch import RegistryDispatchMixin
-from neurox.common.validate import ValidateMixin
-from neurox.profiler import ProfiledModule
+from neurox.common.mixin import FabricateMixin, ProfileMixin, RegistryMixin, ValidateMixin
 
 if TYPE_CHECKING:
     from .ideal import IdealXbar
@@ -103,7 +99,7 @@ class XbarConfig(ValidateMixin):
         self._require_nonneg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
-class Xbar(FabricateMixin, nn.Module, ProfiledModule, RegistryDispatchMixin[type["XbarConfig"], "Xbar"], ABC):
+class Xbar(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["XbarConfig"], "Xbar"], ABC):
     """Abstract base class for a physical crossbar tile.
 
     Args:
@@ -131,7 +127,7 @@ class Xbar(FabricateMixin, nn.Module, ProfiledModule, RegistryDispatchMixin[type
         T__K: float,
     ) -> None:
         nn.Module.__init__(self)
-        ProfiledModule.__init__(self, name)
+        ProfileMixin.__init__(self, name)
         self.cfg = cfg
         self.T__K = T__K
         self.dtype = dtype
@@ -149,7 +145,8 @@ class Xbar(FabricateMixin, nn.Module, ProfiledModule, RegistryDispatchMixin[type
         self._adc_bits = cfg.adc_bits
         self._rescale_lut = {(e.adc_mode, e.adc_bits): e.rf for e in cfg.output_rescale_factors}
 
-        self._record_inst_count(math.prod(self._inst_shape) if self._inst_shape else 1)
+        # `_log_static` is called by the concrete subclass at the end of its
+        # ``__init__`` — base does not call to avoid double-recording.
 
     @classmethod
     def from_config(

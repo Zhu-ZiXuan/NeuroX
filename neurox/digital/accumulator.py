@@ -10,9 +10,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
-from neurox.common.fabricate import FabricateMixin
-from neurox.common.validate import ValidateMixin
-from neurox.profiler import ProfiledModule
+from neurox.common.mixin import FabricateMixin, ProfileMixin, ValidateMixin
 
 
 @dataclass(frozen=True)
@@ -53,7 +51,7 @@ class AccumulatorConfig(ValidateMixin):
         self._require_nonneg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
-class Accumulator(FabricateMixin, nn.Module, ProfiledModule):
+class Accumulator(FabricateMixin, nn.Module, ProfileMixin):
     """Modular adder-tree that sums ADC codes along one tile axis.
 
     Models a hardware adder tree with a fixed output register of ``bit_width``
@@ -70,10 +68,10 @@ class Accumulator(FabricateMixin, nn.Module, ProfiledModule):
         inst_shape: tuple[int, ...],
     ) -> None:
         nn.Module.__init__(self)
-        ProfiledModule.__init__(self, name)
+        ProfileMixin.__init__(self, name)
         self.cfg = cfg
         self._inst_shape = inst_shape
-        self._record_inst_count(inst_shape)
+        self._log_static()
 
     @property
     def area_per_inst__um2(self) -> float:

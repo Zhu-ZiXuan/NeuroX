@@ -10,10 +10,8 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
-from neurox.common.fabricate import FabricateMixin
+from neurox.common.mixin import FabricateMixin, ProfileMixin, ValidateMixin
 from neurox.common.nonideality import apply_gaussian
-from neurox.common.validate import ValidateMixin
-from neurox.profiler import ProfiledModule
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -74,7 +72,7 @@ class AnalogMuxConfig(ValidateMixin):
         self._require_nonneg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
-class AnalogMux(FabricateMixin, nn.Module, ProfiledModule):
+class AnalogMux(FabricateMixin, nn.Module, ProfileMixin):
     """Differential voltage-transport block — gain + CM/DM noise + access energy.
 
     Args:
@@ -95,12 +93,12 @@ class AnalogMux(FabricateMixin, nn.Module, ProfiledModule):
         T__K: float,
     ) -> None:
         nn.Module.__init__(self)
-        ProfiledModule.__init__(self, name)
+        ProfileMixin.__init__(self, name)
         self.cfg = cfg
         self._inst_shape = inst_shape
         self.dtype = dtype
         self.T__K = T__K
-        self._record_inst_count(inst_shape)
+        self._log_static()
 
     @property
     def area_per_inst__um2(self) -> float:

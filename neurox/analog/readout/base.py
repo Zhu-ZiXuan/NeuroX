@@ -13,10 +13,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
-from neurox.common.fabricate import FabricateMixin
-from neurox.common.registry_dispatch import RegistryDispatchMixin
-from neurox.common.validate import ValidateMixin
-from neurox.profiler import ProfiledModule
+from neurox.common.mixin import FabricateMixin, ProfileMixin, RegistryMixin, ValidateMixin
 
 # ---------------------------------------------------------------------------
 # Config (orchestrator-only knobs)
@@ -57,7 +54,7 @@ class ReadOutConfig(ValidateMixin):
 # ---------------------------------------------------------------------------
 
 
-class ReadOut(FabricateMixin, nn.Module, ProfiledModule, RegistryDispatchMixin[type["ReadOutConfig"], "ReadOut"], ABC):
+class ReadOut(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["ReadOutConfig"], "ReadOut"], ABC):
     """Abstract base class for voltage-domain readout chains."""
 
     @classmethod
@@ -121,7 +118,7 @@ class ReadOut(FabricateMixin, nn.Module, ProfiledModule, RegistryDispatchMixin[t
         """
         del cfg, dtype, T__K, data_num, digit_weights  # captured by the subclass init
         nn.Module.__init__(self)
-        ProfiledModule.__init__(self, name)
+        ProfileMixin.__init__(self, name)
         self._inst_shape = inst_shape
 
     @abstractmethod

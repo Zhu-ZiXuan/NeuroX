@@ -14,10 +14,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
-from neurox.common.fabricate import FabricateMixin
-from neurox.common.registry_dispatch import RegistryDispatchMixin
-from neurox.common.validate import ValidateMixin
-from neurox.profiler import ProfiledModule
+from neurox.common.mixin import FabricateMixin, ProfileMixin, RegistryMixin, ValidateMixin
 from neurox.xbar import Xbar, XbarConfig
 
 
@@ -39,9 +36,7 @@ class XbarMacroConfig(ValidateMixin):
         """Run all ``validate_*`` checks."""
 
 
-class XbarMacro(
-    FabricateMixin, nn.Module, ProfiledModule, RegistryDispatchMixin[type["XbarMacroConfig"], "XbarMacro"], ABC
-):
+class XbarMacro(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["XbarMacroConfig"], "XbarMacro"], ABC):
     """Abstract base for xbar-backed quantised-MAC macros.
 
     Args:
@@ -71,7 +66,7 @@ class XbarMacro(
         ideal_xbar: bool,
     ) -> None:
         nn.Module.__init__(self)
-        ProfiledModule.__init__(self, name)
+        ProfileMixin.__init__(self, name)
         if len(w_logical_shape) < 2:
             raise ValueError(f"w_logical_shape must have at least 2 trailing dims (N, K); got {w_logical_shape}")
         self.cfg = cfg
@@ -103,6 +98,18 @@ class XbarMacro(
             T__K=T__K,
             ideal_xbar=ideal_xbar,
         )
+
+    # --- PPA contract (macros aggregate via children) ---
+
+    @property
+    def area_per_inst__um2(self) -> float:
+        """Macros aggregate area from children; no own contribution."""
+        return 0.0
+
+    @property
+    def leakage_per_inst__uW(self) -> float:
+        """Macros aggregate leakage from children; no own contribution."""
+        return 0.0
 
     # --- value-range / rescale contract ---
 

@@ -10,10 +10,10 @@ from collections.abc import Callable
 from typing import ClassVar, Generic, TypeVar, cast
 
 KeyT = TypeVar("KeyT")
-ImplT = TypeVar("ImplT", bound="RegistryDispatchMixin")
+ImplT = TypeVar("ImplT", bound="RegistryMixin")
 
 
-class RegistryDispatchMixin(Generic[KeyT, ImplT]):
+class RegistryMixin(Generic[KeyT, ImplT]):
     """Mixin providing a ``key -> impl_class`` registry.
 
     ``KeyT`` is the registered key's runtime type. Common choices:
