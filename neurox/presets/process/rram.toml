@@ -1,8 +1,7 @@
 # RRAM device parameters.
-# Each top-level section: `<class>_<node>_<flavor>`.
 
 
-[rram_28_4state]
+[default]
 
 # --- Working range ---
 g_min__uS = 10.0
@@ -22,7 +21,7 @@ c_bot__fF = 0.1
 read_thermal__uS = 0.002
 
 # --- Programming Gamma ---
-[rram_28_4state.prog_gamma]
+[default.prog_gamma]
 k_slope = 0.0
 k_intercept = 100.0
 theta = 1.0
@@ -30,12 +29,12 @@ min_val = 10.0
 max_val = 100.0
 
 # --- Read telegraph noise ---
-[rram_28_4state.read_telegraph]
+[default.read_telegraph]
 amplitude_mean = 0.005
 amplitude_std = 0.001
 p_high_state = 0.01
 
 # --- Stuck-at fault ---
-[rram_28_4state.stuck_at]
+[default.stuck_at]
 p_at_min = 0.001
 p_at_max = 0.001

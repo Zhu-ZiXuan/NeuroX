@@ -11,13 +11,14 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
+from neurox.common.quant import stochastic_floor_div
 from neurox.macro.base import NeuroxMacroQuantMatMul
 from neurox.operator.base import NeuroxOperator
 from neurox.operator.spec import QuantSpec
 from neurox.operator.train.fake_quant import fake_quant_ste, fake_quant_symm_per_channel_ste
 from neurox.operator.train.observer import PerChannelSymmObserver, PerTensorObserver
 
-from ._shared import derive_layer_int_params, run_matmul_pipeline
+from ._shared import derive_layer_int_params
 
 
 class HATLinear(nn.Linear):
@@ -126,17 +127,16 @@ class HATLinear(nn.Linear):
             )
             self.macro.program(w_int)
             self.macro.fabricate()
-            y_hw = run_matmul_pipeline(
-                x_int,
-                b_int,
-                mult,
-                rsh,
-                zp_y.reshape(1),
-                s_y,
-                self.spec.y_qmin,
-                self.spec.y_qmax,
-                self.macro,
+            y_int = self.macro.matmul(x_int)
+            y_int = y_int + b_int.to(torch.int32).unsqueeze(-2)
+            y_int = stochastic_floor_div(
+                y_int.to(torch.int32) * mult.to(torch.int32).unsqueeze(-2),
+                rsh.to(torch.int32).unsqueeze(-2),
+                training=self.training,
             )
+            y_int = y_int + zp_y.to(torch.int32).reshape(1)
+            y_int = torch.clamp(y_int, self.spec.y_qmin, self.spec.y_qmax)
+            y_hw = (y_int.float() - zp_y.float().reshape(1)) * s_y
 
         # --- 6. STE: forward is hardware, backward is float ---
         return y_float + (y_hw - y_float).detach()

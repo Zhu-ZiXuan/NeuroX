@@ -139,10 +139,12 @@ class GeneralADC(ADC):
 
     @property
     def area_per_inst__um2(self) -> float:
+        """Silicon area per instance [um^2]."""
         return self.cfg.area_per_inst__um2
 
     @property
     def leakage_per_inst__uW(self) -> float:
+        """Static leakage per instance [uW]."""
         return self.cfg.leakage_per_inst__uW
 
     def latency_per_op__ns(self, *, bits: int) -> float:

@@ -1,4 +1,4 @@
-"""Tests for the ``_neurox_use`` cross-file reference directive in ``load_dump``."""
+"""Tests for the ``_neurox_use`` / ``_neurox_use_preset`` directives in ``load_dump``."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from neurox.common import dataclass_from_file, resolve_uses
+from neurox.common import dataclass_from_file, load_dump, resolve_uses
 from neurox.common.load_dump import dict_from_file
 
 
@@ -171,3 +171,133 @@ def test_dict_from_file_keeps_raw_use(cfg_dir: Path) -> None:
     _write(cfg_dir / "main.toml", '[outer.inner]\n_neurox_use = "frag:piece"\n')
     raw = dict_from_file(cfg_dir / "main.toml")
     assert raw == {"outer": {"inner": {"_neurox_use": "frag:piece"}}}
+
+
+# --- _neurox_use_preset --------------------------------------------------------
+
+
+@pytest.fixture
+def presets_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Override ``_presets_root()`` to a hermetic tmp directory for the test."""
+    root = tmp_path / "presets"
+    root.mkdir()
+    monkeypatch.setattr(load_dump, "_presets_root", lambda: root)
+    return root
+
+
+def test_preset_basic_resolution(cfg_dir: Path, presets_root: Path) -> None:
+    _write(presets_root / "frag.toml", "[piece]\na = 1.0\nb = 2.0\n")
+    _write(cfg_dir / "main.toml", '[outer]\nname = "x"\n[outer.inner]\n_neurox_use_preset = "frag:piece"\n')
+    obj = dataclass_from_file(_Outer, cfg_dir / "main.toml", section="outer")
+    assert obj == _Outer(name="x", inner=_Inner(a=1.0, b=2.0))
+
+
+def test_preset_resolves_from_subdirectory(cfg_dir: Path, presets_root: Path) -> None:
+    (presets_root / "process").mkdir()
+    _write(presets_root / "process" / "rram.toml", "[rram_x]\na = 11.0\nb = 22.0\n")
+    _write(
+        cfg_dir / "main.toml",
+        '[outer]\nname = "p"\n[outer.inner]\n_neurox_use_preset = "process/rram:rram_x"\n',
+    )
+    obj = dataclass_from_file(_Outer, cfg_dir / "main.toml", section="outer")
+    assert obj == _Outer(name="p", inner=_Inner(a=11.0, b=22.0))
+
+
+def test_preset_chains_via_preset_only(cfg_dir: Path, presets_root: Path) -> None:
+    _write(presets_root / "leaf.toml", "[atom]\na = 7.0\nb = 8.0\n")
+    _write(presets_root / "mid.toml", '[piece]\n_neurox_use_preset = "leaf:atom"\n')
+    _write(
+        cfg_dir / "main.toml",
+        '[outer]\nname = "c"\n[outer.inner]\n_neurox_use_preset = "mid:piece"\n',
+    )
+    obj = dataclass_from_file(_Outer, cfg_dir / "main.toml", section="outer")
+    assert obj == _Outer(name="c", inner=_Inner(a=7.0, b=8.0))
+
+
+def test_preset_inline_overrides_fragment(cfg_dir: Path, presets_root: Path) -> None:
+    _write(presets_root / "frag.toml", "[piece]\na = 1.0\nb = 2.0\n")
+    _write(
+        cfg_dir / "main.toml",
+        '[outer]\nname = "x"\n[outer.inner]\n_neurox_use_preset = "frag:piece"\nb = 99.0\n',
+    )
+    obj = dataclass_from_file(_Outer, cfg_dir / "main.toml", section="outer")
+    assert obj == _Outer(name="x", inner=_Inner(a=1.0, b=99.0))
+
+
+def test_preset_forbids_neurox_use_inside_subtree(cfg_dir: Path, presets_root: Path) -> None:
+    _write(presets_root / "leaf.toml", "[atom]\na = 1.0\nb = 2.0\n")
+    # Preset tries to chain via the user-side directive — forbidden.
+    _write(presets_root / "bad.toml", '[piece]\n_neurox_use = "leaf:atom"\n')
+    _write(
+        cfg_dir / "main.toml",
+        '[outer]\nname = "n"\n[outer.inner]\n_neurox_use_preset = "bad:piece"\n',
+    )
+    with pytest.raises(ValueError, match="forbidden inside neurox/presets/"):
+        dataclass_from_file(_Outer, cfg_dir / "main.toml", section="outer")
+
+
+def test_preset_mutual_exclusion_with_use(cfg_dir: Path, presets_root: Path) -> None:
+    _write(presets_root / "p.toml", "[piece]\na = 1.0\nb = 2.0\n")
+    _write(cfg_dir / "u.toml", "[piece]\na = 3.0\nb = 4.0\n")
+    _write(
+        cfg_dir / "main.toml",
+        '[outer]\nname = "m"\n[outer.inner]\n_neurox_use = "u:piece"\n_neurox_use_preset = "p:piece"\n',
+    )
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        dataclass_from_file(_Outer, cfg_dir / "main.toml", section="outer")
+
+
+@pytest.mark.parametrize(
+    "bad_path",
+    ["./frag:piece", "../frag:piece", "/abs/frag:piece", "frag/../other:piece"],
+)
+def test_preset_rejects_forbidden_path_forms(cfg_dir: Path, presets_root: Path, bad_path: str) -> None:
+    _write(presets_root / "frag.toml", "[piece]\na = 1.0\nb = 2.0\n")
+    _write(cfg_dir / "main.toml", f'[outer]\nname = "x"\n[outer.inner]\n_neurox_use_preset = "{bad_path}"\n')
+    with pytest.raises(ValueError, match="(must not (start with|contain)|absolute)"):
+        dataclass_from_file(_Outer, cfg_dir / "main.toml", section="outer")
+
+
+def test_preset_cycle_is_rejected(cfg_dir: Path, presets_root: Path) -> None:
+    _write(presets_root / "a.toml", '[piece]\n_neurox_use_preset = "b:piece"\n')
+    _write(presets_root / "b.toml", '[piece]\n_neurox_use_preset = "a:piece"\n')
+    _write(
+        cfg_dir / "main.toml",
+        '[outer]\nname = "y"\n[outer.inner]\n_neurox_use_preset = "a:piece"\n',
+    )
+    with pytest.raises(ValueError, match="_neurox_use_preset cycle detected"):
+        dataclass_from_file(_Outer, cfg_dir / "main.toml", section="outer")
+
+
+def test_preset_missing_file_raises(cfg_dir: Path, presets_root: Path) -> None:
+    _write(
+        cfg_dir / "main.toml",
+        '[outer]\nname = "x"\n[outer.inner]\n_neurox_use_preset = "no_such:piece"\n',
+    )
+    with pytest.raises(FileNotFoundError, match="no_such"):
+        dataclass_from_file(_Outer, cfg_dir / "main.toml", section="outer")
+
+
+def test_preset_missing_section_raises(cfg_dir: Path, presets_root: Path) -> None:
+    _write(presets_root / "frag.toml", "[piece]\na = 1.0\nb = 2.0\n")
+    _write(
+        cfg_dir / "main.toml",
+        '[outer]\nname = "x"\n[outer.inner]\n_neurox_use_preset = "frag:nonexistent"\n',
+    )
+    with pytest.raises(KeyError, match="nonexistent"):
+        dataclass_from_file(_Outer, cfg_dir / "main.toml", section="outer")
+
+
+def test_preset_value_must_be_string(cfg_dir: Path, presets_root: Path) -> None:
+    _write(cfg_dir / "main.toml", '[outer]\nname = "x"\n[outer.inner]\n_neurox_use_preset = 42\n')
+    with pytest.raises(TypeError, match="_neurox_use_preset must be a string"):
+        dataclass_from_file(_Outer, cfg_dir / "main.toml", section="outer")
+
+
+def test_preset_malformed_string_raises(cfg_dir: Path, presets_root: Path) -> None:
+    _write(
+        cfg_dir / "main.toml",
+        '[outer]\nname = "x"\n[outer.inner]\n_neurox_use_preset = "missing_separator"\n',
+    )
+    with pytest.raises(ValueError, match="missing ':'"):
+        dataclass_from_file(_Outer, cfg_dir / "main.toml", section="outer")

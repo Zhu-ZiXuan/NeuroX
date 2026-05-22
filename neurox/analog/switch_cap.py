@@ -74,10 +74,10 @@ class SwitchCap(FabricateMixin, nn.Module, ProfileMixin):
     """Bottom-plate-sampled cap bank with passive charge-share averaging.
 
     Args:
-        cfg: Immutable :class:`SwitchCapConfig`.
-        name: Hierarchical profiler name.
+        cfg: Concrete configuration dataclass.
+        name: Hierarchical instance name used by the profiler.
         inst_shape: Per-instance fabrication shape.
-        dtype: Floating-point dtype.
+        dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature [K].
         cap_weights: Per-cap multipliers on ``cfg.c_unit__fF``.
     """
@@ -122,17 +122,17 @@ class SwitchCap(FabricateMixin, nn.Module, ProfileMixin):
 
     @property
     def area_per_inst__um2(self) -> float:
-        """Silicon area per bank [um^2]."""
+        """Silicon area per instance [um^2]."""
         return self.cfg.area_per_inst__um2
 
     @property
     def leakage_per_inst__uW(self) -> float:
-        """Static leakage per bank [uW]."""
+        """Static leakage per instance [uW]."""
         return self.cfg.leakage_per_inst__uW
 
     @property
     def latency_per_op__ns(self) -> float:
-        """Settling latency per sample [ns]."""
+        """Latency per op [ns]."""
         return self.cfg.latency_per_op__ns
 
     def _sample_fabricate_mismatch(self) -> None:

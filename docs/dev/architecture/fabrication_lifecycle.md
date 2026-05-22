@@ -6,7 +6,7 @@ This document records the current object lifecycle rules.
 
 NeuroX separates four phases:
 
-1. **`__init__`** Bind config, design parameters, the stable runtime context (`dtype`, `T__K`), and the per-instance fabrication shape (`inst_shape` at leaf modules, `w_logical_shape` at macros, `w_layout_shape` at xbars). Children are constructed here with their derived shapes, and `nominal_*` buffers are seeded.
+1. **`__init__`** Bind config, design parameters, the stable runtime context (`dtype`, `T__K`), and the per-instance fabrication shape (`inst_shape` at leaf modules and xbars, `w_logical_shape` at macros). Children are constructed here with their derived shapes, and `nominal_*` buffers are seeded.
 2. **`fabricate()`** Auto-cascade resample of every owned module's static manufacturing variation. Inherited from `FabricateMixin`; subclasses override only `_sample_fabricate_mismatch`.
 3. **`program(weight)`** Write the macro / xbar's owned weight state from one logical integer weight. Manually dispatched per layer (no auto-cascade).
 4. **`snapshot(*, shape)`** (leaf-only) Materialise per-call dynamic noise into a frozen `*Snapshot` dataclass consumed by `solve_dc / convert / vec_mat_mul`. Never persisted on the module.
@@ -37,14 +37,14 @@ def snapshot(self, *, shape: tuple[int, ...]) -> <Name>Snapshot: ...  # for devi
 ### Xbar tiles
 
 ```python
-def __init__(self, *, cfg, name, w_layout_shape, dtype, T__K) -> None: ...
+def __init__(self, *, cfg, name, inst_shape, dtype, T__K) -> None: ...
 
 def fabricate(self) -> None: ...      # auto-cascade (via FabricateMixin)
 def program(self, w) -> None: ...     # write tile-native digit state
 def vec_mat_mul(self, x) -> Tensor: ...
 ```
 
-- `w_layout_shape` is the full digit-tensor shape the xbar's `program(w)` will receive: `(*prefix, data_num, digit_num, row_num)`. The xbar's `_inst_shape` is `w_layout_shape[:-3]`.
+- `inst_shape` is the per-instance multiplicity prefix. The full digit-tensor shape received by `program(w)` is `(*inst_shape, col_num, w_digit_count, row_num)`, derived inside the xbar from `inst_shape + cfg + subclass geometry` and exposed as `self._w_layout_shape` for validation only.
 - `program(w)` validates `w.shape == self._w_layout_shape`, then writes through to the underlying child state (RRAM / digits buffer).
 - `IdealXbar` registers a 0-d `nominal_digits` buffer and a `digits` actual buffer; `program(w)` reassigns the actual buffer.
 
@@ -55,13 +55,13 @@ def __init__(self, *, cfg, name, w_logical_shape, dtype, T__K, ideal_xbar) -> No
 
 def fabricate(self) -> None: ...                                              # auto-cascade
 def program(self, weight) -> None: ...                                        # logical → organize → child program
-def matmul(self, input, bias, mult, rshift, zp) -> Tensor: ...                # pure forward; reads programmed state
+def matmul(self, input) -> Tensor: ...                                        # pure int matmul; matches torch.matmul
 ```
 
 - `w_logical_shape` is the operator-facing weight shape, typically `(*prefix, N, K)` (linear) or `(groups, out/g, in/g·kh·kw)` (grouped conv).
 - The macro derives every child's `inst_shape` symbolically from `w_logical_shape` + cfg in `__init__`, then builds children with those shapes.
 - `program(weight)` runs the macro's `_organize_w` and dispatches to the xbar's `program(...)`. Digital helpers and the readout chain participate via the auto-cascade only.
-- `matmul` does **not** take `weight` — it reads the previously-programmed state.
+- `matmul` does **not** take `weight` — it reads the state established by `program(...)`.
 
 ### Operators
 

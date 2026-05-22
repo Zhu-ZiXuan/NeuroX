@@ -17,10 +17,10 @@ End-to-end HAT pipeline (no pt2e):
 5. ``extract_neurox_state`` → save a NeuroX-flat checkpoint readable by
    ``neurox.build_evaluator``.
 
-CLI knobs for hardware targeting: ``--config`` selects the chip
-TOML, ``--xbar`` selects ``physical`` vs ``ideal``.  HAT defaults to
-``--xbar ideal`` for speed; evaluation defaults to ``--xbar physical``
-to mirror the deployed chip.
+Hardware target: the macro TOML is wired in as ``MACRO_CONFIG`` (a
+sibling file alongside this script); ``--xbar`` selects ``physical``
+vs ``ideal``.  HAT defaults to ``--xbar ideal`` for speed; evaluation
+defaults to ``--xbar physical`` to mirror the deployed chip.
 """
 
 # ruff: noqa: T201
@@ -39,7 +39,8 @@ from example.common import build_macro_factory, derive_quant_spec
 from example.lenet.data import create_mnist_dataloader
 from example.lenet.model import LeNet5
 from neurox import replace as neurox
-from neurox.config import DEFAULT_1T1R_MACRO_TOML
+
+MACRO_CONFIG = Path(__file__).parent / "macro.toml"
 
 
 def _validate(model: nn.Module, loader: DataLoader, device: torch.device) -> float:
@@ -67,12 +68,6 @@ def main() -> None:
     )
     parser.add_argument("--checkpoint", type=Path, required=True, help="Output NeuroX-flat checkpoint path")
     parser.add_argument("--device", type=str, default="cuda:0", help="Device for HAT fine-tuning")
-    parser.add_argument(
-        "--config",
-        type=Path,
-        default=DEFAULT_1T1R_MACRO_TOML,
-        help="Chip TOML (bundled default covers the reference 1T1R tile).",
-    )
     parser.add_argument(
         "--xbar",
         choices=("physical", "ideal"),
@@ -129,17 +124,16 @@ def main() -> None:
     neurox.fold_batchnorm(model)
 
     # --- 3. Replace supported ops with HAT counterparts ---
-    # The two CLI knobs (``--config`` and ``--xbar``) fully specify the
-    # hardware target: the TOML provides the quant grid, and the
-    # chosen xbar kind selects between the physical 1T1R solver and
-    # the lossless reference.  Default is ``ideal`` for speed.
-    spec = derive_quant_spec(args.config)
-    macro_factory = build_macro_factory(args.config, xbar=args.xbar)
+    # ``MACRO_CONFIG`` (TOML next to this script) provides the quant grid;
+    # ``--xbar`` selects between the physical 1T1R solver and the lossless
+    # reference. Default is ``ideal`` for speed.
+    spec = derive_quant_spec(MACRO_CONFIG)
+    macro_factory = build_macro_factory(MACRO_CONFIG, xbar=args.xbar)
     model = neurox.replace_for_hat(model, macro_factory, spec)
     model = model.to(device)
     print(
         f"HAT grid: x[{spec.x_qmin},{spec.x_qmax}]  w[±{spec.w_qmax}]  "
-        f"y[{spec.y_qmin},{spec.y_qmax}]  xbar={args.xbar}  (from {args.config.name})"
+        f"y[{spec.y_qmin},{spec.y_qmax}]  xbar={args.xbar}  (from {MACRO_CONFIG.name})"
     )
     from neurox.operator import HATConv2d, HATLinear
 
@@ -251,7 +245,7 @@ def main() -> None:
                 "y_qmin": spec.y_qmin,
                 "y_qmax": spec.y_qmax,
                 "xbar_used_during_hat": args.xbar,
-                "hardware_config": str(args.config),
+                "hardware_config": str(MACRO_CONFIG),
             },
         },
         args.checkpoint,

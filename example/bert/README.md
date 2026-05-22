@@ -57,17 +57,19 @@ python -m example.bert.evaluate \
 
 ## Notes
 
-- **Quantization grid**: weight / activation grids match the bundled
-  `default_1t1r.toml` (4-state RRAM × 1-digit weight ⇒ ±3, 2-state
-  × 4-digit activation ⇒ [0, 15]).  The output grid defaults to
-  signed 8-bit (`y_qmin=-128`, `y_qmax=127`) so BERT's post-layer
+- **Quantization grid**: weight / activation grids match
+  `example/bert/macro.toml` (4-state RRAM × 1-digit weight ⇒ ±3,
+  2-state × 4-digit activation ⇒ [0, 15]).  The output grid defaults
+  to signed 8-bit (`y_qmin=-128`, `y_qmax=127`) so BERT's post-layer
   activation range survives requantization.
 - **Hardware is TOML-driven**: every circuit parameter — ADC
   resolution (`[bl_adc].boundaries`), RRAM states, switch, wires,
   digital datapath, tile geometry, rescale factor — is read from
-  `neurox/config/default_1t1r.toml`.  To change the ADC resolution,
-  edit the `[bl_adc].boundaries` list and update `[xbar].output_rescale_factor`
-  accordingly; the CLI has no hardware knobs.
+  `example/bert/macro.toml` (which pulls the 1T1R xbar reference from
+  `neurox/presets/xbar/1t1r_28nm.toml` via `_neurox_use_preset`). To
+  change the ADC resolution, edit the `[bl_adc].boundaries` list and
+  update `[xbar].output_rescale_factor` accordingly; the CLI has no
+  hardware knobs.
 - **ADC resolution and depth**: the bundled 16-level (4-bit) ADC
   collapses BERT-small's signal to chance accuracy — 26 linear
   layers compound per-tile quantization noise past the signal floor.
@@ -85,6 +87,6 @@ python -m example.bert.evaluate \
 - **Sequence length**: SST-2 sentences are short (median ≈ 11 tokens);
   `--max-length 128` is comfortable but you can drop to 64 for speed.
 - **TOML consistency between HAT and eval**: train and evaluate with
-  the same `default_1t1r.toml` so the saved
+  the same `example/bert/macro.toml` so the saved
   `(multiplier, rshift, bias_int)` buffers align with the evaluator's
   rescale factor.

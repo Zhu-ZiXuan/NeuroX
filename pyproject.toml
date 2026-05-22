@@ -52,11 +52,10 @@ neurox-analyze-xbar-error-1t1r   = "neurox.tools.analyze_xbar_error_1t1r:main"
 where = ["."]
 include = ["neurox*"]
 
-# Ship the bundled ``.toml`` configs so ``Path(__file__).parent``
-# resolves to a real directory both in editable installs and wheel
-# installs.
+# Ship the bundled ``.toml`` presets so ``importlib.resources.files("neurox")``
+# resolves to a real directory both in editable installs and wheel installs.
 [tool.setuptools.package-data]
-"neurox.config" = ["*.toml"]
+"neurox.presets" = ["**/*.toml"]
 
 [tool.ruff]
 target-version = "py311"

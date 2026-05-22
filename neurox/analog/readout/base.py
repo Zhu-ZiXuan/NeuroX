@@ -69,19 +69,11 @@ class ReadOut(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["ReadO
         data_num: int,
         digit_weights: tuple[float, ...],
     ) -> ReadOut:
-        """Build the concrete readout implementation for ``type(cfg)``.
+        """Build the concrete impl registered for ``type(cfg)``.
 
         Args:
-            cfg: Readout configuration.
-            name: Profiler/debug name.
-            inst_shape: Per-instance fabrication shape ``(*prefix, group_num)``.
-            dtype: Tensor dtype for internal buffers.
-            T__K: Operating temperature [K].
             data_num: Number of data per reference group.
             digit_weights: Per-digit weight vector, length ``digit_num``.
-
-        Returns:
-            Concrete readout implementation registered for ``type(cfg)``.
         """
         impl = cls._lookup_impl(type(cfg))
         return impl(
@@ -108,8 +100,8 @@ class ReadOut(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["ReadO
         """Register the instance with :class:`nn.Module` and the profiler.
 
         Args:
-            cfg: Readout configuration.
-            name: Profiler/debug name.
+            cfg: Concrete configuration dataclass.
+            name: Hierarchical instance name used by the profiler.
             inst_shape: Per-instance fabrication shape ``(*prefix, group_num)``.
             dtype: Tensor dtype for internal buffers.
             T__K: Operating temperature [K].
@@ -148,13 +140,13 @@ class ReadOut(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["ReadO
     @property
     @abstractmethod
     def area_per_inst__um2(self) -> float:
-        """Aggregated silicon area per readout instance [um^2]."""
+        """Silicon area per instance [um^2]."""
         raise NotImplementedError
 
     @property
     @abstractmethod
     def leakage_per_inst__uW(self) -> float:
-        """Aggregated static leakage per readout instance [uW]."""
+        """Static leakage per instance [uW]."""
         raise NotImplementedError
 
     @abstractmethod

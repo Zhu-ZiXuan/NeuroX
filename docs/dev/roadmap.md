@@ -81,7 +81,7 @@ NeuroX is a general CiM simulation and benchmarking platform. This document trac
 
 ### Behavioral (current)
 
-- [x] Accumulator, adder, subtractor, shift-adder, requantizer
+- [x] Accumulator, adder, subtractor, shift-adder
 - [x] Modular-arithmetic with configurable bit-width
 - [x] `@torch.compile` fused digital aggregation pipeline
 
@@ -105,7 +105,7 @@ NeuroX is a general CiM simulation and benchmarking platform. This document trac
 - [x] Tensor layout `[*batch, M, Tc, Tr, Sa, Sw, sign, row, col]`
 - [ ] Leading-dimension merge and serialization (`sim_chunk_size`)
 - [x] Compiled digital aggregation under `@torch.compile`
-- [x] ADC rescale correction folded into requantizer fixed-point
+- [x] ADC rescale correction folded into the operator-side fixed-point requantize
 - [ ] Per-layer fine-grained mapping policy (weight-stationary, output-stationary, transposed)
 - [ ] Heterogeneous macro support (mixed precision, mixed technology)
 

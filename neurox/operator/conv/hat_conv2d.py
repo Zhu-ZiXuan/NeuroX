@@ -13,7 +13,8 @@ from torch import Tensor
 
 from neurox.macro.base import NeuroxMacroQuantMatMul
 from neurox.operator.base import NeuroxOperator
-from neurox.operator.linear import derive_layer_int_params, run_matmul_pipeline
+from neurox.common.quant import stochastic_floor_div
+from neurox.operator.linear import derive_layer_int_params
 from neurox.operator.spec import QuantSpec
 from neurox.operator.train.fake_quant import fake_quant_ste, fake_quant_symm_per_channel_ste
 from neurox.operator.train.observer import PerChannelSymmObserver, PerTensorObserver
@@ -184,17 +185,16 @@ class HATConv2d(nn.Conv2d):
 
             self.macro.program(w_grouped)
             self.macro.fabricate()
-            output_deq = run_matmul_pipeline(
-                unfolded_int,
-                b_grouped,
-                mult_grouped,
-                rsh_grouped,
-                zp_y.reshape(1),
-                s_y,
-                self.spec.y_qmin,
-                self.spec.y_qmax,
-                self.macro,
+            y_int = self.macro.matmul(unfolded_int)
+            y_int = y_int + b_grouped.to(torch.int32).unsqueeze(-2)
+            y_int = stochastic_floor_div(
+                y_int.to(torch.int32) * mult_grouped.to(torch.int32).unsqueeze(-2),
+                rsh_grouped.to(torch.int32).unsqueeze(-2),
+                training=self.training,
             )
+            y_int = y_int + zp_y.to(torch.int32).reshape(1)
+            y_int = torch.clamp(y_int, self.spec.y_qmin, self.spec.y_qmax)
+            output_deq = (y_int.float() - zp_y.float().reshape(1)) * s_y
             y_hw = _fold_output(output_deq, self.out_channels, batch_shape, out_h, out_w)
 
         return y_float + (y_hw - y_float).detach()

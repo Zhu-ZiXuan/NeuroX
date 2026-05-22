@@ -40,14 +40,11 @@ class XbarMacro(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["Xba
     """Abstract base for xbar-backed quantised-MAC macros.
 
     Args:
-        cfg: Concrete subclass config.
-        name: Hierarchical profiler name.
-        w_logical_shape: Logical weight shape ``(*prefix, N, K)`` the macro
-            will see in ``program(...)``. Committed at construction; the
-            macro derives every child's `inst_shape` from this plus its
-            own slicer / organize logic.
-        dtype: Analog forward-path dtype.
-        T__K: Operating temperature in kelvin.
+        cfg: Concrete configuration dataclass.
+        name: Hierarchical instance name used by the profiler.
+        w_logical_shape: Logical weight shape ``(*prefix, N, K)`` bound to ``program(...)``.
+        dtype: Tensor dtype for internal buffers.
+        T__K: Operating temperature [K].
         ideal_xbar: When ``True``, the macro replaces its physical xbar
             with the lossless ideal twin returned by ``xbar.to_ideal()``.
     """
@@ -116,64 +113,57 @@ class XbarMacro(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["Xba
     @property
     @abstractmethod
     def w_value_range(self) -> tuple[int, int]:
-        """Inclusive algorithm-side integer weight range."""
+        """Inclusive integer weight range accepted by the macro."""
         raise NotImplementedError
 
     @property
     @abstractmethod
     def x_value_range(self) -> tuple[int, int]:
-        """Inclusive algorithm-side integer activation range."""
+        """Inclusive integer activation range accepted by the macro."""
         raise NotImplementedError
 
     @property
     @abstractmethod
     def output_rescale_factor(self) -> float:
-        """Ratio of ideal integer partial-product max to actual tile output max."""
+        """Ratio of the ideal partial-product max to the actual tile output max."""
         raise NotImplementedError
 
     # --- lifecycle ---
 
     @abstractmethod
     def program(self, weight: Tensor) -> None:
-        """Write the macro's static weight state.
+        """Write the macro's static weight state from one logical weight tensor.
 
         Args:
-            weight: Integer weight tensor. Shape must match
+            weight: Integer weight tensor whose shape matches
                 ``self._w_logical_shape``.
         """
         raise NotImplementedError
 
     @abstractmethod
-    def matmul(
-        self,
-        input: Tensor,
-        bias: Tensor | None,
-        rescale_multiplier: Tensor,
-        rescale_rshift: Tensor,
-        output_zero_point: Tensor | None,
-    ) -> Tensor:
-        """Execute one integer matrix multiply against the programmed weight.
+    def matmul(self, input: Tensor) -> Tensor:
+        """Execute one integer matrix multiply against the programmed weight state.
+
+        Matches ``torch.matmul`` semantics (pure matmul, no bias). Bias add
+        and requantize live in the operator layer.
 
         Args:
             input: Integer activation tensor. Shape: ``[..., M, K]``.
-            bias: Optional integer bias tensor. Shape: ``[..., N]``.
-            rescale_multiplier: Per-output fixed-point multiplier.
-            rescale_rshift: Per-output right-shift amount.
-            output_zero_point: Optional output zero point.
 
         Returns:
-            Integer output tensor. Shape: ``[..., M, N]``.
+            Integer pre-requantize output tensor. Shape: ``[..., M, N]``.
         """
         raise NotImplementedError
 
     # --- xbar construction helper for subclasses ---
 
-    def _build_xbar(self, xbar_w_layout_shape: tuple[int, ...]) -> Xbar:
-        """Construct the owned xbar at a derived layout shape.
+    def _build_xbar(self, inst_shape: tuple[int, ...]) -> Xbar:
+        """Construct the owned xbar at a derived per-instance multiplicity.
 
         Args:
-            xbar_w_layout_shape: Full xbar-native digit-tensor shape
-                ``(*prefix, data_num, digit_num, row_num)``.
+            inst_shape: Per-instance multiplicity prefix; the xbar
+                derives the trailing ``(col_num, w_digit_count,
+                row_num)`` dims from its own cfg.
 
         Returns:
             The xbar (physical or ideal twin per ``ideal_xbar``).
@@ -182,7 +172,7 @@ class XbarMacro(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["Xba
         xbar = Xbar.from_config(
             cfg=self.cfg.xbar_cfg,
             name=f"{prefix}xbar",
-            w_layout_shape=xbar_w_layout_shape,
+            inst_shape=inst_shape,
             dtype=self._macro_dtype,
             T__K=self._macro_T__K,
         )

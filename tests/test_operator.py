@@ -15,8 +15,7 @@ Covers:
    multiplier-derivation regressions that would inflate the gap by
    orders of magnitude.
 
-The QAT training path (``LinearQAT``/``Conv2dQAT``) was removed; QAT now
-lives entirely outside NeuroX (see ``example/lenet/qat.py`` for the pt2e flow).
+QAT lives entirely outside NeuroX — see ``example/lenet/qat.py`` for the pt2e flow.
 """
 
 from __future__ import annotations
@@ -29,21 +28,19 @@ import torch
 import torch.nn as nn
 
 pytestmark = pytest.mark.skip(
-    reason="Legacy XbarMacro/XbarMapper API removed; fixtures need rewriting "
-    "to InterXbarSliceMacro (see neurox/macro/inter_xbar_slice.py)."
+    reason="Fixtures need rewriting to the InterArraySliceXbarMacro API "
+    "(see neurox/macro/xbar/inter_array_slice.py)."
 )
 
 from neurox.analog import Driver, DriverConfig
 from neurox.analog.dac import GeneralDAC, GeneralDACConfig
 from neurox.analog.adc import GeneralADC, GeneralADCConfig
 from neurox.common import dict_configs_from_file, dict_from_file
-from neurox.config import DEFAULT_1T1R_MACRO_TOML
+from pathlib import Path as _Path
 from neurox.device import NMOS, RRAM, NMOSConfig, RRAMConfig
 from neurox.digital import (
     Accumulator,
     AccumulatorConfig,
-    Requantizer,
-    RequantizerConfig,
     ShiftAdder,
     ShiftAdderConfig,
     SubtractorConfig,
@@ -56,7 +53,7 @@ from neurox.operator.conv import QuantConv2d
 from neurox.operator.linear import QuantLinear, derive_layer_int_params
 from neurox.xbar import Offset1T1RXbar, Offset1T1RXbarConfig
 
-CONFIG_FILE = DEFAULT_1T1R_MACRO_TOML
+CONFIG_FILE = _Path(__file__).parent / "fixtures" / "macro.toml"
 
 _SPECS = {
     "rram": RRAMConfig,

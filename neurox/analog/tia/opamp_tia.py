@@ -162,17 +162,17 @@ class OpAmpTIA(TIA):
 
     @property
     def area_per_inst__um2(self) -> float:
-        """Area per OpAmpTIA instance [um²]."""
+        """Silicon area per instance [um^2]."""
         return self.cfg.area_per_inst__um2
 
     @property
     def leakage_per_inst__uW(self) -> float:
-        """Static leakage per OpAmpTIA instance [uW]."""
+        """Static leakage per instance [uW]."""
         return self.cfg.leakage_per_inst__uW
 
     @property
     def latency_per_op__ns(self) -> float:
-        """Settling latency per VMM [ns]."""
+        """Latency per op [ns]."""
         return self.cfg.latency_per_op__ns
 
     # --- fabricate ---

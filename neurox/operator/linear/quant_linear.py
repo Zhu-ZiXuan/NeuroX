@@ -9,14 +9,12 @@ from torch import Tensor
 from neurox.macro.base import NeuroxMacroQuantMatMul
 from neurox.operator.base import NeuroxOperator
 
-from ._shared import run_matmul_pipeline
-
 
 class QuantLinear(NeuroxOperator):
     """Inference-only crossbar-backed replacement for ``nn.Linear``.
 
-    Each forward quantizes the float input, runs ``macro.matmul``, rescales,
-    and dequantizes back to float.
+    Each forward quantizes the float input, runs ``macro.matmul``,
+    adds bias, rescales, and dequantizes back to float.
 
     Attributes:
         weight_int: Quantized integer weight ``[out, in]``.
@@ -109,7 +107,7 @@ class QuantLinear(NeuroxOperator):
             self.input_qmin,
             self.input_qmax,
         )
-        return run_matmul_pipeline(
+        return self.run_matmul_pipeline(
             input_int,
             self.bias_int,
             self.rescale_multiplier,
@@ -118,5 +116,4 @@ class QuantLinear(NeuroxOperator):
             self.output_scale,
             self.output_qmin,
             self.output_qmax,
-            self.macro,
         )

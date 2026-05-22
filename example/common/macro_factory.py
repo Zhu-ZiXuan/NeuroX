@@ -8,7 +8,6 @@ from typing import Literal
 import torch
 
 from neurox.common import T_ROOM__K, dataclass_from_file
-from neurox.config import DEFAULT_1T1R_MACRO_TOML
 from neurox.macro import NeuroxMacroQuantMatMul
 from neurox.macro.xbar import XbarMacro, XbarMacroConfig
 from neurox.operator import QuantSpec
@@ -29,7 +28,7 @@ def _macro_config(config_path: Path) -> XbarMacroConfig:
     return dataclass_from_file(XbarMacroConfig, config_path, section="macro")
 
 
-def derive_quant_spec(config_path: Path = DEFAULT_1T1R_MACRO_TOML) -> QuantSpec:
+def derive_quant_spec(config_path: Path) -> QuantSpec:
     """Derive the operator quantization grid from the macro ranges."""
     macro = _build_xbar1t1r_macro(
         config_path,

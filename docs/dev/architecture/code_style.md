@@ -198,10 +198,141 @@ def __init__(self, *, cfg, name, <shape>, dtype, T__K) -> None: ...
 The shape parameter name varies by layer:
 
 - leaf circuits (analog / digital / device): `inst_shape: tuple[int, ...]` — per-instance fabrication shape.
-- xbar tiles: `w_layout_shape: tuple[int, ...]` — full digit-tensor shape `(*prefix, data_num, digit_num, row_num)`.
+- xbar tiles: `inst_shape: tuple[int, ...]` — per-instance multiplicity prefix. The xbar derives the trailing `(col_num, w_digit_count, row_num)` from its own cfg and exposes the full digit-tensor shape as `self._w_layout_shape`.
 - xbar macros: `w_logical_shape: tuple[int, ...]` — operator-facing weight shape `(*prefix, N, K)`.
 
-Every module stores `self._inst_shape: tuple[int, ...]` to satisfy `FabricateMixin`'s contract. At leaf level that is the constructor argument verbatim; at xbar level it is `w_layout_shape[:-3]` (the prefix); at macro level it is conventionally `()`.
+Every module stores `self._inst_shape: tuple[int, ...]` to satisfy `FabricateMixin`'s contract. At leaf and xbar level that is the constructor argument verbatim; at macro level it is conventionally `()`.
+
+## Canonical docstrings for repeated members
+
+A member that appears on many classes with identical signature **and identical semantic role** must use the same docstring text everywhere. Variation is reserved for cases where the member genuinely carries different information at that site.
+
+### `__init__` parameters — one-line entries
+
+In the `Args:` block of every fabricable-module constructor, the following parameters use the canonical line below. Do **not** rephrase per-class.
+
+| Parameter | Canonical Args entry |
+|---|---|
+| `cfg` | `Concrete configuration dataclass.` |
+| `name` | `Hierarchical instance name used by the profiler.` |
+| `inst_shape` (leaf) | `Per-instance fabrication shape.` |
+| `inst_shape` (xbar) | `Per-instance multiplicity prefix; trailing (col_num, w_digit_count, row_num) is derived from cfg.` |
+| `dtype` | `Tensor dtype for internal buffers.` |
+| `T__K` | `Operating temperature [K].` |
+| `w_logical_shape` | `Logical weight shape (*prefix, N, K) bound to program(...).` |
+| `ideal_xbar` | `When True, the macro replaces its physical xbar with the lossless ideal twin returned by xbar.to_ideal().` |
+
+Per-subclass extra parameters keep their own descriptions; only the shared ones are fixed.
+
+### Methods — full docstring
+
+The following methods, when they appear on a class as a registry impl / override / abstract declaration, use exactly the docstring text below:
+
+```python
+# Family dispatcher (every Xbar / XbarMacro / ADC / DAC / ReadOut / TIA base).
+@classmethod
+def from_config(cls, *, cfg, ...) -> Self:
+    """Build the concrete impl registered for ``type(cfg)``."""
+
+# Leaf per-call snapshot (Driver, OpAmpTIA, NMOS, RRAM).
+def snapshot(self, *, shape: tuple[int, ...]) -> <Name>Snapshot:
+    """Sample one per-call runtime snapshot over ``shape``.
+
+    Args:
+        shape: Per-call broadcast shape; the snapshot fills tensor
+            fields at this shape.
+
+    Returns:
+        Per-call snapshot of the fabricated state.
+    """
+
+# Macro static-weight write (Protocol, IdealMacro, XbarMacro abstract, three XbarMacro impls).
+def program(self, weight: Tensor) -> None:
+    """Write the macro's static weight state from one logical weight tensor.
+
+    Args:
+        weight: Integer weight tensor whose shape matches
+            ``self._w_logical_shape``.
+    """
+
+# Xbar static-weight write (Xbar abstract, IdealXbar, Offset1T1RXbar).
+def program(self, w: Tensor) -> None:
+    """Write the tile's owned device buffers from one xbar-native digit tensor.
+
+    Args:
+        w: Integer digit tensor whose shape matches
+            ``self._w_layout_shape = (*inst_shape, col_num, w_digit_count, row_num)``.
+            Entries must lie in :attr:`w_digit_range`.
+    """
+
+# Macro integer matmul (Protocol, IdealMacro, XbarMacro abstract, three XbarMacro impls).
+# Matches torch.matmul semantics (pure matmul, no bias). Bias add and
+# requantize live in the operator layer.
+def matmul(self, input: Tensor) -> Tensor:
+    """Execute one integer matrix multiply against the programmed weight state.
+
+    Matches ``torch.matmul`` semantics (pure matmul, no bias). Bias add
+    and requantize live in the operator layer.
+
+    Args:
+        input: Integer activation tensor. Shape: ``[..., M, K]``.
+
+    Returns:
+        Integer pre-requantize output tensor. Shape: ``[..., M, N]``.
+    """
+
+# Xbar analog VMM (Xbar abstract, IdealXbar, Offset1T1RXbar).
+def vec_mat_mul(self, x: Tensor) -> Tensor:
+    """Run one analog VMM through the tile.
+
+    Args:
+        x: Activation tensor with primitive trailing ``[row_num]``.
+            Entries must lie in :attr:`x_range`; leading dims are
+            broadcast-only.
+
+    Returns:
+        ADC-code tensor with primitive trailing ``[col_num]``.
+    """
+```
+
+### Properties — one-line entries
+
+```python
+# PPA on every fabricable leaf (analog / digital / device / xbar tile).
+@property
+def area_per_inst__um2(self) -> float:
+    """Silicon area per instance [um^2]."""
+
+@property
+def leakage_per_inst__uW(self) -> float:
+    """Static leakage per instance [uW]."""
+
+@property
+def latency_per_op__ns(self) -> float:
+    """Latency per op [ns]."""
+
+# Macro value-domain (Protocol, IdealMacro, XbarMacro abstract, three XbarMacro impls).
+@property
+def w_value_range(self) -> tuple[int, int]:
+    """Inclusive integer weight range accepted by the macro."""
+
+@property
+def x_value_range(self) -> tuple[int, int]:
+    """Inclusive integer activation range accepted by the macro."""
+
+@property
+def output_rescale_factor(self) -> float:
+    """Ratio of the ideal partial-product max to the actual tile output max."""
+```
+
+**Exception — `latency_per_op__ns(*, bits/adc_bits)`**: ADC and Readout publish a parametric latency (per-conversion or per-VMM-pipeline). Keep the site-specific extended docstring because the signature carries a `bits` keyword the canonical short form cannot describe.
+
+**Exception — `w_digit_range` on `Offset1T1RXbar`**: the offset-coded array's docstring explains the `(-o, S - 1 - o)` derivation, which is offset-specific and worth keeping verbatim.
+
+### What this does not mandate
+
+- Implementation-specific notes (e.g. "Aggregated leakage rolls up from children", "Settling-dominated") may live in the class docstring or in inline comments, but **must not** displace the canonical property docstring text.
+- An override that simply delegates (`return self.cfg.area_per_inst__um2`) may either repeat the canonical one-liner or omit the docstring entirely and inherit from the base / abstract — pick one rule per family and apply it consistently.
 
 ## Property vs method
 

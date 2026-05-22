@@ -1,4 +1,4 @@
-# Default 1T1R xbar configuration.
+# Reference 1T1R xbar configuration (28nm). Bundled preset under neurox/presets/xbar/.
 
 [xbar]
 _neurox_type = "Offset1T1RXbarConfig"
@@ -78,7 +78,7 @@ state_to_g_map__uS = [10.0, 39.7, 69.7, 100.0]
 
 
 [xbar.core_cfg.rram_cfg]
-_neurox_use = "process/rram:rram_28_4state"
+_neurox_use_preset = "process/rram:default"
 
 # --- Noise toggles ---
 enable_read_thermal = false
@@ -88,7 +88,7 @@ enable_stuck_at = false
 
 
 [xbar.core_cfg.nmos_cfg]
-_neurox_use = "process/mos:nmos_28_rvt"
+_neurox_use_preset = "process/mos:nmos_28_rvt"
 
 # --- Mismatch toggles ---
 enable_A_vt_mismatch = false
@@ -123,7 +123,7 @@ area_per_inst__um2 = 10.0
 latency_per_op__ns = 2.0
 
 [xbar.core_cfg.tia_cfg.nmos_cfg]
-_neurox_use = "process/mos:nmos_28_rvt"
+_neurox_use_preset = "process/mos:nmos_28_rvt"
 
 # --- Mismatch toggles ---
 enable_A_vt_mismatch = false

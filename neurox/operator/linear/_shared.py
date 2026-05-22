@@ -1,61 +1,14 @@
 """Shared int-domain math for the Linear operators.
 
-- :func:`run_matmul_pipeline` — int matmul → activation-grid clamp → float dequant.
 - :func:`derive_layer_int_params` — float quantization params → int 5-tuple
-  consumed by the macro.
+  consumed by the macro and the operator. The post-macro requantize +
+  clamp + dequant lives as :meth:`NeuroxOperator.run_matmul_pipeline`.
 """
 
 import torch
 from torch import Tensor
 
-from neurox.macro.base import NeuroxMacroQuantMatMul
 from neurox.operator.qat_util import derive_multiplier_and_shift_tensor
-
-
-def run_matmul_pipeline(
-    input_int: Tensor,
-    bias_int: Tensor,
-    rescale_multiplier: Tensor,
-    rescale_rshift: Tensor,
-    output_zero_point: Tensor,
-    output_scale: Tensor,
-    output_qmin: int | Tensor,
-    output_qmax: int | Tensor,
-    macro: NeuroxMacroQuantMatMul,
-) -> Tensor:
-    """Execute one int matmul through the crossbar macro, clamp, dequantize.
-
-    The macro must already have its weight state programmed via
-    ``macro.program(...)``. Stochastic-vs-deterministic behaviour is driven
-    by ``macro``'s `self.training` plus whatever `fabricate()` cadence the
-    caller chooses.
-
-    Args:
-        input_int: Integer activation tensor already quantized to the grid.
-        bias_int: Folded int32 bias (``round(b / (sx·sw)) - zp_x · sum(w_int)``).
-        rescale_multiplier: Per-channel int32 fixed-point multiplier.
-        rescale_rshift: Per-channel int32 right-shift.
-        output_zero_point: Scalar int32 output zero-point.
-        output_scale: Scalar float32 output scale (used for dequantization).
-        output_qmin: Post-rescale clamp lower bound (output activation grid min).
-            Pass tensors inside a ``@torch.compile`` region to avoid CPU-sync.
-        output_qmax: Post-rescale clamp upper bound.
-        macro: Crossbar macro running the int matmul + rescale.
-
-    Returns:
-        Dequantized float output.
-    """
-    y_int = macro.matmul(
-        input_int,
-        bias_int,
-        rescale_multiplier,
-        rescale_rshift,
-        output_zero_point,
-    )
-    # Match pt2e Q/DQ saturation at the layer boundary.
-    y_int = torch.clamp(y_int, output_qmin, output_qmax)
-    y_float = (y_int.float() - output_zero_point.float()) * output_scale
-    return y_float
 
 
 def derive_layer_int_params(

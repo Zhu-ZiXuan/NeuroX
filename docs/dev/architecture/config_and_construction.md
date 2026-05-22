@@ -64,7 +64,7 @@ This keeps the design visible in one place:
 Every fabricable module takes its per-instance fabrication shape as a constructor argument, not a `fabricate(...)` argument. The argument name varies by layer:
 
 - leaf circuits (analog / digital / device): `inst_shape: tuple[int, ...]`
-- xbar tiles: `w_layout_shape: tuple[int, ...]` (full digit tensor shape)
+- xbar tiles: `inst_shape: tuple[int, ...]` (per-instance multiplicity prefix; trailing `(col_num, w_digit_count, row_num)` is owned by the xbar's own cfg)
 - xbar macros: `w_logical_shape: tuple[int, ...]` (operator-facing weight shape)
 
 The shape is committed once at `__init__`, recorded on `self._inst_shape` (per the `FabricateMixin` contract), and the constructor records the profiler instance count from it. `fabricate()` then carries no arguments; it resamples mismatch at the already-bound shape. See [`fabrication_lifecycle.md`](fabrication_lifecycle.md) for the lifecycle.

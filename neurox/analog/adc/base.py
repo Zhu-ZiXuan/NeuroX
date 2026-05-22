@@ -78,18 +78,7 @@ class ADC(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["ADCConfig
         dtype: torch.dtype,
         T__K: float,
     ) -> ADC:
-        """Build the concrete ADC implementation for ``type(cfg)``.
-
-        Args:
-            cfg: ADC configuration.
-            name: Profiler/debug name.
-            inst_shape: Per-instance fabrication shape.
-            dtype: Tensor dtype for internal buffers.
-            T__K: Operating temperature [K].
-
-        Returns:
-            Concrete ADC implementation registered for ``type(cfg)``.
-        """
+        """Build the concrete impl registered for ``type(cfg)``."""
         impl = cls._lookup_impl(type(cfg))
         return impl(cfg=cfg, name=name, inst_shape=inst_shape, dtype=dtype, T__K=T__K)
 
@@ -105,8 +94,8 @@ class ADC(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["ADCConfig
         """Register the instance with :class:`nn.Module` and the profiler.
 
         Args:
-            cfg: ADC configuration.
-            name: Profiler/debug name.
+            cfg: Concrete configuration dataclass.
+            name: Hierarchical instance name used by the profiler.
             inst_shape: Per-instance fabrication shape.
             dtype: Tensor dtype for internal buffers.
             T__K: Operating temperature [K].
@@ -157,11 +146,11 @@ class ADC(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["ADCConfig
     @property
     @abstractmethod
     def area_per_inst__um2(self) -> float:
-        """Silicon area per ADC instance in [um^2]."""
+        """Silicon area per instance [um^2]."""
         raise NotImplementedError
 
     @property
     @abstractmethod
     def leakage_per_inst__uW(self) -> float:
-        """Static leakage power per ADC instance in [uW]."""
+        """Static leakage per instance [uW]."""
         raise NotImplementedError

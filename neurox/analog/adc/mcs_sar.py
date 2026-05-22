@@ -133,11 +133,10 @@ class McsSarAdc(ADC):
     """V_cm-based (MCS) differential SAR ADC.
 
     Args:
-        cfg: Topology configuration.
-        name: Hierarchical profiler name (must be supplied explicitly).
-        dtype: Floating-point dtype for internal voltage arithmetic.
-        T__K: Operating temperature in Kelvin.  Drives the kT/C
-            sampling-noise model. Must be ``> 0``.
+        cfg: Concrete configuration dataclass.
+        name: Hierarchical instance name used by the profiler.
+        dtype: Tensor dtype for internal buffers.
+        T__K: Operating temperature [K].
     """
 
     nominal_c__fF: Tensor
@@ -239,10 +238,12 @@ class McsSarAdc(ADC):
 
     @property
     def area_per_inst__um2(self) -> float:
+        """Silicon area per instance [um^2]."""
         return self.cfg.area_per_inst__um2
 
     @property
     def leakage_per_inst__uW(self) -> float:
+        """Static leakage per instance [uW]."""
         return self.cfg.leakage_per_inst__uW
 
     def latency_per_op__ns(self, *, bits: int) -> float:

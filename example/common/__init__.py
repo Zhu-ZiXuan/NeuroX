@@ -1,8 +1,8 @@
 """Shared helpers for NeuroX example scripts.
 
 - ``macro_factory``: :func:`build_macro_factory` and
-  :func:`derive_quant_spec` — the two pieces every CLI needs to
-  wire the ``--config`` and ``--xbar`` flags into
+  :func:`derive_quant_spec` — the two pieces every example needs to
+  wire its macro TOML and ``--xbar`` choice into
   ``neurox.replace_for_hat`` / ``neurox.build_evaluator``.
 - ``pt2e``: one-way extractor from a torchao pt2e prepared graph into
   the NeuroX-flat state_dict schema.

@@ -21,8 +21,7 @@ import pytest
 import torch
 
 pytestmark = pytest.mark.skip(
-    reason="Legacy Offset1T1RXbar(core_factory=, readout_factory=) API removed; "
-    "fixtures need rewriting to the new Xbar.from_config-based path."
+    reason="Fixtures need rewriting to the Xbar.from_config-based construction path."
 )
 
 from neurox.analog import (
@@ -40,7 +39,7 @@ from neurox.analog.tia import OpAmpTIA, OpAmpTIAConfig
 from neurox.analog.adc import GeneralADC, GeneralADCConfig
 from neurox.analog.readout import OffsetSwitchCapMuxAdcReadOut, ReadOutConfig
 from neurox.common import T_ROOM__K, dict_configs_from_file, dict_from_file, thermal_voltage__V
-from neurox.config import DEFAULT_1T1R_MACRO_TOML
+from pathlib import Path as _Path
 from neurox.device import NMOS, RRAM, NMOSConfig, RRAMConfig
 from neurox.digital import Subtractor, SubtractorConfig
 from neurox.xbar import (
@@ -50,7 +49,7 @@ from neurox.xbar import (
     Offset1T1RXbarConfig,
 )
 
-CONFIG_FILE = DEFAULT_1T1R_MACRO_TOML
+CONFIG_FILE = _Path(__file__).parent / "fixtures" / "macro.toml"
 
 _SPECS = {
     "rram": RRAMConfig,

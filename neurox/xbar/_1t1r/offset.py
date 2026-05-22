@@ -85,22 +85,13 @@ class Offset1T1RXbar(Xbar):
         *,
         cfg: Offset1T1RXbarConfig,
         name: str,
-        w_layout_shape: tuple[int, ...],
+        inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
     ) -> None:
-        super().__init__(cfg=cfg, name=name, w_layout_shape=w_layout_shape, dtype=dtype, T__K=T__K)
+        super().__init__(cfg=cfg, name=name, inst_shape=inst_shape, dtype=dtype, T__K=T__K)
 
         prefix = self._inst_shape
-        data_num, digit_num, row_num = w_layout_shape[-3:]
-        if data_num != cfg.col_num:
-            raise ValueError(f"w_layout_shape data dim ({data_num}) must equal cfg.col_num ({cfg.col_num})")
-        if digit_num != cfg.w_digit_count:
-            raise ValueError(
-                f"w_layout_shape digit dim ({digit_num}) must equal cfg.w_digit_count ({cfg.w_digit_count})"
-            )
-        if row_num != cfg.row_num:
-            raise ValueError(f"w_layout_shape row dim ({row_num}) must equal cfg.row_num ({cfg.row_num})")
 
         # Positional weights: ``[r^0, r^1, ..., r^(D-1)]``.
         self.digit_weights = tuple(float(cfg.w_digit_radix**k) for k in range(cfg.w_digit_count))
@@ -115,7 +106,7 @@ class Offset1T1RXbar(Xbar):
         self.core = CircuitCore1T1R(
             cfg=cfg.core_cfg,
             name=core_name,
-            w_layout_shape=(*prefix, self.physical_col_num, row_num),
+            w_layout_shape=(*prefix, self.physical_col_num, cfg.row_num),
             dtype=dtype,
             T__K=T__K,
         )
@@ -178,7 +169,7 @@ class Offset1T1RXbar(Xbar):
         Args:
             w: Xbar-native digit tensor in :attr:`w_digit_range`, shape
                 matching ``self._w_layout_shape =
-                (*prefix, col_num, w_digit_count, row_num)``.
+                (*inst_shape, col_num, w_digit_count, row_num)``.
         """
         if tuple(w.shape) != self._w_layout_shape:
             raise ValueError(f"program() expects w.shape {self._w_layout_shape}; got {tuple(w.shape)}")
@@ -196,7 +187,7 @@ class Offset1T1RXbar(Xbar):
                 ``[row_num]``.
 
         Returns:
-            ADC-code tensor with primitive trailing ``[data_num]``.
+            ADC-code tensor with primitive trailing ``[col_num]``.
         """
         # Shape: [..., row_num] -> [..., 1, row_num].
         core_dcop = self.core.solve_dc(x.unsqueeze(-2))

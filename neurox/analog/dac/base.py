@@ -51,26 +51,26 @@ class DAC(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["DACConfig
         dtype: torch.dtype,
         T__K: float,
     ) -> DAC:
-        """Build the concrete DAC model for ``type(cfg)``."""
+        """Build the concrete impl registered for ``type(cfg)``."""
         impl = cls._lookup_impl(type(cfg))
         return impl(cfg=cfg, name=name, inst_shape=inst_shape, dtype=dtype, T__K=T__K)
 
     @property
     @abstractmethod
     def area_per_inst__um2(self) -> float:
-        """Circuit area per instance in [um2]."""
+        """Silicon area per instance [um^2]."""
         raise NotImplementedError
 
     @property
     @abstractmethod
     def leakage_per_inst__uW(self) -> float:
-        """Circuit leakage power per instance in [uW]."""
+        """Static leakage per instance [uW]."""
         raise NotImplementedError
 
     @property
     @abstractmethod
     def latency_per_op__ns(self) -> float:
-        """Latency per operation in [ns]."""
+        """Latency per op [ns]."""
         raise NotImplementedError
 
     @abstractmethod

@@ -39,8 +39,8 @@ import pytest
 import torch
 
 pytestmark = pytest.mark.skip(
-    reason="Legacy XbarMacro/XbarMapper API removed; fixtures need rewriting "
-    "to InterXbarSliceMacro (see neurox/macro/inter_xbar_slice.py)."
+    reason="Fixtures need rewriting to the InterArraySliceXbarMacro API "
+    "(see neurox/macro/xbar/inter_array_slice.py)."
 )
 
 from neurox.analog import (
@@ -58,13 +58,11 @@ from neurox.analog.tia import OpAmpTIA, OpAmpTIAConfig
 from neurox.analog.adc import GeneralADC, GeneralADCConfig
 from neurox.analog.readout import OffsetSwitchCapMuxAdcReadOut, ReadOutConfig
 from neurox.common import T_ROOM__K, dict_configs_from_file, dict_from_file, thermal_voltage__V
-from neurox.config import DEFAULT_1T1R_MACRO_TOML
+from pathlib import Path as _Path
 from neurox.device import NMOS, RRAM, NMOSConfig, RRAMConfig
 from neurox.digital import (
     Accumulator,
     AccumulatorConfig,
-    Requantizer,
-    RequantizerConfig,
     ShiftAdder,
     ShiftAdderConfig,
     Subtractor,
@@ -79,7 +77,7 @@ from neurox.xbar import (
     Offset1T1RXbarConfig,
 )
 
-CONFIG_FILE = DEFAULT_1T1R_MACRO_TOML
+CONFIG_FILE = _Path(__file__).parent / "fixtures" / "macro.toml"
 
 _SPECS = {
     "rram": RRAMConfig,
@@ -109,9 +107,8 @@ def _compute_nmos_ref_conductance(
 ) -> tuple[float, float]:
     """Scalar (g_on, g_off) reference mirroring NMOS.fabricate_switch_state.
 
-    Operating temperature is no longer a config field; the test
-    fixtures build NMOS with the default ``T_ROOM__K``, so the
-    analytic reference matches at the same temperature.
+    The test fixtures build NMOS with ``T_ROOM__K``, matching the
+    operating temperature this analytic reference assumes.
     """
     beta = cfg_nmos.mu_Cox__mA_V2 * (cfg_nmos.W__nm / cfg_nmos.L__nm)
     V_T = thermal_voltage__V(T_ROOM__K)

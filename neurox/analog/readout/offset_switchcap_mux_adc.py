@@ -107,12 +107,12 @@ class OffsetSwitchCapMuxAdcReadOut(ReadOut):
 
     @property
     def area_per_inst__um2(self) -> float:
-        """Silicon area of this readout's own orchestration logic [um^2]."""
+        """Silicon area per instance [um^2]."""
         return self.cfg.area_per_inst__um2
 
     @property
     def leakage_per_inst__uW(self) -> float:
-        """Static leakage of this readout's own orchestration logic [uW]."""
+        """Static leakage per instance [uW]."""
         return self.cfg.leakage_per_inst__uW
 
     def latency_per_op__ns(self, *, adc_bits: int) -> float:

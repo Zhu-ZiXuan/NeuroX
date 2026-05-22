@@ -5,14 +5,17 @@ See also:
 """
 
 from .base import XbarMacro, XbarMacroConfig
-from .inter_xbar_slice import InterXbarSliceMacro, InterXbarSliceMacroConfig
-from .intra_xbar_slice import IntraXbarSliceMacro, IntraXbarSliceMacroConfig
+from .direct import DirectXbarMacro, DirectXbarMacroConfig
+from .inter_array_slice import InterArraySliceXbarMacro, InterArraySliceXbarMacroConfig
+from .intra_array_slice import IntraArraySliceXbarMacro, IntraArraySliceXbarMacroConfig
 
 __all__ = [
-    "InterXbarSliceMacro",
-    "InterXbarSliceMacroConfig",
-    "IntraXbarSliceMacro",
-    "IntraXbarSliceMacroConfig",
+    "DirectXbarMacro",
+    "DirectXbarMacroConfig",
+    "InterArraySliceXbarMacro",
+    "InterArraySliceXbarMacroConfig",
+    "IntraArraySliceXbarMacro",
+    "IntraArraySliceXbarMacroConfig",
     "XbarMacro",
     "XbarMacroConfig",
 ]

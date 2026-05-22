@@ -103,12 +103,10 @@ class Xbar(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["XbarConf
     """Abstract base class for a physical crossbar tile.
 
     Args:
-        cfg: Tile geometry, runtime ADC operating point, and PPA.
+        cfg: Concrete configuration dataclass.
         name: Hierarchical instance name used by the profiler.
-        w_layout_shape: Full xbar-native digit-tensor shape
-            ``(*prefix, data_num, digit_num, row_num)`` the tile will
-            receive in :meth:`program`. Per-instance multiplicity is
-            ``w_layout_shape[:-3]``.
+        inst_shape: Per-instance multiplicity prefix; trailing
+            ``(col_num, w_digit_count, row_num)`` is derived from cfg.
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature [K].
     """
@@ -122,7 +120,7 @@ class Xbar(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["XbarConf
         *,
         cfg: XbarConfig,
         name: str,
-        w_layout_shape: tuple[int, ...],
+        inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
     ) -> None:
@@ -132,12 +130,7 @@ class Xbar(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["XbarConf
         self.T__K = T__K
         self.dtype = dtype
 
-        if len(w_layout_shape) < 3:
-            raise ValueError(
-                f"w_layout_shape must have at least 3 trailing dims (data_num, digit_num, row_num); got {w_layout_shape}"
-            )
-        self._w_layout_shape = tuple(w_layout_shape)
-        self._inst_shape = self._w_layout_shape[:-3]
+        self._inst_shape = inst_shape
 
         self.col_num = cfg.col_num
         self.row_num = cfg.row_num
@@ -148,35 +141,40 @@ class Xbar(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["XbarConf
         # `_log_static` is called by the concrete subclass at the end of its
         # ``__init__`` — base does not call to avoid double-recording.
 
+    @property
+    def _w_layout_shape(self) -> tuple[int, ...]:
+        """Full digit-tensor shape ``(*inst_shape, col_num, w_digit_count, row_num)``."""
+        return (*self._inst_shape, self.col_num, self.w_digit_count, self.row_num)
+
     @classmethod
     def from_config(
         cls,
         *,
         cfg: XbarConfig,
         name: str,
-        w_layout_shape: tuple[int, ...],
+        inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
     ) -> Xbar:
         """Build the concrete impl registered for ``type(cfg)``."""
         impl = cls._lookup_impl(type(cfg))
-        return impl(cfg=cfg, name=name, w_layout_shape=w_layout_shape, dtype=dtype, T__K=T__K)
+        return impl(cfg=cfg, name=name, inst_shape=inst_shape, dtype=dtype, T__K=T__K)
 
     # ----- PPA properties (delegated to the immutable config) -----
 
     @property
     def area_per_inst__um2(self) -> float:
-        """Area per instance in um2."""
+        """Silicon area per instance [um^2]."""
         return self.cfg.area_per_inst__um2
 
     @property
     def leakage_per_inst__uW(self) -> float:
-        """Leakage per instance in uW."""
+        """Static leakage per instance [uW]."""
         return self.cfg.leakage_per_inst__uW
 
     @property
     def latency_per_op__ns(self) -> float:
-        """Latency per op in ns."""
+        """Latency per op [ns]."""
         return self.cfg.latency_per_op__ns
 
     # ----- Value-domain semantics (abstract) -----
@@ -229,9 +227,8 @@ class Xbar(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["XbarConf
         Args:
             w: Integer digit tensor whose shape matches
                 :attr:`_w_layout_shape` —
-                ``(*prefix, data_num, digit_num, row_num)`` where
-                ``digit_num == self.w_digit_count``. Entries must lie
-                in :attr:`w_digit_range`.
+                ``(*inst_shape, col_num, w_digit_count, row_num)``.
+                Entries must lie in :attr:`w_digit_range`.
         """
         raise NotImplementedError
 
@@ -245,7 +242,7 @@ class Xbar(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["XbarConf
                 leading dims are broadcast-only.
 
         Returns:
-            Output tensor with primitive trailing ``[data_num]``.
+            Output tensor with primitive trailing ``[col_num]``.
         """
         raise NotImplementedError
 
@@ -253,9 +250,8 @@ class Xbar(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["XbarConf
         """Return the lossless :class:`IdealXbar` counterpart of this tile.
 
         The new ``IdealXbar`` inherits this tile's per-instance
-        multiplicity; the primitive trailing dims of its
-        ``w_layout_shape`` are ``(col_num, w_digit_count, row_num)``.
-        ``IdealXbar.to_ideal`` overrides this to ``return self``.
+        multiplicity. ``IdealXbar.to_ideal`` overrides this to
+        ``return self``.
         """
         # Local import — the ``ideal`` module imports from this file,
         # so the symbol is only safe to resolve at call time.
@@ -269,11 +265,10 @@ class Xbar(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["XbarConf
             w_digit_radix=self.w_digit_radix,
             w_digit_range=self.w_digit_range,
         )
-        ideal_layout_shape = (*self._inst_shape, self.cfg.col_num, self.w_digit_count, self.cfg.row_num)
         return IdealXbar(
             cfg=ideal_cfg,
             name=self.qualified_name,
-            w_layout_shape=ideal_layout_shape,
+            inst_shape=self._inst_shape,
             dtype=self.dtype,
             T__K=self.T__K,
         )

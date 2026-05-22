@@ -27,7 +27,7 @@ Devices do not own a `name` — selector PPA rolls up to the consuming circuit.
 
 `Selector` inherits `FabricateMixin`. Each `fabricate()` call resamples the static V_th map via `_sample_fabricate_mismatch()`, populating `vth__V` at `(*self._inst_shape,)` from `nominal_vth__V`.
 
-`sample_vth_like(reference)` returns `vth__V` broadcast to the reference tensor's shape, device, and dtype. There is no longer a `training` / `eval` branch in this method — resampling cadence is owned by the operator's training loop, which calls `model.fabricate()` per training step (for noise-aware training) or once at inference setup.
+`sample_vth_like(reference)` returns `vth__V` broadcast to the reference tensor's shape, device, and dtype. Resampling cadence is owned by the operator's training loop, which calls `model.fabricate()` per training step (for noise-aware training) or once at inference setup.
 
 See also:
 

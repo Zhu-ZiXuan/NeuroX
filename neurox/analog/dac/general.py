@@ -95,17 +95,17 @@ class GeneralDAC(DAC):
 
     @property
     def area_per_inst__um2(self) -> float:
-        """Circuit area per instance in [um2]."""
+        """Silicon area per instance [um^2]."""
         return self.cfg.area_per_inst__um2
 
     @property
     def leakage_per_inst__uW(self) -> float:
-        """Circuit leakage power per instance in [uW]."""
+        """Static leakage per instance [uW]."""
         return self.cfg.leakage_per_inst__uW
 
     @property
     def latency_per_op__ns(self) -> float:
-        """Latency per operation in [ns]."""
+        """Latency per op [ns]."""
         return self.cfg.latency_per_op__ns
 
     def convert(self, code: Tensor) -> Tensor:

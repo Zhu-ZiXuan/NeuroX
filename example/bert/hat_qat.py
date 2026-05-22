@@ -50,7 +50,8 @@ from example.bert.data import create_sst2_dataloader
 from example.bert.model import create_bert_small
 from example.common import build_macro_factory, derive_quant_spec
 from neurox import replace as neurox
-from neurox.config import DEFAULT_1T1R_MACRO_TOML
+
+MACRO_CONFIG = Path(__file__).parent / "macro.toml"
 
 
 def _validate(model: nn.Module, loader: DataLoader, device: torch.device) -> float:
@@ -114,12 +115,6 @@ def main() -> None:
     parser.add_argument("--checkpoint", type=Path, required=True, help="Output NeuroX-flat checkpoint path")
     parser.add_argument("--device", type=str, default="cuda:0", help="Device for HAT fine-tuning")
     parser.add_argument(
-        "--config",
-        type=Path,
-        default=DEFAULT_1T1R_MACRO_TOML,
-        help="Chip TOML (bundled default covers the reference 1T1R tile).",
-    )
-    parser.add_argument(
         "--xbar",
         choices=("physical", "ideal"),
         default="ideal",
@@ -161,11 +156,11 @@ def main() -> None:
 
     device = torch.device(args.device)
 
-    # Chip config drives both the operator quantisation grid and the
-    # macro-factory wiring, so the two CLI knobs (``--config`` and
-    # ``--xbar``) are sufficient to fully specify the hardware target.
-    spec = derive_quant_spec(args.config)
-    macro_factory = build_macro_factory(args.config, xbar=args.xbar)
+    # ``MACRO_CONFIG`` (TOML next to this script) drives both the operator
+    # quantisation grid and the macro-factory wiring; ``--xbar`` selects
+    # the tile implementation.
+    spec = derive_quant_spec(MACRO_CONFIG)
+    macro_factory = build_macro_factory(MACRO_CONFIG, xbar=args.xbar)
 
     # --- 1. Load fine-tuned float weights ---
     float_state = torch.load(args.float_checkpoint, map_location="cpu", weights_only=True)
@@ -195,7 +190,7 @@ def main() -> None:
     n_conv = sum(1 for m in student.modules() if isinstance(m, HATConv2d))
     print(
         f"HAT grid: x[{spec.x_qmin},{spec.x_qmax}]  w[±{spec.w_qmax}]  "
-        f"y[{spec.y_qmin},{spec.y_qmax}]  xbar={args.xbar}  (from {args.config.name})"
+        f"y[{spec.y_qmin},{spec.y_qmax}]  xbar={args.xbar}  (from {MACRO_CONFIG.name})"
     )
     print(f"HAT layers: {n_lin} Linear, {n_conv} Conv2d")
     print(f"KD: alpha_ce={args.kd_alpha}  T={args.kd_temperature}  hidden_weight={args.kd_hidden_weight}")
@@ -340,7 +335,7 @@ def main() -> None:
                 "w_qmax": spec.w_qmax,
                 "y_qmin": spec.y_qmin,
                 "y_qmax": spec.y_qmax,
-                "hardware_config": str(args.config),
+                "hardware_config": str(MACRO_CONFIG),
                 "xbar_used_during_hat": args.xbar,
                 "kd_alpha": args.kd_alpha,
                 "kd_temperature": args.kd_temperature,

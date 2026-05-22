@@ -141,13 +141,13 @@ def _fold_bias(
     """Fold ``(bias / (sx * sw) - zp_x * sum_K(w_int)) / rescale_factor`` into int32.
 
     The folded bias is added into the int MAC accumulator before the
-    single ``Requantizer`` step.  The cross-term absorbs the activation
-    zero-point shift; the division by ``rescale_factor`` compensates
-    for the fact that ``y_agg`` emitted by the crossbar is already in
-    ADC-code scale (``rf`` codes ≈ 1 ideal-integer state), so adding
-    an ideal-scale bias before the requantize would over-weight it by
-    ``rf``.  See ``neurox.operator.linear.derive_layer_int_params`` for
-    the algebraic derivation.
+    operator's inline multiply-shift requantize.  The cross-term absorbs
+    the activation zero-point shift; the division by ``rescale_factor``
+    compensates for the fact that ``y_agg`` emitted by the crossbar is
+    already in ADC-code scale (``rf`` codes ≈ 1 ideal-integer state),
+    so adding an ideal-scale bias before the requantize would over-weight
+    it by ``rf``.  See ``neurox.operator.linear.derive_layer_int_params``
+    for the algebraic derivation.
     """
     device = w_int.device
     # Sum integer weights across all non-out-channel dims.
@@ -207,7 +207,7 @@ def _extract_layer(
     pt2e prepared graph whose parameters were updated by QAT fine-tuning)
     rather than from any pre-QAT float reference.  ``rescale_factor``
     is folded into both the bias and the ``(mult, rshift)`` pair so the
-    macro's single requantize covers the full ADC-correction +
+    operator's inline requantize covers the full ADC-correction +
     output-rescale math in one shot (see
     ``derive_layer_int_params`` docstring for the derivation).
     """
@@ -316,7 +316,7 @@ def pt2e_to_neurox_state(
             for quantized layers are always read from ``prepared``.
         rescale_factor: Target macro's ``output_rescale_factor``
             (``N_states / N_codes``).  Multiplied into ``(mult, rshift)``
-            and divided into the folded bias so the macro's single
+            and divided into the folded bias so the operator's inline
             requantize produces correctly-scaled output.  Pass
             ``1.0`` (default) for macros whose ADC already covers the
             full ideal state range (e.g. ``IdealMacro``).

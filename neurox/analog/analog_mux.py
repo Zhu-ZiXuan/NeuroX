@@ -76,10 +76,10 @@ class AnalogMux(FabricateMixin, nn.Module, ProfileMixin):
     """Differential voltage-transport block — gain + CM/DM noise + access energy.
 
     Args:
-        cfg: Immutable :class:`AnalogMuxConfig`.
-        name: Hierarchical profiler name.
+        cfg: Concrete configuration dataclass.
+        name: Hierarchical instance name used by the profiler.
         inst_shape: Per-instance fabrication shape.
-        dtype: Floating-point dtype.
+        dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature [K].
     """
 
@@ -102,14 +102,17 @@ class AnalogMux(FabricateMixin, nn.Module, ProfileMixin):
 
     @property
     def area_per_inst__um2(self) -> float:
+        """Silicon area per instance [um^2]."""
         return self.cfg.area_per_inst__um2
 
     @property
     def leakage_per_inst__uW(self) -> float:
+        """Static leakage per instance [uW]."""
         return self.cfg.leakage_per_inst__uW
 
     @property
     def latency_per_op__ns(self) -> float:
+        """Latency per op [ns]."""
         return self.cfg.latency_per_op__ns
 
     def transport(

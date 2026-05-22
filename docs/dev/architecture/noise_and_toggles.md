@@ -47,10 +47,10 @@ class FooConfig(ValidateMixin):
 
 ## Where parameter values live
 
-- **Device-level PDK facts** (Pelgrom coefficients, intrinsic device noise sigmas, sub-config parameter blocks) live in `neurox/config/process/<class>.toml` alongside the other physical parameters of that device variant. These files stay portable across project boundaries and contain **no `enable_*` toggles**.
-- **Toggles** live one layer up, on the consuming chip / macro / circuit cfg. In `default_1t1r.toml` they appear inline alongside the `_neurox_use` directive that pulls in the device's physical parameters.
+- **Device-level PDK facts** (Pelgrom coefficients, intrinsic device noise sigmas, sub-config parameter blocks) live in `neurox/presets/process/<class>.toml` alongside the other physical parameters of that device variant. These files stay portable across project boundaries and contain **no `enable_*` toggles**.
+- **Toggles** live one layer up, on the consuming chip / macro / circuit cfg. In the xbar preset (`neurox/presets/xbar/<chip>.toml`) and user-side macro configs they appear inline alongside the `_neurox_use_preset` directive that pulls in the device's physical parameters.
 
-This split keeps `process/*.toml` as pure PDK records and concentrates experimental-decision state in the chip-level TOML.
+This split keeps `presets/process/*.toml` as pure PDK records and concentrates experimental-decision state in the chip-level / macro-level TOML.
 
 ## Runtime semantics
 

@@ -14,7 +14,8 @@ from torch.utils.data import DataLoader
 from example.common import build_macro_factory, run_evaluate
 from example.lenet.data import create_mnist_dataloader
 from example.lenet.model import LeNet5
-from neurox.config import DEFAULT_1T1R_MACRO_TOML
+
+MACRO_CONFIG = Path(__file__).parent / "macro.toml"
 
 
 def main() -> None:
@@ -22,12 +23,6 @@ def main() -> None:
     parser.add_argument("--dataset-dir", type=Path, required=True, help="MNIST root directory")
     parser.add_argument("--checkpoint", type=Path, required=True, help="NeuroX-flat checkpoint path")
     parser.add_argument("--device", type=str, default="cuda:0", help="Torch device for inference")
-    parser.add_argument(
-        "--config",
-        type=Path,
-        default=DEFAULT_1T1R_MACRO_TOML,
-        help="Chip TOML (defaults to the bundled 1T1R reference).",
-    )
     parser.add_argument(
         "--xbar",
         choices=("physical", "ideal"),
@@ -53,10 +48,10 @@ def main() -> None:
     run_evaluate(
         float_model=LeNet5(),
         checkpoint=args.checkpoint,
-        macro_factory=build_macro_factory(args.config, xbar=args.xbar),
+        macro_factory=build_macro_factory(MACRO_CONFIG, xbar=args.xbar),
         loader_factory=_loader,
         device=device,
-        macro_name=f"{args.xbar}@{args.config.name}",
+        macro_name=f"{args.xbar}@{MACRO_CONFIG.name}",
         max_samples=args.max_samples,
     )
 

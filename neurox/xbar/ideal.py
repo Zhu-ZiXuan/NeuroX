@@ -43,11 +43,10 @@ class IdealXbar(Xbar):
     """Tile-level ideal VMM with output quantization.
 
     Args:
-        cfg: Ideal-xbar configuration carrying both the base
-            :class:`XbarConfig` fields and the four structural fields.
-        name: Hierarchical profiler name.
-        w_layout_shape: Full digit-tensor shape
-            ``(*prefix, data_num, digit_num, row_num)``.
+        cfg: Concrete configuration dataclass.
+        name: Hierarchical instance name used by the profiler.
+        inst_shape: Per-instance multiplicity prefix; trailing
+            ``(col_num, w_digit_count, row_num)`` is derived from cfg.
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature [K].
     """
@@ -62,21 +61,15 @@ class IdealXbar(Xbar):
         *,
         cfg: IdealXbarConfig,
         name: str,
-        w_layout_shape: tuple[int, ...],
+        inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
     ) -> None:
-        super().__init__(cfg=cfg, name=name, w_layout_shape=w_layout_shape, dtype=dtype, T__K=T__K)
+        super().__init__(cfg=cfg, name=name, inst_shape=inst_shape, dtype=dtype, T__K=T__K)
         if cfg.w_digit_count <= 0:
             raise ValueError(f"require: w_digit_count ({cfg.w_digit_count}) > 0")
         if cfg.w_digit_radix <= 1:
             raise ValueError(f"require: w_digit_radix ({cfg.w_digit_radix}) > 1")
-
-        _data_num, digit_num, _row_num = w_layout_shape[-3:]
-        if digit_num != cfg.w_digit_count:
-            raise ValueError(
-                f"w_layout_shape digit dim ({digit_num}) must equal cfg.w_digit_count ({cfg.w_digit_count})"
-            )
 
         # 0-d nominal digit template (zero = unprogrammed weight).
         self.register_buffer(
@@ -125,7 +118,7 @@ class IdealXbar(Xbar):
         Args:
             w: Integer digit tensor whose shape matches
                 :attr:`_w_layout_shape` —
-                ``(*prefix, data_num, digit_num, row_num)``.
+                ``(*inst_shape, col_num, w_digit_count, row_num)``.
         """
         if tuple(w.shape) != self._w_layout_shape:
             raise ValueError(f"program() expects w.shape {self._w_layout_shape}; got {tuple(w.shape)}")
@@ -139,10 +132,10 @@ class IdealXbar(Xbar):
                 ``[row_num]``.
 
         Returns:
-            ADC-code tensor with primitive trailing ``[data_num]``.
+            ADC-code tensor with primitive trailing ``[col_num]``.
         """
         digits = self.digits
-        # Shape: [..., data_num, digit_num, row_num] -> [..., data_num, row_num].
+        # Shape: [..., col_num, w_digit_count, row_num] -> [..., col_num, row_num].
         digit_weights = self.digit_weights.to(digits.dtype).view(*([1] * (digits.ndim - 2)), -1, 1)
         w_logic = (digits * digit_weights).sum(dim=-2)
 
@@ -152,7 +145,7 @@ class IdealXbar(Xbar):
         full_shape = torch.broadcast_shapes(w_logic.shape, x.shape)
         w_logic = w_logic.expand(full_shape)
         x = x.expand(full_shape)
-        # Shape: [..., data_num]
+        # Shape: [..., col_num]
         dot = (x * w_logic).sum(dim=-1)
 
         rf = self.output_rescale_factor

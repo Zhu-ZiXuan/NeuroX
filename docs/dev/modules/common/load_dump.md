@@ -7,18 +7,19 @@
 ## Public surface
 
 - `dataclass_from_dict(cls, data)` / `dataclass_to_dict(obj)` — in-memory round-trip between a dataclass tree and nested dicts.
-- `dataclass_from_file(cls, *files, section=..., encoding=..., strict_type=...)` / `dataclass_to_file(obj, file, encoding=...)` — TOML / YAML file round-trip; resolves `_neurox_use` directives.
-- `dict_from_file` / `dict_to_file` — raw dict access without dataclass coercion or `_neurox_use` expansion.
+- `dataclass_from_file(cls, *files, section=..., encoding=..., strict_type=...)` / `dataclass_to_file(obj, file, encoding=...)` — TOML / YAML file round-trip; resolves `_neurox_use` and `_neurox_use_preset` directives.
+- `dict_from_file` / `dict_to_file` — raw dict access without dataclass coercion or directive expansion.
 - `dict_configs_from_file` / `dict_configs_to_file` — multi-config file helpers where each top-level table maps to a distinct dataclass.
 - `merge_dicts` — deep overlay merging multiple dicts in priority order.
-- `resolve_uses(data, base_dir)` — explicit `_neurox_use` resolver for raw-dict callers.
+- `resolve_uses(data, base_dir)` — explicit directive resolver for raw-dict callers.
 
 ## NeuroX-private extension keys
 
-The loader recognises two NeuroX-private string-valued keys:
+The loader recognises three NeuroX-private string-valued keys:
 
 - `_neurox_type` — polymorphic-dataclass discriminator
-- `_neurox_use` — cross-file fragment reference
+- `_neurox_use` — cross-file fragment reference (user-side; relative to current file)
+- `_neurox_use_preset` — library-preset fragment reference (anchored at `neurox/presets/`)
 
 External TOML / YAML parsers treat them as ordinary strings.
 
@@ -52,17 +53,36 @@ Any sub-table may carry a `_neurox_use = "<rel_path>:<section>"` directive. The 
 
 `_neurox_use` resolves recursively (a fragment may itself contain `_neurox_use`) and rejects cycles. Resolution happens before the `_neurox_type` discriminator dispatch and before section pluck.
 
-`resolve_uses(data, base_dir)` is exposed for callers that load via `dict_from_file` and need the expanded form. `dict_from_file` itself returns the raw dict, leaving `_neurox_use` strings in place.
+`resolve_uses(data, base_dir)` is exposed for callers that load via `dict_from_file` and need the expanded form. `dict_from_file` itself returns the raw dict, leaving directive strings in place.
+
+## `_neurox_use_preset` library references
+
+`_neurox_use_preset = "<rel_path>:<section>"` resolves the path relative to the `neurox/presets/` directory (located via `importlib.resources.files("neurox") / "presets"`, so editable installs and wheel installs both work). Suffix inference (`.toml`/`.yaml`/`.yml`) and inline-override merge semantics mirror `_neurox_use`.
+
+The two directives differ only in path resolution and in the invariant they enforce on the referenced subtree:
+
+| Aspect | `_neurox_use` | `_neurox_use_preset` |
+| --- | --- | --- |
+| Path resolution base | Directory of the file containing the directive | `neurox/presets/` |
+| Intended use | User-side sibling fragments | Library reference parameters bundled with `neurox` |
+| Versioned with | The user's project | The `neurox` package |
+| Allowed inside `neurox/presets/` | **No** — error | Yes |
+
+Files under `neurox/presets/` **must** use `_neurox_use_preset` for cross-file references; encountering `_neurox_use` anywhere inside a preset subtree raises `ValueError`. This keeps every preset's dependency graph closed inside the package — moving or copying a preset file cannot silently re-bind its references.
+
+Preset paths are forward-only relative paths from the presets root. Leading `./`, `..` segments, and absolute paths are all rejected at parse time.
+
+The two directives are mutually exclusive in the same sub-table (one or the other, never both).
 
 ### Device-fragment purity rule
 
-Files under `neurox/config/process/` carry only physical parameters:
+Files under `neurox/presets/process/` carry only physical parameters:
 
 - one file per device class (`mos.toml`, `rram.toml`, `wire.toml`, …)
-- one top-level table per variant, named `<class>_<node>_<flavor>`
+- one top-level table per variant: `default` for the bundled default, `<node>_<flavor>` for variant-specific presets (the class is encoded by the filename, so the section name doesn't repeat it)
 - no `_neurox_*` keys
 
-`_neurox_use` / `_neurox_type` live in the consuming macro / architecture configs.
+`_neurox_use` / `_neurox_use_preset` / `_neurox_type` live in the consuming macro / architecture configs.
 
 See also:
 

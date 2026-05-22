@@ -8,7 +8,7 @@ The project applies `@torch.compile` at exactly one layer: the **macro entry met
 
 Concretely:
 
-- Concrete xbar-macro `matmul` methods (`InterXbarSliceMacro.matmul`, `IntraXbarSliceMacro.matmul`) are decorated `@torch.no_grad()` / `@torch.compile(dynamic=True)`.
+- Concrete xbar-macro `matmul` methods (`DirectXbarMacro.matmul`, `InterArraySliceXbarMacro.matmul`, `IntraArraySliceXbarMacro.matmul`) are decorated `@torch.no_grad()` / `@torch.compile(dynamic=True)`.
 - `IdealMacro.matmul` is decorated `@torch.no_grad()` / `@torch.compile(dynamic=True)`.
 - **Nothing below the macro is decorated.** Xbar `vec_mat_mul`, ReadOut `readout`, ADC `convert`, SwitchCap `sample_and_accumulate`, AnalogMux `transport`, OpAmpTIA `solve_dc`, NewtonRaphson `solve_dc`, digital `operate`, etc. are plain methods.
 

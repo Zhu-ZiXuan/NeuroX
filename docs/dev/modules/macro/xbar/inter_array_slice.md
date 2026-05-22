@@ -1,4 +1,4 @@
-# `InterXbarSliceMacro`
+# `InterArraySliceXbarMacro`
 
 Strategy 1: `Sw` distributed across xbar planes.
 
@@ -12,11 +12,11 @@ Identity. After slicing into `[..., N, K, Sw, D]`, `Sw` stays as a trailing axis
 
 ## Aggregate
 
-`Sa` shift-add (intra-xbar serial) → `Sw` shift-add (cross-xbar weighted-sum) → `Tc` accumulate → flatten `(Tr, data_num)` → trim to `N` → optional bias.
+`Sa` shift-add (intra-xbar serial) → `Sw` shift-add (cross-xbar weighted-sum) → `Tc` accumulate → flatten `(Tr, data_num)` → trim to `N`. The macro returns pre-requantize int output; the operator owns bias add and rescale.
 
 ## Config sub-modules
 
-`InterXbarSliceMacroConfig` declares:
+`InterArraySliceXbarMacroConfig` declares:
 
 - `w_slice_num`, `x_slice_num`, `w_encoding` (activation slicer is always unsigned true-form, no `x_encoding`).
-- `col_accumulator_cfg`, `sa_shift_adder_cfg`, `sw_shift_adder_cfg`, `requantizer_cfg`
+- `col_accumulator_cfg`, `sa_shift_adder_cfg`, `sw_shift_adder_cfg`

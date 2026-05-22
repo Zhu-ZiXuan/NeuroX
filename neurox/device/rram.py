@@ -143,7 +143,7 @@ class RRAM(FabricateMixin, nn.Module):
         """Construct one stateful RRAM model.
 
         Args:
-            cfg: RRAM configuration.
+            cfg: Concrete configuration dataclass.
             inst_shape: Per-instance fabrication shape.
             dtype: Tensor dtype for internal buffers.
             T__K: Operating temperature [K].

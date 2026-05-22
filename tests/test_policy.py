@@ -3,7 +3,7 @@
 Phase C contract:
 
 * :class:`ReplacementPolicy` is an ordered ruleset, first-match-wins;
-* :func:`default_policy` reproduces the legacy hard-coded behavior;
+* :func:`default_policy` builds the canonical Linear/Conv2d sweep ruleset;
 * Replaced subtrees are opaque (the walker does not descend into them);
 * Helpers (``name_excluded_match``, ``by_attr_match``,
   ``heterogeneous_macro_policy``) compose into real policies that handle
@@ -58,7 +58,7 @@ def _model_with_three_layers() -> nn.Module:
 
 
 class TestDefaultPolicy:
-    """``default_policy`` reproduces the legacy Linear/Conv2d sweep."""
+    """``default_policy`` builds the canonical Linear/Conv2d sweep ruleset."""
 
     def test_replaces_all_linears(self) -> None:
         model = _model_with_three_layers()

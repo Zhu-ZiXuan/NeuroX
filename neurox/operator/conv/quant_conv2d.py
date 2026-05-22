@@ -9,7 +9,6 @@ from torch.nn.modules.utils import _pair
 
 from neurox.macro import NeuroxMacroQuantMatMul
 from neurox.operator.base import NeuroxOperator
-from neurox.operator.linear import run_matmul_pipeline
 
 from ._shared import (
     _build_reversed_padding,
@@ -24,8 +23,8 @@ class QuantConv2d(NeuroxOperator):
     """Inference-only crossbar-backed replacement for ``nn.Conv2d``.
 
     Forward: unfold float input → asymmetric int32 quantize → grouped
-    ``macro.matmul`` → fold back → dequantize.  State is loaded from a
-    NeuroX-flat checkpoint via ``load_state_dict``.
+    ``macro.matmul`` → add bias → requantize → fold back → dequantize.
+    State is loaded from a NeuroX-flat checkpoint via ``load_state_dict``.
     """
 
     weight_int: Tensor
@@ -170,7 +169,7 @@ class QuantConv2d(NeuroxOperator):
 
         # Dynamic energy flows through the ProfileMixin side channel
         # from every physical leaf; the operator does not log here.
-        output_int_float = run_matmul_pipeline(
+        output_int_float = self.run_matmul_pipeline(
             unfolded_int,
             bias_grouped,
             rescale_m,
@@ -179,7 +178,6 @@ class QuantConv2d(NeuroxOperator):
             self.output_scale,
             self.output_qmin,
             self.output_qmax,
-            self.macro,
         )
         # ``output_int_float`` is already dequantized floats; fold back to conv layout.
         output = _fold_output(output_int_float, self.out_channels, batch_shape, out_h, out_w)

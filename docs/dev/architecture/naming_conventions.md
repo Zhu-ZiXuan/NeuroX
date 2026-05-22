@@ -38,7 +38,7 @@ Each circuit / device class exposes one primary method whose name encodes the ph
 
 | Method | Semantics |
 |---|---|
-| `fabricate() -> None` | Inherited from `FabricateMixin`; auto-cascades the static-mismatch resample across self + children. Subclasses override `_sample_fabricate_mismatch(self)` only. Per-instance shape is bound at `__init__` via `inst_shape` / `w_layout_shape` / `w_logical_shape`; static PPA is recorded by `self._log_static()` at the end of the concrete subclass's `__init__` (see [`profiler_and_ppa.md`](profiler_and_ppa.md)). |
+| `fabricate() -> None` | Inherited from `FabricateMixin`; auto-cascades the static-mismatch resample across self + children. Subclasses override `_sample_fabricate_mismatch(self)` only. Per-instance shape is bound at `__init__` via `inst_shape` (leaves and xbars) or `w_logical_shape` (macros); static PPA is recorded by `self._log_static()` at the end of the concrete subclass's `__init__` (see [`profiler_and_ppa.md`](profiler_and_ppa.md)). |
 | `program(...) -> None` | RRAM-specific weight programming step that takes the integer weight tensor and produces the actual conductance buffer. |
 | `snapshot(*, shape) -> <Name>Snapshot` | Sample a per-call runtime snapshot. Frozen return. |
 | `solve_dc(...) -> <Name>DCOP` | Solve the DC operating point of a circuit or array. Naming is uniform across leaf devices, leaf circuits, composite circuits, and solver classes. |
@@ -49,7 +49,7 @@ Each circuit / device class exposes one primary method whose name encodes the ph
 | `sample_and_accumulate(...) -> Tensor` | SwitchCap passive charge-share kernel. |
 | `vec_mat_mul(x) -> Tensor` | Xbar tile per-VMM kernel. |
 | `readout(...) -> Tensor` | Readout chain entry. Returns only the ADC code tensor. |
-| `operate(...) -> Tensor` | Digital block primary kernel (adder / accumulator / requantizer / shift-adder / subtractor). |
+| `operate(...) -> Tensor` | Digital block primary kernel (adder / accumulator / shift-adder / subtractor). |
 | `matmul(...) -> Tensor` | Macro entry point. The single `@torch.compile` boundary of the project (see [`compile_policy.md`](compile_policy.md)). |
 
 ## Module hierarchy names (profiler)

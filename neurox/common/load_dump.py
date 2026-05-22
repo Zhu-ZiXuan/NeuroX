@@ -40,6 +40,7 @@ def _dataclass_field_names(cls: Any) -> set[str]:  # noqa: ANN401
 
 _TYPE_DISCRIMINATOR = "_neurox_type"
 _USE_DIRECTIVE = "_neurox_use"
+_USE_PRESET_DIRECTIVE = "_neurox_use_preset"
 
 
 def _resolve_concrete_dataclass(base: type, type_name: str) -> type:
@@ -361,77 +362,200 @@ def _parse_use_ref(ref: Any, base_dir: Path) -> tuple[Path, str]:  # noqa: ANN40
     return _resolve_fragment_path(rel, base_dir), section
 
 
+def _presets_root() -> Path:
+    """Return the absolute path to the ``neurox/presets/`` directory.
+
+    Uses ``importlib.resources`` so editable installs and wheel installs both
+    work; the directory's location follows wherever the ``neurox`` package is.
+    """
+    import importlib.resources
+
+    return Path(str(importlib.resources.files("neurox") / "presets"))
+
+
+def _validate_preset_ref_path(rel: str) -> None:
+    """Reject preset paths that are absolute or try to escape the presets root."""
+    if not rel:
+        raise ValueError(f"{_USE_PRESET_DIRECTIVE} path is empty")
+    if rel.startswith("./") or rel.startswith("/") or rel.startswith("\\"):
+        raise ValueError(f"{_USE_PRESET_DIRECTIVE} path must not start with './' or be absolute: {rel!r}")
+    if any(part == ".." for part in rel.replace("\\", "/").split("/")):
+        raise ValueError(f"{_USE_PRESET_DIRECTIVE} path must not contain '..' segments: {rel!r}")
+
+
+def _resolve_preset_fragment_path(rel: str) -> Path:
+    """Resolve a preset-relative path to an existing file under ``neurox/presets/``."""
+    root = _presets_root()
+    candidate = root / rel
+    if candidate.is_file():
+        return candidate
+    if candidate.suffix == "":
+        for suffix in (".toml", ".yaml", ".yml"):
+            with_suffix = candidate.with_suffix(suffix)
+            if with_suffix.is_file():
+                return with_suffix
+    raise FileNotFoundError(f"{_USE_PRESET_DIRECTIVE} fragment {rel!r} not found under {root}")
+
+
+def _parse_preset_ref(ref: Any) -> tuple[Path, str]:  # noqa: ANN401
+    """Parse a preset ``"<rel_path>:<section>"`` anchored at ``neurox/presets/``."""
+    if not isinstance(ref, str):
+        raise TypeError(f"{_USE_PRESET_DIRECTIVE} must be a string, got {type(ref).__name__}")
+    if ":" not in ref:
+        raise ValueError(f"{_USE_PRESET_DIRECTIVE} reference {ref!r} missing ':' (expected '<path>:<section>')")
+    rel, section = ref.split(":", 1)
+    if not rel or not section:
+        raise ValueError(f"{_USE_PRESET_DIRECTIVE} reference {ref!r} has empty path or section")
+    _validate_preset_ref_path(rel)
+    return _resolve_preset_fragment_path(rel), section
+
+
+def _resolve_directive_branch(
+    value: Mapping[str, Any],
+    *,
+    directive: str,
+    path: Path,
+    section: str,
+    base_dir_for_fragment: Path,
+    base_dir_for_inline: Path,
+    in_preset_for_fragment: bool,
+    in_preset_for_inline: bool,
+    cache: dict[Path, dict[str, Any]],
+    in_progress: frozenset[tuple[Path, str]],
+) -> Any:  # noqa: ANN401
+    """Resolve one ``(directive, path, section)`` fragment-merge step.
+
+    Shared core of the ``_neurox_use`` and ``_neurox_use_preset`` branches:
+    detect cycles, load the target section, recurse into the fragment and
+    the inline override under their respective ``(base_dir, in_preset)``
+    contexts, then merge with inline taking priority.
+    """
+    key = (path, section)
+    if key in in_progress:
+        trail = " -> ".join(f"{p.name}:{s}" for p, s in in_progress)
+        raise ValueError(f"{directive} cycle detected: {trail} -> {path.name}:{section}")
+    if path not in cache:
+        cache[path] = dict_from_file(path)
+    root = cache[path]
+    if section not in root:
+        raise KeyError(f"{directive} target section {section!r} not found in {path} (keys: {sorted(root)})")
+    target = root[section]
+    if not isinstance(target, Mapping):
+        raise TypeError(f"{directive} target {value[directive]!r} must be a table, got {type(target).__name__}")
+    resolved_fragment = _resolve_uses_in_value(
+        dict(target),
+        base_dir_for_fragment,
+        cache=cache,
+        in_progress=in_progress | {key},
+        in_preset=in_preset_for_fragment,
+    )
+    inline = {k: v for k, v in value.items() if k != directive}
+    resolved_inline = _resolve_uses_in_value(
+        inline,
+        base_dir_for_inline,
+        cache=cache,
+        in_progress=in_progress,
+        in_preset=in_preset_for_inline,
+    )
+    return merge_dicts(resolved_inline, resolved_fragment, strict_type=True)
+
+
 def _resolve_uses_in_value(
     value: Any,  # noqa: ANN401
     base_dir: Path,
     *,
     cache: dict[Path, dict[str, Any]],
     in_progress: frozenset[tuple[Path, str]],
+    in_preset: bool = False,
 ) -> Any:  # noqa: ANN401
-    """Recursively resolve ``_neurox_use`` references in ``value``.
+    """Recursively resolve ``_neurox_use`` and ``_neurox_use_preset`` in ``value``.
 
-    A mapping containing ``_neurox_use`` is replaced by ``merge_dicts(inline, fragment)``;
-    nested ``_neurox_use`` directives inside both the fragment and the inline override
-    are resolved before the merge. Cycles raise ``ValueError``.
+    A mapping carrying either directive is replaced by
+    ``merge_dicts(inline, fragment)``; the inline override takes priority.
+
+    The two directives differ only in path resolution:
+
+    - ``_neurox_use`` resolves relative to ``base_dir`` (the directory of the
+      file containing the directive). Use for user-side sibling fragments.
+    - ``_neurox_use_preset`` resolves relative to ``neurox/presets/``. Once
+      entered, the subtree is in *preset mode* (``in_preset=True``) which
+      forbids ``_neurox_use``, so preset dependency graphs stay closed inside
+      the package.
+
+    The two directives are mutually exclusive in the same sub-table. Cycles
+    raise ``ValueError``.
     """
     if isinstance(value, Mapping):
-        if _USE_DIRECTIVE in value:
-            path, section = _parse_use_ref(value[_USE_DIRECTIVE], base_dir)
-            key = (path, section)
-            if key in in_progress:
-                trail = " -> ".join(f"{p.name}:{s}" for p, s in in_progress)
-                raise ValueError(f"{_USE_DIRECTIVE} cycle detected: {trail} -> {path.name}:{section}")
-            if path not in cache:
-                cache[path] = dict_from_file(path)
-            root = cache[path]
-            if section not in root:
-                raise KeyError(
-                    f"{_USE_DIRECTIVE} target section {section!r} not found in {path} (keys: {sorted(root)})"
-                )
-            target = root[section]
-            if not isinstance(target, Mapping):
-                raise TypeError(
-                    f"{_USE_DIRECTIVE} target {value[_USE_DIRECTIVE]!r} must be a table, got {type(target).__name__}"
-                )
-            resolved_fragment = _resolve_uses_in_value(
-                dict(target),
-                path.parent,
-                cache=cache,
-                in_progress=in_progress | {key},
+        has_use = _USE_DIRECTIVE in value
+        has_preset = _USE_PRESET_DIRECTIVE in value
+        if has_use and has_preset:
+            raise ValueError(
+                f"{_USE_DIRECTIVE!r} and {_USE_PRESET_DIRECTIVE!r} are mutually exclusive in the same table"
             )
-            inline = {k: v for k, v in value.items() if k != _USE_DIRECTIVE}
-            resolved_inline = _resolve_uses_in_value(
-                inline,
-                base_dir,
+        if in_preset and has_use:
+            raise ValueError(
+                f"{_USE_DIRECTIVE!r} is forbidden inside neurox/presets/; use {_USE_PRESET_DIRECTIVE!r} instead"
+            )
+        if has_preset:
+            path, section = _parse_preset_ref(value[_USE_PRESET_DIRECTIVE])
+            return _resolve_directive_branch(
+                value,
+                directive=_USE_PRESET_DIRECTIVE,
+                path=path,
+                section=section,
+                base_dir_for_fragment=_presets_root(),
+                base_dir_for_inline=base_dir,
+                in_preset_for_fragment=True,
+                in_preset_for_inline=in_preset,
                 cache=cache,
                 in_progress=in_progress,
             )
-            return merge_dicts(resolved_inline, resolved_fragment, strict_type=True)
-        return {k: _resolve_uses_in_value(v, base_dir, cache=cache, in_progress=in_progress) for k, v in value.items()}
+        if has_use:
+            path, section = _parse_use_ref(value[_USE_DIRECTIVE], base_dir)
+            return _resolve_directive_branch(
+                value,
+                directive=_USE_DIRECTIVE,
+                path=path,
+                section=section,
+                base_dir_for_fragment=path.parent,
+                base_dir_for_inline=base_dir,
+                in_preset_for_fragment=in_preset,
+                in_preset_for_inline=in_preset,
+                cache=cache,
+                in_progress=in_progress,
+            )
+        return {
+            k: _resolve_uses_in_value(v, base_dir, cache=cache, in_progress=in_progress, in_preset=in_preset)
+            for k, v in value.items()
+        }
     if isinstance(value, list):
-        return [_resolve_uses_in_value(x, base_dir, cache=cache, in_progress=in_progress) for x in value]
+        return [
+            _resolve_uses_in_value(x, base_dir, cache=cache, in_progress=in_progress, in_preset=in_preset)
+            for x in value
+        ]
     return value
 
 
 def resolve_uses(data: dict[str, Any], base_dir: Path) -> dict[str, Any]:
-    """Expand every ``_neurox_use`` directive in ``data`` into the referenced fragment.
+    """Expand every ``_neurox_use`` / ``_neurox_use_preset`` directive in ``data``.
 
-    ``_neurox_use = "<rel_path>:<section>"`` pulls the named section from
-    another config file (path relative to ``base_dir``) and uses it as the
-    base for the enclosing sub-table; any other keys present alongside
-    ``_neurox_use`` override the fragment. Resolution is recursive and
-    detects cycles.
+    ``_neurox_use = "<rel_path>:<section>"`` resolves the path relative to
+    ``base_dir`` (the directory of the file containing the directive) and
+    pulls the named section from that file; inline keys override the
+    fragment. ``_neurox_use_preset`` follows the same merge semantics but
+    resolves paths from ``neurox/presets/`` and forbids ``_neurox_use``
+    inside the preset subtree.
 
     Args:
         data: Loaded dict from a config file (TOML or YAML).
         base_dir: Directory for resolving relative ``_neurox_use`` paths.
 
     Returns:
-        New dict with every ``_neurox_use`` expanded.
+        New dict with every directive expanded.
     """
     result = _resolve_uses_in_value(data, base_dir, cache={}, in_progress=frozenset())
     if not isinstance(result, dict):
-        raise TypeError(f"{_USE_DIRECTIVE} resolution expected dict root, got {type(result).__name__}")
+        raise TypeError(f"directive resolution expected dict root, got {type(result).__name__}")
     return result
 
 

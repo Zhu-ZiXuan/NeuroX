@@ -122,9 +122,9 @@ class NMOS(FabricateMixin, nn.Module):
     """EKV-softplus NMOS electrical primitive.
 
     Args:
-        cfg: Immutable PDK NMOS configuration.
+        cfg: Concrete configuration dataclass.
         inst_shape: Per-instance fabrication shape.
-        dtype: Floating-point dtype for registered buffers.
+        dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature [K].
         W__um: Channel width [μm].
         L__um: Channel length [μm].

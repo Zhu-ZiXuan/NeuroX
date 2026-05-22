@@ -8,7 +8,7 @@ from neurox.common.mixin import FabricateMixin
 
 
 class IdealMacro(FabricateMixin, nn.Module):
-    """Exact integer matmul + requantization baseline."""
+    """Exact integer matmul baseline; returns the pre-requantize int output."""
 
     nominal_weight: Tensor
     weight: Tensor
@@ -25,8 +25,7 @@ class IdealMacro(FabricateMixin, nn.Module):
         Args:
             x_value_range: Inclusive integer activation range.
             w_value_range: Inclusive integer weight range.
-            w_logical_shape: Shape of the logical weight tensor the macro
-                expects in ``program(...)``, typically ``(*prefix, N, K)``.
+            w_logical_shape: Logical weight shape ``(*prefix, N, K)`` bound to ``program(...)``.
         """
         super().__init__()
         self._x_value_range = x_value_range
@@ -41,21 +40,25 @@ class IdealMacro(FabricateMixin, nn.Module):
 
     @property
     def w_value_range(self) -> tuple[int, int]:
+        """Inclusive integer weight range accepted by the macro."""
         return self._w_value_range
 
     @property
     def x_value_range(self) -> tuple[int, int]:
+        """Inclusive integer activation range accepted by the macro."""
         return self._x_value_range
 
     @property
     def output_rescale_factor(self) -> float:
+        """Ratio of the ideal partial-product max to the actual tile output max."""
         return 1.0
 
     def program(self, weight: Tensor) -> None:
-        """Store the integer weight tensor verbatim.
+        """Write the macro's static weight state from one logical weight tensor.
 
         Args:
-            weight: Integer weight tensor. Shape: must match ``w_logical_shape``.
+            weight: Integer weight tensor whose shape matches
+                ``self._w_logical_shape``.
         """
         if tuple(weight.shape) != self._w_logical_shape:
             raise ValueError(f"program() expects weight.shape {self._w_logical_shape}; got {tuple(weight.shape)}")
@@ -63,40 +66,18 @@ class IdealMacro(FabricateMixin, nn.Module):
 
     @torch.no_grad()
     @torch.compile(dynamic=True)
-    def matmul(
-        self,
-        input: Tensor,
-        bias: Tensor | None,
-        rescale_multiplier: Tensor,
-        rescale_rshift: Tensor,
-        output_zero_point: Tensor | None,
-    ) -> Tensor:
-        """Run one integer matmul with fixed-point requantization.
+    def matmul(self, input: Tensor) -> Tensor:
+        """Execute one integer matrix multiply against the programmed weight state.
+
+        Matches ``torch.matmul`` semantics (pure matmul, no bias). Bias add
+        and requantize live in the operator layer.
 
         Args:
-            input: Integer activation tensor. Shape: [..., M, K].
-            bias: Optional integer bias tensor. Shape: [..., N].
-            rescale_multiplier: Per-output fixed-point multiplier.
-            rescale_rshift: Per-output right-shift amount.
-            output_zero_point: Optional output zero point.
+            input: Integer activation tensor. Shape: ``[..., M, K]``.
 
         Returns:
-            Integer output tensor with shape [..., M, N].
+            Integer pre-requantize output tensor. Shape: ``[..., M, N]``.
         """
-        x_dtype = input.dtype
         weight = self.weight
-
         y = torch.matmul(input.to(torch.float32), weight.to(torch.float32).transpose(-2, -1))
-        y = torch.round(y).to(torch.int32)
-
-        if bias is not None:
-            y = y + bias.to(torch.int32).unsqueeze(-2)
-
-        m = rescale_multiplier.to(torch.int32).unsqueeze(-2)
-        s = rescale_rshift.to(torch.int32).unsqueeze(-2)
-        y = (y.to(torch.int32) * m) >> s
-
-        if output_zero_point is not None:
-            y = y + output_zero_point.to(torch.int32)
-
-        return y.to(x_dtype)
+        return torch.round(y).to(torch.int32)

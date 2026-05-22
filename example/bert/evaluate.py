@@ -22,8 +22,9 @@ from example.bert.model import create_bert_small
 from example.common import build_macro_factory
 from neurox import replace as neurox
 from neurox.common.profiler import NeuroxProfiler
-from neurox.config import DEFAULT_1T1R_MACRO_TOML
 from neurox.replace import count_xbar_layers
+
+MACRO_CONFIG = Path(__file__).parent / "macro.toml"
 
 
 def main() -> None:
@@ -31,12 +32,6 @@ def main() -> None:
     parser.add_argument("--dataset-dir", type=Path, required=True, help="HuggingFace cache directory")
     parser.add_argument("--checkpoint", type=Path, required=True, help="NeuroX-flat checkpoint path")
     parser.add_argument("--device", type=str, default="cuda:0", help="Torch device for inference")
-    parser.add_argument(
-        "--config",
-        type=Path,
-        default=DEFAULT_1T1R_MACRO_TOML,
-        help="Chip TOML (defaults to the bundled 1T1R reference).",
-    )
     parser.add_argument(
         "--xbar",
         choices=("physical", "ideal"),
@@ -65,7 +60,7 @@ def main() -> None:
     # build_evaluator then swaps every nn.Linear for QuantLinear and
     # loads the int weights / rescale buffers from the checkpoint.
     float_model = create_bert_small(num_labels=2, cache_dir=str(args.dataset_dir))
-    macro_factory = build_macro_factory(args.config, xbar=args.xbar)
+    macro_factory = build_macro_factory(MACRO_CONFIG, xbar=args.xbar)
     model = neurox.build_evaluator(float_model, args.checkpoint, macro_factory)
     model = model.to(device).eval()
     print(f"Layer summary: {count_xbar_layers(model)}")
@@ -100,7 +95,7 @@ def main() -> None:
     static = NeuroxProfiler.analyze_static(model)
     peak_mb = torch.cuda.max_memory_allocated(device) / (1024 * 1024) if device.type == "cuda" else 0.0
 
-    print(f"xbar:               {args.xbar}  (from {args.config.name})")
+    print(f"xbar:               {args.xbar}  (from {MACRO_CONFIG.name})")
     print(f"samples:            {total}")
     print(f"top1_accuracy:      {acc:.4f}")
     print(f"wall_time_s:        {elapsed:.2f}")

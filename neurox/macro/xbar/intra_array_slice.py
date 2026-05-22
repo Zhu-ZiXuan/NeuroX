@@ -1,7 +1,7 @@
-"""Intra-xbar slice macro: ``Sw`` gathered inside one xbar (Strategy 2).
+"""Intra-array slice macro: ``Sw`` gathered inside one xbar (Strategy 2).
 
 See also:
-    docs/dev/modules/macro/xbar/intra_xbar_slice.md
+    docs/dev/modules/macro/xbar/intra_array_slice.md
 """
 
 from __future__ import annotations
@@ -16,8 +16,6 @@ from torch import Tensor
 from neurox.digital import (
     Accumulator,
     AccumulatorConfig,
-    Requantizer,
-    RequantizerConfig,
     ShiftAdder,
     ShiftAdderConfig,
 )
@@ -28,8 +26,8 @@ from .base import XbarMacro, XbarMacroConfig
 
 
 @dataclass(frozen=True)
-class IntraXbarSliceMacroConfig(XbarMacroConfig):
-    """Configuration for :class:`IntraXbarSliceMacro`.
+class IntraArraySliceXbarMacroConfig(XbarMacroConfig):
+    """Configuration for :class:`IntraArraySliceXbarMacro`.
 
     Attributes:
         w_slice_num: Per-weight Sw slice count.
@@ -38,7 +36,6 @@ class IntraXbarSliceMacroConfig(XbarMacroConfig):
         col_accumulator_cfg: Tc-axis cross-tile accumulator config.
         sa_shift_adder_cfg: Sa-axis intra-xbar shift-adder config.
         sw_shift_adder_cfg: Sw-axis intra-xbar shift-adder config.
-        requantizer_cfg: Output requantizer config.
     """
 
     w_slice_num: int
@@ -48,7 +45,6 @@ class IntraXbarSliceMacroConfig(XbarMacroConfig):
     col_accumulator_cfg: AccumulatorConfig
     sa_shift_adder_cfg: ShiftAdderConfig
     sw_shift_adder_cfg: ShiftAdderConfig
-    requantizer_cfg: RequantizerConfig
 
     def validate(self) -> None:
         super().validate()
@@ -56,8 +52,8 @@ class IntraXbarSliceMacroConfig(XbarMacroConfig):
         self._require_pos(self.x_slice_num, "x_slice_num")
 
 
-@XbarMacro.register_key(IntraXbarSliceMacroConfig)
-class IntraXbarSliceMacro(XbarMacro):
+@XbarMacro.register_key(IntraArraySliceXbarMacroConfig)
+class IntraArraySliceXbarMacro(XbarMacro):
     """Xbar macro that gathers all slices of one logical weight in one xbar.
 
     A logical weight's ``Sw`` slices sit in adjacent cols of the same xbar.
@@ -65,12 +61,12 @@ class IntraXbarSliceMacro(XbarMacro):
     remaining ``col_num - (col_num // Sw) * Sw`` cells per xbar are idle.
     """
 
-    cfg: IntraXbarSliceMacroConfig
+    cfg: IntraArraySliceXbarMacroConfig
 
     def __init__(
         self,
         *,
-        cfg: IntraXbarSliceMacroConfig,
+        cfg: IntraArraySliceXbarMacroConfig,
         name: str,
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
@@ -89,7 +85,6 @@ class IntraXbarSliceMacro(XbarMacro):
         xbar_cfg = cfg.xbar_cfg
         col_num = xbar_cfg.col_num
         row_num = xbar_cfg.row_num
-        digit_count = xbar_cfg.w_digit_count  # type: ignore[attr-defined]
         if cfg.w_slice_num > col_num:
             raise ValueError(f"require: w_slice_num ({cfg.w_slice_num}) <= xbar.col_num ({col_num})")
         self._weights_per_xbar = col_num // cfg.w_slice_num
@@ -97,13 +92,13 @@ class IntraXbarSliceMacro(XbarMacro):
         self._idle_per_xbar = col_num - self._used_data_num
 
         # Symbolic organized shape: (*batch, 1, Tc, Tr, 1, col_num, D, row_num).
+        # The trailing (col_num, D, row_num) is owned by the xbar.
         *w_batch, n_logical, k_logical = w_logical_shape
         wpx = self._weights_per_xbar
         tr = (n_logical + wpx - 1) // wpx
         tc = (k_logical + row_num - 1) // row_num
-        xbar_w_layout_shape = (*w_batch, 1, tc, tr, 1, col_num, digit_count, row_num)
 
-        self.xbar = self._build_xbar(xbar_w_layout_shape)
+        self.xbar = self._build_xbar(inst_shape=(*w_batch, 1, tc, tr, 1))
         xbar = self.xbar
 
         x_lo, x_hi = xbar.x_range
@@ -139,11 +134,6 @@ class IntraXbarSliceMacro(XbarMacro):
             name=f"{prefix}sw_shift_adder",
             inst_shape=helper_shape,
         )
-        self.requantizer = Requantizer(
-            cfg=cfg.requantizer_cfg,
-            name=f"{prefix}requantizer",
-            inst_shape=(self._w_parallel_size, n_logical),
-        )
 
         self._serial_op_num = 0
         self._x_shape_cached: tuple[int, ...] = ()
@@ -167,17 +157,17 @@ class IntraXbarSliceMacro(XbarMacro):
 
     @property
     def w_value_range(self) -> tuple[int, int]:
-        """Inclusive algorithm-side weight range — delegated to the slicer."""
+        """Inclusive integer weight range accepted by the macro."""
         return self.w_slicer.value_range
 
     @property
     def x_value_range(self) -> tuple[int, int]:
-        """Inclusive algorithm-side activation range — delegated to the slicer."""
+        """Inclusive integer activation range accepted by the macro."""
         return self.x_slicer.value_range
 
     @property
     def output_rescale_factor(self) -> float:
-        """Forwarded from the xbar."""
+        """Ratio of the ideal partial-product max to the actual tile output max."""
         return self.xbar.output_rescale_factor
 
     # --- organize ---
@@ -264,7 +254,7 @@ class IntraXbarSliceMacro(XbarMacro):
     # --- lifecycle ---
 
     def program(self, weight: Tensor) -> None:
-        """Map one logical weight tensor and program the xbar.
+        """Write the macro's static weight state from one logical weight tensor.
 
         Args:
             weight: Integer weight tensor whose shape matches
@@ -277,28 +267,19 @@ class IntraXbarSliceMacro(XbarMacro):
 
     @torch.no_grad()
     @torch.compile(dynamic=True)
-    def matmul(
-        self,
-        input: Tensor,
-        bias: Tensor | None,
-        rescale_multiplier: Tensor,
-        rescale_rshift: Tensor,
-        output_zero_point: Tensor | None,
-    ) -> Tensor:
-        """Execute one integer matrix multiply against the programmed weight.
+    def matmul(self, input: Tensor) -> Tensor:
+        """Execute one integer matrix multiply against the programmed weight state.
+
+        Matches ``torch.matmul`` semantics (pure matmul, no bias). Bias add
+        and requantize live in the operator layer.
 
         Args:
-            input: Integer activation of shape ``[..., M, K]``.
-            bias: Optional integer bias of shape ``[..., N]``.
-            rescale_multiplier: Per-output fixed-point multiplier.
-            rescale_rshift: Per-output right-shift amount.
-            output_zero_point: Optional output zero point.
+            input: Integer activation tensor. Shape: ``[..., M, K]``.
 
         Returns:
-            Integer output of shape ``[..., M, N]`` in ``input.dtype``.
+            Integer pre-requantize output tensor. Shape: ``[..., M, N]``.
         """
         n_logical = self._n_logical
-        x_dtype = input.dtype
         wpx = self._weights_per_xbar
         used = self._used_data_num
         sw = self.cfg.w_slice_num
@@ -327,9 +308,4 @@ class IntraXbarSliceMacro(XbarMacro):
         # Shape: [..., M, Tc, Tr, wpx] -> [..., M, Tr, wpx]
         y = self.col_accumulator.operate(y, dim=-3)
         # Shape: [..., M, Tr, wpx] -> [..., M, Tr * wpx] -> [..., M, N]
-        y = y.flatten(start_dim=-2)[..., :n_logical]
-        if bias is not None:
-            y = y + bias
-
-        y = self.requantizer.operate(y, rescale_multiplier, rescale_rshift, output_zero_point)
-        return y.to(x_dtype)
+        return y.flatten(start_dim=-2)[..., :n_logical]

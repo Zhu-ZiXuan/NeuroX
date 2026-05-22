@@ -5,7 +5,7 @@ The per-module PPA / energy / latency side-channel lives in:
 - `neurox/common/mixin/profile.py` — `ProfileMixin`, the mixin that gives a module a hierarchical profiler name and exposes `_log_dynamic(energy, latency)` / `_log_static()`. Every analog and digital leaf inherits this mixin alongside `nn.Module`.
 - `neurox/common/profiler.py` — `NeuroxProfiler` context manager that intercepts the events, groups them by hierarchical name, and produces per-layer PPA reports.
 
-Both surfaces are reached through `neurox.common.mixin.ProfileMixin` and `neurox.common.profiler.NeuroxProfiler`. The legacy `neurox.profiler.*` namespace no longer exists.
+Both surfaces are reached through `neurox.common.mixin.ProfileMixin` and `neurox.common.profiler.NeuroxProfiler`.
 
 ## Hierarchical naming
 

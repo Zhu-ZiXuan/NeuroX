@@ -14,8 +14,9 @@ from __future__ import annotations
 import pytest
 import torch
 
-from neurox.config import DEFAULT_1T1R_MACRO_TOML
-from neurox.digital import Accumulator, AccumulatorConfig, Requantizer, RequantizerConfig, ShiftAdder, ShiftAdderConfig
+from pathlib import Path as _Path
+
+from neurox.digital import Accumulator, AccumulatorConfig, ShiftAdder, ShiftAdderConfig
 from neurox.common.mixin import ProfileMixin
 from neurox.common.profiler import NeuroxProfiler
 from example.common.macro_factory import build_macro_factory
@@ -24,10 +25,11 @@ from example.common.macro_factory import build_macro_factory
 N_LOGICAL = 16
 K_LOGICAL = 32
 _DEFAULT_W_LOGICAL_SHAPE = (N_LOGICAL, K_LOGICAL)
+_MACRO_FIXTURE = _Path(__file__).parent / "fixtures" / "macro.toml"
 
 
 def _build_ideal_macro(name: str = "fc1.macro"):
-    factory = build_macro_factory(DEFAULT_1T1R_MACRO_TOML, xbar="ideal")
+    factory = build_macro_factory(_MACRO_FIXTURE, xbar="ideal")
     return factory(name=name, w_logical_shape=_DEFAULT_W_LOGICAL_SHAPE)
 
 
@@ -111,7 +113,6 @@ class TestStaticAggregation:
         # Expected contributors for the ideal-tile macro (no SAR ADC):
         # - col_accumulator: 60 um2 area, 1.0 uW leakage
         # - sw_shift_adder + sa_shift_adder: 75 um2 each, 1.5 uW each
-        # - requantizer: 0 (zero PPA in the macro TOML)
         # - IdealXbar inherits PPA from the physical twin (500 um2, 5.0 uW)
         # - each inst_count is 1 for tile-fitting weight
         static = NeuroxProfiler.analyze_static(macro)
@@ -128,7 +129,6 @@ class TestStaticAggregation:
         assert "model.fc1.macro.col_accumulator" in names
         assert "model.fc1.macro.sw_shift_adder" in names
         assert "model.fc1.macro.sa_shift_adder" in names
-        assert "model.fc1.macro.requantizer" in names
 
     def test_collect_static_records(self) -> None:
         macro = _build_ideal_macro(name="m")
@@ -185,23 +185,6 @@ class TestDynamicEvents:
         assert len(p.events) == 1
         # output is scalar after reduction, energy = 2.0 * 1
         assert p.events[0].dynamic_energy__fJ == pytest.approx(2.0)
-
-    def test_requantizer_emits_event(self) -> None:
-        cfg = RequantizerConfig(
-            bit_width=32,
-            energy_per_op__fJ=1.0,
-            latency_per_op__ns=0.5,
-            leakage_per_inst__uW=0.0,
-            area_per_inst__um2=0.0,
-        )
-        req = Requantizer(cfg=cfg, name="req", inst_shape=(1,))
-        x = torch.zeros(2, 3, dtype=torch.int32)
-        m = torch.ones(1, dtype=torch.int32)
-        s = torch.zeros(1, dtype=torch.int32)
-        with NeuroxProfiler() as p:
-            req.operate(x, m, s, None)
-        assert len(p.events) == 1
-        assert p.events[0].dynamic_energy__fJ == pytest.approx(1.0 * 2 * 3)
 
     def test_no_events_outside_context(self) -> None:
         cfg = AccumulatorConfig(

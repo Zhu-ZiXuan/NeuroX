@@ -7,14 +7,15 @@ import torch
 
 from neurox.digital import (
     AccumulatorConfig,
-    RequantizerConfig,
     ShiftAdderConfig,
 )
 from neurox.macro.xbar import (
-    InterXbarSliceMacro,
-    InterXbarSliceMacroConfig,
-    IntraXbarSliceMacro,
-    IntraXbarSliceMacroConfig,
+    DirectXbarMacro,
+    DirectXbarMacroConfig,
+    InterArraySliceXbarMacro,
+    InterArraySliceXbarMacroConfig,
+    IntraArraySliceXbarMacro,
+    IntraArraySliceXbarMacroConfig,
     XbarMacro,
 )
 from neurox.mapper.transcoder import (
@@ -247,14 +248,13 @@ def _make_macro_configs(*, w_slice_num: int, x_slice_num: int) -> dict[str, obje
         col_accumulator_cfg=AccumulatorConfig(bit_width=32, **ppa),
         sa_shift_adder_cfg=ShiftAdderConfig(bit_width=32, **ppa),
         sw_shift_adder_cfg=ShiftAdderConfig(bit_width=32, **ppa),
-        requantizer_cfg=RequantizerConfig(bit_width=32, **ppa),
     )
 
 
 def _build_inter(
-    cfg: InterXbarSliceMacroConfig, name: str, w_logical_shape: tuple[int, ...]
-) -> InterXbarSliceMacro:
-    macro = InterXbarSliceMacro(
+    cfg: InterArraySliceXbarMacroConfig, name: str, w_logical_shape: tuple[int, ...]
+) -> InterArraySliceXbarMacro:
+    macro = InterArraySliceXbarMacro(
         cfg=cfg,
         name=name,
         w_logical_shape=w_logical_shape,
@@ -267,9 +267,9 @@ def _build_inter(
 
 
 def _build_intra(
-    cfg: IntraXbarSliceMacroConfig, name: str, w_logical_shape: tuple[int, ...]
-) -> IntraXbarSliceMacro:
-    macro = IntraXbarSliceMacro(
+    cfg: IntraArraySliceXbarMacroConfig, name: str, w_logical_shape: tuple[int, ...]
+) -> IntraArraySliceXbarMacro:
+    macro = IntraArraySliceXbarMacro(
         cfg=cfg,
         name=name,
         w_logical_shape=w_logical_shape,
@@ -285,16 +285,14 @@ def test_inter_xbar_matches_torch_matmul() -> None:
     torch.manual_seed(0)
     n, k, m = 13, 20, 8
     macro = _build_inter(
-        InterXbarSliceMacroConfig(**_make_macro_configs(w_slice_num=3, x_slice_num=4)),
+        InterArraySliceXbarMacroConfig(**_make_macro_configs(w_slice_num=3, x_slice_num=4)),
         name="test_inter",
         w_logical_shape=(n, k),
     )
     w = torch.randint(-63, 64, (n, k), dtype=torch.int32)
     x = torch.randint(0, 16, (m, k), dtype=torch.int32)
     macro.program(w)
-    mult = torch.ones(n, dtype=torch.int32)
-    shift = torch.zeros(n, dtype=torch.int32)
-    y = macro.matmul(x, None, mult, shift, None)
+    y = macro.matmul(x)
     y_ref = (x.float() @ w.float().T).to(torch.int32)
     assert torch.equal(y, y_ref)
 
@@ -303,7 +301,7 @@ def test_intra_xbar_matches_torch_matmul() -> None:
     torch.manual_seed(0)
     n, k, m = 13, 20, 8
     macro = _build_intra(
-        IntraXbarSliceMacroConfig(**_make_macro_configs(w_slice_num=3, x_slice_num=4)),
+        IntraArraySliceXbarMacroConfig(**_make_macro_configs(w_slice_num=3, x_slice_num=4)),
         name="test_intra",
         w_logical_shape=(n, k),
     )
@@ -313,9 +311,7 @@ def test_intra_xbar_matches_torch_matmul() -> None:
     w = torch.randint(-63, 64, (n, k), dtype=torch.int32)
     x = torch.randint(0, 16, (m, k), dtype=torch.int32)
     macro.program(w)
-    mult = torch.ones(n, dtype=torch.int32)
-    shift = torch.zeros(n, dtype=torch.int32)
-    y = macro.matmul(x, None, mult, shift, None)
+    y = macro.matmul(x)
     y_ref = (x.float() @ w.float().T).to(torch.int32)
     assert torch.equal(y, y_ref)
 
@@ -325,12 +321,12 @@ def test_inter_and_intra_xbar_agree() -> None:
     torch.manual_seed(0)
     n, k, m = 13, 20, 8
     inter = _build_inter(
-        InterXbarSliceMacroConfig(**_make_macro_configs(w_slice_num=3, x_slice_num=4)),
+        InterArraySliceXbarMacroConfig(**_make_macro_configs(w_slice_num=3, x_slice_num=4)),
         name="test_inter",
         w_logical_shape=(n, k),
     )
     intra = _build_intra(
-        IntraXbarSliceMacroConfig(**_make_macro_configs(w_slice_num=3, x_slice_num=4)),
+        IntraArraySliceXbarMacroConfig(**_make_macro_configs(w_slice_num=3, x_slice_num=4)),
         name="test_intra",
         w_logical_shape=(n, k),
     )
@@ -339,8 +335,84 @@ def test_inter_and_intra_xbar_agree() -> None:
     x = torch.randint(0, 16, (m, k), dtype=torch.int32)
     inter.program(w)
     intra.program(w)
-    mult = torch.ones(n, dtype=torch.int32)
-    shift = torch.zeros(n, dtype=torch.int32)
-    y_inter = inter.matmul(x, None, mult, shift, None)
-    y_intra = intra.matmul(x, None, mult, shift, None)
+    y_inter = inter.matmul(x)
+    y_intra = intra.matmul(x)
     assert torch.equal(y_inter, y_intra)
+
+
+# --- DirectXbarMacro (Sw = Sa = 1, transcode-only) -----------------------
+
+
+def _make_direct_macro_configs() -> dict[str, object]:
+    ppa = _zero_ppa_digital()
+    return dict(
+        xbar_cfg=_small_ideal_xbar_cfg(),
+        w_encoding="true_form",
+        col_accumulator_cfg=AccumulatorConfig(bit_width=32, **ppa),
+    )
+
+
+def _build_direct(
+    cfg: DirectXbarMacroConfig, name: str, w_logical_shape: tuple[int, ...]
+) -> DirectXbarMacro:
+    macro = DirectXbarMacro(
+        cfg=cfg,
+        name=name,
+        w_logical_shape=w_logical_shape,
+        dtype=torch.float32,
+        T__K=300.0,
+        ideal_xbar=False,
+    )
+    macro.eval()
+    return macro
+
+
+def test_direct_xbar_matches_torch_matmul() -> None:
+    torch.manual_seed(0)
+    n, k, m = 13, 20, 8
+    macro = _build_direct(
+        DirectXbarMacroConfig(**_make_direct_macro_configs()),
+        name="test_direct",
+        w_logical_shape=(n, k),
+    )
+    # w in transcoder value_range (-3, 3); x in xbar.x_range (0, 1).
+    w = torch.randint(-3, 4, (n, k), dtype=torch.int32)
+    x = torch.randint(0, 2, (m, k), dtype=torch.int32)
+    macro.program(w)
+    y = macro.matmul(x)
+    y_ref = (x.float() @ w.float().T).to(torch.int32)
+    assert torch.equal(y, y_ref)
+
+
+def test_direct_and_inter_with_slice1_agree() -> None:
+    """Direct must equal InterArraySlice with ``w_slice_num=1, x_slice_num=1``."""
+    torch.manual_seed(0)
+    n, k, m = 13, 20, 8
+    direct = _build_direct(
+        DirectXbarMacroConfig(**_make_direct_macro_configs()),
+        name="test_direct",
+        w_logical_shape=(n, k),
+    )
+    inter11 = _build_inter(
+        InterArraySliceXbarMacroConfig(**_make_macro_configs(w_slice_num=1, x_slice_num=1)),
+        name="test_inter11",
+        w_logical_shape=(n, k),
+    )
+    w = torch.randint(-3, 4, (n, k), dtype=torch.int32)
+    x = torch.randint(0, 2, (m, k), dtype=torch.int32)
+    direct.program(w)
+    inter11.program(w)
+    y_direct = direct.matmul(x)
+    y_inter = inter11.matmul(x)
+    assert torch.equal(y_direct, y_inter)
+
+
+def test_direct_value_ranges_delegate() -> None:
+    """``w_value_range`` follows the transcoder; ``x_value_range`` follows the xbar."""
+    macro = _build_direct(
+        DirectXbarMacroConfig(**_make_direct_macro_configs()),
+        name="test_ranges",
+        w_logical_shape=(13, 20),
+    )
+    assert macro.w_value_range == macro.w_transcoder.value_range
+    assert macro.x_value_range == macro.xbar.x_range

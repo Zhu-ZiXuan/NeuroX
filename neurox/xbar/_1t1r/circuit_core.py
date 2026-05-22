@@ -242,8 +242,8 @@ class CircuitCore1T1R(FabricateMixin, nn.Module):
         """Construct one shape-independent 1T1R core.
 
         Args:
-            cfg: Core configuration.
-            name: Profiler/debug name.
+            cfg: Concrete configuration dataclass.
+            name: Hierarchical instance name used by the profiler.
             w_layout_shape: Per-instance state-index tensor shape
                 ``(*prefix, phys_col_num, row_num)`` that
                 ``program(...)`` will receive.

@@ -1,4 +1,4 @@
-# `IntraXbarSliceMacro`
+# `IntraArraySliceXbarMacro`
 
 Strategy 2: `Sw` gathered within one xbar.
 
@@ -14,7 +14,7 @@ One xbar carries `weights_per_xbar = ⌊col_num / Sw⌋` whole logical weights, 
 
 ## Aggregate
 
-Drop trailing idle slots → `unflatten(data_num → weights_per_xbar, Sw)` → `Sw` shift-add (intra-xbar stride-`Sw`) → `Sa` shift-add (intra-xbar serial) → `Tc` accumulate → flatten `(Tr, weights_per_xbar)` → trim to `N` → optional bias.
+Drop trailing idle slots → `unflatten(data_num → weights_per_xbar, Sw)` → `Sw` shift-add (intra-xbar stride-`Sw`) → `Sa` shift-add (intra-xbar serial) → `Tc` accumulate → flatten `(Tr, weights_per_xbar)` → trim to `N`. The macro returns pre-requantize int output; the operator owns bias add and rescale.
 
 ## Constraints
 
@@ -22,4 +22,4 @@ Drop trailing idle slots → `unflatten(data_num → weights_per_xbar, Sw)` → 
 
 ## Config sub-modules
 
-`IntraXbarSliceMacroConfig` declares the same fields as `InterXbarSliceMacroConfig`.
+`IntraArraySliceXbarMacroConfig` declares the same fields as `InterArraySliceXbarMacroConfig`.

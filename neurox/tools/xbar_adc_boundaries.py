@@ -205,11 +205,10 @@ def calibrate(
         xbar_cfg = dc_replace(xbar_cfg, core_cfg=core_cfg, readout_cfg=readout)
 
     # Build the xbar directly from the nested config tree.
-    w_layout_shape = (xbar_cfg.col_num, xbar_cfg.w_digit_count, xbar_cfg.row_num)
     physical = Offset1T1RXbar(
         cfg=xbar_cfg,
         name="xbar",
-        w_layout_shape=w_layout_shape,
+        inst_shape=(),
         dtype=torch.float64,
         T__K=T_ROOM__K,
     )

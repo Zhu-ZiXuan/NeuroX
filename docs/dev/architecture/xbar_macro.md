@@ -46,7 +46,7 @@ The abstract base declares signatures only; it does **not** provide a template m
 
 - a polymorphic `from_config(cls, *, cfg, name, T__K, dtype, ideal_xbar)` classmethod that dispatches on the concrete config type.
 - abstract `w_value_range / x_value_range / output_rescale_factor` properties.
-- abstract `fabricate(weight)` and `matmul(input, weight, bias, mult, rshift, zp)`.
+- abstract `fabricate()` and `matmul(input)` (pure int matmul, matches `torch.matmul`; bias add and requantize live in the operator).
 - a static chunk-and-pad helper — the one shared geometric primitive.
 
 The base owns construction: it reads `cfg.xbar_cfg` (an `XbarConfig` subclass) and builds the xbar through `Xbar.from_config(...)`. When `ideal_xbar=True` it replaces the freshly-built physical tile with its lossless twin via `physical.to_ideal()`. A subclass writes its own `fabricate` and `matmul` end to end; the base does not orchestrate run-time logic.
@@ -68,5 +68,5 @@ Every concrete xbar-macro mode follows the same kwarg-only `__init__` / `from_co
 3. Forward the family signature into `super().__init__(...)` so the base builds `self.xbar`. Build slicers / reducers from the cfg as `nn.Module` children; do not re-store `cfg` or `xbar` — the base owns them.
 4. Implement the mode-specific organize for W and X as private methods of the subclass.
 5. Implement `fabricate(weight)` to call organize → `self.xbar.fabricate` and pre-warm reducer shapes.
-6. Implement `matmul(...)` to organize → primitive VMM → aggregate (the dual of organize) → requantize.
+6. Implement `matmul(...)` to organize → primitive VMM → aggregate (the dual of organize). The macro returns pre-requantize int output; the operator owns the rescale.
 7. Add full shape annotations on every reshape / permute step, marking placeholder axes as `=1`.

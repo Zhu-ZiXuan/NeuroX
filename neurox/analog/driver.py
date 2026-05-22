@@ -92,8 +92,8 @@ class Driver(FabricateMixin, nn.Module):
         """Construct one ideal clamp driver.
 
         Args:
-            cfg: Driver configuration.
-            name: Profiler/debug name.
+            cfg: Concrete configuration dataclass.
+            name: Hierarchical instance name used by the profiler.
             inst_shape: Per-instance fabrication shape.
             dtype: Tensor dtype for internal buffers.
             T__K: Operating temperature [K].
@@ -119,17 +119,17 @@ class Driver(FabricateMixin, nn.Module):
 
     @property
     def area_per_inst__um2(self) -> float:
-        """Circuit area per instance in [um2]."""
+        """Silicon area per instance [um^2]."""
         return self.cfg.area_per_inst__um2
 
     @property
     def leakage_per_inst__uW(self) -> float:
-        """Circuit leakage power per instance in [uW]."""
+        """Static leakage per instance [uW]."""
         return self.cfg.leakage_per_inst__uW
 
     @property
     def latency_per_op__ns(self) -> float:
-        """Latency per operation in [ns]."""
+        """Latency per op [ns]."""
         return self.cfg.latency_per_op__ns
 
     # --- ClampDriver protocol ---
