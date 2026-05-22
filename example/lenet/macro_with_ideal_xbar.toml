@@ -1,0 +1,94 @@
+# LeNet macro configuration with a lossless ideal xbar tile (no noise / no IR-drop).
+# Mirrors macro_with_physical_xbar.toml structurally; the only change is the
+# inner xbar config — IdealXbarConfig in place of Offset1T1RXbarConfig.
+# The IdealXbarConfig structural fields (x_range, w_digit_count/radix/range)
+# match the physical 1T1R defaults so this TOML is numerically equivalent to
+# running macro_with_physical_xbar.toml with ``--xbar ideal``.
+
+[digit_adder]
+bit_width = 32
+area_per_inst__um2 = 40.0
+leakage_per_inst__uW = 0.8
+latency_per_op__ns = 0.25
+energy_per_op__fJ = 30.0
+
+[accumulator]
+bit_width = 32
+area_per_inst__um2 = 60.0
+leakage_per_inst__uW = 1.0
+latency_per_op__ns = 0.5
+energy_per_op__fJ = 50.0
+
+[shift_adder]
+bit_width = 32
+area_per_inst__um2 = 75.0
+leakage_per_inst__uW = 1.5
+latency_per_op__ns = 0.5
+energy_per_op__fJ = 80.0
+
+[w_transcoder]
+encoding = "true_form"
+
+[x_transcoder]
+encoding = "true_form"
+digit_num = 4
+
+
+[macro]
+_neurox_type = "InterArraySliceXbarMacroConfig"
+
+# --- Slice counts ---
+w_slice_num = 1
+x_slice_num = 4
+
+# --- Slice encodings ---
+w_encoding = "true_form"
+
+[macro.xbar_cfg]
+_neurox_type = "IdealXbarConfig"
+
+# --- Tile size ---
+col_num = 64
+row_num = 64
+
+# --- ADC operating point ---
+adc_mode = 0
+adc_bits = 4
+
+# --- PPA ---
+latency_per_op__ns = 5.0
+leakage_per_inst__uW = 5.0
+area_per_inst__um2 = 500.0
+
+# --- IdealXbar structural fields ---
+x_range = [0, 1]
+w_digit_count = 1
+w_digit_radix = 2
+w_digit_range = [-1, 2]
+
+[[macro.xbar_cfg.output_rescale_factors]]
+adc_mode = 0
+adc_bits = 4
+rf = 4.0625
+
+
+[macro.col_accumulator_cfg]
+bit_width = 32
+area_per_inst__um2 = 60.0
+leakage_per_inst__uW = 1.0
+latency_per_op__ns = 0.5
+energy_per_op__fJ = 50.0
+
+[macro.sa_shift_adder_cfg]
+bit_width = 32
+area_per_inst__um2 = 75.0
+leakage_per_inst__uW = 1.5
+latency_per_op__ns = 0.5
+energy_per_op__fJ = 80.0
+
+[macro.sw_shift_adder_cfg]
+bit_width = 32
+area_per_inst__um2 = 75.0
+leakage_per_inst__uW = 1.5
+latency_per_op__ns = 0.5
+energy_per_op__fJ = 80.0

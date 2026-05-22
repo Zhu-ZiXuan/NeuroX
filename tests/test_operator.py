@@ -3,10 +3,10 @@
 Covers:
 
 1. ``QuantLinear`` / ``QuantConv2d`` forward with a state_dict crafted via
-   the production helper ``derive_layer_int_params`` and ``IdealMacro``.
+   the production helper ``derive_layer_int_params`` and ``IdealXbarMacro``.
    This is the operator-wiring smoke-test: any failure here is an
    operator-side bug, not a macro / crossbar bug.
-2. Cross-macro consistency: ``IdealMacro`` vs. ``XbarMacro(IdealXbar,...)``
+2. Cross-macro consistency: ``IdealXbarMacro`` vs. ``XbarMacro(IdealXbar,...)``
    on the same float weights.  The two state_dicts differ — each is
    derived with the macro's own ``output_rescale_factor`` folded in by
    ``derive_layer_int_params`` — so the test exercises the rescale-factor
@@ -46,7 +46,7 @@ from neurox.digital import (
     SubtractorConfig,
 )
 from neurox.macro.base import NeuroxMacroQuantMatMul
-from neurox.macro.ideal import IdealMacro
+from neurox.macro.xbar import IdealXbarMacro
 from neurox.mapper.transcoder import Transcoder
 from neurox.operator.base import NeuroxOperator
 from neurox.operator.conv import QuantConv2d
@@ -69,20 +69,20 @@ _SPECS = {
 
 
 # ---------------------------------------------------------------------------
-# Helpers: build IdealMacro / IdealXbar macro / Xbar1T1R macro
+# Helpers: build IdealXbarMacro / IdealXbar macro / Xbar1T1R macro
 # ---------------------------------------------------------------------------
 
 
-def _build_fake_macro() -> IdealMacro:
-    """IdealMacro sized to the ±255 grid implied by the default 1T1R config."""
+def _build_fake_macro() -> IdealXbarMacro:
+    """IdealXbarMacro sized to the ±255 grid implied by the default 1T1R config."""
     raw = dict_from_file(CONFIG_FILE)
     typed = dict_configs_from_file(_SPECS, CONFIG_FILE)
     w_states = len(typed["rram"].state_to_g__mS)
     x_states = 2
     w_max = w_states ** raw["w_transcoder"]["digit_num"] - 1
     x_max = x_states ** raw["x_transcoder"]["digit_num"] - 1
-    m = IdealMacro(x_value_range=(-x_max, x_max), w_value_range=(-w_max, w_max))
-    assert m.w_value_range == (-w_max, w_max), f"IdealMacro w_value_range {m.w_value_range} != ±{w_max}"
+    m = IdealXbarMacro(x_value_range=(-x_max, x_max), w_value_range=(-w_max, w_max))
+    assert m.w_value_range == (-w_max, w_max), f"IdealXbarMacro w_value_range {m.w_value_range} != ±{w_max}"
     return m
 
 
@@ -242,12 +242,12 @@ class TestQuantLinear:
         assert y_q.abs().max() > 0.01  # some non-trivial signal
 
     def test_cross_macro_consistency(self) -> None:
-        """IdealMacro vs XbarMacro(IdealXbar,...) on the same float weights.
+        """IdealXbarMacro vs XbarMacro(IdealXbar,...) on the same float weights.
 
         Each backend gets its own state_dict — the weight bins are
         identical but ``bias_int`` and ``(mult, rshift)`` differ because
         ``derive_layer_int_params`` folds in the macro's
-        ``output_rescale_factor`` (1.0 for IdealMacro, 12.0625 for the
+        ``output_rescale_factor`` (1.0 for IdealXbarMacro, 12.0625 for the
         default IdealXbar config).  If that plumbing is correct the two
         outputs must agree up to ADC code-grid noise on the IdealXbar
         side; a bias-fold or multiplier bug would blow the gap up by
@@ -286,7 +286,7 @@ class TestQuantLinear:
         rel_err = ((y_ideal - y_fake).abs().max() / denom).item()
         print(f"\n  cross-macro rel err: {rel_err:.3f} (bound 5.0)")
         assert rel_err < 5.0, (
-            f"IdealMacro vs IdealXbar relative error {rel_err:.3f} "
+            f"IdealXbarMacro vs IdealXbar relative error {rel_err:.3f} "
             f"exceeds 5.0 — likely bias-fold or multiplier-derivation bug"
         )
 

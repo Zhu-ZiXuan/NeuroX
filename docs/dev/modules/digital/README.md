@@ -7,7 +7,7 @@
 - `subtractor.py` — primitive integer subtractor.
 - `shift_adder.py` — shift-and-add reduction for digit-radix combination.
 
-The fixed-point multiply-shift requantize step lives inline in the operator's forward path (`neurox/operator/linear/_shared.py::run_matmul_pipeline`); it is no longer a separate digital block.
+The fixed-point multiply-shift requantize step lives inline in the operator's forward path (`neurox/operator/base.py::NeuroxOperator.run_matmul_pipeline`).
 
 Every block is a thin `nn.Module + FabricateMixin` carrying a `*Config` dataclass with the standard PPA fields (`bit_width`, `area_per_inst__um2`, `leakage_per_inst__uW`, `latency_per_op__ns`, `energy_per_op__fJ`). They are deliberately behavioural — no gate-level netlist semantics today.
 

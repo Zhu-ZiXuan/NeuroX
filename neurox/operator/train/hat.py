@@ -36,6 +36,7 @@ def replace_for_hat(
     Returns:
         The same model object, mutated in place.
     """
+    from neurox.operator import w_logical_shape_for
     from neurox.operator.conv import HATConv2d, QuantConv2d
     from neurox.operator.linear import HATLinear, QuantLinear
 
@@ -47,15 +48,10 @@ def replace_for_hat(
             if qualified in skip:
                 continue
             if isinstance(child, nn.Linear) and not isinstance(child, (QuantLinear, HATLinear)):
-                w_logical_shape = (child.out_features, child.in_features)
-                macro = macro_factory(name=qualified, w_logical_shape=w_logical_shape)
+                macro = macro_factory(name=qualified, w_logical_shape=w_logical_shape_for(child))
                 setattr(module, name, HATLinear.from_torch(child, macro, spec, qualified))
             elif isinstance(child, nn.Conv2d) and not isinstance(child, (QuantConv2d, HATConv2d)):
-                kh, kw = child.kernel_size
-                in_per_group = child.in_channels // child.groups
-                out_per_group = child.out_channels // child.groups
-                w_logical_shape = (child.groups, out_per_group, in_per_group * kh * kw)
-                macro = macro_factory(name=qualified, w_logical_shape=w_logical_shape)
+                macro = macro_factory(name=qualified, w_logical_shape=w_logical_shape_for(child))
                 setattr(module, name, HATConv2d.from_torch(child, macro, spec, qualified))
             else:
                 recurse(child, qualified)

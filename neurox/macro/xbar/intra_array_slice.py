@@ -21,6 +21,7 @@ from neurox.digital import (
 )
 from neurox.mapper.transcoder import Encoding
 from neurox.mapper.xbar.slicer import SerialSlicer, SimpleSlicer
+from neurox.xbar import Xbar, XbarConfig
 
 from .base import XbarMacro, XbarMacroConfig
 
@@ -30,6 +31,7 @@ class IntraArraySliceXbarMacroConfig(XbarMacroConfig):
     """Configuration for :class:`IntraArraySliceXbarMacro`.
 
     Attributes:
+        xbar_cfg: Owned physical-xbar config.
         w_slice_num: Per-weight Sw slice count.
         x_slice_num: Per-activation Sa slice count.
         w_encoding: Signed-digit encoding for the weight slicer.
@@ -38,6 +40,7 @@ class IntraArraySliceXbarMacroConfig(XbarMacroConfig):
         sw_shift_adder_cfg: Sw-axis intra-xbar shift-adder config.
     """
 
+    xbar_cfg: XbarConfig
     w_slice_num: int
     x_slice_num: int
     w_encoding: Encoding
@@ -61,6 +64,7 @@ class IntraArraySliceXbarMacro(XbarMacro):
     remaining ``col_num - (col_num // Sw) * Sw`` cells per xbar are idle.
     """
 
+    xbar: Xbar
     cfg: IntraArraySliceXbarMacroConfig
 
     def __init__(
@@ -98,7 +102,7 @@ class IntraArraySliceXbarMacro(XbarMacro):
         tr = (n_logical + wpx - 1) // wpx
         tc = (k_logical + row_num - 1) // row_num
 
-        self.xbar = self._build_xbar(inst_shape=(*w_batch, 1, tc, tr, 1))
+        self.xbar = self._build_xbar(xbar_cfg=xbar_cfg, inst_shape=(*w_batch, 1, tc, tr, 1))
         xbar = self.xbar
 
         x_lo, x_hi = xbar.x_range
@@ -184,10 +188,8 @@ class IntraArraySliceXbarMacro(XbarMacro):
             The trailing ``col_num - (col_num // Sw) * Sw`` cells per
             xbar are zero-padded.
         """
-        col_num = self.xbar.col_num
         row_num = self.xbar.row_num
         wpx = self._weights_per_xbar
-        used = self._used_data_num
         idle = self._idle_per_xbar
 
         n_logical = weight.shape[-2]
@@ -216,7 +218,6 @@ class IntraArraySliceXbarMacro(XbarMacro):
 
         # Shape: [..., Tc, Tr, wpx, Sw, D, row_num] -> [..., Tc, Tr, wpx*Sw, D, row_num]
         merged = arranged.flatten(start_dim=b + 2, end_dim=b + 3)
-        assert merged.shape[b + 2] == used
 
         # Shape: [..., Tc, Tr, wpx*Sw, D, row_num] -> [..., Tc, Tr, data_num, D, row_num]
         if idle > 0:
@@ -296,7 +297,7 @@ class IntraArraySliceXbarMacro(XbarMacro):
         w_slice_radix = self.w_slicer.slice_radix
 
         # Shape: [..., M, Tc, Tr=1, Sa, row_num] -> [..., M, Tc, Tr, Sa, data_num]
-        y = self.xbar.vec_mat_mul(x)
+        y = self.xbar.vec_mat_mul(x).to(torch.int64)
         # Shape: [..., M, Tc, Tr, Sa, data_num=col_num] -> [..., M, Tc, Tr, Sa, wpx*Sw]
         y = y[..., :used]
         # Shape: [..., M, Tc, Tr, Sa, wpx*Sw] -> [..., M, Tc, Tr, Sa, wpx, Sw]

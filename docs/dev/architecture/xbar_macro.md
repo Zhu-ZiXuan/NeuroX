@@ -1,17 +1,19 @@
 # Xbar Macro Architecture
 
-This document defines the layered structure of every xbar-backed macro and the rules each concrete mode must satisfy.
+This document defines the layered structure of every member of the XbarMacro family and the rules each concrete mode must satisfy.
 
 ## Layered responsibilities
 
 - **Xbar tile** — primitive analog VMM; programs / reads physical cells. Does not understand high-precision weight semantics.
 - **Value-domain primitives** — cross-mode helpers that decompose / encode integer values into digit strings (slicer, transcoder).
-- **Xbar macro abstract base** — declares the contract every xbar macro satisfies; carries the shared chunk-and-pad geometric utility.
-- **Concrete mode subclass** — one full execution mode: owns its slicers, reducers, and the paired organize / aggregate pipeline.
+- **XbarMacro abstract base** — declares the contract every family member satisfies (registry, lifecycle, value-domain, PPA aggregation); carries the shared chunk-and-pad geometric utility and the `_build_xbar` construction helper. The base itself owns no xbar — xbar-using subclasses declare and build their own.
+- **Concrete mode subclass** — one full execution mode: owns its `xbar_cfg` field, `xbar` instance, slicers, reducers, and the paired organize / aggregate pipeline.
+
+The degenerate member [`IdealXbarMacro`](../modules/macro/xbar/ideal.md) joins the family registry without owning an xbar — it just stores a weight tensor and uses `torch.matmul`. It exercises the Protocol contract but skips every layered step below the family root.
 
 ## W-side pipeline (3 steps)
 
-Every xbar macro processes a logical weight tensor through:
+Every xbar-using macro processes a logical weight tensor through:
 
 1. **Slice** — pure value-domain decomposition, identical across modes. Produces a trailing `[..., Sw, D]` decomposition where `Sw` is the per-weight slice count and `D` is the per-slice digit count.
 2. **Organize** — mode-specific reshape / permute that decides how the `Sw` axis maps onto physical xbar layout. *This step defines the mode*: it may leave `Sw` as a separate trailing axis, merge it into the output (`N`) axis, or arrange it in any other layout.
@@ -35,38 +37,40 @@ Because of this duality, the abstract base does **not** publish a generic aggreg
 
 ## `Sw` is layout, `Sa` is schedule
 
-- **`Sw`** (per-weight slice count) is a *layout* decision burned in at `fabricate` time. It determines how slices occupy physical cells. Every `matmul` call sees the same `Sw` layout until the next `fabricate`.
+- **`Sw`** (per-weight slice count) is a *layout* decision burned in at `program` time. It determines how slices occupy physical cells. Every `matmul` call sees the same `Sw` layout until the next `program`.
 - **`Sa`** (per-activation slice count) is a *schedule* decision evaluated at each `matmul` call. It represents per-cycle serial activation slicing. The current simulator materialises `Sa` as a tensor axis and batches the cycles, but the architectural contract does not require this — a future cycle-accurate mode is free to loop over `Sa`.
 
-This distinction explains why fabricate and matmul cannot share a uniform "reduce all slice axes the same way" helper.
+This distinction explains why `program` and `matmul` cannot share a uniform "reduce all slice axes the same way" helper.
 
 ## Contract surface on the abstract base
 
 The abstract base declares signatures only; it does **not** provide a template method, and intermediate tensor shapes are subclass concerns:
 
-- a polymorphic `from_config(cls, *, cfg, name, T__K, dtype, ideal_xbar)` classmethod that dispatches on the concrete config type.
+- a polymorphic `from_config(cls, *, cfg, name, w_logical_shape, dtype, T__K, ideal_xbar)` classmethod that dispatches on the concrete config type via `RegistryMixin`.
 - abstract `w_value_range / x_value_range / output_rescale_factor` properties.
-- abstract `fabricate()` and `matmul(input)` (pure int matmul, matches `torch.matmul`; bias add and requantize live in the operator).
+- abstract `program(weight)` and `matmul(input)` (pure int matmul, matches `torch.matmul`; bias add and requantize live in the operator).
+- `_build_xbar(*, xbar_cfg, inst_shape) -> Xbar` instance helper used by xbar-using subclasses to construct their tile (applies `.to_ideal()` when `ideal_xbar=True`). The base does not presume the concrete cfg carries an `xbar_cfg`, so xbar-using subclasses pass it in explicitly.
 - a static chunk-and-pad helper — the one shared geometric primitive.
 
-The base owns construction: it reads `cfg.xbar_cfg` (an `XbarConfig` subclass) and builds the xbar through `Xbar.from_config(...)`. When `ideal_xbar=True` it replaces the freshly-built physical tile with its lossless twin via `physical.to_ideal()`. A subclass writes its own `fabricate` and `matmul` end to end; the base does not orchestrate run-time logic.
+`XbarMacroConfig` (the registry-key root) has **no fields**. xbar-using subclass configs declare their own `xbar_cfg: XbarConfig` plus mode-specific slicer / reducer configs.
 
 ## Family-wide construction signature
 
-Every concrete xbar-macro mode follows the same kwarg-only `__init__` / `from_config` signature:
+Every family member follows the same kwarg-only `__init__` / `from_config` signature:
 
 ```
-*, cfg, name, T__K, dtype, ideal_xbar
+*, cfg, name, w_logical_shape, dtype, T__K, ideal_xbar
 ```
 
-`T__K` and `dtype` propagate to the xbar and to every analog/digital child that consumes them. `ideal_xbar` is a build-time toggle paired with the analog/ideal swap. Stochastic-vs-deterministic rounding is governed exclusively by `self.training` at the consuming quantiser — there is no constructor-time override. None of these arguments carry a default — see [`code_style.md` §Physical-layer no defaults](code_style.md).
+`w_logical_shape` is the logical weight shape `(*prefix, N, K)` bound to `program(...)` at construction. `dtype` and `T__K` propagate to the xbar and to every analog / digital child that consumes them. `ideal_xbar` is a build-time toggle honoured by xbar-using subclasses (swaps the physical tile for its ideal twin); the degenerate `IdealXbarMacro` accepts it for API uniformity and ignores it. Stochastic-vs-deterministic rounding is governed exclusively by `self.training` at the consuming quantiser — there is no constructor-time override. None of these arguments carry a default — see [`code_style.md` §Physical-layer no defaults](code_style.md).
 
 ## Adding a new mode
 
-1. Define a concrete config dataclass extending the base config, declaring all sub-module configs the mode needs (slicer params, reducer configs, …). `xbar_cfg: XbarConfig` is inherited from the base config; concrete subclasses do not redeclare it.
-2. Define a concrete macro subclass and register it against the concrete config with the family registry decorator.
-3. Forward the family signature into `super().__init__(...)` so the base builds `self.xbar`. Build slicers / reducers from the cfg as `nn.Module` children; do not re-store `cfg` or `xbar` — the base owns them.
-4. Implement the mode-specific organize for W and X as private methods of the subclass.
-5. Implement `fabricate(weight)` to call organize → `self.xbar.fabricate` and pre-warm reducer shapes.
-6. Implement `matmul(...)` to organize → primitive VMM → aggregate (the dual of organize). The macro returns pre-requantize int output; the operator owns the rescale.
-7. Add full shape annotations on every reshape / permute step, marking placeholder axes as `=1`.
+1. Define a concrete config dataclass extending `XbarMacroConfig`, declaring `xbar_cfg: XbarConfig` plus the sub-module configs the mode needs (slicer params, reducer configs, …).
+2. Define a concrete macro subclass extending `XbarMacro` and register it against the concrete config with `@XbarMacro.register_key(MyConfig)`.
+3. Declare `xbar: Xbar` as an instance attribute on the class.
+4. Forward the family signature into `super().__init__(...)`, then call `self.xbar = self._build_xbar(xbar_cfg=cfg.xbar_cfg, inst_shape=...)`. The `inst_shape` is derived from `w_logical_shape + cfg.xbar_cfg.col_num / row_num + slice counts` symbolically. Build slicers / reducers from the cfg as `nn.Module` children.
+5. Implement the mode-specific organize for W and X as private methods of the subclass.
+6. Implement `program(weight)` to organize → `self.xbar.program` and pre-warm reducer shapes.
+7. Implement `matmul(input)` to organize → primitive VMM → aggregate (the dual of organize). The macro returns pre-requantize int output; the operator owns bias add and rescale.
+8. Add full shape annotations on every reshape / permute step, marking placeholder axes as `=1`.

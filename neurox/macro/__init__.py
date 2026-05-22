@@ -5,9 +5,7 @@ See also:
 """
 
 from .base import NeuroxMacroQuantMatMul
-from .ideal import IdealMacro
 
 __all__ = [
-    "IdealMacro",
     "NeuroxMacroQuantMatMul",
 ]

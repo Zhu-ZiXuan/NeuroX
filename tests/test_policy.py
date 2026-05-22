@@ -18,7 +18,9 @@ import warnings
 import pytest
 import torch.nn as nn
 
-from neurox.macro.ideal import IdealMacro
+import torch
+
+from neurox.macro.xbar import IdealXbarMacro, IdealXbarMacroConfig, XbarMacro
 from neurox.operator import QuantConv2d, QuantLinear
 from neurox.replace import (
     ReplacementContext,
@@ -32,13 +34,22 @@ from neurox.replace import (
 )
 
 
-def _fake_factory(*, name: str = "", w_logical_shape: tuple[int, ...] = (1, 1)) -> IdealMacro:
-    del name
-    return IdealMacro(
-        x_value_range=(-7, 7),
-        w_value_range=(-7, 7),
+def _make_ideal_macro(*, name: str, w_logical_shape: tuple[int, ...], bound: int) -> IdealXbarMacro:
+    cfg = IdealXbarMacroConfig(x_value_range=(-bound, bound), w_value_range=(-bound, bound))
+    macro = XbarMacro.from_config(
+        cfg=cfg,
+        name=name,
         w_logical_shape=w_logical_shape,
+        dtype=torch.float32,
+        T__K=300.0,
+        ideal_xbar=False,
     )
+    assert isinstance(macro, IdealXbarMacro)
+    return macro
+
+
+def _fake_factory(*, name: str = "", w_logical_shape: tuple[int, ...] = (1, 1)) -> IdealXbarMacro:
+    return _make_ideal_macro(name=name, w_logical_shape=w_logical_shape, bound=7)
 
 
 def _model_with_three_layers() -> nn.Module:
@@ -129,26 +140,16 @@ class TestHeterogeneousMacros:
     def test_per_prefix_routing(self) -> None:
         model = _model_with_three_layers()
         # Two distinct factories; assert each layer's macro came from the right one
-        fc_macros: list[IdealMacro] = []
-        head_macros: list[IdealMacro] = []
+        fc_macros: list[IdealXbarMacro] = []
+        head_macros: list[IdealXbarMacro] = []
 
-        def fc_factory(*, name: str = "", w_logical_shape: tuple[int, ...] = (1, 1)) -> IdealMacro:
-            del name
-            m = IdealMacro(
-                x_value_range=(-7, 7),
-                w_value_range=(-7, 7),
-                w_logical_shape=w_logical_shape,
-            )
+        def fc_factory(*, name: str = "", w_logical_shape: tuple[int, ...] = (1, 1)) -> IdealXbarMacro:
+            m = _make_ideal_macro(name=name, w_logical_shape=w_logical_shape, bound=7)
             fc_macros.append(m)
             return m
 
-        def head_factory(*, name: str = "", w_logical_shape: tuple[int, ...] = (1, 1)) -> IdealMacro:
-            del name
-            m = IdealMacro(
-                x_value_range=(-1, 1),
-                w_value_range=(-1, 1),
-                w_logical_shape=w_logical_shape,
-            )
+        def head_factory(*, name: str = "", w_logical_shape: tuple[int, ...] = (1, 1)) -> IdealXbarMacro:
+            m = _make_ideal_macro(name=name, w_logical_shape=w_logical_shape, bound=1)
             head_macros.append(m)
             return m
 

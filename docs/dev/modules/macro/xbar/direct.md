@@ -27,7 +27,7 @@ The macro trusts the upper layer for value ranges:
 - Logical weights must fit in `self.w_transcoder.value_range`. With `w_digit_count=D`, `w_digit_radix=r`, the transcoder's value range is encoding-dependent (e.g. true-form: `±(r^D - 1)`).
 - Logical activations must fit in `self.xbar.x_range`.
 
-Out-of-range inputs are clipped silently by the xbar; no `assert` is enforced inside the macro.
+Neither the macro nor the xbar enforces the range — out-of-range inputs propagate as-is and produce undefined results.
 
 ## When to use
 
@@ -37,6 +37,7 @@ Pick `DirectXbarMacro` when the chosen quantisation grid already lands inside on
 
 `DirectXbarMacroConfig` declares:
 
+- `xbar_cfg: XbarConfig` — owned physical-xbar config.
 - `w_encoding` — signed-digit encoding for the weight transcoder (activations are unsigned true-form by definition).
 - `col_accumulator_cfg` — `Tc`-axis cross-tile accumulator.
 

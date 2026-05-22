@@ -48,7 +48,7 @@ def vec_mat_mul(self, x) -> Tensor: ...
 - `program(w)` validates `w.shape == self._w_layout_shape`, then writes through to the underlying child state (RRAM / digits buffer).
 - `IdealXbar` registers a 0-d `nominal_digits` buffer and a `digits` actual buffer; `program(w)` reassigns the actual buffer.
 
-### Macros (xbar-backed and ideal)
+### Macros (XbarMacro family)
 
 ```python
 def __init__(self, *, cfg, name, w_logical_shape, dtype, T__K, ideal_xbar) -> None: ...
@@ -59,9 +59,10 @@ def matmul(self, input) -> Tensor: ...                                        # 
 ```
 
 - `w_logical_shape` is the operator-facing weight shape, typically `(*prefix, N, K)` (linear) or `(groups, out/g, in/g·kh·kw)` (grouped conv).
-- The macro derives every child's `inst_shape` symbolically from `w_logical_shape` + cfg in `__init__`, then builds children with those shapes.
+- Xbar-using subclasses derive every child's `inst_shape` symbolically from `w_logical_shape` + cfg in `__init__`, then build children with those shapes (the inherited `_build_xbar(xbar_cfg=..., inst_shape=...)` helper constructs the tile).
 - `program(weight)` runs the macro's `_organize_w` and dispatches to the xbar's `program(...)`. Digital helpers and the readout chain participate via the auto-cascade only.
 - `matmul` does **not** take `weight` — it reads the state established by `program(...)`.
+- The degenerate `IdealXbarMacro` accepts the same signature for API uniformity but has no xbar / no organize step; `program(weight)` writes the integer weight directly into `self.weight`.
 
 ### Operators
 

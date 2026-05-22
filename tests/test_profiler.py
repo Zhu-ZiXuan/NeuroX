@@ -29,7 +29,7 @@ _MACRO_FIXTURE = _Path(__file__).parent / "fixtures" / "macro.toml"
 
 
 def _build_ideal_macro(name: str = "fc1.macro"):
-    factory = build_macro_factory(_MACRO_FIXTURE, xbar="ideal")
+    factory = build_macro_factory(_MACRO_FIXTURE, ideal_xbar=True)
     return factory(name=name, w_logical_shape=_DEFAULT_W_LOGICAL_SHAPE)
 
 

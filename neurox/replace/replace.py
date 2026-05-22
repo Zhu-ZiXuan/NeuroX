@@ -14,7 +14,7 @@ import torch
 import torch.nn as nn
 
 from neurox.macro.base import NeuroxMacroQuantMatMul
-from neurox.operator import NeuroxOperator, QuantConv2d, QuantLinear
+from neurox.operator import NeuroxOperator, QuantConv2d, QuantLinear, w_logical_shape_for
 from neurox.operator.qat_util import derive_multiplier_and_shift_tensor
 
 from .state import NeuroxStateError, StateBindingReport
@@ -144,15 +144,10 @@ def _replace(
         for name, child in list(module.named_children()):
             qualified = f"{prefix}.{name}" if prefix else name
             if isinstance(child, nn.Linear) and not isinstance(child, QuantLinear):
-                w_logical_shape = (child.out_features, child.in_features)
-                macro = macro_factory(name=qualified, w_logical_shape=w_logical_shape)
+                macro = macro_factory(name=qualified, w_logical_shape=w_logical_shape_for(child))
                 setattr(module, name, QuantLinear.from_torch(child, macro, qualified))
             elif isinstance(child, nn.Conv2d) and not isinstance(child, QuantConv2d):
-                kh, kw = child.kernel_size
-                in_per_group = child.in_channels // child.groups
-                out_per_group = child.out_channels // child.groups
-                w_logical_shape = (child.groups, out_per_group, in_per_group * kh * kw)
-                macro = macro_factory(name=qualified, w_logical_shape=w_logical_shape)
+                macro = macro_factory(name=qualified, w_logical_shape=w_logical_shape_for(child))
                 setattr(module, name, QuantConv2d.from_torch(child, macro, qualified))
             else:
                 recursive_replace(child, qualified)

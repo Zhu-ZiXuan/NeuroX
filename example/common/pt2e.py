@@ -319,7 +319,7 @@ def pt2e_to_neurox_state(
             and divided into the folded bias so the operator's inline
             requantize produces correctly-scaled output.  Pass
             ``1.0`` (default) for macros whose ADC already covers the
-            full ideal state range (e.g. ``IdealMacro``).
+            full ideal state range (e.g. ``IdealXbarMacro``).
 
     Returns:
         Flat state_dict ready for ``model.load_state_dict`` on a model whose

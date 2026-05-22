@@ -20,6 +20,7 @@ from neurox.digital import (
 )
 from neurox.mapper.transcoder import Encoding
 from neurox.mapper.xbar.slicer import SerialSlicer, SimpleSlicer
+from neurox.xbar import Xbar, XbarConfig
 
 from .base import XbarMacro, XbarMacroConfig
 
@@ -29,6 +30,7 @@ class InterArraySliceXbarMacroConfig(XbarMacroConfig):
     """Configuration for :class:`InterArraySliceXbarMacro`.
 
     Attributes:
+        xbar_cfg: Owned physical-xbar config.
         w_slice_num: Per-weight Sw slice count.
         x_slice_num: Per-activation Sa slice count.
         w_encoding: Signed-digit encoding for the weight slicer.
@@ -37,6 +39,7 @@ class InterArraySliceXbarMacroConfig(XbarMacroConfig):
         sw_shift_adder_cfg: Sw-axis cross-xbar shift-adder config.
     """
 
+    xbar_cfg: XbarConfig
     w_slice_num: int
     x_slice_num: int
     w_encoding: Encoding
@@ -58,6 +61,7 @@ class InterArraySliceXbarMacro(XbarMacro):
     One xbar plane holds one ``Sw`` slice index across every logical weight.
     """
 
+    xbar: Xbar
     cfg: InterArraySliceXbarMacroConfig
 
     def __init__(
@@ -90,7 +94,7 @@ class InterArraySliceXbarMacro(XbarMacro):
         tc = (k_logical + row_num - 1) // row_num
         sw = cfg.w_slice_num
 
-        self.xbar = self._build_xbar(inst_shape=(*w_batch, 1, tc, tr, 1, sw))
+        self.xbar = self._build_xbar(xbar_cfg=xbar_cfg, inst_shape=(*w_batch, 1, tc, tr, 1, sw))
         xbar = self.xbar
 
         x_lo, x_hi = xbar.x_range
@@ -261,7 +265,7 @@ class InterArraySliceXbarMacro(XbarMacro):
         w_slice_radix = self.w_slicer.slice_radix
 
         # Shape: [..., M, Tc, Tr=1, Sa, Sw=1, row_num] -> [..., M, Tc, Tr, Sa, Sw, data_num]
-        y = self.xbar.vec_mat_mul(x)
+        y = self.xbar.vec_mat_mul(x).to(torch.int64)
         # Shape: [..., M, Tc, Tr, Sa, Sw, data_num] -> [..., M, Tc, Tr, Sw, data_num]
         y = self.sa_shift_adder.operate(y, x_slice_radix, dim=-3, init_val=None)
         # Shape: [..., M, Tc, Tr, Sw, data_num] -> [..., M, Tc, Tr, data_num]

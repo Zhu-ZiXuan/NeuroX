@@ -10,14 +10,20 @@
   ``evaluate.py``.
 """
 
-from .macro_factory import XbarKind, build_macro_factory, derive_quant_spec
+from .macro_factory import (
+    build_macro_factory,
+    derive_quant_spec,
+    read_macro_config,
+    supports_xbar_override,
+)
 from .procedures import run_evaluate
 from .pt2e import pt2e_to_neurox_state
 
 __all__ = [
-    "XbarKind",
     "build_macro_factory",
     "derive_quant_spec",
     "pt2e_to_neurox_state",
+    "read_macro_config",
     "run_evaluate",
+    "supports_xbar_override",
 ]

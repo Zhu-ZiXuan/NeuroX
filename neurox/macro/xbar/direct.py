@@ -17,6 +17,7 @@ from neurox.digital import (
     AccumulatorConfig,
 )
 from neurox.mapper.transcoder import Encoding, Transcoder
+from neurox.xbar import Xbar, XbarConfig
 
 from .base import XbarMacro, XbarMacroConfig
 
@@ -29,10 +30,12 @@ class DirectXbarMacroConfig(XbarMacroConfig):
     weights / activations straight onto one xbar's value range.
 
     Attributes:
+        xbar_cfg: Owned physical-xbar config.
         w_encoding: Signed-digit encoding for the weight transcoder.
         col_accumulator_cfg: Tc-axis cross-tile accumulator config.
     """
 
+    xbar_cfg: XbarConfig
     w_encoding: Encoding
 
     col_accumulator_cfg: AccumulatorConfig
@@ -44,10 +47,12 @@ class DirectXbarMacro(XbarMacro):
 
     The caller must supply integer weight / activation values that already
     fit the xbar's value range (the transcoder's ``value_range`` for ``w``
-    and ``xbar.x_range`` for ``x``). The macro trusts the upper layer;
-    out-of-range inputs are silently clipped by the underlying xbar.
+    and ``xbar.x_range`` for ``x``). Neither this macro nor the underlying
+    xbar enforces the range — out-of-range inputs propagate as-is and
+    produce undefined results.
     """
 
+    xbar: Xbar
     cfg: DirectXbarMacroConfig
 
     def __init__(
@@ -79,7 +84,7 @@ class DirectXbarMacro(XbarMacro):
         tr = (n_logical + col_num - 1) // col_num
         tc = (k_logical + row_num - 1) // row_num
 
-        self.xbar = self._build_xbar(inst_shape=(*w_batch, 1, tc, tr))
+        self.xbar = self._build_xbar(xbar_cfg=xbar_cfg, inst_shape=(*w_batch, 1, tc, tr))
         xbar = self.xbar
 
         self.w_transcoder = Transcoder.create(
@@ -215,7 +220,7 @@ class DirectXbarMacro(XbarMacro):
             self._serial_op_num = batch_m_prod // max(self._w_parallel_size, 1)
 
         # Shape: [..., M, Tc, Tr=1, row_num] -> [..., M, Tc, Tr, col_num]
-        y = self.xbar.vec_mat_mul(x)
+        y = self.xbar.vec_mat_mul(x).to(torch.int64)
         # Shape: [..., M, Tc, Tr, col_num] -> [..., M, Tr, col_num]
         y = self.col_accumulator.operate(y, dim=-3)
         # Shape: [..., M, Tr, col_num] -> [..., M, Tr * col_num] -> [..., M, N]

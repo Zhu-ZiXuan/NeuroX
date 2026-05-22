@@ -1,40 +1,38 @@
 """Shared evaluation procedure for NeuroX examples.
 
-Each example's ``evaluate.py`` calls ``run_evaluate`` with its own model
-+ transform + dataloader builder.  The loop itself, the profiler
-wrapping, and the summary print are model-agnostic and live here.
+Each example's ``evaluate.py`` constructs its model (via either the
+automated ``build_evaluator`` path or a hand-built quantised model class)
+and hands it to ``run_evaluate``. The loop itself, the profiler wrapping,
+and the summary print are model-agnostic and live here.
 """
 
 # ruff: noqa: T201
 
 import time
 from collections.abc import Callable
-from pathlib import Path
 
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
 import neurox
-from neurox.macro.base import NeuroxMacroQuantMatMul
+from neurox.replace import count_xbar_layers
 
 
 def run_evaluate(
-    float_model: nn.Module,
-    checkpoint: Path,
-    macro_factory: Callable[[], NeuroxMacroQuantMatMul],
+    model: nn.Module,
     loader_factory: Callable[[torch.device], DataLoader],
     *,
     device: torch.device,
     macro_name: str,
     max_samples: int | None = None,
 ) -> float:
-    """Replace float ops → build evaluator → run inference → print report.
+    """Run inference on a pre-built model and print a report.
 
     Args:
-        float_model: Fresh (unloaded) float model matching the QAT architecture.
-        checkpoint: Path to a ``neurox_flat`` checkpoint.
-        macro_factory: Per-layer macro factory (``fake`` / ``xbar_ideal`` / ...).
+        model: Ready-to-run model already placed on ``device`` and switched
+            to ``eval()`` (the caller owns construction — automated
+            ``build_evaluator`` or a hand-built quantised class).
         loader_factory: Callable that returns a val-split ``DataLoader`` given a device.
         device: Inference device.
         macro_name: Label printed in the report.
@@ -43,13 +41,6 @@ def run_evaluate(
     Returns:
         Top-1 accuracy as a float in ``[0, 1]``.
     """
-    # NB: ``neurox`` is imported as the root package; every public
-    # entry point (``build_evaluator``, ``NeuroxProfiler``, etc.) is a
-    # top-level attribute per Phase D's API consolidation.
-    from neurox.replace import count_xbar_layers  # diagnostic only
-
-    model = neurox.build_evaluator(float_model, checkpoint, macro_factory)
-    model = model.to(device).eval()
     print(f"Layer summary: {count_xbar_layers(model)}")
     loader = loader_factory(device)
 

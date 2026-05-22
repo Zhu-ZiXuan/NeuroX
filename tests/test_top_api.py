@@ -70,7 +70,7 @@ class TestRoundtripImportOnly:
     """Build + run + profile using only ``import neurox`` (no submodule reach-in)."""
 
     def test_end_to_end_with_fake_macro(self) -> None:
-        from neurox.macro.ideal import IdealMacro  # only this single non-public reach-in
+        from neurox.macro.xbar import IdealXbarMacro, IdealXbarMacroConfig, XbarMacro
 
         class Tiny(nn.Module):
             def __init__(self) -> None:
@@ -80,13 +80,18 @@ class TestRoundtripImportOnly:
             def forward(self, x: torch.Tensor) -> torch.Tensor:
                 return self.fc(x)
 
-        def factory(*, name: str = "", w_logical_shape: tuple[int, ...] = (1, 1)) -> IdealMacro:
-            del name
-            return IdealMacro(
-                x_value_range=(-7, 7),
-                w_value_range=(-7, 7),
+        def factory(*, name: str = "", w_logical_shape: tuple[int, ...] = (1, 1)) -> IdealXbarMacro:
+            cfg = IdealXbarMacroConfig(x_value_range=(-7, 7), w_value_range=(-7, 7))
+            macro = XbarMacro.from_config(
+                cfg=cfg,
+                name=name,
                 w_logical_shape=w_logical_shape,
+                dtype=torch.float32,
+                T__K=300.0,
+                ideal_xbar=False,
             )
+            assert isinstance(macro, IdealXbarMacro)
+            return macro
 
         # Stage 2 staged path through the top-level surface.
         model = Tiny()
@@ -103,7 +108,7 @@ class TestRoundtripImportOnly:
             y = model(x)
         assert y.shape == (2, 3)
         static = neurox.NeuroxProfiler.analyze_static(model)
-        # IdealMacro carries no PPA-bearing children; static aggregation
+        # IdealXbarMacro carries no PPA-bearing children; static aggregation
         # is well-defined but yields zero.
         assert static.area__um2 >= 0.0
         # ``profiler.summary`` runs without errors.

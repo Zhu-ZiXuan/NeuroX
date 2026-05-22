@@ -1,4 +1,4 @@
-"""Abstract base for xbar-backed macros.
+"""Abstract base for the XbarMacro family.
 
 See also:
     docs/dev/architecture/xbar_macro.md
@@ -20,14 +20,7 @@ from neurox.xbar import Xbar, XbarConfig
 
 @dataclass(frozen=True)
 class XbarMacroConfig(ValidateMixin):
-    """Abstract config base for :class:`XbarMacro` subclasses.
-
-    Attributes:
-        xbar_cfg: Owned physical-xbar config; the macro constructs the
-            xbar from this field via ``Xbar.from_config(...)``.
-    """
-
-    xbar_cfg: XbarConfig
+    """Abstract config root for the :class:`XbarMacro` registry."""
 
     def __post_init__(self) -> None:
         self.validate()
@@ -37,7 +30,7 @@ class XbarMacroConfig(ValidateMixin):
 
 
 class XbarMacro(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["XbarMacroConfig"], "XbarMacro"], ABC):
-    """Abstract base for xbar-backed quantised-MAC macros.
+    """Abstract base for the XbarMacro family.
 
     Args:
         cfg: Concrete configuration dataclass.
@@ -45,11 +38,11 @@ class XbarMacro(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["Xba
         w_logical_shape: Logical weight shape ``(*prefix, N, K)`` bound to ``program(...)``.
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature [K].
-        ideal_xbar: When ``True``, the macro replaces its physical xbar
-            with the lossless ideal twin returned by ``xbar.to_ideal()``.
+        ideal_xbar: Hint accepted for API uniformity. Consumed by
+            xbar-using subclasses (swaps the physical xbar for its ideal
+            twin); degenerate members ignore it.
     """
 
-    xbar: Xbar
     cfg: XbarMacroConfig
 
     def __init__(
@@ -155,12 +148,14 @@ class XbarMacro(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["Xba
         """
         raise NotImplementedError
 
-    # --- xbar construction helper for subclasses ---
+    # --- xbar construction helper for xbar-using subclasses ---
 
-    def _build_xbar(self, inst_shape: tuple[int, ...]) -> Xbar:
+    def _build_xbar(self, *, xbar_cfg: XbarConfig, inst_shape: tuple[int, ...]) -> Xbar:
         """Construct the owned xbar at a derived per-instance multiplicity.
 
         Args:
+            xbar_cfg: Subclass-owned xbar configuration (the base does not
+                require its concrete cfg to carry one).
             inst_shape: Per-instance multiplicity prefix; the xbar
                 derives the trailing ``(col_num, w_digit_count,
                 row_num)`` dims from its own cfg.
@@ -170,7 +165,7 @@ class XbarMacro(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["Xba
         """
         prefix = f"{self._macro_name}." if self._macro_name else ""
         xbar = Xbar.from_config(
-            cfg=self.cfg.xbar_cfg,
+            cfg=xbar_cfg,
             name=f"{prefix}xbar",
             inst_shape=inst_shape,
             dtype=self._macro_dtype,

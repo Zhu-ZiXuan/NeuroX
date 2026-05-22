@@ -1,0 +1,41 @@
+# LeNet macro configuration: lossless integer-matmul baseline.
+# IdealXbarMacro is the degenerate member of the XbarMacro family — no
+# xbar tile, no slicing, no transcoding. Useful as a numerical ground
+# truth when isolating QAT issues from analog / IO modelling.
+
+[digit_adder]
+bit_width = 32
+area_per_inst__um2 = 40.0
+leakage_per_inst__uW = 0.8
+latency_per_op__ns = 0.25
+energy_per_op__fJ = 30.0
+
+[accumulator]
+bit_width = 32
+area_per_inst__um2 = 60.0
+leakage_per_inst__uW = 1.0
+latency_per_op__ns = 0.5
+energy_per_op__fJ = 50.0
+
+[shift_adder]
+bit_width = 32
+area_per_inst__um2 = 75.0
+leakage_per_inst__uW = 1.5
+latency_per_op__ns = 0.5
+energy_per_op__fJ = 80.0
+
+[w_transcoder]
+encoding = "true_form"
+
+[x_transcoder]
+encoding = "true_form"
+digit_num = 4
+
+
+[macro]
+_neurox_type = "IdealXbarMacroConfig"
+
+# Matches the (x[0,15], w[-63,63]) grid the physical/ideal xbar macros land on
+# at the default Sa=4, Sw=1 InterArraySlice configuration.
+x_value_range = [0, 15]
+w_value_range = [-63, 63]

@@ -1,26 +1,14 @@
 """PT2E QAT for LeNet-5 on MNIST (NeuroX-grid ranges, modern API).
 
-Replaces the deprecated ``torch.ao.quantization.prepare_qat`` /
-``convert`` eager-mode flow with the current PT2E flow from
-``torchao.quantization.pt2e``.  The model is exported with
-``torch.export.export_for_training`` to a graph module, a custom
-``Quantizer`` annotates each ``conv2d`` / ``linear`` node with the
-NeuroX-matching spec, ``prepare_qat_pt2e`` inserts fake-quant +
-observers, fine-tuning runs, and ``convert_pt2e`` lowers to a
-quantized graph.
+Uses the PT2E flow from ``torchao.quantization.pt2e``. The model is
+exported with ``torch.export.export``, a NeuroX-grid quantizer annotates
+each ``conv2d`` / ``linear`` node, ``prepare_qat_pt2e`` inserts
+fake-quant + observers, fine-tuning runs, and ``convert_pt2e`` lowers to
+a quantized graph.
 
-Default quantization grid (matches the NeuroX physical crossbar):
-
-    activation: per-tensor affine, ``[--x-qmin, --x-qmax]``
-                default ``[0, 15]`` -> 16 levels (4-bit unsigned grid)
-    weight:     per-channel symmetric, ``[-w_qmax, w_qmax]``
-                default ``[-63, 63]`` -> 127 levels per output channel
-                (fits in ``int8``; widen via ``--w-qmax`` if desired)
-
-The QAT-prepared model holds float weights plus the per-channel weight
-fake-quant scale and per-tensor activation scale/zero-point learned
-during fine-tuning.  The script saves the converted graph state_dict
-together with the qat config metadata for downstream NeuroX usage.
+The quantization grid is derived from ``--macro-config <file>`` (the
+same TOML the deployment macro uses) so the trained checkpoint plugs
+straight into ``evaluate.py``.
 """
 
 # ruff: noqa: T201
@@ -49,9 +37,12 @@ from torchao.quantization.pt2e.quantizer import (
     Quantizer,
 )
 
+from example.common import derive_quant_spec
 from example.common.pt2e import pt2e_to_neurox_state
 from example.lenet.data import create_mnist_dataloader
 from example.lenet.model import LeNet5
+
+CONFIG_DIR = Path(__file__).parent
 
 # ---------------------------------------------------------------------------
 # Custom NeuroX-grid quantizer
@@ -161,7 +152,7 @@ def _validate(model: nn.Module, loader: DataLoader, device: torch.device) -> flo
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="PT2E QAT for LeNet-5 on MNIST (NeuroX-grid ranges)")
+    parser = argparse.ArgumentParser(description="PT2E QAT for LeNet-5 on MNIST (NeuroX-grid)")
     parser.add_argument("--dataset-dir", type=Path, required=True, help="MNIST root directory")
     parser.add_argument(
         "--float-checkpoint",
@@ -170,21 +161,24 @@ def main() -> None:
         help="Pretrained float state_dict produced by example.lenet.train",
     )
     parser.add_argument("--checkpoint", type=Path, required=True, help="Output QAT graph state_dict path")
-    parser.add_argument("--device", type=str, default="cuda:0", help="Device for QAT fine-tuning")
-    parser.add_argument("--x-qmin", type=int, default=0, help="Activation integer minimum")
-    parser.add_argument("--x-qmax", type=int, default=15, help="Activation integer maximum")
     parser.add_argument(
-        "--w-qmax",
-        type=int,
-        default=63,
-        help="Symmetric weight integer bound; range is [-w_qmax, w_qmax]; must be <= 127",
+        "--macro-config",
+        required=True,
+        help=f"Macro config filename under {CONFIG_DIR.name}/ "
+        "(quantization grid is derived from its value ranges)",
     )
+    parser.add_argument("--device", type=str, default="cuda:0", help="Device for QAT fine-tuning")
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--momentum", type=float, default=0.9)
     parser.add_argument("--weight-decay", type=float, default=5e-4)
     args = parser.parse_args()
+
+    config_path = CONFIG_DIR / args.macro_config
+    if not config_path.is_file():
+        raise SystemExit(f"--macro-config: file not found: {config_path}")
+    spec = derive_quant_spec(config_path)
 
     device = torch.device(args.device)
 
@@ -202,12 +196,6 @@ def main() -> None:
     print(f"Loaded float checkpoint: {args.float_checkpoint}")
 
     # --- 2. Export to a graph module suitable for QAT prepare ---
-    # ``torch.export.export`` in torch 2.11 unified the training and
-    # inference export paths; the resulting graph module can be put in
-    # train mode after ``prepare_qat_pt2e`` inserts the fake-quant ops.
-    # Use ``Dim.AUTO`` on the batch axis (and a representative batch>1
-    # in the example input) so the graph stays polymorphic across the
-    # train/val batch sizes used by the loaders.
     example_inputs = (torch.randn(2, 1, 28, 28, device=device),)
     exported = torch.export.export(
         model,
@@ -216,17 +204,16 @@ def main() -> None:
     ).module()
 
     # --- 3. Build the NeuroX-grid quantizer and prepare for QAT ---
-    quantizer = NeuroXQuantizer(args.x_qmin, args.x_qmax, args.w_qmax)
+    quantizer = NeuroXQuantizer(spec.x_qmin, spec.x_qmax, spec.w_qmax)
     prepared = prepare_qat_pt2e(exported, quantizer)
-    # Patch train()/eval() onto the exported graph so we can drive the
-    # standard nn.Module training loop without special-casing.
     allow_exported_model_train_eval(prepared)
     prepared.train()
     print(
-        f"QAT grid: activation [{args.x_qmin}, {args.x_qmax}] "
-        f"({args.x_qmax - args.x_qmin + 1} levels, per-tensor affine, uint8), "
-        f"weight [{-args.w_qmax}, {args.w_qmax}] "
-        f"({2 * args.w_qmax + 1} levels, per-channel symmetric, int8)"
+        f"QAT grid (from {args.macro_config}): "
+        f"activation [{spec.x_qmin}, {spec.x_qmax}] "
+        f"({spec.x_qmax - spec.x_qmin + 1} levels, per-tensor affine, uint8), "
+        f"weight [{-spec.w_qmax}, {spec.w_qmax}] "
+        f"({2 * spec.w_qmax + 1} levels, per-channel symmetric, int8)"
     )
 
     # --- 4. Fine-tune with fake quantization ---
@@ -287,11 +274,6 @@ def main() -> None:
     print(f"Best fake-quant val_acc: {best_acc:.4f}")
 
     # --- 5. Extract BEFORE convert (convert mutates the prepared graph) ---
-    # ``convert_pt2e`` replaces the FakeQuantize call_module nodes with
-    # ``quantize_per_tensor`` / ``dequantize_per_tensor`` call_function
-    # ops in place, which drops the scale/zero_point buffers we need for
-    # extraction.  Pull the NeuroX-flat state_dict out of ``prepared``
-    # first, then run ``convert_pt2e`` purely for the final reporting.
     prepared.eval()
     flat_state = pt2e_to_neurox_state(prepared, float_reference)
 
@@ -306,9 +288,12 @@ def main() -> None:
             "schema": "neurox_flat",
             "state_dict": flat_state,
             "qat_config": {
-                "x_qmin": args.x_qmin,
-                "x_qmax": args.x_qmax,
-                "w_qmax": args.w_qmax,
+                "x_qmin": spec.x_qmin,
+                "x_qmax": spec.x_qmax,
+                "w_qmax": spec.w_qmax,
+                "y_qmin": spec.y_qmin,
+                "y_qmax": spec.y_qmax,
+                "macro_config": args.macro_config,
             },
         },
         args.checkpoint,

@@ -286,7 +286,6 @@ def calibrate(
         sl_driver_snapshot = core.sl_driver.snapshot(shape=(core.fabricated_row_num,))
 
         # Reuse the core's solver and fabricated wire state.
-        assert core.solver is not None
         result = core.solver.solve(
             wl_drive,
             rram_snapshot=rram_snapshot,

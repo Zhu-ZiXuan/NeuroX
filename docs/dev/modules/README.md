@@ -12,7 +12,7 @@ Current documented areas:
 - `digital/` — accumulator, adders, shift-adder, subtractor
 - `xbar/` — abstract `Xbar`, ideal twin, shared solver primitives, and the `_1t1r/` subtree (`circuit_core`, `newton_raphson_solver`, `offset`, `differential` / `simple_core` placeholders)
 - `mapper/` — `transcoder` plus the `xbar/slicer/` value-domain primitive
-- `macro/` — `XbarMacro` (abstract) + concrete modes (`DirectXbarMacro`, `InterArraySliceXbarMacro`, `IntraArraySliceXbarMacro`) + `IdealMacro`
+- `macro/` — `XbarMacro` (abstract registry root) + concrete members (`DirectXbarMacro`, `InterArraySliceXbarMacro`, `IntraArraySliceXbarMacro`, `IdealXbarMacro`)
 - `operator/` — quantised operator surface + `train/` HAT path
 - `profiler/` — `ProfileMixin` + `NeuroxProfiler` side channel
 - `replace/` — model-rewriting pipeline

@@ -7,20 +7,16 @@ End-to-end HAT pipeline (no pt2e):
    models that have BN).
 3. ``replace_for_hat`` swaps every supported ``nn.Linear`` /
    ``nn.Conv2d`` for its HAT counterpart, bound to a fresh
-   xbar macro instance per layer backed by the lossless
-   :class:`IdealXbar` tile derived from the physical chip.  Other
-   modules (ReLU, MaxPool, Flatten, ...) stay in float.
-4. Fine-tune with the ideal macro in the forward pass — same ADC
-   quant grid as the deployed hardware, no noise in the backward,
-   fast enough to keep training practical.  Backward uses the
+   xbar macro instance per layer. The macro flavour comes from
+   ``--macro-config <file>`` (a TOML next to this script).
+4. Fine-tune with the macro in the forward pass — the integer grid and
+   tile behaviour match the deployment target. Backward uses the
    float-reference gradient via STE so training is stable.
 5. ``extract_neurox_state`` → save a NeuroX-flat checkpoint readable by
    ``neurox.build_evaluator``.
 
-Hardware target: the macro TOML is wired in as ``MACRO_CONFIG`` (a
-sibling file alongside this script); ``--xbar`` selects ``physical``
-vs ``ideal``.  HAT defaults to ``--xbar ideal`` for speed; evaluation
-defaults to ``--xbar physical`` to mirror the deployed chip.
+``--xbar physical|ideal`` is accepted only when the chosen TOML carries
+a physical xbar; it then swaps it for the lossless twin in the HAT loop.
 """
 
 # ruff: noqa: T201
@@ -35,12 +31,12 @@ import torch.nn.functional as F
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader
 
-from example.common import build_macro_factory, derive_quant_spec
+from example.common import build_macro_factory, derive_quant_spec, read_macro_config, supports_xbar_override
 from example.lenet.data import create_mnist_dataloader
 from example.lenet.model import LeNet5
 from neurox import replace as neurox
 
-MACRO_CONFIG = Path(__file__).parent / "macro.toml"
+CONFIG_DIR = Path(__file__).parent
 
 
 def _validate(model: nn.Module, loader: DataLoader, device: torch.device) -> float:
@@ -67,19 +63,19 @@ def main() -> None:
         help="Pretrained float state_dict produced by example.lenet.train",
     )
     parser.add_argument("--checkpoint", type=Path, required=True, help="Output NeuroX-flat checkpoint path")
-    parser.add_argument("--device", type=str, default="cuda:0", help="Device for HAT fine-tuning")
+    parser.add_argument(
+        "--macro-config",
+        required=True,
+        help=f"Macro config filename under {CONFIG_DIR.name}/ (e.g. macro_with_ideal_xbar.toml)",
+    )
     parser.add_argument(
         "--xbar",
         choices=("physical", "ideal"),
-        default="ideal",
-        help=(
-            "Tile implementation used as the HAT calculator.  ``ideal`` "
-            "(recommended) is the lossless reference derived from the "
-            "physical tile — same ADC grid, no noise in the backward, "
-            "fast.  ``physical`` runs the full 1T1R circuit solver with "
-            "noise for noise-aware training (much slower)."
-        ),
+        default=None,
+        help="Swap a physical xbar for its ideal twin during HAT. "
+        "Valid only when --macro-config carries a physical xbar.",
     )
+    parser.add_argument("--device", type=str, default="cuda:0", help="Device for HAT fine-tuning")
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--epochs", type=int, default=15)
     parser.add_argument("--lr", type=float, default=2e-5)
@@ -101,6 +97,19 @@ def main() -> None:
     )
     parser.add_argument("--kd-temperature", type=float, default=4.0, help="Softening temperature for logit KD")
     args = parser.parse_args()
+
+    config_path = CONFIG_DIR / args.macro_config
+    if not config_path.is_file():
+        raise SystemExit(f"--macro-config: file not found: {config_path}")
+
+    cfg = read_macro_config(config_path)
+    can_override = supports_xbar_override(cfg)
+    if args.xbar is not None and not can_override:
+        raise SystemExit(
+            f"--xbar is valid only when --macro-config carries a physical xbar; "
+            f"{args.macro_config} does not (cfg={type(cfg).__name__})."
+        )
+    ideal_xbar = can_override and args.xbar == "ideal"
 
     device = torch.device(args.device)
 
@@ -124,16 +133,14 @@ def main() -> None:
     neurox.fold_batchnorm(model)
 
     # --- 3. Replace supported ops with HAT counterparts ---
-    # ``MACRO_CONFIG`` (TOML next to this script) provides the quant grid;
-    # ``--xbar`` selects between the physical 1T1R solver and the lossless
-    # reference. Default is ``ideal`` for speed.
-    spec = derive_quant_spec(MACRO_CONFIG)
-    macro_factory = build_macro_factory(MACRO_CONFIG, xbar=args.xbar)
+    spec = derive_quant_spec(config_path)
+    macro_factory = build_macro_factory(config_path, ideal_xbar=ideal_xbar)
     model = neurox.replace_for_hat(model, macro_factory, spec)
     model = model.to(device)
+    flavour = f"ideal-twin@{args.macro_config}" if ideal_xbar else args.macro_config
     print(
         f"HAT grid: x[{spec.x_qmin},{spec.x_qmax}]  w[±{spec.w_qmax}]  "
-        f"y[{spec.y_qmin},{spec.y_qmax}]  xbar={args.xbar}  (from {MACRO_CONFIG.name})"
+        f"y[{spec.y_qmin},{spec.y_qmax}]  macro={flavour}"
     )
     from neurox.operator import HATConv2d, HATLinear
 
@@ -244,8 +251,7 @@ def main() -> None:
                 "w_qmax": spec.w_qmax,
                 "y_qmin": spec.y_qmin,
                 "y_qmax": spec.y_qmax,
-                "xbar_used_during_hat": args.xbar,
-                "hardware_config": str(MACRO_CONFIG),
+                "macro_config": args.macro_config,
             },
         },
         args.checkpoint,

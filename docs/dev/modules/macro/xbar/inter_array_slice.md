@@ -18,5 +18,6 @@ Identity. After slicing into `[..., N, K, Sw, D]`, `Sw` stays as a trailing axis
 
 `InterArraySliceXbarMacroConfig` declares:
 
+- `xbar_cfg: XbarConfig` — owned physical-xbar config.
 - `w_slice_num`, `x_slice_num`, `w_encoding` (activation slicer is always unsigned true-form, no `x_encoding`).
 - `col_accumulator_cfg`, `sa_shift_adder_cfg`, `sw_shift_adder_cfg`

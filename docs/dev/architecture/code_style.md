@@ -246,7 +246,7 @@ def snapshot(self, *, shape: tuple[int, ...]) -> <Name>Snapshot:
         Per-call snapshot of the fabricated state.
     """
 
-# Macro static-weight write (Protocol, IdealMacro, XbarMacro abstract, three XbarMacro impls).
+# Macro static-weight write (Protocol, XbarMacro abstract, four XbarMacro impls — Direct / InterArraySlice / IntraArraySlice / Ideal).
 def program(self, weight: Tensor) -> None:
     """Write the macro's static weight state from one logical weight tensor.
 
@@ -265,7 +265,7 @@ def program(self, w: Tensor) -> None:
             Entries must lie in :attr:`w_digit_range`.
     """
 
-# Macro integer matmul (Protocol, IdealMacro, XbarMacro abstract, three XbarMacro impls).
+# Macro integer matmul (Protocol, XbarMacro abstract, four XbarMacro impls — Direct / InterArraySlice / IntraArraySlice / Ideal).
 # Matches torch.matmul semantics (pure matmul, no bias). Bias add and
 # requantize live in the operator layer.
 def matmul(self, input: Tensor) -> Tensor:
@@ -311,7 +311,7 @@ def leakage_per_inst__uW(self) -> float:
 def latency_per_op__ns(self) -> float:
     """Latency per op [ns]."""
 
-# Macro value-domain (Protocol, IdealMacro, XbarMacro abstract, three XbarMacro impls).
+# Macro value-domain (Protocol, XbarMacro abstract, four XbarMacro impls — Direct / InterArraySlice / IntraArraySlice / Ideal).
 @property
 def w_value_range(self) -> tuple[int, int]:
     """Inclusive integer weight range accepted by the macro."""

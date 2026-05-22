@@ -22,4 +22,8 @@ Drop trailing idle slots → `unflatten(data_num → weights_per_xbar, Sw)` → 
 
 ## Config sub-modules
 
-`IntraArraySliceXbarMacroConfig` declares the same fields as `InterArraySliceXbarMacroConfig`.
+`IntraArraySliceXbarMacroConfig` declares the same fields as `InterArraySliceXbarMacroConfig`:
+
+- `xbar_cfg: XbarConfig` — owned physical-xbar config.
+- `w_slice_num`, `x_slice_num`, `w_encoding`.
+- `col_accumulator_cfg`, `sa_shift_adder_cfg`, `sw_shift_adder_cfg`.
