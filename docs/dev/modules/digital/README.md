@@ -8,7 +8,11 @@
 - `shift_adder.py` — shift-and-add reduction for digit-radix combination.
 - `requantizer.py` — fixed-point multiplier / shift / bias used to fold an externally-supplied rescale factor into an integer output grid.
 
-Every block is a thin `nn.Module` carrying a `*Config` dataclass with the standard PPA fields (`bit_width`, `area_per_inst__um2`, `leakage_per_inst__uW`, `latency_per_op__ns`, `energy_per_op__fJ`). They are deliberately behavioural — no gate-level netlist semantics today.
+Every block is a thin `nn.Module + FabricateMixin` carrying a `*Config` dataclass with the standard PPA fields (`bit_width`, `area_per_inst__um2`, `leakage_per_inst__uW`, `latency_per_op__ns`, `energy_per_op__fJ`). They are deliberately behavioural — no gate-level netlist semantics today.
+
+## Construction
+
+Family signature: `__init__(*, cfg, name, inst_shape)`. The block records its profiler instance count from `inst_shape` at construction; no per-call sampling state lives on a digital block, so the inherited `_sample_fabricate_mismatch` default no-op is the right body.
 
 ## Composition
 

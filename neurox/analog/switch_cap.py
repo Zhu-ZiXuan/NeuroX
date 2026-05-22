@@ -10,6 +10,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
+from neurox.common.fabricate import FabricateMixin
 from neurox.common.nonideality import apply_gaussian, apply_pelgrom_mismatch
 from neurox.common.physical_constant import K_BOLTZMANN__J_per_K
 from neurox.common.validate import ValidateMixin
@@ -71,14 +72,15 @@ class SwitchCapConfig(ValidateMixin):
         self._require_nonneg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
-class SwitchCap(nn.Module, ProfiledModule):
+class SwitchCap(FabricateMixin, nn.Module, ProfiledModule):
     """Bottom-plate-sampled cap bank with passive charge-share averaging.
 
     Args:
         cfg: Immutable :class:`SwitchCapConfig`.
         name: Hierarchical profiler name.
-        T__K: Operating temperature [K].
+        inst_shape: Per-instance fabrication shape.
         dtype: Floating-point dtype.
+        T__K: Operating temperature [K].
         cap_weights: Per-cap multipliers on ``cfg.c_unit__fF``.
     """
 
@@ -90,8 +92,9 @@ class SwitchCap(nn.Module, ProfiledModule):
         *,
         cfg: SwitchCapConfig,
         name: str,
-        T__K: float,
+        inst_shape: tuple[int, ...],
         dtype: torch.dtype,
+        T__K: float,
         cap_weights: tuple[float, ...],
     ) -> None:
         nn.Module.__init__(self)
@@ -105,6 +108,7 @@ class SwitchCap(nn.Module, ProfiledModule):
                 raise ValueError(f"require: cap_weights[{k}] ({w}) > 0")
 
         self.cfg = cfg
+        self._inst_shape = inst_shape
         self.T__K = T__K
         self.dtype = dtype
         self.n_caps = len(cap_weights)
@@ -116,6 +120,7 @@ class SwitchCap(nn.Module, ProfiledModule):
             self.nominal_c__fF.clone(),
             persistent=False,
         )
+        self._record_inst_count(inst_shape)
 
     @property
     def area_per_inst__um2(self) -> float:
@@ -132,23 +137,16 @@ class SwitchCap(nn.Module, ProfiledModule):
         """Settling latency per sample [ns]."""
         return self.cfg.latency_per_op__ns
 
-    def fabricate(self, shape: tuple[int, ...]) -> None:
-        """Sample static per-instance state over ``shape`` (re-callable).
-
-        Args:
-            shape: Per-instance fabrication shape; fabricated
-                ``c__fF`` lands at ``(*shape, n_caps)``.
-        """
+    def _sample_fabricate_mismatch(self) -> None:
+        """Resample per-cap mismatch at ``(*self._inst_shape, n_caps)``."""
         cfg = self.cfg
-        c__fF = apply_pelgrom_mismatch(
-            self.nominal_c__fF.clone().expand(*shape, self.n_caps),
+        self.c__fF = apply_pelgrom_mismatch(
+            self.nominal_c__fF.clone().expand(*self._inst_shape, self.n_caps),
             cfg.cap_mismatch_sigma_relative,
             unit=cfg.c_unit__fF,
             floor=0.1 * cfg.c_unit__fF,
             enabled=cfg.enable_cap_mismatch,
         )
-        self.register_buffer("c__fF", c__fF, persistent=False)
-        self._record_inst_count(shape)
 
     def sample_and_accumulate(self, v_in__V: Tensor) -> Tensor:
         """Sample digit voltages and run passive charge-sharing.

@@ -251,17 +251,31 @@ def _make_macro_configs(*, w_slice_num: int, x_slice_num: int) -> dict[str, obje
     )
 
 
-def _build_inter(cfg: InterXbarSliceMacroConfig, name: str) -> InterXbarSliceMacro:
+def _build_inter(
+    cfg: InterXbarSliceMacroConfig, name: str, w_logical_shape: tuple[int, ...]
+) -> InterXbarSliceMacro:
     macro = InterXbarSliceMacro(
-        cfg=cfg, name=name, T__K=300.0, dtype=torch.float32, ideal_xbar=False,
+        cfg=cfg,
+        name=name,
+        w_logical_shape=w_logical_shape,
+        dtype=torch.float32,
+        T__K=300.0,
+        ideal_xbar=False,
     )
     macro.eval()
     return macro
 
 
-def _build_intra(cfg: IntraXbarSliceMacroConfig, name: str) -> IntraXbarSliceMacro:
+def _build_intra(
+    cfg: IntraXbarSliceMacroConfig, name: str, w_logical_shape: tuple[int, ...]
+) -> IntraXbarSliceMacro:
     macro = IntraXbarSliceMacro(
-        cfg=cfg, name=name, T__K=300.0, dtype=torch.float32, ideal_xbar=False,
+        cfg=cfg,
+        name=name,
+        w_logical_shape=w_logical_shape,
+        dtype=torch.float32,
+        T__K=300.0,
+        ideal_xbar=False,
     )
     macro.eval()
     return macro
@@ -269,37 +283,39 @@ def _build_intra(cfg: IntraXbarSliceMacroConfig, name: str) -> IntraXbarSliceMac
 
 def test_inter_xbar_matches_torch_matmul() -> None:
     torch.manual_seed(0)
+    n, k, m = 13, 20, 8
     macro = _build_inter(
         InterXbarSliceMacroConfig(**_make_macro_configs(w_slice_num=3, x_slice_num=4)),
         name="test_inter",
+        w_logical_shape=(n, k),
     )
-    n, k, m = 13, 20, 8
     w = torch.randint(-63, 64, (n, k), dtype=torch.int32)
     x = torch.randint(0, 16, (m, k), dtype=torch.int32)
-    macro.fabricate(w)
+    macro.program(w)
     mult = torch.ones(n, dtype=torch.int32)
     shift = torch.zeros(n, dtype=torch.int32)
-    y = macro.matmul(x, w, None, mult, shift, None)
+    y = macro.matmul(x, None, mult, shift, None)
     y_ref = (x.float() @ w.float().T).to(torch.int32)
     assert torch.equal(y, y_ref)
 
 
 def test_intra_xbar_matches_torch_matmul() -> None:
     torch.manual_seed(0)
+    n, k, m = 13, 20, 8
     macro = _build_intra(
         IntraXbarSliceMacroConfig(**_make_macro_configs(w_slice_num=3, x_slice_num=4)),
         name="test_intra",
+        w_logical_shape=(n, k),
     )
     assert macro._weights_per_xbar == 5
     assert macro._used_data_num == 15
     assert macro._idle_per_xbar == 1
-    n, k, m = 13, 20, 8
     w = torch.randint(-63, 64, (n, k), dtype=torch.int32)
     x = torch.randint(0, 16, (m, k), dtype=torch.int32)
-    macro.fabricate(w)
+    macro.program(w)
     mult = torch.ones(n, dtype=torch.int32)
     shift = torch.zeros(n, dtype=torch.int32)
-    y = macro.matmul(x, w, None, mult, shift, None)
+    y = macro.matmul(x, None, mult, shift, None)
     y_ref = (x.float() @ w.float().T).to(torch.int32)
     assert torch.equal(y, y_ref)
 
@@ -307,22 +323,24 @@ def test_intra_xbar_matches_torch_matmul() -> None:
 def test_inter_and_intra_xbar_agree() -> None:
     """Cross-mode consistency: same w/x, same int output."""
     torch.manual_seed(0)
+    n, k, m = 13, 20, 8
     inter = _build_inter(
         InterXbarSliceMacroConfig(**_make_macro_configs(w_slice_num=3, x_slice_num=4)),
         name="test_inter",
+        w_logical_shape=(n, k),
     )
     intra = _build_intra(
         IntraXbarSliceMacroConfig(**_make_macro_configs(w_slice_num=3, x_slice_num=4)),
         name="test_intra",
+        w_logical_shape=(n, k),
     )
 
-    n, k, m = 13, 20, 8
     w = torch.randint(-63, 64, (n, k), dtype=torch.int32)
     x = torch.randint(0, 16, (m, k), dtype=torch.int32)
-    inter.fabricate(w)
-    intra.fabricate(w)
+    inter.program(w)
+    intra.program(w)
     mult = torch.ones(n, dtype=torch.int32)
     shift = torch.zeros(n, dtype=torch.int32)
-    y_inter = inter.matmul(x, w, None, mult, shift, None)
-    y_intra = intra.matmul(x, w, None, mult, shift, None)
+    y_inter = inter.matmul(x, None, mult, shift, None)
+    y_intra = intra.matmul(x, None, mult, shift, None)
     assert torch.equal(y_inter, y_intra)

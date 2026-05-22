@@ -10,6 +10,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
+from neurox.common.fabricate import FabricateMixin
 from neurox.common.nonideality import (
     StateDependentGammaConfig,
     StuckAtFaultConfig,
@@ -126,7 +127,7 @@ class RRAMSnapshot:
     g__uS: Tensor
 
 
-class RRAM(nn.Module):
+class RRAM(FabricateMixin, nn.Module):
     """Stateful RRAM array model."""
 
     g__uS: Tensor
@@ -135,16 +136,18 @@ class RRAM(nn.Module):
         self,
         *,
         cfg: RRAMConfig,
-        T__K: float,
+        inst_shape: tuple[int, ...],
         dtype: torch.dtype,
+        T__K: float,
         g_max__uS: float,
     ) -> None:
         """Construct one stateful RRAM model.
 
         Args:
             cfg: RRAM configuration.
-            T__K: Operating temperature [K].
+            inst_shape: Per-instance fabrication shape.
             dtype: Tensor dtype for internal buffers.
+            T__K: Operating temperature [K].
             g_max__uS: Maximum programmable conductance [uS].
         """
         super().__init__()
@@ -153,12 +156,13 @@ class RRAM(nn.Module):
             raise ValueError(f"require: g_max__uS ({g_max__uS}) > cfg.g_min__uS ({cfg.g_min__uS})")
 
         self.cfg = cfg
+        self._inst_shape = inst_shape
         self.dtype = dtype
         self.T__K = T__K
         self.g_min__uS = cfg.g_min__uS
         self.g_max__uS = g_max__uS
 
-        self.register_buffer("g__uS", torch.empty(0, dtype=dtype), persistent=False)
+        self.register_buffer("g__uS", torch.zeros((), dtype=dtype), persistent=False)
 
     @property
     def c_top__fF(self) -> float:
@@ -193,7 +197,7 @@ class RRAM(nn.Module):
 
         g__uS = g__uS.clamp(self.g_min__uS, self.g_max__uS)
 
-        self.register_buffer("g__uS", g__uS, persistent=False)
+        self.g__uS = g__uS
 
     def snapshot(self, *, shape: tuple[int, ...]) -> RRAMSnapshot:
         """Sample one per-call runtime snapshot over ``shape``.

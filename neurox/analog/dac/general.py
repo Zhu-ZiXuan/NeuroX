@@ -79,17 +79,19 @@ class GeneralDAC(DAC):
         *,
         cfg: GeneralDACConfig,
         name: str,
-        T__K: float,
+        inst_shape: tuple[int, ...],
         dtype: torch.dtype,
+        T__K: float,
     ) -> None:
         """Initialize the LUT buffer."""
-        super().__init__(cfg=cfg, name=name, T__K=T__K, dtype=dtype)
+        super().__init__(cfg=cfg, name=name, inst_shape=inst_shape, dtype=dtype, T__K=T__K)
 
         self.cfg = cfg
         self.T__K = T__K
         self.dtype = dtype
 
         self.register_buffer("code_to_signal", torch.tensor(cfg.code_to_signal, dtype=dtype), persistent=False)
+        self._record_inst_count(inst_shape)
 
     @property
     def area_per_inst__um2(self) -> float:
@@ -105,14 +107,6 @@ class GeneralDAC(DAC):
     def latency_per_op__ns(self) -> float:
         """Latency per operation in [ns]."""
         return self.cfg.latency_per_op__ns
-
-    def fabricate(self, shape: tuple[int, ...]) -> None:
-        """Sample static per-instance state over ``shape`` (re-callable).
-
-        Args:
-            shape: Per-instance fabrication shape.
-        """
-        self._record_inst_count(shape)
 
     def convert(self, code: Tensor) -> Tensor:
         """Convert integer digital codes to float analog voltages.

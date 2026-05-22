@@ -151,10 +151,11 @@ class McsSarAdc(ADC):
         *,
         cfg: McsSarAdcConfig,
         name: str,
-        T__K: float,
+        inst_shape: tuple[int, ...],
         dtype: torch.dtype,
+        T__K: float,
     ) -> None:
-        super().__init__(cfg=cfg, name=name, T__K=T__K, dtype=dtype)
+        super().__init__(cfg=cfg, name=name, inst_shape=inst_shape, dtype=dtype, T__K=T__K)
         if not (T__K > 0.0):
             raise ValueError(f"McsSarAdc T__K ({T__K}) must be > 0")
 
@@ -194,6 +195,8 @@ class McsSarAdc(ADC):
             persistent=False,
         )
 
+        self._record_inst_count(inst_shape)
+
     # --- runtime-mode introspection ---
 
     def available_modes(self) -> tuple[float, ...]:
@@ -206,41 +209,31 @@ class McsSarAdc(ADC):
 
     # --- fabricate (static non-idealities) ---
 
-    def fabricate(self, shape: tuple[int, ...]) -> None:
-        """Sample static per-instance state over ``shape`` (re-callable).
-
-        Args:
-            shape: Per-instance fabrication shape.
-        """
+    def _sample_fabricate_mismatch(self) -> None:
+        """Resample independent differential cap arrays and comparator offset."""
         cfg = self.cfg
+        inst_shape = self._inst_shape
 
         # Two independently-sampled cap arrays for the differential CDAC.
-        c_p__fF = apply_pelgrom_mismatch(
-            self.nominal_c__fF.clone().expand(*shape, self.n_caps),
+        self.c_p__fF = apply_pelgrom_mismatch(
+            self.nominal_c__fF.clone().expand(*inst_shape, self.n_caps),
             cfg.cap_mismatch_sigma_relative,
             unit=cfg.c_unit__fF,
             floor=0.1 * cfg.c_unit__fF,
             enabled=cfg.enable_cap_mismatch,
         )
-        c_n__fF = apply_pelgrom_mismatch(
-            self.nominal_c__fF.clone().expand(*shape, self.n_caps),
+        self.c_n__fF = apply_pelgrom_mismatch(
+            self.nominal_c__fF.clone().expand(*inst_shape, self.n_caps),
             cfg.cap_mismatch_sigma_relative,
             unit=cfg.c_unit__fF,
             floor=0.1 * cfg.c_unit__fF,
             enabled=cfg.enable_cap_mismatch,
         )
-
-        comparator_offset__V = apply_gaussian(
-            self.nominal_comparator_offset__V.clone().expand(shape),
+        self.comparator_offset__V = apply_gaussian(
+            self.nominal_comparator_offset__V.clone().expand(inst_shape),
             cfg.comparator_offset_sigma__V,
             enabled=cfg.enable_comparator_offset,
         )
-
-        self.register_buffer("c_p__fF", c_p__fF, persistent=False)
-        self.register_buffer("c_n__fF", c_n__fF, persistent=False)
-        self.register_buffer("comparator_offset__V", comparator_offset__V, persistent=False)
-
-        self._record_inst_count(shape)
 
     # --- ABC contract ---
 

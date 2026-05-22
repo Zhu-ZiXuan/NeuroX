@@ -1,6 +1,7 @@
 """NeuroX common utilities."""
 
 from .config import Config, ConfigBuilder, ValidationError
+from .fabricate import FabricateMixin
 from .load_dump import (
     dataclass_from_dict,
     dataclass_from_file,
@@ -30,6 +31,7 @@ from .registry_dispatch import RegistryDispatchMixin
 __all__ = [
     "Config",
     "ConfigBuilder",
+    "FabricateMixin",
     "RegistryDispatchMixin",
     "ELEM_CHARGE__C",
     "EPS_0__F_per_m",

@@ -21,9 +21,9 @@ Same shape as `McsSarAdcConfig` (max_bits, `v_refs`, cap / comparator mismatch s
 
 ## State that is wired today
 
-`fabricate(shape)` already builds:
+`_sample_fabricate_mismatch()` (driven via `FabricateMixin`) already builds:
 
-- `c_p__fF` / `c_n__fF` — independently-sampled per-leg cap arrays.
+- `c_p__fF` / `c_n__fF` — independently-sampled per-leg cap arrays at `self._inst_shape`.
 - `comparator_offset__V` — static threshold offset.
 
 A future differential convert kernel will consume these plus the per-call kT/C noise and per-cycle comparator noise.

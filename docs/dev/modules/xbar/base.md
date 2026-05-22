@@ -4,7 +4,7 @@
 
 `Xbar` is the abstract base for the physical-crossbar primitive. Every concrete xbar (offset-coded 1T1R, future differential 1T1R, ideal twin) inherits this class and implements the same primitive shape contract. The family uses `RegistryDispatchMixin[type[XbarConfig], Xbar]`; concrete subclasses register on their concrete config type via `@Xbar.register_key(<Subclass>Config)`.
 
-`Xbar.from_config(cls, *, cfg, name, T__K, dtype)` is the family constructor: it looks up the impl class from `type(cfg)` and forwards the runtime trio. Direct instantiation of a concrete subclass is allowed; `from_config` is the polymorphic entry that owning macros use.
+`Xbar.from_config(cls, *, cfg, name, w_layout_shape, dtype, T__K)` is the family constructor: it looks up the impl class from `type(cfg)` and forwards the runtime arguments. Direct instantiation of a concrete subclass is allowed; `from_config` is the polymorphic entry that owning macros use.
 
 `XbarConfig` is the base config carrying tile geometry, the runtime ADC operating point, the `(adc_mode, adc_bits) → rescale_factor` lookup, and tile-level PPA fields. All fields are required; the physical-layer no-defaults rule applies.
 
@@ -12,7 +12,7 @@
 
 The generic xbar publishes exactly two shape contracts:
 
-- `fabricate(w)` — weight digit tensor with primitive trailing dims `[data_num, digit_num, row_num]`. Every entry must lie in `w_digit_range`.
+- `program(w)` — weight digit tensor whose shape matches the `w_layout_shape` bound at `__init__`: `(*prefix, data_num, digit_num, row_num)`. Every entry must lie in `w_digit_range`.
 - `vec_mat_mul(x)` — activation tensor with primitive trailing dims `[row_num]`; returns an output tensor with primitive trailing dims `[data_num]`. Entries of `x` must lie in `x_range`.
 
 These are the **only** shape semantics the generic xbar exposes. Any additional leading axes wrapped around `(*data_num, digit_num, row_num)` are broadcast against the fabricated per-cell state without further interpretation by the xbar.
@@ -43,9 +43,18 @@ The xbar does **not** expose an aggregate "full logical `w` range" — that rang
 
 ## `to_ideal()`
 
-`Xbar.to_ideal() -> IdealXbar` is a **concrete** base method. It auto-forwards every `XbarConfig` field from `self.cfg` plus the four abstract structural properties (`x_range`, `w_digit_*`) into an `IdealXbarConfig`, then instantiates `IdealXbar`. Concrete xbars do not override it; `IdealXbar.to_ideal()` overrides to `return self`. `IdealXbar` is registered on `IdealXbarConfig`, so the same lossless tile is reachable through either `physical.to_ideal()` or `Xbar.from_config(cfg=IdealXbarConfig(...))`.
+`Xbar.to_ideal() -> IdealXbar` is a **concrete** base method. It auto-forwards every `XbarConfig` field from `self.cfg` plus the four abstract structural properties (`x_range`, `w_digit_*`) into an `IdealXbarConfig`, derives the new tile's `w_layout_shape = (*self._inst_shape, col_num, w_digit_count, row_num)`, then instantiates `IdealXbar`. Concrete xbars do not override it; `IdealXbar.to_ideal()` overrides to `return self`. `IdealXbar` is registered on `IdealXbarConfig`, so the same lossless tile is reachable through either `physical.to_ideal()` or `Xbar.from_config(cfg=IdealXbarConfig(...))`.
 
-The base also owns the runtime trio. `Xbar.__init__` stores `self.cfg`, `self.T__K`, and `self.dtype`; subclasses receive these through the family signature and pass them through `super().__init__(...)` without re-assigning. Subclass-specific state (digit-weight tables, owned children, lookup buffers) is the only thing a subclass init has to write. Stochastic-vs-deterministic rounding inside the quantisers downstream of the xbar tracks `self.training`; there is no separate `stochastic` knob.
+## Lifecycle
+
+`Xbar` inherits `FabricateMixin`. The split is:
+
+- `__init__` stores `self.cfg`, `self.T__K`, `self.dtype`, and validates / records `self._w_layout_shape`. Sub-modules (when present, e.g. `core` + `readout` in `Offset1T1RXbar`) are constructed here with derived shapes.
+- `fabricate()` is the inherited auto-cascade. Each concrete xbar overrides `_sample_fabricate_mismatch` only if it owns mismatch state directly; in the offset-1T1R lineage the actual state lives in the device children, so `_sample_fabricate_mismatch` is the default no-op and the cascade fans into the children.
+- `program(w)` (abstract) writes the programmed digit state. `IdealXbar` reassigns `self.digits = w`; physical xbars push `w` through their slicer / reference-column scatter and call the underlying core's `program(...)`.
+- `vec_mat_mul(x)` is the pure-forward read.
+
+Stochastic-vs-deterministic rounding inside the quantisers downstream of the xbar tracks `self.training`; there is no separate `stochastic` knob.
 
 See also:
 

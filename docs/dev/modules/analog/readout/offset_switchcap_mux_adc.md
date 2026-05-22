@@ -27,7 +27,7 @@ The readout constructs its children itself, driven by the family-wide init bundl
 - `analog_mux = AnalogMux(cfg=analog_mux_cfg, …)` — instantiated directly.
 - `bl_adc = ADC.from_config(cfg=adc_cfg, …)` — dispatched through the ADC registry.
 
-`data_num` is stored on the instance and consumed by `fabricate(shape)` to size the data-leg bank's per-instance axis. No external submodule factory closures are part of the current design.
+`data_num` is stored on the instance and consumed at `__init__` to size the data-leg bank's per-instance axis (`inst_shape = (*readout_inst_shape, data_num)`). No external submodule factory closures are part of the current design.
 
 ## Grouped lattice
 
@@ -38,11 +38,13 @@ The readout consumes already-grouped voltages:
 
 The ref leg is expanded across the per-group data axis directly; the readout does not perform a second logical lookup or geometric weighting outside the leaf switch-cap banks.
 
-## Fabricate signature
+## Construction-time sub-shape derivation
 
-`fabricate(shape)` takes only the readout's own virtual-instance shape `(*prefix, group_num)`. Internally it dispatches:
+The readout owns `inst_shape = (*prefix, group_num)`. At `__init__` it derives each child's `inst_shape`:
 
-- `data_switchcap.fabricate((*prefix, group_num, data_num))`
-- `ref_switchcap.fabricate((*prefix, group_num))`
-- `analog_mux.fabricate((*prefix, group_num, 1))`
-- `bl_adc.fabricate((*prefix, group_num, 1))`
+- `data_switchcap.inst_shape = (*prefix, group_num, data_num)`
+- `ref_switchcap.inst_shape = (*prefix, group_num)`
+- `analog_mux.inst_shape = (*prefix, group_num, 1)`
+- `bl_adc.inst_shape = (*prefix, group_num, 1)`
+
+These shapes are committed when the children are constructed. `fabricate()` is the inherited `FabricateMixin` auto-cascade — no per-call shape arguments anywhere.

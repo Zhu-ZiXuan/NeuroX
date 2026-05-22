@@ -4,8 +4,8 @@
 
 ## Public surface
 
-- `NeuroxMacroQuantMatMul` — structural Protocol every macro impl satisfies (`w_value_range / x_value_range / output_rescale_factor / fabricate / matmul`).
-- `IdealMacro` — lossless reference matmul (no xbar, no mapping). Sibling to xbar macros under the same Protocol.
+- `NeuroxMacroQuantMatMul` — structural Protocol every macro impl satisfies. Method surface: `fabricate()` (no-arg static-mismatch resample), `program(weight)` (write the static weight state), `matmul(input, bias, mult, rshift, zp)` (forward against the programmed state — no weight argument). Property surface: `w_value_range / x_value_range / output_rescale_factor`.
+- `IdealMacro` — lossless reference matmul (no xbar, no mapping). Sibling to xbar macros under the same Protocol. Owns a buffer-backed `weight` written by `program(...)`.
 - [`xbar/`](xbar/README.md) — xbar-backed family: `XbarMacro` + concrete modes (`InterXbarSliceMacro`, `IntraXbarSliceMacro`).
 
 ## Architecture rules

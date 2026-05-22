@@ -11,16 +11,16 @@
 Every concrete readout impl exposes:
 
 ```
-__init__(self, *, cfg, name, T__K, dtype, data_num, digit_weights)
+__init__(self, *, cfg, name, inst_shape, dtype, T__K, data_num, digit_weights)
 ```
 
-- `cfg / name / T__K / dtype` — standard leaf-init bundle.
+- `cfg / name / inst_shape / dtype / T__K` — standard leaf-init bundle. `inst_shape` is `(*prefix, group_num)`.
 - `data_num: int` — number of data per reference group; fixes the data-leg SwitchCap's bank-axis size.
 - `digit_weights: tuple[float, ...]` — per-digit positional weights (length `digit_num`); drives the data-leg SwitchCap's `cap_weights`.
 
 `data_num` and `digit_weights` are structural facts of the consuming xbar / macro and are committed at construction. `digit_weights` is a Python tuple — tensor construction happens inside the leaf SwitchCap.
 
-`ReadOut.from_config(...)` forwards these two arguments through to the registered impl.
+`ReadOut.from_config(...)` forwards all of these through to the registered impl. The family inherits `FabricateMixin`; sub-modules (data/ref switchcaps, mux, ADC) are constructed with the appropriate derived `inst_shape` and cascade automatically.
 
 ## Leaf-module-only electrical math
 
@@ -40,7 +40,7 @@ The readout chain operates on a grouped lattice keyed by reference-group structu
 - `data_num` — number of data per group (init-time constant).
 - `digit_num` — number of digits per data (init-time constant; equals `len(digit_weights)`).
 
-`fabricate(shape)` takes only the readout container's own virtual-instance shape `(*prefix, group_num)`; no per-call sizing arguments — both `data_num` and `digit_weights` are already bound at `__init__`.
+The readout's own instance shape `(*prefix, group_num)` is committed via `inst_shape` at `__init__`; `fabricate()` is the inherited auto-cascade trigger and takes no shape argument.
 
 `readout(v_data_grouped, v_ref_grouped, *, adc_mode, adc_bits)` is the per-VMM kernel; it returns the per-data ADC code.
 

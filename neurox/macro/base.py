@@ -21,8 +21,12 @@ class NeuroxMacroQuantMatMul(Protocol):
             ideal integer partial-product scale.
 
     Methods:
-        fabricate: Prepare the macro for one logical weight tensor.
-        matmul: Execute one integer matrix multiply through the macro.
+        fabricate: Resample static manufacturing variation across the macro
+            tree. No arguments.
+        program: Write the macro's static weight state from one logical
+            integer weight tensor.
+        matmul: Execute one integer matrix multiply against the programmed
+            weight state.
     """
 
     @property
@@ -34,28 +38,31 @@ class NeuroxMacroQuantMatMul(Protocol):
     @property
     def output_rescale_factor(self) -> float: ...
 
-    def fabricate(self, weight: Tensor) -> None:
-        """Prepare the macro for one logical weight tensor (re-callable).
+    def fabricate(self) -> None:
+        """Resample static manufacturing variation across self and descendants."""
+        ...
+
+    def program(self, weight: Tensor) -> None:
+        """Write the macro's static weight state.
 
         Args:
-            weight: Integer weight tensor. Shape: ``[..., N, K]``.
+            weight: Integer weight tensor. Shape: ``[..., N, K]`` matching the
+                ``w_logical_shape`` bound at construction.
         """
         ...
 
     def matmul(
         self,
         input: Tensor,
-        weight: Tensor,
         bias: Tensor | None,
         rescale_multiplier: Tensor,
         rescale_rshift: Tensor,
         output_zero_point: Tensor | None,
     ) -> Tensor:
-        """Execute one integer matrix multiply.
+        """Execute one integer matrix multiply against the programmed weight.
 
         Args:
             input: Integer activation tensor. Shape: ``[..., M, K]``.
-            weight: Integer weight tensor. Shape: ``[..., N, K]``.
             bias: Optional integer bias tensor. Shape: ``[..., N]``.
             rescale_multiplier: Per-output fixed-point multiplier.
             rescale_rshift: Per-output right-shift amount.

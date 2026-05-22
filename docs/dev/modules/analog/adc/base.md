@@ -16,10 +16,10 @@
 Every concrete ADC impl exposes the same explicit signature:
 
 ```
-__init__(self, *, cfg, name, T__K, dtype)
+__init__(self, *, cfg, name, inst_shape, dtype, T__K)
 ```
 
-The base accepts and discards `cfg / T__K / dtype` so the dispatcher type-checks; concrete subclasses store them on `self`. Stochastic-vs-deterministic rounding is governed by `self.training` at `convert` time — there is no constructor-time override flag.
+`inst_shape` is the per-instance fabrication shape, committed at construction. The base stores `self._inst_shape` and accepts/discards `cfg / dtype / T__K` so the dispatcher type-checks; concrete subclasses store them on `self`. `ADC` inherits `FabricateMixin`: subclasses override `_sample_fabricate_mismatch` to refresh static state; the cascading `fabricate()` is auto-implemented by the mixin. Stochastic-vs-deterministic rounding is governed by `self.training` at `convert` time — there is no constructor-time override flag.
 
 ## Runtime multi-mode
 

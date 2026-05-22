@@ -91,10 +91,14 @@ class QuantLinear(NeuroxOperator):
         )
 
     def fabricate(self) -> None:
-        """Program the macro's physical state from the loaded int weights."""
+        """Resample the macro's static manufacturing variation."""
+        self.macro.fabricate()
+
+    def program(self) -> None:
+        """Program the macro's static weight state from the loaded int weights."""
         self.assert_integer_tensor(self.weight_int, "weight")
         self._validate_weight_range(self.weight_int)
-        self.macro.fabricate(self.weight_int)
+        self.macro.program(self.weight_int)
 
     @torch.no_grad()
     def forward(self, input: Tensor) -> Tensor:
@@ -107,7 +111,6 @@ class QuantLinear(NeuroxOperator):
         )
         return run_matmul_pipeline(
             input_int,
-            self.weight_int,
             self.bias_int,
             self.rescale_multiplier,
             self.rescale_rshift,

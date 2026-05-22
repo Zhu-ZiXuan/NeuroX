@@ -11,28 +11,26 @@
 - `vth_nominal__V` — nominal threshold voltage [V].
 - `vth_mismatch__V` + `enable_vth_mismatch` — additive Gaussian mismatch sigma on `vth__V` and its toggle.
 
-Device-level only. Array shape is **not** a config field — it is supplied as an explicit `__init__` argument because shape is a property of the deployment instance, not the device itself.
+Device-level only. The per-instance shape is **not** a config field — it is supplied as an explicit `__init__` argument because shape is a property of the deployment instance, not the device itself.
 
 ## Construction
 
-`Selector.__init__(*, cfg, T__K, dtype, array_shape)`:
+`Selector.__init__(*, cfg, inst_shape, dtype, T__K)`:
 
 - `cfg` — process / spec.
-- `T__K`, `dtype` — uniform device-construction signature (currently unused by the selector model but stored for future use).
-- `array_shape` — the spatial shape over which the static threshold map is fabricated.
+- `inst_shape` — per-instance fabrication shape over which the static threshold map is sampled.
+- `dtype`, `T__K` — uniform device-construction context (`T__K` currently unused by the selector model but stored for future use).
 
 Devices do not own a `name` — selector PPA rolls up to the consuming circuit.
 
 ## Sampling behaviour
 
-`sample_vth_like(reference)` returns a threshold-voltage tensor broadcast against the reference tensor:
+`Selector` inherits `FabricateMixin`. Each `fabricate()` call resamples the static V_th map via `_sample_fabricate_mismatch()`, populating `vth__V` at `(*self._inst_shape,)` from `nominal_vth__V`.
 
-- in `training` mode, a fresh Gaussian draw is taken on each call
-- in `eval` mode, a single static draw is cached in `_vth_static__V` and reused for all subsequent calls
-
-This split mirrors a real chip: training sees the full mismatch distribution; inference uses one fixed fabricated array.
+`sample_vth_like(reference)` returns `vth__V` broadcast to the reference tensor's shape, device, and dtype. There is no longer a `training` / `eval` branch in this method — resampling cadence is owned by the operator's training loop, which calls `model.fabricate()` per training step (for noise-aware training) or once at inference setup.
 
 See also:
 
 - `docs/dev/architecture/config_and_construction.md`
 - `docs/dev/architecture/state_holding.md`
+- `docs/dev/architecture/fabrication_lifecycle.md`

@@ -130,15 +130,19 @@ class QuantConv2d(NeuroxOperator):
         return ", ".join(parts)
 
     def fabricate(self) -> None:
-        """Program the macro's physical state from the loaded int weights.
+        """Resample the macro's static manufacturing variation.
 
         Profiler static aggregation is driven by per-physical-module
         ``_record_inst_count`` calls inside the macro/xbar cascade —
         no operator-side ``log_*`` call.
         """
+        self.macro.fabricate()
+
+    def program(self) -> None:
+        """Program the macro's static weight state from the loaded int weights."""
         self.assert_integer_tensor(self.weight_int, "weight")
         self._validate_weight_range(self.weight_int)
-        self.macro.fabricate(_reshape_weight(self.weight_int, self.groups))
+        self.macro.program(_reshape_weight(self.weight_int, self.groups))
 
     @torch.no_grad()
     def forward(self, input: Tensor) -> Tensor:
@@ -160,7 +164,6 @@ class QuantConv2d(NeuroxOperator):
             self.input_qmax,
         )
         out_per_group = self.out_channels // self.groups
-        w_grouped = _reshape_weight(self.weight_int, self.groups)
         bias_grouped = self.bias_int.view(self.groups, out_per_group)
         rescale_m = self.rescale_multiplier.view(self.groups, out_per_group)
         rescale_s = self.rescale_rshift.view(self.groups, out_per_group)
@@ -169,7 +172,6 @@ class QuantConv2d(NeuroxOperator):
         # from every physical leaf; the operator does not log here.
         output_int_float = run_matmul_pipeline(
             unfolded_int,
-            w_grouped,
             bias_grouped,
             rescale_m,
             rescale_s,

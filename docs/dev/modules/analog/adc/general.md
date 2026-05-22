@@ -31,6 +31,10 @@ The class is single-mode: `mode == 0` and `bits == n_bits_implied_by_boundaries`
 
 Stochastic-vs-deterministic rounding is driven exclusively by `self.training` (the standard `nn.Module` flag). Switch between `model.train()` and `model.eval()` to toggle behaviour; there is no per-instance override.
 
+## Fabrication
+
+`GeneralADC` carries no per-instance static mismatch state — all of its noise sources (sampling, comparator, drive thermal) are dynamic and applied inside `convert`. Its inherited `_sample_fabricate_mismatch` is therefore the default no-op; `fabricate()` calls just resolve to a profiler-inst tally already locked at `__init__`.
+
 See also:
 
 - `base.md`

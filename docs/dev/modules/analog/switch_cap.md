@@ -17,15 +17,15 @@ The bank's cap-count and per-cap weights are **not** in the config — they are 
 
 ## Lifecycle
 
-- `__init__(*, cfg, name, T__K, dtype, cap_weights)` — bind `cap_weights: tuple[float, ...]` (length `n_caps`, all positive) and build the nominal cap-array buffer `nominal_c__fF = cfg.c_unit__fF · cap_weights` directly. No separate unit-cap buffer is kept.
-- `fabricate(shape)` — clone-expand `nominal_c__fF` to `(*shape, n_caps)` and apply Pelgrom-scaled static mismatch (gated by `cfg.enable_cap_mismatch`). The fabricated tensor lands at `(*shape, n_caps)`.
+- `__init__(*, cfg, name, inst_shape, dtype, T__K, cap_weights)` — bind `inst_shape` (per-instance fabrication shape) and `cap_weights: tuple[float, ...]` (length `n_caps`, all positive); build the nominal cap-array buffer `nominal_c__fF = cfg.c_unit__fF · cap_weights`.
+- `_sample_fabricate_mismatch()` — driven by `FabricateMixin.fabricate()`; clone-expands `nominal_c__fF` to `(*self._inst_shape, n_caps)` and applies Pelgrom-scaled static mismatch (gated by `cfg.enable_cap_mismatch`). Buffer is reassigned via attribute, not re-`register_buffer`.
 - `sample_and_accumulate(v_in)` — per-call charge-share kernel: `Σ C_k V_k / Σ C_k`, with kT/C noise added when `cfg.enable_sampling_thermal_noise=True`.
 
 `T__K` is required at `__init__` (not a config field) because it sets the kT/C noise sigma — an operating-state quantity, not a design parameter.
 
-## Why `cap_weights` lives in `__init__`, not `fabricate`
+## Why `cap_weights` lives in `__init__`, not the fabrication body
 
-The per-cap weights are a structural property of the bank: a SwitchCap instance committed to a given digit-encoding (binary, unit, …) does not change its weight template across re-fabricates. Placing `cap_weights` in `__init__` lets `fabricate(shape)` stay shape-only — matching the canonical leaf-fabricate signature shared by NMOS, ADC, DAC, mux, driver, TIA, decoder — and lets the leaf own its own nominal-cap tensor, mirroring the `nominal_c__fF` pattern of `McsSarAdc`.
+The per-cap weights are a structural property of the bank: a SwitchCap instance committed to a given digit-encoding (binary, unit, …) does not change its weight template across re-fabricates. Placing both `cap_weights` and `inst_shape` in `__init__` matches the canonical leaf signature shared by NMOS, ADC, DAC, mux, driver, TIA, decoder — `_sample_fabricate_mismatch` becomes a pure shape-only resampling step.
 
 `cap_weights` is a Python `tuple[float, ...]`; tensor construction happens once inside `SwitchCap.__init__`.
 

@@ -5,7 +5,6 @@ See also:
 """
 
 import sys
-import warnings
 from collections import Counter
 from collections.abc import Callable
 from pathlib import Path
@@ -145,9 +144,16 @@ def _replace(
         for name, child in list(module.named_children()):
             qualified = f"{prefix}.{name}" if prefix else name
             if isinstance(child, nn.Linear) and not isinstance(child, QuantLinear):
-                setattr(module, name, QuantLinear.from_torch(child, macro_factory(name=qualified), qualified))
+                w_logical_shape = (child.out_features, child.in_features)
+                macro = macro_factory(name=qualified, w_logical_shape=w_logical_shape)
+                setattr(module, name, QuantLinear.from_torch(child, macro, qualified))
             elif isinstance(child, nn.Conv2d) and not isinstance(child, QuantConv2d):
-                setattr(module, name, QuantConv2d.from_torch(child, macro_factory(name=qualified), qualified))
+                kh, kw = child.kernel_size
+                in_per_group = child.in_channels // child.groups
+                out_per_group = child.out_channels // child.groups
+                w_logical_shape = (child.groups, out_per_group, in_per_group * kh * kw)
+                macro = macro_factory(name=qualified, w_logical_shape=w_logical_shape)
+                setattr(module, name, QuantConv2d.from_torch(child, macro, qualified))
             else:
                 recursive_replace(child, qualified)
 
@@ -156,25 +162,28 @@ def _replace(
 
 
 def fabricate_model(model: nn.Module) -> None:
-    """Fabricate every crossbar operator's physical state in ``model``.
+    """Resample static manufacturing variation across every crossbar operator.
 
-    Programs every :class:`NeuroxOperator`'s macro from its loaded
-    integer weights.  Called automatically by :func:`build_evaluator`
-    after :func:`load_neurox_state` and :func:`bind_output_calibration`.
+    Drives ``op.fabricate()`` (FabricateMixin auto-cascade) on every
+    :class:`NeuroxOperator`. Pair with :func:`program_model` to fully
+    set up the macro state.
     """
     for module in model.modules():
         if isinstance(module, NeuroxOperator):
             module.fabricate()
 
 
-def fabricate(model: nn.Module) -> None:
-    """Deprecated alias for :func:`fabricate_model`."""
-    warnings.warn(
-        "neurox.replace.fabricate is deprecated; use neurox.replace.fabricate_model instead.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    fabricate_model(model)
+def program_model(model: nn.Module) -> None:
+    """Write static weight state across every crossbar operator.
+
+    Drives ``op.program()`` on every :class:`NeuroxOperator`. Called at
+    inference setup after :func:`load_neurox_state` /
+    :func:`bind_output_calibration`, and again after every weight update
+    in QAT.
+    """
+    for module in model.modules():
+        if isinstance(module, NeuroxOperator):
+            module.program()
 
 
 def replace_model(
@@ -324,12 +333,13 @@ def build_evaluator(
 ) -> nn.Module:
     """Build a crossbar-backed inference model in one call.
 
-    Thin orchestrator over the four staged functions:
+    Thin orchestrator over the five staged functions:
 
     1. :func:`replace_model`
     2. :func:`load_neurox_state` (strict)
     3. :func:`bind_output_calibration`
-    4. :func:`fabricate_model`
+    4. :func:`program_model`
+    5. :func:`fabricate_model`
 
     Args:
         model: The original float model (same architecture used during QAT).
@@ -353,6 +363,7 @@ def build_evaluator(
     replace_model(model, macro_factory, policy=policy, verbose=verbose, report_file=report_file)
     load_neurox_state(model, checkpoint, strict=True)
     bind_output_calibration(model)
+    program_model(model)
     fabricate_model(model)
     return model
 

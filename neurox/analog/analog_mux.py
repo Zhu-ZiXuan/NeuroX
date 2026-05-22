@@ -10,6 +10,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
+from neurox.common.fabricate import FabricateMixin
 from neurox.common.nonideality import apply_gaussian
 from neurox.common.validate import ValidateMixin
 from neurox.profiler import ProfiledModule
@@ -73,14 +74,15 @@ class AnalogMuxConfig(ValidateMixin):
         self._require_nonneg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
-class AnalogMux(nn.Module, ProfiledModule):
+class AnalogMux(FabricateMixin, nn.Module, ProfiledModule):
     """Differential voltage-transport block — gain + CM/DM noise + access energy.
 
     Args:
         cfg: Immutable :class:`AnalogMuxConfig`.
         name: Hierarchical profiler name.
-        T__K: Operating temperature [K].
+        inst_shape: Per-instance fabrication shape.
         dtype: Floating-point dtype.
+        T__K: Operating temperature [K].
     """
 
     def __init__(
@@ -88,14 +90,17 @@ class AnalogMux(nn.Module, ProfiledModule):
         *,
         cfg: AnalogMuxConfig,
         name: str,
-        T__K: float,
+        inst_shape: tuple[int, ...],
         dtype: torch.dtype,
+        T__K: float,
     ) -> None:
         nn.Module.__init__(self)
         ProfiledModule.__init__(self, name)
         self.cfg = cfg
+        self._inst_shape = inst_shape
         self.dtype = dtype
         self.T__K = T__K
+        self._record_inst_count(inst_shape)
 
     @property
     def area_per_inst__um2(self) -> float:
@@ -108,14 +113,6 @@ class AnalogMux(nn.Module, ProfiledModule):
     @property
     def latency_per_op__ns(self) -> float:
         return self.cfg.latency_per_op__ns
-
-    def fabricate(self, shape: tuple[int, ...]) -> None:
-        """Sample static per-instance state over ``shape`` (re-callable).
-
-        Args:
-            shape: Per-instance fabrication shape.
-        """
-        self._record_inst_count(shape)
 
     def transport(
         self,

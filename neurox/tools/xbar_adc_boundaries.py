@@ -205,11 +205,13 @@ def calibrate(
         xbar_cfg = dc_replace(xbar_cfg, core_cfg=core_cfg, readout_cfg=readout)
 
     # Build the xbar directly from the nested config tree.
+    w_layout_shape = (xbar_cfg.col_num, xbar_cfg.w_digit_count, xbar_cfg.row_num)
     physical = Offset1T1RXbar(
         cfg=xbar_cfg,
         name="xbar",
-        T__K=T_ROOM__K,
+        w_layout_shape=w_layout_shape,
         dtype=torch.float64,
+        T__K=T_ROOM__K,
     )
     physical.eval()
     ideal = physical.to_ideal()
@@ -268,7 +270,8 @@ def calibrate(
     for w_i, x_i in zip(weights, activations, strict=True):
         # Signed-digit-transcode the logical weight into the xbar-native digit grid.
         w_digits = w_tc.encode(w_i, dim=-2)
-        physical.fabricate(w_digits)
+        physical.fabricate()
+        physical.program(w_digits)
         core = physical.core
 
         # Build the execution shape from the fabricated layout.
@@ -314,7 +317,7 @@ def calibrate(
         signal__V = v_pos_muxed__V - v_neg_muxed__V  # [..., group_num, data_num]
 
         # Ideal integer dot product on the original logical weights.
-        ideal.fabricate(w_digits)
+        ideal.program(w_digits)
         x_int = x_i.to(torch.int64)
         dot = (w_i.to(torch.int64) * x_int.unsqueeze(0)).sum(dim=-1)
 

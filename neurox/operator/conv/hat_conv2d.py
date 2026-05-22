@@ -182,9 +182,10 @@ class HATConv2d(nn.Conv2d):
             mult_grouped = mult.view(self.groups, out_per_group)
             rsh_grouped = rsh.view(self.groups, out_per_group)
 
+            self.macro.program(w_grouped)
+            self.macro.fabricate()
             output_deq = run_matmul_pipeline(
                 unfolded_int,
-                w_grouped,
                 b_grouped,
                 mult_grouped,
                 rsh_grouped,

@@ -80,9 +80,13 @@ class TestRoundtripImportOnly:
             def forward(self, x: torch.Tensor) -> torch.Tensor:
                 return self.fc(x)
 
-        def factory(*, name: str = "") -> IdealMacro:
+        def factory(*, name: str = "", w_logical_shape: tuple[int, ...] = (1, 1)) -> IdealMacro:
             del name
-            return IdealMacro(x_value_range=(-7, 7), w_value_range=(-7, 7))
+            return IdealMacro(
+                x_value_range=(-7, 7),
+                w_value_range=(-7, 7),
+                w_logical_shape=w_logical_shape,
+            )
 
         # Stage 2 staged path through the top-level surface.
         model = Tiny()
@@ -90,6 +94,7 @@ class TestRoundtripImportOnly:
         ckpt = {"schema": "neurox_flat", "state_dict": model.state_dict()}
         neurox.load_neurox_state(model, ckpt, strict=True)
         neurox.bind_output_calibration(model)
+        neurox.program_model(model)
         neurox.fabricate_model(model)
 
         # Stage 3 execution + profiling.

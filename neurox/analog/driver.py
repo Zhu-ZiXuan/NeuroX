@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
+from neurox.common.fabricate import FabricateMixin
 from neurox.common.nonideality import apply_gaussian
 from neurox.common.validate import ValidateMixin
 
@@ -75,7 +76,7 @@ class DriverDCOP:
     dVclamp_dI__MOhm: Tensor
 
 
-class Driver(nn.Module):
+class Driver(FabricateMixin, nn.Module):
     """Constant-voltage clamp driver with optional thermal noise."""
 
     nominal_drive_value: Tensor
@@ -85,21 +86,24 @@ class Driver(nn.Module):
         *,
         cfg: DriverConfig,
         name: str,
-        T__K: float,
+        inst_shape: tuple[int, ...],
         dtype: torch.dtype,
+        T__K: float,
     ) -> None:
         """Construct one ideal clamp driver.
 
         Args:
             cfg: Driver configuration.
             name: Profiler/debug name.
-            T__K: Operating temperature [K].
+            inst_shape: Per-instance fabrication shape.
             dtype: Tensor dtype for internal buffers.
+            T__K: Operating temperature [K].
         """
         super().__init__()
 
         self._neurox_name = name
         self.cfg = cfg
+        self._inst_shape = inst_shape
         self.dtype = dtype
         self.T__K = T__K
 
@@ -128,14 +132,6 @@ class Driver(nn.Module):
     def latency_per_op__ns(self) -> float:
         """Latency per operation in [ns]."""
         return self.cfg.latency_per_op__ns
-
-    def fabricate(self, shape: tuple[int, ...]) -> None:
-        """Sample static per-instance state over ``shape`` (re-callable).
-
-        Args:
-            shape: Per-instance fabrication shape.
-        """
-        self._record_inst_count(shape)
 
     # --- ClampDriver protocol ---
 

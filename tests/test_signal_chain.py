@@ -24,6 +24,7 @@ from neurox.device import NMOSConfig
 
 def _make_tia(
     *,
+    inst_shape: tuple[int, ...],
     opamp_gain: float = 20.0,
     v_ref__V: float = 0.2,
     v_dd__V: float = 0.9,
@@ -60,14 +61,14 @@ def _make_tia(
         area_per_inst__um2=0.0,
         latency_per_op__ns=0.0,
     )
-    return OpAmpTIA(cfg=cfg, name="tia", T__K=300.0, dtype=torch.float64)
+    return OpAmpTIA(cfg=cfg, name="tia", inst_shape=inst_shape, dtype=torch.float64, T__K=300.0)
 
 
 def test_tia_fabricate_shapes() -> None:
-    """fabricate registers internal buffers at the requested shape."""
-    tia = _make_tia()
+    """fabricate populates internal buffers at the inst_shape from __init__."""
     shape = (8,)
-    tia.fabricate(shape)
+    tia = _make_tia(inst_shape=shape)
+    tia.fabricate()
     assert tia.opamp_gain.shape == shape
     assert tia.nmos.beta__uA_per_V2.shape == shape
     assert tia.nmos.vth__V.shape == shape
@@ -82,8 +83,8 @@ def test_tia_solve_dc_zero_current() -> None:
     stays close to ``v_ref``.  The strong invariant is the off-NMOS
     condition ``v_d = v_s`` (i.e. ``v_out = v_clamp``).
     """
-    tia = _make_tia(opamp_gain=20.0, v_ref__V=0.2)
-    tia.fabricate((4,))
+    tia = _make_tia(inst_shape=(4,), opamp_gain=20.0, v_ref__V=0.2)
+    tia.fabricate()
     runtime = tia.snapshot(shape=(4,))
     i_in = torch.zeros(4, dtype=torch.float64)
     dc = tia.solve_dc(i_in, runtime, v_clamp_init__V=None)
@@ -97,8 +98,8 @@ def test_tia_solve_dc_zero_current() -> None:
 
 def test_tia_solve_dc_monotone_in_linear_region() -> None:
     """``v_out`` increases monotonically with input current in the linear region."""
-    tia = _make_tia(opamp_gain=20.0, v_ref__V=0.2, v_dd__V=0.9)
-    tia.fabricate((5,))
+    tia = _make_tia(inst_shape=(5,), opamp_gain=20.0, v_ref__V=0.2, v_dd__V=0.9)
+    tia.fabricate()
     runtime = tia.snapshot(shape=(5,))
     i_in = torch.tensor([0.0, 5.0, 15.0, 30.0, 60.0], dtype=torch.float64)
     dc = tia.solve_dc(i_in, runtime, v_clamp_init__V=None)
@@ -130,8 +131,8 @@ def test_tia_solve_dc_smooth_saturation_near_vdd() -> None:
     and the transimpedance must have dropped by ≥ 1 decade relative to
     the linear regime.
     """
-    tia = _make_tia(opamp_gain=20.0, v_ref__V=0.2, v_dd__V=0.9)
-    tia.fabricate((1,))
+    tia = _make_tia(inst_shape=(1,), opamp_gain=20.0, v_ref__V=0.2, v_dd__V=0.9)
+    tia.fabricate()
     runtime = tia.snapshot(shape=(1,))
     # 10 uA is well below the saturation knee for this 1-um W device;
     # 800 uA pushes the pseudo-resistor's triode capacity to where the
@@ -159,8 +160,8 @@ def test_tia_solve_dc_smooth_saturation_near_vdd() -> None:
 
 def test_tia_solve_dc_residual_is_small() -> None:
     """After Newton convergence the closed-loop residual is below 1e-3 uA."""
-    tia = _make_tia(opamp_gain=20.0, v_ref__V=0.2, v_dd__V=0.9)
-    tia.fabricate((6,))
+    tia = _make_tia(inst_shape=(6,), opamp_gain=20.0, v_ref__V=0.2, v_dd__V=0.9)
+    tia.fabricate()
     runtime = tia.snapshot(shape=(6,))
     i_in = torch.tensor([0.0, 1.0, 3.0, 10.0, 30.0, 60.0], dtype=torch.float64)
     dc = tia.solve_dc(i_in, runtime, v_clamp_init__V=None)
@@ -179,8 +180,8 @@ def test_tia_solve_dc_residual_is_small() -> None:
 
 def test_tia_solve_dc_sensitivity_matches_finite_difference() -> None:
     """Analytical ``dVclamp_dI`` / ``dVout_dI`` agree with a finite-difference probe."""
-    tia = _make_tia(opamp_gain=20.0, v_ref__V=0.2, v_dd__V=0.9)
-    tia.fabricate((4,))
+    tia = _make_tia(inst_shape=(4,), opamp_gain=20.0, v_ref__V=0.2, v_dd__V=0.9)
+    tia.fabricate()
     runtime = tia.snapshot(shape=(4,))
     i_in = torch.tensor([1.0, 10.0, 30.0, 60.0], dtype=torch.float64)
     dc = tia.solve_dc(i_in, runtime, v_clamp_init__V=None)
@@ -221,7 +222,7 @@ def test_analog_mux_passthrough() -> None:
     Energy flows through the profiler side channel; ``transport``
     returns only the two analog legs after Phase D.
     """
-    mux = AnalogMux(cfg=_make_mux_cfg(energy_per_access__fJ=1.0), name="mux", T__K=300.0, dtype=torch.float32)
+    mux = AnalogMux(cfg=_make_mux_cfg(energy_per_access__fJ=1.0), name="mux", inst_shape=(), dtype=torch.float32, T__K=300.0)
     v_pos = torch.tensor([0.1, 0.2, 0.3])
     v_neg = torch.tensor([0.0, 0.1, 0.2])
     out_pos, out_neg = mux.transport(v_pos, v_neg)
@@ -231,7 +232,7 @@ def test_analog_mux_passthrough() -> None:
 
 def test_analog_mux_gain_attenuates_both_legs() -> None:
     """``mux_gain`` scales both legs identically; no inline noise added."""
-    mux = AnalogMux(cfg=_make_mux_cfg(mux_gain=0.5), name="mux", T__K=300.0, dtype=torch.float32)
+    mux = AnalogMux(cfg=_make_mux_cfg(mux_gain=0.5), name="mux", inst_shape=(), dtype=torch.float32, T__K=300.0)
     v_pos = torch.tensor([0.4, 0.6])
     v_neg = torch.tensor([0.2, 0.3])
     out_pos, out_neg = mux.transport(v_pos, v_neg)
@@ -245,8 +246,9 @@ def test_analog_mux_cm_noise_is_common_to_both_legs() -> None:
     mux = AnalogMux(
         cfg=_make_mux_cfg(mux_noise_cm_sigma__V=0.05, enable_mux_noise_cm=True),
         name="mux",
-        T__K=300.0,
+        inst_shape=(),
         dtype=torch.float32,
+        T__K=300.0,
     )
     v_pos = torch.zeros(10_000)
     v_neg = torch.zeros(10_000)
@@ -263,8 +265,9 @@ def test_analog_mux_dm_noise_is_antisymmetric() -> None:
     mux = AnalogMux(
         cfg=_make_mux_cfg(mux_noise_dm_sigma__V=0.05, enable_mux_noise_dm=True),
         name="mux",
-        T__K=300.0,
+        inst_shape=(),
         dtype=torch.float32,
+        T__K=300.0,
     )
     v_pos = torch.zeros(10_000)
     v_neg = torch.zeros(10_000)
@@ -276,7 +279,7 @@ def test_analog_mux_dm_noise_is_antisymmetric() -> None:
 
 def test_analog_mux_invalid_gain() -> None:
     with pytest.raises(ValueError):
-        AnalogMux(cfg=_make_mux_cfg(mux_gain=0.0), name="mux", T__K=300.0, dtype=torch.float32)
+        AnalogMux(cfg=_make_mux_cfg(mux_gain=0.0), name="mux", inst_shape=(), dtype=torch.float32, T__K=300.0)
 
 
 def test_decoder_passthrough_drives_dac() -> None:
@@ -292,8 +295,9 @@ def test_decoder_passthrough_drives_dac() -> None:
             area_per_inst__um2=0.0,
         ),
         name="dac",
-        T__K=300.0,
+        inst_shape=(),
         dtype=torch.float32,
+        T__K=300.0,
     )
     dec = Decoder(
         cfg=DecoderConfig(
@@ -309,8 +313,9 @@ def test_decoder_passthrough_drives_dac() -> None:
             area_per_inst__um2=0.0,
         ),
         name="dec",
-        T__K=300.0,
+        inst_shape=(),
         dtype=torch.float32,
+        T__K=300.0,
     )
     code = torch.tensor([0, 1, 1, 0], dtype=torch.long)
     sig = dec.drive(code, dac)
@@ -331,8 +336,9 @@ def test_decoder_bit_serial_expands_codes() -> None:
             area_per_inst__um2=0.0,
         ),
         name="dac",
-        T__K=300.0,
+        inst_shape=(),
         dtype=torch.float32,
+        T__K=300.0,
     )
     dec = Decoder(
         cfg=DecoderConfig(
@@ -348,8 +354,9 @@ def test_decoder_bit_serial_expands_codes() -> None:
             area_per_inst__um2=0.0,
         ),
         name="dec",
-        T__K=300.0,
+        inst_shape=(),
         dtype=torch.float32,
+        T__K=300.0,
     )
     # Input ``5 = 0b0101`` → bit 0 = 1, bit 1 = 0, bit 2 = 1, bit 3 = 0.
     code = torch.tensor([5], dtype=torch.long)

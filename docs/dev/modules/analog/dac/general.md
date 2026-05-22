@@ -14,9 +14,9 @@
 
 ## Lifecycle
 
-- `__init__` builds the `code_to_signal` LUT buffer and forwards `name` to the family base.
+- `__init__(*, cfg, name, inst_shape, dtype, T__K)` builds the `code_to_signal` LUT buffer, forwards `name` and `inst_shape` to the family base, and records the instance count for the profiler.
 - `convert(code)` — index `code_to_signal`, apply `drive_thermal__V` gated by `enable_drive_thermal`, emit per-call dynamic energy through the profiler side channel.
-- `fabricate(shape)` — no shape-derived state; the body only records the instance count.
+- `_sample_fabricate_mismatch` is the inherited default no-op — `GeneralDAC` has no static per-instance state.
 
 The DAC's per-element energy is fully captured by `energy_per_op__fJ`. Set it to `0` whenever the same switching energy is accounted at another stage to avoid double-counting.
 

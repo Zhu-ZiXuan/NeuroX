@@ -12,6 +12,7 @@ from dataclasses import dataclass
 import torch
 import torch.nn as nn
 
+from neurox.common.fabricate import FabricateMixin
 from neurox.common.registry_dispatch import RegistryDispatchMixin
 from neurox.common.validate import ValidateMixin
 from neurox.profiler import ProfiledModule
@@ -46,7 +47,7 @@ class TIAConfig(ValidateMixin):
         self._require_nonneg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
-class TIA(nn.Module, ProfiledModule, RegistryDispatchMixin[type["TIAConfig"], "TIA"], ABC):
+class TIA(FabricateMixin, nn.Module, ProfiledModule, RegistryDispatchMixin[type["TIAConfig"], "TIA"], ABC):
     """Abstract base for transimpedance-amp clamp drivers."""
 
     def __init__(
@@ -54,13 +55,15 @@ class TIA(nn.Module, ProfiledModule, RegistryDispatchMixin[type["TIAConfig"], "T
         *,
         cfg: TIAConfig,
         name: str,
-        T__K: float,
+        inst_shape: tuple[int, ...],
         dtype: torch.dtype,
+        T__K: float,
     ) -> None:
         """Register the instance with :class:`nn.Module` and the profiler."""
-        del cfg, T__K, dtype  # captured by the subclass init
+        del cfg, dtype, T__K  # captured by the subclass init
         nn.Module.__init__(self)
         ProfiledModule.__init__(self, name)
+        self._inst_shape = inst_shape
 
     @classmethod
     def from_config(
@@ -68,12 +71,13 @@ class TIA(nn.Module, ProfiledModule, RegistryDispatchMixin[type["TIAConfig"], "T
         *,
         cfg: TIAConfig,
         name: str,
-        T__K: float,
+        inst_shape: tuple[int, ...],
         dtype: torch.dtype,
+        T__K: float,
     ) -> TIA:
         """Build the concrete impl registered for ``type(cfg)``."""
         impl = cls._lookup_impl(type(cfg))
-        return impl(cfg=cfg, name=name, T__K=T__K, dtype=dtype)
+        return impl(cfg=cfg, name=name, inst_shape=inst_shape, dtype=dtype, T__K=T__K)
 
     @property
     @abstractmethod

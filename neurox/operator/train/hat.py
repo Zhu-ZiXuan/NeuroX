@@ -47,9 +47,16 @@ def replace_for_hat(
             if qualified in skip:
                 continue
             if isinstance(child, nn.Linear) and not isinstance(child, (QuantLinear, HATLinear)):
-                setattr(module, name, HATLinear.from_torch(child, macro_factory(name=qualified), spec, qualified))
+                w_logical_shape = (child.out_features, child.in_features)
+                macro = macro_factory(name=qualified, w_logical_shape=w_logical_shape)
+                setattr(module, name, HATLinear.from_torch(child, macro, spec, qualified))
             elif isinstance(child, nn.Conv2d) and not isinstance(child, (QuantConv2d, HATConv2d)):
-                setattr(module, name, HATConv2d.from_torch(child, macro_factory(name=qualified), spec, qualified))
+                kh, kw = child.kernel_size
+                in_per_group = child.in_channels // child.groups
+                out_per_group = child.out_channels // child.groups
+                w_logical_shape = (child.groups, out_per_group, in_per_group * kh * kw)
+                macro = macro_factory(name=qualified, w_logical_shape=w_logical_shape)
+                setattr(module, name, HATConv2d.from_torch(child, macro, spec, qualified))
             else:
                 recurse(child, qualified)
 

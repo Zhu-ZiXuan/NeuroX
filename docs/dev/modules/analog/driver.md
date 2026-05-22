@@ -15,10 +15,14 @@
 The driver satisfies the family-wide `ClampDriver` Protocol surface:
 
 - `v_ref__V` — ideal / zero-current clamp voltage (returns `cfg.drive_value`).
-- `fabricate(shape)` — no-op for the ideal driver.
+- `fabricate()` — inherited auto-cascade from `FabricateMixin`; the ideal driver has no static state, so its `_sample_fabricate_mismatch` is the default no-op.
 - `snapshot(*, shape)` — samples a `DriverSnapshot`; applies `cfg.drive_thermal` if configured.
 - `solve_clamp(i_port__uA, snapshot, *, v_clamp_init__V=None)` — returns `(v_clamp__V, dVclamp_dI__MOhm)` where the second tensor is always zero (the ideal driver is a voltage source).
 - `solve_dc(...)` — richer dataclass entry point available on the concrete handle.
+
+## Construction
+
+`Driver.__init__(*, cfg, name, inst_shape, dtype, T__K)` — `inst_shape` is committed here; the driver has no shape-dependent fabricated buffer.
 
 ## Why this is not a TIA
 

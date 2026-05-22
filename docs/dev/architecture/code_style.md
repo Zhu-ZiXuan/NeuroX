@@ -63,18 +63,14 @@ Docstrings should not explain higher-level workflows or global architecture.
 
 #### Lifecycle prose
 
-Method docstrings must not describe lifecycle policy, restart semantics, caching strategy, or state-holding strategy. Those belong in `fabrication_lifecycle.md` and `state_holding.md`. The single exception is the `(re-callable)` keyword tag at the end of a `fabricate(...)` summary line, which is allowed and recommended as the minimum interface signal:
+Method docstrings must not describe lifecycle policy, restart semantics, caching strategy, or state-holding strategy. Those belong in `fabrication_lifecycle.md` and `state_holding.md`. Each module's own lifecycle hooks (`_sample_fabricate_mismatch`, `program(...)`, `snapshot(...)`) should document their interface only — what they read / write, what shape — and leave cadence to the canonical doc.
 
 ```python
-def fabricate(self, shape: tuple[int, ...]) -> None:
-    """Sample static per-instance state over ``shape`` (re-callable).
-
-    Args:
-        shape: Per-instance fabrication shape.
-    """
+def _sample_fabricate_mismatch(self) -> None:
+    """Resample β and V_th at ``self._inst_shape``."""
 ```
 
-The full re-callability semantics live in `fabrication_lifecycle.md`; the keyword in the docstring is a pointer, not a restatement.
+The full re-callability semantics live in `fabrication_lifecycle.md`; subclass override-points carry only the minimum interface signal.
 
 ## Inline comments
 
@@ -103,7 +99,7 @@ Shape annotations are mandatory when tensor shapes change inside a function or m
 - They must be line comments directly above the corresponding tensor statement.
 - They must not appear in `docs/dev/`.
 - They must not appear in docstrings.
-- `fabricate` methods do not need shape annotations.
+- `_sample_fabricate_mismatch` / `program` methods do not need shape annotations.
 
 ### Format
 
@@ -184,6 +180,28 @@ The same rule applies to local variables, not just `self.*` assignments.
 ### Why
 
 Duplicating a type at the assignment site creates a second source of truth that maintenance will have to keep in lockstep with the signature, the dataclass field, or the call's return type. When the upstream type changes, the annotation at the assignment is the easiest one to forget — and mypy will keep accepting the stale annotation as long as it remains a supertype of the actual value. So redundant annotations don't make the code safer; they only add a quiet way to lie.
+
+## FabricateMixin and buffer reassignment
+
+Every module under `neurox/{device,analog,digital,xbar,macro}/` that owns fabricable state inherits [`FabricateMixin`](../modules/common/fabricate.md) alongside `nn.Module`. Subclasses override `_sample_fabricate_mismatch(self) -> None` only — never `fabricate()` itself. The mixin auto-cascades to every `FabricateMixin` child (including those wrapped in `nn.ModuleList` / `nn.ModuleDict`).
+
+Buffer writes inside `_sample_fabricate_mismatch` and `program(...)` use **attribute reassignment**: `self.X = new_tensor`. Do **not** call `self.register_buffer("X", new_tensor, persistent=False)` a second time — reassignment updates the buffer slot in place via `nn.Module.__setattr__`, preserves the `persistent=False` flag, and keeps `.to(device)` / `.to(dtype)` migrations working. `register_buffer` is only used once per buffer at `__init__`.
+
+## Per-instance shape parameter
+
+The construction signature for fabricable modules ends with three runtime-context arguments after `cfg` / `name`:
+
+```python
+def __init__(self, *, cfg, name, <shape>, dtype, T__K) -> None: ...
+```
+
+The shape parameter name varies by layer:
+
+- leaf circuits (analog / digital / device): `inst_shape: tuple[int, ...]` — per-instance fabrication shape.
+- xbar tiles: `w_layout_shape: tuple[int, ...]` — full digit-tensor shape `(*prefix, data_num, digit_num, row_num)`.
+- xbar macros: `w_logical_shape: tuple[int, ...]` — operator-facing weight shape `(*prefix, N, K)`.
+
+Every module stores `self._inst_shape: tuple[int, ...]` to satisfy `FabricateMixin`'s contract. At leaf level that is the constructor argument verbatim; at xbar level it is `w_layout_shape[:-3]` (the prefix); at macro level it is conventionally `()`.
 
 ## Property vs method
 

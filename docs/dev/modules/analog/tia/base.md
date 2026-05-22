@@ -16,10 +16,10 @@
 Every concrete TIA impl exposes the same explicit signature:
 
 ```
-__init__(self, *, cfg, name, T__K, dtype)
+__init__(self, *, cfg, name, inst_shape, dtype, T__K)
 ```
 
-All four arguments are required, keyword-only, and may not be `None`. The base accepts and discards `cfg / T__K / dtype` so the dispatcher type-checks cleanly; concrete subclasses store them on `self`.
+All five arguments are required, keyword-only, and may not be `None`. The base stores `self._inst_shape`, registers profiler bookkeeping, and accepts/discards `cfg / dtype / T__K` so the dispatcher type-checks cleanly; concrete subclasses store the rest on `self`. The family inherits `FabricateMixin` — concrete TIAs override `_sample_fabricate_mismatch`.
 
 No family-specific runtime extras.
 

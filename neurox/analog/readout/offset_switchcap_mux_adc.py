@@ -44,19 +44,23 @@ class OffsetSwitchCapMuxAdcReadOut(ReadOut):
         *,
         cfg: OffsetSwitchCapMuxAdcReadOutConfig,
         name: str,
-        T__K: float,
+        inst_shape: tuple[int, ...],
         dtype: torch.dtype,
+        T__K: float,
         data_num: int,
         digit_weights: tuple[float, ...],
     ) -> None:
         super().__init__(
             cfg=cfg,
             name=name,
-            T__K=T__K,
+            inst_shape=inst_shape,
             dtype=dtype,
+            T__K=T__K,
             data_num=data_num,
             digit_weights=digit_weights,
         )
+        if len(inst_shape) < 1:
+            raise ValueError(f"inst_shape must be (*prefix, group_num), got {inst_shape}")
         if data_num <= 0:
             raise ValueError(f"require: data_num ({data_num}) > 0")
         if len(digit_weights) < 1:
@@ -72,29 +76,34 @@ class OffsetSwitchCapMuxAdcReadOut(ReadOut):
         self.data_switchcap = SwitchCap(
             cfg=cfg.data_switchcap_cfg,
             name=f"{prefix}data_switchcap",
-            T__K=T__K,
+            inst_shape=(*inst_shape, data_num),
             dtype=dtype,
+            T__K=T__K,
             cap_weights=digit_weights,
         )
         self.ref_switchcap = SwitchCap(
             cfg=cfg.ref_switchcap_cfg,
             name=f"{prefix}ref_switchcap",
-            T__K=T__K,
+            inst_shape=inst_shape,
             dtype=dtype,
+            T__K=T__K,
             cap_weights=(1.0,),
         )
         self.analog_mux = AnalogMux(
             cfg=cfg.analog_mux_cfg,
             name=f"{prefix}analog_mux",
-            T__K=T__K,
+            inst_shape=(*inst_shape, 1),
             dtype=dtype,
+            T__K=T__K,
         )
         self.bl_adc = ADC.from_config(
             cfg=cfg.adc_cfg,
             name=f"{prefix}bl_adc",
-            T__K=T__K,
+            inst_shape=(*inst_shape, 1),
             dtype=dtype,
+            T__K=T__K,
         )
+        self._record_inst_count(inst_shape)
 
     @property
     def area_per_inst__um2(self) -> float:
@@ -119,24 +128,6 @@ class OffsetSwitchCapMuxAdcReadOut(ReadOut):
             + self.analog_mux.latency_per_op__ns
             + self.bl_adc.latency_per_op__ns(bits=adc_bits)
         )
-
-    def fabricate(self, shape: tuple[int, ...]) -> None:
-        """Sample static per-instance state over ``shape`` (re-callable).
-
-        Args:
-            shape: Per-instance fabrication shape
-                ``(*prefix, group_num)``.
-        """
-        if len(shape) < 1:
-            raise ValueError(f"shape must be (*prefix, group_num), got {shape}")
-
-        self.data_switchcap.fabricate((*shape, self.data_num))
-        self.ref_switchcap.fabricate(shape)
-
-        self.analog_mux.fabricate((*shape, 1))
-        self.bl_adc.fabricate((*shape, 1))
-
-        self._record_inst_count(shape)
 
     def readout(
         self,

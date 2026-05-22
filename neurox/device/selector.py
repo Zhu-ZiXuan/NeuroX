@@ -1,12 +1,12 @@
 """Threshold-selector mismatch model."""
 
 from dataclasses import dataclass
-from typing import cast
 
 import torch
 import torch.nn as nn
 from torch import Tensor
 
+from neurox.common.fabricate import FabricateMixin
 from neurox.common.nonideality import apply_gaussian
 from neurox.common.validate import ValidateMixin
 
@@ -20,7 +20,7 @@ class SelectorConfig(ValidateMixin):
             across all cells before mismatch is applied.
         vth_mismatch__V: Additive Gaussian mismatch on ``Vth`` [V].
         enable_vth_mismatch: Apply ``vth_mismatch__V`` per cell at
-            sampling time.
+            fabricate time.
     """
 
     # --- Nominal threshold ---
@@ -37,63 +37,54 @@ class SelectorConfig(ValidateMixin):
         self._require_nonneg(self.vth_mismatch__V, "vth_mismatch__V")
 
 
-class Selector(nn.Module):
-    """OTS selector with training/eval-mode-dependent threshold variation."""
+class Selector(FabricateMixin, nn.Module):
+    """OTS selector with static per-cell V_th mismatch."""
+
+    nominal_vth__V: Tensor
+    vth__V: Tensor
 
     def __init__(
         self,
         *,
         cfg: SelectorConfig,
-        T__K: float,
+        inst_shape: tuple[int, ...],
         dtype: torch.dtype,
-        array_shape: tuple[int, ...],
+        T__K: float,
     ) -> None:
         """Initialize the selector model."""
         super().__init__()
         self.cfg = cfg
+        self._inst_shape = inst_shape
         self.T__K = T__K
         self.dtype = dtype
-        self.register_buffer("vth_nominal__V", torch.full(array_shape, cfg.vth_nominal__V))
-        self.register_buffer("_vth_static__V", torch.empty(array_shape), persistent=False)
-        self._static_initialized = False
+        self.register_buffer(
+            "nominal_vth__V",
+            torch.tensor(cfg.vth_nominal__V, dtype=dtype),
+            persistent=False,
+        )
+        self.register_buffer(
+            "vth__V",
+            self.nominal_vth__V.clone(),
+            persistent=False,
+        )
 
-    @property
-    def vth_nominal__V_tensor(self) -> Tensor:
-        """Typed accessor for nominal Vth buffer."""
-        return cast(Tensor, self._buffers["vth_nominal__V"])
-
-    @property
-    def vth_static__V_tensor(self) -> Tensor:
-        """Typed accessor for static Vth buffer."""
-        return cast(Tensor, self._buffers["_vth_static__V"])
-
-    def _sample_vth(self) -> Tensor:
-        return apply_gaussian(
-            self.vth_nominal__V_tensor,
+    def _sample_fabricate_mismatch(self) -> None:
+        """Resample per-cell V_th at ``self._inst_shape``."""
+        self.vth__V = apply_gaussian(
+            self.nominal_vth__V.clone().expand(self._inst_shape),
             self.cfg.vth_mismatch__V,
             enabled=self.cfg.enable_vth_mismatch,
         )
 
     def sample_vth_like(self, reference: Tensor) -> Tensor:
-        """Return a threshold voltage tensor compatible with ``reference``.
-
-        In training mode a new mismatch sample is drawn each call.  In eval
-        mode the static map is lazily initialised on the first call then
-        reused, then broadcast to ``reference.shape``.
+        """Broadcast the fabricated ``vth__V`` to ``reference``'s shape/device/dtype.
 
         Args:
             reference: Tensor whose shape, device, and dtype define the
                 target threshold tensor (typically the cell-voltage tensor).
 
         Returns:
-            Threshold voltage tensor [V].  Shape: ``reference.shape``.
+            Threshold voltage tensor [V]. Shape: ``reference.shape``.
         """
-        if self.training:
-            vth = self._sample_vth()
-        else:
-            if not self._static_initialized:
-                self.vth_static__V_tensor.copy_(self._sample_vth())
-                self._static_initialized = True
-            vth = self.vth_static__V_tensor
-        vth = vth.to(device=reference.device, dtype=reference.dtype)
+        vth = self.vth__V.to(device=reference.device, dtype=reference.dtype)
         return torch.broadcast_to(vth, reference.shape)

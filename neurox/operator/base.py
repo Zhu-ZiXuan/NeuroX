@@ -84,7 +84,21 @@ class NeuroxOperator(nn.Module, ABC):
 
     @abstractmethod
     def fabricate(self) -> None:
-        """Fabricate the macro's physical state from the loaded int weights."""
+        """Re-sample the macro's static manufacturing variation.
+
+        Drives ``self.macro.fabricate()`` (FabricateMixin auto-cascade). Called
+        once at inference setup and once before each forward in noise-aware
+        training.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def program(self) -> None:
+        """Write the macro's static weight state from the loaded int weights.
+
+        Drives ``self.macro.program(weight_int)``. Called once at inference
+        setup and once after every weight update in QAT.
+        """
         raise NotImplementedError
 
     def _validate_weight_range(self, weight_int: Tensor) -> None:

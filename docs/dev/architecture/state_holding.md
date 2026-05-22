@@ -21,9 +21,9 @@ The ideal value before any manufacturing variation. Set once and never overwritt
 
 The nominal value plus static manufacturing variation (Pelgrom mismatch, write-noise, retention drift baked into the programmed state, etc.). This is the "true" value present in the silicon for the lifetime of the fabricated module.
 
-**Write moment**: `fabricate(shape)` for circuits / sized devices; `program(...)` for RRAM-style write paths.
+**Write moment**: `_sample_fabricate_mismatch()` (driven via `FabricateMixin.fabricate()`) for circuits / sized devices; `program(...)` for RRAM-style write paths.
 
-The actual value is sampled from the nominal value plus the configured static noise distribution. It is registered as a non-persistent buffer so it survives `.to(device)`. It is re-sampled cleanly on every `fabricate(...)` call (see [`fabrication_lifecycle.md`](fabrication_lifecycle.md)).
+The actual value is sampled from the nominal value plus the configured static noise distribution. It is registered as a non-persistent buffer so it survives `.to(device)`. It is re-sampled cleanly on every `fabricate()` call (see [`fabrication_lifecycle.md`](fabrication_lifecycle.md)). The per-instance fabrication shape used for the resample comes from `self._inst_shape`, committed at `__init__`.
 
 **Naming**: `<name>__<unit>` (no prefix). Same name as the nominal but without the `nominal_` prefix.
 

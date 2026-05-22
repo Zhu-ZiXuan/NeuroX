@@ -14,6 +14,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
+from neurox.common.fabricate import FabricateMixin
 from neurox.common.registry_dispatch import RegistryDispatchMixin
 from neurox.common.validate import ValidateMixin
 from neurox.profiler import ProfiledModule
@@ -38,39 +39,48 @@ class XbarMacroConfig(ValidateMixin):
         """Run all ``validate_*`` checks."""
 
 
-class XbarMacro(nn.Module, ProfiledModule, RegistryDispatchMixin[type["XbarMacroConfig"], "XbarMacro"], ABC):
+class XbarMacro(
+    FabricateMixin, nn.Module, ProfiledModule, RegistryDispatchMixin[type["XbarMacroConfig"], "XbarMacro"], ABC
+):
     """Abstract base for xbar-backed quantised-MAC macros.
 
     Args:
         cfg: Concrete subclass config.
         name: Hierarchical profiler name.
-        T__K: Operating temperature in kelvin.
+        w_logical_shape: Logical weight shape ``(*prefix, N, K)`` the macro
+            will see in ``program(...)``. Committed at construction; the
+            macro derives every child's `inst_shape` from this plus its
+            own slicer / organize logic.
         dtype: Analog forward-path dtype.
+        T__K: Operating temperature in kelvin.
         ideal_xbar: When ``True``, the macro replaces its physical xbar
             with the lossless ideal twin returned by ``xbar.to_ideal()``.
     """
 
     xbar: Xbar
+    cfg: XbarMacroConfig
 
     def __init__(
         self,
         *,
         cfg: XbarMacroConfig,
         name: str,
-        T__K: float,
+        w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
+        T__K: float,
         ideal_xbar: bool,
     ) -> None:
         nn.Module.__init__(self)
         ProfiledModule.__init__(self, name)
-        prefix = f"{name}." if name else ""
-        xbar = Xbar.from_config(
-            cfg=cfg.xbar_cfg,
-            name=f"{prefix}xbar",
-            T__K=T__K,
-            dtype=dtype,
-        )
-        self.xbar = xbar.to_ideal() if ideal_xbar else xbar
+        if len(w_logical_shape) < 2:
+            raise ValueError(f"w_logical_shape must have at least 2 trailing dims (N, K); got {w_logical_shape}")
+        self.cfg = cfg
+        self._w_logical_shape = tuple(w_logical_shape)
+        self._inst_shape = ()
+        self._macro_dtype = dtype
+        self._macro_T__K = T__K
+        self._ideal_xbar = ideal_xbar
+        self._macro_name = name
 
     @classmethod
     def from_config(
@@ -78,8 +88,9 @@ class XbarMacro(nn.Module, ProfiledModule, RegistryDispatchMixin[type["XbarMacro
         *,
         cfg: XbarMacroConfig,
         name: str,
-        T__K: float,
+        w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
+        T__K: float,
         ideal_xbar: bool,
     ) -> XbarMacro:
         """Build the concrete impl registered for ``type(cfg)``."""
@@ -87,8 +98,9 @@ class XbarMacro(nn.Module, ProfiledModule, RegistryDispatchMixin[type["XbarMacro
         return impl(
             cfg=cfg,
             name=name,
-            T__K=T__K,
+            w_logical_shape=w_logical_shape,
             dtype=dtype,
+            T__K=T__K,
             ideal_xbar=ideal_xbar,
         )
 
@@ -115,11 +127,12 @@ class XbarMacro(nn.Module, ProfiledModule, RegistryDispatchMixin[type["XbarMacro
     # --- lifecycle ---
 
     @abstractmethod
-    def fabricate(self, weight: Tensor) -> None:
-        """Prepare the macro for one logical weight tensor (re-callable).
+    def program(self, weight: Tensor) -> None:
+        """Write the macro's static weight state.
 
         Args:
-            weight: Integer weight tensor. Shape: ``[..., N, K]``.
+            weight: Integer weight tensor. Shape must match
+                ``self._w_logical_shape``.
         """
         raise NotImplementedError
 
@@ -127,17 +140,15 @@ class XbarMacro(nn.Module, ProfiledModule, RegistryDispatchMixin[type["XbarMacro
     def matmul(
         self,
         input: Tensor,
-        weight: Tensor,
         bias: Tensor | None,
         rescale_multiplier: Tensor,
         rescale_rshift: Tensor,
         output_zero_point: Tensor | None,
     ) -> Tensor:
-        """Execute one integer matrix multiply through the macro.
+        """Execute one integer matrix multiply against the programmed weight.
 
         Args:
             input: Integer activation tensor. Shape: ``[..., M, K]``.
-            weight: Integer weight tensor. Shape: ``[..., N, K]``.
             bias: Optional integer bias tensor. Shape: ``[..., N]``.
             rescale_multiplier: Per-output fixed-point multiplier.
             rescale_rshift: Per-output right-shift amount.
@@ -147,6 +158,28 @@ class XbarMacro(nn.Module, ProfiledModule, RegistryDispatchMixin[type["XbarMacro
             Integer output tensor. Shape: ``[..., M, N]``.
         """
         raise NotImplementedError
+
+    # --- xbar construction helper for subclasses ---
+
+    def _build_xbar(self, xbar_w_layout_shape: tuple[int, ...]) -> Xbar:
+        """Construct the owned xbar at a derived layout shape.
+
+        Args:
+            xbar_w_layout_shape: Full xbar-native digit-tensor shape
+                ``(*prefix, data_num, digit_num, row_num)``.
+
+        Returns:
+            The xbar (physical or ideal twin per ``ideal_xbar``).
+        """
+        prefix = f"{self._macro_name}." if self._macro_name else ""
+        xbar = Xbar.from_config(
+            cfg=self.cfg.xbar_cfg,
+            name=f"{prefix}xbar",
+            w_layout_shape=xbar_w_layout_shape,
+            dtype=self._macro_dtype,
+            T__K=self._macro_T__K,
+        )
+        return xbar.to_ideal() if self._ideal_xbar else xbar
 
     # --- shared tensor utility ---
 

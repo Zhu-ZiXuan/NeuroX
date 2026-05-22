@@ -114,10 +114,11 @@ class OpAmpTIA(TIA):
         *,
         cfg: OpAmpTIAConfig,
         name: str,
-        T__K: float,
+        inst_shape: tuple[int, ...],
         dtype: torch.dtype,
+        T__K: float,
     ) -> None:
-        super().__init__(cfg=cfg, name=name, T__K=T__K, dtype=dtype)
+        super().__init__(cfg=cfg, name=name, inst_shape=inst_shape, dtype=dtype, T__K=T__K)
 
         self.cfg = cfg
         self.T__K = T__K
@@ -125,8 +126,9 @@ class OpAmpTIA(TIA):
 
         self.nmos = NMOS(
             cfg=cfg.nmos_cfg,
-            T__K=T__K,
+            inst_shape=inst_shape,
             dtype=dtype,
+            T__K=T__K,
             W__um=cfg.pseudo_nmos_W__um,
             L__um=cfg.pseudo_nmos_L__um,
         )
@@ -147,6 +149,7 @@ class OpAmpTIA(TIA):
             self.nominal_opamp_gain.clone(),
             persistent=False,
         )
+        self._record_inst_count(inst_shape)
 
     # --- ClampDriver protocol accessor ---
 
@@ -174,21 +177,17 @@ class OpAmpTIA(TIA):
 
     # --- fabricate ---
 
-    def fabricate(self, shape: tuple[int, ...]) -> None:
-        """Sample static per-instance state over ``shape`` (re-callable).
+    def _sample_fabricate_mismatch(self) -> None:
+        """Resample opamp_gain at ``self._inst_shape``.
 
-        Args:
-            shape: Per-instance fabrication shape.
+        NMOS is a `FabricateMixin` child and is cascaded automatically by
+        the base ``fabricate()``; no explicit call here.
         """
-        self.nmos.fabricate(shape)
-
-        opamp_gain = apply_gaussian(
-            self.nominal_opamp_gain.clone().expand(shape),
+        self.opamp_gain = apply_gaussian(
+            self.nominal_opamp_gain.clone().expand(self._inst_shape),
             self.sigma_opamp_gain,
             enabled=self.cfg.enable_opamp_gain_sigma,
         )
-        self.register_buffer("opamp_gain", opamp_gain, persistent=False)
-        self._record_inst_count(shape)
 
     # --- snapshot ---
 

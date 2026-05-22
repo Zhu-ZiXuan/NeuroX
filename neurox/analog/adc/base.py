@@ -13,6 +13,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
+from neurox.common.fabricate import FabricateMixin
 from neurox.common.registry_dispatch import RegistryDispatchMixin
 from neurox.common.validate import ValidateMixin
 from neurox.profiler import ProfiledModule
@@ -67,7 +68,7 @@ class ADCMode(ValidateMixin):
         return self.max_signal / self.n_codes
 
 
-class ADC(nn.Module, ProfiledModule, RegistryDispatchMixin[type["ADCConfig"], "ADC"], ABC):
+class ADC(FabricateMixin, nn.Module, ProfiledModule, RegistryDispatchMixin[type["ADCConfig"], "ADC"], ABC):
     """Abstract base class for ADC implementations."""
 
     @classmethod
@@ -76,42 +77,47 @@ class ADC(nn.Module, ProfiledModule, RegistryDispatchMixin[type["ADCConfig"], "A
         *,
         cfg: ADCConfig,
         name: str,
-        T__K: float,
+        inst_shape: tuple[int, ...],
         dtype: torch.dtype,
+        T__K: float,
     ) -> ADC:
-        """Build the concrete ADC implementation for `type(cfg)`.
+        """Build the concrete ADC implementation for ``type(cfg)``.
 
         Args:
             cfg: ADC configuration.
             name: Profiler/debug name.
-            T__K: Operating temperature [K].
+            inst_shape: Per-instance fabrication shape.
             dtype: Tensor dtype for internal buffers.
+            T__K: Operating temperature [K].
 
         Returns:
-            Concrete ADC implementation registered for `type(cfg)`.
+            Concrete ADC implementation registered for ``type(cfg)``.
         """
         impl = cls._lookup_impl(type(cfg))
-        return impl(cfg=cfg, name=name, T__K=T__K, dtype=dtype)
+        return impl(cfg=cfg, name=name, inst_shape=inst_shape, dtype=dtype, T__K=T__K)
 
     def __init__(
         self,
         *,
         cfg: ADCConfig,
         name: str,
-        T__K: float,
+        inst_shape: tuple[int, ...],
         dtype: torch.dtype,
+        T__K: float,
     ) -> None:
         """Register the instance with :class:`nn.Module` and the profiler.
 
         Args:
             cfg: ADC configuration.
             name: Profiler/debug name.
-            T__K: Operating temperature [K].
+            inst_shape: Per-instance fabrication shape.
             dtype: Tensor dtype for internal buffers.
+            T__K: Operating temperature [K].
         """
-        del cfg, T__K, dtype  # captured by the subclass init
+        del cfg, dtype, T__K  # captured by the subclass init
         nn.Module.__init__(self)
         ProfiledModule.__init__(self, name)
+        self._inst_shape = inst_shape
 
     @abstractmethod
     def convert(
@@ -136,14 +142,6 @@ class ADC(nn.Module, ProfiledModule, RegistryDispatchMixin[type["ADCConfig"], "A
             Integer code tensor in ``[0, 2 ** bits - 1]``, same shape
             as ``v_pos__V``.  Dynamic energy and latency are emitted
             through the profiler side channel.
-        """
-        raise NotImplementedError
-
-    def fabricate(self, shape: tuple[int, ...]) -> None:
-        """Sample static per-instance state over ``shape`` (re-callable).
-
-        Args:
-            shape: Per-instance fabrication shape.
         """
         raise NotImplementedError
 

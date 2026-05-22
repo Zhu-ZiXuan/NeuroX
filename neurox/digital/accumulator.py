@@ -10,6 +10,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
+from neurox.common.fabricate import FabricateMixin
 from neurox.common.validate import ValidateMixin
 from neurox.profiler import ProfiledModule
 
@@ -52,7 +53,7 @@ class AccumulatorConfig(ValidateMixin):
         self._require_nonneg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
-class Accumulator(nn.Module, ProfiledModule):
+class Accumulator(FabricateMixin, nn.Module, ProfiledModule):
     """Modular adder-tree that sums ADC codes along one tile axis.
 
     Models a hardware adder tree with a fixed output register of ``bit_width``
@@ -61,33 +62,33 @@ class Accumulator(nn.Module, ProfiledModule):
     no saturation logic.
     """
 
-    def __init__(self, config: AccumulatorConfig, *, name: str) -> None:
+    def __init__(
+        self,
+        *,
+        cfg: AccumulatorConfig,
+        name: str,
+        inst_shape: tuple[int, ...],
+    ) -> None:
         nn.Module.__init__(self)
         ProfiledModule.__init__(self, name)
-        self.config = config
+        self.cfg = cfg
+        self._inst_shape = inst_shape
+        self._record_inst_count(inst_shape)
 
     @property
     def area_per_inst__um2(self) -> float:
         """Area per instance in um2."""
-        return self.config.area_per_inst__um2
+        return self.cfg.area_per_inst__um2
 
     @property
     def leakage_per_inst__uW(self) -> float:
         """Leakage per instance in uW."""
-        return self.config.leakage_per_inst__uW
+        return self.cfg.leakage_per_inst__uW
 
     @property
     def latency_per_op__ns(self) -> float:
         """Latency per op in ns."""
-        return self.config.latency_per_op__ns
-
-    def fabricate(self, shape: tuple[int, ...]) -> None:
-        """Sample static per-instance state over ``shape`` (re-callable).
-
-        Args:
-            shape: Per-instance fabrication shape.
-        """
-        self._record_inst_count(shape)
+        return self.cfg.latency_per_op__ns
 
     def operate(self, x: Tensor, dim: int) -> Tensor:
         """Sum ``x`` along ``dim`` and wrap into the signed ``bit_width`` range.
@@ -103,11 +104,11 @@ class Accumulator(nn.Module, ProfiledModule):
             Modular-wrapped sum with ``dim`` reduced.
         """
 
-        bw = self.config.bit_width
+        bw = self.cfg.bit_width
         half = 1 << (bw - 1)
         full = 1 << bw
         y = (x.sum(dim) + half) % full - half
 
-        dynamic_energy__fJ = torch.full_like(y, self.config.energy_per_op__fJ, dtype=torch.float32)
-        self._log_dynamic(dynamic_energy__fJ, self.config.latency_per_op__ns)
+        dynamic_energy__fJ = torch.full_like(y, self.cfg.energy_per_op__fJ, dtype=torch.float32)
+        self._log_dynamic(dynamic_energy__fJ, self.cfg.latency_per_op__ns)
         return y

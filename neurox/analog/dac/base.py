@@ -9,6 +9,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
+from neurox.common.fabricate import FabricateMixin
 from neurox.common.registry_dispatch import RegistryDispatchMixin
 from neurox.common.validate import ValidateMixin
 from neurox.profiler import ProfiledModule
@@ -25,7 +26,7 @@ class DACConfig(ValidateMixin):
         pass
 
 
-class DAC(nn.Module, ProfiledModule, RegistryDispatchMixin[type["DACConfig"], "DAC"], ABC):
+class DAC(FabricateMixin, nn.Module, ProfiledModule, RegistryDispatchMixin[type["DACConfig"], "DAC"], ABC):
     """Abstract base class for DAC models."""
 
     def __init__(
@@ -33,13 +34,15 @@ class DAC(nn.Module, ProfiledModule, RegistryDispatchMixin[type["DACConfig"], "D
         *,
         cfg: DACConfig,
         name: str,
-        T__K: float,
+        inst_shape: tuple[int, ...],
         dtype: torch.dtype,
+        T__K: float,
     ) -> None:
         """Register the instance with :class:`nn.Module` and the profiler."""
-        del cfg, T__K, dtype  # captured by the subclass init
+        del cfg, dtype, T__K  # captured by the subclass init
         nn.Module.__init__(self)
         ProfiledModule.__init__(self, name)
+        self._inst_shape = inst_shape
 
     @classmethod
     def from_config(
@@ -47,12 +50,13 @@ class DAC(nn.Module, ProfiledModule, RegistryDispatchMixin[type["DACConfig"], "D
         *,
         cfg: DACConfig,
         name: str,
-        T__K: float,
+        inst_shape: tuple[int, ...],
         dtype: torch.dtype,
+        T__K: float,
     ) -> DAC:
         """Build the concrete DAC model for ``type(cfg)``."""
         impl = cls._lookup_impl(type(cfg))
-        return impl(cfg=cfg, name=name, T__K=T__K, dtype=dtype)
+        return impl(cfg=cfg, name=name, inst_shape=inst_shape, dtype=dtype, T__K=T__K)
 
     @property
     @abstractmethod
@@ -82,8 +86,4 @@ class DAC(nn.Module, ProfiledModule, RegistryDispatchMixin[type["DACConfig"], "D
         Returns:
             Float analog signal of the same shape as ``code``.
         """
-        raise NotImplementedError
-
-    def fabricate(self, shape: tuple[int, ...]) -> None:
-        """Default no-op; DAC has no static fabrication state today."""
         raise NotImplementedError

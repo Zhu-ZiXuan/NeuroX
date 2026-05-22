@@ -62,24 +62,42 @@ class InterXbarSliceMacro(XbarMacro):
     One xbar plane holds one ``Sw`` slice index across every logical weight.
     """
 
+    cfg: InterXbarSliceMacroConfig
+
     def __init__(
         self,
         *,
         cfg: InterXbarSliceMacroConfig,
         name: str,
-        T__K: float,
+        w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
+        T__K: float,
         ideal_xbar: bool,
     ) -> None:
         super().__init__(
             cfg=cfg,
             name=name,
-            T__K=T__K,
+            w_logical_shape=w_logical_shape,
             dtype=dtype,
+            T__K=T__K,
             ideal_xbar=ideal_xbar,
         )
         self.cfg = cfg
+        xbar_cfg = cfg.xbar_cfg
+        col_num = xbar_cfg.col_num
+        row_num = xbar_cfg.row_num
+        digit_count = xbar_cfg.w_digit_count  # type: ignore[attr-defined]
+
+        # Symbolic organized shape: (*batch, 1, Tc, Tr, 1, Sw, col_num, D, row_num).
+        *w_batch, n_logical, k_logical = w_logical_shape
+        tr = (n_logical + col_num - 1) // col_num
+        tc = (k_logical + row_num - 1) // row_num
+        sw = cfg.w_slice_num
+        xbar_w_layout_shape = (*w_batch, 1, tc, tr, 1, sw, col_num, digit_count, row_num)
+
+        self.xbar = self._build_xbar(xbar_w_layout_shape)
         xbar = self.xbar
+
         x_lo, x_hi = xbar.x_range
         self.w_slicer = SimpleSlicer(
             slice_num=cfg.w_slice_num,
@@ -92,13 +110,32 @@ class InterXbarSliceMacro(XbarMacro):
             digit_radix=x_hi - x_lo + 1,
         )
 
-        prefix = f"{name}." if name else ""
-        self.col_accumulator = Accumulator(cfg.col_accumulator_cfg, name=f"{prefix}col_accumulator")
-        self.sa_shift_adder = ShiftAdder(cfg.sa_shift_adder_cfg, name=f"{prefix}sa_shift_adder")
-        self.sw_shift_adder = ShiftAdder(cfg.sw_shift_adder_cfg, name=f"{prefix}sw_shift_adder")
-        self.requantizer = Requantizer(cfg.requantizer_cfg, name=f"{prefix}requantizer")
+        self._w_parallel_size = max(math.prod(w_batch), 1)
+        self._n_logical = n_logical
+        self._row_tile_num = tr
 
-        self._w_parallel_size = 0
+        prefix = f"{name}." if name else ""
+        self.col_accumulator = Accumulator(
+            cfg=cfg.col_accumulator_cfg,
+            name=f"{prefix}col_accumulator",
+            inst_shape=(self._w_parallel_size, sw, tr),
+        )
+        self.sa_shift_adder = ShiftAdder(
+            cfg=cfg.sa_shift_adder_cfg,
+            name=f"{prefix}sa_shift_adder",
+            inst_shape=(self._w_parallel_size, tr),
+        )
+        self.sw_shift_adder = ShiftAdder(
+            cfg=cfg.sw_shift_adder_cfg,
+            name=f"{prefix}sw_shift_adder",
+            inst_shape=(self._w_parallel_size, tr),
+        )
+        self.requantizer = Requantizer(
+            cfg=cfg.requantizer_cfg,
+            name=f"{prefix}requantizer",
+            inst_shape=(self._w_parallel_size, n_logical),
+        )
+
         self._serial_op_num = 0
         self._x_shape_cached: tuple[int, ...] = ()
 
@@ -192,39 +229,32 @@ class InterXbarSliceMacro(XbarMacro):
 
     # --- lifecycle ---
 
-    def fabricate(self, weight: Tensor) -> None:
-        """Map one weight tensor and program the xbar (re-callable).
+    def program(self, weight: Tensor) -> None:
+        """Map one logical weight tensor and program the xbar.
 
         Args:
-            weight: Integer weight tensor of shape ``[..., N, K]``.
+            weight: Integer weight tensor whose shape matches
+                ``self._w_logical_shape``.
         """
+        if tuple(weight.shape) != self._w_logical_shape:
+            raise ValueError(f"program() expects weight.shape {self._w_logical_shape}; got {tuple(weight.shape)}")
         organized = self._organize_w(weight)
-        self.xbar.fabricate(organized)
-
-        *w_batch, _m, _tc, row_tile_num, _sa, w_slice_num = organized.shape[:-3]
-        self._w_parallel_size = math.prod(w_batch)
-        n_logical = weight.shape[-2]
-        self.col_accumulator.fabricate((self._w_parallel_size, w_slice_num, row_tile_num))
-        self.sw_shift_adder.fabricate((self._w_parallel_size, row_tile_num))
-        self.sa_shift_adder.fabricate((self._w_parallel_size, row_tile_num))
-        self.requantizer.fabricate((self._w_parallel_size, n_logical))
+        self.xbar.program(organized)
 
     @torch.no_grad()
     @torch.compile(dynamic=True)
     def matmul(
         self,
         input: Tensor,
-        weight: Tensor,
         bias: Tensor | None,
         rescale_multiplier: Tensor,
         rescale_rshift: Tensor,
         output_zero_point: Tensor | None,
     ) -> Tensor:
-        """Execute one integer matrix multiply.
+        """Execute one integer matrix multiply against the programmed weight.
 
         Args:
             input: Integer activation of shape ``[..., M, K]``.
-            weight: Integer weight of shape ``[..., N, K]``.
             bias: Optional integer bias of shape ``[..., N]``.
             rescale_multiplier: Per-output fixed-point multiplier.
             rescale_rshift: Per-output right-shift amount.
@@ -233,15 +263,12 @@ class InterXbarSliceMacro(XbarMacro):
         Returns:
             Integer output of shape ``[..., M, N]`` in ``input.dtype``.
         """
-        n_logical = weight.shape[-2]
+        n_logical = self._n_logical
         x_dtype = input.dtype
-
-        if self.training:
-            self.xbar.fabricate(self._organize_w(weight))
 
         x = self._organize_x(input)
 
-        if not self.training and self._x_shape_cached != x.shape:
+        if self._x_shape_cached != x.shape:
             self._x_shape_cached = x.shape
             sa_dim = self._x_shape_cached[-3]
             batch_m_prod = math.prod(self._x_shape_cached[:-6])

@@ -19,6 +19,7 @@ from neurox.analog import (
 )
 from neurox.analog.dac import DAC, DACConfig
 from neurox.analog.tia import TIA, TIAConfig
+from neurox.common.fabricate import FabricateMixin
 from neurox.common.validate import ValidateMixin
 from neurox.device import NMOS, RRAM, NMOSConfig, RRAMConfig
 
@@ -225,7 +226,7 @@ class Core1T1RDCOP:
 # ---------------------------------------------------------------------------
 
 
-class CircuitCore1T1R(nn.Module):
+class CircuitCore1T1R(FabricateMixin, nn.Module):
     """Shape-independent 1T1R core: devices, boundary circuits, and solver."""
 
     state_to_g_map__uS: Tensor
@@ -235,39 +236,68 @@ class CircuitCore1T1R(nn.Module):
         *,
         cfg: CircuitCore1T1RConfig,
         name: str,
-        T__K: float,
+        w_layout_shape: tuple[int, ...],
         dtype: torch.dtype,
+        T__K: float,
     ) -> None:
         """Construct one shape-independent 1T1R core.
 
         Args:
             cfg: Core configuration.
             name: Profiler/debug name.
-            T__K: Operating temperature [K].
+            w_layout_shape: Per-instance state-index tensor shape
+                ``(*prefix, phys_col_num, row_num)`` that
+                ``program(...)`` will receive.
             dtype: Tensor dtype for internal buffers.
+            T__K: Operating temperature [K].
         """
         super().__init__()
+
+        if cfg.sl_topology != "row_shared":
+            raise NotImplementedError(
+                f"sl_topology={cfg.sl_topology!r} is reserved for a future "
+                "build; only 'row_shared' is implemented today"
+            )
+        if len(w_layout_shape) < 2:
+            raise ValueError(
+                f"w_layout_shape must have at least 2 trailing dims (phys_col_num, row_num); got {w_layout_shape}"
+            )
+        *prefix, phys_col_num, row_num = w_layout_shape
+        if not (phys_col_num > 1):
+            raise ValueError(f"require: phys_col_num ({phys_col_num}) > 1")
+        if not (row_num > 1):
+            raise ValueError(f"require: row_num ({row_num}) > 1")
 
         self._neurox_name = name
         self.cfg = cfg
         self.dtype = dtype
         self.T__K = T__K
+        self._w_layout_shape = tuple(w_layout_shape)
+        self._inst_shape = tuple(prefix)
 
         # Build the owned children from the embedded member configs.
-        prefix = name + "."
-        self.rram = RRAM(cfg=cfg.rram_cfg, T__K=T__K, dtype=dtype, g_max__uS=cfg.rram_g_max__uS)
+        sub_prefix = name + "."
+        self.rram = RRAM(
+            cfg=cfg.rram_cfg,
+            inst_shape=self._w_layout_shape,
+            dtype=dtype,
+            T__K=T__K,
+            g_max__uS=cfg.rram_g_max__uS,
+        )
         self.nmos = NMOS(
             cfg=cfg.nmos_cfg,
-            T__K=T__K,
+            inst_shape=self._w_layout_shape,
             dtype=dtype,
+            T__K=T__K,
             W__um=cfg.access_nmos_W__um,
             L__um=cfg.access_nmos_L__um,
         )
         self.tia = TIA.from_config(
             cfg=cfg.tia_cfg,
-            name=f"{prefix}tia",
-            T__K=T__K,
+            name=f"{sub_prefix}tia",
+            inst_shape=(phys_col_num,),
             dtype=dtype,
+            T__K=T__K,
         )
         # Per-cell access-transistor parasitic caps for energy accounting.
         access_W__um = cfg.access_nmos_W__um
@@ -275,13 +305,26 @@ class CircuitCore1T1R(nn.Module):
         self._c_gd__fF = cfg.c_gd_per_um__fF * access_W__um
         self._c_db__fF = cfg.c_db_per_um__fF * access_W__um
 
-        self.sl_driver = Driver(cfg=cfg.sl_driver_cfg, name=f"{prefix}sl_driver", T__K=T__K, dtype=dtype)
-        self.wl_decoder = Decoder(cfg=cfg.wl_decoder_cfg, name=f"{prefix}wl_decoder", T__K=T__K, dtype=dtype)
+        self.sl_driver = Driver(
+            cfg=cfg.sl_driver_cfg,
+            name=f"{sub_prefix}sl_driver",
+            inst_shape=(row_num,),
+            dtype=dtype,
+            T__K=T__K,
+        )
+        self.wl_decoder = Decoder(
+            cfg=cfg.wl_decoder_cfg,
+            name=f"{sub_prefix}wl_decoder",
+            inst_shape=(),
+            dtype=dtype,
+            T__K=T__K,
+        )
         self.wl_dac = DAC.from_config(
             cfg=cfg.wl_dac_cfg,
-            name=f"{prefix}wl_dac",
-            T__K=T__K,
+            name=f"{sub_prefix}wl_dac",
+            inst_shape=(row_num,),
             dtype=dtype,
+            T__K=T__K,
         )
 
         self.v_dd_wl__V = float(self.wl_dac.code_to_signal[1].item())
@@ -295,59 +338,22 @@ class CircuitCore1T1R(nn.Module):
         self.w_states = len(cfg.state_to_g_map__uS)
         self.x_states = 2
 
-        # Shape-dependent capacitances and the solver are set up in fabricate().
-        self.solver: NewtonRaphsonSolver1T1R
-
-        self.fabricated_row_num = 0
-        self.fabricated_col_num = 0
-        self.c_wl_per_row__fF = 0.0
-        self.c_bl_per_node__fF = 0.0
-        self.c_x_per_cell__fF = 0.0
-        self.c_gd_per_cell__fF = 0.0
-
-    # -----------------------------------------------------------------
-    # Fabrication
-    # -----------------------------------------------------------------
-
-    def fabricate(self, w_state_idx: Tensor) -> None:
-        """Program the core from one state-index tensor.
-
-        Args:
-            w_state_idx: State-index tensor in ``[0, w_states - 1]``.
-                Shape: [..., phys_col_num, row_num].
-        """
-        *_, phys_col_num, row_num = w_state_idx.shape
-        if not (phys_col_num > 1):
-            raise ValueError(f"require: phys_col_num ({phys_col_num}) > 1")
-        if not (row_num > 1):
-            raise ValueError(f"require: row_num ({row_num}) > 1")
-        if self.cfg.sl_topology != "row_shared":
-            raise NotImplementedError(
-                f"sl_topology={self.cfg.sl_topology!r} is reserved for a future "
-                "build; only 'row_shared' is implemented today"
-            )
-
-        target_g__uS = self.state_to_g_map__uS[w_state_idx.long()]
-        self.rram.program(target_g__uS, t_elapsed=0.0)
-        self.nmos.fabricate(w_state_idx.shape)
-        self.tia.fabricate((phys_col_num,))
-
         # Energy-model capacitance scalars: total wire cap = first + (N-1) * segment.
-        wl_wire_cap__fF = self.cfg.wl_first_c__fF + (phys_col_num - 1) * self.cfg.wl_segment_c__fF
+        wl_wire_cap__fF = cfg.wl_first_c__fF + (phys_col_num - 1) * cfg.wl_segment_c__fF
         self.c_wl_per_row__fF = wl_wire_cap__fF + phys_col_num * self._c_gs__fF
-        bl_wire_total__fF = self.cfg.bl_first_c__fF + (row_num - 1) * self.cfg.bl_segment_c__fF
+        bl_wire_total__fF = cfg.bl_first_c__fF + (row_num - 1) * cfg.bl_segment_c__fF
         self.c_bl_per_node__fF = bl_wire_total__fF / row_num + self.rram.c_top__fF
         self.c_x_per_cell__fF = self._c_db__fF + self.rram.c_bot__fF
         self.c_gd_per_cell__fF = self._c_gd__fF
 
         # Per-line segment resistances. Index 0 is the driver-to-first segment.
         bl_segment_r__MOhm = torch.tensor(
-            [self.cfg.bl_first_r__MOhm] + [self.cfg.bl_segment_r__MOhm] * (row_num - 1),
-            dtype=self.dtype,
+            [cfg.bl_first_r__MOhm] + [cfg.bl_segment_r__MOhm] * (row_num - 1),
+            dtype=dtype,
         )
         sl_segment_r__MOhm = torch.tensor(
-            [self.cfg.sl_first_r__MOhm] + [self.cfg.sl_segment_r__MOhm] * (phys_col_num - 1),
-            dtype=self.dtype,
+            [cfg.sl_first_r__MOhm] + [cfg.sl_segment_r__MOhm] * (phys_col_num - 1),
+            dtype=dtype,
         )
         # Bind the DC solver.
         self.solver = NewtonRaphsonSolver1T1R(
@@ -361,6 +367,25 @@ class CircuitCore1T1R(nn.Module):
 
         self.fabricated_col_num = phys_col_num
         self.fabricated_row_num = row_num
+
+    # -----------------------------------------------------------------
+    # Programming
+    # -----------------------------------------------------------------
+
+    def program(self, w_state_idx: Tensor) -> None:
+        """Write the RRAM cells from one state-index tensor.
+
+        Args:
+            w_state_idx: State-index tensor in ``[0, w_states - 1]``,
+                shape must match ``self._w_layout_shape =
+                (*prefix, phys_col_num, row_num)``.
+        """
+        if tuple(w_state_idx.shape) != self._w_layout_shape:
+            raise ValueError(
+                f"program() expects w_state_idx.shape {self._w_layout_shape}; got {tuple(w_state_idx.shape)}"
+            )
+        target_g__uS = self.state_to_g_map__uS[w_state_idx.long()]
+        self.rram.program(target_g__uS, t_elapsed=0.0)
 
     # -----------------------------------------------------------------
     # DC solve

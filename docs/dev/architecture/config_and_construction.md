@@ -59,6 +59,16 @@ This keeps the design visible in one place:
 - construction is readable from the owning class
 - no hidden factory closure decides what child class gets instantiated
 
+## Per-instance shape at construction
+
+Every fabricable module takes its per-instance fabrication shape as a constructor argument, not a `fabricate(...)` argument. The argument name varies by layer:
+
+- leaf circuits (analog / digital / device): `inst_shape: tuple[int, ...]`
+- xbar tiles: `w_layout_shape: tuple[int, ...]` (full digit tensor shape)
+- xbar macros: `w_logical_shape: tuple[int, ...]` (operator-facing weight shape)
+
+The shape is committed once at `__init__`, recorded on `self._inst_shape` (per the `FabricateMixin` contract), and the constructor records the profiler instance count from it. `fabricate()` then carries no arguments; it resamples mismatch at the already-bound shape. See [`fabrication_lifecycle.md`](fabrication_lifecycle.md) for the lifecycle.
+
 ## Family bases, concrete configs, and dispatch
 
 Families with multiple concrete implementations use:

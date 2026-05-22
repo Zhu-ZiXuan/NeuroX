@@ -108,10 +108,11 @@ class GeneralADC(ADC):
         *,
         cfg: GeneralADCConfig,
         name: str,
-        T__K: float,
+        inst_shape: tuple[int, ...],
         dtype: torch.dtype,
+        T__K: float,
     ) -> None:
-        super().__init__(cfg=cfg, name=name, T__K=T__K, dtype=dtype)
+        super().__init__(cfg=cfg, name=name, inst_shape=inst_shape, dtype=dtype, T__K=T__K)
         self.cfg = cfg
         self.dtype = dtype
         self.T__K = T__K
@@ -132,6 +133,8 @@ class GeneralADC(ADC):
         else:
             self._lsb_estimate = float(boundaries_t.item())
 
+        self._record_inst_count(inst_shape)
+
     # --- ADC interface ---
 
     @property
@@ -146,14 +149,6 @@ class GeneralADC(ADC):
         if bits != self._n_bits:
             raise ValueError(f"GeneralADC: bits ({bits}) must equal self._n_bits ({self._n_bits})")
         return self.cfg.latency_per_op__ns
-
-    def fabricate(self, shape: tuple[int, ...]) -> None:
-        """Sample static per-instance state over ``shape`` (re-callable).
-
-        Args:
-            shape: Per-instance fabrication shape.
-        """
-        self._record_inst_count(shape)
 
     def convert(
         self,

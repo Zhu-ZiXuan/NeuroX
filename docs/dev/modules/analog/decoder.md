@@ -25,10 +25,12 @@ Per-call latency is `n_address_bits · t_gate__ns`. Both are emitted through the
 
 ## Construction
 
-`Decoder.__init__(*, cfg, name, T__K, dtype)`:
+`Decoder.__init__(*, cfg, name, inst_shape, dtype, T__K)`:
 
-- `cfg`, `name` — design / spec config and the decoder's hierarchical profiler name.
-- `T__K`, `dtype` — accepted for the uniform analog construction signature but unused by today's behavioural decoder model.
+- `cfg`, `name`, `inst_shape` — design config, profiler name, and per-instance fabrication shape.
+- `dtype`, `T__K` — accepted for the uniform analog construction signature but unused by today's behavioural decoder model.
+
+`Decoder` inherits `FabricateMixin`; it has no static mismatch state, so the inherited `_sample_fabricate_mismatch` is the default no-op.
 
 See also:
 

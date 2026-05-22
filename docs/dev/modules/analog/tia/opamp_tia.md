@@ -20,7 +20,7 @@ It owns:
 - TIA design parameters such as reference and bias voltages
 - TIA spec parameters such as mismatch, area, leakage, latency
 
-`OpAmpTIA.__init__` constructs its internal `NMOS` directly from the config. No external `nmos_factory` is part of the current design.
+`OpAmpTIA.__init__(*, cfg, name, inst_shape, dtype, T__K)` constructs its internal `NMOS` with the same `inst_shape`. Because `NMOS` inherits `FabricateMixin`, it is cascaded automatically by `OpAmpTIA.fabricate()`. The opamp's own `_sample_fabricate_mismatch` only refreshes `opamp_gain`.
 
 ## Solver-facing contract
 

@@ -73,6 +73,8 @@ g__uS = apply_gaussian(g__uS, cfg.read_thermal__uS, enabled=cfg.enable_read_ther
 
 No `if` branches at the call site, no `None` checks inside the helpers, no special-case dispatch.
 
+Static-mismatch `apply_*` calls live inside `_sample_fabricate_mismatch()` (the `FabricateMixin` override point); dynamic per-call noise lives inside `convert` / `snapshot` / similar runtime methods. The cfg toggles are read directly there; the cadence at which the surrounding `fabricate()` is invoked is the operator-level concern documented in [`fabrication_lifecycle.md`](fabrication_lifecycle.md).
+
 ## What this rule does **not** apply to
 
 - Numerical hyperparameters that are not noise (e.g. softclip softness, learning rates). These follow the regular "required field" rule but do not need a paired toggle.

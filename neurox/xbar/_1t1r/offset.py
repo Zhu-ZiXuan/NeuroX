@@ -85,35 +85,49 @@ class Offset1T1RXbar(Xbar):
         *,
         cfg: Offset1T1RXbarConfig,
         name: str,
-        T__K: float,
+        w_layout_shape: tuple[int, ...],
         dtype: torch.dtype,
+        T__K: float,
     ) -> None:
-        super().__init__(cfg=cfg, name=name, T__K=T__K, dtype=dtype)
+        super().__init__(cfg=cfg, name=name, w_layout_shape=w_layout_shape, dtype=dtype, T__K=T__K)
+
+        prefix = self._inst_shape
+        data_num, digit_num, row_num = w_layout_shape[-3:]
+        if data_num != cfg.col_num:
+            raise ValueError(f"w_layout_shape data dim ({data_num}) must equal cfg.col_num ({cfg.col_num})")
+        if digit_num != cfg.w_digit_count:
+            raise ValueError(
+                f"w_layout_shape digit dim ({digit_num}) must equal cfg.w_digit_count ({cfg.w_digit_count})"
+            )
+        if row_num != cfg.row_num:
+            raise ValueError(f"w_layout_shape row dim ({row_num}) must equal cfg.row_num ({cfg.row_num})")
 
         # Positional weights: ``[r^0, r^1, ..., r^(D-1)]``.
         self.digit_weights = tuple(float(cfg.w_digit_radix**k) for k in range(cfg.w_digit_count))
+
+        n_groups = cfg.col_num // cfg.ref_group_size
+        total_logic_cols = cfg.col_num * cfg.w_digit_count
+        self.n_ref_cols = n_groups
+        self.physical_col_num = total_logic_cols + n_groups
 
         core_name = f"{name}.core"
         readout_name = f"{name}.readout"
         self.core = CircuitCore1T1R(
             cfg=cfg.core_cfg,
             name=core_name,
-            T__K=T__K,
+            w_layout_shape=(*prefix, self.physical_col_num, row_num),
             dtype=dtype,
+            T__K=T__K,
         )
         self.readout = ReadOut.from_config(
             cfg=cfg.readout_cfg,
             name=readout_name,
-            T__K=T__K,
+            inst_shape=(*prefix, n_groups),
             dtype=dtype,
+            T__K=T__K,
             data_num=cfg.ref_group_size,
             digit_weights=self.digit_weights,
         )
-
-        n_groups = cfg.col_num // cfg.ref_group_size
-        total_logic_cols = cfg.col_num * cfg.w_digit_count
-        self.n_ref_cols = n_groups
-        self.physical_col_num = total_logic_cols + n_groups
 
         logic_phys, ref_phys = _build_ref_indices(
             n_groups=n_groups,
@@ -156,26 +170,21 @@ class Offset1T1RXbar(Xbar):
     # Public API
     # -----------------------------------------------------------------
 
-    def fabricate(self, w: Tensor) -> None:
+    def program(self, w: Tensor) -> None:
         """Lay out an xbar-native digit tensor onto the physical array.
 
         Args:
-            w: Xbar-native digit tensor in :attr:`w_digit_range`,
-                shape ``[..., col_num, w_digit_count, row_num]``.
+            w: Xbar-native digit tensor in :attr:`w_digit_range`, shape
+                matching ``self._w_layout_shape =
+                (*prefix, col_num, w_digit_count, row_num)``.
         """
-        # Record the physical xbar instance count for static aggregation.
-        # ``prod(w.shape[:-3])`` covers every leading dim (macro batch /
-        # M / Tc / Tr / Sa / Sw) per the macro's tile-shape contract.
-        self._record_xbar_inst_count(w)
+        if tuple(w.shape) != self._w_layout_shape:
+            raise ValueError(f"program() expects w.shape {self._w_layout_shape}; got {tuple(w.shape)}")
         # Data-major, digit-minor ordering along the column axis.
         # Shape: [..., col_num, w_digit_count, row_num] -> [..., col_num * w_digit_count, row_num]
         w_logic = w.flatten(-3, -2)
         w_state_idx = _insert_ref_cols(w_logic, self.logic_phys_idx, self.physical_col_num) + self.cfg.w_state_offset
-        self.core.fabricate(w_state_idx)
-
-        prefix = tuple(w_state_idx.shape[:-2])
-        group_num = self.n_ref_cols
-        self.readout.fabricate((*prefix, group_num))
+        self.core.program(w_state_idx)
 
     def vec_mat_mul(self, x: Tensor) -> Tensor:
         """Run one VMM through the core → readout chain.

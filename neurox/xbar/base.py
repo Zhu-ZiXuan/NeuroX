@@ -15,6 +15,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
+from neurox.common.fabricate import FabricateMixin
 from neurox.common.registry_dispatch import RegistryDispatchMixin
 from neurox.common.validate import ValidateMixin
 from neurox.profiler import ProfiledModule
@@ -102,14 +103,18 @@ class XbarConfig(ValidateMixin):
         self._require_nonneg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
-class Xbar(nn.Module, ProfiledModule, RegistryDispatchMixin[type["XbarConfig"], "Xbar"], ABC):
+class Xbar(FabricateMixin, nn.Module, ProfiledModule, RegistryDispatchMixin[type["XbarConfig"], "Xbar"], ABC):
     """Abstract base class for a physical crossbar tile.
 
     Args:
         cfg: Tile geometry, runtime ADC operating point, and PPA.
         name: Hierarchical instance name used by the profiler.
-        T__K: Operating temperature [K].
+        w_layout_shape: Full xbar-native digit-tensor shape
+            ``(*prefix, data_num, digit_num, row_num)`` the tile will
+            receive in :meth:`program`. Per-instance multiplicity is
+            ``w_layout_shape[:-3]``.
         dtype: Tensor dtype for internal buffers.
+        T__K: Operating temperature [K].
     """
 
     cfg: XbarConfig
@@ -121,8 +126,9 @@ class Xbar(nn.Module, ProfiledModule, RegistryDispatchMixin[type["XbarConfig"], 
         *,
         cfg: XbarConfig,
         name: str,
-        T__K: float,
+        w_layout_shape: tuple[int, ...],
         dtype: torch.dtype,
+        T__K: float,
     ) -> None:
         nn.Module.__init__(self)
         ProfiledModule.__init__(self, name)
@@ -130,11 +136,20 @@ class Xbar(nn.Module, ProfiledModule, RegistryDispatchMixin[type["XbarConfig"], 
         self.T__K = T__K
         self.dtype = dtype
 
+        if len(w_layout_shape) < 3:
+            raise ValueError(
+                f"w_layout_shape must have at least 3 trailing dims (data_num, digit_num, row_num); got {w_layout_shape}"
+            )
+        self._w_layout_shape = tuple(w_layout_shape)
+        self._inst_shape = self._w_layout_shape[:-3]
+
         self.col_num = cfg.col_num
         self.row_num = cfg.row_num
         self._adc_mode = cfg.adc_mode
         self._adc_bits = cfg.adc_bits
         self._rescale_lut = {(e.adc_mode, e.adc_bits): e.rf for e in cfg.output_rescale_factors}
+
+        self._record_inst_count(math.prod(self._inst_shape) if self._inst_shape else 1)
 
     @classmethod
     def from_config(
@@ -142,12 +157,13 @@ class Xbar(nn.Module, ProfiledModule, RegistryDispatchMixin[type["XbarConfig"], 
         *,
         cfg: XbarConfig,
         name: str,
-        T__K: float,
+        w_layout_shape: tuple[int, ...],
         dtype: torch.dtype,
+        T__K: float,
     ) -> Xbar:
         """Build the concrete impl registered for ``type(cfg)``."""
         impl = cls._lookup_impl(type(cfg))
-        return impl(cfg=cfg, name=name, T__K=T__K, dtype=dtype)
+        return impl(cfg=cfg, name=name, w_layout_shape=w_layout_shape, dtype=dtype, T__K=T__K)
 
     # ----- PPA properties (delegated to the immutable config) -----
 
@@ -210,22 +226,17 @@ class Xbar(nn.Module, ProfiledModule, RegistryDispatchMixin[type["XbarConfig"], 
     # ----- Lifecycle -----
 
     @abstractmethod
-    def fabricate(self, w: Tensor) -> None:
-        """Program the tile's owned device buffers from a digit tensor.
+    def program(self, w: Tensor) -> None:
+        """Write the tile's owned device buffers from a digit tensor.
 
         Args:
-            w: Integer digit tensor with primitive trailing
-                ``[data_num, digit_num, row_num]`` where
+            w: Integer digit tensor whose shape matches
+                :attr:`_w_layout_shape` —
+                ``(*prefix, data_num, digit_num, row_num)`` where
                 ``digit_num == self.w_digit_count``. Entries must lie
-                in :attr:`w_digit_range`; leading dims are
-                broadcast-only.
+                in :attr:`w_digit_range`.
         """
         raise NotImplementedError
-
-    def _record_xbar_inst_count(self, w: Tensor) -> None:
-        """Record the profiler instance count from a fabricated digit tensor."""
-        leading = w.shape[:-3] if w.ndim >= 3 else ()
-        self._record_inst_count(math.prod(leading))
 
     @abstractmethod
     def vec_mat_mul(self, x: Tensor) -> Tensor:
@@ -244,11 +255,10 @@ class Xbar(nn.Module, ProfiledModule, RegistryDispatchMixin[type["XbarConfig"], 
     def to_ideal(self) -> IdealXbar:
         """Return the lossless :class:`IdealXbar` counterpart of this tile.
 
-        The base implementation builds an :class:`IdealXbarConfig` by
-        forwarding every ``XbarConfig`` field from ``self.cfg`` and
-        adding the four structural fields read off the abstract
-        ``x_range`` / ``w_digit_*`` properties. ``IdealXbar.to_ideal``
-        overrides this to ``return self``.
+        The new ``IdealXbar`` inherits this tile's per-instance
+        multiplicity; the primitive trailing dims of its
+        ``w_layout_shape`` are ``(col_num, w_digit_count, row_num)``.
+        ``IdealXbar.to_ideal`` overrides this to ``return self``.
         """
         # Local import — the ``ideal`` module imports from this file,
         # so the symbol is only safe to resolve at call time.
@@ -262,9 +272,11 @@ class Xbar(nn.Module, ProfiledModule, RegistryDispatchMixin[type["XbarConfig"], 
             w_digit_radix=self.w_digit_radix,
             w_digit_range=self.w_digit_range,
         )
+        ideal_layout_shape = (*self._inst_shape, self.cfg.col_num, self.w_digit_count, self.cfg.row_num)
         return IdealXbar(
             cfg=ideal_cfg,
             name=self.qualified_name,
-            T__K=self.T__K,
+            w_layout_shape=ideal_layout_shape,
             dtype=self.dtype,
+            T__K=self.T__K,
         )

@@ -46,11 +46,14 @@ class IdealXbar(Xbar):
         cfg: Ideal-xbar configuration carrying both the base
             :class:`XbarConfig` fields and the four structural fields.
         name: Hierarchical profiler name.
-        T__K: Operating temperature [K].
+        w_layout_shape: Full digit-tensor shape
+            ``(*prefix, data_num, digit_num, row_num)``.
         dtype: Tensor dtype for internal buffers.
+        T__K: Operating temperature [K].
     """
 
     cfg: IdealXbarConfig
+    nominal_digits: Tensor
     digits: Tensor
     digit_weights: Tensor
 
@@ -59,18 +62,35 @@ class IdealXbar(Xbar):
         *,
         cfg: IdealXbarConfig,
         name: str,
-        T__K: float,
+        w_layout_shape: tuple[int, ...],
         dtype: torch.dtype,
+        T__K: float,
     ) -> None:
-        super().__init__(cfg=cfg, name=name, T__K=T__K, dtype=dtype)
+        super().__init__(cfg=cfg, name=name, w_layout_shape=w_layout_shape, dtype=dtype, T__K=T__K)
         if cfg.w_digit_count <= 0:
             raise ValueError(f"require: w_digit_count ({cfg.w_digit_count}) > 0")
         if cfg.w_digit_radix <= 1:
             raise ValueError(f"require: w_digit_radix ({cfg.w_digit_radix}) > 1")
 
-        # ``digits`` placeholder; ``fabricate`` overwrites.
-        self.register_buffer("digits", torch.empty(0, dtype=torch.int32), persistent=False)
-        # LSB-first digit weights ``(1, r, r², ..., r^(D-1))``.
+        _data_num, digit_num, _row_num = w_layout_shape[-3:]
+        if digit_num != cfg.w_digit_count:
+            raise ValueError(
+                f"w_layout_shape digit dim ({digit_num}) must equal cfg.w_digit_count ({cfg.w_digit_count})"
+            )
+
+        # 0-d nominal digit template (zero = unprogrammed weight).
+        self.register_buffer(
+            "nominal_digits",
+            torch.zeros((), dtype=torch.int32),
+            persistent=False,
+        )
+        # Actual digits: starts at nominal; rewritten by ``program(w)``.
+        self.register_buffer(
+            "digits",
+            self.nominal_digits.clone(),
+            persistent=False,
+        )
+        # LSB-first positional weights ``(1, r, r², ..., r^(D-1))``.
         digit_weights = torch.tensor(
             [cfg.w_digit_radix**k for k in range(cfg.w_digit_count)],
             dtype=torch.int32,
@@ -97,15 +117,17 @@ class IdealXbar(Xbar):
         """An ideal xbar is its own ideal counterpart."""
         return self
 
-    def fabricate(self, w: Tensor) -> None:
-        """Register the xbar-native digit tensor as the tile weight.
+    def program(self, w: Tensor) -> None:
+        """Store the xbar-native digit tensor as the tile weight.
 
         Args:
-            w: Integer digit tensor with primitive trailing
-                ``[data_num, digit_num, row_num]``.
+            w: Integer digit tensor whose shape matches
+                :attr:`_w_layout_shape` —
+                ``(*prefix, data_num, digit_num, row_num)``.
         """
-        self._record_xbar_inst_count(w)
-        self.register_buffer("digits", w, persistent=False)
+        if tuple(w.shape) != self._w_layout_shape:
+            raise ValueError(f"program() expects w.shape {self._w_layout_shape}; got {tuple(w.shape)}")
+        self.digits = w
 
     def vec_mat_mul(self, x: Tensor) -> Tensor:
         """Ideal VMM with output quantisation.

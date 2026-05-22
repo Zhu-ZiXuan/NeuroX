@@ -12,6 +12,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
+from neurox.common.fabricate import FabricateMixin
 from neurox.common.nonideality import apply_gaussian
 from neurox.common.physical_constant import thermal_voltage__V
 from neurox.common.validate import ValidateMixin
@@ -118,13 +119,14 @@ class NMOSSnapshot:
     vth__V: Tensor
 
 
-class NMOS(nn.Module):
+class NMOS(FabricateMixin, nn.Module):
     """EKV-softplus NMOS electrical primitive.
 
     Args:
         cfg: Immutable PDK NMOS configuration.
-        T__K: Operating temperature [K].
+        inst_shape: Per-instance fabrication shape.
         dtype: Floating-point dtype for registered buffers.
+        T__K: Operating temperature [K].
         W__um: Channel width [μm].
         L__um: Channel length [μm].
     """
@@ -138,8 +140,9 @@ class NMOS(nn.Module):
         self,
         *,
         cfg: NMOSConfig,
-        T__K: float,
+        inst_shape: tuple[int, ...],
         dtype: torch.dtype,
+        T__K: float,
         W__um: float,
         L__um: float,
     ) -> None:
@@ -151,6 +154,7 @@ class NMOS(nn.Module):
             raise ValueError(f"require: L__um ({L__um}) > 0.0")
 
         self.cfg = cfg
+        self._inst_shape = inst_shape
         self.W__um = W__um
         self.L__um = L__um
         self.T__K = T__K
@@ -196,25 +200,18 @@ class NMOS(nn.Module):
         self.sigma_vth__V = cfg.A_vt__mV_um * 1e-3 * nominal_isqrt_area__per_um
         self.sigma_beta__uA_per_V2 = nominal_beta__uA_per_V2 * cfg.A_beta_relative__um * nominal_isqrt_area__per_um
 
-    def fabricate(self, shape: tuple[int, ...]) -> None:
-        """Sample static per-instance state over ``shape`` (re-callable).
-
-        Args:
-            shape: Per-instance fabrication shape.
-        """
-        beta__uA_per_V2 = apply_gaussian(
-            self.nominal_beta__uA_per_V2.clone().expand(shape),
+    def _sample_fabricate_mismatch(self) -> None:
+        """Resample β and V_th at ``self._inst_shape`` (re-callable)."""
+        self.beta__uA_per_V2 = apply_gaussian(
+            self.nominal_beta__uA_per_V2.clone().expand(self._inst_shape),
             self.sigma_beta__uA_per_V2,
             enabled=self.cfg.enable_A_beta_mismatch,
         )
-        self.register_buffer("beta__uA_per_V2", beta__uA_per_V2, persistent=False)
-
-        vth__V = apply_gaussian(
-            self.nominal_vth__V.clone().expand(shape),
+        self.vth__V = apply_gaussian(
+            self.nominal_vth__V.clone().expand(self._inst_shape),
             self.sigma_vth__V,
             enabled=self.cfg.enable_A_vt_mismatch,
         )
-        self.register_buffer("vth__V", vth__V, persistent=False)
 
     def snapshot(self, *, shape: tuple[int, ...]) -> NMOSSnapshot:
         """Sample one per-call runtime snapshot over ``shape``.

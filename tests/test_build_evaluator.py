@@ -1,43 +1,43 @@
 """Tests for the staged ``build_evaluator`` orchestration.
 
-Phase B contract:
+Contract:
 
 * ``replace_model`` + ``load_neurox_state`` + ``bind_output_calibration``
-  + ``fabricate_model`` produces the same end state as the one-shot
-  ``build_evaluator`` wrapper;
+  + ``program_model`` + ``fabricate_model`` produces the same end state
+  as the one-shot ``build_evaluator`` wrapper;
 * ``load_neurox_state`` raises ``NeuroxStateError`` when required NeuroX
   operator buffers are missing in the checkpoint (strict mode);
 * ``StateBindingReport`` carries the loaded / missing / unexpected
-  diagnostic for non-strict callers;
-* ``fabricate`` keeps working as a deprecation alias for ``fabricate_model``.
+  diagnostic for non-strict callers.
 """
 
 from __future__ import annotations
-
-import warnings
 
 import pytest
 import torch
 import torch.nn as nn
 
 from neurox.macro.ideal import IdealMacro
-from neurox.operator import QuantLinear
 from neurox.replace import (
     NeuroxStateError,
     StateBindingReport,
     bind_output_calibration,
     build_evaluator,
-    fabricate,
     fabricate_model,
     load_neurox_state,
+    program_model,
     replace_model,
 )
 
 
-def _fake_macro_factory(*, name: str = "") -> IdealMacro:
-    """Zero-cost macro factory respecting the name-kwarg contract."""
+def _fake_macro_factory(*, name: str = "", w_logical_shape: tuple[int, ...] = (1, 1)) -> IdealMacro:
+    """Zero-cost macro factory respecting the name + w_logical_shape contract."""
     del name
-    return IdealMacro(x_value_range=(-7, 7), w_value_range=(-7, 7))
+    return IdealMacro(
+        x_value_range=(-7, 7),
+        w_value_range=(-7, 7),
+        w_logical_shape=w_logical_shape,
+    )
 
 
 def _toy_model(in_f: int = 4, out_f: int = 3) -> nn.Module:
@@ -68,7 +68,7 @@ def _build_checkpoint(model: nn.Module) -> dict[str, object]:
 
 
 class TestStaging:
-    """The four staged calls equal the one-shot wrapper."""
+    """The five staged calls equal the one-shot wrapper."""
 
     def test_orchestration_equals_wrapper(self) -> None:
         staged_model = _toy_model()
@@ -77,6 +77,7 @@ class TestStaging:
         ckpt = {"schema": "neurox_flat", "state_dict": staged_model.state_dict()}
         report = load_neurox_state(staged_model, ckpt, strict=True)
         bind_output_calibration(staged_model)
+        program_model(staged_model)
         fabricate_model(staged_model)
 
         wrapper_model = _toy_model()
@@ -135,17 +136,3 @@ class TestSchemaErrors:
         replace_model(model, _fake_macro_factory, verbose=False)
         with pytest.raises(ValueError, match="state_dict"):
             load_neurox_state(model, {"schema": "neurox_flat"}, strict=False)
-
-
-class TestDeprecationAlias:
-    """Old ``fabricate`` name still works but emits a DeprecationWarning."""
-
-    def test_fabricate_alias_warns(self) -> None:
-        model = _toy_model()
-        ckpt = _build_checkpoint(model)
-        load_neurox_state(model, ckpt, strict=True)
-        bind_output_calibration(model)
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            fabricate(model)
-        assert any(issubclass(w.category, DeprecationWarning) for w in caught)

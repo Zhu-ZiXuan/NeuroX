@@ -13,6 +13,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
+from neurox.common.fabricate import FabricateMixin
 from neurox.common.registry_dispatch import RegistryDispatchMixin
 from neurox.common.validate import ValidateMixin
 from neurox.profiler import ProfiledModule
@@ -56,7 +57,7 @@ class ReadOutConfig(ValidateMixin):
 # ---------------------------------------------------------------------------
 
 
-class ReadOut(nn.Module, ProfiledModule, RegistryDispatchMixin[type["ReadOutConfig"], "ReadOut"], ABC):
+class ReadOut(FabricateMixin, nn.Module, ProfiledModule, RegistryDispatchMixin[type["ReadOutConfig"], "ReadOut"], ABC):
     """Abstract base class for voltage-domain readout chains."""
 
     @classmethod
@@ -65,30 +66,33 @@ class ReadOut(nn.Module, ProfiledModule, RegistryDispatchMixin[type["ReadOutConf
         *,
         cfg: ReadOutConfig,
         name: str,
-        T__K: float,
+        inst_shape: tuple[int, ...],
         dtype: torch.dtype,
+        T__K: float,
         data_num: int,
         digit_weights: tuple[float, ...],
     ) -> ReadOut:
-        """Build the concrete readout implementation for `type(cfg)`.
+        """Build the concrete readout implementation for ``type(cfg)``.
 
         Args:
             cfg: Readout configuration.
             name: Profiler/debug name.
-            T__K: Operating temperature [K].
+            inst_shape: Per-instance fabrication shape ``(*prefix, group_num)``.
             dtype: Tensor dtype for internal buffers.
+            T__K: Operating temperature [K].
             data_num: Number of data per reference group.
             digit_weights: Per-digit weight vector, length ``digit_num``.
 
         Returns:
-            Concrete readout implementation registered for `type(cfg)`.
+            Concrete readout implementation registered for ``type(cfg)``.
         """
         impl = cls._lookup_impl(type(cfg))
         return impl(
             cfg=cfg,
             name=name,
-            T__K=T__K,
+            inst_shape=inst_shape,
             dtype=dtype,
+            T__K=T__K,
             data_num=data_num,
             digit_weights=digit_weights,
         )
@@ -98,8 +102,9 @@ class ReadOut(nn.Module, ProfiledModule, RegistryDispatchMixin[type["ReadOutConf
         *,
         cfg: ReadOutConfig,
         name: str,
-        T__K: float,
+        inst_shape: tuple[int, ...],
         dtype: torch.dtype,
+        T__K: float,
         data_num: int,
         digit_weights: tuple[float, ...],
     ) -> None:
@@ -108,23 +113,16 @@ class ReadOut(nn.Module, ProfiledModule, RegistryDispatchMixin[type["ReadOutConf
         Args:
             cfg: Readout configuration.
             name: Profiler/debug name.
-            T__K: Operating temperature [K].
+            inst_shape: Per-instance fabrication shape ``(*prefix, group_num)``.
             dtype: Tensor dtype for internal buffers.
+            T__K: Operating temperature [K].
             data_num: Number of data per reference group.
             digit_weights: Per-digit weight vector, length ``digit_num``.
         """
-        del cfg, T__K, dtype, data_num, digit_weights  # captured by the subclass init
+        del cfg, dtype, T__K, data_num, digit_weights  # captured by the subclass init
         nn.Module.__init__(self)
         ProfiledModule.__init__(self, name)
-
-    @abstractmethod
-    def fabricate(self, shape: tuple[int, ...]) -> None:
-        """Sample static per-instance state over ``shape`` (re-callable).
-
-        Args:
-            shape: Per-instance fabrication shape.
-        """
-        raise NotImplementedError
+        self._inst_shape = inst_shape
 
     @abstractmethod
     def readout(

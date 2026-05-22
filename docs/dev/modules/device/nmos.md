@@ -21,24 +21,25 @@ It does **not** own layout-dependent lumped parasitic capacitances anymore.
 - process parameters (`mu0`, `c_ox`, `vth0`, `n_factor`, temperature coefficients)
 - mismatch / spec parameters (`A_vt__mV_um`, `A_beta_relative__um`)
 
-`NMOS.__init__(*, cfg, T__K, dtype, W__um, L__um)`:
+`NMOS.__init__(*, cfg, inst_shape, dtype, T__K, W__um, L__um)`:
 
 - `cfg` — process + mismatch config.
-- `T__K`, `dtype` — runtime context required by every device construction.
+- `inst_shape` — per-instance fabrication shape.
+- `dtype`, `T__K` — runtime context required by every device construction.
 - `W__um`, `L__um` — explicit device design parameters, passed in at construction.
 
 Devices do not carry a profiler `name`; device PPA / dynamic energy aggregate at the circuit level. Device design parameters stay outside the device config per the project rule.
 
 ## Fabrication lifecycle
 
-`fabricate(shape)` populates:
+`NMOS` inherits `FabricateMixin`. Subclass-side work happens in `_sample_fabricate_mismatch()`, which populates:
 
 - `beta__uA_per_V2`
 - `vth__V`
 
-inside the module itself.
+at `self._inst_shape` from the `nominal_*` templates. The owning circuit (or operator) drives the resampling cadence by calling `model.fabricate()`; the mixin auto-cascades into this module.
 
-`snapshot(...)` materializes the per-call working tensors consumed by solver and circuit code. Fabricated buffers stay on the device module and are not mirrored elsewhere.
+`snapshot(*, shape)` materialises the per-call working tensors consumed by solver and circuit code. Fabricated buffers stay on the device module and are not mirrored elsewhere.
 
 ## Parasitics
 

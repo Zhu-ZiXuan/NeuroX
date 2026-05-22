@@ -30,6 +30,7 @@ from neurox.replace import (
     heterogeneous_macro_policy,
     load_neurox_state,
     name_excluded_match,
+    program_model,
     replace_model,
 )
 
@@ -53,6 +54,7 @@ __all__ = [
     "heterogeneous_macro_policy",
     "load_neurox_state",
     "name_excluded_match",
+    "program_model",
     "replace_model",
     "NeuroxProfiler",
     "ProfiledModule",

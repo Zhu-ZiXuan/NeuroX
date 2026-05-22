@@ -124,9 +124,10 @@ class HATLinear(nn.Linear):
                 weight_dtype=weight_dtype,
                 rescale_factor=self.macro.output_rescale_factor,
             )
+            self.macro.program(w_int)
+            self.macro.fabricate()
             y_hw = run_matmul_pipeline(
                 x_int,
-                w_int,
                 b_int,
                 mult,
                 rsh,

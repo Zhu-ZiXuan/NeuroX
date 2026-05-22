@@ -14,7 +14,6 @@ from neurox.operator.qat_util import derive_multiplier_and_shift_tensor
 
 def run_matmul_pipeline(
     input_int: Tensor,
-    weight_int: Tensor,
     bias_int: Tensor,
     rescale_multiplier: Tensor,
     rescale_rshift: Tensor,
@@ -26,9 +25,13 @@ def run_matmul_pipeline(
 ) -> Tensor:
     """Execute one int matmul through the crossbar macro, clamp, dequantize.
 
+    The macro must already have its weight state programmed via
+    ``macro.program(...)``. Stochastic-vs-deterministic behaviour is driven
+    by ``macro``'s `self.training` plus whatever `fabricate()` cadence the
+    caller chooses.
+
     Args:
         input_int: Integer activation tensor already quantized to the grid.
-        weight_int: Integer weight tensor already quantized to ``[-w_qmax, +w_qmax]``.
         bias_int: Folded int32 bias (``round(b / (sx·sw)) - zp_x · sum(w_int)``).
         rescale_multiplier: Per-channel int32 fixed-point multiplier.
         rescale_rshift: Per-channel int32 right-shift.
@@ -44,7 +47,6 @@ def run_matmul_pipeline(
     """
     y_int = macro.matmul(
         input_int,
-        weight_int,
         bias_int,
         rescale_multiplier,
         rescale_rshift,

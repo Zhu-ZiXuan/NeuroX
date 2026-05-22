@@ -11,8 +11,6 @@ Phase A contract:
 
 from __future__ import annotations
 
-import math
-
 import pytest
 import torch
 
@@ -22,14 +20,20 @@ from neurox.profiler import NeuroxProfiler, ProfiledModule
 from example.common.macro_factory import build_macro_factory
 
 
+N_LOGICAL = 16
+K_LOGICAL = 32
+_DEFAULT_W_LOGICAL_SHAPE = (N_LOGICAL, K_LOGICAL)
+
+
 def _build_ideal_macro(name: str = "fc1.macro"):
     factory = build_macro_factory(DEFAULT_1T1R_MACRO_TOML, xbar="ideal")
-    return factory(name=name)
+    return factory(name=name, w_logical_shape=_DEFAULT_W_LOGICAL_SHAPE)
 
 
-def _fabricate_small(macro, *, N: int = 16, K: int = 32) -> None:
-    weight = torch.randint(-3, 4, (N, K), dtype=torch.int32)
-    macro.fabricate(weight)
+def _program_small(macro) -> None:
+    weight = torch.randint(-3, 4, _DEFAULT_W_LOGICAL_SHAPE, dtype=torch.int32)
+    macro.program(weight)
+    macro.fabricate()
 
 
 # ---------------------------------------------------------------------------
@@ -48,7 +52,7 @@ class TestProfiledModuleMixin:
             leakage_per_inst__uW=0.5,
             area_per_inst__um2=10.0,
         )
-        acc = Accumulator(cfg, name="fc1.macro.col_accumulator")
+        acc = Accumulator(cfg=cfg, name="fc1.macro.col_accumulator", inst_shape=(1,))
         assert acc.qualified_name == "fc1.macro.col_accumulator"
         assert acc.module_type == "Accumulator"
 
@@ -60,8 +64,7 @@ class TestProfiledModuleMixin:
             leakage_per_inst__uW=1.0,
             area_per_inst__um2=60.0,
         )
-        acc = Accumulator(cfg, name="m.acc")
-        acc._record_inst_count(8)
+        acc = Accumulator(cfg=cfg, name="m.acc", inst_shape=(8,))
         assert acc.inst_count == 8
         assert acc.inst_area__um2 == pytest.approx(60.0 * 8)
         assert acc.inst_leakage__uW == pytest.approx(1.0 * 8)
@@ -74,8 +77,7 @@ class TestProfiledModuleMixin:
             leakage_per_inst__uW=1.5,
             area_per_inst__um2=75.0,
         )
-        sa = ShiftAdder(cfg, name="m.sa")
-        sa._record_inst_count((2, 3, 4))  # 24 instances
+        sa = ShiftAdder(cfg=cfg, name="m.sa", inst_shape=(2, 3, 4))  # 24 instances
         assert sa.inst_count == 24
         assert sa.inst_area__um2 == pytest.approx(75.0 * 24)
 
@@ -87,7 +89,7 @@ class TestProfiledModuleMixin:
             leakage_per_inst__uW=0.0,
             area_per_inst__um2=0.0,
         )
-        acc = Accumulator(cfg, name="m.acc")
+        acc = Accumulator(cfg=cfg, name="m.acc", inst_shape=(1,))
         # No profiler bound -> call is a silent no-op.
         acc._log_dynamic(10.0, 0.5)
         assert NeuroxProfiler.get_current() is None
@@ -99,11 +101,11 @@ class TestProfiledModuleMixin:
 
 
 class TestStaticAggregation:
-    """Fabricated macro reports area + leakage via ``analyze_static``."""
+    """Constructed macro reports area + leakage via ``analyze_static``."""
 
     def test_ideal_macro_static_sums_known_components(self) -> None:
         macro = _build_ideal_macro()
-        _fabricate_small(macro)
+        _program_small(macro)
 
         # Expected contributors for the ideal-tile macro (no SAR ADC):
         # - col_accumulator: 60 um2 area, 1.0 uW leakage
@@ -118,7 +120,7 @@ class TestStaticAggregation:
 
     def test_hierarchical_names(self) -> None:
         macro = _build_ideal_macro(name="model.fc1.macro")
-        _fabricate_small(macro)
+        _program_small(macro)
 
         names = {m.qualified_name for m in macro.modules() if isinstance(m, ProfiledModule)}
         assert "model.fc1.macro.xbar" in names
@@ -129,7 +131,7 @@ class TestStaticAggregation:
 
     def test_collect_static_records(self) -> None:
         macro = _build_ideal_macro(name="m")
-        _fabricate_small(macro)
+        _program_small(macro)
         records = NeuroxProfiler.collect_static(macro)
         by_name = {r.qualified_name: r for r in records}
         # Accumulator area = 60 * 1
@@ -154,7 +156,7 @@ class TestDynamicEvents:
             leakage_per_inst__uW=0.0,
             area_per_inst__um2=0.0,
         )
-        acc = Accumulator(cfg, name="acc")
+        acc = Accumulator(cfg=cfg, name="acc", inst_shape=(1,))
 
         x = torch.zeros(2, 3, dtype=torch.int32)
         with NeuroxProfiler() as p:
@@ -175,7 +177,7 @@ class TestDynamicEvents:
             leakage_per_inst__uW=0.0,
             area_per_inst__um2=0.0,
         )
-        sa = ShiftAdder(cfg, name="sa")
+        sa = ShiftAdder(cfg=cfg, name="sa", inst_shape=(1,))
         x = torch.zeros(4, dtype=torch.int32)
         with NeuroxProfiler() as p:
             sa.operate(x, scale=2, dim=-1, init_val=None)
@@ -191,7 +193,7 @@ class TestDynamicEvents:
             leakage_per_inst__uW=0.0,
             area_per_inst__um2=0.0,
         )
-        req = Requantizer(cfg, name="req")
+        req = Requantizer(cfg=cfg, name="req", inst_shape=(1,))
         x = torch.zeros(2, 3, dtype=torch.int32)
         m = torch.ones(1, dtype=torch.int32)
         s = torch.zeros(1, dtype=torch.int32)
@@ -208,7 +210,7 @@ class TestDynamicEvents:
             leakage_per_inst__uW=0.0,
             area_per_inst__um2=0.0,
         )
-        acc = Accumulator(cfg, name="acc")
+        acc = Accumulator(cfg=cfg, name="acc", inst_shape=(1,))
         x = torch.zeros(2, 3, dtype=torch.int32)
         # No active profiler — must not raise and must produce nothing.
         acc.operate(x, dim=-1)
@@ -231,15 +233,13 @@ class TestLeakageEnergyCentralized:
             leakage_per_inst__uW=3.0,
             area_per_inst__um2=0.0,
         )
-        acc = Accumulator(cfg, name="acc")
-        acc._record_inst_count(5)  # 5 instances, total leakage = 15 uW
+        acc = Accumulator(cfg=cfg, name="acc", inst_shape=(5,))  # 5 instances, total leakage = 15 uW
 
         x = torch.zeros(8, dtype=torch.int32)
         with NeuroxProfiler() as p:
             acc.operate(x, dim=-1)  # one event with latency 2.0 ns
             acc.operate(x, dim=-1)  # second event, total latency 4.0 ns
 
-        static = NeuroxProfiler.analyze_static_for_test(acc) if hasattr(NeuroxProfiler, "analyze_static_for_test") else None
         # analyze_static on a single ProfiledModule (wrap in dummy parent)
         from neurox.profiler.profiler import StaticMetrics
         static = StaticMetrics(
@@ -268,7 +268,7 @@ class TestCompositeOwnership:
     def test_macro_walk_no_duplicate_inst_area(self) -> None:
         """No two ProfiledModule contributions share the same qualified_name."""
         macro = _build_ideal_macro(name="m")
-        _fabricate_small(macro)
+        _program_small(macro)
 
         names = [m.qualified_name for m in macro.modules() if isinstance(m, ProfiledModule)]
         assert len(names) == len(set(names)), f"duplicates in {names}"

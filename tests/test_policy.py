@@ -32,9 +32,13 @@ from neurox.replace import (
 )
 
 
-def _fake_factory(*, name: str = "") -> IdealMacro:
+def _fake_factory(*, name: str = "", w_logical_shape: tuple[int, ...] = (1, 1)) -> IdealMacro:
     del name
-    return IdealMacro(x_value_range=(-7, 7), w_value_range=(-7, 7))
+    return IdealMacro(
+        x_value_range=(-7, 7),
+        w_value_range=(-7, 7),
+        w_logical_shape=w_logical_shape,
+    )
 
 
 def _model_with_three_layers() -> nn.Module:
@@ -128,15 +132,23 @@ class TestHeterogeneousMacros:
         fc_macros: list[IdealMacro] = []
         head_macros: list[IdealMacro] = []
 
-        def fc_factory(*, name: str = "") -> IdealMacro:
+        def fc_factory(*, name: str = "", w_logical_shape: tuple[int, ...] = (1, 1)) -> IdealMacro:
             del name
-            m = IdealMacro(x_value_range=(-7, 7), w_value_range=(-7, 7))
+            m = IdealMacro(
+                x_value_range=(-7, 7),
+                w_value_range=(-7, 7),
+                w_logical_shape=w_logical_shape,
+            )
             fc_macros.append(m)
             return m
 
-        def head_factory(*, name: str = "") -> IdealMacro:
+        def head_factory(*, name: str = "", w_logical_shape: tuple[int, ...] = (1, 1)) -> IdealMacro:
             del name
-            m = IdealMacro(x_value_range=(-1, 1), w_value_range=(-1, 1))
+            m = IdealMacro(
+                x_value_range=(-1, 1),
+                w_value_range=(-1, 1),
+                w_logical_shape=w_logical_shape,
+            )
             head_macros.append(m)
             return m
 
