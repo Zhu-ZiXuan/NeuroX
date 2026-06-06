@@ -132,7 +132,7 @@ class XbarMacro(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["Xba
 
     @abstractmethod
     def adc_rescale_factor(self, adc_operation_point: AdcOperationPoint) -> float:
-        """Rescale factor for ``adc_operation_point`` (delegates into the embedded xbar)."""
+        """Recovery-side multiplier ``M_ideal ≈ code · rescale_factor`` (delegates into the embedded xbar)."""
         raise NotImplementedError
 
     # --- lifecycle ---

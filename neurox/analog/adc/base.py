@@ -36,7 +36,8 @@ class AdcCalibrationRecord(ValidateMixin):
     Attributes:
         adc_mode: Operating-point index.
         adc_bits: Active bit width.
-        rescale_factor: Rescale factor; ``floor(M_ideal * rescale_factor) == code``.
+        rescale_factor: Recovery-side multiplier; ``M_ideal ≈ code · rescale_factor``.
+            Quantize is the inverse: ``code = floor(M_ideal / rescale_factor)``.
     """
 
     adc_mode: int

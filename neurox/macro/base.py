@@ -23,7 +23,8 @@ class NeuroxMacroQuantMatMul(Protocol):
         adc_max_bits: Maximum ``adc_bits`` value the macro's ADC supports.
 
     Methods:
-        adc_rescale_factor: Rescale factor for a given ``adc_operation_point``.
+        adc_rescale_factor: Recovery-side multiplier for a given
+            ``adc_operation_point``: ``M_ideal ≈ code · rescale_factor``.
         fabricate: Resample static manufacturing variation across the macro
             tree. No arguments.
         program: Write the macro's static weight state from one logical
@@ -53,7 +54,7 @@ class NeuroxMacroQuantMatMul(Protocol):
         ...
 
     def adc_rescale_factor(self, adc_operation_point: AdcOperationPoint) -> float:
-        """Rescale factor for ``adc_operation_point``."""
+        """Recovery-side multiplier for ``adc_operation_point``: ``M_ideal ≈ code · rescale_factor``."""
         ...
 
     def fabricate(self) -> None:

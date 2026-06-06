@@ -30,9 +30,9 @@ class XbarConfig(ValidateMixin):
             one output).
         row_num: Number of rows per tile (cells sharing one input).
         adc_calibration: Externally-calibrated ``(adc_mode, adc_bits) →
-            rescale_factor`` records; ``floor(M_ideal · rescale_factor) ==
-            code``. Lists the set of ADC operating points the tile
-            supports.
+            rescale_factor`` records; ``M_ideal ≈ code · rescale_factor``
+            (quantize is ``code = floor(M_ideal / rescale_factor)``).
+            Lists the set of ADC operating points the tile supports.
         latency_per_op__ns: Array read latency per op [ns].
         leakage_per_inst__uW: Static leakage per tile instance [uW].
         area_per_inst__um2: Silicon area per tile instance [μm²].
@@ -194,7 +194,7 @@ class Xbar(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["XbarConf
         raise NotImplementedError
 
     def adc_rescale_factor(self, adc_operation_point: AdcOperationPoint) -> float:
-        """Rescale factor for ``adc_operation_point``.
+        """Recovery-side multiplier for ``adc_operation_point``: ``M_ideal ≈ code · rescale_factor``.
 
         Raises:
             KeyError: When ``adc_operation_point`` is absent from the calibrated LUT. The

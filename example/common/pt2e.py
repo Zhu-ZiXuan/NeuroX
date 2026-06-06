@@ -144,11 +144,11 @@ def _fold_bias(
     operator's inline multiply-shift requantize.  The cross-term absorbs
     the activation zero-point shift; the division by ``rescale_factor``
     compensates for the fact that ``y_agg`` emitted by the crossbar is
-    already in ADC-code scale (``rescale_factor`` codes ≈ 1 ideal-integer
-    state), so adding an ideal-scale bias before the requantize would
-    over-weight it by ``rescale_factor``.  See
-    ``neurox.operator.linear.derive_layer_int_params`` for the algebraic
-    derivation.
+    already in ADC-code scale (``M_ideal ≈ code · rescale_factor``, so
+    1 code carries ``rescale_factor`` ideal-integer units), and adding
+    an ideal-scale bias before the requantize would over-weight it by
+    ``rescale_factor``.  See ``neurox.operator.linear.derive_layer_int_params``
+    for the algebraic derivation.
     """
     device = w_int.device
     # Sum integer weights across all non-out-channel dims.

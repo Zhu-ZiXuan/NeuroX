@@ -90,6 +90,9 @@ class IdealXbar(Xbar):
         )
         self.register_buffer("digit_weights", digit_weights, persistent=False)
 
+        # Quantize-side multiplier ``1 / rescale_factor``: codes per M_ideal unit.
+        self._scale_lut: dict[AdcOperationPoint, float] = {op: 1.0 / r for op, r in self._rescale_lut.items()}
+
         self._log_static()
 
     @property
@@ -169,10 +172,10 @@ class IdealXbar(Xbar):
         if adc_operation_point.adc_bits == 0:
             return dot
 
-        rescale_factor = self._rescale_lut[adc_operation_point]
+        scale = self._scale_lut[adc_operation_point]
         code = stochastic_floor_to_int(
             dot.to(torch.float32),
-            rescale_factor,
+            scale,
             out_dtype=torch.int16,
             training=self.training,
         )

@@ -56,19 +56,19 @@ def test_train_floor_div_unbiased() -> None:
 
 def test_eval_floor_to_int_deterministic() -> None:
     sig = torch.tensor([0.0, 0.49, 0.5, 0.99, 1.0], dtype=torch.float32)
-    lsb = 0.1
-    y1 = stochastic_floor_to_int(sig, lsb, out_dtype=torch.int16, training=False)
-    y2 = stochastic_floor_to_int(sig, lsb, out_dtype=torch.int16, training=False)
+    scale = 10.0  # codes per signal unit (1 / lsb where lsb = 0.1)
+    y1 = stochastic_floor_to_int(sig, scale, out_dtype=torch.int16, training=False)
+    y2 = stochastic_floor_to_int(sig, scale, out_dtype=torch.int16, training=False)
     assert torch.equal(y1, y2)
     assert y1.tolist() == [0, 4, 5, 9, 10]
 
 
 def test_train_floor_to_int_unbiased() -> None:
     sig = torch.full((50_000,), 0.275, dtype=torch.float32)
-    lsb = 0.1
+    scale = 10.0  # codes per signal unit (1 / lsb where lsb = 0.1)
     samples = stochastic_floor_to_int(
         sig,
-        lsb,
+        scale,
         out_dtype=torch.int32,
         training=True,
     ).float()

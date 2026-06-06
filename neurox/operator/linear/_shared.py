@@ -24,7 +24,8 @@ def derive_layer_int_params(
 ) -> tuple[Tensor, Tensor, Tensor, Tensor]:
     """Build the ``(weight_int, bias_int, multiplier, rshift)`` tuple.
 
-    Folds ``rescale_factor`` (ADC-code-to-ideal-state ratio) into a single requantize::
+    ``rescale_factor`` is the recovery-side multiplier ``M_ideal ≈ code · rescale_factor``.
+    The post-macro requantize folds it in::
 
         combined_scale = (s_x · s_w / s_y) · rescale_factor
         (multiplier, rshift) = derive_multiplier_and_shift_tensor(combined_scale)

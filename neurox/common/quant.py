@@ -55,28 +55,30 @@ def stochastic_floor_div(
 
 def stochastic_floor_to_int(
     signal: Tensor,
-    lsb: Tensor | float,
+    scale: Tensor | float,
     *,
     out_dtype: torch.dtype,
     training: bool,
 ) -> Tensor:
-    """Float→int floor quantizer with optional unbiased jitter.
+    """Float→int floor quantizer ``code = floor(signal · scale)`` with optional jitter.
 
-    Stochastic rounding is applied when ``training`` is ``True``.
+    Stochastic rounding is applied when ``training`` is ``True``: a uniform
+    ``U(0, 1)`` jitter is added in code space before the floor.
 
     Args:
         signal: Float input.
-        lsb: Per-bin step size in ``signal``'s units.
+        scale: Codes per ``signal`` unit; i.e. the reciprocal of one
+            LSB step in ``signal``'s units.
         out_dtype: Target integer dtype.
         training: ``module.training`` flag.
 
     Returns:
         Integer code tensor with dtype ``out_dtype``.
     """
+    scaled = signal * scale
     if training:
-        jitter = torch.rand(signal.shape, device=signal.device, dtype=signal.dtype) * lsb
-        signal = signal + jitter
-    return torch.floor(signal / lsb).to(out_dtype)
+        scaled = scaled + torch.rand(scaled.shape, device=scaled.device, dtype=scaled.dtype)
+    return torch.floor(scaled).to(out_dtype)
 
 
 def floor_bucketize(
