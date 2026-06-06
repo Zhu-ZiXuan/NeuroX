@@ -23,7 +23,7 @@ class TIAConfig(ValidateMixin):
         v_ref__V: Reference clamp voltage [V].
         leakage_per_inst__uW: Static leakage per TIA instance [μW].
         area_per_inst__um2: Silicon area per TIA instance [μm²].
-        latency_per_op__ns: Settling latency per VMM [ns].
+        latency_per_op__ns: Settling latency per `solve_dc` call [ns].
     """
 
     v_ref__V: float

@@ -1,4 +1,4 @@
-# `neurox/analog/readout/offset_switchcap_mux_adc.py`
+# `neurox/xbar/readout/offset_switchcap_mux_adc.py`
 
 ## Current role
 

@@ -8,7 +8,7 @@
 
 The decoder operates in one of two modes, chosen by `cfg.bit_serial`:
 
-- **Parallel-multibit** (`bit_serial=False`): per-row integer codes are forwarded directly to `dac.convert(codes)`. One DAC call per VMM.
+- **Parallel-multibit** (`bit_serial=False`): per-row integer codes are forwarded directly to `dac.convert(codes)`. One DAC call per decode operation.
 - **Bit-serial** (`bit_serial=True`): each per-row integer is expanded into `n_address_bits` single-bit codes (LSB-first); a new bit-cycle axis is inserted at `dim=-2`, one bit per cycle. The DAC then sees codes in `{0, 1}` per cycle.
 
 The decoder is a leaf analog circuit, not a polymorphic family — no `from_config` dispatcher.

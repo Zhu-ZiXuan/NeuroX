@@ -96,10 +96,6 @@ nav:
                   - Overview: dev/modules/analog/tia/README.md
                   - base: dev/modules/analog/tia/base.md
                   - opamp_tia: dev/modules/analog/tia/opamp_tia.md
-              - readout:
-                  - Overview: dev/modules/analog/readout/README.md
-                  - base: dev/modules/analog/readout/base.md
-                  - offset_switchcap_mux_adc: dev/modules/analog/readout/offset_switchcap_mux_adc.md
           - digital:
               - Overview: dev/modules/digital/README.md
           - xbar:
@@ -114,6 +110,10 @@ nav:
                   - offset: dev/modules/xbar/_1t1r/offset.md
                   - differential: dev/modules/xbar/_1t1r/differential.md
                   - simple_core: dev/modules/xbar/_1t1r/simple_core.md
+              - readout:
+                  - Overview: dev/modules/xbar/readout/README.md
+                  - base: dev/modules/xbar/readout/base.md
+                  - offset_switchcap_mux_adc: dev/modules/xbar/readout/offset_switchcap_mux_adc.md
           - mapper:
               - Overview: dev/modules/mapper/README.md
               - transcoder: dev/modules/mapper/transcoder.md

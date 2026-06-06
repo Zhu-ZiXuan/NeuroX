@@ -37,7 +37,7 @@ Devices do not carry a profiler `name`; device PPA / dynamic energy aggregate at
 - `beta__uA_per_V2`
 - `vth__V`
 
-at `self._inst_shape` from the `nominal_*` templates. The owning circuit (or operator) drives the resampling cadence by calling `model.fabricate()`; the mixin auto-cascades into this module.
+at `self._inst_shape` from the `nominal_*` templates. The owning module drives the resampling cadence by calling `model.fabricate()`; the mixin auto-cascades into this module.
 
 `snapshot(*, shape)` materialises the per-call working tensors consumed by solver and circuit code. Fabricated buffers stay on the device module and are not mirrored elsewhere.
 

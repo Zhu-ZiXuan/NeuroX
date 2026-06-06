@@ -52,7 +52,7 @@ class AccumulatorConfig(ValidateMixin):
 
 
 class Accumulator(FabricateMixin, nn.Module, ProfileMixin):
-    """Modular adder-tree that sums ADC codes along one tile axis.
+    """Modular adder-tree that sums an integer tensor along one axis.
 
     Models a hardware adder tree with a fixed output register of ``bit_width``
     bits.  Overflow wraps via two's-complement modular arithmetic, matching
@@ -95,8 +95,8 @@ class Accumulator(FabricateMixin, nn.Module, ProfileMixin):
         channel.
 
         Args:
-            x: Integer-valued input tensor of ADC output codes.
-            dim: Axis along which to reduce (tile columns or rows).
+            x: Integer-valued input tensor.
+            dim: Axis along which to reduce.
 
         Returns:
             Modular-wrapped sum with ``dim`` reduced.

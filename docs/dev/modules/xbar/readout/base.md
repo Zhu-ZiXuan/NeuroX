@@ -1,4 +1,4 @@
-# `neurox/analog/readout/base.py`
+# `neurox/xbar/readout/base.py`
 
 ## Current role
 

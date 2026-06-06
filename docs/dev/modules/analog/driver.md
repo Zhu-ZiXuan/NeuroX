@@ -8,7 +8,7 @@
 
 - `cfg: DriverConfig` — drive voltage, optional thermal noise, and PPA / spec fields.
 - `nominal_drive_value` — a 0-d non-persistent buffer at `cfg.drive_value`. Fabricated state is just this scalar; the driver has no shape-dependent state.
-- per-VMM `DriverSnapshot` carrying the sampled clamp voltage.
+- per-call `DriverSnapshot` carrying the sampled clamp voltage.
 
 ## Clamp-driver protocol
 

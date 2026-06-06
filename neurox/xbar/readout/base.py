@@ -1,7 +1,7 @@
 """Abstract base class for readout chains.
 
 See also:
-    docs/dev/modules/analog/readout/README.md
+    docs/dev/modules/xbar/readout/README.md
 """
 
 from __future__ import annotations

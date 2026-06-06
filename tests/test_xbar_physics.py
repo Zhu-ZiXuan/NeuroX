@@ -36,7 +36,7 @@ from neurox.analog import (
 )
 from neurox.analog.adc import GeneralADC, GeneralADCConfig
 from neurox.analog.dac import GeneralDAC, GeneralDACConfig
-from neurox.analog.readout import OffsetSwitchCapMuxAdcReadOut, ReadOutConfig
+from neurox.xbar.readout import OffsetSwitchCapMuxAdcReadOut, ReadOutConfig
 from neurox.analog.tia import OpAmpTIA, OpAmpTIAConfig
 from neurox.common import T_ROOM__K, dict_configs_from_file, dict_from_file, thermal_voltage__V
 from neurox.device import NMOS, RRAM, NMOSConfig, RRAMConfig

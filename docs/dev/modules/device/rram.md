@@ -33,7 +33,7 @@
 
 `RRAM.program(target_g__uS, t_elapsed)` accepts a target-conductance tensor in the device's conductance domain. The device clamps to `[g_min__uS, g_max__uS]`, applies programming Gamma, drift, and stuck-at faults, clamps again, and stores the result in `self.g__uS` via buffer reassignment.
 
-This `program(...)` is the **device-level physical write** — it has the same name as macro/xbar-level `program(w)` but operates in conductance units against a separate semantic surface. The two coexist without conflict.
+This `program(...)` is the **device-level physical write** operating in conductance units. The method name `program` may be reused at higher layers against different semantic surfaces; the names coexist without conflict.
 
 ## State holding
 

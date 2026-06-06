@@ -10,7 +10,7 @@ import torch
 from torch import Tensor
 
 from neurox.analog.adc import AdcOperationPoint
-from neurox.analog.readout import ReadOut, ReadOutConfig
+from neurox.xbar.readout import ReadOut, ReadOutConfig
 from neurox.xbar.base import Xbar, XbarConfig
 
 from .circuit_core import CircuitCore1T1R, CircuitCore1T1RConfig

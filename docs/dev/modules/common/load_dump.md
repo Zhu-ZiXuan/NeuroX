@@ -82,7 +82,7 @@ Files under `neurox/presets/process/` carry only physical parameters:
 - one top-level table per variant: `default` for the bundled default, `<node>_<flavor>` for variant-specific presets (the class is encoded by the filename, so the section name doesn't repeat it)
 - no `_neurox_*` keys
 
-`_neurox_use` / `_neurox_use_preset` / `_neurox_type` live in the consuming macro / architecture configs.
+`_neurox_use` / `_neurox_use_preset` / `_neurox_type` live in consuming configs, not in the bundled device presets themselves.
 
 See also:
 

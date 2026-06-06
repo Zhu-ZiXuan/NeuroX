@@ -9,7 +9,7 @@
 - profiler registration
 - the abstract `convert(...)`, `latency_per_op__ns(*, adc_operation_point)`, `mode_num`, `max_bits`, `area_per_inst__um2`, `leakage_per_inst__uW` contracts every concrete ADC must implement.
 
-`ADCConfig` is the empty family-base marker used by the `RegistryMixin` dispatch surface (every concrete ADC config subclasses it). `ADCMode` is the small `(n_bits, n_states, max_signal)` dataclass used by the multi-mode subclasses' calibration LUTs. `AdcOperationPoint` is the frozen `(adc_mode, adc_bits)` runtime selection bundled and threaded through `convert` / `latency_per_op__ns` and the upper xbar / macro / operator stack; `AdcCalibrationRecord` is one row of the xbar's `(adc_mode, adc_bits) → rescale_factor` calibration table.
+`ADCConfig` is the empty family-base marker used by the `RegistryMixin` dispatch surface (every concrete ADC config subclasses it). `ADCMode` is the small `(n_bits, n_states, max_signal)` dataclass used by the multi-mode subclasses' calibration LUTs. `AdcOperationPoint` is the frozen `(adc_mode, adc_bits)` runtime selection threaded into `convert` / `latency_per_op__ns`; `AdcCalibrationRecord` is one row of the `(adc_mode, adc_bits) → rescale_factor` calibration table.
 
 ## Family-wide init signature
 

@@ -1,7 +1,7 @@
 """Switched-capacitor bank for passive charge sharing.
 
 See also:
-    docs/dev/modules/analog/readout/README.md
+    docs/dev/modules/analog/switch_cap.md
 """
 
 from dataclasses import dataclass

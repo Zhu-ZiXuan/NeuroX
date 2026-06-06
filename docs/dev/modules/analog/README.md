@@ -27,7 +27,6 @@ Each sub-directory holds a polymorphic family driven by `RegistryMixin` keyed on
 - [`dac/`](docs/dev/modules/analog/dac/README.md) — `DAC` family (today: `GeneralDAC`).
 - [`adc/`](docs/dev/modules/analog/adc/README.md) — `ADC` family (today: `GeneralADC`, `McsSarAdc`, `SarAdcMono`).
 - [`tia/`](docs/dev/modules/analog/tia/README.md) — `TIA` family (today: `OpAmpTIA`).
-- [`readout/`](docs/dev/modules/analog/readout/README.md) — `ReadOut` family (today: `OffsetSwitchCapMuxAdcReadOut`).
 
 See also:
 

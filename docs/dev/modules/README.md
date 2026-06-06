@@ -8,9 +8,9 @@ Current documented areas:
 
 - `common/` — config base + dispatch mixin + load/dump + noise + constants
 - `device/` — NMOS, RRAM, Selector
-- `analog/` — clamp-driver protocol, AnalogMux, Decoder, Driver, SwitchCap, and the `dac/`, `adc/`, `tia/`, `readout/` polymorphic families
+- `analog/` — clamp-driver protocol, AnalogMux, Decoder, Driver, SwitchCap, and the `dac/`, `adc/`, `tia/` polymorphic families
 - `digital/` — accumulator, adders, shift-adder, subtractor
-- `xbar/` — abstract `Xbar`, ideal twin, shared solver primitives, and the `_1t1r/` subtree (`circuit_core`, `newton_raphson_solver`, `offset`, `differential` / `simple_core` placeholders)
+- `xbar/` — abstract `Xbar`, ideal twin, shared solver primitives, the `_1t1r/` subtree (`circuit_core`, `newton_raphson_solver`, `offset`, `differential` / `simple_core` placeholders), and the `readout/` polymorphic family
 - `mapper/` — `transcoder` plus the `xbar/slicer/` value-domain primitive
 - `macro/` — `XbarMacro` (abstract registry root) + concrete members (`DirectXbarMacro`, `InterArraySliceXbarMacro`, `IntraArraySliceXbarMacro`, `IdealXbarMacro`)
 - `operator/` — quantised operator surface + `train/` HAT path

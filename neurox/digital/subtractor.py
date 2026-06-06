@@ -1,4 +1,4 @@
-"""Element-wise integer subtractor for bipolar-readout aggregation.
+"""Element-wise integer subtractor.
 
 See also:
     docs/dev/modules/digital/README.md
@@ -85,8 +85,8 @@ class Subtractor(FabricateMixin, nn.Module, ProfileMixin):
         """Subtract ``b`` from ``a`` element-wise.
 
         Args:
-            a: Positive sub-array ADC output (minuend).
-            b: Negative sub-array ADC output (subtrahend).
+            a: Minuend tensor.
+            b: Subtrahend tensor (broadcast-compatible with ``a``).
 
         Returns:
             ``y = a - b``.
