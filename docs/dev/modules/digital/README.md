@@ -13,7 +13,7 @@ Every block is a thin `nn.Module + FabricateMixin` carrying a `*Config` dataclas
 
 ## Construction
 
-Family signature: `__init__(*, cfg, name, inst_shape)`. The block records its profiler instance count from `inst_shape` at construction; no per-call sampling state lives on a digital block, so the inherited `_sample_fabricate_mismatch` default no-op is the right body.
+Family signature: `__init__(*, config, name, inst_shape)`. The block records its profiler instance count from `inst_shape` at construction; no per-call sampling state lives on a digital block, so the inherited `_sample_fabricate_mismatch` default no-op is the right body.
 
 ## Composition
 

@@ -26,8 +26,6 @@ class AnalogMuxConfig(ValidateMixin):
         mux_noise_dm_sigma__V: Differential-mode noise sigma [V];
             added to ``v_pos`` and subtracted from ``v_neg``, so it
             survives a differential ADC.
-        enable_mux_noise_cm: Apply ``mux_noise_cm_sigma__V`` per call.
-        enable_mux_noise_dm: Apply ``mux_noise_dm_sigma__V`` per call.
         leakage_per_inst__uW: Static leakage per instance [uW].
         area_per_inst__um2: Silicon area per instance [μm²].
         latency_per_op__ns: Per-access latency [ns].
@@ -38,11 +36,9 @@ class AnalogMuxConfig(ValidateMixin):
 
     # --- Common-mode noise ---
     mux_noise_cm_sigma__V: float
-    enable_mux_noise_cm: bool
 
     # --- Differential-mode noise ---
     mux_noise_dm_sigma__V: float
-    enable_mux_noise_dm: bool
 
     # --- Energy / PPA ---
     energy_per_access__fJ: float
@@ -72,11 +68,25 @@ class AnalogMuxConfig(ValidateMixin):
         self._require_nonneg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
+@dataclass(frozen=True)
+class AnalogMuxPolicy:
+    """Per-source toggles selecting which AnalogMux nonidealities are active.
+
+    Attributes:
+        mux_noise_cm: Apply ``mux_noise_cm_sigma__V`` per call.
+        mux_noise_dm: Apply ``mux_noise_dm_sigma__V`` per call.
+    """
+
+    mux_noise_cm: bool
+    mux_noise_dm: bool
+
+
 class AnalogMux(FabricateMixin, nn.Module, ProfileMixin):
     """Differential voltage-transport block — gain + CM/DM noise + access energy.
 
     Args:
-        cfg: Concrete configuration dataclass.
+        config: Concrete configuration dataclass.
+        policy: Per-source nonideality enable flags.
         name: Hierarchical instance name used by the profiler.
         inst_shape: Per-instance fabrication shape.
         dtype: Tensor dtype for internal buffers.
@@ -86,7 +96,8 @@ class AnalogMux(FabricateMixin, nn.Module, ProfileMixin):
     def __init__(
         self,
         *,
-        cfg: AnalogMuxConfig,
+        config: AnalogMuxConfig,
+        policy: AnalogMuxPolicy,
         name: str,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
@@ -94,7 +105,8 @@ class AnalogMux(FabricateMixin, nn.Module, ProfileMixin):
     ) -> None:
         nn.Module.__init__(self)
         ProfileMixin.__init__(self, name)
-        self.cfg = cfg
+        self.config = config
+        self.policy = policy
         self._inst_shape = inst_shape
         self.dtype = dtype
         self.T__K = T__K
@@ -103,17 +115,17 @@ class AnalogMux(FabricateMixin, nn.Module, ProfileMixin):
     @property
     def area_per_inst__um2(self) -> float:
         """Silicon area per instance [um^2]."""
-        return self.cfg.area_per_inst__um2
+        return self.config.area_per_inst__um2
 
     @property
     def leakage_per_inst__uW(self) -> float:
         """Static leakage per instance [uW]."""
-        return self.cfg.leakage_per_inst__uW
+        return self.config.leakage_per_inst__uW
 
     @property
     def latency_per_op__ns(self) -> float:
         """Latency per op [ns]."""
-        return self.cfg.latency_per_op__ns
+        return self.config.latency_per_op__ns
 
     def transport(
         self,
@@ -130,20 +142,20 @@ class AnalogMux(FabricateMixin, nn.Module, ProfileMixin):
         Returns:
             ``(v_pos_muxed__V, v_neg_muxed__V)`` — both share ``v_pos__V``'s shape.
         """
-        gain = self.cfg.mux_gain
+        gain = self.config.mux_gain
         v_pos_muxed__V = gain * v_pos__V
         v_neg_muxed__V = gain * v_neg__V
 
         # CM: same sign on both legs. DM: +pos, -neg.
         zeros = torch.zeros_like(v_pos_muxed__V)
-        n_cm__V = apply_gaussian(zeros, self.cfg.mux_noise_cm_sigma__V, enabled=self.cfg.enable_mux_noise_cm)
+        n_cm__V = apply_gaussian(zeros, self.config.mux_noise_cm_sigma__V, enabled=self.policy.mux_noise_cm)
         v_pos_muxed__V = v_pos_muxed__V + n_cm__V
         v_neg_muxed__V = v_neg_muxed__V + n_cm__V
 
-        n_dm__V = apply_gaussian(zeros, self.cfg.mux_noise_dm_sigma__V, enabled=self.cfg.enable_mux_noise_dm)
+        n_dm__V = apply_gaussian(zeros, self.config.mux_noise_dm_sigma__V, enabled=self.policy.mux_noise_dm)
         v_pos_muxed__V = v_pos_muxed__V + n_dm__V
         v_neg_muxed__V = v_neg_muxed__V - n_dm__V
 
-        dynamic_energy__fJ = torch.full_like(v_pos__V, self.cfg.energy_per_access__fJ)
-        self._log_dynamic(dynamic_energy__fJ, self.cfg.latency_per_op__ns)
+        dynamic_energy__fJ = torch.full_like(v_pos__V, self.config.energy_per_access__fJ)
+        self._log_dynamic(dynamic_energy__fJ, self.config.latency_per_op__ns)
         return v_pos_muxed__V, v_neg_muxed__V

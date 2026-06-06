@@ -23,20 +23,26 @@ class DACConfig(ValidateMixin):
         pass
 
 
+@dataclass(frozen=True)
+class DACPolicy:
+    """Abstract marker base for DAC-family nonideality policies."""
+
+
 class DAC(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["DACConfig"], "DAC"], ABC):
     """Abstract base class for DAC models."""
 
     def __init__(
         self,
         *,
-        cfg: DACConfig,
+        config: DACConfig,
+        policy: DACPolicy,
         name: str,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
     ) -> None:
         """Register the instance with :class:`nn.Module` and the profiler."""
-        del cfg, dtype, T__K  # captured by the subclass init
+        del config, policy, dtype, T__K  # captured by the subclass init
         nn.Module.__init__(self)
         ProfileMixin.__init__(self, name)
         self._inst_shape = inst_shape
@@ -45,15 +51,23 @@ class DAC(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["DACConfig
     def from_config(
         cls,
         *,
-        cfg: DACConfig,
+        config: DACConfig,
+        policy: DACPolicy,
         name: str,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
     ) -> DAC:
-        """Build the concrete impl registered for ``type(cfg)``."""
-        impl = cls._lookup_impl(type(cfg))
-        return impl(cfg=cfg, name=name, inst_shape=inst_shape, dtype=dtype, T__K=T__K)
+        """Build the concrete impl registered for ``type(config)``."""
+        impl = cls._lookup_impl(type(config))
+        return impl(
+            config=config,
+            policy=policy,
+            name=name,
+            inst_shape=inst_shape,
+            dtype=dtype,
+            T__K=T__K,
+        )
 
     @property
     @abstractmethod

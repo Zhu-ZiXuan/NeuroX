@@ -30,7 +30,7 @@ Three lifecycle stages exist for a module's physical state ([`state_holding.md`]
 | Actual value (post-fabrication, with static mismatch) | `<name>__<unit>` (no prefix) | `fabricate(...)` / `program(...)` |
 | Snapshot value (with dynamic noise) | Fields of the `*Snapshot` dataclass returned by `snapshot(*, shape=...)` | `snapshot(...)`; never registered as a buffer |
 
-PDK-constant scalars surfaced as buffers (e.g. SwitchCap's `cfg.c_unit__fF` accessed directly through `cfg`) do not need a `nominal_` prefix — the nominal-vs-actual distinction applies to fabricated arrays, not to a single PDK datum that never gets perturbed.
+PDK-constant scalars surfaced as buffers (e.g. SwitchCap's `config.c_unit__fF` accessed directly through `config`) do not need a `nominal_` prefix — the nominal-vs-actual distinction applies to fabricated arrays, not to a single PDK datum that never gets perturbed.
 
 ## Primary-method names
 

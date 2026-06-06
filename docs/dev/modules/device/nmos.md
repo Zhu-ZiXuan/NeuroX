@@ -21,9 +21,15 @@ It does **not** own layout-dependent lumped parasitic capacitances anymore.
 - process parameters (`mu0`, `c_ox`, `vth0`, `n_factor`, temperature coefficients)
 - mismatch / spec parameters (`A_vt__mV_um`, `A_beta_relative__um`)
 
-`NMOS.__init__(*, cfg, inst_shape, dtype, T__K, W__um, L__um)`:
+`NMOSPolicy` carries the per-run decision of which Pelgrom mismatches to apply:
 
-- `cfg` — process + mismatch config.
+- `A_vt_mismatch` — apply Pelgrom V_th mismatch at fabricate time.
+- `A_beta_mismatch` — apply Pelgrom β mismatch at fabricate time.
+
+`NMOS.__init__(*, config, policy, inst_shape, dtype, T__K, W__um, L__um)`:
+
+- `config` — process + mismatch config (`NMOSConfig`).
+- `policy` — runtime mismatch switches (`NMOSPolicy`).
 - `inst_shape` — per-instance fabrication shape.
 - `dtype`, `T__K` — runtime context required by every device construction.
 - `W__um`, `L__um` — explicit device design parameters, passed in at construction.

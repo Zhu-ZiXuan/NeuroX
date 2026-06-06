@@ -16,7 +16,7 @@ from torch import Tensor
 from neurox.common.nonideality import apply_gaussian
 from neurox.common.quant import floor_bucketize
 
-from .base import ADC, ADCConfig, AdcOperationPoint
+from .base import ADC, ADCConfig, AdcOperationPoint, ADCPolicy
 
 
 @dataclass(frozen=True)
@@ -35,11 +35,6 @@ class GeneralADCConfig(ADCConfig):
             sigma [V].
         drive_thermal__V: Gaussian thermal noise sigma on the drive
             output [V].
-        enable_sampling_noise: Apply ``sampling_noise__V`` at convert
-            time.
-        enable_comparator_noise: Apply ``comparator_noise__V`` at
-            convert time.
-        enable_drive_thermal: Apply ``drive_thermal__V`` at drive time.
         energy_per_op__fJ: Dynamic energy per conversion.
         latency_per_op__ns: Conversion latency.
         leakage_per_inst__uW: Static leakage power per instance.
@@ -51,15 +46,12 @@ class GeneralADCConfig(ADCConfig):
 
     # --- Sampling noise ---
     sampling_noise__V: float
-    enable_sampling_noise: bool
 
     # --- Comparator noise ---
     comparator_noise__V: float
-    enable_comparator_noise: bool
 
     # --- Drive thermal noise ---
     drive_thermal__V: float
-    enable_drive_thermal: bool
 
     # --- Drive reference + input transform ---
     drive_value: float
@@ -93,6 +85,21 @@ class GeneralADCConfig(ADCConfig):
         self._require_nonneg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
+@dataclass(frozen=True)
+class GeneralADCPolicy(ADCPolicy):
+    """Per-source toggles selecting which GeneralADC nonidealities are active.
+
+    Attributes:
+        sampling_noise: Apply ``sampling_noise__V`` at convert time.
+        comparator_noise: Apply ``comparator_noise__V`` at convert time.
+        drive_thermal: Apply ``drive_thermal__V`` at drive time.
+    """
+
+    sampling_noise: bool
+    comparator_noise: bool
+    drive_thermal: bool
+
+
 @ADC.register_key(GeneralADCConfig)
 class GeneralADC(ADC):
     """Boundary-bucketize ADC with three Gaussian noise stages.
@@ -106,23 +113,32 @@ class GeneralADC(ADC):
     def __init__(
         self,
         *,
-        cfg: GeneralADCConfig,
+        config: GeneralADCConfig,
+        policy: GeneralADCPolicy,
         name: str,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
     ) -> None:
-        super().__init__(cfg=cfg, name=name, inst_shape=inst_shape, dtype=dtype, T__K=T__K)
-        self.cfg = cfg
+        super().__init__(
+            config=config,
+            policy=policy,
+            name=name,
+            inst_shape=inst_shape,
+            dtype=dtype,
+            T__K=T__K,
+        )
+        self.config = config
+        self.policy = policy
         self.dtype = dtype
         self.T__K = T__K
 
-        boundaries_t = torch.tensor(cfg.boundaries, dtype=dtype)
+        boundaries_t = torch.tensor(config.boundaries, dtype=dtype)
         if boundaries_t.numel() < 1:
             raise ValueError("GeneralADCConfig.boundaries must contain at least one threshold")
         self.register_buffer("boundaries", boundaries_t, persistent=False)
 
-        self.register_buffer("drive_value", torch.tensor(cfg.drive_value, dtype=dtype), persistent=False)
+        self.register_buffer("drive_value", torch.tensor(config.drive_value, dtype=dtype), persistent=False)
 
         n_codes = boundaries_t.numel() + 1
         self._n_bits = max(math.ceil(math.log2(n_codes)), 1)
@@ -150,17 +166,19 @@ class GeneralADC(ADC):
     @property
     def area_per_inst__um2(self) -> float:
         """Silicon area per instance [um^2]."""
-        return self.cfg.area_per_inst__um2
+        return self.config.area_per_inst__um2
 
     @property
     def leakage_per_inst__uW(self) -> float:
         """Static leakage per instance [uW]."""
-        return self.cfg.leakage_per_inst__uW
+        return self.config.leakage_per_inst__uW
 
     def latency_per_op__ns(self, *, adc_operation_point: AdcOperationPoint) -> float:
         if adc_operation_point.adc_bits != self._n_bits:
-            raise ValueError(f"GeneralADC: bits ({adc_operation_point.adc_bits}) must equal self._n_bits ({self._n_bits})")
-        return self.cfg.latency_per_op__ns
+            raise ValueError(
+                f"GeneralADC: bits ({adc_operation_point.adc_bits}) must equal self._n_bits ({self._n_bits})"
+            )
+        return self.config.latency_per_op__ns
 
     def convert(
         self,
@@ -183,17 +201,17 @@ class GeneralADC(ADC):
         self._validate_runtime_args(adc_operation_point)
         signal = apply_gaussian(
             v_pos__V - v_neg__V,
-            self.cfg.sampling_noise__V,
-            enabled=self.cfg.enable_sampling_noise,
+            self.config.sampling_noise__V,
+            enabled=self.policy.sampling_noise,
         )
 
-        if self.cfg.input_transform == "log2":
+        if self.config.input_transform == "log2":
             signal = torch.log2(signal.clamp_min(1e-12))
 
         signal = apply_gaussian(
             signal,
-            self.cfg.comparator_noise__V,
-            enabled=self.cfg.enable_comparator_noise,
+            self.config.comparator_noise__V,
+            enabled=self.policy.comparator_noise,
         )
 
         code = floor_bucketize(
@@ -204,8 +222,8 @@ class GeneralADC(ADC):
             lsb=self._lsb_estimate,
         )
 
-        dynamic_energy__fJ = torch.full_like(code, self.cfg.energy_per_op__fJ, dtype=torch.float32)
-        self._log_dynamic(dynamic_energy__fJ, self.cfg.latency_per_op__ns)
+        dynamic_energy__fJ = torch.full_like(code, self.config.energy_per_op__fJ, dtype=torch.float32)
+        self._log_dynamic(dynamic_energy__fJ, self.config.latency_per_op__ns)
         return code
 
     # --- drive() shim ---
@@ -222,8 +240,8 @@ class GeneralADC(ADC):
         """
         return apply_gaussian(
             self.drive_value.expand(shape),
-            self.cfg.drive_thermal__V,
-            enabled=self.cfg.enable_drive_thermal,
+            self.config.drive_thermal__V,
+            enabled=self.policy.drive_thermal,
         )
 
     # --- shared helpers ---
@@ -232,4 +250,6 @@ class GeneralADC(ADC):
         if adc_operation_point.adc_mode != 0:
             raise ValueError(f"GeneralADC: mode ({adc_operation_point.adc_mode}) must be 0")
         if adc_operation_point.adc_bits != self._n_bits:
-            raise ValueError(f"GeneralADC: bits ({adc_operation_point.adc_bits}) must equal self._n_bits ({self._n_bits})")
+            raise ValueError(
+                f"GeneralADC: bits ({adc_operation_point.adc_bits}) must equal self._n_bits ({self._n_bits})"
+            )

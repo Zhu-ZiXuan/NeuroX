@@ -64,6 +64,11 @@ class ADCConfig(ValidateMixin):
 
 
 @dataclass(frozen=True)
+class ADCPolicy:
+    """Abstract marker base for ADC-family nonideality policies."""
+
+
+@dataclass(frozen=True)
 class ADCMode(ValidateMixin):
     """One operating mode of a multi-mode ADC.
 
@@ -108,20 +113,29 @@ class ADC(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["ADCConfig
     def from_config(
         cls,
         *,
-        cfg: ADCConfig,
+        config: ADCConfig,
+        policy: ADCPolicy,
         name: str,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
     ) -> ADC:
-        """Build the concrete impl registered for ``type(cfg)``."""
-        impl = cls._lookup_impl(type(cfg))
-        return impl(cfg=cfg, name=name, inst_shape=inst_shape, dtype=dtype, T__K=T__K)
+        """Build the concrete impl registered for ``type(config)``."""
+        impl = cls._lookup_impl(type(config))
+        return impl(
+            config=config,
+            policy=policy,
+            name=name,
+            inst_shape=inst_shape,
+            dtype=dtype,
+            T__K=T__K,
+        )
 
     def __init__(
         self,
         *,
-        cfg: ADCConfig,
+        config: ADCConfig,
+        policy: ADCPolicy,
         name: str,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
@@ -130,13 +144,14 @@ class ADC(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["ADCConfig
         """Register the instance with :class:`nn.Module` and the profiler.
 
         Args:
-            cfg: Concrete configuration dataclass.
+            config: Concrete configuration dataclass.
+            policy: Per-source nonideality enable flags.
             name: Hierarchical instance name used by the profiler.
             inst_shape: Per-instance fabrication shape.
             dtype: Tensor dtype for internal buffers.
             T__K: Operating temperature [K].
         """
-        del cfg, dtype, T__K  # captured by the subclass init
+        del config, policy, dtype, T__K  # captured by the subclass init
         nn.Module.__init__(self)
         ProfileMixin.__init__(self, name)
         self._inst_shape = inst_shape

@@ -14,7 +14,7 @@ from neurox.common.nonideality import (
     apply_pelgrom_mismatch,
 )
 
-from .base import ADC, ADCConfig, AdcOperationPoint
+from .base import ADC, ADCConfig, AdcOperationPoint, ADCPolicy
 
 
 @dataclass(frozen=True)
@@ -35,14 +35,6 @@ class SarAdcMonoConfig(ADCConfig):
             sigma [V].
         comparator_thermal_noise_sigma__V: Per-cycle dynamic
             comparator-noise Gaussian sigma [V].
-        enable_cap_mismatch: Apply ``cap_mismatch_sigma_relative`` at
-            fabricate time.
-        enable_comparator_offset: Apply
-            ``comparator_offset_sigma__V`` at fabricate time.
-        enable_comparator_thermal_noise: Apply
-            ``comparator_thermal_noise_sigma__V`` per SAR cycle.
-        enable_sampling_thermal_noise: Apply kT/C sampling thermal
-            noise on the held top plates.
         e_bootstrap__fJ: Per-conversion sampling-switch overhead [fJ].
         e_compare_per_bit__fJ: Per-cycle comparator-decision energy
             [fJ].
@@ -64,18 +56,12 @@ class SarAdcMonoConfig(ADCConfig):
 
     # --- Cap mismatch (Pelgrom) ---
     cap_mismatch_sigma_relative: float
-    enable_cap_mismatch: bool
 
     # --- Comparator static offset ---
     comparator_offset_sigma__V: float
-    enable_comparator_offset: bool
 
     # --- Comparator thermal noise (per-cycle) ---
     comparator_thermal_noise_sigma__V: float
-    enable_comparator_thermal_noise: bool
-
-    # --- Sampling thermal noise (kT/C) ---
-    enable_sampling_thermal_noise: bool
 
     # --- Energy ---
     e_bootstrap__fJ: float
@@ -126,12 +112,30 @@ class SarAdcMonoConfig(ADCConfig):
         self._require_nonneg(self.area_per_inst__um2, "area_per_inst__um2")
 
 
+@dataclass(frozen=True)
+class SarAdcMonoPolicy(ADCPolicy):
+    """Per-source toggles selecting which SarAdcMono nonidealities are active.
+
+    Attributes:
+        cap_mismatch: Apply ``cap_mismatch_sigma_relative`` at fabricate time.
+        comparator_offset: Apply ``comparator_offset_sigma__V`` at fabricate time.
+        comparator_thermal_noise: Apply ``comparator_thermal_noise_sigma__V`` per SAR cycle.
+        sampling_thermal_noise: Apply kT/C sampling thermal noise on the held top plates.
+    """
+
+    cap_mismatch: bool
+    comparator_offset: bool
+    comparator_thermal_noise: bool
+    sampling_thermal_noise: bool
+
+
 @ADC.register_key(SarAdcMonoConfig)
 class SarAdcMono(ADC):
     """Monotonic (Set-and-Down) differential SAR ADC — placeholder.
 
     Args:
-        cfg: Concrete configuration dataclass.
+        config: Concrete configuration dataclass.
+        policy: Per-source nonideality enable flags.
         name: Hierarchical instance name used by the profiler.
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature [K].
@@ -146,22 +150,31 @@ class SarAdcMono(ADC):
     def __init__(
         self,
         *,
-        cfg: SarAdcMonoConfig,
+        config: SarAdcMonoConfig,
+        policy: SarAdcMonoPolicy,
         name: str,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
     ) -> None:
-        super().__init__(cfg=cfg, name=name, inst_shape=inst_shape, dtype=dtype, T__K=T__K)
+        super().__init__(
+            config=config,
+            policy=policy,
+            name=name,
+            inst_shape=inst_shape,
+            dtype=dtype,
+            T__K=T__K,
+        )
         if not (T__K > 0.0):
             raise ValueError(f"SarAdcMono T__K ({T__K}) must be > 0")
-        self.cfg = cfg
+        self.config = config
+        self.policy = policy
         self.T__K = T__K
         self.dtype = dtype
 
-        n_caps = cfg.max_bits - 1
+        n_caps = config.max_bits - 1
         nominal_cap_weights__fF = torch.tensor(
-            [cfg.c_unit__fF * (2**k) for k in range(n_caps)],
+            [config.c_unit__fF * (2**k) for k in range(n_caps)],
             dtype=dtype,
         )
         self.register_buffer("nominal_cap_weights__fF", nominal_cap_weights__fF, persistent=False)
@@ -192,44 +205,45 @@ class SarAdcMono(ADC):
 
     def available_modes(self) -> tuple[float, ...]:
         """V_ref values the configured CDAC supports, in index order."""
-        return self.cfg.v_refs
+        return self.config.v_refs
 
     @property
     def mode_num(self) -> int:
         """Number of operating points — one per supported V_ref."""
-        return len(self.cfg.v_refs)
+        return len(self.config.v_refs)
 
     @property
     def max_bits(self) -> int:
         """Physical CDAC bit width — the maximum ``adc_bits`` value."""
-        return self.cfg.max_bits
+        return self.config.max_bits
 
     # --- fabricate (static non-idealities) ---
 
     def _sample_fabricate_mismatch(self) -> None:
         """Resample cap mismatch and comparator offset at ``self._inst_shape``."""
-        cfg = self.cfg
-        n_caps = cfg.max_bits - 1
+        config = self.config
+        n_caps = config.max_bits - 1
         inst_shape = self._inst_shape
 
+        policy = self.policy
         self.c_p__fF = apply_pelgrom_mismatch(
             self.nominal_cap_weights__fF.clone().expand(*inst_shape, n_caps),
-            cfg.cap_mismatch_sigma_relative,
-            unit=cfg.c_unit__fF,
-            floor=0.1 * cfg.c_unit__fF,
-            enabled=cfg.enable_cap_mismatch,
+            config.cap_mismatch_sigma_relative,
+            unit=config.c_unit__fF,
+            floor=0.1 * config.c_unit__fF,
+            enabled=policy.cap_mismatch,
         )
         self.c_n__fF = apply_pelgrom_mismatch(
             self.nominal_cap_weights__fF.clone().expand(*inst_shape, n_caps),
-            cfg.cap_mismatch_sigma_relative,
-            unit=cfg.c_unit__fF,
-            floor=0.1 * cfg.c_unit__fF,
-            enabled=cfg.enable_cap_mismatch,
+            config.cap_mismatch_sigma_relative,
+            unit=config.c_unit__fF,
+            floor=0.1 * config.c_unit__fF,
+            enabled=policy.cap_mismatch,
         )
         self.comparator_offset__V = apply_gaussian(
             self.nominal_comparator_offset__V.clone().expand(inst_shape),
-            cfg.comparator_offset_sigma__V,
-            enabled=cfg.enable_comparator_offset,
+            config.comparator_offset_sigma__V,
+            enabled=policy.comparator_offset,
         )
 
     # --- ABC contract ---
@@ -237,12 +251,12 @@ class SarAdcMono(ADC):
     @property
     def area_per_inst__um2(self) -> float:
         """Silicon area per instance [um^2]."""
-        return self.cfg.area_per_inst__um2
+        return self.config.area_per_inst__um2
 
     @property
     def leakage_per_inst__uW(self) -> float:
         """Static leakage per instance [uW]."""
-        return self.cfg.leakage_per_inst__uW
+        return self.config.leakage_per_inst__uW
 
     def latency_per_op__ns(self, *, adc_operation_point: AdcOperationPoint) -> float:
         """Per-conversion latency at the runtime bit width.
@@ -250,9 +264,9 @@ class SarAdcMono(ADC):
         Args:
             adc_operation_point: Runtime operating point.  ``1 ≤ adc_operation_point.adc_bits ≤ max_bits``.
         """
-        if not (1 <= adc_operation_point.adc_bits <= self.cfg.max_bits):
-            raise ValueError(f"bits {adc_operation_point.adc_bits} outside [1, {self.cfg.max_bits}]")
-        return (adc_operation_point.adc_bits + 1) * self.cfg.clk_period__ns
+        if not (1 <= adc_operation_point.adc_bits <= self.config.max_bits):
+            raise ValueError(f"bits {adc_operation_point.adc_bits} outside [1, {self.config.max_bits}]")
+        return (adc_operation_point.adc_bits + 1) * self.config.clk_period__ns
 
     # --- convert ---
 
@@ -271,8 +285,8 @@ class SarAdcMono(ADC):
 
     def _validate_runtime_args(self, adc_operation_point: AdcOperationPoint) -> None:
         """Validate per-call ``adc_operation_point``."""
-        cfg = self.cfg
-        if not (0 <= adc_operation_point.adc_mode < len(cfg.v_refs)):
-            raise ValueError(f"mode {adc_operation_point.adc_mode} outside [0, {len(cfg.v_refs)})")
-        if not (1 <= adc_operation_point.adc_bits <= cfg.max_bits):
-            raise ValueError(f"bits {adc_operation_point.adc_bits} outside [1, {cfg.max_bits}]")
+        config = self.config
+        if not (0 <= adc_operation_point.adc_mode < len(config.v_refs)):
+            raise ValueError(f"mode {adc_operation_point.adc_mode} outside [0, {len(config.v_refs)})")
+        if not (1 <= adc_operation_point.adc_bits <= config.max_bits):
+            raise ValueError(f"bits {adc_operation_point.adc_bits} outside [1, {config.max_bits}]")

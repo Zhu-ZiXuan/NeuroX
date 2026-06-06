@@ -19,8 +19,8 @@ class RegistryMixin(Generic[KeyT, ImplT]):
     ``KeyT`` is the registered key's runtime type. Common choices:
 
     - ``KeyT = type[SomeConfig]`` — config-class-keyed dispatch. Callers
-      that hold a config instance ``cfg`` look it up with
-      ``cls._lookup_impl(type(cfg))``.
+      that hold a config instance ``config`` look it up with
+      ``cls._lookup_impl(type(config))``.
     - ``KeyT = SomeLiteral`` — string-discriminator dispatch. Callers
       pass the literal directly: ``cls._lookup_impl(encoding)``.
     """

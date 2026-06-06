@@ -167,46 +167,74 @@ def calibrate(
     Raises:
         ValueError: When ``config_path`` lacks the required sections.
     """
-    from dataclasses import replace as dc_replace
-
+    from neurox.analog import AnalogMuxPolicy, DriverPolicy, SwitchCapPolicy
+    from neurox.analog.adc import (
+        ADCPolicy,
+        GeneralADCConfig,
+        GeneralADCPolicy,
+        McsSarAdcConfig,
+        McsSarAdcPolicy,
+        SarAdcMonoConfig,
+        SarAdcMonoPolicy,
+    )
+    from neurox.analog.dac import GeneralDACPolicy
+    from neurox.analog.tia import OpAmpTIAPolicy
     from neurox.common import T_ROOM__K, dataclass_from_file, dict_from_file
+    from neurox.device import NMOSPolicy, RRAMPolicy
     from neurox.mapper.transcoder import Transcoder
-    from neurox.xbar import Offset1T1RXbar, Offset1T1RXbarConfig
+    from neurox.xbar import Offset1T1RXbar, Offset1T1RXbarConfig, Offset1T1RXbarPolicy
+    from neurox.xbar._1t1r import CircuitCore1T1RPolicy
+    from neurox.xbar.readout import OffsetSwitchCapMuxAdcReadOutConfig, OffsetSwitchCapMuxAdcReadOutPolicy
 
-    xbar_cfg = dataclass_from_file(Offset1T1RXbarConfig, config_path, section="xbar")
+    xbar_config = dataclass_from_file(Offset1T1RXbarConfig, config_path, section="xbar")
+    readout_config = xbar_config.readout_config
+    if not isinstance(readout_config, OffsetSwitchCapMuxAdcReadOutConfig):
+        raise TypeError(f"unsupported readout config type: {type(readout_config).__name__}")
 
-    if not apply_noise:
-        # Flip every device-level noise toggle off along the ownership chain.
-        core = xbar_cfg.core_cfg
-        readout = xbar_cfg.readout_cfg
-        rram_cfg = dc_replace(
-            core.rram_cfg,
-            enable_prog_gamma=False,
-            enable_read_telegraph=False,
-            enable_read_thermal=False,
-            enable_stuck_at=False,
-        )
-        nmos_cfg = dc_replace(
-            core.nmos_cfg,
-            enable_A_vt_mismatch=False,
-            enable_A_beta_mismatch=False,
-        )
-        tia_nmos_cfg = dc_replace(
-            core.tia_cfg.nmos_cfg,
-            enable_A_vt_mismatch=False,
-            enable_A_beta_mismatch=False,
-        )
-        tia_cfg = dc_replace(
-            core.tia_cfg,
-            enable_opamp_gain_sigma=False,
-            nmos_cfg=tia_nmos_cfg,
-        )
-        core_cfg = dc_replace(core, rram_cfg=rram_cfg, nmos_cfg=nmos_cfg, tia_cfg=tia_cfg)
-        xbar_cfg = dc_replace(xbar_cfg, core_cfg=core_cfg, readout_cfg=readout)
+    def _adc_policy(value: bool) -> ADCPolicy:
+        adc_config = readout_config.adc_config
+        if isinstance(adc_config, GeneralADCConfig):
+            return GeneralADCPolicy(sampling_noise=value, comparator_noise=value, drive_thermal=value)
+        if isinstance(adc_config, SarAdcMonoConfig):
+            return SarAdcMonoPolicy(
+                cap_mismatch=value,
+                comparator_offset=value,
+                comparator_thermal_noise=value,
+                sampling_thermal_noise=value,
+            )
+        if isinstance(adc_config, McsSarAdcConfig):
+            return McsSarAdcPolicy(
+                cap_mismatch=value,
+                comparator_offset=value,
+                comparator_thermal_noise=value,
+                sampling_thermal_noise=value,
+            )
+        raise TypeError(f"unsupported adc config type: {type(adc_config).__name__}")
+
+    flag = bool(apply_noise)
+    policy = Offset1T1RXbarPolicy(
+        core=CircuitCore1T1RPolicy(
+            rram=RRAMPolicy(prog_gamma=flag, stuck_at=flag, read_telegraph=flag, read_thermal=flag),
+            nmos=NMOSPolicy(A_vt_mismatch=flag, A_beta_mismatch=flag),
+            tia=OpAmpTIAPolicy(
+                opamp_gain_sigma=flag,
+                nmos=NMOSPolicy(A_vt_mismatch=flag, A_beta_mismatch=flag),
+            ),
+            sl_driver=DriverPolicy(drive_thermal=flag),
+            wl_dac=GeneralDACPolicy(drive_thermal=flag),
+        ),
+        readout=OffsetSwitchCapMuxAdcReadOutPolicy(
+            data_switchcap=SwitchCapPolicy(cap_mismatch=flag, sampling_thermal_noise=flag),
+            ref_switchcap=SwitchCapPolicy(cap_mismatch=flag, sampling_thermal_noise=flag),
+            analog_mux=AnalogMuxPolicy(mux_noise_cm=flag, mux_noise_dm=flag),
+            bl_adc=_adc_policy(flag),
+        ),
+    )
 
     # Build the xbar directly from the nested config tree.
     physical = Offset1T1RXbar(
-        cfg=xbar_cfg,
+        config=xbar_config,
+        policy=policy,
         name="xbar",
         inst_shape=(),
         dtype=torch.float64,
@@ -218,11 +246,11 @@ def calibrate(
 
     # Weight transcoder for the tool's calibration sweep.
     raw_full = dict_from_file(config_path)
-    w_radix = xbar_cfg.w_digit_radix
+    w_radix = xbar_config.w_digit_radix
     w_tc = Transcoder.create(
         raw_full["w_transcoder"]["encoding"],
         radix=w_radix,
-        digit_num=xbar_cfg.w_digit_count,
+        digit_num=xbar_config.w_digit_count,
     )
 
     col_num = physical.col_num
@@ -263,8 +291,8 @@ def calibrate(
     n_states_observed = 0
     # Grouped readout lattice constants.
     group_num = physical.n_ref_cols
-    data_num = xbar_cfg.ref_group_size
-    digit_num = xbar_cfg.w_digit_count
+    data_num = xbar_config.ref_group_size
+    digit_num = xbar_config.w_digit_count
 
     for w_i, x_i in zip(weights, activations, strict=True):
         # Signed-digit-transcode the logical weight into the xbar-native digit grid.

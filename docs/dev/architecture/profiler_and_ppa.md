@@ -21,10 +21,10 @@ Every `ProfileMixin` exposes:
 Every `ProfileMixin` records its static PPA via `_log_static()` — no argument; reads `self._inst_shape` and the subclass's `area_per_inst__um2 / leakage_per_inst__uW` properties to populate `_inst_count / _inst_area__um2 / _inst_leakage__uW`.
 
 ```python
-def __init__(self, *, cfg, name, inst_shape, dtype, T__K) -> None:
+def __init__(self, *, config, name, inst_shape, dtype, T__K) -> None:
     super().__init__(...)              # ProfileMixin.__init__ stores name
     self._inst_shape = inst_shape      # FabricateMixin + ProfileMixin contract
-    self.cfg = cfg                     # subclass-specific
+    self.config = config                     # subclass-specific
     # ... register buffers / derive scalars ...
     self._log_static()                  # only the most-derived concrete subclass calls
 ```
@@ -32,7 +32,7 @@ def __init__(self, *, cfg, name, inst_shape, dtype, T__K) -> None:
 Rules:
 
 - `_log_static()` is called **exactly once** at the end of the most-derived concrete subclass's `__init__`. Family bases (e.g. `ADC`, `DAC`, `TIA`, `ReadOut`, `Xbar`, `XbarMacro`) do **not** call it themselves — avoids double-recording.
-- Required ordering: `self.cfg = cfg` and `self._inst_shape = inst_shape` must be set before the call, because the property pair `area_per_inst__um2 / leakage_per_inst__uW` reads `self.cfg.*`.
+- Required ordering: `self.config = config` and `self._inst_shape = inst_shape` must be set before the call, because the property pair `area_per_inst__um2 / leakage_per_inst__uW` reads `self.config.*`.
 - Modules with no own static PPA (currently the `XbarMacro` family) override `area_per_inst__um2 = 0.0` / `leakage_per_inst__uW = 0.0` properties and still call `_log_static()`, contributing 0 to the static rollup.
 - The fields `_inst_count / _inst_area__um2 / _inst_leakage__uW` are **not pre-initialised** on `ProfileMixin`. Forgetting `_log_static()` surfaces as `AttributeError` on the first profiler walk, not a silent zero.
 
@@ -42,7 +42,7 @@ Rules:
 
 When a composite circuit owns child circuit modules:
 
-- Composite's `area_per_inst__um2` and `leakage_per_inst__uW` return **only the composite's own extra cost** (`self.cfg.area_per_inst__um2` etc.). For `XbarMacro` and similar pure orchestration nodes that own no silicon themselves, both properties return `0.0`.
+- Composite's `area_per_inst__um2` and `leakage_per_inst__uW` return **only the composite's own extra cost** (`self.config.area_per_inst__um2` etc.). For `XbarMacro` and similar pure orchestration nodes that own no silicon themselves, both properties return `0.0`.
 - Each child records its own instance count via its own `_log_static()` at construction (the child's `inst_shape` was bound by the composite's `__init__`).
 - The profiler walks `model.modules()` and sums the `inst_area__um2` / `inst_leakage__uW` of every `ProfileMixin` it finds. Composite and children both contribute their own shares; nothing is double-counted.
 

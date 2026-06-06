@@ -17,7 +17,7 @@ import pytest
 import torch
 import torch.nn as nn
 
-from neurox.macro.xbar import IdealXbarMacro, IdealXbarMacroConfig, XbarMacro
+from neurox.macro.xbar import IdealXbarMacro, IdealXbarMacroConfig, IdealXbarMacroPolicy, XbarMacro
 from neurox.replace import (
     NeuroxStateError,
     StateBindingReport,
@@ -32,9 +32,10 @@ from neurox.replace import (
 
 def _fake_macro_factory(*, name: str = "", w_logical_shape: tuple[int, ...] = (1, 1)) -> IdealXbarMacro:
     """Zero-cost macro factory respecting the name + w_logical_shape contract."""
-    cfg = IdealXbarMacroConfig(x_value_range=(-7, 7), w_value_range=(-7, 7))
+    config = IdealXbarMacroConfig(x_value_range=(-7, 7), w_value_range=(-7, 7))
     macro = XbarMacro.from_config(
-        cfg=cfg,
+        config=config,
+        policy=IdealXbarMacroPolicy(),
         name=name,
         w_logical_shape=w_logical_shape,
         dtype=torch.float32,

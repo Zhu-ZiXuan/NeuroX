@@ -14,7 +14,7 @@ from torch import Tensor
 from neurox.analog.adc import AdcOperationPoint
 from neurox.common.quant import stochastic_floor_to_int
 
-from .base import Xbar, XbarConfig
+from .base import Xbar, XbarConfig, XbarPolicy
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -38,20 +38,26 @@ class IdealXbarConfig(XbarConfig):
     adc_max_bits: int
 
 
+@dataclass(frozen=True)
+class IdealXbarPolicy(XbarPolicy):
+    """Empty nonideality policy — ideal xbar has no nonidealities to toggle."""
+
+
 @Xbar.register_key(IdealXbarConfig)
 class IdealXbar(Xbar):
     """Tile-level ideal VMM with adc_operation_point-driven output quantization.
 
     Args:
-        cfg: Concrete configuration dataclass.
+        config: Concrete configuration dataclass.
+        policy: Empty :class:`IdealXbarPolicy` marker.
         name: Hierarchical instance name used by the profiler.
         inst_shape: Per-instance multiplicity prefix; trailing
-            ``(col_num, w_digit_count, row_num)`` is derived from cfg.
+            ``(col_num, w_digit_count, row_num)`` is derived from config.
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature [K].
     """
 
-    cfg: IdealXbarConfig
+    config: IdealXbarConfig
     nominal_digits: Tensor
     digits: Tensor
     digit_weights: Tensor
@@ -59,17 +65,25 @@ class IdealXbar(Xbar):
     def __init__(
         self,
         *,
-        cfg: IdealXbarConfig,
+        config: IdealXbarConfig,
+        policy: IdealXbarPolicy,
         name: str,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
     ) -> None:
-        super().__init__(cfg=cfg, name=name, inst_shape=inst_shape, dtype=dtype, T__K=T__K)
-        if cfg.w_digit_count <= 0:
-            raise ValueError(f"require: w_digit_count ({cfg.w_digit_count}) > 0")
-        if cfg.w_digit_radix <= 1:
-            raise ValueError(f"require: w_digit_radix ({cfg.w_digit_radix}) > 1")
+        super().__init__(
+            config=config,
+            policy=policy,
+            name=name,
+            inst_shape=inst_shape,
+            dtype=dtype,
+            T__K=T__K,
+        )
+        if config.w_digit_count <= 0:
+            raise ValueError(f"require: w_digit_count ({config.w_digit_count}) > 0")
+        if config.w_digit_radix <= 1:
+            raise ValueError(f"require: w_digit_radix ({config.w_digit_radix}) > 1")
 
         # 0-d nominal digit template (zero = unprogrammed weight).
         self.register_buffer(
@@ -85,7 +99,7 @@ class IdealXbar(Xbar):
         )
         # LSB-first positional weights ``(1, r, r², ..., r^(D-1))``.
         digit_weights = torch.tensor(
-            [cfg.w_digit_radix**k for k in range(cfg.w_digit_count)],
+            [config.w_digit_radix**k for k in range(config.w_digit_count)],
             dtype=torch.int32,
         )
         self.register_buffer("digit_weights", digit_weights, persistent=False)
@@ -97,27 +111,27 @@ class IdealXbar(Xbar):
 
     @property
     def x_range(self) -> tuple[int, int]:
-        return self.cfg.x_range
+        return self.config.x_range
 
     @property
     def w_digit_count(self) -> int:
-        return self.cfg.w_digit_count
+        return self.config.w_digit_count
 
     @property
     def w_digit_radix(self) -> int:
-        return self.cfg.w_digit_radix
+        return self.config.w_digit_radix
 
     @property
     def w_digit_range(self) -> tuple[int, int]:
-        return self.cfg.w_digit_range
+        return self.config.w_digit_range
 
     @property
     def adc_mode_num(self) -> int:
-        return self.cfg.adc_mode_num
+        return self.config.adc_mode_num
 
     @property
     def adc_max_bits(self) -> int:
-        return self.cfg.adc_max_bits
+        return self.config.adc_max_bits
 
     def to_ideal(self) -> IdealXbar:
         """An ideal xbar is its own ideal counterpart."""

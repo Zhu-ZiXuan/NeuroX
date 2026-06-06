@@ -4,17 +4,17 @@
 
 `DAC` is the abstract base for the DAC family. It carries only the system-level scaffolding — the per-family registry inherited from `RegistryMixin[type[DACConfig], DAC]`, profiler registration, and the family-level `from_config(...)` classmethod.
 
-`DACConfig` is the empty marker config used as the polymorphic-field type on parent configs.
+`DACConfig` is the empty marker config used as the polymorphic-field type on parent configs. `DACPolicy` is the matching empty marker base policy — concrete DAC impls declare their own `*Policy(DACPolicy)` (e.g. `GeneralDACPolicy`) carrying that impl's switches; the composite that holds a DAC stores the abstract `DACPolicy` field type and the caller passes the concrete impl.
 
 ## Family-wide init signature
 
 Every concrete `DAC` impl exposes the same explicit signature:
 
 ```
-__init__(self, *, cfg, name, inst_shape, dtype, T__K)
+__init__(self, *, config, policy, name, inst_shape, dtype, T__K)
 ```
 
-All five arguments are required, keyword-only, and may not be `None`. The base `__init__` accepts the same signature so the dispatcher in `from_config` type-checks cleanly; it stores `self._inst_shape` and uses `name` for profiler registration. `cfg` / `dtype` / `T__K` stay on the concrete subclass (see [`docs/dev/architecture/state_holding.md`](docs/dev/architecture/state_holding.md)).
+All six arguments are required, keyword-only, and may not be `None`. The base `__init__` accepts the same signature so the dispatcher in `from_config` type-checks cleanly; it stores `self._inst_shape` and uses `name` for profiler registration. `config` / `policy` / `dtype` / `T__K` stay on the concrete subclass (see [`docs/dev/architecture/state_holding.md`](docs/dev/architecture/state_holding.md)).
 
 ## Required subclass surface
 

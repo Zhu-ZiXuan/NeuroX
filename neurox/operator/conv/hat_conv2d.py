@@ -11,9 +11,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
+from neurox.common.quant import stochastic_floor_div
 from neurox.macro.base import NeuroxMacroQuantMatMul
 from neurox.operator.base import NeuroxOperator
-from neurox.common.quant import stochastic_floor_div
 from neurox.operator.linear import derive_layer_int_params
 from neurox.operator.spec import QuantSpec
 from neurox.operator.train.fake_quant import fake_quant_ste, fake_quant_symm_per_channel_ste

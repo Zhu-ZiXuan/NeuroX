@@ -13,18 +13,18 @@ Every additive / multiplicative noise comes in two flavours:
 
 ## Toggle contract
 
-Every `apply_*` helper takes a `*, enabled: bool` kw-only parameter and returns the input unchanged when `enabled=False`. Callers pass `enabled=cfg.enable_<source>` straight from the cfg; no helper checks for `None` and no caller writes an `if`-gate. See `docs/dev/architecture/noise_and_toggles.md` for the project-wide rule.
+Every `apply_*` helper takes a `*, enabled: bool` kw-only parameter and returns the input unchanged when `enabled=False`. Callers pass `enabled=self.policy.<source>` straight from the owning module's nonideality policy; no helper checks for `None` and no caller writes an `if`-gate.
 
 ## Provided primitives
 
-- `apply_stuck_at_fault(tensor, cfg, min_val, max_val, *, enabled)` — Bernoulli stuck-at fault parameterised by `StuckAtFaultConfig`.
+- `apply_stuck_at_fault(tensor, config, min_val, max_val, *, enabled)` — Bernoulli stuck-at fault parameterised by `StuckAtFaultConfig`.
 - `apply_gaussian(tensor, sigma, *, enabled)` — additive isotropic Gaussian draw (state-independent). Takes `sigma` directly so it inlines tightly under `@torch.compile`.
-- `apply_state_dependent_gaussian(tensor, cfg, *, enabled)` — additive Gaussian with sigma proportional to `|x|`.
-- `apply_lognormal(tensor, cfg, *, enabled)` — multiplicative log-normal.
-- `apply_state_dependent_lognormal(tensor, cfg, *, enabled)` — multiplicative log-normal with sigma depending on normalised conductance.
-- `apply_gamma_noise(tensor, cfg, *, enabled)` — multiplicative Gamma noise normalised to unit mean.
-- `apply_state_dependent_gamma(tensor, cfg, *, enabled)` — Gamma noise with state-dependent shape parameter.
-- `apply_telegraph_noise(tensor, cfg, *, enabled)` — RTN-style binary-state perturbation with Gaussian amplitude.
+- `apply_state_dependent_gaussian(tensor, config, *, enabled)` — additive Gaussian with sigma proportional to `|x|`.
+- `apply_lognormal(tensor, config, *, enabled)` — multiplicative log-normal.
+- `apply_state_dependent_lognormal(tensor, config, *, enabled)` — multiplicative log-normal with sigma depending on normalised conductance.
+- `apply_gamma_noise(tensor, config, *, enabled)` — multiplicative Gamma noise normalised to unit mean.
+- `apply_state_dependent_gamma(tensor, config, *, enabled)` — Gamma noise with state-dependent shape parameter.
+- `apply_telegraph_noise(tensor, config, *, enabled)` — RTN-style binary-state perturbation with Gaussian amplitude.
 - `apply_pelgrom_mismatch(tensor, sigma_relative, *, unit, floor, enabled)` — Pelgrom-area-scaled multiplicative mismatch (σ_k ∝ √(C_k / C_unit)) with a positive floor. Takes `sigma_relative` directly, no wrapper config.
 - `apply_lsb_jitter(tensor, *, n_bits, enabled)` — uniform LSB-jitter for stochastic rounding.
 

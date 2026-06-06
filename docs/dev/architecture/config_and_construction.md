@@ -2,9 +2,16 @@
 
 This document records the current construction rules for NeuroX's device and analog / circuit hierarchy.
 
-## Parameter classes
+`config` and `policy` are the two parameter objects every module accepts at `__init__`:
 
-NeuroX distinguishes four parameter classes:
+- `config` (a `*Config` dataclass) describes **what the module is**: physical parameters, design parameters, spec / PPA values. Static across deployments; persists in preset TOML.
+- `policy` (a `*Policy` dataclass) describes **how the module should behave at runtime**: which non-idealities to apply, and (future) other behavioural switches. Per-run choice; constructed by the caller in code; never persisted in TOML.
+
+The two are strongly coupled — every module that has a `*Policy` also has a `*Config`, and policy fields gate parameters declared on the config — so they are described together in each module's doc.
+
+## Parameter classes (config side)
+
+NeuroX distinguishes four parameter classes on the `config` side:
 
 1. **Process parameters** Fixed by process selection. They should change only when the process changes.
 2. **Design parameters** Freely chosen within one process. Examples: transistor `W/L`, capacitor sizing, reference voltages, op-amp target gain.
@@ -43,7 +50,7 @@ If a circuit contains a device, then that device's design parameters belong to t
 
 Example:
 
-- `OpAmpTIAConfig` contains `nmos_cfg: NMOSConfig`.
+- `OpAmpTIAConfig` contains `nmos_config: NMOSConfig`.
 - `OpAmpTIAConfig` also contains the pseudo-NMOS sizing parameters because they are part of the TIA design.
 - `OpAmpTIA.__init__` constructs its internal `NMOS` directly from the config.
 
@@ -64,7 +71,7 @@ This keeps the design visible in one place:
 Every fabricable module takes its per-instance fabrication shape as a constructor argument, not a `fabricate(...)` argument. The argument name varies by layer:
 
 - leaf circuits (analog / digital / device): `inst_shape: tuple[int, ...]`
-- xbar tiles: `inst_shape: tuple[int, ...]` (per-instance multiplicity prefix; trailing `(col_num, w_digit_count, row_num)` is owned by the xbar's own cfg)
+- xbar tiles: `inst_shape: tuple[int, ...]` (per-instance multiplicity prefix; trailing `(col_num, w_digit_count, row_num)` is owned by the xbar's own config)
 - xbar macros: `w_logical_shape: tuple[int, ...]` (operator-facing weight shape)
 
 The shape is committed once at `__init__`, recorded on `self._inst_shape` (per the `FabricateMixin` contract), and the constructor records the profiler instance count from it. `fabricate()` then carries no arguments; it resamples mismatch at the already-bound shape. See [`fabrication_lifecycle.md`](fabrication_lifecycle.md) for the lifecycle.
@@ -80,7 +87,7 @@ Families with multiple concrete implementations use:
 
 Each concrete implementation registers its config type on the family base via `RegistryMixin[type[<Family>Config], <Family>]`.
 
-The base class exposes a family-specific `from_config(...)` classmethod that materialises the registry key from a config instance (`type(cfg)`) and instantiates the impl. `RegistryMixin` does not provide `from_config(...)`; it only provides:
+The base class exposes a family-specific `from_config(...)` classmethod that materialises the registry key from a config instance (`type(config)`) and instantiates the impl. `RegistryMixin` does not provide `from_config(...)`; it only provides:
 
 - `register_key(...)`
 - `_lookup_impl(...)`
@@ -193,3 +200,100 @@ If a check is already enforced by static analysis or by the deserialiser, do not
 The mixin **does not** ship a `validate_ppa()` helper — the standard PPA trio is just three `self._require_nonneg(...)` calls inlined inside each config's own `validate_ppa()` group method.
 
 Probability-distribution configs (`StuckAtFaultConfig`, `TelegraphConfig`, `LognormalConfig`, `GammaConfig`, `StateDependentGaussianConfig`, `StateDependentLognormalConfig`, `StateDependentGammaConfig`) live in `neurox/common/nonideality.py`; each inherits `ValidateMixin` and validates itself. Configs holding these distribution configs as fields **do not** re-validate them — the inner config's `__post_init__` already runs on construction.
+
+## Module Policy
+
+Every module that models non-idealities (or, in the future, any other runtime behavioural switch) carries a paired `*Policy` dataclass alongside its `*Config`. The policy is passed as the `policy=` kwarg at construction time.
+
+### Rule
+
+1. `*Config` holds **parameter values only** as fully-populated, non-Optional fields. Scalar sigmas are required `float`; multi-parameter distributions are required sub-config dataclasses. `None` is forbidden.
+2. The decision of whether to apply a non-ideality (or other runtime switch) is carried by a separate **`*Policy`** dataclass passed as a kwarg to the owning module's `__init__`. Each module declares a `<Module>Policy` with one `bool` field per source.
+3. The policy is **not** a config field, not a preset TOML entry, and not loaded from disk. It is a pure runtime parameter constructed by the caller at module instantiation time.
+4. `*Policy` dataclasses have **no defaults** and **no factory methods** (no `all_off()` / `all_on()`). The caller must enumerate every field explicitly so that adding a new switch breaks every call site that has not yet declared a stance.
+5. Runtime helpers in `neurox/common/nonideality.py` take a `*, enabled: bool` kw-only parameter and short-circuit to a pass-through when `enabled=False`. Callers therefore write a single unbranched expression — no `if`-gates at the call site.
+
+### Why this split
+
+The config conflated two distinct facts when an `enable_*` field lived on it: the *physical reality* of a noise source's magnitude (PDK datum) and the *study choice* of whether to model that source in this run. Splitting them isolates the concerns:
+
+- `config` describes physical reality only. Process presets are reusable across deployments and studies.
+- `Policy` describes the study choice. Different runs (calibration, training, inference, ablation) can pass different policies against the same config.
+- Calibration tools no longer need to `dataclasses.replace(config, enable_*=False, ...)` to flip toggles; they construct an all-False policy directly.
+- The boundary between physical model and experimental decision is self-documenting in the constructor signature: `RRAM(config=..., policy=..., ...)`.
+
+### Hierarchy: flat at leaves, structured at composites
+
+Leaf modules have flat policies (a small dataclass of `bool` fields):
+
+```python
+@dataclass(frozen=True)
+class RRAMPolicy:
+    prog_gamma: bool
+    stuck_at: bool
+    read_telegraph: bool
+    read_thermal: bool
+```
+
+Composite modules (e.g. `Xbar`, `XbarMacro`, `ReadOut`, `OpAmpTIA`, `CircuitCore1T1R`) hold structured policies that nest the leaf policies of their sub-modules, mirroring the config composition tree exactly:
+
+```python
+@dataclass(frozen=True)
+class CircuitCore1T1RPolicy:
+    rram: RRAMPolicy
+    nmos: NMOSPolicy
+    tia: TIAPolicy           # abstract; concrete impl passed
+    sl_driver: DriverPolicy
+    wl_dac: DACPolicy        # abstract; concrete impl passed
+```
+
+For polymorphic families (`ADC`, `DAC`, `TIA`, `ReadOut`, `Xbar`, `XbarMacro`) there is an empty abstract marker base policy and a concrete policy per registered impl. The composite that holds the polymorphic family stores the abstract base type and the caller passes the concrete impl that matches the config.
+
+Modules with no behavioural switches (e.g. `IdealXbar`, `IdealXbarMacro`) declare an empty marker policy (`IdealXbarPolicy()` / `IdealXbarMacroPolicy()`) for API uniformity.
+
+### Module attribute and naming
+
+Each module stores its policy as `self.policy` (public attribute) so it is inspectable for debugging and profiling.
+
+- Parameter field on config: `<source>__<unit>` when a physical unit exists, otherwise `<source>` (relative / probability / shape names).
+- Policy field: `<source>`. Drop the `enable_` prefix — the policy class's role already implies "enable".
+
+When a category sums multiple parameter fields, the policy field reflects the *category*, not any one parameter. Example: kT/C sampling noise in MCS-SAR and SwitchCap is gated by a single `sampling_thermal_noise: bool` even though the sigma is derived from per-instance capacitance.
+
+### Runtime semantics
+
+`apply_*` helpers in `nonideality.py` follow a uniform shape:
+
+```python
+def apply_<noise>(x: Tensor, ...args..., *, enabled: bool) -> Tensor:
+    if not enabled:
+        return x
+    ...
+```
+
+Callers therefore write a single line per source:
+
+```python
+g__uS = apply_state_dependent_gamma(g__uS, self.config.prog_gamma, enabled=self.policy.prog_gamma)
+g__uS = apply_telegraph_noise(g__uS, self.config.read_telegraph, enabled=self.policy.read_telegraph)
+g__uS = apply_gaussian(g__uS, self.config.read_thermal__uS, enabled=self.policy.read_thermal)
+```
+
+No `if` branches at the call site, no `None` checks inside the helpers, no special-case dispatch.
+
+Static-mismatch `apply_*` calls live inside `_sample_fabricate_mismatch()` (the `FabricateMixin` override point); dynamic per-call noise lives inside `convert` / `snapshot` / similar runtime methods. The policy fields are read directly there; the cadence at which the surrounding `fabricate()` is invoked is the operator-level concern documented in [`fabrication_lifecycle.md`](fabrication_lifecycle.md).
+
+### What this rule does *not* apply to
+
+- Numerical hyperparameters that are not noise (e.g. softclip softness, learning rates). These follow the regular "required field" rule but do not need a paired toggle.
+- Boolean construction modes that already act as toggles (e.g. `bit_serial: bool` on the decoder, `input_transform: Literal["linear", "log2"]`). These are structural choices, not noise.
+- The training-mode flag (`self.training`) carried by `nn.Module` itself; that is runtime, not config. Stochastic-rounding kernels in `neurox/common/quant.py` consume it directly — there is no separate `stochastic` override knob.
+
+### Adding a new switch
+
+1. Add the parameter field (scalar `float` or sub-config dataclass) to the config, no default.
+2. Add a `validate_*` clause for the parameter (`_require_nonneg`, `_require_pos`, …).
+3. Add a `bool` field to the module's `*Policy` dataclass, no default.
+4. In the runtime, call the matching `apply_*` helper with `enabled=self.policy.<source>`.
+5. Add the parameter value to the relevant `process/*.toml` if it is a PDK fact, otherwise to the chip TOML.
+6. Update every call site that constructs the policy — there are no defaults, so the compiler / type checker will surface them.

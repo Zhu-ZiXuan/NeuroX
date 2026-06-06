@@ -134,6 +134,8 @@ nav:
               - Overview: dev/modules/replace/README.md
           - tools:
               - Overview: dev/modules/tools/README.md
+              - calculate_1t1r_states: dev/modules/tools/calculate_1t1r_states.md
+              - logging: dev/modules/tools/logging.md
       - ADR:
           - Overview: dev/adr/README.md
           - "ADR-0001 Config dispatch and owned construction": dev/adr/ADR-0001-config-dispatch-and-owned-construction.md

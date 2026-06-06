@@ -86,7 +86,7 @@ class Decoder(FabricateMixin, nn.Module, ProfileMixin):
     """Row decoder + driver, wraps a WL DAC.
 
     Args:
-        cfg: Concrete configuration dataclass.
+        config: Concrete configuration dataclass.
         name: Hierarchical instance name used by the profiler.
         inst_shape: Per-instance fabrication shape.
         dtype: Tensor dtype for internal buffers.
@@ -96,7 +96,7 @@ class Decoder(FabricateMixin, nn.Module, ProfileMixin):
     def __init__(
         self,
         *,
-        cfg: DecoderConfig,
+        config: DecoderConfig,
         name: str,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
@@ -104,37 +104,37 @@ class Decoder(FabricateMixin, nn.Module, ProfileMixin):
     ) -> None:
         nn.Module.__init__(self)
         ProfileMixin.__init__(self, name)
-        if cfg.n_address_bits < 1:
-            raise ValueError(f"Decoder n_address_bits ({cfg.n_address_bits}) must be >= 1")
-        self.cfg = cfg
+        if config.n_address_bits < 1:
+            raise ValueError(f"Decoder n_address_bits ({config.n_address_bits}) must be >= 1")
+        self.config = config
         self._inst_shape = inst_shape
         self.dtype = dtype
         self.T__K = T__K
 
-        self._t_op__ns = cfg.n_address_bits * cfg.t_gate__ns
+        self._t_op__ns = config.n_address_bits * config.t_gate__ns
         # fF · V² = fJ — no scaling factor needed.
-        self._e_per_call__fJ = cfg.n_address_bits * cfg.c_gate__fF * cfg.v_dd__V**2 + cfg.e_overhead__fJ
+        self._e_per_call__fJ = config.n_address_bits * config.c_gate__fF * config.v_dd__V**2 + config.e_overhead__fJ
 
         self._log_static()
 
     @property
     def bit_serial(self) -> bool:
         """True when per-row codes are expanded into one-pulse-per-bit cycles."""
-        return self.cfg.bit_serial
+        return self.config.bit_serial
 
     @property
     def n_address_bits(self) -> int:
-        return self.cfg.n_address_bits
+        return self.config.n_address_bits
 
     @property
     def area_per_inst__um2(self) -> float:
         """Silicon area per instance [um^2]."""
-        return self.cfg.area_per_inst__um2
+        return self.config.area_per_inst__um2
 
     @property
     def leakage_per_inst__uW(self) -> float:
         """Static leakage per instance [uW]."""
-        return self.cfg.leakage_per_inst__uW
+        return self.config.leakage_per_inst__uW
 
     @property
     def latency_per_op__ns(self) -> float:
@@ -154,8 +154,8 @@ class Decoder(FabricateMixin, nn.Module, ProfileMixin):
         Returns:
             Analog WL drive signal from ``dac.convert``.
         """
-        if self.cfg.bit_serial:
-            n_bits = max(self.cfg.n_address_bits, 1)
+        if self.config.bit_serial:
+            n_bits = max(self.config.n_address_bits, 1)
             bit_planes = []
             for k in range(n_bits):
                 bit = (x_int >> k) & 1

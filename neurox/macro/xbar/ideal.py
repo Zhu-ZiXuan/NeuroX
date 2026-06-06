@@ -13,7 +13,7 @@ from torch import Tensor
 
 from neurox.analog.adc import AdcOperationPoint
 
-from .base import XbarMacro, XbarMacroConfig
+from .base import XbarMacro, XbarMacroConfig, XbarMacroPolicy
 
 
 @dataclass(frozen=True)
@@ -29,6 +29,11 @@ class IdealXbarMacroConfig(XbarMacroConfig):
     w_value_range: tuple[int, int]
 
 
+@dataclass(frozen=True)
+class IdealXbarMacroPolicy(XbarMacroPolicy):
+    """Empty policy — :class:`IdealXbarMacro` has no nonidealities to toggle."""
+
+
 @XbarMacro.register_key(IdealXbarMacroConfig)
 class IdealXbarMacro(XbarMacro):
     """Degenerate ``XbarMacro``: stores the integer weight and runs ``torch.matmul`` against it.
@@ -37,7 +42,8 @@ class IdealXbarMacro(XbarMacro):
     ``ideal_xbar`` are accepted for API uniformity and ignored.
 
     Args:
-        cfg: Concrete configuration dataclass.
+        config: Concrete configuration dataclass.
+        policy: Empty :class:`IdealXbarMacroPolicy` marker.
         name: Hierarchical instance name used by the profiler.
         w_logical_shape: Logical weight shape ``(*prefix, N, K)`` bound to ``program(...)``.
         dtype: Tensor dtype for internal buffers.
@@ -45,14 +51,15 @@ class IdealXbarMacro(XbarMacro):
         ideal_xbar: When True, the macro replaces its physical xbar with the lossless ideal twin returned by xbar.to_ideal().
     """
 
-    cfg: IdealXbarMacroConfig
+    config: IdealXbarMacroConfig
     nominal_weight: Tensor
     weight: Tensor
 
     def __init__(
         self,
         *,
-        cfg: IdealXbarMacroConfig,
+        config: IdealXbarMacroConfig,
+        policy: IdealXbarMacroPolicy,
         name: str,
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
@@ -60,14 +67,15 @@ class IdealXbarMacro(XbarMacro):
         ideal_xbar: bool,
     ) -> None:
         super().__init__(
-            cfg=cfg,
+            config=config,
+            policy=policy,
             name=name,
             w_logical_shape=w_logical_shape,
             dtype=dtype,
             T__K=T__K,
             ideal_xbar=ideal_xbar,
         )
-        self.cfg = cfg
+        self.config = config
         self._inst_shape = self._w_logical_shape[:-2]
 
         # 0-d nominal weight: broadcasts to a zero-weight matmul before any
@@ -82,12 +90,12 @@ class IdealXbarMacro(XbarMacro):
     @property
     def w_value_range(self) -> tuple[int, int]:
         """Inclusive integer weight range accepted by the macro."""
-        return self.cfg.w_value_range
+        return self.config.w_value_range
 
     @property
     def x_value_range(self) -> tuple[int, int]:
         """Inclusive integer activation range accepted by the macro."""
-        return self.cfg.x_value_range
+        return self.config.x_value_range
 
     @property
     def adc_mode_num(self) -> int:

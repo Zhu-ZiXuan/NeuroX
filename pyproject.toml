@@ -45,7 +45,7 @@ demo = [
 # Stable user-facing console scripts.  All tools live under
 # ``neurox.tools`` and require explicit CLI arguments (no defaults).
 [project.scripts]
-neurox-calculate-xbar-param-1t1r = "neurox.tools.calculate_xbar_param_1t1r:main"
+neurox-calculate-1t1r-states     = "neurox.tools.calculate_1t1r_states:main"
 neurox-analyze-xbar-error-1t1r   = "neurox.tools.analyze_xbar_error_1t1r:main"
 
 [tool.setuptools.packages.find]
@@ -101,7 +101,7 @@ fixable = ["ALL"]
 unfixable = []
 
 [tool.ruff.lint.per-file-ignores]
-"test/**/*.py" = [
+"tests/**/*.py" = [
     "ANN", # flake8-annotations
     "D",   # pydocstyle
 ]

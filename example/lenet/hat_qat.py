@@ -102,12 +102,12 @@ def main() -> None:
     if not config_path.is_file():
         raise SystemExit(f"--macro-config: file not found: {config_path}")
 
-    cfg = read_macro_config(config_path)
-    can_override = supports_xbar_override(cfg)
+    config = read_macro_config(config_path)
+    can_override = supports_xbar_override(config)
     if args.xbar is not None and not can_override:
         raise SystemExit(
             f"--xbar is valid only when --macro-config carries a physical xbar; "
-            f"{args.macro_config} does not (cfg={type(cfg).__name__})."
+            f"{args.macro_config} does not (config={type(config).__name__})."
         )
     ideal_xbar = can_override and args.xbar == "ideal"
 
@@ -139,8 +139,7 @@ def main() -> None:
     model = model.to(device)
     flavour = f"ideal-twin@{args.macro_config}" if ideal_xbar else args.macro_config
     print(
-        f"HAT grid: x[{spec.x_qmin},{spec.x_qmax}]  w[±{spec.w_qmax}]  "
-        f"y[{spec.y_qmin},{spec.y_qmax}]  macro={flavour}"
+        f"HAT grid: x[{spec.x_qmin},{spec.x_qmax}]  w[±{spec.w_qmax}]  y[{spec.y_qmin},{spec.y_qmax}]  macro={flavour}"
     )
     from neurox.operator import HATConv2d, HATLinear
 

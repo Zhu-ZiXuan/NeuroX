@@ -37,7 +37,7 @@ Each config field carries its unit suffix in the field name. No suffix means the
 Unit conversion from config units to tensor units happens **exclusively inside the consuming class's `__init__`**:
 
 - The frozen config provides raw data and performs `validate*` checks; it never derives or returns processed values.
-- The consuming circuit / device class reads `cfg.foo__some_unit` in its `__init__`, multiplies the conversion factor, stores the result as an internal attribute or buffer in the tensor-unit system.
+- The consuming circuit / device class reads `config.foo__some_unit` in its `__init__`, multiplies the conversion factor, stores the result as an internal attribute or buffer in the tensor-unit system.
 - Once the runtime path starts, every tensor is already in the canonical units and no further conversion happens.
 
 This rule keeps the runtime path branch-free and unit-pure.

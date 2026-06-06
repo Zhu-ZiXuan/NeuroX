@@ -23,10 +23,6 @@ class SwitchCapConfig(ValidateMixin):
         c_unit__fF: Unit capacitance [fF].
         cap_mismatch_sigma_relative: Per-unit-cap Pelgrom relative
             sigma.
-        enable_cap_mismatch: Apply ``cap_mismatch_sigma_relative`` at
-            fabricate time.
-        enable_sampling_thermal_noise: Apply kT/C settling noise at
-            sample time.
         energy_per_sample_overhead__fJ: Per-bank switching overhead [fJ].
         leakage_per_inst__uW: Static leakage per bank [uW].
         area_per_inst__um2: Silicon area per bank [μm²].
@@ -38,10 +34,6 @@ class SwitchCapConfig(ValidateMixin):
 
     # --- Cap mismatch (Pelgrom) ---
     cap_mismatch_sigma_relative: float
-    enable_cap_mismatch: bool
-
-    # --- Sampling thermal noise (kT/C) ---
-    enable_sampling_thermal_noise: bool
 
     # --- Energy / PPA ---
     energy_per_sample_overhead__fJ: float
@@ -70,16 +62,30 @@ class SwitchCapConfig(ValidateMixin):
         self._require_nonneg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
+@dataclass(frozen=True)
+class SwitchCapPolicy:
+    """Per-source toggles selecting which SwitchCap nonidealities are active.
+
+    Attributes:
+        cap_mismatch: Apply ``cap_mismatch_sigma_relative`` at fabricate time.
+        sampling_thermal_noise: Apply kT/C settling noise at sample time.
+    """
+
+    cap_mismatch: bool
+    sampling_thermal_noise: bool
+
+
 class SwitchCap(FabricateMixin, nn.Module, ProfileMixin):
     """Bottom-plate-sampled cap bank with passive charge-share averaging.
 
     Args:
-        cfg: Concrete configuration dataclass.
+        config: Concrete configuration dataclass.
+        policy: Per-source nonideality enable flags.
         name: Hierarchical instance name used by the profiler.
         inst_shape: Per-instance fabrication shape.
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature [K].
-        cap_weights: Per-cap multipliers on ``cfg.c_unit__fF``.
+        cap_weights: Per-cap multipliers on ``config.c_unit__fF``.
     """
 
     nominal_c__fF: Tensor
@@ -88,7 +94,8 @@ class SwitchCap(FabricateMixin, nn.Module, ProfileMixin):
     def __init__(
         self,
         *,
-        cfg: SwitchCapConfig,
+        config: SwitchCapConfig,
+        policy: SwitchCapPolicy,
         name: str,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
@@ -105,13 +112,14 @@ class SwitchCap(FabricateMixin, nn.Module, ProfileMixin):
             if not (w > 0.0):
                 raise ValueError(f"require: cap_weights[{k}] ({w}) > 0")
 
-        self.cfg = cfg
+        self.config = config
+        self.policy = policy
         self._inst_shape = inst_shape
         self.T__K = T__K
         self.dtype = dtype
         self.n_caps = len(cap_weights)
 
-        nominal_c__fF = cfg.c_unit__fF * torch.tensor(cap_weights, dtype=dtype)
+        nominal_c__fF = config.c_unit__fF * torch.tensor(cap_weights, dtype=dtype)
         self.register_buffer("nominal_c__fF", nominal_c__fF, persistent=False)
         self.register_buffer(
             "c__fF",
@@ -123,27 +131,27 @@ class SwitchCap(FabricateMixin, nn.Module, ProfileMixin):
     @property
     def area_per_inst__um2(self) -> float:
         """Silicon area per instance [um^2]."""
-        return self.cfg.area_per_inst__um2
+        return self.config.area_per_inst__um2
 
     @property
     def leakage_per_inst__uW(self) -> float:
         """Static leakage per instance [uW]."""
-        return self.cfg.leakage_per_inst__uW
+        return self.config.leakage_per_inst__uW
 
     @property
     def latency_per_op__ns(self) -> float:
         """Latency per op [ns]."""
-        return self.cfg.latency_per_op__ns
+        return self.config.latency_per_op__ns
 
     def _sample_fabricate_mismatch(self) -> None:
         """Resample per-cap mismatch at ``(*self._inst_shape, n_caps)``."""
-        cfg = self.cfg
+        config = self.config
         self.c__fF = apply_pelgrom_mismatch(
             self.nominal_c__fF.clone().expand(*self._inst_shape, self.n_caps),
-            cfg.cap_mismatch_sigma_relative,
-            unit=cfg.c_unit__fF,
-            floor=0.1 * cfg.c_unit__fF,
-            enabled=cfg.enable_cap_mismatch,
+            config.cap_mismatch_sigma_relative,
+            unit=config.c_unit__fF,
+            floor=0.1 * config.c_unit__fF,
+            enabled=self.policy.cap_mismatch,
         )
 
     def sample_and_accumulate(self, v_in__V: Tensor) -> Tensor:
@@ -160,12 +168,12 @@ class SwitchCap(FabricateMixin, nn.Module, ProfileMixin):
         # kT/C settling noise: kt__fJ = k_B·T·1e15 so kt/c lands in V².
         kt__fJ = K_BOLTZMANN__J_per_K * self.T__K * 1e15
         sigma__V = torch.sqrt(kt__fJ / c__fF)
-        v_hold__V = apply_gaussian(v_in__V, sigma__V, enabled=self.cfg.enable_sampling_thermal_noise)
+        v_hold__V = apply_gaussian(v_in__V, sigma__V, enabled=self.policy.sampling_thermal_noise)
         # Σ Q_k / Σ C_k, Q_k taken from the held voltage.
         c_total__fF = c__fF.sum(dim=-1)
         v_out__V = torch.sum(c__fF * v_hold__V, dim=-1) / c_total__fF
 
         e_caps__fJ = 0.5 * torch.sum(c__fF * v_in__V * v_in__V, dim=-1)
-        dynamic_energy__fJ = e_caps__fJ + self.cfg.energy_per_sample_overhead__fJ
-        self._log_dynamic(dynamic_energy__fJ, self.cfg.latency_per_op__ns)
+        dynamic_energy__fJ = e_caps__fJ + self.config.energy_per_sample_overhead__fJ
+        self._log_dynamic(dynamic_energy__fJ, self.config.latency_per_op__ns)
         return v_out__V

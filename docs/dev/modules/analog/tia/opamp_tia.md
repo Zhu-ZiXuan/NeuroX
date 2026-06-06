@@ -20,7 +20,12 @@ It owns:
 - TIA design parameters such as reference and bias voltages
 - TIA spec parameters such as mismatch, area, leakage, latency
 
-`OpAmpTIA.__init__(*, cfg, name, inst_shape, dtype, T__K)` constructs its internal `NMOS` with the same `inst_shape`. Because `NMOS` inherits `FabricateMixin`, it is cascaded automatically by `OpAmpTIA.fabricate()`. The opamp's own `_sample_fabricate_mismatch` only refreshes `opamp_gain`.
+`OpAmpTIAPolicy(TIAPolicy)` is a structured composite policy:
+
+- `opamp_gain_sigma: bool` — apply opamp gain mismatch at fabricate time.
+- `nmos: NMOSPolicy` — sub-policy forwarded to the internal pseudo-resistor NMOS.
+
+`OpAmpTIA.__init__(*, config, policy, name, inst_shape, dtype, T__K)` constructs its internal `NMOS` with the same `inst_shape` and forwards `policy.nmos` into it. Because `NMOS` inherits `FabricateMixin`, it is cascaded automatically by `OpAmpTIA.fabricate()`. The opamp's own `_sample_fabricate_mismatch` only refreshes `opamp_gain`.
 
 ## Solver-facing contract
 

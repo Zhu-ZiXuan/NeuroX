@@ -164,8 +164,7 @@ def main() -> None:
     parser.add_argument(
         "--macro-config",
         required=True,
-        help=f"Macro config filename under {CONFIG_DIR.name}/ "
-        "(quantization grid is derived from its value ranges)",
+        help=f"Macro config filename under {CONFIG_DIR.name}/ (quantization grid is derived from its value ranges)",
     )
     parser.add_argument("--device", type=str, default="cuda:0", help="Device for QAT fine-tuning")
     parser.add_argument("--batch-size", type=int, default=128)

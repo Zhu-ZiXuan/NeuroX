@@ -11,21 +11,23 @@
 
 `TIAConfig` is the family base config: only the orchestration-level fields every TIA topology shares (`v_ref__V`, leakage / area / latency). Concrete TIA configs inherit and add their topology-specific design parameters.
 
+`TIAPolicy` is the empty marker base policy for the family. Concrete TIA implementations declare their own concrete `*Policy(TIAPolicy)` carrying that topology's switches (e.g. `OpAmpTIAPolicy`); the composite that holds a TIA stores the abstract `TIAPolicy` field type and the caller passes the concrete impl.
+
 ## Family-wide init signature
 
 Every concrete TIA impl exposes the same explicit signature:
 
 ```
-__init__(self, *, cfg, name, inst_shape, dtype, T__K)
+__init__(self, *, config, policy, name, inst_shape, dtype, T__K)
 ```
 
-All five arguments are required, keyword-only, and may not be `None`. The base stores `self._inst_shape`, registers profiler bookkeeping, and accepts/discards `cfg / dtype / T__K` so the dispatcher type-checks cleanly; concrete subclasses store the rest on `self`. The family inherits `FabricateMixin` — concrete TIAs override `_sample_fabricate_mismatch`.
+All six arguments are required, keyword-only, and may not be `None`. The base stores `self._inst_shape`, registers profiler bookkeeping, and accepts/discards `config / policy / dtype / T__K` so the dispatcher type-checks cleanly; concrete subclasses store the rest on `self`. The family inherits `FabricateMixin` — concrete TIAs override `_sample_fabricate_mismatch`.
 
 No family-specific runtime extras.
 
 ## Abstract `v_ref__V`
 
-`v_ref__V` is declared as an `@property @abstractmethod` on the base. The base owns no `cfg` storage so it cannot implement the accessor itself. Every concrete TIA implements it from its own `self.cfg` — typically as `return self.cfg.v_ref__V`. This is the only solver-facing contract every TIA topology must honour explicitly.
+`v_ref__V` is declared as an `@property @abstractmethod` on the base. The base owns no `config` storage so it cannot implement the accessor itself. Every concrete TIA implements it from its own `self.config` — typically as `return self.config.v_ref__V`. This is the only solver-facing contract every TIA topology must honour explicitly.
 
 ## ClampDriver protocol
 

@@ -15,17 +15,24 @@ It is one concrete `ReadOut` family implementation registered via `ReadOut.regis
 
 `OffsetSwitchCapMuxAdcReadOutConfig` carries:
 
-- `data_switchcap_cfg`
-- `ref_switchcap_cfg`
-- `analog_mux_cfg`
-- `adc_cfg`
+- `data_switchcap_config`
+- `ref_switchcap_config`
+- `analog_mux_config`
+- `adc_config`
+
+`OffsetSwitchCapMuxAdcReadOutPolicy(ReadOutPolicy)` is a structured composite policy with one sub-policy per child:
+
+- `data_switchcap: SwitchCapPolicy`
+- `ref_switchcap: SwitchCapPolicy`
+- `analog_mux: AnalogMuxPolicy`
+- `bl_adc: ADCPolicy` — abstract base; the concrete impl (e.g. `GeneralADCPolicy`, `McsSarAdcPolicy`) is passed by the caller.
 
 The readout constructs its children itself, driven by the family-wide init bundle (`data_num`, `digit_weights`):
 
-- `data_switchcap = SwitchCap(cfg=data_switchcap_cfg, …, cap_weights=digit_weights)` — one cap per digit, weighted by the positional weights.
-- `ref_switchcap = SwitchCap(cfg=ref_switchcap_cfg, …, cap_weights=(1.0,))` — single unit cap, no positional weighting.
-- `analog_mux = AnalogMux(cfg=analog_mux_cfg, …)` — instantiated directly.
-- `bl_adc = ADC.from_config(cfg=adc_cfg, …)` — dispatched through the ADC registry.
+- `data_switchcap = SwitchCap(config=data_switchcap_config, policy=policy.data_switchcap, …, cap_weights=digit_weights)` — one cap per digit, weighted by the positional weights.
+- `ref_switchcap = SwitchCap(config=ref_switchcap_config, policy=policy.ref_switchcap, …, cap_weights=(1.0,))` — single unit cap, no positional weighting.
+- `analog_mux = AnalogMux(config=analog_mux_config, policy=policy.analog_mux, …)` — instantiated directly.
+- `bl_adc = ADC.from_config(config=adc_config, policy=policy.bl_adc, …)` — dispatched through the ADC registry.
 
 `data_num` is stored on the instance and consumed at `__init__` to size the data-leg bank's per-instance axis (`inst_shape = (*readout_inst_shape, data_num)`). No external submodule factory closures are part of the current design.
 

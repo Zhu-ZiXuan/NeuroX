@@ -21,9 +21,18 @@ The differential topology resolves the MSB through free comparison; no MSB cap i
 - `max_bits` — physical CDAC depth. The active array has `max_bits - 1` binary-weighted caps + a dummy unit cap.
 - `v_refs__V: tuple[float, ...]` — strictly-decreasing reference voltages. `v_refs__V[0]` is the maximum (calibration anchor).
 - `clk_period__ns`, `c_unit__fF` — design parameters.
-- `cap_mismatch_sigma_relative`, `comparator_offset_sigma__V`, `comparator_thermal_noise_sigma__V`, `enable_thermal_noise` — non-idealities.
+- `cap_mismatch_sigma_relative`, `comparator_offset_sigma__V`, `comparator_thermal_noise_sigma__V` — non-ideality magnitudes.
 - `e_bootstrap__fJ`, `e_constant_per_bit__fJ` — energy overhead.
 - PPA / spec fields.
+
+## Policy
+
+`McsSarAdcPolicy(ADCPolicy)`:
+
+- `cap_mismatch` — apply per-cap Pelgrom mismatch at fabricate time.
+- `comparator_offset` — apply static comparator offset at fabricate time.
+- `comparator_thermal_noise` — apply per-SAR-cycle comparator thermal noise.
+- `sampling_thermal_noise` — apply kT/C sampling noise on the held top plates.
 
 ## Lifecycle
 

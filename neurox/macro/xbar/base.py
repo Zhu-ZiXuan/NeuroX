@@ -16,7 +16,7 @@ from torch import Tensor
 
 from neurox.analog.adc import AdcOperationPoint
 from neurox.common.mixin import FabricateMixin, ProfileMixin, RegistryMixin, ValidateMixin
-from neurox.xbar import Xbar, XbarConfig
+from neurox.xbar import Xbar, XbarConfig, XbarPolicy
 
 
 @dataclass(frozen=True)
@@ -30,11 +30,17 @@ class XbarMacroConfig(ValidateMixin):
         """Run all ``validate_*`` checks."""
 
 
+@dataclass(frozen=True)
+class XbarMacroPolicy:
+    """Abstract marker base for XbarMacro-family nonideality policies."""
+
+
 class XbarMacro(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["XbarMacroConfig"], "XbarMacro"], ABC):
     """Abstract base for the XbarMacro family.
 
     Args:
-        cfg: Concrete configuration dataclass.
+        config: Concrete configuration dataclass.
+        policy: Composite nonideality policy.
         name: Hierarchical instance name used by the profiler.
         w_logical_shape: Logical weight shape ``(*prefix, N, K)`` bound to ``program(...)``.
         dtype: Tensor dtype for internal buffers.
@@ -44,12 +50,14 @@ class XbarMacro(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["Xba
             twin); degenerate members ignore it.
     """
 
-    cfg: XbarMacroConfig
+    config: XbarMacroConfig
+    policy: XbarMacroPolicy
 
     def __init__(
         self,
         *,
-        cfg: XbarMacroConfig,
+        config: XbarMacroConfig,
+        policy: XbarMacroPolicy,
         name: str,
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
@@ -60,7 +68,8 @@ class XbarMacro(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["Xba
         ProfileMixin.__init__(self, name)
         if len(w_logical_shape) < 2:
             raise ValueError(f"w_logical_shape must have at least 2 trailing dims (N, K); got {w_logical_shape}")
-        self.cfg = cfg
+        self.config = config
+        self.policy = policy
         self._w_logical_shape = tuple(w_logical_shape)
         self._inst_shape = ()
         self._macro_dtype = dtype
@@ -72,17 +81,19 @@ class XbarMacro(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["Xba
     def from_config(
         cls,
         *,
-        cfg: XbarMacroConfig,
+        config: XbarMacroConfig,
+        policy: XbarMacroPolicy,
         name: str,
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
         ideal_xbar: bool,
     ) -> XbarMacro:
-        """Build the concrete impl registered for ``type(cfg)``."""
-        impl = cls._lookup_impl(type(cfg))
+        """Build the concrete impl registered for ``type(config)``."""
+        impl = cls._lookup_impl(type(config))
         return impl(
-            cfg=cfg,
+            config=config,
+            policy=policy,
             name=name,
             w_logical_shape=w_logical_shape,
             dtype=dtype,
@@ -165,22 +176,32 @@ class XbarMacro(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["Xba
 
     # --- xbar construction helper for xbar-using subclasses ---
 
-    def _build_xbar(self, *, xbar_cfg: XbarConfig, inst_shape: tuple[int, ...]) -> Xbar:
+    def _build_xbar(
+        self,
+        *,
+        xbar_config: XbarConfig,
+        xbar_policy: XbarPolicy,
+        inst_shape: tuple[int, ...],
+    ) -> Xbar:
         """Construct the owned xbar at a derived per-instance multiplicity.
 
         Args:
-            xbar_cfg: Subclass-owned xbar configuration (the base does not
-                require its concrete cfg to carry one).
+            xbar_config: Subclass-owned xbar configuration (the base does not
+                require its concrete config to carry one).
+            xbar_policy: Subclass-owned xbar nonideality policy.
+                If ``ideal_xbar`` is true the policy is discarded in favor
+                of an empty :class:`IdealXbarPolicy`.
             inst_shape: Per-instance multiplicity prefix; the xbar
                 derives the trailing ``(col_num, w_digit_count,
-                row_num)`` dims from its own cfg.
+                row_num)`` dims from its own config.
 
         Returns:
             The xbar (physical or ideal twin per ``ideal_xbar``).
         """
         prefix = f"{self._macro_name}." if self._macro_name else ""
         xbar = Xbar.from_config(
-            cfg=xbar_cfg,
+            config=xbar_config,
+            policy=xbar_policy,
             name=f"{prefix}xbar",
             inst_shape=inst_shape,
             dtype=self._macro_dtype,

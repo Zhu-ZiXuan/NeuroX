@@ -18,6 +18,14 @@ Identity. After slicing into `[..., N, K, Sw, D]`, `Sw` stays as a trailing axis
 
 `InterArraySliceXbarMacroConfig` declares:
 
-- `xbar_cfg: XbarConfig` — owned physical-xbar config.
+- `xbar_config: XbarConfig` — owned physical-xbar config.
 - `w_slice_num`, `x_slice_num`, `w_encoding` (activation slicer is always unsigned true-form, no `x_encoding`).
-- `col_accumulator_cfg`, `sa_shift_adder_cfg`, `sw_shift_adder_cfg`
+- `col_accumulator_config`, `sa_shift_adder_config`, `sw_shift_adder_config`
+
+## Policy
+
+`InterArraySliceXbarMacroPolicy(XbarMacroPolicy)` carries the owned xbar's nonideality policy:
+
+- `xbar: XbarPolicy` — abstract base; the concrete impl is passed by the caller.
+
+The macro forwards `policy.xbar` into `self._build_xbar(...)`.

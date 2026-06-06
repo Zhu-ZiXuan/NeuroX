@@ -10,9 +10,9 @@ import torch
 from torch import Tensor
 
 from neurox.common.nonideality import apply_gaussian
-from neurox.device.nmos import NMOS, NMOSConfig, NMOSSnapshot
+from neurox.device.nmos import NMOS, NMOSConfig, NMOSPolicy, NMOSSnapshot
 
-from .base import TIA, TIAConfig
+from .base import TIA, TIAConfig, TIAPolicy
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -24,9 +24,7 @@ class OpAmpTIAConfig(TIAConfig):
         v_dd__V: Supply rail [V].
         opamp_gain: Nominal open-loop gain; must be > 1.
         opamp_gain_sigma: Relative mismatch (``σ/μ``) on ``opamp_gain``.
-        enable_opamp_gain_sigma: Apply ``opamp_gain_sigma`` at fabricate
-            time.
-        nmos_cfg: PDK config for the pseudo-resistor NMOS.
+        nmos_config: PDK config for the pseudo-resistor NMOS.
         pseudo_nmos_W__um: Pseudo-resistor channel width [μm].
         pseudo_nmos_L__um: Pseudo-resistor channel length [μm].
         output_saturation_softness__V: Softness scale [V] for the
@@ -42,10 +40,9 @@ class OpAmpTIAConfig(TIAConfig):
 
     # --- Op-amp gain mismatch ---
     opamp_gain_sigma: float
-    enable_opamp_gain_sigma: bool
 
     # --- Pseudo-resistor NMOS ---
-    nmos_cfg: NMOSConfig
+    nmos_config: NMOSConfig
     pseudo_nmos_W__um: float
     pseudo_nmos_L__um: float
 
@@ -70,6 +67,19 @@ class OpAmpTIAConfig(TIAConfig):
             raise ValueError(f"require: v_dd__V ({self.v_dd__V}) > v_ref__V ({self.v_ref__V})")
         if not (self.v_nmos_bias__V > self.v_ref__V):
             raise ValueError(f"require: v_nmos_bias__V ({self.v_nmos_bias__V}) > v_ref__V ({self.v_ref__V})")
+
+
+@dataclass(frozen=True)
+class OpAmpTIAPolicy(TIAPolicy):
+    """Per-source toggles selecting which OpAmpTIA nonidealities are active.
+
+    Attributes:
+        opamp_gain_sigma: Apply ``opamp_gain_sigma`` at fabricate time.
+        nmos: Pseudo-resistor NMOS nonideality policy.
+    """
+
+    opamp_gain_sigma: bool
+    nmos: NMOSPolicy
 
 
 @dataclass(frozen=True)
@@ -112,36 +122,46 @@ class OpAmpTIA(TIA):
     def __init__(
         self,
         *,
-        cfg: OpAmpTIAConfig,
+        config: OpAmpTIAConfig,
+        policy: OpAmpTIAPolicy,
         name: str,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
     ) -> None:
-        super().__init__(cfg=cfg, name=name, inst_shape=inst_shape, dtype=dtype, T__K=T__K)
+        super().__init__(
+            config=config,
+            policy=policy,
+            name=name,
+            inst_shape=inst_shape,
+            dtype=dtype,
+            T__K=T__K,
+        )
 
-        self.cfg = cfg
+        self.config = config
+        self.policy = policy
         self.T__K = T__K
         self.dtype = dtype
 
         self.nmos = NMOS(
-            cfg=cfg.nmos_cfg,
+            config=config.nmos_config,
+            policy=policy.nmos,
             inst_shape=inst_shape,
             dtype=dtype,
             T__K=T__K,
-            W__um=cfg.pseudo_nmos_W__um,
-            L__um=cfg.pseudo_nmos_L__um,
+            W__um=config.pseudo_nmos_W__um,
+            L__um=config.pseudo_nmos_L__um,
         )
 
-        self.sigma_opamp_gain = cfg.opamp_gain * cfg.opamp_gain_sigma
+        self.sigma_opamp_gain = config.opamp_gain * config.opamp_gain_sigma
 
-        self.softclip_center__V = cfg.v_dd__V / 2.0
-        self.softclip_half_span__V = cfg.v_dd__V / 2.0
-        self.softclip_softness__V = cfg.output_saturation_softness__V
+        self.softclip_center__V = config.v_dd__V / 2.0
+        self.softclip_half_span__V = config.v_dd__V / 2.0
+        self.softclip_softness__V = config.output_saturation_softness__V
 
         self.register_buffer(
             "nominal_opamp_gain",
-            torch.tensor(cfg.opamp_gain, dtype=dtype),
+            torch.tensor(config.opamp_gain, dtype=dtype),
             persistent=False,
         )
         self.register_buffer(
@@ -156,24 +176,24 @@ class OpAmpTIA(TIA):
     @property
     def v_ref__V(self) -> float:
         """Ideal reference clamp voltage [V]."""
-        return self.cfg.v_ref__V
+        return self.config.v_ref__V
 
     # --- PPA accessors ---
 
     @property
     def area_per_inst__um2(self) -> float:
         """Silicon area per instance [um^2]."""
-        return self.cfg.area_per_inst__um2
+        return self.config.area_per_inst__um2
 
     @property
     def leakage_per_inst__uW(self) -> float:
         """Static leakage per instance [uW]."""
-        return self.cfg.leakage_per_inst__uW
+        return self.config.leakage_per_inst__uW
 
     @property
     def latency_per_op__ns(self) -> float:
         """Latency per op [ns]."""
-        return self.cfg.latency_per_op__ns
+        return self.config.latency_per_op__ns
 
     # --- fabricate ---
 
@@ -186,7 +206,7 @@ class OpAmpTIA(TIA):
         self.opamp_gain = apply_gaussian(
             self.nominal_opamp_gain.clone().expand(self._inst_shape),
             self.sigma_opamp_gain,
-            enabled=self.cfg.enable_opamp_gain_sigma,
+            enabled=self.policy.opamp_gain_sigma,
         )
 
     # --- snapshot ---
@@ -245,9 +265,9 @@ class OpAmpTIA(TIA):
             small-signal sensitivities ``∂v_clamp/∂i_port`` and
             ``∂v_out/∂i_port`` ([V/uA] = [MOhm]).
         """
-        v_ref = self.cfg.v_ref__V
-        v_nmos_bias = self.cfg.v_nmos_bias__V
-        v_dd = self.cfg.v_dd__V
+        v_ref = self.config.v_ref__V
+        v_nmos_bias = self.config.v_nmos_bias__V
+        v_dd = self.config.v_dd__V
 
         opamp_gain = snapshot.opamp_gain
         nmos_snapshot = snapshot.nmos_snapshot

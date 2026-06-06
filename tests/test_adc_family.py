@@ -104,7 +104,7 @@ def test_general_adc_rejects_bad_runtime_args() -> None:
 
 
 def test_mcs_sar_smoke() -> None:
-    cfg = McsSarAdcConfig(
+    config = McsSarAdcConfig(
         max_bits=8,
         v_refs__V=(1.2064,),
         clk_period__ns=1.0,
@@ -118,7 +118,7 @@ def test_mcs_sar_smoke() -> None:
         leakage_per_inst__uW=0.0,
         area_per_inst__um2=0.0,
     )
-    adc = McsSarAdc(cfg, T__K=300.0)
+    adc = McsSarAdc(config, T__K=300.0)
     adc.fabricate(())
     adc.eval()
     v_pos, v_neg = _diff_signal()
@@ -134,7 +134,7 @@ def test_mcs_sar_smoke() -> None:
 
 def test_mcs_sar_reduced_bits_clamps_codes() -> None:
     """When ``bits < max_bits`` codes fit in ``[0, 2**bits - 1]``."""
-    cfg = McsSarAdcConfig(
+    config = McsSarAdcConfig(
         max_bits=8,
         v_refs__V=(1.0,),
         clk_period__ns=1.0,
@@ -148,7 +148,7 @@ def test_mcs_sar_reduced_bits_clamps_codes() -> None:
         leakage_per_inst__uW=0.0,
         area_per_inst__um2=0.0,
     )
-    adc = McsSarAdc(cfg, T__K=300.0)
+    adc = McsSarAdc(config, T__K=300.0)
     adc.fabricate(())
     adc.eval()
     v_pos, v_neg = _diff_signal()
@@ -160,7 +160,7 @@ def test_mcs_sar_reduced_bits_clamps_codes() -> None:
 
 def test_mcs_sar_invalid_runtime_args() -> None:
     """convert() rejects out-of-range mode / bits arguments."""
-    cfg = McsSarAdcConfig(
+    config = McsSarAdcConfig(
         max_bits=8,
         v_refs__V=(1.0,),
         clk_period__ns=1.0,
@@ -174,7 +174,7 @@ def test_mcs_sar_invalid_runtime_args() -> None:
         leakage_per_inst__uW=0.0,
         area_per_inst__um2=0.0,
     )
-    adc = McsSarAdc(cfg, T__K=300.0)
+    adc = McsSarAdc(config, T__K=300.0)
     adc.fabricate(())
     adc.eval()
     v_pos, v_neg = _diff_signal()
@@ -188,7 +188,7 @@ def test_mcs_sar_invalid_runtime_args() -> None:
 
 def test_mcs_sar_multi_v_ref_supported() -> None:
     """Multiple V_refs share the same ADC instance; selected per call."""
-    cfg = McsSarAdcConfig(
+    config = McsSarAdcConfig(
         max_bits=8,
         v_refs__V=(1.0, 0.5),
         clk_period__ns=1.0,
@@ -202,7 +202,7 @@ def test_mcs_sar_multi_v_ref_supported() -> None:
         leakage_per_inst__uW=0.0,
         area_per_inst__um2=0.0,
     )
-    adc = McsSarAdc(cfg, T__K=300.0)
+    adc = McsSarAdc(config, T__K=300.0)
     adc.fabricate(())
     adc.eval()
     v_pos = torch.tensor([0.1, 0.4, 0.7])
@@ -215,8 +215,8 @@ def test_mcs_sar_multi_v_ref_supported() -> None:
 
 def test_pipeline_adc_throughput_latency() -> None:
     mode = ADCMode(n_bits=4, n_states=16, max_signal=1.0)
-    cfg = PipelineADCConfig(modes=(mode,), clk_period__ns=1.0, n_stages=4, pipeline_depth=2)
-    adc = PipelineADC(cfg)
+    config = PipelineADCConfig(modes=(mode,), clk_period__ns=1.0, n_stages=4, pipeline_depth=2)
+    adc = PipelineADC(config)
     adc.eval()
     assert math.isclose(adc.latency_per_op__ns(bits=4), 6.0)
 
@@ -237,7 +237,7 @@ def test_ramp_adc_2power_n_cycles() -> None:
 
 def test_mcs_sar_introspection_methods() -> None:
     """``available_modes`` and ``max_bits`` surface runtime options."""
-    cfg = McsSarAdcConfig(
+    config = McsSarAdcConfig(
         max_bits=8,
         v_refs__V=(1.0, 0.5, 0.25),
         clk_period__ns=1.0,
@@ -251,6 +251,6 @@ def test_mcs_sar_introspection_methods() -> None:
         leakage_per_inst__uW=0.0,
         area_per_inst__um2=0.0,
     )
-    adc = McsSarAdc(cfg, T__K=300.0)
+    adc = McsSarAdc(config, T__K=300.0)
     assert adc.available_modes() == (1.0, 0.5, 0.25)
     assert adc.max_bits() == 8

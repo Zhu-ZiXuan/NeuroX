@@ -7,8 +7,6 @@ when the chosen config carries a physical xbar that has an ideal twin.
 the hand-built crossbar model (``direct``).
 """
 
-# ruff: noqa: T201
-
 import argparse
 from pathlib import Path
 
@@ -84,12 +82,12 @@ def main() -> None:
     if not config_path.is_file():
         raise SystemExit(f"--macro-config: file not found: {config_path}")
 
-    cfg = read_macro_config(config_path)
-    can_override = supports_xbar_override(cfg)
+    config = read_macro_config(config_path)
+    can_override = supports_xbar_override(config)
     if args.xbar is not None and not can_override:
         raise SystemExit(
             f"--xbar is valid only when --macro-config carries a physical xbar; "
-            f"{args.macro_config} does not (cfg={type(cfg).__name__})."
+            f"{args.macro_config} does not (config={type(config).__name__})."
         )
     ideal_xbar = can_override and args.xbar == "ideal"
 

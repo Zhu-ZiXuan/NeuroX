@@ -69,7 +69,7 @@ _SPECS = {
 
 
 def _compute_nmos_ref_conductance(
-    cfg_nmos: NMOSConfig,
+    config_nmos: NMOSConfig,
     v_dd_wl: float,
     v_bl_clamp: float,
 ) -> tuple[float, float]:
@@ -79,11 +79,11 @@ def _compute_nmos_ref_conductance(
     sigmas ``None`` — returns the deterministic scalar conductances
     the test expects from the operating point.
     """
-    beta = cfg_nmos.mu_Cox__mA_V2 * (cfg_nmos.W__nm / cfg_nmos.L__nm)
+    beta = config_nmos.mu_Cox__mA_V2 * (config_nmos.W__nm / config_nmos.L__nm)
     V_T = thermal_voltage__V(T_ROOM__K)
-    g_on = max(beta * (v_dd_wl - cfg_nmos.vth0__V), 1e-12)
-    i_0 = beta * (cfg_nmos.n_factor - 1.0) * (V_T**2)
-    i_off = i_0 * math.exp(-cfg_nmos.vth0__V / (cfg_nmos.n_factor * V_T))
+    g_on = max(beta * (v_dd_wl - config_nmos.vth0__V), 1e-12)
+    i_0 = beta * (config_nmos.n_factor - 1.0) * (V_T**2)
+    i_off = i_0 * math.exp(-config_nmos.vth0__V / (config_nmos.n_factor * V_T))
     g_off = i_off / v_bl_clamp
     return g_on, g_off
 
@@ -97,33 +97,33 @@ def _build_xbar() -> Offset1T1RXbar:
     device / circuit module is built per-core from its own factory so
     no per-instance state is shared across cores.
     """
-    cfg = dict_configs_from_file(_SPECS, CONFIG_FILE)
-    rram_factory = partial(RRAM, cfg["rram"], dtype=torch.float64)
-    nmos_factory = partial(NMOS, cfg["nmos"], T__K=T_ROOM__K, dtype=torch.float64)
-    tia_nmos_factory = partial(NMOS, cfg["tia_nmos"], T__K=T_ROOM__K, dtype=torch.float64)
-    tia_factory = partial(OpAmpTIA, cfg["tia"], nmos_factory=tia_nmos_factory, dtype=torch.float64)
+    config = dict_configs_from_file(_SPECS, CONFIG_FILE)
+    rram_factory = partial(RRAM, config["rram"], dtype=torch.float64)
+    nmos_factory = partial(NMOS, config["nmos"], T__K=T_ROOM__K, dtype=torch.float64)
+    tia_nmos_factory = partial(NMOS, config["tia_nmos"], T__K=T_ROOM__K, dtype=torch.float64)
+    tia_factory = partial(OpAmpTIA, config["tia"], nmos_factory=tia_nmos_factory, dtype=torch.float64)
     core_factory = partial(
         CircuitCore1T1R,
-        cfg["core"],
+        config["core"],
         rram_factory=rram_factory,
         nmos_factory=nmos_factory,
         tia_factory=tia_factory,
-        sl_driver_factory=partial(Driver, cfg["sl_driver"], dtype=torch.float64),
-        wl_dac_factory=partial(GeneralDAC, cfg["wl_dac"], dtype=torch.float64),
+        sl_driver_factory=partial(Driver, config["sl_driver"], dtype=torch.float64),
+        wl_dac_factory=partial(GeneralDAC, config["wl_dac"], dtype=torch.float64),
         dtype=torch.float64,
     )
-    xbar_cfg = cfg["xbar"]
+    xbar_config = config["xbar"]
     readout_factory = partial(
         OffsetSwitchCapMuxAdcReadOut,
-        cfg["readout"],
-        data_switchcap_factory=partial(SwitchCap, cfg["data_switchcap"], T__K=T_ROOM__K, dtype=torch.float64),
-        ref_switchcap_factory=partial(SwitchCap, cfg["ref_switchcap"], T__K=T_ROOM__K, dtype=torch.float64),
-        analog_mux_factory=partial(AnalogMux, cfg["analog_mux"], dtype=torch.float64),
-        adc_factory=partial(GeneralADC, cfg["bl_adc"], dtype=torch.float64),
+        config["readout"],
+        data_switchcap_factory=partial(SwitchCap, config["data_switchcap"], T__K=T_ROOM__K, dtype=torch.float64),
+        ref_switchcap_factory=partial(SwitchCap, config["ref_switchcap"], T__K=T_ROOM__K, dtype=torch.float64),
+        analog_mux_factory=partial(AnalogMux, config["analog_mux"], dtype=torch.float64),
+        adc_factory=partial(GeneralADC, config["bl_adc"], dtype=torch.float64),
         dtype=torch.float64,
     )
     return Offset1T1RXbar(
-        cfg=xbar_cfg,
+        config=xbar_config,
         core_factory=core_factory,
         readout_factory=readout_factory,
     )
@@ -232,19 +232,19 @@ class TestXbar64x64:
     def reference(self):
         """Return analytic reference parameters from config."""
         raw = dict_from_file(CONFIG_FILE)
-        cfg = dict_configs_from_file(_SPECS, CONFIG_FILE)
-        v_dd_wl = float(cfg["wl_dac"].code_to_signal[-1])
-        v_bl_clamp = cfg["bl_adc"].drive_value
-        g_on, g_off = _compute_nmos_ref_conductance(cfg["nmos"], v_dd_wl, v_bl_clamp)
+        config = dict_configs_from_file(_SPECS, CONFIG_FILE)
+        v_dd_wl = float(config["wl_dac"].code_to_signal[-1])
+        v_bl_clamp = config["bl_adc"].drive_value
+        g_on, g_off = _compute_nmos_ref_conductance(config["nmos"], v_dd_wl, v_bl_clamp)
         return {
-            "state_to_g": torch.tensor(cfg["rram"].state_to_g__mS, dtype=torch.float64),
-            "boundaries": torch.tensor(cfg["bl_adc"].boundaries, dtype=torch.float64),
+            "state_to_g": torch.tensor(config["rram"].state_to_g__mS, dtype=torch.float64),
+            "boundaries": torch.tensor(config["bl_adc"].boundaries, dtype=torch.float64),
             "bl_drive": v_bl_clamp,
             "sl_drive": raw["sl_driver"]["drive_value"],
-            "alpha": cfg["rram"].nonlinearity_alpha,
+            "alpha": config["rram"].nonlinearity_alpha,
             "g_on": g_on,
             "g_off": g_off,
-            "ref_group_size": cfg["xbar"].ref_group_size,
+            "ref_group_size": config["xbar"].ref_group_size,
         }
 
     def test_many_random_pairs(

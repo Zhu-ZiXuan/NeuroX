@@ -39,10 +39,6 @@ class NMOSConfig(ValidateMixin):
             ``σ_Vt = A_vt · 1e-3 / sqrt(W · L)``.
         A_beta_relative__um: Pelgrom relative-β matching coefficient
             [μm]; ``σ_β / β = A_beta_relative / sqrt(W · L)``.
-        enable_A_vt_mismatch: Apply ``A_vt`` Pelgrom mismatch at
-            fabricate time.
-        enable_A_beta_mismatch: Apply ``A_beta_relative`` Pelgrom
-            mismatch at fabricate time.
     """
 
     # --- Process electrical ---
@@ -60,11 +56,9 @@ class NMOSConfig(ValidateMixin):
 
     # --- V_th Pelgrom mismatch ---
     A_vt__mV_um: float
-    enable_A_vt_mismatch: bool
 
     # --- β Pelgrom mismatch ---
     A_beta_relative__um: float
-    enable_A_beta_mismatch: bool
 
     def __post_init__(self) -> None:
         self.validate()
@@ -86,6 +80,19 @@ class NMOSConfig(ValidateMixin):
     def validate_mismatch(self) -> None:
         self._require_nonneg(self.A_vt__mV_um, "A_vt__mV_um")
         self._require_nonneg(self.A_beta_relative__um, "A_beta_relative__um")
+
+
+@dataclass(frozen=True)
+class NMOSPolicy:
+    """Per-source toggles selecting which NMOS nonidealities are active.
+
+    Attributes:
+        A_vt_mismatch: Apply ``A_vt`` Pelgrom V_th mismatch at fabricate time.
+        A_beta_mismatch: Apply ``A_beta_relative`` Pelgrom β mismatch at fabricate time.
+    """
+
+    A_vt_mismatch: bool
+    A_beta_mismatch: bool
 
 
 @dataclass(frozen=True)
@@ -122,7 +129,8 @@ class NMOS(FabricateMixin, nn.Module):
     """EKV-softplus NMOS electrical primitive.
 
     Args:
-        cfg: Concrete configuration dataclass.
+        config: Concrete configuration dataclass.
+        policy: Per-source nonideality enable flags.
         inst_shape: Per-instance fabrication shape.
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature [K].
@@ -138,7 +146,8 @@ class NMOS(FabricateMixin, nn.Module):
     def __init__(
         self,
         *,
-        cfg: NMOSConfig,
+        config: NMOSConfig,
+        policy: NMOSPolicy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -152,26 +161,27 @@ class NMOS(FabricateMixin, nn.Module):
         if not (L__um > 0.0):
             raise ValueError(f"require: L__um ({L__um}) > 0.0")
 
-        self.cfg = cfg
+        self.config = config
+        self.policy = policy
         self._inst_shape = inst_shape
         self.W__um = W__um
         self.L__um = L__um
         self.T__K = T__K
         self.dtype = dtype
 
-        T_ratio = T__K / cfg.T_ref__K
-        mu_scale = math.pow(T_ratio, -cfg.ute)
-        vth_shift__V = cfg.kt1__V * (T_ratio - 1.0)
+        T_ratio = T__K / config.T_ref__K
+        mu_scale = math.pow(T_ratio, -config.ute)
+        vth_shift__V = config.kt1__V * (T_ratio - 1.0)
 
         # --- Derived electrical constants ---
 
         # Smoothing scale used by softplus and sigmoid.
-        self._inv_smooth_scale__per_V = 1.0 / (2.0 * cfg.n_factor * thermal_voltage__V(T__K))
+        self._inv_smooth_scale__per_V = 1.0 / (2.0 * config.n_factor * thermal_voltage__V(T__K))
 
         # Nominal parameter
-        nominal_mu__cm2_per_V_s = cfg.mu0__cm2_per_V_s * mu_scale
-        nominal_beta__uA_per_V2 = nominal_mu__cm2_per_V_s * cfg.c_ox__fF_per_um2 * 0.1 * (W__um / L__um)
-        nominal_vth__V = cfg.vth0__V + vth_shift__V
+        nominal_mu__cm2_per_V_s = config.mu0__cm2_per_V_s * mu_scale
+        nominal_beta__uA_per_V2 = nominal_mu__cm2_per_V_s * config.c_ox__fF_per_um2 * 0.1 * (W__um / L__um)
+        nominal_vth__V = config.vth0__V + vth_shift__V
 
         self.register_buffer(
             "nominal_beta__uA_per_V2",
@@ -196,20 +206,20 @@ class NMOS(FabricateMixin, nn.Module):
 
         # Pelgrom area-scaled sigmas precomputed once.
         nominal_isqrt_area__per_um = 1.0 / math.sqrt(W__um * L__um)
-        self.sigma_vth__V = cfg.A_vt__mV_um * 1e-3 * nominal_isqrt_area__per_um
-        self.sigma_beta__uA_per_V2 = nominal_beta__uA_per_V2 * cfg.A_beta_relative__um * nominal_isqrt_area__per_um
+        self.sigma_vth__V = config.A_vt__mV_um * 1e-3 * nominal_isqrt_area__per_um
+        self.sigma_beta__uA_per_V2 = nominal_beta__uA_per_V2 * config.A_beta_relative__um * nominal_isqrt_area__per_um
 
     def _sample_fabricate_mismatch(self) -> None:
         """Resample β and V_th at ``self._inst_shape`` (re-callable)."""
         self.beta__uA_per_V2 = apply_gaussian(
             self.nominal_beta__uA_per_V2.clone().expand(self._inst_shape),
             self.sigma_beta__uA_per_V2,
-            enabled=self.cfg.enable_A_beta_mismatch,
+            enabled=self.policy.A_beta_mismatch,
         )
         self.vth__V = apply_gaussian(
             self.nominal_vth__V.clone().expand(self._inst_shape),
             self.sigma_vth__V,
-            enabled=self.cfg.enable_A_vt_mismatch,
+            enabled=self.policy.A_vt_mismatch,
         )
 
     def snapshot(self, *, shape: tuple[int, ...]) -> NMOSSnapshot:

@@ -7,8 +7,9 @@ Degenerate XbarMacro family member, declared in `neurox/macro/xbar/ideal.py`. Lo
 - `IdealXbarMacroConfig` — frozen dataclass with:
   - `x_value_range: tuple[int, int]`
   - `w_value_range: tuple[int, int]`
+- `IdealXbarMacroPolicy(XbarMacroPolicy)` — **empty marker** with no fields. The ideal macro has no nonidealities. Callers still pass `IdealXbarMacroPolicy()` for API uniformity with the rest of the family.
 - `IdealXbarMacro` — registered via `@XbarMacro.register_key(IdealXbarMacroConfig)`.
-  - Init signature matches the family root: `(*, cfg, name, w_logical_shape, dtype, T__K, ideal_xbar)`. `dtype`, `T__K`, and `ideal_xbar` are accepted for API uniformity and ignored.
+  - Init signature matches the family root: `(*, config, policy, name, w_logical_shape, dtype, T__K, ideal_xbar)`. `policy`, `dtype`, `T__K`, and `ideal_xbar` are accepted for API uniformity and ignored.
   - `program(weight)` stores the integer weight tensor verbatim into `self.weight`.
   - `matmul(input, *, adc_operation_point)` widens to `int64` and runs `torch.matmul(input, weight.T)` — pure integer, no quantization. `adc_operation_point` is accepted for API uniformity and ignored.
   - ADC surface is sentinel-valued: `adc_mode_num == 1`, `adc_max_bits == 0`, `adc_rescale_factor(adc_operation_point) == 1.0`. The `adc_max_bits == 0` sentinel propagates into the operator's default `AdcOperationPoint(adc_mode=0, adc_bits=0)`, which `IdealXbar` (when used as a sibling member) interprets as "skip output quantization".

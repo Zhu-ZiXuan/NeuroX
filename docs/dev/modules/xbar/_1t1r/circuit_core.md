@@ -28,7 +28,17 @@ Physical shape is committed at `__init__` via the `w_layout_shape` argument.
 - `state_to_g_map__uS` — state-index to target-conductance lookup table
 - child configs for every owned module
 
-`CircuitCore1T1R.__init__(*, cfg, name, w_layout_shape, dtype, T__K)` accepts `w_layout_shape = (*prefix, phys_col_num, row_num)`. The core constructs every owned child with a derived `inst_shape`:
+`CircuitCore1T1RPolicy` is a structured composite policy with one sub-policy per child:
+
+- `rram: RRAMPolicy`
+- `nmos: NMOSPolicy` — the cell-access NMOS
+- `tia: TIAPolicy` — abstract base; the concrete impl (e.g. `OpAmpTIAPolicy`) is passed by the caller
+- `sl_driver: DriverPolicy`
+- `wl_dac: DACPolicy` — abstract base; concrete impl (e.g. `GeneralDACPolicy`) is passed
+
+The core forwards each sub-policy into the matching child constructor verbatim.
+
+`CircuitCore1T1R.__init__(*, config, policy, name, w_layout_shape, dtype, T__K)` accepts `w_layout_shape = (*prefix, phys_col_num, row_num)`. The core constructs every owned child with a derived `inst_shape`:
 
 - `rram` / `nmos` — `inst_shape = w_layout_shape` (one per-cell mismatch sample).
 - `tia` / `sl_driver` — `inst_shape = (phys_col_num,)` (per-column mismatch shared across prefix). BL and SL are both column-shared, so they share the per-col instance layout.
@@ -38,9 +48,9 @@ Physical shape is committed at `__init__` via the `w_layout_shape` argument.
 
 Cross-field validation enforces:
 
-- `rram_g_max__uS > rram_cfg.g_min__uS`
+- `rram_g_max__uS > rram_config.g_min__uS`
 - `state_to_g_map__uS` strictly increasing, length ≥ 2
-- `state_to_g_map__uS[0] >= rram_cfg.g_min__uS`
+- `state_to_g_map__uS[0] >= rram_config.g_min__uS`
 - `state_to_g_map__uS[-1] <= rram_g_max__uS`
 
 ## Access-NMOS parasitics

@@ -11,7 +11,7 @@ It deliberately does **not** provide a single `from_*(...)` classmethod. Each fa
 The mixin is `Generic[KeyT, ImplT]`:
 
 - `KeyT` — the registry key's runtime type. Two common choices:
-  - `KeyT = type[SomeConfig]` — config-class-keyed dispatch. Callers that hold a config instance `cfg` look it up via `cls._lookup_impl(type(cfg))`.
+  - `KeyT = type[SomeConfig]` — config-class-keyed dispatch. Callers that hold a config instance `config` look it up via `cls._lookup_impl(type(config))`.
   - `KeyT = SomeLiteral` — string-discriminator dispatch (e.g. `Transcoder` keyed by the `Encoding` literal). Callers pass the literal directly: `cls._lookup_impl(encoding)`.
 - `ImplT` — the family's impl base type.
 
@@ -47,7 +47,7 @@ The decorator refuses to rebind a key already registered to a different impl cla
 
 `_lookup_impl(key)` returns the impl class registered for `key`, or raises `TypeError` with a `known: ...` listing of registered keys. The error message renders type keys by `__name__` and other keys by `repr(...)`.
 
-For config-class-keyed callers, the convention is to materialise the key from a config instance at the call site: `cls._lookup_impl(type(cfg))`. This keeps the `type()` step explicit and lets the mixin stay key-agnostic.
+For config-class-keyed callers, the convention is to materialise the key from a config instance at the call site: `cls._lookup_impl(type(config))`. This keeps the `type()` step explicit and lets the mixin stay key-agnostic.
 
 See also:
 

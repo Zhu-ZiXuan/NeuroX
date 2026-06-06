@@ -72,26 +72,34 @@ class XbarConfig(ValidateMixin):
         self._require_nonneg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
+@dataclass(frozen=True)
+class XbarPolicy:
+    """Abstract marker base for Xbar-family nonideality policies."""
+
+
 class Xbar(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["XbarConfig"], "Xbar"], ABC):
     """Abstract base class for a physical crossbar tile.
 
     Args:
-        cfg: Concrete configuration dataclass.
+        config: Concrete configuration dataclass.
+        policy: Composite nonideality policy.
         name: Hierarchical instance name used by the profiler.
         inst_shape: Per-instance multiplicity prefix; trailing
-            ``(col_num, w_digit_count, row_num)`` is derived from cfg.
+            ``(col_num, w_digit_count, row_num)`` is derived from config.
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature [K].
     """
 
-    cfg: XbarConfig
+    config: XbarConfig
+    policy: XbarPolicy
     T__K: float
     dtype: torch.dtype
 
     def __init__(
         self,
         *,
-        cfg: XbarConfig,
+        config: XbarConfig,
+        policy: XbarPolicy,
         name: str,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
@@ -99,16 +107,18 @@ class Xbar(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["XbarConf
     ) -> None:
         nn.Module.__init__(self)
         ProfileMixin.__init__(self, name)
-        self.cfg = cfg
+        self.config = config
+        self.policy = policy
         self.T__K = T__K
         self.dtype = dtype
 
         self._inst_shape = inst_shape
 
-        self.col_num = cfg.col_num
-        self.row_num = cfg.row_num
+        self.col_num = config.col_num
+        self.row_num = config.row_num
         self._rescale_lut: dict[AdcOperationPoint, float] = {
-            AdcOperationPoint(adc_mode=e.adc_mode, adc_bits=e.adc_bits): e.rescale_factor for e in cfg.adc_calibration
+            AdcOperationPoint(adc_mode=e.adc_mode, adc_bits=e.adc_bits): e.rescale_factor
+            for e in config.adc_calibration
         }
 
         # `_log_static` is called by the concrete subclass at the end of its
@@ -123,32 +133,40 @@ class Xbar(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["XbarConf
     def from_config(
         cls,
         *,
-        cfg: XbarConfig,
+        config: XbarConfig,
+        policy: XbarPolicy,
         name: str,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
     ) -> Xbar:
-        """Build the concrete impl registered for ``type(cfg)``."""
-        impl = cls._lookup_impl(type(cfg))
-        return impl(cfg=cfg, name=name, inst_shape=inst_shape, dtype=dtype, T__K=T__K)
+        """Build the concrete impl registered for ``type(config)``."""
+        impl = cls._lookup_impl(type(config))
+        return impl(
+            config=config,
+            policy=policy,
+            name=name,
+            inst_shape=inst_shape,
+            dtype=dtype,
+            T__K=T__K,
+        )
 
     # ----- PPA properties (delegated to the immutable config) -----
 
     @property
     def area_per_inst__um2(self) -> float:
         """Silicon area per instance [um^2]."""
-        return self.cfg.area_per_inst__um2
+        return self.config.area_per_inst__um2
 
     @property
     def leakage_per_inst__uW(self) -> float:
         """Static leakage per instance [uW]."""
-        return self.cfg.leakage_per_inst__uW
+        return self.config.leakage_per_inst__uW
 
     @property
     def latency_per_op__ns(self) -> float:
         """Latency per op [ns]."""
-        return self.cfg.latency_per_op__ns
+        return self.config.latency_per_op__ns
 
     # ----- Value-domain semantics (abstract) -----
 
@@ -240,10 +258,10 @@ class Xbar(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["XbarConf
         """
         # Local import — the ``ideal`` module imports from this file,
         # so the symbol is only safe to resolve at call time.
-        from .ideal import IdealXbar, IdealXbarConfig
+        from .ideal import IdealXbar, IdealXbarConfig, IdealXbarPolicy
 
-        base_kwargs = {f.name: getattr(self.cfg, f.name) for f in fields(XbarConfig)}
-        ideal_cfg = IdealXbarConfig(
+        base_kwargs = {f.name: getattr(self.config, f.name) for f in fields(XbarConfig)}
+        ideal_config = IdealXbarConfig(
             **base_kwargs,
             x_range=self.x_range,
             w_digit_count=self.w_digit_count,
@@ -253,7 +271,8 @@ class Xbar(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["XbarConf
             adc_max_bits=self.adc_max_bits,
         )
         return IdealXbar(
-            cfg=ideal_cfg,
+            config=ideal_config,
+            policy=IdealXbarPolicy(),
             name=self.qualified_name,
             inst_shape=self._inst_shape,
             dtype=self.dtype,

@@ -17,7 +17,7 @@ from neurox.common.nonideality import (
 )
 from neurox.common.physical_constant import K_BOLTZMANN__J_per_K
 
-from .base import ADC, ADCConfig, AdcOperationPoint
+from .base import ADC, ADCConfig, AdcOperationPoint, ADCPolicy
 
 
 @dataclass(frozen=True)
@@ -39,14 +39,6 @@ class McsSarAdcConfig(ADCConfig):
             comparator threshold [V].
         comparator_thermal_noise_sigma__V: Per-cycle Gaussian sigma
             for thermal comparator noise [V].
-        enable_cap_mismatch: Apply ``cap_mismatch_sigma_relative`` at
-            fabricate time.
-        enable_comparator_offset: Apply
-            ``comparator_offset_sigma__V`` at fabricate time.
-        enable_comparator_thermal_noise: Apply
-            ``comparator_thermal_noise_sigma__V`` per SAR cycle.
-        enable_sampling_thermal_noise: Apply kT/C sampling thermal
-            noise on the held top plates.
         e_bootstrap__fJ: Per-conversion bootstrapped sampling-switch
             overhead [fJ].
         e_constant_per_bit__fJ: Per-cycle SAR strobe / logic / control
@@ -67,18 +59,12 @@ class McsSarAdcConfig(ADCConfig):
 
     # --- Cap mismatch (Pelgrom) ---
     cap_mismatch_sigma_relative: float
-    enable_cap_mismatch: bool
 
     # --- Comparator static offset ---
     comparator_offset_sigma__V: float
-    enable_comparator_offset: bool
 
     # --- Comparator thermal noise (per-cycle) ---
     comparator_thermal_noise_sigma__V: float
-    enable_comparator_thermal_noise: bool
-
-    # --- Sampling thermal noise (kT/C) ---
-    enable_sampling_thermal_noise: bool
 
     # --- Energy ---
     e_bootstrap__fJ: float
@@ -128,12 +114,30 @@ class McsSarAdcConfig(ADCConfig):
         self._require_nonneg(self.area_per_inst__um2, "area_per_inst__um2")
 
 
+@dataclass(frozen=True)
+class McsSarAdcPolicy(ADCPolicy):
+    """Per-source toggles selecting which McsSarAdc nonidealities are active.
+
+    Attributes:
+        cap_mismatch: Apply ``cap_mismatch_sigma_relative`` at fabricate time.
+        comparator_offset: Apply ``comparator_offset_sigma__V`` at fabricate time.
+        comparator_thermal_noise: Apply ``comparator_thermal_noise_sigma__V`` per SAR cycle.
+        sampling_thermal_noise: Apply kT/C sampling thermal noise on the held top plates.
+    """
+
+    cap_mismatch: bool
+    comparator_offset: bool
+    comparator_thermal_noise: bool
+    sampling_thermal_noise: bool
+
+
 @ADC.register_key(McsSarAdcConfig)
 class McsSarAdc(ADC):
     """V_cm-based (MCS) differential SAR ADC.
 
     Args:
-        cfg: Concrete configuration dataclass.
+        config: Concrete configuration dataclass.
+        policy: Per-source nonideality enable flags.
         name: Hierarchical instance name used by the profiler.
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature [K].
@@ -148,27 +152,36 @@ class McsSarAdc(ADC):
     def __init__(
         self,
         *,
-        cfg: McsSarAdcConfig,
+        config: McsSarAdcConfig,
+        policy: McsSarAdcPolicy,
         name: str,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
     ) -> None:
-        super().__init__(cfg=cfg, name=name, inst_shape=inst_shape, dtype=dtype, T__K=T__K)
+        super().__init__(
+            config=config,
+            policy=policy,
+            name=name,
+            inst_shape=inst_shape,
+            dtype=dtype,
+            T__K=T__K,
+        )
         if not (T__K > 0.0):
             raise ValueError(f"McsSarAdc T__K ({T__K}) must be > 0")
 
-        self.cfg = cfg
+        self.config = config
+        self.policy = policy
         self.T__K = T__K
         self.dtype = dtype
 
-        self.comparator_noise_sigma__V = cfg.comparator_thermal_noise_sigma__V * math.sqrt(T__K / 300.0)
+        self.comparator_noise_sigma__V = config.comparator_thermal_noise_sigma__V * math.sqrt(T__K / 300.0)
 
-        self.n_caps = cfg.max_bits
+        self.n_caps = config.max_bits
 
-        c_unit = cfg.c_unit__fF
+        c_unit = config.c_unit__fF
         nominal_c__fF = torch.tensor(
-            [c_unit] + [c_unit * (2**k) for k in range(cfg.max_bits - 1)],
+            [c_unit] + [c_unit * (2**k) for k in range(config.max_bits - 1)],
             dtype=dtype,
         )
         self.register_buffer("nominal_c__fF", nominal_c__fF, persistent=False)
@@ -200,44 +213,45 @@ class McsSarAdc(ADC):
 
     def available_modes(self) -> tuple[float, ...]:
         """V_ref values the configured CDAC supports, in index order."""
-        return self.cfg.v_refs__V
+        return self.config.v_refs__V
 
     @property
     def mode_num(self) -> int:
         """Number of operating points — one per supported V_ref."""
-        return len(self.cfg.v_refs__V)
+        return len(self.config.v_refs__V)
 
     @property
     def max_bits(self) -> int:
         """Physical CDAC bit width — the maximum ``adc_bits`` value."""
-        return self.cfg.max_bits
+        return self.config.max_bits
 
     # --- fabricate (static non-idealities) ---
 
     def _sample_fabricate_mismatch(self) -> None:
         """Resample independent differential cap arrays and comparator offset."""
-        cfg = self.cfg
+        config = self.config
         inst_shape = self._inst_shape
 
         # Two independently-sampled cap arrays for the differential CDAC.
+        policy = self.policy
         self.c_p__fF = apply_pelgrom_mismatch(
             self.nominal_c__fF.clone().expand(*inst_shape, self.n_caps),
-            cfg.cap_mismatch_sigma_relative,
-            unit=cfg.c_unit__fF,
-            floor=0.1 * cfg.c_unit__fF,
-            enabled=cfg.enable_cap_mismatch,
+            config.cap_mismatch_sigma_relative,
+            unit=config.c_unit__fF,
+            floor=0.1 * config.c_unit__fF,
+            enabled=policy.cap_mismatch,
         )
         self.c_n__fF = apply_pelgrom_mismatch(
             self.nominal_c__fF.clone().expand(*inst_shape, self.n_caps),
-            cfg.cap_mismatch_sigma_relative,
-            unit=cfg.c_unit__fF,
-            floor=0.1 * cfg.c_unit__fF,
-            enabled=cfg.enable_cap_mismatch,
+            config.cap_mismatch_sigma_relative,
+            unit=config.c_unit__fF,
+            floor=0.1 * config.c_unit__fF,
+            enabled=policy.cap_mismatch,
         )
         self.comparator_offset__V = apply_gaussian(
             self.nominal_comparator_offset__V.clone().expand(inst_shape),
-            cfg.comparator_offset_sigma__V,
-            enabled=cfg.enable_comparator_offset,
+            config.comparator_offset_sigma__V,
+            enabled=policy.comparator_offset,
         )
 
     # --- ABC contract ---
@@ -245,12 +259,12 @@ class McsSarAdc(ADC):
     @property
     def area_per_inst__um2(self) -> float:
         """Silicon area per instance [um^2]."""
-        return self.cfg.area_per_inst__um2
+        return self.config.area_per_inst__um2
 
     @property
     def leakage_per_inst__uW(self) -> float:
         """Static leakage per instance [uW]."""
-        return self.cfg.leakage_per_inst__uW
+        return self.config.leakage_per_inst__uW
 
     def latency_per_op__ns(self, *, adc_operation_point: AdcOperationPoint) -> float:
         """Per-conversion latency ``(adc_bits + 1) · clk_period__ns``.
@@ -259,9 +273,9 @@ class McsSarAdc(ADC):
             adc_operation_point: Runtime operating point.  ``1 ≤ bits ≤ max_bits``.
         """
         bits = adc_operation_point.adc_bits
-        if not (1 <= bits <= self.cfg.max_bits):
-            raise ValueError(f"bits {bits} outside [1, {self.cfg.max_bits}]")
-        return (bits + 1) * self.cfg.clk_period__ns
+        if not (1 <= bits <= self.config.max_bits):
+            raise ValueError(f"bits {bits} outside [1, {self.config.max_bits}]")
+        return (bits + 1) * self.config.clk_period__ns
 
     # --- convert ---
 
@@ -286,8 +300,8 @@ class McsSarAdc(ADC):
         self._validate_runtime_args(adc_operation_point)
         bits = adc_operation_point.adc_bits
 
-        cfg = self.cfg
-        v_ref__V = cfg.v_refs__V[adc_operation_point.adc_mode]
+        config = self.config
+        v_ref__V = config.v_refs__V[adc_operation_point.adc_mode]
         v_cm__V = 0.5 * v_ref__V
 
         c_p__fF = self.c_p__fF
@@ -304,16 +318,16 @@ class McsSarAdc(ADC):
         # sample thermal noise: sigma_V² = k_B · T / C_total.
         kt__fJ = K_BOLTZMANN__J_per_K * self.T__K * 1e15
         v_p_top__V = apply_gaussian(
-            v_p_top__V, torch.sqrt(kt__fJ / c_p_total__fF), enabled=cfg.enable_sampling_thermal_noise
+            v_p_top__V, torch.sqrt(kt__fJ / c_p_total__fF), enabled=self.policy.sampling_thermal_noise
         )
         v_n_top__V = apply_gaussian(
-            v_n_top__V, torch.sqrt(kt__fJ / c_n_total__fF), enabled=cfg.enable_sampling_thermal_noise
+            v_n_top__V, torch.sqrt(kt__fJ / c_n_total__fF), enabled=self.policy.sampling_thermal_noise
         )
 
         # Sample energy: input source charges the bottom-plate caps from V_cm to V_in.
         e_p_sample__fJ = c_p_total__fF * v_pos__V * torch.clamp_min(v_pos__V - v_cm__V, 0)
         e_n_sample__fJ = c_n_total__fF * v_neg__V * torch.clamp_min(v_neg__V - v_cm__V, 0)
-        e_sample__fJ = e_p_sample__fJ + e_n_sample__fJ + cfg.e_bootstrap__fJ
+        e_sample__fJ = e_p_sample__fJ + e_n_sample__fJ + config.e_bootstrap__fJ
 
         # --- 2. MSB decision (free, no cap switch) ---
         # neg cap top to comparator Vin+, pos cap top to comparator Vin-
@@ -324,7 +338,7 @@ class McsSarAdc(ADC):
         e_detect__fJ = torch.zeros_like(v_pos__V)
         c_diff__fF = torch.zeros_like(v_pos__V)
         for k in range(bits - 2, -1, -1):
-            idx = k - bits + cfg.max_bits + 1
+            idx = k - bits + config.max_bits + 1
             c_p_k__fF = c_p__fF[..., idx]
             c_n_k__fF = c_n__fF[..., idx]
             # cap switch
@@ -343,7 +357,7 @@ class McsSarAdc(ADC):
             last_bit = self._compare(v_pos__V=v_n_top__V, v_neg__V=v_p_top__V)
             code = (code << 1) | last_bit.to(torch.int32)
 
-        e_detect__fJ = e_detect__fJ + bits * cfg.e_constant_per_bit__fJ
+        e_detect__fJ = e_detect__fJ + bits * config.e_constant_per_bit__fJ
 
         # --- reset: dissipate residual differential charge ---
         e_reset__fJ = torch.abs(0.5 * v_ref__V**2 * c_diff__fF)
@@ -376,7 +390,7 @@ class McsSarAdc(ADC):
         v_diff__V = apply_gaussian(
             v_pos__V - v_neg__V,
             self.comparator_noise_sigma__V,
-            enabled=self.cfg.enable_comparator_thermal_noise,
+            enabled=self.policy.comparator_thermal_noise,
         )
         return v_diff__V > self.comparator_offset__V
 
@@ -384,10 +398,10 @@ class McsSarAdc(ADC):
 
     def _validate_runtime_args(self, adc_operation_point: AdcOperationPoint) -> None:
         """Validate per-call ``adc_operation_point``."""
-        cfg = self.cfg
+        config = self.config
         bits = adc_operation_point.adc_bits
         mode = adc_operation_point.adc_mode
-        if not (0 <= mode < len(cfg.v_refs__V)):
-            raise ValueError(f"mode {mode} outside [0, {len(cfg.v_refs__V)})")
-        if not (1 <= bits <= cfg.max_bits):
-            raise ValueError(f"bits {bits} outside [1, {cfg.max_bits}]")
+        if not (0 <= mode < len(config.v_refs__V)):
+            raise ValueError(f"mode {mode} outside [0, {len(config.v_refs__V)})")
+        if not (1 <= bits <= config.max_bits):
+            raise ValueError(f"bits {bits} outside [1, {config.max_bits}]")

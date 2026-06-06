@@ -9,15 +9,22 @@
 `SelectorConfig` carries:
 
 - `vth_nominal__V` — nominal threshold voltage [V].
-- `vth_mismatch__V` + `enable_vth_mismatch` — additive Gaussian mismatch sigma on `vth__V` and its toggle.
+- `vth_mismatch__V` — additive Gaussian mismatch sigma on `vth__V` (gated by `SelectorPolicy.vth_mismatch`).
 
 Device-level only. The per-instance shape is **not** a config field — it is supplied as an explicit `__init__` argument because shape is a property of the deployment instance, not the device itself.
 
+## Policy boundary
+
+`SelectorPolicy` carries the per-run decision:
+
+- `vth_mismatch` — apply `vth_mismatch__V` per cell at fabricate time.
+
 ## Construction
 
-`Selector.__init__(*, cfg, inst_shape, dtype, T__K)`:
+`Selector.__init__(*, config, policy, inst_shape, dtype, T__K)`:
 
-- `cfg` — process / spec.
+- `config` — process / spec (`SelectorConfig`).
+- `policy` — runtime mismatch switch (`SelectorPolicy`).
 - `inst_shape` — per-instance fabrication shape over which the static threshold map is sampled.
 - `dtype`, `T__K` — uniform device-construction context (`T__K` currently unused by the selector model but stored for future use).
 

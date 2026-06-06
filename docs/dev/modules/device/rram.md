@@ -20,14 +20,26 @@
 
 `g_max__uS` is passed at `__init__` time as a separate kwarg; it is a design value bounded by external current limiting, not an intrinsic device parameter.
 
+## Policy boundary
+
+`RRAMPolicy` carries the per-run decision of which non-idealities to apply. Flat `bool` fields, no defaults:
+
+- `prog_gamma` — apply state-dependent programming Gamma at program time.
+- `stuck_at` — apply stuck-at faults at program time.
+- `read_telegraph` — apply telegraph noise at snapshot time.
+- `read_thermal` — apply Gaussian read noise at snapshot time.
+
+Constructed in code per call site (calibration tools pass all-False; training / inference pass the study-specific mix). Never persisted in TOML.
+
 ## Construction
 
-`RRAM.__init__(*, cfg, inst_shape, dtype, T__K, g_max__uS)`:
+`RRAM.__init__(*, config, policy, inst_shape, dtype, T__K, g_max__uS)`:
 
-- `cfg` — process + noise config.
+- `config` — process + noise config (`RRAMConfig`).
+- `policy` — runtime non-ideality switches (`RRAMPolicy`).
 - `inst_shape` — per-instance fabrication shape (the shape of the cell array under this RRAM instance).
 - `dtype`, `T__K` — runtime context.
-- `g_max__uS` — design ceiling, kept outside the cfg.
+- `g_max__uS` — design ceiling, kept outside the config.
 
 ## Programming interface
 

@@ -6,15 +6,17 @@
 
 `ReadOutConfig` is the family base config carrying only orchestration-level energy / PPA knobs. Concrete readout configs inherit and add their topology-specific member configs (data / ref switchcap, mux, ADC).
 
+`ReadOutPolicy` is the empty marker base policy for the family. Concrete readout impls declare their own structured `*Policy(ReadOutPolicy)` (e.g. `OffsetSwitchCapMuxAdcReadOutPolicy`) carrying nested sub-policies for every child the impl owns. The composite that holds a ReadOut stores the abstract `ReadOutPolicy` field type and the caller passes the concrete impl.
+
 ## Family-wide init signature
 
 Every concrete readout impl exposes:
 
 ```
-__init__(self, *, cfg, name, inst_shape, dtype, T__K, data_num, digit_weights)
+__init__(self, *, config, policy, name, inst_shape, dtype, T__K, data_num, digit_weights)
 ```
 
-- `cfg / name / inst_shape / dtype / T__K` — standard leaf-init bundle. `inst_shape` is `(*prefix, group_num)`.
+- `config / policy / name / inst_shape / dtype / T__K` — standard leaf-init bundle. `inst_shape` is `(*prefix, group_num)`.
 - `data_num: int` — number of data per reference group; fixes the data-leg SwitchCap's bank-axis size.
 - `digit_weights: tuple[float, ...]` — per-digit positional weights (length `digit_num`); drives the data-leg SwitchCap's `cap_weights`.
 

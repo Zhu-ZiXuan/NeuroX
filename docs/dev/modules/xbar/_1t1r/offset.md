@@ -9,9 +9,16 @@ It owns:
 - one `ReadOut`;
 - the xbar-level capability surface defined by the generic `Xbar` base.
 
+`Offset1T1RXbarPolicy(XbarPolicy)` is a structured composite policy with one sub-policy per child:
+
+- `core: CircuitCore1T1RPolicy`
+- `readout: ReadOutPolicy` — abstract base; the concrete impl (e.g. `OffsetSwitchCapMuxAdcReadOutPolicy`) is passed by the caller.
+
+The xbar forwards each sub-policy verbatim into the matching child.
+
 Current construction rule:
 
-- `Offset1T1RXbar.__init__(*, cfg, name, inst_shape, dtype, T__K)` receives `inst_shape` (the per-instance multiplicity prefix). The full digit-tensor shape `self._w_layout_shape = (*inst_shape, col_num, w_digit_count, row_num)` is derived inside the xbar.
+- `Offset1T1RXbar.__init__(*, config, policy, name, inst_shape, dtype, T__K)` receives `inst_shape` (the per-instance multiplicity prefix). The full digit-tensor shape `self._w_layout_shape = (*inst_shape, col_num, w_digit_count, row_num)` is derived inside the xbar.
 - The xbar derives its children's shapes once at `__init__`:
   - `core.w_layout_shape = (*inst_shape, physical_col_num, row_num)` where `physical_col_num = col_num * w_digit_count + n_groups`.
   - `readout.inst_shape = (*inst_shape, n_groups)`.

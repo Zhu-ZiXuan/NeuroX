@@ -13,7 +13,7 @@ from torch import Tensor
 
 from neurox.common.nonideality import apply_gaussian
 
-from .base import DAC, DACConfig
+from .base import DAC, DACConfig, DACPolicy
 
 
 @dataclass(frozen=True)
@@ -27,7 +27,6 @@ class GeneralDACConfig(DACConfig):
             codes.
         drive_thermal__V: Gaussian thermal noise sigma added to each
             output sample after LUT lookup [V].
-        enable_drive_thermal: Apply ``drive_thermal__V`` at convert time.
         energy_per_op__fJ: Dynamic energy per conversion operation
             [fJ].
         latency_per_op__ns: Conversion latency per operation [ns].
@@ -41,7 +40,6 @@ class GeneralDACConfig(DACConfig):
 
     # --- Drive thermal noise ---
     drive_thermal__V: float
-    enable_drive_thermal: bool
 
     # --- Energy / PPA ---
     energy_per_op__fJ: float
@@ -68,6 +66,17 @@ class GeneralDACConfig(DACConfig):
         self._require_nonneg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
+@dataclass(frozen=True)
+class GeneralDACPolicy(DACPolicy):
+    """Per-source toggles selecting which GeneralDAC nonidealities are active.
+
+    Attributes:
+        drive_thermal: Apply ``drive_thermal__V`` at convert time.
+    """
+
+    drive_thermal: bool
+
+
 @DAC.register_key(GeneralDACConfig)
 class GeneralDAC(DAC):
     """General DAC model."""
@@ -77,41 +86,50 @@ class GeneralDAC(DAC):
     def __init__(
         self,
         *,
-        cfg: GeneralDACConfig,
+        config: GeneralDACConfig,
+        policy: GeneralDACPolicy,
         name: str,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
     ) -> None:
         """Initialize the LUT buffer."""
-        super().__init__(cfg=cfg, name=name, inst_shape=inst_shape, dtype=dtype, T__K=T__K)
+        super().__init__(
+            config=config,
+            policy=policy,
+            name=name,
+            inst_shape=inst_shape,
+            dtype=dtype,
+            T__K=T__K,
+        )
 
-        self.cfg = cfg
+        self.config = config
+        self.policy = policy
         self.T__K = T__K
         self.dtype = dtype
 
-        self.register_buffer("code_to_signal", torch.tensor(cfg.code_to_signal, dtype=dtype), persistent=False)
+        self.register_buffer("code_to_signal", torch.tensor(config.code_to_signal, dtype=dtype), persistent=False)
         self._log_static()
 
     @property
     def area_per_inst__um2(self) -> float:
         """Silicon area per instance [um^2]."""
-        return self.cfg.area_per_inst__um2
+        return self.config.area_per_inst__um2
 
     @property
     def leakage_per_inst__uW(self) -> float:
         """Static leakage per instance [uW]."""
-        return self.cfg.leakage_per_inst__uW
+        return self.config.leakage_per_inst__uW
 
     @property
     def latency_per_op__ns(self) -> float:
         """Latency per op [ns]."""
-        return self.cfg.latency_per_op__ns
+        return self.config.latency_per_op__ns
 
     @property
     def code_max(self) -> int:
         """Maximum valid input code (inclusive); valid codes lie in ``[0, code_max]``."""
-        return len(self.cfg.code_to_signal) - 1
+        return len(self.config.code_to_signal) - 1
 
     def convert(self, code: Tensor) -> Tensor:
         """Convert integer digital codes to float analog voltages.
@@ -124,14 +142,14 @@ class GeneralDAC(DAC):
         """
         signal = apply_gaussian(
             self.code_to_signal[code],
-            self.cfg.drive_thermal__V,
-            enabled=self.cfg.enable_drive_thermal,
+            self.config.drive_thermal__V,
+            enabled=self.policy.drive_thermal,
         )
 
-        if self.cfg.energy_per_op__fJ != 0.0:
-            dynamic_energy__fJ = torch.full_like(signal, self.cfg.energy_per_op__fJ, dtype=torch.float32)
-            self._log_dynamic(dynamic_energy__fJ, self.cfg.latency_per_op__ns)
+        if self.config.energy_per_op__fJ != 0.0:
+            dynamic_energy__fJ = torch.full_like(signal, self.config.energy_per_op__fJ, dtype=torch.float32)
+            self._log_dynamic(dynamic_energy__fJ, self.config.latency_per_op__ns)
         else:
-            self._log_dynamic(0.0, self.cfg.latency_per_op__ns)
+            self._log_dynamic(0.0, self.config.latency_per_op__ns)
 
         return signal

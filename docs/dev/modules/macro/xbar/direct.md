@@ -37,8 +37,16 @@ Pick `DirectXbarMacro` when the chosen quantisation grid already lands inside on
 
 `DirectXbarMacroConfig` declares:
 
-- `xbar_cfg: XbarConfig` — owned physical-xbar config.
+- `xbar_config: XbarConfig` — owned physical-xbar config.
 - `w_encoding` — signed-digit encoding for the weight transcoder (activations are unsigned true-form by definition).
-- `col_accumulator_cfg` — `Tc`-axis cross-tile accumulator.
+- `col_accumulator_config` — `Tc`-axis cross-tile accumulator.
 
 No `w_slice_num` / `x_slice_num` / shift-adder configs — the direct macro doesn't slice.
+
+## Policy
+
+`DirectXbarMacroPolicy(XbarMacroPolicy)` carries the owned xbar's nonideality policy:
+
+- `xbar: XbarPolicy` — abstract base; the concrete impl (e.g. `Offset1T1RXbarPolicy` or `IdealXbarPolicy`) is passed by the caller.
+
+The macro forwards `policy.xbar` into `self._build_xbar(...)`. When `ideal_xbar=True` the forwarded policy is discarded in favour of the empty `IdealXbarPolicy()`.

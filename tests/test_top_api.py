@@ -70,7 +70,7 @@ class TestRoundtripImportOnly:
     """Build + run + profile using only ``import neurox`` (no submodule reach-in)."""
 
     def test_end_to_end_with_fake_macro(self) -> None:
-        from neurox.macro.xbar import IdealXbarMacro, IdealXbarMacroConfig, XbarMacro
+        from neurox.macro.xbar import IdealXbarMacro, IdealXbarMacroConfig, IdealXbarMacroPolicy, XbarMacro
 
         class Tiny(nn.Module):
             def __init__(self) -> None:
@@ -81,9 +81,10 @@ class TestRoundtripImportOnly:
                 return self.fc(x)
 
         def factory(*, name: str = "", w_logical_shape: tuple[int, ...] = (1, 1)) -> IdealXbarMacro:
-            cfg = IdealXbarMacroConfig(x_value_range=(-7, 7), w_value_range=(-7, 7))
+            config = IdealXbarMacroConfig(x_value_range=(-7, 7), w_value_range=(-7, 7))
             macro = XbarMacro.from_config(
-                cfg=cfg,
+                config=config,
+                policy=IdealXbarMacroPolicy(),
                 name=name,
                 w_logical_shape=w_logical_shape,
                 dtype=torch.float32,

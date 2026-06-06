@@ -11,8 +11,16 @@
 - `boundaries: list[float]` — sorted comparator thresholds in input units (uA for current-mode, V for voltage-mode).
 - `drive_value: float` — clamp reference voltage. Ignored when the clamp voltage comes from a separate driver block.
 - `input_transform: Literal["linear", "log2"]` — optional log-domain transform applied before bucketize.
-- `sampling_noise`, `comparator_noise`, `drive_thermal` — three optional Gaussian noise sigmas.
+- `sampling_noise__V`, `comparator_noise__V`, `drive_thermal__V` — three Gaussian noise sigmas.
 - PPA / latency fields.
+
+## Policy
+
+`GeneralADCPolicy(ADCPolicy)`:
+
+- `sampling_noise: bool` — apply `sampling_noise__V` at convert time.
+- `comparator_noise: bool` — apply `comparator_noise__V` at convert time.
+- `drive_thermal: bool` — apply `drive_thermal__V` at drive time.
 
 ## Convert pipeline
 

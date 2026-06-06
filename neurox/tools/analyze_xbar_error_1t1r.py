@@ -30,6 +30,7 @@ from neurox.common.nonideality import (
 from neurox.device import NMOS, RRAM
 from neurox.device.nmos import NMOSConfig
 from neurox.device.rram import RRAMConfig
+from neurox.tools.logging import config_tool_logging
 from neurox.xbar import IdealXbar, Offset1T1RXbar, Offset1T1RXbarConfig, Xbar
 
 logger = logging.getLogger(__name__)
@@ -89,7 +90,7 @@ _NOISE_PRESETS: dict[str, list[tuple[str, str, Any]]] = {
     ],
 }
 
-# Catalog of every noise sub-config across every chip-cfg section the
+# Catalog of every noise sub-config across every chip-config section the
 # 1T1R xbar consumes.  Kept local to this tool because the section /
 # field names are tied to the 1T1R config schema specifically — a
 # different crossbar topology would carry a different catalog.
@@ -107,18 +108,18 @@ _NOISE_FIELDS: dict[str, list[str]] = {
 # ---------------------------------------------------------------------- #
 
 
-def strip_all_noise(cfg: dict[str, Any]) -> dict[str, Any]:
-    """Return a copy of ``cfg`` with every known noise sub-config set to ``None``."""
-    out = dict(cfg)
+def strip_all_noise(config: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of ``config`` with every known noise sub-config set to ``None``."""
+    out = dict(config)
     for section, fields in _NOISE_FIELDS.items():
         if section in out:
             out[section] = dataclasses.replace(out[section], **dict.fromkeys(fields))
     return out
 
 
-def apply_noise_overlay(cfg: dict[str, Any], overlay: list[tuple[str, str, Any]]) -> dict[str, Any]:
-    """Return a copy of ``cfg`` with the (section, field, value) tuples applied."""
-    out = dict(cfg)
+def apply_noise_overlay(config: dict[str, Any], overlay: list[tuple[str, str, Any]]) -> dict[str, Any]:
+    """Return a copy of ``config`` with the (section, field, value) tuples applied."""
+    out = dict(config)
     section_updates: dict[str, dict[str, Any]] = {}
     for section, field, value in overlay:
         section_updates.setdefault(section, {})[field] = value
@@ -133,25 +134,25 @@ def apply_noise_overlay(cfg: dict[str, Any], overlay: list[tuple[str, str, Any]]
 
 
 def build_physical_xbar(
-    cfg: dict[str, Any],
+    config: dict[str, Any],
     raw: dict[str, Any],
     *,
     device: torch.device,
     dtype: torch.dtype,
 ) -> Offset1T1RXbar:
-    """Instantiate a :class:`Xbar1T1R` from a (cfg, raw) pair on ``device``."""
-    rram = RRAM(cfg=cfg["rram"], T__K=300.0, dtype=dtype, g_max__uS=cfg["core"].rram_g_max__uS)
-    nmos = NMOS(cfg["nmos"], dtype=dtype)
-    tia_nmos = NMOS(cfg["tia_nmos"], dtype=dtype)
-    tia = OpAmpTIA(cfg["tia"], nmos=tia_nmos, dtype=dtype)
+    """Instantiate a :class:`Xbar1T1R` from a (config, raw) pair on ``device``."""
+    rram = RRAM(config=config["rram"], T__K=300.0, dtype=dtype, g_max__uS=config["core"].rram_g_max__uS)
+    nmos = NMOS(config["nmos"], dtype=dtype)
+    tia_nmos = NMOS(config["tia_nmos"], dtype=dtype)
+    tia = OpAmpTIA(config["tia"], nmos=tia_nmos, dtype=dtype)
     return Offset1T1RXbar(
-        config=cfg["xbar"],
+        config=config["xbar"],
         rram=rram,
         nmos=nmos,
         tia=tia,
-        sl_driver=partial(Driver, cfg["sl_driver"], dtype=dtype),
-        wl_dac=partial(GeneralDAC, cfg["wl_dac"], dtype=dtype),
-        bl_adc=partial(GeneralADC, cfg["bl_adc"], dtype=dtype),
+        sl_driver=partial(Driver, config["sl_driver"], dtype=dtype),
+        wl_dac=partial(GeneralDAC, config["wl_dac"], dtype=dtype),
+        bl_adc=partial(GeneralADC, config["bl_adc"], dtype=dtype),
     ).to(device)
 
 
@@ -197,7 +198,7 @@ def compare_against_ideal(
     # the transcoder's natural output range).
     w_max = physical.w_digit_radix**physical.w_digit_count - 1
     x_max = physical.x_range[1]
-    adc_levels = 1 << physical.cfg.adc_bits
+    adc_levels = 1 << physical.config.adc_bits
 
     diffs: list[torch.Tensor] = []
     for w_trial in range(n_rand_w):
@@ -274,7 +275,7 @@ def _log_variant(label: str, stats: dict[str, float], elapsed_s: float) -> None:
 
 def measure_variant(
     label: str,
-    cfg: dict[str, Any],
+    config: dict[str, Any],
     raw: dict[str, Any],
     ideal: IdealXbar,
     *,
@@ -284,8 +285,8 @@ def measure_variant(
     device: torch.device,
     dtype: torch.dtype,
 ) -> dict[str, float]:
-    """Build a physical xbar from ``cfg``, compare to ``ideal``, log + return stats."""
-    physical = build_physical_xbar(cfg, raw, device=device, dtype=dtype)
+    """Build a physical xbar from ``config``, compare to ``ideal``, log + return stats."""
+    physical = build_physical_xbar(config, raw, device=device, dtype=dtype)
     t0 = time.time()
     stats = compare_against_ideal(
         physical,
@@ -302,17 +303,17 @@ def measure_variant(
     return stats
 
 
-def build_noise_variants(noiseless_cfg: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    """Return ``{label: cfg}`` for each isolated noise category + the all-combined.
+def build_noise_variants(noiseless_config: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Return ``{label: config}`` for each isolated noise category + the all-combined.
 
-    Every variant starts from the *noiseless* base ``cfg`` so each
+    Every variant starts from the *noiseless* base ``config`` so each
     category is measured against the same control.
     """
     variants: dict[str, dict[str, Any]] = {}
     for label, overlay in _NOISE_PRESETS.items():
-        variants[label] = apply_noise_overlay(noiseless_cfg, overlay)
+        variants[label] = apply_noise_overlay(noiseless_config, overlay)
     combined = [tup for overlay in _NOISE_PRESETS.values() for tup in overlay]
-    variants["all_noise"] = apply_noise_overlay(noiseless_cfg, combined)
+    variants["all_noise"] = apply_noise_overlay(noiseless_config, combined)
     return variants
 
 
@@ -329,10 +330,10 @@ def _run(
 ) -> None:
     """Top-level driver: load config, build all variants, print summary."""
     raw = dict_from_file(config)
-    full_cfg = dict_configs_from_file(_SPECS, config)
+    full_config = dict_configs_from_file(_SPECS, config)
 
-    noiseless_cfg = strip_all_noise(full_cfg)
-    noiseless = build_physical_xbar(noiseless_cfg, raw, device=device, dtype=dtype)
+    noiseless_config = strip_all_noise(full_config)
+    noiseless = build_physical_xbar(noiseless_config, raw, device=device, dtype=dtype)
     ideal = build_ideal_twin(noiseless, device=device)
 
     if not quiet:
@@ -342,7 +343,7 @@ def _run(
     # is sufficient — the path is deterministic.
     measure_variant(
         "noiseless_1t1r vs ideal",
-        noiseless_cfg,
+        noiseless_config,
         raw,
         ideal,
         n_rand_w=n_rand_w,
@@ -355,10 +356,10 @@ def _run(
     if not use_noise:
         return
 
-    for label, variant_cfg in build_noise_variants(noiseless_cfg).items():
+    for label, variant_config in build_noise_variants(noiseless_config).items():
         measure_variant(
             label,
-            variant_cfg,
+            variant_config,
             raw,
             ideal,
             n_rand_w=n_rand_w,
@@ -405,7 +406,7 @@ def main() -> None:
     """Console entry point: parse CLI, configure logging, dispatch ``_run``."""
     parser = _build_parser()
     args = parser.parse_args()
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    config_tool_logging()
     torch.set_grad_enabled(False)
     _run(
         config=args.config,

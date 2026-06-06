@@ -173,7 +173,7 @@ Inside function / method bodies, drop the annotation when the right-hand side tr
 - `self.x = 0` / `self.x = 0.0` / `self.x = ""` — literal of obvious type.
 - `self.x = float(...)` / `int(...)` / `tuple(...)` — builtin constructor's return is unambiguous.
 - `dcop = self.solver.solve_dc(...)` — the called method's typed return is the source of truth.
-- `self.x = cfg.field * cfg.other` — arithmetic on already-typed scalars.
+- `self.x = config.field * config.other` — arithmetic on already-typed scalars.
 
 The same rule applies to local variables, not just `self.*` assignments.
 
@@ -189,16 +189,16 @@ Buffer writes inside `_sample_fabricate_mismatch` and `program(...)` use **attri
 
 ## Per-instance shape parameter
 
-The construction signature for fabricable modules ends with three runtime-context arguments after `cfg` / `name`:
+The construction signature for fabricable modules ends with three runtime-context arguments after `config` / `name`:
 
 ```python
-def __init__(self, *, cfg, name, <shape>, dtype, T__K) -> None: ...
+def __init__(self, *, config, name, <shape>, dtype, T__K) -> None: ...
 ```
 
 The shape parameter name varies by layer:
 
 - leaf circuits (analog / digital / device): `inst_shape: tuple[int, ...]` — per-instance fabrication shape.
-- xbar tiles: `inst_shape: tuple[int, ...]` — per-instance multiplicity prefix. The xbar derives the trailing `(col_num, w_digit_count, row_num)` from its own cfg and exposes the full digit-tensor shape as `self._w_layout_shape`.
+- xbar tiles: `inst_shape: tuple[int, ...]` — per-instance multiplicity prefix. The xbar derives the trailing `(col_num, w_digit_count, row_num)` from its own config and exposes the full digit-tensor shape as `self._w_layout_shape`.
 - xbar macros: `w_logical_shape: tuple[int, ...]` — operator-facing weight shape `(*prefix, N, K)`.
 
 Every module stores `self._inst_shape: tuple[int, ...]` to satisfy `FabricateMixin`'s contract. At leaf and xbar level that is the constructor argument verbatim; at macro level it is conventionally `()`.
@@ -213,10 +213,10 @@ In the `Args:` block of every fabricable-module constructor, the following param
 
 | Parameter | Canonical Args entry |
 |---|---|
-| `cfg` | `Concrete configuration dataclass.` |
+| `config` | `Concrete configuration dataclass.` |
 | `name` | `Hierarchical instance name used by the profiler.` |
 | `inst_shape` (leaf) | `Per-instance fabrication shape.` |
-| `inst_shape` (xbar) | `Per-instance multiplicity prefix; trailing (col_num, w_digit_count, row_num) is derived from cfg.` |
+| `inst_shape` (xbar) | `Per-instance multiplicity prefix; trailing (col_num, w_digit_count, row_num) is derived from config.` |
 | `dtype` | `Tensor dtype for internal buffers.` |
 | `T__K` | `Operating temperature [K].` |
 | `w_logical_shape` | `Logical weight shape (*prefix, N, K) bound to program(...).` |
@@ -231,8 +231,8 @@ The following methods, when they appear on a class as a registry impl / override
 ```python
 # Family dispatcher (every Xbar / XbarMacro / ADC / DAC / ReadOut / TIA base).
 @classmethod
-def from_config(cls, *, cfg, ...) -> Self:
-    """Build the concrete impl registered for ``type(cfg)``."""
+def from_config(cls, *, config, ...) -> Self:
+    """Build the concrete impl registered for ``type(config)``."""
 
 # Leaf per-call snapshot (Driver, OpAmpTIA, NMOS, RRAM).
 def snapshot(self, *, shape: tuple[int, ...]) -> <Name>Snapshot:
@@ -344,7 +344,7 @@ def adc_max_bits(self) -> int:
 ### What this does not mandate
 
 - Implementation-specific notes (e.g. "Aggregated leakage rolls up from children", "Settling-dominated") may live in the class docstring or in inline comments, but **must not** displace the canonical property docstring text.
-- An override that simply delegates (`return self.cfg.area_per_inst__um2`) may either repeat the canonical one-liner or omit the docstring entirely and inherit from the base / abstract — pick one rule per family and apply it consistently.
+- An override that simply delegates (`return self.config.area_per_inst__um2`) may either repeat the canonical one-liner or omit the docstring entirely and inherit from the base / abstract — pick one rule per family and apply it consistently.
 
 ## Property vs method
 
@@ -386,7 +386,7 @@ Adding a field to a physical-layer config or callable means updating every chip 
 
 ## Noise / mismatch configuration
 
-Non-ideality, mismatch, and dynamic-noise fields follow a separate uniform rule documented in [`noise_and_toggles.md`](noise_and_toggles.md): every source carries a fully-populated parameter and a paired `enable_<source>: bool` toggle; `None` is forbidden in cfg fields; runtime helpers in `neurox/common/nonideality.py` take an `*, enabled: bool` kwarg.
+Non-ideality, mismatch, and dynamic-noise fields follow a separate uniform rule documented in [`config_and_construction.md`](config_and_construction.md#module-policy): every source carries a fully-populated config parameter and a paired `bool` field on the module's `*Policy` dataclass; `None` is forbidden in config fields; runtime helpers in `neurox/common/nonideality.py` take an `*, enabled: bool` kwarg.
 
 ## Relationship with `docs/dev/`
 

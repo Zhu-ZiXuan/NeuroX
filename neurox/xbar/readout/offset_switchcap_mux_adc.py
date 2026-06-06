@@ -11,11 +11,11 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor
 
-from neurox.analog.adc import ADC, ADCConfig, AdcOperationPoint
-from neurox.analog.analog_mux import AnalogMux, AnalogMuxConfig
-from neurox.analog.switch_cap import SwitchCap, SwitchCapConfig
+from neurox.analog.adc import ADC, ADCConfig, AdcOperationPoint, ADCPolicy
+from neurox.analog.analog_mux import AnalogMux, AnalogMuxConfig, AnalogMuxPolicy
+from neurox.analog.switch_cap import SwitchCap, SwitchCapConfig, SwitchCapPolicy
 
-from .base import ReadOut, ReadOutConfig
+from .base import ReadOut, ReadOutConfig, ReadOutPolicy
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -23,16 +23,33 @@ class OffsetSwitchCapMuxAdcReadOutConfig(ReadOutConfig):
     """Config for :class:`OffsetSwitchCapMuxAdcReadOut`.
 
     Attributes:
-        data_switchcap_cfg: Per-digit data-leg switch-cap bank config.
-        ref_switchcap_cfg: Per-group ref-leg switch-cap bank config.
-        analog_mux_cfg: Analog mux config.
-        adc_cfg: Inner ADC config.
+        data_switchcap_config: Per-digit data-leg switch-cap bank config.
+        ref_switchcap_config: Per-group ref-leg switch-cap bank config.
+        analog_mux_config: Analog mux config.
+        adc_config: Inner ADC config.
     """
 
-    data_switchcap_cfg: SwitchCapConfig
-    ref_switchcap_cfg: SwitchCapConfig
-    analog_mux_cfg: AnalogMuxConfig
-    adc_cfg: ADCConfig
+    data_switchcap_config: SwitchCapConfig
+    ref_switchcap_config: SwitchCapConfig
+    analog_mux_config: AnalogMuxConfig
+    adc_config: ADCConfig
+
+
+@dataclass(frozen=True)
+class OffsetSwitchCapMuxAdcReadOutPolicy(ReadOutPolicy):
+    """Composite policy for :class:`OffsetSwitchCapMuxAdcReadOut`.
+
+    Attributes:
+        data_switchcap: Data-leg switch-cap bank nonideality policy.
+        ref_switchcap: Reference-leg switch-cap bank nonideality policy.
+        analog_mux: Analog mux nonideality policy.
+        bl_adc: Inner ADC nonideality policy.
+    """
+
+    data_switchcap: SwitchCapPolicy
+    ref_switchcap: SwitchCapPolicy
+    analog_mux: AnalogMuxPolicy
+    bl_adc: ADCPolicy
 
 
 @ReadOut.register_key(OffsetSwitchCapMuxAdcReadOutConfig)
@@ -42,7 +59,8 @@ class OffsetSwitchCapMuxAdcReadOut(ReadOut):
     def __init__(
         self,
         *,
-        cfg: OffsetSwitchCapMuxAdcReadOutConfig,
+        config: OffsetSwitchCapMuxAdcReadOutConfig,
+        policy: OffsetSwitchCapMuxAdcReadOutPolicy,
         name: str,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
@@ -51,7 +69,8 @@ class OffsetSwitchCapMuxAdcReadOut(ReadOut):
         digit_weights: tuple[float, ...],
     ) -> None:
         super().__init__(
-            cfg=cfg,
+            config=config,
+            policy=policy,
             name=name,
             inst_shape=inst_shape,
             dtype=dtype,
@@ -66,7 +85,8 @@ class OffsetSwitchCapMuxAdcReadOut(ReadOut):
         if len(digit_weights) < 1:
             raise ValueError(f"require: len(digit_weights) ({len(digit_weights)}) >= 1")
 
-        self.cfg = cfg
+        self.config = config
+        self.policy = policy
         self.T__K = T__K
         self.dtype = dtype
         self.data_num = data_num
@@ -74,7 +94,8 @@ class OffsetSwitchCapMuxAdcReadOut(ReadOut):
 
         prefix = name + "."
         self.data_switchcap = SwitchCap(
-            cfg=cfg.data_switchcap_cfg,
+            config=config.data_switchcap_config,
+            policy=policy.data_switchcap,
             name=f"{prefix}data_switchcap",
             inst_shape=(*inst_shape, data_num),
             dtype=dtype,
@@ -82,7 +103,8 @@ class OffsetSwitchCapMuxAdcReadOut(ReadOut):
             cap_weights=digit_weights,
         )
         self.ref_switchcap = SwitchCap(
-            cfg=cfg.ref_switchcap_cfg,
+            config=config.ref_switchcap_config,
+            policy=policy.ref_switchcap,
             name=f"{prefix}ref_switchcap",
             inst_shape=inst_shape,
             dtype=dtype,
@@ -90,14 +112,16 @@ class OffsetSwitchCapMuxAdcReadOut(ReadOut):
             cap_weights=(1.0,),
         )
         self.analog_mux = AnalogMux(
-            cfg=cfg.analog_mux_cfg,
+            config=config.analog_mux_config,
+            policy=policy.analog_mux,
             name=f"{prefix}analog_mux",
             inst_shape=(*inst_shape, 1),
             dtype=dtype,
             T__K=T__K,
         )
         self.bl_adc = ADC.from_config(
-            cfg=cfg.adc_cfg,
+            config=config.adc_config,
+            policy=policy.bl_adc,
             name=f"{prefix}bl_adc",
             inst_shape=(*inst_shape, 1),
             dtype=dtype,
@@ -108,12 +132,12 @@ class OffsetSwitchCapMuxAdcReadOut(ReadOut):
     @property
     def area_per_inst__um2(self) -> float:
         """Silicon area per instance [um^2]."""
-        return self.cfg.area_per_inst__um2
+        return self.config.area_per_inst__um2
 
     @property
     def leakage_per_inst__uW(self) -> float:
         """Static leakage per instance [uW]."""
-        return self.cfg.leakage_per_inst__uW
+        return self.config.leakage_per_inst__uW
 
     @property
     def adc_mode_num(self) -> int:
@@ -132,7 +156,7 @@ class OffsetSwitchCapMuxAdcReadOut(ReadOut):
             adc_operation_point: Runtime ADC operating point.
         """
         return (
-            self.cfg.latency_per_op__ns
+            self.config.latency_per_op__ns
             + self.data_switchcap.latency_per_op__ns
             + self.ref_switchcap.latency_per_op__ns
             + self.analog_mux.latency_per_op__ns
@@ -174,7 +198,7 @@ class OffsetSwitchCapMuxAdcReadOut(ReadOut):
             adc_operation_point=adc_operation_point,
         )
 
-        if self.cfg.energy_per_op__fJ > 0.0:
-            self._log_dynamic(self.cfg.energy_per_op__fJ, self.cfg.latency_per_op__ns)
+        if self.config.energy_per_op__fJ > 0.0:
+            self._log_dynamic(self.config.energy_per_op__fJ, self.config.latency_per_op__ns)
 
         return code

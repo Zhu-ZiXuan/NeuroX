@@ -11,15 +11,17 @@
 
 `ADCConfig` is the empty family-base marker used by the `RegistryMixin` dispatch surface (every concrete ADC config subclasses it). `ADCMode` is the small `(n_bits, n_states, max_signal)` dataclass used by the multi-mode subclasses' calibration LUTs. `AdcOperationPoint` is the frozen `(adc_mode, adc_bits)` runtime selection threaded into `convert` / `latency_per_op__ns`; `AdcCalibrationRecord` is one row of the `(adc_mode, adc_bits) → rescale_factor` calibration table.
 
+`ADCPolicy` is the empty marker base policy for the family. Concrete ADC impls declare their own `*Policy(ADCPolicy)` (e.g. `GeneralADCPolicy`, `SarAdcMonoPolicy`, `McsSarAdcPolicy`) carrying that topology's switches; the composite that holds an ADC stores the abstract `ADCPolicy` field type and the caller passes the concrete impl.
+
 ## Family-wide init signature
 
 Every concrete ADC impl exposes the same explicit signature:
 
 ```
-__init__(self, *, cfg, name, inst_shape, dtype, T__K)
+__init__(self, *, config, policy, name, inst_shape, dtype, T__K)
 ```
 
-`inst_shape` is the per-instance fabrication shape, committed at construction. The base stores `self._inst_shape` and accepts/discards `cfg / dtype / T__K` so the dispatcher type-checks; concrete subclasses store them on `self`. `ADC` inherits `FabricateMixin`: subclasses override `_sample_fabricate_mismatch` to refresh static state; the cascading `fabricate()` is auto-implemented by the mixin. Stochastic-vs-deterministic rounding is governed by `self.training` at `convert` time — there is no constructor-time override flag.
+`inst_shape` is the per-instance fabrication shape, committed at construction. The base stores `self._inst_shape` and accepts/discards `config / policy / dtype / T__K` so the dispatcher type-checks; concrete subclasses store them on `self`. `ADC` inherits `FabricateMixin`: subclasses override `_sample_fabricate_mismatch` to refresh static state; the cascading `fabricate()` is auto-implemented by the mixin. Stochastic-vs-deterministic rounding is governed by `self.training` at `convert` time — there is no constructor-time override flag.
 
 ## Runtime multi-mode
 

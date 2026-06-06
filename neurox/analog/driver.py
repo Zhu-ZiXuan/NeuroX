@@ -17,7 +17,6 @@ class DriverConfig(ValidateMixin):
     Attributes:
         drive_value: Ideal clamp voltage [V].
         drive_thermal__V: Per-solve Gaussian thermal noise sigma [V].
-        enable_drive_thermal: Apply ``drive_thermal__V`` at snapshot time.
         latency_per_op__ns: Latency per operation [ns].
         leakage_per_inst__uW: Leakage power per instance [uW].
         area_per_inst__um2: Area per instance [um^2].
@@ -28,7 +27,6 @@ class DriverConfig(ValidateMixin):
 
     # --- Drive thermal noise ---
     drive_thermal__V: float
-    enable_drive_thermal: bool
 
     # --- PPA ---
     latency_per_op__ns: float
@@ -49,6 +47,17 @@ class DriverConfig(ValidateMixin):
         self._require_nonneg(self.area_per_inst__um2, "area_per_inst__um2")
         self._require_nonneg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
         self._require_nonneg(self.latency_per_op__ns, "latency_per_op__ns")
+
+
+@dataclass(frozen=True)
+class DriverPolicy:
+    """Per-source toggles selecting which driver nonidealities are active.
+
+    Attributes:
+        drive_thermal: Apply ``drive_thermal__V`` at snapshot time.
+    """
+
+    drive_thermal: bool
 
 
 @dataclass(frozen=True)
@@ -83,7 +92,8 @@ class Driver(FabricateMixin, nn.Module):
     def __init__(
         self,
         *,
-        cfg: DriverConfig,
+        config: DriverConfig,
+        policy: DriverPolicy,
         name: str,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
@@ -92,7 +102,8 @@ class Driver(FabricateMixin, nn.Module):
         """Construct one ideal clamp driver.
 
         Args:
-            cfg: Concrete configuration dataclass.
+            config: Concrete configuration dataclass.
+            policy: Per-source nonideality enable flags.
             name: Hierarchical instance name used by the profiler.
             inst_shape: Per-instance fabrication shape.
             dtype: Tensor dtype for internal buffers.
@@ -101,36 +112,37 @@ class Driver(FabricateMixin, nn.Module):
         super().__init__()
 
         self._neurox_name = name
-        self.cfg = cfg
+        self.config = config
+        self.policy = policy
         self._inst_shape = inst_shape
         self.dtype = dtype
         self.T__K = T__K
 
         self.register_buffer(
             "nominal_drive_value",
-            torch.tensor(cfg.drive_value, dtype=dtype),
+            torch.tensor(config.drive_value, dtype=dtype),
             persistent=False,
         )
 
     @property
     def v_ref__V(self) -> float:
         """Ideal / zero-current clamp voltage [V]."""
-        return self.cfg.drive_value
+        return self.config.drive_value
 
     @property
     def area_per_inst__um2(self) -> float:
         """Silicon area per instance [um^2]."""
-        return self.cfg.area_per_inst__um2
+        return self.config.area_per_inst__um2
 
     @property
     def leakage_per_inst__uW(self) -> float:
         """Static leakage per instance [uW]."""
-        return self.cfg.leakage_per_inst__uW
+        return self.config.leakage_per_inst__uW
 
     @property
     def latency_per_op__ns(self) -> float:
         """Latency per op [ns]."""
-        return self.cfg.latency_per_op__ns
+        return self.config.latency_per_op__ns
 
     # --- ClampDriver protocol ---
 
@@ -145,8 +157,8 @@ class Driver(FabricateMixin, nn.Module):
         """
         v_clamp__V = apply_gaussian(
             self.nominal_drive_value.clone().expand(shape),
-            self.cfg.drive_thermal__V,
-            enabled=self.cfg.enable_drive_thermal,
+            self.config.drive_thermal__V,
+            enabled=self.policy.drive_thermal,
         )
         return DriverSnapshot(v_clamp__V=v_clamp__V)
 

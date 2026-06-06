@@ -22,10 +22,9 @@ These layers must stay separate; the same rule is never restated across all thre
 
 ### Lifecycle and state
 
-- [`config_and_construction.md`](config_and_construction.md) — process / design / spec / runtime parameter classes, device-vs-circuit config split, family-base + concrete-config pattern, explicit `from_config(...)`.
+- [`config_and_construction.md`](config_and_construction.md) — process / design / spec / runtime parameter classes, device-vs-circuit config split, family-base + concrete-config pattern, explicit `from_config(...)`, and the paired `*Policy` runtime kwarg (no defaults, never persisted in TOML).
 - [`fabrication_lifecycle.md`](fabrication_lifecycle.md) — the `__init__` / `fabricate` / `snapshot` / `forward` lifecycle, canonical `fabricate(shape)` signature, re-callability via nominal templates.
 - [`state_holding.md`](state_holding.md) — three-stage state model (nominal → actual → snapshot), ownership rule, snapshot pattern.
-- [`noise_and_toggles.md`](noise_and_toggles.md) — non-ideality / mismatch / dynamic-noise rule: fully-populated parameter fields, paired `enable_<source>` toggles, no `None`, `apply_*` helpers gated by `enabled` kwarg.
 
 ### Runtime
 

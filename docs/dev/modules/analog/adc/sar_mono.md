@@ -19,6 +19,12 @@ The single-ended Set-and-Down variant has been retired in favour of the differen
 
 Same shape as `McsSarAdcConfig` (max_bits, `v_refs`, cap / comparator mismatch sigmas, energy overhead, PPA). Field names match the MCS SAR for forwards-compatibility.
 
+## Policy
+
+`SarAdcMonoPolicy(ADCPolicy)` mirrors `McsSarAdcPolicy`:
+
+- `cap_mismatch`, `comparator_offset`, `comparator_thermal_noise`, `sampling_thermal_noise` — all `bool`.
+
 ## State that is wired today
 
 `_sample_fabricate_mismatch()` (driven via `FabricateMixin`) already builds:

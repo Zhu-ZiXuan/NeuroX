@@ -48,51 +48,51 @@ class TestProfileMixin:
     """``ProfileMixin`` builds a complete instance even without nn.Module."""
 
     def test_name_qualified_module_type(self) -> None:
-        cfg = AccumulatorConfig(
+        config = AccumulatorConfig(
             bit_width=32,
             energy_per_op__fJ=0.0,
             latency_per_op__ns=0.0,
             leakage_per_inst__uW=0.5,
             area_per_inst__um2=10.0,
         )
-        acc = Accumulator(cfg=cfg, name="fc1.macro.col_accumulator", inst_shape=(1,))
+        acc = Accumulator(config=config, name="fc1.macro.col_accumulator", inst_shape=(1,))
         assert acc.qualified_name == "fc1.macro.col_accumulator"
         assert acc.module_type == "Accumulator"
 
     def test_log_static_int(self) -> None:
-        cfg = AccumulatorConfig(
+        config = AccumulatorConfig(
             bit_width=32,
             energy_per_op__fJ=0.0,
             latency_per_op__ns=0.0,
             leakage_per_inst__uW=1.0,
             area_per_inst__um2=60.0,
         )
-        acc = Accumulator(cfg=cfg, name="m.acc", inst_shape=(8,))
+        acc = Accumulator(config=config, name="m.acc", inst_shape=(8,))
         assert acc.inst_count == 8
         assert acc.inst_area__um2 == pytest.approx(60.0 * 8)
         assert acc.inst_leakage__uW == pytest.approx(1.0 * 8)
 
     def test_log_static_shape(self) -> None:
-        cfg = ShiftAdderConfig(
+        config = ShiftAdderConfig(
             bit_width=32,
             energy_per_op__fJ=0.0,
             latency_per_op__ns=0.0,
             leakage_per_inst__uW=1.5,
             area_per_inst__um2=75.0,
         )
-        sa = ShiftAdder(cfg=cfg, name="m.sa", inst_shape=(2, 3, 4))  # 24 instances
+        sa = ShiftAdder(config=config, name="m.sa", inst_shape=(2, 3, 4))  # 24 instances
         assert sa.inst_count == 24
         assert sa.inst_area__um2 == pytest.approx(75.0 * 24)
 
     def test_log_dynamic_no_op_outside_context(self) -> None:
-        cfg = AccumulatorConfig(
+        config = AccumulatorConfig(
             bit_width=32,
             energy_per_op__fJ=5.0,
             latency_per_op__ns=0.5,
             leakage_per_inst__uW=0.0,
             area_per_inst__um2=0.0,
         )
-        acc = Accumulator(cfg=cfg, name="m.acc", inst_shape=(1,))
+        acc = Accumulator(config=config, name="m.acc", inst_shape=(1,))
         # No profiler bound -> call is a silent no-op.
         acc._log_dynamic(10.0, 0.5)
         assert NeuroxProfiler.get_current() is None
@@ -150,14 +150,14 @@ class TestDynamicEvents:
     """Digital modules emit one event per ``operate`` call."""
 
     def test_accumulator_emits_event(self) -> None:
-        cfg = AccumulatorConfig(
+        config = AccumulatorConfig(
             bit_width=32,
             energy_per_op__fJ=4.0,
             latency_per_op__ns=0.5,
             leakage_per_inst__uW=0.0,
             area_per_inst__um2=0.0,
         )
-        acc = Accumulator(cfg=cfg, name="acc", inst_shape=(1,))
+        acc = Accumulator(config=config, name="acc", inst_shape=(1,))
 
         x = torch.zeros(2, 3, dtype=torch.int32)
         with NeuroxProfiler() as p:
@@ -171,14 +171,14 @@ class TestDynamicEvents:
         assert evt.latency__ns == pytest.approx(0.5)
 
     def test_shift_adder_emits_event(self) -> None:
-        cfg = ShiftAdderConfig(
+        config = ShiftAdderConfig(
             bit_width=32,
             energy_per_op__fJ=2.0,
             latency_per_op__ns=0.25,
             leakage_per_inst__uW=0.0,
             area_per_inst__um2=0.0,
         )
-        sa = ShiftAdder(cfg=cfg, name="sa", inst_shape=(1,))
+        sa = ShiftAdder(config=config, name="sa", inst_shape=(1,))
         x = torch.zeros(4, dtype=torch.int32)
         with NeuroxProfiler() as p:
             sa.operate(x, scale=2, dim=-1, init_val=None)
@@ -187,14 +187,14 @@ class TestDynamicEvents:
         assert p.events[0].dynamic_energy__fJ == pytest.approx(2.0)
 
     def test_no_events_outside_context(self) -> None:
-        cfg = AccumulatorConfig(
+        config = AccumulatorConfig(
             bit_width=32,
             energy_per_op__fJ=4.0,
             latency_per_op__ns=0.5,
             leakage_per_inst__uW=0.0,
             area_per_inst__um2=0.0,
         )
-        acc = Accumulator(cfg=cfg, name="acc", inst_shape=(1,))
+        acc = Accumulator(config=config, name="acc", inst_shape=(1,))
         x = torch.zeros(2, 3, dtype=torch.int32)
         # No active profiler — must not raise and must produce nothing.
         acc.operate(x, dim=-1)
@@ -210,14 +210,14 @@ class TestLeakageEnergyCentralized:
     """Leakage energy is derived once in ``summary`` from runtime latency."""
 
     def test_summary_derives_leakage_energy(self) -> None:
-        cfg = AccumulatorConfig(
+        config = AccumulatorConfig(
             bit_width=32,
             energy_per_op__fJ=4.0,
             latency_per_op__ns=2.0,
             leakage_per_inst__uW=3.0,
             area_per_inst__um2=0.0,
         )
-        acc = Accumulator(cfg=cfg, name="acc", inst_shape=(5,))  # 5 instances, total leakage = 15 uW
+        acc = Accumulator(config=config, name="acc", inst_shape=(5,))  # 5 instances, total leakage = 15 uW
 
         x = torch.zeros(8, dtype=torch.int32)
         with NeuroxProfiler() as p:

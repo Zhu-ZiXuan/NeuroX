@@ -50,6 +50,11 @@ class ReadOutConfig(ValidateMixin):
         self._require_nonneg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
+@dataclass(frozen=True)
+class ReadOutPolicy:
+    """Abstract marker base for ReadOut-family nonideality policies."""
+
+
 # ---------------------------------------------------------------------------
 # ReadOut ABC
 # ---------------------------------------------------------------------------
@@ -62,7 +67,8 @@ class ReadOut(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["ReadO
     def from_config(
         cls,
         *,
-        cfg: ReadOutConfig,
+        config: ReadOutConfig,
+        policy: ReadOutPolicy,
         name: str,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
@@ -70,15 +76,16 @@ class ReadOut(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["ReadO
         data_num: int,
         digit_weights: tuple[float, ...],
     ) -> ReadOut:
-        """Build the concrete impl registered for ``type(cfg)``.
+        """Build the concrete impl registered for ``type(config)``.
 
         Args:
             data_num: Number of data per reference group.
             digit_weights: Per-digit weight vector, length ``digit_num``.
         """
-        impl = cls._lookup_impl(type(cfg))
+        impl = cls._lookup_impl(type(config))
         return impl(
-            cfg=cfg,
+            config=config,
+            policy=policy,
             name=name,
             inst_shape=inst_shape,
             dtype=dtype,
@@ -90,7 +97,8 @@ class ReadOut(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["ReadO
     def __init__(
         self,
         *,
-        cfg: ReadOutConfig,
+        config: ReadOutConfig,
+        policy: ReadOutPolicy,
         name: str,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
@@ -101,7 +109,8 @@ class ReadOut(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["ReadO
         """Register the instance with :class:`nn.Module` and the profiler.
 
         Args:
-            cfg: Concrete configuration dataclass.
+            config: Concrete configuration dataclass.
+            policy: Composite nonideality policy.
             name: Hierarchical instance name used by the profiler.
             inst_shape: Per-instance fabrication shape ``(*prefix, group_num)``.
             dtype: Tensor dtype for internal buffers.
@@ -109,7 +118,7 @@ class ReadOut(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["ReadO
             data_num: Number of data per reference group.
             digit_weights: Per-digit weight vector, length ``digit_num``.
         """
-        del cfg, dtype, T__K, data_num, digit_weights  # captured by the subclass init
+        del config, policy, dtype, T__K, data_num, digit_weights  # captured by the subclass init
         nn.Module.__init__(self)
         ProfileMixin.__init__(self, name)
         self._inst_shape = inst_shape

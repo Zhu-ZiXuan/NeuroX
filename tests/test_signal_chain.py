@@ -14,12 +14,18 @@ import torch
 from neurox.analog import (
     AnalogMux,
     AnalogMuxConfig,
+    AnalogMuxPolicy,
     Decoder,
     DecoderConfig,
 )
-from neurox.analog.dac import GeneralDAC, GeneralDACConfig
-from neurox.analog.tia import OpAmpTIA, OpAmpTIAConfig
-from neurox.device import NMOSConfig
+from neurox.analog.dac import GeneralDAC, GeneralDACConfig, GeneralDACPolicy
+from neurox.analog.tia import OpAmpTIA, OpAmpTIAConfig, OpAmpTIAPolicy
+from neurox.device import NMOSConfig, NMOSPolicy
+
+_NMOS_OFF = NMOSPolicy(A_vt_mismatch=False, A_beta_mismatch=False)
+_TIA_OFF = OpAmpTIAPolicy(opamp_gain_sigma=False, nmos=_NMOS_OFF)
+_TIA_ON_GAIN = OpAmpTIAPolicy(opamp_gain_sigma=True, nmos=_NMOS_OFF)
+_DAC_OFF = GeneralDACPolicy(drive_thermal=False)
 
 
 def _make_tia(
@@ -30,10 +36,10 @@ def _make_tia(
     v_dd__V: float = 0.9,
     v_nmos_bias__V: float = 0.9,
     opamp_gain_sigma: float = 0.0,
-    enable_opamp_gain_sigma: bool = False,
+    apply_opamp_gain_sigma: bool = False,
 ) -> OpAmpTIA:
     """Build a OpAmpTIA + internal NMOS pseudo-resistor sized for the tests."""
-    nmos_cfg = NMOSConfig(
+    nmos_config = NMOSConfig(
         mu0__cm2_per_V_s=200.0,
         c_ox__fF_per_um2=31.4,
         vth0__V=0.40,
@@ -43,17 +49,14 @@ def _make_tia(
         kt1__V=-0.002,
         A_vt__mV_um=0.0,
         A_beta_relative__um=0.0,
-        enable_A_vt_mismatch=False,
-        enable_A_beta_mismatch=False,
     )
-    cfg = OpAmpTIAConfig(
+    config = OpAmpTIAConfig(
         v_ref__V=v_ref__V,
         v_nmos_bias__V=v_nmos_bias__V,
         v_dd__V=v_dd__V,
         opamp_gain=opamp_gain,
         opamp_gain_sigma=opamp_gain_sigma,
-        enable_opamp_gain_sigma=enable_opamp_gain_sigma,
-        nmos_cfg=nmos_cfg,
+        nmos_config=nmos_config,
         pseudo_nmos_W__um=1.0,
         pseudo_nmos_L__um=0.06,
         output_saturation_softness__V=v_dd__V / 2.0,
@@ -61,7 +64,15 @@ def _make_tia(
         area_per_inst__um2=0.0,
         latency_per_op__ns=0.0,
     )
-    return OpAmpTIA(cfg=cfg, name="tia", inst_shape=inst_shape, dtype=torch.float64, T__K=300.0)
+    policy = _TIA_ON_GAIN if apply_opamp_gain_sigma else _TIA_OFF
+    return OpAmpTIA(
+        config=config,
+        policy=policy,
+        name="tia",
+        inst_shape=inst_shape,
+        dtype=torch.float64,
+        T__K=300.0,
+    )
 
 
 def test_tia_fabricate_shapes() -> None:
@@ -169,7 +180,7 @@ def test_tia_solve_dc_residual_is_small() -> None:
     # (when not in the clip / saturation regime — pick currents below
     # the saturation knee for this sized device).
     nmos_dc = tia.nmos.solve_dc(
-        vg__V=tia.cfg.v_nmos_bias__V,
+        vg__V=tia.config.v_nmos_bias__V,
         vd__V=dc.v_out__V,
         vs__V=dc.v_clamp__V,
         snapshot=runtime.nmos_snapshot,
@@ -193,21 +204,17 @@ def test_tia_solve_dc_sensitivity_matches_finite_difference() -> None:
     assert torch.allclose(dc.dVout_dI__MOhm, fd_dVout, atol=1e-6, rtol=1e-4)
 
 
-def _make_mux_cfg(**overrides) -> AnalogMuxConfig:
+def _make_mux_config(**overrides) -> AnalogMuxConfig:
     """Build an :class:`AnalogMuxConfig` with every field explicit.
 
-    Baseline = pass-through (``mux_gain=1.0``, both noise toggles off,
-    zero energy / PPA). Tests override the field(s) they exercise; pass
-    a sigma alone to disable that channel, or pair it with the matching
-    ``enable_*`` toggle to engage it.
+    Baseline = pass-through (``mux_gain=1.0``, both noise sigmas zero,
+    zero energy / PPA). Tests override the field(s) they exercise.
     """
     base = dict(
         energy_per_access__fJ=0.0,
         mux_gain=1.0,
         mux_noise_cm_sigma__V=0.0,
         mux_noise_dm_sigma__V=0.0,
-        enable_mux_noise_cm=False,
-        enable_mux_noise_dm=False,
         leakage_per_inst__uW=0.0,
         area_per_inst__um2=0.0,
         latency_per_op__ns=0.0,
@@ -216,13 +223,25 @@ def _make_mux_cfg(**overrides) -> AnalogMuxConfig:
     return AnalogMuxConfig(**base)
 
 
+_MUX_OFF = AnalogMuxPolicy(mux_noise_cm=False, mux_noise_dm=False)
+_MUX_CM_ON = AnalogMuxPolicy(mux_noise_cm=True, mux_noise_dm=False)
+_MUX_DM_ON = AnalogMuxPolicy(mux_noise_cm=False, mux_noise_dm=True)
+
+
 def test_analog_mux_passthrough() -> None:
     """Default ``mux_gain=1.0`` with both sigmas ``None`` is a pure pass-through.
 
     Energy flows through the profiler side channel; ``transport``
     returns only the two analog legs after Phase D.
     """
-    mux = AnalogMux(cfg=_make_mux_cfg(energy_per_access__fJ=1.0), name="mux", inst_shape=(), dtype=torch.float32, T__K=300.0)
+    mux = AnalogMux(
+        config=_make_mux_config(energy_per_access__fJ=1.0),
+        policy=_MUX_OFF,
+        name="mux",
+        inst_shape=(),
+        dtype=torch.float32,
+        T__K=300.0,
+    )
     v_pos = torch.tensor([0.1, 0.2, 0.3])
     v_neg = torch.tensor([0.0, 0.1, 0.2])
     out_pos, out_neg = mux.transport(v_pos, v_neg)
@@ -232,7 +251,14 @@ def test_analog_mux_passthrough() -> None:
 
 def test_analog_mux_gain_attenuates_both_legs() -> None:
     """``mux_gain`` scales both legs identically; no inline noise added."""
-    mux = AnalogMux(cfg=_make_mux_cfg(mux_gain=0.5), name="mux", inst_shape=(), dtype=torch.float32, T__K=300.0)
+    mux = AnalogMux(
+        config=_make_mux_config(mux_gain=0.5),
+        policy=_MUX_OFF,
+        name="mux",
+        inst_shape=(),
+        dtype=torch.float32,
+        T__K=300.0,
+    )
     v_pos = torch.tensor([0.4, 0.6])
     v_neg = torch.tensor([0.2, 0.3])
     out_pos, out_neg = mux.transport(v_pos, v_neg)
@@ -244,7 +270,8 @@ def test_analog_mux_cm_noise_is_common_to_both_legs() -> None:
     """CM noise lands with matching sign on both legs (suppressed by diff ADC)."""
     torch.manual_seed(0)
     mux = AnalogMux(
-        cfg=_make_mux_cfg(mux_noise_cm_sigma__V=0.05, enable_mux_noise_cm=True),
+        config=_make_mux_config(mux_noise_cm_sigma__V=0.05),
+        policy=_MUX_CM_ON,
         name="mux",
         inst_shape=(),
         dtype=torch.float32,
@@ -263,7 +290,8 @@ def test_analog_mux_dm_noise_is_antisymmetric() -> None:
     """DM noise lands with opposite sign on the two legs."""
     torch.manual_seed(0)
     mux = AnalogMux(
-        cfg=_make_mux_cfg(mux_noise_dm_sigma__V=0.05, enable_mux_noise_dm=True),
+        config=_make_mux_config(mux_noise_dm_sigma__V=0.05),
+        policy=_MUX_DM_ON,
         name="mux",
         inst_shape=(),
         dtype=torch.float32,
@@ -279,28 +307,35 @@ def test_analog_mux_dm_noise_is_antisymmetric() -> None:
 
 def test_analog_mux_invalid_gain() -> None:
     with pytest.raises(ValueError):
-        AnalogMux(cfg=_make_mux_cfg(mux_gain=0.0), name="mux", inst_shape=(), dtype=torch.float32, T__K=300.0)
+        AnalogMux(
+            config=_make_mux_config(mux_gain=0.0),
+            policy=_MUX_OFF,
+            name="mux",
+            inst_shape=(),
+            dtype=torch.float32,
+            T__K=300.0,
+        )
 
 
 def test_decoder_passthrough_drives_dac() -> None:
     """Non-bit-serial decoder passes integer codes straight to the DAC."""
     dac = GeneralDAC(
-        cfg=GeneralDACConfig(
+        config=GeneralDACConfig(
             code_to_signal=[0.0, 1.2],
             drive_thermal__V=0.0,
-            enable_drive_thermal=False,
             energy_per_op__fJ=0.0,
             latency_per_op__ns=0.0,
             leakage_per_inst__uW=0.0,
             area_per_inst__um2=0.0,
         ),
+        policy=_DAC_OFF,
         name="dac",
         inst_shape=(),
         dtype=torch.float32,
         T__K=300.0,
     )
     dec = Decoder(
-        cfg=DecoderConfig(
+        config=DecoderConfig(
             n_address_bits=6,
             fanout=4,
             drive_strength__uA=1000.0,
@@ -326,22 +361,22 @@ def test_decoder_passthrough_drives_dac() -> None:
 def test_decoder_bit_serial_expands_codes() -> None:
     """Bit-serial decoder splits an integer code into ``n_address_bits`` planes."""
     dac = GeneralDAC(
-        cfg=GeneralDACConfig(
+        config=GeneralDACConfig(
             code_to_signal=[0.0, 1.2],
             drive_thermal__V=0.0,
-            enable_drive_thermal=False,
             energy_per_op__fJ=0.0,
             latency_per_op__ns=0.0,
             leakage_per_inst__uW=0.0,
             area_per_inst__um2=0.0,
         ),
+        policy=_DAC_OFF,
         name="dac",
         inst_shape=(),
         dtype=torch.float32,
         T__K=300.0,
     )
     dec = Decoder(
-        cfg=DecoderConfig(
+        config=DecoderConfig(
             n_address_bits=4,
             fanout=4,
             drive_strength__uA=1000.0,

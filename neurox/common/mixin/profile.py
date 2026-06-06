@@ -25,7 +25,7 @@ class ProfileMixin:
     * expose ``area_per_inst__um2``, ``leakage_per_inst__uW``,
       ``latency_per_op__ns`` properties;
     * call ``self._log_static()`` once at the end of the most-derived
-      concrete ``__init__``, after ``self.cfg`` and ``self._inst_shape``
+      concrete ``__init__``, after ``self.config`` and ``self._inst_shape``
       are set;
     * call ``self._log_dynamic(dyn_energy__fJ, latency__ns)`` at the end
       of each primary execution method.

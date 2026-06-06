@@ -6,8 +6,8 @@ Rules:
 
 - `DACConfig` is the family base config.
 - Each concrete DAC owns a concrete `DACConfig` subclass.
-- `DAC.from_config(...)` dispatches by `type(cfg)` via the family registry.
-- DAC has no family-specific runtime extras today; its `from_config` signature is the canonical `(cfg, name, T__K, dtype)`.
+- `DAC.from_config(...)` dispatches by `type(config)` via the family registry.
+- DAC has no family-specific runtime extras today; its `from_config` signature is the canonical `(config, name, T__K, dtype)`.
 
 Current concrete implementation:
 

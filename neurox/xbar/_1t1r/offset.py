@@ -10,10 +10,10 @@ import torch
 from torch import Tensor
 
 from neurox.analog.adc import AdcOperationPoint
-from neurox.xbar.readout import ReadOut, ReadOutConfig
-from neurox.xbar.base import Xbar, XbarConfig
+from neurox.xbar.base import Xbar, XbarConfig, XbarPolicy
+from neurox.xbar.readout import ReadOut, ReadOutConfig, ReadOutPolicy
 
-from .circuit_core import CircuitCore1T1R, CircuitCore1T1RConfig
+from .circuit_core import CircuitCore1T1R, CircuitCore1T1RConfig, CircuitCore1T1RPolicy
 
 # ---------------------------------------------------------------------------
 # 1. Config
@@ -31,8 +31,8 @@ class Offset1T1RXbarConfig(XbarConfig):
         ref_group_size: Number of data columns per reference group.
         ref_location: Position of the ref column inside each group,
             in ``[0, ref_group_size]``.
-        core_cfg: Owned physical-core config.
-        readout_cfg: Owned readout-chain config.
+        core_config: Owned physical-core config.
+        readout_config: Owned readout-chain config.
     """
 
     w_digit_count: int
@@ -42,8 +42,8 @@ class Offset1T1RXbarConfig(XbarConfig):
     ref_group_size: int
     ref_location: int
 
-    core_cfg: CircuitCore1T1RConfig
-    readout_cfg: ReadOutConfig
+    core_config: CircuitCore1T1RConfig
+    readout_config: ReadOutConfig
 
     def validate(self) -> None:
         super().validate()
@@ -71,58 +71,81 @@ class Offset1T1RXbarConfig(XbarConfig):
 # ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class Offset1T1RXbarPolicy(XbarPolicy):
+    """Composite policy for :class:`Offset1T1RXbar`.
+
+    Attributes:
+        core: 1T1R circuit-core nonideality policy.
+        readout: Readout-chain nonideality policy.
+    """
+
+    core: CircuitCore1T1RPolicy
+    readout: ReadOutPolicy
+
+
 @Xbar.register_key(Offset1T1RXbarConfig)
 class Offset1T1RXbar(Xbar):
     """Offset-coded 1T1R crossbar tile."""
 
-    cfg: Offset1T1RXbarConfig
+    config: Offset1T1RXbarConfig
     logic_phys_idx: Tensor
     ref_phys_idx: Tensor
 
     def __init__(
         self,
         *,
-        cfg: Offset1T1RXbarConfig,
+        config: Offset1T1RXbarConfig,
+        policy: Offset1T1RXbarPolicy,
         name: str,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
     ) -> None:
-        super().__init__(cfg=cfg, name=name, inst_shape=inst_shape, dtype=dtype, T__K=T__K)
+        super().__init__(
+            config=config,
+            policy=policy,
+            name=name,
+            inst_shape=inst_shape,
+            dtype=dtype,
+            T__K=T__K,
+        )
 
         prefix = self._inst_shape
 
         # Positional weights: ``[r^0, r^1, ..., r^(D-1)]``.
-        self.digit_weights = tuple(float(cfg.w_digit_radix**k) for k in range(cfg.w_digit_count))
+        self.digit_weights = tuple(float(config.w_digit_radix**k) for k in range(config.w_digit_count))
 
-        n_groups = cfg.col_num // cfg.ref_group_size
-        total_logic_cols = cfg.col_num * cfg.w_digit_count
+        n_groups = config.col_num // config.ref_group_size
+        total_logic_cols = config.col_num * config.w_digit_count
         self.n_ref_cols = n_groups
         self.physical_col_num = total_logic_cols + n_groups
 
         core_name = f"{name}.core"
         readout_name = f"{name}.readout"
         self.core = CircuitCore1T1R(
-            cfg=cfg.core_cfg,
+            config=config.core_config,
+            policy=policy.core,
             name=core_name,
-            w_layout_shape=(*prefix, self.physical_col_num, cfg.row_num),
+            w_layout_shape=(*prefix, self.physical_col_num, config.row_num),
             dtype=dtype,
             T__K=T__K,
         )
         self.readout = ReadOut.from_config(
-            cfg=cfg.readout_cfg,
+            config=config.readout_config,
+            policy=policy.readout,
             name=readout_name,
             inst_shape=(*prefix, n_groups),
             dtype=dtype,
             T__K=T__K,
-            data_num=cfg.ref_group_size,
+            data_num=config.ref_group_size,
             digit_weights=self.digit_weights,
         )
 
         logic_phys, ref_phys = _build_ref_indices(
             n_groups=n_groups,
-            group_size_logic=cfg.ref_group_size * cfg.w_digit_count,
-            location_logic=cfg.ref_location * cfg.w_digit_count,
+            group_size_logic=config.ref_group_size * config.w_digit_count,
+            location_logic=config.ref_location * config.w_digit_count,
         )
         self.register_buffer("logic_phys_idx", logic_phys, persistent=False)
         self.register_buffer("ref_phys_idx", ref_phys, persistent=False)
@@ -140,12 +163,12 @@ class Offset1T1RXbar(Xbar):
 
     @property
     def w_digit_count(self) -> int:
-        return self.cfg.w_digit_count
+        return self.config.w_digit_count
 
     @property
     def w_digit_radix(self) -> int:
         """Positional base ``r`` of the in-tile digit combination."""
-        return self.cfg.w_digit_radix
+        return self.config.w_digit_radix
 
     @property
     def w_digit_range(self) -> tuple[int, int]:
@@ -154,7 +177,7 @@ class Offset1T1RXbar(Xbar):
         With ``S`` RRAM states and offset ``o``, ``state = digit + o``
         spans ``[0, S - 1]``, so the digit range is ``(-o, S - 1 - o)``.
         """
-        offset = self.cfg.w_state_offset
+        offset = self.config.w_state_offset
         states = self.core.w_states
         return (-offset, states - 1 - offset)
 
@@ -185,7 +208,7 @@ class Offset1T1RXbar(Xbar):
         # Data-major, digit-minor ordering along the column axis.
         # Shape: [..., col_num, w_digit_count, row_num] -> [..., col_num * w_digit_count, row_num]
         w_logic = w.flatten(-3, -2)
-        w_state_idx = _insert_ref_cols(w_logic, self.logic_phys_idx, self.physical_col_num) + self.cfg.w_state_offset
+        w_state_idx = _insert_ref_cols(w_logic, self.logic_phys_idx, self.physical_col_num) + self.config.w_state_offset
         self.core.program(w_state_idx)
 
     def vec_mat_mul(self, x: Tensor, *, adc_operation_point: AdcOperationPoint) -> Tensor:
@@ -204,8 +227,8 @@ class Offset1T1RXbar(Xbar):
         v_data_phys = core_dcop.v_out_phys.index_select(-1, self.logic_phys_idx)
         v_ref_phys = core_dcop.v_out_phys.index_select(-1, self.ref_phys_idx)
         group_num = self.n_ref_cols
-        data_num = self.cfg.ref_group_size
-        digit_num = self.cfg.w_digit_count
+        data_num = self.config.ref_group_size
+        digit_num = self.config.w_digit_count
         v_data_grouped = v_data_phys.unflatten(-1, (group_num, data_num, digit_num))
 
         code = self.readout.readout(

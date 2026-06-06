@@ -21,9 +21,9 @@ from neurox.digital import (
 )
 from neurox.mapper.transcoder import Encoding
 from neurox.mapper.xbar.slicer import SerialSlicer, SimpleSlicer
-from neurox.xbar import Xbar, XbarConfig
+from neurox.xbar import Xbar, XbarConfig, XbarPolicy
 
-from .base import XbarMacro, XbarMacroConfig
+from .base import XbarMacro, XbarMacroConfig, XbarMacroPolicy
 
 
 @dataclass(frozen=True)
@@ -31,28 +31,39 @@ class InterArraySliceXbarMacroConfig(XbarMacroConfig):
     """Configuration for :class:`InterArraySliceXbarMacro`.
 
     Attributes:
-        xbar_cfg: Owned physical-xbar config.
+        xbar_config: Owned physical-xbar config.
         w_slice_num: Per-weight Sw slice count.
         x_slice_num: Per-activation Sa slice count.
         w_encoding: Signed-digit encoding for the weight slicer.
-        col_accumulator_cfg: Tc-axis cross-tile accumulator config.
-        sa_shift_adder_cfg: Sa-axis intra-xbar shift-adder config.
-        sw_shift_adder_cfg: Sw-axis cross-xbar shift-adder config.
+        col_accumulator_config: Tc-axis cross-tile accumulator config.
+        sa_shift_adder_config: Sa-axis intra-xbar shift-adder config.
+        sw_shift_adder_config: Sw-axis cross-xbar shift-adder config.
     """
 
-    xbar_cfg: XbarConfig
+    xbar_config: XbarConfig
     w_slice_num: int
     x_slice_num: int
     w_encoding: Encoding
 
-    col_accumulator_cfg: AccumulatorConfig
-    sa_shift_adder_cfg: ShiftAdderConfig
-    sw_shift_adder_cfg: ShiftAdderConfig
+    col_accumulator_config: AccumulatorConfig
+    sa_shift_adder_config: ShiftAdderConfig
+    sw_shift_adder_config: ShiftAdderConfig
 
     def validate(self) -> None:
         super().validate()
         self._require_pos(self.w_slice_num, "w_slice_num")
         self._require_pos(self.x_slice_num, "x_slice_num")
+
+
+@dataclass(frozen=True)
+class InterArraySliceXbarMacroPolicy(XbarMacroPolicy):
+    """Composite policy for :class:`InterArraySliceXbarMacro`.
+
+    Attributes:
+        xbar: Embedded xbar nonideality policy.
+    """
+
+    xbar: XbarPolicy
 
 
 @XbarMacro.register_key(InterArraySliceXbarMacroConfig)
@@ -63,12 +74,13 @@ class InterArraySliceXbarMacro(XbarMacro):
     """
 
     xbar: Xbar
-    cfg: InterArraySliceXbarMacroConfig
+    config: InterArraySliceXbarMacroConfig
 
     def __init__(
         self,
         *,
-        cfg: InterArraySliceXbarMacroConfig,
+        config: InterArraySliceXbarMacroConfig,
+        policy: InterArraySliceXbarMacroPolicy,
         name: str,
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
@@ -76,37 +88,42 @@ class InterArraySliceXbarMacro(XbarMacro):
         ideal_xbar: bool,
     ) -> None:
         super().__init__(
-            cfg=cfg,
+            config=config,
+            policy=policy,
             name=name,
             w_logical_shape=w_logical_shape,
             dtype=dtype,
             T__K=T__K,
             ideal_xbar=ideal_xbar,
         )
-        self.cfg = cfg
-        xbar_cfg = cfg.xbar_cfg
-        col_num = xbar_cfg.col_num
-        row_num = xbar_cfg.row_num
+        self.config = config
+        xbar_config = config.xbar_config
+        col_num = xbar_config.col_num
+        row_num = xbar_config.row_num
 
         # Symbolic organized shape: (*batch, 1, Tc, Tr, 1, Sw, col_num, D, row_num).
         # The trailing (col_num, D, row_num) is owned by the xbar.
         *w_batch, n_logical, k_logical = w_logical_shape
         tr = (n_logical + col_num - 1) // col_num
         tc = (k_logical + row_num - 1) // row_num
-        sw = cfg.w_slice_num
+        sw = config.w_slice_num
 
-        self.xbar = self._build_xbar(xbar_cfg=xbar_cfg, inst_shape=(*w_batch, 1, tc, tr, 1, sw))
+        self.xbar = self._build_xbar(
+            xbar_config=xbar_config,
+            xbar_policy=policy.xbar,
+            inst_shape=(*w_batch, 1, tc, tr, 1, sw),
+        )
         xbar = self.xbar
 
         x_lo, x_hi = xbar.x_range
         self.w_slicer = SimpleSlicer(
-            slice_num=cfg.w_slice_num,
+            slice_num=config.w_slice_num,
             digit_count=xbar.w_digit_count,
             digit_radix=xbar.w_digit_radix,
-            encoding=cfg.w_encoding,
+            encoding=config.w_encoding,
         )
         self.x_slicer = SerialSlicer(
-            slice_num=cfg.x_slice_num,
+            slice_num=config.x_slice_num,
             digit_radix=x_hi - x_lo + 1,
         )
 
@@ -116,17 +133,17 @@ class InterArraySliceXbarMacro(XbarMacro):
 
         prefix = f"{name}." if name else ""
         self.col_accumulator = Accumulator(
-            cfg=cfg.col_accumulator_cfg,
+            config=config.col_accumulator_config,
             name=f"{prefix}col_accumulator",
             inst_shape=(self._w_parallel_size, sw, tr),
         )
         self.sa_shift_adder = ShiftAdder(
-            cfg=cfg.sa_shift_adder_cfg,
+            config=config.sa_shift_adder_config,
             name=f"{prefix}sa_shift_adder",
             inst_shape=(self._w_parallel_size, tr),
         )
         self.sw_shift_adder = ShiftAdder(
-            cfg=cfg.sw_shift_adder_cfg,
+            config=config.sw_shift_adder_config,
             name=f"{prefix}sw_shift_adder",
             inst_shape=(self._w_parallel_size, tr),
         )

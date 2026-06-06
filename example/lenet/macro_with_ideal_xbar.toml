@@ -44,7 +44,7 @@ x_slice_num = 4
 # --- Slice encodings ---
 w_encoding = "true_form"
 
-[macro.xbar_cfg]
+[macro.xbar_config]
 _neurox_type = "IdealXbarConfig"
 
 # --- Tile size ---
@@ -66,27 +66,27 @@ w_digit_range = [-1, 2]
 adc_mode_num = 3
 adc_max_bits = 4
 
-[[macro.xbar_cfg.adc_calibration]]
+[[macro.xbar_config.adc_calibration]]
 adc_mode = 0
 adc_bits = 4
 rescale_factor = 4.0625
 
 
-[macro.col_accumulator_cfg]
+[macro.col_accumulator_config]
 bit_width = 32
 area_per_inst__um2 = 60.0
 leakage_per_inst__uW = 1.0
 latency_per_op__ns = 0.5
 energy_per_op__fJ = 50.0
 
-[macro.sa_shift_adder_cfg]
+[macro.sa_shift_adder_config]
 bit_width = 32
 area_per_inst__um2 = 75.0
 leakage_per_inst__uW = 1.5
 latency_per_op__ns = 0.5
 energy_per_op__fJ = 80.0
 
-[macro.sw_shift_adder_cfg]
+[macro.sw_shift_adder_config]
 bit_width = 32
 area_per_inst__um2 = 75.0
 leakage_per_inst__uW = 1.5

@@ -57,30 +57,30 @@ class ShiftAdder(FabricateMixin, nn.Module, ProfileMixin):
     def __init__(
         self,
         *,
-        cfg: ShiftAdderConfig,
+        config: ShiftAdderConfig,
         name: str,
         inst_shape: tuple[int, ...],
     ) -> None:
         nn.Module.__init__(self)
         ProfileMixin.__init__(self, name)
-        self.cfg = cfg
+        self.config = config
         self._inst_shape = inst_shape
         self._log_static()
 
     @property
     def area_per_inst__um2(self) -> float:
         """Silicon area per instance [um^2]."""
-        return self.cfg.area_per_inst__um2
+        return self.config.area_per_inst__um2
 
     @property
     def leakage_per_inst__uW(self) -> float:
         """Static leakage per instance [uW]."""
-        return self.cfg.leakage_per_inst__uW
+        return self.config.leakage_per_inst__uW
 
     @property
     def latency_per_op__ns(self) -> float:
         """Latency per op [ns]."""
-        return self.cfg.latency_per_op__ns
+        return self.config.latency_per_op__ns
 
     def operate(self, x: Tensor, scale: int, dim: int, init_val: Tensor | None) -> Tensor:
         """Compute the radix-weighted digit sum and wrap to ``bit_width`` bits.
@@ -96,7 +96,7 @@ class ShiftAdder(FabricateMixin, nn.Module, ProfileMixin):
             Recombined sum with ``dim`` reduced.
         """
 
-        bw = self.cfg.bit_width
+        bw = self.config.bit_width
         half = 1 << (bw - 1)
         full = 1 << bw
         scales = torch.tensor([scale**i for i in range(x.size(dim))], device=x.device, dtype=x.dtype)
@@ -108,6 +108,6 @@ class ShiftAdder(FabricateMixin, nn.Module, ProfileMixin):
         if init_val is not None:
             y = y + init_val
 
-        dynamic_energy__fJ = torch.full_like(y, self.cfg.energy_per_op__fJ, dtype=torch.float32)
-        self._log_dynamic(dynamic_energy__fJ, self.cfg.latency_per_op__ns)
+        dynamic_energy__fJ = torch.full_like(y, self.config.energy_per_op__fJ, dtype=torch.float32)
+        self._log_dynamic(dynamic_energy__fJ, self.config.latency_per_op__ns)
         return y

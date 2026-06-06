@@ -37,10 +37,6 @@ class RRAMConfig(ValidateMixin):
         prog_gamma: Programming-variation model parameters.
         read_telegraph: Telegraph-noise model parameters.
         stuck_at: Stuck-at fault model parameters.
-        enable_read_thermal: Apply ``read_thermal__uS`` at snapshot time.
-        enable_prog_gamma: Apply ``prog_gamma`` at program time.
-        enable_read_telegraph: Apply ``read_telegraph`` at snapshot time.
-        enable_stuck_at: Apply ``stuck_at`` at program time.
     """
 
     # --- Working range ---
@@ -59,19 +55,15 @@ class RRAMConfig(ValidateMixin):
 
     # --- Read thermal noise ---
     read_thermal__uS: float
-    enable_read_thermal: bool
 
     # --- Programming Gamma ---
     prog_gamma: StateDependentGammaConfig
-    enable_prog_gamma: bool
 
     # --- Read telegraph noise ---
     read_telegraph: TelegraphConfig
-    enable_read_telegraph: bool
 
     # --- Stuck-at fault ---
     stuck_at: StuckAtFaultConfig
-    enable_stuck_at: bool
 
     def __post_init__(self) -> None:
         self.validate()
@@ -100,6 +92,23 @@ class RRAMConfig(ValidateMixin):
     def validate_noise(self) -> None:
         # Nested *Config self-validates in its own __post_init__.
         self._require_nonneg(self.read_thermal__uS, "read_thermal__uS")
+
+
+@dataclass(frozen=True)
+class RRAMPolicy:
+    """Per-source toggles selecting which RRAM nonidealities are active.
+
+    Attributes:
+        prog_gamma: Apply state-dependent programming Gamma at program time.
+        stuck_at: Apply stuck-at faults at program time.
+        read_telegraph: Apply telegraph noise at snapshot time.
+        read_thermal: Apply Gaussian read noise at snapshot time.
+    """
+
+    prog_gamma: bool
+    stuck_at: bool
+    read_telegraph: bool
+    read_thermal: bool
 
 
 @dataclass(frozen=True)
@@ -134,7 +143,8 @@ class RRAM(FabricateMixin, nn.Module):
     def __init__(
         self,
         *,
-        cfg: RRAMConfig,
+        config: RRAMConfig,
+        policy: RRAMPolicy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -143,7 +153,8 @@ class RRAM(FabricateMixin, nn.Module):
         """Construct one stateful RRAM model.
 
         Args:
-            cfg: Concrete configuration dataclass.
+            config: Concrete configuration dataclass.
+            policy: Per-source nonideality enable flags.
             inst_shape: Per-instance fabrication shape.
             dtype: Tensor dtype for internal buffers.
             T__K: Operating temperature [K].
@@ -151,14 +162,15 @@ class RRAM(FabricateMixin, nn.Module):
         """
         super().__init__()
 
-        if not (g_max__uS > cfg.g_min__uS):
-            raise ValueError(f"require: g_max__uS ({g_max__uS}) > cfg.g_min__uS ({cfg.g_min__uS})")
+        if not (g_max__uS > config.g_min__uS):
+            raise ValueError(f"require: g_max__uS ({g_max__uS}) > config.g_min__uS ({config.g_min__uS})")
 
-        self.cfg = cfg
+        self.config = config
+        self.policy = policy
         self._inst_shape = inst_shape
         self.dtype = dtype
         self.T__K = T__K
-        self.g_min__uS = cfg.g_min__uS
+        self.g_min__uS = config.g_min__uS
         self.g_max__uS = g_max__uS
 
         self.register_buffer("g__uS", torch.zeros((), dtype=dtype), persistent=False)
@@ -166,12 +178,12 @@ class RRAM(FabricateMixin, nn.Module):
     @property
     def c_top__fF(self) -> float:
         """Top-electrode (BL-side) parasitic capacitance per cell [fF]."""
-        return self.cfg.c_top__fF
+        return self.config.c_top__fF
 
     @property
     def c_bot__fF(self) -> float:
         """Bottom-electrode (Node-X-side) parasitic capacitance per cell [fF]."""
-        return self.cfg.c_bot__fF
+        return self.config.c_bot__fF
 
     def program(self, target_g__uS: Tensor, t_elapsed: float) -> None:
         """Program the stored conductance.
@@ -181,17 +193,17 @@ class RRAM(FabricateMixin, nn.Module):
             t_elapsed: Time elapsed since programming [s].
         """
         g__uS = target_g__uS.to(dtype=self.dtype).clamp(self.g_min__uS, self.g_max__uS)
-        g__uS = apply_state_dependent_gamma(g__uS, self.cfg.prog_gamma, enabled=self.cfg.enable_prog_gamma)
-        if self.cfg.drift_decay_rate > 0.0 and t_elapsed > self.cfg.drift_t0:
-            drift_factor = (t_elapsed / self.cfg.drift_t0) ** (-self.cfg.drift_decay_rate)
+        g__uS = apply_state_dependent_gamma(g__uS, self.config.prog_gamma, enabled=self.policy.prog_gamma)
+        if self.config.drift_decay_rate > 0.0 and t_elapsed > self.config.drift_t0:
+            drift_factor = (t_elapsed / self.config.drift_t0) ** (-self.config.drift_decay_rate)
             g__uS = g__uS * drift_factor
 
         g__uS = apply_stuck_at_fault(
             x=g__uS,
-            config=self.cfg.stuck_at,
+            config=self.config.stuck_at,
             min_val=self.g_min__uS,
             max_val=self.g_max__uS,
-            enabled=self.cfg.enable_stuck_at,
+            enabled=self.policy.stuck_at,
         )
 
         g__uS = g__uS.clamp(self.g_min__uS, self.g_max__uS)
@@ -208,8 +220,8 @@ class RRAM(FabricateMixin, nn.Module):
             Per-call snapshot of the fabricated state.
         """
         g__uS = self.g__uS.expand(shape)
-        g__uS = apply_telegraph_noise(g__uS, self.cfg.read_telegraph, enabled=self.cfg.enable_read_telegraph)
-        g__uS = apply_gaussian(g__uS, self.cfg.read_thermal__uS, enabled=self.cfg.enable_read_thermal)
+        g__uS = apply_telegraph_noise(g__uS, self.config.read_telegraph, enabled=self.policy.read_telegraph)
+        g__uS = apply_gaussian(g__uS, self.config.read_thermal__uS, enabled=self.policy.read_thermal)
         g__uS = g__uS.clamp(self.g_min__uS, self.g_max__uS)
         return RRAMSnapshot(g__uS=g__uS)
 
@@ -225,7 +237,7 @@ class RRAM(FabricateMixin, nn.Module):
             voltage.
         """
         g__uS = snapshot.g__uS
-        alpha = self.cfg.nonlinearity_alpha
+        alpha = self.config.nonlinearity_alpha
         if alpha == 0.0:
             i__uA = g__uS * v__V
             di_dv__uS = g__uS.expand_as(i__uA)

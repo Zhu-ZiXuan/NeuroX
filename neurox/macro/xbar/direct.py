@@ -18,9 +18,9 @@ from neurox.digital import (
     AccumulatorConfig,
 )
 from neurox.mapper.transcoder import Encoding, Transcoder
-from neurox.xbar import Xbar, XbarConfig
+from neurox.xbar import Xbar, XbarConfig, XbarPolicy
 
-from .base import XbarMacro, XbarMacroConfig
+from .base import XbarMacro, XbarMacroConfig, XbarMacroPolicy
 
 
 @dataclass(frozen=True)
@@ -31,15 +31,26 @@ class DirectXbarMacroConfig(XbarMacroConfig):
     weights / activations straight onto one xbar's value range.
 
     Attributes:
-        xbar_cfg: Owned physical-xbar config.
+        xbar_config: Owned physical-xbar config.
         w_encoding: Signed-digit encoding for the weight transcoder.
-        col_accumulator_cfg: Tc-axis cross-tile accumulator config.
+        col_accumulator_config: Tc-axis cross-tile accumulator config.
     """
 
-    xbar_cfg: XbarConfig
+    xbar_config: XbarConfig
     w_encoding: Encoding
 
-    col_accumulator_cfg: AccumulatorConfig
+    col_accumulator_config: AccumulatorConfig
+
+
+@dataclass(frozen=True)
+class DirectXbarMacroPolicy(XbarMacroPolicy):
+    """Composite policy for :class:`DirectXbarMacro`.
+
+    Attributes:
+        xbar: Embedded xbar nonideality policy.
+    """
+
+    xbar: XbarPolicy
 
 
 @XbarMacro.register_key(DirectXbarMacroConfig)
@@ -54,12 +65,13 @@ class DirectXbarMacro(XbarMacro):
     """
 
     xbar: Xbar
-    cfg: DirectXbarMacroConfig
+    config: DirectXbarMacroConfig
 
     def __init__(
         self,
         *,
-        cfg: DirectXbarMacroConfig,
+        config: DirectXbarMacroConfig,
+        policy: DirectXbarMacroPolicy,
         name: str,
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
@@ -67,17 +79,18 @@ class DirectXbarMacro(XbarMacro):
         ideal_xbar: bool,
     ) -> None:
         super().__init__(
-            cfg=cfg,
+            config=config,
+            policy=policy,
             name=name,
             w_logical_shape=w_logical_shape,
             dtype=dtype,
             T__K=T__K,
             ideal_xbar=ideal_xbar,
         )
-        self.cfg = cfg
-        xbar_cfg = cfg.xbar_cfg
-        col_num = xbar_cfg.col_num
-        row_num = xbar_cfg.row_num
+        self.config = config
+        xbar_config = config.xbar_config
+        col_num = xbar_config.col_num
+        row_num = xbar_config.row_num
 
         # Symbolic organized shape: (*batch, M=1, Tc, Tr, col_num, D, row_num).
         # The trailing (col_num, D, row_num) is owned by the xbar.
@@ -85,11 +98,15 @@ class DirectXbarMacro(XbarMacro):
         tr = (n_logical + col_num - 1) // col_num
         tc = (k_logical + row_num - 1) // row_num
 
-        self.xbar = self._build_xbar(xbar_cfg=xbar_cfg, inst_shape=(*w_batch, 1, tc, tr))
+        self.xbar = self._build_xbar(
+            xbar_config=xbar_config,
+            xbar_policy=policy.xbar,
+            inst_shape=(*w_batch, 1, tc, tr),
+        )
         xbar = self.xbar
 
         self.w_transcoder = Transcoder.create(
-            encoding=cfg.w_encoding,
+            encoding=config.w_encoding,
             radix=xbar.w_digit_radix,
             digit_num=xbar.w_digit_count,
         )
@@ -100,7 +117,7 @@ class DirectXbarMacro(XbarMacro):
 
         prefix = f"{name}." if name else ""
         self.col_accumulator = Accumulator(
-            cfg=cfg.col_accumulator_cfg,
+            config=config.col_accumulator_config,
             name=f"{prefix}col_accumulator",
             inst_shape=(self._w_parallel_size, tr),
         )

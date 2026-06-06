@@ -28,7 +28,7 @@ adc_bits = 4
 rescale_factor = 4.0625
 
 
-[xbar.core_cfg]
+[xbar.core_config]
 
 # --- Pulse timing ---
 wl_pulse_length__ns = 3.0
@@ -71,25 +71,15 @@ rram_g_max__uS = 100.0
 state_to_g_map__uS = [10.0, 39.7, 69.7, 100.0]
 
 
-[xbar.core_cfg.rram_cfg]
+[xbar.core_config.rram_config]
 _neurox_use_preset = "process/rram:default"
 
-# --- Noise toggles ---
-enable_read_thermal = false
-enable_prog_gamma = false
-enable_read_telegraph = false
-enable_stuck_at = false
 
-
-[xbar.core_cfg.nmos_cfg]
+[xbar.core_config.nmos_config]
 _neurox_use_preset = "process/mos:nmos_28_rvt"
 
-# --- Mismatch toggles ---
-enable_A_vt_mismatch = false
-enable_A_beta_mismatch = false
 
-
-[xbar.core_cfg.tia_cfg]
+[xbar.core_config.tia_config]
 _neurox_type = "OpAmpTIAConfig"
 
 # --- Reference / supply ---
@@ -102,7 +92,6 @@ opamp_gain = 30.0
 
 # --- Op-amp gain mismatch ---
 opamp_gain_sigma = 0.0
-enable_opamp_gain_sigma = false
 
 # --- Pseudo-resistor NMOS ---
 pseudo_nmos_W__um = 1.000
@@ -116,22 +105,17 @@ leakage_per_inst__uW = 1.0
 area_per_inst__um2 = 10.0
 latency_per_op__ns = 2.0
 
-[xbar.core_cfg.tia_cfg.nmos_cfg]
+[xbar.core_config.tia_config.nmos_config]
 _neurox_use_preset = "process/mos:nmos_28_rvt"
 
-# --- Mismatch toggles ---
-enable_A_vt_mismatch = false
-enable_A_beta_mismatch = false
 
-
-[xbar.core_cfg.sl_driver_cfg]
+[xbar.core_config.sl_driver_config]
 
 # --- Drive ---
 drive_value = 0.0
 
 # --- Drive thermal noise ---
 drive_thermal__V = 0.0
-enable_drive_thermal = false
 
 # --- PPA ---
 latency_per_op__ns = 0.0
@@ -139,7 +123,7 @@ leakage_per_inst__uW = 0.0
 area_per_inst__um2 = 0.0
 
 
-[xbar.core_cfg.wl_dac_cfg]
+[xbar.core_config.wl_dac_config]
 _neurox_type = "GeneralDACConfig"
 
 # --- LUT ---
@@ -147,7 +131,6 @@ code_to_signal = [0.0, 1.2]
 
 # --- Drive thermal noise ---
 drive_thermal__V = 0.0
-enable_drive_thermal = false
 
 # --- Energy / PPA ---
 energy_per_op__fJ = 0.0
@@ -156,7 +139,7 @@ leakage_per_inst__uW = 0.0
 area_per_inst__um2 = 0.0
 
 
-[xbar.readout_cfg]
+[xbar.readout_config]
 _neurox_type = "OffsetSwitchCapMuxAdcReadOutConfig"
 
 # --- Energy / PPA ---
@@ -166,17 +149,13 @@ area_per_inst__um2 = 0.0
 latency_per_op__ns = 0.0
 
 
-[xbar.readout_cfg.data_switchcap_cfg]
+[xbar.readout_config.data_switchcap_config]
 
 # --- Unit capacitance ---
 c_unit__fF = 5.0
 
 # --- Cap mismatch (Pelgrom) ---
 cap_mismatch_sigma_relative = 0.005
-enable_cap_mismatch = true
-
-# --- Sampling thermal noise (kT/C) ---
-enable_sampling_thermal_noise = false
 
 # --- Energy / PPA ---
 energy_per_sample_overhead__fJ = 0.0
@@ -185,17 +164,13 @@ area_per_inst__um2 = 0.0
 latency_per_op__ns = 0.0
 
 
-[xbar.readout_cfg.ref_switchcap_cfg]
+[xbar.readout_config.ref_switchcap_config]
 
 # --- Unit capacitance ---
 c_unit__fF = 5.0
 
 # --- Cap mismatch (Pelgrom) ---
 cap_mismatch_sigma_relative = 0.005
-enable_cap_mismatch = true
-
-# --- Sampling thermal noise (kT/C) ---
-enable_sampling_thermal_noise = false
 
 # --- Energy / PPA ---
 energy_per_sample_overhead__fJ = 0.0
@@ -204,18 +179,16 @@ area_per_inst__um2 = 0.0
 latency_per_op__ns = 0.0
 
 
-[xbar.readout_cfg.analog_mux_cfg]
+[xbar.readout_config.analog_mux_config]
 
 # --- Gain ---
 mux_gain = 1.0
 
 # --- Common-mode noise ---
 mux_noise_cm_sigma__V = 1e-3
-enable_mux_noise_cm = true
 
 # --- Differential-mode noise ---
 mux_noise_dm_sigma__V = 1e-3
-enable_mux_noise_dm = true
 
 # --- Energy / PPA ---
 energy_per_access__fJ = 0.0
@@ -224,7 +197,7 @@ area_per_inst__um2 = 0.0
 latency_per_op__ns = 0.0
 
 
-[xbar.readout_cfg.adc_cfg]
+[xbar.readout_config.adc_config]
 _neurox_type = "McsSarAdcConfig"
 
 # --- Topology ---
@@ -240,18 +213,12 @@ c_unit__fF = 2.0
 
 # --- Cap mismatch (Pelgrom) ---
 cap_mismatch_sigma_relative = 5e-3
-enable_cap_mismatch = true
 
 # --- Comparator static offset ---
 comparator_offset_sigma__V = 3e-3
-enable_comparator_offset = true
 
 # --- Comparator thermal noise (per-cycle) ---
 comparator_thermal_noise_sigma__V = 5e-4
-enable_comparator_thermal_noise = true
-
-# --- Sampling thermal noise (kT/C) ---
-enable_sampling_thermal_noise = false
 
 # --- Energy ---
 e_bootstrap__fJ = 20.0

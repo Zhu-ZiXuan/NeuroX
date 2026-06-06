@@ -13,11 +13,19 @@ from torch import Tensor
 from neurox.analog import (
     Driver,
     DriverConfig,
+    DriverPolicy,
 )
-from neurox.analog.dac import DAC, DACConfig
-from neurox.analog.tia import TIA, TIAConfig
+from neurox.analog.dac import DAC, DACConfig, DACPolicy
+from neurox.analog.tia import TIA, TIAConfig, TIAPolicy
 from neurox.common.mixin import FabricateMixin, ValidateMixin
-from neurox.device import NMOS, RRAM, NMOSConfig, RRAMConfig
+from neurox.device import (
+    NMOS,
+    RRAM,
+    NMOSConfig,
+    NMOSPolicy,
+    RRAMConfig,
+    RRAMPolicy,
+)
 
 from .newton_raphson_solver import NewtonRaphsonSolver1T1R
 
@@ -59,12 +67,12 @@ class CircuitCore1T1RConfig(ValidateMixin):
         rram_g_max__uS: Maximum programmable RRAM conductance [uS].
         state_to_g_map__uS: State-index to target-conductance lookup
             table [uS]. Strictly increasing; endpoints must lie inside
-            ``[rram_cfg.g_min__uS, rram_g_max__uS]``.
-        rram_cfg: RRAM device configuration.
-        nmos_cfg: NMOS device configuration.
-        tia_cfg: BL clamp-driver configuration.
-        sl_driver_cfg: SL driver configuration.
-        wl_dac_cfg: WL DAC configuration.
+            ``[rram_config.g_min__uS, rram_g_max__uS]``.
+        rram_config: RRAM device configuration.
+        nmos_config: NMOS device configuration.
+        tia_config: BL clamp-driver configuration.
+        sl_driver_config: SL driver configuration.
+        wl_dac_config: WL DAC configuration.
     """
 
     wl_pulse_length__ns: float
@@ -99,11 +107,11 @@ class CircuitCore1T1RConfig(ValidateMixin):
     rram_g_max__uS: float
     state_to_g_map__uS: list[float]
 
-    rram_cfg: RRAMConfig
-    nmos_cfg: NMOSConfig
-    tia_cfg: TIAConfig
-    sl_driver_cfg: DriverConfig
-    wl_dac_cfg: DACConfig
+    rram_config: RRAMConfig
+    nmos_config: NMOSConfig
+    tia_config: TIAConfig
+    sl_driver_config: DriverConfig
+    wl_dac_config: DACConfig
 
     def __post_init__(self) -> None:
         self.validate()
@@ -156,24 +164,48 @@ class CircuitCore1T1RConfig(ValidateMixin):
         self._require_nonneg(self.c_db_per_um__fF, "c_db_per_um__fF")
 
     def validate_rram_window(self) -> None:
-        if not (self.rram_g_max__uS > self.rram_cfg.g_min__uS):
+        if not (self.rram_g_max__uS > self.rram_config.g_min__uS):
             raise ValueError(
-                f"require: rram_g_max__uS ({self.rram_g_max__uS}) > rram_cfg.g_min__uS ({self.rram_cfg.g_min__uS})"
+                f"require: rram_g_max__uS ({self.rram_g_max__uS}) > rram_config.g_min__uS ({self.rram_config.g_min__uS})"
             )
 
     def validate_state_map(self) -> None:
         self._require_min_length(self.state_to_g_map__uS, 2, "state_to_g_map__uS")
         self._require_strictly_increasing(self.state_to_g_map__uS, "state_to_g_map__uS")
-        if self.state_to_g_map__uS[0] < self.rram_cfg.g_min__uS:
+        if self.state_to_g_map__uS[0] < self.rram_config.g_min__uS:
             raise ValueError(
                 f"require: state_to_g_map__uS[0] ({self.state_to_g_map__uS[0]}) >= "
-                f"rram_cfg.g_min__uS ({self.rram_cfg.g_min__uS})"
+                f"rram_config.g_min__uS ({self.rram_config.g_min__uS})"
             )
         if self.state_to_g_map__uS[-1] > self.rram_g_max__uS:
             raise ValueError(
                 f"require: state_to_g_map__uS[-1] ({self.state_to_g_map__uS[-1]}) <= "
                 f"rram_g_max__uS ({self.rram_g_max__uS})"
             )
+
+
+# ---------------------------------------------------------------------------
+# Nonideality policy
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class CircuitCore1T1RPolicy:
+    """Composite nonideality policy for a 1T1R circuit core.
+
+    Attributes:
+        rram: RRAM cell-array nonideality policy.
+        nmos: Cell access-NMOS nonideality policy.
+        tia: BL clamp-driver (TIA) nonideality policy.
+        sl_driver: SL driver nonideality policy.
+        wl_dac: WL DAC nonideality policy.
+    """
+
+    rram: RRAMPolicy
+    nmos: NMOSPolicy
+    tia: TIAPolicy
+    sl_driver: DriverPolicy
+    wl_dac: DACPolicy
 
 
 # ---------------------------------------------------------------------------
@@ -231,7 +263,8 @@ class CircuitCore1T1R(FabricateMixin, nn.Module):
     def __init__(
         self,
         *,
-        cfg: CircuitCore1T1RConfig,
+        config: CircuitCore1T1RConfig,
+        policy: CircuitCore1T1RPolicy,
         name: str,
         w_layout_shape: tuple[int, ...],
         dtype: torch.dtype,
@@ -240,7 +273,8 @@ class CircuitCore1T1R(FabricateMixin, nn.Module):
         """Construct one shape-independent 1T1R core.
 
         Args:
-            cfg: Concrete configuration dataclass.
+            config: Concrete configuration dataclass.
+            policy: Composite nonideality policy.
             name: Hierarchical instance name used by the profiler.
             w_layout_shape: Per-instance state-index tensor shape
                 ``(*prefix, phys_col_num, row_num)`` that
@@ -261,7 +295,8 @@ class CircuitCore1T1R(FabricateMixin, nn.Module):
             raise ValueError(f"require: row_num ({row_num}) > 1")
 
         self._neurox_name = name
-        self.cfg = cfg
+        self.config = config
+        self.policy = policy
         self.dtype = dtype
         self.T__K = T__K
         self._w_layout_shape = tuple(w_layout_shape)
@@ -269,41 +304,46 @@ class CircuitCore1T1R(FabricateMixin, nn.Module):
 
         sub_prefix = name + "."
         self.rram = RRAM(
-            cfg=cfg.rram_cfg,
+            config=config.rram_config,
+            policy=policy.rram,
             inst_shape=self._w_layout_shape,
             dtype=dtype,
             T__K=T__K,
-            g_max__uS=cfg.rram_g_max__uS,
+            g_max__uS=config.rram_g_max__uS,
         )
         self.nmos = NMOS(
-            cfg=cfg.nmos_cfg,
+            config=config.nmos_config,
+            policy=policy.nmos,
             inst_shape=self._w_layout_shape,
             dtype=dtype,
             T__K=T__K,
-            W__um=cfg.access_nmos_W__um,
-            L__um=cfg.access_nmos_L__um,
+            W__um=config.access_nmos_W__um,
+            L__um=config.access_nmos_L__um,
         )
         self.tia = TIA.from_config(
-            cfg=cfg.tia_cfg,
+            config=config.tia_config,
+            policy=policy.tia,
             name=f"{sub_prefix}tia",
             inst_shape=(phys_col_num,),
             dtype=dtype,
             T__K=T__K,
         )
-        access_W__um = cfg.access_nmos_W__um
-        self.c_gs_per_cell__fF = cfg.c_gs_per_um__fF * access_W__um
-        self.c_gd_per_cell__fF = cfg.c_gd_per_um__fF * access_W__um
-        self.c_db_per_cell__fF = cfg.c_db_per_um__fF * access_W__um
+        access_W__um = config.access_nmos_W__um
+        self.c_gs_per_cell__fF = config.c_gs_per_um__fF * access_W__um
+        self.c_gd_per_cell__fF = config.c_gd_per_um__fF * access_W__um
+        self.c_db_per_cell__fF = config.c_db_per_um__fF * access_W__um
 
         self.sl_driver = Driver(
-            cfg=cfg.sl_driver_cfg,
+            config=config.sl_driver_config,
+            policy=policy.sl_driver,
             name=f"{sub_prefix}sl_driver",
             inst_shape=(phys_col_num,),
             dtype=dtype,
             T__K=T__K,
         )
         self.wl_dac = DAC.from_config(
-            cfg=cfg.wl_dac_cfg,
+            config=config.wl_dac_config,
+            policy=policy.wl_dac,
             name=f"{sub_prefix}wl_dac",
             inst_shape=(row_num,),
             dtype=dtype,
@@ -312,30 +352,30 @@ class CircuitCore1T1R(FabricateMixin, nn.Module):
 
         self.register_buffer(
             "state_to_g_map__uS",
-            torch.tensor(cfg.state_to_g_map__uS, dtype=dtype),
+            torch.tensor(config.state_to_g_map__uS, dtype=dtype),
             persistent=False,
         )
 
-        self.w_states = len(cfg.state_to_g_map__uS)
+        self.w_states = len(config.state_to_g_map__uS)
         self.x_states = self.wl_dac.code_max + 1
 
-        self.c_wl_wire_per_row__fF = cfg.wl_first_c__fF + (phys_col_num - 1) * cfg.wl_segment_c__fF
+        self.c_wl_wire_per_row__fF = config.wl_first_c__fF + (phys_col_num - 1) * config.wl_segment_c__fF
 
         # Per-line segment buffers; index 0 is the driver-to-first segment.
         bl_segment_r__MOhm = torch.tensor(
-            [cfg.bl_first_r__MOhm] + [cfg.bl_segment_r__MOhm] * (row_num - 1),
+            [config.bl_first_r__MOhm] + [config.bl_segment_r__MOhm] * (row_num - 1),
             dtype=dtype,
         )
         sl_segment_r__MOhm = torch.tensor(
-            [cfg.sl_first_r__MOhm] + [cfg.sl_segment_r__MOhm] * (row_num - 1),
+            [config.sl_first_r__MOhm] + [config.sl_segment_r__MOhm] * (row_num - 1),
             dtype=dtype,
         )
         bl_segment_c__fF = torch.tensor(
-            [cfg.bl_first_c__fF] + [cfg.bl_segment_c__fF] * (row_num - 1),
+            [config.bl_first_c__fF] + [config.bl_segment_c__fF] * (row_num - 1),
             dtype=dtype,
         )
         sl_segment_c__fF = torch.tensor(
-            [cfg.sl_first_c__fF] + [cfg.sl_segment_c__fF] * (row_num - 1),
+            [config.sl_first_c__fF] + [config.sl_segment_c__fF] * (row_num - 1),
             dtype=dtype,
         )
         self.register_buffer("bl_segment_r__MOhm", bl_segment_r__MOhm, persistent=False)
@@ -449,7 +489,7 @@ class CircuitCore1T1R(FabricateMixin, nn.Module):
         # --- Accumulate analog-side dynamic energy ---
 
         array_energy__fJ = self._compute_array_energy__fJ(core_dcop)
-        self.tia._log_dynamic(array_energy__fJ, self.tia.cfg.latency_per_op__ns)
+        self.tia._log_dynamic(array_energy__fJ, self.tia.config.latency_per_op__ns)
 
         return core_dcop
 
@@ -466,14 +506,14 @@ class CircuitCore1T1R(FabricateMixin, nn.Module):
         v_x__V = dcop.v_x_node
         v_bl_clamp__V = dcop.v_bl_clamp
         v_sl_drive__V = dcop.v_sl_drive
-        pulse__ns = self.cfg.wl_pulse_length__ns
+        pulse__ns = self.config.wl_pulse_length__ns
 
         # --- DC conduction ---
 
         # Shape: [..., phys_col_num] -> [...]
-        array_power__uW = (v_bl_clamp__V * dcop.i_bl_driver).sum(dim=-1) + (
-            v_sl_drive__V * dcop.i_sl_driver
-        ).sum(dim=-1)
+        array_power__uW = (v_bl_clamp__V * dcop.i_bl_driver).sum(dim=-1) + (v_sl_drive__V * dcop.i_sl_driver).sum(
+            dim=-1
+        )
         e_dc_cond__fJ = array_power__uW * pulse__ns
 
         # --- Capacitive cycling ---

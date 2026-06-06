@@ -20,7 +20,7 @@ import torch.nn as nn
 
 import torch
 
-from neurox.macro.xbar import IdealXbarMacro, IdealXbarMacroConfig, XbarMacro
+from neurox.macro.xbar import IdealXbarMacro, IdealXbarMacroConfig, IdealXbarMacroPolicy, XbarMacro
 from neurox.operator import QuantConv2d, QuantLinear
 from neurox.replace import (
     ReplacementContext,
@@ -35,9 +35,10 @@ from neurox.replace import (
 
 
 def _make_ideal_macro(*, name: str, w_logical_shape: tuple[int, ...], bound: int) -> IdealXbarMacro:
-    cfg = IdealXbarMacroConfig(x_value_range=(-bound, bound), w_value_range=(-bound, bound))
+    config = IdealXbarMacroConfig(x_value_range=(-bound, bound), w_value_range=(-bound, bound))
     macro = XbarMacro.from_config(
-        cfg=cfg,
+        config=config,
+        policy=IdealXbarMacroPolicy(),
         name=name,
         w_logical_shape=w_logical_shape,
         dtype=torch.float32,

@@ -63,30 +63,30 @@ class Accumulator(FabricateMixin, nn.Module, ProfileMixin):
     def __init__(
         self,
         *,
-        cfg: AccumulatorConfig,
+        config: AccumulatorConfig,
         name: str,
         inst_shape: tuple[int, ...],
     ) -> None:
         nn.Module.__init__(self)
         ProfileMixin.__init__(self, name)
-        self.cfg = cfg
+        self.config = config
         self._inst_shape = inst_shape
         self._log_static()
 
     @property
     def area_per_inst__um2(self) -> float:
         """Silicon area per instance [um^2]."""
-        return self.cfg.area_per_inst__um2
+        return self.config.area_per_inst__um2
 
     @property
     def leakage_per_inst__uW(self) -> float:
         """Static leakage per instance [uW]."""
-        return self.cfg.leakage_per_inst__uW
+        return self.config.leakage_per_inst__uW
 
     @property
     def latency_per_op__ns(self) -> float:
         """Latency per op [ns]."""
-        return self.cfg.latency_per_op__ns
+        return self.config.latency_per_op__ns
 
     def operate(self, x: Tensor, dim: int) -> Tensor:
         """Sum ``x`` along ``dim`` and wrap into the signed ``bit_width`` range.
@@ -102,11 +102,11 @@ class Accumulator(FabricateMixin, nn.Module, ProfileMixin):
             Modular-wrapped sum with ``dim`` reduced.
         """
 
-        bw = self.cfg.bit_width
+        bw = self.config.bit_width
         half = 1 << (bw - 1)
         full = 1 << bw
         y = (x.sum(dim) + half) % full - half
 
-        dynamic_energy__fJ = torch.full_like(y, self.cfg.energy_per_op__fJ, dtype=torch.float32)
-        self._log_dynamic(dynamic_energy__fJ, self.cfg.latency_per_op__ns)
+        dynamic_energy__fJ = torch.full_like(y, self.config.energy_per_op__fJ, dtype=torch.float32)
+        self._log_dynamic(dynamic_energy__fJ, self.config.latency_per_op__ns)
         return y
