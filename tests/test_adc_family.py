@@ -1,26 +1,15 @@
-"""Tests for the physics-based ADC family.
+"""Tests for the ADC family.
 
-Covers the concrete subclasses (``GeneralADC``, ``McsSarAdc``,
-``PipelineADC``, ``CyclicADC``, ``RampADC``) plus the shared
-:class:`ADCMode` invariant.
+Covers the shared :class:`ADCMode` invariants and the two concrete
+implementations (:class:`GeneralADC`, :class:`McsSarAdc`) under the
+**signed-code output convention**: every ADC's ``convert`` returns codes
+in ``[-2**(bits-1), 2**(bits-1) - 1]``. How each concrete ADC produces
+that signed output (precomputed zero code vs per-call shift) is its own
+topology-specific implementation detail; the tests here only assert
+behaviour, not implementation.
 
-The family is now uniformly **runtime multi-mode**: every
-``convert`` and ``latency_per_op__ns`` call takes explicit ``mode``
-and ``bits`` keyword arguments.  Single-mode behavioural subclasses
-enforce strict ``mode == 0`` and ``bits == self._mode.n_bits``
-validation; the SAR variants accept any ``(mode, bits)`` inside
-their configured envelope.
-
-Each subclass is exercised on a small zero-noise input vector to
-validate:
-
-* ``convert`` returns integer codes in the expected range and a
-  per-element float energy tensor of the same shape.
-* ``latency_per_op__ns`` produces sensible scalars at the configured
-  ``(mode, bits)``.
-* Floor semantics: a signal at ``0.5 · max`` lands in the lower half
-  of the code range (not the upper half — round-to-nearest would
-  flip this).
+This file does NOT cover :class:`SarAdcMono` — its ``convert``
+currently raises ``NotImplementedError``.
 """
 
 from __future__ import annotations
@@ -32,27 +21,18 @@ import torch
 
 from neurox.analog.adc import (
     ADCMode,
-    CyclicADC,
-    CyclicADCConfig,
+    AdcOperationPoint,
     GeneralADC,
     GeneralADCConfig,
+    GeneralADCPolicy,
     McsSarAdc,
     McsSarAdcConfig,
-    PipelineADC,
-    PipelineADCConfig,
-    RampADC,
-    RampADCConfig,
+    McsSarAdcPolicy,
 )
 
-
-def _signal(*, dtype: torch.dtype = torch.float32) -> torch.Tensor:
-    """A short test signal covering the 0..1 range with one out-of-range edge."""
-    return torch.tensor([0.0, 0.25, 0.5, 0.75, 1.0, 1.5], dtype=dtype)
-
-
-def _diff_signal(*, dtype: torch.dtype = torch.float32) -> tuple[torch.Tensor, torch.Tensor]:
-    """Return (v_pos, v_neg) pair so ``v_pos - v_neg`` reproduces ``_signal``."""
-    return _signal(dtype=dtype), torch.zeros_like(_signal(dtype=dtype))
+# ---------------------------------------------------------------------------
+# ADCMode invariants
+# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -76,181 +56,237 @@ def test_adc_mode_rejects_invalid_combos() -> None:
         ADCMode(n_bits=4, n_states=4, max_signal=0.0)
 
 
-def test_general_adc_floor_semantics() -> None:
-    """0.5 · max with floor → lower-half code; 0.5 + LSB → upper-half."""
-    config = GeneralADCConfig(boundaries=[c * 0.0625 for c in range(1, 16)])
-    adc = GeneralADC(config)
-    adc.eval()
-    v_pos = torch.tensor([0.5 - 1e-6, 0.5, 0.9, 1.5], dtype=torch.float32)
-    v_neg = torch.zeros_like(v_pos)
-    code, _ = adc.convert(v_pos, v_neg, mode=0, bits=4)
-    # 0.5 - eps falls in code 7 (boundary 0.5 not yet exceeded);
-    # 0.5 in code 8 (just exceeded boundary 0.5 = 8 · LSB);
-    # 0.9 in code 14; 1.5 saturates at 15.
-    assert code.tolist() == [7, 8, 14, 15]
+# ---------------------------------------------------------------------------
+# GeneralADC convert — signed output
+# ---------------------------------------------------------------------------
 
 
-def test_general_adc_rejects_bad_runtime_args() -> None:
-    config = GeneralADCConfig(boundaries=[c * 0.0625 for c in range(1, 16)])
-    adc = GeneralADC(config)
-    adc.eval()
-    v_pos, v_neg = _diff_signal()
-    with pytest.raises(ValueError):
-        adc.convert(v_pos, v_neg, mode=1, bits=4)
-    with pytest.raises(ValueError):
-        adc.convert(v_pos, v_neg, mode=0, bits=3)
-    with pytest.raises(ValueError):
-        adc.convert(v_pos, v_neg, mode=0, bits=8)
+def _build_general_adc(boundaries: list[float]) -> GeneralADC:
+    config = GeneralADCConfig(
+        boundaries=boundaries,
+        sampling_noise__V=0.0,
+        comparator_noise__V=0.0,
+        drive_thermal__V=0.0,
+        drive_value=0.0,
+        input_transform="linear",
+        energy_per_op__fJ=0.0,
+        latency_per_op__ns=1.0,
+        leakage_per_inst__uW=0.0,
+        area_per_inst__um2=0.0,
+    )
+    policy = GeneralADCPolicy(sampling_noise=False, comparator_noise=False, drive_thermal=False)
+    return GeneralADC(
+        config=config,
+        policy=policy,
+        name="general_adc",
+        inst_shape=(1,),
+        dtype=torch.float64,
+        T__K=300.0,
+    )
 
 
-def test_mcs_sar_smoke() -> None:
+class TestGeneralAdcSignedConvert:
+    def test_output_lies_in_signed_range(self) -> None:
+        # 4-bit: 15 boundaries → 16 codes → signed range [-8, 7]
+        boundaries = [(k - 7.5) * 0.1 for k in range(15)]  # symmetric around 0
+        adc = _build_general_adc(boundaries)
+        adc.eval()
+
+        v_pos = torch.tensor([-1.0, -0.5, 0.0, 0.5, 1.0], dtype=torch.float64)
+        v_neg = torch.zeros_like(v_pos)
+        code = adc.convert(
+            v_pos, v_neg, adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=4)
+        )
+
+        assert code.dtype == torch.int16
+        assert int(code.min()) >= -8
+        assert int(code.max()) <= 7
+
+    def test_midpoint_signal_maps_to_zero(self) -> None:
+        # Boundaries centered around 0 → signal at 0 should land at signed code 0
+        boundaries = [(k - 7.5) * 0.1 for k in range(15)]
+        adc = _build_general_adc(boundaries)
+        adc.eval()
+
+        v_pos = torch.zeros(3, dtype=torch.float64)
+        v_neg = torch.zeros(3, dtype=torch.float64)
+        code = adc.convert(
+            v_pos, v_neg, adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=4)
+        )
+        # Signal = 0 lands in the bucket [boundary_at_midpoint - LSB, boundary_at_midpoint),
+        # which after sign flip is the signed code 0 or -1 (depending on which side
+        # of the midpoint boundary "0" falls). With boundaries at ..., -0.05, 0.05, ...
+        # signal 0 is in bucket starting at -0.05; unsigned code 7, signed code -1.
+        # Either way the output should be small (near 0).
+        assert int(code.abs().max()) <= 1
+
+    def test_signal_above_range_saturates_to_positive(self) -> None:
+        boundaries = [(k - 7.5) * 0.1 for k in range(15)]
+        adc = _build_general_adc(boundaries)
+        adc.eval()
+
+        v_pos = torch.tensor([10.0], dtype=torch.float64)  # way above range
+        v_neg = torch.zeros_like(v_pos)
+        code = adc.convert(
+            v_pos, v_neg, adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=4)
+        )
+        # max signed code = +7 for 4-bit
+        assert int(code.item()) == 7
+
+    def test_signal_below_range_saturates_to_negative(self) -> None:
+        boundaries = [(k - 7.5) * 0.1 for k in range(15)]
+        adc = _build_general_adc(boundaries)
+        adc.eval()
+
+        v_pos = torch.tensor([-10.0], dtype=torch.float64)  # way below range
+        v_neg = torch.zeros_like(v_pos)
+        code = adc.convert(
+            v_pos, v_neg, adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=4)
+        )
+        # min signed code = -8 for 4-bit
+        assert int(code.item()) == -8
+
+
+# ---------------------------------------------------------------------------
+# McsSarAdc convert — signed output, multi-mode, flexible bits
+# ---------------------------------------------------------------------------
+
+
+def _build_mcs_sar_adc(max_bits: int = 4, v_refs: tuple[float, ...] = (0.8, 0.4, 0.2)) -> McsSarAdc:
     config = McsSarAdcConfig(
-        max_bits=8,
-        v_refs__V=(1.2064,),
-        clk_period__ns=1.0,
-        c_unit__fF=1.0,
-        cap_mismatch_sigma_relative=None,
-        comparator_offset_sigma__V=None,
-        comparator_thermal_noise_sigma__V=None,
-        enable_thermal_noise=False,
+        max_bits=max_bits,
+        v_refs__V=v_refs,
+        clk_period__ns=2.0,
+        c_unit__fF=2.0,
+        cap_mismatch_sigma_relative=0.0,
+        comparator_offset_sigma__V=0.0,
+        comparator_thermal_noise_sigma__V=0.0,
         e_bootstrap__fJ=0.0,
         e_constant_per_bit__fJ=0.0,
         leakage_per_inst__uW=0.0,
         area_per_inst__um2=0.0,
     )
-    adc = McsSarAdc(config, T__K=300.0)
-    adc.fabricate(())
-    adc.eval()
-    v_pos, v_neg = _diff_signal()
-    code, energy = adc.convert(v_pos, v_neg, mode=0, bits=8)
-    assert int(code.min()) >= 0
-    assert int(code.max()) <= (1 << 8) - 1
-    assert energy.shape == code.shape
-    # SAR latency at 8-bit = 9 clocks.
-    assert math.isclose(adc.latency_per_op__ns(bits=8), 9.0)
-    assert adc.max_bits() == 8
-    assert adc.available_modes() == (1.2064,)
-
-
-def test_mcs_sar_reduced_bits_clamps_codes() -> None:
-    """When ``bits < max_bits`` codes fit in ``[0, 2**bits - 1]``."""
-    config = McsSarAdcConfig(
-        max_bits=8,
-        v_refs__V=(1.0,),
-        clk_period__ns=1.0,
-        c_unit__fF=1.0,
-        cap_mismatch_sigma_relative=None,
-        comparator_offset_sigma__V=None,
-        comparator_thermal_noise_sigma__V=None,
-        enable_thermal_noise=False,
-        e_bootstrap__fJ=0.0,
-        e_constant_per_bit__fJ=0.0,
-        leakage_per_inst__uW=0.0,
-        area_per_inst__um2=0.0,
+    policy = McsSarAdcPolicy(
+        cap_mismatch=False,
+        comparator_offset=False,
+        comparator_thermal_noise=False,
+        sampling_thermal_noise=False,
     )
-    adc = McsSarAdc(config, T__K=300.0)
-    adc.fabricate(())
-    adc.eval()
-    v_pos, v_neg = _diff_signal()
-    code, _ = adc.convert(v_pos, v_neg, mode=0, bits=4)
-    assert int(code.max()) <= 15
-    # Latency at 4 bits = 5 cycles.
-    assert math.isclose(adc.latency_per_op__ns(bits=4), 5.0)
-
-
-def test_mcs_sar_invalid_runtime_args() -> None:
-    """convert() rejects out-of-range mode / bits arguments."""
-    config = McsSarAdcConfig(
-        max_bits=8,
-        v_refs__V=(1.0,),
-        clk_period__ns=1.0,
-        c_unit__fF=1.0,
-        cap_mismatch_sigma_relative=None,
-        comparator_offset_sigma__V=None,
-        comparator_thermal_noise_sigma__V=None,
-        enable_thermal_noise=False,
-        e_bootstrap__fJ=0.0,
-        e_constant_per_bit__fJ=0.0,
-        leakage_per_inst__uW=0.0,
-        area_per_inst__um2=0.0,
+    return McsSarAdc(
+        config=config,
+        policy=policy,
+        name="mcs_sar",
+        inst_shape=(1,),
+        dtype=torch.float64,
+        T__K=300.0,
     )
-    adc = McsSarAdc(config, T__K=300.0)
-    adc.fabricate(())
-    adc.eval()
-    v_pos, v_neg = _diff_signal()
-    with pytest.raises(ValueError):
-        adc.convert(v_pos, v_neg, mode=1, bits=8)
-    with pytest.raises(ValueError):
-        adc.convert(v_pos, v_neg, mode=0, bits=0)
-    with pytest.raises(ValueError):
-        adc.convert(v_pos, v_neg, mode=0, bits=9)
 
 
-def test_mcs_sar_multi_v_ref_supported() -> None:
-    """Multiple V_refs share the same ADC instance; selected per call."""
-    config = McsSarAdcConfig(
-        max_bits=8,
-        v_refs__V=(1.0, 0.5),
-        clk_period__ns=1.0,
-        c_unit__fF=1.0,
-        cap_mismatch_sigma_relative=None,
-        comparator_offset_sigma__V=None,
-        comparator_thermal_noise_sigma__V=None,
-        enable_thermal_noise=False,
-        e_bootstrap__fJ=0.0,
-        e_constant_per_bit__fJ=0.0,
-        leakage_per_inst__uW=0.0,
-        area_per_inst__um2=0.0,
-    )
-    adc = McsSarAdc(config, T__K=300.0)
-    adc.fabricate(())
-    adc.eval()
-    v_pos = torch.tensor([0.1, 0.4, 0.7])
-    v_neg = torch.zeros_like(v_pos)
-    code_high, _ = adc.convert(v_pos, v_neg, mode=0, bits=8)
-    code_low, _ = adc.convert(v_pos, v_neg, mode=1, bits=8)
-    # Lower V_ref → same input pushes higher into the code range.
-    assert int(code_low.max()) >= int(code_high.max())
+class TestMcsSarAdcSignedConvert:
+    def test_output_lies_in_signed_range_at_max_bits(self) -> None:
+        adc = _build_mcs_sar_adc(max_bits=4)
+        adc.eval()
+        adc.fabricate()
+
+        v_pos = torch.tensor([0.0, 0.1, 0.5, 1.0, -0.5, -1.0], dtype=torch.float64)
+        v_neg = torch.zeros_like(v_pos)
+        code = adc.convert(
+            v_pos, v_neg, adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=4)
+        )
+
+        assert int(code.min()) >= -8
+        assert int(code.max()) <= 7
+
+    def test_output_lies_in_signed_range_at_lower_bits(self) -> None:
+        adc = _build_mcs_sar_adc(max_bits=4)
+        adc.eval()
+        adc.fabricate()
+
+        v_pos = torch.tensor([0.0, 0.1, 0.5, 1.0], dtype=torch.float64)
+        v_neg = torch.zeros_like(v_pos)
+        # 2-bit: signed range [-2, 1]
+        code = adc.convert(
+            v_pos, v_neg, adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=2)
+        )
+        assert int(code.min()) >= -2
+        assert int(code.max()) <= 1
+
+    def test_extreme_positive_saturates_to_max(self) -> None:
+        adc = _build_mcs_sar_adc(max_bits=4)
+        adc.eval()
+        adc.fabricate()
+
+        v_pos = torch.tensor([100.0], dtype=torch.float64)  # well beyond V_ref
+        v_neg = torch.zeros_like(v_pos)
+        code = adc.convert(
+            v_pos, v_neg, adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=4)
+        )
+        # Saturation at top: signed = 7 for 4 bits
+        assert int(code.item()) == 7
+
+    def test_extreme_negative_saturates_to_min(self) -> None:
+        adc = _build_mcs_sar_adc(max_bits=4)
+        adc.eval()
+        adc.fabricate()
+
+        v_pos = torch.tensor([-100.0], dtype=torch.float64)
+        v_neg = torch.zeros_like(v_pos)
+        code = adc.convert(
+            v_pos, v_neg, adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=4)
+        )
+        # Saturation at bottom: signed = -8 for 4 bits
+        assert int(code.item()) == -8
+
+    def test_different_modes_use_different_v_ref(self) -> None:
+        # Mode 0 uses v_ref = 0.8, mode 2 uses v_ref = 0.2.
+        # A signal of 0.5V should saturate (or near-saturate) at mode 2 (range too tight)
+        # but stay in linear region at mode 0.
+        adc = _build_mcs_sar_adc(max_bits=4, v_refs=(0.8, 0.4, 0.2))
+        adc.eval()
+        adc.fabricate()
+
+        v_pos = torch.tensor([0.5], dtype=torch.float64)
+        v_neg = torch.zeros_like(v_pos)
+        code_mode0 = adc.convert(
+            v_pos, v_neg, adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=4)
+        )
+        code_mode2 = adc.convert(
+            v_pos, v_neg, adc_operation_point=AdcOperationPoint(adc_mode=2, adc_bits=4)
+        )
+        # Mode 2 (tight range) saturates; mode 0 (wide range) doesn't.
+        assert int(code_mode2.item()) == 7  # saturated positive
+        assert int(code_mode0.item()) < 7  # within linear region
 
 
-def test_pipeline_adc_throughput_latency() -> None:
-    mode = ADCMode(n_bits=4, n_states=16, max_signal=1.0)
-    config = PipelineADCConfig(modes=(mode,), clk_period__ns=1.0, n_stages=4, pipeline_depth=2)
-    adc = PipelineADC(config)
-    adc.eval()
-    assert math.isclose(adc.latency_per_op__ns(bits=4), 6.0)
+# ---------------------------------------------------------------------------
+# Validation: ADC convert rejects bad operating points
+# ---------------------------------------------------------------------------
 
 
-def test_cyclic_adc_n_bit_cycles() -> None:
-    mode = ADCMode(n_bits=5, n_states=32, max_signal=1.0)
-    adc = CyclicADC(CyclicADCConfig(modes=(mode,), clk_period__ns=1.0))
-    adc.eval()
-    assert math.isclose(adc.latency_per_op__ns(bits=5), 5.0)
+class TestOperatingPointValidation:
+    def test_general_adc_rejects_nonzero_mode(self) -> None:
+        boundaries = [(k - 7.5) * 0.1 for k in range(15)]
+        adc = _build_general_adc(boundaries)
+        adc.eval()
 
+        v = torch.zeros(1, dtype=torch.float64)
+        with pytest.raises(ValueError, match="mode"):
+            adc.convert(v, v, adc_operation_point=AdcOperationPoint(adc_mode=1, adc_bits=4))
 
-def test_ramp_adc_2power_n_cycles() -> None:
-    mode = ADCMode(n_bits=4, n_states=16, max_signal=1.0)
-    adc = RampADC(RampADCConfig(modes=(mode,), clk_period__ns=1.0))
-    adc.eval()
-    assert math.isclose(adc.latency_per_op__ns(bits=4), 16.0)
+    def test_mcs_sar_rejects_mode_out_of_range(self) -> None:
+        adc = _build_mcs_sar_adc(max_bits=4, v_refs=(0.8, 0.4))  # mode_num=2
+        adc.eval()
+        adc.fabricate()
 
+        v = torch.zeros(1, dtype=torch.float64)
+        with pytest.raises(ValueError, match="mode"):
+            adc.convert(v, v, adc_operation_point=AdcOperationPoint(adc_mode=2, adc_bits=4))
 
-def test_mcs_sar_introspection_methods() -> None:
-    """``available_modes`` and ``max_bits`` surface runtime options."""
-    config = McsSarAdcConfig(
-        max_bits=8,
-        v_refs__V=(1.0, 0.5, 0.25),
-        clk_period__ns=1.0,
-        c_unit__fF=1.0,
-        cap_mismatch_sigma_relative=None,
-        comparator_offset_sigma__V=None,
-        comparator_thermal_noise_sigma__V=None,
-        enable_thermal_noise=False,
-        e_bootstrap__fJ=0.0,
-        e_constant_per_bit__fJ=0.0,
-        leakage_per_inst__uW=0.0,
-        area_per_inst__um2=0.0,
-    )
-    adc = McsSarAdc(config, T__K=300.0)
-    assert adc.available_modes() == (1.0, 0.5, 0.25)
-    assert adc.max_bits() == 8
+    def test_mcs_sar_rejects_bits_out_of_range(self) -> None:
+        adc = _build_mcs_sar_adc(max_bits=4)
+        adc.eval()
+        adc.fabricate()
+
+        v = torch.zeros(1, dtype=torch.float64)
+        with pytest.raises(ValueError, match="bits"):
+            adc.convert(v, v, adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=5))

@@ -38,7 +38,7 @@ The differential topology resolves the MSB through free comparison; no MSB cap i
 
 - `__init__(..., inst_shape, ...)` — temperature-scale the comparator-noise sigma (σ ∝ √T anchored at 300 K) and seed nominal cap / comparator-offset buffers. The per-instance shape is committed here.
 - `_sample_fabricate_mismatch()` (driven by `fabricate()` via `FabricateMixin`) — sample static state per instance: per-cap Pelgrom mismatch (independent positive / negative CDAC legs) and comparator threshold offset, at `self._inst_shape`.
-- `convert(v_pos__V, v_neg__V, *, mode, bits)` — sample with optional kT/C noise, do the SAR loop with per-cycle comparator noise, optionally add LSB jitter, return the code.
+- `convert(v_pos__V, v_neg__V, *, mode, bits)` — sample with optional kT/C noise, do the SAR loop with per-cycle comparator noise, optionally add LSB jitter, clamp to `[0, 2**bits - 1]`, then subtract the per-call zero code `2**(bits - 1)` to return a signed code in `[-2**(bits-1), 2**(bits-1) - 1]`. The zero code is **not** cached on the instance because `bits` is a per-call runtime parameter under multi-mode operation.
 
 ## Multi-mode support
 

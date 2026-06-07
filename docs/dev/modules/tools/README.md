@@ -9,6 +9,7 @@
   + precision; floor-style boundaries; optional noise injection;
   optional `--visualize` PNG of the signal-vs-code distribution).
 - `analyze_xbar_error_1t1r.py` — VMM-accuracy analysis. Builds a noiseless 1T1R xbar from a chip TOML, compares it against its `to_ideal()` reference, and reports per-code error statistics. With `--noise`, also builds five per-category noisy variants (RRAM stuck-at, RRAM programming Gamma, RRAM read noise, NMOS fabrication mismatch, periphery noise) and ranks each category's contribution to ADC-code error.
+- [`xbar_adc/`](xbar_adc/README.md) — paired xbar-level ADC range / calibration CLIs. `xbar_adc.statistic` probes the ADC analog-input distribution and recommends `[-A, A]` candidates; `xbar_adc.calibrate` fits the scalar `rescale_factor` for a configured `adc_mode`. Both share `_sampling.py` (distribution loader, samplers, all-off xbar builder) and operate strictly at the xbar layer.
 
 ## Why these are tools, not library code
 

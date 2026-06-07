@@ -25,7 +25,17 @@ ref_location = 8
 [[xbar.adc_calibration]]
 adc_mode = 0
 adc_bits = 4
-rescale_factor = 4.0625
+rescale_factor = 2.01772
+
+[[xbar.adc_calibration]]
+adc_mode = 1
+adc_bits = 4
+rescale_factor = 21.2789
+
+[[xbar.adc_calibration]]
+adc_mode = 2
+adc_bits = 4
+rescale_factor = 13.243
 
 
 [xbar.core_config]

@@ -27,6 +27,21 @@ __init__(self, *, config, policy, name, inst_shape, dtype, T__K)
 
 `convert(v_pos__V, v_neg__V, *, adc_operation_point)` and `latency_per_op__ns(*, adc_operation_point)` take their operating point as a **per-call** keyword `AdcOperationPoint`. Single-mode subclasses honour the contract by validating `adc_mode == 0` and `adc_bits == max_bits`; multi-mode SAR variants accept any pair inside their configured envelope. `mode_num` exposes the number of supported operating points; `max_bits` exposes the maximum bit width.
 
+## Signed-code output convention
+
+`convert(...)` returns **signed** integer codes in `[-2**(adc_bits-1), 2**(adc_bits-1) - 1]`. This is a family-level contract on the abstract base; how each concrete ADC converts from its native internal representation to the signed output is its own implementation detail.
+
+The signed convention is required by the consumer model `M_ideal ≈ code · rescale_factor` (used in `operator/linear/_shared.py` and `xbar/ideal.py`): a strictly positive `rescale_factor` mapping a signed code to a signed `M_ideal` is well-defined only when the ADC code carries the sign of the analog input directly. The xbar's `bl_adc` is differential and its v_diff is genuinely two-sided, so this convention aligns the physical ADC's output with `IdealXbar.vec_mat_mul` (which already produced signed codes) and with the calibrate tool's positivity invariant on `rescale_factor`.
+
+How current concrete ADCs implement it:
+
+- **`GeneralADC`**: bit width is fixed (boundary-implied), so the topology-specific zero code `n_codes // 2` is committed at construction as `self._zero_code`; `convert` clamps the raw bucket index to `[0, n_codes - 1]` and returns `code - self._zero_code`.
+- **`McsSarAdc`**: bit width is per-call (`adc_operation_point.adc_bits`), so the zero code `2**(bits - 1)` is computed inline in `convert` after the unsigned clamp; no per-instance cache.
+
+The "zero code" lives on each ADC as part of its topology knowledge rather than being centralised in a shared helper — different ADC families could in principle place their zero point differently (asymmetric boundaries, single-ended designs, …) and the base class deliberately makes no commitment.
+
+Caller responsibility: each concrete `convert()` must clamp its raw unsigned output to its legal bucket range **before** the zero shift — stochastic-rounding jitter (e.g. from `floor_bucketize` or SAR LSB jitter) can push values outside the legal range and the subtraction would otherwise produce out-of-range signed codes.
+
 ## Floor semantics
 
 ADC boundaries are placed at code edges `B_c = c · LSB`. Stochastic rounding adds `uniform(0, LSB)` jitter before the floor and is unbiased. This matches the `floor_bucketize` kernel in [`docs/dev/modules/common/quant.md`](docs/dev/modules/common/quant.md).

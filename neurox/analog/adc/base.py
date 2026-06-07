@@ -177,7 +177,7 @@ class ADC(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["ADCConfig
         *,
         adc_operation_point: AdcOperationPoint,
     ) -> Tensor:
-        """Digitise a differential analog voltage into an integer code.
+        """Digitise a differential analog voltage into a signed integer code.
 
         Args:
             v_pos__V: Positive-side analog input voltage [V].  Shape:
@@ -187,9 +187,15 @@ class ADC(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["ADCConfig
             adc_operation_point: Runtime operating point.
 
         Returns:
-            Integer code tensor in ``[0, 2 ** adc_operation_point.adc_bits - 1]``, same
-            shape as ``v_pos__V``.  Dynamic energy and latency are
-            emitted through the profiler side channel.
+            Signed integer code tensor in
+            ``[-2**(adc_bits-1), 2**(adc_bits-1) - 1]``, same shape as
+            ``v_pos__V``. The signed convention aligns with
+            ``IdealXbar.vec_mat_mul`` and the consumer model
+            ``M_ideal ≈ code · rescale_factor`` (where ``rescale_factor``
+            is strictly positive). Each concrete subclass is responsible
+            for converting from its native internal representation to the
+            signed output. Dynamic energy and latency are emitted through
+            the profiler side channel.
         """
         raise NotImplementedError
 

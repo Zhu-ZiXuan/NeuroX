@@ -31,9 +31,13 @@
 3. Optional `log2` domain transform.
 4. Optional comparator noise (per-threshold offset).
 5. Optional uniform LSB-jitter for stochastic rounding when `self.training` is `True`.
-6. `floor_bucketize` against `boundaries` → `int16` code.
+6. `floor_bucketize` against `boundaries` → unsigned `int16` bucket index.
+7. Clamp to legal range `[0, n_codes - 1]` (catches stochastic jitter that pushed the index out of range).
+8. Subtract `self._zero_code` to return the signed code in `[-n_codes // 2, n_codes // 2 - 1]`.
 
 The class is single-mode: `mode == 0` and `bits == n_bits_implied_by_boundaries` are the only legal runtime pair.
+
+`self._zero_code = n_codes // 2` is committed once at `__init__` — `GeneralADC` has a fixed boundary-implied bit width, so the topology-specific midpoint code is a static instance attribute rather than a per-call computation.
 
 ## Training-mode rounding
 

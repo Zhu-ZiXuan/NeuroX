@@ -370,9 +370,13 @@ class McsSarAdc(ADC):
             n_bits=bits,
             enabled=self.training,
         )
+        # Clamp to the legal unsigned range BEFORE the zero shift; LSB jitter
+        # can push values outside [0, 2**bits - 1] and would skew the signed
+        # output otherwise. Per-call zero code = 2**(bits - 1); bits is
+        # mode-dependent so it cannot be cached at construction.
         code = code.clamp(min=0, max=(1 << bits) - 1)
         self._log_dynamic(e_dynamic__fJ, self.latency_per_op__ns(adc_operation_point=adc_operation_point))
-        return code
+        return code - (1 << (bits - 1))
 
     def _compare(self, v_pos__V: Tensor, v_neg__V: Tensor) -> Tensor:
         """Strobe the differential comparator.

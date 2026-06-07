@@ -142,6 +142,11 @@ class GeneralADC(ADC):
 
         n_codes = boundaries_t.numel() + 1
         self._n_bits = max(math.ceil(math.log2(n_codes)), 1)
+        self._n_codes = n_codes
+        # Topology-specific zero code: GeneralADC has fixed bit width, so its
+        # midpoint code (the one representing analog 0 under a symmetric
+        # boundary placement) is committed at construction.
+        self._zero_code = n_codes // 2
 
         # Average spacing → stochastic-jitter LSB estimate.
         if boundaries_t.numel() >= 2:
@@ -187,7 +192,7 @@ class GeneralADC(ADC):
         *,
         adc_operation_point: AdcOperationPoint,
     ) -> Tensor:
-        """Quantise a differential analog voltage to an integer code (floor-bucketize).
+        """Quantise a differential analog voltage to a signed code (floor-bucketize + zero shift).
 
         Args:
             v_pos__V: Positive-side analog input voltage [V].
@@ -196,7 +201,11 @@ class GeneralADC(ADC):
                 ``adc_operation_point.adc_bits`` must equal the boundary-implied bit width.
 
         Returns:
-            ``int16`` code tensor shaped like ``v_pos__V``.
+            Signed ``int16`` code tensor in
+            ``[-2**(adc_bits - 1), 2**(adc_bits - 1) - 1]``, shaped like ``v_pos__V``.
+            ``floor_bucketize`` emits an unsigned bucket index which is shifted
+            by the topology-specific zero code (``n_codes // 2``, cached at
+            construction) to align with the signed-output convention.
         """
         self._validate_runtime_args(adc_operation_point)
         signal = apply_gaussian(
@@ -224,7 +233,12 @@ class GeneralADC(ADC):
 
         dynamic_energy__fJ = torch.full_like(code, self.config.energy_per_op__fJ, dtype=torch.float32)
         self._log_dynamic(dynamic_energy__fJ, self.config.latency_per_op__ns)
-        return code
+
+        # Clamp to the legal unsigned bucket range before the zero shift;
+        # stochastic-rounding jitter in floor_bucketize can push values to
+        # -1 or n_codes, which would skew the signed output if not bounded.
+        code = code.clamp(min=0, max=self._n_codes - 1)
+        return code - self._zero_code
 
     # --- drive() shim ---
 
