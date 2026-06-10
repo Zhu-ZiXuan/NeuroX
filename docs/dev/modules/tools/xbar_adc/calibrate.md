@@ -114,7 +114,7 @@ matplotlib is imported lazily. If `--plot` is supplied and matplotlib is not ins
 
 ```bash
 python -m neurox.tools.xbar_adc.calibrate \
-    --xbar-config neurox/presets/xbar/1t1r_28nm.toml \
+    --xbar-config example/presets/xbar/1t1r_28nm.toml \
     --adc-mode 0 \
     --distribution chip_workload.toml \
     --weight-samples 64 \

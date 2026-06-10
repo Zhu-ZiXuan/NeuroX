@@ -1,13 +1,4 @@
-"""Evaluate a NeuroX-flat BERT-small checkpoint on SST-2.
-
-Loads a HAT-trained NeuroX-flat checkpoint, builds an evaluator with
-the chosen crossbar macro backend, and runs the SST-2 validation
-split.  BERT's dataloader yields 4-tuples ``(input_ids,
-attention_mask, token_type_ids, labels)`` and the model's forward
-returns a HuggingFace output object — so this script implements its
-own evaluation loop instead of reusing
-``example.common.procedures.run_evaluate`` (which is image-only).
-"""
+"""Evaluate a BERT-small QAT checkpoint by running through macros on SST-2 val."""
 
 # ruff: noqa: T201
 
@@ -16,69 +7,64 @@ import time
 from pathlib import Path
 
 import torch
+from torch.utils.data import DataLoader
 
 from example.bert.data import create_sst2_dataloader
-from example.bert.model import create_bert_small
-from example.common import build_macro_factory
-from neurox import replace as neurox
-from neurox.common.profiler import NeuroxProfiler
-from neurox.replace import count_xbar_layers
+from example.bert.macro_factory import build_macro_factory
+from example.bert.model_float import create_bert_small
+from example.bert.model_quant import to_quant
+from example.bert.train_quant import QAT_SCHEMA
 
-MACRO_CONFIG = Path(__file__).parent / "macro.toml"
+CONFIG_DIR = Path(__file__).parent
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Evaluate a NeuroX-flat BERT-small checkpoint on SST-2")
-    parser.add_argument("--dataset-dir", type=Path, required=True, help="HuggingFace cache directory")
-    parser.add_argument("--checkpoint", type=Path, required=True, help="NeuroX-flat checkpoint path")
-    parser.add_argument("--device", type=str, default="cuda:0", help="Torch device for inference")
+    parser = argparse.ArgumentParser(description="Evaluate a BERT-small QAT checkpoint on SST-2")
+    parser.add_argument("--dataset-dir", type=Path, required=True)
+    parser.add_argument("--checkpoint", type=Path, required=True)
+    parser.add_argument(
+        "--macro-config",
+        default="macro.toml",
+        help=f"Macro TOML under {CONFIG_DIR.name}/ (default: macro.toml). "
+        "Use macro_ideal.toml for the 6-bit ideal reference path.",
+    )
+    parser.add_argument("--device", type=str, default="cuda:0")
     parser.add_argument(
         "--xbar",
         choices=("physical", "ideal"),
         default="physical",
-        help=(
-            "Tile implementation.  ``physical`` runs the full 1T1R "
-            "circuit solver with noise (deployment-accurate); "
-            "``ideal`` swaps in the lossless reference derived from "
-            "the physical tile (noise-free, same ADC grid)."
-        ),
     )
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--max-length", type=int, default=128)
-    parser.add_argument(
-        "--max-samples",
-        type=int,
-        default=None,
-        help="Cap on samples processed (useful for quick smoke tests).",
-    )
+    parser.add_argument("--max-samples", type=int, default=None)
     args = parser.parse_args()
 
+    config_path = CONFIG_DIR / args.macro_config
+    if not config_path.is_file():
+        raise SystemExit(f"--macro-config: file not found: {config_path}")
+
     device = torch.device(args.device)
+    ckpt = torch.load(args.checkpoint, map_location="cpu", weights_only=True)
+    if ckpt.get("schema") != QAT_SCHEMA:
+        raise SystemExit(f"unsupported schema {ckpt.get('schema')!r}; expected {QAT_SCHEMA!r}")
 
-    # Build a fresh float skeleton so the architecture matches the
-    # checkpoint (HuggingFace pretrained encoder + 2-class classifier);
-    # build_evaluator then swaps every nn.Linear for QuantLinear and
-    # loads the int weights / rescale buffers from the checkpoint.
-    float_model = create_bert_small(num_labels=2, cache_dir=str(args.dataset_dir))
-    macro_factory = build_macro_factory(MACRO_CONFIG, xbar=args.xbar)
-    model = neurox.build_evaluator(float_model, args.checkpoint, macro_factory)
-    model = model.to(device).eval()
-    print(f"Layer summary: {count_xbar_layers(model)}")
-
-    loader = create_sst2_dataloader(
-        args.dataset_dir,
-        args.batch_size,
-        device,
-        split="validation",
-        max_length=args.max_length,
+    macro_factory = build_macro_factory(
+        config_path,
+        ideal_xbar=(args.xbar == "ideal"),
     )
+    model = create_bert_small(num_labels=2, cache_dir=str(args.dataset_dir))
+    model = model.to(device)
+    n_replaced = to_quant(model, ckpt["layers"], macro_factory, mode_picker=0)
+    print(f"Quant-replaced {n_replaced} Linear layers; macro={args.macro_config} (xbar={args.xbar})")
+    model.eval()
 
+    loader: DataLoader = create_sst2_dataloader(
+        args.dataset_dir, args.batch_size, device, split="validation", max_length=args.max_length
+    )
     correct = 0
     total = 0
-    if device.type == "cuda":
-        torch.cuda.reset_peak_memory_stats(device)
     t0 = time.time()
-    with torch.inference_mode(), NeuroxProfiler() as profiler:
+    with torch.no_grad():
         for input_ids, attn, ttids, labels in loader:
             if args.max_samples is not None and total >= args.max_samples:
                 break
@@ -89,19 +75,12 @@ def main() -> None:
             logits = model(input_ids=input_ids, attention_mask=attn, token_type_ids=ttids).logits
             correct += logits.argmax(1).eq(labels).sum().item()
             total += labels.size(0)
-
     elapsed = time.time() - t0
     acc = correct / total if total else 0.0
-    static = NeuroxProfiler.analyze_static(model)
-    peak_mb = torch.cuda.max_memory_allocated(device) / (1024 * 1024) if device.type == "cuda" else 0.0
-
-    print(f"xbar:               {args.xbar}  (from {MACRO_CONFIG.name})")
     print(f"samples:            {total}")
     print(f"top1_accuracy:      {acc:.4f}")
     print(f"wall_time_s:        {elapsed:.2f}")
     print(f"time_per_sample_s:  {elapsed / max(total, 1):.4f}")
-    print(f"peak_gpu_memory_MB: {peak_mb:.1f}")
-    print(profiler.summary(static=static))
 
 
 if __name__ == "__main__":

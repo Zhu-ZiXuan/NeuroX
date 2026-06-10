@@ -110,7 +110,7 @@ Estimating the bottom percentile requires at least roughly `10 / 10^-N = 10^(N+1
 
 ```bash
 python -m neurox.tools.xbar_adc.statistic \
-    --xbar-config neurox/presets/xbar/1t1r_28nm.toml \
+    --xbar-config example/presets/xbar/1t1r_28nm.toml \
     --distribution chip_workload.toml \
     --weight-samples 64 \
     --input-samples-per-weight 4096 \

@@ -1,4 +1,4 @@
-# Reference 1T1R xbar configuration (28nm). Bundled preset under neurox/presets/xbar/.
+# Reference 1T1R xbar configuration (28nm). Example-owned preset moved out of neurox core.
 
 [xbar]
 _neurox_type = "Offset1T1RXbarConfig"

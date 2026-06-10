@@ -1,115 +1,85 @@
-"""Evaluate a NeuroX-flat LeNet checkpoint on MNIST.
+"""Evaluate a LeNet QAT checkpoint by running through macros.
 
-Selects the macro configuration via ``--macro-config <file>`` (path
-resolved against this directory). The ``--xbar`` flag is accepted only
-when the chosen config carries a physical xbar that has an ideal twin.
-``--build`` picks between the automated graph rewrite (``replace``) and
-the hand-built crossbar model (``direct``).
+Loads a flat per-layer QAT checkpoint, builds :class:`QuantLeNet5` with
+the chosen macro flavour (``ideal_xbar_macro.toml`` /
+``macro_with_ideal_xbar.toml`` / ``macro_with_physical_xbar.toml``), and
+runs MNIST val. Each layer's per-layer ADC mode is hard-wired in
+``model_quant._LAYER_MODE`` — edit that mapping to retarget modes.
 """
 
+# ruff: noqa: T201
+
 import argparse
+import time
 from pathlib import Path
 
 import torch
 from torch.utils.data import DataLoader
 
-import neurox
-from example.common import build_macro_factory, read_macro_config, run_evaluate, supports_xbar_override
 from example.lenet.data import create_mnist_dataloader
-from example.lenet.model import LeNet5
+from example.lenet.macro_factory import build_macro_factory
 from example.lenet.model_quant import QuantLeNet5
+from example.lenet.train_quant import QAT_SCHEMA
 
 CONFIG_DIR = Path(__file__).parent
 
 
-def _build_model_replace(
-    checkpoint: Path,
-    macro_factory,  # noqa: ANN001
-    device: torch.device,
-) -> torch.nn.Module:
-    """Automated graph-rewrite path."""
-    model = neurox.build_evaluator(LeNet5(), checkpoint, macro_factory)
-    return model.to(device).eval()
-
-
-def _build_model_direct(
-    checkpoint: Path,
-    macro_factory,  # noqa: ANN001
-    device: torch.device,
-) -> torch.nn.Module:
-    """Hand-built ``QuantLeNet5`` path."""
-    model = QuantLeNet5(macro_factory)
-    ckpt = torch.load(checkpoint, map_location="cpu", weights_only=True)
-    if ckpt.get("schema") != "neurox_flat":
-        raise ValueError(f"expected schema 'neurox_flat', got {ckpt.get('schema')!r}")
-    model.load_state_dict(ckpt["state_dict"], strict=False)
-    neurox.fabricate_model(model)
-    neurox.program_model(model)
-    return model.to(device).eval()
-
-
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Evaluate a NeuroX-flat LeNet checkpoint on MNIST")
+    parser = argparse.ArgumentParser(description="Evaluate a LeNet QAT checkpoint")
     parser.add_argument("--dataset-dir", type=Path, required=True, help="MNIST root directory")
-    parser.add_argument("--checkpoint", type=Path, required=True, help="NeuroX-flat checkpoint path")
+    parser.add_argument("--checkpoint", type=Path, required=True, help="QAT checkpoint produced by train_quant.py")
     parser.add_argument(
         "--macro-config",
         required=True,
-        help=f"Macro config filename under {CONFIG_DIR.name}/ (e.g. macro_with_physical_xbar.toml)",
-    )
-    parser.add_argument(
-        "--build",
-        choices=("replace", "direct"),
-        required=True,
-        help="Model construction: 'replace' rewrites the float LeNet5 graph; "
-        "'direct' instantiates QuantLeNet5 from scratch.",
+        help=f"Macro TOML filename under {CONFIG_DIR.name}/ (e.g. macro_with_physical_xbar.toml)",
     )
     parser.add_argument(
         "--xbar",
         choices=("physical", "ideal"),
-        default=None,
-        help="Swap a physical xbar for its ideal twin at runtime. "
-        "Valid only when --macro-config carries a physical xbar; defaults to 'physical' there.",
+        default="physical",
+        help="Tile implementation. 'ideal' swaps physical for lossless twin; only meaningful "
+        "when the chosen TOML carries a physical xbar.",
     )
-    parser.add_argument("--device", type=str, default="cuda:0", help="Torch device for inference")
+    parser.add_argument("--device", type=str, default="cuda:0")
     parser.add_argument("--batch-size", type=int, default=128)
-    parser.add_argument(
-        "--max-samples", type=int, default=None, help="Cap on samples processed (useful with slow macros)"
-    )
+    parser.add_argument("--max-samples", type=int, default=None, help="Cap on samples processed")
     args = parser.parse_args()
 
     config_path = CONFIG_DIR / args.macro_config
     if not config_path.is_file():
         raise SystemExit(f"--macro-config: file not found: {config_path}")
 
-    config = read_macro_config(config_path)
-    can_override = supports_xbar_override(config)
-    if args.xbar is not None and not can_override:
-        raise SystemExit(
-            f"--xbar is valid only when --macro-config carries a physical xbar; "
-            f"{args.macro_config} does not (config={type(config).__name__})."
-        )
-    ideal_xbar = can_override and args.xbar == "ideal"
-
     device = torch.device(args.device)
-    macro_factory = build_macro_factory(config_path, ideal_xbar=ideal_xbar)
+    ckpt = torch.load(args.checkpoint, map_location="cpu", weights_only=True)
+    if ckpt.get("schema") != QAT_SCHEMA:
+        raise SystemExit(f"unsupported schema {ckpt.get('schema')!r}; expected {QAT_SCHEMA!r}")
 
-    if args.build == "replace":
-        model = _build_model_replace(args.checkpoint, macro_factory, device)
-    else:
-        model = _build_model_direct(args.checkpoint, macro_factory, device)
-
-    def _loader(dev: torch.device) -> DataLoader:
-        return create_mnist_dataloader(args.dataset_dir, args.batch_size, dev, split="val")
-
-    flavour = f"ideal-twin@{args.macro_config}" if ideal_xbar else args.macro_config
-    run_evaluate(
-        model,
-        _loader,
-        device=device,
-        macro_name=f"{args.build}/{flavour}",
-        max_samples=args.max_samples,
+    macro_factory = build_macro_factory(
+        config_path,
+        ideal_xbar=(args.xbar == "ideal"),
     )
+    model = QuantLeNet5(macro_factory, ckpt["layers"]).to(device).eval()
+
+    loader: DataLoader = create_mnist_dataloader(args.dataset_dir, args.batch_size, device, split="val")
+    correct = 0
+    total = 0
+    t0 = time.time()
+    with torch.no_grad():
+        for images, targets in loader:
+            if args.max_samples is not None and total >= args.max_samples:
+                break
+            images = images.to(device, non_blocking=True)
+            targets = targets.to(device, non_blocking=True)
+            pred = model(images).argmax(1)
+            correct += pred.eq(targets).sum().item()
+            total += targets.size(0)
+    elapsed = time.time() - t0
+    acc = correct / total if total else 0.0
+    print(f"macro:              {args.macro_config} (xbar={args.xbar})")
+    print(f"samples:            {total}")
+    print(f"top1_accuracy:      {acc:.4f}")
+    print(f"wall_time_s:        {elapsed:.2f}")
+    print(f"time_per_sample_s:  {elapsed / max(total, 1):.4f}")
 
 
 if __name__ == "__main__":

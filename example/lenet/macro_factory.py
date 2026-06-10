@@ -1,13 +1,11 @@
-"""Shared macro helpers for the example scripts.
+"""Local macro factory for the LeNet example. Self-contained, no shared code.
 
-The macro config TOML is polymorphically resolved via ``_neurox_type``;
-the same factory works for the registered XbarMacro family members:
-
-- ``DirectXbarMacroConfig`` / ``InterArraySliceXbarMacroConfig`` /
-  ``IntraArraySliceXbarMacroConfig`` (xbar-using) with either a physical
-  or an :class:`IdealXbarConfig` inside ``xbar_config``.
-- ``IdealXbarMacroConfig`` (degenerate; no xbar — pure integer matmul baseline).
+Boilerplate that walks the chip preset's config-type tree and builds the
+corresponding all-False nonideality policy, then instantiates the macro.
+Used by ``model_quant.py`` to construct one macro per layer.
 """
+
+from __future__ import annotations
 
 from collections.abc import Callable
 from functools import cache
@@ -43,7 +41,6 @@ from neurox.macro.xbar import (
     XbarMacroConfig,
     XbarMacroPolicy,
 )
-from neurox.operator import QuantSpec
 from neurox.xbar import (
     IdealXbarConfig,
     IdealXbarPolicy,
@@ -54,50 +51,15 @@ from neurox.xbar import (
 from neurox.xbar._1t1r import CircuitCore1T1RPolicy
 from neurox.xbar.readout import OffsetSwitchCapMuxAdcReadOutConfig, OffsetSwitchCapMuxAdcReadOutPolicy
 
-# Use fp32 in the physical 1T1R path to keep solver-side arithmetic stable.
 _CIRCUIT_DTYPE = torch.float32
-
-# Operator construction passes its own weight shape into the factory; the
-# probe path needs a non-empty placeholder just to read value ranges.
-_PROBE_W_LOGICAL_SHAPE = (1, 1)
 
 
 @cache
 def read_macro_config(config_path: Path) -> XbarMacroConfig:
-    """Cached ``[macro]`` section, polymorphically resolved via ``_neurox_type``."""
     return dataclass_from_file(XbarMacroConfig, config_path, section="macro")
 
 
-def supports_xbar_override(config: XbarMacroConfig) -> bool:
-    """Whether ``--xbar physical|ideal`` is meaningful for ``config``.
-
-    True only when the config carries a physical xbar (i.e. is xbar-using
-    and ``config.xbar_config`` is not already an :class:`IdealXbarConfig`).
-    """
-    if isinstance(config, IdealXbarMacroConfig):
-        return False
-    xbar_config = getattr(config, "xbar_config", None)
-    if xbar_config is None:
-        return False
-    return not isinstance(xbar_config, IdealXbarConfig)
-
-
-def derive_quant_spec(config_path: Path) -> QuantSpec:
-    """Derive the operator quantization grid from the macro ranges."""
-    macro = _build_macro(
-        config_path,
-        name="probe",
-        w_logical_shape=_PROBE_W_LOGICAL_SHAPE,
-        ideal_xbar=False,
-    )
-    x_qmin, x_qmax = macro.x_value_range
-    w_qmin, w_qmax = macro.w_value_range
-    assert w_qmin == -w_qmax, f"Expected symmetric w_value_range, got ({w_qmin}, {w_qmax})"
-    return QuantSpec(x_qmin=x_qmin, x_qmax=x_qmax, w_qmax=w_qmax, y_qmin=-x_qmax, y_qmax=x_qmax)
-
-
 def _all_off_adc_policy(config: object) -> ADCPolicy:
-    """Construct an all-False policy matching the concrete ADC config type."""
     if isinstance(config, GeneralADCConfig):
         return GeneralADCPolicy(sampling_noise=False, comparator_noise=False, drive_thermal=False)
     if isinstance(config, SarAdcMonoConfig):
@@ -112,7 +74,6 @@ def _all_off_adc_policy(config: object) -> ADCPolicy:
 
 
 def _all_off_xbar_policy(config: object) -> XbarPolicy:
-    """Construct an all-False policy matching the concrete Xbar config type."""
     if isinstance(config, IdealXbarConfig):
         return IdealXbarPolicy()
     if isinstance(config, Offset1T1RXbarConfig):
@@ -141,7 +102,6 @@ def _all_off_xbar_policy(config: object) -> XbarPolicy:
 
 
 def _all_off_macro_policy(config: XbarMacroConfig) -> XbarMacroPolicy:
-    """Construct an all-False policy matching the concrete XbarMacro config type."""
     if isinstance(config, IdealXbarMacroConfig):
         return IdealXbarMacroPolicy()
     if isinstance(config, DirectXbarMacroConfig):
@@ -153,57 +113,27 @@ def _all_off_macro_policy(config: XbarMacroConfig) -> XbarMacroPolicy:
     raise TypeError(f"no all-off macro policy for {type(config).__name__}")
 
 
-def _build_macro(
+def build_macro_factory(
     config_path: Path,
     *,
-    name: str,
-    w_logical_shape: tuple[int, ...],
     ideal_xbar: bool,
-) -> NeuroxMacroQuantMatMul:
-    """Build one macro from a TOML config, dispatching on the config type.
+) -> Callable[..., NeuroxMacroQuantMatMul]:
+    """Return ``(name, w_logical_shape) → macro`` for the given TOML.
 
-    The macro is constructed with all nonidealities disabled. Callers that
-    want to study noise must build their own policy and call
-    ``XbarMacro.from_config`` directly.
-
-    ``ideal_xbar`` is honoured only by xbar-using members (swaps the
-    physical xbar for its ideal twin); :class:`IdealXbarMacro` ignores it.
-    """
-    config = read_macro_config(config_path)
-    return XbarMacro.from_config(
-        config=config,
-        policy=_all_off_macro_policy(config),
-        name=name,
-        w_logical_shape=w_logical_shape,
-        dtype=_CIRCUIT_DTYPE,
-        T__K=T_ROOM__K,
-        ideal_xbar=ideal_xbar,
-    )
-
-
-def build_macro_factory(config_path: Path, *, ideal_xbar: bool) -> Callable[..., NeuroxMacroQuantMatMul]:
-    """Return the per-layer macro builder for the requested TOML + xbar flavour.
-
-    Args:
-        config_path: TOML path resolved against ``example/<model>/`` by the caller.
-        ideal_xbar: Forwarded to the macro; relevant only when the config
-            carries a physical xbar (see :func:`supports_xbar_override`).
+    ``ideal_xbar=True`` swaps the physical xbar for its ideal twin
+    (only meaningful when the TOML carries a physical xbar config).
     """
 
     def factory(*, name: str, w_logical_shape: tuple[int, ...]) -> NeuroxMacroQuantMatMul:
-        return _build_macro(
-            config_path,
+        config = read_macro_config(config_path)
+        return XbarMacro.from_config(
+            config=config,
+            policy=_all_off_macro_policy(config),
             name=name,
             w_logical_shape=w_logical_shape,
+            dtype=_CIRCUIT_DTYPE,
+            T__K=T_ROOM__K,
             ideal_xbar=ideal_xbar,
         )
 
     return factory
-
-
-__all__ = [
-    "build_macro_factory",
-    "derive_quant_spec",
-    "read_macro_config",
-    "supports_xbar_override",
-]

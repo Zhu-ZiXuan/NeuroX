@@ -35,7 +35,7 @@ digit_num = 4
 [macro]
 _neurox_type = "IdealXbarMacroConfig"
 
-# Matches the (x[0,15], w[-63,63]) grid the physical/ideal xbar macros land on
-# at the default Sa=4, Sw=1 InterArraySlice configuration.
+# Matches the (x[0,15], w[-1,1]) grid the physical/ideal xbar macros land on
+# under the 3-state ternary setting (Sa=4, Sw=1, w_digit_count=1, true_form).
 x_value_range = [0, 15]
-w_value_range = [-63, 63]
+w_value_range = [-1, 1]

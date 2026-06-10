@@ -1,4 +1,11 @@
-"""Top-level NeuroX API."""
+"""Top-level NeuroX API.
+
+Public surface stops at the macro layer. Quantization operators, training
+pipelines, and graph-rewrite tooling live in ``example/`` (each example owns
+its own pipeline; nothing shared). Pure quant primitives that any pipeline
+might compose (stochastic rounding, observers, fake-quant, fixed-point
+scale conversion) live in ``neurox.common.quant``.
+"""
 
 from neurox.common.mixin import ProfileMixin
 from neurox.common.profiler import (
@@ -8,54 +15,8 @@ from neurox.common.profiler import (
     StaticMetrics,
     StaticRecord,
 )
-from neurox.operator import QuantSpec
-from neurox.operator.train import (
-    extract_neurox_state,
-    fold_batchnorm,
-    freeze_hat_observers,
-    replace_for_hat,
-)
-from neurox.replace import (
-    NeuroxStateError,
-    ReplacementContext,
-    ReplacementPolicy,
-    ReplacementRule,
-    StateBindingReport,
-    StructuralReport,
-    bind_output_calibration,
-    build_evaluator,
-    by_attr_match,
-    default_policy,
-    fabricate_model,
-    heterogeneous_macro_policy,
-    load_neurox_state,
-    name_excluded_match,
-    program_model,
-    replace_model,
-)
 
 __all__ = [
-    "QuantSpec",
-    "extract_neurox_state",
-    "fold_batchnorm",
-    "freeze_hat_observers",
-    "replace_for_hat",
-    "NeuroxStateError",
-    "ReplacementContext",
-    "ReplacementPolicy",
-    "ReplacementRule",
-    "StateBindingReport",
-    "StructuralReport",
-    "bind_output_calibration",
-    "build_evaluator",
-    "by_attr_match",
-    "default_policy",
-    "fabricate_model",
-    "heterogeneous_macro_policy",
-    "load_neurox_state",
-    "name_excluded_match",
-    "program_model",
-    "replace_model",
     "NeuroxProfiler",
     "ProfileMixin",
     "ProfilerReport",

@@ -20,7 +20,7 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader
 
 from example.bert.data import create_sst2_dataloader
-from example.bert.model import create_bert_small
+from example.bert.model_float import create_bert_small
 
 
 def _validate(model: nn.Module, loader: DataLoader, device: torch.device) -> float:
