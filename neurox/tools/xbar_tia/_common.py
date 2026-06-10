@@ -7,7 +7,6 @@ current model.
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 
 import torch
@@ -57,10 +56,7 @@ class TransferCurve:
             return float((self.v_out_V[1] - self.v_out_V[0]) / (self.i_uA[1] - self.i_uA[0]))
         if idx == len(self.i_uA) - 1:
             return float((self.v_out_V[-1] - self.v_out_V[-2]) / (self.i_uA[-1] - self.i_uA[-2]))
-        return float(
-            (self.v_out_V[idx + 1] - self.v_out_V[idx - 1])
-            / (self.i_uA[idx + 1] - self.i_uA[idx - 1])
-        )
+        return float((self.v_out_V[idx + 1] - self.v_out_V[idx - 1]) / (self.i_uA[idx + 1] - self.i_uA[idx - 1]))
 
     def v_at(self, i_uA: float) -> float:
         """Output voltage at the closest sweep grid point."""

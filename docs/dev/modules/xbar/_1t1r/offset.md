@@ -13,8 +13,13 @@ It owns:
 
 - `core: CircuitCore1T1RPolicy`
 - `readout: ReadOutPolicy` — abstract base; the concrete impl (e.g. `OffsetSwitchCapMuxAdcReadOutPolicy`) is passed by the caller.
+- `execution: ExecutionPolicy` — runtime knobs that are not physical chip parameters. Currently exposes a single field `batch_chunk_size: int`. Values `<= 0` disable chunking; positive values bound peak per-VMM memory by chunking the leading batch axis of `x` and looping the inner Newton + readout block.
 
 The xbar forwards each sub-policy verbatim into the matching child.
+
+`vec_mat_mul(x, *, adc_operation_point)` is the chunk scheduler (decorated with `@torch.compiler.disable` to keep upstream macro-level `@torch.compile` from tracing into the inner numeric block, which would otherwise hit `mcs_sar.py` graph breaks). The actual per-block solve is `_vec_mat_mul_block`: it runs one `core.solve_dc` plus the readout chain, returning only the per-chunk ADC code tensor. All row-shape intermediates (Newton-solver internal state, switch-cap voltages, `Core1T1RDCOP` fields) stay local and are eligible for garbage-collection between chunks. Chunking is bit-exact under deterministic policies — see `tests/test_xbar_chunking.py`.
+
+Inner `@torch.compile` on `_vec_mat_mul_block` was attempted but produced > 10 min compile times dominated by inductor scheduling of the SAR ADC's bit-loop. Reintroducing block-level compile requires rewriting the SAR ADC to a graph-friendly form first.
 
 Current construction rule:
 

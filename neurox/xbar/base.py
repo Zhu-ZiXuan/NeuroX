@@ -121,8 +121,7 @@ class Xbar(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["XbarConf
             for e in config.adc_calibration
         }
         self._b_offset_lut: dict[AdcOperationPoint, float] = {
-            AdcOperationPoint(adc_mode=e.adc_mode, adc_bits=e.adc_bits): e.b_offset
-            for e in config.adc_calibration
+            AdcOperationPoint(adc_mode=e.adc_mode, adc_bits=e.adc_bits): e.b_offset for e in config.adc_calibration
         }
 
         # `_log_static` is called by the concrete subclass at the end of its

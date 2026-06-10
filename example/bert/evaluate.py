@@ -37,6 +37,12 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--max-length", type=int, default=128)
     parser.add_argument("--max-samples", type=int, default=None)
+    parser.add_argument(
+        "--xbar-batch-chunk-size",
+        type=int,
+        default=0,
+        help="Per-block chunk for xbar Newton solve; 0 = no chunking (default).",
+    )
     args = parser.parse_args()
 
     config_path = CONFIG_DIR / args.macro_config
@@ -51,6 +57,7 @@ def main() -> None:
     macro_factory = build_macro_factory(
         config_path,
         ideal_xbar=(args.xbar == "ideal"),
+        batch_chunk_size=args.xbar_batch_chunk_size,
     )
     model = create_bert_small(num_labels=2, cache_dir=str(args.dataset_dir))
     model = model.to(device)

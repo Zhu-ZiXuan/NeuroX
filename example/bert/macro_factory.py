@@ -49,6 +49,7 @@ from neurox.xbar import (
     XbarPolicy,
 )
 from neurox.xbar._1t1r import CircuitCore1T1RPolicy
+from neurox.xbar._1t1r.offset import ExecutionPolicy
 from neurox.xbar.readout import OffsetSwitchCapMuxAdcReadOutConfig, OffsetSwitchCapMuxAdcReadOutPolicy
 
 _CIRCUIT_DTYPE = torch.float32
@@ -73,7 +74,7 @@ def _all_off_adc_policy(config: object) -> ADCPolicy:
     raise TypeError(f"no all-off policy registered for ADC config type {type(config).__name__}")
 
 
-def _all_off_xbar_policy(config: object) -> XbarPolicy:
+def _all_off_xbar_policy(config: object, *, batch_chunk_size: int) -> XbarPolicy:
     if isinstance(config, IdealXbarConfig):
         return IdealXbarPolicy()
     if isinstance(config, Offset1T1RXbarConfig):
@@ -97,19 +98,24 @@ def _all_off_xbar_policy(config: object) -> XbarPolicy:
                 analog_mux=AnalogMuxPolicy(mux_noise_cm=False, mux_noise_dm=False),
                 bl_adc=_all_off_adc_policy(readout_config.adc_config),
             ),
+            execution=ExecutionPolicy(batch_chunk_size=batch_chunk_size),
         )
     raise TypeError(f"no all-off xbar policy for {type(config).__name__}")
 
 
-def _all_off_macro_policy(config: XbarMacroConfig) -> XbarMacroPolicy:
+def _all_off_macro_policy(config: XbarMacroConfig, *, batch_chunk_size: int) -> XbarMacroPolicy:
     if isinstance(config, IdealXbarMacroConfig):
         return IdealXbarMacroPolicy()
     if isinstance(config, DirectXbarMacroConfig):
-        return DirectXbarMacroPolicy(xbar=_all_off_xbar_policy(config.xbar_config))
+        return DirectXbarMacroPolicy(xbar=_all_off_xbar_policy(config.xbar_config, batch_chunk_size=batch_chunk_size))
     if isinstance(config, InterArraySliceXbarMacroConfig):
-        return InterArraySliceXbarMacroPolicy(xbar=_all_off_xbar_policy(config.xbar_config))
+        return InterArraySliceXbarMacroPolicy(
+            xbar=_all_off_xbar_policy(config.xbar_config, batch_chunk_size=batch_chunk_size)
+        )
     if isinstance(config, IntraArraySliceXbarMacroConfig):
-        return IntraArraySliceXbarMacroPolicy(xbar=_all_off_xbar_policy(config.xbar_config))
+        return IntraArraySliceXbarMacroPolicy(
+            xbar=_all_off_xbar_policy(config.xbar_config, batch_chunk_size=batch_chunk_size)
+        )
     raise TypeError(f"no all-off macro policy for {type(config).__name__}")
 
 
@@ -117,6 +123,7 @@ def build_macro_factory(
     config_path: Path,
     *,
     ideal_xbar: bool,
+    batch_chunk_size: int = 0,
 ) -> Callable[..., NeuroxMacroQuantMatMul]:
     """Return ``(name, w_logical_shape) → macro`` for the given TOML.
 
@@ -128,7 +135,7 @@ def build_macro_factory(
         config = read_macro_config(config_path)
         return XbarMacro.from_config(
             config=config,
-            policy=_all_off_macro_policy(config),
+            policy=_all_off_macro_policy(config, batch_chunk_size=batch_chunk_size),
             name=name,
             w_logical_shape=w_logical_shape,
             dtype=_CIRCUIT_DTYPE,

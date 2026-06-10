@@ -184,6 +184,7 @@ def calibrate(
     from neurox.mapper.transcoder import Transcoder
     from neurox.xbar import Offset1T1RXbar, Offset1T1RXbarConfig, Offset1T1RXbarPolicy
     from neurox.xbar._1t1r import CircuitCore1T1RPolicy
+    from neurox.xbar._1t1r.offset import ExecutionPolicy
     from neurox.xbar.readout import OffsetSwitchCapMuxAdcReadOutConfig, OffsetSwitchCapMuxAdcReadOutPolicy
 
     xbar_config = dataclass_from_file(Offset1T1RXbarConfig, config_path, section="xbar")
@@ -229,6 +230,7 @@ def calibrate(
             analog_mux=AnalogMuxPolicy(mux_noise_cm=flag, mux_noise_dm=flag),
             bl_adc=_adc_policy(flag),
         ),
+        execution=ExecutionPolicy(batch_chunk_size=0),
     )
 
     # Build the xbar directly from the nested config tree.

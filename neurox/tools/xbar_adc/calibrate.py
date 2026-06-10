@@ -257,7 +257,9 @@ def collect_calibration(
             ideal_vmm = ideal.vec_mat_mul(x_bcast, adc_operation_point=_LOSSLESS_OP)
             phys_buf.append(phys_code.detach().cpu().flatten().to(torch.float64))
             ideal_buf.append(ideal_vmm.detach().cpu().flatten().to(torch.float64))
-        logger.info("w-group %d/%d done (%d weights, %d inputs each)", i + 1, w_groups, batch_size, input_samples_per_weight)
+        logger.info(
+            "w-group %d/%d done (%d weights, %d inputs each)", i + 1, w_groups, batch_size, input_samples_per_weight
+        )
 
     phys_codes = torch.cat(phys_buf)
     ideal_vmm = torch.cat(ideal_buf)

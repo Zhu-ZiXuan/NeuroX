@@ -30,9 +30,9 @@ from example.lenet.data import create_mnist_dataloader
 from example.lenet.model_float import LeNet5
 from example.lenet.model_quant import QATLeNet5
 from example.lenet.quant import (
+    W_QMAX,
     X_QMAX,
     X_QMIN,
-    W_QMAX,
     Y_QMAX,
     Y_QMIN,
     export_qat_state,
@@ -88,7 +88,9 @@ def main() -> None:
         default=64,
         help="Forward-only train-mode batches before training so observers settle",
     )
-    parser.add_argument("--kd-alpha", type=float, default=0.15, help="Hard-label CE weight; (1-α) → KL(student||teacher)")
+    parser.add_argument(
+        "--kd-alpha", type=float, default=0.15, help="Hard-label CE weight; (1-α) → KL(student||teacher)"
+    )
     parser.add_argument("--kd-temperature", type=float, default=4.0)
     args = parser.parse_args()
 

@@ -72,16 +72,37 @@ class Offset1T1RXbarConfig(XbarConfig):
 
 
 @dataclass(frozen=True)
+class ExecutionPolicy:
+    """Runtime execution knobs (not physical chip parameters).
+
+    Attributes:
+        batch_chunk_size: Per-block leading-batch size for the xbar's
+            VMM scheduler. Values ``<= 0`` disable chunking (one full
+            broadcast solve as before); positive values run the inner
+            block ``ceil(batch / batch_chunk_size)`` times, bounding the
+            peak working memory of the Newton solver at the cost of a
+            Python scheduler loop. ``batch`` refers to ``x.shape[0]``
+            after the standard ``unsqueeze(-2)`` inst-broadcast pattern;
+            all trailing dims (inst-broadcast hint + row_num) are kept
+            intact per chunk.
+    """
+
+    batch_chunk_size: int
+
+
+@dataclass(frozen=True)
 class Offset1T1RXbarPolicy(XbarPolicy):
     """Composite policy for :class:`Offset1T1RXbar`.
 
     Attributes:
         core: 1T1R circuit-core nonideality policy.
         readout: Readout-chain nonideality policy.
+        execution: Runtime knobs (chunk size etc.).
     """
 
     core: CircuitCore1T1RPolicy
     readout: ReadOutPolicy
+    execution: ExecutionPolicy
 
 
 @Xbar.register_key(Offset1T1RXbarConfig)
@@ -211,16 +232,61 @@ class Offset1T1RXbar(Xbar):
         w_state_idx = _insert_ref_cols(w_logic, self.logic_phys_idx, self.physical_col_num) + self.config.w_state_offset
         self.core.program(w_state_idx)
 
+    @torch.compiler.disable
     def vec_mat_mul(self, x: Tensor, *, adc_operation_point: AdcOperationPoint) -> Tensor:
         """Run one VMM through the core → readout chain.
 
         Args:
-            x: Activation tensor with primitive trailing
-                ``[row_num]``.
+            x: Activation tensor with primitive trailing ``[row_num]``.
             adc_operation_point: Runtime ADC operating point.
 
         Returns:
             ADC-code tensor with primitive trailing ``[col_num]``.
+
+        Implementation: the heavy Newton solve + readout chain is
+        encapsulated in :meth:`_vec_mat_mul_block`. ``vec_mat_mul`` is
+        the scheduler — if ``batch_chunk_size > 0`` and ``x`` has a
+        sliceable leading dim, the block is invoked in chunks and the
+        per-chunk ADC codes are concatenated. This bounds the peak
+        per-VMM memory at the cost of a Python loop; the chunking
+        introduces no numerical difference under deterministic policies
+        (chunks are mathematically independent VMMs).
+
+        ``@torch.compiler.disable`` keeps the upstream macro-level
+        ``@torch.compile`` from tracing into the Newton solver / ADC
+        readout (where mcs_sar.py currently hits an unsupported graph
+        break). Inner block compilation can be added later by decorating
+        :meth:`_vec_mat_mul_block` once the offending op is fixed.
+        """
+        chunk_size = self.policy.execution.batch_chunk_size
+        # Chunking requires (a) caller asked for it and (b) x has a leading
+        # batch dim that is strictly larger than the chunk size. Otherwise
+        # the single-call path is both equivalent and faster.
+        if chunk_size <= 0 or x.dim() < 2 or x.shape[0] <= chunk_size:
+            return self._vec_mat_mul_block(x, adc_operation_point=adc_operation_point)
+        n = x.shape[0]
+        code_chunks: list[Tensor] = []
+        for start in range(0, n, chunk_size):
+            end = min(start + chunk_size, n)
+            code_chunks.append(self._vec_mat_mul_block(x[start:end], adc_operation_point=adc_operation_point))
+        return torch.cat(code_chunks, dim=0)
+
+    def _vec_mat_mul_block(self, x: Tensor, *, adc_operation_point: AdcOperationPoint) -> Tensor:
+        """One full core → readout VMM block (the body of the chunk loop).
+
+        Holds the entire row-shape intermediate footprint (Newton-solver
+        internal state, switch-cap input/output voltages) inside its
+        local scope. After return only the ADC-code tensor escapes; the
+        large Core1T1RDCOP, ``v_data_grouped`` etc. are eligible for GC
+        before the next chunk runs.
+
+        Block-level ``@torch.compile`` is intentionally NOT applied here:
+        an earlier attempt to wrap this with ``@torch.compile(dynamic=True)``
+        produced a first-call compile time of > 10 min for the Newton +
+        readout graph, dominated by inductor scheduling of the SAR ADC's
+        bit-loop. Reintroducing it requires either rewriting the SAR ADC
+        to a graph-friendly form or shrinking the unrolled bit-loop. For
+        now, eager execution is the project default.
         """
         core_dcop = self.core.solve_dc(x)
 
@@ -237,8 +303,7 @@ class Offset1T1RXbar(Xbar):
             adc_operation_point=adc_operation_point,
         )
 
-        y = code.flatten(start_dim=-2)
-        return y
+        return code.flatten(start_dim=-2)
 
 
 # ---------------------------------------------------------------------------

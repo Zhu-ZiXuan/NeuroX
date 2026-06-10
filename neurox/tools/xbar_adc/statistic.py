@@ -259,7 +259,9 @@ def collect_statistics(
                 generator=generator,
             ):
                 xbar.vec_mat_mul(x.unsqueeze(-2), adc_operation_point=_DUMMY_OP)
-            logger.info("w-group %d/%d done (%d weights, %d inputs each)", i + 1, w_groups, batch_size, input_samples_per_weight)
+            logger.info(
+                "w-group %d/%d done (%d weights, %d inputs each)", i + 1, w_groups, batch_size, input_samples_per_weight
+            )
 
         v_pos, v_neg, v_diff = handle.probe.captured()
         adc_instance_count = int(math.prod(handle.probe._inst_shape))

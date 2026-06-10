@@ -23,9 +23,9 @@ from example.bert.data import create_sst2_dataloader
 from example.bert.model_float import create_bert_small
 from example.bert.model_quant import to_qat
 from example.bert.quant import (
+    W_QMAX,
     X_QMAX,
     X_QMIN,
-    W_QMAX,
     Y_QMAX,
     Y_QMIN,
     export_qat_state,

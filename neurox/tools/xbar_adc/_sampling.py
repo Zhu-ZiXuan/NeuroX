@@ -31,6 +31,7 @@ from neurox.common import T_ROOM__K, dataclass_from_file, dict_from_file
 from neurox.device import NMOSPolicy, RRAMPolicy
 from neurox.xbar import Offset1T1RXbar, Offset1T1RXbarConfig, Offset1T1RXbarPolicy
 from neurox.xbar._1t1r import CircuitCore1T1RPolicy
+from neurox.xbar._1t1r.offset import ExecutionPolicy
 from neurox.xbar.readout import OffsetSwitchCapMuxAdcReadOutConfig, OffsetSwitchCapMuxAdcReadOutPolicy
 
 
@@ -252,6 +253,7 @@ def build_offset_1t1r_xbar_all_off(
     device: torch.device,
     dtype: torch.dtype = torch.float64,
     inst_shape: tuple[int, ...] = (),
+    batch_chunk_size: int = 0,
 ) -> Offset1T1RXbar:
     """Build a fully nonideality-free :class:`Offset1T1RXbar` from a TOML.
 
@@ -295,6 +297,7 @@ def build_offset_1t1r_xbar_all_off(
             analog_mux=AnalogMuxPolicy(mux_noise_cm=False, mux_noise_dm=False),
             bl_adc=bl_adc_policy,
         ),
+        execution=ExecutionPolicy(batch_chunk_size=batch_chunk_size),
     )
 
     xbar = Offset1T1RXbar(
