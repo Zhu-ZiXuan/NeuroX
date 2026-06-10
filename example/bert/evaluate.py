@@ -54,7 +54,9 @@ def main() -> None:
     )
     model = create_bert_small(num_labels=2, cache_dir=str(args.dataset_dir))
     model = model.to(device)
-    n_replaced = to_quant(model, ckpt["layers"], macro_factory, mode_picker=0)
+    # mode 4 (v_ref = 0.05 V) matches the post-solver-fix v_diff p99 ≈ 0.025 V;
+    # see example/lenet/model_quant.py:_LAYER_MODE for the same reasoning.
+    n_replaced = to_quant(model, ckpt["layers"], macro_factory, mode_picker=4)
     print(f"Quant-replaced {n_replaced} Linear layers; macro={args.macro_config} (xbar={args.xbar})")
     model.eval()
 

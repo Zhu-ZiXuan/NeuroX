@@ -29,6 +29,16 @@ class OpAmpTIAConfig(TIAConfig):
         pseudo_nmos_L__um: Pseudo-resistor channel length [μm].
         output_saturation_softness__V: Softness scale [V] for the
             ``tanh`` output-rail limiter.
+        n_newton: Step-damped Newton iterations in the closed-loop solve.
+            Compile-time constant; pick via the future TIA-specific
+            calibration sweep.
+        max_step__V: Per-iteration ``|Δv_clamp|`` cap [V]. Stops Newton
+            from sticking at a rail after a single overshoot in regions
+            where ``tanh`` saturates (``g_clip → 0``).
+        g_eff_max__uS: Upper clamp on the effective KCL Jacobian
+            ``df/dV_clamp`` [uS]. Always negative (= ``-1e-6`` worst case);
+            without it the Newton step explodes when the NMOS feedback
+            loop's local derivative goes through zero.
     """
 
     # --- Bias / supply ---
@@ -49,10 +59,16 @@ class OpAmpTIAConfig(TIAConfig):
     # --- Output rail limiter ---
     output_saturation_softness__V: float
 
+    # --- Newton solver fixed knobs ---
+    n_newton: int
+    max_step__V: float
+    g_eff_max__uS: float
+
     def validate(self) -> None:
         super().validate()
         self.validate_opamp()
         self.validate_pseudo_nmos()
+        self.validate_solver()
 
     def validate_opamp(self) -> None:
         if not (self.opamp_gain > 1.0):
@@ -68,10 +84,16 @@ class OpAmpTIAConfig(TIAConfig):
         if not (self.v_nmos_bias__V > self.v_ref__V):
             raise ValueError(f"require: v_nmos_bias__V ({self.v_nmos_bias__V}) > v_ref__V ({self.v_ref__V})")
 
+    def validate_solver(self) -> None:
+        self._require_pos(self.n_newton, "n_newton")
+        self._require_pos(self.max_step__V, "max_step__V")
+        if not (self.g_eff_max__uS < 0):
+            raise ValueError(f"require: g_eff_max__uS ({self.g_eff_max__uS}) < 0")
+
 
 @dataclass(frozen=True)
 class OpAmpTIAPolicy(TIAPolicy):
-    """Per-source toggles selecting which OpAmpTIA nonidealities are active.
+    """Per-source nonideality toggles for OpAmpTIA.
 
     Attributes:
         opamp_gain_sigma: Apply ``opamp_gain_sigma`` at fabricate time.
@@ -91,12 +113,18 @@ class OpAmpTIADCOP:
         v_out__V: Soft-saturated op-amp output voltage [V].
         dVclamp_dI__MOhm: ``∂v_clamp / ∂i_port`` [MOhm].
         dVout_dI__MOhm: ``∂v_out / ∂i_port`` [MOhm].
+        residual__uA: ``|I_nmos(v_clamp) - i_port|`` at the final iterate
+            (Issue 5 diagnostic). Bulk operation gives ≈ machine precision;
+            a finite value means ``i_port`` is outside what the pseudo-
+            NMOS feedback can supply at this configuration, so ``v_clamp``
+            silently clamped to a rail rather than satisfying KCL.
     """
 
     v_clamp__V: Tensor
     v_out__V: Tensor
     dVclamp_dI__MOhm: Tensor
     dVout_dI__MOhm: Tensor
+    residual__uA: Tensor
 
 
 @dataclass(frozen=True)
@@ -225,9 +253,6 @@ class OpAmpTIA(TIA):
 
     # --- forward path ---
 
-    N_NEWTON: int = 4
-    G_EFF_MAX__uS: float = -1e-6
-
     def _softclip_eval(self, v_out_lin__V: Tensor) -> tuple[Tensor, Tensor]:
         """Smooth output-rail limiter ``c + h · tanh((x - c) / s)`` and its derivative.
 
@@ -275,7 +300,9 @@ class OpAmpTIA(TIA):
         # warm start: zero-current static op when none provided.
         v_clamp = v_ref * opamp_gain / (opamp_gain + 1.0) if v_clamp_init__V is None else v_clamp_init__V
 
-        for _ in range(self.N_NEWTON):
+        max_step__V = self.config.max_step__V
+        g_eff_max__uS = self.config.g_eff_max__uS
+        for _ in range(self.config.n_newton):
             v_out_lin = opamp_gain * (v_ref - v_clamp)
             v_out, g_clip = self._softclip_eval(v_out_lin)
             nmos_dc = self.nmos.solve_dc(
@@ -286,11 +313,14 @@ class OpAmpTIA(TIA):
             )
             # df/dVclamp = ∂I/∂v_d · (-A · g_clip) + ∂I/∂v_s
             dvout_dvclamp = -opamp_gain * g_clip
-            df_dVclamp = (nmos_dc.did_dvd__uS * dvout_dvclamp + nmos_dc.did_dvs__uS).clamp(max=self.G_EFF_MAX__uS)
+            df_dVclamp = (nmos_dc.did_dvd__uS * dvout_dvclamp + nmos_dc.did_dvs__uS).clamp(max=g_eff_max__uS)
             residual = nmos_dc.ids__uA - i_port__uA
-            # project into [0, v_dd] so the update stalls at the rail when
-            # the residual has no zero in-range.
-            v_clamp = (v_clamp - residual / df_dVclamp).clamp(min=0.0, max=v_dd)
+            # Damped Newton step + physical projection. Without the per-step
+            # cap, an overshoot near rail (where tanh's g_clip → 0) sends
+            # v_clamp to the rail in one shot and the next iteration computes
+            # f/f' at the rail — typically trapping the solver there.
+            delta = (-residual / df_dVclamp).clamp(min=-max_step__V, max=max_step__V)
+            v_clamp = (v_clamp + delta).clamp(min=0.0, max=v_dd)
 
         v_out_lin_final = opamp_gain * (v_ref - v_clamp)
         v_out, g_clip = self._softclip_eval(v_out_lin_final)
@@ -302,17 +332,26 @@ class OpAmpTIA(TIA):
         )
         dvout_dvclamp = -opamp_gain * g_clip
         df_dVclamp_final = (nmos_dc_final.did_dvd__uS * dvout_dvclamp + nmos_dc_final.did_dvs__uS).clamp(
-            max=self.G_EFF_MAX__uS
+            max=g_eff_max__uS
         )
         # implicit-function theorem: dVclamp/dI = 1 / df_dVclamp [MOhm]
         dVclamp_dI__MOhm = 1.0 / df_dVclamp_final
         dVout_dI__MOhm = dvout_dvclamp * dVclamp_dI__MOhm
+
+        # Issue 5 diagnostic: |NMOS Ids − i_port| at the returned operating
+        # point. A non-trivial value means the requested ``i_port`` lay
+        # outside the NMOS feedback's reachable range — ``v_clamp`` got
+        # silently projected to a [0, v_dd] rail instead of solving KCL.
+        # The bulk operating regime gives values ≈ machine precision;
+        # callers can ``.max()`` this to detect rail-clamped false roots.
+        residual__uA = (nmos_dc_final.ids__uA - i_port__uA).abs()
 
         return OpAmpTIADCOP(
             v_clamp__V=v_clamp,
             v_out__V=v_out,
             dVclamp_dI__MOhm=dVclamp_dI__MOhm,
             dVout_dI__MOhm=dVout_dI__MOhm,
+            residual__uA=residual__uA,
         )
 
     def solve_clamp(

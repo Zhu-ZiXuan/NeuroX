@@ -155,9 +155,17 @@ def build_candidates(
     )
 
     sorted_abs, _ = torch.sort(abs_v_diff)
+    n_total = sorted_abs.numel()
     for n in range(2, max_clip_rate_exp + 1):
         rate = 10.0**-n
-        a = float(torch.quantile(sorted_abs, 1.0 - rate, interpolation="linear").item())
+        # torch.quantile() is capped at 2**24 elements; for larger tensors
+        # use direct index lookup into the pre-sorted array (exact, faster).
+        if n_total > (1 << 24):
+            idx = int(round((1.0 - rate) * (n_total - 1)))
+            idx = max(0, min(idx, n_total - 1))
+            a = float(sorted_abs[idx].item())
+        else:
+            a = float(torch.quantile(sorted_abs, 1.0 - rate, interpolation="linear").item())
         observed = float((abs_v_diff > a).to(torch.float64).mean().item())
         out.append(
             RangeCandidate(
@@ -208,33 +216,50 @@ def collect_statistics(
         raise ValueError(f"input_samples_per_weight ({input_samples_per_weight}) must be > 0")
     if batch_size <= 0:
         raise ValueError(f"batch_size ({batch_size}) must be > 0")
+    if weight_samples % batch_size != 0:
+        raise ValueError(
+            f"weight_samples ({weight_samples}) must be a multiple of batch_size ({batch_size}) "
+            f"so the w-batch axis cleanly divides the requested w count"
+        )
 
-    xbar = build_offset_1t1r_xbar_all_off(config_path, device=device)
+    # batch_size now = parallel w-batch axis (xbar built with inst_shape=(B,)).
+    # input_samples_per_weight = K = inputs per w sample, broadcast across the
+    # B parallel weights inside a single VMM call. The two axes are orthogonal:
+    # raising batch_size doesn't shrink K, it just packs more independent w
+    # programmings per VMM. Total samples = weight_samples · K · n_data_cols.
+    xbar = build_offset_1t1r_xbar_all_off(config_path, device=device, inst_shape=(batch_size,))
     distribution = load_distribution(distribution_path, xbar)
     generator = make_generator(seed, device)
+    w_groups = weight_samples // batch_size
 
     logger.info("xbar built on device=%s; distribution_source=%s", device, distribution.source)
     logger.info(
-        "sweep: weight_samples=%d, input_samples_per_weight=%d, batch_size=%d, max_clip_rate_exp=%d",
+        "sweep: weight_samples=%d (w_batch=%d × %d groups), input_samples_per_weight=%d, max_clip_rate_exp=%d",
         weight_samples,
-        input_samples_per_weight,
         batch_size,
+        w_groups,
+        input_samples_per_weight,
         max_clip_rate_exp,
     )
 
     with install_probe_adc(xbar) as handle:
-        for i, w in enumerate(sample_w(distribution, xbar, n=weight_samples, device=device, generator=generator)):
+        for i, w in enumerate(
+            sample_w(distribution, xbar, n=weight_samples, batch_w=batch_size, device=device, generator=generator)
+        ):
             xbar.program(w)
+            # Single VMM per group: K inputs broadcast against B parallel weights.
+            # sample_x_batches yields (K, row_num); reshape to (K, 1, row_num) so
+            # the xbar's (B, ...) instance axis is broadcastable.
             for x in sample_x_batches(
                 distribution,
                 xbar,
                 n_total=input_samples_per_weight,
-                batch_size=batch_size,
+                batch_size=input_samples_per_weight,
                 device=device,
                 generator=generator,
             ):
-                xbar.vec_mat_mul(x, adc_operation_point=_DUMMY_OP)
-            logger.info("weight sample %d/%d done", i + 1, weight_samples)
+                xbar.vec_mat_mul(x.unsqueeze(-2), adc_operation_point=_DUMMY_OP)
+            logger.info("w-group %d/%d done (%d weights, %d inputs each)", i + 1, w_groups, batch_size, input_samples_per_weight)
 
         v_pos, v_neg, v_diff = handle.probe.captured()
         adc_instance_count = int(math.prod(handle.probe._inst_shape))

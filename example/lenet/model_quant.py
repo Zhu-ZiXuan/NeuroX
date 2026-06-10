@@ -29,14 +29,28 @@ from .quant import QATConv2d, QATLinear, QuantConv2d, QuantLinear
 
 MacroFactory = Callable[..., NeuroxMacroQuantMatMul]
 
-# Per-layer ADC operating-mode pick. The cleanup commit uses the default
-# mode 0 for every layer; later ADC calibration work may retarget modes.
+# Per-layer ADC operating-mode pick. Indices match the chip preset's
+# ``v_refs__V`` list (currently [0.8, 0.4, 0.2]); add 0.1 / 0.05 entries
+# and bump fc3 to index 4 once #276 lands. Picked to match each layer's
+# expected max|dot| under ternary weights (see log/lenet_rescale_audit.log):
+# conv1 / fc1: max|dot|≈16–17 → mode 1 (v_ref=0.4) gives r_ADC≈1.7
+# conv2:       max|dot|≈24    → mode 0 (v_ref=0.8) gives r_ADC≈3.5
+# fc2:         max|dot|≈10    → mode 2 (v_ref=0.2)
+# fc3:         max|dot|≈2     → mode 2 today (still over-rescaled;
+#                              waiting on smaller v_ref mode).
 _LAYER_MODE: dict[str, int] = {
-    "conv1": 0,
-    "conv2": 0,
-    "fc1": 0,
-    "fc2": 0,
-    "fc3": 0,
+    # Picked for the post-solver-fix mid1 chip: v_diff p99 ≈ 0.025 V across
+    # the synthetic uniform workload (see log/adc_stat/), so the smallest
+    # v_ref mode (mode 4, v_ref = 0.05 V → LSB ≈ 0.4 mV) is the one that
+    # gives non-trivial bits for typical activations. The larger modes
+    # (0.1, 0.2, 0.4, 0.8 V) give 1–2 LSB resolution and round signal
+    # back to noise. ideal_xbar TOMLs ignore the mode and use their own
+    # synthetic full-range ADC.
+    "conv1": 4,
+    "conv2": 4,
+    "fc1": 4,
+    "fc2": 4,
+    "fc3": 4,
 }
 
 

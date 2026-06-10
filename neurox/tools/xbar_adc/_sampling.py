@@ -160,18 +160,29 @@ def sample_w(
     xbar: Offset1T1RXbar,
     *,
     n: int,
+    batch_w: int = 1,
     device: torch.device,
     generator: torch.Generator | None = None,
 ) -> Iterator[Tensor]:
-    """Yield ``n`` independent xbar-native digit tensors.
+    """Yield ``ceil(n / batch_w)`` batches of independent xbar-native digit tensors.
 
-    Each tensor has shape ``(col_num, w_digit_count, row_num)`` (the
-    xbar's :attr:`_w_layout_shape` for ``inst_shape=()``), int64,
-    on ``device``.
+    With ``batch_w == 1`` (default), each yielded tensor matches
+    :attr:`_w_layout_shape` for an ``inst_shape=()`` xbar, i.e.
+    ``(col_num, w_digit_count, row_num)``.
+    With ``batch_w > 1``, each yield carries a leading w-batch axis,
+    i.e. ``(batch_w, col_num, w_digit_count, row_num)``. The caller is
+    expected to have built the xbar with a matching ``inst_shape=(batch_w,)``
+    so ``xbar.program(w_batch)`` lands every batch slot on its own
+    physical-instance copy and a single VMM call runs ``batch_w`` parallel
+    independent weight programs.
     """
-    shape_per = (xbar.col_num, xbar.w_digit_count, xbar.row_num)
+    if batch_w <= 0:
+        raise ValueError(f"batch_w ({batch_w}) must be > 0")
+    leading = () if batch_w == 1 else (batch_w,)
+    shape_per = (*leading, xbar.col_num, xbar.w_digit_count, xbar.row_num)
     n_per = math.prod(shape_per)
-    for _ in range(n):
+    num_yields = (n + batch_w - 1) // batch_w
+    for _ in range(num_yields):
         if distribution.w_values is None:
             lo, hi = xbar.w_digit_range
             yield torch.randint(
@@ -240,6 +251,7 @@ def build_offset_1t1r_xbar_all_off(
     *,
     device: torch.device,
     dtype: torch.dtype = torch.float64,
+    inst_shape: tuple[int, ...] = (),
 ) -> Offset1T1RXbar:
     """Build a fully nonideality-free :class:`Offset1T1RXbar` from a TOML.
 
@@ -289,7 +301,7 @@ def build_offset_1t1r_xbar_all_off(
         config=xbar_config,
         policy=policy,
         name="xbar",
-        inst_shape=(),
+        inst_shape=inst_shape,
         dtype=dtype,
         T__K=T_ROOM__K,
     )

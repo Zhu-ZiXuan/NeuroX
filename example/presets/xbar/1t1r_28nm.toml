@@ -22,20 +22,38 @@ ref_group_size = 16
 ref_location = 8
 
 # --- ADC ``adc_operation_point → rescale_factor`` lookup table ---
+# Calibrated 2026-06-08 with LS+intercept at 8-bit ADC. b_offset is
+# folded through macro adc_b_offset(). r_max scales monotonically with v_ref
+# as expected for the now-finer SAR LSB.
 [[xbar.adc_calibration]]
 adc_mode = 0
-adc_bits = 4
-rescale_factor = 2.01772
+adc_bits = 8
+rescale_factor = 2.8977
+b_offset = 1.3585
 
 [[xbar.adc_calibration]]
 adc_mode = 1
-adc_bits = 4
-rescale_factor = 21.2789
+adc_bits = 8
+rescale_factor = 1.4879
+b_offset = 0.6961
 
 [[xbar.adc_calibration]]
 adc_mode = 2
-adc_bits = 4
-rescale_factor = 13.243
+adc_bits = 8
+rescale_factor = 0.7482
+b_offset = 0.3430
+
+[[xbar.adc_calibration]]
+adc_mode = 3
+adc_bits = 8
+rescale_factor = 0.3745
+b_offset = 0.1591
+
+[[xbar.adc_calibration]]
+adc_mode = 4
+adc_bits = 8
+rescale_factor = 0.1874
+b_offset = 0.0657
 
 
 [xbar.core_config]
@@ -78,7 +96,7 @@ c_db_per_um__fF = 0.85
 
 # --- RRAM design window + state map ---
 rram_g_max__uS = 100.0
-state_to_g_map__uS = [10.0, 39.7, 69.7, 100.0]
+state_to_g_map__uS = [10.0, 54.2591294879, 100.0]
 
 
 [xbar.core_config.rram_config]
@@ -93,7 +111,7 @@ _neurox_use_preset = "process/mos:nmos_28_rvt"
 _neurox_type = "OpAmpTIAConfig"
 
 # --- Reference / supply ---
-v_ref__V = 0.2
+v_ref__V = 0.1
 v_nmos_bias__V = 0.9
 v_dd__V = 0.9
 
@@ -104,11 +122,16 @@ opamp_gain = 30.0
 opamp_gain_sigma = 0.0
 
 # --- Pseudo-resistor NMOS ---
-pseudo_nmos_W__um = 1.000
-pseudo_nmos_L__um = 0.060
+pseudo_nmos_W__um = 0.250
+pseudo_nmos_L__um = 0.030
 
 # --- Output rail limiter ---
 output_saturation_softness__V = 0.45
+
+# --- Newton solver fixed knobs ---
+n_newton = 30
+max_step__V = 0.05
+g_eff_max__uS = -1e-6
 
 # --- PPA ---
 leakage_per_inst__uW = 1.0
@@ -131,7 +154,6 @@ drive_thermal__V = 0.0
 latency_per_op__ns = 0.0
 leakage_per_inst__uW = 0.0
 area_per_inst__um2 = 0.0
-
 
 [xbar.core_config.wl_dac_config]
 _neurox_type = "GeneralDACConfig"
@@ -211,11 +233,13 @@ latency_per_op__ns = 0.0
 _neurox_type = "McsSarAdcConfig"
 
 # --- Topology ---
-# Sized to the LUT calibration above: a single (mode=0, bits=4) point.
-max_bits = 4
+# 8-bit SAR (was 4-bit). Same analog stack (v_refs / switch-cap / TIA);
+# more SAR cycles → smaller per-mode r_max (scales ~1/16 vs 4-bit at
+# same v_ref). Re-calibrated 2026-06-08; see [[xbar.adc_calibration]].
+max_bits = 8
 
 # --- References + timing ---
-v_refs__V = [0.8, 0.4, 0.2]
+v_refs__V = [0.8, 0.4, 0.2, 0.1, 0.05]
 clk_period__ns = 2.0
 
 # --- CDAC unit ---

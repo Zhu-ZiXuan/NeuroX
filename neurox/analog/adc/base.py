@@ -43,6 +43,7 @@ class AdcCalibrationRecord(ValidateMixin):
     adc_mode: int
     adc_bits: int
     rescale_factor: float
+    b_offset: float = 0.0  # LS+intercept additive offset; folded into bias_int at deployment
 
     def __post_init__(self) -> None:
         self.validate()
