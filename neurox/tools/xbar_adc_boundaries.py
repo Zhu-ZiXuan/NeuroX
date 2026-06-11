@@ -14,6 +14,38 @@ from pathlib import Path
 
 import torch
 
+from neurox.tools._config import add_standard_args, load_tool_config, setup_logging
+from neurox.xbar import Offset1T1RXbarConfig as _XbarCfg
+
+
+# ---------------------------------------------------------------------------
+# TOML config schema
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class _SamplingCfg:
+    """``[sampling]`` section: random-input count + noise toggle."""
+
+    n_random: int
+    use_noise: bool
+
+
+@dataclass(frozen=True)
+class _TranscoderCfg:
+    """``[transcoder]`` section: weight-transcoder encoding."""
+
+    encoding: str
+
+
+@dataclass(frozen=True)
+class XbarAdcBoundariesConfig:
+    """Top-level config for :mod:`neurox.tools.xbar_adc_boundaries`."""
+
+    xbar: _XbarCfg
+    sampling: _SamplingCfg
+    transcoder: _TranscoderCfg
+
 # ---------------------------------------------------------------------------
 # Public helpers
 # ---------------------------------------------------------------------------
@@ -151,6 +183,7 @@ def calibrate(
     config_path: Path,
     random_n: int,
     apply_noise: bool,
+    transcoder_encoding: str | None = None,
 ) -> CalibrationResult:
     """Run a real-vs-ideal-xbar comparison and fit floor-style boundaries.
 
@@ -247,10 +280,17 @@ def calibrate(
     ideal.eval()
 
     # Weight transcoder for the tool's calibration sweep.
-    raw_full = dict_from_file(config_path)
+    if transcoder_encoding is None:
+        raw_full = dict_from_file(config_path)
+        if "w_transcoder" not in raw_full:
+            raise ValueError(
+                f"{config_path}: top-level [w_transcoder] not found and no transcoder_encoding passed; "
+                "supply [transcoder].encoding in the run config or pass transcoder_encoding=..."
+            )
+        transcoder_encoding = raw_full["w_transcoder"]["encoding"]
     w_radix = xbar_config.w_digit_radix
     w_tc = Transcoder.create(
-        raw_full["w_transcoder"]["encoding"],
+        transcoder_encoding,
         radix=w_radix,
         digit_num=xbar_config.w_digit_count,
     )
@@ -303,45 +343,24 @@ def calibrate(
         physical.program(w_digits)
         core = physical.core
 
-        # Build the execution shape from the fabricated layout.
-        full_shape = (core.fabricated_col_num, core.fabricated_row_num)
-        x_2d = x_i.unsqueeze(0).to(torch.float64)  # [1, row_num]
-        wl_logic = x_2d.expand(1, core.fabricated_row_num).squeeze(-2)
-        wl_drive = (wl_logic * core.v_dd_wl__V).unsqueeze(-2)
-
-        # One-shot per-VMM runtime sampling.
-        rram_snapshot = core.rram.snapshot(shape=full_shape)
-        nmos_snapshot = core.nmos.snapshot(shape=full_shape)
-        bl_driver_snapshot = core.tia.snapshot(shape=(core.fabricated_col_num,))
-        sl_driver_snapshot = core.sl_driver.snapshot(shape=(core.fabricated_row_num,))
-
-        # Reuse the core's solver and fabricated wire state.
-        result = core.solver.solve(
-            wl_drive,
-            rram_snapshot=rram_snapshot,
-            nmos_snapshot=nmos_snapshot,
-            bl_driver_snapshot=bl_driver_snapshot,
-            sl_driver_snapshot=sl_driver_snapshot,
-        )
+        # One-shot per-VMM DC solve via the high-level core API; it owns
+        # the WL DAC, wire-segment broadcasting, and solver dispatch.
+        x_codes = x_i.to(torch.int64)  # [row_num]
+        dcop = core.solve_dc(x_codes)
+        v_out_phys = dcop.v_out_phys
 
         # Reuse the real readout chain end-to-end.
         from neurox.xbar._1t1r.offset import _split_logic_and_ref
 
-        tia_dc = core.tia.solve_dc(
-            result.i_bl_driver,
-            bl_driver_snapshot,
-            v_clamp_init__V=result.v_bl_clamp,
-        )
-        v_out_phys = tia_dc.v_out__V
         v_data_phys, v_ref_phys = _split_logic_and_ref(v_out_phys, physical.logic_phys_idx, physical.ref_phys_idx)
         # Drive the production readout submodules with the same grouped lattice.
         readout = physical.readout
         v_data_grouped = v_data_phys.unflatten(-1, (group_num, data_num, digit_num))
-        v_pos__V, _ = readout.data_switchcap.sample_and_accumulate(v_data_grouped)
+        v_pos__V = readout.data_switchcap.sample_and_accumulate(v_data_grouped)
         v_ref_bank = v_ref_phys.unsqueeze(-1)
-        v_ref_sampled__V, _ = readout.ref_switchcap.sample_and_accumulate(v_ref_bank)
+        v_ref_sampled__V = readout.ref_switchcap.sample_and_accumulate(v_ref_bank)
         v_neg__V = v_ref_sampled__V.unsqueeze(-1).expand(*v_ref_sampled__V.shape, data_num)
-        v_pos_muxed__V, v_neg_muxed__V, _ = readout.analog_mux.transport(v_pos__V, v_neg__V)
+        v_pos_muxed__V, v_neg_muxed__V = readout.analog_mux.transport(v_pos__V, v_neg__V)
         signal__V = v_pos_muxed__V - v_neg_muxed__V  # [..., group_num, data_num]
 
         # Ideal integer dot product on the original logical weights.
@@ -352,7 +371,10 @@ def calibrate(
         signal_buf.append(signal__V.flatten().to(torch.float64))
         code_buf.append(dot.flatten().to(torch.int64))
 
-        s_max = max(s_max, float(signal__V.max().item()))
+        # Modern chips run a ``v_data - v_ref`` differential where ``v_ref``
+        # is biased above the per-data tap, so the signed signal is negative.
+        # Track abs-max to capture the physically meaningful dynamic range.
+        s_max = max(s_max, float(signal__V.abs().max().item()))
         n_states_observed = max(
             n_states_observed,
             int(dot.abs().max().item()) + 1,
@@ -428,35 +450,21 @@ def _format_toml(result: CalibrationResult) -> str:
 def main(argv: list[str] | None = None) -> int:
     """CLI entry point.  Returns process exit code."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--config", type=Path, required=True, help="Chip config TOML path")
-    parser.add_argument(
-        "--random",
-        type=int,
-        default=256,
-        help="N random input groups; <= 0 traverses corner cases",
-    )
-    parser.add_argument(
-        "--noise",
-        action="store_true",
-        help="Apply physical noise during sampling",
-    )
+    add_standard_args(parser, output_file=True)
     parser.add_argument(
         "--visualize",
         action="store_true",
         help="Save a histogram PNG alongside --output",
     )
-    parser.add_argument(
-        "--output",
-        type=Path,
-        default=None,
-        help="Destination TOML for the calibrated [bl_adc] block",
-    )
     args = parser.parse_args(argv)
+    setup_logging(args.log_level)
 
+    cfg = load_tool_config(XbarAdcBoundariesConfig, args.config)
     result = calibrate(
         config_path=args.config,
-        random_n=args.random,
-        apply_noise=args.noise,
+        random_n=cfg.sampling.n_random,
+        apply_noise=cfg.sampling.use_noise,
+        transcoder_encoding=cfg.transcoder.encoding,
     )
 
     block = _format_toml(result)

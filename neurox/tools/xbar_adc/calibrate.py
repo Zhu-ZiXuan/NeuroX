@@ -16,7 +16,7 @@ import torch
 from torch import Tensor
 
 from neurox.analog.adc import AdcOperationPoint, McsSarAdcConfig, SarAdcMonoConfig
-from neurox.tools.logging import config_tool_logging
+from neurox.tools._config import add_standard_args, load_tool_config, resolve_relative_path, setup_logging
 from neurox.tools.xbar_adc._sampling import (
     build_offset_1t1r_xbar_all_off,
     load_distribution,
@@ -25,6 +25,39 @@ from neurox.tools.xbar_adc._sampling import (
     sample_w,
     sample_x_batches,
 )
+from neurox.xbar import Offset1T1RXbarConfig
+
+
+# ---------------------------------------------------------------------------
+# TOML config schema
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class _WorkloadCfg:
+    """``[workload]`` section: sampling sweep dimensions + optional distribution."""
+
+    weight_samples: int
+    input_samples_per_weight: int
+    batch_size: int
+    seed: int
+    distribution: Path | None = None
+
+
+@dataclass(frozen=True)
+class _AdcCfg:
+    """``[adc]`` section: which operating-point index to calibrate."""
+
+    mode: int
+
+
+@dataclass(frozen=True)
+class XbarAdcCalibrateConfig:
+    """Top-level config for :mod:`neurox.tools.xbar_adc.calibrate`."""
+
+    xbar: Offset1T1RXbarConfig
+    workload: _WorkloadCfg
+    adc: _AdcCfg
 
 logger = logging.getLogger(__name__)
 
@@ -439,55 +472,30 @@ def plot_calibration(result: CalibrationResult, output_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _build_parser() -> argparse.ArgumentParser:
+def main(argv: list[str] | None = None) -> int:
+    """CLI entry point. Returns process exit code."""
     parser = argparse.ArgumentParser(
         description="Fit the rescale_factor that maps physical ADC codes back to ideal VMM outputs.",
     )
-    parser.add_argument("--xbar-config", type=Path, required=True, help="Chip xbar TOML path")
-    parser.add_argument("--adc-mode", type=int, required=True, help="Operating-point index to calibrate")
-    parser.add_argument(
-        "--distribution",
-        type=Path,
-        default=None,
-        help="Optional synthetic-workload distribution TOML; omitted -> uniform",
-    )
-    parser.add_argument("--weight-samples", type=int, default=32, help="Independent programmed-state samples")
-    parser.add_argument(
-        "--input-samples-per-weight",
-        type=int,
-        default=1024,
-        help="Per-weight primitive input-vector count",
-    )
-    parser.add_argument("--batch-size", type=int, default=256, help="Per-VMM input batch cap")
-    parser.add_argument("--seed", type=int, default=None, help="Optional deterministic seed")
-    parser.add_argument(
-        "--device",
-        type=str,
-        default="auto",
-        help='Torch device; "auto" picks cuda if available else cpu',
-    )
-    parser.add_argument("--plot", type=Path, default=None, help="Optional PNG output path")
-    parser.add_argument("--log-level", type=str, default="INFO", help="Logger level (e.g. DEBUG, INFO)")
-    return parser
-
-
-def main(argv: list[str] | None = None) -> int:
-    """CLI entry point. Returns process exit code."""
-    parser = _build_parser()
+    add_standard_args(parser, plot_file=True)
     args = parser.parse_args(argv)
-    config_tool_logging(level=getattr(logging, args.log_level.upper()))
+    setup_logging(args.log_level)
+
+    cfg = load_tool_config(XbarAdcCalibrateConfig, args.config)
+    logger.info("loaded config from %s", args.config)
+    distribution_path = resolve_relative_path(cfg.workload.distribution, args.config)
 
     device = resolve_device(args.device)
     logger.info("resolved device: %s", device)
 
     result = collect_calibration(
-        config_path=args.xbar_config,
-        distribution_path=args.distribution,
-        adc_mode=args.adc_mode,
-        weight_samples=args.weight_samples,
-        input_samples_per_weight=args.input_samples_per_weight,
-        batch_size=args.batch_size,
-        seed=args.seed,
+        config_path=args.config,
+        distribution_path=distribution_path,
+        adc_mode=cfg.adc.mode,
+        weight_samples=cfg.workload.weight_samples,
+        input_samples_per_weight=cfg.workload.input_samples_per_weight,
+        batch_size=cfg.workload.batch_size,
+        seed=cfg.workload.seed,
         device=device,
     )
     log_calibration(result)

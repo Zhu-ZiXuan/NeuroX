@@ -19,18 +19,61 @@ from __future__ import annotations
 
 import argparse
 import logging
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import torch
 from torch import Tensor
 
 from neurox.analog.tia import OpAmpTIA, OpAmpTIAConfig, OpAmpTIAPolicy
-from neurox.common.load_dump import dataclass_from_file
 from neurox.device import NMOSPolicy
+from neurox.tools._config import add_standard_args, load_tool_config, setup_logging
 from neurox.xbar import Offset1T1RXbarConfig
 
 from ._plateau import CandidateRow, WorkloadScale, pick_with_plateau_and_guard
+
+
+# ---------------------------------------------------------------------------
+# TOML config schema
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class _WorkloadCfg:
+    """``[workload]`` section: synthetic Gaussian port-current draw."""
+
+    mean__uA: float
+    sigma__uA: float
+    n_sigma_span: float
+    n_samples: int
+
+
+@dataclass(frozen=True)
+class _SweepCfg:
+    """``[sweep]`` section: candidate iteration counts + plateau / guard knobs."""
+
+    candidates: list[int]
+    ratio_threshold: float
+    reltol: float
+    margin: int
+
+
+@dataclass(frozen=True)
+class _RuntimeCfg:
+    """``[runtime]`` section: numerical floats reproducibility knobs."""
+
+    dtype: str
+    seed: int
+
+
+@dataclass(frozen=True)
+class SolverCalibrateTiaConfig:
+    """Top-level config for :mod:`neurox.tools.solver_calibrate.tia`."""
+
+    xbar: Offset1T1RXbarConfig
+    workload: _WorkloadCfg
+    sweep: _SweepCfg
+    runtime: _RuntimeCfg
 
 log = logging.getLogger(__name__)
 
@@ -181,89 +224,53 @@ def plot_sweep(
     plt.close(fig)
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Calibrate OpAmpTIA n_newton via step-ratio plateau.")
-    parser.add_argument("--xbar-config", type=Path, required=True)
-    parser.add_argument(
-        "--workload-mean-uA", type=float, required=True, help="Per-column port current mean (from chip ADC stat tool)."
-    )
-    parser.add_argument(
-        "--workload-sigma-uA", type=float, required=True, help="Per-column port current std (from chip ADC stat tool)."
-    )
-    parser.add_argument("--n-sigma-span", type=float, default=4.0)
-    parser.add_argument("--n-samples", type=int, default=4096)
-    parser.add_argument(
-        "--candidates",
-        type=int,
-        nargs="+",
-        default=list(range(1, 21)),
-        help="Continuous scan (default: 1..20).",
-    )
-    parser.add_argument(
-        "--ratio-threshold",
-        type=float,
-        default=0.5,
-        help="Plateau criterion (smaller = stricter).",
-    )
-    parser.add_argument(
-        "--reltol",
-        type=float,
-        default=1e-2,
-        help="Residual safety guard ratio relative to max|I_port|.",
-    )
-    parser.add_argument("--margin", type=int, default=1)
-    parser.add_argument("--device", type=torch.device, default="cuda:0")
-    parser.add_argument("--dtype", type=str, choices=("float32", "float64"), default="float32")
-    parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--plot-dir", type=Path, default=None)
-    parser.add_argument("--log-level", type=str, default="INFO")
-    args = parser.parse_args()
+    add_standard_args(parser, plot_dir=True)
+    args = parser.parse_args(argv)
+    setup_logging(args.log_level)
 
-    logging.basicConfig(
-        level=getattr(logging, args.log_level.upper()),
-        format="%(asctime)s %(levelname)s %(name)s | %(message)s",
-    )
-    if not args.xbar_config.is_file():
-        raise SystemExit(f"--xbar-config: file not found: {args.xbar_config}")
+    cfg = load_tool_config(SolverCalibrateTiaConfig, args.config)
+    log.info("loaded config from %s", args.config)
 
-    dtype = torch.float32 if args.dtype == "float32" else torch.float64
-    xbar_config = dataclass_from_file(Offset1T1RXbarConfig, args.xbar_config, section="xbar")
-    tia_config = xbar_config.core_config.tia_config
+    tia_config = cfg.xbar.core_config.tia_config
     if not isinstance(tia_config, OpAmpTIAConfig):
         raise SystemExit(f"TIA config must be OpAmpTIAConfig; got {type(tia_config).__name__}")
+    dtype = torch.float32 if cfg.runtime.dtype == "float32" else torch.float64
+    device = torch.device(args.device)
 
     log.info("=" * 80)
     log.info("OpAmpTIA — step-ratio plateau calibration")
     log.info(
         "workload: I_port ~ N(%.3f, %.3f) μA, span=±%.1fσ, %d samples",
-        args.workload_mean_uA,
-        args.workload_sigma_uA,
-        args.n_sigma_span,
-        args.n_samples,
+        cfg.workload.mean__uA,
+        cfg.workload.sigma__uA,
+        cfg.workload.n_sigma_span,
+        cfg.workload.n_samples,
     )
     log.info(
         "criteria: ratio_threshold=%.3f, reltol=%.1e, margin=%d",
-        args.ratio_threshold,
-        args.reltol,
-        args.margin,
+        cfg.sweep.ratio_threshold,
+        cfg.sweep.reltol,
+        cfg.sweep.margin,
     )
     log.info("=" * 80)
 
     port_currents = _sample_port_currents(
-        mean__uA=args.workload_mean_uA,
-        sigma__uA=args.workload_sigma_uA,
-        n_sigma_span=args.n_sigma_span,
-        n_samples=args.n_samples,
-        device=args.device,
+        mean__uA=cfg.workload.mean__uA,
+        sigma__uA=cfg.workload.sigma__uA,
+        n_sigma_span=cfg.workload.n_sigma_span,
+        n_samples=cfg.workload.n_samples,
+        device=device,
         dtype=dtype,
-        seed=args.seed,
+        seed=cfg.runtime.seed,
     )
 
     rows, scale = sweep_n_newton(
         tia_config=tia_config,
-        candidates=args.candidates,
+        candidates=cfg.sweep.candidates,
         port_currents__uA=port_currents,
-        device=args.device,
+        device=device,
         dtype=dtype,
     )
 
@@ -276,22 +283,22 @@ def main() -> None:
     pick = pick_with_plateau_and_guard(
         rows,
         scale,
-        ratio_threshold=args.ratio_threshold,
-        reltol=args.reltol,
+        ratio_threshold=cfg.sweep.ratio_threshold,
+        reltol=cfg.sweep.reltol,
     )
 
     if pick.iter_count is None:
         log.error("Calibration failed: %s", pick.reason)
-        raise SystemExit(2)
+        return 2
 
-    final = pick.iter_count + args.margin
+    final = pick.iter_count + cfg.sweep.margin
     log.info("=" * 80)
     log.info("Picked n_newton = %d  (%s)", pick.iter_count, pick.reason)
-    log.info("Recommended with margin %d: n_newton = %d", args.margin, final)
+    log.info("Recommended with margin %d: n_newton = %d", cfg.sweep.margin, final)
     log.info(
         "Residual guard ratio at pick: cell=%.3e  (reltol = %.1e)",
         pick.residual_guard_ratios.get("cell__uA", 0.0),
-        args.reltol,
+        cfg.sweep.reltol,
     )
     log.info("")
     log.info("TOML fragment for chip preset [xbar.core_config.tia_config]:")
@@ -299,9 +306,10 @@ def main() -> None:
     log.info("=" * 80)
 
     if args.plot_dir is not None:
-        plot_sweep(rows, scale, out_path=args.plot_dir / "tia_n_newton_sweep.png", reltol=args.reltol)
+        plot_sweep(rows, scale, out_path=args.plot_dir / "tia_n_newton_sweep.png", reltol=cfg.sweep.reltol)
         log.info("Plot written to %s", args.plot_dir)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

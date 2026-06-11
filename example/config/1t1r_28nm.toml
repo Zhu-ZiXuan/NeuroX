@@ -22,40 +22,39 @@ ref_group_size = 16
 ref_location = 8
 
 # --- ADC ``adc_operation_point → rescale_factor`` lookup table ---
-# Re-calibrated 2026-06-11 with LS+intercept at 8-bit ADC after the
-# (W=0.18, Vb=0.9) TIA design refresh. b_offset informational only (not
-# yet plumbed through macro). Both rescale_factor and b_offset shrunk
-# vs the previous TIA design — the new TIA's smaller slope (0.92 vs
-# 1.37 mV/μA) puts a smaller v_diff span on the ADC for the same I_port.
+# Re-calibrated 2026-06-11 with LS+intercept at 8-bit ADC after sizing
+# the v_refs to the exp4 boundary (mode 0 = ±0.0573 V). rescale_factor
+# now scales as ~v_ref / 2**max_bits, so values are ~16× smaller than the
+# previous v_refs=[0.8 … 0.05] series. b_offset informational only.
 [[xbar.adc_calibration]]
 adc_mode = 0
 adc_bits = 8
-rescale_factor = 1.9415
-b_offset = 0.8358
+rescale_factor = 0.14199
+b_offset = 0.00464
 
 [[xbar.adc_calibration]]
 adc_mode = 1
 adc_bits = 8
-rescale_factor = 0.9823
-b_offset = 0.3565
+rescale_factor = 0.07129
+b_offset = -0.01295
 
 [[xbar.adc_calibration]]
 adc_mode = 2
 adc_bits = 8
-rescale_factor = 0.4947
-b_offset = 0.1663
+rescale_factor = 0.03563
+b_offset = 0.00314
 
 [[xbar.adc_calibration]]
 adc_mode = 3
 adc_bits = 8
-rescale_factor = 0.2477
-b_offset = 0.0556
+rescale_factor = 0.01780
+b_offset = 0.00736
 
 [[xbar.adc_calibration]]
 adc_mode = 4
 adc_bits = 8
-rescale_factor = 0.1239
-b_offset = -0.0036
+rescale_factor = 0.00891
+b_offset = 0.00679
 
 
 [xbar.core_config]
@@ -286,7 +285,10 @@ _neurox_type = "McsSarAdcConfig"
 max_bits = 8
 
 # --- References + timing ---
-v_refs__V = [0.8, 0.4, 0.2, 0.1, 0.05]
+# Mode 0 sized to the exp4 (p99.99 clip rate) boundary from the production
+# xbar_adc.statistic run: |v_diff| ≤ 0.0573 V covers > 99.99 % of the
+# workload. Modes 1–4 halve sequentially to keep the 16× dynamic range.
+v_refs__V = [0.0573, 0.02865, 0.01432, 0.00716, 0.00358]
 clk_period__ns = 2.0
 
 # --- CDAC unit ---

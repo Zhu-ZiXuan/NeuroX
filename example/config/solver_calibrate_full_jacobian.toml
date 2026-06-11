@@ -1,0 +1,29 @@
+# Calibrate FullJacobianSolver1T1R's n_newton via step-ratio plateau.
+#
+# CLI: python -m neurox.tools.solver_calibrate.full_jacobian \
+#          --config example/config/solver_calibrate_full_jacobian.toml \
+#          --plot-dir log/solver_calibrate/full_jacobian/ \
+#          --device cuda:0
+
+[xbar]
+_neurox_use = "1t1r_28nm.toml:xbar"
+
+
+[workload]
+inst_shape = [256]
+weight_samples = 256
+input_samples_per_weight = 8
+batch_w = 256
+# distribution = "synthetic.toml"   # optional, relative to this TOML
+
+
+[sweep]
+candidates = [1, 2, 3, 4, 5, 6, 7]
+ratio_threshold = 0.5
+reltol = 1e-2
+margin = 1
+
+
+[runtime]
+dtype = "float32"
+seed = 0

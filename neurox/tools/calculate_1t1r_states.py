@@ -13,7 +13,6 @@ from pathlib import Path
 
 import torch
 
-from neurox.common import dataclass_from_file
 from neurox.device import (
     NMOS,
     RRAM,
@@ -24,7 +23,46 @@ from neurox.device import (
     RRAMPolicy,
     RRAMSnapshot,
 )
-from neurox.tools.logging import config_tool_logging
+from neurox.tools._config import add_standard_args, load_tool_config, setup_logging
+
+
+# ---------------------------------------------------------------------------
+# TOML config schema
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class _BiasCfg:
+    """``[bias]`` section: per-cell read bias + operating temperature."""
+
+    v_wl__V: float
+    v_bl__V: float
+    v_sl__V: float
+    temperature__K: float
+
+
+@dataclass(frozen=True)
+class _DesignCfg:
+    """``[design]`` section: RRAM ladder + access-NMOS sizing."""
+
+    g_max__uS: float
+    n_states: int
+    access_nmos_W__um: float
+    access_nmos_L__um: float
+
+
+@dataclass(frozen=True)
+class Calculate1T1RStatesConfig:
+    """Top-level config for :mod:`neurox.tools.calculate_1t1r_states`.
+
+    The ``[rram]`` and ``[nmos]`` sections typically use
+    ``_neurox_use_preset`` to pull from ``neurox/presets/process/``.
+    """
+
+    rram: RRAMConfig
+    nmos: NMOSConfig
+    bias: _BiasCfg
+    design: _DesignCfg
 
 logger = logging.getLogger(__name__)
 
@@ -310,79 +348,64 @@ def calculate_state_map(
     )
 
 
-def _build_parser() -> argparse.ArgumentParser:
+def main(argv: list[str] | None = None) -> int:
+    """Console entry point."""
     parser = argparse.ArgumentParser(
         description="Solve the per-state RRAM conductance ladder yielding linear 1T1R cell current.",
     )
-    parser.add_argument("--rram-config", type=Path, required=True, help="RRAM TOML path.")
-    parser.add_argument("--rram-section", type=str, required=True, help="RRAM TOML section key.")
-    parser.add_argument("--nmos-config", type=Path, required=True, help="NMOS TOML path.")
-    parser.add_argument("--nmos-section", type=str, required=True, help="NMOS TOML section key.")
-    parser.add_argument("--v-wl-V", type=float, required=True, help="WL drive voltage [V].")
-    parser.add_argument("--v-bl-V", type=float, required=True, help="BL drive voltage [V].")
-    parser.add_argument("--v-sl-V", type=float, required=True, help="SL drive voltage [V].")
-    parser.add_argument("--g-max-uS", type=float, required=True, help="RRAM design g_max [uS].")
-    parser.add_argument("--n-states", type=int, required=True, help="State count (>= 2).")
-    parser.add_argument("--access-nmos-W-um", type=float, required=True, help="Access NMOS width [um].")
-    parser.add_argument("--access-nmos-L-um", type=float, required=True, help="Access NMOS length [um].")
-    parser.add_argument("--temperature-K", type=float, required=True, help="Operating temperature [K].")
-    return parser
-
-
-def main(argv: list[str] | None = None) -> None:
-    """Console entry point."""
-    parser = _build_parser()
+    add_standard_args(parser)
     args = parser.parse_args(argv)
+    setup_logging(args.log_level)
 
-    if args.n_states < 2:
-        parser.error(f"--n-states ({args.n_states}) must be >= 2")
-    if not (args.g_max_uS > 0):
-        parser.error(f"--g-max-uS ({args.g_max_uS}) must be > 0")
-    if not (args.v_bl_V > args.v_sl_V):
-        parser.error(f"--v-bl-V ({args.v_bl_V}) must be > --v-sl-V ({args.v_sl_V})")
-    if not (args.access_nmos_W_um > 0):
-        parser.error(f"--access-nmos-W-um ({args.access_nmos_W_um}) must be > 0")
-    if not (args.access_nmos_L_um > 0):
-        parser.error(f"--access-nmos-L-um ({args.access_nmos_L_um}) must be > 0")
-    if not (args.temperature_K > 0):
-        parser.error(f"--temperature-K ({args.temperature_K}) must be > 0")
+    cfg = load_tool_config(Calculate1T1RStatesConfig, args.config)
 
-    config_tool_logging()
+    design = cfg.design
+    bias_cfg = cfg.bias
+    if design.n_states < 2:
+        raise SystemExit(f"[design].n_states ({design.n_states}) must be >= 2")
+    if not (design.g_max__uS > 0):
+        raise SystemExit(f"[design].g_max__uS ({design.g_max__uS}) must be > 0")
+    if not (bias_cfg.v_bl__V > bias_cfg.v_sl__V):
+        raise SystemExit(f"[bias].v_bl__V ({bias_cfg.v_bl__V}) must be > [bias].v_sl__V ({bias_cfg.v_sl__V})")
+    if not (design.access_nmos_W__um > 0):
+        raise SystemExit(f"[design].access_nmos_W__um ({design.access_nmos_W__um}) must be > 0")
+    if not (design.access_nmos_L__um > 0):
+        raise SystemExit(f"[design].access_nmos_L__um ({design.access_nmos_L__um}) must be > 0")
+    if not (bias_cfg.temperature__K > 0):
+        raise SystemExit(f"[bias].temperature__K ({bias_cfg.temperature__K}) must be > 0")
 
-    rram_config = dataclass_from_file(RRAMConfig, args.rram_config, section=args.rram_section)
-    nmos_config = dataclass_from_file(NMOSConfig, args.nmos_config, section=args.nmos_section)
-    bias = _CellBias(v_wl__V=args.v_wl_V, v_bl__V=args.v_bl_V, v_sl__V=args.v_sl_V)
+    bias = _CellBias(v_wl__V=bias_cfg.v_wl__V, v_bl__V=bias_cfg.v_bl__V, v_sl__V=bias_cfg.v_sl__V)
 
-    logger.info("loaded rram config from %s:%s", args.rram_config, args.rram_section)
-    logger.info("loaded nmos config from %s:%s", args.nmos_config, args.nmos_section)
+    logger.info("loaded config from %s", args.config)
     logger.info("disabled rram non-idealities: prog_gamma, stuck_at, read_telegraph, read_thermal")
     logger.info("disabled nmos non-idealities: A_vt_mismatch, A_beta_mismatch")
-    logger.info("rram g_min__uS = %s", rram_config.g_min__uS)
-    logger.info("rram g_max__uS = %s", args.g_max_uS)
+    logger.info("rram g_min__uS = %s", cfg.rram.g_min__uS)
+    logger.info("rram g_max__uS = %s", design.g_max__uS)
     logger.info("bias V_WL = %s V, V_BL = %s V, V_SL = %s V", bias.v_wl__V, bias.v_bl__V, bias.v_sl__V)
     logger.info(
         "access NMOS W = %s um, L = %s um, T = %s K",
-        args.access_nmos_W_um,
-        args.access_nmos_L_um,
-        args.temperature_K,
+        design.access_nmos_W__um,
+        design.access_nmos_L__um,
+        bias_cfg.temperature__K,
     )
 
     result = calculate_state_map(
-        rram_config=rram_config,
-        nmos_config=nmos_config,
+        rram_config=cfg.rram,
+        nmos_config=cfg.nmos,
         bias=bias,
-        g_max__uS=args.g_max_uS,
-        n_states=args.n_states,
-        access_nmos_W__um=args.access_nmos_W_um,
-        access_nmos_L__um=args.access_nmos_L_um,
-        temperature_K=args.temperature_K,
+        g_max__uS=design.g_max__uS,
+        n_states=design.n_states,
+        access_nmos_W__um=design.access_nmos_W__um,
+        access_nmos_L__um=design.access_nmos_L__um,
+        temperature_K=bias_cfg.temperature__K,
     )
 
     logger.info("max_abs_current_error__uA = %.3e", result.max_abs_current_error__uA)
     logger.info("")
     logger.info("rram_g_max__uS = %s", result.rram_g_max__uS)
     logger.info("state_to_g_map__uS = %s", result.state_to_g_map__uS)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

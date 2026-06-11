@@ -29,19 +29,37 @@ A tool-local subclass of `ADC` that satisfies the readout's static `bl_adc: ADC`
 
 ## CLI
 
+Workload / sampling / plot knobs are baked into a TOML config (see
+`example/config/xbar_adc_statistic.toml` for the production sample).
+The CLI itself only carries runtime knobs:
+
 | Flag | Type | Default | Role |
 |---|---|---|---|
-| `--xbar-config` | path | — (required) | Chip xbar TOML path |
-| `--distribution` | path | `None` | Synthetic-workload distribution TOML; omitted → uniform |
-| `--weight-samples` | int | `32` | Independent programmed-state samples |
-| `--input-samples-per-weight` | int | `1024` | Per-weight primitive input-vector count |
-| `--batch-size` | int | `256` | Per-VMM input batch cap |
-| `--max-clip-rate-exp` | int | `3` | Max acceptable clip rate is `10^(-N)`, integer `N ≥ 2`. Emits ladder `[max_abs, p99, p99.9, ..., p(1-10^-N)]` |
-| `--seed` | int | `None` | Optional deterministic seed |
+| `--config` | path | — (required) | Statistic-run TOML; sections `[xbar]`, `[workload]`, `[statistic]`, `[plot]` |
 | `--device` | str | `"auto"` | `auto` / `cpu` / `cuda` / `cuda:N` |
-| `--plot-dir` | path | `None` | Optional directory; writes `overview.png` and (when `--plot-bits` is set) per-candidate `spotlight_*.png` |
-| `--plot-bits` | int | — | ADC bit width for the spotlight code-grid overlay; integer in `[1, 12]`. Required when `--plot-dir` is set; rejected otherwise |
+| `--plot-dir` | path | `None` | Optional directory; writes `overview.png` + per-candidate `spotlight_*.png` |
 | `--log-level` | str | `"INFO"` | Logger level |
+
+### TOML schema
+
+```toml
+[xbar]
+_neurox_use = "1t1r_28nm.toml:xbar"   # path relative to this TOML
+
+[workload]
+# distribution = "..."   # omit → uniform synthetic workload
+weight_samples = 128             # must be a multiple of batch_size
+input_samples_per_weight = 16
+batch_size = 128
+seed = 0
+
+[statistic]
+max_clip_rate_exp = 4   # emits ladder [max_abs, p99, p99.9, p99.99]
+
+[plot]
+bits = 8                # ADC bit width driving the code-grid overlay
+bins_per_code = 4       # overview hist sub-divides each ADC LSB by this much
+```
 
 ## Output
 
@@ -79,46 +97,49 @@ When `--plot-dir DIR` is supplied:
 
 ```
 DIR/
-├── overview.png            # Always written
-├── spotlight_max_abs.png   # Only when --plot-bits is also set
+├── overview.png            # 2-panel hist + CCDF master view
+├── spotlight_max_abs.png   # widest range — observed_clip = 0%
 ├── spotlight_exp2.png      # p99 — clip rate 1e-2
 ├── spotlight_exp3.png      # p99.9 — clip rate 1e-3
-└── spotlight_exp{N}.png    # one per ladder entry up to --max-clip-rate-exp
+└── spotlight_exp{N}.png    # one per ladder entry up to max_clip_rate_exp
 ```
 
-**`overview.png`** (always two-panel, fixed `12 × 4 in`):
+Bin widths are **derived from the ADC code grid** so no plot ever goes
+coarser than the LSB:
 
-- **Left** — log-y histogram of `v_diff__V` with each candidate's `±A` overlaid as a dashed vertical pair (one colour per candidate, from `tab10`).
-- **Right** — log-y complementary CDF of `|v_diff|`; each candidate's `A` is overlaid as a dashed vertical line, so you can read "for any A, what clip rate do I pay?" directly.
+- **`overview.png`** (two-panel, `12 × 4 in`):
+  - **Left** — log-y histogram of `v_diff__V` with each candidate's `±A`
+    overlaid. Bin width = `LSB(max_abs candidate) / bins_per_code` —
+    `bins_per_code = 1` plots one bin per ADC code, larger values
+    reveal sub-code structure.
+  - **Right** — log-y complementary CDF of `|v_diff|`; each candidate's
+    `A` is overlaid as a dashed vertical line.
 
-**`spotlight_*.png`** — written only if `--plot-bits N` is supplied (one file per candidate):
+- **`spotlight_*.png`** — one per candidate:
+  - Histogram of `v_diff__V` with bin width = `LSB(this candidate)` so
+    each bin spans exactly one ADC code. Bin edges line up with the
+    code-boundary lines drawn on the same axes.
+  - Bold `±A` lines (candidate colour, width `1.5`, full alpha).
+  - Interior code grid: `2**bits − 1` lines at `−A + k · LSB` for
+    `k ∈ {1, …, 2**bits − 1}`.
+  - x-axis extended `≈ 10 %` beyond `±A` at the same bin width so
+    clipped samples remain visible.
+  - Title: `{label}: A=±{A}V | observed_clip={x}% | bits={N} | n_codes={2**N} | LSB={2A / 2**N}V`.
 
-- Background: log-y histogram of `v_diff__V` in light gray.
-- Bold `±A` lines: candidate colour, width `1.5`, full alpha.
-- Interior code grid: `2**N − 1` lines at `−A + k · (2A / 2**N)` for `k ∈ {1, …, 2**N − 1}` in the same candidate colour, width `0.5`, alpha `0.4`.
-- x-axis clamped to `[-1.1·A, +1.1·A]`; y-axis log.
-- Figure width scales as `max(12, 6 + 1.2·N) in` so high-bit grids stay readable.
-- Title: `{label}: A=±{A}V | observed_clip={x}% | plot_bits={N} | n_codes={2**N} | LSB={2A / 2**N}V`.
-
-matplotlib is imported lazily. If `--plot-dir` is supplied and matplotlib is not installed, the tool raises `RuntimeError`.
+matplotlib is imported lazily. If `--plot-dir` is supplied and matplotlib
+is not installed, the tool raises `RuntimeError`.
 
 ## Sample-count safety
 
-Estimating the bottom percentile requires at least roughly `10 / 10^-N = 10^(N+1)` samples in the tail; with fewer the estimate is meaningless. The tool **raises `ValueError`** when `total_captured < 10^(max_clip_rate_exp + 1)`, reporting the captured count and the threshold. Either lower `--max-clip-rate-exp` or increase `--weight-samples` × `--input-samples-per-weight`.
+Estimating the bottom percentile requires at least roughly `10 / 10^-N = 10^(N+1)` samples in the tail; with fewer the estimate is meaningless. The tool **raises `ValueError`** when `total_captured < 10^(max_clip_rate_exp + 1)`, reporting the captured count and the threshold. Either lower `[statistic].max_clip_rate_exp` or increase `weight_samples` × `input_samples_per_weight`.
 
 ## Example
 
 ```bash
 python -m neurox.tools.xbar_adc.statistic \
-    --xbar-config example/config/1t1r_28nm.toml \
-    --distribution chip_workload.toml \
-    --weight-samples 64 \
-    --input-samples-per-weight 4096 \
-    --batch-size 512 \
-    --max-clip-rate-exp 4 \
-    --seed 0 \
-    --plot-dir out/adc_input_dist \
-    --plot-bits 4
+    --config example/config/xbar_adc_statistic.toml \
+    --plot-dir log/xbar_adc/statistic/ \
+    --device cuda:0
 ```
 
 ## See also

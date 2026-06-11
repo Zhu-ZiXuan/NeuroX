@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 import torch
 
+from neurox.common import dataclass_from_file
 from neurox.tools.xbar_adc.statistic import (
     RangeCandidate,
     build_candidates,
@@ -18,11 +19,44 @@ from neurox.tools.xbar_adc.statistic import (
 from neurox.tools.xbar_adc.statistic import (
     main as statistic_main,
 )
+from neurox.xbar import Offset1T1RXbarConfig
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-XBAR_CONFIG = REPO_ROOT / "neurox" / "presets" / "xbar" / "1t1r_28nm.toml"
+XBAR_CONFIG = REPO_ROOT / "example" / "config" / "1t1r_28nm.toml"
 
 CPU = torch.device("cpu")
+
+
+@pytest.fixture(scope="module")
+def xbar_cfg() -> Offset1T1RXbarConfig:
+    if not XBAR_CONFIG.is_file():
+        pytest.skip(f"missing test fixture: {XBAR_CONFIG}")
+    return dataclass_from_file(Offset1T1RXbarConfig, XBAR_CONFIG, section="xbar")
+
+
+def _make_run_config(tmp_path: Path, *, distribution: str | None = None) -> Path:
+    """Write a minimal statistic-run TOML pointing at the chip preset."""
+    cfg_path = tmp_path / "run.toml"
+    dist_line = f'distribution = "{distribution}"\n' if distribution else ""
+    cfg_path.write_text(
+        f"""[xbar]
+_neurox_use = "{XBAR_CONFIG}:xbar"
+
+[workload]
+{dist_line}weight_samples = 8
+input_samples_per_weight = 8
+batch_size = 4
+seed = 0
+
+[statistic]
+max_clip_rate_exp = 2
+
+[plot]
+bits = 4
+bins_per_code = 4
+"""
+    )
+    return cfg_path
 
 
 # ---------------------------------------------------------------------------
@@ -50,7 +84,6 @@ class TestRangeCandidate:
         assert c.filename == "spotlight_exp3.png"
 
     def test_exp_12_no_float_drift(self) -> None:
-        # 10 nines after the dot — sole reason we moved to int-driven labels.
         c = RangeCandidate(clip_rate_exp=12, a__V=0.49, observed_clip_rate=0.0)
         assert c.label == "p99.9999999999"
         assert c.filename == "spotlight_exp12.png"
@@ -63,7 +96,6 @@ class TestRangeCandidate:
 
 class TestBuildCandidates:
     def test_uniform_observed_clip_rate(self) -> None:
-        # Uniform on [0, 1] → p99 ≈ 0.99, observed clip ≈ 1%.
         abs_diff = torch.linspace(0.0, 1.0, steps=100_000, dtype=torch.float64)
         cands = build_candidates(abs_diff, max_clip_rate_exp=3)
         labels = [c.label for c in cands]
@@ -97,12 +129,11 @@ class TestBuildCandidates:
 
 
 @pytest.fixture(scope="module")
-def smoke_stats():
-    """Tiny but valid sweep — enough samples for max_clip_rate_exp=2."""
+def smoke_stats(xbar_cfg):
     return collect_statistics(
-        config_path=XBAR_CONFIG,
+        xbar_config=xbar_cfg,
         distribution_path=None,
-        weight_samples=2,
+        weight_samples=8,
         input_samples_per_weight=8,
         batch_size=4,
         max_clip_rate_exp=2,
@@ -117,20 +148,19 @@ class TestCollectStatistics:
         assert s.v_pos__V.numel() == s.v_neg__V.numel() == s.v_diff__V.numel()
         assert s.v_pos__V.numel() > 0
         assert s.captured_count == s.v_pos__V.numel()
-        # max_abs + p99 = 2 entries.
         assert len(s.candidates) == 2
         assert s.candidates[0].label == "max_abs"
         assert s.candidates[0].clip_rate_exp is None
         assert s.candidates[1].label == "p99"
         assert s.candidates[1].clip_rate_exp == 2
         assert s.distribution_source == "uniform"
-        # 28nm preset: n_groups = col_num / ref_group_size = 64 / 16 = 4.
-        assert s.adc_instance_count == 4
+        # adc_instance_count = batch_size * n_groups = 4 * (col_num / ref_group_size) = 4 * 4 = 16.
+        assert s.adc_instance_count == 16
 
-    def test_rejects_bad_args(self) -> None:
+    def test_rejects_bad_args(self, xbar_cfg) -> None:
         with pytest.raises(ValueError, match=r"weight_samples"):
             collect_statistics(
-                config_path=XBAR_CONFIG,
+                xbar_config=xbar_cfg,
                 distribution_path=None,
                 weight_samples=0,
                 input_samples_per_weight=4,
@@ -140,14 +170,25 @@ class TestCollectStatistics:
                 device=CPU,
             )
 
-    def test_insufficient_samples_raises(self) -> None:
-        # 1 weight * 4 inputs * 64 col = 256 captured;
-        # max_clip_rate_exp=4 needs 10/1e-4 = 100_000.
+    def test_rejects_non_multiple_batch(self, xbar_cfg) -> None:
+        with pytest.raises(ValueError, match=r"multiple of batch_size"):
+            collect_statistics(
+                xbar_config=xbar_cfg,
+                distribution_path=None,
+                weight_samples=5,
+                input_samples_per_weight=4,
+                batch_size=4,
+                max_clip_rate_exp=2,
+                seed=0,
+                device=CPU,
+            )
+
+    def test_insufficient_samples_raises(self, xbar_cfg) -> None:
         with pytest.raises(ValueError, match=r"insufficient samples"):
             collect_statistics(
-                config_path=XBAR_CONFIG,
+                xbar_config=xbar_cfg,
                 distribution_path=None,
-                weight_samples=1,
+                weight_samples=4,
                 input_samples_per_weight=4,
                 batch_size=4,
                 max_clip_rate_exp=4,
@@ -184,41 +225,31 @@ class TestLogStatistics:
 
 
 class TestPlotStatistics:
-    def test_overview_only_when_no_bits(self, smoke_stats, tmp_path: Path) -> None:
+    def test_overview_plus_spotlights(self, smoke_stats, tmp_path: Path) -> None:
         out_dir = tmp_path / "out"
-        plot_statistics(smoke_stats, out_dir)
-        assert (out_dir / "overview.png").exists()
-        # No spotlight files when plot_bits is None.
-        assert not any(p.name.startswith("spotlight_") for p in out_dir.iterdir())
-
-    def test_overview_plus_spotlights_when_bits(self, smoke_stats, tmp_path: Path) -> None:
-        out_dir = tmp_path / "out"
-        plot_statistics(smoke_stats, out_dir, plot_bits=4)
+        plot_statistics(smoke_stats, out_dir, bits=4, bins_per_code=4)
         assert (out_dir / "overview.png").exists()
         for c in smoke_stats.candidates:
             assert (out_dir / c.filename).exists()
             assert (out_dir / c.filename).stat().st_size > 0
 
-    def test_spotlight_filenames_use_integer_exp(self, smoke_stats, tmp_path: Path) -> None:
-        out_dir = tmp_path / "out"
-        plot_statistics(smoke_stats, out_dir, plot_bits=2)
-        # smoke_stats uses max_clip_rate_exp=2 → ladder = [max_abs, p99(=exp2)].
-        assert (out_dir / "spotlight_max_abs.png").exists()
-        assert (out_dir / "spotlight_exp2.png").exists()
-
     def test_one_bit_works(self, smoke_stats, tmp_path: Path) -> None:
         out_dir = tmp_path / "out"
-        plot_statistics(smoke_stats, out_dir, plot_bits=1)
+        plot_statistics(smoke_stats, out_dir, bits=1, bins_per_code=1)
         assert (out_dir / "overview.png").exists()
         assert (out_dir / "spotlight_max_abs.png").exists()
 
     def test_zero_bits_rejected(self, smoke_stats, tmp_path: Path) -> None:
-        with pytest.raises(ValueError, match=r"plot_bits = 0 invalid"):
-            plot_statistics(smoke_stats, tmp_path / "out", plot_bits=0)
+        with pytest.raises(ValueError, match=r"bits = 0 invalid"):
+            plot_statistics(smoke_stats, tmp_path / "out", bits=0, bins_per_code=4)
 
     def test_thirteen_bits_rejected(self, smoke_stats, tmp_path: Path) -> None:
-        with pytest.raises(ValueError, match=r"plot_bits = 13 invalid"):
-            plot_statistics(smoke_stats, tmp_path / "out", plot_bits=13)
+        with pytest.raises(ValueError, match=r"bits = 13 invalid"):
+            plot_statistics(smoke_stats, tmp_path / "out", bits=13, bins_per_code=4)
+
+    def test_zero_bins_per_code_rejected(self, smoke_stats, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match=r"bins_per_code = 0 invalid"):
+            plot_statistics(smoke_stats, tmp_path / "out", bits=4, bins_per_code=0)
 
 
 # ---------------------------------------------------------------------------
@@ -226,92 +257,36 @@ class TestPlotStatistics:
 # ---------------------------------------------------------------------------
 
 
-_CLI_BASE = (
-    "--weight-samples",
-    "2",
-    "--input-samples-per-weight",
-    "8",
-    "--batch-size",
-    "4",
-    "--max-clip-rate-exp",
-    "2",
-    "--seed",
-    "0",
-    "--device",
-    "cpu",
-)
-
-
-def _cli_args(xbar_config: Path, *extra: str) -> list[str]:
-    return ["--xbar-config", str(xbar_config), *_CLI_BASE, *extra]
-
-
 class TestCLI:
-    def test_cli_smoke(self, caplog: pytest.LogCaptureFixture) -> None:
+    def test_cli_smoke(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+        cfg = _make_run_config(tmp_path)
         with caplog.at_level(logging.INFO, logger="neurox.tools.xbar_adc.statistic"):
-            assert statistic_main(_cli_args(XBAR_CONFIG)) == 0
+            assert statistic_main(["--config", str(cfg), "--device", "cpu"]) == 0
         assert "ADC input range candidates:" in caplog.text
         assert "resolved device: cpu" in caplog.text
 
     def test_cli_with_distribution(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
         dist_path = tmp_path / "dist.toml"
         dist_path.write_text(
-            "[w]\nvalues = [-1, 0, 1]\nprobs = [0.25, 0.5, 0.25]\n[x]\nvalues = [0, 1]\nprobs = [0.7, 0.3]\n"
+            "[w]\nvalues = [-1, 0, 1]\nprobs = [0.25, 0.5, 0.25]\n"
+            "[x]\nvalues = [0, 1]\nprobs = [0.7, 0.3]\n"
         )
+        cfg = _make_run_config(tmp_path, distribution=str(dist_path))
         with caplog.at_level(logging.INFO, logger="neurox.tools.xbar_adc.statistic"):
-            assert statistic_main(_cli_args(XBAR_CONFIG, "--distribution", str(dist_path))) == 0
+            assert statistic_main(["--config", str(cfg), "--device", "cpu"]) == 0
         assert str(dist_path) in caplog.text
 
-    def test_cli_plot_dir_alone_emits_overview(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
-        out_dir = tmp_path / "out"
-        with caplog.at_level(logging.INFO, logger="neurox.tools.xbar_adc.statistic"):
-            assert statistic_main(_cli_args(XBAR_CONFIG, "--plot-dir", str(out_dir))) == 0
-        assert (out_dir / "overview.png").exists()
-        assert not any(p.name.startswith("spotlight_") for p in out_dir.iterdir())
-        assert "wrote overview to" in caplog.text
-
-    def test_cli_plot_dir_plus_bits_emits_spotlights(
+    def test_cli_plot_dir_emits_overview_and_spotlights(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
         out_dir = tmp_path / "out"
+        cfg = _make_run_config(tmp_path)
         with caplog.at_level(logging.INFO, logger="neurox.tools.xbar_adc.statistic"):
             assert (
-                statistic_main(
-                    _cli_args(XBAR_CONFIG, "--plot-dir", str(out_dir), "--plot-bits", "4")
-                )
+                statistic_main(["--config", str(cfg), "--plot-dir", str(out_dir), "--device", "cpu"])
                 == 0
             )
         assert (out_dir / "overview.png").exists()
         assert (out_dir / "spotlight_max_abs.png").exists()
         assert (out_dir / "spotlight_exp2.png").exists()
         assert "wrote overview + 2 spotlights" in caplog.text
-
-    def test_cli_rejects_orphan_plot_bits(self) -> None:
-        with pytest.raises(SystemExit):
-            statistic_main(_cli_args(XBAR_CONFIG, "--plot-bits", "4"))
-
-    def test_cli_rejects_plot_bits_zero(self, tmp_path: Path) -> None:
-        out_dir = tmp_path / "out"
-        with pytest.raises(SystemExit):
-            statistic_main(_cli_args(XBAR_CONFIG, "--plot-dir", str(out_dir), "--plot-bits", "0"))
-
-    def test_cli_rejects_plot_bits_thirteen(self, tmp_path: Path) -> None:
-        out_dir = tmp_path / "out"
-        with pytest.raises(SystemExit):
-            statistic_main(_cli_args(XBAR_CONFIG, "--plot-dir", str(out_dir), "--plot-bits", "13"))
-
-    def test_cli_plot_bits_one_works(self, tmp_path: Path) -> None:
-        out_dir = tmp_path / "out"
-        assert (
-            statistic_main(_cli_args(XBAR_CONFIG, "--plot-dir", str(out_dir), "--plot-bits", "1"))
-            == 0
-        )
-        assert (out_dir / "spotlight_max_abs.png").exists()
-
-    def test_cli_plot_bits_twelve_works(self, tmp_path: Path) -> None:
-        out_dir = tmp_path / "out"
-        assert (
-            statistic_main(_cli_args(XBAR_CONFIG, "--plot-dir", str(out_dir), "--plot-bits", "12"))
-            == 0
-        )
-        assert (out_dir / "spotlight_max_abs.png").exists()

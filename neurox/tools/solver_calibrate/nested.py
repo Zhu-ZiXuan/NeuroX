@@ -18,15 +18,69 @@ from __future__ import annotations
 
 import argparse
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 
 import torch
 
-from neurox.xbar import Offset1T1RXbar
+from neurox.tools._config import (
+    add_standard_args,
+    load_tool_config,
+    resolve_relative_path,
+    setup_logging,
+)
+from neurox.xbar import Offset1T1RXbar, Offset1T1RXbarConfig
 from neurox.xbar._1t1r import NestedSolver1T1RConfig, Solver1T1R
 
 from ._common import aggregate_xbar_sweep, build_xbar_for_calibration
 from ._plateau import CandidateRow, WorkloadScale, pick_with_plateau_and_guard
+
+
+# ---------------------------------------------------------------------------
+# TOML config schema
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class _WorkloadCfg:
+    """``[workload]`` section: sampling sweep dimensions + optional distribution."""
+
+    inst_shape: list[int]
+    weight_samples: int
+    input_samples_per_weight: int
+    batch_w: int
+    distribution: Path | None = None
+
+
+@dataclass(frozen=True)
+class _SweepCfg:
+    """``[sweep]`` section: 2-axis candidate iteration counts + criteria."""
+
+    outer_candidates: list[int]
+    inner_candidates: list[int]
+    inner_ref: int
+    ratio_threshold: float
+    reltol: float
+    outer_margin: int
+    inner_margin: int
+
+
+@dataclass(frozen=True)
+class _RuntimeCfg:
+    """``[runtime]`` section: dtype + RNG seed."""
+
+    dtype: str
+    seed: int
+
+
+@dataclass(frozen=True)
+class SolverCalibrateNestedConfig:
+    """Top-level config for :mod:`neurox.tools.solver_calibrate.nested`."""
+
+    xbar: Offset1T1RXbarConfig
+    workload: _WorkloadCfg
+    sweep: _SweepCfg
+    runtime: _RuntimeCfg
 
 log = logging.getLogger(__name__)
 
@@ -135,114 +189,70 @@ def plot_stage(
     plt.close(fig)
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Calibrate NestedSolver1T1R (n_outer, n_inner) via step-ratio plateau."
     )
-    parser.add_argument("--xbar-config", type=Path, required=True)
-    parser.add_argument("--distribution", type=Path, default=None)
-    parser.add_argument("--inst-shape", type=int, nargs="*", default=[256])
-    parser.add_argument("--weight-samples", type=int, default=256)
-    parser.add_argument("--input-samples-per-weight", type=int, default=8)
-    parser.add_argument("--batch-w", type=int, default=256)
-    parser.add_argument(
-        "--outer-candidates",
-        type=int,
-        nargs="+",
-        default=list(range(1, 11)),
-        help="Continuous scan for n_outer (default: 1..10).",
-    )
-    parser.add_argument(
-        "--inner-candidates",
-        type=int,
-        nargs="+",
-        default=list(range(1, 6)),
-        help="Continuous scan for n_inner (default: 1..5).",
-    )
-    parser.add_argument(
-        "--inner-ref",
-        type=int,
-        default=5,
-        help="Generous n_inner used during the n_outer sweep (Stage A).",
-    )
-    parser.add_argument(
-        "--ratio-threshold",
-        type=float,
-        default=0.5,
-        help="Plateau criterion: smallest n* where step_{n*+1}/step_{n*} > THIS. "
-        "Smaller = more permissive (plateau declared earlier); larger = stricter.",
-    )
-    parser.add_argument(
-        "--reltol",
-        type=float,
-        default=1e-2,
-        help="Residual safety guard relative to workload-derived signal scale.",
-    )
-    parser.add_argument("--outer-margin", type=int, default=1)
-    parser.add_argument("--inner-margin", type=int, default=0)
-    parser.add_argument("--device", type=torch.device, default="cuda:0")
-    parser.add_argument("--dtype", type=str, choices=("float32", "float64"), default="float32")
-    parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--plot-dir", type=Path, default=None)
-    parser.add_argument("--log-level", type=str, default="INFO")
-    args = parser.parse_args()
+    add_standard_args(parser, plot_dir=True)
+    args = parser.parse_args(argv)
+    setup_logging(args.log_level)
 
-    logging.basicConfig(
-        level=getattr(logging, args.log_level.upper()),
-        format="%(asctime)s %(levelname)s %(name)s | %(message)s",
-    )
-    if not args.xbar_config.is_file():
-        raise SystemExit(f"--xbar-config: file not found: {args.xbar_config}")
+    cfg = load_tool_config(SolverCalibrateNestedConfig, args.config)
+    log.info("loaded config from %s", args.config)
 
-    inst_shape = tuple(args.inst_shape)
-    dtype = torch.float32 if args.dtype == "float32" else torch.float64
+    inst_shape = tuple(cfg.workload.inst_shape)
+    dtype = torch.float32 if cfg.runtime.dtype == "float32" else torch.float64
+    device = torch.device(args.device)
+    distribution_path = resolve_relative_path(cfg.workload.distribution, args.config)
 
     log.info("=" * 80)
     log.info("NestedSolver — step-ratio plateau calibration (2-axis staged)")
     log.info(
         "workload: inst=%s, %d weights × %d inputs (batch_w=%d); TIA n_newton read from preset",
         inst_shape,
-        args.weight_samples,
-        args.input_samples_per_weight,
-        args.batch_w,
+        cfg.workload.weight_samples,
+        cfg.workload.input_samples_per_weight,
+        cfg.workload.batch_w,
     )
     log.info(
         "criteria: ratio_threshold=%.3f, reltol=%.1e, outer_margin=%d, inner_margin=%d",
-        args.ratio_threshold,
-        args.reltol,
-        args.outer_margin,
-        args.inner_margin,
+        cfg.sweep.ratio_threshold,
+        cfg.sweep.reltol,
+        cfg.sweep.outer_margin,
+        cfg.sweep.inner_margin,
     )
     log.info("=" * 80)
 
-    # Build host xbar; solvers swap per candidate.
+    # Build host xbar; solvers swap per candidate. The tool-run TOML's
+    # ``[xbar]`` section uses ``_neurox_use`` so the chip xbar resolves
+    # transparently through ``dataclass_from_file``.
     stub = NestedSolver1T1RConfig(n_outer=1, n_inner=1)
     xbar = build_xbar_for_calibration(
-        args.xbar_config,
-        device=args.device,
+        args.config,
+        device=device,
         inst_shape=inst_shape,
         dtype=dtype,
         solver_config=stub,
     )
 
     # --- Stage A: sweep n_outer at n_inner = inner_ref ---
-    log.info("Stage A: sweep n_outer with n_inner pinned at %d", args.inner_ref)
+    log.info("Stage A: sweep n_outer with n_inner pinned at %d", cfg.sweep.inner_ref)
     log.info("-" * 80)
     outer_candidates = _build_candidates(
         xbar,
         axis="n_outer",
-        candidates=args.outer_candidates,
-        other_value=args.inner_ref,
+        candidates=cfg.sweep.outer_candidates,
+        other_value=cfg.sweep.inner_ref,
     )
     outer_rows, outer_scale = aggregate_xbar_sweep(
         xbar,
         candidate_solvers=outer_candidates,
-        n_weight=args.weight_samples,
-        n_input_per_weight=args.input_samples_per_weight,
-        batch_w=args.batch_w,
-        distribution_path=args.distribution,
-        device=args.device,
-        seed=args.seed,
+        n_weight=cfg.workload.weight_samples,
+        n_input_per_weight=cfg.workload.input_samples_per_weight,
+        batch_w=cfg.workload.batch_w,
+        distribution_path=distribution_path,
+        device=device,
+        seed=cfg.runtime.seed,
     )
     log.info(
         "workload scale: max|I_cell|=%.3e μA, max|V_BL_node|=%.3e V",
@@ -256,12 +266,12 @@ def main() -> None:
     outer_pick = pick_with_plateau_and_guard(
         outer_rows,
         outer_scale,
-        ratio_threshold=args.ratio_threshold,
-        reltol=args.reltol,
+        ratio_threshold=cfg.sweep.ratio_threshold,
+        reltol=cfg.sweep.reltol,
     )
     if outer_pick.iter_count is None:
         log.error("Stage A failed: %s", outer_pick.reason)
-        raise SystemExit(2)
+        return 2
     pick_outer = outer_pick.iter_count
     log.info("Stage A pick: n_outer = %d  (%s)", pick_outer, outer_pick.reason)
     log.info("")
@@ -271,7 +281,7 @@ def main() -> None:
             outer_scale,
             axis_label="n_outer",
             out_path=args.plot_dir / "nested_stageA_outer.png",
-            reltol=args.reltol,
+            reltol=cfg.sweep.reltol,
         )
 
     # --- Stage B: sweep n_inner at n_outer = pick_outer ---
@@ -281,18 +291,18 @@ def main() -> None:
     inner_candidates = _build_candidates(
         xbar,
         axis="n_inner",
-        candidates=args.inner_candidates,
+        candidates=cfg.sweep.inner_candidates,
         other_value=pick_outer,
     )
     inner_rows, inner_scale = aggregate_xbar_sweep(
         xbar,
         candidate_solvers=inner_candidates,
-        n_weight=args.weight_samples,
-        n_input_per_weight=args.input_samples_per_weight,
-        batch_w=args.batch_w,
-        distribution_path=args.distribution,
-        device=args.device,
-        seed=args.seed,
+        n_weight=cfg.workload.weight_samples,
+        n_input_per_weight=cfg.workload.input_samples_per_weight,
+        batch_w=cfg.workload.batch_w,
+        distribution_path=distribution_path,
+        device=device,
+        seed=cfg.runtime.seed,
     )
     log.info("")
     for r in inner_rows:
@@ -301,32 +311,32 @@ def main() -> None:
     inner_pick = pick_with_plateau_and_guard(
         inner_rows,
         inner_scale,
-        ratio_threshold=args.ratio_threshold,
-        reltol=args.reltol,
+        ratio_threshold=cfg.sweep.ratio_threshold,
+        reltol=cfg.sweep.reltol,
     )
     if inner_pick.iter_count is None:
         # n_inner can plausibly plateau at the smallest candidate — every iter
         # changes u so geometrically that the sweep's 2-point ratio test
-        # cannot resolve the descent. Fall back to the smallest candidate
-        # but re-verify the residual guard AT THAT candidate (Stage A's guard
+        # cannot resolve the descent. Fall back to the smallest candidate but
+        # re-verify the residual guard AT THAT candidate (Stage A's guard
         # was at n_inner_ref, which is generous; the smallest n_inner might
         # not meet residuals on its own).
         from ._plateau import check_residual_relative_guard
 
-        fallback = args.inner_candidates[0]
+        fallback = cfg.sweep.inner_candidates[0]
         fallback_row = next(r for r in inner_rows if r.iter_count == fallback)
-        passed, ratios = check_residual_relative_guard(fallback_row, inner_scale, reltol=args.reltol)
+        passed, ratios = check_residual_relative_guard(fallback_row, inner_scale, reltol=cfg.sweep.reltol)
         if not passed:
             worst = max(ratios.items(), key=lambda kv: kv[1])
             log.error(
                 "Stage B plateau not detected AND fallback n_inner=%d fails residual guard: "
-                "%s ratio=%.3e >= reltol=%.1e. Widen --inner-candidates or raise --reltol.",
+                "%s ratio=%.3e >= reltol=%.1e. Widen [sweep].inner_candidates or raise [sweep].reltol.",
                 fallback,
                 worst[0],
                 worst[1],
-                args.reltol,
+                cfg.sweep.reltol,
             )
-            raise SystemExit(2)
+            return 2
         log.warning(
             "Stage B plateau not detected — falling back to smallest candidate n_inner=%d "
             "(residual guard re-verified there). Reason: %s",
@@ -344,17 +354,17 @@ def main() -> None:
             inner_scale,
             axis_label="n_inner",
             out_path=args.plot_dir / "nested_stageB_inner.png",
-            reltol=args.reltol,
+            reltol=cfg.sweep.reltol,
         )
 
-    final_outer = pick_outer + args.outer_margin
-    final_inner = pick_inner + args.inner_margin
+    final_outer = pick_outer + cfg.sweep.outer_margin
+    final_inner = pick_inner + cfg.sweep.inner_margin
     log.info("=" * 80)
     log.info("Picked pair: (n_outer=%d, n_inner=%d)", pick_outer, pick_inner)
     log.info("Recommended with margins: (n_outer=%d, n_inner=%d)", final_outer, final_inner)
     log.info("Residual guard ratios at outer pick:")
     for k, v in outer_pick.residual_guard_ratios.items():
-        log.info("    %-12s  %.3e  (reltol = %.1e)", k, v, args.reltol)
+        log.info("    %-12s  %.3e  (reltol = %.1e)", k, v, cfg.sweep.reltol)
     log.info("")
     log.info("TOML fragment for chip preset:")
     log.info("    [xbar.core_config.solver_config]")
@@ -362,7 +372,8 @@ def main() -> None:
     log.info("    n_outer = %d", final_outer)
     log.info("    n_inner = %d", final_inner)
     log.info("=" * 80)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

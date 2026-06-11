@@ -46,7 +46,6 @@ demo = [
 # ``neurox.tools`` and require explicit CLI arguments (no defaults).
 [project.scripts]
 neurox-calculate-1t1r-states     = "neurox.tools.calculate_1t1r_states:main"
-neurox-analyze-xbar-error-1t1r   = "neurox.tools.analyze_xbar_error_1t1r:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

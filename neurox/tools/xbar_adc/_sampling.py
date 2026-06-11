@@ -247,31 +247,25 @@ def sample_x_batches(
         remaining -= cur
 
 
-def build_offset_1t1r_xbar_all_off(
-    config_path: Path,
+def build_offset_1t1r_xbar_all_off_from_config(
+    xbar_config: Offset1T1RXbarConfig,
     *,
     device: torch.device,
     dtype: torch.dtype = torch.float64,
     inst_shape: tuple[int, ...] = (),
     batch_chunk_size: int = 0,
 ) -> Offset1T1RXbar:
-    """Build a fully nonideality-free :class:`Offset1T1RXbar` from a TOML.
+    """Build a fully nonideality-free :class:`Offset1T1RXbar` from a dataclass.
 
-    Every nonideality flag in the policy tree is set to ``False``,
-    giving a deterministic nominal physics path appropriate for ADC
-    range exploration and ``rescale_factor`` calibration.
-
-    Args:
-        config_path: Path to a chip TOML carrying a ``[xbar]`` section
-            (``_neurox_type = "Offset1T1RXbarConfig"``).
-        device: Target torch device for buffer placement.
-        dtype: Internal float dtype.
+    Same semantics as :func:`build_offset_1t1r_xbar_all_off` but takes an
+    already-loaded :class:`Offset1T1RXbarConfig`; use this when the xbar
+    config is nested inside a larger tool-run TOML pulled in via
+    ``_neurox_use``.
 
     Raises:
         TypeError: When the readout or ADC config is not currently
             supported by the ``xbar_adc`` tool family.
     """
-    xbar_config = dataclass_from_file(Offset1T1RXbarConfig, config_path, section="xbar")
     readout_config = xbar_config.readout_config
     if not isinstance(readout_config, OffsetSwitchCapMuxAdcReadOutConfig):
         raise TypeError(
@@ -312,6 +306,36 @@ def build_offset_1t1r_xbar_all_off(
     xbar.eval()
     xbar.fabricate()
     return xbar
+
+
+def build_offset_1t1r_xbar_all_off(
+    config_path: Path,
+    *,
+    device: torch.device,
+    dtype: torch.dtype = torch.float64,
+    inst_shape: tuple[int, ...] = (),
+    batch_chunk_size: int = 0,
+) -> Offset1T1RXbar:
+    """Build a fully nonideality-free :class:`Offset1T1RXbar` from a TOML.
+
+    Every nonideality flag in the policy tree is set to ``False``, giving
+    a deterministic nominal physics path appropriate for ADC range
+    exploration and ``rescale_factor`` calibration.
+
+    Args:
+        config_path: Path to a chip TOML carrying a ``[xbar]`` section
+            (``_neurox_type = "Offset1T1RXbarConfig"``).
+        device: Target torch device for buffer placement.
+        dtype: Internal float dtype.
+    """
+    xbar_config = dataclass_from_file(Offset1T1RXbarConfig, config_path, section="xbar")
+    return build_offset_1t1r_xbar_all_off_from_config(
+        xbar_config,
+        device=device,
+        dtype=dtype,
+        inst_shape=inst_shape,
+        batch_chunk_size=batch_chunk_size,
+    )
 
 
 def _all_off_adc_policy(adc_config: object) -> ADCPolicy:

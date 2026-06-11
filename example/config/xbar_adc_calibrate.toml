@@ -1,0 +1,25 @@
+# Fit the per-mode rescale_factor mapping physical ADC codes back to ideal VMM.
+#
+# CLI: python -m neurox.tools.xbar_adc.calibrate \
+#          --config example/config/xbar_adc_calibrate.toml \
+#          --plot log/xbar_adc/calibrate/mode0.png \
+#          --device cuda:0
+
+[xbar]
+_neurox_use = "1t1r_28nm.toml:xbar"
+
+
+# Sampling sweep — keep weight_samples a multiple of batch_size.
+[workload]
+# distribution = "synthetic.toml"   # optional, relative to this TOML
+weight_samples = 128
+input_samples_per_weight = 16
+batch_size = 128
+seed = 0
+
+
+# Which ADC operating-point (0 = mode 0 = v_refs[0], etc.) to calibrate.
+# To calibrate all 5 modes, swap this index across 5 runs (or change to 1,
+# 2, 3, 4 in successive invocations using the same chip preset).
+[adc]
+mode = 0

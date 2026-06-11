@@ -1,5 +1,10 @@
 """CLI: probe the ADC analog-input distribution and recommend input-range candidates.
 
+Config-driven. The TOML pulls in a chip xbar (``[xbar]`` section with
+``_neurox_use``) plus per-run workload / statistic / plot settings.
+Histogram bin widths are auto-derived from the ADC code grid so the
+overlay never goes coarser than the code spacing.
+
 See also:
     docs/dev/modules/tools/xbar_adc/statistic.md
 """
@@ -16,16 +21,69 @@ import torch
 from torch import Tensor
 
 from neurox.analog.adc import AdcOperationPoint
+from neurox.common import dataclass_from_file
 from neurox.tools.logging import config_tool_logging
 from neurox.tools.xbar_adc._probe import install_probe_adc
 from neurox.tools.xbar_adc._sampling import (
-    build_offset_1t1r_xbar_all_off,
+    build_offset_1t1r_xbar_all_off_from_config,
     load_distribution,
     make_generator,
     resolve_device,
     sample_w,
     sample_x_batches,
 )
+from neurox.xbar import Offset1T1RXbarConfig
+
+
+# ---------------------------------------------------------------------------
+# TOML config schema
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class _WorkloadCfg:
+    """``[workload]`` section: sampling sweep dimensions + RNG."""
+
+    weight_samples: int
+    input_samples_per_weight: int
+    batch_size: int
+    seed: int
+    distribution: Path | None = None
+
+
+@dataclass(frozen=True)
+class _StatisticCfg:
+    """``[statistic]`` section: candidate-ladder depth."""
+
+    max_clip_rate_exp: int
+
+
+@dataclass(frozen=True)
+class _PlotCfg:
+    """``[plot]`` section: ADC code grid binning controls.
+
+    ``bits`` is the ADC width whose code grid drives the spotlight overlay.
+    ``bins_per_code`` sub-divides the overview bin width — bins_per_code = 1
+    matches one code per bin; larger oversample shows sub-code structure.
+    """
+
+    bits: int
+    bins_per_code: int
+
+
+@dataclass(frozen=True)
+class XbarAdcStatisticConfig:
+    """Top-level config for :mod:`neurox.tools.xbar_adc.statistic`.
+
+    The ``xbar`` field is typically populated from a separate chip preset
+    via ``_neurox_use`` so the run config and circuit config evolve
+    independently.
+    """
+
+    xbar: Offset1T1RXbarConfig
+    workload: _WorkloadCfg
+    statistic: _StatisticCfg
+    plot: _PlotCfg
 
 logger = logging.getLogger(__name__)
 
@@ -184,7 +242,7 @@ def build_candidates(
 
 def collect_statistics(
     *,
-    config_path: Path,
+    xbar_config: Offset1T1RXbarConfig,
     distribution_path: Path | None,
     weight_samples: int,
     input_samples_per_weight: int,
@@ -196,7 +254,7 @@ def collect_statistics(
     """Run the full sampling sweep and assemble a :class:`Statistics`.
 
     Args:
-        config_path: chip xbar TOML.
+        xbar_config: already-loaded chip xbar config.
         distribution_path: distribution TOML; ``None`` means uniform.
         weight_samples: number of independent ``w`` programs.
         input_samples_per_weight: per-``w`` count of input vectors.
@@ -227,7 +285,7 @@ def collect_statistics(
     # B parallel weights inside a single VMM call. The two axes are orthogonal:
     # raising batch_size doesn't shrink K, it just packs more independent w
     # programmings per VMM. Total samples = weight_samples · K · n_data_cols.
-    xbar = build_offset_1t1r_xbar_all_off(config_path, device=device, inst_shape=(batch_size,))
+    xbar = build_offset_1t1r_xbar_all_off_from_config(xbar_config, device=device, inst_shape=(batch_size,))
     distribution = load_distribution(distribution_path, xbar)
     generator = make_generator(seed, device)
     w_groups = weight_samples // batch_size
@@ -345,37 +403,48 @@ def plot_statistics(
     stats: Statistics,
     output_dir: Path,
     *,
-    plot_bits: int | None = None,
+    bits: int,
+    bins_per_code: int,
 ) -> None:
-    """Render ``overview.png`` and (optionally) per-candidate spotlight PNGs.
+    """Render ``overview.png`` and per-candidate spotlight PNGs.
 
-    ``overview.png`` is always written: a log-y histogram of ``v_diff`` with
-    all candidates' ``±A`` overlaid, alongside the complementary-CDF
-    "clip rate vs A" view.
+    Histogram bin widths are derived from the ADC code grid so the bins
+    never aliases coarser than the ADC's LSB:
 
-    When ``plot_bits`` is supplied, one additional spotlight PNG is
-    written per candidate (named via :attr:`RangeCandidate.filename`),
-    showing the candidate's ``±A`` plus the ``2**plot_bits - 1`` interior
-    code-boundary lines spanning that range.
+    * ``overview.png`` uses bin_width = LSB(max_abs candidate) / bins_per_code.
+      Sub-code resolution makes the full-range hist smooth while still
+      anchored to a physical reference.
+    * ``spotlight_*.png`` uses bin_width = LSB(this candidate) so each bin
+      represents exactly one ADC code. Bin edges line up with the code
+      boundaries drawn on the same plot.
+
+    Both views also extend the x-axis by 10 % beyond ``±A`` (same bin
+    width) so samples that would be clipped are visible.
 
     Args:
         stats: Result of :func:`collect_statistics`.
         output_dir: Directory to write PNGs into; created if missing.
-        plot_bits: ADC bit width for the spotlight code-grid overlay.
-            ``None`` skips spotlights and writes overview only.
+        bits: ADC bit width for the code-grid overlay.
+        bins_per_code: Overview hist oversample factor; ``1`` uses one
+            bin per ADC code, larger reveals sub-code structure. Spotlight
+            plots always use ``1`` bin per code.
 
     Raises:
         RuntimeError: When matplotlib is not installed.
-        ValueError: When ``plot_bits`` is outside ``[1, 12]``.
+        ValueError: When ``bits`` is outside ``[1, 12]`` or
+            ``bins_per_code`` < 1.
     """
-    if plot_bits is not None and not (_PLOT_BITS_MIN <= plot_bits <= _PLOT_BITS_MAX):
-        raise ValueError(f"plot_bits = {plot_bits} invalid: must be in [{_PLOT_BITS_MIN}, {_PLOT_BITS_MAX}]")
+    if not (_PLOT_BITS_MIN <= bits <= _PLOT_BITS_MAX):
+        raise ValueError(f"bits = {bits} invalid: must be in [{_PLOT_BITS_MIN}, {_PLOT_BITS_MAX}]")
+    if bins_per_code < 1:
+        raise ValueError(f"bins_per_code = {bins_per_code} invalid: must be >= 1")
 
     try:
         import matplotlib as mpl
 
         mpl.use("Agg")
         import matplotlib.pyplot as plt
+        import numpy as np
     except ImportError as exc:
         raise RuntimeError("matplotlib is required for --plot-dir but is not installed") from exc
 
@@ -384,18 +453,31 @@ def plot_statistics(
     v_diff = stats.v_diff__V.cpu().numpy()
     abs_diff = stats.v_diff__V.abs().cpu().numpy()
     colors = plt.get_cmap("tab10")
+    n_codes = 1 << bits
 
     # ----- overview.png: hist + CCDF master view -----
+    # Anchor the overview bin width to the LSB of the widest candidate
+    # (max_abs), then sub-divide by bins_per_code for smooth detail. This
+    # guarantees each ADC code spans at least ``bins_per_code`` hist bins.
+    max_abs_a = max(c.a__V for c in stats.candidates)
+    overview_lsb = 2.0 * max_abs_a / n_codes
+    overview_bin_width = overview_lsb / bins_per_code
+    overview_xlim = 1.1 * max_abs_a
+    overview_n_bins = max(2, int(math.ceil(2.0 * overview_xlim / overview_bin_width)))
+    overview_edges = np.linspace(-overview_xlim, overview_xlim, overview_n_bins + 1)
     fig, (ax_hist, ax_ccdf) = plt.subplots(1, 2, figsize=(12.0, 4.0))
 
-    ax_hist.hist(v_diff, bins=128, log=True, alpha=0.7)
+    ax_hist.hist(v_diff, bins=overview_edges, log=True, alpha=0.7)
     for i, c in enumerate(stats.candidates):
         color = colors(i % 10)
         ax_hist.axvline(c.a__V, color=color, linestyle="--", alpha=0.8, label=c.label)
         ax_hist.axvline(-c.a__V, color=color, linestyle="--", alpha=0.8)
     ax_hist.set_xlabel("v_diff [V]")
     ax_hist.set_ylabel("count (log)")
-    ax_hist.set_title("ADC differential input distribution")
+    ax_hist.set_title(
+        f"ADC differential input distribution "
+        f"(bin = LSB_max_abs / {bins_per_code} = {overview_bin_width * 1e3:.3g} mV)"
+    )
     ax_hist.legend(fontsize=8, loc="upper right")
 
     sorted_abs = sorted(abs_diff)
@@ -415,38 +497,40 @@ def plot_statistics(
     fig.savefig(output_dir / "overview.png", dpi=120, bbox_inches="tight")
     plt.close(fig)
 
-    if plot_bits is None:
-        return
-
     # ----- spotlight_*.png: one per candidate, code grid overlaid -----
-    n_codes = 1 << plot_bits
-    spotlight_width = max(12.0, 6.0 + 1.2 * plot_bits)
+    spotlight_width = max(12.0, 6.0 + 1.2 * bits)
 
     for i, c in enumerate(stats.candidates):
         color = colors(i % 10)
         a = c.a__V
         lsb = 2.0 * a / n_codes
 
+        # Bin width = LSB so every bin spans one ADC code. Extend by ~10 %
+        # on each side at the same width so clipped samples remain visible.
+        n_ext = max(1, int(math.ceil(0.1 * a / lsb)))
+        x_lo = -a - n_ext * lsb
+        x_hi = +a + n_ext * lsb
+        spotlight_edges = np.linspace(x_lo, x_hi, n_codes + 2 * n_ext + 1)
+
         fig, ax = plt.subplots(figsize=(spotlight_width, 4.0))
-        ax.hist(v_diff, bins=256, log=True, alpha=0.3, color="gray")
+        ax.hist(v_diff, bins=spotlight_edges, log=True, alpha=0.6, color="C0")
 
         # Interior code-boundary lines (light, same candidate color).
         # Drawn first so the bold +/-A lines layer on top.
-        step = 2.0 * a / n_codes
         for k in range(1, n_codes):
-            ax.axvline(-a + k * step, color=color, linewidth=0.5, alpha=0.4)
+            ax.axvline(-a + k * lsb, color=color, linewidth=0.5, alpha=0.4)
 
         # Bold +/-A boundary lines.
         ax.axvline(a, color=color, linewidth=1.5, alpha=1.0)
         ax.axvline(-a, color=color, linewidth=1.5, alpha=1.0)
 
-        ax.set_xlim(-1.1 * a, 1.1 * a)
+        ax.set_xlim(x_lo, x_hi)
         ax.set_xlabel("v_diff [V]")
         ax.set_ylabel("count (log)")
         ax.set_title(
             f"{c.label}: A=+/-{a:.4g}V "
             f"| observed_clip={c.observed_clip_rate * 100.0:.4f}% "
-            f"| plot_bits={plot_bits} "
+            f"| bits={bits} "
             f"| n_codes={n_codes} "
             f"| LSB={lsb:.4g}V"
         )
@@ -465,31 +549,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Probe the ADC analog-input distribution of an xbar and recommend input-range candidates.",
     )
-    parser.add_argument("--xbar-config", type=Path, required=True, help="Chip xbar TOML path")
-    parser.add_argument(
-        "--distribution",
-        type=Path,
-        default=None,
-        help="Optional synthetic-workload distribution TOML; omitted → uniform",
-    )
-    parser.add_argument("--weight-samples", type=int, default=32, help="Independent programmed-state samples")
-    parser.add_argument(
-        "--input-samples-per-weight",
-        type=int,
-        default=1024,
-        help="Per-weight primitive input-vector count",
-    )
-    parser.add_argument("--batch-size", type=int, default=256, help="Per-VMM input batch cap")
-    parser.add_argument(
-        "--max-clip-rate-exp",
-        type=int,
-        default=3,
-        help=(
-            "Max acceptable clip rate is 10**(-N), integer N >= 2. "
-            "Tool emits ladder [max_abs, p99, p99.9, ..., p(1-10**-N)]."
-        ),
-    )
-    parser.add_argument("--seed", type=int, default=None, help="Optional deterministic seed")
+    parser.add_argument("--config", type=Path, required=True, help="Statistic-run TOML config path")
     parser.add_argument(
         "--device",
         type=str,
@@ -500,17 +560,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--plot-dir",
         type=Path,
         default=None,
-        help="Optional directory to write overview.png and spotlight_*.png into",
-    )
-    parser.add_argument(
-        "--plot-bits",
-        type=int,
-        default=None,
-        help=(
-            f"ADC bit width for the spotlight code-grid overlay. Each candidate gets "
-            f"one PNG with 2**N - 1 interior code boundaries inside its +/-A range. "
-            f"Integer N in [{_PLOT_BITS_MIN}, {_PLOT_BITS_MAX}]. Requires --plot-dir."
-        ),
+        help="Optional directory to write overview.png + spotlight_*.png into",
     )
     parser.add_argument("--log-level", type=str, default="INFO", help="Logger level (e.g. DEBUG, INFO)")
     return parser
@@ -522,37 +572,41 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     config_tool_logging(level=getattr(logging, args.log_level.upper()))
 
-    if args.plot_bits is not None:
-        if not (_PLOT_BITS_MIN <= args.plot_bits <= _PLOT_BITS_MAX):
-            parser.error(f"--plot-bits = {args.plot_bits} invalid: must be in [{_PLOT_BITS_MIN}, {_PLOT_BITS_MAX}]")
-        if args.plot_dir is None:
-            parser.error("--plot-bits requires --plot-dir (spotlights are written into that directory)")
+    cfg = dataclass_from_file(XbarAdcStatisticConfig, args.config)
+    logger.info("loaded config from %s", args.config)
+
+    # Distribution path in TOML is relative to the TOML's directory.
+    distribution_path: Path | None = None
+    if cfg.workload.distribution is not None:
+        candidate = Path(cfg.workload.distribution)
+        if not candidate.is_absolute():
+            candidate = args.config.parent / candidate
+        distribution_path = candidate
 
     device = resolve_device(args.device)
     logger.info("resolved device: %s", device)
 
     stats = collect_statistics(
-        config_path=args.xbar_config,
-        distribution_path=args.distribution,
-        weight_samples=args.weight_samples,
-        input_samples_per_weight=args.input_samples_per_weight,
-        batch_size=args.batch_size,
-        max_clip_rate_exp=args.max_clip_rate_exp,
-        seed=args.seed,
+        xbar_config=cfg.xbar,
+        distribution_path=distribution_path,
+        weight_samples=cfg.workload.weight_samples,
+        input_samples_per_weight=cfg.workload.input_samples_per_weight,
+        batch_size=cfg.workload.batch_size,
+        max_clip_rate_exp=cfg.statistic.max_clip_rate_exp,
+        seed=cfg.workload.seed,
         device=device,
     )
     log_statistics(stats)
 
     if args.plot_dir is not None:
-        plot_statistics(stats, args.plot_dir, plot_bits=args.plot_bits)
-        if args.plot_bits is None:
-            logger.info("wrote overview to %s", args.plot_dir)
-        else:
-            logger.info(
-                "wrote overview + %d spotlights to %s",
-                len(stats.candidates),
-                args.plot_dir,
-            )
+        plot_statistics(stats, args.plot_dir, bits=cfg.plot.bits, bins_per_code=cfg.plot.bins_per_code)
+        logger.info(
+            "wrote overview + %d spotlights to %s (bits=%d, bins_per_code=%d)",
+            len(stats.candidates),
+            args.plot_dir,
+            cfg.plot.bits,
+            cfg.plot.bins_per_code,
+        )
 
     return 0
 

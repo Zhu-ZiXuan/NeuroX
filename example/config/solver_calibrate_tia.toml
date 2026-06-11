@@ -1,0 +1,32 @@
+# Calibrate OpAmpTIA's inner Newton iteration count via step-ratio plateau.
+#
+# CLI: python -m neurox.tools.solver_calibrate.tia \
+#          --config example/config/solver_calibrate_tia.toml \
+#          --plot-dir log/solver_calibrate/tia/ \
+#          --device cuda:0
+
+[xbar]
+_neurox_use = "1t1r_28nm.toml:xbar"
+
+
+# Gaussian port-current model. mean / sigma come from the workload distribution
+# (e.g. ternary LeNet through 64 rows = N(170.26, 29.19 μA)).
+[workload]
+mean__uA = 170.26
+sigma__uA = 29.19
+n_sigma_span = 4.0
+n_samples = 4096
+
+
+# Candidate iteration counts to sweep, plus the plateau detector criteria.
+# margin adds this many iterations to the picked count for safety.
+[sweep]
+candidates = [1, 2, 3, 4, 5, 6, 7, 8, 10, 12]
+ratio_threshold = 0.5
+reltol = 1e-2
+margin = 1
+
+
+[runtime]
+dtype = "float32"
+seed = 0

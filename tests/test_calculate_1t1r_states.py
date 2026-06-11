@@ -42,23 +42,41 @@ def _kwargs(**overrides: Any) -> dict[str, Any]:
     return base
 
 
-def _cli_args(**overrides: str) -> list[str]:
-    base: dict[str, str] = {
-        "--rram-config": str(_PRESET_DIR / "rram.toml"),
-        "--rram-section": "default",
-        "--nmos-config": str(_PRESET_DIR / "mos.toml"),
-        "--nmos-section": "nmos_28_rvt",
-        "--v-wl-V": "1.2",
-        "--v-bl-V": "0.2",
-        "--v-sl-V": "0.0",
-        "--g-max-uS": "100.0",
-        "--n-states": "4",
-        "--access-nmos-W-um": "0.150",
-        "--access-nmos-L-um": "0.028",
-        "--temperature-K": "300.0",
-    }
-    base.update(overrides)
-    return [token for flag, value in base.items() for token in (flag, value)]
+def _write_config(
+    tmp_path: Path,
+    *,
+    v_bl__V: float = 0.2,
+    v_wl__V: float = 1.2,
+    v_sl__V: float = 0.0,
+    n_states: int = 4,
+    g_max__uS: float = 100.0,
+    access_nmos_W__um: float = 0.150,
+    access_nmos_L__um: float = 0.028,
+    temperature__K: float = 300.0,
+) -> Path:
+    """Write a calculate_1t1r_states run TOML into ``tmp_path``."""
+    cfg_path = tmp_path / "run.toml"
+    cfg_path.write_text(
+        f"""[rram]
+_neurox_use_preset = "process/rram:default"
+
+[nmos]
+_neurox_use_preset = "process/mos:nmos_28_rvt"
+
+[bias]
+v_wl__V = {v_wl__V}
+v_bl__V = {v_bl__V}
+v_sl__V = {v_sl__V}
+temperature__K = {temperature__K}
+
+[design]
+g_max__uS = {g_max__uS}
+n_states = {n_states}
+access_nmos_W__um = {access_nmos_W__um}
+access_nmos_L__um = {access_nmos_L__um}
+"""
+    )
+    return cfg_path
 
 
 def test_linear_rram_monotonic_state_map() -> None:
@@ -93,26 +111,23 @@ def test_n_states_two_short_circuit() -> None:
     assert result.state_to_g_map__uS == [rram_config.g_min__uS, 100.0]
 
 
-def test_cli_smoke(caplog: pytest.LogCaptureFixture) -> None:
+def test_cli_smoke(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
     """Invoke main() and inspect logger output for the paste-ready lines."""
     caplog.set_level(logging.INFO, logger="neurox.tools.calculate_1t1r_states")
-    main(_cli_args())
+    cfg = _write_config(tmp_path)
+    main(["--config", str(cfg)])
     assert "rram_g_max__uS = 100.0" in caplog.text
     assert "state_to_g_map__uS = [" in caplog.text
 
 
-def test_cli_rejects_v_bl_le_v_sl() -> None:
-    """V_BL <= V_SL fast-fails at CLI parse."""
+def test_cli_rejects_v_bl_le_v_sl(tmp_path: Path) -> None:
+    """V_BL <= V_SL fast-fails after config load."""
+    cfg = _write_config(tmp_path, v_bl__V=0.0)
     with pytest.raises(SystemExit):
-        main(_cli_args(**{"--v-bl-V": "0.0"}))
+        main(["--config", str(cfg)])
 
 
-def test_cli_requires_temperature() -> None:
-    """--temperature-K is required (no default)."""
-    args = _cli_args()
-    # Drop the --temperature-K flag and its value to verify argparse rejects the call.
-    idx = args.index("--temperature-K")
-    args.pop(idx)  # flag
-    args.pop(idx)  # value
+def test_cli_requires_config() -> None:
+    """--config is required (no default)."""
     with pytest.raises(SystemExit):
-        main(args)
+        main([])

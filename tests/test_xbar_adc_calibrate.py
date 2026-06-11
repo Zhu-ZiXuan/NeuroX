@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 import torch
 
+from neurox.common import dataclass_from_file
 from neurox.tools.xbar_adc.calibrate import (
     collect_calibration,
     derive_rescale_for_bits,
@@ -19,43 +20,79 @@ from neurox.tools.xbar_adc.calibrate import (
 from neurox.tools.xbar_adc.calibrate import (
     main as calibrate_main,
 )
+from neurox.xbar import Offset1T1RXbarConfig
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-XBAR_CONFIG = REPO_ROOT / "neurox" / "presets" / "xbar" / "1t1r_28nm.toml"
+XBAR_CONFIG = REPO_ROOT / "example" / "config" / "1t1r_28nm.toml"
 
 CPU = torch.device("cpu")
 
 
+@pytest.fixture(scope="module")
+def xbar_cfg() -> Offset1T1RXbarConfig:
+    if not XBAR_CONFIG.is_file():
+        pytest.skip(f"missing test fixture: {XBAR_CONFIG}")
+    return dataclass_from_file(Offset1T1RXbarConfig, XBAR_CONFIG, section="xbar")
+
+
+def _make_run_config(tmp_path: Path, *, adc_mode: int = 0) -> Path:
+    """Write a minimal calibrate-run TOML pointing at the chip preset."""
+    cfg_path = tmp_path / "run.toml"
+    cfg_path.write_text(
+        f"""[xbar]
+_neurox_use = "{XBAR_CONFIG}:xbar"
+
+[workload]
+weight_samples = 4
+input_samples_per_weight = 8
+batch_size = 4
+seed = 0
+
+[adc]
+mode = {adc_mode}
+"""
+    )
+    return cfg_path
+
+
 # ---------------------------------------------------------------------------
-# fit_rescale_factor
+# fit_rescale_factor — returns (r_max, b_offset) tuple
 # ---------------------------------------------------------------------------
 
 
 class TestFitRescaleFactor:
     def test_perfect_linear(self) -> None:
-        # y = 0.5 * p exactly → r should be 0.5.
         p = torch.arange(1, 11, dtype=torch.float64)
         y = 0.5 * p
-        assert fit_rescale_factor(p, y) == pytest.approx(0.5, abs=1e-12)
+        r, b = fit_rescale_factor(p, y)
+        assert r == pytest.approx(0.5, abs=1e-12)
+        assert b == pytest.approx(0.0, abs=1e-12)
 
     def test_negative_targets(self) -> None:
         p = torch.tensor([1.0, 2.0, 3.0, 4.0], dtype=torch.float64)
         y = torch.tensor([-2.0, -4.0, -6.0, -8.0], dtype=torch.float64)
-        assert fit_rescale_factor(p, y) == pytest.approx(-2.0, abs=1e-12)
+        r, b = fit_rescale_factor(p, y)
+        assert r == pytest.approx(-2.0, abs=1e-12)
+        assert b == pytest.approx(0.0, abs=1e-12)
 
     def test_least_squares_solution(self) -> None:
-        # Noisy y around y = 0.3 * p. LS solution = Σpy / Σp².
         p = torch.arange(1, 1001, dtype=torch.float64)
         torch.manual_seed(0)
         y = 0.3 * p + torch.randn(1000, dtype=torch.float64)
-        expected = float((p * y).sum() / (p * p).sum())
-        assert fit_rescale_factor(p, y) == pytest.approx(expected, abs=1e-12)
+        r, _b = fit_rescale_factor(p, y)
+        # With intercept term, LS for y = r·p + b gives a slope close to 0.3
+        # rather than the slope-only form Σpy/Σp².
+        assert r == pytest.approx(0.3, abs=5e-3)
 
-    def test_zero_denominator_raises(self) -> None:
+    def test_zero_denominator_returns_zero_slope(self) -> None:
+        # All-zero phys_codes is rank-deficient; the LS form returns
+        # ``r == 0`` (the column carries no signal). The intercept ``b``
+        # is driver-dependent for rank-deficient systems so we only
+        # assert the contract: ``r == 0``.
         p = torch.zeros(5, dtype=torch.float64)
         y = torch.tensor([1.0, 2.0, 3.0, 4.0, 5.0], dtype=torch.float64)
-        with pytest.raises(ValueError, match=r"all valid physical codes are zero"):
-            fit_rescale_factor(p, y)
+        r, _b = fit_rescale_factor(p, y)
+        assert r == pytest.approx(0.0, abs=1e-12)
 
 
 # ---------------------------------------------------------------------------
@@ -87,7 +124,6 @@ class TestDeriveRescaleForBits:
 
 class TestSaturationMask:
     def test_signed_endpoints(self) -> None:
-        # max_bits=4 → signed range [-8, 7]; endpoints are -8 and +7.
         codes = torch.tensor([-8, -7, 0, 6, 7, -8, 7], dtype=torch.float64)
         mask = saturation_mask(codes, max_bits=4)
         assert mask.tolist() == [True, False, False, False, True, True, True]
@@ -98,7 +134,6 @@ class TestSaturationMask:
         assert mask.tolist() == [False, False, False, False]
 
     def test_eight_bit_endpoints(self) -> None:
-        # max_bits=8 → signed range [-128, 127].
         codes = torch.tensor([-128, 127, 0, 50, -100], dtype=torch.float64)
         mask = saturation_mask(codes, max_bits=8)
         assert mask.tolist() == [True, True, False, False, False]
@@ -110,13 +145,13 @@ class TestSaturationMask:
 
 
 @pytest.fixture(scope="module")
-def smoke_calibration():
+def smoke_calibration(xbar_cfg):
     """Small but realistic calibration on the 28nm preset (adc_mode=0)."""
     return collect_calibration(
         config_path=XBAR_CONFIG,
         distribution_path=None,
         adc_mode=0,
-        weight_samples=2,
+        weight_samples=4,
         input_samples_per_weight=8,
         batch_size=4,
         seed=0,
@@ -134,12 +169,10 @@ class TestCollectCalibration:
         assert 0.0 <= r.saturation_rate <= 1.0
         assert r.r_max > 0.0
         assert len(r.derived_rescale) == r.max_bits
-        # The bit-width relationship must hold within numerical tolerance.
         for b, val in r.derived_rescale.items():
             assert val == pytest.approx(r.r_max * (2 ** (r.max_bits - b)))
-        # 28nm preset: n_groups = col_num / ref_group_size = 64 / 16 = 4.
-        assert r.adc_instance_count == 4
-        # McsSarAdc is SAR-family → flexible bits.
+        # batch_size=4 * n_groups=4 = 16.
+        assert r.adc_instance_count == 16
         assert r.supports_flexible_bits is True
 
     def test_invalid_adc_mode(self) -> None:
@@ -148,7 +181,7 @@ class TestCollectCalibration:
                 config_path=XBAR_CONFIG,
                 distribution_path=None,
                 adc_mode=99,
-                weight_samples=2,
+                weight_samples=4,
                 input_samples_per_weight=8,
                 batch_size=4,
                 seed=0,
@@ -168,20 +201,6 @@ class TestCollectCalibration:
                 device=CPU,
             )
 
-# ---------------------------------------------------------------------------
-# r_max > 0 invariant
-# ---------------------------------------------------------------------------
-
-
-class TestFitRescaleFactorNegativeRejected:
-    def test_negative_targets_raise(self) -> None:
-        # phys_codes positive, ideal_vmm negative → numerator < 0 → r < 0
-        p = torch.tensor([1.0, 2.0, 3.0, 4.0], dtype=torch.float64)
-        y = torch.tensor([-2.0, -4.0, -6.0, -8.0], dtype=torch.float64)
-        # fit_rescale_factor itself doesn't enforce sign — that's collect_calibration's job.
-        # Verify the raw fit returns negative; collect_calibration would then raise.
-        assert fit_rescale_factor(p, y) == pytest.approx(-2.0)
-
 
 # ---------------------------------------------------------------------------
 # Logger output
@@ -196,7 +215,6 @@ class TestLogCalibration:
         text = caplog.text
         assert "ADC rescale calibration" in text
         assert "rescale_factor_at_max_bits" in text
-        # SAR family → derived table appears.
         assert "Derived rescale factors" in text
         assert "NOT calibrated" in text
         assert "<- calibrated" in text
@@ -209,9 +227,8 @@ class TestLogCalibration:
         caplog.clear()
         with caplog.at_level(logging.INFO, logger="neurox.tools.xbar_adc.calibrate"):
             log_calibration(smoke_calibration)
-        # Calibrated entry only — exactly one [[adc_calibration]] block per mode.
         count = caplog.text.count("[[adc_calibration]]")
-        assert count == 1, f"expected exactly one [[adc_calibration]] block, got {count}; text: {caplog.text}"
+        assert count == 1, f"expected exactly one [[adc_calibration]] block, got {count}"
 
 
 # ---------------------------------------------------------------------------
@@ -233,32 +250,19 @@ class TestPlotCalibration:
 
 
 class TestCLI:
-    def test_cli_smoke(self, caplog: pytest.LogCaptureFixture) -> None:
-        argv = [
-            "--xbar-config",
-            str(XBAR_CONFIG),
-            "--adc-mode",
-            "0",
-            "--weight-samples",
-            "2",
-            "--input-samples-per-weight",
-            "8",
-            "--batch-size",
-            "4",
-            "--seed",
-            "0",
-            "--device",
-            "cpu",
-        ]
+    def test_cli_smoke(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+        cfg = _make_run_config(tmp_path)
+        argv = ["--config", str(cfg), "--device", "cpu"]
         with caplog.at_level(logging.INFO, logger="neurox.tools.xbar_adc.calibrate"):
             assert calibrate_main(argv) == 0
         assert "ADC rescale calibration" in caplog.text
         assert "[[adc_calibration]]" in caplog.text
 
-    def test_cli_requires_xbar_config(self) -> None:
+    def test_cli_requires_config(self) -> None:
         with pytest.raises(SystemExit):
-            calibrate_main(["--adc-mode", "0"])
+            calibrate_main([])
 
-    def test_cli_requires_adc_mode(self) -> None:
-        with pytest.raises(SystemExit):
-            calibrate_main(["--xbar-config", str(XBAR_CONFIG)])
+    def test_cli_rejects_bad_adc_mode(self, tmp_path: Path) -> None:
+        cfg = _make_run_config(tmp_path, adc_mode=99)
+        with pytest.raises(ValueError, match=r"adc_mode"):
+            calibrate_main(["--config", str(cfg), "--device", "cpu"])

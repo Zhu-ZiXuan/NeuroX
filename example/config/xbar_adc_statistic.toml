@@ -1,0 +1,37 @@
+# Probe the chip's ADC differential input distribution and recommend
+# input_range_V candidates for downstream ADC calibration.
+#
+# CLI: python -m neurox.tools.xbar_adc.statistic \
+#          --config example/config/xbar_adc_statistic.toml \
+#          --plot-dir log/xbar_adc/statistic/ \
+#          --device cuda:0
+
+# Chip xbar config — pulled from a separate chip preset so this run config
+# and the chip evolve independently. Path is relative to this TOML.
+[xbar]
+_neurox_use = "1t1r_28nm.toml:xbar"
+
+
+# Sampling sweep dimensions + RNG seed.
+#   total VMM samples = weight_samples · input_samples_per_weight · n_data_cols.
+#   weight_samples must be a multiple of batch_size.
+[workload]
+# distribution = "synthetic_dist.toml"   # omit → uniform synthetic workload
+weight_samples = 128
+input_samples_per_weight = 16
+batch_size = 128
+seed = 0
+
+
+# Candidate-ladder depth: report ranges down to clip rate 10**(-max_clip_rate_exp).
+# 4 → ladder = [max_abs, p99, p99.9, p99.99].
+[statistic]
+max_clip_rate_exp = 4
+
+
+# Histogram bin widths are derived from the ADC code grid (no hard-coded
+# bin count). Overview bin = LSB(max_abs candidate) / bins_per_code;
+# spotlight bin = LSB(candidate) (one bin per ADC code).
+[plot]
+bits = 8
+bins_per_code = 4
