@@ -1,4 +1,4 @@
-"""LeNet quantization layers — self-contained, no neurox.operator dependency.
+"""LeNet quantization layers — self-contained.
 
 Two layer families live here:
 

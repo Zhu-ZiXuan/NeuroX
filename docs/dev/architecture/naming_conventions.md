@@ -97,4 +97,4 @@ In both cases:
 - Only the user-facing classes are re-exported, never internal helpers / solvers / shared utilities.
 - The exception applies to a fixed list of subpackages, declared in this document. New subpackages do not get the exception by default — the regular rule applies unless a new entry is added here.
 
-Current exceptions: `neurox.xbar` (reason 1) and `neurox.operator` (reason 2).
+Current exceptions: `neurox.xbar` (reason 1).

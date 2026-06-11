@@ -1,4 +1,4 @@
-# Reference 1T1R xbar configuration (28nm). Example-owned preset moved out of neurox core.
+# Reference 1T1R xbar configuration (28nm). Bundled preset under neurox/presets/xbar/.
 
 [xbar]
 _neurox_type = "Offset1T1RXbarConfig"
@@ -22,8 +22,8 @@ ref_group_size = 16
 ref_location = 8
 
 # --- ADC ``adc_operation_point → rescale_factor`` lookup table ---
-# Calibrated 2026-06-08 with LS+intercept at 8-bit ADC. b_offset is
-# folded through macro adc_b_offset(). r_max scales monotonically with v_ref
+# Calibrated 2026-06-08 with LS+intercept at 8-bit ADC. b_offset informational
+# only (not yet plumbed through macro). r_max scales monotonically with v_ref
 # as expected for the now-finer SAR LSB.
 [[xbar.adc_calibration]]
 adc_mode = 0
@@ -128,10 +128,14 @@ pseudo_nmos_L__um = 0.030
 # --- Output rail limiter ---
 output_saturation_softness__V = 0.45
 
-# --- Newton solver fixed knobs ---
-n_newton = 30
-max_step__V = 0.05
-g_eff_max__uS = -1e-6
+# --- Newton solver iteration count (calibrated via solver_calibrate.tia) ---
+# Picked by step-ratio plateau on V_clamp (ratio_threshold=0.5) + relative
+# residual guard (reltol=1e-2 vs max|I_port|). Margin +1 added.
+# Calibrated at fp32 (production dtype); fp32 hits its accumulated round-off
+# floor by iter 4, so we use 5 with the safety margin. fp64 needs n=6; the
+# fp32 value is sufficient for fp64 too (extra Newton steps in fp64 cost
+# almost nothing once at the floor).
+n_newton = 5
 
 # --- PPA ---
 leakage_per_inst__uW = 1.0
@@ -154,6 +158,40 @@ drive_thermal__V = 0.0
 latency_per_op__ns = 0.0
 leakage_per_inst__uW = 0.0
 area_per_inst__um2 = 0.0
+
+
+[xbar.core_config.solver_config]
+_neurox_type = "NestedSolver1T1RConfig"
+
+# --- Iteration counts (calibrated via solver_calibrate.nested) ---
+# Picked by step-ratio plateau on the full unknown vector
+# (V_BL, V_SL, V_X, V_BL_clamp, V_SL_drive) — convergence is judged
+# from the iterate sequence itself reaching its round-off floor, not
+# from an absolute residual target. Workload-derived relative residual
+# guard (reltol=1e-2) is a sanity net only.
+# Outer Newton is coupled 2×2 over (V_BL_clamp, V_SL_drive) — the
+# implicit-function Jacobian carries BL ↔ SL cross terms so that a
+# variable-SL driver is supported natively.
+# Calibrated at fp32 (production dtype): step plateau lands at
+# n_outer=3, n_inner=1; picker recommends with margin (+1, +0). For
+# fp64 simulation the same counts work — fp64 reaches its own deeper
+# floor in similar iter count under this coupled outer scheme.
+n_outer = 4
+n_inner = 1
+
+# Reference / experimental alternative: FullJacobianSolver1T1RConfig
+# with n_newton = 4 (fp32) / 5 (fp64) lifts every unknown (including
+# V_X) into one global Newton step. Kept as an independent reference
+# implementation for cross-checking nested, NOT recommended as a
+# production swap-in: it uses ~2× peak GPU memory than nested
+# (block-3×3 Thomas + V_X-in-vector) and OOMs on large batches at
+# fp64. Use it for solver-correctness debug, FD Jacobian verification
+# (tests/test_full_jacobian_fd_verify.py), or to validate nested's
+# answer on small workloads. To switch:
+#     [xbar.core_config.solver_config]
+#     _neurox_type = "FullJacobianSolver1T1RConfig"
+#     n_newton = 4
+
 
 [xbar.core_config.wl_dac_config]
 _neurox_type = "GeneralDACConfig"

@@ -29,7 +29,6 @@ from __future__ import annotations
 import argparse
 import itertools
 import logging
-import math
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -69,9 +68,7 @@ class HardwareSection:
     v_ref__V: float
     output_saturation_softness__V: float
     target_v_max__V: float = 0.8
-    tia_n_newton: int = 30
-    tia_max_step__V: float = 0.05
-    tia_g_eff_max__uS: float = -1e-6
+    tia_n_newton: int = 5
 
 
 @dataclass(frozen=True)
@@ -136,8 +133,6 @@ def _build_tia_config(hw: HardwareSection, gain: float, w: float, l: float, vb: 
         pseudo_nmos_L__um=l,
         output_saturation_softness__V=hw.output_saturation_softness__V,
         n_newton=hw.tia_n_newton,
-        max_step__V=hw.tia_max_step__V,
-        g_eff_max__uS=hw.tia_g_eff_max__uS,
         nmos_config=hw.nmos_config,
         # PPA fields are irrelevant to the DC-transfer design analysis.
         leakage_per_inst__uW=0.0,
@@ -149,7 +144,10 @@ def _build_tia_config(hw: HardwareSection, gain: float, w: float, l: float, vb: 
 def _evaluate(
     hw: HardwareSection,
     workload: WorkloadSection,
-    gain: float, w: float, l: float, vb: float,
+    gain: float,
+    w: float,
+    l: float,
+    vb: float,
     *,
     i_max_uA: float,
     n_points: int,
@@ -219,9 +217,19 @@ def _log_candidate(prefix: str, r: CandidateResult) -> None:
     logger.info(
         "%s A=%g W=%g L=%g Vb=%g  | R²_wl=%.3f  range_use=%.2f  overshoot_safe=%.2f"
         "  | v(-3σ)=%.3fV  v(μ)=%.3fV  v(+3σ)=%.3fV  slope(μ)=%.2f mV/μA  score=%.4f",
-        prefix, r.opamp_gain, r.pseudo_nmos_W__um, r.pseudo_nmos_L__um, r.v_nmos_bias__V,
-        r.linearity_r2, r.v_util, r.sat_match,
-        r.v_at_lo3sigma__V, r.v_at_mean__V, r.v_at_hi3sigma__V, r.slope_at_mean__mV_per_uA, r.score,
+        prefix,
+        r.opamp_gain,
+        r.pseudo_nmos_W__um,
+        r.pseudo_nmos_L__um,
+        r.v_nmos_bias__V,
+        r.linearity_r2,
+        r.v_util,
+        r.sat_match,
+        r.v_at_lo3sigma__V,
+        r.v_at_mean__V,
+        r.v_at_hi3sigma__V,
+        r.slope_at_mean__mV_per_uA,
+        r.score,
     )
 
 
@@ -238,6 +246,7 @@ def _plot_slice(
     dashed and dimmer so they stay visible without polluting the readability."""
     try:
         import matplotlib as mpl
+
         mpl.use("Agg")
         import matplotlib.pyplot as plt
     except ImportError as exc:
@@ -261,15 +270,24 @@ def _plot_slice(
             f"R²={r.linearity_r2:.3f}  slope={r.slope_at_mean__mV_per_uA:.2f}mV/μA  "
             f"v(μ)={r.v_at_mean__V:.3f}V  score={r.score:.3f}"
         )
-        ax.plot(r.curve.i_uA.numpy(), r.curve.v_out_V.numpy(),
-                color=color, linewidth=1.4, linestyle=ls, alpha=alpha, label=label)
+        ax.plot(
+            r.curve.i_uA.numpy(),
+            r.curve.v_out_V.numpy(),
+            color=color,
+            linewidth=1.4,
+            linestyle=ls,
+            alpha=alpha,
+            label=label,
+        )
     rails = slice_candidates[0].curve
     ax.axhline(rails.v_min_V, color="grey", linestyle=":", linewidth=0.7)
     ax.axhline(rails.v_max_V, color="grey", linestyle=":", linewidth=0.7)
     ax.axvspan(
         workload.mean__uA - 3 * workload.std__uA,
         workload.mean__uA + 3 * workload.std__uA,
-        color="tab:blue", alpha=0.10, label="workload μ ± 3σ",
+        color="tab:blue",
+        alpha=0.10,
+        label="workload μ ± 3σ",
     )
     ax.axvline(workload.mean__uA, color="tab:blue", linestyle="--", linewidth=0.8)
     ax.set_xlabel("I_port [μA]")
@@ -336,6 +354,7 @@ def _emit_slice_plots(
 def _plot_top_k(top: list[CandidateResult], workload: WorkloadSection, output_path: Path) -> None:
     try:
         import matplotlib as mpl
+
         mpl.use("Agg")
         import matplotlib.pyplot as plt
     except ImportError as exc:
@@ -356,7 +375,9 @@ def _plot_top_k(top: list[CandidateResult], workload: WorkloadSection, output_pa
     ax.axvspan(
         workload.mean__uA - 3 * workload.std__uA,
         workload.mean__uA + 3 * workload.std__uA,
-        color="tab:blue", alpha=0.10, label="workload μ ± 3σ",
+        color="tab:blue",
+        alpha=0.10,
+        label="workload μ ± 3σ",
     )
     ax.axvline(workload.mean__uA, color="tab:blue", linestyle="--", linewidth=0.8)
     ax.set_xlabel("I_port [μA]")
@@ -377,9 +398,13 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Forward TIA design tool (config-driven)")
     parser.add_argument("--config", type=Path, required=True, help="TIA design TOML config path")
     parser.add_argument("--plot", type=Path, default=None, help="Optional output PNG (top-K curves overlay)")
-    parser.add_argument("--slice-plot-dir", type=Path, default=None,
-                        help="Optional output directory for 1D slice PNGs (one per fixed (gain, L, Vb) and "
-                             "(gain, L, W) combo, varying W and Vb respectively)")
+    parser.add_argument(
+        "--slice-plot-dir",
+        type=Path,
+        default=None,
+        help="Optional output directory for 1D slice PNGs (one per fixed (gain, L, Vb) and "
+        "(gain, L, W) combo, varying W and Vb respectively)",
+    )
     parser.add_argument("--log-level", type=str, default="INFO")
     parser.add_argument("--top-k", type=int, default=10, help="How many top candidates to report (default 10)")
     return parser
@@ -392,8 +417,12 @@ def main(argv: list[str] | None = None) -> int:
 
     cfg = dataclass_from_file(TiaDesignConfig, args.config)
     logger.info("loaded TIA design config from %s", args.config)
-    logger.info("  hardware: v_dd=%.3fV  v_ref=%.3fV  softness=%.3fV  (nmos via preset)",
-                cfg.hardware.v_dd__V, cfg.hardware.v_ref__V, cfg.hardware.output_saturation_softness__V)
+    logger.info(
+        "  hardware: v_dd=%.3fV  v_ref=%.3fV  softness=%.3fV  (nmos via preset)",
+        cfg.hardware.v_dd__V,
+        cfg.hardware.v_ref__V,
+        cfg.hardware.output_saturation_softness__V,
+    )
     logger.info("  workload: N(mean=%.1f, std=%.1f) uA", cfg.workload.mean__uA, cfg.workload.std__uA)
 
     axes = {
@@ -408,8 +437,7 @@ def main(argv: list[str] | None = None) -> int:
     n_total = 1
     for vs in axes.values():
         n_total *= len(vs)
-    logger.info("  sweep grid: %s -> %d combos",
-                {k: len(v) for k, v in axes.items()}, n_total)
+    logger.info("  sweep grid: %s -> %d combos", {k: len(v) for k, v in axes.items()}, n_total)
 
     i_max = max(1500.0, 1.6 * (cfg.workload.mean__uA + 5 * cfg.workload.std__uA))
 
@@ -422,16 +450,29 @@ def main(argv: list[str] | None = None) -> int:
         cfg.sweep.v_nmos_bias__V,
     ):
         r = _evaluate(
-            cfg.hardware, cfg.workload, gain, w, l, vb,
-            i_max_uA=i_max, n_points=301, device=device,
+            cfg.hardware,
+            cfg.workload,
+            gain,
+            w,
+            l,
+            vb,
+            i_max_uA=i_max,
+            n_points=301,
+            device=device,
         )
         if r is None:
             skipped_invalid += 1
             continue
         all_results.append(r)
     feasible = [r for r in all_results if r.is_feasible]
-    logger.info("scanned %d combos; %d valid; %d feasible, %d infeasible; %d skipped (Vb≤v_ref)",
-                n_total, len(all_results), len(feasible), len(all_results) - len(feasible), skipped_invalid)
+    logger.info(
+        "scanned %d combos; %d valid; %d feasible, %d infeasible; %d skipped (Vb≤v_ref)",
+        n_total,
+        len(all_results),
+        len(feasible),
+        len(all_results) - len(feasible),
+        skipped_invalid,
+    )
     if not feasible:
         raise SystemExit("no feasible candidate in the grid — widen [sweep] ranges")
 

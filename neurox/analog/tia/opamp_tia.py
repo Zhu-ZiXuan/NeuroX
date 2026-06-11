@@ -30,15 +30,14 @@ class OpAmpTIAConfig(TIAConfig):
         output_saturation_softness__V: Softness scale [V] for the
             ``tanh`` output-rail limiter.
         n_newton: Step-damped Newton iterations in the closed-loop solve.
-            Compile-time constant; pick via the future TIA-specific
-            calibration sweep.
-        max_step__V: Per-iteration ``|Δv_clamp|`` cap [V]. Stops Newton
-            from sticking at a rail after a single overshoot in regions
-            where ``tanh`` saturates (``g_clip → 0``).
-        g_eff_max__uS: Upper clamp on the effective KCL Jacobian
-            ``df/dV_clamp`` [uS]. Always negative (= ``-1e-6`` worst case);
-            without it the Newton step explodes when the NMOS feedback
-            loop's local derivative goes through zero.
+            Compile-time constant; pick via
+            ``neurox.tools.solver_calibrate.tia`` against the target
+            workload.
+
+    The Newton damping cap and the Jacobian-floor safety clamp are
+    method-intrinsic constants on :class:`OpAmpTIA` (``MAX_STEP__V`` /
+    ``G_EFF_MAX__uS``) — they are not exposed in this config because they
+    do not vary per chip preset.
     """
 
     # --- Bias / supply ---
@@ -59,10 +58,8 @@ class OpAmpTIAConfig(TIAConfig):
     # --- Output rail limiter ---
     output_saturation_softness__V: float
 
-    # --- Newton solver fixed knobs ---
+    # --- Newton solver iteration count ---
     n_newton: int
-    max_step__V: float
-    g_eff_max__uS: float
 
     def validate(self) -> None:
         super().validate()
@@ -86,9 +83,6 @@ class OpAmpTIAConfig(TIAConfig):
 
     def validate_solver(self) -> None:
         self._require_pos(self.n_newton, "n_newton")
-        self._require_pos(self.max_step__V, "max_step__V")
-        if not (self.g_eff_max__uS < 0):
-            raise ValueError(f"require: g_eff_max__uS ({self.g_eff_max__uS}) < 0")
 
 
 @dataclass(frozen=True)
@@ -113,11 +107,10 @@ class OpAmpTIADCOP:
         v_out__V: Soft-saturated op-amp output voltage [V].
         dVclamp_dI__MOhm: ``∂v_clamp / ∂i_port`` [MOhm].
         dVout_dI__MOhm: ``∂v_out / ∂i_port`` [MOhm].
-        residual__uA: ``|I_nmos(v_clamp) - i_port|`` at the final iterate
-            (Issue 5 diagnostic). Bulk operation gives ≈ machine precision;
-            a finite value means ``i_port`` is outside what the pseudo-
-            NMOS feedback can supply at this configuration, so ``v_clamp``
-            silently clamped to a rail rather than satisfying KCL.
+        residual__uA: ``|I_nmos(v_clamp) - i_port|`` at the final
+            iterate. Consumed by
+            ``neurox.tools.solver_calibrate.tia`` to drive plateau
+            detection over ``n_newton``.
     """
 
     v_clamp__V: Tensor
@@ -142,7 +135,21 @@ class OpAmpTIASnapshot:
 
 @TIA.register_key(OpAmpTIAConfig)
 class OpAmpTIA(TIA):
-    """Non-linear OpAmpTIA clamp driver."""
+    """Non-linear OpAmpTIA clamp driver.
+
+    Class-level numerical constants (method-intrinsic, not chip-tuneable):
+
+      * ``MAX_STEP__V``: Per-iteration ``|Δv_clamp|`` cap [V]. Stops the
+        damped Newton from sticking at a rail after a single overshoot in
+        regions where ``tanh`` saturates (``g_clip → 0``).
+      * ``G_EFF_MAX__uS``: Upper clamp on the effective KCL Jacobian
+        ``df/dV_clamp`` [uS]. Always negative; without it the Newton step
+        diverges when the NMOS feedback loop's local derivative crosses
+        zero.
+    """
+
+    MAX_STEP__V: float = 0.05
+    G_EFF_MAX__uS: float = -1e-6
 
     nominal_opamp_gain: Tensor
     opamp_gain: Tensor
@@ -300,8 +307,8 @@ class OpAmpTIA(TIA):
         # warm start: zero-current static op when none provided.
         v_clamp = v_ref * opamp_gain / (opamp_gain + 1.0) if v_clamp_init__V is None else v_clamp_init__V
 
-        max_step__V = self.config.max_step__V
-        g_eff_max__uS = self.config.g_eff_max__uS
+        max_step__V = self.MAX_STEP__V
+        g_eff_max__uS = self.G_EFF_MAX__uS
         for _ in range(self.config.n_newton):
             v_out_lin = opamp_gain * (v_ref - v_clamp)
             v_out, g_clip = self._softclip_eval(v_out_lin)
@@ -338,12 +345,8 @@ class OpAmpTIA(TIA):
         dVclamp_dI__MOhm = 1.0 / df_dVclamp_final
         dVout_dI__MOhm = dvout_dvclamp * dVclamp_dI__MOhm
 
-        # Issue 5 diagnostic: |NMOS Ids − i_port| at the returned operating
-        # point. A non-trivial value means the requested ``i_port`` lay
-        # outside the NMOS feedback's reachable range — ``v_clamp`` got
-        # silently projected to a [0, v_dd] rail instead of solving KCL.
-        # The bulk operating regime gives values ≈ machine precision;
-        # callers can ``.max()`` this to detect rail-clamped false roots.
+        # Per-iterate KCL residual ``|NMOS Ids − i_port|`` returned for
+        # ``solver_calibrate.tia`` to consume.
         residual__uA = (nmos_dc_final.ids__uA - i_port__uA).abs()
 
         return OpAmpTIADCOP(

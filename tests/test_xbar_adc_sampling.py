@@ -25,7 +25,7 @@ from neurox.tools.xbar_adc._sampling import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-XBAR_CONFIG = REPO_ROOT / "neurox" / "presets" / "xbar" / "1t1r_28nm.toml"
+XBAR_CONFIG = REPO_ROOT / "example" / "presets" / "xbar" / "1t1r_28nm.toml"
 
 CPU = torch.device("cpu")
 

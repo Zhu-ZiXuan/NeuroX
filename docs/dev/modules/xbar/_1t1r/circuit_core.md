@@ -32,11 +32,11 @@ Physical shape is committed at `__init__` via the `w_layout_shape` argument.
 
 - `rram: RRAMPolicy`
 - `nmos: NMOSPolicy` — the cell-access NMOS
-- `tia: TIAPolicy` — abstract base; the concrete impl (e.g. `OpAmpTIAPolicy`) is passed by the caller
+- `tia: TIAPolicy` — abstract base; the concrete impl (e.g. `OpAmpTIAPolicy`) is passed by the caller. Carries only nonideality toggles (e.g. `opamp_gain_sigma`); the TIA's Newton solver knobs live in `OpAmpTIAConfig`.
 - `sl_driver: DriverPolicy`
 - `wl_dac: DACPolicy` — abstract base; concrete impl (e.g. `GeneralDACPolicy`) is passed
 
-The core forwards each sub-policy into the matching child constructor verbatim.
+Solvers have **no Policy** — their knobs are all fixed numerical constants and live on `CircuitCore1T1RConfig.solver_config`. The core forwards each sub-policy into the matching child constructor verbatim; for the solver, it calls `Solver1T1R.from_config(config=config.solver_config, ...)` and the registry picks the concrete impl (`NestedSolver1T1R` / `FullJacobianSolver1T1R`) by config type.
 
 `CircuitCore1T1R.__init__(*, config, policy, name, w_layout_shape, dtype, T__K)` accepts `w_layout_shape = (*prefix, phys_col_num, row_num)`. The core constructs every owned child with a derived `inst_shape`:
 

@@ -27,7 +27,7 @@ from neurox.device import (
     RRAMPolicy,
 )
 
-from .newton_raphson_solver import NewtonRaphsonSolver1T1R
+from .solver import Solver1T1R, Solver1T1RConfig, Solver1T1RResiduals
 
 # ---------------------------------------------------------------------------
 # Config
@@ -73,6 +73,11 @@ class CircuitCore1T1RConfig(ValidateMixin):
         tia_config: BL clamp-driver configuration.
         sl_driver_config: SL driver configuration.
         wl_dac_config: WL DAC configuration.
+        solver_config: DC-solver fixed numerical knobs. Concrete subclass
+            of :class:`Solver1T1RConfig` (``NestedSolver1T1RConfig`` or
+            ``FullJacobianSolver1T1RConfig``) picks which solver
+            implementation the core instantiates via
+            ``Solver1T1R.from_config(...)``.
     """
 
     wl_pulse_length__ns: float
@@ -112,6 +117,7 @@ class CircuitCore1T1RConfig(ValidateMixin):
     tia_config: TIAConfig
     sl_driver_config: DriverConfig
     wl_dac_config: DACConfig
+    solver_config: Solver1T1RConfig
 
     def __post_init__(self) -> None:
         self.validate()
@@ -199,6 +205,9 @@ class CircuitCore1T1RPolicy:
         tia: BL clamp-driver (TIA) nonideality policy.
         sl_driver: SL driver nonideality policy.
         wl_dac: WL DAC nonideality policy.
+
+    Solvers have **no Policy** — all their knobs are fixed numerical
+    constants and live on :class:`CircuitCore1T1RConfig.solver_config`.
     """
 
     rram: RRAMPolicy
@@ -242,6 +251,8 @@ class Core1T1RDCOP:
     v_sl_drive: Tensor
     v_wl_drive: Tensor
     v_out_phys: Tensor
+
+    residuals: Solver1T1RResiduals | None
 
 
 # ---------------------------------------------------------------------------
@@ -385,7 +396,8 @@ class CircuitCore1T1R(FabricateMixin, nn.Module):
         self.register_buffer("bl_segment_c__fF", bl_segment_c__fF, persistent=False)
         self.register_buffer("sl_segment_c__fF", sl_segment_c__fF, persistent=False)
 
-        self.solver = NewtonRaphsonSolver1T1R(
+        self.solver = Solver1T1R.from_config(
+            config=config.solver_config,
             rram=self.rram,
             nmos=self.nmos,
             bl_driver=self.tia,
@@ -418,11 +430,16 @@ class CircuitCore1T1R(FabricateMixin, nn.Module):
     # DC solve
     # -----------------------------------------------------------------
 
-    def solve_dc(self, x: Tensor) -> Core1T1RDCOP:
+    def solve_dc(self, x: Tensor, *, compute_residuals: bool = False) -> Core1T1RDCOP:
         """Run one DC solve on the fabricated 1T1R core.
 
         Args:
             x: WL DAC input-code tensor. Shape: [..., row_num].
+            compute_residuals: Forward to the array solver. When True
+                the returned :class:`Core1T1RDCOP.residuals` carries the
+                per-element KCL residuals; when False (default, hot path)
+                ``residuals`` is ``None`` and the extra KCL passes are
+                elided from the traced graph.
 
         Returns:
             Core DC operating point for the current VMM.
@@ -460,6 +477,7 @@ class CircuitCore1T1R(FabricateMixin, nn.Module):
             nmos_snapshot=nmos_snapshot,
             bl_driver_snapshot=bl_driver_snapshot,
             sl_driver_snapshot=sl_driver_snapshot,
+            compute_residuals=compute_residuals,
         )
 
         # --- Recover the BL output clamp voltage ---
@@ -484,6 +502,7 @@ class CircuitCore1T1R(FabricateMixin, nn.Module):
             v_sl_drive=solver_dcop.v_sl_drive,
             v_wl_drive=v_wl_drive__V.squeeze(-2),
             v_out_phys=v_out_phys,
+            residuals=solver_dcop.residuals,
         )
 
         # --- Accumulate analog-side dynamic energy ---

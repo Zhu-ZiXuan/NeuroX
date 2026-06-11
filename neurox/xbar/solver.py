@@ -1,8 +1,17 @@
-"""Shared circuit-solver utilities for crossbar IR-drop simulation.
+"""Shared circuit-solver math utilities for crossbar IR-drop simulation.
+
+This module owns purely numerical helpers (tridiagonal Thomas algorithm,
+block-tridiagonal Thomas, KCL residual builders for column / row wire
+ladders). Solver class bases live with their topology family (e.g.
+:mod:`neurox.xbar._1t1r.solver`) — there is no generic ``Solver``
+abstraction here because device / boundary signatures differ per
+topology.
 
 See also:
     docs/dev/modules/xbar/solver.md
 """
+
+from __future__ import annotations
 
 from collections.abc import Callable
 
@@ -29,6 +38,73 @@ def elementwise_diff(fn: Callable[..., Tensor], *, wrt: str, **kwargs: Tensor) -
         y = fn(**kwargs)
         (dy_dx,) = torch.autograd.grad(y.sum(), x)
     return dy_dx
+
+
+def solve_block_tridiagonal(
+    sub: Tensor,
+    diag: Tensor,
+    sup: Tensor,
+    rhs: Tensor,
+) -> Tensor:
+    """Solve batched block-tridiagonal systems via the block Thomas algorithm.
+
+    Solves ``A x = rhs`` where ``A`` is block-tridiagonal with ``B × B``
+    blocks. Shape convention is fixed (no ``dim`` arg) — the N axis is
+    always third-to-last for the block tensors and second-to-last for
+    ``rhs``. Transpose at the call site if your data is laid out
+    differently.
+
+    The block at row ``k`` has:
+
+      * sub-diagonal block ``sub[..., k, :, :]`` (coupling to row ``k-1``);
+        the entry at ``k = 0`` is unused
+      * main diagonal block ``diag[..., k, :, :]``
+      * super-diagonal block ``sup[..., k, :, :]`` (coupling to row ``k+1``);
+        the entry at ``k = N-1`` is unused
+
+    Each ``B × B`` block-inverse step uses ``torch.linalg.solve``; for
+    ``B = 1`` the algorithm reduces to scalar Thomas (no overhead beyond
+    the extra rank).
+
+    Args:
+        sub: Sub-diagonal blocks. Shape ``[..., N, B, B]``.
+        diag: Main diagonal blocks. Same shape as ``sub``.
+        sup: Super-diagonal blocks. Same shape as ``sub``.
+        rhs: Right-hand-side vectors. Shape ``[..., N, B]``.
+
+    Returns:
+        Solution tensor with the same shape as ``rhs``.
+    """
+    n = rhs.shape[-2]
+    if n == 1:
+        # Single block: just one B×B solve.
+        return torch.linalg.solve(diag[..., 0, :, :], rhs[..., 0, :].unsqueeze(-1)).squeeze(-1)
+
+    # Forward sweep — keep C_{k} = M_k⁻¹ · sup_k and d_k = M_k⁻¹ · (rhs - sub · d_{k-1})
+    # in lists; never write in-place so ``torch.compile`` can fuse.
+    m_0 = diag[..., 0, :, :]
+    rhs_0 = rhs[..., 0, :].unsqueeze(-1)
+    # Stack [sup, rhs] as RHS columns so we do one solve per step instead of two.
+    sol_0 = torch.linalg.solve(m_0, torch.cat((sup[..., 0, :, :], rhs_0), dim=-1))
+    c_list: list[Tensor] = [sol_0[..., :-1]]
+    d_list: list[Tensor] = [sol_0[..., -1:]]
+    for k in range(1, n):
+        sub_k = sub[..., k, :, :]
+        diag_k = diag[..., k, :, :]
+        sup_k = sup[..., k, :, :]
+        rhs_k = rhs[..., k, :].unsqueeze(-1)
+        m_k = diag_k - sub_k @ c_list[k - 1]
+        sol_k = torch.linalg.solve(m_k, torch.cat((sup_k, rhs_k - sub_k @ d_list[k - 1]), dim=-1))
+        c_list.append(sol_k[..., :-1])
+        d_list.append(sol_k[..., -1:])
+
+    # Back substitution — build the solution list right-to-left.
+    x_list: list[Tensor] = [d_list[n - 1].squeeze(-1)]
+    for k in range(n - 2, -1, -1):
+        x_list.append((d_list[k] - c_list[k] @ x_list[-1].unsqueeze(-1)).squeeze(-1))
+    x_list.reverse()
+
+    return torch.stack(x_list, dim=-2)
 
 
 def solve_tridiagonal(

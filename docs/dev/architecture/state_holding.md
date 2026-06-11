@@ -60,7 +60,7 @@ A parent obtains child state through the child object, not through a duplicate b
 
 ## Cross-module snapshot passing
 
-Some solvers iterate on snapshots that belong to different modules (e.g. `NewtonRaphsonSolver1T1R.solve_dc` reads `RRAMSnapshot`, `NMOSSnapshot`, plus two clamp-driver snapshots). Passing the snapshot across module boundaries is allowed; it is not a separate convention beyond the snapshot rules above. The snapshot type carries its own semantics and the receiver's signature documents which type it expects.
+Some solvers iterate on snapshots that belong to different modules (e.g. `Solver1T1R.solve_dc` reads `RRAMSnapshot`, `NMOSSnapshot`, plus two clamp-driver snapshots). Passing the snapshot across module boundaries is allowed; it is not a separate convention beyond the snapshot rules above. The snapshot type carries its own semantics and the receiver's signature documents which type it expects.
 
 ## Per-call runtime state
 
