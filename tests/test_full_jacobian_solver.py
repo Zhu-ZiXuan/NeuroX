@@ -36,10 +36,7 @@ from neurox.xbar._1t1r import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-XBAR_CONFIG = REPO_ROOT / "example" / "presets" / "xbar" / "1t1r_28nm.toml"
-
-_TIA_N_NEWTON = 5  # matches the chip-preset calibrated value (fp32 production)
-
+XBAR_CONFIG = REPO_ROOT / "example" / "config" / "1t1r_28nm.toml"
 
 @pytest.fixture(scope="module")
 def fixture_config():
@@ -62,7 +59,6 @@ def _build(solver_config, device, *, inst: int = 4, chunk_size: int = 0):
         inst_shape=(inst,),
         dtype=torch.float64,
         solver_config=solver_config,
-        tia_n_newton=_TIA_N_NEWTON,
         batch_chunk_size=chunk_size,
     )
 

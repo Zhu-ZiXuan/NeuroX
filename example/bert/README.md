@@ -66,7 +66,7 @@ python -m example.bert.evaluate \
   resolution (`[bl_adc].boundaries`), RRAM states, switch, wires,
   digital datapath, tile geometry, rescale factor — is read from
   `example/bert/macro.toml` (which pulls the 1T1R xbar reference from
-  `example/presets/xbar/1t1r_28nm.toml` via `_neurox_use`). To
+  `example/config/1t1r_28nm.toml` via `_neurox_use`). To
   change the ADC resolution, edit the `[bl_adc].boundaries` list and
   add a matching `[[xbar.adc_calibration]]` record accordingly; the CLI
   has no hardware knobs.

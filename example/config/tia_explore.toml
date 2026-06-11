@@ -33,9 +33,15 @@ _neurox_use_preset = "process/mos:nmos_28_rvt"
 mean__uA = 170.26
 std__uA  = 29.19
 
-# Stage-2 refined sweep around Stage-1 top region (gain 40-50, W 0.2-0.5, Vb 0.7-0.8).
+# Production scan: gain=30, Vb=0.9, L=0.03 locked (per slope × I_max ≈ Vov
+# conservation law: Vov maxed by Vb=v_dd, gain trivially affects slope).
+# Sweep W around the chosen production value W=0.18.
+# Workload tail vs absolute physical max:
+#   workload μ+3σ = 257.8 μA  (99.87% coverage)
+#   workload μ+5σ = 316.2 μA  (>99.9999% coverage)
+#   absolute max  = 617.3 μA  (64 rows × 9.6446 μA per max-state cell, all active)
 [sweep]
-opamp_gain        = [35, 40, 45, 50]
-pseudo_nmos_W__um = [0.20, 0.225, 0.25, 0.275, 0.30, 0.325, 0.35, 0.375, 0.40, 0.425, 0.45, 0.475, 0.50]
+opamp_gain        = [30]
+pseudo_nmos_W__um = [0.15, 0.16, 0.17, 0.18, 0.19, 0.20, 0.21, 0.22]
 pseudo_nmos_L__um = [0.03]
-v_nmos_bias__V    = [0.65, 0.675, 0.70, 0.725, 0.75, 0.775, 0.80, 0.825, 0.85]
+v_nmos_bias__V    = [0.90]

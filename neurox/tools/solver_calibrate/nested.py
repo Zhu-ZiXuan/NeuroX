@@ -101,7 +101,9 @@ def plot_stage(
         ax_curr.plot(xs_all, [r.residual_max[key] for r in rows], marker=".", color=color, label=key)
     ax_curr.axhline(
         reltol * scale.i_cell_typ__uA,
-        ls="--", color="gray", lw=0.7,
+        ls="--",
+        color="gray",
+        lw=0.7,
         label=f"guard ({reltol:.1e} × max|I_cell| = {reltol * scale.i_cell_typ__uA:.2e} μA)",
     )
     ax_curr.set_yscale("log")
@@ -115,7 +117,9 @@ def plot_stage(
         ax_volt.plot(xs_all, [r.residual_max[key] for r in rows], marker=".", color=color, label=key)
     ax_volt.axhline(
         reltol * scale.v_node_typ__V,
-        ls="--", color="gray", lw=0.7,
+        ls="--",
+        color="gray",
+        lw=0.7,
         label=f"guard ({reltol:.1e} × max|V_node| = {reltol * scale.v_node_typ__V:.2e} V)",
     )
     ax_volt.set_yscale("log")
@@ -176,7 +180,6 @@ def main() -> None:
     )
     parser.add_argument("--outer-margin", type=int, default=1)
     parser.add_argument("--inner-margin", type=int, default=0)
-    parser.add_argument("--tia-n-newton", type=int, default=3)
     parser.add_argument("--device", type=torch.device, default="cuda:0")
     parser.add_argument("--dtype", type=str, choices=("float32", "float64"), default="float32")
     parser.add_argument("--seed", type=int, default=0)
@@ -197,12 +200,11 @@ def main() -> None:
     log.info("=" * 80)
     log.info("NestedSolver — step-ratio plateau calibration (2-axis staged)")
     log.info(
-        "workload: inst=%s, %d weights × %d inputs (batch_w=%d), tia_n_newton=%d",
+        "workload: inst=%s, %d weights × %d inputs (batch_w=%d); TIA n_newton read from preset",
         inst_shape,
         args.weight_samples,
         args.input_samples_per_weight,
         args.batch_w,
-        args.tia_n_newton,
     )
     log.info(
         "criteria: ratio_threshold=%.3f, reltol=%.1e, outer_margin=%d, inner_margin=%d",
@@ -221,7 +223,6 @@ def main() -> None:
         inst_shape=inst_shape,
         dtype=dtype,
         solver_config=stub,
-        tia_n_newton=args.tia_n_newton,
     )
 
     # --- Stage A: sweep n_outer at n_inner = inner_ref ---
@@ -265,7 +266,13 @@ def main() -> None:
     log.info("Stage A pick: n_outer = %d  (%s)", pick_outer, outer_pick.reason)
     log.info("")
     if args.plot_dir is not None:
-        plot_stage(outer_rows, outer_scale, axis_label="n_outer", out_path=args.plot_dir / "nested_stageA_outer.png", reltol=args.reltol)
+        plot_stage(
+            outer_rows,
+            outer_scale,
+            axis_label="n_outer",
+            out_path=args.plot_dir / "nested_stageA_outer.png",
+            reltol=args.reltol,
+        )
 
     # --- Stage B: sweep n_inner at n_outer = pick_outer ---
     log.info("=" * 80)
@@ -314,13 +321,17 @@ def main() -> None:
             log.error(
                 "Stage B plateau not detected AND fallback n_inner=%d fails residual guard: "
                 "%s ratio=%.3e >= reltol=%.1e. Widen --inner-candidates or raise --reltol.",
-                fallback, worst[0], worst[1], args.reltol,
+                fallback,
+                worst[0],
+                worst[1],
+                args.reltol,
             )
             raise SystemExit(2)
         log.warning(
             "Stage B plateau not detected — falling back to smallest candidate n_inner=%d "
             "(residual guard re-verified there). Reason: %s",
-            fallback, inner_pick.reason,
+            fallback,
+            inner_pick.reason,
         )
         pick_inner = fallback
     else:
@@ -328,7 +339,13 @@ def main() -> None:
         log.info("Stage B pick: n_inner = %d  (%s)", pick_inner, inner_pick.reason)
     log.info("")
     if args.plot_dir is not None:
-        plot_stage(inner_rows, inner_scale, axis_label="n_inner", out_path=args.plot_dir / "nested_stageB_inner.png", reltol=args.reltol)
+        plot_stage(
+            inner_rows,
+            inner_scale,
+            axis_label="n_inner",
+            out_path=args.plot_dir / "nested_stageB_inner.png",
+            reltol=args.reltol,
+        )
 
     final_outer = pick_outer + args.outer_margin
     final_inner = pick_inner + args.inner_margin

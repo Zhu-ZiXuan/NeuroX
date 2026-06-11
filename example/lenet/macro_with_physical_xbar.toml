@@ -1,4 +1,4 @@
-# LeNet macro configuration (1T1R reference). Pulls xbar from example/presets/xbar/.
+# LeNet macro configuration (1T1R reference). Pulls xbar from example/config/.
 
 [digit_adder]
 bit_width = 32
@@ -40,7 +40,7 @@ x_slice_num = 4
 w_encoding = "true_form"
 
 [macro.xbar_config]
-_neurox_use = "../presets/xbar/1t1r_28nm.toml:xbar"
+_neurox_use = "../config/1t1r_28nm.toml:xbar"
 
 [macro.col_accumulator_config]
 bit_width = 32

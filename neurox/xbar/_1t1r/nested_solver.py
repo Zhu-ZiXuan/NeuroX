@@ -11,8 +11,7 @@ import torch.nn.functional as F
 from torch import Tensor
 
 from neurox.analog.clamp_driver import ClampDriver
-from neurox.device import RRAM, RRAMSnapshot
-from neurox.device.nmos import NMOS, NMOSSnapshot
+from neurox.device import NMOS, RRAM, NMOSSnapshot, RRAMSnapshot
 from neurox.xbar.solver import (
     col_driver_current,
     col_wire_kcl_residual,
@@ -321,10 +320,12 @@ class NestedSolver1T1R(Solver1T1R):
             k10 = k_inner_2x2[..., 1, 0]
             k11 = k_inner_2x2[..., 1, 1]
             df_row0 = torch.stack(
-                [rg_bl * (1.0 - k00) - 1.0, -rg_bl * k01], dim=-1,
+                [rg_bl * (1.0 - k00) - 1.0, -rg_bl * k01],
+                dim=-1,
             )
             df_row1 = torch.stack(
-                [-rg_sl * k10, rg_sl * (1.0 - k11) - 1.0], dim=-1,
+                [-rg_sl * k10, rg_sl * (1.0 - k11) - 1.0],
+                dim=-1,
             )
             # Shape: [..., num_col, 2, 2]
             df_outer = torch.stack([df_row0, df_row1], dim=-2)

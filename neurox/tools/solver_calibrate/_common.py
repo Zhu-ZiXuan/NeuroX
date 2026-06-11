@@ -65,15 +65,15 @@ def build_xbar_for_calibration(
     inst_shape: tuple[int, ...],
     dtype: torch.dtype,
     solver_config: Solver1T1RConfig,
-    tia_n_newton: int,
     batch_chunk_size: int = 0,
 ) -> Offset1T1RXbar:
-    """Build a noise-off xbar with the supplied solver + TIA iteration count.
+    """Build a noise-off xbar with the supplied solver config.
 
-    Substitutes ``solver_config`` and ``tia_n_newton`` on a copy of the chip
-    preset TOML; physics / readout / PPA fields stay verbatim. The TIA
-    damping cap and Jacobian floor are method-intrinsic constants on
-    :class:`OpAmpTIA` and are not exposed here.
+    Substitutes ``solver_config`` on a copy of the chip preset TOML;
+    everything else — including TIA ``n_newton`` — comes verbatim from
+    the preset. The discipline for re-calibration after a TIA design
+    change is: calibrate TIA first, write the picked ``n_newton`` to
+    the preset, then calibrate the solver from the updated preset.
 
     Args:
         config_path: Chip preset TOML path.
@@ -82,8 +82,6 @@ def build_xbar_for_calibration(
         dtype: Tensor dtype.
         solver_config: Concrete :class:`Solver1T1RConfig` subclass selecting
             which solver implementation to dispatch via the registry.
-        tia_n_newton: Override TIA's inner Newton iteration count without
-            rewriting the preset.
         batch_chunk_size: ``ExecutionPolicy.batch_chunk_size`` value;
             ``0`` disables chunking.
 
@@ -103,8 +101,7 @@ def build_xbar_for_calibration(
     tia_cfg = core_cfg.tia_config
     if not isinstance(tia_cfg, OpAmpTIAConfig):
         raise TypeError(f"calibration tool requires OpAmpTIAConfig; got {type(tia_cfg).__name__}")
-    new_tia_cfg = replace(tia_cfg, n_newton=tia_n_newton)
-    new_core_cfg = replace(core_cfg, tia_config=new_tia_cfg, solver_config=solver_config)
+    new_core_cfg = replace(core_cfg, solver_config=solver_config)
     new_xbar_config = replace(xbar_config, core_config=new_core_cfg)
 
     policy = Offset1T1RXbarPolicy(

@@ -32,12 +32,7 @@ from neurox.xbar._1t1r import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-XBAR_CONFIG = REPO_ROOT / "example" / "presets" / "xbar" / "1t1r_28nm.toml"
-
-_DEFAULT_TIA_KNOBS = {
-    "tia_n_newton": 5,  # matches the chip-preset calibrated value (fp32 production)
-}
-
+XBAR_CONFIG = REPO_ROOT / "example" / "config" / "1t1r_28nm.toml"
 
 @pytest.fixture(scope="module")
 def fixture_config():
@@ -60,7 +55,6 @@ def _build_with_solver(solver_config: Solver1T1RConfig, device: torch.device, in
         inst_shape=(inst,),
         dtype=torch.float64,
         solver_config=solver_config,
-        **_DEFAULT_TIA_KNOBS,
     )
 
 
@@ -160,7 +154,6 @@ def test_nested_chunking_bit_exact(fixture_config, device):
             dtype=torch.float64,
             solver_config=config,
             batch_chunk_size=chunk_size,
-            **_DEFAULT_TIA_KNOBS,
         )
         distribution = load_distribution(None, xbar)
         g = make_generator(0, device)
