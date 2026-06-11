@@ -191,22 +191,6 @@ class InterArraySliceXbarMacro(XbarMacro):
         """Rescale factor for ``adc_operation_point``; raises ``KeyError`` if uncalibrated."""
         return self.xbar.adc_rescale_factor(adc_operation_point)
 
-    def adc_b_offset(self, adc_operation_point: AdcOperationPoint) -> float:
-        """Effective per-output ``b_offset`` after Sa shift-adder + col-accumulator aggregation.
-
-        Per-cycle b lives at the xbar / single-ADC level. The macro aggregates
-        each per-cycle code through:
-          - ``sa_shift_adder`` (sums Sa cycles with weights ``Σ_c radix_x^c``)
-          - ``sw_shift_adder`` (sums Sw weight slices with weights ``Σ_s radix_w^s``)
-          - ``col_accumulator`` (sums Tr row tiles)
-        Each of these contributes its weight×count to the b accumulation,
-        so the layer's effective b is ``b_per_cycle · sa_sum · sw_sum · Tr``.
-        """
-        b_per_cycle = self.xbar.adc_b_offset(adc_operation_point)
-        sa_sum = sum(self.x_slicer.slice_weights)
-        sw_sum = sum(self.w_slicer.slice_weights)
-        return b_per_cycle * sa_sum * sw_sum * self._row_tile_num
-
     # --- organize ---
 
     def _organize_w(self, weight: Tensor) -> Tensor:

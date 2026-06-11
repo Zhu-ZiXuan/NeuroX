@@ -104,8 +104,35 @@ class IdealXbar(Xbar):
         )
         self.register_buffer("digit_weights", digit_weights, persistent=False)
 
-        # Quantize-side multiplier ``1 / rescale_factor``: codes per M_ideal unit.
-        self._scale_lut: dict[AdcOperationPoint, float] = {op: 1.0 / r for op, r in self._rescale_lut.items()}
+        # Quantize-side multiplier — ideal xbar derives this **purely from
+        # bit width**, not from the chip's calibrated ``adc_calibration``
+        # table. The recovery rescale is the inverse of:
+        #
+        #   max_dot = row_num · max|w_logical| · max|x|
+        #   scale   = (2 ** (bits - 1) - 1) / max_dot
+        #
+        # so the lossless integer dot product clips at exactly the signed
+        # N-bit endpoints. This keeps :class:`IdealXbar` purely a function
+        # of (config geometry, requested bits) — chip-agnostic by design.
+        max_w_digit_abs = config.w_digit_radix ** config.w_digit_count - 1
+        x_lo, x_hi = config.x_range
+        max_x_abs = max(abs(x_lo), abs(x_hi))
+        self._max_dot_abs: int = config.row_num * max_w_digit_abs * max_x_abs
+
+        self._scale_lut: dict[AdcOperationPoint, float] = {}
+        self._rescale_lut = {}  # override base's chip-calibrated table
+        for op in (AdcOperationPoint(adc_mode=e.adc_mode, adc_bits=e.adc_bits) for e in config.adc_calibration):
+            if op.adc_bits == 0:
+                # Full-precision sentinel: lossless int dot = ideal VMM
+                # exactly, so the recovery rescale is identity. The
+                # ``vec_mat_mul`` path also skips quantization (and
+                # therefore the scale lookup) when ``adc_bits == 0``.
+                self._rescale_lut[op] = 1.0
+                continue
+            half_range = (1 << (op.adc_bits - 1)) - 1
+            rescale = self._max_dot_abs / half_range  # ideal_dot per ADC code
+            self._rescale_lut[op] = rescale
+            self._scale_lut[op] = 1.0 / rescale
 
         self._log_static()
 

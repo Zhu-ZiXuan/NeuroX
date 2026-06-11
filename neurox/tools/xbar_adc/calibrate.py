@@ -94,7 +94,6 @@ class CalibrationResult:
     adc_mode: int
     max_bits: int
     r_max: float
-    b_offset: float
     derived_rescale: dict[int, float]
     total_pairs: int
     valid_pairs: int
@@ -119,46 +118,42 @@ class CalibrationResult:
 # ---------------------------------------------------------------------------
 
 
-def fit_rescale_factor(phys_codes: Tensor, ideal_vmm: Tensor) -> tuple[float, float]:
-    """Solve ``min_{r,b} Σ (p_i · r + b - y_i)^2`` in float64.
+def fit_rescale_factor(phys_codes: Tensor, ideal_vmm: Tensor) -> float:
+    """Solve ``min_r Σ (p_i · r − y_i)^2`` in float64 — strict zero-through-origin.
 
-    The intercept ``b`` absorbs systematic chip offsets (ref-column subtraction
-    residual, comparator offset, etc.) that would otherwise be folded into ``r``
-    and inflate the slope — without the intercept term the prior
-    zero-through-origin fit ``r = Σ p y / Σ p²`` overestimated ``r`` 2–5×
-    at tight V_ref modes (most unsaturated samples cluster near zero, where
-    the offset dominates).
+    The differential ADC reads ``v_diff = v_data − v_ref``; by design both
+    legs are biased to the TIA's common reference so ``v_diff = 0`` at zero
+    input. The ideal mapping ``code = r · ideal_vmm`` therefore passes
+    through the origin — any non-zero intercept ``b`` would be chip-
+    systematic noise that should be modelled as noise, not absorbed into
+    a constant offset.
 
     Args:
         phys_codes: Physical ADC codes ``p_i``.
         ideal_vmm: Ideal integer VMM targets ``y_i``.
 
     Returns:
-        ``(r_max, b_offset)``: slope and intercept of the LS line
-        ``y ≈ p · r_max + b_offset``.
+        ``r_max``: the LS slope ``Σ p·y / Σ p²``.
 
     Raises:
-        ValueError: When the design matrix is rank-deficient (typically
-            ``var(p) == 0`` i.e. all valid codes are identical).
+        ValueError: When ``Σ p² == 0`` (all valid codes are zero) or the
+            fit produces a non-finite slope.
     """
     p = phys_codes.to(torch.float64)
     y = ideal_vmm.to(torch.float64)
-    ones = torch.ones_like(p)
-    # Design matrix [p, 1] for y = r·p + b.
-    a = torch.stack([p, ones], dim=1)
-    solution = torch.linalg.lstsq(a, y.unsqueeze(1))
-    if solution.solution.numel() < 2:
-        raise ValueError("cannot calibrate rescale_factor: LS solver returned degenerate result")
-    r_max = float(solution.solution[0, 0].item())
-    b_offset = float(solution.solution[1, 0].item())
-    # Final guard against numerically-singular design (rare, but report
-    # before downstream uses an undefined slope).
+    denom = float((p * p).sum().item())
+    if denom == 0.0:
+        raise ValueError(
+            "cannot calibrate rescale_factor: all valid physical codes are zero "
+            "(Σ p² == 0); the workload has no signal at this adc_mode."
+        )
+    r_max = float((p * y).sum().item() / denom)
     if not math.isfinite(r_max):
         raise ValueError(
             "cannot calibrate rescale_factor: fit produced non-finite slope "
             "(check adc_mode / range; verify ADC config matches the workload)"
         )
-    return r_max, b_offset
+    return r_max
 
 
 def derive_rescale_for_bits(r_max: float, max_bits: int) -> dict[int, float]:
@@ -314,7 +309,7 @@ def collect_calibration(
             "ADC range is too tight for this workload — revisit V_ref with statistic_xbar_adc."
         )
 
-    r_max, b_offset = fit_rescale_factor(fit_phys, fit_ideal)
+    r_max = fit_rescale_factor(fit_phys, fit_ideal)
     if r_max <= 0.0:
         raise ValueError(
             f"fitted rescale_factor is non-positive ({r_max:.6g}). "
@@ -326,13 +321,12 @@ def collect_calibration(
 
     derived = derive_rescale_for_bits(r_max, max_bits)
 
-    residual = fit_phys * r_max + b_offset - fit_ideal
+    residual = fit_phys * r_max - fit_ideal
     abs_res = residual.abs()
     return CalibrationResult(
         adc_mode=adc_mode,
         max_bits=max_bits,
         r_max=r_max,
-        b_offset=b_offset,
         derived_rescale=derived,
         total_pairs=total_pairs,
         valid_pairs=valid_pairs,
@@ -375,10 +369,12 @@ def log_calibration(result: CalibrationResult) -> None:
     )
     logger.info("")
     logger.info("rescale_factor_at_max_bits: %.6g", result.r_max)
-    logger.info("b_offset: %.6g  (chip systematic offset; absorbed by bias_int at deployment)", result.b_offset)
     logger.info("rmse: %.6g", result.rmse)
     logger.info("mae: %.6g", result.mae)
-    logger.info("residual_mean: %.6g  (should be ~0 with intercept term)", result.residual_mean)
+    logger.info(
+        "residual_mean: %.6g  (zero-through-origin LS; non-zero residual mean indicates chip non-ideal offset)",
+        result.residual_mean,
+    )
     logger.info("residual_std: %.6g", result.residual_std)
     logger.info("max_abs_residual: %.6g", result.max_abs_residual)
     logger.info("")
@@ -430,13 +426,13 @@ def plot_calibration(result: CalibrationResult, output_path: Path) -> None:
     x_lo = float(min(fit_phys.min(), sat_phys.min() if sat_phys.size else fit_phys.min()))
     x_hi = float(max(fit_phys.max(), sat_phys.max() if sat_phys.size else fit_phys.max()))
     xs = [x_lo, x_hi]
-    ys = [x * result.r_max + result.b_offset for x in xs]
+    ys = [x * result.r_max for x in xs]
     ax_scatter.plot(
         xs,
         ys,
         color="black",
         linewidth=1.0,
-        label=f"r_max={result.r_max:.4g}, b={result.b_offset:.3g}",
+        label=f"r_max={result.r_max:.4g}",
     )
     ax_scatter.set_xlabel("phys_code")
     ax_scatter.set_ylabel("ideal VMM")
@@ -445,7 +441,7 @@ def plot_calibration(result: CalibrationResult, output_path: Path) -> None:
     ax_scatter.grid(True, alpha=0.3)
 
     # Right: residual histogram with mean / mean±std markers.
-    residual = fit_phys * result.r_max + result.b_offset - fit_ideal
+    residual = fit_phys * result.r_max - fit_ideal
     ax_resid.hist(residual, bins=128, alpha=0.7)
     ax_resid.axvline(result.residual_mean, color="black", linestyle="-", label=f"mean={result.residual_mean:.3g}")
     ax_resid.axvline(

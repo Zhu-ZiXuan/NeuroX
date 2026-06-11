@@ -56,7 +56,7 @@ mode = {adc_mode}
 
 
 # ---------------------------------------------------------------------------
-# fit_rescale_factor — returns (r_max, b_offset) tuple
+# fit_rescale_factor — zero-through-origin LS, returns r_max (float)
 # ---------------------------------------------------------------------------
 
 
@@ -64,35 +64,28 @@ class TestFitRescaleFactor:
     def test_perfect_linear(self) -> None:
         p = torch.arange(1, 11, dtype=torch.float64)
         y = 0.5 * p
-        r, b = fit_rescale_factor(p, y)
-        assert r == pytest.approx(0.5, abs=1e-12)
-        assert b == pytest.approx(0.0, abs=1e-12)
+        assert fit_rescale_factor(p, y) == pytest.approx(0.5, abs=1e-12)
 
     def test_negative_targets(self) -> None:
         p = torch.tensor([1.0, 2.0, 3.0, 4.0], dtype=torch.float64)
         y = torch.tensor([-2.0, -4.0, -6.0, -8.0], dtype=torch.float64)
-        r, b = fit_rescale_factor(p, y)
-        assert r == pytest.approx(-2.0, abs=1e-12)
-        assert b == pytest.approx(0.0, abs=1e-12)
+        assert fit_rescale_factor(p, y) == pytest.approx(-2.0, abs=1e-12)
 
     def test_least_squares_solution(self) -> None:
+        # Noisy y around y = 0.3 * p. Zero-through-origin LS = Σpy / Σp².
         p = torch.arange(1, 1001, dtype=torch.float64)
         torch.manual_seed(0)
         y = 0.3 * p + torch.randn(1000, dtype=torch.float64)
-        r, _b = fit_rescale_factor(p, y)
-        # With intercept term, LS for y = r·p + b gives a slope close to 0.3
-        # rather than the slope-only form Σpy/Σp².
-        assert r == pytest.approx(0.3, abs=5e-3)
+        expected = float((p * y).sum() / (p * p).sum())
+        assert fit_rescale_factor(p, y) == pytest.approx(expected, abs=1e-12)
 
-    def test_zero_denominator_returns_zero_slope(self) -> None:
-        # All-zero phys_codes is rank-deficient; the LS form returns
-        # ``r == 0`` (the column carries no signal). The intercept ``b``
-        # is driver-dependent for rank-deficient systems so we only
-        # assert the contract: ``r == 0``.
+    def test_zero_denominator_raises(self) -> None:
+        # All-zero phys_codes → Σp² == 0 → strictly an error in the new
+        # zero-through-origin form (no intercept to absorb constant y).
         p = torch.zeros(5, dtype=torch.float64)
         y = torch.tensor([1.0, 2.0, 3.0, 4.0, 5.0], dtype=torch.float64)
-        r, _b = fit_rescale_factor(p, y)
-        assert r == pytest.approx(0.0, abs=1e-12)
+        with pytest.raises(ValueError, match=r"all valid physical codes are zero"):
+            fit_rescale_factor(p, y)
 
 
 # ---------------------------------------------------------------------------

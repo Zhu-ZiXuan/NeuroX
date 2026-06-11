@@ -520,7 +520,9 @@ def test_direct_xbar_macro_public_properties() -> None:
     assert macro.x_value_range == (0, 3)
     assert macro.adc_mode_num == 1
     assert macro.adc_max_bits == _TEST_ADC_BITS
-    assert macro.adc_rescale_factor(_TEST_ADC_OP) == 2.5
+    # Ideal-backed macros derive rescale from bit width, NOT from preset:
+    # bits == 0 (the full-precision sentinel) → identity rescale of 1.0.
+    assert macro.adc_rescale_factor(_TEST_ADC_OP) == 1.0
 
 
 def test_inter_array_slice_xbar_macro_public_properties() -> None:
@@ -530,7 +532,8 @@ def test_inter_array_slice_xbar_macro_public_properties() -> None:
     macro = _build_inter(config, name="inter_props", w_logical_shape=(13, 20))
     assert macro.w_value_range == (-4095, 4095)
     assert macro.x_value_range == (0, 15)
-    assert macro.adc_rescale_factor(_TEST_ADC_OP) == 3.0
+    # Ideal-backed → bits == 0 → identity, regardless of preset rescale_factor.
+    assert macro.adc_rescale_factor(_TEST_ADC_OP) == 1.0
 
 
 def test_intra_array_slice_xbar_macro_public_properties() -> None:
@@ -540,7 +543,8 @@ def test_intra_array_slice_xbar_macro_public_properties() -> None:
     macro = _build_intra(config, name="intra_props", w_logical_shape=(13, 20))
     assert macro.w_value_range == (-4095, 4095)
     assert macro.x_value_range == (0, 15)
-    assert macro.adc_rescale_factor(_TEST_ADC_OP) == 3.0
+    # Ideal-backed → bits == 0 → identity, regardless of preset rescale_factor.
+    assert macro.adc_rescale_factor(_TEST_ADC_OP) == 1.0
 
 
 @pytest.mark.parametrize(

@@ -120,9 +120,6 @@ class Xbar(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["XbarConf
             AdcOperationPoint(adc_mode=e.adc_mode, adc_bits=e.adc_bits): e.rescale_factor
             for e in config.adc_calibration
         }
-        self._b_offset_lut: dict[AdcOperationPoint, float] = {
-            AdcOperationPoint(adc_mode=e.adc_mode, adc_bits=e.adc_bits): e.b_offset for e in config.adc_calibration
-        }
 
         # `_log_static` is called by the concrete subclass at the end of its
         # ``__init__`` — base does not call to avoid double-recording.
@@ -215,21 +212,17 @@ class Xbar(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["XbarConf
         raise NotImplementedError
 
     def adc_rescale_factor(self, adc_operation_point: AdcOperationPoint) -> float:
-        """Recovery-side multiplier for ``adc_operation_point``: ``M_ideal ≈ code · rescale_factor + b_offset``.
+        """Recovery-side multiplier for ``adc_operation_point``: ``M_ideal ≈ code · rescale_factor``.
+
+        The relationship is strictly proportional (no intercept) by design —
+        differential ADC zeroes ``v_diff`` at ``v_data == v_ref``, so chip
+        offsets show up as noise, not as a constant bias.
 
         Raises:
             KeyError: When ``adc_operation_point`` is absent from the calibrated LUT. The
                 caller owns validity — no defensive check here.
         """
         return self._rescale_lut[adc_operation_point]
-
-    def adc_b_offset(self, adc_operation_point: AdcOperationPoint) -> float:
-        """Additive chip-systematic offset for ``adc_operation_point``: ``M_ideal ≈ code · rescale_factor + b_offset``.
-
-        Returned by the LS+intercept calibration in ``tools/xbar_adc/calibrate.py``;
-        defaults to 0 for ADC records that omit ``b_offset``.
-        """
-        return self._b_offset_lut[adc_operation_point]
 
     # ----- Lifecycle -----
 

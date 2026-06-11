@@ -189,12 +189,12 @@ def _fold_for_macro(
     s_w: Tensor,
     s_y: Tensor,
     r_adc: float,
-    b_offset: float = 0.0,
 ) -> _FoldedScales:
-    """Fold macro's r_ADC + b_offset into ``(mult, rshift, bias_int)``.
+    """Fold macro's r_ADC into ``(mult, rshift, bias_int)``.
 
-    Math: with ``ideal_dot ≈ code · r_ADC + b_offset``, ``combined' = (s_x · s_w / s_y) · r_ADC``,
-    and ``bias_int_folded = round((bias_fp/(s_x·s_w) + b_offset - zp_x · Σ_k w_int) / r_ADC)``,
+    Math: with ``ideal_dot ≈ code · r_ADC`` (zero-through-origin by
+    architectural invariant), ``combined' = (s_x · s_w / s_y) · r_ADC``,
+    and ``bias_int_folded = round((bias_fp/(s_x·s_w) - zp_x · Σ_k w_int) / r_ADC)``,
     the runtime expression ``((code + bias_int_folded) · mult) >> rshift + zp_y``
     reproduces the float math ``round((s_x·s_w·ideal_dot + bias) / s_y) + zp_y``.
     """
@@ -208,7 +208,7 @@ def _fold_for_macro(
         bias_ideal = bias_float.to(torch.float64) / (sx * sw).clamp(min=1e-30)
     else:
         bias_ideal = torch.zeros(weight_int.shape[0], dtype=torch.float64)
-    folded = torch.round((bias_ideal + b_offset - zp * w_sum.to(torch.float64)) / r_adc)
+    folded = torch.round((bias_ideal - zp * w_sum.to(torch.float64)) / r_adc)
     int32 = torch.iinfo(torch.int32)
     bias_int = folded.clamp(min=int32.min, max=int32.max).to(torch.int32)
 
@@ -312,7 +312,6 @@ class QuantConv2d(nn.Module):
         self.padding = padding
         self.adc_operation_point = _default_op_point(macro, adc_mode)
         r_adc = macro.adc_rescale_factor(self.adc_operation_point)
-        b_offset = macro.adc_b_offset(self.adc_operation_point)
         folded = _fold_for_macro(
             weight_int=weight_int,
             bias_float=bias_float,
@@ -321,7 +320,6 @@ class QuantConv2d(nn.Module):
             s_w=s_w,
             s_y=s_y,
             r_adc=r_adc,
-            b_offset=b_offset,
         )
         self.register_buffer("weight_int", weight_int.to(torch.int8))
         self.register_buffer("bias_int", folded.bias_int)
@@ -412,7 +410,6 @@ class QuantLinear(nn.Module):
         self.out_features = out_features
         self.adc_operation_point = _default_op_point(macro, adc_mode)
         r_adc = macro.adc_rescale_factor(self.adc_operation_point)
-        b_offset = macro.adc_b_offset(self.adc_operation_point)
         folded = _fold_for_macro(
             weight_int=weight_int,
             bias_float=bias_float,
@@ -421,7 +418,6 @@ class QuantLinear(nn.Module):
             s_w=s_w,
             s_y=s_y,
             r_adc=r_adc,
-            b_offset=b_offset,
         )
         self.register_buffer("weight_int", weight_int.to(torch.int8))
         self.register_buffer("bias_int", folded.bias_int)

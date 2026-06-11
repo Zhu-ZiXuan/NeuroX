@@ -104,9 +104,8 @@ def _fold_for_macro(
     s_w: Tensor,
     s_y: Tensor,
     r_adc: float,
-    b_offset: float = 0.0,
 ) -> _FoldedScales:
-    """Fold ``r_ADC`` + ``b_offset`` into ``(mult, rshift, bias_int)`` — see lenet.quant for derivation."""
+    """Fold ``r_ADC`` into ``(mult, rshift, bias_int)`` — see lenet.quant for derivation."""
     w_sum = weight_int.to(torch.int64).sum(dim=tuple(range(1, weight_int.ndim)))
     sx = s_x.to(torch.float64)
     zp = zp_x.to(torch.float64)
@@ -117,7 +116,7 @@ def _fold_for_macro(
         if bias_float is not None
         else torch.zeros(weight_int.shape[0], dtype=torch.float64)
     )
-    folded = torch.round((bias_ideal + b_offset - zp * w_sum.to(torch.float64)) / r_adc)
+    folded = torch.round((bias_ideal - zp * w_sum.to(torch.float64)) / r_adc)
     int32 = torch.iinfo(torch.int32)
     bias_int = folded.clamp(min=int32.min, max=int32.max).to(torch.int32)
     combined = (sx * sw * r_adc / sy).to(torch.float32)
@@ -167,7 +166,6 @@ class QuantLinear(nn.Module):
         self.out_features = out_features
         self.adc_operation_point = _op_point(macro, adc_mode)
         r_adc = macro.adc_rescale_factor(self.adc_operation_point)
-        b_offset = macro.adc_b_offset(self.adc_operation_point)
         folded = _fold_for_macro(
             weight_int=weight_int,
             bias_float=bias_float,
@@ -176,7 +174,6 @@ class QuantLinear(nn.Module):
             s_w=s_w,
             s_y=s_y,
             r_adc=r_adc,
-            b_offset=b_offset,
         )
         self.register_buffer("weight_int", weight_int.to(torch.int8))
         self.register_buffer("bias_int", folded.bias_int)
