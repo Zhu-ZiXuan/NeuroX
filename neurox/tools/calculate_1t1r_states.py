@@ -9,7 +9,6 @@ from __future__ import annotations
 import argparse
 import logging
 from dataclasses import dataclass
-from pathlib import Path
 
 import torch
 
@@ -24,7 +23,6 @@ from neurox.device import (
     RRAMSnapshot,
 )
 from neurox.tools._config import add_standard_args, load_tool_config, setup_logging
-
 
 # ---------------------------------------------------------------------------
 # TOML config schema
@@ -63,6 +61,7 @@ class Calculate1T1RStatesConfig:
     nmos: NMOSConfig
     bias: _BiasCfg
     design: _DesignCfg
+
 
 logger = logging.getLogger(__name__)
 
@@ -366,10 +365,7 @@ def main(argv: list[str] | None = None) -> int:
     if not (design.g_max__uS > 0):
         raise SystemExit(f"[design].g_max__uS ({design.g_max__uS}) must be > 0")
     if not (design.g_max__uS > cfg.rram.g_min__uS):
-        raise SystemExit(
-            f"[design].g_max__uS ({design.g_max__uS}) must be > "
-            f"[rram].g_min__uS ({cfg.rram.g_min__uS})"
-        )
+        raise SystemExit(f"[design].g_max__uS ({design.g_max__uS}) must be > [rram].g_min__uS ({cfg.rram.g_min__uS})")
     if not (bias_cfg.v_bl__V > bias_cfg.v_sl__V):
         raise SystemExit(f"[bias].v_bl__V ({bias_cfg.v_bl__V}) must be > [bias].v_sl__V ({bias_cfg.v_sl__V})")
     if not (design.access_nmos_W__um > 0):

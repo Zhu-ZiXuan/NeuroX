@@ -2,10 +2,11 @@
 
 Covers the rules tightened across R6:
 - ``w_state_offset < len(state_to_g_map)`` (so digit 0 maps to a state).
-- ``adc_calibration`` rejects duplicate ``(adc_mode, adc_bits)`` and
-  non-positive ``rescale_factor``.
-- ``Xbar.adc_rescale_factor`` raises ``KeyError`` listing the available
-  operating points.
+- ``Offset1T1RXbarConfig.adc_calibration`` rejects duplicate
+  ``(adc_mode, adc_bits)`` and non-positive ``rescale_factor``.
+- ``IdealXbar.adc_rescale_factor`` raises ``KeyError`` when ``adc_bits``
+  exceeds ``adc_max_bits`` (lookup is bit-width-keyed; ``adc_mode`` is
+  not consulted).
 - ``IdealXbar.program`` rejects floating-point digit tensors.
 - ``load_dump`` rejects primitive type mis-coercion, rejects ``str`` for
   list/tuple/set fields, round-trips polymorphic dataclasses via
@@ -87,18 +88,15 @@ class TestAdcCalibrationValidate:
 
 
 # ---------------------------------------------------------------------------
-# Xbar.adc_rescale_factor informative KeyError
+# IdealXbar.adc_rescale_factor bit-width lookup
 # ---------------------------------------------------------------------------
 
 
-class TestRescaleFactorKeyError:
+class TestIdealRescaleFactor:
     def _build_xbar(self) -> IdealXbar:
         cfg = IdealXbarConfig(
             col_num=4,
             row_num=4,
-            adc_calibration=(
-                AdcCalibrationRecord(adc_mode=0, adc_bits=8, rescale_factor=1.0),
-            ),
             area_per_inst__um2=0.0,
             leakage_per_inst__uW=0.0,
             latency_per_op__ns=0.0,
@@ -118,10 +116,17 @@ class TestRescaleFactorKeyError:
             T__K=300.0,
         )
 
-    def test_missing_op_lists_available(self) -> None:
+    def test_bits_above_max_raises(self) -> None:
         xbar = self._build_xbar()
-        with pytest.raises(KeyError, match=r"available.*\(0, 8\)"):
-            xbar.adc_rescale_factor(AdcOperationPoint(adc_mode=7, adc_bits=4))
+        with pytest.raises(KeyError):
+            xbar.adc_rescale_factor(AdcOperationPoint(adc_mode=0, adc_bits=9))
+
+    def test_mode_is_ignored(self) -> None:
+        """Any ``adc_mode`` returns the same rescale for a given ``adc_bits``."""
+        xbar = self._build_xbar()
+        r0 = xbar.adc_rescale_factor(AdcOperationPoint(adc_mode=0, adc_bits=4))
+        r999 = xbar.adc_rescale_factor(AdcOperationPoint(adc_mode=999, adc_bits=4))
+        assert r0 == r999
 
 
 # ---------------------------------------------------------------------------
@@ -134,9 +139,6 @@ class TestIdealProgramDtype:
         cfg = IdealXbarConfig(
             col_num=4,
             row_num=4,
-            adc_calibration=(
-                AdcCalibrationRecord(adc_mode=0, adc_bits=8, rescale_factor=1.0),
-            ),
             area_per_inst__um2=0.0,
             leakage_per_inst__uW=0.0,
             latency_per_op__ns=0.0,

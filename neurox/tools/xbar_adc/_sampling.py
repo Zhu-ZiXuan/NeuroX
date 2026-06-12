@@ -99,8 +99,7 @@ def load_distribution(path: Path | None, xbar: Offset1T1RXbar) -> Distribution:
     unknown = sorted(k for k in raw if k not in ("w", "x"))
     if unknown:
         raise ValueError(
-            f"distribution TOML at {path}: unknown top-level key(s) "
-            f"{unknown}; only '[w]' and '[x]' are recognised"
+            f"distribution TOML at {path}: unknown top-level key(s) {unknown}; only '[w]' and '[x]' are recognised"
         )
     w_values, w_probs = _load_axis(raw, "w", xbar.w_digit_range)
     x_values, x_probs = _load_axis(raw, "x", xbar.x_range)
@@ -378,8 +377,7 @@ def _all_off_tia_policy(tia_config: object) -> TIAPolicy:
             nmos=NMOSPolicy(A_vt_mismatch=False, A_beta_mismatch=False),
         )
     raise TypeError(
-        f"unsupported tia config type: {type(tia_config).__name__}; "
-        "neurox.tools.xbar_adc supports OpAmpTIA only"
+        f"unsupported tia config type: {type(tia_config).__name__}; neurox.tools.xbar_adc supports OpAmpTIA only"
     )
 
 
@@ -388,8 +386,7 @@ def _all_off_dac_policy(dac_config: object) -> DACPolicy:
     if isinstance(dac_config, GeneralDACConfig):
         return GeneralDACPolicy(drive_thermal=False)
     raise TypeError(
-        f"unsupported dac config type: {type(dac_config).__name__}; "
-        "neurox.tools.xbar_adc supports GeneralDAC only"
+        f"unsupported dac config type: {type(dac_config).__name__}; neurox.tools.xbar_adc supports GeneralDAC only"
     )
 
 

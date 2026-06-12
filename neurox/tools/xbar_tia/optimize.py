@@ -117,9 +117,7 @@ class TiaDesignConfig:
 
     def __post_init__(self) -> None:
         if not (self.hardware.target_v_max__V > 0.0):
-            raise ValueError(
-                f"[hardware].target_v_max__V ({self.hardware.target_v_max__V}) must be > 0"
-            )
+            raise ValueError(f"[hardware].target_v_max__V ({self.hardware.target_v_max__V}) must be > 0")
 
 
 # --- evaluation -------------------------------------------------------------

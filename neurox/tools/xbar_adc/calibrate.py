@@ -31,7 +31,6 @@ from neurox.tools.xbar_adc._sampling import (
 )
 from neurox.xbar import Offset1T1RXbarConfig
 
-
 # ---------------------------------------------------------------------------
 # TOML config schema
 # ---------------------------------------------------------------------------
@@ -62,6 +61,7 @@ class XbarAdcCalibrateConfig:
     xbar: Offset1T1RXbarConfig
     workload: _WorkloadCfg
     adc: _AdcCfg
+
 
 logger = logging.getLogger(__name__)
 

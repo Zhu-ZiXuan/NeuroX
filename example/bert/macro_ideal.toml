@@ -59,13 +59,10 @@ w_digit_radix = 2
 w_digit_range = [-1, 1]
 
 # 8-bit synthetic ADC reference (see comment in lenet/macro_with_ideal_xbar.toml).
+# IdealXbar derives the rescale from adc_bits + integer geometry; no
+# calibration table needed here.
 adc_mode_num = 1
 adc_max_bits = 8
-
-[[macro.xbar_config.adc_calibration]]
-adc_mode = 0
-adc_bits = 8
-rescale_factor = 0.5
 
 
 [macro.col_accumulator_config]

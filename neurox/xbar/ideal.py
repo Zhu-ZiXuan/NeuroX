@@ -1,4 +1,4 @@
-"""Tile-level ideal crossbar with adc_operation_point-driven output quantization.
+"""Tile-level ideal crossbar with adc_bits-driven output quantization.
 
 See also:
     docs/dev/modules/xbar/ideal.md
@@ -26,8 +26,10 @@ class IdealXbarConfig(XbarConfig):
         w_digit_count: Digits per ``w``.
         w_digit_radix: In-tile positional radix.
         w_digit_range: Inclusive integer range a single digit can carry.
-        adc_mode_num: Number of supported ADC operating points.
-        adc_max_bits: Maximum supported ``adc_bits`` value.
+        adc_mode_num: Number of supported ADC operating points (the mode
+            value is opaque to the ideal tile; see :class:`IdealXbar`).
+        adc_max_bits: Maximum supported ``adc_bits`` value; ``0`` is the
+            lossless-sentinel bit width.
     """
 
     x_range: tuple[int, int]
@@ -40,6 +42,10 @@ class IdealXbarConfig(XbarConfig):
     def validate(self) -> None:
         super().validate()
         self.validate_value_grid()
+        if not (self.adc_mode_num >= 1):
+            raise ValueError(f"require: adc_mode_num ({self.adc_mode_num}) >= 1")
+        if not (self.adc_max_bits >= 0):
+            raise ValueError(f"require: adc_max_bits ({self.adc_max_bits}) >= 0")
 
 
 @dataclass(frozen=True)
@@ -49,7 +55,13 @@ class IdealXbarPolicy(XbarPolicy):
 
 @Xbar.register_key(IdealXbarConfig)
 class IdealXbar(Xbar):
-    """Tile-level ideal VMM with adc_operation_point-driven output quantization.
+    """Tile-level ideal VMM with adc_bits-driven output quantization.
+
+    The rescale at ``adc_bits = N`` is derived in :meth:`__init__` from
+    integer geometry alone — ``rescale = max_dot_abs / (2^(N-1) - 1)``,
+    where ``max_dot_abs = row_num · max|w_logical| · max|x|``. No chip
+    calibration enters the computation. ``adc_operation_point.adc_mode``
+    is opaque and not read at runtime.
 
     Args:
         config: Concrete configuration dataclass.
@@ -108,19 +120,10 @@ class IdealXbar(Xbar):
         )
         self.register_buffer("digit_weights", digit_weights, persistent=False)
 
-        # Quantize-side multiplier — ideal xbar derives this **purely from
-        # bit width**, not from the chip's calibrated ``adc_calibration``
-        # table. The recovery rescale is the inverse of:
-        #
-        #   max|w_logical| = max(|d_lo|, |d_hi|) · sum_k r^k
-        #   max_dot        = row_num · max|w_logical| · max|x|
-        #   scale          = (2 ** (bits - 1) - 1) / max_dot
-        #
-        # so the lossless integer dot product clips at exactly the signed
-        # N-bit endpoints. ``max|w_logical|`` is derived from the actual
-        # per-digit range so signed / offset digit encodings get the right
-        # bound (the legacy ``radix^count - 1`` form assumed canonical
-        # non-negative digits and over-clipped any asymmetric encoding).
+        # ``max|w_logical|`` uses the actual per-digit range so signed /
+        # offset digit encodings get the right bound (the legacy
+        # ``radix^count - 1`` form assumed canonical non-negative digits
+        # and over-clipped any asymmetric encoding).
         d_lo, d_hi = config.w_digit_range
         max_digit_abs = max(abs(d_lo), abs(d_hi))
         max_w_logical_abs = max_digit_abs * int(digit_weights.sum().item())
@@ -128,20 +131,19 @@ class IdealXbar(Xbar):
         max_x_abs = max(abs(x_lo), abs(x_hi))
         self._max_dot_abs: int = config.row_num * max_w_logical_abs * max_x_abs
 
-        self._scale_lut: dict[AdcOperationPoint, float] = {}
-        self._rescale_lut = {}  # override base's chip-calibrated table
-        for op in (AdcOperationPoint(adc_mode=e.adc_mode, adc_bits=e.adc_bits) for e in config.adc_calibration):
-            if op.adc_bits == 0:
-                # Full-precision sentinel: lossless int dot = ideal VMM
-                # exactly, so the recovery rescale is identity. The
-                # ``vec_mat_mul`` path also skips quantization (and
-                # therefore the scale lookup) when ``adc_bits == 0``.
-                self._rescale_lut[op] = 1.0
-                continue
-            half_range = (1 << (op.adc_bits - 1)) - 1
-            rescale = self._max_dot_abs / half_range  # ideal_dot per ADC code
-            self._rescale_lut[op] = rescale
-            self._scale_lut[op] = 1.0 / rescale
+        # Bit-width-keyed rescale / scale tables. ``adc_bits == 0`` is the
+        # lossless sentinel — ``vec_mat_mul`` returns the integer dot
+        # product unmodified and the rescale is identity. Skip
+        # ``bits == 1``: the signed 1-bit endpoint ``2^0 - 1 == 0`` makes
+        # the rescale formula degenerate; callers asking for it hit a
+        # natural ``KeyError`` at lookup time.
+        self._rescale_by_bits: dict[int, float] = {0: 1.0}
+        self._scale_by_bits: dict[int, float] = {}
+        for bits in range(2, config.adc_max_bits + 1):
+            half_range = (1 << (bits - 1)) - 1
+            rescale = self._max_dot_abs / half_range
+            self._rescale_by_bits[bits] = rescale
+            self._scale_by_bits[bits] = 1.0 / rescale
 
         self._log_static()
 
@@ -173,6 +175,15 @@ class IdealXbar(Xbar):
         """An ideal xbar is its own ideal counterpart."""
         return self
 
+    def adc_rescale_factor(self, adc_operation_point: AdcOperationPoint) -> float:
+        """Recovery rescale derived from ``adc_operation_point.adc_bits``.
+
+        ``adc_operation_point.adc_mode`` is intentionally ignored — the
+        ideal tile has no analog reference scheme, so mode is meaningless
+        here. ``adc_bits`` outside ``[0, adc_max_bits]`` raises ``KeyError``.
+        """
+        return self._rescale_by_bits[adc_operation_point.adc_bits]
+
     def program(self, w: Tensor) -> None:
         """Store the xbar-native digit tensor as the tile weight.
 
@@ -184,22 +195,23 @@ class IdealXbar(Xbar):
         if tuple(w.shape) != self._w_layout_shape:
             raise ValueError(f"program() expects w.shape {self._w_layout_shape}; got {tuple(w.shape)}")
         if w.is_floating_point() or w.is_complex():
-            raise TypeError(
-                f"program() expects an integer digit tensor; got dtype {w.dtype}"
-            )
+            raise TypeError(f"program() expects an integer digit tensor; got dtype {w.dtype}")
         self.digits = w.detach().clone().to(self.digit_weights.device)
 
     def vec_mat_mul(self, x: Tensor, *, adc_operation_point: AdcOperationPoint) -> Tensor:
-        """Ideal VMM with operation-point-driven output quantization.
+        """Ideal VMM with adc_bits-driven output quantization.
 
-        ``adc_operation_point.adc_bits == 0`` is a sentinel: skip ADC quantization and
+        Only ``adc_operation_point.adc_bits`` enters the computation;
+        ``adc_mode`` is opaque to the ideal tile and not read.
+        ``adc_bits == 0`` is a sentinel: skip ADC quantization and
         the signed clamp, returning the lossless integer dot product so
         results match :class:`IdealXbarMacro` exactly.
 
         Args:
             x: Activation tensor with primitive trailing
                 ``[row_num]``.
-            adc_operation_point: Runtime ADC operating point.
+            adc_operation_point: Runtime ADC operating point; only
+                ``adc_bits`` is consumed.
 
         Returns:
             Signed ADC-code tensor with primitive trailing ``[col_num]``.
@@ -226,7 +238,7 @@ class IdealXbar(Xbar):
         if adc_operation_point.adc_bits == 0:
             return dot
 
-        scale = self._scale_lut[adc_operation_point]
+        scale = self._scale_by_bits[adc_operation_point.adc_bits]
         code = stochastic_floor_to_int(
             dot.to(torch.float32),
             scale,

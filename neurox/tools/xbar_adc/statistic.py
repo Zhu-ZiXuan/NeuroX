@@ -37,7 +37,6 @@ from neurox.tools.xbar_adc._sampling import (
 )
 from neurox.xbar import Offset1T1RXbarConfig
 
-
 # ---------------------------------------------------------------------------
 # TOML config schema
 # ---------------------------------------------------------------------------
@@ -87,6 +86,7 @@ class XbarAdcStatisticConfig:
     workload: _WorkloadCfg
     statistic: _StatisticCfg
     plot: _PlotCfg
+
 
 logger = logging.getLogger(__name__)
 
@@ -484,8 +484,7 @@ def plot_statistics(
     ax_hist.set_xlabel("v_diff [V]")
     ax_hist.set_ylabel("count (log)")
     ax_hist.set_title(
-        f"ADC differential input distribution "
-        f"(bin = LSB_max_abs / {bins_per_code} = {overview_bin_width * 1e3:.3g} mV)"
+        f"ADC differential input distribution (bin = LSB_max_abs / {bins_per_code} = {overview_bin_width * 1e3:.3g} mV)"
     )
     ax_hist.legend(fontsize=8, loc="upper right")
 

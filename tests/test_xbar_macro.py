@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from neurox.analog.adc import AdcCalibrationRecord, AdcOperationPoint
+from neurox.analog.adc import AdcOperationPoint
 from neurox.digital import AccumulatorConfig, ShiftAdderConfig
 from neurox.macro.xbar import (
     DirectXbarMacro,
@@ -48,14 +48,10 @@ def _ideal_xbar_config(
     w_digit_count: int = 1,
     w_digit_radix: int = 4,
     w_digit_range: tuple[int, int] = (-3, 3),
-    rescale_factor: float = 1.0,
 ) -> IdealXbarConfig:
     return IdealXbarConfig(
         col_num=col_num,
         row_num=row_num,
-        adc_calibration=(
-            AdcCalibrationRecord(adc_mode=0, adc_bits=_TEST_ADC_BITS, rescale_factor=rescale_factor),
-        ),
         latency_per_op__ns=0.0,
         leakage_per_inst__uW=0.0,
         area_per_inst__um2=0.0,
@@ -89,10 +85,9 @@ def _direct_config(
     *,
     x_range: tuple[int, int] = (0, 1),
     w_digit_count: int = 1,
-    rescale_factor: float = 1.0,
 ) -> DirectXbarMacroConfig:
     return DirectXbarMacroConfig(
-        xbar_config=_ideal_xbar_config(x_range=x_range, w_digit_count=w_digit_count, rescale_factor=rescale_factor),
+        xbar_config=_ideal_xbar_config(x_range=x_range, w_digit_count=w_digit_count),
         w_encoding="true_form",
         col_accumulator_config=_accumulator_config(),
     )
@@ -115,10 +110,9 @@ def _slice_config(
     x_slice_num: int,
     x_range: tuple[int, int] = (0, 1),
     w_digit_count: int = 1,
-    rescale_factor: float = 1.0,
 ) -> dict[str, object]:
     return {
-        "xbar_config": _ideal_xbar_config(x_range=x_range, w_digit_count=w_digit_count, rescale_factor=rescale_factor),
+        "xbar_config": _ideal_xbar_config(x_range=x_range, w_digit_count=w_digit_count),
         "w_slice_num": w_slice_num,
         "x_slice_num": x_slice_num,
         "w_encoding": "true_form",
@@ -512,7 +506,7 @@ def test_ideal_xbar_macro_public_properties() -> None:
 
 def test_direct_xbar_macro_public_properties() -> None:
     macro = _build_direct(
-        _direct_config(x_range=(0, 3), w_digit_count=2, rescale_factor=2.5),
+        _direct_config(x_range=(0, 3), w_digit_count=2),
         name="direct_props",
         w_logical_shape=(13, 20),
     )
@@ -520,30 +514,30 @@ def test_direct_xbar_macro_public_properties() -> None:
     assert macro.x_value_range == (0, 3)
     assert macro.adc_mode_num == 1
     assert macro.adc_max_bits == _TEST_ADC_BITS
-    # Ideal-backed macros derive rescale from bit width, NOT from preset:
-    # bits == 0 (the full-precision sentinel) → identity rescale of 1.0.
+    # Ideal-backed macros derive rescale from bit width alone: bits == 0
+    # (the full-precision sentinel) → identity rescale of 1.0.
     assert macro.adc_rescale_factor(_TEST_ADC_OP) == 1.0
 
 
 def test_inter_array_slice_xbar_macro_public_properties() -> None:
     config = InterArraySliceXbarMacroConfig(
-        **_slice_config(w_slice_num=3, x_slice_num=2, x_range=(0, 3), w_digit_count=2, rescale_factor=3.0)
+        **_slice_config(w_slice_num=3, x_slice_num=2, x_range=(0, 3), w_digit_count=2)
     )
     macro = _build_inter(config, name="inter_props", w_logical_shape=(13, 20))
     assert macro.w_value_range == (-4095, 4095)
     assert macro.x_value_range == (0, 15)
-    # Ideal-backed → bits == 0 → identity, regardless of preset rescale_factor.
+    # Ideal-backed → bits == 0 → identity rescale.
     assert macro.adc_rescale_factor(_TEST_ADC_OP) == 1.0
 
 
 def test_intra_array_slice_xbar_macro_public_properties() -> None:
     config = IntraArraySliceXbarMacroConfig(
-        **_slice_config(w_slice_num=3, x_slice_num=2, x_range=(0, 3), w_digit_count=2, rescale_factor=3.0)
+        **_slice_config(w_slice_num=3, x_slice_num=2, x_range=(0, 3), w_digit_count=2)
     )
     macro = _build_intra(config, name="intra_props", w_logical_shape=(13, 20))
     assert macro.w_value_range == (-4095, 4095)
     assert macro.x_value_range == (0, 15)
-    # Ideal-backed → bits == 0 → identity, regardless of preset rescale_factor.
+    # Ideal-backed → bits == 0 → identity rescale.
     assert macro.adc_rescale_factor(_TEST_ADC_OP) == 1.0
 
 

@@ -135,9 +135,7 @@ def _build_value(value: Any, tp: Any) -> Any:  # noqa: ANN401
         # string by mistake, the silent character-iteration that
         # results is almost always wrong. Reject it explicitly.
         if isinstance(value, (str, bytes)):
-            raise TypeError(
-                f"Expected list/tuple/set for {tp}, got {type(value).__name__}: {value!r}"
-            )
+            raise TypeError(f"Expected list/tuple/set for {tp}, got {type(value).__name__}: {value!r}")
         if not args:
             return value
         if origin is tuple and len(args) == 2 and args[1] is Ellipsis:
@@ -227,10 +225,7 @@ def dataclass_from_dict(cls: type[T], data: Mapping[str, Any]) -> T:
     names = _dataclass_field_names(cls)
     unknown = [k for k in data if k != _TYPE_DISCRIMINATOR and k not in names]
     if unknown:
-        raise TypeError(
-            f"{cls.__name__}: unknown key(s) {sorted(unknown)}; "
-            f"valid fields: {sorted(names)}"
-        )
+        raise TypeError(f"{cls.__name__}: unknown key(s) {sorted(unknown)}; valid fields: {sorted(names)}")
     kwargs: dict[str, Any] = {}
     for name, raw in data.items():
         if name == _TYPE_DISCRIMINATOR:

@@ -14,7 +14,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
-from neurox.analog.adc import AdcCalibrationRecord, AdcOperationPoint
+from neurox.analog.adc import AdcOperationPoint
 from neurox.common.mixin import FabricateMixin, ProfileMixin, RegistryMixin, ValidateMixin
 
 if TYPE_CHECKING:
@@ -23,16 +23,12 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class XbarConfig(ValidateMixin):
-    """Geometry, runtime operating point and PPA for one xbar tile.
+    """Geometry and PPA shared by every xbar tile.
 
     Attributes:
         col_num: Number of columns per tile (cells aggregating to
             one output).
         row_num: Number of rows per tile (cells sharing one input).
-        adc_calibration: Externally-calibrated ``(adc_mode, adc_bits) →
-            rescale_factor`` records; ``M_ideal ≈ code · rescale_factor``
-            (quantize is ``code = floor(M_ideal / rescale_factor)``).
-            Lists the set of ADC operating points the tile supports.
         latency_per_op__ns: Array read latency per op [ns].
         leakage_per_inst__uW: Static leakage per tile instance [uW].
         area_per_inst__um2: Silicon area per tile instance [μm²].
@@ -40,8 +36,6 @@ class XbarConfig(ValidateMixin):
 
     col_num: int
     row_num: int
-
-    adc_calibration: tuple[AdcCalibrationRecord, ...]
 
     latency_per_op__ns: float
     leakage_per_inst__uW: float
@@ -52,7 +46,6 @@ class XbarConfig(ValidateMixin):
 
     def validate(self) -> None:
         self.validate_geometry()
-        self.validate_adc_calibration()
         self.validate_ppa()
 
     def validate_geometry(self) -> None:
@@ -72,23 +65,6 @@ class XbarConfig(ValidateMixin):
             d_lo, d_hi = self.w_digit_range
             if d_lo == 0 and d_hi == 0:
                 raise ValueError("require: w_digit_range cannot be (0, 0) — collapses rescale math")
-
-    def validate_adc_calibration(self) -> None:
-        if len(self.adc_calibration) == 0:
-            raise ValueError("require: adc_calibration must contain at least one entry")
-        seen: set[tuple[int, int]] = set()
-        for entry in self.adc_calibration:
-            key = (entry.adc_mode, entry.adc_bits)
-            if key in seen:
-                raise ValueError(
-                    f"adc_calibration has duplicate (adc_mode, adc_bits)={key}"
-                )
-            seen.add(key)
-            if not (entry.rescale_factor > 0.0):
-                raise ValueError(
-                    f"require: rescale_factor ({entry.rescale_factor}) > 0 for "
-                    f"(adc_mode={entry.adc_mode}, adc_bits={entry.adc_bits})"
-                )
 
     def validate_ppa(self) -> None:
         self._require_nonneg(self.area_per_inst__um2, "area_per_inst__um2")
@@ -140,10 +116,6 @@ class Xbar(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["XbarConf
 
         self.col_num = config.col_num
         self.row_num = config.row_num
-        self._rescale_lut: dict[AdcOperationPoint, float] = {
-            AdcOperationPoint(adc_mode=e.adc_mode, adc_bits=e.adc_bits): e.rescale_factor
-            for e in config.adc_calibration
-        }
 
         # `_log_static` is called by the concrete subclass at the end of its
         # ``__init__`` — base does not call to avoid double-recording.
@@ -235,6 +207,7 @@ class Xbar(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["XbarConf
         """Maximum ``adc_bits`` value the tile's ADC supports."""
         raise NotImplementedError
 
+    @abstractmethod
     def adc_rescale_factor(self, adc_operation_point: AdcOperationPoint) -> float:
         """Recovery-side multiplier for ``adc_operation_point``: ``M_ideal ≈ code · rescale_factor``.
 
@@ -242,22 +215,11 @@ class Xbar(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["XbarConf
         differential ADC zeroes ``v_diff`` at ``v_data == v_ref``, so chip
         offsets show up as noise, not as a constant bias.
 
-        Raises:
-            KeyError: When ``adc_operation_point`` is absent from the
-                calibrated LUT. The error message lists the available
-                operating points so the caller can spot misconfigured
-                ``adc_calibration`` tables at a glance.
+        Each concrete xbar owns its mapping: physical impls look the value
+        up in a chip-calibrated table, the ideal twin derives it from
+        ``adc_bits`` and the integer geometry alone.
         """
-        try:
-            return self._rescale_lut[adc_operation_point]
-        except KeyError:
-            available = sorted(
-                (op.adc_mode, op.adc_bits) for op in self._rescale_lut
-            )
-            raise KeyError(
-                f"{adc_operation_point} not in adc_calibration; "
-                f"available (adc_mode, adc_bits): {available}"
-            ) from None
+        raise NotImplementedError
 
     # ----- Lifecycle -----
 

@@ -32,7 +32,6 @@ from neurox.xbar import Offset1T1RXbarConfig
 
 from ._plateau import CandidateRow, WorkloadScale, pick_with_plateau_and_guard
 
-
 # ---------------------------------------------------------------------------
 # TOML config schema
 # ---------------------------------------------------------------------------
@@ -74,6 +73,7 @@ class SolverCalibrateTiaConfig:
     workload: _WorkloadCfg
     sweep: _SweepCfg
     runtime: _RuntimeCfg
+
 
 log = logging.getLogger(__name__)
 

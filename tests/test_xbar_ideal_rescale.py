@@ -10,7 +10,6 @@ from __future__ import annotations
 import pytest
 import torch
 
-from neurox.analog.adc import AdcCalibrationRecord, AdcOperationPoint
 from neurox.xbar.ideal import IdealXbar, IdealXbarConfig, IdealXbarPolicy
 
 _CPU = torch.device("cpu")
@@ -25,14 +24,10 @@ def _make_xbar(
     row_num: int,
     col_num: int,
     adc_bits: int,
-    rescale_factor: float = 1.0,
 ) -> IdealXbar:
     config = IdealXbarConfig(
         col_num=col_num,
         row_num=row_num,
-        adc_calibration=(
-            AdcCalibrationRecord(adc_mode=0, adc_bits=adc_bits, rescale_factor=rescale_factor),
-        ),
         area_per_inst__um2=0.0,
         leakage_per_inst__uW=0.0,
         latency_per_op__ns=0.0,
@@ -90,8 +85,7 @@ class TestRescaleScope:
             w_digit_range=(-3, 3), w_digit_radix=4, w_digit_count=2, x_range=(0, 1), row_num=8
         )
         assert xbar._max_dot_abs == expected
-        op = AdcOperationPoint(adc_mode=0, adc_bits=8)
-        assert xbar._rescale_lut[op] == expected / ((1 << 7) - 1)
+        assert xbar._rescale_by_bits[8] == expected / ((1 << 7) - 1)
 
     def test_offset_nonneg_range(self) -> None:
         """w_digit_range = [0, d_max] — canonical non-negative."""
@@ -145,9 +139,8 @@ class TestRescaleScope:
         correct = 1 * (1 + 4)
         assert xbar._max_dot_abs == 8 * correct
         # And the rescale derived from it must use the correct bound, not legacy.
-        op = AdcOperationPoint(adc_mode=0, adc_bits=8)
-        assert xbar._rescale_lut[op] == 8 * correct / ((1 << 7) - 1)
-        assert xbar._rescale_lut[op] != 8 * legacy_wrong / ((1 << 7) - 1)
+        assert xbar._rescale_by_bits[8] == 8 * correct / ((1 << 7) - 1)
+        assert xbar._rescale_by_bits[8] != 8 * legacy_wrong / ((1 << 7) - 1)
 
 
 class TestProgramOwnership:
