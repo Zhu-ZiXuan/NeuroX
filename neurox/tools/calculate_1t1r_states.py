@@ -353,7 +353,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Solve the per-state RRAM conductance ladder yielding linear 1T1R cell current.",
     )
-    add_standard_args(parser)
+    add_standard_args(parser, device=False)
     args = parser.parse_args(argv)
     setup_logging(args.log_level)
 
@@ -365,6 +365,11 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit(f"[design].n_states ({design.n_states}) must be >= 2")
     if not (design.g_max__uS > 0):
         raise SystemExit(f"[design].g_max__uS ({design.g_max__uS}) must be > 0")
+    if not (design.g_max__uS > cfg.rram.g_min__uS):
+        raise SystemExit(
+            f"[design].g_max__uS ({design.g_max__uS}) must be > "
+            f"[rram].g_min__uS ({cfg.rram.g_min__uS})"
+        )
     if not (bias_cfg.v_bl__V > bias_cfg.v_sl__V):
         raise SystemExit(f"[bias].v_bl__V ({bias_cfg.v_bl__V}) must be > [bias].v_sl__V ({bias_cfg.v_sl__V})")
     if not (design.access_nmos_W__um > 0):

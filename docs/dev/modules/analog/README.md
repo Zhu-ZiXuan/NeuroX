@@ -24,9 +24,9 @@ These are not polymorphic families — each is a single concrete `nn.Module` the
 
 Each sub-directory holds a polymorphic family driven by `RegistryMixin` keyed on the concrete config class:
 
-- [`dac/`](docs/dev/modules/analog/dac/README.md) — `DAC` family (today: `GeneralDAC`).
-- [`adc/`](docs/dev/modules/analog/adc/README.md) — `ADC` family (today: `GeneralADC`, `McsSarAdc`, `SarAdcMono`).
-- [`tia/`](docs/dev/modules/analog/tia/README.md) — `TIA` family (today: `OpAmpTIA`).
+- [`dac/`](dac/README.md) — `DAC` family (today: `GeneralDAC`).
+- [`adc/`](adc/README.md) — `ADC` family (today: `GeneralADC`, `McsSarAdc`, `SarAdcMono`).
+- [`tia/`](tia/README.md) — `TIA` family (today: `OpAmpTIA`).
 
 See also:
 

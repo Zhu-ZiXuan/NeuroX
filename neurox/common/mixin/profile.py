@@ -52,6 +52,16 @@ class ProfileMixin:
         return type(self).__name__
 
     @property
+    def inst_shape(self) -> tuple[int, ...]:
+        """Per-instance fabrication shape declared at construction.
+
+        Public read-only view over ``self._inst_shape`` — tools and
+        callers should consult this instead of poking at the private
+        backing attribute.
+        """
+        return self._inst_shape
+
+    @property
     def inst_count(self) -> int:
         """Total fabrication instance count; set by :meth:`_log_static`."""
         return self._inst_count

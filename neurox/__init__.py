@@ -15,12 +15,48 @@ from neurox.common.profiler import (
     StaticMetrics,
     StaticRecord,
 )
+from neurox.macro import NeuroxMacroQuantMatMul
+from neurox.macro.xbar import (
+    DirectXbarMacro,
+    DirectXbarMacroConfig,
+    DirectXbarMacroPolicy,
+    IdealXbarMacro,
+    IdealXbarMacroConfig,
+    IdealXbarMacroPolicy,
+    InterArraySliceXbarMacro,
+    InterArraySliceXbarMacroConfig,
+    InterArraySliceXbarMacroPolicy,
+    IntraArraySliceXbarMacro,
+    IntraArraySliceXbarMacroConfig,
+    IntraArraySliceXbarMacroPolicy,
+    XbarMacro,
+    XbarMacroConfig,
+    XbarMacroPolicy,
+)
 
 __all__ = [
+    # profiler
     "NeuroxProfiler",
     "ProfileMixin",
     "ProfilerReport",
     "RuntimeEvent",
     "StaticMetrics",
     "StaticRecord",
+    # macro public surface
+    "DirectXbarMacro",
+    "DirectXbarMacroConfig",
+    "DirectXbarMacroPolicy",
+    "IdealXbarMacro",
+    "IdealXbarMacroConfig",
+    "IdealXbarMacroPolicy",
+    "InterArraySliceXbarMacro",
+    "InterArraySliceXbarMacroConfig",
+    "InterArraySliceXbarMacroPolicy",
+    "IntraArraySliceXbarMacro",
+    "IntraArraySliceXbarMacroConfig",
+    "IntraArraySliceXbarMacroPolicy",
+    "NeuroxMacroQuantMatMul",
+    "XbarMacro",
+    "XbarMacroConfig",
+    "XbarMacroPolicy",
 ]

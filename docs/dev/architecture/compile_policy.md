@@ -1,6 +1,6 @@
 # `@torch.compile` Policy
 
-This document records the project-wide rules for using `@torch.compile`, the forbidden behaviours on the compiled path, and the only intentional graph break.
+This document records the project-wide rules for using `@torch.compile`, the forbidden behaviours on the compiled path, and the intentional graph breaks.
 
 ## Where the compile boundary lives
 
@@ -8,8 +8,8 @@ The project applies `@torch.compile` at exactly one layer: the **macro entry met
 
 Concretely:
 
-- Every XbarMacro family member's `matmul` method (`DirectXbarMacro`, `InterArraySliceXbarMacro`, `IntraArraySliceXbarMacro`, `IdealXbarMacro`) is decorated `@torch.no_grad()` / `@torch.compile(dynamic=True)`.
-- **Nothing below the macro is decorated.** Xbar `vec_mat_mul`, ReadOut `readout`, ADC `convert`, SwitchCap `sample_and_accumulate`, AnalogMux `transport`, OpAmpTIA `solve_dc`, NewtonRaphson `solve_dc`, digital `operate`, etc. are plain methods.
+- Every concrete `XbarMacro` subclass's `matmul` method is decorated `@torch.no_grad()` / `@torch.compile(dynamic=True)`.
+- **Nothing below the macro is decorated.** Xbar `vec_mat_mul`, ReadOut `readout`, ADC `convert`, SwitchCap `sample_and_accumulate`, AnalogMux `transport`, OpAmpTIA `solve_dc`, `Solver1T1R.solve_dc`, digital `operate`, etc. are plain methods.
 
 The macro layer is the natural unit boundary: tile geometry is known by the time `matmul` is called, dynamic shapes only enter through user batch dimensions, and one compiled region contains the whole VMM + digital aggregation pipeline.
 
@@ -17,7 +17,7 @@ Below the macro, decorating individual functions would only fragment fusion. Abo
 
 ## Decoration parameters
 
-When a method is allowed to self-decorate (currently only the two macro entry methods):
+When a method is allowed to self-decorate (currently only `XbarMacro.matmul` on every concrete subclass):
 
 - `dynamic=True` — always. User batch dimensions vary call-to-call; static-shape mode would recompile on every batch-size change.
 - `fullgraph` — default `False`. Library code must allow graph breaks because `_log_dynamic` produces one (see below). Set `fullgraph=True` only in test code that wants to catch accidental Python sync.
@@ -57,7 +57,8 @@ The shape / dtype / device of the cached buffer must match the runtime path; oth
 
 ## Allowed exceptions
 
-- `@torch.compiler.disable` on `ProfileMixin._log_dynamic`. This is the **only intentional graph break** on the runtime path. It is necessary because the profiler reads `threading.local` and mutates a Python list; both are untraceable by dynamo. The break is local — it happens at the end of each primary method, after all the kernel math, so fusion inside the kernel is unaffected. See [`profiler_and_ppa.md`](profiler_and_ppa.md) for the trade-off discussion.
+- `@torch.compiler.disable` on `ProfileMixin._log_dynamic`. The break is local — it happens at the end of each primary method, after all the kernel math, so fusion inside the kernel is unaffected. Necessary because the profiler reads `threading.local` and mutates a Python list; both are untraceable by dynamo. See [`profiler_and_ppa.md`](profiler_and_ppa.md) for the trade-off discussion.
+- `@torch.compiler.disable` on `Offset1T1RXbar.vec_mat_mul` (`neurox/xbar/_1t1r/offset.py`). This is a **temporary intentional boundary**: an earlier attempt to compile the inner block produced a > 10 min first-call compile dominated by inductor scheduling of the SAR ADC's bit-loop (`McsSarAdc.convert`). The disable is at the top of `vec_mat_mul` so the macro-level compile still fuses everything *above* it; the Newton solve + readout chain runs eagerly, which is the project default until the SAR bit-loop is rewritten to a graph-friendly form. Remove this `@disable` when the SAR fix lands.
 - `tensor.shape[i]` / `tensor.size(i)` / `tensor.ndim` return Python `int` without CPU sync — safe.
 - `.detach()` (without `.item()`) — safe.
 - `with torch.no_grad():` / `with torch.enable_grad():` blocks — safe, although `enable_grad` makes dynamo more conservative; the only current use is inside `xbar/solver.py:elementwise_diff`.

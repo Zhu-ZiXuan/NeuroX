@@ -1,78 +1,49 @@
 # Example Pipelines
 
-The examples demonstrate the full NeuroX flow — float training, hardware-aware training under a real chip spec, and evaluation against both an ideal tile and the physical 1T1R circuit solver — on four workloads spanning very different depths and structures:
+NeuroX ships two end-to-end examples under `example/` that wire the core library into a runnable training + inference flow:
 
-- A small CNN (LeNet-5) on MNIST.
-- A transformer encoder (BERT-small) fine-tuned on SST-2.
-- A spiking CNN (SpikingVGG-5) on CIFAR-10, built on the external [Soul](https://github.com/) SNN library.
-- A spiking transformer (Spikformer-256) on CIFAR-10, also built on Soul.
+- **LeNet-5 on MNIST** (`example/lenet/`) — small CNN, fast to train; exercises the macro / xbar / readout / ADC chain on a workload where the chip's quantisation grid lands easily.
+- **BERT-small on SST-2** (`example/bert/`) — transformer encoder fine-tuning; exercises the same chain on a much wider activation range and deeper layer count.
 
-They are not about the specific networks.  They are about showing how much accuracy you can keep when a model is pushed through a real crossbar chip, and what hyperparameter regime gets you there.
+Both examples are *not* part of the public NeuroX API. They are reference assemblies showing how a user wires `neurox.macro` into a training loop, plugs in QAT observers, and runs `analyze_model` / `analyze_static` against a chip TOML. The core public surface stops at `neurox.macro` — anything in `example/` is user code.
 
-The two SNN examples (SpikingVGG, Spikformer) embed Soul's spiking neurons (LIFNode) and forward-time loop unchanged — the example code only adds a thin direct-coding wrapper that turns the standard `(B, C, H, W)` dataloader output into the `(T, B, C, H, W)` Soul vision models expect.  All replaceable layers (`nn.Conv2d`, `nn.Linear`, with their sibling `BatchNorm` folded in) are swapped for crossbar operators by the standard `replace_for_hat` / `build_evaluator` pipeline; LIF neurons, MaxPool, LayerNorm, and the attention softmax stay in float.
+## What each example contains
 
-## What the Reference Runs Show
+For each model directory you will find:
 
-Under the bundled 1T1R configuration (4-state RRAM, binary word-line, 16-level ADC):
+- `model_float.py` / `model_quant.py` — float reference and QAT/macro-quantised model definitions.
+- `data.py` — dataset loader (MNIST or SST-2).
+- `train_float.py` / `train_quant.py` — float training and HAT scripts.
+- `evaluate.py` — evaluation against either the lossless `IdealXbarMacro` or the physical `Offset1T1RXbar` chip.
+- `macro_factory.py` — chip-config-to-macro factory plus an all-off policy helper.
+- `quant.py` — per-layer quantised conv / linear operators.
 
-| Model                   | Replaceable layers   | Float   | HAT on ideal tile | HAT on physical tile |
-| ----------------------- | -------------------- | ------- | ----------------- | -------------------- |
-| LeNet-5 / MNIST         | 2 Conv + 3 Linear    | ~99 %   | ~93 %             | ~92 %                |
-| BERT-small / SST-2      | 26 Linear            | ~83 %   | ~76 %             | ~76 %                |
-| SpikingVGG-5 / CIFAR-10 | 4 Conv + 1 Linear    | 86.1 %  | 55.0 %            | 53.7 %               |
-| Spikformer-256 / CIFAR-10 | 5 Conv + 13 Linear | 87.3 %  | 20.0 %            | 21.1 %               |
+## How to run
 
-Three lessons from these numbers:
+LeNet:
 
-- The gap to float is **moderate on shallow networks** (a few points), **much larger on deep networks where the input distribution is wide-range**.  LeNet's input is binary-ish digits and BERT's wide-range float embeddings still happen to compress acceptably onto the per-tile 16-level ADC, but SpikingVGG-5 and Spikformer-256 — whose pre-LIF activations span a much wider range that the LIF threshold fires sparsely on — lose substantial accuracy.  Spikformer-256's 18-macro depth sits squarely in the regime where 16-level ADC error compounds across layers and HAT cannot recover it (see `MEMORY.md` and the corresponding ADC-resolution discussion); a higher-resolution chip TOML is needed to train these SNNs to anywhere close to float.
-- The gap between the ideal tile and the physical tile is **small** (≲ 2 points) on every example, including the SNNs.  Most of the accuracy loss comes from the chip's digital grid (ADC resolution, weight states, activation bit-width), not from analog non-idealities.  Noise-aware training on the physical tile closes the remaining gap but is 3–5× slower.
-- Physical evaluation of the SNNs is sample-rate-bound: ~1.8 s/sample for SpikingVGG-5 (5 macros × T=4) and ~10 s/sample for Spikformer-256 (18 macros × T=4) on a single H100-class GPU.  The reference runs are limited to 2,000 (VGG) and 256 (Spikformer) test samples; the gap to a full-test-set number is dominated by sampling noise, not chip noise.
+```bash
+python -m example.lenet.train_float --device cuda:0
+python -m example.lenet.train_quant --device cuda:0 --chip-config example/config/1t1r_28nm.toml
+python -m example.lenet.evaluate    --device cuda:0 --chip-config example/config/1t1r_28nm.toml
+```
 
-## Expected Training Dynamics
+BERT:
 
-### Shallow CNN
+```bash
+python -m example.bert.train_float  --device cuda:0
+python -m example.bert.train_quant  --device cuda:0 --chip-config example/config/1t1r_28nm.toml
+python -m example.bert.evaluate     --device cuda:0 --chip-config example/config/1t1r_28nm.toml
+```
 
-Training is well-behaved from the start.  Validation accuracy climbs smoothly and plateaus well before the end of a long schedule.  The saved checkpoint is the peak of that curve, not the final epoch — late epochs often lose a point to overfitting against the fake-quant gradient.
+The examples default to GPU because both workloads are too slow on CPU to be useful as training references. Pass `--device cpu` explicitly when GPU is unavailable (LeNet is feasible on CPU; BERT is not).
 
-A high learning rate spikes the loss within a few epochs; a low one just converges slowly to the same plateau.  The useful range is narrow and is where the defaults sit.
+## Chip configuration
 
-### Deep Transformer
+Both examples consume the bundled 1T1R 28nm preset at `example/config/1t1r_28nm.toml`. To target a different chip, point `--chip-config` at your own TOML following the same `[xbar]` / `[xbar.core_config]` / `[xbar.readout_config]` schema. The ADC `rescale_factor` table in that file must be calibrated for the chip's `(adc_mode, adc_bits)` grid — see `neurox.tools.xbar_adc.calibrate` and `docs/dev/modules/tools/xbar_adc/calibrate.md`.
 
-Expect 2–3 epochs of apparent stall at chance accuracy.  Cross-entropy barely moves, validation accuracy oscillates around random guessing, and the model looks completely broken.  This is normal.  The cosine learning-rate schedule needs that many epochs to warm the 26-layer integer pipeline enough for the classifier's output range to become discriminative.  Once it breaks through — usually at epoch 4 — accuracy climbs fast, peaks in the second half of the schedule, and the best checkpoint is whatever the run tracked as best-val-acc.
+## Related developer docs
 
-If CE is still equal to `ln(num_classes)` by epoch 5, the learning rate is too low for the depth.  If the loss has spiked to thousands at any point, it is too high.  Somewhere in between there is a working setting; the Makefile defaults pin it for the reference model.
-
-### Knowledge distillation
-
-A frozen float teacher supervises the quantised student on both examples.  This is not cosmetic — on a 16-level output grid, pure cross-entropy stalls below 91 % on MNIST and below chance on SST-2.  The teacher's soft logits plus (for BERT) an intermediate-representation MSE provide gradient direction that the hardware pipeline can follow.  The Makefile exposes the KD weights; tuning them sensibly is worth a point or two, tuning them wildly costs many.
-
-## Checkpoint Handling
-
-One checkpoint per model is canonical.  It is overwritten each time training succeeds, with the peak validation accuracy during that run, not the last epoch.  The checkpoint is written in a chip-agnostic form — evaluation against any compatible chip TOML reproduces the intended hardware behaviour without retraining.  Swapping between the ideal tile and the physical tile is a single knob at evaluation time; accuracy, timing, and energy metrics all come out of the same run.
-
-## When to Override Defaults
-
-The Makefile targets are tuned to reproduce the reference checkpoints with no arguments.  Legitimate reasons to override:
-
-- **Different GPU.** Pass the device explicitly.  Running two targets on different devices in parallel is the fastest way to iterate on both models at once.
-- **Shorter schedule for a smoke test.** Cut epochs to confirm the pipeline wires together; the early epochs will look worse than the reference on both models, especially the transformer.
-- **Sweeping one knob at a time.** Write the result to a scratch checkpoint path, compare evaluations, swap into the canonical path only if it is better.  Changing several knobs at once makes the outcome impossible to attribute.
-- **New chip TOML.** A different ADC resolution or weight state count invalidates the tuned hyperparameters.  Start from the reference settings, re-calibrate expectation from first principles (how many bits per layer? how deep? does distillation apply?), and iterate from there.
-
-Extending the search past what the Makefile exposes — a different optimiser, a different LR schedule, mixed precision across layers — is a code change, not a hyperparameter sweep.
-
-## Troubleshooting the Gap to Float
-
-A few percentage points below float is expected and documented above.  A much larger gap points to one of a small number of causes:
-
-- **Validation on a chip configuration that does not match training.**  The integer grid (activation bit-width, weight levels) must be consistent between the chip TOML used for HAT and the one used for evaluation.  Different configs cannot read the same checkpoint.
-- **Observer calibration not settled.**  Too few calibration batches leaves the quantisation parameters biased by the first batch's outliers.  Symptom: early epochs of HAT have a very large initial loss that comes down faster than usual.
-- **LR too high or too low for the depth.**  See the training-dynamics notes above.
-
-A gap that is fundamental to the chip — not a training problem — manifests as a training curve that cleanly plateaus and stays flat across different hyperparameter settings.  At that point the chip spec is the remaining lever.
-
-## Related Documents
-
-- Training/export workflow: `docs/dev/modules/operator/train/README.md`
-- Project architecture rules: `docs/dev/architecture/README.md`
-- Physical 1T1R circuit solver: `docs/dev/modules/xbar/_1t1r/newton_raphson_solver.md`
+- [`docs/dev/architecture/README.md`](../dev/architecture/README.md) — project architecture rules.
+- [`docs/dev/modules/macro/README.md`](../dev/modules/macro/README.md) — `XbarMacro` family and `from_config` factory.
+- [`docs/dev/modules/xbar/_1t1r/solver.md`](../dev/modules/xbar/_1t1r/solver.md) — solver family base. [`nested_solver.md`](../dev/modules/xbar/_1t1r/nested_solver.md) is the production default; [`full_jacobian_solver.md`](../dev/modules/xbar/_1t1r/full_jacobian_solver.md) is the debug / cross-check reference.

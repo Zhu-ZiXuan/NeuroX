@@ -4,11 +4,26 @@
 
 ## Current tools
 
-- `calculate_1t1r_states.py` — single-cell 1T1R state-map optimizer. Builds nominal RRAM/NMOS device models and solves a one-cell KCL so RRAM states produce a linear cell-current ladder. Emits `rram_g_max__uS` and `state_to_g_map__uS`; ignores ADC and xbar-level rescale calibration.
-- `xbar_adc_boundaries.py` — runs the real-vs-ideal xbar comparison over a sweep of inputs and emits a calibrated `[bl_adc]` TOML block (range
-  + precision; floor-style boundaries; optional noise injection;
-  optional `--visualize` PNG of the signal-vs-code distribution).
-- [`xbar_adc/`](xbar_adc/README.md) — paired xbar-level ADC range / calibration CLIs. `xbar_adc.statistic` probes the ADC analog-input distribution and recommends `[-A, A]` candidates; `xbar_adc.calibrate` fits the scalar `rescale_factor` for a configured `adc_mode`. Both share `_sampling.py` (distribution loader, samplers, all-off xbar builder) and operate strictly at the xbar layer.
+All tools are **config-driven**: each takes a single `--config <run.toml>`
+plus a handful of runtime / output flags (`--device`, `--plot-dir` /
+`--plot` / `--output`, `--log-level`). Workload, sweep, RNG seed, dtype
+and other inputs live in the TOML config — typically wrapping a chip
+preset via ``[xbar]._neurox_use``. Sample TOMLs sit beside each tool
+under `example/config/` and bear the tool's module path
+(e.g. `example/config/xbar_adc_statistic.toml`).
+
+The ADC-side tools form a **two-stage pipeline** with no overlap:
+
+| Tool | What it answers |
+|---|---|
+| `xbar_adc.statistic` | "What's the ADC analog-input distribution?" — probes `v_diff` and recommends `[-A, A]` input-range candidates at a ladder of clip rates. Input to `statistic` → chosen via `[plot]`/`[statistic]` knobs; output is the `v_refs` list to paste into the chip's ADC config. |
+| `xbar_adc.calibrate` | "What's the recovery rescale at a fixed (mode, bits)?" — runs an all-off xbar vs ideal twin and fits the **scalar** `rescale_factor` (zero-through-origin LS) per `adc_mode`. Output is the `[[xbar.adc_calibration]]` block. |
+
+The other tools:
+
+- `calculate_1t1r_states` — single-cell 1T1R state-map optimizer. Builds nominal RRAM/NMOS device models and solves a one-cell KCL so RRAM states produce a linear cell-current ladder. Emits `rram_g_max__uS` and `state_to_g_map__uS`.
+- `xbar_tia.optimize` — TIA-design exploration / scoring under a chip + workload TOML (curve grid + slice plots).
+- `solver_calibrate.tia` / `.nested` / `.full_jacobian` — per-solver-family iteration-count calibration via step-ratio plateau detection.
 
 ## Why these are tools, not library code
 
@@ -16,9 +31,10 @@ They are reproducible **offline** flows: a developer runs them once when tuning 
 
 ## Shared library helpers
 
-`xbar_adc_boundaries.py` also re-exports a few small pure helpers (`floor_boundaries_for_mode`, `compute_max_col_diff_current__uA`, `compute_adc_boundaries__uA`) that other tools and tests use as calibration primitives. They are public because their semantics ("floor-style boundaries at code edges") are part of the ADC family's external contract.
-
-`logging.py` exposes `config_tool_logging(level=logging.INFO)` — the single entry point every tool calls in `main()` to install the standard CLI logging format. See [`logging.md`](logging.md).
+`_config.py` provides the shared CLI helpers (`add_standard_args`,
+`load_tool_config`, `resolve_relative_path`, `setup_logging`) that every
+tool's `main()` calls — see [`_config.md`](_config.md) and
+[`logging.md`](logging.md).
 
 See also:
 

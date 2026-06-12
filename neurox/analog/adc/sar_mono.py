@@ -217,6 +217,17 @@ class SarAdcMono(ADC):
         """Physical CDAC bit width — the maximum ``adc_bits`` value."""
         return self.config.max_bits
 
+    def signed_range(self, adc_bits: int) -> tuple[int, int]:
+        """Canonical SAR signed-bit endpoints at ``adc_bits``.
+
+        Mirrors :meth:`McsSarAdc.signed_range` — the CDAC code count is
+        exactly ``2 ** adc_bits``.
+        """
+        if not (1 <= adc_bits <= self.max_bits):
+            raise ValueError(f"adc_bits {adc_bits} outside [1, {self.max_bits}]")
+        half = 1 << (adc_bits - 1)
+        return -half, half - 1
+
     # --- fabricate (static non-idealities) ---
 
     def _sample_fabricate_mismatch(self) -> None:

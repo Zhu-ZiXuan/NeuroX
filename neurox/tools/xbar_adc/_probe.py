@@ -37,6 +37,10 @@ class ProbeADC(ADC):
         latency_callable: The real ADC's bound ``latency_per_op__ns``
             method; called verbatim from the probe so downstream latency
             queries still answer correctly.
+        signed_range_callable: The real ADC's bound ``signed_range``
+            method; called verbatim so downstream saturation tests
+            (e.g. ``calibrate.saturation_mask``) get the actual ADC's
+            realised endpoints rather than the canonical SAR bounds.
         name: Hierarchical instance name (typically the replaced ADC's
             ``qualified_name``).
         inst_shape: The replaced ADC's instance shape.
@@ -48,6 +52,7 @@ class ProbeADC(ADC):
         mode_num: int,
         max_bits: int,
         latency_callable: Callable[..., float],
+        signed_range_callable: Callable[[int], tuple[int, int]],
         name: str,
         inst_shape: tuple[int, ...],
     ) -> None:
@@ -64,6 +69,7 @@ class ProbeADC(ADC):
         self._mode_num = mode_num
         self._max_bits = max_bits
         self._latency_callable = latency_callable
+        self._signed_range_callable = signed_range_callable
         self._buf_pos: list[Tensor] = []
         self._buf_neg: list[Tensor] = []
 
@@ -85,6 +91,10 @@ class ProbeADC(ADC):
 
     def latency_per_op__ns(self, *, adc_operation_point: AdcOperationPoint) -> float:
         return self._latency_callable(adc_operation_point=adc_operation_point)
+
+    def signed_range(self, adc_bits: int) -> tuple[int, int]:
+        """Delegate to the replaced ADC's realised signed range."""
+        return self._signed_range_callable(adc_bits)
 
     def convert(
         self,
@@ -182,8 +192,9 @@ def install_probe_adc(xbar: Offset1T1RXbar) -> ProbeHandle:
         mode_num=real_adc.mode_num,
         max_bits=real_adc.max_bits,
         latency_callable=real_adc.latency_per_op__ns,
+        signed_range_callable=real_adc.signed_range,
         name=real_adc.qualified_name,
-        inst_shape=real_adc._inst_shape,
+        inst_shape=real_adc.inst_shape,
     )
     readout.bl_adc = probe
     return ProbeHandle(owner=readout, attr="bl_adc", original_adc=real_adc, probe=probe)

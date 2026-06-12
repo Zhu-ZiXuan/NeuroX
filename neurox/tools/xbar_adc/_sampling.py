@@ -22,11 +22,9 @@ from neurox.analog.adc import (
     GeneralADCPolicy,
     McsSarAdcConfig,
     McsSarAdcPolicy,
-    SarAdcMonoConfig,
-    SarAdcMonoPolicy,
 )
-from neurox.analog.dac import GeneralDACPolicy
-from neurox.analog.tia import OpAmpTIAPolicy
+from neurox.analog.dac import DACPolicy, GeneralDACConfig, GeneralDACPolicy
+from neurox.analog.tia import OpAmpTIAConfig, OpAmpTIAPolicy, TIAPolicy
 from neurox.common import T_ROOM__K, dataclass_from_file, dict_from_file
 from neurox.device import NMOSPolicy, RRAMPolicy
 from neurox.xbar import Offset1T1RXbar, Offset1T1RXbarConfig, Offset1T1RXbarPolicy
@@ -98,6 +96,12 @@ def load_distribution(path: Path | None, xbar: Offset1T1RXbar) -> Distribution:
         )
 
     raw = dict_from_file(path)
+    unknown = sorted(k for k in raw if k not in ("w", "x"))
+    if unknown:
+        raise ValueError(
+            f"distribution TOML at {path}: unknown top-level key(s) "
+            f"{unknown}; only '[w]' and '[x]' are recognised"
+        )
     w_values, w_probs = _load_axis(raw, "w", xbar.w_digit_range)
     x_values, x_probs = _load_axis(raw, "x", xbar.x_range)
     return Distribution(
@@ -165,24 +169,31 @@ def sample_w(
     device: torch.device,
     generator: torch.Generator | None = None,
 ) -> Iterator[Tensor]:
-    """Yield ``ceil(n / batch_w)`` batches of independent xbar-native digit tensors.
+    """Yield ``n // batch_w`` batches of independent xbar-native digit tensors.
+
+    ``n`` **must** be a multiple of ``batch_w`` — every yielded tensor
+    carries a fixed leading ``(batch_w,)`` axis to match the xbar's
+    ``inst_shape=(batch_w,)`` contract, so a partial final batch would
+    immediately fail ``xbar.program(w)``'s shape check. Round ``n`` up
+    to the next multiple of ``batch_w`` at the call site if you need
+    "at least N" coverage.
 
     With ``batch_w == 1`` (default), each yielded tensor matches
     :attr:`_w_layout_shape` for an ``inst_shape=()`` xbar, i.e.
-    ``(col_num, w_digit_count, row_num)``.
-    With ``batch_w > 1``, each yield carries a leading w-batch axis,
-    i.e. ``(batch_w, col_num, w_digit_count, row_num)``. The caller is
-    expected to have built the xbar with a matching ``inst_shape=(batch_w,)``
-    so ``xbar.program(w_batch)`` lands every batch slot on its own
-    physical-instance copy and a single VMM call runs ``batch_w`` parallel
-    independent weight programs.
+    ``(col_num, w_digit_count, row_num)``. With ``batch_w > 1``, each
+    yield is ``(batch_w, col_num, w_digit_count, row_num)``.
     """
     if batch_w <= 0:
         raise ValueError(f"batch_w ({batch_w}) must be > 0")
+    if n % batch_w != 0:
+        raise ValueError(
+            f"sample_w: n ({n}) must be a multiple of batch_w ({batch_w}); "
+            "partial final batches would break the xbar's fixed inst_shape contract"
+        )
     leading = () if batch_w == 1 else (batch_w,)
     shape_per = (*leading, xbar.col_num, xbar.w_digit_count, xbar.row_num)
     n_per = math.prod(shape_per)
-    num_yields = (n + batch_w - 1) // batch_w
+    num_yields = n // batch_w
     for _ in range(num_yields):
         if distribution.w_values is None:
             lo, hi = xbar.w_digit_range
@@ -274,16 +285,15 @@ def build_offset_1t1r_xbar_all_off_from_config(
         )
 
     bl_adc_policy = _all_off_adc_policy(readout_config.adc_config)
+    tia_policy = _all_off_tia_policy(xbar_config.core_config.tia_config)
+    wl_dac_policy = _all_off_dac_policy(xbar_config.core_config.wl_dac_config)
     policy = Offset1T1RXbarPolicy(
         core=CircuitCore1T1RPolicy(
             rram=RRAMPolicy(prog_gamma=False, stuck_at=False, read_telegraph=False, read_thermal=False),
             nmos=NMOSPolicy(A_vt_mismatch=False, A_beta_mismatch=False),
-            tia=OpAmpTIAPolicy(
-                opamp_gain_sigma=False,
-                nmos=NMOSPolicy(A_vt_mismatch=False, A_beta_mismatch=False),
-            ),
+            tia=tia_policy,
             sl_driver=DriverPolicy(drive_thermal=False),
-            wl_dac=GeneralDACPolicy(drive_thermal=False),
+            wl_dac=wl_dac_policy,
         ),
         readout=OffsetSwitchCapMuxAdcReadOutPolicy(
             data_switchcap=SwitchCapPolicy(cap_mismatch=False, sampling_thermal_noise=False),
@@ -339,16 +349,14 @@ def build_offset_1t1r_xbar_all_off(
 
 
 def _all_off_adc_policy(adc_config: object) -> ADCPolicy:
-    """Build the matching ADCPolicy for ``adc_config`` with every flag ``False``."""
+    """Build the matching ADCPolicy for ``adc_config`` with every flag ``False``.
+
+    ``SarAdcMonoConfig`` is intentionally rejected: :class:`SarAdcMono.convert`
+    is not implemented yet, so accepting it here would let the tool succeed
+    at setup and fail mid-sweep with ``NotImplementedError``.
+    """
     if isinstance(adc_config, GeneralADCConfig):
         return GeneralADCPolicy(sampling_noise=False, comparator_noise=False, drive_thermal=False)
-    if isinstance(adc_config, SarAdcMonoConfig):
-        return SarAdcMonoPolicy(
-            cap_mismatch=False,
-            comparator_offset=False,
-            comparator_thermal_noise=False,
-            sampling_thermal_noise=False,
-        )
     if isinstance(adc_config, McsSarAdcConfig):
         return McsSarAdcPolicy(
             cap_mismatch=False,
@@ -356,22 +364,33 @@ def _all_off_adc_policy(adc_config: object) -> ADCPolicy:
             comparator_thermal_noise=False,
             sampling_thermal_noise=False,
         )
-    raise TypeError(f"unsupported adc config type: {type(adc_config).__name__}")
+    raise TypeError(
+        f"unsupported adc config type: {type(adc_config).__name__}; "
+        "neurox.tools.xbar_adc supports GeneralADC and McsSarAdc only"
+    )
 
 
-def resolve_device(name: str) -> torch.device:
-    """Resolve a user-facing device name into a :class:`torch.device`.
+def _all_off_tia_policy(tia_config: object) -> TIAPolicy:
+    """Build the matching TIAPolicy for ``tia_config`` with every flag ``False``."""
+    if isinstance(tia_config, OpAmpTIAConfig):
+        return OpAmpTIAPolicy(
+            opamp_gain_sigma=False,
+            nmos=NMOSPolicy(A_vt_mismatch=False, A_beta_mismatch=False),
+        )
+    raise TypeError(
+        f"unsupported tia config type: {type(tia_config).__name__}; "
+        "neurox.tools.xbar_adc supports OpAmpTIA only"
+    )
 
-    ``"auto"`` picks ``"cuda"`` if available, else ``"cpu"``.
-    Anything else is passed through to :class:`torch.device`.
-    Asking for a cuda device when CUDA is unavailable raises.
-    """
-    if name == "auto":
-        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    device = torch.device(name)
-    if device.type == "cuda" and not torch.cuda.is_available():
-        raise RuntimeError(f"requested device '{name}' but no CUDA device is available")
-    return device
+
+def _all_off_dac_policy(dac_config: object) -> DACPolicy:
+    """Build the matching DACPolicy for ``dac_config`` with every flag ``False``."""
+    if isinstance(dac_config, GeneralDACConfig):
+        return GeneralDACPolicy(drive_thermal=False)
+    raise TypeError(
+        f"unsupported dac config type: {type(dac_config).__name__}; "
+        "neurox.tools.xbar_adc supports GeneralDAC only"
+    )
 
 
 def make_generator(seed: int | None, device: torch.device) -> torch.Generator | None:

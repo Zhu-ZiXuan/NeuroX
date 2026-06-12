@@ -29,9 +29,10 @@ External TOML / YAML parsers treat them as ordinary strings.
 
 - nested dataclass fields are built from nested dict sub-tables
 - `list[T]` / `tuple[T, ...]` / `set[T]` / `dict[K, V]` fields recurse on their inner annotated types
+- fixed-length `tuple[T1, T2, ...]` fields enforce element count — length mismatches raise `ValueError`
 - `Enum` fields are coerced from their `.value`
 - `Union` arms are tried in order; the first one that accepts the value wins
-- unknown keys are silently dropped so older config files stay compatible
+- unknown keys raise `TypeError` listing the valid fields — typos must not silently fall back to defaults
 
 ## Polymorphic `_neurox_type` discriminator
 
@@ -86,6 +87,5 @@ Files under `neurox/presets/process/` carry only physical parameters:
 
 See also:
 
-- `config.md`
 - `registry_dispatch.md`
 - `docs/dev/architecture/config_and_construction.md`

@@ -1,23 +1,9 @@
 """1T1R-family DC-solver framework.
 
-Owns:
-  * :class:`Solver1T1RConfig` — abstract config base for concrete 1T1R
-    solver families (each carries its own iteration counts and any other
-    runtime-fixed numerical knobs).
-  * :class:`Solver1T1R` — abstract solver base with a registry that maps
-    config types to concrete solver implementations. Each concrete solver
-    registers itself via ``@Solver1T1R.register_key(SomeConfig)``.
-  * :class:`Solver1T1RDCOP` / :class:`Solver1T1RResiduals` — shared DC
-    operating-point and residual containers used by every 1T1R solver
-    flavour, so the upstream :class:`CircuitCore1T1R` interface stays
-    solver-agnostic.
-
-Topology-specific (2T2R, differential, …) families that share little
-with 1T1R should define their own ``Solver…`` base in their own module
-rather than try to subclass this one.
-
-See also:
-    docs/dev/modules/xbar/_1t1r/solver.md
+Hosts :class:`Solver1T1RConfig`, :class:`Solver1T1R`,
+:class:`Solver1T1RDCOP`, and :class:`Solver1T1RResiduals` —
+see ``docs/dev/modules/xbar/_1t1r/solver.md`` for the design rationale
+(per-family base, registry dispatch, residual container reuse).
 """
 
 from __future__ import annotations

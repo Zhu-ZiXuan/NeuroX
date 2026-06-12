@@ -128,7 +128,7 @@ The registry attribute `_impl_registry` is materialised automatically by the mix
 
 ## Config validation
 
-Every frozen config inherits `ValidateMixin` (from `neurox/common/mixin/validate.py`) and defines exactly the same two methods, even when one or both are empty:
+Every frozen config inherits `ValidateMixin` (from `neurox/common/mixin/validate.py`) and is validated at construction time via `__post_init__ → validate()`. Whether `__post_init__` is defined on the leaf or inherited from a circuit-family base is a **simplicity decision** for each family.
 
 ```python
 from neurox.common.mixin import ValidateMixin
@@ -154,13 +154,14 @@ class FooConfig(ValidateMixin):
 
 Rules:
 
-- Every frozen config **must inherit `ValidateMixin`** (transitively via a base config is fine). The mixin contributes only the runtime-check helpers; it does not define `__post_init__` or `validate`.
-- `__post_init__` is defined on every config; it calls `self.validate()` and does nothing else. **Required even when** `validate` is empty.
-- `validate()` is the single entry point for runtime validation. **Required on every config dataclass.**
+- Every frozen config **must inherit `ValidateMixin`** (transitively via a base config is fine). The mixin contributes only the runtime-check helpers; it does **not** define `__post_init__` or `validate` — keeping the mixin pure means every project-wide rule about *when* validation runs lives in this document, not in mixin source.
+- Every config **must have a `validate()` method on the inheritance chain** — empty bodies are fine for marker bases, but the method must exist so subclasses can chain via `super().validate()`.
+- Every config **must be validated at construction time** via a `__post_init__` that calls `self.validate()` and does nothing else. The entry point may live on the leaf or be inherited from a family base; choose by code simplicity.
+- For circuit-family bases (`ADCConfig`, `TIAConfig`, `XbarConfig`, `XbarMacroConfig`, `Solver1T1RConfig`, `ReadOutConfig`, …), the family base owns `__post_init__` so every leaf inherits validation automatically and only needs to override `validate()` when it adds new checks. A leaf may still define its own `__post_init__` if that is locally clearer.
 - Multi-field configs split `validate()` into one `validate_<group>()` per logical group of fields. Group names follow field semantics (`validate_process` / `validate_temperature` / `validate_mismatch` / `validate_ppa` / `validate_noise` / `validate_topology` / `validate_geometry` / …). Use the standard name `validate_ppa` for the area / leakage / latency trio.
 - Single-field configs may put the check directly inside `validate()` without a group method.
 - Subclasses' `validate()` must start with `super().validate()` before calling their own group methods. This is the only way to chain validation up the inheritance tree.
-- Empty / marker configs (e.g. `DACConfig`, `ADCConfig`) still define both methods explicitly, with `pass` as the `validate` body.
+- A leaf with no new validation does **not** need to override `validate()` — the chain already runs.
 
 ### What `validate` is for
 

@@ -49,12 +49,35 @@ class Offset1T1RXbarConfig(XbarConfig):
         super().validate()
         self.validate_encoding()
         self.validate_ref_layout()
+        self.validate_offset_vs_state_map()
 
     def validate_encoding(self) -> None:
         self._require_pos(self.w_digit_count, "w_digit_count")
         if not (self.w_digit_radix > 1):
             raise ValueError(f"require: w_digit_radix ({self.w_digit_radix}) > 1")
         self._require_nonneg(self.w_state_offset, "w_state_offset")
+
+    def validate_offset_vs_state_map(self) -> None:
+        """Cross-check ``w_state_offset`` against ``state_to_g_map``.
+
+        The encoded state index is ``digit + w_state_offset``; the
+        runtime digit range is ``[-offset, states - 1 - offset]``
+        (see :attr:`Offset1T1RXbar.w_digit_range`). Two invariants:
+
+        - ``w_state_offset < len(state_to_g_map)`` so the encoded
+          range is non-empty.
+        - ``0`` must lie inside the digit range so the reference
+          column (always programmed with digit ``0``) maps to a
+          legal state — equivalent to ``-offset <= 0 <=
+          states - 1 - offset``, i.e. the same bound as above.
+        """
+        n_states = len(self.core_config.state_to_g_map__uS)
+        if not (self.w_state_offset < n_states):
+            raise ValueError(
+                f"require: w_state_offset ({self.w_state_offset}) < "
+                f"len(state_to_g_map__uS) ({n_states}) — the reference "
+                "digit 0 must map to a legal state"
+            )
 
     def validate_ref_layout(self) -> None:
         self._require_pos(self.ref_group_size, "ref_group_size")
@@ -242,21 +265,6 @@ class Offset1T1RXbar(Xbar):
 
         Returns:
             ADC-code tensor with primitive trailing ``[col_num]``.
-
-        Implementation: the heavy Newton solve + readout chain is
-        encapsulated in :meth:`_vec_mat_mul_block`. ``vec_mat_mul`` is
-        the scheduler — if ``batch_chunk_size > 0`` and ``x`` has a
-        sliceable leading dim, the block is invoked in chunks and the
-        per-chunk ADC codes are concatenated. This bounds the peak
-        per-VMM memory at the cost of a Python loop; the chunking
-        introduces no numerical difference under deterministic policies
-        (chunks are mathematically independent VMMs).
-
-        ``@torch.compiler.disable`` keeps the upstream macro-level
-        ``@torch.compile`` from tracing into the Newton solver / ADC
-        readout (where mcs_sar.py currently hits an unsupported graph
-        break). Inner block compilation can be added later by decorating
-        :meth:`_vec_mat_mul_block` once the offending op is fixed.
         """
         chunk_size = self.policy.execution.batch_chunk_size
         # Chunking requires (a) caller asked for it and (b) x has a leading
@@ -272,21 +280,14 @@ class Offset1T1RXbar(Xbar):
         return torch.cat(code_chunks, dim=0)
 
     def _vec_mat_mul_block(self, x: Tensor, *, adc_operation_point: AdcOperationPoint) -> Tensor:
-        """One full core → readout VMM block (the body of the chunk loop).
+        """One full core → readout VMM block.
 
-        Holds the entire row-shape intermediate footprint (Newton-solver
-        internal state, switch-cap input/output voltages) inside its
-        local scope. After return only the ADC-code tensor escapes; the
-        large Core1T1RDCOP, ``v_data_grouped`` etc. are eligible for GC
-        before the next chunk runs.
+        Args:
+            x: Per-chunk activation tensor with primitive trailing ``[row_num]``.
+            adc_operation_point: Runtime ADC operating point.
 
-        Block-level ``@torch.compile`` is intentionally NOT applied here:
-        an earlier attempt to wrap this with ``@torch.compile(dynamic=True)``
-        produced a first-call compile time of > 10 min for the Newton +
-        readout graph, dominated by inductor scheduling of the SAR ADC's
-        bit-loop. Reintroducing it requires either rewriting the SAR ADC
-        to a graph-friendly form or shrinking the unrolled bit-loop. For
-        now, eager execution is the project default.
+        Returns:
+            Per-chunk ADC-code tensor with primitive trailing ``[col_num]``.
         """
         core_dcop = self.core.solve_dc(x)
 
@@ -329,28 +330,6 @@ def _insert_ref_cols(w: Tensor, logic_phys_idx: Tensor, physical_col_num: int) -
     w_phys = torch.zeros(*batch, physical_col_num, row_num, dtype=w.dtype, device=w.device)
     w_phys.index_copy_(dim=-2, index=logic_phys_idx, source=w)
     return w_phys
-
-
-def _split_logic_and_ref(
-    x: Tensor,
-    logic_phys_idx: Tensor,
-    ref_phys_idx: Tensor,
-) -> tuple[Tensor, Tensor]:
-    """Split a per-physical-column tensor into logic + ref slots.
-
-    Args:
-        x: Per-physical-column tensor, shape ``[*batch, physical_col_num]``.
-        logic_phys_idx: Logic-column → physical-index map,
-            shape ``[col_num * w_digit_count]``.
-        ref_phys_idx: Ref-group → physical-index map, shape ``[n_groups]``.
-
-    Returns:
-        ``(x_logic, x_ref)``, shapes
-        ``[*batch, col_num * w_digit_count]`` and ``[*batch, n_groups]``.
-    """
-    x_logic = x.index_select(-1, logic_phys_idx)
-    x_ref = x.index_select(-1, ref_phys_idx)
-    return x_logic, x_ref
 
 
 def _build_ref_indices(

@@ -118,18 +118,25 @@ class TestDeriveRescaleForBits:
 class TestSaturationMask:
     def test_signed_endpoints(self) -> None:
         codes = torch.tensor([-8, -7, 0, 6, 7, -8, 7], dtype=torch.float64)
-        mask = saturation_mask(codes, max_bits=4)
+        mask = saturation_mask(codes, signed_range=(-8, 7))
         assert mask.tolist() == [True, False, False, False, True, True, True]
 
     def test_no_endpoints(self) -> None:
         codes = torch.tensor([-3, -2, 0, 2], dtype=torch.float64)
-        mask = saturation_mask(codes, max_bits=4)
+        mask = saturation_mask(codes, signed_range=(-8, 7))
         assert mask.tolist() == [False, False, False, False]
 
     def test_eight_bit_endpoints(self) -> None:
         codes = torch.tensor([-128, 127, 0, 50, -100], dtype=torch.float64)
-        mask = saturation_mask(codes, max_bits=8)
+        mask = saturation_mask(codes, signed_range=(-128, 127))
         assert mask.tolist() == [True, True, False, False, False]
+
+    def test_narrower_than_canonical(self) -> None:
+        """GeneralADC-style narrower bounds — canonical endpoints must NOT
+        register as saturated, only the realised bounds."""
+        codes = torch.tensor([-100, -101, 100, 101, 127, -128], dtype=torch.float64)
+        mask = saturation_mask(codes, signed_range=(-101, 101))
+        assert mask.tolist() == [False, True, False, True, False, False]
 
 
 # ---------------------------------------------------------------------------
@@ -141,7 +148,7 @@ class TestSaturationMask:
 def smoke_calibration(xbar_cfg):
     """Small but realistic calibration on the 28nm preset (adc_mode=0)."""
     return collect_calibration(
-        config_path=XBAR_CONFIG,
+        xbar_config=xbar_cfg,
         distribution_path=None,
         adc_mode=0,
         weight_samples=4,
@@ -168,10 +175,10 @@ class TestCollectCalibration:
         assert r.adc_instance_count == 16
         assert r.supports_flexible_bits is True
 
-    def test_invalid_adc_mode(self) -> None:
+    def test_invalid_adc_mode(self, xbar_cfg) -> None:
         with pytest.raises(ValueError, match=r"adc_mode"):
             collect_calibration(
-                config_path=XBAR_CONFIG,
+                xbar_config=xbar_cfg,
                 distribution_path=None,
                 adc_mode=99,
                 weight_samples=4,
@@ -181,10 +188,10 @@ class TestCollectCalibration:
                 device=CPU,
             )
 
-    def test_rejects_bad_args(self) -> None:
+    def test_rejects_bad_args(self, xbar_cfg) -> None:
         with pytest.raises(ValueError, match=r"weight_samples"):
             collect_calibration(
-                config_path=XBAR_CONFIG,
+                xbar_config=xbar_cfg,
                 distribution_path=None,
                 adc_mode=0,
                 weight_samples=0,

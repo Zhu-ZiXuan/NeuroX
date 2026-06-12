@@ -55,6 +55,13 @@ rescale_factor = 0.00891
 
 [xbar.core_config]
 
+# --- PPA (cell array + wire infra; per-instance basis) ---
+# Defaults are 0.0 until the 28nm cell array is sized; replace with
+# library-extracted numbers before relying on static PPA reports.
+area_per_inst__um2 = 0.0
+leakage_per_inst__uW = 0.0
+latency_per_op__ns = 0.0
+
 # --- Pulse timing ---
 wl_pulse_length__ns = 3.0
 

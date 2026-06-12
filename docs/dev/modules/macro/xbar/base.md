@@ -18,7 +18,7 @@ The base provides **no** template method for the run path. Concrete subclasses w
 
 ## Subclasses
 
-Xbar-using subclasses (`DirectXbarMacro`, `InterArraySliceXbarMacro`, `IntraArraySliceXbarMacro`):
+Every xbar-using subclass:
 - Define their own `*Config` dataclass extending `XbarMacroConfig`, declaring `xbar_config: XbarConfig` plus the slicer / reducer fields they need.
 - Define their own `*Policy(XbarMacroPolicy)` carrying an `xbar: XbarPolicy` field (and any future macro-local switches).
 - Register via `@XbarMacro.register_key(MyConfig)`.

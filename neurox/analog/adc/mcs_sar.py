@@ -220,6 +220,18 @@ class McsSarAdc(ADC):
         """Number of operating points — one per supported V_ref."""
         return len(self.config.v_refs__V)
 
+    def signed_range(self, adc_bits: int) -> tuple[int, int]:
+        """Canonical SAR signed-bit endpoints at ``adc_bits``.
+
+        The CDAC's code count is ``2 ** adc_bits`` by construction, so
+        the realisable signed range is exactly
+        ``(-2 ** (adc_bits - 1), 2 ** (adc_bits - 1) - 1)``.
+        """
+        if not (1 <= adc_bits <= self.max_bits):
+            raise ValueError(f"adc_bits {adc_bits} outside [1, {self.max_bits}]")
+        half = 1 << (adc_bits - 1)
+        return -half, half - 1
+
     @property
     def max_bits(self) -> int:
         """Physical CDAC bit width — the maximum ``adc_bits`` value."""

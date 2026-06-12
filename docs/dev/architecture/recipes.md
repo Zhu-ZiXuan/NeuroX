@@ -42,7 +42,7 @@ Adding a new ADC, DAC, TIA, or ReadOut implementation. Lives under the family's 
 
 1. [config]      Define `<Name><Family>Config(<Family>Config)` extending the family base config → [`config_and_construction.md` §Family bases](config_and_construction.md)
 2. [validate]    `validate_<group>()` methods in the new config → [`code_style.md` §Configuration validation](code_style.md)
-3. [class]       `class <Name><Family>(<Family>)`; register via `@<Family>.register_key(<Name><Family>Config)` → [`config_and_construction.md` §Family bases](config_and_construction.md), [`ADR-0001`](docs/dev/adr/ADR-0001-config-dispatch-and-owned-construction.md)
+3. [class]       `class <Name><Family>(<Family>)`; register via `@<Family>.register_key(<Name><Family>Config)` → [`config_and_construction.md` §Family bases](config_and_construction.md), [`ADR-0001`](../adr/ADR-0001-config-dispatch-and-owned-construction.md)
 4. [init]        Use the family-wide signature (`config, name, inst_shape, dtype, T__K` + family-specific extras like `ideal_xbar`); no defaults on any kwarg; call `super().__init__(...)` → [`config_and_construction.md` §Family-wide init](config_and_construction.md), [`code_style.md` §Physical-layer no defaults](code_style.md)
 5. [mixin]       Override `_sample_fabricate_mismatch(self)` for owned static mismatch; `fabricate()` is inherited and auto-cascades to children → [`fabrication_lifecycle.md` §Canonical signatures](fabrication_lifecycle.md)
 6. [primary]     Implement the family primary method (`convert`, `solve_dc`, `readout`, …) → [`naming_conventions.md` §Primary-method names](naming_conventions.md)
@@ -54,9 +54,9 @@ Adding a new ADC, DAC, TIA, or ReadOut implementation. Lives under the family's 
 
 Creating a polymorphic-family namespace (sibling of `ADC`, `DAC`, `TIA`, `ReadOut`). Rare.
 
-1. [adr]         Write an ADR explaining why the new family is needed and what alternatives were rejected → [`docs/dev/adr/README.md`](docs/dev/adr/README.md)
+1. [adr]         Write an ADR explaining why the new family is needed and what alternatives were rejected → [`docs/dev/adr/README.md`](../adr/README.md)
 2. [base-config] `<Family>Config` frozen dataclass (often empty, a marker for the dispatch registry) → [`config_and_construction.md` §Family bases](config_and_construction.md)
-3. [base-class]  `class <Family>(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["<Family>Config"], "<Family>"], ABC)` with `from_config(...)` classmethod, family-wide `__init__` signature, and abstract primary methods → [`config_and_construction.md` §Family bases](config_and_construction.md), [`ADR-0001`](docs/dev/adr/ADR-0001-config-dispatch-and-owned-construction.md)
+3. [base-class]  `class <Family>(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["<Family>Config"], "<Family>"], ABC)` with `from_config(...)` classmethod, family-wide `__init__` signature, and abstract primary methods → [`config_and_construction.md` §Family bases](config_and_construction.md), [`ADR-0001`](../adr/ADR-0001-config-dispatch-and-owned-construction.md)
 4. [contracts]   Declare the primary method (`convert` / `solve_dc` / `readout` / …), `area_per_inst__um2`, `leakage_per_inst__uW`, `latency_per_op__ns`; `fabricate()` is provided by `FabricateMixin` and subclasses override `_sample_fabricate_mismatch` only → [`profiler_and_ppa.md` §Required interface](profiler_and_ppa.md), [`naming_conventions.md` §Primary-method names](naming_conventions.md)
 5. [docs-base]   Write `docs/dev/modules/<path>/base.md` (or family `README.md`) describing the protocol surface in abstract terms (no specific consumer names) → [`code_style.md` §Documentation dependency direction](code_style.md)
 6. [first-impl]  Add at least one concrete impl (see "Add a new concrete member" recipe above)
@@ -67,21 +67,14 @@ Slicer is an abstract base with direct concrete subclasses (callers instantiate 
 
 1. [base]        Abstract class (`Slicer`, `Transcoder`) declares only the externally observable surface: the primary method and any abstract `@property` (e.g. `value_range`, `slice_radix`, `slice_weights` on `Slicer`). No shared `__init__` or stored state if subclass init signatures diverge. → [`mapping.md`](mapping.md)
 2. [class]       Concrete subclass; constructor takes only the parameters the subclass itself consumes. Structural defaults of a particular subclass stay internal — do not surface them as caller-side kwargs. The per-call signature carries only the input tensor. → [`mapping.md`](mapping.md)
-3. [register]    For a registry-dispatched family (Transcoder): add `@<Family>.register_key("<discriminator>")` on the concrete subclass; for direct-instantiation families (Slicer): omit this step → [`docs/dev/modules/common/registry_dispatch.md`](docs/dev/modules/common/registry_dispatch.md)
+3. [register]    For a registry-dispatched family (Transcoder): add `@<Family>.register_key("<discriminator>")` on the concrete subclass; for direct-instantiation families (Slicer): omit this step → [`docs/dev/modules/common/registry_dispatch.md`](../modules/common/registry_dispatch.md)
 4. [primary]     Implement the primary method (`slice`, `encode` / `decode`) → [`naming_conventions.md` §Primary-method names](naming_conventions.md)
 5. [output]      Return raw `Tensor` for one-tensor returns; reserve `*Plan` / `*Result` dataclasses for the case when a method must return multiple runtime-computed tensors that have no useful identity as instance state. Static geometry stays on the producing class as `@property` → [`code_style.md` §Property vs method](code_style.md), [`naming_conventions.md` §Class suffixes](naming_conventions.md)
 6. [export]      Owning package `__init__.py` exports the concrete class + any `*Plan` / `*Result` types in its public type annotations → [`naming_conventions.md` §Class suffixes](naming_conventions.md)
 7. [doc]         Write `docs/dev/modules/mapper/.../<name>.md` → [`code_style.md` §Module docs](code_style.md)
 
-## Add a new operator
+## Add a user-side operator (out of core)
 
-An operator is a `nn.Module`-level replacement for a stock PyTorch layer (`nn.Linear`, `nn.Conv2d`, …). Lives under `neurox/operator/<kind>/`.
+`nn.Module`-level replacements for stock PyTorch layers (`nn.Linear`, `nn.Conv2d`, …) wrapping an `XbarMacro` live in the **user's repository or in `example/`**, not in the core `neurox/` tree. The core public surface stops at `neurox.macro`; anything that pairs a macro with a PyTorch layer, manages QAT observers, or handles model rewriting is application-layer code.
 
-1. [class]       `class <Name>(NeuroxOperator)` → [`code_style.md` §Module docs](code_style.md)
-2. [init]        Constructor takes a `macro: NeuroxMacroQuantMatMul` plus the layer's geometric parameters; register integer-weight / scale / zero-point buffers
-3. [from_torch]  Provide `from_torch(cls, module, macro, name)` classmethod for in-place replacement
-4. [forward]     `forward(self, input) -> Tensor` runs the int matmul pipeline through the macro; do not decorate with `@torch.compile` (the macro handles compilation) → [`compile_policy.md` §Where the compile boundary lives](compile_policy.md)
-5. [fabricate]   `fabricate(self) -> None` drives `self.macro.fabricate()` (static-mismatch resample)
-6. [program]     `program(self) -> None` validates the int weight tensor and drives `self.macro.program(self.weight_int)`
-7. [export]      `neurox/operator/__init__.py` exports the new class
-8. [doc]         Write `docs/dev/modules/operator/<kind>/<name>.md`
+See the `example/lenet/quant.py` and `example/bert/quant.py` files for a current reference of the macro-wrapping pattern.

@@ -165,7 +165,8 @@ def sweep_n_newton(
         v_clamp_prev = v_clamp
 
     # TIA has no v_node concept; clamp-residual key is absent, so a
-    # voltage scale isn't needed. Provide a placeholder for the dataclass.
+    # voltage scale isn't needed. Pass a dummy value to satisfy the
+    # dataclass — the consumer ignores v_node_typ__V for this workload.
     scale = WorkloadScale(
         i_cell_typ__uA=i_port_typ__uA,
         v_node_typ__V=1.0,

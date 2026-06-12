@@ -36,7 +36,7 @@ class GeneralDACConfig(DACConfig):
     """
 
     # --- LUT ---
-    code_to_signal: list[float]
+    code_to_signal: tuple[float, ...]
 
     # --- Drive thermal noise ---
     drive_thermal__V: float

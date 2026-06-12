@@ -6,7 +6,7 @@
 
 `Xbar.from_config(cls, *, config, policy, name, inst_shape, dtype, T__K)` is the family constructor: it looks up the impl class from `type(config)` and forwards the runtime arguments. Direct instantiation of a concrete subclass is allowed; `from_config` is the polymorphic entry that owning macros use.
 
-`XbarConfig` is the base config carrying tile geometry, the `(adc_mode, adc_bits) → rescale_factor` calibration table (`adc_calibration`), and tile-level PPA fields. The active `AdcOperationPoint` is threaded into `vec_mat_mul`; the xbar exposes `adc_mode_num` / `adc_max_bits` (delegated from its ADC / readout chain) and `adc_rescale_factor(adc_operation_point) -> float`. All fields are required; the physical-layer no-defaults rule applies.
+`XbarConfig` is the base config carrying tile geometry, the `(adc_mode, adc_bits) → rescale_factor` calibration table (`adc_calibration`), and the xbar's **own extra PPA** (wiring + control glue at the xbar boundary — does **not** include `core` or `readout`, which carry their own PPA and roll up independently via the composite-aggregation rule in [`profiler_and_ppa.md`](../../architecture/profiler_and_ppa.md)). The active `AdcOperationPoint` is threaded into `vec_mat_mul`; the xbar exposes `adc_mode_num` / `adc_max_bits` (delegated from its ADC / readout chain) and `adc_rescale_factor(adc_operation_point) -> float`. All fields are required; the physical-layer no-defaults rule applies.
 
 `XbarPolicy` is the empty marker base policy for the family. Concrete xbar impls declare their own structured `*Policy(XbarPolicy)` (e.g. `Offset1T1RXbarPolicy`, `IdealXbarPolicy`) carrying nested sub-policies for every child the impl owns. The composite that holds an Xbar stores the abstract `XbarPolicy` field type and the caller passes the concrete impl.
 
@@ -41,7 +41,7 @@ The xbar does **not** expose an aggregate "full logical `w` range" — that rang
 
 ## Output rescale lookup
 
-`XbarConfig.adc_calibration` is an externally-calibrated table of `AdcCalibrationRecord(adc_mode, adc_bits, rescale_factor)` rows. `Xbar.adc_rescale_factor(adc_operation_point)` returns the rescale factor matching the runtime operating point. See [`docs/dev/architecture/mapping.md`](docs/dev/architecture/mapping.md) for the surrounding flow.
+`XbarConfig.adc_calibration` is an externally-calibrated table of `AdcCalibrationRecord(adc_mode, adc_bits, rescale_factor)` rows. `Xbar.adc_rescale_factor(adc_operation_point)` returns the rescale factor matching the runtime operating point. See [`docs/dev/architecture/mapping.md`](../../architecture/mapping.md) for the surrounding flow.
 
 ## `to_ideal()`
 

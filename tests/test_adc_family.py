@@ -8,8 +8,11 @@ that signed output (precomputed zero code vs per-call shift) is its own
 topology-specific implementation detail; the tests here only assert
 behaviour, not implementation.
 
-This file does NOT cover :class:`SarAdcMono` — its ``convert``
-currently raises ``NotImplementedError``.
+This file does NOT cover :class:`SarAdcMono`: that class is a
+future-work placeholder, lives in ``neurox.analog.adc.sar_mono`` but
+is **not** re-exported from ``neurox.analog.adc``. Its ``convert``
+raises ``NotImplementedError`` so it cannot participate in any
+end-to-end test.
 """
 
 from __future__ import annotations

@@ -21,14 +21,17 @@ import torch
 from torch import Tensor
 
 from neurox.analog.adc import AdcOperationPoint
-from neurox.common import dataclass_from_file
-from neurox.tools.logging import config_tool_logging
+from neurox.tools._config import (
+    add_standard_args,
+    load_tool_config,
+    resolve_relative_path,
+    setup_logging,
+)
 from neurox.tools.xbar_adc._probe import install_probe_adc
 from neurox.tools.xbar_adc._sampling import (
     build_offset_1t1r_xbar_all_off_from_config,
     load_distribution,
     make_generator,
-    resolve_device,
     sample_w,
     sample_x_batches,
 )
@@ -199,7 +202,7 @@ def build_candidates(
             f"insufficient samples for {smallest_label} estimate: "
             f"captured={sample_count}, need >= {required} (rule of thumb: 10/clip_rate). "
             f"Either lower --max-clip-rate-exp ({max_clip_rate_exp}) "
-            "or increase --weight-samples and/or --input-samples-per-weight."
+            "or increase [workload].weight_samples and/or [workload].input_samples_per_weight."
         )
 
     out: list[RangeCandidate] = []
@@ -256,13 +259,19 @@ def collect_statistics(
     Args:
         xbar_config: already-loaded chip xbar config.
         distribution_path: distribution TOML; ``None`` means uniform.
-        weight_samples: number of independent ``w`` programs.
-        input_samples_per_weight: per-``w`` count of input vectors.
-        batch_size: per-call cap; chunks each ``input_samples_per_weight``.
+        weight_samples: total number of independent programmed weights.
+            Must be a multiple of ``batch_size`` — the quotient is the
+            serial program / re-program count.
+        input_samples_per_weight: per-programming input vector count.
+            Runs in a single VMM call per programming (broadcast across
+            the ``batch_size`` parallel weights — not chunked).
+        batch_size: parallel weight-programming axis; the xbar is built
+            with ``inst_shape=(batch_size,)`` so each VMM evaluates that
+            many independent weight programs concurrently.
         max_clip_rate_exp: bottom of the candidate ladder
             (``10**-max_clip_rate_exp``).
         seed: optional generator seed.
-        device: resolved torch device.
+        device: target torch device.
 
     Raises:
         ValueError: from :func:`build_candidates` when sample count is
@@ -322,7 +331,7 @@ def collect_statistics(
             )
 
         v_pos, v_neg, v_diff = handle.probe.captured()
-        adc_instance_count = int(math.prod(handle.probe._inst_shape))
+        adc_instance_count = int(math.prod(handle.probe.inst_shape))
 
     candidates = build_candidates(v_diff.abs(), max_clip_rate_exp)
     return Statistics(
@@ -370,7 +379,7 @@ def log_statistics(stats: Statistics) -> None:
         logger.info("  min: %.6g", float(tensor.min().item()))
         logger.info("  max: %.6g", float(tensor.max().item()))
         logger.info("  mean: %.6g", float(tensor.mean().item()))
-        logger.info("  std: %.6g", float(tensor.std().item()))
+        logger.info("  std: %.6g", float(tensor.std(unbiased=False).item()))
         logger.info("  p50: %.6g", _percentile(tensor, 0.50))
         logger.info("  p90: %.6g", _percentile(tensor, 0.90))
         logger.info("  p99: %.6g", _percentile(tensor, 0.99))
@@ -545,45 +554,21 @@ def plot_statistics(
 # ---------------------------------------------------------------------------
 
 
-def _build_parser() -> argparse.ArgumentParser:
+def main(argv: list[str] | None = None) -> int:
+    """CLI entry point. Returns process exit code."""
     parser = argparse.ArgumentParser(
         description="Probe the ADC analog-input distribution of an xbar and recommend input-range candidates.",
     )
-    parser.add_argument("--config", type=Path, required=True, help="Statistic-run TOML config path")
-    parser.add_argument(
-        "--device",
-        type=str,
-        default="auto",
-        help='Torch device; "auto" picks cuda if available else cpu',
-    )
-    parser.add_argument(
-        "--plot-dir",
-        type=Path,
-        default=None,
-        help="Optional directory to write overview.png + spotlight_*.png into",
-    )
-    parser.add_argument("--log-level", type=str, default="INFO", help="Logger level (e.g. DEBUG, INFO)")
-    return parser
-
-
-def main(argv: list[str] | None = None) -> int:
-    """CLI entry point. Returns process exit code."""
-    parser = _build_parser()
+    add_standard_args(parser, plot_dir=True)
     args = parser.parse_args(argv)
-    config_tool_logging(level=getattr(logging, args.log_level.upper()))
+    setup_logging(args.log_level)
 
-    cfg = dataclass_from_file(XbarAdcStatisticConfig, args.config)
+    cfg = load_tool_config(XbarAdcStatisticConfig, args.config)
     logger.info("loaded config from %s", args.config)
 
-    # Distribution path in TOML is relative to the TOML's directory.
-    distribution_path: Path | None = None
-    if cfg.workload.distribution is not None:
-        candidate = Path(cfg.workload.distribution)
-        if not candidate.is_absolute():
-            candidate = args.config.parent / candidate
-        distribution_path = candidate
+    distribution_path = resolve_relative_path(cfg.workload.distribution, args.config)
 
-    device = resolve_device(args.device)
+    device = torch.device(args.device)
     logger.info("resolved device: %s", device)
 
     stats = collect_statistics(

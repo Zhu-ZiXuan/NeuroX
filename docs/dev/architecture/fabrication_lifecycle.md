@@ -64,15 +64,9 @@ def matmul(self, input, *, adc_operation_point) -> Tensor: ...                # 
 - `matmul` does **not** take `weight` — it reads the state established by `program(...)`.
 - The degenerate `IdealXbarMacro` accepts the same signature for API uniformity but has no xbar / no organize step; `program(weight)` writes the integer weight directly into `self.weight`.
 
-### Operators
+### User-side operators (out of core)
 
-```python
-def fabricate(self) -> None: ...   # drives self.macro.fabricate()
-def program(self) -> None: ...     # drives self.macro.program(self.weight_int)
-def forward(self, input) -> Tensor: ...
-```
-
-`replace.fabricate_model(model)` and `replace.program_model(model)` walk every `NeuroxOperator` and drive these two entries.
+Modules that wrap an `XbarMacro` into a stock-PyTorch-layer replacement live in the user's repository or in `example/`; the core public surface stops at `neurox.macro`. The conventional shape — `fabricate(self)` drives `self.macro.fabricate()`, `program(self)` drives `self.macro.program(self.weight_int)`, and `forward(input)` runs the int matmul pipeline — is illustrated by `example/lenet/quant.py` and `example/bert/quant.py`. Whatever code walks the model to drive these per-layer calls (the "model rewrite" step) also lives application-side; the core library does not ship a `replace` package.
 
 ## Buffer pattern
 

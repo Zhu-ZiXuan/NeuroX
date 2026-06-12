@@ -173,6 +173,12 @@ def main(argv: list[str] | None = None) -> int:
     log.info("loaded config from %s", args.config)
 
     inst_shape = tuple(cfg.workload.inst_shape)
+    if len(inst_shape) != 1 or inst_shape[0] != cfg.workload.batch_w:
+        raise SystemExit(
+            f"[workload].inst_shape ({list(inst_shape)}) must be exactly "
+            f"[batch_w]={[cfg.workload.batch_w]} — the two axes are bound by the "
+            "xbar's program(w) shape contract."
+        )
     dtype = torch.float32 if cfg.runtime.dtype == "float32" else torch.float64
     device = torch.device(args.device)
     distribution_path = resolve_relative_path(cfg.workload.distribution, args.config)

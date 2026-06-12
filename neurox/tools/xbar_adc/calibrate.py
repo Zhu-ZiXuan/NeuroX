@@ -15,13 +15,17 @@ from pathlib import Path
 import torch
 from torch import Tensor
 
-from neurox.analog.adc import AdcOperationPoint, McsSarAdcConfig, SarAdcMonoConfig
-from neurox.tools._config import add_standard_args, load_tool_config, resolve_relative_path, setup_logging
+from neurox.analog.adc import AdcOperationPoint, McsSarAdcConfig
+from neurox.tools._config import (
+    add_standard_args,
+    load_tool_config,
+    resolve_relative_path,
+    setup_logging,
+)
 from neurox.tools.xbar_adc._sampling import (
-    build_offset_1t1r_xbar_all_off,
+    build_offset_1t1r_xbar_all_off_from_config,
     load_distribution,
     make_generator,
-    resolve_device,
     sample_w,
     sample_x_batches,
 )
@@ -163,15 +167,21 @@ def derive_rescale_for_bits(r_max: float, max_bits: int) -> dict[int, float]:
     return {b: r_max * (2 ** (max_bits - b)) for b in range(1, max_bits + 1)}
 
 
-def saturation_mask(phys_codes: Tensor, max_bits: int) -> Tensor:
-    """Boolean mask — True where ``phys_codes`` is at a signed endpoint.
+def saturation_mask(phys_codes: Tensor, signed_range: tuple[int, int]) -> Tensor:
+    """Boolean mask — True where ``phys_codes`` is at the ADC's realised endpoints.
 
-    ADC.convert returns signed codes in ``[-2**(b-1), 2**(b-1) - 1]``; the
-    endpoints carry no linear-region information and must always be excluded
-    from the LS fit.
+    Args:
+        phys_codes: Captured physical ADC codes.
+        signed_range: ``(min_code, max_code)`` the ADC can emit at the
+            sweep's bit width (from :meth:`ADC.signed_range`). For
+            non-power-of-two code counts this is **narrower** than the
+            canonical SAR endpoints.
+
+    Returns:
+        ``True`` where the code hit either bound — those samples carry
+        no linear-region information and must be excluded from the LS fit.
     """
-    lower = -(1 << (max_bits - 1))
-    upper = (1 << (max_bits - 1)) - 1
+    lower, upper = signed_range
     return (phys_codes == lower) | (phys_codes == upper)
 
 
@@ -183,7 +193,7 @@ def supports_flexible_bits(adc_config: object) -> bool:
     rule. Other ADCs (e.g. ``GeneralADC``) are bit-width-fixed; the derived
     table is meaningless for them.
     """
-    return isinstance(adc_config, (SarAdcMonoConfig, McsSarAdcConfig))
+    return isinstance(adc_config, McsSarAdcConfig)
 
 
 # ---------------------------------------------------------------------------
@@ -193,7 +203,7 @@ def supports_flexible_bits(adc_config: object) -> bool:
 
 def collect_calibration(
     *,
-    config_path: Path,
+    xbar_config: Offset1T1RXbarConfig,
     distribution_path: Path | None,
     adc_mode: int,
     weight_samples: int,
@@ -208,13 +218,16 @@ def collect_calibration(
     from the LS fit — they carry no linear-region information.
 
     Args:
-        config_path: chip xbar TOML.
+        xbar_config: already-loaded chip xbar config.
         distribution_path: distribution TOML; ``None`` means uniform.
         adc_mode: Operating-point index to calibrate.
         weight_samples / input_samples_per_weight / batch_size: see
-            :func:`statistic.collect_statistics`.
+            :func:`statistic.collect_statistics` for the exact semantics
+            (``batch_size`` must divide ``weight_samples``;
+            ``input_samples_per_weight`` runs in one VMM call, not chunked;
+            ``batch_size`` is the parallel weight-programming axis).
         seed: optional generator seed.
-        device: resolved torch device.
+        device: target torch device.
 
     Raises:
         ValueError: When ``adc_mode`` is out of range, sweep params are
@@ -238,7 +251,7 @@ def collect_calibration(
     # weight_samples = A · B where A = serial w-group count. The three axes
     # are orthogonal: serial A bounds peak tensor size, parallel B amortises
     # GPU launch overhead, K controls statistical depth per programmed weight.
-    physical = build_offset_1t1r_xbar_all_off(config_path, device=device, inst_shape=(batch_size,))
+    physical = build_offset_1t1r_xbar_all_off_from_config(xbar_config, device=device, inst_shape=(batch_size,))
     ideal = physical.to_ideal().to(device)
     ideal.eval()
     ideal.fabricate()
@@ -250,7 +263,8 @@ def collect_calibration(
     generator = make_generator(seed, device)
     max_bits = physical.adc_max_bits
     phys_op = AdcOperationPoint(adc_mode=adc_mode, adc_bits=max_bits)
-    adc_instance_count = int(math.prod(physical.readout.bl_adc._inst_shape))
+    phys_signed_range = physical.readout.bl_adc.signed_range(max_bits)
+    adc_instance_count = int(math.prod(physical.readout.bl_adc.inst_shape))
     flexible = supports_flexible_bits(physical.readout.config.adc_config)
 
     logger.info("xbar built on device=%s; distribution_source=%s", device, distribution.source)
@@ -293,7 +307,7 @@ def collect_calibration(
     ideal_vmm = torch.cat(ideal_buf)
     total_pairs = int(phys_codes.numel())
 
-    sat_mask = saturation_mask(phys_codes, max_bits)
+    sat_mask = saturation_mask(phys_codes, phys_signed_range)
     valid_mask = ~sat_mask
 
     fit_phys = phys_codes[valid_mask]
@@ -336,7 +350,7 @@ def collect_calibration(
         rmse=float((residual * residual).mean().sqrt().item()),
         mae=float(abs_res.mean().item()),
         residual_mean=float(residual.mean().item()),
-        residual_std=float(residual.std().item()),
+        residual_std=float(residual.std(unbiased=False).item()),
         max_abs_residual=float(abs_res.max().item()),
         phys_codes=phys_codes,
         ideal_vmm=ideal_vmm,
@@ -481,11 +495,11 @@ def main(argv: list[str] | None = None) -> int:
     logger.info("loaded config from %s", args.config)
     distribution_path = resolve_relative_path(cfg.workload.distribution, args.config)
 
-    device = resolve_device(args.device)
+    device = torch.device(args.device)
     logger.info("resolved device: %s", device)
 
     result = collect_calibration(
-        config_path=args.config,
+        xbar_config=cfg.xbar,
         distribution_path=distribution_path,
         adc_mode=cfg.adc.mode,
         weight_samples=cfg.workload.weight_samples,

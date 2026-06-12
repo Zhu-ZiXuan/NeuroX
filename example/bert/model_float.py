@@ -5,11 +5,12 @@ params) wrapped by HuggingFace ``BertForSequenceClassification``,
 which adds a single ``nn.Linear(hidden, num_labels)`` classifier on top
 of the ``[CLS]`` pooled output.
 
-NeuroX's ``replace_for_hat`` / ``build_evaluator`` walk the module tree
-and swap every ``nn.Linear`` for its crossbar-backed counterpart —
-which here means the BERT Q/K/V/output projections, the FFN
-intermediate / output layers, the pooler, and the classifier.  Other
-ops (LayerNorm, GELU, attention softmax, embeddings) stay in float.
+``example/bert/macro_factory.py`` walks the module tree and swaps
+every ``nn.Linear`` for its crossbar-backed counterpart — which here
+means the BERT Q/K/V/output projections, the FFN intermediate / output
+layers, the pooler, and the classifier. Other ops (LayerNorm, GELU,
+attention softmax, embeddings) stay in float. NeuroX core stops at the
+macro layer; the per-layer swap is example-side code.
 
 Note on ``from_pretrained``: we use the explicit ``Bert*`` classes
 (not ``Auto*``) because some community BERT-small checkpoints ship a

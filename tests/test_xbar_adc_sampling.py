@@ -19,7 +19,6 @@ from neurox.tools.xbar_adc._sampling import (
     build_offset_1t1r_xbar_all_off,
     load_distribution,
     make_generator,
-    resolve_device,
     sample_w,
     sample_x_batches,
 )
@@ -303,27 +302,11 @@ class TestProbe:
 
 
 # ---------------------------------------------------------------------------
-# Device + generator helpers
+# Generator helper
 # ---------------------------------------------------------------------------
 
 
-class TestDeviceResolution:
-    def test_auto_falls_back_to_cpu_when_no_cuda(self) -> None:
-        # Result depends on test environment; just verify it returns a torch.device.
-        device = resolve_device("auto")
-        assert isinstance(device, torch.device)
-        if not torch.cuda.is_available():
-            assert device.type == "cpu"
-
-    def test_explicit_cpu(self) -> None:
-        assert resolve_device("cpu").type == "cpu"
-
-    def test_cuda_without_cuda_raises(self) -> None:
-        if torch.cuda.is_available():
-            pytest.skip("CUDA is available; cannot test the missing-cuda path")
-        with pytest.raises(RuntimeError, match=r"no CUDA device"):
-            resolve_device("cuda")
-
+class TestMakeGenerator:
     def test_make_generator_none(self) -> None:
         assert make_generator(None, CPU) is None
 

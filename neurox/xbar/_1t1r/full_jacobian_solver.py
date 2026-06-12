@@ -1,28 +1,8 @@
 """Fully-coupled-Jacobian DC solver for a 1T1R crossbar array.
 
-Unlike the nested block-Gauss-Seidel approach in :mod:`nested_solver`,
-this solver lifts every circuit unknown — including the per-cell
-internal node ``V_X``, the BL clamp voltage, and the SL drive voltage —
-into a single global Newton step. The per-column unknown vector is
-
-    u = [V_BL[0:R], V_SL[0:R], V_X[0:R], V_BL_CL, V_SL_DR]
-
-and the per-column residual is
-
-    F_X[k]  = I_N(V_WL[k], V_X[k], V_SL[k]) - I_R(V_BL[k] - V_X[k])
-    F_BL[k] = wire_BL[k](V_BL, V_BL_CL) + I_R(V_BL[k] - V_X[k])
-    F_SL[k] = wire_SL[k](V_SL, V_SL_DR) - I_N(V_WL[k], V_X[k], V_SL[k])
-    F_CL_BL = V_BL_CL - TIA(I_BL_PORT)
-    F_CL_SL = V_SL_DR - SL_driver(I_SL_PORT)
-
-with ``I_BL_PORT = g_seg[0]·(V_BL_CL − V_BL[0])`` and analogously for
-SL. The two boundary scalars are Schur-eliminated against row 0 of the
-main system so the linear solve fits a clean block-tridiagonal
-structure with 3×3 blocks; the recovered ``ΔV_clamp`` is then computed
-from the row-0 update via the elimination formula.
-
-See also:
-    docs/dev/modules/xbar/_1t1r/full_jacobian_solver.md
+See ``docs/dev/modules/xbar/_1t1r/full_jacobian_solver.md`` for the
+unknown vector, residual definition, Schur-elimination of the boundary
+scalars, and convergence rationale.
 """
 
 from __future__ import annotations
@@ -135,7 +115,7 @@ class FullJacobianSolver1T1R(Solver1T1R):
         # Shape: [num_row - 1]
         bl_wire_offdiag = -bl_segment_g__uS[1:]
         sl_wire_offdiag = -sl_segment_g__uS[1:]
-        # Scalar
+        # Shape: []
         bl_driver_segment_g = bl_segment_g__uS[0]
         sl_driver_segment_g = sl_segment_g__uS[0]
 
@@ -186,9 +166,10 @@ class FullJacobianSolver1T1R(Solver1T1R):
             # Cell DC at current (V_BL, V_SL, V_X).
             nmos_dc = self.nmos.solve_dc(v_wl_drive_grid__V, v_x_node, v_sl_node, nmos_snapshot)
             rram_dc = self.rram.solve_dc(v_bl_node - v_x_node, rram_snapshot)
-            i_n = nmos_dc.ids__uA  # Shape: [..., num_col, num_row]
+            # Shape: [..., num_col, num_row]
+            i_n = nmos_dc.ids__uA
             i_r = rram_dc.i__uA
-            f_x = i_n - i_r  # Cell residual
+            f_x = i_n - i_r
 
             # Wire KCL residuals — F_BL uses I_R (RRAM injects into BL),
             # F_SL uses I_N (NMOS draws from SL).
@@ -278,27 +259,30 @@ class FullJacobianSolver1T1R(Solver1T1R):
             alpha_bl = -f_cl_bl / denom_bl
             alpha_sl = -f_cl_sl / denom_sl
 
-            # Build row-0-only diagonal-block modification: shape [..., col, 3, 3]
-            # only [0, 0] and [1, 1] entries non-zero.
-            mod_bl = -bl_driver_segment_g * beta_bl  # shape [..., col]
+            # Shape: [..., col]
+            mod_bl = -bl_driver_segment_g * beta_bl
+            # Shape: [..., col]
             mod_sl = -sl_driver_segment_g * beta_sl
             zero_col = torch.zeros_like(mod_bl)
             mod_row0_3x3_row_bl = torch.stack([mod_bl, zero_col, zero_col], dim=-1)
             mod_row0_3x3_row_sl = torch.stack([zero_col, mod_sl, zero_col], dim=-1)
             mod_row0_3x3_row_x = torch.stack([zero_col, zero_col, zero_col], dim=-1)
+            # Row-0-only modification with only [0, 0] and [1, 1] non-zero.
+            # Shape: [..., col, 3, 3]
             mod_row0_3x3 = torch.stack(
                 [mod_row0_3x3_row_bl, mod_row0_3x3_row_sl, mod_row0_3x3_row_x],
                 dim=-2,
-            )  # [..., col, 3, 3]
-            # Embed at wire-row 0 of [..., col, num_row, 3, 3] via F.pad.
-            # unsqueeze a wire-row dim then pad with zeros on the right.
-            # pad spec for last 4 dims:
+            )
+            # Embed at wire-row 0 of the diag-block stack via F.pad: unsqueeze
+            # a wire-row dim then pad with zeros on the right. F.pad's
+            # last-4-dims spec runs
             # (col1_last_low, col1_last_high,  col2_last_low, col2_last_high,
-            #  row_low, row_high,  wire_row_low, wire_row_high)
+            #  row_low, row_high,  wire_row_low, wire_row_high).
+            # Shape: [..., col, num_row, 3, 3]
             mod_diag_full = F.pad(
                 mod_row0_3x3.unsqueeze(-3),
                 (0, 0, 0, 0, 0, num_row - 1),
-            )  # [..., col, num_row, 3, 3]
+            )
             diag_blocks_modified = diag_blocks + mod_diag_full
 
             # === Build RHS = −F and add row-0 Schur correction =========

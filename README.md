@@ -1,35 +1,27 @@
-# NeuroX: Neuromorphic Computing Co-Simulation Framework
+# NeuroX
 
-NeuroX is a hardware-software co-simulation framework designed for Compute-in-Memory (CIM) and Processing-in-Memory (PIM) architectures. It enables **Hardware-Aware Training (HAT)** and **Architecture Search (NAS)** by seamlessly integrating physical hardware constraints into the PyTorch training loop.
+NeuroX is a static-PPA + functional-accuracy co-simulation framework for memristor (1T1R RRAM) crossbar-based AI accelerators. It models the analog VMM signal chain — RRAM cell, access NMOS, BL/SL/WL wire parasitics, TIA clamp, sample-and-hold, mux, and ADC — and lifts the integer output through digital aggregation (shift-add, accumulators) up to a macro layer that exposes one `matmul` per fabricated tile.
 
-## Core Philosophy: "Zero-Code Change"
+## Public surface
 
-NeuroX is built for algorithm engineers. You write standard PyTorch code; NeuroX handles the hardware.
+The core library's public surface stops at `neurox.macro`. Above that line — training loops, observer calibration, model rewriting — lives in `example/` and is not a stable API. Below it, every primitive (`Xbar`, `Solver1T1R`, `OpAmpTIA`, `McsSarAdc`, …) follows the same family-base + concrete-config + `from_config` registry pattern documented in [`docs/dev/architecture/`](docs/dev/architecture/README.md).
 
-1. **Define Model**: Write your model in pure PyTorch (e.g., `models/resnet.py`).
-2. **Define Hardware**: Configure your chip architecture (Device -> Array -> Macro -> Chip).
-3. **Transform**: Use `MappingTransformer` to automatically convert your model into a hardware-aware graph.
-4. **Train & Estimate**: Train normally. The simulator handles quantization, noise, and PPA estimation under the hood.
+## Layout
 
-## Project Structure
+- `neurox/device/` — RRAM, NMOS, Selector device-physics primitives.
+- `neurox/analog/` — clamp driver, AnalogMux, SwitchCap, Decoder/Driver, `dac/` / `adc/` / `tia/` polymorphic families.
+- `neurox/digital/` — integer accumulators, shift-adders, subtractors.
+- `neurox/xbar/` — abstract `Xbar`, `IdealXbar` reference twin, the `_1t1r/` subtree (circuit core + DC solver + offset-coded readout), and the `readout/` family.
+- `neurox/mapper/` — value-domain transcoder and slicer primitives.
+- `neurox/macro/` — `XbarMacro` family with `from_config` factory; the public entry point.
+- `neurox/profiler/` — `ProfileMixin` and the side-channel dynamic-energy logger.
+- `neurox/tools/` — offline calibration / analysis CLIs (state map, ADC stat / calibrate, TIA optimize, solver calibrate).
+- `example/` — runnable LeNet and BERT pipelines (float train, HAT, evaluation) showing how a user assembles the above into a training/inference flow.
 
-- **`models/`**: Standard PyTorch AI models (ResNet, BERT, etc.). **No NeuroX code here.**
-- **`src/neurox/`**: The core simulator.
-  - **`device/`**: Physical device models (RRAM, PCM).
-  - **`circuit/`**: Peripheral circuits (ADC, DAC).
-  - **`macro/`**: CIM Macros (Tiles).
-  - **`chip/`**: Top-level chip architecture.
-- **`examples/`**: End-to-end training and inference scripts.
+## Example pipelines
 
-## Quick Start
+See [`docs/user/examples.md`](docs/user/examples.md) for the LeNet and BERT walkthroughs.
 
-```bash
-python examples/mnist/train.py
-```
+## Developer docs
 
-## Key Features
-
-- **Automatic Graph Transformation**: Replaces `nn.Linear`/`nn.Conv2d` with `VirtualLayer` counterparts.
-- **Physics-Based Modeling**: Simulates device non-idealities (noise, drift, retention).
-- **PPA Estimation**: Detailed Power, Performance, and Area breakdown.
-- **Autograd Support**: Fully differentiable hardware models using Straight-Through Estimator (STE).
+See [`docs/dev/`](docs/dev/) — the architecture rules, per-module design notes, ADRs, and the recipes index.

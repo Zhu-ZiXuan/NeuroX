@@ -38,11 +38,11 @@ Physical shape is committed at `__init__` via the `w_layout_shape` argument.
 
 Solvers have **no Policy** — their knobs are all fixed numerical constants and live on `CircuitCore1T1RConfig.solver_config`. The core forwards each sub-policy into the matching child constructor verbatim; for the solver, it calls `Solver1T1R.from_config(config=config.solver_config, ...)` and the registry picks the concrete impl (`NestedSolver1T1R` / `FullJacobianSolver1T1R`) by config type.
 
-`CircuitCore1T1R.__init__(*, config, policy, name, w_layout_shape, dtype, T__K)` accepts `w_layout_shape = (*prefix, phys_col_num, row_num)`. The core constructs every owned child with a derived `inst_shape`:
+`CircuitCore1T1R.__init__(*, config, policy, name, w_layout_shape, dtype, T__K)` accepts `w_layout_shape = (*prefix, phys_col_num, row_num)`. The core constructs every owned child with a derived `inst_shape` that carries `prefix` uniformly — `prefix` counts independent fabricated tile instances per the profiler contract ([`profiler_and_ppa.md`](../../../architecture/profiler_and_ppa.md)):
 
 - `rram` / `nmos` — `inst_shape = w_layout_shape` (one per-cell mismatch sample).
-- `tia` / `sl_driver` — `inst_shape = (phys_col_num,)` (per-column mismatch shared across prefix). BL and SL are both column-shared, so they share the per-col instance layout.
-- `wl_dac` — `inst_shape = (row_num,)`.
+- `tia` / `sl_driver` — `inst_shape = (*prefix, phys_col_num)` (per-column mismatch, one independent sample per tile).
+- `wl_dac` — `inst_shape = (*prefix, row_num)`.
 
 `CircuitCore1T1R` inherits `FabricateMixin`; the cascade refreshes the children automatically when `fabricate()` is called from above. The core itself owns no static mismatch — `_sample_fabricate_mismatch` is the default no-op. Family-based children dispatch via `from_config(...)`. The RRAM device receives `g_max__uS` via constructor kwarg.
 
@@ -83,6 +83,12 @@ BL and SL are both column-shared (one line per column, IR drops along the row ax
 - leaf devices fabricate / program their own static state under the auto-cascade
 - the core does not re-register child state
 - the core samples per-call snapshots and passes them into the solver
+
+## PPA fields
+
+`CircuitCore1T1RConfig` exposes three per-instance PPA scalars — `area_per_inst__um2`, `leakage_per_inst__uW`, `latency_per_op__ns` — for the cell array + wire infrastructure that the core owns directly. Dynamic energy is computed from the solved DC operating point (see *Energy accounting* below); `latency_per_op__ns` is the per-VMM core-side latency the profiler attributes the dynamic event to.
+
+`wl_pulse_length__ns` stays a separate field rather than being merged into `latency_per_op__ns` because it drives wire RC charging in the energy model — it is a physical-access duration that the wire-cap full-settle integral needs as a multiplier, not an attribution-only latency.
 
 ## Energy accounting
 

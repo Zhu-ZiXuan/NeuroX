@@ -23,12 +23,12 @@ These layers must stay separate; the same rule is never restated across all thre
 ### Lifecycle and state
 
 - [`config_and_construction.md`](config_and_construction.md) — process / design / spec / runtime parameter classes, device-vs-circuit config split, family-base + concrete-config pattern, explicit `from_config(...)`, and the paired `*Policy` runtime kwarg (no defaults, never persisted in TOML).
-- [`fabrication_lifecycle.md`](fabrication_lifecycle.md) — the `__init__` / `fabricate` / `snapshot` / `forward` lifecycle, canonical `fabricate(shape)` signature, re-callability via nominal templates.
+- [`fabrication_lifecycle.md`](fabrication_lifecycle.md) — the `__init__` / `fabricate` / `snapshot` / `forward` lifecycle; shape is committed at `__init__`, `fabricate()` is the no-arg auto-cascade, re-callable via nominal templates.
 - [`state_holding.md`](state_holding.md) — three-stage state model (nominal → actual → snapshot), ownership rule, snapshot pattern.
 
 ### Runtime
 
-- [`compile_policy.md`](compile_policy.md) — where `@torch.compile` is applied (macro entry only), forbidden behaviours on the compiled path, the one intentional graph break.
+- [`compile_policy.md`](compile_policy.md) — where `@torch.compile` is applied (macro entry only), forbidden behaviours on the compiled path, intentional graph breaks (structural `_log_dynamic` + temporary `Offset1T1RXbar.vec_mat_mul`).
 - [`profiler_and_ppa.md`](profiler_and_ppa.md) — `ProfileMixin` interface, `_log_static` ordering rule, composite-module PPA aggregation, side-channel dynamic-energy logging.
 
 ### Mapping

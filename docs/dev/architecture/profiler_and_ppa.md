@@ -6,7 +6,7 @@ This document records the rules for static area / leakage reporting, dynamic ene
 
 Every **circuit module** (anything under `neurox/analog/`, `neurox/digital/`, `neurox/xbar/`, `neurox/macro/`) must inherit `ProfileMixin`. This is non-negotiable.
 
-**Device modules** (`neurox/device/`) do **not** inherit `ProfileMixin`. Device PPA rolls up to the owning circuit — see [`ADR-0002`](docs/dev/adr/ADR-0002-nmos-is-a-pure-electrical-primitive.md). Device modules expose no `_log_dynamic` / `area_per_inst__um2` / `leakage_per_inst__uW` / `latency_per_op__ns`.
+**Device modules** (`neurox/device/`) do **not** inherit `ProfileMixin`. Device PPA rolls up to the owning circuit — see [`ADR-0002`](../adr/ADR-0002-nmos-is-a-pure-electrical-primitive.md). Device modules expose no `_log_dynamic` / `area_per_inst__um2` / `leakage_per_inst__uW` / `latency_per_op__ns`.
 
 ## Required interface
 
@@ -61,7 +61,7 @@ Rules:
 
 ## Why `_log_dynamic` is decorated `@torch.compiler.disable`
 
-`_log_dynamic` is the **only intentional graph break** on the runtime path. It is necessary because:
+`_log_dynamic` is the **structural intentional graph break** on the runtime path (a second, temporary break sits on `Offset1T1RXbar.vec_mat_mul` — see [`compile_policy.md`](compile_policy.md) for the full list and rationale). It is necessary because:
 
 1. `NeuroxProfiler.get_current()` reads `threading.local()` — dynamo cannot trace thread-local state.
 2. `profiler._append_runtime_event(...)` mutates a Python list — dynamo cannot trace host-state mutation.

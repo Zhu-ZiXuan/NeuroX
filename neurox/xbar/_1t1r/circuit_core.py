@@ -17,7 +17,7 @@ from neurox.analog import (
 )
 from neurox.analog.dac import DAC, DACConfig, DACPolicy
 from neurox.analog.tia import TIA, TIAConfig, TIAPolicy
-from neurox.common.mixin import FabricateMixin, ValidateMixin
+from neurox.common.mixin import FabricateMixin, ProfileMixin, ValidateMixin
 from neurox.device import (
     NMOS,
     RRAM,
@@ -78,6 +78,15 @@ class CircuitCore1T1RConfig(ValidateMixin):
             ``FullJacobianSolver1T1RConfig``) picks which solver
             implementation the core instantiates via
             ``Solver1T1R.from_config(...)``.
+        area_per_inst__um2: Core (cell array + wire infra) silicon area
+            per fabricated tile instance [um²]. Does **not** include the
+            owned children (TIA / drivers / DAC / RRAM / NMOS), which
+            roll up separately via the composite-aggregation rule in
+            ``docs/dev/architecture/profiler_and_ppa.md``.
+        leakage_per_inst__uW: Core static leakage per fabricated tile
+            instance [uW]. Same scope as ``area_per_inst__um2``.
+        latency_per_op__ns: Core-side per-VMM latency [ns] that the
+            profiler attributes the dynamic-energy event to.
     """
 
     wl_pulse_length__ns: float
@@ -110,7 +119,7 @@ class CircuitCore1T1RConfig(ValidateMixin):
     c_db_per_um__fF: float
 
     rram_g_max__uS: float
-    state_to_g_map__uS: list[float]
+    state_to_g_map__uS: tuple[float, ...]
 
     rram_config: RRAMConfig
     nmos_config: NMOSConfig
@@ -118,6 +127,10 @@ class CircuitCore1T1RConfig(ValidateMixin):
     sl_driver_config: DriverConfig
     wl_dac_config: DACConfig
     solver_config: Solver1T1RConfig
+
+    area_per_inst__um2: float
+    leakage_per_inst__uW: float
+    latency_per_op__ns: float
 
     def __post_init__(self) -> None:
         self.validate()
@@ -130,9 +143,15 @@ class CircuitCore1T1RConfig(ValidateMixin):
         self.validate_parasitics()
         self.validate_rram_window()
         self.validate_state_map()
+        self.validate_ppa()
 
     def validate_wl_pulse(self) -> None:
         self._require_nonneg(self.wl_pulse_length__ns, "wl_pulse_length__ns")
+
+    def validate_ppa(self) -> None:
+        self._require_nonneg(self.area_per_inst__um2, "area_per_inst__um2")
+        self._require_nonneg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
+        self._require_nonneg(self.latency_per_op__ns, "latency_per_op__ns")
 
     def validate_layout_pitch(self) -> None:
         for field in (
@@ -239,6 +258,12 @@ class Core1T1RDCOP:
             Shape: [..., row_num].
         v_out_phys: BL clamp output voltage at the converged port
             current [V]. Shape: [..., phys_col_num].
+        residuals: Per-equation Newton residuals captured at the
+            converged operating point, populated only when
+            ``solve_dc(..., compute_residuals=True)`` is requested
+            (e.g. by ``solver_calibrate``). ``None`` on the production
+            path so the heavy residual tensors are not materialised
+            during inference.
     """
 
     i_bl_driver: Tensor
@@ -260,8 +285,20 @@ class Core1T1RDCOP:
 # ---------------------------------------------------------------------------
 
 
-class CircuitCore1T1R(FabricateMixin, nn.Module):
+class CircuitCore1T1R(FabricateMixin, ProfileMixin, nn.Module):
     """Shape-independent 1T1R core: devices, boundary circuits, and solver."""
+
+    @property
+    def area_per_inst__um2(self) -> float:
+        return self.config.area_per_inst__um2
+
+    @property
+    def leakage_per_inst__uW(self) -> float:
+        return self.config.leakage_per_inst__uW
+
+    @property
+    def latency_per_op__ns(self) -> float:
+        return self.config.latency_per_op__ns
 
     state_to_g_map__uS: Tensor
     bl_segment_r__MOhm: Tensor
@@ -293,7 +330,8 @@ class CircuitCore1T1R(FabricateMixin, nn.Module):
             dtype: Tensor dtype for internal buffers.
             T__K: Operating temperature [K].
         """
-        super().__init__()
+        nn.Module.__init__(self)
+        ProfileMixin.__init__(self, name)
 
         if len(w_layout_shape) < 2:
             raise ValueError(
@@ -305,7 +343,6 @@ class CircuitCore1T1R(FabricateMixin, nn.Module):
         if not (row_num > 1):
             raise ValueError(f"require: row_num ({row_num}) > 1")
 
-        self._neurox_name = name
         self.config = config
         self.policy = policy
         self.dtype = dtype
@@ -335,7 +372,7 @@ class CircuitCore1T1R(FabricateMixin, nn.Module):
             config=config.tia_config,
             policy=policy.tia,
             name=f"{sub_prefix}tia",
-            inst_shape=(phys_col_num,),
+            inst_shape=(*prefix, phys_col_num),
             dtype=dtype,
             T__K=T__K,
         )
@@ -348,7 +385,7 @@ class CircuitCore1T1R(FabricateMixin, nn.Module):
             config=config.sl_driver_config,
             policy=policy.sl_driver,
             name=f"{sub_prefix}sl_driver",
-            inst_shape=(phys_col_num,),
+            inst_shape=(*prefix, phys_col_num),
             dtype=dtype,
             T__K=T__K,
         )
@@ -356,7 +393,7 @@ class CircuitCore1T1R(FabricateMixin, nn.Module):
             config=config.wl_dac_config,
             policy=policy.wl_dac,
             name=f"{sub_prefix}wl_dac",
-            inst_shape=(row_num,),
+            inst_shape=(*prefix, row_num),
             dtype=dtype,
             T__K=T__K,
         )
@@ -406,6 +443,8 @@ class CircuitCore1T1R(FabricateMixin, nn.Module):
 
         self.fabricated_col_num = phys_col_num
         self.fabricated_row_num = row_num
+
+        self._log_static()
 
     # -----------------------------------------------------------------
     # Programming
@@ -505,10 +544,10 @@ class CircuitCore1T1R(FabricateMixin, nn.Module):
             residuals=solver_dcop.residuals,
         )
 
-        # --- Accumulate analog-side dynamic energy ---
+        # --- Accumulate core-side dynamic energy ---
 
         array_energy__fJ = self._compute_array_energy__fJ(core_dcop)
-        self.tia._log_dynamic(array_energy__fJ, self.tia.config.latency_per_op__ns)
+        self._log_dynamic(array_energy__fJ, self.config.latency_per_op__ns)
 
         return core_dcop
 

@@ -62,9 +62,19 @@ def _resolve_concrete_dataclass(base: type, type_name: str) -> type:
             continue
     raise TypeError(
         f"No dataclass subclass of {base.__name__} named {type_name!r}; "
-        f"available subclasses: "
-        f"{sorted(c.__name__ for c in base.__subclasses__() if _is_dataclass_type(c)) or '<none>'}"
+        f"available subclasses (recursive): "
+        f"{sorted(_recursive_dataclass_descendants(base)) or '<none>'}"
     )
+
+
+def _recursive_dataclass_descendants(base: type) -> list[str]:
+    """List every dataclass descendant of ``base`` by ``__name__``."""
+    out: list[str] = []
+    for sub in base.__subclasses__():
+        if _is_dataclass_type(sub):
+            out.append(sub.__name__)
+        out.extend(_recursive_dataclass_descendants(sub))
+    return out
 
 
 def _build_value(value: Any, tp: Any) -> Any:  # noqa: ANN401
@@ -120,12 +130,26 @@ def _build_value(value: Any, tp: Any) -> Any:  # noqa: ANN401
 
     # --- generic containers ---
     if origin in (list, tuple, set, frozenset):
+        # ``str`` / ``bytes`` are iterables of length-1 elements; if a
+        # config field is annotated ``list[T]`` and the TOML supplies a
+        # string by mistake, the silent character-iteration that
+        # results is almost always wrong. Reject it explicitly.
+        if isinstance(value, (str, bytes)):
+            raise TypeError(
+                f"Expected list/tuple/set for {tp}, got {type(value).__name__}: {value!r}"
+            )
         if not args:
             return value
         if origin is tuple and len(args) == 2 and args[1] is Ellipsis:
             return tuple(_build_value(x, args[0]) for x in value)
         if origin is tuple:
-            return tuple(_build_value(x, a) for x, a in zip(value, args, strict=False))
+            if len(value) != len(args):
+                raise ValueError(
+                    f"tuple length mismatch: expected {len(args)} element(s) for "
+                    f"tuple[{', '.join(getattr(a, '__name__', str(a)) for a in args)}], "
+                    f"got {len(value)}"
+                )
+            return tuple(_build_value(x, a) for x, a in zip(value, args, strict=True))
         inner = args[0]
         return origin(_build_value(x, inner) for x in value)
 
@@ -135,7 +159,44 @@ def _build_value(value: Any, tp: Any) -> Any:  # noqa: ANN401
         v_tp = args[1]
         return {k: _build_value(v, v_tp) for k, v in value.items()}
 
-    # --- primitive / untyped ---
+    # --- primitive (int / float / bool / str) ---
+    if tp in (int, float, bool, str):
+        return _coerce_primitive(value, tp)
+
+    # --- untyped / Any ---
+    return value
+
+
+def _coerce_primitive(value: Any, tp: type) -> Any:  # noqa: ANN401
+    """Validate a primitive value against ``tp``; reject silent mis-coercion.
+
+    Rules:
+      * ``bool`` is **not** a valid ``int`` here — Python's
+        ``isinstance(True, int) is True`` would otherwise let bool
+        fields collapse into int fields.
+      * ``int`` is accepted as ``float`` (TOML / YAML round-trip
+        regularly emits ``1`` where ``1.0`` is intended).
+      * ``str``, ``bytes``, and any other non-numeric type are rejected
+        for numeric fields with a clear ``TypeError``.
+    """
+    if tp is bool:
+        if isinstance(value, bool):
+            return value
+        raise TypeError(f"Expected bool, got {type(value).__name__}: {value!r}")
+    if tp is int:
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise TypeError(f"Expected int, got {type(value).__name__}: {value!r}")
+        return value
+    if tp is float:
+        if isinstance(value, bool):
+            raise TypeError(f"Expected float, got {type(value).__name__}: {value!r}")
+        if isinstance(value, (int, float)):
+            return float(value)
+        raise TypeError(f"Expected float, got {type(value).__name__}: {value!r}")
+    if tp is str:
+        if isinstance(value, str):
+            return value
+        raise TypeError(f"Expected str, got {type(value).__name__}: {value!r}")
     return value
 
 
@@ -144,7 +205,8 @@ def dataclass_from_dict(cls: type[T], data: Mapping[str, Any]) -> T:
 
     Nested dataclass and ``Enum`` fields are resolved recursively.
     A top-level ``_neurox_type`` discriminator dispatches to the named
-    subclass of ``cls``.  Unknown keys are ignored.
+    subclass of ``cls``. Unknown keys raise ``TypeError`` — typos must
+    not silently fall back to defaults.
 
     Args:
         cls: Target frozen dataclass type.
@@ -163,9 +225,15 @@ def dataclass_from_dict(cls: type[T], data: Mapping[str, Any]) -> T:
             return dataclass_from_dict(concrete, filtered)  # type: ignore[return-value]
     hints = get_type_hints(cls)
     names = _dataclass_field_names(cls)
+    unknown = [k for k in data if k != _TYPE_DISCRIMINATOR and k not in names]
+    if unknown:
+        raise TypeError(
+            f"{cls.__name__}: unknown key(s) {sorted(unknown)}; "
+            f"valid fields: {sorted(names)}"
+        )
     kwargs: dict[str, Any] = {}
     for name, raw in data.items():
-        if name not in names:
+        if name == _TYPE_DISCRIMINATOR:
             continue
         kwargs[name] = _build_value(raw, hints.get(name, Any))
     return cls(**kwargs)
@@ -174,12 +242,32 @@ def dataclass_from_dict(cls: type[T], data: Mapping[str, Any]) -> T:
 # --- dataclass -> dict ---
 
 
+def _is_polymorphic_dataclass(tp: type) -> bool:
+    """``True`` iff ``tp`` participates in a polymorphic family.
+
+    A class participates whenever it has a dataclass ancestor or
+    descendant — i.e., a sibling concrete type could occupy the same
+    declared field. Non-polymorphic standalones (no parent dataclass,
+    no subclasses) skip the ``_neurox_type`` discriminator on dump so
+    the round-trip output stays terse.
+    """
+    if any(_is_dataclass_type(base) and base is not tp for base in tp.__mro__):
+        return True
+    return any(_is_dataclass_type(sub) for sub in tp.__subclasses__())
+
+
 def _to_primitive(obj: Any) -> Any:  # noqa: ANN401
     """Recursively convert a dataclass tree to primitive Python values."""
     if isinstance(obj, Enum):
         return obj.value
     if is_dataclass(obj) and not isinstance(obj, type):
-        return {f.name: _to_primitive(getattr(obj, f.name)) for f in fields(obj)}
+        out: dict[str, Any] = {}
+        cls = type(obj)
+        if _is_polymorphic_dataclass(cls):
+            out[_TYPE_DISCRIMINATOR] = cls.__name__
+        for f in fields(obj):
+            out[f.name] = _to_primitive(getattr(obj, f.name))
+        return out
     if isinstance(obj, Mapping):
         return {k: _to_primitive(v) for k, v in obj.items()}
     if isinstance(obj, list | tuple | set | frozenset):

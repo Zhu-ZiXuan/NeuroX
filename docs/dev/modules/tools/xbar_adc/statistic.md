@@ -10,9 +10,9 @@ It does **not** choose ADC bit width, calibrate ADC codes, or solve `rescale_fac
 
 1. Build an `Offset1T1RXbar` from the chip TOML with every nonideality flag `False`.
 2. Replace `xbar.readout.bl_adc` with a `ProbeADC` (capture-only stand-in).
-3. Sample `weight_samples` independent programmed states. For each:
+3. Sample `weight_samples` independent programmed states in `weight_samples / batch_size` serial passes; each pass programs `batch_size` weights into the `inst_shape=(batch_size,)` xbar in parallel. For each pass:
     - `xbar.program(w)`;
-    - sample `input_samples_per_weight` input vectors, chunked by `batch_size`, and drive each through `xbar.vec_mat_mul`.
+    - sample `input_samples_per_weight` input vectors, broadcast against the `batch_size` parallel weights in **a single** `xbar.vec_mat_mul` call (not input-chunked).
 4. The `ProbeADC` accumulates `v_pos__V` / `v_neg__V` per call; `v_diff__V = v_pos − v_neg` is the ADC's differential analog input.
 5. After sampling, restore the original ADC and build a range-candidate ladder from the empirical `|v_diff|` distribution.
 
@@ -36,7 +36,7 @@ The CLI itself only carries runtime knobs:
 | Flag | Type | Default | Role |
 |---|---|---|---|
 | `--config` | path | — (required) | Statistic-run TOML; sections `[xbar]`, `[workload]`, `[statistic]`, `[plot]` |
-| `--device` | str | `"auto"` | `auto` / `cpu` / `cuda` / `cuda:N` |
+| `--device` | str | `cpu` | `cpu` / `cuda` / `cuda:N`; omit to use CPU (no implicit GPU pickup) |
 | `--plot-dir` | path | `None` | Optional directory; writes `overview.png` + per-candidate `spotlight_*.png` |
 | `--log-level` | str | `"INFO"` | Logger level |
 

@@ -63,44 +63,8 @@ class NestedSolver1T1RConfig(Solver1T1RConfig):
 class NestedSolver1T1R(Solver1T1R):
     """Block Gauss-Seidel + implicit-Newton DC solver for a 1T1R tile.
 
-    Decouples the multivariable nonlinear system into two well-conditioned
-    sub-problems:
-
-      * **Inner** (per outer step): solve the (V_BL, V_SL, V_X, i_cell)
-        steady state at FIXED ``(V_BL_clamp, V_SL_drive)`` boundary.
-        The wire Jacobian is a coupled block-2×2 tridiagonal
-        (``∂F_BL/∂V_SL`` and ``∂F_SL/∂V_BL`` non-zero via the cell)
-        with positive 2×2 diagonal blocks — solved via
-        :func:`solve_block_tridiagonal` with ``B = 2``. Damped Newton.
-
-      * **Outer** (per VMM): one coupled 2×2 Newton step on
-        ``(V_BL_clamp, V_SL_drive)`` per column. The implicit-function-
-        theorem Jacobian ``K_inner = ∂V_node[0] / ∂V_clamp`` is a 2×2
-        matrix carrying the BL ↔ SL cross-coupling; computed by two
-        extra block-2×2 tridiagonal solves with basis-vector RHSs.
-        The 2×2 outer linear system is solved with ``torch.linalg.solve``
-        per column. Damped step cap. This formulation supports a
-        variable-SL driver natively — for an SL-grounded chip the
-        cross terms are numerically near zero, so the 2×2 solve
-        degenerates to (effectively) two independent 1D Newton steps.
-
-    The decomposition eliminates the rail-pseudo-fixed-point trap that
-    a simultaneous-Newton solver would fall into when its linearisation
-    overshoots V_clamp into a region where the TIA's rail clamp locks
-    the iterate at a non-physical equilibrium.
-
-    The solver is **stateless** — no instance buffers, no parameters,
-    not an ``nn.Module``. Per-call inputs flow through ``solve_dc``
-    kwargs; the snapshot dataclasses carry per-call device state.
-
-    Class-level numerical constants (method-intrinsic, not chip-tuneable):
-
-      * ``MAX_OUTER_STEP__V``: Per-outer-iteration ``|ΔV_clamp|`` cap
-        [V]. Guards against Newton overshoot in cell-unloaded columns
-        where the outer Jacobian becomes weakly singular.
-      * ``MAX_INNER_STEP__V``: Per-inner-iteration ``|Δv_node|`` cap [V].
-        Stops the inner Newton from overshooting between operating
-        regions (sub-threshold ↔ saturation) in one step.
+    See ``docs/dev/modules/xbar/_1t1r/nested_solver.md`` for algorithm
+    and convergence rationale.
     """
 
     MAX_OUTER_STEP__V: float = 0.10
@@ -173,13 +137,11 @@ class NestedSolver1T1R(Solver1T1R):
 
         # Shape: [num_row]
         bl_wire_diag_tmpl = bl_segment_g__uS + F.pad(bl_segment_g__uS[1:], (0, 1))
-        # Shape: [num_row - 1]
-        bl_wire_offdiag = -bl_segment_g__uS[1:]
-        # Shape: [num_row]
         sl_wire_diag_tmpl = sl_segment_g__uS + F.pad(sl_segment_g__uS[1:], (0, 1))
         # Shape: [num_row - 1]
+        bl_wire_offdiag = -bl_segment_g__uS[1:]
         sl_wire_offdiag = -sl_segment_g__uS[1:]
-        # Shape: scalar (= bl_segment_g__uS[0])
+        # Shape: []
         bl_driver_segment_g = bl_segment_g__uS[0]
         sl_driver_segment_g = sl_segment_g__uS[0]
 
@@ -202,7 +164,7 @@ class NestedSolver1T1R(Solver1T1R):
         # Shape: [..., num_col, num_row]
         v_bl_node_seed = torch.full_like(rram_state_g_snapshot, v_bl_clamp_ref__V)
         v_sl_node_seed = torch.full_like(rram_state_g_snapshot, v_sl_drive_ref__V)
-        # Shape: [..., num_col, num_row] for the five returns: I_R, I_N, g_BL_eff, g_SL_eff, V_X
+        # Shape: [..., num_col, num_row]
         i_r, i_n, _g_bl_init, _g_sl_init, v_x_node = self._solve_cell_pade_warm_start(
             v_bl_node_seed,
             v_sl_node_seed,
@@ -227,7 +189,7 @@ class NestedSolver1T1R(Solver1T1R):
 
         # BL ladder propagates the RRAM current; SL ladder propagates the
         # NMOS current. At the Padé seed I_R ≈ I_N already.
-        # Shape: [..., num_col, num_row] for both
+        # Shape: [..., num_col, num_row]
         v_bl_node, v_sl_node = self._wire_ir_drop_seed(
             i_r,
             i_n,
@@ -344,7 +306,7 @@ class NestedSolver1T1R(Solver1T1R):
             v_sl_drive_grid__V = v_sl_drive__V.unsqueeze(-1)
 
             for _ in range(n_inner):
-                # Shape: [..., num_col, num_row] for the five returns
+                # Shape: [..., num_col, num_row]
                 i_r, i_n, g_cell_bl_eff, g_cell_sl_eff, v_x_node = self._solve_cell_newton_once(
                     v_bl_node,
                     v_sl_node,
@@ -361,8 +323,7 @@ class NestedSolver1T1R(Solver1T1R):
                 f_bl_kcl = col_wire_kcl_residual(v_bl_node, v_bl_clamp_grid__V, bl_segment_g__uS, i_r)
                 f_sl_kcl = col_wire_kcl_residual(v_sl_node, v_sl_drive_grid__V, sl_segment_g__uS, -i_n)
                 # Coupled block-2×2 wire Newton — captures BL/SL cross terms
-                # ``∂F_BL/∂V_SL = -g_cell_sl_eff`` and ``∂F_SL/∂V_BL = -g_cell_bl_eff``
-                # that the old per-axis tridiag solves dropped.
+                # ``∂F_BL/∂V_SL = -g_cell_sl_eff`` and ``∂F_SL/∂V_BL = -g_cell_bl_eff``.
                 dv_bl_node, dv_sl_node = self._wire_newton_coupled_block2x2(
                     v_bl_node,
                     f_bl_kcl,
@@ -817,10 +778,10 @@ class NestedSolver1T1R(Solver1T1R):
             K[:, 0] = g_BL_seg[0] · (J_inner⁻¹ · e_0_BL)[0, :]
             K[:, 1] = g_SL_seg[0] · (J_inner⁻¹ · e_0_SL)[0, :]
 
-        Implemented as **one** block-tridiagonal solve with a 2-column
-        RHS (the two basis vectors), packed via the extra trailing
-        ``num_rhs`` dim handled by repeated ``solve_block_tridiagonal``
-        calls — kept clear by computing each column separately.
+        Implemented as **two** block-tridiagonal solves, one per basis
+        vector (``e_0_BL`` and ``e_0_SL``). The two solves are
+        mathematically independent — pack them only if a future
+        block-tridiagonal kernel exposes a multi-RHS interface.
 
         ``J_inner`` is the **coupled** block-2×2 wire Jacobian: same
         Jacobian used by ``_wire_newton_coupled_block2x2``, including

@@ -31,7 +31,7 @@ __init__(self, *, config, policy, name, inst_shape, dtype, T__K)
 
 `convert(...)` returns **signed** integer codes in `[-2**(adc_bits-1), 2**(adc_bits-1) - 1]`. This is a family-level contract on the abstract base; how each concrete ADC converts from its native internal representation to the signed output is its own implementation detail.
 
-The signed convention is required by the consumer model `M_ideal ≈ code · rescale_factor` (used in `operator/linear/_shared.py` and `xbar/ideal.py`): a strictly positive `rescale_factor` mapping a signed code to a signed `M_ideal` is well-defined only when the ADC code carries the sign of the analog input directly. The xbar's `bl_adc` is differential and its v_diff is genuinely two-sided, so this convention aligns the physical ADC's output with `IdealXbar.vec_mat_mul` (which already produced signed codes) and with the calibrate tool's positivity invariant on `rescale_factor`.
+The signed convention is required by the consumer model `M_ideal ≈ code · rescale_factor` (folded into the macro-side rescale; see [`docs/dev/modules/macro/xbar/base.md`](../../macro/xbar/base.md) and `xbar/ideal.py`): a strictly positive `rescale_factor` mapping a signed code to a signed `M_ideal` is well-defined only when the ADC code carries the sign of the analog input directly. The xbar's `bl_adc` is differential and its v_diff is genuinely two-sided, so this convention aligns the physical ADC's output with `IdealXbar.vec_mat_mul` (which already produced signed codes) and with the calibrate tool's positivity invariant on `rescale_factor`.
 
 How current concrete ADCs implement it:
 
@@ -44,7 +44,7 @@ Caller responsibility: each concrete `convert()` must clamp its raw unsigned out
 
 ## Floor semantics
 
-ADC boundaries are placed at code edges `B_c = c · LSB`. Stochastic rounding adds `uniform(0, LSB)` jitter before the floor and is unbiased. This matches the `floor_bucketize` kernel in [`docs/dev/modules/common/quant.md`](docs/dev/modules/common/quant.md).
+ADC boundaries are placed at code edges `B_c = c · LSB`. Stochastic rounding adds `uniform(0, LSB)` jitter before the floor and is unbiased. This matches the `floor_bucketize` kernel in [`docs/dev/modules/common/quant.md`](../../common/quant.md).
 
 ## What ADC does not own
 

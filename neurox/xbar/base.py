@@ -62,9 +62,33 @@ class XbarConfig(ValidateMixin):
         if not (self.row_num > 1):
             raise ValueError(f"require: row_num ({self.row_num}) > 1")
 
+    def validate_value_grid(self) -> None:
+        """Reject degenerate single-point ranges that collapse rescale math."""
+        if hasattr(self, "x_range"):
+            x_lo, x_hi = self.x_range
+            if x_lo == 0 and x_hi == 0:
+                raise ValueError("require: x_range cannot be (0, 0) — collapses rescale math")
+        if hasattr(self, "w_digit_range"):
+            d_lo, d_hi = self.w_digit_range
+            if d_lo == 0 and d_hi == 0:
+                raise ValueError("require: w_digit_range cannot be (0, 0) — collapses rescale math")
+
     def validate_adc_calibration(self) -> None:
         if len(self.adc_calibration) == 0:
             raise ValueError("require: adc_calibration must contain at least one entry")
+        seen: set[tuple[int, int]] = set()
+        for entry in self.adc_calibration:
+            key = (entry.adc_mode, entry.adc_bits)
+            if key in seen:
+                raise ValueError(
+                    f"adc_calibration has duplicate (adc_mode, adc_bits)={key}"
+                )
+            seen.add(key)
+            if not (entry.rescale_factor > 0.0):
+                raise ValueError(
+                    f"require: rescale_factor ({entry.rescale_factor}) > 0 for "
+                    f"(adc_mode={entry.adc_mode}, adc_bits={entry.adc_bits})"
+                )
 
     def validate_ppa(self) -> None:
         self._require_nonneg(self.area_per_inst__um2, "area_per_inst__um2")
@@ -219,10 +243,21 @@ class Xbar(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["XbarConf
         offsets show up as noise, not as a constant bias.
 
         Raises:
-            KeyError: When ``adc_operation_point`` is absent from the calibrated LUT. The
-                caller owns validity — no defensive check here.
+            KeyError: When ``adc_operation_point`` is absent from the
+                calibrated LUT. The error message lists the available
+                operating points so the caller can spot misconfigured
+                ``adc_calibration`` tables at a glance.
         """
-        return self._rescale_lut[adc_operation_point]
+        try:
+            return self._rescale_lut[adc_operation_point]
+        except KeyError:
+            available = sorted(
+                (op.adc_mode, op.adc_bits) for op in self._rescale_lut
+            )
+            raise KeyError(
+                f"{adc_operation_point} not in adc_calibration; "
+                f"available (adc_mode, adc_bits): {available}"
+            ) from None
 
     # ----- Lifecycle -----
 

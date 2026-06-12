@@ -109,18 +109,15 @@ NeuroX is a general CiM simulation and benchmarking platform. This document trac
 - [ ] Per-layer fine-grained mapping policy (weight-stationary, output-stationary, transposed)
 - [ ] Heterogeneous macro support (mixed precision, mixed technology)
 
-## Operator and Model Integration (`neurox/operator/`, `neurox/replace/`)
+## Operator and Model Integration (out of core)
 
-- [x] `QuantLinear` and `QuantConv2d` for inference
-- [x] `LinearQAT` and `Conv2dQAT` for quantization-aware training
-- [x] Straight-through estimator for gradients through quantization
-- [x] EMA-based activation range tracking
-- [x] One-call model conversion: `replace_qat()`, `quantize()`, `build_evaluator()`
-- [ ] `torch.fx` based automatic graph rewriting (no manual API calls)
-- [ ] Attention and matmul operators
-- [ ] Support for depthwise / grouped convolutions with special mapping
-- [ ] Hardware-aware training with full analog gradient flow (not just STE)
-- [ ] Integration with neural architecture search (NAS) frameworks
+Operator wrapping and model rewriting are application-layer concerns; the public NeuroX surface stops at `neurox.macro`. `example/lenet/` and `example/bert/` ship reference implementations of QAT-aware quantised layers, observer calibration, and the train-float → HAT → evaluate flow. Items below are tracked only as possible future *core helpers* that would simplify those examples, not as core-API additions:
+
+- [ ] Reference QAT/observer utility module (extracted from `example/*/quant.py` if multiple examples need it).
+- [ ] `torch.fx`-based model rewriting helper.
+- [ ] Attention / grouped-conv mapping helpers.
+- [ ] Hardware-aware training with full analog gradient flow (not just STE).
+- [ ] NAS integration hooks.
 
 ## Chip-Level and System Modeling
 
@@ -158,3 +155,4 @@ NeuroX is a general CiM simulation and benchmarking platform. This document trac
 - [x] Per-call broadcast-shape read noise
 - [ ] CUDA-graph capture for repeated inference
 - [ ] Multi-GPU and distributed simulation for large chips
+- [ ] Remove the temporary `@torch.compiler.disable` on `Offset1T1RXbar.vec_mat_mul` (`compile_policy.md`): requires rewriting `McsSarAdc.convert`'s SAR bit-loop to a graph-friendly form so inductor compile time drops back to seconds.

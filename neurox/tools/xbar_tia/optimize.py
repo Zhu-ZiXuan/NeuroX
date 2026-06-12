@@ -35,9 +35,8 @@ from pathlib import Path
 import torch
 
 from neurox.analog.tia import OpAmpTIAConfig
-from neurox.common import dataclass_from_file
 from neurox.device import NMOSConfig
-from neurox.tools.logging import config_tool_logging
+from neurox.tools._config import add_standard_args, load_tool_config, setup_logging
 from neurox.tools.xbar_tia._common import (
     TransferCurve,
     build_tia,
@@ -56,37 +55,56 @@ logger = logging.getLogger(__name__)
 class HardwareSection:
     """Chip-level constants that the design tool does NOT optimise over.
 
-    ``target_v_max__V`` is the user-chosen ceiling for the TIA output that
-    aligns with the downstream ADC's largest v_ref mode (chip's softclip
-    upper rail = v_dd is the physical hard cap, but the user typically
-    wants v_out to stay below the ADC's biggest v_ref to maximise usable
-    signal span without rail clipping). Defaults to 0.8 V.
+    Attributes:
+        nmos_config: Access-NMOS process config.
+        v_dd__V: Chip supply rail [V] — physical hard cap for TIA output.
+        v_ref__V: Softclip reference voltage of the BL clamp [V].
+        output_saturation_softness__V: Softclip softness band [V].
+        target_v_max__V: User-chosen ceiling for the TIA output that
+            aligns with the downstream ADC's largest v_ref mode [V]
+            (chip's softclip upper rail = ``v_dd`` is the physical hard
+            cap, but the user typically wants ``v_out`` to stay below
+            the ADC's biggest v_ref to maximise usable signal span
+            without rail clipping).
+        tia_n_newton: Newton iteration count for the inner TIA solve.
     """
 
     nmos_config: NMOSConfig
     v_dd__V: float
     v_ref__V: float
     output_saturation_softness__V: float
-    target_v_max__V: float = 0.8
-    tia_n_newton: int = 5
+    target_v_max__V: float
+    tia_n_newton: int
 
 
 @dataclass(frozen=True)
 class WorkloadSection:
-    """Gaussian model of the per-column workload current."""
+    """Gaussian model of the per-column workload current.
+
+    Attributes:
+        mean__uA: Mean BL port current [uA] of the modelled workload.
+            Must be ``>= 0`` — the TIA sweeps a non-negative input grid.
+        std__uA: Standard deviation [uA]; must be ``>= 0``.
+    """
 
     mean__uA: float
     std__uA: float
+
+    def __post_init__(self) -> None:
+        if self.mean__uA < 0.0:
+            raise ValueError(f"[workload].mean__uA ({self.mean__uA}) must be >= 0")
+        if self.std__uA < 0.0:
+            raise ValueError(f"[workload].std__uA ({self.std__uA}) must be >= 0")
 
 
 @dataclass(frozen=True)
 class SweepSection:
     """Per-axis value lists; cartesian product enumerates candidates."""
 
-    opamp_gain: list[float]
-    pseudo_nmos_W__um: list[float]
-    pseudo_nmos_L__um: list[float]
-    v_nmos_bias__V: list[float]
+    opamp_gain: tuple[float, ...]
+    pseudo_nmos_W__um: tuple[float, ...]
+    pseudo_nmos_L__um: tuple[float, ...]
+    v_nmos_bias__V: tuple[float, ...]
 
 
 @dataclass(frozen=True)
@@ -96,6 +114,12 @@ class TiaDesignConfig:
     hardware: HardwareSection
     workload: WorkloadSection
     sweep: SweepSection
+
+    def __post_init__(self) -> None:
+        if not (self.hardware.target_v_max__V > 0.0):
+            raise ValueError(
+                f"[hardware].target_v_max__V ({self.hardware.target_v_max__V}) must be > 0"
+            )
 
 
 # --- evaluation -------------------------------------------------------------
@@ -157,7 +181,7 @@ def _evaluate(
     so 1D-slice plots can show the full grid. Returns ``None`` only when the
     combo violates a hard OpAmpTIA precondition (Vb ≤ v_ref).
 
-    Scoring targets ``hw.target_v_max__V`` (default 0.8V) instead of the
+    Scoring targets ``hw.target_v_max__V`` instead of the
     chip's physical softclip rail. Goal: workload ±3σ span maps linearly
     into a v_out range that fills ``[0, target_v_max]`` without spilling
     past it.
@@ -325,7 +349,13 @@ def _emit_slice_plots(
     for g in gains:
         for l in Ls:
             for vb in Vbs:
-                slice_ = [by_key[(g, w, l, vb)] for w in Ws]
+                slice_ = [by_key.get((g, w, l, vb)) for w in Ws]
+                slice_ = [r for r in slice_ if r is not None]
+                if len(slice_) < 2:
+                    # Skip degenerate slices (one or zero valid candidates
+                    # left after invalid combos were dropped) — there is
+                    # nothing for a sweep plot to show.
+                    continue
                 fn = w_dir / f"sweep_W__gain{g:g}_L{l:g}_Vb{vb:g}.png"
                 _plot_slice(
                     slice_,
@@ -336,7 +366,10 @@ def _emit_slice_plots(
                 )
                 n_w_plots += 1
             for w in Ws:
-                slice_ = [by_key[(g, w, l, vb)] for vb in Vbs]
+                slice_ = [by_key.get((g, w, l, vb)) for vb in Vbs]
+                slice_ = [r for r in slice_ if r is not None]
+                if len(slice_) < 2:
+                    continue
                 fn = vb_dir / f"sweep_Vb__gain{g:g}_L{l:g}_W{w:g}.png"
                 _plot_slice(
                     slice_,
@@ -382,7 +415,7 @@ def _plot_top_k(top: list[CandidateResult], workload: WorkloadSection, output_pa
     ax.axvline(workload.mean__uA, color="tab:blue", linestyle="--", linewidth=0.8)
     ax.set_xlabel("I_port [μA]")
     ax.set_ylabel("v_out [V]")
-    ax.set_title("Top-K TIA candidates — score = R²·v_util·sat_match")
+    ax.set_title("Top-K TIA candidates — score = linearity_r2 · range_use · overshoot_safe")
     ax.grid(True, alpha=0.3)
     ax.legend(fontsize=7, loc="upper right", framealpha=0.85)
     fig.tight_layout()
@@ -396,8 +429,7 @@ def _plot_top_k(top: list[CandidateResult], workload: WorkloadSection, output_pa
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Forward TIA design tool (config-driven)")
-    parser.add_argument("--config", type=Path, required=True, help="TIA design TOML config path")
-    parser.add_argument("--plot", type=Path, default=None, help="Optional output PNG (top-K curves overlay)")
+    add_standard_args(parser, plot_file=True)
     parser.add_argument(
         "--slice-plot-dir",
         type=Path,
@@ -405,17 +437,16 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Optional output directory for 1D slice PNGs (one per fixed (gain, L, Vb) and "
         "(gain, L, W) combo, varying W and Vb respectively)",
     )
-    parser.add_argument("--log-level", type=str, default="INFO")
     parser.add_argument("--top-k", type=int, default=10, help="How many top candidates to report (default 10)")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
-    config_tool_logging(level=args.log_level)
-    device = torch.device("cpu")  # TIA solve_dc is small; CPU is fastest
+    setup_logging(args.log_level)
+    device = torch.device(args.device)
 
-    cfg = dataclass_from_file(TiaDesignConfig, args.config)
+    cfg = load_tool_config(TiaDesignConfig, args.config)
     logger.info("loaded TIA design config from %s", args.config)
     logger.info(
         "  hardware: v_dd=%.3fV  v_ref=%.3fV  softness=%.3fV  (nmos via preset)",

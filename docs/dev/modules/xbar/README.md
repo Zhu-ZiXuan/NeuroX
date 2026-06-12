@@ -12,8 +12,8 @@ The xbar layer owns physical-array semantics and exposes the primitive shape con
 
 ## Concrete families
 
-- [`_1t1r/`](docs/dev/modules/xbar/_1t1r/README.md) — the 1T1R xbar stack (offset-coded today; differential / simple variants are reserved).
-- [`readout/`](docs/dev/modules/xbar/readout/README.md) — `ReadOut` family (today: `OffsetSwitchCapMuxAdcReadOut`).
+- [`_1t1r/`](_1t1r/README.md) — the 1T1R xbar stack (offset-coded today; differential / simple variants are reserved).
+- [`readout/`](readout/README.md) — `ReadOut` family (today: `OffsetSwitchCapMuxAdcReadOut`).
 
 See also:
 

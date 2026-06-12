@@ -63,14 +63,18 @@ NUM_COL = 2  # solver requires > 1; we slice col=0 for the FD reference
 
 
 @pytest.fixture(scope="module")
-def harness():
+def harness(pytestconfig):
     """Build a tiny standalone (RRAM, NMOS, TIA, SL driver, solver) harness."""
     if not XBAR_CONFIG.is_file():
         pytest.skip(f"missing chip preset: {XBAR_CONFIG}")
-    if not torch.cuda.is_available():
-        pytest.skip("CUDA not available")
 
-    device = torch.device("cuda:0")
+    # Honor the shared ``--device`` option from tests/conftest.py instead
+    # of hard-coding cuda:0 — CPU-only runs should pick cpu, GPU runs
+    # should follow whatever the user passed.
+    device_name = str(pytestconfig.getoption("device"))
+    device = torch.device(device_name)
+    if device.type == "cuda" and not torch.cuda.is_available():
+        pytest.skip("CUDA requested but not available")
     dtype = torch.float64
     xbar_config = dataclass_from_file(Offset1T1RXbarConfig, XBAR_CONFIG, section="xbar")
     core_cfg = xbar_config.core_config

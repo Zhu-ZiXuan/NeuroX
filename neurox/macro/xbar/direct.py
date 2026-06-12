@@ -122,9 +122,6 @@ class DirectXbarMacro(XbarMacro):
             inst_shape=(self._w_parallel_size, tr),
         )
 
-        self._serial_op_num = 0
-        self._x_shape_cached: tuple[int, ...] = ()
-
         self._log_static()
 
     def extra_repr(self) -> str:
@@ -242,14 +239,9 @@ class DirectXbarMacro(XbarMacro):
 
         x = self._organize_x(input)
 
-        if self._x_shape_cached != x.shape:
-            self._x_shape_cached = x.shape
-            batch_m_prod = math.prod(self._x_shape_cached[:-3])
-            self._serial_op_num = batch_m_prod // max(self._w_parallel_size, 1)
-
         # Shape: [..., M, Tc, Tr=1, row_num] -> [..., M, Tc, Tr, col_num]
         y = self.xbar.vec_mat_mul(x, adc_operation_point=adc_operation_point).to(torch.int64)
         # Shape: [..., M, Tc, Tr, col_num] -> [..., M, Tr, col_num]
         y = self.col_accumulator.operate(y, dim=-3)
-        # Shape: [..., M, Tr, col_num] -> [..., M, Tr * col_num] -> [..., M, N]
+        # Shape: [..., M, Tr, col_num] -> [..., M, N]
         return y.flatten(start_dim=-2)[..., :n_logical]

@@ -1,6 +1,6 @@
 # DAC Family
 
-The `DAC` family converts integer codes to analog voltages. It follows the project-wide polymorphic-family pattern (see [`docs/dev/architecture/config_and_construction.md`](docs/dev/architecture/config_and_construction.md)).
+The `DAC` family converts integer codes to analog voltages. It follows the project-wide polymorphic-family pattern (see [`docs/dev/architecture/config_and_construction.md`](../../../architecture/config_and_construction.md)).
 
 Rules:
 

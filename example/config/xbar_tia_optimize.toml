@@ -8,6 +8,7 @@ v_dd__V = 0.9
 v_ref__V = 0.1
 output_saturation_softness__V = 0.45
 target_v_max__V = 0.8  # ADC max v_ref mode; v_out should fill [0, 0.8] not [0, 0.9]
+tia_n_newton = 5       # Newton iteration count for the inner TIA solve
 
 [hardware.nmos_config]
 _neurox_use_preset = "process/mos:nmos_28_rvt"

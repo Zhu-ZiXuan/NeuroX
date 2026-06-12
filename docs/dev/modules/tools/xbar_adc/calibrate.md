@@ -10,9 +10,9 @@ It does **not** choose ADC range — `--adc-mode` and the underlying range/bound
 
 1. Build a physical `Offset1T1RXbar` from the chip TOML with every nonideality flag `False`.
 2. Build its lossless counterpart via `physical.to_ideal()`. Note: `to_ideal()` does **not** copy the programmed state — both xbars are programmed separately on every weight sample.
-3. For each of `weight_samples` independently sampled programmed states `w`:
+3. Stream `weight_samples` programmed states in `weight_samples / batch_size` serial passes; each pass programs `batch_size` weights into the `inst_shape=(batch_size,)` xbar in parallel. For each pass `w`:
     - `physical.program(w)` AND `ideal.program(w)`;
-    - sample `input_samples_per_weight` input vectors, chunked by `batch_size`;
+    - sample `input_samples_per_weight` input vectors, broadcast against the `batch_size` parallel weights in **a single** VMM call (not input-chunked);
     - run `phys_code = physical.vec_mat_mul(x, adc_operation_point=AdcOperationPoint(adc_mode, adc_max_bits))`;
     - run `ideal_vmm = ideal.vec_mat_mul(x, adc_operation_point=AdcOperationPoint(0, 0))` — `adc_bits=0` is the lossless sentinel that returns the raw int64 dot product;
     - accumulate `(phys_code, ideal_vmm)` pairs.
@@ -40,18 +40,32 @@ The fitted `r_max` is required to be strictly positive — the consumer model `M
 
 ## CLI
 
+Workload / sampling knobs live in a TOML config; CLI carries only
+runtime knobs:
+
 | Flag | Type | Default | Role |
 |---|---|---|---|
-| `--xbar-config` | path | — (required) | Chip xbar TOML path |
-| `--adc-mode` | int | — (required) | Operating-point index to calibrate; `0 ≤ adc_mode < xbar.adc_mode_num` |
-| `--distribution` | path | `None` | Synthetic-workload distribution TOML; omitted → uniform |
-| `--weight-samples` | int | `32` | Independent programmed-state samples |
-| `--input-samples-per-weight` | int | `1024` | Per-weight primitive input-vector count |
-| `--batch-size` | int | `256` | Per-VMM input batch cap |
-| `--seed` | int | `None` | Optional deterministic seed |
-| `--device` | str | `"auto"` | `auto` / `cpu` / `cuda` / `cuda:N` |
+| `--config` | path | — (required) | Calibrate-run TOML; sections `[xbar]`, `[workload]`, `[adc]` |
+| `--device` | str | `cpu` | `cpu` / `cuda` / `cuda:N`; omit to use CPU (no implicit GPU pickup) |
 | `--plot` | path | `None` | Optional PNG output (two-panel figure) |
 | `--log-level` | str | `"INFO"` | Logger level |
+
+### TOML schema
+
+```toml
+[xbar]
+_neurox_use = "1t1r_28nm.toml:xbar"   # path relative to this TOML
+
+[workload]
+# distribution = "..."           # optional → uniform
+weight_samples = 128             # must be a multiple of batch_size
+input_samples_per_weight = 16
+batch_size = 128
+seed = 0
+
+[adc]
+mode = 0                         # operating-point index; 0 ≤ mode < xbar.adc_mode_num
+```
 
 ## Output
 
@@ -114,14 +128,9 @@ matplotlib is imported lazily. If `--plot` is supplied and matplotlib is not ins
 
 ```bash
 python -m neurox.tools.xbar_adc.calibrate \
-    --xbar-config example/config/1t1r_28nm.toml \
-    --adc-mode 0 \
-    --distribution chip_workload.toml \
-    --weight-samples 64 \
-    --input-samples-per-weight 4096 \
-    --batch-size 512 \
-    --seed 0 \
-    --plot out/calib_mode0.png
+    --config example/config/xbar_adc_calibrate.toml \
+    --plot log/xbar_adc/calibrate/mode0.png \
+    --device cuda:0
 ```
 
 ## See also

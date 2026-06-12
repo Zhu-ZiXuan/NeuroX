@@ -157,9 +157,6 @@ class IntraArraySliceXbarMacro(XbarMacro):
             inst_shape=helper_shape,
         )
 
-        self._serial_op_num = 0
-        self._x_shape_cached: tuple[int, ...] = ()
-
         self._log_static()
 
     def extra_repr(self) -> str:
@@ -315,12 +312,6 @@ class IntraArraySliceXbarMacro(XbarMacro):
 
         x = self._organize_x(input)
 
-        if self._x_shape_cached != x.shape:
-            self._x_shape_cached = x.shape
-            sa_dim = self._x_shape_cached[-2]
-            batch_m_prod = math.prod(self._x_shape_cached[:-5])
-            self._serial_op_num = batch_m_prod * sa_dim // max(self._w_parallel_size, 1)
-
         x_slice_radix = self.x_slicer.slice_radix
         w_slice_radix = self.w_slicer.slice_radix
 
@@ -336,5 +327,5 @@ class IntraArraySliceXbarMacro(XbarMacro):
         y = self.sa_shift_adder.operate(y, x_slice_radix, dim=-2, init_val=None)
         # Shape: [..., M, Tc, Tr, wpx] -> [..., M, Tr, wpx]
         y = self.col_accumulator.operate(y, dim=-3)
-        # Shape: [..., M, Tr, wpx] -> [..., M, Tr * wpx] -> [..., M, N]
+        # Shape: [..., M, Tr, wpx] -> [..., M, N]
         return y.flatten(start_dim=-2)[..., :n_logical]

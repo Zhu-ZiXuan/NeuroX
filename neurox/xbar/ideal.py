@@ -37,6 +37,10 @@ class IdealXbarConfig(XbarConfig):
     adc_mode_num: int
     adc_max_bits: int
 
+    def validate(self) -> None:
+        super().validate()
+        self.validate_value_grid()
+
 
 @dataclass(frozen=True)
 class IdealXbarPolicy(XbarPolicy):
@@ -108,16 +112,21 @@ class IdealXbar(Xbar):
         # bit width**, not from the chip's calibrated ``adc_calibration``
         # table. The recovery rescale is the inverse of:
         #
-        #   max_dot = row_num · max|w_logical| · max|x|
-        #   scale   = (2 ** (bits - 1) - 1) / max_dot
+        #   max|w_logical| = max(|d_lo|, |d_hi|) · sum_k r^k
+        #   max_dot        = row_num · max|w_logical| · max|x|
+        #   scale          = (2 ** (bits - 1) - 1) / max_dot
         #
         # so the lossless integer dot product clips at exactly the signed
-        # N-bit endpoints. This keeps :class:`IdealXbar` purely a function
-        # of (config geometry, requested bits) — chip-agnostic by design.
-        max_w_digit_abs = config.w_digit_radix ** config.w_digit_count - 1
+        # N-bit endpoints. ``max|w_logical|`` is derived from the actual
+        # per-digit range so signed / offset digit encodings get the right
+        # bound (the legacy ``radix^count - 1`` form assumed canonical
+        # non-negative digits and over-clipped any asymmetric encoding).
+        d_lo, d_hi = config.w_digit_range
+        max_digit_abs = max(abs(d_lo), abs(d_hi))
+        max_w_logical_abs = max_digit_abs * int(digit_weights.sum().item())
         x_lo, x_hi = config.x_range
         max_x_abs = max(abs(x_lo), abs(x_hi))
-        self._max_dot_abs: int = config.row_num * max_w_digit_abs * max_x_abs
+        self._max_dot_abs: int = config.row_num * max_w_logical_abs * max_x_abs
 
         self._scale_lut: dict[AdcOperationPoint, float] = {}
         self._rescale_lut = {}  # override base's chip-calibrated table
@@ -174,7 +183,11 @@ class IdealXbar(Xbar):
         """
         if tuple(w.shape) != self._w_layout_shape:
             raise ValueError(f"program() expects w.shape {self._w_layout_shape}; got {tuple(w.shape)}")
-        self.digits = w
+        if w.is_floating_point() or w.is_complex():
+            raise TypeError(
+                f"program() expects an integer digit tensor; got dtype {w.dtype}"
+            )
+        self.digits = w.detach().clone().to(self.digit_weights.device)
 
     def vec_mat_mul(self, x: Tensor, *, adc_operation_point: AdcOperationPoint) -> Tensor:
         """Ideal VMM with operation-point-driven output quantization.
@@ -197,11 +210,11 @@ class IdealXbar(Xbar):
         # Widen to int64 before any integer arithmetic so per-cell products
         # and the row-num / digit-num reductions cannot overflow.
         digits = self.digits.to(torch.int64)
-        # Shape: [..., col_num, w_digit_count, row_num] -> [..., col_num, row_num].
+        # Shape: [..., col_num, w_digit_count, row_num] -> [..., col_num, row_num]
         digit_weights = self.digit_weights.to(torch.int64).view(*([1] * (digits.ndim - 2)), -1, 1)
         w = (digits * digit_weights).sum(dim=-2)
 
-        # Shape: [..., row_num] -> [..., 1, row_num].
+        # Shape: [..., row_num] -> [..., 1, row_num]
         x = x.to(torch.int64).unsqueeze(-2)
 
         full_shape = torch.broadcast_shapes(w.shape, x.shape)

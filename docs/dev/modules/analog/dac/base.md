@@ -14,7 +14,7 @@ Every concrete `DAC` impl exposes the same explicit signature:
 __init__(self, *, config, policy, name, inst_shape, dtype, T__K)
 ```
 
-All six arguments are required, keyword-only, and may not be `None`. The base `__init__` accepts the same signature so the dispatcher in `from_config` type-checks cleanly; it stores `self._inst_shape` and uses `name` for profiler registration. `config` / `policy` / `dtype` / `T__K` stay on the concrete subclass (see [`docs/dev/architecture/state_holding.md`](docs/dev/architecture/state_holding.md)).
+All six arguments are required, keyword-only, and may not be `None`. The base `__init__` accepts the same signature so the dispatcher in `from_config` type-checks cleanly; it stores `self._inst_shape` and uses `name` for profiler registration. `config` / `policy` / `dtype` / `T__K` stay on the concrete subclass (see [`docs/dev/architecture/state_holding.md`](../../../architecture/state_holding.md)).
 
 ## Required subclass surface
 

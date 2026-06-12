@@ -21,14 +21,14 @@ For each ADC operating mode `i` exposed by the chip's ADC (one mode for `General
 chip xbar TOML (range/calibration TBD)
             |
             v
-  [statistic.py]   --distribution dist_mode_i.toml  --max-clip-rate-exp N
+  [statistic.py]   --config xbar_adc_statistic.toml   ([statistic].max_clip_rate_exp = N)
                                                         -> per-A candidate ladder
             |
             v
   user picks a range A_i and writes the V_ref / boundary for mode i into the ADC config
             |
             v
-  [calibrate.py]   --adc-mode i  --distribution dist_mode_i.toml
+  [calibrate.py]   --config xbar_adc_calibrate.toml   ([adc].mode = i)
                                                         -> rescale_factor for (i, max_bits)
             |
             v
@@ -38,13 +38,13 @@ chip xbar TOML (range/calibration TBD)
   Loop until all modes are calibrated. xbar is then fully calibrated; model inference can run.
 ```
 
-Neither tool mutates the TOML automatically. The user copy-pastes the recommended values; the tools only log them. Per-mode `distribution` files capture each mode's workload assumption — different modes typically target different signal regions and need different distributions, so each gets its own file.
+Neither tool mutates the TOML automatically. The user copy-pastes the recommended values; the tools only log them. Per-mode workload assumptions go in `[workload].distribution` (relative to the run TOML) — different modes typically target different signal regions and need different distributions, so each gets its own run TOML.
 
 If the user wants to run an ADC at `adc_bits < max_bits`, the lower-bit `rescale_factor` is derived from the `max_bits` calibrated value by `R(b) = R_max · 2^(max_bits − b)`. `calibrate.py` prints this derived table as informational output (SAR families only); the user adds the lower-bit records by hand.
 
 ## Synthetic-workload distribution
 
-Both CLIs accept the same optional `--distribution PATH`. Schema:
+Both CLIs accept an optional `[workload].distribution` path in the run TOML (relative to the run TOML). Schema:
 
 ```toml
 [w]
@@ -65,12 +65,11 @@ probs = [0.70, 0.20, 0.08, 0.02]
 
 - **Supported readout topology**: `OffsetSwitchCapMuxAdcReadOut` only. Other readouts raise `TypeError`.
 - **Supported ADC families** (for the all-off policy builder): `GeneralADC`, `SarAdcMono`, `McsSarAdc`. Other ADC config types raise `TypeError`.
-- **Determinism**: both CLIs accept `--seed`; with a seed set the run is reproducible on the same device.
-- **Device**: `--device auto|cpu|cuda|cuda:N`; the resolved device is logged.
+- **Determinism**: `[workload].seed` in the run TOML; with a seed set the run is reproducible on the same device.
+- **Device**: `--device cpu|cuda|cuda:N`; omit to use CPU. The resolved device is logged.
 
 ## Relation to other tools
 
-- [`xbar_adc_boundaries.py`](../README.md) calibrates floor-style ADC *boundaries* for the differential ADC family from a corner-case + random sweep — separate analysis.
 - [`calculate_1t1r_states.py`](../calculate_1t1r_states.md) calibrates the single-cell RRAM conductance ladder — runs at the device + one-cell layer, not the xbar layer.
 
 ## See also

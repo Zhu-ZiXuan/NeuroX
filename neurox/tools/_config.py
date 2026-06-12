@@ -21,37 +21,40 @@ from neurox.tools.logging import config_tool_logging
 _T = TypeVar("_T")
 
 
+_LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
+
+
 def add_standard_args(
     parser: argparse.ArgumentParser,
     *,
-    device_required: bool = False,
+    device: bool = True,
     plot_dir: bool = False,
     plot_file: bool = False,
     output_file: bool = False,
 ) -> None:
     """Append the standard runtime / output flags to ``parser``.
 
-    All tools take ``--config``, ``--log-level``, and a device selector.
+    All tools take ``--config`` and ``--log-level``. ``--device`` is
+    opt-in (default ``True``): pass ``device=False`` for tools that run
+    in fixed precision on CPU (e.g. ``calculate_1t1r_states``) so the
+    CLI surface does not expose a knob the tool would silently ignore.
     Output flags are opt-in via keyword arguments.
 
     Args:
         parser: The argparse parser to add flags to.
-        device_required: When ``True``, ``--device`` is mandatory (used
-            by tools that have no auto-detection logic).
+        device: Whether to add ``--device`` (default ``True``).
         plot_dir: Add a ``--plot-dir`` flag for tools that emit multiple
             PNGs into one directory.
         plot_file: Add a ``--plot`` flag for tools that emit a single PNG.
         output_file: Add a ``--output`` flag for tools that emit a TOML.
     """
     parser.add_argument("--config", type=Path, required=True, help="Tool-run TOML config path")
-    if device_required:
-        parser.add_argument("--device", type=str, required=True, help='Torch device (e.g. "cuda:0", "cpu")')
-    else:
+    if device:
         parser.add_argument(
             "--device",
             type=str,
-            default="auto",
-            help='Torch device; "auto" picks cuda if available else cpu',
+            default="cpu",
+            help="Torch device (e.g. 'cuda:0', 'cpu'). Defaults to 'cpu' — no implicit GPU pickup.",
         )
     if plot_dir:
         parser.add_argument(
@@ -74,7 +77,13 @@ def add_standard_args(
             default=None,
             help="Optional output TOML path",
         )
-    parser.add_argument("--log-level", type=str, default="INFO", help="Logger level (e.g. DEBUG, INFO)")
+    parser.add_argument(
+        "--log-level",
+        type=str.upper,
+        default="INFO",
+        choices=_LOG_LEVELS,
+        help=f"Logger level; one of {{{', '.join(_LOG_LEVELS)}}}",
+    )
 
 
 def setup_logging(level_name: str) -> None:

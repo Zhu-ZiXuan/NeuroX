@@ -64,16 +64,25 @@ The chip preset comments record the production dtype explicitly so future calibr
 
 ## CLI common surface
 
-All three calibrators share:
+Every calibrator is **config-driven** — workload, sweep, criteria,
+and reproducibility knobs (dtype, seed) live in TOML. CLI carries
+only:
 
-- `--xbar-config` — chip preset TOML path.
-- `--dtype` (default `float32`) — calibration dtype.
-- `--ratio-threshold` (default `0.5`) — plateau criterion; smaller is stricter.
-- `--reltol` (default `1e-2`) — residual safety guard ratio.
-- `--margin` (default `1`) — safety bump on the picked count.
-- `--plot-dir` — optional matplotlib output for the step / residual curves.
+- `--config` (required) — run TOML.
+- `--device` (optional) — execution device; defaults to CPU when omitted (no implicit GPU pickup).
+- `--plot-dir` (optional) — matplotlib output for the step / residual curves.
+- `--log-level` (default `INFO`).
 
-The nested calibrator additionally has `--inner-ref` for Stage A's pinned `n_inner`, plus separate `--outer-margin` / `--inner-margin`.
+Per-run TOML schema is per-tool (`solver_calibrate_{tia,nested,full_jacobian}.toml`
+under `example/config/`):
+
+- `[xbar]` — chip preset via `_neurox_use`.
+- `[workload]` — sampling sweep dimensions; the nested / full_jacobian
+  flavours also require `inst_shape == [batch_w]`.
+- `[sweep]` — candidate iteration counts + `ratio_threshold` / `reltol` /
+  margin(s). The nested calibrator carries the extra Stage-A pin
+  `inner_ref` and separate `outer_margin` / `inner_margin`.
+- `[runtime]` — `dtype` (`"float32"` / `"float64"`) and `seed`.
 
 ## Output
 

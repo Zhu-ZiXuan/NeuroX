@@ -13,11 +13,13 @@ against any macro backend (`fake`, `xbar_ideal`, `xbar1t1r`).
 - **Tokenizer**: HuggingFace `AutoTokenizer`, padded / truncated to
   `--max-length` (default 128).
 
-NeuroX `replace_for_hat` and `build_evaluator` walk the module tree and
-swap **every `nn.Linear`** — Q/K/V/output attention projections, FFN
-intermediate / output, the `[CLS]` pooler, and the classifier — for the
-crossbar-backed counterpart.  Embeddings, LayerNorm, GELU, and the
-attention softmax stay in float.
+`example/bert/macro_factory.py` walks the module tree and swaps
+**every `nn.Linear`** — Q/K/V/output attention projections, FFN
+intermediate / output, the `[CLS]` pooler, and the classifier — for a
+crossbar-backed counterpart built from `neurox.macro.XbarMacro` plus
+the QAT operators in `example/bert/quant.py`. Embeddings, LayerNorm,
+GELU, and the attention softmax stay in float. (NeuroX core stops at
+the macro layer; the layer-rewriting walk is example-side code.)
 
 ## Extra dependencies
 

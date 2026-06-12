@@ -301,3 +301,51 @@ def test_preset_malformed_string_raises(config_dir: Path, presets_root: Path) ->
     )
     with pytest.raises(ValueError, match="missing ':'"):
         dataclass_from_file(_Outer, config_dir / "main.toml", section="outer")
+
+
+# --- strictness ---
+
+
+@dataclass(frozen=True)
+class _Pair:
+    """Fixed-length tuple field for the strictness suite."""
+
+    rng: tuple[int, int]
+
+
+def test_unknown_key_rejected(config_dir: Path) -> None:
+    """Typos must error, not silently fall back to defaults."""
+    _write(
+        config_dir / "main.toml",
+        '[outer]\nname = "x"\nmispelled = "y"\n[outer.inner]\na = 1.0\nb = 2.0\n',
+    )
+    with pytest.raises(TypeError, match=r"unknown key.*mispelled"):
+        dataclass_from_file(_Outer, config_dir / "main.toml", section="outer")
+
+
+def test_unknown_key_rejected_in_nested(config_dir: Path) -> None:
+    _write(
+        config_dir / "main.toml",
+        '[outer]\nname = "x"\n[outer.inner]\na = 1.0\nb = 2.0\nrogue = 3.0\n',
+    )
+    with pytest.raises(TypeError, match=r"unknown key.*rogue"):
+        dataclass_from_file(_Outer, config_dir / "main.toml", section="outer")
+
+
+def test_tuple_length_strict_too_few(config_dir: Path) -> None:
+    """Fixed-length tuples must error on element-count mismatch."""
+    _write(
+        config_dir / "main.toml",
+        "[outer]\nrng = [1]\n",
+    )
+    with pytest.raises(ValueError, match=r"tuple length mismatch"):
+        dataclass_from_file(_Pair, config_dir / "main.toml", section="outer")
+
+
+def test_tuple_length_strict_too_many(config_dir: Path) -> None:
+    _write(
+        config_dir / "main.toml",
+        "[outer]\nrng = [1, 2, 3]\n",
+    )
+    with pytest.raises(ValueError, match=r"tuple length mismatch"):
+        dataclass_from_file(_Pair, config_dir / "main.toml", section="outer")

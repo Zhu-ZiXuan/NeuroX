@@ -118,7 +118,8 @@ def solve_tridiagonal(
 
     Solves ``A x = rhs`` along ``dim``; ``A`` is tridiagonal with
     ``(sub, diag, sup)``. The entry of ``sub`` at index 0 and the
-    entry of ``sup`` at the last index are unused placeholders.
+    entry of ``sup`` at the last index are unused boundary slots
+    (the algorithm ignores them).
 
     Args:
         sub: Sub-diagonal coefficients, same shape as ``rhs``.

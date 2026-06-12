@@ -33,25 +33,36 @@ Drift skips at `t_elapsed=0` by the model's own contract.
 
 ## CLI
 
-All physical / design parameters are required and have no defaults.
+Config-driven via `add_standard_args` (see [`_config.md`](_config.md)). All physical / design parameters live in the TOML; the CLI carries only runtime knobs.
 
-| Flag | Type | Units / role |
-|---|---|---|
-| `--rram-config` | path | RRAM TOML path |
-| `--rram-section` | str | TOML section key |
-| `--nmos-config` | path | NMOS TOML path |
-| `--nmos-section` | str | TOML section key |
-| `--v-wl-V` | float | WL drive voltage [V] |
-| `--v-bl-V` | float | BL drive voltage [V] |
-| `--v-sl-V` | float | SL drive voltage [V] |
-| `--g-max-uS` | float | RRAM design g_max [uS] |
-| `--n-states` | int | State count (≥ 2) |
-| `--access-nmos-W-um` | float | Access NMOS width [um] |
-| `--access-nmos-L-um` | float | Access NMOS length [um] |
-| `--temperature-K` | float | Operating temperature [K] |
+| Flag | Type | Default | Role |
+|---|---|---|---|
+| `--config` | path | — (required) | Tool-run TOML; sections `[rram]`, `[nmos]`, `[bias]`, `[design]` |
+| `--log-level` | str | `INFO` | Logger level (`DEBUG`/`INFO`/`WARNING`/`ERROR`/`CRITICAL`) |
+
+This tool runs entirely in float64 on CPU and intentionally does **not** expose `--device` — there is no GPU code path for the single-cell bisection solve.
+
+### TOML schema
+
+`Calculate1T1RStatesConfig` (frozen dataclass):
+
+- `[rram]` — `RRAMConfig` (or `_neurox_use_preset = "process/rram:..."`).
+- `[nmos]` — `NMOSConfig` (or `_neurox_use_preset = "process/mos:..."`).
+- `[bias]` — per-cell read bias used during ladder derivation:
+  - `v_wl__V: float` — WL drive voltage [V].
+  - `v_bl__V: float` — BL drive voltage [V].
+  - `v_sl__V: float` — SL drive voltage [V].
+  - `temperature__K: float` — operating temperature [K].
+- `[design]` — RRAM design window + state count + access-NMOS sizing:
+  - `g_max__uS: float` — RRAM design g_max [uS].
+  - `n_states: int` — state count (≥ 2).
+  - `access_nmos_W__um: float` — access NMOS width [μm].
+  - `access_nmos_L__um: float` — access NMOS length [μm].
 
 Hard fast-fail conditions: `n_states < 2`, `g_max ≤ 0`, `V_BL ≤ V_SL`,
 `W ≤ 0`, `L ≤ 0`, `T ≤ 0`.
+
+See [`example/config/calculate_1t1r_states.toml`](../../../../example/config/calculate_1t1r_states.toml) for a runnable template.
 
 ## Numerical method
 

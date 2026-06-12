@@ -7,7 +7,6 @@ See also:
 from .base import ADC, AdcCalibrationRecord, ADCConfig, ADCMode, AdcOperationPoint, ADCPolicy
 from .general import GeneralADC, GeneralADCConfig, GeneralADCPolicy
 from .mcs_sar import McsSarAdc, McsSarAdcConfig, McsSarAdcPolicy
-from .sar_mono import SarAdcMono, SarAdcMonoConfig, SarAdcMonoPolicy
 
 __all__ = [
     "ADC",
@@ -22,7 +21,4 @@ __all__ = [
     "McsSarAdc",
     "McsSarAdcConfig",
     "McsSarAdcPolicy",
-    "SarAdcMono",
-    "SarAdcMonoConfig",
-    "SarAdcMonoPolicy",
 ]

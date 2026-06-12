@@ -42,7 +42,7 @@ class GeneralADCConfig(ADCConfig):
     """
 
     # --- Bucketize boundaries ---
-    boundaries: list[float]
+    boundaries: tuple[float, ...]
 
     # --- Sampling noise ---
     sampling_noise__V: float
@@ -167,6 +167,20 @@ class GeneralADC(ADC):
     def max_bits(self) -> int:
         """Boundary-implied bit width."""
         return self._n_bits
+
+    def signed_range(self, adc_bits: int) -> tuple[int, int]:
+        """Realisable signed code bounds at ``adc_bits``.
+
+        GeneralADC's code count (``n_boundaries + 1``) is fixed at
+        construction and may not equal ``2 ** adc_bits``. The actual
+        signed range after the ``code - zero_code`` shift is
+        ``[-zero_code, n_codes - 1 - zero_code]`` — narrower than the
+        canonical SAR endpoints when ``n_codes`` is not a power of two.
+        ``adc_bits`` is accepted for protocol symmetry but ignored
+        because GeneralADC is single-mode by construction.
+        """
+        del adc_bits
+        return -self._zero_code, self._n_codes - 1 - self._zero_code
 
     @property
     def area_per_inst__um2(self) -> float:

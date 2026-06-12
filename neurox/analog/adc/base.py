@@ -200,6 +200,20 @@ class ADC(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["ADCConfig
         raise NotImplementedError
 
     @abstractmethod
+    def signed_range(self, adc_bits: int) -> tuple[int, int]:
+        """Return ``(min_code, max_code)`` the ADC can emit at ``adc_bits``.
+
+        For ADCs whose code count matches ``2 ** adc_bits`` exactly
+        (e.g. ``McsSarAdc``), this is the canonical
+        ``(-2 ** (adc_bits - 1), 2 ** (adc_bits - 1) - 1)``. For ADCs
+        whose code count is **not** a power of two (e.g. ``GeneralADC``
+        with an arbitrary boundary list), the returned bounds reflect
+        the actual realisable signed code range — saturation tests must
+        consult this surface rather than assume the SAR endpoints.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
     def latency_per_op__ns(self, *, adc_operation_point: AdcOperationPoint) -> float:
         """Return the per-conversion latency [ns].
 
