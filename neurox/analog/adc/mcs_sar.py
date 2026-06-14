@@ -24,6 +24,12 @@ from .base import ADC, ADCConfig, AdcOperationPoint, ADCPolicy
 class McsSarAdcConfig(ADCConfig):
     """Immutable design-parameter config for :class:`McsSarAdc`.
 
+    Per-op latency is parametric: each ``convert`` call computes
+    ``(adc_operation_point.adc_bits + 1) · clk_period__ns`` and feeds
+    it to ``_log_latency`` — there is no ``latency_per_op__ns`` field
+    because the value is not knowable until the runtime op point is
+    chosen.
+
     Attributes:
         max_bits: Physical bit width; active array carries
             ``max_bits - 1`` binary-weighted caps + a dummy cap
@@ -43,8 +49,6 @@ class McsSarAdcConfig(ADCConfig):
             overhead [fJ].
         e_constant_per_bit__fJ: Per-cycle SAR strobe / logic / control
             overhead [fJ]; charged ``bits`` times per conversion.
-        leakage_per_inst__uW: Static leakage per ADC instance [uW].
-        area_per_inst__um2: Silicon area per ADC instance [μm²].
     """
 
     # --- Topology ---
@@ -69,10 +73,6 @@ class McsSarAdcConfig(ADCConfig):
     # --- Energy ---
     e_bootstrap__fJ: float
     e_constant_per_bit__fJ: float
-
-    # --- PPA ---
-    leakage_per_inst__uW: float
-    area_per_inst__um2: float
 
     def validate(self) -> None:
         super().validate()
@@ -109,10 +109,6 @@ class McsSarAdcConfig(ADCConfig):
         self._require_nonneg(self.e_bootstrap__fJ, "e_bootstrap__fJ")
         self._require_nonneg(self.e_constant_per_bit__fJ, "e_constant_per_bit__fJ")
 
-    def validate_ppa(self) -> None:
-        self._require_nonneg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
-        self._require_nonneg(self.area_per_inst__um2, "area_per_inst__um2")
-
 
 @dataclass(frozen=True)
 class McsSarAdcPolicy(ADCPolicy):
@@ -143,6 +139,7 @@ class McsSarAdc(ADC):
         T__K: Operating temperature [K].
     """
 
+    config: McsSarAdcConfig
     nominal_c__fF: Tensor
     nominal_comparator_offset__V: Tensor
     c_p__fF: Tensor
@@ -170,7 +167,6 @@ class McsSarAdc(ADC):
         if not (T__K > 0.0):
             raise ValueError(f"McsSarAdc T__K ({T__K}) must be > 0")
 
-        self.config = config
         self.policy = policy
         self.T__K = T__K
         self.dtype = dtype
@@ -207,7 +203,21 @@ class McsSarAdc(ADC):
             persistent=False,
         )
 
-        self._log_static()
+        # Precompute per-resolution Python int tables so the runtime path
+        # ``convert(...)`` never evaluates ``1 << bits`` against the
+        # SymInt that dynamo derives from ``adc_operation_point.adc_bits``
+        # (dynamo's SymInt lshift lowering currently mishandles it).
+        # ``unsigned_max_table[b] = 2**b - 1`` clamps offset-binary code
+        # range; ``zero_offset_table[b] = 2**(b-1)`` is the offset-binary
+        # → two's-complement bias subtracted in ``return code - offset``
+        # (semantically, an MSB flip; subtraction is the implementation
+        # that preserves the int32 storage representation of negatives).
+        self._unsigned_max_table: tuple[int, ...] = tuple(
+            ((1 << b) - 1) if b >= 1 else 0 for b in range(config.max_bits + 1)
+        )
+        self._zero_offset_table: tuple[int, ...] = tuple(
+            (1 << (b - 1)) if b >= 1 else 0 for b in range(config.max_bits + 1)
+        )
 
     # --- runtime-mode introspection ---
 
@@ -266,29 +276,6 @@ class McsSarAdc(ADC):
             enabled=policy.comparator_offset,
         )
 
-    # --- ABC contract ---
-
-    @property
-    def area_per_inst__um2(self) -> float:
-        """Silicon area per instance [um^2]."""
-        return self.config.area_per_inst__um2
-
-    @property
-    def leakage_per_inst__uW(self) -> float:
-        """Static leakage per instance [uW]."""
-        return self.config.leakage_per_inst__uW
-
-    def latency_per_op__ns(self, *, adc_operation_point: AdcOperationPoint) -> float:
-        """Per-conversion latency ``(adc_bits + 1) · clk_period__ns``.
-
-        Args:
-            adc_operation_point: Runtime operating point.  ``1 ≤ bits ≤ max_bits``.
-        """
-        bits = adc_operation_point.adc_bits
-        if not (1 <= bits <= self.config.max_bits):
-            raise ValueError(f"bits {bits} outside [1, {self.config.max_bits}]")
-        return (bits + 1) * self.config.clk_period__ns
-
     # --- convert ---
 
     def convert(
@@ -321,7 +308,8 @@ class McsSarAdc(ADC):
         c_p_total__fF = c_p__fF.sum(dim=-1)
         c_n_total__fF = c_n__fF.sum(dim=-1)
 
-        # --- 1. sample and hold ---
+        # --- 1. Sample and hold ---
+
         # sample: bottom (drive): V_in, top (drive): V_cm
         # hold: bottom (drive): V_cm, top (float): 2*V_cm-V_in
         v_p_top__V = 2 * v_cm__V - v_pos__V
@@ -342,53 +330,88 @@ class McsSarAdc(ADC):
         e_sample__fJ = e_p_sample__fJ + e_n_sample__fJ + config.e_bootstrap__fJ
 
         # --- 2. MSB decision (free, no cap switch) ---
+
         # neg cap top to comparator Vin+, pos cap top to comparator Vin-
         last_bit = self._compare(v_pos__V=v_n_top__V, v_neg__V=v_p_top__V)
         code = last_bit.to(torch.int32)
 
-        # --- SAR loop ---
-        e_detect__fJ = torch.zeros_like(v_pos__V)
-        c_diff__fF = torch.zeros_like(v_pos__V)
+        # --- 3. Hoist loop-invariant per-bit constants ---
+
+        # The SAR loop reads c_p/c_n at idx = (max_bits - bits + 1) + k for
+        # k = bits-2 .. 0; slicing once gives a [..., bits-1] table the loop
+        # can index by k directly. v_p_step, v_n_step, the switch-energy and
+        # c_diff increments all depend only on these caps + v_ref / v_cm
+        # (runtime-input-independent), so they are precomputed here. Keeping
+        # only the where / compare / shift inside the loop body shortens the
+        # unrolled inductor graph and is the precondition for lifting the
+        # ``@torch.compiler.disable`` on ``Offset1T1RXbar.vec_mat_mul``.
+        cap_lo = config.max_bits - bits + 1
+        c_p_used__fF = c_p__fF[..., cap_lo : config.max_bits]
+        c_n_used__fF = c_n__fF[..., cap_lo : config.max_bits]
+        c_p_total_e__fF = c_p_total__fF.unsqueeze(-1)
+        c_n_total_e__fF = c_n_total__fF.unsqueeze(-1)
+        v_p_step_table__V = v_cm__V * c_p_used__fF / c_p_total_e__fF
+        v_n_step_table__V = v_cm__V * c_n_used__fF / c_n_total_e__fF
+        e_step_p_table__fJ = 0.5 * v_ref__V**2 * c_p_used__fF * (1 - c_p_used__fF / c_p_total_e__fF)
+        e_step_n_table__fJ = 0.5 * v_ref__V**2 * c_n_used__fF * (1 - c_n_used__fF / c_n_total_e__fF)
+        c_diff_step_table__fF = c_p_used__fF - c_n_used__fF
+
+        # --- 4. SAR loop (per-cycle comparator noise preserved) ---
+
         for k in range(bits - 2, -1, -1):
-            idx = k - bits + config.max_bits + 1
-            c_p_k__fF = c_p__fF[..., idx]
-            c_n_k__fF = c_n__fF[..., idx]
-            # cap switch
-            v_p_step__V = v_cm__V * c_p_k__fF / c_p_total__fF
-            v_n_step__V = v_cm__V * c_n_k__fF / c_n_total__fF
+            v_p_step__V = v_p_step_table__V[..., k]
+            v_n_step__V = v_n_step_table__V[..., k]
             v_p_top__V = torch.where(last_bit, v_p_top__V + v_p_step__V, v_p_top__V - v_p_step__V)
             v_n_top__V = torch.where(last_bit, v_n_top__V - v_n_step__V, v_n_top__V + v_n_step__V)
-            # switch energy
-            c_p_eq__fF = c_p_k__fF * (1 - c_p_k__fF / c_p_total__fF)
-            c_n_eq__fF = c_n_k__fF * (1 - c_n_k__fF / c_n_total__fF)
-            e_detect__fJ = e_detect__fJ + 0.5 * v_ref__V**2 * torch.where(last_bit, c_p_eq__fF, c_n_eq__fF)
-            # collect c_diff for reset energy
-            c_diff__fF = c_diff__fF + torch.where(last_bit, -0.5, 0.5) * (c_p_k__fF - c_n_k__fF)
-            # detect current bit
             # neg cap top to comparator Vin+, pos cap top to comparator Vin-
             last_bit = self._compare(v_pos__V=v_n_top__V, v_neg__V=v_p_top__V)
             code = (code << 1) | last_bit.to(torch.int32)
 
-        e_detect__fJ = e_detect__fJ + bits * config.e_constant_per_bit__fJ
+        # --- 5. Vectorised side-channel updates ---
 
-        # --- reset: dissipate residual differential charge ---
+        shifts = torch.arange(1, bits, device=code.device, dtype=code.dtype)
+        bit_seq = ((code.unsqueeze(-1) >> shifts) & 1).to(torch.bool)
+        e_detect__fJ = (
+            torch.where(bit_seq, e_step_p_table__fJ, e_step_n_table__fJ).sum(dim=-1)
+            + bits * config.e_constant_per_bit__fJ
+        )
+        c_diff__fF = (torch.where(bit_seq, -0.5, 0.5) * c_diff_step_table__fF).sum(dim=-1)
+
+        # --- 6. Reset: dissipate residual differential charge ---
+
         e_reset__fJ = torch.abs(0.5 * v_ref__V**2 * c_diff__fF)
 
         e_dynamic__fJ = e_sample__fJ + e_detect__fJ + e_reset__fJ
 
-        # --- final code: optional stochastic LSB jitter, clamp ---
+        # --- 7. Final code: optional stochastic LSB jitter ---
+
+        # The SAR loop output is in [0, 2**bits - 1] by construction (each
+        # iter ORs in a 0/1 bit), and ``apply_lsb_jitter`` clamps back
+        # into that range after the +1 overflow case — so no extra clamp
+        # is needed here. Both tail-end constants come from the
+        # per-resolution Python int tables prepared in ``__init__``;
+        # this keeps the compiled graph free of ``1 << <SymInt>`` ops.
         code = apply_lsb_jitter(
             code,
-            n_bits=bits,
+            unsigned_max=self._unsigned_max_table[bits],
             enabled=self.training,
         )
-        # Clamp to the legal unsigned range BEFORE the zero shift; LSB jitter
-        # can push values outside [0, 2**bits - 1] and would skew the signed
-        # output otherwise. Per-call zero code = 2**(bits - 1); bits is
-        # mode-dependent so it cannot be cached at construction.
-        code = code.clamp(min=0, max=(1 << bits) - 1)
-        self._log_dynamic(e_dynamic__fJ, self.latency_per_op__ns(adc_operation_point=adc_operation_point))
-        return code - (1 << (bits - 1))
+        # McsSarAdc: code shape = (*serial, *inst_shape); inst captures
+        # n_groups / parallel-bank dim, no extra trailing dim after MSB-shift.
+        # Per-op latency is parametric in the runtime bit width:
+        # one sample cycle + `bits` SAR comparisons → (bits + 1) clocks.
+        n_inst = len(self._inst_shape)
+        serial_op_count = math.prod(code.shape[: code.ndim - n_inst])
+        per_op_latency__ns = (bits + 1) * config.clk_period__ns
+        latency__ns = torch.tensor(
+            per_op_latency__ns * serial_op_count,
+            device=code.device,
+            dtype=e_dynamic__fJ.dtype,
+        )
+        self._log_dynamic_energy(e_dynamic__fJ)
+        self._log_latency(latency__ns)
+        # Offset-binary → two's-complement bias (semantically: MSB flip).
+        return code - self._zero_offset_table[bits]
 
     def _compare(self, v_pos__V: Tensor, v_neg__V: Tensor) -> Tensor:
         """Strobe the differential comparator.

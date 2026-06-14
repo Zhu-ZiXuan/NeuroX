@@ -4,6 +4,8 @@ This directory documents the `neurox.common` package — the lowest-level utilit
 
 `neurox.common` carries no domain logic. It provides:
 
+- the typed electrical-circuit base and its PPA-carrying config
+  base (`circuit.py`)
 - config base classes and config I/O (`config.py`, `load_dump.py`)
 - the polymorphic-family dispatch mixin (`registry_dispatch.py`)
 - shared physical constants (`physical_constant.py`)

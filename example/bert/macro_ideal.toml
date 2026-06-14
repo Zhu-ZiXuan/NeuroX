@@ -49,7 +49,6 @@ _neurox_type = "IdealXbarConfig"
 col_num = 64
 row_num = 64
 
-latency_per_op__ns = 5.0
 leakage_per_inst__uW = 5.0
 area_per_inst__um2 = 500.0
 

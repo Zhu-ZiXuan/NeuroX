@@ -2,25 +2,25 @@
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from dataclasses import dataclass
 
 import torch
-import torch.nn as nn
 from torch import Tensor
 
-from neurox.common.mixin import FabricateMixin, ProfileMixin, RegistryMixin, ValidateMixin
+from neurox.common.circuit import CircuitBase, CircuitConfig
+from neurox.common.mixin import RegistryMixin
 
 
 @dataclass(frozen=True)
-class DACConfig(ValidateMixin):
+class DACConfig(CircuitConfig):
     """Base config for DAC models."""
 
     def __post_init__(self) -> None:
         self.validate()
 
     def validate(self) -> None:
-        pass
+        self.validate_ppa()
 
 
 @dataclass(frozen=True)
@@ -28,7 +28,7 @@ class DACPolicy:
     """Abstract marker base for DAC-family nonideality policies."""
 
 
-class DAC(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["DACConfig"], "DAC"], ABC):
+class DAC(CircuitBase[DACConfig], RegistryMixin[type["DACConfig"], "DAC"]):
     """Abstract base class for DAC models."""
 
     def __init__(
@@ -42,10 +42,8 @@ class DAC(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["DACConfig
         T__K: float,
     ) -> None:
         """Register the instance with :class:`nn.Module` and the profiler."""
-        del config, policy, dtype, T__K  # captured by the subclass init
-        nn.Module.__init__(self)
-        ProfileMixin.__init__(self, name)
-        self._inst_shape = inst_shape
+        del policy, dtype, T__K  # captured by the subclass init
+        super().__init__(config=config, name=name, inst_shape=inst_shape)
 
     @classmethod
     def from_config(
@@ -68,24 +66,6 @@ class DAC(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["DACConfig
             dtype=dtype,
             T__K=T__K,
         )
-
-    @property
-    @abstractmethod
-    def area_per_inst__um2(self) -> float:
-        """Silicon area per instance [um^2]."""
-        raise NotImplementedError
-
-    @property
-    @abstractmethod
-    def leakage_per_inst__uW(self) -> float:
-        """Static leakage per instance [uW]."""
-        raise NotImplementedError
-
-    @property
-    @abstractmethod
-    def latency_per_op__ns(self) -> float:
-        """Latency per op [ns]."""
-        raise NotImplementedError
 
     @property
     @abstractmethod

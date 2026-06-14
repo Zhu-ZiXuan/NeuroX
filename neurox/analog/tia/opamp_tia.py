@@ -12,7 +12,7 @@ from torch import Tensor
 from neurox.common.nonideality import apply_gaussian
 from neurox.device.nmos import NMOS, NMOSConfig, NMOSPolicy, NMOSSnapshot
 
-from .base import TIA, TIAConfig, TIAPolicy
+from .base import TIA, TIAConfig, TIAPolicy, TIASnapshot
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -121,7 +121,7 @@ class OpAmpTIADCOP:
 
 
 @dataclass(frozen=True)
-class OpAmpTIASnapshot:
+class OpAmpTIASnapshot(TIASnapshot):
     """Per-call OpAmpTIA snapshot.
 
     Attributes:
@@ -151,6 +151,7 @@ class OpAmpTIA(TIA):
     MAX_STEP__V: float = 0.05
     G_EFF_MAX__uS: float = -1e-6
 
+    config: OpAmpTIAConfig
     nominal_opamp_gain: Tensor
     opamp_gain: Tensor
 
@@ -173,7 +174,6 @@ class OpAmpTIA(TIA):
             T__K=T__K,
         )
 
-        self.config = config
         self.policy = policy
         self.T__K = T__K
         self.dtype = dtype
@@ -204,7 +204,6 @@ class OpAmpTIA(TIA):
             self.nominal_opamp_gain.clone(),
             persistent=False,
         )
-        self._log_static()
 
     # --- ClampDriver protocol accessor ---
 
@@ -213,31 +212,10 @@ class OpAmpTIA(TIA):
         """Ideal reference clamp voltage [V]."""
         return self.config.v_ref__V
 
-    # --- PPA accessors ---
-
-    @property
-    def area_per_inst__um2(self) -> float:
-        """Silicon area per instance [um^2]."""
-        return self.config.area_per_inst__um2
-
-    @property
-    def leakage_per_inst__uW(self) -> float:
-        """Static leakage per instance [uW]."""
-        return self.config.leakage_per_inst__uW
-
-    @property
-    def latency_per_op__ns(self) -> float:
-        """Latency per op [ns]."""
-        return self.config.latency_per_op__ns
-
     # --- fabricate ---
 
     def _sample_fabricate_mismatch(self) -> None:
-        """Resample opamp_gain at ``self._inst_shape``.
-
-        NMOS is a `FabricateMixin` child and is cascaded automatically by
-        the base ``fabricate()``; no explicit call here.
-        """
+        """Resample opamp_gain at ``self._inst_shape``."""
         self.opamp_gain = apply_gaussian(
             self.nominal_opamp_gain.clone().expand(self._inst_shape),
             self.sigma_opamp_gain,
@@ -246,17 +224,28 @@ class OpAmpTIA(TIA):
 
     # --- snapshot ---
 
-    def snapshot(self, *, shape: tuple[int, ...]) -> OpAmpTIASnapshot:
+    def snapshot(
+        self,
+        *,
+        shape: tuple[int, ...],
+        multi_coords: tuple[Tensor, ...] | None,
+    ) -> OpAmpTIASnapshot:
         """Sample one per-call runtime snapshot over ``shape``.
 
         Args:
-            shape: Snapshot shape.
+            shape: Per-call broadcast shape; the snapshot fills tensor
+                fields at this shape.
+            multi_coords: Advanced-index tuple selecting a chunk's
+                positions from the broadcast view; ``None`` returns the
+                full view.
 
         Returns:
             Per-call snapshot of the fabricated state.
         """
-        nmos_snapshot = self.nmos.snapshot(shape=shape)
-        return OpAmpTIASnapshot(opamp_gain=self.opamp_gain, nmos_snapshot=nmos_snapshot)
+        gain_view = self.opamp_gain.expand(shape) if shape else self.opamp_gain
+        gain = gain_view if multi_coords is None else gain_view[multi_coords]
+        nmos_snap = self.nmos.snapshot(shape=shape, multi_coords=multi_coords)
+        return OpAmpTIASnapshot(opamp_gain=gain, nmos_snapshot=nmos_snap)
 
     # --- forward path ---
 

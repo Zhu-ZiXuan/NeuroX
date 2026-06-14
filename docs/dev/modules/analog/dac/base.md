@@ -24,7 +24,8 @@ Concrete subclasses must implement:
 
 - `convert(code)` — map integer codes to analog voltages.
 - `code_to_signal` — the code → nominal-voltage LUT (a tensor of length `n_codes`). Read directly to obtain a nominal operating-point voltage without going through `convert`.
-- Cost-metric properties: `area_per_inst__um2`, `leakage_per_inst__uW`, `latency_per_op__ns`.
+
+Static-PPA properties (`area_per_inst__um2`, `leakage_per_inst__uW`) are inherited from `CircuitBase` and read from `self.config`. Per-op latency is leaf-defined: fixed-latency impls (`GeneralDAC`) carry a `latency_per_op__ns: float` field on their own config and read it at `_log_latency` emit time.
 
 See also:
 

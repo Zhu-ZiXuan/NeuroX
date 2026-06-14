@@ -6,40 +6,33 @@ See also:
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from dataclasses import dataclass, fields
 from typing import TYPE_CHECKING
 
 import torch
-import torch.nn as nn
 from torch import Tensor
 
 from neurox.analog.adc import AdcOperationPoint
-from neurox.common.mixin import FabricateMixin, ProfileMixin, RegistryMixin, ValidateMixin
+from neurox.common.circuit import CircuitBase, CircuitConfig
+from neurox.common.mixin import RegistryMixin
 
 if TYPE_CHECKING:
     from .ideal import IdealXbar
 
 
 @dataclass(frozen=True)
-class XbarConfig(ValidateMixin):
+class XbarConfig(CircuitConfig):
     """Geometry and PPA shared by every xbar tile.
 
     Attributes:
         col_num: Number of columns per tile (cells aggregating to
             one output).
         row_num: Number of rows per tile (cells sharing one input).
-        latency_per_op__ns: Array read latency per op [ns].
-        leakage_per_inst__uW: Static leakage per tile instance [uW].
-        area_per_inst__um2: Silicon area per tile instance [μm²].
     """
 
     col_num: int
     row_num: int
-
-    latency_per_op__ns: float
-    leakage_per_inst__uW: float
-    area_per_inst__um2: float
 
     def __post_init__(self) -> None:
         self.validate()
@@ -66,18 +59,13 @@ class XbarConfig(ValidateMixin):
             if d_lo == 0 and d_hi == 0:
                 raise ValueError("require: w_digit_range cannot be (0, 0) — collapses rescale math")
 
-    def validate_ppa(self) -> None:
-        self._require_nonneg(self.area_per_inst__um2, "area_per_inst__um2")
-        self._require_nonneg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
-        self._require_nonneg(self.latency_per_op__ns, "latency_per_op__ns")
-
 
 @dataclass(frozen=True)
 class XbarPolicy:
     """Abstract marker base for Xbar-family nonideality policies."""
 
 
-class Xbar(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["XbarConfig"], "Xbar"], ABC):
+class Xbar(CircuitBase[XbarConfig], RegistryMixin[type["XbarConfig"], "Xbar"]):
     """Abstract base class for a physical crossbar tile.
 
     Args:
@@ -90,7 +78,6 @@ class Xbar(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["XbarConf
         T__K: Operating temperature [K].
     """
 
-    config: XbarConfig
     policy: XbarPolicy
     T__K: float
     dtype: torch.dtype
@@ -105,20 +92,13 @@ class Xbar(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["XbarConf
         dtype: torch.dtype,
         T__K: float,
     ) -> None:
-        nn.Module.__init__(self)
-        ProfileMixin.__init__(self, name)
-        self.config = config
+        super().__init__(config=config, name=name, inst_shape=inst_shape)
         self.policy = policy
         self.T__K = T__K
         self.dtype = dtype
 
-        self._inst_shape = inst_shape
-
         self.col_num = config.col_num
         self.row_num = config.row_num
-
-        # `_log_static` is called by the concrete subclass at the end of its
-        # ``__init__`` — base does not call to avoid double-recording.
 
     @property
     def _w_layout_shape(self) -> tuple[int, ...]:
@@ -146,23 +126,6 @@ class Xbar(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["XbarConf
             dtype=dtype,
             T__K=T__K,
         )
-
-    # ----- PPA properties (delegated to the immutable config) -----
-
-    @property
-    def area_per_inst__um2(self) -> float:
-        """Silicon area per instance [um^2]."""
-        return self.config.area_per_inst__um2
-
-    @property
-    def leakage_per_inst__uW(self) -> float:
-        """Static leakage per instance [uW]."""
-        return self.config.leakage_per_inst__uW
-
-    @property
-    def latency_per_op__ns(self) -> float:
-        """Latency per op [ns]."""
-        return self.config.latency_per_op__ns
 
     # ----- Value-domain semantics (abstract) -----
 
@@ -198,39 +161,29 @@ class Xbar(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["XbarConf
     @property
     @abstractmethod
     def adc_mode_num(self) -> int:
-        """Number of ADC operating points the tile supports."""
+        """Number of supported ADC operating points; valid ``adc_mode`` values are ``[0, mode_num)``."""
         raise NotImplementedError
 
     @property
     @abstractmethod
     def adc_max_bits(self) -> int:
-        """Maximum ``adc_bits`` value the tile's ADC supports."""
+        """Maximum supported ``adc_bits`` value."""
         raise NotImplementedError
 
     @abstractmethod
     def adc_rescale_factor(self, adc_operation_point: AdcOperationPoint) -> float:
-        """Recovery-side multiplier for ``adc_operation_point``: ``M_ideal ≈ code · rescale_factor``.
-
-        The relationship is strictly proportional (no intercept) by design —
-        differential ADC zeroes ``v_diff`` at ``v_data == v_ref``, so chip
-        offsets show up as noise, not as a constant bias.
-
-        Each concrete xbar owns its mapping: physical impls look the value
-        up in a chip-calibrated table, the ideal twin derives it from
-        ``adc_bits`` and the integer geometry alone.
-        """
+        """Rescale factor for ``adc_operation_point``; raises ``KeyError`` if uncalibrated."""
         raise NotImplementedError
 
     # ----- Lifecycle -----
 
     @abstractmethod
     def program(self, w: Tensor) -> None:
-        """Write the tile's owned device buffers from a digit tensor.
+        """Write the tile's owned device buffers from one xbar-native digit tensor.
 
         Args:
             w: Integer digit tensor whose shape matches
-                :attr:`_w_layout_shape` —
-                ``(*inst_shape, col_num, w_digit_count, row_num)``.
+                ``self._w_layout_shape = (*inst_shape, col_num, w_digit_count, row_num)``.
                 Entries must lie in :attr:`w_digit_range`.
         """
         raise NotImplementedError
@@ -240,13 +193,13 @@ class Xbar(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["XbarConf
         """Run one analog VMM through the tile.
 
         Args:
-            x: Activation tensor with primitive trailing
-                ``[row_num]``. Entries must lie in :attr:`x_range`;
-                leading dims are broadcast-only.
+            x: Activation tensor with primitive trailing ``[row_num]``.
+                Entries must lie in :attr:`x_range`; leading dims are
+                broadcast-only.
             adc_operation_point: Runtime ADC operating point.
 
         Returns:
-            Output tensor with primitive trailing ``[col_num]``.
+            ADC-code tensor with primitive trailing ``[col_num]``.
         """
         raise NotImplementedError
 

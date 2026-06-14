@@ -4,34 +4,30 @@ See also:
     docs/dev/modules/digital/README.md
 """
 
+import math
 from dataclasses import dataclass
 
 import torch
-import torch.nn as nn
 from torch import Tensor
 
-from neurox.common.mixin import FabricateMixin, ProfileMixin, ValidateMixin
+from neurox.common.circuit import CircuitBase, CircuitConfig
 
 
 @dataclass(frozen=True)
-class SubtractorConfig(ValidateMixin):
+class SubtractorConfig(CircuitConfig):
     """Immutable configuration for a Subtractor instance.
 
     Attributes:
         bit_width: Nominal output bit width (informational; no wrap is applied).
         energy_per_op__fJ: Dynamic energy consumed per output element (fJ).
-        latency_per_op__ns: Critical-path latency per operation (ns).
-        leakage_per_inst__uW: Static leakage power per instance (uW).
-        area_per_inst__um2: Silicon area per instance (um^2).
+        latency_per_op__ns: Per-element latency [ns]; multiplied by the
+            runtime serial-op count at logging time.
     """
 
     bit_width: int
 
     energy_per_op__fJ: float
-
     latency_per_op__ns: float
-    leakage_per_inst__uW: float
-    area_per_inst__um2: float
 
     def __post_init__(self) -> None:
         self.validate()
@@ -44,13 +40,12 @@ class SubtractorConfig(ValidateMixin):
         self._require_pos(self.bit_width, "bit_width")
 
     def validate_ppa(self) -> None:
+        super().validate_ppa()
         self._require_nonneg(self.energy_per_op__fJ, "energy_per_op__fJ")
-        self._require_nonneg(self.area_per_inst__um2, "area_per_inst__um2")
-        self._require_nonneg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
         self._require_nonneg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
-class Subtractor(FabricateMixin, nn.Module, ProfileMixin):
+class Subtractor(CircuitBase[SubtractorConfig]):
     """Element-wise integer subtractor. No saturation or wrap."""
 
     def __init__(
@@ -60,26 +55,7 @@ class Subtractor(FabricateMixin, nn.Module, ProfileMixin):
         name: str,
         inst_shape: tuple[int, ...],
     ) -> None:
-        nn.Module.__init__(self)
-        ProfileMixin.__init__(self, name)
-        self.config = config
-        self._inst_shape = inst_shape
-        self._log_static()
-
-    @property
-    def area_per_inst__um2(self) -> float:
-        """Silicon area per instance [um^2]."""
-        return self.config.area_per_inst__um2
-
-    @property
-    def leakage_per_inst__uW(self) -> float:
-        """Static leakage per instance [uW]."""
-        return self.config.leakage_per_inst__uW
-
-    @property
-    def latency_per_op__ns(self) -> float:
-        """Latency per op [ns]."""
-        return self.config.latency_per_op__ns
+        super().__init__(config=config, name=name, inst_shape=inst_shape)
 
     def operate(self, a: Tensor, b: Tensor) -> Tensor:
         """Subtract ``b`` from ``a`` element-wise.
@@ -89,9 +65,18 @@ class Subtractor(FabricateMixin, nn.Module, ProfileMixin):
             b: Subtrahend tensor (broadcast-compatible with ``a``).
 
         Returns:
-            ``y = a - b``.
+            ``y = a − b``.
         """
         y = a - b
+        # Subtractor is element-wise; same accounting as Adder.
+        n_elems = math.prod(y.shape)
+        serial_op_count = max(1, n_elems // max(self.inst_count, 1))
         dynamic_energy__fJ = torch.full_like(y, self.config.energy_per_op__fJ, dtype=torch.float32)
-        self._log_dynamic(dynamic_energy__fJ, self.config.latency_per_op__ns)
+        latency__ns = torch.tensor(
+            self.config.latency_per_op__ns * serial_op_count,
+            device=y.device,
+            dtype=dynamic_energy__fJ.dtype,
+        )
+        self._log_dynamic_energy(dynamic_energy__fJ)
+        self._log_latency(latency__ns)
         return y

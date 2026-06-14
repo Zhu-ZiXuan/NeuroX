@@ -4,19 +4,19 @@ See also:
     docs/dev/modules/analog/switch_cap.md
 """
 
+import math
 from dataclasses import dataclass
 
 import torch
-import torch.nn as nn
 from torch import Tensor
 
-from neurox.common.mixin import FabricateMixin, ProfileMixin, ValidateMixin
+from neurox.common.circuit import CircuitBase, CircuitConfig
 from neurox.common.nonideality import apply_gaussian, apply_pelgrom_mismatch
 from neurox.common.physical_constant import K_BOLTZMANN__J_per_K
 
 
 @dataclass(frozen=True, kw_only=True)
-class SwitchCapConfig(ValidateMixin):
+class SwitchCapConfig(CircuitConfig):
     """Immutable physical configuration for :class:`SwitchCap`.
 
     Attributes:
@@ -24,9 +24,8 @@ class SwitchCapConfig(ValidateMixin):
         cap_mismatch_sigma_relative: Per-unit-cap Pelgrom relative
             sigma.
         energy_per_sample_overhead__fJ: Per-bank switching overhead [fJ].
-        leakage_per_inst__uW: Static leakage per bank [uW].
-        area_per_inst__um2: Silicon area per bank [μm²].
-        latency_per_op__ns: Settling latency per sample [ns].
+        latency_per_op__ns: Per-sample-and-accumulate latency [ns];
+            multiplied by the runtime serial-op count at logging time.
     """
 
     # --- Unit capacitance ---
@@ -35,10 +34,8 @@ class SwitchCapConfig(ValidateMixin):
     # --- Cap mismatch (Pelgrom) ---
     cap_mismatch_sigma_relative: float
 
-    # --- Energy / PPA ---
+    # --- Energy / latency ---
     energy_per_sample_overhead__fJ: float
-    leakage_per_inst__uW: float
-    area_per_inst__um2: float
     latency_per_op__ns: float
 
     def __post_init__(self) -> None:
@@ -56,9 +53,8 @@ class SwitchCapConfig(ValidateMixin):
         self._require_nonneg(self.cap_mismatch_sigma_relative, "cap_mismatch_sigma_relative")
 
     def validate_ppa(self) -> None:
+        super().validate_ppa()
         self._require_nonneg(self.energy_per_sample_overhead__fJ, "energy_per_sample_overhead__fJ")
-        self._require_nonneg(self.area_per_inst__um2, "area_per_inst__um2")
-        self._require_nonneg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
         self._require_nonneg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
@@ -75,7 +71,7 @@ class SwitchCapPolicy:
     sampling_thermal_noise: bool
 
 
-class SwitchCap(FabricateMixin, nn.Module, ProfileMixin):
+class SwitchCap(CircuitBase[SwitchCapConfig]):
     """Bottom-plate-sampled cap bank with passive charge-share averaging.
 
     Args:
@@ -102,8 +98,7 @@ class SwitchCap(FabricateMixin, nn.Module, ProfileMixin):
         T__K: float,
         cap_weights: tuple[float, ...],
     ) -> None:
-        nn.Module.__init__(self)
-        ProfileMixin.__init__(self, name)
+        super().__init__(config=config, name=name, inst_shape=inst_shape)
         if not (T__K > 0.0):
             raise ValueError(f"SwitchCap.T__K ({T__K}) must be > 0")
         if len(cap_weights) < 1:
@@ -112,9 +107,7 @@ class SwitchCap(FabricateMixin, nn.Module, ProfileMixin):
             if not (w > 0.0):
                 raise ValueError(f"require: cap_weights[{k}] ({w}) > 0")
 
-        self.config = config
         self.policy = policy
-        self._inst_shape = inst_shape
         self.T__K = T__K
         self.dtype = dtype
         self.n_caps = len(cap_weights)
@@ -126,22 +119,6 @@ class SwitchCap(FabricateMixin, nn.Module, ProfileMixin):
             self.nominal_c__fF.clone(),
             persistent=False,
         )
-        self._log_static()
-
-    @property
-    def area_per_inst__um2(self) -> float:
-        """Silicon area per instance [um^2]."""
-        return self.config.area_per_inst__um2
-
-    @property
-    def leakage_per_inst__uW(self) -> float:
-        """Static leakage per instance [uW]."""
-        return self.config.leakage_per_inst__uW
-
-    @property
-    def latency_per_op__ns(self) -> float:
-        """Latency per op [ns]."""
-        return self.config.latency_per_op__ns
 
     def _sample_fabricate_mismatch(self) -> None:
         """Resample per-cap mismatch at ``(*self._inst_shape, n_caps)``."""
@@ -173,7 +150,17 @@ class SwitchCap(FabricateMixin, nn.Module, ProfileMixin):
         c_total__fF = c__fF.sum(dim=-1)
         v_out__V = torch.sum(c__fF * v_hold__V, dim=-1) / c_total__fF
 
+        # Serial op count: SwitchCap shape is (*serial, *inst_shape, n_caps);
+        # caps inside one bank charge in parallel, inst are parallel banks.
+        n_inst = len(self._inst_shape)
+        serial_op_count = math.prod(v_in__V.shape[: v_in__V.ndim - n_inst - 1])
         e_caps__fJ = 0.5 * torch.sum(c__fF * v_in__V * v_in__V, dim=-1)
         dynamic_energy__fJ = e_caps__fJ + self.config.energy_per_sample_overhead__fJ
-        self._log_dynamic(dynamic_energy__fJ, self.config.latency_per_op__ns)
+        latency__ns = torch.tensor(
+            self.config.latency_per_op__ns * serial_op_count,
+            device=v_in__V.device,
+            dtype=dynamic_energy__fJ.dtype,
+        )
+        self._log_dynamic_energy(dynamic_energy__fJ)
+        self._log_latency(latency__ns)
         return v_out__V

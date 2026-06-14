@@ -36,9 +36,8 @@ class GeneralADCConfig(ADCConfig):
         drive_thermal__V: Gaussian thermal noise sigma on the drive
             output [V].
         energy_per_op__fJ: Dynamic energy per conversion.
-        latency_per_op__ns: Conversion latency.
-        leakage_per_inst__uW: Static leakage power per instance.
-        area_per_inst__um2: Silicon area per instance.
+        latency_per_op__ns: Per-conversion latency [ns]; multiplied by
+            the runtime serial-op count at logging time.
     """
 
     # --- Bucketize boundaries ---
@@ -57,11 +56,9 @@ class GeneralADCConfig(ADCConfig):
     drive_value: float
     input_transform: Literal["linear", "log2"]
 
-    # --- Energy / PPA ---
+    # --- Energy / latency ---
     energy_per_op__fJ: float
     latency_per_op__ns: float
-    leakage_per_inst__uW: float
-    area_per_inst__um2: float
 
     def validate(self) -> None:
         super().validate()
@@ -79,9 +76,8 @@ class GeneralADCConfig(ADCConfig):
         self._require_nonneg(self.drive_thermal__V, "drive_thermal__V")
 
     def validate_ppa(self) -> None:
+        super().validate_ppa()
         self._require_nonneg(self.energy_per_op__fJ, "energy_per_op__fJ")
-        self._require_nonneg(self.area_per_inst__um2, "area_per_inst__um2")
-        self._require_nonneg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
         self._require_nonneg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
@@ -107,6 +103,7 @@ class GeneralADC(ADC):
     Single-mode: ``(mode, bits)`` must be ``(0, n_bits_implied_by_boundaries)``.
     """
 
+    config: GeneralADCConfig
     boundaries: Tensor
     drive_value: Tensor
 
@@ -128,7 +125,6 @@ class GeneralADC(ADC):
             dtype=dtype,
             T__K=T__K,
         )
-        self.config = config
         self.policy = policy
         self.dtype = dtype
         self.T__K = T__K
@@ -153,8 +149,6 @@ class GeneralADC(ADC):
             self._lsb_estimate = float((boundaries_t[1:] - boundaries_t[:-1]).mean().item())
         else:
             self._lsb_estimate = float(boundaries_t.item())
-
-        self._log_static()
 
     # --- ADC interface ---
 
@@ -181,23 +175,6 @@ class GeneralADC(ADC):
         """
         del adc_bits
         return -self._zero_code, self._n_codes - 1 - self._zero_code
-
-    @property
-    def area_per_inst__um2(self) -> float:
-        """Silicon area per instance [um^2]."""
-        return self.config.area_per_inst__um2
-
-    @property
-    def leakage_per_inst__uW(self) -> float:
-        """Static leakage per instance [uW]."""
-        return self.config.leakage_per_inst__uW
-
-    def latency_per_op__ns(self, *, adc_operation_point: AdcOperationPoint) -> float:
-        if adc_operation_point.adc_bits != self._n_bits:
-            raise ValueError(
-                f"GeneralADC: bits ({adc_operation_point.adc_bits}) must equal self._n_bits ({self._n_bits})"
-            )
-        return self.config.latency_per_op__ns
 
     def convert(
         self,
@@ -245,8 +222,18 @@ class GeneralADC(ADC):
             lsb=self._lsb_estimate,
         )
 
+        # GeneralADC: code shape = (*serial, *inst_shape); inst_shape already
+        # captures the n_groups / parallel-bank dim, no extra trailing dim.
+        n_inst = len(self._inst_shape)
+        serial_op_count = math.prod(code.shape[: code.ndim - n_inst])
         dynamic_energy__fJ = torch.full_like(code, self.config.energy_per_op__fJ, dtype=torch.float32)
-        self._log_dynamic(dynamic_energy__fJ, self.config.latency_per_op__ns)
+        latency__ns = torch.tensor(
+            self.config.latency_per_op__ns * serial_op_count,
+            device=code.device,
+            dtype=dynamic_energy__fJ.dtype,
+        )
+        self._log_dynamic_energy(dynamic_energy__fJ)
+        self._log_latency(latency__ns)
 
         # Clamp to the legal unsigned bucket range before the zero shift;
         # stochastic-rounding jitter in floor_bucketize can push values to

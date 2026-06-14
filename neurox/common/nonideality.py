@@ -317,18 +317,22 @@ def apply_state_dependent_gamma(
     needs_cast = in_dtype not in (torch.float32, torch.float64)
     x32 = x.float() if needs_cast else x
 
-    # --- normalise conductance state ---
+    # --- 1. Normalise conductance state ---
+
     x_norm = (x32 - config.min_val) / (config.max_val - config.min_val + 1e-12)
 
-    # --- derive state-dependent shape ---
+    # --- 2. Derive state-dependent shape ---
+
     k = (x_norm * config.k_slope + config.k_intercept).clamp(min=0.1)
 
-    # --- sample gamma noise elementwise ---
+    # --- 3. Sample gamma noise elementwise ---
+
     theta_tensor = torch.full(x32.shape, config.theta, dtype=x32.dtype, device=x32.device)
     rate = 1.0 / theta_tensor
     gamma_sample = torch.distributions.Gamma(concentration=k, rate=rate).sample()
 
-    # --- normalise to unit-mean gain ---
+    # --- 4. Normalise to unit-mean gain ---
+
     mean = (k * theta_tensor).clamp(min=1e-12)
     result = x32 * (gamma_sample / mean)
     return result.to(in_dtype) if needs_cast else result
@@ -430,18 +434,22 @@ def apply_pelgrom_mismatch(
 def apply_lsb_jitter(
     code: Tensor,
     *,
-    n_bits: int,
+    unsigned_max: int,
     enabled: bool,
 ) -> Tensor:
     """Add a Bernoulli(0.5) ±0/+1 LSB jitter to an integer code.
 
     Coarse stochastic-rounding fallback for ADCs whose physical model
     does not already inject per-cycle randomness. Output is clamped to
-    ``[0, 2 ** n_bits - 1]``.
+    ``[0, unsigned_max]`` so the +1 overflow at the top of the legal
+    range is absorbed here — the caller does not need a second clamp.
 
     Args:
         code: Integer code tensor.
-        n_bits: Active bit width (used for the upper clamp).
+        unsigned_max: ``2 ** n_bits - 1`` for the active resolution.
+            Passed as a precomputed Python int so the compiled graph
+            never contains a ``1 << <SymInt>`` op (dynamo's SymInt
+            left-shift lowering currently mishandles that path).
         enabled: Master toggle. ``False`` returns ``code`` unchanged.
 
     Returns:
@@ -449,6 +457,5 @@ def apply_lsb_jitter(
     """
     if not enabled:
         return code
-    max_code = (1 << n_bits) - 1
     jitter = torch.randint(low=0, high=2, size=code.shape, dtype=code.dtype, device=code.device)
-    return (code + jitter).clamp(min=0, max=max_code)
+    return (code + jitter).clamp(min=0, max=unsigned_max)

@@ -6,6 +6,7 @@ See also:
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import torch
@@ -29,10 +30,8 @@ class GeneralDACConfig(DACConfig):
             output sample after LUT lookup [V].
         energy_per_op__fJ: Dynamic energy per conversion operation
             [fJ].
-        latency_per_op__ns: Conversion latency per operation [ns].
-        leakage_per_inst__uW: Static leakage power per DAC instance
-            [uW].
-        area_per_inst__um2: Silicon area per DAC instance [um^2].
+        latency_per_op__ns: Per-conversion latency [ns]; multiplied by
+            the runtime serial-op count at logging time.
     """
 
     # --- LUT ---
@@ -41,11 +40,9 @@ class GeneralDACConfig(DACConfig):
     # --- Drive thermal noise ---
     drive_thermal__V: float
 
-    # --- Energy / PPA ---
+    # --- Energy / latency ---
     energy_per_op__fJ: float
     latency_per_op__ns: float
-    leakage_per_inst__uW: float
-    area_per_inst__um2: float
 
     def validate(self) -> None:
         super().validate()
@@ -60,9 +57,8 @@ class GeneralDACConfig(DACConfig):
         self._require_nonneg(self.drive_thermal__V, "drive_thermal__V")
 
     def validate_ppa(self) -> None:
+        super().validate_ppa()
         self._require_nonneg(self.energy_per_op__fJ, "energy_per_op__fJ")
-        self._require_nonneg(self.area_per_inst__um2, "area_per_inst__um2")
-        self._require_nonneg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
         self._require_nonneg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
@@ -81,6 +77,7 @@ class GeneralDACPolicy(DACPolicy):
 class GeneralDAC(DAC):
     """General DAC model."""
 
+    config: GeneralDACConfig
     code_to_signal: Tensor
 
     def __init__(
@@ -103,28 +100,11 @@ class GeneralDAC(DAC):
             T__K=T__K,
         )
 
-        self.config = config
         self.policy = policy
         self.T__K = T__K
         self.dtype = dtype
 
         self.register_buffer("code_to_signal", torch.tensor(config.code_to_signal, dtype=dtype), persistent=False)
-        self._log_static()
-
-    @property
-    def area_per_inst__um2(self) -> float:
-        """Silicon area per instance [um^2]."""
-        return self.config.area_per_inst__um2
-
-    @property
-    def leakage_per_inst__uW(self) -> float:
-        """Static leakage per instance [uW]."""
-        return self.config.leakage_per_inst__uW
-
-    @property
-    def latency_per_op__ns(self) -> float:
-        """Latency per op [ns]."""
-        return self.config.latency_per_op__ns
 
     @property
     def code_max(self) -> int:
@@ -146,10 +126,17 @@ class GeneralDAC(DAC):
             enabled=self.policy.drive_thermal,
         )
 
-        if self.config.energy_per_op__fJ != 0.0:
-            dynamic_energy__fJ = torch.full_like(signal, self.config.energy_per_op__fJ, dtype=torch.float32)
-            self._log_dynamic(dynamic_energy__fJ, self.config.latency_per_op__ns)
-        else:
-            self._log_dynamic(0.0, self.config.latency_per_op__ns)
+        # GeneralDAC: input ``code`` has no special trailing structure;
+        # signal shape = (*serial, *inst_shape).
+        n_inst = len(self._inst_shape)
+        serial_op_count = math.prod(signal.shape[: signal.ndim - n_inst])
+        dynamic_energy__fJ = torch.full_like(signal, self.config.energy_per_op__fJ, dtype=torch.float32)
+        latency__ns = torch.tensor(
+            self.config.latency_per_op__ns * serial_op_count,
+            device=signal.device,
+            dtype=dynamic_energy__fJ.dtype,
+        )
+        self._log_dynamic_energy(dynamic_energy__fJ)
+        self._log_latency(latency__ns)
 
         return signal

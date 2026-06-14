@@ -235,12 +235,14 @@ def from_config(cls, *, config, ...) -> Self:
     """Build the concrete impl registered for ``type(config)``."""
 
 # Leaf per-call snapshot (Driver, OpAmpTIA, NMOS, RRAM).
-def snapshot(self, *, shape: tuple[int, ...]) -> <Name>Snapshot:
+def snapshot(self, *, shape: tuple[int, ...], multi_coords: tuple[Tensor, ...] | None) -> <Name>Snapshot:
     """Sample one per-call runtime snapshot over ``shape``.
 
     Args:
         shape: Per-call broadcast shape; the snapshot fills tensor
             fields at this shape.
+        multi_coords: Advanced-index tuple selecting a chunk's positions
+            from the broadcast view; ``None`` returns the full view.
 
     Returns:
         Per-call snapshot of the fabricated state.
@@ -304,19 +306,18 @@ def adc_rescale_factor(self, adc_operation_point: AdcOperationPoint) -> float:
 
 ### Properties — one-line entries
 
+The static-PPA pair (`area_per_inst__um2` / `leakage_per_inst__uW`) is defined exactly once on `CircuitBase` and inherited by every circuit. Leaf circuits **do not** redeclare them; their canonical docstrings live in `neurox/common/circuit.py`. Per-op latency is not a base property — fixed-latency leaves carry a `latency_per_op__ns: float` field on their *own* config and read it at emit time; parametric leaves derive it from runtime parameters. The entries below appear in this style guide as the canonical text other one-off PPA properties (e.g. on XbarMacro, where the value is hard-coded `0.0`) should reuse.
+
 ```python
-# PPA on every fabricable leaf (analog / digital / device / xbar tile).
+# Canonical static-PPA docstrings (defined on CircuitBase; reused verbatim by
+# overrides on Macro family where PPA is always 0.0).
 @property
 def area_per_inst__um2(self) -> float:
-    """Silicon area per instance [um^2]."""
+    """Silicon area per instance [um²]."""
 
 @property
 def leakage_per_inst__uW(self) -> float:
     """Static leakage per instance [uW]."""
-
-@property
-def latency_per_op__ns(self) -> float:
-    """Latency per op [ns]."""
 
 # Macro value-domain (Protocol, XbarMacro abstract, four XbarMacro impls — Direct / InterArraySlice / IntraArraySlice / Ideal).
 @property
@@ -337,14 +338,12 @@ def adc_max_bits(self) -> int:
     """Maximum supported ``adc_bits`` value."""
 ```
 
-**Exception — `latency_per_op__ns(*, adc_operation_point)`**: ADC and Readout publish a parametric latency (per-conversion or per-VMM-pipeline). Keep the site-specific extended docstring because the signature carries the operating point the canonical short form cannot describe.
-
 **Exception — `w_digit_range` on `Offset1T1RXbar`**: the offset-coded array's docstring explains the `(-o, S - 1 - o)` derivation, which is offset-specific and worth keeping verbatim.
 
 ### What this does not mandate
 
 - Implementation-specific notes (e.g. "Aggregated leakage rolls up from children", "Settling-dominated") may live in the class docstring or in inline comments, but **must not** displace the canonical property docstring text.
-- An override that simply delegates (`return self.config.area_per_inst__um2`) may either repeat the canonical one-liner or omit the docstring entirely and inherit from the base / abstract — pick one rule per family and apply it consistently.
+- Concrete leaf circuits **do not** redeclare the two static-PPA properties — `CircuitBase` already provides them with the canonical docstrings. The text in this style guide is the source of truth.
 
 ## Property vs method
 

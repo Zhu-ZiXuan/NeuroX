@@ -6,15 +6,15 @@ See also:
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from dataclasses import dataclass
 
 import torch
-import torch.nn as nn
 from torch import Tensor
 
 from neurox.analog.adc import AdcOperationPoint
-from neurox.common.mixin import FabricateMixin, ProfileMixin, RegistryMixin, ValidateMixin
+from neurox.common.circuit import CircuitBase, CircuitConfig
+from neurox.common.mixin import RegistryMixin
 
 # ---------------------------------------------------------------------------
 # Config (orchestrator-only knobs)
@@ -22,19 +22,22 @@ from neurox.common.mixin import FabricateMixin, ProfileMixin, RegistryMixin, Val
 
 
 @dataclass(frozen=True, kw_only=True)
-class ReadOutConfig(ValidateMixin):
+class ReadOutConfig(CircuitConfig):
     """Top-level readout configuration.
+
+    ``energy_per_op__fJ`` / ``latency_per_op__ns`` describe the readout
+    chain's own orch overhead per VMM, not the sum of its children —
+    children that emit their own profile events log independently;
+    children without a dynamic model contribute nothing extra to the
+    event stream.
 
     Attributes:
         energy_per_op__fJ: Readout-local dynamic overhead per operation [fJ].
-        leakage_per_inst__uW: Leakage power per instance [uW].
-        area_per_inst__um2: Area per instance [um^2].
-        latency_per_op__ns: Fixed latency contribution per operation [ns].
+        latency_per_op__ns: Readout-local per-VMM orch latency [ns];
+            multiplied by the runtime serial-op count at logging time.
     """
 
     energy_per_op__fJ: float
-    leakage_per_inst__uW: float
-    area_per_inst__um2: float
     latency_per_op__ns: float
 
     def __post_init__(self) -> None:
@@ -44,9 +47,8 @@ class ReadOutConfig(ValidateMixin):
         self.validate_ppa()
 
     def validate_ppa(self) -> None:
+        super().validate_ppa()
         self._require_nonneg(self.energy_per_op__fJ, "energy_per_op__fJ")
-        self._require_nonneg(self.area_per_inst__um2, "area_per_inst__um2")
-        self._require_nonneg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
         self._require_nonneg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
@@ -60,8 +62,16 @@ class ReadOutPolicy:
 # ---------------------------------------------------------------------------
 
 
-class ReadOut(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["ReadOutConfig"], "ReadOut"], ABC):
-    """Abstract base class for voltage-domain readout chains."""
+class ReadOut(CircuitBase[ReadOutConfig], RegistryMixin[type["ReadOutConfig"], "ReadOut"]):
+    """Abstract base class for voltage-domain readout chains.
+
+    Per-VMM total latency is composed at the profiler level: children
+    that emit their own profile events (e.g. the inner ADC, switch-cap
+    banks) call ``_log_latency`` / ``_log_dynamic_energy`` independently;
+    the readout itself emits only the orch / glue contribution from
+    ``self.config.latency_per_op__ns``, gated independently of its
+    energy overhead.
+    """
 
     @classmethod
     def from_config(
@@ -118,10 +128,8 @@ class ReadOut(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["ReadO
             data_num: Number of data per reference group.
             digit_weights: Per-digit weight vector, length ``digit_num``.
         """
-        del config, policy, dtype, T__K, data_num, digit_weights  # captured by the subclass init
-        nn.Module.__init__(self)
-        ProfileMixin.__init__(self, name)
-        self._inst_shape = inst_shape
+        del policy, dtype, T__K, data_num, digit_weights  # captured by the subclass init
+        super().__init__(config=config, name=name, inst_shape=inst_shape)
 
     @abstractmethod
     def readout(
@@ -142,27 +150,6 @@ class ReadOut(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["ReadO
 
         Returns:
             Integer ADC code tensor.
-        """
-        raise NotImplementedError
-
-    @property
-    @abstractmethod
-    def area_per_inst__um2(self) -> float:
-        """Silicon area per instance [um^2]."""
-        raise NotImplementedError
-
-    @property
-    @abstractmethod
-    def leakage_per_inst__uW(self) -> float:
-        """Static leakage per instance [uW]."""
-        raise NotImplementedError
-
-    @abstractmethod
-    def latency_per_op__ns(self, *, adc_operation_point: AdcOperationPoint) -> float:
-        """Return the per-VMM pipeline latency [ns].
-
-        Args:
-            adc_operation_point: Runtime ADC operating point.
         """
         raise NotImplementedError
 

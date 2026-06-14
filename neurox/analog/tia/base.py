@@ -6,31 +6,25 @@ See also:
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from dataclasses import dataclass
 
 import torch
-import torch.nn as nn
+from torch import Tensor
 
-from neurox.common.mixin import FabricateMixin, ProfileMixin, RegistryMixin, ValidateMixin
+from neurox.common.circuit import CircuitBase, CircuitConfig
+from neurox.common.mixin import RegistryMixin
 
 
 @dataclass(frozen=True)
-class TIAConfig(ValidateMixin):
+class TIAConfig(CircuitConfig):
     """Base configuration for TIA implementations.
 
     Attributes:
         v_ref__V: Reference clamp voltage [V].
-        leakage_per_inst__uW: Static leakage per TIA instance [μW].
-        area_per_inst__um2: Silicon area per TIA instance [μm²].
-        latency_per_op__ns: Settling latency per `solve_dc` call [ns].
     """
 
     v_ref__V: float
-
-    leakage_per_inst__uW: float
-    area_per_inst__um2: float
-    latency_per_op__ns: float
 
     def __post_init__(self) -> None:
         self.validate()
@@ -38,18 +32,18 @@ class TIAConfig(ValidateMixin):
     def validate(self) -> None:
         self.validate_ppa()
 
-    def validate_ppa(self) -> None:
-        self._require_nonneg(self.area_per_inst__um2, "area_per_inst__um2")
-        self._require_nonneg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
-        self._require_nonneg(self.latency_per_op__ns, "latency_per_op__ns")
-
 
 @dataclass(frozen=True)
 class TIAPolicy:
     """Abstract marker base for TIA-family nonideality policies."""
 
 
-class TIA(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["TIAConfig"], "TIA"], ABC):
+@dataclass(frozen=True)
+class TIASnapshot:
+    """Marker base for per-call snapshots of a TIA's fabricated state."""
+
+
+class TIA(CircuitBase[TIAConfig], RegistryMixin[type["TIAConfig"], "TIA"]):
     """Abstract base for transimpedance-amp clamp drivers."""
 
     def __init__(
@@ -63,10 +57,8 @@ class TIA(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["TIAConfig
         T__K: float,
     ) -> None:
         """Register the instance with :class:`nn.Module` and the profiler."""
-        del config, policy, dtype, T__K  # captured by the subclass init
-        nn.Module.__init__(self)
-        ProfileMixin.__init__(self, name)
-        self._inst_shape = inst_shape
+        del policy, dtype, T__K  # captured by the subclass init
+        super().__init__(config=config, name=name, inst_shape=inst_shape)
 
     @classmethod
     def from_config(
@@ -94,4 +86,31 @@ class TIA(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["TIAConfig
     @abstractmethod
     def v_ref__V(self) -> float:
         """Reference voltage [V]."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def snapshot(self, *, shape: tuple[int, ...], multi_coords: tuple[Tensor, ...] | None) -> TIASnapshot:
+        """Sample one per-call runtime snapshot over ``shape``.
+
+        Args:
+            shape: Per-call broadcast shape; the snapshot fills tensor
+                fields at this shape.
+            multi_coords: Advanced-index tuple selecting a chunk's
+                positions from the broadcast view; ``None`` returns the
+                full view.
+
+        Returns:
+            Per-call snapshot of the fabricated state.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def solve_clamp(
+        self,
+        i_port__uA: Tensor,
+        snapshot: TIASnapshot,
+        *,
+        v_clamp_init__V: Tensor | None,
+    ) -> tuple[Tensor, Tensor]:
+        """`ClampDriver` protocol entry: returns ``(v_clamp__V, dVclamp_dI__MOhm)``."""
         raise NotImplementedError

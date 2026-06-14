@@ -7,9 +7,9 @@
 - the per-family `config_type → impl_class` registry (via `RegistryMixin[type[ADCConfig], ADC]`)
 - the family-level `from_config(...)` classmethod
 - profiler registration
-- the abstract `convert(...)`, `latency_per_op__ns(*, adc_operation_point)`, `mode_num`, `max_bits`, `area_per_inst__um2`, `leakage_per_inst__uW` contracts every concrete ADC must implement.
+- the abstract `convert(...)`, `mode_num`, `max_bits`, `signed_range(adc_bits)` contracts every concrete ADC must implement; per-instance static PPA (`area_per_inst__um2` / `leakage_per_inst__uW`) is provided by `CircuitBase`.
 
-`ADCConfig` is the empty family-base marker used by the `RegistryMixin` dispatch surface (every concrete ADC config subclasses it). `ADCMode` is the small `(n_bits, n_states, max_signal)` dataclass used by the multi-mode subclasses' calibration LUTs. `AdcOperationPoint` is the frozen `(adc_mode, adc_bits)` runtime selection threaded into `convert` / `latency_per_op__ns`; `AdcCalibrationRecord` is one row of the `(adc_mode, adc_bits) → rescale_factor` calibration table.
+`ADCConfig` is the empty family-base marker used by the `RegistryMixin` dispatch surface (every concrete ADC config subclasses it). `ADCMode` is the small `(n_bits, n_states, max_signal)` dataclass used by the multi-mode subclasses' calibration LUTs. `AdcOperationPoint` is the frozen `(adc_mode, adc_bits)` runtime selection threaded into `convert(...)`; `AdcCalibrationRecord` is one row of the `(adc_mode, adc_bits) → rescale_factor` calibration table.
 
 `ADCPolicy` is the empty marker base policy for the family. Concrete ADC impls declare their own `*Policy(ADCPolicy)` (e.g. `GeneralADCPolicy`, `SarAdcMonoPolicy`, `McsSarAdcPolicy`) carrying that topology's switches; the composite that holds an ADC stores the abstract `ADCPolicy` field type and the caller passes the concrete impl.
 
@@ -25,7 +25,11 @@ __init__(self, *, config, policy, name, inst_shape, dtype, T__K)
 
 ## Runtime multi-mode
 
-`convert(v_pos__V, v_neg__V, *, adc_operation_point)` and `latency_per_op__ns(*, adc_operation_point)` take their operating point as a **per-call** keyword `AdcOperationPoint`. Single-mode subclasses honour the contract by validating `adc_mode == 0` and `adc_bits == max_bits`; multi-mode SAR variants accept any pair inside their configured envelope. `mode_num` exposes the number of supported operating points; `max_bits` exposes the maximum bit width.
+`convert(v_pos__V, v_neg__V, *, adc_operation_point)` takes its operating point as a **per-call** keyword `AdcOperationPoint`. Single-mode subclasses honour the contract by validating `adc_mode == 0` and `adc_bits == max_bits`; multi-mode SAR variants accept any pair inside their configured envelope. `mode_num` exposes the number of supported operating points; `max_bits` exposes the maximum bit width.
+
+## Per-op latency
+
+Per-op latency is leaf-defined and emitted inside each concrete `convert(...)` body via `_log_latency(latency_tensor)` — there is no `latency_per_op__ns` contract on `ADC` / `ADCConfig`. Fixed-latency impls (`GeneralADC`) declare `latency_per_op__ns: float` on their own `*Config` and read `self.config.latency_per_op__ns × serial_op_count`. Parametric impls (`McsSarAdc`) do not carry the field at all; they derive `(adc_operation_point.adc_bits + 1) × self.config.clk_period__ns` and feed that into `_log_latency` alongside the conversion energy emitted by `_log_dynamic_energy`.
 
 ## Signed-code output convention
 

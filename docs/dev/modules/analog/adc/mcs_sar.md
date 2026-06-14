@@ -23,7 +23,7 @@ The differential topology resolves the MSB through free comparison; no MSB cap i
 - `clk_period__ns`, `c_unit__fF` — design parameters.
 - `cap_mismatch_sigma_relative`, `comparator_offset_sigma__V`, `comparator_thermal_noise_sigma__V` — non-ideality magnitudes.
 - `e_bootstrap__fJ`, `e_constant_per_bit__fJ` — energy overhead.
-- PPA / spec fields.
+- `area_per_inst__um2`, `leakage_per_inst__uW` — static PPA fields inherited from `CircuitConfig`. **No `latency_per_op__ns` field**: per-op latency is `(adc_operation_point.adc_bits + 1) × clk_period__ns`, computed inside `convert(...)` from the runtime op point.
 
 ## Policy
 

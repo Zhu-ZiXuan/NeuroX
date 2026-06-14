@@ -30,7 +30,6 @@ def _make_xbar(
         row_num=row_num,
         area_per_inst__um2=0.0,
         leakage_per_inst__uW=0.0,
-        latency_per_op__ns=0.0,
         x_range=x_range,
         w_digit_count=w_digit_count,
         w_digit_radix=w_digit_radix,
@@ -114,18 +113,19 @@ class TestRescaleScope:
             col_num=4,
             adc_bits=8,
         )
-        # Legacy (wrong) formula would have used radix^count - 1 = 8;
-        # correct formula: max(|-1|, |2|) · (1 + 3) = 8 — same here, but
-        # for asymmetric ranges where the larger |bound| < radix-1 the two
-        # diverge. See ``test_legacy_overclips_signed`` below.
+        # ``radix^count - 1`` overclips for asymmetric signed digit ranges
+        # where the larger |bound| < radix-1; the correct bound is
+        # ``max(|d_lo|, |d_hi|) · sum(radix^k)``. See
+        # ``test_naive_formula_overclips_signed`` below.
         expected = _expected_max_dot(
             w_digit_range=(-1, 2), w_digit_radix=3, w_digit_count=2, x_range=(0, 1), row_num=8
         )
         assert xbar._max_dot_abs == expected
 
-    def test_legacy_overclips_signed(self) -> None:
-        """w_digit_range = [-1, 1] with radix=4, count=2 — legacy formula
-        would yield 4^2-1=15 but correct is 1·(1+4)=5."""
+    def test_naive_formula_overclips_signed(self) -> None:
+        """w_digit_range = [-1, 1] with radix=4, count=2: the naive
+        ``radix^count - 1 = 15`` bound overclips; correct is
+        ``1·(1+4) = 5``."""
         xbar = _make_xbar(
             w_digit_range=(-1, 1),
             w_digit_radix=4,
@@ -135,12 +135,12 @@ class TestRescaleScope:
             col_num=4,
             adc_bits=8,
         )
-        legacy_wrong = 4**2 - 1
+        naive_overclip = 4**2 - 1
         correct = 1 * (1 + 4)
         assert xbar._max_dot_abs == 8 * correct
-        # And the rescale derived from it must use the correct bound, not legacy.
+        # And the rescale derived from it must use the correct bound.
         assert xbar._rescale_by_bits[8] == 8 * correct / ((1 << 7) - 1)
-        assert xbar._rescale_by_bits[8] != 8 * legacy_wrong / ((1 << 7) - 1)
+        assert xbar._rescale_by_bits[8] != 8 * naive_overclip / ((1 << 7) - 1)
 
 
 class TestProgramOwnership:

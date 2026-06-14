@@ -40,8 +40,6 @@ class SarAdcMonoConfig(ADCConfig):
             [fJ].
         e_logic_per_bit__fJ: Per-cycle SAR-logic / register overhead
             [fJ].
-        leakage_per_inst__uW: Static leakage per ADC instance [uW].
-        area_per_inst__um2: Silicon area per ADC instance [μm²].
     """
 
     # --- Topology ---
@@ -67,10 +65,6 @@ class SarAdcMonoConfig(ADCConfig):
     e_bootstrap__fJ: float
     e_compare_per_bit__fJ: float
     e_logic_per_bit__fJ: float
-
-    # --- PPA ---
-    leakage_per_inst__uW: float
-    area_per_inst__um2: float
 
     def validate(self) -> None:
         super().validate()
@@ -107,10 +101,6 @@ class SarAdcMonoConfig(ADCConfig):
         self._require_nonneg(self.e_compare_per_bit__fJ, "e_compare_per_bit__fJ")
         self._require_nonneg(self.e_logic_per_bit__fJ, "e_logic_per_bit__fJ")
 
-    def validate_ppa(self) -> None:
-        self._require_nonneg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
-        self._require_nonneg(self.area_per_inst__um2, "area_per_inst__um2")
-
 
 @dataclass(frozen=True)
 class SarAdcMonoPolicy(ADCPolicy):
@@ -141,6 +131,7 @@ class SarAdcMono(ADC):
         T__K: Operating temperature [K].
     """
 
+    config: SarAdcMonoConfig
     nominal_cap_weights__fF: Tensor
     nominal_comparator_offset__V: Tensor
     c_p__fF: Tensor
@@ -167,7 +158,6 @@ class SarAdcMono(ADC):
         )
         if not (T__K > 0.0):
             raise ValueError(f"SarAdcMono T__K ({T__K}) must be > 0")
-        self.config = config
         self.policy = policy
         self.T__K = T__K
         self.dtype = dtype
@@ -198,8 +188,6 @@ class SarAdcMono(ADC):
             self.nominal_comparator_offset__V.clone(),
             persistent=False,
         )
-
-        self._log_static()
 
     # --- runtime-mode introspection ---
 
@@ -256,28 +244,6 @@ class SarAdcMono(ADC):
             config.comparator_offset_sigma__V,
             enabled=policy.comparator_offset,
         )
-
-    # --- ABC contract ---
-
-    @property
-    def area_per_inst__um2(self) -> float:
-        """Silicon area per instance [um^2]."""
-        return self.config.area_per_inst__um2
-
-    @property
-    def leakage_per_inst__uW(self) -> float:
-        """Static leakage per instance [uW]."""
-        return self.config.leakage_per_inst__uW
-
-    def latency_per_op__ns(self, *, adc_operation_point: AdcOperationPoint) -> float:
-        """Per-conversion latency at the runtime bit width.
-
-        Args:
-            adc_operation_point: Runtime operating point.  ``1 ≤ adc_operation_point.adc_bits ≤ max_bits``.
-        """
-        if not (1 <= adc_operation_point.adc_bits <= self.config.max_bits):
-            raise ValueError(f"bits {adc_operation_point.adc_bits} outside [1, {self.config.max_bits}]")
-        return (adc_operation_point.adc_bits + 1) * self.config.clk_period__ns
 
     # --- convert ---
 

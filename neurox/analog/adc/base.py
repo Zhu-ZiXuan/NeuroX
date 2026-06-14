@@ -6,14 +6,14 @@ See also:
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from dataclasses import dataclass
 
 import torch
-import torch.nn as nn
 from torch import Tensor
 
-from neurox.common.mixin import FabricateMixin, ProfileMixin, RegistryMixin, ValidateMixin
+from neurox.common.circuit import CircuitBase, CircuitConfig
+from neurox.common.mixin import RegistryMixin, ValidateMixin
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,14 +53,14 @@ class AdcCalibrationRecord(ValidateMixin):
 
 
 @dataclass(frozen=True)
-class ADCConfig(ValidateMixin):
+class ADCConfig(CircuitConfig):
     """Base config for ADC implementations."""
 
     def __post_init__(self) -> None:
         self.validate()
 
     def validate(self) -> None:
-        pass
+        self.validate_ppa()
 
 
 @dataclass(frozen=True)
@@ -106,8 +106,16 @@ class ADCMode(ValidateMixin):
         return self.max_signal / self.n_codes
 
 
-class ADC(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["ADCConfig"], "ADC"], ABC):
-    """Abstract base class for ADC implementations."""
+class ADC(CircuitBase[ADCConfig], RegistryMixin[type["ADCConfig"], "ADC"]):
+    """Abstract base class for ADC implementations.
+
+    Per-op latency is leaf-defined and emitted via ``_log_latency`` in
+    each concrete ``convert`` body — fixed-latency impls (e.g.
+    :class:`GeneralADC`) read ``self.config.latency_per_op__ns``;
+    parametric impls (e.g. :class:`McsSarAdc`) derive it from the
+    runtime ``adc_operation_point``. There is no family-base latency
+    contract.
+    """
 
     @classmethod
     def from_config(
@@ -151,10 +159,8 @@ class ADC(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["ADCConfig
             dtype: Tensor dtype for internal buffers.
             T__K: Operating temperature [K].
         """
-        del config, policy, dtype, T__K  # captured by the subclass init
-        nn.Module.__init__(self)
-        ProfileMixin.__init__(self, name)
-        self._inst_shape = inst_shape
+        del policy, dtype, T__K  # captured by the subclass init
+        super().__init__(config=config, name=name, inst_shape=inst_shape)
 
     @property
     @abstractmethod
@@ -211,28 +217,4 @@ class ADC(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["ADCConfig
         the actual realisable signed code range — saturation tests must
         consult this surface rather than assume the SAR endpoints.
         """
-        raise NotImplementedError
-
-    @abstractmethod
-    def latency_per_op__ns(self, *, adc_operation_point: AdcOperationPoint) -> float:
-        """Return the per-conversion latency [ns].
-
-        Args:
-            adc_operation_point: Runtime operating point.
-
-        Returns:
-            Latency in [ns].
-        """
-        raise NotImplementedError
-
-    @property
-    @abstractmethod
-    def area_per_inst__um2(self) -> float:
-        """Silicon area per instance [um^2]."""
-        raise NotImplementedError
-
-    @property
-    @abstractmethod
-    def leakage_per_inst__uW(self) -> float:
-        """Static leakage per instance [uW]."""
         raise NotImplementedError

@@ -22,7 +22,7 @@ A tool-local subclass of `ADC` that satisfies the readout's static `bl_adc: ADC`
 
 - inherits `ADC` (so `setattr(readout, "bl_adc", probe)` type-checks);
 - is **not** registered with the ADC family (no `@ADC.register_key`) — never resolvable through `ADC.from_config`;
-- copies `mode_num` / `max_bits` from the replaced ADC and reuses its bound `latency_per_op__ns` callable;
+- copies `mode_num` / `max_bits` / `signed_range(...)` from the replaced ADC; never logs dynamic events, so no per-op latency / energy state lives on the probe;
 - in `convert(...)`, appends detached CPU float64 1-D copies of `v_pos__V` / `v_neg__V` to internal buffers and returns `torch.zeros_like(v_pos__V, dtype=torch.int64)` so the downstream `readout.readout(...)` flatten chain remains valid.
 
 `ProbeHandle` stores the displaced original ADC outside the probe's module tree (in a `dataclass` field, not `nn.Module`) so `xbar.modules()` is not polluted while the probe is installed. The handle is a context manager — `with install_probe_adc(xbar): ...` restores the original on exit.

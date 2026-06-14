@@ -4,31 +4,30 @@ See also:
     docs/dev/modules/analog/analog_mux.md
 """
 
+import math
 from dataclasses import dataclass
 
 import torch
-import torch.nn as nn
 from torch import Tensor
 
-from neurox.common.mixin import FabricateMixin, ProfileMixin, ValidateMixin
+from neurox.common.circuit import CircuitBase, CircuitConfig
 from neurox.common.nonideality import apply_gaussian
 
 
 @dataclass(frozen=True, kw_only=True)
-class AnalogMuxConfig(ValidateMixin):
+class AnalogMuxConfig(CircuitConfig):
     """Immutable configuration for :class:`AnalogMux`.
 
     Attributes:
         energy_per_access__fJ: Per-access dynamic energy [fJ].
+        latency_per_op__ns: Per-transport latency [ns]; multiplied by
+            the runtime serial-op count at logging time.
         mux_gain: Scalar transport gain applied to both legs.
         mux_noise_cm_sigma__V: Common-mode noise sigma [V]; same sign
             on both legs, cancels in a differential ADC.
         mux_noise_dm_sigma__V: Differential-mode noise sigma [V];
             added to ``v_pos`` and subtracted from ``v_neg``, so it
             survives a differential ADC.
-        leakage_per_inst__uW: Static leakage per instance [uW].
-        area_per_inst__um2: Silicon area per instance [μm²].
-        latency_per_op__ns: Per-access latency [ns].
     """
 
     # --- Gain ---
@@ -40,10 +39,8 @@ class AnalogMuxConfig(ValidateMixin):
     # --- Differential-mode noise ---
     mux_noise_dm_sigma__V: float
 
-    # --- Energy / PPA ---
+    # --- Energy / latency ---
     energy_per_access__fJ: float
-    leakage_per_inst__uW: float
-    area_per_inst__um2: float
     latency_per_op__ns: float
 
     def __post_init__(self) -> None:
@@ -62,9 +59,8 @@ class AnalogMuxConfig(ValidateMixin):
         self._require_nonneg(self.mux_noise_dm_sigma__V, "mux_noise_dm_sigma__V")
 
     def validate_ppa(self) -> None:
+        super().validate_ppa()
         self._require_nonneg(self.energy_per_access__fJ, "energy_per_access__fJ")
-        self._require_nonneg(self.area_per_inst__um2, "area_per_inst__um2")
-        self._require_nonneg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
         self._require_nonneg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
@@ -81,7 +77,7 @@ class AnalogMuxPolicy:
     mux_noise_dm: bool
 
 
-class AnalogMux(FabricateMixin, nn.Module, ProfileMixin):
+class AnalogMux(CircuitBase[AnalogMuxConfig]):
     """Differential voltage-transport block — gain + CM/DM noise + access energy.
 
     Args:
@@ -103,29 +99,10 @@ class AnalogMux(FabricateMixin, nn.Module, ProfileMixin):
         dtype: torch.dtype,
         T__K: float,
     ) -> None:
-        nn.Module.__init__(self)
-        ProfileMixin.__init__(self, name)
-        self.config = config
+        super().__init__(config=config, name=name, inst_shape=inst_shape)
         self.policy = policy
-        self._inst_shape = inst_shape
         self.dtype = dtype
         self.T__K = T__K
-        self._log_static()
-
-    @property
-    def area_per_inst__um2(self) -> float:
-        """Silicon area per instance [um^2]."""
-        return self.config.area_per_inst__um2
-
-    @property
-    def leakage_per_inst__uW(self) -> float:
-        """Static leakage per instance [uW]."""
-        return self.config.leakage_per_inst__uW
-
-    @property
-    def latency_per_op__ns(self) -> float:
-        """Latency per op [ns]."""
-        return self.config.latency_per_op__ns
 
     def transport(
         self,
@@ -156,6 +133,15 @@ class AnalogMux(FabricateMixin, nn.Module, ProfileMixin):
         v_pos_muxed__V = v_pos_muxed__V + n_dm__V
         v_neg_muxed__V = v_neg_muxed__V - n_dm__V
 
+        # AnalogMux has no extra trailing dim: shape is (*serial, *inst_shape).
+        n_inst = len(self._inst_shape)
+        serial_op_count = math.prod(v_pos__V.shape[: v_pos__V.ndim - n_inst])
         dynamic_energy__fJ = torch.full_like(v_pos__V, self.config.energy_per_access__fJ)
-        self._log_dynamic(dynamic_energy__fJ, self.config.latency_per_op__ns)
+        latency__ns = torch.tensor(
+            self.config.latency_per_op__ns * serial_op_count,
+            device=v_pos__V.device,
+            dtype=dynamic_energy__fJ.dtype,
+        )
+        self._log_dynamic_energy(dynamic_energy__fJ)
+        self._log_latency(latency__ns)
         return v_pos_muxed__V, v_neg_muxed__V

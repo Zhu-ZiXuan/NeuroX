@@ -1,6 +1,6 @@
 """TIA family — abstract base plus concrete implementations."""
 
-from .base import TIA, TIAConfig, TIAPolicy
+from .base import TIA, TIAConfig, TIAPolicy, TIASnapshot
 from .opamp_tia import OpAmpTIA, OpAmpTIAConfig, OpAmpTIADCOP, OpAmpTIAPolicy, OpAmpTIASnapshot
 
 __all__ = [
@@ -12,4 +12,5 @@ __all__ = [
     "TIA",
     "TIAConfig",
     "TIAPolicy",
+    "TIASnapshot",
 ]

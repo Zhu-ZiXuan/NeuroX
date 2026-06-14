@@ -10,7 +10,6 @@ row_num = 64
 # --- PPA ---
 area_per_inst__um2 = 500.0
 leakage_per_inst__uW = 5.0
-latency_per_op__ns = 5.0
 
 # --- Weight encoding ---
 w_digit_count = 1
@@ -152,7 +151,6 @@ n_newton = 6
 # --- PPA ---
 leakage_per_inst__uW = 1.0
 area_per_inst__um2 = 10.0
-latency_per_op__ns = 2.0
 
 [xbar.core_config.tia_config.nmos_config]
 _neurox_use_preset = "process/mos:nmos_28_rvt"
@@ -167,7 +165,6 @@ drive_value = 0.0
 drive_thermal__V = 0.0
 
 # --- PPA ---
-latency_per_op__ns = 0.0
 leakage_per_inst__uW = 0.0
 area_per_inst__um2 = 0.0
 
@@ -313,3 +310,5 @@ e_constant_per_bit__fJ = 12.0
 # --- PPA ---
 leakage_per_inst__uW = 0.5
 area_per_inst__um2 = 250
+# Per-op latency is parametric: (adc_bits + 1) · clk_period__ns,
+# computed inside McsSarAdc.convert from the runtime op point.

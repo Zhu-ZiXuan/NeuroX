@@ -6,6 +6,7 @@ See also:
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import torch
@@ -56,6 +57,8 @@ class OffsetSwitchCapMuxAdcReadOutPolicy(ReadOutPolicy):
 class OffsetSwitchCapMuxAdcReadOut(ReadOut):
     """Offset-coded readout: data and ref switch-cap banks, mux, and ADC."""
 
+    config: OffsetSwitchCapMuxAdcReadOutConfig
+
     def __init__(
         self,
         *,
@@ -85,7 +88,6 @@ class OffsetSwitchCapMuxAdcReadOut(ReadOut):
         if len(digit_weights) < 1:
             raise ValueError(f"require: len(digit_weights) ({len(digit_weights)}) >= 1")
 
-        self.config = config
         self.policy = policy
         self.T__K = T__K
         self.dtype = dtype
@@ -127,17 +129,6 @@ class OffsetSwitchCapMuxAdcReadOut(ReadOut):
             dtype=dtype,
             T__K=T__K,
         )
-        self._log_static()
-
-    @property
-    def area_per_inst__um2(self) -> float:
-        """Silicon area per instance [um^2]."""
-        return self.config.area_per_inst__um2
-
-    @property
-    def leakage_per_inst__uW(self) -> float:
-        """Static leakage per instance [uW]."""
-        return self.config.leakage_per_inst__uW
 
     @property
     def adc_mode_num(self) -> int:
@@ -148,20 +139,6 @@ class OffsetSwitchCapMuxAdcReadOut(ReadOut):
     def adc_max_bits(self) -> int:
         """Maximum supported ``adc_bits`` value."""
         return self.bl_adc.max_bits
-
-    def latency_per_op__ns(self, *, adc_operation_point: AdcOperationPoint) -> float:
-        """Per-VMM pipeline latency [ns]: ``orch + data_sc + ref_sc + mux + bl_adc(adc_operation_point)``.
-
-        Args:
-            adc_operation_point: Runtime ADC operating point.
-        """
-        return (
-            self.config.latency_per_op__ns
-            + self.data_switchcap.latency_per_op__ns
-            + self.ref_switchcap.latency_per_op__ns
-            + self.analog_mux.latency_per_op__ns
-            + self.bl_adc.latency_per_op__ns(adc_operation_point=adc_operation_point)
-        )
 
     def readout(
         self,
@@ -198,7 +175,23 @@ class OffsetSwitchCapMuxAdcReadOut(ReadOut):
             adc_operation_point=adc_operation_point,
         )
 
+        # ReadOut orch overhead only — children with their own dynamic
+        # profile model (SwitchCap / AnalogMux / ADC) emitted their own
+        # events inside the chain above. Code shape =
+        # (*serial, *inst_shape, data_num). Energy and latency are
+        # independent: emit each only when its own config knob is > 0
+        # so a latency-only or energy-only orch path records correctly.
+        n_inst = len(self._inst_shape)
+        serial_op_count = math.prod(code.shape[: code.ndim - n_inst - 1])
         if self.config.energy_per_op__fJ > 0.0:
-            self._log_dynamic(self.config.energy_per_op__fJ, self.config.latency_per_op__ns)
+            dynamic_energy__fJ = torch.full_like(code, self.config.energy_per_op__fJ, dtype=torch.float32)
+            self._log_dynamic_energy(dynamic_energy__fJ)
+        if self.config.latency_per_op__ns > 0.0:
+            latency__ns = torch.tensor(
+                self.config.latency_per_op__ns * serial_op_count,
+                device=code.device,
+                dtype=torch.float32,
+            )
+            self._log_latency(latency__ns)
 
         return code

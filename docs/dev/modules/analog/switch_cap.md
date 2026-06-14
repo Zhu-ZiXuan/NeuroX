@@ -31,7 +31,7 @@ The bank's cap-count and per-cap weights are **not** in the config — they are 
 
 ## Why `cap_weights` lives in `__init__`, not the fabrication body
 
-The per-cap weights are a structural property of the bank: a SwitchCap instance committed to a given digit-encoding (binary, unit, …) does not change its weight template across re-fabricates. Placing both `cap_weights` and `inst_shape` in `__init__` matches the canonical leaf signature shared by NMOS, ADC, DAC, mux, driver, TIA, decoder — `_sample_fabricate_mismatch` becomes a pure shape-only resampling step.
+The per-cap weights are a structural property of the bank: a SwitchCap instance committed to a given digit-encoding (binary, unit, …) does not change its weight template across re-fabricates. Placing both `cap_weights` and `inst_shape` in `__init__` matches the canonical leaf signature shared by NMOS, ADC, DAC, mux, driver, TIA — `_sample_fabricate_mismatch` becomes a pure shape-only resampling step.
 
 `cap_weights` is a Python `tuple[float, ...]`; tensor construction happens once inside `SwitchCap.__init__`.
 

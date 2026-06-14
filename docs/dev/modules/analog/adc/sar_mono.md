@@ -17,7 +17,7 @@ The single-ended Set-and-Down variant has been retired in favour of the differen
 
 ## Config
 
-Same shape as `McsSarAdcConfig` (max_bits, `v_refs`, cap / comparator mismatch sigmas, energy overhead, PPA). Field names match the MCS SAR for forwards-compatibility.
+Same shape as `McsSarAdcConfig` (max_bits, `v_refs`, cap / comparator mismatch sigmas, energy overhead, static PPA). Like `McsSarAdcConfig` there is no `latency_per_op__ns` field — the future differential `convert(...)` will derive per-op latency from `(adc_operation_point.adc_bits + 1) × clk_period__ns`.
 
 ## Policy
 

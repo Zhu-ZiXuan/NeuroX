@@ -121,9 +121,7 @@ class IdealXbar(Xbar):
         self.register_buffer("digit_weights", digit_weights, persistent=False)
 
         # ``max|w_logical|`` uses the actual per-digit range so signed /
-        # offset digit encodings get the right bound (the legacy
-        # ``radix^count - 1`` form assumed canonical non-negative digits
-        # and over-clipped any asymmetric encoding).
+        # offset digit encodings get the right bound.
         d_lo, d_hi = config.w_digit_range
         max_digit_abs = max(abs(d_lo), abs(d_hi))
         max_w_logical_abs = max_digit_abs * int(digit_weights.sum().item())
@@ -144,8 +142,6 @@ class IdealXbar(Xbar):
             rescale = self._max_dot_abs / half_range
             self._rescale_by_bits[bits] = rescale
             self._scale_by_bits[bits] = 1.0 / rescale
-
-        self._log_static()
 
     @property
     def x_range(self) -> tuple[int, int]:
@@ -176,21 +172,16 @@ class IdealXbar(Xbar):
         return self
 
     def adc_rescale_factor(self, adc_operation_point: AdcOperationPoint) -> float:
-        """Recovery rescale derived from ``adc_operation_point.adc_bits``.
-
-        ``adc_operation_point.adc_mode`` is intentionally ignored — the
-        ideal tile has no analog reference scheme, so mode is meaningless
-        here. ``adc_bits`` outside ``[0, adc_max_bits]`` raises ``KeyError``.
-        """
+        """Rescale factor for ``adc_operation_point``; raises ``KeyError`` if uncalibrated."""
         return self._rescale_by_bits[adc_operation_point.adc_bits]
 
     def program(self, w: Tensor) -> None:
-        """Store the xbar-native digit tensor as the tile weight.
+        """Write the tile's owned device buffers from one xbar-native digit tensor.
 
         Args:
             w: Integer digit tensor whose shape matches
-                :attr:`_w_layout_shape` —
-                ``(*inst_shape, col_num, w_digit_count, row_num)``.
+                ``self._w_layout_shape = (*inst_shape, col_num, w_digit_count, row_num)``.
+                Entries must lie in :attr:`w_digit_range`.
         """
         if tuple(w.shape) != self._w_layout_shape:
             raise ValueError(f"program() expects w.shape {self._w_layout_shape}; got {tuple(w.shape)}")
