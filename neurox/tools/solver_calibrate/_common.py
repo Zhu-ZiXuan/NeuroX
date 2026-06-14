@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 import torch
 from torch import Tensor
@@ -45,11 +46,11 @@ from neurox.xbar import (
     Offset1T1RXbarPolicy,
 )
 from neurox.xbar._1t1r import (
+    CircuitCore1T1R,
     CircuitCore1T1RPolicy,
     Solver1T1R,
     Solver1T1RConfig,
 )
-from neurox.xbar._1t1r.offset import ExecutionPolicy
 from neurox.xbar.readout import (
     OffsetSwitchCapMuxAdcReadOutConfig,
     OffsetSwitchCapMuxAdcReadOutPolicy,
@@ -65,7 +66,8 @@ def build_xbar_for_calibration(
     inst_shape: tuple[int, ...],
     dtype: torch.dtype,
     solver_config: Solver1T1RConfig,
-    batch_chunk_size: int = 0,
+    solve_chunk_size_x: int = 0,
+    solve_chunk_size_inst: int = 0,
 ) -> Offset1T1RXbar:
     """Build a noise-off xbar with the supplied solver config.
 
@@ -82,8 +84,6 @@ def build_xbar_for_calibration(
         dtype: Tensor dtype.
         solver_config: Concrete :class:`Solver1T1RConfig` subclass selecting
             which solver implementation to dispatch via the registry.
-        batch_chunk_size: ``ExecutionPolicy.batch_chunk_size`` value;
-            ``0`` disables chunking.
 
     Returns:
         A fabricated noise-off :class:`Offset1T1RXbar`.
@@ -114,6 +114,8 @@ def build_xbar_for_calibration(
             ),
             sl_driver=DriverPolicy(drive_thermal=False),
             wl_dac=GeneralDACPolicy(drive_thermal=False),
+            solve_chunk_size_x=solve_chunk_size_x,
+            solve_chunk_size_inst=solve_chunk_size_inst,
         ),
         readout=OffsetSwitchCapMuxAdcReadOutPolicy(
             data_switchcap=SwitchCapPolicy(cap_mismatch=False, sampling_thermal_noise=False),
@@ -121,7 +123,6 @@ def build_xbar_for_calibration(
             analog_mux=AnalogMuxPolicy(mux_noise_cm=False, mux_noise_dm=False),
             bl_adc=_all_off_adc_policy(readout_config.adc_config),
         ),
-        execution=ExecutionPolicy(batch_chunk_size=batch_chunk_size),
     )
 
     xbar = Offset1T1RXbar(
@@ -160,6 +161,50 @@ _XBAR_RESIDUAL_FIELDS: tuple[str, ...] = (
     "clamp_sl__V",
 )
 """Solver1T1RResiduals fields tracked for the residual safety guard."""
+
+
+def _solver_inputs_from_core(core: CircuitCore1T1R, x: Tensor) -> dict[str, Any]:
+    """Assemble :meth:`Solver1T1R.solve_dc` kwargs from an already-fabricated core.
+
+    Tool-local W2 path: the calibrate CLIs need to drive the solver
+    under realistic chip context (RRAM g programmed via workload
+    sampling, real wire R/G, real DAC drive), but bypass
+    :meth:`CircuitCore1T1R.cim_read` so they can inspect raw
+    :class:`Solver1T1RDCOP` residuals. We rely on the chip-context
+    invariants core upholds (fabricated devices + cached wire R/G +
+    a WL DAC that knows how to convert a code tensor) without going
+    through cim_read's chunked loop or energy aggregation.
+
+    Single-block (unchunked) solve: the calibration sweep runs at
+    chip-fixture scale where one solve fits in memory.
+    """
+    # Mirror CircuitCore1T1R.cim_read's pre-loop setup: keep ``x_code``
+    # raw for the DAC convert so it operates in its natural
+    # ``(*leading, row)`` shape (no synthetic WL-fanout dim that has
+    # nothing to do with the DAC's own structure). The fanout slot is
+    # added back via unsqueeze(-2) after convert so the solver sees
+    # ``(*leading, 1, row)`` as expected.
+    x_code = x
+    x_grid = x_code.unsqueeze(-2)
+    full_shape = torch.broadcast_shapes(core.rram.g__uS.shape, x_grid.shape)
+    *batch_list, phys_col_num, row_num = full_shape
+    leading = tuple(batch_list)
+    rram_trailing = (phys_col_num, row_num)
+    tia_trailing = (phys_col_num,)
+    x_dac_input = x_code.expand(*leading, row_num)
+    v_wl_dac = core.wl_dac.convert(x_dac_input)
+    v_wl_drive = v_wl_dac.unsqueeze(-2)
+    return {
+        "v_wl_drive__V": v_wl_drive,
+        "bl_segment_r__MOhm": core.bl_segment_r__MOhm,
+        "sl_segment_r__MOhm": core.sl_segment_r__MOhm,
+        "bl_segment_g__uS": core.bl_segment_g__uS,
+        "sl_segment_g__uS": core.sl_segment_g__uS,
+        "rram_snapshot": core.rram.snapshot(shape=(*leading, *rram_trailing), multi_coords=None),
+        "nmos_snapshot": core.nmos.snapshot(shape=(*leading, *rram_trailing), multi_coords=None),
+        "bl_driver_snapshot": core.tia.snapshot(shape=(*leading, *tia_trailing), multi_coords=None),
+        "sl_driver_snapshot": core.sl_driver.snapshot(shape=(*leading, *tia_trailing), multi_coords=None),
+    }
 
 
 def aggregate_xbar_sweep(
@@ -232,19 +277,18 @@ def aggregate_xbar_sweep(
             device=device,
             generator=g,
         ):
-            x_grid = x.unsqueeze(-2)
+            solver_inputs = _solver_inputs_from_core(xbar.core, x)
             prev_fields: dict[str, Tensor] | None = None
             for ci, (_iter_count, solver) in enumerate(candidate_solvers):
-                xbar.core.solver = solver
-                dcop = xbar.core.solve_dc(x_grid, compute_residuals=True)
-                assert dcop.residuals is not None
+                solver_dcop = solver.solve_dc(**solver_inputs, compute_residuals=True)
+                assert solver_dcop.residuals is not None
                 # Per-candidate residual maxima.
                 for f in _XBAR_RESIDUAL_FIELDS:
-                    val = float(getattr(dcop.residuals, f).abs().max().item())
+                    val = float(getattr(solver_dcop.residuals, f).abs().max().item())
                     if val > residual_max[ci][f]:
                         residual_max[ci][f] = val
                 # Step delta vs the predecessor candidate at the SAME (w, x).
-                curr_fields = {f: getattr(dcop, f) for f in _XBAR_UNKNOWN_FIELDS}
+                curr_fields = {f: getattr(solver_dcop, f) for f in _XBAR_UNKNOWN_FIELDS}
                 if prev_fields is not None:
                     for f in _XBAR_UNKNOWN_FIELDS:
                         val = float((curr_fields[f] - prev_fields[f]).abs().max().item())
@@ -254,10 +298,10 @@ def aggregate_xbar_sweep(
                 # Workload scale: read off the most-converged candidate so the
                 # signal-scale denominator is at the true operating point.
                 if ci == n_candidates - 1:
-                    val_i = float(dcop.i_cell.abs().max().item())
+                    val_i = float(solver_dcop.i_cell.abs().max().item())
                     if val_i > i_cell_typ__uA:
                         i_cell_typ__uA = val_i
-                    val_v = float(dcop.v_bl_node.abs().max().item())
+                    val_v = float(solver_dcop.v_bl_node.abs().max().item())
                     if val_v > v_node_typ__V:
                         v_node_typ__V = val_v
 

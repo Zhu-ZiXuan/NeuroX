@@ -100,4 +100,4 @@ Same as `Solver1T1R.solve_dc`. Additionally exposes:
 
 - `Solver1T1RDCOP` and `Solver1T1RResiduals` are shared with `FullJacobianSolver1T1R`; switching between solvers does not change the caller's data interface.
 - `CircuitCore1T1RConfig.solver_config` carries either `NestedSolver1T1RConfig` or `FullJacobianSolver1T1RConfig`; the registry inside `Solver1T1R.from_config(...)` picks the matching class via `@Solver1T1R.register_key(...)`. The Policy tree has no solver field — solvers carry no Policy.
-- xbar batch chunking (`ExecutionPolicy.batch_chunk_size`) is bit-exact under the nested solver — verified by `tests/test_nested_solver.py::test_nested_chunking_bit_exact`.
+- Both chunk axes (`CircuitCore1T1RPolicy.solve_chunk_size_x` for A and `solve_chunk_size_inst` for B) are bit-exact under the nested solver in noise-off policies — verified by `tests/test_xbar_chunking.py::test_a_axis_bit_exact` and `::test_b_axis_bit_exact` (and the mixed-axis variants).

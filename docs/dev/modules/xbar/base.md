@@ -17,7 +17,21 @@ The generic xbar publishes exactly two shape contracts:
 - `program(w)` — weight digit tensor whose shape matches `self._w_layout_shape = (*inst_shape, col_num, w_digit_count, row_num)`. The trailing three dims are owned by the xbar (derived from config and the subclass-specific structural properties); only `inst_shape` is supplied at construction. Every entry must lie in `w_digit_range`.
 - `vec_mat_mul(x, *, adc_operation_point)` — activation tensor with primitive trailing dims `[row_num]`; returns an output tensor with primitive trailing dims `[data_num]`. Entries of `x` must lie in `x_range`; `adc_operation_point` selects the ADC operating point used for output digitisation.
 
-These are the **only** shape semantics the generic xbar exposes. Any additional leading axes wrapped around `(*data_num, digit_num, row_num)` are broadcast against the fabricated per-cell state without further interpretation by the xbar.
+These are the **only** shape semantics the generic xbar exposes. Leading dims on each method serve different roles:
+
+- `program(w)` — additional leading dims around the trailing `(col_num, w_digit_count, row_num)` broadcast into `inst_shape` positions (one fab instance per inst slot).
+- `vec_mat_mul(x)` — additional leading dims around the trailing `[row_num]` express **external batch and inst alignment only**. Per-column / per-digit / per-phys_col fanout is an **internal xbar structural detail** — the implementation opens those axes itself (via `unsqueeze(-2)` against the fabricated `g` grid). Callers must not encode column / digit / phys_col positions in `x`'s leading dims; doing so would collide with the xbar's own internal axes during broadcast and is a contract violation.
+
+### Leading-axis alignment for weight-instance tiles
+
+When an xbar has non-empty `inst_shape` (multiple fabricated tile instances on chip), the caller must arrange `x`'s leading dims so they broadcast cleanly against the inst structure. Two intended patterns:
+
+- **Caller wants one x shared across all inst** (e.g. evaluation sweeps): pass `x` with a **size-1 broadcast slot** at the inst position(s). For a single-axis `inst_shape=(K,)` and `x_batch` independent inputs, that means `x.shape = (x_batch, 1, row_num)` — the `1` lets the K inst copies broadcast into the leading slot at runtime.
+- **Caller wants one x per inst** (e.g. macro paths that have one input per fab instance): supply `x.shape = (*x_batch, *inst_shape, row_num)` directly with matching inst dims.
+
+This convention is the xbar's interface contract — not an internal detail. Tools that drive the xbar from raw `(x_batch, row_num)` tensors (e.g. ADC calibration, statistic) typically `x.unsqueeze(-2)` to obtain the broadcast slot; macros (Direct / IntraArraySlice / InterArraySlice) construct `x` with the right leading layout via their `_organize_x` helper.
+
+**Warning — silent semantic flip when shapes happen to match.** If the caller omits the size-1 inst slot AND `x_batch` happens to equal an inst dim's size `K`, PyTorch's broadcast does **not** raise: it interprets that position as a *matched* axis ("one x per inst", one-to-one) instead of the intended Cartesian "x_batch × inst" broadcast. The two semantics produce different output shapes and physically different VMM workloads, but no error is reported and the silent flip is easy to miss. Always insert an explicit `1` slot at the inst position when you want Cartesian broadcast, regardless of whether `x_batch == K` happens to coincide.
 
 ## Topology-agnostic row / column
 

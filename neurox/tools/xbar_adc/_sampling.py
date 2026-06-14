@@ -17,19 +17,19 @@ from torch import Tensor
 
 from neurox.analog import AnalogMuxPolicy, DriverPolicy, SwitchCapPolicy
 from neurox.analog.adc import (
+    ADCConfig,
     ADCPolicy,
     GeneralADCConfig,
     GeneralADCPolicy,
     McsSarAdcConfig,
     McsSarAdcPolicy,
 )
-from neurox.analog.dac import DACPolicy, GeneralDACConfig, GeneralDACPolicy
-from neurox.analog.tia import OpAmpTIAConfig, OpAmpTIAPolicy, TIAPolicy
+from neurox.analog.dac import DACConfig, DACPolicy, GeneralDACConfig, GeneralDACPolicy
+from neurox.analog.tia import OpAmpTIAConfig, OpAmpTIAPolicy, TIAConfig, TIAPolicy
 from neurox.common import T_ROOM__K, dataclass_from_file, dict_from_file
 from neurox.device import NMOSPolicy, RRAMPolicy
 from neurox.xbar import Offset1T1RXbar, Offset1T1RXbarConfig, Offset1T1RXbarPolicy
 from neurox.xbar._1t1r import CircuitCore1T1RPolicy
-from neurox.xbar._1t1r.offset import ExecutionPolicy
 from neurox.xbar.readout import OffsetSwitchCapMuxAdcReadOutConfig, OffsetSwitchCapMuxAdcReadOutPolicy
 
 
@@ -205,7 +205,8 @@ def sample_w(
                 generator=generator,
             )
         else:
-            probs = distribution.w_probs.to(device)  # type: ignore[union-attr]
+            assert distribution.w_probs is not None  # paired with w_values via _load_axis
+            probs = distribution.w_probs.to(device)
             values = distribution.w_values.to(device)
             idx = torch.multinomial(probs, num_samples=n_per, replacement=True, generator=generator)
             yield values[idx].view(shape_per).to(torch.int64)
@@ -244,7 +245,8 @@ def sample_x_batches(
                 generator=generator,
             )
         else:
-            probs = distribution.x_probs.to(device)  # type: ignore[union-attr]
+            assert distribution.x_probs is not None  # paired with x_values via _load_axis
+            probs = distribution.x_probs.to(device)
             values = distribution.x_values.to(device)
             idx = torch.multinomial(
                 probs,
@@ -263,7 +265,8 @@ def build_offset_1t1r_xbar_all_off_from_config(
     device: torch.device,
     dtype: torch.dtype = torch.float64,
     inst_shape: tuple[int, ...] = (),
-    batch_chunk_size: int = 0,
+    solve_chunk_size_x: int = 0,
+    solve_chunk_size_inst: int = 0,
 ) -> Offset1T1RXbar:
     """Build a fully nonideality-free :class:`Offset1T1RXbar` from a dataclass.
 
@@ -293,6 +296,8 @@ def build_offset_1t1r_xbar_all_off_from_config(
             tia=tia_policy,
             sl_driver=DriverPolicy(drive_thermal=False),
             wl_dac=wl_dac_policy,
+            solve_chunk_size_x=solve_chunk_size_x,
+            solve_chunk_size_inst=solve_chunk_size_inst,
         ),
         readout=OffsetSwitchCapMuxAdcReadOutPolicy(
             data_switchcap=SwitchCapPolicy(cap_mismatch=False, sampling_thermal_noise=False),
@@ -300,7 +305,6 @@ def build_offset_1t1r_xbar_all_off_from_config(
             analog_mux=AnalogMuxPolicy(mux_noise_cm=False, mux_noise_dm=False),
             bl_adc=bl_adc_policy,
         ),
-        execution=ExecutionPolicy(batch_chunk_size=batch_chunk_size),
     )
 
     xbar = Offset1T1RXbar(
@@ -323,7 +327,8 @@ def build_offset_1t1r_xbar_all_off(
     device: torch.device,
     dtype: torch.dtype = torch.float64,
     inst_shape: tuple[int, ...] = (),
-    batch_chunk_size: int = 0,
+    solve_chunk_size_x: int = 0,
+    solve_chunk_size_inst: int = 0,
 ) -> Offset1T1RXbar:
     """Build a fully nonideality-free :class:`Offset1T1RXbar` from a TOML.
 
@@ -336,6 +341,8 @@ def build_offset_1t1r_xbar_all_off(
             (``_neurox_type = "Offset1T1RXbarConfig"``).
         device: Target torch device for buffer placement.
         dtype: Internal float dtype.
+        solve_chunk_size_x: ``CircuitCore1T1RPolicy.solve_chunk_size_x``; ``0`` disables.
+        solve_chunk_size_inst: ``CircuitCore1T1RPolicy.solve_chunk_size_inst``; ``0`` disables.
     """
     xbar_config = dataclass_from_file(Offset1T1RXbarConfig, config_path, section="xbar")
     return build_offset_1t1r_xbar_all_off_from_config(
@@ -343,11 +350,12 @@ def build_offset_1t1r_xbar_all_off(
         device=device,
         dtype=dtype,
         inst_shape=inst_shape,
-        batch_chunk_size=batch_chunk_size,
+        solve_chunk_size_x=solve_chunk_size_x,
+        solve_chunk_size_inst=solve_chunk_size_inst,
     )
 
 
-def _all_off_adc_policy(adc_config: object) -> ADCPolicy:
+def _all_off_adc_policy(adc_config: ADCConfig) -> ADCPolicy:
     """Build the matching ADCPolicy for ``adc_config`` with every flag ``False``.
 
     ``SarAdcMonoConfig`` is intentionally rejected: :class:`SarAdcMono.convert`
@@ -369,7 +377,7 @@ def _all_off_adc_policy(adc_config: object) -> ADCPolicy:
     )
 
 
-def _all_off_tia_policy(tia_config: object) -> TIAPolicy:
+def _all_off_tia_policy(tia_config: TIAConfig) -> TIAPolicy:
     """Build the matching TIAPolicy for ``tia_config`` with every flag ``False``."""
     if isinstance(tia_config, OpAmpTIAConfig):
         return OpAmpTIAPolicy(
@@ -381,7 +389,7 @@ def _all_off_tia_policy(tia_config: object) -> TIAPolicy:
     )
 
 
-def _all_off_dac_policy(dac_config: object) -> DACPolicy:
+def _all_off_dac_policy(dac_config: DACConfig) -> DACPolicy:
     """Build the matching DACPolicy for ``dac_config`` with every flag ``False``."""
     if isinstance(dac_config, GeneralDACConfig):
         return GeneralDACPolicy(drive_thermal=False)

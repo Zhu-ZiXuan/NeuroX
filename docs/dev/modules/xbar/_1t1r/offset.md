@@ -11,15 +11,14 @@ It owns:
 
 `Offset1T1RXbarPolicy(XbarPolicy)` is a structured composite policy with one sub-policy per child:
 
-- `core: CircuitCore1T1RPolicy`
+- `core: CircuitCore1T1RPolicy` — also carries the chunk knobs (`solve_chunk_size_x` / `solve_chunk_size_inst`). They live on the core's policy because that is where the chunked solve actually runs; values depend on the host environment (GPU memory budget, target throughput, concurrent jobs) rather than the physical chip preset, so the same TOML can be reused across hosts with chunk sizes picked per-host.
 - `readout: ReadOutPolicy` — abstract base; the concrete impl (e.g. `OffsetSwitchCapMuxAdcReadOutPolicy`) is passed by the caller.
-- `execution: ExecutionPolicy` — runtime knobs that are not physical chip parameters. Currently exposes a single field `batch_chunk_size: int`. Values `<= 0` disable chunking; positive values bound peak per-VMM memory by chunking the leading batch axis of `x` and looping the inner Newton + readout block.
 
-The xbar forwards each sub-policy verbatim into the matching child.
+`vec_mat_mul(x, *, adc_operation_point)` is a thin pass-through (decorated with `@torch.compiler.disable` to keep upstream macro-level `@torch.compile` from tracing into the inner numeric block, which would otherwise hit `mcs_sar.py` graph breaks). It calls `core.cim_read(x)` to obtain `v_out_phys` and runs the readout chain on that. All chunk bookkeeping — the nested A-outer / B-inner loop, snapshot slicing, per-chunk solver / TIA / energy, and final scatter-reassembly — lives in `CircuitCore1T1R.cim_read`, which reads the chunk knobs directly off its own `policy`. See `docs/dev/architecture/chunking.md`.
 
-`vec_mat_mul(x, *, adc_operation_point)` is the chunk scheduler (decorated with `@torch.compiler.disable` to keep upstream macro-level `@torch.compile` from tracing into the inner numeric block, which would otherwise hit `mcs_sar.py` graph breaks). The actual per-block solve is `_vec_mat_mul_block`: it runs one `core.solve_dc` plus the readout chain, returning only the per-chunk ADC code tensor. All row-shape intermediates (Newton-solver internal state, switch-cap voltages, `Core1T1RDCOP` fields) stay local and are eligible for garbage-collection between chunks. Chunking is bit-exact under deterministic policies — see `tests/test_xbar_chunking.py`.
+`CircuitCore1T1RPolicy.solve_chunk_size_x` chunks the **A subset** of the broadcast leading (x-side positions `*x_batch`, `M`, `Sa`); `solve_chunk_size_inst` chunks the **B subset** (inst positions `Sw`, `Tr`, matched `Tc`). Both are `0` by default (no chunking → single-block path). Either non-zero forces the core into the chunked path. Bit-exactness against the single-block path holds **only under deterministic (noise-off) policies**; see `docs/dev/architecture/chunking.md` for the RNG-stream caveat, and `tests/test_xbar_chunking.py` for the deterministic regression suite.
 
-Inner `@torch.compile` on `_vec_mat_mul_block` was attempted but produced > 10 min compile times dominated by inductor scheduling of the SAR ADC's bit-loop. Reintroducing block-level compile requires rewriting the SAR ADC to a graph-friendly form first.
+Inner `@torch.compile` on the readout block was attempted but produced > 10 min compile times dominated by inductor scheduling of the SAR ADC's bit-loop. Reintroducing block-level compile requires rewriting the SAR ADC to a graph-friendly form first.
 
 Current construction rule:
 

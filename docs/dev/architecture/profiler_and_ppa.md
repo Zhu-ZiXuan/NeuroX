@@ -107,13 +107,17 @@ The result: at `_finalize` (auto-invoked by `__exit__` on clean exit) the profil
 
 `latency = per_op_latency × op_count`. The `op_count` is the **serial** invocation count for this forward call — the dim-tally of the input tensor minus the dims that are physically parallel (the inst dims plus any per-circuit trailing dims like `n_caps` on a switch-cap bank or `digit_num` on a readout).
 
-Each leaf computes its own `serial_op_count` because shape protocols differ:
+Every emitting leaf uses the position-invariant numel rule
+``serial = max(1, output.numel() // parallel_count)`` where
+``parallel_count`` reflects the leaf's parallel-hardware multiplicity
+in its output tensor — `inst_count` for most leaves; with extra
+factors when the output has additional parallel trailing:
 
-- `SwitchCap.sample_and_accumulate(v_in)`: `v_in.shape = (*serial, *inst_shape, n_caps)` → `serial = math.prod(v_in.shape[:-len(inst_shape)-1])`
-- `ADC.convert(v_pos, v_neg)`: code shape = `(*serial, *inst_shape)` (inst already captures group-parallel structure) → `serial = math.prod(code.shape[:-len(inst_shape)])`
-- `ReadOut.readout(...)`: `(*serial, *inst_shape, data_num)` → drop inst + 1
-- `CircuitCore1T1R.solve_dc(...)`: `dcop_energy` already leading-only → all of `dcop_energy.shape` is serial
-- `Adder` / `Subtractor` / `Accumulator` / `ShiftAdder`: element-wise / reduce — `serial = max(1, prod(y.shape) // inst_count)`
+- `Adder` / `Subtractor` / `Accumulator` / `ShiftAdder`: `parallel = inst_count`
+- `DAC.convert` / `ADC.convert` / `AnalogMux.transport`: `parallel = inst_count`
+- `SwitchCap.sample_and_accumulate`: output is the post-reduce `v_out` (`n_caps` already gone), so `parallel = inst_count`
+- `ReadOut.readout`: output carries an extra parallel `data_num` trailing → `parallel = inst_count * data_num`
+- `CircuitCore1T1R.cim_read`: parallel multiplicity is broadcast-determined per call (the B-side `b_positions` from `classify_leading_positions`). Equivalent formulation: `serial = prod(leading[p] for p in a_positions)` — only x-side A positions are serial; B-side instances are parallel physical xbars and do **not** enter the per-op latency count.
 
 ## Composite-module PPA aggregation
 

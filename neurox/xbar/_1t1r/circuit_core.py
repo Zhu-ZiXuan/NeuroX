@@ -4,10 +4,10 @@ See also:
     docs/dev/modules/xbar/_1t1r/circuit_core.md
 """
 
+import math
 from dataclasses import dataclass
 
 import torch
-import torch.nn as nn
 from torch import Tensor
 
 from neurox.analog import (
@@ -17,7 +17,7 @@ from neurox.analog import (
 )
 from neurox.analog.dac import DAC, DACConfig, DACPolicy
 from neurox.analog.tia import TIA, TIAConfig, TIAPolicy
-from neurox.common.mixin import FabricateMixin, ProfileMixin, ValidateMixin
+from neurox.common.circuit import CircuitBase, CircuitConfig
 from neurox.device import (
     NMOS,
     RRAM,
@@ -27,7 +27,8 @@ from neurox.device import (
     RRAMPolicy,
 )
 
-from .solver import Solver1T1R, Solver1T1RConfig, Solver1T1RResiduals
+from ._chunking import classify_leading_positions, iter_chunks, reassemble_chunks
+from .solver import Solver1T1R, Solver1T1RConfig, Solver1T1RDCOP
 
 # ---------------------------------------------------------------------------
 # Config
@@ -35,7 +36,7 @@ from .solver import Solver1T1R, Solver1T1RConfig, Solver1T1RResiduals
 
 
 @dataclass(frozen=True, kw_only=True)
-class CircuitCore1T1RConfig(ValidateMixin):
+class CircuitCore1T1RConfig(CircuitConfig):
     """Shape-independent physical knobs for a 1T1R core.
 
     Attributes:
@@ -79,10 +80,13 @@ class CircuitCore1T1RConfig(ValidateMixin):
             implementation the core instantiates via
             ``Solver1T1R.from_config(...)``.
         area_per_inst__um2: Core (cell array + wire infra) silicon area
-            per fabricated tile instance [um²]. Does **not** include the
-            owned children (TIA / drivers / DAC / RRAM / NMOS), which
-            roll up separately via the composite-aggregation rule in
-            ``docs/dev/architecture/profiler_and_ppa.md``.
+            per fabricated tile instance [um²]. **Excludes** the owned
+            ``CircuitBase`` children (TIA / drivers / DAC), which roll
+            up separately via the composite-aggregation rule in
+            ``docs/dev/architecture/profiler_and_ppa.md``. Device-side
+            contributions (RRAM / NMOS) are not separately rolled up —
+            their physical area must be folded into this field by the
+            caller (devices do not inherit ``CircuitBase``).
         leakage_per_inst__uW: Core static leakage per fabricated tile
             instance [uW]. Same scope as ``area_per_inst__um2``.
         latency_per_op__ns: Core-side per-VMM latency [ns] that the
@@ -128,8 +132,6 @@ class CircuitCore1T1RConfig(ValidateMixin):
     wl_dac_config: DACConfig
     solver_config: Solver1T1RConfig
 
-    area_per_inst__um2: float
-    leakage_per_inst__uW: float
     latency_per_op__ns: float
 
     def __post_init__(self) -> None:
@@ -145,13 +147,12 @@ class CircuitCore1T1RConfig(ValidateMixin):
         self.validate_state_map()
         self.validate_ppa()
 
+    def validate_ppa(self) -> None:
+        super().validate_ppa()
+        self._require_nonneg(self.latency_per_op__ns, "latency_per_op__ns")
+
     def validate_wl_pulse(self) -> None:
         self._require_nonneg(self.wl_pulse_length__ns, "wl_pulse_length__ns")
-
-    def validate_ppa(self) -> None:
-        self._require_nonneg(self.area_per_inst__um2, "area_per_inst__um2")
-        self._require_nonneg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
-        self._require_nonneg(self.latency_per_op__ns, "latency_per_op__ns")
 
     def validate_layout_pitch(self) -> None:
         for field in (
@@ -224,6 +225,18 @@ class CircuitCore1T1RPolicy:
         tia: BL clamp-driver (TIA) nonideality policy.
         sl_driver: SL driver nonideality policy.
         wl_dac: WL DAC nonideality policy.
+        solve_chunk_size_x: Chunk size along the **A subset** of the
+            ``solve_dc`` broadcast leading (x-side positions
+            ``*x_batch`` / ``M`` / ``Sa``). ``0`` disables chunking on
+            this axis. Runtime knob (depends on GPU memory budget /
+            throughput target), not a chip-preset constant.
+        solve_chunk_size_inst: Chunk size along the **B subset** —
+            the instance positions (``Sw`` / ``Tr`` / matched ``Tc``).
+            ``0`` disables chunking on this axis.
+
+    Both chunk knobs are zero by default behaviour: when both are ``0``
+    ``cim_read`` runs the single-block path; either non-zero forces the
+    memory-bounded nested chunked path.
 
     Solvers have **no Policy** — all their knobs are fixed numerical
     constants and live on :class:`CircuitCore1T1RConfig.solver_config`.
@@ -234,50 +247,8 @@ class CircuitCore1T1RPolicy:
     tia: TIAPolicy
     sl_driver: DriverPolicy
     wl_dac: DACPolicy
-
-
-# ---------------------------------------------------------------------------
-# DC operating-point container
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class Core1T1RDCOP:
-    """Per-VMM DC operating point of a fabricated 1T1R core.
-
-    Attributes:
-        i_bl_driver: BL driver current [uA]. Shape: [..., phys_col_num].
-        i_sl_driver: SL driver current [uA]. Shape: [..., phys_col_num].
-        v_bl_node: BL node voltages [V]. Shape: [..., phys_col_num, row_num].
-        v_sl_node: SL node voltages [V]. Shape: [..., phys_col_num, row_num].
-        v_x_node: Access-NMOS drain voltages [V]. Shape: [..., phys_col_num, row_num].
-        i_cell: Cell currents [uA]. Shape: [..., phys_col_num, row_num].
-        v_bl_clamp: BL clamp voltages [V]. Shape: [..., phys_col_num].
-        v_sl_drive: SL drive voltages [V]. Shape: [..., phys_col_num].
-        v_wl_drive: WL drive voltages [V] as produced by the WL DAC.
-            Shape: [..., row_num].
-        v_out_phys: BL clamp output voltage at the converged port
-            current [V]. Shape: [..., phys_col_num].
-        residuals: Per-equation Newton residuals captured at the
-            converged operating point, populated only when
-            ``solve_dc(..., compute_residuals=True)`` is requested
-            (e.g. by ``solver_calibrate``). ``None`` on the production
-            path so the heavy residual tensors are not materialised
-            during inference.
-    """
-
-    i_bl_driver: Tensor
-    i_sl_driver: Tensor
-    v_bl_node: Tensor
-    v_sl_node: Tensor
-    v_x_node: Tensor
-    i_cell: Tensor
-    v_bl_clamp: Tensor
-    v_sl_drive: Tensor
-    v_wl_drive: Tensor
-    v_out_phys: Tensor
-
-    residuals: Solver1T1RResiduals | None
+    solve_chunk_size_x: int
+    solve_chunk_size_inst: int
 
 
 # ---------------------------------------------------------------------------
@@ -285,21 +256,10 @@ class Core1T1RDCOP:
 # ---------------------------------------------------------------------------
 
 
-class CircuitCore1T1R(FabricateMixin, ProfileMixin, nn.Module):
+class CircuitCore1T1R(CircuitBase[CircuitCore1T1RConfig]):
     """Shape-independent 1T1R core: devices, boundary circuits, and solver."""
 
-    @property
-    def area_per_inst__um2(self) -> float:
-        return self.config.area_per_inst__um2
-
-    @property
-    def leakage_per_inst__uW(self) -> float:
-        return self.config.leakage_per_inst__uW
-
-    @property
-    def latency_per_op__ns(self) -> float:
-        return self.config.latency_per_op__ns
-
+    config: CircuitCore1T1RConfig
     state_to_g_map__uS: Tensor
     bl_segment_r__MOhm: Tensor
     sl_segment_r__MOhm: Tensor
@@ -330,9 +290,6 @@ class CircuitCore1T1R(FabricateMixin, ProfileMixin, nn.Module):
             dtype: Tensor dtype for internal buffers.
             T__K: Operating temperature [K].
         """
-        nn.Module.__init__(self)
-        ProfileMixin.__init__(self, name)
-
         if len(w_layout_shape) < 2:
             raise ValueError(
                 f"w_layout_shape must have at least 2 trailing dims (phys_col_num, row_num); got {w_layout_shape}"
@@ -343,12 +300,11 @@ class CircuitCore1T1R(FabricateMixin, ProfileMixin, nn.Module):
         if not (row_num > 1):
             raise ValueError(f"require: row_num ({row_num}) > 1")
 
-        self.config = config
+        super().__init__(config=config, name=name, inst_shape=tuple(prefix))
         self.policy = policy
         self.dtype = dtype
         self.T__K = T__K
         self._w_layout_shape = tuple(w_layout_shape)
-        self._inst_shape = tuple(prefix)
 
         sub_prefix = name + "."
         self.rram = RRAM(
@@ -444,8 +400,6 @@ class CircuitCore1T1R(FabricateMixin, ProfileMixin, nn.Module):
         self.fabricated_col_num = phys_col_num
         self.fabricated_row_num = row_num
 
-        self._log_static()
-
     # -----------------------------------------------------------------
     # Programming
     # -----------------------------------------------------------------
@@ -466,112 +420,185 @@ class CircuitCore1T1R(FabricateMixin, ProfileMixin, nn.Module):
         self.rram.program(target_g__uS, t_elapsed=0.0)
 
     # -----------------------------------------------------------------
-    # DC solve
+    # CIM read (plain forward)
     # -----------------------------------------------------------------
 
-    def solve_dc(self, x: Tensor, *, compute_residuals: bool = False) -> Core1T1RDCOP:
-        """Run one DC solve on the fabricated 1T1R core.
+    def cim_read(self, x: Tensor) -> Tensor:
+        """Drive the 1T1R array with a WL input and return the BL clamp voltage.
+
+        Plain forward: drive WL via the DAC, settle the array+TIA to DC
+        in chunked Newton sub-solves, accumulate per-VMM dynamic energy,
+        emit one energy + one latency profile event, and return the BL
+        clamp voltage that the downstream readout will sample. The
+        chunked sub-solves are an internal memory-bounding detail —
+        from the caller's view this is a single forward call.
 
         Args:
             x: WL DAC input-code tensor. Shape: [..., row_num].
-            compute_residuals: Forward to the array solver. When True
-                the returned :class:`Core1T1RDCOP.residuals` carries the
-                per-element KCL residuals; when False (default, hot path)
-                ``residuals`` is ``None`` and the extra KCL passes are
-                elided from the traced graph.
 
         Returns:
-            Core DC operating point for the current VMM.
+            BL clamp voltage at the converged operating point [V].
+            Shape: ``[..., phys_col_num]``.
         """
 
-        # --- Insert the WL fanout dim and infer the broadcast execution shape ---
+        # --- Infer the broadcast leading ---
 
-        # ``Tensor.expand`` cannot insert a dim mid-rank; the WL fanout dim
-        # must be unsqueezed in before broadcasting against the RRAM grid.
-        # Shape: [..., row_num] -> [..., 1, row_num]
-        x = x.unsqueeze(-2)
-        full_shape = torch.broadcast_shapes(self.rram.g__uS.shape, x.shape)
-        *batch, _phys_col_num, row_num = full_shape
+        # ``x_code`` stays raw — its trailing is ``[row]``, matching the
+        # WL DAC's natural shape contract (no synthetic fanout dim that
+        # has nothing to do with the DAC's own structure). ``x_grid``
+        # adds a size-1 WL-fanout dim at -2 so ``x``'s ``row`` aligns
+        # with ``g``'s ``row`` and the ``phys_col`` slot opens for the
+        # solver-side broadcast against the RRAM grid. The split keeps
+        # each consumer working in the shape space that makes physical
+        # sense for it (DAC: (*leading, row); solver: (*leading, 1, row)).
+        x_code = x
+        x_grid = x_code.unsqueeze(-2)
+        full_shape = torch.broadcast_shapes(self.rram.g__uS.shape, x_grid.shape)
+        *batch_list, phys_col_num, row_num = full_shape
+        leading = tuple(batch_list)
+        rram_trailing = (phys_col_num, row_num)
+        tia_trailing = (phys_col_num,)
+        col_trailing = (phys_col_num,)
 
-        # --- Sample runtime non-idealities ---
+        cx = self.policy.solve_chunk_size_x
+        ci = self.policy.solve_chunk_size_inst
 
-        rram_snapshot = self.rram.snapshot(shape=full_shape)
-        nmos_snapshot = self.nmos.snapshot(shape=full_shape)
-        bl_driver_snapshot = self.tia.snapshot(shape=(*batch, self.fabricated_col_num))
-        sl_driver_snapshot = self.sl_driver.snapshot(shape=(*batch, self.fabricated_col_num))
+        # --- Classify leading positions and convert DAC once ---
 
-        # --- Convert WL DAC codes into the per-cell gate-drive voltage ---
-
-        v_wl_drive__V = self.wl_dac.convert(x)
-
-        # --- Solve the array DC operating point ---
-
-        solver_dcop = self.solver.solve_dc(
-            v_wl_drive__V=v_wl_drive__V,
-            bl_segment_r__MOhm=self.bl_segment_r__MOhm,
-            sl_segment_r__MOhm=self.sl_segment_r__MOhm,
-            bl_segment_g__uS=self.bl_segment_g__uS,
-            sl_segment_g__uS=self.sl_segment_g__uS,
-            rram_snapshot=rram_snapshot,
-            nmos_snapshot=nmos_snapshot,
-            bl_driver_snapshot=bl_driver_snapshot,
-            sl_driver_snapshot=sl_driver_snapshot,
-            compute_residuals=compute_residuals,
+        a_positions, b_positions = classify_leading_positions(
+            x_shape=tuple(x_grid.shape),
+            g_shape=tuple(self.rram.g__uS.shape),
+            leading_rank=len(leading),
         )
 
-        # --- Recover the BL output clamp voltage ---
+        # DAC convert runs on the broadcast-to-full-leading view of
+        # ``x_code`` — no WL fanout slot. The expand is zero-copy but
+        # converting against the realised full leading is required so
+        # that (a) per-instance per-op dynamic energy is counted once
+        # per instance (not once per x_batch), and (b)
+        # ``drive_thermal__V`` samples an independent noise tensor per
+        # instance instead of having one x-batch noise pattern aliased
+        # across every inst position. The fanout slot is added back
+        # AFTER convert so the solver sees ``(*leading, 1, row)``.
+        # Each VMM still logs exactly one DAC energy+latency event pair.
+        x_dac_input = x_code.expand(*leading, row_num)
+        v_wl_dac = self.wl_dac.convert(x_dac_input)
+        v_wl_full = v_wl_dac.unsqueeze(-2)
 
-        clamp_dcop = self.tia.solve_dc(
-            solver_dcop.i_bl_driver,
-            bl_driver_snapshot,
-            v_clamp_init__V=solver_dcop.v_bl_clamp,
+        # --- Per-chunk loop: sample → solve → TIA clamp → energy ---
+        # Only the small per-chunk tensors needed for reassembly +
+        # per-chunk energy are retained. The heavy ``solver_dcop_chunk``
+        # (carrying ``v_bl_node`` / ``v_sl_node`` / ``v_x_node`` /
+        # ``i_cell`` sized ``(chunk_size, phys_col, row)``) lives only
+        # within one loop iteration and is released by Python's GC
+        # before the next chunk starts — preserving chunking's peak-
+        # memory contract.
+
+        v_out_phys_chunks: list[Tensor] = []
+        chunk_energies: list[Tensor] = []
+        global_indices: list[Tensor] = []
+
+        for spec in iter_chunks(
+            leading=leading,
+            a_positions=a_positions,
+            b_positions=b_positions,
+            chunk_size_x=cx,
+            chunk_size_inst=ci,
+            device=x.device,
+        ):
+            mc = spec.multi_coords
+            rram_snap = self.rram.snapshot(shape=(*leading, *rram_trailing), multi_coords=mc)
+            nmos_snap = self.nmos.snapshot(shape=(*leading, *rram_trailing), multi_coords=mc)
+            bl_snap = self.tia.snapshot(shape=(*leading, *tia_trailing), multi_coords=mc)
+            sl_snap = self.sl_driver.snapshot(shape=(*leading, *tia_trailing), multi_coords=mc)
+            v_wl_chunk = v_wl_full[mc] if mc else v_wl_full  # (chunk_size, 1, row)
+
+            solver_dcop_chunk = self.solver.solve_dc(
+                v_wl_drive__V=v_wl_chunk,
+                bl_segment_r__MOhm=self.bl_segment_r__MOhm,
+                sl_segment_r__MOhm=self.sl_segment_r__MOhm,
+                bl_segment_g__uS=self.bl_segment_g__uS,
+                sl_segment_g__uS=self.sl_segment_g__uS,
+                rram_snapshot=rram_snap,
+                nmos_snapshot=nmos_snap,
+                bl_driver_snapshot=bl_snap,
+                sl_driver_snapshot=sl_snap,
+                compute_residuals=False,
+            )
+            clamp_dcop_chunk = self.tia.solve_dc(
+                solver_dcop_chunk.i_bl_driver,
+                bl_snap,
+                v_clamp_init__V=solver_dcop_chunk.v_bl_clamp,
+            )
+            chunk_energies.append(
+                self._compute_array_energy__fJ(
+                    solver_dcop=solver_dcop_chunk,
+                    v_wl_drive=v_wl_chunk.squeeze(-2),
+                )
+            )
+            v_out_phys_chunks.append(clamp_dcop_chunk.v_out__V)
+            global_indices.append(spec.flat_global_idx)
+            # solver_dcop_chunk / clamp_dcop_chunk go out of scope at
+            # iteration end → heavy per-cell tensors freed before the
+            # next chunk allocates its own.
+
+        # --- Reassemble outputs ---
+
+        v_out_phys = reassemble_chunks(v_out_phys_chunks, global_indices, leading, col_trailing)
+        array_energy__fJ = reassemble_chunks(chunk_energies, global_indices, leading, ())
+
+        # --- Emit one energy + one latency event for this VMM ---
+
+        # Serial is the x-side broadcast (a_positions); the inst-side
+        # (b_positions) is parallel physical hardware and must not enter
+        # the per-op-latency serial count — same convention as every
+        # other emitting leaf, where parallel multiplicity divides out
+        # of ``numel(output)``. Here a/b is broadcast-determined so we
+        # use ``classify_leading_positions``'s explicit split rather
+        # than dividing by a static ``inst_count``.
+        serial_op_count = math.prod(leading[p] for p in a_positions) if a_positions else 1
+        latency__ns = torch.tensor(
+            self.config.latency_per_op__ns * serial_op_count,
+            device=array_energy__fJ.device,
+            dtype=array_energy__fJ.dtype,
         )
-        v_out_phys = clamp_dcop.v_out__V
-
-        # --- Assemble the core DCOP ---
-
-        core_dcop = Core1T1RDCOP(
-            i_bl_driver=solver_dcop.i_bl_driver,
-            i_sl_driver=solver_dcop.i_sl_driver,
-            v_bl_node=solver_dcop.v_bl_node,
-            v_sl_node=solver_dcop.v_sl_node,
-            v_x_node=solver_dcop.v_x_node,
-            i_cell=solver_dcop.i_cell,
-            v_bl_clamp=solver_dcop.v_bl_clamp,
-            v_sl_drive=solver_dcop.v_sl_drive,
-            v_wl_drive=v_wl_drive__V.squeeze(-2),
-            v_out_phys=v_out_phys,
-            residuals=solver_dcop.residuals,
-        )
-
-        # --- Accumulate core-side dynamic energy ---
-
-        array_energy__fJ = self._compute_array_energy__fJ(core_dcop)
-        self._log_dynamic(array_energy__fJ, self.config.latency_per_op__ns)
-
-        return core_dcop
+        self._log_dynamic_energy(array_energy__fJ)
+        self._log_latency(latency__ns)
+        return v_out_phys
 
     # -----------------------------------------------------------------
     # Dynamic-energy aggregation
     # -----------------------------------------------------------------
 
-    def _compute_array_energy__fJ(self, dcop: Core1T1RDCOP) -> Tensor:
-        """Per-VMM array-internal energy [fJ]. Shape: [...batch...]."""
+    def _compute_array_energy__fJ(
+        self,
+        *,
+        solver_dcop: Solver1T1RDCOP,
+        v_wl_drive: Tensor,
+    ) -> Tensor:
+        """Per-VMM array-internal energy [fJ]. Shape: [...batch...].
 
-        v_wl__V = dcop.v_wl_drive
-        v_bl__V = dcop.v_bl_node
-        v_sl__V = dcop.v_sl_node
-        v_x__V = dcop.v_x_node
-        v_bl_clamp__V = dcop.v_bl_clamp
-        v_sl_drive__V = dcop.v_sl_drive
+        Args:
+            solver_dcop: Inner array solver's converged DCOP, carrying
+                the per-cell node voltages and per-column port currents.
+            v_wl_drive: WL drive voltages [V] from the WL DAC,
+                shape ``[..., row_num]``.
+        """
+
+        v_wl__V = v_wl_drive
+        v_bl__V = solver_dcop.v_bl_node
+        v_sl__V = solver_dcop.v_sl_node
+        v_x__V = solver_dcop.v_x_node
+        v_bl_clamp__V = solver_dcop.v_bl_clamp
+        v_sl_drive__V = solver_dcop.v_sl_drive
         pulse__ns = self.config.wl_pulse_length__ns
 
         # --- DC conduction ---
 
         # Shape: [..., phys_col_num] -> [...]
-        array_power__uW = (v_bl_clamp__V * dcop.i_bl_driver).sum(dim=-1) + (v_sl_drive__V * dcop.i_sl_driver).sum(
-            dim=-1
-        )
+        array_power__uW = (v_bl_clamp__V * solver_dcop.i_bl_driver).sum(dim=-1) + (
+            v_sl_drive__V * solver_dcop.i_sl_driver
+        ).sum(dim=-1)
         e_dc_cond__fJ = array_power__uW * pulse__ns
 
         # --- Capacitive cycling ---

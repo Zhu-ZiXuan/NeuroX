@@ -76,7 +76,7 @@ A true element-wise analytical-vs-FD Jacobian comparison would require exposing 
 
 ## Memory budget
 
-Per VMM the dense block-3×3 Jacobian carries `[..., col, row, 3, 3]` entries — for the mid1 chip's `row = 64, col = 68, batch ≤ 2048` that's `~1.9 GB` at fp64 (`~0.95 GB` at fp32). Chunking via `Offset1T1RXbarPolicy.execution.batch_chunk_size` is the standard handle for shrinking peak memory if other GPU users push us over budget.
+Per VMM the dense block-3×3 Jacobian carries `[..., col, row, 3, 3]` entries — for the mid1 chip's `row = 64, col = 68, batch ≤ 2048` that's `~1.9 GB` at fp64 (`~0.95 GB` at fp32). Chunking via `CircuitCore1T1RPolicy.solve_chunk_size_x` / `solve_chunk_size_inst` is the standard handle for shrinking peak memory if other GPU users push us over budget — see `docs/dev/architecture/chunking.md`.
 
 ## Relationship to the nested solver
 

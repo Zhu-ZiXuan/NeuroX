@@ -59,16 +59,16 @@ Both quantities walk identical paths inside the profiler: `.detach().sum()` on e
 
 `EnergyEvent.dynamic_energy__fJ` and `LatencyEvent.latency__ns` are `float` for external consumers; the tensors only exist inside the recording buffer.
 
-## Per-VMM aggregation (iterative-solve convention)
+## Per-VMM aggregation (composite-forward modules)
 
-Iterative-solve modules — currently `CircuitCore1T1R`, and any future Newton-based standalone module (e.g. a profiled TIA) — must emit exactly **one** energy event + **one** latency event per logical VMM, regardless of internal iteration / chunking. The pattern is:
+Composite forward modules whose body contains an internal iteration / chunked loop (currently `CircuitCore1T1R.cim_read` is the only one) must emit exactly **one** energy event + **one** latency event per logical VMM, regardless of how many sub-solver calls or chunks are inside. The pattern is:
 
-1. Aggregate per-chunk / per-iter energy inside the solve loop (`_compute_array_energy__fJ` on a chunk-shape DCOP).
+1. Aggregate per-chunk / per-iter energy inside the loop (`_compute_array_energy__fJ` per chunk).
 2. After the loop, reassemble per-chunk energies to the full leading shape.
-3. Build the latency tensor from `self.config.latency_per_op__ns × serial_op_count` (serial_op_count = total elements of the reduced-energy tensor).
-4. Route both through `_log_profile(energy)` — a thin wrapper that documents the contract and internally calls the two log entries exactly once. Calling `_log_dynamic_energy` / `_log_latency` mid-iteration is forbidden because it would multiply the event count and break per-op aggregation.
+3. Build the latency tensor from `self.config.latency_per_op__ns × serial_op_count` where `serial_op_count = prod(leading[p] for p in a_positions)` — only the x-side A positions count as serial; B-side (inst) positions are parallel physical hardware and are excluded. Same convention as every other emitting leaf (which divides `output.numel()` by `inst_count`).
+4. Call `_log_dynamic_energy(energy)` and `_log_latency(latency)` exactly once at the end of the forward body — same inline pattern as every other plain forward leaf. Sub-solvers and devices inside the loop do **not** emit profile events of their own (they are not `CircuitBase`), so there is no double-counting risk.
 
-Non-iterative modules (DAC, ADC, accumulator, mux, switch-cap, …) call the two log entries inline at the end of forward — they have no iteration, so there's no contract to enforce.
+Non-composite leaves (DAC, ADC, accumulator, mux, switch-cap, …) call the two log entries inline at the end of forward — single call, no loop.
 
 `tests/test_xbar_chunking.py::test_profiler_single_event_under_chunking` verifies the contract end-to-end (one energy event + one latency event per VMM, regardless of chunking).
 

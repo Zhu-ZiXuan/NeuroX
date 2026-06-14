@@ -117,37 +117,18 @@ class Offset1T1RXbarConfig(XbarConfig):
 
 
 @dataclass(frozen=True)
-class ExecutionPolicy:
-    """Runtime execution knobs (not physical chip parameters).
-
-    Attributes:
-        batch_chunk_size: Per-block leading-batch size for the xbar's
-            VMM scheduler. Values ``<= 0`` disable chunking (one full
-            broadcast solve as before); positive values run the inner
-            block ``ceil(batch / batch_chunk_size)`` times, bounding the
-            peak working memory of the Newton solver at the cost of a
-            Python scheduler loop. ``batch`` refers to ``x.shape[0]``
-            after the standard ``unsqueeze(-2)`` inst-broadcast pattern;
-            all trailing dims (inst-broadcast hint + row_num) are kept
-            intact per chunk.
-    """
-
-    batch_chunk_size: int
-
-
-@dataclass(frozen=True)
 class Offset1T1RXbarPolicy(XbarPolicy):
     """Composite policy for :class:`Offset1T1RXbar`.
 
     Attributes:
-        core: 1T1R circuit-core nonideality policy.
+        core: 1T1R circuit-core nonideality policy. Chunk knobs
+            (``solve_chunk_size_x`` / ``solve_chunk_size_inst``) live
+            on this — see :class:`CircuitCore1T1RPolicy`.
         readout: Readout-chain nonideality policy.
-        execution: Runtime knobs (chunk size etc.).
     """
 
     core: CircuitCore1T1RPolicy
     readout: ReadOutPolicy
-    execution: ExecutionPolicy
 
 
 @Xbar.register_key(Offset1T1RXbarConfig)
@@ -179,7 +160,7 @@ class Offset1T1RXbar(Xbar):
 
         prefix = self._inst_shape
 
-        # Positional weights: ``[r^0, r^1, ..., r^(D-1)]``.
+        # Positional weights: ``[r⁰, r¹, ..., r^(D−1)]``.
         self.digit_weights = tuple(float(config.w_digit_radix**k) for k in range(config.w_digit_count))
 
         n_groups = config.col_num // config.ref_group_size
@@ -221,8 +202,6 @@ class Offset1T1RXbar(Xbar):
             for e in config.adc_calibration
         }
 
-        self._log_static()
-
     # -----------------------------------------------------------------
     # Value-domain semantics
     # -----------------------------------------------------------------
@@ -263,14 +242,7 @@ class Offset1T1RXbar(Xbar):
         return self.readout.adc_max_bits
 
     def adc_rescale_factor(self, adc_operation_point: AdcOperationPoint) -> float:
-        """Recovery rescale ``M_ideal ≈ code · rescale_factor`` looked up in the chip-calibrated table.
-
-        Raises:
-            KeyError: When ``adc_operation_point`` is absent from
-                ``config.adc_calibration``. The error message lists the
-                available operating points so the caller can spot
-                misconfigured calibration tables at a glance.
-        """
+        """Rescale factor for ``adc_operation_point``; raises ``KeyError`` if uncalibrated."""
         try:
             return self._rescale_lut[adc_operation_point]
         except KeyError:
@@ -284,12 +256,12 @@ class Offset1T1RXbar(Xbar):
     # -----------------------------------------------------------------
 
     def program(self, w: Tensor) -> None:
-        """Lay out an xbar-native digit tensor onto the physical array.
+        """Write the tile's owned device buffers from one xbar-native digit tensor.
 
         Args:
-            w: Xbar-native digit tensor in :attr:`w_digit_range`, shape
-                matching ``self._w_layout_shape =
-                (*inst_shape, col_num, w_digit_count, row_num)``.
+            w: Integer digit tensor whose shape matches
+                ``self._w_layout_shape = (*inst_shape, col_num, w_digit_count, row_num)``.
+                Entries must lie in :attr:`w_digit_range`.
         """
         if tuple(w.shape) != self._w_layout_shape:
             raise ValueError(f"program() expects w.shape {self._w_layout_shape}; got {tuple(w.shape)}")
@@ -303,6 +275,13 @@ class Offset1T1RXbar(Xbar):
     def vec_mat_mul(self, x: Tensor, *, adc_operation_point: AdcOperationPoint) -> Tensor:
         """Run one VMM through the core → readout chain.
 
+        Chunking is owned by the core: it reads
+        ``solve_chunk_size_x`` / ``solve_chunk_size_inst`` off
+        ``policy.core`` and decides whether to walk the broadcast
+        leading in nested chunks or run a single full-broadcast
+        solve. The core emits exactly one energy event and one latency
+        event per VMM regardless of the chunking choice.
+
         Args:
             x: Activation tensor with primitive trailing ``[row_num]``.
             adc_operation_point: Runtime ADC operating point.
@@ -310,33 +289,10 @@ class Offset1T1RXbar(Xbar):
         Returns:
             ADC-code tensor with primitive trailing ``[col_num]``.
         """
-        chunk_size = self.policy.execution.batch_chunk_size
-        # Chunking requires (a) caller asked for it and (b) x has a leading
-        # batch dim that is strictly larger than the chunk size. Otherwise
-        # the single-call path is both equivalent and faster.
-        if chunk_size <= 0 or x.dim() < 2 or x.shape[0] <= chunk_size:
-            return self._vec_mat_mul_block(x, adc_operation_point=adc_operation_point)
-        n = x.shape[0]
-        code_chunks: list[Tensor] = []
-        for start in range(0, n, chunk_size):
-            end = min(start + chunk_size, n)
-            code_chunks.append(self._vec_mat_mul_block(x[start:end], adc_operation_point=adc_operation_point))
-        return torch.cat(code_chunks, dim=0)
+        v_out_phys = self.core.cim_read(x)
 
-    def _vec_mat_mul_block(self, x: Tensor, *, adc_operation_point: AdcOperationPoint) -> Tensor:
-        """One full core → readout VMM block.
-
-        Args:
-            x: Per-chunk activation tensor with primitive trailing ``[row_num]``.
-            adc_operation_point: Runtime ADC operating point.
-
-        Returns:
-            Per-chunk ADC-code tensor with primitive trailing ``[col_num]``.
-        """
-        core_dcop = self.core.solve_dc(x)
-
-        v_data_phys = core_dcop.v_out_phys.index_select(-1, self.logic_phys_idx)
-        v_ref_phys = core_dcop.v_out_phys.index_select(-1, self.ref_phys_idx)
+        v_data_phys = v_out_phys.index_select(-1, self.logic_phys_idx)
+        v_ref_phys = v_out_phys.index_select(-1, self.ref_phys_idx)
         group_num = self.n_ref_cols
         data_num = self.config.ref_group_size
         digit_num = self.config.w_digit_count
