@@ -8,6 +8,7 @@ scalars, and convergence rationale.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 import torch
 import torch.nn.functional as F
@@ -102,17 +103,18 @@ class FullJacobianSolver1T1R(Solver1T1R):
         sl_segment_g__uS: Tensor,
         rram_snapshot: RRAMSnapshot,
         nmos_snapshot: NMOSSnapshot,
-        bl_driver_snapshot: object,
-        sl_driver_snapshot: object,
+        bl_driver_snapshot: Any,
+        sl_driver_snapshot: Any,
         compute_residuals: bool = False,
     ) -> Solver1T1RDCOP:
         del bl_segment_r__MOhm, sl_segment_r__MOhm  # full Jacobian does not need R form
 
         # --- Wire Jacobian templates ---
+
         # Shape: [num_row]
         bl_wire_diag_tmpl = bl_segment_g__uS + F.pad(bl_segment_g__uS[1:], (0, 1))
         sl_wire_diag_tmpl = sl_segment_g__uS + F.pad(sl_segment_g__uS[1:], (0, 1))
-        # Shape: [num_row - 1]
+        # Shape: [num_row-1]
         bl_wire_offdiag = -bl_segment_g__uS[1:]
         sl_wire_offdiag = -sl_segment_g__uS[1:]
         # Shape: []
@@ -120,17 +122,18 @@ class FullJacobianSolver1T1R(Solver1T1R):
         sl_driver_segment_g = sl_segment_g__uS[0]
 
         # --- Shapes ---
+
         rram_state_g_snapshot = rram_snapshot.g__uS
         *batch, num_col, num_row = rram_state_g_snapshot.shape
         if not (num_col > 1):
             raise ValueError(f"require: num_col ({num_col}) > 1")
         if not (num_row > 1):
             raise ValueError(f"require: num_row ({num_row}) > 1")
-        rram_state_g_static = self.rram.g__uS.expand_as(rram_state_g_snapshot)
         # Shape: [..., 1, num_row] -> [..., num_col, num_row]
         v_wl_drive_grid__V = v_wl_drive__V.expand(*batch, num_col, num_row)
 
         # --- Initialization ---
+
         # Clamps at ideal references.
         device = rram_state_g_snapshot.device
         dtype = rram_state_g_snapshot.dtype
@@ -152,10 +155,13 @@ class FullJacobianSolver1T1R(Solver1T1R):
         # V_X seeded via the same Padé current-divider as nested's warm start.
         dc_nmos_seed = self.nmos.solve_dc(v_wl_drive_grid__V, v_bl_node, v_sl_node, nmos_snapshot)
         v_cell_bl_to_sl = v_bl_node - v_sl_node
-        v_rram_drop_init = dc_nmos_seed.did_dvd__uS * v_cell_bl_to_sl / (dc_nmos_seed.did_dvd__uS + rram_state_g_static)
+        v_rram_drop_init = (
+            dc_nmos_seed.did_dvd__uS * v_cell_bl_to_sl / (dc_nmos_seed.did_dvd__uS + rram_state_g_snapshot)
+        )
         v_x_node = v_bl_node - v_rram_drop_init
 
         # --- Newton loop ---
+
         max_step__V = self.MAX_STEP__V
         # Broadcast helpers for stamping wire diag templates onto per-row blocks.
         shape_broadcast_row = [1] * v_bl_node.ndim

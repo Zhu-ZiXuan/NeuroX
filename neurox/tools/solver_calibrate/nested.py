@@ -131,9 +131,9 @@ def plot_stage(
     out_path: Path,
     reltol: float,
 ) -> None:
-    import matplotlib
+    import matplotlib as mpl
 
-    matplotlib.use("Agg")
+    mpl.use("Agg")
     import matplotlib.pyplot as plt
 
     xs_all = [r.iter_count for r in rows]
@@ -245,6 +245,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     # --- Stage A: sweep n_outer at n_inner = inner_ref ---
+
     log.info("Stage A: sweep n_outer with n_inner pinned at %d", cfg.sweep.inner_ref)
     log.info("-" * 80)
     outer_candidates = _build_candidates(
@@ -294,6 +295,7 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     # --- Stage B: sweep n_inner at n_outer = pick_outer ---
+
     log.info("=" * 80)
     log.info("Stage B: sweep n_inner with n_outer pinned at %d", pick_outer)
     log.info("-" * 80)

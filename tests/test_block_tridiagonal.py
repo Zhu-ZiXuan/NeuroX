@@ -19,9 +19,7 @@ import torch
 from neurox.xbar.solver import solve_block_tridiagonal, solve_tridiagonal
 
 
-def _dense_from_blocks(
-    sub: torch.Tensor, diag: torch.Tensor, sup: torch.Tensor
-) -> torch.Tensor:
+def _dense_from_blocks(sub: torch.Tensor, diag: torch.Tensor, sup: torch.Tensor) -> torch.Tensor:
     """Materialize the dense ``N*B × N*B`` matrix from block tridiagonal data.
 
     ``sub[0]`` and ``sup[-1]`` are unused placeholders by convention.
@@ -100,9 +98,10 @@ def test_batched_block_solve():
     n, b = 8, 3
     batch_shape = (4, 7)
     g = torch.Generator().manual_seed(1234)
-    diag = torch.eye(b, dtype=torch.float64) * 3 + torch.randn(
-        *batch_shape, n, b, b, dtype=torch.float64, generator=g
-    ) * 0.1
+    diag = (
+        torch.eye(b, dtype=torch.float64) * 3
+        + torch.randn(*batch_shape, n, b, b, dtype=torch.float64, generator=g) * 0.1
+    )
     sub = torch.randn(*batch_shape, n, b, b, dtype=torch.float64, generator=g) * 0.3
     sup = torch.randn(*batch_shape, n, b, b, dtype=torch.float64, generator=g) * 0.3
     rhs = torch.randn(*batch_shape, n, b, dtype=torch.float64, generator=g)
@@ -122,9 +121,7 @@ def test_zero_off_diagonals_reduce_to_block_diag():
     """Sub/sup all zero → solution is per-block independent solve."""
     n, b = 5, 2
     g = torch.Generator().manual_seed(7)
-    diag = torch.eye(b, dtype=torch.float64) * 2 + torch.randn(
-        n, b, b, dtype=torch.float64, generator=g
-    ) * 0.05
+    diag = torch.eye(b, dtype=torch.float64) * 2 + torch.randn(n, b, b, dtype=torch.float64, generator=g) * 0.05
     sub = torch.zeros(n, b, b, dtype=torch.float64)
     sup = torch.zeros(n, b, b, dtype=torch.float64)
     rhs = torch.randn(n, b, dtype=torch.float64, generator=g)
@@ -153,7 +150,7 @@ def test_m_matrix_block_2x2_mirrors_nested_wire_jacobian():
     diag[..., 0, 1] = b_cross
     diag[..., 1, 0] = -a
     diag[..., 1, 1] = 2 * wire_g - b_cross
-    # Off-diagonal blocks: diagonal 2x2 with -wire_g on BL-BL and SL-SL only.
+    # Off-diagonal blocks: diagonal 2×2 with -wire_g on BL-BL and SL-SL only.
     off = torch.zeros(n, b, b, dtype=torch.float64)
     off[..., 0, 0] = -wire_g
     off[..., 1, 1] = -wire_g
@@ -167,4 +164,4 @@ def test_m_matrix_block_2x2_mirrors_nested_wire_jacobian():
     x_dense = torch.linalg.solve(a_dense, rhs.reshape(-1)).reshape(n, b)
 
     rel_err = (x_dense - x_block).abs().max() / (x_dense.abs().max() + 1e-12)
-    assert rel_err < 1e-10, f"M-matrix-like 2x2 block: rel err {rel_err.item():.2e}"
+    assert rel_err < 1e-10, f"M-matrix-like 2×2 block: rel err {rel_err.item():.2e}"

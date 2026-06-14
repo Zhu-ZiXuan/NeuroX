@@ -28,8 +28,8 @@ from neurox.xbar.solver import col_wire_kcl_residual
 def build_residual_fn(
     *,
     v_wl_drive_grid__V: Tensor,  # shape [num_row]
-    bl_segment_g__uS: Tensor,    # shape [num_row]
-    sl_segment_g__uS: Tensor,    # shape [num_row]
+    bl_segment_g__uS: Tensor,  # shape [num_row]
+    sl_segment_g__uS: Tensor,  # shape [num_row]
     rram_snapshot,
     nmos_snapshot,
     bl_driver,
@@ -80,10 +80,14 @@ def build_residual_fn(
         i_bl_port = (v_bl_cl - v_bl[0]) * bl_driver_segment_g
         i_sl_port = (v_sl_dr - v_sl[0]) * sl_driver_segment_g
         v_bl_target, _ = bl_driver.solve_clamp(
-            i_bl_port.reshape(1), bl_driver_snapshot, v_clamp_init__V=v_bl_cl.reshape(1),
+            i_bl_port.reshape(1),
+            bl_driver_snapshot,
+            v_clamp_init__V=v_bl_cl.reshape(1),
         )
         v_sl_target, _ = sl_driver.solve_clamp(
-            i_sl_port.reshape(1), sl_driver_snapshot, v_clamp_init__V=v_sl_dr.reshape(1),
+            i_sl_port.reshape(1),
+            sl_driver_snapshot,
+            v_clamp_init__V=v_sl_dr.reshape(1),
         )
         f_cl_bl = v_bl_cl - v_bl_target.squeeze(0)
         f_cl_sl = v_sl_dr - v_sl_target.squeeze(0)

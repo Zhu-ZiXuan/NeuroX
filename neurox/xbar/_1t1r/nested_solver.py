@@ -5,6 +5,7 @@ See also:
 """
 
 from dataclasses import dataclass
+from typing import Any
 
 import torch
 import torch.nn.functional as F
@@ -108,8 +109,8 @@ class NestedSolver1T1R(Solver1T1R):
         sl_segment_g__uS: Tensor,
         rram_snapshot: RRAMSnapshot,
         nmos_snapshot: NMOSSnapshot,
-        bl_driver_snapshot: object,
-        sl_driver_snapshot: object,
+        bl_driver_snapshot: Any,
+        sl_driver_snapshot: Any,
         compute_residuals: bool = False,
     ) -> Solver1T1RDCOP:
         """Solve the fabricated 1T1R tile for one WL-drive tensor.
@@ -133,12 +134,13 @@ class NestedSolver1T1R(Solver1T1R):
         Returns:
             Complete steady-state solution for the current VMM.
         """
+
         # --- Per-solve wire Jacobian templates ---
 
         # Shape: [num_row]
         bl_wire_diag_tmpl = bl_segment_g__uS + F.pad(bl_segment_g__uS[1:], (0, 1))
         sl_wire_diag_tmpl = sl_segment_g__uS + F.pad(sl_segment_g__uS[1:], (0, 1))
-        # Shape: [num_row - 1]
+        # Shape: [num_row-1]
         bl_wire_offdiag = -bl_segment_g__uS[1:]
         sl_wire_offdiag = -sl_segment_g__uS[1:]
         # Shape: []
@@ -153,7 +155,6 @@ class NestedSolver1T1R(Solver1T1R):
         if not (num_row > 1):
             raise ValueError(f"require: num_row ({num_row}) > 1")
         # Shape: [..., num_col, num_row]
-        rram_state_g_static = self.rram.g__uS.expand_as(rram_state_g_snapshot)
         # Shape: [..., 1, num_row] -> [..., num_col, num_row]
         v_wl_drive_grid__V = v_wl_drive__V.expand(*batch, num_col, num_row)
 
@@ -169,7 +170,7 @@ class NestedSolver1T1R(Solver1T1R):
             v_bl_node_seed,
             v_sl_node_seed,
             v_wl_drive_grid__V,
-            rram_state_g_static,
+            rram_state_g_snapshot,
             rram_snapshot,
             nmos_snapshot,
         )
@@ -202,6 +203,7 @@ class NestedSolver1T1R(Solver1T1R):
         )
 
         # --- Pre-loop cell refresh ---
+
         # First outer step's V_clamp Jacobian needs g_cell_eff and the
         # per-rail cell currents at the POST-IR-drop seed; the Padé warm
         # start above returned them at the PRE-IR-drop state.
@@ -215,6 +217,7 @@ class NestedSolver1T1R(Solver1T1R):
         )
 
         # --- Outer V_clamp Newton  ×  n_outer ---
+
         # Clamp-FIRST ordering per outer step:
         #   (a) implicit-Jacobian Newton step on V_clamp using current
         #       g_cell_eff for K_inner
@@ -341,6 +344,7 @@ class NestedSolver1T1R(Solver1T1R):
                 v_sl_node = v_sl_node + dv_sl_node
 
         # --- Exit-state cell refresh ---
+
         # The last inner step updated V_BL / V_SL but the cell-side
         # currents and V_X still carry the pre-update wire state. One
         # cell solve re-aligns them so the returned DCOP is self-consistent.
@@ -457,7 +461,6 @@ class NestedSolver1T1R(Solver1T1R):
 
         rram_state_g_snapshot = rram_snapshot.g__uS
         *batch, num_col, num_row = rram_state_g_snapshot.shape
-        rram_state_g_static = self.rram.g__uS.expand_as(rram_state_g_snapshot)
         v_wl_drive_grid__V = v_wl_drive__V.expand(*batch, num_col, num_row)
 
         # Padé warm start with the supplied clamp as the seed.
@@ -469,7 +472,7 @@ class NestedSolver1T1R(Solver1T1R):
             v_bl_node_seed,
             v_sl_node_seed,
             v_wl_drive_grid__V,
-            rram_state_g_static,
+            rram_state_g_snapshot,
             rram_snapshot,
             nmos_snapshot,
         )
@@ -794,6 +797,7 @@ class NestedSolver1T1R(Solver1T1R):
         shape_broadcast[-1] = num_row
 
         # --- Build the block-2×2 inner Jacobian (same as the wire Newton) ---
+
         bl_diag_node = bl_wire_diag_tmpl.view(shape_broadcast) + g_cell_bl_eff
         sl_diag_node = sl_wire_diag_tmpl.view(shape_broadcast) + g_cell_sl_eff
         cross_to_bl_from_sl = -g_cell_sl_eff  # ∂F_BL/∂V_SL
@@ -832,6 +836,7 @@ class NestedSolver1T1R(Solver1T1R):
         )
 
         # --- Boundary-forcing basis vectors ---
+
         # RHS for ``V_BL_CL`` perturbation: e_0 with BL component = g_BL_seg[0],
         # SL component = 0. RHS shape ``[..., num_col, num_row, 2]``.
         zeros_node = torch.zeros_like(v_bl_node)
@@ -848,6 +853,7 @@ class NestedSolver1T1R(Solver1T1R):
         rhs_sl_basis = torch.stack([zeros_node, g_sl_at_row0_per_row], dim=-1)
 
         # --- Solve and extract row-0 responses ---
+
         # Shape of each solve result: [..., num_col, num_row, 2]
         u_bl = solve_block_tridiagonal(sub_blocks, diag_blocks, sup_blocks, rhs_bl_basis)
         u_sl = solve_block_tridiagonal(sub_blocks, diag_blocks, sup_blocks, rhs_sl_basis)

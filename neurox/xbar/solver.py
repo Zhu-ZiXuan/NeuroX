@@ -107,6 +107,194 @@ def solve_block_tridiagonal(
     return torch.stack(x_list, dim=-2)
 
 
+def solve_block_tridiagonal_dense(
+    sub: Tensor,
+    diag: Tensor,
+    sup: Tensor,
+    rhs: Tensor,
+) -> Tensor:
+    """Solve batched block-tridiagonal systems by densifying to a ``[NB, NB]`` solve.
+
+    Same input/output contract as :func:`solve_block_tridiagonal`. Trades
+    asymptotic work (``O((NB)³)`` flops vs ``O(N · B³)``) for **graph
+    flatness**: the entire path is a fixed-shape sequence of three
+    ``einsum`` placements + one ``torch.linalg.solve`` — no Python loop
+    over ``N``, no list mutation, no per-step intermediate. dynamo sees
+    O(1) nodes regardless of N.
+
+    On GPU, dense ``NB × NB`` solves at ``NB ≤ 256`` (i.e. N ≤ 128 for
+    B=2) are dominated by kernel launch + memory bandwidth, not flops,
+    so this beats Thomas in eager runtime as well. Memory scales as
+    ``O(N² · B²)`` per (batch, inst); at N≈1024 this becomes the
+    limiting factor — use ``solve_block_tridiagonal`` (Thomas) for very
+    large N where memory matters more than depth.
+
+    Args:
+        sub: Sub-diagonal blocks. Shape ``[..., N, B, B]``. ``sub[0]`` is
+            taken as ignored (zeroed during assembly).
+        diag: Main diagonal blocks. Same shape.
+        sup: Super-diagonal blocks. Same shape. ``sup[-1]`` is taken as
+            ignored.
+        rhs: Right-hand-side vectors. Shape ``[..., N, B]``.
+
+    Returns:
+        Solution tensor with the same shape as ``rhs``.
+    """
+    n = diag.shape[-3]
+    b = diag.shape[-1]
+
+    if n == 1:
+        return torch.linalg.solve(diag[..., 0, :, :], rhs[..., 0, :].unsqueeze(-1)).squeeze(-1)
+
+    nb = n * b
+    device = diag.device
+    dtype = diag.dtype
+
+    # Zero out the un-used boundary blocks so they don't pollute the
+    # assembled dense matrix.
+    sub_clean = torch.cat([torch.zeros_like(sub[..., :1, :, :]), sub[..., 1:, :, :]], dim=-3)
+    sup_clean = torch.cat([sup[..., :-1, :, :], torch.zeros_like(sup[..., -1:, :, :])], dim=-3)
+
+    # Shift matrices for block placement.
+    #   eye_n places block k on the main diagonal at (k·B, k·B).
+    #   sub_shift puts a 1 at (k, k-1) for k>=1 → block k lands at (k·B, (k-1)·B).
+    #   sup_shift puts a 1 at (k, k+1) for k<=n-2 → block k lands at (k·B, (k+1)·B).
+    eye_n = torch.eye(n, device=device, dtype=dtype)
+    ones_n1 = torch.ones(n - 1, device=device, dtype=dtype)
+    sub_shift = torch.diag_embed(ones_n1, offset=-1)
+    sup_shift = torch.diag_embed(ones_n1, offset=+1)
+
+    # Place blocks via einsum: '...kij,km->...kimj'. The output shape
+    # [..., k=n, i=B, m=n, j=B] is then flattened to [..., n·B, n·B] so
+    # that index (k, i) → row k·B+i and (m, j) → col m·B+j.
+    diag_part = torch.einsum("...kij,km->...kimj", diag, eye_n).flatten(-4, -3).flatten(-2, -1)
+    sub_part = torch.einsum("...kij,km->...kimj", sub_clean, sub_shift).flatten(-4, -3).flatten(-2, -1)
+    sup_part = torch.einsum("...kij,km->...kimj", sup_clean, sup_shift).flatten(-4, -3).flatten(-2, -1)
+
+    dense_matrix = diag_part + sub_part + sup_part
+
+    rhs_flat = rhs.reshape(*rhs.shape[:-2], nb).unsqueeze(-1)
+    x_flat = torch.linalg.solve(dense_matrix, rhs_flat).squeeze(-1)
+    return x_flat.view(*rhs.shape)
+
+
+def _pcr_validity_mask(n: int, stride: int, dim: int, ndim: int, device: torch.device) -> Tensor:
+    """1 where the shifted position has a valid in-range neighbour, 0 at boundary.
+
+    Returns a broadcastable bool tensor with 1s on ``dim`` of size N and
+    1s everywhere else, ready to multiply / where against tensors of full
+    shape.
+    """
+    indices = torch.arange(n, device=device)
+    valid = indices >= stride if stride > 0 else indices < n + stride
+    shape = [1] * ndim
+    shape[dim] = n
+    return valid.view(shape)
+
+
+def _pcr_shift_zero(t: Tensor, stride: int, dim: int) -> Tensor:
+    """Shift ``t`` along ``dim`` so position k gets the value at position ``k - stride``.
+
+    Implemented as one ``torch.roll`` + a broadcast multiplicative mask
+    that zeros wraparound positions — both are graph-friendlier than
+    ``narrow + zeros + cat`` for the unrolled PCR loop.
+    """
+    if abs(stride) >= t.shape[dim]:
+        return torch.zeros_like(t)
+    shifted = torch.roll(t, shifts=stride, dims=dim)
+    mask = _pcr_validity_mask(t.shape[dim], stride, dim, t.ndim, t.device)
+    return shifted * mask
+
+
+def _pcr_shift_identity(t: Tensor, stride: int, dim: int) -> Tensor:
+    """Same as :func:`_pcr_shift_zero` but the boundary fill is the B×B identity.
+
+    Used for the diagonal tensor: out-of-range neighbours produce
+    ``-sub · I = -sub`` which is then multiplied by the zero-padded
+    ``sub_l`` / ``rhs_l`` giving zero contribution at the boundary.
+    """
+    b = t.shape[-1]
+    eye = torch.eye(b, dtype=t.dtype, device=t.device).expand_as(t)
+    if abs(stride) >= t.shape[dim]:
+        return eye
+    shifted = torch.roll(t, shifts=stride, dims=dim)
+    mask = _pcr_validity_mask(t.shape[dim], stride, dim, t.ndim, t.device)
+    return torch.where(mask, shifted, eye)
+
+
+def solve_block_tridiagonal_pcr(
+    sub: Tensor,
+    diag: Tensor,
+    sup: Tensor,
+    rhs: Tensor,
+) -> Tensor:
+    """Solve batched block-tridiagonal systems via Parallel Cyclic Reduction.
+
+    Same input/output contract as :func:`solve_block_tridiagonal` (block
+    Thomas), but the unrolled dynamo graph has depth ``ceil(log2 N)``
+    instead of ``N``. Each PCR step is a fixed-shape batched B×B matrix
+    kernel — no Python list mutation, no ``torch.compile`` graph break.
+
+    Algorithm sketch (block size B, system size N):
+
+    1. At stride ``s = 1, 2, 4, ..., < N``, compute for every k::
+
+           α_k = -sub_k · diag_{k-s}⁻¹      (zero where k - s < 0)
+           β_k = -sup_k · diag_{k+s}⁻¹      (zero where k + s ≥ N)
+           sub_k  ← α_k · sub_{k-s}
+           sup_k  ← β_k · sup_{k+s}
+           diag_k ← diag_k + α_k · sup_{k-s} + β_k · sub_{k+s}
+           rhs_k  ← rhs_k + α_k · rhs_{k-s} + β_k · rhs_{k+s}
+
+       Out-of-range ``diag_{...}`` is padded with the identity, all other
+       out-of-range tensors with zero. Each step halves the sub/sup
+       neighbour distance, so after ``ceil(log2 N)`` steps the off-diagonals
+       are zero.
+
+    2. The decoupled diagonal system ``diag_k · x_k = rhs_k`` is solved as
+       one batched B×B inverse.
+
+    Numerical stability: PCR has the same forward error as Thomas for
+    diagonally-dominant systems (the regime our Newton Jacobian sits in),
+    but without partial pivoting it is slightly more sensitive in
+    ill-conditioned corners. Verified against Thomas + dense LU in
+    :file:`tests/test_block_tridiagonal_pcr.py` (rtol 1e-10 fp64, 1e-4 fp32).
+    """
+    n = diag.shape[-3]
+    block_dim = -3
+    vec_dim = -2
+
+    if n == 1:
+        return torch.linalg.solve(diag[..., 0, :, :], rhs[..., 0, :].unsqueeze(-1)).squeeze(-1)
+
+    a, b, c, r = sub, diag, sup, rhs
+
+    stride = 1
+    while stride < n:
+        a_l = _pcr_shift_zero(a, stride, block_dim)
+        b_l = _pcr_shift_identity(b, stride, block_dim)
+        c_l = _pcr_shift_zero(c, stride, block_dim)
+        r_l = _pcr_shift_zero(r, stride, vec_dim)
+        a_r = _pcr_shift_zero(a, -stride, block_dim)
+        b_r = _pcr_shift_identity(b, -stride, block_dim)
+        c_r = _pcr_shift_zero(c, -stride, block_dim)
+        r_r = _pcr_shift_zero(r, -stride, vec_dim)
+
+        # α = -a · b_l⁻¹  via  α · b_l = -a  →  b_l.T · α.T = -a.T
+        alpha = torch.linalg.solve(b_l.transpose(-1, -2), -a.transpose(-1, -2)).transpose(-1, -2)
+        beta = torch.linalg.solve(b_r.transpose(-1, -2), -c.transpose(-1, -2)).transpose(-1, -2)
+
+        new_a = alpha @ a_l
+        new_c = beta @ c_r
+        new_b = b + alpha @ c_l + beta @ a_r
+        new_r = (r.unsqueeze(-1) + alpha @ r_l.unsqueeze(-1) + beta @ r_r.unsqueeze(-1)).squeeze(-1)
+
+        a, b, c, r = new_a, new_b, new_c, new_r
+        stride *= 2
+
+    return torch.linalg.solve(b, r.unsqueeze(-1)).squeeze(-1)
+
+
 def solve_tridiagonal(
     sub: Tensor,
     diag: Tensor,

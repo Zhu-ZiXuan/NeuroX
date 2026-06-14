@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import Any
 
 from torch import Tensor
 
@@ -132,6 +133,19 @@ class Solver1T1R(RegistryMixin[type["Solver1T1RConfig"], "Solver1T1R"], ABC):
     boundary-actor signature.
     """
 
+    @abstractmethod
+    def __init__(
+        self,
+        *,
+        config: Solver1T1RConfig,
+        rram: RRAM,
+        nmos: NMOS,
+        bl_driver: ClampDriver,
+        sl_driver: ClampDriver,
+    ) -> None:
+        """Bind the solver to its boundary actors; concrete subclasses do the real init."""
+        raise NotImplementedError
+
     @classmethod
     def from_config(
         cls,
@@ -163,8 +177,8 @@ class Solver1T1R(RegistryMixin[type["Solver1T1RConfig"], "Solver1T1R"], ABC):
         sl_segment_g__uS: Tensor,
         rram_snapshot: RRAMSnapshot,
         nmos_snapshot: NMOSSnapshot,
-        bl_driver_snapshot: object,
-        sl_driver_snapshot: object,
+        bl_driver_snapshot: Any,
+        sl_driver_snapshot: Any,
         compute_residuals: bool = False,
     ) -> Solver1T1RDCOP:
         """Solve the fabricated 1T1R tile for one WL-drive tensor.

@@ -36,15 +36,14 @@ needed.
 
 from __future__ import annotations
 
-import math
 from dataclasses import replace
 from pathlib import Path
 
 import pytest
 import torch
 
-from neurox.analog.tia import OpAmpTIA, OpAmpTIAConfig, OpAmpTIAPolicy
 from neurox.analog import Driver, DriverConfig, DriverPolicy
+from neurox.analog.tia import OpAmpTIA, OpAmpTIAPolicy
 from neurox.common.load_dump import dataclass_from_file
 from neurox.device import NMOS, RRAM, NMOSPolicy, RRAMPolicy
 from neurox.xbar import Offset1T1RXbarConfig
@@ -52,7 +51,6 @@ from neurox.xbar._1t1r import (
     FullJacobianSolver1T1R,
     FullJacobianSolver1T1RConfig,
 )
-
 from tests._dense_jacobian_reference import build_residual_fn, numerical_jacobian
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -128,8 +126,10 @@ def harness(pytestconfig):
 
     # Program RRAM with mid-range conductance.
     g_target = torch.full(
-        (1, NUM_COL, NUM_ROW), float(core_cfg.rram_g_max__uS) * 0.4,
-        device=device, dtype=dtype,
+        (1, NUM_COL, NUM_ROW),
+        float(core_cfg.rram_g_max__uS) * 0.4,
+        device=device,
+        dtype=dtype,
     )
     rram.program(g_target, t_elapsed=0.0)
 
@@ -137,32 +137,40 @@ def harness(pytestconfig):
     # row repeated NUM_ROW times.
     bl_segment_r__MOhm = torch.tensor(
         [core_cfg.bl_first_r__MOhm] + [core_cfg.bl_segment_r__MOhm] * (NUM_ROW - 1),
-        device=device, dtype=dtype,
+        device=device,
+        dtype=dtype,
     )
     sl_segment_r__MOhm = torch.tensor(
         [core_cfg.sl_first_r__MOhm] + [core_cfg.sl_segment_r__MOhm] * (NUM_ROW - 1),
-        device=device, dtype=dtype,
+        device=device,
+        dtype=dtype,
     )
     bl_segment_g__uS = 1.0 / bl_segment_r__MOhm
     sl_segment_g__uS = 1.0 / sl_segment_r__MOhm
 
     # WL drive — mid-range gate voltage.
     v_wl_grid = torch.full(
-        (1, NUM_COL, NUM_ROW), 0.7, device=device, dtype=dtype,
+        (1, NUM_COL, NUM_ROW),
+        0.7,
+        device=device,
+        dtype=dtype,
     )
     v_wl_per_row = v_wl_grid[0, 0, :]
 
     # Build solver.
     solver = FullJacobianSolver1T1R(
         config=FullJacobianSolver1T1RConfig(n_newton=8),
-        rram=rram, nmos=nmos, bl_driver=tia, sl_driver=sl_driver,
+        rram=rram,
+        nmos=nmos,
+        bl_driver=tia,
+        sl_driver=sl_driver,
     )
 
     # Sample snapshots once.
-    rram_snap = rram.snapshot(shape=(1, NUM_COL, NUM_ROW))
-    nmos_snap = nmos.snapshot(shape=(1, NUM_COL, NUM_ROW))
-    bl_drv_snap = tia.snapshot(shape=(NUM_COL,))
-    sl_drv_snap = sl_driver.snapshot(shape=(NUM_COL,))
+    rram_snap = rram.snapshot(shape=(1, NUM_COL, NUM_ROW), multi_coords=None)
+    nmos_snap = nmos.snapshot(shape=(1, NUM_COL, NUM_ROW), multi_coords=None)
+    bl_drv_snap = tia.snapshot(shape=(NUM_COL,), multi_coords=None)
+    sl_drv_snap = sl_driver.snapshot(shape=(NUM_COL,), multi_coords=None)
 
     # Slice every snapshot to the single (batch=0, col=0) instance for the
     # residual-function harness. RRAM and NMOS snapshots have shape
@@ -198,16 +206,22 @@ def harness(pytestconfig):
         bl_driver_snapshot=bl_drv_snap_1,
         sl_driver=sl_driver,
         sl_driver_snapshot=sl_drv_snap_1,
-        rram=rram, nmos=nmos,
+        rram=rram,
+        nmos=nmos,
         num_row=NUM_ROW,
     )
 
     return {
         "device": device,
         "dtype": dtype,
-        "rram": rram, "nmos": nmos, "tia": tia, "sl_driver": sl_driver,
-        "rram_snap": rram_snap, "nmos_snap": nmos_snap,
-        "bl_drv_snap": bl_drv_snap, "sl_drv_snap": sl_drv_snap,
+        "rram": rram,
+        "nmos": nmos,
+        "tia": tia,
+        "sl_driver": sl_driver,
+        "rram_snap": rram_snap,
+        "nmos_snap": nmos_snap,
+        "bl_drv_snap": bl_drv_snap,
+        "sl_drv_snap": sl_drv_snap,
         "bl_segment_r__MOhm": bl_segment_r__MOhm,
         "sl_segment_r__MOhm": sl_segment_r__MOhm,
         "bl_segment_g__uS": bl_segment_g__uS,
@@ -238,13 +252,15 @@ def test_solver_converges_to_zero_residual_per_independent_function(harness):
         compute_residuals=False,
     )
     # Pack into flat unknown vector u in the order the residual function expects.
-    u_star = torch.cat([
-        dcop.v_bl_node[0, 0],          # [R]
-        dcop.v_sl_node[0, 0],
-        dcop.v_x_node[0, 0],
-        dcop.v_bl_clamp[0, 0].reshape(1),
-        dcop.v_sl_drive[0, 0].reshape(1),
-    ])
+    u_star = torch.cat(
+        [
+            dcop.v_bl_node[0, 0],  # [R]
+            dcop.v_sl_node[0, 0],
+            dcop.v_x_node[0, 0],
+            dcop.v_bl_clamp[0, 0].reshape(1),
+            dcop.v_sl_drive[0, 0].reshape(1),
+        ]
+    )
     f_star = harness["res_fn"](u_star)
     max_residual = f_star.abs().max().item()
     assert max_residual < 1e-9, (
@@ -289,13 +305,15 @@ def test_fd_jacobian_well_conditioned_at_solver_converged_point(harness):
         sl_driver_snapshot=harness["sl_drv_snap"],
         compute_residuals=False,
     )
-    u_star = torch.cat([
-        dcop.v_bl_node[0, 0],
-        dcop.v_sl_node[0, 0],
-        dcop.v_x_node[0, 0],
-        dcop.v_bl_clamp[0, 0].reshape(1),
-        dcop.v_sl_drive[0, 0].reshape(1),
-    ])
+    u_star = torch.cat(
+        [
+            dcop.v_bl_node[0, 0],
+            dcop.v_sl_node[0, 0],
+            dcop.v_x_node[0, 0],
+            dcop.v_bl_clamp[0, 0].reshape(1),
+            dcop.v_sl_drive[0, 0].reshape(1),
+        ]
+    )
     f_star = harness["res_fn"](u_star)
     j_fd = numerical_jacobian(harness["res_fn"], u_star, eps=1e-6)
     delta_u = torch.linalg.solve(j_fd, -f_star)
@@ -336,13 +354,15 @@ def test_fd_jacobian_has_expected_block_structure(harness):
         sl_driver_snapshot=harness["sl_drv_snap"],
         compute_residuals=False,
     )
-    u_star = torch.cat([
-        dcop.v_bl_node[0, 0],
-        dcop.v_sl_node[0, 0],
-        dcop.v_x_node[0, 0],
-        dcop.v_bl_clamp[0, 0].reshape(1),
-        dcop.v_sl_drive[0, 0].reshape(1),
-    ])
+    u_star = torch.cat(
+        [
+            dcop.v_bl_node[0, 0],
+            dcop.v_sl_node[0, 0],
+            dcop.v_x_node[0, 0],
+            dcop.v_bl_clamp[0, 0].reshape(1),
+            dcop.v_sl_drive[0, 0].reshape(1),
+        ]
+    )
     j_fd = numerical_jacobian(harness["res_fn"], u_star, eps=1e-6)
 
     # The residual function builds F as [f_bl[0:R], f_sl[0:R], f_x[0:R], f_cl_bl, f_cl_sl].
@@ -353,14 +373,27 @@ def test_fd_jacobian_has_expected_block_structure(harness):
     assert j_fd.shape == (n, n)
 
     # Index helpers — these match the residual function's layout.
-    idx_f_bl = lambda k: k
-    idx_f_sl = lambda k: R + k
-    idx_f_x = lambda k: 2 * R + k
+    def idx_f_bl(k):
+        return k
+
+    def idx_f_sl(k):
+        return R + k
+
+    def idx_f_x(k):
+        return 2 * R + k
+
     idx_f_cl_bl = 3 * R
     idx_f_cl_sl = 3 * R + 1
-    idx_v_bl = lambda k: k
-    idx_v_sl = lambda k: R + k
-    idx_v_x = lambda k: 2 * R + k
+
+    def idx_v_bl(k):
+        return k
+
+    def idx_v_sl(k):
+        return R + k
+
+    def idx_v_x(k):
+        return 2 * R + k
+
     idx_v_bl_cl = 3 * R
     idx_v_sl_dr = 3 * R + 1
 
@@ -377,20 +410,17 @@ def test_fd_jacobian_has_expected_block_structure(harness):
             # F_BL[k] vs V_X[k']: no coupling.
             entry = j_fd[idx_f_bl(k), idx_v_x(k_prime)].abs().item()
             assert entry < fd_eps, (
-                f"unexpected cross-row coupling F_BL[{k}] vs V_X[{k_prime}]: "
-                f"|J| = {entry:.3e} (should be 0)"
+                f"unexpected cross-row coupling F_BL[{k}] vs V_X[{k_prime}]: |J| = {entry:.3e} (should be 0)"
             )
             # F_SL[k] vs V_X[k']: no coupling.
             entry = j_fd[idx_f_sl(k), idx_v_x(k_prime)].abs().item()
             assert entry < fd_eps, (
-                f"unexpected cross-row coupling F_SL[{k}] vs V_X[{k_prime}]: "
-                f"|J| = {entry:.3e} (should be 0)"
+                f"unexpected cross-row coupling F_SL[{k}] vs V_X[{k_prime}]: |J| = {entry:.3e} (should be 0)"
             )
             # F_X[k] vs V_X[k']: no coupling.
             entry = j_fd[idx_f_x(k), idx_v_x(k_prime)].abs().item()
             assert entry < fd_eps, (
-                f"unexpected cross-row coupling F_X[{k}] vs V_X[{k_prime}]: "
-                f"|J| = {entry:.3e} (should be 0)"
+                f"unexpected cross-row coupling F_X[{k}] vs V_X[{k_prime}]: |J| = {entry:.3e} (should be 0)"
             )
 
     # --- (B) BL/SL cross-coupling in OFF-DIAGONAL row pairs must be zero ---
@@ -402,13 +432,11 @@ def test_fd_jacobian_has_expected_block_structure(harness):
             # F_BL[k] vs V_SL[k']: no coupling (cell BL→SL coupling is per-row only).
             entry = j_fd[idx_f_bl(k), idx_v_sl(k_prime)].abs().item()
             assert entry < fd_eps, (
-                f"unexpected cross-row coupling F_BL[{k}] vs V_SL[{k_prime}]: "
-                f"|J| = {entry:.3e} (should be 0)"
+                f"unexpected cross-row coupling F_BL[{k}] vs V_SL[{k_prime}]: |J| = {entry:.3e} (should be 0)"
             )
             entry = j_fd[idx_f_sl(k), idx_v_bl(k_prime)].abs().item()
             assert entry < fd_eps, (
-                f"unexpected cross-row coupling F_SL[{k}] vs V_BL[{k_prime}]: "
-                f"|J| = {entry:.3e} (should be 0)"
+                f"unexpected cross-row coupling F_SL[{k}] vs V_BL[{k_prime}]: |J| = {entry:.3e} (should be 0)"
             )
 
     # --- (C) BL-BL wire coupling sign + magnitude ---
@@ -419,8 +447,7 @@ def test_fd_jacobian_has_expected_block_structure(harness):
         actual = j_fd[idx_f_bl(k), idx_v_bl(k - 1)].item()
         rel_err = abs(actual - expected) / (abs(expected) + 1e-30)
         assert rel_err < 1e-5, (
-            f"F_BL[{k}] vs V_BL[{k-1}]: expected {expected:.3e}, "
-            f"got {actual:.3e} (rel err {rel_err:.3e})"
+            f"F_BL[{k}] vs V_BL[{k - 1}]: expected {expected:.3e}, got {actual:.3e} (rel err {rel_err:.3e})"
         )
 
     # --- (D) Boundary rows: F_CL_BL touches V_BL_CL and V_BL[0] only ---
@@ -429,19 +456,13 @@ def test_fd_jacobian_has_expected_block_structure(harness):
         if col in (idx_v_bl_cl, idx_v_bl(0)):
             continue
         entry = j_fd[idx_f_cl_bl, col].abs().item()
-        assert entry < fd_eps, (
-            f"F_CL_BL has unexpected coupling to column {col}: "
-            f"|J| = {entry:.3e} (should be 0)"
-        )
+        assert entry < fd_eps, f"F_CL_BL has unexpected coupling to column {col}: |J| = {entry:.3e} (should be 0)"
     # Symmetric for F_CL_SL.
     for col in range(n):
         if col in (idx_v_sl_dr, idx_v_sl(0)):
             continue
         entry = j_fd[idx_f_cl_sl, col].abs().item()
-        assert entry < fd_eps, (
-            f"F_CL_SL has unexpected coupling to column {col}: "
-            f"|J| = {entry:.3e} (should be 0)"
-        )
+        assert entry < fd_eps, f"F_CL_SL has unexpected coupling to column {col}: |J| = {entry:.3e} (should be 0)"
 
     # --- (E) Off-diagonal V_X column for cross rows must be zero (column ⇒ no row affects V_X across) ---
     # Symmetric check vs (A): no wire row's F has cross-row V_X coupling.

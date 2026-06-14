@@ -144,7 +144,7 @@ def sweep_n_newton(
     v_clamp_prev: Tensor | None = None
     for n_newton in candidates:
         tia = _build_tia(tia_config, n_newton=n_newton, device=device, dtype=dtype)
-        snap = tia.snapshot(shape=(port_currents__uA.shape[0],))
+        snap = tia.snapshot(shape=(port_currents__uA.shape[0],), multi_coords=None)
         dcop = tia.solve_dc(port_currents__uA, snap, v_clamp_init__V=None)
         v_clamp = dcop.v_clamp__V.detach()
         residual_max__uA = float(dcop.residual__uA.abs().max().item())
@@ -186,9 +186,9 @@ def plot_sweep(
     out_path: Path,
     reltol: float,
 ) -> None:
-    import matplotlib
+    import matplotlib as mpl
 
-    matplotlib.use("Agg")
+    mpl.use("Agg")
     import matplotlib.pyplot as plt
 
     xs_all = [r.iter_count for r in rows]
