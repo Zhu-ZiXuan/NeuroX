@@ -157,11 +157,11 @@ Public methods:
 - `analyze_static(model) -> StaticMetrics` — aggregate to total area + leakage; `StaticMetrics` carries only area + leakage.
 - `report(model) -> ProfilerReport` — combine runtime events + static walk. `ProfilerReport.total_latency__ns` is a derived property over `latency_events`; `leakage_energy__fJ` reads it × `static.leakage_power__uW`.
 
-`_finalize` is private — driven only by `__exit__` on clean context exit. One batched GPU→CPU sync per quantity. See [`modules/profiler/README.md`](../modules/profiler/README.md) for the pending-buffer + sync mechanics.
+`_finalize` is private — driven only by `__exit__` on clean context exit. One batched GPU→CPU sync per quantity. See [`modules/profiler/README.md`](../../modules/profiler/README.md) for the pending-buffer + sync mechanics.
 
 ## See also
 
-- [`docs/dev/modules/common/circuit.md`](../modules/common/circuit.md) — `CircuitBase` / `CircuitConfig` dev doc
-- [`docs/dev/modules/profiler/README.md`](../modules/profiler/README.md) — profiler internals
+- [`docs/modules/common/circuit.md`](../../modules/common/circuit.md) — `CircuitBase` / `CircuitConfig` dev doc
+- [`docs/modules/profiler/README.md`](../../modules/profiler/README.md) — profiler internals
 - [`docs/dev/architecture/compile_policy.md`](compile_policy.md) — why the log methods are `@torch.compiler.disable`
 - [`docs/dev/adr/ADR-0002-nmos-is-a-pure-electrical-primitive.md`](../adr/ADR-0002-nmos-is-a-pure-electrical-primitive.md) — device vs. circuit split

@@ -1,7 +1,7 @@
 """Op-amp-based transimpedance amplifier used as a BL clamp driver.
 
 See also:
-    docs/dev/modules/analog/tia/opamp_tia.md
+    docs/modules/analog/tia/opamp_tia.md
 """
 
 from dataclasses import dataclass

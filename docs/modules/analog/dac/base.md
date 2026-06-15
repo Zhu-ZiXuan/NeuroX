@@ -1,0 +1,33 @@
+# `neurox/analog/dac/base.py`
+
+## Current role
+
+`DAC` is the abstract base for the DAC family. It carries only the system-level scaffolding — the per-family registry inherited from `RegistryMixin[type[DACConfig], DAC]`, profiler registration, and the family-level `from_config(...)` classmethod.
+
+`DACConfig` is the empty marker config used as the polymorphic-field type on parent configs. `DACPolicy` is the matching empty marker base policy — concrete DAC impls declare their own `*Policy(DACPolicy)` (e.g. `GeneralDACPolicy`) carrying that impl's switches; the composite that holds a DAC stores the abstract `DACPolicy` field type and the caller passes the concrete impl.
+
+## Family-wide init signature
+
+Every concrete `DAC` impl exposes the same explicit signature:
+
+```
+__init__(self, *, config, policy, name, inst_shape, dtype, T__K)
+```
+
+All six arguments are required, keyword-only, and may not be `None`. The base `__init__` accepts the same signature so the dispatcher in `from_config` type-checks cleanly; it stores `self._inst_shape` and uses `name` for profiler registration. `config` / `policy` / `dtype` / `T__K` stay on the concrete subclass (see [`docs/dev/architecture/state_holding.md`](../../../dev/architecture/state_holding.md)).
+
+## Required subclass surface
+
+`DAC` inherits `FabricateMixin`. The auto-cascade `fabricate()` is provided by the mixin; subclasses override `_sample_fabricate_mismatch` only if they introduce static per-output mismatch. The default body is a no-op.
+
+Concrete subclasses must implement:
+
+- `convert(code)` — map integer codes to analog voltages.
+- `code_to_signal` — the code → nominal-voltage LUT (a tensor of length `n_codes`). Read directly to obtain a nominal operating-point voltage without going through `convert`.
+
+Static-PPA properties (`area_per_inst__um2`, `leakage_per_inst__uW`) are inherited from `CircuitBase` and read from `self.config`. Per-op latency is leaf-defined: fixed-latency impls (`GeneralDAC`) carry a `latency_per_op__ns: float` field on their own config and read it at `_log_latency` emit time.
+
+See also:
+
+- `docs/dev/architecture/config_and_construction.md`
+- `docs/modules/common/registry_dispatch.md`

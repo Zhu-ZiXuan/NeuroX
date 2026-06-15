@@ -1,7 +1,7 @@
 """Auto-cascading `fabricate()` for static manufacturing variation sampling.
 
 See also:
-    docs/dev/modules/common/fabricate.md
+    docs/modules/common/fabricate.md
     docs/dev/architecture/fabrication_lifecycle.md
 """
 

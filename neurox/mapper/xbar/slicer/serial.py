@@ -1,7 +1,7 @@
 """SerialSlicer — true-form radix-``r`` positional decomposition.
 
 See also:
-    docs/dev/modules/mapper/xbar/slicer/README.md
+    docs/modules/mapper/xbar/slicer/README.md
 """
 
 from __future__ import annotations

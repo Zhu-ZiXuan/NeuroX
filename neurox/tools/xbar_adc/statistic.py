@@ -6,7 +6,7 @@ Histogram bin widths are auto-derived from the ADC code grid so the
 overlay never goes coarser than the code spacing.
 
 See also:
-    docs/dev/modules/tools/xbar_adc/statistic.md
+    docs/modules/tools/xbar_adc/statistic.md
 """
 
 from __future__ import annotations

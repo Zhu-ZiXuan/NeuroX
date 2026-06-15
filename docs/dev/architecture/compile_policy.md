@@ -76,7 +76,7 @@ The macro entry uses `dynamic=True` so user batch dimensions do not recompile. O
 
 ## Per-method compile-path declaration
 
-Each primary method's `docs/dev/modules/<path>/<file>.md` declares whether it is on the compiled path. The declaration is one line under the method description:
+Each primary method's `docs/modules/<path>/<file>.md` declares whether it is on the compiled path. The declaration is one line under the method description:
 
 ```
 Compile-path: yes (via macro entry).

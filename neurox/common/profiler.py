@@ -1,7 +1,7 @@
 """Side-channel hardware profiler for NeuroX circuit-level simulation.
 
 See also:
-    docs/dev/modules/profiler/README.md
+    docs/modules/profiler/README.md
 """
 
 import threading

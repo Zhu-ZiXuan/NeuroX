@@ -1,7 +1,7 @@
 """Shared mixin for profile-event emission.
 
 See also:
-    docs/dev/modules/profiler/README.md
+    docs/modules/profiler/README.md
 """
 
 from __future__ import annotations

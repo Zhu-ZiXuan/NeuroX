@@ -8,7 +8,7 @@ NeuroX keeps three independent layers of written documentation:
 
 - **Docstring** — short, local, describes the current interface of one symbol.
 - **Inline comment** — local implementation help for the block of code it sits next to.
-- **`docs/dev/`** — long-lived design rules, conventions, and module-level descriptions.
+- **Written docs** — long-lived design rules and conventions in `docs/dev/`, plus per-module design notes in `docs/modules/`.
 
 These layers must stay separate; the same rule is never restated across all three. See [`code_style.md`](code_style.md).
 
@@ -41,5 +41,5 @@ These layers must stay separate; the same rule is never restated across all thre
 
 ## Relationship with other directories
 
-- `docs/dev/modules/` mirrors `neurox/`; each Python module gets its own design note describing its current responsibility and protocol. Module docs cite architecture documents rather than restating them.
+- `docs/modules/` mirrors `neurox/`; each Python module gets its own design note describing its current responsibility and protocol. Module docs cite architecture documents rather than restating them.
 - `docs/dev/adr/` records architectural decisions and their rejected alternatives. ADRs explain **why**; architecture documents describe **what is current**.

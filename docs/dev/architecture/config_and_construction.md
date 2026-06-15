@@ -74,7 +74,7 @@ Every fabricable module takes its per-instance fabrication shape as a constructo
 - xbar tiles: `inst_shape: tuple[int, ...]` (per-instance multiplicity prefix; trailing `(col_num, w_digit_count, row_num)` is owned by the xbar's own config)
 - xbar macros: `w_logical_shape: tuple[int, ...]` (operator-facing weight shape)
 
-The shape is committed once at `__init__`, recorded on `self._inst_shape` (per the `FabricateMixin` contract; circuits inherit this hook through `CircuitBase`). `fabricate()` then carries no arguments; it resamples mismatch at the already-bound shape. See [`fabrication_lifecycle.md`](fabrication_lifecycle.md) for the lifecycle. The profiler computes the instance count on demand from `_inst_shape` — see [`profiler_and_ppa.md`](profiler_and_ppa.md) and [`modules/common/circuit.md`](../modules/common/circuit.md).
+The shape is committed once at `__init__`, recorded on `self._inst_shape` (per the `FabricateMixin` contract; circuits inherit this hook through `CircuitBase`). `fabricate()` then carries no arguments; it resamples mismatch at the already-bound shape. See [`fabrication_lifecycle.md`](fabrication_lifecycle.md) for the lifecycle. The profiler computes the instance count on demand from `_inst_shape` — see [`profiler_and_ppa.md`](profiler_and_ppa.md) and [`modules/common/circuit.md`](../../modules/common/circuit.md).
 
 ## Family bases, concrete configs, and dispatch
 
@@ -128,7 +128,7 @@ The registry attribute `_impl_registry` is materialised automatically by the mix
 
 ## Config validation
 
-Every frozen config inherits `ValidateMixin` (from `neurox/common/mixin/validate.py`), either directly or transitively via `CircuitConfig` (see [`modules/common/circuit.md`](../modules/common/circuit.md) — `CircuitConfig` is the standard base for electrical-circuit configs and carries the area / leakage / latency fields). Validation runs at construction time via `__post_init__ → validate()`. Whether `__post_init__` is defined on the leaf or inherited from a circuit-family base is a **simplicity decision** for each family.
+Every frozen config inherits `ValidateMixin` (from `neurox/common/mixin/validate.py`), either directly or transitively via `CircuitConfig` (see [`modules/common/circuit.md`](../../modules/common/circuit.md) — `CircuitConfig` is the standard base for electrical-circuit configs and carries the area / leakage / latency fields). Validation runs at construction time via `__post_init__ → validate()`. Whether `__post_init__` is defined on the leaf or inherited from a circuit-family base is a **simplicity decision** for each family.
 
 ```python
 from neurox.common.mixin import ValidateMixin

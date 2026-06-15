@@ -1,7 +1,7 @@
 """Digital modular-arithmetic accumulator over an integer-tensor axis.
 
 See also:
-    docs/dev/modules/digital/README.md
+    docs/modules/digital/README.md
 """
 
 from dataclasses import dataclass

@@ -1,7 +1,7 @@
 """Element-wise integer subtractor.
 
 See also:
-    docs/dev/modules/digital/README.md
+    docs/modules/digital/README.md
 """
 
 from dataclasses import dataclass

@@ -1,7 +1,7 @@
 """Offset-coded 1T1R crossbar tile.
 
 See also:
-    docs/dev/modules/xbar/_1t1r/README.md
+    docs/modules/xbar/_1t1r/README.md
 """
 
 from dataclasses import dataclass

@@ -1,7 +1,7 @@
 """Block-nested DC solver for a 1T1R crossbar array.
 
 See also:
-    docs/dev/modules/xbar/_1t1r/nested_solver.md
+    docs/modules/xbar/_1t1r/nested_solver.md
 """
 
 from dataclasses import dataclass
@@ -64,7 +64,7 @@ class NestedSolver1T1RConfig(Solver1T1RConfig):
 class NestedSolver1T1R(Solver1T1R):
     """Block Gauss-Seidel + implicit-Newton DC solver for a 1T1R tile.
 
-    See ``docs/dev/modules/xbar/_1t1r/nested_solver.md`` for algorithm
+    See ``docs/modules/xbar/_1t1r/nested_solver.md`` for algorithm
     and convergence rationale.
     """
 

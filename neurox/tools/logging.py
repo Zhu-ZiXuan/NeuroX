@@ -1,7 +1,7 @@
 """Shared logging setup for offline tool CLIs.
 
 See also:
-    docs/dev/modules/tools/README.md
+    docs/modules/tools/README.md
 """
 
 from __future__ import annotations

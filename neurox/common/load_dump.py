@@ -1,7 +1,7 @@
 """Dataclass serialization utilities for TOML and YAML config files.
 
 See also:
-    docs/dev/modules/common/load_dump.md
+    docs/modules/common/load_dump.md
 """
 
 import tomllib

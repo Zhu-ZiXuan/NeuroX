@@ -1,7 +1,7 @@
 """CLI: fit ``rescale_factor`` mapping physical ADC codes back to ideal VMM.
 
 See also:
-    docs/dev/modules/tools/xbar_adc/calibrate.md
+    docs/modules/tools/xbar_adc/calibrate.md
 """
 
 from __future__ import annotations

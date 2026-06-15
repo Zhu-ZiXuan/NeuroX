@@ -1,7 +1,7 @@
 """General-purpose LUT DAC — concrete :class:`DAC` implementation.
 
 See also:
-    docs/dev/modules/analog/dac/general.md
+    docs/modules/analog/dac/general.md
 """
 
 from __future__ import annotations

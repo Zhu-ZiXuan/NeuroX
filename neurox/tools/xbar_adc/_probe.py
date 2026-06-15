@@ -1,7 +1,7 @@
 """Capture-only ADC stand-in for ``statistic_xbar_adc``.
 
 See also:
-    docs/dev/modules/tools/xbar_adc/statistic.md
+    docs/modules/tools/xbar_adc/statistic.md
 """
 
 from __future__ import annotations

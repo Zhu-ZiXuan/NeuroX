@@ -2,7 +2,7 @@
 
 Hosts :class:`Solver1T1RConfig`, :class:`Solver1T1R`,
 :class:`Solver1T1RDCOP`, and :class:`Solver1T1RResiduals` —
-see ``docs/dev/modules/xbar/_1t1r/solver.md`` for the design rationale
+see ``docs/modules/xbar/_1t1r/solver.md`` for the design rationale
 (per-family base, registry dispatch, residual container reuse).
 """
 

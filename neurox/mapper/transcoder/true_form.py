@@ -1,7 +1,7 @@
 """True-form signed-digit transcoder.
 
 See also:
-    docs/dev/modules/mapper/transcoder/README.md
+    docs/modules/mapper/transcoder/README.md
 """
 
 from __future__ import annotations

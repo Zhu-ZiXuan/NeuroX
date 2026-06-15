@@ -46,7 +46,7 @@ The examples default to GPU because both workloads are too slow on CPU to be use
 
 Each macro is built from two separate TOML files:
 
-- **`--config`** — the immutable circuit design. Both examples consume the bundled 1T1R 28nm preset at `example/config/1t1r_28nm.toml` (referenced from `macro_with_physical_xbar.toml` via `_neurox_use`). To target a different chip, follow the same `[xbar]` / `[xbar.core_config]` / `[xbar.readout_config]` schema. The ADC `rescale_factor` table must be calibrated for the chip's `(adc_mode, adc_bits)` grid — see `neurox.tools.xbar_adc.calibrate` and `docs/dev/modules/tools/xbar_adc/calibrate.md`.
+- **`--config`** — the immutable circuit design. Both examples consume the bundled 1T1R 28nm preset at `example/config/1t1r_28nm.toml` (referenced from `macro_with_physical_xbar.toml` via `_neurox_use`). To target a different chip, follow the same `[xbar]` / `[xbar.core_config]` / `[xbar.readout_config]` schema. The ADC `rescale_factor` table must be calibrated for the chip's `(adc_mode, adc_bits)` grid — see `neurox.tools.xbar_adc.calibrate` and `docs/modules/tools/xbar_adc/calibrate.md`.
 - **`--policy`** — the mutable nonideality switches. The example policy files reference the bundled all-off preset (`neurox/presets/policy/all_off.toml`) via `_neurox_use_preset`, so every nonideality (device mismatch, thermal noise, programming noise, ADC offsets, …) is off by default. To enable one, override the matching switch inline, e.g.:
 
   ```toml
@@ -62,5 +62,5 @@ Each macro is built from two separate TOML files:
 ## Related developer docs
 
 - [`docs/dev/architecture/README.md`](../dev/architecture/README.md) — project architecture rules.
-- [`docs/dev/modules/macro/README.md`](../dev/modules/macro/README.md) — `XbarMacro` family and `from_config` factory.
-- [`docs/dev/modules/xbar/_1t1r/solver.md`](../dev/modules/xbar/_1t1r/solver.md) — solver family base. [`nested_solver.md`](../dev/modules/xbar/_1t1r/nested_solver.md) is the production default; [`full_jacobian_solver.md`](../dev/modules/xbar/_1t1r/full_jacobian_solver.md) is the debug / cross-check reference.
+- [`docs/modules/macro/README.md`](../modules/macro/README.md) — `XbarMacro` family and `from_config` factory.
+- [`docs/modules/xbar/_1t1r/solver.md`](../modules/xbar/_1t1r/solver.md) — solver family base. [`nested_solver.md`](../modules/xbar/_1t1r/nested_solver.md) is the production default; [`full_jacobian_solver.md`](../modules/xbar/_1t1r/full_jacobian_solver.md) is the debug / cross-check reference.

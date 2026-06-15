@@ -1,7 +1,7 @@
 """Shape-independent physical core for a 1T1R crossbar tile.
 
 See also:
-    docs/dev/modules/xbar/_1t1r/circuit_core.md
+    docs/modules/xbar/_1t1r/circuit_core.md
 """
 
 import math

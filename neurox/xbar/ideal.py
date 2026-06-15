@@ -1,7 +1,7 @@
 """Tile-level ideal crossbar with adc_bits-driven output quantization.
 
 See also:
-    docs/dev/modules/xbar/ideal.md
+    docs/modules/xbar/ideal.md
 """
 
 from __future__ import annotations

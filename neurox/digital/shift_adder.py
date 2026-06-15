@@ -1,7 +1,7 @@
 """Shift-adder for multi-digit partial-product recombination.
 
 See also:
-    docs/dev/modules/digital/README.md
+    docs/modules/digital/README.md
 """
 
 from dataclasses import dataclass

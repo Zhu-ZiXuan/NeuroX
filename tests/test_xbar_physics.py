@@ -88,7 +88,7 @@ def _compute_nmos_ref_conductance(
 def _build_xbar() -> Offset1T1RXbar:
     """Build a 64×64 xbar via the new three-layer factory chain.
 
-    See ``docs/dev/modules/xbar/_1t1r/README.md`` + ``docs/dev/architecture/state_holding.md`` — ``CircuitCore1T1R``
+    See ``docs/modules/xbar/_1t1r/README.md`` + ``docs/dev/architecture/state_holding.md`` — ``CircuitCore1T1R``
     owns the array physics, ``ReadOut`` does the voltage-domain
     weighted-sum, and ``Offset1T1RXbar`` is the mapping layer.  Every
     device / circuit module is built per-core from its own factory so

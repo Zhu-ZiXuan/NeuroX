@@ -1,7 +1,7 @@
 """Reusable analog non-ideality kernels and their config dataclasses.
 
 See also:
-    docs/dev/modules/common/nonideality.md
+    docs/modules/common/nonideality.md
     docs/dev/architecture/config_and_construction.md
 """
 

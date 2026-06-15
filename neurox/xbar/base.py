@@ -1,7 +1,7 @@
 """Abstract physical-crossbar primitive.
 
 See also:
-    docs/dev/modules/xbar/base.md
+    docs/modules/xbar/base.md
 """
 
 from __future__ import annotations

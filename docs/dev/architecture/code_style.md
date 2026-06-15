@@ -29,7 +29,7 @@ Detailed framework rules, design intent, coding conventions, and project-wide ar
 Module docstrings should only contain:
 
 - the current responsibility of the file;
-- an optional short `See also:` section that points to the corresponding `docs/dev/` file.
+- an optional short `See also:` section that points to the corresponding `docs/modules/` file.
 
 They should not contain long explanations of project structure or historical decisions.
 
@@ -183,7 +183,7 @@ Duplicating a type at the assignment site creates a second source of truth that 
 
 ## FabricateMixin and buffer reassignment
 
-Every module under `neurox/{device,analog,digital,xbar,macro}/` that owns fabricable state inherits [`FabricateMixin`](../modules/common/fabricate.md) alongside `nn.Module`. Subclasses override `_sample_fabricate_mismatch(self) -> None` only — never `fabricate()` itself. The mixin auto-cascades to every `FabricateMixin` child (including those wrapped in `nn.ModuleList` / `nn.ModuleDict`).
+Every module under `neurox/{device,analog,digital,xbar,macro}/` that owns fabricable state inherits [`FabricateMixin`](../../modules/common/fabricate.md) alongside `nn.Module`. Subclasses override `_sample_fabricate_mismatch(self) -> None` only — never `fabricate()` itself. The mixin auto-cascades to every `FabricateMixin` child (including those wrapped in `nn.ModuleList` / `nn.ModuleDict`).
 
 Buffer writes inside `_sample_fabricate_mismatch` and `program(...)` use **attribute reassignment**: `self.X = new_tensor`. Do **not** call `self.register_buffer("X", new_tensor, persistent=False)` a second time — reassignment updates the buffer slot in place via `nn.Module.__setattr__`, preserves the `persistent=False` flag, and keeps `.to(device)` / `.to(dtype)` migrations working. `register_buffer` is only used once per buffer at `__init__`.
 
@@ -403,7 +403,7 @@ Code should only contain enough written context to read and use the current impl
 
 ## Documentation dependency direction
 
-Documentation must follow the same dependency direction as the code: an **upper module may reference lower modules**, but a **lower module must not reference any upper module**. This applies uniformly to module docstrings, inline comments, and `docs/dev/modules/<file>.md`.
+Documentation must follow the same dependency direction as the code: an **upper module may reference lower modules**, but a **lower module must not reference any upper module**. This applies uniformly to module docstrings, inline comments, and `docs/modules/<file>.md`.
 
 A "lower module" is one that the other side imports / constructs / owns; an "upper module" is the consumer side of that relationship. The dependency graph in the code defines which side is which.
 
@@ -442,13 +442,13 @@ The "who uses who" graph is therefore asserted exactly once, from the parent sid
 ### Edge cases
 
 - **Abstract base / Protocol docs** are not violations when they describe the contract any future consumer must respect — they intentionally name no specific consumer.
-- **Intra-family references** are allowed: `docs/dev/modules/analog/dac/general.md` may say it is a concrete `DAC` family impl registered via `DAC.from_config`. That is same-layer reference, not upward.
+- **Intra-family references** are allowed: `docs/modules/analog/dac/general.md` may say it is a concrete `DAC` family impl registered via `DAC.from_config`. That is same-layer reference, not upward.
 - **`architecture/` and `adr/`** intentionally take a global view and may cross layers freely. The rule applies to `modules/` and to in-code docstrings / comments only.
 - **Examples in lower-module docs** should use generic placeholder names (`SomeCircuit`, `parent`) rather than naming a specific upper module.
 
 ### Directory-level READMEs
 
-`docs/dev/modules/<path>/README.md` files (the directory-level family / package overviews) **are allowed** to:
+`docs/modules/<path>/README.md` files (the directory-level family / package overviews) **are allowed** to:
 
 - enumerate the files / classes that live in the directory;
 - describe the same-layer family layout (e.g. "this directory holds the `*Slicer` family: `SerialSlicer`, `SimpleSlicer`");

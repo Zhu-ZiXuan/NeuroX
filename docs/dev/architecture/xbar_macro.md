@@ -9,7 +9,7 @@ This document defines the layered structure of every member of the XbarMacro fam
 - **XbarMacro abstract base** — declares the contract every family member satisfies (registry, lifecycle, value-domain, PPA aggregation); carries the shared chunk-and-pad geometric utility and the `_build_xbar` construction helper. The base itself owns no xbar — xbar-using subclasses declare and build their own.
 - **Concrete mode subclass** — one full execution mode: owns its `xbar_config` field, `xbar` instance, slicers, reducers, and the paired organize / aggregate pipeline.
 
-The degenerate member [`IdealXbarMacro`](../modules/macro/xbar/ideal.md) joins the family registry without owning an xbar — it just stores a weight tensor and uses `torch.matmul`. It exercises the Protocol contract but skips every layered step below the family root.
+The degenerate member [`IdealXbarMacro`](../../modules/macro/xbar/ideal.md) joins the family registry without owning an xbar — it just stores a weight tensor and uses `torch.matmul`. It exercises the Protocol contract but skips every layered step below the family root.
 
 ## W-side pipeline (3 steps)
 

@@ -1,7 +1,7 @@
 """Boundary-bucketize ADC with optional Gaussian noise stages.
 
 See also:
-    docs/dev/modules/analog/adc/general.md
+    docs/modules/analog/adc/general.md
 """
 
 from __future__ import annotations
