@@ -1,0 +1,10 @@
+# Nonideality policy for the LeNet ideal-xbar macro.
+#
+# The ideal xbar carries no physical nonidealities, so its policy is the
+# empty IdealXbarPolicy wrapped in the macro policy.
+
+[policy]
+_neurox_type = "InterArraySliceXbarMacroPolicy"
+
+[policy.xbar]
+_neurox_type = "IdealXbarPolicy"

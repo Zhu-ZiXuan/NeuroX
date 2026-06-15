@@ -487,6 +487,18 @@ def _resolve_preset_fragment_path(rel: str) -> Path:
     raise FileNotFoundError(f"{_USE_PRESET_DIRECTIVE} fragment {rel!r} not found under {root}")
 
 
+def preset_path(rel: str) -> Path:
+    """Absolute path to a bundled preset file under ``neurox/presets/``.
+
+    ``rel`` is a presets-root-relative path (e.g. ``"policy/all_off.toml"``).
+    Suffix-free paths try ``.toml`` then ``.yaml`` / ``.yml``. Use this when
+    library code loads a bundled preset directly via :func:`dataclass_from_file`,
+    rather than referencing it from a user file with ``_neurox_use_preset``.
+    """
+    _validate_preset_ref_path(rel)
+    return _resolve_preset_fragment_path(rel)
+
+
 def _parse_preset_ref(ref: Any) -> tuple[Path, str]:
     """Parse a preset ``"<rel_path>:<section>"`` anchored at ``neurox/presets/``."""
     if not isinstance(ref, str):

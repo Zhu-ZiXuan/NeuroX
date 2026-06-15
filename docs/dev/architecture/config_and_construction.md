@@ -5,7 +5,7 @@ This document records the current construction rules for NeuroX's device and ana
 `config` and `policy` are the two parameter objects every module accepts at `__init__`:
 
 - `config` (a `*Config` dataclass) describes **what the module is**: physical parameters, design parameters, spec / PPA values. Static across deployments; persists in preset TOML.
-- `policy` (a `*Policy` dataclass) describes **how the module should behave at runtime**: which non-idealities to apply, and (future) other behavioural switches. Per-run choice; constructed by the caller in code; never persisted in TOML.
+- `policy` (a `*Policy` dataclass) describes **how the module should behave at runtime**: which non-idealities to apply, and (future) other behavioural switches. Per-run choice, supplied by the caller — either constructed in code or loaded from a **policy TOML** that lives alongside (and separate from) the circuit config TOML.
 
 The two are strongly coupled — every module that has a `*Policy` also has a `*Config`, and policy fields gate parameters declared on the config — so they are described together in each module's doc.
 
@@ -210,8 +210,8 @@ Every module that models non-idealities (or, in the future, any other runtime be
 
 1. `*Config` holds **parameter values only** as fully-populated, non-Optional fields. Scalar sigmas are required `float`; multi-parameter distributions are required sub-config dataclasses. `None` is forbidden.
 2. The decision of whether to apply a non-ideality (or other runtime switch) is carried by a separate **`*Policy`** dataclass passed as a kwarg to the owning module's `__init__`. Each module declares a `<Module>Policy` with one `bool` field per source.
-3. The policy is **not** a config field, not a preset TOML entry, and not loaded from disk. It is a pure runtime parameter constructed by the caller at module instantiation time.
-4. `*Policy` dataclasses have **no defaults** and **no factory methods** (no `all_off()` / `all_on()`). The caller must enumerate every field explicitly so that adding a new switch breaks every call site that has not yet declared a stance.
+3. The policy is **not** a config field — it is a separate object passed as the `policy=` kwarg. The caller may construct it in code or load it from a **policy TOML** that is distinct from the circuit config TOML (same `dataclass_from_file` loader, a `[policy]` section instead of `[macro]` / `[xbar]`). The two files stay separate: the immutable circuit design in one, the mutable runtime switches in the other.
+4. `*Policy` dataclasses have **no field defaults** and **no Python factory methods** (no `all_off()` / `all_on()`). The all-off baseline is a single shared TOML preset (`neurox/presets/policy/all_off.toml`) that consumers reference via `_neurox_use_preset` and override switch-by-switch. Because the dataclass fields carry no defaults, a policy file (or preset) that omits a newly-added switch fails to load — so adding a switch still breaks every call site that has not yet declared a stance.
 5. Runtime helpers in `neurox/common/nonideality.py` take a `*, enabled: bool` kw-only parameter and short-circuit to a pass-through when `enabled=False`. Callers therefore write a single unbranched expression — no `if`-gates at the call site.
 
 ### Why this split
@@ -220,7 +220,7 @@ The config conflated two distinct facts when an `enable_*` field lived on it: th
 
 - `config` describes physical reality only. Process presets are reusable across deployments and studies.
 - `Policy` describes the study choice. Different runs (calibration, training, inference, ablation) can pass different policies against the same config.
-- Calibration tools construct an all-False policy directly, with no `dataclasses.replace(config, enable_*=False, ...)` indirection.
+- Calibration tools and examples load the shared all-off policy preset, with no `dataclasses.replace(config, enable_*=False, ...)` indirection.
 - The boundary between physical model and experimental decision is self-documenting in the constructor signature: `RRAM(config=..., policy=..., ...)`.
 
 ### Hierarchy: flat at leaves, structured at composites

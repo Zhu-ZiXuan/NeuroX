@@ -1,0 +1,10 @@
+# Nonideality policy for the LeNet physical-xbar macro.
+#
+# References the bundled all-off preset; every switch is off by default.
+# To enable a nonideality, override the matching switch inline, e.g.:
+#   [policy.xbar.core.tia]
+#   opamp_gain_sigma = true
+# Chunking knobs live under [policy.xbar.core] (solve_chunk_size_x / _inst).
+
+[policy]
+_neurox_use_preset = "policy/all_off:macro"

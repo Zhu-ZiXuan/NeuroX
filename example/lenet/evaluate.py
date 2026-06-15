@@ -30,37 +30,34 @@ def main() -> None:
     parser.add_argument("--dataset-dir", type=Path, required=True, help="MNIST root directory")
     parser.add_argument("--checkpoint", type=Path, required=True, help="QAT checkpoint produced by train_quant.py")
     parser.add_argument(
-        "--macro-config",
+        "--config",
         required=True,
-        help=f"Macro TOML filename under {CONFIG_DIR.name}/ (e.g. macro_with_physical_xbar.toml)",
+        help=f"Circuit config TOML filename under {CONFIG_DIR.name}/ (e.g. macro_with_physical_xbar.toml)",
+    )
+    parser.add_argument(
+        "--policy",
+        required=True,
+        help=f"Nonideality policy TOML filename under {CONFIG_DIR.name}/ "
+        "(e.g. macro_with_physical_xbar.policy.toml)",
     )
     parser.add_argument(
         "--xbar",
         choices=("physical", "ideal"),
         default="physical",
         help="Tile implementation. 'ideal' swaps physical for lossless twin; only meaningful "
-        "when the chosen TOML carries a physical xbar.",
+        "when the chosen config carries a physical xbar.",
     )
     parser.add_argument("--device", type=str, default="cuda:0")
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--max-samples", type=int, default=None, help="Cap on samples processed")
-    parser.add_argument(
-        "--solve-chunk-size-x",
-        type=int,
-        default=0,
-        help="CircuitCore1T1RPolicy.solve_chunk_size_x; 0 = no x-batch chunking (default).",
-    )
-    parser.add_argument(
-        "--solve-chunk-size-inst",
-        type=int,
-        default=0,
-        help="CircuitCore1T1RPolicy.solve_chunk_size_inst; 0 = no inst chunking (default).",
-    )
     args = parser.parse_args()
 
-    config_path = CONFIG_DIR / args.macro_config
+    config_path = CONFIG_DIR / args.config
     if not config_path.is_file():
-        raise SystemExit(f"--macro-config: file not found: {config_path}")
+        raise SystemExit(f"--config: file not found: {config_path}")
+    policy_path = CONFIG_DIR / args.policy
+    if not policy_path.is_file():
+        raise SystemExit(f"--policy: file not found: {policy_path}")
 
     device = torch.device(args.device)
     ckpt = torch.load(args.checkpoint, map_location="cpu", weights_only=True)
@@ -69,9 +66,8 @@ def main() -> None:
 
     macro_factory = build_macro_factory(
         config_path,
+        policy_path,
         ideal_xbar=(args.xbar == "ideal"),
-        solve_chunk_size_x=args.solve_chunk_size_x,
-        solve_chunk_size_inst=args.solve_chunk_size_inst,
     )
     model = QuantLeNet5(macro_factory, ckpt["layers"]).to(device).eval()
 
@@ -92,7 +88,8 @@ def main() -> None:
     acc = correct / total if total else 0.0
     static = NeuroxProfiler.analyze_static(model)
     leakage_energy__fJ = static.leakage_power__uW * profiler.total_latency__ns
-    print(f"macro:                    {args.macro_config} (xbar={args.xbar})")
+    print(f"config:                   {args.config} (xbar={args.xbar})")
+    print(f"policy:                   {args.policy}")
     print(f"samples:                  {total}")
     print(f"top1_accuracy:            {acc:.4f}")
     print(f"wall_time_s:              {elapsed:.2f}")

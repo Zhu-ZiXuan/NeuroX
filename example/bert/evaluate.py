@@ -24,10 +24,16 @@ def main() -> None:
     parser.add_argument("--dataset-dir", type=Path, required=True)
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument(
-        "--macro-config",
+        "--config",
         default="macro.toml",
-        help=f"Macro TOML under {CONFIG_DIR.name}/ (default: macro.toml). "
+        help=f"Circuit config TOML under {CONFIG_DIR.name}/ (default: macro.toml). "
         "Use macro_ideal.toml for the 6-bit ideal reference path.",
+    )
+    parser.add_argument(
+        "--policy",
+        default="macro.policy.toml",
+        help=f"Nonideality policy TOML under {CONFIG_DIR.name}/ (default: macro.policy.toml). "
+        "Use macro_ideal.policy.toml for the ideal path.",
     )
     parser.add_argument("--device", type=str, default="cuda:0")
     parser.add_argument(
@@ -38,23 +44,14 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--max-length", type=int, default=128)
     parser.add_argument("--max-samples", type=int, default=None)
-    parser.add_argument(
-        "--solve-chunk-size-x",
-        type=int,
-        default=0,
-        help="CircuitCore1T1RPolicy.solve_chunk_size_x; 0 = no x-batch chunking (default).",
-    )
-    parser.add_argument(
-        "--solve-chunk-size-inst",
-        type=int,
-        default=0,
-        help="CircuitCore1T1RPolicy.solve_chunk_size_inst; 0 = no inst chunking (default).",
-    )
     args = parser.parse_args()
 
-    config_path = CONFIG_DIR / args.macro_config
+    config_path = CONFIG_DIR / args.config
     if not config_path.is_file():
-        raise SystemExit(f"--macro-config: file not found: {config_path}")
+        raise SystemExit(f"--config: file not found: {config_path}")
+    policy_path = CONFIG_DIR / args.policy
+    if not policy_path.is_file():
+        raise SystemExit(f"--policy: file not found: {policy_path}")
 
     device = torch.device(args.device)
     ckpt = torch.load(args.checkpoint, map_location="cpu", weights_only=True)
@@ -63,16 +60,15 @@ def main() -> None:
 
     macro_factory = build_macro_factory(
         config_path,
+        policy_path,
         ideal_xbar=(args.xbar == "ideal"),
-        solve_chunk_size_x=args.solve_chunk_size_x,
-        solve_chunk_size_inst=args.solve_chunk_size_inst,
     )
     model = create_bert_small(num_labels=2, cache_dir=str(args.dataset_dir))
     model = model.to(device)
     # mode 4 (v_ref = 0.05 V) matches the post-solver-fix v_diff p99 ≈ 0.025 V;
     # see example/lenet/model_quant.py:_LAYER_MODE for the same reasoning.
     n_replaced = to_quant(model, ckpt["layers"], macro_factory, mode_picker=4)
-    print(f"Quant-replaced {n_replaced} Linear layers; macro={args.macro_config} (xbar={args.xbar})")
+    print(f"Quant-replaced {n_replaced} Linear layers; config={args.config} policy={args.policy} (xbar={args.xbar})")
     model.eval()
 
     loader: DataLoader = create_sst2_dataloader(

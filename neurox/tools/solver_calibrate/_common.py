@@ -27,14 +27,8 @@ from typing import Any
 import torch
 from torch import Tensor
 
-from neurox.analog import DriverPolicy
-from neurox.analog.analog_mux import AnalogMuxPolicy
-from neurox.analog.dac import GeneralDACPolicy
-from neurox.analog.switch_cap import SwitchCapPolicy
-from neurox.analog.tia import OpAmpTIAConfig, OpAmpTIAPolicy
-from neurox.device import NMOSPolicy, RRAMPolicy
+from neurox.analog.tia import OpAmpTIAConfig
 from neurox.tools.xbar_adc._sampling import (
-    _all_off_adc_policy,
     load_distribution,
     make_generator,
     sample_w,
@@ -47,14 +41,10 @@ from neurox.xbar import (
 )
 from neurox.xbar._1t1r import (
     CircuitCore1T1R,
-    CircuitCore1T1RPolicy,
     Solver1T1R,
     Solver1T1RConfig,
 )
-from neurox.xbar.readout import (
-    OffsetSwitchCapMuxAdcReadOutConfig,
-    OffsetSwitchCapMuxAdcReadOutPolicy,
-)
+from neurox.xbar.readout import OffsetSwitchCapMuxAdcReadOutConfig
 
 from ._plateau import CandidateRow, WorkloadScale
 
@@ -88,7 +78,7 @@ def build_xbar_for_calibration(
     Returns:
         A fabricated noise-off :class:`Offset1T1RXbar`.
     """
-    from neurox.common.load_dump import dataclass_from_file
+    from neurox.common.load_dump import dataclass_from_file, preset_path
 
     xbar_config = dataclass_from_file(Offset1T1RXbarConfig, config_path, section="xbar")
     readout_config = xbar_config.readout_config
@@ -104,24 +94,15 @@ def build_xbar_for_calibration(
     new_core_cfg = replace(core_cfg, solver_config=solver_config)
     new_xbar_config = replace(xbar_config, core_config=new_core_cfg)
 
-    policy = Offset1T1RXbarPolicy(
-        core=CircuitCore1T1RPolicy(
-            rram=RRAMPolicy(prog_gamma=False, stuck_at=False, read_telegraph=False, read_thermal=False),
-            nmos=NMOSPolicy(A_vt_mismatch=False, A_beta_mismatch=False),
-            tia=OpAmpTIAPolicy(
-                opamp_gain_sigma=False,
-                nmos=NMOSPolicy(A_vt_mismatch=False, A_beta_mismatch=False),
-            ),
-            sl_driver=DriverPolicy(drive_thermal=False),
-            wl_dac=GeneralDACPolicy(drive_thermal=False),
+    # Noise-off policy from the shared preset (standard McsSarAdc topology),
+    # overriding only the run-specific chunking knobs.
+    base_policy = dataclass_from_file(Offset1T1RXbarPolicy, preset_path("policy/all_off.toml"), section="xbar")
+    policy = replace(
+        base_policy,
+        core=replace(
+            base_policy.core,
             solve_chunk_size_x=solve_chunk_size_x,
             solve_chunk_size_inst=solve_chunk_size_inst,
-        ),
-        readout=OffsetSwitchCapMuxAdcReadOutPolicy(
-            data_switchcap=SwitchCapPolicy(cap_mismatch=False, sampling_thermal_noise=False),
-            ref_switchcap=SwitchCapPolicy(cap_mismatch=False, sampling_thermal_noise=False),
-            analog_mux=AnalogMuxPolicy(mux_noise_cm=False, mux_noise_dm=False),
-            bl_adc=_all_off_adc_policy(readout_config.adc_config),
         ),
     )
 

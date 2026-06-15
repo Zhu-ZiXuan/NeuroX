@@ -13,13 +13,12 @@ import torch
 
 from neurox.analog.tia import OpAmpTIA, OpAmpTIAConfig, OpAmpTIAPolicy
 from neurox.common import T_ROOM__K
-from neurox.device import NMOSPolicy
+from neurox.common.load_dump import dataclass_from_file, preset_path
 
 
 def build_tia(config: OpAmpTIAConfig, *, device: torch.device) -> OpAmpTIA:
     """Build a fabricated, nonideality-free :class:`OpAmpTIA` for sweeping."""
-    nmos_policy = NMOSPolicy(A_vt_mismatch=False, A_beta_mismatch=False)
-    tia_policy = OpAmpTIAPolicy(opamp_gain_sigma=False, nmos=nmos_policy)
+    tia_policy = dataclass_from_file(OpAmpTIAPolicy, preset_path("policy/all_off.toml"), section="tia")
     tia = OpAmpTIA(
         config=config,
         policy=tia_policy,

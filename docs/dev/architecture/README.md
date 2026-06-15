@@ -22,7 +22,7 @@ These layers must stay separate; the same rule is never restated across all thre
 
 ### Lifecycle and state
 
-- [`config_and_construction.md`](config_and_construction.md) — process / design / spec / runtime parameter classes, device-vs-circuit config split, family-base + concrete-config pattern, explicit `from_config(...)`, and the paired `*Policy` runtime kwarg (no defaults, never persisted in TOML).
+- [`config_and_construction.md`](config_and_construction.md) — process / design / spec / runtime parameter classes, device-vs-circuit config split, family-base + concrete-config pattern, explicit `from_config(...)`, and the paired `*Policy` runtime kwarg (no field defaults; loaded from a separate policy TOML or constructed in code).
 - [`fabrication_lifecycle.md`](fabrication_lifecycle.md) — the `__init__` / `fabricate` / `snapshot` / `forward` lifecycle; shape is committed at `__init__`, `fabricate()` is the no-arg auto-cascade, re-callable via nominal templates.
 - [`state_holding.md`](state_holding.md) — three-stage state model (nominal → actual → snapshot), ownership rule, snapshot pattern.
 

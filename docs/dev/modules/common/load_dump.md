@@ -12,6 +12,7 @@
 - `dict_configs_from_file` / `dict_configs_to_file` — multi-config file helpers where each top-level table maps to a distinct dataclass.
 - `merge_dicts` — deep overlay merging multiple dicts in priority order.
 - `resolve_uses(data, base_dir)` — explicit directive resolver for raw-dict callers.
+- `preset_path(rel)` — absolute path to a bundled preset file under `neurox/presets/` (suffix-inferred). For library code that loads a bundled preset directly via `dataclass_from_file`, rather than referencing it from a user file with `_neurox_use_preset`.
 
 ## NeuroX-private extension keys
 

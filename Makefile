@@ -75,6 +75,9 @@ hat-lenet:                        KD_ALPHA    ?= 0.1
 hat-lenet:                        KD_TEMP     ?= 2.0
 hat-lenet:                        XBAR        ?= ideal
 eval-lenet:                       XBAR        ?= physical
+eval-lenet:                       EVAL_CKPT   ?= weight/lenet_qat.pth
+eval-lenet:                       CONFIG      ?= macro_with_physical_xbar.toml
+eval-lenet:                       POLICY      ?= macro_with_physical_xbar.policy.toml
 
 .PHONY: train-lenet
 train-lenet: ## Float-train LeNet-5 on MNIST
@@ -91,10 +94,10 @@ hat-lenet: ## Hardware-aware QAT for LeNet-5 (macro-in-the-loop, KD)
 		--kd-alpha $(KD_ALPHA) --kd-temperature $(KD_TEMP)
 
 .PHONY: eval-lenet
-eval-lenet: ## Evaluate a NeuroX-flat LeNet checkpoint on MNIST
+eval-lenet: ## Evaluate a LeNet QAT checkpoint on MNIST
 	$(PYTHON) -m example.lenet.evaluate --dataset-dir $(DATASET_DIR) \
-		--checkpoint $(HAT_CKPT) --device $(DEVICE) --xbar $(XBAR) \
-		--batch-size $(BATCH_SIZE) \
+		--checkpoint $(EVAL_CKPT) --config $(CONFIG) --policy $(POLICY) \
+		--device $(DEVICE) --xbar $(XBAR) --batch-size $(BATCH_SIZE) \
 		$(if $(MAX_SAMPLES),--max-samples $(MAX_SAMPLES))
 
 # BERT-small on SST-2
@@ -111,6 +114,9 @@ hat-bert:           KD_TEMP     ?= 2.0
 hat-bert:           KD_HIDDEN   ?= 0.3
 hat-bert:           XBAR        ?= ideal
 eval-bert:          XBAR        ?= physical
+eval-bert:          EVAL_CKPT   ?= weight/bert_small_qat.pth
+eval-bert:          CONFIG      ?= macro.toml
+eval-bert:          POLICY      ?= macro.policy.toml
 
 .PHONY: hat-bert
 hat-bert: ## Hardware-aware QAT for BERT-small on SST-2 (KD + pooled MSE)
@@ -122,9 +128,10 @@ hat-bert: ## Hardware-aware QAT for BERT-small on SST-2 (KD + pooled MSE)
 		--kd-alpha $(KD_ALPHA) --kd-temperature $(KD_TEMP) --kd-hidden-weight $(KD_HIDDEN)
 
 .PHONY: eval-bert
-eval-bert: ## Evaluate a NeuroX-flat BERT-small checkpoint on SST-2
+eval-bert: ## Evaluate a BERT-small QAT checkpoint on SST-2
 	$(PYTHON) -m example.bert.evaluate --dataset-dir $(DATASET_DIR) \
-		--checkpoint $(HAT_CKPT) --device $(DEVICE) --xbar $(XBAR) \
+		--checkpoint $(EVAL_CKPT) --config $(CONFIG) --policy $(POLICY) \
+		--device $(DEVICE) --xbar $(XBAR) \
 		--batch-size $(BATCH_SIZE) --max-length $(MAX_LENGTH) \
 		$(if $(MAX_SAMPLES),--max-samples $(MAX_SAMPLES))
 
