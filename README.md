@@ -4,7 +4,7 @@ NeuroX is a static-PPA + functional-accuracy co-simulation framework for memrist
 
 ## Public surface
 
-The core library's public surface stops at `neurox.macro`. Above that line — training loops, observer calibration, model rewriting — lives in `example/` and is not a stable API. Below it, every primitive (`Xbar`, `Solver1T1R`, `OpAmpTIA`, `McsSarAdc`, …) follows the same family-base + concrete-config + `from_config` registry pattern documented in [`docs/dev/architecture/`](docs/dev/architecture/README.md).
+The core library's public surface stops at `neurox.macro`. Above that line — training loops, observer calibration, model rewriting — lives in `example/` and is not a stable API. Below it, every primitive (`Xbar`, `Solver1T1R`, `OpAmpTIA`, `McsSarAdc`, …) follows the same family-base + concrete-config + `from_config` registry pattern documented in [`docs/internals/config_and_construction.md`](docs/internals/config_and_construction.md).
 
 ## Layout
 
@@ -20,8 +20,8 @@ The core library's public surface stops at `neurox.macro`. Above that line — t
 
 ## Example pipelines
 
-See [`docs/user/examples.md`](docs/user/examples.md) for the LeNet and BERT walkthroughs.
+See [`docs/guides/algorithm_engineer/`](docs/guides/algorithm_engineer/README.md) for the LeNet and BERT walkthroughs.
 
 ## Developer docs
 
-See [`docs/dev/`](docs/dev/) — the architecture rules, per-module design notes, ADRs, and the recipes index.
+See [`docs/`](docs/README.md) — the scientific reference, implementation internals, contributing standards, and ADRs.

@@ -1,7 +1,7 @@
 """V_cm-based (Merged Capacitor Switching, MCS) differential SAR ADC.
 
 See also:
-    docs/modules/analog/adc/mcs_sar.md
+    docs/reference/analog/adc/mcs_sar.md
 """
 
 import math

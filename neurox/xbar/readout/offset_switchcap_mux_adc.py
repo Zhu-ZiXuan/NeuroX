@@ -1,7 +1,7 @@
 """Offset-coded readout chain: switch-cap banks, mux, and ADC.
 
 See also:
-    docs/modules/xbar/readout/offset_switchcap_mux_adc.md
+    docs/reference/xbar/readout/README.md
 """
 
 from __future__ import annotations

@@ -1,7 +1,7 @@
 """Abstract base class for TIA models.
 
 See also:
-    docs/modules/analog/tia/README.md
+    docs/reference/analog/tia/README.md
 """
 
 from __future__ import annotations

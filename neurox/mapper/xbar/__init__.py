@@ -1,5 +1,5 @@
 """Value-domain slicer subpackage entry point.
 
 See also:
-    docs/modules/mapper/xbar/README.md
+    docs/reference/mapper/xbar/README.md
 """

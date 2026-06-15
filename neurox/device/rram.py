@@ -1,7 +1,7 @@
 """RRAM device model with programming, read noise, and nonlinear I-V.
 
 See also:
-    docs/modules/device/rram.md
+    docs/reference/device/rram.md
 """
 
 from dataclasses import dataclass

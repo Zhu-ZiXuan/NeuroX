@@ -1,7 +1,7 @@
 """Shape-independent physical core for a 1T1R crossbar tile.
 
 See also:
-    docs/modules/xbar/_1t1r/circuit_core.md
+    docs/reference/xbar/_1t1r/circuit_core.md
 """
 
 import math
@@ -83,7 +83,7 @@ class CircuitCore1T1RConfig(CircuitConfig):
             per fabricated tile instance [um²]. **Excludes** the owned
             ``CircuitBase`` children (TIA / drivers / DAC), which roll
             up separately via the composite-aggregation rule in
-            ``docs/dev/architecture/profiler_and_ppa.md``. Device-side
+            ``docs/internals/profiler.md``. Device-side
             contributions (RRAM / NMOS) are not separately rolled up —
             their physical area must be folded into this field by the
             caller (devices do not inherit ``CircuitBase``).

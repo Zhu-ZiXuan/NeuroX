@@ -11,5 +11,5 @@ sweep aggregator). Each CLI module owns one solver family:
 
 All three calibrators use the same chip-parameter-free criteria
 (step-ratio plateau + relative residual guard). See
-``docs/modules/tools/solver_calibrate/README.md`` for the rationale.
+``docs/guides/calibration/README.md`` for the rationale.
 """

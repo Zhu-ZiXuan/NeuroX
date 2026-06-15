@@ -1,7 +1,7 @@
 """Transcoder ABC and ``Encoding`` discriminator.
 
 See also:
-    docs/modules/mapper/transcoder/README.md
+    docs/reference/mapper/transcoder/README.md
 """
 
 from __future__ import annotations

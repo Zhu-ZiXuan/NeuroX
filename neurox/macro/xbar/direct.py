@@ -1,7 +1,7 @@
 """Direct macro: transcode-only.
 
 See also:
-    docs/modules/macro/xbar/direct.md
+    docs/reference/macro/xbar/direct.md
 """
 
 from __future__ import annotations

@@ -1,7 +1,7 @@
 """Logical crossbar macros.
 
 See also:
-    docs/modules/macro/README.md
+    docs/reference/macro/README.md
 """
 
 from .base import NeuroxMacroQuantMatMul

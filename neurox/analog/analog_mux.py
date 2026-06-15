@@ -1,7 +1,7 @@
 """Analog multiplexer — differential voltage-transport behavioural block.
 
 See also:
-    docs/modules/analog/analog_mux.md
+    docs/reference/analog/analog_mux.md
 """
 
 from dataclasses import dataclass

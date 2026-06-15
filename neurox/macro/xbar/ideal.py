@@ -1,7 +1,7 @@
 """Ideal XbarMacro: lossless integer-matmul reference (no xbar tile).
 
 See also:
-    docs/modules/macro/xbar/ideal.md
+    docs/reference/macro/xbar/ideal.md
 """
 
 from __future__ import annotations

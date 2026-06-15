@@ -1,7 +1,7 @@
 """Abstract base class for ADC models.
 
 See also:
-    docs/modules/analog/adc/README.md
+    docs/reference/analog/adc/README.md
 """
 
 from __future__ import annotations

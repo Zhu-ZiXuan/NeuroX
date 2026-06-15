@@ -1,6 +1,6 @@
 """Fully-coupled-Jacobian DC solver for a 1T1R crossbar array.
 
-See ``docs/modules/xbar/_1t1r/full_jacobian_solver.md`` for the
+See ``docs/reference/xbar/_1t1r/solver.md`` for the
 unknown vector, residual definition, Schur-elimination of the boundary
 scalars, and convergence rationale.
 """

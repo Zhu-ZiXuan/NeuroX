@@ -1,7 +1,7 @@
 """Inter-array slice macro: ``Sw`` distributed across xbar planes (Strategy 1).
 
 See also:
-    docs/modules/macro/xbar/inter_array_slice.md
+    docs/reference/macro/xbar/inter_array_slice.md
 """
 
 from __future__ import annotations

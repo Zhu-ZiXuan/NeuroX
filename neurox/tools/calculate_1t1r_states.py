@@ -1,7 +1,7 @@
 """Single-cell 1T1R RRAM state-map optimizer.
 
 See also:
-    docs/modules/tools/calculate_1t1r_states.md
+    docs/guides/calibration/README.md
 """
 
 from __future__ import annotations

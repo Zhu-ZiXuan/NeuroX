@@ -1,7 +1,7 @@
 """ADC family — abstract base plus concrete implementations.
 
 See also:
-    docs/modules/analog/adc/README.md
+    docs/reference/analog/adc/README.md
 """
 
 from .base import ADC, AdcCalibrationRecord, ADCConfig, ADCMode, AdcOperationPoint, ADCPolicy

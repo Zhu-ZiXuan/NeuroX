@@ -1,7 +1,7 @@
 """Continuous EKV-softplus NMOS electrical primitive.
 
 See also:
-    docs/modules/device/nmos.md
+    docs/reference/device/nmos.md
 """
 
 import math

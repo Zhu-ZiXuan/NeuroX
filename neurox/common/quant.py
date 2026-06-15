@@ -20,7 +20,7 @@ state. Each user example (e.g. ``example/lenet``, ``example/bert``)
 composes them into its own training / inference pipeline.
 
 See also:
-    docs/modules/common/quant.md
+    docs/reference/notation_conventions.md
 """
 
 from __future__ import annotations

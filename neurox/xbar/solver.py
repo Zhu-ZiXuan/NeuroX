@@ -8,7 +8,7 @@ abstraction here because device / boundary signatures differ per
 topology.
 
 See also:
-    docs/modules/xbar/solver.md
+    docs/reference/xbar/_1t1r/solver.md
 """
 
 from __future__ import annotations

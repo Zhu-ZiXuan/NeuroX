@@ -8,7 +8,7 @@ Update the docs when finish a task.
 Always use English in code and doc, be concise and precise.
 Never add unnecessary newlines in docs.
 Never change `git` status in any condition.
-Read `docs/dev/architecture.md` for detail requirements for this project.
+Read `docs/README.md` for the documentation map; the scientific spec is in `docs/reference/`, implementation internals in `docs/internals/`, and coding/doc standards in `docs/contributing/`.
 
 Key library version:
 - python 3.11+

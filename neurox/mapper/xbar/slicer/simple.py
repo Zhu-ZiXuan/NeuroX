@@ -1,7 +1,7 @@
 """SimpleSlicer — direct digitise-then-group decomposer.
 
 See also:
-    docs/modules/mapper/xbar/slicer/README.md
+    docs/reference/mapper/xbar/slicer/README.md
 """
 
 from __future__ import annotations

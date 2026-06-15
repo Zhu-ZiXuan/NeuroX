@@ -1,7 +1,7 @@
 """Intra-array slice macro: ``Sw`` gathered inside one xbar (Strategy 2).
 
 See also:
-    docs/modules/macro/xbar/intra_array_slice.md
+    docs/reference/macro/xbar/intra_array_slice.md
 """
 
 from __future__ import annotations

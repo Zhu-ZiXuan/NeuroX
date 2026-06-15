@@ -1,7 +1,7 @@
 """Common base for every electrical circuit module.
 
 See also:
-    docs/modules/common/circuit.md
+    docs/internals/config_and_construction.md
 """
 
 from __future__ import annotations

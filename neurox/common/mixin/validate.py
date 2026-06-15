@@ -1,7 +1,7 @@
 """Runtime-validation mixin for frozen config dataclasses.
 
 See also:
-    docs/dev/architecture/config_and_construction.md
+    docs/internals/config_and_construction.md
 """
 
 from __future__ import annotations

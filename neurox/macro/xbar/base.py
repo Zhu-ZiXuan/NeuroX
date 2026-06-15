@@ -1,7 +1,7 @@
 """Abstract base for the XbarMacro family.
 
 See also:
-    docs/dev/architecture/xbar_macro.md
+    docs/reference/macro/README.md
 """
 
 from __future__ import annotations

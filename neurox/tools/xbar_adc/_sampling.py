@@ -1,7 +1,7 @@
 """Shared private backend for ``neurox/tools/xbar_adc/`` CLIs.
 
 See also:
-    docs/modules/tools/xbar_adc/README.md
+    docs/guides/calibration/README.md
 """
 
 from __future__ import annotations

@@ -1,8 +1,8 @@
 """Auto-cascading `fabricate()` for static manufacturing variation sampling.
 
 See also:
-    docs/modules/common/fabricate.md
-    docs/dev/architecture/fabrication_lifecycle.md
+    docs/internals/fabrication_lifecycle.md
+    docs/internals/fabrication_lifecycle.md
 """
 
 from __future__ import annotations

@@ -42,110 +42,194 @@ plugins:
             show_root_heading: false
             show_category_heading: true
 
-# Navigation mirrors the on-disk ``docs/`` layout.
-# - ``dev/``: long-lived cross-cutting documentation (architecture rules and ADRs).
-# - ``modules/``: per-module design notes mirroring the ``neurox/`` source tree; the
-#   developer's primary entry point.
-# - ``user/``: end-user guides (currently only ``examples.md``; the rest of the
-#   user docs are still TODO).
+# Navigation mirrors the on-disk docs/ layout: intent-based top-level pillars.
 nav:
-  - Development:
-      - Overview: dev/README.md
-      - Roadmap: dev/roadmap.md
-      - Architecture:
-          - Overview: dev/architecture/README.md
-          - Code Style: dev/architecture/code_style.md
-          - Config and Construction: dev/architecture/config_and_construction.md
-          - Fabrication Lifecycle: dev/architecture/fabrication_lifecycle.md
-          - State Holding: dev/architecture/state_holding.md
-          - Mapping: dev/architecture/mapping.md
-      - ADR:
-          - Overview: dev/adr/README.md
-          - "ADR-0001 Config dispatch and owned construction": dev/adr/ADR-0001-config-dispatch-and-owned-construction.md
-          - "ADR-0002 NMOS is a pure electrical primitive": dev/adr/ADR-0002-nmos-is-a-pure-electrical-primitive.md
-  - Modules:
-      - Overview: modules/README.md
-      - common:
-          - Overview: modules/common/README.md
-          - config: modules/common/config.md
-          - registry_dispatch: modules/common/registry_dispatch.md
-          - load_dump: modules/common/load_dump.md
-          - nonideality: modules/common/nonideality.md
-          - physical_constant: modules/common/physical_constant.md
-          - quant: modules/common/quant.md
-      - device:
-          - Overview: modules/device/README.md
-          - nmos: modules/device/nmos.md
-          - rram: modules/device/rram.md
-          - wire: modules/device/wire.md
-          - selector: modules/device/selector.md
-      - analog:
-          - Overview: modules/analog/README.md
-          - clamp_driver: modules/analog/clamp_driver.md
-          - analog_mux: modules/analog/analog_mux.md
-          - decoder: modules/analog/decoder.md
-          - driver: modules/analog/driver.md
-          - switch_cap: modules/analog/switch_cap.md
-          - dac:
-              - Overview: modules/analog/dac/README.md
-              - base: modules/analog/dac/base.md
-              - general: modules/analog/dac/general.md
-          - adc:
-              - Overview: modules/analog/adc/README.md
-              - base: modules/analog/adc/base.md
-              - general: modules/analog/adc/general.md
-              - mcs_sar: modules/analog/adc/mcs_sar.md
-              - sar_mono: modules/analog/adc/sar_mono.md
-          - tia:
-              - Overview: modules/analog/tia/README.md
-              - base: modules/analog/tia/base.md
-              - opamp_tia: modules/analog/tia/opamp_tia.md
-      - digital:
-          - Overview: modules/digital/README.md
-      - xbar:
-          - Overview: modules/xbar/README.md
-          - base: modules/xbar/base.md
-          - ideal: modules/xbar/ideal.md
-          - solver: modules/xbar/solver.md
-          - 1T1R:
-              - Overview: modules/xbar/_1t1r/README.md
-              - circuit_core: modules/xbar/_1t1r/circuit_core.md
-              - newton_raphson_solver: modules/xbar/_1t1r/newton_raphson_solver.md
-              - offset: modules/xbar/_1t1r/offset.md
-              - differential: modules/xbar/_1t1r/differential.md
-              - simple_core: modules/xbar/_1t1r/simple_core.md
-          - readout:
-              - Overview: modules/xbar/readout/README.md
-              - base: modules/xbar/readout/base.md
-              - offset_switchcap_mux_adc: modules/xbar/readout/offset_switchcap_mux_adc.md
-      - mapper:
-          - Overview: modules/mapper/README.md
-          - transcoder: modules/mapper/transcoder.md
-          - xbar:
-              - Overview: modules/mapper/xbar/README.md
-              - base: modules/mapper/xbar/base.md
-              - simple_mapper: modules/mapper/xbar/simple_mapper.md
-              - slicer: modules/mapper/xbar/slicer/README.md
-              - tiler: modules/mapper/xbar/tiler/README.md
-      - macro:
-          - Overview: modules/macro/README.md
-      - operator:
-          - Overview: modules/operator/README.md
-          - train: modules/operator/train/README.md
-      - profiler:
-          - Overview: modules/profiler/README.md
-      - replace:
-          - Overview: modules/replace/README.md
-      - tools:
-          - Overview: modules/tools/README.md
-          - calculate_1t1r_states: modules/tools/calculate_1t1r_states.md
-          - logging: modules/tools/logging.md
-          - xbar_adc:
-              - Overview: modules/tools/xbar_adc/README.md
-              - statistic: modules/tools/xbar_adc/statistic.md
-              - calibrate: modules/tools/xbar_adc/calibrate.md
-  - User Guide:
-      - Examples: user/examples.md
+- Home: README.md
+- Get started:
+  - Overview: get-started/README.md
+- Guides:
+  - Overview: guides/README.md
+  - algorithm_engineer:
+    - Overview: guides/algorithm_engineer/README.md
+  - calibration:
+    - Overview: guides/calibration/README.md
+    - adc_range_probing: guides/calibration/adc_range_probing.md
+    - adc_rescale: guides/calibration/adc_rescale.md
+    - solver_iteration_counts: guides/calibration/solver_iteration_counts.md
+    - state_map: guides/calibration/state_map.md
+  - tia_design:
+    - Overview: guides/tia_design/README.md
+- Reference:
+  - Overview: reference/README.md
+  - glossary: reference/glossary.md
+  - notation_conventions: reference/notation_conventions.md
+  - parameter_provenance: reference/parameter_provenance.md
+  - analog:
+    - Overview: reference/analog/README.md
+    - analog_mux: reference/analog/analog_mux.md
+    - driver: reference/analog/driver.md
+    - switch_cap: reference/analog/switch_cap.md
+    - adc:
+      - Overview: reference/analog/adc/README.md
+      - base: reference/analog/adc/base.md
+      - general: reference/analog/adc/general.md
+      - mcs_sar: reference/analog/adc/mcs_sar.md
+      - sar_mono: reference/analog/adc/sar_mono.md
+    - dac:
+      - Overview: reference/analog/dac/README.md
+      - base: reference/analog/dac/base.md
+      - general: reference/analog/dac/general.md
+    - tia:
+      - Overview: reference/analog/tia/README.md
+      - base: reference/analog/tia/base.md
+      - opamp_tia: reference/analog/tia/opamp_tia.md
+  - device:
+    - Overview: reference/device/README.md
+    - nmos: reference/device/nmos.md
+    - rram: reference/device/rram.md
+    - selector: reference/device/selector.md
+  - digital:
+    - Overview: reference/digital/README.md
+    - accumulator: reference/digital/accumulator.md
+    - adder: reference/digital/adder.md
+    - shift_adder: reference/digital/shift_adder.md
+    - subtractor: reference/digital/subtractor.md
+  - macro:
+    - Overview: reference/macro/README.md
+    - base: reference/macro/base.md
+    - xbar:
+      - Overview: reference/macro/xbar/README.md
+      - direct: reference/macro/xbar/direct.md
+      - ideal: reference/macro/xbar/ideal.md
+      - inter_array_slice: reference/macro/xbar/inter_array_slice.md
+      - intra_array_slice: reference/macro/xbar/intra_array_slice.md
+  - mapper:
+    - Overview: reference/mapper/README.md
+    - transcoder:
+      - Overview: reference/mapper/transcoder/README.md
+      - encodings: reference/mapper/transcoder/encodings.md
+    - xbar:
+      - Overview: reference/mapper/xbar/README.md
+      - slicer:
+        - Overview: reference/mapper/xbar/slicer/README.md
+        - slicer: reference/mapper/xbar/slicer/slicer.md
+  - xbar:
+    - Overview: reference/xbar/README.md
+    - base: reference/xbar/base.md
+    - _1t1r:
+      - Overview: reference/xbar/_1t1r/README.md
+      - circuit_core: reference/xbar/_1t1r/circuit_core.md
+      - offset: reference/xbar/_1t1r/offset.md
+      - solver: reference/xbar/_1t1r/solver.md
+    - readout:
+      - Overview: reference/xbar/readout/README.md
+      - readout: reference/xbar/readout/readout.md
+- Validation:
+  - Overview: validation/README.md
+- API:
+  - Overview: api/README.md
+  - configuration: api/configuration.md
+  - python: api/python.md
+- Internals:
+  - Overview: internals/README.md
+  - compile_policy: internals/compile_policy.md
+  - config_and_construction: internals/config_and_construction.md
+  - fabrication_lifecycle: internals/fabrication_lifecycle.md
+  - state_holding: internals/state_holding.md
+  - analog:
+    - Overview: internals/analog/README.md
+    - analog_mux: internals/analog/analog_mux.md
+    - driver: internals/analog/driver.md
+    - switch_cap: internals/analog/switch_cap.md
+    - adc:
+      - Overview: internals/analog/adc/README.md
+      - base: internals/analog/adc/base.md
+      - general: internals/analog/adc/general.md
+      - mcs_sar: internals/analog/adc/mcs_sar.md
+      - sar_mono: internals/analog/adc/sar_mono.md
+    - dac:
+      - Overview: internals/analog/dac/README.md
+      - base: internals/analog/dac/base.md
+      - general: internals/analog/dac/general.md
+    - tia:
+      - Overview: internals/analog/tia/README.md
+      - base: internals/analog/tia/base.md
+      - opamp_tia: internals/analog/tia/opamp_tia.md
+  - common:
+    - Overview: internals/common/README.md
+    - circuit: internals/common/circuit.md
+    - load_dump: internals/common/load_dump.md
+    - nonideality: internals/common/nonideality.md
+    - physical_constant: internals/common/physical_constant.md
+    - profiler: internals/common/profiler.md
+    - quant: internals/common/quant.md
+    - mixin:
+      - Overview: internals/common/mixin/README.md
+      - fabricate: internals/common/mixin/fabricate.md
+      - profile: internals/common/mixin/profile.md
+      - registry: internals/common/mixin/registry.md
+      - validate: internals/common/mixin/validate.md
+  - device:
+    - Overview: internals/device/README.md
+    - nmos: internals/device/nmos.md
+    - rram: internals/device/rram.md
+    - selector: internals/device/selector.md
+  - digital:
+    - Overview: internals/digital/README.md
+    - accumulator: internals/digital/accumulator.md
+    - adder: internals/digital/adder.md
+    - shift_adder: internals/digital/shift_adder.md
+    - subtractor: internals/digital/subtractor.md
+  - macro:
+    - Overview: internals/macro/README.md
+    - base: internals/macro/base.md
+    - xbar:
+      - Overview: internals/macro/xbar/README.md
+      - base: internals/macro/xbar/base.md
+      - direct: internals/macro/xbar/direct.md
+      - ideal: internals/macro/xbar/ideal.md
+      - inter_array_slice: internals/macro/xbar/inter_array_slice.md
+      - intra_array_slice: internals/macro/xbar/intra_array_slice.md
+  - mapper:
+    - Overview: internals/mapper/README.md
+    - transcoder:
+      - Overview: internals/mapper/transcoder/README.md
+      - encodings: internals/mapper/transcoder/encodings.md
+    - xbar:
+      - Overview: internals/mapper/xbar/README.md
+      - slicer:
+        - Overview: internals/mapper/xbar/slicer/README.md
+        - slicer: internals/mapper/xbar/slicer/slicer.md
+  - xbar:
+    - Overview: internals/xbar/README.md
+    - base: internals/xbar/base.md
+    - solver: internals/xbar/solver.md
+    - _1t1r:
+      - Overview: internals/xbar/_1t1r/README.md
+      - circuit_core: internals/xbar/_1t1r/circuit_core.md
+      - offset: internals/xbar/_1t1r/offset.md
+      - solver: internals/xbar/_1t1r/solver.md
+    - readout:
+      - Overview: internals/xbar/readout/README.md
+      - base: internals/xbar/readout/base.md
+- Contributing:
+  - Overview: contributing/README.md
+  - code_style: contributing/code_style.md
+  - doc_style: contributing/doc_style.md
+  - naming_conventions: contributing/naming_conventions.md
+  - recipes: contributing/recipes.md
+  - workflow: contributing/workflow.md
+  - writing_internals_docs: contributing/writing_internals_docs.md
+  - writing_reference_docs: contributing/writing_reference_docs.md
+- About:
+  - Overview: about/README.md
+  - citation: about/citation.md
+  - roadmap: about/roadmap.md
+  - scope_limitations: about/scope_limitations.md
+  - adr:
+    - Overview: about/adr/README.md
+    - ADR-0001-config-dispatch-and-owned-construction: about/adr/ADR-0001-config-dispatch-and-owned-construction.md
+    - ADR-0002-nmos-is-a-pure-electrical-primitive: about/adr/ADR-0002-nmos-is-a-pure-electrical-primitive.md
 
 markdown_extensions:
   - admonition
@@ -160,3 +244,8 @@ markdown_extensions:
 
 extra_css:
   - stylesheets/extra.css
+
+# MathJax (pymdownx.arithmatex generic mode needs the script loaded explicitly).
+extra_javascript:
+  - javascripts/mathjax.js
+  - https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js

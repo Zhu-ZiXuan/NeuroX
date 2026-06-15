@@ -1,7 +1,7 @@
 """Cross-macro Protocol shared by every concrete macro implementation.
 
 See also:
-    docs/modules/macro/README.md
+    docs/reference/macro/README.md
 """
 
 from __future__ import annotations

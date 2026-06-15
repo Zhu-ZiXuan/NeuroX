@@ -1,7 +1,7 @@
 """Monotonic (Set-and-Down) differential SAR ADC — placeholder.
 
 See also:
-    docs/modules/analog/adc/sar_mono.md
+    docs/reference/analog/adc/sar_mono.md
 """
 
 from dataclasses import dataclass

@@ -1,7 +1,7 @@
 """XbarMacro family.
 
 See also:
-    docs/dev/architecture/xbar_macro.md
+    docs/reference/macro/README.md
 """
 
 from .base import XbarMacro, XbarMacroConfig, XbarMacroPolicy

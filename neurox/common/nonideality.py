@@ -1,8 +1,8 @@
 """Reusable analog non-ideality kernels and their config dataclasses.
 
 See also:
-    docs/modules/common/nonideality.md
-    docs/dev/architecture/config_and_construction.md
+    docs/internals/config_and_construction.md
+    docs/internals/config_and_construction.md
 """
 
 from dataclasses import dataclass
