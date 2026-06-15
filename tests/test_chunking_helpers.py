@@ -17,10 +17,12 @@ fixture. This file goes lower:
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 import torch
+from torch import Tensor
 
 from neurox.analog.adc import AdcOperationPoint
 from neurox.tools.xbar_adc._sampling import (
@@ -30,7 +32,9 @@ from neurox.tools.xbar_adc._sampling import (
     sample_w,
     sample_x_batches,
 )
+from neurox.xbar import Offset1T1RXbar
 from neurox.xbar._1t1r._chunking import (
+    ChunkSpec,
     _row_major_strides,
     classify_leading_positions,
     iter_chunks,
@@ -68,7 +72,10 @@ def test_row_major_strides_match_torch_unravel() -> None:
     strides = _row_major_strides(shape)
     flat = torch.arange(3 * 5 * 7)
     multi = torch.unravel_index(flat, shape)
-    rebuilt = sum(int(strides[d]) * multi[d] for d in range(len(shape)))
+    rebuilt = sum(
+        (int(strides[d]) * multi[d] for d in range(len(shape))),
+        start=torch.zeros_like(flat),
+    )
     assert torch.equal(rebuilt, flat)
 
 
@@ -109,7 +116,13 @@ def test_classify_degenerate_both_one_is_omitted() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _materialise_chunks(leading, a_positions, b_positions, cx, ci):
+def _materialise_chunks(
+    leading: tuple[int, ...],
+    a_positions: tuple[int, ...],
+    b_positions: tuple[int, ...],
+    cx: int,
+    ci: int,
+) -> list[ChunkSpec]:
     return list(
         iter_chunks(
             leading=leading,
@@ -264,14 +277,14 @@ def test_reassemble_round_trip_against_iter_chunks() -> None:
 
 
 @pytest.fixture(scope="module")
-def fixture_config():
+def fixture_config() -> Iterator[Path]:
     if not XBAR_CONFIG.is_file():
         pytest.skip(f"missing test fixture: {XBAR_CONFIG}")
     yield XBAR_CONFIG
 
 
 @pytest.fixture(scope="module")
-def device():
+def device() -> torch.device:
     return torch.device("cuda:0") if torch.cuda.is_available() else CPU
 
 
@@ -281,7 +294,7 @@ def _build_multi_inst(
     device: torch.device,
     *,
     inst_shape: tuple[int, ...],
-):
+) -> Offset1T1RXbar:
     return build_offset_1t1r_xbar_all_off(
         XBAR_CONFIG,
         device=device,
@@ -328,10 +341,12 @@ def _run_multi_leading(
     inst_ones = (1,) * len(inst_shape)
     x = x_flat.reshape(m, sa, *inst_ones, row_num)
     op = AdcOperationPoint(adc_mode=0, adc_bits=8)
-    return xbar.vec_mat_mul(x, adc_operation_point=op)
+    result = xbar.vec_mat_mul(x, adc_operation_point=op)
+    assert isinstance(result, Tensor)
+    return result
 
 
-def test_macro_shape_leading_single_block(fixture_config, device) -> None:
+def test_macro_shape_leading_single_block(fixture_config: Path, device: torch.device) -> None:
     out = _run_multi_leading(0, 0, device)
     # Leading is (M, Sa) x-side + inst_shape. ``w_digit_count`` is
     # already flattened into ``phys_col`` by ``Offset1T1RXbar.program``
@@ -343,19 +358,19 @@ def test_macro_shape_leading_single_block(fixture_config, device) -> None:
     assert out.shape[1] == 3
 
 
-def test_macro_shape_leading_a_chunked_bit_exact(fixture_config, device) -> None:
+def test_macro_shape_leading_a_chunked_bit_exact(fixture_config: Path, device: torch.device) -> None:
     full = _run_multi_leading(0, 0, device)
     chunked = _run_multi_leading(2, 0, device)
     assert torch.equal(full, chunked)
 
 
-def test_macro_shape_leading_b_chunked_bit_exact(fixture_config, device) -> None:
+def test_macro_shape_leading_b_chunked_bit_exact(fixture_config: Path, device: torch.device) -> None:
     full = _run_multi_leading(0, 0, device)
     chunked = _run_multi_leading(0, 2, device)
     assert torch.equal(full, chunked)
 
 
-def test_macro_shape_leading_ab_mixed_remainder(fixture_config, device) -> None:
+def test_macro_shape_leading_ab_mixed_remainder(fixture_config: Path, device: torch.device) -> None:
     # Use M=2, Sa=3 (A-side total 6) with cx=4 → remainder 2.
     # inst total = 2*1*2 = 4 with ci=3 → remainder 1.
     full = _run_multi_leading(0, 0, device)

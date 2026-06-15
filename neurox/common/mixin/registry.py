@@ -7,7 +7,7 @@ See also:
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import ClassVar, Generic, TypeVar, cast
+from typing import Any, ClassVar, Generic, TypeVar, cast
 
 KeyT = TypeVar("KeyT")
 ImplT = TypeVar("ImplT", bound="RegistryMixin")
@@ -27,7 +27,7 @@ class RegistryMixin(Generic[KeyT, ImplT]):
 
     _impl_registry: ClassVar[dict[object, type]]
 
-    def __init_subclass__(cls, **kwargs: object) -> None:
+    def __init_subclass__(cls, **kwargs: Any) -> None:
         """Create a fresh family registry on the first subclass."""
         super().__init_subclass__(**kwargs)
         for ancestor in cls.__mro__[1:]:

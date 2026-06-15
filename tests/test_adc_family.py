@@ -66,7 +66,7 @@ def test_adc_mode_rejects_invalid_combos() -> None:
 
 def _build_general_adc(boundaries: list[float]) -> GeneralADC:
     config = GeneralADCConfig(
-        boundaries=boundaries,
+        boundaries=tuple(boundaries),
         sampling_noise__V=0.0,
         comparator_noise__V=0.0,
         drive_thermal__V=0.0,
@@ -97,9 +97,7 @@ class TestGeneralAdcSignedConvert:
 
         v_pos = torch.tensor([-1.0, -0.5, 0.0, 0.5, 1.0], dtype=torch.float64)
         v_neg = torch.zeros_like(v_pos)
-        code = adc.convert(
-            v_pos, v_neg, adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=4)
-        )
+        code = adc.convert(v_pos, v_neg, adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=4))
 
         assert code.dtype == torch.int16
         assert int(code.min()) >= -8
@@ -113,9 +111,7 @@ class TestGeneralAdcSignedConvert:
 
         v_pos = torch.zeros(3, dtype=torch.float64)
         v_neg = torch.zeros(3, dtype=torch.float64)
-        code = adc.convert(
-            v_pos, v_neg, adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=4)
-        )
+        code = adc.convert(v_pos, v_neg, adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=4))
         # Signal = 0 lands in the bucket [boundary_at_midpoint - LSB, boundary_at_midpoint),
         # which after sign flip is the signed code 0 or -1 (depending on which side
         # of the midpoint boundary "0" falls). With boundaries at ..., -0.05, 0.05, ...
@@ -130,9 +126,7 @@ class TestGeneralAdcSignedConvert:
 
         v_pos = torch.tensor([10.0], dtype=torch.float64)  # way above range
         v_neg = torch.zeros_like(v_pos)
-        code = adc.convert(
-            v_pos, v_neg, adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=4)
-        )
+        code = adc.convert(v_pos, v_neg, adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=4))
         # max signed code = +7 for 4-bit
         assert int(code.item()) == 7
 
@@ -143,9 +137,7 @@ class TestGeneralAdcSignedConvert:
 
         v_pos = torch.tensor([-10.0], dtype=torch.float64)  # way below range
         v_neg = torch.zeros_like(v_pos)
-        code = adc.convert(
-            v_pos, v_neg, adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=4)
-        )
+        code = adc.convert(v_pos, v_neg, adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=4))
         # min signed code = -8 for 4-bit
         assert int(code.item()) == -8
 
@@ -193,9 +185,7 @@ class TestMcsSarAdcSignedConvert:
 
         v_pos = torch.tensor([0.0, 0.1, 0.5, 1.0, -0.5, -1.0], dtype=torch.float64)
         v_neg = torch.zeros_like(v_pos)
-        code = adc.convert(
-            v_pos, v_neg, adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=4)
-        )
+        code = adc.convert(v_pos, v_neg, adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=4))
 
         assert int(code.min()) >= -8
         assert int(code.max()) <= 7
@@ -208,9 +198,7 @@ class TestMcsSarAdcSignedConvert:
         v_pos = torch.tensor([0.0, 0.1, 0.5, 1.0], dtype=torch.float64)
         v_neg = torch.zeros_like(v_pos)
         # 2-bit: signed range [-2, 1]
-        code = adc.convert(
-            v_pos, v_neg, adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=2)
-        )
+        code = adc.convert(v_pos, v_neg, adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=2))
         assert int(code.min()) >= -2
         assert int(code.max()) <= 1
 
@@ -221,9 +209,7 @@ class TestMcsSarAdcSignedConvert:
 
         v_pos = torch.tensor([100.0], dtype=torch.float64)  # well beyond V_ref
         v_neg = torch.zeros_like(v_pos)
-        code = adc.convert(
-            v_pos, v_neg, adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=4)
-        )
+        code = adc.convert(v_pos, v_neg, adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=4))
         # Saturation at top: signed = 7 for 4 bits
         assert int(code.item()) == 7
 
@@ -234,9 +220,7 @@ class TestMcsSarAdcSignedConvert:
 
         v_pos = torch.tensor([-100.0], dtype=torch.float64)
         v_neg = torch.zeros_like(v_pos)
-        code = adc.convert(
-            v_pos, v_neg, adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=4)
-        )
+        code = adc.convert(v_pos, v_neg, adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=4))
         # Saturation at bottom: signed = -8 for 4 bits
         assert int(code.item()) == -8
 
@@ -250,12 +234,8 @@ class TestMcsSarAdcSignedConvert:
 
         v_pos = torch.tensor([0.5], dtype=torch.float64)
         v_neg = torch.zeros_like(v_pos)
-        code_mode0 = adc.convert(
-            v_pos, v_neg, adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=4)
-        )
-        code_mode2 = adc.convert(
-            v_pos, v_neg, adc_operation_point=AdcOperationPoint(adc_mode=2, adc_bits=4)
-        )
+        code_mode0 = adc.convert(v_pos, v_neg, adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=4))
+        code_mode2 = adc.convert(v_pos, v_neg, adc_operation_point=AdcOperationPoint(adc_mode=2, adc_bits=4))
         # Mode 2 (tight range) saturates; mode 0 (wide range) doesn't.
         assert int(code_mode2.item()) == 7  # saturated positive
         assert int(code_mode0.item()) < 7  # within linear region

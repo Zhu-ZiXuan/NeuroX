@@ -210,20 +210,30 @@ class RRAM(FabricateMixin, nn.Module):
 
         self.g__uS = g__uS
 
-    def snapshot(self, *, shape: tuple[int, ...]) -> RRAMSnapshot:
+    def snapshot(
+        self,
+        *,
+        shape: tuple[int, ...],
+        multi_coords: tuple[Tensor, ...] | None,
+    ) -> RRAMSnapshot:
         """Sample one per-call runtime snapshot over ``shape``.
 
         Args:
-            shape: Snapshot shape.
+            shape: Per-call broadcast shape; the snapshot fills tensor
+                fields at this shape.
+            multi_coords: Advanced-index tuple selecting a chunk's
+                positions from the broadcast view; ``None`` returns the
+                full view.
 
         Returns:
             Per-call snapshot of the fabricated state.
         """
-        g__uS = self.g__uS.expand(shape)
-        g__uS = apply_telegraph_noise(g__uS, self.config.read_telegraph, enabled=self.policy.read_telegraph)
-        g__uS = apply_gaussian(g__uS, self.config.read_thermal__uS, enabled=self.policy.read_thermal)
-        g__uS = g__uS.clamp(self.g_min__uS, self.g_max__uS)
-        return RRAMSnapshot(g__uS=g__uS)
+        g_view = self.g__uS.expand(shape) if shape else self.g__uS
+        g = g_view if multi_coords is None else g_view[multi_coords]
+        g = apply_telegraph_noise(g, self.config.read_telegraph, enabled=self.policy.read_telegraph)
+        g = apply_gaussian(g, self.config.read_thermal__uS, enabled=self.policy.read_thermal)
+        g = g.clamp(self.g_min__uS, self.g_max__uS)
+        return RRAMSnapshot(g__uS=g)
 
     def solve_dc(self, v__V: Tensor, snapshot: RRAMSnapshot) -> RRAMDCOP:
         """Evaluate current and differential conductance.

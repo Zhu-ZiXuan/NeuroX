@@ -221,7 +221,9 @@ class NeuroxProfiler:
             stacked_e = torch.stack([t for _, _, t in self._pending_energy])
             energies = stacked_e.cpu().tolist()
             for (name, mtype, _t), energy in zip(self._pending_energy, energies, strict=True):
-                self.energy_events.append(EnergyEvent(qualified_name=name, module_type=mtype, dynamic_energy__fJ=energy))
+                self.energy_events.append(
+                    EnergyEvent(qualified_name=name, module_type=mtype, dynamic_energy__fJ=energy)
+                )
                 self._total_dynamic_energy__fJ += energy
                 self._energy_by_name[name] = self._energy_by_name.get(name, 0.0) + energy
                 self._energy_by_type[mtype] = self._energy_by_type.get(mtype, 0.0) + energy

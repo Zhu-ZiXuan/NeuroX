@@ -8,11 +8,11 @@ One xbar plane carries one `Sw` slice index across all weights.  For `Sw` slices
 
 ## Organize (W)
 
-Identity. After slicing into `[..., N, K, Sw, D]`, `Sw` stays as a trailing axis through tiling, permute, and placeholder insertion. Final fabricated tensor shape: `[..., M=1, Tc, Tr, Sa=1, Sw, data_num, D, row_num]`.
+After slicing into `[..., N, K, Sw, D]`, `Sw` is hoisted into the canonical leading position via permute and the `M=1, Sa=1` placeholders are inserted. Final fabricated tensor shape: `[..., M=1, Sa=1, Sw, Tc, Tr, data_num, D, row_num]`. Leading order is `[Sa, Sw, Tc, Tr]` (all four present for InterArray).
 
 ## Aggregate
 
-`Sa` shift-add (intra-xbar serial) → `Sw` shift-add (cross-xbar weighted-sum) → `Tc` accumulate → flatten `(Tr, data_num)` → trim to `N`. The macro returns pre-requantize int output; the operator owns bias add and rescale.
+`Sa` shift-add (intra-xbar serial, `dim=-5`) → `Sw` shift-add (cross-xbar weighted-sum, `dim=-4`) → `Tc` accumulate (`dim=-3`) → flatten `(Tr, data_num)` → trim to `N`. The macro returns pre-requantize int output; the operator owns bias add and rescale.
 
 ## Config sub-modules
 

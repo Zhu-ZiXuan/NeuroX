@@ -10,11 +10,11 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any
 
 from torch import Tensor
 
-from neurox.analog.clamp_driver import ClampDriver
+from neurox.analog import Driver, DriverSnapshot
+from neurox.analog.tia import TIA, TIASnapshot
 from neurox.common.mixin import RegistryMixin, ValidateMixin
 from neurox.device import RRAM, RRAMSnapshot
 from neurox.device.nmos import NMOS, NMOSSnapshot
@@ -140,8 +140,8 @@ class Solver1T1R(RegistryMixin[type["Solver1T1RConfig"], "Solver1T1R"], ABC):
         config: Solver1T1RConfig,
         rram: RRAM,
         nmos: NMOS,
-        bl_driver: ClampDriver,
-        sl_driver: ClampDriver,
+        bl_driver: TIA,
+        sl_driver: Driver,
     ) -> None:
         """Bind the solver to its boundary actors; concrete subclasses do the real init."""
         raise NotImplementedError
@@ -153,8 +153,8 @@ class Solver1T1R(RegistryMixin[type["Solver1T1RConfig"], "Solver1T1R"], ABC):
         config: Solver1T1RConfig,
         rram: RRAM,
         nmos: NMOS,
-        bl_driver: ClampDriver,
-        sl_driver: ClampDriver,
+        bl_driver: TIA,
+        sl_driver: Driver,
     ) -> Solver1T1R:
         """Build the concrete impl registered for ``type(config)``."""
         impl = cls._lookup_impl(type(config))
@@ -177,8 +177,8 @@ class Solver1T1R(RegistryMixin[type["Solver1T1RConfig"], "Solver1T1R"], ABC):
         sl_segment_g__uS: Tensor,
         rram_snapshot: RRAMSnapshot,
         nmos_snapshot: NMOSSnapshot,
-        bl_driver_snapshot: Any,
-        sl_driver_snapshot: Any,
+        bl_driver_snapshot: TIASnapshot,
+        sl_driver_snapshot: DriverSnapshot,
         compute_residuals: bool = False,
     ) -> Solver1T1RDCOP:
         """Solve the fabricated 1T1R tile for one WL-drive tensor.

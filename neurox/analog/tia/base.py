@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from abc import abstractmethod
 from dataclasses import dataclass
+from typing import Generic, TypeVar
 
 import torch
 from torch import Tensor
@@ -43,8 +44,23 @@ class TIASnapshot:
     """Marker base for per-call snapshots of a TIA's fabricated state."""
 
 
-class TIA(CircuitBase[TIAConfig], RegistryMixin[type["TIAConfig"], "TIA"]):
-    """Abstract base for transimpedance-amp clamp drivers."""
+SnapshotT = TypeVar("SnapshotT", bound=TIASnapshot)
+
+
+class TIA(
+    CircuitBase[TIAConfig],
+    RegistryMixin[type["TIAConfig"], "TIA"],
+    Generic[SnapshotT],
+):
+    """Abstract base for transimpedance-amp clamp drivers.
+
+    Parameterised by the concrete snapshot type ``SnapshotT`` so each
+    implementation declares its snapshot dataclass exactly once and
+    ``snapshot`` / ``solve_clamp`` carry that concrete type without an
+    LSP-narrowing override. The registry-impl slot is unparameterised
+    because Python generics are invariant — each concrete impl binds
+    ``SnapshotT`` to its own snapshot subclass.
+    """
 
     def __init__(
         self,
@@ -89,7 +105,7 @@ class TIA(CircuitBase[TIAConfig], RegistryMixin[type["TIAConfig"], "TIA"]):
         raise NotImplementedError
 
     @abstractmethod
-    def snapshot(self, *, shape: tuple[int, ...], multi_coords: tuple[Tensor, ...] | None) -> TIASnapshot:
+    def snapshot(self, *, shape: tuple[int, ...], multi_coords: tuple[Tensor, ...] | None) -> SnapshotT:
         """Sample one per-call runtime snapshot over ``shape``.
 
         Args:
@@ -108,9 +124,9 @@ class TIA(CircuitBase[TIAConfig], RegistryMixin[type["TIAConfig"], "TIA"]):
     def solve_clamp(
         self,
         i_port__uA: Tensor,
-        snapshot: TIASnapshot,
+        snapshot: SnapshotT,
         *,
         v_clamp_init__V: Tensor | None,
     ) -> tuple[Tensor, Tensor]:
-        """`ClampDriver` protocol entry: returns ``(v_clamp__V, dVclamp_dI__MOhm)``."""
+        """Boundary clamp solve: returns ``(v_clamp__V, dVclamp_dI__MOhm)``."""
         raise NotImplementedError

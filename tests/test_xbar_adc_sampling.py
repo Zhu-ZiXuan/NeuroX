@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 import pytest
 import torch
 
 from neurox.analog.adc import ADC, AdcOperationPoint
+from neurox.analog.tia import OpAmpTIAPolicy
 from neurox.tools.xbar_adc._probe import (
     ProbeADC,
     install_probe_adc,
@@ -22,6 +22,9 @@ from neurox.tools.xbar_adc._sampling import (
     sample_w,
     sample_x_batches,
 )
+from neurox.xbar import Offset1T1RXbar
+from neurox.xbar._1t1r.offset import Offset1T1RXbarPolicy
+from neurox.xbar.readout.offset_switchcap_mux_adc import OffsetSwitchCapMuxAdcReadOutPolicy
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 XBAR_CONFIG = REPO_ROOT / "example" / "config" / "1t1r_28nm.toml"
@@ -35,7 +38,7 @@ CPU = torch.device("cpu")
 
 
 @pytest.fixture(scope="module")
-def xbar():
+def xbar() -> Offset1T1RXbar:
     return build_offset_1t1r_xbar_all_off(XBAR_CONFIG, device=CPU)
 
 
@@ -51,63 +54,63 @@ def _write(tmp_path: Path, body: str) -> Path:
 
 
 class TestLoadDistribution:
-    def test_none_path_yields_uniform(self, xbar: Any) -> None:
+    def test_none_path_yields_uniform(self, xbar: Offset1T1RXbar) -> None:
         dist = load_distribution(None, xbar)
         assert dist.w_values is None and dist.w_probs is None
         assert dist.x_values is None and dist.x_probs is None
         assert dist.source == "uniform"
 
-    def test_missing_w_keeps_w_uniform(self, tmp_path: Path, xbar: Any) -> None:
+    def test_missing_w_keeps_w_uniform(self, tmp_path: Path, xbar: Offset1T1RXbar) -> None:
         path = _write(tmp_path, "[x]\nvalues = [0, 1]\nprobs = [0.5, 0.5]\n")
         dist = load_distribution(path, xbar)
         assert dist.w_values is None and dist.w_probs is None
         assert dist.x_values is not None and dist.x_probs is not None
 
-    def test_missing_x_keeps_x_uniform(self, tmp_path: Path, xbar: Any) -> None:
+    def test_missing_x_keeps_x_uniform(self, tmp_path: Path, xbar: Offset1T1RXbar) -> None:
         # w_digit_range for the 28nm preset = (-1, 2).
         path = _write(tmp_path, "[w]\nvalues = [-1, 0, 1]\nprobs = [1.0, 1.0, 1.0]\n")
         dist = load_distribution(path, xbar)
         assert dist.w_values is not None and dist.w_probs is not None
         assert dist.x_values is None and dist.x_probs is None
 
-    def test_probs_normalised(self, tmp_path: Path, xbar: Any) -> None:
+    def test_probs_normalised(self, tmp_path: Path, xbar: Offset1T1RXbar) -> None:
         path = _write(tmp_path, "[w]\nvalues = [0, 1]\nprobs = [3.0, 1.0]\n")
         dist = load_distribution(path, xbar)
         assert dist.w_probs is not None
         assert torch.allclose(dist.w_probs, torch.tensor([0.75, 0.25], dtype=torch.float64))
 
-    def test_length_mismatch(self, tmp_path: Path, xbar: Any) -> None:
+    def test_length_mismatch(self, tmp_path: Path, xbar: Offset1T1RXbar) -> None:
         path = _write(tmp_path, "[w]\nvalues = [0, 1]\nprobs = [1.0]\n")
         with pytest.raises(ValueError, match=r"len\(values\)=2 != len\(probs\)=1"):
             load_distribution(path, xbar)
 
-    def test_negative_probability(self, tmp_path: Path, xbar: Any) -> None:
+    def test_negative_probability(self, tmp_path: Path, xbar: Offset1T1RXbar) -> None:
         path = _write(tmp_path, "[w]\nvalues = [0, 1]\nprobs = [-0.1, 1.1]\n")
         with pytest.raises(ValueError, match=r"every entry must be >= 0"):
             load_distribution(path, xbar)
 
-    def test_all_zero_probability(self, tmp_path: Path, xbar: Any) -> None:
+    def test_all_zero_probability(self, tmp_path: Path, xbar: Offset1T1RXbar) -> None:
         path = _write(tmp_path, "[w]\nvalues = [0, 1]\nprobs = [0.0, 0.0]\n")
         with pytest.raises(ValueError, match=r"at least one entry must be > 0"):
             load_distribution(path, xbar)
 
-    def test_value_out_of_range(self, tmp_path: Path, xbar: Any) -> None:
+    def test_value_out_of_range(self, tmp_path: Path, xbar: Offset1T1RXbar) -> None:
         # w_digit_range = (-1, 2); 5 is out of range.
         path = _write(tmp_path, "[w]\nvalues = [5]\nprobs = [1.0]\n")
         with pytest.raises(ValueError, match=r"outside xbar legal range"):
             load_distribution(path, xbar)
 
-    def test_empty_values(self, tmp_path: Path, xbar: Any) -> None:
+    def test_empty_values(self, tmp_path: Path, xbar: Offset1T1RXbar) -> None:
         path = _write(tmp_path, "[w]\nvalues = []\nprobs = []\n")
         with pytest.raises(ValueError, match=r"must be non-empty"):
             load_distribution(path, xbar)
 
-    def test_missing_required_key(self, tmp_path: Path, xbar: Any) -> None:
+    def test_missing_required_key(self, tmp_path: Path, xbar: Offset1T1RXbar) -> None:
         path = _write(tmp_path, "[w]\nvalues = [0]\n")
         with pytest.raises(ValueError, match=r"both 'values' and 'probs' are required"):
             load_distribution(path, xbar)
 
-    def test_non_integer_values(self, tmp_path: Path, xbar: Any) -> None:
+    def test_non_integer_values(self, tmp_path: Path, xbar: Offset1T1RXbar) -> None:
         path = _write(tmp_path, "[w]\nvalues = [0.5]\nprobs = [1.0]\n")
         with pytest.raises(ValueError, match=r"must be a list of integers"):
             load_distribution(path, xbar)
@@ -138,7 +141,7 @@ def _categorical_dist(
 
 
 class TestSampleW:
-    def test_shape_dtype_uniform(self, xbar: Any) -> None:
+    def test_shape_dtype_uniform(self, xbar: Offset1T1RXbar) -> None:
         ws = list(sample_w(_uniform_dist(), xbar, n=3, device=CPU))
         assert len(ws) == 3
         for w in ws:
@@ -148,14 +151,14 @@ class TestSampleW:
             assert int(w.min()) >= lo
             assert int(w.max()) <= hi
 
-    def test_categorical_values_subset(self, xbar: Any) -> None:
+    def test_categorical_values_subset(self, xbar: Offset1T1RXbar) -> None:
         # 28nm preset: w_digit_range = (-1, 2). Pick a strict subset {-1, 0}.
         dist = _categorical_dist(w_values=[-1, 0], w_probs=[0.5, 0.5])
         ws = list(sample_w(dist, xbar, n=2, device=CPU))
         for w in ws:
             assert set(w.flatten().tolist()).issubset({-1, 0})
 
-    def test_determinism_with_seed(self, xbar: Any) -> None:
+    def test_determinism_with_seed(self, xbar: Offset1T1RXbar) -> None:
         g1 = make_generator(seed=42, device=CPU)
         g2 = make_generator(seed=42, device=CPU)
         ws1 = list(sample_w(_uniform_dist(), xbar, n=2, device=CPU, generator=g1))
@@ -163,12 +166,12 @@ class TestSampleW:
         for a, b in zip(ws1, ws2, strict=True):
             assert torch.equal(a, b)
 
-    def test_n_zero_yields_nothing(self, xbar: Any) -> None:
+    def test_n_zero_yields_nothing(self, xbar: Offset1T1RXbar) -> None:
         assert list(sample_w(_uniform_dist(), xbar, n=0, device=CPU)) == []
 
 
 class TestSampleXBatches:
-    def test_total_and_shape_uniform(self, xbar: Any) -> None:
+    def test_total_and_shape_uniform(self, xbar: Offset1T1RXbar) -> None:
         xs = list(sample_x_batches(_uniform_dist(), xbar, n_total=10, batch_size=4, device=CPU))
         assert sum(int(x.shape[0]) for x in xs) == 10
         for x in xs:
@@ -178,18 +181,18 @@ class TestSampleXBatches:
             assert int(x.min()) >= lo
             assert int(x.max()) <= hi
 
-    def test_last_batch_truncates(self, xbar: Any) -> None:
+    def test_last_batch_truncates(self, xbar: Offset1T1RXbar) -> None:
         xs = list(sample_x_batches(_uniform_dist(), xbar, n_total=5, batch_size=4, device=CPU))
         assert [int(x.shape[0]) for x in xs] == [4, 1]
 
-    def test_categorical_values_subset(self, xbar: Any) -> None:
+    def test_categorical_values_subset(self, xbar: Offset1T1RXbar) -> None:
         # 28nm preset: x_range = (0, 1).
         dist = _categorical_dist(x_values=[0], x_probs=[1.0])
         xs = list(sample_x_batches(dist, xbar, n_total=8, batch_size=4, device=CPU))
         for x in xs:
             assert int(x.max()) == 0 and int(x.min()) == 0
 
-    def test_determinism_with_seed(self, xbar: Any) -> None:
+    def test_determinism_with_seed(self, xbar: Offset1T1RXbar) -> None:
         g1 = make_generator(seed=7, device=CPU)
         g2 = make_generator(seed=7, device=CPU)
         xs1 = list(sample_x_batches(_uniform_dist(), xbar, n_total=8, batch_size=3, device=CPU, generator=g1))
@@ -197,10 +200,10 @@ class TestSampleXBatches:
         for a, b in zip(xs1, xs2, strict=True):
             assert torch.equal(a, b)
 
-    def test_n_total_zero(self, xbar: Any) -> None:
+    def test_n_total_zero(self, xbar: Offset1T1RXbar) -> None:
         assert list(sample_x_batches(_uniform_dist(), xbar, n_total=0, batch_size=4, device=CPU)) == []
 
-    def test_invalid_batch_size(self, xbar: Any) -> None:
+    def test_invalid_batch_size(self, xbar: Offset1T1RXbar) -> None:
         with pytest.raises(ValueError, match=r"batch_size"):
             list(sample_x_batches(_uniform_dist(), xbar, n_total=4, batch_size=0, device=CPU))
 
@@ -211,22 +214,24 @@ class TestSampleXBatches:
 
 
 class TestBuildOffsetXbar:
-    def test_returns_offset_xbar(self, xbar: Any) -> None:
-        from neurox.xbar import Offset1T1RXbar
-
+    def test_returns_offset_xbar(self, xbar: Offset1T1RXbar) -> None:
         assert isinstance(xbar, Offset1T1RXbar)
         assert xbar.training is False
 
-    def test_all_policy_flags_false(self, xbar: Any) -> None:
+    def test_all_policy_flags_false(self, xbar: Offset1T1RXbar) -> None:
         # Spot-check leaves across the policy tree.
-        assert xbar.policy.core.rram.prog_gamma is False
-        assert xbar.policy.core.rram.stuck_at is False
-        assert xbar.policy.core.nmos.A_vt_mismatch is False
-        assert xbar.policy.core.tia.opamp_gain_sigma is False
-        assert xbar.policy.readout.data_switchcap.cap_mismatch is False
-        assert xbar.policy.readout.analog_mux.mux_noise_cm is False
+        policy = xbar.policy
+        assert isinstance(policy, Offset1T1RXbarPolicy)
+        assert isinstance(policy.core.tia, OpAmpTIAPolicy)
+        assert isinstance(policy.readout, OffsetSwitchCapMuxAdcReadOutPolicy)
+        assert policy.core.rram.prog_gamma is False
+        assert policy.core.rram.stuck_at is False
+        assert policy.core.nmos.A_vt_mismatch is False
+        assert policy.core.tia.opamp_gain_sigma is False
+        assert policy.readout.data_switchcap.cap_mismatch is False
+        assert policy.readout.analog_mux.mux_noise_cm is False
         # bl_adc may be one of several policy types; just check it has been built.
-        assert xbar.policy.readout.bl_adc is not None
+        assert policy.readout.bl_adc is not None
 
     def test_unsupported_adc_config_raises(self) -> None:
         class _Bogus:
@@ -242,7 +247,7 @@ class TestBuildOffsetXbar:
 
 
 class TestProbe:
-    def test_install_replaces_bl_adc(self, xbar: Any) -> None:
+    def test_install_replaces_bl_adc(self, xbar: Offset1T1RXbar) -> None:
         handle = install_probe_adc(xbar)
         try:
             assert isinstance(xbar.readout.bl_adc, ProbeADC)
@@ -252,13 +257,13 @@ class TestProbe:
         finally:
             handle.restore()
 
-    def test_restore_reinstalls_original(self, xbar: Any) -> None:
+    def test_restore_reinstalls_original(self, xbar: Offset1T1RXbar) -> None:
         original = xbar.readout.bl_adc
         handle = install_probe_adc(xbar)
         handle.restore()
         assert xbar.readout.bl_adc is original
 
-    def test_context_manager_restores_on_exit(self, xbar: Any) -> None:
+    def test_context_manager_restores_on_exit(self, xbar: Offset1T1RXbar) -> None:
         original = xbar.readout.bl_adc
         with install_probe_adc(xbar):
             assert isinstance(xbar.readout.bl_adc, ProbeADC)
@@ -272,9 +277,9 @@ class TestProbe:
             readout = _Readout()
 
         with pytest.raises(TypeError, match=r"unsupported readout type"):
-            install_probe_adc(_BogusXbar())  # type: ignore[arg-type]
+            install_probe_adc(_BogusXbar())
 
-    def test_one_vmm_captures_inputs(self, xbar: Any) -> None:
+    def test_one_vmm_captures_inputs(self, xbar: Offset1T1RXbar) -> None:
         # Drive one VMM through the probe-installed xbar and assert capture.
         from neurox.tools.xbar_adc._sampling import sample_w, sample_x_batches
 

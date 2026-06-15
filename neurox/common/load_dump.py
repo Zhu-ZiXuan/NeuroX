@@ -22,15 +22,15 @@ T = TypeVar("T")
 # --- type helpers ---
 
 
-def _is_dataclass_type(tp: Any) -> bool:  # noqa: ANN401
+def _is_dataclass_type(tp: Any) -> bool:
     return isinstance(tp, type) and is_dataclass(tp)
 
 
-def _is_enum_type(tp: Any) -> bool:  # noqa: ANN401
+def _is_enum_type(tp: Any) -> bool:
     return isinstance(tp, type) and issubclass(tp, Enum)
 
 
-def _dataclass_field_names(cls: Any) -> set[str]:  # noqa: ANN401
+def _dataclass_field_names(cls: Any) -> set[str]:
     """Return the declared field names of a dataclass type."""
     return {f.name for f in fields(cls)}
 
@@ -77,7 +77,7 @@ def _recursive_dataclass_descendants(base: type) -> list[str]:
     return out
 
 
-def _build_value(value: Any, tp: Any) -> Any:  # noqa: ANN401
+def _build_value(value: Any, tp: Any) -> Any:
     """Coerce ``value`` into the annotated type ``tp`` recursively.
 
     Unions are resolved by trying each arm and returning the first that
@@ -89,12 +89,14 @@ def _build_value(value: Any, tp: Any) -> Any:  # noqa: ANN401
     args = get_args(tp)
 
     # --- Literal: enforce membership ---
+
     if origin is typing.Literal:
         if value not in args:
             raise ValueError(f"value {value!r} not in Literal{list(args)}")
         return value
 
     # --- unions (includes Optional) ---
+
     if origin is Union or origin is UnionType:
         if value is None and NoneType in args:
             return None
@@ -112,6 +114,7 @@ def _build_value(value: Any, tp: Any) -> Any:  # noqa: ANN401
         return value
 
     # --- nested dataclass ---
+
     if _is_dataclass_type(tp):
         if not isinstance(value, Mapping):
             raise TypeError(f"Expected mapping for {tp.__name__}, got {type(value).__name__}")
@@ -123,12 +126,14 @@ def _build_value(value: Any, tp: Any) -> Any:  # noqa: ANN401
         return dataclass_from_dict(tp, value)
 
     # --- enum ---
+
     if _is_enum_type(tp):
         if isinstance(value, tp):
             return value
         return tp(value)
 
     # --- generic containers ---
+
     if origin in (list, tuple, set, frozenset):
         # ``str`` / ``bytes`` are iterables of length-1 elements; if a
         # config field is annotated ``list[T]`` and the TOML supplies a
@@ -158,14 +163,16 @@ def _build_value(value: Any, tp: Any) -> Any:  # noqa: ANN401
         return {k: _build_value(v, v_tp) for k, v in value.items()}
 
     # --- primitive (int / float / bool / str) ---
+
     if tp in (int, float, bool, str):
         return _coerce_primitive(value, tp)
 
     # --- untyped / Any ---
+
     return value
 
 
-def _coerce_primitive(value: Any, tp: type) -> Any:  # noqa: ANN401
+def _coerce_primitive(value: Any, tp: type) -> Any:
     """Validate a primitive value against ``tp``; reject silent mis-coercion.
 
     Rules:
@@ -220,7 +227,7 @@ def dataclass_from_dict(cls: type[T], data: Mapping[str, Any]) -> T:
         concrete = _resolve_concrete_dataclass(cls, type_name)
         if concrete is not cls:
             filtered = {k: v for k, v in data.items() if k != _TYPE_DISCRIMINATOR}
-            return dataclass_from_dict(concrete, filtered)  # type: ignore[return-value]
+            return dataclass_from_dict(concrete, filtered)
     hints = get_type_hints(cls)
     names = _dataclass_field_names(cls)
     unknown = [k for k in data if k != _TYPE_DISCRIMINATOR and k not in names]
@@ -251,7 +258,7 @@ def _is_polymorphic_dataclass(tp: type) -> bool:
     return any(_is_dataclass_type(sub) for sub in tp.__subclasses__())
 
 
-def _to_primitive(obj: Any) -> Any:  # noqa: ANN401
+def _to_primitive(obj: Any) -> Any:
     """Recursively convert a dataclass tree to primitive Python values."""
     if isinstance(obj, Enum):
         return obj.value
@@ -270,7 +277,7 @@ def _to_primitive(obj: Any) -> Any:  # noqa: ANN401
     return obj
 
 
-def dataclass_to_dict(obj: Any) -> dict[str, Any]:  # noqa: ANN401
+def dataclass_to_dict(obj: Any) -> dict[str, Any]:
     """Convert a dataclass instance to a plain dict.
 
     ``Enum`` values are written as their ``.value``.
@@ -348,7 +355,7 @@ def dict_to_toml(data: Mapping[str, Any], file: Path) -> None:
         tomli_w.dump(_strip_none(data), f)
 
 
-def _strip_none(data: Any) -> Any:  # noqa: ANN401
+def _strip_none(data: Any) -> Any:
     """Recursively drop ``None`` values."""
     if isinstance(data, Mapping):
         return {k: _strip_none(v) for k, v in data.items() if v is not None}
@@ -433,7 +440,7 @@ def _resolve_fragment_path(rel: str, base_dir: Path) -> Path:
     raise FileNotFoundError(f"{_USE_DIRECTIVE} fragment {rel!r} not found relative to {base_dir}")
 
 
-def _parse_use_ref(ref: Any, base_dir: Path) -> tuple[Path, str]:  # noqa: ANN401
+def _parse_use_ref(ref: Any, base_dir: Path) -> tuple[Path, str]:
     """Parse ``"<rel_path>:<section>"`` into ``(absolute_path, section_name)``."""
     if not isinstance(ref, str):
         raise TypeError(f"{_USE_DIRECTIVE} must be a string, got {type(ref).__name__}")
@@ -480,7 +487,7 @@ def _resolve_preset_fragment_path(rel: str) -> Path:
     raise FileNotFoundError(f"{_USE_PRESET_DIRECTIVE} fragment {rel!r} not found under {root}")
 
 
-def _parse_preset_ref(ref: Any) -> tuple[Path, str]:  # noqa: ANN401
+def _parse_preset_ref(ref: Any) -> tuple[Path, str]:
     """Parse a preset ``"<rel_path>:<section>"`` anchored at ``neurox/presets/``."""
     if not isinstance(ref, str):
         raise TypeError(f"{_USE_PRESET_DIRECTIVE} must be a string, got {type(ref).__name__}")
@@ -505,7 +512,7 @@ def _resolve_directive_branch(
     in_preset_for_inline: bool,
     cache: dict[Path, dict[str, Any]],
     in_progress: frozenset[tuple[Path, str]],
-) -> Any:  # noqa: ANN401
+) -> Any:
     """Resolve one ``(directive, path, section)`` fragment-merge step.
 
     Shared core of the ``_neurox_use`` and ``_neurox_use_preset`` branches:
@@ -544,13 +551,13 @@ def _resolve_directive_branch(
 
 
 def _resolve_uses_in_value(
-    value: Any,  # noqa: ANN401
+    value: Any,
     base_dir: Path,
     *,
     cache: dict[Path, dict[str, Any]],
     in_progress: frozenset[tuple[Path, str]],
     in_preset: bool = False,
-) -> Any:  # noqa: ANN401
+) -> Any:
     """Recursively resolve ``_neurox_use`` and ``_neurox_use_preset`` in ``value``.
 
     A mapping carrying either directive is replaced by
@@ -689,7 +696,7 @@ def dataclass_from_file(
     return dataclass_from_dict(cls, merged)
 
 
-def dataclass_to_file(obj: Any, file: Path, *, encoding: str | None = "utf-8") -> None:  # noqa: ANN401
+def dataclass_to_file(obj: Any, file: Path, *, encoding: str | None = "utf-8") -> None:
     """Write a dataclass instance to a TOML or YAML file."""
     dict_to_file(dataclass_to_dict(obj), file, encoding=encoding)
 

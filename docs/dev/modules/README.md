@@ -6,9 +6,9 @@ The on-disk layout below `modules/` is intended to be **one-to-one** with `neuro
 
 Current documented areas:
 
-- `common/` — config base + dispatch mixin + load/dump + noise + constants
+- `common/` — `CircuitBase` + `CircuitConfig` typed PPA root, config base + dispatch mixin + load/dump + noise + constants
 - `device/` — NMOS, RRAM, Selector
-- `analog/` — clamp-driver protocol, AnalogMux, Decoder, Driver, SwitchCap, and the `dac/`, `adc/`, `tia/` polymorphic families
+- `analog/` — clamp-driver protocol, AnalogMux, Driver, SwitchCap, and the `dac/`, `adc/`, `tia/` polymorphic families
 - `digital/` — accumulator, adders, shift-adder, subtractor
 - `xbar/` — abstract `Xbar`, ideal twin, shared solver primitives, the `_1t1r/` subtree (`circuit_core`, `solver`, `nested_solver`, `full_jacobian_solver`, `offset`), and the `readout/` polymorphic family
 - `mapper/` — `transcoder` plus the `xbar/slicer/` value-domain primitive

@@ -18,6 +18,7 @@ per Jacobian column are tractable.
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import Any
 
 import torch
 from torch import Tensor
@@ -30,14 +31,14 @@ def build_residual_fn(
     v_wl_drive_grid__V: Tensor,  # shape [num_row]
     bl_segment_g__uS: Tensor,  # shape [num_row]
     sl_segment_g__uS: Tensor,  # shape [num_row]
-    rram_snapshot,
-    nmos_snapshot,
-    bl_driver,
-    bl_driver_snapshot,
-    sl_driver,
-    sl_driver_snapshot,
-    rram,
-    nmos,
+    rram_snapshot: Any,
+    nmos_snapshot: Any,
+    bl_driver: Any,
+    bl_driver_snapshot: Any,
+    sl_driver: Any,
+    sl_driver_snapshot: Any,
+    rram: Any,
+    nmos: Any,
     num_row: int,
 ) -> Callable[[Tensor], Tensor]:
     """Return a residual function ``F(u) -> [3R+2]`` for a single column.

@@ -222,10 +222,10 @@ class GeneralADC(ADC):
             lsb=self._lsb_estimate,
         )
 
-        # GeneralADC: code shape = (*serial, *inst_shape); inst_shape already
-        # captures the n_groups / parallel-bank dim, no extra trailing dim.
-        n_inst = len(self._inst_shape)
-        serial_op_count = math.prod(code.shape[: code.ndim - n_inst])
+        # GeneralADC: code shape carries no extra parallel trailing beyond
+        # inst_shape; serial count via the position-invariant numel rule
+        # (total output elements / parallel multiplicity).
+        serial_op_count = max(1, code.numel() // max(self.inst_count, 1))
         dynamic_energy__fJ = torch.full_like(code, self.config.energy_per_op__fJ, dtype=torch.float32)
         latency__ns = torch.tensor(
             self.config.latency_per_op__ns * serial_op_count,

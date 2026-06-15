@@ -6,7 +6,6 @@ See also:
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 
 import torch
@@ -181,8 +180,11 @@ class OffsetSwitchCapMuxAdcReadOut(ReadOut):
         # (*serial, *inst_shape, data_num). Energy and latency are
         # independent: emit each only when its own config knob is > 0
         # so a latency-only or energy-only orch path records correctly.
-        n_inst = len(self._inst_shape)
-        serial_op_count = math.prod(code.shape[: code.ndim - n_inst - 1])
+        # Serial via the position-invariant numel rule; ReadOut's
+        # parallel multiplier is ``inst_count * data_num`` (each data
+        # column has its own switch-cap + mux + ADC chain in parallel).
+        parallel_count = self.inst_count * self.data_num
+        serial_op_count = max(1, code.numel() // max(parallel_count, 1))
         if self.config.energy_per_op__fJ > 0.0:
             dynamic_energy__fJ = torch.full_like(code, self.config.energy_per_op__fJ, dtype=torch.float32)
             self._log_dynamic_energy(dynamic_energy__fJ)

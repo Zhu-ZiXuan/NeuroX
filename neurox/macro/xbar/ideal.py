@@ -83,8 +83,6 @@ class IdealXbarMacro(XbarMacro):
         self.register_buffer("nominal_weight", torch.zeros((), dtype=torch.int32), persistent=False)
         self.register_buffer("weight", self.nominal_weight.clone(), persistent=False)
 
-        self._log_static()
-
     # --- value-range / ADC surface ---
 
     @property
@@ -104,7 +102,8 @@ class IdealXbarMacro(XbarMacro):
 
     @property
     def adc_max_bits(self) -> int:
-        """Maximum supported ``adc_bits`` value. ``0`` is the sentinel meaning the macro applies no output quantization."""
+        """Maximum supported ``adc_bits`` value."""
+        # ``0`` is the sentinel meaning no output quantization is applied.
         return 0
 
     def adc_rescale_factor(self, adc_operation_point: AdcOperationPoint) -> float:

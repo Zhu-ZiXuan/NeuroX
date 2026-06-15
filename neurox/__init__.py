@@ -9,9 +9,10 @@ scale conversion) live in ``neurox.common.quant``.
 
 from neurox.common.mixin import ProfileMixin
 from neurox.common.profiler import (
+    EnergyEvent,
+    LatencyEvent,
     NeuroxProfiler,
     ProfilerReport,
-    RuntimeEvent,
     StaticMetrics,
     StaticRecord,
 )
@@ -36,10 +37,11 @@ from neurox.macro.xbar import (
 
 __all__ = [
     # profiler
+    "EnergyEvent",
+    "LatencyEvent",
     "NeuroxProfiler",
     "ProfileMixin",
     "ProfilerReport",
-    "RuntimeEvent",
     "StaticMetrics",
     "StaticRecord",
     # macro public surface

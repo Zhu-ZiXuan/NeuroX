@@ -105,12 +105,12 @@ class XbarMacro(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["Xba
 
     @property
     def area_per_inst__um2(self) -> float:
-        """Macros aggregate area from children; no own contribution."""
+        """Silicon area per instance [um²]."""
         return 0.0
 
     @property
     def leakage_per_inst__uW(self) -> float:
-        """Macros aggregate leakage from children; no own contribution."""
+        """Static leakage per instance [uW]."""
         return 0.0
 
     # --- value-range contract ---
@@ -132,18 +132,18 @@ class XbarMacro(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["Xba
     @property
     @abstractmethod
     def adc_mode_num(self) -> int:
-        """Number of ADC operating points the macro supports."""
+        """Number of supported ADC operating points; valid ``adc_mode`` values are ``[0, mode_num)``."""
         raise NotImplementedError
 
     @property
     @abstractmethod
     def adc_max_bits(self) -> int:
-        """Maximum ``adc_bits`` value the macro's ADC supports."""
+        """Maximum supported ``adc_bits`` value."""
         raise NotImplementedError
 
     @abstractmethod
     def adc_rescale_factor(self, adc_operation_point: AdcOperationPoint) -> float:
-        """Recovery-side multiplier ``M_ideal ≈ code · rescale_factor`` (delegates into the embedded xbar)."""
+        """Rescale factor for ``adc_operation_point``; raises ``KeyError`` if uncalibrated."""
         raise NotImplementedError
 
     # --- lifecycle ---
@@ -245,4 +245,4 @@ class XbarMacro(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["Xba
             # F.pad indexes from the last dim; pad axis only on the high side.
             pad_spec = [0, 0] * (t.ndim - axis - 1) + [0, pad_amount]
             t = F.pad(t, pad_spec, value=pad_value)
-        return t.unflatten(axis, (num_chunks, chunk_size))  # type: ignore[no-any-return]
+        return t.unflatten(axis, (num_chunks, chunk_size))

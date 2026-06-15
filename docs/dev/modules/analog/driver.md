@@ -2,7 +2,7 @@
 
 ## Current role
 
-`Driver` is the ideal constant-voltage clamp driver. It implements the [`ClampDriver`](clamp_driver.md) protocol with no feedback loop and no runtime state beyond a single sampled clamp voltage.
+`Driver` is the ideal constant-voltage clamp driver — no feedback loop, no runtime state beyond a single sampled clamp voltage. The 1T1R solver binds it as the SL boundary actor.
 
 ## What it owns
 
@@ -11,9 +11,7 @@
 - `nominal_drive_value` — a 0-d non-persistent buffer at `config.drive_value`. Fabricated state is just this scalar; the driver has no shape-dependent state.
 - per-call `DriverSnapshot` carrying the sampled clamp voltage.
 
-## Clamp-driver protocol
-
-The driver satisfies the family-wide `ClampDriver` Protocol surface:
+## Solver-facing surface
 
 - `v_ref__V` — ideal / zero-current clamp voltage (returns `config.drive_value`).
 - `fabricate()` — inherited auto-cascade from `FabricateMixin`; the ideal driver has no static state, so its `_sample_fabricate_mismatch` is the default no-op.
@@ -27,9 +25,8 @@ The driver satisfies the family-wide `ClampDriver` Protocol surface:
 
 ## Why this is not a TIA
 
-The clamp-driver protocol is intentionally separate from the TIA family. Both are clamp-driver protocol implementations, but a TIA closes a feedback loop on a virtual-ground reference while a `Driver` is an ideal voltage source — different physics, different parameter spaces. They share only the `ClampDriver` solver-facing contract.
+`Driver` and `TIA` are physically different boundary actors: a TIA closes a feedback loop on a virtual-ground reference, while a `Driver` is an ideal voltage source — different physics, different parameter spaces. They share only the shape of the solver-facing `solve_clamp(...)` entry. The 1T1R solver binds `bl_driver: TIA` and `sl_driver: Driver` as concrete types — there is no shared abstract base because nothing else needs one.
 
 See also:
 
-- `clamp_driver.md`
 - `docs/dev/architecture/config_and_construction.md`

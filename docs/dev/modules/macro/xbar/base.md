@@ -6,7 +6,9 @@ Abstract registry root for the XbarMacro family, declared in `neurox/macro/xbar/
 
 - `XbarMacroConfig` — frozen dataclass acting as the registry-key root. **No fields**: degenerate family members (e.g. `IdealXbarMacro`) do not own an xbar, so xbar configuration lives on the concrete subclass configs.
 - `XbarMacroPolicy` — empty marker base policy for the family. Concrete macro impls declare their own `*Policy(XbarMacroPolicy)` (e.g. `DirectXbarMacroPolicy` with an `xbar: XbarPolicy` field, or empty `IdealXbarMacroPolicy()` for the degenerate member). The composite that holds an XbarMacro stores the abstract `XbarMacroPolicy` field type and the caller passes the concrete impl.
-- `XbarMacro` — abstract `FabricateMixin + nn.Module + ProfileMixin` with:
+- `XbarMacro` — abstract `FabricateMixin + nn.Module + ProfileMixin + RegistryMixin` orchestration node. `XbarMacro` does **not** inherit `CircuitBase` — macros own no silicon themselves, so they have no `CircuitConfig`-backed PPA. PPA appears in reports through their constituent circuits.
+
+  Members:
   - `from_config(cls, *, config, policy, name, w_logical_shape, dtype, T__K, ideal_xbar)` polymorphic dispatcher (uses `RegistryMixin` keyed on `type(config)`).
   - Base `__init__` with the same signature; records `self._w_logical_shape` and stashes the construction context (`_macro_dtype`, `_macro_T__K`, `_ideal_xbar`, `_macro_name`). The base does **not** declare an `xbar` attribute — xbar-using subclasses declare and build it themselves.
   - `self._build_xbar(*, xbar_config, xbar_policy, inst_shape) -> Xbar` helper that calls `Xbar.from_config(...)` and applies `.to_ideal()` when `ideal_xbar=True`. When `ideal_xbar=True` the passed `xbar_policy` is discarded in favour of `IdealXbarPolicy()`. `xbar_config` and `xbar_policy` are passed in explicitly so the base does not presume the concrete config carries them.

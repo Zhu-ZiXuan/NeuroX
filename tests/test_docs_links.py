@@ -30,8 +30,7 @@ def _iter_links(md_path: Path) -> list[tuple[int, str]]:
     """Yield ``(line_number, target)`` for every Markdown link in ``md_path``."""
     out: list[tuple[int, str]] = []
     for ln, line in enumerate(md_path.read_text().splitlines(), start=1):
-        for match in _LINK_PATTERN.finditer(line):
-            out.append((ln, match.group(1)))
+        out.extend((ln, match.group(1)) for match in _LINK_PATTERN.finditer(line))
     return out
 
 
@@ -71,9 +70,6 @@ def test_no_broken_relative_markdown_links() -> None:
                 continue
             resolved = _resolve_target(md_path, target)
             if not resolved.exists():
-                broken.append(
-                    f"{md_path.relative_to(REPO_ROOT)}:{ln}  →  {target}  "
-                    f"(resolved: {resolved})"
-                )
+                broken.append(f"{md_path.relative_to(REPO_ROOT)}:{ln}  →  {target}  (resolved: {resolved})")
     if broken:
         pytest.fail("Broken Markdown links:\n  " + "\n  ".join(broken))

@@ -17,7 +17,7 @@ Family signature: `__init__(*, config, name, inst_shape)`. The `super().__init__
 
 ## Serial-op accounting
 
-`operate(...)` is element-wise (Adder / Subtractor) or reduce-along-dim (Accumulator / ShiftAdder). Each block computes its own `serial_op_count = max(1, prod(y.shape) // inst_count)` at the end of `operate`, builds the latency tensor as `torch.tensor(self.config.latency_per_op__ns * serial_op_count, ...)`, and emits via `_log_dynamic_energy(energy)` + `_log_latency(latency)` (two independent calls).
+`operate(...)` is element-wise (Adder / Subtractor) or reduce-along-dim (Accumulator / ShiftAdder). Each block computes its own `serial_op_count = max(1, y.numel() // self.inst_count)` at the end of `operate` (position-invariant numel rule; reduce-ops use the output `y`, which already excludes the reduced dim), builds the latency tensor as `torch.tensor(self.config.latency_per_op__ns * serial_op_count, ...)`, and emits via `_log_dynamic_energy(energy)` + `_log_latency(latency)` (two independent calls).
 
 ## Composition
 

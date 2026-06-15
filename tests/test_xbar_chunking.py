@@ -16,13 +16,16 @@ A-outer / B-inner refactor:
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import replace
 from pathlib import Path
 
 import pytest
 import torch
+from torch import Tensor
 
 from neurox.analog.adc import AdcOperationPoint
+from neurox.analog.dac import GeneralDACConfig
 from neurox.common.profiler import NeuroxProfiler
 from neurox.tools.xbar_adc._sampling import (
     build_offset_1t1r_xbar_all_off,
@@ -31,6 +34,7 @@ from neurox.tools.xbar_adc._sampling import (
     sample_w,
     sample_x_batches,
 )
+from neurox.xbar import Offset1T1RXbar
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 XBAR_CONFIG = REPO_ROOT / "example" / "config" / "1t1r_28nm.toml"
@@ -42,7 +46,7 @@ def _build(
     device: torch.device,
     *,
     inst: int = 4,
-):
+) -> Offset1T1RXbar:
     return build_offset_1t1r_xbar_all_off(
         XBAR_CONFIG,
         device=device,
@@ -77,11 +81,13 @@ def _run(
     # core.cim_read's internal WL-fanout unsqueeze.
     x_with_inst_slot = x.unsqueeze(-2)
     op = AdcOperationPoint(adc_mode=0, adc_bits=8)
-    return xbar.vec_mat_mul(x_with_inst_slot, adc_operation_point=op)
+    result = xbar.vec_mat_mul(x_with_inst_slot, adc_operation_point=op)
+    assert isinstance(result, Tensor)
+    return result
 
 
 @pytest.fixture(scope="module")
-def fixture_config():
+def fixture_config() -> Iterator[Path]:
     """Skip the suite if the chip-fixture TOML isn't present."""
     if not XBAR_CONFIG.is_file():
         pytest.skip(f"missing test fixture: {XBAR_CONFIG}")
@@ -89,13 +95,13 @@ def fixture_config():
 
 
 @pytest.fixture(scope="module")
-def device():
+def device() -> torch.device:
     if torch.cuda.is_available():
         return torch.device("cuda:0")
     return torch.device("cpu")
 
 
-def test_chunk_zero_runs_single_block(fixture_config, device):
+def test_chunk_zero_runs_single_block(fixture_config: Path, device: torch.device) -> None:
     """``(0, 0)`` disables chunking and matches ``(large, large)`` clipped to extent."""
     codes_disabled = _run(0, 0, device)
     codes_big = _run(100, 100, device, x_batch=8)
@@ -103,7 +109,7 @@ def test_chunk_zero_runs_single_block(fixture_config, device):
 
 
 @pytest.mark.parametrize("chunk_x", [1, 2, 4, 8])
-def test_a_axis_bit_exact(fixture_config, device, chunk_x):
+def test_a_axis_bit_exact(fixture_config: Path, device: torch.device, chunk_x: int) -> None:
     """Chunking the A axis is bit-exact vs single-block under deterministic policy."""
     codes_full = _run(0, 0, device, x_batch=8)
     codes_chunked = _run(chunk_x, 0, device, x_batch=8)
@@ -114,7 +120,7 @@ def test_a_axis_bit_exact(fixture_config, device, chunk_x):
 
 
 @pytest.mark.parametrize("chunk_inst", [1, 2, 4])
-def test_b_axis_bit_exact(fixture_config, device, chunk_inst):
+def test_b_axis_bit_exact(fixture_config: Path, device: torch.device, chunk_inst: int) -> None:
     """Chunking the B (inst) axis is bit-exact vs single-block."""
     codes_full = _run(0, 0, device, x_batch=8, inst=4)
     codes_chunked = _run(0, chunk_inst, device, x_batch=8, inst=4)
@@ -125,7 +131,7 @@ def test_b_axis_bit_exact(fixture_config, device, chunk_inst):
 
 
 @pytest.mark.parametrize("chunk_x,chunk_inst", [(2, 2), (3, 1), (4, 2), (1, 4)])
-def test_mixed_axis_bit_exact(fixture_config, device, chunk_x, chunk_inst):
+def test_mixed_axis_bit_exact(fixture_config: Path, device: torch.device, chunk_x: int, chunk_inst: int) -> None:
     """Mixed (A, B) chunking composes correctly — the nested loop is order-invariant."""
     codes_full = _run(0, 0, device, x_batch=8, inst=4)
     codes_chunked = _run(chunk_x, chunk_inst, device, x_batch=8, inst=4)
@@ -134,14 +140,14 @@ def test_mixed_axis_bit_exact(fixture_config, device, chunk_x, chunk_inst):
     )
 
 
-def test_chunk_size_larger_than_extent_is_noop(fixture_config, device):
+def test_chunk_size_larger_than_extent_is_noop(fixture_config: Path, device: torch.device) -> None:
     """Over-sized chunks clip to the extent and match the single-block result."""
     codes_full = _run(0, 0, device, x_batch=8)
     codes_big = _run(100, 100, device, x_batch=8)
     assert torch.equal(codes_full, codes_big)
 
 
-def test_a_axis_remainder_chunk(fixture_config, device):
+def test_a_axis_remainder_chunk(fixture_config: Path, device: torch.device) -> None:
     """A-axis non-divisible extent (last chunk smaller) is handled."""
     # 8 samples / chunk=3 → 3+3+2.
     codes_full = _run(0, 0, device, x_batch=8)
@@ -149,7 +155,7 @@ def test_a_axis_remainder_chunk(fixture_config, device):
     assert torch.equal(codes_full, codes_remainder)
 
 
-def test_b_axis_remainder_chunk(fixture_config, device):
+def test_b_axis_remainder_chunk(fixture_config: Path, device: torch.device) -> None:
     """B-axis non-divisible extent (last chunk smaller) is handled."""
     # inst=4 / chunk=3 → 3+1.
     codes_full = _run(0, 0, device, x_batch=8, inst=4)
@@ -184,7 +190,7 @@ def _vmm_under_profiler(
     return len(energy_events), len(latency_events), total
 
 
-def test_profiler_single_event_under_chunking(fixture_config, device):
+def test_profiler_single_event_under_chunking(fixture_config: Path, device: torch.device) -> None:
     """Chunking must emit exactly ONE core energy event + ONE latency event
     per VMM, with total energy equal to the single-block path (bit-exact within fp)."""
     single_energy_count, single_latency_count, single_energy = _vmm_under_profiler(0, 0, device)
@@ -230,7 +236,7 @@ def _dac_events_under_profiler(
     return len(e_events), len(l_events), e_total, l_total
 
 
-def test_wl_dac_events_invariant_under_chunking(fixture_config, device):
+def test_wl_dac_events_invariant_under_chunking(fixture_config: Path, device: torch.device) -> None:
     """WL DAC must emit exactly ONE energy + ONE latency event per VMM,
     and both VALUES must be invariant across chunk sizes — a regression
     net against DAC-side over-counting of inst dims as serial when the
@@ -292,7 +298,7 @@ def _core_latency_at(
     return core_l[0].latency__ns
 
 
-def test_core_latency_scales_with_a_side_only(fixture_config, device):
+def test_core_latency_scales_with_a_side_only(fixture_config: Path, device: torch.device) -> None:
     """Core latency must scale linearly with A-side (x_batch) and be
     invariant to B-side (inst).
 
@@ -327,12 +333,10 @@ def test_core_latency_scales_with_a_side_only(fixture_config, device):
             chunk_x=cx,
             chunk_inst=ci,
         )
-        assert l_chunked == T * 4, (
-            f"chunk_x={cx} chunk_inst={ci} core latency = {l_chunked}, expected {T * 4}"
-        )
+        assert l_chunked == T * 4, f"chunk_x={cx} chunk_inst={ci} core latency = {l_chunked}, expected {T * 4}"
 
 
-def test_core_latency_invariant_under_chunking(fixture_config, device):
+def test_core_latency_invariant_under_chunking(fixture_config: Path, device: torch.device) -> None:
     """Core latency value must be bit-exact invariant across chunk knob
     combinations at fixed (x_batch, inst). Chunking is an internal
     memory-bounding decomposition; the per-VMM event's latency tensor
@@ -345,14 +349,22 @@ def test_core_latency_invariant_under_chunking(fixture_config, device):
     x_batch, inst = 8, 4
     expected = T * x_batch
     base = _core_latency_at(
-        x_batch=x_batch, inst=inst, device=device, core_latency__ns=T,
-        chunk_x=0, chunk_inst=0,
+        x_batch=x_batch,
+        inst=inst,
+        device=device,
+        core_latency__ns=T,
+        chunk_x=0,
+        chunk_inst=0,
     )
     assert base == expected, f"base (no chunking) core latency = {base}, expected {expected}"
     for cx, ci in [(2, 0), (0, 2), (2, 2), (3, 3), (1, 1)]:
         chunked = _core_latency_at(
-            x_batch=x_batch, inst=inst, device=device, core_latency__ns=T,
-            chunk_x=cx, chunk_inst=ci,
+            x_batch=x_batch,
+            inst=inst,
+            device=device,
+            core_latency__ns=T,
+            chunk_x=cx,
+            chunk_inst=ci,
         )
         assert chunked == base, (
             f"chunk_x={cx} chunk_inst={ci} core latency = {chunked} != base {base}; "
@@ -381,7 +393,9 @@ def _dac_latency_at(
 ) -> float:
     """Mirror of :func:`_core_latency_at` for the WL DAC."""
     xbar = _build(chunk_x, chunk_inst, device, inst=inst)
-    xbar.core.wl_dac.config = replace(xbar.core.wl_dac.config, latency_per_op__ns=dac_latency__ns)
+    dac_cfg = xbar.core.wl_dac.config
+    assert isinstance(dac_cfg, GeneralDACConfig)
+    xbar.core.wl_dac.config = replace(dac_cfg, latency_per_op__ns=dac_latency__ns)
     distribution = load_distribution(None, xbar)
     g = make_generator(0, device)
     w = next(iter(sample_w(distribution, xbar, n=inst, batch_w=inst, device=device, generator=g)))
@@ -398,7 +412,7 @@ def _dac_latency_at(
     return dac_l[0].latency__ns
 
 
-def test_wl_dac_latency_scales_with_a_side_only(fixture_config, device):
+def test_wl_dac_latency_scales_with_a_side_only(fixture_config: Path, device: torch.device) -> None:
     """DAC latency must scale with A-side (x_batch) and be invariant
     to B-side (inst) — same contract as ``cim_read`` itself. Catches
     any regression that pushes inst dims into the DAC's own serial
@@ -418,7 +432,7 @@ def test_wl_dac_latency_scales_with_a_side_only(fixture_config, device):
     )
 
 
-def test_wl_dac_latency_invariant_under_chunking(fixture_config, device):
+def test_wl_dac_latency_invariant_under_chunking(fixture_config: Path, device: torch.device) -> None:
     """DAC latency value must be bit-exact invariant across chunk knob
     combinations. The WL DAC runs once outside the chunk loop, so its
     profile event should never depend on the chunk partitioning.
@@ -427,14 +441,22 @@ def test_wl_dac_latency_invariant_under_chunking(fixture_config, device):
     x_batch, inst = 8, 4
     expected = T * x_batch
     base = _dac_latency_at(
-        x_batch=x_batch, inst=inst, device=device, dac_latency__ns=T,
-        chunk_x=0, chunk_inst=0,
+        x_batch=x_batch,
+        inst=inst,
+        device=device,
+        dac_latency__ns=T,
+        chunk_x=0,
+        chunk_inst=0,
     )
     assert base == expected, f"base (no chunking) dac latency = {base}, expected {expected}"
     for cx, ci in [(2, 0), (0, 2), (2, 2), (3, 3), (1, 1)]:
         chunked = _dac_latency_at(
-            x_batch=x_batch, inst=inst, device=device, dac_latency__ns=T,
-            chunk_x=cx, chunk_inst=ci,
+            x_batch=x_batch,
+            inst=inst,
+            device=device,
+            dac_latency__ns=T,
+            chunk_x=cx,
+            chunk_inst=ci,
         )
         assert chunked == base, (
             f"chunk_x={cx} chunk_inst={ci} dac latency = {chunked} != base {base}; "

@@ -29,10 +29,9 @@ It owns:
 
 ## Solver-facing contract
 
-`OpAmpTIA` satisfies the [`ClampDriver`](../clamp_driver.md) protocol:
+`OpAmpTIA` exposes the `TIA`-family boundary-clamp surface:
 
-- it consumes a boundary current and a per-call snapshot;
-- it returns the clamp voltage and the local small-signal sensitivity;
-- it additionally exposes a richer `solve_dc(...)` entry point whose result dataclass also carries the op-amp output voltage after the solve.
+- `solve_clamp(i_port__uA, snapshot, *, v_clamp_init__V)` — consumes a boundary current and an `OpAmpTIASnapshot`, returns `(v_clamp__V, dVclamp_dI__MOhm)`.
+- `solve_dc(...)` — richer entry point whose result dataclass also carries the op-amp output voltage after the solve.
 
-The richer entry point is concrete-class-specific; the `ClampDriver`-Protocol surface above is the one consumed generically.
+The 1T1R solver binds `bl_driver: TIA` and calls the `solve_clamp` form; the `solve_dc` form is the OpAmpTIA-concrete extension.

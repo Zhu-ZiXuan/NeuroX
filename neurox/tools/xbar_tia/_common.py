@@ -75,7 +75,7 @@ def sweep_transfer(
     """Sweep DC ``I_port`` across ``[i_min_uA, i_max_uA]`` and capture ``v_out``."""
     if n_points < 2:
         raise ValueError(f"n_points ({n_points}) must be >= 2")
-    snapshot = tia.snapshot(shape=(1,))
+    snapshot = tia.snapshot(shape=(1,), multi_coords=None)
     i_grid = torch.linspace(i_min_uA, i_max_uA, n_points, dtype=torch.float64, device=device)
     v_out_list: list[float] = []
     for i_val in i_grid:

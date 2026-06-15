@@ -4,7 +4,6 @@ See also:
     docs/dev/modules/digital/README.md
 """
 
-import math
 from dataclasses import dataclass
 
 import torch
@@ -83,10 +82,10 @@ class ShiftAdder(CircuitBase[ShiftAdderConfig]):
         if init_val is not None:
             y = y + init_val
 
-        # Each shift-adder produces one output element. Serial cost =
-        # outputs / inst_count.
-        n_outputs = math.prod(y.shape)
-        serial_op_count = max(1, n_outputs // max(self.inst_count, 1))
+        # Each shift-adder produces one output element. Serial via the
+        # position-invariant numel rule (reduced digit dim is already
+        # gone from y so the divisor is just inst_count).
+        serial_op_count = max(1, y.numel() // max(self.inst_count, 1))
         dynamic_energy__fJ = torch.full_like(y, self.config.energy_per_op__fJ, dtype=torch.float32)
         latency__ns = torch.tensor(
             self.config.latency_per_op__ns * serial_op_count,

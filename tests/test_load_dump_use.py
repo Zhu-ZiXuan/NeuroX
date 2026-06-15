@@ -254,7 +254,7 @@ def test_preset_mutual_exclusion_with_use(config_dir: Path, presets_root: Path) 
 def test_preset_rejects_forbidden_path_forms(config_dir: Path, presets_root: Path, bad_path: str) -> None:
     _write(presets_root / "frag.toml", "[piece]\na = 1.0\nb = 2.0\n")
     _write(config_dir / "main.toml", f'[outer]\nname = "x"\n[outer.inner]\n_neurox_use_preset = "{bad_path}"\n')
-    with pytest.raises(ValueError, match="(must not (start with|contain)|absolute)"):
+    with pytest.raises(ValueError, match=r"(must not (start with|contain)|absolute)"):
         dataclass_from_file(_Outer, config_dir / "main.toml", section="outer")
 
 

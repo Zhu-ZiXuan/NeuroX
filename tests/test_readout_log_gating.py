@@ -1,16 +1,21 @@
 """Regression: readout orch overhead emits energy and latency events independently.
 
-After R10 split into ``_log_dynamic_energy`` / ``_log_latency``, the
-readout's per-op orch overhead is gated **per-quantity**: an
-``energy_per_op__fJ = 0, latency_per_op__ns > 0`` config still emits a
-latency event for the readout itself; an ``energy > 0, latency = 0``
-emits only the energy event. The previous single-``if`` gate dropped
-the latency-only case silently.
+The readout's per-op orch overhead is gated **per-quantity** at its
+emit site:
+
+- ``energy_per_op__fJ > 0`` triggers ``_log_dynamic_energy``;
+- ``latency_per_op__ns > 0`` triggers ``_log_latency``;
+
+with the two gates evaluated independently. A
+``(energy_per_op__fJ = 0, latency_per_op__ns > 0)`` config must still
+emit a latency event for the readout; a
+``(energy > 0, latency = 0)`` config must emit only the energy event.
+A single combined ``if energy > 0`` gate would silently drop the
+latency-only case — this regression suite covers all four corners.
 """
 
 from __future__ import annotations
 
-import pytest
 import torch
 
 from neurox.analog.adc import AdcOperationPoint
@@ -98,9 +103,7 @@ def _drive_one_vmm(readout: OffsetSwitchCapMuxAdcReadOut) -> None:
     # data shape: (*, group_num=1, data_num=2, digit_num=1)
     v_data = torch.zeros(1, 2, 1, dtype=torch.float32)
     v_ref = torch.zeros(1, dtype=torch.float32)
-    readout.readout(
-        v_data, v_ref, adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=2)
-    )
+    readout.readout(v_data, v_ref, adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=2))
 
 
 def _self_events(events: list, name: str) -> list:
@@ -108,8 +111,9 @@ def _self_events(events: list, name: str) -> list:
 
 
 def test_readout_emits_latency_when_energy_is_zero() -> None:
-    """Regression: pre-R10 the readout had one shared ``if energy > 0`` gate;
-    a latency-only orch (energy=0, latency>0) was silently dropped."""
+    """Latency-only orch (energy=0, latency>0) must still emit a
+    latency event — a single combined ``if energy > 0`` gate would
+    silently drop this case."""
     readout = _build_readout(energy=0.0, latency=2.0)
     with NeuroxProfiler() as p:
         _drive_one_vmm(readout)

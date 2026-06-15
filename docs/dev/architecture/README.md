@@ -28,8 +28,8 @@ These layers must stay separate; the same rule is never restated across all thre
 
 ### Runtime
 
-- [`compile_policy.md`](compile_policy.md) — where `@torch.compile` is applied (macro entry only), forbidden behaviours on the compiled path, intentional graph breaks (structural `_log_dynamic` + temporary `Offset1T1RXbar.vec_mat_mul`).
-- [`profiler_and_ppa.md`](profiler_and_ppa.md) — `ProfileMixin` interface, `_log_static` ordering rule, composite-module PPA aggregation, side-channel dynamic-energy logging.
+- [`compile_policy.md`](compile_policy.md) — where `@torch.compile` is applied (macro entry only), forbidden behaviours on the compiled path, intentional graph breaks (structural `_log_dynamic_energy` / `_log_latency` + temporary `Offset1T1RXbar.vec_mat_mul`).
+- [`profiler_and_ppa.md`](profiler_and_ppa.md) — `CircuitBase` PPA surface, `ProfileMixin` side-channel, `_log_dynamic_energy` / `_log_latency` independent entries, composite-module aggregation, profiler context manager + batched sync.
 
 ### Mapping
 

@@ -39,7 +39,13 @@ class FabricateMixin:
         return
 
     def _fabricable_children(self) -> Iterator[FabricateMixin]:
-        """Iterate direct `FabricateMixin` children, expanding `ModuleList` / `ModuleDict`."""
+        """Iterate direct ``FabricateMixin`` children.
+
+        Returns:
+            Each direct child that is a :class:`FabricateMixin`;
+            ``nn.ModuleList`` / ``nn.ModuleDict`` containers are
+            transparently expanded so their members yield directly.
+        """
         assert isinstance(self, nn.Module)
         for child in self.children():
             if isinstance(child, FabricateMixin):

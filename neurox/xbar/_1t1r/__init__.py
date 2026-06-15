@@ -4,12 +4,10 @@ from .circuit_core import (
     CircuitCore1T1R,
     CircuitCore1T1RConfig,
     CircuitCore1T1RPolicy,
-    Core1T1RDCOP,
 )
 from .full_jacobian_solver import FullJacobianSolver1T1R, FullJacobianSolver1T1RConfig
 from .nested_solver import NestedSolver1T1R, NestedSolver1T1RConfig
 from .offset import (
-    ExecutionPolicy,
     Offset1T1RXbar,
     Offset1T1RXbarConfig,
     Offset1T1RXbarPolicy,
@@ -25,8 +23,6 @@ __all__ = [
     "CircuitCore1T1R",
     "CircuitCore1T1RConfig",
     "CircuitCore1T1RPolicy",
-    "Core1T1RDCOP",
-    "ExecutionPolicy",
     "FullJacobianSolver1T1R",
     "FullJacobianSolver1T1RConfig",
     "NestedSolver1T1R",

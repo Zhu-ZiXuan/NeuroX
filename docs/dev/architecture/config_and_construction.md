@@ -74,7 +74,7 @@ Every fabricable module takes its per-instance fabrication shape as a constructo
 - xbar tiles: `inst_shape: tuple[int, ...]` (per-instance multiplicity prefix; trailing `(col_num, w_digit_count, row_num)` is owned by the xbar's own config)
 - xbar macros: `w_logical_shape: tuple[int, ...]` (operator-facing weight shape)
 
-The shape is committed once at `__init__`, recorded on `self._inst_shape` (per the `FabricateMixin` contract), and the constructor records the profiler instance count from it. `fabricate()` then carries no arguments; it resamples mismatch at the already-bound shape. See [`fabrication_lifecycle.md`](fabrication_lifecycle.md) for the lifecycle.
+The shape is committed once at `__init__`, recorded on `self._inst_shape` (per the `FabricateMixin` contract; circuits inherit this hook through `CircuitBase`). `fabricate()` then carries no arguments; it resamples mismatch at the already-bound shape. See [`fabrication_lifecycle.md`](fabrication_lifecycle.md) for the lifecycle. The profiler computes the instance count on demand from `_inst_shape` — see [`profiler_and_ppa.md`](profiler_and_ppa.md) and [`modules/common/circuit.md`](../modules/common/circuit.md).
 
 ## Family bases, concrete configs, and dispatch
 
@@ -128,7 +128,7 @@ The registry attribute `_impl_registry` is materialised automatically by the mix
 
 ## Config validation
 
-Every frozen config inherits `ValidateMixin` (from `neurox/common/mixin/validate.py`) and is validated at construction time via `__post_init__ → validate()`. Whether `__post_init__` is defined on the leaf or inherited from a circuit-family base is a **simplicity decision** for each family.
+Every frozen config inherits `ValidateMixin` (from `neurox/common/mixin/validate.py`), either directly or transitively via `CircuitConfig` (see [`modules/common/circuit.md`](../modules/common/circuit.md) — `CircuitConfig` is the standard base for electrical-circuit configs and carries the area / leakage / latency fields). Validation runs at construction time via `__post_init__ → validate()`. Whether `__post_init__` is defined on the leaf or inherited from a circuit-family base is a **simplicity decision** for each family.
 
 ```python
 from neurox.common.mixin import ValidateMixin
@@ -220,7 +220,7 @@ The config conflated two distinct facts when an `enable_*` field lived on it: th
 
 - `config` describes physical reality only. Process presets are reusable across deployments and studies.
 - `Policy` describes the study choice. Different runs (calibration, training, inference, ablation) can pass different policies against the same config.
-- Calibration tools no longer need to `dataclasses.replace(config, enable_*=False, ...)` to flip toggles; they construct an all-False policy directly.
+- Calibration tools construct an all-False policy directly, with no `dataclasses.replace(config, enable_*=False, ...)` indirection.
 - The boundary between physical model and experimental decision is self-documenting in the constructor signature: `RRAM(config=..., policy=..., ...)`.
 
 ### Hierarchy: flat at leaves, structured at composites
@@ -287,7 +287,7 @@ Static-mismatch `apply_*` calls live inside `_sample_fabricate_mismatch()` (the 
 ### What this rule does *not* apply to
 
 - Numerical hyperparameters that are not noise (e.g. softclip softness, learning rates). These follow the regular "required field" rule but do not need a paired toggle.
-- Boolean construction modes that already act as toggles (e.g. `bit_serial: bool` on the decoder, `input_transform: Literal["linear", "log2"]`). These are structural choices, not noise.
+- Boolean construction modes that already act as toggles (e.g. `input_transform: Literal["linear", "log2"]`). These are structural choices, not noise.
 - The training-mode flag (`self.training`) carried by `nn.Module` itself; that is runtime, not config. Stochastic-rounding kernels in `neurox/common/quant.py` consume it directly — there is no separate `stochastic` override knob.
 
 ### Adding a new switch

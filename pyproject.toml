@@ -61,6 +61,12 @@ target-version = "py311"
 line-length = 120
 indent-width = 4
 
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "lf"
+
 [tool.ruff.lint]
 select = [
     "F",    # pyflakes
@@ -103,19 +109,16 @@ unfixable = []
 "tests/**/*.py" = [
     "ANN", # flake8-annotations
     "D",   # pydocstyle
+    "T201", # `print` found
 ]
-
-[tool.ruff.format]
-quote-style = "double"
-indent-style = "space"
-skip-magic-trailing-comma = false
-line-ending = "lf"
 
 [tool.mypy]
 python_version = "3.11"
 namespace_packages = true
 explicit_package_bases = true
 ignore_missing_imports = true
+
+exclude = ["tests/"]
 
 warn_return_any = true
 warn_unused_configs = true

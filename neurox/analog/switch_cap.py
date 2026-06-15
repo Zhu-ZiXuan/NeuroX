@@ -4,7 +4,6 @@ See also:
     docs/dev/modules/analog/switch_cap.md
 """
 
-import math
 from dataclasses import dataclass
 
 import torch
@@ -150,12 +149,12 @@ class SwitchCap(CircuitBase[SwitchCapConfig]):
         c_total__fF = c__fF.sum(dim=-1)
         v_out__V = torch.sum(c__fF * v_hold__V, dim=-1) / c_total__fF
 
-        # Serial op count: SwitchCap shape is (*serial, *inst_shape, n_caps);
-        # caps inside one bank charge in parallel, inst are parallel banks.
-        n_inst = len(self._inst_shape)
-        serial_op_count = math.prod(v_in__V.shape[: v_in__V.ndim - n_inst - 1])
+        # Serial op count via the position-invariant numel rule on the
+        # output ``v_out__V`` (n_caps was already reduced out, so divisor
+        # is just inst_count — same form as every other emitting leaf).
         e_caps__fJ = 0.5 * torch.sum(c__fF * v_in__V * v_in__V, dim=-1)
         dynamic_energy__fJ = e_caps__fJ + self.config.energy_per_sample_overhead__fJ
+        serial_op_count = max(1, v_out__V.numel() // max(self.inst_count, 1))
         latency__ns = torch.tensor(
             self.config.latency_per_op__ns * serial_op_count,
             device=v_in__V.device,

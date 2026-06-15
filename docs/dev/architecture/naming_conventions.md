@@ -14,7 +14,7 @@ Dataclasses returned or accepted at module boundaries use one of the following s
 |---|---|---|
 | `*Config` | Frozen design / spec configuration for a circuit, device, or family. | `NMOSConfig`, `OpAmpTIAConfig`, `OffsetSwitchCapMuxAdcReadOutConfig` |
 | `*Snapshot` | Per-call runtime snapshot of a module's working state, sampled at `snapshot(*, shape=...)` time. Carries only `Tensor` fields and nested `*Snapshot` instances. Frozen. | `NMOSSnapshot`, `RRAMSnapshot`, `OpAmpTIASnapshot`, `DriverSnapshot` |
-| `*DCOP` | DC operating point — return type of any `solve_dc(...)` method. Carries the solved electrical quantities (voltages, currents, sensitivities). Frozen. | `NMOSDCOP`, `RRAMDCOP`, `OpAmpTIADCOP`, `DriverDCOP`, `Core1T1RDCOP`, `Solver1T1RDCOP` |
+| `*DCOP` | DC operating point — return type of any `solve_dc(...)` method. Carries the solved electrical quantities (voltages, currents, sensitivities). Frozen. Used only when the module truly owns a DC operating point (devices, dedicated solvers, the TIA's op-amp clamp). Composite forward modules (e.g. `CircuitCore1T1R`) do **not** define one; they return primary output tensors and log energy/latency inline. | `NMOSDCOP`, `RRAMDCOP`, `OpAmpTIADCOP`, `DriverDCOP`, `Solver1T1RDCOP` |
 | `*Plan` | Static geometry / decomposition plan computed once and reused per execution. Frozen. | — |
 | `*Result` | Result of an offline algorithm or iterative solver loop (i.e. neither runtime snapshot, nor DC operating point, nor a static plan). Frozen. | `CalibrationResult` |
 
@@ -38,14 +38,14 @@ Each circuit / device class exposes one primary method whose name encodes the ph
 
 | Method | Semantics |
 |---|---|
-| `fabricate() -> None` | Inherited from `FabricateMixin`; auto-cascades the static-mismatch resample across self + children. Subclasses override `_sample_fabricate_mismatch(self)` only. Per-instance shape is bound at `__init__` via `inst_shape` (leaves and xbars) or `w_logical_shape` (macros); static PPA is recorded by `self._log_static()` at the end of the concrete subclass's `__init__` (see [`profiler_and_ppa.md`](profiler_and_ppa.md)). |
+| `fabricate() -> None` | Inherited from `FabricateMixin`; auto-cascades the static-mismatch resample across self + children. Subclasses override `_sample_fabricate_mismatch(self)` only. Per-instance shape is bound at `__init__` via `inst_shape` (leaves and xbars) or `w_logical_shape` (macros). Static PPA is exposed as `CircuitBase` properties reading `self.config` — no per-init log call (see [`profiler_and_ppa.md`](profiler_and_ppa.md), [`modules/common/circuit.md`](../modules/common/circuit.md)). |
 | `program(...) -> None` | RRAM-specific weight programming step that takes the integer weight tensor and produces the actual conductance buffer. |
 | `snapshot(*, shape) -> <Name>Snapshot` | Sample a per-call runtime snapshot. Frozen return. |
-| `solve_dc(...) -> <Name>DCOP` | Solve the DC operating point of a circuit or array. Naming is uniform across leaf devices, leaf circuits, composite circuits, and solver classes. |
-| `solve_clamp(...) -> tuple[Tensor, Tensor]` | `ClampDriver`-protocol entry. Returns `(v_clamp__V, dVclamp_dI__MOhm)` for use by outer solvers. |
+| `solve_dc(...) -> <Name>DCOP` | Solve the DC operating point of a circuit, device, or solver and return it as a `*DCOP`. The essence is "compute a meaningful DC operating point and surface it" — applicable to leaf devices (RRAM, NMOS), iterative dedicated solvers (`Solver1T1R`, `OpAmpTIA`), and the boundary clamp drivers (`TIA`, `Driver`). **Composite forward modules that delegate to sub-solvers and add post-processing do not own a DCOP and do not use this name** — see `cim_read` below. |
+| `solve_clamp(...) -> tuple[Tensor, Tensor]` | Boundary-clamp solve. Thin wrapper around the implementer's DC solve, returning the `(v_clamp__V, dVclamp_dI__MOhm)` pair an outer solver needs as Jacobian input. Both `TIA` and `Driver` expose this. |
+| `cim_read(x) -> Tensor` | `CircuitCore1T1R` entry. Drive WL, settle the 1T1R array to DC, and return the BL clamp voltage. Plain forward (logs energy + latency inline); does not return a DCOP — the array has no DCOP of its own beyond its sub-solvers' DCOPs. |
 | `convert(...) -> Tensor` | DAC / ADC code↔analog conversion. Single output tensor. |
 | `transport(...)` | AnalogMux differential voltage transport. |
-| `drive(...)` | Decoder WL drive entry point. |
 | `sample_and_accumulate(...) -> Tensor` | SwitchCap passive charge-share kernel. |
 | `vec_mat_mul(x) -> Tensor` | Xbar tile per-VMM kernel. |
 | `readout(...) -> Tensor` | Readout chain entry. Returns only the ADC code tensor. |

@@ -14,6 +14,7 @@ from example.bert.macro_factory import build_macro_factory
 from example.bert.model_float import create_bert_small
 from example.bert.model_quant import to_quant
 from example.bert.train_quant import QAT_SCHEMA
+from neurox.common.profiler import NeuroxProfiler
 
 CONFIG_DIR = Path(__file__).parent
 
@@ -38,10 +39,16 @@ def main() -> None:
     parser.add_argument("--max-length", type=int, default=128)
     parser.add_argument("--max-samples", type=int, default=None)
     parser.add_argument(
-        "--xbar-batch-chunk-size",
+        "--solve-chunk-size-x",
         type=int,
         default=0,
-        help="Per-block chunk for xbar Newton solve; 0 = no chunking (default).",
+        help="CircuitCore1T1RPolicy.solve_chunk_size_x; 0 = no x-batch chunking (default).",
+    )
+    parser.add_argument(
+        "--solve-chunk-size-inst",
+        type=int,
+        default=0,
+        help="CircuitCore1T1RPolicy.solve_chunk_size_inst; 0 = no inst chunking (default).",
     )
     args = parser.parse_args()
 
@@ -57,7 +64,8 @@ def main() -> None:
     macro_factory = build_macro_factory(
         config_path,
         ideal_xbar=(args.xbar == "ideal"),
-        batch_chunk_size=args.xbar_batch_chunk_size,
+        solve_chunk_size_x=args.solve_chunk_size_x,
+        solve_chunk_size_inst=args.solve_chunk_size_inst,
     )
     model = create_bert_small(num_labels=2, cache_dir=str(args.dataset_dir))
     model = model.to(device)
@@ -73,7 +81,7 @@ def main() -> None:
     correct = 0
     total = 0
     t0 = time.time()
-    with torch.no_grad():
+    with NeuroxProfiler() as profiler, torch.no_grad():
         for input_ids, attn, ttids, labels in loader:
             if args.max_samples is not None and total >= args.max_samples:
                 break
@@ -86,10 +94,24 @@ def main() -> None:
             total += labels.size(0)
     elapsed = time.time() - t0
     acc = correct / total if total else 0.0
-    print(f"samples:            {total}")
-    print(f"top1_accuracy:      {acc:.4f}")
-    print(f"wall_time_s:        {elapsed:.2f}")
-    print(f"time_per_sample_s:  {elapsed / max(total, 1):.4f}")
+    static = NeuroxProfiler.analyze_static(model)
+    leakage_energy__fJ = static.leakage_power__uW * profiler.total_latency__ns
+    print(f"samples:                  {total}")
+    print(f"top1_accuracy:            {acc:.4f}")
+    print(f"wall_time_s:              {elapsed:.2f}")
+    print(f"time_per_sample_s:        {elapsed / max(total, 1):.4f}")
+    print(f"area_total_um2:           {static.area__um2:.4f}")
+    print(f"leakage_power_total_uW:   {static.leakage_power__uW:.4f}")
+    print(f"dynamic_energy_total_fJ:  {profiler.total_dynamic_energy__fJ:.4f}")
+    print(f"modeled_latency_total_ns: {profiler.total_latency__ns:.4f}")
+    print(f"leakage_energy_total_fJ:  {leakage_energy__fJ:.4f}")
+    by_type = profiler.energy_by_type
+    if by_type:
+        print("dynamic_energy_by_type_fJ:")
+        for k in sorted(by_type, key=lambda n: -by_type[n]):
+            v = by_type[k]
+            if v > 0:
+                print(f"  {k:<28s} {v:.4f}")
 
 
 if __name__ == "__main__":

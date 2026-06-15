@@ -396,12 +396,11 @@ class McsSarAdc(ADC):
             unsigned_max=self._unsigned_max_table[bits],
             enabled=self.training,
         )
-        # McsSarAdc: code shape = (*serial, *inst_shape); inst captures
-        # n_groups / parallel-bank dim, no extra trailing dim after MSB-shift.
-        # Per-op latency is parametric in the runtime bit width:
+        # McsSarAdc: code carries no extra parallel trailing beyond
+        # inst_shape; serial count via the position-invariant numel
+        # rule. Per-op latency is parametric in the runtime bit width:
         # one sample cycle + `bits` SAR comparisons → (bits + 1) clocks.
-        n_inst = len(self._inst_shape)
-        serial_op_count = math.prod(code.shape[: code.ndim - n_inst])
+        serial_op_count = max(1, code.numel() // max(self.inst_count, 1))
         per_op_latency__ns = (bits + 1) * config.clk_period__ns
         latency__ns = torch.tensor(
             per_op_latency__ns * serial_op_count,

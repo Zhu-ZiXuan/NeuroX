@@ -6,7 +6,6 @@ See also:
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 
 import torch
@@ -126,10 +125,11 @@ class GeneralDAC(DAC):
             enabled=self.policy.drive_thermal,
         )
 
-        # GeneralDAC: input ``code`` has no special trailing structure;
-        # signal shape = (*serial, *inst_shape).
-        n_inst = len(self._inst_shape)
-        serial_op_count = math.prod(signal.shape[: signal.ndim - n_inst])
+        # Serial-op count via the position-invariant numel rule: total
+        # output elements / parallel hardware multiplicity. For DAC the
+        # parallel structure is exactly ``inst_count`` — no extra
+        # parallel trailing — so the divisor is ``self.inst_count``.
+        serial_op_count = max(1, signal.numel() // max(self.inst_count, 1))
         dynamic_energy__fJ = torch.full_like(signal, self.config.energy_per_op__fJ, dtype=torch.float32)
         latency__ns = torch.tensor(
             self.config.latency_per_op__ns * serial_op_count,

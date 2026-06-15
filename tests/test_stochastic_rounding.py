@@ -79,9 +79,7 @@ def test_train_floor_to_int_unbiased() -> None:
 def test_floor_bucketize_eval() -> None:
     boundaries = torch.tensor([0.1, 0.2, 0.3, 0.4], dtype=torch.float32)
     sig = torch.tensor([0.0, 0.15, 0.25, 0.35, 0.45], dtype=torch.float32)
-    code = floor_bucketize(
-        sig, boundaries, out_dtype=torch.int16, training=False, lsb=0.1
-    )
+    code = floor_bucketize(sig, boundaries, out_dtype=torch.int16, training=False, lsb=0.1)
     assert code.tolist() == [0, 1, 2, 3, 4]
 
 

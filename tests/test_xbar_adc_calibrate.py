@@ -10,6 +10,7 @@ import torch
 
 from neurox.common import dataclass_from_file
 from neurox.tools.xbar_adc.calibrate import (
+    CalibrationResult,
     collect_calibration,
     derive_rescale_for_bits,
     fit_rescale_factor,
@@ -145,7 +146,7 @@ class TestSaturationMask:
 
 
 @pytest.fixture(scope="module")
-def smoke_calibration(xbar_cfg):
+def smoke_calibration(xbar_cfg: Offset1T1RXbarConfig) -> CalibrationResult:
     """Small but realistic calibration on the 28nm preset (adc_mode=0)."""
     return collect_calibration(
         xbar_config=xbar_cfg,
@@ -160,7 +161,7 @@ def smoke_calibration(xbar_cfg):
 
 
 class TestCollectCalibration:
-    def test_returns_populated_object(self, smoke_calibration) -> None:
+    def test_returns_populated_object(self, smoke_calibration: CalibrationResult) -> None:
         r = smoke_calibration
         assert r.adc_mode == 0
         assert r.max_bits >= 1
@@ -175,7 +176,7 @@ class TestCollectCalibration:
         assert r.adc_instance_count == 16
         assert r.supports_flexible_bits is True
 
-    def test_invalid_adc_mode(self, xbar_cfg) -> None:
+    def test_invalid_adc_mode(self, xbar_cfg: Offset1T1RXbarConfig) -> None:
         with pytest.raises(ValueError, match=r"adc_mode"):
             collect_calibration(
                 xbar_config=xbar_cfg,
@@ -188,7 +189,7 @@ class TestCollectCalibration:
                 device=CPU,
             )
 
-    def test_rejects_bad_args(self, xbar_cfg) -> None:
+    def test_rejects_bad_args(self, xbar_cfg: Offset1T1RXbarConfig) -> None:
         with pytest.raises(ValueError, match=r"weight_samples"):
             collect_calibration(
                 xbar_config=xbar_cfg,
@@ -208,7 +209,9 @@ class TestCollectCalibration:
 
 
 class TestLogCalibration:
-    def test_emits_expected_sections(self, smoke_calibration, caplog: pytest.LogCaptureFixture) -> None:
+    def test_emits_expected_sections(
+        self, smoke_calibration: CalibrationResult, caplog: pytest.LogCaptureFixture
+    ) -> None:
         with caplog.at_level(logging.INFO, logger="neurox.tools.xbar_adc.calibrate"):
             log_calibration(smoke_calibration)
 
@@ -223,7 +226,9 @@ class TestLogCalibration:
         assert "rescale_factor" in text
         assert "adc_instance_count" in text
 
-    def test_emits_single_toml_line_per_mode(self, smoke_calibration, caplog: pytest.LogCaptureFixture) -> None:
+    def test_emits_single_toml_line_per_mode(
+        self, smoke_calibration: CalibrationResult, caplog: pytest.LogCaptureFixture
+    ) -> None:
         caplog.clear()
         with caplog.at_level(logging.INFO, logger="neurox.tools.xbar_adc.calibrate"):
             log_calibration(smoke_calibration)
@@ -237,7 +242,7 @@ class TestLogCalibration:
 
 
 class TestPlotCalibration:
-    def test_writes_png(self, smoke_calibration, tmp_path: Path) -> None:
+    def test_writes_png(self, smoke_calibration: CalibrationResult, tmp_path: Path) -> None:
         path = tmp_path / "calib.png"
         plot_calibration(smoke_calibration, path)
         assert path.exists()

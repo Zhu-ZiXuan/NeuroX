@@ -38,12 +38,13 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 import pytest
 import torch
 
 from neurox.analog import Driver, DriverConfig, DriverPolicy
-from neurox.analog.tia import OpAmpTIA, OpAmpTIAPolicy
+from neurox.analog.tia import OpAmpTIA, OpAmpTIAConfig, OpAmpTIAPolicy
 from neurox.common.load_dump import dataclass_from_file
 from neurox.device import NMOS, RRAM, NMOSPolicy, RRAMPolicy
 from neurox.xbar import Offset1T1RXbarConfig
@@ -61,7 +62,7 @@ NUM_COL = 2  # solver requires > 1; we slice col=0 for the FD reference
 
 
 @pytest.fixture(scope="module")
-def harness(pytestconfig):
+def harness(pytestconfig: pytest.Config) -> dict[str, Any]:
     """Build a tiny standalone (RRAM, NMOS, TIA, SL driver, solver) harness."""
     if not XBAR_CONFIG.is_file():
         pytest.skip(f"missing chip preset: {XBAR_CONFIG}")
@@ -96,7 +97,9 @@ def harness(pytestconfig):
         L__um=core_cfg.access_nmos_L__um,
     )
 
-    tia_cfg = replace(core_cfg.tia_config, n_newton=6)
+    base_tia_cfg = core_cfg.tia_config
+    assert isinstance(base_tia_cfg, OpAmpTIAConfig)
+    tia_cfg = replace(base_tia_cfg, n_newton=6)
     tia = OpAmpTIA(
         config=tia_cfg,
         policy=OpAmpTIAPolicy(
@@ -177,7 +180,7 @@ def harness(pytestconfig):
     # ``[1, 1, NUM_ROW]`` for ``g`` / mismatch tensors; index ``[0, 0]``
     # gives 1-D length-NUM_ROW tensors. Drivers' snapshots are already
     # per-col; ``[0]`` gives scalar per-field tensors.
-    def _slice_dataclass_per_col(obj, col_indexer):
+    def _slice_dataclass_per_col(obj: Any, col_indexer: tuple[int, ...]) -> Any:
         from dataclasses import is_dataclass
 
         kwargs = {}
@@ -233,7 +236,7 @@ def harness(pytestconfig):
     }
 
 
-def test_solver_converges_to_zero_residual_per_independent_function(harness):
+def test_solver_converges_to_zero_residual_per_independent_function(harness: dict[str, Any]) -> None:
     """Solver-converged u* must satisfy the INDEPENDENT residual function ≈ 0.
 
     Catches: solver bug that converges to a fake fixed point not honouring
@@ -270,7 +273,7 @@ def test_solver_converges_to_zero_residual_per_independent_function(harness):
     )
 
 
-def test_fd_jacobian_well_conditioned_at_solver_converged_point(harness):
+def test_fd_jacobian_well_conditioned_at_solver_converged_point(harness: dict[str, Any]) -> None:
     """The FD Jacobian at u_solver* must be non-singular and well-conditioned.
 
     Computes ``Δu_FD = −J_FD⁻¹·F(u*)`` and checks it is small. Note that
@@ -325,7 +328,7 @@ def test_fd_jacobian_well_conditioned_at_solver_converged_point(harness):
     )
 
 
-def test_fd_jacobian_has_expected_block_structure(harness):
+def test_fd_jacobian_has_expected_block_structure(harness: dict[str, Any]) -> None:
     """FD Jacobian at u* must match the doc's block-tridiagonal layout.
 
     The 5 residual classes × 5 unknown classes give a (3R+2)×(3R+2)
@@ -373,25 +376,25 @@ def test_fd_jacobian_has_expected_block_structure(harness):
     assert j_fd.shape == (n, n)
 
     # Index helpers — these match the residual function's layout.
-    def idx_f_bl(k):
+    def idx_f_bl(k: int) -> int:
         return k
 
-    def idx_f_sl(k):
+    def idx_f_sl(k: int) -> int:
         return R + k
 
-    def idx_f_x(k):
+    def idx_f_x(k: int) -> int:
         return 2 * R + k
 
     idx_f_cl_bl = 3 * R
     idx_f_cl_sl = 3 * R + 1
 
-    def idx_v_bl(k):
+    def idx_v_bl(k: int) -> int:
         return k
 
-    def idx_v_sl(k):
+    def idx_v_sl(k: int) -> int:
         return R + k
 
-    def idx_v_x(k):
+    def idx_v_x(k: int) -> int:
         return 2 * R + k
 
     idx_v_bl_cl = 3 * R

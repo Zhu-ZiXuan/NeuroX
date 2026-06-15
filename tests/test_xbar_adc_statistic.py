@@ -11,6 +11,7 @@ import torch
 from neurox.common import dataclass_from_file
 from neurox.tools.xbar_adc.statistic import (
     RangeCandidate,
+    Statistics,
     build_candidates,
     collect_statistics,
     log_statistics,
@@ -129,7 +130,7 @@ class TestBuildCandidates:
 
 
 @pytest.fixture(scope="module")
-def smoke_stats(xbar_cfg):
+def smoke_stats(xbar_cfg: Offset1T1RXbarConfig) -> Statistics:
     return collect_statistics(
         xbar_config=xbar_cfg,
         distribution_path=None,
@@ -143,7 +144,7 @@ def smoke_stats(xbar_cfg):
 
 
 class TestCollectStatistics:
-    def test_returns_populated_object(self, smoke_stats) -> None:
+    def test_returns_populated_object(self, smoke_stats: Statistics) -> None:
         s = smoke_stats
         assert s.v_pos__V.numel() == s.v_neg__V.numel() == s.v_diff__V.numel()
         assert s.v_pos__V.numel() > 0
@@ -157,7 +158,7 @@ class TestCollectStatistics:
         # adc_instance_count = batch_size * n_groups = 4 * (col_num / ref_group_size) = 4 * 4 = 16.
         assert s.adc_instance_count == 16
 
-    def test_rejects_bad_args(self, xbar_cfg) -> None:
+    def test_rejects_bad_args(self, xbar_cfg: Offset1T1RXbarConfig) -> None:
         with pytest.raises(ValueError, match=r"weight_samples"):
             collect_statistics(
                 xbar_config=xbar_cfg,
@@ -170,7 +171,7 @@ class TestCollectStatistics:
                 device=CPU,
             )
 
-    def test_rejects_non_multiple_batch(self, xbar_cfg) -> None:
+    def test_rejects_non_multiple_batch(self, xbar_cfg: Offset1T1RXbarConfig) -> None:
         with pytest.raises(ValueError, match=r"multiple of batch_size"):
             collect_statistics(
                 xbar_config=xbar_cfg,
@@ -183,7 +184,7 @@ class TestCollectStatistics:
                 device=CPU,
             )
 
-    def test_insufficient_samples_raises(self, xbar_cfg) -> None:
+    def test_insufficient_samples_raises(self, xbar_cfg: Offset1T1RXbarConfig) -> None:
         with pytest.raises(ValueError, match=r"insufficient samples"):
             collect_statistics(
                 xbar_config=xbar_cfg,
@@ -203,7 +204,7 @@ class TestCollectStatistics:
 
 
 class TestLogStatistics:
-    def test_emits_expected_headings(self, smoke_stats, caplog: pytest.LogCaptureFixture) -> None:
+    def test_emits_expected_headings(self, smoke_stats: Statistics, caplog: pytest.LogCaptureFixture) -> None:
         with caplog.at_level(logging.INFO, logger="neurox.tools.xbar_adc.statistic"):
             log_statistics(smoke_stats)
 
@@ -225,7 +226,7 @@ class TestLogStatistics:
 
 
 class TestPlotStatistics:
-    def test_overview_plus_spotlights(self, smoke_stats, tmp_path: Path) -> None:
+    def test_overview_plus_spotlights(self, smoke_stats: Statistics, tmp_path: Path) -> None:
         out_dir = tmp_path / "out"
         plot_statistics(smoke_stats, out_dir, bits=4, bins_per_code=4)
         assert (out_dir / "overview.png").exists()
@@ -233,21 +234,21 @@ class TestPlotStatistics:
             assert (out_dir / c.filename).exists()
             assert (out_dir / c.filename).stat().st_size > 0
 
-    def test_one_bit_works(self, smoke_stats, tmp_path: Path) -> None:
+    def test_one_bit_works(self, smoke_stats: Statistics, tmp_path: Path) -> None:
         out_dir = tmp_path / "out"
         plot_statistics(smoke_stats, out_dir, bits=1, bins_per_code=1)
         assert (out_dir / "overview.png").exists()
         assert (out_dir / "spotlight_max_abs.png").exists()
 
-    def test_zero_bits_rejected(self, smoke_stats, tmp_path: Path) -> None:
+    def test_zero_bits_rejected(self, smoke_stats: Statistics, tmp_path: Path) -> None:
         with pytest.raises(ValueError, match=r"bits = 0 invalid"):
             plot_statistics(smoke_stats, tmp_path / "out", bits=0, bins_per_code=4)
 
-    def test_thirteen_bits_rejected(self, smoke_stats, tmp_path: Path) -> None:
+    def test_thirteen_bits_rejected(self, smoke_stats: Statistics, tmp_path: Path) -> None:
         with pytest.raises(ValueError, match=r"bits = 13 invalid"):
             plot_statistics(smoke_stats, tmp_path / "out", bits=13, bins_per_code=4)
 
-    def test_zero_bins_per_code_rejected(self, smoke_stats, tmp_path: Path) -> None:
+    def test_zero_bins_per_code_rejected(self, smoke_stats: Statistics, tmp_path: Path) -> None:
         with pytest.raises(ValueError, match=r"bins_per_code = 0 invalid"):
             plot_statistics(smoke_stats, tmp_path / "out", bits=4, bins_per_code=0)
 
@@ -268,24 +269,18 @@ class TestCLI:
     def test_cli_with_distribution(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
         dist_path = tmp_path / "dist.toml"
         dist_path.write_text(
-            "[w]\nvalues = [-1, 0, 1]\nprobs = [0.25, 0.5, 0.25]\n"
-            "[x]\nvalues = [0, 1]\nprobs = [0.7, 0.3]\n"
+            "[w]\nvalues = [-1, 0, 1]\nprobs = [0.25, 0.5, 0.25]\n[x]\nvalues = [0, 1]\nprobs = [0.7, 0.3]\n"
         )
         cfg = _make_run_config(tmp_path, distribution=str(dist_path))
         with caplog.at_level(logging.INFO, logger="neurox.tools.xbar_adc.statistic"):
             assert statistic_main(["--config", str(cfg), "--device", "cpu"]) == 0
         assert str(dist_path) in caplog.text
 
-    def test_cli_plot_dir_emits_overview_and_spotlights(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_cli_plot_dir_emits_overview_and_spotlights(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
         out_dir = tmp_path / "out"
         cfg = _make_run_config(tmp_path)
         with caplog.at_level(logging.INFO, logger="neurox.tools.xbar_adc.statistic"):
-            assert (
-                statistic_main(["--config", str(cfg), "--plot-dir", str(out_dir), "--device", "cpu"])
-                == 0
-            )
+            assert statistic_main(["--config", str(cfg), "--plot-dir", str(out_dir), "--device", "cpu"]) == 0
         assert (out_dir / "overview.png").exists()
         assert (out_dir / "spotlight_max_abs.png").exists()
         assert (out_dir / "spotlight_exp2.png").exists()

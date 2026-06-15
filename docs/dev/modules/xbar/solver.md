@@ -36,4 +36,5 @@ See also:
 - `docs/dev/modules/xbar/_1t1r/nested_solver.md` — `NestedSolver1T1R`
 - `docs/dev/modules/xbar/_1t1r/full_jacobian_solver.md` — `FullJacobianSolver1T1R`
 - `docs/dev/modules/tools/solver_calibrate/README.md` — calibration methodology
-- `docs/dev/modules/analog/clamp_driver.md` — TIA / clamp-driver protocol
+- `docs/dev/modules/analog/tia/base.md` — BL boundary actor (TIA family)
+- `docs/dev/modules/analog/driver.md` — SL boundary actor

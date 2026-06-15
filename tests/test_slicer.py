@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 import torch
 
-from neurox.mapper.transcoder import Transcoder
+from neurox.mapper.transcoder import Encoding, Transcoder
 from neurox.mapper.xbar.slicer import SerialSlicer, SimpleSlicer
 
 
@@ -63,7 +65,7 @@ def test_serial_slicer_roundtrip_for_geometry_cases(slice_num: int, digit_radix:
     "encoding",
     ["true_form", "complement", "canonical"],
 )
-def test_simple_slicer_value_range_delegates_to_full_length_transcoder(encoding: str) -> None:
+def test_simple_slicer_value_range_delegates_to_full_length_transcoder(encoding: Encoding) -> None:
     slicer = SimpleSlicer(slice_num=2, digit_count=3, digit_radix=2, encoding=encoding)
     transcoder = Transcoder.create(encoding, radix=2, digit_num=6)
     assert slicer.value_range == transcoder.value_range
@@ -99,7 +101,7 @@ def test_simple_slicer_shape_and_roundtrip() -> None:
     ],
 )
 def test_simple_slicer_roundtrip_for_encoding_and_geometry_cases(
-    encoding: str,
+    encoding: Encoding,
     slice_num: int,
     digit_count: int,
     digit_radix: int,
@@ -126,7 +128,7 @@ def test_simple_slicer_roundtrip_for_encoding_and_geometry_cases(
         {"slice_num": 1, "digit_count": 3, "digit_radix": 1, "encoding": "true_form"},
     ],
 )
-def test_simple_slicer_rejects_invalid_geometry(kwargs: dict[str, object]) -> None:
+def test_simple_slicer_rejects_invalid_geometry(kwargs: dict[str, Any]) -> None:
     with pytest.raises(ValueError):
         SimpleSlicer(**kwargs)
 

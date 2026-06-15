@@ -143,7 +143,7 @@ class CandidateResult:
     is_feasible: bool  # False if slope(μ)~0 or μ pinned at high rail
 
 
-def _build_tia_config(hw: HardwareSection, gain: float, w: float, l: float, vb: float) -> OpAmpTIAConfig:
+def _build_tia_config(hw: HardwareSection, gain: float, w: float, nmos_L_um: float, vb: float) -> OpAmpTIAConfig:
     """Stitch a per-combo :class:`OpAmpTIAConfig`."""
     return OpAmpTIAConfig(
         v_ref__V=hw.v_ref__V,
@@ -152,14 +152,13 @@ def _build_tia_config(hw: HardwareSection, gain: float, w: float, l: float, vb: 
         opamp_gain=gain,
         opamp_gain_sigma=0.0,
         pseudo_nmos_W__um=w,
-        pseudo_nmos_L__um=l,
+        pseudo_nmos_L__um=nmos_L_um,
         output_saturation_softness__V=hw.output_saturation_softness__V,
         n_newton=hw.tia_n_newton,
         nmos_config=hw.nmos_config,
         # PPA fields are irrelevant to the DC-transfer design analysis.
         leakage_per_inst__uW=0.0,
         area_per_inst__um2=0.0,
-        latency_per_op__ns=0.0,
     )
 
 
@@ -168,7 +167,7 @@ def _evaluate(
     workload: WorkloadSection,
     gain: float,
     w: float,
-    l: float,
+    nmos_L_um: float,
     vb: float,
     *,
     i_max_uA: float,
@@ -186,7 +185,7 @@ def _evaluate(
     """
     if vb <= hw.v_ref__V:
         return None  # OpAmpTIA requires v_nmos_bias > v_ref; skip gracefully
-    cfg = _build_tia_config(hw, gain, w, l, vb)
+    cfg = _build_tia_config(hw, gain, w, nmos_L_um, vb)
     tia = build_tia(cfg, device=device)
     curve = sweep_transfer(tia, i_min_uA=0.0, i_max_uA=i_max_uA, n_points=n_points, device=device)
     fit = fit_to_workload(curve, mean_uA=workload.mean__uA, std_uA=workload.std__uA)
@@ -215,7 +214,7 @@ def _evaluate(
     return CandidateResult(
         opamp_gain=gain,
         pseudo_nmos_W__um=w,
-        pseudo_nmos_L__um=l,
+        pseudo_nmos_L__um=nmos_L_um,
         v_nmos_bias__V=vb,
         curve=curve,
         v_at_mean__V=fit.v_at_mean__V,
@@ -345,34 +344,34 @@ def _emit_slice_plots(
     n_vb_plots = 0
 
     for g in gains:
-        for l in Ls:
+        for nmos_L_um in Ls:
             for vb in Vbs:
-                slice_ = [by_key.get((g, w, l, vb)) for w in Ws]
-                slice_ = [r for r in slice_ if r is not None]
-                if len(slice_) < 2:
+                raw_slice = [by_key.get((g, w, nmos_L_um, vb)) for w in Ws]
+                filtered_slice: list[CandidateResult] = [r for r in raw_slice if r is not None]
+                if len(filtered_slice) < 2:
                     # Skip degenerate slices (one or zero valid candidates
                     # left after invalid combos were dropped) — there is
                     # nothing for a sweep plot to show.
                     continue
-                fn = w_dir / f"sweep_W__gain{g:g}_L{l:g}_Vb{vb:g}.png"
+                fn = w_dir / f"sweep_W__gain{g:g}_L{nmos_L_um:g}_Vb{vb:g}.png"
                 _plot_slice(
-                    slice_,
+                    filtered_slice,
                     varied_attr="pseudo_nmos_W__um",
-                    fixed_attrs_label=f"A={g:g}, L={l:g}, Vb={vb:g}",
+                    fixed_attrs_label=f"A={g:g}, L={nmos_L_um:g}, Vb={vb:g}",
                     workload=workload,
                     output_path=fn,
                 )
                 n_w_plots += 1
             for w in Ws:
-                slice_ = [by_key.get((g, w, l, vb)) for vb in Vbs]
-                slice_ = [r for r in slice_ if r is not None]
-                if len(slice_) < 2:
+                raw_slice = [by_key.get((g, w, nmos_L_um, vb)) for vb in Vbs]
+                filtered_slice = [r for r in raw_slice if r is not None]
+                if len(filtered_slice) < 2:
                     continue
-                fn = vb_dir / f"sweep_Vb__gain{g:g}_L{l:g}_W{w:g}.png"
+                fn = vb_dir / f"sweep_Vb__gain{g:g}_L{nmos_L_um:g}_W{w:g}.png"
                 _plot_slice(
-                    slice_,
+                    filtered_slice,
                     varied_attr="v_nmos_bias__V",
-                    fixed_attrs_label=f"A={g:g}, L={l:g}, W={w:g}",
+                    fixed_attrs_label=f"A={g:g}, L={nmos_L_um:g}, W={w:g}",
                     workload=workload,
                     output_path=fn,
                 )
@@ -472,7 +471,7 @@ def main(argv: list[str] | None = None) -> int:
 
     all_results: list[CandidateResult] = []
     skipped_invalid = 0
-    for gain, w, l, vb in itertools.product(
+    for gain, w, nmos_L_um, vb in itertools.product(
         cfg.sweep.opamp_gain,
         cfg.sweep.pseudo_nmos_W__um,
         cfg.sweep.pseudo_nmos_L__um,
@@ -483,7 +482,7 @@ def main(argv: list[str] | None = None) -> int:
             cfg.workload,
             gain,
             w,
-            l,
+            nmos_L_um,
             vb,
             i_max_uA=i_max,
             n_points=301,

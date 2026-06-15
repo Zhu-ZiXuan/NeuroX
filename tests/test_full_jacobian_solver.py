@@ -20,6 +20,7 @@ verified separately by :mod:`tests.test_full_jacobian_fd_verify`.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -44,20 +45,20 @@ XBAR_CONFIG = REPO_ROOT / "example" / "config" / "1t1r_28nm.toml"
 
 
 @pytest.fixture(scope="module")
-def fixture_config():
+def fixture_config() -> Iterator[Path]:
     if not XBAR_CONFIG.is_file():
         pytest.skip(f"missing test fixture: {XBAR_CONFIG}")
     yield XBAR_CONFIG
 
 
 @pytest.fixture(scope="module")
-def device():
+def device() -> torch.device:
     if torch.cuda.is_available():
         return torch.device("cuda:0")
     return torch.device("cpu")
 
 
-def test_full_jacobian_residuals_machine_precision(fixture_config, device):
+def test_full_jacobian_residuals_machine_precision(fixture_config: Path, device: torch.device) -> None:
     """A handful of Newton iters drive all 5 residual classes to fp64 noise."""
     harness = build_solver_harness(
         config_path=XBAR_CONFIG,
@@ -76,7 +77,7 @@ def test_full_jacobian_residuals_machine_precision(fixture_config, device):
     assert residuals.clamp_sl__V.max().item() < 1e-9
 
 
-def test_full_jacobian_quadratic_convergence(fixture_config, device):
+def test_full_jacobian_quadratic_convergence(fixture_config: Path, device: torch.device) -> None:
     """Newton residuals roughly square each iteration (classic quadratic)."""
     cell_max_by_iter = []
     for n in (1, 2, 3, 5):
@@ -98,7 +99,7 @@ def test_full_jacobian_quadratic_convergence(fixture_config, device):
     )
 
 
-def test_full_jacobian_matches_nested(fixture_config, device):
+def test_full_jacobian_matches_nested(fixture_config: Path, device: torch.device) -> None:
     """Both solvers converge to the same physical operating point (v_bl_node)."""
     full_h = build_solver_harness(
         config_path=XBAR_CONFIG,
@@ -120,7 +121,7 @@ def test_full_jacobian_matches_nested(fixture_config, device):
     assert max_diff < 1e-9, f"v_bl_clamp differs by {max_diff:.3e} V"
 
 
-def test_full_jacobian_residuals_none_on_hot_path(fixture_config, device):
+def test_full_jacobian_residuals_none_on_hot_path(fixture_config: Path, device: torch.device) -> None:
     harness = build_solver_harness(
         config_path=XBAR_CONFIG,
         solver_config=FullJacobianSolver1T1RConfig(n_newton=5),
@@ -132,7 +133,7 @@ def test_full_jacobian_residuals_none_on_hot_path(fixture_config, device):
     assert dcop.residuals is None
 
 
-def test_full_jacobian_chunking_bit_exact(fixture_config, device):
+def test_full_jacobian_chunking_bit_exact(fixture_config: Path, device: torch.device) -> None:
     """Integration test: xbar batch chunking is bit-exact under FullJacobian.
 
     Stays at the xbar level because chunking is the xbar's concern; this
@@ -157,7 +158,9 @@ def test_full_jacobian_chunking_bit_exact(fixture_config, device):
         x = next(iter(sample_x_batches(distribution, xbar, n_total=8, batch_size=8, device=device, generator=g)))
         x_with_inst_slot = x.unsqueeze(-2)  # (x_batch, 1, row): inst-broadcast slot
         op = AdcOperationPoint(adc_mode=0, adc_bits=8)
-        return xbar.vec_mat_mul(x_with_inst_slot, adc_operation_point=op)
+        result = xbar.vec_mat_mul(x_with_inst_slot, adc_operation_point=op)
+        assert isinstance(result, torch.Tensor)
+        return result
 
     full = run(0)
     for cs in (1, 2, 3, 8):

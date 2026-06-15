@@ -222,17 +222,32 @@ class NMOS(FabricateMixin, nn.Module):
             enabled=self.policy.A_vt_mismatch,
         )
 
-    def snapshot(self, *, shape: tuple[int, ...]) -> NMOSSnapshot:
+    def snapshot(
+        self,
+        *,
+        shape: tuple[int, ...],
+        multi_coords: tuple[Tensor, ...] | None,
+    ) -> NMOSSnapshot:
         """Sample one per-call runtime snapshot over ``shape``.
 
         Args:
-            shape: Snapshot shape.
+            shape: Per-call broadcast shape; the snapshot fills tensor
+                fields at this shape.
+            multi_coords: Advanced-index tuple selecting a chunk's
+                positions from the broadcast view; ``None`` returns the
+                full view.
 
         Returns:
             Per-call snapshot of the fabricated state.
         """
-        del shape
-        return NMOSSnapshot(beta__uA_per_V2=self.beta__uA_per_V2, vth__V=self.vth__V)
+        vth_view = self.vth__V.expand(shape) if shape else self.vth__V
+        beta_view = self.beta__uA_per_V2.expand(shape) if shape else self.beta__uA_per_V2
+        if multi_coords is None:
+            return NMOSSnapshot(vth__V=vth_view, beta__uA_per_V2=beta_view)
+        return NMOSSnapshot(
+            vth__V=vth_view[multi_coords],
+            beta__uA_per_V2=beta_view[multi_coords],
+        )
 
     def solve_dc(
         self,

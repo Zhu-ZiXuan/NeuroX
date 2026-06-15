@@ -10,11 +10,11 @@ One xbar carries `weights_per_xbar = ⌊col_num / Sw⌋` whole logical weights, 
 
 ## Organize (W)
 
-`slice` → `[..., N, K, Sw, D]` → pad `N` up to `Tr × weights_per_xbar` → `unflatten(N → Tr, weights_per_xbar)` → tile `K` → permute → `flatten(weights_per_xbar, Sw)` → pad to `col_num` → `Sa=1, M=1` placeholders. Final shape: `[..., M=1, Tc, Tr, Sa=1, data_num=col_num, D, row_num]`.
+`slice` → `[..., N, K, Sw, D]` → pad `N` up to `Tr × weights_per_xbar` → `unflatten(N → Tr, weights_per_xbar)` → tile `K` → permute → `flatten(weights_per_xbar, Sw)` → pad to `col_num` → `M=1, Sa=1` placeholders. Final shape: `[..., M=1, Sa=1, Tc, Tr, data_num=col_num, D, row_num]` — no `Sw` axis (the real `Sw` slices are inlined into `col_num`). Leading order is `[Sa, Sw, Tc, Tr]`; `Sw` is absent.
 
 ## Aggregate
 
-Drop trailing idle slots → `unflatten(data_num → weights_per_xbar, Sw)` → `Sw` shift-add (intra-xbar stride-`Sw`) → `Sa` shift-add (intra-xbar serial) → `Tc` accumulate → flatten `(Tr, weights_per_xbar)` → trim to `N`. The macro returns pre-requantize int output; the operator owns bias add and rescale.
+Drop trailing idle slots → `unflatten(data_num → weights_per_xbar, Sw)` → `Sw` shift-add (intra-xbar stride-`Sw`, `dim=-1`) → `Sa` shift-add (intra-xbar serial, `dim=-4`) → `Tc` accumulate (`dim=-3`) → flatten `(Tr, weights_per_xbar)` → trim to `N`. The macro returns pre-requantize int output; the operator owns bias add and rescale.
 
 ## Constraints
 

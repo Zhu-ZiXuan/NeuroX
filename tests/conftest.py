@@ -8,22 +8,23 @@ by the ``ValueError`` guard — only the first conftest to load wins, all
 others reuse the same option.
 """
 
+import contextlib
+
 import pytest
 import torch
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
-    try:
+    # Another per-package conftest in this same pytest session may
+    # have already registered ``--device``; suppress the duplicate
+    # registration ValueError and reuse the existing option.
+    with contextlib.suppress(ValueError):
         parser.addoption(
             "--device",
             action="store",
             default="cpu",
             help="Target torch device for compatibility tests, e.g. cpu, cuda, cuda:0, mps.",
         )
-    except ValueError:
-        # Another per-package conftest in this same pytest session already
-        # registered ``--device``; reuse the existing option.
-        pass
 
 
 @pytest.fixture

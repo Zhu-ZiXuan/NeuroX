@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-import logging
+from pathlib import Path
 
 import pytest
 import torch
@@ -59,16 +59,16 @@ class TestSetupLogging:
 
 
 class TestResolveRelativePath:
-    def test_none_propagates(self, tmp_path) -> None:
+    def test_none_propagates(self, tmp_path: Path) -> None:
         assert resolve_relative_path(None, tmp_path / "main.toml") is None
 
-    def test_relative_resolves_against_base_parent(self, tmp_path) -> None:
+    def test_relative_resolves_against_base_parent(self, tmp_path: Path) -> None:
         base = tmp_path / "subdir" / "main.toml"
         base.parent.mkdir()
         out = resolve_relative_path("artefacts/out.png", base)
         assert out == tmp_path / "subdir" / "artefacts/out.png"
 
-    def test_absolute_returned_unchanged(self, tmp_path) -> None:
+    def test_absolute_returned_unchanged(self, tmp_path: Path) -> None:
         absolute = tmp_path / "fixed.png"
         out = resolve_relative_path(absolute, tmp_path / "main.toml")
         assert out == absolute

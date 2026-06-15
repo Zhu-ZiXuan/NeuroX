@@ -20,7 +20,7 @@ Below the macro, decorating individual functions would only fragment fusion. Abo
 When a method is allowed to self-decorate (currently only `XbarMacro.matmul` on every concrete subclass):
 
 - `dynamic=True` — always. User batch dimensions vary call-to-call; static-shape mode would recompile on every batch-size change.
-- `fullgraph` — default `False`. Library code must allow graph breaks because `_log_dynamic` produces one (see below). Set `fullgraph=True` only in test code that wants to catch accidental Python sync.
+- `fullgraph` — default `False`. Library code must allow graph breaks because `_log_dynamic_energy` / `_log_latency` produce them (see below). Set `fullgraph=True` only in test code that wants to catch accidental Python sync.
 - `mode` — leave default. `reduce-overhead` and `max-autotune` are deployment-time tuning, not library defaults.
 - `backend` — leave default (`inductor`).
 
@@ -57,7 +57,7 @@ The shape / dtype / device of the cached buffer must match the runtime path; oth
 
 ## Allowed exceptions
 
-- `@torch.compiler.disable` on `ProfileMixin._log_dynamic`. The break is local — it happens at the end of each primary method, after all the kernel math, so fusion inside the kernel is unaffected. Necessary because the profiler reads `threading.local` and mutates a Python list; both are untraceable by dynamo. See [`profiler_and_ppa.md`](profiler_and_ppa.md) for the trade-off discussion.
+- `@torch.compiler.disable` on `ProfileMixin._log_dynamic_energy` and `ProfileMixin._log_latency`. The breaks are local — they happen at the end of each primary method, after all the kernel math, so fusion inside the kernel is unaffected. Necessary because the profiler reads `threading.local` and mutates a Python list; both are untraceable by dynamo. See [`profiler_and_ppa.md`](profiler_and_ppa.md) for the trade-off discussion.
 - `@torch.compiler.disable` on `Offset1T1RXbar.vec_mat_mul` (`neurox/xbar/_1t1r/offset.py`). This is a **temporary intentional boundary**: an earlier attempt to compile the inner block produced a > 10 min first-call compile dominated by inductor scheduling of the SAR ADC's bit-loop (`McsSarAdc.convert`). The disable is at the top of `vec_mat_mul` so the macro-level compile still fuses everything *above* it; the Newton solve + readout chain runs eagerly, which is the project default until the SAR bit-loop is rewritten to a graph-friendly form. Remove this `@disable` when the SAR fix lands.
 - `tensor.shape[i]` / `tensor.size(i)` / `tensor.ndim` return Python `int` without CPU sync — safe.
 - `.detach()` (without `.item()`) — safe.

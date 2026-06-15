@@ -4,7 +4,6 @@ See also:
     docs/dev/modules/digital/README.md
 """
 
-import math
 from dataclasses import dataclass
 
 import torch
@@ -82,10 +81,10 @@ class Accumulator(CircuitBase[AccumulatorConfig]):
         full = 1 << bw
         y = (x.sum(dim) + half) % full - half
 
-        # Each tree adder produces one output element. Total serial cost
-        # = number of outputs / inst_count parallel adder trees.
-        n_outputs = math.prod(y.shape)
-        serial_op_count = max(1, n_outputs // max(self.inst_count, 1))
+        # Each tree adder produces one output element. Serial via the
+        # position-invariant numel rule (reduced dim is already gone
+        # from y so the divisor is just inst_count).
+        serial_op_count = max(1, y.numel() // max(self.inst_count, 1))
         dynamic_energy__fJ = torch.full_like(y, self.config.energy_per_op__fJ, dtype=torch.float32)
         latency__ns = torch.tensor(
             self.config.latency_per_op__ns * serial_op_count,

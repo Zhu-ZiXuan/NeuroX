@@ -73,9 +73,9 @@ def stochastic_floor_div(
     # in float and multiply through, then cast back to integer to keep
     # the result exact-modulo-denom.
     rshift_t = rshift.to(numerator.dtype)
-    denom = (torch.ones_like(rshift_t) << rshift_t).to(torch.float64)
+    denom_t = (torch.ones_like(rshift_t) << rshift_t).to(torch.float64)
     jitter_float = torch.rand(numerator.shape, device=numerator.device, dtype=torch.float64)
-    jitter = (jitter_float * denom).to(numerator.dtype)
+    jitter = (jitter_float * denom_t).to(numerator.dtype)
     return (numerator + jitter) >> rshift
 
 

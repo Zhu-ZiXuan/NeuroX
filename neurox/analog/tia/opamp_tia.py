@@ -134,7 +134,7 @@ class OpAmpTIASnapshot(TIASnapshot):
 
 
 @TIA.register_key(OpAmpTIAConfig)
-class OpAmpTIA(TIA):
+class OpAmpTIA(TIA[OpAmpTIASnapshot]):
     """Non-linear OpAmpTIA clamp driver.
 
     Class-level numerical constants (method-intrinsic, not chip-tuneable):
@@ -205,7 +205,7 @@ class OpAmpTIA(TIA):
             persistent=False,
         )
 
-    # --- ClampDriver protocol accessor ---
+    # --- Reference voltage accessor ---
 
     @property
     def v_ref__V(self) -> float:
@@ -353,7 +353,7 @@ class OpAmpTIA(TIA):
         *,
         v_clamp_init__V: Tensor | None,
     ) -> tuple[Tensor, Tensor]:
-        """`ClampDriver`-protocol wrapper around :meth:`solve_dc`.
+        """Boundary-clamp wrapper around :meth:`solve_dc`.
 
         Args:
             i_port__uA: Port-output current [uA]; see :meth:`solve_dc`.

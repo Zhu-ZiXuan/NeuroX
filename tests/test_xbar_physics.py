@@ -1,4 +1,4 @@
-"""Validate the 1T1R xbar physical model at 64x64 scale.
+"""Validate the 1T1R xbar physical model at 64×64 scale.
 
 Uses ``ideal_1t1r.toml`` (noise sub-configs omitted → skipped, access
 switch configured as an ideal pass-gate).  Generates many random
@@ -16,15 +16,10 @@ The xbar computes vector-matrix multiplication where:
 
 import math
 from functools import partial
+from pathlib import Path as _Path
 
 import pytest
 import torch
-
-pytestmark = pytest.mark.skip(
-    reason="Fixtures need rewriting to the Xbar.from_config-based construction path."
-)
-
-from pathlib import Path as _Path
 
 from neurox.analog import (
     AnalogMux,
@@ -36,17 +31,19 @@ from neurox.analog import (
 )
 from neurox.analog.adc import GeneralADC, GeneralADCConfig
 from neurox.analog.dac import GeneralDAC, GeneralDACConfig
-from neurox.xbar.readout import OffsetSwitchCapMuxAdcReadOut, ReadOutConfig
 from neurox.analog.tia import OpAmpTIA, OpAmpTIAConfig
 from neurox.common import T_ROOM__K, dict_configs_from_file, dict_from_file, thermal_voltage__V
 from neurox.device import NMOS, RRAM, NMOSConfig, RRAMConfig
-from neurox.digital import Subtractor, SubtractorConfig
+from neurox.digital import SubtractorConfig
 from neurox.xbar import (
     CircuitCore1T1R,
     CircuitCore1T1RConfig,
     Offset1T1RXbar,
     Offset1T1RXbarConfig,
 )
+from neurox.xbar.readout import OffsetSwitchCapMuxAdcReadOut, ReadOutConfig
+
+pytestmark = pytest.mark.skip(reason="Fixtures need rewriting to the Xbar.from_config-based construction path.")
 
 CONFIG_FILE = _Path(__file__).parent / "fixtures" / "macro.toml"
 
@@ -89,7 +86,7 @@ def _compute_nmos_ref_conductance(
 
 
 def _build_xbar() -> Offset1T1RXbar:
-    """Build a 64x64 xbar via the new three-layer factory chain.
+    """Build a 64×64 xbar via the new three-layer factory chain.
 
     See ``docs/dev/modules/xbar/_1t1r/README.md`` + ``docs/dev/architecture/state_holding.md`` — ``CircuitCore1T1R``
     owns the array physics, ``ReadOut`` does the voltage-domain
@@ -222,7 +219,7 @@ def _analytic_output(
 
 
 class TestXbar64x64:
-    """Exhaustive solver accuracy tests on a 64x64 array with default config."""
+    """Exhaustive solver accuracy tests on a 64×64 array with default config."""
 
     @pytest.fixture
     def xbar(self) -> Offset1T1RXbar:
@@ -268,7 +265,7 @@ class TestXbar64x64:
         n_trials = 1000
 
         print(f"\n{'=' * 70}")
-        print(f"  64x64 xbar solver test: {n_trials} random (w, x) pairs")
+        print(f"  64×64 xbar solver test: {n_trials} random (w, x) pairs")
         print(f"  w range: [{-w_max}, {w_max}]  (from w_states={xbar.w_states})")
         print(f"  x range: [0, {x_max}]  (from x_states={xbar.x_states})")
         print(f"  ADC levels: {xbar.output_levels}")
@@ -380,7 +377,7 @@ class TestXbar64x64:
         }
 
         print(f"\n{'=' * 70}")
-        print("  Edge case tests (64x64)")
+        print("  Edge case tests (64×64)")
         print(f"{'=' * 70}")
 
         all_pass = True
@@ -439,7 +436,7 @@ class TestXbar64x64:
 
         codes = torch.cat(all_codes)
         print(f"\n{'=' * 70}")
-        print("  Output code distribution (500 trials, 64x64)")
+        print("  Output code distribution (500 trials, 64×64)")
         print(f"{'=' * 70}")
         print(f"  possible range:   [{-adc_max}, {adc_max}]")
         print(f"  observed range:   [{codes.min().item()}, {codes.max().item()}]")

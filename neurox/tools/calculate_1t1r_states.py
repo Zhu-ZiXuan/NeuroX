@@ -104,7 +104,7 @@ def _program_and_snapshot(rram: RRAM, g__uS: float) -> RRAMSnapshot:
     """Program ``rram`` to ``g__uS`` (no drift / nonidealities) and snapshot once."""
     target = torch.tensor(g__uS, dtype=_DTYPE)
     rram.program(target, t_elapsed=0.0)
-    return rram.snapshot(shape=())
+    return rram.snapshot(shape=(), multi_coords=None)
 
 
 def _solve_cell_current__uA(
@@ -243,7 +243,7 @@ def calculate_state_map(
     rram.eval()
     nmos.eval()
     nmos.fabricate()  # populate nominal buffers (mismatch disabled → deterministic)
-    nmos_snapshot = nmos.snapshot(shape=())
+    nmos_snapshot = nmos.snapshot(shape=(), multi_coords=None)
 
     g_min__uS = rram_config.g_min__uS
 

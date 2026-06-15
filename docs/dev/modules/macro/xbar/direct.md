@@ -1,6 +1,6 @@
 # `DirectXbarMacro`
 
-Transcode-only macro for the `Sw = Sa = 1` case. No slicers, no shift-adders — logical weights and activations map straight onto one xbar's native value range.
+Transcode-only macro: no activation slicing, no weight slicing. No slicers, no shift-adders — logical weights and activations map straight onto one xbar's native value range. The organised layout has **no `Sa` / `Sw` axes** (they don't exist for this macro).
 
 ## What one xbar holds
 
@@ -8,7 +8,7 @@ One xbar carries every logical weight unsliced. `N` logical weights tile into `T
 
 ## Organize (W)
 
-`encode` via the weight transcoder → `[..., N, K, D]` → tile `N` along `col_num` → tile `K` along `row_num` → permute → `M=1` placeholder. Final shape: `[..., M=1, Tc, Tr, col_num, D, row_num]` (6 leading dims instead of inter / intra's 7-8 because `Sa` and `Sw` collapse).
+`encode` via the weight transcoder → `[..., N, K, D]` → tile `N` along `col_num` → tile `K` along `row_num` → permute → `M=1` placeholder. Final shape: `[..., M=1, Tc, Tr, col_num, D, row_num]` — no `Sa` / `Sw` axes at all. The leading order `[Sa, Sw, Tc, Tr]` is the project-wide convention; missing axes (here `Sa`, `Sw`) are simply absent rather than padded as size-1.
 
 ## Organize (X)
 
@@ -16,9 +16,9 @@ One xbar carries every logical weight unsliced. `N` logical weights tile into `T
 
 ## Aggregate
 
-`xbar.vec_mat_mul` → `[..., M, Tc, Tr, col_num]` → `Tc` accumulate → flatten `(Tr, col_num)` → trim to `N`. The macro returns pre-requantize int output; the operator owns bias add and rescale.
+`xbar.vec_mat_mul` → `[..., M, Tc, Tr, col_num]` → `Tc` accumulate (`dim=-3`) → flatten `(Tr, col_num)` → trim to `N`. The macro returns pre-requantize int output; the operator owns bias add and rescale.
 
-No `Sw` / `Sa` shift-adders run because both slice counts are 1.
+No `Sw` / `Sa` shift-adders — those axes don't exist in this macro.
 
 ## Constraints
 

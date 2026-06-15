@@ -1,4 +1,4 @@
-"""Direct macro: ``Sw = Sa = 1``, no slicing — transcode-only.
+"""Direct macro: transcode-only.
 
 See also:
     docs/dev/modules/macro/xbar/direct.md
@@ -55,7 +55,7 @@ class DirectXbarMacroPolicy(XbarMacroPolicy):
 
 @XbarMacro.register_key(DirectXbarMacroConfig)
 class DirectXbarMacro(XbarMacro):
-    """Xbar macro for the ``Sw = Sa = 1`` case: no slicing, transcode only.
+    """Xbar macro with no activation / weight slicing — transcode only.
 
     The caller must supply integer weight / activation values that already
     fit the xbar's value range (the transcoder's ``value_range`` for ``w``
@@ -92,7 +92,7 @@ class DirectXbarMacro(XbarMacro):
         col_num = xbar_config.col_num
         row_num = xbar_config.row_num
 
-        # Symbolic organized shape: (*batch, M=1, Tc, Tr, col_num, D, row_num).
+        # Organized shape: (*batch, M=1, Tc, Tr, col_num, D, row_num).
         # The trailing (col_num, D, row_num) is owned by the xbar.
         *w_batch, n_logical, k_logical = w_logical_shape
         tr = (n_logical + col_num - 1) // col_num
@@ -121,8 +121,6 @@ class DirectXbarMacro(XbarMacro):
             name=f"{prefix}col_accumulator",
             inst_shape=(self._w_parallel_size, tr),
         )
-
-        self._log_static()
 
     def extra_repr(self) -> str:
         """One-line summary shown by ``print(model)``."""

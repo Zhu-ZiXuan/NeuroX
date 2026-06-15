@@ -8,7 +8,7 @@ exported FX graph, so ``QuantStub`` / ``DeQuantStub`` and explicit
 
 Input spec:
     Shape: ``[N, 1, 28, 28]`` (standard MNIST).  The first conv uses
-    ``padding=2`` to recover the classic LeNet-5 32x32 input feature map
+    ``padding=2`` to recover the classic LeNet-5 32×32 input feature map
     after the initial padding.
 """
 
@@ -20,8 +20,8 @@ class LeNet5(nn.Module):
     """Classic LeNet-5 for MNIST.
 
     Layer stack:
-        conv1 (1 -> 6, 5x5, pad 2) -> relu -> maxpool 2x2
-        conv2 (6 -> 16, 5x5)       -> relu -> maxpool 2x2
+        conv1 (1 -> 6, 5×5, pad 2) -> relu -> maxpool 2×2
+        conv2 (6 -> 16, 5×5)       -> relu -> maxpool 2×2
         flatten
         fc1 (400 -> 120) -> relu
         fc2 (120 -> 84)  -> relu

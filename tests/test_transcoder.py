@@ -8,6 +8,7 @@ import torch
 from neurox.mapper.transcoder import (
     CanonicalTranscoder,
     ComplementTranscoder,
+    Encoding,
     Transcoder,
     TrueFormTranscoder,
 )
@@ -59,7 +60,7 @@ def test_canonical_value_range(radix: int, digit_num: int, expected: tuple[int, 
         ("canonical", CanonicalTranscoder),
     ],
 )
-def test_transcoder_create_dispatches(encoding: str, expected_type: type[Transcoder]) -> None:
+def test_transcoder_create_dispatches(encoding: Encoding, expected_type: type[Transcoder]) -> None:
     transcoder = Transcoder.create(encoding, radix=2, digit_num=3)
     assert isinstance(transcoder, expected_type)
 

@@ -18,6 +18,7 @@ tests are reproducible without a workload sampler.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -31,20 +32,20 @@ XBAR_CONFIG = REPO_ROOT / "example" / "config" / "1t1r_28nm.toml"
 
 
 @pytest.fixture(scope="module")
-def fixture_config():
+def fixture_config() -> Iterator[Path]:
     if not XBAR_CONFIG.is_file():
         pytest.skip(f"missing test fixture: {XBAR_CONFIG}")
     yield XBAR_CONFIG
 
 
 @pytest.fixture(scope="module")
-def device():
+def device() -> torch.device:
     if torch.cuda.is_available():
         return torch.device("cuda:0")
     return torch.device("cpu")
 
 
-def test_nested_residuals_at_machine_precision(fixture_config, device):
+def test_nested_residuals_at_machine_precision(fixture_config: Path, device: torch.device) -> None:
     """Nested solver drives all three residuals to fp64 noise."""
     harness = build_solver_harness(
         config_path=XBAR_CONFIG,
@@ -61,7 +62,7 @@ def test_nested_residuals_at_machine_precision(fixture_config, device):
     assert residuals.wire_sl__uA.max().item() < 1e-9
 
 
-def test_nested_inner_only_converges(fixture_config, device):
+def test_nested_inner_only_converges(fixture_config: Path, device: torch.device) -> None:
     """``solve_array_fixed_clamp`` converges the inner sub-problem to
     fp64 noise — inner system is M-matrix monotone, no multi-equilibrium."""
     harness = build_solver_harness(
@@ -71,7 +72,8 @@ def test_nested_inner_only_converges(fixture_config, device):
         x_batch=4,
         device=device,
     )
-    solver: NestedSolver1T1R = harness.solver  # type: ignore[assignment]
+    solver = harness.solver
+    assert isinstance(solver, NestedSolver1T1R)
     # Pinned clamps at the TIA / Driver reference voltages — same shape
     # as the solver's port-current tensors.
     v_wl = harness.v_wl_drive__V
@@ -97,7 +99,7 @@ def test_nested_inner_only_converges(fixture_config, device):
     assert dcop.residuals.wire_sl__uA.max().item() < 1e-9
 
 
-def test_nested_residuals_none_on_hot_path(fixture_config, device):
+def test_nested_residuals_none_on_hot_path(fixture_config: Path, device: torch.device) -> None:
     """``compute_residuals=False`` elides the residual algebra."""
     harness = build_solver_harness(
         config_path=XBAR_CONFIG,

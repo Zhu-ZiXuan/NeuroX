@@ -7,7 +7,6 @@ encodings whose extremes are not the canonical ``[0, radix^count - 1]``.
 
 from __future__ import annotations
 
-import pytest
 import torch
 
 from neurox.xbar.ideal import IdealXbar, IdealXbarConfig, IdealXbarPolicy
@@ -60,10 +59,10 @@ def _expected_max_dot(
 ) -> int:
     d_lo, d_hi = w_digit_range
     max_digit_abs = max(abs(d_lo), abs(d_hi))
-    weight_sum = sum(w_digit_radix ** k for k in range(w_digit_count))
+    weight_sum = sum((w_digit_radix**k for k in range(w_digit_count)), start=0)
     max_w_abs = max_digit_abs * weight_sum
     x_lo, x_hi = x_range
-    return row_num * max_w_abs * max(abs(x_lo), abs(x_hi))
+    return int(row_num * max_w_abs * max(abs(x_lo), abs(x_hi)))
 
 
 class TestRescaleScope:
@@ -80,9 +79,7 @@ class TestRescaleScope:
             col_num=4,
             adc_bits=8,
         )
-        expected = _expected_max_dot(
-            w_digit_range=(-3, 3), w_digit_radix=4, w_digit_count=2, x_range=(0, 1), row_num=8
-        )
+        expected = _expected_max_dot(w_digit_range=(-3, 3), w_digit_radix=4, w_digit_count=2, x_range=(0, 1), row_num=8)
         assert xbar._max_dot_abs == expected
         assert xbar._rescale_by_bits[8] == expected / ((1 << 7) - 1)
 
@@ -97,9 +94,7 @@ class TestRescaleScope:
             col_num=4,
             adc_bits=8,
         )
-        expected = _expected_max_dot(
-            w_digit_range=(0, 3), w_digit_radix=4, w_digit_count=2, x_range=(0, 1), row_num=8
-        )
+        expected = _expected_max_dot(w_digit_range=(0, 3), w_digit_radix=4, w_digit_count=2, x_range=(0, 1), row_num=8)
         assert xbar._max_dot_abs == expected
 
     def test_asymmetric_signed_range(self) -> None:
@@ -117,9 +112,7 @@ class TestRescaleScope:
         # where the larger |bound| < radix-1; the correct bound is
         # ``max(|d_lo|, |d_hi|) · sum(radix^k)``. See
         # ``test_naive_formula_overclips_signed`` below.
-        expected = _expected_max_dot(
-            w_digit_range=(-1, 2), w_digit_radix=3, w_digit_count=2, x_range=(0, 1), row_num=8
-        )
+        expected = _expected_max_dot(w_digit_range=(-1, 2), w_digit_radix=3, w_digit_count=2, x_range=(0, 1), row_num=8)
         assert xbar._max_dot_abs == expected
 
     def test_naive_formula_overclips_signed(self) -> None:

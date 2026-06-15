@@ -15,8 +15,6 @@ Owned children are constructed directly by the parent class; external factory cl
 These are not polymorphic families — each is a single concrete `nn.Module` the consuming circuit constructs directly:
 
 - [`analog_mux.md`](analog_mux.md) — differential transport with optional CM / DM noise.
-- [`clamp_driver.md`](clamp_driver.md) — the shared solver-facing `ClampDriver` protocol (TIA and `Driver` both implement it).
-- [`decoder.md`](decoder.md) — row decoder + WL driver wrapper.
 - [`driver.md`](driver.md) — ideal constant-voltage clamp driver.
 - [`switch_cap.md`](switch_cap.md) — bottom-plate-sampled cap bank.
 

@@ -8,13 +8,13 @@ scalars, and convergence rationale.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
 import torch
 import torch.nn.functional as F
 from torch import Tensor
 
-from neurox.analog.clamp_driver import ClampDriver
+from neurox.analog import Driver, DriverSnapshot
+from neurox.analog.tia import TIA, TIASnapshot
 from neurox.device import RRAM, RRAMSnapshot
 from neurox.device.nmos import NMOS, NMOSSnapshot
 from neurox.xbar.solver import (
@@ -84,8 +84,8 @@ class FullJacobianSolver1T1R(Solver1T1R):
         config: FullJacobianSolver1T1RConfig,
         rram: RRAM,
         nmos: NMOS,
-        bl_driver: ClampDriver,
-        sl_driver: ClampDriver,
+        bl_driver: TIA,
+        sl_driver: Driver,
     ) -> None:
         self.config = config
         self.rram = rram
@@ -103,8 +103,8 @@ class FullJacobianSolver1T1R(Solver1T1R):
         sl_segment_g__uS: Tensor,
         rram_snapshot: RRAMSnapshot,
         nmos_snapshot: NMOSSnapshot,
-        bl_driver_snapshot: Any,
-        sl_driver_snapshot: Any,
+        bl_driver_snapshot: TIASnapshot,
+        sl_driver_snapshot: DriverSnapshot,
         compute_residuals: bool = False,
     ) -> Solver1T1RDCOP:
         del bl_segment_r__MOhm, sl_segment_r__MOhm  # full Jacobian does not need R form

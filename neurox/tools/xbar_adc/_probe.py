@@ -34,9 +34,6 @@ class ProbeADC(ADC):
     Args:
         mode_num: ``mode_num`` of the replaced real ADC.
         max_bits: ``max_bits`` of the replaced real ADC.
-        latency_callable: The real ADC's bound ``latency_per_op__ns``
-            method; called verbatim from the probe so downstream latency
-            queries still answer correctly.
         signed_range_callable: The real ADC's bound ``signed_range``
             method; called verbatim so downstream saturation tests
             (e.g. ``calibrate.saturation_mask``) get the actual ADC's
@@ -51,15 +48,16 @@ class ProbeADC(ADC):
         *,
         mode_num: int,
         max_bits: int,
-        latency_callable: Callable[..., float],
         signed_range_callable: Callable[[int], tuple[int, int]],
         name: str,
         inst_shape: tuple[int, ...],
     ) -> None:
-        # ADCConfig / ADCPolicy are empty dataclasses; ADC.__init__ deletes
-        # config/policy/dtype/T__K immediately so these are dummies.
+        # ADCConfig inherits CircuitConfig (area / leakage); pass zeros
+        # for the dummy probe instance. ADC.__init__ then deletes
+        # policy/dtype/T__K immediately. ProbeADC never logs dynamic
+        # events so per-op latency is irrelevant.
         super().__init__(
-            config=ADCConfig(),
+            config=ADCConfig(area_per_inst__um2=0.0, leakage_per_inst__uW=0.0),
             policy=ADCPolicy(),
             name=name,
             inst_shape=inst_shape,
@@ -68,7 +66,6 @@ class ProbeADC(ADC):
         )
         self._mode_num = mode_num
         self._max_bits = max_bits
-        self._latency_callable = latency_callable
         self._signed_range_callable = signed_range_callable
         self._buf_pos: list[Tensor] = []
         self._buf_neg: list[Tensor] = []
@@ -80,17 +77,6 @@ class ProbeADC(ADC):
     @property
     def max_bits(self) -> int:
         return self._max_bits
-
-    @property
-    def area_per_inst__um2(self) -> float:
-        return 0.0
-
-    @property
-    def leakage_per_inst__uW(self) -> float:
-        return 0.0
-
-    def latency_per_op__ns(self, *, adc_operation_point: AdcOperationPoint) -> float:
-        return self._latency_callable(adc_operation_point=adc_operation_point)
 
     def signed_range(self, adc_bits: int) -> tuple[int, int]:
         """Delegate to the replaced ADC's realised signed range."""
@@ -191,7 +177,6 @@ def install_probe_adc(xbar: Offset1T1RXbar) -> ProbeHandle:
     probe = ProbeADC(
         mode_num=real_adc.mode_num,
         max_bits=real_adc.max_bits,
-        latency_callable=real_adc.latency_per_op__ns,
         signed_range_callable=real_adc.signed_range,
         name=real_adc.qualified_name,
         inst_shape=real_adc.inst_shape,

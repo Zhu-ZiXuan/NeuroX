@@ -1,6 +1,5 @@
 """Element-wise integer adder with energy accounting."""
 
-import math
 from dataclasses import dataclass
 
 import torch
@@ -64,10 +63,9 @@ class Adder(CircuitBase[AdderConfig]):
             ``y = a + b``.
         """
         y = a + b
-        # Adder is element-wise; total ops = total elements / inst_count
-        # (inst_count parallel hardware adders share the workload).
-        n_elems = math.prod(y.shape)
-        serial_op_count = max(1, n_elems // max(self.inst_count, 1))
+        # Adder is element-wise; serial via the position-invariant
+        # numel rule (total output elements / parallel inst_count).
+        serial_op_count = max(1, y.numel() // max(self.inst_count, 1))
         dynamic_energy__fJ = torch.full_like(y, self.config.energy_per_op__fJ, dtype=torch.float32)
         latency__ns = torch.tensor(
             self.config.latency_per_op__ns * serial_op_count,

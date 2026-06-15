@@ -8,7 +8,7 @@ value ranges (4-bit unsigned x, ternary w, signed 4-bit y).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Self
+from typing import Any, Self
 
 import torch
 import torch.nn as nn
@@ -47,7 +47,7 @@ class QATLinear(nn.Linear):
         self.weight_observer = PerChannelSymmObserver(out_features, W_QMAX)
         self.out_observer = PerTensorObserver(Y_QMIN, Y_QMAX)
 
-    def forward(self, x: Tensor) -> Tensor:  # type: ignore[override]
+    def forward(self, x: Tensor) -> Tensor:
         self.act_observer(x)
         s_x, zp_x = self.act_observer.qparams()
         self.weight_observer(self.weight)
@@ -59,7 +59,7 @@ class QATLinear(nn.Linear):
         return y
 
     @torch.no_grad()
-    def export_state(self) -> dict[str, Tensor | dict]:
+    def export_state(self) -> dict[str, Any]:
         s_x, zp_x = self.act_observer.qparams()
         s_w, _ = self.weight_observer.qparams()
         s_y, zp_y = self.out_observer.qparams()
@@ -201,7 +201,7 @@ class QuantLinear(nn.Module):
         cls,
         *,
         macro: NeuroxMacroQuantMatMul,
-        state: dict[str, Tensor | dict],
+        state: dict[str, Any],
         adc_mode: int | None = None,
     ) -> Self:
         return cls(

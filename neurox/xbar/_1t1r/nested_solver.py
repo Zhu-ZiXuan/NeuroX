@@ -5,13 +5,13 @@ See also:
 """
 
 from dataclasses import dataclass
-from typing import Any
 
 import torch
 import torch.nn.functional as F
 from torch import Tensor
 
-from neurox.analog.clamp_driver import ClampDriver
+from neurox.analog import Driver, DriverSnapshot
+from neurox.analog.tia import TIA, TIASnapshot
 from neurox.device import NMOS, RRAM, NMOSSnapshot, RRAMSnapshot
 from neurox.xbar.solver import (
     col_driver_current,
@@ -77,8 +77,8 @@ class NestedSolver1T1R(Solver1T1R):
         config: NestedSolver1T1RConfig,
         rram: RRAM,
         nmos: NMOS,
-        bl_driver: ClampDriver,
-        sl_driver: ClampDriver,
+        bl_driver: TIA,
+        sl_driver: Driver,
     ) -> None:
         """Bind the solver to its 1T1R device and boundary-driver instances.
 
@@ -109,8 +109,8 @@ class NestedSolver1T1R(Solver1T1R):
         sl_segment_g__uS: Tensor,
         rram_snapshot: RRAMSnapshot,
         nmos_snapshot: NMOSSnapshot,
-        bl_driver_snapshot: Any,
-        sl_driver_snapshot: Any,
+        bl_driver_snapshot: TIASnapshot,
+        sl_driver_snapshot: DriverSnapshot,
         compute_residuals: bool = False,
     ) -> Solver1T1RDCOP:
         """Solve the fabricated 1T1R tile for one WL-drive tensor.

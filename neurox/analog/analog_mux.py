@@ -4,7 +4,6 @@ See also:
     docs/dev/modules/analog/analog_mux.md
 """
 
-import math
 from dataclasses import dataclass
 
 import torch
@@ -133,9 +132,9 @@ class AnalogMux(CircuitBase[AnalogMuxConfig]):
         v_pos_muxed__V = v_pos_muxed__V + n_dm__V
         v_neg_muxed__V = v_neg_muxed__V - n_dm__V
 
-        # AnalogMux has no extra trailing dim: shape is (*serial, *inst_shape).
-        n_inst = len(self._inst_shape)
-        serial_op_count = math.prod(v_pos__V.shape[: v_pos__V.ndim - n_inst])
+        # AnalogMux has no extra parallel trailing beyond inst_shape;
+        # serial count via the position-invariant numel rule.
+        serial_op_count = max(1, v_pos__V.numel() // max(self.inst_count, 1))
         dynamic_energy__fJ = torch.full_like(v_pos__V, self.config.energy_per_access__fJ)
         latency__ns = torch.tensor(
             self.config.latency_per_op__ns * serial_op_count,

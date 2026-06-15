@@ -222,7 +222,7 @@ def build_candidates(
         # torch.quantile() is capped at 2**24 elements; for larger tensors
         # use direct index lookup into the pre-sorted array (exact, faster).
         if n_total > (1 << 24):
-            idx = int(round((1.0 - rate) * (n_total - 1)))
+            idx = round((1.0 - rate) * (n_total - 1))
             idx = max(0, min(idx, n_total - 1))
             a = float(sorted_abs[idx].item())
         else:
@@ -325,7 +325,11 @@ def collect_statistics(
                 device=device,
                 generator=generator,
             ):
-                xbar.vec_mat_mul(x.unsqueeze(-2), adc_operation_point=_DUMMY_OP)
+                # x.unsqueeze(-2) inserts the weight-instance broadcast
+                # slot so input_samples × batch_size(weights) form a
+                # Cartesian product inside the xbar's leading broadcast.
+                x_with_weight_inst_slot = x.unsqueeze(-2)
+                xbar.vec_mat_mul(x_with_weight_inst_slot, adc_operation_point=_DUMMY_OP)
             logger.info(
                 "w-group %d/%d done (%d weights, %d inputs each)", i + 1, w_groups, batch_size, input_samples_per_weight
             )
@@ -472,7 +476,7 @@ def plot_statistics(
     overview_lsb = 2.0 * max_abs_a / n_codes
     overview_bin_width = overview_lsb / bins_per_code
     overview_xlim = 1.1 * max_abs_a
-    overview_n_bins = max(2, int(math.ceil(2.0 * overview_xlim / overview_bin_width)))
+    overview_n_bins = max(2, math.ceil(2.0 * overview_xlim / overview_bin_width))
     overview_edges = np.linspace(-overview_xlim, overview_xlim, overview_n_bins + 1)
     fig, (ax_hist, ax_ccdf) = plt.subplots(1, 2, figsize=(12.0, 4.0))
 
@@ -515,13 +519,13 @@ def plot_statistics(
 
         # Bin width = LSB so every bin spans one ADC code. Extend by ~10 %
         # on each side at the same width so clipped samples remain visible.
-        n_ext = max(1, int(math.ceil(0.1 * a / lsb)))
+        n_ext = max(1, math.ceil(0.1 * a / lsb))
         x_lo = -a - n_ext * lsb
         x_hi = +a + n_ext * lsb
         spotlight_edges = np.linspace(x_lo, x_hi, n_codes + 2 * n_ext + 1)
 
         fig, ax = plt.subplots(figsize=(spotlight_width, 4.0))
-        ax.hist(v_diff, bins=spotlight_edges, log=True, alpha=0.6, color="C0")
+        ax.hist(v_diff, bins=spotlight_edges.tolist(), log=True, alpha=0.6, color="C0")
 
         # Interior code-boundary lines (light, same candidate color).
         # Drawn first so the bold +/-A lines layer on top.

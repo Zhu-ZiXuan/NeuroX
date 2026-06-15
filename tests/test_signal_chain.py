@@ -1,7 +1,7 @@
 """Tests for the new signal-chain primitives.
 
-Covers the standalone behaviour of :class:`OpAmpTIA`, :class:`AnalogMux`,
-and :class:`Decoder` in isolation from the xbar.  The xbar's
+Covers the standalone behaviour of :class:`OpAmpTIA` and
+:class:`AnalogMux` in isolation from the xbar.  The xbar's
 integration with these primitives is exercised via the macro-level
 tests; here we just confirm the per-component contracts hold.
 """
@@ -15,17 +15,13 @@ from neurox.analog import (
     AnalogMux,
     AnalogMuxConfig,
     AnalogMuxPolicy,
-    Decoder,
-    DecoderConfig,
 )
-from neurox.analog.dac import GeneralDAC, GeneralDACConfig, GeneralDACPolicy
 from neurox.analog.tia import OpAmpTIA, OpAmpTIAConfig, OpAmpTIAPolicy
 from neurox.device import NMOSConfig, NMOSPolicy
 
 _NMOS_OFF = NMOSPolicy(A_vt_mismatch=False, A_beta_mismatch=False)
 _TIA_OFF = OpAmpTIAPolicy(opamp_gain_sigma=False, nmos=_NMOS_OFF)
 _TIA_ON_GAIN = OpAmpTIAPolicy(opamp_gain_sigma=True, nmos=_NMOS_OFF)
-_DAC_OFF = GeneralDACPolicy(drive_thermal=False)
 
 
 def _make_tia(
@@ -63,7 +59,6 @@ def _make_tia(
         n_newton=30,
         leakage_per_inst__uW=0.0,
         area_per_inst__um2=0.0,
-        latency_per_op__ns=0.0,
     )
     policy = _TIA_ON_GAIN if apply_opamp_gain_sigma else _TIA_OFF
     return OpAmpTIA(
@@ -97,7 +92,7 @@ def test_tia_solve_dc_zero_current() -> None:
     """
     tia = _make_tia(inst_shape=(4,), opamp_gain=20.0, v_ref__V=0.2)
     tia.fabricate()
-    runtime = tia.snapshot(shape=(4,))
+    runtime = tia.snapshot(shape=(4,), multi_coords=None)
     i_in = torch.zeros(4, dtype=torch.float64)
     dc = tia.solve_dc(i_in, runtime, v_clamp_init__V=None)
     # NMOS off: v_out = v_clamp.
@@ -112,7 +107,7 @@ def test_tia_solve_dc_monotone_in_linear_region() -> None:
     """``v_out`` increases monotonically with input current in the linear region."""
     tia = _make_tia(inst_shape=(5,), opamp_gain=20.0, v_ref__V=0.2, v_dd__V=0.9)
     tia.fabricate()
-    runtime = tia.snapshot(shape=(5,))
+    runtime = tia.snapshot(shape=(5,), multi_coords=None)
     i_in = torch.tensor([0.0, 5.0, 15.0, 30.0, 60.0], dtype=torch.float64)
     dc = tia.solve_dc(i_in, runtime, v_clamp_init__V=None)
 
@@ -145,7 +140,7 @@ def test_tia_solve_dc_smooth_saturation_near_vdd() -> None:
     """
     tia = _make_tia(inst_shape=(1,), opamp_gain=20.0, v_ref__V=0.2, v_dd__V=0.9)
     tia.fabricate()
-    runtime = tia.snapshot(shape=(1,))
+    runtime = tia.snapshot(shape=(1,), multi_coords=None)
     # 10 uA is well below the saturation knee for this 1-um W device;
     # 800 uA pushes the pseudo-resistor's triode capacity to where the
     # op-amp output is approaching the rail.
@@ -174,7 +169,7 @@ def test_tia_solve_dc_residual_is_small() -> None:
     """After Newton convergence the closed-loop residual is below 1e-3 uA."""
     tia = _make_tia(inst_shape=(6,), opamp_gain=20.0, v_ref__V=0.2, v_dd__V=0.9)
     tia.fabricate()
-    runtime = tia.snapshot(shape=(6,))
+    runtime = tia.snapshot(shape=(6,), multi_coords=None)
     i_in = torch.tensor([0.0, 1.0, 3.0, 10.0, 30.0, 60.0], dtype=torch.float64)
     dc = tia.solve_dc(i_in, runtime, v_clamp_init__V=None)
     # NMOS current at the converged operating point should match i_in
@@ -194,7 +189,7 @@ def test_tia_solve_dc_sensitivity_matches_finite_difference() -> None:
     """Analytical ``dVclamp_dI`` / ``dVout_dI`` agree with a finite-difference probe."""
     tia = _make_tia(inst_shape=(4,), opamp_gain=20.0, v_ref__V=0.2, v_dd__V=0.9)
     tia.fabricate()
-    runtime = tia.snapshot(shape=(4,))
+    runtime = tia.snapshot(shape=(4,), multi_coords=None)
     i_in = torch.tensor([1.0, 10.0, 30.0, 60.0], dtype=torch.float64)
     dc = tia.solve_dc(i_in, runtime, v_clamp_init__V=None)
     h = 1e-3
@@ -205,21 +200,21 @@ def test_tia_solve_dc_sensitivity_matches_finite_difference() -> None:
     assert torch.allclose(dc.dVout_dI__MOhm, fd_dVout, atol=1e-6, rtol=1e-4)
 
 
-def _make_mux_config(**overrides) -> AnalogMuxConfig:
+def _make_mux_config(**overrides: float) -> AnalogMuxConfig:
     """Build an :class:`AnalogMuxConfig` with every field explicit.
 
     Baseline = pass-through (``mux_gain=1.0``, both noise sigmas zero,
     zero energy / PPA). Tests override the field(s) they exercise.
     """
-    base = dict(
-        energy_per_access__fJ=0.0,
-        mux_gain=1.0,
-        mux_noise_cm_sigma__V=0.0,
-        mux_noise_dm_sigma__V=0.0,
-        leakage_per_inst__uW=0.0,
-        area_per_inst__um2=0.0,
-        latency_per_op__ns=0.0,
-    )
+    base = {
+        "energy_per_access__fJ": 0.0,
+        "mux_gain": 1.0,
+        "mux_noise_cm_sigma__V": 0.0,
+        "mux_noise_dm_sigma__V": 0.0,
+        "leakage_per_inst__uW": 0.0,
+        "area_per_inst__um2": 0.0,
+        "latency_per_op__ns": 0.0,
+    }
     base.update(overrides)
     return AnalogMuxConfig(**base)
 
@@ -315,109 +310,4 @@ def test_analog_mux_invalid_gain() -> None:
             inst_shape=(),
             dtype=torch.float32,
             T__K=300.0,
-        )
-
-
-def test_decoder_passthrough_drives_dac() -> None:
-    """Non-bit-serial decoder passes integer codes straight to the DAC."""
-    dac = GeneralDAC(
-        config=GeneralDACConfig(
-            code_to_signal=[0.0, 1.2],
-            drive_thermal__V=0.0,
-            energy_per_op__fJ=0.0,
-            latency_per_op__ns=0.0,
-            leakage_per_inst__uW=0.0,
-            area_per_inst__um2=0.0,
-        ),
-        policy=_DAC_OFF,
-        name="dac",
-        inst_shape=(),
-        dtype=torch.float32,
-        T__K=300.0,
-    )
-    dec = Decoder(
-        config=DecoderConfig(
-            n_address_bits=6,
-            fanout=4,
-            drive_strength__uA=1000.0,
-            bit_serial=False,
-            c_gate__fF=0.5,
-            v_dd__V=1.0,
-            t_gate__ns=0.05,
-            e_overhead__fJ=0.0,
-            leakage_per_inst__uW=0.0,
-            area_per_inst__um2=0.0,
-        ),
-        name="dec",
-        inst_shape=(),
-        dtype=torch.float32,
-        T__K=300.0,
-    )
-    code = torch.tensor([0, 1, 1, 0], dtype=torch.long)
-    sig = dec.drive(code, dac)
-    # DAC LUT lookup: code 0 → 0 V, code 1 → 1.2 V.
-    assert torch.allclose(sig, torch.tensor([0.0, 1.2, 1.2, 0.0]), atol=1e-6)
-
-
-def test_decoder_bit_serial_expands_codes() -> None:
-    """Bit-serial decoder splits an integer code into ``n_address_bits`` planes."""
-    dac = GeneralDAC(
-        config=GeneralDACConfig(
-            code_to_signal=[0.0, 1.2],
-            drive_thermal__V=0.0,
-            energy_per_op__fJ=0.0,
-            latency_per_op__ns=0.0,
-            leakage_per_inst__uW=0.0,
-            area_per_inst__um2=0.0,
-        ),
-        policy=_DAC_OFF,
-        name="dac",
-        inst_shape=(),
-        dtype=torch.float32,
-        T__K=300.0,
-    )
-    dec = Decoder(
-        config=DecoderConfig(
-            n_address_bits=4,
-            fanout=4,
-            drive_strength__uA=1000.0,
-            bit_serial=True,
-            c_gate__fF=0.5,
-            v_dd__V=1.0,
-            t_gate__ns=0.05,
-            e_overhead__fJ=0.0,
-            leakage_per_inst__uW=0.0,
-            area_per_inst__um2=0.0,
-        ),
-        name="dec",
-        inst_shape=(),
-        dtype=torch.float32,
-        T__K=300.0,
-    )
-    # Input ``5 = 0b0101`` → bit 0 = 1, bit 1 = 0, bit 2 = 1, bit 3 = 0.
-    code = torch.tensor([5], dtype=torch.long)
-    sig = dec.drive(code, dac)
-    # Decoder stacks bits at dim=-2 (between the input row dim and the
-    # batch dim).  Trailing dim is the row dim (size 1 here); the new
-    # bit-cycle axis is at dim=-2.
-    assert sig.dim() == code.dim() + 1
-    bit_axis_size = sig.shape[-2]
-    assert bit_axis_size == 4
-    expected = torch.tensor([1.2, 0.0, 1.2, 0.0])
-    assert torch.allclose(sig.flatten(), expected, atol=1e-6)
-
-
-def test_decoder_invalid_address_bits() -> None:
-    with pytest.raises(ValueError):
-        DecoderConfig(
-            n_address_bits=0,
-            fanout=4,
-            drive_strength__uA=1000.0,
-            bit_serial=False,
-            c_gate__fF=0.5,
-            v_dd__V=1.0,
-            t_gate__ns=0.05,
-            e_overhead__fJ=0.0,
-            leakage_per_inst__uW=0.0,
-            area_per_inst__um2=0.0,
         )

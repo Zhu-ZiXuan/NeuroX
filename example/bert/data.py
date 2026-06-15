@@ -10,20 +10,21 @@ model directly.
 
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 import torch
 
 # ``transformers`` and ``datasets`` are runtime dependencies of this
 # example only; install them with
 #     pip install transformers datasets
-from datasets import load_dataset
+from datasets import Dataset, load_dataset
 from torch.utils.data import DataLoader, Subset
 from transformers import AutoTokenizer
 
 DEFAULT_MODEL_NAME: str = "google/bert_uncased_L-4_H-512_A-8"
 
 
-def _tokenize_split(split_name: str, dataset_dir: Path, model_name: str, max_length: int):
+def _tokenize_split(split_name: str, dataset_dir: Path, model_name: str, max_length: int) -> Dataset:
     """Load and tokenize one SST-2 split.
 
     The tokenized dataset is cached under ``dataset_dir`` so subsequent
@@ -33,12 +34,14 @@ def _tokenize_split(split_name: str, dataset_dir: Path, model_name: str, max_len
     raw = load_dataset("nyu-mll/glue", "sst2", split=split_name, cache_dir=str(dataset_dir))
     tokenizer = AutoTokenizer.from_pretrained(model_name, cache_dir=str(dataset_dir))
 
-    def _tokenize(batch: dict[str, list]) -> dict[str, list]:
-        return tokenizer(
-            batch["sentence"],
-            padding="max_length",
-            max_length=max_length,
-            truncation=True,
+    def _tokenize(batch: dict[str, list[Any]]) -> dict[str, list[Any]]:
+        return dict(
+            tokenizer(
+                batch["sentence"],
+                padding="max_length",
+                max_length=max_length,
+                truncation=True,
+            )
         )
 
     tokenized = raw.map(_tokenize, batched=True, desc=f"Tokenizing SST-2 {split_name}")

@@ -9,7 +9,7 @@ The core library's public surface stops at `neurox.macro`. Above that line — t
 ## Layout
 
 - `neurox/device/` — RRAM, NMOS, Selector device-physics primitives.
-- `neurox/analog/` — clamp driver, AnalogMux, SwitchCap, Decoder/Driver, `dac/` / `adc/` / `tia/` polymorphic families.
+- `neurox/analog/` — clamp driver, AnalogMux, SwitchCap, Driver, `dac/` / `adc/` / `tia/` polymorphic families.
 - `neurox/digital/` — integer accumulators, shift-adders, subtractors.
 - `neurox/xbar/` — abstract `Xbar`, `IdealXbar` reference twin, the `_1t1r/` subtree (circuit core + DC solver + offset-coded readout), and the `readout/` family.
 - `neurox/mapper/` — value-domain transcoder and slicer primitives.

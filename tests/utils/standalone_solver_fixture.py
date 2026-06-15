@@ -23,9 +23,11 @@ import torch
 from torch import Tensor
 
 from neurox.analog import Driver, DriverPolicy
-from neurox.analog.tia import OpAmpTIA, OpAmpTIAPolicy
+from neurox.analog.tia import OpAmpTIA, OpAmpTIAConfig, OpAmpTIAPolicy
 from neurox.common.load_dump import dataclass_from_file
 from neurox.device import NMOS, RRAM, NMOSPolicy, RRAMPolicy
+from neurox.device.nmos import NMOSSnapshot
+from neurox.device.rram import RRAMSnapshot
 from neurox.xbar._1t1r import (
     Offset1T1RXbarConfig,
     Solver1T1R,
@@ -42,8 +44,8 @@ class SolverHarness:
     nmos: NMOS
     bl_driver: OpAmpTIA
     sl_driver: Driver
-    rram_snapshot: Any
-    nmos_snapshot: Any
+    rram_snapshot: RRAMSnapshot
+    nmos_snapshot: NMOSSnapshot
     bl_driver_snapshot: Any
     sl_driver_snapshot: Any
     bl_segment_r__MOhm: Tensor
@@ -132,8 +134,10 @@ def build_solver_harness(
         W__um=core_cfg.access_nmos_W__um,
         L__um=core_cfg.access_nmos_L__um,
     )
+    tia_cfg = core_cfg.tia_config
+    assert isinstance(tia_cfg, OpAmpTIAConfig)
     bl_driver = OpAmpTIA(
-        config=core_cfg.tia_config,
+        config=tia_cfg,
         policy=OpAmpTIAPolicy(
             opamp_gain_sigma=False,
             nmos=NMOSPolicy(A_vt_mismatch=False, A_beta_mismatch=False),

@@ -1,3 +1,5 @@
+"""Round-trip and shape-broadcast tests for ``CanonicalTranscoder``."""
+
 import pytest
 import torch
 
@@ -14,27 +16,27 @@ class TestCanonicalEncoder:
         min_val, max_val = _canonical_representable_range(radix=4, digits=4)
         x = torch.tensor([63], dtype=torch.int32)
 
-        assert min_val <= int(x.item()) <= max_val, "测试输入超出目标表示范围"
+        assert min_val <= int(x.item()) <= max_val, "input outside representable range"
 
         tc = CanonicalTranscoder(radix=4, digit_num=4)
         encoded = tc.encode(x)
         expected = torch.tensor([[-1, 0, 0, 1]], dtype=torch.int32)
 
-        assert torch.equal(encoded, expected), f"编码结果错误, 期望 {expected}, 得到 {encoded}"
-        assert torch.equal(tc.decode(encoded), x), "解码结果与原始输入不匹配"
+        assert torch.equal(encoded, expected), f"unexpected encoding: expected {expected}, got {encoded}"
+        assert torch.equal(tc.decode(encoded), x), "decode does not match original input"
 
     def test_zero_negatives_and_boundaries(self) -> None:
         radix, digits = 4, 4
         min_val, max_val = _canonical_representable_range(radix=radix, digits=digits)
         x = torch.tensor([0, -1, -63, -15, min_val, max_val], dtype=torch.int32)
 
-        assert torch.all((x >= min_val) & (x <= max_val)), "测试输入超出目标表示范围"
+        assert torch.all((x >= min_val) & (x <= max_val)), "input outside representable range"
 
         tc = CanonicalTranscoder(radix=radix, digit_num=digits)
         encoded = tc.encode(x)
         decoded_x = tc.decode(encoded)
-        assert torch.equal(decoded_x, x), "负数或零的编解码失败"
-        assert torch.all(encoded[0] == 0), "0 的编码必须是全 0"
+        assert torch.equal(decoded_x, x), "round-trip failed for zero / negative inputs"
+        assert torch.all(encoded[0] == 0), "encoding of 0 must be all zeros"
 
     @pytest.mark.parametrize("radix", [2, 3, 4, 8])
     @pytest.mark.parametrize("digits", [4, 8])
@@ -46,9 +48,9 @@ class TestCanonicalEncoder:
         encoded = tc.encode(x)
         decoded_x = tc.decode(encoded)
 
-        assert torch.equal(decoded_x, x.to(torch.int64)), f"Fuzzing 失败于 radix={radix}, digits={digits}"
-        assert torch.all(encoded >= -(radix - 1)), "canonical 数字出现非法下溢"
-        assert torch.all(encoded <= (radix - 1)), "canonical 数字出现非法上溢"
+        assert torch.equal(decoded_x, x.to(torch.int64)), f"fuzzing failed at radix={radix}, digits={digits}"
+        assert torch.all(encoded >= -(radix - 1)), "canonical digit underflowed below -(radix-1)"
+        assert torch.all(encoded <= (radix - 1)), "canonical digit overflowed above (radix-1)"
 
     def test_tensor_broadcasting_and_shapes(self) -> None:
         shape = (16, 3, 3, 3)
@@ -60,9 +62,11 @@ class TestCanonicalEncoder:
         encoded = tc.encode(x)
 
         expected_shape = (*shape, digits)
-        assert encoded.shape == expected_shape, f"形状扩展错误, 期望 {expected_shape}, 得到 {encoded.shape}"
+        assert encoded.shape == expected_shape, (
+            f"unexpected encoded shape: expected {expected_shape}, got {encoded.shape}"
+        )
         decoded_x = tc.decode(encoded)
-        assert torch.equal(decoded_x, x.to(torch.int64)), "多维张量解码不匹配"
+        assert torch.equal(decoded_x, x.to(torch.int64)), "round-trip failed for multi-dim tensor"
 
     def test_torch_compile_compatibility(self) -> None:
         if not hasattr(torch, "compile"):
@@ -82,4 +86,4 @@ class TestCanonicalEncoder:
         expected = tc.encode(x)
         compiled = compiled_encode(x)
 
-        assert torch.equal(compiled, expected), "torch.compile 编译后计算结果出现偏差!"
+        assert torch.equal(compiled, expected), "torch.compile result diverges from eager"

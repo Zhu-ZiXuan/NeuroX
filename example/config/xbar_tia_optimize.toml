@@ -20,11 +20,11 @@ _neurox_use_preset = "process/mos:nmos_28_rvt"
 #
 # Active-cell distribution (x_bit=1): uniform on the three currents.
 #   E[I_active]  = 5.3206 uA
-#   E[I_active^2] = 40.7736
+#   E[I_active²] = 40.7736
 #   Var[I_active] = 12.4648
 # Per-cell contribution (x_bit ~ Bern(0.5)):
 #   E[X]  = 2.6603 uA
-#   E[X^2] = 20.3868
+#   E[X²] = 20.3868
 #   Var[X] = 13.3096
 # 64-row sum (independent rows):
 #   mean = 64 * 2.6603    = 170.26 uA

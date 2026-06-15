@@ -8,6 +8,7 @@
 - the family-level `from_config(...)` classmethod
 - profiler registration
 - the abstract `v_ref__V` property every concrete TIA must implement
+- the snapshot type parameter (`Generic[SnapshotT]`, bound to `TIASnapshot`): each concrete TIA fixes its own snapshot dataclass, and `snapshot()` / `solve_clamp()` carry that concrete type
 
 `TIAConfig` is the family base config: only the orchestration-level fields every TIA topology shares (`v_ref__V`, leakage / area / latency). Concrete TIA configs inherit and add their topology-specific design parameters.
 
@@ -29,12 +30,11 @@ No family-specific runtime extras.
 
 `v_ref__V` is declared as an `@property @abstractmethod` on the base. The base owns no `config` storage so it cannot implement the accessor itself. Every concrete TIA implements it from its own `self.config` — typically as `return self.config.v_ref__V`. This is the only solver-facing contract every TIA topology must honour explicitly.
 
-## ClampDriver protocol
+## Solver-facing surface
 
-A TIA is one concrete implementer of the [`ClampDriver`](../clamp_driver.md) protocol. Solvers consume the clamp boundary structurally through that protocol — they do not import `TIA` directly.
+The 1T1R solver binds `bl_driver: TIA` directly as the BL boundary actor. The contract exposed to the solver is `solve_clamp(i_port__uA, snapshot, *, v_clamp_init__V) -> (v_clamp__V, dVclamp_dI__MOhm)` plus the `v_ref__V` property — nothing else. There is no shared abstract base across TIA and `Driver`; the solver knows it accepts a `TIA` on BL and a `Driver` on SL because that is the 1T1R topology fact.
 
 See also:
 
 - `opamp_tia.md`
-- `docs/dev/modules/analog/clamp_driver.md`
 - `docs/dev/modules/common/registry_dispatch.md`

@@ -4,7 +4,6 @@ See also:
     docs/dev/modules/digital/README.md
 """
 
-import math
 from dataclasses import dataclass
 
 import torch
@@ -68,9 +67,9 @@ class Subtractor(CircuitBase[SubtractorConfig]):
             ``y = a − b``.
         """
         y = a - b
-        # Subtractor is element-wise; same accounting as Adder.
-        n_elems = math.prod(y.shape)
-        serial_op_count = max(1, n_elems // max(self.inst_count, 1))
+        # Subtractor is element-wise; serial via the position-invariant
+        # numel rule (same form as Adder).
+        serial_op_count = max(1, y.numel() // max(self.inst_count, 1))
         dynamic_energy__fJ = torch.full_like(y, self.config.energy_per_op__fJ, dtype=torch.float32)
         latency__ns = torch.tensor(
             self.config.latency_per_op__ns * serial_op_count,

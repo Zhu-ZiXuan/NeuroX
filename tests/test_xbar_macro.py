@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 import torch
 
@@ -52,7 +54,6 @@ def _ideal_xbar_config(
     return IdealXbarConfig(
         col_num=col_num,
         row_num=row_num,
-        latency_per_op__ns=0.0,
         leakage_per_inst__uW=0.0,
         area_per_inst__um2=0.0,
         x_range=x_range,
@@ -110,7 +111,7 @@ def _slice_config(
     x_slice_num: int,
     x_range: tuple[int, int] = (0, 1),
     w_digit_count: int = 1,
-) -> dict[str, object]:
+) -> dict[str, Any]:
     return {
         "xbar_config": _ideal_xbar_config(x_range=x_range, w_digit_count=w_digit_count),
         "w_slice_num": w_slice_num,
@@ -209,17 +210,24 @@ def _assert_macro_matches_torch(macro: XbarMacro, weight: torch.Tensor, activati
 
 def _build_macro_for_kind(
     macro_kind: str,
-    config: IdealXbarMacroConfig | DirectXbarMacroConfig | InterArraySliceXbarMacroConfig | IntraArraySliceXbarMacroConfig,
+    config: IdealXbarMacroConfig
+    | DirectXbarMacroConfig
+    | InterArraySliceXbarMacroConfig
+    | IntraArraySliceXbarMacroConfig,
     *,
     name: str,
     w_logical_shape: tuple[int, ...],
 ) -> XbarMacro:
     if macro_kind == "ideal":
+        assert isinstance(config, IdealXbarMacroConfig)
         return _build_ideal(config, name=name, w_logical_shape=w_logical_shape)
     if macro_kind == "direct":
+        assert isinstance(config, DirectXbarMacroConfig)
         return _build_direct(config, name=name, w_logical_shape=w_logical_shape)
     if macro_kind == "inter":
+        assert isinstance(config, InterArraySliceXbarMacroConfig)
         return _build_inter(config, name=name, w_logical_shape=w_logical_shape)
+    assert isinstance(config, IntraArraySliceXbarMacroConfig)
     return _build_intra(config, name=name, w_logical_shape=w_logical_shape)
 
 
@@ -424,7 +432,10 @@ def test_inter_and_intra_slice_macros_agree() -> None:
 )
 def test_macro_program_replaces_owned_weight_state(
     macro_kind: str,
-    config: IdealXbarMacroConfig | DirectXbarMacroConfig | InterArraySliceXbarMacroConfig | IntraArraySliceXbarMacroConfig,
+    config: IdealXbarMacroConfig
+    | DirectXbarMacroConfig
+    | InterArraySliceXbarMacroConfig
+    | IntraArraySliceXbarMacroConfig,
 ) -> None:
     torch.manual_seed(6000)
     n, k, m = 13, 20, 8
@@ -480,7 +491,10 @@ def test_macro_program_replaces_owned_weight_state(
 )
 def test_xbar_macro_supports_weight_and_activation_batch_prefixes(
     macro_kind: str,
-    config: IdealXbarMacroConfig | DirectXbarMacroConfig | InterArraySliceXbarMacroConfig | IntraArraySliceXbarMacroConfig,
+    config: IdealXbarMacroConfig
+    | DirectXbarMacroConfig
+    | InterArraySliceXbarMacroConfig
+    | IntraArraySliceXbarMacroConfig,
     weight_shape: tuple[int, ...],
     activation_shape: tuple[int, ...],
 ) -> None:
@@ -551,7 +565,10 @@ def test_intra_array_slice_xbar_macro_public_properties() -> None:
     ],
 )
 def test_xbar_macro_from_config_dispatches_to_registered_subclass(
-    config: IdealXbarMacroConfig | DirectXbarMacroConfig | InterArraySliceXbarMacroConfig | IntraArraySliceXbarMacroConfig,
+    config: IdealXbarMacroConfig
+    | DirectXbarMacroConfig
+    | InterArraySliceXbarMacroConfig
+    | IntraArraySliceXbarMacroConfig,
     expected_type: type[XbarMacro],
 ) -> None:
     policy_by_config = {

@@ -77,14 +77,14 @@ class TestAdcCalibrationValidate:
             rescale_factor=first.rescale_factor * 2.0,
         )
         with pytest.raises(ValueError, match=r"duplicate"):
-            replace(base_cfg, adc_calibration=tuple(base_cfg.adc_calibration) + (dup,))
+            replace(base_cfg, adc_calibration=(*tuple(base_cfg.adc_calibration), dup))
 
     def test_negative_rescale_rejected(self, base_cfg: Offset1T1RXbarConfig) -> None:
         from dataclasses import replace
 
         bad = AdcCalibrationRecord(adc_mode=99, adc_bits=8, rescale_factor=-1.0)
         with pytest.raises(ValueError, match=r"rescale_factor"):
-            replace(base_cfg, adc_calibration=tuple(base_cfg.adc_calibration) + (bad,))
+            replace(base_cfg, adc_calibration=(*tuple(base_cfg.adc_calibration), bad))
 
 
 # ---------------------------------------------------------------------------
@@ -148,8 +148,12 @@ class TestIdealProgramDtype:
             adc_max_bits=8,
         )
         xbar = IdealXbar(
-            config=cfg, policy=IdealXbarPolicy(), name="x",
-            inst_shape=(), dtype=torch.float32, T__K=300.0,
+            config=cfg,
+            policy=IdealXbarPolicy(),
+            name="x",
+            inst_shape=(),
+            dtype=torch.float32,
+            T__K=300.0,
         )
         bad = torch.zeros(xbar._w_layout_shape, dtype=torch.float32)
         with pytest.raises(TypeError, match=r"integer digit tensor"):

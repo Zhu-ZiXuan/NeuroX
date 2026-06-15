@@ -52,7 +52,7 @@ ADC boundaries are placed at code edges `B_c = c · LSB`. Stochastic rounding ad
 
 ## What ADC does not own
 
-- Clamp voltage and current-to-voltage conversion (those live in a separate `ClampDriver` block such as a `TIA`).
+- Clamp voltage and current-to-voltage conversion (those live in a separate clamp-driver block such as a `TIA`).
 - Analog-domain rescale factors that convert ADC codes back to an ideal-integer scale.
 - Column multiplexing (`AnalogMux`).
 

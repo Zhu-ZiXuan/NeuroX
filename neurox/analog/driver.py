@@ -112,7 +112,7 @@ class Driver(CircuitBase[DriverConfig]):
         """Ideal / zero-current clamp voltage [V]."""
         return self.config.drive_value
 
-    # --- ClampDriver protocol ---
+    # --- Snapshot + clamp solve ---
 
     def snapshot(
         self,

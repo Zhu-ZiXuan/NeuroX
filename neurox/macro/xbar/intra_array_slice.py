@@ -109,7 +109,7 @@ class IntraArraySliceXbarMacro(XbarMacro):
         self._used_data_num = self._weights_per_xbar * config.w_slice_num
         self._idle_per_xbar = col_num - self._used_data_num
 
-        # Symbolic organized shape: (*batch, 1, Tc, Tr, 1, col_num, D, row_num).
+        # Organized shape: (*batch, M=1, Sa=1, Tc, Tr, col_num, D, row_num).
         # The trailing (col_num, D, row_num) is owned by the xbar.
         *w_batch, n_logical, k_logical = w_logical_shape
         wpx = self._weights_per_xbar
@@ -119,7 +119,7 @@ class IntraArraySliceXbarMacro(XbarMacro):
         self.xbar = self._build_xbar(
             xbar_config=xbar_config,
             xbar_policy=policy.xbar,
-            inst_shape=(*w_batch, 1, tc, tr, 1),
+            inst_shape=(*w_batch, 1, 1, tc, tr),
         )
         xbar = self.xbar
 
@@ -156,8 +156,6 @@ class IntraArraySliceXbarMacro(XbarMacro):
             name=f"{prefix}sw_shift_adder",
             inst_shape=helper_shape,
         )
-
-        self._log_static()
 
     def extra_repr(self) -> str:
         """One-line summary shown by ``print(model)``."""
@@ -208,9 +206,8 @@ class IntraArraySliceXbarMacro(XbarMacro):
 
         Returns:
             Tensor of shape
-            ``[..., M=1, Tc, Tr, Sa=1, data_num, D, row_num]``.
-            The trailing ``col_num - (col_num // Sw) * Sw`` cells per
-            xbar are zero-padded.
+            ``[..., M=1, Sa=1, Tc, Tr, data_num, D, row_num]``.
+            The trailing ``col_num - (col_num // Sw) * Sw`` cells per xbar are zero-padded.
         """
         row_num = self.xbar.row_num
         wpx = self._weights_per_xbar
@@ -247,11 +244,8 @@ class IntraArraySliceXbarMacro(XbarMacro):
         if idle > 0:
             merged = F.pad(merged, (0, 0, 0, 0, 0, idle))
 
-        # Shape: [..., Tc, Tr, data_num, D, row_num] -> [..., Tc, Tr, Sa=1, data_num, D, row_num]
-        merged = merged.unsqueeze(b + 2)
-        # Shape: [..., Tc, Tr, Sa=1, data_num, D, row_num] -> [..., M=1, Tc, Tr, Sa=1, data_num, D, row_num]
-        merged = merged.unsqueeze(b)
-        return merged
+        # Shape: [..., Tc, Tr, data_num, D, row_num] -> [..., M=1, Sa=1, Tc, Tr, data_num, D, row_num]
+        return merged.unsqueeze(b).unsqueeze(b)
 
     def _organize_x(self, x: Tensor) -> Tensor:
         """Map a logical activation tensor into xbar-native layout.
@@ -260,7 +254,7 @@ class IntraArraySliceXbarMacro(XbarMacro):
             x: Integer activation tensor of shape ``[..., M, K]``.
 
         Returns:
-            Tensor of shape ``[..., M, Tc, Tr=1, Sa, row_num]``.
+            Tensor of shape ``[..., M, Sa, Tc, Tr=1, row_num]``.
         """
         # Shape: [..., M, K] -> [..., M, K, Sa, digit_num=1]
         sliced = self.x_slicer.slice(x)
@@ -270,11 +264,11 @@ class IntraArraySliceXbarMacro(XbarMacro):
 
         # Shape: [..., M, Tc, row_num, Sa, digit_num=1] -> [..., M, Tc, row_num, Sa]
         squeezed = tiled.squeeze(-1)
-        # Shape: [..., M, Tc, row_num, Sa] -> [..., M, Tc, Sa, row_num]
-        transposed = squeezed.transpose(-2, -1)
-        # Shape: [..., M, Tc, Sa, row_num] -> [..., M, Tc, Tr=1, Sa, row_num]
-        x_mapped = transposed.unsqueeze(-3)
-        return x_mapped
+        # Shape: [..., M, Tc, row_num, Sa] -> [..., M, Sa, Tc, row_num]
+        b = squeezed.ndim - 4
+        permuted = squeezed.permute([*range(b), b + 0, b + 3, b + 1, b + 2])
+        # Shape: [..., M, Sa, Tc, row_num] -> [..., M, Sa, Tc, Tr=1, row_num]
+        return permuted.unsqueeze(b + 3)
 
     # --- lifecycle ---
 
@@ -315,16 +309,16 @@ class IntraArraySliceXbarMacro(XbarMacro):
         x_slice_radix = self.x_slicer.slice_radix
         w_slice_radix = self.w_slicer.slice_radix
 
-        # Shape: [..., M, Tc, Tr=1, Sa, row_num] -> [..., M, Tc, Tr, Sa, data_num]
+        # Shape: [..., M, Sa, Tc, Tr=1, row_num] -> [..., M, Sa, Tc, Tr, data_num]
         y = self.xbar.vec_mat_mul(x, adc_operation_point=adc_operation_point).to(torch.int64)
-        # Shape: [..., M, Tc, Tr, Sa, data_num=col_num] -> [..., M, Tc, Tr, Sa, wpx*Sw]
+        # Shape: [..., M, Sa, Tc, Tr, data_num=col_num] -> [..., M, Sa, Tc, Tr, wpx*Sw]
         y = y[..., :used]
-        # Shape: [..., M, Tc, Tr, Sa, wpx*Sw] -> [..., M, Tc, Tr, Sa, wpx, Sw]
+        # Shape: [..., M, Sa, Tc, Tr, wpx*Sw] -> [..., M, Sa, Tc, Tr, wpx, Sw_real]
         y = y.unflatten(-1, (wpx, sw))
-        # Shape: [..., M, Tc, Tr, Sa, wpx, Sw] -> [..., M, Tc, Tr, Sa, wpx]
+        # Shape: [..., M, Sa, Tc, Tr, wpx, Sw_real] -> [..., M, Sa, Tc, Tr, wpx]
         y = self.sw_shift_adder.operate(y, w_slice_radix, dim=-1, init_val=None)
-        # Shape: [..., M, Tc, Tr, Sa, wpx] -> [..., M, Tc, Tr, wpx]
-        y = self.sa_shift_adder.operate(y, x_slice_radix, dim=-2, init_val=None)
+        # Shape: [..., M, Sa, Tc, Tr, wpx] -> [..., M, Tc, Tr, wpx]
+        y = self.sa_shift_adder.operate(y, x_slice_radix, dim=-4, init_val=None)
         # Shape: [..., M, Tc, Tr, wpx] -> [..., M, Tr, wpx]
         y = self.col_accumulator.operate(y, dim=-3)
         # Shape: [..., M, Tr, wpx] -> [..., M, N]

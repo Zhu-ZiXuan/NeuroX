@@ -18,9 +18,9 @@ include temp/run_container.mk
 
 # --- develop ---
 
-ALL_PYTHON_DIR := neurox example
+ALL_PYTHON_DIR := neurox example tests
 
-RUFF_FORMAT_UNSAFE_FIX_RULES := ANN201,ANN204,B007,D212,D400,D403,I001,PERF102,SIM118,TID252,UP007
+RUFF_FORMAT_UNSAFE_FIX_RULES := ANN201,ANN204,B007,C408,D212,D400,D403,E731,I001,PERF102,RUF005,RUF046,RUF059,SIM108,SIM118,TID252,UP007
 .PHONY: format
 format: ## Run `ruff` formatter with auto fix
 	ruff format $(ALL_PYTHON_DIR)
@@ -29,7 +29,7 @@ format: ## Run `ruff` formatter with auto fix
 
 .PHONY: lint
 lint: format ## Run `ruff` linter
-	ruff check $(ALL_PYTHON_DIR) 2>&1 | tee ruff_report.log
+	ruff check $(ALL_PYTHON_DIR) --ignore RUF001,RUF002,RUF003 2>&1 | tee ruff_report.log
 
 .PHONY: check
 check: ## Run `mypy` static analysis

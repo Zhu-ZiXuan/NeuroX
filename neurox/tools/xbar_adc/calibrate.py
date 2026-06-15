@@ -15,7 +15,7 @@ from pathlib import Path
 import torch
 from torch import Tensor
 
-from neurox.analog.adc import AdcOperationPoint, McsSarAdcConfig
+from neurox.analog.adc import ADCConfig, AdcOperationPoint, McsSarAdcConfig
 from neurox.tools._config import (
     add_standard_args,
     load_tool_config,
@@ -30,6 +30,10 @@ from neurox.tools.xbar_adc._sampling import (
     sample_x_batches,
 )
 from neurox.xbar import Offset1T1RXbarConfig
+from neurox.xbar.readout.offset_switchcap_mux_adc import (
+    OffsetSwitchCapMuxAdcReadOut,
+    OffsetSwitchCapMuxAdcReadOutConfig,
+)
 
 # ---------------------------------------------------------------------------
 # TOML config schema
@@ -185,7 +189,7 @@ def saturation_mask(phys_codes: Tensor, signed_range: tuple[int, int]) -> Tensor
     return (phys_codes == lower) | (phys_codes == upper)
 
 
-def supports_flexible_bits(adc_config: object) -> bool:
+def supports_flexible_bits(adc_config: ADCConfig) -> bool:
     """True for ADC families whose bit width is freely selectable within one mode.
 
     SAR-family ADCs can run at any ``bits <= max_bits`` with the same V_ref,
@@ -263,9 +267,13 @@ def collect_calibration(
     generator = make_generator(seed, device)
     max_bits = physical.adc_max_bits
     phys_op = AdcOperationPoint(adc_mode=adc_mode, adc_bits=max_bits)
-    phys_signed_range = physical.readout.bl_adc.signed_range(max_bits)
-    adc_instance_count = int(math.prod(physical.readout.bl_adc.inst_shape))
-    flexible = supports_flexible_bits(physical.readout.config.adc_config)
+    readout = physical.readout
+    assert isinstance(readout, OffsetSwitchCapMuxAdcReadOut)
+    readout_config = readout.config
+    assert isinstance(readout_config, OffsetSwitchCapMuxAdcReadOutConfig)
+    phys_signed_range = readout.bl_adc.signed_range(max_bits)
+    adc_instance_count = int(math.prod(readout.bl_adc.inst_shape))
+    flexible = supports_flexible_bits(readout_config.adc_config)
 
     logger.info("xbar built on device=%s; distribution_source=%s", device, distribution.source)
     logger.info(
@@ -294,9 +302,13 @@ def collect_calibration(
             device=device,
             generator=generator,
         ):
-            x_bcast = x.unsqueeze(-2)
-            phys_code = physical.vec_mat_mul(x_bcast, adc_operation_point=phys_op)
-            ideal_vmm = ideal.vec_mat_mul(x_bcast, adc_operation_point=_LOSSLESS_OP)
+            # x.unsqueeze(-2) inserts the weight-instance broadcast slot
+            # so the input_samples × batch_size(weights) Cartesian product
+            # forms inside vec_mat_mul's leading broadcast (not the WL
+            # fan-out — that one is added inside CircuitCore.cim_read).
+            x_with_weight_inst_slot = x.unsqueeze(-2)
+            phys_code = physical.vec_mat_mul(x_with_weight_inst_slot, adc_operation_point=phys_op)
+            ideal_vmm = ideal.vec_mat_mul(x_with_weight_inst_slot, adc_operation_point=_LOSSLESS_OP)
             phys_buf.append(phys_code.detach().cpu().flatten().to(torch.float64))
             ideal_buf.append(ideal_vmm.detach().cpu().flatten().to(torch.float64))
         logger.info(

@@ -48,7 +48,7 @@ def _make_diag_dominant_blocks(
     return sub, diag, sup
 
 
-def test_block_size_1_matches_scalar_thomas():
+def test_block_size_1_matches_scalar_thomas() -> None:
     """B = 1 should agree with scalar Thomas to fp64 round-off.
 
     Not bit-exact — block path goes through ``torch.linalg.solve`` (LU)
@@ -76,7 +76,7 @@ def test_block_size_1_matches_scalar_thomas():
 
 @pytest.mark.parametrize("b", [2, 3, 4])
 @pytest.mark.parametrize("n", [1, 3, 8, 17])
-def test_block_solve_matches_dense(b: int, n: int):
+def test_block_solve_matches_dense(b: int, n: int) -> None:
     """Block Thomas matches dense ``torch.linalg.solve`` on the assembled matrix."""
     sub, diag, sup = _make_diag_dominant_blocks(n, b, seed=n * 31 + b)
     g = torch.Generator().manual_seed(n * 13 + b * 7)
@@ -93,7 +93,7 @@ def test_block_solve_matches_dense(b: int, n: int):
     assert rel_err < 1e-10, f"B={b} N={n}: rel error {rel_err.item():.2e}"
 
 
-def test_batched_block_solve():
+def test_batched_block_solve() -> None:
     """Leading batch dims pass through; per-batch result matches dense."""
     n, b = 8, 3
     batch_shape = (4, 7)
@@ -117,7 +117,7 @@ def test_batched_block_solve():
         assert rel_err < 1e-10, f"batch {idx}: rel error {rel_err.item():.2e}"
 
 
-def test_zero_off_diagonals_reduce_to_block_diag():
+def test_zero_off_diagonals_reduce_to_block_diag() -> None:
     """Sub/sup all zero → solution is per-block independent solve."""
     n, b = 5, 2
     g = torch.Generator().manual_seed(7)
@@ -132,7 +132,7 @@ def test_zero_off_diagonals_reduce_to_block_diag():
         assert torch.allclose(x_block[k], x_expected, atol=1e-12)
 
 
-def test_m_matrix_block_2x2_mirrors_nested_wire_jacobian():
+def test_m_matrix_block_2x2_mirrors_nested_wire_jacobian() -> None:
     """Reproduce the BL/SL block-2×2 wire-Newton structure used by the
     Phase-C nested solver upgrade: positive diagonal blocks, scalar
     negative off-diagonals (wire coupling), small off-diagonal cell
