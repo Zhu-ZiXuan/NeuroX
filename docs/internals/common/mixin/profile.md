@@ -24,7 +24,7 @@
 
 ### Invariants
 
-- **`@torch.compiler.disable` on both emit hooks.** The collector reads a thread-local slot and mutates a Python list — both untraceable by dynamo — so the hooks must stay outside the compiled graph. The break is local: each hook is called at the end of a leaf's primary method, after all kernel math, so in-kernel fusion is unaffected. Library code therefore cannot assume `fullgraph=True`. See [compile_policy](../../compile_policy.md).
+- **`@torch.compiler.disable` on both emit hooks.** The collector reads a thread-local slot and mutates a Python list — both untraceable by dynamo — so the hooks must stay outside the compiled graph. The break is local: each hook is called at the end of a leaf's primary method, after all kernel math, so in-kernel fusion is unaffected. Library code therefore cannot assume `fullgraph=True`. See [compile/contracts](../../compile/contracts.md).
 - **No-op outside an active profiler.** Each hook queries the current profiler; if none is active on the calling thread it returns without effect. The active profiler is thread-scoped, so emission and the enclosing collection context must run on the same thread.
 - **Emit exactly once per logical operation, at the call site.** A leaf calls each hook at most once per forward; a composite emits only its own per-op overhead and does not sum its children's emissions — each child with a dynamic model emits directly, and the collector's event aggregation is the single source of truth. Summing at the composite would double-count.
 - **Tensor in, nothing back.** The hooks return `None`; the numerical result of a forward travels the return value, never these hooks. PPA quantities ride a side channel so the hot-path signature stays narrow.
@@ -43,7 +43,7 @@ Per emit call: one thread-local lookup, then a single delegation into the collec
 
 ## Known limitations
 
-- **No tensor-return profiling path.** A return-value channel that removes the single graph break is an open option (tracked in [compile_policy](../../compile_policy.md)); the side-channel break is accepted for now.
+- **No tensor-return profiling path.** A return-value channel that removes the single graph break is an open option (tracked in [compile](../../compile/README.md)); the side-channel break is accepted for now.
 - **Serial-op multiplicity is out of scope here.** The mixin only requires a tensor; how a leaf derives the serial-op count that scales its latency tensor is part of each leaf's cost model and is specified in that leaf's reference page, not here.
 
 ---

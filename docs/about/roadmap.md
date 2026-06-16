@@ -155,4 +155,6 @@ Operator wrapping and model rewriting are application-layer concerns; the public
 - [x] Per-call broadcast-shape read noise
 - [ ] CUDA-graph capture for repeated inference
 - [ ] Multi-GPU and distributed simulation for large chips
-- [ ] Remove the temporary `@torch.compiler.disable` on `Offset1T1RXbar.vec_mat_mul` (`compile_policy.md`): requires rewriting `McsSarAdc.convert`'s SAR bit-loop to a graph-friendly form so inductor compile time drops back to seconds.
+- [x] Compile the chunked DC solver: block-tridiagonal Thomas sweep + regional compilation (eager chunk loop, fixed-shape `solve_dc` leaf) — [compile scheme A](../internals/compile/scheme-a-regional.md)
+- [ ] De-objectify the solver hot path into a module-level free function for an object-independent compile cache key — [compile scheme B](../internals/compile/scheme-b-deobjectified.md)
+- [ ] Wrap the xbar read as a `torch.library.custom_op` so a parent can compile `fullgraph=True` — [compile scheme C](../internals/compile/scheme-c-custom-op.md)

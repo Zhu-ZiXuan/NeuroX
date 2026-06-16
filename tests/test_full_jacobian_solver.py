@@ -149,7 +149,7 @@ def test_full_jacobian_chunking_bit_exact(fixture_config: Path, device: torch.de
             inst_shape=(4,),
             dtype=torch.float64,
             solver_config=config,
-            solve_chunk_size_inst=chunk_size,
+            solve_chunk_size=chunk_size,
         )
         distribution = load_distribution(None, xbar)
         g = make_generator(0, device)

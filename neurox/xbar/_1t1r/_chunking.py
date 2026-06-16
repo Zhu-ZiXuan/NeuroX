@@ -1,23 +1,18 @@
 """Chunking helpers for :class:`CircuitCore1T1R.cim_read`.
 
-Given the broadcast ``full_shape`` of ``rram.g__uS`` against ``x``,
-we partition leading positions into:
+:func:`iter_chunks` partitions the broadcast leading (``prod(leading)``
+instances) into contiguous C-order slices of at most ``solve_chunk_size``
+instances. Each slice's flat indices unravel to a ``multi_coords`` tuple
+indexed by leading position — exactly what advanced indexing on the broadcast
+view needs — and the flat index is the canonical global index reassembly
+scatters back by. A single ``solve_chunk_size`` budget bounds per-chunk
+peak memory directly, independent of which leading axes are serial or inst.
 
-* **A subset** — positions where ``x`` is real (size > 1) and ``g`` is
-  a size-1 placeholder. These are the x-batch / M / Sa dims, chunked by
-  ``solve_chunk_size_x``.
-* **B subset** — positions where ``g`` is real, or both sides are real
-  (matched Tc-style positions). These are the Sw / Tc / Tr inst dims,
-  chunked by ``solve_chunk_size_inst``.
-
-The chunk loop is a nested A-outer / B-inner enumeration. Each
-``(chunk_a, chunk_b)`` pair produces a Cartesian-product chunk of size
-``chunk_a_size * chunk_b_size`` and an aligned ``multi_coords`` tuple
-indexed by leading position — exactly what advanced indexing on the
-broadcast view needs.
-
-Reassembly uses scatter back to the canonical position computed from
-the global flat index in ``leading`` space.
+:func:`classify_leading_positions` is separate: it splits leading into the
+**A subset** (``x`` real, ``g`` placeholder — the serial x-batch / M / Sa
+dims) and the **B subset** (``g`` real — the parallel Sw / Tc / Tr inst
+dims). That split is not used for chunking; ``cim_read`` uses the A subset
+to count the serial per-op latency multiplicity.
 """
 
 from __future__ import annotations
@@ -70,82 +65,42 @@ class ChunkSpec(NamedTuple):
     """Per-chunk dispatch payload."""
 
     multi_coords: tuple[Tensor, ...]  # one per leading position, shape (chunk_size,)
-    chunk_size: int  # chunk_x_size * chunk_b_size
+    chunk_size: int  # length of this contiguous broadcast-leading slice (end - start, <= solve_chunk_size)
     flat_global_idx: Tensor  # shape (chunk_size,), index into the unraveled leading
 
 
 def iter_chunks(
     *,
     leading: tuple[int, ...],
-    a_positions: tuple[int, ...],
-    b_positions: tuple[int, ...],
-    chunk_size_x: int,
-    chunk_size_inst: int,
+    chunk_size: int,
     device: torch.device,
 ) -> Iterator[ChunkSpec]:
-    """Yield ``ChunkSpec`` per (A_chunk, B_chunk) iteration.
+    """Yield ``ChunkSpec`` partitioning the broadcast leading into pieces of
+    at most ``chunk_size`` instances.
 
-    Within a chunk, A coord varies slowly and B coord varies fast, so
-    the chunk's positions correspond to flat indices
-    ``a * B_B + b`` where ``a`` ranges over the A chunk and ``b`` over
-    the B chunk — same canonical ordering as
-    ``torch.unravel_index(arange, leading)``.
+    The full leading carries ``prod(leading)`` instances. They are split into
+    contiguous C-order slices of at most ``chunk_size``; each slice's flat
+    indices unravel to the per-position ``multi_coords`` tuple that advanced
+    indexing on the broadcast view needs, and the flat index is itself the
+    canonical global index used for reassembly. ``chunk_size <= 0`` puts the
+    whole leading in one chunk. Instances in a chunk are independent (every
+    instance is solved once), so the contiguous-slice partition is purely a
+    memory-bounding choice — ``chunk_size`` is the per-chunk leading, i.e. the
+    peak-memory budget, regardless of which leading axes are serial or inst.
     """
-    a_leading = tuple(leading[p] for p in a_positions)
-    b_leading = tuple(leading[p] for p in b_positions)
-    b_a = math.prod(a_leading) if a_leading else 1
-    b_b = math.prod(b_leading) if b_leading else 1
-    cx = chunk_size_x if chunk_size_x > 0 else b_a
-    ci = chunk_size_inst if chunk_size_inst > 0 else b_b
-    cx = min(max(cx, 1), b_a)
-    ci = min(max(ci, 1), b_b)
+    total = math.prod(leading) if leading else 1
+    c = chunk_size if chunk_size > 0 else total
+    c = min(max(c, 1), total)
 
-    for a_start in range(0, b_a, cx):
-        a_end = min(a_start + cx, b_a)
-        a_size = a_end - a_start
-        a_flat = torch.arange(a_start, a_end, device=device, dtype=torch.long)
-        a_multi = torch.unravel_index(a_flat, a_leading) if a_leading else ()
-
-        for b_start in range(0, b_b, ci):
-            b_end = min(b_start + ci, b_b)
-            b_size = b_end - b_start
-            b_flat = torch.arange(b_start, b_end, device=device, dtype=torch.long)
-            b_multi = torch.unravel_index(b_flat, b_leading) if b_leading else ()
-
-            chunk_size = a_size * b_size
-
-            # Build multi_coords aligned to leading positions
-            zero = torch.zeros(chunk_size, dtype=torch.long, device=device)
-            multi_coords: list[Tensor] = [zero] * len(leading)
-
-            for i, p in enumerate(a_positions):
-                a_grid = a_multi[i].unsqueeze(1).expand(a_size, b_size).reshape(-1)
-                multi_coords[p] = a_grid
-            for j, p in enumerate(b_positions):
-                b_grid = b_multi[j].unsqueeze(0).expand(a_size, b_size).reshape(-1)
-                multi_coords[p] = b_grid
-
-            # Flat global index in leading space: standard C-order
-            strides = _row_major_strides(leading)
-            flat_global = zero.clone()
-            for p in range(len(leading)):
-                flat_global = flat_global + multi_coords[p] * strides[p]
-
-            yield ChunkSpec(
-                multi_coords=tuple(multi_coords),
-                chunk_size=chunk_size,
-                flat_global_idx=flat_global,
-            )
-
-
-def _row_major_strides(leading: tuple[int, ...]) -> list[int]:
-    """Row-major (C-order) flat strides for the given leading."""
-    if not leading:
-        return []
-    strides = [1] * len(leading)
-    for d in range(len(leading) - 2, -1, -1):
-        strides[d] = strides[d + 1] * leading[d + 1]
-    return strides
+    for start in range(0, total, c):
+        end = min(start + c, total)
+        flat = torch.arange(start, end, device=device, dtype=torch.long)
+        multi_coords = torch.unravel_index(flat, leading) if leading else ()
+        yield ChunkSpec(
+            multi_coords=tuple(multi_coords),
+            chunk_size=end - start,
+            flat_global_idx=flat,
+        )
 
 
 def reassemble_chunks(

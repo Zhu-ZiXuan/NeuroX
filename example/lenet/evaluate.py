@@ -37,8 +37,7 @@ def main() -> None:
     parser.add_argument(
         "--policy",
         required=True,
-        help=f"Nonideality policy TOML filename under {CONFIG_DIR.name}/ "
-        "(e.g. macro_with_physical_xbar.policy.toml)",
+        help=f"Nonideality policy TOML filename under {CONFIG_DIR.name}/ (e.g. macro_with_physical_xbar.policy.toml)",
     )
     parser.add_argument(
         "--xbar",

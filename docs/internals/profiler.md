@@ -16,7 +16,7 @@ The PPA collection mechanism: `ProfileMixin` (`common/mixin/profile.py`) gives e
 
 ## Contracts & invariants
 
-- **`@torch.compiler.disable` on both log methods.** The profiler reads `threading.local` and mutates a Python list — both untraceable by dynamo — so `_log_dynamic_energy` / `_log_latency` must stay outside the compiled graph. The break is local: it lands at the end of a primary method after all kernel math, so in-kernel fusion is unaffected. Library code therefore cannot assume `fullgraph=True`. See [compile_policy](compile_policy.md).
+- **`@torch.compiler.disable` on both log methods.** The profiler reads `threading.local` and mutates a Python list — both untraceable by dynamo — so `_log_dynamic_energy` / `_log_latency` must stay outside the compiled graph. The break is local: it lands at the end of a primary method after all kernel math, so in-kernel fusion is unaffected. Library code therefore cannot assume `fullgraph=True`. See [compile/contracts](compile/contracts.md).
 - **Composites do not sum children's emissions into their own.** A composite emits only its own per-op overhead (`self.config.*`); each child with a dynamic model emits its own contribution directly. The profiler-level event aggregation is the single source of truth, so summing children at the composite would double-count. This is the central correctness invariant of the side channel.
 - **One energy event + one latency event per logical operation.** A plain leaf emits inline once at the end of forward. A composite whose body contains an internal chunked / iterated loop (currently only `CircuitCore1T1R.cim_read`) must still emit exactly once per VMM: aggregate per-chunk inside the loop, then make the two log calls once after it. Sub-solvers and devices inside the loop are not `CircuitBase` and emit nothing, so there is no double-count. Verified by `tests/test_xbar_chunking.py::test_profiler_single_event_under_chunking`.
 - **Record inside the `with`, read after it.** Inside the block each `_log_*` appends a 0-D tensor to a pending buffer; reading any aggregation or calling `report()` there sees stale / unsynced state. `__exit__` clears the active-profiler slot, then calls `_finalize` **only on clean exit** (an exception leaves the partial state alone and avoids a stray sync that could mask the original error). After exit every property is a pure CPU field read.
@@ -46,7 +46,7 @@ Per emission: one `.detach().sum()` (a kernel launch, no host sync) plus a Pytho
 
 ## Known limitations
 
-- **No tensor-return profiling path.** A return-value channel that removes the single graph break is an open option (tracked in [compile_policy](compile_policy.md)); the side-channel break is accepted for now.
+- **No tensor-return profiling path.** A return-value channel that removes the single graph break is an open option (tracked in [compile](compile/README.md)); the side-channel break is accepted for now.
 - **No CSV / JSON export, no benchmark suite.** Report consumption is in-process (`ProfilerReport`, `summary`) only.
 - **Verification covers events and gating, not sync micro-cost.** `tests/test_xbar_chunking.py` guards single-event-per-VMM and chunk-invariance; `tests/test_readout_log_gating.py` guards the four-corner independent gating. The batched-sync cost claim (one host sync per quantity) is a design invariant, not a regression-tested one.
 

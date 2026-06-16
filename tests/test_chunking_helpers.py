@@ -4,15 +4,19 @@
 ``vec_mat_mul`` integration level on a single-axis ``inst_shape=(N,)``
 fixture. This file goes lower:
 
-- Direct assertions on ``iter_chunks`` / ``reassemble_chunks`` /
-  ``_row_major_strides`` to lock the multi-coords + flat-index ordering
-  that the scatter path relies on.
+- Direct assertions on ``iter_chunks`` / ``reassemble_chunks`` to lock the
+  flat C-order multi-coords + flat-index ordering that the scatter path
+  relies on. A single ``solve_chunk_size`` budget partitions the broadcast
+  leading into contiguous slices regardless of which leading axes are
+  serial (A) or inst (B), so chunk boundaries cross axis boundaries
+  freely — the tests assert exactly that.
+- ``classify_leading_positions`` — still used by ``cim_read`` to count the
+  serial per-op latency multiplicity (A subset), not for chunking.
 - Degenerate ``leading=()`` (xbar with empty ``inst_shape`` and a 1-D
   input vector) — exercises ``reassemble_chunks``'s short-circuit path
   for 0-D / 1-D payloads where ``torch.cat`` is ill-defined.
 - A macro-shaped ``(M, Sa, Sw, Tc, Tr)`` integration run on
-  ``Offset1T1RXbar`` to exercise mixed A/B chunking under realistic
-  leading rank.
+  ``Offset1T1RXbar`` to exercise chunking under realistic leading rank.
 """
 
 from __future__ import annotations
@@ -35,7 +39,6 @@ from neurox.tools.xbar_adc._sampling import (
 from neurox.xbar import Offset1T1RXbar
 from neurox.xbar._1t1r._chunking import (
     ChunkSpec,
-    _row_major_strides,
     classify_leading_positions,
     iter_chunks,
     reassemble_chunks,
@@ -45,38 +48,6 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 XBAR_CONFIG = REPO_ROOT / "example" / "config" / "1t1r_28nm.toml"
 
 CPU = torch.device("cpu")
-
-
-# ---------------------------------------------------------------------------
-# _row_major_strides
-# ---------------------------------------------------------------------------
-
-
-def test_row_major_strides_empty() -> None:
-    assert _row_major_strides(()) == []
-
-
-def test_row_major_strides_single() -> None:
-    assert _row_major_strides((4,)) == [1]
-
-
-def test_row_major_strides_rank3() -> None:
-    # shape (2, 3, 4) → strides (12, 4, 1) for C-order
-    assert _row_major_strides((2, 3, 4)) == [12, 4, 1]
-
-
-def test_row_major_strides_match_torch_unravel() -> None:
-    # The C-order stride contract is the same one ``torch.unravel_index``
-    # uses; cross-check on a non-trivial shape.
-    shape = (3, 5, 7)
-    strides = _row_major_strides(shape)
-    flat = torch.arange(3 * 5 * 7)
-    multi = torch.unravel_index(flat, shape)
-    rebuilt = sum(
-        (int(strides[d]) * multi[d] for d in range(len(shape))),
-        start=torch.zeros_like(flat),
-    )
-    assert torch.equal(rebuilt, flat)
 
 
 # ---------------------------------------------------------------------------
@@ -112,31 +83,16 @@ def test_classify_degenerate_both_one_is_omitted() -> None:
 
 
 # ---------------------------------------------------------------------------
-# iter_chunks — sequence + ordering on a known (A=2, B=3) layout
+# iter_chunks — flat C-order contiguous slices of a known (2, 3) leading
 # ---------------------------------------------------------------------------
 
 
-def _materialise_chunks(
-    leading: tuple[int, ...],
-    a_positions: tuple[int, ...],
-    b_positions: tuple[int, ...],
-    cx: int,
-    ci: int,
-) -> list[ChunkSpec]:
-    return list(
-        iter_chunks(
-            leading=leading,
-            a_positions=a_positions,
-            b_positions=b_positions,
-            chunk_size_x=cx,
-            chunk_size_inst=ci,
-            device=CPU,
-        )
-    )
+def _materialise_chunks(leading: tuple[int, ...], chunk_size: int) -> list[ChunkSpec]:
+    return list(iter_chunks(leading=leading, chunk_size=chunk_size, device=CPU))
 
 
-def test_iter_chunks_single_block_when_both_sizes_zero() -> None:
-    chunks = _materialise_chunks(leading=(2, 3), a_positions=(0,), b_positions=(1,), cx=0, ci=0)
+def test_iter_chunks_single_block_when_size_zero() -> None:
+    chunks = _materialise_chunks(leading=(2, 3), chunk_size=0)
     assert len(chunks) == 1
     spec = chunks[0]
     assert spec.chunk_size == 6
@@ -146,35 +102,39 @@ def test_iter_chunks_single_block_when_both_sizes_zero() -> None:
     assert torch.equal(spec.multi_coords[1], torch.tensor([0, 1, 2, 0, 1, 2]))
 
 
-def test_iter_chunks_a_outer_b_inner_ordering() -> None:
-    # leading=(2,3); A at position 0, B at position 1; cx=1, ci=2.
-    # → 4 chunks: (a=0,b={0,1}), (a=0,b={2}), (a=1,b={0,1}), (a=1,b={2}).
-    chunks = _materialise_chunks(leading=(2, 3), a_positions=(0,), b_positions=(1,), cx=1, ci=2)
-    assert len(chunks) == 4
+def test_iter_chunks_contiguous_c_order_slices() -> None:
+    # leading=(2,3) → 6 instances; chunk_size=2 → 3 contiguous flat slices
+    # [0,1], [2,3], [4,5]. The single budget is axis-agnostic: chunk 1
+    # straddles the boundary between leading dim 0's row 0 and row 1.
+    chunks = _materialise_chunks(leading=(2, 3), chunk_size=2)
+    assert len(chunks) == 3
 
-    # chunk 0: a=0, b=[0,1] → flat=[0, 1]
     assert torch.equal(chunks[0].flat_global_idx, torch.tensor([0, 1]))
     assert torch.equal(chunks[0].multi_coords[0], torch.tensor([0, 0]))
     assert torch.equal(chunks[0].multi_coords[1], torch.tensor([0, 1]))
 
-    # chunk 1: a=0, b=[2] (remainder) → flat=[2]
-    assert torch.equal(chunks[1].flat_global_idx, torch.tensor([2]))
-    assert torch.equal(chunks[1].multi_coords[0], torch.tensor([0]))
-    assert torch.equal(chunks[1].multi_coords[1], torch.tensor([2]))
+    # chunk 1 crosses the leading-dim-0 boundary: flat 2 → (0, 2), flat 3 → (1, 0).
+    assert torch.equal(chunks[1].flat_global_idx, torch.tensor([2, 3]))
+    assert torch.equal(chunks[1].multi_coords[0], torch.tensor([0, 1]))
+    assert torch.equal(chunks[1].multi_coords[1], torch.tensor([2, 0]))
 
-    # chunk 2: a=1, b=[0,1] → flat=[3, 4]
-    assert torch.equal(chunks[2].flat_global_idx, torch.tensor([3, 4]))
+    assert torch.equal(chunks[2].flat_global_idx, torch.tensor([4, 5]))
     assert torch.equal(chunks[2].multi_coords[0], torch.tensor([1, 1]))
-    assert torch.equal(chunks[2].multi_coords[1], torch.tensor([0, 1]))
+    assert torch.equal(chunks[2].multi_coords[1], torch.tensor([1, 2]))
 
-    # chunk 3: a=1, b=[2] → flat=[5]
-    assert torch.equal(chunks[3].flat_global_idx, torch.tensor([5]))
-    assert torch.equal(chunks[3].multi_coords[0], torch.tensor([1]))
-    assert torch.equal(chunks[3].multi_coords[1], torch.tensor([2]))
+
+def test_iter_chunks_remainder_chunk() -> None:
+    # 6 instances, chunk_size=4 → [0,1,2,3] then a smaller [4,5] remainder.
+    chunks = _materialise_chunks(leading=(2, 3), chunk_size=4)
+    assert len(chunks) == 2
+    assert chunks[0].chunk_size == 4
+    assert chunks[1].chunk_size == 2
+    assert torch.equal(chunks[0].flat_global_idx, torch.tensor([0, 1, 2, 3]))
+    assert torch.equal(chunks[1].flat_global_idx, torch.tensor([4, 5]))
 
 
 def test_iter_chunks_empty_leading_yields_one_chunk() -> None:
-    chunks = _materialise_chunks(leading=(), a_positions=(), b_positions=(), cx=0, ci=0)
+    chunks = _materialise_chunks(leading=(), chunk_size=0)
     assert len(chunks) == 1
     spec = chunks[0]
     assert spec.chunk_size == 1
@@ -183,11 +143,11 @@ def test_iter_chunks_empty_leading_yields_one_chunk() -> None:
 
 
 def test_iter_chunks_chunk_size_clipped_to_extent() -> None:
-    # Over-sized cx clips down; the per-chunk multi-coords still cover
-    # every position once.
-    chunks = _materialise_chunks(leading=(2, 3), a_positions=(0,), b_positions=(1,), cx=100, ci=100)
+    # Over-sized chunk_size clips down to a single chunk covering everything.
+    chunks = _materialise_chunks(leading=(2, 3), chunk_size=100)
     assert len(chunks) == 1
     assert chunks[0].chunk_size == 6
+    assert torch.equal(chunks[0].flat_global_idx, torch.arange(6))
 
 
 # ---------------------------------------------------------------------------
@@ -249,21 +209,15 @@ def test_reassemble_scatter_recovers_canonical_order() -> None:
 def test_reassemble_round_trip_against_iter_chunks() -> None:
     # End-to-end: iterate chunks of a known (leading, trailing) source,
     # gather them, scatter back, and confirm the result equals the
-    # source via plain advanced-indexing.
+    # source via plain advanced-indexing. chunk_size=5 over 12 instances
+    # forces two remainder-straddling boundaries.
     leading = (3, 4)
     trailing = (5,)
     src = torch.arange(3 * 4 * 5, dtype=torch.float32).reshape(*leading, *trailing)
     src_flat = src.reshape(-1, *trailing)
 
     chunks, idxs = [], []
-    for spec in iter_chunks(
-        leading=leading,
-        a_positions=(0,),
-        b_positions=(1,),
-        chunk_size_x=2,
-        chunk_size_inst=3,
-        device=CPU,
-    ):
+    for spec in iter_chunks(leading=leading, chunk_size=5, device=CPU):
         chunks.append(src_flat[spec.flat_global_idx])
         idxs.append(spec.flat_global_idx)
 
@@ -289,8 +243,7 @@ def device() -> torch.device:
 
 
 def _build_multi_inst(
-    chunk_x: int,
-    chunk_inst: int,
+    chunk_size: int,
     device: torch.device,
     *,
     inst_shape: tuple[int, ...],
@@ -299,14 +252,12 @@ def _build_multi_inst(
         XBAR_CONFIG,
         device=device,
         inst_shape=inst_shape,
-        solve_chunk_size_x=chunk_x,
-        solve_chunk_size_inst=chunk_inst,
+        solve_chunk_size=chunk_size,
     )
 
 
 def _run_multi_leading(
-    chunk_x: int,
-    chunk_inst: int,
+    chunk_size: int,
     device: torch.device,
     *,
     inst_shape: tuple[int, ...] = (2, 1, 2),  # (Sw, Tc, Tr)
@@ -316,9 +267,11 @@ def _run_multi_leading(
     """Drive Offset1T1RXbar with a (M, Sa, *inst_shape) leading shape.
 
     Total leading rank = ``2 + len(inst_shape)`` — 5 here, matching the
-    real macro layout (``M, Sa, Sw, Tc, Tr``).
+    real macro layout (``M, Sa, Sw, Tc, Tr``). The single ``solve_chunk_size``
+    budget partitions the flattened leading (``prod = M·Sa·Sw·Tc·Tr``) into
+    contiguous slices that cross every axis boundary freely.
     """
-    xbar = _build_multi_inst(chunk_x, chunk_inst, device, inst_shape=inst_shape)
+    xbar = _build_multi_inst(chunk_size, device, inst_shape=inst_shape)
     distribution = load_distribution(None, xbar)
     g = make_generator(0, device)
     # Number of physical weight batches = product of inst dims (one weight
@@ -347,7 +300,7 @@ def _run_multi_leading(
 
 
 def test_macro_shape_leading_single_block(fixture_config: Path, device: torch.device) -> None:
-    out = _run_multi_leading(0, 0, device)
+    out = _run_multi_leading(0, device)
     # Leading is (M, Sa) x-side + inst_shape. ``w_digit_count`` is
     # already flattened into ``phys_col`` by ``Offset1T1RXbar.program``
     # before reaching core, so it is not a leading dim here. Just
@@ -358,21 +311,11 @@ def test_macro_shape_leading_single_block(fixture_config: Path, device: torch.de
     assert out.shape[1] == 3
 
 
-def test_macro_shape_leading_a_chunked_bit_exact(fixture_config: Path, device: torch.device) -> None:
-    full = _run_multi_leading(0, 0, device)
-    chunked = _run_multi_leading(2, 0, device)
-    assert torch.equal(full, chunked)
-
-
-def test_macro_shape_leading_b_chunked_bit_exact(fixture_config: Path, device: torch.device) -> None:
-    full = _run_multi_leading(0, 0, device)
-    chunked = _run_multi_leading(0, 2, device)
-    assert torch.equal(full, chunked)
-
-
-def test_macro_shape_leading_ab_mixed_remainder(fixture_config: Path, device: torch.device) -> None:
-    # Use M=2, Sa=3 (A-side total 6) with cx=4 → remainder 2.
-    # inst total = 2*1*2 = 4 with ci=3 → remainder 1.
-    full = _run_multi_leading(0, 0, device)
-    chunked = _run_multi_leading(4, 3, device)
-    assert torch.equal(full, chunked)
+@pytest.mark.parametrize("chunk_size", [1, 2, 5, 7, 24, 100])
+def test_macro_shape_leading_chunked_bit_exact(fixture_config: Path, device: torch.device, chunk_size: int) -> None:
+    # Leading total = M·Sa·Sw·Tc·Tr = 2·3·2·1·2 = 24. The chunk sizes span
+    # exact divisors (2), remainder-straddling values (5, 7), exact total
+    # (24), and over-extent (100) — all must be bit-exact vs single-block.
+    full = _run_multi_leading(0, device)
+    chunked = _run_multi_leading(chunk_size, device)
+    assert torch.equal(full, chunked), f"solve_chunk_size={chunk_size} perturbed the result"

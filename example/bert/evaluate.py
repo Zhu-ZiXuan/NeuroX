@@ -3,10 +3,12 @@
 # ruff: noqa: T201
 
 import argparse
+import statistics
 import time
 from pathlib import Path
 
 import torch
+import torch._dynamo
 from torch.utils.data import DataLoader
 
 from example.bert.data import create_sst2_dataloader
@@ -76,6 +78,10 @@ def main() -> None:
     )
     correct = 0
     total = 0
+    batch_times: list[float] = []
+    cuda = device.type == "cuda"
+    if cuda:
+        torch.cuda.reset_peak_memory_stats(device)
     t0 = time.time()
     with NeuroxProfiler() as profiler, torch.no_grad():
         for input_ids, attn, ttids, labels in loader:
@@ -85,7 +91,13 @@ def main() -> None:
             attn = attn.to(device, non_blocking=True)
             ttids = ttids.to(device, non_blocking=True)
             labels = labels.to(device, non_blocking=True)
+            if cuda:
+                torch.cuda.synchronize(device)
+            tb = time.time()
             logits = model(input_ids=input_ids, attention_mask=attn, token_type_ids=ttids).logits
+            if cuda:
+                torch.cuda.synchronize(device)
+            batch_times.append(time.time() - tb)
             correct += logits.argmax(1).eq(labels).sum().item()
             total += labels.size(0)
     elapsed = time.time() - t0
@@ -96,6 +108,13 @@ def main() -> None:
     print(f"top1_accuracy:            {acc:.4f}")
     print(f"wall_time_s:              {elapsed:.2f}")
     print(f"time_per_sample_s:        {elapsed / max(total, 1):.4f}")
+    if batch_times:
+        print(f"cold_batch_s:             {batch_times[0]:.2f}   (first batch; includes torch.compile)")
+        if len(batch_times) > 1:
+            print(f"warm_batch_s:             {statistics.median(batch_times[1:]):.4f}   (median of later batches)")
+    if cuda:
+        print(f"peak_gpu_mem_gib:         {torch.cuda.max_memory_allocated(device) / (1024**3):.3f}")
+    print(f"dynamo_unique_graphs:     {torch._dynamo.utils.counters['stats'].get('unique_graphs', 0)}")
     print(f"area_total_um2:           {static.area__um2:.4f}")
     print(f"leakage_power_total_uW:   {static.leakage_power__uW:.4f}")
     print(f"dynamic_energy_total_fJ:  {profiler.total_dynamic_energy__fJ:.4f}")

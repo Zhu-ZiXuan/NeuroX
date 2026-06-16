@@ -265,8 +265,7 @@ def build_offset_1t1r_xbar_all_off_from_config(
     device: torch.device,
     dtype: torch.dtype = torch.float64,
     inst_shape: tuple[int, ...] = (),
-    solve_chunk_size_x: int = 0,
-    solve_chunk_size_inst: int = 0,
+    solve_chunk_size: int = 0,
 ) -> Offset1T1RXbar:
     """Build a fully nonideality-free :class:`Offset1T1RXbar` from a dataclass.
 
@@ -296,8 +295,7 @@ def build_offset_1t1r_xbar_all_off_from_config(
             tia=tia_policy,
             sl_driver=DriverPolicy(drive_thermal=False),
             wl_dac=wl_dac_policy,
-            solve_chunk_size_x=solve_chunk_size_x,
-            solve_chunk_size_inst=solve_chunk_size_inst,
+            solve_chunk_size=solve_chunk_size,
         ),
         readout=OffsetSwitchCapMuxAdcReadOutPolicy(
             data_switchcap=SwitchCapPolicy(cap_mismatch=False, sampling_thermal_noise=False),
@@ -327,8 +325,7 @@ def build_offset_1t1r_xbar_all_off(
     device: torch.device,
     dtype: torch.dtype = torch.float64,
     inst_shape: tuple[int, ...] = (),
-    solve_chunk_size_x: int = 0,
-    solve_chunk_size_inst: int = 0,
+    solve_chunk_size: int = 0,
 ) -> Offset1T1RXbar:
     """Build a fully nonideality-free :class:`Offset1T1RXbar` from a TOML.
 
@@ -341,8 +338,7 @@ def build_offset_1t1r_xbar_all_off(
             (``_neurox_type = "Offset1T1RXbarConfig"``).
         device: Target torch device for buffer placement.
         dtype: Internal float dtype.
-        solve_chunk_size_x: ``CircuitCore1T1RPolicy.solve_chunk_size_x``; ``0`` disables.
-        solve_chunk_size_inst: ``CircuitCore1T1RPolicy.solve_chunk_size_inst``; ``0`` disables.
+        solve_chunk_size: ``CircuitCore1T1RPolicy.solve_chunk_size``; ``0`` disables chunking.
     """
     xbar_config = dataclass_from_file(Offset1T1RXbarConfig, config_path, section="xbar")
     return build_offset_1t1r_xbar_all_off_from_config(
@@ -350,8 +346,7 @@ def build_offset_1t1r_xbar_all_off(
         device=device,
         dtype=dtype,
         inst_shape=inst_shape,
-        solve_chunk_size_x=solve_chunk_size_x,
-        solve_chunk_size_inst=solve_chunk_size_inst,
+        solve_chunk_size=solve_chunk_size,
     )
 
 

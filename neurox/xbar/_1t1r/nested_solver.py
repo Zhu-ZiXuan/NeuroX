@@ -99,6 +99,17 @@ class NestedSolver1T1R(Solver1T1R):
     # Public entry point: full nested solve
     # ---------------------------------------------------------------
 
+    # Compiled as a fixed-shape regional leaf. ``cim_read`` (an eager island)
+    # feeds it one chunk at a time at a constant ``solve_chunk_size`` leading,
+    # so a single graph is built once and reused across every chunk, VMM, and
+    # macro instance (``inline_inbuilt_nn_modules`` lifts the device buffers as
+    # shape-guarded inputs — verified one shared graph across instances).
+    # ``dynamic=False`` pins the unrolled iteration counts (n_outer, num_row) as
+    # compile-time constants. The block-tridiagonal Thomas sweep is kept (not a
+    # log-depth variant): compiled-Thomas runs fastest and leanest, and with a
+    # uniform chunk shape its one long cold compile happens once and is cached.
+    # See docs/internals/compile/scheme-a-regional.md.
+    @torch.compile(dynamic=False)
     def solve_dc(
         self,
         *,

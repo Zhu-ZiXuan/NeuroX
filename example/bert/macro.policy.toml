@@ -4,10 +4,15 @@
 # To enable a nonideality, override the matching switch inline, e.g.:
 #   [policy.xbar.core.tia]
 #   opamp_gain_sigma = true
-# Chunking knobs live under [policy.xbar.core] (solve_chunk_size_x / _inst).
+# Chunking knob lives under [policy.xbar.core] (solve_chunk_size).
 
 [policy]
 _neurox_use_preset = "policy/all_off:macro"
 
 [policy.xbar.core]
-solve_chunk_size_x = 256
+# Max instances solved per chunk = per-chunk peak-memory budget. Sized for the
+# COMPILED solve, whose PCR intermediates are co-resident (no per-step release),
+# so the budget is smaller than an eager run would need. One value gives a
+# uniform chunk shape across layers -> one dynamic=False solve compile
+# signature. See docs/internals/compile/scheme-a-regional.md.
+solve_chunk_size = 16384

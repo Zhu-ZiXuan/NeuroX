@@ -93,6 +93,9 @@ class FullJacobianSolver1T1R(Solver1T1R):
         self.bl_driver = bl_driver
         self.sl_driver = sl_driver
 
+    # Compiled as a fixed-shape regional leaf — same rationale as
+    # ``NestedSolver1T1R.solve_dc``; see docs/internals/compile/scheme-a-regional.md.
+    @torch.compile(dynamic=False)
     def solve_dc(
         self,
         *,

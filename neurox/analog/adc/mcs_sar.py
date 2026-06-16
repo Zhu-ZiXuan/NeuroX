@@ -343,8 +343,8 @@ class McsSarAdc(ADC):
         # c_diff increments all depend only on these caps + v_ref / v_cm
         # (runtime-input-independent), so they are precomputed here. Keeping
         # only the where / compare / shift inside the loop body shortens the
-        # unrolled inductor graph and is the precondition for lifting the
-        # ``@torch.compiler.disable`` on ``Offset1T1RXbar.vec_mat_mul``.
+        # unrolled inductor graph: readout runs on the macro compiled path,
+        # so a short SAR loop keeps it from bloating that graph.
         cap_lo = config.max_bits - bits + 1
         c_p_used__fF = c_p__fF[..., cap_lo : config.max_bits]
         c_n_used__fF = c_n__fF[..., cap_lo : config.max_bits]

@@ -121,9 +121,9 @@ class Offset1T1RXbarPolicy(XbarPolicy):
     """Composite policy for :class:`Offset1T1RXbar`.
 
     Attributes:
-        core: 1T1R circuit-core nonideality policy. Chunk knobs
-            (``solve_chunk_size_x`` / ``solve_chunk_size_inst``) live
-            on this — see :class:`CircuitCore1T1RPolicy`.
+        core: 1T1R circuit-core nonideality policy. The chunk knob
+            (``solve_chunk_size``) lives on this — see
+            :class:`CircuitCore1T1RPolicy`.
         readout: Readout-chain nonideality policy.
     """
 
@@ -271,16 +271,21 @@ class Offset1T1RXbar(Xbar):
         w_state_idx = _insert_ref_cols(w_logic, self.logic_phys_idx, self.physical_col_num) + self.config.w_state_offset
         self.core.program(w_state_idx)
 
-    @torch.compiler.disable
     def vec_mat_mul(self, x: Tensor, *, adc_operation_point: AdcOperationPoint) -> Tensor:
         """Run one VMM through the core → readout chain.
 
-        Chunking is owned by the core: it reads
-        ``solve_chunk_size_x`` / ``solve_chunk_size_inst`` off
-        ``policy.core`` and decides whether to walk the broadcast
-        leading in nested chunks or run a single full-broadcast
-        solve. The core emits exactly one energy event and one latency
-        event per VMM regardless of the chunking choice.
+        Compile-path: yes (via macro entry). The bottleneck DC solve is
+        compiled one layer down (``Solver1T1R.solve_dc``, a fixed-shape
+        leaf); the data-dependent chunk loop that drives it lives in the
+        eager island ``CircuitCore1T1R.cim_read``. So tracing the macro
+        ``matmul`` fuses this method's index / readout math and breaks
+        only at ``cim_read``. See docs/internals/compile/scheme-a-regional.md.
+
+        Chunking is owned by the core: it reads ``solve_chunk_size`` off
+        ``policy.core`` and decides whether to walk the broadcast leading
+        in chunks of at most that many instances or run a single
+        full-broadcast solve. The core emits exactly one energy event and
+        one latency event per VMM regardless of the chunking choice.
 
         Args:
             x: Activation tensor with primitive trailing ``[row_num]``.

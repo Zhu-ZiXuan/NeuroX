@@ -56,8 +56,7 @@ def build_xbar_for_calibration(
     inst_shape: tuple[int, ...],
     dtype: torch.dtype,
     solver_config: Solver1T1RConfig,
-    solve_chunk_size_x: int = 0,
-    solve_chunk_size_inst: int = 0,
+    solve_chunk_size: int = 0,
 ) -> Offset1T1RXbar:
     """Build a noise-off xbar with the supplied solver config.
 
@@ -95,14 +94,13 @@ def build_xbar_for_calibration(
     new_xbar_config = replace(xbar_config, core_config=new_core_cfg)
 
     # Noise-off policy from the shared preset (standard McsSarAdc topology),
-    # overriding only the run-specific chunking knobs.
+    # overriding only the run-specific chunking knob.
     base_policy = dataclass_from_file(Offset1T1RXbarPolicy, preset_path("policy/all_off.toml"), section="xbar")
     policy = replace(
         base_policy,
         core=replace(
             base_policy.core,
-            solve_chunk_size_x=solve_chunk_size_x,
-            solve_chunk_size_inst=solve_chunk_size_inst,
+            solve_chunk_size=solve_chunk_size,
         ),
     )
 

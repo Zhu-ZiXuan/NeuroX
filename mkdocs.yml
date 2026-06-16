@@ -132,7 +132,12 @@ nav:
   - python: api/python.md
 - Internals:
   - Overview: internals/README.md
-  - compile_policy: internals/compile_policy.md
+  - compile:
+    - Overview: internals/compile/README.md
+    - contracts: internals/compile/contracts.md
+    - scheme-a-regional: internals/compile/scheme-a-regional.md
+    - scheme-b-deobjectified: internals/compile/scheme-b-deobjectified.md
+    - scheme-c-custom-op: internals/compile/scheme-c-custom-op.md
   - config_and_construction: internals/config_and_construction.md
   - fabrication_lifecycle: internals/fabrication_lifecycle.md
   - state_holding: internals/state_holding.md

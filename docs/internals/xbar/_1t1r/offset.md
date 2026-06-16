@@ -6,8 +6,8 @@
 
 ## Design decisions
 
-- **`vec_mat_mul` is `@torch.compiler.disable`d.** The macro-level `@torch.compile` would otherwise trace into the readout's SAR-ADC bit-loop and hit graph breaks (>10 min compile). Disabling isolates the inner numeric block; the compiled boundary stays at the macro entry.
-- **Chunk knobs live on `CircuitCore1T1RPolicy`, not on the chip config.** They depend on the host GPU budget, not chip physics, so one chip TOML is reused across hosts with per-host chunk sizes; the offset policy forwards them down to the core.
+- **`vec_mat_mul` is on the compile path; the eager island is one level down.** The macro-level `@torch.compile` traces this method's index / readout math directly. The data-dependent chunk loop it would otherwise pull in lives in [circuit_core](circuit_core.md)'s `cim_read` (`@torch.compiler.disable`), and the DC-solve bottleneck is a separately-compiled fixed-shape leaf (`solve_dc`). See [compile/scheme-a-regional](../../compile/scheme-a-regional.md).
+- **The chunk knob lives on `CircuitCore1T1RPolicy`, not on the chip config.** `solve_chunk_size` depends on the host GPU budget, not chip physics, so one chip TOML is reused across hosts with a per-host chunk size; the offset policy forwards it down to the core.
 
 ## Contracts & invariants
 
@@ -23,7 +23,7 @@ N/A at this level — the chunked solve and its memory model are in [circuit_cor
 
 ## Known limitations
 
-- Block-level `@torch.compile` on the readout is not enabled: inductor scheduling of the SAR-ADC bit-loop produces >10 min compile times. Re-enabling requires rewriting the SAR ADC into a graph-friendly form first.
+- N/A.
 
 ---
 

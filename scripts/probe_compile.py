@@ -114,8 +114,7 @@ def _all_off_xbar_policy(config: Offset1T1RXbarConfig) -> Offset1T1RXbarPolicy:
             ),
             sl_driver=DriverPolicy(drive_thermal=False),
             wl_dac=GeneralDACPolicy(drive_thermal=False),
-            solve_chunk_size_x=0,
-            solve_chunk_size_inst=0,
+            solve_chunk_size=0,
         ),
         readout=OffsetSwitchCapMuxAdcReadOutPolicy(
             data_switchcap=SwitchCapPolicy(cap_mismatch=False, sampling_thermal_noise=False),

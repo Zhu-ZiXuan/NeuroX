@@ -40,7 +40,7 @@ python -m example.lenet.evaluate    --device cuda:0 --dataset-dir dataset/mnist 
     --config macro_with_physical_xbar.toml --policy macro_with_physical_xbar.policy.toml
 ```
 
-Swap `--config macro_with_ideal_xbar.toml --policy macro_with_ideal_xbar.policy.toml --xbar ideal` for the lossless baseline. The physical path is memory-heavy (im2col explodes the solver's leading batch); keep `--batch-size` small first, then set the chunking knobs in the policy file (see below).
+Swap `--config macro_with_ideal_xbar.toml --policy macro_with_ideal_xbar.policy.toml --xbar ideal` for the lossless baseline. The physical path is memory-heavy (im2col explodes the solver's leading batch); keep `--batch-size` small first, then set the chunking knob (`solve_chunk_size`) in the policy file (see below).
 
 The examples default to GPU because both workloads are too slow on CPU to be useful as training references. Pass `--device cpu` explicitly when GPU is unavailable (LeNet is feasible on CPU; BERT is not).
 
@@ -59,7 +59,7 @@ Each macro is built from two separate TOML files; the full schema and the `_neur
   opamp_gain_sigma = true
   ```
 
-  The solver chunking knobs (`solve_chunk_size_x` / `solve_chunk_size_inst`) also live here, under `[policy.xbar.core]`.
+  The solver chunking knob (`solve_chunk_size`) also lives here, under `[policy.xbar.core]`.
 
 ## See also
 

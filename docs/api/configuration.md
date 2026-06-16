@@ -5,7 +5,7 @@ A NeuroX run is configured by two TOML files passed to the entry points: `--conf
 ## The two files
 
 - **`--config`** — the immutable circuit design: tile geometry, device and circuit parameters, and the ADC calibration table. One config file fully specifies a chip and carries no nonideality switches.
-- **`--policy`** — the mutable nonideality switches: one `bool` per non-ideality source (device mismatch, thermal noise, programming noise, ADC offsets, ...), plus the solver chunking knobs. Its section tree mirrors the config.
+- **`--policy`** — the mutable nonideality switches: one `bool` per non-ideality source (device mismatch, thermal noise, programming noise, ADC offsets, ...), plus the solver chunking knob. Its section tree mirrors the config.
 
 ## Directives
 

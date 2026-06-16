@@ -46,7 +46,7 @@ Per emission: one 0-D reduction (a kernel launch, no host sync) plus a Python ap
 
 ## Known limitations
 
-- **No tensor-return profiling path.** A return-value channel that removes the emission-site graph break is an open option (tracked in [compile_policy](../compile_policy.md)); the side-channel break is accepted for now.
+- **No tensor-return profiling path.** A return-value channel that removes the emission-site graph break is an open option (tracked in [compile](../compile/README.md)); the side-channel break is accepted for now.
 - **No CSV / JSON export, no benchmark suite.** Report consumption is in-process (`ProfilerReport`, `summary`) only.
 - **Verification covers events and gating, not sync micro-cost.** `tests/test_xbar_chunking.py` guards single-event-per-VMM and chunk-invariance; `tests/test_readout_log_gating.py` guards independent energy / latency gating. The batched-sync cost claim (one host sync per quantity) is a design invariant, not a regression-tested one.
 

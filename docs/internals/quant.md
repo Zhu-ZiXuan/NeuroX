@@ -2,7 +2,7 @@
 
 ## Summary
 
-`neurox/common/quant.py` holds the small set of stochastic-rounding quantization primitives shared across the codebase. Three kernels make up the migrated surface: `stochastic_floor_div` (floor right-shift integer division), `stochastic_floor_to_int` (float-to-int floor quantizer $\operatorname{code} = \lfloor \operatorname{signal} \cdot \operatorname{scale} \rfloor$), and `floor_bucketize` (bucketize against code-edge boundaries with floor semantics). All three are stateless math: none of them know about the macro or the ADC. Each consumes a `training: bool` directly; when set, an unbiased one-LSB uniform jitter is added before the floor, so the same code path serves deterministic conversion (`training=False`) and stochastic-rounded conversion (`training=True`) without moving where the boundaries sit. There is no physical Reference spec — these are quantization math, not a device model.
+`neurox/common/quant.py` holds the small set of stochastic-rounding quantization primitives shared across the codebase. Three kernels make up the surface: `stochastic_floor_div` (floor right-shift integer division), `stochastic_floor_to_int` (float-to-int floor quantizer $\operatorname{code} = \lfloor \operatorname{signal} \cdot \operatorname{scale} \rfloor$), and `floor_bucketize` (bucketize against code-edge boundaries with floor semantics). All three are stateless math: none of them know about the macro or the ADC. Each consumes a `training: bool` directly; when set, an unbiased one-LSB uniform jitter is added before the floor, so the same code path serves deterministic conversion (`training=False`) and stochastic-rounded conversion (`training=True`) without moving where the boundaries sit. There is no physical Reference spec — these are quantization math, not a device model.
 
 ## Design decisions
 
@@ -23,7 +23,7 @@
 ## Performance & resources
 
 - **Stateless and allocation-light.** No persistent buffers; the only allocations are the per-call jitter tensors, drawn `*_like` the input shape/device so they stay on-device. The float64 denominator in the tensor-`rshift` branch of `stochastic_floor_div` is the one wide-dtype temporary.
-- **Compile-path: yes (via macro entry).** The kernels are called from macro internals on the compiled path. They use no CPU/device sync, no host-state mutation, and no tensor-value-dependent control flow; the scalar-versus-tensor `rshift` branch is on the Python type of the argument (resolved at trace time), not on a tensor value, so it is dynamo-safe. The random draws (`torch.rand` / `torch.randint`) are traceable.
+- **`rshift` branch is trace-time, not value-dependent.** On the [compiled path](compile/contracts.md) the scalar-versus-tensor `rshift` branch keys on the Python type of the argument (resolved at trace time), not on a tensor value, so it stays dynamo-safe; the random draws (`torch.rand` / `torch.randint`) are traceable.
 
 ## Gotchas
 

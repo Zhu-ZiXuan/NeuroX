@@ -225,18 +225,15 @@ class CircuitCore1T1RPolicy:
         tia: BL clamp-driver (TIA) nonideality policy.
         sl_driver: SL driver nonideality policy.
         wl_dac: WL DAC nonideality policy.
-        solve_chunk_size_x: Chunk size along the **A subset** of the
-            ``solve_dc`` broadcast leading (x-side positions
-            ``*x_batch`` / ``M`` / ``Sa``). ``0`` disables chunking on
-            this axis. Runtime knob (depends on GPU memory budget /
-            throughput target), not a chip-preset constant.
-        solve_chunk_size_inst: Chunk size along the **B subset** —
-            the instance positions (``Sw`` / ``Tr`` / matched ``Tc``).
-            ``0`` disables chunking on this axis.
-
-    Both chunk knobs are zero by default behaviour: when both are ``0``
-    ``cim_read`` runs the single-block path; either non-zero forces the
-    memory-bounded nested chunked path.
+        solve_chunk_size: Maximum number of broadcast-leading instances
+            ``cim_read`` solves per chunk — the per-chunk peak-memory
+            budget. ``0`` runs the whole leading in one block; any
+            positive value forces the memory-bounded chunked path,
+            splitting the leading into contiguous slices of at most this
+            many instances regardless of which leading axes are serial or
+            inst. Runtime knob (depends on GPU memory budget / throughput
+            target, and is larger under eager than compiled execution),
+            not a chip-preset constant.
 
     Solvers have **no Policy** — all their knobs are fixed numerical
     constants and live on :class:`CircuitCore1T1RConfig.solver_config`.
@@ -247,8 +244,7 @@ class CircuitCore1T1RPolicy:
     tia: TIAPolicy
     sl_driver: DriverPolicy
     wl_dac: DACPolicy
-    solve_chunk_size_x: int
-    solve_chunk_size_inst: int
+    solve_chunk_size: int
 
 
 # ---------------------------------------------------------------------------
@@ -423,8 +419,22 @@ class CircuitCore1T1R(CircuitBase[CircuitCore1T1RConfig]):
     # CIM read (plain forward)
     # -----------------------------------------------------------------
 
+    @torch.compiler.disable(
+        recursive=False,
+        reason="eager chunk loop; the fixed-shape per-chunk solver body is compiled separately",
+    )
     def cim_read(self, x: Tensor) -> Tensor:
         """Drive the 1T1R array with a WL input and return the BL clamp voltage.
+
+        Eager island (``@torch.compiler.disable``). This method owns the
+        chunk loop, whose trip count ``ceil(leading / solve_chunk_size)``
+        is a runtime value — tracing it into the macro ``matmul`` graph
+        would unroll a huge, recompiling loop and explode compile time.
+        Keeping it eager pins the loop in Python; the per-chunk DC solve
+        (``self.solver.solve_dc``) is itself ``@torch.compile``-decorated,
+        so it compiles once at the fixed chunk shape and every chunk /
+        VMM / macro instance reuses that one graph. See
+        docs/internals/compile/scheme-a-regional.md.
 
         Plain forward: drive WL via the DAC, settle the array+TIA to DC
         in chunked Newton sub-solves, accumulate per-VMM dynamic energy,
@@ -460,12 +470,9 @@ class CircuitCore1T1R(CircuitBase[CircuitCore1T1RConfig]):
         tia_trailing = (phys_col_num,)
         col_trailing = (phys_col_num,)
 
-        cx = self.policy.solve_chunk_size_x
-        ci = self.policy.solve_chunk_size_inst
+        # --- Classify leading positions (for the serial latency count) and convert DAC once ---
 
-        # --- Classify leading positions and convert DAC once ---
-
-        a_positions, b_positions = classify_leading_positions(
+        a_positions, _b_positions = classify_leading_positions(
             x_shape=tuple(x_grid.shape),
             g_shape=tuple(self.rram.g__uS.shape),
             leading_rank=len(leading),
@@ -500,10 +507,7 @@ class CircuitCore1T1R(CircuitBase[CircuitCore1T1RConfig]):
 
         for spec in iter_chunks(
             leading=leading,
-            a_positions=a_positions,
-            b_positions=b_positions,
-            chunk_size_x=cx,
-            chunk_size_inst=ci,
+            chunk_size=self.policy.solve_chunk_size,
             device=x.device,
         ):
             mc = spec.multi_coords

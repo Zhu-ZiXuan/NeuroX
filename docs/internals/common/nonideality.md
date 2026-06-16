@@ -34,7 +34,7 @@
 ## Performance & resources
 
 - **Stateless and allocation-light.** No persistent buffers; the only allocations are the per-call noise draws, sampled on the input's device and dtype. Disabled kernels allocate nothing.
-- **Compile-path: yes.** The kernels run on the compiled consumer path. `enabled` is a Python `bool` resolved at trace time, so the disabled short-circuit is a trace-time branch, not tensor-value control flow — dynamo specialises each kernel on the boolean. The sigma-direct kernels inline their scalar so the draw fuses with the consumer graph.
+- **`enabled` short-circuit is trace-time, not value-dependent.** On the [compiled consumer path](../compile/contracts.md) `enabled` is a Python `bool` resolved at trace time, so the disabled short-circuit is a trace-time branch, not tensor-value control flow — dynamo specialises each kernel on the boolean. The sigma-direct kernels inline their scalar so the draw fuses with the consumer graph.
 - **`apply_lsb_jitter` avoids a SymInt shift.** `unsigned_max` is passed as a precomputed Python int rather than computed as `1 << n_bits` inside the kernel, so the compiled graph never contains a SymInt left-shift op.
 
 ## Gotchas

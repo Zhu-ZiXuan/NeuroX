@@ -24,8 +24,7 @@ A_beta_mismatch = false
 _neurox_type = "Offset1T1RXbarPolicy"
 
 [xbar.core]
-solve_chunk_size_x = 0
-solve_chunk_size_inst = 0
+solve_chunk_size = 0
 
 [xbar.core.rram]
 prog_gamma = false
