@@ -37,6 +37,7 @@ The ideal macro carries no tile config, no slice counts, and no reducer configs.
 
 - The macro trusts the upper layer for value ranges; it performs the exact matmul regardless of whether the inputs fit `w_value_range` / `x_value_range` (the ranges are published, not enforced).
 - It is a value-domain reference only — it has no PPA contribution and no fabrication variation, so it cannot stand in for a physical mode in an energy or area study.
+- It is a flow-bring-up / reference baseline, not a production result: the lossless value-domain upper bound and a way to isolate quantization issues from analog modelling, never a hardware-faithful accuracy or PPA number.
 
 ## Validation
 

@@ -19,7 +19,7 @@ A read returns a signed integer code, not a current. The map between the code an
 
 ## Ideal twin
 
-The ideal twin (`IdealXbar`) is the lossless tile-level reference for any physical xbar: it preserves the primitive operation, the value domain, and the output integer grid, but discards every analog non-ideality (IR drop, noise, finite gain). It is the integer truth a physical read is compared against, and ADC calibration uses the physical-vs-ideal gap to pick comparator thresholds.
+The ideal twin (`IdealXbar`) is the lossless tile-level reference for any physical xbar: it preserves the primitive operation, the value domain, and the output integer grid, but discards every analog non-ideality (IR drop, noise, finite gain). It is the integer truth a physical read is compared against, and ADC calibration uses the physical-vs-ideal gap to pick comparator thresholds. The faithful twin is derived from a fabricated physical xbar via `to_ideal()`, which keeps its geometry and ADC surface bound to the device; building one directly from a standalone config is a bring-up / reference convenience only and yields a synthetic, uncalibrated reference — not a production hardware accuracy or PPA result.
 
 Its rescale at resolution $b$ is derived from integer geometry alone,
 

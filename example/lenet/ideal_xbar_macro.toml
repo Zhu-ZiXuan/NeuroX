@@ -2,6 +2,8 @@
 # IdealXbarMacro is the degenerate member of the XbarMacro family — no
 # xbar tile, no slicing, no transcoding. Useful as a numerical ground
 # truth when isolating QAT issues from analog / IO modelling.
+# BRING-UP / REFERENCE ONLY — value-domain upper bound, no ADC / no PPA; never
+# a production accuracy or hardware result.
 
 [digit_adder]
 bit_width = 32

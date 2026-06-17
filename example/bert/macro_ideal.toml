@@ -1,11 +1,15 @@
-# BERT-small ideal-twin macro configuration (synthetic 6-bit ADC).
-# Mirrors example/bert/macro.toml structurally; differs only in the inner
-# xbar: standalone IdealXbarConfig with one synthetic 6-bit ADC mode
-# instead of the physical 4-bit chip. Used by evaluate.py as the
-# 'reference' path that matches the QAT-trained quantization grid
-# faithfully (4-bit physical chip's per-cycle LSB can't resolve the
-# per-cycle dot magnitude after Sa=4 bit-slicing — see
-# example/lenet/macro_with_ideal_xbar.toml comment).
+# BERT-small standalone ideal-twin macro config (synthetic 8-bit ADC).
+# Mirrors example/bert/macro.toml structurally; the only change is the
+# inner xbar — a directly-instantiated IdealXbarConfig (adc_max_bits = 8)
+# in place of the physical 1T1R tile.
+#
+# BRING-UP / REFERENCE ONLY — NOT FOR PRODUCTION. Direct instantiation of an
+# ideal xbar is a convenience for getting the flow working and for a lossless
+# sanity reference; its parameters are hand-authored, tied to no fabricated
+# chip, and uncalibrated, so its accuracy / PPA are a synthetic reference, not
+# a hardware result. The faithful ideal twin is `evaluate.py --xbar ideal` on
+# the physical config (macro.toml), which derives the twin from the real chip
+# via `to_ideal()`.
 
 [digit_adder]
 bit_width = 32

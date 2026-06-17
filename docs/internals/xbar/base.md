@@ -12,6 +12,7 @@ The crossbar family: the abstract `Xbar` (`base.py`) and the lossless `IdealXbar
 
 - **Primitive shape contract.** `program(w)` takes `(*inst_shape, col_num, w_digit_count, row_num)`; `vec_mat_mul(x)` takes trailing `[row_num]` and returns trailing `[data_num]`. A caller's leading dims express **external batch and inst alignment only** — per-column / per-digit / per-phys_col fanout is an internal axis the implementation opens itself (`unsqueeze(-2)` against the fabricated `g` grid). Encoding a column/digit position in `x`'s leading dims is a contract violation.
 - **`to_ideal()` carries `XbarConfig` fields only** — never `adc_calibration` (that lives on the physical config); the ideal twin must derive its rescale from geometry alone.
+- **`IdealXbar` is also directly config-dispatchable** (it registers its own config key) — a convenience for flow bring-up and standalone tests. A directly built twin is hand-parameterised, bound to no fabricated device, and uncalibrated, so it is a synthetic reference only; production accuracy / PPA must use a twin from `to_ideal()` on a physical config.
 - **Ownership.** Fabricated state lives in the device children; the xbar owns no static mismatch, so `_sample_fabricate_mismatch` stays the inherited no-op and the cascade fans into the children.
 
 ## Performance & resources

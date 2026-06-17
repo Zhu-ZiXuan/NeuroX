@@ -4,6 +4,12 @@
 # The IdealXbarConfig structural fields (x_range, w_digit_count/radix/range)
 # match the physical 1T1R defaults so this TOML is numerically equivalent to
 # running macro_with_physical_xbar.toml with ``--xbar ideal``.
+#
+# BRING-UP / REFERENCE ONLY — NOT FOR PRODUCTION. This directly instantiates an
+# ideal xbar; its params are hand-authored, tied to no fabricated chip, and
+# uncalibrated, so its accuracy / PPA are a synthetic reference, not a hardware
+# result. The faithful provenance is the ``--xbar ideal`` path on
+# macro_with_physical_xbar.toml (derives the twin via ``to_ideal()``).
 
 [digit_adder]
 bit_width = 32

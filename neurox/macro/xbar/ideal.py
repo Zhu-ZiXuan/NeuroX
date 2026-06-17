@@ -20,6 +20,8 @@ from .base import XbarMacro, XbarMacroConfig, XbarMacroPolicy
 class IdealXbarMacroConfig(XbarMacroConfig):
     """Configuration for :class:`IdealXbarMacro`.
 
+    Bring-up / reference use only — see :class:`IdealXbarMacro`.
+
     Attributes:
         x_value_range: Inclusive integer activation range.
         w_value_range: Inclusive integer weight range.
@@ -40,6 +42,11 @@ class IdealXbarMacro(XbarMacro):
 
     No xbar tile, no slicing, no transcoding. ``dtype``, ``T__K``, and
     ``ideal_xbar`` are accepted for API uniformity and ignored.
+
+    Reference, not hardware: a value-domain / lossless upper-bound baseline
+    with no tile, ADC, fabrication, or PPA. Use it for flow bring-up and to
+    isolate QAT issues from analog modelling — never as a stand-in for a
+    physical macro in a production accuracy or PPA study.
 
     Args:
         config: Concrete configuration dataclass.

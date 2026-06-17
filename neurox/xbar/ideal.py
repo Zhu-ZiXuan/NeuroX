@@ -21,6 +21,10 @@ from .base import Xbar, XbarConfig, XbarPolicy
 class IdealXbarConfig(XbarConfig):
     """Configuration for :class:`IdealXbar`.
 
+    Building an ``IdealXbar`` directly from this config is bring-up /
+    reference use only; the production provenance is :meth:`Xbar.to_ideal`
+    (see :class:`IdealXbar`).
+
     Attributes:
         x_range: Inclusive single-cycle integer input range.
         w_digit_count: Digits per ``w``.
@@ -62,6 +66,15 @@ class IdealXbar(Xbar):
     where ``max_dot_abs = row_num · max|w_logical| · max|x|``. No chip
     calibration enters the computation. ``adc_operation_point.adc_mode``
     is opaque and not read at runtime.
+
+    Provenance: the faithful lossless reference is obtained from a
+    fabricated physical xbar via :meth:`Xbar.to_ideal`, which binds this
+    twin's geometry and ADC surface to the real device. Constructing
+    ``IdealXbar`` directly from a standalone config (config dispatch) is a
+    convenience for flow bring-up and isolated tests only — its parameters
+    are hand-authored, tied to no fabricated device, and uncalibrated, so
+    its outputs are a synthetic reference, never a production accuracy or
+    PPA result.
 
     Args:
         config: Concrete configuration dataclass.

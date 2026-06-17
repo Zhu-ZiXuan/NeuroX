@@ -29,7 +29,8 @@ def main() -> None:
         "--config",
         default="macro.toml",
         help=f"Circuit config TOML under {CONFIG_DIR.name}/ (default: macro.toml). "
-        "Use macro_ideal.toml for the 6-bit ideal reference path.",
+        "macro_ideal.toml is a standalone ideal reference for flow bring-up only "
+        "(not a production result); for a faithful ideal twin use --xbar ideal on the physical config.",
     )
     parser.add_argument(
         "--policy",
@@ -42,6 +43,8 @@ def main() -> None:
         "--xbar",
         choices=("physical", "ideal"),
         default="physical",
+        help="'ideal' replaces the physical tile with its lossless to_ideal() twin "
+        "(faithful reference); 'physical' runs the real array.",
     )
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--max-length", type=int, default=128)
