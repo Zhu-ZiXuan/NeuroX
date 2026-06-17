@@ -23,7 +23,7 @@ The `XbarMacro` registry root (`xbar/base.py`): the abstract `FabricateMixin + n
 
 ## Performance & resources
 
-The base adds no compute. Each mode's `matmul` is wrapped in `@torch.no_grad()` + `@torch.compile(dynamic=True)`; the dynamic flag is required because the leading batch (im2col × batch) varies per call. The compile- and memory-sensitive cost is the tile read inside `self.xbar.vec_mat_mul` — see [xbar internals](../../xbar/README.md).
+The base adds no compute. Each mode's `matmul` is wrapped in `@torch.no_grad()` and runs eager — the library does not self-compile the forward, leaving a caller free to `torch.compile` the model ([compile](../../compile/README.md)). The memory-sensitive cost is the tile read inside `self.xbar.vec_mat_mul`, whose heavy DC solve compiles as a separate regional leaf — see [xbar internals](../../xbar/README.md).
 
 ## Gotchas
 

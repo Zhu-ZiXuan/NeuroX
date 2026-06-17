@@ -125,7 +125,6 @@ class IdealXbarMacro(XbarMacro):
         self.weight = weight
 
     @torch.no_grad()
-    @torch.compile(dynamic=True)
     def matmul(self, input: Tensor, *, adc_operation_point: AdcOperationPoint) -> Tensor:
         """Execute one integer matrix multiply against the programmed weight state.
 

@@ -6,7 +6,7 @@
 
 ## Design decisions
 
-- **`vec_mat_mul` is on the compile path; the eager island is one level down.** The macro-level `@torch.compile` traces this method's index / readout math directly. The data-dependent chunk loop it would otherwise pull in lives in [circuit_core](circuit_core.md)'s `cim_read` (`@torch.compiler.disable`), and the DC-solve bottleneck is a separately-compiled fixed-shape leaf (`solve_dc`). See [compile/scheme-a-regional](../../compile/scheme-a-regional.md).
+- **`vec_mat_mul` runs eager; the one self-compiled region is a level down.** The library does not self-compile the macro forward, so this method's index / readout math runs eager — and stays compile-friendly so a caller may `torch.compile` the model. The data-dependent chunk loop lives in [circuit_core](circuit_core.md)'s `cim_read` (`@torch.compiler.disable`), and the DC-solve bottleneck is the one self-compiled fixed-shape leaf (`solve_dc`). See [compile/scheme-a-regional](../../compile/scheme-a-regional.md).
 - **The chunk knob lives on `CircuitCore1T1RPolicy`, not on the chip config.** `solve_chunk_size` depends on the host GPU budget, not chip physics, so one chip TOML is reused across hosts with a per-host chunk size; the offset policy forwards it down to the core.
 
 ## Contracts & invariants

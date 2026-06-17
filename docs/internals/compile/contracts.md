@@ -1,6 +1,6 @@
 # Compile Contracts — Implementation
 
-The rules every function on the [compiled path](README.md) obeys. They are dynamo-safety invariants, not physics. They hold across every file the macro `matmul` reaches, minus the eager islands. The eager islands ([scheme-a-regional](scheme-a-regional.md)) are the one place these rules are lifted — there you *may* sync, mutate Python state, and run data-dependent loops.
+The rules every compile-friendly function obeys. They are dynamo-safety invariants, not physics. They hold across the regionally-compiled `solve_dc` leaf and across every file the macro `matmul` reaches — the forward the library keeps traceable so a caller may `torch.compile` it — minus the eager islands. The eager islands ([scheme-a-regional](scheme-a-regional.md)) are the one place these rules are lifted — there you *may* sync, mutate Python state, and run data-dependent loops.
 
 ## Invariants
 
@@ -14,7 +14,7 @@ The rules every function on the [compiled path](README.md) obeys. They are dynam
 
 > Recompile-key behaviour below is observed on the project's pinned PyTorch and **may change across versions** — re-confirm against the installed version before relying on an edge.
 
-A recompile re-traces a cached graph; it is distinct from a graph break (which drops out of compiled execution for a region). A recompile fires on a change in tensor **shape** (absorbed by `dynamic=True` at the macro entry, pinned by the fixed chunk shape at the regional leaf), **dtype**, **device**, or the concrete **Python type** of an argument. In steady state only the batch shape varies at the macro, and the leaf shape is constant, so a run holds one macro graph per subclass plus the shared leaf graph.
+A recompile re-traces a cached graph; it is distinct from a graph break (which drops out of compiled execution for a region). A recompile fires on a change in tensor **shape** (pinned to the fixed chunk shape at the regional leaf; absorbed by `dynamic=...` if a caller compiles the forward), **dtype**, **device**, or the concrete **Python type** of an argument. In steady state the leaf shape is constant, so a run holds just the shared leaf graph — plus whatever a caller's own model-level compile adds.
 
 ## `fullgraph`
 

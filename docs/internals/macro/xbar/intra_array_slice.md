@@ -19,7 +19,7 @@
 
 ## Performance & resources
 
-Trades column utilization (idle padded columns) for fewer tile instances than the inter-array plane stack: the tile's `inst_shape` carries `(M=1, Sa=1, Tc, Tr)` with no `Sw` multiplicity. The dominant cost is the tile read; `matmul` is `@torch.compile(dynamic=True)`.
+Trades column utilization (idle padded columns) for fewer tile instances than the inter-array plane stack: the tile's `inst_shape` carries `(M=1, Sa=1, Tc, Tr)` with no `Sw` multiplicity. The dominant cost is the tile read; `matmul` runs eager (the DC solve compiles as a separate regional leaf).
 
 ## Gotchas
 

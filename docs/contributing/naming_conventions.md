@@ -69,7 +69,7 @@ Each circuit / device class exposes one primary method whose name encodes the ph
 | `vec_mat_mul(x) -> Tensor` | Xbar tile per-VMM kernel. |
 | `readout(...) -> Tensor` | Readout chain entry. Returns only the ADC code tensor. |
 | `operate(...) -> Tensor` | Digital block primary kernel (adder / accumulator / shift-adder / subtractor). |
-| `matmul(...) -> Tensor` | Macro entry point. The single `@torch.compile` boundary of the project. |
+| `matmul(...) -> Tensor` | Macro entry point. Eager (compile-friendly); the library self-compiles only the solver leaf. |
 
 ## Module hierarchy names (profiler)
 

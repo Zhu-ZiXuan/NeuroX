@@ -23,7 +23,7 @@
 ## Performance & resources
 
 - **Stateless and allocation-light.** No persistent buffers; the only allocations are the per-call jitter tensors, drawn `*_like` the input shape/device so they stay on-device. The float64 denominator in the tensor-`rshift` branch of `stochastic_floor_div` is the one wide-dtype temporary.
-- **`rshift` branch is trace-time, not value-dependent.** On the [compiled path](compile/contracts.md) the scalar-versus-tensor `rshift` branch keys on the Python type of the argument (resolved at trace time), not on a tensor value, so it stays dynamo-safe; the random draws (`torch.rand` / `torch.randint`) are traceable.
+- **`rshift` branch is trace-time, not value-dependent.** When compiled, the scalar-versus-tensor `rshift` branch keys on the Python type of the argument (resolved at trace time), not on a tensor value, so it stays [dynamo-safe](compile/contracts.md); the random draws (`torch.rand` / `torch.randint`) are traceable.
 
 ## Gotchas
 

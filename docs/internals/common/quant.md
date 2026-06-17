@@ -24,7 +24,7 @@
 
 - **Stateless and allocation-light.** No persistent buffers; the only allocations are the per-call jitter tensors, drawn to match the input shape and device so they stay on-device. The wide-float denominator in the tensor-`rshift` branch of `stochastic_floor_div` is the one wide-dtype temporary.
 - **Per-element cost is $O(1)$ over the input; no reductions across elements.** The whole surface is elementwise (modulo the boundary search in `floor_bucketize`, which is $O(\log n_{\operatorname{codes}})$ per element).
-- **`rshift` branch is trace-time, not value-dependent.** On the [compiled path](../compile/contracts.md) the scalar-versus-tensor `rshift` branch keys on the Python type of the argument (resolved at trace time), not on a tensor value, so it stays dynamo-safe; the random draws are traceable.
+- **`rshift` branch is trace-time, not value-dependent.** When compiled, the scalar-versus-tensor `rshift` branch keys on the Python type of the argument (resolved at trace time), not on a tensor value, so it stays [dynamo-safe](../compile/contracts.md); the random draws are traceable.
 
 ## Gotchas
 

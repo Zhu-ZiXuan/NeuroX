@@ -17,7 +17,7 @@
 
 ## Performance & resources
 
-The mode adds only the transcode and the contraction accumulation; the dominant cost is the tile read. `matmul` is `@torch.compile(dynamic=True)` — see [base](base.md).
+The mode adds only the transcode and the contraction accumulation; the dominant cost is the tile read. `matmul` runs eager — the heavy DC solve compiles as a separate regional leaf — see [base](base.md).
 
 ## Gotchas
 

@@ -17,7 +17,7 @@
 
 ## Performance & resources
 
-Tile work scales with the materialized `Sw` plane count: the batched tile tensor carries the full `Sw × Tc × Tr` instance multiplicity, so peak memory grows with `Sw`. The dominant cost is the batched tile read; `matmul` is `@torch.compile(dynamic=True)`.
+Tile work scales with the materialized `Sw` plane count: the batched tile tensor carries the full `Sw × Tc × Tr` instance multiplicity, so peak memory grows with `Sw`. The dominant cost is the batched tile read; `matmul` runs eager (the DC solve compiles as a separate regional leaf).
 
 ## Gotchas
 
