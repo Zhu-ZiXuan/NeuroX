@@ -19,7 +19,7 @@ The conversion is a table lookup perturbed by optional drive noise,
 
 $$V_{\mathrm{out}} = L[\,\mathrm{code}\,] + n,$$
 
-where $L$ is the code-to-signal LUT and $n$ the optional per-call drive-noise sample ($n = 0$ with the policy off). The nominal LUT read returns $L[\mathrm{code}]$ exactly.
+where $L$ is the code-to-signal LUT and $n$ the optional per-call drive-noise sample ($n = 0$ with the policy off). The nominal LUT read returns $L[\mathrm{code}]$ exactly. An out-of-range input code is clamped (saturated) to the representable code range $[0,\ \text{code count} - 1]$ before the lookup, consistent with the ADC clamp and conventional DAC saturation.
 
 ## Numerical method
 

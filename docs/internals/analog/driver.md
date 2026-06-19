@@ -2,7 +2,7 @@
 
 ## Summary
 
-`Driver` (`driver.py`) is the ideal constant-voltage SL clamp driver: one sampled clamp voltage, no feedback loop, no shape-dependent state. Spec: [reference/analog/driver](../../reference/analog/driver.md).
+`Driver` (`driver.py`) is the ideal constant-voltage SL clamp-driver: one sampled clamp voltage, no feedback loop, no shape-dependent state. Spec: [reference/analog/driver](../../reference/analog/driver.md).
 
 ## Design decisions
 

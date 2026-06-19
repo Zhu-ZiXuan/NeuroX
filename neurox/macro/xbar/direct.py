@@ -13,11 +13,11 @@ import torch
 from torch import Tensor
 
 from neurox.analog.adc import AdcOperationPoint
+from neurox.common.encoding import Encoding, Transcoder
 from neurox.digital import (
     Accumulator,
     AccumulatorConfig,
 )
-from neurox.mapper.transcoder import Encoding, Transcoder
 from neurox.xbar import Xbar, XbarConfig, XbarPolicy
 
 from .base import XbarMacro, XbarMacroConfig, XbarMacroPolicy
@@ -108,7 +108,7 @@ class DirectXbarMacro(XbarMacro):
         self.w_transcoder = Transcoder.create(
             encoding=config.w_encoding,
             radix=xbar.w_digit_radix,
-            digit_num=xbar.w_digit_count,
+            digit_count=xbar.w_digit_count,
         )
 
         self._w_parallel_size = max(math.prod(w_batch), 1)

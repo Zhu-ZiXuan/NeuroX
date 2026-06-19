@@ -2,11 +2,11 @@
 
 ## Summary / role
 
-Every concrete TIA in the family clamps a bit-line boundary at a virtual-ground reference and absorbs the boundary port current, returning the clamp voltage and its small-signal sensitivity $\partial V_{\mathrm{clamp}}/\partial I_{\mathrm{port}}$ for a current-domain boundary solve. It is one of the two boundary actors a consuming operating-point solve binds, the counterpart of the [driver](../driver.md). This document specifies the shared family contract; the concrete topology is in [opamp_tia](opamp_tia.md).
+Every concrete TIA in the family is the BL clamp-driver: it clamps a bit-line boundary at a virtual-ground reference and absorbs the boundary port current, returning the clamp voltage and its small-signal sensitivity $\partial V_{\mathrm{clamp}}/\partial I_{\mathrm{port}}$ for a current-domain boundary solve. It is one of the two boundary actors a consuming operating-point solve binds, the counterpart of the SL clamp-driver [driver](../driver.md). This document specifies the shared family contract; the concrete topology is in [opamp_tia](opamp_tia.md).
 
 ## Physical model
 
-A TIA holds its input node near a fixed reference voltage by feedback while converting the current it sinks into a clamp voltage. Unlike the ideal [driver](../driver.md) (a zero-output-impedance voltage source), a TIA closes a feedback loop on a virtual-ground reference, so its clamp voltage depends on the port current through a finite, configuration-dependent transfer function. The reference voltage is the family-wide solver-facing constant the abstract layer fixes.
+A TIA holds its input node near a fixed reference voltage by feedback while converting the current it sinks into a clamp voltage. Unlike the ideal [driver](../driver.md) (a zero-output-impedance clamp-driver), a TIA closes a feedback loop on a virtual-ground reference, so its clamp voltage depends on the port current through a finite, configuration-dependent transfer function. The reference voltage is the family-wide solver-facing constant the abstract layer fixes.
 
 ## Governing equations
 
@@ -18,7 +18,7 @@ and the boundary solve additionally consumes the small-signal sensitivity
 
 $$\frac{\partial V_{\mathrm{BL,CL}}}{\partial I_{\mathrm{BL,port}}}$$
 
-(in MOhm), which for an ideal voltage source would be zero but for a finite-gain TIA is non-zero. The transfer function is monotone in the port current so the boundary operating point is unique. The reference voltage $V_{\mathrm{ref}}$ is the virtual-ground level the input is held near; the concrete form of $\operatorname{TIA}(\cdot)$ is topology-specific.
+(in MOhm), which for an ideal clamp-driver (the infinite-gain, zero-input-impedance limit) would be zero but for a finite-gain TIA is non-zero. A monotone clamp transfer function is necessary but not sufficient for a unique boundary operating point: uniqueness of the coupled fixed point also requires the array-side response to be monotone in a compatible direction, so the monotone clamp composes with the monotone array response to a single intersection (mirroring the SL-side condition in [driver](../driver.md#governing-equations)). The reference voltage $V_{\mathrm{ref}}$ is the virtual-ground level the input is held near; the concrete form of $\operatorname{TIA}(\cdot)$ is topology-specific.
 
 ## Numerical method
 
@@ -39,7 +39,7 @@ Concrete TIAs add their own topology parameters (see [opamp_tia](opamp_tia.md)).
 
 ## Assumptions, scope & validity
 
-Stated assumption: the clamp transfer function is monotone in the port current, so the boundary constraint has a unique solution within the consuming operating-point solve.
+Stated assumption: the clamp transfer function is monotone in the port current. This is the family's share of the uniqueness condition; a unique boundary operating point additionally requires the compatible array-side monotonicity stated in §Governing equations.
 
 TODO (domain author): the validity range of the virtual-ground abstraction (input-current range before the loop saturates) common to the family.
 

@@ -3,11 +3,10 @@ Use new feature and new API.
 Never provide compatibility to older versions.
 Assume `torch.compile` is applied to caller of functions for performance optimization.
 No need to clean all ruff or mypy error or warning, treat them as helper.
-Check for available cuda devices (both memory and utility) before running every task.
+Check for available CUDA devices (both memory and utility) before running any scripts on GPU.
 Update the docs when finish a task.
 Always use English in code and doc, be concise and precise.
 Never add unnecessary newlines in docs.
-Never change `git` status in any condition.
 Read `docs/README.md` for the documentation map; the scientific spec is in `docs/reference/`, implementation internals in `docs/internals/`, and coding/doc standards in `docs/contributing/`.
 
 Key library version:

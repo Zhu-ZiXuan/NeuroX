@@ -26,11 +26,15 @@ N/A - exact digital function; no register wrap, no static mismatch, no per-call 
 
 ## PPA cost model
 
-The subtract is element-wise, so each output element is one subtractor evaluation. The serial-op count of a call is the number of output elements per fabricated instance,
+The subtract is element-wise, so each output element is one subtractor evaluation. Latency is set by the busiest instance: the serial-op count of a call is the number of output elements on the instance carrying the most work,
 
-$$n_{\mathrm{serial}} = \max\!\left(1,\ \left\lfloor \frac{\operatorname{numel}(y)}{\max(N_{\mathrm{inst}}, 1)} \right\rfloor\right).$$
+$$n_{\mathrm{serial}} = \left\lceil \frac{\operatorname{numel}(y)}{\max(N_{\mathrm{inst}}, 1)} \right\rceil,$$
 
-The call's dynamic energy is $E_{\mathrm{op}}$ per output element and its latency is $t = t_{\mathrm{op}}\, n_{\mathrm{serial}}$. Static area and leakage are the inherited per-instance terms scaled by the instance count.
+so its latency is $t = t_{\mathrm{op}}\, n_{\mathrm{serial}}$. Dynamic energy is total work, independent of how the outputs distribute across instances,
+
+$$E = E_{\mathrm{op}}\, \operatorname{numel}(y).$$
+
+An empty call, $\operatorname{numel}(y) = 0$, costs zero latency and zero energy. Static area and leakage are the inherited per-instance terms scaled by the instance count.
 
 TODO (domain author): the provenance and derivation of $E_{\mathrm{op}}$, $t_{\mathrm{op}}$, $A_{\mathrm{inst}}$, $P_{\mathrm{inst}}$ (bit-width scaling, technology node); the source docs give only the accounting form, not the values.
 

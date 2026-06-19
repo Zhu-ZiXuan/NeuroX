@@ -37,11 +37,11 @@ The criterion uses only the iterate sequence's self-comparison. There is no refe
 After the plateau pick, the residuals are verified against workload-derived signal scales:
 
 $$
-\frac{\max \lvert F_\text{cell} \rvert}{\max \lvert I_\text{cell} \rvert} < \operatorname{reltol},
+\frac{\max \lvert F_{\mathrm{cell}} \rvert}{\max \lvert I_{\mathrm{cell}} \rvert} < \operatorname{reltol},
 \qquad
-\frac{\max \lvert F_\text{wire} \rvert}{\max \lvert I_\text{cell} \rvert} < \operatorname{reltol},
+\frac{\max \lvert F_{\mathrm{wire}} \rvert}{\max \lvert I_{\mathrm{cell}} \rvert} < \operatorname{reltol},
 \qquad
-\frac{\max \lvert F_\text{clamp} \rvert}{\max \lvert V_{\text{BL\,node}} \rvert} < \operatorname{reltol},
+\frac{\max \lvert F_{\mathrm{clamp}} \rvert}{\max \lvert V_{\mathrm{BL\,node}} \rvert} < \operatorname{reltol},
 $$
 
 with default $\operatorname{reltol} = 10^{-2}$ (1%).
@@ -49,7 +49,7 @@ with default $\operatorname{reltol} = 10^{-2}$ (1%).
 $\operatorname{reltol}$ is a methodological constant, **not** chip-tuned. It is set safely above the fp32 accumulated round-off floor
 
 $$
-\operatorname{reltol} \gtrsim \varepsilon_\text{fp32} \cdot \sqrt{N_\text{ops}} \cdot \operatorname{signal\_scale} \approx 0.8\%
+\operatorname{reltol} \gtrsim \varepsilon_{\mathrm{fp32}} \cdot \sqrt{N_{\mathrm{ops}}} \cdot \operatorname{signal\_scale} \approx 0.8\%
 $$
 
 for the reference chip's 64-row wire ladder, so the guard does not false-fire under fp32 while still catching genuine divergence: a 1% residual ratio means wire KCL is off by 1% of cell current, which is clearly broken. fp64 workloads land $8+$ orders of magnitude below this threshold.
@@ -59,8 +59,8 @@ If a chip's workload pushes wire ladders much longer or its signal scale much sm
 ## Why not absolute residual / ADC-relative / huge-iteration reference?
 
 - **Absolute residual ($< 1$ nA)** changes meaning per chip. A chip with 10 uA operating current sees 1 nA as 100 ppm, while a chip with 100 uA sees it as 10 ppm. The same threshold is too tight for some chips and too loose for others.
-- **ADC-relative ($\Delta v$ vs $V_\text{LSB}$)** conflates solver accuracy with ADC quantization. A solver that is intrinsically wrong but lucky enough that the error rounds to the same ADC code would pass; tightening the ADC then exposes the masked solver error. We calibrate the solver alone here, and the ADC has its own calibration.
-- **Huge-iteration reference ($u_n$ vs $u_\text{huge}$)** has a chicken-and-egg problem. To declare the reference trusted, one must check it does not change at $u_\text{huge} + \delta$, which is itself a plateau check. The reference adds expense for no extra signal.
+- **ADC-relative ($\Delta v$ vs $V_{\mathrm{LSB}}$)** conflates solver accuracy with ADC quantization. A solver that is intrinsically wrong but lucky enough that the error rounds to the same ADC code would pass; tightening the ADC then exposes the masked solver error. We calibrate the solver alone here, and the ADC has its own calibration.
+- **Huge-iteration reference ($u_n$ vs $u_{\mathrm{huge}}$)** has a chicken-and-egg problem. To declare the reference trusted, one must check it does not change at $u_{\mathrm{huge}} + \delta$, which is itself a plateau check. The reference adds expense for no extra signal.
 
 The plateau detector resolves this cleanly: convergence is defined by the iterate sequence's own behaviour, not by any external comparison.
 
@@ -81,7 +81,7 @@ At fp32 the plateau lands at:
 
 | solver family | raw plateau $n^*$ | margined count (preset) |
 |---|---|---|
-| $\operatorname{NestedSolver1T1R}$ $(n_\text{outer}, n_\text{inner})$ | $(3, 1)$ | $(4, 1)$ |
+| $\operatorname{NestedSolver1T1R}$ $(n_{\mathrm{outer}}, n_{\mathrm{inner}})$ | $(3, 1)$ | $(4, 1)$ |
 | $\operatorname{FullJacobianSolver1T1R}$ $n$ | $3$ | $4$ |
 
 The preset adds a $+1$ margin on the outer / Newton axis, so the $(4, 1)$ and $4$ counts stored in the chip preset are margined values, not raw plateau picks.

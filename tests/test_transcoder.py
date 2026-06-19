@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from neurox.mapper.transcoder import (
+from neurox.common.encoding import (
     CanonicalTranscoder,
     ComplementTranscoder,
     Encoding,
@@ -15,40 +15,40 @@ from neurox.mapper.transcoder import (
 
 
 @pytest.mark.parametrize(
-    ("radix", "digit_num", "expected"),
+    ("radix", "digit_count", "expected"),
     [
         (2, 3, (-7, 7)),
         (4, 2, (-15, 15)),
     ],
 )
-def test_true_form_value_range(radix: int, digit_num: int, expected: tuple[int, int]) -> None:
-    transcoder = TrueFormTranscoder(radix=radix, digit_num=digit_num)
+def test_true_form_value_range(radix: int, digit_count: int, expected: tuple[int, int]) -> None:
+    transcoder = TrueFormTranscoder(radix=radix, digit_count=digit_count)
     assert transcoder.value_range == expected
 
 
 @pytest.mark.parametrize(
-    ("radix", "digit_num", "expected"),
+    ("radix", "digit_count", "expected"),
     [
         (2, 3, (-4, 3)),
         (4, 4, (-128, 127)),
         (3, 2, (-3, 5)),
     ],
 )
-def test_complement_value_range(radix: int, digit_num: int, expected: tuple[int, int]) -> None:
-    transcoder = ComplementTranscoder(radix=radix, digit_num=digit_num)
+def test_complement_value_range(radix: int, digit_count: int, expected: tuple[int, int]) -> None:
+    transcoder = ComplementTranscoder(radix=radix, digit_count=digit_count)
     assert transcoder.value_range == expected
 
 
 @pytest.mark.parametrize(
-    ("radix", "digit_num", "expected"),
+    ("radix", "digit_count", "expected"),
     [
         (4, 4, (-204, 204)),
         (2, 3, (-5, 5)),
         (3, 5, (-182, 182)),
     ],
 )
-def test_canonical_value_range(radix: int, digit_num: int, expected: tuple[int, int]) -> None:
-    transcoder = CanonicalTranscoder(radix=radix, digit_num=digit_num)
+def test_canonical_value_range(radix: int, digit_count: int, expected: tuple[int, int]) -> None:
+    transcoder = CanonicalTranscoder(radix=radix, digit_count=digit_count)
     assert transcoder.value_range == expected
 
 
@@ -61,12 +61,12 @@ def test_canonical_value_range(radix: int, digit_num: int, expected: tuple[int, 
     ],
 )
 def test_transcoder_create_dispatches(encoding: Encoding, expected_type: type[Transcoder]) -> None:
-    transcoder = Transcoder.create(encoding, radix=2, digit_num=3)
+    transcoder = Transcoder.create(encoding, radix=2, digit_count=3)
     assert isinstance(transcoder, expected_type)
 
 
 def test_true_form_digits_are_lsb_first() -> None:
-    transcoder = TrueFormTranscoder(radix=10, digit_num=3)
+    transcoder = TrueFormTranscoder(radix=10, digit_count=3)
     x = torch.tensor([321, -321], dtype=torch.int32)
     digits = transcoder.encode(x)
     expected = torch.tensor([[1, 2, 3], [-1, -2, -3]], dtype=torch.int32)
@@ -74,7 +74,7 @@ def test_true_form_digits_are_lsb_first() -> None:
 
 
 def test_complement_digits_are_lsb_first_with_folded_msb() -> None:
-    transcoder = ComplementTranscoder(radix=2, digit_num=4)
+    transcoder = ComplementTranscoder(radix=2, digit_count=4)
     x = torch.tensor([-1, -4, 3], dtype=torch.int32)
     digits = transcoder.encode(x)
     expected = torch.tensor(
@@ -91,10 +91,10 @@ def test_complement_digits_are_lsb_first_with_folded_msb() -> None:
 @pytest.mark.parametrize(
     "transcoder",
     [
-        TrueFormTranscoder(radix=2, digit_num=3),
-        ComplementTranscoder(radix=2, digit_num=3),
-        CanonicalTranscoder(radix=2, digit_num=3),
-        CanonicalTranscoder(radix=4, digit_num=3),
+        TrueFormTranscoder(radix=2, digit_count=3),
+        ComplementTranscoder(radix=2, digit_count=3),
+        CanonicalTranscoder(radix=2, digit_count=3),
+        CanonicalTranscoder(radix=4, digit_count=3),
     ],
 )
 def test_encode_decode_roundtrip_inside_value_range(transcoder: Transcoder) -> None:
@@ -106,7 +106,7 @@ def test_encode_decode_roundtrip_inside_value_range(transcoder: Transcoder) -> N
 
 
 def test_encode_inserts_digit_axis_at_requested_dim() -> None:
-    transcoder = TrueFormTranscoder(radix=2, digit_num=3)
+    transcoder = TrueFormTranscoder(radix=2, digit_count=3)
     x = torch.arange(6, dtype=torch.int32).reshape(2, 3)
     digits = transcoder.encode(x, dim=1)
     assert digits.shape == (2, 3, 3)

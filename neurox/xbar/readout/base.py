@@ -83,14 +83,14 @@ class ReadOut(CircuitBase[ReadOutConfig], RegistryMixin[type["ReadOutConfig"], "
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
-        data_num: int,
+        slice_num: int,
         digit_weights: tuple[float, ...],
     ) -> ReadOut:
         """Build the concrete impl registered for ``type(config)``.
 
         Args:
-            data_num: Number of data per reference group.
-            digit_weights: Per-digit weight vector, length ``digit_num``.
+            slice_num: Number of slices per reference group.
+            digit_weights: Per-digit weight vector, length ``digit_count``.
         """
         impl = cls._lookup_impl(type(config))
         return impl(
@@ -100,7 +100,7 @@ class ReadOut(CircuitBase[ReadOutConfig], RegistryMixin[type["ReadOutConfig"], "
             inst_shape=inst_shape,
             dtype=dtype,
             T__K=T__K,
-            data_num=data_num,
+            slice_num=slice_num,
             digit_weights=digit_weights,
         )
 
@@ -113,7 +113,7 @@ class ReadOut(CircuitBase[ReadOutConfig], RegistryMixin[type["ReadOutConfig"], "
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
-        data_num: int,
+        slice_num: int,
         digit_weights: tuple[float, ...],
     ) -> None:
         """Register the instance with :class:`nn.Module` and the profiler.
@@ -125,16 +125,16 @@ class ReadOut(CircuitBase[ReadOutConfig], RegistryMixin[type["ReadOutConfig"], "
             inst_shape: Per-instance fabrication shape ``(*prefix, group_num)``.
             dtype: Tensor dtype for internal buffers.
             T__K: Operating temperature [K].
-            data_num: Number of data per reference group.
-            digit_weights: Per-digit weight vector, length ``digit_num``.
+            slice_num: Number of slices per reference group.
+            digit_weights: Per-digit weight vector, length ``digit_count``.
         """
-        del policy, dtype, T__K, data_num, digit_weights  # captured by the subclass init
+        del policy, dtype, T__K, slice_num, digit_weights  # captured by the subclass init
         super().__init__(config=config, name=name, inst_shape=inst_shape)
 
     @abstractmethod
     def readout(
         self,
-        v_data_grouped__V: Tensor,
+        v_signal_grouped__V: Tensor,
         v_ref_grouped__V: Tensor,
         *,
         adc_operation_point: AdcOperationPoint,
@@ -142,8 +142,8 @@ class ReadOut(CircuitBase[ReadOutConfig], RegistryMixin[type["ReadOutConfig"], "
         """Run one VMM through the readout chain.
 
         Args:
-            v_data_grouped__V: Data-path voltages [V]. Shape:
-                [..., group_num, data_num, digit_num].
+            v_signal_grouped__V: Signal-path voltages [V]. Shape:
+                [..., group_num, slice_num, digit_count].
             v_ref_grouped__V: Reference-path voltages [V]. Shape:
                 [..., group_num].
             adc_operation_point: Runtime ADC operating point.

@@ -44,6 +44,7 @@ def _zero_switchcap_config() -> SwitchCapConfig:
 def _zero_mux_config() -> AnalogMuxConfig:
     return AnalogMuxConfig(
         mux_gain=1.0,
+        mux_gain_mismatch_sigma_relative=0.0,
         mux_noise_cm_sigma__V=0.0,
         mux_noise_dm_sigma__V=0.0,
         energy_per_access__fJ=1.0,
@@ -70,7 +71,7 @@ def _zero_adc_config() -> GeneralADCConfig:
 
 def _build_readout(*, energy: float, latency: float) -> OffsetSwitchCapMuxAdcReadOut:
     cfg = OffsetSwitchCapMuxAdcReadOutConfig(
-        data_switchcap_config=_zero_switchcap_config(),
+        signal_switchcap_config=_zero_switchcap_config(),
         ref_switchcap_config=_zero_switchcap_config(),
         analog_mux_config=_zero_mux_config(),
         adc_config=_zero_adc_config(),
@@ -80,9 +81,9 @@ def _build_readout(*, energy: float, latency: float) -> OffsetSwitchCapMuxAdcRea
         area_per_inst__um2=0.0,
     )
     policy = OffsetSwitchCapMuxAdcReadOutPolicy(
-        data_switchcap=SwitchCapPolicy(cap_mismatch=False, sampling_thermal_noise=False),
+        signal_switchcap=SwitchCapPolicy(cap_mismatch=False, sampling_thermal_noise=False),
         ref_switchcap=SwitchCapPolicy(cap_mismatch=False, sampling_thermal_noise=False),
-        analog_mux=AnalogMuxPolicy(mux_noise_cm=False, mux_noise_dm=False),
+        analog_mux=AnalogMuxPolicy(mux_gain_mismatch=False, mux_noise_cm=False, mux_noise_dm=False),
         bl_adc=GeneralADCPolicy(sampling_noise=False, comparator_noise=False, drive_thermal=False),
     )
     readout = OffsetSwitchCapMuxAdcReadOut(
@@ -92,7 +93,7 @@ def _build_readout(*, energy: float, latency: float) -> OffsetSwitchCapMuxAdcRea
         inst_shape=(1,),
         dtype=torch.float32,
         T__K=300.0,
-        data_num=2,
+        slice_num=2,
         digit_weights=(1.0,),
     )
     readout.eval()
@@ -100,10 +101,10 @@ def _build_readout(*, energy: float, latency: float) -> OffsetSwitchCapMuxAdcRea
 
 
 def _drive_one_vmm(readout: OffsetSwitchCapMuxAdcReadOut) -> None:
-    # data shape: (*, group_num=1, data_num=2, digit_num=1)
-    v_data = torch.zeros(1, 2, 1, dtype=torch.float32)
+    # signal shape: (*, group_num=1, slice_num=2, digit_count=1)
+    v_signal = torch.zeros(1, 2, 1, dtype=torch.float32)
     v_ref = torch.zeros(1, dtype=torch.float32)
-    readout.readout(v_data, v_ref, adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=2))
+    readout.readout(v_signal, v_ref, adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=2))
 
 
 def _self_events(events: list, name: str) -> list:

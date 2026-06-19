@@ -1,7 +1,7 @@
 """Radix-complement signed-digit transcoder.
 
 See also:
-    docs/reference/mapper/transcoder/README.md
+    docs/internals/common/encoding/README.md
 """
 
 from __future__ import annotations
@@ -30,11 +30,11 @@ class ComplementTranscoder(Transcoder):
             dim: Axis at which the digit dimension is inserted.
 
         Returns:
-            Digit tensor with a new size-``digit_num`` axis at ``dim``.
+            Digit tensor with a new size-``digit_count`` axis at ``dim``.
         """
         radix = self._radix
         all_digits: list[Tensor] = []
-        for _ in range(self._digit_num):
+        for _ in range(self._digit_count):
             rem = x % radix
             x = x // radix
             all_digits.append(rem)
@@ -46,7 +46,7 @@ class ComplementTranscoder(Transcoder):
     def value_range(self) -> tuple[int, int]:
         """Asymmetric envelope ``[-⌊r/2⌋·r^(D-1), ⌈r/2⌉·r^(D-1) - 1]``."""
         r = self._radix
-        top = r ** (self._digit_num - 1)
+        top = r ** (self._digit_count - 1)
         lo = -(r // 2) * top
         hi = ((r + 1) // 2) * top - 1
         return lo, hi

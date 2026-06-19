@@ -19,7 +19,7 @@
 - **Active profiler is thread-scoped.** The active profiler is held per thread; a leaf's emission is a no-op when no profiler is active on the calling thread. Emission and the enclosing `with` block must run on the same thread.
 - **Composites do not sum children's emissions into their own.** A composite emits only its own per-op overhead; each child with a dynamic model emits its own contribution directly. The profiler-level event aggregation is the single source of truth, so summing children at the composite would double-count. This is the central correctness invariant of the side channel.
 - **One energy event + one latency event per logical operation.** A plain leaf emits inline once at the end of forward. A composite whose body contains an internal chunked / iterated loop (currently only `CircuitCore1T1R.cim_read`) must still emit exactly once per VMM: aggregate per-chunk inside the loop, then make the two emit calls once after it. Sub-solvers and devices inside the loop are not `CircuitBase` and emit nothing, so there is no double-count. Verified by `tests/test_xbar_chunking.py::test_profiler_single_event_under_chunking`.
-- **`ReadOut.readout` is the one serial-op rule that differs from generic `inst_count`.** The generic leaf rule is `serial = max(1, output.numel() // parallel_count)` with `parallel_count = inst_count`. `ReadOut.readout` output carries an extra parallel `data_num` trailing dim (each data position is a physically parallel readout path), so its `parallel_count = inst_count * data_num`. Every other emitting leaf — `Adder` / `Subtractor` / `Accumulator` / `ShiftAdder`, `DAC.convert` / `ADC.convert` / `AnalogMux.transport`, `SwitchCap.sample_and_accumulate` — uses the plain `inst_count`. The full per-leaf serial-op derivation is each leaf's cost model and lives in its `reference/<subsystem>/` page.
+- **`ReadOut.readout` is the one serial-op rule that differs from generic `inst_count`.** The generic leaf rule is `serial = max(1, output.numel() // parallel_count)` with `parallel_count = inst_count`. `ReadOut.readout` output carries an extra parallel `slice_num` trailing dim (each slice position is a physically parallel readout path), so its `parallel_count = inst_count * slice_num`. Every other emitting leaf — `Adder` / `Subtractor` / `Accumulator` / `ShiftAdder`, `DAC.convert` / `ADC.convert` / `AnalogMux.transport`, `SwitchCap.sample_and_accumulate` — uses the plain `inst_count`. The full per-leaf serial-op derivation is each leaf's cost model and lives in its `reference/<subsystem>/` page.
 
 ### Public API
 
@@ -35,7 +35,7 @@ The runtime accessors below are populated by finalization (auto-run by `__exit__
 
 ## Performance & resources
 
-Per emission: one 0-D reduction (a kernel launch, no host sync) plus a Python append. Finalization does one batched device→host transfer per quantity — two host syncs total, independent of event count. Static collection is one `model.modules()` walk per `report` / `collect_static` / `analyze_static` call with $O(\text{circuits})$ derived-property reads, no allocation of node-level tensors.
+Per emission: one 0-D reduction (a kernel launch, no host sync) plus a Python append. Finalization does one batched device→host transfer per quantity — two host syncs total, independent of event count. Static collection is one `model.modules()` walk per `report` / `collect_static` / `analyze_static` call with $O(\mathrm{circuits})$ derived-property reads, no allocation of node-level tensors.
 
 ## Gotchas
 

@@ -23,13 +23,13 @@ class OffsetSwitchCapMuxAdcReadOutConfig(ReadOutConfig):
     """Config for :class:`OffsetSwitchCapMuxAdcReadOut`.
 
     Attributes:
-        data_switchcap_config: Per-digit data-leg switch-cap bank config.
+        signal_switchcap_config: Per-digit signal-leg switch-cap bank config.
         ref_switchcap_config: Per-group ref-leg switch-cap bank config.
         analog_mux_config: Analog mux config.
         adc_config: Inner ADC config.
     """
 
-    data_switchcap_config: SwitchCapConfig
+    signal_switchcap_config: SwitchCapConfig
     ref_switchcap_config: SwitchCapConfig
     analog_mux_config: AnalogMuxConfig
     adc_config: ADCConfig
@@ -40,13 +40,13 @@ class OffsetSwitchCapMuxAdcReadOutPolicy(ReadOutPolicy):
     """Composite policy for :class:`OffsetSwitchCapMuxAdcReadOut`.
 
     Attributes:
-        data_switchcap: Data-leg switch-cap bank nonideality policy.
+        signal_switchcap: Signal-leg switch-cap bank nonideality policy.
         ref_switchcap: Reference-leg switch-cap bank nonideality policy.
         analog_mux: Analog mux nonideality policy.
         bl_adc: Inner ADC nonideality policy.
     """
 
-    data_switchcap: SwitchCapPolicy
+    signal_switchcap: SwitchCapPolicy
     ref_switchcap: SwitchCapPolicy
     analog_mux: AnalogMuxPolicy
     bl_adc: ADCPolicy
@@ -54,7 +54,7 @@ class OffsetSwitchCapMuxAdcReadOutPolicy(ReadOutPolicy):
 
 @ReadOut.register_key(OffsetSwitchCapMuxAdcReadOutConfig)
 class OffsetSwitchCapMuxAdcReadOut(ReadOut):
-    """Offset-coded readout: data and ref switch-cap banks, mux, and ADC."""
+    """Offset-coded readout: signal and ref switch-cap banks, mux, and ADC."""
 
     config: OffsetSwitchCapMuxAdcReadOutConfig
 
@@ -67,7 +67,7 @@ class OffsetSwitchCapMuxAdcReadOut(ReadOut):
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
-        data_num: int,
+        slice_num: int,
         digit_weights: tuple[float, ...],
     ) -> None:
         super().__init__(
@@ -77,28 +77,28 @@ class OffsetSwitchCapMuxAdcReadOut(ReadOut):
             inst_shape=inst_shape,
             dtype=dtype,
             T__K=T__K,
-            data_num=data_num,
+            slice_num=slice_num,
             digit_weights=digit_weights,
         )
         if len(inst_shape) < 1:
             raise ValueError(f"inst_shape must be (*prefix, group_num), got {inst_shape}")
-        if data_num <= 0:
-            raise ValueError(f"require: data_num ({data_num}) > 0")
+        if slice_num <= 0:
+            raise ValueError(f"require: slice_num ({slice_num}) > 0")
         if len(digit_weights) < 1:
             raise ValueError(f"require: len(digit_weights) ({len(digit_weights)}) >= 1")
 
         self.policy = policy
         self.T__K = T__K
         self.dtype = dtype
-        self.data_num = data_num
+        self.slice_num = slice_num
         self.digit_weights = digit_weights
 
         prefix = name + "."
-        self.data_switchcap = SwitchCap(
-            config=config.data_switchcap_config,
-            policy=policy.data_switchcap,
-            name=f"{prefix}data_switchcap",
-            inst_shape=(*inst_shape, data_num),
+        self.signal_switchcap = SwitchCap(
+            config=config.signal_switchcap_config,
+            policy=policy.signal_switchcap,
+            name=f"{prefix}signal_switchcap",
+            inst_shape=(*inst_shape, slice_num),
             dtype=dtype,
             T__K=T__K,
             cap_weights=digit_weights,
@@ -141,16 +141,16 @@ class OffsetSwitchCapMuxAdcReadOut(ReadOut):
 
     def readout(
         self,
-        v_data_grouped__V: Tensor,
+        v_signal_grouped__V: Tensor,
         v_ref_grouped__V: Tensor,
         *,
         adc_operation_point: AdcOperationPoint,
     ) -> Tensor:
-        """Run one VMM through data S/H → ref S/H → MUX → ADC.
+        """Run one VMM through signal S/H → ref S/H → MUX → ADC.
 
         Args:
-            v_data_grouped__V: Per-data per-digit voltages [V],
-                shape ``(*runtime, group_num, data_num, digit_num)``.
+            v_signal_grouped__V: Per-slice per-digit voltages [V],
+                shape ``(*runtime, group_num, slice_num, digit_count)``.
             v_ref_grouped__V: Per-reference-column voltages [V],
                 shape ``(*runtime, group_num)``.
             adc_operation_point: Runtime ADC operating point.
@@ -158,13 +158,13 @@ class OffsetSwitchCapMuxAdcReadOut(ReadOut):
         Returns:
             Integer ADC code tensor.
         """
-        v_pos_pre_mux__V = self.data_switchcap.sample_and_accumulate(v_data_grouped__V)
-        data_num = v_pos_pre_mux__V.shape[-1]
+        v_pos_pre_mux__V = self.signal_switchcap.sample_and_accumulate(v_signal_grouped__V)
+        slice_num = v_pos_pre_mux__V.shape[-1]
 
         v_ref_bank__V = v_ref_grouped__V.unsqueeze(-1)
         v_ref_sampled__V = self.ref_switchcap.sample_and_accumulate(v_ref_bank__V)
 
-        v_neg_pre_mux__V = v_ref_sampled__V.unsqueeze(-1).expand(*v_ref_sampled__V.shape, data_num)
+        v_neg_pre_mux__V = v_ref_sampled__V.unsqueeze(-1).expand(*v_ref_sampled__V.shape, slice_num)
 
         v_pos__V, v_neg__V = self.analog_mux.transport(v_pos_pre_mux__V, v_neg_pre_mux__V)
 
@@ -177,13 +177,13 @@ class OffsetSwitchCapMuxAdcReadOut(ReadOut):
         # ReadOut orch overhead only — children with their own dynamic
         # profile model (SwitchCap / AnalogMux / ADC) emitted their own
         # events inside the chain above. Code shape =
-        # (*serial, *inst_shape, data_num). Energy and latency are
+        # (*serial, *inst_shape, slice_num). Energy and latency are
         # independent: emit each only when its own config knob is > 0
         # so a latency-only or energy-only orch path records correctly.
         # Serial via the position-invariant numel rule; ReadOut's
-        # parallel multiplier is ``inst_count * data_num`` (each data
+        # parallel multiplier is ``inst_count * slice_num`` (each slice
         # column has its own switch-cap + mux + ADC chain in parallel).
-        parallel_count = self.inst_count * self.data_num
+        parallel_count = self.inst_count * self.slice_num
         serial_op_count = max(1, code.numel() // max(parallel_count, 1))
         if self.config.energy_per_op__fJ > 0.0:
             dynamic_energy__fJ = torch.full_like(code, self.config.energy_per_op__fJ, dtype=torch.float32)

@@ -22,7 +22,7 @@ Do not add a code map (file-by-file class listing): it couples the document to t
 Banned: step-by-step restatement of a function's control flow. Example — releasing the DCOP per chunk:
 
 - **Bad:** "Each chunk iteration drops `solver_dcop`; its node tensors are freed before the next chunk allocates."
-- **Good:** "Stream by chunk and release the DCOP because the leading batch is ~$10^5$ (im2col × batch × slice × col); materializing all node voltages OOMs. Invariant: per-instance memory stays $O(NB^2)$. Rejected — dense fallback (OOM), PCR materialized shifts (bloat). Chosen — block-Thomas + per-chunk release → peak working set $O(\text{chunk}\times\text{col}\times\text{row})$."
+- **Good:** "Stream by chunk and release the DCOP because the leading batch is ~$10^5$ (im2col × batch × slice × col); materializing all node voltages OOMs. Invariant: per-instance memory stays $O(NB^2)$. Rejected — dense fallback (OOM), PCR materialized shifts (bloat). Chosen — block-Thomas + per-chunk release → peak working set $O(\mathrm{chunk}\times\mathrm{col}\times\mathrm{row})$."
 
 The first restates code; the second gives the reason, the rejected alternatives, and the invariant.
 

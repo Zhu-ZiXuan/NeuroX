@@ -9,26 +9,16 @@ NeuroX is written to be compile-*friendly*: primitive methods, including the mac
 Every primitive method is written to be traceable, so a caller who wraps a model in `torch.compile` gets a working graph, and the library's own regional leaf compiles cleanly. Two facts define this, stated once here rather than per function:
 
 - Library methods obey the dynamo-safety [contracts](contracts.md) (no sync, no host-state mutation, no tensor-value control flow, and so on) by default.
-- A handful of **boundaries** deviate from that default — the eager island, the regional leaf, the disabled hooks. The authoritative list is in [scheme-a-regional](scheme-a-regional.md).
+- A handful of **boundaries** deviate from that default — the eager island, the regional leaf, the disabled hooks. See the authoritative boundary map in [scheme-a-regional](scheme-a-regional.md).
 
 A function therefore needs **no** per-module compile note for being ordinary compile-friendly code — that is the default. Module docs call out only the two things that are *not* derivable from the default:
 
 - **Boundaries** — a function that deviates (an eager island, the regional leaf, a disabled hook). The module doc carries a one-line marker pointing here.
 - **Non-obvious safety** — a compile-friendly function whose dynamo-safety is not visually obvious (a branch that looks value-dependent but resolves at trace time, a construction that looks like a host literal but is cached). That reasoning is function-specific and stays beside the code, linking to [contracts](contracts.md).
 
-## Boundaries at a glance
-
-| Layer | Decoration | Role |
-| --- | --- | --- |
-| macro `matmul` | eager (compile-friendly) | not self-compiled; a caller may `torch.compile` the model |
-| xbar `vec_mat_mul` | eager | index / readout math |
-| core `cim_read` | `@torch.compiler.disable(recursive=False)` | eager island that owns the chunk loop |
-| solver `solve_dc` | `@torch.compile(dynamic=False)` | the one self-compiled region; fixed chunk shape, compiled once, reused |
-| profiler hooks | `@torch.compiler.disable` | side-channel writes; intentional eager island |
-
 ## Schemes
 
-The chunked 1T1R DC solver is the one place the library must self-compile and the one place a naive boundary fails (see [scheme-a-regional](scheme-a-regional.md) §problem). Three schemes address it, in increasing power and engineering cost. The current scheme is the minimal one that works; the others are recorded as deferred designs to migrate to under named conditions.
+The chunked 1T1R DC solver is the one place the library must self-compile and the one place a naive boundary fails (see [scheme-a-regional](scheme-a-regional.md) §The problem it solves). Three schemes address it, in increasing power and engineering cost. The current scheme is the minimal one that works; the others are recorded as deferred designs to migrate to under named conditions.
 
 | Scheme | Status | Summary | Adopt when |
 | --- | --- | --- | --- |

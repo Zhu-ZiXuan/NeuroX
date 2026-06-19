@@ -1,4 +1,4 @@
-"""Value-domain slicers for the xbar mapper."""
+"""Value-domain slicers for the xbar macro."""
 
 from .base import Slicer
 from .serial import SerialSlicer

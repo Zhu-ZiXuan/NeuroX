@@ -82,7 +82,7 @@ A shape annotation contains **only** dimension names, integer literals, the `*` 
 
 ```python
 # LSB-first digit ordering.
-# Shape: [Bx, M, K] -> [Bx, M, K, Sa, digit_num=1]
+# Shape: [Bx, M, K] -> [Bx, M, K, Sa, digit_count=1]
 ```
 
 ## Step comments

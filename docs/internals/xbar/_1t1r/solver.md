@@ -11,19 +11,19 @@ The 1T1R DC solve is realized as a `RegistryMixin` framework (`Solver1T1R` base 
 - **Solvers have no Policy.** Every knob is either a workload-tuned numerical constant (`Solver1T1RConfig` subclass) or a method-intrinsic safety bound (`ClassVar` on the solver), neither of which is a per-source non-ideality toggle. So `CircuitCore1T1RPolicy` has no `solver` field.
 - **Decompose the solve (nested) rather than one simultaneous Newton over all unknowns.** A simultaneous Newton admits rail pseudo-equilibria and can leave a uA-scale BL wire residual; the nested block-Gauss-Seidel split into well-posed sub-problems eliminates both — see the [reference well-posedness argument](../../../reference/xbar/_1t1r/solver.md#well-posedness).
 - **Nested is the production default; full-Jacobian is debug / cross-check only.** Nested wins on memory in both dtypes and scales to larger batches; full-Jacobian exists so the two can be cross-validated against each other (cross-check test in the footer's Tests).
-- **Iteration counts come from `solver_calibrate`, not hand-tuning** (chip-parameter-free step-ratio plateau; see [calibration guide](../../../guides/calibration/README.md)). At fp32 the plateau lands at nested $(n_\text{outer}, n_\text{inner}) = (3, 1)$ and full-Jacobian $n = 3$; the preset adds a $+1$ margin, so the $(4, 1)$ / $4$ counts in the table below are margined, not raw, values.
+- **Iteration counts come from `solver_calibrate`, not hand-tuning** (chip-parameter-free step-ratio plateau; see [calibration guide](../../../guides/calibration/README.md)). At fp32 the plateau lands at nested $(n_{\mathrm{outer}}, n_{\mathrm{inner}}) = (3, 1)$ and full-Jacobian $n = 3$; the preset adds a $+1$ margin, so the $(4, 1)$ / $4$ counts in the table below are margined, not raw, values.
 - **Helpers accumulate into lists, never in-place.** In-place tensor writes break `torch.compile` graph tracing; list accumulation lets inductor fuse the unrolled loop.
 - **Method-intrinsic damping caps are `ClassVar`s, not config.** They are per-iteration $|\Delta u|$ damping bounds (a Newton heuristic, not a chip parameter), so they never enter the calibrated config or any Policy. Nested carries an outer cap $\texttt{MAX\_OUTER\_STEP\_\_V} = 0.10$ (applied to the coupled $2\times2$ clamp step) and an inner cap $\texttt{MAX\_INNER\_STEP\_\_V} = 0.05$ (applied to the block-$2\times2$ wire step); full-Jacobian carries a single $\texttt{MAX\_STEP\_\_V} = 0.05$ applied component-wise across all five unknown classes of $u$.
 
 ### Nested solver structure
 
-The nested solver splits the coupled system into two well-posed sub-problems and iterates them block-Gauss-Seidel style. A warm start seeds $V_X$, the IR-drop wire voltages, and the boundary clamps; a coupled outer Newton then steps the clamp/drive pair $(V_\text{BL,CL}, V_\text{SL,DR})$ (clamp-first, $2\times2$ per column, carrying the BL $\leftrightarrow$ SL cross-coupling so a variable SL driver needs no special case), and for each outer step an inner array block-Newton resolves the per-row $(V_\text{BL}, V_\text{SL}, V_X)$ wire system at the frozen clamps. Both Newtons are damped by per-iteration $|\Delta u|$ caps. A final cell refresh aligns the returned cell currents and $V_X$ with the returned wire voltages.
+The nested solver splits the coupled system into two well-posed sub-problems and iterates them block-Gauss-Seidel style. A warm start seeds $V_X$, the IR-drop wire voltages, and the boundary clamps; a coupled outer Newton then steps the clamp-driver pair $(V_{\mathrm{BL,CL}}, V_{\mathrm{SL,CL}})$ (clamp-first, $2\times2$ per column, carrying the BL $\leftrightarrow$ SL cross-coupling so a variable SL driver needs no special case), and for each outer step an inner array solve alternates a per-cell Newton for $V_X$ with a coupled block-$2\times2$ wire Newton for $(V_{\mathrm{BL}}, V_{\mathrm{SL}})$ at the frozen clamps. Both Newtons are damped by per-iteration $|\Delta u|$ caps. A final cell refresh aligns the returned cell currents and $V_X$ with the returned wire voltages.
 
 The iteration knobs (`NestedSolver1T1RConfig`; full-Jacobian's `n_newton` for parallel) and the method-intrinsic damping caps (`ClassVar`s) at the fp32 chip preset are
 
 | Knob | Role | Value |
 |---|---|---|
-| `n_outer` | coupled outer Newton steps on $(V_\text{BL,CL}, V_\text{SL,DR})$ | 4 |
+| `n_outer` | coupled outer Newton steps on $(V_{\mathrm{BL,CL}}, V_{\mathrm{SL,CL}})$ | 4 |
 | `n_inner` | inner block-Newton steps on the wire system per outer step | 1 |
 | `MAX_OUTER_STEP__V` | outer-step $\lvert\Delta u\rvert$ damping cap | 0.10 |
 | `MAX_INNER_STEP__V` | inner-step $\lvert\Delta u\rvert$ damping cap | 0.05 |
@@ -33,19 +33,19 @@ The `n_outer`, `n_inner` counts are the margined calibration plateau (raw $(3, 1
 
 ### Full-Jacobian assembly
 
-The full-Jacobian solver lifts every circuit unknown into one global Newton step. Per `(batch, col)` instance the unknown vector is $u = [V_\text{BL}[0{:}R],\, V_\text{SL}[0{:}R],\, V_X[0{:}R],\, V_\text{BL,CL},\, V_\text{SL,DR}]$ with $R$ the row count. This single-step assembly is the **analytic baseline that the FD-verify test cross-checks** (`test_full_jacobian_fd_verify.py`): the closed-form stamping below is what the finite-difference Jacobian's block-tridiagonal *structure* is asserted against.
+The full-Jacobian solver lifts every circuit unknown into one global Newton step. Per `(batch, col)` instance the unknown vector is $u = [V_{\mathrm{BL}}[0{:}N_{\mathrm{row}}],\, V_{\mathrm{SL}}[0{:}N_{\mathrm{row}}],\, V_X[0{:}N_{\mathrm{row}}],\, V_{\mathrm{BL,CL}},\, V_{\mathrm{SL,CL}}]$ with $N_{\mathrm{row}}$ the row count. This single-step assembly is the **analytic baseline that the FD-verify test cross-checks** (`test_full_jacobian_fd_verify.py`): the closed-form stamping below is what the finite-difference Jacobian's block-tridiagonal *structure* is asserted against.
 
-The per-instance Jacobian is **block-tridiagonal with $3\times3$ diagonal blocks**: each diagonal block couples the $(V_\text{BL}, V_\text{SL}, V_X)$ triple of one wire row through the local RRAM/NMOS conductances, the off-diagonal blocks carry the BL-BL and SL-SL wire couplings between adjacent rows, and the two boundary scalars $V_\text{BL,CL}$, $V_\text{SL,DR}$ are Schur-eliminated against row 0 before the block solve. The reduced $B=3$ system is solved with `solve_block_tridiagonal` (block-Thomas sweep); the nested solver's coupled $B=2$ wire Newton uses the same primitive. Thomas is also the compiled hot path: it compiles slowly (deep $O(N)$ unrolled graph) but runs fastest and leanest, and the one long compile is paid once under a uniform chunk shape — see [compile/scheme-a-regional](../../compile/scheme-a-regional.md).
+The per-instance Jacobian is **block-tridiagonal with $3\times3$ diagonal blocks**: each diagonal block couples the $(V_{\mathrm{BL}}, V_{\mathrm{SL}}, V_X)$ triple of one wire row through the local RRAM/NMOS conductances, the off-diagonal blocks carry the BL-BL and SL-SL wire couplings between adjacent rows, and the two boundary scalars $V_{\mathrm{BL,CL}}$, $V_{\mathrm{SL,CL}}$ are Schur-eliminated against row 0 before the block solve. The reduced $B=3$ system is solved with `solve_block_tridiagonal` (block-Thomas sweep); the nested solver's coupled $B=2$ wire Newton uses the same primitive. Thomas is also the compiled hot path: it compiles slowly (deep $O(N)$ unrolled graph) but runs fastest and leanest, and the one long compile is paid once under a uniform chunk shape — see [compile/scheme-a-regional](../../compile/scheme-a-regional.md).
 
-Linearising the clamp residual $F_\text{CL,BL}$ gives the closed form
+Linearising the clamp residual $F_{\mathrm{CL,BL}}$ gives the closed form
 
-$$\Delta v_\text{clamp} = \alpha + \beta \cdot \Delta v_\text{bl}[0]$$
+$$\Delta v_{\mathrm{clamp}} = \alpha + \beta \cdot \Delta v_{\mathrm{bl}}[0]$$
 
 with
 
-$$\beta = \frac{-\,r_\text{driver}\, g_\text{seg}[0]}{1 - r_\text{driver}\, g_\text{seg}[0]}, \qquad \alpha = \frac{-\,F_\text{CL,BL}(u)}{1 - r_\text{driver}\, g_\text{seg}[0]}.$$
+$$\beta = \frac{-\,r_{\mathrm{driver}}\, g_{\mathrm{seg}}[0]}{1 - r_{\mathrm{driver}}\, g_{\mathrm{seg}}[0]}, \qquad \alpha = \frac{-\,F_{\mathrm{CL,BL}}(u)}{1 - r_{\mathrm{driver}}\, g_{\mathrm{seg}}[0]}.$$
 
-The wire-row-0 diagonal entry for $V_\text{BL}$ absorbs $-g_\text{seg}[0] \cdot \beta$, and the right-hand side at the same slot picks up $+g_\text{seg}[0] \cdot \alpha$; the recovered $\Delta v_\text{clamp}$ is added back to $V_\text{BL,CL}$ after the block solve. The SL boundary uses the identical construction.
+The wire-row-0 diagonal entry for $V_{\mathrm{BL}}$ absorbs $-g_{\mathrm{seg}}[0] \cdot \beta$, and the right-hand side at the same slot picks up $+g_{\mathrm{seg}}[0] \cdot \alpha$; the recovered $\Delta v_{\mathrm{clamp}}$ is added back to $V_{\mathrm{BL,CL}}$ after the block solve. The SL boundary uses the identical construction.
 
 ## Contracts & invariants
 

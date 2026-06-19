@@ -185,7 +185,7 @@ class Offset1T1RXbar(Xbar):
             inst_shape=(*prefix, n_groups),
             dtype=dtype,
             T__K=T__K,
-            data_num=config.ref_group_size,
+            slice_num=config.ref_group_size,
             digit_weights=self.digit_weights,
         )
 
@@ -296,15 +296,15 @@ class Offset1T1RXbar(Xbar):
         """
         v_out_phys = self.core.cim_read(x)
 
-        v_data_phys = v_out_phys.index_select(-1, self.logic_phys_idx)
+        v_signal_phys = v_out_phys.index_select(-1, self.logic_phys_idx)
         v_ref_phys = v_out_phys.index_select(-1, self.ref_phys_idx)
         group_num = self.n_ref_cols
-        data_num = self.config.ref_group_size
-        digit_num = self.config.w_digit_count
-        v_data_grouped = v_data_phys.unflatten(-1, (group_num, data_num, digit_num))
+        slice_num = self.config.ref_group_size
+        digit_count = self.config.w_digit_count
+        v_signal_grouped = v_signal_phys.unflatten(-1, (group_num, slice_num, digit_count))
 
         code = self.readout.readout(
-            v_data_grouped,
+            v_signal_grouped,
             v_ref_phys,
             adc_operation_point=adc_operation_point,
         )

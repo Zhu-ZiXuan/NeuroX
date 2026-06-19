@@ -15,7 +15,7 @@ The `ReadOut` container (`readout/base.py`, `readout/offset_switchcap_mux_adc.py
 
 ## Performance & resources
 
-N/A — the readout is not on the memory- or compile-critical path (see [_1t1r/offset](../_1t1r/offset.md) for the SAR-ADC compile limitation).
+N/A — the readout is not on the memory- or compile-critical path (see [analog/adc/mcs_sar](../../analog/adc/mcs_sar.md) for the SAR-ADC compile considerations).
 
 ## Gotchas
 

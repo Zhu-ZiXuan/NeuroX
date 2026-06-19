@@ -6,12 +6,12 @@ The readout family is the voltage-domain chain from an array's per-column bounda
 
 ## Physical model
 
-The chain operates on a grouped lattice keyed by reference-group structure (`group_num` reference groups, each with `data_num` data and $D$ digits) and is built from leaf analog blocks; all electrical signal transformation happens inside the leaves, while the chain only moves and aggregates:
+The chain operates on a grouped lattice keyed by reference-group structure (`group_num` reference groups, each with `slice_num` slices and `digit_count` digits) and is built from leaf analog blocks; all electrical signal transformation happens inside the leaves, while the chain only moves and aggregates:
 
-- **data switch-cap** — accumulates the per-digit voltages with positional capacitor weights (`digit_weights`, one cap per digit);
+- **signal switch-cap** — accumulates the per-digit voltages with positional capacitor weights (`digit_weights`, one cap per digit);
 - **reference switch-cap** — samples a single unit-cap baseline per group;
 - **analog mux** — transports the grouped signals;
-- **differential ADC** — converts the data leg against the reference leg.
+- **differential ADC** — converts the signal leg against the reference leg.
 
 The leaf models are specified in [reference/analog](../../analog/README.md) (switch-cap, mux, ADC).
 
@@ -19,9 +19,9 @@ The leaf models are specified in [reference/analog](../../analog/README.md) (swi
 
 | Symbol | Meaning | Unit | Code field |
 |---|---|---|---|
-| $D$ | digits per data | — | `digit_num` (= the tile's `w_digit_count`) |
+| $D$ | digits per slice | — | `digit_count` (= the tile's `w_digit_count`) |
 
-Structure counts are referred to by code field (`group_num`, `data_num`, `digit_weights`); the value-domain symbols ($M_{\text{ideal}}$, $s$, $b$) are in [base](../base.md#symbols).
+Structure counts are referred to by code field (`group_num`, `slice_num`, `digit_weights`); the value-domain symbols ($M_{\mathrm{ideal}}$, $s$, $b$) are in [base](../base.md#symbols).
 
 ## Noise & non-idealities
 
@@ -31,10 +31,10 @@ ADC quantization is intrinsic; further non-idealities enter through the leaf blo
 
 | Parameter | Meaning | Unit | Source |
 |---|---|---|---|
-| `data_num` | data per reference group | — | Design |
+| `slice_num` | slices per reference group | — | Design |
 | `digit_weights` | per-digit positional weights | — | Design |
 | `group_num` | reference groups | — | Design |
-| data / ref switch-cap, mux, ADC configs | leaf-block configs | — | Design |
+| signal / ref switch-cap, mux, ADC configs | leaf-block configs | — | Design |
 | `adc_calibration` ($s$ table) | ADC (mode, $b$) to $s$ lookup | — | Calibrated (physical data) |
 
 Provenance terms: [parameter_provenance](../../parameter_provenance.md). Schema: [config reference](../../../api/README.md); rescale calibration: [calibration guide](../../../guides/calibration/README.md).

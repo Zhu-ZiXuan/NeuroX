@@ -20,4 +20,3 @@ Per-subsystem (mirrors Reference):
 - [digital](digital/README.md)
 - [xbar](xbar/README.md)
 - [macro](macro/README.md)
-- [mapper](mapper/README.md)

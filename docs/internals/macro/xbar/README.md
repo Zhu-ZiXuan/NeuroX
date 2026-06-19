@@ -7,3 +7,4 @@ How the `XbarMacro` registry family is built: the abstract registry root and the
 - [inter_array_slice](inter_array_slice.md) — `InterArraySliceXbarMacro`: cross-plane `Sw` layout and its aggregate dual.
 - [intra_array_slice](intra_array_slice.md) — `IntraArraySliceXbarMacro`: intra-tile `Sw` fold and its aggregate dual.
 - [ideal](ideal.md) — `IdealXbarMacro`: the degenerate member that joins the registry without a tile.
+- [slicer/](slicer/README.md) — the `Slicer` ABC observable surface and the two value-decomposition implementations.

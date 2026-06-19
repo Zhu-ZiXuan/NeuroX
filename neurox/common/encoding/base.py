@@ -1,7 +1,7 @@
 """Transcoder ABC and ``Encoding`` discriminator.
 
 See also:
-    docs/reference/mapper/transcoder/README.md
+    docs/internals/common/encoding/README.md
 """
 
 from __future__ import annotations
@@ -20,23 +20,23 @@ Encoding: TypeAlias = Literal["true_form", "complement", "canonical"]
 class Transcoder(RegistryMixin[Encoding, "Transcoder"], ABC):
     """Fixed-length positional signed-digit transcoder.
 
-    Holds the shared positional-radix state ``(radix, digit_num)`` and
+    Holds the shared positional-radix state ``(radix, digit_count)`` and
     the encoding-agnostic ``decode`` reduction. Subclasses supply the
     encoding-specific ``encode`` and ``value_range``, and self-register
     against their :data:`Encoding` discriminator.
 
     Args:
         radix: Positional base ``r`` of the digit representation.
-        digit_num: Number of digits produced by ``encode``.
+        digit_count: Number of digits produced by ``encode``.
     """
 
-    def __init__(self, *, radix: int, digit_num: int) -> None:
+    def __init__(self, *, radix: int, digit_count: int) -> None:
         if radix < 2:
             raise ValueError(f"require: radix ({radix}) >= 2")
-        if digit_num < 1:
-            raise ValueError(f"require: digit_num ({digit_num}) >= 1")
+        if digit_count < 1:
+            raise ValueError(f"require: digit_count ({digit_count}) >= 1")
         self._radix = radix
-        self._digit_num = digit_num
+        self._digit_count = digit_count
 
     @property
     def radix(self) -> int:
@@ -44,9 +44,9 @@ class Transcoder(RegistryMixin[Encoding, "Transcoder"], ABC):
         return self._radix
 
     @property
-    def digit_num(self) -> int:
+    def digit_count(self) -> int:
         """Number of digits produced by ``encode``."""
-        return self._digit_num
+        return self._digit_count
 
     @abstractmethod
     def encode(self, x: Tensor, *, dim: int = -1) -> Tensor:
@@ -57,7 +57,7 @@ class Transcoder(RegistryMixin[Encoding, "Transcoder"], ABC):
             dim: Axis at which the digit dimension is inserted.
 
         Returns:
-            Encoded tensor with a new size-``digit_num`` axis at ``dim``.
+            Encoded tensor with a new size-``digit_count`` axis at ``dim``.
         """
         raise NotImplementedError
 
@@ -87,16 +87,16 @@ class Transcoder(RegistryMixin[Encoding, "Transcoder"], ABC):
         raise NotImplementedError
 
     @classmethod
-    def create(cls, encoding: Encoding, *, radix: int, digit_num: int) -> Transcoder:
+    def create(cls, encoding: Encoding, *, radix: int, digit_count: int) -> Transcoder:
         """Build the concrete subclass registered for ``encoding``.
 
         Args:
             encoding: One of ``"true_form"``, ``"complement"``, ``"canonical"``.
             radix: Positional base ``r``.
-            digit_num: Number of digits.
+            digit_count: Number of digits.
 
         Returns:
-            Concrete transcoder instance bound to ``(radix, digit_num)``.
+            Concrete transcoder instance bound to ``(radix, digit_count)``.
         """
         impl = cls._lookup_impl(encoding)
-        return impl(radix=radix, digit_num=digit_num)
+        return impl(radix=radix, digit_count=digit_count)

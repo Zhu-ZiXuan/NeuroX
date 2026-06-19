@@ -2,23 +2,29 @@
 
 ## Summary / role
 
-Every concrete ADC in the family - the boundary-bucketize [general](general.md), the [mcs_sar](mcs_sar.md) and [sar_mono](sar_mono.md) SAR variants - converts a differential analog input into a signed integer code under one shared contract: the same signed-code output convention, the same code-edge floor semantics, and the same per-call multi-mode operating point. This document specifies that contract; each topology's transfer characteristic and energy model is in its own document. The ADC sits at the end of the readout chain, downstream of the BL clamp and the column transport.
+Every concrete ADC in the family - the boundary-bucketize [general](general.md), the [mcs_sar](mcs_sar.md) and [sar_mono](sar_mono.md) SAR variants - converts a differential analog input into a signed integer code under one shared contract: the same signed-code output convention, the same monotone code-edge floor semantics, and the same per-call operating point. This document specifies that contract; each topology's transfer characteristic and energy model is in its own document. The ADC sits at the end of the readout chain, downstream of the BL clamp and the column transport.
 
 ## Conversion contract
 
-An ADC converts a differential input - a positive leg $V^{+}$ against a negative leg $V^{-}$ - into one signed integer code per call. The operating point is a per-call selection $(\mathrm{mode}, b)$: the mode picks a topology-specific configuration (e.g. a reference-voltage entry) and $b$ is the resolution in bits. A single-mode ADC accepts only $\mathrm{mode} = 0$ and $b = b_{\max}$; a multi-mode ADC accepts any pair inside its configured envelope. The family exposes the count of supported operating points and the maximum bit width as part of the contract.
+An ADC converts a differential input - a positive leg $x^{+}$ against a negative leg $x^{-}$ - into one signed integer code per call. Each ADC instance commits to a single per-instance input unit (volts for a voltage-domain topology, microamperes for a current-domain topology); both legs, all noise terms and the code boundaries are expressed in that one unit. The operating point is a per-call selection $(\mathrm{mode}, b)$: the mode picks a topology-specific configuration (e.g. a reference-voltage entry) and $b$ is the resolution in bits. An ADC exposing a single operating point accepts only $\mathrm{mode} = 0$ and $b = b_{\max}$; a multi-mode ADC accepts any pair inside its configured envelope. The family exposes the count of supported operating points and the maximum bit width as part of the contract.
 
 ## Signed-code output convention
 
-A conversion returns a **signed** integer code in $[-2^{\,b-1},\ 2^{\,b-1}-1]$. This is a family-level contract: every concrete ADC, whatever its native internal representation, maps its result onto this signed range.
+A conversion returns a **signed** integer code. The family fixes the range generally through the bucket count $n_{\mathrm{codes}}$ and the zero code $z$: the raw unsigned bucket index lies in $[0,\ n_{\mathrm{codes}}-1]$ and subtracting $z$ shifts it to the signed range $[-z,\ n_{\mathrm{codes}}-1-z]$. This is a family-level contract: every concrete ADC, whatever its native internal representation, maps its result onto this signed range. For the linear / uniform-quantization members (see [floor semantics](#floor-semantics)) $n_{\mathrm{codes}} = 2^{b}$ and a symmetric $z$ yields the range $[-2^{\,b-1},\ 2^{\,b-1}-1]$.
 
 The signed convention is required by the consumer rescale model $M_{\mathrm{ideal}} \approx \mathrm{code}\cdot s$ used at the tile boundary (see the xbar [base](../../xbar/base.md#output-rescale)): a strictly positive rescale factor $s$ mapping a signed code to a signed dot product is well-defined only when the code carries the sign of the analog input directly. The tile's BL ADC is differential and its input is genuinely two-sided, so the signed code aligns the physical ADC with the integer-exact ideal twin and with the positivity invariant the calibration places on $s$.
 
-A concrete ADC produces a raw unsigned bucket index, clamps it to its legal bucket range, then subtracts a topology-specific **zero code** to shift to the signed range. The zero code is part of each topology's knowledge - a symmetric design places it at the bucket midpoint, but an asymmetric or single-ended design could place it elsewhere - so the base makes no commitment to a single shared zero point. The unsigned clamp must precede the zero shift: stochastic-rounding jitter can push the raw index outside the legal range, which would otherwise yield an out-of-range signed code.
+A concrete ADC produces a raw unsigned bucket index, clamps it to its legal bucket range $[0,\ n_{\mathrm{codes}}-1]$, then subtracts a topology-specific **zero code** $z$ to shift to the signed range. The zero code is part of each topology's knowledge - a symmetric design places it at the bucket midpoint, but an asymmetric or single-ended design could place it elsewhere - so the base makes no commitment to a single shared zero point. The unsigned clamp must precede the zero shift: physical noise can push the raw index outside the legal range, which would otherwise yield an out-of-range signed code.
 
 ## Floor semantics
 
-ADC code boundaries sit at code edges $B_c = c\cdot \mathrm{LSB}$ and the conversion floors the input against them. Stochastic rounding adds uniform jitter $\operatorname{uniform}(0, \mathrm{LSB})$ before the floor; the result is unbiased. Stochastic-versus-deterministic rounding follows the module's training/eval state, not a per-conversion override. This is the same floor-bucketize quantization specified for the [common quant kernels](../../../internals/common/quant.md).
+The family quantization is a **monotone** quantization of the input against an ordered set of code boundaries $\{B_c\}$, all carrying the instance's per-instance input unit. The boundaries need only be sorted; they may be non-uniformly spaced, and their count need not be a power of two. The conversion floors the input against them: the deterministic floor-bucketize law is
+
+$$\mathrm{code} = \operatorname{clamp}\!\big(\operatorname{bucketize}(x,\ \{B_c\}),\ 0,\ n_{\mathrm{codes}}-1\big) - z,$$
+
+where $\operatorname{bucketize}(x,\ \{B_c\})$ returns the index of the bucket into which the signal $x$ falls (the count of boundaries it exceeds), $n_{\mathrm{codes}}$ is the number of code buckets and $z$ is the topology zero code. This deterministic floor against ordered boundaries is the ADC physical quantization law; each member supplies its own boundary set.
+
+For linear / uniform-quantization ADCs (all current concrete members) the boundaries are evenly spaced: $B_c = c\cdot \mathrm{LSB}$, with $\mathrm{LSB} = \mathrm{FSR} / 2^{b}$ the full-scale-range divided by the code count and $n_{\mathrm{codes}} = 2^{b}$. These are the linear / uniform sub-case, not universal: a non-uniform member overrides them with a calibrated boundary set.
 
 ## What the ADC does not own
 
@@ -42,6 +48,8 @@ The abstract layer fixes no physical parameter; it carries only the operating-po
 
 Stated assumption: the differential input is genuinely two-sided, so the signed-code convention is well-defined and the rescale factor is positive.
 
+The operating-point envelope requires $b \geq 2$. The signed (two's-complement) code needs at least two bits: at $b = 1$ the maximum positive code is $2^{0} - 1 = 0$, so there is no positive code, and the ideal-twin rescale $s = M_{\max} / (2^{\,b-1} - 1)$ divides by zero. $b = 1$ is unsupported.
+
 TODO (domain author): the value-range and operating-envelope limits across which the signed-code / floor contract holds.
 
 ## Validation
@@ -56,12 +64,16 @@ TODO.
 
 | Symbol | Meaning | Unit | Code field |
 |---|---|---|---|
-| $V^{+}, V^{-}$ | positive / negative differential input legs | V | `v_pos__V`, `v_neg__V` |
+| $x^{+}, x^{-}$ | positive / negative differential input legs (per-instance input unit) | V or uA | `v_pos__V`, `v_neg__V` |
 | $b$ | ADC resolution (bits) | — | `adc_bits` |
 | $b_{\max}$ | maximum supported resolution | — | `max_bits` |
-| $\mathrm{LSB}$ | code least-significant-bit step | — | derived |
-| $B_c$ | code boundary at index $c$ | — | derived |
+| $\mathrm{FSR}$ | full-scale input range (per-instance input unit) | V or uA | derived |
+| $\mathrm{LSB}$ | code least-significant-bit step, $\mathrm{FSR}/2^{b}$ (per-instance input unit) | V or uA | derived |
+| $B_c$ | code boundary at index $c$ (per-instance input unit) | V or uA | derived |
+| $n_{\mathrm{codes}}$ | number of code buckets | — | derived |
+| $z$ | topology zero code | — | derived |
 | $M_{\mathrm{ideal}}$ | ideal integer dot product (consumer scale) | — | — |
+| $M_{\max}$ | maximum ideal integer dot product (rescale denominator) | — | — |
 | $s$ | output rescale factor | — | `rescale_factor` |
 
 ---

@@ -1,7 +1,7 @@
 """Canonical (non-adjacent-form) signed-digit transcoder.
 
 See also:
-    docs/reference/mapper/transcoder/README.md
+    docs/internals/common/encoding/README.md
 """
 
 from __future__ import annotations
@@ -31,11 +31,11 @@ class CanonicalTranscoder(Transcoder):
             dim: Axis at which the digit dimension is inserted.
 
         Returns:
-            Digit tensor with a new size-``digit_num`` axis at ``dim``.
+            Digit tensor with a new size-``digit_count`` axis at ``dim``.
         """
         radix = self._radix
         all_digits: list[Tensor] = []
-        for _ in range(self._digit_num):
+        for _ in range(self._digit_count):
             rem = x % radix
             x = x // radix
             mod = x % radix
@@ -50,5 +50,5 @@ class CanonicalTranscoder(Transcoder):
     @property
     def value_range(self) -> tuple[int, int]:
         """Symmetric envelope ``[-M, M]`` with ``M = Σ_j (r-1)·r^(D-1-2j)``."""
-        max_abs = sum((self._radix - 1) * (self._radix**power) for power in range(self._digit_num - 1, -1, -2))
+        max_abs = sum((self._radix - 1) * (self._radix**power) for power in range(self._digit_count - 1, -1, -2))
         return -max_abs, max_abs

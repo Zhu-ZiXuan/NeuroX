@@ -49,7 +49,7 @@ drive_thermal = false
 [xbar.readout]
 _neurox_type = "OffsetSwitchCapMuxAdcReadOutPolicy"
 
-[xbar.readout.data_switchcap]
+[xbar.readout.signal_switchcap]
 cap_mismatch = false
 sampling_thermal_noise = false
 
@@ -58,6 +58,7 @@ cap_mismatch = false
 sampling_thermal_noise = false
 
 [xbar.readout.analog_mux]
+mux_gain_mismatch = false
 mux_noise_cm = false
 mux_noise_dm = false
 

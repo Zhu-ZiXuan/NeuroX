@@ -13,14 +13,14 @@ import torch
 from torch import Tensor
 
 from neurox.analog.adc import AdcOperationPoint
+from neurox.common.encoding import Encoding
 from neurox.digital import (
     Accumulator,
     AccumulatorConfig,
     ShiftAdder,
     ShiftAdderConfig,
 )
-from neurox.mapper.transcoder import Encoding
-from neurox.mapper.xbar.slicer import SerialSlicer, SimpleSlicer
+from neurox.macro.xbar.slicer import SerialSlicer, SimpleSlicer
 from neurox.xbar import Xbar, XbarConfig, XbarPolicy
 
 from .base import XbarMacro, XbarMacroConfig, XbarMacroPolicy
@@ -226,13 +226,13 @@ class InterArraySliceXbarMacro(XbarMacro):
         Returns:
             Tensor of shape ``[..., M, Sa, Sw=1, Tc, Tr=1, row_num]``.
         """
-        # Shape: [..., M, K] -> [..., M, K, Sa, digit_num=1]
+        # Shape: [..., M, K] -> [..., M, K, Sa, digit_count=1]
         sliced = self.x_slicer.slice(x)
 
-        # Shape: [..., M, K, Sa, digit_num=1] -> [..., M, Tc, row_num, Sa, digit_num=1]
+        # Shape: [..., M, K, Sa, digit_count=1] -> [..., M, Tc, row_num, Sa, digit_count=1]
         tiled = self.chunk_pad_along(sliced, axis=-3, chunk_size=self.xbar.row_num, pad_value=0)
 
-        # Shape: [..., M, Tc, row_num, Sa, digit_num=1] -> [..., M, Tc, row_num, Sa]
+        # Shape: [..., M, Tc, row_num, Sa, digit_count=1] -> [..., M, Tc, row_num, Sa]
         squeezed = tiled.squeeze(-1)
         # Shape: [..., M, Tc, row_num, Sa] -> [..., M, Sa, Tc, row_num]
         b = squeezed.ndim - 4

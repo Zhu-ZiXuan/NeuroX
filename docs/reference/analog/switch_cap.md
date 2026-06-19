@@ -2,7 +2,7 @@
 
 ## Summary / role
 
-The `SwitchCap` is a bottom-plate-sampled capacitor bank that performs passive charge-share averaging across a fixed set of weighted unit caps. In the readout chain it realises the per-digit positional accumulation (data leg) and the single-cap baseline (reference leg); the bank itself is encoding-agnostic, so the semantic meaning of its weights is set by the composing circuit, not by the bank. It is a single concrete leaf block, not a polymorphic family.
+The `SwitchCap` is a bottom-plate-sampled capacitor bank that performs passive charge-share averaging across a fixed set of weighted unit caps. In the readout chain it realises the per-digit positional accumulation (signal leg) and the single-cap baseline (reference leg); the bank itself is encoding-agnostic, so the semantic meaning of its weights is set by the composing circuit, not by the bank. It is a single concrete leaf block, not a polymorphic family.
 
 ## Physical model
 

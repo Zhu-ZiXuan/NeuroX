@@ -1,20 +1,20 @@
 """SerialSlicer — true-form radix-``r`` positional decomposition.
 
 See also:
-    docs/reference/mapper/xbar/slicer/README.md
+    docs/reference/macro/base.md
 """
 
 from __future__ import annotations
 
 from torch import Tensor
 
-from neurox.mapper.transcoder import TrueFormTranscoder
+from neurox.common.encoding import TrueFormTranscoder
 
 from .base import Slicer
 
 
 class SerialSlicer(Slicer):
-    """Radix-``r`` serial decomposition with structural ``digit_num = 1``.
+    """Radix-``r`` serial decomposition with structural ``digit_count = 1``.
 
     The activation grid is unsigned by construction, so the sign-magnitude
     (``true_form``) encoding is the only compatible policy — non-negative
@@ -34,7 +34,7 @@ class SerialSlicer(Slicer):
             raise ValueError(f"require: digit_radix ({digit_radix}) >= 2")
         self._slice_num = slice_num
         self._digit_radix = digit_radix
-        self._transcoder = TrueFormTranscoder(radix=digit_radix, digit_num=slice_num)
+        self._transcoder = TrueFormTranscoder(radix=digit_radix, digit_count=slice_num)
 
     @property
     def value_range(self) -> tuple[int, int]:
@@ -53,5 +53,5 @@ class SerialSlicer(Slicer):
     def slice(self, x: Tensor) -> Tensor:
         # Shape: [...] -> [..., slice_num]
         encoded = self._transcoder.encode(x, dim=-1)
-        # Shape: [..., slice_num] -> [..., slice_num, digit_num=1]
+        # Shape: [..., slice_num] -> [..., slice_num, digit_count=1]
         return encoded.unsqueeze(-1)

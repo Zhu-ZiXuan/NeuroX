@@ -45,7 +45,7 @@ python -m neurox.tools.xbar_tia.optimize \
 
 ### Output
 
-- Logger: the ranked top-K candidates, each with its raw $(\text{gain}, W, L, v_\mathrm{bias})$ tuple and the score breakdown — `linearity_r2`, `v_util`, `sat_match`, `overshoot_safe`, the output voltages at $\mu - 3\sigma$, $\mu$, $\mu + 3\sigma$, and the slope at $\mu$ in mV/uA.
+- Logger: the ranked top-K candidates, each with its raw $(\mathrm{gain}, W, L, v_\mathrm{bias})$ tuple and the score breakdown — `linearity_r2`, `v_util`, `sat_match`, `overshoot_safe`, the output voltages at $\mu - 3\sigma$, $\mu$, $\mu + 3\sigma$, and the slope at $\mu$ in mV/uA.
 - `--plot`: one overview figure overlaying the top-K transfer curves against the workload band.
 - `--slice-plot-dir`: per-slice 1D transfer curves — one PNG per axis-fixing slice through the four-dimensional sweep cube (e.g. fix gain, L, bias and vary W).
 
@@ -77,9 +77,9 @@ pseudo_nmos_L__um = [0.03]
 v_nmos_bias__V    = [0.90]
 ```
 
-- `[hardware]` — chip-level constants held fixed across the whole sweep. `target_v_max__V` is the user-chosen ceiling for the TIA output, aligned with the ADC's largest `v_ref` mode, so $v_\mathrm{out}$ should fill $[0, \text{target\_v\_max}]$ rather than the full rail $[0, v_\mathrm{dd}]$. The embedded `[hardware.nmos_config]` table is an `NMOSConfig` and may use the `_neurox_use_preset` directive to point at a process file.
+- `[hardware]` — chip-level constants held fixed across the whole sweep. `target_v_max__V` is the user-chosen ceiling for the TIA output, aligned with the ADC's largest `v_ref` mode, so $v_\mathrm{out}$ should fill $[0, \mathrm{target\_v\_max}]$ rather than the full rail $[0, v_\mathrm{dd}]$. The embedded `[hardware.nmos_config]` table is an `NMOSConfig` and may use the `_neurox_use_preset` directive to point at a process file.
 - `[workload]` — the Gaussian model $\mathcal{N}(\mu, \sigma^2)$ of the per-column bit-line current. Derive $\mu$ and $\sigma$ from the chip's conductance state map and the activation statistics; the bundled example shows the full derivation in its comments.
-- `[sweep]` — the four design axes. The tool sweeps their cartesian product, so $|\text{gain}| \times |W| \times |L| \times |v_\mathrm{bias}|$ candidates total; each axis must be non-empty.
+- `[sweep]` — the four design axes. The tool sweeps their cartesian product, so $|\mathrm{gain}| \times |W| \times |L| \times |v_\mathrm{bias}|$ candidates total; each axis must be non-empty.
 
 A runnable template lives at `example/config/xbar_tia_optimize.toml`.
 

@@ -11,7 +11,7 @@ Write ASCII. Use unicode only from this whitelist, only for the stated purpose:
 | `—` | em dash: parenthetical / appositive break in prose |
 | `§` | section sign: cross-reference to a document section (e.g. `§Parameters`) |
 | `×` | multiplication in text: multiplier, dimension, or Cartesian product (`5×`, `64×64`, `batch×inst`) |
-| `→` | arrow in text: flow or mapping (`A→B`) |
+| `→` `←` `↔` … | arrow in text: flow, mapping, or correspondence — any glyph from the Unicode Arrows block (e.g. `→` `←` `↑` `↓` `↔` `⇒` `⇐` `⇔`) |
 
 Everything else is ASCII or LaTeX:
 
@@ -24,7 +24,7 @@ Everything else is ASCII or LaTeX:
 
 - Equations in LaTeX: `$...$` inline, `$$...$$` block (mkdocs renders via MathJax).
 - Named operators use `\operatorname{}`, not `\mathrm{}`: `$\operatorname{TIA}(\cdot)$`, `$\operatorname{clamp}(\cdot)$`. Reserve `\mathrm{}` for upright subscripts and labels (`$V_{\mathrm{BL}}$`).
-- Inside math use `\to` and `\times`. In text use the whitelisted `→` / `×` directly; do not open a `$...$` for a single symbol.
+- Inside math use LaTeX commands (`\to`, `\leftrightarrow`, `\times`, ...). In text use the whitelisted arrow glyphs and `×` directly; do not open a `$...$` for a single symbol.
 - Use the symbols pinned in [notation_conventions](../reference/notation_conventions.md): one physical quantity, one symbol.
 
 ## Files and structure
@@ -37,8 +37,9 @@ Everything else is ASCII or LaTeX:
 
 ## Cross-references and dependency direction
 
-Cross-references go one direction: a specific document references a more general one, never the reverse.
+Cross-references go one direction: a specific document references a more general one, never the reverse. In body text this admits no exception — never link a lower layer to a higher one, the general to a specific instance, a principle to a concrete design, or a global definition to a downstream application.
 
+- **The footer is the sole downward exception.** A reference document may name its implementing internals document, and an internals document its source files, only in the footer traceability list (spec / impl / code / test / decisions). That footer link is a reader convenience for tracing the implementation; it carries no semantic dependency and is independent of the body. Body prose and inline links never point downward or from general to specific.
 - **Convention and term documents** (this file, `code_style`, `naming_conventions`, `writing_reference_docs`, `writing_internals_docs`, `notation_conventions`, `parameter_provenance`) are the **sink**: every specific document links to them; they link to nothing more specific — no concept document, no subsystem document. When such a document must mention a mechanism, name it in inline code (e.g. `FabricateMixin`); do not link or path-reference a more detailed document.
 - **`recipes`** is the one exception: as a task index it is the most downstream document, so it may reference the conventions and concepts it sequences (but not specific subsystem instances).
 - The same rule for code-level docs (a lower module's docs never name an upper module) is in [code_style](code_style.md).

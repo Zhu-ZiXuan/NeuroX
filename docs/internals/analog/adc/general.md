@@ -25,7 +25,7 @@ N/A - a single floor_bucketize per call, off the memory- and compile-critical pa
 
 ## Known limitations
 
-- N/A.
+- `GeneralADC` is a historical / placeholder behavioural ADC; its comparator model, boundary list, noise stages and input-unit handling are provisional and may change.
 
 ---
 

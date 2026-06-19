@@ -1,7 +1,7 @@
 """True-form signed-digit transcoder.
 
 See also:
-    docs/reference/mapper/transcoder/README.md
+    docs/internals/common/encoding/README.md
 """
 
 from __future__ import annotations
@@ -29,12 +29,12 @@ class TrueFormTranscoder(Transcoder):
             dim: Axis at which the digit dimension is inserted.
 
         Returns:
-            Digit tensor with a new size-``digit_num`` axis at ``dim``.
+            Digit tensor with a new size-``digit_count`` axis at ``dim``.
         """
         sign = x.sign()
         x = x.abs()
         all_digits: list[Tensor] = []
-        for _ in range(self._digit_num):
+        for _ in range(self._digit_count):
             rem = x % self._radix
             x = x // self._radix
             all_digits.append(rem * sign)
@@ -43,5 +43,5 @@ class TrueFormTranscoder(Transcoder):
     @property
     def value_range(self) -> tuple[int, int]:
         """Symmetric envelope ``[-(r^D - 1), r^D - 1]``."""
-        n_max = self._radix**self._digit_num - 1
+        n_max = self._radix**self._digit_count - 1
         return -n_max, n_max

@@ -228,7 +228,7 @@ class TestBuildOffsetXbar:
         assert policy.core.rram.stuck_at is False
         assert policy.core.nmos.A_vt_mismatch is False
         assert policy.core.tia.opamp_gain_sigma is False
-        assert policy.readout.data_switchcap.cap_mismatch is False
+        assert policy.readout.signal_switchcap.cap_mismatch is False
         assert policy.readout.analog_mux.mux_noise_cm is False
         # bl_adc may be one of several policy types; just check it has been built.
         assert policy.readout.bl_adc is not None

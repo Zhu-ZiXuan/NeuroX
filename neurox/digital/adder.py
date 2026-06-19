@@ -65,7 +65,7 @@ class Adder(CircuitBase[AdderConfig]):
         y = a + b
         # Adder is element-wise; serial via the position-invariant
         # numel rule (total output elements / parallel inst_count).
-        serial_op_count = max(1, y.numel() // max(self.inst_count, 1))
+        serial_op_count = -(-y.numel() // max(self.inst_count, 1))  # ceil(numel / inst); empty -> 0
         dynamic_energy__fJ = torch.full_like(y, self.config.energy_per_op__fJ, dtype=torch.float32)
         latency__ns = torch.tensor(
             self.config.latency_per_op__ns * serial_op_count,

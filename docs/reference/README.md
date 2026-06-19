@@ -10,4 +10,3 @@ The specification of what NeuroX models — physical models, equations, numerica
 - [digital](digital/README.md) — adders, accumulator, shift-adder
 - [xbar](xbar/README.md) — cell array, solver, readout
 - [macro](macro/README.md) — array-to-macro tiling
-- [mapper](mapper/README.md) — value-domain mapping

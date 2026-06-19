@@ -1,14 +1,14 @@
 """SimpleSlicer — direct digitise-then-group decomposer.
 
 See also:
-    docs/reference/mapper/xbar/slicer/README.md
+    docs/reference/macro/base.md
 """
 
 from __future__ import annotations
 
 from torch import Tensor
 
-from neurox.mapper.transcoder import Encoding, Transcoder
+from neurox.common.encoding import Encoding, Transcoder
 
 from .base import Slicer
 
@@ -51,7 +51,7 @@ class SimpleSlicer(Slicer):
         self._transcoder = Transcoder.create(
             encoding,
             radix=digit_radix,
-            digit_num=slice_num * digit_count,
+            digit_count=slice_num * digit_count,
         )
         self._slice_radix = int(digit_radix**digit_count)
 

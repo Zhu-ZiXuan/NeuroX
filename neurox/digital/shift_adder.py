@@ -85,7 +85,7 @@ class ShiftAdder(CircuitBase[ShiftAdderConfig]):
         # Each shift-adder produces one output element. Serial via the
         # position-invariant numel rule (reduced digit dim is already
         # gone from y so the divisor is just inst_count).
-        serial_op_count = max(1, y.numel() // max(self.inst_count, 1))
+        serial_op_count = -(-y.numel() // max(self.inst_count, 1))  # ceil(numel / inst); empty -> 0
         dynamic_energy__fJ = torch.full_like(y, self.config.energy_per_op__fJ, dtype=torch.float32)
         latency__ns = torch.tensor(
             self.config.latency_per_op__ns * serial_op_count,

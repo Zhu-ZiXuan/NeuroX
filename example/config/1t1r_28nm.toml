@@ -23,7 +23,7 @@ ref_location = 8
 # --- ADC ``adc_operation_point → rescale_factor`` lookup table ---
 # Re-calibrated 2026-06-11 with zero-through-origin LS (no intercept) at
 # 8-bit ADC after sizing the v_refs to the exp4 boundary (mode 0 =
-# ±0.0573 V). Differential ADC zeroes v_diff at v_data == v_ref so the
+# ±0.0573 V). Differential ADC zeroes v_diff at v_signal == v_ref so the
 # code-to-ideal mapping is strictly proportional — any intercept would
 # be chip non-ideal noise, not a constant offset.
 [[xbar.adc_calibration]]
@@ -227,7 +227,7 @@ area_per_inst__um2 = 0.0
 latency_per_op__ns = 0.0
 
 
-[xbar.readout_config.data_switchcap_config]
+[xbar.readout_config.signal_switchcap_config]
 
 # --- Unit capacitance ---
 c_unit__fF = 5.0
@@ -261,6 +261,9 @@ latency_per_op__ns = 0.0
 
 # --- Gain ---
 mux_gain = 1.0
+
+# --- Inter-leg gain mismatch ---
+mux_gain_mismatch_sigma_relative = 0.001
 
 # --- Common-mode noise ---
 mux_noise_cm_sigma__V = 1e-3

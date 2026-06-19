@@ -103,16 +103,6 @@ nav:
       - ideal: reference/macro/xbar/ideal.md
       - inter_array_slice: reference/macro/xbar/inter_array_slice.md
       - intra_array_slice: reference/macro/xbar/intra_array_slice.md
-  - mapper:
-    - Overview: reference/mapper/README.md
-    - transcoder:
-      - Overview: reference/mapper/transcoder/README.md
-      - encodings: reference/mapper/transcoder/encodings.md
-    - xbar:
-      - Overview: reference/mapper/xbar/README.md
-      - slicer:
-        - Overview: reference/mapper/xbar/slicer/README.md
-        - slicer: reference/mapper/xbar/slicer/slicer.md
   - xbar:
     - Overview: reference/xbar/README.md
     - base: reference/xbar/base.md
@@ -163,6 +153,9 @@ nav:
   - common:
     - Overview: internals/common/README.md
     - circuit: internals/common/circuit.md
+    - encoding:
+      - Overview: internals/common/encoding/README.md
+      - encodings: internals/common/encoding/encodings.md
     - load_dump: internals/common/load_dump.md
     - nonideality: internals/common/nonideality.md
     - physical_constant: internals/common/physical_constant.md
@@ -195,16 +188,9 @@ nav:
       - ideal: internals/macro/xbar/ideal.md
       - inter_array_slice: internals/macro/xbar/inter_array_slice.md
       - intra_array_slice: internals/macro/xbar/intra_array_slice.md
-  - mapper:
-    - Overview: internals/mapper/README.md
-    - transcoder:
-      - Overview: internals/mapper/transcoder/README.md
-      - encodings: internals/mapper/transcoder/encodings.md
-    - xbar:
-      - Overview: internals/mapper/xbar/README.md
       - slicer:
-        - Overview: internals/mapper/xbar/slicer/README.md
-        - slicer: internals/mapper/xbar/slicer/slicer.md
+        - Overview: internals/macro/xbar/slicer/README.md
+        - slicer: internals/macro/xbar/slicer/slicer.md
   - xbar:
     - Overview: internals/xbar/README.md
     - base: internals/xbar/base.md

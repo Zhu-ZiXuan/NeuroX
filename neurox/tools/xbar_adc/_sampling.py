@@ -298,9 +298,9 @@ def build_offset_1t1r_xbar_all_off_from_config(
             solve_chunk_size=solve_chunk_size,
         ),
         readout=OffsetSwitchCapMuxAdcReadOutPolicy(
-            data_switchcap=SwitchCapPolicy(cap_mismatch=False, sampling_thermal_noise=False),
+            signal_switchcap=SwitchCapPolicy(cap_mismatch=False, sampling_thermal_noise=False),
             ref_switchcap=SwitchCapPolicy(cap_mismatch=False, sampling_thermal_noise=False),
-            analog_mux=AnalogMuxPolicy(mux_noise_cm=False, mux_noise_dm=False),
+            analog_mux=AnalogMuxPolicy(mux_gain_mismatch=False, mux_noise_cm=False, mux_noise_dm=False),
             bl_adc=bl_adc_policy,
         ),
     )

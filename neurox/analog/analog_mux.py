@@ -21,7 +21,9 @@ class AnalogMuxConfig(CircuitConfig):
         energy_per_access__fJ: Per-access dynamic energy [fJ].
         latency_per_op__ns: Per-transport latency [ns]; multiplied by
             the runtime serial-op count at logging time.
-        mux_gain: Scalar transport gain applied to both legs.
+        mux_gain: Scalar matched transport gain applied to both legs.
+        mux_gain_mismatch_sigma_relative: Per-mux fractional inter-leg
+            gain-mismatch sigma; flat (not area-scaled).
         mux_noise_cm_sigma__V: Common-mode noise sigma [V]; same sign
             on both legs, cancels in a differential ADC.
         mux_noise_dm_sigma__V: Differential-mode noise sigma [V];
@@ -31,6 +33,9 @@ class AnalogMuxConfig(CircuitConfig):
 
     # --- Gain ---
     mux_gain: float
+
+    # --- Inter-leg gain mismatch ---
+    mux_gain_mismatch_sigma_relative: float
 
     # --- Common-mode noise ---
     mux_noise_cm_sigma__V: float
@@ -52,6 +57,7 @@ class AnalogMuxConfig(CircuitConfig):
 
     def validate_gain(self) -> None:
         self._require_pos(self.mux_gain, "mux_gain")
+        self._require_nonneg(self.mux_gain_mismatch_sigma_relative, "mux_gain_mismatch_sigma_relative")
 
     def validate_noise(self) -> None:
         self._require_nonneg(self.mux_noise_cm_sigma__V, "mux_noise_cm_sigma__V")
@@ -68,10 +74,12 @@ class AnalogMuxPolicy:
     """Per-source toggles selecting which AnalogMux nonidealities are active.
 
     Attributes:
+        mux_gain_mismatch: Apply ``mux_gain_mismatch_sigma_relative`` at fabricate time.
         mux_noise_cm: Apply ``mux_noise_cm_sigma__V`` per call.
         mux_noise_dm: Apply ``mux_noise_dm_sigma__V`` per call.
     """
 
+    mux_gain_mismatch: bool
     mux_noise_cm: bool
     mux_noise_dm: bool
 
@@ -88,6 +96,9 @@ class AnalogMux(CircuitBase[AnalogMuxConfig]):
         T__K: Operating temperature [K].
     """
 
+    nominal_eps_g: Tensor
+    eps_g: Tensor
+
     def __init__(
         self,
         *,
@@ -102,6 +113,19 @@ class AnalogMux(CircuitBase[AnalogMuxConfig]):
         self.policy = policy
         self.dtype = dtype
         self.T__K = T__K
+
+        # ε_g zero until fabricated; flat sigma, no Pelgrom area scaling.
+        self.register_buffer("nominal_eps_g", torch.zeros((), dtype=dtype), persistent=False)
+        self.register_buffer("eps_g", self.nominal_eps_g.clone(), persistent=False)
+        self.sigma_eps_g = config.mux_gain_mismatch_sigma_relative
+
+    def _sample_fabricate_mismatch(self) -> None:
+        """Resample inter-leg gain mismatch ε_g at ``self._inst_shape``."""
+        self.eps_g = apply_gaussian(
+            self.nominal_eps_g.clone().expand(self._inst_shape),
+            self.sigma_eps_g,
+            enabled=self.policy.mux_gain_mismatch,
+        )
 
     def transport(
         self,
@@ -119,8 +143,10 @@ class AnalogMux(CircuitBase[AnalogMuxConfig]):
             ``(v_pos_muxed__V, v_neg_muxed__V)`` — both share ``v_pos__V``'s shape.
         """
         gain = self.config.mux_gain
-        v_pos_muxed__V = gain * v_pos__V
-        v_neg_muxed__V = gain * v_neg__V
+        gain_pos = gain * (1 + 0.5 * self.eps_g)
+        gain_neg = gain * (1 - 0.5 * self.eps_g)
+        v_pos_muxed__V = gain_pos * v_pos__V
+        v_neg_muxed__V = gain_neg * v_neg__V
 
         # CM: same sign on both legs. DM: +pos, -neg.
         zeros = torch.zeros_like(v_pos_muxed__V)

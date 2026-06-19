@@ -12,9 +12,11 @@ Both $\beta$ and $V_{\mathrm{th}}$ are temperature-scaled from their reference-t
 
 ## Governing equations
 
-**Temperature scaling.** With reference temperature $T_{\mathrm{ref}}$, the mobility follows a power law and the threshold a linear shift, giving the nominal transconductance factor and threshold:
+**Temperature scaling.** With reference temperature $T_{\mathrm{ref}}$, the mobility follows the BSIM UTE power law and the threshold a linear shift, giving the nominal transconductance factor and threshold:
 
-$$\beta_{\mathrm{nom}} = \mu_0\left(\frac{T}{T_{\mathrm{ref}}}\right)^{-u_{\mathrm{te}}} C_{\mathrm{ox}}\,\frac{W}{L}, \qquad V_{\mathrm{th,nom}} = V_{\mathrm{th0}} + k_{t1}\left(\frac{T}{T_{\mathrm{ref}}}-1\right).$$
+$$\beta_{\mathrm{nom}} = \mu_0\left(\frac{T}{T_{\mathrm{ref}}}\right)^{u_{\mathrm{te}}} C_{\mathrm{ox}}\,\frac{W}{L}, \qquad V_{\mathrm{th,nom}} = V_{\mathrm{th0}} + k_{t1}\left(\frac{T}{T_{\mathrm{ref}}}-1\right).$$
+
+The exponent $u_{\mathrm{te}}$ is the SPICE/BSIM `UTE` parameter one-to-one (negative by convention, e.g. $-1.5$), so mobility falls with temperature.
 
 **I-V law.** With the source- and drain-referred overdrives $V_{\mathrm{ov,s}} = V_g - V_s - V_{\mathrm{th}}$ and $V_{\mathrm{ov,d}} = V_g - V_d - V_{\mathrm{th}}$, define the softplus-smoothed effective overdrives and their sigmoid derivatives at smoothing scale $\lambda = 1/(2 n V_T)$:
 
@@ -38,10 +40,10 @@ N/A — the I-V surface and its three partials are evaluated in closed form; the
 
 Fabrication mismatch is Pelgrom-law area-scaled Gaussian noise sampled once per `fabricate()` call onto the per-instance threshold and transconductance maps. Each source is switched by a per-run policy flag (identity map when off):
 
-- **$V_{\mathrm{th}}$ mismatch** (`A_vt_mismatch`, fabricate time) — additive Gaussian on $V_{\mathrm{th,nom}}$ with sigma $\sigma_{V_{\mathrm{th}}} = A_{V_{\mathrm{th}}}\cdot 10^{-3}/\sqrt{W L}$ (the $10^{-3}$ converts the mV-um matching coefficient to V).
-- **$\beta$ mismatch** (`A_beta_mismatch`, fabricate time) — additive Gaussian on $\beta_{\mathrm{nom}}$ with relative sigma $\sigma_\beta/\beta = A_\beta/\sqrt{W L}$.
+- **$V_{\mathrm{th}}$ mismatch** (`A_vt_mismatch`, fabricate time) — additive Gaussian on $V_{\mathrm{th,nom}}$ with sigma $\sigma_{V_{\mathrm{th}}} = A_{V_{\mathrm{th}}}\cdot 10^{-3}/\sqrt{2 W L}$ (the $10^{-3}$ converts the mV-um matching coefficient to V).
+- **$\beta$ mismatch** (`A_beta_mismatch`, fabricate time) — additive Gaussian on $\beta_{\mathrm{nom}}$ with relative sigma $\sigma_\beta/\beta = A_\beta/\sqrt{2 W L}$.
 
-Both sigmas scale as $1/\sqrt{W L}$: larger devices match better. They are static device-to-device variation, not per-read noise.
+$A_{V_{\mathrm{th}}}$ and $A_\beta$ follow the standard Pelgrom / PDK / SPICE extraction convention: they are pairwise-difference (matched-pair) coefficients, sizing the sigma of the difference $\Delta P = P_1 - P_2$ between two matched devices. With independent identically distributed devices $\operatorname{Var}(\Delta P) = 2\operatorname{Var}(P)$, so the per-device (single-transistor) sigma carries the factor $1/\sqrt{2}$ relative to the pair-difference sigma. Both sigmas scale as $1/\sqrt{W L}$: larger devices match better. They are static device-to-device variation, not per-read noise.
 
 ## Parameters
 
@@ -54,8 +56,8 @@ Both sigmas scale as $1/\sqrt{W L}$: larger devices match better. They are stati
 | `T_ref__K` | reference temperature $T_{\mathrm{ref}}$ | K | Process |
 | `ute` | mobility temperature exponent $u_{\mathrm{te}}$ | — | Process |
 | `kt1__V` | $V_{\mathrm{th}}$ temperature coefficient $k_{t1}$ | V | Process |
-| `A_vt__mV_um` | Pelgrom $V_{\mathrm{th}}$ matching coefficient $A_{V_{\mathrm{th}}}$ | mV-um | Process |
-| `A_beta_relative__um` | Pelgrom relative-$\beta$ matching coefficient $A_\beta$ | um | Process |
+| `A_vt__mV_um` | Pelgrom $V_{\mathrm{th}}$ matching coefficient $A_{V_{\mathrm{th}}}$ (pairwise difference) | mV-um | Process |
+| `A_beta_relative__um` | Pelgrom relative-$\beta$ matching coefficient $A_\beta$ (pairwise difference) | um | Process |
 | `W__um` | channel width $W$ (init kwarg) | um | Design |
 | `L__um` | channel length $L$ (init kwarg) | um | Design |
 
@@ -79,7 +81,7 @@ Provenance terms are defined in [parameter_provenance](../parameter_provenance.m
 | $n$ | subthreshold-swing factor | — | `n_factor` |
 | $V_T$ | thermal voltage $k_B T / q$ | V | `thermal_voltage__V(T__K)` |
 | $u_{\mathrm{te}}, k_{t1}$ | mobility exponent, $V_{\mathrm{th}}$ temperature coefficient | —, V | `ute`, `kt1__V` |
-| $A_{V_{\mathrm{th}}}, A_\beta$ | Pelgrom matching coefficients | mV-um, um | `A_vt__mV_um`, `A_beta_relative__um` |
+| $A_{V_{\mathrm{th}}}, A_\beta$ | Pelgrom matching coefficients (pairwise difference) | mV-um, um | `A_vt__mV_um`, `A_beta_relative__um` |
 | $\sigma_{V_{\mathrm{th}}}, \sigma_\beta$ | mismatch sigmas | V, uA/V^2 | `sigma_vth__V`, `sigma_beta__uA_per_V2` |
 | $W, L$ | channel width, length | um | `W__um`, `L__um` |
 | $T, T_{\mathrm{ref}}$ | operating, reference temperature | K | `T__K`, `T_ref__K` |

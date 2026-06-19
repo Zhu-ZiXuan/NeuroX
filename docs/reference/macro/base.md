@@ -16,13 +16,29 @@ The macro computes an integer dot product matching exact matrix multiplication o
 
 $$\mathbf{Y} = \mathbf{X}\,\mathbf{W}^{\!\top}, \qquad Y_{m,n} = \sum_{k} X_{m,k}\,W_{n,k},$$
 
-returned as an integer pre-requantize tensor. Bias addition and the requantization back to the activation grid are not part of the macro; they belong to the operator that wraps it.
+returned as an integer pre-requantize tensor. This integer $\mathbf{Y}$ is the pre-ADC ideal: it is the value the decomposition reconstructs exactly. The realized result carries the per-tile ADC quantization of each constituent read (the deviation enters only through the analog tiles, never the slicing or aggregation arithmetic). Bias addition and the requantization back to the activation grid are not part of the macro; they belong to the operator that wraps it.
 
-The decomposition that realizes this dot product on physical tiles is value-domain exact: a logical weight is sliced into per-weight slices of count `Sw`, each slice an integer in a tile-carriable range; a logical activation is sliced into per-cycle slices of count `Sa`. Both decompositions are positional, so the partial products recombine by a radix-weighted shift-add. The tiling and aggregation scheme that arranges these slices on the physical tile layout is specified in [xbar/base](../xbar/base.md); a degenerate member with `Sw = Sa = 1` performs no slicing.
+The macro has two orthogonal axes that together place this matmul on physical tiles: a matrix-**tiling** axis ($T_r$, $T_c$) that splits any matmul too large for one tile, and a precision-**slicing** axis ($S_w$, $S_a$, specific to compute-in-memory) that decomposes a high-precision value into tile-carriable pieces.
+
+### Matrix tiling (T_r, T_c)
+
+A logical weight matrix wider or taller than one tile is split into a grid of tiles: $T_r = \lceil N / N_{\mathrm{col}} \rceil$ tiles along the output axis (rows of the transposed weight) and $T_c = \lceil K / N_{\mathrm{row}} \rceil$ tiles along the contraction axis. The per-tile reads on the $T_c$ contraction tiles are summed back into one dot product. This axis is application-neutral — it applies to any matmul — and adds no value decomposition.
+
+### Precision slicing (S_w, S_a)
+
+A **value** (level 2, role-neutral: a weight on the weight side, an activation on the input side) whose range exceeds what one tile cell can carry is decomposed into positional **slices** (level 1). A weight is cut into $S_w$ slices and an activation into $S_a$ slices, each slice a fixed-capacity piece of $D$ **digits** (level 0, the integer symbol one xbar cell carries at digit radix $r$). The per-slice positional weight is the **slice radix** $R = r^{D}$, and the LSB-first slice weights are $(1, R, R^{2}, \dots)$, so the value recombines from its slices $m_i$ by the radix-weighted shift-add
+
+$$M = \sum_{i} m_i\, R^{i}.$$
+
+The per-slice value range is computed from the digit count $D$ and the digit radix $r$ published by the [physical-tile contract](../xbar/base.md) (the xbar is the authority for the digit/slice interface). The slice counts $S_w$, $S_a$ are config-given, not inferred. A degenerate member with $S_w = S_a = 1$ performs no slicing.
+
+### Decompose $\leftrightarrow$ aggregate
+
+Slicing a value into positional slices and recombining the per-tile partial reads are inverse operations: the macro decomposes the value into slices, and the radix-weighted shift-add that reconstructs $M$ is the aggregation primitive specified in [digital/shift_adder](../digital/shift_adder.md). The shift-adder folds the slice axis with the positional weights $(1, R, R^2, \dots)$; the contraction-tile sum over $T_c$ is a plain integer accumulation.
 
 ## Noise & non-idealities
 
-N/A at the contract level — the macro is a value-domain organizer and adds no analog non-ideality of its own. Every non-ideality enters through the tiles it reads (IR drop, device noise, finite-gain clamps, ADC quantization) and through the digital reduction blocks (exact by construction). The tile-level sources are specified in [xbar/base](../xbar/base.md) and the topology families beneath it.
+N/A at the contract level — the macro is a value-domain organizer and adds no analog non-ideality of its own. Every non-ideality enters through the tiles it reads (IR drop, device noise, finite-gain clamps, ADC quantization) and through the digital reduction blocks (exact by construction). The tile-level sources are specified in the physical-tile contract in [xbar/base](../xbar/base.md) and the topology families beneath it.
 
 ## Parameters
 
@@ -39,11 +55,11 @@ Provenance terms are defined in [parameter_provenance](../parameter_provenance.m
 
 ### ADC operating-point surface
 
-The macro inherits a discrete ADC operating-point surface from the tiles it reads. It publishes the number of supported operating points `adc_mode_num` (valid `adc_mode` indices are $[0, \text{adc\_mode\_num})$) and the maximum resolution `adc_max_bits`, and for any operating point it publishes the recovery-side rescale factor $s$ relating the integer dot product to the digitized code,
+The macro inherits a discrete ADC operating-point surface from the tiles it reads. It publishes the number of supported operating points `adc_mode_num` (valid `adc_mode` indices are $[0, \mathrm{adc\_mode\_num})$) and the maximum resolution `adc_max_bits`, and for any operating point it publishes the recovery-side rescale factor $s$ relating the integer dot product to the digitized code,
 
-$$M_{\text{ideal}} \approx \text{code}\cdot s.$$
+$$M_{\mathrm{ideal}} \approx \mathrm{code}\cdot s.$$
 
-The macro derives this surface from its tiles; the rescale-factor convention and its calibration are the tile-level contract in [xbar/base](../xbar/base.md#output-rescale). A degenerate member that performs an exact integer matmul publishes a sentinel surface (`adc_mode_num = 1`, `adc_max_bits = 0`, $s = 1$), where `adc_max_bits = 0` signals "no output quantization".
+The macro derives this surface from its tiles; the rescale-factor convention and its calibration are the physical-tile contract in [xbar/base](../xbar/base.md#output-rescale). A degenerate member that performs an exact integer matmul publishes a sentinel surface (`adc_mode_num = 1`, `adc_max_bits = 0`, $s = 1$), where `adc_max_bits = 0` signals "no output quantization".
 
 ## Symbols
 
@@ -53,24 +69,30 @@ The macro derives this surface from its tiles; the rescale-factor convention and
 | $\mathbf{X}$ | logical activation matrix (runtime input) | — | `input` |
 | $\mathbf{Y}$ | pre-requantize integer output | — | `matmul` return |
 | $N, K, M$ | output, contraction, and activation-row dims | — | `w_logical_shape`, input shape |
+| $S_w, S_a$ | weight-, activation-slice counts (precision-slicing axis) | — | `w_slice_num`, `x_slice_num` |
+| $T_r, T_c$ | output-, contraction-axis tile counts (matrix-tiling axis) | — | — |
+| $D$ | digits per slice (from the tile) | — | `w_digit_count` |
+| $r$ | digit radix (from the tile) | — | `w_digit_radix` |
+| $R$ | slice radix, $R = r^{D}$ | — | `slice_radix` |
+| $m_i$ | value carried by slice $i$ | — | — |
 | $s$ | output rescale factor | — | `adc_rescale_factor` |
-| $M_{\text{ideal}}$ | ideal integer dot product | — | — |
+| $M_{\mathrm{ideal}}$ | ideal integer dot product | — | — |
 
-Slice counts (`Sw`, `Sa`) and tile-layout counts (`Tc`, `Tr`) are structure counts referred to by code field; they enter no equation here and are specified in [xbar/base](../xbar/base.md). The integer value ranges are published as `w_value_range` and `x_value_range`.
+The precision-slicing counts $S_w$, $S_a$ and the matrix-tiling counts $T_r$, $T_c$ are the two axes defined in the governing equations above; their value-domain folds enter the per-mode equations of the family documents. The per-slice value range is computed from the digit count $D$ and digit radix $r$ published by the physical tile (see [xbar/base](../xbar/base.md)); the integer value ranges the macro accepts are published as `w_value_range` and `x_value_range`.
 
 ## Assumptions, scope & validity
 
 Stated assumptions of the macro contract:
 
 - The macro returns a pre-requantize integer result; bias and requantization are the consuming operator's responsibility, not the macro's.
-- Value ranges are a published capability, not an enforced bound: a member trusts the upper mapping layer to supply integer weights and activations already inside `w_value_range` and `x_value_range`. Out-of-range inputs are not checked and produce undefined results.
+- Value ranges are a published capability, not an enforced bound: a member trusts the caller to supply integer weights and activations already inside `w_value_range` and `x_value_range`. The per-slice value range is computed from the tile's digit count and radix (the xbar interface is the authority); the slice counts $S_w$, $S_a$ are config-given, not inferred. Out-of-range inputs are not checked and produce undefined results.
 - The decomposition is value-domain exact: the only deviation from the exact integer dot product is the analog non-ideality of the constituent tile reads, not the slicing or aggregation arithmetic.
 
-TODO (domain author): state the validity boundary of the slice-and-shift-add decomposition (saturation of the positional recombination, the largest dot-product magnitude representable before the ADC code clamps) and any regime where the value-domain-exact assumption breaks.
+TODO (domain author): state the validity boundary of the slice-and-shift-add decomposition — the exact per-slice value range per encoding, the saturation of the positional recombination $M = \sum_i m_i R^i$, the largest dot-product magnitude representable before the ADC code clamps, and any regime where the value-domain-exact assumption breaks.
 
 ## Validation
 
-TODO: link [validation/macro](../../validation/README.md) — agreement of each mode against the ideal twin under a noise-off policy, and bit-exactness of the organize/aggregate dual.
+TODO: link [validation/macro](../../validation/README.md) — agreement of each mode against the ideal twin under a noise-off policy, and bit-exactness of the decompose $\leftrightarrow$ aggregate dual.
 
 ## References
 

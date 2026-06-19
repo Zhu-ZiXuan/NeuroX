@@ -26,9 +26,9 @@ TODO — aggregate the Assumptions of the analog Reference documents (ADC, DAC, 
 
 TODO — aggregate the Assumptions of the digital Reference documents.
 
-### Macro and mapping
+### Macro
 
-TODO — aggregate the Assumptions of the macro and mapper Reference documents.
+TODO — aggregate the Assumptions of the macro Reference documents (matrix tiling and precision slicing).
 
 ### Profiling and PPA
 

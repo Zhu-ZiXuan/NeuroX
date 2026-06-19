@@ -209,6 +209,7 @@ def _make_mux_config(**overrides: float) -> AnalogMuxConfig:
     base = {
         "energy_per_access__fJ": 0.0,
         "mux_gain": 1.0,
+        "mux_gain_mismatch_sigma_relative": 0.0,
         "mux_noise_cm_sigma__V": 0.0,
         "mux_noise_dm_sigma__V": 0.0,
         "leakage_per_inst__uW": 0.0,
@@ -219,9 +220,9 @@ def _make_mux_config(**overrides: float) -> AnalogMuxConfig:
     return AnalogMuxConfig(**base)
 
 
-_MUX_OFF = AnalogMuxPolicy(mux_noise_cm=False, mux_noise_dm=False)
-_MUX_CM_ON = AnalogMuxPolicy(mux_noise_cm=True, mux_noise_dm=False)
-_MUX_DM_ON = AnalogMuxPolicy(mux_noise_cm=False, mux_noise_dm=True)
+_MUX_OFF = AnalogMuxPolicy(mux_gain_mismatch=False, mux_noise_cm=False, mux_noise_dm=False)
+_MUX_CM_ON = AnalogMuxPolicy(mux_gain_mismatch=False, mux_noise_cm=True, mux_noise_dm=False)
+_MUX_DM_ON = AnalogMuxPolicy(mux_gain_mismatch=False, mux_noise_cm=False, mux_noise_dm=True)
 
 
 def test_analog_mux_passthrough() -> None:

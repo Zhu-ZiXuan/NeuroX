@@ -129,7 +129,7 @@ class CalibrationResult:
 def fit_rescale_factor(phys_codes: Tensor, ideal_vmm: Tensor) -> float:
     """Solve ``min_r Σ (p_i · r − y_i)^2`` in float64 — strict zero-through-origin.
 
-    The differential ADC reads ``v_diff = v_data − v_ref``; by design both
+    The differential ADC reads ``v_diff = v_signal − v_ref``; by design both
     legs are biased to the TIA's common reference so ``v_diff = 0`` at zero
     input. The ideal mapping ``code = r · ideal_vmm`` therefore passes
     through the origin — any non-zero intercept ``b`` would be chip-

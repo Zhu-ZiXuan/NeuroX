@@ -7,7 +7,7 @@
 ## Design decisions
 
 - **Not polymorphic.** There is one concrete mux; parent circuits construct it directly from its config rather than dispatching through a family base. Adding a registry would buy nothing while a single topology exists, and the canonical leaf signature already standardises construction.
-- **All noise is dynamic.** CM and DM noise are sampled inside `transport`, not fabricated; the mux owns no static mismatch, so `_sample_fabricate_mismatch` stays the inherited no-op.
+- **Static mismatch vs dynamic noise.** `_sample_fabricate_mismatch` samples the inter-leg gain mismatch `eps_g` once at fabricate from `mux_gain_mismatch_sigma_relative` (flat sigma, no area scaling) and `transport` applies the per-leg gains `g± = g(1 ± eps_g/2)`; CM and DM noise stay dynamic, re-sampled inside `transport`.
 
 ## Contracts & invariants
 

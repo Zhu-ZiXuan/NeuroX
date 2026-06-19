@@ -1,7 +1,7 @@
 """Signed-digit transcoders: integer ↔ digit-list conversion.
 
 See also:
-    docs/reference/mapper/transcoder/README.md
+    docs/internals/common/encoding/README.md
 """
 
 from .base import Encoding, Transcoder

@@ -1,5 +1,5 @@
-# transcoder — Implementation
+# encoding — Implementation
 
-How the signed-digit encoding layer is built. Spec: [reference/mapper/transcoder](../../../reference/mapper/transcoder/README.md).
+How the signed-digit encoding layer is built — impl-only; the encoding is a generic codec with no reference spec.
 
 - [encodings](encodings.md) — the `Transcoder` ABC observable surface, registry dispatch by encoding discriminator, and the per-encoding implementation contracts.

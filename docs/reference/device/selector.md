@@ -10,9 +10,9 @@ The selector is abstracted to a single static per-cell state variable, the thres
 
 ## Governing equations
 
-The fabricated per-cell threshold is the nominal value perturbed by additive Gaussian mismatch:
+Each cell $k$ draws its fabricated threshold as the nominal value perturbed by an independent additive Gaussian mismatch:
 
-$$V_{\mathrm{th}} = V_{\mathrm{th,nom}} + \mathcal{N}(0,\,\sigma_{V_{\mathrm{th}}}^2).$$
+$$V_{\mathrm{th},k} = V_{\mathrm{th,nom}} + \mathcal{N}_k(0,\,\sigma_{V_{\mathrm{th}}}^2).$$
 
 There is no device-level conduction equation.
 
@@ -22,7 +22,9 @@ N/A — the model samples a static threshold map and exports it; it holds no sol
 
 ## Noise & non-idealities
 
-- **$V_{\mathrm{th}}$ mismatch** (`vth_mismatch`, fabricate time) — additive zero-mean Gaussian on the nominal threshold with sigma $\sigma_{V_{\mathrm{th}}}$, sampled once per `fabricate()` call. Switched by the per-run policy flag; with the flag off the map is the uniform nominal value. This is static device-to-device variation, not per-read noise.
+The single source is parameterised against the shared template in [notation_conventions](../notation_conventions.md#noise-model-conventions).
+
+- **$V_{\mathrm{th}}$ mismatch** (`vth_mismatch`, fabricate time) — a state-independent additive zero-mean Gaussian on the nominal threshold with a single config-constant sigma $\sigma_{V_{\mathrm{th}}}$ (no area dependence), sampled once per `fabricate()` call. Switched by the per-run policy flag; with the flag off the map is the uniform nominal value. This is static device-to-device variation, not per-read noise. Area / Pelgrom scaling of the spread is deliberately not modelled here, unlike the [NMOS](nmos.md#noise--non-idealities) mismatch.
 
 ## Parameters
 

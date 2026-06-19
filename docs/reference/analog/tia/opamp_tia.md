@@ -2,7 +2,9 @@
 
 ## Summary / role
 
-`OpAmpTIA` is the op-amp plus NMOS-pseudo-resistor concrete transimpedance amplifier: an operational amplifier closing a feedback loop through an NMOS biased as a pseudo-resistor, clamping the bit line at a virtual-ground reference and converting the column port current into a clamp voltage. It is the only current member of the [TIA family](README.md) and honours the family clamp contract in [base](base.md).
+Note: this op-amp-TIA spec is incomplete and not yet finalized; its equations are provisional and not to be treated as a settled spec. Open gaps to resolve when finalized: (1) the clamp/output loop equation is not stated, so the clamp transfer function $\operatorname{TIA}$ and its derivative $\partial V_{\mathrm{BL,CL}}/\partial I_{\mathrm{BL,port}}$ cannot be evaluated from the equations given here; (2) the $\tanh$ soft-clip input centering $c = V_{\mathrm{dd}}/2$ inside the argument is a suspected slip — the natural form centers the argument on the input balance point, not on $V_{\mathrm{dd}}/2$; (3) the $s \to 0$ hard-clip limit needs a positive lower bound $s > 0$ to preserve the differentiable rationale of the soft-clip.
+
+`OpAmpTIA` is the op-amp plus NMOS-pseudo-resistor concrete transimpedance amplifier: an operational amplifier closing a feedback loop through an NMOS biased as a pseudo-resistor, clamping the bit line at a virtual-ground reference and converting the column port current into a clamp voltage. It is the only current member of the [TIA family](README.md) and honours the BL clamp-driver contract in [base](base.md).
 
 ## Physical model
 

@@ -53,7 +53,7 @@ N/A — validation runs once per config instance at construction, off any per-VM
 
 ---
 
-- Reference: N/A — software plumbing; no physics counterpart.
-- Implementation: `neurox/common/mixin/validate.py`
-- Tests: `tests/test_config_validation.py`
-- Decisions: [config_and_construction](../../config_and_construction.md)
+- **Reference**: N/A — software plumbing; no physics counterpart.
+- **Implementation**: `neurox/common/mixin/validate.py`
+- **Tests**: `tests/test_config_validation.py`
+- **Decisions**: [config_and_construction](../../config_and_construction.md)

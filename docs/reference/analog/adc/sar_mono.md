@@ -2,6 +2,8 @@
 
 ## Summary / role
 
+Note: this document is incomplete and not yet finished. Its symbols, units and equations are provisional and are not reconciled with the rest of the ADC family yet; do not treat it as a settled spec.
+
 `SarAdcMono` is the monotonic (Set-and-Down) differential SAR ADC, a planned member of the [ADC family](README.md). Its fabrication state (per-leg cap arrays and comparator offset) is specified and wired, but the differential conversion kernel is not yet realised. For current SAR work use [mcs_sar](mcs_sar.md). It will honour the family signed-code and floor contract in [base](base.md).
 
 ## Physical model

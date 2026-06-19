@@ -26,7 +26,7 @@ encoding = "true_form"
 
 [x_transcoder]
 encoding = "true_form"
-digit_num = 4
+digit_count = 4
 
 
 [macro]

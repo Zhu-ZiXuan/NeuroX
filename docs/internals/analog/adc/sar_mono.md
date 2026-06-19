@@ -7,7 +7,7 @@
 ## Design decisions
 
 - **Fabrication wired ahead of the kernel.** `_sample_fabricate_mismatch` already builds the per-leg cap arrays (`c_p__fF` / `c_n__fF`, independently sampled at `_inst_shape`) and the `comparator_offset__V`, so the static state path is exercisable before the convert kernel exists. The future kernel will consume these plus per-call kT/C and per-cycle comparator noise.
-- **Config shape shared with the MCS variant.** Same fields as `McsSarAdcConfig` (`max_bits`, `v_refs`, cap / comparator mismatch sigmas, energy overhead, static PPA) and the same no-`latency_per_op__ns` choice - the future kernel will derive `(adc_operation_point.adc_bits + 1) * clk_period__ns`. The shared shape keeps the two SAR topologies swappable once the kernel lands.
+- **Config shape shared with the MCS variant.** Same fields as `McsSarAdcConfig` (`max_bits`, `v_refs__V`, cap / comparator mismatch sigmas, energy overhead, static PPA) and the same no-`latency_per_op__ns` choice - the future kernel will derive `(adc_operation_point.adc_bits + 1) * clk_period__ns`. The shared shape keeps the two SAR topologies swappable once the kernel lands.
 
 ## Contracts & invariants
 

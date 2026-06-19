@@ -56,7 +56,7 @@ _SPECS = {
     "wl_dac": GeneralDACConfig,
     "bl_adc": GeneralADCConfig,
     "analog_mux": AnalogMuxConfig,
-    "data_switchcap": SwitchCapConfig,
+    "signal_switchcap": SwitchCapConfig,
     "ref_switchcap": SwitchCapConfig,
     "digit_subtractor": SubtractorConfig,
     "core": CircuitCore1T1RConfig,
@@ -113,7 +113,7 @@ def _build_xbar() -> Offset1T1RXbar:
     readout_factory = partial(
         OffsetSwitchCapMuxAdcReadOut,
         config["readout"],
-        data_switchcap_factory=partial(SwitchCap, config["data_switchcap"], T__K=T_ROOM__K, dtype=torch.float64),
+        signal_switchcap_factory=partial(SwitchCap, config["signal_switchcap"], T__K=T_ROOM__K, dtype=torch.float64),
         ref_switchcap_factory=partial(SwitchCap, config["ref_switchcap"], T__K=T_ROOM__K, dtype=torch.float64),
         analog_mux_factory=partial(AnalogMux, config["analog_mux"], dtype=torch.float64),
         adc_factory=partial(GeneralADC, config["bl_adc"], dtype=torch.float64),

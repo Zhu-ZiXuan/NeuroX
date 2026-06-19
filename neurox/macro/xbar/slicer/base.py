@@ -11,7 +11,7 @@ class Slicer(ABC):
     """Abstract value-domain decomposer.
 
     A slicer turns an integer-valued tensor into a digit tensor with
-    trailing-2 axes ``[slice_num, digit_num]``. Concrete subclasses bind
+    trailing-2 axes ``[slice_num, digit_count]``. Concrete subclasses bind
     to a specific xbar-cell geometry through their own constructor; only
     the externally observable surface — ``value_range``, ``slice_radix``,
     and ``slice(x)`` — is declared here.
@@ -37,5 +37,5 @@ class Slicer(ABC):
 
     @abstractmethod
     def slice(self, x: Tensor) -> Tensor:
-        """Decompose ``x`` into trailing-2 ``[slice_num, digit_num]`` digit slots."""
+        """Decompose ``x`` into trailing-2 ``[slice_num, digit_count]`` digit slots."""
         raise NotImplementedError

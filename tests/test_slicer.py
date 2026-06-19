@@ -7,8 +7,8 @@ from typing import Any
 import pytest
 import torch
 
-from neurox.mapper.transcoder import Encoding, Transcoder
-from neurox.mapper.xbar.slicer import SerialSlicer, SimpleSlicer
+from neurox.common.encoding import Encoding, Transcoder
+from neurox.macro.xbar.slicer import SerialSlicer, SimpleSlicer
 
 
 def _decode_serial_slices(slices: torch.Tensor, weights: tuple[int, ...]) -> torch.Tensor:
@@ -67,7 +67,7 @@ def test_serial_slicer_roundtrip_for_geometry_cases(slice_num: int, digit_radix:
 )
 def test_simple_slicer_value_range_delegates_to_full_length_transcoder(encoding: Encoding) -> None:
     slicer = SimpleSlicer(slice_num=2, digit_count=3, digit_radix=2, encoding=encoding)
-    transcoder = Transcoder.create(encoding, radix=2, digit_num=6)
+    transcoder = Transcoder.create(encoding, radix=2, digit_count=6)
     assert slicer.value_range == transcoder.value_range
 
 

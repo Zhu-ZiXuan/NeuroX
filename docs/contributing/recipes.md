@@ -73,7 +73,7 @@ Slicer is an abstract base with direct concrete subclasses (callers instantiate 
 4. [primary]     Implement the primary method (`slice`, `encode` / `decode`) → [naming_conventions](naming_conventions.md) §Primary-method names
 5. [output]      Return raw `Tensor` for one-tensor returns; reserve `*Plan` / `*Result` dataclasses for the case when a method must return multiple runtime-computed tensors that have no useful identity as instance state. Static geometry stays on the producing class as `@property` → [code_style](code_style.md) §Property vs method, [naming_conventions](naming_conventions.md) §Class suffixes
 6. [export]      Owning package `__init__.py` exports the concrete class + any `*Plan` / `*Result` types in its public type annotations → [naming_conventions](naming_conventions.md) §Class suffixes
-7. [doc]         Write the `reference/mapper/.../<name>.md` and `internals/mapper/.../<name>.md` per the templates → [writing_reference_docs](writing_reference_docs.md), [writing_internals_docs](writing_internals_docs.md)
+7. [doc]         Document the slicer in the macro slicing spec (`reference/macro/`) and the encoding codec in `internals/common/encoding/`, per the templates → [writing_reference_docs](writing_reference_docs.md), [writing_internals_docs](writing_internals_docs.md)
 
 ## Add a user-side operator (out of core)
 
