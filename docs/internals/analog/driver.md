@@ -12,9 +12,9 @@
 
 ## Contracts & invariants
 
-- **Solver-facing surface.** `v_ref__V` (the zero-current clamp voltage), `solve_clamp(i_port__uA, snapshot, *, v_clamp_init__V) -> (v_clamp__V, dVclamp_dI__MOhm)`, and `snapshot(*, shape, multi_coords)`. The richer `solve_dc(...)` is a concrete-handle extension the array solve does not depend on.
+- **Solver-facing surface.** `v_ref__V` (the zero-current clamp voltage), `solve_clamp(i_port__uA, snap, *, v_clamp_init__V) -> (v_clamp__V, dVclamp_dI__MOhm)`, and `snapshot(*, shape, multi_coords)`. The richer `solve_dc(...)` is a concrete-handle extension the array solve does not depend on.
 - **Construction commits `inst_shape`.** `__init__(*, config, policy, name, inst_shape, dtype, T__K)` locks the per-instance shape; the nominal drive value is a 0-d non-persistent buffer, so there is no shape-dependent fabricated buffer to rebuild.
-- **Thermal noise is per-snapshot.** The optional Gaussian is sampled into the `DriverSnapshot`, not at construction; the same driver yields a fresh sample each read.
+- **Thermal noise is per-snapshot.** The optional Gaussian is sampled into the `DriverSnap`, not at construction; the same driver yields a fresh sample each read.
 
 ## Performance & resources
 

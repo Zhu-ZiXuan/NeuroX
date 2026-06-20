@@ -13,12 +13,12 @@ from dataclasses import dataclass
 
 from torch import Tensor
 
-from neurox.analog import Driver, DriverSnapshot
-from neurox.analog.tia import TIA, TIASnapshot
+from neurox.analog import Driver, DriverSnap
+from neurox.analog.tia import TIA, TIASnap
 from neurox.common.mixin import RegistryMixin, ValidateMixin
 from neurox.xbar.cell import XbarCell
 
-from .cell import XbarCell1T1RDCOP, XbarCell1T1RSnapshot
+from .cell import XbarCell1T1RDCOP, XbarCell1T1RSnap
 
 # ---------------------------------------------------------------------------
 # Config base
@@ -144,7 +144,7 @@ class Solver1T1R(RegistryMixin[type["Solver1T1RConfig"], "Solver1T1R"], ABC):
         self,
         *,
         config: Solver1T1RConfig,
-        cell: XbarCell[XbarCell1T1RSnapshot, XbarCell1T1RDCOP],
+        cell: XbarCell[XbarCell1T1RSnap, XbarCell1T1RDCOP],
         bl_driver: TIA,
         sl_driver: Driver,
     ) -> None:
@@ -156,7 +156,7 @@ class Solver1T1R(RegistryMixin[type["Solver1T1RConfig"], "Solver1T1R"], ABC):
         cls,
         *,
         config: Solver1T1RConfig,
-        cell: XbarCell[XbarCell1T1RSnapshot, XbarCell1T1RDCOP],
+        cell: XbarCell[XbarCell1T1RSnap, XbarCell1T1RDCOP],
         bl_driver: TIA,
         sl_driver: Driver,
     ) -> Solver1T1R:
@@ -177,12 +177,12 @@ class Solver1T1R(RegistryMixin[type["Solver1T1RConfig"], "Solver1T1R"], ABC):
         sl_segment_r__MOhm: Tensor,
         bl_segment_g__uS: Tensor,
         sl_segment_g__uS: Tensor,
-        cell_snapshot: XbarCell1T1RSnapshot,
-        bl_driver_snapshot: TIASnapshot,
-        sl_driver_snapshot: DriverSnapshot,
+        cell_snap: XbarCell1T1RSnap,
+        bl_driver_snap: TIASnap,
+        sl_driver_snap: DriverSnap,
         compute_residuals: bool = False,
     ) -> Solver1T1RDCOP:
-        """Solve the fabricated 1T1R tile for one cell snapshot.
+        """Solve the fabricated 1T1R tile for one cell snap.
 
         Args:
             bl_segment_r__MOhm: 1-D BL segment resistances [MOhm]; index 0 is
@@ -193,10 +193,10 @@ class Solver1T1R(RegistryMixin[type["Solver1T1RConfig"], "Solver1T1R"], ABC):
                 ``bl_segment_r__MOhm``.
             sl_segment_g__uS: SL segment conductances [uS], reciprocal of
                 ``sl_segment_r__MOhm``.
-            cell_snapshot: Per-solve cell snapshot bundling the device
-                snapshots and the per-cell control-line (WL) drive.
-            bl_driver_snapshot: Per-solve BL driver snapshot.
-            sl_driver_snapshot: Per-solve SL driver snapshot.
+            cell_snap: Per-solve cell snap bundling the device
+                snaps and the per-cell control-line (WL) drive.
+            bl_driver_snap: Per-solve BL driver snap.
+            sl_driver_snap: Per-solve SL driver snap.
             compute_residuals: When True, populate
                 :attr:`Solver1T1RDCOP.residuals` after convergence; when
                 False (hot path) leaves it as ``None``.

@@ -32,12 +32,14 @@ Dataclasses returned or accepted at module boundaries use one of the following s
 | Suffix | Meaning | Examples |
 |---|---|---|
 | `*Config` | Frozen design / spec configuration for a circuit, device, or family. | `NMOSConfig`, `OpAmpTIAConfig`, `OffsetSwitchCapMuxAdcReadOutConfig` |
-| `*Snapshot` | Per-call runtime snapshot of a module's working state, sampled at `snapshot(*, shape=...)` time. Carries only `Tensor` fields and nested `*Snapshot` instances. Frozen. | `NMOSSnapshot`, `RRAMSnapshot`, `OpAmpTIASnapshot`, `DriverSnapshot` |
+| `*Snap` | Per-call runtime snap of a module's working state, sampled at `snapshot(*, shape=...)` time. Carries only `Tensor` fields and nested `*Snap` instances. Frozen. | `NMOSSnap`, `RRAMSnap`, `OpAmpTIASnap`, `DriverSnap` |
 | `*DCOP` | DC operating point - return type of any `solve_dc(...)` method. Carries the solved electrical quantities (voltages, currents, sensitivities). Frozen. Used only when the module truly owns a DC operating point (devices, dedicated solvers, the TIA's op-amp clamp). Composite forward modules (e.g. `CircuitCore1T1R`) do **not** define one; they return primary output tensors and log energy/latency inline. | `NMOSDCOP`, `RRAMDCOP`, `OpAmpTIADCOP`, `DriverDCOP`, `Solver1T1RDCOP` |
 | `*Plan` | Static geometry / decomposition plan computed once and reused per execution. Frozen. | - |
-| `*Result` | Result of an offline algorithm or iterative solver loop (i.e. neither runtime snapshot, nor DC operating point, nor a static plan). Frozen. | `CalibrationResult` |
+| `*Result` | Result of an offline algorithm or iterative solver loop (i.e. neither runtime snap, nor DC operating point, nor a static plan). Frozen. | `CalibrationResult` |
 
 When a return type is just one tensor, return the tensor directly - do not wrap it in a one-field dataclass.
+
+`snapshot` is reserved for the verb (the act of sampling) and the producing method `snapshot(*, shape=...)`. Every noun — the per-call state, the `*Snap` dataclass and its instances, the lifecycle stage, the concept — is a `snap` in prose, comments, and identifiers (`cell_snap`, `nmos_snap`, the `snap` parameter of `solve_dc` / `solve_clamp`). The method name never shortens to `snap`.
 
 ## Buffer / attribute names
 
@@ -47,7 +49,7 @@ Three lifecycle stages exist for a module's physical state. Each stage uses a di
 |---|---|---|
 | Nominal value (design intent) | `nominal_<name>__<unit>` for Tensor buffers; plain `<name>__<unit>` for Python scalars | `__init__` for circuits; first step of `program(...)` for RRAM-style devices |
 | Actual value (post-fabrication, with static mismatch) | `<name>__<unit>` (no prefix) | `fabricate(...)` / `program(...)` |
-| Snapshot value (with dynamic noise) | Fields of the `*Snapshot` dataclass returned by `snapshot(*, shape=...)` | `snapshot(...)`; never registered as a buffer |
+| Snap value (with dynamic noise) | Fields of the `*Snap` dataclass returned by `snapshot(*, shape=...)` | `snapshot(...)`; never registered as a buffer |
 
 PDK-constant scalars surfaced as buffers (e.g. SwitchCap's `config.c_unit__fF` accessed directly through `config`) do not need a `nominal_` prefix - the nominal-vs-actual distinction applies to fabricated arrays, not to a single PDK datum that never gets perturbed.
 
@@ -59,7 +61,7 @@ Each circuit / device class exposes one primary method whose name encodes the ph
 |---|---|
 | `fabricate() -> None` | Inherited from `FabricateMixin`; auto-cascades the static-mismatch resample across self + children. Subclasses override `_sample_fabricate_mismatch(self)` only. Per-instance shape is bound at `__init__` via `inst_shape` (leaves and xbars) or `w_logical_shape` (macros). Static PPA is exposed as `CircuitBase` properties reading `self.config` - no per-init log call. |
 | `program(...) -> None` | RRAM-specific weight programming step that takes the integer weight tensor and produces the actual conductance buffer. |
-| `snapshot(*, shape) -> <Name>Snapshot` | Sample a per-call runtime snapshot. Frozen return. |
+| `snapshot(*, shape) -> <Name>Snap` | Sample a per-call runtime snap. Frozen return. |
 | `solve_dc(...) -> <Name>DCOP` | Solve the DC operating point of a circuit, device, or solver and return it as a `*DCOP`. The essence is "compute a meaningful DC operating point and surface it" - applicable to leaf devices (RRAM, NMOS), iterative dedicated solvers (`Solver1T1R`, `OpAmpTIA`), and the boundary clamp drivers (`TIA`, `Driver`). **Composite forward modules that delegate to sub-solvers and add post-processing do not own a DCOP and do not use this name** - see `cim_read` below. |
 | `solve_clamp(...) -> tuple[Tensor, Tensor]` | Boundary-clamp solve. Thin wrapper around the implementer's DC solve, returning the `(v_clamp__V, dVclamp_dI__MOhm)` pair an outer solver needs as Jacobian input. Both `TIA` and `Driver` expose this. |
 | `cim_read(x) -> Tensor` | `CircuitCore1T1R` entry. Drive WL, settle the 1T1R array to DC, and return the BL clamp voltage. Plain forward (logs energy + latency inline); does not return a DCOP - the array has no DCOP of its own beyond its sub-solvers' DCOPs. |

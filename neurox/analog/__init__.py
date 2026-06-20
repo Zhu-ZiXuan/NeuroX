@@ -1,7 +1,7 @@
 """NeuroX analog primitives."""
 
 from .analog_mux import AnalogMux, AnalogMuxConfig, AnalogMuxPolicy
-from .driver import Driver, DriverConfig, DriverDCOP, DriverPolicy, DriverSnapshot
+from .driver import Driver, DriverConfig, DriverDCOP, DriverPolicy, DriverSnap
 from .switch_cap import SwitchCap, SwitchCapConfig, SwitchCapPolicy
 
 __all__ = [
@@ -12,7 +12,7 @@ __all__ = [
     "DriverConfig",
     "DriverDCOP",
     "DriverPolicy",
-    "DriverSnapshot",
+    "DriverSnap",
     "SwitchCap",
     "SwitchCapConfig",
     "SwitchCapPolicy",

@@ -17,9 +17,9 @@ A device is an electrical primitive (transistor, memristor, wire, selector). Dev
 5. [units]       Apply unit conversion from config units to tensor units inside `__init__` → [notation_conventions](../reference/notation_conventions.md) §Config units
 6. [nominal]     Register `nominal_<name>__<unit>` buffers for design-stage values → `state_holding.md` §Nominal value
 7. [mixin]       Inherit `FabricateMixin`; override `_sample_fabricate_mismatch(self) -> None` to populate `<name>__<unit>` buffers from the nominals at `self._inst_shape` → `fabrication_lifecycle.md` §Canonical signatures
-8. [snapshot]    `snapshot(self, *, shape: tuple[int, ...]) -> <Name>Snapshot` returns a frozen dataclass of Tensors / nested Snapshots → `state_holding.md` §Snapshot pattern
+8. [snapshot]    `snapshot(self, *, shape: tuple[int, ...]) -> <Name>Snap` returns a frozen dataclass of Tensors / nested Snaps → `state_holding.md` §Snap pattern
 9. [solve]       `solve_dc(...) -> <Name>DCOP` is the primary DC entry; name and return suffix are reserved → [naming_conventions](naming_conventions.md) §Primary-method names
-10. [export]     `neurox/device/__init__.py` exports `<Name>`, `<Name>Config`, `<Name>Snapshot`, `<Name>DCOP` → `config_and_construction.md` §Export rule
+10. [export]     `neurox/device/__init__.py` exports `<Name>`, `<Name>Config`, `<Name>Snap`, `<Name>DCOP` → `config_and_construction.md` §Export rule
 11. [doc]        Write the `reference/device/<name>.md` and `internals/device/<name>.md` per the templates, describing the device's current responsibility and protocol surface → [writing_reference_docs](writing_reference_docs.md), [writing_internals_docs](writing_internals_docs.md)
 
 ## Add a new leaf circuit (no family polymorphism)
@@ -35,7 +35,7 @@ A leaf circuit is a non-polymorphic analog or digital block (Driver, SwitchCap, 
 7. [PPA]         `CircuitBase` already provides `area_per_inst__um2 / leakage_per_inst__uW` properties reading from `self.config`. Per-op latency is leaf-defined: fixed-latency leaves read `self.config.latency_per_op__ns`; parametric leaves derive it from runtime parameters → `profiler.md` §Where per-op latency comes from
 8. [primary]     Implement the primary method (`convert`, `transport`, `sample_and_accumulate`, `operate`, ...); end by building energy and latency tensors and calling `self._log_dynamic_energy(energy)` and `self._log_latency(latency)` as two independent emissions (skip either one when the leaf has no contribution for that quantity). `latency` is `per_op_latency__ns × serial_op_count` packaged as a tensor; `per_op_latency__ns` reads from config (fixed) or comes from runtime parameters (parametric). Compute `serial_op_count` from the forward tensor's shape (minus inst dims and per-circuit trailing dims) → [naming_conventions](naming_conventions.md) §Primary-method names, `profiler.md` §Serial-op count
 9. [compile]     Primary methods are compile-friendly by default and obey the dynamo-safety contracts; the library self-compiles only the regional solver leaf, so do not self-decorate with `@torch.compile` (the caller compiles the model) unless the method is a documented boundary (regional leaf, eager island) → [compile](../internals/compile/README.md)
-10. [export]     The owning package's `__init__.py` exports `<Name>`, `<Name>Config` (+ any `*Snapshot` / `*DCOP` if produced) → [naming_conventions](naming_conventions.md) §Class suffixes
+10. [export]     The owning package's `__init__.py` exports `<Name>`, `<Name>Config` (+ any `*Snap` / `*DCOP` if produced) → [naming_conventions](naming_conventions.md) §Class suffixes
 11. [doc]        Write the `reference/<subsystem>/<name>.md` and `internals/<subsystem>/<name>.md` per the templates; add a compile note only for a documented boundary or a non-obvious dynamo-safety argument, not by default → [writing_reference_docs](writing_reference_docs.md), [writing_internals_docs](writing_internals_docs.md), [compile](../internals/compile/README.md)
 
 ## Add a new concrete member of an existing family
@@ -49,7 +49,7 @@ Adding a new ADC, DAC, TIA, or ReadOut implementation. Lives under the family's 
 5. [mixin]       Override `_sample_fabricate_mismatch(self)` for owned static mismatch; `fabricate()` is inherited and auto-cascades to children → `fabrication_lifecycle.md` §Canonical signatures
 6. [primary]     Implement the family primary method (`convert`, `solve_dc`, `readout`, ...); end with `self._log_dynamic_energy(energy_tensor)` and `self._log_latency(latency_tensor)` (skip either when this impl has no contribution for that quantity) → [naming_conventions](naming_conventions.md) §Primary-method names, `profiler.md` §`_log_dynamic_energy`
 7. [PPA]         PPA accessors are inherited from `CircuitBase`; override only when latency / area / leakage are derived from non-config fields → `profiler.md` §Required interface
-8. [export]      The family's `__init__.py` exports `<Name><Family>`, `<Name><Family>Config`, any `*Snapshot` / `*DCOP` types → [naming_conventions](naming_conventions.md) §Class suffixes
+8. [export]      The family's `__init__.py` exports `<Name><Family>`, `<Name><Family>Config`, any `*Snap` / `*DCOP` types → [naming_conventions](naming_conventions.md) §Class suffixes
 9. [doc]         Write the `reference/<subsystem>/<name>.md` and `internals/<subsystem>/<name>.md` per the templates; cross-reference the family base in `See also:` → [writing_reference_docs](writing_reference_docs.md), [writing_internals_docs](writing_internals_docs.md)
 
 ## Add a new family

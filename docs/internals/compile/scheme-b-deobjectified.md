@@ -33,22 +33,22 @@ def solve_1t1r_nested_chunk(
     v_wl_drive__V: Tensor,
     bl_segment_g__uS: Tensor,
     sl_segment_g__uS: Tensor,
-    rram_snapshot: RRAMSnapshot,
-    nmos_snapshot: NMOSSnapshot,
-    bl_driver_snapshot: TIASnapshot,
-    sl_driver_snapshot: DriverSnapshot,
+    rram_snap: RRAMSnap,
+    nmos_snap: NMOSSnap,
+    bl_driver_snap: TIASnap,
+    sl_driver_snap: DriverSnap,
     params: NestedSolverCompileParams,
 ) -> tuple[Tensor, ...]:
     ...
 ```
 
-`NestedSolver1T1R.solve_dc` then only: reads its config and device/driver snapshots off `self`, calls the free function, and reassembles the returned tuple into `Solver1T1RDCOP`. If the snapshot dataclasses themselves cause recompiles, the next step is to expand them into plain `Tensor` arguments so the signature is fully tensor-and-scalar.
+`NestedSolver1T1R.solve_dc` then only: reads its config and device/driver snaps off `self`, calls the free function, and reassembles the returned tuple into `Solver1T1RDCOP`. If the snap dataclasses themselves cause recompiles, the next step is to expand them into plain `Tensor` arguments so the signature is fully tensor-and-scalar.
 
 ## Trade-offs
 
 - **vs. scheme A.** Gains a compile cache key that is object-independent by construction, so cross-instance reuse is guaranteed rather than incidental, and the "every layer recompiles" failure mode is structurally impossible; also lays the functional foundation [scheme C](scheme-c-custom-op.md) requires. Loses code simplicity: the solver gains a wrapper/core split and a longer surface, and the adapter's packing must be kept in sync with the free function's signature.
 - **Returning a dataclass vs a tuple.** Returning `Solver1T1RDCOP` keeps call sites unchanged but ties the compiled region to a PyTree-stable structure; returning a bare tuple and reassembling in the adapter is more robust to PyTree edges at the cost of an explicit repack.
-- **Dataclass snapshot args vs pure tensors.** Dataclass args stay close to current code; pure-tensor args maximize cache stability but lengthen the signature. Start with dataclass snapshots and only flatten if recompiles are observed.
+- **Dataclass snap args vs pure tensors.** Dataclass args stay close to current code; pure-tensor args maximize cache stability but lengthen the signature. Start with dataclass snaps and only flatten if recompiles are observed.
 
 ## Performance and resources (theoretical)
 
@@ -56,13 +56,13 @@ Runtime is unchanged — the arithmetic is identical, only its argument plumbing
 
 ## Risks and failure modes
 
-- **Snapshot PyTree instability.** A snapshot field whose Python type or container structure varies call-to-call reintroduces recompiles; the point of the scheme is lost unless the argument structure is type-stable.
+- **Snap PyTree instability.** A snap field whose Python type or container structure varies call-to-call reintroduces recompiles; the point of the scheme is lost unless the argument structure is type-stable.
 - **Wrapper/core drift.** The adapter and the free function encode the same math in two places; an edit to one without the other is a silent correctness hazard. The split must be maintained deliberately.
 - **Scalar config must be type-stable.** Passing an object or a varying Python type where a scalar is expected re-keys the graph.
 
 ## Open questions
 
-- How far to de-objectify: stop at dataclass snapshots, or flatten everything to plain tensors.
+- How far to de-objectify: stop at dataclass snaps, or flatten everything to plain tensors.
 - The remainder-chunk decision (accept an extra graph vs pad-to-full-chunk) is shared with scheme A and can be settled here.
 
 ## See also

@@ -5,7 +5,7 @@ How the NeuroX codebase is built and why — the implementation companion to [Re
 Cross-cutting:
 
 - [config_and_construction](config_and_construction.md) — frozen configs, `from_config` dispatch, owner-constructs-child
-- [state_holding](state_holding.md) — the nominal / actual / snapshot state model
+- [state_holding](state_holding.md) — the nominal / actual / snap state model
 - [fabrication_lifecycle](fabrication_lifecycle.md) — `__init__` / `fabricate` / `program` / `snapshot` lifecycle
 - [compile](compile/README.md) — where `@torch.compile` applies, the dynamo-safety contracts, and the regional-compilation scheme (current and deferred)
 

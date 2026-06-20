@@ -14,7 +14,7 @@ The formulation is generic over the cell. At each array node the solver calls th
 
 - **Single branch current.** The cell returns one current $I_{\mathrm{cell}}(V_{\mathrm{BL}}, V_{\mathrm{SL}})$ per site (positive from $V_{\mathrm{BL}}$ to $V_{\mathrm{SL}}$). The same current leaves the BL wire KCL and enters the SL wire KCL, so the array carries no per-cell internal residual.
 - **Signed terminal derivatives.** The cell returns $\partial I_{\mathrm{cell}}/\partial V_{\mathrm{BL}} \ge 0$ and $\partial I_{\mathrm{cell}}/\partial V_{\mathrm{SL}} \le 0$. These definite signs are what make the inner wire system a well-posed M-matrix-flavour problem (below).
-- **Snapshot-carried control.** Per-call device read state and the cell's control-line drive (the word line) travel in one cell snapshot; the solver passes that snapshot through and holds no cell-internal state.
+- **Snap-carried control.** Per-call device read state and the cell's control-line drive (the word line) travel in one cell snap; the solver passes that snap through and holds no cell-internal state.
 
 Because the cell condenses any internal node, the solver is identical for any cell that satisfies this contract — the 1T1R series stack, or a future cell with a different internal topology. The per-cell condensation and its monotonicity are specified in [cell](cell.md).
 

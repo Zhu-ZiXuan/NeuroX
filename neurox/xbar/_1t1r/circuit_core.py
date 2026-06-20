@@ -25,7 +25,7 @@ from .cell import (
     XbarCell1T1R,
     XbarCell1T1RConfig,
     XbarCell1T1RPolicy,
-    XbarCell1T1RSnapshot,
+    XbarCell1T1RSnap,
 )
 from .solver import Solver1T1R, Solver1T1RConfig, Solver1T1RDCOP
 
@@ -447,9 +447,9 @@ class CircuitCore1T1R(CircuitBase[CircuitCore1T1RConfig]):
                 sl_segment_r__MOhm=self.sl_segment_r__MOhm,
                 bl_segment_g__uS=self.bl_segment_g__uS,
                 sl_segment_g__uS=self.sl_segment_g__uS,
-                cell_snapshot=cell_snap,
-                bl_driver_snapshot=bl_snap,
-                sl_driver_snapshot=sl_snap,
+                cell_snap=cell_snap,
+                bl_driver_snap=bl_snap,
+                sl_driver_snap=sl_snap,
                 compute_residuals=False,
             )
             clamp_dcop_chunk = self.tia.solve_dc(
@@ -460,7 +460,7 @@ class CircuitCore1T1R(CircuitBase[CircuitCore1T1RConfig]):
             chunk_energies.append(
                 self._compute_array_energy__fJ(
                     solver_dcop=solver_dcop_chunk,
-                    cell_snapshot=cell_snap,
+                    cell_snap=cell_snap,
                 )
             )
             v_out_phys_chunks.append(clamp_dcop_chunk.v_out__V)
@@ -501,7 +501,7 @@ class CircuitCore1T1R(CircuitBase[CircuitCore1T1RConfig]):
         self,
         *,
         solver_dcop: Solver1T1RDCOP,
-        cell_snapshot: XbarCell1T1RSnapshot,
+        cell_snap: XbarCell1T1RSnap,
     ) -> Tensor:
         """Per-VMM array-internal energy [fJ]. Shape: [...batch...].
 
@@ -514,13 +514,13 @@ class CircuitCore1T1R(CircuitBase[CircuitCore1T1RConfig]):
             solver_dcop: Inner array solver's converged DCOP, carrying the
                 BL / SL node voltages, the condensed cell DCOP, and the
                 per-column port currents.
-            cell_snapshot: Per-solve cell snapshot bundling the device
-                snapshots and the WL control drive ``[..., 1, row_num]``.
+            cell_snap: Per-solve cell snap bundling the device
+                snaps and the WL control drive ``[..., 1, row_num]``.
         """
 
-        # WL drive recovered from the cell snapshot; drop the WL-fanout
+        # WL drive recovered from the cell snap; drop the WL-fanout
         # slot so the WL-wire term sums to ``[...]``.
-        v_wl__V = cell_snapshot.v_wl__V.squeeze(-2)
+        v_wl__V = cell_snap.v_wl__V.squeeze(-2)
         v_bl__V = solver_dcop.v_bl_node
         v_sl__V = solver_dcop.v_sl_node
         v_bl_clamp__V = solver_dcop.v_bl_clamp
@@ -556,6 +556,6 @@ class CircuitCore1T1R(CircuitBase[CircuitCore1T1RConfig]):
         # --- Per-cell device-capacitance switching energy ---
 
         # Shape: [..., phys_col_num, row_num] -> [...]
-        e_cell__fJ = self.cell.dynamic_energy(v_bl__V, v_sl__V, solver_dcop.cell, cell_snapshot).sum(dim=(-2, -1))
+        e_cell__fJ = self.cell.dynamic_energy(v_bl__V, v_sl__V, solver_dcop.cell, cell_snap).sum(dim=(-2, -1))
 
         return e_dc_cond__fJ + e_wl_wire_cap__fJ + e_bl_wire_cap__fJ + e_sl_wire_cap__fJ + e_cell__fJ

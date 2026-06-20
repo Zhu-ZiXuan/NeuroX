@@ -179,7 +179,7 @@ def test_tia_solve_dc_residual_is_small() -> None:
         vg__V=tia.config.v_nmos_bias__V,
         vd__V=dc.v_out__V,
         vs__V=dc.v_clamp__V,
-        snapshot=runtime.nmos_snapshot,
+        snap=runtime.nmos_snap,
     )
     residual = (nmos_dc.ids__uA - i_in).abs()
     assert torch.all(residual < 1e-3), f"residual = {residual.tolist()}"

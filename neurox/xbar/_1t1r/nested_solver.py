@@ -10,8 +10,8 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor
 
-from neurox.analog import Driver, DriverSnapshot
-from neurox.analog.tia import TIA, TIASnapshot
+from neurox.analog import Driver, DriverSnap
+from neurox.analog.tia import TIA, TIASnap
 from neurox.xbar.cell import XbarCell
 from neurox.xbar.solver import (
     col_driver_current,
@@ -19,7 +19,7 @@ from neurox.xbar.solver import (
     solve_block_tridiagonal,
 )
 
-from .cell import XbarCell1T1RDCOP, XbarCell1T1RSnapshot
+from .cell import XbarCell1T1RDCOP, XbarCell1T1RSnap
 from .solver import Solver1T1R, Solver1T1RConfig, Solver1T1RDCOP, Solver1T1RResiduals
 
 # ---------------------------------------------------------------------------
@@ -76,7 +76,7 @@ class NestedSolver1T1R(Solver1T1R):
         self,
         *,
         config: NestedSolver1T1RConfig,
-        cell: XbarCell[XbarCell1T1RSnapshot, XbarCell1T1RDCOP],
+        cell: XbarCell[XbarCell1T1RSnap, XbarCell1T1RDCOP],
         bl_driver: TIA,
         sl_driver: Driver,
     ) -> None:
@@ -116,12 +116,12 @@ class NestedSolver1T1R(Solver1T1R):
         sl_segment_r__MOhm: Tensor,
         bl_segment_g__uS: Tensor,
         sl_segment_g__uS: Tensor,
-        cell_snapshot: XbarCell1T1RSnapshot,
-        bl_driver_snapshot: TIASnapshot,
-        sl_driver_snapshot: DriverSnapshot,
+        cell_snap: XbarCell1T1RSnap,
+        bl_driver_snap: TIASnap,
+        sl_driver_snap: DriverSnap,
         compute_residuals: bool = False,
     ) -> Solver1T1RDCOP:
-        """Solve the fabricated 1T1R tile for one cell snapshot.
+        """Solve the fabricated 1T1R tile for one cell snap.
 
         Args:
             bl_segment_r__MOhm: 1-D BL segment resistances [MOhm]; index 0
@@ -130,10 +130,10 @@ class NestedSolver1T1R(Solver1T1R):
                 is driver-to-first.
             bl_segment_g__uS: BL segment conductances [uS].
             sl_segment_g__uS: SL segment conductances [uS].
-            cell_snapshot: Per-solve cell snapshot bundling the device
-                snapshots and the per-cell control-line (WL) drive.
-            bl_driver_snapshot: Per-solve BL driver snapshot.
-            sl_driver_snapshot: Per-solve SL driver snapshot.
+            cell_snap: Per-solve cell snap bundling the device
+                snaps and the per-cell control-line (WL) drive.
+            bl_driver_snap: Per-solve BL driver snap.
+            sl_driver_snap: Per-solve SL driver snap.
             compute_residuals: When True, populate
                 :attr:`Solver1T1RDCOP.residuals` after the exit-state
                 refresh; when False (hot path) leaves it as ``None``.
@@ -165,7 +165,7 @@ class NestedSolver1T1R(Solver1T1R):
         v_bl_seed_scalar = torch.tensor(v_bl_clamp_ref__V, dtype=bl_segment_g__uS.dtype, device=bl_segment_g__uS.device)
         v_sl_seed_scalar = torch.tensor(v_sl_drive_ref__V, dtype=bl_segment_g__uS.dtype, device=bl_segment_g__uS.device)
         # Shape: [..., num_col, num_row]
-        i_cell, _g_bl_init, _g_sl_init = self.cell.solve_branch(v_bl_seed_scalar, v_sl_seed_scalar, cell_snapshot)
+        i_cell, _g_bl_init, _g_sl_init = self.cell.solve_branch(v_bl_seed_scalar, v_sl_seed_scalar, cell_snap)
         *_batch, num_col, num_row = i_cell.shape
         if not (num_col > 1):
             raise ValueError(f"require: num_col ({num_col}) > 1")
@@ -181,8 +181,8 @@ class NestedSolver1T1R(Solver1T1R):
         i_bl_seed__uA = i_cell.sum(dim=-1)
         i_sl_seed__uA = -i_cell.sum(dim=-1)
         # Shape: [..., num_col]
-        v_bl_clamp__V, _ = self.bl_driver.solve_clamp(i_bl_seed__uA, bl_driver_snapshot, v_clamp_init__V=None)
-        v_sl_drive__V, _ = self.sl_driver.solve_clamp(i_sl_seed__uA, sl_driver_snapshot, v_clamp_init__V=None)
+        v_bl_clamp__V, _ = self.bl_driver.solve_clamp(i_bl_seed__uA, bl_driver_snap, v_clamp_init__V=None)
+        v_sl_drive__V, _ = self.sl_driver.solve_clamp(i_sl_seed__uA, sl_driver_snap, v_clamp_init__V=None)
 
         # --- Warm start phase 2: first-order IR-drop wire seed ---
 
@@ -204,7 +204,7 @@ class NestedSolver1T1R(Solver1T1R):
         # First outer step's V_clamp Jacobian needs the signed branch
         # derivatives and the cell current at the POST-IR-drop seed; the
         # scalar warm start above reported them at the PRE-IR-drop state.
-        i_cell, di_dvbl, di_dvsl = self.cell.solve_branch(v_bl_node, v_sl_node, cell_snapshot)
+        i_cell, di_dvbl, di_dvsl = self.cell.solve_branch(v_bl_node, v_sl_node, cell_snap)
 
         # --- Outer V_clamp Newton  ×  n_outer ---
 
@@ -253,12 +253,12 @@ class NestedSolver1T1R(Solver1T1R):
             i_sl_port__uA = (v_sl_drive__V - v_sl_node.select(-1, 0)) * sl_driver_segment_g
             v_bl_target__V, r_bl_driver__MOhm = self.bl_driver.solve_clamp(
                 i_bl_port__uA,
-                bl_driver_snapshot,
+                bl_driver_snap,
                 v_clamp_init__V=v_bl_clamp__V,
             )
             v_sl_target__V, r_sl_driver__MOhm = self.sl_driver.solve_clamp(
                 i_sl_port__uA,
-                sl_driver_snapshot,
+                sl_driver_snap,
                 v_clamp_init__V=v_sl_drive__V,
             )
 
@@ -307,7 +307,7 @@ class NestedSolver1T1R(Solver1T1R):
 
             for _ in range(n_inner):
                 # Shape: [..., num_col, num_row]
-                i_cell, di_dvbl, di_dvsl = self.cell.solve_branch(v_bl_node, v_sl_node, cell_snapshot)
+                i_cell, di_dvbl, di_dvsl = self.cell.solve_branch(v_bl_node, v_sl_node, cell_snap)
                 g_cell_bl_eff = di_dvbl
                 g_cell_sl_eff = -di_dvsl
                 # The cell self-converges its internal node, so one signed
@@ -341,7 +341,7 @@ class NestedSolver1T1R(Solver1T1R):
         # point still carries the pre-update wire state. One full cell
         # solve re-aligns it (and condenses the internal node + optional
         # per-cell KCL residual) so the returned DCOP is self-consistent.
-        cell_dcop = self.cell.solve_dc(v_bl_node, v_sl_node, cell_snapshot, compute_residuals=compute_residuals)
+        cell_dcop = self.cell.solve_dc(v_bl_node, v_sl_node, cell_snap, compute_residuals=compute_residuals)
         i_cell = cell_dcop.i__uA
 
         # Boundary currents on the converged wire + clamp state.
@@ -364,12 +364,12 @@ class NestedSolver1T1R(Solver1T1R):
             i_sl_port_final = (v_sl_drive__V - v_sl_node.select(-1, 0)) * sl_driver_segment_g
             v_bl_target_final, _ = self.bl_driver.solve_clamp(
                 i_bl_port_final,
-                bl_driver_snapshot,
+                bl_driver_snap,
                 v_clamp_init__V=v_bl_clamp__V,
             )
             v_sl_target_final, _ = self.sl_driver.solve_clamp(
                 i_sl_port_final,
-                sl_driver_snapshot,
+                sl_driver_snap,
                 v_clamp_init__V=v_sl_drive__V,
             )
             clamp_bl_res = (v_bl_target_final - v_bl_clamp__V).abs()
@@ -407,7 +407,7 @@ class NestedSolver1T1R(Solver1T1R):
         sl_segment_r__MOhm: Tensor,
         bl_segment_g__uS: Tensor,
         sl_segment_g__uS: Tensor,
-        cell_snapshot: XbarCell1T1RSnapshot,
+        cell_snap: XbarCell1T1RSnap,
         compute_residuals: bool = False,
     ) -> Solver1T1RDCOP:
         """Run only the inner array Newton loop at FIXED clamp boundaries.
@@ -421,7 +421,7 @@ class NestedSolver1T1R(Solver1T1R):
                 solve. Shape: ``[..., num_col]``.
             v_sl_drive__V: SL drive voltage held fixed. Shape:
                 ``[..., num_col]``.
-            (other args): same as :meth:`solve_dc`. Driver snapshots and
+            (other args): same as :meth:`solve_dc`. Driver snaps and
                 outer driver state are NOT touched.
             compute_residuals: Populate ``residuals`` if True.
 
@@ -441,7 +441,7 @@ class NestedSolver1T1R(Solver1T1R):
         # ``[..., num_col, num_row]`` shape.
         v_bl_clamp_grid__V = v_bl_clamp__V.unsqueeze(-1)
         v_sl_drive_grid__V = v_sl_drive__V.unsqueeze(-1)
-        i_seed, _g_bl_init, _g_sl_init = self.cell.solve_branch(v_bl_clamp_grid__V, v_sl_drive_grid__V, cell_snapshot)
+        i_seed, _g_bl_init, _g_sl_init = self.cell.solve_branch(v_bl_clamp_grid__V, v_sl_drive_grid__V, cell_snap)
         num_row = i_seed.shape[-1]
 
         # IR-drop wire seed: BL propagates ``+i``, SL propagates ``-i``.
@@ -457,7 +457,7 @@ class NestedSolver1T1R(Solver1T1R):
 
         max_inner_step__V = self.MAX_INNER_STEP__V
         for _ in range(self.config.n_inner):
-            i_cell, di_dvbl, di_dvsl = self.cell.solve_branch(v_bl_node, v_sl_node, cell_snapshot)
+            i_cell, di_dvbl, di_dvsl = self.cell.solve_branch(v_bl_node, v_sl_node, cell_snap)
             g_cell_bl_eff = di_dvbl
             g_cell_sl_eff = -di_dvsl
             # BL wire KCL uses ``+i``; SL wire KCL uses ``-i``.
@@ -481,7 +481,7 @@ class NestedSolver1T1R(Solver1T1R):
 
         # Final cell refresh so the returned cell working point aligns with
         # the returned wire state.
-        cell_dcop = self.cell.solve_dc(v_bl_node, v_sl_node, cell_snapshot, compute_residuals=compute_residuals)
+        cell_dcop = self.cell.solve_dc(v_bl_node, v_sl_node, cell_snap, compute_residuals=compute_residuals)
         i_cell = cell_dcop.i__uA
 
         i_bl_driver = col_driver_current(v_bl_node, v_bl_clamp_grid__V, bl_segment_g__uS)

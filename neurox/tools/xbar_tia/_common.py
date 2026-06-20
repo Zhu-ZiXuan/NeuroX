@@ -74,11 +74,11 @@ def sweep_transfer(
     """Sweep DC ``I_port`` across ``[i_min_uA, i_max_uA]`` and capture ``v_out``."""
     if n_points < 2:
         raise ValueError(f"n_points ({n_points}) must be >= 2")
-    snapshot = tia.snapshot(shape=(1,), multi_coords=None)
+    snap = tia.snapshot(shape=(1,), multi_coords=None)
     i_grid = torch.linspace(i_min_uA, i_max_uA, n_points, dtype=torch.float64, device=device)
     v_out_list: list[float] = []
     for i_val in i_grid:
-        dcop = tia.solve_dc(i_val.expand(1), snapshot, v_clamp_init__V=None)
+        dcop = tia.solve_dc(i_val.expand(1), snap, v_clamp_init__V=None)
         v_out_list.append(float(dcop.v_out__V.item()))
     v_out = torch.tensor(v_out_list, dtype=torch.float64)
     v_center = tia.softclip_center__V

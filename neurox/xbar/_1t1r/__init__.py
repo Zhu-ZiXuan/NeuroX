@@ -6,7 +6,7 @@ from .cell import (
     XbarCell1T1RDCOP,
     XbarCell1T1RPolicy,
     XbarCell1T1RResiduals,
-    XbarCell1T1RSnapshot,
+    XbarCell1T1RSnap,
 )
 from .circuit_core import (
     CircuitCore1T1R,
@@ -44,5 +44,5 @@ __all__ = [
     "XbarCell1T1RDCOP",
     "XbarCell1T1RPolicy",
     "XbarCell1T1RResiduals",
-    "XbarCell1T1RSnapshot",
+    "XbarCell1T1RSnap",
 ]

@@ -40,26 +40,26 @@ class TIAPolicy:
 
 
 @dataclass(frozen=True)
-class TIASnapshot:
-    """Marker base for per-call snapshots of a TIA's fabricated state."""
+class TIASnap:
+    """Marker base for per-call snaps of a TIA's fabricated state."""
 
 
-SnapshotT = TypeVar("SnapshotT", bound=TIASnapshot)
+SnapT = TypeVar("SnapT", bound=TIASnap)
 
 
 class TIA(
     CircuitBase[TIAConfig],
     RegistryMixin[type["TIAConfig"], "TIA"],
-    Generic[SnapshotT],
+    Generic[SnapT],
 ):
     """Abstract base for transimpedance-amp clamp drivers.
 
-    Parameterised by the concrete snapshot type ``SnapshotT`` so each
-    implementation declares its snapshot dataclass exactly once and
+    Parameterised by the concrete snap type ``SnapT`` so each
+    implementation declares its snap dataclass exactly once and
     ``snapshot`` / ``solve_clamp`` carry that concrete type without an
     LSP-narrowing override. The registry-impl slot is unparameterised
     because Python generics are invariant — each concrete impl binds
-    ``SnapshotT`` to its own snapshot subclass.
+    ``SnapT`` to its own snap subclass.
     """
 
     def __init__(
@@ -105,18 +105,18 @@ class TIA(
         raise NotImplementedError
 
     @abstractmethod
-    def snapshot(self, *, shape: tuple[int, ...], multi_coords: tuple[Tensor, ...] | None) -> SnapshotT:
-        """Sample one per-call runtime snapshot over ``shape``.
+    def snapshot(self, *, shape: tuple[int, ...], multi_coords: tuple[Tensor, ...] | None) -> SnapT:
+        """Sample one per-call runtime snap over ``shape``.
 
         Args:
-            shape: Per-call broadcast shape; the snapshot fills tensor
+            shape: Per-call broadcast shape; the snap fills tensor
                 fields at this shape.
             multi_coords: Advanced-index tuple selecting a chunk's
                 positions from the broadcast view; ``None`` returns the
                 full view.
 
         Returns:
-            Per-call snapshot of the fabricated state.
+            Per-call snap of the fabricated state.
         """
         raise NotImplementedError
 
@@ -124,7 +124,7 @@ class TIA(
     def solve_clamp(
         self,
         i_port__uA: Tensor,
-        snapshot: SnapshotT,
+        snap: SnapT,
         *,
         v_clamp_init__V: Tensor | None,
     ) -> tuple[Tensor, Tensor]:

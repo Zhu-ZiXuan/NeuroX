@@ -113,8 +113,8 @@ class NMOSDCOP:
 
 
 @dataclass(frozen=True)
-class NMOSSnapshot:
-    """Per-call NMOS state snapshot.
+class NMOSSnap:
+    """Per-call NMOS state snap.
 
     Attributes:
         beta__uA_per_V2: Per-cell transconductance factor [uA/V²].
@@ -227,24 +227,24 @@ class NMOS(FabricateMixin, nn.Module):
         *,
         shape: tuple[int, ...],
         multi_coords: tuple[Tensor, ...] | None,
-    ) -> NMOSSnapshot:
-        """Sample one per-call runtime snapshot over ``shape``.
+    ) -> NMOSSnap:
+        """Sample one per-call runtime snap over ``shape``.
 
         Args:
-            shape: Per-call broadcast shape; the snapshot fills tensor
+            shape: Per-call broadcast shape; the snap fills tensor
                 fields at this shape.
             multi_coords: Advanced-index tuple selecting a chunk's
                 positions from the broadcast view; ``None`` returns the
                 full view.
 
         Returns:
-            Per-call snapshot of the fabricated state.
+            Per-call snap of the fabricated state.
         """
         vth_view = self.vth__V.expand(shape) if shape else self.vth__V
         beta_view = self.beta__uA_per_V2.expand(shape) if shape else self.beta__uA_per_V2
         if multi_coords is None:
-            return NMOSSnapshot(vth__V=vth_view, beta__uA_per_V2=beta_view)
-        return NMOSSnapshot(
+            return NMOSSnap(vth__V=vth_view, beta__uA_per_V2=beta_view)
+        return NMOSSnap(
             vth__V=vth_view[multi_coords],
             beta__uA_per_V2=beta_view[multi_coords],
         )
@@ -254,7 +254,7 @@ class NMOS(FabricateMixin, nn.Module):
         vg__V: Tensor | float,
         vd__V: Tensor | float,
         vs__V: Tensor | float,
-        snapshot: NMOSSnapshot,
+        snap: NMOSSnap,
     ) -> NMOSDCOP:
         """Evaluate ``I_ds`` and its three node partials at one op point.
 
@@ -262,13 +262,13 @@ class NMOS(FabricateMixin, nn.Module):
             vg__V: Gate voltage [V].
             vd__V: Drain voltage [V].
             vs__V: Source voltage [V].
-            snapshot: Per-call NMOS snapshot carrying ``β`` and ``V_th``.
+            snap: Per-call NMOS snap carrying ``β`` and ``V_th``.
 
         Returns:
             :class:`NMOSDCOP` with ``ids__uA`` and ``∂I/∂{V_g, V_d, V_s}``.
         """
-        beta__uA_per_V2 = snapshot.beta__uA_per_V2
-        vth__V = snapshot.vth__V
+        beta__uA_per_V2 = snap.beta__uA_per_V2
+        vth__V = snap.vth__V
         inv_smooth_scale__per_V = self._inv_smooth_scale__per_V
 
         v_ov_s__V = vg__V - vs__V - vth__V

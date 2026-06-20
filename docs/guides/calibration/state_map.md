@@ -35,7 +35,7 @@ The ladder must be deterministic, so the tool forces every randomness source off
 - `RRAMPolicy(prog_gamma=False, stuck_at=False, read_telegraph=False, read_thermal=False)`
 - `NMOSPolicy(A_vt_mismatch=False, A_beta_mismatch=False)`
 
-Conductance drift is skipped because programming uses `t_elapsed = 0.0`, which the RRAM model treats as a no-drift snapshot by its own contract. Each candidate conductance is applied once via `RRAM.program` followed by a single `RRAM.snapshot`; that snapshot is reused at every solver evaluation for that conductance.
+Conductance drift is skipped because programming uses `t_elapsed = 0.0`, which the RRAM model treats as a no-drift snap by its own contract. Each candidate conductance is applied once via `RRAM.program` followed by a single `RRAM.snapshot`; that snap is reused at every solver evaluation for that conductance.
 
 ## Numerical method — double nested bisection
 

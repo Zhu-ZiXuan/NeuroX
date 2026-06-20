@@ -15,7 +15,7 @@ from .cell import (
     XbarCellDCOP,
     XbarCellPolicy,
     XbarCellResiduals,
-    XbarCellSnapshot,
+    XbarCellSnap,
 )
 from .ideal import IdealXbar, IdealXbarConfig, IdealXbarPolicy
 
@@ -35,7 +35,7 @@ __all__ = [
     "XbarCellDCOP",
     "XbarCellPolicy",
     "XbarCellResiduals",
-    "XbarCellSnapshot",
+    "XbarCellSnap",
     "XbarConfig",
     "XbarPolicy",
 ]

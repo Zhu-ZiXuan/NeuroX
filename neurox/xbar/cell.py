@@ -67,10 +67,10 @@ class XbarCellResiduals:
 
 
 @dataclass(frozen=True)
-class XbarCellSnapshot:
-    """Marker base for per-call snapshots of a cell's fabricated state.
+class XbarCellSnap:
+    """Marker base for per-call snaps of a cell's fabricated state.
 
-    Concrete cells carry a subclass bundling their device snapshots plus
+    Concrete cells carry a subclass bundling their device snaps plus
     any per-call control-line state the branch solve consumes.
     """
 
@@ -105,7 +105,7 @@ class XbarCellDCOP(Generic[ResidualsT]):
 # ---------------------------------------------------------------------------
 
 
-SnapshotT = TypeVar("SnapshotT", bound=XbarCellSnapshot)
+SnapT = TypeVar("SnapT", bound=XbarCellSnap)
 DCOPT = TypeVar("DCOPT", bound=XbarCellDCOP)
 
 
@@ -113,14 +113,14 @@ class XbarCell(
     FabricateMixin,
     nn.Module,
     RegistryMixin[type["XbarCellConfig"], "XbarCell"],
-    Generic[SnapshotT, DCOPT],
+    Generic[SnapT, DCOPT],
     ABC,
 ):
     """Abstract base for pluggable crossbar cells with config-keyed dispatch.
 
-    Parameterised by the concrete snapshot and DCOP types
-    (``SnapshotT`` / ``DCOPT``) so each implementation declares those
-    dataclasses once and the snapshot-consuming methods (:meth:`snapshot`,
+    Parameterised by the concrete snap and DCOP types
+    (``SnapT`` / ``DCOPT``) so each implementation declares those
+    dataclasses once and the snap-consuming methods (:meth:`snapshot`,
     :meth:`solve_branch`, :meth:`solve_dc`, :meth:`dynamic_energy`) carry
     the concrete types without an LSP-narrowing override. The registry-impl
     slot is unparameterised because Python generics are invariant — each
@@ -191,23 +191,23 @@ class XbarCell(
         shape: tuple[int, ...],
         multi_coords: tuple[Tensor, ...] | None,
         t_elapsed: float,
-    ) -> SnapshotT:
-        """Sample one per-call snapshot of the cell's fabricated state.
+    ) -> SnapT:
+        """Sample one per-call snap of the cell's fabricated state.
 
         Args:
             control: Per-cell control-line drive [V] (the gate / select
                 voltage of the cell's access device). Shape broadcasts to
                 ``[..., col, row]``.
             shape: Per-call broadcast shape ``(*leading, col, row)`` the
-                owned device snapshots fill their tensor fields at.
+                owned device snaps fill their tensor fields at.
             multi_coords: Advanced-index tuple selecting a chunk's
                 positions from the broadcast view, forwarded to the device
-                snapshots; ``None`` returns the full view.
+                snaps; ``None`` returns the full view.
             t_elapsed: Time elapsed since programming [s], for any
                 time-dependent device read state.
 
         Returns:
-            Per-call snapshot bundling the device snapshots and control.
+            Per-call snap bundling the device snaps and control.
         """
         raise NotImplementedError
 
@@ -225,7 +225,7 @@ class XbarCell(
         self,
         v_bl: Tensor,
         v_sl: Tensor,
-        snapshot: SnapshotT,
+        snap: SnapT,
     ) -> tuple[Tensor, Tensor, Tensor]:
         """Condensed branch solve — lean, compile-safe hot path.
 
@@ -236,7 +236,7 @@ class XbarCell(
         Args:
             v_bl: Bit-line node voltage [V]. Shape: ``[..., col, row]``.
             v_sl: Source-line node voltage [V]. Shape: ``[..., col, row]``.
-            snapshot: Per-call snapshot from :meth:`snapshot`.
+            snap: Per-call snap from :meth:`snapshot`.
 
         Returns:
             ``(i__uA, di_dvbl__uS, di_dvsl__uS)`` — branch current [uA]
@@ -251,7 +251,7 @@ class XbarCell(
         self,
         v_bl: Tensor,
         v_sl: Tensor,
-        snapshot: SnapshotT,
+        snap: SnapT,
         compute_residuals: bool = False,
     ) -> DCOPT:
         """Full branch DC working point, including internal-node state.
@@ -264,7 +264,7 @@ class XbarCell(
         Args:
             v_bl: Bit-line node voltage [V]. Shape: ``[..., col, row]``.
             v_sl: Source-line node voltage [V]. Shape: ``[..., col, row]``.
-            snapshot: Per-call snapshot from :meth:`snapshot`.
+            snap: Per-call snap from :meth:`snapshot`.
             compute_residuals: When True, populate
                 :attr:`XbarCellDCOP.residuals`; when False (hot path)
                 leaves it as ``None``.
@@ -281,7 +281,7 @@ class XbarCell(
         v_bl: Tensor,
         v_sl: Tensor,
         dcop: DCOPT,
-        snapshot: SnapshotT,
+        snap: SnapT,
     ) -> Tensor:
         """Per-cell device-capacitance switching energy [fJ].
 
@@ -295,7 +295,7 @@ class XbarCell(
             v_sl: Source-line node voltage [V]. Shape: ``[..., col, row]``.
             dcop: Converged DCOP from :meth:`solve_dc`, carrying any
                 internal-node voltages the cap formulas need.
-            snapshot: Per-call snapshot from :meth:`snapshot`.
+            snap: Per-call snap from :meth:`snapshot`.
 
         Returns:
             Per-cell switching energy [fJ]. Shape: ``[..., col, row]``.

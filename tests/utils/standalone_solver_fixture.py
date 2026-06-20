@@ -8,11 +8,11 @@ a configurable ``v_wl_drive`` grid. Does NOT touch ``CircuitCore1T1R`` /
 
 Public surface: :func:`build_solver_harness` returns a frozen
 ``SolverHarness`` carrying the constructed solver, the fabricated cell,
-the boundary drivers, sampled boundary snapshots, wire R/G tensors, and
+the boundary drivers, sampled boundary snaps, wire R/G tensors, and
 the ``v_wl_drive`` tensor. Tests call
 ``harness.solver.solve_dc(**harness.solver_kwargs(),
 compute_residuals=True)`` to exercise the solver; the per-call cell
-snapshot is rebuilt by :meth:`SolverHarness.cell_snapshot`.
+snap is rebuilt by :meth:`SolverHarness.cell_snapshot`.
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ from neurox.xbar._1t1r import (
     Solver1T1R,
     Solver1T1RConfig,
 )
-from neurox.xbar._1t1r.cell import XbarCell1T1R, XbarCell1T1RPolicy, XbarCell1T1RSnapshot
+from neurox.xbar._1t1r.cell import XbarCell1T1R, XbarCell1T1RPolicy, XbarCell1T1RSnap
 
 
 @dataclass(frozen=True)
@@ -44,8 +44,8 @@ class SolverHarness:
     cell: XbarCell1T1R
     bl_driver: OpAmpTIA
     sl_driver: Driver
-    bl_driver_snapshot: Any
-    sl_driver_snapshot: Any
+    bl_driver_snap: Any
+    sl_driver_snap: Any
     bl_segment_r__MOhm: Tensor
     sl_segment_r__MOhm: Tensor
     bl_segment_g__uS: Tensor
@@ -53,8 +53,8 @@ class SolverHarness:
     v_wl_drive__V: Tensor
     inst_shape: tuple[int, ...] = field(default_factory=tuple)
 
-    def cell_snapshot(self) -> XbarCell1T1RSnapshot:
-        """Build the per-call cell snapshot at the harness WL drive."""
+    def cell_snapshot(self) -> XbarCell1T1RSnap:
+        """Build the per-call cell snap at the harness WL drive."""
         return self.cell.snapshot(
             control=self.v_wl_drive__V,
             shape=tuple(self.v_wl_drive__V.shape),
@@ -69,9 +69,9 @@ class SolverHarness:
             "sl_segment_r__MOhm": self.sl_segment_r__MOhm,
             "bl_segment_g__uS": self.bl_segment_g__uS,
             "sl_segment_g__uS": self.sl_segment_g__uS,
-            "cell_snapshot": self.cell_snapshot(),
-            "bl_driver_snapshot": self.bl_driver_snapshot,
-            "sl_driver_snapshot": self.sl_driver_snapshot,
+            "cell_snap": self.cell_snapshot(),
+            "bl_driver_snap": self.bl_driver_snap,
+            "sl_driver_snap": self.sl_driver_snap,
         }
 
 
@@ -191,12 +191,12 @@ def build_solver_harness(
     bl_seg_g = 1.0 / bl_seg_r
     sl_seg_g = 1.0 / sl_seg_r
 
-    # --- v_wl_drive — uniform per-row WL control for the cell snapshot ---
+    # --- v_wl_drive — uniform per-row WL control for the cell snap ---
 
     full_shape = (x_batch, *inst_shape, phys_col_num, row_num)
     v_wl_drive = torch.full(full_shape, v_wl_drive__V, device=device, dtype=dtype)
 
-    # --- Boundary-driver snapshots at the broadcast shape used by the solver ---
+    # --- Boundary-driver snaps at the broadcast shape used by the solver ---
 
     bl_drv_snap = bl_driver.snapshot(shape=(x_batch, *inst_shape, phys_col_num), multi_coords=None)
     sl_drv_snap = sl_driver.snapshot(shape=(x_batch, *inst_shape, phys_col_num), multi_coords=None)
@@ -215,8 +215,8 @@ def build_solver_harness(
         cell=cell,
         bl_driver=bl_driver,
         sl_driver=sl_driver,
-        bl_driver_snapshot=bl_drv_snap,
-        sl_driver_snapshot=sl_drv_snap,
+        bl_driver_snap=bl_drv_snap,
+        sl_driver_snap=sl_drv_snap,
         bl_segment_r__MOhm=bl_seg_r,
         sl_segment_r__MOhm=sl_seg_r,
         bl_segment_g__uS=bl_seg_g,

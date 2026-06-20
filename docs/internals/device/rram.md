@@ -2,7 +2,7 @@
 
 ## Summary
 
-`RRAM` (`rram.py`) is a stateful conductance-cell module: it owns the programmed conductance buffer, the programming write, the per-call read snapshot, and the closed-form I-V evaluation. It realizes the model in [reference/device/rram](../../reference/device/rram.md). This document covers the non-obvious choices, not the I-V or write flow.
+`RRAM` (`rram.py`) is a stateful conductance-cell module: it owns the programmed conductance buffer, the programming write, the per-call read snap, and the closed-form I-V evaluation. It realizes the model in [reference/device/rram](../../reference/device/rram.md). This document covers the non-obvious choices, not the I-V or write flow.
 
 ## Design decisions
 
@@ -14,18 +14,18 @@
 
 - **`program(...)` mutates state by buffer reassignment.** The stored conductance is replaced (`self.g__uS = ...`), not edited in place, so the buffer can grow from its scalar-zero initial shape to the programmed shape. Consumers must read `g__uS` fresh after a program, not cache a view.
 - **`snapshot(shape, multi_coords)` is the only read path into fabricated state.** It expands `g__uS` to the per-call broadcast `shape`, optionally advanced-indexes a chunk via `multi_coords` (the chunked-solve selector), applies the read-time noise stack, and re-clamps. `multi_coords=None` returns the full broadcast view. Fabricated buffers stay on the device and are never mirrored into the snapshot caller.
-- **`solve_dc(v, snapshot)` is stateless in the device.** It reads conductance only from the passed `RRAMSnapshot`, never from `self.g__uS`, so a chunk's snapshot and its solve stay paired. It returns both current and differential conductance because the consuming Jacobian needs the derivative.
+- **`solve_dc(v, snap)` is stateless in the device.** It reads conductance only from the passed `RRAMSnap`, never from `self.g__uS`, so a chunk's snap and its solve stay paired. It returns both current and differential conductance because the consuming Jacobian needs the derivative.
 - **No static fabricate mismatch.** `RRAM` inherits `FabricateMixin` to join the cascade but keeps the inherited no-op `_sample_fabricate_mismatch` — RRAM variation enters through `program(...)` (state-dependent Gamma, stuck-at), not through `fabricate()`.
 
 ## Performance & resources
 
-The state is one conductance buffer at the programmed broadcast shape. The read snapshot allocates noise draws at the per-call `shape` (or the indexed chunk); the chunked-solve `multi_coords` path exists so the consuming circuit can size that allocation per chunk rather than over the full leading batch.
+The state is one conductance buffer at the programmed broadcast shape. The read snap allocates noise draws at the per-call `shape` (or the indexed chunk); the chunked-solve `multi_coords` path exists so the consuming circuit can size that allocation per chunk rather than over the full leading batch.
 
 ## Gotchas
 
 - **Drift is unconditional, not policy-gated.** Unlike the four policy-flagged sources, the power-law drift gain is applied whenever `drift_decay_rate > 0` and `t_elapsed > drift_t0` — there is no `RRAMPolicy` switch for it. To disable drift, set the device parameters, not a policy flag.
 - **`alpha == 0` is a distinct branch.** The linear I-V path returns `g.expand_as(i)` for the differential conductance; do not assume the `sinh`/`cosh` form is always taken. The branch is on the config value, so it is compile-time-constant per instance.
-- **Read noise is reseeded every snapshot.** Two snapshots of the same programmed state differ under a noise-on policy; chunked reads are therefore not bit-identical to a single-block read with noise on.
+- **Read noise is reseeded every snapshot.** Two snaps of the same programmed state differ under a noise-on policy; chunked reads are therefore not bit-identical to a single-block read with noise on.
 
 ## Known limitations
 

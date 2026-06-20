@@ -47,7 +47,7 @@ Each source is independently switched by a per-run policy flag; with the flag of
 - **Telegraph read noise** (`read_telegraph`, read time) — random telegraph noise added per read snapshot: a cell is in the active state with probability $p_{\mathrm{high}}$, and when active receives an additive perturbation of random sign and Gaussian-distributed amplitude (mean $\mu_a$, std $\sigma_a$).
 - **Thermal read noise** (`read_thermal`, read time) — additive zero-mean Gaussian noise of std $\sigma_{\mathrm{th}}$ on the read conductance.
 
-After the read-time sources, the snapshot conductance is re-clamped to $[G_{\min}, G_{\max}]$.
+After the read-time sources, the snap conductance is re-clamped to $[G_{\min}, G_{\max}]$.
 
 ## Parameters
 

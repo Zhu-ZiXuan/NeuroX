@@ -229,11 +229,11 @@ def _solve_grid_for_candidate(
         n_pts = int(mask.sum())
         shape = (n_pts, 1)
         v_wl_pts = v_wl[mask].reshape(n_pts, 1)
-        snapshot = cell.snapshot(control=v_wl_pts, shape=shape, multi_coords=None, t_elapsed=0.0)
+        snap = cell.snapshot(control=v_wl_pts, shape=shape, multi_coords=None, t_elapsed=0.0)
         dcop = cell.solve_dc(
             v_bl[mask].reshape(n_pts, 1),
             v_sl[mask].reshape(n_pts, 1),
-            snapshot,
+            snap,
             compute_residuals=True,
         )
         residuals = dcop.residuals

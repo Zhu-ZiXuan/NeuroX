@@ -21,7 +21,7 @@ One- or two-sentence definitions of the terms used across the [Reference](README
 - **DCOP (DC operating point)** — the steady-state node-voltage and branch-current solution of the array under the interconnect parasitics and boundary clamp-drivers, found by the [solver](xbar/_1t1r/solver.md) via damped Newton iteration. The `circuit_core` holds no DCOP of its own; the per-call solve state is a transient container.
 - **program** — write a weight into the tile: a non-negative integer digit tensor whose digits combine positionally with radix $r$. Writes the actual weight state; may be called any number of times, each overwriting the previous encoding.
 - **fabricate** — resample static manufacturing variation across every owned module. Re-callable; each call re-samples mismatch from the unchanged nominal template, with no state accumulating across calls. Orthogonal to `program`.
-- **snapshot** — materialize per-call dynamic noise into a transient per-call container of dynamic noise that the solve / convert / VMM consumes; it is never persisted on the module. Distinct from the persistent state stages (nominal, actual) where the snapshot stage is this transient one.
+- **snapshot** — materialize per-call dynamic noise into a transient per-call container of dynamic noise that the solve / convert / VMM consumes; it is never persisted on the module. Distinct from the persistent state stages (nominal, actual) where the snap stage is this transient one.
 
 ## Value domain and slicing
 

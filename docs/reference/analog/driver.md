@@ -65,7 +65,7 @@ TODO.
 | $V_{\mathrm{SL,CL}}$ | SL clamp voltage | V | `v_sl_drive` |
 | $V_{\mathrm{drive}}$ | nominal drive voltage | V | `drive_value` |
 | $I_{\mathrm{SL,port}}$ | SL boundary port current | uA | derived from node voltages |
-| $n$ | per-read thermal-noise sample | V | sampled in snapshot |
+| $n$ | per-read thermal-noise sample | V | sampled in snap |
 
 ---
 

@@ -22,10 +22,10 @@ from neurox.device import (
     RRAM,
     NMOSConfig,
     NMOSPolicy,
-    NMOSSnapshot,
+    NMOSSnap,
     RRAMConfig,
     RRAMPolicy,
-    RRAMSnapshot,
+    RRAMSnap,
 )
 from neurox.xbar.cell import (
     XbarCell,
@@ -33,7 +33,7 @@ from neurox.xbar.cell import (
     XbarCellDCOP,
     XbarCellPolicy,
     XbarCellResiduals,
-    XbarCellSnapshot,
+    XbarCellSnap,
 )
 
 # ---------------------------------------------------------------------------
@@ -146,18 +146,18 @@ class XbarCell1T1RResiduals(XbarCellResiduals):
 
 
 @dataclass(frozen=True)
-class XbarCell1T1RSnapshot(XbarCellSnapshot):
-    """Per-call snapshot of a 1T1R cell's fabricated state.
+class XbarCell1T1RSnap(XbarCellSnap):
+    """Per-call snap of a 1T1R cell's fabricated state.
 
     Attributes:
-        rram: RRAM read-conductance snapshot.
-        nmos: Access-NMOS parameter snapshot.
+        rram: RRAM read-conductance snap.
+        nmos: Access-NMOS parameter snap.
         v_wl__V: Word-line drive voltage [V] at the NMOS gate. Broadcasts
             to ``[..., col, row]``.
     """
 
-    rram: RRAMSnapshot
-    nmos: NMOSSnapshot
+    rram: RRAMSnap
+    nmos: NMOSSnap
     v_wl__V: Tensor
 
 
@@ -179,7 +179,7 @@ class XbarCell1T1RDCOP(XbarCellDCOP[XbarCell1T1RResiduals]):
 
 
 @XbarCell.register_key(XbarCell1T1RConfig)
-class XbarCell1T1R(XbarCell[XbarCell1T1RSnapshot, XbarCell1T1RDCOP]):
+class XbarCell1T1R(XbarCell[XbarCell1T1RSnap, XbarCell1T1RDCOP]):
     """Series access-NMOS + RRAM 1T1R cell with a condensed BL-to-SL branch.
 
     The internal access node ``V_X`` is eliminated per call by a Padé
@@ -246,27 +246,27 @@ class XbarCell1T1R(XbarCell[XbarCell1T1RSnapshot, XbarCell1T1RDCOP]):
         shape: tuple[int, ...],
         multi_coords: tuple[Tensor, ...] | None,
         t_elapsed: float,
-    ) -> XbarCell1T1RSnapshot:
-        """Bundle RRAM / NMOS device snapshots with the WL control drive.
+    ) -> XbarCell1T1RSnap:
+        """Bundle RRAM / NMOS device snaps with the WL control drive.
 
         Args:
             control: Word-line drive voltage [V] at the NMOS gate;
                 broadcasts to ``[..., col, row]``.
             shape: Per-call broadcast shape ``(*leading, col, row)`` the
-                RRAM / NMOS snapshots fill their tensor fields at.
+                RRAM / NMOS snaps fill their tensor fields at.
             multi_coords: Advanced-index tuple selecting a chunk's
                 positions from the broadcast view; forwarded to the RRAM /
-                NMOS snapshots. ``None`` returns the full view.
+                NMOS snaps. ``None`` returns the full view.
             t_elapsed: Time elapsed since programming [s]; reserved for
                 time-dependent device read state.
 
         Returns:
-            Per-call 1T1R cell snapshot.
+            Per-call 1T1R cell snap.
         """
         del t_elapsed  # no time-dependent read state in this cell
         rram_snap = self.rram.snapshot(shape=shape, multi_coords=multi_coords)
         nmos_snap = self.nmos.snapshot(shape=shape, multi_coords=multi_coords)
-        return XbarCell1T1RSnapshot(rram=rram_snap, nmos=nmos_snap, v_wl__V=control)
+        return XbarCell1T1RSnap(rram=rram_snap, nmos=nmos_snap, v_wl__V=control)
 
     def program(self, w_state_idx: Tensor) -> None:
         """Program the RRAM cells from one state-index tensor.
@@ -286,7 +286,7 @@ class XbarCell1T1R(XbarCell[XbarCell1T1RSnapshot, XbarCell1T1RDCOP]):
         self,
         v_bl: Tensor,
         v_sl: Tensor,
-        snapshot: XbarCell1T1RSnapshot,
+        snap: XbarCell1T1RSnap,
     ) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
         """Condense the access node ``V_X`` and read off the branch quantities.
 
@@ -300,9 +300,9 @@ class XbarCell1T1R(XbarCell[XbarCell1T1RSnapshot, XbarCell1T1RDCOP]):
         terminal derivatives of the condensed branch. At cell convergence
         ``i_r == i_n``; their difference is the access-node KCL residual.
         """
-        v_wl = snapshot.v_wl__V
-        rram_snap = snapshot.rram
-        nmos_snap = snapshot.nmos
+        v_wl = snap.v_wl__V
+        rram_snap = snap.rram
+        nmos_snap = snap.nmos
 
         # --- Padé current-divider seed for V_X ---
 
@@ -343,21 +343,21 @@ class XbarCell1T1R(XbarCell[XbarCell1T1RSnapshot, XbarCell1T1RDCOP]):
         self,
         v_bl: Tensor,
         v_sl: Tensor,
-        snapshot: XbarCell1T1RSnapshot,
+        snap: XbarCell1T1RSnap,
     ) -> tuple[Tensor, Tensor, Tensor]:
         """Condensed branch solve: ``(i__uA, di_dvbl__uS, di_dvsl__uS)``."""
-        i_r, _i_n, di_dvbl__uS, di_dvsl__uS, _v_x = self._solve_vx(v_bl, v_sl, snapshot)
+        i_r, _i_n, di_dvbl__uS, di_dvsl__uS, _v_x = self._solve_vx(v_bl, v_sl, snap)
         return i_r, di_dvbl__uS, di_dvsl__uS
 
     def solve_dc(
         self,
         v_bl: Tensor,
         v_sl: Tensor,
-        snapshot: XbarCell1T1RSnapshot,
+        snap: XbarCell1T1RSnap,
         compute_residuals: bool = False,
     ) -> XbarCell1T1RDCOP:
         """Full branch working point including the condensed ``V_X``."""
-        i_r, i_n, di_dvbl__uS, di_dvsl__uS, v_x = self._solve_vx(v_bl, v_sl, snapshot)
+        i_r, i_n, di_dvbl__uS, di_dvsl__uS, v_x = self._solve_vx(v_bl, v_sl, snap)
         residuals: XbarCell1T1RResiduals | None
         residuals = XbarCell1T1RResiduals(cell__uA=(i_n - i_r).abs()) if compute_residuals else None
         return XbarCell1T1RDCOP(
@@ -377,7 +377,7 @@ class XbarCell1T1R(XbarCell[XbarCell1T1RSnapshot, XbarCell1T1RDCOP]):
         v_bl: Tensor,
         v_sl: Tensor,
         dcop: XbarCell1T1RDCOP,
-        snapshot: XbarCell1T1RSnapshot,
+        snap: XbarCell1T1RSnap,
     ) -> Tensor:
         """Per-cell device-capacitance switching energy [fJ].
 
@@ -394,13 +394,13 @@ class XbarCell1T1R(XbarCell[XbarCell1T1RSnapshot, XbarCell1T1RDCOP]):
             v_bl: Bit-line node voltage [V]. Shape: ``[..., col, row]``.
             v_sl: Source-line node voltage [V]. Shape: ``[..., col, row]``.
             dcop: Converged DCOP carrying ``v_x__V``.
-            snapshot: Per-call snapshot carrying ``v_wl__V``.
+            snap: Per-call snap carrying ``v_wl__V``.
 
         Returns:
             Per-cell switching energy [fJ]. Shape: ``[..., col, row]``.
         """
         v_x__V = dcop.v_x__V
-        v_wl__V = snapshot.v_wl__V
+        v_wl__V = snap.v_wl__V
 
         e_rram_top__fJ = self.rram.c_top__fF * v_bl.square()
         e_rram_bot__fJ = self.rram.c_bot__fF * v_x__V.square()

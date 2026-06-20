@@ -90,7 +90,7 @@ def test_nested_inner_only_converges(fixture_config: Path, device: torch.device)
         sl_segment_r__MOhm=harness.sl_segment_r__MOhm,
         bl_segment_g__uS=harness.bl_segment_g__uS,
         sl_segment_g__uS=harness.sl_segment_g__uS,
-        cell_snapshot=harness.cell_snapshot(),
+        cell_snap=harness.cell_snapshot(),
         compute_residuals=True,
     )
     assert dcop.residuals is not None

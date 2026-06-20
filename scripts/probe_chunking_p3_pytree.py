@@ -1,8 +1,8 @@
 """P3 probe — verify ``@dataclass(frozen=True)`` snapshot containers
 travel through ``@torch.compile(dynamic=False)`` correctly.
 
-We mimic the real snapshot shape: an outer ``OpAmpTIASnapshot``-like
-container holding tensor fields plus a nested ``NMOSSnapshot``-like
+We mimic the real snapshot shape: an outer ``OpAmpTIASnap``-like
+container holding tensor fields plus a nested ``NMOSSnap``-like
 container. We compile a free function that consumes the nested container
 and returns a tensor. The probe checks:
 

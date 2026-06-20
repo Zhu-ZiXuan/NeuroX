@@ -2,7 +2,7 @@
 
 ## Summary
 
-`OpAmpTIA` (`tia/opamp_tia.py`) is the op-amp plus NMOS-pseudo-resistor concrete TIA: it owns an internal `NMOS`, fabricates op-amp gain state, and threads runtime clamp snapshots through the solver-facing protocol. Spec: [reference/analog/tia/opamp_tia](../../../reference/analog/tia/opamp_tia.md).
+`OpAmpTIA` (`tia/opamp_tia.py`) is the op-amp plus NMOS-pseudo-resistor concrete TIA: it owns an internal `NMOS`, fabricates op-amp gain state, and threads runtime clamp snaps through the solver-facing protocol. Spec: [reference/analog/tia/opamp_tia](../../../reference/analog/tia/opamp_tia.md).
 
 ## Design decisions
 
@@ -12,7 +12,7 @@
 
 ## Contracts & invariants
 
-- **Solver-facing surface** (the `TIA`-family contract): `solve_clamp(i_port__uA, snapshot, *, v_clamp_init__V) -> (v_clamp__V, dVclamp_dI__MOhm)` consuming an `OpAmpTIASnapshot`, plus the `v_ref__V` property (returned from `self.config`). The richer `solve_dc(...)` additionally carries the op-amp output voltage after the solve and is the OpAmpTIA-concrete extension the array solve does not depend on.
+- **Solver-facing surface** (the `TIA`-family contract): `solve_clamp(i_port__uA, snap, *, v_clamp_init__V) -> (v_clamp__V, dVclamp_dI__MOhm)` consuming an `OpAmpTIASnap`, plus the `v_ref__V` property (returned from `self.config`). The richer `solve_dc(...)` additionally carries the op-amp output voltage after the solve and is the OpAmpTIA-concrete extension the array solve does not depend on.
 - **Fabricate cascade.** The op-amp gain is fabricated state on the op-amp; the NMOS state is fabricated through the owned child. A single `fabricate()` refreshes both.
 
 ## Performance & resources

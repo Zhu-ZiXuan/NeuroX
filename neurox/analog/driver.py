@@ -47,8 +47,8 @@ class DriverPolicy:
 
 
 @dataclass(frozen=True)
-class DriverSnapshot:
-    """One sampled driver snapshot.
+class DriverSnap:
+    """One sampled driver snap.
 
     Attributes:
         v_clamp__V: Sampled clamp voltage [V].
@@ -119,18 +119,18 @@ class Driver(CircuitBase[DriverConfig]):
         *,
         shape: tuple[int, ...],
         multi_coords: tuple[Tensor, ...] | None,
-    ) -> DriverSnapshot:
-        """Sample one per-call runtime snapshot over ``shape``.
+    ) -> DriverSnap:
+        """Sample one per-call runtime snap over ``shape``.
 
         Args:
-            shape: Per-call broadcast shape; the snapshot fills tensor
+            shape: Per-call broadcast shape; the snap fills tensor
                 fields at this shape.
             multi_coords: Advanced-index tuple selecting a chunk's
                 positions from the broadcast view; ``None`` returns the
                 full view.
 
         Returns:
-            Per-call snapshot of the fabricated state.
+            Per-call snap of the fabricated state.
         """
         v_view = self.nominal_drive_value.expand(shape) if shape else self.nominal_drive_value
         v = v_view if multi_coords is None else v_view[multi_coords]
@@ -139,12 +139,12 @@ class Driver(CircuitBase[DriverConfig]):
             self.config.drive_thermal__V,
             enabled=self.policy.drive_thermal,
         )
-        return DriverSnapshot(v_clamp__V=v)
+        return DriverSnap(v_clamp__V=v)
 
     def solve_dc(
         self,
         i_port__uA: Tensor,
-        snapshot: DriverSnapshot,
+        snap: DriverSnap,
         *,
         v_clamp_init__V: Tensor | None,
     ) -> DriverDCOP:
@@ -152,7 +152,7 @@ class Driver(CircuitBase[DriverConfig]):
 
         Args:
             i_port__uA: Port current [uA].
-            snapshot: Snapshot returned by :meth:`snapshot`.
+            snap: Snap returned by :meth:`snapshot`.
             v_clamp_init__V: Optional warm-start hint [V]. Ignored by the ideal
                 driver.
 
@@ -160,14 +160,14 @@ class Driver(CircuitBase[DriverConfig]):
             Clamp voltage and small-signal slope at the requested operating
             point.
         """
-        v_clamp__V = snapshot.v_clamp__V.expand_as(i_port__uA)
+        v_clamp__V = snap.v_clamp__V.expand_as(i_port__uA)
         dVclamp_dI__MOhm = torch.zeros_like(i_port__uA)
         return DriverDCOP(v_clamp__V=v_clamp__V, dVclamp_dI__MOhm=dVclamp_dI__MOhm)
 
     def solve_clamp(
         self,
         i_port__uA: Tensor,
-        snapshot: DriverSnapshot,
+        snap: DriverSnap,
         *,
         v_clamp_init__V: Tensor | None,
     ) -> tuple[Tensor, Tensor]:
@@ -175,12 +175,12 @@ class Driver(CircuitBase[DriverConfig]):
 
         Args:
             i_port__uA: Port current [uA].
-            snapshot: Snapshot returned by :meth:`snapshot`.
+            snap: Snap returned by :meth:`snapshot`.
             v_clamp_init__V: Optional warm-start hint [V]. Ignored by the ideal
                 driver.
 
         Returns:
             Tuple `(v_clamp__V, dVclamp_dI__MOhm)`.
         """
-        dc = self.solve_dc(i_port__uA, snapshot, v_clamp_init__V=v_clamp_init__V)
+        dc = self.solve_dc(i_port__uA, snap, v_clamp_init__V=v_clamp_init__V)
         return dc.v_clamp__V, dc.dVclamp_dI__MOhm

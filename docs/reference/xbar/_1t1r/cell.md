@@ -6,7 +6,7 @@ The 1T1R cell is the concrete realization of the [cell family contract](../cell.
 
 ## Physical model
 
-The cell has one internal node, the access node $V_{\mathrm{X}}$ between the RRAM and the access NMOS. The RRAM conducts between the bit line $V_{\mathrm{BL}}$ and $V_{\mathrm{X}}$; the access NMOS conducts between $V_{\mathrm{X}}$ and the source line $V_{\mathrm{SL}}$, gated by the word-line voltage $V_{\mathrm{WL}}$. The EKV access-NMOS model is source/drain symmetric, so source and drain labels are a naming convention: the SL-side terminal ($V_{\mathrm{SL}}$) is taken as the source and the internal BL-side terminal ($V_{\mathrm{X}}$) as the drain, with no effect on the device current. The word-line drive is an input to the cell, carried in the per-call snapshot together with the device read state.
+The cell has one internal node, the access node $V_{\mathrm{X}}$ between the RRAM and the access NMOS. The RRAM conducts between the bit line $V_{\mathrm{BL}}$ and $V_{\mathrm{X}}$; the access NMOS conducts between $V_{\mathrm{X}}$ and the source line $V_{\mathrm{SL}}$, gated by the word-line voltage $V_{\mathrm{WL}}$. The EKV access-NMOS model is source/drain symmetric, so source and drain labels are a naming convention: the SL-side terminal ($V_{\mathrm{SL}}$) is taken as the source and the internal BL-side terminal ($V_{\mathrm{X}}$) as the drain, with no effect on the device current. The word-line drive is an input to the cell, carried in the per-call snap together with the device read state.
 
 The cell presents a **two-terminal branch** to the array solver. The internal node $V_{\mathrm{X}}$ is condensed away inside the cell, so the array solver never sees it: the cell is one element between $V_{\mathrm{BL}}$ and $V_{\mathrm{SL}}$ whose current and terminal conductances summarize the entire series stack. The RRAM and NMOS device transfer functions $I_{\mathrm{R}}(\cdot)$ and $I_{\mathrm{N}}(\cdot)$ are specified in [reference/device](../../device/README.md).
 
@@ -30,7 +30,7 @@ The internal KCL $F_{\mathrm{X}}(V_{\mathrm{X}}) = 0$ is strictly monotone in $V
 
 ## Noise & non-idealities
 
-The cell owns no static mismatch of its own; non-idealities enter through its two device children, each gated by its own policy switch: RRAM conductance non-idealities (programming variation, drift, telegraph, thermal read noise) and access-NMOS threshold / transconductance mismatch — see [reference/device](../../device/README.md). The per-call snapshot fixes the read state, so the device noise is sampled once per call and the condensation is deterministic given that snapshot. The snapshot is taken at the per-call broadcast shape $(\dots, \text{col}, \text{row})$ with optional chunk selection, so each device sample aligns with the broadcast operating point the solver drives (the `shape` / `multi_coords` forwarding is in [internals](../../../internals/xbar/_1t1r/cell.md)).
+The cell owns no static mismatch of its own; non-idealities enter through its two device children, each gated by its own policy switch: RRAM conductance non-idealities (programming variation, drift, telegraph, thermal read noise) and access-NMOS threshold / transconductance mismatch — see [reference/device](../../device/README.md). The per-call snap fixes the read state, so the device noise is sampled once per call and the condensation is deterministic given that snap. The snap is taken at the per-call broadcast shape $(\dots, \text{col}, \text{row})$ with optional chunk selection, so each device sample aligns with the broadcast operating point the solver drives (the `shape` / `multi_coords` forwarding is in [internals](../../../internals/xbar/_1t1r/cell.md)).
 
 ## Parameters
 
@@ -75,7 +75,7 @@ The wire-segment, control-line (WL), and DC-conduction energy is **not** the cel
 | $V_{\mathrm{BL}}$ | bit-line node voltage (cell terminal) | V | `v_bl` |
 | $V_{\mathrm{SL}}$ | source-line node voltage (cell terminal) | V | `v_sl` |
 | $V_{\mathrm{X}}$ | RRAM-NMOS internal access node | V | `XbarCell1T1RDCOP.v_x__V` |
-| $V_{\mathrm{WL}}$ | word-line drive voltage (input) | V | `XbarCell1T1RSnapshot.v_wl__V` |
+| $V_{\mathrm{WL}}$ | word-line drive voltage (input) | V | `XbarCell1T1RSnap.v_wl__V` |
 | $I$ | condensed branch current (BL $\to$ SL) | uA | `XbarCellDCOP.i__uA` |
 | $I_{\mathrm{R}}$ | RRAM current | uA | `RRAM.solve_dc` |
 | $I_{\mathrm{N}}$ | access-NMOS current | uA | `NMOS.solve_dc` |

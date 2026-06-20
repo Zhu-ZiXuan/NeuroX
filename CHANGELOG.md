@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased — Snapshot Dataclasses Renamed `*Snapshot` → `*Snap`
+
+### Changed
+
+- **Per-call snapshot dataclasses renamed `*Snapshot` → `*Snap`** —
+  the runtime snapshot dataclasses (`NMOSSnap`, `RRAMSnap`,
+  `DriverSnap`, `TIASnap`, `OpAmpTIASnap`, `XbarCellSnap`,
+  `XbarCell1T1RSnap`) and the bound type variable (`SnapshotT` →
+  `SnapT`) drop the redundant tail so a dataclass no longer reads
+  like the `snapshot()` method that produces it. Snapshot-valued
+  locals, fields, and parameters move to `snap` / `*_snap` to
+  match; the `snapshot()` method name is unchanged.
+
 ## Unreleased — `value_range` as Slicer Output + `IdealMacro` Range Tuples
 
 ### Changed

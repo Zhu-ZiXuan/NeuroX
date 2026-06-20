@@ -2,7 +2,7 @@
 
 ## Summary
 
-The pluggable-cell abstraction is a `RegistryMixin` family (`XbarCell` base + `XbarCellConfig` / `XbarCellPolicy` / `XbarCellSnapshot` / `XbarCellDCOP` / `XbarCellResiduals` containers in `xbar/cell.py`) with one 1T1R implementation (`_1t1r/cell.py`). The cell realizes the model in [reference/xbar/_1t1r/cell](../../../reference/xbar/_1t1r/cell.md). This document covers the non-obvious choices, not the branch-solve flow.
+The pluggable-cell abstraction is a `RegistryMixin` family (`XbarCell` base + `XbarCellConfig` / `XbarCellPolicy` / `XbarCellSnap` / `XbarCellDCOP` / `XbarCellResiduals` containers in `xbar/cell.py`) with one 1T1R implementation (`_1t1r/cell.py`). The cell realizes the model in [reference/xbar/_1t1r/cell](../../../reference/xbar/_1t1r/cell.md). This document covers the non-obvious choices, not the branch-solve flow.
 
 ## Design decisions
 
@@ -19,14 +19,14 @@ The pluggable-cell abstraction is a `RegistryMixin` family (`XbarCell` base + `X
 - **`solve_branch` is the lean hot path; `solve_dc` is its diagnostic superset.** `solve_branch` returns only `(i__uA, di_dvbl__uS, di_dvsl__uS)` — exactly what the wire Newton needs. `solve_dc` returns the same plus the internal-node voltage on the concrete DCOP and, when `compute_residuals=True`, the internal-KCL residual. The hot path calls `solve_branch`; energy and calibration call `solve_dc`. Both must condense identically.
 - **Signed-conductance contract.** `di_dvbl__uS` is non-negative and `di_dvsl__uS` is non-positive at every operating point, by series condensation of the device partials (RRAM and NMOS-drain partials $\ge 0$, NMOS-source partial $\le 0$). The wire Jacobian assembled by the solver depends on these signs; a cell that violated them would silently corrupt the wire solve rather than error.
 - **Single current.** The branch current returned is the RRAM current `i_r`; at cell convergence it equals the NMOS current. `solve_dc(compute_residuals=True)` exposes their absolute difference as the per-cell KCL residual — the calibration / debug signal for whether `n_newton` is sufficient.
-- **Control line travels in the snapshot.** `snapshot(control=..., shape=..., multi_coords=..., t_elapsed=...)` bundles the RRAM / NMOS device snapshots with the WL drive (`v_wl__V`); `solve_branch` / `solve_dc` / `dynamic_energy` read the WL only from the snapshot, never from `self`. So the solver passes one `cell_snapshot` and the cell holds no per-call control state.
+- **Control line travels in the snap.** `snapshot(control=..., shape=..., multi_coords=..., t_elapsed=...)` bundles the RRAM / NMOS device snaps with the WL drive (`v_wl__V`); `solve_branch` / `solve_dc` / `dynamic_energy` read the WL only from the snap, never from `self`. So the solver passes one `cell_snap` and the cell holds no per-call control state.
 - **`snapshot` threads the broadcast shape and chunk selection to its devices.** `shape` is the per-call broadcast shape `(*leading, col, row)` and `multi_coords` is the advanced-index tuple selecting one chunk's positions (`None` for the full view); the cell forwards both straight to `rram.snapshot` / `nmos.snapshot`. This keeps the device samples (`g__uS`, `vth__V`, `beta__uA_per_V2`) at the same broadcast leading as the WL / wire tensors the solver drives, so chunked / batched reads stay shape-aligned.
 - **`program` writes only the storage device.** It maps a state-index tensor through `state_to_g_map__uS` and programs the RRAM; the NMOS is not programmed. The state-index shape must match the cell's `inst_shape`.
 - **`@torch.compile` constraints.** `solve_branch` runs inside the compiled solver leaf, so it obeys the same rules: no in-place tensor writes, no Python-side branches on tensor values. The unrolled Newton and the functional (non-in-place) updates satisfy this.
 
 ## Performance & resources
 
-The cell's per-call working set is the device snapshots plus a handful of node-voltage-shaped tensors at the per-call (chunked) leading; it allocates no $V_{\mathrm{X}}$ history across Newton steps (each step overwrites the iterate functionally). `n_newton` is small (single digits at fp32), so the unrolled loop adds a constant multiple of one RRAM + one NMOS `solve_dc` per cell per solver iteration. The condensation removes one unknown per cell from the array solve entirely — there is no $V_{\mathrm{X}}$ in the solver's wire Jacobian, which is the memory win that lets the wire Newton stay block-$2\times2$ (see [solver](solver.md)).
+The cell's per-call working set is the device snaps plus a handful of node-voltage-shaped tensors at the per-call (chunked) leading; it allocates no $V_{\mathrm{X}}$ history across Newton steps (each step overwrites the iterate functionally). `n_newton` is small (single digits at fp32), so the unrolled loop adds a constant multiple of one RRAM + one NMOS `solve_dc` per cell per solver iteration. The condensation removes one unknown per cell from the array solve entirely — there is no $V_{\mathrm{X}}$ in the solver's wire Jacobian, which is the memory win that lets the wire Newton stay block-$2\times2$ (see [solver](solver.md)).
 
 ## Gotchas
 

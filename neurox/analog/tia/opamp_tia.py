@@ -10,9 +10,9 @@ import torch
 from torch import Tensor
 
 from neurox.common.nonideality import apply_gaussian
-from neurox.device.nmos import NMOS, NMOSConfig, NMOSPolicy, NMOSSnapshot
+from neurox.device.nmos import NMOS, NMOSConfig, NMOSPolicy, NMOSSnap
 
-from .base import TIA, TIAConfig, TIAPolicy, TIASnapshot
+from .base import TIA, TIAConfig, TIAPolicy, TIASnap
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -121,20 +121,20 @@ class OpAmpTIADCOP:
 
 
 @dataclass(frozen=True)
-class OpAmpTIASnapshot(TIASnapshot):
-    """Per-call OpAmpTIA snapshot.
+class OpAmpTIASnap(TIASnap):
+    """Per-call OpAmpTIA snap.
 
     Attributes:
         opamp_gain: Sampled per-instance open-loop gain (unit-less).
-        nmos_snapshot: Pseudo-resistor NMOS snapshot.
+        nmos_snap: Pseudo-resistor NMOS snap.
     """
 
     opamp_gain: Tensor
-    nmos_snapshot: NMOSSnapshot
+    nmos_snap: NMOSSnap
 
 
 @TIA.register_key(OpAmpTIAConfig)
-class OpAmpTIA(TIA[OpAmpTIASnapshot]):
+class OpAmpTIA(TIA[OpAmpTIASnap]):
     """Non-linear OpAmpTIA clamp driver.
 
     Class-level numerical constants (method-intrinsic, not chip-tuneable):
@@ -229,23 +229,23 @@ class OpAmpTIA(TIA[OpAmpTIASnapshot]):
         *,
         shape: tuple[int, ...],
         multi_coords: tuple[Tensor, ...] | None,
-    ) -> OpAmpTIASnapshot:
-        """Sample one per-call runtime snapshot over ``shape``.
+    ) -> OpAmpTIASnap:
+        """Sample one per-call runtime snap over ``shape``.
 
         Args:
-            shape: Per-call broadcast shape; the snapshot fills tensor
+            shape: Per-call broadcast shape; the snap fills tensor
                 fields at this shape.
             multi_coords: Advanced-index tuple selecting a chunk's
                 positions from the broadcast view; ``None`` returns the
                 full view.
 
         Returns:
-            Per-call snapshot of the fabricated state.
+            Per-call snap of the fabricated state.
         """
         gain_view = self.opamp_gain.expand(shape) if shape else self.opamp_gain
         gain = gain_view if multi_coords is None else gain_view[multi_coords]
         nmos_snap = self.nmos.snapshot(shape=shape, multi_coords=multi_coords)
-        return OpAmpTIASnapshot(opamp_gain=gain, nmos_snapshot=nmos_snap)
+        return OpAmpTIASnap(opamp_gain=gain, nmos_snap=nmos_snap)
 
     # --- forward path ---
 
@@ -269,7 +269,7 @@ class OpAmpTIA(TIA[OpAmpTIASnapshot]):
     def solve_dc(
         self,
         i_port__uA: Tensor,
-        snapshot: OpAmpTIASnapshot,
+        snap: OpAmpTIASnap,
         *,
         v_clamp_init__V: Tensor | None,
     ) -> OpAmpTIADCOP:
@@ -277,7 +277,7 @@ class OpAmpTIA(TIA[OpAmpTIASnapshot]):
 
         Args:
             i_port__uA: Port-output current [uA]; positive = sourcing.
-            snapshot: Per-call snapshot from :meth:`snapshot`.
+            snap: Per-call snap from :meth:`snapshot`.
             v_clamp_init__V: Optional warm-start; ``None`` seeds from the
                 zero-current static op.
 
@@ -290,8 +290,8 @@ class OpAmpTIA(TIA[OpAmpTIASnapshot]):
         v_nmos_bias = self.config.v_nmos_bias__V
         v_dd = self.config.v_dd__V
 
-        opamp_gain = snapshot.opamp_gain
-        nmos_snapshot = snapshot.nmos_snapshot
+        opamp_gain = snap.opamp_gain
+        nmos_snap = snap.nmos_snap
 
         # warm start: zero-current static op when none provided.
         v_clamp = v_ref * opamp_gain / (opamp_gain + 1.0) if v_clamp_init__V is None else v_clamp_init__V
@@ -305,7 +305,7 @@ class OpAmpTIA(TIA[OpAmpTIASnapshot]):
                 vg__V=v_nmos_bias,
                 vd__V=v_out,
                 vs__V=v_clamp,
-                snapshot=nmos_snapshot,
+                snap=nmos_snap,
             )
             # df/dVclamp = ∂I/∂v_d · (-A · g_clip) + ∂I/∂v_s
             dvout_dvclamp = -opamp_gain * g_clip
@@ -324,7 +324,7 @@ class OpAmpTIA(TIA[OpAmpTIASnapshot]):
             vg__V=v_nmos_bias,
             vd__V=v_out,
             vs__V=v_clamp,
-            snapshot=nmos_snapshot,
+            snap=nmos_snap,
         )
         dvout_dvclamp = -opamp_gain * g_clip
         df_dVclamp_final = (nmos_dc_final.did_dvd__uS * dvout_dvclamp + nmos_dc_final.did_dvs__uS).clamp(
@@ -349,7 +349,7 @@ class OpAmpTIA(TIA[OpAmpTIASnapshot]):
     def solve_clamp(
         self,
         i_port__uA: Tensor,
-        snapshot: OpAmpTIASnapshot,
+        snap: OpAmpTIASnap,
         *,
         v_clamp_init__V: Tensor | None,
     ) -> tuple[Tensor, Tensor]:
@@ -357,11 +357,11 @@ class OpAmpTIA(TIA[OpAmpTIASnapshot]):
 
         Args:
             i_port__uA: Port-output current [uA]; see :meth:`solve_dc`.
-            snapshot: Per-call snapshot from :meth:`snapshot`.
+            snap: Per-call snap from :meth:`snapshot`.
             v_clamp_init__V: Optional warm-start for the inner Newton.
 
         Returns:
             ``(v_clamp__V, dVclamp_dI__MOhm)``.
         """
-        dc = self.solve_dc(i_port__uA, snapshot, v_clamp_init__V=v_clamp_init__V)
+        dc = self.solve_dc(i_port__uA, snap, v_clamp_init__V=v_clamp_init__V)
         return dc.v_clamp__V, dc.dVclamp_dI__MOhm

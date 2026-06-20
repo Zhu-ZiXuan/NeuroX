@@ -45,7 +45,7 @@ Appendix (not part of the 6-section template): per-family `__init__` shape and t
 def __init__(self, *, config, name, inst_shape, dtype, T__K) -> None: ...
 
 def _sample_fabricate_mismatch(self) -> None: ...   # override point
-def snapshot(self, *, shape: tuple[int, ...]) -> <Name>Snapshot: ...  # for devices / analog with dynamic noise
+def snapshot(self, *, shape: tuple[int, ...]) -> <Name>Snap: ...  # for devices / analog with dynamic noise
 ```
 
 - `inst_shape` is the per-instance fabrication shape, committed at construction.

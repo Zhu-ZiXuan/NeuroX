@@ -125,8 +125,8 @@ class RRAMDCOP:
 
 
 @dataclass(frozen=True)
-class RRAMSnapshot:
-    """Per-call read conductance snapshot.
+class RRAMSnap:
+    """Per-call read conductance snap.
 
     Attributes:
         g__uS: Sampled per-cell conductance [uS].
@@ -215,38 +215,38 @@ class RRAM(FabricateMixin, nn.Module):
         *,
         shape: tuple[int, ...],
         multi_coords: tuple[Tensor, ...] | None,
-    ) -> RRAMSnapshot:
-        """Sample one per-call runtime snapshot over ``shape``.
+    ) -> RRAMSnap:
+        """Sample one per-call runtime snap over ``shape``.
 
         Args:
-            shape: Per-call broadcast shape; the snapshot fills tensor
+            shape: Per-call broadcast shape; the snap fills tensor
                 fields at this shape.
             multi_coords: Advanced-index tuple selecting a chunk's
                 positions from the broadcast view; ``None`` returns the
                 full view.
 
         Returns:
-            Per-call snapshot of the fabricated state.
+            Per-call snap of the fabricated state.
         """
         g_view = self.g__uS.expand(shape) if shape else self.g__uS
         g = g_view if multi_coords is None else g_view[multi_coords]
         g = apply_telegraph_noise(g, self.config.read_telegraph, enabled=self.policy.read_telegraph)
         g = apply_gaussian(g, self.config.read_thermal__uS, enabled=self.policy.read_thermal)
         g = g.clamp(self.g_min__uS, self.g_max__uS)
-        return RRAMSnapshot(g__uS=g)
+        return RRAMSnap(g__uS=g)
 
-    def solve_dc(self, v__V: Tensor, snapshot: RRAMSnapshot) -> RRAMDCOP:
+    def solve_dc(self, v__V: Tensor, snap: RRAMSnap) -> RRAMDCOP:
         """Evaluate current and differential conductance.
 
         Args:
             v__V: Device voltage [V]. Shape: arbitrary.
-            snapshot: Conductance snapshot from :meth:`snapshot`.
+            snap: Conductance snap from :meth:`snapshot`.
 
         Returns:
             Current and local differential conductance at the requested
             voltage.
         """
-        g__uS = snapshot.g__uS
+        g__uS = snap.g__uS
         alpha = self.config.nonlinearity_alpha
         if alpha == 0.0:
             i__uA = g__uS * v__V

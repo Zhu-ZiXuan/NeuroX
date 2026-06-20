@@ -192,7 +192,7 @@ def _solver_inputs_from_core(core: CircuitCore1T1R, x: Tensor) -> dict[str, Any]
     # the DAC convert in its natural ``(*leading, row)`` shape (no synthetic
     # WL-fanout dim that has nothing to do with the DAC's own structure). The
     # fanout slot is added back via unsqueeze(-2) after convert so the cell
-    # snapshot's WL drive is ``(*leading, 1, row)`` as the solver expects.
+    # snap's WL drive is ``(*leading, 1, row)`` as the solver expects.
     x_grid = x_code.unsqueeze(-2)
     full_shape = torch.broadcast_shapes(g_shape, x_grid.shape)
     *batch_list, phys_col_num, row_num = full_shape
@@ -207,14 +207,14 @@ def _solver_inputs_from_core(core: CircuitCore1T1R, x: Tensor) -> dict[str, Any]
         "sl_segment_r__MOhm": core.sl_segment_r__MOhm,
         "bl_segment_g__uS": core.bl_segment_g__uS,
         "sl_segment_g__uS": core.sl_segment_g__uS,
-        "cell_snapshot": core.cell.snapshot(
+        "cell_snap": core.cell.snapshot(
             control=v_wl_drive,
             shape=(*leading, *cell_trailing),
             multi_coords=None,
             t_elapsed=0.0,
         ),
-        "bl_driver_snapshot": core.tia.snapshot(shape=(*leading, *tia_trailing), multi_coords=None),
-        "sl_driver_snapshot": core.sl_driver.snapshot(shape=(*leading, *tia_trailing), multi_coords=None),
+        "bl_driver_snap": core.tia.snapshot(shape=(*leading, *tia_trailing), multi_coords=None),
+        "sl_driver_snap": core.sl_driver.snapshot(shape=(*leading, *tia_trailing), multi_coords=None),
     }
 
 

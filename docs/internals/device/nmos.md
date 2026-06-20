@@ -14,8 +14,8 @@
 ## Contracts & invariants
 
 - **`_sample_fabricate_mismatch()` is re-callable and shape-stable.** Each call re-expands the scalar nominals to `self._inst_shape` and resamples; the owning module drives the cadence via `model.fabricate()` and the mixin auto-cascades. Fabricated `beta__uA_per_V2` / `vth__V` live on the device and are not mirrored elsewhere.
-- **`snapshot(shape, multi_coords)` is the read path into fabricated state.** It expands the per-cell maps to the per-call `shape`, optionally advanced-indexes a chunk via `multi_coords`, and returns an `NMOSSnapshot`. The solve reads `beta__uA_per_V2` and `vth__V` only from the snapshot, never from `self`.
-- **`solve_dc(vg, vd, vs, snapshot)` returns three node partials with fixed signs.** $\partial I/\partial V_d \ge 0$ and $\partial I/\partial V_s \le 0$ by construction; the consuming Jacobian relies on these signs. Inputs may be scalars or tensors and broadcast against the snapshot.
+- **`snapshot(shape, multi_coords)` is the read path into fabricated state.** It expands the per-cell maps to the per-call `shape`, optionally advanced-indexes a chunk via `multi_coords`, and returns an `NMOSSnap`. The solve reads `beta__uA_per_V2` and `vth__V` only from the snap, never from `self`.
+- **`solve_dc(vg, vd, vs, snap)` returns three node partials with fixed signs.** $\partial I/\partial V_d \ge 0$ and $\partial I/\partial V_s \le 0$ by construction; the consuming Jacobian relies on these signs. Inputs may be scalars or tensors and broadcast against the snap.
 
 ## Performance & resources
 

@@ -17,10 +17,10 @@ from neurox.device import (
     RRAM,
     NMOSConfig,
     NMOSPolicy,
-    NMOSSnapshot,
+    NMOSSnap,
     RRAMConfig,
     RRAMPolicy,
-    RRAMSnapshot,
+    RRAMSnap,
 )
 from neurox.tools._config import add_standard_args, load_tool_config, setup_logging
 
@@ -100,7 +100,7 @@ def _all_off_nmos_policy() -> NMOSPolicy:
     return NMOSPolicy(A_vt_mismatch=False, A_beta_mismatch=False)
 
 
-def _program_and_snapshot(rram: RRAM, g__uS: float) -> RRAMSnapshot:
+def _program_and_snapshot(rram: RRAM, g__uS: float) -> RRAMSnap:
     """Program ``rram`` to ``g__uS`` (no drift / nonidealities) and snapshot once."""
     target = torch.tensor(g__uS, dtype=_DTYPE)
     rram.program(target, t_elapsed=0.0)
@@ -111,7 +111,7 @@ def _solve_cell_current__uA(
     *,
     rram: RRAM,
     nmos: NMOS,
-    nmos_snapshot: NMOSSnapshot,
+    nmos_snap: NMOSSnap,
     g__uS: float,
     bias: _CellBias,
 ) -> tuple[float, float]:
@@ -120,16 +120,16 @@ def _solve_cell_current__uA(
     Uses bisection on ``V_X in [V_SL, V_BL]`` with
     ``f(V_X) = I_RRAM(V_BL - V_X; g) - I_NMOS(V_WL, V_X, V_SL)``.
     """
-    rram_snapshot = _program_and_snapshot(rram, g__uS)
+    rram_snap = _program_and_snapshot(rram, g__uS)
 
     def f(v_x__V: float) -> float:
-        i_rram__uA = float(rram.solve_dc(torch.tensor(bias.v_bl__V - v_x__V, dtype=_DTYPE), rram_snapshot).i__uA.item())
+        i_rram__uA = float(rram.solve_dc(torch.tensor(bias.v_bl__V - v_x__V, dtype=_DTYPE), rram_snap).i__uA.item())
         i_nmos__uA = float(
             nmos.solve_dc(
                 vg__V=bias.v_wl__V,
                 vd__V=v_x__V,
                 vs__V=bias.v_sl__V,
-                snapshot=nmos_snapshot,
+                snap=nmos_snap,
             ).ids__uA.item()
         )
         return i_rram__uA - i_nmos__uA
@@ -154,7 +154,7 @@ def _solve_cell_current__uA(
                     vg__V=bias.v_wl__V,
                     vd__V=v_x__V,
                     vs__V=bias.v_sl__V,
-                    snapshot=nmos_snapshot,
+                    snap=nmos_snap,
                 ).ids__uA.item()
             )
             return i_cell__uA, v_x__V
@@ -173,7 +173,7 @@ def _solve_g_for_target_current__uS(
     *,
     rram: RRAM,
     nmos: NMOS,
-    nmos_snapshot: NMOSSnapshot,
+    nmos_snap: NMOSSnap,
     target_i__uA: float,
     g_lo__uS: float,
     g_hi__uS: float,
@@ -182,9 +182,7 @@ def _solve_g_for_target_current__uS(
     """Bisect on ``g in [g_lo, g_hi]`` to find ``I_cell(g) == target_i``."""
 
     def h(g__uS: float) -> float:
-        i_cell__uA, _ = _solve_cell_current__uA(
-            rram=rram, nmos=nmos, nmos_snapshot=nmos_snapshot, g__uS=g__uS, bias=bias
-        )
+        i_cell__uA, _ = _solve_cell_current__uA(rram=rram, nmos=nmos, nmos_snap=nmos_snap, g__uS=g__uS, bias=bias)
         return i_cell__uA - target_i__uA
 
     lo, hi = g_lo__uS, g_hi__uS
@@ -243,15 +241,15 @@ def calculate_state_map(
     rram.eval()
     nmos.eval()
     nmos.fabricate()  # populate nominal buffers (mismatch disabled → deterministic)
-    nmos_snapshot = nmos.snapshot(shape=(), multi_coords=None)
+    nmos_snap = nmos.snapshot(shape=(), multi_coords=None)
 
     g_min__uS = rram_config.g_min__uS
 
     i_min__uA, vx_min__V = _solve_cell_current__uA(
-        rram=rram, nmos=nmos, nmos_snapshot=nmos_snapshot, g__uS=g_min__uS, bias=bias
+        rram=rram, nmos=nmos, nmos_snap=nmos_snap, g__uS=g_min__uS, bias=bias
     )
     i_max__uA, vx_max__V = _solve_cell_current__uA(
-        rram=rram, nmos=nmos, nmos_snapshot=nmos_snapshot, g__uS=g_max__uS, bias=bias
+        rram=rram, nmos=nmos, nmos_snap=nmos_snap, g__uS=g_max__uS, bias=bias
     )
     if not (i_max__uA > i_min__uA):
         raise RuntimeError(
@@ -267,9 +265,7 @@ def calculate_state_map(
 
     # End-slope diagnostic: dI/dg at g_max via a small backward step.
     g_probe__uS = g_max__uS - max(1e-3 * (g_max__uS - g_min__uS), 1e-9)
-    i_probe__uA, _ = _solve_cell_current__uA(
-        rram=rram, nmos=nmos, nmos_snapshot=nmos_snapshot, g__uS=g_probe__uS, bias=bias
-    )
+    i_probe__uA, _ = _solve_cell_current__uA(rram=rram, nmos=nmos, nmos_snap=nmos_snap, g__uS=g_probe__uS, bias=bias)
     dI_dg = (i_max__uA - i_probe__uA) / (g_max__uS - g_probe__uS)
     logger.info("dI/dg @ g_max ≈ %.6e uA/uS", dI_dg)
 
@@ -291,15 +287,13 @@ def calculate_state_map(
         g_k__uS = _solve_g_for_target_current__uS(
             rram=rram,
             nmos=nmos,
-            nmos_snapshot=nmos_snapshot,
+            nmos_snap=nmos_snap,
             target_i__uA=targets__uA[k],
             g_lo__uS=g_min__uS,
             g_hi__uS=g_max__uS,
             bias=bias,
         )
-        i_k__uA, vx_k__V = _solve_cell_current__uA(
-            rram=rram, nmos=nmos, nmos_snapshot=nmos_snapshot, g__uS=g_k__uS, bias=bias
-        )
+        i_k__uA, vx_k__V = _solve_cell_current__uA(rram=rram, nmos=nmos, nmos_snap=nmos_snap, g__uS=g_k__uS, bias=bias)
         state_to_g__uS[k] = g_k__uS
         solved_i__uA[k] = i_k__uA
         solved_vx__V[k] = vx_k__V
