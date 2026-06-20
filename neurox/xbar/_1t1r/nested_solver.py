@@ -12,13 +12,14 @@ from torch import Tensor
 
 from neurox.analog import Driver, DriverSnapshot
 from neurox.analog.tia import TIA, TIASnapshot
-from neurox.xbar.cell import XbarCell, XbarCellSnapshot
+from neurox.xbar.cell import XbarCell
 from neurox.xbar.solver import (
     col_driver_current,
     col_wire_kcl_residual,
     solve_block_tridiagonal,
 )
 
+from .cell import XbarCell1T1RDCOP, XbarCell1T1RSnapshot
 from .solver import Solver1T1R, Solver1T1RConfig, Solver1T1RDCOP, Solver1T1RResiduals
 
 # ---------------------------------------------------------------------------
@@ -75,7 +76,7 @@ class NestedSolver1T1R(Solver1T1R):
         self,
         *,
         config: NestedSolver1T1RConfig,
-        cell: XbarCell,
+        cell: XbarCell[XbarCell1T1RSnapshot, XbarCell1T1RDCOP],
         bl_driver: TIA,
         sl_driver: Driver,
     ) -> None:
@@ -115,7 +116,7 @@ class NestedSolver1T1R(Solver1T1R):
         sl_segment_r__MOhm: Tensor,
         bl_segment_g__uS: Tensor,
         sl_segment_g__uS: Tensor,
-        cell_snapshot: XbarCellSnapshot,
+        cell_snapshot: XbarCell1T1RSnapshot,
         bl_driver_snapshot: TIASnapshot,
         sl_driver_snapshot: DriverSnapshot,
         compute_residuals: bool = False,
@@ -406,7 +407,7 @@ class NestedSolver1T1R(Solver1T1R):
         sl_segment_r__MOhm: Tensor,
         bl_segment_g__uS: Tensor,
         sl_segment_g__uS: Tensor,
-        cell_snapshot: XbarCellSnapshot,
+        cell_snapshot: XbarCell1T1RSnapshot,
         compute_residuals: bool = False,
     ) -> Solver1T1RDCOP:
         """Run only the inner array Newton loop at FIXED clamp boundaries.

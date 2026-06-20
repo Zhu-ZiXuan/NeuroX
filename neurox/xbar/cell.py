@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import Generic, TypeVar
 
 import torch
 import torch.nn as nn
@@ -74,8 +75,11 @@ class XbarCellSnapshot:
     """
 
 
+ResidualsT = TypeVar("ResidualsT", bound=XbarCellResiduals)
+
+
 @dataclass(frozen=True)
-class XbarCellDCOP:
+class XbarCellDCOP(Generic[ResidualsT]):
     """Condensed branch working point of one cell DC evaluation.
 
     Attributes:
@@ -93,7 +97,7 @@ class XbarCellDCOP:
     i__uA: Tensor
     di_dvbl__uS: Tensor
     di_dvsl__uS: Tensor
-    residuals: XbarCellResiduals | None
+    residuals: ResidualsT | None
 
 
 # ---------------------------------------------------------------------------
@@ -101,13 +105,26 @@ class XbarCellDCOP:
 # ---------------------------------------------------------------------------
 
 
+SnapshotT = TypeVar("SnapshotT", bound=XbarCellSnapshot)
+DCOPT = TypeVar("DCOPT", bound=XbarCellDCOP)
+
+
 class XbarCell(
     FabricateMixin,
     nn.Module,
     RegistryMixin[type["XbarCellConfig"], "XbarCell"],
+    Generic[SnapshotT, DCOPT],
     ABC,
 ):
     """Abstract base for pluggable crossbar cells with config-keyed dispatch.
+
+    Parameterised by the concrete snapshot and DCOP types
+    (``SnapshotT`` / ``DCOPT``) so each implementation declares those
+    dataclasses once and the snapshot-consuming methods (:meth:`snapshot`,
+    :meth:`solve_branch`, :meth:`solve_dc`, :meth:`dynamic_energy`) carry
+    the concrete types without an LSP-narrowing override. The registry-impl
+    slot is unparameterised because Python generics are invariant — each
+    concrete impl binds the two type vars to its own subclasses.
 
     A cell owns its device ``nn.Module`` children (``FabricateMixin`` +
     ``nn.Module`` so manufacturing variation cascades and buffers move
@@ -174,7 +191,7 @@ class XbarCell(
         shape: tuple[int, ...],
         multi_coords: tuple[Tensor, ...] | None,
         t_elapsed: float,
-    ) -> XbarCellSnapshot:
+    ) -> SnapshotT:
         """Sample one per-call snapshot of the cell's fabricated state.
 
         Args:
@@ -208,7 +225,7 @@ class XbarCell(
         self,
         v_bl: Tensor,
         v_sl: Tensor,
-        snapshot: XbarCellSnapshot,
+        snapshot: SnapshotT,
     ) -> tuple[Tensor, Tensor, Tensor]:
         """Condensed branch solve — lean, compile-safe hot path.
 
@@ -234,9 +251,9 @@ class XbarCell(
         self,
         v_bl: Tensor,
         v_sl: Tensor,
-        snapshot: XbarCellSnapshot,
+        snapshot: SnapshotT,
         compute_residuals: bool = False,
-    ) -> XbarCellDCOP:
+    ) -> DCOPT:
         """Full branch DC working point, including internal-node state.
 
         Diagnostic / energy-side superset of :meth:`solve_branch`: returns
@@ -263,8 +280,8 @@ class XbarCell(
         self,
         v_bl: Tensor,
         v_sl: Tensor,
-        dcop: XbarCellDCOP,
-        snapshot: XbarCellSnapshot,
+        dcop: DCOPT,
+        snapshot: SnapshotT,
     ) -> Tensor:
         """Per-cell device-capacitance switching energy [fJ].
 

@@ -162,7 +162,7 @@ class XbarCell1T1RSnapshot(XbarCellSnapshot):
 
 
 @dataclass(frozen=True)
-class XbarCell1T1RDCOP(XbarCellDCOP):
+class XbarCell1T1RDCOP(XbarCellDCOP[XbarCell1T1RResiduals]):
     """1T1R branch working point with the condensed access-node voltage.
 
     Attributes:
@@ -179,7 +179,7 @@ class XbarCell1T1RDCOP(XbarCellDCOP):
 
 
 @XbarCell.register_key(XbarCell1T1RConfig)
-class XbarCell1T1R(XbarCell):
+class XbarCell1T1R(XbarCell[XbarCell1T1RSnapshot, XbarCell1T1RDCOP]):
     """Series access-NMOS + RRAM 1T1R cell with a condensed BL-to-SL branch.
 
     The internal access node ``V_X`` is eliminated per call by a Padé

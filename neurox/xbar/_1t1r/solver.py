@@ -16,9 +16,9 @@ from torch import Tensor
 from neurox.analog import Driver, DriverSnapshot
 from neurox.analog.tia import TIA, TIASnapshot
 from neurox.common.mixin import RegistryMixin, ValidateMixin
-from neurox.xbar.cell import XbarCell, XbarCellSnapshot
+from neurox.xbar.cell import XbarCell
 
-from .cell import XbarCell1T1RDCOP
+from .cell import XbarCell1T1RDCOP, XbarCell1T1RSnapshot
 
 # ---------------------------------------------------------------------------
 # Config base
@@ -144,7 +144,7 @@ class Solver1T1R(RegistryMixin[type["Solver1T1RConfig"], "Solver1T1R"], ABC):
         self,
         *,
         config: Solver1T1RConfig,
-        cell: XbarCell,
+        cell: XbarCell[XbarCell1T1RSnapshot, XbarCell1T1RDCOP],
         bl_driver: TIA,
         sl_driver: Driver,
     ) -> None:
@@ -156,7 +156,7 @@ class Solver1T1R(RegistryMixin[type["Solver1T1RConfig"], "Solver1T1R"], ABC):
         cls,
         *,
         config: Solver1T1RConfig,
-        cell: XbarCell,
+        cell: XbarCell[XbarCell1T1RSnapshot, XbarCell1T1RDCOP],
         bl_driver: TIA,
         sl_driver: Driver,
     ) -> Solver1T1R:
@@ -177,7 +177,7 @@ class Solver1T1R(RegistryMixin[type["Solver1T1RConfig"], "Solver1T1R"], ABC):
         sl_segment_r__MOhm: Tensor,
         bl_segment_g__uS: Tensor,
         sl_segment_g__uS: Tensor,
-        cell_snapshot: XbarCellSnapshot,
+        cell_snapshot: XbarCell1T1RSnapshot,
         bl_driver_snapshot: TIASnapshot,
         sl_driver_snapshot: DriverSnapshot,
         compute_residuals: bool = False,

@@ -244,13 +244,15 @@ class CircuitCore1T1R(CircuitBase[CircuitCore1T1RConfig]):
         self._w_layout_shape = tuple(w_layout_shape)
 
         sub_prefix = name + "."
-        self.cell = XbarCell.from_config(
+        cell = XbarCell.from_config(
             config=config.cell_config,
             policy=policy.cell,
             inst_shape=self._w_layout_shape,
             dtype=dtype,
             T__K=T__K,
         )
+        assert isinstance(cell, XbarCell1T1R)
+        self.cell = cell
         self.tia = TIA.from_config(
             config=config.tia_config,
             policy=policy.tia,
