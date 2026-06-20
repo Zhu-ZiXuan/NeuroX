@@ -19,11 +19,11 @@
 - **Leading-axis A/B/D classification.** Each broadcast position is class A (x-side: `*x_batch`, `M`, `Sa` — independent input vectors, serial in time), class B (inst: `Sw`, `Tc`, `Tr` — independent physical arrays running in parallel), or class D (atomic core: `col_num`, `row_num` — one array's internals, **never chunked**). `classify_leading_positions` (`_1t1r/_chunking.py`) assigns each from the broadcast's size-1 placeholders. The classification is used for latency, not chunking: the core's serial op count is $\prod_{p\in A}\mathrm{leading}[p]$ — only A-positions count; B-positions are parallel instances and must not multiply per-op latency. Chunking itself is axis-agnostic (it slices the flattened A×B leading by `solve_chunk_size`).
 - **Snap per chunk.** Each chunk builds one `cell_snap` (`self.cell.snapshot(control=v_wl_chunk, ...)`, which bundles the RRAM / NMOS device snaps with the WL drive) plus the TIA / SL-driver snaps, all at the chunk shape inside the loop; the core does not re-register child state.
 - **The core holds no DCOP of its own.** `cim_read` constructs no `Core1T1RDCOP`; it returns only `v_out_phys`. The downstream consumer needs nothing else.
-- **Standalone solver access is a supported path.** Tests and calibration that need the raw `Solver1T1RDCOP` build a solver and call `solver.solve_dc(...)` directly, bypassing `cim_read` (`tests/utils/standalone_solver_fixture.py`, `neurox/tools/solver_calibrate/_common.py`). The two paths must stay numerically consistent.
+- **Standalone solver access is a supported path.** Tests and calibration that need the raw `SolverDCOP` build a solver and call `solver.solve_dc(...)` directly, bypassing `cim_read` (`tests/utils/standalone_solver_fixture.py`, `neurox/tools/solver_calibrate/_common.py`). The two paths must stay numerically consistent.
 
 ## Performance & resources
 
-Peak working set is $O(\mathrm{chunk}\times\mathrm{col}\times\mathrm{row})$; the single `solve_chunk_size` knob on `CircuitCore1T1RPolicy` is the per-chunk leading — the peak-memory budget — trading memory for op count, `0` (single-block) by default. At BERT-FFN scale an un-chunked leading batch reaches ~$10^5$ positions (~150 GB of node-voltage state), so chunking is mandatory there; the per-chunk solver working set is $\mathrm{solve\_chunk\_size} \cdot \mathrm{col} \cdot \mathrm{row}$ per node-voltage field. The WL DAC output is materialized once outside the loop at `(*leading, row)` and is *not* bounded by `solve_chunk_size` — kept un-chunked so each VMM emits exactly one DAC energy + latency event and samples per-instance drive noise once. Solver Jacobian storage dominates total memory — see [solver](solver.md).
+Peak working set is $O(\mathrm{chunk}\times\mathrm{col}\times\mathrm{row})$; the single `solve_chunk_size` knob on `CircuitCore1T1RPolicy` is the per-chunk leading — the peak-memory budget — trading memory for op count, `0` (single-block) by default. At BERT-FFN scale an un-chunked leading batch reaches ~$10^5$ positions (~150 GB of node-voltage state), so chunking is mandatory there; the per-chunk solver working set is $\mathrm{solve\_chunk\_size} \cdot \mathrm{col} \cdot \mathrm{row}$ per node-voltage field. The WL DAC output is materialized once outside the loop at `(*leading, row)` and is *not* bounded by `solve_chunk_size` — kept un-chunked so each VMM emits exactly one DAC energy + latency event and samples per-instance drive noise once. Solver Jacobian storage dominates total memory — see [solver](../solver.md).
 
 ## Gotchas
 
@@ -31,11 +31,11 @@ Peak working set is $O(\mathrm{chunk}\times\mathrm{col}\times\mathrm{row})$; the
 
 ## Known limitations
 
-- N/A — no implementation TODOs beyond those tracked in [solver](solver.md).
+- N/A — no implementation TODOs beyond those tracked in [solver](../solver.md).
 
 ---
 
 - **Reference**: [circuit_core](../../../reference/xbar/_1t1r/circuit_core.md)
 - **Implementation**: `neurox/xbar/_1t1r/circuit_core.py`
 - **Tests**: `tests/test_xbar_chunking.py`, `tests/test_xbar_physics.py`
-- **Decisions**: [ADR-0003 pluggable xbar cell and the single nested solver](../../../about/adr/ADR-0003-xbar-cell-abstraction-and-single-nested-solver.md)
+- **Decisions**: [ADR-0004 clamp-driver role and the topology-agnostic array solver](../../../about/adr/ADR-0004-clamp-driver-protocol-and-generic-solver.md), [ADR-0003 pluggable xbar cell and the single nested solver](../../../about/adr/ADR-0003-xbar-cell-abstraction-and-single-nested-solver.md)

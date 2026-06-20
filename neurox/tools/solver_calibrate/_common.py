@@ -4,11 +4,11 @@ Provides:
 
   * :func:`build_xbar_for_calibration` — builds a noise-off
     :class:`Offset1T1RXbar` with a caller-supplied
-    :class:`Solver1T1RConfig` and TIA iteration count, leaving the rest
+    :class:`SolverConfig` and TIA iteration count, leaving the rest
     of the chip preset verbatim. Every CLI in this package starts here.
 
   * :func:`aggregate_xbar_sweep` — streams a ``(w, x)`` workload through
-    a list of candidate :class:`Solver1T1R` instances and accumulates
+    a list of candidate :class:`Solver` instances and accumulates
     per-candidate step deltas + residuals + workload-derived signal
     scales (``CandidateRow`` / ``WorkloadScale``). The plateau picker
     in :mod:`._plateau` consumes these.
@@ -39,12 +39,9 @@ from neurox.xbar import (
     Offset1T1RXbarConfig,
     Offset1T1RXbarPolicy,
 )
-from neurox.xbar._1t1r import (
-    CircuitCore1T1R,
-    Solver1T1R,
-    Solver1T1RConfig,
-)
+from neurox.xbar._1t1r import CircuitCore1T1R
 from neurox.xbar.readout import OffsetSwitchCapMuxAdcReadOutConfig
+from neurox.xbar.solver import Solver, SolverConfig
 
 from ._plateau import CandidateRow, WorkloadScale
 
@@ -55,7 +52,7 @@ def build_xbar_for_calibration(
     device: torch.device,
     inst_shape: tuple[int, ...],
     dtype: torch.dtype,
-    solver_config: Solver1T1RConfig,
+    solver_config: SolverConfig,
     solve_chunk_size: int = 0,
 ) -> Offset1T1RXbar:
     """Build a noise-off xbar with the supplied solver config.
@@ -71,7 +68,7 @@ def build_xbar_for_calibration(
         device: Target torch device.
         inst_shape: Per-instance shape for the xbar fabricator.
         dtype: Tensor dtype.
-        solver_config: Concrete :class:`Solver1T1RConfig` subclass selecting
+        solver_config: Concrete :class:`SolverConfig` subclass selecting
             which solver implementation to dispatch via the registry.
 
     Returns:
@@ -119,12 +116,12 @@ def build_xbar_for_calibration(
 
 
 # ---------------------------------------------------------------------------
-# Step-ratio plateau sweep aggregator (Solver1T1R family)
+# Step-ratio plateau sweep aggregator (nested SL/BL solver)
 # ---------------------------------------------------------------------------
 
 
 # Step-delta classes (plateau picker). ``v_x`` is the condensed
-# access-node voltage carried on the cell DCOP (``Solver1T1RDCOP.cell.v_x__V``);
+# access-node voltage carried on the cell DCOP (``SolverDCOP.cell.v_x__V``);
 # the rest are solver-owned wire / clamp unknowns read straight off the DCOP.
 _XBAR_SOLVER_UNKNOWN_FIELDS: tuple[str, ...] = (
     "v_bl_node",
@@ -132,7 +129,7 @@ _XBAR_SOLVER_UNKNOWN_FIELDS: tuple[str, ...] = (
     "v_bl_clamp",
     "v_sl_drive",
 )
-"""Solver1T1RDCOP-owned fields tracked for the plateau picker's step deltas."""
+"""SolverDCOP-owned fields tracked for the plateau picker's step deltas."""
 
 _XBAR_CELL_STEP_KEY = "v_x"
 """Step-delta key for the cell's condensed access-node voltage (``cell.v_x__V``)."""
@@ -141,7 +138,7 @@ _XBAR_UNKNOWN_FIELDS: tuple[str, ...] = (*_XBAR_SOLVER_UNKNOWN_FIELDS, _XBAR_CEL
 """All step-delta classes (solver wire / clamp unknowns + the cell access node)."""
 
 # Residual classes (safety guard). ``cell__uA`` is the per-cell internal-KCL
-# residual on the cell DCOP (``Solver1T1RDCOP.cell.residuals.cell__uA``); the
+# residual on the cell DCOP (``SolverDCOP.cell.residuals.cell__uA``); the
 # rest are solver-owned wire / clamp residuals.
 _XBAR_SOLVER_RESIDUAL_FIELDS: tuple[str, ...] = (
     "wire_bl__uA",
@@ -149,7 +146,7 @@ _XBAR_SOLVER_RESIDUAL_FIELDS: tuple[str, ...] = (
     "clamp_bl__V",
     "clamp_sl__V",
 )
-"""Solver1T1RResiduals fields tracked for the residual safety guard."""
+"""SolverResiduals fields tracked for the residual safety guard."""
 
 _XBAR_CELL_RESIDUAL_KEY = "cell__uA"
 """Residual key for the per-cell internal-KCL mismatch (``cell.residuals.cell__uA``)."""
@@ -159,16 +156,19 @@ _XBAR_RESIDUAL_FIELDS: tuple[str, ...] = (_XBAR_CELL_RESIDUAL_KEY, *_XBAR_SOLVER
 
 
 def _solver_inputs_from_core(core: CircuitCore1T1R, x: Tensor) -> dict[str, Any]:
-    """Assemble :meth:`Solver1T1R.solve_dc` kwargs from an already-fabricated core.
+    """Assemble :meth:`Solver.solve_dc` kwargs from an already-fabricated core.
 
     Tool-local W2 path: the calibrate CLIs need to drive the solver
     under realistic chip context (RRAM g programmed via workload
     sampling, real wire R/G, real DAC drive), but bypass
     :meth:`CircuitCore1T1R.cim_read` so they can inspect raw
-    :class:`Solver1T1RDCOP` residuals. We rely on the chip-context
+    :class:`SolverDCOP` residuals. We rely on the chip-context
     invariants core upholds (fabricated cell devices + cached wire R/G +
     a WL DAC that knows how to convert a code tensor) without going
     through cim_read's chunked loop or energy aggregation.
+
+    The cell and the two clamp drivers are now per-call solve arguments,
+    so they are packed here straight off the core alongside their snaps.
 
     Single-block (unchunked) solve: the calibration sweep runs at
     chip-fixture scale where one solve fits in memory.
@@ -207,13 +207,16 @@ def _solver_inputs_from_core(core: CircuitCore1T1R, x: Tensor) -> dict[str, Any]
         "sl_segment_r__MOhm": core.sl_segment_r__MOhm,
         "bl_segment_g__uS": core.bl_segment_g__uS,
         "sl_segment_g__uS": core.sl_segment_g__uS,
+        "cell": core.cell,
         "cell_snap": core.cell.snapshot(
             control=v_wl_drive,
             shape=(*leading, *cell_trailing),
             multi_coords=None,
             t_elapsed=0.0,
         ),
+        "bl_driver": core.tia,
         "bl_driver_snap": core.tia.snapshot(shape=(*leading, *tia_trailing), multi_coords=None),
+        "sl_driver": core.sl_driver,
         "sl_driver_snap": core.sl_driver.snapshot(shape=(*leading, *tia_trailing), multi_coords=None),
     }
 
@@ -221,7 +224,7 @@ def _solver_inputs_from_core(core: CircuitCore1T1R, x: Tensor) -> dict[str, Any]
 def aggregate_xbar_sweep(
     xbar: Offset1T1RXbar,
     *,
-    candidate_solvers: list[tuple[int, Solver1T1R]],
+    candidate_solvers: list[tuple[int, Solver]],
     n_weight: int,
     n_input_per_weight: int,
     batch_w: int,
@@ -244,9 +247,10 @@ def aggregate_xbar_sweep(
     The leading candidate (``i = 0``) has no predecessor — its
     ``step_max__V`` field is ``None``.
 
-    The solvers share ``xbar``'s device / driver state; only
-    ``xbar.core.solver`` is swapped each pass. Total cost ≈
-    ``len(candidates) × workload_solve_time``.
+    The solvers are stateless (config-only): every candidate is driven
+    against the same per-call cell / driver state assembled once from
+    ``xbar.core`` for each ``(w, x)``, so only the solver config differs
+    between passes. Total cost ≈ ``len(candidates) × workload_solve_time``.
 
     Args:
         xbar: A built xbar (e.g. via :func:`build_xbar_for_calibration`).

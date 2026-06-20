@@ -275,7 +275,7 @@ class Offset1T1RXbar(Xbar):
         """Run one VMM through the core → readout chain.
 
         Compile-path: yes (via macro entry). The bottleneck DC solve is
-        compiled one layer down (``Solver1T1R.solve_dc``, a fixed-shape
+        compiled one layer down (``Solver.solve_dc``, a fixed-shape
         leaf); the data-dependent chunk loop that drives it lives in the
         eager island ``CircuitCore1T1R.cim_read``. So tracing the macro
         ``matmul`` fuses this method's index / readout math and breaks

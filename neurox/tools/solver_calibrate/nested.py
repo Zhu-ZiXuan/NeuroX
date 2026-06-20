@@ -1,4 +1,4 @@
-"""Calibrate :class:`NestedSolver1T1R`'s ``(n_outer, n_inner)`` pair.
+"""Calibrate :class:`NestedSolver`'s ``(n_outer, n_inner)`` pair.
 
 Two-axis sweep using **step-ratio plateau detection** (primary) +
 **relative residual guard** (sanity), staged:
@@ -30,7 +30,7 @@ from neurox.tools._config import (
     setup_logging,
 )
 from neurox.xbar import Offset1T1RXbar, Offset1T1RXbarConfig
-from neurox.xbar._1t1r import NestedSolver1T1RConfig, Solver1T1R
+from neurox.xbar.solver import NestedSolverConfig, Solver
 
 from ._common import aggregate_xbar_sweep, build_xbar_for_calibration
 from ._plateau import CandidateRow, WorkloadScale, pick_with_plateau_and_guard
@@ -102,23 +102,23 @@ def _build_candidates(
     axis: str,
     candidates: list[int],
     other_value: int,
-) -> list[tuple[int, Solver1T1R]]:
-    """Build per-axis sweep candidates with the orthogonal axis pinned."""
-    out: list[tuple[int, Solver1T1R]] = []
+) -> list[tuple[int, Solver]]:
+    """Build per-axis sweep candidates with the orthogonal axis pinned.
+
+    The solvers are stateless — the cell and clamp drivers come from
+    ``xbar.core`` per call in :func:`aggregate_xbar_sweep`, not at
+    construction — so ``xbar`` is unused here beyond signature parity.
+    """
+    del xbar
+    out: list[tuple[int, Solver]] = []
     for n in candidates:
         if axis == "n_outer":
-            cfg = NestedSolver1T1RConfig(n_outer=n, n_inner=other_value)
+            cfg = NestedSolverConfig(n_outer=n, n_inner=other_value)
         elif axis == "n_inner":
-            cfg = NestedSolver1T1RConfig(n_outer=other_value, n_inner=n)
+            cfg = NestedSolverConfig(n_outer=other_value, n_inner=n)
         else:
             raise ValueError(axis)
-        solver = Solver1T1R.from_config(
-            config=cfg,
-            cell=xbar.core.cell,
-            bl_driver=xbar.core.tia,
-            sl_driver=xbar.core.sl_driver,
-        )
-        out.append((n, solver))
+        out.append((n, Solver.from_config(config=cfg)))
     return out
 
 
@@ -189,9 +189,7 @@ def plot_stage(
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
-        description="Calibrate NestedSolver1T1R (n_outer, n_inner) via step-ratio plateau."
-    )
+    parser = argparse.ArgumentParser(description="Calibrate NestedSolver (n_outer, n_inner) via step-ratio plateau.")
     add_standard_args(parser, plot_dir=True)
     args = parser.parse_args(argv)
     setup_logging(args.log_level)
@@ -234,7 +232,7 @@ def main(argv: list[str] | None = None) -> int:
     # Build host xbar; solvers swap per candidate. The tool-run TOML's
     # ``[xbar]`` section uses ``_neurox_use`` so the chip xbar resolves
     # transparently through ``dataclass_from_file``.
-    stub = NestedSolver1T1RConfig(n_outer=1, n_inner=1)
+    stub = NestedSolverConfig(n_outer=1, n_inner=1)
     xbar = build_xbar_for_calibration(
         args.config,
         device=device,
@@ -378,7 +376,7 @@ def main(argv: list[str] | None = None) -> int:
     log.info("")
     log.info("TOML fragment for chip preset:")
     log.info("    [xbar.core_config.solver_config]")
-    log.info('    _neurox_type = "NestedSolver1T1RConfig"')
+    log.info('    _neurox_type = "NestedSolverConfig"')
     log.info("    n_outer = %d", final_outer)
     log.info("    n_inner = %d", final_inner)
     log.info("=" * 80)

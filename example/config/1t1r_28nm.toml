@@ -182,7 +182,7 @@ area_per_inst__um2 = 0.0
 
 
 [xbar.core_config.solver_config]
-_neurox_type = "NestedSolver1T1RConfig"
+_neurox_type = "NestedSolverConfig"
 
 # --- Iteration counts (calibrated via solver_calibrate.nested) ---
 # Picked by step-ratio plateau on the full unknown vector

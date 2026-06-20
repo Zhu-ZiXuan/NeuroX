@@ -26,8 +26,9 @@ import torch
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from neurox.xbar._1t1r import nested_solver  # noqa: E402
-from neurox.xbar.solver import solve_block_tridiagonal, solve_block_tridiagonal_pcr  # noqa: E402
+import neurox.xbar.solver.nested as nested_solver  # noqa: E402
+from neurox.xbar.solver import solve_block_tridiagonal  # noqa: E402
+from neurox.xbar.solver.primitives import solve_block_tridiagonal_pcr  # noqa: E402
 from neurox.tools.xbar_adc._sampling import build_offset_1t1r_xbar_all_off  # noqa: E402
 
 XBAR_CONFIG = REPO_ROOT / "example" / "config" / "1t1r_28nm.toml"
@@ -80,7 +81,7 @@ def main() -> None:
     rows = []
 
     # eager-thomas: patch the pcr name back to Thomas, run eager (force_eager).
-    nested_solver.solve_block_tridiagonal_pcr = solve_block_tridiagonal
+    nested_solver.solve_block_tridiagonal = solve_block_tridiagonal
     xbar, x = _build(device, dtype, args.leading)
     w, mem = _bench(xbar, x, device, args.reps, compiled=False)
     rows.append(("eager-thomas", w, mem))
@@ -88,7 +89,7 @@ def main() -> None:
     torch.cuda.empty_cache()
 
     # eager-pcr: PCR backend, run eager.
-    nested_solver.solve_block_tridiagonal_pcr = solve_block_tridiagonal_pcr
+    nested_solver.solve_block_tridiagonal = solve_block_tridiagonal_pcr
     xbar, x = _build(device, dtype, args.leading)
     w, mem = _bench(xbar, x, device, args.reps, compiled=False)
     rows.append(("eager-pcr", w, mem))
@@ -96,7 +97,7 @@ def main() -> None:
     torch.cuda.empty_cache()
 
     # compiled-pcr (scheme A): solve_dc is already @torch.compile-decorated.
-    nested_solver.solve_block_tridiagonal_pcr = solve_block_tridiagonal_pcr
+    nested_solver.solve_block_tridiagonal = solve_block_tridiagonal_pcr
     torch.compiler.reset()
     xbar, x = _build(device, dtype, args.leading)
     w, mem = _bench(xbar, x, device, args.reps, compiled=True)
@@ -106,7 +107,7 @@ def main() -> None:
 
     # compiled-thomas: Thomas backend, decorated solve_dc compiles (the ~10min
     # cold compile Thomas was rejected for; runtime is the open question).
-    nested_solver.solve_block_tridiagonal_pcr = solve_block_tridiagonal
+    nested_solver.solve_block_tridiagonal = solve_block_tridiagonal
     torch.compiler.reset()
     print("[compiled-thomas] cold compile starting (~10 min) ...", flush=True)
     xbar, x = _build(device, dtype, args.leading)

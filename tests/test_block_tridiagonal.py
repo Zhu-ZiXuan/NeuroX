@@ -16,7 +16,8 @@ from __future__ import annotations
 import pytest
 import torch
 
-from neurox.xbar.solver import solve_block_tridiagonal, solve_tridiagonal
+from neurox.xbar.solver import solve_block_tridiagonal
+from neurox.xbar.solver.primitives import solve_tridiagonal
 
 
 def _dense_from_blocks(sub: torch.Tensor, diag: torch.Tensor, sup: torch.Tensor) -> torch.Tensor:

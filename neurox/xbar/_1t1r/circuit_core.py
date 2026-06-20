@@ -16,18 +16,19 @@ from neurox.analog import (
     DriverPolicy,
 )
 from neurox.analog.dac import DAC, DACConfig, DACPolicy
-from neurox.analog.tia import TIA, TIAConfig, TIAPolicy
+from neurox.analog.tia import TIA, OpAmpTIA, TIAConfig, TIAPolicy
 from neurox.common.circuit import CircuitBase, CircuitConfig
 from neurox.xbar.cell import XbarCell
+from neurox.xbar.solver import Solver, SolverConfig, SolverDCOP
 
 from ._chunking import classify_leading_positions, iter_chunks, reassemble_chunks
 from .cell import (
     XbarCell1T1R,
     XbarCell1T1RConfig,
+    XbarCell1T1RDCOP,
     XbarCell1T1RPolicy,
     XbarCell1T1RSnap,
 )
-from .solver import Solver1T1R, Solver1T1RConfig, Solver1T1RDCOP
 
 # ---------------------------------------------------------------------------
 # Config
@@ -63,9 +64,9 @@ class CircuitCore1T1RConfig(CircuitConfig):
         sl_driver_config: SL driver configuration.
         wl_dac_config: WL DAC configuration.
         solver_config: DC-solver fixed numerical knobs. Concrete subclass
-            of :class:`Solver1T1RConfig` (``NestedSolver1T1RConfig``)
-            picks which solver implementation the core instantiates via
-            ``Solver1T1R.from_config(...)``.
+            of :class:`SolverConfig` (``NestedSolverConfig``) picks which
+            solver implementation the core instantiates via
+            ``Solver.from_config(...)``.
         area_per_inst__um2: Core (cell array + wire infra) silicon area
             per fabricated tile instance [um²]. **Excludes** the owned
             ``CircuitBase`` children (TIA / drivers / DAC), which roll
@@ -106,7 +107,7 @@ class CircuitCore1T1RConfig(CircuitConfig):
     tia_config: TIAConfig
     sl_driver_config: DriverConfig
     wl_dac_config: DACConfig
-    solver_config: Solver1T1RConfig
+    solver_config: SolverConfig
 
     latency_per_op__ns: float
 
@@ -198,6 +199,7 @@ class CircuitCore1T1R(CircuitBase[CircuitCore1T1RConfig]):
 
     config: CircuitCore1T1RConfig
     cell: XbarCell1T1R
+    tia: OpAmpTIA
     bl_segment_r__MOhm: Tensor
     sl_segment_r__MOhm: Tensor
     bl_segment_g__uS: Tensor
@@ -253,7 +255,7 @@ class CircuitCore1T1R(CircuitBase[CircuitCore1T1RConfig]):
         )
         assert isinstance(cell, XbarCell1T1R)
         self.cell = cell
-        self.tia = TIA.from_config(
+        tia = TIA.from_config(
             config=config.tia_config,
             policy=policy.tia,
             name=f"{sub_prefix}tia",
@@ -261,6 +263,8 @@ class CircuitCore1T1R(CircuitBase[CircuitCore1T1RConfig]):
             dtype=dtype,
             T__K=T__K,
         )
+        assert isinstance(tia, OpAmpTIA)
+        self.tia = tia
 
         self.sl_driver = Driver(
             config=config.sl_driver_config,
@@ -308,12 +312,7 @@ class CircuitCore1T1R(CircuitBase[CircuitCore1T1RConfig]):
         self.register_buffer("bl_segment_c__fF", bl_segment_c__fF, persistent=False)
         self.register_buffer("sl_segment_c__fF", sl_segment_c__fF, persistent=False)
 
-        self.solver = Solver1T1R.from_config(
-            config=config.solver_config,
-            cell=self.cell,
-            bl_driver=self.tia,
-            sl_driver=self.sl_driver,
-        )
+        self.solver = Solver.from_config(config=config.solver_config)
 
         self.fabricated_col_num = phys_col_num
         self.fabricated_row_num = row_num
@@ -447,8 +446,11 @@ class CircuitCore1T1R(CircuitBase[CircuitCore1T1RConfig]):
                 sl_segment_r__MOhm=self.sl_segment_r__MOhm,
                 bl_segment_g__uS=self.bl_segment_g__uS,
                 sl_segment_g__uS=self.sl_segment_g__uS,
+                cell=self.cell,
                 cell_snap=cell_snap,
+                bl_driver=self.tia,
                 bl_driver_snap=bl_snap,
+                sl_driver=self.sl_driver,
                 sl_driver_snap=sl_snap,
                 compute_residuals=False,
             )
@@ -500,7 +502,7 @@ class CircuitCore1T1R(CircuitBase[CircuitCore1T1RConfig]):
     def _compute_array_energy__fJ(
         self,
         *,
-        solver_dcop: Solver1T1RDCOP,
+        solver_dcop: SolverDCOP[XbarCell1T1RDCOP],
         cell_snap: XbarCell1T1RSnap,
     ) -> Tensor:
         """Per-VMM array-internal energy [fJ]. Shape: [...batch...].

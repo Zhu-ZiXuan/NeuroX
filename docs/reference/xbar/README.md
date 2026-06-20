@@ -6,5 +6,6 @@ The layer is an abstract contract, plus topology families (currently 1T1R; 2T1R 
 
 - [base](base.md) — the `Xbar` abstract contract (primitive operation, value domain, output rescale) and the lossless ideal twin, shared by every topology.
 - [cell](cell.md) — the `XbarCell` abstract contract: the topology-agnostic two-terminal cell branch (single condensed current, signed terminal conductances) the array solver sees.
-- [_1t1r/](_1t1r/README.md) — the 1T1R topology: the shared physical array, its DC solver, and the offset-coded operating xbar.
+- [solver](solver.md) — the topology-agnostic SL/BL IR-drop DC solve: a stateless damped-Newton solver over a pluggable cell and two pluggable clamp drivers.
+- [_1t1r/](_1t1r/README.md) — the 1T1R topology: the shared physical array and the offset-coded operating xbar.
 - [readout/](readout/README.md) — the voltage-domain readout family that operating xbars compose.

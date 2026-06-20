@@ -2,13 +2,13 @@
 
 This module owns purely numerical helpers (tridiagonal Thomas algorithm,
 block-tridiagonal Thomas, KCL residual builders for column / row wire
-ladders). Solver class bases live with their topology family (e.g.
-:mod:`neurox.xbar._1t1r.solver`) — there is no generic ``Solver``
-abstraction here because device / boundary signatures differ per
-topology.
+ladders). Every helper takes its tensors as plain arguments and owns no
+topology, device handle, or solver framework. The solver framework that
+consumes them (:class:`neurox.xbar.solver.base.Solver` and its nested
+impl) lives in the sibling modules of this package.
 
 See also:
-    docs/reference/xbar/_1t1r/solver.md
+    docs/reference/xbar/solver.md
 """
 
 from __future__ import annotations

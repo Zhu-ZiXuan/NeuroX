@@ -79,4 +79,4 @@ TODO.
 - **Internals**: [cell internals](../../internals/xbar/cell.md)
 - **Validation**: TODO — `validation/xbar` (not yet written)
 - **Configuration**: [config reference](../../api/README.md)
-- **Decisions**: [ADR-0003 pluggable xbar cell and the single nested solver](../../about/adr/ADR-0003-xbar-cell-abstraction-and-single-nested-solver.md)
+- **Decisions**: [ADR-0004 clamp-driver role and the topology-agnostic array solver](../../about/adr/ADR-0004-clamp-driver-protocol-and-generic-solver.md), [ADR-0003 pluggable xbar cell and the single nested solver](../../about/adr/ADR-0003-xbar-cell-abstraction-and-single-nested-solver.md)

@@ -1,4 +1,4 @@
-# Calibrate NestedSolver1T1R (n_outer, n_inner) via step-ratio plateau.
+# Calibrate NestedSolver (n_outer, n_inner) via step-ratio plateau.
 #
 # CLI: python -m neurox.tools.solver_calibrate.nested \
 #          --config example/config/solver_calibrate_nested.toml \

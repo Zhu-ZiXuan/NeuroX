@@ -6,7 +6,7 @@ The pluggable-cell abstraction is a `RegistryMixin` family (`XbarCell` base + `X
 
 ## Design decisions
 
-- **The cell is a `FabricateMixin` + `nn.Module`, the solver is not.** A cell owns its RRAM / NMOS device children, so it must be in the module tree: `nn.Module` so buffers move with `.to` / `.eval` and `FabricateMixin` so the manufacturing-variation cascade reaches the devices. The solver, by contrast, is a stateless tool class kept out of the module tree (see [solver](solver.md)). The cell holds the state; the solver holds the method.
+- **The cell is a `FabricateMixin` + `nn.Module`, the solver is not.** A cell owns its RRAM / NMOS device children, so it must be in the module tree: `nn.Module` so buffers move with `.to` / `.eval` and `FabricateMixin` so the manufacturing-variation cascade reaches the devices. The array solver, by contrast, is a stateless tool class kept out of the module tree (see [solver](../solver.md)); it is generic and consumes this cell as one of its swappable per-call actors, alongside the clamp drivers, rather than being bound to it. The cell holds the state; the solver holds the method.
 - **Config-keyed registry dispatch, no universal `from_config`.** `XbarCell` is `RegistryMixin[type[XbarCellConfig], XbarCell]`: each concrete cell registers against the `XbarCellConfig` subclass it consumes (`@XbarCell.register_key(XbarCell1T1RConfig)`), and `XbarCell.from_config(config=...)` dispatches on `type(config)`. Same owned-construction discipline as the rest of NeuroX (see [ADR-0001](../../../about/adr/ADR-0001-config-dispatch-and-owned-construction.md)); the core constructs its cell from `config.cell_config`.
 - **Internal node condensed in the cell, not the solver.** $V_{\mathrm{X}}$ is eliminated by a per-cell Newton inside `solve_branch`, so the solver consumes a two-terminal branch and stays cell-agnostic. This is why the solver carries no global block-tridiagonal formulation — see [ADR-0003](../../../about/adr/ADR-0003-xbar-cell-abstraction-and-single-nested-solver.md).
 - **Pade current-divider seed before the Newton loop.** Seeding $V_{\mathrm{X}}$ from a first-order conductance-divider split of the BL-to-SL drop lands the iterate inside the Newton basin, so a small fixed step count converges. A cold seed would need more steps or risk a bad first step on the stiff NMOS / RRAM I-V.
@@ -26,7 +26,7 @@ The pluggable-cell abstraction is a `RegistryMixin` family (`XbarCell` base + `X
 
 ## Performance & resources
 
-The cell's per-call working set is the device snaps plus a handful of node-voltage-shaped tensors at the per-call (chunked) leading; it allocates no $V_{\mathrm{X}}$ history across Newton steps (each step overwrites the iterate functionally). `n_newton` is small (single digits at fp32), so the unrolled loop adds a constant multiple of one RRAM + one NMOS `solve_dc` per cell per solver iteration. The condensation removes one unknown per cell from the array solve entirely — there is no $V_{\mathrm{X}}$ in the solver's wire Jacobian, which is the memory win that lets the wire Newton stay block-$2\times2$ (see [solver](solver.md)).
+The cell's per-call working set is the device snaps plus a handful of node-voltage-shaped tensors at the per-call (chunked) leading; it allocates no $V_{\mathrm{X}}$ history across Newton steps (each step overwrites the iterate functionally). `n_newton` is small (single digits at fp32), so the unrolled loop adds a constant multiple of one RRAM + one NMOS `solve_dc` per cell per solver iteration. The condensation removes one unknown per cell from the array solve entirely — there is no $V_{\mathrm{X}}$ in the solver's wire Jacobian, which is the memory win that lets the wire Newton stay block-$2\times2$ (see [solver](../solver.md)).
 
 ## Gotchas
 
@@ -43,4 +43,4 @@ The cell's per-call working set is the device snaps plus a handful of node-volta
 - **Reference**: [cell](../../../reference/xbar/_1t1r/cell.md)
 - **Implementation**: `neurox/xbar/cell.py`, `neurox/xbar/_1t1r/cell.py`
 - **Tests**: `tests/test_xbar_cell.py`, `tests/test_xbar_physics.py`
-- **Decisions**: [ADR-0003 pluggable xbar cell and the single nested solver](../../../about/adr/ADR-0003-xbar-cell-abstraction-and-single-nested-solver.md)
+- **Decisions**: [ADR-0004 clamp-driver role and the topology-agnostic array solver](../../../about/adr/ADR-0004-clamp-driver-protocol-and-generic-solver.md), [ADR-0003 pluggable xbar cell and the single nested solver](../../../about/adr/ADR-0003-xbar-cell-abstraction-and-single-nested-solver.md)

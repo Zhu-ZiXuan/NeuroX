@@ -15,7 +15,7 @@ Builds a minimal ``DirectXbarMacro`` wrapping an ``Offset1T1RXbar`` from the
     LeNet- or BERT-sized leading batches.
 
 The ``--solver`` flag picks which block-tridiagonal implementation
-``neurox.xbar._1t1r.nested_solver`` will call. The probe monkey-patches
+``neurox.xbar.solver.nested`` will call. The probe monkey-patches
 the symbol at import time, so the same script can sweep Thomas / PCR /
 dense without manual edits.
 
@@ -44,14 +44,14 @@ from typing import IO
 import torch
 
 # IMPORTANT: monkey-patch the solver before importing anything that pulls
-# in `nested_solver`, otherwise the resolved binding sticks.
-import neurox.xbar.solver as _solver
-import neurox.xbar._1t1r.nested_solver as _nested
+# in the nested solver, otherwise the resolved binding sticks.
+import neurox.xbar.solver.nested as _nested
+import neurox.xbar.solver.primitives as _primitives
 
 _SOLVER_TABLE = {
-    "thomas": _solver.solve_block_tridiagonal,
-    "pcr": _solver.solve_block_tridiagonal_pcr,
-    "dense": _solver.solve_block_tridiagonal_dense,
+    "thomas": _primitives.solve_block_tridiagonal,
+    "pcr": _primitives.solve_block_tridiagonal_pcr,
+    "dense": _primitives.solve_block_tridiagonal_dense,
 }
 
 

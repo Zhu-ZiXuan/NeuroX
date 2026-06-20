@@ -9,7 +9,7 @@ The TIA family: the abstract `TIA` (`tia/base.py`) carrying the registry, `from_
 - **`v_ref__V` is an abstract property, not base-stored.** The base owns no `config` storage, so it cannot implement the accessor; every concrete TIA returns it from its own `self.config` (typically `self.config.v_ref__V`). This is the one solver-facing contract every topology must honour explicitly, so it is `@property @abstractmethod`.
 - **`TIAConfig` is a real base config, not an empty marker.** Unlike the ADC / DAC marker bases, the TIA base config holds the orchestration-level fields every topology shares (`v_ref__V`, leakage / area / latency); concrete configs inherit and add topology design parameters. The shared fields are genuinely common across TIA topologies, so they belong on the base.
 - **Snap type parameter.** `TIA` is `Generic[SnapT]` bound to `TIASnap`; each concrete TIA fixes its own snap dataclass and `snapshot()` / `solve_clamp()` carry that concrete type, so the solver-facing surface stays type-checked across topologies.
-- **No shared base with `Driver`.** The BL clamp (TIA) and the SL clamp (`Driver`) are physically unlike; the solver binds them as concrete types. See [driver internals](../driver.md) for the rejected-shared-base rationale.
+- **No shared base with `Driver`.** The BL clamp (TIA) and the SL clamp (`Driver`) are physically unlike; the solver consumes both through the structural `ClampDriver` role per call, not as stored concrete types. That thin shared surface is named as the role, not a base class — see [solver](../../xbar/solver.md) and [driver internals](../driver.md) for the rejected-shared-base rationale.
 
 ## Contracts & invariants
 
@@ -34,4 +34,4 @@ N/A at this level - the clamp evaluation cost is topology-specific.
 - **Reference**: [tia base](../../../reference/analog/tia/base.md)
 - **Implementation**: `neurox/analog/tia/base.py`
 - **Tests**: TODO - name the guarding test
-- **Decisions**: N/A — no ADR governs this module.
+- **Decisions**: [ADR-0004 clamp-driver role and the topology-agnostic array solver](../../../about/adr/ADR-0004-clamp-driver-protocol-and-generic-solver.md)

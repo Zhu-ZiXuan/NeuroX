@@ -16,7 +16,7 @@ The framework here is **chip-parameter-free** by design:
 This file owns the **pure-Python pick logic + result containers**. The
 sample-streaming aggregation (which builds the per-candidate rows) lives
 in :mod:`_common`; it is solver-family-specific because the unknowns and
-residual fields differ across :class:`Solver1T1R` and :class:`OpAmpTIA`.
+residual fields differ across :class:`NestedSolver` and :class:`OpAmpTIA`.
 """
 
 from __future__ import annotations

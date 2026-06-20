@@ -1,4 +1,4 @@
-"""Direct correctness tests for ``neurox.xbar.solver.solve_tridiagonal``.
+"""Direct correctness tests for ``neurox.xbar.solver.primitives.solve_tridiagonal``.
 
 Verifies the Parallel Cyclic Reduction implementation against a dense
 ``torch.linalg.solve`` reference across varied ``N``, dtypes, batch
@@ -13,7 +13,7 @@ import math
 import pytest
 import torch
 
-from neurox.xbar.solver import solve_tridiagonal
+from neurox.xbar.solver.primitives import solve_tridiagonal
 
 
 def _build_dense(sub: torch.Tensor, diag: torch.Tensor, sup: torch.Tensor, dim: int) -> torch.Tensor:

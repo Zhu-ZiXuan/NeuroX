@@ -32,7 +32,7 @@ TODO (domain author): write the explicit op-amp + pseudo-resistor transfer funct
 
 ## Numerical method
 
-Evaluating the clamp transfer function is topology-specific and is owned by the enclosing operating-point solve, where it enters as a boundary constraint coupling the clamp voltage and the BL port current; the algorithm spec lives in [solver](../../xbar/_1t1r/solver.md).
+Evaluating the clamp transfer function is topology-specific and is owned by the enclosing operating-point solve, where it enters as a boundary constraint coupling the clamp voltage and the BL port current; the algorithm spec lives in [solver](../../xbar/solver.md).
 
 TODO (domain author): if the clamp evaluation involves an inner solve over the op-amp / NMOS feedback, specify its formulation and well-posedness.
 

@@ -1,6 +1,6 @@
 # Calibrating solver iteration counts
 
-Goal: pick a fixed iteration count for every fixed-trip-count Newton in the 1T1R DC path — the array solver $\operatorname{NestedSolver1T1R}$ ($n_{\mathrm{outer}}$, $n_{\mathrm{inner}}$), the embedded $\operatorname{OpAmpTIA}$ inner Newton ($n_{\mathrm{newton}}$), and the per-cell access-node condensation $\operatorname{XbarCell1T1R}$ ($n_{\mathrm{newton}}$) — so the runtime path executes a `torch.compile`-friendly fixed-trip-count graph. Calibration is a one-shot offline job: the chip preset stores the picked counts and the production solver never monitors anything at runtime.
+Goal: pick a fixed iteration count for every fixed-trip-count Newton in the 1T1R DC path — the array solver $\operatorname{NestedSolver}$ ($n_{\mathrm{outer}}$, $n_{\mathrm{inner}}$), the embedded $\operatorname{OpAmpTIA}$ inner Newton ($n_{\mathrm{newton}}$), and the per-cell access-node condensation $\operatorname{XbarCell1T1R}$ ($n_{\mathrm{newton}}$) — so the runtime path executes a `torch.compile`-friendly fixed-trip-count graph. Calibration is a one-shot offline job: the chip preset stores the picked counts and the production solver never monitors anything at runtime.
 
 The framework is **chip-parameter-free** by design. It never references ADC bits, ADC range, model output, or any other downstream concern. The picked count guarantees the solver has converged within the numerical floor of its own iterate sequence.
 
@@ -91,4 +91,4 @@ python -m neurox.tools.cell_calibrate._1t1r \
 
 ---
 
-- **See also**: [DC solvers internals](../../internals/xbar/_1t1r/solver.md), [calibration hub](./README.md)
+- **See also**: [DC solvers internals](../../internals/xbar/solver.md), [calibration hub](./README.md)

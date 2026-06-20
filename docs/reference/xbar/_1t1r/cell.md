@@ -2,7 +2,7 @@
 
 ## Summary
 
-The 1T1R cell is the concrete realization of the [cell family contract](../cell.md): the two-terminal element the array solver sees between a bit-line node and a source-line node. It models one RRAM device in series with an access NMOS, $\mathrm{BL} - \mathrm{RRAM} - V_{\mathrm{X}} - \mathrm{NMOS} - \mathrm{SL}$, with the NMOS gate driven by the word line. To the solver it is a single condensed branch: the cell solves its own internal access node $V_{\mathrm{X}}$ and exposes one branch current with two signed terminal conductances. This document specifies the cell's physical model, the access-node condensation, the signed-conductance contract it presents to the [solver](solver.md), and its device-capacitor energy; the array-level wire ladder, boundaries, and array energy are in [circuit_core](circuit_core.md).
+The 1T1R cell is the concrete realization of the [cell family contract](../cell.md): the two-terminal element the array solver sees between a bit-line node and a source-line node. It models one RRAM device in series with an access NMOS, $\mathrm{BL} - \mathrm{RRAM} - V_{\mathrm{X}} - \mathrm{NMOS} - \mathrm{SL}$, with the NMOS gate driven by the word line. To the solver it is a single condensed branch: the cell solves its own internal access node $V_{\mathrm{X}}$ and exposes one branch current with two signed terminal conductances. This document specifies the cell's physical model, the access-node condensation, the signed-conductance contract it presents to the [solver](../solver.md), and its device-capacitor energy; the array-level wire ladder, boundaries, and array energy are in [circuit_core](circuit_core.md).
 
 ## Physical model
 
@@ -30,7 +30,7 @@ The internal KCL $F_{\mathrm{X}}(V_{\mathrm{X}}) = 0$ is strictly monotone in $V
 
 ## Noise & non-idealities
 
-The cell owns no static mismatch of its own; non-idealities enter through its two device children, each gated by its own policy switch: RRAM conductance non-idealities (programming variation, drift, telegraph, thermal read noise) and access-NMOS threshold / transconductance mismatch — see [reference/device](../../device/README.md). The per-call snap fixes the read state, so the device noise is sampled once per call and the condensation is deterministic given that snap. The snap is taken at the per-call broadcast shape $(\dots, \text{col}, \text{row})$ with optional chunk selection, so each device sample aligns with the broadcast operating point the solver drives (the `shape` / `multi_coords` forwarding is in [internals](../../../internals/xbar/_1t1r/cell.md)).
+The cell owns no static mismatch of its own; non-idealities enter through its two device children, each gated by its own policy switch: RRAM conductance non-idealities (programming variation, drift, telegraph, thermal read noise) and access-NMOS threshold / transconductance mismatch — see [reference/device](../../device/README.md). The per-call snap fixes the read state, so the device noise is sampled once per call and the condensation is deterministic given that snap. The snap is taken at the per-call broadcast shape $(\dots, \text{col}, \text{row})$ with optional chunk selection, so each device sample aligns with the broadcast operating point the solver drives.
 
 ## Parameters
 
@@ -111,4 +111,4 @@ TODO: cite the RRAM and access-NMOS current models and the series-condensation b
 - **Internals**: [cell internals](../../../internals/xbar/_1t1r/cell.md)
 - **Validation**: TODO — `validation/xbar` (not yet written)
 - **Configuration**: [config reference](../../../api/README.md) (`[xbar.core_config.cell_config]`)
-- **Decisions**: [ADR-0003 pluggable xbar cell and the single nested solver](../../../about/adr/ADR-0003-xbar-cell-abstraction-and-single-nested-solver.md)
+- **Decisions**: [ADR-0004 clamp-driver role and the topology-agnostic array solver](../../../about/adr/ADR-0004-clamp-driver-protocol-and-generic-solver.md), [ADR-0003 pluggable xbar cell and the single nested solver](../../../about/adr/ADR-0003-xbar-cell-abstraction-and-single-nested-solver.md)

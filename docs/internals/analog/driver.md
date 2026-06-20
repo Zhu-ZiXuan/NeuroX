@@ -6,7 +6,7 @@
 
 ## Design decisions
 
-- **Not a subclass of `TIA`, and no shared abstract base.** A `Driver` is an ideal voltage source; a `TIA` closes a feedback loop on a virtual ground - different physics, different parameter spaces. They share only the shape of the solver-facing clamp entry, which is too thin to justify an abstract base nothing else needs. The array solve binds the two as concrete types (`bl_driver: TIA`, `sl_driver: Driver`) rather than through a common interface. Rejected - a shared `ClampDriver` base: it would force a least-common-denominator config and obscure that the two clamps are physically unlike.
+- **Not a subclass of `TIA`, and no shared abstract base.** A `Driver` is an ideal voltage source; a `TIA` closes a feedback loop on a virtual ground - different physics, different parameter spaces. They share only the shape of the solver-facing clamp entry, which is too thin to justify an abstract base nothing else needs. The array solve consumes each boundary through the structural `ClampDriver` role per call, not through stored concrete `bl_driver: TIA` / `sl_driver: Driver` fields. Rejected - a shared `ClampDriver` base *class*: it would force a least-common-denominator config and obscure that the two clamps are physically unlike. The thin shared surface is instead named as the structural `ClampDriver` role (no inheritance, no config) — see [solver](../xbar/solver.md).
 - **The clamp derivative is returned as a literal zero tensor.** The ideal voltage source has zero output impedance, so `solve_clamp` returns `dVclamp_dI__MOhm == 0` rather than omitting it; the array solve consumes a uniform `(v_clamp, dVclamp_dI)` pair from either boundary actor, so the zero must be present to keep the boundary interface shape-identical with the TIA.
 - **No fabricated mismatch.** The only state is a scalar nominal drive voltage; there is no shape-dependent static mismatch, so `_sample_fabricate_mismatch` stays the inherited `FabricateMixin` no-op.
 
@@ -33,4 +33,4 @@ N/A - a scalar clamp with no inner solve and no shape-dependent state.
 - **Reference**: [driver](../../reference/analog/driver.md)
 - **Implementation**: `neurox/analog/driver.py`
 - **Tests**: TODO - name the guarding test
-- **Decisions**: N/A — no ADR governs this module.
+- **Decisions**: [ADR-0004 clamp-driver role and the topology-agnostic array solver](../../about/adr/ADR-0004-clamp-driver-protocol-and-generic-solver.md)

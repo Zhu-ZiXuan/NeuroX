@@ -43,4 +43,4 @@ The ADC-side tools form a two-stage pipeline with no overlap — first pick the 
 
 ---
 
-- See also: [rescale convention](../../reference/xbar/readout/readout.md), [solver iteration internals](../../internals/xbar/_1t1r/solver.md), [config & construction](../../internals/config_and_construction.md)
+- See also: [rescale convention](../../reference/xbar/readout/readout.md), [solver iteration internals](../../internals/xbar/solver.md), [config & construction](../../internals/config_and_construction.md)

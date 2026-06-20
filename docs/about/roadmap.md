@@ -55,7 +55,7 @@ NeuroX is a general CiM simulation and benchmarking platform. This document trac
 - [ ] FeFET-CiM
 - [ ] Multi-level cell (MLC) variants for any of the above
 
-## Circuit Solvers (`neurox/xbar/solver.py`)
+## Circuit Solvers (`neurox/xbar/solver/`)
 
 - [x] Damped Newton-Raphson IR-drop solver
 - [x] Thomas-algorithm tridiagonal solve

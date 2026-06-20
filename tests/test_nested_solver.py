@@ -1,4 +1,4 @@
-"""Unit tests for :class:`NestedSolver1T1R`.
+"""Unit tests for :class:`NestedSolver`.
 
 Covers:
   * residual decay: the nested solver drives every KCL residual class
@@ -7,7 +7,7 @@ Covers:
     inner sub-problem at any pinned clamp.
   * ``compute_residuals=False`` elides the residual algebra.
 
-All tests build a standalone :class:`Solver1T1R` harness via
+All tests build a standalone :class:`Solver` harness via
 :func:`tests.utils.standalone_solver_fixture.build_solver_harness` and
 call ``solver.solve_dc`` directly — they do not depend on
 :class:`CircuitCore1T1R` or :class:`Offset1T1RXbar`. Convergence
@@ -23,8 +23,9 @@ from pathlib import Path
 
 import pytest
 import torch
+import torch._dynamo
 
-from neurox.xbar._1t1r import NestedSolver1T1R, NestedSolver1T1RConfig
+from neurox.xbar.solver import NestedSolver, NestedSolverConfig
 from tests.utils.standalone_solver_fixture import build_solver_harness
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -45,11 +46,26 @@ def device() -> torch.device:
     return torch.device("cpu")
 
 
+@pytest.fixture(autouse=True)
+def _eager_solver() -> Iterator[None]:
+    """Run the solver eagerly for these tests.
+
+    They assert the solver's convergence and numerics (residuals to
+    machine precision), not codegen. ``solve_dc`` is
+    ``@torch.compile(dynamic=False)``; at the large iteration counts
+    these tests use, fully unrolling it would spend minutes compiling for
+    no benefit to what is asserted. Disabling dynamo keeps the tests fast
+    and focused on the solver rather than the compiler.
+    """
+    with torch._dynamo.config.patch(disable=True):
+        yield
+
+
 def test_nested_residuals_at_machine_precision(fixture_config: Path, device: torch.device) -> None:
     """Nested solver drives all three residuals to fp64 noise."""
     harness = build_solver_harness(
         config_path=XBAR_CONFIG,
-        solver_config=NestedSolver1T1RConfig(n_outer=20, n_inner=10),
+        solver_config=NestedSolverConfig(n_outer=20, n_inner=10),
         inst_shape=(4,),
         x_batch=4,
         device=device,
@@ -69,20 +85,21 @@ def test_nested_inner_only_converges(fixture_config: Path, device: torch.device)
     fp64 noise — inner system is M-matrix monotone, no multi-equilibrium."""
     harness = build_solver_harness(
         config_path=XBAR_CONFIG,
-        solver_config=NestedSolver1T1RConfig(n_outer=1, n_inner=50),
+        solver_config=NestedSolverConfig(n_outer=1, n_inner=50),
         inst_shape=(4,),
         x_batch=4,
         device=device,
     )
     solver = harness.solver
-    assert isinstance(solver, NestedSolver1T1R)
+    assert isinstance(solver, NestedSolver)
     # Pinned clamps at the TIA / Driver reference voltages — same shape
-    # as the solver's port-current tensors.
+    # as the solver's port-current tensors. The stateless solver carries
+    # no drivers, so the reference voltages come from the harness.
     v_wl = harness.v_wl_drive__V
     *batch, phys_col, _row = v_wl.shape
     dtype = v_wl.dtype
-    v_bl_clamp = torch.full((*batch, phys_col), solver.bl_driver.v_ref__V, device=device, dtype=dtype)
-    v_sl_drive = torch.full((*batch, phys_col), solver.sl_driver.v_ref__V, device=device, dtype=dtype)
+    v_bl_clamp = torch.full((*batch, phys_col), harness.bl_driver.v_ref__V, device=device, dtype=dtype)
+    v_sl_drive = torch.full((*batch, phys_col), harness.sl_driver.v_ref__V, device=device, dtype=dtype)
     dcop = solver.solve_array_fixed_clamp(
         v_bl_clamp__V=v_bl_clamp,
         v_sl_drive__V=v_sl_drive,
@@ -90,6 +107,7 @@ def test_nested_inner_only_converges(fixture_config: Path, device: torch.device)
         sl_segment_r__MOhm=harness.sl_segment_r__MOhm,
         bl_segment_g__uS=harness.bl_segment_g__uS,
         sl_segment_g__uS=harness.sl_segment_g__uS,
+        cell=harness.cell,
         cell_snap=harness.cell_snapshot(),
         compute_residuals=True,
     )
@@ -104,7 +122,7 @@ def test_nested_residuals_none_on_hot_path(fixture_config: Path, device: torch.d
     """``compute_residuals=False`` elides the residual algebra."""
     harness = build_solver_harness(
         config_path=XBAR_CONFIG,
-        solver_config=NestedSolver1T1RConfig(n_outer=10, n_inner=10),
+        solver_config=NestedSolverConfig(n_outer=10, n_inner=10),
         inst_shape=(4,),
         x_batch=4,
         device=device,

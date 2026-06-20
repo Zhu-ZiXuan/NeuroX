@@ -24,7 +24,7 @@ This constant, monotone (degenerately flat) response composes with the monotone 
 
 ## Numerical method
 
-N/A - the transfer function is closed-form (a constant and its zero derivative); no iteration is involved in evaluating the driver. The enclosing array operating-point solve is in [solver](../xbar/_1t1r/solver.md).
+N/A - the transfer function is closed-form (a constant and its zero derivative); no iteration is involved in evaluating the driver. The enclosing array operating-point solve is in [solver](../xbar/solver.md).
 
 ## Noise & non-idealities
 
@@ -72,4 +72,4 @@ TODO.
 - **Internals**: [driver internals](../../internals/analog/driver.md)
 - **Validation**: TODO - validation evidence not yet written
 - **Configuration**: `DriverConfig` (see `api`)
-- **Decisions**: N/A — no ADR governs this module.
+- **Decisions**: [ADR-0004 clamp-driver role and the topology-agnostic array solver](../../about/adr/ADR-0004-clamp-driver-protocol-and-generic-solver.md)

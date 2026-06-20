@@ -4,7 +4,7 @@
 
 ## What compiles, and what does not
 
-The library does **not** self-compile the macro forward. `XbarMacro.matmul`, `Offset1T1RXbar.vec_mat_mul`, the readout chain, and the digital aggregation all run eager. They are written to be compile-*friendly* (they obey the [contracts](contracts.md)), so a caller may `torch.compile` an entire model, but the library does not force it — consistent with the project rule that compilation is the caller's policy. The one region the library compiles itself is the **DC-solver leaf** `Solver1T1R.solve_dc` (`@torch.compile(dynamic=False)`), reached through `CircuitCore1T1R.cim_read`'s eager island.
+The library does **not** self-compile the macro forward. `XbarMacro.matmul`, `Offset1T1RXbar.vec_mat_mul`, the readout chain, and the digital aggregation all run eager. They are written to be compile-*friendly* (they obey the [contracts](contracts.md)), so a caller may `torch.compile` an entire model, but the library does not force it — consistent with the project rule that compilation is the caller's policy. The one region the library compiles itself is the **DC-solver leaf** `NestedSolver.solve_dc` (`@torch.compile(dynamic=False)`), reached through `CircuitCore1T1R.cim_read`'s eager island.
 
 ## The problem it solves
 
@@ -47,7 +47,7 @@ The block-tridiagonal kernel inside the solve uses the **Thomas sweep** (`solve_
 Every deviation from the eager default lives here; module docs only point back:
 
 - **Eager island** — `CircuitCore1T1R.cim_read` (`@torch.compiler.disable(recursive=False)`). Owns the chunk loop, list accumulation, snap indexing, and the profiler emit. Under a caller-applied compile it stays an eager island while still letting the nested leaf compile.
-- **Regional leaf** — `Solver1T1R.solve_dc` on every concrete solver (`@torch.compile(dynamic=False)`). The **only** region the library self-compiles. Shape-stable: the chunk indexing in `cim_read` flattens every call to one `(chunk_size, 1, row)` shape. Obeys the [contracts](contracts.md).
+- **Regional leaf** — the concrete solver's `solve_dc` (`NestedSolver.solve_dc`, `@torch.compile(dynamic=False)`; the abstract `Solver.solve_dc` is undecorated). The **only** region the library self-compiles. Shape-stable: the chunk indexing in `cim_read` flattens every call to one `(chunk_size, 1, row)` shape. Obeys the [contracts](contracts.md).
 - **Disabled hooks** — `ProfileMixin._log_dynamic_energy` / `_log_latency` (`@torch.compiler.disable`); side-channel writes, placed after the kernel math so fusion is unaffected.
 - **No self-compiled forward** — `XbarMacro.matmul`, `vec_mat_mul`, readout, and digital aggregation run eager. They obey the contracts so a caller *may* compile them, but the library does not self-decorate them.
 
@@ -86,4 +86,4 @@ Every deviation from the eager default lives here; module docs only point back:
 ## See also
 
 - [contracts](contracts.md), [scheme B](scheme-b-deobjectified.md), [scheme C](scheme-c-custom-op.md)
-- Implementation: `neurox/macro/xbar/*.py`, `neurox/xbar/_1t1r/{offset,circuit_core,nested_solver}.py`, `neurox/xbar/solver.py`, `neurox/common/mixin/profile.py`
+- Implementation: `neurox/macro/xbar/*.py`, `neurox/xbar/_1t1r/{offset,circuit_core}.py`, `neurox/xbar/solver/*.py`, `neurox/common/mixin/profile.py`

@@ -106,11 +106,11 @@ nav:
   - xbar:
     - Overview: reference/xbar/README.md
     - base: reference/xbar/base.md
+    - solver: reference/xbar/solver.md
     - _1t1r:
       - Overview: reference/xbar/_1t1r/README.md
       - circuit_core: reference/xbar/_1t1r/circuit_core.md
       - offset: reference/xbar/_1t1r/offset.md
-      - solver: reference/xbar/_1t1r/solver.md
     - readout:
       - Overview: reference/xbar/readout/README.md
       - readout: reference/xbar/readout/readout.md
@@ -199,7 +199,6 @@ nav:
       - Overview: internals/xbar/_1t1r/README.md
       - circuit_core: internals/xbar/_1t1r/circuit_core.md
       - offset: internals/xbar/_1t1r/offset.md
-      - solver: internals/xbar/_1t1r/solver.md
     - readout:
       - Overview: internals/xbar/readout/README.md
       - base: internals/xbar/readout/base.md
@@ -221,6 +220,8 @@ nav:
     - Overview: about/adr/README.md
     - ADR-0001-config-dispatch-and-owned-construction: about/adr/ADR-0001-config-dispatch-and-owned-construction.md
     - ADR-0002-nmos-is-a-pure-electrical-primitive: about/adr/ADR-0002-nmos-is-a-pure-electrical-primitive.md
+    - ADR-0003-xbar-cell-abstraction-and-single-nested-solver: about/adr/ADR-0003-xbar-cell-abstraction-and-single-nested-solver.md
+    - ADR-0004-clamp-driver-protocol-and-generic-solver: about/adr/ADR-0004-clamp-driver-protocol-and-generic-solver.md
 
 markdown_extensions:
   - admonition

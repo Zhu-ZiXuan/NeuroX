@@ -1,18 +1,19 @@
-"""Standalone Solver1T1R harness for solver-only tests.
+"""Standalone solver harness for solver-only tests.
 
 Builds a standalone :class:`XbarCell1T1R` (owning fabricated RRAM /
 access-NMOS), independent OpAmpTIA / Driver boundary modules, and a
-chip-preset-driven ``Solver1T1R``, with synthetic mid-range RRAM g and
-a configurable ``v_wl_drive`` grid. Does NOT touch ``CircuitCore1T1R`` /
-``Offset1T1RXbar`` — solver tests should depend only on the solver.
+chip-preset-driven stateless ``Solver``, with synthetic mid-range RRAM g
+and a configurable ``v_wl_drive`` grid. Does NOT touch ``CircuitCore1T1R``
+/ ``Offset1T1RXbar`` — solver tests should depend only on the solver.
 
 Public surface: :func:`build_solver_harness` returns a frozen
 ``SolverHarness`` carrying the constructed solver, the fabricated cell,
 the boundary drivers, sampled boundary snaps, wire R/G tensors, and
-the ``v_wl_drive`` tensor. Tests call
-``harness.solver.solve_dc(**harness.solver_kwargs(),
-compute_residuals=True)`` to exercise the solver; the per-call cell
-snap is rebuilt by :meth:`SolverHarness.cell_snapshot`.
+the ``v_wl_drive`` tensor. The solver is stateless, so the cell and the
+two clamp drivers are packed as per-call kwargs alongside their snaps.
+Tests call ``harness.solver.solve_dc(**harness.solver_kwargs(),
+compute_residuals=True)`` to exercise the solver; the per-call cell snap
+is rebuilt by :meth:`SolverHarness.cell_snapshot`.
 """
 
 from __future__ import annotations
@@ -28,19 +29,16 @@ from neurox.analog import Driver, DriverPolicy
 from neurox.analog.tia import OpAmpTIA, OpAmpTIAConfig, OpAmpTIAPolicy
 from neurox.common.load_dump import dataclass_from_file
 from neurox.device import NMOSPolicy, RRAMPolicy
-from neurox.xbar._1t1r import (
-    Offset1T1RXbarConfig,
-    Solver1T1R,
-    Solver1T1RConfig,
-)
+from neurox.xbar._1t1r import Offset1T1RXbarConfig
 from neurox.xbar._1t1r.cell import XbarCell1T1R, XbarCell1T1RPolicy, XbarCell1T1RSnap
+from neurox.xbar.solver import Solver, SolverConfig
 
 
 @dataclass(frozen=True)
 class SolverHarness:
-    """All inputs required to call :meth:`Solver1T1R.solve_dc` directly."""
+    """All inputs required to call :meth:`Solver.solve_dc` directly."""
 
-    solver: Solver1T1R
+    solver: Solver
     cell: XbarCell1T1R
     bl_driver: OpAmpTIA
     sl_driver: Driver
@@ -63,14 +61,21 @@ class SolverHarness:
         )
 
     def solver_kwargs(self) -> dict[str, Any]:
-        """Pack the per-call kwargs for ``solver.solve_dc(...)``."""
+        """Pack the per-call kwargs for ``solver.solve_dc(...)``.
+
+        Includes the cell and the two clamp drivers — the stateless solver
+        takes them per call, not at construction.
+        """
         return {
             "bl_segment_r__MOhm": self.bl_segment_r__MOhm,
             "sl_segment_r__MOhm": self.sl_segment_r__MOhm,
             "bl_segment_g__uS": self.bl_segment_g__uS,
             "sl_segment_g__uS": self.sl_segment_g__uS,
+            "cell": self.cell,
             "cell_snap": self.cell_snapshot(),
+            "bl_driver": self.bl_driver,
             "bl_driver_snap": self.bl_driver_snap,
+            "sl_driver": self.sl_driver,
             "sl_driver_snap": self.sl_driver_snap,
         }
 
@@ -82,7 +87,7 @@ def _wire_seg_tensor(first: float, segment: float, row_num: int, device: torch.d
 def build_solver_harness(
     *,
     config_path: Path,
-    solver_config: Solver1T1RConfig,
+    solver_config: SolverConfig,
     inst_shape: tuple[int, ...],
     x_batch: int,
     device: torch.device,
@@ -98,12 +103,12 @@ def build_solver_harness(
     built fresh with no nonideality policy and fabricated once; the cell's
     RRAM is programmed to a uniform mid-range conductance derived from the
     cell config's ``rram_g_max__uS`` via a synthetic state-index tensor.
-    The solver is built standalone via :meth:`Solver1T1R.from_config` and
-    bound to the cell + drivers.
+    The solver is built standalone via :meth:`Solver.from_config`; the
+    cell + drivers are supplied per call (see :meth:`SolverHarness.solver_kwargs`).
 
     Args:
         config_path: Path to a chip TOML carrying ``[xbar]`` (Offset1T1RXbarConfig).
-        solver_config: Concrete ``Solver1T1RConfig`` (nested).
+        solver_config: Concrete ``SolverConfig`` (nested).
         inst_shape: Tile multiplicity (e.g. ``(4,)`` or ``(2, 1, 2)`` —
             interpreted as the prefix preceding ``(phys_col, row)``).
         x_batch: Leading x-batch size in front of ``inst_shape``.
@@ -201,14 +206,9 @@ def build_solver_harness(
     bl_drv_snap = bl_driver.snapshot(shape=(x_batch, *inst_shape, phys_col_num), multi_coords=None)
     sl_drv_snap = sl_driver.snapshot(shape=(x_batch, *inst_shape, phys_col_num), multi_coords=None)
 
-    # --- Solver ---
+    # --- Solver (stateless: cell + drivers supplied per call) ---
 
-    solver = Solver1T1R.from_config(
-        config=solver_config,
-        cell=cell,
-        bl_driver=bl_driver,
-        sl_driver=sl_driver,
-    )
+    solver = Solver.from_config(config=solver_config)
 
     return SolverHarness(
         solver=solver,

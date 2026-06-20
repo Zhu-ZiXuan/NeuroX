@@ -15,7 +15,7 @@
 
 ## Performance & resources
 
-N/A at this level — the chunked solve and its memory model are in [circuit_core](circuit_core.md) and [solver](solver.md).
+N/A at this level — the chunked solve and its memory model are in [circuit_core](circuit_core.md) and [solver](../solver.md).
 
 ## Gotchas
 
