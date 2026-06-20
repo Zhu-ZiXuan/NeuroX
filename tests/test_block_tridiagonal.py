@@ -8,7 +8,7 @@ Covers:
   * Batch dims pass through correctly.
   * Numerically stable on diagonally-dominant (M-matrix-flavour) systems
     that mirror the wire-Newton + boundary block structure used by the
-    nested / full-Jacobian solvers.
+    nested solver.
 """
 
 from __future__ import annotations

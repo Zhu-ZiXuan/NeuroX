@@ -93,7 +93,7 @@ class Offset1T1RXbarConfig(XbarConfig):
           legal state — equivalent to ``-offset <= 0 <=
           states - 1 - offset``, i.e. the same bound as above.
         """
-        n_states = len(self.core_config.state_to_g_map__uS)
+        n_states = len(self.core_config.cell_config.state_to_g_map__uS)
         if not (self.w_state_offset < n_states):
             raise ValueError(
                 f"require: w_state_offset ({self.w_state_offset}) < "

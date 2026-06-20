@@ -1,0 +1,38 @@
+# Calibrate XbarCell1T1R's access-node condensation count via step-ratio plateau.
+#
+# CLI: python -m neurox.tools.cell_calibrate._1t1r \
+#          --config example/config/cell_calibrate_1t1r.toml \
+#          --device cpu
+
+[xbar]
+_neurox_use = "1t1r_28nm.toml:xbar"
+
+
+# Representative operating grid the array solver drives the cell over:
+#   v_bl / v_sl swept across the read-voltage range (full n_terminal^2
+#                outer product; both rails independent),
+#   v_wl off and on (NMOS cut off / conducting),
+#   every programmed RRAM state in state_to_g_map__uS (added automatically).
+# The read clamp holds the BL node near v_ref (0.1 V) and the SL driver
+# near 0.0 V; the span covers both rails plus headroom.
+[grid]
+v_terminal_min__V = 0.0
+v_terminal_max__V = 0.1
+n_terminal = 16
+v_wl_off__V = 0.0
+v_wl_on__V = 1.2
+
+
+# Candidate counts to sweep, plus the plateau detector criteria.
+# margin adds this many iterations to the picked count for safety.
+[sweep]
+candidates = [1, 2, 3, 4, 5, 6, 7, 8]
+ratio_threshold = 0.5
+reltol = 1e-2
+margin = 1
+
+
+# fp64 is the calibration default: the per-cell condensation is cheap and
+# the round-off floor is the quantity being characterised.
+[runtime]
+dtype = "float64"

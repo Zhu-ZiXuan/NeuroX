@@ -16,8 +16,9 @@ from torch import Tensor
 from neurox.analog import Driver, DriverSnapshot
 from neurox.analog.tia import TIA, TIASnapshot
 from neurox.common.mixin import RegistryMixin, ValidateMixin
-from neurox.device import RRAM, RRAMSnapshot
-from neurox.device.nmos import NMOS, NMOSSnapshot
+from neurox.xbar.cell import XbarCell, XbarCellSnapshot
+
+from .cell import XbarCell1T1RDCOP
 
 # ---------------------------------------------------------------------------
 # Config base
@@ -54,16 +55,16 @@ class Solver1T1RConfig(ValidateMixin):
 
 @dataclass(frozen=True)
 class Solver1T1RResiduals:
-    """Per-element absolute KCL residuals from one 1T1R DC solve [μA] / [V].
+    """Per-element absolute wire / clamp KCL residuals from one 1T1R DC solve [μA] / [V].
 
-    Populated only when ``solve_dc(compute_residuals=True)``; the hot path
-    leaves the whole bundle as ``None`` so the residual algebra (an extra
-    NMOS + RRAM evaluation plus two wire-KCL sweeps plus two clamp
-    evaluations) is pruned away.
+    Solver-owned residuals only: the wire-ladder and clamp-boundary KCL
+    mismatches. The per-cell internal-KCL residual lives on the cell DCOP
+    (``Solver1T1RDCOP.cell.residuals``). Populated only when
+    ``solve_dc(compute_residuals=True)``; the hot path leaves the whole
+    bundle as ``None`` so the residual algebra (two wire-KCL sweeps plus
+    two clamp evaluations) is pruned away.
 
     Attributes:
-        cell__uA: ``|I_NMOS - I_RRAM|`` per cell.
-            Shape: ``[..., num_col, num_row]``.
         wire_bl__uA: BL wire KCL residual per node.
             Shape: ``[..., num_col, num_row]``.
         wire_sl__uA: SL wire KCL residual per node.
@@ -74,7 +75,6 @@ class Solver1T1RResiduals:
             Shape: ``[..., num_col]``.
     """
 
-    cell__uA: Tensor
     wire_bl__uA: Tensor
     wire_sl__uA: Tensor
     clamp_bl__V: Tensor
@@ -85,19 +85,24 @@ class Solver1T1RResiduals:
 class Solver1T1RDCOP:
     """Complete steady-state solution of one 1T1R DC solve.
 
+    The condensed cell working point (branch current, signed terminal
+    conductances, internal access-node voltage, and the per-cell KCL
+    residual) is carried on :attr:`cell`; the solver owns only the wire
+    and clamp boundary state.
+
     Attributes:
         i_bl_driver: BL driver current [uA]. Shape: ``[..., num_col]``.
         i_sl_driver: SL driver current [uA]. Shape: ``[..., num_col]``.
         v_bl_node: BL node voltages [V]. Shape: ``[..., num_col, num_row]``.
         v_sl_node: SL node voltages [V]. Shape: ``[..., num_col, num_row]``.
-        v_x_node: Internal access-transistor drain voltages [V].
-            Shape: ``[..., num_col, num_row]``.
-        i_cell: Cell currents [uA]. Shape: ``[..., num_col, num_row]``.
+        cell: Condensed cell DC working point at the converged node
+            voltages, including the internal access-node voltage and the
+            optional per-cell internal-KCL residual.
         v_bl_clamp: BL clamp voltages [V]. Shape: ``[..., num_col]``.
         v_sl_drive: SL drive voltages [V]. Shape: ``[..., num_col]``.
-        residuals: Optional per-element residual diagnostics. Hot path
-            sets this to ``None`` — the extra KCL evaluations are skipped
-            entirely. Calibration / debug paths call
+        residuals: Optional per-element wire / clamp residual diagnostics.
+            Hot path sets this to ``None`` — the extra KCL evaluations are
+            skipped entirely. Calibration / debug paths call
             ``solve_dc(compute_residuals=True)`` to fill it.
     """
 
@@ -105,8 +110,7 @@ class Solver1T1RDCOP:
     i_sl_driver: Tensor
     v_bl_node: Tensor
     v_sl_node: Tensor
-    v_x_node: Tensor
-    i_cell: Tensor
+    cell: XbarCell1T1RDCOP
     v_bl_clamp: Tensor
     v_sl_drive: Tensor
     residuals: Solver1T1RResiduals | None
@@ -127,9 +131,11 @@ class Solver1T1R(RegistryMixin[type["Solver1T1RConfig"], "Solver1T1R"], ABC):
     parameters — so the base intentionally stays minimal.
 
     The ``from_config`` signature is fully explicit for the 1T1R topology:
-    every concrete 1T1R solver needs exactly the same four boundary
-    actors (RRAM, NMOS, BL driver, SL driver). Other topologies (2T2R,
-    differential, …) define their own family base with their own
+    every concrete 1T1R solver needs exactly the same three boundary
+    actors (the pluggable cell, BL driver, SL driver). The cell owns the
+    two-terminal device branch and condenses any internal node; the solver
+    drives only the wire ladders and clamp boundaries. Other topologies
+    (2T2R, differential, …) define their own family base with their own
     boundary-actor signature.
     """
 
@@ -138,8 +144,7 @@ class Solver1T1R(RegistryMixin[type["Solver1T1RConfig"], "Solver1T1R"], ABC):
         self,
         *,
         config: Solver1T1RConfig,
-        rram: RRAM,
-        nmos: NMOS,
+        cell: XbarCell,
         bl_driver: TIA,
         sl_driver: Driver,
     ) -> None:
@@ -151,8 +156,7 @@ class Solver1T1R(RegistryMixin[type["Solver1T1RConfig"], "Solver1T1R"], ABC):
         cls,
         *,
         config: Solver1T1RConfig,
-        rram: RRAM,
-        nmos: NMOS,
+        cell: XbarCell,
         bl_driver: TIA,
         sl_driver: Driver,
     ) -> Solver1T1R:
@@ -160,8 +164,7 @@ class Solver1T1R(RegistryMixin[type["Solver1T1RConfig"], "Solver1T1R"], ABC):
         impl = cls._lookup_impl(type(config))
         return impl(
             config=config,
-            rram=rram,
-            nmos=nmos,
+            cell=cell,
             bl_driver=bl_driver,
             sl_driver=sl_driver,
         )
@@ -170,21 +173,18 @@ class Solver1T1R(RegistryMixin[type["Solver1T1RConfig"], "Solver1T1R"], ABC):
     def solve_dc(
         self,
         *,
-        v_wl_drive__V: Tensor,
         bl_segment_r__MOhm: Tensor,
         sl_segment_r__MOhm: Tensor,
         bl_segment_g__uS: Tensor,
         sl_segment_g__uS: Tensor,
-        rram_snapshot: RRAMSnapshot,
-        nmos_snapshot: NMOSSnapshot,
+        cell_snapshot: XbarCellSnapshot,
         bl_driver_snapshot: TIASnapshot,
         sl_driver_snapshot: DriverSnapshot,
         compute_residuals: bool = False,
     ) -> Solver1T1RDCOP:
-        """Solve the fabricated 1T1R tile for one WL-drive tensor.
+        """Solve the fabricated 1T1R tile for one cell snapshot.
 
         Args:
-            v_wl_drive__V: WL drive voltage tensor [V]. Shape: ``[..., 1, num_row]``.
             bl_segment_r__MOhm: 1-D BL segment resistances [MOhm]; index 0 is
                 driver-to-first.
             sl_segment_r__MOhm: 1-D SL segment resistances [MOhm]; index 0 is
@@ -193,8 +193,8 @@ class Solver1T1R(RegistryMixin[type["Solver1T1RConfig"], "Solver1T1R"], ABC):
                 ``bl_segment_r__MOhm``.
             sl_segment_g__uS: SL segment conductances [uS], reciprocal of
                 ``sl_segment_r__MOhm``.
-            rram_snapshot: Per-solve RRAM snapshot.
-            nmos_snapshot: Per-solve NMOS snapshot.
+            cell_snapshot: Per-solve cell snapshot bundling the device
+                snapshots and the per-cell control-line (WL) drive.
             bl_driver_snapshot: Per-solve BL driver snapshot.
             sl_driver_snapshot: Per-solve SL driver snapshot.
             compute_residuals: When True, populate

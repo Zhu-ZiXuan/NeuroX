@@ -88,6 +88,10 @@ wl_first_c__fF = 0.200
 wl_segment_r__MOhm = 2e-7
 wl_segment_c__fF = 0.008
 
+
+[xbar.core_config.cell_config]
+_neurox_type = "XbarCell1T1RConfig"
+
 # --- Access-NMOS sizing ---
 access_nmos_W__um = 0.150
 access_nmos_L__um = 0.028
@@ -101,12 +105,20 @@ c_db_per_um__fF = 0.85
 rram_g_max__uS = 100.0
 state_to_g_map__uS = [10.0, 54.2591294879, 100.0]
 
+# --- Per-cell access-node Newton iteration count ---
+# Calibrated via cell_calibrate._1t1r: step-ratio plateau on the access
+# node V_X (ratio_threshold=0.5) + relative residual guard (reltol=1e-2
+# vs max|I_cell|) over a v_bl/v_sl read-voltage grid x WL off/on x all
+# states. The Pade seed lands in the Newton basin, so V_X reaches its
+# fp64 round-off floor by n=4; recommended with margin +1.
+n_newton = 5
 
-[xbar.core_config.rram_config]
+
+[xbar.core_config.cell_config.rram_config]
 _neurox_use_preset = "process/rram:default"
 
 
-[xbar.core_config.nmos_config]
+[xbar.core_config.cell_config.nmos_config]
 _neurox_use_preset = "process/mos:nmos_28_rvt"
 
 
@@ -186,19 +198,6 @@ _neurox_type = "NestedSolver1T1RConfig"
 # with margin (+1, +0). Same counts work for fp64.
 n_outer = 5
 n_inner = 1
-
-# Reference / experimental alternative: FullJacobianSolver1T1RConfig
-# with n_newton = 4 (fp32) / 5 (fp64) lifts every unknown (including
-# V_X) into one global Newton step. Kept as an independent reference
-# implementation for cross-checking nested, NOT recommended as a
-# production swap-in: it uses ~2× peak GPU memory than nested
-# (block-3×3 Thomas + V_X-in-vector) and OOMs on large batches at
-# fp64. Use it for solver-correctness debug, FD Jacobian verification
-# (tests/test_full_jacobian_fd_verify.py), or to validate nested's
-# answer on small workloads. To switch:
-#     [xbar.core_config.solver_config]
-#     _neurox_type = "FullJacobianSolver1T1RConfig"
-#     n_newton = 5  # calibrated for the (W=0.18, Vb=0.9) TIA design
 
 
 [xbar.core_config.wl_dac_config]

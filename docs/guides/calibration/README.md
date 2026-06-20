@@ -2,7 +2,7 @@
 
 The offline tools under `neurox/tools/` run outside the main forward path. Each is a small CLI that consumes a chip TOML and emits a calibration artefact (TOML / TXT) or a diagnostic report (PNG / log). A developer runs them once when tuning a chip configuration; the resulting artefacts feed back into the main forward path. Keeping them under `tools/` rather than mixing with library code makes the I/O surface explicit — TOML in, TOML / PNG / log out — and the flows reproducible offline.
 
-Most tools here are *calibration* flows that produce the parameters tying an abstract NeuroX model to a specific chip: the ADC input range, the per-operating-point ADC `rescale_factor` table, the single-cell 1T1R state map, and the per-solver-family iteration counts. The TIA-design tool is an exploration / scoring flow that lives under its own guide.
+Most tools here are *calibration* flows that produce the parameters tying an abstract NeuroX model to a specific chip: the ADC input range, the per-operating-point ADC `rescale_factor` table, the single-cell 1T1R state map, the array-solver / TIA iteration counts, and the per-cell access-node condensation count. The TIA-design tool is an exploration / scoring flow that lives under its own guide.
 
 ## Tool conventions
 
@@ -38,7 +38,7 @@ The ADC-side tools form a two-stage pipeline with no overlap — first pick the 
 - [ADC input-range probing](adc_range_probing.md) — stage 1: probe $v_\mathrm{diff}$ and recommend $[-A, A]$ range candidates.
 - [ADC rescale calibration](adc_rescale.md) — stage 2: fit the per-operating-point `rescale_factor` table.
 - [1T1R state-map optimization](state_map.md) — single-cell state map: solve one-cell KCL so RRAM states give a linear cell-current ladder; emits `rram_g_max__uS` and `state_to_g_map__uS`.
-- [Solver iteration-count calibration](solver_iteration_counts.md) — per-solver-family iteration counts via step-ratio plateau detection.
+- [Solver iteration-count calibration](solver_iteration_counts.md) — fixed iteration counts for the array solver, the TIA inner Newton, and the per-cell access-node condensation, via step-ratio plateau detection. The per-cell condensation count is calibrated by its own tool in a package separate from the array-solver calibrators.
 - [TIA design exploration](../tia_design/README.md) — TIA-design scoring under a chip + workload TOML (curve grid + slice plots).
 
 ---

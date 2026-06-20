@@ -57,7 +57,9 @@ def test_nested_residuals_at_machine_precision(fixture_config: Path, device: tor
     dcop = harness.solver.solve_dc(**harness.solver_kwargs(), compute_residuals=True)
     residuals = dcop.residuals
     assert residuals is not None
-    assert residuals.cell__uA.max().item() < 1e-9
+    cell_residuals = dcop.cell.residuals
+    assert cell_residuals is not None
+    assert cell_residuals.cell__uA.max().item() < 1e-9
     assert residuals.wire_bl__uA.max().item() < 1e-6
     assert residuals.wire_sl__uA.max().item() < 1e-9
 
@@ -82,19 +84,18 @@ def test_nested_inner_only_converges(fixture_config: Path, device: torch.device)
     v_bl_clamp = torch.full((*batch, phys_col), solver.bl_driver.v_ref__V, device=device, dtype=dtype)
     v_sl_drive = torch.full((*batch, phys_col), solver.sl_driver.v_ref__V, device=device, dtype=dtype)
     dcop = solver.solve_array_fixed_clamp(
-        v_wl_drive__V=v_wl,
         v_bl_clamp__V=v_bl_clamp,
         v_sl_drive__V=v_sl_drive,
         bl_segment_r__MOhm=harness.bl_segment_r__MOhm,
         sl_segment_r__MOhm=harness.sl_segment_r__MOhm,
         bl_segment_g__uS=harness.bl_segment_g__uS,
         sl_segment_g__uS=harness.sl_segment_g__uS,
-        rram_snapshot=harness.rram_snapshot,
-        nmos_snapshot=harness.nmos_snapshot,
+        cell_snapshot=harness.cell_snapshot(),
         compute_residuals=True,
     )
     assert dcop.residuals is not None
-    assert dcop.residuals.cell__uA.max().item() < 1e-9
+    assert dcop.cell.residuals is not None
+    assert dcop.cell.residuals.cell__uA.max().item() < 1e-9
     assert dcop.residuals.wire_bl__uA.max().item() < 1e-9
     assert dcop.residuals.wire_sl__uA.max().item() < 1e-9
 

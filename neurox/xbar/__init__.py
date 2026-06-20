@@ -9,6 +9,14 @@ from ._1t1r import (
     Offset1T1RXbarPolicy,
 )
 from .base import Xbar, XbarConfig, XbarPolicy
+from .cell import (
+    XbarCell,
+    XbarCellConfig,
+    XbarCellDCOP,
+    XbarCellPolicy,
+    XbarCellResiduals,
+    XbarCellSnapshot,
+)
 from .ideal import IdealXbar, IdealXbarConfig, IdealXbarPolicy
 
 __all__ = [
@@ -22,6 +30,12 @@ __all__ = [
     "Offset1T1RXbarConfig",
     "Offset1T1RXbarPolicy",
     "Xbar",
+    "XbarCell",
+    "XbarCellConfig",
+    "XbarCellDCOP",
+    "XbarCellPolicy",
+    "XbarCellResiduals",
+    "XbarCellSnapshot",
     "XbarConfig",
     "XbarPolicy",
 ]

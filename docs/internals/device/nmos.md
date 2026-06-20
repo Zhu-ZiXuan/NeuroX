@@ -28,11 +28,11 @@ State is two per-cell buffers at `inst_shape` plus their scalar nominals. The so
 
 ## Known limitations
 
-- No dedicated device-level test module; `NMOS` is exercised through the 1T1R physics and Jacobian paths (`tests/test_xbar_physics.py`, `tests/test_full_jacobian_fd_verify.py`). A focused device unit test (I-V surface, the three node partials by finite difference, Pelgrom statistics) is a coverage gap.
+- No dedicated device-level test module; `NMOS` is exercised through the 1T1R cell and physics paths (`tests/test_xbar_cell.py`, `tests/test_xbar_physics.py`). A focused device unit test (I-V surface, the three node partials by finite difference, Pelgrom statistics) is a coverage gap.
 
 ---
 
 - **Reference**: [nmos](../../reference/device/nmos.md)
 - **Implementation**: `neurox/device/nmos.py`
-- **Tests**: `tests/test_xbar_physics.py`, `tests/test_full_jacobian_fd_verify.py`
+- **Tests**: `tests/test_xbar_cell.py`, `tests/test_xbar_physics.py`
 - **Decisions**: [ADR-0002 NMOS is a pure electrical primitive](../../about/adr/ADR-0002-nmos-is-a-pure-electrical-primitive.md)

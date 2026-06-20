@@ -2,7 +2,7 @@
 
 Single-axis sweep over ``n_newton`` using **step-ratio plateau detection**
 (primary) plus a **relative residual guard** (sanity). Same chip-parameter-free
-methodology as :mod:`solver_calibrate.full_jacobian` / :mod:`.nested`:
+methodology as :mod:`solver_calibrate.nested`:
 
   * Plateau is read from the TIA's own ``V_clamp`` iterate sequence —
     when ``|V_CL,n − V_CL,n-1|`` stops shrinking, the inner Newton has

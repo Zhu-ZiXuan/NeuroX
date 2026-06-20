@@ -29,11 +29,11 @@ The state is one conductance buffer at the programmed broadcast shape. The read 
 
 ## Known limitations
 
-- No dedicated device-level test module; `RRAM` is exercised through the 1T1R physics path (`tests/test_xbar_physics.py`, `tests/test_full_jacobian_fd_verify.py`). A focused device unit test (I-V, write fixed point, per-source noise statistics) is a coverage gap.
+- No dedicated device-level test module; `RRAM` is exercised through the 1T1R cell and physics paths (`tests/test_xbar_cell.py`, `tests/test_xbar_physics.py`). A focused device unit test (I-V, write fixed point, per-source noise statistics) is a coverage gap.
 
 ---
 
 - **Reference**: [rram](../../reference/device/rram.md)
 - **Implementation**: `neurox/device/rram.py`
-- **Tests**: `tests/test_xbar_physics.py`, `tests/test_full_jacobian_fd_verify.py`
+- **Tests**: `tests/test_xbar_cell.py`, `tests/test_xbar_physics.py`
 - **Decisions**: N/A — no ADR governs this device.

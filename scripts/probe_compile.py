@@ -75,6 +75,7 @@ from neurox.macro.xbar import (
 )
 from neurox.xbar import Offset1T1RXbarConfig, Offset1T1RXbarPolicy
 from neurox.xbar._1t1r import CircuitCore1T1RPolicy
+from neurox.xbar._1t1r.cell import XbarCell1T1RPolicy
 from neurox.xbar.readout import (
     OffsetSwitchCapMuxAdcReadOutConfig,
     OffsetSwitchCapMuxAdcReadOutPolicy,
@@ -106,8 +107,10 @@ def _all_off_xbar_policy(config: Offset1T1RXbarConfig) -> Offset1T1RXbarPolicy:
         raise TypeError(f"probe expects McsSarAdcConfig; got {type(readout_config.adc_config).__name__}")
     return Offset1T1RXbarPolicy(
         core=CircuitCore1T1RPolicy(
-            rram=RRAMPolicy(prog_gamma=False, stuck_at=False, read_telegraph=False, read_thermal=False),
-            nmos=NMOSPolicy(A_vt_mismatch=False, A_beta_mismatch=False),
+            cell=XbarCell1T1RPolicy(
+                rram=RRAMPolicy(prog_gamma=False, stuck_at=False, read_telegraph=False, read_thermal=False),
+                nmos=NMOSPolicy(A_vt_mismatch=False, A_beta_mismatch=False),
+            ),
             tia=OpAmpTIAPolicy(
                 opamp_gain_sigma=False,
                 nmos=NMOSPolicy(A_vt_mismatch=False, A_beta_mismatch=False),

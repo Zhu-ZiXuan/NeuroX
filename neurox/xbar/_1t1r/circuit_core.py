@@ -18,16 +18,15 @@ from neurox.analog import (
 from neurox.analog.dac import DAC, DACConfig, DACPolicy
 from neurox.analog.tia import TIA, TIAConfig, TIAPolicy
 from neurox.common.circuit import CircuitBase, CircuitConfig
-from neurox.device import (
-    NMOS,
-    RRAM,
-    NMOSConfig,
-    NMOSPolicy,
-    RRAMConfig,
-    RRAMPolicy,
-)
+from neurox.xbar.cell import XbarCell
 
 from ._chunking import classify_leading_positions, iter_chunks, reassemble_chunks
+from .cell import (
+    XbarCell1T1R,
+    XbarCell1T1RConfig,
+    XbarCell1T1RPolicy,
+    XbarCell1T1RSnapshot,
+)
 from .solver import Solver1T1R, Solver1T1RConfig, Solver1T1RDCOP
 
 # ---------------------------------------------------------------------------
@@ -57,27 +56,15 @@ class CircuitCore1T1RConfig(CircuitConfig):
         wl_first_c__fF: WL driver-to-first-cell segment capacitance [fF].
         wl_segment_r__MOhm: WL cell-to-cell segment resistance [MOhm].
         wl_segment_c__fF: WL cell-to-cell segment capacitance [fF].
-        access_nmos_W__um: Access-NMOS width [um].
-        access_nmos_L__um: Access-NMOS length [um].
-        c_gs_per_um__fF: Access-NMOS gate-to-source capacitance per unit width
-            [fF/um].
-        c_gd_per_um__fF: Access-NMOS gate-to-drain capacitance per unit width
-            [fF/um].
-        c_db_per_um__fF: Access-NMOS drain-to-body capacitance per unit width
-            [fF/um].
-        rram_g_max__uS: Maximum programmable RRAM conductance [uS].
-        state_to_g_map__uS: State-index to target-conductance lookup
-            table [uS]. Strictly increasing; endpoints must lie inside
-            ``[rram_config.g_min__uS, rram_g_max__uS]``.
-        rram_config: RRAM device configuration.
-        nmos_config: NMOS device configuration.
+        cell_config: 1T1R cell configuration. Owns the RRAM / access-NMOS
+            device configs, sizing, parasitic-cap densities, programming
+            map, and per-cell branch-solve knobs.
         tia_config: BL clamp-driver configuration.
         sl_driver_config: SL driver configuration.
         wl_dac_config: WL DAC configuration.
         solver_config: DC-solver fixed numerical knobs. Concrete subclass
-            of :class:`Solver1T1RConfig` (``NestedSolver1T1RConfig`` or
-            ``FullJacobianSolver1T1RConfig``) picks which solver
-            implementation the core instantiates via
+            of :class:`Solver1T1RConfig` (``NestedSolver1T1RConfig``)
+            picks which solver implementation the core instantiates via
             ``Solver1T1R.from_config(...)``.
         area_per_inst__um2: Core (cell array + wire infra) silicon area
             per fabricated tile instance [um²]. **Excludes** the owned
@@ -115,18 +102,7 @@ class CircuitCore1T1RConfig(CircuitConfig):
     wl_segment_r__MOhm: float
     wl_segment_c__fF: float
 
-    access_nmos_W__um: float
-    access_nmos_L__um: float
-
-    c_gs_per_um__fF: float
-    c_gd_per_um__fF: float
-    c_db_per_um__fF: float
-
-    rram_g_max__uS: float
-    state_to_g_map__uS: tuple[float, ...]
-
-    rram_config: RRAMConfig
-    nmos_config: NMOSConfig
+    cell_config: XbarCell1T1RConfig
     tia_config: TIAConfig
     sl_driver_config: DriverConfig
     wl_dac_config: DACConfig
@@ -141,10 +117,6 @@ class CircuitCore1T1RConfig(CircuitConfig):
         self.validate_wl_pulse()
         self.validate_layout_pitch()
         self.validate_wire_segments()
-        self.validate_access_nmos()
-        self.validate_parasitics()
-        self.validate_rram_window()
-        self.validate_state_map()
         self.validate_ppa()
 
     def validate_ppa(self) -> None:
@@ -180,35 +152,6 @@ class CircuitCore1T1RConfig(CircuitConfig):
         ):
             self._require_pos(getattr(self, field), field)
 
-    def validate_access_nmos(self) -> None:
-        self._require_pos(self.access_nmos_W__um, "access_nmos_W__um")
-        self._require_pos(self.access_nmos_L__um, "access_nmos_L__um")
-
-    def validate_parasitics(self) -> None:
-        self._require_nonneg(self.c_gs_per_um__fF, "c_gs_per_um__fF")
-        self._require_nonneg(self.c_gd_per_um__fF, "c_gd_per_um__fF")
-        self._require_nonneg(self.c_db_per_um__fF, "c_db_per_um__fF")
-
-    def validate_rram_window(self) -> None:
-        if not (self.rram_g_max__uS > self.rram_config.g_min__uS):
-            raise ValueError(
-                f"require: rram_g_max__uS ({self.rram_g_max__uS}) > rram_config.g_min__uS ({self.rram_config.g_min__uS})"
-            )
-
-    def validate_state_map(self) -> None:
-        self._require_min_length(self.state_to_g_map__uS, 2, "state_to_g_map__uS")
-        self._require_strictly_increasing(self.state_to_g_map__uS, "state_to_g_map__uS")
-        if self.state_to_g_map__uS[0] < self.rram_config.g_min__uS:
-            raise ValueError(
-                f"require: state_to_g_map__uS[0] ({self.state_to_g_map__uS[0]}) >= "
-                f"rram_config.g_min__uS ({self.rram_config.g_min__uS})"
-            )
-        if self.state_to_g_map__uS[-1] > self.rram_g_max__uS:
-            raise ValueError(
-                f"require: state_to_g_map__uS[-1] ({self.state_to_g_map__uS[-1]}) <= "
-                f"rram_g_max__uS ({self.rram_g_max__uS})"
-            )
-
 
 # ---------------------------------------------------------------------------
 # Nonideality policy
@@ -220,8 +163,7 @@ class CircuitCore1T1RPolicy:
     """Composite nonideality policy for a 1T1R circuit core.
 
     Attributes:
-        rram: RRAM cell-array nonideality policy.
-        nmos: Cell access-NMOS nonideality policy.
+        cell: 1T1R cell nonideality policy (RRAM + access-NMOS).
         tia: BL clamp-driver (TIA) nonideality policy.
         sl_driver: SL driver nonideality policy.
         wl_dac: WL DAC nonideality policy.
@@ -239,8 +181,7 @@ class CircuitCore1T1RPolicy:
     constants and live on :class:`CircuitCore1T1RConfig.solver_config`.
     """
 
-    rram: RRAMPolicy
-    nmos: NMOSPolicy
+    cell: XbarCell1T1RPolicy
     tia: TIAPolicy
     sl_driver: DriverPolicy
     wl_dac: DACPolicy
@@ -256,7 +197,7 @@ class CircuitCore1T1R(CircuitBase[CircuitCore1T1RConfig]):
     """Shape-independent 1T1R core: devices, boundary circuits, and solver."""
 
     config: CircuitCore1T1RConfig
-    state_to_g_map__uS: Tensor
+    cell: XbarCell1T1R
     bl_segment_r__MOhm: Tensor
     sl_segment_r__MOhm: Tensor
     bl_segment_g__uS: Tensor
@@ -303,22 +244,12 @@ class CircuitCore1T1R(CircuitBase[CircuitCore1T1RConfig]):
         self._w_layout_shape = tuple(w_layout_shape)
 
         sub_prefix = name + "."
-        self.rram = RRAM(
-            config=config.rram_config,
-            policy=policy.rram,
+        self.cell = XbarCell.from_config(
+            config=config.cell_config,
+            policy=policy.cell,
             inst_shape=self._w_layout_shape,
             dtype=dtype,
             T__K=T__K,
-            g_max__uS=config.rram_g_max__uS,
-        )
-        self.nmos = NMOS(
-            config=config.nmos_config,
-            policy=policy.nmos,
-            inst_shape=self._w_layout_shape,
-            dtype=dtype,
-            T__K=T__K,
-            W__um=config.access_nmos_W__um,
-            L__um=config.access_nmos_L__um,
         )
         self.tia = TIA.from_config(
             config=config.tia_config,
@@ -328,10 +259,6 @@ class CircuitCore1T1R(CircuitBase[CircuitCore1T1RConfig]):
             dtype=dtype,
             T__K=T__K,
         )
-        access_W__um = config.access_nmos_W__um
-        self.c_gs_per_cell__fF = config.c_gs_per_um__fF * access_W__um
-        self.c_gd_per_cell__fF = config.c_gd_per_um__fF * access_W__um
-        self.c_db_per_cell__fF = config.c_db_per_um__fF * access_W__um
 
         self.sl_driver = Driver(
             config=config.sl_driver_config,
@@ -350,13 +277,7 @@ class CircuitCore1T1R(CircuitBase[CircuitCore1T1RConfig]):
             T__K=T__K,
         )
 
-        self.register_buffer(
-            "state_to_g_map__uS",
-            torch.tensor(config.state_to_g_map__uS, dtype=dtype),
-            persistent=False,
-        )
-
-        self.w_states = len(config.state_to_g_map__uS)
+        self.w_states = self.cell.w_states
         self.x_states = self.wl_dac.code_max + 1
 
         self.c_wl_wire_per_row__fF = config.wl_first_c__fF + (phys_col_num - 1) * config.wl_segment_c__fF
@@ -387,8 +308,7 @@ class CircuitCore1T1R(CircuitBase[CircuitCore1T1RConfig]):
 
         self.solver = Solver1T1R.from_config(
             config=config.solver_config,
-            rram=self.rram,
-            nmos=self.nmos,
+            cell=self.cell,
             bl_driver=self.tia,
             sl_driver=self.sl_driver,
         )
@@ -401,7 +321,7 @@ class CircuitCore1T1R(CircuitBase[CircuitCore1T1RConfig]):
     # -----------------------------------------------------------------
 
     def program(self, w_state_idx: Tensor) -> None:
-        """Write the RRAM cells from one state-index tensor.
+        """Write the cells from one state-index tensor.
 
         Args:
             w_state_idx: State-index tensor in ``[0, w_states - 1]``,
@@ -412,8 +332,7 @@ class CircuitCore1T1R(CircuitBase[CircuitCore1T1RConfig]):
             raise ValueError(
                 f"program() expects w_state_idx.shape {self._w_layout_shape}; got {tuple(w_state_idx.shape)}"
             )
-        target_g__uS = self.state_to_g_map__uS[w_state_idx.long()]
-        self.rram.program(target_g__uS, t_elapsed=0.0)
+        self.cell.program(w_state_idx)
 
     # -----------------------------------------------------------------
     # CIM read (plain forward)
@@ -463,10 +382,11 @@ class CircuitCore1T1R(CircuitBase[CircuitCore1T1RConfig]):
         # sense for it (DAC: (*leading, row); solver: (*leading, 1, row)).
         x_code = x
         x_grid = x_code.unsqueeze(-2)
-        full_shape = torch.broadcast_shapes(self.rram.g__uS.shape, x_grid.shape)
+        g_shape = self.cell.rram.g__uS.shape
+        full_shape = torch.broadcast_shapes(g_shape, x_grid.shape)
         *batch_list, phys_col_num, row_num = full_shape
         leading = tuple(batch_list)
-        rram_trailing = (phys_col_num, row_num)
+        cell_trailing = (phys_col_num, row_num)
         tia_trailing = (phys_col_num,)
         col_trailing = (phys_col_num,)
 
@@ -474,7 +394,7 @@ class CircuitCore1T1R(CircuitBase[CircuitCore1T1RConfig]):
 
         a_positions, _b_positions = classify_leading_positions(
             x_shape=tuple(x_grid.shape),
-            g_shape=tuple(self.rram.g__uS.shape),
+            g_shape=tuple(g_shape),
             leading_rank=len(leading),
         )
 
@@ -495,11 +415,10 @@ class CircuitCore1T1R(CircuitBase[CircuitCore1T1RConfig]):
         # --- Per-chunk loop: sample → solve → TIA clamp → energy ---
         # Only the small per-chunk tensors needed for reassembly +
         # per-chunk energy are retained. The heavy ``solver_dcop_chunk``
-        # (carrying ``v_bl_node`` / ``v_sl_node`` / ``v_x_node`` /
-        # ``i_cell`` sized ``(chunk_size, phys_col, row)``) lives only
-        # within one loop iteration and is released by Python's GC
-        # before the next chunk starts — preserving chunking's peak-
-        # memory contract.
+        # (carrying ``v_bl_node`` / ``v_sl_node`` plus the condensed cell
+        # DCOP sized ``(chunk_size, phys_col, row)``) lives only within
+        # one loop iteration and is released by Python's GC before the
+        # next chunk starts — preserving chunking's peak-memory contract.
 
         v_out_phys_chunks: list[Tensor] = []
         chunk_energies: list[Tensor] = []
@@ -511,20 +430,22 @@ class CircuitCore1T1R(CircuitBase[CircuitCore1T1RConfig]):
             device=x.device,
         ):
             mc = spec.multi_coords
-            rram_snap = self.rram.snapshot(shape=(*leading, *rram_trailing), multi_coords=mc)
-            nmos_snap = self.nmos.snapshot(shape=(*leading, *rram_trailing), multi_coords=mc)
+            v_wl_chunk = v_wl_full[mc] if mc else v_wl_full  # (chunk_size, 1, row)
+            cell_snap = self.cell.snapshot(
+                control=v_wl_chunk,
+                shape=(*leading, *cell_trailing),
+                multi_coords=mc,
+                t_elapsed=0.0,
+            )
             bl_snap = self.tia.snapshot(shape=(*leading, *tia_trailing), multi_coords=mc)
             sl_snap = self.sl_driver.snapshot(shape=(*leading, *tia_trailing), multi_coords=mc)
-            v_wl_chunk = v_wl_full[mc] if mc else v_wl_full  # (chunk_size, 1, row)
 
             solver_dcop_chunk = self.solver.solve_dc(
-                v_wl_drive__V=v_wl_chunk,
                 bl_segment_r__MOhm=self.bl_segment_r__MOhm,
                 sl_segment_r__MOhm=self.sl_segment_r__MOhm,
                 bl_segment_g__uS=self.bl_segment_g__uS,
                 sl_segment_g__uS=self.sl_segment_g__uS,
-                rram_snapshot=rram_snap,
-                nmos_snapshot=nmos_snap,
+                cell_snapshot=cell_snap,
                 bl_driver_snapshot=bl_snap,
                 sl_driver_snapshot=sl_snap,
                 compute_residuals=False,
@@ -537,7 +458,7 @@ class CircuitCore1T1R(CircuitBase[CircuitCore1T1RConfig]):
             chunk_energies.append(
                 self._compute_array_energy__fJ(
                     solver_dcop=solver_dcop_chunk,
-                    v_wl_drive=v_wl_chunk.squeeze(-2),
+                    cell_snapshot=cell_snap,
                 )
             )
             v_out_phys_chunks.append(clamp_dcop_chunk.v_out__V)
@@ -578,21 +499,28 @@ class CircuitCore1T1R(CircuitBase[CircuitCore1T1RConfig]):
         self,
         *,
         solver_dcop: Solver1T1RDCOP,
-        v_wl_drive: Tensor,
+        cell_snapshot: XbarCell1T1RSnapshot,
     ) -> Tensor:
         """Per-VMM array-internal energy [fJ]. Shape: [...batch...].
 
+        Sums the core-owned terms — DC conduction at the rail clamps plus
+        wire-segment (BL / SL) and WL-line capacitive cycling — with the
+        per-cell device-capacitance switching energy delegated to
+        :meth:`XbarCell.dynamic_energy`.
+
         Args:
-            solver_dcop: Inner array solver's converged DCOP, carrying
-                the per-cell node voltages and per-column port currents.
-            v_wl_drive: WL drive voltages [V] from the WL DAC,
-                shape ``[..., row_num]``.
+            solver_dcop: Inner array solver's converged DCOP, carrying the
+                BL / SL node voltages, the condensed cell DCOP, and the
+                per-column port currents.
+            cell_snapshot: Per-solve cell snapshot bundling the device
+                snapshots and the WL control drive ``[..., 1, row_num]``.
         """
 
-        v_wl__V = v_wl_drive
+        # WL drive recovered from the cell snapshot; drop the WL-fanout
+        # slot so the WL-wire term sums to ``[...]``.
+        v_wl__V = cell_snapshot.v_wl__V.squeeze(-2)
         v_bl__V = solver_dcop.v_bl_node
         v_sl__V = solver_dcop.v_sl_node
-        v_x__V = solver_dcop.v_x_node
         v_bl_clamp__V = solver_dcop.v_bl_clamp
         v_sl_drive__V = solver_dcop.v_sl_drive
         pulse__ns = self.config.wl_pulse_length__ns
@@ -623,25 +551,9 @@ class CircuitCore1T1R(CircuitBase[CircuitCore1T1RConfig]):
         sl_seg_q__V2 = (v_sl_left__V.square() + v_sl_left__V * v_sl__V + v_sl__V.square()) / 3.0
         e_sl_wire_cap__fJ = (self.sl_segment_c__fF * sl_seg_q__V2).sum(dim=(-2, -1))
 
-        # Shape: [..., phys_col_num, row_num] -> [...]
-        e_rram_top__fJ = (self.rram.c_top__fF * v_bl__V.square()).sum(dim=(-2, -1))
-        e_rram_bot__fJ = (self.rram.c_bot__fF * v_x__V.square()).sum(dim=(-2, -1))
-        e_nmos_db__fJ = (self.c_db_per_cell__fF * v_x__V.square()).sum(dim=(-2, -1))
+        # --- Per-cell device-capacitance switching energy ---
 
-        # Shape: [..., row_num] -> [..., 1, row_num]
-        v_wl_grid__V = v_wl__V.unsqueeze(-2)
         # Shape: [..., phys_col_num, row_num] -> [...]
-        e_nmos_gs__fJ = (self.c_gs_per_cell__fF * (v_wl_grid__V - v_sl__V).square()).sum(dim=(-2, -1))
-        e_nmos_gd__fJ = (self.c_gd_per_cell__fF * (v_wl_grid__V - v_x__V).square()).sum(dim=(-2, -1))
+        e_cell__fJ = self.cell.dynamic_energy(v_bl__V, v_sl__V, solver_dcop.cell, cell_snapshot).sum(dim=(-2, -1))
 
-        return (
-            e_dc_cond__fJ
-            + e_wl_wire_cap__fJ
-            + e_bl_wire_cap__fJ
-            + e_sl_wire_cap__fJ
-            + e_rram_top__fJ
-            + e_rram_bot__fJ
-            + e_nmos_db__fJ
-            + e_nmos_gs__fJ
-            + e_nmos_gd__fJ
-        )
+        return e_dc_cond__fJ + e_wl_wire_cap__fJ + e_bl_wire_cap__fJ + e_sl_wire_cap__fJ + e_cell__fJ

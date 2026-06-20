@@ -26,6 +26,7 @@ The TOML section tree mirrors the construction tree. For the offset 1T1R macro t
 ```toml
 [xbar]
 [xbar.core_config]
+[xbar.core_config.cell_config]
 [xbar.core_config.solver_config]
 [xbar.readout_config]
 ```
@@ -34,6 +35,7 @@ and the policy mirrors the same ownership:
 
 ```toml
 [policy]
+[policy.xbar.core.cell]
 [policy.xbar.core.tia]
 ```
 

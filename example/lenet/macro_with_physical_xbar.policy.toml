@@ -8,3 +8,12 @@
 
 [policy]
 _neurox_use_preset = "policy/all_off:macro"
+
+[policy.xbar.core]
+# Max instances solved per chunk = per-chunk peak-memory budget. Sized for the
+# COMPILED solve, whose block-Thomas forward/backward sweep keeps its
+# intermediates co-resident (no per-step release), so the budget is smaller than
+# an eager run would need. One value gives a uniform chunk shape across layers ->
+# one dynamic=False solve compile signature.
+# See docs/internals/compile/scheme-a-regional.md.
+solve_chunk_size = 16384

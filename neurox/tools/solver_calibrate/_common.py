@@ -123,23 +123,39 @@ def build_xbar_for_calibration(
 # ---------------------------------------------------------------------------
 
 
-_XBAR_UNKNOWN_FIELDS: tuple[str, ...] = (
+# Step-delta classes (plateau picker). ``v_x`` is the condensed
+# access-node voltage carried on the cell DCOP (``Solver1T1RDCOP.cell.v_x__V``);
+# the rest are solver-owned wire / clamp unknowns read straight off the DCOP.
+_XBAR_SOLVER_UNKNOWN_FIELDS: tuple[str, ...] = (
     "v_bl_node",
     "v_sl_node",
-    "v_x_node",
     "v_bl_clamp",
     "v_sl_drive",
 )
-"""Solver1T1RDCOP fields tracked for the plateau picker's step deltas."""
+"""Solver1T1RDCOP-owned fields tracked for the plateau picker's step deltas."""
 
-_XBAR_RESIDUAL_FIELDS: tuple[str, ...] = (
-    "cell__uA",
+_XBAR_CELL_STEP_KEY = "v_x"
+"""Step-delta key for the cell's condensed access-node voltage (``cell.v_x__V``)."""
+
+_XBAR_UNKNOWN_FIELDS: tuple[str, ...] = (*_XBAR_SOLVER_UNKNOWN_FIELDS, _XBAR_CELL_STEP_KEY)
+"""All step-delta classes (solver wire / clamp unknowns + the cell access node)."""
+
+# Residual classes (safety guard). ``cell__uA`` is the per-cell internal-KCL
+# residual on the cell DCOP (``Solver1T1RDCOP.cell.residuals.cell__uA``); the
+# rest are solver-owned wire / clamp residuals.
+_XBAR_SOLVER_RESIDUAL_FIELDS: tuple[str, ...] = (
     "wire_bl__uA",
     "wire_sl__uA",
     "clamp_bl__V",
     "clamp_sl__V",
 )
 """Solver1T1RResiduals fields tracked for the residual safety guard."""
+
+_XBAR_CELL_RESIDUAL_KEY = "cell__uA"
+"""Residual key for the per-cell internal-KCL mismatch (``cell.residuals.cell__uA``)."""
+
+_XBAR_RESIDUAL_FIELDS: tuple[str, ...] = (_XBAR_CELL_RESIDUAL_KEY, *_XBAR_SOLVER_RESIDUAL_FIELDS)
+"""All residual classes (per-cell internal KCL + solver wire / clamp)."""
 
 
 def _solver_inputs_from_core(core: CircuitCore1T1R, x: Tensor) -> dict[str, Any]:
@@ -150,37 +166,53 @@ def _solver_inputs_from_core(core: CircuitCore1T1R, x: Tensor) -> dict[str, Any]
     sampling, real wire R/G, real DAC drive), but bypass
     :meth:`CircuitCore1T1R.cim_read` so they can inspect raw
     :class:`Solver1T1RDCOP` residuals. We rely on the chip-context
-    invariants core upholds (fabricated devices + cached wire R/G +
+    invariants core upholds (fabricated cell devices + cached wire R/G +
     a WL DAC that knows how to convert a code tensor) without going
     through cim_read's chunked loop or energy aggregation.
 
     Single-block (unchunked) solve: the calibration sweep runs at
     chip-fixture scale where one solve fits in memory.
     """
-    # Mirror CircuitCore1T1R.cim_read's pre-loop setup: keep ``x_code``
-    # raw for the DAC convert so it operates in its natural
-    # ``(*leading, row)`` shape (no synthetic WL-fanout dim that has
-    # nothing to do with the DAC's own structure). The fanout slot is
-    # added back via unsqueeze(-2) after convert so the solver sees
-    # ``(*leading, 1, row)`` as expected.
-    x_code = x
+    # The sampler yields a raw activation batch ``(batch, row)`` with no
+    # weight-instance slots, whereas ``CircuitCore1T1R.cim_read`` is fed an
+    # ``x`` that already carries a size-1 placeholder in every g-instance
+    # leading position (the macro / ``vec_mat_mul`` caller inserts them, as
+    # ``xbar_adc.statistic`` does via ``x.unsqueeze(-2)``). Insert the same
+    # placeholders here so the activation batch and the fabricated-instance
+    # axes occupy DISJOINT leading positions and broadcast into a combined
+    # ``(batch, *inst)`` leading, instead of colliding the batch dim against
+    # the instance dim. The core's instance leading is ``g.ndim - 2`` dims.
+    g_shape = core.cell.rram.g__uS.shape
+    inst_rank = len(g_shape) - 2
+    *x_batch, x_row = x.shape
+    # ``x_code`` matches cim_read's input contract: ``(*batch, *1_inst, row)``.
+    x_code = x.reshape(*x_batch, *(1,) * inst_rank, x_row)
+
+    # Mirror CircuitCore1T1R.cim_read's pre-loop setup: keep ``x_code`` for
+    # the DAC convert in its natural ``(*leading, row)`` shape (no synthetic
+    # WL-fanout dim that has nothing to do with the DAC's own structure). The
+    # fanout slot is added back via unsqueeze(-2) after convert so the cell
+    # snapshot's WL drive is ``(*leading, 1, row)`` as the solver expects.
     x_grid = x_code.unsqueeze(-2)
-    full_shape = torch.broadcast_shapes(core.rram.g__uS.shape, x_grid.shape)
+    full_shape = torch.broadcast_shapes(g_shape, x_grid.shape)
     *batch_list, phys_col_num, row_num = full_shape
     leading = tuple(batch_list)
-    rram_trailing = (phys_col_num, row_num)
+    cell_trailing = (phys_col_num, row_num)
     tia_trailing = (phys_col_num,)
     x_dac_input = x_code.expand(*leading, row_num)
     v_wl_dac = core.wl_dac.convert(x_dac_input)
     v_wl_drive = v_wl_dac.unsqueeze(-2)
     return {
-        "v_wl_drive__V": v_wl_drive,
         "bl_segment_r__MOhm": core.bl_segment_r__MOhm,
         "sl_segment_r__MOhm": core.sl_segment_r__MOhm,
         "bl_segment_g__uS": core.bl_segment_g__uS,
         "sl_segment_g__uS": core.sl_segment_g__uS,
-        "rram_snapshot": core.rram.snapshot(shape=(*leading, *rram_trailing), multi_coords=None),
-        "nmos_snapshot": core.nmos.snapshot(shape=(*leading, *rram_trailing), multi_coords=None),
+        "cell_snapshot": core.cell.snapshot(
+            control=v_wl_drive,
+            shape=(*leading, *cell_trailing),
+            multi_coords=None,
+            t_elapsed=0.0,
+        ),
         "bl_driver_snapshot": core.tia.snapshot(shape=(*leading, *tia_trailing), multi_coords=None),
         "sl_driver_snapshot": core.sl_driver.snapshot(shape=(*leading, *tia_trailing), multi_coords=None),
     }
@@ -261,13 +293,21 @@ def aggregate_xbar_sweep(
             for ci, (_iter_count, solver) in enumerate(candidate_solvers):
                 solver_dcop = solver.solve_dc(**solver_inputs, compute_residuals=True)
                 assert solver_dcop.residuals is not None
-                # Per-candidate residual maxima.
-                for f in _XBAR_RESIDUAL_FIELDS:
+                assert solver_dcop.cell.residuals is not None
+                # Per-candidate residual maxima. The per-cell internal-KCL
+                # residual lives on the cell DCOP; the wire / clamp residuals
+                # on the solver DCOP.
+                cell_res = float(solver_dcop.cell.residuals.cell__uA.abs().max().item())
+                if cell_res > residual_max[ci][_XBAR_CELL_RESIDUAL_KEY]:
+                    residual_max[ci][_XBAR_CELL_RESIDUAL_KEY] = cell_res
+                for f in _XBAR_SOLVER_RESIDUAL_FIELDS:
                     val = float(getattr(solver_dcop.residuals, f).abs().max().item())
                     if val > residual_max[ci][f]:
                         residual_max[ci][f] = val
                 # Step delta vs the predecessor candidate at the SAME (w, x).
-                curr_fields = {f: getattr(solver_dcop, f) for f in _XBAR_UNKNOWN_FIELDS}
+                # The access-node voltage is condensed on the cell DCOP.
+                curr_fields = {f: getattr(solver_dcop, f) for f in _XBAR_SOLVER_UNKNOWN_FIELDS}
+                curr_fields[_XBAR_CELL_STEP_KEY] = solver_dcop.cell.v_x__V
                 if prev_fields is not None:
                     for f in _XBAR_UNKNOWN_FIELDS:
                         val = float((curr_fields[f] - prev_fields[f]).abs().max().item())
@@ -277,7 +317,7 @@ def aggregate_xbar_sweep(
                 # Workload scale: read off the most-converged candidate so the
                 # signal-scale denominator is at the true operating point.
                 if ci == n_candidates - 1:
-                    val_i = float(solver_dcop.i_cell.abs().max().item())
+                    val_i = float(solver_dcop.cell.i__uA.abs().max().item())
                     if val_i > i_cell_typ__uA:
                         i_cell_typ__uA = val_i
                     val_v = float(solver_dcop.v_bl_node.abs().max().item())

@@ -49,14 +49,14 @@ class TestOffsetVsStateMap:
     def test_offset_at_state_count_rejected(self, base_cfg: Offset1T1RXbarConfig) -> None:
         from dataclasses import replace
 
-        n_states = len(base_cfg.core_config.state_to_g_map__uS)
+        n_states = len(base_cfg.core_config.cell_config.state_to_g_map__uS)
         with pytest.raises(ValueError, match=r"w_state_offset.*<.*len\(state_to_g_map"):
             replace(base_cfg, w_state_offset=n_states)
 
     def test_offset_above_state_count_rejected(self, base_cfg: Offset1T1RXbarConfig) -> None:
         from dataclasses import replace
 
-        n_states = len(base_cfg.core_config.state_to_g_map__uS)
+        n_states = len(base_cfg.core_config.cell_config.state_to_g_map__uS)
         with pytest.raises(ValueError, match=r"w_state_offset.*<.*len\(state_to_g_map"):
             replace(base_cfg, w_state_offset=n_states + 5)
 

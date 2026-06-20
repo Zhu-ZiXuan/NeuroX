@@ -26,13 +26,13 @@ _neurox_type = "Offset1T1RXbarPolicy"
 [xbar.core]
 solve_chunk_size = 0
 
-[xbar.core.rram]
+[xbar.core.cell.rram]
 prog_gamma = false
 stuck_at = false
 read_telegraph = false
 read_thermal = false
 
-[xbar.core.nmos]
+[xbar.core.cell.nmos]
 A_vt_mismatch = false
 A_beta_mismatch = false
 

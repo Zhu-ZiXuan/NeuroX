@@ -30,6 +30,7 @@ from neurox.common import T_ROOM__K, dataclass_from_file, dict_from_file
 from neurox.device import NMOSPolicy, RRAMPolicy
 from neurox.xbar import Offset1T1RXbar, Offset1T1RXbarConfig, Offset1T1RXbarPolicy
 from neurox.xbar._1t1r import CircuitCore1T1RPolicy
+from neurox.xbar._1t1r.cell import XbarCell1T1RPolicy
 from neurox.xbar.readout import OffsetSwitchCapMuxAdcReadOutConfig, OffsetSwitchCapMuxAdcReadOutPolicy
 
 
@@ -290,8 +291,10 @@ def build_offset_1t1r_xbar_all_off_from_config(
     wl_dac_policy = _all_off_dac_policy(xbar_config.core_config.wl_dac_config)
     policy = Offset1T1RXbarPolicy(
         core=CircuitCore1T1RPolicy(
-            rram=RRAMPolicy(prog_gamma=False, stuck_at=False, read_telegraph=False, read_thermal=False),
-            nmos=NMOSPolicy(A_vt_mismatch=False, A_beta_mismatch=False),
+            cell=XbarCell1T1RPolicy(
+                rram=RRAMPolicy(prog_gamma=False, stuck_at=False, read_telegraph=False, read_thermal=False),
+                nmos=NMOSPolicy(A_vt_mismatch=False, A_beta_mismatch=False),
+            ),
             tia=tia_policy,
             sl_driver=DriverPolicy(drive_thermal=False),
             wl_dac=wl_dac_policy,

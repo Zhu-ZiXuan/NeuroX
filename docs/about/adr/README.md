@@ -14,3 +14,4 @@ Module docs describe the current design. ADRs explain why the project chose that
 
 - [ADR-0001](ADR-0001-config-dispatch-and-owned-construction.md) — config dispatch and owned construction
 - [ADR-0002](ADR-0002-nmos-is-a-pure-electrical-primitive.md) — NMOS is a pure electrical primitive
+- [ADR-0003](ADR-0003-xbar-cell-abstraction-and-single-nested-solver.md) — pluggable xbar cell and the single nested solver

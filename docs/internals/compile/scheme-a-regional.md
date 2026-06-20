@@ -86,4 +86,4 @@ Every deviation from the eager default lives here; module docs only point back:
 ## See also
 
 - [contracts](contracts.md), [scheme B](scheme-b-deobjectified.md), [scheme C](scheme-c-custom-op.md)
-- Implementation: `neurox/macro/xbar/*.py`, `neurox/xbar/_1t1r/{offset,circuit_core,nested_solver,full_jacobian_solver}.py`, `neurox/xbar/solver.py`, `neurox/common/mixin/profile.py`
+- Implementation: `neurox/macro/xbar/*.py`, `neurox/xbar/_1t1r/{offset,circuit_core,nested_solver}.py`, `neurox/xbar/solver.py`, `neurox/common/mixin/profile.py`

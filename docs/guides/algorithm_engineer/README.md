@@ -65,5 +65,5 @@ Each macro is built from two separate TOML files; the full schema and the `_neur
 
 - [API: configuration](../../api/configuration.md) — the `--config` / `--policy` TOML schema and presets.
 - [Reference: macro](../../reference/macro/README.md) — the `XbarMacro` family and `from_config` factory.
-- [Reference: xbar solver](../../reference/xbar/_1t1r/solver.md) — the physical-array solve; the nested solver is the production default, the full-Jacobian solver is the debug / cross-check reference.
+- [Reference: xbar solver](../../reference/xbar/_1t1r/solver.md) — the physical-array solve: the single nested formulation over the pluggable cell.
 - [Calibration guide](../calibration/README.md) — calibrating the ADC `rescale_factor` table for a new chip.

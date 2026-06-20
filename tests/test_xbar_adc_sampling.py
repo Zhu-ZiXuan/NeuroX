@@ -224,9 +224,9 @@ class TestBuildOffsetXbar:
         assert isinstance(policy, Offset1T1RXbarPolicy)
         assert isinstance(policy.core.tia, OpAmpTIAPolicy)
         assert isinstance(policy.readout, OffsetSwitchCapMuxAdcReadOutPolicy)
-        assert policy.core.rram.prog_gamma is False
-        assert policy.core.rram.stuck_at is False
-        assert policy.core.nmos.A_vt_mismatch is False
+        assert policy.core.cell.rram.prog_gamma is False
+        assert policy.core.cell.rram.stuck_at is False
+        assert policy.core.cell.nmos.A_vt_mismatch is False
         assert policy.core.tia.opamp_gain_sigma is False
         assert policy.readout.signal_switchcap.cap_mismatch is False
         assert policy.readout.analog_mux.mux_noise_cm is False

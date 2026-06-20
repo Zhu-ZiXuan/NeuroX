@@ -114,8 +114,7 @@ def _build_candidates(
             raise ValueError(axis)
         solver = Solver1T1R.from_config(
             config=cfg,
-            rram=xbar.core.rram,
-            nmos=xbar.core.nmos,
+            cell=xbar.core.cell,
             bl_driver=xbar.core.tia,
             sl_driver=xbar.core.sl_driver,
         )

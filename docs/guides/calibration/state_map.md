@@ -1,10 +1,10 @@
 # State-map calibration
 
-Goal: derive the per-state RRAM conductance ladder `state_to_g_map__uS` so that the 1T1R cell read current is *linear in the state index* under a fixed read bias. This ladder is the `Measured` parameter consumed by [reference/xbar/_1t1r/circuit_core](../../reference/xbar/_1t1r/circuit_core.md) (`[xbar.core_config]`). The tool is the offline single-cell CLI `neurox/tools/calculate_1t1r_states.py`.
+Goal: derive the per-state RRAM conductance ladder `state_to_g_map__uS` so that the 1T1R cell read current is *linear in the state index* under a fixed read bias. This ladder is the `Measured` parameter consumed by [reference/xbar/_1t1r/circuit_core](../../reference/xbar/_1t1r/circuit_core.md) (`[xbar.core_config.cell_config]`). The tool is the offline single-cell CLI `neurox/tools/calculate_1t1r_states.py`.
 
 ## What the tool produces
 
-The CLI emits two paste-ready lines through the Python `logging` framework (INFO level on the `neurox.tools.calculate_1t1r_states` logger) for direct paste into `[xbar.core_config]`:
+The CLI emits two paste-ready lines through the Python `logging` framework (INFO level on the `neurox.tools.calculate_1t1r_states` logger) for direct paste into `[xbar.core_config.cell_config]`:
 
 ```toml
 rram_g_max__uS = 100.0

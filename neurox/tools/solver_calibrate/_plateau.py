@@ -34,7 +34,7 @@ class CandidateRow:
 
     Attributes:
         iter_count: Logical iteration count of this candidate (e.g.
-            ``n_newton`` for FullJacobian / TIA, ``n_outer`` for the
+            ``n_newton`` for TIA, ``n_outer`` for the
             current axis being swept in nested).
         step_max__V: ``max |u_n − u_{n-1}|`` across all 5 (or fewer)
             unknown classes and all (batch, col, row). The primary
