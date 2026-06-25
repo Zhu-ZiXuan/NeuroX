@@ -144,9 +144,13 @@ class CandidateResult:
 
 
 def _build_tia_config(hw: HardwareSection, gain: float, w: float, nmos_L_um: float, vb: float) -> OpAmpTIAConfig:
-    """Stitch a per-combo :class:`OpAmpTIAConfig`."""
+    """Stitch a per-combo :class:`OpAmpTIAConfig`.
+
+    ``v_ref__V`` is no longer an :class:`OpAmpTIAConfig` field — the
+    reference clamp voltage is injected per call into the TIA's snapshot
+    (see :func:`sweep_transfer`); ``hw.v_ref__V`` is consumed there.
+    """
     return OpAmpTIAConfig(
-        v_ref__V=hw.v_ref__V,
         v_nmos_bias__V=vb,
         v_dd__V=hw.v_dd__V,
         opamp_gain=gain,
@@ -176,7 +180,7 @@ def _evaluate(
 ) -> CandidateResult | None:
     """Always-returns evaluation — keeps the curve even for infeasible combos
     so 1D-slice plots can show the full grid. Returns ``None`` only when the
-    combo violates a hard OpAmpTIA precondition (Vb ≤ v_ref).
+    combo violates the pseudo-resistor design constraint (Vb ≤ v_ref).
 
     Scoring targets ``hw.target_v_max__V`` instead of the
     chip's physical softclip rail. Goal: workload ±3σ span maps linearly
@@ -184,10 +188,12 @@ def _evaluate(
     past it.
     """
     if vb <= hw.v_ref__V:
-        return None  # OpAmpTIA requires v_nmos_bias > v_ref; skip gracefully
+        return None  # pseudo-resistor needs gate overdrive above the source clamp; skip gracefully
     cfg = _build_tia_config(hw, gain, w, nmos_L_um, vb)
     tia = build_tia(cfg, device=device)
-    curve = sweep_transfer(tia, i_min_uA=0.0, i_max_uA=i_max_uA, n_points=n_points, device=device)
+    curve = sweep_transfer(
+        tia, v_ref__V=hw.v_ref__V, i_min_uA=0.0, i_max_uA=i_max_uA, n_points=n_points, device=device
+    )
     fit = fit_to_workload(curve, mean_uA=workload.mean__uA, std_uA=workload.std__uA)
     target_v = hw.target_v_max__V
     i_lo = max(0.0, workload.mean__uA - 3 * workload.std__uA)

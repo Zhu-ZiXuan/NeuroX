@@ -32,7 +32,7 @@ The conversion performs $b$ comparisons total — one free MSB comparison (no ca
 
 The operating point $(\mathrm{mode}, b)$ is per call:
 
-- $\mathrm{mode}$ selects the reference-voltage entry $V_{\mathrm{ref}}$ from the strictly-decreasing `v_refs__V` tuple (entry 0 is the maximum, the calibration anchor).
+- $\mathrm{mode}$ selects the reference-voltage tap $V_{\mathrm{ref}}$ from the injected reference tensor $\{V_{\mathrm{ref},m}\}$ — the ADC does not store the ladder. The owning xbar sources the taps from a [voltage_reference](../voltage_reference.md), samples them once per read, and passes the whole `(*inst, num_refs)` tensor into `convert`; the ADC indexes it by $\mathrm{mode}$. The taps are conventionally strictly decreasing (entry 0 the maximum, the calibration anchor), but that ordering is a property of the reference source, not enforced by the ADC.
 - $b \le b_{\max}$ sets the active SAR depth; for $b < b_{\max}$ the loop stops early after $b$ comparisons, so the unreached smaller caps are not switched. They still sample and charge-divide (contributing to $C_{\mathrm{total}}$ and the step denominator) but add no switching energy.
 
 The consumer rescales the multi-mode result with the single calibrated equivalent rescale factor $s$ (defined in [xbar/base](../../xbar/base.md), value from calibration), not with an in-doc per-mode or per-$b$ scaling account.
@@ -92,7 +92,6 @@ TODO (domain author): the kT/C sampling-noise sigma formula in terms of $k_B$, $
 | Parameter | Meaning | Unit | Source |
 |---|---|---|---|
 | `max_bits` | physical CDAC depth $b_{\max}$ | — | Design |
-| `v_refs__V` | strictly-decreasing reference voltages (entry 0 = anchor) | V | Design |
 | `clk_period__ns` | SAR clock period | ns | Design |
 | `c_unit__fF` | unit-cap capacitance | fF | Design |
 | `cap_mismatch_sigma_relative` | per-cap Pelgrom mismatch sigma | — | Measured |
@@ -102,14 +101,14 @@ TODO (domain author): the kT/C sampling-noise sigma formula in terms of $k_B$, $
 | `e_constant_per_bit__fJ` | per-bit constant energy overhead | fJ | Design |
 | leakage / area | static PPA / spec fields | uW, um^2 | Design |
 
-Per-op latency is not a parameter: it is derived as $(b+1)\cdot$ `clk_period__ns` from the runtime operating point. Provenance terms are defined in [parameter_provenance](../../parameter_provenance.md).
+The reference-voltage ladder is not a parameter of this ADC: the owning xbar sources it from a [voltage_reference](../voltage_reference.md) and injects all taps into `convert` per call (shape `(*inst, num_refs)`), $\mathrm{mode}$ selecting one. Per-op latency is likewise not a parameter: it is derived as $(b+1)\cdot$ `clk_period__ns` from the runtime operating point. Provenance terms are defined in [parameter_provenance](../../parameter_provenance.md).
 
 ## Assumptions, scope & validity
 
 Stated assumptions:
 
 - The differential topology resolves the MSB by free comparison, so no dedicated MSB cap is modelled.
-- The reference voltages are strictly decreasing, with entry 0 the calibration anchor.
+- The injected reference taps are strictly decreasing, with entry 0 the calibration anchor — an ordering the reference source provides, not enforced here.
 - For $b < b_{\max}$ the unreached smaller caps still sample and charge-divide but are not switched, so they contribute no switching energy.
 
 TODO (domain author): the validity range of the merged-capacitor step model (settling, parasitic coupling) and the operating envelope over which calibration is trusted.
@@ -128,7 +127,8 @@ TODO: cite the merged-capacitor-switching SAR topology and its energy model.
 |---|---|---|---|
 | $V^{+}, V^{-}$ | differential input legs | V | `v_pos__V`, `v_neg__V` |
 | $V_{\mathrm{cm}}$ | common-mode third reference, $V_{\mathrm{ref}}/2$ | V | derived |
-| $V_{\mathrm{ref}}$ | selected reference voltage | V | `v_refs__V[mode]` |
+| $\{V_{\mathrm{ref},m}\}$ | injected reference taps (per call) | V | `v_refs__V` |
+| $V_{\mathrm{ref}}$ | selected reference voltage | V | `v_refs__V[..., mode]` |
 | $V_{\mathrm{in}}$ | sampled input on a leg | V | sampled in `convert` |
 | $C_k$ | capacitance of cap $k$ (mismatched after fabricate) | fF | per-leg cap arrays |
 | $C_{\mathrm{total}}$ | total array capacitance, $2^{\,b_{\max}-1}C_{\mathrm{unit}}$ | fF | derived |

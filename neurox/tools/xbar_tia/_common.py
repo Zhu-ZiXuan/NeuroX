@@ -13,12 +13,15 @@ import torch
 
 from neurox.analog.tia import OpAmpTIA, OpAmpTIAConfig, OpAmpTIAPolicy
 from neurox.common import T_ROOM__K
-from neurox.common.load_dump import dataclass_from_file, preset_path
+from neurox.device.nmos import NMOSPolicy
 
 
 def build_tia(config: OpAmpTIAConfig, *, device: torch.device) -> OpAmpTIA:
     """Build a fabricated, nonideality-free :class:`OpAmpTIA` for sweeping."""
-    tia_policy = dataclass_from_file(OpAmpTIAPolicy, preset_path("policy/all_off.toml"), section="tia")
+    tia_policy = OpAmpTIAPolicy(
+        opamp_gain_sigma=False,
+        nmos=NMOSPolicy(A_vt_mismatch=False, A_beta_mismatch=False),
+    )
     tia = OpAmpTIA(
         config=config,
         policy=tia_policy,
@@ -66,15 +69,22 @@ class TransferCurve:
 def sweep_transfer(
     tia: OpAmpTIA,
     *,
+    v_ref__V: float,
     i_min_uA: float,
     i_max_uA: float,
     n_points: int,
     device: torch.device,
 ) -> TransferCurve:
-    """Sweep DC ``I_port`` across ``[i_min_uA, i_max_uA]`` and capture ``v_out``."""
+    """Sweep DC ``I_port`` across ``[i_min_uA, i_max_uA]`` and capture ``v_out``.
+
+    The reference clamp voltage is injected per call into
+    :meth:`OpAmpTIA.snapshot` as a 0-d tensor built from ``v_ref__V``
+    (the design tool's externally-fixed ``[hardware].v_ref__V`` knob).
+    """
     if n_points < 2:
         raise ValueError(f"n_points ({n_points}) must be >= 2")
-    snap = tia.snapshot(shape=(1,), multi_coords=None)
+    v_ref_tensor = torch.tensor(v_ref__V, dtype=torch.float64, device=device)
+    snap = tia.snapshot(v_ref__V=v_ref_tensor, shape=(1,), multi_coords=None)
     i_grid = torch.linspace(i_min_uA, i_max_uA, n_points, dtype=torch.float64, device=device)
     v_out_list: list[float] = []
     for i_val in i_grid:

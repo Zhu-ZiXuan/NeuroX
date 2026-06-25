@@ -1,8 +1,8 @@
-# Analog Mux
+# Voltage Mux
 
 ## Summary / role
 
-The `AnalogMux` is a leaf analog transport block in the readout chain: it moves a grouped differential signal from one stage to the next, applying a per-leg transport gain (a matched gain with an optional static inter-leg mismatch) and optionally injecting transport noise. It only transports and tallies the transport energy. It is a single concrete block a consuming circuit composes directly, not a polymorphic family.
+The `VoltageMux` is a leaf differential voltage-transport block in the readout chain: it moves a grouped differential signal from one stage to the next, applying a per-leg transport gain (a matched gain with an optional static inter-leg mismatch) and optionally injecting transport noise. It only transports and tallies the transport energy. It is a single concrete block a consuming circuit composes directly, not a polymorphic family.
 
 ## Physical model
 
@@ -109,7 +109,7 @@ TODO (domain author): replace with the specific edition/section citations and a 
 
 ---
 
-- **Internals**: [analog_mux internals](../../internals/analog/analog_mux.md)
+- **Internals**: [voltage_mux internals](../../internals/analog/voltage_mux.md)
 - **Validation**: TODO - validation evidence not yet written
-- **Configuration**: `AnalogMuxConfig` (see `api`)
+- **Configuration**: `VoltageMuxConfig` (see `api`)
 - **Decisions**: N/A — no ADR governs this module.

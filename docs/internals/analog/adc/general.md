@@ -7,7 +7,8 @@
 ## Design decisions
 
 - **Zero code cached at `__init__`.** The bit width is fixed by the boundary list (single-mode), so the topology-specific midpoint `self._zero_code = n_codes // 2` is a static instance attribute committed once, not a per-call computation. This is the opposite of the multi-mode SAR variants, which must compute the zero code per call because `bits` is a runtime parameter.
-- **No fabricated mismatch.** All three noise sources (sampling, comparator, drive-thermal) are dynamic and applied inside `convert`; `_sample_fabricate_mismatch` is the inherited no-op and `fabricate()` only resolves the profiler-inst tally already locked at `__init__`.
+- **No fabricated mismatch.** Both noise sources (sampling, comparator) are dynamic and applied inside `convert`; `_sample_fabricate_mismatch` is the inherited no-op and `fabricate()` only resolves the profiler-inst tally already locked at `__init__`.
+- **Reference-free `convert`, with `v_refs__V` deled for protocol symmetry.** `GeneralADC.convert` takes the family `v_refs__V` keyword to match the ADC base signature but discards it (`del v_refs__V`), exactly as `signed_range` `del`s `adc_bits` — its floor-bucketize is reference-free, so no tap participates in the conversion.
 
 ## Contracts & invariants
 
@@ -21,7 +22,7 @@ N/A - a single floor_bucketize per call, off the memory- and compile-critical pa
 
 ## Gotchas
 
-- **`drive_value` is ignored when a separate driver clamps.** The config field exists for standalone use; in the readout chain the clamp voltage comes from the boundary driver block, so the field is inert there - do not read it as the operating clamp.
+- N/A.
 
 ## Known limitations
 

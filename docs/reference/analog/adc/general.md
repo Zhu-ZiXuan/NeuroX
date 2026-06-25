@@ -8,7 +8,7 @@ Note: `GeneralADC` is a historical / placeholder ADC. Its behavioural-comparator
 
 ## Physical model
 
-The ADC is modelled as a bank of comparators against a sorted threshold list `boundaries` (in input units - uA for current-mode, V for voltage-mode). The differential input is compared against every threshold and the index of the bucket it falls into is the raw code. The model exposes three optional additive Gaussian noise stages - input-referred sampling noise, a single input-referred comparator-noise term on the signal, and drive-thermal noise.
+The ADC is modelled as a bank of comparators against a sorted threshold list `boundaries` (in input units - uA for current-mode, V for voltage-mode). The differential input is compared against every threshold and the index of the bucket it falls into is the raw code. The model exposes two optional additive Gaussian noise stages - input-referred sampling noise and a single input-referred comparator-noise term on the signal. The bucketize is reference-free: `GeneralADC` accepts the family `v_refs__V` injection for protocol symmetry but ignores it.
 
 ## Governing equations
 
@@ -30,7 +30,6 @@ N/A - the conversion is a single floor-bucketize evaluation per call; no iterati
 |---|---|---|---|---|
 | sampling noise | input-referred sample jitter | additive zero-mean Gaussian on the input | `sampling_noise__V` | `sampling_noise` |
 | comparator noise | comparator (thermal/decision) noise | single additive zero-mean Gaussian on the signal | `comparator_noise__V` | `comparator_noise` |
-| drive thermal | thermal noise at drive time | additive zero-mean Gaussian | `drive_thermal__V` | `drive_thermal` |
 | quantization | intrinsic floor-bucketize | deterministic floor against ordered boundaries | `boundaries` | — |
 
 All sources are dynamic (sampled per convert); `GeneralADC` carries no static mismatch.
@@ -42,10 +41,8 @@ TODO (domain author): physical derivation and citation for each noise sigma.
 | Parameter | Meaning | Unit | Source |
 |---|---|---|---|
 | `boundaries` | sorted comparator thresholds (input units) | uA or V | Calibrated (physical data) |
-| `drive_value` | clamp reference voltage (ignored when a separate driver clamps) | V | Design |
 | `sampling_noise__V` | input-referred sampling-noise sigma | V | Measured |
 | `comparator_noise__V` | input-referred comparator-noise sigma | V | Measured |
-| `drive_thermal__V` | drive-thermal noise sigma | V | Measured |
 | leakage / area / latency | static PPA / spec fields | uW, um^2, ns | Design |
 
 Provenance terms are defined in [parameter_provenance](../../parameter_provenance.md). The comparator thresholds are calibrated against physical data via the ADC calibration procedure ([calibration guide](../../../guides/calibration/README.md)).

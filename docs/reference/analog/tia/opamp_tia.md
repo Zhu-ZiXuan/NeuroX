@@ -20,7 +20,7 @@ The clamp transfer function maps the BL port current to the clamp voltage,
 
 $$V_{\mathrm{BL,CL}} = \operatorname{TIA}(I_{\mathrm{BL,port}}),$$
 
-set by the op-amp holding its input near $V_{\mathrm{ref}}$ through the NMOS pseudo-resistor feedback, with the finite-gain virtual-ground stiffness determining the small-signal sensitivity $\partial V_{\mathrm{BL,CL}}/\partial I_{\mathrm{BL,port}}$ (MOhm) the solver consumes. The reference voltage follows the family contract, $V_{\mathrm{ref}} = $ `v_ref__V`.
+set by the op-amp holding its input near $V_{\mathrm{ref}}$ through the NMOS pseudo-resistor feedback, with the finite-gain virtual-ground stiffness determining the small-signal sensitivity $\partial V_{\mathrm{BL,CL}}/\partial I_{\mathrm{BL,port}}$ (MOhm) the solver consumes. The reference voltage follows the family contract: it is injected per call into `snapshot` and carried in the snap (`snap.v_ref__V`), and the solve reads it from there.
 
 The op-amp output applies a soft output-rail saturation to the linear drive $x = A\,(V_{\mathrm{ref}} - V_{\mathrm{BL,CL}})$. As a modeling approximation (see Physical model and Assumptions, not a derived transistor-level law), the saturation is taken as the single-parameter $\tanh$ soft-clip
 
@@ -51,7 +51,6 @@ TODO (domain author): the gain-mismatch sigma's physical derivation and citation
 
 | Parameter | Meaning | Unit | Source |
 |---|---|---|---|
-| `v_ref__V` | virtual-ground reference (family field) | V | Design |
 | `v_dd__V` | supply rail; sets the soft-clip centre/half-span $V_{\mathrm{dd}}/2$ | V | Design |
 | `output_saturation_softness__V` | $\tanh$ output-rail softness scale $s$ | V | Design |
 | `opamp_gain` | nominal open-loop gain $A$ | — | Design |
@@ -62,7 +61,7 @@ TODO (domain author): the gain-mismatch sigma's physical derivation and citation
 | owned `NMOSConfig` | the feedback NMOS device config | — | (per device) |
 | leakage / area / latency | static PPA / spec fields | uW, um^2, ns | Design |
 
-The owned NMOS device's own parameters are specified in [device](../../device/README.md). Provenance terms are defined in [parameter_provenance](../../parameter_provenance.md).
+The virtual-ground reference $V_{\mathrm{ref}}$ is not a config parameter — it is injected per call into `snapshot` as a `Tensor` and carried in `OpAmpTIASnap.v_ref__V` (see the [voltage_reference](../voltage_reference.md) source); the solve reads it from the snap at every site (warm-start base, zero-current seed, the two `v_out_lin` evaluations). The owned NMOS device's own parameters are specified in [device](../../device/README.md). Provenance terms are defined in [parameter_provenance](../../parameter_provenance.md).
 
 ## Assumptions, scope & validity
 
@@ -87,7 +86,7 @@ TODO: cite the op-amp transimpedance clamp and the NMOS pseudo-resistor feedback
 | Symbol | Meaning | Unit | Code field |
 |---|---|---|---|
 | $V_{\mathrm{BL,CL}}$ | BL clamp voltage | V | `v_bl_clamp` |
-| $V_{\mathrm{ref}}$ | virtual-ground reference | V | `v_ref__V` |
+| $V_{\mathrm{ref}}$ | virtual-ground reference (injected per call, carried in the snap) | V | `snapshot(v_ref__V=...)`, `OpAmpTIASnap.v_ref__V` |
 | $I_{\mathrm{BL,port}}$ | BL boundary port current | uA | derived from node voltages |
 | $V_{\mathrm{out}}$ | soft-saturated op-amp output | V | `v_out__V` |
 | $V_{\mathrm{dd}}$ | supply rail (soft-clip centre/half-span $V_{\mathrm{dd}}/2$) | V | `v_dd__V` |

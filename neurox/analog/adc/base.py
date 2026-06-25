@@ -21,7 +21,9 @@ class AdcOperationPoint:
     """ADC operating point — the runtime selection passed per call.
 
     Attributes:
-        adc_mode: Operating-point index, ``[0, mode_num)``.
+        adc_mode: Operating-point index selecting a reference tap from
+            the injected ``v_refs__V`` — valid range
+            ``[0, v_refs__V.shape[-1])``.
         adc_bits: Active bit width, ``1 ≤ adc_bits ≤ max_bits``.
     """
 
@@ -110,10 +112,9 @@ class ADC(CircuitBase[ADCConfig], RegistryMixin[type["ADCConfig"], "ADC"]):
     """Abstract base class for ADC implementations.
 
     Per-op latency is leaf-defined and emitted via ``_log_latency`` in
-    each concrete ``convert`` body — fixed-latency impls (e.g.
-    :class:`GeneralADC`) read ``self.config.latency_per_op__ns``;
-    parametric impls (e.g. :class:`McsSarAdc`) derive it from the
-    runtime ``adc_operation_point``. There is no family-base latency
+    each concrete ``convert`` body — fixed-latency impls read
+    ``self.config.latency_per_op__ns``; parametric impls derive it from
+    the runtime ``adc_operation_point``. There is no family-base latency
     contract.
     """
 
@@ -164,13 +165,6 @@ class ADC(CircuitBase[ADCConfig], RegistryMixin[type["ADCConfig"], "ADC"]):
 
     @property
     @abstractmethod
-    def mode_num(self) -> int:
-        """Number of operating points the ADC supports — valid ``adc_mode``
-        values lie in ``[0, mode_num)``."""
-        raise NotImplementedError
-
-    @property
-    @abstractmethod
     def max_bits(self) -> int:
         """Physical bit width — the maximum ``adc_bits`` value."""
         raise NotImplementedError
@@ -181,6 +175,7 @@ class ADC(CircuitBase[ADCConfig], RegistryMixin[type["ADCConfig"], "ADC"]):
         v_pos__V: Tensor,
         v_neg__V: Tensor,
         *,
+        v_refs__V: Tensor,
         adc_operation_point: AdcOperationPoint,
     ) -> Tensor:
         """Digitise a differential analog voltage into a signed integer code.
@@ -190,13 +185,18 @@ class ADC(CircuitBase[ADCConfig], RegistryMixin[type["ADCConfig"], "ADC"]):
                 arbitrary.
             v_neg__V: Negative-side analog input voltage [V].  Same
                 shape as ``v_pos__V``.
+            v_refs__V: All injected reference taps, shape
+                ``(*inst, num_refs)``; the impl selects one with
+                ``adc_operation_point.adc_mode``. Reference-agnostic:
+                supplied per call by the caller from its
+                :class:`~neurox.analog.VoltageReference`.
             adc_operation_point: Runtime operating point.
 
         Returns:
             Signed integer code tensor in
             ``[-2**(adc_bits-1), 2**(adc_bits-1) - 1]``, same shape as
-            ``v_pos__V``. The signed convention aligns with
-            ``IdealXbar.vec_mat_mul`` and the consumer model
+            ``v_pos__V``. The signed convention aligns with the
+            consumer's ideal vector-matrix product and the consumer model
             ``M_ideal ≈ code · rescale_factor`` (where ``rescale_factor``
             is strictly positive). Each concrete subclass is responsible
             for converting from its native internal representation to the
@@ -209,12 +209,12 @@ class ADC(CircuitBase[ADCConfig], RegistryMixin[type["ADCConfig"], "ADC"]):
     def signed_range(self, adc_bits: int) -> tuple[int, int]:
         """Return ``(min_code, max_code)`` the ADC can emit at ``adc_bits``.
 
-        For ADCs whose code count matches ``2 ** adc_bits`` exactly
-        (e.g. ``McsSarAdc``), this is the canonical
+        For ADCs whose code count matches ``2 ** adc_bits`` exactly,
+        this is the canonical
         ``(-2 ** (adc_bits - 1), 2 ** (adc_bits - 1) - 1)``. For ADCs
-        whose code count is **not** a power of two (e.g. ``GeneralADC``
-        with an arbitrary boundary list), the returned bounds reflect
-        the actual realisable signed code range — saturation tests must
-        consult this surface rather than assume the SAR endpoints.
+        whose code count is **not** a power of two (an arbitrary
+        boundary list), the returned bounds reflect the actual
+        realisable signed code range — saturation tests must consult
+        this surface rather than assume the canonical endpoints.
         """
         raise NotImplementedError

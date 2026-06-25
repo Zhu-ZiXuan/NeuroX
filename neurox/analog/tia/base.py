@@ -21,11 +21,10 @@ from neurox.common.mixin import RegistryMixin
 class TIAConfig(CircuitConfig):
     """Base configuration for TIA implementations.
 
-    Attributes:
-        v_ref__V: Reference clamp voltage [V].
+    The reference clamp voltage is not a config field — it is injected
+    per call into :meth:`TIA.snapshot` as a ``Tensor`` and stored in the
+    snap.
     """
-
-    v_ref__V: float
 
     def __post_init__(self) -> None:
         self.validate()
@@ -98,17 +97,20 @@ class TIA(
             T__K=T__K,
         )
 
-    @property
     @abstractmethod
-    def v_ref__V(self) -> float:
-        """Reference voltage [V]."""
-        raise NotImplementedError
-
-    @abstractmethod
-    def snapshot(self, *, shape: tuple[int, ...], multi_coords: tuple[Tensor, ...] | None) -> SnapT:
+    def snapshot(
+        self,
+        *,
+        v_ref__V: Tensor,
+        shape: tuple[int, ...],
+        multi_coords: tuple[Tensor, ...] | None,
+    ) -> SnapT:
         """Sample one per-call runtime snap over ``shape``.
 
         Args:
+            v_ref__V: Injected reference clamp voltage [V]. A scalar or
+                instance-shaped tensor that broadcasts onto ``shape``;
+                stored in the returned snap.
             shape: Per-call broadcast shape; the snap fills tensor
                 fields at this shape.
             multi_coords: Advanced-index tuple selecting a chunk's

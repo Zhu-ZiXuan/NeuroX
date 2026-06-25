@@ -2,7 +2,7 @@
 
 ## Summary
 
-The ADC family: the abstract `ADC` (`adc/base.py`) carrying the registry, `from_config`, the abstract `convert` / `mode_num` / `max_bits` / `signed_range` surface, and the multi-mode support types (`adc/_multimode.py`). Concrete topologies live alongside ([general](general.md), [mcs_sar](mcs_sar.md), [sar_mono](sar_mono.md)). Spec: [reference/analog/adc/base](../../../reference/analog/adc/base.md).
+The ADC family: the abstract `ADC` (`adc/base.py`) carrying the registry, `from_config`, the abstract `convert` / `max_bits` / `signed_range` surface, and the multi-mode support types (`adc/_multimode.py`). Concrete topologies live alongside ([general](general.md), [mcs_sar](mcs_sar.md), [sar_mono](sar_mono.md)). Spec: [reference/analog/adc/base](../../../reference/analog/adc/base.md).
 
 ## Design decisions
 
@@ -15,7 +15,7 @@ The ADC family: the abstract `ADC` (`adc/base.py`) carrying the registry, `from_
 ## Contracts & invariants
 
 - **Family init signature.** `__init__(*, config, policy, name, inst_shape, dtype, T__K)` - all six keyword-only and non-`None`. The base stores `self._inst_shape`, registers profiler bookkeeping, and accepts/discards `config / policy / dtype / T__K` so the dispatcher type-checks; concrete subclasses store the rest.
-- **`convert(v_pos__V, v_neg__V, *, adc_operation_point)`** takes the operating point as a per-call `AdcOperationPoint` (the frozen `(adc_mode, adc_bits)` pair). Single-mode impls validate `adc_mode == 0` and `adc_bits == max_bits`; multi-mode impls accept any pair inside their envelope.
+- **`convert(v_pos__V, v_neg__V, *, v_refs__V, adc_operation_point)`** takes a per-call `v_refs__V: Tensor` (all injected reference taps, shape `(*inst, num_refs)`) plus the operating point as a per-call `AdcOperationPoint` (the frozen `(adc_mode, adc_bits)` pair). The ADC self-holds no reference; `adc_mode` indexes the injected tensor's trailing axis, so the legal mode bound is `0 <= adc_mode < v_refs__V.shape[-1]` (checked against the tensor, not a config field). Single-mode impls validate `adc_mode == 0` and `adc_bits == max_bits` and may ignore `v_refs__V`; multi-mode impls accept any pair inside their envelope.
 - **Signed-code output, with the clamp before the shift.** Every `convert` clamps the raw bucket to `[0, n_codes-1]` *before* subtracting the topology zero code `z`, landing in `[-z, n_codes-1-z]`; the clamp must precede the subtraction because stochastic-rounding jitter (floor_bucketize or SAR LSB jitter) can push the raw bucket out of range and the subtraction would otherwise emit an out-of-range signed code. For the current linear / uniform members `n_codes = 2**adc_bits` and a symmetric zero code gives `[-2**(adc_bits-1), 2**(adc_bits-1)-1]`.
 - **Calibration types.** `ADCMode` is the `(n_bits, n_states, max_signal)` record the multi-mode LUTs use; `AdcOperationPoint` is the per-call selection; `AdcCalibrationRecord` is one `(adc_mode, adc_bits) -> rescale_factor` row. Static PPA (`area_per_inst__um2`, `leakage_per_inst__uW`) comes from `CircuitBase`.
 

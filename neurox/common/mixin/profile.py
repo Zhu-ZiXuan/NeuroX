@@ -67,7 +67,8 @@ class ProfileMixin:
         serial_op_count, device=..., dtype=...)``, where ``per_op_latency__ns``
         is leaf-defined — read from ``self.config.latency_per_op__ns`` for
         fixed-latency leaves, derived from runtime parameters for
-        parametric leaves (e.g. SAR ADC's ``(bits + 1) × clk_period``).
+        parametric leaves (e.g. a per-conversion latency built from a
+        bit count and a clock period).
 
         Args:
             latency__ns: Per-op latency contribution tensor [ns].

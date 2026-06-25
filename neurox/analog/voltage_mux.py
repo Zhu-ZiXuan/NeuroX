@@ -1,7 +1,7 @@
-"""Analog multiplexer — differential voltage-transport behavioural block.
+"""Voltage multiplexer — differential voltage-transport behavioural block.
 
 See also:
-    docs/reference/analog/analog_mux.md
+    docs/reference/analog/voltage_mux.md
 """
 
 from dataclasses import dataclass
@@ -14,8 +14,8 @@ from neurox.common.nonideality import apply_gaussian
 
 
 @dataclass(frozen=True, kw_only=True)
-class AnalogMuxConfig(CircuitConfig):
-    """Immutable configuration for :class:`AnalogMux`.
+class VoltageMuxConfig(CircuitConfig):
+    """Immutable configuration for :class:`VoltageMux`.
 
     Attributes:
         energy_per_access__fJ: Per-access dynamic energy [fJ].
@@ -70,8 +70,8 @@ class AnalogMuxConfig(CircuitConfig):
 
 
 @dataclass(frozen=True)
-class AnalogMuxPolicy:
-    """Per-source toggles selecting which AnalogMux nonidealities are active.
+class VoltageMuxPolicy:
+    """Per-source toggles selecting which VoltageMux nonidealities are active.
 
     Attributes:
         mux_gain_mismatch: Apply ``mux_gain_mismatch_sigma_relative`` at fabricate time.
@@ -84,7 +84,7 @@ class AnalogMuxPolicy:
     mux_noise_dm: bool
 
 
-class AnalogMux(CircuitBase[AnalogMuxConfig]):
+class VoltageMux(CircuitBase[VoltageMuxConfig]):
     """Differential voltage-transport block — gain + CM/DM noise + access energy.
 
     Args:
@@ -102,8 +102,8 @@ class AnalogMux(CircuitBase[AnalogMuxConfig]):
     def __init__(
         self,
         *,
-        config: AnalogMuxConfig,
-        policy: AnalogMuxPolicy,
+        config: VoltageMuxConfig,
+        policy: VoltageMuxPolicy,
         name: str,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
@@ -158,7 +158,7 @@ class AnalogMux(CircuitBase[AnalogMuxConfig]):
         v_pos_muxed__V = v_pos_muxed__V + n_dm__V
         v_neg_muxed__V = v_neg_muxed__V - n_dm__V
 
-        # AnalogMux has no extra parallel trailing beyond inst_shape;
+        # VoltageMux has no extra parallel trailing beyond inst_shape;
         # serial count via the position-invariant numel rule.
         serial_op_count = max(1, v_pos__V.numel() // max(self.inst_count, 1))
         dynamic_energy__fJ = torch.full_like(v_pos__V, self.config.energy_per_access__fJ)

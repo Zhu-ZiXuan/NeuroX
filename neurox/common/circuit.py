@@ -28,7 +28,7 @@ class CircuitConfig(ValidateMixin):
     ``_log_dynamic_energy(dynamic_energy__fJ)`` when the leaf also
     emits dynamic energy) — fixed-latency leaves declare
     ``latency_per_op__ns`` on their own config; parametric leaves
-    (e.g. SAR ADC) derive it from runtime parameters. Leaves without
+    derive it from runtime parameters. Leaves without
     a dynamic model emit nothing and carry no ``latency_per_op__ns``.
 
     Attributes:
@@ -57,8 +57,8 @@ class CircuitBase(FabricateMixin, ProfileMixin, nn.Module, Generic[ConfigT]):
       - typed static-PPA surface backed by ``self.config``
 
     Subclasses parameterise the config type via the generic argument
-    (e.g. ``Driver(CircuitBase[DriverConfig])``); mypy narrows
-    ``self.config`` accordingly so ``self.config.drive_value`` etc. type
+    (e.g. ``VoltageDriver(CircuitBase[VoltageDriverConfig])``); mypy narrows
+    ``self.config`` accordingly so ``self.config.r_out__MOhm`` etc. type
     correctly without per-subclass forward declaration.
 
     Per-instance static accessors (area / leakage) read from

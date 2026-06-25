@@ -27,14 +27,11 @@ class GeneralADCConfig(ADCConfig):
         boundaries: Sorted comparator thresholds in input units
             (excluding the implicit ±∞ outer bounds). ``N`` thresholds
             define ``N + 1`` output codes ``[0, N]``.
-        drive_value: BL-clamp reference voltage [V].
         input_transform: ``"linear"`` (identity) or ``"log2"``.
         sampling_noise__V: Input-referred Gaussian sampling-stage
             noise sigma [V].
         comparator_noise__V: Per-comparator threshold offset noise
             sigma [V].
-        drive_thermal__V: Gaussian thermal noise sigma on the drive
-            output [V].
         energy_per_op__fJ: Dynamic energy per conversion.
         latency_per_op__ns: Per-conversion latency [ns]; multiplied by
             the runtime serial-op count at logging time.
@@ -49,11 +46,7 @@ class GeneralADCConfig(ADCConfig):
     # --- Comparator noise ---
     comparator_noise__V: float
 
-    # --- Drive thermal noise ---
-    drive_thermal__V: float
-
-    # --- Drive reference + input transform ---
-    drive_value: float
+    # --- Input transform ---
     input_transform: Literal["linear", "log2"]
 
     # --- Energy / latency ---
@@ -73,7 +66,6 @@ class GeneralADCConfig(ADCConfig):
     def validate_noise(self) -> None:
         self._require_nonneg(self.sampling_noise__V, "sampling_noise__V")
         self._require_nonneg(self.comparator_noise__V, "comparator_noise__V")
-        self._require_nonneg(self.drive_thermal__V, "drive_thermal__V")
 
     def validate_ppa(self) -> None:
         super().validate_ppa()
@@ -88,12 +80,10 @@ class GeneralADCPolicy(ADCPolicy):
     Attributes:
         sampling_noise: Apply ``sampling_noise__V`` at convert time.
         comparator_noise: Apply ``comparator_noise__V`` at convert time.
-        drive_thermal: Apply ``drive_thermal__V`` at drive time.
     """
 
     sampling_noise: bool
     comparator_noise: bool
-    drive_thermal: bool
 
 
 @ADC.register_key(GeneralADCConfig)
@@ -105,7 +95,6 @@ class GeneralADC(ADC):
 
     config: GeneralADCConfig
     boundaries: Tensor
-    drive_value: Tensor
 
     def __init__(
         self,
@@ -134,8 +123,6 @@ class GeneralADC(ADC):
             raise ValueError("GeneralADCConfig.boundaries must contain at least one threshold")
         self.register_buffer("boundaries", boundaries_t, persistent=False)
 
-        self.register_buffer("drive_value", torch.tensor(config.drive_value, dtype=dtype), persistent=False)
-
         n_codes = boundaries_t.numel() + 1
         self._n_bits = max(math.ceil(math.log2(n_codes)), 1)
         self._n_codes = n_codes
@@ -151,11 +138,6 @@ class GeneralADC(ADC):
             self._lsb_estimate = float(boundaries_t.item())
 
     # --- ADC interface ---
-
-    @property
-    def mode_num(self) -> int:
-        """Single-mode ADC — only ``adc_mode = 0`` is valid."""
-        return 1
 
     @property
     def max_bits(self) -> int:
@@ -181,6 +163,7 @@ class GeneralADC(ADC):
         v_pos__V: Tensor,
         v_neg__V: Tensor,
         *,
+        v_refs__V: Tensor,
         adc_operation_point: AdcOperationPoint,
     ) -> Tensor:
         """Quantise a differential analog voltage to a signed code (floor-bucketize + zero shift).
@@ -188,6 +171,8 @@ class GeneralADC(ADC):
         Args:
             v_pos__V: Positive-side analog input voltage [V].
             v_neg__V: Negative-side analog input voltage [V], same shape.
+            v_refs__V: Accepted for ADC-protocol symmetry and ignored —
+                GeneralADC's bucketize boundaries are reference-free.
             adc_operation_point: Runtime operating point. ``adc_operation_point.adc_mode`` must be ``0``;
                 ``adc_operation_point.adc_bits`` must equal the boundary-implied bit width.
 
@@ -198,6 +183,7 @@ class GeneralADC(ADC):
             by the topology-specific zero code (``n_codes // 2``, cached at
             construction) to align with the signed-output convention.
         """
+        del v_refs__V  # reference-free; accepted for protocol symmetry
         self._validate_runtime_args(adc_operation_point)
         signal = apply_gaussian(
             v_pos__V - v_neg__V,
@@ -240,24 +226,6 @@ class GeneralADC(ADC):
         # -1 or n_codes, which would skew the signed output if not bounded.
         code = code.clamp(min=0, max=self._n_codes - 1)
         return code - self._zero_code
-
-    # --- drive() shim ---
-
-    def drive(self, shape: tuple[int, ...]) -> Tensor:
-        """BL-clamp reference voltage broadcast.
-
-        Args:
-            shape: Output shape.
-
-        Returns:
-            ``drive_value`` broadcast to ``shape``, with optional Gaussian
-            thermal noise.
-        """
-        return apply_gaussian(
-            self.drive_value.expand(shape),
-            self.config.drive_thermal__V,
-            enabled=self.policy.drive_thermal,
-        )
 
     # --- shared helpers ---
 

@@ -76,10 +76,6 @@ class OpAmpTIAConfig(TIAConfig):
     def validate_pseudo_nmos(self) -> None:
         self._require_pos(self.pseudo_nmos_W__um, "pseudo_nmos_W__um")
         self._require_pos(self.pseudo_nmos_L__um, "pseudo_nmos_L__um")
-        if not (self.v_dd__V > self.v_ref__V):
-            raise ValueError(f"require: v_dd__V ({self.v_dd__V}) > v_ref__V ({self.v_ref__V})")
-        if not (self.v_nmos_bias__V > self.v_ref__V):
-            raise ValueError(f"require: v_nmos_bias__V ({self.v_nmos_bias__V}) > v_ref__V ({self.v_ref__V})")
 
     def validate_solver(self) -> None:
         self._require_pos(self.n_newton, "n_newton")
@@ -125,10 +121,13 @@ class OpAmpTIASnap(TIASnap):
     """Per-call OpAmpTIA snap.
 
     Attributes:
+        v_ref__V: Injected reference clamp voltage [V], broadcast to the
+            per-call shape.
         opamp_gain: Sampled per-instance open-loop gain (unit-less).
         nmos_snap: Pseudo-resistor NMOS snap.
     """
 
+    v_ref__V: Tensor
     opamp_gain: Tensor
     nmos_snap: NMOSSnap
 
@@ -205,13 +204,6 @@ class OpAmpTIA(TIA[OpAmpTIASnap]):
             persistent=False,
         )
 
-    # --- Reference voltage accessor ---
-
-    @property
-    def v_ref__V(self) -> float:
-        """Ideal reference clamp voltage [V]."""
-        return self.config.v_ref__V
-
     # --- fabricate ---
 
     def _sample_fabricate_mismatch(self) -> None:
@@ -227,12 +219,16 @@ class OpAmpTIA(TIA[OpAmpTIASnap]):
     def snapshot(
         self,
         *,
+        v_ref__V: Tensor,
         shape: tuple[int, ...],
         multi_coords: tuple[Tensor, ...] | None,
     ) -> OpAmpTIASnap:
         """Sample one per-call runtime snap over ``shape``.
 
         Args:
+            v_ref__V: Injected reference clamp voltage [V]. A scalar or
+                instance-shaped tensor that broadcasts onto ``shape``;
+                stored in the returned snap.
             shape: Per-call broadcast shape; the snap fills tensor
                 fields at this shape.
             multi_coords: Advanced-index tuple selecting a chunk's
@@ -242,10 +238,12 @@ class OpAmpTIA(TIA[OpAmpTIASnap]):
         Returns:
             Per-call snap of the fabricated state.
         """
+        v_view = v_ref__V.expand(shape) if shape else v_ref__V
+        v = v_view if multi_coords is None else v_view[multi_coords]
         gain_view = self.opamp_gain.expand(shape) if shape else self.opamp_gain
         gain = gain_view if multi_coords is None else gain_view[multi_coords]
         nmos_snap = self.nmos.snapshot(shape=shape, multi_coords=multi_coords)
-        return OpAmpTIASnap(opamp_gain=gain, nmos_snap=nmos_snap)
+        return OpAmpTIASnap(v_ref__V=v, opamp_gain=gain, nmos_snap=nmos_snap)
 
     # --- forward path ---
 
@@ -286,7 +284,7 @@ class OpAmpTIA(TIA[OpAmpTIASnap]):
             small-signal sensitivities ``∂v_clamp/∂i_port`` and
             ``∂v_out/∂i_port`` ([V/uA] = [MOhm]).
         """
-        v_ref = self.config.v_ref__V
+        v_ref = snap.v_ref__V
         v_nmos_bias = self.config.v_nmos_bias__V
         v_dd = self.config.v_dd__V
 

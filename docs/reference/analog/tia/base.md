@@ -2,11 +2,11 @@
 
 ## Summary / role
 
-Every concrete TIA in the family is the BL clamp-driver: it clamps a bit-line boundary at a virtual-ground reference and absorbs the boundary port current, returning the clamp voltage and its small-signal sensitivity $\partial V_{\mathrm{clamp}}/\partial I_{\mathrm{port}}$ for a current-domain boundary solve. It is one of the two boundary actors a consuming operating-point solve binds, the counterpart of the SL clamp-driver [driver](../driver.md). This document specifies the shared family contract; the concrete topology is in [opamp_tia](opamp_tia.md).
+Every concrete TIA in the family is the BL clamp-driver: it clamps a bit-line boundary at a virtual-ground reference and absorbs the boundary port current, returning the clamp voltage and its small-signal sensitivity $\partial V_{\mathrm{clamp}}/\partial I_{\mathrm{port}}$ for a current-domain boundary solve. It is one of the two boundary actors a consuming operating-point solve binds, the counterpart of the SL clamp-driver [voltage_driver](../voltage_driver.md). This document specifies the shared family contract; each concrete topology is in its own document (see the [TIA family](README.md) index).
 
 ## Physical model
 
-A TIA holds its input node near a fixed reference voltage by feedback while converting the current it sinks into a clamp voltage. Unlike the ideal [driver](../driver.md) (a zero-output-impedance clamp-driver), a TIA closes a feedback loop on a virtual-ground reference, so its clamp voltage depends on the port current through a finite, configuration-dependent transfer function. The reference voltage is the family-wide solver-facing constant the abstract layer fixes.
+A TIA holds its input node near a fixed reference voltage by feedback while converting the current it sinks into a clamp voltage. Unlike the [voltage_driver](../voltage_driver.md) (a Thevenin clamp, ideal at zero output impedance), a TIA closes a feedback loop on a virtual-ground reference, so its clamp voltage depends on the port current through a finite, configuration-dependent transfer function. The reference voltage is not a TIA constant: it is injected per call into `snapshot` as a `Tensor` and carried in the snap (the consuming core sources it from a [voltage_reference](../voltage_reference.md)), and the clamp solve reads it from the snap.
 
 ## Governing equations
 
@@ -18,7 +18,7 @@ and the boundary solve additionally consumes the small-signal sensitivity
 
 $$\frac{\partial V_{\mathrm{BL,CL}}}{\partial I_{\mathrm{BL,port}}}$$
 
-(in MOhm), which for an ideal clamp-driver (the infinite-gain, zero-input-impedance limit) would be zero but for a finite-gain TIA is non-zero. A monotone clamp transfer function is necessary but not sufficient for a unique boundary operating point: uniqueness of the coupled fixed point also requires the array-side response to be monotone in a compatible direction, so the monotone clamp composes with the monotone array response to a single intersection (mirroring the SL-side condition in [driver](../driver.md#governing-equations)). The reference voltage $V_{\mathrm{ref}}$ is the virtual-ground level the input is held near; the concrete form of $\operatorname{TIA}(\cdot)$ is topology-specific.
+(in MOhm), which for an ideal clamp-driver (the infinite-gain, zero-input-impedance limit) would be zero but for a finite-gain TIA is non-zero. A monotone clamp transfer function is necessary but not sufficient for a unique boundary operating point: uniqueness of the coupled fixed point also requires the array-side response to be monotone in a compatible direction, so the monotone clamp composes with the monotone array response to a single intersection (mirroring the SL-side condition in [voltage_driver](../voltage_driver.md#governing-equations)). The reference voltage $V_{\mathrm{ref}}$ is the virtual-ground level the input is held near; the concrete form of $\operatorname{TIA}(\cdot)$ is topology-specific.
 
 ## Numerical method
 
@@ -32,10 +32,9 @@ The abstract layer fixes no noise source; each concrete TIA declares its own (e.
 
 | Parameter | Meaning | Unit | Source |
 |---|---|---|---|
-| `v_ref__V` | virtual-ground reference voltage $V_{\mathrm{ref}}$ | V | Design |
 | leakage / area / latency | static PPA / spec fields shared by every topology | uW, um^2, ns | Design |
 
-Concrete TIAs add their own topology parameters (see [opamp_tia](opamp_tia.md)). Provenance terms are defined in [parameter_provenance](../../parameter_provenance.md).
+The virtual-ground reference voltage $V_{\mathrm{ref}}$ is not a config parameter — it is injected per call into `snapshot` as a `Tensor` and carried in the snap (see the [voltage_reference](../voltage_reference.md) source). Concrete TIAs add their own topology parameters (see the [TIA family](README.md) index). Provenance terms are defined in [parameter_provenance](../../parameter_provenance.md).
 
 ## Assumptions, scope & validity
 
@@ -56,7 +55,7 @@ TODO.
 | Symbol | Meaning | Unit | Code field |
 |---|---|---|---|
 | $V_{\mathrm{BL,CL}}$ | BL clamp voltage | V | `v_bl_clamp` |
-| $V_{\mathrm{ref}}$ | virtual-ground reference | V | `v_ref__V` |
+| $V_{\mathrm{ref}}$ | virtual-ground reference (injected per call, carried in the snap) | V | `snapshot(v_ref__V=...)`, `*Snap.v_ref__V` |
 | $I_{\mathrm{BL,port}}$ | BL boundary port current | uA | derived from node voltages |
 
 ---

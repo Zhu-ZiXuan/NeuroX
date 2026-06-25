@@ -34,8 +34,6 @@ class McsSarAdcConfig(ADCConfig):
         max_bits: Physical bit width; active array carries
             ``max_bits - 1`` binary-weighted caps + a dummy cap
             (MSB-free design).
-        v_refs__V: Supported reference voltages [V], strictly
-            decreasing — ``v_refs__V[0]`` is the calibration anchor.
         clk_period__ns: SAR comparator clock period [ns]; latency at
             ``bits`` active bits is ``(bits + 1) · clk_period``.
         c_unit__fF: CDAC unit capacitance [fF].
@@ -54,8 +52,7 @@ class McsSarAdcConfig(ADCConfig):
     # --- Topology ---
     max_bits: int
 
-    # --- References + timing ---
-    v_refs__V: tuple[float, ...]
+    # --- Timing ---
     clk_period__ns: float
 
     # --- CDAC unit ---
@@ -77,7 +74,6 @@ class McsSarAdcConfig(ADCConfig):
     def validate(self) -> None:
         super().validate()
         self.validate_topology()
-        self.validate_refs()
         self.validate_timing()
         self.validate_cdac()
         self.validate_comparator()
@@ -87,12 +83,6 @@ class McsSarAdcConfig(ADCConfig):
     def validate_topology(self) -> None:
         if not (self.max_bits >= 2):
             raise ValueError(f"require: max_bits ({self.max_bits}) >= 2")
-
-    def validate_refs(self) -> None:
-        self._require_min_length(self.v_refs__V, 1, "v_refs__V")
-        for i, v in enumerate(self.v_refs__V):
-            self._require_pos(v, f"v_refs__V[{i}]")
-        self._require_strictly_decreasing(self.v_refs__V, "v_refs__V")
 
     def validate_timing(self) -> None:
         self._require_pos(self.clk_period__ns, "clk_period__ns")
@@ -221,15 +211,6 @@ class McsSarAdc(ADC):
 
     # --- runtime-mode introspection ---
 
-    def available_modes(self) -> tuple[float, ...]:
-        """V_ref values the configured CDAC supports, in index order."""
-        return self.config.v_refs__V
-
-    @property
-    def mode_num(self) -> int:
-        """Number of operating points — one per supported V_ref."""
-        return len(self.config.v_refs__V)
-
     def signed_range(self, adc_bits: int) -> tuple[int, int]:
         """Canonical SAR signed-bit endpoints at ``adc_bits``.
 
@@ -283,6 +264,7 @@ class McsSarAdc(ADC):
         v_pos__V: Tensor,
         v_neg__V: Tensor,
         *,
+        v_refs__V: Tensor,
         adc_operation_point: AdcOperationPoint,
     ) -> Tensor:
         """V_cm-based (MCS) differential SAR conversion.
@@ -290,6 +272,9 @@ class McsSarAdc(ADC):
         Args:
             v_pos__V: Positive-side input voltage.
             v_neg__V: Negative-side input voltage, same shape.
+            v_refs__V: All injected reference taps, shape
+                ``(*inst, num_refs)``; ``adc_operation_point.adc_mode``
+                selects the active V_ref tap.
             adc_operation_point: Runtime operating point. ``adc_operation_point.adc_mode`` selects V_ref;
                 ``adc_operation_point.adc_bits`` sets active resolution.
 
@@ -297,10 +282,13 @@ class McsSarAdc(ADC):
             Code tensor in ``[0, 2 ** adc_operation_point.adc_bits - 1]``.
         """
         self._validate_runtime_args(adc_operation_point)
+        mode = adc_operation_point.adc_mode
+        if not (0 <= mode < v_refs__V.shape[-1]):
+            raise ValueError(f"mode {mode} outside [0, {v_refs__V.shape[-1]})")
         bits = adc_operation_point.adc_bits
 
         config = self.config
-        v_ref__V = config.v_refs__V[adc_operation_point.adc_mode]
+        v_ref__V = v_refs__V[..., mode]
         v_cm__V = 0.5 * v_ref__V
 
         c_p__fF = self.c_p__fF
@@ -343,8 +331,9 @@ class McsSarAdc(ADC):
         # c_diff increments all depend only on these caps + v_ref / v_cm
         # (runtime-input-independent), so they are precomputed here. Keeping
         # only the where / compare / shift inside the loop body shortens the
-        # unrolled inductor graph: readout runs on the macro compiled path,
-        # so a short SAR loop keeps it from bloating that graph.
+        # unrolled inductor graph: conversion runs on the caller's
+        # compiled path, so a short SAR loop keeps it from bloating that
+        # graph.
         cap_lo = config.max_bits - bits + 1
         c_p_used__fF = c_p__fF[..., cap_lo : config.max_bits]
         c_n_used__fF = c_n__fF[..., cap_lo : config.max_bits]
@@ -435,11 +424,13 @@ class McsSarAdc(ADC):
     # --- shared helpers ---
 
     def _validate_runtime_args(self, adc_operation_point: AdcOperationPoint) -> None:
-        """Validate per-call ``adc_operation_point``."""
+        """Validate per-call ``adc_operation_point``.
+
+        The ``adc_mode`` bound depends on the injected ``v_refs__V`` tap
+        count, so it is checked in :meth:`convert`; only the bit-width
+        bound is config-knowable here.
+        """
         config = self.config
         bits = adc_operation_point.adc_bits
-        mode = adc_operation_point.adc_mode
-        if not (0 <= mode < len(config.v_refs__V)):
-            raise ValueError(f"mode {mode} outside [0, {len(config.v_refs__V)})")
         if not (1 <= bits <= config.max_bits):
             raise ValueError(f"bits {bits} outside [1, {config.max_bits}]")

@@ -1,8 +1,8 @@
-# analog_mux — Implementation
+# voltage_mux — Implementation
 
 ## Summary
 
-`AnalogMux` (`analog_mux.py`) is a leaf differential transport block: it moves a grouped signal and tallies transport energy, with optional CM / DM noise applied per call. Spec: [reference/analog/analog_mux](../../reference/analog/analog_mux.md).
+`VoltageMux` (`voltage_mux.py`) is a leaf differential voltage-transport block: it moves a grouped signal and tallies transport energy, with optional CM / DM noise applied per call. Spec: [reference/analog/voltage_mux](../../reference/analog/voltage_mux.md).
 
 ## Design decisions
 
@@ -28,7 +28,7 @@ N/A - transport is a per-call elementwise map off the memory- and compile-critic
 
 ---
 
-- **Reference**: [analog_mux](../../reference/analog/analog_mux.md)
-- **Implementation**: `neurox/analog/analog_mux.py`
+- **Reference**: [voltage_mux](../../reference/analog/voltage_mux.md)
+- **Implementation**: `neurox/analog/voltage_mux.py`
 - **Tests**: TODO - name the guarding test
 - **Decisions**: N/A — no ADR governs this module.

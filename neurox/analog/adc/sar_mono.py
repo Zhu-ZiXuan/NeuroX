@@ -24,8 +24,6 @@ class SarAdcMonoConfig(ADCConfig):
     Attributes:
         max_bits: Physical bit width; active array carries
             ``max_bits - 1`` binary-weighted caps + a dummy cap.
-        v_refs: Supported reference voltages in input units;
-            ``v_refs[0]`` is the calibration anchor.
         clk_period__ns: SAR comparator clock period [ns]; latency at
             ``bits`` active bits is ``(bits + 1) · clk_period``.
         c_unit__fF: CDAC unit capacitance [fF].
@@ -45,8 +43,7 @@ class SarAdcMonoConfig(ADCConfig):
     # --- Topology ---
     max_bits: int
 
-    # --- References + timing ---
-    v_refs: tuple[float, ...]
+    # --- Timing ---
     clk_period__ns: float
 
     # --- CDAC unit ---
@@ -69,7 +66,6 @@ class SarAdcMonoConfig(ADCConfig):
     def validate(self) -> None:
         super().validate()
         self.validate_topology()
-        self.validate_refs()
         self.validate_timing()
         self.validate_cdac()
         self.validate_comparator()
@@ -79,11 +75,6 @@ class SarAdcMonoConfig(ADCConfig):
     def validate_topology(self) -> None:
         if not (self.max_bits >= 2):
             raise ValueError(f"require: max_bits ({self.max_bits}) >= 2")
-
-    def validate_refs(self) -> None:
-        self._require_min_length(self.v_refs, 1, "v_refs")
-        for i, v in enumerate(self.v_refs):
-            self._require_pos(v, f"v_refs[{i}]")
 
     def validate_timing(self) -> None:
         self._require_pos(self.clk_period__ns, "clk_period__ns")
@@ -191,15 +182,6 @@ class SarAdcMono(ADC):
 
     # --- runtime-mode introspection ---
 
-    def available_modes(self) -> tuple[float, ...]:
-        """V_ref values the configured CDAC supports, in index order."""
-        return self.config.v_refs
-
-    @property
-    def mode_num(self) -> int:
-        """Number of operating points — one per supported V_ref."""
-        return len(self.config.v_refs)
-
     @property
     def max_bits(self) -> int:
         """Physical CDAC bit width — the maximum ``adc_bits`` value."""
@@ -252,18 +234,22 @@ class SarAdcMono(ADC):
         v_pos__V: Tensor,
         v_neg__V: Tensor,
         *,
+        v_refs__V: Tensor,
         adc_operation_point: AdcOperationPoint,
     ) -> Tensor:
         """Differential monotonic SAR conversion — not yet implemented."""
-        del v_pos__V, v_neg__V, adc_operation_point
+        del v_pos__V, v_neg__V, v_refs__V, adc_operation_point
         raise NotImplementedError("Differential monotonic SAR is not yet implemented; use McsSarAdc.")
 
     # --- shared helpers ---
 
     def _validate_runtime_args(self, adc_operation_point: AdcOperationPoint) -> None:
-        """Validate per-call ``adc_operation_point``."""
+        """Validate per-call ``adc_operation_point``.
+
+        The ``adc_mode`` bound depends on the injected ``v_refs__V`` tap
+        count, so it is checked in :meth:`convert`; only the bit-width
+        bound is config-knowable here.
+        """
         config = self.config
-        if not (0 <= adc_operation_point.adc_mode < len(config.v_refs)):
-            raise ValueError(f"mode {adc_operation_point.adc_mode} outside [0, {len(config.v_refs)})")
         if not (1 <= adc_operation_point.adc_bits <= config.max_bits):
             raise ValueError(f"bits {adc_operation_point.adc_bits} outside [1, {config.max_bits}]")

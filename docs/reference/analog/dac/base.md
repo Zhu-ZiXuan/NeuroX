@@ -2,7 +2,7 @@
 
 ## Summary / role
 
-Every concrete DAC in the family converts an integer code into an analog drive voltage under one shared contract: a code-to-voltage conversion and a code-to-nominal-voltage lookup table. In the crossbar a DAC produces the word-line drive voltage from the integer activation code; the conversion is the input boundary of the array operating-point solve. This document specifies the family contract; the concrete transfer characteristic is in [general](general.md).
+Every concrete DAC in the family converts an integer code into an analog drive voltage under one shared contract: a code-to-voltage conversion and a code-to-nominal-voltage lookup table. In the crossbar a DAC produces the word-line drive voltage from the integer activation code; the conversion is the input boundary of the array operating-point solve. This document specifies the family contract; each concrete transfer characteristic is in its own document (see the [DAC family](README.md) index).
 
 ## Conversion contract
 

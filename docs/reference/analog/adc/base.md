@@ -2,11 +2,11 @@
 
 ## Summary / role
 
-Every concrete ADC in the family - the boundary-bucketize [general](general.md), the [mcs_sar](mcs_sar.md) and [sar_mono](sar_mono.md) SAR variants - converts a differential analog input into a signed integer code under one shared contract: the same signed-code output convention, the same monotone code-edge floor semantics, and the same per-call operating point. This document specifies that contract; each topology's transfer characteristic and energy model is in its own document. The ADC sits at the end of the readout chain, downstream of the BL clamp and the column transport.
+Every concrete ADC in the family converts a differential analog input into a signed integer code under one shared contract: the same signed-code output convention, the same monotone code-edge floor semantics, and the same per-call operating point. This document specifies that contract; each topology's transfer characteristic and energy model is in its own document (see the [ADC family](README.md) index). The ADC sits at the end of the readout chain, downstream of the BL clamp and the column transport.
 
 ## Conversion contract
 
-An ADC converts a differential input - a positive leg $x^{+}$ against a negative leg $x^{-}$ - into one signed integer code per call. Each ADC instance commits to a single per-instance input unit (volts for a voltage-domain topology, microamperes for a current-domain topology); both legs, all noise terms and the code boundaries are expressed in that one unit. The operating point is a per-call selection $(\mathrm{mode}, b)$: the mode picks a topology-specific configuration (e.g. a reference-voltage entry) and $b$ is the resolution in bits. An ADC exposing a single operating point accepts only $\mathrm{mode} = 0$ and $b = b_{\max}$; a multi-mode ADC accepts any pair inside its configured envelope. The family exposes the count of supported operating points and the maximum bit width as part of the contract.
+An ADC converts a differential input - a positive leg $x^{+}$ against a negative leg $x^{-}$ - into one signed integer code per call. Each ADC instance commits to a single per-instance input unit (volts for a voltage-domain topology, microamperes for a current-domain topology); both legs, all noise terms and the code boundaries are expressed in that one unit. The operating point is a per-call selection $(\mathrm{mode}, b)$: the mode picks a topology-specific configuration (e.g. one of the injected reference taps) and $b$ is the resolution in bits. An ADC exposing a single operating point accepts only $\mathrm{mode} = 0$ and $b = b_{\max}$; a multi-mode ADC accepts any pair inside its envelope. The ADC does not self-hold its reference: every call receives all reference taps as a `Tensor` $\{V_{\mathrm{ref},m}\}$, and $\mathrm{mode}$ indexes that tensor's trailing axis — the supported $\mathrm{mode}$ count is the tap count of the injected tensor (the owning xbar's reference-source `num_refs`), not a field of the ADC. The family exposes the maximum bit width as part of the contract.
 
 ## Signed-code output convention
 
@@ -28,13 +28,14 @@ For linear / uniform-quantization ADCs (all current concrete members) the bounda
 
 ## What the ADC does not own
 
-- The clamp voltage and the current-to-voltage conversion - those are the [tia](../tia/README.md) (BL clamp) and [driver](../driver.md).
+- The clamp voltage and the current-to-voltage conversion - those are the [tia](../tia/README.md) (BL clamp) and [voltage_driver](../voltage_driver.md).
 - The analog-domain rescale factor that maps codes back to the ideal-integer scale - that is the tile-boundary rescale in the xbar [base](../../xbar/base.md#output-rescale).
-- Column multiplexing - that is the [analog_mux](../analog_mux.md).
+- Column multiplexing - that is the [voltage_mux](../voltage_mux.md).
+- The reference taps themselves - the ADC does not source or store them. The owning xbar holds a [voltage_reference](../voltage_reference.md), samples it once per read, and injects all taps into `convert`; the ADC only selects one by $\mathrm{mode}$.
 
 ## Numerical method
 
-N/A at the family level - each concrete topology specifies its own conversion (a single floor-bucketize for [general](general.md), a successive-approximation loop for the SAR variants).
+N/A at the family level - each concrete topology specifies its own conversion (a single floor-bucketize, a successive-approximation loop, etc.).
 
 ## Noise & non-idealities
 
@@ -42,7 +43,7 @@ ADC quantization is intrinsic to every member. All further non-idealities (sampl
 
 ## Parameters
 
-The abstract layer fixes no physical parameter; it carries only the operating-point contract (mode count, maximum bits) and the static-PPA fields (area, leakage) inherited by every member. Per-topology parameters are tabulated in the concrete documents. Provenance terms are defined in [parameter_provenance](../../parameter_provenance.md).
+The abstract layer fixes no physical parameter; it carries only the operating-point contract (maximum bits, plus the per-call reference taps injected as a `Tensor`) and the static-PPA fields (area, leakage) inherited by every member. The reference taps are not an ADC parameter — they are owned and sized by the xbar's reference source. Per-topology parameters are tabulated in the concrete documents. Provenance terms are defined in [parameter_provenance](../../parameter_provenance.md).
 
 ## Assumptions, scope & validity
 
@@ -65,6 +66,7 @@ TODO.
 | Symbol | Meaning | Unit | Code field |
 |---|---|---|---|
 | $x^{+}, x^{-}$ | positive / negative differential input legs (per-instance input unit) | V or uA | `v_pos__V`, `v_neg__V` |
+| $\{V_{\mathrm{ref},m}\}$ | injected reference taps (per call, shape `(*inst, num_refs)`); $\mathrm{mode}$ selects one | V | `v_refs__V` |
 | $b$ | ADC resolution (bits) | — | `adc_bits` |
 | $b_{\max}$ | maximum supported resolution | — | `max_bits` |
 | $\mathrm{FSR}$ | full-scale input range (per-instance input unit) | V or uA | derived |
