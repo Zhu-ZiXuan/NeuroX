@@ -1,5 +1,56 @@
 # Changelog
 
+## Unreleased — Core as Pure Array + Parallel-Rail Solver + Scheme Extraction
+
+### Changed
+
+- **The crossbar core is demoted to a pure array; drivers, reference, and readout are hoisted to the scheme xbar.** `CircuitCore1T1R` becomes `Core1T1R` (`neurox/xbar/core/_1t1r.py`) and holds only the cell array, the wire parasitics, and the solver — it no longer owns the WL DAC, BL clamp, SL driver, boundary reference, or readout. Its `cim_read(x) -> Tensor` becomes `solve_array(v_wl, *, bl_driver, bl_v_ref__V, sl_driver, sl_v_ref__V) -> CoreSteadyState(i_bl_port__uA, v_bl_clamp__V)`: the input is the analog word-line drive (the scheme xbar runs the DAC), the boundary clamp drivers and their scalar reference taps are passed in, and the per-line BL port current and clamp voltage are returned for a downstream readout. The chunked serialization and the array-energy model stay in the core; the hardcoded `isinstance(OpAmpTIA)` boundary-driver assertion is gone (the core is driver-agnostic). The scheme xbar now owns `wl_dac` / `bl_clamp` / `sl_driver` / `clamp_ref` / the readout leaves / the `core` as flat peers and orchestrates them in `vec_mat_mul`.
+- **The DC solver is the parallel-BL/SL solver, with the rail orientation a construction-time axis.** `NestedSolver` / `NestedSolverConfig` become `NestedParallelRailSolver` / `NestedParallelRailSolverConfig`. `Solver.from_config` gains a `series_axis: int = -1` (supplied by the core, not a config / TOML field) naming which of the two trailing cell-grid axes is the series (wire-ladder) direction; the solver canonicalises series-last at entry and restores the caller's layout at exit, with `series_axis == -1` a byte-identical no-op and a compile-time constant under `@torch.compile`. The four structural assumptions the formulation rests on (two rails, a single signed two-terminal cell branch, a driven control line, one shared series axis) are documented; the orthogonal BL ⊥ SL (2-D mesh) case is explicitly a future, separate solver.
+
+### Removed
+
+- **`ideal_1t1r` is deleted.** `neurox/xbar/works/ideal_1t1r/` (the hand-built ideal-driver `IdealCore1T1R` + `IdealOffset1T1RXbar`) and its configs, tests, and docs are removed; it was a provisional structure pending a proper re-model. The `IdealXbar` arithmetic oracle (`neurox/xbar/ideal.py`, the lossless `--xbar ideal` path via `IdealXbarMacro`) is unrelated and unchanged.
+
+### Moved
+
+- **Modeling schemes live outside the `neurox` core library, in a top-level `works/` package.** The physical 1T1R chip is extracted to `works/offset_1t1r/` (`xbar.py` plus its chip-specific calibration tools, configs, tests, and docs); generic tools (e.g. `xbar_tia`) stay in `neurox/tools/`. `pyproject` packaging now includes `works*`; a scheme self-registers on import, and consumers (examples, tests, tools) `import works.offset_1t1r` before building it through `Xbar.from_config`. `neurox/xbar` exports only the `Xbar` ABC, the `IdealXbar` oracle, and the shared `Core1T1R`.
+
+## Unreleased — Reference Injection + Readout Dissolution
+
+### Changed
+
+- **Reference voltages are injected per call, not self-held (GOAL A).** The ADC family, `VoltageDriver`, and the TIA family no longer carry their reference as a config field / nominal buffer / property; the value is injected per call as a plain `Tensor`. `ADC.convert` gains a keyword-only `v_refs__V: Tensor` (all taps, shape `(*inst, num_refs)`; `adc_mode` indexes its trailing axis, so the mode bound is checked against the tensor, not config), and the abstract `ADC.mode_num` / concrete `available_modes` / `mode_num` are removed — an xbar reports `adc_mode_num` from its reference source's `num_refs`. `VoltageDriver.snapshot` / `TIA.snapshot` gain a keyword `v_ref__V: Tensor` stored in the snap, which the clamp / DC solve reads (the `ClampDriver` role drops its `v_ref__V` member). `GeneralADC` loses `drive_value` / `drive_thermal__V` (and ignores the injected `v_refs__V`); `McsSarAdcConfig` / `SarAdcMonoConfig` lose `v_refs__V`. Consumers own a `VoltageReference` and snapshot it once per forward: the core sources the boundary-clamp reference (BL-clamp + SL-drive taps) once per `cim_read`, and each operating xbar sources the ADC-ladder reference (one tap per mode) once per VMM — one global-scalar draw shared across chunks, preserving chunk bit-exactness.
+- **Reference-source taps are now non-negative (GOAL A).** `VoltageReferenceConfig` / `CurrentReferenceConfig` relax tap validation from strictly-positive to non-negative; a `0` V / `0` uA tap denotes a ground/rail reference (relative noise `* 0 == 0`, so it stays stable and exact). This lets the SL driver clamp to ground through the reference source.
+
+### Removed
+
+- **The `ReadOut` container is dissolved (GOAL B).** `neurox/xbar/readout/` is deleted; the offset switch-cap / mux / differential-ADC chain is inlined directly into `Offset1T1RXbar.vec_mat_mul`. `Offset1T1RXbarConfig` drops `readout_config` and gains the flat child configs (`signal_switchcap_config`, `ref_switchcap_config`, `voltage_mux_config`, `adc_config`), the orchestration knobs (`energy_per_op__fJ`, `latency_per_op__ns`), and the owned `adc_v_ref_config`; the policy flattens to `signal_switchcap` / `ref_switchcap` / `voltage_mux` / `bl_adc` / `adc_v_ref`. The readout reference docs are removed and their inbound links repoint to the inline-readout description on the offset xbar page.
+
+## Unreleased — `CurrentReference` / `VoltageReference` Reference Sources
+
+### Added
+
+- **`CurrentReference` / `VoltageReference` analog reference sources** (`neurox/analog/current_reference.py`, `neurox/analog/voltage_reference.py`). Behavioural multi-output reference sources: one module sources a tuple of nominal current (`i_refs__uA`) or voltage (`v_refs__V`) taps, carries the reference's static PPA (area + the always-on bias power folded into `leakage_per_inst__uW`), and hands consumers the actual taps through a `*Snap`, read back through an encapsulated `v_ref__V` / `i_ref__uA` accessor (the source-side `num_refs` property reports how many taps a module sources). They perform no computation and emit no dynamic energy or latency. Two policy-gated non-idealities perturb the taps: a per-die initial-accuracy `tolerance` fixed at fabricate time and a per-read `noise`, both relative (multiplicative). Each is wired into the config/policy/snap modelling system and exported from `neurox.analog`.
+
+## Unreleased — CurrentMirror/CurrentMux Energy Counts Output Side Only
+
+### Changed
+
+- **`CurrentMirror` / `CurrentMux` internal dynamic energy now counts the OUTPUT side only.** `CurrentMirror` drops the input-branch term, logging `v_supply * |i_out| * read_pulse` (was `v_supply * (|i_in| + |i_out|) * read_pulse`); `CurrentMux` already counted output only. Rationale: the input current is sourced externally and its production energy is accounted by the upstream block.
+
+## Unreleased — `AnalogMux` Renamed → `VoltageMux`
+
+### Changed
+
+- **`AnalogMux` renamed `VoltageMux`** (`neurox/analog/analog_mux.py`
+  → `neurox/analog/voltage_mux.py`) — the differential
+  **voltage**-transport readout leaf becomes the explicit sibling of
+  `CurrentMux`, matching the voltage/current split across the analog
+  layer. `AnalogMuxConfig` / `AnalogMuxPolicy` → `VoltageMuxConfig` /
+  `VoltageMuxPolicy`; the readout composition field `analog_mux_config`
+  and policy slot `analog_mux` → `voltage_mux_config` / `voltage_mux`,
+  with the matching config / all-off-policy TOML sections renamed.
+
 ## Unreleased — Snapshot Dataclasses Renamed `*Snapshot` → `*Snap`
 
 ### Changed

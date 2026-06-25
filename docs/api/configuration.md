@@ -28,17 +28,25 @@ The TOML section tree mirrors the construction tree. For the offset 1T1R macro t
 [xbar.core_config]
 [xbar.core_config.cell_config]
 [xbar.core_config.solver_config]
-[xbar.readout_config]
+[xbar.wl_dac_config]
+[xbar.tia_config]
+[xbar.sl_driver_config]
+[xbar.clamp_ref_config]
+[xbar.signal_switchcap_config]
+[xbar.ref_switchcap_config]
+[xbar.voltage_mux_config]
+[xbar.adc_config]
+[xbar.adc_v_ref_config]
 ```
 
-and the policy mirrors the same ownership:
+The core array owns only the cell and solver; the WL DAC, BL/SL clamp drivers, boundary reference, and readout blocks are the xbar's peers above the core. The policy mirrors the same ownership:
 
 ```toml
 [policy]
 [policy.xbar.core.cell]
-[policy.xbar.core.tia]
+[policy.xbar.tia]
 ```
 
 ## Field semantics
 
-Each field's meaning, unit, and Source are documented in the matching subsystem's Reference Parameters section — e.g. the `[xbar.core_config]` fields in [reference/xbar/_1t1r/circuit_core](../reference/xbar/_1t1r/circuit_core.md), the readout fields in [reference/xbar/readout](../reference/xbar/readout/README.md). Provenance terms (Measured / Process / Design / Calibrated / ...) are defined in [parameter_provenance](../reference/parameter_provenance.md). The runnable end-to-end usage is in the [algorithm-engineer guide](../guides/algorithm_engineer/README.md).
+Each field's meaning, unit, and Source are documented in the matching subsystem's Reference Parameters section — e.g. the `[xbar.core_config]` fields in [reference/xbar/_1t1r/core](../reference/xbar/_1t1r/core.md), and the driver / inline-readout fields (WL DAC, BL/SL clamp drivers, boundary reference, signal / ref switch-cap, voltage mux, ADC, ADC-ladder reference) under your scheme xbar and the [analog leaves](../reference/analog/README.md). Provenance terms (Measured / Process / Design / Calibrated / ...) are defined in [parameter_provenance](../reference/parameter_provenance.md). The runnable end-to-end usage is in the [algorithm-engineer guide](../guides/algorithm_engineer/README.md).

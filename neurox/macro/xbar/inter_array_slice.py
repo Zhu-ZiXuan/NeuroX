@@ -174,7 +174,7 @@ class InterArraySliceXbarMacro(XbarMacro):
 
     @property
     def adc_mode_num(self) -> int:
-        """Number of supported ADC operating points; valid ``adc_mode`` values are ``[0, mode_num)``."""
+        """Number of supported ADC operating points; valid ``adc_mode`` values are ``[0, adc_mode_num)``."""
         return self.xbar.adc_mode_num
 
     @property

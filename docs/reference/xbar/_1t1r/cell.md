@@ -2,7 +2,7 @@
 
 ## Summary
 
-The 1T1R cell is the concrete realization of the [cell family contract](../cell.md): the two-terminal element the array solver sees between a bit-line node and a source-line node. It models one RRAM device in series with an access NMOS, $\mathrm{BL} - \mathrm{RRAM} - V_{\mathrm{X}} - \mathrm{NMOS} - \mathrm{SL}$, with the NMOS gate driven by the word line. To the solver it is a single condensed branch: the cell solves its own internal access node $V_{\mathrm{X}}$ and exposes one branch current with two signed terminal conductances. This document specifies the cell's physical model, the access-node condensation, the signed-conductance contract it presents to the [solver](../solver.md), and its device-capacitor energy; the array-level wire ladder, boundaries, and array energy are in [circuit_core](circuit_core.md).
+The 1T1R cell is the concrete realization of the [cell family contract](../cell.md): the two-terminal element the array solver sees between a bit-line node and a source-line node. It models one RRAM device in series with an access NMOS, $\mathrm{BL} - \mathrm{RRAM} - V_{\mathrm{X}} - \mathrm{NMOS} - \mathrm{SL}$, with the NMOS gate driven by the word line. To the solver it is a single condensed branch: the cell solves its own internal access node $V_{\mathrm{X}}$ and exposes one branch current with two signed terminal conductances. This document specifies the cell's physical model, the access-node condensation, the signed-conductance contract it presents to the [solver](../solver.md), and its device-capacitor energy; the array-level wire ladder, boundaries, and array energy are in the consuming core (e.g. [core](core.md)).
 
 ## Physical model
 
@@ -66,7 +66,7 @@ The cell contributes the **device-capacitor dynamic energy** — the per-VMM cha
 - NMOS gate-source: coupled $C_{gs}\,(V_{\mathrm{WL}} - V_{\mathrm{SL}})^2$;
 - NMOS gate-drain: coupled $C_{gd}\,(V_{\mathrm{WL}} - V_{\mathrm{X}})^2$.
 
-The wire-segment, control-line (WL), and DC-conduction energy is **not** the cell's — it is owned by [circuit_core](circuit_core.md). The cell carries no other PPA: its device children's silicon area and leakage roll up through the owning core's budget.
+The wire-segment, control-line (WL), and DC-conduction energy is **not** the cell's — it is owned by the consuming core (e.g. [core](core.md)). The cell carries no other PPA: its device children's silicon area and leakage roll up through the owning core's budget.
 
 ## Symbols
 

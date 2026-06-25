@@ -13,6 +13,7 @@ from pathlib import Path
 
 import torch
 
+import works.offset_1t1r  # noqa: F401  # registers the Offset1T1RXbar kind
 from neurox.common import T_ROOM__K, dataclass_from_file
 from neurox.macro import NeuroxMacroQuantMatMul
 from neurox.macro.xbar import XbarMacro, XbarMacroConfig, XbarMacroPolicy

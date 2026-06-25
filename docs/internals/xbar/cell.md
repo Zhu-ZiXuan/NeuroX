@@ -2,7 +2,7 @@
 
 ## Summary
 
-The pluggable-cell family: the abstract `XbarCell` (`xbar/cell.py`) plus its `XbarCellConfig` / `XbarCellPolicy` / `XbarCellSnap` / `XbarCellDCOP` / `XbarCellResiduals` container bases. Concrete cells live under [_1t1r/](_1t1r/README.md). Spec: [reference/xbar/cell](../../reference/xbar/cell.md).
+The pluggable-cell family: the abstract `XbarCell` (`xbar/cell.py`) plus its `XbarCellConfig` / `XbarCellPolicy` / `XbarCellSnap` / `XbarCellDCOP` / `XbarCellResiduals` container bases. A concrete cell is documented under [the concrete cell page](_1t1r/cell.md). Spec: [reference/xbar/cell](../../reference/xbar/cell.md).
 
 ## Design decisions
 
@@ -22,7 +22,7 @@ The pluggable-cell family: the abstract `XbarCell` (`xbar/cell.py`) plus its `Xb
 
 ## Performance & resources
 
-N/A at this level — the memory- and compile-sensitive work (the condensation, its iteration budget, per-chunk working set) is topology-specific; see [_1t1r/](_1t1r/README.md).
+N/A at this level — the memory- and compile-sensitive work (the condensation, its iteration budget, per-chunk working set) is topology-specific; see [the concrete cell page](_1t1r/cell.md).
 
 ## Gotchas
 
@@ -31,7 +31,7 @@ N/A at this level — the memory- and compile-sensitive work (the condensation, 
 
 ## Known limitations
 
-- N/A at the family level — see [_1t1r/](_1t1r/README.md) for the concrete cell's limitations.
+- N/A at the family level — see [the concrete cell page](_1t1r/cell.md) for the concrete cell's limitations.
 
 ---
 

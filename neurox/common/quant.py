@@ -4,8 +4,8 @@ The module groups three categories of helpers, all stateless except the
 two observer classes (which carry frozen-EMA buffers):
 
 - **Stochastic rounding**: ``stochastic_floor_div`` / ``stochastic_floor_to_int``
-  / ``floor_bucketize`` — used by macro internals and any QAT path that
-  wants dithering during training.
+  / ``floor_bucketize`` — used by integer-rescaling internals and any QAT
+  path that wants dithering during training.
 - **Fixed-point scale conversion**: ``derive_multiplier_and_shift`` /
   ``derive_multiplier_and_shift_tensor`` — convert a float scale factor
   into ``(multiplier, rshift)`` for hardware-compatible integer rescaling.
@@ -15,9 +15,9 @@ two observer classes (which carry frozen-EMA buffers):
   fake-quantize for forward, identity backward).
 
 The contract is intentionally narrow: **none of these helpers know about
-the macro or the ADC**. They are pure quantization math + observer
-state. Each user example (e.g. ``example/lenet``, ``example/bert``)
-composes them into its own training / inference pipeline.
+the consumer that calls them**. They are pure quantization math + observer
+state. Each user pipeline composes them into its own training / inference
+flow.
 
 See also:
     docs/reference/notation_conventions.md

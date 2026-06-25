@@ -2,7 +2,7 @@
 
 Goal: evaluate how your model's accuracy and energy behave when its linear layers run on a real RRAM crossbar instead of ideal arithmetic.
 
-The supported workflow is **manual operator replacement**: define a quantized model whose conv / linear layers are backed by `neurox.macro`, train (or load) a QAT checkpoint, and evaluate against either the lossless `IdealXbarMacro` or a physical `Offset1T1RXbar` chip configured by `--config` / `--policy` TOML files. The public surface stops at `neurox.macro`; everything under `example/` is user code, not part of the API.
+The supported workflow is **manual operator replacement**: define a quantized model whose conv / linear layers are backed by `neurox.macro`, train (or load) a QAT checkpoint, and evaluate against either the lossless `IdealXbarMacro` or a physical-xbar chip configured by `--config` / `--policy` TOML files. The public surface stops at `neurox.macro`; everything under `example/` is user code, not part of the API.
 
 Two bundled end-to-end examples demonstrate the full flow:
 
@@ -16,7 +16,7 @@ For each model directory:
 - `model_float.py` / `model_quant.py` — float reference and QAT / macro-quantized model definitions.
 - `data.py` — dataset loader (MNIST or SST-2).
 - `train_float.py` / `train_quant.py` — float pretraining and QAT scripts. QAT takes the float checkpoint and emits a QAT checkpoint; it never touches the chip.
-- `evaluate.py` — evaluation against either the lossless `IdealXbarMacro` or the physical `Offset1T1RXbar` chip.
+- `evaluate.py` — evaluation against either the lossless `IdealXbarMacro` or the physical-xbar chip.
 - `macro_factory.py` — loads the circuit config (`--config`) and the nonideality policy (`--policy`) from their TOML files and builds one macro per layer.
 - `quant.py` — per-layer quantized conv / linear operators.
 
@@ -48,7 +48,7 @@ The examples default to GPU because both workloads are too slow on CPU to be use
 
 Each macro is built from two separate TOML files; the full schema and the `_neurox_*` directives are in [API: configuration](../../api/configuration.md).
 
-- **`--config`** — the immutable circuit design. Both examples consume the bundled 1T1R 28nm preset at `example/config/1t1r_28nm.toml` (referenced from `macro_with_physical_xbar.toml` via `_neurox_use`). To target a different chip, follow the same `[xbar]` / `[xbar.core_config]` / `[xbar.readout_config]` schema. The ADC `rescale_factor` table must be calibrated for the chip's `(adc_mode, adc_bits)` grid — see the [calibration guide](../calibration/README.md).
+- **`--config`** — the immutable circuit design. Both examples consume a bundled 1T1R 28nm preset, shipped with its scheme and referenced from `macro_with_physical_xbar.toml` via `_neurox_use`. To target a different chip, follow the same `[xbar]` / `[xbar.core_config]` schema (the driver and readout blocks are inline `[xbar.*]` sections above the core). The ADC `rescale_factor` table must be calibrated for the chip's `(adc_mode, adc_bits)` grid — see the [calibration guide](../calibration/README.md).
 - **`--policy`** — the mutable nonideality switches. The example policy files reference the bundled all-off preset (`neurox/presets/policy/all_off.toml`) via `_neurox_use_preset`, so every nonideality (device mismatch, thermal noise, programming noise, ADC offsets, ...) is off by default. To enable one, override the matching switch inline:
 
   ```toml

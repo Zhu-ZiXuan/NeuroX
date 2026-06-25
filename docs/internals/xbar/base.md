@@ -2,7 +2,7 @@
 
 ## Summary
 
-The crossbar family: the abstract `Xbar` (`base.py`) and the lossless `IdealXbar` (`ideal.py`). Concrete operating xbars live under [_1t1r/](_1t1r/README.md). Spec: [reference/xbar/base](../../reference/xbar/base.md).
+The crossbar family: the abstract `Xbar` (`base.py`) and the lossless `IdealXbar` (`ideal.py`). The pure core array is under [core/](_1t1r/README.md); concrete scheme xbars live in their own per-scheme packages. Spec: [reference/xbar/base](../../reference/xbar/base.md).
 
 ## Design decisions
 
@@ -17,7 +17,7 @@ The crossbar family: the abstract `Xbar` (`base.py`) and the lossless `IdealXbar
 
 ## Performance & resources
 
-N/A at this level — the memory- and compile-sensitive work is in [_1t1r/](_1t1r/README.md).
+N/A at this level — the memory- and compile-sensitive work is in [core/](_1t1r/README.md).
 
 ## Gotchas
 

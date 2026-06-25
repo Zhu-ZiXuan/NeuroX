@@ -132,7 +132,7 @@ class XbarMacro(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["Xba
     @property
     @abstractmethod
     def adc_mode_num(self) -> int:
-        """Number of supported ADC operating points; valid ``adc_mode`` values are ``[0, mode_num)``."""
+        """Number of supported ADC operating points; valid ``adc_mode`` values are ``[0, adc_mode_num)``."""
         raise NotImplementedError
 
     @property

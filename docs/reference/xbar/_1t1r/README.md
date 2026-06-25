@@ -1,9 +1,6 @@
-# 1T1R Topology
+# 1T1R array unit
 
-The 1T1R crossbar: one RRAM device plus one access transistor per cell. A shared physical array and the operating xbars that add a readout to make it compute. The array's DC operating-point solve is the topology-agnostic [solver](../solver.md) one level up.
+The concrete 1T1R array type: the cell and the core array built for it. The cell is the two-terminal RRAM-plus-access-NMOS element the solver sees; the core is the pure physical array (cell array, wire parasitics, generic solver) that provides the array steady-state and the array-internal energy. Drivers, the boundary voltage reference, and the readout are peers of the core under the scheme xbar — not owned by the core.
 
-- [cell](cell.md) — the single cell as a two-terminal element to the solver: condensed access node, signed branch conductances, device-capacitor energy.
-- [circuit_core](circuit_core.md) — the shared physical array: model, governing equations, energy.
-- [offset](offset.md) — the offset-coded operating xbar (circuit_core + readout).
-
-A future differential 1T1R xbar is a sibling here: a different operating xbar reusing the same [circuit_core](circuit_core.md).
+- [cell](cell.md) — the 1T1R cell (`XbarCell1T1R`): physical model, access-node condensation, signed-conductance contract, device-capacitor energy.
+- [core](core.md) — the 1T1R core array (`Core1T1R`): array model, governing equations, energy.

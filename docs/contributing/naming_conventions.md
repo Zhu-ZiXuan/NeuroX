@@ -32,8 +32,8 @@ Dataclasses returned or accepted at module boundaries use one of the following s
 | Suffix | Meaning | Examples |
 |---|---|---|
 | `*Config` | Frozen design / spec configuration for a circuit, device, or family. | `NMOSConfig`, `OpAmpTIAConfig`, `OffsetSwitchCapMuxAdcReadOutConfig` |
-| `*Snap` | Per-call runtime snap of a module's working state, sampled at `snapshot(*, shape=...)` time. Carries only `Tensor` fields and nested `*Snap` instances. Frozen. | `NMOSSnap`, `RRAMSnap`, `OpAmpTIASnap`, `DriverSnap` |
-| `*DCOP` | DC operating point - return type of any `solve_dc(...)` method. Carries the solved electrical quantities (voltages, currents, sensitivities). Frozen. Used only when the module truly owns a DC operating point (devices, dedicated solvers, the TIA's op-amp clamp). Composite forward modules (e.g. `CircuitCore1T1R`) do **not** define one; they return primary output tensors and log energy/latency inline. | `NMOSDCOP`, `RRAMDCOP`, `OpAmpTIADCOP`, `DriverDCOP`, `SolverDCOP` |
+| `*Snap` | Per-call runtime snap of a module's working state, sampled at `snapshot(*, shape=...)` time. Carries only `Tensor` fields and nested `*Snap` instances. Frozen. | `NMOSSnap`, `RRAMSnap`, `OpAmpTIASnap`, `VoltageDriverSnap` |
+| `*DCOP` | DC operating point - return type of any `solve_dc(...)` method. Carries the solved electrical quantities (voltages, currents, sensitivities). Frozen. Used only when the module truly owns a DC operating point (devices, dedicated solvers, the TIA's op-amp clamp). Composite forward modules (e.g. `Core1T1R`) do **not** define one; they return primary output tensors (or a plain steady-state struct) and log energy/latency inline. | `NMOSDCOP`, `RRAMDCOP`, `OpAmpTIADCOP`, `SolverDCOP` |
 | `*Plan` | Static geometry / decomposition plan computed once and reused per execution. Frozen. | - |
 | `*Result` | Result of an offline algorithm or iterative solver loop (i.e. neither runtime snap, nor DC operating point, nor a static plan). Frozen. | `CalibrationResult` |
 
@@ -62,11 +62,12 @@ Each circuit / device class exposes one primary method whose name encodes the ph
 | `fabricate() -> None` | Inherited from `FabricateMixin`; auto-cascades the static-mismatch resample across self + children. Subclasses override `_sample_fabricate_mismatch(self)` only. Per-instance shape is bound at `__init__` via `inst_shape` (leaves and xbars) or `w_logical_shape` (macros). Static PPA is exposed as `CircuitBase` properties reading `self.config` - no per-init log call. |
 | `program(...) -> None` | RRAM-specific weight programming step that takes the integer weight tensor and produces the actual conductance buffer. |
 | `snapshot(*, shape) -> <Name>Snap` | Sample a per-call runtime snap. Frozen return. |
-| `solve_dc(...) -> <Name>DCOP` | Solve the DC operating point of a circuit, device, or solver and return it as a `*DCOP`. The essence is "compute a meaningful DC operating point and surface it" - applicable to leaf devices (RRAM, NMOS), iterative dedicated solvers (`NestedSolver`, `OpAmpTIA`), and the boundary clamp drivers (`TIA`, `Driver`). **Composite forward modules that delegate to sub-solvers and add post-processing do not own a DCOP and do not use this name** - see `cim_read` below. |
-| `solve_clamp(...) -> tuple[Tensor, Tensor]` | Boundary-clamp solve. Thin wrapper around the implementer's DC solve, returning the `(v_clamp__V, dVclamp_dI__MOhm)` pair an outer solver needs as Jacobian input. Both `TIA` and `Driver` expose this. |
-| `cim_read(x) -> Tensor` | `CircuitCore1T1R` entry. Drive WL, settle the 1T1R array to DC, and return the BL clamp voltage. Plain forward (logs energy + latency inline); does not return a DCOP - the array has no DCOP of its own beyond its sub-solvers' DCOPs. |
+| `solve_dc(...) -> <Name>DCOP` | Solve the DC operating point of a circuit, device, or solver and return it as a `*DCOP`. The essence is "compute a meaningful DC operating point and surface it" - applicable to leaf devices (RRAM, NMOS), iterative dedicated solvers (`NestedParallelRailSolver`, `OpAmpTIA`), and the boundary clamp drivers (`TIA`, `VoltageDriver`). **Composite forward modules that delegate to sub-solvers and add post-processing do not own a DCOP and do not use this name** - see `solve_array` below. |
+| `solve_clamp(...) -> tuple[Tensor, Tensor]` | Boundary-clamp solve. Thin wrapper around the implementer's DC solve, returning the `(v_clamp__V, dVclamp_dI__MOhm)` pair an outer solver needs as Jacobian input. Both `TIA` and `VoltageDriver` expose this. |
+| `solve_array(v_wl, *, bl_driver, sl_driver, ...) -> CoreSteadyState` | `Core1T1R` entry. Take the analog WL drive and the two boundary clamp drivers, settle the 1T1R array to DC, and return a plain `CoreSteadyState` (BL port current + BL clamp voltage). Plain forward (logs energy + latency inline); does not return a DCOP - the array has no DCOP of its own beyond its sub-solvers' DCOPs. |
 | `convert(...) -> Tensor` | DAC / ADC code/analog conversion. Single output tensor. |
-| `transport(...)` | AnalogMux differential voltage transport. |
+| `transport(...)` | VoltageMux differential voltage transport; reused by `CurrentMux` for single-ended N:1 current transport. |
+| `replicate(...) -> Tensor` | `CurrentMirror` current-copy replication. |
 | `sample_and_accumulate(...) -> Tensor` | SwitchCap passive charge-share kernel. |
 | `vec_mat_mul(x) -> Tensor` | Xbar tile per-VMM kernel. |
 | `readout(...) -> Tensor` | Readout chain entry. Returns only the ADC code tensor. |
@@ -100,10 +101,13 @@ Given a package layout `pkg/sub/<file>.py` declaring class `<Class>`:
 
 - The required import is `from pkg.sub import <Class>`. The subpackage's own `__init__.py` may re-export classes defined in files at its own directory level.
 - `from pkg import <Class>` is disallowed. The parent `pkg/__init__.py` must not re-export anything reached through a subdirectory.
+- Import from the subpackage, never drill into its file: `from neurox.xbar._1t1r import XbarCell1T1R`, never `from neurox.xbar._1t1r.cell import XbarCell1T1R`. The file is an implementation detail; the subpackage `__init__` is the surface.
 
 Each package's `__init__.py` re-exports only the symbols defined in files at its own directory level - never anything reached through a subdirectory.
 
 Rationale: the import path mirrors the source layout, so a reader can find any symbol by walking the directory tree, and an `__init__.py` never accumulates an unbounded re-export list as new subpackages get added.
+
+Test modules (under `tests/`) and tool / CLI modules (under `neurox/tools/`) are exempt from this file-vs-subpackage rule: they may import directly from a file path (for example `from neurox.xbar._1t1r.cell import XbarCell1T1R`), since they are not part of the library public surface and sometimes need a symbol the subpackage `__init__` does not re-export.
 
 ### Exceptions
 

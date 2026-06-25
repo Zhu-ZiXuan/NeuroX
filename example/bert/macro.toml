@@ -40,7 +40,7 @@ x_slice_num = 4
 w_encoding = "true_form"
 
 [macro.xbar_config]
-_neurox_use = "../config/1t1r_28nm.toml:xbar"
+_neurox_use = "../../works/offset_1t1r/config/1t1r_28nm.toml:xbar"
 
 [macro.col_accumulator_config]
 bit_width = 32

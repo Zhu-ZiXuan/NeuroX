@@ -33,7 +33,7 @@ A module's state is established in four phases — `__init__` (bind config, comm
 
 ## Known limitations
 
-- The core library ships no model-rewrite / `replace` package: walking a model to drive per-layer `fabricate()` / `program(...)` and wrapping an `XbarMacro` as a stock-layer replacement lives application-side (illustrated by `example/lenet/quant.py`, `example/bert/quant.py`). The core public surface stops at `neurox.macro`.
+- The core library ships no model-rewrite / `replace` package: walking a model to drive per-layer `fabricate()` / `program(...)` and wrapping an `XbarMacro` as a stock-layer replacement lives application-side. The core public surface stops at `neurox.macro`.
 
 ## Canonical signatures
 
@@ -85,7 +85,7 @@ def matmul(self, input, *, adc_operation_point) -> Tensor: ...                # 
 
 ### User-side operators (out of core)
 
-Modules that wrap an `XbarMacro` into a stock-PyTorch-layer replacement live in the user's repository or in `example/`; the core public surface stops at `neurox.macro`. The conventional shape — `fabricate(self)` drives `self.macro.fabricate()`, `program(self)` drives `self.macro.program(self.weight_int)`, and `forward(input)` runs the int matmul pipeline — is illustrated by `example/lenet/quant.py` and `example/bert/quant.py`. Whatever code walks the model to drive these per-layer calls (the "model rewrite" step) also lives application-side; the core library does not ship a `replace` package.
+Modules that wrap an `XbarMacro` into a stock-PyTorch-layer replacement live application-side; the core public surface stops at `neurox.macro`. The conventional shape is `fabricate(self)` drives `self.macro.fabricate()`, `program(self)` drives `self.macro.program(self.weight_int)`, and `forward(input)` runs the int matmul pipeline. Whatever code walks the model to drive these per-layer calls (the "model rewrite" step) also lives application-side; the core library does not ship a `replace` package.
 
 ---
 

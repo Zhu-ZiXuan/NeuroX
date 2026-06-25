@@ -66,9 +66,13 @@ nav:
   - parameter_provenance: reference/parameter_provenance.md
   - analog:
     - Overview: reference/analog/README.md
-    - analog_mux: reference/analog/analog_mux.md
-    - driver: reference/analog/driver.md
+    - current_mirror: reference/analog/current_mirror.md
+    - current_mux: reference/analog/current_mux.md
+    - current_reference: reference/analog/current_reference.md
     - switch_cap: reference/analog/switch_cap.md
+    - voltage_driver: reference/analog/voltage_driver.md
+    - voltage_mux: reference/analog/voltage_mux.md
+    - voltage_reference: reference/analog/voltage_reference.md
     - adc:
       - Overview: reference/analog/adc/README.md
       - base: reference/analog/adc/base.md
@@ -82,6 +86,7 @@ nav:
     - tia:
       - Overview: reference/analog/tia/README.md
       - base: reference/analog/tia/base.md
+      - general: reference/analog/tia/general.md
       - opamp_tia: reference/analog/tia/opamp_tia.md
   - device:
     - Overview: reference/device/README.md
@@ -106,14 +111,12 @@ nav:
   - xbar:
     - Overview: reference/xbar/README.md
     - base: reference/xbar/base.md
+    - cell: reference/xbar/cell.md
     - solver: reference/xbar/solver.md
     - _1t1r:
       - Overview: reference/xbar/_1t1r/README.md
-      - circuit_core: reference/xbar/_1t1r/circuit_core.md
-      - offset: reference/xbar/_1t1r/offset.md
-    - readout:
-      - Overview: reference/xbar/readout/README.md
-      - readout: reference/xbar/readout/readout.md
+      - cell: reference/xbar/_1t1r/cell.md
+      - core: reference/xbar/_1t1r/core.md
 - Validation:
   - Overview: validation/README.md
 - API:
@@ -133,9 +136,13 @@ nav:
   - state_holding: internals/state_holding.md
   - analog:
     - Overview: internals/analog/README.md
-    - analog_mux: internals/analog/analog_mux.md
-    - driver: internals/analog/driver.md
+    - current_mirror: internals/analog/current_mirror.md
+    - current_mux: internals/analog/current_mux.md
+    - current_reference: internals/analog/current_reference.md
     - switch_cap: internals/analog/switch_cap.md
+    - voltage_driver: internals/analog/voltage_driver.md
+    - voltage_mux: internals/analog/voltage_mux.md
+    - voltage_reference: internals/analog/voltage_reference.md
     - adc:
       - Overview: internals/analog/adc/README.md
       - base: internals/analog/adc/base.md
@@ -194,14 +201,12 @@ nav:
   - xbar:
     - Overview: internals/xbar/README.md
     - base: internals/xbar/base.md
+    - cell: internals/xbar/cell.md
     - solver: internals/xbar/solver.md
     - _1t1r:
       - Overview: internals/xbar/_1t1r/README.md
-      - circuit_core: internals/xbar/_1t1r/circuit_core.md
-      - offset: internals/xbar/_1t1r/offset.md
-    - readout:
-      - Overview: internals/xbar/readout/README.md
-      - base: internals/xbar/readout/base.md
+      - cell: internals/xbar/_1t1r/cell.md
+      - core: internals/xbar/_1t1r/core.md
 - Contributing:
   - Overview: contributing/README.md
   - code_style: contributing/code_style.md

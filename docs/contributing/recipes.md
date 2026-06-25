@@ -24,7 +24,7 @@ A device is an electrical primitive (transistor, memristor, wire, selector). Dev
 
 ## Add a new leaf circuit (no family polymorphism)
 
-A leaf circuit is a non-polymorphic analog or digital block (Driver, SwitchCap, AnalogMux, ..., or one of the digital primitives). Lives under `neurox/analog/` or `neurox/digital/`.
+A leaf circuit is a non-polymorphic analog or digital block (VoltageDriver, SwitchCap, VoltageMux, ..., or one of the digital primitives). Lives under `neurox/analog/` or `neurox/digital/`.
 
 1. [config]      Define `<Name>Config(CircuitConfig)`; design + spec + member-config fields. `CircuitConfig` provides area + leakage; subclass adds its own — including a `latency_per_op__ns: float` field if the leaf emits dynamic events with a fixed per-op latency → `config_and_construction.md` §Circuit layer, `config_and_construction.md`
 2. [validate]    `validate_<group>()` methods, called from `__post_init__`; in `validate_ppa` `super().validate_ppa()` then `_require_nonneg(self.latency_per_op__ns, "latency_per_op__ns")` (and any added energy fields) → [code_style](code_style.md) §Configuration validation
@@ -77,6 +77,6 @@ Slicer is an abstract base with direct concrete subclasses (callers instantiate 
 
 ## Add a user-side operator (out of core)
 
-`nn.Module`-level replacements for stock PyTorch layers (`nn.Linear`, `nn.Conv2d`, ...) wrapping an `XbarMacro` live in the **user's repository or in `example/`**, not in the core `neurox/` tree. The core public surface stops at `neurox.macro`; anything that pairs a macro with a PyTorch layer, manages QAT observers, or handles model rewriting is application-layer code.
+`nn.Module`-level replacements for stock PyTorch layers (`nn.Linear`, `nn.Conv2d`, ...) wrapping an `XbarMacro` live in the **application repository**, not in the core `neurox/` tree. The core public surface stops at `neurox.macro`; anything that pairs a macro with a PyTorch layer, manages QAT observers, or handles model rewriting is application-layer code.
 
-See the `example/lenet/quant.py` and `example/bert/quant.py` files for a current reference of the macro-wrapping pattern.
+A macro-wrapping operator subclasses `nn.Module`, holds an `XbarMacro` instance, and forwards the layer's input through it; QAT observers and any model-rewriting pass live alongside it in the same application layer.

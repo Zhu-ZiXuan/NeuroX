@@ -1,6 +1,6 @@
 # Calibration & tools
 
-The offline tools under `neurox/tools/` run outside the main forward path. Each is a small CLI that consumes a chip TOML and emits a calibration artefact (TOML / TXT) or a diagnostic report (PNG / log). A developer runs them once when tuning a chip configuration; the resulting artefacts feed back into the main forward path. Keeping them under `tools/` rather than mixing with library code makes the I/O surface explicit — TOML in, TOML / PNG / log out — and the flows reproducible offline.
+The offline tools run outside the main forward path. Each is a small CLI that consumes a chip TOML and emits a calibration artefact (TOML / TXT) or a diagnostic report (PNG / log). A developer runs them once when tuning a chip configuration; the resulting artefacts feed back into the main forward path. Keeping them under a `tools/` package rather than mixing with library code makes the I/O surface explicit — TOML in, TOML / PNG / log out — and the flows reproducible offline. The chip-specific calibrators (ADC range / rescale, state map, solver / cell iteration counts) live with their scheme under that scheme's `tools/` package; the generic TIA-design tool stays in `neurox/tools/`.
 
 Most tools here are *calibration* flows that produce the parameters tying an abstract NeuroX model to a specific chip: the ADC input range, the per-operating-point ADC `rescale_factor` table, the single-cell 1T1R state map, the array-solver / TIA iteration counts, and the per-cell access-node condensation count. The TIA-design tool is an exploration / scoring flow that lives under its own guide.
 
@@ -13,7 +13,7 @@ All tools are **config-driven**: each takes a single `--config <run.toml>` plus 
 - `--plot-dir` / `--plot` / `--output` — output destinations, as applicable per tool.
 - `--log-level` — one of `DEBUG / INFO / WARNING / ERROR / CRITICAL`, default `INFO`. Enforced via argparse `choices` so a typo errors at parse time.
 
-**Sample-TOML naming.** A ready-to-edit sample config sits beside each tool under `example/config/` and bears the tool's module path, e.g. `example/config/xbar_adc_statistic.toml`.
+**Sample-TOML naming.** A ready-to-edit sample config sits beside each tool's scheme config dir and bears the tool's module path, e.g. `<scheme>/config/xbar_adc_statistic.toml`.
 
 **Shared helpers.** `neurox/tools/_config.py` provides the CLI helpers every tool's `main()` calls:
 
@@ -43,4 +43,4 @@ The ADC-side tools form a two-stage pipeline with no overlap — first pick the 
 
 ---
 
-- See also: [rescale convention](../../reference/xbar/readout/readout.md), [solver iteration internals](../../internals/xbar/solver.md), [config & construction](../../internals/config_and_construction.md)
+- See also: [rescale convention](../../reference/xbar/base.md#output-rescale), [solver iteration internals](../../internals/xbar/solver.md), [config & construction](../../internals/config_and_construction.md)

@@ -2,7 +2,7 @@
 
 ## Summary
 
-Every physical crossbar — the offset-coded 1T1R tile, a future differential 1T1R tile, other topologies — implements one abstract contract: the same primitive operation, the same integer value domain, and the same output-rescale grid. This document specifies that contract and the lossless ideal twin that any physical xbar is compared against. Topology-specific physics lives in the family directories (e.g. [_1t1r/](_1t1r/README.md)).
+Every physical crossbar — any coding scheme on any cell topology — implements one abstract contract: the same primitive operation, the same integer value domain, and the same output-rescale grid. This document specifies that contract and the lossless ideal twin that any physical xbar is compared against. The pure-array physics lives in [core/](_1t1r/README.md); a concrete scheme adds its own coding and readout above it.
 
 ## Primitive operation
 

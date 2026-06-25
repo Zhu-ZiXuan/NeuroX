@@ -1,27 +1,34 @@
-"""Shape-independent physical core for a 1T1R crossbar tile.
+"""Shape-independent pure-array core for a 1T1R crossbar tile.
+
+The core holds ONLY the cell array, the wire parasitics, and the DC solver.
+The boundary drivers (WL DAC, BL clamp, SL drive) and the boundary voltage
+reference are peers of the core under the scheme xbar — they are passed into
+:meth:`Core1T1R.solve_array` per call, not owned here.
 
 See also:
-    docs/reference/xbar/_1t1r/circuit_core.md
+    docs/reference/xbar/_1t1r/core.md
 """
 
 import math
 from dataclasses import dataclass
+from typing import TypeVar
 
 import torch
 from torch import Tensor
 
-from neurox.analog import (
-    Driver,
-    DriverConfig,
-    DriverPolicy,
-)
-from neurox.analog.dac import DAC, DACConfig, DACPolicy
-from neurox.analog.tia import TIA, OpAmpTIA, TIAConfig, TIAPolicy
 from neurox.common.circuit import CircuitBase, CircuitConfig
 from neurox.xbar.cell import XbarCell
-from neurox.xbar.solver import Solver, SolverConfig, SolverDCOP
+from neurox.xbar.solver import (
+    ClampDriver,
+    Solver,
+    SolverConfig,
+    SolverDCOP,
+    classify_leading_positions,
+    iter_chunks,
+    reassemble_chunks,
+)
+from neurox.xbar.solver.clamp import ClampSnap
 
-from ._chunking import classify_leading_positions, iter_chunks, reassemble_chunks
 from .cell import (
     XbarCell1T1R,
     XbarCell1T1RConfig,
@@ -30,14 +37,17 @@ from .cell import (
     XbarCell1T1RSnap,
 )
 
+BLSnapT = TypeVar("BLSnapT", bound=ClampSnap)
+SLSnapT = TypeVar("SLSnapT", bound=ClampSnap)
+
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True, kw_only=True)
-class CircuitCore1T1RConfig(CircuitConfig):
-    """Shape-independent physical knobs for a 1T1R core.
+class Core1T1RConfig(CircuitConfig):
+    """Shape-independent physical knobs for a 1T1R pure-array core.
 
     Attributes:
         wl_pulse_length__ns: Word-line pulse length [ns].
@@ -60,18 +70,14 @@ class CircuitCore1T1RConfig(CircuitConfig):
         cell_config: 1T1R cell configuration. Owns the RRAM / access-NMOS
             device configs, sizing, parasitic-cap densities, programming
             map, and per-cell branch-solve knobs.
-        tia_config: BL clamp-driver configuration.
-        sl_driver_config: SL driver configuration.
-        wl_dac_config: WL DAC configuration.
         solver_config: DC-solver fixed numerical knobs. Concrete subclass
-            of :class:`SolverConfig` (``NestedSolverConfig``) picks which
+            of :class:`SolverConfig` (``NestedParallelRailSolverConfig``) picks which
             solver implementation the core instantiates via
             ``Solver.from_config(...)``.
         area_per_inst__um2: Core (cell array + wire infra) silicon area
-            per fabricated tile instance [um²]. **Excludes** the owned
-            ``CircuitBase`` children (TIA / drivers / DAC), which roll
-            up separately via the composite-aggregation rule in
-            ``docs/internals/profiler.md``. Device-side
+            per fabricated tile instance [um²]. **Excludes** the boundary
+            drivers / DAC / reference, which are peers of the core under
+            the scheme xbar and roll up separately. Device-side
             contributions (RRAM / NMOS) are not separately rolled up —
             their physical area must be folded into this field by the
             caller (devices do not inherit ``CircuitBase``).
@@ -104,9 +110,6 @@ class CircuitCore1T1RConfig(CircuitConfig):
     wl_segment_c__fF: float
 
     cell_config: XbarCell1T1RConfig
-    tia_config: TIAConfig
-    sl_driver_config: DriverConfig
-    wl_dac_config: DACConfig
     solver_config: SolverConfig
 
     latency_per_op__ns: float
@@ -160,16 +163,13 @@ class CircuitCore1T1RConfig(CircuitConfig):
 
 
 @dataclass(frozen=True)
-class CircuitCore1T1RPolicy:
-    """Composite nonideality policy for a 1T1R circuit core.
+class Core1T1RPolicy:
+    """Composite nonideality policy for a 1T1R pure-array core.
 
     Attributes:
         cell: 1T1R cell nonideality policy (RRAM + access-NMOS).
-        tia: BL clamp-driver (TIA) nonideality policy.
-        sl_driver: SL driver nonideality policy.
-        wl_dac: WL DAC nonideality policy.
         solve_chunk_size: Maximum number of broadcast-leading instances
-            ``cim_read`` solves per chunk — the per-chunk peak-memory
+            ``solve_array`` solves per chunk — the per-chunk peak-memory
             budget. ``0`` runs the whole leading in one block; any
             positive value forces the memory-bounded chunked path,
             splitting the leading into contiguous slices of at most this
@@ -179,14 +179,32 @@ class CircuitCore1T1RPolicy:
             not a chip-preset constant.
 
     Solvers have **no Policy** — all their knobs are fixed numerical
-    constants and live on :class:`CircuitCore1T1RConfig.solver_config`.
+    constants and live on :class:`Core1T1RConfig.solver_config`.
     """
 
     cell: XbarCell1T1RPolicy
-    tia: TIAPolicy
-    sl_driver: DriverPolicy
-    wl_dac: DACPolicy
     solve_chunk_size: int
+
+
+# ---------------------------------------------------------------------------
+# Array steady-state
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class CoreSteadyState:
+    """Reassembled steady-state array output consumed by the xbar readout.
+
+    Attributes:
+        i_bl_port__uA: BL port current at the converged operating point
+            [uA]. Shape: ``[..., num_line]``.
+        v_bl_clamp__V: BL clamp voltage at the converged operating point
+            [V], a warm-start seed for the xbar's I→V readout solve.
+            Shape: ``[..., num_line]``.
+    """
+
+    i_bl_port__uA: Tensor
+    v_bl_clamp__V: Tensor
 
 
 # ---------------------------------------------------------------------------
@@ -194,12 +212,11 @@ class CircuitCore1T1RPolicy:
 # ---------------------------------------------------------------------------
 
 
-class CircuitCore1T1R(CircuitBase[CircuitCore1T1RConfig]):
-    """Shape-independent 1T1R core: devices, boundary circuits, and solver."""
+class Core1T1R(CircuitBase[Core1T1RConfig]):
+    """Shape-independent 1T1R pure array: cells, wire parasitics, and solver."""
 
-    config: CircuitCore1T1RConfig
+    config: Core1T1RConfig
     cell: XbarCell1T1R
-    tia: OpAmpTIA
     bl_segment_r__MOhm: Tensor
     sl_segment_r__MOhm: Tensor
     bl_segment_g__uS: Tensor
@@ -210,14 +227,14 @@ class CircuitCore1T1R(CircuitBase[CircuitCore1T1RConfig]):
     def __init__(
         self,
         *,
-        config: CircuitCore1T1RConfig,
-        policy: CircuitCore1T1RPolicy,
+        config: Core1T1RConfig,
+        policy: Core1T1RPolicy,
         name: str,
         w_layout_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
     ) -> None:
-        """Construct one shape-independent 1T1R core.
+        """Construct one shape-independent 1T1R pure-array core.
 
         Args:
             config: Concrete configuration dataclass.
@@ -245,7 +262,6 @@ class CircuitCore1T1R(CircuitBase[CircuitCore1T1RConfig]):
         self.T__K = T__K
         self._w_layout_shape = tuple(w_layout_shape)
 
-        sub_prefix = name + "."
         cell = XbarCell.from_config(
             config=config.cell_config,
             policy=policy.cell,
@@ -255,36 +271,8 @@ class CircuitCore1T1R(CircuitBase[CircuitCore1T1RConfig]):
         )
         assert isinstance(cell, XbarCell1T1R)
         self.cell = cell
-        tia = TIA.from_config(
-            config=config.tia_config,
-            policy=policy.tia,
-            name=f"{sub_prefix}tia",
-            inst_shape=(*prefix, phys_col_num),
-            dtype=dtype,
-            T__K=T__K,
-        )
-        assert isinstance(tia, OpAmpTIA)
-        self.tia = tia
-
-        self.sl_driver = Driver(
-            config=config.sl_driver_config,
-            policy=policy.sl_driver,
-            name=f"{sub_prefix}sl_driver",
-            inst_shape=(*prefix, phys_col_num),
-            dtype=dtype,
-            T__K=T__K,
-        )
-        self.wl_dac = DAC.from_config(
-            config=config.wl_dac_config,
-            policy=policy.wl_dac,
-            name=f"{sub_prefix}wl_dac",
-            inst_shape=(*prefix, row_num),
-            dtype=dtype,
-            T__K=T__K,
-        )
 
         self.w_states = self.cell.w_states
-        self.x_states = self.wl_dac.code_max + 1
 
         self.c_wl_wire_per_row__fF = config.wl_first_c__fF + (phys_col_num - 1) * config.wl_segment_c__fF
 
@@ -312,10 +300,26 @@ class CircuitCore1T1R(CircuitBase[CircuitCore1T1RConfig]):
         self.register_buffer("bl_segment_c__fF", bl_segment_c__fF, persistent=False)
         self.register_buffer("sl_segment_c__fF", sl_segment_c__fF, persistent=False)
 
-        self.solver = Solver.from_config(config=config.solver_config)
+        # This 1T1R grid is [..., col, row] with the wire ladder along the
+        # last (row) axis → canonical series-last (series_axis = -1).
+        self.solver = Solver.from_config(config=config.solver_config, series_axis=-1)
 
         self.fabricated_col_num = phys_col_num
         self.fabricated_row_num = row_num
+
+    # -----------------------------------------------------------------
+    # Geometry
+    # -----------------------------------------------------------------
+
+    @property
+    def weight_grid_shape(self) -> tuple[int, ...]:
+        """Shape of the weight grid (RRAM conductance array): ``(*inst, phys_col, row)``.
+
+        The xbar uses this to expand the activation to the full broadcast
+        leading before the WL DAC convert, preserving the per-instance
+        noise behaviour of the DAC drive.
+        """
+        return tuple(self.cell.rram.g__uS.shape)
 
     # -----------------------------------------------------------------
     # Programming
@@ -336,84 +340,82 @@ class CircuitCore1T1R(CircuitBase[CircuitCore1T1RConfig]):
         self.cell.program(w_state_idx)
 
     # -----------------------------------------------------------------
-    # CIM read (plain forward)
+    # Array steady-state solve (plain forward)
     # -----------------------------------------------------------------
 
     @torch.compiler.disable(
         recursive=False,
         reason="eager chunk loop; the fixed-shape per-chunk solver body is compiled separately",
     )
-    def cim_read(self, x: Tensor) -> Tensor:
-        """Drive the 1T1R array with a WL input and return the BL clamp voltage.
+    def solve_array(
+        self,
+        v_wl: Tensor,
+        *,
+        bl_driver: ClampDriver[BLSnapT],
+        bl_v_ref__V: Tensor,
+        sl_driver: ClampDriver[SLSnapT],
+        sl_v_ref__V: Tensor,
+    ) -> CoreSteadyState:
+        """Settle the 1T1R array to DC under an analog WL drive.
 
         Eager island (``@torch.compiler.disable``). This method owns the
         chunk loop, whose trip count ``ceil(leading / solve_chunk_size)``
-        is a runtime value — tracing it into the macro ``matmul`` graph
+        is a runtime value — tracing it into the caller's compiled graph
         would unroll a huge, recompiling loop and explode compile time.
         Keeping it eager pins the loop in Python; the per-chunk DC solve
         (``self.solver.solve_dc``) is itself ``@torch.compile``-decorated,
         so it compiles once at the fixed chunk shape and every chunk /
-        VMM / macro instance reuses that one graph. See
+        VMM / caller instance reuses that one graph. See
         docs/internals/compile/scheme-a-regional.md.
 
-        Plain forward: drive WL via the DAC, settle the array+TIA to DC
-        in chunked Newton sub-solves, accumulate per-VMM dynamic energy,
-        emit one energy + one latency profile event, and return the BL
-        clamp voltage that the downstream readout will sample. The
-        chunked sub-solves are an internal memory-bounding detail —
+        Plain forward: settle the array boundary clamps to DC in chunked
+        Newton sub-solves, accumulate per-VMM dynamic energy, emit one
+        energy + one latency profile event, and return the reassembled BL
+        port current + BL clamp voltage the xbar's I→V readout consumes.
+        The chunked sub-solves are an internal memory-bounding detail —
         from the caller's view this is a single forward call.
 
         Args:
-            x: WL DAC input-code tensor. Shape: [..., row_num].
+            v_wl: Analog WL drive [V] (the xbar already ran the WL DAC).
+                Shape: ``[..., row_num]``.
+            bl_driver: BL boundary clamp (structural ``ClampDriver`` role).
+            bl_v_ref__V: BL-clamp reference tap [V], a 0-d scalar the xbar
+                snapshotted once and broadcasts onto every chunk grid.
+            sl_driver: SL boundary clamp (structural ``ClampDriver`` role).
+            sl_v_ref__V: SL-drive reference tap [V], a 0-d scalar.
 
         Returns:
-            BL clamp voltage at the converged operating point [V].
-            Shape: ``[..., phys_col_num]``.
+            :class:`CoreSteadyState` carrying the per-column BL port
+            current [uA] and BL clamp voltage [V], both at full leading.
         """
 
         # --- Infer the broadcast leading ---
 
-        # ``x_code`` stays raw — its trailing is ``[row]``, matching the
-        # WL DAC's natural shape contract (no synthetic fanout dim that
-        # has nothing to do with the DAC's own structure). ``x_grid``
-        # adds a size-1 WL-fanout dim at -2 so ``x``'s ``row`` aligns
-        # with ``g``'s ``row`` and the ``phys_col`` slot opens for the
-        # solver-side broadcast against the RRAM grid. The split keeps
-        # each consumer working in the shape space that makes physical
-        # sense for it (DAC: (*leading, row); solver: (*leading, 1, row)).
-        x_code = x
-        x_grid = x_code.unsqueeze(-2)
+        # ``v_wl`` trailing is ``[row]``; ``v_wl_grid`` adds a size-1
+        # WL-fanout dim at -2 so ``v_wl``'s ``row`` aligns with ``g``'s
+        # ``row`` and the ``phys_col`` slot opens for the solver-side
+        # broadcast against the RRAM grid.
+        v_wl_grid = v_wl.unsqueeze(-2)
         g_shape = self.cell.rram.g__uS.shape
-        full_shape = torch.broadcast_shapes(g_shape, x_grid.shape)
+        full_shape = torch.broadcast_shapes(g_shape, v_wl_grid.shape)
         *batch_list, phys_col_num, row_num = full_shape
         leading = tuple(batch_list)
         cell_trailing = (phys_col_num, row_num)
-        tia_trailing = (phys_col_num,)
-        col_trailing = (phys_col_num,)
+        line_trailing = (phys_col_num,)
 
-        # --- Classify leading positions (for the serial latency count) and convert DAC once ---
+        # --- Classify leading positions (for the serial latency count) ---
 
         a_positions, _b_positions = classify_leading_positions(
-            x_shape=tuple(x_grid.shape),
+            x_shape=tuple(v_wl_grid.shape),
             g_shape=tuple(g_shape),
             leading_rank=len(leading),
         )
 
-        # DAC convert runs on the broadcast-to-full-leading view of
-        # ``x_code`` — no WL fanout slot. The expand is zero-copy but
-        # converting against the realised full leading is required so
-        # that (a) per-instance per-op dynamic energy is counted once
-        # per instance (not once per x_batch), and (b)
-        # ``drive_thermal__V`` samples an independent noise tensor per
-        # instance instead of having one x-batch noise pattern aliased
-        # across every inst position. The fanout slot is added back
-        # AFTER convert so the solver sees ``(*leading, 1, row)``.
-        # Each VMM still logs exactly one DAC energy+latency event pair.
-        x_dac_input = x_code.expand(*leading, row_num)
-        v_wl_dac = self.wl_dac.convert(x_dac_input)
-        v_wl_full = v_wl_dac.unsqueeze(-2)
+        # Broadcast the WL drive to the full leading so the solver sees
+        # ``(*leading, 1, row)``.
+        v_wl_full = v_wl_grid.expand(*leading, 1, row_num)
 
-        # --- Per-chunk loop: sample → solve → TIA clamp → energy ---
+        # --- Per-chunk loop: sample → solve → energy ---
         # Only the small per-chunk tensors needed for reassembly +
         # per-chunk energy are retained. The heavy ``solver_dcop_chunk``
         # (carrying ``v_bl_node`` / ``v_sl_node`` plus the condensed cell
@@ -421,14 +423,15 @@ class CircuitCore1T1R(CircuitBase[CircuitCore1T1RConfig]):
         # one loop iteration and is released by Python's GC before the
         # next chunk starts — preserving chunking's peak-memory contract.
 
-        v_out_phys_chunks: list[Tensor] = []
+        i_bl_port_chunks: list[Tensor] = []
+        v_bl_clamp_chunks: list[Tensor] = []
         chunk_energies: list[Tensor] = []
         global_indices: list[Tensor] = []
 
         for spec in iter_chunks(
             leading=leading,
             chunk_size=self.policy.solve_chunk_size,
-            device=x.device,
+            device=v_wl.device,
         ):
             mc = spec.multi_coords
             v_wl_chunk = v_wl_full[mc] if mc else v_wl_full  # (chunk_size, 1, row)
@@ -438,8 +441,12 @@ class CircuitCore1T1R(CircuitBase[CircuitCore1T1RConfig]):
                 multi_coords=mc,
                 t_elapsed=0.0,
             )
-            bl_snap = self.tia.snapshot(shape=(*leading, *tia_trailing), multi_coords=mc)
-            sl_snap = self.sl_driver.snapshot(shape=(*leading, *tia_trailing), multi_coords=mc)
+            bl_snap = bl_driver.snapshot(
+                v_ref__V=bl_v_ref__V, shape=(*leading, *line_trailing), multi_coords=mc
+            )
+            sl_snap = sl_driver.snapshot(
+                v_ref__V=sl_v_ref__V, shape=(*leading, *line_trailing), multi_coords=mc
+            )
 
             solver_dcop_chunk = self.solver.solve_dc(
                 bl_segment_r__MOhm=self.bl_segment_r__MOhm,
@@ -448,16 +455,11 @@ class CircuitCore1T1R(CircuitBase[CircuitCore1T1RConfig]):
                 sl_segment_g__uS=self.sl_segment_g__uS,
                 cell=self.cell,
                 cell_snap=cell_snap,
-                bl_driver=self.tia,
+                bl_driver=bl_driver,
                 bl_driver_snap=bl_snap,
-                sl_driver=self.sl_driver,
+                sl_driver=sl_driver,
                 sl_driver_snap=sl_snap,
                 compute_residuals=False,
-            )
-            clamp_dcop_chunk = self.tia.solve_dc(
-                solver_dcop_chunk.i_bl_driver,
-                bl_snap,
-                v_clamp_init__V=solver_dcop_chunk.v_bl_clamp,
             )
             chunk_energies.append(
                 self._compute_array_energy__fJ(
@@ -465,15 +467,16 @@ class CircuitCore1T1R(CircuitBase[CircuitCore1T1RConfig]):
                     cell_snap=cell_snap,
                 )
             )
-            v_out_phys_chunks.append(clamp_dcop_chunk.v_out__V)
+            i_bl_port_chunks.append(solver_dcop_chunk.i_bl_driver)
+            v_bl_clamp_chunks.append(solver_dcop_chunk.v_bl_clamp)
             global_indices.append(spec.flat_global_idx)
-            # solver_dcop_chunk / clamp_dcop_chunk go out of scope at
-            # iteration end → heavy per-cell tensors freed before the
-            # next chunk allocates its own.
+            # solver_dcop_chunk goes out of scope at iteration end → heavy
+            # per-cell tensors freed before the next chunk allocates.
 
         # --- Reassemble outputs ---
 
-        v_out_phys = reassemble_chunks(v_out_phys_chunks, global_indices, leading, col_trailing)
+        i_bl_port__uA = reassemble_chunks(i_bl_port_chunks, global_indices, leading, line_trailing)
+        v_bl_clamp__V = reassemble_chunks(v_bl_clamp_chunks, global_indices, leading, line_trailing)
         array_energy__fJ = reassemble_chunks(chunk_energies, global_indices, leading, ())
 
         # --- Emit one energy + one latency event for this VMM ---
@@ -493,7 +496,7 @@ class CircuitCore1T1R(CircuitBase[CircuitCore1T1RConfig]):
         )
         self._log_dynamic_energy(array_energy__fJ)
         self._log_latency(latency__ns)
-        return v_out_phys
+        return CoreSteadyState(i_bl_port__uA=i_bl_port__uA, v_bl_clamp__V=v_bl_clamp__V)
 
     # -----------------------------------------------------------------
     # Dynamic-energy aggregation

@@ -12,7 +12,7 @@ The ADC mode and its underlying range / boundary settings must already be presen
 
 The fit drives a physical tile and its lossless twin against the same inputs, then solves a one-parameter least squares.
 
-1. Build a physical `Offset1T1RXbar` from the chip TOML with every nonideality flag `False`.
+1. Build a physical xbar from the chip TOML with every nonideality flag `False`.
 2. Build its lossless counterpart via `to_ideal()`. Note: `to_ideal()` does **not** copy the programmed state — both xbars are programmed separately on every weight sample.
 3. Stream `weight_samples` programmed states in `weight_samples / batch_size` serial passes; each pass programs `batch_size` weights into the `inst_shape=(batch_size,)` xbar in parallel. For each pass $w$:
     - call `physical.program(w)` **and** `ideal.program(w)` as separate program calls (the twin shares no state with the physical tile);
@@ -75,8 +75,8 @@ mode = 0                         # operating-point index; 0 <= mode < xbar.adc_m
 ```
 
 ```bash
-python -m neurox.tools.xbar_adc.calibrate \
-    --config example/config/xbar_adc_calibrate.toml \
+python -m <scheme>.tools.xbar_adc.calibrate \
+    --config <scheme>/config/xbar_adc_calibrate.toml \
     --plot log/xbar_adc/calibrate/mode0.png \
     --device cuda:0
 ```
@@ -114,7 +114,7 @@ rescale_factor = ...
 
 For SAR-family ADCs (which support `bits < max_bits` on the same range) the derived lower-bit table is printed for information; you choose which derived rows to add to the chip TOML. For non-SAR ADCs (e.g. `GeneralADC`) the derived table is skipped, as those topologies do not support flexible bit widths. Paste the snippet under the `[xbar]` section of the chip TOML.
 
-`Offset1T1RXbar` instantiates one physically-identical `bl_adc` module per readout group; the $(\mathrm{phys\_code}, \mathrm{ideal\_vmm})$ pairs are flattened across all instances before the fit. This is intentional — real silicon shares the same ADC circuit design and bias network across slices, so a single scalar `rescale_factor` is the correct model.
+A scheme xbar that instantiates one physically-identical `bl_adc` module per readout group flattens the $(\mathrm{phys\_code}, \mathrm{ideal\_vmm})$ pairs across all instances before the fit. This is intentional — real silicon shares the same ADC circuit design and bias network across slices, so a single scalar `rescale_factor` is the correct model.
 
 When `--plot PATH` is supplied, the left panel scatters $(\mathrm{phys\_code}, \mathrm{ideal\_vmm})$ with the calibrated line $y = \mathrm{phys\_code} \cdot r_{\max}$ overlaid (saturated, excluded samples in red), and the right panel is the residual histogram $\mathrm{phys\_code} \cdot r_{\max} - \mathrm{ideal\_vmm}$ with mean and $\mathrm{mean} \pm \mathrm{std}$ lines. matplotlib is imported lazily; if it is missing the tool raises `RuntimeError`.
 

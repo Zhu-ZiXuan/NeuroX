@@ -490,7 +490,7 @@ def _resolve_preset_fragment_path(rel: str) -> Path:
 def preset_path(rel: str) -> Path:
     """Absolute path to a bundled preset file under ``neurox/presets/``.
 
-    ``rel`` is a presets-root-relative path (e.g. ``"policy/all_off.toml"``).
+    ``rel`` is a presets-root-relative path (e.g. ``"process/rram.toml"``).
     Suffix-free paths try ``.toml`` then ``.yaml`` / ``.yml``. Use this when
     library code loads a bundled preset directly via :func:`dataclass_from_file`,
     rather than referencing it from a user file with ``_neurox_use_preset``.

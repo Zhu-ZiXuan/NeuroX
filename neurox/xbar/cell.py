@@ -4,9 +4,9 @@ A cell encapsulates the analog two-terminal device branch seen by the
 array solver between a bit-line node and a source-line node: its DC
 current, the signed branch conductances the wire Jacobian needs, and the
 per-cell device-capacitance switching energy. Concrete cells own their
-``nn.Module`` device children and expose a single condensed branch — the
-internal device topology (for example the ``V_X`` node of a 1T1R cell) is
-solved inside the cell, never by the array solver.
+``nn.Module`` device children and expose a single condensed branch — any
+internal device topology node is solved inside the cell, never by the
+array solver.
 
 See also:
     docs/reference/xbar/cell.md
@@ -61,8 +61,8 @@ class XbarCellResiduals:
     """Marker base for per-cell DC-solve residual diagnostics.
 
     Concrete cells carry a subclass holding the absolute internal-KCL
-    residual of their own condensation (for example the access-node
-    current mismatch of a 1T1R cell).
+    residual of their own condensation (for example an access-node
+    current mismatch).
     """
 
 

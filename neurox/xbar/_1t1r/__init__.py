@@ -1,8 +1,8 @@
-"""1T1R cell topology — condensed branch cell, physical core, and offset xbar.
+"""1T1R array unit — concrete 1T1R cell and its pure-array core.
 
-The DC solver is topology-agnostic and lives in :mod:`neurox.xbar.solver`
-(``Solver`` / ``NestedSolver``); the 1T1R cell supplies the per-call branch
-the solver drives.
+The cell and core co-vary by array type: the core is built for its cell. The
+shared :class:`~neurox.xbar.cell.XbarCell` ABC, the :class:`~neurox.xbar.Xbar`
+ABC, and the parallel-rail solver stay at the layer level.
 """
 
 from .cell import (
@@ -13,24 +13,13 @@ from .cell import (
     XbarCell1T1RResiduals,
     XbarCell1T1RSnap,
 )
-from .circuit_core import (
-    CircuitCore1T1R,
-    CircuitCore1T1RConfig,
-    CircuitCore1T1RPolicy,
-)
-from .offset import (
-    Offset1T1RXbar,
-    Offset1T1RXbarConfig,
-    Offset1T1RXbarPolicy,
-)
+from .core import Core1T1R, Core1T1RConfig, Core1T1RPolicy, CoreSteadyState
 
 __all__ = [
-    "CircuitCore1T1R",
-    "CircuitCore1T1RConfig",
-    "CircuitCore1T1RPolicy",
-    "Offset1T1RXbar",
-    "Offset1T1RXbarConfig",
-    "Offset1T1RXbarPolicy",
+    "Core1T1R",
+    "Core1T1RConfig",
+    "Core1T1RPolicy",
+    "CoreSteadyState",
     "XbarCell1T1R",
     "XbarCell1T1RConfig",
     "XbarCell1T1RDCOP",

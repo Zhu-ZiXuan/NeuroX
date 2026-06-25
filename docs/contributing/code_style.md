@@ -154,7 +154,7 @@ A member that appears on many classes with identical signature **and identical s
 config: Concrete configuration dataclass.
 ```
 
-- **Repeated family methods** (`from_config`, `snapshot`, `program`, `matmul`, `vec_mat_mul`, `adc_rescale_factor`, ...) carry the docstring written on their abstract declaration; an impl restates it only when its behaviour genuinely differs (e.g. `Offset1T1RXbar.w_digit_range`, whose offset-specific derivation earns its own text).
+- **Repeated family methods** (`from_config`, `snapshot`, `program`, `matmul`, `vec_mat_mul`, `adc_rescale_factor`, ...) carry the docstring written on their abstract declaration; an impl restates it only when its behaviour genuinely differs (e.g. a concrete xbar's `w_digit_range`, whose scheme-specific derivation earns its own text).
 - **Inherited PPA properties** (`area_per_inst__um2` / `leakage_per_inst__uW`) are defined once on `CircuitBase`; leaf circuits do not redeclare them.
 
 Implementation-specific notes may live in the class docstring or inline comments, but must not displace the canonical text.

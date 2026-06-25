@@ -2,7 +2,7 @@
 
 ## Summary
 
-The pluggable-cell abstraction is a `RegistryMixin` family (`XbarCell` base + `XbarCellConfig` / `XbarCellPolicy` / `XbarCellSnap` / `XbarCellDCOP` / `XbarCellResiduals` containers in `xbar/cell.py`) with one 1T1R implementation (`_1t1r/cell.py`). The cell realizes the model in [reference/xbar/_1t1r/cell](../../../reference/xbar/_1t1r/cell.md). This document covers the non-obvious choices, not the branch-solve flow.
+The pluggable-cell abstraction is a `RegistryMixin` family (`XbarCell` base + `XbarCellConfig` / `XbarCellPolicy` / `XbarCellSnap` / `XbarCellDCOP` / `XbarCellResiduals` containers in `xbar/cell.py`) with one 1T1R implementation (`xbar/cell_1t1r.py`). The cell realizes the model in [reference/xbar/cell_1t1r](../../../reference/xbar/_1t1r/cell.md). This document covers the non-obvious choices, not the branch-solve flow.
 
 ## Design decisions
 
@@ -41,6 +41,6 @@ The cell's per-call working set is the device snaps plus a handful of node-volta
 ---
 
 - **Reference**: [cell](../../../reference/xbar/_1t1r/cell.md)
-- **Implementation**: `neurox/xbar/cell.py`, `neurox/xbar/_1t1r/cell.py`
+- **Implementation**: `neurox/xbar/cell.py`, `neurox/xbar/cell_1t1r.py`
 - **Tests**: `tests/test_xbar_cell.py`, `tests/test_xbar_physics.py`
 - **Decisions**: [ADR-0004 clamp-driver role and the topology-agnostic array solver](../../../about/adr/ADR-0004-clamp-driver-protocol-and-generic-solver.md), [ADR-0003 pluggable xbar cell and the single nested solver](../../../about/adr/ADR-0003-xbar-cell-abstraction-and-single-nested-solver.md)

@@ -42,11 +42,6 @@ demo = [
 "Homepage" = "https://github.com/Zhu-Zixuan/NeuroX"
 "Bug Tracker" = "https://github.com/Zhu-Zixuan/NeuroX/issues"
 
-# Stable user-facing console scripts.  All tools live under
-# ``neurox.tools`` and require explicit CLI arguments (no defaults).
-[project.scripts]
-neurox-calculate-1t1r-states     = "neurox.tools.calculate_1t1r_states:main"
-
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["neurox*"]

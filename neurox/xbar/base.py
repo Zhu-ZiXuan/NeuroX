@@ -161,7 +161,7 @@ class Xbar(CircuitBase[XbarConfig], RegistryMixin[type["XbarConfig"], "Xbar"]):
     @property
     @abstractmethod
     def adc_mode_num(self) -> int:
-        """Number of supported ADC operating points; valid ``adc_mode`` values are ``[0, mode_num)``."""
+        """Number of supported ADC operating points; valid ``adc_mode`` values are ``[0, adc_mode_num)``."""
         raise NotImplementedError
 
     @property
@@ -204,11 +204,11 @@ class Xbar(CircuitBase[XbarConfig], RegistryMixin[type["XbarConfig"], "Xbar"]):
         raise NotImplementedError
 
     def to_ideal(self) -> IdealXbar:
-        """Return the lossless :class:`IdealXbar` counterpart of this tile.
+        """Return the lossless ideal twin of this tile.
 
-        The new ``IdealXbar`` inherits this tile's per-instance
-        multiplicity and ADC operating-point metadata. ``IdealXbar.to_ideal``
-        overrides this to ``return self``.
+        The twin inherits this tile's per-instance multiplicity and ADC
+        operating-point metadata. A tile that is already ideal overrides
+        this to ``return self``.
         """
         # Local import — the ``ideal`` module imports from this file,
         # so the symbol is only safe to resolve at call time.

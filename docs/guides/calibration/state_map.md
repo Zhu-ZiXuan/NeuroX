@@ -1,10 +1,10 @@
 # State-map calibration
 
-Goal: derive the per-state RRAM conductance ladder `state_to_g_map__uS` so that the 1T1R cell read current is *linear in the state index* under a fixed read bias. This ladder is the `Measured` parameter consumed by [reference/xbar/_1t1r/circuit_core](../../reference/xbar/_1t1r/circuit_core.md) (`[xbar.core_config.cell_config]`). The tool is the offline single-cell CLI `neurox/tools/calculate_1t1r_states.py`.
+Goal: derive the per-state RRAM conductance ladder `state_to_g_map__uS` so that the 1T1R cell read current is *linear in the state index* under a fixed read bias. This ladder is the `Measured` parameter consumed by [reference/xbar/_1t1r/core](../../reference/xbar/_1t1r/core.md) (`[xbar.core_config.cell_config]`). The tool is the offline single-cell CLI `<scheme>/tools/calculate_1t1r_states.py`.
 
 ## What the tool produces
 
-The CLI emits two paste-ready lines through the Python `logging` framework (INFO level on the `neurox.tools.calculate_1t1r_states` logger) for direct paste into `[xbar.core_config.cell_config]`:
+The CLI emits two paste-ready lines through the Python `logging` framework (INFO level on the tool's `calculate_1t1r_states` logger) for direct paste into `[xbar.core_config.cell_config]`:
 
 ```toml
 rram_g_max__uS = 100.0
@@ -88,7 +88,7 @@ The run also logs `max_abs_current_error__uA` (the largest $|I_{\mathrm{cell}}(g
 The tool is config-driven via the standard argument set; all physical and design parameters live in the TOML, and the CLI carries only runtime knobs.
 
 ```bash
-python -m neurox.tools.calculate_1t1r_states --config example/config/calculate_1t1r_states.toml
+python -m <scheme>.tools.calculate_1t1r_states --config <scheme>/config/calculate_1t1r_states.toml
 ```
 
 | Flag | Type | Default | Role |
@@ -115,7 +115,7 @@ The config is the frozen dataclass `Calculate1T1RStatesConfig` with four section
   - `access_nmos_W__um: float` — access-NMOS width [um].
   - `access_nmos_L__um: float` — access-NMOS length [um].
 
-Hard fast-fail conditions: $N < 2$, $g_{\max} \le 0$, $g_{\max} \le g_{\min}$, $V_{\mathrm{BL}} \le V_{\mathrm{SL}}$, $W \le 0$, $L \le 0$, $T \le 0$. A runnable template lives at [`example/config/calculate_1t1r_states.toml`](../../../example/config/calculate_1t1r_states.toml).
+Hard fast-fail conditions: $N < 2$, $g_{\max} \le 0$, $g_{\max} \le g_{\min}$, $V_{\mathrm{BL}} \le V_{\mathrm{SL}}$, $W \le 0$, $L \le 0$, $T \le 0$. A runnable template lives beside the tool at `<scheme>/config/calculate_1t1r_states.toml`.
 
 ## Output order
 
@@ -123,7 +123,7 @@ All output goes through `logger.info(...)` in this order: load notices $\rightar
 
 ---
 
-- **See also**: [1T1R circuit_core reference](../../reference/xbar/_1t1r/circuit_core.md) (consumer of `state_to_g_map__uS`)
+- **See also**: [Core1T1R reference](../../reference/xbar/_1t1r/core.md) (consumer of `state_to_g_map__uS`)
 - [RRAM device reference](../../reference/device/rram.md)
 - [access-NMOS device reference](../../reference/device/nmos.md)
 - [parameter provenance](../../reference/parameter_provenance.md)

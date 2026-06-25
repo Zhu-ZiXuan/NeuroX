@@ -97,7 +97,7 @@ class NMOSPolicy:
 
 @dataclass(frozen=True)
 class NMOSDCOP:
-    """Solver-facing working-point result for one NMOS evaluation.
+    """Caller-facing working-point result for one NMOS evaluation.
 
     Attributes:
         ids__uA: Drain-source current [uA] — positive drain → source.

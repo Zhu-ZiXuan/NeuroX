@@ -8,4 +8,4 @@ Planned contents:
 - Quickstart: run a bundled example end to end (`make eval-lenet`) and read the PPA output.
 - Orientation: which section to read next, by audience.
 
-Until these land, the runnable entry point is the [algorithm_engineer guide](../guides/algorithm_engineer/README.md), built from the existing `example/` flow.
+Until these land, the runnable entry point is the [algorithm_engineer guide](../guides/algorithm_engineer/README.md), built from the existing bundled application flow.

@@ -111,9 +111,9 @@ NeuroX is a general CiM simulation and benchmarking platform. This document trac
 
 ## Operator and Model Integration (out of core)
 
-Operator wrapping and model rewriting are application-layer concerns; the public NeuroX surface stops at `neurox.macro`. `example/lenet/` and `example/bert/` ship reference implementations of QAT-aware quantised layers, observer calibration, and the train-float → HAT → evaluate flow. Items below are tracked only as possible future *core helpers* that would simplify those examples, not as core-API additions:
+Operator wrapping and model rewriting are application-layer concerns; the public NeuroX surface stops at `neurox.macro`. Bundled application flows ship reference implementations of QAT-aware quantised layers, observer calibration, and the train-float → HAT → evaluate flow. Items below are tracked only as possible future *core helpers* that would simplify those flows, not as core-API additions:
 
-- [ ] Reference QAT/observer utility module (extracted from `example/*/quant.py` if multiple examples need it).
+- [ ] Reference QAT/observer utility module (extracted from application quant code if multiple flows need it).
 - [ ] `torch.fx`-based model rewriting helper.
 - [ ] Attention / grouped-conv mapping helpers.
 - [ ] Hardware-aware training with full analog gradient flow (not just STE).

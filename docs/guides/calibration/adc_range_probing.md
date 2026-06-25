@@ -6,20 +6,20 @@ This tool only logs (and optionally plots) range candidates. It does not choose 
 
 ## What it does
 
-1. Build an `Offset1T1RXbar` from the chip TOML with every nonideality flag `False`.
-2. Replace `xbar.readout.bl_adc` with a `ProbeADC` (capture-only stand-in).
+1. Build a physical xbar from the chip TOML with every nonideality flag `False`.
+2. Replace `xbar.bl_adc` with a `ProbeADC` (capture-only stand-in).
 3. Sample `weight_samples` independent programmed states in `weight_samples / batch_size` serial passes; each pass programs `batch_size` weights into the `inst_shape=(batch_size,)` xbar in parallel. For each pass: call `xbar.program(w)`, then sample `input_samples_per_weight` input vectors and broadcast them against the `batch_size` parallel weights in a single `xbar.vec_mat_mul` call (not input-chunked).
 4. The `ProbeADC` accumulates $V_{\mathrm{pos}}$ / $V_{\mathrm{neg}}$ per call; the differential analog input the ADC would see is $V_{\mathrm{diff}} = V_{\mathrm{pos}} - V_{\mathrm{neg}}$.
 5. After sampling, restore the original ADC and build the range-candidate ladder from the empirical $|V_{\mathrm{diff}}|$ distribution.
 
 ### `ProbeADC` — the capture-only stand-in
 
-`ProbeADC` is a tool-local subclass of `ADC` that satisfies the readout's static `bl_adc: ADC` interface without quantising. It:
+`ProbeADC` is a tool-local subclass of `ADC` that satisfies the inlined readout chain's static `bl_adc: ADC` interface without quantising. It:
 
-- inherits `ADC`, so `setattr(readout, "bl_adc", probe)` type-checks;
+- inherits `ADC`, so `setattr(xbar, "bl_adc", probe)` type-checks;
 - is **not** registered with the ADC family (no `@ADC.register_key`) and so is never resolvable through `ADC.from_config` — it exists only to be installed manually by this tool;
-- copies `mode_num` / `max_bits` / `signed_range(...)` from the replaced ADC, and never logs dynamic events, so no per-op latency or energy state lives on the probe;
-- in `convert(...)`, appends detached CPU float64 1-D copies of $V_{\mathrm{pos}}$ / $V_{\mathrm{neg}}$ to internal buffers and returns `torch.zeros_like(v_pos__V, dtype=torch.int64)`, so the downstream `readout.readout(...)` flatten chain stays valid.
+- copies `max_bits` / `signed_range(...)` from the replaced ADC, and never logs dynamic events, so no per-op latency or energy state lives on the probe;
+- in `convert(...)` — whose signature matches `ADC.convert`, so the inlined readout's injected `v_refs__V` reference taps land cleanly and are ignored — appends detached CPU float64 1-D copies of $V_{\mathrm{pos}}$ / $V_{\mathrm{neg}}$ to internal buffers and returns `torch.zeros_like(v_pos__V, dtype=torch.int64)`, so the downstream xbar's `vec_mat_mul` flatten chain stays valid.
 
 A `ProbeHandle` stores the displaced original ADC outside the probe's module tree (in a `dataclass` field, not an `nn.Module`) so `xbar.modules()` is not polluted while the probe is installed. The handle is a context manager: `with install_probe_adc(xbar): ...` restores the original ADC on exit.
 
@@ -53,8 +53,8 @@ The integer exponent $N$ in $10^{-N}$ is the single source of truth for each can
 ## CLI usage
 
 ```bash
-python -m neurox.tools.xbar_adc.statistic \
-    --config example/config/xbar_adc_statistic.toml \
+python -m <scheme>.tools.xbar_adc.statistic \
+    --config <scheme>/config/xbar_adc_statistic.toml \
     --plot-dir log/xbar_adc/statistic/ \
     --device cuda:0
 ```

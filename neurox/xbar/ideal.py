@@ -209,7 +209,7 @@ class IdealXbar(Xbar):
         ``adc_mode`` is opaque to the ideal tile and not read.
         ``adc_bits == 0`` is a sentinel: skip ADC quantization and
         the signed clamp, returning the lossless integer dot product so
-        results match :class:`IdealXbarMacro` exactly.
+        results match the lossless reference exactly.
 
         Args:
             x: Activation tensor with primitive trailing

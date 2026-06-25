@@ -1,12 +1,16 @@
 """Physical crossbar array implementations."""
 
 from ._1t1r import (
-    CircuitCore1T1R,
-    CircuitCore1T1RConfig,
-    CircuitCore1T1RPolicy,
-    Offset1T1RXbar,
-    Offset1T1RXbarConfig,
-    Offset1T1RXbarPolicy,
+    Core1T1R,
+    Core1T1RConfig,
+    Core1T1RPolicy,
+    CoreSteadyState,
+    XbarCell1T1R,
+    XbarCell1T1RConfig,
+    XbarCell1T1RDCOP,
+    XbarCell1T1RPolicy,
+    XbarCell1T1RResiduals,
+    XbarCell1T1RSnap,
 )
 from .base import Xbar, XbarConfig, XbarPolicy
 from .cell import (
@@ -20,17 +24,21 @@ from .cell import (
 from .ideal import IdealXbar, IdealXbarConfig, IdealXbarPolicy
 
 __all__ = [
-    "CircuitCore1T1R",
-    "CircuitCore1T1RConfig",
-    "CircuitCore1T1RPolicy",
+    "Core1T1R",
+    "Core1T1RConfig",
+    "Core1T1RPolicy",
+    "CoreSteadyState",
     "IdealXbar",
     "IdealXbarConfig",
     "IdealXbarPolicy",
-    "Offset1T1RXbar",
-    "Offset1T1RXbarConfig",
-    "Offset1T1RXbarPolicy",
     "Xbar",
     "XbarCell",
+    "XbarCell1T1R",
+    "XbarCell1T1RConfig",
+    "XbarCell1T1RDCOP",
+    "XbarCell1T1RPolicy",
+    "XbarCell1T1RResiduals",
+    "XbarCell1T1RSnap",
     "XbarCellConfig",
     "XbarCellDCOP",
     "XbarCellPolicy",
