@@ -358,7 +358,7 @@ def col_wire_kcl_residual(
     Args:
         v_node: Wire node voltages [V]. Shape
             ``[..., col_num, row_num]``.
-        v_drive: Driver voltage [V]. Shape ``[..., col_num, 1]``.
+        v_drive: Drive voltage [V]. Shape ``[..., col_num, 1]``.
         segment_g: Per-segment conductance [uS]. Shape ``(row_num,)``.
         i_inject: Cell current drawn at each node [uA].
 
@@ -395,7 +395,7 @@ def row_wire_kcl_residual(
     Args:
         v_node: Wire node voltages [V]. Shape
             ``[..., col_num, row_num]``.
-        v_drive: Driver voltage [V]. Shape ``[..., 1, row_num]``.
+        v_drive: Drive voltage [V]. Shape ``[..., 1, row_num]``.
         segment_g: Per-segment conductance [uS]. Shape ``(col_num,)``.
         i_inject: Cell current drawn at each node [uA].
 
@@ -426,12 +426,12 @@ def col_driver_current(
     Args:
         v_node: Wire node voltages [V]. Shape
             ``[..., col_num, row_num]``.
-        v_drive: Driver voltage [V]. Shape ``[..., col_num, 1]``.
+        v_drive: Drive voltage [V]. Shape ``[..., col_num, 1]``.
         segment_g: Per-segment conductance [uS] — only
             ``segment_g[0]`` is read.
 
     Returns:
-        Driver current [uA]. Shape ``[..., col_num]``.
+        Drive current [uA]. Shape ``[..., col_num]``.
     """
     dim = -1
     return (v_drive.squeeze(dim) - v_node.select(dim, 0)) * segment_g[0]
@@ -447,12 +447,12 @@ def row_driver_current(
     Args:
         v_node: Wire node voltages [V]. Shape
             ``[..., col_num, row_num]``.
-        v_drive: Driver voltage [V]. Shape ``[..., 1, row_num]``.
+        v_drive: Drive voltage [V]. Shape ``[..., 1, row_num]``.
         segment_g: Per-segment conductance [uS] — only
             ``segment_g[0]`` is read.
 
     Returns:
-        Driver current [uA]. Shape ``[..., row_num]``.
+        Drive current [uA]. Shape ``[..., row_num]``.
     """
     dim = -2
     return (v_drive.squeeze(dim) - v_node.select(dim, 0)) * segment_g[0]

@@ -1,9 +1,9 @@
 """Standalone solver harness for solver-only tests.
 
 Builds a standalone :class:`XbarCell1T1R` (owning fabricated RRAM /
-access-NMOS), independent OpAmpTIA / Driver boundary modules, and a
+access-NMOS), independent OpAmpTIA / VoltageDriver boundary modules, and a
 chip-preset-driven stateless ``Solver``, with synthetic mid-range RRAM g
-and a configurable ``v_wl_drive`` grid. Does NOT touch ``CircuitCore1T1R``
+and a configurable ``v_wl_drive`` grid. Does NOT touch ``Core1T1R``
 / ``Offset1T1RXbar`` — solver tests should depend only on the solver.
 
 Public surface: :func:`build_solver_harness` returns a frozen
@@ -25,13 +25,13 @@ from typing import Any
 import torch
 from torch import Tensor
 
-from neurox.analog import Driver, DriverPolicy
+from neurox.analog import VoltageDriver, VoltageDriverPolicy, VoltageReference, VoltageReferencePolicy
 from neurox.analog.tia import OpAmpTIA, OpAmpTIAConfig, OpAmpTIAPolicy
 from neurox.common.load_dump import dataclass_from_file
 from neurox.device import NMOSPolicy, RRAMPolicy
-from neurox.xbar._1t1r import Offset1T1RXbarConfig
-from neurox.xbar._1t1r.cell import XbarCell1T1R, XbarCell1T1RPolicy, XbarCell1T1RSnap
+from neurox.xbar._1t1r import XbarCell1T1R, XbarCell1T1RPolicy, XbarCell1T1RSnap
 from neurox.xbar.solver import Solver, SolverConfig
+from works.offset_1t1r.xbar import Offset1T1RXbarConfig
 
 
 @dataclass(frozen=True)
@@ -41,7 +41,7 @@ class SolverHarness:
     solver: Solver
     cell: XbarCell1T1R
     bl_driver: OpAmpTIA
-    sl_driver: Driver
+    sl_driver: VoltageDriver
     bl_driver_snap: Any
     sl_driver_snap: Any
     bl_segment_r__MOhm: Tensor
@@ -49,6 +49,13 @@ class SolverHarness:
     bl_segment_g__uS: Tensor
     sl_segment_g__uS: Tensor
     v_wl_drive__V: Tensor
+    # Resolved clamp-reference taps (post-snapshot) injected into the driver
+    # snaps: the BL-clamp tap and the SL-drive tap. The drivers no longer hold
+    # a v_ref__V; the reference is owned by the core's VoltageReference and
+    # injected per snapshot. Tests read these (or the driver snaps' v_ref__V)
+    # to pin clamp voltages.
+    bl_v_ref__V: Tensor
+    sl_v_ref__V: Tensor
     inst_shape: tuple[int, ...] = field(default_factory=tuple)
 
     def cell_snapshot(self) -> XbarCell1T1RSnap:
@@ -98,7 +105,7 @@ def build_solver_harness(
     """Construct a standalone solver test harness from a chip preset.
 
     Reads only ``[xbar]`` from the TOML for chip constants (the 1T1R cell
-    config carrying RRAM / NMOS + sizing + state map, the TIA / Driver
+    config carrying RRAM / NMOS + sizing + state map, the TIA / VoltageDriver
     configs, and wire R/C). The cell and the two boundary drivers are
     built fresh with no nonideality policy and fabricated once; the cell's
     RRAM is programmed to a uniform mid-range conductance derived from the
@@ -140,7 +147,7 @@ def build_solver_harness(
         dtype=dtype,
         T__K=300.0,
     )
-    tia_cfg = core_cfg.tia_config
+    tia_cfg = xbar_config.tia_config
     assert isinstance(tia_cfg, OpAmpTIAConfig)
     bl_driver = OpAmpTIA(
         config=tia_cfg,
@@ -153,16 +160,27 @@ def build_solver_harness(
         dtype=dtype,
         T__K=300.0,
     )
-    sl_driver = Driver(
-        config=core_cfg.sl_driver_config,
-        policy=DriverPolicy(drive_thermal=False),
+    sl_driver = VoltageDriver(
+        config=xbar_config.sl_driver_config,
+        policy=VoltageDriverPolicy(offset=False, thermal=False),
         name="harness.sl_driver",
         inst_shape=(*inst_shape, phys_col_num),
         dtype=dtype,
         T__K=300.0,
     )
+    # Core-owned clamp reference (two ordered taps: BL-clamp, SL-drive). The
+    # drivers no longer hold their own v_ref; the reference is snapshotted once
+    # and the resolved taps are injected into each driver snapshot.
+    clamp_ref = VoltageReference(
+        config=xbar_config.clamp_ref_config,
+        policy=VoltageReferencePolicy(tolerance=False, noise=False),
+        name="harness.clamp_ref",
+        inst_shape=(),
+        dtype=dtype,
+        T__K=300.0,
+    )
 
-    for m in (cell, bl_driver, sl_driver):
+    for m in (cell, bl_driver, sl_driver, clamp_ref):
         m.to(device)
         m.eval()
         m.fabricate()
@@ -201,10 +219,15 @@ def build_solver_harness(
     full_shape = (x_batch, *inst_shape, phys_col_num, row_num)
     v_wl_drive = torch.full(full_shape, v_wl_drive__V, device=device, dtype=dtype)
 
-    # --- Boundary-driver snaps at the broadcast shape used by the solver ---
+    # --- Clamp-reference snapshot (once) + boundary-driver snaps ---
 
-    bl_drv_snap = bl_driver.snapshot(shape=(x_batch, *inst_shape, phys_col_num), multi_coords=None)
-    sl_drv_snap = sl_driver.snapshot(shape=(x_batch, *inst_shape, phys_col_num), multi_coords=None)
+    # Snapshot the clamp reference once and inject the resolved taps into each
+    # driver snapshot: tap 0 = BL-clamp reference, tap 1 = SL-drive reference.
+    clamp_taps = clamp_ref.v_ref__V(clamp_ref.snapshot())
+    bl_v_ref = clamp_taps[0]
+    sl_v_ref = clamp_taps[1]
+    bl_drv_snap = bl_driver.snapshot(v_ref__V=bl_v_ref, shape=(x_batch, *inst_shape, phys_col_num), multi_coords=None)
+    sl_drv_snap = sl_driver.snapshot(v_ref__V=sl_v_ref, shape=(x_batch, *inst_shape, phys_col_num), multi_coords=None)
 
     # --- Solver (stateless: cell + drivers supplied per call) ---
 
@@ -222,5 +245,7 @@ def build_solver_harness(
         bl_segment_g__uS=bl_seg_g,
         sl_segment_g__uS=sl_seg_g,
         v_wl_drive__V=v_wl_drive,
+        bl_v_ref__V=bl_v_ref,
+        sl_v_ref__V=sl_v_ref,
         inst_shape=inst_shape,
     )

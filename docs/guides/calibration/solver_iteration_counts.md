@@ -1,6 +1,6 @@
 # Calibrating solver iteration counts
 
-Goal: pick a fixed iteration count for every fixed-trip-count Newton in the 1T1R DC path — the array solver $\operatorname{NestedSolver}$ ($n_{\mathrm{outer}}$, $n_{\mathrm{inner}}$), the embedded $\operatorname{OpAmpTIA}$ inner Newton ($n_{\mathrm{newton}}$), and the per-cell access-node condensation $\operatorname{XbarCell1T1R}$ ($n_{\mathrm{newton}}$) — so the runtime path executes a `torch.compile`-friendly fixed-trip-count graph. Calibration is a one-shot offline job: the chip preset stores the picked counts and the production solver never monitors anything at runtime.
+Goal: pick a fixed iteration count for every fixed-trip-count Newton in the 1T1R DC path — the array solver $\operatorname{NestedParallelRailSolver}$ ($n_{\mathrm{outer}}$, $n_{\mathrm{inner}}$), the embedded $\operatorname{OpAmpTIA}$ inner Newton ($n_{\mathrm{newton}}$), and the per-cell access-node condensation $\operatorname{XbarCell1T1R}$ ($n_{\mathrm{newton}}$) — so the runtime path executes a `torch.compile`-friendly fixed-trip-count graph. Calibration is a one-shot offline job: the chip preset stores the picked counts and the production solver never monitors anything at runtime.
 
 The framework is **chip-parameter-free** by design. It never references ADC bits, ADC range, model output, or any other downstream concern. The picked count guarantees the solver has converged within the numerical floor of its own iterate sequence.
 
@@ -84,8 +84,8 @@ Each picked count is the raw plateau $n^*$ plus a fixed $+1$ safety margin — t
 The per-cell access-node condensation in $\operatorname{XbarCell1T1R}$ runs its own fixed Newton on the internal-node KCL $F_{\mathrm{X}} = I_{\mathrm{N}} - I_{\mathrm{R}}$ after a Pade current-divider seed; its `n_newton` is a separate calibrated knob owned by the cell config (`[xbar.core_config.cell_config].n_newton`), not by the array-solver config. It is picked with the **same** step-ratio-plateau criterion as above, applied to the per-cell internal node $V_{\mathrm{X}}$ and the per-cell internal-KCL residual $\lvert F_{\mathrm{X}} \rvert$ rather than to the wire / clamp unknowns. It is calibrated by `cell_calibrate._1t1r`, a tool in a package separate from the array-solver calibrators (which cover the nested solver and the TIA): the per-cell condensation is the cell's responsibility, and a new cell type with a different internal topology calibrates its own count without touching the solver calibrators. The tool sweeps `n_newton` over a representative operating grid — $v_{\mathrm{BL}}$ / $v_{\mathrm{SL}}$ across the read-voltage range, the word line off and on, and every programmed RRAM state — and reads the plateau at the worst point of that grid. The seed lands inside the Newton basin, so the per-cell plateau is reached in very few steps and $V_{\mathrm{X}}$ reaches its round-off floor quickly; the margined count it emits is written to `[xbar.core_config.cell_config].n_newton`.
 
 ```bash
-python -m neurox.tools.cell_calibrate._1t1r \
-    --config example/config/cell_calibrate_1t1r.toml \
+python -m <scheme>.tools.cell_calibrate._1t1r \
+    --config <scheme>/config/cell_calibrate_1t1r.toml \
     --device cpu
 ```
 

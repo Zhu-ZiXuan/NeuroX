@@ -1,4 +1,4 @@
-"""Unit tests for :class:`NestedSolver`.
+"""Unit tests for :class:`NestedParallelRailSolver`.
 
 Covers:
   * residual decay: the nested solver drives every KCL residual class
@@ -10,7 +10,7 @@ Covers:
 All tests build a standalone :class:`Solver` harness via
 :func:`tests.utils.standalone_solver_fixture.build_solver_harness` and
 call ``solver.solve_dc`` directly — they do not depend on
-:class:`CircuitCore1T1R` or :class:`Offset1T1RXbar`. Convergence
+:class:`Core1T1R` or :class:`Offset1T1RXbar`. Convergence
 properties of the solver hold under any in-range inputs; the harness
 uses a uniform mid-range RRAM g pattern and a uniform WL drive so the
 tests are reproducible without a workload sampler.
@@ -25,11 +25,11 @@ import pytest
 import torch
 import torch._dynamo
 
-from neurox.xbar.solver import NestedSolver, NestedSolverConfig
+from neurox.xbar.solver import NestedParallelRailSolver, NestedParallelRailSolverConfig
 from tests.utils.standalone_solver_fixture import build_solver_harness
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-XBAR_CONFIG = REPO_ROOT / "example" / "config" / "1t1r_28nm.toml"
+XBAR_CONFIG = REPO_ROOT / "works" / "offset_1t1r" / "config" / "1t1r_28nm.toml"
 
 
 @pytest.fixture(scope="module")
@@ -65,7 +65,7 @@ def test_nested_residuals_at_machine_precision(fixture_config: Path, device: tor
     """Nested solver drives all three residuals to fp64 noise."""
     harness = build_solver_harness(
         config_path=XBAR_CONFIG,
-        solver_config=NestedSolverConfig(n_outer=20, n_inner=10),
+        solver_config=NestedParallelRailSolverConfig(n_outer=20, n_inner=10),
         inst_shape=(4,),
         x_batch=4,
         device=device,
@@ -85,21 +85,22 @@ def test_nested_inner_only_converges(fixture_config: Path, device: torch.device)
     fp64 noise — inner system is M-matrix monotone, no multi-equilibrium."""
     harness = build_solver_harness(
         config_path=XBAR_CONFIG,
-        solver_config=NestedSolverConfig(n_outer=1, n_inner=50),
+        solver_config=NestedParallelRailSolverConfig(n_outer=1, n_inner=50),
         inst_shape=(4,),
         x_batch=4,
         device=device,
     )
     solver = harness.solver
-    assert isinstance(solver, NestedSolver)
-    # Pinned clamps at the TIA / Driver reference voltages — same shape
-    # as the solver's port-current tensors. The stateless solver carries
-    # no drivers, so the reference voltages come from the harness.
+    assert isinstance(solver, NestedParallelRailSolver)
+    # Pinned clamps at the clamp-reference voltages — same shape as the
+    # solver's port-current tensors. The stateless solver carries no drivers,
+    # and the drivers no longer hold a v_ref; the reference is injected per
+    # snapshot, so the resolved taps come from the harness.
     v_wl = harness.v_wl_drive__V
     *batch, phys_col, _row = v_wl.shape
     dtype = v_wl.dtype
-    v_bl_clamp = torch.full((*batch, phys_col), harness.bl_driver.v_ref__V, device=device, dtype=dtype)
-    v_sl_drive = torch.full((*batch, phys_col), harness.sl_driver.v_ref__V, device=device, dtype=dtype)
+    v_bl_clamp = harness.bl_v_ref__V.to(device=device, dtype=dtype).expand(*batch, phys_col)
+    v_sl_drive = harness.sl_v_ref__V.to(device=device, dtype=dtype).expand(*batch, phys_col)
     dcop = solver.solve_array_fixed_clamp(
         v_bl_clamp__V=v_bl_clamp,
         v_sl_drive__V=v_sl_drive,
@@ -122,7 +123,7 @@ def test_nested_residuals_none_on_hot_path(fixture_config: Path, device: torch.d
     """``compute_residuals=False`` elides the residual algebra."""
     harness = build_solver_harness(
         config_path=XBAR_CONFIG,
-        solver_config=NestedSolverConfig(n_outer=10, n_inner=10),
+        solver_config=NestedParallelRailSolverConfig(n_outer=10, n_inner=10),
         inst_shape=(4,),
         x_batch=4,
         device=device,

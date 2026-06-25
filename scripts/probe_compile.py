@@ -61,10 +61,12 @@ def _bind_solver(name: str) -> None:
     _nested.solve_block_tridiagonal = _SOLVER_TABLE[name]
 
 
-from neurox.analog import AnalogMuxPolicy, DriverPolicy, SwitchCapPolicy
+import works.offset_1t1r  # noqa: F401  (register the Offset1T1RXbar kind)
+from neurox.analog import SwitchCapPolicy, VoltageDriverPolicy, VoltageMuxPolicy
 from neurox.analog.adc import AdcOperationPoint, McsSarAdcConfig, McsSarAdcPolicy
 from neurox.analog.dac import GeneralDACPolicy
 from neurox.analog.tia import OpAmpTIAPolicy
+from neurox.analog.voltage_reference import VoltageReferencePolicy
 from neurox.common import T_ROOM__K, dataclass_from_file
 from neurox.device import NMOSPolicy, RRAMPolicy
 from neurox.digital import AccumulatorConfig
@@ -73,13 +75,8 @@ from neurox.macro.xbar import (
     DirectXbarMacroPolicy,
     XbarMacro,
 )
-from neurox.xbar import Offset1T1RXbarConfig, Offset1T1RXbarPolicy
-from neurox.xbar._1t1r import CircuitCore1T1RPolicy
-from neurox.xbar._1t1r.cell import XbarCell1T1RPolicy
-from neurox.xbar.readout import (
-    OffsetSwitchCapMuxAdcReadOutConfig,
-    OffsetSwitchCapMuxAdcReadOutPolicy,
-)
+from neurox.xbar import Core1T1RPolicy, XbarCell1T1RPolicy
+from works.offset_1t1r.xbar import Offset1T1RXbarConfig, Offset1T1RXbarPolicy
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PRESET = REPO_ROOT / "example" / "config" / "1t1r_28nm.toml"
@@ -100,36 +97,33 @@ class _Tee:
 
 
 def _all_off_xbar_policy(config: Offset1T1RXbarConfig) -> Offset1T1RXbarPolicy:
-    readout_config = config.readout_config
-    if not isinstance(readout_config, OffsetSwitchCapMuxAdcReadOutConfig):
-        raise TypeError(f"probe expects OffsetSwitchCapMuxAdcReadOutConfig; got {type(readout_config).__name__}")
-    if not isinstance(readout_config.adc_config, McsSarAdcConfig):
-        raise TypeError(f"probe expects McsSarAdcConfig; got {type(readout_config.adc_config).__name__}")
+    if not isinstance(config.adc_config, McsSarAdcConfig):
+        raise TypeError(f"probe expects McsSarAdcConfig; got {type(config.adc_config).__name__}")
     return Offset1T1RXbarPolicy(
-        core=CircuitCore1T1RPolicy(
+        core=Core1T1RPolicy(
             cell=XbarCell1T1RPolicy(
                 rram=RRAMPolicy(prog_gamma=False, stuck_at=False, read_telegraph=False, read_thermal=False),
                 nmos=NMOSPolicy(A_vt_mismatch=False, A_beta_mismatch=False),
             ),
-            tia=OpAmpTIAPolicy(
-                opamp_gain_sigma=False,
-                nmos=NMOSPolicy(A_vt_mismatch=False, A_beta_mismatch=False),
-            ),
-            sl_driver=DriverPolicy(drive_thermal=False),
-            wl_dac=GeneralDACPolicy(drive_thermal=False),
             solve_chunk_size=0,
         ),
-        readout=OffsetSwitchCapMuxAdcReadOutPolicy(
-            signal_switchcap=SwitchCapPolicy(cap_mismatch=False, sampling_thermal_noise=False),
-            ref_switchcap=SwitchCapPolicy(cap_mismatch=False, sampling_thermal_noise=False),
-            analog_mux=AnalogMuxPolicy(mux_gain_mismatch=False, mux_noise_cm=False, mux_noise_dm=False),
-            bl_adc=McsSarAdcPolicy(
-                cap_mismatch=False,
-                comparator_offset=False,
-                comparator_thermal_noise=False,
-                sampling_thermal_noise=False,
-            ),
+        wl_dac=GeneralDACPolicy(drive_thermal=False),
+        tia=OpAmpTIAPolicy(
+            opamp_gain_sigma=False,
+            nmos=NMOSPolicy(A_vt_mismatch=False, A_beta_mismatch=False),
         ),
+        sl_driver=VoltageDriverPolicy(offset=False, thermal=False),
+        clamp_ref=VoltageReferencePolicy(tolerance=False, noise=False),
+        signal_switchcap=SwitchCapPolicy(cap_mismatch=False, sampling_thermal_noise=False),
+        ref_switchcap=SwitchCapPolicy(cap_mismatch=False, sampling_thermal_noise=False),
+        voltage_mux=VoltageMuxPolicy(mux_gain_mismatch=False, mux_noise_cm=False, mux_noise_dm=False),
+        bl_adc=McsSarAdcPolicy(
+            cap_mismatch=False,
+            comparator_offset=False,
+            comparator_thermal_noise=False,
+            sampling_thermal_noise=False,
+        ),
+        adc_v_ref=VoltageReferencePolicy(tolerance=False, noise=False),
     )
 
 

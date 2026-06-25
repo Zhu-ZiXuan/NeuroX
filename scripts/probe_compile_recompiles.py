@@ -28,7 +28,7 @@ import torch
 from neurox.analog.adc import AdcOperationPoint
 from neurox.common import T_ROOM__K
 from neurox.macro.xbar import XbarMacro
-from neurox.xbar.solver import NestedSolver
+from neurox.xbar.solver import NestedParallelRailSolver
 
 from example.bert.macro_factory import read_macro_config, read_macro_policy
 
@@ -39,8 +39,8 @@ POLICY_TOML = REPO / "example" / "bert" / "macro.policy.toml"
 
 def _force_solver_eager() -> None:
     """Replace the `@torch.compile`d `solve_dc` with its original callable."""
-    orig = NestedSolver.solve_dc._torchdynamo_orig_callable  # type: ignore[attr-defined]
-    NestedSolver.solve_dc = orig  # type: ignore[assignment]
+    orig = NestedParallelRailSolver.solve_dc._torchdynamo_orig_callable  # type: ignore[attr-defined]
+    NestedParallelRailSolver.solve_dc = orig  # type: ignore[assignment]
 
 
 def _force_macro_eager_backend() -> None:

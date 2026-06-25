@@ -4,17 +4,17 @@
 
 ## What compiles, and what does not
 
-The library does **not** self-compile the macro forward. `XbarMacro.matmul`, `Offset1T1RXbar.vec_mat_mul`, the readout chain, and the digital aggregation all run eager. They are written to be compile-*friendly* (they obey the [contracts](contracts.md)), so a caller may `torch.compile` an entire model, but the library does not force it — consistent with the project rule that compilation is the caller's policy. The one region the library compiles itself is the **DC-solver leaf** `NestedSolver.solve_dc` (`@torch.compile(dynamic=False)`), reached through `CircuitCore1T1R.cim_read`'s eager island.
+The library does **not** self-compile the macro forward. `XbarMacro.matmul`, the scheme xbar's `vec_mat_mul`, the readout chain, and the digital aggregation all run eager. They are written to be compile-*friendly* (they obey the [contracts](contracts.md)), so a caller may `torch.compile` an entire model, but the library does not force it — consistent with the project rule that compilation is the caller's policy. The one region the library compiles itself is the **DC-solver leaf** `NestedParallelRailSolver.solve_dc` (`@torch.compile(dynamic=False)`), reached through `Core1T1R.solve_array`'s eager island.
 
 ## The problem it solves
 
 The DC solve is the one place a self-compiled boundary is both necessary and hard.
 
-- **The solve is heavy and deeply nested.** `cim_read` settles the array to its DC operating point through `solve_dc`, which runs a fixed number of outer/inner Newton iterations; each iteration assembles cell conductances, wire KCL residuals, and a coupled block-tridiagonal system. One `solve_dc` is already a large graph, and its dense per-cell / per-wire kernels are exactly what Inductor fuses — this is where the compile win is.
-- **The solve runs in a memory-bounding chunk loop.** `cim_read`'s leading batch is very large (im2col positions × batch × slice × column). Solving it in one shot materializes every instance's node voltages at once and runs out of memory, so `cim_read` walks the leading in chunks, releasing each chunk's operating point before the next allocates. Chunking is load-bearing. Its trip count `ceil(leading / solve_chunk_size)` is a runtime value, so the loop is not a static `range` a graph can hold — tracing it would either specialize on a concrete count or unroll an unbounded region.
+- **The solve is heavy and deeply nested.** `solve_array` settles the array to its DC operating point through `solve_dc`, which runs a fixed number of outer/inner Newton iterations; each iteration assembles cell conductances, wire KCL residuals, and a coupled block-tridiagonal system. One `solve_dc` is already a large graph, and its dense per-cell / per-wire kernels are exactly what Inductor fuses — this is where the compile win is.
+- **The solve runs in a memory-bounding chunk loop.** `solve_array`'s leading batch is very large (im2col positions × batch × slice × column). Solving it in one shot materializes every instance's node voltages at once and runs out of memory, so `solve_array` walks the leading in chunks, releasing each chunk's operating point before the next allocates. Chunking is load-bearing. Its trip count `ceil(leading / solve_chunk_size)` is a runtime value, so the loop is not a static `range` a graph can hold — tracing it would either specialize on a concrete count or unroll an unbounded region.
 - **The surrounding forward is shape-diverse and profiler-instrumented.** The macro forward's leading shape *and rank* vary per layer (a classifier activation carries fewer leading dims than an encoder one), it carries many size-1 tile dims (`M`, `Sw`, `Tc`, `Tr`) that dynamo specializes, and every analog leaf logs through a `@torch.compiler.disable` profiler hook. Self-compiling that forward shatters it into ~20 profiler-/island-separated frames, each of which recompiles on every distinct tile geometry and input rank — `dynamic=True` absorbs batch *size* but cannot absorb a size-1↔N flip or a rank change — so the per-frame graph count blows past dynamo's `cache_size_limit` and the forward evicts to eager, after each frame has already paid a slow Inductor compile (the readout/ADC chain is the worst).
 
-So the boundary is drawn tightly around the solve. `cim_read` is an eager island that owns the chunk loop, and `solve_dc` inside it is the one compiled leaf. The leaf is **shape-stable**: `cim_read`'s per-chunk advanced-indexing flattens the broadcast leading to a fixed `(chunk_size, 1, row)`, so the solve graph has a single shape regardless of which layer called it — the per-layer diversity that defeats whole-forward compilation never reaches the leaf. The readout / ADC chain, being both shape-diverse and slow to compile for only light-op fusion, is deliberately left eager.
+So the boundary is drawn tightly around the solve. `solve_array` is an eager island that owns the chunk loop, and `solve_dc` inside it is the one compiled leaf. The leaf is **shape-stable**: `solve_array`'s per-chunk advanced-indexing flattens the broadcast leading to a fixed `(chunk_size, 1, row)`, so the solve graph has a single shape regardless of which layer called it — the per-layer diversity that defeats whole-forward compilation never reaches the leaf. The readout / ADC chain, being both shape-diverse and slow to compile for only light-op fusion, is deliberately left eager.
 
 ## The PyTorch mechanism it leans on
 
@@ -31,11 +31,11 @@ So the boundary is drawn tightly around the solve. `cim_read` is an eager island
 ```text
 macro.matmul        (eager; compile-friendly — a caller may torch.compile the model)
   -> vec_mat_mul    (eager)                               # index / readout math
-       -> cim_read  @torch.compiler.disable(recursive=False)   # eager island; owns the chunk loop
+       -> solve_array  @torch.compiler.disable(recursive=False)   # eager island; owns the chunk loop
             for chunk in iter_chunks(...):                # Python loop, never in a graph
                 solve_dc(chunk)                           # the compiled leaf  <- the only self-compiled region
             reassemble; log energy/latency (eager)
-       -> readout.readout(...)                            # eager
+       -> (inline readout: S/H -> mux -> ADC.convert)     # eager, fused into vec_mat_mul
   -> digital aggregate                                    # eager
 solver.solve_dc     @torch.compile(dynamic=False)         # fixed chunk shape -> one shared graph
 ```
@@ -46,8 +46,8 @@ The block-tridiagonal kernel inside the solve uses the **Thomas sweep** (`solve_
 
 Every deviation from the eager default lives here; module docs only point back:
 
-- **Eager island** — `CircuitCore1T1R.cim_read` (`@torch.compiler.disable(recursive=False)`). Owns the chunk loop, list accumulation, snap indexing, and the profiler emit. Under a caller-applied compile it stays an eager island while still letting the nested leaf compile.
-- **Regional leaf** — the concrete solver's `solve_dc` (`NestedSolver.solve_dc`, `@torch.compile(dynamic=False)`; the abstract `Solver.solve_dc` is undecorated). The **only** region the library self-compiles. Shape-stable: the chunk indexing in `cim_read` flattens every call to one `(chunk_size, 1, row)` shape. Obeys the [contracts](contracts.md).
+- **Eager island** — `Core1T1R.solve_array` (`@torch.compiler.disable(recursive=False)`). Owns the chunk loop, list accumulation, snap indexing, and the profiler emit. Under a caller-applied compile it stays an eager island while still letting the nested leaf compile.
+- **Regional leaf** — the concrete solver's `solve_dc` (`NestedParallelRailSolver.solve_dc`, `@torch.compile(dynamic=False)`; the abstract `Solver.solve_dc` is undecorated). The **only** region the library self-compiles. Shape-stable: the chunk indexing in `solve_array` flattens every call to one `(chunk_size, 1, row)` shape. Obeys the [contracts](contracts.md).
 - **Disabled hooks** — `ProfileMixin._log_dynamic_energy` / `_log_latency` (`@torch.compiler.disable`); side-channel writes, placed after the kernel math so fusion is unaffected.
 - **No self-compiled forward** — `XbarMacro.matmul`, `vec_mat_mul`, readout, and digital aggregation run eager. They obey the contracts so a caller *may* compile them, but the library does not self-decorate them.
 
@@ -67,7 +67,7 @@ Every deviation from the eager default lives here; module docs only point back:
 
 ## Risks and failure modes
 
-- **The eager island suppressing the leaf compile.** If a PyTorch version makes the disabled `cim_read` propagate "do not compile" into its callees, `solve_dc` would silently run eager and the bottleneck would never compile — no error, just slow. This is the recursive-disable edge above; it must be re-confirmed (e.g. that the leaf produces exactly one compiled graph) whenever the PyTorch version changes.
+- **The eager island suppressing the leaf compile.** If a PyTorch version makes the disabled `solve_array` propagate "do not compile" into its callees, `solve_dc` would silently run eager and the bottleneck would never compile — no error, just slow. This is the recursive-disable edge above; it must be re-confirmed (e.g. that the leaf produces exactly one compiled graph) whenever the PyTorch version changes.
 - **Per-layer recompilation of the leaf.** The leaf is shape-stable, so this can only happen if its compile signature accidentally keys on object identity (the solver, an RRAM/NMOS buffer) rather than tensor shape, cold-compiling per layer instead of sharing one graph ([#141589](https://github.com/pytorch/pytorch/issues/141589) tracks this class of recompile). The symptom is many cold compiles at model build; the fix is [scheme B](scheme-b-deobjectified.md).
 - **Caller-applied whole-model compile re-exposes the forward's diversity.** If a caller wraps the model in `torch.compile`, the macro forward's size-1 / rank specialization and profiler-hook graph breaks return as the *caller's* tuning problem — raise `cache_size_limit`, or normalize the activation rank before the macro. The library deliberately does not self-compile the forward, so the default path never pays this.
 - **Remainder chunk.** A leading not divisible by the chunk size yields one smaller trailing chunk, a second shape, hence one extra leaf graph. Acceptable; pad-to-full-chunk would collapse it to one graph at the cost of wasted solve work.
@@ -86,4 +86,4 @@ Every deviation from the eager default lives here; module docs only point back:
 ## See also
 
 - [contracts](contracts.md), [scheme B](scheme-b-deobjectified.md), [scheme C](scheme-c-custom-op.md)
-- Implementation: `neurox/macro/xbar/*.py`, `neurox/xbar/_1t1r/{offset,circuit_core}.py`, `neurox/xbar/solver/*.py`, `neurox/common/mixin/profile.py`
+- Implementation: `neurox/macro/xbar/*.py`, `neurox/xbar/_1t1r/core.py`, `neurox/xbar/solver/*.py`, `neurox/common/mixin/profile.py`

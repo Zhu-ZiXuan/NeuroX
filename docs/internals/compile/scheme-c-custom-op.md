@@ -4,7 +4,7 @@
 
 ## The problem it solves
 
-[Scheme A](scheme-a-regional.md) draws an eager island at `cim_read`, so the macro `matmul` graph **breaks** there — fine for `fullgraph=False`, fatal for a parent compiled with `fullgraph=True`. There is no way to keep the chunk loop out of the graph *and* avoid a break except by making the whole xbar read a single opaque node the parent graph neither traces nor breaks on. A custom op is the official mechanism for exactly that.
+[Scheme A](scheme-a-regional.md) draws an eager island at `solve_array`, so the macro `matmul` graph **breaks** there — fine for `fullgraph=False`, fatal for a parent compiled with `fullgraph=True`. There is no way to keep the chunk loop out of the graph *and* avoid a break except by making the whole xbar read a single opaque node the parent graph neither traces nor breaks on. A custom op is the official mechanism for exactly that.
 
 ## The PyTorch mechanism it leans on
 
@@ -21,13 +21,13 @@ Wrap the xbar read as one op; the macro graph then holds a single `neurox::...` 
 ```text
 macro.matmul  @torch.compile(dynamic=True, fullgraph possible)
   -> organize_x                                   (compiled-path)
-  -> neurox::cim_read_1t1r(state tensors, ...)    opaque to Dynamo and Inductor
+  -> neurox::solve_array_1t1r(state tensors, ...)    opaque to Dynamo and Inductor
   -> readout / digital aggregate                  (compiled-path)
 ```
 
 Granularity is the main design choice:
 
-- **C1 — wrap `cim_read`.** Hides the solver chunk loop; readout stays on the traceable path; output is the clamp-voltage tensor. Cleanest output shape, but `cim_read`'s profiler emit and energy bookkeeping are side effects that a (functional) op must not hold internally.
+- **C1 — wrap `solve_array`.** Hides the solver chunk loop; readout stays on the traceable path; output is the clamp-voltage tensor. Cleanest output shape, but `solve_array`'s profiler emit and energy bookkeeping are side effects that a (functional) op must not hold internally.
 - **C2 — wrap `vec_mat_mul`.** Hides core and readout together; output is the ADC-code tensor the macro wants. Larger black box, so the macro can fuse no readout math, and the ADC operating point / rescale enter the op.
 - **C3 — wrap only the per-chunk solve body.** Rejected: the chunk loop stays in the parent graph, so the graph holds a custom-op node per chunk and still grows with chunk count — it hides one chunk's internals, not the loop.
 
@@ -52,7 +52,7 @@ The op runs its body as-is, with no Inductor optimization across its boundary (i
 
 ## Open questions
 
-- Granularity: C1 (`cim_read`) vs C2 (`vec_mat_mul`).
+- Granularity: C1 (`solve_array`) vs C2 (`vec_mat_mul`).
 - Autograd policy: inference-only vs a surrogate backward owned by the operator/algorithm layer.
 - Profiler relocation design under a functional op.
 

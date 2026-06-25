@@ -1,23 +1,27 @@
 """Structural clamp-driver role consumed by the array solver.
 
 The array solver drives each boundary port through a clamp circuit and
-needs only three capabilities from it: a reference clamp voltage, a
-per-call snap of fabricated state, and a clamp solve mapping port current
-to ``(v_clamp, dVclamp/dI)``. :class:`ClampDriver` names that capability
-contract as a structural (``Protocol``) role rather than a registry base
-class: there is no inheritance and no ``RegistryMixin``. The role lives
-beside the solver because the solver is its only consumer; concrete
-clamps (the ``TIA`` family, the ideal ``Driver``) live in
-``neurox/analog`` and satisfy it structurally, without importing it.
+needs only two capabilities from it: a per-call snap of fabricated state
+and a clamp solve mapping port current to ``(v_clamp, dVclamp/dI)``. The
+reference clamp voltage is INJECTED per call as a plain ``Tensor`` into
+:meth:`ClampDriver.snapshot` and rides in the resulting snap (a
+:class:`ClampSnap`), so the role no longer exposes a ``v_ref__V``
+attribute. :class:`ClampDriver` names that capability contract as a
+structural (``Protocol``) role rather than a registry base class: there
+is no inheritance and no ``RegistryMixin``. The role lives beside the
+solver because the solver is its only consumer; concrete clamps (the
+``TIA`` family, the ``VoltageDriver``) live in ``neurox/analog`` and
+satisfy it structurally, without importing it.
 
 The role is generic over ``SnapT`` so that each conforming circuit ties
 its own :meth:`ClampDriver.snapshot` output to its
 :meth:`ClampDriver.solve_clamp` input, keeping the snap type consistent
-end to end without forcing a shared snap hierarchy. ``SnapT`` is
-deliberately unbounded: conforming snaps need not share a base, so the
-TIA family (e.g. ``OpAmpTIA`` as ``ClampDriver[OpAmpTIASnap]``), the
-ideal ``Driver`` (``ClampDriver[DriverSnap]``), and a future CSA each
-satisfy the role structurally without declaring inheritance.
+end to end without forcing a shared snap hierarchy. ``SnapT`` is bound to
+:class:`ClampSnap`: every conforming snap carries the injected reference
+``v_ref__V`` so the solver can read its warm-start seed from the snap.
+The TIA family (e.g. ``OpAmpTIA`` as ``ClampDriver[OpAmpTIASnap]``), the
+``VoltageDriver`` (``ClampDriver[VoltageDriverSnap]``), and a future CSA
+each satisfy the role structurally without declaring inheritance.
 
 See also:
     docs/internals/xbar/solver.md
@@ -29,32 +33,53 @@ from typing import Protocol, TypeVar
 
 from torch import Tensor
 
-SnapT = TypeVar("SnapT")
+
+class ClampSnap(Protocol):
+    """Structural lower bound for any clamp-driver snap.
+
+    Every conforming snap carries the injected reference clamp voltage so
+    the solver can read its warm-start seed directly from the snap.
+
+    Attributes:
+        v_ref__V: Reference / zero-current clamp voltage [V], the
+            post-noise value injected into :meth:`ClampDriver.snapshot`.
+            Declared read-only so the frozen-dataclass snaps
+            (``VoltageDriverSnap`` / ``OpAmpTIASnap`` / ``GeneralTIASnap``)
+            satisfy the protocol structurally.
+    """
+
+    @property
+    def v_ref__V(self) -> Tensor: ...
+
+
+SnapT = TypeVar("SnapT", bound=ClampSnap)
 
 
 class ClampDriver(Protocol[SnapT]):
     """Structural contract any boundary clamp circuit satisfies.
 
-    Attributes:
-        v_ref__V: Reference / zero-current clamp voltage [V].
-
     Methods:
         snapshot: Sample one per-call snap of the fabricated state over a
-            broadcast ``shape``, optionally selecting a chunk via
-            ``multi_coords``.
+            broadcast ``shape``, applying the per-call nonidealities to
+            the injected reference ``v_ref__V`` and storing the result in
+            the snap; optionally selects a chunk via ``multi_coords``.
         solve_clamp: Boundary clamp solve mapping port current to the
             clamp voltage and its small-signal slope.
     """
 
-    @property
-    def v_ref__V(self) -> float:
-        """Reference / zero-current clamp voltage [V]."""
-        ...
-
-    def snapshot(self, *, shape: tuple[int, ...], multi_coords: tuple[Tensor, ...] | None) -> SnapT:
+    def snapshot(
+        self,
+        *,
+        v_ref__V: Tensor,
+        shape: tuple[int, ...],
+        multi_coords: tuple[Tensor, ...] | None,
+    ) -> SnapT:
         """Sample one per-call runtime snap over ``shape``.
 
         Args:
+            v_ref__V: Injected reference / zero-current clamp voltage [V];
+                the source-agnostic tap value the snapshot perturbs with
+                the per-call nonidealities and stores in the snap.
             shape: Per-call broadcast shape; the snap fills tensor fields
                 at this shape.
             multi_coords: Advanced-index tuple selecting a chunk's
@@ -62,7 +87,8 @@ class ClampDriver(Protocol[SnapT]):
                 full view.
 
         Returns:
-            Per-call snap of the fabricated state.
+            Per-call snap of the fabricated state, carrying the post-noise
+            reference ``v_ref__V``.
         """
         ...
 

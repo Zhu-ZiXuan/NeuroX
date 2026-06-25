@@ -23,7 +23,7 @@ from torch import Tensor
 from neurox.common.mixin import RegistryMixin, ValidateMixin
 from neurox.xbar.cell import XbarCell, XbarCellDCOP, XbarCellSnap
 
-from .clamp import ClampDriver
+from .clamp import ClampDriver, ClampSnap
 
 # ---------------------------------------------------------------------------
 # Per-call method-generic type vars
@@ -32,11 +32,12 @@ from .clamp import ClampDriver
 # Bound only inside the solve-method signatures so mypy infers them per
 # call and the solver class itself stays non-generic. ``CellSnapT`` /
 # ``CellDCOPT`` carry the cell's own bounds (mirroring ``XbarCell``); the
-# driver snaps are unbounded, matching ``ClampDriver``.
+# driver snaps are bound to ``ClampSnap``, matching ``ClampDriver`` — the
+# snap carries the injected reference voltage the solver seeds from.
 CellSnapT = TypeVar("CellSnapT", bound=XbarCellSnap)
 CellDCOPT = TypeVar("CellDCOPT", bound=XbarCellDCOP)
-BLSnapT = TypeVar("BLSnapT")
-SLSnapT = TypeVar("SLSnapT")
+BLSnapT = TypeVar("BLSnapT", bound=ClampSnap)
+SLSnapT = TypeVar("SLSnapT", bound=ClampSnap)
 
 # ---------------------------------------------------------------------------
 # Config base
@@ -160,15 +161,28 @@ class Solver(RegistryMixin[type["SolverConfig"], "Solver"], ABC):
     """
 
     @abstractmethod
-    def __init__(self, *, config: SolverConfig) -> None:
-        """Bind the solver to its config; concrete subclasses do the real init."""
+    def __init__(self, *, config: SolverConfig, series_axis: int = -1) -> None:
+        """Bind the solver to its config and layout axis; subclasses do the real init.
+
+        Args:
+            config: The concrete solver's fixed-knob config.
+            series_axis: Construction-time index of the caller's series
+                (wire-ladder) axis among the two trailing cell-grid axes.
+                The core passes its layout's value; ``-1`` is canonical.
+        """
         raise NotImplementedError
 
     @classmethod
-    def from_config(cls, *, config: SolverConfig) -> Solver:
-        """Build the concrete impl registered for ``type(config)``."""
+    def from_config(cls, *, config: SolverConfig, series_axis: int = -1) -> Solver:
+        """Build the concrete impl registered for ``type(config)``.
+
+        Args:
+            config: Selects the impl (registry key) and its numerical knobs.
+            series_axis: Layout series-axis index threaded to the impl's
+                ``__init__`` (default ``-1``, canonical series-last).
+        """
         impl = cls._lookup_impl(type(config))
-        return impl(config=config)
+        return impl(config=config, series_axis=series_axis)
 
     @abstractmethod
     def solve_dc(

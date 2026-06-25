@@ -1,4 +1,7 @@
-"""Chunking helpers for :class:`CircuitCore1T1R.cim_read`.
+"""Leading-batch chunking helpers for any solver-driven core's ``solve_array``.
+
+These partition the broadcast leading into peak-memory-bounded slices for any
+core whose ``solve_array`` drives the shared solver; they bind to no specific core.
 
 :func:`iter_chunks` partitions the broadcast leading (``prod(leading)``
 instances) into contiguous C-order slices of at most ``solve_chunk_size``
@@ -11,7 +14,7 @@ peak memory directly, independent of which leading axes are serial or inst.
 :func:`classify_leading_positions` is separate: it splits leading into the
 **A subset** (``x`` real, ``g`` placeholder — the serial x-batch / M / Sa
 dims) and the **B subset** (``g`` real — the parallel Sw / Tc / Tr inst
-dims). That split is not used for chunking; ``cim_read`` uses the A subset
+dims). That split is not used for chunking; a consuming ``solve_array`` uses the A subset
 to count the serial per-op latency multiplicity.
 """
 
@@ -53,7 +56,7 @@ def classify_leading_positions(
         if xd > 1 and gd == 1:
             a_positions.append(i)
         elif gd > 1:
-            # g-real or matched (both > 1) — per the macro / xbar A/B
+            # g-real or matched (both > 1) — per the caller's A/B
             # axis taxonomy these are inst positions (parallel hardware),
             # always B.
             b_positions.append(i)
