@@ -20,9 +20,9 @@ from neurox.analog import (
     VoltageReferencePolicy,
 )
 from neurox.analog.tia import OpAmpTIA, OpAmpTIAConfig, OpAmpTIAPolicy
-from neurox.device import NMOSConfig, NMOSPolicy
+from neurox.device import MOSFETConfig, MOSFETPolicy
 
-_NMOS_OFF = NMOSPolicy(A_vt_mismatch=False, A_beta_mismatch=False)
+_NMOS_OFF = MOSFETPolicy(A_vt_mismatch=False, A_beta_mismatch=False)
 _TIA_OFF = OpAmpTIAPolicy(opamp_gain_sigma=False, nmos=_NMOS_OFF)
 _TIA_ON_GAIN = OpAmpTIAPolicy(opamp_gain_sigma=True, nmos=_NMOS_OFF)
 
@@ -69,7 +69,7 @@ def _make_tia(
     it via :func:`_v_ref_tap` (tap = :data:`_V_REF__V`) and inject it into
     each ``snapshot`` call.
     """
-    nmos_config = NMOSConfig(
+    nmos_config = MOSFETConfig(
         mu0__cm2_per_V_s=200.0,
         c_ox__fF_per_um2=31.4,
         vth0__V=0.40,

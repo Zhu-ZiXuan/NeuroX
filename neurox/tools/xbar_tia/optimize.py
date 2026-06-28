@@ -35,7 +35,7 @@ from pathlib import Path
 import torch
 
 from neurox.analog.tia import OpAmpTIAConfig
-from neurox.device import NMOSConfig
+from neurox.device import MOSFETConfig
 from neurox.tools._config import add_standard_args, load_tool_config, setup_logging
 from neurox.tools.xbar_tia._common import (
     TransferCurve,
@@ -69,7 +69,7 @@ class HardwareSection:
         tia_n_newton: Newton iteration count for the inner TIA solve.
     """
 
-    nmos_config: NMOSConfig
+    nmos_config: MOSFETConfig
     v_dd__V: float
     v_ref__V: float
     output_saturation_softness__V: float
@@ -191,9 +191,7 @@ def _evaluate(
         return None  # pseudo-resistor needs gate overdrive above the source clamp; skip gracefully
     cfg = _build_tia_config(hw, gain, w, nmos_L_um, vb)
     tia = build_tia(cfg, device=device)
-    curve = sweep_transfer(
-        tia, v_ref__V=hw.v_ref__V, i_min_uA=0.0, i_max_uA=i_max_uA, n_points=n_points, device=device
-    )
+    curve = sweep_transfer(tia, v_ref__V=hw.v_ref__V, i_min_uA=0.0, i_max_uA=i_max_uA, n_points=n_points, device=device)
     fit = fit_to_workload(curve, mean_uA=workload.mean__uA, std_uA=workload.std__uA)
     target_v = hw.target_v_max__V
     i_lo = max(0.0, workload.mean__uA - 3 * workload.std__uA)

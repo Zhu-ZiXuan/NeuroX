@@ -16,3 +16,4 @@ Module docs describe the current design. ADRs explain why the project chose that
 - [ADR-0002](ADR-0002-nmos-is-a-pure-electrical-primitive.md) — NMOS is a pure electrical primitive
 - [ADR-0003](ADR-0003-xbar-cell-abstraction-and-single-nested-solver.md) — pluggable xbar cell and the single nested solver
 - [ADR-0004](ADR-0004-clamp-driver-protocol-and-generic-solver.md) — clamp-driver role and the topology-agnostic array solver
+- [ADR-0005](ADR-0005-mosfet-is-a-polarity-parameterized-electrical-primitive.md) — MOSFET is a polarity-parameterized electrical primitive

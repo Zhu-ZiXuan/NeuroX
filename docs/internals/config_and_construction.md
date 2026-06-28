@@ -36,7 +36,7 @@ The cross-cutting machinery that turns a tree of frozen `*Config` dataclasses in
 
 - **`from_config` takes explicit parameters only — no hidden defaults.** This prevents silent divergence between families and partially-applied construction rules.
 
-- **`CircuitBase` is for electrical circuits only.** Devices (`RRAM` / `NMOS` / `Selector`) are physical primitives without per-op latency; they inherit `FabricateMixin + nn.Module` directly and their `*Config` does not inherit `CircuitConfig` — their static cost rolls up into the owning circuit's config. Macros (`XbarMacro` family) own zero silicon and only dispatch into children; they stay on `FabricateMixin + nn.Module + ProfileMixin + RegistryMixin` and surface PPA through their constituent circuits, not themselves.
+- **`CircuitBase` is for electrical circuits only.** Devices (`RRAM` / `MOSFET` / `Selector`) are physical primitives without per-op latency; they inherit `FabricateMixin + nn.Module` directly and their `*Config` does not inherit `CircuitConfig` — their static cost rolls up into the owning circuit's config. Macros (`XbarMacro` family) own zero silicon and only dispatch into children; they stay on `FabricateMixin + nn.Module + ProfileMixin + RegistryMixin` and surface PPA through their constituent circuits, not themselves.
 
 - **Per-instance shape is committed once at `__init__`, recorded on `self._inst_shape`.** Leaf circuits and xbar tiles take `inst_shape`; xbar macros take the operator-facing `w_logical_shape`. `fabricate()` then carries no arguments — it resamples mismatch at the already-bound shape (the `FabricateMixin` contract, inherited through `CircuitBase`). The profiler derives instance count on demand from `_inst_shape`.
 

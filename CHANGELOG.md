@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased — NMOS Generalized to a Polarity-Parameterized MOSFET
+
+### Added
+
+- **`PMOS` p-channel device and a shared `MOSFET` base.** `neurox/device/mosfet.py` introduces an abstract `MOSFET(FabricateMixin, nn.Module)` electrical primitive that carries all EKV-softplus physics, with concrete `NMOS` (`polarity = +1`) and `PMOS` (`polarity = -1`) specializing only the channel polarity (a class attribute). A focused device-level unit test (`tests/test_mosfet.py`) covers both polarities, depletion, the finite-difference node partials, Pelgrom mismatch, the abstract-base guard, and config validation; `device/mosfet.md` (reference + internals) documents the model.
+
+### Changed
+
+- **`NMOS` becomes the n-channel specialization of a polarity-parameterized `MOSFET`.** The device data classes are renamed and shared across polarities: `NMOSConfig` / `NMOSPolicy` / `NMOSSnap` / `NMOSDCOP` → `MOSFETConfig` / `MOSFETPolicy` / `MOSFETSnap` / `MOSFETDCOP`. The source- and drain-referred overdrives are scaled by `polarity` and `I_ds` carries one `polarity` factor; the factor squares out of the three terminal partials, so the `did_dvd__uS >= 0` / `did_dvs__uS <= 0` contract holds for both polarities while `β` stays a positive magnitude (`vth0` is signed, its sign set by the enhancement / depletion flavor, not by polarity). The `polarity = +1` path is numerically identical to the previous `NMOS`. Polarity is a code / architecture choice — the consuming circuit instantiates `NMOS` or `PMOS`, not a config field — so consumers keep every role name (`nmos_config`, `self.nmos`, `access_nmos_*`, `pseudo_nmos_*`, `v_nmos_bias__V`) and all TOML presets / sections (`[nmos_28_rvt]`, `[hardware.nmos_config]`) unchanged; only the shared type names migrate. See ADR-0005, which generalizes ADR-0002.
+
 ## Unreleased — Core as Pure Array + Parallel-Rail Solver + Scheme Extraction
 
 ### Changed

@@ -77,7 +77,7 @@ pseudo_nmos_L__um = [0.03]
 v_nmos_bias__V    = [0.90]
 ```
 
-- `[hardware]` — chip-level constants held fixed across the whole sweep. `target_v_max__V` is the user-chosen ceiling for the TIA output, aligned with the ADC's largest `v_ref` mode, so $v_\mathrm{out}$ should fill $[0, \mathrm{target\_v\_max}]$ rather than the full rail $[0, v_\mathrm{dd}]$. The embedded `[hardware.nmos_config]` table is an `NMOSConfig` and may use the `_neurox_use_preset` directive to point at a process file.
+- `[hardware]` — chip-level constants held fixed across the whole sweep. `target_v_max__V` is the user-chosen ceiling for the TIA output, aligned with the ADC's largest `v_ref` mode, so $v_\mathrm{out}$ should fill $[0, \mathrm{target\_v\_max}]$ rather than the full rail $[0, v_\mathrm{dd}]$. The embedded `[hardware.nmos_config]` table is a `MOSFETConfig` and may use the `_neurox_use_preset` directive to point at a process file.
 - `[workload]` — the Gaussian model $\mathcal{N}(\mu, \sigma^2)$ of the per-column bit-line current. Derive $\mu$ and $\sigma$ from the chip's conductance state map and the activation statistics; the bundled example shows the full derivation in its comments.
 - `[sweep]` — the four design axes. The tool sweeps their cartesian product, so $|\mathrm{gain}| \times |W| \times |L| \times |v_\mathrm{bias}|$ candidates total; each axis must be non-empty.
 

@@ -28,7 +28,7 @@ from torch import Tensor
 from neurox.analog import VoltageDriver, VoltageDriverPolicy, VoltageReference, VoltageReferencePolicy
 from neurox.analog.tia import OpAmpTIA, OpAmpTIAConfig, OpAmpTIAPolicy
 from neurox.common.load_dump import dataclass_from_file
-from neurox.device import NMOSPolicy, RRAMPolicy
+from neurox.device import MOSFETPolicy, RRAMPolicy
 from neurox.xbar._1t1r import XbarCell1T1R, XbarCell1T1RPolicy, XbarCell1T1RSnap
 from neurox.xbar.solver import Solver, SolverConfig
 from works.offset_1t1r.xbar import Offset1T1RXbarConfig
@@ -141,7 +141,7 @@ def build_solver_harness(
         config=cell_cfg,
         policy=XbarCell1T1RPolicy(
             rram=RRAMPolicy(prog_gamma=False, stuck_at=False, read_telegraph=False, read_thermal=False),
-            nmos=NMOSPolicy(A_vt_mismatch=False, A_beta_mismatch=False),
+            nmos=MOSFETPolicy(A_vt_mismatch=False, A_beta_mismatch=False),
         ),
         inst_shape=inst_full,
         dtype=dtype,
@@ -153,7 +153,7 @@ def build_solver_harness(
         config=tia_cfg,
         policy=OpAmpTIAPolicy(
             opamp_gain_sigma=False,
-            nmos=NMOSPolicy(A_vt_mismatch=False, A_beta_mismatch=False),
+            nmos=MOSFETPolicy(A_vt_mismatch=False, A_beta_mismatch=False),
         ),
         name="harness.bl_driver",
         inst_shape=(*inst_shape, phys_col_num),

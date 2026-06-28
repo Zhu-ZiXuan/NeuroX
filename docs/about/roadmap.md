@@ -94,7 +94,7 @@ NeuroX is a general CiM simulation and benchmarking platform. This document trac
 
 ### Device-level standard cells (long-term research)
 
-- [ ] Build NAND/NOR gates from `device/nmos.py` + a future `device/pmos.py`
+- [ ] Build NAND/NOR gates from `device/mosfet.py` (`NMOS` / `PMOS`)
 - [ ] Derive standard-cell PPA from device models so the same transistor models drive both analog and digital simulation
 - [ ] Technology exploration flow: sweep a device parameter, see both analog accuracy and digital logic PPA change
 

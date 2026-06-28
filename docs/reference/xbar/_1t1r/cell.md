@@ -39,7 +39,7 @@ The cell-owned parameters are the device configs, the access-NMOS sizing and par
 | Parameter | Meaning | Unit | Source |
 |---|---|---|---|
 | `rram_config` | RRAM storage-device configuration | — | see [reference/device/rram](../../device/rram.md) |
-| `nmos_config` | access-NMOS configuration | — | see [reference/device/nmos](../../device/nmos.md) |
+| `nmos_config` | access-NMOS configuration | — | see [reference/device/mosfet](../../device/mosfet.md) |
 | `rram_g_max__uS` | maximum programmable RRAM conductance | uS | Measured |
 | `state_to_g_map__uS` | state-index to target conductance (strictly increasing) | uS | Measured |
 | `access_nmos_W__um` | access-NMOS width | um | Design |

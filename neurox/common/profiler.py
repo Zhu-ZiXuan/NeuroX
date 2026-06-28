@@ -277,7 +277,7 @@ class NeuroxProfiler:
         Only :class:`CircuitBase` instances are collected — that's the
         layer that carries the static-PPA contract; pure ``ProfileMixin``
         subclasses (if any) emit dynamic events but don't have static
-        PPA fields. Devices (RRAM / NMOS / Selector) are not circuits
+        PPA fields. Devices (RRAM / MOSFET / Selector) are not circuits
         and don't contribute to this report; their physical contribution
         rolls up into the owning circuit's PPA.
         """

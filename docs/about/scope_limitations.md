@@ -12,7 +12,7 @@ The entries below are owned by each area's domain author and must be kept in syn
 
 ### Devices
 
-TODO — aggregate the Assumptions of each device Reference document (RRAM, NMOS, selector).
+TODO — aggregate the Assumptions of each device Reference document (RRAM, MOSFET, selector).
 
 ### Crossbar and solvers
 

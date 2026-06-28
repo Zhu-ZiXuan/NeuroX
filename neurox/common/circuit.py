@@ -19,9 +19,6 @@ from .mixin import FabricateMixin, ProfileMixin, ValidateMixin
 class CircuitConfig(ValidateMixin):
     """Static PPA fields common to every electrical circuit's config.
 
-    Devices (RRAM, NMOS, ...) are physical primitives whose contribution
-    rolls up into the owning circuit's PPA and do NOT use this base.
-
     Per-op latency is NOT a base field: leaves with a dynamic profile
     model compute the value in their primary method and emit it via
     ``_log_latency(latency)`` (paired with

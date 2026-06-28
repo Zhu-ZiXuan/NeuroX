@@ -20,9 +20,9 @@ from torch import Tensor
 from neurox.device import (
     NMOS,
     RRAM,
-    NMOSConfig,
-    NMOSPolicy,
-    NMOSSnap,
+    MOSFETConfig,
+    MOSFETPolicy,
+    MOSFETSnap,
     RRAMConfig,
     RRAMPolicy,
     RRAMSnap,
@@ -65,7 +65,7 @@ class XbarCell1T1RConfig(XbarCellConfig):
     """
 
     rram_config: RRAMConfig
-    nmos_config: NMOSConfig
+    nmos_config: MOSFETConfig
 
     rram_g_max__uS: float
 
@@ -130,7 +130,7 @@ class XbarCell1T1RPolicy(XbarCellPolicy):
     """
 
     rram: RRAMPolicy
-    nmos: NMOSPolicy
+    nmos: MOSFETPolicy
 
 
 @dataclass(frozen=True)
@@ -157,7 +157,7 @@ class XbarCell1T1RSnap(XbarCellSnap):
     """
 
     rram: RRAMSnap
-    nmos: NMOSSnap
+    nmos: MOSFETSnap
     v_wl__V: Tensor
 
 

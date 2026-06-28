@@ -10,7 +10,7 @@ import torch
 from torch import Tensor
 
 from neurox.common.nonideality import apply_gaussian
-from neurox.device.nmos import NMOS, NMOSConfig, NMOSPolicy, NMOSSnap
+from neurox.device import NMOS, MOSFETConfig, MOSFETPolicy, MOSFETSnap
 
 from .base import TIA, TIAConfig, TIAPolicy, TIASnap
 
@@ -51,7 +51,7 @@ class OpAmpTIAConfig(TIAConfig):
     opamp_gain_sigma: float
 
     # --- Pseudo-resistor NMOS ---
-    nmos_config: NMOSConfig
+    nmos_config: MOSFETConfig
     pseudo_nmos_W__um: float
     pseudo_nmos_L__um: float
 
@@ -91,7 +91,7 @@ class OpAmpTIAPolicy(TIAPolicy):
     """
 
     opamp_gain_sigma: bool
-    nmos: NMOSPolicy
+    nmos: MOSFETPolicy
 
 
 @dataclass(frozen=True)
@@ -129,7 +129,7 @@ class OpAmpTIASnap(TIASnap):
 
     v_ref__V: Tensor
     opamp_gain: Tensor
-    nmos_snap: NMOSSnap
+    nmos_snap: MOSFETSnap
 
 
 @TIA.register_key(OpAmpTIAConfig)

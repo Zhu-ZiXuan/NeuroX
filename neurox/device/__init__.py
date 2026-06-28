@@ -1,16 +1,18 @@
 """NeuroX device models."""
 
-from .nmos import NMOS, NMOSDCOP, NMOSConfig, NMOSPolicy, NMOSSnap
+from .mosfet import MOSFET, NMOS, PMOS, MOSFETConfig, MOSFETDCOP, MOSFETPolicy, MOSFETSnap
 from .rram import RRAM, RRAMDCOP, RRAMConfig, RRAMPolicy, RRAMSnap
 from .selector import Selector, SelectorConfig, SelectorPolicy
 
 __all__ = [
-    # --- NMOS ---
+    # --- MOSFET ---
+    "MOSFET",
     "NMOS",
-    "NMOSConfig",
-    "NMOSDCOP",
-    "NMOSPolicy",
-    "NMOSSnap",
+    "PMOS",
+    "MOSFETConfig",
+    "MOSFETDCOP",
+    "MOSFETPolicy",
+    "MOSFETSnap",
     # --- RRAM ---
     "RRAM",
     "RRAMConfig",

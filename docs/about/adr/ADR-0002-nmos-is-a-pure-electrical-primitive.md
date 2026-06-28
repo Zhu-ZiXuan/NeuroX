@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted — generalized by [ADR-0005](ADR-0005-mosfet-is-a-polarity-parameterized-electrical-primitive.md) (NMOS is now the n-channel specialization of the MOSFET primitive).
 
 ## Context
 

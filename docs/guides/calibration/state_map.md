@@ -33,7 +33,7 @@ It does **not** instantiate `Xbar`, `Macro`, `Readout`, or `ADC`, and it include
 The ladder must be deterministic, so the tool forces every randomness source off rather than reading a policy file. It builds:
 
 - `RRAMPolicy(prog_gamma=False, stuck_at=False, read_telegraph=False, read_thermal=False)`
-- `NMOSPolicy(A_vt_mismatch=False, A_beta_mismatch=False)`
+- `MOSFETPolicy(A_vt_mismatch=False, A_beta_mismatch=False)`
 
 Conductance drift is skipped because programming uses `t_elapsed = 0.0`, which the RRAM model treats as a no-drift snap by its own contract. Each candidate conductance is applied once via `RRAM.program` followed by a single `RRAM.snapshot`; that snap is reused at every solver evaluation for that conductance.
 
@@ -103,7 +103,7 @@ There is intentionally no `--device` flag; the single-cell bisection solve runs 
 The config is the frozen dataclass `Calculate1T1RStatesConfig` with four sections:
 
 - `[rram]` — an `RRAMConfig` (or `_neurox_use_preset = "process/rram:..."`).
-- `[nmos]` — an `NMOSConfig` (or `_neurox_use_preset = "process/mos:..."`).
+- `[nmos]` — a `MOSFETConfig` (or `_neurox_use_preset = "process/mos:..."`).
 - `[bias]` — the per-cell read bias used during ladder derivation:
   - `v_wl__V: float` — WL drive voltage [V].
   - `v_bl__V: float` — BL drive voltage [V].
@@ -125,6 +125,6 @@ All output goes through `logger.info(...)` in this order: load notices $\rightar
 
 - **See also**: [Core1T1R reference](../../reference/xbar/_1t1r/core.md) (consumer of `state_to_g_map__uS`)
 - [RRAM device reference](../../reference/device/rram.md)
-- [access-NMOS device reference](../../reference/device/nmos.md)
+- [access-NMOS device reference](../../reference/device/mosfet.md)
 - [parameter provenance](../../reference/parameter_provenance.md)
 - [calibration hub](README.md)

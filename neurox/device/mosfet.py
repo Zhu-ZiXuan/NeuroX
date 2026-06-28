@@ -1,7 +1,11 @@
-"""Continuous EKV-softplus NMOS electrical primitive.
+"""Continuous EKV-softplus MOSFET electrical primitive.
+
+A single polarity-parameterized model core (:class:`MOSFET`) carries all
+physics; the concrete :class:`NMOS` / :class:`PMOS` specializations fix only
+the channel polarity.
 
 See also:
-    docs/reference/device/nmos.md
+    docs/reference/device/mosfet.md
 """
 
 import math
@@ -18,22 +22,28 @@ from neurox.common.physical_constant import thermal_voltage__V
 
 
 @dataclass(frozen=True)
-class NMOSConfig(ValidateMixin):
-    """Immutable PDK config for an NMOS transistor.
+class MOSFETConfig(ValidateMixin):
+    """Immutable PDK config for a MOSFET (polarity-agnostic).
+
+    The same field set describes n- and p-channel devices: ``mu0`` and
+    ``c_ox`` are positive magnitudes, and ``vth0`` is a signed threshold
+    whose sign is set by the device flavor (enhancement / depletion), not by
+    channel polarity. Channel polarity is carried by the concrete
+    :class:`NMOS` / :class:`PMOS` class, never by this config.
 
     Attributes:
-        mu0__cm2_per_V_s: Low-field carrier mobility at ``T_ref__K``
-            [cm²/V/s].
+        mu0__cm2_per_V_s: Low-field carrier-mobility magnitude at
+            ``T_ref__K`` [cm²/V/s]; positive for both polarities.
         c_ox__fF_per_um2: Gate-oxide capacitance per unit area
             [fF/μm²].
-        vth0__V: Nominal threshold voltage at ``T_ref__K`` [V].
+        vth0__V: Signed nominal threshold voltage at ``T_ref__K`` [V].
         n_factor: SPICE NFACTOR (subthreshold swing coefficient).
             ``> 1.0`` (ideal 60 mV/dec is the 1.0 limit).
         T_ref__K: Reference temperature [K] at which ``mu0`` and
             ``vth0`` are stated.
         ute: Mobility temperature exponent, per
             ``μ(T) = μ0 · (T / T_ref)^(-ute)``.
-        kt1__V: V_th temperature coefficient [V], per
+        kt1__V: Signed V_th temperature coefficient [V], per
             ``V_th(T) = vth0 + kt1 · (T / T_ref - 1)``.
         A_vt__mV_um: Pelgrom V_th matching coefficient [mV·μm];
             ``σ_Vt = A_vt · 1e-3 / sqrt(W · L)``.
@@ -83,8 +93,8 @@ class NMOSConfig(ValidateMixin):
 
 
 @dataclass(frozen=True)
-class NMOSPolicy:
-    """Per-source toggles selecting which NMOS nonidealities are active.
+class MOSFETPolicy:
+    """Per-source toggles selecting which MOSFET nonidealities are active.
 
     Attributes:
         A_vt_mismatch: Apply ``A_vt`` Pelgrom V_th mismatch at fabricate time.
@@ -96,14 +106,16 @@ class NMOSPolicy:
 
 
 @dataclass(frozen=True)
-class NMOSDCOP:
-    """Caller-facing working-point result for one NMOS evaluation.
+class MOSFETDCOP:
+    """Caller-facing working-point result for one MOSFET evaluation.
 
     Attributes:
-        ids__uA: Drain-source current [uA] — positive drain → source.
+        ids__uA: Drain-source current [uA] — positive for drain → source
+            flow. For a p-channel device in normal conduction ``ids__uA``
+            is typically negative (real flow is source → drain).
         did_dvg__uS: ``∂I_ds/∂V_g`` [uS] = ``gm``.
-        did_dvd__uS: ``∂I_ds/∂V_d`` [uS] (non-negative).
-        did_dvs__uS: ``∂I_ds/∂V_s`` [uS] (non-positive).
+        did_dvd__uS: ``∂I_ds/∂V_d`` [uS] (non-negative for both polarities).
+        did_dvs__uS: ``∂I_ds/∂V_s`` [uS] (non-positive for both polarities).
     """
 
     ids__uA: Tensor
@@ -113,20 +125,28 @@ class NMOSDCOP:
 
 
 @dataclass(frozen=True)
-class NMOSSnap:
-    """Per-call NMOS state snap.
+class MOSFETSnap:
+    """Per-call MOSFET state snap.
 
     Attributes:
-        beta__uA_per_V2: Per-cell transconductance factor [uA/V²].
-        vth__V: Per-cell threshold voltage [V].
+        beta__uA_per_V2: Per-cell transconductance-factor magnitude [uA/V²].
+        vth__V: Per-cell signed threshold voltage [V].
     """
 
     beta__uA_per_V2: Tensor
     vth__V: Tensor
 
 
-class NMOS(FabricateMixin, nn.Module):
-    """EKV-softplus NMOS electrical primitive.
+class MOSFET(FabricateMixin, nn.Module):
+    """EKV-softplus MOSFET electrical primitive (polarity-parameterized base).
+
+    All physics lives here; concrete subclasses fix only the channel
+    polarity (:class:`NMOS` = ``+1``, :class:`PMOS` = ``-1``). With the
+    signed overdrives scaled by ``polarity`` and the drain-source current
+    carrying one ``polarity`` factor, the three node partials w.r.t. the
+    terminal voltages are polarity-independent in form, so the
+    ``did_dvd__uS >= 0`` / ``did_dvs__uS <= 0`` contract holds for both
+    polarities while ``β`` stays a positive magnitude.
 
     Args:
         config: Concrete configuration dataclass.
@@ -138,6 +158,8 @@ class NMOS(FabricateMixin, nn.Module):
         L__um: Channel length [μm].
     """
 
+    polarity: int
+
     nominal_beta__uA_per_V2: Tensor
     nominal_vth__V: Tensor
     beta__uA_per_V2: Tensor
@@ -146,8 +168,8 @@ class NMOS(FabricateMixin, nn.Module):
     def __init__(
         self,
         *,
-        config: NMOSConfig,
-        policy: NMOSPolicy,
+        config: MOSFETConfig,
+        policy: MOSFETPolicy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -156,6 +178,10 @@ class NMOS(FabricateMixin, nn.Module):
     ) -> None:
         super().__init__()
 
+        if type(self) is MOSFET:
+            raise TypeError("MOSFET is abstract; instantiate NMOS or PMOS")
+        if self.polarity not in (1, -1):
+            raise ValueError(f"require: polarity ({self.polarity}) in (1, -1)")
         if not (W__um > 0.0):
             raise ValueError(f"require: W__um ({W__um}) > 0.0")
         if not (L__um > 0.0):
@@ -178,7 +204,8 @@ class NMOS(FabricateMixin, nn.Module):
         # Smoothing scale used by softplus and sigmoid.
         self._inv_smooth_scale__per_V = 1.0 / (2.0 * config.n_factor * thermal_voltage__V(T__K))
 
-        # Nominal parameter
+        # Nominal parameter — β is a positive magnitude; the polarity sign
+        # is applied in the I-V law, not baked into β.
         nominal_mu__cm2_per_V_s = config.mu0__cm2_per_V_s * mu_scale
         nominal_beta__uA_per_V2 = nominal_mu__cm2_per_V_s * config.c_ox__fF_per_um2 * 0.1 * (W__um / L__um)
         nominal_vth__V = config.vth0__V + vth_shift__V
@@ -227,7 +254,7 @@ class NMOS(FabricateMixin, nn.Module):
         *,
         shape: tuple[int, ...],
         multi_coords: tuple[Tensor, ...] | None,
-    ) -> NMOSSnap:
+    ) -> MOSFETSnap:
         """Sample one per-call runtime snap over ``shape``.
 
         Args:
@@ -243,8 +270,8 @@ class NMOS(FabricateMixin, nn.Module):
         vth_view = self.vth__V.expand(shape) if shape else self.vth__V
         beta_view = self.beta__uA_per_V2.expand(shape) if shape else self.beta__uA_per_V2
         if multi_coords is None:
-            return NMOSSnap(vth__V=vth_view, beta__uA_per_V2=beta_view)
-        return NMOSSnap(
+            return MOSFETSnap(vth__V=vth_view, beta__uA_per_V2=beta_view)
+        return MOSFETSnap(
             vth__V=vth_view[multi_coords],
             beta__uA_per_V2=beta_view[multi_coords],
         )
@@ -254,39 +281,54 @@ class NMOS(FabricateMixin, nn.Module):
         vg__V: Tensor | float,
         vd__V: Tensor | float,
         vs__V: Tensor | float,
-        snap: NMOSSnap,
-    ) -> NMOSDCOP:
+        snap: MOSFETSnap,
+    ) -> MOSFETDCOP:
         """Evaluate ``I_ds`` and its three node partials at one op point.
 
         Args:
             vg__V: Gate voltage [V].
             vd__V: Drain voltage [V].
             vs__V: Source voltage [V].
-            snap: Per-call NMOS snap carrying ``β`` and ``V_th``.
+            snap: Per-call MOSFET snap carrying ``β`` and ``V_th``.
 
         Returns:
-            :class:`NMOSDCOP` with ``ids__uA`` and ``∂I/∂{V_g, V_d, V_s}``.
+            :class:`MOSFETDCOP` with ``ids__uA`` and ``∂I/∂{V_g, V_d, V_s}``.
         """
         beta__uA_per_V2 = snap.beta__uA_per_V2
         vth__V = snap.vth__V
         inv_smooth_scale__per_V = self._inv_smooth_scale__per_V
+        p = self.polarity
 
-        v_ov_s__V = vg__V - vs__V - vth__V
+        v_ov_s__V = p * (vg__V - vs__V - vth__V)
         v_eff_s = F.softplus(v_ov_s__V, beta=inv_smooth_scale__per_V)
         sigma_s = torch.sigmoid(v_ov_s__V * inv_smooth_scale__per_V)
 
-        v_ov_d__V = vg__V - vd__V - vth__V
+        v_ov_d__V = p * (vg__V - vd__V - vth__V)
         v_eff_d = F.softplus(v_ov_d__V, beta=inv_smooth_scale__per_V)
         sigma_d = torch.sigmoid(v_ov_d__V * inv_smooth_scale__per_V)
 
-        ids__uA = 0.5 * beta__uA_per_V2 * (v_eff_s * v_eff_s - v_eff_d * v_eff_d)
+        # I_ds carries one polarity factor; the terminal partials do not
+        # (the polarity factor squares out of ∂/∂V_{d,s} and ∂/∂V_g).
+        ids__uA = 0.5 * p * beta__uA_per_V2 * (v_eff_s * v_eff_s - v_eff_d * v_eff_d)
         did_dvg__uS = beta__uA_per_V2 * (v_eff_s * sigma_s - v_eff_d * sigma_d)
         did_dvd__uS = beta__uA_per_V2 * v_eff_d * sigma_d
         did_dvs__uS = -beta__uA_per_V2 * v_eff_s * sigma_s
 
-        return NMOSDCOP(
+        return MOSFETDCOP(
             ids__uA=ids__uA,
             did_dvg__uS=did_dvg__uS,
             did_dvd__uS=did_dvd__uS,
             did_dvs__uS=did_dvs__uS,
         )
+
+
+class NMOS(MOSFET):
+    """N-channel MOSFET."""
+
+    polarity = 1
+
+
+class PMOS(MOSFET):
+    """P-channel MOSFET."""
+
+    polarity = -1

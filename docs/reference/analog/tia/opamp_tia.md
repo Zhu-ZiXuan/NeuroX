@@ -58,7 +58,7 @@ TODO (domain author): the gain-mismatch sigma's physical derivation and citation
 | pseudo-NMOS sizing | feedback NMOS sizing parameters | um | Design |
 | bias voltages | op-amp / pseudo-resistor bias | V | Design |
 | gain-mismatch sigma | op-amp gain-mismatch sigma | — | Measured |
-| owned `NMOSConfig` | the feedback NMOS device config | — | (per device) |
+| owned `MOSFETConfig` | the feedback NMOS device config | — | (per device) |
 | leakage / area / latency | static PPA / spec fields | uW, um^2, ns | Design |
 
 The virtual-ground reference $V_{\mathrm{ref}}$ is not a config parameter — it is injected per call into `snapshot` as a `Tensor` and carried in `OpAmpTIASnap.v_ref__V` (see the [voltage_reference](../voltage_reference.md) source); the solve reads it from the snap at every site (warm-start base, zero-current seed, the two `v_out_lin` evaluations). The owned NMOS device's own parameters are specified in [device](../../device/README.md). Provenance terms are defined in [parameter_provenance](../../parameter_provenance.md).
