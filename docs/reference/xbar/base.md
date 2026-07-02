@@ -1,4 +1,4 @@
-# Xbar Abstract Layer
+# Xbar abstract layer
 
 ## Summary
 

@@ -1,4 +1,4 @@
-# Compilation — Implementation
+# Compilation
 
 How NeuroX runs under `torch.compile`: where compilation applies, the rules every compile-friendly function obeys, and the scheme that solves the one hard compile problem in the library. Compilation is a software policy with no Reference spec.
 

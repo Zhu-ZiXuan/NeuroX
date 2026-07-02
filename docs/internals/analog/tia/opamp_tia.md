@@ -1,4 +1,4 @@
-# Op-Amp TIA — Implementation
+# Op-amp TIA
 
 ## Summary
 

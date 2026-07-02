@@ -1,8 +1,8 @@
-# Transcoder — Implementation
+# Transcoder
 
 ## Summary
 
-The transcoder layer is the `Transcoder` ABC (`base.py`), which holds the shared positional state and the encoding-agnostic `decode`, plus one self-registering subclass per encoding (`true_form.py`, `complement.py`, `canonical.py`). It is a generic codec between integers and signed-digit strings over `(radix, digit_count, policy)`: it converts one integer into a fixed-length positional digit string and reduces such a string back to its integer value. It models no hardware and no tile geometry — only the arithmetic of representing a signed integer in a chosen number system. This document is impl-only and is the codec contract; the encoding has no reference spec.
+The transcoder layer is the `Transcoder` ABC (`base.py`), which holds the shared positional state and the encoding-agnostic `decode`, plus one subclass per encoding (`true_form.py`, `complement.py`, `canonical.py`). It is a generic codec between integers and signed-digit strings over `(radix, digit_count)`: it converts one integer into a fixed-length positional digit string and reduces such a string back to its integer value. It models no hardware and no tile geometry — only the arithmetic of representing a signed integer in a chosen number system.
 
 ## Codec contract
 
@@ -26,13 +26,12 @@ $$M \in [-M_{\max},\ M_{\max}], \qquad M_{\max} = \sum_{j=0}^{\lceil D/2 \rceil 
 
 At $r = 2$ this is the non-adjacent form: no two consecutive positions are non-zero, so the alternate-position sum is exactly the maximum magnitude. This envelope is strictly tighter than the true-form bound for the same $(r, D)$.
 
-The encoding choice is a string discriminator carried in configuration; it selects which alphabet (and therefore which representable envelope) a digit string uses.
+The encoding choice selects which digit alphabet — and therefore which representable envelope — a digit string uses.
 
 ## Design decisions
 
-- **Encoding selected by a string discriminator through the registry, not an `isinstance` ladder.** `Transcoder` parametrises `RegistryMixin[Encoding, "Transcoder"]`; each subclass self-registers with `@Transcoder.register_key("...")` and `Transcoder.create(encoding, radix=..., digit_count=...)` looks up the impl. Adding an encoding adds one file and one decorator and never touches the factory. The discriminator is a `Literal` (`Encoding`) so configuration and TOML carry the choice as a plain string that type-checks.
+- **Encoding is selected by a string discriminator, not an `isinstance` ladder.** `Transcoder` is a registry family keyed by the `Encoding` literal, so adding an encoding is one new file plus one registration decorator and never edits a shared factory; the dispatch substrate is [registry](../mixin/registry.md).
 - **`decode` lives on the ABC; only `encode` and `value_range` are abstract.** The positional weighted sum is identical for every encoding (they differ only in the forward alphabet), so the shared reduction is written once on the base. Pushing it down to subclasses would duplicate it three ways and let them drift.
-- **Construction inputs are exposed as read-only properties, not re-stored by callers.** `radix` and `digit_count` are `@property` because they are init-determined constants; `value_range` is a property for the same reason (derived from those constants). They are init-determined, so a property, not a method.
 
 ## Contracts & invariants
 
@@ -51,7 +50,6 @@ The encodings are exact integer arithmetic, evaluated digit-by-digit by repeated
 ## Gotchas
 
 - **Value range is a contract, not a guard.** Encoding an out-of-range integer silently wraps or truncates - there is no error and no clamp. A caller must keep its inputs inside `value_range`; treating `encode`/`decode` as lossless for arbitrary integers is the anti-pattern.
-- **Registration is an import side-effect.** A subclass is in the registry only once its module is imported; importing the `neurox.common.encoding` subpackage loads all three. Reaching for a subclass through a deeper or partial import can leave the registry unpopulated. Import the ABC and `create` from the subpackage.
 - **Canonical carries across positions.** The canonical forward map mutates the running quotient with a carry while emitting each digit, so its per-digit step is not independent the way true-form's and complement's are; do not assume the three encodings share a digit loop body.
 
 ## Known limitations

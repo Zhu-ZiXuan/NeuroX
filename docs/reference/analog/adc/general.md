@@ -45,7 +45,7 @@ TODO (domain author): physical derivation and citation for each noise sigma.
 | `comparator_noise__V` | input-referred comparator-noise sigma | V | Measured |
 | leakage / area / latency | static PPA / spec fields | uW, um^2, ns | Design |
 
-Provenance terms are defined in [parameter_provenance](../../parameter_provenance.md). The comparator thresholds are calibrated against physical data via the ADC calibration procedure ([calibration guide](../../../guides/calibration/README.md)).
+Provenance terms are defined in [module_parameter](../../../conventions/module_parameter.md). The comparator thresholds are calibrated against physical data via the ADC calibration procedure ([calibration guide](../../../guides/calibration/README.md)).
 
 ## Assumptions, scope & validity
 

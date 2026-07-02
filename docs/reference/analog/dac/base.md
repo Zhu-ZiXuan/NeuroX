@@ -1,4 +1,4 @@
-# DAC Abstract Layer
+# DAC abstract layer
 
 ## Summary / role
 
@@ -31,7 +31,7 @@ The abstract layer fixes no noise source; each concrete DAC declares its own. Th
 
 ## Parameters
 
-The abstract layer carries no physical parameter beyond the static-PPA fields (area, leakage) inherited by every member. Per-impl parameters are tabulated in the concrete documents. Provenance terms are defined in [parameter_provenance](../../parameter_provenance.md).
+The abstract layer carries no physical parameter beyond the static-PPA fields (area, leakage) inherited by every member. Per-impl parameters are tabulated in the concrete documents. Provenance terms are defined in [module_parameter](../../../conventions/module_parameter.md).
 
 ## Assumptions, scope & validity
 

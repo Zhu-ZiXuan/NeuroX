@@ -1,4 +1,4 @@
-# voltage_reference — Implementation
+# Voltage reference
 
 ## Summary
 

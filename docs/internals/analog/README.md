@@ -1,4 +1,4 @@
-# analog — Implementation
+# Analog
 
 How the analog circuit layer is built. The spec is in [reference/analog](../../reference/analog/README.md); this side covers only what the code cannot tell you.
 

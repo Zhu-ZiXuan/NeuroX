@@ -1,4 +1,4 @@
-# shift_adder — Implementation
+# Shift adder
 
 ## Summary
 

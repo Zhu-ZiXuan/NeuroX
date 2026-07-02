@@ -1,4 +1,4 @@
-# Parallel BL/SL DC Solver — Implementation
+# Parallel BL/SL DC solver
 
 ## Summary
 

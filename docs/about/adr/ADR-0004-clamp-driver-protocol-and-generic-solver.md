@@ -1,4 +1,4 @@
-# ADR-0004: Clamp-Driver Role and the Topology-Agnostic Array Solver
+# ADR-0004: Clamp-driver role and the topology-agnostic array solver
 
 ## Status
 

@@ -1,4 +1,4 @@
-# ADC Family — Implementation
+# ADC family
 
 How the ADC family is built. Spec: [reference/analog/adc](../../../reference/analog/adc/README.md).
 

@@ -1,4 +1,4 @@
-# ADR-0001: Config Dispatch and Owned Construction
+# ADR-0001: Config dispatch and owned construction
 
 ## Status
 

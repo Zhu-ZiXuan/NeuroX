@@ -1,4 +1,4 @@
-# Compile Contracts — Implementation
+# Compile contracts
 
 The rules every compile-friendly function obeys. They are dynamo-safety invariants, not physics. They hold across the regionally-compiled `solve_dc` leaf and across every file the macro `matmul` reaches — the forward the library keeps traceable so a caller may `torch.compile` it — minus the eager islands. The eager islands ([scheme-a-regional](scheme-a-regional.md)) are the one place these rules are lifted — there you *may* sync, mutate Python state, and run data-dependent loops.
 

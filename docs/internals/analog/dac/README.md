@@ -1,4 +1,4 @@
-# DAC Family — Implementation
+# DAC family
 
 How the DAC family is built. Spec: [reference/analog/dac](../../../reference/analog/dac/README.md).
 

@@ -1,4 +1,4 @@
-# Ideal Macro
+# Ideal macro
 
 ## Summary
 
@@ -31,7 +31,7 @@ N/A — the ideal macro is lossless by construction. Its ADC surface is the sent
 | `w_value_range` | inclusive integer weight range accepted | — | Design |
 | `x_value_range` | inclusive integer input value range accepted | — | Design |
 
-The ideal macro carries no tile config, no slice counts, and no reducer configs. Provenance terms: [parameter_provenance](../../parameter_provenance.md).
+The ideal macro carries no tile config, no slice counts, and no reducer configs. Provenance terms: [module_parameter](../../../conventions/module_parameter.md).
 
 ## Assumptions, scope & validity
 

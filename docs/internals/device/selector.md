@@ -1,4 +1,4 @@
-# Selector — Implementation
+# Selector
 
 ## Summary
 

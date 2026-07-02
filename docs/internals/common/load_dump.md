@@ -1,4 +1,4 @@
-# Load / Dump — Implementation
+# Load / dump
 
 ## Summary
 
@@ -29,7 +29,6 @@
 - **Directive merge semantics.** A `"<rel_path>:<section>"` reference reads the named section from the resolved file, strips the directive, and merges the fragment under the inline keys via `merge_dicts(inline, fragment)` — inline takes priority. Resolution is recursive (a fragment may itself carry directives, resolved under its own file's directory) and cycle-rejecting (a `(path, section)` re-entry raises `ValueError`). The two directives are mutually exclusive in one sub-table.
 - **Resolution order.** Within `dataclass_from_file`, the order is: parse (`dict_from_file`) → directive expansion (`resolve_uses`) → section pluck → multi-file merge (`merge_dicts`) → coercion (`dataclass_from_dict`). Directive expansion therefore precedes both section pluck and the `_neurox_type` dispatch (which runs last, inside coercion).
 - **Path resolution base.** `preset_path(rel)` and both preset directives locate the presets root via `importlib.resources.files("neurox") / "presets"`, so editable installs and wheel installs resolve identically. Suffix-free references try `.toml`, then `.yaml`, then `.yml`.
-- **Device-fragment purity.** Files under `neurox/presets/process/` carry only physical parameters: one file per device class (`mos.toml`, `rram.toml`, `wire.toml`, ...), one top-level table per variant (`default`, or `<node>_<flavor>`; the class is the filename, not repeated in the section), and no `_neurox_*` keys. The `_neurox_use` / `_neurox_use_preset` / `_neurox_type` keys live in consuming configs, never in the bundled device presets.
 
 ## Performance & resources
 
@@ -53,6 +52,6 @@ N/A on the hot path — load and dump are one-time setup. Directive resolution r
 
 - **Reference**: N/A — cross-cutting software; the physics it serializes is specified under the per-subsystem reference docs.
 - **Implementation**: `neurox/common/load_dump.py`
-- **Up-link**: [Config and construction](../config_and_construction.md)
+- **Up-link**: [Config and policy](../config_and_policy.md)
 - **Tests**: `tests/test_load_dump_use.py`, `tests/test_config_validation.py`, `tests/test_tool_config.py`
 - **Decisions**: [ADR-0001](../../about/adr/ADR-0001-config-dispatch-and-owned-construction.md)

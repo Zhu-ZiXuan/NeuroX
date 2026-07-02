@@ -1,4 +1,4 @@
-# current_mux — Implementation
+# Current mux
 
 ## Summary
 

@@ -1,4 +1,4 @@
-# RRAM — Implementation
+# RRAM
 
 ## Summary
 

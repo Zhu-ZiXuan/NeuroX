@@ -1,4 +1,4 @@
-# current_mirror — Implementation
+# Current mirror
 
 ## Summary
 

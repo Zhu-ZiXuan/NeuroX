@@ -1,4 +1,4 @@
-# macro base — Implementation
+# Macro base
 
 ## Summary
 

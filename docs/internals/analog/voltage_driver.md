@@ -1,4 +1,4 @@
-# voltage_driver — Implementation
+# Voltage driver
 
 ## Summary
 

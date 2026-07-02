@@ -1,4 +1,4 @@
-# Switch-Cap Bank
+# Switch-cap bank
 
 ## Summary / role
 
@@ -41,7 +41,7 @@ TODO (domain author): write the Pelgrom scaling law relating `cap_mismatch_sigma
 | `energy_per_sample_overhead__fJ` | per-sample energy overhead | fJ | Design |
 | leakage / area / latency | static PPA / spec fields | uW, um^2, ns | Design |
 
-Provenance terms are defined in [parameter_provenance](../parameter_provenance.md). The cap weights are a structural deployment property of the bank (the digit-encoding it is committed to), distinct from the per-cell physical knobs.
+Provenance terms are defined in [module_parameter](../../conventions/module_parameter.md). The cap weights are a structural deployment property of the bank (the digit-encoding it is committed to), distinct from the per-cell physical knobs.
 
 ## Assumptions, scope & validity
 

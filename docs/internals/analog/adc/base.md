@@ -1,4 +1,4 @@
-# ADC base — Implementation
+# ADC base
 
 ## Summary
 

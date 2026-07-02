@@ -1,4 +1,4 @@
-# DAC base — Implementation
+# DAC base
 
 ## Summary
 

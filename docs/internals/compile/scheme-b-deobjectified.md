@@ -1,4 +1,4 @@
-# Scheme B — De-objectified Solver
+# Scheme B — De-objectified solver
 
 **Status: Deferred — not implemented.** A hardening of [scheme A](scheme-a-regional.md), recorded as future work. Adopt when any of: cross-instance reuse proves fragile on the real path (per-layer recompilation observed); a predictable, object-independent compile cache key is wanted; or as the prerequisite functionalization for [scheme C](scheme-c-custom-op.md).
 
@@ -12,7 +12,7 @@ De-objectification removes the dependence on that implicit mechanism: the compil
 
 > May change across versions — re-confirm before relying on an edge.
 
-The compile cache key of a module-level function is determined by the function code, the tensor argument shapes/dtypes/devices, and the concrete values of scalar (int/float/bool) arguments — none of which is an object identity. Passing all dynamic state as explicit tensor arguments, and all scalar configuration as small type-stable values, keeps the key object-independent. The pattern mirrors the relationship between a stateful `nn.Linear` (holds parameters) and the stateless `nn.functional.linear` (pure computation).
+The compile cache key of a module-level function is determined by the function code, the tensor argument shapes/dtypes/devices, and the concrete values of scalar (int/float/bool) arguments — none of which is an object identity. Passing all dynamic state as explicit tensor arguments, and all scalar configuration as small type-stable values, keeps the key object-independent. The pattern mirrors the relationship between a stateful `nn.Linear` and the stateless `nn.functional.linear`.
 
 ## Implementation form
 

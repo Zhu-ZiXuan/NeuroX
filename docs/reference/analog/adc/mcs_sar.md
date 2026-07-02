@@ -101,7 +101,7 @@ TODO (domain author): the kT/C sampling-noise sigma formula in terms of $k_B$, $
 | `e_constant_per_bit__fJ` | per-bit constant energy overhead | fJ | Design |
 | leakage / area | static PPA / spec fields | uW, um^2 | Design |
 
-The reference-voltage ladder is not a parameter of this ADC: the owning xbar sources it from a [voltage_reference](../voltage_reference.md) and injects all taps into `convert` per call (shape `(*inst, num_refs)`), $\mathrm{mode}$ selecting one. Per-op latency is likewise not a parameter: it is derived as $(b+1)\cdot$ `clk_period__ns` from the runtime operating point. Provenance terms are defined in [parameter_provenance](../../parameter_provenance.md).
+The reference-voltage ladder is not a parameter of this ADC: the owning xbar sources it from a [voltage_reference](../voltage_reference.md) and injects all taps into `convert` per call (shape `(*inst, num_refs)`), $\mathrm{mode}$ selecting one. Per-op latency is likewise not a parameter: it is derived as $(b+1)\cdot$ `clk_period__ns` from the runtime operating point. Provenance terms are defined in [module_parameter](../../../conventions/module_parameter.md).
 
 ## Assumptions, scope & validity
 

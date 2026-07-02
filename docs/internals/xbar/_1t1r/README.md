@@ -1,4 +1,4 @@
-# 1T1R array unit — Implementation
+# 1T1R array unit
 
 How the concrete 1T1R cell and the core array built for it are implemented. The spec is in [reference/xbar/_1t1r](../../../reference/xbar/_1t1r/README.md); this side covers only what the code cannot tell you.
 

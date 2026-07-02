@@ -1,4 +1,4 @@
-# Scheme A — Regional Compilation
+# Scheme A — Regional compilation
 
 **Status: Active.** The current production scheme. The library self-compiles exactly one region — the DC-solver leaf — and leaves the rest of the macro forward eager.
 

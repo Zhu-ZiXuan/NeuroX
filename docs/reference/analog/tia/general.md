@@ -42,7 +42,7 @@ with $t_{\mathrm{read}}$ the read-window width. The amplifier computes this term
 | `load_resistance__MOhm` | conversion-stage load resistance $R_{\mathrm{load}}$ (transimpedance gain) | MOhm | Design |
 | leakage / area | static PPA fields | uW, um^2 | Design |
 
-The virtual-ground reference $V_{\mathrm{ref}}$ is not a config parameter — it is injected per call into `snapshot` as a `Tensor` and carried in `GeneralTIASnap.v_ref__V` (see the [voltage_reference](../voltage_reference.md) source). Provenance terms are defined in [parameter_provenance](../../parameter_provenance.md).
+The virtual-ground reference $V_{\mathrm{ref}}$ is not a config parameter — it is injected per call into `snapshot` as a `Tensor` and carried in `GeneralTIASnap.v_ref__V` (see the [voltage_reference](../voltage_reference.md) source). Provenance terms are defined in [module_parameter](../../../conventions/module_parameter.md).
 
 ## Assumptions, scope & validity
 

@@ -1,4 +1,4 @@
-# API & Configuration
+# API & configuration
 
 The interface reference (distinct from the scientific [Reference](../reference/README.md) manual):
 

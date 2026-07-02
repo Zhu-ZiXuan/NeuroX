@@ -1,8 +1,8 @@
-# fabricate — Implementation
+# Fabricate mixin
 
 ## Summary
 
-`FabricateMixin` grants a host module an automatic, pre-order `fabricate()` cascade for static manufacturing-variation sampling. A host inherits it alongside `nn.Module` and sets `self._inst_shape` at construction; the inherited `fabricate()` resamples the host's own static state then recurses into every `FabricateMixin` descendant, so a new layered module participates in fabrication for free. Subclasses override only the per-layer sampling step. The cross-cutting four-phase lifecycle in which this cascade sits is described in [fabrication_lifecycle](../../fabrication_lifecycle.md).
+`FabricateMixin` grants a host module an automatic, pre-order `fabricate()` cascade for static manufacturing-variation sampling. A host inherits it alongside `nn.Module` and sets `self._inst_shape` at construction; the inherited `fabricate()` resamples the host's own static state then recurses into every `FabricateMixin` descendant, so a new layered module participates in fabrication for free. Subclasses override only the per-layer sampling step. The cross-cutting four-phase lifecycle in which this cascade sits is described in [physical_state](../../physical_state.md).
 
 ## Design decisions
 
@@ -16,12 +16,12 @@
 - **Host requirements.** A host must also inherit `nn.Module` (the cascade walks `self.children()`) and must assign `self._inst_shape: tuple[int, ...]` in its `__init__`, encoding the per-instance multiplicity at this layer.
 - **Override surface.** Subclasses override `_sample_fabricate_mismatch(self) -> None` to resample their own static state. The default body is a no-op, which is the correct body for cascade-only container nodes that own no static state.
 - **`fabricate(self) -> None` semantics.** Pre-order: it samples the host's own mismatch, then recurses into each fabricable child. A child reached through an `nn.ModuleList` / `nn.ModuleDict` is visited as if it were a direct child. Children that are not `FabricateMixin` are not visited.
-- **Re-callability / idempotency.** `fabricate()` may be called any number of times. Each call resamples from the host's unchanged nominal template, so no state accumulates across calls; the result depends only on the host's nominal buffers and the RNG draw, not on prior fabricate calls.
-- **No weight is touched.** The cascade samples static mismatch only. Writing the programmed weight is a separate, manually dispatched concern (see [fabrication_lifecycle](../../fabrication_lifecycle.md)); the two write orthogonal state and their call order is free.
+- **Re-callable without accumulation.** `fabricate()` may be called any number of times. Each call resamples from the host's unchanged nominal template, so no state accumulates across calls; the result depends only on the host's nominal buffers and the RNG draw, not on prior fabricate calls.
+- **No weight is touched.** The cascade samples static mismatch only. Writing the programmed weight is a separate, manually dispatched concern (see [physical_state](../../physical_state.md)); the two write orthogonal state and their call order is free.
 
 ## Performance & resources
 
-- A `fabricate()` call is a single pre-order traversal of the module subtree — cost linear in node count. Per-node resampling reads the (small, usually 0-d) nominal buffers, so allocation scales with each host's `inst_shape`, not with any per-call batch. In the typical operator cadence (`fabricate` per forward in noise-aware QAT, not in inference) the cascade stays off the inference hot path.
+- A `fabricate()` call is a single pre-order traversal of the module subtree — cost linear in node count. Per-node resampling reads the (small, usually 0-d) nominal buffers, so allocation scales with each host's `inst_shape`, not with any per-call batch.
 
 ## Gotchas
 
@@ -31,11 +31,11 @@
 
 ## Known limitations
 
-- N/A — the mixin is a complete, self-contained cascade mechanism; whole-lifecycle limitations (e.g. no model-rewrite package) live in [fabrication_lifecycle](../../fabrication_lifecycle.md).
+- N/A — the mixin is a complete, self-contained cascade mechanism; whole-lifecycle limitations live in [physical_state](../../physical_state.md).
 
 ---
 
 - **Reference**: N/A — software mechanism, no physics reference twin.
 - **Implementation**: `neurox/common/mixin/fabricate.py`
 - **Tests**: `tests/test_signal_chain.py`, `tests/test_xbar_macro.py`
-- **Decisions**: N/A — no ADR governs this mixin; lifecycle-level decisions are in [fabrication_lifecycle](../../fabrication_lifecycle.md).
+- **Decisions**: N/A — no ADR governs this mixin; lifecycle-level decisions are in [physical_state](../../physical_state.md).

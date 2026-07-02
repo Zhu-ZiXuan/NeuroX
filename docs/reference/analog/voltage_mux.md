@@ -1,4 +1,4 @@
-# Voltage Mux
+# Voltage mux
 
 ## Summary / role
 
@@ -72,7 +72,7 @@ TODO (domain author): source $\sigma_{\varepsilon_g}$ from a process matching fi
 | transport energy | per-transport dynamic energy | fJ | Design |
 | leakage / area / latency | static PPA / spec fields | uW, um^2, ns | Design |
 
-Provenance terms are defined in [parameter_provenance](../parameter_provenance.md).
+Provenance terms are defined in [module_parameter](../../conventions/module_parameter.md).
 
 ## Assumptions, scope & validity
 

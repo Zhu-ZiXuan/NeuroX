@@ -1,4 +1,4 @@
-# Shift-Adder
+# Shift-adder
 
 ## Summary
 
@@ -48,7 +48,7 @@ TODO (domain author): the provenance and derivation of $E_{\mathrm{op}}$, $t_{\m
 | `area_per_inst__um2` | silicon area per instance | um^2 | Design |
 | `leakage_per_inst__uW` | static leakage per instance | uW | Design |
 
-The radix $r$ and the optional partial sum $p$ are runtime call arguments, not configuration. Provenance terms: [parameter_provenance](../parameter_provenance.md). File-level schema: `neurox/digital/shift_adder.py` (`ShiftAdderConfig`).
+The radix $r$ and the optional partial sum $p$ are runtime call arguments, not configuration. Provenance terms: [module_parameter](../../conventions/module_parameter.md). File-level schema: `neurox/digital/shift_adder.py` (`ShiftAdderConfig`).
 
 ## Symbols
 

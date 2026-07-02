@@ -1,8 +1,8 @@
-# mixin — Implementation
+# Mixin
 
-The reusable mixin classes shared across NeuroX physical modules: fabrication state, profiling, registry dispatch, and config validation.
+The reusable mixin classes composed into NeuroX circuit modules and config dataclasses.
 
-- [fabricate](fabricate.md) — the fabrication-state mixin and its lifecycle contract.
-- [profile](profile.md) — the profiling mixin and its PPA accounting surface.
-- [registry](registry.md) — the generic registry-dispatch mixin keyed by implementation.
-- [validate](validate.md) — the config-validation mixin and its invariant checks.
+- [fabricate](fabricate.md) — `FabricateMixin`, the pre-order `fabricate()` cascade for manufacturing-variation sampling.
+- [profile](profile.md) — `ProfileMixin`, the per-module emitter of the PPA side channel.
+- [registry](registry.md) — `RegistryMixin`, the implementation registry and typed lookup for polymorphic families.
+- [validate](validate.md) — `ValidateMixin`, the static check helpers for frozen `*Config` dataclasses.

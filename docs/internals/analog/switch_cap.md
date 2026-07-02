@@ -1,4 +1,4 @@
-# switch_cap — Implementation
+# Switch cap
 
 ## Summary
 

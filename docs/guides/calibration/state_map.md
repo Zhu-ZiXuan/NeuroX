@@ -126,5 +126,5 @@ All output goes through `logger.info(...)` in this order: load notices $\rightar
 - **See also**: [Core1T1R reference](../../reference/xbar/_1t1r/core.md) (consumer of `state_to_g_map__uS`)
 - [RRAM device reference](../../reference/device/rram.md)
 - [access-NMOS device reference](../../reference/device/mosfet.md)
-- [parameter provenance](../../reference/parameter_provenance.md)
+- [module parameter](../../conventions/module_parameter.md)
 - [calibration hub](README.md)

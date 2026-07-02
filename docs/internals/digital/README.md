@@ -1,4 +1,4 @@
-# digital — Implementation
+# Digital
 
 How the digital integer-datapath primitives are built. The spec is in [reference/digital](../../reference/digital/README.md); this side covers only what the code cannot tell you.
 

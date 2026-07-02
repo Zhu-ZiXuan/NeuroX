@@ -1,4 +1,4 @@
-# Analog Circuits
+# Analog circuits
 
 Analog circuit models on the array boundary and in the readout chain: the current-to-voltage clamp, the integer-code drivers, the column transport, the charge-share bank, and the digitizers. Each document specifies a circuit's transfer characteristic, its non-idealities, and its parameters.
 

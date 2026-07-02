@@ -1,4 +1,4 @@
-# OTS Selector
+# OTS selector
 
 ## Summary
 
@@ -22,9 +22,9 @@ N/A — the model samples a static threshold map and exports it; it holds no sol
 
 ## Noise & non-idealities
 
-The single source is parameterised against the shared template in [notation_conventions](../notation_conventions.md#noise-model-conventions).
+The single source is parameterised against the shared template in [nonideality](../nonideality.md).
 
-- **$V_{\mathrm{th}}$ mismatch** (`vth_mismatch`, fabricate time) — a state-independent additive zero-mean Gaussian on the nominal threshold with a single config-constant sigma $\sigma_{V_{\mathrm{th}}}$ (no area dependence), sampled once per `fabricate()` call. Switched by the per-run policy flag; with the flag off the map is the uniform nominal value. This is static device-to-device variation, not per-read noise. Area / Pelgrom scaling of the spread is deliberately not modelled here, unlike the [NMOS](mosfet.md#noise--non-idealities) mismatch.
+- **$V_{\mathrm{th}}$ mismatch** (`vth_mismatch`, fabricate time) — a state-independent additive zero-mean Gaussian on the nominal threshold with a single config-constant sigma $\sigma_{V_{\mathrm{th}}}$ (no area dependence), sampled once per `fabricate()` call. Switched by the per-run policy flag; with the flag off the map is the uniform nominal value. This is static device-to-device variation, not per-read noise. Area / Pelgrom scaling of the spread is deliberately not modelled here, unlike the [NMOS](mosfet.md#noise-non-idealities) mismatch.
 
 ## Parameters
 
@@ -33,7 +33,7 @@ The single source is parameterised against the shared template in [notation_conv
 | `vth_nominal__V` | nominal threshold voltage $V_{\mathrm{th,nom}}$ | V | Measured |
 | `vth_mismatch__V` | additive Gaussian mismatch sigma $\sigma_{V_{\mathrm{th}}}$ | V | Measured |
 
-Provenance terms are defined in [parameter_provenance](../parameter_provenance.md). File-level schema: `api`.
+Provenance terms are defined in [module_parameter](../../conventions/module_parameter.md). File-level schema: `api`.
 
 ## Symbols
 

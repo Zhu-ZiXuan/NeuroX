@@ -1,4 +1,4 @@
-# adder — Implementation
+# Adder
 
 ## Summary
 

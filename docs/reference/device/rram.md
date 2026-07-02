@@ -1,4 +1,4 @@
-# RRAM Cell
+# RRAM cell
 
 ## Summary
 
@@ -39,7 +39,7 @@ N/A — the read I-V and its derivative are evaluated in closed form; the cell h
 
 ## Noise & non-idealities
 
-Each source is independently switched by a per-run policy flag; with the flag off the source is the identity map. The statistical forms below are the device-level kernels; the shared parameterization convention is in [notation_conventions](../notation_conventions.md#noise-model-conventions).
+Each source is independently switched by a per-run policy flag; with the flag off the source is the identity map. The statistical forms below are the device-level kernels; the shared parameterization convention is in [nonideality](../nonideality.md).
 
 - **Programming variation** (`prog_gamma`, program time) — a multiplicative Gamma perturbation, normalized to unit mean, whose shape parameter $k$ depends on the normalized conductance state $\hat G = (G - G_{\mathrm{lo}})/(G_{\mathrm{hi}} - G_{\mathrm{lo}})$: $k(\hat G) = \max(k_{\mathrm{slope}}\,\hat G + k_{\mathrm{int}},\,0.1)$ at fixed scale $\theta$. The normalization bounds $G_{\mathrm{lo}}, G_{\mathrm{hi}}$ are the `prog_gamma` config's own `min_val`/`max_val` and are independent of the device working-range bounds $G_{\min}, G_{\max}$ (they coincide only when a preset sets them equal). The applied gain is $\gamma/\mathbb{E}[\gamma]$ with $\gamma \sim \operatorname{Gamma}(k,\theta)$, so the perturbation preserves the mean conductance and only injects state-dependent spread.
 - **Stuck-at fault** (`stuck_at`, program time) — each cell is independently forced to $G_{\min}$ with probability $p_{\min}$ or to $G_{\max}$ with probability $p_{\max}$ (requiring $p_{\min}+p_{\max}<1$), else left unchanged.
@@ -65,7 +65,7 @@ After the read-time sources, the snap conductance is re-clamped to $[G_{\min}, G
 | `read_telegraph` ($\mu_a, \sigma_a, p_{\mathrm{high}}$) | telegraph read-noise parameters | uS, uS, — | Measured |
 | `stuck_at` ($p_{\min}, p_{\max}$) | stuck-at fault probabilities | — | Measured |
 
-Provenance terms are defined in [parameter_provenance](../parameter_provenance.md). How to obtain values for a new chip: `guides/calibration`; file-level schema: `api`.
+Provenance terms are defined in [module_parameter](../../conventions/module_parameter.md). How to obtain values for a new chip: `guides/calibration`; file-level schema: `api`.
 
 ## Symbols
 
@@ -99,7 +99,7 @@ Stated assumptions of the current model:
 - $G_{\max}$ is a design ceiling enforced by clamping, representing external current limiting, not an intrinsic saturation of the device physics.
 - Programming variation, drift, and stuck-at act at program time and are baked into the stored state; telegraph and thermal noise are resampled per read.
 - The conductance-drift power law is a placeholder, not yet detailed-modelled: the drift exponent $\nu$ is a single state- and device-independent constant, and its state and device dependence is deferred.
-- The retention/drift time $t$ and its reference $t_0$ are kept in seconds, a separate quantity from the nanosecond compute-path time symbol of the shared [notation_conventions](../notation_conventions.md#electrical-and-physical-quantities).
+- The retention/drift time $t$ and its reference $t_0$ are kept in seconds, a separate quantity from the nanosecond compute-path time symbol of the shared [notation_conventions](../../conventions/notation_conventions.md#electrical-and-physical-quantities).
 
 TODO (domain author): give the quantitative validity boundaries — conductance and voltage ranges over which the $\sinh$ I-V holds, the temperature treatment of $G$ and $\alpha$ (currently temperature-independent in the read law), the retention-time range of the drift power law, and regimes where the model should not be trusted.
 

@@ -1,4 +1,4 @@
-# voltage_mux — Implementation
+# Voltage mux
 
 ## Summary
 

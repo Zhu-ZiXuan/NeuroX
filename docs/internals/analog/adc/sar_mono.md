@@ -1,4 +1,4 @@
-# Monotonic SAR ADC — Implementation
+# Monotonic SAR ADC
 
 ## Summary
 

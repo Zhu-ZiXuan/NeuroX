@@ -1,4 +1,4 @@
-# general DAC — Implementation
+# General DAC
 
 ## Summary
 

@@ -1,4 +1,4 @@
-# InterArraySliceXbarMacro — Implementation
+# InterArraySliceXbarMacro
 
 ## Summary
 

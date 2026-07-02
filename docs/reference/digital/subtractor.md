@@ -48,7 +48,7 @@ TODO (domain author): the provenance and derivation of $E_{\mathrm{op}}$, $t_{\m
 | `area_per_inst__um2` | silicon area per instance | um^2 | Design |
 | `leakage_per_inst__uW` | static leakage per instance | uW | Design |
 
-Provenance terms: [parameter_provenance](../parameter_provenance.md). File-level schema: `neurox/digital/subtractor.py` (`SubtractorConfig`).
+Provenance terms: [module_parameter](../../conventions/module_parameter.md). File-level schema: `neurox/digital/subtractor.py` (`SubtractorConfig`).
 
 ## Symbols
 

@@ -1,4 +1,4 @@
-# MCS SAR ADC — Implementation
+# MCS SAR ADC
 
 ## Summary
 

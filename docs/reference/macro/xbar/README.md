@@ -1,4 +1,4 @@
-# XbarMacro Family
+# XbarMacro family
 
 The macro family that organizes [crossbar tiles](../../xbar/README.md): it decomposes each value into positional slices (the precision-slicing axis $S_w$, $S_a$) and lays them onto the physical tile grid (the matrix-tiling axis $T_r$, $T_c$), then aggregates the per-tile reads back into one integer matmul by a radix-weighted shift-add. The modes differ only in how the precision-slicing axis maps onto the tiling layout.
 

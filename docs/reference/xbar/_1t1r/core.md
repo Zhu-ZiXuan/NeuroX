@@ -1,4 +1,4 @@
-# 1T1R Core Array (Core1T1R)
+# 1T1R core array (Core1T1R)
 
 ## Summary
 
@@ -73,7 +73,7 @@ By Tellegen's theorem $E_{\mathrm{DC}}$ equals the sum of the cell-branch and BL
 
 The array owns no static mismatch; non-idealities enter through its children, each gated by a policy switch: per-cell RRAM conductance non-idealities and access-NMOS mismatch, carried inside the condensed branch — see [cell](cell.md). The boundary clamp-driver and WL DAC non-idealities belong to the scheme xbar that owns those peers, not to the core.
 
-TODO: once the device/analog Reference documents exist, state exactly which sources couple into the operating point and how (e.g. how RRAM conductance variation perturbs the cell branch current $I_{\mathrm{cell}}$), with the statistical model per [notation_conventions](../../notation_conventions.md#noise-model-conventions).
+TODO: once the device/analog Reference documents exist, state exactly which sources couple into the operating point and how (e.g. how RRAM conductance variation perturbs the cell branch current $I_{\mathrm{cell}}$), with the statistical model per [nonideality](../../nonideality.md).
 
 ## Parameters
 
@@ -86,7 +86,7 @@ The core owns a `cell` sub-module whose parameters (state map, RRAM window, acce
 | `wl_pulse_length__ns` | WL access duration (drives wire-RC charging energy) | ns | Design |
 | solver iteration counts | numerical settling | — | Calibrated (numerical convergence) |
 
-Provenance terms are defined in [parameter_provenance](../../parameter_provenance.md). How to obtain values for a new chip: [calibration guide](../../../guides/calibration/README.md); file-level schema: [config reference](../../../api/README.md). The cell's cross-field validation constraints (conductance map vs RRAM window vs device floor) are stated in [cell](cell.md).
+Provenance terms are defined in [module_parameter](../../../conventions/module_parameter.md). How to obtain values for a new chip: [calibration guide](../../../guides/calibration/README.md); file-level schema: [config reference](../../../api/README.md). The cell's cross-field validation constraints (conductance map vs RRAM window vs device floor) are stated in [cell](cell.md).
 
 ## Assumptions, scope & validity
 

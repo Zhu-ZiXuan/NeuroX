@@ -1,44 +1,81 @@
-# Writing Internals Documents
+# Writing Internals documents
 
-Internals explains how the code realizes the [Reference](../reference/README.md) specification. Write only what the code cannot tell a reader: why a choice was made, cross-file contracts, performance, gotchas, limitations. Never narrate what the code does — if a sentence is obvious from reading the code, delete it.
+## Scope
+
+Internals explains how the code realizes the Reference specification — the design reasoning, contracts, and engineering trade-offs the code itself cannot show.
+
+Internals holds:
+
+- design decisions and rejected alternatives
+- cross-file contracts, ownership, and lifecycle rules
+- shape / dtype / buffer and compile invariants
+- complexity, memory model, and performance trade-offs
+- gotchas and known limitations
+
+Internals mirrors the core library structure to directory granularity; directories are concept groups and extension points.
 
 ## Document template
 
-Use every section, in order. Keep empty headings with `N/A — ...` or `TODO — ...`.
+A module document mirrors a single code module and uses every template section below, in order; README files are navigation only. Keep an empty heading as `N/A — <reason>` when genuinely inapplicable or `TODO — <missing item>` when applicable but unwritten.
 
-```text
-0. Summary            — one sentence on the parts that make up this subsystem; link the Reference spec
-1. Design decisions   — each non-obvious choice, its rationale, and the rejected alternatives. The core section
-2. Contracts & invariants — call conventions, ownership, shape contracts, torch.compile constraints that hold across files
-3. Performance & resources — complexity, memory model, benchmarks, dtype / chunk trade-offs
-4. Gotchas            — error-prone behaviour, anti-patterns, "do not treat X as Y"
-5. Known limitations  — implementation TODOs, workarounds, and verification coverage gaps (what is deliberately not tested)
-```
+An internals module document's title matches its corresponding Reference document's title exactly; when no Reference document exists, the title names the subject.
 
-Do not add a code map (file-by-file class listing): it couples the document to the code and rots on every refactor. Do not add a verification section: put the rationale of a verification strategy in §1 and its coverage gaps in §5; the guarding tests are the footer's Tests entry.
+```markdown
+# <Module name>
 
-## Never narrate code
+## Summary
 
-Banned: step-by-step restatement of a function's control flow. Example — releasing the DCOP per chunk:
+## Design decisions
 
-- **Bad:** "Each chunk iteration drops `solver_dcop`; its node tensors are freed before the next chunk allocates."
-- **Good:** "Stream by chunk and release the DCOP because the leading batch is ~$10^5$ (im2col × batch × slice × col); materializing all node voltages OOMs. Invariant: per-instance memory stays $O(NB^2)$. Rejected — dense fallback (OOM), PCR materialized shifts (bloat). Chosen — block-Thomas + per-chunk release → peak working set $O(\mathrm{chunk}\times\mathrm{col}\times\mathrm{row})$."
+## Contracts & invariants
 
-The first restates code; the second gives the reason, the rejected alternatives, and the invariant.
+## Performance & resources
 
-## Footer
+## Gotchas
 
-End with a horizontal rule and a markdown list — **not** a code block. Link docs with relative `.md` paths; write Implementation and Tests as **inline code, file-level only** — never class / function / line references (those churn). A CI check verifies the paths exist.
+## Known limitations
 
-```text
 ---
 
-- **Reference**: [<doc>](<relative .md path>)
+- **Reference**: [<doc>](<relative .md path>) or N/A — <reason>
 - **Implementation**: `neurox/<...>.py`
-- **Tests**: `tests/test_<...>.py`
-- **Decisions**: [<ADR>](<relative .md path>)   or   TODO — ...
+- **Tests**: `tests/test_<...>.py` or TODO — <what is missing>
+- **Decisions**: [<ADR>](<relative .md path>), N/A, or None
 ```
+
+## Filling each section
+
+- `Summary`: one-line orientation, plus the matching Reference spec when one exists.
+- `Design decisions`: the core section — non-obvious choices, their rationale, rejected alternatives, and verification-strategy rationale, not ordinary implementation steps.
+- `Contracts & invariants`: the cross-file rules and invariants.
+- `Performance & resources`: complexity, memory model, chunking, dtype trade-offs, compile boundaries, and benchmark implications.
+- `Gotchas`: error-prone behavior and anti-patterns.
+- `Known limitations`: implementation TODOs, workarounds, and verification coverage gaps.
+
+Never omit a required section; the empty state is information.
+
+The footer is traceability: use relative `.md` links for docs, and write Implementation and Tests as inline code at file level only, never a class, function, or line. The Implementation entry is the document's code map, so the body adds no per-file code listing.
+
+## Content rules
+
+### Contracts & invariants
+
+State call conventions, ownership, shape / dtype / buffer contracts, lifecycle rules, and compile constraints that hold across files.
+
+### Public contracts
+
+A shared public-interface contract lives at the base class, mixin, or shared concept that owns it, never copied into each consumer. The cross-cutting contract docs are indexed in [internals/README](../internals/README.md). A leaf Internals document states only its module-specific decisions and its differences from the shared contract; it does not restate the contract or maintain a catalog here.
+
+### Do not narrate code
+
+If a sentence only restates control flow or lists files, delete it.
+
+**Bad:** "Each chunk iteration drops `solver_dcop`; its tensors are freed before the next chunk allocates."
+
+**Good:** "Stream by chunk and release the DCOP because the leading batch is large enough to OOM if all node voltages are materialized. Invariant: peak working set stays proportional to one chunk."
+
+The good version gives reason and invariant; the bad version repeats control flow.
 
 ## Style
 
-Technical, decision-oriented prose for a contributor. English. Concise. Current-state only.
+Use concise, technical, decision-oriented prose. Follow [organizing_principles](../conventions/organizing_principles.md) for present-state-only writing.

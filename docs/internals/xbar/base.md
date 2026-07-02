@@ -1,4 +1,4 @@
-# xbar base — Implementation
+# Xbar base
 
 ## Summary
 

@@ -1,4 +1,4 @@
-# 1T1R Cell
+# 1T1R cell
 
 ## Summary
 
@@ -47,7 +47,7 @@ The cell-owned parameters are the device configs, the access-NMOS sizing and par
 | `c_{gs,gd,db}_per_um__fF` | NMOS per-width parasitic-cap density | fF/um | Process |
 | `n_newton` | per-cell access-node Newton iteration count | — | Calibrated (numerical convergence) |
 
-Provenance terms are defined in [parameter_provenance](../../parameter_provenance.md). How to obtain values for a new chip: [calibration guide](../../../guides/calibration/README.md); file-level schema: [config reference](../../../api/README.md).
+Provenance terms are defined in [module_parameter](../../../conventions/module_parameter.md). How to obtain values for a new chip: [calibration guide](../../../guides/calibration/README.md); file-level schema: [config reference](../../../api/README.md).
 
 **Validation constraints.** Cross-field consistency is enforced at cell construction between the conductance map, the RRAM window, and the device floor $G_{\mathrm{min}}$ (`rram_config.g_min__uS`):
 

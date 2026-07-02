@@ -1,4 +1,4 @@
-# NeuroX Documentation
+# NeuroX documentation
 
 NeuroX is a PyTorch simulator for RRAM compute-in-memory hardware — device physics, analog/digital circuits, and array/macro architecture — reporting algorithmic accuracy alongside circuit-level PPA.
 

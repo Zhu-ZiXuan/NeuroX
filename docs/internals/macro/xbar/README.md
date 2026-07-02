@@ -1,4 +1,4 @@
-# XbarMacro — Implementation
+# XbarMacro
 
 How the `XbarMacro` registry family is built: the abstract registry root and the per-mode organize/aggregate shape pipelines. Spec: [reference/macro/xbar](../../../reference/macro/xbar/README.md).
 

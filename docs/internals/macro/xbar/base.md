@@ -1,4 +1,4 @@
-# XbarMacro base — Implementation
+# XbarMacro base
 
 ## Summary
 

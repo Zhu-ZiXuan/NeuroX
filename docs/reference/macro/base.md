@@ -1,4 +1,4 @@
-# Macro Abstract Contract
+# Macro abstract contract
 
 ## Summary
 
@@ -51,7 +51,7 @@ The abstract contract has no parameters of its own; a concrete member's paramete
 | `adc_mode_num` | number of supported ADC operating points | — | Design |
 | `adc_max_bits` | maximum ADC resolution across operating points | — | Design |
 
-Provenance terms are defined in [parameter_provenance](../parameter_provenance.md). Runtime inputs (the weight and activation tensors, the ADC operating point) are inputs, not parameters.
+Provenance terms are defined in [module_parameter](../../conventions/module_parameter.md). Runtime inputs (the weight and activation tensors, the ADC operating point) are inputs, not parameters.
 
 ### ADC operating-point surface
 

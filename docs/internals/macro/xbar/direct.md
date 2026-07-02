@@ -1,4 +1,4 @@
-# DirectXbarMacro — Implementation
+# DirectXbarMacro
 
 ## Summary
 

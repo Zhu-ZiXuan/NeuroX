@@ -39,7 +39,7 @@ The fabricated state consuming these (`c_p__fF` / `c_n__fF` per-leg cap arrays a
 
 ## Parameters
 
-Same parameter shape as [mcs_sar](mcs_sar.md#parameters): `max_bits`, `c_unit__fF`, `clk_period__ns`, the cap- and comparator-mismatch sigmas, energy overhead, and static PPA. As with the MCS variant the reference ladder is not a config field — the future kernel will read the per-call injected `v_refs__V` tensor the owning xbar sources and select a tap by $\mathrm{mode}$. Like the MCS variant there is no per-op-latency parameter; the future kernel will derive $(b+1)\cdot$ `clk_period__ns`. Provenance terms are defined in [parameter_provenance](../../parameter_provenance.md).
+Same parameter shape as [mcs_sar](mcs_sar.md#parameters): `max_bits`, `c_unit__fF`, `clk_period__ns`, the cap- and comparator-mismatch sigmas, energy overhead, and static PPA. As with the MCS variant the reference ladder is not a config field — the future kernel will read the per-call injected `v_refs__V` tensor the owning xbar sources and select a tap by $\mathrm{mode}$. Like the MCS variant there is no per-op-latency parameter; the future kernel will derive $(b+1)\cdot$ `clk_period__ns`. Provenance terms are defined in [module_parameter](../../../conventions/module_parameter.md).
 
 ## Assumptions, scope & validity
 

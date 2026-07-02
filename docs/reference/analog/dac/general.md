@@ -37,7 +37,7 @@ TODO (domain author): physical derivation and citation for the drive-thermal sig
 | `energy_per_op__fJ` | per-conversion dynamic energy | fJ | Design |
 | leakage / area / latency | static PPA / spec fields | uW, um^2, ns | Design |
 
-Set `energy_per_op__fJ` to zero whenever the same switching energy is accounted at another stage, to avoid double-counting. Provenance terms are defined in [parameter_provenance](../../parameter_provenance.md).
+Set `energy_per_op__fJ` to zero whenever the same switching energy is accounted at another stage, to avoid double-counting. Provenance terms are defined in [module_parameter](../../../conventions/module_parameter.md).
 
 ## Assumptions, scope & validity
 

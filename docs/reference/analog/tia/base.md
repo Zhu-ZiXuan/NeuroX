@@ -1,4 +1,4 @@
-# TIA Abstract Layer
+# TIA abstract layer
 
 ## Summary / role
 
@@ -34,7 +34,7 @@ The abstract layer fixes no noise source; each concrete TIA declares its own (e.
 |---|---|---|---|
 | leakage / area / latency | static PPA / spec fields shared by every topology | uW, um^2, ns | Design |
 
-The virtual-ground reference voltage $V_{\mathrm{ref}}$ is not a config parameter — it is injected per call into `snapshot` as a `Tensor` and carried in the snap (see the [voltage_reference](../voltage_reference.md) source). Concrete TIAs add their own topology parameters (see the [TIA family](README.md) index). Provenance terms are defined in [parameter_provenance](../../parameter_provenance.md).
+The virtual-ground reference voltage $V_{\mathrm{ref}}$ is not a config parameter — it is injected per call into `snapshot` as a `Tensor` and carried in the snap (see the [voltage_reference](../voltage_reference.md) source). Concrete TIAs add their own topology parameters (see the [TIA family](README.md) index). Provenance terms are defined in [module_parameter](../../../conventions/module_parameter.md).
 
 ## Assumptions, scope & validity
 

@@ -1,4 +1,4 @@
-# Digital Circuits
+# Digital circuits
 
 The exact integer-datapath primitives stitched around the analog core: each computes a deterministic digital function on integer tensors and carries a behavioural PPA cost model (no gate-level netlist). This layer is where the digit-radix recombination, partial-sum accumulation, and signed add/subtract that surround a VMM are accounted.
 

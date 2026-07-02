@@ -1,4 +1,4 @@
-# Parallel BL/SL DC Solver
+# Parallel BL/SL DC solver
 
 ## Summary
 
@@ -48,7 +48,7 @@ The solver carries IR drop through the per-segment interconnect resistances of t
 
 ## Symbols
 
-Shared electrical symbols are pinned in [notation_conventions](../notation_conventions.md); the per-call cell branch quantities are defined in [cell](cell.md).
+Shared electrical symbols are pinned in [notation_conventions](../../conventions/notation_conventions.md); the per-call cell branch quantities are defined in [cell](cell.md).
 
 | Symbol | Meaning | Unit | Code field |
 |---|---|---|---|

@@ -1,4 +1,4 @@
-# ADC Abstract Layer
+# ADC abstract layer
 
 ## Summary / role
 
@@ -43,7 +43,7 @@ ADC quantization is intrinsic to every member. All further non-idealities (sampl
 
 ## Parameters
 
-The abstract layer fixes no physical parameter; it carries only the operating-point contract (maximum bits, plus the per-call reference taps injected as a `Tensor`) and the static-PPA fields (area, leakage) inherited by every member. The reference taps are not an ADC parameter — they are owned and sized by the xbar's reference source. Per-topology parameters are tabulated in the concrete documents. Provenance terms are defined in [parameter_provenance](../../parameter_provenance.md).
+The abstract layer fixes no physical parameter; it carries only the operating-point contract (maximum bits, plus the per-call reference taps injected as a `Tensor`) and the static-PPA fields (area, leakage) inherited by every member. The reference taps are not an ADC parameter — they are owned and sized by the xbar's reference source. Per-topology parameters are tabulated in the concrete documents. Provenance terms are defined in [module_parameter](../../../conventions/module_parameter.md).
 
 ## Assumptions, scope & validity
 

@@ -49,184 +49,189 @@ nav:
   - Overview: get-started/README.md
 - Guides:
   - Overview: guides/README.md
-  - algorithm_engineer:
+  - Algorithm engineer:
     - Overview: guides/algorithm_engineer/README.md
-  - calibration:
+  - Calibration:
     - Overview: guides/calibration/README.md
-    - adc_range_probing: guides/calibration/adc_range_probing.md
-    - adc_rescale: guides/calibration/adc_rescale.md
-    - solver_iteration_counts: guides/calibration/solver_iteration_counts.md
-    - state_map: guides/calibration/state_map.md
-  - tia_design:
+    - ADC range probing: guides/calibration/adc_range_probing.md
+    - ADC rescale: guides/calibration/adc_rescale.md
+    - Solver iteration counts: guides/calibration/solver_iteration_counts.md
+    - State map: guides/calibration/state_map.md
+  - TIA design:
     - Overview: guides/tia_design/README.md
 - Reference:
   - Overview: reference/README.md
-  - glossary: reference/glossary.md
-  - notation_conventions: reference/notation_conventions.md
-  - parameter_provenance: reference/parameter_provenance.md
-  - analog:
+  - Nonideality: reference/nonideality.md
+  - Analog:
     - Overview: reference/analog/README.md
-    - current_mirror: reference/analog/current_mirror.md
-    - current_mux: reference/analog/current_mux.md
-    - current_reference: reference/analog/current_reference.md
-    - switch_cap: reference/analog/switch_cap.md
-    - voltage_driver: reference/analog/voltage_driver.md
-    - voltage_mux: reference/analog/voltage_mux.md
-    - voltage_reference: reference/analog/voltage_reference.md
-    - adc:
+    - Current mirror: reference/analog/current_mirror.md
+    - Current mux: reference/analog/current_mux.md
+    - Current reference: reference/analog/current_reference.md
+    - Switch cap: reference/analog/switch_cap.md
+    - Voltage driver: reference/analog/voltage_driver.md
+    - Voltage mux: reference/analog/voltage_mux.md
+    - Voltage reference: reference/analog/voltage_reference.md
+    - ADC:
       - Overview: reference/analog/adc/README.md
-      - base: reference/analog/adc/base.md
-      - general: reference/analog/adc/general.md
-      - mcs_sar: reference/analog/adc/mcs_sar.md
-      - sar_mono: reference/analog/adc/sar_mono.md
-    - dac:
+      - Base: reference/analog/adc/base.md
+      - General: reference/analog/adc/general.md
+      - MCS SAR: reference/analog/adc/mcs_sar.md
+      - SAR mono: reference/analog/adc/sar_mono.md
+    - DAC:
       - Overview: reference/analog/dac/README.md
-      - base: reference/analog/dac/base.md
-      - general: reference/analog/dac/general.md
-    - tia:
+      - Base: reference/analog/dac/base.md
+      - General: reference/analog/dac/general.md
+    - TIA:
       - Overview: reference/analog/tia/README.md
-      - base: reference/analog/tia/base.md
-      - general: reference/analog/tia/general.md
-      - opamp_tia: reference/analog/tia/opamp_tia.md
-  - device:
+      - Base: reference/analog/tia/base.md
+      - General: reference/analog/tia/general.md
+      - Opamp TIA: reference/analog/tia/opamp_tia.md
+  - Device:
     - Overview: reference/device/README.md
-    - nmos: reference/device/nmos.md
-    - rram: reference/device/rram.md
-    - selector: reference/device/selector.md
-  - digital:
+    - MOSFET: reference/device/mosfet.md
+    - RRAM: reference/device/rram.md
+    - Selector: reference/device/selector.md
+  - Digital:
     - Overview: reference/digital/README.md
-    - accumulator: reference/digital/accumulator.md
-    - adder: reference/digital/adder.md
-    - shift_adder: reference/digital/shift_adder.md
-    - subtractor: reference/digital/subtractor.md
-  - macro:
+    - Accumulator: reference/digital/accumulator.md
+    - Adder: reference/digital/adder.md
+    - Shift adder: reference/digital/shift_adder.md
+    - Subtractor: reference/digital/subtractor.md
+  - Macro:
     - Overview: reference/macro/README.md
-    - base: reference/macro/base.md
-    - xbar:
+    - Base: reference/macro/base.md
+    - Xbar:
       - Overview: reference/macro/xbar/README.md
-      - direct: reference/macro/xbar/direct.md
-      - ideal: reference/macro/xbar/ideal.md
-      - inter_array_slice: reference/macro/xbar/inter_array_slice.md
-      - intra_array_slice: reference/macro/xbar/intra_array_slice.md
-  - xbar:
+      - Direct: reference/macro/xbar/direct.md
+      - Ideal: reference/macro/xbar/ideal.md
+      - Inter-array slice: reference/macro/xbar/inter_array_slice.md
+      - Intra-array slice: reference/macro/xbar/intra_array_slice.md
+  - Xbar:
     - Overview: reference/xbar/README.md
-    - base: reference/xbar/base.md
-    - cell: reference/xbar/cell.md
-    - solver: reference/xbar/solver.md
-    - _1t1r:
+    - Base: reference/xbar/base.md
+    - Cell: reference/xbar/cell.md
+    - Solver: reference/xbar/solver.md
+    - 1T1R:
       - Overview: reference/xbar/_1t1r/README.md
-      - cell: reference/xbar/_1t1r/cell.md
-      - core: reference/xbar/_1t1r/core.md
+      - Cell: reference/xbar/_1t1r/cell.md
+      - Core: reference/xbar/_1t1r/core.md
 - Validation:
   - Overview: validation/README.md
 - API:
   - Overview: api/README.md
-  - configuration: api/configuration.md
-  - python: api/python.md
+  - Configuration: api/configuration.md
+  - Python: api/python.md
 - Internals:
   - Overview: internals/README.md
-  - compile:
+  - Compile:
     - Overview: internals/compile/README.md
-    - contracts: internals/compile/contracts.md
-    - scheme-a-regional: internals/compile/scheme-a-regional.md
-    - scheme-b-deobjectified: internals/compile/scheme-b-deobjectified.md
-    - scheme-c-custom-op: internals/compile/scheme-c-custom-op.md
-  - config_and_construction: internals/config_and_construction.md
-  - fabrication_lifecycle: internals/fabrication_lifecycle.md
-  - state_holding: internals/state_holding.md
-  - analog:
+    - Contracts: internals/compile/contracts.md
+    - Scheme A regional: internals/compile/scheme-a-regional.md
+    - Scheme B deobjectified: internals/compile/scheme-b-deobjectified.md
+    - Scheme C custom op: internals/compile/scheme-c-custom-op.md
+  - Config and policy: internals/config_and_policy.md
+  - Physical state: internals/physical_state.md
+  - Package surface: internals/package_surface.md
+  - Analog:
     - Overview: internals/analog/README.md
-    - current_mirror: internals/analog/current_mirror.md
-    - current_mux: internals/analog/current_mux.md
-    - current_reference: internals/analog/current_reference.md
-    - switch_cap: internals/analog/switch_cap.md
-    - voltage_driver: internals/analog/voltage_driver.md
-    - voltage_mux: internals/analog/voltage_mux.md
-    - voltage_reference: internals/analog/voltage_reference.md
-    - adc:
+    - Current mirror: internals/analog/current_mirror.md
+    - Current mux: internals/analog/current_mux.md
+    - Current reference: internals/analog/current_reference.md
+    - Switch cap: internals/analog/switch_cap.md
+    - Voltage driver: internals/analog/voltage_driver.md
+    - Voltage mux: internals/analog/voltage_mux.md
+    - Voltage reference: internals/analog/voltage_reference.md
+    - ADC:
       - Overview: internals/analog/adc/README.md
-      - base: internals/analog/adc/base.md
-      - general: internals/analog/adc/general.md
-      - mcs_sar: internals/analog/adc/mcs_sar.md
-      - sar_mono: internals/analog/adc/sar_mono.md
-    - dac:
+      - Base: internals/analog/adc/base.md
+      - General: internals/analog/adc/general.md
+      - MCS SAR: internals/analog/adc/mcs_sar.md
+      - SAR mono: internals/analog/adc/sar_mono.md
+    - DAC:
       - Overview: internals/analog/dac/README.md
-      - base: internals/analog/dac/base.md
-      - general: internals/analog/dac/general.md
-    - tia:
+      - Base: internals/analog/dac/base.md
+      - General: internals/analog/dac/general.md
+    - TIA:
       - Overview: internals/analog/tia/README.md
-      - base: internals/analog/tia/base.md
-      - opamp_tia: internals/analog/tia/opamp_tia.md
-  - common:
+      - Base: internals/analog/tia/base.md
+      - Opamp TIA: internals/analog/tia/opamp_tia.md
+  - Common:
     - Overview: internals/common/README.md
-    - circuit: internals/common/circuit.md
-    - encoding:
+    - Circuit: internals/common/circuit.md
+    - Encoding:
       - Overview: internals/common/encoding/README.md
-      - encodings: internals/common/encoding/encodings.md
-    - load_dump: internals/common/load_dump.md
-    - nonideality: internals/common/nonideality.md
-    - physical_constant: internals/common/physical_constant.md
-    - profiler: internals/common/profiler.md
-    - quant: internals/common/quant.md
-    - mixin:
+      - Encodings: internals/common/encoding/encodings.md
+    - Load dump: internals/common/load_dump.md
+    - Nonideality: internals/common/nonideality.md
+    - Physical constant: internals/common/physical_constant.md
+    - Profiler: internals/common/profiler.md
+    - Quant: internals/common/quant.md
+    - Mixin:
       - Overview: internals/common/mixin/README.md
-      - fabricate: internals/common/mixin/fabricate.md
-      - profile: internals/common/mixin/profile.md
-      - registry: internals/common/mixin/registry.md
-      - validate: internals/common/mixin/validate.md
-  - device:
+      - Fabricate: internals/common/mixin/fabricate.md
+      - Profile: internals/common/mixin/profile.md
+      - Registry: internals/common/mixin/registry.md
+      - Validate: internals/common/mixin/validate.md
+  - Device:
     - Overview: internals/device/README.md
-    - nmos: internals/device/nmos.md
-    - rram: internals/device/rram.md
-    - selector: internals/device/selector.md
-  - digital:
+    - MOSFET: internals/device/mosfet.md
+    - RRAM: internals/device/rram.md
+    - Selector: internals/device/selector.md
+  - Digital:
     - Overview: internals/digital/README.md
-    - accumulator: internals/digital/accumulator.md
-    - adder: internals/digital/adder.md
-    - shift_adder: internals/digital/shift_adder.md
-    - subtractor: internals/digital/subtractor.md
-  - macro:
+    - Accumulator: internals/digital/accumulator.md
+    - Adder: internals/digital/adder.md
+    - Shift adder: internals/digital/shift_adder.md
+    - Subtractor: internals/digital/subtractor.md
+  - Macro:
     - Overview: internals/macro/README.md
-    - base: internals/macro/base.md
-    - xbar:
+    - Base: internals/macro/base.md
+    - Xbar:
       - Overview: internals/macro/xbar/README.md
-      - base: internals/macro/xbar/base.md
-      - direct: internals/macro/xbar/direct.md
-      - ideal: internals/macro/xbar/ideal.md
-      - inter_array_slice: internals/macro/xbar/inter_array_slice.md
-      - intra_array_slice: internals/macro/xbar/intra_array_slice.md
-      - slicer:
+      - Base: internals/macro/xbar/base.md
+      - Direct: internals/macro/xbar/direct.md
+      - Ideal: internals/macro/xbar/ideal.md
+      - Inter-array slice: internals/macro/xbar/inter_array_slice.md
+      - Intra-array slice: internals/macro/xbar/intra_array_slice.md
+      - Slicer:
         - Overview: internals/macro/xbar/slicer/README.md
-        - slicer: internals/macro/xbar/slicer/slicer.md
-  - xbar:
+        - Slicer: internals/macro/xbar/slicer/slicer.md
+  - Xbar:
     - Overview: internals/xbar/README.md
-    - base: internals/xbar/base.md
-    - cell: internals/xbar/cell.md
-    - solver: internals/xbar/solver.md
-    - _1t1r:
+    - Base: internals/xbar/base.md
+    - Cell: internals/xbar/cell.md
+    - Solver: internals/xbar/solver.md
+    - 1T1R:
       - Overview: internals/xbar/_1t1r/README.md
-      - cell: internals/xbar/_1t1r/cell.md
-      - core: internals/xbar/_1t1r/core.md
+      - Cell: internals/xbar/_1t1r/cell.md
+      - Core: internals/xbar/_1t1r/core.md
+- Conventions:
+  - Overview: conventions/README.md
+  - Organizing principles: conventions/organizing_principles.md
+  - Prose style: conventions/prose_style.md
+  - Markdown style: conventions/markdown_style.md
+  - Code style: conventions/code_style.md
+  - Notation conventions: conventions/notation_conventions.md
+  - Glossary: conventions/glossary.md
+  - Module parameter: conventions/module_parameter.md
 - Contributing:
   - Overview: contributing/README.md
-  - code_style: contributing/code_style.md
-  - doc_style: contributing/doc_style.md
-  - naming_conventions: contributing/naming_conventions.md
-  - recipes: contributing/recipes.md
-  - workflow: contributing/workflow.md
-  - writing_internals_docs: contributing/writing_internals_docs.md
-  - writing_reference_docs: contributing/writing_reference_docs.md
+  - Writing reference docs: contributing/writing_reference_docs.md
+  - Writing internals docs: contributing/writing_internals_docs.md
+  - Workflow: contributing/workflow.md
+  - Recipes: contributing/recipes.md
 - About:
   - Overview: about/README.md
-  - citation: about/citation.md
-  - roadmap: about/roadmap.md
-  - scope_limitations: about/scope_limitations.md
-  - adr:
+  - Citation: about/citation.md
+  - Roadmap: about/roadmap.md
+  - Scope limitations: about/scope_limitations.md
+  - ADR:
     - Overview: about/adr/README.md
-    - ADR-0001-config-dispatch-and-owned-construction: about/adr/ADR-0001-config-dispatch-and-owned-construction.md
-    - ADR-0002-nmos-is-a-pure-electrical-primitive: about/adr/ADR-0002-nmos-is-a-pure-electrical-primitive.md
-    - ADR-0003-xbar-cell-abstraction-and-single-nested-solver: about/adr/ADR-0003-xbar-cell-abstraction-and-single-nested-solver.md
-    - ADR-0004-clamp-driver-protocol-and-generic-solver: about/adr/ADR-0004-clamp-driver-protocol-and-generic-solver.md
+    - ADR-0001 — Config dispatch and owned construction: about/adr/ADR-0001-config-dispatch-and-owned-construction.md
+    - ADR-0002 — NMOS is a pure electrical primitive: about/adr/ADR-0002-nmos-is-a-pure-electrical-primitive.md
+    - ADR-0003 — Xbar cell abstraction and single nested solver: about/adr/ADR-0003-xbar-cell-abstraction-and-single-nested-solver.md
+    - ADR-0004 — Clamp driver protocol and generic solver: about/adr/ADR-0004-clamp-driver-protocol-and-generic-solver.md
+    - ADR-0005 — MOSFET is a polarity parameterized electrical primitive: about/adr/ADR-0005-mosfet-is-a-polarity-parameterized-electrical-primitive.md
 
 markdown_extensions:
   - admonition

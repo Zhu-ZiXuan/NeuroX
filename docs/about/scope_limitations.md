@@ -1,4 +1,4 @@
-# Scope and Limitations
+# Scope and limitations
 
 This document is the global fidelity envelope of the NeuroX simulator: a single place that states what NeuroX does and does not model, the validity ranges it operates within, and the simplifying assumptions it makes across all subsystems.
 

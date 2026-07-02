@@ -1,4 +1,4 @@
-# Xbar Cell Abstract Layer
+# Xbar cell abstract layer
 
 ## Summary / role
 
@@ -49,7 +49,7 @@ The cell base owns no static mismatch of its own. Non-idealities enter through t
 
 ## Parameters
 
-The cell base carries no parameters of its own: it is an abstract contract. Each concrete cell config carries the device configs, sizing, parasitic-cap densities, programming map, and any per-cell numerical knob (such as an internal-solve iteration count) it needs. A cell config has **no PPA fields**: the cell owns its device children, whose silicon area and leakage roll up through the owning core's PPA budget, so the only physical contribution the cell makes is the per-read device-capacitor switching energy below. Provenance terms are defined in [parameter_provenance](../parameter_provenance.md).
+The cell base carries no parameters of its own: it is an abstract contract. Each concrete cell config carries the device configs, sizing, parasitic-cap densities, programming map, and any per-cell numerical knob (such as an internal-solve iteration count) it needs. A cell config has **no PPA fields**: the cell owns its device children, whose silicon area and leakage roll up through the owning core's PPA budget, so the only physical contribution the cell makes is the per-read device-capacitor switching energy below. Provenance terms are defined in [module_parameter](../../conventions/module_parameter.md).
 
 ## Energy model
 

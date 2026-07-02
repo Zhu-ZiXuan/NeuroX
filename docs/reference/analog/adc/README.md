@@ -1,4 +1,4 @@
-# ADC Family
+# ADC family
 
 The ADC family digitizes the readout chain's differential analog signal to a signed integer code. An abstract family contract plus its concrete topologies (a boundary-bucketize behavioural ADC and the SAR variants).
 

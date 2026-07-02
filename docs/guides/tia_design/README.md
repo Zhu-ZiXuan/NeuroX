@@ -89,6 +89,6 @@ A runnable template lives at `example/config/xbar_tia_optimize.toml`.
 - [Reference: ADC base](../../reference/analog/adc/base.md) — the readout stage whose `v_ref` mode sets `target_v_max__V`.
 - [Internals: op-amp TIA](../../internals/analog/tia/opamp_tia.md) — the `OpAmpTIA` Newton solve invoked by `build_tia`.
 - [API: configuration](../../api/configuration.md) — the TOML schema and `_neurox_use_preset` directive.
-- [Reference: parameter provenance](../../reference/parameter_provenance.md) — sourcing the `[workload]` and `[hardware]` numbers.
+- [Reference: module parameter](../../conventions/module_parameter.md) — sourcing the `[workload]` and `[hardware]` numbers.
 - [Calibration guides](../calibration/README.md) — the complementary task of fitting model parameters to a chip.
 - [Guides index](../README.md)

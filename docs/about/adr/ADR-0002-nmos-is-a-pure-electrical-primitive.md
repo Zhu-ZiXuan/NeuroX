@@ -1,4 +1,4 @@
-# ADR-0002: NMOS Is a Pure Electrical Primitive
+# ADR-0002: NMOS is a pure electrical primitive
 
 ## Status
 

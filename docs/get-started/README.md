@@ -1,4 +1,4 @@
-# Get Started
+# Get started
 
 Installation and a first runnable example.
 

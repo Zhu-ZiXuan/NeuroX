@@ -1,4 +1,4 @@
-# Core1T1R — Implementation
+# Core1T1R
 
 ## Summary
 

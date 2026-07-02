@@ -1,4 +1,4 @@
-# Current Mirror
+# Current mirror
 
 ## Summary / role
 
@@ -40,7 +40,7 @@ One source: copy-ratio mismatch. When the `mismatch` toggle on `CurrentMirrorPol
 | `read_pulse__ns` ($t_{\mathrm{read}}$) | read-window width scaling the per-call energy | ns | Design |
 | leakage / area | static PPA / spec fields | uW, um^2 | Design |
 
-Provenance terms are defined in [parameter_provenance](../parameter_provenance.md).
+Provenance terms are defined in [module_parameter](../../conventions/module_parameter.md).
 
 ## Assumptions, scope & validity
 

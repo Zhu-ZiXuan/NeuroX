@@ -1,4 +1,4 @@
-# Voltage Driver
+# Voltage driver
 
 ## Summary / role
 
@@ -44,7 +44,7 @@ TODO (domain author): give each sigma's physical derivation and citation, and co
 | thermal sigma | Gaussian sigma of the reference thermal noise | V | Measured |
 | leakage / area | static PPA / spec fields (leakage carries all static power, incl. internal amplifier / bias) | uW, um^2 | Design |
 
-The reference / zero-current clamp voltage $V_{\mathrm{ref}}$ is not a config parameter — it is injected per call into `snapshot` as a `Tensor` and carried in the snap (see the [voltage_reference](voltage_reference.md) source that supplies it). Provenance terms are defined in [parameter_provenance](../parameter_provenance.md).
+The reference / zero-current clamp voltage $V_{\mathrm{ref}}$ is not a config parameter — it is injected per call into `snapshot` as a `Tensor` and carried in the snap (see the [voltage_reference](voltage_reference.md) source that supplies it). Provenance terms are defined in [module_parameter](../../conventions/module_parameter.md).
 
 ## Assumptions, scope & validity
 

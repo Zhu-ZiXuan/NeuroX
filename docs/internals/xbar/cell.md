@@ -1,4 +1,4 @@
-# xbar cell base — Implementation
+# Xbar cell base
 
 ## Summary
 

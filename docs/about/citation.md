@@ -1,4 +1,4 @@
-# Citation and Versioning
+# Citation and versioning
 
 ## How to cite NeuroX
 

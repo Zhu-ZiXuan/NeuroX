@@ -1,4 +1,4 @@
-# MOSFET Transistor
+# MOSFET transistor
 
 ## Summary
 
@@ -61,7 +61,7 @@ $A_{V_{\mathrm{th}}}$ and $A_\beta$ are the standard Pelgrom area-matching coeff
 | `W__um` | channel width $W$ (init kwarg) | um | Design |
 | `L__um` | channel length $L$ (init kwarg) | um | Design |
 
-The channel polarity $p$ is a class attribute of the concrete `NMOS` / `PMOS` device, not a config field. Provenance terms are defined in [parameter_provenance](../parameter_provenance.md). The thermal voltage $V_T = k_B T / q$ is derived from the constants $k_B$, $q$ (see [notation_conventions](../notation_conventions.md#physical-constants)). File-level schema: `api`.
+The channel polarity $p$ is a class attribute of the concrete `NMOS` / `PMOS` device, not a config field. Provenance terms are defined in [module_parameter](../../conventions/module_parameter.md). The thermal voltage $V_T = k_B T / q$ is derived from the constants $k_B$, $q$ (see [notation_conventions](../../conventions/notation_conventions.md#physical-constants)). File-level schema: `api`.
 
 ## Symbols
 

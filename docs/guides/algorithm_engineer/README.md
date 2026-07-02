@@ -1,4 +1,4 @@
-# For Algorithm Engineers
+# For algorithm engineers
 
 Goal: evaluate how your model's accuracy and energy behave when its linear layers run on a real RRAM crossbar instead of ideal arithmetic.
 

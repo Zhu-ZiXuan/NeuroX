@@ -1,4 +1,4 @@
-# device — Implementation
+# Device
 
 How the device layer is built. The spec is in [reference/device](../../reference/device/README.md); this side covers only what the code cannot tell you — the config / policy / design-parameter split, the fabrication-and-snap contract, and the per-device gotchas.
 

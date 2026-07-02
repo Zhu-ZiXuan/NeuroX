@@ -1,4 +1,4 @@
-# macro — Implementation
+# Macro
 
 How the macro layer is built. Spec: [reference/macro](../../reference/macro/README.md); this side covers only what the code cannot tell you.
 

@@ -1,4 +1,4 @@
-# Scheme C — Xbar-Read Custom Op
+# Scheme C — Xbar-read custom op
 
 **Status: Deferred — not implemented.** The only scheme that makes the xbar read a true opaque node in a `fullgraph=True` parent. Builds on [scheme B](scheme-b-deobjectified.md)'s functionalization. Adopt only when `fullgraph=True` is a hard requirement — a caller that must `torch.compile(model, fullgraph=True)` with no graph break, a clean export/deploy boundary, or when the eager island's Python-dispatch overhead itself becomes the bottleneck.
 

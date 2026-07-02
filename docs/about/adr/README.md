@@ -1,4 +1,4 @@
-# Architectural Decision Records
+# Architectural decision records
 
 ADRs record why NeuroX chose a particular design.
 

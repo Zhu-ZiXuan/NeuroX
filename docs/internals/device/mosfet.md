@@ -1,4 +1,4 @@
-# MOSFET — Implementation
+# MOSFET
 
 ## Summary
 

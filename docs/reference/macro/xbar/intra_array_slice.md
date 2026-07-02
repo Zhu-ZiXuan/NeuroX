@@ -1,4 +1,4 @@
-# Intra-Array Slice Macro
+# Intra-array slice macro
 
 ## Summary
 
@@ -46,7 +46,7 @@ N/A at the mode level. ADC quantization and analog non-idealities enter through 
 | `sa_shift_adder_config` | activation-slice ($S_a$) shift-adder | — | Design |
 | `sw_shift_adder_config` | weight-slice ($S_w$) intra-tile shift-adder | — | Design |
 
-Activations are unsigned true-form by definition (no activation encoding). Provenance terms: [parameter_provenance](../../parameter_provenance.md); file-level schema: [config reference](../../../api/README.md).
+Activations are unsigned true-form by definition (no activation encoding). Provenance terms: [module_parameter](../../../conventions/module_parameter.md); file-level schema: [config reference](../../../api/README.md).
 
 ## Assumptions, scope & validity
 

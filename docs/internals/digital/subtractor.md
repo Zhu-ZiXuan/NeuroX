@@ -1,4 +1,4 @@
-# subtractor — Implementation
+# Subtractor
 
 ## Summary
 

@@ -1,4 +1,4 @@
-# Direct Macro
+# Direct macro
 
 ## Summary
 
@@ -39,7 +39,7 @@ N/A at the mode level — the direct macro adds no non-ideality. ADC quantizatio
 | `w_encoding` | weight encoding (integer-to-digit-string; signed-digit only for canonical) | — | Design |
 | `col_accumulator_config` | contraction-tile ($T_c$) accumulator | — | Design |
 
-Activations are unsigned true-form by definition, so the mode carries no activation encoding. Provenance terms: [parameter_provenance](../../parameter_provenance.md); file-level schema: [config reference](../../../api/README.md).
+Activations are unsigned true-form by definition, so the mode carries no activation encoding. Provenance terms: [module_parameter](../../../conventions/module_parameter.md); file-level schema: [config reference](../../../api/README.md).
 
 ## Assumptions, scope & validity
 

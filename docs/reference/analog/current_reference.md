@@ -1,4 +1,4 @@
-# Current Reference
+# Current reference
 
 ## Summary / role
 
@@ -38,7 +38,7 @@ TODO (domain author): give each sigma's physical derivation and citation, and co
 | `noise_sigma_relative` ($\sigma_{\mathrm{noise}}$) | relative per-read noise sigma, gated by the `noise` policy | — | Measured |
 | leakage / area | static PPA / spec fields (leakage carries all static power, incl. the always-on bias network that generates the currents) | uW, um^2 | Design |
 
-Provenance terms are defined in [parameter_provenance](../parameter_provenance.md).
+Provenance terms are defined in [module_parameter](../../conventions/module_parameter.md).
 
 ## Assumptions, scope & validity
 

@@ -1,4 +1,4 @@
-# xbar — Implementation
+# Xbar
 
 How the crossbar layer is built. The spec is in [reference/xbar](../../reference/xbar/README.md); this side covers only what the code cannot tell you.
 

@@ -1,4 +1,4 @@
-# ADR-0005: MOSFET Is a Polarity-Parameterized Electrical Primitive
+# ADR-0005: MOSFET is a polarity-parameterized electrical primitive
 
 ## Status
 

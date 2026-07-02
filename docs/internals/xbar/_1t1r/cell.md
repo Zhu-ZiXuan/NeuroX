@@ -1,4 +1,4 @@
-# 1T1R Cell — Implementation
+# 1T1R cell
 
 ## Summary
 

@@ -1,84 +1,100 @@
-# Writing Reference Documents
+# Writing Reference documents
 
-Reference is the scientific specification of NeuroX: what is physically and mathematically true. Core code is a translation of these documents. Write for an expert reviewer in devices / circuits / architecture — assume domain expertise, not programming ability.
+## Scope
 
-## Specification, not implementation
+Reference is the scientific and engineering golden truth of NeuroX, written in a domain researcher's voice: the mathematical and physical principles, the device and circuit characteristics, and the architecture, dataflow, and algorithm design — all independent of implementation. Core code is a translation of Reference into Python.
 
-- Put here: physical models, governing equations, numerical methods *as mathematics*, noise models, parameters, assumptions, validation, references.
-- Put implementation (data layout, shapes, complexity, code structure) in [internals](../internals/README.md).
-- Test each sentence: if it stays true after a full code rewrite, it is spec; if it describes the code, move it to internals.
-- Do not paraphrase code. Document the physics/math; link the code from the footer.
+Reference holds:
 
-## Organize by mirroring the code directory tree
+- physical models and device or circuit characteristics
+- governing equations
+- numerical methods as mathematics
+- architecture, dataflow, and algorithm design
+- noise and non-ideality models
+- parameters and provenance
+- assumptions, scope, validity, validation, and literature
 
-- reference/ mirrors `neurox/` **to directory granularity**: every code directory (at any depth) has a corresponding documentation directory. Directories are concept groupings and future extension points (topology families, device classes) — keep them, never flatten a subdirectory.
-- **Merge only the direct files of one directory** when they describe one coherent topic (e.g. the `solver/` package's `base` + `nested` + `primitives` become one `solver.md`); never merge across directories, never collapse a subdirectory.
-- A directory's abstract layer (its direct files) is the directory-level document(s); subdirectories recurse the same way. Example: `xbar/` = `base.md` (abstract `Xbar` + ideal twin) + `cell.md` (abstract cell) + `solver.md` (the shared `solver/` package merged) + `_1t1r/` (the 1T1R array unit: `cell` `XbarCell1T1R` + `core` `Core1T1R`, co-located because cell and core co-vary by array type). Adding a `_2t1r/` array unit only adds a sibling directory and leaves the abstract layer and the shared solver untouched — mirroring "add the `_2t1r` cell and core, leave the abstract layer alone" in code. Concrete schemes (drivers + reference + coding + readout above a core) live outside the `xbar/` tree under their own scheme directory, mirroring the per-scheme code package.
-- reference mirrors only the physics-bearing directories; pure-software structure goes to [internals](../internals/README.md), which mirrors the code tree the same way (spec content here, implementation content there).
-- Put cross-cutting physical conventions (constants, units, symbols, noise) in [notation_conventions](../reference/notation_conventions.md), not in a subsystem document.
-
-## Equations
-
-- Write every equation in LaTeX (`$...$` inline, `$$...$$` block). Example: `$$F_{X,k}=I_{\mathrm N}(V_{\mathrm{WL},k},V_{\mathrm{X},k},V_{\mathrm{SL},k})-I_{\mathrm R}(V_{\mathrm{BL},k}-V_{\mathrm{X},k})=0$$`
-- Use standard physics / EE symbols ($V$, $I$, $G$, $\mathbf{W}$). Never put a code identifier (`v_bl_node`, `I_R`) inside an equation.
-- Coarse-grained equations are fine: write a matmul as `$\mathbf{m}=\mathbf{W}^{\!\top}\mathbf{x}$`.
-
-## Symbols table
-
-- Include a Symbols table listing every symbol the document uses — including common ones; do not omit a symbol because it is common. Columns: symbol | meaning | unit | code field.
-- Take common symbols from [notation_conventions](../reference/notation_conventions.md) so one physical quantity keeps one symbol everywhere.
+Reference mirrors the physics-bearing core library structure to directory granularity; directories are concept groups and extension points.
 
 ## Document template
 
-Use every section, in order. Never drop a section (see Empty sections).
+A module document mirrors a single code module and uses every template section below, in order; README files are navigation only. Keep an empty heading as `N/A — <reason>` when genuinely inapplicable or `TODO — <missing item>` when applicable but unwritten; the footer Decisions line may be a bare `N/A` or `None`, as most modules have no ADR.
 
-```text
-0. Summary / role      — what physical object this models; where in the device→circuit→architecture stack
-1. Physical model      — the reality and the abstraction taken; state core assumptions up front
-2. Governing equations — the math, every symbol defined; boundary / initial conditions
-3. Numerical method    — the solving scheme as mathematics (well-posedness, convergence); performance and iteration code go to internals
-4. Noise & non-idealities — each source: physical origin, statistical model, parameters, policy switch, citation
-5. Parameters          — table with a Source column (see below)
-6. Assumptions, scope & validity — what is NOT modeled, validity ranges, known limitations
-7. Validation          — link to validation/ evidence
-8. References          — literature
-```
+```markdown
+# <Model name>
 
-## Parameters section
+## Summary / role
 
-- Use a table; give every parameter a Source from the [parameter provenance](../reference/parameter_provenance.md) taxonomy.
-- For a Calibrated parameter, note in the row whether it is calibrated against physical data or numerical convergence.
-- Runtime inputs (activations, weights, temperature, ADC operating point) are inputs, not parameters — do not list them.
+## Physical model
 
-## Empty sections
+## Governing equations
 
-Never omit a section. Keep the heading and write one of:
+## Numerical method
 
-- `N/A — <why it does not apply>` — genuinely inapplicable (e.g. an exact digital block has no noise section).
-- `TODO — <what is missing>` — applies but unwritten.
+## Noise & non-idealities
 
-The empty state is information: a missing §Assumptions or §Validation is a risk flag, not untidiness.
+## Parameters
 
-## Footer
+## Symbols
 
-End with a horizontal rule and a markdown list — **not** a code block, so the links render. Use relative `.md` links for docs (mkdocs validates and rewrites them); when a target does not exist yet, write `TODO — <what is missing>` instead of a link:
+## Assumptions, scope & validity
 
-```text
+## Validation
+
+## References
+
 ---
 
 - **Internals**: [<doc>](<relative .md path>)
-- **Validation**: [<doc>](<relative .md path>)   or   TODO — <what is missing>
-- **Configuration**: [<doc>](<api page>)
-- **Decisions**: [<ADR>](<relative .md path>)   or   TODO — ...
+- **Validation**: [<doc>](<relative .md path>) or TODO — <what is missing>
+- **Configuration**: [<doc>](<relative .md path>) or TODO — <what is missing>
+- **Decisions**: [<ADR>](<relative .md path>), N/A, or None
 ```
 
-Do not list source files or tests in a reference footer. Reference points to internals; internals points to code and tests.
+## Filling each section
 
-## Authoring boundary
+- `Summary / role`: what the component is, its role in the system, and the key runtime inputs.
+- `Physical model`: the device or circuit physics the spec models.
+- `Governing equations`: the equations the model obeys.
+- `Numerical method`: the mathematical formulation, well-posedness, and convergence when relevant.
+- `Noise & non-idealities`: the non-ideal sources present.
+- `Parameters`: the model parameters and their provenance.
+- `Symbols`: every symbol the document uses.
+- `Assumptions, scope & validity`: the modeling assumptions and the range over which they hold.
+- `Validation`: how the model is checked against physical data or analytic results.
+- `References`: the literature backing the model.
 
-- Sections 1-5: write from engineering knowledge or re-file existing prose.
-- Sections 6-8 and any equation or citation that does not yet exist: do not invent. Leave `TODO — <what is needed>`. Never fabricate a physical claim, a number, or a citation.
+Never omit a required section; the empty state is information. Do not invent physical claims, numbers, equations, validation results, or citations — leave `TODO`.
+
+The footer is traceability only: Reference points to Internals, Validation, Configuration, and Decisions — it lists no source files or tests, because Internals points to code and tests.
+
+## Content rules
+
+### Equations
+
+- Write equations in LaTeX: `$...$` inline, `$$...$$` block.
+- Use standard physics and EE symbols; do not put code identifiers inside equations.
+- Coarse-grained equations are allowed when they express the spec better than implementation detail.
+
+### Symbols
+
+Every module document includes a Symbols table listing every symbol it uses, including common ones. Take common symbols from [notation_conventions](../conventions/notation_conventions.md).
+
+```markdown
+| Symbol | Meaning | Unit | Code field |
+|---|---|---|---|
+```
+
+### Parameters
+
+Use a table and give every parameter a Source from [module_parameter](../conventions/module_parameter.md). For calibrated parameters, state whether calibration targets physical data or numerical convergence. Runtime inputs such as activations, weights, temperature, and operating points are inputs, not parameters; define important inputs in Summary, Governing equations, or Symbols.
+
+Cross-cutting physical conventions, constants, units, symbols, and noise notation belong in [notation_conventions](../conventions/notation_conventions.md); cross-cutting terms and concept definitions belong in [glossary](../conventions/glossary.md). A subsystem may explain how a term is used in its own contract but never redefines it.
+
+### Noise
+
+The Noise & non-idealities section describes only each source's physical or statistical model and its distribution parameters — the invariant golden truth. Whether a source is enabled is a runtime policy orthogonal to the model, and how samples are drawn is a program detail; both belong in Internals and configuration, not Reference. Toggles and config parameters are not one-to-one: many sources derive their parameters from physics and carry only a policy toggle, with no config parameter.
 
 ## Style
 
-Academic prose for an expert reviewer. English. Concise and precise. Current-state only — no history (that belongs in ADRs). No unnecessary blank lines.
+Use concise academic prose. Follow [organizing_principles](../conventions/organizing_principles.md) for present-state-only writing.

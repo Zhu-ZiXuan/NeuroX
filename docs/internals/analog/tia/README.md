@@ -1,4 +1,4 @@
-# TIA Family — Implementation
+# TIA family
 
 How the TIA family is built. Spec: [reference/analog/tia](../../../reference/analog/tia/README.md).
 

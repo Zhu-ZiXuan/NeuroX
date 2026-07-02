@@ -1,4 +1,4 @@
-# accumulator — Implementation
+# Accumulator
 
 ## Summary
 

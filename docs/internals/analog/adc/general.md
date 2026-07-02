@@ -1,4 +1,4 @@
-# general ADC — Implementation
+# General ADC
 
 ## Summary
 

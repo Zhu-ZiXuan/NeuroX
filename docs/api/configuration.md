@@ -1,4 +1,4 @@
-# Configuration and Policy
+# Configuration and policy
 
 A NeuroX run is configured by two TOML files passed to the entry points: `--config` (the immutable circuit design) and `--policy` (the nonideality switches). They are separate on purpose — the config fully specifies a chip's physical design; the policy selects which non-idealities are active for a run.
 
@@ -49,4 +49,4 @@ The core array owns only the cell and solver; the WL DAC, BL/SL clamp drivers, b
 
 ## Field semantics
 
-Each field's meaning, unit, and Source are documented in the matching subsystem's Reference Parameters section — e.g. the `[xbar.core_config]` fields in [reference/xbar/_1t1r/core](../reference/xbar/_1t1r/core.md), and the driver / inline-readout fields (WL DAC, BL/SL clamp drivers, boundary reference, signal / ref switch-cap, voltage mux, ADC, ADC-ladder reference) under your scheme xbar and the [analog leaves](../reference/analog/README.md). Provenance terms (Measured / Process / Design / Calibrated / ...) are defined in [parameter_provenance](../reference/parameter_provenance.md). The runnable end-to-end usage is in the [algorithm-engineer guide](../guides/algorithm_engineer/README.md).
+Each field's meaning, unit, and Source are documented in the matching subsystem's Reference Parameters section — e.g. the `[xbar.core_config]` fields in [reference/xbar/_1t1r/core](../reference/xbar/_1t1r/core.md), and the driver / inline-readout fields (WL DAC, BL/SL clamp drivers, boundary reference, signal / ref switch-cap, voltage mux, ADC, ADC-ladder reference) under your scheme xbar and the [analog leaves](../reference/analog/README.md). Provenance terms (Measured / Process / Design / Calibrated / ...) are defined in [module_parameter](../conventions/module_parameter.md). The runnable end-to-end usage is in the [algorithm-engineer guide](../guides/algorithm_engineer/README.md).

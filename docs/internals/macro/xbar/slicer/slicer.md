@@ -1,4 +1,4 @@
-# Slicer — Implementation
+# Slicer
 
 ## Summary
 
@@ -24,7 +24,7 @@ The slicer layer is the `Slicer` ABC (`base.py`) plus two concrete decomposition
 
 ## Gotchas
 
-- **`value_range` is the algorithm-side complete-value range, not the primitive single-cell range.** The xbar's per-cell range is `digit_range`; conflating the two is the central naming pitfall (see [reference value_range vs digit_range](../../../../reference/glossary.md#value-domain-and-slicing)). A slicer never re-exposes the cell-level digit range.
+- **`value_range` is the algorithm-side complete-value range, not the primitive single-cell range.** The xbar's per-cell range is `digit_range`; conflating the two is the central naming pitfall (see [reference value_range vs digit_range](../../../../conventions/glossary.md#value-domain-and-slicing)). A slicer never re-exposes the cell-level digit range.
 - **Do not pass a signed `encoding` expecting the serial path to honour it.** `SerialSlicer` is hard-wired to true-form and takes no `encoding`; the activation primitive cell is unsigned and a signed alphabet would emit negative digits it cannot carry.
 - **Out-of-range inputs wrap silently.** The value range is inherited from the underlying transcoder and is a caller contract, not a clamp; an input above the band wraps through the encode.
 

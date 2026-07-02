@@ -1,4 +1,4 @@
-# slicer — Implementation
+# Slicer
 
 How the value-decomposition layer is built. Spec: [reference/macro/base](../../../../reference/macro/base.md).
 

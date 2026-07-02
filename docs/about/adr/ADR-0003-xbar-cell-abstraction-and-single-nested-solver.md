@@ -1,4 +1,4 @@
-# ADR-0003: Pluggable Xbar Cell and the Single Nested Solver
+# ADR-0003: Pluggable Xbar cell and the single nested solver
 
 ## Status
 

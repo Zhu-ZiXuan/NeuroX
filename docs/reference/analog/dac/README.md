@@ -1,4 +1,4 @@
-# DAC Family
+# DAC family
 
 The DAC family converts integer codes to analog voltages - in the crossbar it drives the word lines from the integer activation code. An abstract family contract plus its concrete implementations.
 

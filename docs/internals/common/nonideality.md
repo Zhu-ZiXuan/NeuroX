@@ -1,8 +1,8 @@
-# Non-ideality Kernels — Implementation
+# Non-ideality kernels
 
 ## Summary
 
-`neurox/common/nonideality.py` is the single canonical home for the analog noise and mismatch kernels shared across the codebase, together with the frozen config dataclasses that parameterise them. Every kernel is a small, stateless `apply_*` function with a narrow signature: it takes the source value (a scalar sigma, or a config dataclass) plus a kw-only `enabled: bool`, and returns the input tensor perturbed when enabled or unchanged when disabled. The owning module gates each kernel by passing `enabled=self.policy.<source>` straight from its nonideality policy, so the call site is unconditional — no `None` check, no caller `if`-gate. The kernels are domain-agnostic math; the physics taxonomy (state-independent vs state-dependent, the Pelgrom area law, the per-source toggle convention) is the shared spec in [notation_conventions](../../reference/notation_conventions.md) and is not restated here.
+`neurox/common/nonideality.py` is the single canonical home for the analog noise and mismatch kernels shared across the codebase, together with the frozen config dataclasses that parameterise them. Every kernel is a small, stateless `apply_*` function with a narrow signature: it takes the source value (a scalar sigma, or a config dataclass) plus a kw-only `enabled: bool`, and returns the input tensor perturbed when enabled or unchanged when disabled. The owning module gates each kernel by passing `enabled=self.policy.<source>` straight from its nonideality policy, so the call site is unconditional — no `None` check, no caller `if`-gate. The kernels are domain-agnostic math; the physics taxonomy (state-independent vs state-dependent, the Pelgrom area law) is the shared spec in [reference/nonideality](../../reference/nonideality.md) and is not restated here.
 
 ## Design decisions
 
@@ -40,17 +40,18 @@
 ## Gotchas
 
 - **Disabling means `enabled=False`, never "don't call".** Wrapping the call in a caller-side `if` defeats the design and reintroduces the branch the toggle exists to remove; always call unconditionally and pass the policy boolean.
-- **State-independent vs state-dependent is not interchangeable.** Choosing the wrong flavour (a fixed sigma where the spread should track signal magnitude, or vice versa) silently mis-models the noise rather than erroring. Pick the kernel that matches the physical source per the taxonomy in [notation_conventions](../../reference/notation_conventions.md).
+- **State-independent vs state-dependent is not interchangeable.** Choosing the wrong flavour (a fixed sigma where the spread should track signal magnitude, or vice versa) silently mis-models the noise rather than erroring. Pick the kernel that matches the physical source per the taxonomy in [reference/nonideality](../../reference/nonideality.md).
 - **`apply_pelgrom_mismatch` takes `unit` in the same units as `ideal`.** A mismatched `unit` rescales the whole sqrt(cell / unit) ladder silently; both must be in the same physical units.
 
 ## Known limitations
 
 - **No kT/C kernel.** Runtime-state sigma sources (kT/C sampling) have no dedicated helper and are implemented at the call site through `apply_gaussian`; a generic runtime-sigma helper is not provided.
 - **No correlated / spatially structured noise.** Every draw is independent per element. Sources with spatial correlation (e.g. systematic process gradients across an array) are not modelled by this family.
+- **Pelgrom mismatch sigma direction (domain author).** `apply_pelgrom_mismatch` scales per-cell sigma as sqrt(cell / unit), growing with area, whereas canonical Pelgrom for a relative mismatch shrinks the relative spread as 1/sqrt(area); whether the kernel realises the intended relative form or an absolute-spread framing is a domain-author TODO in [reference/nonideality](../../reference/nonideality.md).
 
 ---
 
-- **Reference**: [notation_conventions](../../reference/notation_conventions.md) — noise taxonomy, per-source toggle, Pelgrom area law.
+- **Reference**: [reference/nonideality](../../reference/nonideality.md) — noise taxonomy, Pelgrom area law.
 - **Implementation**: `neurox/common/nonideality.py`
 - **Tests**: TODO — no dedicated test module for the kernel family yet.
 - **Decisions**: N/A.

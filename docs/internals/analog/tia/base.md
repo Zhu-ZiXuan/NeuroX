@@ -1,4 +1,4 @@
-# TIA base — Implementation
+# TIA base
 
 ## Summary
 

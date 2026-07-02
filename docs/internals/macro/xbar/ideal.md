@@ -1,4 +1,4 @@
-# IdealXbarMacro — Implementation
+# IdealXbarMacro
 
 ## Summary
 
