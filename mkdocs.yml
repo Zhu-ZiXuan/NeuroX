@@ -216,8 +216,11 @@ nav:
   - Module parameter: conventions/module_parameter.md
 - Contributing:
   - Overview: contributing/README.md
-  - Writing reference docs: contributing/writing_reference_docs.md
-  - Writing internals docs: contributing/writing_internals_docs.md
+  - Writing family docs: contributing/writing_family_docs.md
+  - Writing module docs: contributing/writing_module_docs.md
+  - Writing base docs: contributing/writing_base_docs.md
+  - Writing leaf docs: contributing/writing_leaf_docs.md
+  - Writing mixin docs: contributing/writing_mixin_docs.md
   - Workflow: contributing/workflow.md
   - Recipes: contributing/recipes.md
 - About:

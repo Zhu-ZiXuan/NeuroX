@@ -1,24 +1,22 @@
-# Writing Internals documents
+# Writing leaf documents
 
 ## Scope
 
-Internals explains how the code realizes the Reference specification — the design reasoning, contracts, and engineering trade-offs the code itself cannot show.
+A leaf document captures one concrete scheme's own software — one member of a family: the design reasoning, contracts, and engineering trade-offs the code itself cannot show.
 
-Internals holds:
+A leaf document holds:
 
 - design decisions and rejected alternatives
-- cross-file contracts, ownership, and lifecycle rules
+- its differences from the base contract, and its own cross-file contracts, ownership, and lifecycle rules
 - shape / dtype / buffer and compile invariants
 - complexity, memory model, and performance trade-offs
 - gotchas and known limitations
 
-Internals mirrors the core library structure to directory granularity; directories are concept groups and extension points.
-
 ## Document template
 
-A module document mirrors a single code module and uses every template section below, in order; README files are navigation only. Keep an empty heading as `N/A — <reason>` when genuinely inapplicable or `TODO — <missing item>` when applicable but unwritten.
+A leaf document mirrors a single code module and uses every template section below, in order. Keep an empty heading as `N/A — <reason>` when genuinely inapplicable or `TODO — <missing item>` when applicable but unwritten.
 
-An internals module document's title matches its corresponding Reference document's title exactly; when no Reference document exists, the title names the subject.
+A leaf document's H1 is verbatim identical to its module document's title; when no module document exists, the H1 names the subject.
 
 ```markdown
 # <Module name>
@@ -54,7 +52,7 @@ An internals module document's title matches its corresponding Reference documen
 
 Never omit a required section; the empty state is information.
 
-The footer is traceability: use relative `.md` links for docs, and write Implementation and Tests as inline code at file level only, never a class, function, or line. The Implementation entry is the document's code map, so the body adds no per-file code listing.
+The footer is traceability: write Implementation and Tests as inline code at file level only, never a class, function, or line. The Implementation entry is the document's code map, so the body adds no per-file code listing.
 
 ## Content rules
 
@@ -75,7 +73,3 @@ If a sentence only restates control flow or lists files, delete it.
 **Good:** "Stream by chunk and release the DCOP because the leading batch is large enough to OOM if all node voltages are materialized. Invariant: peak working set stays proportional to one chunk."
 
 The good version gives reason and invariant; the bad version repeats control flow.
-
-## Style
-
-Use concise, technical, decision-oriented prose. Follow [organizing_principles](../conventions/organizing_principles.md) for present-state-only writing.

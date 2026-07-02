@@ -9,6 +9,7 @@ Documentation is carried in two media: markdown files and in-code text (docstrin
 | `docs/reference/**.md` | Researcher-voice scientific, mathematical, circuit, architecture, and algorithm principles and design; the golden truth code translates; independent of the concrete implementation |
 | `docs/internals/**.md` | Engineer-voice Python system design; decisions, trade-offs, and cross-file contracts not readable from code |
 | `docs/contributing/**.md` | How to write documentation and code |
+| `docs/conventions/**.md` | The standards every document and source file follows, plus the symbols, terms, and parameter sources shared across subsystems |
 | docstring | Caller-facing API semantics of the symbol |
 | inline comment | Local implementation intent |
 | shape annotation | Semantic tensor-shape transitions at the point of code; its format is in [code_style](code_style.md) |
@@ -18,16 +19,49 @@ When a statement could fit two carriers: survives a code rewrite → Reference; 
 
 The same split governs tensor shape: Reference owns scientific or mathematical tensor meaning; Internals owns implementation layout, broadcast, batching, and reshape invariants.
 
-## Module and cross-cutting documents
+## Directory layout
 
-Reference and Internals mirror the core library to directory granularity, in two kinds of document:
+Each top-level `docs/` directory owns one kind of content:
 
-- **Module document** — mirrors a single code module, lives in a subdirectory, and follows the module convention: the prescribed section structure and the traceability footer.
-- **Cross-cutting document** — spans modules, sits at the Reference or Internals root, carries neither the prescribed sections nor a footer, and is organized freely around its own content.
+- `get-started/` — installation and quickstart.
+- `guides/` — task how-to, grouped by engineer audience.
+- `reference/` — the scientific spec, by subsystem.
+- `validation/` — evidence that the models are faithful and correctly implemented.
+- `api/` — the Python API and the config and policy schema.
+- `internals/` — the software implementation companion to Reference, by subsystem.
+- `conventions/` — documentation and coding standards, plus the shared vocabulary.
+- `contributing/` — how to write each document class, plus the contribution workflow.
+- `about/` — roadmap, citation, and decision records.
 
-Reference is a knowledge-subset mirror: a module earns a Reference document only when it carries knowledge content — mathematics, physics, a device or circuit model, an architecture, or an algorithm. A pure-programming module has no Reference document and is documented only in Internals.
+Reference mirrors the physics-bearing core library and Internals the software core library, each to directory granularity, so a subsystem's science and its implementation sit at matching paths. A directory is a concept grouping and an extension point: a new subsystem adds a directory of its own name under both trees, each carrying a README index beside the subsystem's documents.
 
-A rule or principle document states these criteria in general terms, not by enumerating specific subdirectory names.
+## Document classes
+
+Reference and Internals hold three classes of document, told apart by what they mirror and what they carry:
+
+- A **module-mirroring document** covers one science-bearing code module. It carries the prescribed template sections and the traceability footer, and it participates in the Reference-Internals correspondence, so the 2×2 below classifies it.
+- A **mixin document** covers one pure-software mechanism class. It likewise carries a prescribed template and footer, but with no physics to specify it has no Reference twin, so it stands alone in Internals, outside the 2×2. Write it per [writing_mixin_docs](../contributing/writing_mixin_docs.md).
+- A **cross-cutting document** spans modules and sits at the Reference or Internals root. It carries neither a template nor a footer and organizes freely around its own content — [nonideality](../reference/nonideality.md) is one — so it too sits outside the 2×2.
+
+Two orthogonal axes classify a module-mirroring document. The tree is the authority boundary: a statement that survives a code rewrite is Reference, the scientific spec that owns physics and math; one that describes the program is Internals, the software implementation that owns contract and design. The kind is the layer: the shared layer is the abstraction every member holds in common, and the concrete layer is one scheme.
+
+| | Shared layer | Concrete |
+|---|---|---|
+| **Reference** (science) | family document | module document |
+| **Internals** (software) | base document | leaf document |
+
+- **Family document** — the science a whole family shares: conventions, shared laws, and shared symbols, so a concrete member cites it instead of repeating it. Write it per [writing_family_docs](../contributing/writing_family_docs.md).
+- **Module document** — one scheme's own science: its physical model, transfer characteristic, energy model, and parameters. Write it per [writing_module_docs](../contributing/writing_module_docs.md).
+- **Base document** — the shared software contract: the surface the base provides and the obligations a subclass must implement. Write it per [writing_base_docs](../contributing/writing_base_docs.md).
+- **Leaf document** — one scheme's own software: its decisions, its differences from the base contract, and its performance and gotchas. Write it per [writing_leaf_docs](../contributing/writing_leaf_docs.md).
+
+Each tree names the layers in its own domain's words — the Internals inheritance tree uses base and leaf, the Reference scientific taxonomy uses family and module — for the same shared and concrete layers.
+
+These rules hold across the templates:
+
+- **Title matching** — a leaf and its module document carry a verbatim-identical title, the two faces of one object; a base and its family each take their own tree's suffix, such as ADC base and ADC family, and relate through footer links rather than a matching title.
+- **Existence is asymmetric** — a Reference document, family or module, exists only for a science-bearing module, so a base can stand in the 2×2 with no family twin. The circuit base is the one such base — it holds the base cell while its Reference family document is not yet written. A family document is optional, written only when the shared science is substantial; otherwise each member carries its own.
+- **Layering** — a family document holds only the science shared within one family; cross-device shared science, such as Pelgrom mismatch and $kT/C$ noise, stays at [nonideality](../reference/nonideality.md) and is referenced, not restated.
 
 ## De-specific voice
 
@@ -53,6 +87,7 @@ This holds for docstrings, comments, Reference, and Internals alike. One example
 - Each contract, rule, or definition has exactly one authoritative home; everywhere else links to that home instead of copying it.
 - Project-level rule documents must not maintain subsystem catalogs.
 - Name an area briefly and route the reader through README and recipes; link a specific shared contract only when a sentence depends on it.
+- Meta-knowledge about the documentation system itself — its taxonomy, class names, naming choices, and cross-class relationships — lives only in this document; every other document keeps to its own subject and links here rather than restating it.
 
 ## Links and navigation
 
@@ -62,8 +97,8 @@ This holds for docstrings, comments, Reference, and Internals alike. One example
 
 ## Traceability footer
 
-- The traceability footer is the only exception to dependency direction and single source: the closing block that links a module document to its related documents.
-- Its contents are defined in [writing_reference_docs](../contributing/writing_reference_docs.md) and [writing_internals_docs](../contributing/writing_internals_docs.md).
+- The traceability footer is the only exception to dependency direction and single source: the closing block on a template-bearing document — module-mirroring or mixin — that links it to its related documents; a cross-cutting document carries no footer.
+- Each such class fixes its own footer contents in its writing guide, so the family, module, base, leaf, and mixin footers each carry their own lines. A mixin has no Reference twin, so its footer Reference line is always `N/A — software mechanism`.
 
 ## Present state only
 
