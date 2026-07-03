@@ -13,7 +13,7 @@
 ## Contracts & invariants
 
 - **`operate(x, dim)` reduces exactly one axis.** The reduced axis is gone from the output, so the serial-op divisor is just the instance count; the position-invariant numel rule (`ceil(numel(y) / inst_count)`, the busiest instance) gives the per-instance op count without re-deriving the reduced extent.
-- **No per-call sampling state.** The block holds no fabricated mismatch, so the inherited `_sample_fabricate_mismatch` no-op is correct and `fabricate()` is a pass-through.
+- **No per-call sampling state.** The block holds no fabricated mismatch, so the `DigitalCircuit` base no-op is correct and `fabricate()` is a pass-through.
 - **Energy and latency are two independent profiler emissions** (`_log_dynamic_energy` then `_log_latency`); the energy tensor is per-output-element while the latency is a single scalar scaled by the serial-op count. A consumer must not assume one event carries both.
 
 ## Performance & resources

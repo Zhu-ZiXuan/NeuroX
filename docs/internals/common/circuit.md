@@ -2,11 +2,11 @@
 
 ## Summary
 
-`CircuitBase` is the fixed base every electrical-circuit module inherits: the single composition `FabricateMixin + ProfileMixin + nn.Module + Generic[ConfigT]`, plus a static-PPA property surface (`area_per_inst__um2`, `leakage_per_inst__uW`, `inst_shape`, `inst_count`, `inst_area__um2`, `inst_leakage__uW`) derived from `self.config` and the construction-time `inst_shape`. It is cross-cutting software structure with no physics-bearing reference counterpart; the per-instance area / leakage numbers it exposes are specified per subsystem under [reference](../../reference/README.md).
+`CircuitBase` is the fixed base every electrical-circuit module inherits: it carries a static-PPA property surface (`area_per_inst__um2`, `leakage_per_inst__uW`, `inst_shape`, `inst_count`, `inst_area__um2`, `inst_leakage__uW`) derived from `self.config` and the construction-time `inst_shape`. The per-instance area / leakage numbers it exposes are specified per subsystem under [reference](../../reference/README.md).
 
 ## Design decisions
 
-- **A fixed base class, not a loose mixin stack.** `CircuitBase` pins the canonical composition `FabricateMixin + ProfileMixin + nn.Module` in that order and adds `Generic[ConfigT]` so the typed config narrows in each leaf. Every electrical circuit needs exactly this set, so naming the composition once removes the per-leaf boilerplate of restating four bases and keeps the order — which determines MRO and `__init__` chaining — uniform. Rejected — leaving each leaf to compose the mixins by hand: the order would drift and the typed-config narrowing would have to be re-declared everywhere.
+- **A fixed base class, not a loose mixin stack.** `CircuitBase` pins the composition once and parameterizes it on `ConfigT`, so every leaf inherits the same set in the same order and its typed config narrows without per-leaf boilerplate. Rejected — leaving each leaf to compose the mixins by hand: the order would drift and the typed-config narrowing would have to be re-declared everywhere.
 - **Static PPA stays on this base, not in a separate mixin.** The area / leakage surface lives on `CircuitBase` rather than a standalone `StaticPpaMixin`. Splitting it out would create a load-bearing implicit contract — the profile side would read PPA fields it does not declare — and force each leaf to compose yet another mixin. Folding the surface into the base that already owns the typed config (the source of those numbers) avoids both costs. Being the sole layer that carries the config-backed surface also makes `isinstance(m, CircuitBase)` the natural predicate an upper-layer collector keys its static pass on; the walk itself is the profiler's — see [`profiler.md`](profiler.md).
 - **No PPA cache.** The derived aggregates (`inst_count`, `inst_area__um2`, `inst_leakage__uW`) are recomputed on every access from `inst_shape` and the per-instance config values; nothing is memoized. They are cheap arithmetic, the profiler reads each at most once per report, and a cache would add an invalidation surface for no measurable saving. Rejected — caching on construction: it would have to track config / shape mutation it cannot observe.
 - **The owner constructs its children.** The config tree mirrors the ownership tree: when `A` owns `B`, `A`'s config carries `B`'s config as a field and `A.__init__` builds `B` directly, so ownership is readable from the config structure and construction from the owning class, with no external factory closure deciding which child class is instantiated. Polymorphic children are built through the per-family `from_config` factory ([registry](mixin/registry.md)). Rejected — threaded factory closures: ownership and construction drift apart and design parameters leak across layers.
@@ -18,21 +18,21 @@
 - **`config` is the typed PPA source.** `config: ConfigT` is bound to a frozen dataclass whose type inherits `CircuitConfig`, which supplies the two base fields `area_per_inst__um2` and `leakage_per_inst__uW`. The generic parameter (a leaf declared `Leaf(CircuitBase[LeafConfig])`) lets `mypy` narrow `self.config` so subclass fields type-check without a per-leaf annotation; a parameterized `Generic` can still lose that precision through `nn.Module.__getattr__`, which the leaf restores with a one-line class-level `config: LeafConfig` forward declaration alongside its buffer declarations.
 - **Property surface — what is init-determined.** `area_per_inst__um2` and `leakage_per_inst__uW` forward the like-named config fields. `inst_shape` returns the construction-time per-instance multiplicity — the same shape the fabrication state is sampled at. `inst_count` is the product of `inst_shape`; `inst_area__um2` and `inst_leakage__uW` are the per-instance value times `inst_count`. All are properties because each is a function of init-fixed inputs (config + shape); none has a setter.
 - **Per-op latency is not a base concern.** `CircuitConfig` carries area and leakage only — there is no base `latency_per_op__ns` and no base dynamic-energy field. A leaf with a dynamic profile model emits its own per-op latency / energy through the `ProfileMixin` side channel at the end of its primary method; fixed-latency leaves declare `latency_per_op__ns` on their own config, parametric leaves derive it from runtime parameters, and dynamics-less leaves emit nothing (their cost folds into the owning circuit's tensors). The emission mechanism is in [`profiler.md`](profiler.md).
+
+## Composition
+
+- **Mixin stack and MRO.** `CircuitBase` composes `FabricateMixin + ProfileMixin + nn.Module` in that order, parameterized on the config type as `Generic[ConfigT]`; the composition order fixes the MRO and the `__init__` chaining every leaf inherits.
 - **Membership boundary.** `CircuitBase` is for electrical circuits that own a config-backed per-instance static cost. Devices (physical primitives) are not `CircuitBase` — their cost rolls up into the owning circuit's `CircuitConfig`, and their config does not inherit `CircuitConfig`. Orchestration macros are not `CircuitBase` either — they own no silicon of their own and their PPA surfaces only through their constituent circuits.
 
 ## Performance & resources
 
-The derived properties are constant-time field reads plus one `prod` over `inst_shape`; no tensor allocation, no host sync. Because nothing is cached, repeated access is repeated arithmetic — negligible against the profiler's static pass, which reads each property at most once per report. The base adds no per-forward overhead: it contributes structure and accessors only, not hot-path code.
+The derived properties are constant-time field reads plus one `prod` over `inst_shape`: no tensor allocation, no host sync, and nothing cached, so repeated access is just repeated arithmetic — negligible against the profiler's static pass, which reads each at most once per report. The base adds no per-forward overhead; it contributes structure and accessors only.
 
 ## Gotchas
 
 - **`inst_count` counts fabrication multiplicity, not serial operations.** It is the product of `inst_shape` — the parallel instance count behind one circuit. The serial-op multiplicity a leaf uses to scale latency is a separate, forward-tensor-shape quantity derived at the leaf's emit site; do not read `inst_count` as an op count.
 - **Reading `inst_area__um2` is not the subtree total.** It is this circuit's own area times its own multiplicity, never a field aggregating children. The subtree sum is the profiler's to compute — see [`profiler.md`](profiler.md). The same holds for `inst_leakage__uW`.
 - **Do not move device or macro PPA onto a `CircuitConfig`.** A device's static cost belongs to the owning circuit's config; a macro owns none. Making either inherit `CircuitConfig` would pull it under the `isinstance(m, CircuitBase)` static-collection predicate and double-count or mis-attribute silicon.
-
-## Known limitations
-
-- **TODO — no dedicated test module.** `CircuitBase` carries no behavior of its own beyond accessors; the static-collection predicate it anchors is exercised through the profiler tests, and there is no standalone `tests/test_circuit.py`.
 
 ---
 

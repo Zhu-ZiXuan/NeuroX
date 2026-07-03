@@ -7,7 +7,7 @@
 ## Design decisions
 
 - **Zero code cached at `__init__`.** The bit width is fixed by the boundary list (single-mode), so the topology-specific midpoint `self._zero_code = n_codes // 2` is a static instance attribute committed once, not a per-call computation. This is the opposite of the multi-mode SAR variants, which must compute the zero code per call because `bits` is a runtime parameter.
-- **No fabricated mismatch.** Both noise sources (sampling, comparator) are dynamic and applied inside `convert`; `_sample_fabricate_mismatch` is the inherited no-op and `fabricate()` only resolves the profiler-inst tally already locked at `__init__`.
+- **No fabricated mismatch.** Both noise sources (sampling, comparator) are dynamic and applied inside `convert`; `_sample_fabricate_mismatch` is an explicit no-op and `fabricate()` only resolves the profiler-inst tally already locked at `__init__`.
 - **Reference-free `convert`, with `v_refs__V` deled for protocol symmetry.** `GeneralADC.convert` takes the family `v_refs__V` keyword to match the ADC base signature but discards it (`del v_refs__V`), exactly as `signed_range` `del`s `adc_bits` — its floor-bucketize is reference-free, so no tap participates in the conversion.
 
 ## Contracts & invariants

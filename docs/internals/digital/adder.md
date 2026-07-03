@@ -13,7 +13,7 @@
 ## Contracts & invariants
 
 - **`operate(a, b)` is element-wise with PyTorch broadcasting**; the output shape is the broadcast of the two operands. The serial-op count uses the broadcast output numel divided by the instance count (position-invariant numel rule).
-- **No per-call sampling state.** Inherited `_sample_fabricate_mismatch` no-op is correct; `fabricate()` is a pass-through.
+- **No per-call sampling state.** The `DigitalCircuit` base no-op is correct; `fabricate()` is a pass-through.
 - **Energy and latency are two independent profiler emissions**; the energy tensor is per-output-element, the latency a single scaled scalar.
 
 ## Performance & resources

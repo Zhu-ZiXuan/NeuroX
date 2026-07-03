@@ -143,6 +143,9 @@ class VoltageDriver(CircuitBase[VoltageDriverConfig]):
             persistent=False,
         )
 
+    def _sample_fabricate_mismatch(self) -> None:
+        pass  # offset / thermal are drawn per call at snapshot, not fabricated
+
     # --- Snapshot + clamp solve ---
 
     def snapshot(

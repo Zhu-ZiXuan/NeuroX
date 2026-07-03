@@ -100,6 +100,9 @@ class CurrentMux(CircuitBase[CurrentMuxConfig]):
         self.T__K = T__K
         self.read_pulse__ns = read_pulse__ns
 
+    def _sample_fabricate_mismatch(self) -> None:
+        pass  # ideal identity-gain transport: no static mismatch
+
     def transport(self, i__uA: Tensor) -> Tensor:
         """Transport one current through the shared lane at the configured gain.
 

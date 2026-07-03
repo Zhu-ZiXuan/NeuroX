@@ -5,7 +5,9 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor
 
-from neurox.common.circuit import CircuitBase, CircuitConfig
+from neurox.common.circuit import CircuitConfig
+
+from .base import DigitalCircuit
 
 
 @dataclass(frozen=True)
@@ -40,7 +42,7 @@ class AdderConfig(CircuitConfig):
         self._require_nonneg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
-class Adder(CircuitBase[AdderConfig]):
+class Adder(DigitalCircuit[AdderConfig]):
     """Element-wise integer adder. No saturation or wrap."""
 
     def __init__(

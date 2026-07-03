@@ -307,6 +307,9 @@ class Core1T1R(CircuitBase[Core1T1RConfig]):
         self.fabricated_col_num = phys_col_num
         self.fabricated_row_num = row_num
 
+    def _sample_fabricate_mismatch(self) -> None:
+        pass  # container: cell mismatch is sampled through the cascade
+
     # -----------------------------------------------------------------
     # Geometry
     # -----------------------------------------------------------------

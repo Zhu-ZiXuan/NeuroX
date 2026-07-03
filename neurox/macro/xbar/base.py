@@ -101,6 +101,9 @@ class XbarMacro(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["Xba
             ideal_xbar=ideal_xbar,
         )
 
+    def _sample_fabricate_mismatch(self) -> None:
+        pass  # container: child mismatch is sampled through the cascade
+
     # --- PPA contract (macros aggregate via children) ---
 
     @property

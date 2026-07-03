@@ -1,7 +1,7 @@
-"""Runtime-validation mixin for frozen config dataclasses.
+"""Runtime-check helpers for host ``validate`` methods.
 
 See also:
-    docs/internals/config_and_construction.md
+    docs/internals/common/mixin/validate.md
 """
 
 from __future__ import annotations
@@ -11,12 +11,24 @@ from itertools import pairwise
 
 
 class ValidateMixin:
-    """Mixin providing runtime-check helpers for ``validate_*`` methods.
+    """Grant a host a small set of runtime-check helpers.
 
-    Configs inherit this mixin and call the helpers through ``self``
-    inside their own ``validate*`` methods. The mixin contributes only
-    helper static methods — every config defines its own
-    ``__post_init__`` (calling ``self.validate()``) and ``validate``.
+    A host inherits this and calls the helpers through ``self`` from inside its
+    own ``validate_*`` methods to assert runtime constraints that static typing
+    cannot express — numeric bounds, monotonicity, length, cross-field
+    relations. It is a pure helper: it owns no field, no construction hook, and
+    no ``validate`` of its own, so inheriting it supplies the checks but does
+    not by itself make a host validated — running validation at construction is
+    the host's to wire.
+
+    Host requirements:
+        - Inherit ``ValidateMixin`` and reach the helpers through ``self``.
+        - Declare a ``__post_init__`` that calls ``self.validate()`` so checks
+          run at construction; the mixin installs no such hook itself.
+        - Declare one or more ``validate_<group>()`` methods holding the checks
+          (a single-field host may inline its check directly in ``validate()``).
+        - Begin any ``validate()`` that overrides a base carrying its own checks
+          with a leading ``super().validate()`` so the chain runs end to end.
     """
 
     @staticmethod

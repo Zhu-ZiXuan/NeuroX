@@ -127,6 +127,9 @@ class Xbar(CircuitBase[XbarConfig], RegistryMixin[type["XbarConfig"], "Xbar"]):
             T__K=T__K,
         )
 
+    def _sample_fabricate_mismatch(self) -> None:
+        pass  # container: cell / peripheral mismatch is sampled through the cascade
+
     # ----- Value-domain semantics (abstract) -----
 
     @property

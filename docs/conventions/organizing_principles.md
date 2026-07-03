@@ -17,6 +17,8 @@ Documentation is carried in two media: markdown files and in-code text (docstrin
 
 When a statement could fit two carriers: survives a code rewrite → Reference; describes the program → Internals; caller-facing → docstring; local intent → comment.
 
+The code is itself the carrier of what it already states — a signature, a type, a `raise NotImplementedError`. No document restates such a fact; each holds only the reason the code cannot show.
+
 The same split governs tensor shape: Reference owns scientific or mathematical tensor meaning; Internals owns implementation layout, broadcast, batching, and reshape invariants.
 
 ## Directory layout

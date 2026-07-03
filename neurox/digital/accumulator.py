@@ -9,7 +9,9 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor
 
-from neurox.common.circuit import CircuitBase, CircuitConfig
+from neurox.common.circuit import CircuitConfig
+
+from .base import DigitalCircuit
 
 
 @dataclass(frozen=True)
@@ -45,7 +47,7 @@ class AccumulatorConfig(CircuitConfig):
         self._require_nonneg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
-class Accumulator(CircuitBase[AccumulatorConfig]):
+class Accumulator(DigitalCircuit[AccumulatorConfig]):
     """Modular adder-tree that sums an integer tensor along one axis.
 
     Models a hardware adder tree with a fixed output register of ``bit_width``

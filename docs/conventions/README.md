@@ -4,7 +4,7 @@ The standards every NeuroX document and source file follows, and the symbols, te
 
 ## Documentation and coding standards
 
-- [organizing_principles](organizing_principles.md) — carrier split, dependency direction, single source, present-state-only
+- [organizing_principles](organizing_principles.md) — carrier split, dependency direction, single source, present-state-only, code carries the what
 - [prose_style](prose_style.md) — character, unit, and math-typography rules for all text
 - [markdown_style](markdown_style.md) — structure and format of markdown files
 - [code_style](code_style.md) — in-code documentation and coding contracts

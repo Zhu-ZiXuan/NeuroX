@@ -137,6 +137,9 @@ class GeneralADC(ADC):
         else:
             self._lsb_estimate = float(boundaries_t.item())
 
+    def _sample_fabricate_mismatch(self) -> None:
+        pass  # sampling / comparator noise are drawn per convert(), not fabricated
+
     # --- ADC interface ---
 
     @property

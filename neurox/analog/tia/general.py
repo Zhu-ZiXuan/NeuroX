@@ -102,6 +102,9 @@ class GeneralTIA(TIA[GeneralTIASnap]):
         self.dtype = dtype
         self.T__K = T__K
 
+    def _sample_fabricate_mismatch(self) -> None:
+        pass  # ideal linear TIA: no nonideality to fabricate
+
     # --- snapshot ---
 
     def snapshot(

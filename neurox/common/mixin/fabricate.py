@@ -1,42 +1,57 @@
-"""Auto-cascading `fabricate()` for static manufacturing variation sampling.
+"""Auto-cascading ``fabricate()`` for static manufacturing-variation sampling.
 
 See also:
-    docs/internals/fabrication_lifecycle.md
-    docs/internals/fabrication_lifecycle.md
+    docs/internals/common/mixin/fabricate.md
 """
 
 from __future__ import annotations
 
+from abc import abstractmethod
 from collections.abc import Iterator
 
 import torch.nn as nn
 
 
 class FabricateMixin:
-    """Mixin granting automatic pre-order `fabricate()` cascade.
+    """Grant a host an automatic pre-order ``fabricate()`` cascade.
 
-    Host must also inherit `nn.Module` (for `self.children()`). Host's
-    `__init__` assigns `self._inst_shape: tuple[int, ...]`, encoding the
-    per-instance multiplicity at this layer. Subclasses override
-    `_sample_fabricate_mismatch` to (re)sample their own static manufacturing
-    variation; the default is a no-op for cascade-only nodes.
+    A host inherits this to get static manufacturing-variation sampling for
+    free: the inherited ``fabricate()`` resamples the host's own static state,
+    then recurses into every ``FabricateMixin`` descendant in one pre-order
+    pass. A subclass implements only its own per-layer sampling step. The mixin
+    samples static mismatch only; it never writes a programmed weight.
 
-    `fabricate()` runs pre-order: self first, then each `FabricateMixin`
-    child. `nn.ModuleList` / `nn.ModuleDict` containers are transparently
-    expanded; non-FabricateMixin children are skipped.
+    Host requirements:
+        - Inherit ``nn.Module`` alongside this mixin; the cascade walks
+          ``self.children()``.
+        - Implement ``_sample_fabricate_mismatch`` to resample this node's own
+          static mismatch; a container that owns no static state implements it
+          as an explicit no-op.
+        - Assign ``self._inst_shape: tuple[int, ...]`` in ``__init__``,
+          encoding the per-instance multiplicity at this layer. The mixin
+          reads it but never assigns it.
+        - Hold a fabricable submodule as a registered child — directly or
+          inside an ``nn.ModuleList`` / ``nn.ModuleDict``. One kept in a plain
+          attribute falls outside ``self.children()`` and is never reached.
     """
 
     _inst_shape: tuple[int, ...]
 
     def fabricate(self) -> None:
-        """Re-sample static manufacturing variation across self and descendants."""
+        """Re-sample static manufacturing variation across self and descendants.
+
+        Runs pre-order — self first via ``_sample_fabricate_mismatch``, then
+        each fabricable child. Children in ``nn.ModuleList`` / ``nn.ModuleDict``
+        are reached transparently; non-``FabricateMixin`` children are skipped.
+        """
         self._sample_fabricate_mismatch()
         for child in self._fabricable_children():
             child.fabricate()
 
+    @abstractmethod
     def _sample_fabricate_mismatch(self) -> None:
-        """Override to resample own static state. Default no-op for cascade-only nodes."""
-        return
+        """Resample this node's own static state."""
+        raise NotImplementedError
 
     def _fabricable_children(self) -> Iterator[FabricateMixin]:
         """Iterate direct ``FabricateMixin`` children.

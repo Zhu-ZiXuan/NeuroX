@@ -6,7 +6,7 @@
 
 ## Design decisions
 
-- **No fabricated mismatch.** The only non-ideality (drive-thermal) is dynamic, applied inside `convert`; `_sample_fabricate_mismatch` is the inherited no-op. `fabricate()` resolves only the profiler-inst tally locked at `__init__`.
+- **No fabricated mismatch.** The only non-ideality (drive-thermal) is dynamic, applied inside `convert`; `_sample_fabricate_mismatch` is an explicit no-op. `fabricate()` resolves only the profiler-inst tally locked at `__init__`.
 - **Energy fully on `energy_per_op__fJ`.** The per-element switching energy is one config field; set it to zero whenever the same energy is accounted at another stage, to avoid double-counting across the readout chain.
 
 ## Contracts & invariants

@@ -105,6 +105,9 @@ class GeneralDAC(DAC):
 
         self.register_buffer("code_to_signal", torch.tensor(config.code_to_signal, dtype=dtype), persistent=False)
 
+    def _sample_fabricate_mismatch(self) -> None:
+        pass  # drive-thermal noise is drawn per convert(), not fabricated
+
     @property
     def code_max(self) -> int:
         """Maximum valid input code (inclusive); valid codes lie in ``[0, code_max]``."""

@@ -175,6 +175,9 @@ class RRAM(FabricateMixin, nn.Module):
 
         self.register_buffer("g__uS", torch.zeros((), dtype=dtype), persistent=False)
 
+    def _sample_fabricate_mismatch(self) -> None:
+        pass  # variation enters via program() / snapshot(), not fabrication
+
     @property
     def c_top__fF(self) -> float:
         """Top-electrode (BL-side) parasitic capacitance per cell [fF]."""

@@ -13,7 +13,7 @@
 ## Contracts & invariants
 
 - **`operate(a, b)` computes `a - b` element-wise with broadcasting**; `a` is the minuend, `b` the subtrahend. The serial-op count uses the broadcast output numel divided by the instance count.
-- **No per-call sampling state.** Inherited `_sample_fabricate_mismatch` no-op is correct; `fabricate()` is a pass-through.
+- **No per-call sampling state.** The `DigitalCircuit` base no-op is correct; `fabricate()` is a pass-through.
 - **Energy and latency are two independent profiler emissions.**
 
 ## Performance & resources

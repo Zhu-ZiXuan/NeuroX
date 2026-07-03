@@ -183,6 +183,9 @@ class XbarCell(
             T__K=T__K,
         )
 
+    def _sample_fabricate_mismatch(self) -> None:
+        pass  # container: device mismatch is sampled through the cascade
+
     @abstractmethod
     def snapshot(
         self,

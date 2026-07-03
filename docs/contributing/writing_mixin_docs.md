@@ -2,13 +2,39 @@
 
 ## Scope
 
-A mixin document mirrors one mixin class — a pure-software cross-cutting mechanism, a reusable capability composed into a host. It lives under `internals/common/mixin/`. A mixin document specifies the contract between the mixin and its hosts — the surface a host must provide, the hook a subclass overrides, and the lifecycle point at which the behavior fires — in role language, and names no concrete host.
+A mixin's documentation is split across two carriers. The class and method docstrings carry the contract — what a host must provide, what a subclass overrides, what fires automatically — because that is what a reader reads at the code. The `.md` document carries what no docstring should: the design rationale, the rejected alternatives, and the composition. A mixin lives under `internals/common/mixin/` and names no concrete host.
 
-## Document template
+## Where each thing goes
 
-A mixin document carries the sections below in order and closes with the traceability footer. The H1 is `# <Mixin> mixin` — the mixin's name followed by `mixin` (`# Fabricate mixin`).
+The line is whether a reader can read it off the code itself:
 
-Only `Summary` and `Contracts & invariants` are required; every other section is on demand — write it when it carries content and omit it entirely when it does not, never as an `N/A` placeholder. A mixin owns no parameters, so it has no `Parameters` section.
+- **Method docstring** — a called API, an overridable hook and its default-body semantics, and a single-method contract (`Raises`, `Returns`). A reader who calls or overrides a method reads its docstring, so that is the home.
+- **Magic method** (`__init_subclass__`, `__post_init__`) — no docstring; a reader never visits one, so its behavior goes to the class docstring instead.
+- **Class docstring** — only the two contracts no single method carries: what the host must do, and what fires automatically.
+- **`.md`** — the design rationale, the rejected alternatives, the cross-call invariants told as *why*, and the composition.
+
+## Class docstring
+
+Open with the capability the mixin grants a host and its boundary, in role language, then carry the two contract sections:
+
+```python
+"""<Capability granted to a host, and its boundary — role language>.
+
+Host requirements:
+    - <a base to inherit, an attribute to set, a method or factory to
+      declare, a type parameter to bind, or a call convention to honor>.
+
+Injected behavior:
+    - <what fires with no explicit call — an ``__init_subclass__`` or
+      ``__post_init__`` effect, auto-registration — named with its trigger>.
+"""
+```
+
+- `Host requirements` almost always has content — a mixin exists to be composed, so it demands something of its host.
+- `Injected behavior` appears only when the mixin hooks a lifecycle magic method; a pure-helper or explicit-call mixin has none, so omit the section — never write `None`.
+- A method the host must write itself — an abstract hook, or one the mixin requires it to declare — goes in `Host requirements` as a bare "implement `X`", never with its semantics restated (those are in the method's docstring). A method the host only calls is left to its signature and docstring. So there is no `Override surface` or `Provided API` section: the only question is whether the host writes the method or calls it.
+
+## `.md` template
 
 ```markdown
 # <Mixin> mixin
@@ -16,12 +42,6 @@ Only `Summary` and `Contracts & invariants` are required; every other section is
 ## Summary
 
 ## Design decisions
-
-## Contracts & invariants
-
-### Host requirements
-
-### Override surface
 
 ## Composition
 
@@ -33,16 +53,10 @@ Only `Summary` and `Contracts & invariants` are required; every other section is
 - **Decisions**: [<ADR>](<relative .md path>), N/A, or None
 ```
 
-## Filling each section
-
-- `Summary` [required]: the behavior the mixin grants a host and the boundary of what it does not do, in role language; name no concrete host. Link the cross-cutting lifecycle document when the granted behavior is one phase of a wider lifecycle.
-- `Design decisions` [on demand, usually present]: the software rationale for the mechanism — the cascade or dispatch shape, what the host owns versus the mixin, and any rejected alternative.
-- `Contracts & invariants` [required]: the payload — the mixin-to-host contract, in the two subsections below; state the inherited method's semantics and any cross-call invariant, such as re-callability without state accumulation, in the section body.
-    - `### Host requirements`: the base the host must also inherit and the attributes it must set for the mixin to function.
-    - `### Override surface`: the hook a subclass overrides — its signature and its default-body semantics.
-- `Composition` [on demand]: the mixin's position in the host MRO and its trigger timing — the lifecycle point at which its behavior fires.
-
-The footer is traceability. `Reference` is always `N/A — software mechanism`; `Implementation` lists the mixin module file as inline code at file level; `Tests` names the guarding test file or a `TODO`; `Decisions` links the governing ADR, or is `N/A` or `None`.
+- `Summary` [required]: the capability and boundary in role language — the `.md`'s own entry point, not a verbatim copy of the class docstring.
+- `Design decisions` [usually present]: the software rationale — what the host owns versus the mixin, any rejected alternative, and the cross-call invariants (re-callable without accumulation, emit-once, per-family isolation) told as *why it is so*, not restated as a contract.
+- `Composition` [on demand]: the mixin's position in the host MRO, its ordering relative to other mixins, and its trigger timing.
+- The footer is traceability; `Reference` is always `N/A — software mechanism`.
 
 ## Content rules
 
@@ -56,4 +70,4 @@ A host composes a mixin, so the mixin is the lower module and its hosts are the 
 
 ### Single contract home
 
-The mixin document is the single home of the mixin's contract. A host or subclass document states only how it composes or specializes the mixin and never restates the host requirements or override semantics; it links here instead.
+Each contract has one home: a method's in its own docstring, a host-side or injected contract in the class docstring, the design in the `.md`. Nothing restates another's home — the `.md` cites a contract rather than re-listing it, and a host or subclass document states only how it composes or specializes the mixin.

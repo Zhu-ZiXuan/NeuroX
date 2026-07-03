@@ -15,7 +15,7 @@
 
 - **`operate(x, scale, dim, init_val)` reduces exactly the `dim` axis**; the radix weights are built on `x`'s device and dtype. The reduced axis is gone from the output, so the serial-op divisor is the instance count.
 - **`init_val` must broadcast to the reduced output shape** (post-reduction, digit axis removed), not to the input shape.
-- **No per-call sampling state.** Inherited `_sample_fabricate_mismatch` no-op is correct; `fabricate()` is a pass-through.
+- **No per-call sampling state.** The `DigitalCircuit` base no-op is correct; `fabricate()` is a pass-through.
 - **Energy and latency are two independent profiler emissions.**
 
 ## Performance & resources

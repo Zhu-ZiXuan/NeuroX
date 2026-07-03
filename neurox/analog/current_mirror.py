@@ -101,6 +101,9 @@ class CurrentMirror(CircuitBase[CurrentMirrorConfig]):
         self.T__K = T__K
         self.read_pulse__ns = read_pulse__ns
 
+    def _sample_fabricate_mismatch(self) -> None:
+        pass  # ratio mismatch is drawn per call in replicate(), not fabricated
+
     def replicate(self, i_in__uA: Tensor) -> Tensor:
         """Copy the input current at the configured mirror ratio.
 

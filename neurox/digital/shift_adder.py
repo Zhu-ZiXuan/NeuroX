@@ -9,7 +9,9 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor
 
-from neurox.common.circuit import CircuitBase, CircuitConfig
+from neurox.common.circuit import CircuitConfig
+
+from .base import DigitalCircuit
 
 
 @dataclass(frozen=True)
@@ -45,7 +47,7 @@ class ShiftAdderConfig(CircuitConfig):
         self._require_nonneg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
-class ShiftAdder(CircuitBase[ShiftAdderConfig]):
+class ShiftAdder(DigitalCircuit[ShiftAdderConfig]):
     """Weighted positional-sum unit for digit recombination."""
 
     def __init__(

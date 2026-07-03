@@ -18,6 +18,8 @@ Follow these public conventions unless a rule here is stricter.
 - Use Google-style docstrings.
 - Write for the caller of the symbol: public semantics, and tensor shapes when shape is part of the public contract. A pure elementwise API may omit shape or state the same-shape rule once.
 - Write the complete interface docstring on the abstract base, mixin, or Protocol. An unchanged override inherits it instead of copying it; document only the difference when an override changes contract, shape, side effects, units, or errors.
+- An interface docstring states what the method does, not a directive to whoever implements it — "a subclass must implement this" stops holding once one has. The obligation to implement belongs in the class docstring, the not-yet-implemented fact in `raise NotImplementedError`, and the rationale in Internals.
+- A lifecycle magic method (`__post_init__`, `__init_subclass__`) carries no docstring — a caller never invokes it directly, so the docstring would go unread. State the behavior it drives in the class docstring instead.
 - A module docstring states the file's responsibility. When a matching Reference or Internals document exists, it must include a `See also:` entry pointing to that document.
 - Do not repeat a physical unit in prose when the name already carries a unit suffix. State a unit only when no suffix exists, the value is normalized or scaled, or the convention is otherwise non-obvious.
 
