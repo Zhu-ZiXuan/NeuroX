@@ -16,7 +16,7 @@ All inputs come from the TOML config (no chip preset, no other CLI flags):
 
 Scoring (higher = better):
   ``score = R²_linear_over_[0,sat_onset] × v_util × sat_match``
-  where ``v_util`` = (v_out span across the linear region) ÷ softclip
+  where ``v_util`` = (v_out span across the linear region) / softclip
   total, and ``sat_match`` = ``min(1, sat_onset / (μ + 3σ))`` — saturating
   before the workload tail is penalised.
 
@@ -57,11 +57,11 @@ class HardwareSection:
 
     Attributes:
         nmos_config: Access-NMOS process config.
-        v_dd__V: Chip supply rail [V] — physical hard cap for TIA output.
-        v_ref__V: Softclip reference voltage of the BL clamp [V].
-        output_saturation_softness__V: Softclip softness band [V].
+        v_dd__V: Chip supply rail — physical hard cap for TIA output.
+        v_ref__V: Softclip reference voltage of the BL clamp.
+        output_saturation_softness__V: Softclip softness band.
         target_v_max__V: User-chosen ceiling for the TIA output that
-            aligns with the downstream ADC's largest v_ref mode [V]
+            aligns with the downstream ADC's largest v_ref mode
             (chip's softclip upper rail = ``v_dd`` is the physical hard
             cap, but the user typically wants ``v_out`` to stay below
             the ADC's biggest v_ref to maximise usable signal span
@@ -82,9 +82,9 @@ class WorkloadSection:
     """Gaussian model of the per-column workload current.
 
     Attributes:
-        mean__uA: Mean BL port current [uA] of the modelled workload.
+        mean__uA: Mean BL port current of the modelled workload.
             Must be ``>= 0`` — the TIA sweeps a non-negative input grid.
-        std__uA: Standard deviation [uA]; must be ``>= 0``.
+        std__uA: Standard deviation; must be ``>= 0``.
     """
 
     mean__uA: float
@@ -146,8 +146,7 @@ class CandidateResult:
 def _build_tia_config(hw: HardwareSection, gain: float, w: float, nmos_L_um: float, vb: float) -> OpAmpTIAConfig:
     """Stitch a per-combo :class:`OpAmpTIAConfig`.
 
-    ``v_ref__V`` is no longer an :class:`OpAmpTIAConfig` field — the
-    reference clamp voltage is injected per call into the TIA's snapshot
+    The reference clamp voltage is injected per call into the TIA's snapshot
     (see :func:`sweep_transfer`); ``hw.v_ref__V`` is consumed there.
     """
     return OpAmpTIAConfig(
@@ -182,8 +181,7 @@ def _evaluate(
     so 1D-slice plots can show the full grid. Returns ``None`` only when the
     combo violates the pseudo-resistor design constraint (Vb ≤ v_ref).
 
-    Scoring targets ``hw.target_v_max__V`` instead of the
-    chip's physical softclip rail. Goal: workload ±3σ span maps linearly
+    Scoring targets ``hw.target_v_max__V``. Goal: workload ±3σ span maps linearly
     into a v_out range that fills ``[0, target_v_max]`` without spilling
     past it.
     """
@@ -213,8 +211,8 @@ def _evaluate(
         and fit.v_at_mean__V < curve.v_max_V - 0.02
         and v_hi < curve.v_max_V - 0.001  # workload p99 not pinned at hard rail
     )
-    # Existing CandidateResult fields kept for back-compat with plotting code;
-    # v_util and sat_match are now derived against the user's target_v_max.
+    # The CandidateResult v_util and sat_match fields carry range_use and
+    # overshoot_safe, both derived against the user's target_v_max.
     return CandidateResult(
         opamp_gain=gain,
         pseudo_nmos_W__um=w,
@@ -240,8 +238,8 @@ def _evaluate(
 
 def _log_candidate(prefix: str, r: CandidateResult) -> None:
     logger.info(
-        "%s A=%g W=%g L=%g Vb=%g  | R²_wl=%.3f  range_use=%.2f  overshoot_safe=%.2f"
-        "  | v(-3σ)=%.3fV  v(μ)=%.3fV  v(+3σ)=%.3fV  slope(μ)=%.2f mV/μA  score=%.4f",
+        "%s A=%g W=%g L=%g Vb=%g  | R^2_wl=%.3f  range_use=%.2f  overshoot_safe=%.2f"
+        "  | v(-3sigma)=%.3fV  v(mu)=%.3fV  v(+3sigma)=%.3fV  slope(mu)=%.2f mV/uA  score=%.4f",
         prefix,
         r.opamp_gain,
         r.pseudo_nmos_W__um,
@@ -292,8 +290,8 @@ def _plot_slice(
         feasibility_tag = "" if r.is_feasible else " [infeasible]"
         label = (
             f"{short.get(varied_attr, varied_attr)}={getattr(r, varied_attr):g}{feasibility_tag}  "
-            f"R²={r.linearity_r2:.3f}  slope={r.slope_at_mean__mV_per_uA:.2f}mV/μA  "
-            f"v(μ)={r.v_at_mean__V:.3f}V  score={r.score:.3f}"
+            rf"$R^2$={r.linearity_r2:.3f}  slope={r.slope_at_mean__mV_per_uA:.2f}mV/$\mu$A  "
+            rf"v($\mu$)={r.v_at_mean__V:.3f}V  score={r.score:.3f}"
         )
         ax.plot(
             r.curve.i_uA.numpy(),
@@ -312,10 +310,10 @@ def _plot_slice(
         workload.mean__uA + 3 * workload.std__uA,
         color="tab:blue",
         alpha=0.10,
-        label="workload μ ± 3σ",
+        label=r"workload $\mu \pm 3\sigma$",
     )
     ax.axvline(workload.mean__uA, color="tab:blue", linestyle="--", linewidth=0.8)
-    ax.set_xlabel("I_port [μA]")
+    ax.set_xlabel(r"I_port [$\mu$A]")
     ax.set_ylabel("v_out [V]")
     ax.set_title(f"TIA slice — vary {short.get(varied_attr, varied_attr)} (fixed: {fixed_attrs_label})")
     ax.grid(True, alpha=0.3)
@@ -401,7 +399,7 @@ def _plot_top_k(top: list[CandidateResult], workload: WorkloadSection, output_pa
         label = (
             f"#{idx + 1} A={r.opamp_gain:g} W={r.pseudo_nmos_W__um:g} "
             f"L={r.pseudo_nmos_L__um:g} Vb={r.v_nmos_bias__V:g}  "
-            f"R²={r.linearity_r2:.3f}  slope={r.slope_at_mean__mV_per_uA:.2f}mV/μA  score={r.score:.3f}"
+            rf"$R^2$={r.linearity_r2:.3f}  slope={r.slope_at_mean__mV_per_uA:.2f}mV/$\mu$A  score={r.score:.3f}"
         )
         ax.plot(r.curve.i_uA.numpy(), r.curve.v_out_V.numpy(), color=color, linewidth=lw, label=label)
     ax.axhline(top[0].curve.v_min_V, color="grey", linestyle=":", linewidth=0.7)
@@ -411,10 +409,10 @@ def _plot_top_k(top: list[CandidateResult], workload: WorkloadSection, output_pa
         workload.mean__uA + 3 * workload.std__uA,
         color="tab:blue",
         alpha=0.10,
-        label="workload μ ± 3σ",
+        label=r"workload $\mu \pm 3\sigma$",
     )
     ax.axvline(workload.mean__uA, color="tab:blue", linestyle="--", linewidth=0.8)
-    ax.set_xlabel("I_port [μA]")
+    ax.set_xlabel(r"I_port [$\mu$A]")
     ax.set_ylabel("v_out [V]")
     ax.set_title("Top-K TIA candidates — score = linearity_r2 · range_use · overshoot_safe")
     ax.grid(True, alpha=0.3)

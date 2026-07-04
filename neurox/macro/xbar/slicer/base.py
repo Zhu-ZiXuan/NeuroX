@@ -1,4 +1,8 @@
-"""Slicer ABC for value-domain decomposition."""
+"""Slicer ABC for value-domain decomposition.
+
+See also:
+    docs/reference/macro/base.md
+"""
 
 from __future__ import annotations
 
@@ -32,7 +36,7 @@ class Slicer(ABC):
     @property
     @abstractmethod
     def slice_weights(self) -> tuple[int, ...]:
-        """LSB-first positional weight of each slice ``(1, R, R², …, R^(slice_num-1))``."""
+        """LSB-first positional weight of each slice ``(1, R, R², ..., R^(slice_num-1))``."""
         raise NotImplementedError
 
     @abstractmethod

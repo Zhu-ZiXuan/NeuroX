@@ -34,19 +34,19 @@ class McsSarAdcConfig(ADCConfig):
         max_bits: Physical bit width; active array carries
             ``max_bits - 1`` binary-weighted caps + a dummy cap
             (MSB-free design).
-        clk_period__ns: SAR comparator clock period [ns]; latency at
+        clk_period__ns: SAR comparator clock period; latency at
             ``bits`` active bits is ``(bits + 1) · clk_period``.
-        c_unit__fF: CDAC unit capacitance [fF].
+        c_unit__fF: CDAC unit capacitance.
         cap_mismatch_sigma_relative: Per-unit-cap relative Pelgrom
-            sigma.
-        comparator_offset_sigma__V: Static Gaussian sigma on the
-            comparator threshold [V].
-        comparator_thermal_noise_sigma__V: Per-cycle Gaussian sigma
-            for thermal comparator noise [V].
+            σ.
+        comparator_offset_sigma__V: Static Gaussian σ on the
+            comparator threshold.
+        comparator_thermal_noise_sigma__V: Per-cycle Gaussian σ
+            for thermal comparator noise.
         e_bootstrap__fJ: Per-conversion bootstrapped sampling-switch
-            overhead [fJ].
+            overhead.
         e_constant_per_bit__fJ: Per-cycle SAR strobe / logic / control
-            overhead [fJ]; charged ``bits`` times per conversion.
+            overhead; charged ``bits`` times per conversion.
     """
 
     # --- Topology ---
@@ -126,7 +126,7 @@ class McsSarAdc(ADC):
         policy: Per-source nonideality enable flags.
         name: Hierarchical instance name used by the profiler.
         dtype: Tensor dtype for internal buffers.
-        T__K: Operating temperature [K].
+        T__K: Operating temperature.
     """
 
     config: McsSarAdcConfig
@@ -303,7 +303,7 @@ class McsSarAdc(ADC):
         v_p_top__V = 2 * v_cm__V - v_pos__V
         v_n_top__V = 2 * v_cm__V - v_neg__V
 
-        # sample thermal noise: sigma_V² = k_B · T / C_total.
+        # sample thermal noise on each held top plate (per-leg kT/C).
         kt__fJ = K_BOLTZMANN__J_per_K * self.T__K * 1e15
         v_p_top__V = apply_gaussian(
             v_p_top__V, torch.sqrt(kt__fJ / c_p_total__fF), enabled=self.policy.sampling_thermal_noise

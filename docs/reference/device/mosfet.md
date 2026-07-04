@@ -43,7 +43,7 @@ Fabrication mismatch is Pelgrom-law area-scaled Gaussian noise sampled once per 
 - **$V_{\mathrm{th}}$ mismatch** (`A_vt_mismatch`, fabricate time) — additive Gaussian on $V_{\mathrm{th,nom}}$ with sigma $\sigma_{V_{\mathrm{th}}} = A_{V_{\mathrm{th}}}\cdot 10^{-3}/\sqrt{W L}$ (the $10^{-3}$ converts the mV-um matching coefficient to V).
 - **$\beta$ mismatch** (`A_beta_mismatch`, fabricate time) — additive Gaussian on $\beta_{\mathrm{nom}}$ with relative sigma $\sigma_\beta/\beta = A_\beta/\sqrt{W L}$; since $\beta_{\mathrm{nom}}$ is a positive magnitude, $\sigma_\beta$ is positive directly.
 
-$A_{V_{\mathrm{th}}}$ and $A_\beta$ are the standard Pelgrom area-matching coefficients: both sigmas scale as $1/\sqrt{W L}$, so larger devices match better. They are static device-to-device variation, not per-read noise.
+$A_{V_{\mathrm{th}}}$ and $A_\beta$ are the standard Pelgrom area-matching coefficients: both sigma values scale as $1/\sqrt{W L}$, so larger devices match better. They are static device-to-device variation, not per-read noise.
 
 ## Parameters
 
@@ -71,7 +71,7 @@ The channel polarity $p$ is a class attribute of the concrete `NMOS` / `PMOS` de
 | $\partial I_{\mathrm{ds}}/\partial V_g$ | gate transconductance $g_m$ | uS | `MOSFETDCOP.did_dvg__uS` |
 | $\partial I_{\mathrm{ds}}/\partial V_d$ | drain conductance ($\ge 0$) | uS | `MOSFETDCOP.did_dvd__uS` |
 | $\partial I_{\mathrm{ds}}/\partial V_s$ | source conductance ($\le 0$) | uS | `MOSFETDCOP.did_dvs__uS` |
-| $p$ | channel polarity (+1 n-channel, −1 p-channel) | — | `polarity` (class attribute) |
+| $p$ | channel polarity (+1 n-channel, -1 p-channel) | — | `polarity` (class attribute) |
 | $V_g, V_d, V_s$ | gate, drain, source voltages (runtime inputs) | V | `vg__V`, `vd__V`, `vs__V` |
 | $V_{\mathrm{ov,s}}, V_{\mathrm{ov,d}}$ | polarity-scaled source-, drain-referred overdrive | V | — |
 | $v_s, v_d$ | softplus-smoothed effective overdrives | V | `v_eff_s`, `v_eff_d` |
@@ -86,7 +86,7 @@ The channel polarity $p$ is a class attribute of the concrete `NMOS` / `PMOS` de
 | $V_T$ | thermal voltage $k_B T / q$ | V | `thermal_voltage__V(T__K)` |
 | $u_{\mathrm{te}}, k_{t1}$ | mobility exponent, $V_{\mathrm{th}}$ temperature coefficient | —, V | `ute`, `kt1__V` |
 | $A_{V_{\mathrm{th}}}, A_\beta$ | Pelgrom matching coefficients | mV-um, um | `A_vt__mV_um`, `A_beta_relative__um` |
-| $\sigma_{V_{\mathrm{th}}}, \sigma_\beta$ | mismatch sigmas | V, uA/V^2 | `sigma_vth__V`, `sigma_beta__uA_per_V2` |
+| $\sigma_{V_{\mathrm{th}}}, \sigma_\beta$ | mismatch sigma values | V, uA/V^2 | `sigma_vth__V`, `sigma_beta__uA_per_V2` |
 | $W, L$ | channel width, length | um | `W__um`, `L__um` |
 | $T, T_{\mathrm{ref}}$ | operating, reference temperature | K | `T__K`, `T_ref__K` |
 

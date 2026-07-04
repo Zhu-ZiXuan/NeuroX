@@ -18,9 +18,9 @@ class GeneralTIAConfig(TIAConfig):
 
     Attributes:
         input_impedance__MOhm: Thevenin small-signal input impedance
-            ``Z_in`` at the clamp node [MOhm].
+            ``Z_in`` at the clamp node.
         load_resistance__MOhm: Conversion-stage equivalent load
-            resistance ``R_load`` — the transimpedance gain [MOhm].
+            resistance ``R_load`` — the transimpedance gain.
     """
 
     input_impedance__MOhm: float
@@ -42,7 +42,7 @@ class GeneralTIASnap(TIASnap):
     """Per-call GeneralTIA snap.
 
     Attributes:
-        v_ref__V: Injected reference clamp voltage [V], broadcast to the
+        v_ref__V: Injected reference clamp voltage, broadcast to the
             per-call shape.
     """
 
@@ -54,10 +54,10 @@ class GeneralTIADCOP:
     """DC operating-point result of :meth:`GeneralTIA.solve_dc`.
 
     Attributes:
-        v_clamp__V: Clamp-node voltage at the operating point [V].
-        v_out__V: Transimpedance output voltage [V].
-        dVclamp_dI__MOhm: ``∂v_clamp / ∂i_port`` [MOhm].
-        dVout_dI__MOhm: ``∂v_out / ∂i_port`` [MOhm].
+        v_clamp__V: Clamp-node voltage at the operating point.
+        v_out__V: Transimpedance output voltage.
+        dVclamp_dI__MOhm: ``∂v_clamp / ∂i_port``.
+        dVout_dI__MOhm: ``∂v_out / ∂i_port``.
     """
 
     v_clamp__V: Tensor
@@ -117,7 +117,7 @@ class GeneralTIA(TIA[GeneralTIASnap]):
         """Store the injected reference into the per-call snap.
 
         Args:
-            v_ref__V: Injected reference clamp voltage [V]. A scalar or
+            v_ref__V: Injected reference clamp voltage. A scalar or
                 instance-shaped tensor that broadcasts onto ``shape``.
             shape: Per-call broadcast shape; the snap fills the reference
                 field at this shape.
@@ -144,7 +144,7 @@ class GeneralTIA(TIA[GeneralTIASnap]):
         """Solve the linear GeneralTIA at one port current.
 
         Args:
-            i_port__uA: Port-output current [uA]; positive = sourcing.
+            i_port__uA: Port-output current; positive = sourcing.
             snap: Per-call snap from :meth:`snapshot`.
             v_clamp_init__V: Ignored — the model is exact, no warm start.
 
@@ -180,7 +180,7 @@ class GeneralTIA(TIA[GeneralTIASnap]):
         """Boundary-clamp wrapper around :meth:`solve_dc`.
 
         Args:
-            i_port__uA: Port-output current [uA]; see :meth:`solve_dc`.
+            i_port__uA: Port-output current; see :meth:`solve_dc`.
             snap: Per-call snap from :meth:`snapshot`.
             v_clamp_init__V: Ignored — see :meth:`solve_dc`.
 
@@ -199,18 +199,18 @@ class GeneralTIA(TIA[GeneralTIASnap]):
         *,
         read_pulse__ns: float,
     ) -> Tensor:
-        """Transimpedance-resistor dissipation over one read window [fJ].
+        """Transimpedance-resistor dissipation over one read window.
 
         Pure compute — the caller logs the returned term.
 
         Args:
-            i_port__uA: Port-output current [uA].
+            i_port__uA: Port-output current.
             dcop: Operating point from :meth:`solve_dc` (unused; the
                 dissipation depends only on ``i_port`` and ``R_load``).
-            read_pulse__ns: Read-window width [ns].
+            read_pulse__ns: Read-window width.
 
         Returns:
-            ``i_port**2 · R_load · read_pulse`` [fJ]
+            ``i_port**2 · R_load · read_pulse``
             (uA**2 · MOhm · ns = fJ).
         """
         del dcop  # dissipation is i_port**2 * R_load; DCOP not needed

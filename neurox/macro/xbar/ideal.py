@@ -54,7 +54,7 @@ class IdealXbarMacro(XbarMacro):
         name: Hierarchical instance name used by the profiler.
         w_logical_shape: Logical weight shape ``(*prefix, N, K)`` bound to ``program(...)``.
         dtype: Tensor dtype for internal buffers.
-        T__K: Operating temperature [K].
+        T__K: Operating temperature.
         ideal_xbar: When True, the macro replaces its physical xbar with the lossless ideal twin returned by xbar.to_ideal().
     """
 

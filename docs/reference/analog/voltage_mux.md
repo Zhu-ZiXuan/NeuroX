@@ -89,7 +89,7 @@ TODO - link validation evidence once written.
 - P. R. Gray, P. J. Hurst, S. H. Lewis, R. G. Meyer, *Analysis and Design of Analog Integrated Circuits* — differential CMRR and CM-to-DM conversion from load/transconductance mismatch.
 - B. Razavi, *Design of Analog CMOS Integrated Circuits* — finite CMRR from gain mismatch; signal-dependent on-resistance $R_{\mathrm{on}}(V)$ and the bootstrapped switch; charge injection / clock feedthrough.
 - Analog Devices, MT-088, *Analog Switches and Multiplexers Basics* — $R_{\mathrm{on}}$/load attenuator gain error, $R_{\mathrm{on}}$ flatness/modulation, off-isolation, leakage, settling.
-- Analog Devices, MT-042, *Op Amp Common-Mode Rejection Ratio (CMRR)* — finite CMRR from leg mismatch (e.g. 0.1% match -> ~66 dB); input-referred common-mode error $V_{\mathrm{cm}}/\mathrm{CMRR}$, proportional to the common-mode signal.
+- Analog Devices, MT-042, *Op Amp Common-Mode Rejection Ratio (CMRR)* — finite CMRR from leg mismatch (e.g. 0.1% match → ~66 dB); input-referred common-mode error $V_{\mathrm{cm}}/\mathrm{CMRR}$, proportional to the common-mode signal.
 - M. J. M. Pelgrom et al., *Matching properties of MOS transistors* — area-scaled device mismatch ($\sigma \propto 1/\sqrt{\mathrm{area}}$, mismatch shrinking with area).
 - kT/C sampling noise (variance $k_B T / C$, zero-mean, white, signal-independent) — standard switched-capacitor noise analysis.
 

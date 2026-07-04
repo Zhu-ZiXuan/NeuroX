@@ -1,8 +1,7 @@
 """Reusable analog non-ideality kernels and their config dataclasses.
 
 See also:
-    docs/internals/config_and_construction.md
-    docs/internals/config_and_construction.md
+    docs/reference/nonideality.md
 """
 
 from dataclasses import dataclass
@@ -95,8 +94,8 @@ class StateDependentGaussianConfig(ValidateMixin):
     """State-dependent Gaussian noise config.
 
     Attributes:
-        sigma_slope: Sigma slope vs ``|x|``.
-        sigma_intercept: Base sigma at ``|x| = 0``.
+        sigma_slope: Linear growth of the noise σ per unit of ``|x|``.
+        sigma_intercept: Base σ at ``|x| = 0``.
     """
 
     sigma_slope: float
@@ -116,11 +115,11 @@ def apply_state_dependent_gaussian(
     *,
     enabled: bool,
 ) -> Tensor:
-    """Apply Gaussian noise whose sigma scales with the magnitude of ``x``.
+    """Apply Gaussian noise whose σ scales with the magnitude of ``x``.
 
     Args:
         x: Input conductance. Shape: arbitrary.
-        config: Slope and intercept of the per-element sigma.
+        config: Slope and intercept of the per-element σ.
         enabled: Master toggle. ``False`` returns ``x`` unchanged.
 
     Returns:
@@ -142,7 +141,7 @@ class LognormalConfig(ValidateMixin):
     """Multiplicative log-normal noise config.
 
     Attributes:
-        sigma: Underlying normal sigma.
+        sigma: Underlying normal σ.
     """
 
     sigma: float
@@ -159,7 +158,7 @@ def apply_lognormal(x: Tensor, config: LognormalConfig, *, enabled: bool) -> Ten
 
     Args:
         x: Input conductance. Shape: arbitrary.
-        config: Log-normal sigma.
+        config: Log-normal σ.
         enabled: Master toggle. ``False`` returns ``x`` unchanged.
 
     Returns:
@@ -175,10 +174,10 @@ class StateDependentLognormalConfig(ValidateMixin):
     """State-dependent log-normal noise config.
 
     Attributes:
-        sigma_slope: Slope of sigma vs normalised state.
-        sigma_intercept: Base sigma at min state.
-        min_val: Min value used for normalisation.
-        max_val: Max value used for normalisation.
+        sigma_slope: Amount the noise σ falls as the normalised state rises from 0 to 1.
+        sigma_intercept: Base σ at the min state (normalised state 0).
+        min_val: Lower bound of the state-normalisation range.
+        max_val: Upper bound of the state-normalisation range.
     """
 
     sigma_slope: float
@@ -202,11 +201,11 @@ def apply_state_dependent_lognormal(
     *,
     enabled: bool,
 ) -> Tensor:
-    """Apply log-normal noise whose sigma depends on normalised state.
+    """Apply log-normal noise whose σ depends on normalised state.
 
     Args:
         x: Input conductance. Shape: arbitrary.
-        config: State-dependent sigma config.
+        config: State-dependent σ config.
         enabled: Master toggle. ``False`` returns ``x`` unchanged.
 
     Returns:
@@ -268,11 +267,11 @@ class StateDependentGammaConfig(ValidateMixin):
     """State-dependent Gamma noise config.
 
     Attributes:
-        k_slope: Shape slope vs normalised state.
-        k_intercept: Base shape value.
-        theta: Shared scale parameter.
-        min_val: Min value used for normalisation.
-        max_val: Max value used for normalisation.
+        k_slope: Rate at which the Gamma shape ``k`` varies with normalised state.
+        k_intercept: Gamma shape ``k`` at the min state (normalised state 0).
+        theta: Scale parameter, held constant across all states.
+        min_val: Lower bound of the state-normalisation range.
+        max_val: Upper bound of the state-normalisation range.
     """
 
     k_slope: float
@@ -349,7 +348,7 @@ class TelegraphConfig(ValidateMixin):
 
     Attributes:
         amplitude_mean: Mean amplitude of the perturbation.
-        amplitude_std: Std of the amplitude.
+        amplitude_std: Std of the Gaussian amplitude draw.
         p_high_state: Probability that a cell is in the high RTN state.
     """
 
@@ -403,12 +402,11 @@ def apply_pelgrom_mismatch(
 ) -> Tensor:
     """Add Pelgrom-scaled Gaussian mismatch to a binary-weighted ladder.
 
-    Per-cell matching sigma: ``σ_k = √(X_k / X_unit) · σ_u · X_unit``
-    where ``σ_u`` is the per-unit-cell relative sigma.
+    Each cell's absolute matching σ is the area-scaled Pelgrom spread.
 
     Args:
         ideal: Tensor of nominal per-cell values.
-        sigma_relative: Per-unit-cell relative sigma ``σ_u``.
+        sigma_relative: Per-unit-cell relative σ ``sigma_u``.
         unit: Single-unit-cell value ``X_unit`` in the same units as
             ``ideal``.
         floor: Optional minimum clamp applied after sampling.

@@ -50,23 +50,23 @@ class Core1T1RConfig(CircuitConfig):
     """Shape-independent physical knobs for a 1T1R pure-array core.
 
     Attributes:
-        wl_pulse_length__ns: Word-line pulse length [ns].
-        row_first_space__um: Row pitch from the driver to the first cell [um].
-        row_cell_space__um: Row pitch between adjacent cells [um].
-        col_first_space__um: Column pitch from the driver to the first cell [um].
-        col_cell_space__um: Column pitch between adjacent cells [um].
-        bl_first_r__MOhm: BL driver-to-first-cell segment resistance [MOhm].
-        bl_first_c__fF: BL driver-to-first-cell segment capacitance [fF].
-        bl_segment_r__MOhm: BL cell-to-cell segment resistance [MOhm].
-        bl_segment_c__fF: BL cell-to-cell segment capacitance [fF].
-        sl_first_r__MOhm: SL driver-to-first-cell segment resistance [MOhm].
-        sl_first_c__fF: SL driver-to-first-cell segment capacitance [fF].
-        sl_segment_r__MOhm: SL cell-to-cell segment resistance [MOhm].
-        sl_segment_c__fF: SL cell-to-cell segment capacitance [fF].
-        wl_first_r__MOhm: WL driver-to-first-cell segment resistance [MOhm].
-        wl_first_c__fF: WL driver-to-first-cell segment capacitance [fF].
-        wl_segment_r__MOhm: WL cell-to-cell segment resistance [MOhm].
-        wl_segment_c__fF: WL cell-to-cell segment capacitance [fF].
+        wl_pulse_length__ns: Word-line pulse length.
+        row_first_space__um: Row pitch from the driver to the first cell.
+        row_cell_space__um: Row pitch between adjacent cells.
+        col_first_space__um: Column pitch from the driver to the first cell.
+        col_cell_space__um: Column pitch between adjacent cells.
+        bl_first_r__MOhm: BL driver-to-first-cell segment resistance.
+        bl_first_c__fF: BL driver-to-first-cell segment capacitance.
+        bl_segment_r__MOhm: BL cell-to-cell segment resistance.
+        bl_segment_c__fF: BL cell-to-cell segment capacitance.
+        sl_first_r__MOhm: SL driver-to-first-cell segment resistance.
+        sl_first_c__fF: SL driver-to-first-cell segment capacitance.
+        sl_segment_r__MOhm: SL cell-to-cell segment resistance.
+        sl_segment_c__fF: SL cell-to-cell segment capacitance.
+        wl_first_r__MOhm: WL driver-to-first-cell segment resistance.
+        wl_first_c__fF: WL driver-to-first-cell segment capacitance.
+        wl_segment_r__MOhm: WL cell-to-cell segment resistance.
+        wl_segment_c__fF: WL cell-to-cell segment capacitance.
         cell_config: 1T1R cell configuration. Owns the RRAM / access-NMOS
             device configs, sizing, parasitic-cap densities, programming
             map, and per-cell branch-solve knobs.
@@ -75,15 +75,15 @@ class Core1T1RConfig(CircuitConfig):
             solver implementation the core instantiates via
             ``Solver.from_config(...)``.
         area_per_inst__um2: Core (cell array + wire infra) silicon area
-            per fabricated tile instance [um²]. **Excludes** the boundary
+            per fabricated tile instance. **Excludes** the boundary
             drivers / DAC / reference, which are peers of the core under
             the scheme xbar and roll up separately. Device-side
             contributions (RRAM / NMOS) are not separately rolled up —
             their physical area must be folded into this field by the
             caller (devices do not inherit ``CircuitBase``).
         leakage_per_inst__uW: Core static leakage per fabricated tile
-            instance [uW]. Same scope as ``area_per_inst__um2``.
-        latency_per_op__ns: Core-side per-VMM latency [ns] that the
+            instance. Same scope as ``area_per_inst__um2``.
+        latency_per_op__ns: Core-side per-VMM latency that the
             profiler attributes the dynamic-energy event to.
     """
 
@@ -196,10 +196,10 @@ class CoreSteadyState:
     """Reassembled steady-state array output consumed by the xbar readout.
 
     Attributes:
-        i_bl_port__uA: BL port current at the converged operating point
-            [uA]. Shape: ``[..., num_line]``.
-        v_bl_clamp__V: BL clamp voltage at the converged operating point
-            [V], a warm-start seed for the xbar's I→V readout solve.
+        i_bl_port__uA: BL port current at the converged operating point.
+            Shape: ``[..., num_line]``.
+        v_bl_clamp__V: BL clamp voltage at the converged operating point,
+            a warm-start seed for the xbar's I→V readout solve.
             Shape: ``[..., num_line]``.
     """
 
@@ -244,7 +244,7 @@ class Core1T1R(CircuitBase[Core1T1RConfig]):
                 ``(*prefix, phys_col_num, row_num)`` that
                 ``program(...)`` will receive.
             dtype: Tensor dtype for internal buffers.
-            T__K: Operating temperature [K].
+            T__K: Operating temperature.
         """
         if len(w_layout_shape) < 2:
             raise ValueError(
@@ -368,8 +368,7 @@ class Core1T1R(CircuitBase[Core1T1RConfig]):
         Keeping it eager pins the loop in Python; the per-chunk DC solve
         (``self.solver.solve_dc``) is itself ``@torch.compile``-decorated,
         so it compiles once at the fixed chunk shape and every chunk /
-        VMM / caller instance reuses that one graph. See
-        docs/internals/compile/scheme-a-regional.md.
+        VMM / caller instance reuses that one graph.
 
         Plain forward: settle the array boundary clamps to DC in chunked
         Newton sub-solves, accumulate per-VMM dynamic energy, emit one
@@ -382,10 +381,10 @@ class Core1T1R(CircuitBase[Core1T1RConfig]):
             v_wl: Analog WL drive [V] (the xbar already ran the WL DAC).
                 Shape: ``[..., row_num]``.
             bl_driver: BL boundary clamp (structural ``ClampDriver`` role).
-            bl_v_ref__V: BL-clamp reference tap [V], a 0-d scalar the xbar
+            bl_v_ref__V: BL-clamp reference tap, a 0-d scalar the xbar
                 snapshotted once and broadcasts onto every chunk grid.
             sl_driver: SL boundary clamp (structural ``ClampDriver`` role).
-            sl_v_ref__V: SL-drive reference tap [V], a 0-d scalar.
+            sl_v_ref__V: SL-drive reference tap, a 0-d scalar.
 
         Returns:
             :class:`CoreSteadyState` carrying the per-column BL port
@@ -511,7 +510,7 @@ class Core1T1R(CircuitBase[Core1T1RConfig]):
         solver_dcop: SolverDCOP[XbarCell1T1RDCOP],
         cell_snap: XbarCell1T1RSnap,
     ) -> Tensor:
-        """Per-VMM array-internal energy [fJ]. Shape: [...batch...].
+        """Per-VMM array-internal energy. Shape: [...batch...].
 
         Sums the core-owned terms — DC conduction at the rail clamps plus
         wire-segment (BL / SL) and WL-line capacitive cycling — with the

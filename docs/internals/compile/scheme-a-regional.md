@@ -53,7 +53,7 @@ Every deviation from the eager default lives here; module docs only point back:
 
 ## Trade-offs
 
-- **vs. self-compiling the whole macro forward (the prior approach).** Rejected. The forward's per-layer geometry and input-rank diversity, plus the profiler-hook graph breaks, shatter it into roughly `frames × geometries × ranks` graphs that evict to eager at `cache_size_limit` — and each frame still pays a slow readout/ADC Inductor compile — all to fuse light analog/digital pointwise ops. The solver leaf alone is shape-stable and compiles once.
+- **vs. self-compiling the whole macro forward.** Rejected. The forward's per-layer geometry and input-rank diversity, plus the profiler-hook graph breaks, shatter it into roughly `frames × geometries × ranks` graphs that evict to eager at `cache_size_limit` — and each frame still pays a slow readout/ADC Inductor compile — all to fuse light analog/digital pointwise ops. The solver leaf alone is shape-stable and compiles once.
 - **vs. leaving the solve eager (no leaf decoration).** Compiling the leaf lets Inductor fuse the dense per-cell / per-wire kernels of the solve, which dominate VMM cost. The price is a separate compiled artifact whose shape stability must be managed — but the chunk-flattening guarantees it.
 - **vs. removing chunking to allow one graph.** Rejected: chunking is the memory bound, not a compile convenience; the leading batch does not fit unchunked.
 - **vs. raising `cache_size_limit` and self-compiling the forward anyway.** Even with the limit lifted, each geometry/rank still cold-compiles the slow readout/ADC chain and the count grows with model depth; a caller whose workload justifies whole-model fusion can opt in and tune the limit themselves.

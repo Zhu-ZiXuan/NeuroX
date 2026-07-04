@@ -1,7 +1,7 @@
 """Element-wise integer subtractor.
 
 See also:
-    docs/reference/digital/README.md
+    docs/reference/digital/subtractor.md
 """
 
 from dataclasses import dataclass
@@ -20,8 +20,8 @@ class SubtractorConfig(CircuitConfig):
 
     Attributes:
         bit_width: Nominal output bit width (informational; no wrap is applied).
-        energy_per_op__fJ: Dynamic energy consumed per output element (fJ).
-        latency_per_op__ns: Per-element latency [ns]; multiplied by the
+        energy_per_op__fJ: Dynamic energy consumed per output element.
+        latency_per_op__ns: Per-element latency; multiplied by the
             runtime serial-op count at logging time.
     """
 
@@ -66,7 +66,7 @@ class Subtractor(DigitalCircuit[SubtractorConfig]):
             b: Subtrahend tensor (broadcast-compatible with ``a``).
 
         Returns:
-            ``y = a − b``.
+            ``y = a - b``.
         """
         y = a - b
         # Subtractor is element-wise; serial via the position-invariant

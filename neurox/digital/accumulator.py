@@ -1,7 +1,7 @@
 """Digital modular-arithmetic accumulator over an integer-tensor axis.
 
 See also:
-    docs/reference/digital/README.md
+    docs/reference/digital/accumulator.md
 """
 
 from dataclasses import dataclass
@@ -21,8 +21,8 @@ class AccumulatorConfig(CircuitConfig):
     Attributes:
         bit_width: Signed output bit width; result is clamped to
             ``[-2^(bw-1), 2^(bw-1) - 1]`` via modular wrap.
-        energy_per_op__fJ: Dynamic energy consumed per output element (fJ).
-        latency_per_op__ns: Per-output-element latency [ns]; multiplied
+        energy_per_op__fJ: Dynamic energy consumed per output element.
+        latency_per_op__ns: Per-output-element latency; multiplied
             by the runtime serial-op count at logging time.
     """
 

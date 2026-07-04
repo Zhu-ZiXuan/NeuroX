@@ -1,4 +1,8 @@
-"""TIA family — abstract base plus concrete implementations."""
+"""TIA family — abstract base plus concrete implementations.
+
+See also:
+    docs/reference/analog/tia/README.md
+"""
 
 from .base import TIA, TIAConfig, TIAPolicy, TIASnap
 from .general import GeneralTIA, GeneralTIAConfig, GeneralTIADCOP, GeneralTIAPolicy, GeneralTIASnap

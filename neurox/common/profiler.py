@@ -1,7 +1,7 @@
 """Side-channel hardware profiler for NeuroX circuit-level simulation.
 
 See also:
-    docs/internals/profiler.md
+    docs/internals/common/profiler.md
 """
 
 import threading
@@ -25,7 +25,7 @@ class EnergyEvent:
         qualified_name: Hierarchical module identifier
             (``<layer>.<owner>...<leaf>``).
         module_type: Short class-name tag of the emitting module.
-        dynamic_energy__fJ: Switching energy attributed to this call [fJ].
+        dynamic_energy__fJ: Switching energy attributed to this call.
     """
 
     qualified_name: str
@@ -41,7 +41,7 @@ class LatencyEvent:
         qualified_name: Hierarchical module identifier
             (``<layer>.<owner>...<leaf>``).
         module_type: Short class-name tag of the emitting module.
-        latency__ns: Latency contribution attributed to this call [ns].
+        latency__ns: Latency contribution attributed to this call.
     """
 
     qualified_name: str
@@ -71,8 +71,8 @@ class StaticMetrics:
     """Aggregated static hardware metrics for one model.
 
     Attributes:
-        area__um2: Sum of per-instance area across all profiled modules [μm²].
-        leakage_power__uW: Sum of per-instance leakage power [μW].
+        area__um2: Sum of per-instance area across all profiled modules.
+        leakage_power__uW: Sum of per-instance leakage power.
     """
 
     area__um2: float = 0.0
@@ -245,12 +245,12 @@ class NeuroxProfiler:
 
     @property
     def total_dynamic_energy__fJ(self) -> float:
-        """Sum of dynamic energy across all energy events [fJ]."""
+        """Sum of dynamic energy across all energy events."""
         return self._total_dynamic_energy__fJ
 
     @property
     def total_latency__ns(self) -> float:
-        """Sum of latency contributions across all latency events [ns]."""
+        """Sum of latency contributions across all latency events."""
         return self._total_latency__ns
 
     @property

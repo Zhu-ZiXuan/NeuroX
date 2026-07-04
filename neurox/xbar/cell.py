@@ -83,12 +83,12 @@ class XbarCellDCOP(Generic[ResidualsT]):
     """Condensed branch working point of one cell DC evaluation.
 
     Attributes:
-        i__uA: Branch current [uA], positive bit-line into source-line.
+        i__uA: Branch current, positive bit-line into source-line.
             Shape: ``[..., col, row]``.
-        di_dvbl__uS: ``∂I/∂V_BL`` [uS], the BL-side branch conductance
+        di_dvbl__uS: ``∂I/∂V_BL``, the BL-side branch conductance
             the wire Jacobian needs (non-negative).
             Shape: ``[..., col, row]``.
-        di_dvsl__uS: ``∂I/∂V_SL`` [uS], the SL-side branch conductance
+        di_dvsl__uS: ``∂I/∂V_SL``, the SL-side branch conductance
             (non-positive). Shape: ``[..., col, row]``.
         residuals: Optional internal-KCL residual diagnostics; ``None``
             on the hot path. Populated by ``solve_dc(compute_residuals=True)``.
@@ -156,7 +156,7 @@ class XbarCell(
             policy: Composite per-device nonideality policy.
             inst_shape: Per-instance fabrication shape ``(*prefix, col, row)``.
             dtype: Tensor dtype for internal buffers.
-            T__K: Operating temperature [K].
+            T__K: Operating temperature.
         """
         del policy, dtype, T__K  # consumed by the subclass init
         super().__init__()

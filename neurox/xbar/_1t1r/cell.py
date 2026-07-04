@@ -48,9 +48,9 @@ class XbarCell1T1RConfig(XbarCellConfig):
     Attributes:
         rram_config: RRAM storage-device configuration.
         nmos_config: Access-NMOS configuration.
-        rram_g_max__uS: Maximum programmable RRAM conductance [uS].
-        access_nmos_W__um: Access-NMOS width [um].
-        access_nmos_L__um: Access-NMOS length [um].
+        rram_g_max__uS: Maximum programmable RRAM conductance.
+        access_nmos_W__um: Access-NMOS width.
+        access_nmos_L__um: Access-NMOS length.
         c_gs_per_um__fF: Access-NMOS gate-to-source capacitance per unit
             width [fF/um].
         c_gd_per_um__fF: Access-NMOS gate-to-drain capacitance per unit
@@ -58,10 +58,10 @@ class XbarCell1T1RConfig(XbarCellConfig):
         c_db_per_um__fF: Access-NMOS drain-to-body capacitance per unit
             width [fF/um].
         state_to_g_map__uS: State-index to target-conductance lookup
-            table [uS]. Strictly increasing; endpoints must lie inside
+            table. Strictly increasing; endpoints must lie inside
             ``[rram_config.g_min__uS, rram_g_max__uS]``.
         n_newton: Number of unrolled per-cell Newton steps on ``V_X``
-            after the Padé current-divider seed.
+            after the Pade current-divider seed.
     """
 
     rram_config: RRAMConfig
@@ -152,7 +152,7 @@ class XbarCell1T1RSnap(XbarCellSnap):
     Attributes:
         rram: RRAM read-conductance snap.
         nmos: Access-NMOS parameter snap.
-        v_wl__V: Word-line drive voltage [V] at the NMOS gate. Broadcasts
+        v_wl__V: Word-line drive voltage at the NMOS gate. Broadcasts
             to ``[..., col, row]``.
     """
 
@@ -166,7 +166,7 @@ class XbarCell1T1RDCOP(XbarCellDCOP[XbarCell1T1RResiduals]):
     """1T1R branch working point with the condensed access-node voltage.
 
     Attributes:
-        v_x__V: Access-node voltage [V] (NMOS drain / RRAM bottom).
+        v_x__V: Access-node voltage (NMOS drain / RRAM bottom).
             Shape: ``[..., col, row]``.
     """
 
@@ -182,7 +182,7 @@ class XbarCell1T1RDCOP(XbarCellDCOP[XbarCell1T1RResiduals]):
 class XbarCell1T1R(XbarCell[XbarCell1T1RSnap, XbarCell1T1RDCOP]):
     """Series access-NMOS + RRAM 1T1R cell with a condensed BL-to-SL branch.
 
-    The internal access node ``V_X`` is eliminated per call by a Padé
+    The internal access node ``V_X`` is eliminated per call by a Pade
     current-divider seed followed by a fixed number of unrolled Newton
     steps on the access-node KCL ``F_X = I_NMOS(V_X) - I_RRAM(V_X)``. The
     condensed branch presents the RRAM current and the two signed
@@ -290,7 +290,7 @@ class XbarCell1T1R(XbarCell[XbarCell1T1RSnap, XbarCell1T1RDCOP]):
     ) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
         """Condense the access node ``V_X`` and read off the branch quantities.
 
-        Padé current-divider seed for ``V_X`` followed by ``n_newton``
+        Pade current-divider seed for ``V_X`` followed by ``n_newton``
         unrolled Newton steps on ``F_X = I_NMOS(V_X) - I_RRAM(V_X)``. All
         functional (no in-place) so the body is compile-safe.
 
@@ -304,7 +304,7 @@ class XbarCell1T1R(XbarCell[XbarCell1T1RSnap, XbarCell1T1RDCOP]):
         rram_snap = snap.rram
         nmos_snap = snap.nmos
 
-        # --- Padé current-divider seed for V_X ---
+        # --- Pade current-divider seed for V_X ---
 
         # First-order split of the BL-to-SL drop across the NMOS output
         # conductance and the programmed RRAM conductance, evaluated at the
@@ -381,14 +381,9 @@ class XbarCell1T1R(XbarCell[XbarCell1T1RSnap, XbarCell1T1RDCOP]):
     ) -> Tensor:
         """Per-cell device-capacitance switching energy [fJ].
 
-        Sums the cell's internal device capacitances charged across the
-        converged operating point:
-
-          * RRAM top electrode (BL side): grounded ``c_top · V_BL²``.
-          * RRAM bottom electrode (V_X side): grounded ``c_bot · V_X²``.
-          * NMOS drain-body: grounded ``c_db · V_X²``.
-          * NMOS gate-source: coupled ``c_gs · (V_WL - V_SL)²``.
-          * NMOS gate-drain: coupled ``c_gd · (V_WL - V_X)²``.
+        Sums the cell's internal device-capacitor ``C·V²`` switching terms
+        across the converged operating point (``V_BL``, ``V_SL``, and the
+        condensed ``V_X``).
 
         Args:
             v_bl: Bit-line node voltage [V]. Shape: ``[..., col, row]``.

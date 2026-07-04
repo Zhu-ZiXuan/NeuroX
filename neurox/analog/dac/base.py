@@ -1,4 +1,8 @@
-"""Abstract base class for DAC models."""
+"""Abstract base class for DAC models.
+
+See also:
+    docs/reference/analog/dac/README.md
+"""
 
 from __future__ import annotations
 

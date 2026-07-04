@@ -3,7 +3,7 @@
 For each active mode with ``n_codes_active`` codes and
 ``max_signal_active`` the LSB is ``max_signal_active / n_codes_active``
 and thresholds are placed at ``c · LSB`` for
-``c ∈ {1, …, n_codes_active - 1}`` (floor semantics).
+``c in {1, ..., n_codes_active - 1}`` (floor semantics).
 """
 
 from __future__ import annotations

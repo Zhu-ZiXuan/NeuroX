@@ -1,4 +1,8 @@
-"""NeuroX common utilities."""
+"""NeuroX common utilities.
+
+See also:
+    docs/internals/common/README.md
+"""
 
 from .circuit import CircuitBase, CircuitConfig
 from .load_dump import (

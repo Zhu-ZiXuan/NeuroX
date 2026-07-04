@@ -158,7 +158,7 @@ class ADC(CircuitBase[ADCConfig], RegistryMixin[type["ADCConfig"], "ADC"]):
             name: Hierarchical instance name used by the profiler.
             inst_shape: Per-instance fabrication shape.
             dtype: Tensor dtype for internal buffers.
-            T__K: Operating temperature [K].
+            T__K: Operating temperature.
         """
         del policy, dtype, T__K  # captured by the subclass init
         super().__init__(config=config, name=name, inst_shape=inst_shape)
@@ -181,9 +181,9 @@ class ADC(CircuitBase[ADCConfig], RegistryMixin[type["ADCConfig"], "ADC"]):
         """Digitise a differential analog voltage into a signed integer code.
 
         Args:
-            v_pos__V: Positive-side analog input voltage [V].  Shape:
+            v_pos__V: Positive-side analog input voltage.  Shape:
                 arbitrary.
-            v_neg__V: Negative-side analog input voltage [V].  Same
+            v_neg__V: Negative-side analog input voltage.  Same
                 shape as ``v_pos__V``.
             v_refs__V: All injected reference taps, shape
                 ``(*inst, num_refs)``; the impl selects one with

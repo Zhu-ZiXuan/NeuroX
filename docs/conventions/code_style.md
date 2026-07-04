@@ -13,6 +13,17 @@ In-code documentation — docstrings, comments, and shape and type annotations �
 
 Follow these public conventions unless a rule here is stricter.
 
+## Characters and notation
+
+[notation_conventions](notation_conventions.md) is the authority for the non-ASCII whitelist and for where a formula may live; this section states only how that policy applies inside a code file.
+
+**Effective code is ASCII.** Identifiers and protocol or data string literals use only ASCII. Python 3 accepts unicode identifiers, so this is an enforced rule, not an automatic property.
+
+**A docstring or comment may carry raw whitelisted unicode** — a Greek variable (σ, μ, τ), a partial derivative (∂I/∂V), a superscript power (x²) — as the glyph itself. Two limits apply:
+
+- **No hosted formula.** A docstring or comment holds at most simple inline notation: a lone symbol, a short inline expression, an inline ∂I/∂V. A multi-term derivation lives in the module's Reference or Internals document, and the docstring points there.
+- **No LaTeX.** A comment never renders and a docstring is read as plain text first, so write the symbol directly (σ), never its LaTeX form (`$\sigma$`); LaTeX is a Markdown-only tool.
+
 ## Docstrings
 
 - Use Google-style docstrings.
@@ -21,6 +32,7 @@ Follow these public conventions unless a rule here is stricter.
 - An interface docstring states what the method does, not a directive to whoever implements it — "a subclass must implement this" stops holding once one has. The obligation to implement belongs in the class docstring, the not-yet-implemented fact in `raise NotImplementedError`, and the rationale in Internals.
 - A lifecycle magic method (`__post_init__`, `__init_subclass__`) carries no docstring — a caller never invokes it directly, so the docstring would go unread. State the behavior it drives in the class docstring instead.
 - A module docstring states the file's responsibility. When a matching Reference or Internals document exists, it must include a `See also:` entry pointing to that document.
+- A pointer from code to a document appears only in that `See also:` entry, and is bare: the document path alone, with no section name, parenthetical, or prose. A function docstring and an inline comment carry no such pointer; a reader reaches the spec through the file's single `See also:`. A step comment aligned to a numbered procedure is not a document pointer and is exempt.
 - Do not repeat a physical unit in prose when the name already carries a unit suffix. State a unit only when no suffix exists, the value is normalized or scaled, or the convention is otherwise non-obvious.
 
 ## Inline comments

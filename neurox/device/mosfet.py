@@ -33,22 +33,17 @@ class MOSFETConfig(ValidateMixin):
 
     Attributes:
         mu0__cm2_per_V_s: Low-field carrier-mobility magnitude at
-            ``T_ref__K`` [cm²/V/s]; positive for both polarities.
-        c_ox__fF_per_um2: Gate-oxide capacitance per unit area
-            [fF/μm²].
-        vth0__V: Signed nominal threshold voltage at ``T_ref__K`` [V].
+            ``T_ref__K``; positive for both polarities.
+        c_ox__fF_per_um2: Gate-oxide capacitance per unit area.
+        vth0__V: Signed nominal threshold voltage at ``T_ref__K``.
         n_factor: SPICE NFACTOR (subthreshold swing coefficient).
             ``> 1.0`` (ideal 60 mV/dec is the 1.0 limit).
-        T_ref__K: Reference temperature [K] at which ``mu0`` and
+        T_ref__K: Reference temperature at which ``mu0`` and
             ``vth0`` are stated.
-        ute: Mobility temperature exponent, per
-            ``μ(T) = μ0 · (T / T_ref)^(-ute)``.
-        kt1__V: Signed V_th temperature coefficient [V], per
-            ``V_th(T) = vth0 + kt1 · (T / T_ref - 1)``.
-        A_vt__mV_um: Pelgrom V_th matching coefficient [mV·μm];
-            ``σ_Vt = A_vt · 1e-3 / sqrt(W · L)``.
-        A_beta_relative__um: Pelgrom relative-β matching coefficient
-            [μm]; ``σ_β / β = A_beta_relative / sqrt(W · L)``.
+        ute: Mobility temperature exponent.
+        kt1__V: Signed V_th temperature coefficient.
+        A_vt__mV_um: Pelgrom V_th matching coefficient.
+        A_beta_relative__um: Pelgrom relative-β matching coefficient.
     """
 
     # --- Process electrical ---
@@ -110,12 +105,12 @@ class MOSFETDCOP:
     """Caller-facing working-point result for one MOSFET evaluation.
 
     Attributes:
-        ids__uA: Drain-source current [uA] — positive for drain → source
+        ids__uA: Drain-source current — positive for drain → source
             flow. For a p-channel device in normal conduction ``ids__uA``
             is typically negative (real flow is source → drain).
-        did_dvg__uS: ``∂I_ds/∂V_g`` [uS] = ``gm``.
-        did_dvd__uS: ``∂I_ds/∂V_d`` [uS] (non-negative for both polarities).
-        did_dvs__uS: ``∂I_ds/∂V_s`` [uS] (non-positive for both polarities).
+        did_dvg__uS: ``∂I_ds/∂V_g`` = ``gm``.
+        did_dvd__uS: ``∂I_ds/∂V_d`` (non-negative for both polarities).
+        did_dvs__uS: ``∂I_ds/∂V_s`` (non-positive for both polarities).
     """
 
     ids__uA: Tensor
@@ -129,8 +124,8 @@ class MOSFETSnap:
     """Per-call MOSFET state snap.
 
     Attributes:
-        beta__uA_per_V2: Per-cell transconductance-factor magnitude [uA/V²].
-        vth__V: Per-cell signed threshold voltage [V].
+        beta__uA_per_V2: Per-cell transconductance-factor magnitude.
+        vth__V: Per-cell signed threshold voltage.
     """
 
     beta__uA_per_V2: Tensor
@@ -153,9 +148,9 @@ class MOSFET(FabricateMixin, nn.Module):
         policy: Per-source nonideality enable flags.
         inst_shape: Per-instance fabrication shape.
         dtype: Tensor dtype for internal buffers.
-        T__K: Operating temperature [K].
-        W__um: Channel width [μm].
-        L__um: Channel length [μm].
+        T__K: Operating temperature.
+        W__um: Channel width.
+        L__um: Channel length.
     """
 
     polarity: int
@@ -231,7 +226,7 @@ class MOSFET(FabricateMixin, nn.Module):
             persistent=False,
         )
 
-        # Pelgrom area-scaled sigmas precomputed once.
+        # Pelgrom area-scaled σ precomputed once.
         nominal_isqrt_area__per_um = 1.0 / math.sqrt(W__um * L__um)
         self.sigma_vth__V = config.A_vt__mV_um * 1e-3 * nominal_isqrt_area__per_um
         self.sigma_beta__uA_per_V2 = nominal_beta__uA_per_V2 * config.A_beta_relative__um * nominal_isqrt_area__per_um
@@ -286,9 +281,9 @@ class MOSFET(FabricateMixin, nn.Module):
         """Evaluate ``I_ds`` and its three node partials at one op point.
 
         Args:
-            vg__V: Gate voltage [V].
-            vd__V: Drain voltage [V].
-            vs__V: Source voltage [V].
+            vg__V: Gate voltage.
+            vd__V: Drain voltage.
+            vs__V: Source voltage.
             snap: Per-call MOSFET snap carrying ``β`` and ``V_th``.
 
         Returns:

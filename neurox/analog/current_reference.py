@@ -17,22 +17,22 @@ class CurrentReferenceConfig(CircuitConfig):
     """Immutable configuration for :class:`CurrentReference`.
 
     Attributes:
-        i_refs__uA: Nominal reference-current taps [uA]. One module
+        i_refs__uA: Nominal reference-current taps. One module
             sources ``len(i_refs__uA)`` independent taps; the taps are
             unordered. Each tap is non-negative; 0 uA denotes a
             ground/rail reference (relative noise * 0 == 0, so a 0 tap
             stays stable and exact). A TOML array loads straight into this
             tuple.
         tolerance_sigma_relative: Relative per-instance initial-accuracy
-            sigma [dimensionless], applied multiplicatively at fabricate
+            σ [dimensionless], applied multiplicatively at fabricate
             time and gated by the ``tolerance`` policy; ``0`` leaves the
             exact nominal taps.
-        noise_sigma_relative: Relative per-call noise sigma
+        noise_sigma_relative: Relative per-call noise σ
             [dimensionless], applied multiplicatively at snapshot time
             and gated by the ``noise`` policy; ``0`` leaves the taps
             noise-free.
-        area_per_inst__um2: Silicon area per fabricated instance [um²].
-        leakage_per_inst__uW: Static leakage per instance [uW]; carries
+        area_per_inst__um2: Silicon area per fabricated instance.
+        leakage_per_inst__uW: Static leakage per instance; carries
             all static power, including the always-on bias network that
             generates the references.
     """
@@ -84,7 +84,7 @@ class CurrentReferenceSnap:
     """One sampled reference snap.
 
     Attributes:
-        i_refs__uA: Actual reference-current taps [uA], post
+        i_refs__uA: Actual reference-current taps, post
             tolerance + noise, shape ``(*inst_shape, num_refs)``.
     """
 
@@ -111,7 +111,7 @@ class CurrentReference(CircuitBase[CurrentReferenceConfig]):
     Two nonidealities perturb the taps. The per-instance initial
     accuracy is a static spread sampled once at ``fabricate`` time
     (``tolerance``); per-call noise is resampled every ``snapshot``
-    (``noise``). Both are relative (multiplicative), so a single sigma
+    (``noise``). Both are relative (multiplicative), so a single σ
     applies uniformly across taps of differing magnitude.
 
     Args:
@@ -120,7 +120,7 @@ class CurrentReference(CircuitBase[CurrentReferenceConfig]):
         name: Hierarchical instance name used by the profiler.
         inst_shape: Per-instance fabrication shape.
         dtype: Tensor dtype for internal buffers.
-        T__K: Operating temperature [K].
+        T__K: Operating temperature.
     """
 
     nominal_i_refs__uA: Tensor
@@ -193,6 +193,6 @@ class CurrentReference(CircuitBase[CurrentReferenceConfig]):
             snap: Per-call snap returned by :meth:`snapshot`.
 
         Returns:
-            Reference-current taps [uA], shape ``(*inst_shape, num_refs)``.
+            Reference-current taps, shape ``(*inst_shape, num_refs)``.
         """
         return snap.i_refs__uA

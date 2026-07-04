@@ -75,7 +75,7 @@ class Xbar(CircuitBase[XbarConfig], RegistryMixin[type["XbarConfig"], "Xbar"]):
         inst_shape: Per-instance multiplicity prefix; trailing
             ``(col_num, w_digit_count, row_num)`` is derived from config.
         dtype: Tensor dtype for internal buffers.
-        T__K: Operating temperature [K].
+        T__K: Operating temperature.
     """
 
     policy: XbarPolicy

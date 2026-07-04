@@ -108,7 +108,7 @@ class TIA(
         """Sample one per-call runtime snap over ``shape``.
 
         Args:
-            v_ref__V: Injected reference clamp voltage [V]. A scalar or
+            v_ref__V: Injected reference clamp voltage. A scalar or
                 instance-shaped tensor that broadcasts onto ``shape``;
                 stored in the returned snap.
             shape: Per-call broadcast shape; the snap fills tensor

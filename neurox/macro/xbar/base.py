@@ -44,7 +44,7 @@ class XbarMacro(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["Xba
         name: Hierarchical instance name used by the profiler.
         w_logical_shape: Logical weight shape ``(*prefix, N, K)`` bound to ``program(...)``.
         dtype: Tensor dtype for internal buffers.
-        T__K: Operating temperature [K].
+        T__K: Operating temperature.
         ideal_xbar: Hint accepted for API uniformity. Consumed by
             xbar-using subclasses (swaps the physical xbar for its ideal
             twin); degenerate members ignore it.
@@ -108,12 +108,12 @@ class XbarMacro(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["Xba
 
     @property
     def area_per_inst__um2(self) -> float:
-        """Silicon area per instance [um²]."""
+        """Silicon area per instance."""
         return 0.0
 
     @property
     def leakage_per_inst__uW(self) -> float:
-        """Static leakage per instance [uW]."""
+        """Static leakage per instance."""
         return 0.0
 
     # --- value-range contract ---

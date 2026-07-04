@@ -18,15 +18,15 @@ class VoltageMuxConfig(CircuitConfig):
     """Immutable configuration for :class:`VoltageMux`.
 
     Attributes:
-        energy_per_access__fJ: Per-access dynamic energy [fJ].
-        latency_per_op__ns: Per-transport latency [ns]; multiplied by
+        energy_per_access__fJ: Per-access dynamic energy.
+        latency_per_op__ns: Per-transport latency; multiplied by
             the runtime serial-op count at logging time.
         mux_gain: Scalar matched transport gain applied to both legs.
         mux_gain_mismatch_sigma_relative: Per-mux fractional inter-leg
-            gain-mismatch sigma; flat (not area-scaled).
-        mux_noise_cm_sigma__V: Common-mode noise sigma [V]; same sign
+            gain-mismatch σ; flat (not area-scaled).
+        mux_noise_cm_sigma__V: Common-mode noise σ; same sign
             on both legs, cancels in a differential ADC.
-        mux_noise_dm_sigma__V: Differential-mode noise sigma [V];
+        mux_noise_dm_sigma__V: Differential-mode noise σ;
             added to ``v_pos`` and subtracted from ``v_neg``, so it
             survives a differential ADC.
     """
@@ -93,7 +93,7 @@ class VoltageMux(CircuitBase[VoltageMuxConfig]):
         name: Hierarchical instance name used by the profiler.
         inst_shape: Per-instance fabrication shape.
         dtype: Tensor dtype for internal buffers.
-        T__K: Operating temperature [K].
+        T__K: Operating temperature.
     """
 
     nominal_eps_g: Tensor
@@ -114,7 +114,7 @@ class VoltageMux(CircuitBase[VoltageMuxConfig]):
         self.dtype = dtype
         self.T__K = T__K
 
-        # ε_g zero until fabricated; flat sigma, no Pelgrom area scaling.
+        # ε_g zero until fabricated; flat σ, no Pelgrom area scaling.
         self.register_buffer("nominal_eps_g", torch.zeros((), dtype=dtype), persistent=False)
         self.register_buffer("eps_g", self.nominal_eps_g.clone(), persistent=False)
         self.sigma_eps_g = config.mux_gain_mismatch_sigma_relative
@@ -135,8 +135,8 @@ class VoltageMux(CircuitBase[VoltageMuxConfig]):
         """Apply gain + CM/DM transport noise to a differential pair.
 
         Args:
-            v_pos__V: Positive-leg input voltage [V].
-            v_neg__V: Negative-leg input voltage [V], broadcastable with
+            v_pos__V: Positive-leg input voltage.
+            v_neg__V: Negative-leg input voltage, broadcastable with
                 ``v_pos__V``.
 
         Returns:

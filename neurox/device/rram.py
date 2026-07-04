@@ -27,13 +27,13 @@ class RRAMConfig(ValidateMixin):
     """Static RRAM device configuration.
 
     Attributes:
-        g_min__uS: Minimum programmable conductance [uS].
+        g_min__uS: Minimum programmable conductance.
         nonlinearity_alpha: Hyperbolic-sine I-V nonlinearity factor [1/V].
         drift_decay_rate: Power-law drift exponent.
         drift_t0: Reference drift time [s].
-        c_top__fF: Top-electrode parasitic capacitance per cell [fF].
-        c_bot__fF: Bottom-electrode parasitic capacitance per cell [fF].
-        read_thermal__uS: Gaussian read-noise sigma [uS].
+        c_top__fF: Top-electrode parasitic capacitance per cell.
+        c_bot__fF: Bottom-electrode parasitic capacitance per cell.
+        read_thermal__uS: Gaussian read-noise σ.
         prog_gamma: Programming-variation model parameters.
         read_telegraph: Telegraph-noise model parameters.
         stuck_at: Stuck-at fault model parameters.
@@ -116,8 +116,8 @@ class RRAMDCOP:
     """Device current and local differential conductance.
 
     Attributes:
-        i__uA: Device current [uA].
-        di_dv__uS: Local differential conductance [uS].
+        i__uA: Device current.
+        di_dv__uS: Local differential conductance.
     """
 
     i__uA: Tensor
@@ -129,7 +129,7 @@ class RRAMSnap:
     """Per-call read conductance snap.
 
     Attributes:
-        g__uS: Sampled per-cell conductance [uS].
+        g__uS: Sampled per-cell conductance.
     """
 
     g__uS: Tensor
@@ -157,8 +157,8 @@ class RRAM(FabricateMixin, nn.Module):
             policy: Per-source nonideality enable flags.
             inst_shape: Per-instance fabrication shape.
             dtype: Tensor dtype for internal buffers.
-            T__K: Operating temperature [K].
-            g_max__uS: Maximum programmable conductance [uS].
+            T__K: Operating temperature.
+            g_max__uS: Maximum programmable conductance.
         """
         super().__init__()
 
@@ -180,19 +180,19 @@ class RRAM(FabricateMixin, nn.Module):
 
     @property
     def c_top__fF(self) -> float:
-        """Top-electrode (BL-side) parasitic capacitance per cell [fF]."""
+        """Top-electrode (BL-side) parasitic capacitance per cell."""
         return self.config.c_top__fF
 
     @property
     def c_bot__fF(self) -> float:
-        """Bottom-electrode (Node-X-side) parasitic capacitance per cell [fF]."""
+        """Bottom-electrode (Node-X-side) parasitic capacitance per cell."""
         return self.config.c_bot__fF
 
     def program(self, target_g__uS: Tensor, t_elapsed: float) -> None:
         """Program the stored conductance.
 
         Args:
-            target_g__uS: Target conductance tensor [uS].
+            target_g__uS: Target conductance tensor.
             t_elapsed: Time elapsed since programming [s].
         """
         g__uS = target_g__uS.to(dtype=self.dtype).clamp(self.g_min__uS, self.g_max__uS)
@@ -242,7 +242,7 @@ class RRAM(FabricateMixin, nn.Module):
         """Evaluate current and differential conductance.
 
         Args:
-            v__V: Device voltage [V]. Shape: arbitrary.
+            v__V: Device voltage. Shape: arbitrary.
             snap: Conductance snap from :meth:`snapshot`.
 
         Returns:

@@ -57,18 +57,18 @@ The config maps to a frozen `TiaDesignConfig` (`neurox/tools/xbar_tia/optimize.p
 
 ```toml
 [hardware]
-v_dd__V = 0.9                          # chip supply rail [V]
-v_ref__V = 0.1                         # BL clamp softclip reference voltage [V]
-output_saturation_softness__V = 0.45   # softclip softness band [V]
-target_v_max__V = 0.8                  # user-chosen TIA output ceiling [V]
+v_dd__V = 0.9                          # chip supply rail
+v_ref__V = 0.1                         # BL clamp softclip reference voltage
+output_saturation_softness__V = 0.45   # softclip softness band
+target_v_max__V = 0.8                  # user-chosen TIA output ceiling
 tia_n_newton = 5                       # Newton iterations for the inner TIA solve
 
 [hardware.nmos_config]
 _neurox_use_preset = "process/mos:nmos_28_rvt"
 
 [workload]
-mean__uA = 170.26                      # per-column BL current mean [uA]
-std__uA = 29.19                        # per-column BL current std [uA]
+mean__uA = 170.26                      # per-column BL current mean
+std__uA = 29.19                        # per-column BL current std
 
 [sweep]
 opamp_gain        = [30]

@@ -1,4 +1,8 @@
-"""NeuroX analog primitives."""
+"""NeuroX analog primitives.
+
+See also:
+    docs/reference/analog/README.md
+"""
 
 from .current_mirror import CurrentMirror, CurrentMirrorConfig, CurrentMirrorPolicy
 from .current_mux import CurrentMux, CurrentMuxConfig, CurrentMuxPolicy

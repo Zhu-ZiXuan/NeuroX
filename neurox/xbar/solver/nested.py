@@ -2,7 +2,7 @@
 
 The two array rails (BL, SL) run side by side along a single shared series
 axis; the gate/control line is a driven boundary, so the parallel (per-driver)
-lines are independent and batched. Orthogonal BL ⊥ SL meshes are a future,
+lines are independent and batched. Orthogonal BL/SL meshes are a future,
 separate solver.
 
 See also:
@@ -60,10 +60,10 @@ def _swap_trailing_axes(obj: _T) -> _T:
     canonical ``-1`` path never calls this (byte-identical fast path).
     """
     if isinstance(obj, Tensor):
-        return obj.transpose(-1, -2) if obj.ndim >= 2 else obj  # type: ignore[return-value]
+        return obj.transpose(-1, -2) if obj.ndim >= 2 else obj
     if hasattr(type(obj), "__dataclass_fields__"):
-        swapped = {f.name: _swap_trailing_axes(getattr(obj, f.name)) for f in fields(obj)}  # type: ignore[arg-type]
-        return replace(obj, **swapped)  # type: ignore[type-var]
+        swapped = {f.name: _swap_trailing_axes(getattr(obj, f.name)) for f in fields(obj)}
+        return replace(obj, **swapped)
     return obj
 
 
@@ -117,9 +117,6 @@ class NestedParallelRailSolver(Solver):
     ``-1``) names the caller's series axis; the body always runs in this
     canonical orientation, with entry-time normalization for non-canonical
     callers.
-
-    See ``docs/reference/xbar/solver.md`` for algorithm
-    and convergence rationale.
     """
 
     MAX_OUTER_STEP__V: float = 0.10
@@ -155,10 +152,9 @@ class NestedParallelRailSolver(Solver):
     # caller instance (``inline_inbuilt_nn_modules`` lifts the device buffers as
     # shape-guarded inputs — verified one shared graph across instances).
     # ``dynamic=False`` pins the unrolled iteration counts (n_outer, num_series) as
-    # compile-time constants. The block-tridiagonal Thomas sweep is kept (not a
-    # log-depth variant): compiled-Thomas runs fastest and leanest, and with a
-    # uniform chunk shape its one long cold compile happens once and is cached.
-    # See docs/internals/compile/scheme-a-regional.md.
+    # compile-time constants. The compiled block-tridiagonal Thomas sweep runs
+    # fastest and leanest, and with a uniform chunk shape its one long cold
+    # compile happens once and is cached.
     @torch.compile(dynamic=False)
     def solve_dc(
         self,
@@ -186,12 +182,12 @@ class NestedParallelRailSolver(Solver):
         canonical graph with no permute.
 
         Args:
-            bl_segment_r__MOhm: 1-D BL segment resistances [MOhm]; index 0
+            bl_segment_r__MOhm: 1-D BL segment resistances; index 0
                 is driver-to-first.
-            sl_segment_r__MOhm: 1-D SL segment resistances [MOhm]; index 0
+            sl_segment_r__MOhm: 1-D SL segment resistances; index 0
                 is driver-to-first.
-            bl_segment_g__uS: BL segment conductances [uS].
-            sl_segment_g__uS: SL segment conductances [uS].
+            bl_segment_g__uS: BL segment conductances.
+            sl_segment_g__uS: SL segment conductances.
             cell: Pluggable cell; owns the device branch and condenses any
                 internal node.
             cell_snap: Per-solve cell snap bundling the device snaps and the
@@ -415,16 +411,10 @@ class NestedParallelRailSolver(Solver):
                 v_clamp_init__V=v_sl_drive__V,
             )
 
-            # Outer Newton on F_outer(V_clamp) = V_target(V_clamp) − V_clamp.
-            #   V_BL_target = bl_driver(g_BL_seg[0]·(V_BL_CL − V_BL[0](V_clamp)))
-            #   V_SL_target = sl_driver(g_SL_seg[0]·(V_SL_DR − V_SL[0](V_clamp)))
-            # dV_target/dV_clamp expands as the small-signal slope of the
-            # driver times the port-current sensitivity, with K_inner
-            # carrying the V_node[0] response.
-            #
-            # dF/dV_clamp (2×2 per col):
-            #   [[ r_bl·g_bl·(1 − K[0,0]) − 1,   −r_bl·g_bl·K[0,1]    ],
-            #    [ −r_sl·g_sl·K[1,0],            r_sl·g_sl·(1 − K[1,1]) − 1 ]]
+            # Outer Newton on F_outer(V_clamp) = V_target(V_clamp) - V_clamp:
+            # each clamp driver maps its first-segment port current to a
+            # target clamp, and the 2×2 dF/dV_clamp couples the driver slope,
+            # the port-current sensitivity, and K_inner's V_node[0] response.
             # Shape: [..., num_line]
             f_bl_outer = v_bl_target__V - v_bl_clamp__V
             f_sl_outer = v_sl_target__V - v_sl_drive__V
@@ -446,7 +436,7 @@ class NestedParallelRailSolver(Solver):
             df_outer = torch.stack([df_row0, df_row1], dim=-2)
             # Shape: [..., num_line, 2]
             f_outer = torch.stack([f_bl_outer, f_sl_outer], dim=-1)
-            # Solve 2×2 system per column: delta = -inv(df_outer) · f_outer.
+            # Solve 2×2 system per column: δ = -inv(df_outer) · f_outer.
             delta_2 = torch.linalg.solve(df_outer, -f_outer.unsqueeze(-1)).squeeze(-1)
             delta_bl = delta_2[..., 0].clamp(min=-max_outer_step__V, max=max_outer_step__V)
             delta_sl = delta_2[..., 1].clamp(min=-max_outer_step__V, max=max_outer_step__V)
@@ -511,7 +501,7 @@ class NestedParallelRailSolver(Solver):
             # ``-i`` (injected into SL).
             wire_bl_res = col_wire_kcl_residual(v_bl_node, v_bl_clamp_grid__V, bl_segment_g__uS, i_cell).abs()
             wire_sl_res = col_wire_kcl_residual(v_sl_node, v_sl_drive_grid__V, sl_segment_g__uS, -i_cell).abs()
-            # Clamp residual: |driver(I_port) − V_clamp| at the converged
+            # Clamp residual: |driver(I_port) - V_clamp| at the converged
             # operating point. Zero at the outer Newton fixed point.
             i_bl_port_final = (v_bl_clamp__V - v_bl_node.select(-1, 0)) * bl_driver_segment_g
             i_sl_port_final = (v_sl_drive__V - v_sl_node.select(-1, 0)) * sl_driver_segment_g
@@ -771,22 +761,13 @@ class NestedParallelRailSolver(Solver):
     ) -> tuple[Tensor, Tensor]:
         """Coupled BL/SL wire Newton step at frozen V_clamp / V_SL_drive.
 
-        Builds a block-2×2 tridiagonal system whose per-row Jacobian
-        block carries the cell's BL ↔ SL cross-coupling:
-
-            ┌                                                          ┐
-            │ bl_wire_diag[k] + g_bl_eff[k]      −g_sl_eff[k]          │
-            │ −g_bl_eff[k]                       sl_wire_diag[k] + g_sl_eff[k] │
-            └                                                          ┘
-
-        Off-diagonal blocks are diagonal 2×2 with ``−bl_offdiag`` /
-        ``−sl_offdiag`` on their respective rails (BL and SL wires are
-        independent ladders, no cross-rail wire coupling).
-
-        For an SL-grounded chip both ``g_sl_eff`` and the SL wire's
-        contribution to the BL drop are tiny, so the coupling reduces
-        numerically to ~independent BL / SL solves. A variable-SL chip
-        retains the full linearisation through the same code path.
+        Builds and solves the coupled block-2×2 tridiagonal wire system:
+        the per-node diagonal block carries the cell's BL / SL
+        cross-coupling and the sub / super blocks are diagonal (BL and SL
+        are independent ladders, no cross-rail wire coupling). For an
+        SL-grounded chip the coupling is numerically tiny, reducing to
+        near-independent BL / SL solves; a variable-SL chip keeps the full
+        linearisation through the same code path.
 
         Shape conventions:
           * ``v_bl_node``, ``f_bl_kcl``, ``f_sl_kcl``, ``g_*_eff``:
@@ -860,30 +841,14 @@ class NestedParallelRailSolver(Solver):
     ) -> Tensor:
         """Compute the 2×2 ``K_inner = ∂V_array[0] / ∂V_clamp`` per column.
 
-        The outer Newton solves for ``(V_BL_clamp, V_SL_drive)``
-        simultaneously, so the implicit-function-theorem Jacobian
-        ``dV_node[0]/dV_clamp`` is a 2×2 matrix:
-
-            K = [[ ∂V_BL[0]/∂V_BL_CL,  ∂V_BL[0]/∂V_SL_DR ],
-                 [ ∂V_SL[0]/∂V_BL_CL,  ∂V_SL[0]/∂V_SL_DR ]]
-
-        Derivation: at the inner-converged state, ``J_inner · u = b``
-        for a fixed ``V_clamp`` perturbation. The boundary forcing
-        ``b`` for a unit ``V_BL_CL`` perturbation is
-        ``e_0_BL · g_BL_seg[0]`` (only F_BL at row 0 sees the change);
-        analogously for ``V_SL_DR``. So:
-
-            K[:, 0] = g_BL_seg[0] · (J_inner⁻¹ · e_0_BL)[0, :]
-            K[:, 1] = g_SL_seg[0] · (J_inner⁻¹ · e_0_SL)[0, :]
-
-        Implemented as **two** block-tridiagonal solves, one per basis
-        vector (``e_0_BL`` and ``e_0_SL``). The two solves are
-        mathematically independent — pack them only if a future
-        block-tridiagonal kernel exposes a multi-RHS interface.
-
-        ``J_inner`` is the **coupled** block-2×2 wire Jacobian: same
-        Jacobian used by ``_wire_newton_coupled_block2x2``, including
-        the BL ↔ SL cell cross-coupling.
+        The implicit-function-theorem sensitivity of the port-adjacent
+        node voltages to the clamp pair. Each column is one block-
+        tridiagonal solve of the coupled inner wire Jacobian ``J_inner``
+        (the same assembled by ``_wire_newton_coupled_block2x2``) against a
+        node-0 boundary-forcing basis vector, read off at row 0. The two
+        basis solves (BL and SL) are mathematically independent — pack them
+        only if a future block-tridiagonal kernel exposes a multi-RHS
+        interface.
 
         Returns ``K`` of shape ``[..., num_line, 2, 2]``.
         """
@@ -949,7 +914,7 @@ class NestedParallelRailSolver(Solver):
 
         # --- Solve and extract row-0 responses ---
 
-        # Shape of each solve result: [..., num_line, num_series, 2]
+        # Shape: [..., num_line, num_series, 2]
         u_bl = solve_block_tridiagonal(sub_blocks, diag_blocks, sup_blocks, rhs_bl_basis)
         u_sl = solve_block_tridiagonal(sub_blocks, diag_blocks, sup_blocks, rhs_sl_basis)
 

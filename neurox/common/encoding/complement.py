@@ -17,9 +17,8 @@ class ComplementTranscoder(Transcoder):
     """Radix-complement encoding (two's-complement when ``r = 2``).
 
     Low ``D - 1`` digits are in ``{0, ..., r - 1}``; the MSB is folded
-    into ``{-⌊r/2⌋, ..., ⌈r/2⌉ - 1}``. Representable range is the
-    asymmetric envelope ``[-⌊r/2⌋·r^(D-1), ⌈r/2⌉·r^(D-1) - 1]`` — values
-    outside that band silently wrap.
+    into ``{-floor(r/2), ..., ceil(r/2) - 1}``. The representable range is
+    an asymmetric envelope — values outside that band silently wrap.
     """
 
     def encode(self, x: Tensor, *, dim: int = -1) -> Tensor:
@@ -44,7 +43,7 @@ class ComplementTranscoder(Transcoder):
 
     @property
     def value_range(self) -> tuple[int, int]:
-        """Asymmetric envelope ``[-⌊r/2⌋·r^(D-1), ⌈r/2⌉·r^(D-1) - 1]``."""
+        """Asymmetric envelope."""
         r = self._radix
         top = r ** (self._digit_count - 1)
         lo = -(r // 2) * top

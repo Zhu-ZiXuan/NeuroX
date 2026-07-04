@@ -21,12 +21,12 @@ class CurrentMuxConfig(CircuitConfig):
             sharing one lane. Cross-checked by the caller against its
             reference group size; it does NOT scale energy or latency.
         mux_gain: Scalar matched transport gain (copy/transport factor).
-        v_supply__V: Rail supply voltage [V] driving the data-dependent
+        v_supply__V: Rail supply voltage driving the data-dependent
             transport dissipation.
-        latency_per_op__ns: Per-transport latency [ns]; multiplied by the
+        latency_per_op__ns: Per-transport latency; multiplied by the
             runtime serial-op count at logging time.
-        area_per_inst__um2: Silicon area per fabricated instance [um²].
-        leakage_per_inst__uW: Static leakage per instance [uW].
+        area_per_inst__um2: Silicon area per fabricated instance.
+        leakage_per_inst__uW: Static leakage per instance.
     """
 
     # --- Fan-in (design only) ---
@@ -78,8 +78,8 @@ class CurrentMux(CircuitBase[CurrentMuxConfig]):
         name: Hierarchical instance name used by the profiler.
         inst_shape: Per-instance fabrication shape.
         dtype: Tensor dtype for internal buffers.
-        T__K: Operating temperature [K].
-        read_pulse__ns: Read-window width [ns] passed by the caller;
+        T__K: Operating temperature.
+        read_pulse__ns: Read-window width passed by the caller;
             scales the per-call rail energy.
     """
 
@@ -107,10 +107,10 @@ class CurrentMux(CircuitBase[CurrentMuxConfig]):
         """Transport one current through the shared lane at the configured gain.
 
         Args:
-            i__uA: Per-column input current [uA].
+            i__uA: Per-column input current.
 
         Returns:
-            Lane output current ``mux_gain * i__uA`` [uA].
+            Lane output current ``mux_gain * i__uA``.
         """
         i_out__uA = self.config.mux_gain * i__uA
 

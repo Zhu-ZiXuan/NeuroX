@@ -85,7 +85,7 @@ python -m <scheme>.tools.xbar_adc.calibrate \
 
 The tool reports the fitted `rescale_factor_at_max_bits` plus residual diagnostics (`rmse`, `mae`, `residual_mean`, `residual_std`, `max_abs_residual`) and the sample accounting (`total_pairs`, `valid_pairs`, `saturated_pairs_excluded`, `saturation_rate`); `adc_instance_count` is the pooled count across all readout instances (see below). A `residual_mean` that is materially non-zero is evidence that a scalar `rescale_factor` cannot absorb the readout / reference / ADC chain offset; an affine (intercept) model would be needed, which this tool does not fit by design.
 
-```
+```text
 ADC rescale calibration
   adc_mode: 0
   calibration_bits: 4

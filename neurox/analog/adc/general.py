@@ -25,15 +25,15 @@ class GeneralADCConfig(ADCConfig):
 
     Attributes:
         boundaries: Sorted comparator thresholds in input units
-            (excluding the implicit ±∞ outer bounds). ``N`` thresholds
+            (excluding the implicit ±inf outer bounds). ``N`` thresholds
             define ``N + 1`` output codes ``[0, N]``.
         input_transform: ``"linear"`` (identity) or ``"log2"``.
         sampling_noise__V: Input-referred Gaussian sampling-stage
-            noise sigma [V].
+            noise σ.
         comparator_noise__V: Per-comparator threshold offset noise
-            sigma [V].
+            σ.
         energy_per_op__fJ: Dynamic energy per conversion.
-        latency_per_op__ns: Per-conversion latency [ns]; multiplied by
+        latency_per_op__ns: Per-conversion latency; multiplied by
             the runtime serial-op count at logging time.
     """
 
@@ -172,8 +172,8 @@ class GeneralADC(ADC):
         """Quantise a differential analog voltage to a signed code (floor-bucketize + zero shift).
 
         Args:
-            v_pos__V: Positive-side analog input voltage [V].
-            v_neg__V: Negative-side analog input voltage [V], same shape.
+            v_pos__V: Positive-side analog input voltage.
+            v_neg__V: Negative-side analog input voltage, same shape.
             v_refs__V: Accepted for ADC-protocol symmetry and ignored —
                 GeneralADC's bucketize boundaries are reference-free.
             adc_operation_point: Runtime operating point. ``adc_operation_point.adc_mode`` must be ``0``;

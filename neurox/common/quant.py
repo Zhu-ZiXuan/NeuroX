@@ -6,9 +6,9 @@ two observer classes (which carry frozen-EMA buffers):
 - **Stochastic rounding**: ``stochastic_floor_div`` / ``stochastic_floor_to_int``
   / ``floor_bucketize`` — used by integer-rescaling internals and any QAT
   path that wants dithering during training.
-- **Fixed-point scale conversion**: ``derive_multiplier_and_shift`` /
-  ``derive_multiplier_and_shift_tensor`` — convert a float scale factor
-  into ``(multiplier, rshift)`` for hardware-compatible integer rescaling.
+- **Fixed-point scale conversion**: ``derive_multiplier_and_shift_tensor``
+  — convert a float scale factor into ``(multiplier, rshift)`` for
+  hardware-compatible integer rescaling.
 - **QAT-side training primitives**: ``PerTensorObserver`` /
   ``PerChannelSymmObserver`` (EMA min/max trackers with a freeze flag);
   ``fake_quant_ste`` / ``fake_quant_symm_per_channel_ste`` (STE
@@ -20,19 +20,17 @@ state. Each user pipeline composes them into its own training / inference
 flow.
 
 See also:
-    docs/reference/notation_conventions.md
+    docs/internals/common/quant.md
 """
 
 from __future__ import annotations
-
-import math
 
 import torch
 import torch.nn as nn
 from torch import Tensor
 
 # Default multiplier precision. 8 bits keeps x * mult in int32 for
-# accumulators up to 24 bits (2^24 * 2^8 = 2^32).
+# accumulators up to 24 bits (2²⁴ * 2⁸ = 2³²).
 DEFAULT_MULT_BITS: int = 8
 
 
@@ -142,29 +140,6 @@ def floor_bucketize(
 # ---------------------------------------------------------------------------
 # Fixed-point scale → (multiplier, rshift)
 # ---------------------------------------------------------------------------
-
-
-def derive_multiplier_and_shift(
-    scale: float,
-    mult_bits: int = DEFAULT_MULT_BITS,
-) -> tuple[int, int]:
-    """Convert one float scale into a fixed-point ``(multiplier, rshift)``.
-
-    The result satisfies ``scale ≈ multiplier / 2^shift`` so that
-    ``(x * multiplier) >> shift ≈ x * scale`` for integer ``x``.
-
-    Args:
-        scale: Float scale to encode.
-        mult_bits: Multiplier precision (default 8). The multiplier is
-            clamped to ``[0, 2^mult_bits - 1]``.
-    """
-    if scale == 0:
-        return 0, 0
-    mult_max = (1 << mult_bits) - 1
-    significand, exponent = math.frexp(scale)
-    multiplier = min(round(significand * (1 << mult_bits)), mult_max)
-    shift = mult_bits - exponent
-    return multiplier, shift
 
 
 def derive_multiplier_and_shift_tensor(
@@ -284,7 +259,10 @@ class PerChannelSymmObserver(nn.Module):
 
     @torch.no_grad()
     def forward(self, weight: Tensor) -> None:
-        """EMA update of the per-channel absolute max from ``weight``."""
+        """EMA update of the per-channel absolute max from ``weight``.
+
+        No-op when ``self.training`` is ``False`` or ``self.frozen`` is set.
+        """
         if not self.training or bool(self.frozen):
             return
         dims = tuple(range(1, weight.ndim))

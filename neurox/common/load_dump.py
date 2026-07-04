@@ -1,7 +1,7 @@
-"""Dataclass serialization utilities for TOML and YAML config files.
+"""Dataclass (de)serialization and config-file directive resolution for TOML and YAML.
 
 See also:
-    docs/internals/config_and_construction.md
+    docs/internals/common/load_dump.md
 """
 
 import tomllib
@@ -35,7 +35,7 @@ def _dataclass_field_names(cls: Any) -> set[str]:
     return {f.name for f in fields(cls)}
 
 
-# --- dict -> dataclass ---
+# --- dict → dataclass ---
 
 
 _TYPE_DISCRIMINATOR = "_neurox_type"
@@ -210,8 +210,7 @@ def dataclass_from_dict(cls: type[T], data: Mapping[str, Any]) -> T:
 
     Nested dataclass and ``Enum`` fields are resolved recursively.
     A top-level ``_neurox_type`` discriminator dispatches to the named
-    subclass of ``cls``. Unknown keys raise ``TypeError`` — typos must
-    not silently fall back to defaults.
+    subclass of ``cls``.
 
     Args:
         cls: Target frozen dataclass type.
@@ -219,6 +218,10 @@ def dataclass_from_dict(cls: type[T], data: Mapping[str, Any]) -> T:
 
     Returns:
         Instance of ``cls`` (or its named subclass).
+
+    Raises:
+        TypeError: ``cls`` is not a dataclass, or ``data`` carries a key that
+            matches no field of the resolved class.
     """
     if not _is_dataclass_type(cls):
         raise TypeError(f"{cls.__name__} is not a dataclass type")
@@ -241,7 +244,7 @@ def dataclass_from_dict(cls: type[T], data: Mapping[str, Any]) -> T:
     return cls(**kwargs)
 
 
-# --- dataclass -> dict ---
+# --- dataclass → dict ---
 
 
 def _is_polymorphic_dataclass(tp: type) -> bool:
@@ -490,10 +493,21 @@ def _resolve_preset_fragment_path(rel: str) -> Path:
 def preset_path(rel: str) -> Path:
     """Absolute path to a bundled preset file under ``neurox/presets/``.
 
-    ``rel`` is a presets-root-relative path (e.g. ``"process/rram.toml"``).
-    Suffix-free paths try ``.toml`` then ``.yaml`` / ``.yml``. Use this when
-    library code loads a bundled preset directly via :func:`dataclass_from_file`,
-    rather than referencing it from a user file with ``_neurox_use_preset``.
+    Use this when library code loads a bundled preset directly (via
+    :func:`dataclass_from_file`), rather than pulling it into another config
+    file through a ``_neurox_use_preset`` directive.
+
+    Args:
+        rel: Presets-root-relative path (e.g. ``"process/rram.toml"``). A
+            suffix-free path tries ``.toml``, then ``.yaml``, then ``.yml``.
+
+    Returns:
+        Absolute path to the resolved preset file.
+
+    Raises:
+        ValueError: ``rel`` is empty, absolute, starts with ``./``, or
+            contains a ``..`` segment.
+        FileNotFoundError: No preset file exists at ``rel``.
     """
     _validate_preset_ref_path(rel)
     return _resolve_preset_fragment_path(rel)
@@ -578,14 +592,13 @@ def _resolve_uses_in_value(
     The two directives differ only in path resolution:
 
     - ``_neurox_use`` resolves relative to ``base_dir`` (the directory of the
-      file containing the directive). Use for user-side sibling fragments.
-    - ``_neurox_use_preset`` resolves relative to ``neurox/presets/``. Once
-      entered, the subtree is in *preset mode* (``in_preset=True``) which
-      forbids ``_neurox_use``, so preset dependency graphs stay closed inside
-      the package.
+      file containing the directive).
+    - ``_neurox_use_preset`` resolves relative to ``neurox/presets/``; the
+      resolved subtree is entered in *preset mode* (``in_preset=True``), which
+      forbids a nested ``_neurox_use``.
 
-    The two directives are mutually exclusive in the same sub-table. Cycles
-    raise ``ValueError``.
+    The two directives are mutually exclusive in the same sub-table. A
+    ``(path, section)`` re-entry raises ``ValueError`` as a cycle.
     """
     if isinstance(value, Mapping):
         has_use = _USE_DIRECTIVE in value
@@ -654,6 +667,15 @@ def resolve_uses(data: dict[str, Any], base_dir: Path) -> dict[str, Any]:
 
     Returns:
         New dict with every directive expanded.
+
+    Raises:
+        ValueError: A malformed reference, a resolution cycle, a preset path
+            that is not forward-relative, or a ``_neurox_use`` reached inside
+            a preset subtree.
+        FileNotFoundError: A referenced fragment file does not exist.
+        KeyError: The referenced section is absent from the target file.
+        TypeError: A directive value, or the section it names, is not the
+            expected type.
     """
     result = _resolve_uses_in_value(data, base_dir, cache={}, in_progress=frozenset())
     if not isinstance(result, dict):
@@ -681,9 +703,10 @@ def dataclass_from_file(
 ) -> T:
     """Load a dataclass from one or more config files.
 
-    Multiple files are merged in descending priority (first wins). When
-    ``section`` is given, the same sub-table is plucked from each file
-    before merging.
+    Each file is parsed, its ``_neurox_use`` / ``_neurox_use_preset``
+    directives are expanded (relative to that file's own directory), then
+    ``section`` is plucked (if given). The per-file results are merged in
+    descending priority (first wins) before coercion into ``cls``.
 
     Args:
         cls: Target frozen dataclass type.
@@ -694,6 +717,9 @@ def dataclass_from_file(
 
     Returns:
         Instance of ``cls`` built from the merged data.
+
+    Raises:
+        ValueError: No files were given (at least one is required).
     """
     if not files:
         raise ValueError("At least one config file must be provided")

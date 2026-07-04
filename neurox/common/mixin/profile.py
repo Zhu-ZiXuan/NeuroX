@@ -62,7 +62,7 @@ class ProfileMixin:
         on entry and batches the GPU→CPU sync once at ``_finalize``.
 
         Args:
-            dynamic_energy__fJ: Per-op switching energy tensor [fJ].
+            dynamic_energy__fJ: Per-op switching energy tensor.
         """
         from neurox.common.profiler import NeuroxProfiler  # local import: avoid cycle
 
@@ -87,7 +87,7 @@ class ProfileMixin:
         bit count and a clock period).
 
         Args:
-            latency__ns: Per-op latency contribution tensor [ns].
+            latency__ns: Per-op latency contribution tensor.
         """
         from neurox.common.profiler import NeuroxProfiler  # local import: avoid cycle
 

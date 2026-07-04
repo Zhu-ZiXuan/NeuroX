@@ -105,4 +105,5 @@ This holds for docstrings, comments, Reference, and Internals alike. One example
 ## Present state only
 
 - Every carrier describes the current state only.
+- Remove the entire historical or negatively-framed statement, not just its trigger word; never soften "X is no longer Y" into "X is not Y" — delete the reference to what the subject was or is not, and state the positive current fact.
 - An ADR is the only place for historical narrative, such as what a module was once called or why an earlier approach was replaced.

@@ -1,46 +1,33 @@
-# Quantization kernels
+# Quantization primitives
 
 ## Summary
 
-`neurox/common/quant.py` holds the small set of stochastic-rounding quantization primitives shared across the codebase. Three kernels make up the surface: `stochastic_floor_div` (floor right-shift integer division), `stochastic_floor_to_int` (float-to-int floor quantizer $\operatorname{code} = \lfloor \operatorname{signal} \cdot \operatorname{scale} \rfloor$), and `floor_bucketize` (bucketize against code-edge boundaries with floor semantics). All three are stateless math: none of them know about any consumer. Each consumes a `training: bool` directly; when set, an unbiased one-LSB uniform jitter is added before the floor, so the same code path serves deterministic conversion (`training=False`) and stochastic-rounded conversion (`training=True`) without moving where the boundaries sit. The deterministic floor-bucketize law — code edges $B_c = c \cdot \operatorname{LSB}$, floor against them — is specified in the [ADC abstract layer](../../reference/analog/adc/base.md) reference; these kernels add the stochastic dither on top: the uniform pre-floor offset, the `self.training` train/eval state switch, and the resulting unbiasedness.
+`neurox/common/quant.py` is the shared quantization toolbox — stochastic-rounding integer conversion, fixed-point scale decomposition, min/max observers, and straight-through fake-quantize. Two of its symbols are stateful: the observers hold EMA buffers; the rest is stateless math. The module names no consumer — each pipeline composes these into its own calibration / training / inference flow. This page carries only the rationale the signatures and docstrings cannot show; the module docstring lists the surface.
 
 ## Design decisions
 
-- **`training` is a direct argument, not an internal flag.** Each kernel takes `training: bool` rather than reading state. The flag is sourced from the calling module's `self.training` state: standard PyTorch training mode is the single source of truth for stochastic-versus-deterministic, with no per-call override knob and no separate nonideality policy switch. This keeps the kernels stateless and lets the caller's mode drive dithering uniformly.
-- **Floor placement, not round-to-nearest.** `floor_bucketize` puts boundaries at code edges $B_c = c \cdot \operatorname{LSB}$ — the deterministic floor-bucketize law in the [ADC abstract layer](../../reference/analog/adc/base.md) reference — so a signal in $[B_c,\ B_{c+1})$ quantizes to code $c$. Floor semantics mean the boundaries do not move between deterministic and stochastic mode — only the pre-floor jitter changes. Round-to-nearest would place boundaries at bin centres and require a different deterministic and stochastic split.
-- **Jitter is added before the floor, sized to one LSB.** Adding an unbiased $\operatorname{uniform}(0, \operatorname{LSB})$ offset (one full bin width) pre-floor makes the expected output code equal the un-quantized value: stochastic rounding is unbiased. Each kernel parameterizes the LSB in its own units — `floor_bucketize` takes `lsb` explicitly, `stochastic_floor_to_int` works in code space where one LSB is unit width (jitter is $\operatorname{uniform}(0,1)$ in scaled units), and `stochastic_floor_div` works in integer numerator space where one LSB is $2^{\operatorname{rshift}}$.
-- **`stochastic_floor_div` branches on scalar-versus-tensor `rshift`.** A scalar shift draws integer jitter directly in the numerator's integer dtype over $[0,\ 2^{\operatorname{rshift}})$. A tensor-valued (per-element) shift instead samples a float jitter in $[0,1)$, scales by the per-element denominator $2^{\operatorname{rshift}}$ in wide float, and casts back to the integer dtype — keeping the result exact-modulo-denominator while supporting broadcast shifts.
+- **`training` is the single dithering switch.** Each stochastic kernel takes `training: bool` sourced from the calling module's `self.training`; standard PyTorch train/eval mode is the only source of truth for stochastic-versus-deterministic conversion — there is no per-call override and no separate nonideality policy switch.
+- **Floor placement, not round-to-nearest.** `floor_bucketize` uses floor semantics so the code boundaries stay fixed between deterministic and stochastic mode — only the pre-floor jitter moves. Round-to-nearest would place boundaries at bin centres and demand a different split between the two modes.
+- **Jitter is pre-floor and one LSB wide, for unbiasedness.** An unbiased $\operatorname{uniform}(0,\ \operatorname{LSB})$ offset added before the floor makes the expected output code equal the un-quantized value. Each kernel parameterises the LSB in its own units, so the dither stays one bin wide wherever the kernel operates.
+- **Two observers, two grids.** The per-tensor observer tracks an asymmetric affine range with a computed `zero_point`, because activation distributions are skewed; the per-channel observer tracks a symmetric range per output channel and pins `zero_point = 0`. The symmetric grid keeps the integer matmul free of a zero-point cross-term, and per-channel granularity captures each filter's own dynamic range.
+- **Observer state lifecycle.** Each observer is a stateful `nn.Module` whose `forward` is a watcher — it mutates buffers and returns nothing rather than transforming its input, while a separate `qparams()` reads the state out. An EMA of the min/max (or abs-max) accumulates while the module is training and un-frozen; `freeze()` pins it for the inference phase, and because `frozen` is a registered buffer the pinned stats ride the `state_dict` and outlive later `train()` / `eval()` toggles. The initial `inf` buffer is an uninitialised sentinel: the first observed batch is copied in rather than blended, so no infinity pollutes the EMA.
+- **Two rounding modes for two roles.** The stochastic kernels floor with unbiased dither because the forward must emit a real integer code while training still sees the right mean; the fake-quantize helpers instead round-to-nearest and let the gradient pass straight through the round (the straight-through estimator), the mode a QAT step wants. The two rounding rules are deliberately different.
+- **Fixed-point conversion and the shift kernel compose.** `derive_multiplier_and_shift_tensor` emits the `rshift` that `stochastic_floor_div` consumes, so the two families are one integer-rescale pipeline rather than independent helpers. The multiplier precision is bounded to keep the rescaled product inside the integer accumulator budget — the `DEFAULT_MULT_BITS` note in code owns the exact bound.
 
 ## Contracts & invariants
 
-- **Output dtype.** `stochastic_floor_div` returns the same dtype as `numerator`. `stochastic_floor_to_int` and `floor_bucketize` return `out_dtype` (an integer dtype passed by the caller).
-- **`boundaries` are sorted ascending of length $n_{\operatorname{codes}} - 1$.** `floor_bucketize` returns a code in $[0,\ n_{\operatorname{codes}} - 1]$. It bucketizes with right-of-boundary placement: a signal exactly on a boundary ($\operatorname{signal} = c \cdot \operatorname{LSB}$) lands in the upper bin and yields code $c$, which is what produces floor semantics. The opposite placement would round-to-nearest at boundaries.
-- **`scale` is codes per signal unit.** For `stochastic_floor_to_int`, `scale` is the reciprocal of one LSB step in `signal`'s units, i.e. multiplying maps the physical signal into code space before the floor.
-- **Eval mode is bit-exact and deterministic.** With `training=False` every kernel reduces to a plain floor / right-shift / bucketize with no random draw, so repeated calls on identical input return identical output.
-- **Train mode is statistically unbiased.** With `training=True` the sample mean of the output converges to the true (un-floored) quotient or code. This is the defining property the kernels guarantee, exercised by `tests/test_stochastic_rounding.py`.
-- **Stochastic-rounding jitter can overshoot the legal range.** Because jitter is added pre-floor, a value near the top boundary can produce a code one above the nominal maximum. Callers that need a bounded code must clamp the result themselves; the kernels do not clamp.
-
-## Performance & resources
-
-- **Stateless and allocation-light.** No persistent buffers; the only allocations are the per-call jitter tensors, drawn to match the input shape and device so they stay on-device. The wide-float denominator in the tensor-`rshift` branch of `stochastic_floor_div` is the one wide-dtype temporary.
-- **Per-element cost is $O(1)$ over the input; no reductions across elements.** The whole surface is elementwise (modulo the boundary search in `floor_bucketize`, which is $O(\log n_{\operatorname{codes}})$ per element).
-- **`rshift` branch is trace-time, not value-dependent.** When compiled, the scalar-versus-tensor `rshift` branch keys on the Python type of the argument (resolved at trace time), not on a tensor value, so it stays [dynamo-safe](../compile/contracts.md); the random draws are traceable.
+- **Eval is bit-exact; train is unbiased.** With `training=False` every stochastic kernel reduces to a plain floor / shift / bucketize with no random draw, so repeated calls on identical input return identical output. With `training=True` the sample mean of the output converges to the un-floored quotient or code.
+- **Kernels never clamp.** Because jitter is added before the floor, a value near the top boundary can emit a code one above the nominal maximum; a caller that needs a bounded code clamps the result itself.
+- **The scalar-versus-tensor `rshift` branch resolves at trace time.** `stochastic_floor_div` keys the branch on the Python type of `rshift`, fixed at trace time rather than on a tensor value, so it stays [dynamo-safe](../compile/contracts.md); the random draws are traceable.
 
 ## Gotchas
 
-- **Default `training=True` dithers with no policy off-switch.** Dithering is gated by the consuming module's `self.training` state alone, never by a nonideality policy flag, so a freshly constructed module (default `training=True`) makes its consumer — e.g. an ADC `convert` — non-deterministic per call even with every policy off. Call `.eval()` on the owning module for the deterministic, bit-exact path.
-- **The LSB units differ per kernel.** `floor_bucketize` jitter is in the signal's physical units (sized by `lsb`); `stochastic_floor_to_int` jitter is in code space (unit LSB, so `uniform(0,1)`); `stochastic_floor_div` jitter is in integer numerator space (LSB $= 2^{\operatorname{rshift}}$). Passing a wrong LSB silently biases the rounding rather than erroring.
-- **Right-of-boundary placement is load-bearing.** Flipping `floor_bucketize` to the opposite placement silently switches from floor to round-to-nearest at boundaries and breaks alignment with the code-edge convention $B_c = c \cdot \operatorname{LSB}$.
-- **No clamp at the kernel.** Forgetting the caller-side clamp after `training=True` lets a top-of-range value emit an out-of-range code.
-
-## Known limitations
-
-- **No symmetric / signed rounding mode.** The kernels are floor-only; a sign-aware (round-toward-zero) variant is not provided. Signed-code consumers handle the sign via a downstream zero-code shift, not here.
-- **The tensor-`rshift` path widens to wide float.** Per-element shifts pay a wide-float temporary for the denominator; a fully-integer per-element jitter would avoid it but is not implemented.
+- **Default `training=True` dithers with no policy off-switch.** Dithering is gated only by the owning module's `self.training`, never by a nonideality policy flag, so a freshly constructed module (default `training=True`) yields a non-deterministic conversion per call even with every policy off. Call `.eval()` on the owning module for the deterministic, bit-exact path.
+- **The LSB units differ per kernel.** `floor_bucketize` jitter is in the signal's physical units (sized by `lsb`), `stochastic_floor_to_int` jitter is in unit-LSB code space, and `stochastic_floor_div` jitter is in integer space where one LSB is $2^{\operatorname{rshift}}$. A wrong LSB silently biases the rounding rather than erroring.
 
 ---
 
-- **Reference**: [ADC abstract layer](../../reference/analog/adc/base.md) (deterministic floor-bucketize law).
+- **Reference**: N/A — software utility.
 - **Implementation**: `neurox/common/quant.py`
-- **Tests**: `tests/test_stochastic_rounding.py`
-- **Decisions**: N/A.
+- **Tests**: `tests/test_stochastic_rounding.py` (stochastic-rounding kernels); TODO — no dedicated observer, fake-quant, or fixed-point tests.
+- **Decisions**: None.

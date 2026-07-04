@@ -18,15 +18,15 @@ class VoltageDriverConfig(CircuitConfig):
     """Immutable configuration for :class:`VoltageDriver`.
 
     Attributes:
-        r_out__MOhm: Series output resistance [MOhm] — the constant clamp
+        r_out__MOhm: Series output resistance — the constant clamp
             slope ``dVclamp/dI``. ``r_out = 0`` recovers the ideal
             voltage-source limit.
-        offset_sigma__V: Systematic per-instance offset sigma [V] on the
+        offset_sigma__V: Systematic per-instance offset σ on the
             injected reference sampled at snapshot time (policy-gated).
-        thermal_sigma__V: Per-solve Gaussian thermal sigma [V] on the
+        thermal_sigma__V: Per-solve Gaussian thermal σ on the
             injected reference sampled at snapshot time (policy-gated).
-        area_per_inst__um2: Silicon area per fabricated instance [um²].
-        leakage_per_inst__uW: Static leakage per instance [uW]; carries
+        area_per_inst__um2: Silicon area per fabricated instance.
+        leakage_per_inst__uW: Static leakage per instance; carries
             all static power, including any internal amplifier / bias.
     """
 
@@ -73,9 +73,9 @@ class VoltageDriverSnap:
     """One sampled clamp snap.
 
     Attributes:
-        v_ref__V: Reference clamp voltage [V], post offset + thermal,
+        v_ref__V: Reference clamp voltage, post offset + thermal,
             broadcast to the per-call shape.
-        r_out__MOhm: Series output resistance [MOhm] — a 0-d frozen
+        r_out__MOhm: Series output resistance — a 0-d frozen
             constant slope.
     """
 
@@ -116,7 +116,7 @@ class VoltageDriver(CircuitBase[VoltageDriverConfig]):
         name: Hierarchical instance name used by the profiler.
         inst_shape: Per-instance fabrication shape.
         dtype: Tensor dtype for internal buffers.
-        T__K: Operating temperature [K].
+        T__K: Operating temperature.
     """
 
     frozen_r_out__MOhm: Tensor
@@ -159,7 +159,7 @@ class VoltageDriver(CircuitBase[VoltageDriverConfig]):
 
         Args:
             v_ref__V: Injected reference / zero-current clamp voltage
-                [V] — the Thevenin open-circuit voltage. A scalar or
+                — the Thevenin open-circuit voltage. A scalar or
                 instance-shaped tensor that broadcasts onto ``shape``.
             shape: Per-call broadcast shape; the snap fills tensor
                 fields at this shape.
@@ -189,9 +189,9 @@ class VoltageDriver(CircuitBase[VoltageDriverConfig]):
         inside the array-solver leaf.
 
         Args:
-            i_port__uA: Port current [uA].
+            i_port__uA: Port current.
             snap: Snap returned by :meth:`snapshot`.
-            v_clamp_init__V: Optional warm-start hint [V]. Accepted and
+            v_clamp_init__V: Optional warm-start hint. Accepted and
                 ignored — the clamp is closed-form.
 
         Returns:

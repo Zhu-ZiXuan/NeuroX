@@ -17,22 +17,22 @@ class VoltageReferenceConfig(CircuitConfig):
     """Immutable configuration for :class:`VoltageReference`.
 
     Attributes:
-        v_refs__V: Nominal reference-voltage taps [V]. One module
+        v_refs__V: Nominal reference-voltage taps. One module
             sources ``len(v_refs__V)`` independent taps; the taps are
             unordered (unlike an ADC's ordered mode anchors). Each tap is
             non-negative; 0 V denotes a ground/rail reference (relative
             noise * 0 == 0, so a 0 tap stays stable and exact). A TOML
             array loads straight into this tuple.
         tolerance_sigma_relative: Relative per-instance initial-accuracy
-            sigma [dimensionless], applied multiplicatively at fabricate
+            σ [dimensionless], applied multiplicatively at fabricate
             time and gated by the ``tolerance`` policy; ``0`` leaves the
             exact nominal taps.
-        noise_sigma_relative: Relative per-call noise sigma
+        noise_sigma_relative: Relative per-call noise σ
             [dimensionless], applied multiplicatively at snapshot time
             and gated by the ``noise`` policy; ``0`` leaves the taps
             noise-free.
-        area_per_inst__um2: Silicon area per fabricated instance [um²].
-        leakage_per_inst__uW: Static leakage per instance [uW]; carries
+        area_per_inst__um2: Silicon area per fabricated instance.
+        leakage_per_inst__uW: Static leakage per instance; carries
             all static power, including the always-on bias network that
             generates the references.
     """
@@ -84,7 +84,7 @@ class VoltageReferenceSnap:
     """One sampled reference snap.
 
     Attributes:
-        v_refs__V: Actual reference-voltage taps [V], post
+        v_refs__V: Actual reference-voltage taps, post
             tolerance + noise, shape ``(*inst_shape, num_refs)``.
     """
 
@@ -106,7 +106,7 @@ class VoltageReference(CircuitBase[VoltageReferenceConfig]):
     Two nonidealities perturb the taps. The per-instance initial
     accuracy is a static spread sampled once at ``fabricate`` time
     (``tolerance``); per-call noise is resampled every ``snapshot``
-    (``noise``). Both are relative (multiplicative), so a single sigma
+    (``noise``). Both are relative (multiplicative), so a single σ
     applies uniformly across taps of differing magnitude.
 
     The block exposes no ``v_supply__V`` field, no bias current, and no
@@ -119,7 +119,7 @@ class VoltageReference(CircuitBase[VoltageReferenceConfig]):
         name: Hierarchical instance name used by the profiler.
         inst_shape: Per-instance fabrication shape.
         dtype: Tensor dtype for internal buffers.
-        T__K: Operating temperature [K].
+        T__K: Operating temperature.
     """
 
     nominal_v_refs__V: Tensor
@@ -192,6 +192,6 @@ class VoltageReference(CircuitBase[VoltageReferenceConfig]):
             snap: Per-call snap returned by :meth:`snapshot`.
 
         Returns:
-            Reference-voltage taps [V], shape ``(*inst_shape, num_refs)``.
+            Reference-voltage taps, shape ``(*inst_shape, num_refs)``.
         """
         return snap.v_refs__V

@@ -25,11 +25,10 @@ class GeneralDACConfig(DACConfig):
             ``code_to_signal[i]`` is the nominal analog output in [V]
             for digital code ``i``.  Length equals the number of input
             codes.
-        drive_thermal__V: Gaussian thermal noise sigma added to each
-            output sample after LUT lookup [V].
-        energy_per_op__fJ: Dynamic energy per conversion operation
-            [fJ].
-        latency_per_op__ns: Per-conversion latency [ns]; multiplied by
+        drive_thermal__V: Gaussian thermal noise σ added to each
+            output sample after LUT lookup.
+        energy_per_op__fJ: Dynamic energy per conversion operation.
+        latency_per_op__ns: Per-conversion latency; multiplied by
             the runtime serial-op count at logging time.
     """
 

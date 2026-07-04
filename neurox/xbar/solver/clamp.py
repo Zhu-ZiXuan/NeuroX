@@ -5,7 +5,7 @@ needs only two capabilities from it: a per-call snap of fabricated state
 and a clamp solve mapping port current to ``(v_clamp, dVclamp/dI)``. The
 reference clamp voltage is INJECTED per call as a plain ``Tensor`` into
 :meth:`ClampDriver.snapshot` and rides in the resulting snap (a
-:class:`ClampSnap`), so the role no longer exposes a ``v_ref__V``
+:class:`ClampSnap`), so the role does not expose a ``v_ref__V``
 attribute. :class:`ClampDriver` names that capability contract as a
 structural (``Protocol``) role rather than a registry base class: there
 is no inheritance and no ``RegistryMixin``. The role lives beside the
@@ -41,7 +41,7 @@ class ClampSnap(Protocol):
     the solver can read its warm-start seed directly from the snap.
 
     Attributes:
-        v_ref__V: Reference / zero-current clamp voltage [V], the
+        v_ref__V: Reference / zero-current clamp voltage, the
             post-noise value injected into :meth:`ClampDriver.snapshot`.
             Declared read-only so the frozen-dataclass snaps
             (``VoltageDriverSnap`` / ``OpAmpTIASnap`` / ``GeneralTIASnap``)
@@ -77,7 +77,7 @@ class ClampDriver(Protocol[SnapT]):
         """Sample one per-call runtime snap over ``shape``.
 
         Args:
-            v_ref__V: Injected reference / zero-current clamp voltage [V];
+            v_ref__V: Injected reference / zero-current clamp voltage;
                 the source-agnostic tap value the snapshot perturbs with
                 the per-call nonidealities and stores in the snap.
             shape: Per-call broadcast shape; the snap fills tensor fields
@@ -102,9 +102,9 @@ class ClampDriver(Protocol[SnapT]):
         """Boundary clamp solve: returns ``(v_clamp__V, dVclamp_dI__MOhm)``.
 
         Args:
-            i_port__uA: Port-output current [uA].
+            i_port__uA: Port-output current.
             snap: Per-call snap from :meth:`snapshot`.
-            v_clamp_init__V: Optional warm-start hint [V].
+            v_clamp_init__V: Optional warm-start hint.
 
         Returns:
             ``(v_clamp__V, dVclamp_dI__MOhm)``.

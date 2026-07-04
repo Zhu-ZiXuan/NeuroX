@@ -1,7 +1,7 @@
 """Common base for every electrical circuit module.
 
 See also:
-    docs/internals/config_and_construction.md
+    docs/internals/common/circuit.md
 """
 
 from __future__ import annotations
@@ -29,8 +29,8 @@ class CircuitConfig(ValidateMixin):
     a dynamic model emit nothing and carry no ``latency_per_op__ns``.
 
     Attributes:
-        area_per_inst__um2: Silicon area per fabricated instance [um²].
-        leakage_per_inst__uW: Static leakage per instance [uW].
+        area_per_inst__um2: Silicon area per fabricated instance.
+        leakage_per_inst__uW: Static leakage per instance.
     """
 
     area_per_inst__um2: float
@@ -91,12 +91,12 @@ class CircuitBase(FabricateMixin, ProfileMixin, nn.Module, Generic[ConfigT]):
 
     @property
     def area_per_inst__um2(self) -> float:
-        """Silicon area per instance [um²]."""
+        """Silicon area per instance."""
         return self.config.area_per_inst__um2
 
     @property
     def leakage_per_inst__uW(self) -> float:
-        """Static leakage per instance [uW]."""
+        """Static leakage per instance."""
         return self.config.leakage_per_inst__uW
 
     # --- Inst-level aggregates (derived) ---
@@ -113,10 +113,10 @@ class CircuitBase(FabricateMixin, ProfileMixin, nn.Module, Generic[ConfigT]):
 
     @property
     def inst_area__um2(self) -> float:
-        """Silicon area for the full fabrication multiplicity [um²]."""
+        """Silicon area for the full fabrication multiplicity."""
         return self.area_per_inst__um2 * self.inst_count
 
     @property
     def inst_leakage__uW(self) -> float:
-        """Static leakage for the full fabrication multiplicity [uW]."""
+        """Static leakage for the full fabrication multiplicity."""
         return self.leakage_per_inst__uW * self.inst_count

@@ -20,14 +20,14 @@ class OpAmpTIAConfig(TIAConfig):
     """Configuration for :class:`OpAmpTIA`.
 
     Attributes:
-        v_nmos_bias__V: Pseudo-resistor gate bias [V].
-        v_dd__V: Supply rail [V].
+        v_nmos_bias__V: Pseudo-resistor gate bias.
+        v_dd__V: Supply rail.
         opamp_gain: Nominal open-loop gain; must be > 1.
         opamp_gain_sigma: Relative mismatch (``σ/μ``) on ``opamp_gain``.
         nmos_config: PDK config for the pseudo-resistor NMOS.
-        pseudo_nmos_W__um: Pseudo-resistor channel width [μm].
-        pseudo_nmos_L__um: Pseudo-resistor channel length [μm].
-        output_saturation_softness__V: Softness scale [V] for the
+        pseudo_nmos_W__um: Pseudo-resistor channel width.
+        pseudo_nmos_L__um: Pseudo-resistor channel length.
+        output_saturation_softness__V: Softness scale for the
             ``tanh`` output-rail limiter.
         n_newton: Step-damped Newton iterations in the closed-loop solve.
             Compile-time constant; pick via
@@ -99,10 +99,10 @@ class OpAmpTIADCOP:
     """DC operating-point result of :meth:`OpAmpTIA.solve_dc`.
 
     Attributes:
-        v_clamp__V: Clamp-node voltage at the converged operating point [V].
-        v_out__V: Soft-saturated op-amp output voltage [V].
-        dVclamp_dI__MOhm: ``∂v_clamp / ∂i_port`` [MOhm].
-        dVout_dI__MOhm: ``∂v_out / ∂i_port`` [MOhm].
+        v_clamp__V: Clamp-node voltage at the converged operating point.
+        v_out__V: Soft-saturated op-amp output voltage.
+        dVclamp_dI__MOhm: ``∂v_clamp / ∂i_port``.
+        dVout_dI__MOhm: ``∂v_out / ∂i_port``.
         residual__uA: ``|I_nmos(v_clamp) - i_port|`` at the final
             iterate. Consumed by
             ``neurox.tools.solver_calibrate.tia`` to drive plateau
@@ -121,7 +121,7 @@ class OpAmpTIASnap(TIASnap):
     """Per-call OpAmpTIA snap.
 
     Attributes:
-        v_ref__V: Injected reference clamp voltage [V], broadcast to the
+        v_ref__V: Injected reference clamp voltage, broadcast to the
             per-call shape.
         opamp_gain: Sampled per-instance open-loop gain (unit-less).
         nmos_snap: Pseudo-resistor NMOS snap.
@@ -138,11 +138,11 @@ class OpAmpTIA(TIA[OpAmpTIASnap]):
 
     Class-level numerical constants (method-intrinsic, not chip-tuneable):
 
-      * ``MAX_STEP__V``: Per-iteration ``|Δv_clamp|`` cap [V]. Stops the
+      * ``MAX_STEP__V``: Per-iteration ``|Δv_clamp|`` cap. Stops the
         damped Newton from sticking at a rail after a single overshoot in
         regions where ``tanh`` saturates (``g_clip → 0``).
       * ``G_EFF_MAX__uS``: Upper clamp on the effective KCL Jacobian
-        ``df/dV_clamp`` [uS]. Always negative; without it the Newton step
+        ``df/dV_clamp``. Always negative; without it the Newton step
         diverges when the NMOS feedback loop's local derivative crosses
         zero.
     """
@@ -226,7 +226,7 @@ class OpAmpTIA(TIA[OpAmpTIASnap]):
         """Sample one per-call runtime snap over ``shape``.
 
         Args:
-            v_ref__V: Injected reference clamp voltage [V]. A scalar or
+            v_ref__V: Injected reference clamp voltage. A scalar or
                 instance-shaped tensor that broadcasts onto ``shape``;
                 stored in the returned snap.
             shape: Per-call broadcast shape; the snap fills tensor
@@ -248,10 +248,10 @@ class OpAmpTIA(TIA[OpAmpTIASnap]):
     # --- forward path ---
 
     def _softclip_eval(self, v_out_lin__V: Tensor) -> tuple[Tensor, Tensor]:
-        """Smooth output-rail limiter ``c + h · tanh((x - c) / s)`` and its derivative.
+        """Smooth output-rail limiter and its derivative.
 
         Args:
-            v_out_lin__V: Pre-clip op-amp output [V].
+            v_out_lin__V: Pre-clip op-amp output.
 
         Returns:
             ``(v_out, g_clip)`` — saturated output and local gradient.
@@ -274,7 +274,7 @@ class OpAmpTIA(TIA[OpAmpTIASnap]):
         """Solve the closed-loop OpAmpTIA at one port current.
 
         Args:
-            i_port__uA: Port-output current [uA]; positive = sourcing.
+            i_port__uA: Port-output current; positive = sourcing.
             snap: Per-call snap from :meth:`snapshot`.
             v_clamp_init__V: Optional warm-start; ``None`` seeds from the
                 zero-current static op.
@@ -305,7 +305,7 @@ class OpAmpTIA(TIA[OpAmpTIASnap]):
                 vs__V=v_clamp,
                 snap=nmos_snap,
             )
-            # df/dVclamp = ∂I/∂v_d · (-A · g_clip) + ∂I/∂v_s
+            # clamp-loop KCL-residual Jacobian df/dV_clamp.
             dvout_dvclamp = -opamp_gain * g_clip
             df_dVclamp = (nmos_dc.did_dvd__uS * dvout_dvclamp + nmos_dc.did_dvs__uS).clamp(max=g_eff_max__uS)
             residual = nmos_dc.ids__uA - i_port__uA
@@ -332,7 +332,7 @@ class OpAmpTIA(TIA[OpAmpTIASnap]):
         dVclamp_dI__MOhm = 1.0 / df_dVclamp_final
         dVout_dI__MOhm = dvout_dvclamp * dVclamp_dI__MOhm
 
-        # Per-iterate KCL residual ``|NMOS Ids − i_port|`` returned for
+        # Per-iterate KCL residual ``|NMOS Ids - i_port|`` returned for
         # ``solver_calibrate.tia`` to consume.
         residual__uA = (nmos_dc_final.ids__uA - i_port__uA).abs()
 
@@ -354,7 +354,7 @@ class OpAmpTIA(TIA[OpAmpTIASnap]):
         """Boundary-clamp wrapper around :meth:`solve_dc`.
 
         Args:
-            i_port__uA: Port-output current [uA]; see :meth:`solve_dc`.
+            i_port__uA: Port-output current; see :meth:`solve_dc`.
             snap: Per-call snap from :meth:`snapshot`.
             v_clamp_init__V: Optional warm-start for the inner Newton.
 

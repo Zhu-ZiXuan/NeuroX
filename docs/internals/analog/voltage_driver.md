@@ -14,7 +14,7 @@
 ## Contracts & invariants
 
 - **Construction commits `inst_shape`.** `__init__(*, config, policy, name, inst_shape, dtype, T__K)` is the canonical leaf signature. The frozen `r_out` is the lone 0-d non-persistent buffer; there is no nominal-`v_ref` buffer (the reference is injected per call, not held) and no shape-dependent fabricated buffer to rebuild.
-- **The reference is injected, not config-held.** `VoltageDriver` carries no `v_ref__V` config field and no `v_ref__V` property; `snapshot(*, v_ref__V, shape, multi_coords)` takes the reference as a `Tensor` keyword, applies offset then thermal to it, and stores the result in the snap. The accessor that used to return the pre-noise config constant is gone.
+- **The reference is injected, not config-held.** `VoltageDriver` carries no `v_ref__V` config field and no `v_ref__V` property; `snapshot(*, v_ref__V, shape, multi_coords)` takes the reference as a `Tensor` keyword, applies offset then thermal to it, and stores the result in the snap.
 - **Closed-form `solve_clamp`.** `v_clamp = snap.v_ref__V - i_port__uA * snap.r_out__MOhm` has no data-dependent control flow, so it compiles inside the consuming compiled solver leaf. `v_clamp_init__V` is accepted (interface parity with iterative clamps) and ignored.
 - **Snap carries both fields.** `VoltageDriverSnap` holds the noised `v_ref__V` (broadcast to the per-call shape) and the 0-d frozen `r_out__MOhm`, so `solve_clamp` is a pure function of the snap.
 

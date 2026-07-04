@@ -1,4 +1,8 @@
-"""Value-domain slicers for the xbar macro."""
+"""Value-domain slicers for the xbar macro.
+
+See also:
+    docs/internals/macro/xbar/slicer/README.md
+"""
 
 from .base import Slicer
 from .serial import SerialSlicer

@@ -1,7 +1,7 @@
 """Shift-adder for multi-digit partial-product recombination.
 
 See also:
-    docs/reference/digital/README.md
+    docs/reference/digital/shift_adder.md
 """
 
 from dataclasses import dataclass
@@ -21,8 +21,8 @@ class ShiftAdderConfig(CircuitConfig):
     Attributes:
         bit_width: Signed output bit width; result wraps modulo ``2^bit_width``
             into ``[-2^(bw-1), 2^(bw-1) - 1]``.
-        energy_per_op__fJ: Dynamic energy consumed per output element (fJ).
-        latency_per_op__ns: Per-output-element latency [ns]; multiplied
+        energy_per_op__fJ: Dynamic energy consumed per output element.
+        latency_per_op__ns: Per-output-element latency; multiplied
             by the runtime serial-op count at logging time.
     """
 

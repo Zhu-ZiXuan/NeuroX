@@ -28,6 +28,12 @@ $$V_{\mathrm{out}} = c + h \tanh\!\big((x - c)/s\big), \qquad c = h = \tfrac{1}{
 
 with the centre and half-span fixed at $c = h = \tfrac{1}{2} V_{\mathrm{dd}}$ so that $V_{\mathrm{out}}$ is confined to $[0, V_{\mathrm{dd}}]$ and compresses smoothly toward each rail; $A$ is the op-amp gain and $s$ the softness scale.
 
+The clamp operating point satisfies the bit-line KCL constraint that the NMOS pseudo-resistor current equals the BL port current, with residual $f = I(V_{\mathrm{BL,CL}}) - I_{\mathrm{BL,port}}$. Its Jacobian with respect to the clamp voltage, consumed by the operating-point solve, is
+
+$$\frac{\partial f}{\partial V_{\mathrm{BL,CL}}} = \frac{\partial I}{\partial v_d}\,(-A\,g_{\mathrm{clip}}) + \frac{\partial I}{\partial v_s},$$
+
+with the NMOS drain and source held at $v_d = V_{\mathrm{out}}$ and $v_s = V_{\mathrm{BL,CL}}$, where $\partial I/\partial v_d$ and $\partial I/\partial v_s$ are the NMOS drain- and source-voltage transconductances, $A$ is the op-amp gain, and $g_{\mathrm{clip}}$ is the local $\tanh$ soft-clip gradient.
+
 TODO (domain author): write the explicit op-amp + pseudo-resistor transfer function and its derivative in terms of the op-amp gain, the bias voltages, and the NMOS device current, and state how the gain mismatch perturbs the clamp.
 
 ## Numerical method

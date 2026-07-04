@@ -18,9 +18,7 @@ class CanonicalTranscoder(Transcoder):
 
     Each digit lies in ``{-(r-1), ..., r-1}`` but at most every other
     position is non-zero, so the representable envelope is strictly
-    tighter than the true-form sign-magnitude bound. The maximum
-    absolute value is the sum ``Σ_j (r-1)·r^(D-1-2j)`` over
-    ``j ∈ [0, ⌈D/2⌉)``.
+    tighter than the true-form sign-magnitude bound.
     """
 
     def encode(self, x: Tensor, *, dim: int = -1) -> Tensor:
@@ -49,6 +47,6 @@ class CanonicalTranscoder(Transcoder):
 
     @property
     def value_range(self) -> tuple[int, int]:
-        """Symmetric envelope ``[-M, M]`` with ``M = Σ_j (r-1)·r^(D-1-2j)``."""
+        """Symmetric envelope ``[-M, M]``."""
         max_abs = sum((self._radix - 1) * (self._radix**power) for power in range(self._digit_count - 1, -1, -2))
         return -max_abs, max_abs

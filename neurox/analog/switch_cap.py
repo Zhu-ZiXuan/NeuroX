@@ -19,11 +19,10 @@ class SwitchCapConfig(CircuitConfig):
     """Immutable physical configuration for :class:`SwitchCap`.
 
     Attributes:
-        c_unit__fF: Unit capacitance [fF].
-        cap_mismatch_sigma_relative: Per-unit-cap Pelgrom relative
-            sigma.
-        energy_per_sample_overhead__fJ: Per-bank switching overhead [fJ].
-        latency_per_op__ns: Per-sample-and-accumulate latency [ns];
+        c_unit__fF: Unit capacitance.
+        cap_mismatch_sigma_relative: Per-unit-cap Pelgrom relative σ.
+        energy_per_sample_overhead__fJ: Per-bank switching overhead.
+        latency_per_op__ns: Per-sample-and-accumulate latency;
             multiplied by the runtime serial-op count at logging time.
     """
 
@@ -79,7 +78,7 @@ class SwitchCap(CircuitBase[SwitchCapConfig]):
         name: Hierarchical instance name used by the profiler.
         inst_shape: Per-instance fabrication shape.
         dtype: Tensor dtype for internal buffers.
-        T__K: Operating temperature [K].
+        T__K: Operating temperature.
         cap_weights: Per-cap multipliers on ``config.c_unit__fF``.
     """
 
@@ -134,18 +133,19 @@ class SwitchCap(CircuitBase[SwitchCapConfig]):
         """Sample digit voltages and run passive charge-sharing.
 
         Args:
-            v_in__V: Per-cap sampled voltages [V],
+            v_in__V: Per-cap sampled voltages,
                 shape ``(*batch, *bank_shape, n_caps)``.
 
         Returns:
             Node voltage with shape ``(*batch, *bank_shape)``.
         """
         c__fF = self.c__fF
-        # kT/C settling noise: kt__fJ = k_B·T·1e15 so kt/c lands in V².
+        # kT/C settling noise: kt__fJ = k_B·T·1e15 so kt/c lands in V^2.
         kt__fJ = K_BOLTZMANN__J_per_K * self.T__K * 1e15
         sigma__V = torch.sqrt(kt__fJ / c__fF)
         v_hold__V = apply_gaussian(v_in__V, sigma__V, enabled=self.policy.sampling_thermal_noise)
-        # Σ Q_k / Σ C_k, Q_k taken from the held voltage.
+        # Passive charge-share: node settles to the charge-weighted mean of the
+        # held voltages.
         c_total__fF = c__fF.sum(dim=-1)
         v_out__V = torch.sum(c__fF * v_hold__V, dim=-1) / c_total__fF
 

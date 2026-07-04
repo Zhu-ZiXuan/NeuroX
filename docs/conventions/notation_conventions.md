@@ -1,6 +1,6 @@
 # Notation & conventions
 
-The shared vocabulary for reading every equation — Reference, Internals, and in-code docstrings and comments all follow it.
+The single home of the notation policy — the character whitelist, where a formula lives, and the shared symbol vocabulary. Reference, Internals, and in-code docstrings and comments all follow it; [code_style](code_style.md), [markdown_style](markdown_style.md), and [prose_style](prose_style.md) reference this doc for the permitted character set and never restate it.
 
 Symbols **reused across subsystems** are pinned so one physical quantity keeps one symbol everywhere. Introduce a symbol only when it appears in an equation; a quantity that only labels a structure or count is written by its code field, not a symbol.
 
@@ -53,6 +53,49 @@ Pure structure counts (e.g. slices per group) have no symbol; write the code fie
 | floor / clamp | $\lfloor\cdot\rfloor$, $\operatorname{clamp}$ |
 | modulo | $a \bmod n$ is the non-negative (Euclidean) residue in $[0, n)$, e.g. $(-1) \bmod 4 = 3$ |
 | named operator | $\operatorname{ADC}(\cdot)$ |
+
+## Character whitelist
+
+One whitelist governs every layer: Markdown prose, docstrings, and comments share the **same** permitted non-ASCII set. Everything outside it is ASCII, or md-LaTeX for a real formula.
+
+| Category | Permitted |
+|---|---|
+| punctuation | — § |
+| relations / operators | × · ± ≈ ≤ ≥ ≠ |
+| arrows | → ← ↔ |
+| Greek lowercase | α β γ δ ε ζ η θ κ λ μ ν ξ π ρ σ τ υ φ χ ψ ω |
+| Greek capitals (distinct from Latin) | Γ Δ Θ Λ Ξ Π Σ Φ Ψ Ω |
+| superscript powers | ⁰ ¹ ² ³ ⁴ ⁵ ⁶ ⁷ ⁸ ⁹ ⁺ ⁻ ⁿ |
+| partial derivative | ∂ |
+
+Everything else is ASCII, or md-LaTeX for a real formula; subscripts use ASCII `_`, never a Unicode subscript. A non-whitelisted symbol — $\sum$, $\int$, $\prod$, $\nabla$, $\in$, $\infty$, $\propto$, $\perp$, $\sqrt{\;}$, and every other non-ASCII glyph — appears only inside a real formula, which lives in md-LaTeX.
+
+Outside the whitelist's scope entirely, and ASCII everywhere: identifiers and data / protocol string literals, display / log string literals, and physical units with their SI prefixes (`Ohm`, `u`, `uA`, `deg`, `um^2`). Units are user-locked (§Units and naming); the whitelist governs prose and notation, never these.
+
+## Placement — where a formula lives
+
+A complex, multi-term formula lives **only** in a Markdown Reference or Internals doc, written as LaTeX. A docstring or comment carries at most simple inline notation — a lone symbol (σ), a power of a variable (σ²), a short inline expression, an inline derivative (∂I/∂V) — and otherwise points to the md spec. A superscript power is for a math variable (σ², V_BL²); a physical unit raised to a power stays ASCII (`cm^2`, `um^2`). A docstring never hosts a multi-term derivation; it names the quantity and links the equation to its md home.
+
+## Symbols across source layers
+
+Within the prose of a docstring or comment a whitelisted symbol is raw Unicode — σ, μ, τ, ∂, a superscript power — so the source reads as the equation does. Identifiers stay ASCII regardless: a variable is named `sigma` in code and described as σ in its docstring. In Markdown a symbol that is part of a formula goes through LaTeX (`$\sigma$`); a lone whitelisted symbol in prose may stay raw Unicode. [prose_style](prose_style.md) routes all Markdown math through `$...$`.
+
+| Symbol | Docstring / comment | Markdown formula | Rendered |
+|---|---|---|---|
+| σ | `σ` | `$\sigma$` | $\sigma$ |
+| μ | `μ` | `$\mu$` | $\mu$ |
+| β | `β` | `$\beta$` | $\beta$ |
+| Δ | `Δ` | `$\Delta$` | $\Delta$ |
+| ε | `ε` | `$\varepsilon$` | $\varepsilon$ |
+| ∂ | `∂` | `$\partial$` | $\partial$ |
+
+Subscripts stay ASCII in every layer: `σ_k` in docstring prose, `$\sigma_k$` in Markdown math.
+
+### Same glyph, two roles
+
+One Greek glyph can be a math variable or a physical unit / SI prefix, and the two are written differently. As a **math variable** (mean μ, angular frequency ω) it follows the rule above — raw glyph in docstrings and comments, LaTeX in Markdown math. As a **physical unit or SI prefix** (ohm, micro) it is the ASCII name everywhere — `MOhm`, `uA`, `um` — never the glyph, never `$\Omega$` or `$\mu\mathrm{A}$`. The unit set is fixed in §Units and naming.
+
+Locking units to ASCII keeps the roles unambiguous: the micro prefix is always `u` and ohm is always `Ohm`, so a raw μ or Ω in notation can only be the math variable. The ASCII name is the SI-sanctioned spelling and matches the code `__` suffix, naming the unit exactly.
 
 ## Units and naming
 

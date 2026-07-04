@@ -105,15 +105,15 @@ The config is the frozen dataclass `Calculate1T1RStatesConfig` with four section
 - `[rram]` — an `RRAMConfig` (or `_neurox_use_preset = "process/rram:..."`).
 - `[nmos]` — a `MOSFETConfig` (or `_neurox_use_preset = "process/mos:..."`).
 - `[bias]` — the per-cell read bias used during ladder derivation:
-  - `v_wl__V: float` — WL drive voltage [V].
-  - `v_bl__V: float` — BL drive voltage [V].
-  - `v_sl__V: float` — SL drive voltage [V].
-  - `temperature__K: float` — operating temperature [K].
+  - `v_wl__V: float` — WL drive voltage.
+  - `v_bl__V: float` — BL drive voltage.
+  - `v_sl__V: float` — SL drive voltage.
+  - `temperature__K: float` — operating temperature.
 - `[design]` — RRAM design window, state count, and access-NMOS sizing:
-  - `g_max__uS: float` — RRAM design $g_{\max}$ [uS].
+  - `g_max__uS: float` — RRAM design $g_{\max}$.
   - `n_states: int` — state count ($\ge 2$).
-  - `access_nmos_W__um: float` — access-NMOS width [um].
-  - `access_nmos_L__um: float` — access-NMOS length [um].
+  - `access_nmos_W__um: float` — access-NMOS width.
+  - `access_nmos_L__um: float` — access-NMOS length.
 
 Hard fast-fail conditions: $N < 2$, $g_{\max} \le 0$, $g_{\max} \le g_{\min}$, $V_{\mathrm{BL}} \le V_{\mathrm{SL}}$, $W \le 0$, $L \le 0$, $T \le 0$. A runnable template lives beside the tool at `<scheme>/config/calculate_1t1r_states.toml`.
 

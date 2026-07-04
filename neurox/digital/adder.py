@@ -1,4 +1,8 @@
-"""Element-wise integer adder with energy accounting."""
+"""Element-wise integer adder with energy accounting.
+
+See also:
+    docs/reference/digital/adder.md
+"""
 
 from dataclasses import dataclass
 
@@ -16,8 +20,8 @@ class AdderConfig(CircuitConfig):
 
     Attributes:
         bit_width: Nominal output bit width (informational; no wrap is applied).
-        energy_per_op__fJ: Dynamic energy consumed per output element (fJ).
-        latency_per_op__ns: Per-element latency [ns]; multiplied by the
+        energy_per_op__fJ: Dynamic energy consumed per output element.
+        latency_per_op__ns: Per-element latency; multiplied by the
             runtime serial-op count at logging time.
     """
 

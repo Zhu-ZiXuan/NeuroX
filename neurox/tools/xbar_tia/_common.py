@@ -41,9 +41,9 @@ class TransferCurve:
     """DC ``I_port → v_out`` sweep result for one TIA instance.
 
     Attributes:
-        i_uA: 1-D sweep currents [μA], shape ``(N,)``.
+        i_uA: 1-D sweep currents [uA], shape ``(N,)``.
         v_out_V: Output voltages [V], shape ``(N,)``.
-        v_min_V / v_max_V: ``softclip_center ∓ softclip_half_span`` for reference.
+        v_min_V / v_max_V: ``softclip_center -/+ softclip_half_span`` for reference.
     """
 
     i_uA: torch.Tensor
@@ -52,7 +52,7 @@ class TransferCurve:
     v_max_V: float
 
     def slope_at(self, i_uA: float) -> float:
-        """Local derivative ``dv_out/dI`` [V/μA] at the closest grid point."""
+        """Local derivative ``dv_out/dI`` [V/uA] at the closest grid point."""
         idx = int(torch.argmin((self.i_uA - i_uA).abs()).item())
         if idx == 0:
             return float((self.v_out_V[1] - self.v_out_V[0]) / (self.i_uA[1] - self.i_uA[0]))
@@ -125,7 +125,7 @@ def linearity_r2(curve: TransferCurve, *, lo_uA: float, hi_uA: float) -> float:
 
 
 def saturation_onset(curve: TransferCurve, *, frac: float = 0.99) -> float:
-    """Lowest ``I_port`` [μA] at which ``v_out`` reaches ``frac × (v_max − v_min)`` above ``v_min``."""
+    """Lowest ``I_port`` [uA] at which ``v_out`` reaches ``frac × (v_max - v_min)`` above ``v_min``."""
     threshold = curve.v_min_V + frac * (curve.v_max_V - curve.v_min_V)
     above = (curve.v_out_V >= threshold).nonzero()
     if above.numel() == 0:
@@ -149,7 +149,7 @@ class WorkloadFit:
 
 
 def fit_to_workload(curve: TransferCurve, *, mean_uA: float, std_uA: float) -> WorkloadFit:
-    """Compute single-config metrics for a Gaussian workload ``N(mean_uA, std_uA²)``."""
+    """Compute single-config metrics for a Gaussian workload ``N(mean_uA, std_uA^2)``."""
     if std_uA <= 0:
         raise ValueError(f"std_uA ({std_uA}) must be > 0")
     lo3 = mean_uA - 3 * std_uA

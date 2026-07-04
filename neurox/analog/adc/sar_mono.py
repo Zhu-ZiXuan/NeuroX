@@ -24,20 +24,18 @@ class SarAdcMonoConfig(ADCConfig):
     Attributes:
         max_bits: Physical bit width; active array carries
             ``max_bits - 1`` binary-weighted caps + a dummy cap.
-        clk_period__ns: SAR comparator clock period [ns]; latency at
+        clk_period__ns: SAR comparator clock period; latency at
             ``bits`` active bits is ``(bits + 1) · clk_period``.
-        c_unit__fF: CDAC unit capacitance [fF].
+        c_unit__fF: CDAC unit capacitance.
         cap_mismatch_sigma_relative: Per-unit-cap relative Pelgrom
-            sigma.
+            σ.
         comparator_offset_sigma__V: Static comparator-threshold Gaussian
-            sigma [V].
+            σ.
         comparator_thermal_noise_sigma__V: Per-cycle dynamic
-            comparator-noise Gaussian sigma [V].
-        e_bootstrap__fJ: Per-conversion sampling-switch overhead [fJ].
-        e_compare_per_bit__fJ: Per-cycle comparator-decision energy
-            [fJ].
-        e_logic_per_bit__fJ: Per-cycle SAR-logic / register overhead
-            [fJ].
+            comparator-noise Gaussian σ.
+        e_bootstrap__fJ: Per-conversion sampling-switch overhead.
+        e_compare_per_bit__fJ: Per-cycle comparator-decision energy.
+        e_logic_per_bit__fJ: Per-cycle SAR-logic / register overhead.
     """
 
     # --- Topology ---
@@ -119,7 +117,7 @@ class SarAdcMono(ADC):
         policy: Per-source nonideality enable flags.
         name: Hierarchical instance name used by the profiler.
         dtype: Tensor dtype for internal buffers.
-        T__K: Operating temperature [K].
+        T__K: Operating temperature.
     """
 
     config: SarAdcMonoConfig

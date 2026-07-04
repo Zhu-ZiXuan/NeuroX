@@ -85,7 +85,13 @@ The upper limit $b-1$ reflects the free MSB plus the $b-1$ switched bits. At $b 
 
 The comparator thermal-noise sigma scales as $\sqrt{T}$ anchored at 300 K.
 
-TODO (domain author): the kT/C sampling-noise sigma formula in terms of $k_B$, $T$, and $C_{\mathrm{total}}$, and citations for the MCS switching-energy and Pelgrom models.
+The kT/C sampling noise (the additive-Gaussian row above) imprints on each held top plate a perturbation of variance
+
+$$\sigma_V^2 = \frac{k_B T}{C_{\mathrm{total}}},$$
+
+with $k_B$ the Boltzmann constant, $T$ the operating temperature, and $C_{\mathrm{total}}$ the sampling leg's array total. The two legs are perturbed independently, each with its own $C_{\mathrm{total}}$.
+
+TODO (domain author): citations for the MCS switching-energy and Pelgrom models.
 
 ## Parameters
 
@@ -140,6 +146,8 @@ TODO: cite the merged-capacitor-switching SAR topology and its energy model.
 | $f_k$ | signed prior-bit factor in $E_k$ | — | energy accounting |
 | $E_{\mathrm{bootstrap}}, E_{\mathrm{const}/\mathrm{bit}}$ | energy overheads | fJ | `e_bootstrap__fJ`, `e_constant_per_bit__fJ` |
 | $T$ | operating temperature | K | `T__K` |
+| $k_B$ | Boltzmann constant | J/K | `K_BOLTZMANN__J_per_K` |
+| $\sigma_V$ | kT/C sampling-noise sigma on a held top plate | V | derived from $T$, $C_{\mathrm{total}}$ |
 
 ---
 

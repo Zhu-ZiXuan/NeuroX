@@ -2,7 +2,7 @@
 
 ## Summary
 
-`GeneralDAC` (`dac/general.py`) is the LUT DAC: a code -> voltage table plus optional additive Gaussian drive-thermal noise. Spec: [reference/analog/dac/general](../../../reference/analog/dac/general.md).
+`GeneralDAC` (`dac/general.py`) is the LUT DAC: a code → voltage table plus optional additive Gaussian drive-thermal noise. Spec: [reference/analog/dac/general](../../../reference/analog/dac/general.md).
 
 ## Design decisions
 

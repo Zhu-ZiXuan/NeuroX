@@ -1,8 +1,8 @@
 """Topology-agnostic SL/BL IR-drop DC-solver framework.
 
 Hosts :class:`SolverConfig`, :class:`Solver`, :class:`SolverDCOP`, and
-:class:`SolverResiduals` — see ``docs/internals/xbar/solver.md`` for
-the design rationale (registry dispatch, residual container reuse).
+:class:`SolverResiduals`; the internals doc covers the design rationale
+(registry dispatch, residual container reuse).
 
 The solver drives only the two wire ladders and the two clamp boundaries.
 The cell and both clamp drivers are per-call, method-generic parameters of
@@ -10,6 +10,10 @@ The cell and both clamp drivers are per-call, method-generic parameters of
 solver class is non-generic and stateless (it holds only its config). Any
 SL/BL topology whose cell condenses to one two-terminal branch reuses the
 same solver — the topology lives entirely in the supplied cell.
+
+See also:
+    docs/reference/xbar/solver.md
+    docs/internals/xbar/solver.md
 """
 
 from __future__ import annotations
@@ -74,7 +78,7 @@ class SolverConfig(ValidateMixin):
 
 @dataclass(frozen=True)
 class SolverResiduals:
-    """Per-element absolute wire / clamp KCL residuals from one DC solve [μA] / [V].
+    """Per-element absolute wire / clamp KCL residuals from one DC solve.
 
     Solver-owned residuals only: the wire-ladder and clamp-boundary KCL
     mismatches. The per-cell internal-KCL residual lives on the cell DCOP
@@ -203,13 +207,13 @@ class Solver(RegistryMixin[type["SolverConfig"], "Solver"], ABC):
         """Solve the fabricated tile for one cell snap.
 
         Args:
-            bl_segment_r__MOhm: 1-D BL segment resistances [MOhm]; index 0 is
+            bl_segment_r__MOhm: 1-D BL segment resistances; index 0 is
                 driver-to-first.
-            sl_segment_r__MOhm: 1-D SL segment resistances [MOhm]; index 0 is
+            sl_segment_r__MOhm: 1-D SL segment resistances; index 0 is
                 driver-to-first.
-            bl_segment_g__uS: BL segment conductances [uS], reciprocal of
+            bl_segment_g__uS: BL segment conductances, reciprocal of
                 ``bl_segment_r__MOhm``.
-            sl_segment_g__uS: SL segment conductances [uS], reciprocal of
+            sl_segment_g__uS: SL segment conductances, reciprocal of
                 ``sl_segment_r__MOhm``.
             cell: Pluggable cell; owns the device branch and condenses any
                 internal node.
