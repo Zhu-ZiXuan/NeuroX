@@ -1,6 +1,6 @@
 # Scheme B — De-objectified solver
 
-**Status: Deferred — not implemented.** A hardening of [scheme A](scheme-a-regional.md), recorded as future work. Adopt when any of: cross-instance reuse proves fragile on the real path (per-layer recompilation observed); a predictable, object-independent compile cache key is wanted; or as the prerequisite functionalization for [scheme C](scheme-c-custom-op.md).
+**Status: Deferred — not implemented.** A hardening of scheme A, recorded as future work. Adopt when any of: cross-instance reuse proves fragile on the real path (per-layer recompilation observed); a predictable, object-independent compile cache key is wanted; or as the prerequisite functionalization for scheme C.
 
 ## The problem it solves
 
@@ -45,7 +45,7 @@ The sketch flattens the per-call actors (the cell, the two clamp drivers) down t
 
 ## Trade-offs
 
-- **vs. scheme A.** Gains a compile cache key that is object-independent by construction, so cross-instance reuse is guaranteed rather than incidental, and the "every layer recompiles" failure mode is structurally impossible; also lays the functional foundation [scheme C](scheme-c-custom-op.md) requires. Loses code simplicity: the solver gains a wrapper/core split and a longer surface, and the adapter's packing must be kept in sync with the free function's signature.
+- **vs. scheme A.** Gains a compile cache key that is object-independent by construction, so cross-instance reuse is guaranteed rather than incidental, and the "every layer recompiles" failure mode is structurally impossible; also lays the functional foundation scheme C requires. Loses code simplicity: the solver gains a wrapper/core split and a longer surface, and the adapter's packing must be kept in sync with the free function's signature.
 - **Returning a dataclass vs a tuple.** Returning `SolverDCOP` keeps call sites unchanged but ties the compiled region to a PyTree-stable structure; returning a bare tuple and reassembling in the adapter is more robust to PyTree edges at the cost of an explicit repack.
 - **Dataclass snap args vs pure tensors.** Dataclass args stay close to current code; pure-tensor args maximize cache stability but lengthen the signature. Start with dataclass snaps and only flatten if recompiles are observed.
 
@@ -66,4 +66,4 @@ Runtime is unchanged — the arithmetic is identical, only its argument plumbing
 
 ## See also
 
-- [scheme A](scheme-a-regional.md), [scheme C](scheme-c-custom-op.md), [contracts](contracts.md)
+- [scheme A](scheme_a_regional.md), [scheme C](scheme_c_custom_op.md), [contracts](contracts.md)

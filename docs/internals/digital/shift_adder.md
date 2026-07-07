@@ -1,8 +1,8 @@
-# Shift adder
+# Shift-adder
 
 ## Summary
 
-`ShiftAdder` folds a digit axis with radix-positional weights into a fixed-width signed register, optionally adds a running partial sum, and emits its own PPA events. Spec: [reference/digital/shift_adder](../../reference/digital/shift_adder.md).
+`ShiftAdder` folds a digit axis with radix-positional weights into a fixed-width signed register, optionally adds a running partial sum, and emits its own PPA events.
 
 ## Design decisions
 
@@ -25,7 +25,7 @@
 ## Gotchas
 
 - **Post-wrap partial-sum semantics.** Because `init_val` is added after the wrap, the final output is not itself confined to the register range; a consumer reading `bit_width` as a hard output bound will be wrong when a partial sum is supplied.
-- **The radix-fold sum wraps silently** (two's-complement modulo $2^{w}$) before the partial-sum add; an overflow inside one call aliases with no error.
+- **The radix-fold sum wraps silently** before the partial-sum add; an overflow inside one call aliases with no error.
 - **`inst_count` guarded against zero** in the divisor (`max(inst_count, 1)`).
 
 ## Known limitations
@@ -37,4 +37,3 @@
 - **Reference**: [shift_adder](../../reference/digital/shift_adder.md)
 - **Implementation**: `neurox/digital/shift_adder.py`
 - **Tests**: TODO - no dedicated digital test module yet
-- **Decisions**: N/A — no ADR governs this module.

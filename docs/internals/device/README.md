@@ -1,6 +1,6 @@
 # Device
 
-How the device layer is built. The spec is in [reference/device](../../reference/device/README.md); this side covers only what the code cannot tell you — the config / policy / design-parameter split, the fabrication-and-snap contract, and the per-device gotchas.
+How the device layer is built.
 
 - [rram](rram.md) — `RRAM` config / init / policy split, programming vs read state, snap contract.
 - [mosfet](mosfet.md) — `MOSFET` polarity-parameterized pure-electrical primitive (NMOS/PMOS), precomputed nominals, fabricate-time mismatch.

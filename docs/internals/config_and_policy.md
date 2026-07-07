@@ -1,6 +1,6 @@
 # Config and policy
 
-Every module is configured by two parallel objects passed together at construction as `Module(config=..., policy=...)`. Its `config` is the immutable physical, design, and specification reality it is built from — a datum fixed by the process, by the design, or by measurement, reused unchanged across runs. Its `policy` is the per-run set of runtime parameters applied to that reality — chiefly, but not only, which non-idealities to model — free to differ from one run to the next. One fixed config is thus exercised under many runtime stances.
+Every module is configured by two parallel objects passed together at construction as `Module(config=..., policy=...)`. Its `config` is the immutable physical, design, and specification reality it is built from — a datum fixed by the process, by the design, or by measurement, reused unchanged across runs. Its `policy` is the per-run set of runtime parameters applied to that reality — chiefly, but not only, which non-idealities to model — free to differ from one run to the next. One fixed config is thus exercised under many runtime stances. The Source of each config value and the config layer that fixes it are classified in [module_parameter](../conventions/module_parameter.md).
 
 ## Explicit over implicit
 

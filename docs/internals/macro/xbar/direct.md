@@ -2,7 +2,7 @@
 
 ## Summary
 
-`DirectXbarMacro` (`xbar/direct.py`): the no-slice mode. It owns a tile, a weight `Transcoder`, and a contraction-tile `Accumulator`, but no slicer and no shift-adder. Spec: [reference/macro/xbar/direct](../../../reference/macro/xbar/direct.md).
+`DirectXbarMacro` (`xbar/direct.py`): the no-slice mode. It owns a tile, a weight `Transcoder`, and a contraction-tile `Accumulator`, but no slicer and no shift-adder.
 
 ## Design decisions
 
@@ -12,7 +12,7 @@
 ## Contracts & invariants
 
 - **Organized W shape** is `[..., M=1, Tc, Tr, col_num, D, row_num]`; **organized X shape** is `[..., M, Tc, Tr=1, row_num]`. The `Tr=1` placeholder on X lets it broadcast against the W tensor's real `Tr`.
-- **Aggregate** is `vec_mat_mul → Tc accumulate (dim=-3) → flatten (Tr, col_num) → trim to N`. There is no shift-add stage. The returned tensor is pre-requantize int; bias and rescale are the operator's.
+- **Aggregate** is `vec_mat_mul → Tc accumulate (dim=-3) → flatten (Tr, col_num) → trim to N`. There is no shift-add stage. The returned tensor is pre-requantize int; it applies no bias or rescale.
 - **`program` shape gate.** `program(weight)` rejects any shape other than the bound `w_logical_shape`.
 
 ## Performance & resources
@@ -32,4 +32,3 @@ The mode adds only the transcode and the contraction accumulation; the dominant 
 - **Reference**: [direct](../../../reference/macro/xbar/direct.md)
 - **Implementation**: `neurox/macro/xbar/direct.py`
 - **Tests**: `tests/test_xbar_macro.py`
-- **Decisions**: N/A — no ADR governs this module.

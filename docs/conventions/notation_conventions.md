@@ -1,6 +1,6 @@
 # Notation & conventions
 
-The single home of the notation policy — the character whitelist, where a formula lives, and the shared symbol vocabulary. Reference, Internals, and in-code docstrings and comments all follow it; [code_style](code_style.md), [markdown_style](markdown_style.md), and [prose_style](prose_style.md) reference this doc for the permitted character set and never restate it.
+The single home of the notation policy — the character whitelist, where a formula lives, and the shared symbol vocabulary. Reference, Internals, and in-code docstrings and comments all follow it.
 
 Symbols **reused across subsystems** are pinned so one physical quantity keeps one symbol everywhere. Introduce a symbol only when it appears in an equation; a quantity that only labels a structure or count is written by its code field, not a symbol.
 
@@ -31,12 +31,12 @@ Use a symbol only when the count enters an equation; otherwise refer to it by co
 | digits per slice (digit count) | $D$ | `digit_count` | enters the radix fold |
 | digit radix | $r$ | `digit_radix` | enters the radix fold (base of one cell's digit) |
 | slice radix | $R$ | `slice_radix` | enters the radix-weighted shift-add; $R = r^{D}$ (positional ratio between adjacent slices) |
-| weight-slice count | $S_w$ | `w_slice_num` | enters the precision-slicing fold (weight side); config-given, not inferred |
-| activation-slice count | $S_a$ | `x_slice_num` | enters the precision-slicing fold (input side); config-given, not inferred |
+| weight-slice count | $S_w$ | `w_slice_num` | enters the precision-slicing fold (weight side) |
+| activation-slice count | $S_a$ | `x_slice_num` | enters the precision-slicing fold (input side) |
 | output-axis tile count | $T_r$ | — | matrix-tiling axis; rows of the transposed weight, $T_r = \lceil N / N_{\mathrm{col}} \rceil$ |
 | contraction-axis tile count | $T_c$ | — | matrix-tiling axis; $T_c = \lceil K / N_{\mathrm{row}} \rceil$ |
 
-These names pin the symbols for the three value-domain levels — digit, slice, value — whose semantics are defined in [glossary §Value domain and slicing](glossary.md#value-domain-and-slicing). Precision slicing ($S_w$, $S_a$) cuts a value into slices; matrix tiling ($T_r$, $T_c$) is the orthogonal, application-neutral axis that splits any matmul. The per-slice value range is computed from $D$ and $r$ and published by the xbar interface (the authority); the slice counts $S_w$, $S_a$ are config-given.
+These names pin the symbols for the three value-domain levels — digit, slice, value — whose semantics are defined in [glossary §Value domain and slicing](glossary.md#value-domain-and-slicing). Precision slicing ($S_w$, $S_a$) cuts a value into slices; matrix tiling ($T_r$, $T_c$) is the orthogonal, application-neutral axis that splits any matmul. The per-slice value range is computed from $D$ and $r$ and published by the xbar interface (the authority).
 
 The slice radix $R$ is dimensionless and lives in this value-domain table; it is distinct from the resistance $R$ (MOhm) of the electrical table — context (radix fold vs circuit equation) keeps them apart.
 
@@ -54,56 +54,59 @@ Pure structure counts (e.g. slices per group) have no symbol; write the code fie
 | modulo | $a \bmod n$ is the non-negative (Euclidean) residue in $[0, n)$, e.g. $(-1) \bmod 4 = 3$ |
 | named operator | $\operatorname{ADC}(\cdot)$ |
 
+Named operators use `\operatorname{}`; reserve `\mathrm{}` for upright labels and subscripts.
+
 ## Character whitelist
 
-One whitelist governs every layer: Markdown prose, docstrings, and comments share the **same** permitted non-ASCII set. Everything outside it is ASCII, or md-LaTeX for a real formula.
+One whitelist governs every layer — Markdown prose, docstrings, and comments share the **same** permitted non-ASCII set, written as the raw glyph. Inside a real formula a glyph takes its LaTeX form instead (last column, used within `$...$`); everything outside the set is ASCII.
 
-| Category | Permitted |
-|---|---|
-| punctuation | — § |
-| relations / operators | × · ± ≈ ≤ ≥ ≠ |
-| arrows | → ← ↔ |
-| Greek lowercase | α β γ δ ε ζ η θ κ λ μ ν ξ π ρ σ τ υ φ χ ψ ω |
-| Greek capitals (distinct from Latin) | Γ Δ Θ Λ Ξ Π Σ Φ Ψ Ω |
-| superscript powers | ⁰ ¹ ² ³ ⁴ ⁵ ⁶ ⁷ ⁸ ⁹ ⁺ ⁻ ⁿ |
-| partial derivative | ∂ |
+| Permitted | Use | In a formula |
+|---|---|---|
+| — | aside / parenthetical | prose only |
+| § | section reference (`§Parameters`) | prose only |
+| × | multiplication in running text (`5×`, `64×64`, `batch×inst`) | `\times` |
+| · ± ≈ ≤ ≥ ≠ | relation / operator | `\cdot` `\pm` `\approx` `\leq` `\geq` `\neq` |
+| → ← ↔ | flow / mapping / correspondence | `\to` `\gets` `\leftrightarrow` |
+| α β γ … ω | math variable (σ std-dev, μ mean) | `\sigma`, `\mu`, … |
+| Γ Δ Θ Λ Ξ Π Σ Φ Ψ Ω | math variable (Greek capitals distinct from Latin) | `\Delta`, … |
+| ⁰ ¹ ² ³ ⁴ ⁵ ⁶ ⁷ ⁸ ⁹ ⁺ ⁻ ⁿ | power of a math variable (σ²) | `^{2}` |
+| ∂ | partial derivative (∂I/∂V) | `\partial` |
 
-Everything else is ASCII, or md-LaTeX for a real formula; subscripts use ASCII `_`, never a Unicode subscript. A non-whitelisted symbol — $\sum$, $\int$, $\prod$, $\nabla$, $\in$, $\infty$, $\propto$, $\perp$, $\sqrt{\;}$, and every other non-ASCII glyph — appears only inside a real formula, which lives in md-LaTeX.
+A lone whitelisted symbol may stay raw in prose; a symbol that is part of a formula takes the LaTeX form. Subscripts are ASCII `_` in every layer (`σ_k` in a docstring, `\sigma_k` in a formula), never a Unicode subscript. Identifiers stay ASCII regardless — a variable is `sigma` in code, σ in its docstring.
 
-Outside the whitelist's scope entirely, and ASCII everywhere: identifiers and data / protocol string literals, display / log string literals, and physical units with their SI prefixes (`Ohm`, `u`, `uA`, `deg`, `um^2`). Units are user-locked (§Units and naming); the whitelist governs prose and notation, never these.
+A non-whitelisted symbol — $\sum$, $\int$, $\prod$, $\nabla$, $\in$, $\infty$, $\propto$, $\perp$, $\sqrt{\;}$, and every other non-ASCII glyph — appears only inside a real formula, which lives in md-LaTeX.
+
+Outside the whitelist entirely, ASCII everywhere: identifiers, data and protocol string literals, and physical units with their SI prefixes (`Ohm`, `u`, `uA`, `deg`, `um^2`). Units are user-locked (§Units and naming); the whitelist governs prose and notation, never these.
+
+### Same glyph, two roles
+
+One Greek glyph can be a math variable or a physical unit / SI prefix, written differently. As a **math variable** (mean μ, angular frequency ω) it follows the table — raw glyph in docstrings and comments, LaTeX in a formula. As a **physical unit or SI prefix** (ohm, micro) it is the ASCII name everywhere — `MOhm`, `uA`, `um` — never the glyph, never `$\Omega$` or `$\mu\mathrm{A}$`. A raw μ or Ω is therefore always the math variable, never a unit.
+
+## Notation by string class
+
+A string's notation follows who consumes it and whether a renderer sits between the source and that reader.
+
+| Class | The reader sees | Members | Notation |
+|---|---|---|---|
+| Executed as code | a machine parses, compares, or executes it | identifiers (variable/function/class/module/parameter names); dict and set keys; registry and enum keys; data or protocol string literals (config field names, TOML/JSON keys, serialization tags); einsum subscripts; regexes; format-spec placeholders; code and file paths; CLI flag and env-var names | ASCII only |
+| Shown raw to a human | the source text itself, unrendered | inline comments; docstrings; log and `print` output; exception, warning, and assert messages; CLI help; progress text | raw whitelisted unicode; never LaTeX; simple inline notation only |
+| Rendered for a human | a renderer produces the visual | Markdown docs; notebook Markdown cells; any string fed to a LaTeX, HTML, or markup renderer | a formula's symbols use the renderer's LaTeX (`$\sigma$`); units are ASCII |
+
+A class-1 token embedded in a class-2 or class-3 string stays ASCII: an exception message naming a field, a rendered label carrying a config key.
+
+A docstring is class 2. Its primary readers see it raw — `help()`, an IDE tooltip, `__doc__`, the source, a diff — so it carries raw unicode and never LaTeX.
 
 ## Placement — where a formula lives
 
 A complex, multi-term formula lives **only** in a Markdown Reference or Internals doc, written as LaTeX. A docstring or comment carries at most simple inline notation — a lone symbol (σ), a power of a variable (σ²), a short inline expression, an inline derivative (∂I/∂V) — and otherwise points to the md spec. A superscript power is for a math variable (σ², V_BL²); a physical unit raised to a power stays ASCII (`cm^2`, `um^2`). A docstring never hosts a multi-term derivation; it names the quantity and links the equation to its md home.
 
-## Symbols across source layers
-
-Within the prose of a docstring or comment a whitelisted symbol is raw Unicode — σ, μ, τ, ∂, a superscript power — so the source reads as the equation does. Identifiers stay ASCII regardless: a variable is named `sigma` in code and described as σ in its docstring. In Markdown a symbol that is part of a formula goes through LaTeX (`$\sigma$`); a lone whitelisted symbol in prose may stay raw Unicode. [prose_style](prose_style.md) routes all Markdown math through `$...$`.
-
-| Symbol | Docstring / comment | Markdown formula | Rendered |
-|---|---|---|---|
-| σ | `σ` | `$\sigma$` | $\sigma$ |
-| μ | `μ` | `$\mu$` | $\mu$ |
-| β | `β` | `$\beta$` | $\beta$ |
-| Δ | `Δ` | `$\Delta$` | $\Delta$ |
-| ε | `ε` | `$\varepsilon$` | $\varepsilon$ |
-| ∂ | `∂` | `$\partial$` | $\partial$ |
-
-Subscripts stay ASCII in every layer: `σ_k` in docstring prose, `$\sigma_k$` in Markdown math.
-
-### Same glyph, two roles
-
-One Greek glyph can be a math variable or a physical unit / SI prefix, and the two are written differently. As a **math variable** (mean μ, angular frequency ω) it follows the rule above — raw glyph in docstrings and comments, LaTeX in Markdown math. As a **physical unit or SI prefix** (ohm, micro) it is the ASCII name everywhere — `MOhm`, `uA`, `um` — never the glyph, never `$\Omega$` or `$\mu\mathrm{A}$`. The unit set is fixed in §Units and naming.
-
-Locking units to ASCII keeps the roles unambiguous: the micro prefix is always `u` and ohm is always `Ohm`, so a raw μ or Ω in notation can only be the math variable. The ASCII name is the SI-sanctioned spelling and matches the code `__` suffix, naming the unit exactly.
-
 ## Units and naming
 
-Writing numbers and units in prose follows [prose_style](prose_style.md); this section defines the unit set and naming grammar.
+This section defines the unit set and naming grammar.
 
 ### Runtime units (ASCII)
 
-`V`, `uA`, `uS`, `MOhm`, `fF`, `ns`, `K`, `fJ`, `uW`, `um`, `um^2` — matching the code `__` suffixes. The set is closed, self-consistent, and chosen to keep magnitudes inside the well-conditioned range of floating-point arithmetic (the magnitude sweet spot is similar across float types). It is closed under the products that appear in circuit math, so no intermediate needs rescaling: $\mathrm{uA}\cdot\mathrm{V}=\mathrm{uW}$, $\mathrm{uW}\cdot\mathrm{ns}=\mathrm{fJ}$, $\mathrm{fF}\cdot\mathrm{V}^2=\mathrm{fJ}$, $\mathrm{MOhm}\cdot\mathrm{uA}=\mathrm{V}$, $\mathrm{uS}\cdot\mathrm{V}=\mathrm{uA}$. No unit conversion is permitted on any tensor-computation path; every runtime tensor is already in these units.
+`V`, `uA`, `uS`, `MOhm`, `fF`, `ns`, `K`, `fJ`, `uW`, `um`, `um^2` — matching the code `__` suffixes. The set is closed and self-consistent under the products that appear in circuit math, so no intermediate needs rescaling. No unit conversion is permitted on any tensor-computation path; every runtime tensor is already in these units.
 
 ### Config units
 

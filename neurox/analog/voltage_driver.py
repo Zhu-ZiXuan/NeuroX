@@ -21,10 +21,10 @@ class VoltageDriverConfig(CircuitConfig):
         r_out__MOhm: Series output resistance — the constant clamp
             slope ``dVclamp/dI``. ``r_out = 0`` recovers the ideal
             voltage-source limit.
-        offset_sigma__V: Systematic per-instance offset σ on the
-            injected reference sampled at snapshot time (policy-gated).
-        thermal_sigma__V: Per-solve Gaussian thermal σ on the
-            injected reference sampled at snapshot time (policy-gated).
+        offset_sigma__V: σ of the static systematic per-instance offset
+            on the reference.
+        thermal_sigma__V: σ of the per-solve Gaussian thermal noise
+            on the reference.
         area_per_inst__um2: Silicon area per fabricated instance.
         leakage_per_inst__uW: Static leakage per instance; carries
             all static power, including any internal amplifier / bias.
@@ -60,8 +60,9 @@ class VoltageDriverPolicy:
     """Per-source toggles selecting which clamp nonidealities are active.
 
     Attributes:
-        offset: Apply ``offset_sigma__V`` at snapshot time.
-        thermal: Apply ``thermal_sigma__V`` at snapshot time.
+        offset: Apply the static systematic per-instance offset
+            (``offset_sigma__V``).
+        thermal: Apply the per-solve thermal noise (``thermal_sigma__V``).
     """
 
     offset: bool
@@ -120,6 +121,7 @@ class VoltageDriver(CircuitBase[VoltageDriverConfig]):
     """
 
     frozen_r_out__MOhm: Tensor
+    offset__V: Tensor
 
     def __init__(
         self,
@@ -142,9 +144,24 @@ class VoltageDriver(CircuitBase[VoltageDriverConfig]):
             torch.tensor(config.r_out__MOhm, dtype=dtype),
             persistent=False,
         )
+        # Held static systematic per-instance reference offset; zero when the
+        # offset is off.
+        self.register_buffer(
+            "offset__V",
+            torch.zeros(inst_shape, dtype=dtype),
+            persistent=False,
+        )
 
     def _sample_fabricate_mismatch(self) -> None:
-        pass  # offset / thermal are drawn per call at snapshot, not fabricated
+        """Sample the static systematic per-instance offset over ``inst_shape``.
+
+        Additive zero-mean Gaussian with σ ``offset_sigma__V``; ``offset`` off
+        holds a zero offset.
+        """
+        if self.policy.offset:
+            self.offset__V = torch.randn_like(self.offset__V) * self.config.offset_sigma__V
+        else:
+            self.offset__V = torch.zeros_like(self.offset__V)
 
     # --- Snapshot + clamp solve ---
 
@@ -156,6 +173,11 @@ class VoltageDriver(CircuitBase[VoltageDriverConfig]):
         multi_coords: tuple[Tensor, ...] | None,
     ) -> VoltageDriverSnap:
         """Sample one per-call runtime snap over ``shape``.
+
+        Adds the static systematic per-instance offset to the injected
+        reference, then the per-solve thermal fluctuation. The offset shares
+        the per-instance ``inst_shape`` and is broadcast to ``shape`` and
+        chunk-selected by ``multi_coords`` in lockstep with the reference.
 
         Args:
             v_ref__V: Injected reference / zero-current clamp voltage
@@ -171,8 +193,10 @@ class VoltageDriver(CircuitBase[VoltageDriverConfig]):
             Per-call snap of the fabricated state.
         """
         v_view = v_ref__V.expand(shape) if shape else v_ref__V
-        v = v_view if multi_coords is None else v_view[multi_coords]
-        v = apply_gaussian(v.clone(), self.config.offset_sigma__V, enabled=self.policy.offset)
+        v = (v_view if multi_coords is None else v_view[multi_coords]).clone()
+        if self.policy.offset:
+            offset_view = self.offset__V.expand(shape) if shape else self.offset__V
+            v = v + (offset_view if multi_coords is None else offset_view[multi_coords])
         v = apply_gaussian(v, self.config.thermal_sigma__V, enabled=self.policy.thermal)
         return VoltageDriverSnap(v_ref__V=v, r_out__MOhm=self.frozen_r_out__MOhm)
 

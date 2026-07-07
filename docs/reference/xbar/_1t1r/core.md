@@ -1,18 +1,16 @@
-# 1T1R core array (Core1T1R)
+# 1T1R core array
 
 ## Summary
 
-`Core1T1R` is the pure physical 1T1R cell array: it encapsulates and solves the array only and is the **shared infrastructure** that a scheme xbar builds on by hoisting drivers, a boundary reference, and a readout chain above it. The core holds the cell array, the wire parasitics, and the generic solver; it owns no drivers, no DAC, no reference source, and no readout. Each array site is one [cell](cell.md) sub-module — a two-terminal element between a bit-line node and a source-line node whose internal device topology the cell condenses. An array solve takes the analog word-line drive and two boundary clamp drivers supplied by the scheme xbar, lets the array settle to a DC operating point under the interconnect parasitics, and returns the per-line boundary result. This document specifies the array-level physical model, the operating-point equations, and the array energy model; the per-cell branch model is in [cell](cell.md), and the numerical method that solves the array is in [solver](../solver.md).
+`Core1T1R` is the pure physical 1T1R cell array: an array of [cell](cell.md) sites joined by resistive-capacitive interconnect, driven at the word lines and clamped at the bit-line and source-line boundaries. Each array site is one cell — a two-terminal element between a bit-line node and a source-line node whose internal device topology the cell condenses. An array solve takes the analog word-line drive and the two boundary clamp voltages, lets the array settle to a DC operating point under the interconnect parasitics, and yields the per-line boundary result. This document specifies the array-level physical model, the operating-point equations, and the array energy model; the per-cell branch model is in [cell](cell.md), the numerical method that solves the array is in [solver](../solver.md), and the clamp-driver and word-line-drive transfer characteristics — boundary conditions to the array — are in [reference/analog](../../analog/README.md).
 
 ## Physical model
 
-A cell at series position $k$, parallel line $c$ presents a two-terminal branch between its bit-line node $V_{\mathrm{BL},k}$ and source-line node $V_{\mathrm{SL},k}$, gated by the word-line voltage $V_{\mathrm{WL},k}$. The branch current and its two signed terminal conductances come from the [cell](cell.md), which condenses its own internal node; the array model below treats each cell as that condensed element and does not see the internal node. Two boundary clamp drivers — supplied by the scheme xbar, not owned by the core — close the circuit: the BL clamp voltage $V_{\mathrm{BL,CL}}$ held by the BL clamp driver absorbing the line's BL port current, and the SL clamp voltage $V_{\mathrm{SL,CL}}$ from the SL driver. The word line is an input: $V_{\mathrm{WL},k}$ is the analog drive handed in by the xbar (which already ran its WL DAC) and carried into the cell snap.
+A cell at series position $k$, parallel line $c$ presents a two-terminal branch between its bit-line node $V_{\mathrm{BL},k}$ and source-line node $V_{\mathrm{SL},k}$, gated by the word-line voltage $V_{\mathrm{WL},k}$. The branch current and its two signed terminal conductances come from the [cell](cell.md), which condenses its own internal node; the array model below treats each cell as that condensed element and does not see the internal node. Two boundary clamp drivers close the circuit: the BL clamp voltage $V_{\mathrm{BL,CL}}$ held by the BL clamp driver absorbing the line's BL port current, and the SL clamp voltage $V_{\mathrm{SL,CL}}$ from the SL driver. The word line is an input: $V_{\mathrm{WL},k}$ is the analog word-line drive.
 
-Each line is an RC ladder, described per segment by a first driver-to-cell segment and a repeated cell-to-cell segment; IR drop develops along the interconnect-resistance segments, and which lines carry that resistance is resolved by the [solver](../solver.md) rather than pinned to an axis here. The word line is the driven boundary, carries no DC conduction path, and is treated as a single lumped capacitance along the series. The WL lumped capacitance is the first driver-to-cell segment plus the repeated cell-to-cell segments across the physical parallel lines,
+Each line is an RC ladder, described per segment by a first driver-to-cell segment and a repeated cell-to-cell segment; IR drop develops along the resistive interconnect segments of each line. The word line is the driven boundary, carries no DC conduction path, and is treated as a single lumped capacitance along the series. The WL lumped capacitance is the first driver-to-cell segment plus the repeated cell-to-cell segments across the physical parallel lines,
 
-$$C_{\mathrm{WL,row}} = C_{\mathrm{WL,first}} + (N_{\mathrm{line}} - 1)\,C_{\mathrm{WL,seg}},$$
-
-i.e. `c_wl_wire_per_row__fF = wl_first_c + (phys_col_num - 1) * wl_segment_c`.
+$$C_{\mathrm{WL,row}} = C_{\mathrm{WL,first}} + (N_{\mathrm{line}} - 1)\,C_{\mathrm{WL,seg}}.$$
 
 ## Governing equations
 
@@ -28,7 +26,42 @@ $$F_{\mathrm{CL,BL}} = V_{\mathrm{BL,CL}} - \operatorname{driver}_{\mathrm{BL}}\
 
 $$F_{\mathrm{CL,SL}} = V_{\mathrm{SL,CL}} - \operatorname{driver}_{\mathrm{SL}}\!\left(I_{\mathrm{SL,port}}\right) = 0, \qquad I_{\mathrm{SL,port}} = G_{\mathrm{seg},0}\,\left(V_{\mathrm{SL,CL}} - V_{\mathrm{SL},0}\right).$$
 
-The same condensed branch current leaves the BL line ($F_{\mathrm{BL}}$ injects $I_{\mathrm{cell}}$) and enters the SL line ($F_{\mathrm{SL}}$ draws it), so the array sees one current per cell with no internal-node residual. The cell branch $I_{\mathrm{cell}}(\cdot)$ — set by the RRAM conductance $G_{\mathrm{RRAM}}$ in series with the access NMOS — is specified in [cell](cell.md); the boundary functions $\operatorname{driver}_{\mathrm{BL}}(\cdot)$, $\operatorname{driver}_{\mathrm{SL}}(\cdot)$ are the clamp drivers passed in by the scheme xbar, in [reference/analog](../../analog/README.md). The system is solved by damped Newton iteration — see [solver](../solver.md). The core returns the reassembled boundary result — the per-line BL port current $I_{\mathrm{BL,port}}$ and BL clamp voltage $V_{\mathrm{BL,CL}}$ — which the scheme xbar reads out.
+The same condensed branch current leaves the BL line ($F_{\mathrm{BL}}$ injects $I_{\mathrm{cell}}$) and enters the SL line ($F_{\mathrm{SL}}$ draws it), so the array sees one current per cell with no internal-node residual. The cell branch $I_{\mathrm{cell}}(\cdot)$ — set by the RRAM conductance $G_{\mathrm{RRAM}}$ in series with the access NMOS — is specified in [cell](cell.md); the boundary functions $\operatorname{driver}_{\mathrm{BL}}(\cdot)$, $\operatorname{driver}_{\mathrm{SL}}(\cdot)$ are the clamp-driver transfer characteristics in [reference/analog](../../analog/README.md). The operating-point solution yields the per-line BL port current $I_{\mathrm{BL,port}}$ and BL clamp voltage $V_{\mathrm{BL,CL}}$.
+
+## Numerical method
+
+The array operating point is solved by damped Newton iteration: an outer Newton on the clamp pair $(V_{\mathrm{BL,CL}}, V_{\mathrm{SL,CL}})$ wraps an inner coupled block-$2\times2$ wire Newton on $(V_{\mathrm{BL}}, V_{\mathrm{SL}})$ along the series ladder, with each cell condensing its internal node at every step. The formulation, its well-posedness, and the block-tridiagonal linear algebra are specified in [solver](../solver.md).
+
+## Noise & non-idealities
+
+The array owns no static mismatch of its own; non-idealities enter through the cells: per-cell RRAM conductance non-idealities and access-NMOS mismatch, carried inside the condensed branch — see [cell](cell.md). The boundary clamp-driver and word-line-drive non-idealities are properties of those blocks, not of the array.
+
+TODO: once the device/analog Reference documents exist, state exactly which sources couple into the operating point and how (e.g. how RRAM conductance variation perturbs the cell branch current $I_{\mathrm{cell}}$), with the statistical model per [nonideality](../../nonideality.md).
+
+## Parameters
+
+This document's parameters are the interconnect ladder, the WL pulse, and the solver iteration counts; the `cell` sub-module's parameters (state map, RRAM window, access-NMOS sizing / parasitic caps, per-cell Newton count) live in the cell config table `[xbar.core_config.cell_config]`, specified in [cell](cell.md).
+
+| Parameter | Meaning | Unit | Source |
+|---|---|---|---|
+| `cell_config` | 1T1R cell sub-module config (devices, sizing, state map, `n_newton`) | — | see [cell](cell.md) |
+| BL/SL/WL `first_*`, `segment_*` $R_{\mathrm{seg}}$, $C$ | per-line interconnect ladder | MOhm, fF | Extracted |
+| `wl_pulse_length__ns` | WL access duration (drives wire-RC charging energy) | ns | Design |
+| solver iteration counts | numerical settling | — | Calibrated (numerical convergence) |
+
+Provenance terms are defined in [module_parameter](../../../conventions/module_parameter.md). How to obtain values for a new chip: [calibration guide](../../../guides/calibration/README.md); file-level schema: [config reference](../../../api/README.md). The cell's cross-field validation constraints (conductance map vs RRAM window vs device floor) are stated in [cell](cell.md).
+
+## Energy model
+
+Per VMM the array dissipates wire-capacitor, control-line, DC-conduction, and device-capacitor energy. The **device-capacitor** term — the RRAM-electrode and access-NMOS capacitances internal to each cell — is a per-cell contribution ([cell](cell.md)) summed over the array; the wire-capacitor, control-line, and DC-conduction terms are array-level. The model assumes a full $0 \to \mathrm{DC} \to 0$ charge cycle per parasitic capacitor over one WL pulse. A grounded cap dissipates $E = C\,V_{\mathrm{final}}^2$ and a coupled cap $E = C\,(V_a - V_b)^2$ (no extra factor of two). The array-level terms are the BL/SL wire caps and the WL-line cap; the BL/SL wire-cap energy uses a per-segment linear-voltage profile,
+
+$$E_{\mathrm{wire}} = C\,\frac{V_L^2 + V_L V_R + V_R^2}{3},$$
+
+where $V_L, V_R$ are the segment-endpoint voltages. DC conduction energy is the net supply power into the boundaries over the WL pulse, using the first-segment port currents $I_{\mathrm{BL,port}}$, $I_{\mathrm{SL,port}}$ defined above,
+
+$$E_{\mathrm{DC}} = t_{\mathrm{WL}}\left(\sum_c V_{\mathrm{BL,CL}}\,I_{\mathrm{BL,port}} + \sum_c V_{\mathrm{SL,CL}}\,I_{\mathrm{SL,port}}\right).$$
+
+By Tellegen's theorem $E_{\mathrm{DC}}$ equals the sum of the cell-branch and BL/SL wire-resistor Joule losses inside the array.
 
 ## Symbols
 
@@ -57,37 +90,6 @@ The same condensed branch current leaves the BL line ($F_{\mathrm{BL}}$ injects 
 | $N_{\mathrm{series}}$ | number of cells along a line (series axis) | — | `row_num` |
 | $N_{\mathrm{line}}$ | number of physical parallel lines | — | `phys_col_num` |
 
-## Energy model
-
-Per VMM the array dissipates wire-capacitor, control-line, DC-conduction, and device-capacitor energy. The **device-capacitor** term — the RRAM-electrode and access-NMOS capacitances internal to each cell — is owned by the [cell](cell.md) and summed over the array; the core owns the rest. The model assumes a full $0 \to \mathrm{DC} \to 0$ charge cycle per parasitic capacitor over one WL pulse. A grounded cap dissipates $E = C\,V_{\mathrm{final}}^2$ and a coupled cap $E = C\,(V_a - V_b)^2$ (no extra factor of two). BL/SL wire caps and the WL-line cap are the core's; BL/SL wire caps use a per-segment linear-voltage profile,
-
-$$E_{\mathrm{wire}} = C\,\frac{V_L^2 + V_L V_R + V_R^2}{3},$$
-
-where $V_L, V_R$ are the segment-endpoint voltages. DC conduction energy is the net supply power into the boundaries over the WL pulse, using the first-segment port currents $I_{\mathrm{BL,port}}$, $I_{\mathrm{SL,port}}$ defined above,
-
-$$E_{\mathrm{DC}} = t_{\mathrm{WL}}\left(\sum_c V_{\mathrm{BL,CL}}\,I_{\mathrm{BL,port}} + \sum_c V_{\mathrm{SL,CL}}\,I_{\mathrm{SL,port}}\right).$$
-
-By Tellegen's theorem $E_{\mathrm{DC}}$ equals the sum of the cell-branch and BL/SL wire-resistor Joule losses inside the array. The driver, DAC, and readout energies are not the core's — each scheme-xbar peer self-logs its own.
-
-## Noise & non-idealities
-
-The array owns no static mismatch; non-idealities enter through its children, each gated by a policy switch: per-cell RRAM conductance non-idealities and access-NMOS mismatch, carried inside the condensed branch — see [cell](cell.md). The boundary clamp-driver and WL DAC non-idealities belong to the scheme xbar that owns those peers, not to the core.
-
-TODO: once the device/analog Reference documents exist, state exactly which sources couple into the operating point and how (e.g. how RRAM conductance variation perturbs the cell branch current $I_{\mathrm{cell}}$), with the statistical model per [nonideality](../../nonideality.md).
-
-## Parameters
-
-The core owns a `cell` sub-module whose parameters (state map, RRAM window, access-NMOS sizing / parasitic caps, per-cell Newton count) live in the cell config table `[xbar.core_config.cell_config]` and are specified in [cell](cell.md); the core itself owns the interconnect ladder, WL pulse, and solver knobs.
-
-| Parameter | Meaning | Unit | Source |
-|---|---|---|---|
-| `cell_config` | 1T1R cell sub-module config (devices, sizing, state map, `n_newton`) | — | see [cell](cell.md) |
-| BL/SL/WL `first_*`, `segment_*` $R_{\mathrm{seg}}$, $C$ | per-line interconnect ladder | MOhm, fF | Extracted |
-| `wl_pulse_length__ns` | WL access duration (drives wire-RC charging energy) | ns | Design |
-| solver iteration counts | numerical settling | — | Calibrated (numerical convergence) |
-
-Provenance terms are defined in [module_parameter](../../../conventions/module_parameter.md). How to obtain values for a new chip: [calibration guide](../../../guides/calibration/README.md); file-level schema: [config reference](../../../api/README.md). The cell's cross-field validation constraints (conductance map vs RRAM window vs device floor) are stated in [cell](cell.md).
-
 ## Assumptions, scope & validity
 
 Stated assumptions of the current model:
@@ -109,7 +111,6 @@ TODO: cite the RRAM and access-NMOS current models, the wire-ladder formulation,
 
 ---
 
-- **Internals**: [Core1T1R internals](../../../internals/xbar/_1t1r/core.md)
+- **Internals**: [core internals](../../../internals/xbar/_1t1r/core.md)
 - **Validation**: TODO — `validation/xbar` (not yet written)
 - **Configuration**: [config reference](../../../api/README.md) (`[xbar.core_config]`; cell devices / sizing / state map under `[xbar.core_config.cell_config]`)
-- **Decisions**: [ADR-0004 clamp-driver role and the topology-agnostic array solver](../../../about/adr/ADR-0004-clamp-driver-protocol-and-generic-solver.md), [ADR-0003 pluggable xbar cell and the single nested solver](../../../about/adr/ADR-0003-xbar-cell-abstraction-and-single-nested-solver.md)

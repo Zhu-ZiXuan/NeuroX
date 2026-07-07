@@ -31,7 +31,7 @@ class OpAmpTIAConfig(TIAConfig):
             ``tanh`` output-rail limiter.
         n_newton: Step-damped Newton iterations in the closed-loop solve.
             Compile-time constant; pick via
-            ``neurox.tools.solver_calibrate.tia`` against the target
+            ``solver_calibrate.tia`` against the target
             workload.
 
     The Newton damping cap and the Jacobian-floor safety clamp are
@@ -105,7 +105,7 @@ class OpAmpTIADCOP:
         dVout_dI__MOhm: ``∂v_out / ∂i_port``.
         residual__uA: ``|I_nmos(v_clamp) - i_port|`` at the final
             iterate. Consumed by
-            ``neurox.tools.solver_calibrate.tia`` to drive plateau
+            ``solver_calibrate.tia`` to drive plateau
             detection over ``n_newton``.
     """
 
@@ -332,7 +332,7 @@ class OpAmpTIA(TIA[OpAmpTIASnap]):
         dVclamp_dI__MOhm = 1.0 / df_dVclamp_final
         dVout_dI__MOhm = dvout_dvclamp * dVclamp_dI__MOhm
 
-        # Per-iterate KCL residual ``|NMOS Ids - i_port|`` returned for
+        # Final-iterate KCL residual ``|NMOS Ids - i_port|`` returned for
         # ``solver_calibrate.tia`` to consume.
         residual__uA = (nmos_dc_final.ids__uA - i_port__uA).abs()
 

@@ -19,8 +19,8 @@ class AccumulatorConfig(CircuitConfig):
     """Immutable configuration for an Accumulator instance.
 
     Attributes:
-        bit_width: Signed output bit width; result is clamped to
-            ``[-2^(bw-1), 2^(bw-1) - 1]`` via modular wrap.
+        bit_width: Signed output bit width; result wraps modulo ``2^bit_width``
+            into ``[-2^(bw-1), 2^(bw-1) - 1]``.
         energy_per_op__fJ: Dynamic energy consumed per output element.
         latency_per_op__ns: Per-output-element latency; multiplied
             by the runtime serial-op count at logging time.

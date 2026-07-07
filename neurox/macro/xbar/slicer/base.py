@@ -18,7 +18,7 @@ class Slicer(ABC):
     trailing-2 axes ``[slice_num, digit_count]``. Concrete subclasses bind
     to a specific xbar-cell geometry through their own constructor; only
     the externally observable surface — ``value_range``, ``slice_radix``,
-    and ``slice(x)`` — is declared here.
+    ``slice_weights``, and ``slice(x)`` — is declared here.
     """
 
     @property

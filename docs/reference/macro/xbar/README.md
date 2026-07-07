@@ -7,4 +7,4 @@ The macro family that organizes [crossbar tiles](../../xbar/README.md): it decom
 - [intra_array_slice](intra_array_slice.md) — weight slices gathered into adjacent columns of one tile, recombined by intra-tile shift-add.
 - [ideal](ideal.md) — the lossless integer-matmul twin: no tile, the value-domain reference any physical mode is compared against.
 
-The abstract contract these share — the tiling scheme, the value domain, and the ADC surface — is in [macro/base](../base.md).
+The abstract contract these share — the tiling scheme, the value domain, and the ADC surface — is in macro/base.

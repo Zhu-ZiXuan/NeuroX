@@ -36,9 +36,9 @@ def add_standard_args(
 
     All tools take ``--config`` and ``--log-level``. ``--device`` is
     opt-in (default ``True``): pass ``device=False`` for tools that run
-    in fixed precision on CPU (e.g. ``calculate_1t1r_states``) so the
-    CLI surface does not expose a knob the tool would silently ignore.
-    Output flags are opt-in via keyword arguments.
+    in fixed precision on CPU so the CLI surface does not expose a knob
+    the tool would silently ignore. Output flags are opt-in via keyword
+    arguments.
 
     Args:
         parser: The argparse parser to add flags to.

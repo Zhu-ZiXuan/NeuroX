@@ -2,7 +2,7 @@
 
 ## Summary
 
-`RRAM` models one resistive-memory cell array: a two-terminal device whose programmed conductance is the analog weight a crossbar multiplies against. It sits at the bottom of the device→circuit→architecture stack as a storage and current-source primitive, conducting between its top electrode (BL side) and its bottom electrode (internal-node side) and exposing its read I-V and the local differential conductance to a consuming circuit. This document specifies the conductance value domain, the current-voltage law, the programming write model, and the programming-time and read-time non-ideality stack. The cell carries no array geometry, encoding, or readout — those belong to the consuming circuit.
+`RRAM` models one resistive-memory cell array: a two-terminal device whose programmed conductance is the analog weight in an analog vector-matrix multiply. It sits at the bottom of the device→circuit→architecture stack as a storage and current-source primitive, conducting between its top electrode (BL side) and its bottom electrode (internal-node side) and exposing its read I-V and the local differential conductance to a consuming circuit. This document specifies the conductance value domain, the current-voltage law, the programming write model, and the programming-time and read-time non-ideality stack. The cell carries no array geometry, encoding, or readout — those belong to the consuming circuit.
 
 ## Physical model
 
@@ -11,7 +11,7 @@ The device is abstracted as a programmable conductor with a single state variabl
 - a **programming** surface (a write) that drives the stored conductance toward a target value, subject to programming variation, conductance drift over the elapsed retention time, and stuck-at faults;
 - a **read** surface that, at VMM time, draws current from the present stored conductance under telegraph and thermal read noise.
 
-The conduction itself is taken as instantaneous and quasi-static: a read returns the DC current at the applied terminal voltage with no transient switching dynamics within the read. The per-cell electrode parasitic capacitances ($C_{\mathrm{top}}$ on the BL side, $C_{\mathrm{bot}}$ on the internal-node side) are exported for the consuming circuit's energy model and do not enter the conduction law.
+The conduction itself is taken as instantaneous and quasi-static: a read returns the DC current at the applied terminal voltage with no transient switching dynamics within the read. The per-cell electrode parasitic capacitances ($C_{\mathrm{top}}$ on the BL side, $C_{\mathrm{bot}}$ on the internal-node side) bear on the cell's dynamic energy but do not enter the conduction law.
 
 ## Governing equations
 
@@ -39,12 +39,12 @@ N/A — the read I-V and its derivative are evaluated in closed form; the cell h
 
 ## Noise & non-idealities
 
-Each source is independently switched by a per-run policy flag; with the flag off the source is the identity map. The statistical forms below are the device-level kernels; the shared parameterization convention is in [nonideality](../nonideality.md).
+The statistical forms below are the device-level kernels; the shared parameterization convention is in [nonideality](../nonideality.md).
 
-- **Programming variation** (`prog_gamma`, program time) — a multiplicative Gamma perturbation, normalized to unit mean, whose shape parameter $k$ depends on the normalized conductance state $\hat G = (G - G_{\mathrm{lo}})/(G_{\mathrm{hi}} - G_{\mathrm{lo}})$: $k(\hat G) = \max(k_{\mathrm{slope}}\,\hat G + k_{\mathrm{int}},\,0.1)$ at fixed scale $\theta$. The normalization bounds $G_{\mathrm{lo}}, G_{\mathrm{hi}}$ are the `prog_gamma` config's own `min_val`/`max_val` and are independent of the device working-range bounds $G_{\min}, G_{\max}$ (they coincide only when a preset sets them equal). The applied gain is $\gamma/\mathbb{E}[\gamma]$ with $\gamma \sim \operatorname{Gamma}(k,\theta)$, so the perturbation preserves the mean conductance and only injects state-dependent spread.
+- **Programming variation** (`prog_gamma`, program time) — a multiplicative Gamma perturbation, normalized to unit mean, whose shape parameter $k$ depends on the normalized conductance state $\hat G = (G - G_{\mathrm{lo}})/(G_{\mathrm{hi}} - G_{\mathrm{lo}})$: $k(\hat G) = \max(k_{\mathrm{slope}}\,\hat G + k_{\mathrm{int}},\,0.1)$ at fixed scale $\theta$. The normalization bounds $G_{\mathrm{lo}}, G_{\mathrm{hi}}$ belong to the programming-variation model and are independent of the device working-range bounds $G_{\min}, G_{\max}$. The applied gain is $\gamma/\mathbb{E}[\gamma]$ with $\gamma \sim \operatorname{Gamma}(k,\theta)$, so the perturbation preserves the mean conductance and only injects state-dependent spread.
 - **Stuck-at fault** (`stuck_at`, program time) — each cell is independently forced to $G_{\min}$ with probability $p_{\min}$ or to $G_{\max}$ with probability $p_{\max}$ (requiring $p_{\min}+p_{\max}<1$), else left unchanged.
-- **Conductance drift** (program time) — the power-law gain $d(t)$ above; always applied when $\nu>0$ and $t>t_0$ (governed by the device parameters, not a policy flag).
-- **Telegraph read noise** (`read_telegraph`, read time) — random telegraph noise added per read snapshot: a cell is in the active state with probability $p_{\mathrm{high}}$, and when active receives an additive perturbation of random sign and Gaussian-distributed amplitude (mean $\mu_a$, std $\sigma_a$).
+- **Conductance drift** (program time) — the power-law gain $d(t)$ above, applied when $\nu>0$ and $t>t_0$.
+- **Telegraph read noise** (`read_telegraph`, read time) — random telegraph noise sampled on each read: a cell is in the active state with probability $p_{\mathrm{high}}$, and when active receives an additive perturbation of random sign and Gaussian-distributed amplitude (mean $\mu_a$, std $\sigma_a$).
 - **Thermal read noise** (`read_thermal`, read time) — additive zero-mean Gaussian noise of std $\sigma_{\mathrm{th}}$ on the read conductance.
 
 After the read-time sources, the snap conductance is re-clamped to $[G_{\min}, G_{\max}]$.
@@ -116,4 +116,3 @@ TODO: cite the hyperbolic-sine RRAM I-V model, the power-law conductance-drift m
 - **Internals**: [rram internals](../../internals/device/rram.md)
 - **Validation**: TODO — `validation/device` (not yet written)
 - **Configuration**: `api` (`RRAMConfig`, `RRAMPolicy`)
-- **Decisions**: N/A — no ADR governs this device.

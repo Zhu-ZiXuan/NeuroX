@@ -66,7 +66,7 @@ class CurrentMuxConfig(CircuitConfig):
 
 @dataclass(frozen=True)
 class CurrentMuxPolicy:
-    """Abstract marker for CurrentMux nonideality policy — no sources yet."""
+    """Abstract marker for CurrentMux nonideality policy — no sources."""
 
 
 class CurrentMux(CircuitBase[CurrentMuxConfig]):

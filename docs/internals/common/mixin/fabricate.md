@@ -12,15 +12,13 @@
 - **Non-`FabricateMixin` children are skipped silently, by design.** Auxiliary `nn.Module` attributes (helpers, `nn.Parameter` holders) coexist in the same tree without participating in or being broken by fabrication, and without any opt-out flag.
 - **`_inst_shape` is a host responsibility, declared as a class annotation.** The mixin reads but never assigns it; committing the per-instance multiplicity belongs to the host `__init__`, keeping the mixin shape-agnostic.
 - **Repeated `fabricate()` calls do not accumulate.** Each call resamples from the host's unchanged nominal template, so the result depends only on the nominal buffers and the RNG draw, never on prior calls.
-- **Sampling draws from nondeterministic RNG.** It conflicts with `torch.use_deterministic_algorithms(True)`, and under data-parallel execution each rank draws its own realization with no cross-rank synchronization.
 
 ## Composition
 
-The mixin declares no `__init__` and overrides no `nn.Module` method, so it imposes no constructor-chaining order and composes with `nn.Module` and any sibling mixin freely. Within the physical-state lifecycle it runs after `__init__`, before inference, and in either order with `program(...)` — the two write independent state (see [physical_state](../../physical_state.md)).
+The mixin declares no `__init__` and overrides no `nn.Module` method, so it imposes no constructor-chaining order and composes with `nn.Module` and any sibling mixin freely. Within the physical-state lifecycle it runs after `__init__`, before inference, and in either order with `program(...)` (see [physical_state](../../physical_state.md)).
 
 ---
 
 - **Reference**: N/A — software mechanism
 - **Implementation**: `neurox/common/mixin/fabricate.py`
-- **Tests**: `tests/test_signal_chain.py`, `tests/test_xbar_macro.py`
-- **Decisions**: N/A — no ADR governs this mixin; the lifecycle it belongs to is described in [physical_state](../../physical_state.md)
+- **Tests**: `tests/test_signal_chain.py`, `tests/test_reference_sources.py`

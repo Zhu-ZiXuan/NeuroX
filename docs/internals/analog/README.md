@@ -1,6 +1,6 @@
 # Analog
 
-How the analog circuit layer is built. The spec is in [reference/analog](../../reference/analog/README.md); this side covers only what the code cannot tell you.
+How the analog circuit layer is built. This side covers only what the code cannot tell you.
 
 - [voltage_driver](voltage_driver.md) — the generic Thevenin clamp, its `ClampDriver` conformance without inheritance, and why it owns no conduction energy.
 - [voltage_mux](voltage_mux.md) — the differential voltage-transport leaf.

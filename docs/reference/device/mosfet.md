@@ -2,7 +2,7 @@
 
 ## Summary
 
-`MOSFET` is a pure electrical primitive: a continuous, three-terminal current-voltage model of a metal-oxide-semiconductor field-effect transistor, polarity-parameterized into an n-channel `NMOS` (polarity $p=+1$) and a p-channel `PMOS` (polarity $p=-1$) specialization that share one model core. In the device→circuit→architecture stack it sits at the bottom as a gate-drain-source primitive, exposing its I-V law and the three node partials $\partial I_{\mathrm{ds}}/\partial\{V_g,V_d,V_s\}$ to a consuming circuit. It owns the electrical law, the temperature scaling, and the mismatch sampling of its threshold voltage and transconductance factor; it does **not** own layout-dependent lumped parasitic capacitances, which belong to the circuit that places the transistor.
+`MOSFET` is a pure electrical primitive: a continuous, three-terminal current-voltage model of a metal-oxide-semiconductor field-effect transistor, polarity-parameterized into an n-channel `NMOS` (polarity $p=+1$) and a p-channel `PMOS` (polarity $p=-1$) specialization that share one model core. In the device→circuit→architecture stack it sits at the bottom as a gate-drain-source primitive, exposing its I-V law and the three node partials $\partial I_{\mathrm{ds}}/\partial\{V_g,V_d,V_s\}$ to a consuming circuit. It models the electrical law, its temperature scaling, and the fabrication mismatch of its threshold voltage and transconductance factor; it does **not** model layout-dependent lumped parasitic capacitances, which belong to the circuit that places the transistor.
 
 ## Physical model
 
@@ -14,9 +14,9 @@ The threshold sign is set by the device's enhancement / depletion flavor, not by
 
 **Temperature scaling.** With reference temperature $T_{\mathrm{ref}}$, the mobility follows the BSIM UTE power law and the threshold a linear shift, giving the nominal transconductance factor and threshold:
 
-$$\beta_{\mathrm{nom}} = \mu_0\left(\frac{T}{T_{\mathrm{ref}}}\right)^{u_{\mathrm{te}}} C_{\mathrm{ox}}\,\frac{W}{L}, \qquad V_{\mathrm{th,nom}} = V_{\mathrm{th0}} + k_{t1}\left(\frac{T}{T_{\mathrm{ref}}}-1\right).$$
+$$\beta_{\mathrm{nom}} = \mu_0\left(\frac{T}{T_{\mathrm{ref}}}\right)^{-u_{\mathrm{te}}} C_{\mathrm{ox}}\,\frac{W}{L}, \qquad V_{\mathrm{th,nom}} = V_{\mathrm{th0}} + k_{t1}\left(\frac{T}{T_{\mathrm{ref}}}-1\right).$$
 
-The exponent $u_{\mathrm{te}}$ is the SPICE/BSIM `UTE` parameter one-to-one (negative by convention, e.g. $-1.5$), so mobility falls with temperature. $\beta_{\mathrm{nom}}$ is a positive magnitude for both polarities.
+The exponent $u_{\mathrm{te}}$ is the positive magnitude of the SPICE/BSIM `UTE` mobility temperature parameter (e.g. $1.5$); applied as $-u_{\mathrm{te}}$, mobility falls with temperature. $\beta_{\mathrm{nom}}$ is a positive magnitude for both polarities.
 
 **I-V law.** With polarity $p\in\{+1,-1\}$ and the polarity-scaled source- and drain-referred overdrives $V_{\mathrm{ov,s}} = p\,(V_g - V_s - V_{\mathrm{th}})$ and $V_{\mathrm{ov,d}} = p\,(V_g - V_d - V_{\mathrm{th}})$, define the softplus-smoothed effective overdrives and their sigmoid derivatives at smoothing scale $\lambda = 1/(2 n V_T)$:
 
@@ -38,12 +38,12 @@ N/A — the I-V surface and its three partials are evaluated in closed form; the
 
 ## Noise & non-idealities
 
-Fabrication mismatch is Pelgrom-law area-scaled Gaussian noise sampled once per `fabricate()` call onto the per-instance threshold and transconductance maps. Each source is switched by a per-run policy flag (identity map when off):
+Fabrication mismatch is Pelgrom-law area-scaled Gaussian noise on the per-instance threshold and transconductance maps.
 
 - **$V_{\mathrm{th}}$ mismatch** (`A_vt_mismatch`, fabricate time) — additive Gaussian on $V_{\mathrm{th,nom}}$ with sigma $\sigma_{V_{\mathrm{th}}} = A_{V_{\mathrm{th}}}\cdot 10^{-3}/\sqrt{W L}$ (the $10^{-3}$ converts the mV-um matching coefficient to V).
 - **$\beta$ mismatch** (`A_beta_mismatch`, fabricate time) — additive Gaussian on $\beta_{\mathrm{nom}}$ with relative sigma $\sigma_\beta/\beta = A_\beta/\sqrt{W L}$; since $\beta_{\mathrm{nom}}$ is a positive magnitude, $\sigma_\beta$ is positive directly.
 
-$A_{V_{\mathrm{th}}}$ and $A_\beta$ are the standard Pelgrom area-matching coefficients: both sigma values scale as $1/\sqrt{W L}$, so larger devices match better. They are static device-to-device variation, not per-read noise.
+$A_{V_{\mathrm{th}}}$ and $A_\beta$ are the standard Pelgrom area-matching coefficients: both sigma values scale as $1/\sqrt{W L}$, so larger devices match better; the shared area-scaled mismatch law is in [nonideality](../nonideality.md). They are static device-to-device variation, not per-read noise.
 
 ## Parameters
 
@@ -61,7 +61,7 @@ $A_{V_{\mathrm{th}}}$ and $A_\beta$ are the standard Pelgrom area-matching coeff
 | `W__um` | channel width $W$ (init kwarg) | um | Design |
 | `L__um` | channel length $L$ (init kwarg) | um | Design |
 
-The channel polarity $p$ is a class attribute of the concrete `NMOS` / `PMOS` device, not a config field. Provenance terms are defined in [module_parameter](../../conventions/module_parameter.md). The thermal voltage $V_T = k_B T / q$ is derived from the constants $k_B$, $q$ (see [notation_conventions](../../conventions/notation_conventions.md#physical-constants)). File-level schema: `api`.
+The channel polarity $p$ is fixed by device type ($+1$ n-channel, $-1$ p-channel), not a tunable parameter, so it is not listed above. Provenance terms are defined in [module_parameter](../../conventions/module_parameter.md). The thermal voltage $V_T = k_B T / q$ is derived from the constants $k_B$, $q$ (see [notation_conventions](../../conventions/notation_conventions.md#physical-constants)). File-level schema: `api`.
 
 ## Symbols
 
@@ -71,7 +71,7 @@ The channel polarity $p$ is a class attribute of the concrete `NMOS` / `PMOS` de
 | $\partial I_{\mathrm{ds}}/\partial V_g$ | gate transconductance $g_m$ | uS | `MOSFETDCOP.did_dvg__uS` |
 | $\partial I_{\mathrm{ds}}/\partial V_d$ | drain conductance ($\ge 0$) | uS | `MOSFETDCOP.did_dvd__uS` |
 | $\partial I_{\mathrm{ds}}/\partial V_s$ | source conductance ($\le 0$) | uS | `MOSFETDCOP.did_dvs__uS` |
-| $p$ | channel polarity (+1 n-channel, -1 p-channel) | — | `polarity` (class attribute) |
+| $p$ | channel polarity (+1 n-channel, -1 p-channel) | — | `polarity` |
 | $V_g, V_d, V_s$ | gate, drain, source voltages (runtime inputs) | V | `vg__V`, `vd__V`, `vs__V` |
 | $V_{\mathrm{ov,s}}, V_{\mathrm{ov,d}}$ | polarity-scaled source-, drain-referred overdrive | V | — |
 | $v_s, v_d$ | softplus-smoothed effective overdrives | V | `v_eff_s`, `v_eff_d` |
@@ -96,7 +96,7 @@ Stated assumptions of the current model:
 
 - A single smooth EKV-softplus surface spans subthreshold and above-threshold operation; no separate region piecing.
 - The square-law corner is softened by a softplus whose scale tracks $n V_T$; the model is exact only in the sharp-corner limit and smooths the transition otherwise.
-- Polarity is a discrete $\pm 1$ class attribute; the same model core serves both channel types, with the threshold sign carried separately by $V_{\mathrm{th0}}$.
+- Polarity is a discrete $\pm 1$ selector distinguishing the two channel types; one model core serves both, with the threshold sign and any n/p process asymmetry carried by each device's own $V_{\mathrm{th0}}$ and process values rather than modeled intrinsically.
 - Mobility scales as a power law in temperature and $V_{\mathrm{th}}$ shifts linearly; higher-order temperature effects are not modeled.
 - Mismatch is static (sampled at fabricate time) and Pelgrom area-scaled; no per-read electrical noise (e.g. flicker, thermal channel noise) is modeled at this level.
 - Layout-dependent parasitic capacitances are out of scope and are held by the consuming circuit.
@@ -116,4 +116,3 @@ TODO: cite the EKV transistor model and the Pelgrom mismatch law.
 - **Internals**: [mosfet internals](../../internals/device/mosfet.md)
 - **Validation**: TODO — `validation/device` (not yet written)
 - **Configuration**: `api` (`MOSFETConfig`, `MOSFETPolicy`)
-- **Decisions**: [ADR-0002 NMOS is a pure electrical primitive](../../about/adr/ADR-0002-nmos-is-a-pure-electrical-primitive.md), [ADR-0005 MOSFET is a polarity-parameterized electrical primitive](../../about/adr/ADR-0005-mosfet-is-a-polarity-parameterized-electrical-primitive.md)

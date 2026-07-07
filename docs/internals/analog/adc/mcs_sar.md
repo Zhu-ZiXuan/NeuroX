@@ -2,11 +2,11 @@
 
 ## Summary
 
-`McsSarAdc` (`adc/mcs_sar.py`) is the production multi-mode SAR ADC: differential merged-capacitor switching with fabricated cap-mismatch and comparator-offset state. Spec: [reference/analog/adc/mcs_sar](../../../reference/analog/adc/mcs_sar.md).
+`McsSarAdc` (`adc/mcs_sar.py`) is the production multi-mode SAR ADC: differential merged-capacitor switching with fabricated cap-mismatch and comparator-offset state.
 
 ## Design decisions
 
-- **Zero code computed per call, not cached.** Under multi-mode operation `bits` is a per-call runtime parameter, so the zero code `2**(bits-1)` is computed inline in `convert` after the unsigned clamp; there is no per-instance cache (the opposite of [general](general.md), whose width is fixed).
+- **Zero code computed per call, not cached.** Under multi-mode operation `bits` is a per-call runtime parameter, so the zero code `2**(bits-1)` is computed inline in `convert` after the unsigned clamp; there is no per-instance cache (the opposite of general, whose width is fixed).
 - **One instance covers the full envelope.** Every per-cell term scales with the runtime `mode` (selecting an injected reference tap) and `bits` (active SAR depth), so a single fabricated instance serves all operating points; `bits < max_bits` simply leaves the smaller caps idle. No per-mode instance is constructed.
 - **The `mode` bound is checked against the injected tensor.** Because the reference ladder is injected per call, `_validate_runtime_args` keeps only the `bits` bound (config-knowable) and the `0 <= mode < v_refs__V.shape[-1]` check lives in `convert`, where the injected tensor is in hand.
 - **No `latency_per_op__ns` field.** Per-op latency is `(adc_operation_point.adc_bits + 1) * clk_period__ns`, derived in `convert` from the runtime op point and emitted through the profiler latency side channel alongside the per-conversion energy - the SAR latency genuinely depends on the runtime depth, so a static field would be wrong.
@@ -26,6 +26,7 @@ The SAR loop is `bits` sequential decision cycles. To keep the unrolled compiled
 ## Gotchas
 
 - **`bits < max_bits` leaves caps idle, it does not rescale them.** The loop engages only the top `bits - 1` caps; the smaller caps contribute no switching energy. Treating a reduced-depth conversion as a full-depth one with scaled caps would mis-account energy.
+- **Training-mode LSB jitter makes `convert` non-deterministic.** After the SAR loop the code passes through `apply_lsb_jitter(..., enabled=self.training)` — a Bernoulli(0.5) +0/+1 LSB stochastic-rounding fallback gated by `nn.Module.training`, not a policy flag. Left at the default `training=True`, the output is per-call random even under an all-off policy; call `.eval()` for deterministic, chunk-bit-exact codes.
 
 ## Known limitations
 
@@ -36,4 +37,3 @@ The SAR loop is `bits` sequential decision cycles. To keep the unrolled compiled
 - **Reference**: [mcs_sar](../../../reference/analog/adc/mcs_sar.md)
 - **Implementation**: `neurox/analog/adc/mcs_sar.py`, `neurox/analog/adc/_multimode.py`
 - **Tests**: TODO - name the guarding test
-- **Decisions**: N/A — no ADR governs this module.

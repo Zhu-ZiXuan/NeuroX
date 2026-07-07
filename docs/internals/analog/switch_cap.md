@@ -2,7 +2,7 @@
 
 ## Summary
 
-`SwitchCap` (`switch_cap.py`) is the bottom-plate-sampled charge-share capacitor bank: a fixed set of weighted unit caps that passively average their sampled voltages. Spec: [reference/analog/switch_cap](../../reference/analog/switch_cap.md).
+`SwitchCap` (`switch_cap.py`) is the bottom-plate-sampled charge-share capacitor bank: a fixed set of weighted unit caps that passively average their sampled voltages.
 
 ## Design decisions
 
@@ -12,8 +12,8 @@
 
 ## Contracts & invariants
 
-- **`cap_weights: tuple[float, ...]`**, length `n_caps`, all positive; tensor construction happens once inside `__init__` (the nominal cap-array buffer `nominal_c__fF = c_unit__fF * cap_weights`). Callers pass a Python tuple, not a tensor.
-- **Fabricate reassigns, not re-registers.** `_sample_fabricate_mismatch` clone-expands `nominal_c__fF` to `(*inst_shape, n_caps)` and applies Pelgrom-scaled static mismatch (gated by `policy.cap_mismatch`) by attribute reassignment, not a fresh `register_buffer`.
+- **`cap_weights: tuple[float, ...]`**, length `n_caps`, all positive; tensor construction happens once inside `__init__` — the nominal cap-array buffer `nominal_c__fF = c_unit__fF * cap_weights` and its live per-instance copy `c__fF`. Callers pass a Python tuple, not a tensor.
+- **Fabricate reassigns, not re-registers.** `_sample_fabricate_mismatch` clone-expands `nominal_c__fF` to `(*inst_shape, n_caps)`, applies Pelgrom-scaled static mismatch (gated by `policy.cap_mismatch`), and writes the result into `c__fF` by attribute reassignment, not a fresh `register_buffer`.
 - **Two policy switches.** `cap_mismatch` (static, at fabricate) and `sampling_thermal_noise` (dynamic kT/C, at sample) are independent.
 
 ## Performance & resources
@@ -33,4 +33,3 @@ N/A - the charge-share kernel is a per-call reduction off the memory- and compil
 - **Reference**: [switch_cap](../../reference/analog/switch_cap.md)
 - **Implementation**: `neurox/analog/switch_cap.py`
 - **Tests**: TODO - name the guarding test
-- **Decisions**: N/A — no ADR governs this module.

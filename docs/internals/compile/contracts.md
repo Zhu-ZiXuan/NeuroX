@@ -1,6 +1,18 @@
 # Compile contracts
 
-The rules every compile-friendly function obeys. They are dynamo-safety invariants, not physics. They hold across the regionally-compiled `solve_dc` leaf and across every file the macro `matmul` reaches — the forward the library keeps traceable so a caller may `torch.compile` it — minus the eager islands. The eager islands ([scheme-a-regional](scheme-a-regional.md)) are the one place these rules are lifted — there you *may* sync, mutate Python state, and run data-dependent loops.
+The rules every compile-friendly function obeys. They are dynamo-safety invariants, not physics. They hold across the regionally-compiled `solve_dc` leaf and across every file the macro `matmul` reaches — the forward the library keeps traceable so a caller may `torch.compile` it — minus the eager islands. The eager islands (scheme_a_regional) are the one place these rules are lifted — there you *may* sync, mutate Python state, and run data-dependent loops.
+
+## Compile-friendly by default
+
+Every primitive method is written to be traceable, so a caller who wraps a model in `torch.compile` gets a working graph, and the library's own regional leaf compiles cleanly. Two facts define this, stated once here rather than per function:
+
+- Library methods obey the dynamo-safety invariants below (no sync, no host-state mutation, no tensor-value control flow, and so on) by default.
+- A handful of **boundaries** deviate from that default — the eager island, the regional leaf, the disabled hooks. See the authoritative boundary map in scheme_a_regional.
+
+A function therefore needs **no** per-module compile note for being ordinary compile-friendly code — that is the default. Module docs call out only the two things that are *not* derivable from the default:
+
+- **Boundaries** — a function that deviates carries a one-line marker pointing to scheme_a_regional.
+- **Non-obvious safety** — a compile-friendly function whose dynamo-safety is not visually obvious (a branch that looks value-dependent but resolves at trace time, a construction that looks like a host literal but is cached). That reasoning is function-specific and stays beside the code, linking here.
 
 ## Invariants
 

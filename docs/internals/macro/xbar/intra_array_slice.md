@@ -2,11 +2,11 @@
 
 ## Summary
 
-`IntraArraySliceXbarMacro` (`xbar/intra_array_slice.py`): the intra-tile `Sw` mode. It owns the same children as the inter-array mode — tile, `SimpleSlicer`, `SerialSlicer`, an `Accumulator` and two `ShiftAdder`s — but folds the `Sw` axis into the tile column axis. Spec: [reference/macro/xbar/intra_array_slice](../../../reference/macro/xbar/intra_array_slice.md).
+`IntraArraySliceXbarMacro` (`xbar/intra_array_slice.py`): the intra-tile `Sw` mode. It owns the same children as the inter-array mode — tile, `SimpleSlicer`, `SerialSlicer`, an `Accumulator` and two `ShiftAdder`s — but folds the `Sw` axis into the tile column axis.
 
 ## Design decisions
 
-- **`Sw` folded into the column axis at organize time.** A weight's `Sw` slices are flattened into adjacent columns (`flatten(weights_per_xbar, Sw)`), so the organized tensor has *no* `Sw` leading axis — the slices live inside `data_num`. This is the dual of the [inter_array_slice](inter_array_slice.md) plane stack and is what makes the two modes' aggregates incompatible.
+- **`Sw` folded into the column axis at organize time.** A weight's `Sw` slices are flattened into adjacent columns (`flatten(weights_per_xbar, Sw)`), so the organized tensor has *no* `Sw` leading axis — the slices live inside `data_num`. This is the dual of the inter_array_slice plane stack and is what makes the two modes' aggregates incompatible.
 - **`N` padded so no weight straddles two tiles.** Before unflattening into row-tiles, `N` is padded up to a multiple of `weights_per_xbar = col_num // Sw`. Whole logical weights stay tile-local, which is required for the intra-tile stride-`Sw` reduction to address one weight's slices contiguously.
 - **Idle columns explicitly padded.** The used capacity is `weights_per_xbar * Sw`; the remaining `col_num - weights_per_xbar * Sw` columns are zero-padded and dropped before the `Sw` unflatten in the aggregate.
 
@@ -19,11 +19,11 @@
 
 ## Performance & resources
 
-Trades column utilization (idle padded columns) for fewer tile instances than the inter-array plane stack: the tile's `inst_shape` carries `(M=1, Sa=1, Tc, Tr)` with no `Sw` multiplicity. The dominant cost is the tile read; `matmul` runs eager (the DC solve compiles as a separate regional leaf).
+The tile's `inst_shape` carries `(M=1, Sa=1, Tc, Tr)` with no `Sw` multiplicity, so peak memory and tile-read work carry no `Sw` factor — the inter-array plane stack instead materializes `Sw` planes. The dominant cost is the tile read; `matmul` runs eager (the DC solve compiles as a separate regional leaf).
 
 ## Gotchas
 
-- **The `Sw` fold is in the data axis — reducing the wrong dim is silent.** The intra-tile `Sw` shift-add must run at `dim=-1` on the `unflatten`ed `(wpx, Sw)` block; applying the inter-array `dim=-4` here reduces a tile-grid axis instead and produces a wrong-but-plausible shape. The organize/aggregate pair is mode-specific by design — see [base](base.md).
+- **The `Sw` fold is in the data axis — reducing the wrong dim is silent.** The intra-tile `Sw` shift-add must run at `dim=-1` on the `unflatten`ed `(wpx, Sw)` block; applying the inter-array `dim=-4` here reduces a tile-grid axis instead and produces a wrong-but-plausible shape. See [base](base.md) for the mode-specific organize/aggregate pairing rule.
 - **`weights_per_xbar` floors.** With `Sw` not dividing `col_num`, some columns are permanently idle; this is intended capacity loss, not a bug.
 
 ## Known limitations
@@ -35,4 +35,3 @@ Trades column utilization (idle padded columns) for fewer tile instances than th
 - **Reference**: [intra_array_slice](../../../reference/macro/xbar/intra_array_slice.md)
 - **Implementation**: `neurox/macro/xbar/intra_array_slice.py`
 - **Tests**: `tests/test_xbar_macro.py`
-- **Decisions**: N/A — no ADR governs this module.

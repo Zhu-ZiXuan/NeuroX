@@ -61,11 +61,10 @@ class IdealXbarPolicy(XbarPolicy):
 class IdealXbar(Xbar):
     """Tile-level ideal VMM with adc_bits-driven output quantization.
 
-    The rescale at ``adc_bits = N`` is derived in :meth:`__init__` from
-    integer geometry alone — ``rescale = max_dot_abs / (2^(N-1) - 1)``,
-    where ``max_dot_abs = row_num · max|w_logical| · max|x|``. No chip
-    calibration enters the computation. ``adc_operation_point.adc_mode``
-    is opaque and not read at runtime.
+    The rescale at a given ``adc_bits`` is derived in :meth:`__init__`
+    from integer geometry alone; no chip calibration enters the
+    computation (rescale formula in docs/reference/xbar/base.md).
+    ``adc_operation_point.adc_mode`` is opaque and not read at runtime.
 
     Provenance: the faithful lossless reference is obtained from a
     fabricated physical xbar via :meth:`Xbar.to_ideal`, which binds this

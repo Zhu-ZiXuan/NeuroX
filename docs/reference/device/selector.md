@@ -6,7 +6,7 @@
 
 ## Physical model
 
-The selector is abstracted to a single static per-cell state variable, the threshold voltage $V_{\mathrm{th}}$, shared across all cells at a nominal value before mismatch is applied. Device-to-device variation is modeled as additive Gaussian mismatch sampled once per fabricate call onto the per-instance threshold map. The model carries no current-voltage relation: the threshold is exported to the consuming circuit, which owns the switching behavior built on top of it.
+The selector is abstracted to a single static per-cell state variable, the threshold voltage $V_{\mathrm{th}}$, shared across all cells at a nominal value before mismatch is applied. Device-to-device variation is modeled as additive Gaussian mismatch sampled once at fabricate time onto the per-instance threshold map. The model carries no current-voltage relation: the threshold is exported to the consuming circuit, which owns the switching behavior built on top of it.
 
 ## Governing equations
 
@@ -24,7 +24,7 @@ N/A — the model samples a static threshold map and exports it; it holds no sol
 
 The single source is parameterised against the shared template in [nonideality](../nonideality.md).
 
-- **$V_{\mathrm{th}}$ mismatch** (`vth_mismatch`, fabricate time) — a state-independent additive zero-mean Gaussian on the nominal threshold with a single config-constant sigma $\sigma_{V_{\mathrm{th}}}$ (no area dependence), sampled once per `fabricate()` call. Switched by the per-run policy flag; with the flag off the map is the uniform nominal value. This is static device-to-device variation, not per-read noise. Area / Pelgrom scaling of the spread is deliberately not modelled here, unlike the [NMOS](mosfet.md#noise-non-idealities) mismatch.
+- **$V_{\mathrm{th}}$ mismatch** (`vth_mismatch`, fabricate time) — a state-independent additive zero-mean Gaussian on the nominal threshold with a single constant sigma $\sigma_{V_{\mathrm{th}}}$. This is static device-to-device variation, not per-read noise; its spread carries no area / Pelgrom scaling, unlike the area-matched MOSFET mismatch.
 
 ## Parameters
 
@@ -49,9 +49,9 @@ Stated assumptions of the current model:
 
 - The selector is reduced to a threshold-voltage map; no conduction I-V law, hysteresis, or holding behavior is modeled at the device level.
 - Mismatch is static (sampled at fabricate time), additive, and Gaussian; no per-read threshold noise is modeled.
-- The threshold is temperature-independent at this level: an operating temperature is supplied at construction but does not enter the model.
+- The threshold is temperature-independent at this level.
 
-TODO (domain author): state the intended use of the threshold map by the consuming circuit, the validity range of the Gaussian mismatch assumption, and whether OTS conduction / temperature dependence must be modeled for the studies of interest.
+TODO (domain author): give the validity range of the Gaussian mismatch assumption, and whether OTS conduction / temperature dependence must be modeled for the studies of interest.
 
 ## Validation
 
@@ -66,4 +66,3 @@ TODO: cite the OTS selector device and its threshold-mismatch characterization.
 - **Internals**: [selector internals](../../internals/device/selector.md)
 - **Validation**: TODO — `validation/device` (not yet written)
 - **Configuration**: `api` (`SelectorConfig`, `SelectorPolicy`)
-- **Decisions**: N/A — no ADR governs this device.

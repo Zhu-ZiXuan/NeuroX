@@ -1,6 +1,6 @@
 # Calibration & tools
 
-The offline tools run outside the main forward path. Each is a small CLI that consumes a chip TOML and emits a calibration artefact (TOML / TXT) or a diagnostic report (PNG / log). A developer runs them once when tuning a chip configuration; the resulting artefacts feed back into the main forward path. Keeping them under a `tools/` package rather than mixing with library code makes the I/O surface explicit — TOML in, TOML / PNG / log out — and the flows reproducible offline. The chip-specific calibrators (ADC range / rescale, state map, solver / cell iteration counts) live with their scheme under that scheme's `tools/` package; the generic TIA-design tool stays in `neurox/tools/`.
+The offline tools run outside the main forward path. Each is a small CLI that consumes a chip TOML and emits a calibration artefact (TOML / TXT) or a diagnostic report (PNG / log). A developer runs them once when tuning a chip configuration; the resulting artefacts feed back into the main forward path. The chip-specific calibrators (ADC range / rescale, state map, solver / cell iteration counts) live with their scheme under that scheme's `tools/` package; the generic TIA-design tool stays in `neurox/tools/`.
 
 Most tools here are *calibration* flows that produce the parameters tying an abstract NeuroX model to a specific chip: the ADC input range, the per-operating-point ADC `rescale_factor` table, the single-cell 1T1R state map, the array-solver / TIA iteration counts, and the per-cell access-node condensation count. The TIA-design tool is an exploration / scoring flow that lives under its own guide.
 
@@ -43,4 +43,4 @@ The ADC-side tools form a two-stage pipeline with no overlap — first pick the 
 
 ---
 
-- See also: [rescale convention](../../reference/xbar/base.md#output-rescale), [solver iteration internals](../../internals/xbar/solver.md), [config & policy](../../internals/config_and_policy.md)
+- See also: [rescale convention](../../reference/xbar/family.md#output-rescale), [solver iteration internals](../../internals/xbar/solver.md), [config & policy](../../internals/config_and_policy.md)

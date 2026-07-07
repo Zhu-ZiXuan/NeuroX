@@ -16,6 +16,4 @@
 
 - **Reference**: N/A — software utility
 - **Implementation**: `neurox/common/load_dump.py`
-- **Up-link**: [Config and policy](../config_and_policy.md)
 - **Tests**: `tests/test_load_dump_use.py`
-- **Decisions**: None

@@ -2,11 +2,11 @@
 
 ## Summary
 
-`RRAM` (`rram.py`) is a stateful conductance-cell module: it owns the programmed conductance buffer, the programming write, the per-call read snap, and the closed-form I-V evaluation. It realizes the model in [reference/device/rram](../../reference/device/rram.md). This document covers the non-obvious choices, not the I-V or write flow.
+`RRAM` (`rram.py`) is a stateful conductance-cell module: it owns the programmed conductance buffer, the programming write, the per-call read snap, and the closed-form I-V evaluation. This document covers the non-obvious choices, not the I-V or write flow.
 
 ## Design decisions
 
-- **`g_max__uS` is an `__init__` kwarg, not a config field.** The ceiling is a design value set by external programming current-limiting, not an intrinsic device parameter, so it stays outside the frozen `RRAMConfig` per the project rule that device design parameters are explicit constructor arguments. `g_min__uS` (intrinsic) lives in the config. The constructor enforces `g_max__uS > config.g_min__uS`.
+- **`g_max__uS` is an `__init__` kwarg, not a config field.** The ceiling is a design value, not an intrinsic device parameter, so it stays outside the frozen `RRAMConfig` per the project rule that device design parameters are explicit constructor arguments. `g_min__uS` (intrinsic) lives in the config. The constructor enforces `g_max__uS > config.g_min__uS`.
 - **Policy is separate from config and constructed per call site.** `RRAMConfig` carries the physics; `RRAMPolicy` carries the per-run decision of which non-idealities are live, as flat `bool` fields with no defaults so every call site states its intent explicitly (calibration passes all-False, studies pass the chosen mix). The policy is loaded from its own file alongside the config, never embedded in the device physics.
 - **Program-time vs read-time sources are partitioned by surface.** Programming Gamma, drift, and stuck-at are baked into `g__uS` by `program(...)`; telegraph and thermal are resampled per `snapshot(...)`. This split is a contract, not an accident: re-running `snapshot` must not re-roll the programmed-in faults.
 
@@ -36,4 +36,3 @@ The state is one conductance buffer at the programmed broadcast shape. The read 
 - **Reference**: [rram](../../reference/device/rram.md)
 - **Implementation**: `neurox/device/rram.py`
 - **Tests**: `tests/test_xbar_cell.py`, `tests/test_xbar_physics.py`
-- **Decisions**: N/A — no ADR governs this device.

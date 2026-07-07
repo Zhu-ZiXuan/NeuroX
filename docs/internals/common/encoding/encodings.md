@@ -35,7 +35,7 @@ The encoding choice selects which digit alphabet — and therefore which represe
 
 ## Contracts & invariants
 
-- **ABC observable surface.** A `Transcoder` exposes exactly: `encode(x, *, dim=-1) -> Tensor` (inserts a size-`digit_count` axis at `dim`), `decode(digits, *, dim=-1) -> Tensor` (removes that axis), and the `radix` / `digit_count` / `value_range` properties. `encode` and `decode` are mutual inverses *only within* `value_range`; outside it the forward map wraps and the round-trip is not recoverable - the value range is a caller contract, not an enforced clamp.
+- **ABC observable surface.** A `Transcoder` exposes exactly: `encode(x, *, dim=-1) -> Tensor` (inserts a size-`digit_count` axis at `dim`), `decode(digits, *, dim=-1) -> Tensor` (removes that axis), and the `radix` / `digit_count` / `value_range` properties. `encode` and `decode` are mutual inverses *only within* `value_range`; outside it the forward map wraps and the round-trip is not recoverable — the value range is a caller contract, not an enforced clamp.
 - **`encode` is shape-agnostic in `dim`.** The digit axis is inserted at the caller-chosen `dim`; the implementation must not assume a trailing axis. `decode` reduces whichever `dim` holds the digits and builds its positional-weight vector on the digit tensor's own device and dtype, so it stays correct across devices and never forces a host sync.
 - **Validation is at construction.** `radix >= 2` and `digit_count >= 1` are checked in the base `__init__`; subclasses add no further construction validation.
 
@@ -45,11 +45,11 @@ The encodings are exact integer arithmetic, evaluated digit-by-digit by repeated
 
 ## Performance & resources
 
-- The encodings are `digit_count` division/remainder passes accumulated into a Python list, then one `torch.stack`. List accumulation (not in-place writes) keeps the unrolled loop fusable under `@torch.compile` at the caller. The work is integer-elementwise and negligible against the analog solve; there is no chunking or memory pressure at this layer.
+- The encodings are `digit_count` division/remainder passes accumulated into a Python list, then one `torch.stack`. List accumulation (not in-place writes) keeps the unrolled loop fusable under `@torch.compile` at the caller. The work is cheap integer-elementwise arithmetic; there is no chunking or memory pressure at this layer.
 
 ## Gotchas
 
-- **Value range is a contract, not a guard.** Encoding an out-of-range integer silently wraps or truncates - there is no error and no clamp. A caller must keep its inputs inside `value_range`; treating `encode`/`decode` as lossless for arbitrary integers is the anti-pattern.
+- **Do not treat `encode`/`decode` as lossless for arbitrary integers.** An out-of-range input wraps silently with no error, so a caller must keep its inputs inside `value_range`.
 - **Canonical carries across positions.** The canonical forward map mutates the running quotient with a carry while emitting each digit, so its per-digit step is not independent the way true-form's and complement's are; do not assume the three encodings share a digit loop body.
 
 ## Known limitations
@@ -58,7 +58,6 @@ The encodings are exact integer arithmetic, evaluated digit-by-digit by repeated
 
 ---
 
+- **Reference**: N/A — generic integer codec
 - **Implementation**: `neurox/common/encoding/base.py`, `neurox/common/encoding/true_form.py`, `neurox/common/encoding/complement.py`, `neurox/common/encoding/canonical.py`
 - **Tests**: `tests/test_transcoder.py`
-- **Spec**: N/A — encoding is impl-only and has no reference page.
-- **Decisions**: N/A — no ADR governs this module.

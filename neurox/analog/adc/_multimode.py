@@ -1,9 +1,10 @@
 """Shared utilities for multi-mode physics-based ADCs.
 
-For each active mode with ``n_codes_active`` codes and
-``max_signal_active`` the LSB is ``max_signal_active / n_codes_active``
-and thresholds are placed at ``c · LSB`` for
-``c in {1, ..., n_codes_active - 1}`` (floor semantics).
+Each mode's uniform code boundaries sit at ``c · LSB`` (floor
+semantics); the full placement is specified in the reference spec.
+
+See also:
+    docs/reference/analog/adc/base.md
 """
 
 from __future__ import annotations

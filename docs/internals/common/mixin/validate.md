@@ -2,7 +2,7 @@
 
 ## Summary
 
-`ValidateMixin` grants a host a small set of static check helpers — strict-positivity, non-negativity, strict monotonicity, and minimum-length — that the host calls through `self` from inside its own `validate*` methods to assert the runtime constraints static typing cannot express. It is a pure helper: it owns no field, no construction hook, and no `validate` of its own, so inheriting it supplies the checks but does not by itself make a host validated — running validation at construction is the host's to wire. The mechanism has no physics-bearing reference twin.
+`ValidateMixin` grants a host a small set of runtime-check helpers — strict-positivity, non-negativity, strict monotonicity, and minimum-length — that the host calls through `self` from inside its own `validate*` methods to assert the runtime constraints static typing cannot express. It is a pure helper: it owns no field, no construction hook, and no `validate` of its own, so inheriting it supplies the checks but does not by itself make a host validated — running validation at construction is the host's to wire. It carries no physics.
 
 ## Design decisions
 
@@ -20,4 +20,3 @@ Because the mixin carries no construction or class-creation hook, it constrains 
 - **Reference**: N/A — software mechanism
 - **Implementation**: `neurox/common/mixin/validate.py`
 - **Tests**: TODO — no dedicated `ValidateMixin` test; `validate*` failures are exercised indirectly through subsystem config tests such as `tests/test_adc_family.py` and `tests/test_signal_chain.py`.
-- **Decisions**: N/A — no ADR governs the validation mechanism.

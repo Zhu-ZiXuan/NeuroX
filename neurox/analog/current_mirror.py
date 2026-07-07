@@ -20,9 +20,9 @@ class CurrentMirrorConfig(CircuitConfig):
         mirror_ratio: Dimensionless output/input copy ratio.
         v_supply__V: Rail supply voltage driving the data-dependent
             output-branch dissipation.
-        ratio_sigma_relative: Relative (Pelgrom) mirror-ratio mismatch σ
-            [dimensionless], gated by the ``mismatch`` policy; ``0`` leaves the
-            exact ratio copy.
+        ratio_sigma_relative: Relative (Pelgrom) σ of the static
+            per-instance mirror-ratio mismatch [dimensionless]; ``0``
+            leaves the exact ratio copy.
         area_per_inst__um2: Silicon area per fabricated instance.
         leakage_per_inst__uW: Static leakage per instance.
     """
@@ -57,9 +57,9 @@ class CurrentMirrorPolicy:
     """Per-source toggles selecting which CurrentMirror nonidealities are active.
 
     Attributes:
-        mismatch: Apply a multiplicative (Pelgrom) Gaussian on the copy ratio
-            with σ ``ratio_sigma_relative``; ``False`` leaves the exact
-            ratio copy.
+        mismatch: Apply the static per-instance (Pelgrom) copy-ratio mismatch
+            with σ ``ratio_sigma_relative``; ``False`` leaves the exact ratio
+            copy.
     """
 
     mismatch: bool
@@ -69,9 +69,9 @@ class CurrentMirror(CircuitBase[CurrentMirrorConfig]):
     """Single-ended current mirror — ratio copy with data-dependent rail energy.
 
     The copy is exact at ``mirror_ratio`` unless the ``mismatch`` policy is on,
-    in which case the ratio is perturbed per call by a multiplicative (Pelgrom)
-    Gaussian with relative σ ``ratio_sigma_relative``. The rail dissipation
-    counts the output branch only.
+    in which case the ratio carries a static per-instance multiplicative
+    (Pelgrom) Gaussian with relative σ ``ratio_sigma_relative``. The rail
+    dissipation counts the output branch only.
 
     Args:
         config: Concrete configuration dataclass.
@@ -83,6 +83,8 @@ class CurrentMirror(CircuitBase[CurrentMirrorConfig]):
         read_pulse__ns: Read-window width passed by the caller;
             scales the per-call rail energy.
     """
+
+    ratio_mismatch: Tensor
 
     def __init__(
         self,
@@ -101,29 +103,40 @@ class CurrentMirror(CircuitBase[CurrentMirrorConfig]):
         self.T__K = T__K
         self.read_pulse__ns = read_pulse__ns
 
+        # Held static per-instance copy-ratio mismatch multiplier (Pelgrom);
+        # unit ratio when the mismatch is off.
+        self.register_buffer(
+            "ratio_mismatch",
+            torch.ones(inst_shape, dtype=dtype),
+            persistent=False,
+        )
+
     def _sample_fabricate_mismatch(self) -> None:
-        pass  # ratio mismatch is drawn per call in replicate(), not fabricated
+        """Sample the static per-instance copy-ratio mismatch over ``inst_shape``.
+
+        A multiplicative (Pelgrom) Gaussian ``1 + N(0, ratio_sigma_relative)``
+        per mirror element; ``mismatch`` off leaves the exact unit ratio.
+        """
+        if self.policy.mismatch:
+            self.ratio_mismatch = 1.0 + torch.randn_like(self.ratio_mismatch) * self.config.ratio_sigma_relative
+        else:
+            self.ratio_mismatch = torch.ones_like(self.ratio_mismatch)
 
     def replicate(self, i_in__uA: Tensor) -> Tensor:
         """Copy the input current at the configured mirror ratio.
 
-        When ``mismatch`` is enabled, the ratio is perturbed per call by a
-        multiplicative (Pelgrom) Gaussian sampled element-wise (per-call
-        ``randn_like``, not a fixed per-instance buffer); otherwise the scalar
-        ratio is used.
+        Scales the nominal ``mirror_ratio`` by the static per-instance
+        copy-ratio mismatch (unit when ``mismatch`` is off). The mismatch has
+        the per-instance ``inst_shape`` and broadcasts over the leading
+        batch / im2col / element dims of ``i_in__uA``.
 
         Args:
-            i_in__uA: Input branch current.
+            i_in__uA: Input branch current, shape ``(*leading, *inst_shape)``.
 
         Returns:
-            Output branch current ``ratio * i_in__uA``.
+            Output branch current ``mirror_ratio * ratio_mismatch * i_in__uA``.
         """
-        ratio: Tensor | float
-        if self.policy.mismatch:
-            ratio = self.config.mirror_ratio * (1.0 + torch.randn_like(i_in__uA) * self.config.ratio_sigma_relative)
-        else:
-            ratio = self.config.mirror_ratio
-        i_out__uA = ratio * i_in__uA
+        i_out__uA = self.config.mirror_ratio * self.ratio_mismatch * i_in__uA
 
         # Rail dissipation on the OUTPUT branch only: V_supply·|i_out|·t. The
         # input current is sourced externally (its production energy is

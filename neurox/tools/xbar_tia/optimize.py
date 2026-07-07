@@ -3,25 +3,29 @@
 CLI: ``python -m neurox.tools.xbar_tia.optimize --config <design.toml>
 [--plot <out.png>] [--log-level INFO]``
 
-All inputs come from the TOML config (no chip preset, no other CLI flags):
+All inputs come from the TOML config (no chip preset, no input-carrying CLI flags):
 
   - ``[hardware]`` — externally fixed: ``v_dd__V``, ``v_ref__V``,
-    ``output_saturation_softness__V``, plus an embedded
-    ``[hardware.nmos_config]`` table that may use the ``_neurox_use_preset``
-    pattern to point at a process file.
+    ``output_saturation_softness__V``, ``target_v_max__V``, ``tia_n_newton``,
+    plus an embedded ``[hardware.nmos_config]`` table that may use the
+    ``_neurox_use_preset`` pattern to point at a process file.
   - ``[workload]`` — the Gaussian current model: ``mean__uA``, ``std__uA``.
   - ``[sweep]`` — lists for each design knob: ``opamp_gain``,
     ``pseudo_nmos_W__um``, ``pseudo_nmos_L__um``, ``v_nmos_bias__V``.
     Cartesian product over all four axes.
 
-Scoring (higher = better):
-  ``score = R²_linear_over_[0,sat_onset] × v_util × sat_match``
-  where ``v_util`` = (v_out span across the linear region) / softclip
-  total, and ``sat_match`` = ``min(1, sat_onset / (μ + 3σ))`` — saturating
-  before the workload tail is penalised.
+Scoring (higher = better; 0 for infeasible candidates):
+  ``score = linearity_r2 × range_use × overshoot_safe``, all measured
+  against the user's ``target_v_max__V``: ``linearity_r2`` is the Pearson
+  R² of ``v_out`` vs ``I`` over the workload ±3σ band; ``range_use`` =
+  ``min(1, (v(μ+3σ) - v(μ-3σ)) / target_v_max__V)`` is the fraction of the
+  target output span that band fills; ``overshoot_safe`` falls linearly
+  from 1 to 0 as ``v(μ+3σ)`` climbs from ``target_v_max__V`` toward the
+  chip rail — output past the ceiling is penalised.
 
 Output: top-K candidates printed to log with the raw (gain, W, L, v_bias)
-tuple; optional PNG overlay of those curves. Nothing else is written.
+tuple; an optional top-K curve overlay PNG (``--plot``) and optional
+per-axis slice PNGs (``--slice-plot-dir``).
 """
 
 from __future__ import annotations
@@ -56,9 +60,9 @@ class HardwareSection:
     """Chip-level constants that the design tool does NOT optimise over.
 
     Attributes:
-        nmos_config: Access-NMOS process config.
+        nmos_config: Pseudo-resistor NMOS process config.
         v_dd__V: Chip supply rail — physical hard cap for TIA output.
-        v_ref__V: Softclip reference voltage of the BL clamp.
+        v_ref__V: Reference voltage of the BL clamp.
         output_saturation_softness__V: Softclip softness band.
         target_v_max__V: User-chosen ceiling for the TIA output that
             aligns with the downstream ADC's largest v_ref mode
@@ -83,8 +87,8 @@ class WorkloadSection:
 
     Attributes:
         mean__uA: Mean BL port current of the modelled workload.
-            Must be ``>= 0`` — the TIA sweeps a non-negative input grid.
-        std__uA: Standard deviation; must be ``>= 0``.
+            Must be ≥ 0 — the TIA sweeps a non-negative input grid.
+        std__uA: Standard deviation; must be ≥ 0.
     """
 
     mean__uA: float
@@ -137,8 +141,8 @@ class CandidateResult:
     saturation_onset__uA: float
     sat_margin_above_3sigma__uA: float
     linearity_r2: float
-    v_util: float
-    sat_match: float
+    range_use: float
+    overshoot_safe: float
     score: float
     is_feasible: bool  # False if slope(μ)~0 or μ pinned at high rail
 
@@ -146,7 +150,7 @@ class CandidateResult:
 def _build_tia_config(hw: HardwareSection, gain: float, w: float, nmos_L_um: float, vb: float) -> OpAmpTIAConfig:
     """Stitch a per-combo :class:`OpAmpTIAConfig`.
 
-    The reference clamp voltage is injected per call into the TIA's snapshot
+    The reference clamp voltage is injected per call into the TIA's snap
     (see :func:`sweep_transfer`); ``hw.v_ref__V`` is consumed there.
     """
     return OpAmpTIAConfig(
@@ -209,10 +213,8 @@ def _evaluate(
     is_feasible = (
         fit.slope_at_mean__mV_per_uA > 1e-3
         and fit.v_at_mean__V < curve.v_max_V - 0.02
-        and v_hi < curve.v_max_V - 0.001  # workload p99 not pinned at hard rail
+        and v_hi < curve.v_max_V - 0.001  # workload +3σ tail not pinned at hard rail
     )
-    # The CandidateResult v_util and sat_match fields carry range_use and
-    # overshoot_safe, both derived against the user's target_v_max.
     return CandidateResult(
         opamp_gain=gain,
         pseudo_nmos_W__um=w,
@@ -226,8 +228,8 @@ def _evaluate(
         saturation_onset__uA=fit.saturation_onset__uA,
         sat_margin_above_3sigma__uA=fit.sat_margin_above_3sigma__uA,
         linearity_r2=r2_workload,
-        v_util=range_use,
-        sat_match=overshoot_safe,
+        range_use=range_use,
+        overshoot_safe=overshoot_safe,
         score=score if is_feasible else 0.0,
         is_feasible=is_feasible,
     )
@@ -246,8 +248,8 @@ def _log_candidate(prefix: str, r: CandidateResult) -> None:
         r.pseudo_nmos_L__um,
         r.v_nmos_bias__V,
         r.linearity_r2,
-        r.v_util,
-        r.sat_match,
+        r.range_use,
+        r.overshoot_safe,
         r.v_at_lo3sigma__V,
         r.v_at_mean__V,
         r.v_at_hi3sigma__V,
@@ -288,9 +290,14 @@ def _plot_slice(
         ls = "-" if r.is_feasible else "--"
         alpha = 1.0 if r.is_feasible else 0.45
         feasibility_tag = "" if r.is_feasible else " [infeasible]"
+        # Unit-glyph LOCAL EXCEPTION to the global units-ASCII convention (a
+        # local exception overrides the global rule): matplotlib plot strings
+        # spell units as unicode glyphs per scientific-figure convention — µ
+        # (U+00B5) in "µA" here (Ω, °, µm² elsewhere) — while math variables
+        # stay LaTeX. Two mu's: mean = LaTeX $\mu$, micro-prefix "µA" = glyph.
         label = (
             f"{short.get(varied_attr, varied_attr)}={getattr(r, varied_attr):g}{feasibility_tag}  "
-            rf"$R^2$={r.linearity_r2:.3f}  slope={r.slope_at_mean__mV_per_uA:.2f}mV/$\mu$A  "
+            rf"$R^2$={r.linearity_r2:.3f}  slope={r.slope_at_mean__mV_per_uA:.2f}mV/µA  "
             rf"v($\mu$)={r.v_at_mean__V:.3f}V  score={r.score:.3f}"
         )
         ax.plot(
@@ -313,8 +320,9 @@ def _plot_slice(
         label=r"workload $\mu \pm 3\sigma$",
     )
     ax.axvline(workload.mean__uA, color="tab:blue", linestyle="--", linewidth=0.8)
-    ax.set_xlabel(r"I_port [$\mu$A]")
-    ax.set_ylabel("v_out [V]")
+    # Axis unit as unicode glyph "µA": units-ASCII LOCAL EXCEPTION (the $I$ variable stays LaTeX).
+    ax.set_xlabel(r"$I_{\mathrm{port}}$ [µA]")
+    ax.set_ylabel(r"$v_{\mathrm{out}}$ [V]")
     ax.set_title(f"TIA slice — vary {short.get(varied_attr, varied_attr)} (fixed: {fixed_attrs_label})")
     ax.grid(True, alpha=0.3)
     ax.legend(fontsize=7, loc="upper right", framealpha=0.85)
@@ -396,10 +404,15 @@ def _plot_top_k(top: list[CandidateResult], workload: WorkloadSection, output_pa
     for idx, r in enumerate(top):
         color = cmap(idx / max(len(top) - 1, 1))
         lw = 1.8 if idx == 0 else 1.2
+        # Unit-glyph LOCAL EXCEPTION to the global units-ASCII convention (a
+        # local exception overrides the global rule): matplotlib plot strings
+        # spell units as unicode glyphs per scientific-figure convention — µ
+        # (U+00B5) in "µA" here (Ω, °, µm² elsewhere) — while the math var
+        # $R^2$ stays LaTeX.
         label = (
             f"#{idx + 1} A={r.opamp_gain:g} W={r.pseudo_nmos_W__um:g} "
             f"L={r.pseudo_nmos_L__um:g} Vb={r.v_nmos_bias__V:g}  "
-            rf"$R^2$={r.linearity_r2:.3f}  slope={r.slope_at_mean__mV_per_uA:.2f}mV/$\mu$A  score={r.score:.3f}"
+            rf"$R^2$={r.linearity_r2:.3f}  slope={r.slope_at_mean__mV_per_uA:.2f}mV/µA  score={r.score:.3f}"
         )
         ax.plot(r.curve.i_uA.numpy(), r.curve.v_out_V.numpy(), color=color, linewidth=lw, label=label)
     ax.axhline(top[0].curve.v_min_V, color="grey", linestyle=":", linewidth=0.7)
@@ -412,8 +425,9 @@ def _plot_top_k(top: list[CandidateResult], workload: WorkloadSection, output_pa
         label=r"workload $\mu \pm 3\sigma$",
     )
     ax.axvline(workload.mean__uA, color="tab:blue", linestyle="--", linewidth=0.8)
-    ax.set_xlabel(r"I_port [$\mu$A]")
-    ax.set_ylabel("v_out [V]")
+    # Axis unit as unicode glyph "µA": units-ASCII LOCAL EXCEPTION (the $I$ variable stays LaTeX).
+    ax.set_xlabel(r"$I_{\mathrm{port}}$ [µA]")
+    ax.set_ylabel(r"$v_{\mathrm{out}}$ [V]")
     ax.set_title("Top-K TIA candidates — score = linearity_r2 · range_use · overshoot_safe")
     ax.grid(True, alpha=0.3)
     ax.legend(fontsize=7, loc="upper right", framealpha=0.85)

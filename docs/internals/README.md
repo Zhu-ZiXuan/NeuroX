@@ -1,6 +1,6 @@
 # Internals
 
-How the NeuroX codebase is built and why — the implementation companion to [Reference](../reference/README.md).
+How the NeuroX codebase is built and why.
 
 Cross-cutting:
 

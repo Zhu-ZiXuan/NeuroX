@@ -1,6 +1,6 @@
 # Non-idealities
 
-A non-ideality replaces a nominal quantity with a sample drawn from a distribution centred on (additive) or scaled around (multiplicative) it. This document collects the shared statistical laws those samples obey; each subsystem's Noise section parameterises its own sources against these laws, so one source carries one spelling everywhere and the concrete per-module sources live in those leaf documents.
+A non-ideality replaces a nominal quantity with a sample drawn from a distribution centred on (additive) or scaled around (multiplicative) it. This document collects the shared statistical laws those samples obey; each subsystem parameterises its own sources against these laws.
 
 ## Scope
 
@@ -13,16 +13,14 @@ Every perturbation belongs to one of two classes, distinguished by fixedness —
 - **Static** — fixed once and held until the device is re-fabricated or re-programmed. It covers fabrication mismatch, from spatially-uncorrelated microscopic process fluctuations averaged over the device area, together with the programming write deviation left by a finite-precision write.
 - **Dynamic** — resampled at every access, set by the operating point and temperature at that access rather than frozen. It covers thermal, flicker, random-telegraph, and charge-sampling ($kT/C$) fluctuations.
 
-Both classes hold more sources than this document names, and the two laws it does collect — Pelgrom area-scaled mismatch and $kT/C$ charge sampling — are representative of the general cross-device kind, not an exhaustive catalogue. A source can be static yet device-specific, like programming variation, which then lives in that device's own reference.
+Both classes hold more sources than this document names, and the two laws it does collect — Pelgrom area-scaled mismatch and $kT/C$ charge sampling — are representative of the general cross-device kind, not an exhaustive catalogue. A source can be static yet device-specific, like programming variation.
 
 ## State dependence of the spread
 
 Orthogonal to that static or dynamic origin, the spread $\sigma$ of a source is obtained in one of two ways; each subsystem classifies its own sources accordingly:
 
 - **State-independent** — $\sigma$ is a fixed constant and the same distribution is sampled at every element. Used where the magnitude does not track the signal (e.g. comparator thermal noise, stuck-at faults).
-- **State-dependent** — $\sigma$ is derived per element from the operating state (the input tensor or an auxiliary tensor). Used where the magnitude tracks the conductance state (e.g. programming variability) or scales with the device area (e.g. Pelgrom mismatch, $kT/C$ sampling, both shrinking as $1/\sqrt{\mathrm{area}}$).
-
-Choosing the wrong flavour silently mis-models a source rather than erroring, so the classification is part of the spec. The per-module sources, their distributions, and their distribution parameters live in each subsystem's own Noise section.
+- **State-dependent** — $\sigma$ is derived per element from the operating state, either the signal itself or an auxiliary state variable. Used where the magnitude tracks the conductance state (e.g. programming variability) or scales with the device area (e.g. Pelgrom mismatch, $kT/C$ sampling, both shrinking as $1/\sqrt{\mathrm{area}}$).
 
 ## Pelgrom area-scaled mismatch
 
@@ -30,7 +28,7 @@ The two-term Pelgrom law for the spread of a parameter difference $\Delta P$ bet
 
 $$\sigma^2(\Delta P) = \frac{A_P^2}{W L} + S_P^2\, D^2,$$
 
-a local area term ($A_P$ over the gate-region product $W L$) plus a separate long-range gradient term ($S_P$ scaling the device separation $D$). The local term vanishes monotonically as the device grows — there is no floor. The only non-vanishing large-area residual is the area-independent gradient term $S_P^2 D^2$, modelled as an additive variance contribution, not a clamp on $\sigma$.
+a local area term ($A_P$ over the gate-region product $W L$) plus a separate long-range gradient term ($S_P$ scaling the device separation $D$). The local term vanishes monotonically as the device grows — there is no floor. The only non-vanishing large-area residual is the area-independent gradient term $S_P^2 D^2$, an additive variance contribution rather than a floor on $\sigma$.
 
 ### Absolute and relative framing
 
@@ -50,9 +48,9 @@ a state-dependent source whose spread shrinks as $1/\sqrt{C}$, i.e. with area, l
 
 ## Parameter ownership
 
-No parameters belong to the shared laws themselves. Each source's distribution parameters — its $\sigma$, the Pelgrom coefficients $A_P$ and $S_P$, the relative spread $\sigma_{\mathrm{rel}}$, and the unit-cell capacitance $C_{\mathrm{unit}}$ — belong to the owning subsystem's §Parameters table, with provenance per [module_parameter](../conventions/module_parameter.md). The thermal constants $k_B$ and $T$ are the shared physical constants of [notation_conventions](../conventions/notation_conventions.md).
+No parameters belong to the shared laws themselves. Each source's distribution parameters — its $\sigma$, the Pelgrom coefficients $A_P$ and $S_P$, the relative spread $\sigma_{\mathrm{rel}}$, and the unit-cell capacitance $C_{\mathrm{unit}}$ — belong to the owning subsystem's §Parameters table, with provenance per [module_parameter](../conventions/module_parameter.md). The Boltzmann constant $k_B$ and the temperature $T$ are shared across subsystems and defined in [notation_conventions](../conventions/notation_conventions.md).
 
-TODO (domain author): the concrete parameterisation of the long-range gradient term — the $S_P$ coefficient, the $D$ separation, and their config homes.
+TODO (domain author): the concrete parameterisation of the long-range gradient term — the $S_P$ coefficient, the $D$ separation, and the subsystem that owns them.
 
 ## Symbols
 
@@ -67,7 +65,7 @@ TODO (domain author): the concrete parameterisation of the long-range gradient t
 | $V_{\mathrm{th}}$ | threshold voltage (intensive-mismatch example) | V | — |
 | $C_k$ | element capacitance | fF | — |
 | $C_{\mathrm{unit}}$ | unit-cell capacitance | fF | — |
-| $\sigma_{\mathrm{rel}}$ | relative mismatch spread at the unit cell | — | — |
+| $\sigma_{\mathrm{rel}}$ | relative mismatch spread at the unit cell | — | `sigma_relative` |
 | $k_B$ | Boltzmann constant | J/K | `K_BOLTZMANN__J_per_K` |
 | $T$ | absolute temperature (runtime input) | K | `T__K` |
 | $C$ | sampling capacitance | fF | — |
@@ -75,7 +73,7 @@ TODO (domain author): the concrete parameterisation of the long-range gradient t
 ## Assumptions and validity
 
 - Static mismatch is a per-instance constant fixed at fabrication; dynamic noise is resampled per read and is i.i.d. across reads.
-- Microscopic fluctuations are spatially uncorrelated and area-averaged, so the local Pelgrom term has variance $\propto 1/\mathrm{area}$ with no floor; the only non-vanishing large-area residual is the explicit long-range gradient term.
-- Spatial correlation between elements is modelled only through that explicit gradient term; every other draw is independent per element.
+- Microscopic fluctuations are spatially uncorrelated and area-averaged, so the local Pelgrom term has variance $\propto 1/\mathrm{area}$.
+- Spatial correlation between elements is modelled only through the long-range gradient term; every other draw is independent per element.
 
 TODO (domain author): the device-size and temperature ranges over which the Pelgrom and $kT/C$ laws hold, the regimes where inter-element spatial correlation must be modelled explicitly, and confirmation of the area-scaling direction of the absolute-vs-relative framing.

@@ -2,21 +2,21 @@
 
 ## Summary
 
-`VoltageMux` (`voltage_mux.py`) is a leaf differential voltage-transport block: it moves a grouped signal and tallies transport energy, with optional CM / DM noise applied per call. Spec: [reference/analog/voltage_mux](../../reference/analog/voltage_mux.md).
+`VoltageMux` (`voltage_mux.py`) is a leaf differential voltage-transport block: it moves a grouped signal and tallies transport energy, with optional CM / DM noise applied per call.
 
 ## Design decisions
 
 - **Not polymorphic.** There is one concrete mux; parent circuits construct it directly from its config rather than dispatching through a family base. Adding a registry would buy nothing while a single topology exists, and the canonical leaf signature already standardises construction.
-- **Static mismatch vs dynamic noise.** `_sample_fabricate_mismatch` samples the inter-leg gain mismatch `eps_g` once at fabricate from `mux_gain_mismatch_sigma_relative` (flat sigma, no area scaling) and `transport` applies the per-leg gains `g± = g(1 ± eps_g/2)`; CM and DM noise stay dynamic, re-sampled inside `transport`.
+- **Static mismatch vs dynamic noise.** `_sample_fabricate_mismatch` samples the inter-leg gain mismatch `eps_g` once at fabricate from `mux_gain_mismatch_sigma_relative` (flat sigma, no area scaling); `transport` then applies the resulting per-leg static gains, while CM and DM noise stay dynamic, re-sampled inside `transport`.
 
 ## Contracts & invariants
 
 - **Canonical leaf signature.** `__init__(*, config, policy, name, inst_shape, dtype, T__K)` matches the other leaves; the per-instance count is locked from `inst_shape` at construction.
-- **Value-preserving.** The mux transports and aggregates only - it performs no weighting or arithmetic on the signal value (that lives in the composing circuit's switch-cap kernels). The two noise terms are the only departure from identity transport.
+- **Value-preserving.** The mux transports and aggregates only — it performs no weighting or arithmetic on the signal value. The two noise terms are the only departure from identity transport.
 
 ## Performance & resources
 
-N/A - transport is a per-call elementwise map off the memory- and compile-critical path.
+N/A — transport is a per-call elementwise map off the memory- and compile-critical path.
 
 ## Gotchas
 
@@ -30,5 +30,4 @@ N/A - transport is a per-call elementwise map off the memory- and compile-critic
 
 - **Reference**: [voltage_mux](../../reference/analog/voltage_mux.md)
 - **Implementation**: `neurox/analog/voltage_mux.py`
-- **Tests**: TODO - name the guarding test
-- **Decisions**: N/A — no ADR governs this module.
+- **Tests**: TODO — name the guarding test

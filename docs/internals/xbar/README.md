@@ -1,6 +1,6 @@
 # Xbar
 
-How the crossbar layer is built. The spec is in [reference/xbar](../../reference/xbar/README.md); this side covers only what the code cannot tell you.
+How the crossbar layer is built. This side covers only what the code cannot tell you.
 
 - [base](base.md) — `Xbar` family/registry, primitive shape contract, lifecycle, ideal twin.
 - [cell](cell.md) — `XbarCell` family/registry, the no-PPA `nn.Module` device-owner, the abstract method set concrete cells implement.

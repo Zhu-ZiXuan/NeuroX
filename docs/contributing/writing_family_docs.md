@@ -16,7 +16,7 @@ A family document owns science only.
 
 ## Document template
 
-A family document uses the sections below in order. The template omits Physical model, Numerical method, Parameters, and Validation, because a family fixes no concrete model, method, or parameter and runs no validation of its own. Only Summary / role and Shared conventions are required; an on-demand section with nothing to say is omitted outright rather than kept as an N/A heading. The footer likewise carries no Configuration or Validation line.
+A family document uses the sections below in order. The document file is `family.md`, titled `<Family> family`; see [naming_conventions](../conventions/naming_conventions.md). The template omits Physical model, Numerical method, Parameters, and Validation, because a family fixes no concrete model, method, or parameter and runs no validation of its own. Only Summary / role and Shared conventions are required; an on-demand section with nothing to say is omitted outright rather than kept as an N/A heading. The footer likewise carries no Configuration or Validation line.
 
 ```markdown
 # <Family> family
@@ -37,7 +37,6 @@ A family document uses the sections below in order. The template omits Physical 
 
 - **Internals**: [<base doc>](<relative .md path>)
 - **Modules**: [README](README.md)
-- **Decisions**: [<ADR>](<relative .md path>), N/A, or None
 ```
 
 ## Filling each section
@@ -51,7 +50,7 @@ A family document uses the sections below in order. The template omits Physical 
 
 Insert an optional `Noise & non-idealities` section, after Governing laws, only for a statement genuinely shared by every member — for example, that quantization is intrinsic to the whole family. Shared cross-device sources belong in [nonideality](../reference/nonideality.md).
 
-The footer is traceability: Internals points to the base document that owns the family's software contract, Modules points to the README that indexes the concrete members, and Decisions names any governing ADR or reads N/A or None.
+The footer is traceability: Internals points to the base document that owns the family's software contract, and Modules points to the README that indexes the concrete members.
 
 ## Content rules
 
@@ -59,7 +58,7 @@ The footer is traceability: Internals points to the base document that owns the 
 
 A family document states shared science, never a software contract and never one member's specifics. An interface obligation, an ownership boundary, or a single topology's transfer characteristic belongs in the base document or that member's document.
 
-**Bad:** "The ADC does not source or store its reference taps; the owning xbar injects them each call."
+**Bad:** "The member does not source or store its reference taps; the owning module injects them each call."
 
 **Good:** "Every member digitizes against an externally supplied reference, so the code edges follow that reference rather than the converter."
 

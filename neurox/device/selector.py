@@ -1,4 +1,4 @@
-"""Threshold-selector mismatch model.
+"""OTS threshold-selector model.
 
 See also:
     docs/reference/device/selector.md
@@ -19,9 +19,9 @@ class SelectorConfig(ValidateMixin):
     """Immutable configuration for an OTS threshold selector.
 
     Attributes:
-        vth_nominal__V: Nominal threshold voltage ``Vth`` shared
+        vth_nominal__V: Nominal threshold voltage ``V_th`` shared
             across all cells before mismatch is applied.
-        vth_mismatch__V: Additive Gaussian mismatch on ``Vth``.
+        vth_mismatch__V: Additive Gaussian mismatch on ``V_th``.
     """
 
     # --- Nominal threshold ---

@@ -1,6 +1,6 @@
 # Reference — Scientific manual
 
-The specification of what NeuroX models — physical models, equations, numerical methods — organized by subsystem (mirroring the source packages).
+The specification of what NeuroX models — physical models, equations, numerical methods — organized by subsystem.
 
 - [nonideality](nonideality.md) — cross-subsystem mismatch and noise theory
 - [device](device/README.md)

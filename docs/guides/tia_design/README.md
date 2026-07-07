@@ -57,18 +57,18 @@ The config maps to a frozen `TiaDesignConfig` (`neurox/tools/xbar_tia/optimize.p
 
 ```toml
 [hardware]
-v_dd__V = 0.9                          # chip supply rail
-v_ref__V = 0.1                         # BL clamp softclip reference voltage
-output_saturation_softness__V = 0.45   # softclip softness band
-target_v_max__V = 0.8                  # user-chosen TIA output ceiling
-tia_n_newton = 5                       # Newton iterations for the inner TIA solve
+v_dd__V = ...                          # chip supply rail
+v_ref__V = ...                         # BL clamp softclip reference voltage
+output_saturation_softness__V = ...    # softclip softness band
+target_v_max__V = ...                  # user-chosen TIA output ceiling
+tia_n_newton = ...                     # Newton iterations for the inner TIA solve
 
 [hardware.nmos_config]
 _neurox_use_preset = "process/mos:nmos_28_rvt"
 
 [workload]
-mean__uA = 170.26                      # per-column BL current mean
-std__uA = 29.19                        # per-column BL current std
+mean__uA = ...                         # per-column BL current mean
+std__uA = ...                          # per-column BL current std
 
 [sweep]
 opamp_gain        = [30]
@@ -86,9 +86,9 @@ A runnable template lives at `example/config/xbar_tia_optimize.toml`.
 ## See also
 
 - [Reference: op-amp TIA](../../reference/analog/tia/opamp_tia.md) — the device physics and transfer model the sweep evaluates.
-- [Reference: ADC base](../../reference/analog/adc/base.md) — the readout stage whose `v_ref` mode sets `target_v_max__V`.
+- [Reference: ADC base](../../reference/analog/adc/family.md) — the readout stage whose `v_ref` mode sets `target_v_max__V`.
 - [Internals: op-amp TIA](../../internals/analog/tia/opamp_tia.md) — the `OpAmpTIA` Newton solve invoked by `build_tia`.
 - [API: configuration](../../api/configuration.md) — the TOML schema and `_neurox_use_preset` directive.
-- [Reference: module parameter](../../conventions/module_parameter.md) — sourcing the `[workload]` and `[hardware]` numbers.
+- [Convention: module parameter](../../conventions/module_parameter.md) — sourcing the `[workload]` and `[hardware]` numbers.
 - [Calibration guides](../calibration/README.md) — the complementary task of fitting model parameters to a chip.
 - [Guides index](../README.md)

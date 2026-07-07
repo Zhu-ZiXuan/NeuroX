@@ -2,7 +2,7 @@
 
 ## Summary / role
 
-`McsSarAdc` is the $V_{\mathrm{cm}}$-based (Merged Capacitor Switching) differential SAR ADC: a successive-approximation converter with explicit cap-mismatch and comparator-noise modelling and calibrated multi-mode operation. It is the production SAR member of the [ADC family](README.md) and honours the family signed-code and floor contract in [base](base.md).
+`McsSarAdc` is the $V_{\mathrm{cm}}$-based (Merged Capacitor Switching) differential SAR ADC: a successive-approximation converter with explicit cap-mismatch and comparator-noise modelling and calibrated multi-mode operation. It is the production SAR member of the [ADC family](family.md) and honours the family signed-code and floor contract in [base](family.md).
 
 ## Physical model
 
@@ -22,20 +22,11 @@ Each SAR cycle perturbs the differential top-plate voltage by the merged-capacit
 
 $$\Delta V_{\mathrm{top},k} = \pm\, (V_{\mathrm{ref}} - V_{\mathrm{cm}})\,\frac{C_k}{C_{\mathrm{total}}} \;\xrightarrow{V_{\mathrm{cm}} = V_{\mathrm{ref}}/2}\; \pm\, V_{\mathrm{cm}}\,\frac{C_k}{C_{\mathrm{total}}} = \pm\, \frac{V_{\mathrm{ref}}}{2}\,\frac{C_k}{C_{\mathrm{total}}},$$
 
-where $C_k$ is the (mismatched, if the policy is on) capacitance of the cap switched on cycle $k$ and $C_{\mathrm{total}}$ the array total. The $V_{\mathrm{cm}}$ form is an identity valid only because $V_{\mathrm{ref}} - V_{\mathrm{cm}} = V_{\mathrm{cm}}$ at the design point; the bottom-plate swing is $V_{\mathrm{ref}}/2$ (half $V_{\mathrm{ref}}$). The MSB is the sign of the free differential comparison; each subsequent bit is the sign of the running differential after the cycle's step, accumulated into the unsigned code. The unsigned code is then clamped to $[0,\ 2^{b}-1]$ and shifted by the zero code $2^{\,b-1}$ to the signed range $[-2^{\,b-1},\ 2^{\,b-1}-1]$ per the family contract in [base](base.md#signed-code-output-convention). The zero code $2^{\,b-1}$ is the bucket midpoint of the symmetric differential design, where $V^{+} - V^{-} = 0$ sits centred between the rail-symmetric extremes $\pm V_{\mathrm{ref}}$, justifying the symmetric zero point.
+where $C_k$ is the capacitance of the cap switched on cycle $k$, carrying the static per-cap Pelgrom mismatch (independent legs), and $C_{\mathrm{total}}$ the array total. The $V_{\mathrm{cm}}$ form is an identity valid only because $V_{\mathrm{ref}} - V_{\mathrm{cm}} = V_{\mathrm{cm}}$ at the design point; the bottom-plate swing is $V_{\mathrm{ref}}/2$ (half $V_{\mathrm{ref}}$). The MSB is the sign of the free differential comparison; each subsequent bit is the sign of the running differential after the cycle's step, accumulated into the unsigned code. The unsigned code is then clamped to $[0,\ 2^{b}-1]$ and shifted by the zero code $2^{\,b-1}$ to the signed range $[-2^{\,b-1},\ 2^{\,b-1}-1]$ per the family contract in [base](family.md#signed-code-range). The zero code $2^{\,b-1}$ is the bucket midpoint of the symmetric differential design, where $V^{+} - V^{-} = 0$ sits centred between the rail-symmetric extremes $\pm V_{\mathrm{ref}}$, justifying the symmetric zero point.
 
 ## Numerical method
 
 The conversion performs $b$ comparisons total — one free MSB comparison (no cap switched) plus $b-1$ in-loop decision cycles, each a single cap switch per leg followed by a comparison, giving $b-1$ switch events in all. Each in-loop cycle is a closed-form step and a sign decision, with no inner iteration. The loop is exact for the modelled topology - it is not an iterative root find.
-
-## Multi-mode operation
-
-The operating point $(\mathrm{mode}, b)$ is per call:
-
-- $\mathrm{mode}$ selects the reference-voltage tap $V_{\mathrm{ref}}$ from the injected reference tensor $\{V_{\mathrm{ref},m}\}$ — the ADC does not store the ladder. The owning xbar sources the taps from a [voltage_reference](../voltage_reference.md), samples them once per read, and passes the whole `(*inst, num_refs)` tensor into `convert`; the ADC indexes it by $\mathrm{mode}$. The taps are conventionally strictly decreasing (entry 0 the maximum, the calibration anchor), but that ordering is a property of the reference source, not enforced by the ADC.
-- $b \le b_{\max}$ sets the active SAR depth; for $b < b_{\max}$ the loop stops early after $b$ comparisons, so the unreached smaller caps are not switched. They still sample and charge-divide (contributing to $C_{\mathrm{total}}$ and the step denominator) but add no switching energy.
-
-The consumer rescales the multi-mode result with the single calibrated equivalent rescale factor $s$ (defined in [xbar/base](../../xbar/base.md), value from calibration), not with an in-doc per-mode or per-$b$ scaling account.
 
 ## Energy model
 
@@ -75,13 +66,13 @@ The upper limit $b-1$ reflects the free MSB plus the $b-1$ switched bits. At $b 
 
 ## Noise & non-idealities
 
-| Source | Physical origin | Statistical model | Parameter | Policy switch |
-|---|---|---|---|---|
-| cap mismatch | per-cap area/oxide variation | static per-cap Pelgrom Gaussian on $C_k$ (independent legs), at fabricate | `cap_mismatch_sigma_relative` | `cap_mismatch` |
-| comparator offset | static comparator input offset | static Gaussian threshold offset, at fabricate | `comparator_offset_sigma__V` | `comparator_offset` |
-| comparator thermal noise | per-decision thermal noise | additive Gaussian per SAR cycle | `comparator_thermal_noise_sigma__V` | `comparator_thermal_noise` |
-| sampling thermal noise | kT/C noise on held top plates | additive Gaussian at sample, sigma set by $T$ | (derived from $T$, $C$) | `sampling_thermal_noise` |
-| quantization | intrinsic SAR resolution | deterministic (unbiased with training jitter) | $b$ | — |
+| Source | Physical origin | Statistical model | Parameter |
+|---|---|---|---|
+| cap mismatch | per-cap area/oxide variation | static per-cap Pelgrom Gaussian on $C_k$ (independent legs), at fabricate | `cap_mismatch_sigma_relative` |
+| comparator offset | static comparator input offset | static Gaussian threshold offset, at fabricate | `comparator_offset_sigma__V` |
+| comparator thermal noise | per-decision thermal noise | additive Gaussian per SAR cycle | `comparator_thermal_noise_sigma__V` |
+| sampling thermal noise | kT/C noise on held top plates | additive Gaussian at sample, sigma set by $T$ | (derived from $T$, $C$) |
+| quantization | intrinsic SAR resolution | deterministic | $b$ |
 
 The comparator thermal-noise sigma scales as $\sqrt{T}$ anchored at 300 K.
 
@@ -107,15 +98,35 @@ TODO (domain author): citations for the MCS switching-energy and Pelgrom models.
 | `e_constant_per_bit__fJ` | per-bit constant energy overhead | fJ | Design |
 | leakage / area | static PPA / spec fields | uW, um^2 | Design |
 
-The reference-voltage ladder is not a parameter of this ADC: the owning xbar sources it from a [voltage_reference](../voltage_reference.md) and injects all taps into `convert` per call (shape `(*inst, num_refs)`), $\mathrm{mode}$ selecting one. Per-op latency is likewise not a parameter: it is derived as $(b+1)\cdot$ `clk_period__ns` from the runtime operating point. Provenance terms are defined in [module_parameter](../../../conventions/module_parameter.md).
+The reference voltage is not a parameter of this ADC — it is one of the taps the family injects per call (see [base](family.md#parameters)). A conversion spans $b+1$ clock periods (one sample cycle plus $b$ comparison cycles), so its latency is $(b+1)\cdot$ `clk_period__ns`. Provenance terms are defined in [module_parameter](../../../conventions/module_parameter.md).
+
+## Symbols
+
+| Symbol | Meaning | Unit | Code field |
+|---|---|---|---|
+| $V^{+}, V^{-}$ | differential input legs | V | `v_pos__V`, `v_neg__V` |
+| $V_{\mathrm{cm}}$ | common-mode third reference, $V_{\mathrm{ref}}/2$ | V | derived |
+| $V_{\mathrm{ref}}$ | reference voltage | V | `v_refs__V[..., mode]` |
+| $V_{\mathrm{in}}$ | sampled input on a leg | V | sampled in `convert` |
+| $C_k$ | capacitance of cap $k$ (mismatched after fabricate) | fF | per-leg cap arrays |
+| $C_{\mathrm{total}}$ | total array capacitance, $2^{\,b_{\max}-1}C_{\mathrm{unit}}$ | fF | derived |
+| $C_{\mathrm{unit}}$ | unit-cap capacitance | fF | `c_unit__fF` |
+| $b$ | resolution (bits) | — | `adc_bits` |
+| $b_{\max}$ | physical CDAC depth | — | `max_bits` |
+| $E_k$ | signed per-cycle MCS switching energy | fJ | energy accounting |
+| $\overline{E}_{\mathrm{sw}}$ | equiprobable-code-average switching energy | fJ | energy accounting |
+| $f_k$ | signed prior-bit factor in $E_k$ | — | energy accounting |
+| $E_{\mathrm{bootstrap}}, E_{\mathrm{const}/\mathrm{bit}}$ | energy overheads | fJ | `e_bootstrap__fJ`, `e_constant_per_bit__fJ` |
+| $T$ | operating temperature | K | `T__K` |
+| $k_B$ | Boltzmann constant | J/K | `K_BOLTZMANN__J_per_K` |
+| $\sigma_V$ | kT/C sampling-noise sigma on a held top plate | V | derived from $T$, $C_{\mathrm{total}}$ |
 
 ## Assumptions, scope & validity
 
 Stated assumptions:
 
 - The differential topology resolves the MSB by free comparison, so no dedicated MSB cap is modelled.
-- The injected reference taps are strictly decreasing, with entry 0 the calibration anchor — an ordering the reference source provides, not enforced here.
-- For $b < b_{\max}$ the unreached smaller caps still sample and charge-divide but are not switched, so they contribute no switching energy.
+- For $b < b_{\max}$ the unreached smaller caps still sample and charge-divide — contributing to $C_{\mathrm{total}}$ and hence the step denominator — but are not switched, so they add no switching energy.
 
 TODO (domain author): the validity range of the merged-capacitor step model (settling, parasitic coupling) and the operating envelope over which calibration is trusted.
 
@@ -127,31 +138,8 @@ TODO - link validation evidence once written.
 
 TODO: cite the merged-capacitor-switching SAR topology and its energy model.
 
-## Symbols
-
-| Symbol | Meaning | Unit | Code field |
-|---|---|---|---|
-| $V^{+}, V^{-}$ | differential input legs | V | `v_pos__V`, `v_neg__V` |
-| $V_{\mathrm{cm}}$ | common-mode third reference, $V_{\mathrm{ref}}/2$ | V | derived |
-| $\{V_{\mathrm{ref},m}\}$ | injected reference taps (per call) | V | `v_refs__V` |
-| $V_{\mathrm{ref}}$ | selected reference voltage | V | `v_refs__V[..., mode]` |
-| $V_{\mathrm{in}}$ | sampled input on a leg | V | sampled in `convert` |
-| $C_k$ | capacitance of cap $k$ (mismatched after fabricate) | fF | per-leg cap arrays |
-| $C_{\mathrm{total}}$ | total array capacitance, $2^{\,b_{\max}-1}C_{\mathrm{unit}}$ | fF | derived |
-| $C_{\mathrm{unit}}$ | unit-cap capacitance | fF | `c_unit__fF` |
-| $b$ | runtime resolution (bits) | — | `adc_bits` |
-| $b_{\max}$ | physical CDAC depth | — | `max_bits` |
-| $E_k$ | signed per-cycle MCS switching energy | fJ | energy accounting |
-| $\overline{E}_{\mathrm{sw}}$ | equiprobable-code-average switching energy | fJ | energy accounting |
-| $f_k$ | signed prior-bit factor in $E_k$ | — | energy accounting |
-| $E_{\mathrm{bootstrap}}, E_{\mathrm{const}/\mathrm{bit}}$ | energy overheads | fJ | `e_bootstrap__fJ`, `e_constant_per_bit__fJ` |
-| $T$ | operating temperature | K | `T__K` |
-| $k_B$ | Boltzmann constant | J/K | `K_BOLTZMANN__J_per_K` |
-| $\sigma_V$ | kT/C sampling-noise sigma on a held top plate | V | derived from $T$, $C_{\mathrm{total}}$ |
-
 ---
 
 - **Internals**: [mcs_sar internals](../../../internals/analog/adc/mcs_sar.md)
 - **Validation**: TODO - validation evidence not yet written
 - **Configuration**: `McsSarAdcConfig`, `McsSarAdcPolicy` (see `api`)
-- **Decisions**: N/A — no ADR governs this module.

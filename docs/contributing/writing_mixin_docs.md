@@ -50,7 +50,6 @@ Injected behavior:
 - **Reference**: N/A — software mechanism
 - **Implementation**: `neurox/common/mixin/<...>.py`
 - **Tests**: `tests/test_<...>.py` or TODO — <what is missing>
-- **Decisions**: [<ADR>](<relative .md path>), N/A, or None
 ```
 
 - `Summary` [required]: the capability and boundary in role language — the `.md`'s own entry point, not a verbatim copy of the class docstring.
@@ -62,9 +61,9 @@ Injected behavior:
 
 ### No downward links
 
-A host composes a mixin, so the mixin is the lower module and its hosts are the upper consumers. State every requirement as a role the host fills — the base it must inherit, the attribute it must set — never as a named host module. Pointing a mixin at a specific host reverses the dependency direction fixed in [organizing_principles](../conventions/organizing_principles.md).
+A host composes a mixin, so the mixin is the lower module and its hosts are the upper consumers. State every requirement as a role the host fills — the base it must inherit, the attribute it must set — never as a named host module. Pointing a mixin at a specific host reverses the dependency direction.
 
-**Bad:** "`OpAmpTia` sets `_inst_shape` before the cascade runs."
+**Bad:** "`SchemeFamily` sets `_inst_shape` before the cascade runs."
 
 **Good:** "The host sets `_inst_shape` in its `__init__` before the cascade runs."
 

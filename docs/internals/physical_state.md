@@ -16,7 +16,7 @@ Some programmable devices carry no nominal template and no fabricate buffer at a
 
 ## Lifecycle methods
 
-Four methods drive a module's state. `__init__` runs once at construction; `fabricate()` and `program(...)` run after it, in either order and any number of times; `snapshot(...)` runs once per call on the run path. `fabricate()` and `program(...)` write orthogonal state — mismatch versus programmed value — so their order is free.
+Four methods drive a module's state. `__init__` runs once at construction; `fabricate()` and `program(...)` run after it, any number of times; `snapshot(...)` runs once per call on the run path. `fabricate()` and `program(...)` write orthogonal state — mismatch versus programmed value — so their order is free.
 
 ### `__init__`
 
@@ -52,4 +52,4 @@ Physical state lives in the owning module; a parent reads a child's state throug
 
 Resampling stays off the inference hot path — `program(...)` and `fabricate()` run before inference, neither during it. Each `fabricate()` is a single pass over the module tree whose allocation scales with `inst_shape`, not with any per-call batch.
 
-Fabrication draws its mismatch from nondeterministic RNG, so it conflicts with `torch.use_deterministic_algorithms(True)` — disable deterministic mode while fabricating. Across data-parallel ranks each rank draws its own mismatch realization and the lifecycle does not synchronize, so coordinate RNG seeds before fabricating if cross-rank-consistent mismatch is required.
+Fabrication draws its mismatch from the RNG, so a reproducible realization requires a fixed seed set before fabricating. Across data-parallel ranks each rank draws its own mismatch realization and the lifecycle does not synchronize, so coordinate RNG seeds before fabricating if cross-rank-consistent mismatch is required.

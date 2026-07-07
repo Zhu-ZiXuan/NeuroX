@@ -25,12 +25,10 @@ class VoltageReferenceConfig(CircuitConfig):
             array loads straight into this tuple.
         tolerance_sigma_relative: Relative per-instance initial-accuracy
             σ [dimensionless], applied multiplicatively at fabricate
-            time and gated by the ``tolerance`` policy; ``0`` leaves the
-            exact nominal taps.
+            time; ``0`` leaves the exact nominal taps.
         noise_sigma_relative: Relative per-call noise σ
-            [dimensionless], applied multiplicatively at snapshot time
-            and gated by the ``noise`` policy; ``0`` leaves the taps
-            noise-free.
+            [dimensionless], applied multiplicatively at snapshot time;
+            ``0`` leaves the taps noise-free.
         area_per_inst__um2: Silicon area per fabricated instance.
         leakage_per_inst__uW: Static leakage per instance; carries
             all static power, including the always-on bias network that

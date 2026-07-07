@@ -2,7 +2,7 @@
 
 ## Summary
 
-`GeneralADC` (`adc/general.py`) is the boundary-bucketize behavioural ADC: a sorted threshold list plus three optional Gaussian noise stages. Spec: [reference/analog/adc/general](../../../reference/analog/adc/general.md).
+`GeneralADC` (`adc/general.py`) is the boundary-bucketize behavioural ADC: a sorted threshold list plus two optional Gaussian noise stages.
 
 ## Design decisions
 
@@ -13,8 +13,8 @@
 ## Contracts & invariants
 
 - **Single-mode validation.** `convert` accepts only `adc_mode == 0` and `adc_bits` equal to the boundary-implied width; any other operating point is rejected.
-- **Clamp precedes the zero shift** (family contract): the optional stochastic LSB jitter can push the floor_bucketize index out of `[0, n_codes-1]`, so the clamp runs before subtracting `self._zero_code`.
-- **Monotone input transform.** `input_transform` is identity or `log2`; both are monotone, so the bucketize order is preserved and the threshold comparison stays valid.
+- **Clamp before the zero shift.** Per the base clamp-before-shift contract ([base](base.md)), `convert` clamps to `[0, n_codes-1]` before subtracting `self._zero_code`; here the out-of-range push comes from `floor_bucketize`'s stochastic-rounding LSB jitter.
+- **Monotone input transform.** `input_transform` is identity or `log2`; both are monotone, so the bucketize threshold comparison stays valid for either.
 
 ## Performance & resources
 
@@ -26,11 +26,10 @@ N/A - a single floor_bucketize per call, off the memory- and compile-critical pa
 
 ## Known limitations
 
-- `GeneralADC` is a historical / placeholder behavioural ADC; its comparator model, boundary list, noise stages and input-unit handling are provisional and may change.
+- `GeneralADC` is a placeholder behavioural ADC; its comparator model, boundary list, noise stages and input-unit handling are provisional and may change.
 
 ---
 
 - **Reference**: [general](../../../reference/analog/adc/general.md)
 - **Implementation**: `neurox/analog/adc/general.py`
 - **Tests**: TODO - name the guarding test
-- **Decisions**: N/A — no ADR governs this module.

@@ -1,10 +1,10 @@
 # Scheme C — Xbar-read custom op
 
-**Status: Deferred — not implemented.** The only scheme that makes the xbar read a true opaque node in a `fullgraph=True` parent. Builds on [scheme B](scheme-b-deobjectified.md)'s functionalization. Adopt only when `fullgraph=True` is a hard requirement — a caller that must `torch.compile(model, fullgraph=True)` with no graph break, a clean export/deploy boundary, or when the eager island's Python-dispatch overhead itself becomes the bottleneck.
+**Status: Deferred — not implemented.** The only scheme that makes the xbar read a true opaque node in a `fullgraph=True` parent. Builds on scheme B's functionalization. Adopt only when `fullgraph=True` is a hard requirement — a caller that must `torch.compile(model, fullgraph=True)` with no graph break, a clean export/deploy boundary, or when the eager island's Python-dispatch overhead itself becomes the bottleneck.
 
 ## The problem it solves
 
-[Scheme A](scheme-a-regional.md) draws an eager island at `solve_array`, so the macro `matmul` graph **breaks** there — fine for `fullgraph=False`, fatal for a parent compiled with `fullgraph=True`. There is no way to keep the chunk loop out of the graph *and* avoid a break except by making the whole xbar read a single opaque node the parent graph neither traces nor breaks on. A custom op is the official mechanism for exactly that.
+Scheme A draws an eager island at `solve_array`, so the macro `matmul` graph **breaks** there — fine for `fullgraph=False`, fatal for a parent compiled with `fullgraph=True`. There is no way to keep the chunk loop out of the graph *and* avoid a break except by making the whole xbar read a single opaque node the parent graph neither traces nor breaks on. A custom op is the official mechanism for exactly that.
 
 ## The PyTorch mechanism it leans on
 
@@ -31,7 +31,7 @@ Granularity is the main design choice:
 - **C2 — wrap `vec_mat_mul`.** Hides core and readout together; output is the ADC-code tensor the macro wants. Larger black box, so the macro can fuse no readout math, and the ADC operating point / rescale enter the op.
 - **C3 — wrap only the per-chunk solve body.** Rejected: the chunk loop stays in the parent graph, so the graph holds a custom-op node per chunk and still grows with chunk count — it hides one chunk's internals, not the loop.
 
-Because the op must be functional, it requires [scheme B](scheme-b-deobjectified.md) first: all state arrives as tensor arguments, a Python wrapper extracts those tensors from the xbar/core objects, and the op body only computes. Profiler events are emitted **outside** the op (or the op returns energy/latency tensors recorded by an eager wrapper) — Python list mutation must never sit inside a `fullgraph` target.
+Because the op must be functional, it requires scheme B first: all state arrives as tensor arguments, a Python wrapper extracts those tensors from the xbar/core objects, and the op body only computes. Profiler events are emitted **outside** the op (or the op returns energy/latency tensors recorded by an eager wrapper) — Python list mutation must never sit inside a `fullgraph` target.
 
 ## Trade-offs
 
@@ -58,4 +58,4 @@ The op runs its body as-is, with no Inductor optimization across its boundary (i
 
 ## See also
 
-- [scheme A](scheme-a-regional.md), [scheme B](scheme-b-deobjectified.md), [contracts](contracts.md)
+- [scheme A](scheme_a_regional.md), [scheme B](scheme_b_deobjectified.md), [contracts](contracts.md)

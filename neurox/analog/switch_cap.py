@@ -130,7 +130,7 @@ class SwitchCap(CircuitBase[SwitchCapConfig]):
         )
 
     def sample_and_accumulate(self, v_in__V: Tensor) -> Tensor:
-        """Sample digit voltages and run passive charge-sharing.
+        """Sample per-cap voltages and run passive charge-sharing.
 
         Args:
             v_in__V: Per-cap sampled voltages,

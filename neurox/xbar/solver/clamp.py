@@ -41,8 +41,8 @@ class ClampSnap(Protocol):
     the solver can read its warm-start seed directly from the snap.
 
     Attributes:
-        v_ref__V: Reference / zero-current clamp voltage, the
-            post-noise value injected into :meth:`ClampDriver.snapshot`.
+        v_ref__V: Reference / zero-current clamp voltage carried forward
+            by :meth:`ClampDriver.snapshot` from its injected ``v_ref__V``.
             Declared read-only so the frozen-dataclass snaps
             (``VoltageDriverSnap`` / ``OpAmpTIASnap`` / ``GeneralTIASnap``)
             satisfy the protocol structurally.
@@ -60,9 +60,9 @@ class ClampDriver(Protocol[SnapT]):
 
     Methods:
         snapshot: Sample one per-call snap of the fabricated state over a
-            broadcast ``shape``, applying the per-call nonidealities to
-            the injected reference ``v_ref__V`` and storing the result in
-            the snap; optionally selects a chunk via ``multi_coords``.
+            broadcast ``shape``, applying any per-call nonidealities and
+            carrying the injected reference ``v_ref__V`` into the snap;
+            optionally selects a chunk via ``multi_coords``.
         solve_clamp: Boundary clamp solve mapping port current to the
             clamp voltage and its small-signal slope.
     """
@@ -78,8 +78,8 @@ class ClampDriver(Protocol[SnapT]):
 
         Args:
             v_ref__V: Injected reference / zero-current clamp voltage;
-                the source-agnostic tap value the snapshot perturbs with
-                the per-call nonidealities and stores in the snap.
+                the source-agnostic tap value carried into the snap, which
+                the driver may perturb with its per-call nonidealities.
             shape: Per-call broadcast shape; the snap fills tensor fields
                 at this shape.
             multi_coords: Advanced-index tuple selecting a chunk's
@@ -87,8 +87,8 @@ class ClampDriver(Protocol[SnapT]):
                 full view.
 
         Returns:
-            Per-call snap of the fabricated state, carrying the post-noise
-            reference ``v_ref__V``.
+            Per-call snap of the fabricated state, carrying the reference
+            ``v_ref__V``.
         """
         ...
 

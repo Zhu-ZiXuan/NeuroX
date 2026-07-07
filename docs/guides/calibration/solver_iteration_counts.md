@@ -49,10 +49,10 @@ with default $\operatorname{reltol} = 10^{-2}$ (1%).
 $\operatorname{reltol}$ is a methodological constant, **not** chip-tuned. It is set safely above the fp32 accumulated round-off floor
 
 $$
-\operatorname{reltol} \gtrsim \varepsilon_{\mathrm{fp32}} \cdot \sqrt{N_{\mathrm{ops}}} \cdot \operatorname{signal\_scale} \approx 0.8\%
+\operatorname{reltol} \gtrsim \varepsilon_{\mathrm{fp32}} \cdot \sqrt{N_{\mathrm{ops}}} \cdot \operatorname{signal\_scale}
 $$
 
-for the reference chip's 64-row wire ladder, so the guard does not false-fire under fp32 while still catching genuine divergence: a 1% residual ratio means wire KCL is off by 1% of cell current, which is clearly broken. fp64 workloads land $8+$ orders of magnitude below this threshold.
+so the guard does not false-fire under fp32 while still catching genuine divergence: a 1% residual ratio means wire KCL is off by 1% of cell current, which is clearly broken. fp64 workloads land $8+$ orders of magnitude below this threshold.
 
 If a chip's workload pushes wire ladders much longer or its signal scale much smaller, the operator may need to raise `--reltol` further. The CLI exposes `--reltol`, `--ratio-threshold`, and `--margin` for that.
 
@@ -73,7 +73,7 @@ All three CLI tools default to **fp32** (`--dtype float32`). Rationale:
 - The same counts also work in fp64: extra Newton iterations beyond the fp32 floor cost almost nothing once the solver is at any floor, and the residuals only get tighter.
 - fp64 is available via `--dtype float64` for accuracy verification or debug.
 
-The chip-preset comments record the production dtype explicitly so future calibration runs can be cross-checked.
+The chip-preset comments record the production dtype explicitly so calibration runs can be cross-checked.
 
 ## From plateau to stored count
 

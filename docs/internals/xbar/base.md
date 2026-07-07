@@ -2,7 +2,7 @@
 
 ## Summary
 
-The crossbar family: the abstract `Xbar` (`base.py`) and the lossless `IdealXbar` (`ideal.py`). The pure core array is under [core/](_1t1r/README.md); concrete scheme xbars live in their own per-scheme packages. Spec: [reference/xbar/base](../../reference/xbar/base.md).
+The crossbar family: the abstract `Xbar` (`base.py`) and the lossless `IdealXbar` (`ideal.py`). The pure core array is under [core/](_1t1r/README.md); concrete scheme xbars live in their own per-scheme packages.
 
 ## Design decisions
 
@@ -10,26 +10,15 @@ The crossbar family: the abstract `Xbar` (`base.py`) and the lossless `IdealXbar
 
 ## Contracts & invariants
 
-- **Primitive shape contract.** `program(w)` takes `(*inst_shape, col_num, w_digit_count, row_num)`; `vec_mat_mul(x)` takes trailing `[row_num]` and returns trailing `[data_num]`. A caller's leading dims express **external batch and inst alignment only** — per-column / per-digit / per-phys_col fanout is an internal axis the implementation opens itself (`unsqueeze(-2)` against the fabricated `g` grid). Encoding a column/digit position in `x`'s leading dims is a contract violation.
+- **Primitive shape contract.** `program(w)` takes `(*inst_shape, col_num, w_digit_count, row_num)`; `vec_mat_mul(x)` takes trailing `[row_num]` and returns trailing `[col_num]`. A caller's leading dims express **external batch and inst alignment only** — per-column / per-digit / per-phys_col fanout is an internal axis the implementation opens itself (`unsqueeze(-2)` against the fabricated `g` grid). Encoding a column/digit position in `x`'s leading dims is a contract violation. The caller must also insert an explicit size-1 inst slot in `x` for the Cartesian `x_batch × inst` broadcast, even when `x_batch` coincidentally equals an inst dim `K`: omit that slot and PyTorch silently broadcasts the position as a *matched* axis ("one x per inst") instead of the intended Cartesian product, raising no error while the output shape and the physical workload diverge.
+- **Abstract value-domain and ADC surface.** Each subclass implements the value-domain properties (`x_range`, `w_digit_count`, `w_digit_radix`, `w_digit_range`) and the ADC operating-point surface (`adc_mode_num`, `adc_max_bits`, `adc_rescale_factor`). `adc_rescale_factor(adc_operation_point)` returns the code-to-dot-product rescale keyed on the `(adc_mode, adc_bits)` pair — a calibrated value for a physical tile, geometry-derived for `IdealXbar` — and raises `KeyError` for an uncalibrated operating point.
 - **`to_ideal()` carries `XbarConfig` fields only** — never `adc_calibration` (that lives on the physical config); the ideal twin must derive its rescale from geometry alone.
 - **`IdealXbar` is also directly config-dispatchable** (it registers its own config key) — a convenience for flow bring-up and standalone tests. A directly built twin is hand-parameterised, bound to no fabricated device, and uncalibrated, so it is a synthetic reference only; production accuracy / PPA must use a twin from `to_ideal()` on a physical config.
+- **`IdealXbar` output-quantization contract.** `vec_mat_mul` consumes only `adc_operation_point.adc_bits`; `adc_mode` is opaque and never read. `adc_bits == 0` is the lossless sentinel — the integer dot product is returned unmodified, with ADC quantization and the signed clamp both bypassed. `adc_bits == 1` is unsupported: the signed endpoint `2**0 - 1 == 0` makes the rescale degenerate, so `adc_rescale_factor` raises a natural `KeyError` at that width.
 - **Ownership.** Fabricated state lives in the device children; the xbar owns no static mismatch, so `_sample_fabricate_mismatch` is an explicit base no-op and the cascade fans into the children.
-
-## Performance & resources
-
-N/A at this level — the memory- and compile-sensitive work is in [core/](_1t1r/README.md).
-
-## Gotchas
-
-- **Silent broadcast flip.** If the size-1 inst slot is omitted from `x` and `x_batch` happens to equal an inst dim `K`, PyTorch broadcasts that position as a *matched* axis ("one x per inst") instead of the intended Cartesian "x_batch × inst". No error is raised; the output shape and the physical workload differ. Always insert the explicit `1` slot for Cartesian broadcast, even when `x_batch == K` coincides.
-
-## Known limitations
-
-- N/A.
 
 ---
 
-- **Reference**: [xbar base](../../reference/xbar/base.md)
+- **Reference**: [xbar base](../../reference/xbar/family.md)
 - **Implementation**: `neurox/xbar/base.py`, `neurox/xbar/ideal.py`
-- **Tests**: `tests/test_xbar_physics.py`
-- **Decisions**: N/A — no ADR governs this module.
+- **Tests**: `tests/test_xbar_ideal_rescale.py`

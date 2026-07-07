@@ -1,6 +1,6 @@
 # State-map calibration
 
-Goal: derive the per-state RRAM conductance ladder `state_to_g_map__uS` so that the 1T1R cell read current is *linear in the state index* under a fixed read bias. This ladder is the `Measured` parameter consumed by [reference/xbar/_1t1r/core](../../reference/xbar/_1t1r/core.md) (`[xbar.core_config.cell_config]`). The tool is the offline single-cell CLI `<scheme>/tools/calculate_1t1r_states.py`.
+Goal: derive the per-state RRAM conductance ladder `state_to_g_map__uS` so that the 1T1R cell read current is *linear in the state index* under a fixed read bias. This ladder is consumed by [reference/xbar/_1t1r/core](../../reference/xbar/_1t1r/core.md) (`[xbar.core_config.cell_config]`). The tool is the offline single-cell CLI `<scheme>/tools/calculate_1t1r_states.py`.
 
 ## What the tool produces
 

@@ -20,7 +20,7 @@ class NeuroxMacroQuantMatMul(Protocol):
         w_value_range: Inclusive integer weight range accepted by the macro.
         x_value_range: Inclusive integer activation range accepted by the macro.
         adc_mode_num: Number of ADC operating points the macro supports.
-        adc_max_bits: Maximum ``adc_bits`` value the macro's ADC supports.
+        adc_max_bits: Maximum ``adc_bits`` value the macro supports.
 
     Methods:
         adc_rescale_factor: Recovery-side multiplier for a given
@@ -50,7 +50,7 @@ class NeuroxMacroQuantMatMul(Protocol):
 
     @property
     def adc_max_bits(self) -> int:
-        """Maximum ``adc_bits`` value the macro's ADC supports."""
+        """Maximum ``adc_bits`` value the macro supports."""
         ...
 
     def adc_rescale_factor(self, adc_operation_point: AdcOperationPoint) -> float:

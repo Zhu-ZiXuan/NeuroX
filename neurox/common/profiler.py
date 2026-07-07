@@ -51,7 +51,7 @@ class LatencyEvent:
 
 @dataclass(frozen=True)
 class StaticRecord:
-    """Per-module static-metric snapshot built from fabrication-time state.
+    """Per-module static-metric record built from fabrication-time state.
 
     Attributes:
         qualified_name: Hierarchical module identifier.
@@ -90,7 +90,7 @@ class ProfilerReport:
     Attributes:
         energy_events: Dynamic-energy events captured during the profiler context.
         latency_events: Latency events captured during the profiler context.
-        static_records: Per-module static-metric snapshots.
+        static_records: Per-module static-metric records.
         static: Aggregated static metrics across the whole model.
     """
 

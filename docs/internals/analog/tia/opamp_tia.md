@@ -2,7 +2,7 @@
 
 ## Summary
 
-`OpAmpTIA` (`tia/opamp_tia.py`) is the op-amp plus NMOS-pseudo-resistor concrete TIA: it owns an internal `NMOS`, fabricates op-amp gain state, and threads runtime clamp snaps through the solver-facing protocol. Spec: [reference/analog/tia/opamp_tia](../../../reference/analog/tia/opamp_tia.md).
+`OpAmpTIA` (`tia/opamp_tia.py`) is the op-amp plus NMOS-pseudo-resistor concrete TIA: it owns an internal `NMOS`, fabricates op-amp gain state, and threads runtime clamp snaps through the solver-facing protocol.
 
 ## Design decisions
 
@@ -12,7 +12,7 @@
 
 ## Contracts & invariants
 
-- **Solver-facing surface** (the `TIA`-family contract): `snapshot(*, v_ref__V, shape, multi_coords) -> OpAmpTIASnap` (the injected reference stored in the snap alongside `opamp_gain` and `nmos_snap`) plus `solve_clamp(i_port__uA, snap, *, v_clamp_init__V) -> (v_clamp__V, dVclamp_dI__MOhm)` consuming that `OpAmpTIASnap`. The solve reads `v_ref` from `snap.v_ref__V`, not config. The richer `solve_dc(...)` additionally carries the op-amp output voltage after the solve and is the OpAmpTIA-concrete extension the array solve does not depend on.
+- **Concrete snap and the `solve_dc` extension.** `OpAmpTIA` fixes the family's snapshot / solve_clamp surface ([base](base.md)) to `OpAmpTIASnap`, whose per-call fields are the injected `v_ref__V` plus the fabricated `opamp_gain` and the owned `nmos_snap`. Beyond that surface it adds `solve_dc(...) -> OpAmpTIADCOP`, which also returns the op-amp output voltage, its sensitivity, and the KCL residual - the concrete extension the array solve does not depend on.
 - **Fabricate cascade.** The op-amp gain is fabricated state on the op-amp; the NMOS state is fabricated through the owned child. A single `fabricate()` refreshes both.
 
 ## Performance & resources
@@ -27,11 +27,10 @@ TODO - record the clamp-evaluation cost and any inner-solve memory once profiled
 
 ## Known limitations
 
-- **Clamp transfer function not yet specified in Reference.** The explicit op-amp + pseudo-resistor transfer function and its derivative are a domain-author TODO in [reference/analog/tia/opamp_tia](../../../reference/analog/tia/opamp_tia.md); verification coverage of the clamp against an independent reference is correspondingly a gap.
+- **Clamp transfer function not yet specified in Reference.** The explicit closed-form op-amp + pseudo-resistor transfer function is a domain-author TODO; verification coverage of the clamp against an independent reference is correspondingly a gap.
 
 ---
 
 - **Reference**: [opamp_tia](../../../reference/analog/tia/opamp_tia.md)
 - **Implementation**: `neurox/analog/tia/opamp_tia.py`
 - **Tests**: TODO - name the guarding test
-- **Decisions**: N/A — no ADR governs this module.

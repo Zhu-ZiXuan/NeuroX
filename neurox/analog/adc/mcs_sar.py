@@ -125,6 +125,7 @@ class McsSarAdc(ADC):
         config: Concrete configuration dataclass.
         policy: Per-source nonideality enable flags.
         name: Hierarchical instance name used by the profiler.
+        inst_shape: Per-instance fabrication shape.
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature.
     """
@@ -279,7 +280,9 @@ class McsSarAdc(ADC):
                 ``adc_operation_point.adc_bits`` sets active resolution.
 
         Returns:
-            Code tensor in ``[0, 2 ** adc_operation_point.adc_bits - 1]``.
+            Signed code tensor in ``[-2 ** (bits - 1), 2 ** (bits - 1) - 1]``
+            where ``bits = adc_operation_point.adc_bits`` — the offset-binary
+            SAR code re-biased to two's complement (see :meth:`signed_range`).
         """
         self._validate_runtime_args(adc_operation_point)
         mode = adc_operation_point.adc_mode

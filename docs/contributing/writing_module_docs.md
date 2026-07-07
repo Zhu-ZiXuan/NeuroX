@@ -17,7 +17,7 @@ A module document owns science only — not the software that realizes it, its d
 
 ## Document template
 
-A module document mirrors a single code module and uses every template section below, in order. Keep an empty heading as `N/A — <reason>` when genuinely inapplicable or `TODO — <missing item>` when applicable but unwritten; the footer Decisions line may be a bare `N/A` or `None`, as most modules have no ADR.
+A module document mirrors a single code module and uses every template section below, in order. Its file mirrors the code module basename and its title is the science name; see [naming_conventions](../conventions/naming_conventions.md). Keep an empty heading as `N/A — <reason>` when genuinely inapplicable or `TODO — <missing item>` when applicable but unwritten.
 
 ```markdown
 # <Model name>
@@ -47,7 +47,6 @@ A module document mirrors a single code module and uses every template section b
 - **Internals**: [<doc>](<relative .md path>)
 - **Validation**: [<doc>](<relative .md path>) or TODO — <what is missing>
 - **Configuration**: [<doc>](<relative .md path>) or TODO — <what is missing>
-- **Decisions**: [<ADR>](<relative .md path>), N/A, or None
 ```
 
 ## Filling each section
@@ -65,7 +64,7 @@ A module document mirrors a single code module and uses every template section b
 
 Never omit a required section; the empty state is information. Do not invent physical claims, numbers, equations, validation results, or citations — leave `TODO`.
 
-The footer is traceability only: Reference points to Internals, Validation, Configuration, and Decisions — it lists no source files or tests, because Internals points to code and tests.
+The footer is traceability only: Reference points to Internals, Validation, and Configuration — it lists no source files or tests, because Internals points to code and tests.
 
 ## Content rules
 
@@ -89,4 +88,4 @@ Use a table and give every parameter a Source from [module_parameter](../convent
 
 ### Noise
 
-The Noise & non-idealities section describes only each source's physical or statistical model and its distribution parameters — the invariant golden truth. Whether a source is enabled is a runtime policy orthogonal to the model, and how samples are drawn is a program detail; both belong in Internals and configuration, not Reference. Toggles and config parameters are not one-to-one: many sources derive their parameters from physics and carry only a policy toggle, with no config parameter.
+The Noise & non-idealities section states each source's physical or statistical model and its distribution parameters.

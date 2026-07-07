@@ -1,6 +1,6 @@
 # Device
 
-Device-level physics: the smallest electrical primitives a crossbar cell is built from, each specifying its current-voltage law, programmable / operating state, non-idealities, and parameters. A device owns local physics and fabricated state only; mapping, array geometry, and circuit orchestration live above it.
+Device-level physics: the smallest electrical primitives, each specifying its current-voltage law, programmable / operating state, non-idealities, and parameters.
 
 - [rram](rram.md) — resistive memory cell: hyperbolic-sine I-V, programmable conductance state, the programming and read non-ideality stack.
 - [mosfet](mosfet.md) — EKV-softplus MOSFET primitive: polarity-parameterized NMOS/PMOS continuous I-V with temperature scaling and Pelgrom mismatch.

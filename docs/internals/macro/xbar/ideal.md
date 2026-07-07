@@ -2,12 +2,12 @@
 
 ## Summary
 
-`IdealXbarMacro` (`xbar/ideal.py`): the degenerate family member that joins the `XbarMacro` registry without owning a tile. It stores the integer weight and runs `torch.matmul`. Spec: [reference/macro/xbar/ideal](../../../reference/macro/xbar/ideal.md).
+`IdealXbarMacro` (`xbar/ideal.py`): the degenerate family member that joins the `XbarMacro` registry without owning a tile. It stores the integer weight and runs `torch.matmul`.
 
 ## Design decisions
 
 - **In the registry, but skips every layered step.** It registers via `@XbarMacro.register_key(IdealXbarMacroConfig)` so it shares the family factory and the `NeuroxMacroQuantMatMul` surface, but it declares no `xbar`, builds none (`_build_xbar` is never called), and carries an empty `IdealXbarMacroPolicy`. The family signature args `policy` / `dtype` / `T__K` / `ideal_xbar` are accepted for uniformity and ignored.
-- **Sentinel ADC surface.** `adc_mode_num == 1`, `adc_max_bits == 0`, `adc_rescale_factor == 1.0`. The `0` bit count is the operator's "skip output quantization" signal — see [base](../base.md).
+- **Sentinel ADC surface.** `adc_mode_num == 1`, `adc_max_bits == 0`, `adc_rescale_factor == 1.0`. The `0` bit count is the "no output quantization" sentinel — see [base](../base.md).
 - **0-d nominal weight buffer.** `weight` and `nominal_weight` register as 0-d `int32` buffers (`persistent=False`), giving `weight` a defined attribute placeholder before any `program` call while keeping it out of the state dict.
 
 ## Contracts & invariants
@@ -33,4 +33,3 @@ A single dense `int64` matmul; no tiling, no analog cost. No PPA contribution (n
 - **Reference**: [ideal](../../../reference/macro/xbar/ideal.md)
 - **Implementation**: `neurox/macro/xbar/ideal.py`
 - **Tests**: `tests/test_xbar_macro.py`
-- **Decisions**: N/A — no ADR governs this module.

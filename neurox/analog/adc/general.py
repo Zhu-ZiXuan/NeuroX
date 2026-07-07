@@ -30,8 +30,8 @@ class GeneralADCConfig(ADCConfig):
         input_transform: ``"linear"`` (identity) or ``"log2"``.
         sampling_noise__V: Input-referred Gaussian sampling-stage
             noise σ.
-        comparator_noise__V: Per-comparator threshold offset noise
-            σ.
+        comparator_noise__V: Comparator (thermal/decision) noise σ
+            on the signal.
         energy_per_op__fJ: Dynamic energy per conversion.
         latency_per_op__ns: Per-conversion latency; multiplied by
             the runtime serial-op count at logging time.
@@ -88,7 +88,7 @@ class GeneralADCPolicy(ADCPolicy):
 
 @ADC.register_key(GeneralADCConfig)
 class GeneralADC(ADC):
-    """Boundary-bucketize ADC with three Gaussian noise stages.
+    """Boundary-bucketize ADC with two Gaussian noise stages.
 
     Single-mode: ``(mode, bits)`` must be ``(0, n_bits_implied_by_boundaries)``.
     """
@@ -181,7 +181,8 @@ class GeneralADC(ADC):
 
         Returns:
             Signed ``int16`` code tensor in
-            ``[-2**(adc_bits - 1), 2**(adc_bits - 1) - 1]``, shaped like ``v_pos__V``.
+            ``[-zero_code, n_codes - 1 - zero_code]`` (see :meth:`signed_range`),
+            shaped like ``v_pos__V``.
             ``floor_bucketize`` emits an unsigned bucket index which is shifted
             by the topology-specific zero code (``n_codes // 2``, cached at
             construction) to align with the signed-output convention.

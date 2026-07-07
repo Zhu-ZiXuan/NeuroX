@@ -11,7 +11,7 @@ Follow these public conventions unless a rule here is stricter or a deviation is
 
 ## Format rules
 
-- File and directory names use `snake_case`.
+- File and directory names follow [naming_conventions](naming_conventions.md).
 - H1 and every nav label use sentence case (proper nouns, acronyms, and code identifiers stay capitalized).
 - Every fenced code block declares a language (stricter than GFM/CommonMark, which make the info string optional).
 - Link documents with relative `.md` paths; link sections with `#slug`.
@@ -23,7 +23,7 @@ Follow these public conventions unless a rule here is stricter or a deviation is
 A formula's symbols go through LaTeX — `$...$` inline, `$$...$$` block; a lone symbol in prose may be a raw whitelisted character (see [notation_conventions](notation_conventions.md)), and everything else is ASCII or LaTeX. Inside a formula a raw Unicode glyph renders in the upright body font and clashes with the italic MathJax math font, so LaTeX sets the whole expression in one math font.
 
 - **Structural math** — roots, powers, fractions, and big operators are LaTeX, where braces delimit scope: `\sqrt{...}`, `e^{x}`, `\frac{a}{b}`, `\sum_{k}`. Never render a 2-D or scoped construct as a raw Unicode glyph.
-- **Units** — a physical unit renders as its ASCII name even in rendered markdown and inside math: `Ohm`, `u`, `deg`, `1/m`; never the ohm, micro, or degree symbol. The unit set lives in [notation_conventions](notation_conventions.md).
+- **Units** — a physical unit is its ASCII name; see [notation_conventions §Units](notation_conventions.md#units-and-naming).
 - **Symbol names** — a variable's source name and its rendered symbol are paired in [notation_conventions](notation_conventions.md); this file does not repeat that correspondence.
 
 ## Choosing a format

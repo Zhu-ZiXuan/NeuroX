@@ -1,4 +1,4 @@
-"""RRAM device model with programming, read noise, and nonlinear I-V.
+"""Programmable-conductance RRAM device model.
 
 See also:
     docs/reference/device/rram.md
@@ -185,7 +185,7 @@ class RRAM(FabricateMixin, nn.Module):
 
     @property
     def c_bot__fF(self) -> float:
-        """Bottom-electrode (Node-X-side) parasitic capacitance per cell."""
+        """Bottom-electrode (internal-node-side) parasitic capacitance per cell."""
         return self.config.c_bot__fF
 
     def program(self, target_g__uS: Tensor, t_elapsed: float) -> None:

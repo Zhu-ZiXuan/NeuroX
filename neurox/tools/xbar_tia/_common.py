@@ -149,7 +149,7 @@ class WorkloadFit:
 
 
 def fit_to_workload(curve: TransferCurve, *, mean_uA: float, std_uA: float) -> WorkloadFit:
-    """Compute single-config metrics for a Gaussian workload ``N(mean_uA, std_uA^2)``."""
+    """Compute single-config metrics for a Gaussian workload ``N(mean_uA, std_uA²)``."""
     if std_uA <= 0:
         raise ValueError(f"std_uA ({std_uA}) must be > 0")
     lo3 = mean_uA - 3 * std_uA

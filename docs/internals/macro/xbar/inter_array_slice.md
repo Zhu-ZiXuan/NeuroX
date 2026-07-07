@@ -2,12 +2,12 @@
 
 ## Summary
 
-`InterArraySliceXbarMacro` (`xbar/inter_array_slice.py`): the cross-plane `Sw` mode. It owns a tile, a `SimpleSlicer` (weights), a `SerialSlicer` (activations), and three reducers — an `Accumulator` (`Tc`) plus two `ShiftAdder`s (`Sa`, `Sw`). Spec: [reference/macro/xbar/inter_array_slice](../../../reference/macro/xbar/inter_array_slice.md).
+`InterArraySliceXbarMacro` (`xbar/inter_array_slice.py`): the cross-plane `Sw` mode. It owns a tile, a `SimpleSlicer` (weights), a `SerialSlicer` (activations), and three reducers — an `Accumulator` (`Tc`) plus two `ShiftAdder`s (`Sa`, `Sw`).
 
 ## Design decisions
 
-- **`Sw` hoisted to a leading tile axis.** The organize step permutes the per-weight slice axis into the canonical `[Sa, Sw, Tc, Tr]` position, so one tile plane (`Sw` index) carries one slice of every weight. The tile's `inst_shape` carries the full `(M=1, Sa=1, Sw, Tc, Tr)` prefix — the simulator batches the `Sw` planes as one tensor for GPU throughput, but the architecture is a stack of separate planes.
-- **Aggregate is the dual of organize: `Sw` reduces cross-plane.** Because `Sw` sits outside the tile data axis, the `Sw` shift-add is a cross-plane weighted sum over the leading `Sw` axis, distinct from the intra-tile fold of the [intra_array_slice](intra_array_slice.md) mode. The reduction order is `Sa` shift-add → `Sw` shift-add → `Tc` accumulate, fixed by the radix nesting.
+- **`Sw` hoisted to a leading tile axis.** The organize step permutes the per-weight slice axis into the canonical `[Sa, Sw, Tc, Tr]` position, so one tile plane (`Sw` index) carries one slice of every weight. The tile's `inst_shape` carries the full `(M=1, Sa=1, Sw, Tc, Tr)` prefix — the simulator batches the `Sw` planes into one tensor for GPU throughput.
+- **Aggregate is the dual of organize: `Sw` reduces cross-plane.** Because `Sw` sits outside the tile data axis, the `Sw` shift-add is a cross-plane weighted sum over the leading `Sw` axis, distinct from the intra-tile fold of the intra_array_slice mode. The reduction order is `Sa` shift-add → `Sw` shift-add → `Tc` accumulate, fixed by the radix nesting.
 
 ## Contracts & invariants
 
@@ -32,4 +32,3 @@ Tile work scales with the materialized `Sw` plane count: the batched tile tensor
 - **Reference**: [inter_array_slice](../../../reference/macro/xbar/inter_array_slice.md)
 - **Implementation**: `neurox/macro/xbar/inter_array_slice.py`
 - **Tests**: `tests/test_xbar_macro.py`
-- **Decisions**: N/A — no ADR governs this module.

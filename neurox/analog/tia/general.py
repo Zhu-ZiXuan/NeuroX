@@ -210,8 +210,8 @@ class GeneralTIA(TIA[GeneralTIASnap]):
             read_pulse__ns: Read-window width.
 
         Returns:
-            ``i_port**2 · R_load · read_pulse``
-            (uA**2 · MOhm · ns = fJ).
+            ``i_port² · R_load · read_pulse``
+            (uA^2 · MOhm · ns = fJ).
         """
-        del dcop  # dissipation is i_port**2 * R_load; DCOP not needed
+        del dcop  # dissipation is i_port² · R_load; DCOP not needed
         return i_port__uA**2 * self.config.load_resistance__MOhm * read_pulse__ns

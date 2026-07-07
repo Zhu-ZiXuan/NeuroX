@@ -49,13 +49,10 @@ The examples default to GPU because both workloads are too slow on CPU to be use
 Each macro is built from two separate TOML files; the full schema and the `_neurox_*` directives are in [API: configuration](../../api/configuration.md).
 
 - **`--config`** — the immutable circuit design. Both examples consume a bundled 1T1R 28nm preset, shipped with its scheme and referenced from `macro_with_physical_xbar.toml` via `_neurox_use`. To target a different chip, follow the same `[xbar]` / `[xbar.core_config]` schema (the driver and readout blocks are inline `[xbar.*]` sections above the core). The ADC `rescale_factor` table must be calibrated for the chip's `(adc_mode, adc_bits)` grid — see the [calibration guide](../calibration/README.md).
-- **`--policy`** — the mutable nonideality switches. The example policy files reference the bundled all-off preset (`neurox/presets/policy/all_off.toml`) via `_neurox_use_preset`, so every nonideality (device mismatch, thermal noise, programming noise, ADC offsets, ...) is off by default. To enable one, override the matching switch inline:
+- **`--policy`** — the mutable nonideality switches. The example policy files reference the all-off preset shipped with the scheme via `_neurox_use`, so every nonideality (device mismatch, thermal noise, programming noise, ADC offsets, ...) is off by default. To enable one, override the matching switch inline:
 
   ```toml
-  [policy]
-  _neurox_use_preset = "policy/all_off:macro"
-
-  [policy.xbar.core.tia]
+  [policy.xbar.tia]
   opamp_gain_sigma = true
   ```
 

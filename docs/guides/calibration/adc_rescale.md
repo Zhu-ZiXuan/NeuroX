@@ -121,5 +121,5 @@ When `--plot PATH` is supplied, the left panel scatters $(\mathrm{phys\_code}, \
 ## See also
 
 - [ADC range probing](adc_range_probing.md) — the prerequisite stage that settles the analog range this tool calibrates against.
-- [ADC base reference](../../reference/analog/adc/base.md) — the signed code convention and the `convert` contract.
+- [ADC base reference](../../reference/analog/adc/family.md) — the signed code convention and the `convert` contract.
 - [Calibration hub](README.md) — all calibration stages.

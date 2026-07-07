@@ -17,12 +17,9 @@ Follow these public conventions unless a rule here is stricter.
 
 [notation_conventions](notation_conventions.md) is the authority for the non-ASCII whitelist and for where a formula may live; this section states only how that policy applies inside a code file.
 
-**Effective code is ASCII.** Identifiers and protocol or data string literals use only ASCII. Python 3 accepts unicode identifiers, so this is an enforced rule, not an automatic property.
+**Effective code is ASCII.** Identifiers and protocol or data string literals use only ASCII. Python 3 accepts unicode identifiers, so this is an enforced rule, not an automatic property. A human-facing string — a log line, a `print`, an exception message — is not effective code; it follows the comment whitelist, not this rule. notation_conventions §Notation by string class gives the full split.
 
-**A docstring or comment may carry raw whitelisted unicode** — a Greek variable (σ, μ, τ), a partial derivative (∂I/∂V), a superscript power (x²) — as the glyph itself. Two limits apply:
-
-- **No hosted formula.** A docstring or comment holds at most simple inline notation: a lone symbol, a short inline expression, an inline ∂I/∂V. A multi-term derivation lives in the module's Reference or Internals document, and the docstring points there.
-- **No LaTeX.** A comment never renders and a docstring is read as plain text first, so write the symbol directly (σ), never its LaTeX form (`$\sigma$`); LaTeX is a Markdown-only tool.
+A docstring or comment carries raw whitelisted unicode, no LaTeX, and no hosted formula, per [notation_conventions](notation_conventions.md).
 
 ## Docstrings
 
@@ -69,7 +66,7 @@ Number the steps and align each number and name with the ordered procedure in th
 ## Type annotations
 
 - Annotate every parameter and the return type in a function or method signature.
-- Treat mypy as the baseline. Manually ignore a false positive caused by an external library or a pattern mypy cannot express; do not write `# type: ignore`.
+- Treat mypy as the baseline. When a false positive comes from an external library or a pattern mypy cannot express — a TypeVar not re-bound after an `isinstance` narrowing, a `fields()` or `replace()` call needing a `DataclassInstance` — leave the error unsuppressed; the project treats mypy as a helper. Never write `# type: ignore`.
 - For base-class-related narrowing, fix the generic rather than reach for `cast`.
 - Never add a meaningless runtime conversion only to satisfy typing.
 

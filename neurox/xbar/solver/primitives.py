@@ -131,9 +131,9 @@ def solve_block_tridiagonal_dense(
 
     Args:
         sub: Sub-diagonal blocks. Shape ``[..., N, B, B]``. ``sub[0]`` is
-            taken as ignored (zeroed during assembly).
+            ignored (zeroed during assembly).
         diag: Main diagonal blocks. Same shape.
-        sup: Super-diagonal blocks. Same shape. ``sup[-1]`` is taken as
+        sup: Super-diagonal blocks. Same shape. ``sup[-1]`` is
             ignored.
         rhs: Right-hand-side vectors. Shape ``[..., N, B]``.
 

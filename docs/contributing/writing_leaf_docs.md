@@ -16,7 +16,7 @@ A leaf document holds:
 
 A leaf document mirrors a single code module and uses every template section below, in order. Keep an empty heading as `N/A — <reason>` when genuinely inapplicable or `TODO — <missing item>` when applicable but unwritten.
 
-A leaf document's H1 is verbatim identical to its module document's title; when no module document exists, the H1 names the subject.
+A leaf document's H1 is verbatim identical to its module document's title; when no module document exists, the H1 names the subject. Its file mirrors the code module basename; see [naming_conventions](../conventions/naming_conventions.md).
 
 ```markdown
 # <Module name>
@@ -38,7 +38,6 @@ A leaf document's H1 is verbatim identical to its module document's title; when 
 - **Reference**: [<doc>](<relative .md path>) or N/A — <reason>
 - **Implementation**: `neurox/<...>.py`
 - **Tests**: `tests/test_<...>.py` or TODO — <what is missing>
-- **Decisions**: [<ADR>](<relative .md path>), N/A, or None
 ```
 
 ## Filling each section

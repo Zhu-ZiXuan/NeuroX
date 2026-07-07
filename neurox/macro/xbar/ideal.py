@@ -55,7 +55,7 @@ class IdealXbarMacro(XbarMacro):
         w_logical_shape: Logical weight shape ``(*prefix, N, K)`` bound to ``program(...)``.
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature.
-        ideal_xbar: When True, the macro replaces its physical xbar with the lossless ideal twin returned by xbar.to_ideal().
+        ideal_xbar: Accepted for API uniformity and ignored (no xbar tile to swap).
     """
 
     config: IdealXbarMacroConfig
@@ -114,7 +114,7 @@ class IdealXbarMacro(XbarMacro):
         return 0
 
     def adc_rescale_factor(self, adc_operation_point: AdcOperationPoint) -> float:
-        """Rescale factor for ``adc_operation_point``; raises ``KeyError`` if uncalibrated."""
+        """Rescale factor for ``adc_operation_point``; always ``1.0`` (no ADC)."""
         del adc_operation_point  # accepted for API uniformity
         return 1.0
 

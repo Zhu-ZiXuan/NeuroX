@@ -86,9 +86,8 @@ class NestedParallelRailSolverConfig(SolverConfig):
             V_clamp and then runs ``n_inner`` inner array Newton steps at
             the updated V_clamp (clamp-first ordering).
         n_inner: Inner Newton iterations on the wire / cell coupled state
-            at a frozen V_clamp boundary. The inner system is an M-matrix
-            with a unique solution per V_clamp; ``n_inner = 1`` is often
-            enough since the outer Gauss-Seidel sweep drives the per-cell
+            at a frozen V_clamp boundary. ``n_inner = 1`` is often enough
+            since the outer Gauss-Seidel sweep drives the per-cell
             convergence — see ``solver_calibrate.nested``.
     """
 

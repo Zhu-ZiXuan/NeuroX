@@ -5,6 +5,11 @@ repo_url: https://github.com/Zhu-Zixuan/NeuroX
 repo_name: Zhu-Zixuan/NeuroX
 edit_uri: edit/master/docs/
 
+# Under --strict, a dead cross-reference fragment (#anchor) aborts the build, not just a missing file.
+validation:
+  links:
+    anchors: warn
+
 theme:
   name: material
   features:
@@ -46,7 +51,7 @@ plugins:
 nav:
 - Home: README.md
 - Get started:
-  - Overview: get-started/README.md
+  - Overview: get_started/README.md
 - Guides:
   - Overview: guides/README.md
   - Algorithm engineer:
@@ -73,17 +78,17 @@ nav:
     - Voltage reference: reference/analog/voltage_reference.md
     - ADC:
       - Overview: reference/analog/adc/README.md
-      - Base: reference/analog/adc/base.md
+      - Family: reference/analog/adc/family.md
       - General: reference/analog/adc/general.md
       - MCS SAR: reference/analog/adc/mcs_sar.md
       - SAR mono: reference/analog/adc/sar_mono.md
     - DAC:
       - Overview: reference/analog/dac/README.md
-      - Base: reference/analog/dac/base.md
+      - Family: reference/analog/dac/family.md
       - General: reference/analog/dac/general.md
     - TIA:
       - Overview: reference/analog/tia/README.md
-      - Base: reference/analog/tia/base.md
+      - Family: reference/analog/tia/family.md
       - General: reference/analog/tia/general.md
       - Opamp TIA: reference/analog/tia/opamp_tia.md
   - Device:
@@ -99,7 +104,7 @@ nav:
     - Subtractor: reference/digital/subtractor.md
   - Macro:
     - Overview: reference/macro/README.md
-    - Base: reference/macro/base.md
+    - Family: reference/macro/family.md
     - Xbar:
       - Overview: reference/macro/xbar/README.md
       - Direct: reference/macro/xbar/direct.md
@@ -108,7 +113,7 @@ nav:
       - Intra-array slice: reference/macro/xbar/intra_array_slice.md
   - Xbar:
     - Overview: reference/xbar/README.md
-    - Base: reference/xbar/base.md
+    - Family: reference/xbar/family.md
     - Cell: reference/xbar/cell.md
     - Solver: reference/xbar/solver.md
     - 1T1R:
@@ -126,9 +131,9 @@ nav:
   - Compile:
     - Overview: internals/compile/README.md
     - Contracts: internals/compile/contracts.md
-    - Scheme A regional: internals/compile/scheme-a-regional.md
-    - Scheme B deobjectified: internals/compile/scheme-b-deobjectified.md
-    - Scheme C custom op: internals/compile/scheme-c-custom-op.md
+    - Scheme A regional: internals/compile/scheme_a_regional.md
+    - Scheme B deobjectified: internals/compile/scheme_b_deobjectified.md
+    - Scheme C custom op: internals/compile/scheme_c_custom_op.md
   - Config and policy: internals/config_and_policy.md
   - Physical state: internals/physical_state.md
   - Package surface: internals/package_surface.md
@@ -211,6 +216,7 @@ nav:
   - Prose style: conventions/prose_style.md
   - Markdown style: conventions/markdown_style.md
   - Code style: conventions/code_style.md
+  - Naming conventions: conventions/naming_conventions.md
   - Notation conventions: conventions/notation_conventions.md
   - Glossary: conventions/glossary.md
   - Module parameter: conventions/module_parameter.md
@@ -226,15 +232,7 @@ nav:
 - About:
   - Overview: about/README.md
   - Citation: about/citation.md
-  - Roadmap: about/roadmap.md
   - Scope limitations: about/scope_limitations.md
-  - ADR:
-    - Overview: about/adr/README.md
-    - ADR-0001 — Config dispatch and owned construction: about/adr/ADR-0001-config-dispatch-and-owned-construction.md
-    - ADR-0002 — NMOS is a pure electrical primitive: about/adr/ADR-0002-nmos-is-a-pure-electrical-primitive.md
-    - ADR-0003 — Xbar cell abstraction and single nested solver: about/adr/ADR-0003-xbar-cell-abstraction-and-single-nested-solver.md
-    - ADR-0004 — Clamp driver protocol and generic solver: about/adr/ADR-0004-clamp-driver-protocol-and-generic-solver.md
-    - ADR-0005 — MOSFET is a polarity parameterized electrical primitive: about/adr/ADR-0005-mosfet-is-a-polarity-parameterized-electrical-primitive.md
 
 markdown_extensions:
   - admonition

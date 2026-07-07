@@ -193,9 +193,11 @@ class ADC(CircuitBase[ADCConfig], RegistryMixin[type["ADCConfig"], "ADC"]):
             adc_operation_point: Runtime operating point.
 
         Returns:
-            Signed integer code tensor in
-            ``[-2**(adc_bits-1), 2**(adc_bits-1) - 1]``, same shape as
-            ``v_pos__V``. The signed convention aligns with the
+            Signed integer code tensor, same shape as ``v_pos__V``, in
+            the range reported by :meth:`signed_range` for ``adc_bits`` —
+            the canonical ``[-2**(adc_bits-1), 2**(adc_bits-1) - 1]`` when
+            the code count is ``2 ** adc_bits``, narrower otherwise. The
+            signed convention aligns with the
             consumer's ideal vector-matrix product and the consumer model
             ``M_ideal ≈ code · rescale_factor`` (where ``rescale_factor``
             is strictly positive). Each concrete subclass is responsible

@@ -228,8 +228,8 @@ class GammaConfig(ValidateMixin):
     """Multiplicative Gamma noise config (constant shape and scale).
 
     Attributes:
-        shape_k: Gamma shape parameter ``k``.
-        scale_theta: Gamma scale parameter ``theta``.
+        shape_k: Gamma shape parameter k.
+        scale_theta: Gamma scale parameter θ.
     """
 
     shape_k: float
@@ -267,8 +267,8 @@ class StateDependentGammaConfig(ValidateMixin):
     """State-dependent Gamma noise config.
 
     Attributes:
-        k_slope: Rate at which the Gamma shape ``k`` varies with normalised state.
-        k_intercept: Gamma shape ``k`` at the min state (normalised state 0).
+        k_slope: Rate at which the Gamma shape k varies with normalised state.
+        k_intercept: Gamma shape k at the min state (normalised state 0).
         theta: Scale parameter, held constant across all states.
         min_val: Lower bound of the state-normalisation range.
         max_val: Upper bound of the state-normalisation range.
@@ -406,9 +406,8 @@ def apply_pelgrom_mismatch(
 
     Args:
         ideal: Tensor of nominal per-cell values.
-        sigma_relative: Per-unit-cell relative σ ``sigma_u``.
-        unit: Single-unit-cell value ``X_unit`` in the same units as
-            ``ideal``.
+        sigma_relative: Per-unit-cell relative σ.
+        unit: Single-unit-cell value in the same units as ``ideal``.
         floor: Optional minimum clamp applied after sampling.
         enabled: Master toggle. ``False`` returns ``ideal`` unchanged.
 
@@ -435,7 +434,7 @@ def apply_lsb_jitter(
     unsigned_max: int,
     enabled: bool,
 ) -> Tensor:
-    """Add a Bernoulli(0.5) ±0/+1 LSB jitter to an integer code.
+    """Add a Bernoulli(0.5) 0/+1 LSB jitter to an integer code.
 
     Coarse stochastic-rounding fallback for ADCs whose physical model
     does not already inject per-cycle randomness. Output is clamped to

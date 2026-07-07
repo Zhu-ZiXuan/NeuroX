@@ -23,7 +23,7 @@ class GeneralDACConfig(DACConfig):
     Attributes:
         code_to_signal: Voltage lookup table indexed by integer code.
             ``code_to_signal[i]`` is the nominal analog output in [V]
-            for digital code ``i``.  Length equals the number of input
+            for digital code ``i``. Length equals the number of input
             codes.
         drive_thermal__V: Gaussian thermal noise σ added to each
             output sample after LUT lookup.

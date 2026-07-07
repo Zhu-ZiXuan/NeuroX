@@ -2,10 +2,8 @@
 
 Analog circuit models on the array boundary and in the readout chain: the current-to-voltage clamp, the integer-code drivers, the column transport, the charge-share bank, and the digitizers. Each document specifies a circuit's transfer characteristic, its non-idealities, and its parameters.
 
-The layer is seven leaf circuits (each a single concrete block a consuming circuit composes directly) plus three polymorphic families (an abstract contract with concrete implementations):
-
 - [voltage_driver](voltage_driver.md) — the generic Thevenin voltage-source clamp (finite series output resistance; the ideal constant-voltage source is its zero-resistance limit).
-- [voltage_mux](voltage_mux.md) — differential voltage column transport with optional common-mode / differential-mode noise.
+- [voltage_mux](voltage_mux.md) — differential voltage column transport with common-mode / differential-mode noise.
 - [voltage_reference](voltage_reference.md) — the multi-output voltage reference source (static PPA only; per-die tolerance + per-read noise on the taps).
 - [current_mirror](current_mirror.md) — the ideal single-ended ratio current-copy block (data-dependent rail energy).
 - [current_mux](current_mux.md) — the ideal single-ended N:1 time-share current-transport block (data-dependent rail energy + serial latency).

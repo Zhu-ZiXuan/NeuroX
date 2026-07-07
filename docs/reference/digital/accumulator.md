@@ -2,11 +2,11 @@
 
 ## Summary
 
-The accumulator is a digital adder tree that reduces an integer tensor along one axis into a single fixed-width signed register. It is stateless: a single call sums the per-cycle integer results stacked along that axis into one fixed-width sum, with no running total carried across calls. It is an exact digital block: its only departure from infinite-precision arithmetic is the finite output register, which wraps modulo a power of two.
+The accumulator is a digital adder tree that reduces an integer tensor along one axis into a single fixed-width signed register. The reduced axis carries the per-cycle integer partial results, and summing them along that axis realizes the accumulation. It is an exact digital block: its only departure from infinite-precision arithmetic is the finite output register, which wraps modulo a power of two.
 
 ## Physical model
 
-The block abstracts a synthesized adder tree (ripple-carry or carry-save) with a fixed-width output register and no saturation logic. The reality it stands for is a fixed bit-width accumulator: a single call reduces the per-cycle results stacked along the axis into one sum, and a result exceeding the register range does not clamp but wraps in two's-complement. This is a purely behavioural model — no gate-level netlist, no per-bit carry timing — so the only physical quantities exposed are the PPA cost terms.
+The block abstracts a synthesized adder tree (ripple-carry or carry-save) with a fixed-width output register and no saturation logic. The reality it stands for is a fixed bit-width accumulator: it sums the per-cycle partial results along the reduction axis into one register value, and a result exceeding the register range does not clamp but wraps in two's-complement. This is a purely behavioural model — no gate-level netlist, no per-bit carry timing — so the only physical quantities exposed are the PPA cost terms.
 
 ## Governing equations
 
@@ -88,4 +88,3 @@ TODO (domain author): cite the adder-tree architecture and the PPA basis.
 - **Internals**: [accumulator internals](../../internals/digital/accumulator.md)
 - **Validation**: TODO - validation artefact not yet written
 - **Configuration**: `neurox/digital/accumulator.py` (`AccumulatorConfig`)
-- **Decisions**: N/A — no ADR governs this module.

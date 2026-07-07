@@ -36,4 +36,4 @@ TODO — state the fidelity boundary of the energy, power, area, and latency est
 
 ### Chip-level and system
 
-TODO — state that multi-macro, NoC, off-chip memory, and full-system modeling are not yet in scope (see the [roadmap](roadmap.md)).
+TODO — state that multi-macro, NoC, off-chip memory, and full-system modeling are not in scope.

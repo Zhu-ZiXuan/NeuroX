@@ -1,6 +1,6 @@
 # ADC family
 
-How the ADC family is built. Spec: [reference/analog/adc](../../../reference/analog/adc/README.md).
+How the ADC family is built.
 
 - [base](base.md) — registry dispatch, the family init signature, signed-code zero-code placement, multi-mode and leaf-defined latency.
 - [general](general.md) — the boundary-bucketize ADC and its cached zero code.

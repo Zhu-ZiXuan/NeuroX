@@ -2,9 +2,19 @@
 
 **Status: Active.** The current production scheme. The library self-compiles exactly one region — the DC-solver leaf — and leaves the rest of the macro forward eager.
 
+## The three schemes
+
+The chunked 1T1R DC solve path — the 1T1R core's chunked read reaching the topology-agnostic `solve_dc` leaf — is the one place the library must self-compile and the one place a naive boundary fails (see [§The problem it solves](#the-problem-it-solves) below). Three schemes address it, in increasing power and engineering cost. The current scheme is the minimal one that works; the others are recorded as deferred designs to migrate to under named conditions.
+
+| Scheme | Status | Summary | Adopt when |
+| --- | --- | --- | --- |
+| [A — regional](scheme_a_regional.md) | **Active** | eager forward + eager chunk loop + regionally-compiled `solve_dc` leaf | now (default) |
+| B — de-objectified solver | Deferred | solve hot path as a module-level free function with explicit tensor / scalar args | cross-instance reuse proves fragile, or a predictable cache key is needed, or as a prerequisite for C |
+| C — xbar-read custom op | Deferred | wrap the xbar read as a `torch.library.custom_op` opaque node | `fullgraph=True` becomes a hard requirement |
+
 ## What compiles, and what does not
 
-The library does **not** self-compile the macro forward. `XbarMacro.matmul`, the scheme xbar's `vec_mat_mul`, the readout chain, and the digital aggregation all run eager. They are written to be compile-*friendly* (they obey the [contracts](contracts.md)), so a caller may `torch.compile` an entire model, but the library does not force it — consistent with the project rule that compilation is the caller's policy. The one region the library compiles itself is the **DC-solver leaf** `NestedParallelRailSolver.solve_dc` (`@torch.compile(dynamic=False)`), reached through `Core1T1R.solve_array`'s eager island.
+The library does **not** self-compile the macro forward. `XbarMacro.matmul`, the scheme xbar's `vec_mat_mul`, the readout chain, and the digital aggregation all run eager. They are written to be compile-*friendly* (they obey the contracts), so a caller may `torch.compile` an entire model, but the library does not force it — consistent with the project rule that compilation is the caller's policy. The one region the library compiles itself is the **DC-solver leaf** `NestedParallelRailSolver.solve_dc` (`@torch.compile(dynamic=False)`), reached through `Core1T1R.solve_array`'s eager island.
 
 ## The problem it solves
 
@@ -24,7 +34,7 @@ So the boundary is drawn tightly around the solve. `solve_array` is an eager isl
 - **`torch.compiler.disable(recursive=False, reason=...)`** ([docs](https://docs.pytorch.org/docs/stable/compile/programming_model.compiler_disable.html)): marks a function as an eager island so an enclosing graph breaks at it rather than tracing in. `recursive=False` is the documented form that still allows nested `@torch.compile` callees to compile. The recursive semantics are an edge with conflicting reports ([#123771](https://github.com/pytorch/pytorch/issues/123771) — inner `@torch.compile` may compile even under the default `recursive=True`; [#148787](https://github.com/pytorch/pytorch/issues/148787) — `recursive=False` mutating the wrapped function); the explicit `recursive=False` is chosen for being the documented-correct, intent-pinning form, and the inner-leaf-compiles behaviour must be re-confirmed per version.
 - **`@torch.compile(dynamic=False)`** on the leaf: the chunk shape is constant, so a static-shape graph is built once and reused; cross-instance reuse rides on dynamo lifting nn.Module buffers as shape-guarded graph inputs rather than identity-guarded constants.
 
-`torch.compiler.allow_in_graph` is **not** usable here: it only stops the Dynamo front-end from tracing in; the Inductor back-end still traces the body, so it does not hide the solver's complexity. The true opaque-node mechanism is a custom op ([scheme C](scheme-c-custom-op.md)).
+`torch.compiler.allow_in_graph` is **not** usable here: it only stops the Dynamo front-end from tracing in; the Inductor back-end still traces the body, so it does not hide the solver's complexity. The true opaque-node mechanism is a custom op (scheme C).
 
 ## Implementation form
 
@@ -47,7 +57,7 @@ The block-tridiagonal kernel inside the solve uses the **Thomas sweep** (`solve_
 Every deviation from the eager default lives here; module docs only point back:
 
 - **Eager island** — `Core1T1R.solve_array` (`@torch.compiler.disable(recursive=False)`). Owns the chunk loop, list accumulation, snap indexing, and the profiler emit. Under a caller-applied compile it stays an eager island while still letting the nested leaf compile.
-- **Regional leaf** — the concrete solver's `solve_dc` (`NestedParallelRailSolver.solve_dc`, `@torch.compile(dynamic=False)`; the abstract `Solver.solve_dc` is undecorated). The **only** region the library self-compiles. Shape-stable: the chunk indexing in `solve_array` flattens every call to one `(chunk_size, 1, row)` shape. Obeys the [contracts](contracts.md).
+- **Regional leaf** — the concrete solver's `solve_dc` (`NestedParallelRailSolver.solve_dc`, `@torch.compile(dynamic=False)`; the abstract `Solver.solve_dc` is undecorated). The **only** region the library self-compiles. Shape-stable: the chunk indexing in `solve_array` flattens every call to one `(chunk_size, 1, row)` shape. Obeys the contracts.
 - **Disabled hooks** — `ProfileMixin._log_dynamic_energy` / `_log_latency` (`@torch.compiler.disable`); side-channel writes, placed after the kernel math so fusion is unaffected.
 - **No self-compiled forward** — `XbarMacro.matmul`, `vec_mat_mul`, readout, and digital aggregation run eager. They obey the contracts so a caller *may* compile them, but the library does not self-decorate them.
 
@@ -61,14 +71,14 @@ Every deviation from the eager default lives here; module docs only point back:
 
 ## Performance and resources (theoretical)
 
-- **Compile cost** is the size of one `solve_dc` graph — the only self-compiled region — paid **once** per distinct compile signature (see [contracts](contracts.md) recompile triggers), not per chunk and not per leading batch. Thomas's graph is deep (linear in the row count), so that one compile is long (~10 min); the uniform chunk shape keeps it to a single signature, and the on-disk cache removes it on subsequent runs.
+- **Compile cost** is the size of one `solve_dc` graph — the only self-compiled region — paid **once** per distinct compile signature (see contracts recompile triggers), not per chunk and not per leading batch. Thomas's graph is deep (linear in the row count), so that one compile is long (~10 min); the uniform chunk shape keeps it to a single signature, and the on-disk cache removes it on subsequent runs.
 - **Peak memory** is bounded by the chunk working set, independent of total leading — the eager loop releases each chunk before the next allocates. But the *compiled* chunk working set is larger than the eager one: Inductor co-allocates a graph's intermediates rather than freeing them step-by-step the way eager Python does, so the compiled solve's per-chunk peak exceeds the eager solve's at the same chunk size. Chunk sizes therefore have to be tuned for the compiled path, not the eager one.
-- **Cross-instance reuse**: when the leaf's compile signature is shape-only, every macro layer reuses one graph; the on-disk graph cache carries it across processes. Whether the signature stays shape-only depends on the implicit buffer-lifting mechanism — the risk this introduces is what [scheme B](scheme-b-deobjectified.md) removes.
+- **Cross-instance reuse**: when the leaf's compile signature is shape-only, every macro layer reuses one graph; the on-disk graph cache carries it across processes. Whether the signature stays shape-only depends on the implicit buffer-lifting mechanism — the risk this introduces is what scheme B removes.
 
 ## Risks and failure modes
 
 - **The eager island suppressing the leaf compile.** If a PyTorch version makes the disabled `solve_array` propagate "do not compile" into its callees, `solve_dc` would silently run eager and the bottleneck would never compile — no error, just slow. This is the recursive-disable edge above; it must be re-confirmed (e.g. that the leaf produces exactly one compiled graph) whenever the PyTorch version changes.
-- **Per-layer recompilation of the leaf.** The leaf is shape-stable, so this can only happen if its compile signature accidentally keys on object identity (the solver, an RRAM/NMOS buffer) rather than tensor shape, cold-compiling per layer instead of sharing one graph ([#141589](https://github.com/pytorch/pytorch/issues/141589) tracks this class of recompile). The symptom is many cold compiles at model build; the fix is [scheme B](scheme-b-deobjectified.md).
+- **Per-layer recompilation of the leaf.** The leaf is shape-stable, so this can only happen if its compile signature accidentally keys on object identity (the solver, an RRAM/NMOS buffer) rather than tensor shape, cold-compiling per layer instead of sharing one graph ([#141589](https://github.com/pytorch/pytorch/issues/141589) tracks this class of recompile). The symptom is many cold compiles at model build; the fix is scheme B.
 - **Caller-applied whole-model compile re-exposes the forward's diversity.** If a caller wraps the model in `torch.compile`, the macro forward's size-1 / rank specialization and profiler-hook graph breaks return as the *caller's* tuning problem — raise `cache_size_limit`, or normalize the activation rank before the macro. The library deliberately does not self-compile the forward, so the default path never pays this.
 - **Remainder chunk.** A leading not divisible by the chunk size yields one smaller trailing chunk, a second shape, hence one extra leaf graph. Acceptable; pad-to-full-chunk would collapse it to one graph at the cost of wasted solve work.
 - **Snap / dataclass arguments.** The leaf takes device-snap dataclasses; if their PyTree structure or a field's Python type drifts call-to-call, the leaf recompiles. Keep snap structure stable.
@@ -76,14 +86,14 @@ Every deviation from the eager default lives here; module docs only point back:
 - **Wrong block-tridiagonal backend.** Swapping the compiled leaf to PCR (or dense) to shorten the cold compile is a trap: it runs several times slower and heavier than compiled-Thomas. The long Thomas compile is a one-time, cached, single-signature cost; the runtime regression of the log-depth backends is paid on every solve.
 - **Non-uniform chunk shapes multiply the long compile.** Thomas's compile is long, so if the leaf sees more than one chunk shape (a remainder chunk, or per-layer inst sizes left un-chunked) each extra shape pays it again. Keep `solve_chunk_size` set so every chunk is one uniform shape.
 - **Compile cost on shape-sweeping callers.** Tests and calibration tools that sweep shapes pay one cold compile per shape. Run them with the graph cache enabled, or with compilation disabled, when only eager logic is under test.
-- **Compiled peak memory exceeds eager — re-tune the chunk size.** Because Inductor co-allocates the solve's intermediates (the block-tridiagonal stages are all resident at once, unlike the eager solver's step-by-step release), a `solve_chunk_size` tuned for the eager solver can OOM under compilation. `solve_chunk_size` is the per-chunk leading directly (the peak-memory budget), so for the compiled path it must be set smaller than an eager run would tolerate — a transformer FFN at the eager-tuned size overran GPU memory. Treat `solve_chunk_size` as compiled-path memory tuning, not eager-path tuning.
+- **Compiled peak memory exceeds eager — re-tune the chunk size.** Because the compiled per-chunk peak exceeds the eager one (see §Performance and resources), a `solve_chunk_size` tuned for an eager solver can OOM under compilation. `solve_chunk_size` is the per-chunk leading directly — the peak-memory budget — so the compiled path needs it set smaller than an eager run would tolerate.
 
 ## Open questions
 
-- No `fullgraph=True` path through the macro — the eager island and profiler hooks break the graph by design; [scheme C](scheme-c-custom-op.md) is the fullgraph route.
-- Cross-instance sharing rides on an implicit, version-dependent mechanism rather than a guaranteed shape-only cache key; [scheme B](scheme-b-deobjectified.md) is the hardening.
+- No `fullgraph=True` path through the macro — the eager island and profiler hooks break the graph by design; scheme C is the fullgraph route.
+- Cross-instance sharing rides on an implicit, version-dependent mechanism rather than a guaranteed shape-only cache key; scheme B is the hardening.
 
 ## See also
 
-- [contracts](contracts.md), [scheme B](scheme-b-deobjectified.md), [scheme C](scheme-c-custom-op.md)
+- [contracts](contracts.md), [scheme B](scheme_b_deobjectified.md), [scheme C](scheme_c_custom_op.md)
 - Implementation: `neurox/macro/xbar/*.py`, `neurox/xbar/_1t1r/core.py`, `neurox/xbar/solver/*.py`, `neurox/common/mixin/profile.py`

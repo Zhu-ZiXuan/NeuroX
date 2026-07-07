@@ -2,7 +2,7 @@
 
 ## Summary
 
-`Adder` computes an element-wise integer sum of two broadcastable tensors and emits its own PPA events. Spec: [reference/digital/adder](../../reference/digital/adder.md).
+`Adder` computes an element-wise integer sum of two broadcastable tensors and emits its own PPA events.
 
 ## Design decisions
 
@@ -13,7 +13,7 @@
 ## Contracts & invariants
 
 - **`operate(a, b)` is element-wise with PyTorch broadcasting**; the output shape is the broadcast of the two operands. The serial-op count uses the broadcast output numel divided by the instance count (position-invariant numel rule).
-- **No per-call sampling state.** The `DigitalCircuit` base no-op is correct; `fabricate()` is a pass-through.
+- **No per-call sampling state.** The adder holds no fabricated mismatch, so the base fabricate no-op ([base](base.md)) applies unchanged.
 - **Energy and latency are two independent profiler emissions**; the energy tensor is per-output-element, the latency a single scaled scalar.
 
 ## Performance & resources
@@ -34,4 +34,3 @@
 - **Reference**: [adder](../../reference/digital/adder.md)
 - **Implementation**: `neurox/digital/adder.py`
 - **Tests**: TODO - no dedicated digital test module yet
-- **Decisions**: N/A — no ADR governs this module.

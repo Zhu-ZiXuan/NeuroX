@@ -16,9 +16,11 @@ from .base import Transcoder
 class CanonicalTranscoder(Transcoder):
     """Non-adjacent-form-style canonical signed-digit encoding.
 
-    Each digit lies in ``{-(r-1), ..., r-1}`` but at most every other
-    position is non-zero, so the representable envelope is strictly
-    tighter than the true-form sign-magnitude bound.
+    Each digit lies in ``{-(r-1), ..., r-1}``. The representable
+    envelope is tighter than the true-form sign-magnitude bound for
+    ``digit_count >= 2``, and equal to it at ``digit_count = 1`` (both
+    give ``[-(r-1), r-1]``). At ``r = 2`` this is the non-adjacent
+    form, where no two consecutive positions are non-zero.
     """
 
     def encode(self, x: Tensor, *, dim: int = -1) -> Tensor:
