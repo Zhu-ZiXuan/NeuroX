@@ -52,12 +52,12 @@ class GeneralDACConfig(DACConfig):
         self._require_min_length(self.code_to_signal, 1, "code_to_signal")
 
     def validate_noise(self) -> None:
-        self._require_nonneg(self.drive_thermal__V, "drive_thermal__V")
+        self._require_non_neg(self.drive_thermal__V, "drive_thermal__V")
 
     def validate_ppa(self) -> None:
         super().validate_ppa()
-        self._require_nonneg(self.energy_per_op__fJ, "energy_per_op__fJ")
-        self._require_nonneg(self.latency_per_op__ns, "latency_per_op__ns")
+        self._require_non_neg(self.energy_per_op__fJ, "energy_per_op__fJ")
+        self._require_non_neg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
 @dataclass(frozen=True)

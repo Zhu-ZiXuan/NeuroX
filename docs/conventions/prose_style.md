@@ -14,6 +14,7 @@ Follow these public conventions unless a rule here is stricter or a deviation is
 Assume the reader is fluent in the relevant math, physics, circuits, and programming fundamentals; do not explain basic concepts.
 
 - State the conclusion; do not over-justify. Omit the design rationale, the rejected alternative, and the undisputed trade-off.
+- Match length to content; do not pad a thin point or inflate text to fill a template.
 - State each point once; do not restate it across sections.
 - When a name or signature already states a fact — a variable, method, class, or type — do not repeat it in prose.
 

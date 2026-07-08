@@ -48,11 +48,11 @@ class VoltageDriverConfig(CircuitConfig):
         self.validate_ppa()
 
     def validate_source(self) -> None:
-        self._require_nonneg(self.r_out__MOhm, "r_out__MOhm")
+        self._require_non_neg(self.r_out__MOhm, "r_out__MOhm")
 
     def validate_noise(self) -> None:
-        self._require_nonneg(self.offset_sigma__V, "offset_sigma__V")
-        self._require_nonneg(self.thermal_sigma__V, "thermal_sigma__V")
+        self._require_non_neg(self.offset_sigma__V, "offset_sigma__V")
+        self._require_non_neg(self.thermal_sigma__V, "thermal_sigma__V")
 
 
 @dataclass(frozen=True)

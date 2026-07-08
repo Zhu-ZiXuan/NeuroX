@@ -1,12 +1,10 @@
 # Subtractor
 
-## Summary
-
-The subtractor is the element-wise integer subtract primitive of the digital periphery: it computes the difference of two broadcastable integer tensors with no saturation and no wrap. It is the sign twin of the adder, sharing its structure and cost model. It is an exact digital block; the only modelled physical content is its behavioural PPA cost.
+The subtractor computes the element-wise difference of the minuend $a$ and subtrahend $b$, two broadcastable integer tensors, with no saturation and no wrap. It is an exact digital block whose only modelled physical content is its behavioural PPA cost.
 
 ## Physical model
 
-The block abstracts a parallel array of integer subtractors, one per output element. It applies no fixed-width register semantics: the nominal `bit_width` is informational and does not bound the result. The model is purely behavioural — no borrow-chain timing, no per-bit gate model — so the only physical quantities it exposes are the PPA cost terms.
+The block abstracts a parallel array of integer subtractors. No fixed-width register semantics apply: the nominal bit width is informational and does not bound the result. The model is behavioural, so the only physical quantities it exposes are the PPA cost terms.
 
 ## Governing equations
 
@@ -40,15 +38,15 @@ TODO (domain author): the provenance and derivation of $E_{\mathrm{op}}$, $t_{\m
 
 ## Parameters
 
-| Parameter | Meaning | Unit | Source |
-|---|---|---|---|
-| `bit_width` | nominal output bit width (informational; no wrap applied) | — | Design |
-| `energy_per_op__fJ` | dynamic energy per output element | fJ | Design |
-| `latency_per_op__ns` | latency per output element | ns | Design |
-| `area_per_inst__um2` | silicon area per instance | um^2 | Design |
-| `leakage_per_inst__uW` | static leakage per instance | uW | Design |
+| Parameter | Meaning | Unit | Constraint | Source |
+|---|---|---|---|---|
+| `bit_width` | nominal output bit width (informational; no wrap applied) | — | $\geq 1$ | Design |
+| `energy_per_op__fJ` | dynamic energy per output element | fJ | $\geq 0$ | Design |
+| `latency_per_op__ns` | latency per output element | ns | $\geq 0$ | Design |
+| `area_per_inst__um2` | silicon area per instance | um^2 | $\geq 0$ | Design |
+| `leakage_per_inst__uW` | static leakage per instance | uW | $\geq 0$ | Design |
 
-Provenance terms: [module_parameter](../../conventions/module_parameter.md). File-level schema: `neurox/digital/subtractor.py` (`SubtractorConfig`).
+Provenance terms are defined in [module_parameter](../../conventions/module_parameter.md).
 
 ## Symbols
 
@@ -66,7 +64,7 @@ Provenance terms: [module_parameter](../../conventions/module_parameter.md). Fil
 
 ## Assumptions, scope & validity
 
-- No saturation or wrap is applied, so the exact-integer difference matches fixed-width hardware only where the operands stay within the nominal `bit_width`.
+- No saturation or wrap is applied, so the exact-integer difference matches fixed-width hardware only where the operands stay within the nominal bit width.
 - The cost model is behavioural and per-op flat: energy and latency scale only with the output-element count, not with operand magnitude or borrow depth.
 
 TODO (domain author): the validity range of the flat per-op cost (bit-width regimes where borrow depth makes $t_{\mathrm{op}}$ bit-width-dependent).

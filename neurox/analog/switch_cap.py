@@ -48,12 +48,12 @@ class SwitchCapConfig(CircuitConfig):
         self._require_pos(self.c_unit__fF, "c_unit__fF")
 
     def validate_noise(self) -> None:
-        self._require_nonneg(self.cap_mismatch_sigma_relative, "cap_mismatch_sigma_relative")
+        self._require_non_neg(self.cap_mismatch_sigma_relative, "cap_mismatch_sigma_relative")
 
     def validate_ppa(self) -> None:
         super().validate_ppa()
-        self._require_nonneg(self.energy_per_sample_overhead__fJ, "energy_per_sample_overhead__fJ")
-        self._require_nonneg(self.latency_per_op__ns, "latency_per_op__ns")
+        self._require_non_neg(self.energy_per_sample_overhead__fJ, "energy_per_sample_overhead__fJ")
+        self._require_non_neg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
 @dataclass(frozen=True)

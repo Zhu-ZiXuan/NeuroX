@@ -21,6 +21,12 @@ The code is itself the carrier of what it already states — a signature, a type
 
 The same split governs tensor shape: Reference owns scientific or mathematical tensor meaning; Internals owns implementation layout, broadcast, batching, and reshape invariants.
 
+## Specify the model, not the physical realization
+
+Reference specifies the model, not the physical realization it abstracts — a device, a circuit, or a whole architecture. Document what the model computes — its governing equations, parameters, and modeled non-idealities — together with the idealizations it deliberately makes; an idealization or validity statement is itself model content. Do not narrate the underlying mechanism the model does not implement, at any layer.
+
+Length follows model content, not the template. A trivial idealized primitive earns a few lines; a rich model earns its length. A section with no model content is omitted, not padded and not filled with an invented rationale; a bare "N/A" suffices, extended only when the note itself carries real model information.
+
 ## Directory layout
 
 Each top-level `docs/` directory owns one kind of content:

@@ -76,22 +76,22 @@ class RRAMConfig(ValidateMixin):
         self.validate_noise()
 
     def validate_range(self) -> None:
-        self._require_nonneg(self.g_min__uS, "g_min__uS")
+        self._require_non_neg(self.g_min__uS, "g_min__uS")
 
     def validate_iv(self) -> None:
-        self._require_nonneg(self.nonlinearity_alpha, "nonlinearity_alpha")
+        self._require_non_neg(self.nonlinearity_alpha, "nonlinearity_alpha")
 
     def validate_drift(self) -> None:
-        self._require_nonneg(self.drift_decay_rate, "drift_decay_rate")
-        self._require_nonneg(self.drift_t0, "drift_t0")
+        self._require_non_neg(self.drift_decay_rate, "drift_decay_rate")
+        self._require_non_neg(self.drift_t0, "drift_t0")
 
     def validate_parasitics(self) -> None:
-        self._require_nonneg(self.c_top__fF, "c_top__fF")
-        self._require_nonneg(self.c_bot__fF, "c_bot__fF")
+        self._require_non_neg(self.c_top__fF, "c_top__fF")
+        self._require_non_neg(self.c_bot__fF, "c_bot__fF")
 
     def validate_noise(self) -> None:
         # Nested *Config self-validates in its own __post_init__.
-        self._require_nonneg(self.read_thermal__uS, "read_thermal__uS")
+        self._require_non_neg(self.read_thermal__uS, "read_thermal__uS")
 
 
 @dataclass(frozen=True)

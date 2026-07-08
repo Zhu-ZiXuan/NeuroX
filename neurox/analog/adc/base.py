@@ -50,8 +50,8 @@ class AdcCalibrationRecord(ValidateMixin):
         self.validate()
 
     def validate(self) -> None:
-        self._require_nonneg(self.adc_mode, "adc_mode")
-        self._require_nonneg(self.adc_bits, "adc_bits")
+        self._require_non_neg(self.adc_mode, "adc_mode")
+        self._require_non_neg(self.adc_bits, "adc_bits")
 
 
 @dataclass(frozen=True)

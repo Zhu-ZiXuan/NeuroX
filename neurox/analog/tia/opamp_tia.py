@@ -70,7 +70,7 @@ class OpAmpTIAConfig(TIAConfig):
     def validate_opamp(self) -> None:
         if not (self.opamp_gain > 1.0):
             raise ValueError(f"require: opamp_gain ({self.opamp_gain}) > 1.0")
-        self._require_nonneg(self.opamp_gain_sigma, "opamp_gain_sigma")
+        self._require_non_neg(self.opamp_gain_sigma, "opamp_gain_sigma")
         self._require_pos(self.output_saturation_softness__V, "output_saturation_softness__V")
 
     def validate_pseudo_nmos(self) -> None:

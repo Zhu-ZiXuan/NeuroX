@@ -89,15 +89,15 @@ class McsSarAdcConfig(ADCConfig):
 
     def validate_cdac(self) -> None:
         self._require_pos(self.c_unit__fF, "c_unit__fF")
-        self._require_nonneg(self.cap_mismatch_sigma_relative, "cap_mismatch_sigma_relative")
+        self._require_non_neg(self.cap_mismatch_sigma_relative, "cap_mismatch_sigma_relative")
 
     def validate_comparator(self) -> None:
-        self._require_nonneg(self.comparator_offset_sigma__V, "comparator_offset_sigma__V")
-        self._require_nonneg(self.comparator_thermal_noise_sigma__V, "comparator_thermal_noise_sigma__V")
+        self._require_non_neg(self.comparator_offset_sigma__V, "comparator_offset_sigma__V")
+        self._require_non_neg(self.comparator_thermal_noise_sigma__V, "comparator_thermal_noise_sigma__V")
 
     def validate_energy(self) -> None:
-        self._require_nonneg(self.e_bootstrap__fJ, "e_bootstrap__fJ")
-        self._require_nonneg(self.e_constant_per_bit__fJ, "e_constant_per_bit__fJ")
+        self._require_non_neg(self.e_bootstrap__fJ, "e_bootstrap__fJ")
+        self._require_non_neg(self.e_constant_per_bit__fJ, "e_constant_per_bit__fJ")
 
 
 @dataclass(frozen=True)

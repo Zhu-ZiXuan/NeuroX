@@ -15,6 +15,7 @@ Follow these public conventions unless a rule here is stricter or a deviation is
 - H1 and every nav label use sentence case (proper nouns, acronyms, and code identifiers stay capitalized).
 - Every fenced code block declares a language (stricter than GFM/CommonMark, which make the info string optional).
 - Link documents with relative `.md` paths; link sections with `#slug`.
+- Never hand-author an HTML anchor (`<a id="..."></a>`); heading anchors are auto-generated, so a `#slug` link needs no manual target, and a link resolves to a whole document.
 - README files are navigation only: short orientation plus links to children. Do not put templates, rules, philosophy, or detailed model prose in a README.
 - Do not write easy-to-stale counts such as "this family has N members".
 

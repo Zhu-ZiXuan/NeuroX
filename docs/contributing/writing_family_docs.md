@@ -16,12 +16,10 @@ A family document owns science only.
 
 ## Document template
 
-A family document uses the sections below in order. The document file is `family.md`, titled `<Family> family`; see [naming_conventions](../conventions/naming_conventions.md). The template omits Physical model, Numerical method, Parameters, and Validation, because a family fixes no concrete model, method, or parameter and runs no validation of its own. Only Summary / role and Shared conventions are required; an on-demand section with nothing to say is omitted outright rather than kept as an N/A heading. The footer likewise carries no Configuration or Validation line.
+A family document uses the sections below in order. The document file is `family.md`, titled `<Family> family`; see [naming_conventions](../conventions/naming_conventions.md). The template omits Physical model, Numerical method, Parameters, and Validation, because a family fixes no concrete model, method, or parameter and runs no validation of its own. Only Shared conventions is required; an optional lead paragraph under the H1 stands in for a Summary, and an on-demand section with nothing to say is omitted outright rather than kept as an N/A heading.
 
 ```markdown
 # <Family> family
-
-## Summary / role
 
 ## Shared conventions
 
@@ -36,12 +34,13 @@ A family document uses the sections below in order. The document file is `family
 ---
 
 - **Internals**: [<base doc>](<relative .md path>)
-- **Modules**: [README](README.md)
+- **Validation**: [<doc>](<relative .md path>) or TODO — <what is missing>
+- **Configuration**: [<doc>](<relative .md path>) or TODO — <what is missing>
 ```
 
 ## Filling each section
 
-- `Summary / role` (required): what the family is and the shared science it factors out, in role language; describe the shared runtime interface abstractly and never hard-link a concrete member, because the README owns which concretes exist.
+- Lead paragraph (optional): what the family is and the shared science it factors out, as science; keep it only when it synthesizes more than the title states, and never hard-link a concrete member, because the README owns which concretes exist. Do not add a `## Summary` heading.
 - `Shared conventions` (required): the family-wide science every member obeys — polarity, signed-code convention, floor and quantization semantics — stated as science, not as a software contract or a does-not-own boundary.
 - `Governing laws` (on-demand): the laws shared across the family, such as a common rescale relation, at coarse math; omit the section when there are none.
 - `Symbols` (on-demand): the shared four-column table (Symbol, Meaning, Unit, Code field) members reference instead of repeating, with meanings from [notation_conventions](../conventions/notation_conventions.md); omit when the family shares no symbols.
@@ -50,7 +49,7 @@ A family document uses the sections below in order. The document file is `family
 
 Insert an optional `Noise & non-idealities` section, after Governing laws, only for a statement genuinely shared by every member — for example, that quantization is intrinsic to the whole family. Shared cross-device sources belong in [nonideality](../reference/nonideality.md).
 
-The footer is traceability: Internals points to the base document that owns the family's software contract, and Modules points to the README that indexes the concrete members.
+The footer is traceability: Internals points to the base document that owns the family's software contract, Validation to the family-level evidence, and Configuration to the family's shared config and policy schema.
 
 ## Content rules
 

@@ -1,12 +1,8 @@
 # Current reference
 
-## Summary / role
-
-The `CurrentReference` is a multi-output current reference source: a behavioural block that sources one or more fixed reference (bias) currents for downstream consumers. It performs no computation — it exists to carry the reference's static PPA and to hand consumers the actual tap values. One module sources several independent taps.
-
 ## Physical model
 
-A real current reference (e.g. a bandgap-derived bias generator mirrored to several taps) produces one or more nominal currents. The block abstracts that generator: it does not model the bias topology, and the bias power that generates the reference currents is a static, always-on draw, not derived from the tap values. There is no data-dependent dissipation; the entire hardware cost is static (bias power plus silicon area). Two departures from the nominal taps are modelled: a static per-instance initial-accuracy spread (process variation plus trim residual) fixed at fabrication, and a per-read noise on the reference (thermal / flicker). Both are relative to the nominal tap so a single sigma applies uniformly across taps of differing magnitude.
+A multi-output current reference: it sources one or more nominal reference currents. The bias-generation topology is not modelled — the bias power that generates the reference currents is a static, always-on draw, not derived from the tap values, so there is no data-dependent dissipation and the entire hardware cost is static (bias power plus silicon area). Two departures from the nominal taps are modelled: a per-instance initial-accuracy spread (process variation plus trim residual) fixed at fabrication, and a per-read noise (thermal / flicker). Both are relative to the nominal tap, so a single sigma applies uniformly across taps of differing magnitude.
 
 ## Governing equations
 
@@ -14,7 +10,7 @@ The $k$-th sourced tap is the nominal value scaled by the two relative departure
 
 $$I_{\mathrm{ref},k} = I_{\mathrm{ref},k}^{\mathrm{nom}} \, (1 + \delta_k)(1 + \eta_k),$$
 
-where $\delta_k \sim \mathcal{N}(0, \sigma_{\mathrm{tol}}^2)$ is the per-instance initial-accuracy spread (`tolerance_sigma_relative`), fixed once at fabrication, and $\eta_k \sim \mathcal{N}(0, \sigma_{\mathrm{noise}}^2)$ is the per-read noise (`noise_sigma_relative`), resampled every read. Both $\delta_k$ and $\eta_k$ are zero-mean, so the mean tap is the nominal $I_{\mathrm{ref},k}^{\mathrm{nom}}$.
+where $\delta_k \sim \mathcal{N}(0, \sigma_{\mathrm{tol}}^2)$ is the per-instance initial-accuracy spread, fixed once at fabrication, and $\eta_k \sim \mathcal{N}(0, \sigma_{\mathrm{noise}}^2)$ is the per-read noise, resampled every read. Both $\delta_k$ and $\eta_k$ are zero-mean, so the mean tap is the nominal $I_{\mathrm{ref},k}^{\mathrm{nom}}$.
 
 ## Numerical method
 
@@ -31,12 +27,12 @@ TODO (domain author): give each sigma's physical derivation and citation, and co
 
 ## Parameters
 
-| Parameter | Meaning | Unit | Source |
-|---|---|---|---|
-| `i_refs__uA` ($I_{\mathrm{ref},k}^{\mathrm{nom}}$) | nominal reference-current taps (one or more) | uA | Design |
-| `tolerance_sigma_relative` ($\sigma_{\mathrm{tol}}$) | relative initial-accuracy sigma, fixed at fabrication | — | Measured |
-| `noise_sigma_relative` ($\sigma_{\mathrm{noise}}$) | relative per-read noise sigma | — | Measured |
-| leakage / area | static PPA / spec fields (leakage carries all static power, incl. the always-on bias network that generates the currents) | uW, um^2 | Design |
+| Parameter | Meaning | Unit | Constraint | Source |
+|---|---|---|---|---|
+| `i_refs__uA` ($I_{\mathrm{ref},k}^{\mathrm{nom}}$) | nominal reference-current taps (one or more) | uA | $\geq 0$ | Design |
+| `tolerance_sigma_relative` ($\sigma_{\mathrm{tol}}$) | relative initial-accuracy sigma, fixed at fabrication | — | $\geq 0$ | Measured |
+| `noise_sigma_relative` ($\sigma_{\mathrm{noise}}$) | relative per-read noise sigma | — | $\geq 0$ | Measured |
+| leakage / area | static PPA / spec fields (leakage carries all static power, incl. the always-on bias network that generates the currents) | uW, um^2 | $\geq 0$ | Design |
 
 Provenance terms are defined in [module_parameter](../../conventions/module_parameter.md).
 

@@ -57,16 +57,16 @@ class VoltageMuxConfig(CircuitConfig):
 
     def validate_gain(self) -> None:
         self._require_pos(self.mux_gain, "mux_gain")
-        self._require_nonneg(self.mux_gain_mismatch_sigma_relative, "mux_gain_mismatch_sigma_relative")
+        self._require_non_neg(self.mux_gain_mismatch_sigma_relative, "mux_gain_mismatch_sigma_relative")
 
     def validate_noise(self) -> None:
-        self._require_nonneg(self.mux_noise_cm_sigma__V, "mux_noise_cm_sigma__V")
-        self._require_nonneg(self.mux_noise_dm_sigma__V, "mux_noise_dm_sigma__V")
+        self._require_non_neg(self.mux_noise_cm_sigma__V, "mux_noise_cm_sigma__V")
+        self._require_non_neg(self.mux_noise_dm_sigma__V, "mux_noise_dm_sigma__V")
 
     def validate_ppa(self) -> None:
         super().validate_ppa()
-        self._require_nonneg(self.energy_per_access__fJ, "energy_per_access__fJ")
-        self._require_nonneg(self.latency_per_op__ns, "latency_per_op__ns")
+        self._require_non_neg(self.energy_per_access__fJ, "energy_per_access__fJ")
+        self._require_non_neg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
 @dataclass(frozen=True)

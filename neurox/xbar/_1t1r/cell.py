@@ -92,9 +92,9 @@ class XbarCell1T1RConfig(XbarCellConfig):
         self._require_pos(self.access_nmos_L__um, "access_nmos_L__um")
 
     def validate_parasitics(self) -> None:
-        self._require_nonneg(self.c_gs_per_um__fF, "c_gs_per_um__fF")
-        self._require_nonneg(self.c_gd_per_um__fF, "c_gd_per_um__fF")
-        self._require_nonneg(self.c_db_per_um__fF, "c_db_per_um__fF")
+        self._require_non_neg(self.c_gs_per_um__fF, "c_gs_per_um__fF")
+        self._require_non_neg(self.c_gd_per_um__fF, "c_gd_per_um__fF")
+        self._require_non_neg(self.c_db_per_um__fF, "c_db_per_um__fF")
 
     def validate_rram_window(self) -> None:
         if not (self.rram_g_max__uS > self.rram_config.g_min__uS):
@@ -104,7 +104,7 @@ class XbarCell1T1RConfig(XbarCellConfig):
 
     def validate_state_map(self) -> None:
         self._require_min_length(self.state_to_g_map__uS, 2, "state_to_g_map__uS")
-        self._require_strictly_increasing(self.state_to_g_map__uS, "state_to_g_map__uS")
+        self._require_increasing(self.state_to_g_map__uS, "state_to_g_map__uS")
         if self.state_to_g_map__uS[0] < self.rram_config.g_min__uS:
             raise ValueError(
                 f"require: state_to_g_map__uS[0] ({self.state_to_g_map__uS[0]}) >= "

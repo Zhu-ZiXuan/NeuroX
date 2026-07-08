@@ -1,12 +1,10 @@
 # Inter-array slice macro
 
-## Summary
-
-`InterArraySliceXbarMacro` realizes a sliced matmul by distributing the per-weight slices across separate tile planes (Strategy 1): one tile plane carries one slice index of every weight, and the planes are recombined by a cross-tile positional shift-add. It is the mode for a weight range that exceeds one tile's value domain, with each slice held in its own plane. This document specifies the value-domain mapping and the aggregation.
+This mode spends one tile plane per weight slice to widen the weight value range beyond a single tile's value domain, recombining the planes by a cross-plane positional shift-add.
 
 ## Physical model
 
-A weight value is sliced into $S_w$ slices, each a tile-carriable integer; an input value is sliced into $S_a$ per-cycle slices. In this mode the $S_w$ slice axis is kept *outside* the tile's value axis: slice index $i$ of every weight lives on tile plane $i$, so the architecture is a stack of $S_w$ separate tile planes, each a $T_r \times T_c$ tile grid — $S_w \times T_r \times T_c$ tiles in total. Within a plane the layout is identical to the direct mode — whole weight-slices tiled along columns, contraction tiled along rows.
+A weight value is sliced into $S_w$ slices, each a tile-carriable integer; an input value is sliced into $S_a$ per-cycle slices. In this mode the $S_w$ slice axis is kept *outside* the tile's value axis: slice index $i$ of every weight lives on tile plane $i$, so the architecture is a stack of $S_w$ separate tile planes, each a $T_r \times T_c$ tile grid — $S_w \times T_r \times T_c$ tiles in total. Within a plane, whole weight-slices tile along columns and the contraction tiles along rows.
 
 ## Governing equations
 
@@ -26,15 +24,15 @@ N/A at the mode level. ADC quantization and analog non-idealities enter through 
 
 ## Parameters
 
-| Parameter | Meaning | Unit | Source |
-|---|---|---|---|
-| `xbar_config` | owned physical-tile configuration | — | Design |
-| `w_slice_num` ($S_w$) | per-weight slice count | — | Design |
-| `x_slice_num` ($S_a$) | per-activation slice count | — | Design |
-| `w_encoding` | weight encoding (integer-to-digit-string codec; signed-digit only for canonical) | — | Design |
-| `col_accumulator_config` | contraction-tile ($T_c$) accumulator | — | Design |
-| `sa_shift_adder_config` | activation-slice ($S_a$) shift-adder | — | Design |
-| `sw_shift_adder_config` | weight-slice ($S_w$) cross-plane shift-adder | — | Design |
+| Parameter | Meaning | Unit | Constraint | Source |
+|---|---|---|---|---|
+| `xbar_config` | owned physical-tile configuration | — | — | Design |
+| `w_slice_num` ($S_w$) | per-weight slice count | — | ≥ 1 | Design |
+| `x_slice_num` ($S_a$) | per-activation slice count | — | ≥ 1 | Design |
+| `w_encoding` | weight encoding (integer-to-digit-string codec; signed-digit only for canonical) | — | — | Design |
+| `col_accumulator_config` | contraction-tile ($T_c$) accumulator | — | — | Design |
+| `sa_shift_adder_config` | activation-slice ($S_a$) shift-adder | — | — | Design |
+| `sw_shift_adder_config` | weight-slice ($S_w$) cross-plane shift-adder | — | — | Design |
 
 Activations are unsigned true-form by definition (no activation encoding). Provenance terms: [module_parameter](../../../conventions/module_parameter.md); file-level schema: [config reference](../../../api/README.md).
 
@@ -54,7 +52,7 @@ The equations above use these slice radices and the tile counts $T_r$, $T_c$; th
 ## Assumptions, scope & validity
 
 - Weight and input values must fit the slicers' value ranges; the mode does not enforce the range.
-- The mode trades tile count for value-domain reach: $S_w$ planes are spent to widen the weight range. When the slice count is small relative to the column count, the alternative intra_array_slice packs slices into one tile instead.
+- The mode trades tile count for value-domain reach: $S_w$ planes are spent to widen the weight range.
 
 TODO (domain author): the exact slicer value range per encoding and the saturation boundary of the positional recombination.
 

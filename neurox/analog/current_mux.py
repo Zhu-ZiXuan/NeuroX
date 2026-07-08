@@ -21,8 +21,6 @@ class CurrentMuxConfig(CircuitConfig):
             sharing one lane. Cross-checked by the caller against its
             reference group size; it does NOT scale energy or latency.
         mux_gain: Scalar matched transport gain (copy/transport factor).
-        v_supply__V: Rail supply voltage driving the data-dependent
-            transport dissipation.
         latency_per_op__ns: Per-transport latency; multiplied by the
             runtime serial-op count at logging time.
         area_per_inst__um2: Silicon area per fabricated instance.
@@ -35,9 +33,6 @@ class CurrentMuxConfig(CircuitConfig):
     # --- Gain ---
     mux_gain: float
 
-    # --- Rail ---
-    v_supply__V: float
-
     # --- Latency ---
     latency_per_op__ns: float
 
@@ -47,7 +42,6 @@ class CurrentMuxConfig(CircuitConfig):
     def validate(self) -> None:
         self.validate_fan_in()
         self.validate_gain()
-        self.validate_rail()
         self.validate_latency()
         self.validate_ppa()
 
@@ -57,11 +51,8 @@ class CurrentMuxConfig(CircuitConfig):
     def validate_gain(self) -> None:
         self._require_pos(self.mux_gain, "mux_gain")
 
-    def validate_rail(self) -> None:
-        self._require_pos(self.v_supply__V, "v_supply__V")
-
     def validate_latency(self) -> None:
-        self._require_nonneg(self.latency_per_op__ns, "latency_per_op__ns")
+        self._require_non_neg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
 @dataclass(frozen=True)
@@ -79,8 +70,6 @@ class CurrentMux(CircuitBase[CurrentMuxConfig]):
         inst_shape: Per-instance fabrication shape.
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature.
-        read_pulse__ns: Read-window width passed by the caller;
-            scales the per-call rail energy.
     """
 
     def __init__(
@@ -92,13 +81,11 @@ class CurrentMux(CircuitBase[CurrentMuxConfig]):
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
-        read_pulse__ns: float,
     ) -> None:
         super().__init__(config=config, name=name, inst_shape=inst_shape)
         self.policy = policy
         self.dtype = dtype
         self.T__K = T__K
-        self.read_pulse__ns = read_pulse__ns
 
     def _sample_fabricate_mismatch(self) -> None:
         pass  # ideal identity-gain transport: no static mismatch
@@ -114,13 +101,6 @@ class CurrentMux(CircuitBase[CurrentMuxConfig]):
         """
         i_out__uA = self.config.mux_gain * i__uA
 
-        # Rail dissipation on the output lane only: V_supply·|i_out|·t. The
-        # input current is sourced externally (its production energy is
-        # accounted by the upstream block), so it is NOT counted here.
-        # uA·V·ns = fJ.
-        dynamic_energy__fJ = self.config.v_supply__V * i_out__uA.abs() * self.read_pulse__ns
-        self._log_dynamic_energy(dynamic_energy__fJ)
-
         # serial_op_count counts the per-group column visits already; the
         # N:1 fan-in (select_num) is NOT an extra multiplier.
         if self.config.latency_per_op__ns > 0.0:
@@ -128,7 +108,7 @@ class CurrentMux(CircuitBase[CurrentMuxConfig]):
             latency__ns = torch.tensor(
                 self.config.latency_per_op__ns * serial_op_count,
                 device=i__uA.device,
-                dtype=dynamic_energy__fJ.dtype,
+                dtype=i__uA.dtype,
             )
             self._log_latency(latency__ns)
         return i_out__uA

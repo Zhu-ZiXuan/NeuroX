@@ -1,8 +1,6 @@
 # DirectXbarMacro
 
-## Summary
-
-`DirectXbarMacro` (`xbar/direct.py`): the no-slice mode. It owns a tile, a weight `Transcoder`, and a contraction-tile `Accumulator`, but no slicer and no shift-adder.
+The no-slice mode. It owns a tile, a weight `Transcoder`, and a contraction-tile `Accumulator`, but no slicer and no shift-adder.
 
 ## Design decisions
 
@@ -22,10 +20,6 @@ The mode adds only the transcode and the contraction accumulation; the dominant 
 ## Gotchas
 
 - **Last-tile padding is silent.** Trailing columns of the last output tile and trailing rows of the last contraction tile are zero-padded by `chunk_pad_along`; the padded lanes contribute zero and are trimmed, but a caller inspecting intermediate tile shapes sees the padded extent, not `N` / `K`.
-
-## Known limitations
-
-- N/A.
 
 ---
 

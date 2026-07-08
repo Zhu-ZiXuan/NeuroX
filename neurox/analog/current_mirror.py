@@ -1,4 +1,4 @@
-"""Ideal current-mirror — single-ended ratio-copy behavioural block.
+"""Ideal current-mirror — single-ended ratio-copy transport primitive.
 
 See also:
     docs/reference/analog/current_mirror.md
@@ -18,8 +18,6 @@ class CurrentMirrorConfig(CircuitConfig):
 
     Attributes:
         mirror_ratio: Dimensionless output/input copy ratio.
-        v_supply__V: Rail supply voltage driving the data-dependent
-            output-branch dissipation.
         ratio_sigma_relative: Relative (Pelgrom) σ of the static
             per-instance mirror-ratio mismatch [dimensionless]; ``0``
             leaves the exact ratio copy.
@@ -30,9 +28,6 @@ class CurrentMirrorConfig(CircuitConfig):
     # --- Copy ratio ---
     mirror_ratio: float
 
-    # --- Rail ---
-    v_supply__V: float
-
     # --- Mismatch ---
     ratio_sigma_relative: float
 
@@ -41,15 +36,11 @@ class CurrentMirrorConfig(CircuitConfig):
 
     def validate(self) -> None:
         self.validate_ratio()
-        self.validate_rail()
         self.validate_ppa()
 
     def validate_ratio(self) -> None:
         self._require_pos(self.mirror_ratio, "mirror_ratio")
-        self._require_nonneg(self.ratio_sigma_relative, "ratio_sigma_relative")
-
-    def validate_rail(self) -> None:
-        self._require_pos(self.v_supply__V, "v_supply__V")
+        self._require_non_neg(self.ratio_sigma_relative, "ratio_sigma_relative")
 
 
 @dataclass(frozen=True)
@@ -66,12 +57,12 @@ class CurrentMirrorPolicy:
 
 
 class CurrentMirror(CircuitBase[CurrentMirrorConfig]):
-    """Single-ended current mirror — ratio copy with data-dependent rail energy.
+    """Single-ended current mirror — pure ratio-copy transport primitive.
 
     The copy is exact at ``mirror_ratio`` unless the ``mismatch`` policy is on,
     in which case the ratio carries a static per-instance multiplicative
-    (Pelgrom) Gaussian with relative σ ``ratio_sigma_relative``. The rail
-    dissipation counts the output branch only.
+    (Pelgrom) Gaussian with relative σ ``ratio_sigma_relative``. Rail energy is
+    owned by the downstream current-domain consumer, not tallied here.
 
     Args:
         config: Concrete configuration dataclass.
@@ -80,8 +71,6 @@ class CurrentMirror(CircuitBase[CurrentMirrorConfig]):
         inst_shape: Per-instance fabrication shape.
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature.
-        read_pulse__ns: Read-window width passed by the caller;
-            scales the per-call rail energy.
     """
 
     ratio_mismatch: Tensor
@@ -95,13 +84,11 @@ class CurrentMirror(CircuitBase[CurrentMirrorConfig]):
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
-        read_pulse__ns: float,
     ) -> None:
         super().__init__(config=config, name=name, inst_shape=inst_shape)
         self.policy = policy
         self.dtype = dtype
         self.T__K = T__K
-        self.read_pulse__ns = read_pulse__ns
 
         # Held static per-instance copy-ratio mismatch multiplier (Pelgrom);
         # unit ratio when the mismatch is off.
@@ -136,12 +123,4 @@ class CurrentMirror(CircuitBase[CurrentMirrorConfig]):
         Returns:
             Output branch current ``mirror_ratio * ratio_mismatch * i_in__uA``.
         """
-        i_out__uA = self.config.mirror_ratio * self.ratio_mismatch * i_in__uA
-
-        # Rail dissipation on the OUTPUT branch only: V_supply·|i_out|·t. The
-        # input current is sourced externally (its production energy is
-        # accounted by the upstream block), so it is NOT counted here. The
-        # energy naturally tracks the (possibly perturbed) i_out. uA·V·ns = fJ.
-        dynamic_energy__fJ = self.config.v_supply__V * i_out__uA.abs() * self.read_pulse__ns
-        self._log_dynamic_energy(dynamic_energy__fJ)
-        return i_out__uA
+        return self.config.mirror_ratio * self.ratio_mismatch * i_in__uA

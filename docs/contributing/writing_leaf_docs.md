@@ -14,14 +14,12 @@ A leaf document holds:
 
 ## Document template
 
-A leaf document mirrors a single code module and uses every template section below, in order. Keep an empty heading as `N/A — <reason>` when genuinely inapplicable or `TODO — <missing item>` when applicable but unwritten.
+A leaf document mirrors a single code module. A section appears only when it carries content and is omitted when it does not — never padded and never kept as an empty heading; use `TODO — <missing item>` only when a section is applicable but unwritten. Sections keep the order below when present.
 
 A leaf document's H1 is verbatim identical to its module document's title; when no module document exists, the H1 names the subject. Its file mirrors the code module basename; see [naming_conventions](../conventions/naming_conventions.md).
 
 ```markdown
 # <Module name>
-
-## Summary
 
 ## Design decisions
 
@@ -42,18 +40,23 @@ A leaf document's H1 is verbatim identical to its module document's title; when 
 
 ## Filling each section
 
-- `Summary`: one-line orientation, plus the matching Reference spec when one exists.
+An optional lead paragraph directly under the H1 stands in for a Summary: one-line orientation. Keep it only when it synthesizes more than the H1; omit it otherwise, and do not add a `## Summary` heading. The matching Reference spec is linked from the footer.
+
 - `Design decisions`: the core section — non-obvious choices, their rationale, rejected alternatives, and verification-strategy rationale, not ordinary implementation steps.
 - `Contracts & invariants`: the cross-file rules and invariants.
 - `Performance & resources`: complexity, memory model, chunking, dtype trade-offs, compile boundaries, and benchmark implications.
 - `Gotchas`: error-prone behavior and anti-patterns.
 - `Known limitations`: implementation TODOs, workarounds, and verification coverage gaps.
 
-Never omit a required section; the empty state is information.
+Omit a section that carries no content rather than padding it.
 
 The footer is traceability: write Implementation and Tests as inline code at file level only, never a class, function, or line. The Implementation entry is the document's code map, so the body adds no per-file code listing.
 
 ## Content rules
+
+### Software is the subject
+
+A leaf document specifies software — decisions, contracts, and trade-offs — and that is its proper subject; class and type names belong here. It does not re-narrate or restate the module's Reference spec; where a decision rests on a physical fact, cite Reference rather than repeating it.
 
 ### Contracts & invariants
 

@@ -55,11 +55,11 @@ class VoltageReferenceConfig(CircuitConfig):
     def validate_taps(self) -> None:
         self._require_min_length(self.v_refs__V, 1, "v_refs__V")
         for i, v in enumerate(self.v_refs__V):
-            self._require_nonneg(v, f"v_refs__V[{i}]")
+            self._require_non_neg(v, f"v_refs__V[{i}]")
 
     def validate_noise(self) -> None:
-        self._require_nonneg(self.tolerance_sigma_relative, "tolerance_sigma_relative")
-        self._require_nonneg(self.noise_sigma_relative, "noise_sigma_relative")
+        self._require_non_neg(self.tolerance_sigma_relative, "tolerance_sigma_relative")
+        self._require_non_neg(self.noise_sigma_relative, "noise_sigma_relative")
 
 
 @dataclass(frozen=True)

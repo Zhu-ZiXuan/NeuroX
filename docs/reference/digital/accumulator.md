@@ -1,12 +1,10 @@
 # Accumulator
 
-## Summary
-
-The accumulator is a digital adder tree that reduces an integer tensor along one axis into a single fixed-width signed register. The reduced axis carries the per-cycle integer partial results, and summing them along that axis realizes the accumulation. It is an exact digital block: its only departure from infinite-precision arithmetic is the finite output register, which wraps modulo a power of two.
+The accumulator reduces an integer tensor along one axis into a single fixed-width signed register. Summation along that axis is exact; the register's finite width, which wraps rather than saturates on overflow, is the model's only departure from infinite-precision integer arithmetic.
 
 ## Physical model
 
-The block abstracts a synthesized adder tree (ripple-carry or carry-save) with a fixed-width output register and no saturation logic. The reality it stands for is a fixed bit-width accumulator: it sums the per-cycle partial results along the reduction axis into one register value, and a result exceeding the register range does not clamp but wraps in two's-complement. This is a purely behavioural model — no gate-level netlist, no per-bit carry timing — so the only physical quantities exposed are the PPA cost terms.
+The model realizes a fixed-width signed accumulator register of $w$ bits: it sums the input along the reduction axis into that register, and on overflow the register wraps in two's-complement rather than clamping. It is behavioural and integer-exact — not a gate-level model — so the only physical quantities it exposes are the PPA cost terms.
 
 ## Governing equations
 
@@ -18,15 +16,15 @@ which maps any integer sum into the signed interval $[-2^{\,w-1},\ 2^{\,w-1}-1]$
 
 ## Numerical method
 
-N/A - exact integer arithmetic; no iterative or approximate solve.
+N/A — exact integer arithmetic; no iterative or approximate solve.
 
 ## Noise & non-idealities
 
-N/A - the block is an exact digital function; the only non-infinite-precision effect is the deterministic modular wrap of the output register, captured in §Governing equations. It carries no static mismatch and samples no per-call randomness.
+N/A — exact digital function; the only non-infinite-precision effect is the deterministic modular wrap of the output register (§Governing equations). No static mismatch, no per-call randomness.
 
 ## PPA cost model
 
-Per reduced output element the block dissipates a fixed dynamic energy $E_{\mathrm{op}}$; one output element corresponds to one adder-tree evaluation. Latency is set by the busiest instance: the serial-op count of a call is the number of output elements on the instance carrying the most work,
+Per reduced output element the block dissipates a fixed dynamic energy $E_{\mathrm{op}}$, so work scales with the output-element count. Latency is set by the busiest instance: the serial-op count of a call is the number of output elements on the instance carrying the most work,
 
 $$n_{\mathrm{serial}} = \left\lceil \frac{\operatorname{numel}(y)}{\max(N_{\mathrm{inst}}, 1)} \right\rceil,$$
 
@@ -38,21 +36,21 @@ Dynamic energy is total work, independent of how the outputs distribute across i
 
 $$E = E_{\mathrm{op}}\, \operatorname{numel}(y).$$
 
-An empty call, $\operatorname{numel}(y) = 0$, costs zero latency and zero energy. Static area and leakage are the inherited per-instance terms $A_{\mathrm{inst}}$ and $P_{\mathrm{inst}}$, scaled by the instance count.
+An empty call, $\operatorname{numel}(y) = 0$, costs zero latency and zero energy. Static area and leakage are the per-instance terms $A_{\mathrm{inst}}$ and $P_{\mathrm{inst}}$ scaled by the instance count.
 
-TODO (domain author): the provenance and derivation of $E_{\mathrm{op}}$, $t_{\mathrm{op}}$, $A_{\mathrm{inst}}$, $P_{\mathrm{inst}}$ for a concrete adder-tree (bit-width scaling, technology node); the source docs give only the accounting form, not the cost values.
+TODO (domain author): the provenance and derivation of $E_{\mathrm{op}}$, $t_{\mathrm{op}}$, $A_{\mathrm{inst}}$, $P_{\mathrm{inst}}$ (bit-width scaling, technology node); the source docs give only the accounting form, not the values.
 
 ## Parameters
 
-| Parameter | Meaning | Unit | Source |
-|---|---|---|---|
-| `bit_width` | signed output register width | — | Design |
-| `energy_per_op__fJ` | dynamic energy per output element | fJ | Design |
-| `latency_per_op__ns` | latency per output element | ns | Design |
-| `area_per_inst__um2` | silicon area per instance | um^2 | Design |
-| `leakage_per_inst__uW` | static leakage per instance | uW | Design |
+| Parameter | Meaning | Unit | Constraint | Source |
+|---|---|---|---|---|
+| `bit_width` | signed output register width | — | $\geq 1$ | Design |
+| `energy_per_op__fJ` | dynamic energy per output element | fJ | $\geq 0$ | Design |
+| `latency_per_op__ns` | latency per output element | ns | $\geq 0$ | Design |
+| `area_per_inst__um2` | silicon area per instance | um^2 | $\geq 0$ | Design |
+| `leakage_per_inst__uW` | static leakage per instance | uW | $\geq 0$ | Design |
 
-Provenance terms: [module_parameter](../../conventions/module_parameter.md). File-level schema: `neurox/digital/accumulator.py` (`AccumulatorConfig`).
+Provenance terms are defined in [module_parameter](../../conventions/module_parameter.md).
 
 ## Symbols
 

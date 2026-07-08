@@ -1,8 +1,6 @@
 # 1T1R cell
 
-## Summary
-
-The 1T1R cell (`xbar/_1t1r/cell.py`) is the concrete `XbarCell` implementation: one RRAM device in series with an access NMOS, condensing its internal access node $V_{\mathrm{X}}$ to a two-terminal branch. The shared family and container contracts live at [xbar cell base](../cell.md). This document covers the non-obvious 1T1R choices, not the branch-solve flow or the shared base contract.
+`XbarCell1T1R` (`xbar/_1t1r/cell.py`) is the concrete `XbarCell`; the shared family and container contracts live at [xbar cell base](../cell.md).
 
 ## Design decisions
 
@@ -12,7 +10,7 @@ The 1T1R cell (`xbar/_1t1r/cell.py`) is the concrete `XbarCell` implementation: 
 
 ## Contracts & invariants
 
-- **Single current.** The branch current returned is the RRAM current `i_r`; at cell convergence it equals the NMOS current. `solve_dc(compute_residuals=True)` exposes their absolute difference as the per-cell KCL residual — the calibration / debug signal for whether `n_newton` is sufficient.
+- **Returned current is the RRAM leg.** `solve_branch` and `solve_dc` report the RRAM current `i_r` as the condensed branch current `i__uA`; `solve_dc(compute_residuals=True)` returns `|i_n - i_r|` as the per-cell KCL residual, the signal for whether `n_newton` is sufficient.
 - **`program` writes only the storage device.** It maps a state-index tensor through `state_to_g_map__uS` and programs the RRAM; the NMOS is not programmed. The state-index shape must match the cell's `inst_shape`.
 
 ## Performance & resources
@@ -21,7 +19,6 @@ The cell's per-call working set is the device snaps plus a handful of node-volta
 
 ## Gotchas
 
-- **`dynamic_energy` needs a converged DCOP, not just terminal voltages.** It reads $V_{\mathrm{X}}$ from the `XbarCell1T1RDCOP` to charge the RRAM bottom-electrode and NMOS drain-body caps; terminal voltages alone would miss the internal-node caps. Pass the DCOP from `solve_dc`.
 - **`n_newton` is the 1T1R cell's own convergence count.** It is not shared with the other Newton / iteration counts elsewhere in the pipeline; recalibrating one does not recalibrate another.
 
 ## Known limitations
@@ -32,4 +29,4 @@ The cell's per-call working set is the device snaps plus a handful of node-volta
 
 - **Reference**: [cell](../../../reference/xbar/_1t1r/cell.md)
 - **Implementation**: `neurox/xbar/_1t1r/cell.py`
-- **Tests**: `tests/test_xbar_cell.py`, `tests/test_xbar_physics.py`
+- **Tests**: `tests/test_nested_solver.py`, `tests/test_mosfet.py`

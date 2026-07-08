@@ -125,10 +125,10 @@ class Core1T1RConfig(CircuitConfig):
 
     def validate_ppa(self) -> None:
         super().validate_ppa()
-        self._require_nonneg(self.latency_per_op__ns, "latency_per_op__ns")
+        self._require_non_neg(self.latency_per_op__ns, "latency_per_op__ns")
 
     def validate_wl_pulse(self) -> None:
-        self._require_nonneg(self.wl_pulse_length__ns, "wl_pulse_length__ns")
+        self._require_non_neg(self.wl_pulse_length__ns, "wl_pulse_length__ns")
 
     def validate_layout_pitch(self) -> None:
         for field in (

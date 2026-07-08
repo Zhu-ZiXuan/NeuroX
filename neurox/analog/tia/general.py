@@ -28,7 +28,7 @@ class GeneralTIAConfig(TIAConfig):
 
     def validate(self) -> None:
         super().validate()
-        self._require_nonneg(self.input_impedance__MOhm, "input_impedance__MOhm")
+        self._require_non_neg(self.input_impedance__MOhm, "input_impedance__MOhm")
         self._require_pos(self.load_resistance__MOhm, "load_resistance__MOhm")
 
 

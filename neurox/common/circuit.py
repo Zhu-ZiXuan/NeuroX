@@ -37,8 +37,8 @@ class CircuitConfig(ValidateMixin):
     leakage_per_inst__uW: float
 
     def validate_ppa(self) -> None:
-        self._require_nonneg(self.area_per_inst__um2, "area_per_inst__um2")
-        self._require_nonneg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
+        self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
+        self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
 
 
 ConfigT = TypeVar("ConfigT", bound=CircuitConfig)

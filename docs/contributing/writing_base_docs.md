@@ -10,12 +10,10 @@ The same template covers a family base and the root base every electrical-circui
 
 The H1 is `# <Family> base` — the family name followed by `base`; the root base follows the same pattern. The document file is `base.md`, mirroring the package root base `base.py`; see [naming_conventions](../conventions/naming_conventions.md). A base document carries the prescribed sections in the order below and closes with the traceability footer.
 
-Only `Summary` and `Contracts & invariants` are required. Every other section is on demand — write it when it carries content and omit it entirely when it does not; never keep it as an `N/A` placeholder. A base therefore has no standing `Performance & resources` / `Gotchas` / `Known limitations` trio: those sections appear only when a genuine family-level note exists.
+Only `Contracts & invariants` is required; an optional lead paragraph under the H1 stands in for a Summary. Every other section is on demand — write it when it carries content and omit it entirely when it does not; never keep it as an `N/A` placeholder. A base therefore has no standing `Performance & resources` / `Gotchas` / `Known limitations` trio: those sections appear only when a genuine family-level note exists.
 
 ```markdown
 # <Family> base
-
-## Summary
 
 ## Design decisions
 
@@ -32,7 +30,7 @@ Only `Summary` and `Contracts & invariants` are required. Every other section is
 
 ## Filling each section
 
-- `Summary` [required]: the family's role and the boundary of what the base does not own, in role language. Link the family's Reference document when one exists and route the reader to the README for the concrete members; never hard-link a concrete subclass.
+- Lead paragraph [optional]: the family's role and the boundary of what the base does not own, in role language; keep it only when it synthesizes more than the H1, route the reader to the README for the concrete members, and never hard-link a concrete subclass. Do not add a `## Summary` heading.
 - `Design decisions` [on demand, usually present]: the family-level software rationale — config-type dispatch, an empty-marker `Config` / `Policy`, the membership call (whether the base itself inherits the root base), the generic or type-parameterized surface, and any rejected alternative.
 - `Contracts & invariants` [required]: the payload. State the shared surface the base provides, the abstract obligations each subclass must implement (signature and semantics), and the invariants the base guarantees. Role language only; no concrete-subclass link.
 - `Composition` [on demand]: the mixin stack and MRO order, and the membership boundary — what is inside the base and what is deliberately out.
@@ -42,6 +40,10 @@ Add a family-level performance or compile-boundary note only when one genuinely 
 The footer is traceability. `Reference` links the family's Reference document, or is `N/A — <reason>` for a base with no physics twin, or links the README; `Implementation` lists the base module file(s) as inline code at file level; `Tests` names the guarding test file or a `TODO`.
 
 ## Content rules
+
+### Software is the subject
+
+A base document specifies software structure — the shared surface, the abstract obligations, and the invariants — and that structure is its proper subject; class and Protocol names belong here. It does not re-narrate or restate the family's Reference spec: where a contract rests on a physical fact, state the fact once in Reference and cite it. The same anti-padding and omit-empty rules apply — omit a section that carries no content rather than keeping an empty heading.
 
 ### No downward links
 

@@ -1,16 +1,14 @@
 # Digital base
 
-## Summary
-
-The digital family: the thin `DigitalCircuit` base (`neurox/digital/base.py`) shared by every integer-datapath leaf. It owns no state and exists only to declare the family-wide fabricate hook. The concrete leaves live alongside.
+`DigitalCircuit` is the thin base for the integer-datapath family: it owns no state and its only family-wide addition is the fabricate no-op.
 
 ## Design decisions
 
-- **Thin base, only a fabricate no-op.** `DigitalCircuit` owns no state and exists only to declare the fabricate hook as one explicit family-wide no-op, since integer-exact logic has no static manufacturing variation to resample. There is nothing else on the base for a leaf to inherit.
+- **Only a fabricate no-op.** A digital block holds no analog device state, so it has no static manufacturing variation to resample; `DigitalCircuit` states this once for the family by implementing `_sample_fabricate_mismatch` as an explicit no-op, and each leaf inherits it rather than re-declaring the hook.
 
 ## Contracts & invariants
 
-- **`fabricate()` is a family-wide pass-through.** No digital leaf holds fabricated mismatch, so the shared `_sample_fabricate_mismatch` no-op on the base is correct for every one and each leaf's `fabricate()` introduces no per-instance variation.
+- **`fabricate()` is a family-wide pass-through.** The base no-op resamples nothing and no digital leaf adds fabricated mismatch, so `fabricate()` introduces no per-instance variation on any leaf.
 
 ---
 

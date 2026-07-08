@@ -42,8 +42,8 @@ class SubtractorConfig(CircuitConfig):
 
     def validate_ppa(self) -> None:
         super().validate_ppa()
-        self._require_nonneg(self.energy_per_op__fJ, "energy_per_op__fJ")
-        self._require_nonneg(self.latency_per_op__ns, "latency_per_op__ns")
+        self._require_non_neg(self.energy_per_op__fJ, "energy_per_op__fJ")
+        self._require_non_neg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
 class Subtractor(DigitalCircuit[SubtractorConfig]):

@@ -1,12 +1,10 @@
 # Shift-adder
 
-## Summary
-
-The shift-adder is the radix-weighted positional-sum primitive that recombines a multi-digit integer representation into a single value: it folds a digit axis with positional radix weights, wraps the result to a signed register, and adds a partial-sum offset. It is the digital counterpart of the radix fold a multi-digit datapath needs after the per-digit results are produced. It is an exact digital block; the only modelled physical content is its behavioural PPA cost.
+The shift-adder is the radix-weighted positional-sum primitive that recombines a multi-digit integer representation into a single value: it folds a digit axis with positional radix weights, wraps the result to a signed register, and adds a partial-sum offset. It is an exact digital block; the only modelled physical content is its behavioural PPA cost.
 
 ## Physical model
 
-The block abstracts a shift-and-add reduction unit: each digit position is scaled by the corresponding power of the radix (a shift in a power-of-two radix) and summed into a fixed-width signed register, with two's-complement modular wrap on overflow. A partial-sum offset is added after the wrap. The model is behavioural — no per-stage adder timing — so the only physical quantities exposed are the PPA cost terms.
+The block abstracts a shift-and-add reduction unit: each digit position is scaled by the corresponding power of the radix and summed into a fixed-width signed register, with two's-complement modular wrap on overflow. A partial-sum offset is added after the wrap. The model is behavioural — no per-stage adder timing — so the only physical quantities exposed are the PPA cost terms.
 
 ## Governing equations
 
@@ -40,15 +38,15 @@ TODO (domain author): the provenance and derivation of $E_{\mathrm{op}}$, $t_{\m
 
 ## Parameters
 
-| Parameter | Meaning | Unit | Source |
-|---|---|---|---|
-| `bit_width` | signed output register width | — | Design |
-| `energy_per_op__fJ` | dynamic energy per output element | fJ | Design |
-| `latency_per_op__ns` | latency per output element | ns | Design |
-| `area_per_inst__um2` | silicon area per instance | um^2 | Design |
-| `leakage_per_inst__uW` | static leakage per instance | uW | Design |
+| Parameter | Meaning | Unit | Constraint | Source |
+|---|---|---|---|---|
+| `bit_width` | signed output register width | — | $> 0$ | Design |
+| `energy_per_op__fJ` | dynamic energy per output element | fJ | $\geq 0$ | Design |
+| `latency_per_op__ns` | latency per output element | ns | $\geq 0$ | Design |
+| `area_per_inst__um2` | silicon area per instance | um^2 | $\geq 0$ | Design |
+| `leakage_per_inst__uW` | static leakage per instance | uW | $\geq 0$ | Design |
 
-The radix $r$ and the partial sum $p$ are runtime call arguments, not configuration. Provenance terms: [module_parameter](../../conventions/module_parameter.md). File-level schema: `neurox/digital/shift_adder.py` (`ShiftAdderConfig`).
+The radix $r$ and the partial sum $p$ are runtime call arguments, not configuration. Provenance terms: [module_parameter](../../conventions/module_parameter.md).
 
 ## Symbols
 

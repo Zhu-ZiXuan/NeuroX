@@ -32,8 +32,8 @@ class StuckAtFaultConfig(ValidateMixin):
         self.validate()
 
     def validate(self) -> None:
-        self._require_nonneg(self.p_at_min, "p_at_min")
-        self._require_nonneg(self.p_at_max, "p_at_max")
+        self._require_non_neg(self.p_at_min, "p_at_min")
+        self._require_non_neg(self.p_at_max, "p_at_max")
         if not (self.p_at_min + self.p_at_max < 1.0):
             raise ValueError(f"require: p_at_min ({self.p_at_min}) + p_at_max ({self.p_at_max}) < 1")
 
@@ -105,8 +105,8 @@ class StateDependentGaussianConfig(ValidateMixin):
         self.validate()
 
     def validate(self) -> None:
-        self._require_nonneg(self.sigma_slope, "sigma_slope")
-        self._require_nonneg(self.sigma_intercept, "sigma_intercept")
+        self._require_non_neg(self.sigma_slope, "sigma_slope")
+        self._require_non_neg(self.sigma_intercept, "sigma_intercept")
 
 
 def apply_state_dependent_gaussian(
@@ -150,7 +150,7 @@ class LognormalConfig(ValidateMixin):
         self.validate()
 
     def validate(self) -> None:
-        self._require_nonneg(self.sigma, "sigma")
+        self._require_non_neg(self.sigma, "sigma")
 
 
 def apply_lognormal(x: Tensor, config: LognormalConfig, *, enabled: bool) -> Tensor:
@@ -189,8 +189,8 @@ class StateDependentLognormalConfig(ValidateMixin):
         self.validate()
 
     def validate(self) -> None:
-        self._require_nonneg(self.sigma_slope, "sigma_slope")
-        self._require_nonneg(self.sigma_intercept, "sigma_intercept")
+        self._require_non_neg(self.sigma_slope, "sigma_slope")
+        self._require_non_neg(self.sigma_intercept, "sigma_intercept")
         if not (self.max_val > self.min_val):
             raise ValueError(f"require: max_val ({self.max_val}) > min_val ({self.min_val})")
 
@@ -360,7 +360,7 @@ class TelegraphConfig(ValidateMixin):
         self.validate()
 
     def validate(self) -> None:
-        self._require_nonneg(self.amplitude_std, "amplitude_std")
+        self._require_non_neg(self.amplitude_std, "amplitude_std")
         if not (0.0 <= self.p_high_state <= 1.0):
             raise ValueError(f"require: 0 <= p_high_state ({self.p_high_state}) <= 1")
 

@@ -1,8 +1,6 @@
 # IdealXbarMacro
 
-## Summary
-
-`IdealXbarMacro` (`xbar/ideal.py`): the degenerate family member that joins the `XbarMacro` registry without owning a tile. It stores the integer weight and runs `torch.matmul`.
+The degenerate `XbarMacro` family member: it joins the registry without owning a tile, stores the integer weight, and runs `torch.matmul` against it.
 
 ## Design decisions
 
@@ -13,7 +11,7 @@
 ## Contracts & invariants
 
 - **`program` shape gate, then verbatim store.** `program(weight)` rejects any shape other than `w_logical_shape`, then stores the tensor unchanged into `self.weight` — no encoding, no slicing.
-- **`matmul` widens to int64.** Both operands cast to `int64` before `torch.matmul(input, weight.T)` to avoid overflow at full integer width; the result is exact.
+- **`matmul` widens to int64.** Both operands cast to `int64` before `torch.matmul` so the full-width integer contraction cannot overflow.
 
 ## Performance & resources
 
@@ -23,10 +21,6 @@ A single dense `int64` matmul; no tiling, no analog cost. No PPA contribution (n
 
 - **Not a stand-in for a physical mode in a PPA study.** It has no children, so it contributes no area / leakage / energy; use it only as a value-domain reference, not an energy baseline.
 - **Bring-up / reference only, never a production accuracy result.** Directly instantiating an ideal member (this degenerate macro, or a macro wrapping a directly built `IdealXbar`) yields a synthetic, uncalibrated reference; a hardware-faithful ideal twin comes from `to_ideal()` on a physical config.
-
-## Known limitations
-
-- N/A.
 
 ---
 

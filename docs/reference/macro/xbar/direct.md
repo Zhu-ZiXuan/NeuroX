@@ -1,8 +1,6 @@
 # Direct macro
 
-## Summary
-
-`DirectXbarMacro` is the no-slice corner of the precision-slicing axis: one weight slice and one activation slice ($S_w = S_a = 1$). A weight value maps onto one tile's native value range unsliced through the weight codec, and an input value maps onto the tile's input grid directly. It is the mode for a quantization grid that already fits inside one tile's value range. This document specifies the value-domain mapping and the tile-layout scheme.
+The no-slice corner of the precision-slicing axis: one weight slice and one activation slice ($S_w = S_a = 1$). A weight value maps onto one tile's native value range unsliced through the weight codec, and an input value maps onto the tile's input grid directly. The mode applies when the quantization grid already fits inside one tile's value range.
 
 ## Physical model
 
@@ -18,15 +16,15 @@ as a sum over the contraction-tile grid: each contraction tile computes a partia
 
 ## Noise & non-idealities
 
-N/A at the mode level — the direct macro adds no non-ideality. ADC quantization and analog non-idealities enter through the constituent tile reads, specified in [xbar/base](../../xbar/family.md); the cross-tile accumulation is exact integer arithmetic.
+N/A at the mode level — the mode adds no non-ideality. ADC quantization and analog non-idealities enter through the constituent tile reads, specified in [xbar/base](../../xbar/family.md); the cross-tile accumulation is exact integer arithmetic.
 
 ## Parameters
 
-| Parameter | Meaning | Unit | Source |
-|---|---|---|---|
-| `xbar_config` | owned physical-tile configuration | — | Design |
-| `w_encoding` | weight encoding (integer-to-digit-string; signed-digit only for canonical) | — | Design |
-| `col_accumulator_config` | contraction-tile ($T_c$) accumulator | — | Design |
+| Parameter | Meaning | Unit | Constraint | Source |
+|---|---|---|---|---|
+| `xbar_config` | owned physical-tile configuration | — | — | Design |
+| `w_encoding` | weight encoding (integer-to-digit-string; signed-digit only for canonical) | — | — | Design |
+| `col_accumulator_config` | contraction-tile ($T_c$) accumulator | — | — | Design |
 
 Activations are unsigned true-form by definition, so the mode carries no activation encoding. Provenance terms: [module_parameter](../../../conventions/module_parameter.md); file-level schema: [config reference](../../../api/README.md).
 

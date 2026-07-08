@@ -39,8 +39,6 @@ Injected behavior:
 ```markdown
 # <Mixin> mixin
 
-## Summary
-
 ## Design decisions
 
 ## Composition
@@ -52,7 +50,7 @@ Injected behavior:
 - **Tests**: `tests/test_<...>.py` or TODO — <what is missing>
 ```
 
-- `Summary` [required]: the capability and boundary in role language — the `.md`'s own entry point, not a verbatim copy of the class docstring.
+- Lead paragraph [optional]: the capability and boundary in role language — the `.md`'s own entry point, not a verbatim copy of the class docstring; keep it only when it synthesizes more than the H1, and do not add a `## Summary` heading.
 - `Design decisions` [usually present]: the software rationale — what the host owns versus the mixin, any rejected alternative, and the cross-call invariants (re-callable without accumulation, emit-once, per-family isolation) told as *why it is so*, not restated as a contract.
 - `Composition` [on demand]: the mixin's position in the host MRO, its ordering relative to other mixins, and its trigger timing.
 - The footer is traceability; `Reference` is always `N/A — software mechanism`.

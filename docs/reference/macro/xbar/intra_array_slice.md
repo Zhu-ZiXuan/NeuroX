@@ -1,16 +1,14 @@
 # Intra-array slice macro
 
-## Summary
-
-`IntraArraySliceXbarMacro` realizes a sliced matmul by gathering all slices of one weight inside a single tile (Strategy 2): a weight's $S_w$ slices occupy adjacent columns of the same tile, and they are recombined by an intra-tile positional shift-add. It is the dual of inter_array_slice — the same value-domain reach, but packed into one tile's columns rather than spread across planes. This document specifies the value-domain mapping and the aggregation.
+A sliced integer matmul that packs all $S_w$ slices of one weight into adjacent columns of a single tile, recombining them by an intra-tile positional shift-add.
 
 ## Physical model
 
-A weight value is sliced into $S_w$ slices and an input value into $S_a$ per-cycle slices, as in the inter-array mode. Here the $S_w$ axis is folded *into* the tile's value (column) axis: one tile holds $\lfloor N_{\mathrm{col}} / S_w \rfloor$ whole weights, each weight's $S_w$ slices occupying adjacent columns. The used capacity is $\lfloor N_{\mathrm{col}}/S_w\rfloor \cdot S_w$ columns; the remaining $N_{\mathrm{col}} - \lfloor N_{\mathrm{col}}/S_w\rfloor\cdot S_w$ columns of each tile are idle. No weight straddles two tiles, so the output axis tiles as $T_r = \lceil N / \lfloor N_{\mathrm{col}}/S_w\rfloor\rceil$. There is no separate $S_w$ plane axis — the slices live in the column axis.
+A weight value is sliced into $S_w$ slices and an input value into $S_a$ per-cycle slices. The $S_w$ axis is folded *into* the tile's value (column) axis: one tile holds $\lfloor N_{\mathrm{col}} / S_w \rfloor$ whole weights, each weight's $S_w$ slices occupying adjacent columns. The used capacity is $\lfloor N_{\mathrm{col}}/S_w\rfloor \cdot S_w$ columns; the remaining $N_{\mathrm{col}} - \lfloor N_{\mathrm{col}}/S_w\rfloor\cdot S_w$ columns of each tile are idle. No weight straddles two tiles, so the output axis tiles as $T_r = \lceil N / \lfloor N_{\mathrm{col}}/S_w\rfloor\rceil$. There is no separate $S_w$ plane axis — the slices live in the column axis.
 
 ## Governing equations
 
-The recombination is the same positional double shift-add as the inter-array mode; only the locus of the weight-slice fold differs. With per-slice weight radix $R_w$, per-cycle activation radix $R_a$, and $P_{m,n}^{(a,w,t)}$ the partial read for activation slice $a$, the column group carrying weight slice $w$, and contraction tile $t$,
+The recombination is a positional double shift-add. With per-slice weight radix $R_w$, per-cycle activation radix $R_a$, and $P_{m,n}^{(a,w,t)}$ the partial read for activation slice $a$, the column group carrying weight slice $w$, and contraction tile $t$,
 
 $$Y_{m,n} = \sum_{t=0}^{T_c-1} \sum_{w=0}^{S_w-1} R_w^{\,w} \left( \sum_{a=0}^{S_a-1} R_a^{\,a}\, P_{m,n}^{(a,w,t)} \right).$$
 
@@ -22,15 +20,15 @@ N/A at the mode level. ADC quantization and analog non-idealities enter through 
 
 ## Parameters
 
-| Parameter | Meaning | Unit | Source |
-|---|---|---|---|
-| `xbar_config` | owned physical-tile configuration | — | Design |
-| `w_slice_num` ($S_w$) | per-weight slice count | — | Design |
-| `x_slice_num` ($S_a$) | per-activation slice count | — | Design |
-| `w_encoding` | weight encoding (integer-to-digit-string codec; signed-digit only for canonical) | — | Design |
-| `col_accumulator_config` | contraction-tile ($T_c$) accumulator | — | Design |
-| `sa_shift_adder_config` | activation-slice ($S_a$) shift-adder | — | Design |
-| `sw_shift_adder_config` | weight-slice ($S_w$) intra-tile shift-adder | — | Design |
+| Parameter | Meaning | Unit | Constraint | Source |
+|---|---|---|---|---|
+| `xbar_config` | owned physical-tile configuration | — | — | Design |
+| `w_slice_num` ($S_w$) | per-weight slice count | — | $1 \le S_w \le N_{\mathrm{col}}$ | Design |
+| `x_slice_num` ($S_a$) | per-activation slice count | — | $S_a \ge 1$ | Design |
+| `w_encoding` | weight encoding (integer-to-digit-string codec; signed-digit only for canonical) | — | — | Design |
+| `col_accumulator_config` | contraction-tile ($T_c$) accumulator | — | — | Design |
+| `sa_shift_adder_config` | activation-slice ($S_a$) shift-adder | — | — | Design |
+| `sw_shift_adder_config` | weight-slice ($S_w$) intra-tile shift-adder | — | — | Design |
 
 Activations are unsigned true-form by definition (no activation encoding). Provenance terms: [module_parameter](../../../conventions/module_parameter.md); file-level schema: [config reference](../../../api/README.md).
 
@@ -53,7 +51,7 @@ The logical dims, value-domain symbols, and the ADC surface are in [macro/base](
 
 - The slice count must not exceed the tile's column count ($S_w \le N_{\mathrm{col}}$); otherwise the per-tile weight capacity is zero and the mode is invalid.
 - Weight and input values must fit the slicers' value ranges; the mode does not enforce the range.
-- The mode trades column-capacity utilization (the idle columns) for fewer tile reads than the inter_array_slice plane stack.
+- The mode trades column-capacity utilization (the idle columns) for fewer tile reads: the tile grid carries no $S_w$ plane multiplicity.
 
 TODO (domain author): the exact slicer value range per encoding and the saturation boundary of the positional recombination.
 

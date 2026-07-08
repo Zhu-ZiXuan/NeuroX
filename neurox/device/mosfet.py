@@ -32,37 +32,33 @@ class MOSFETConfig(ValidateMixin):
     :class:`NMOS` / :class:`PMOS` class, never by this config.
 
     Attributes:
-        mu0__cm2_per_V_s: Low-field carrier-mobility magnitude at
-            ``T_ref__K``; positive for both polarities.
-        c_ox__fF_per_um2: Gate-oxide capacitance per unit area.
-        vth0__V: Signed nominal threshold voltage at ``T_ref__K``.
-        n_factor: SPICE NFACTOR (subthreshold swing coefficient).
-            ``> 1.0`` (ideal 60 mV/dec is the 1.0 limit).
-        T_ref__K: Reference temperature at which ``mu0`` and
-            ``vth0`` are stated.
+        T_nom__K: Reference temperature at which ``mu0`` and ``vth0`` are stated.
+        c_ox__fF_per_um2: Gate-oxide capacitance area density.
+        mu0__cm2_per_V_s: Low-field carrier mobility.
         ute: Mobility temperature exponent.
-        kt1__V: Signed V_th temperature coefficient.
+        vth0__V: Threshold voltage.
+        kt1__V: Threshold voltage temperature coefficient.
+        n_factor: Subthreshold swing coefficient.
         A_vt__mV_um: Pelgrom V_th matching coefficient.
         A_beta_relative__um: Pelgrom relative-β matching coefficient.
     """
 
-    # --- Process electrical ---
-    mu0__cm2_per_V_s: float
+    # --- BSIM-like process parameter ---
+
+    T_nom__K: float
     c_ox__fF_per_um2: float
-    vth0__V: float
 
-    # --- Subthreshold ---
-    n_factor: float
-
-    # --- Temperature coefficients ---
-    T_ref__K: float
+    mu0__cm2_per_V_s: float
     ute: float
+
+    vth0__V: float
     kt1__V: float
 
-    # --- V_th Pelgrom mismatch ---
-    A_vt__mV_um: float
+    n_factor: float
 
-    # --- β Pelgrom mismatch ---
+    # --- Fabrication mismatch parameter ---
+
+    A_vt__mV_um: float
     A_beta_relative__um: float
 
     def __post_init__(self) -> None:
@@ -70,21 +66,17 @@ class MOSFETConfig(ValidateMixin):
 
     def validate(self) -> None:
         self.validate_process()
-        self.validate_temperature()
         self.validate_mismatch()
 
     def validate_process(self) -> None:
-        self._require_pos(self.mu0__cm2_per_V_s, "mu0__cm2_per_V_s")
+        self._require_pos(self.T_nom__K, "T_nom__K")
         self._require_pos(self.c_ox__fF_per_um2, "c_ox__fF_per_um2")
-        if not (self.n_factor > 1.0):
-            raise ValueError(f"require: n_factor ({self.n_factor}) > 1.0")
-
-    def validate_temperature(self) -> None:
-        self._require_pos(self.T_ref__K, "T_ref__K")
+        self._require_pos(self.mu0__cm2_per_V_s, "mu0__cm2_per_V_s")
+        self._require_gt(self.n_factor, "n_factor", 1.0)
 
     def validate_mismatch(self) -> None:
-        self._require_nonneg(self.A_vt__mV_um, "A_vt__mV_um")
-        self._require_nonneg(self.A_beta_relative__um, "A_beta_relative__um")
+        self._require_non_neg(self.A_vt__mV_um, "A_vt__mV_um")
+        self._require_non_neg(self.A_beta_relative__um, "A_beta_relative__um")
 
 
 @dataclass(frozen=True)
@@ -190,7 +182,7 @@ class MOSFET(FabricateMixin, nn.Module):
         self.T__K = T__K
         self.dtype = dtype
 
-        T_ratio = T__K / config.T_ref__K
+        T_ratio = T__K / config.T_nom__K
         mu_scale = math.pow(T_ratio, -config.ute)
         vth_shift__V = config.kt1__V * (T_ratio - 1.0)
 
@@ -287,27 +279,37 @@ class MOSFET(FabricateMixin, nn.Module):
             snap: Per-call MOSFET snap carrying ``β`` and ``V_th``.
 
         Returns:
-            :class:`MOSFETDCOP` with ``ids__uA`` and ``∂I/∂{V_g, V_d, V_s}``.
+            :class:`MOSFETDCOP`.
         """
+        p = self.polarity
         beta__uA_per_V2 = snap.beta__uA_per_V2
         vth__V = snap.vth__V
         inv_smooth_scale__per_V = self._inv_smooth_scale__per_V
-        p = self.polarity
+
+        # --- 1. source-side smoothed voltage & sigma ---
 
         v_ov_s__V = p * (vg__V - vs__V - vth__V)
-        v_eff_s = F.softplus(v_ov_s__V, beta=inv_smooth_scale__per_V)
-        sigma_s = torch.sigmoid(v_ov_s__V * inv_smooth_scale__per_V)
+        v_eff_s__V = F.softplus(v_ov_s__V, beta=inv_smooth_scale__per_V)
+        sigma_s = F.sigmoid(v_ov_s__V * inv_smooth_scale__per_V)
+
+        # --- 2. drain-side smoothed voltage & sigma ---
 
         v_ov_d__V = p * (vg__V - vd__V - vth__V)
-        v_eff_d = F.softplus(v_ov_d__V, beta=inv_smooth_scale__per_V)
-        sigma_d = torch.sigmoid(v_ov_d__V * inv_smooth_scale__per_V)
+        v_eff_d__V = F.softplus(v_ov_d__V, beta=inv_smooth_scale__per_V)
+        sigma_d = F.sigmoid(v_ov_d__V * inv_smooth_scale__per_V)
 
-        # I_ds carries one polarity factor; the terminal partials do not
-        # (the polarity factor squares out of ∂/∂V_{d,s} and ∂/∂V_g).
-        ids__uA = 0.5 * p * beta__uA_per_V2 * (v_eff_s * v_eff_s - v_eff_d * v_eff_d)
-        did_dvg__uS = beta__uA_per_V2 * (v_eff_s * sigma_s - v_eff_d * sigma_d)
-        did_dvd__uS = beta__uA_per_V2 * v_eff_d * sigma_d
-        did_dvs__uS = -beta__uA_per_V2 * v_eff_s * sigma_s
+        # --- 3. drain-source current ---
+
+        ids__uA = 0.5 * p * beta__uA_per_V2 * (v_eff_s__V * v_eff_s__V - v_eff_d__V * v_eff_d__V)
+
+        # --- 4. derivative ---
+
+        v_s_sigma_s = v_eff_s__V * sigma_s
+        v_d_sigma_d = v_eff_d__V * sigma_d
+
+        did_dvg__uS = beta__uA_per_V2 * (v_s_sigma_s - v_d_sigma_d)
+        did_dvd__uS = beta__uA_per_V2 * v_d_sigma_d
+        did_dvs__uS = -beta__uA_per_V2 * v_s_sigma_s
 
         return MOSFETDCOP(
             ids__uA=ids__uA,

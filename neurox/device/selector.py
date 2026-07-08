@@ -34,7 +34,7 @@ class SelectorConfig(ValidateMixin):
         self.validate()
 
     def validate(self) -> None:
-        self._require_nonneg(self.vth_mismatch__V, "vth_mismatch__V")
+        self._require_non_neg(self.vth_mismatch__V, "vth_mismatch__V")
 
 
 @dataclass(frozen=True)

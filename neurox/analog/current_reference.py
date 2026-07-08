@@ -55,11 +55,11 @@ class CurrentReferenceConfig(CircuitConfig):
     def validate_taps(self) -> None:
         self._require_min_length(self.i_refs__uA, 1, "i_refs__uA")
         for i, v in enumerate(self.i_refs__uA):
-            self._require_nonneg(v, f"i_refs__uA[{i}]")
+            self._require_non_neg(v, f"i_refs__uA[{i}]")
 
     def validate_noise(self) -> None:
-        self._require_nonneg(self.tolerance_sigma_relative, "tolerance_sigma_relative")
-        self._require_nonneg(self.noise_sigma_relative, "noise_sigma_relative")
+        self._require_non_neg(self.tolerance_sigma_relative, "tolerance_sigma_relative")
+        self._require_non_neg(self.noise_sigma_relative, "noise_sigma_relative")
 
 
 @dataclass(frozen=True)

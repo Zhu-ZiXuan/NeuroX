@@ -1,8 +1,6 @@
 # Xbar cell abstract layer
 
-## Summary / role
-
-Every crossbar cell — whatever internal device topology it holds — is a two-terminal element bridging one bit-line node and one source-line node. It presents a single condensed branch current with two signed terminal conductances; the internal device topology is solved inside the cell and never exposed at its terminals. This document specifies that topology-agnostic family model — the branch the cell presents, the signed-conductance convention, the per-call snap that carries exogenous control and device samples, and the cell-owned device-capacitor energy. A concrete cell realizes this model for one device topology; the array-level wire ladder, boundaries, and array energy are outside the cell.
+Every crossbar cell — whatever internal device topology it holds — is a two-terminal element bridging one bit-line node and one source-line node. It presents a single condensed branch current with two signed terminal conductances; the internal device topology is solved inside the cell and never exposed at its terminals. A concrete cell realizes this model for one device topology; the array-level wire ladder, boundaries, and array energy are outside the cell.
 
 ## Physical model
 
@@ -34,21 +32,13 @@ These definite signs are a family-wide invariant of the branch: raising the bit-
 | $\partial I/\partial V_{\mathrm{BL}}$ | BL-side branch conductance ($\ge 0$) | uS | `XbarCellDCOP.di_dvbl__uS` |
 | $\partial I/\partial V_{\mathrm{SL}}$ | SL-side branch conductance ($\le 0$) | uS | `XbarCellDCOP.di_dvsl__uS` |
 
-## Numerical method
-
-Condensing the cell solves the internal-node system $\mathbf{F}_{\mathrm{int}}(\mathbf{V}_{\mathrm{int}}) = \mathbf{0}$ for $\mathbf{V}_{\mathrm{int}}$ at the fixed terminal pair, then forms the branch current and its two terminal derivatives with the internal nodes eliminated. The same condensation yields the full operating point — the internal-node voltages the energy model needs — and the internal-KCL residual as the convergence diagnostic. The root-finding method, its well-posedness, and the iteration budget are topology-specific; the family fixes only that every internal node is condensed within the cell, so the branch it presents is two-terminal.
-
 ## Noise & non-idealities
 
 The cell itself owns no static mismatch. Non-idealities enter through the cell's device children, sampled once per read into the snap so the condensation is deterministic given that snap. The concrete device-noise sources are declared by each topology and specified in [reference/device](../device/README.md).
 
-## Parameters
-
-The abstract layer fixes no physical parameter of its own; each concrete member tabulates its own — device configurations, sizing, parasitic-cap densities, programming map, and any per-cell numerical knob (such as an internal-solve iteration count). The cell carries no static PPA of its own: its device children's silicon area and leakage roll up into the array-level PPA budget, so the cell's only physical contribution is the per-read device-capacitor switching energy below. Provenance terms are defined in [module_parameter](../../conventions/module_parameter.md).
-
 ## Energy model
 
-The cell contributes the **device-capacitor dynamic energy** — the per-read charge/discharge energy of the capacitances internal to its own devices, summed at the converged operating point (the terminal voltages and the condensed internal-node voltages). It excludes the wire-segment, control-line, and DC-conduction energy, which lie outside the cell. The concrete capacitance inventory is topology-specific.
+The cell contributes the **device-capacitor dynamic energy** — the per-read charge/discharge energy of the capacitances internal to its own devices, summed at the converged operating point (the terminal voltages and the condensed internal-node voltages). It excludes the wire-segment, control-line, and DC-conduction energy, which lie outside the cell. The cell carries no other PPA: its device children's silicon area and leakage roll up at the array level, not through the cell. The concrete capacitance inventory is topology-specific.
 
 ## Assumptions, scope & validity
 

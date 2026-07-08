@@ -1,16 +1,14 @@
 # ADC family
 
-## Summary / role
+Every concrete ADC in the family digitizes a differential analog input into a signed integer code under one shared set of conventions: the same signed-code output convention, the same monotone floor-quantization semantics, and digitization against an externally supplied reference.
 
-Every concrete ADC in the family digitizes a differential analog input into a signed integer code under one shared set of conventions: the same signed-code output convention, the same monotone floor-quantization semantics, and digitization against an externally supplied reference. This document specifies those shared conventions; each topology's transfer characteristic and energy model is in its own document. The ADC sits at the end of the readout chain, downstream of the BL clamp and the column transport.
-
-## Physical model
+## Shared conventions
 
 An ADC digitizes a differential input - a positive leg $x^{+}$ against a negative leg $x^{-}$ - into one signed integer code. Each ADC operates in a single physical domain and commits to one input unit (volts for a voltage-domain topology, microamperes for a current-domain topology); both legs, every noise term, and the code boundaries are expressed in that one unit.
 
 The converter digitizes against an externally supplied reference rather than an internal constant, so the code edges follow that reference: the reference level sets the full-scale range, and the resolution $b$ (bits) sets the number of code levels within it. The maximum resolution $b_{\max}$ is a fixed characteristic of each ADC.
 
-## Governing equations
+## Governing laws
 
 The family quantization is a **monotone** quantization of the differential input against an ordered set of code boundaries $\{B_c\}$, all carrying the instance's input unit. The boundaries need only be sorted; they may be non-uniformly spaced, and their count need not be a power of two. The conversion floors the input against them and shifts the result to a signed range by a topology zero code $z$:
 
@@ -26,17 +24,9 @@ A conversion returns a **signed** integer code. The raw unsigned bucket index li
 
 For linear / uniform-quantization ADCs (all current concrete members) the boundaries are evenly spaced, $B_c = c\cdot \mathrm{LSB}$, with $\mathrm{LSB} = \mathrm{FSR} / 2^{b}$ the full-scale range divided by the code count and $n_{\mathrm{codes}} = 2^{b}$. A symmetric zero code $z = 2^{\,b-1}$ then yields the range $[-2^{\,b-1},\ 2^{\,b-1}-1]$. This is the uniform sub-case, not universal: a non-uniform member overrides it with a calibrated boundary set.
 
-## Numerical method
-
-N/A at the family level - each concrete topology specifies its own conversion (a single floor-bucketize, a successive-approximation loop, etc.).
-
 ## Noise & non-idealities
 
-ADC quantization is intrinsic to every member. All further non-idealities (sampling, comparator offset and thermal noise, cap mismatch) are topology-specific and specified per concrete document.
-
-## Parameters
-
-The abstract layer fixes no physical parameter; each member's parameters are tabulated in its own document. Static PPA (area, leakage) is inherited by every member from `CircuitBase`. The reference levels and the operating point are runtime inputs supplied per call, not ADC parameters. Provenance terms are defined in [module_parameter](../../../conventions/module_parameter.md).
+ADC quantization is intrinsic to every member; all further non-idealities are topology-specific.
 
 ## Symbols
 
@@ -58,10 +48,6 @@ Stated assumption: the differential input is genuinely two-sided, so the signed-
 The signed-code convention is valid for $b \geq 1$. At the boundary $b = 1$ the code range degenerates: $n_{\mathrm{codes}} = 2^{1} = 2$ with symmetric zero code $z = 2^{\,0} = 1$ gives the signed range $[-1,\ 0]$ — one sign bit carrying one negative code and zero, with no positive code — but the convention stays well-defined, so $b = 1$ is supported.
 
 TODO (domain author): the value-range and operating-envelope limits across which the signed-code / floor contract holds.
-
-## Validation
-
-TODO - link validation evidence once written: physical-vs-ideal code agreement under a noise-off policy.
 
 ## References
 

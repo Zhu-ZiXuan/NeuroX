@@ -1,12 +1,10 @@
 # OTS selector
 
-## Summary
-
-`Selector` models an Ovonic Threshold Switch (OTS) selector as a per-cell threshold-voltage map with static fabrication mismatch. In the device→circuit→architecture stack it is a device-layer primitive that publishes a per-cell threshold voltage $V_{\mathrm{th}}$; how that threshold gates conduction (the switching law itself) is decided by the consuming circuit. This document specifies the threshold value domain and its mismatch statistics; the selector owns no conduction I-V law of its own at this level.
+An Ovonic Threshold Switch (OTS) selector is modeled as a static per-cell threshold voltage $V_{\mathrm{th}}$ with additive Gaussian device-to-device mismatch; the model fixes this threshold and its mismatch statistics only and carries no conduction current-voltage law.
 
 ## Physical model
 
-The selector is abstracted to a single static per-cell state variable, the threshold voltage $V_{\mathrm{th}}$, shared across all cells at a nominal value before mismatch is applied. Device-to-device variation is modeled as additive Gaussian mismatch sampled once at fabricate time onto the per-instance threshold map. The model carries no current-voltage relation: the threshold is exported to the consuming circuit, which owns the switching behavior built on top of it.
+The selector is abstracted to a single static per-cell state variable, the threshold voltage $V_{\mathrm{th}}$, shared across all cells at a nominal value before mismatch is applied. Device-to-device variation is modeled as additive Gaussian mismatch sampled once at fabricate time. The model carries no current-voltage relation.
 
 ## Governing equations
 
@@ -18,7 +16,7 @@ There is no device-level conduction equation.
 
 ## Numerical method
 
-N/A — the model samples a static threshold map and exports it; it holds no solver and no iterative scheme.
+N/A — the model samples a static threshold map and holds no solver or iterative scheme.
 
 ## Noise & non-idealities
 
@@ -28,10 +26,10 @@ The single source is parameterised against the shared template in [nonideality](
 
 ## Parameters
 
-| Parameter | Meaning | Unit | Source |
-|---|---|---|---|
-| `vth_nominal__V` | nominal threshold voltage $V_{\mathrm{th,nom}}$ | V | Measured |
-| `vth_mismatch__V` | additive Gaussian mismatch sigma $\sigma_{V_{\mathrm{th}}}$ | V | Measured |
+| Parameter | Meaning | Unit | Constraint | Source |
+|---|---|---|---|---|
+| `vth_nominal__V` | nominal threshold voltage $V_{\mathrm{th,nom}}$ | V | TODO (domain author) | Measured |
+| `vth_mismatch__V` | additive Gaussian mismatch sigma $\sigma_{V_{\mathrm{th}}}$ | V | $\ge 0$ | Measured |
 
 Provenance terms are defined in [module_parameter](../../conventions/module_parameter.md). File-level schema: `api`.
 

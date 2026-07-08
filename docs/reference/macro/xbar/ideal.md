@@ -1,47 +1,44 @@
 # Ideal macro
 
-## Summary
-
-`IdealXbarMacro` is the lossless twin of the macro family: it carries no crossbar tile and no slicing, storing the integer weight matrix and computing an exact integer matrix multiply. It is the value-domain truth against which any physical mode is compared, the exact no-noise baseline. This document specifies the exact model it realizes.
+The ideal macro is the lossless limit of the macro family: it carries the integer weight matrix and returns the exact integer matrix product over the accepted value domain, with no tile, slicing, or ADC — the value-domain reference for the family's physical modes.
 
 ## Physical model
 
-N/A — the ideal macro models no hardware. It exercises the same value-domain contract as the physical modes (the accepted weight and input value ranges, the integer matmul protocol) but skips every tiling, slicing, aggregation, and analog step. It carries no ADC and computes the exact integer matmul, whereas a physical mode's read always carries per-tile ADC quantization; the ideal is therefore the exact integer reference the physical modes' results approach as that ADC quantization becomes negligible. Structurally it corresponds to the tile ADC surface's $b = 0$ sentinel documented in the [xbar/base §Ideal twin](../../xbar/family.md#ideal-twin).
+The model realizes no hardware. It deliberately removes every tiling, slicing, aggregation, and analog step, so no ADC quantization enters and the integer matrix product is returned exactly. It exercises the same value-domain contract as the physical modes — the accepted integer weight and activation ranges and the integer matmul protocol — but carries no ADC, and is therefore the exact integer reference the physical modes approach as their per-tile ADC quantization becomes negligible.
 
 ## Governing equations
 
-The ideal macro computes the exact integer dot product over the accepted value domain,
+The model computes the exact integer dot product over the accepted value domain,
 
 $$Y_{m,n} = \sum_{k} X_{m,k}\,W_{n,k},$$
 
-with the contraction carried out at full integer width. No quantization, no rescale, no decomposition: the result is the exact $\mathbf{Y} = \mathbf{X}\,\mathbf{W}^{\!\top}$. This exactness holds by construction, since the ideal macro carries no ADC.
+with the contraction carried out at full integer width. No quantization, no rescale, no decomposition: the result is the exact $\mathbf{Y} = \mathbf{X}\,\mathbf{W}^{\!\top}$, exact by construction since no ADC is present.
 
 ## Noise & non-idealities
 
-N/A — the ideal macro is lossless by construction. It publishes the sentinel ADC surface (`adc_mode_num = 1`, `adc_max_bits = 0`, $s = 1$), where `adc_max_bits = 0` is the "no output quantization" point that returns the integer dot product unmodified. This is the $b = 0$ sentinel of the tile ADC surface, owned by [xbar/base §Ideal twin](../../xbar/family.md#ideal-twin).
+N/A — the model is lossless by construction and adds no non-ideality. Its ADC surface is the sentinel point (`adc_mode_num = 1`, `adc_max_bits = 0`, rescale $s = 1$), where `adc_max_bits = 0` is the no-output-quantization point that returns the integer dot product unmodified — the $b = 0$ sentinel of the tile ADC surface in [xbar/base §Ideal twin](../../xbar/family.md#ideal-twin).
 
 ## Parameters
 
-| Parameter | Meaning | Unit | Source |
-|---|---|---|---|
-| `w_value_range` | inclusive integer weight range accepted | — | Design |
-| `x_value_range` | inclusive integer input value range accepted | — | Design |
+| Parameter | Meaning | Unit | Constraint | Source |
+|---|---|---|---|---|
+| `w_value_range` | inclusive integer weight range accepted | — | — | Design |
+| `x_value_range` | inclusive integer activation range accepted | — | — | Design |
 
-The ideal macro has no other parameters: it does no tiling or slicing, so no tile geometry or slice counts enter. Provenance terms: [module_parameter](../../../conventions/module_parameter.md).
+No tile geometry or slice counts enter: the model does no tiling or slicing. Provenance terms: [module_parameter](../../../conventions/module_parameter.md).
 
 ## Symbols
 
-The ideal macro introduces no new symbols. The logical dims ($N$, $K$, $M$), the value-domain ranges, and the ADC surface are in [macro/base](../family.md#symbols).
+This mode introduces no new symbols. The logical dims ($N$, $K$, $M$), the value-domain ranges, and the ADC surface are in [macro/base](../family.md#symbols).
 
 ## Assumptions, scope & validity
 
-- The macro trusts the upper layer for value ranges; it performs the exact matmul regardless of whether the inputs fit `w_value_range` / `x_value_range` (the ranges are published, not enforced).
-- It is a value-domain reference only — it has no PPA contribution and no fabrication variation, so it cannot stand in for a physical mode in an energy or area study.
-- It is a flow-bring-up / reference baseline, not a production result: the lossless value-domain upper bound and a way to isolate quantization issues from analog modelling, never a hardware-faithful accuracy or PPA number.
+- The accepted value ranges are published, not enforced: the model computes the exact matmul whether or not the inputs fit `w_value_range` / `x_value_range`, carrying out-of-range values through exactly.
+- It is a lossless value-domain reference only, with no PPA contribution and no fabrication variation: the lossless upper bound, not a hardware-faithful accuracy, energy, or area figure.
 
 ## Validation
 
-N/A — the ideal macro is itself the validation reference for the physical modes.
+N/A — this mode is itself the reference the physical modes are validated against.
 
 ## References
 

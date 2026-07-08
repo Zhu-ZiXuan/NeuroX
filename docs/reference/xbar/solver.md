@@ -1,8 +1,6 @@
 # Parallel BL/SL DC solver
 
-## Summary
-
-The DC operating point of a crossbar array with **parallel BL/SL rails** is found by damped Newton iteration. The solver drives only the two wire ladders and the two clamp boundaries; every array site is a [cell](cell.md) that condenses its own internal device topology and presents a two-terminal branch, and each line boundary is a clamp driver. This document specifies the solving formulation, why the problem is well-posed, the four structural assumptions the formulation rests on, and the cell and driver contracts. The solver is cell- and driver-agnostic: it is identical for the 1T1R array and for any other parallel-rail topology whose cell condenses to one branch. Iteration counts, per-iteration linear algebra, memory cost, and compile behaviour are implementation choices, not physics.
+The DC operating point of a crossbar array with **parallel BL/SL rails** is found by damped Newton iteration over the two wire ladders and the two clamp boundaries. Every array site condenses to a single signed two-terminal branch and every line boundary is a clamp driver, so the formulation holds for any parallel-rail topology whose site condenses to one branch.
 
 ## Structural assumptions
 
@@ -13,30 +11,30 @@ The formulation is specialised to a **parallel BL/SL** array — the BL rail and
 3. **The control line is a driven boundary.** The gate/control line (the word line) is an externally driven boundary, not a solved mesh node. Hence the parallel (per-driver) lines are mutually independent.
 4. **Each rail is a 1-D series ladder.** IR drop accumulates along one series axis per rail, giving the (block-)tridiagonal structure the Thomas sweep exploits.
 
-The orthogonal case (BL $\perp$ SL forming a 2-D mesh, where the two rails are *not* parallel and a line is a solved node) violates assumption 3 and is a **separate solver** — out of scope here.
+The orthogonal case (BL $\perp$ SL forming a 2-D mesh, where the two rails are *not* parallel and a line is a solved node) violates assumption 3 and is out of scope here.
 
 ## Formulation
 
-The solve is a nested (block-Gauss-Seidel) decomposition: an *outer* $2\times2$ Newton on the per-column clamp pair $(V_{\mathrm{BL,CL}}, V_{\mathrm{SL,CL}})$ wrapped around an *inner* array solve at a frozen clamp pair. The inner solve is a coupled block-$2\times2$ wire Newton on $(V_{\mathrm{BL}}, V_{\mathrm{SL}})$ along each line. The cell does not enter the array unknowns: at each inner step every cell condenses its internal node and returns one branch current with its two signed terminal conductances, which the wire Newton consumes directly.
+The solve is a nested (block-Gauss-Seidel) decomposition: an *outer* $2\times2$ Newton on the per-column clamp pair $(V_{\mathrm{BL,CL}}, V_{\mathrm{SL,CL}})$ wrapped around an *inner* array solve at a frozen clamp pair. The inner solve is a coupled block-$2\times2$ wire Newton on $(V_{\mathrm{BL}}, V_{\mathrm{SL}})$ along each line. The cell does not enter the array unknowns: at each inner step every cell condenses its internal node to a single branch current with its two signed terminal conductances, which enter the wire Newton directly.
 
-## Cell and driver contracts
+## Cell branch and driver transfer
 
-The formulation is generic over the cell and over both clamp drivers: it needs only the mathematical surface each presents. At every array node it uses the cell's condensed branch — one signed current with its two terminal conductances — to assemble the wire Jacobian, and at each line boundary it uses the clamp driver's scalar transfer law; it models no device, no internal cell node, and no specific driver.
+The formulation is defined over two constitutive relations — the condensed cell branch at every array site and the monotone clamp-driver transfer at every line boundary.
 
-The cell contract:
+The cell branch:
 
-- **Single branch current.** The cell returns one current $I_{\mathrm{cell}}(V_{\mathrm{BL}}, V_{\mathrm{SL}})$ per site (positive from $V_{\mathrm{BL}}$ to $V_{\mathrm{SL}}$). The same current leaves the BL wire KCL and enters the SL wire KCL, so the array carries no per-cell internal residual.
-- **Signed terminal derivatives.** The cell returns $\partial I_{\mathrm{cell}}/\partial V_{\mathrm{BL}} \ge 0$ and $\partial I_{\mathrm{cell}}/\partial V_{\mathrm{SL}} \le 0$. These definite signs are what make the inner wire system a well-posed M-matrix-flavour problem (below).
+- **Single branch current.** Each site carries one condensed current $I_{\mathrm{cell}}(V_{\mathrm{BL}}, V_{\mathrm{SL}})$, positive from $V_{\mathrm{BL}}$ to $V_{\mathrm{SL}}$. The same current leaves the BL wire KCL and enters the SL wire KCL, so the array carries no per-cell internal residual.
+- **Signed terminal derivatives.** $\partial I_{\mathrm{cell}}/\partial V_{\mathrm{BL}} \ge 0$ and $\partial I_{\mathrm{cell}}/\partial V_{\mathrm{SL}} \le 0$. These definite signs make the inner wire system a well-posed M-matrix-flavour problem (below).
 
-The clamp-driver contract (one driver per line boundary, BL and SL):
+The clamp-driver transfer (one driver per line boundary, BL and SL):
 
-- **Monotone scalar transfer.** Each driver maps its boundary port current to a clamp voltage with a strict, definite-sign response: the BL clamp driver is strictly monotone in $I_{\mathrm{BL,port}}$, the SL driver strictly monotone in $I_{\mathrm{SL,port}}$. The outer Newton needs only this scalar response and its derivative.
+- **Monotone scalar transfer.** Each driver maps its boundary port current to a clamp voltage with a strict, definite-sign response: the BL clamp driver strictly monotone in $I_{\mathrm{BL,port}}$, the SL driver strictly monotone in $I_{\mathrm{SL,port}}$.
 
-Because the cell condenses any internal node and both drivers reduce to a monotone scalar boundary law, the formulation is identical for any cell and driver pair satisfying these contracts — the 1T1R series stack with an op-amp TIA on BL, or a different cell and a different boundary driver. The per-cell condensation and its monotonicity are specified in [cell](cell.md); the clamp-driver transfer functions in [reference/analog](../analog/README.md).
+The formulation holds for any parallel-rail topology whose site condenses to one signed branch and whose boundaries present a monotone scalar transfer. The per-cell condensation and its monotonicity are specified in [cell](cell.md); the clamp-driver transfer functions in [reference/analog](../analog/README.md).
 
 ## Newton linearization
 
-The Newton steps of the formulation above linearize the residuals analytically; this section records the three Jacobians the method differentiates. Write the cell's effective terminal conductances as two non-negative magnitudes,
+The Newton steps linearize the residuals analytically over three Jacobians. Write the cell's effective terminal conductances as two non-negative magnitudes,
 
 $$g_{\mathrm{BL,eff}} \equiv \frac{\partial I_{\mathrm{cell}}}{\partial V_{\mathrm{BL}}} \ge 0, \qquad g_{\mathrm{SL,eff}} \equiv -\frac{\partial I_{\mathrm{cell}}}{\partial V_{\mathrm{SL}}} \ge 0,$$
 

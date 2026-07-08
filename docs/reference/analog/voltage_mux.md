@@ -1,17 +1,13 @@
 # Voltage mux
 
-## Summary / role
-
-The `VoltageMux` is a leaf differential voltage-transport block in the readout chain: it moves a grouped differential signal from one stage to the next, applying a per-leg transport gain (a matched gain with a static inter-leg mismatch) and injecting transport noise. It only transports and tallies the transport energy. It is a single concrete block a consuming circuit composes directly, not a polymorphic family.
+The voltage mux transports a differential voltage pair, applying a matched per-leg transport gain with a static inter-leg gain mismatch and injecting common- and differential-mode transport noise, and it tallies per-transport energy and latency.
 
 ## Physical model
 
-Physically, the mux transports the differential signal from one stage to the next through a switched path. Each leg's passive insertion gain is the on-resistance/load divider $g \approx R_{\mathrm{load}}/(R_{\mathrm{load}}+R_{\mathrm{on}}) \le 1$ (an illustrative origin, not the parameter's definition), so the transported pair is attenuated relative to its input rather than passed through unchanged.
+The model represents the mux as a per-leg scalar transport gain on a differential voltage pair plus two additive transport-noise terms, separating two physically distinct non-ideality families:
 
-The block models the transport as a per-leg gain plus two additive transport-noise terms, separating two physically distinct non-ideality families:
-
-- **Static (deterministic, fixed per built device).** The two legs' on-resistances differ by a per-die process offset, so their insertion gains differ. This **inter-leg gain mismatch** is the dominant first-order static differential error of a differential transport stage: it is multiplicative and converts the transported common mode into a signal-dependent differential error (finite CMRR — see Noise & non-idealities). It is modelled by promoting the matched gain $g$ to per-leg gains $g^{\pm} = g(1 \pm \tfrac{1}{2}\varepsilon_g)$, with $\varepsilon_g$ drawn once at fabrication. Frequency response / finite settling, signal-dependent $R_{\mathrm{on}}(V)$ nonlinearity, and the charge-injection / clock-feedthrough pedestal are further static or switching-event effects deliberately neglected here (see Assumptions).
-- **Dynamic (random, re-sampled every transport).** Thermal/sampling ($kT/C$) and coupling disturbances on the switched path. These are zero-mean and signal-independent, and are modelled by the two additive noise terms below. They do **not** model the static mismatch.
+- **Static (fabrication-fixed, sampled once per instance).** The two legs' transport gains differ by a process offset. This **inter-leg gain mismatch** is modelled by promoting the matched gain $g$ to per-leg gains $g^{\pm} = g(1 \pm \tfrac{1}{2}\varepsilon_g)$, with $\varepsilon_g$ drawn once at fabrication; it is multiplicative and converts the input common mode into a signal-dependent differential error (finite CMRR, derived below).
+- **Dynamic (re-sampled every transport).** Zero-mean, signal-independent thermal / $kT/C$ / coupling disturbances, modelled by the two additive noise terms below — the common-mode term shared by both legs, the differential-mode term antisymmetric. They do **not** model the static mismatch.
 
 ## Governing equations
 
@@ -19,7 +15,7 @@ For a differential input pair each leg is scaled by its own static insertion gai
 
 $$V_{\mathrm{out}}^{\pm} = g\,\Bigl(1 \pm \tfrac{1}{2}\varepsilon_g\Bigr)\,V_{\mathrm{in}}^{\pm} + n_{\mathrm{cm}} \pm n_{\mathrm{dm}},$$
 
-where $g$ is the matched transport gain (`mux_gain`), $\varepsilon_g$ the fabrication-fixed fractional inter-leg gain mismatch, $n_{\mathrm{cm}}$ the common-mode noise sample (shared by both legs) and $n_{\mathrm{dm}}$ the differential-mode noise sample (added to the positive leg, subtracted from the negative leg); each noise term is zero-mean. Taking the leg difference,
+where $g$ is the matched transport gain, $\varepsilon_g$ the fabrication-fixed fractional inter-leg gain mismatch, $n_{\mathrm{cm}}$ the common-mode noise sample (shared by both legs) and $n_{\mathrm{dm}}$ the differential-mode noise sample (added to the positive leg, subtracted from the negative leg); each noise term is zero-mean. Taking the leg difference,
 
 $$V_{\mathrm{out}}^{+}-V_{\mathrm{out}}^{-} = g\,V_{\mathrm{dm}} + g\,\varepsilon_g\,V_{\mathrm{cm}} + 2\,n_{\mathrm{dm}},$$
 
@@ -33,45 +29,35 @@ N/A — the transport is a closed-form per-call map; no iteration.
 
 | Source | Physical origin | Statistical model | Parameter |
 |---|---|---|---|
-| inter-leg gain mismatch | per-leg switch on-resistance / process offset between the two legs | static fractional gain mismatch $\varepsilon_g \sim \mathcal{N}(0,\sigma_{\varepsilon_g}^2)$, sampled once at fabrication; per-leg gain $g^{\pm}=g(1\pm\tfrac{1}{2}\varepsilon_g)$ — multiplicative, signal-dependent via $V_{\mathrm{cm}}$, state-independent (fabrication-time, sampled once per instance) | `mux_gain_mismatch_sigma_relative` |
-| common-mode noise | transport-path common-mode disturbance (thermal / $kT/C$ / coupling) | additive zero-mean Gaussian on both legs, state-independent | CM noise sigma |
-| differential-mode noise | transport-path differential disturbance (thermal / $kT/C$ / coupling) | additive zero-mean Gaussian, added to the positive leg and subtracted from the negative leg, state-independent | DM noise sigma |
+| inter-leg gain mismatch | process offset between the two legs | static fractional gain mismatch $\varepsilon_g \sim \mathcal{N}(0,\sigma_{\varepsilon_g}^2)$, sampled once at fabrication; per-leg gain $g^{\pm}=g(1\pm\tfrac{1}{2}\varepsilon_g)$ — multiplicative, signal-dependent via $V_{\mathrm{cm}}$, sampled once per instance | `mux_gain_mismatch_sigma_relative` |
+| common-mode noise | transport-path common-mode disturbance (thermal / $kT/C$ / coupling) | additive zero-mean Gaussian on both legs, signal-independent | `mux_noise_cm_sigma__V` |
+| differential-mode noise | transport-path differential disturbance (thermal / $kT/C$ / coupling) | additive zero-mean Gaussian, added to the positive leg and subtracted from the negative leg, signal-independent | `mux_noise_dm_sigma__V` |
 
-Inter-leg gain mismatch is **static** (sampled once at fabrication, per instance) and multiplicative; the two noise sources are **dynamic** (re-sampled every transport), zero-mean, and signal-independent. The mismatch sigma $\sigma_{\varepsilon_g}$ is a flat dimensionless config constant: the mux exposes no per-leg switch-device area, so it carries no Pelgrom area scaling. TODO (domain author): upgrade $\sigma_{\varepsilon_g}$ to the area-scaled Pelgrom form once a switch-device-area knob exists. For the dynamic terms, $kT/C$ sampling noise is the physical origin motivating the config-set CM/DM sigma in V; the mux config exposes no sampling capacitance $C$, so no derived variance $k_B T / C$ is asserted. The shared area-scaled mismatch and $kT/C$ sampling laws are in [nonideality](../nonideality.md).
+Inter-leg gain mismatch is **static** (sampled once at fabrication, per instance) and multiplicative; the two noise sources are **dynamic** (re-sampled every transport), zero-mean, and signal-independent. The mismatch sigma $\sigma_{\varepsilon_g}$ is a flat dimensionless constant: the model carries no per-leg device-area parameter, so it applies no Pelgrom area scaling. TODO (domain author): upgrade $\sigma_{\varepsilon_g}$ to the area-scaled Pelgrom form once a switch-device-area knob exists. For the dynamic terms, $kT/C$ sampling noise is the physical origin motivating the CM/DM sigma in V; the model carries no sampling capacitance $C$, so no derived variance $k_B T / C$ is asserted. The shared area-scaled mismatch and $kT/C$ sampling laws are in [nonideality](../nonideality.md).
 
 The dynamic terms are mathematically orthogonal to the static mismatch: a zero-mean additive sample has zero correlation with the input ($\mathbb{E}[n]=0$, $\mathbb{E}[n\,V_{\mathrm{cm}}]=0$), whereas the mismatch error $g\,\varepsilon_g\,V_{\mathrm{cm}}$ is a deterministic, input-correlated function of $V_{\mathrm{cm}}$; no additive sigma can represent it.
 
 ### Static inter-leg gain mismatch (CM-to-DM conversion)
 
-A differential transport stage has two legs with insertion gains $g^{+}$ and $g^{-}$ that, with finite matching, differ. Write the matched (mean) gain and the fractional mismatch as
+Writing the matched (mean) gain and the fractional mismatch as
 
 $$g = \tfrac{1}{2}(g^{+}+g^{-}), \qquad \varepsilon_g = \frac{g^{+}-g^{-}}{g},$$
 
-and decompose the input into common and differential modes $V_{\mathrm{cm}} = \tfrac{1}{2}(V_{\mathrm{in}}^{+}+V_{\mathrm{in}}^{-})$, $V_{\mathrm{dm}} = V_{\mathrm{in}}^{+}-V_{\mathrm{in}}^{-}$. The transported differential value is then
-
-$$V_{\mathrm{out}}^{+}-V_{\mathrm{out}}^{-} = g\,V_{\mathrm{dm}} + g\,\varepsilon_g\,V_{\mathrm{cm}},$$
-
-so a leg-gain mismatch $\varepsilon_g$ leaks the common mode into the differential output with gain $g\,\varepsilon_g$. This is **common-mode-to-differential conversion**, the mechanism that sets a finite common-mode rejection ratio (CMRR). For this passive $R_{\mathrm{on}}$/load divider the converted differential error is $g\,\varepsilon_g\,V_{\mathrm{cm}}$ against a wanted differential gain $g$, so $\mathrm{CMRR} = 1/\varepsilon_g$ — the reciprocal of the fractional mismatch (the input-referred common-mode error $V_{\mathrm{cm}}/\mathrm{CMRR}$ is linear in $V_{\mathrm{cm}}$). Three properties make it incompatible with the additive-noise terms above:
-
-1. **Static / deterministic** — fixed by fabrication for a given built device; it is the same on every transport, not re-sampled.
-2. **Multiplicative and signal-dependent** — the error scales with $V_{\mathrm{cm}}$ (and, through any leg-dependent path, with the signal level); it vanishes only when $V_{\mathrm{cm}}=0$.
-3. **Non-zero-mean over the signal ensemble** — because it tracks $V_{\mathrm{cm}}$, its mean over a non-zero-mean common-mode distribution is non-zero, unlike a zero-mean Gaussian.
-
-Differential transport exists precisely to reject the common mode; the residual leakage $g\,\varepsilon_g\,V_{\mathrm{cm}}$ is the first-order error that survives that cancellation, which is why it is the static effect worth modelling first.
+the transported differential value $V_{\mathrm{out}}^{+}-V_{\mathrm{out}}^{-} = g\,V_{\mathrm{dm}} + g\,\varepsilon_g\,V_{\mathrm{cm}}$ leaks the common mode into the differential output with gain $g\,\varepsilon_g$. This **common-mode-to-differential conversion** sets a finite common-mode rejection ratio $\mathrm{CMRR} = 1/\varepsilon_g$, the reciprocal of the fractional mismatch, so the input-referred common-mode error $V_{\mathrm{cm}}/\mathrm{CMRR}$ is linear in $V_{\mathrm{cm}}$. This residual leakage $g\,\varepsilon_g\,V_{\mathrm{cm}}$ is the first-order differential error that survives common-mode cancellation, so it is the static effect the model captures first.
 
 TODO (domain author): source $\sigma_{\varepsilon_g}$ from a process matching figure (e.g. a Pelgrom sigma for the switch pair) and set the CM/DM noise sigmas and any temperature scaling.
 
 ## Parameters
 
-| Parameter | Meaning | Unit | Source |
-|---|---|---|---|
-| `mux_gain` ($g$) | matched scalar transport gain | — | Design |
-| `mux_gain_mismatch_sigma_relative` ($\sigma_{\varepsilon_g}$) | per-instance fractional inter-leg gain-mismatch sigma | — | Measured |
-| `mux_noise_cm_sigma__V` | common-mode transport-noise sigma | V | Measured |
-| `mux_noise_dm_sigma__V` | differential-mode transport-noise sigma | V | Measured |
-| `energy_per_access__fJ` | per-transport dynamic energy | fJ | Design |
-| `latency_per_op__ns` | per-transport latency | ns | Design |
-| `area_per_inst__um2`, `leakage_per_inst__uW` | static PPA fields | um^2, uW | Design |
+| Parameter | Meaning | Unit | Constraint | Source |
+|---|---|---|---|---|
+| `mux_gain` ($g$) | matched scalar transport gain | — | $> 0$ | Design |
+| `mux_gain_mismatch_sigma_relative` ($\sigma_{\varepsilon_g}$) | per-instance fractional inter-leg gain-mismatch sigma | — | $\geq 0$ | Measured |
+| `mux_noise_cm_sigma__V` | common-mode transport-noise sigma | V | $\geq 0$ | Measured |
+| `mux_noise_dm_sigma__V` | differential-mode transport-noise sigma | V | $\geq 0$ | Measured |
+| `energy_per_access__fJ` | per-transport dynamic energy | fJ | $\geq 0$ | Design |
+| `latency_per_op__ns` | per-transport latency | ns | $\geq 0$ | Design |
+| `area_per_inst__um2`, `leakage_per_inst__uW` | static PPA fields | um^2, uW | $\geq 0$ | Design |
 
 Provenance terms are defined in [module_parameter](../../conventions/module_parameter.md).
 
@@ -80,12 +66,13 @@ Provenance terms are defined in [module_parameter](../../conventions/module_para
 | Symbol | Meaning | Unit | Code field |
 |---|---|---|---|
 | $g$ | matched scalar transport gain | — | `mux_gain` |
-| $\varepsilon_g$ | fractional inter-leg gain mismatch (static, fabrication-fixed) | — | sampled at fabrication from `mux_gain_mismatch_sigma_relative` |
+| $\varepsilon_g$ | fractional inter-leg gain mismatch (static, fabrication-fixed) | — | `eps_g` |
 | $\sigma_{\varepsilon_g}$ | per-instance fractional gain-mismatch sigma | — | `mux_gain_mismatch_sigma_relative` |
-| $V_{\mathrm{in}}^{\pm}, V_{\mathrm{out}}^{\pm}$ | input / output differential legs | V | transport input / output |
-| $n_{\mathrm{cm}}$ | common-mode noise sample (zero-mean) | V | sampled in transport |
-| $n_{\mathrm{dm}}$ | differential-mode noise sample (zero-mean) | V | sampled in transport |
-| $V_{\mathrm{cm}}, V_{\mathrm{dm}}$ | common-/differential-mode of the input pair | V | derived from legs |
+| $V_{\mathrm{in}}^{\pm}$ | input differential legs | V | `v_pos__V`, `v_neg__V` |
+| $V_{\mathrm{out}}^{\pm}$ | output differential legs | V | `v_pos_muxed__V`, `v_neg_muxed__V` |
+| $n_{\mathrm{cm}}$ | common-mode noise sample (zero-mean) | V | `n_cm__V` |
+| $n_{\mathrm{dm}}$ | differential-mode noise sample (zero-mean) | V | `n_dm__V` |
+| $V_{\mathrm{cm}}, V_{\mathrm{dm}}$ | common-/differential-mode of the input pair | V | — |
 
 ## Assumptions, scope & validity
 

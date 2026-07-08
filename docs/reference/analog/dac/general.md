@@ -1,9 +1,5 @@
 # General DAC
 
-## Summary / role
-
-`GeneralDAC` is the LUT DAC: a code-to-voltage lookup table plus additive Gaussian drive-thermal noise. It is a member of the [DAC family](family.md) and honours the family contract in [base](family.md).
-
 ## Physical model
 
 The DAC is modelled as an ideal code-indexed voltage source: an integer code produces the tabulated voltage $L[\mathrm{code}]$, and the single modelled non-ideality is additive Gaussian drive-thermal noise on the output, sampled per conversion.
@@ -12,30 +8,31 @@ The DAC is modelled as an ideal code-indexed voltage source: an integer code pro
 
 $$V_{\mathrm{out}} = L[\,\mathrm{code}\,] + n,\qquad n \sim \mathcal{N}(0,\ \sigma_{\mathrm{drive}}^2),$$
 
-with $L$ the `code_to_signal` LUT and $n$ the per-conversion drive-thermal sample. The nominal LUT read returns $L[\mathrm{code}]$ exactly.
+with $L$ the code-to-voltage LUT and $n$ the per-conversion drive-thermal sample. The nominal LUT read returns $L[\mathrm{code}]$ exactly.
 
 ## Numerical method
 
-N/A - a single table lookup per call.
+N/A — direct table lookup, no iteration.
 
 ## Noise & non-idealities
 
-| Source | Physical origin | Statistical model | Parameter |
-|---|---|---|---|
-| drive thermal | thermal noise on the drive output | additive zero-mean Gaussian, standard deviation $\sigma_{\mathrm{drive}}$ | `drive_thermal__V` |
+| Source | Physical origin | Statistical model |
+|---|---|---|
+| drive thermal | thermal noise on the drive output | additive zero-mean Gaussian, standard deviation $\sigma_{\mathrm{drive}}$ |
 
-The drive-thermal source is dynamic (per conversion); `GeneralDAC` carries no static mismatch.
+The drive-thermal source is dynamic, resampled every conversion; the model carries no static mismatch.
 
 TODO (domain author): physical derivation and citation for the drive-thermal sigma.
 
 ## Parameters
 
-| Parameter | Meaning | Unit | Source |
-|---|---|---|---|
-| `code_to_signal` | LUT entry per integer code | V | Design |
-| `drive_thermal__V` | additive drive-thermal noise standard deviation | V | Measured |
-| `energy_per_op__fJ` | per-conversion dynamic energy | fJ | Design |
-| leakage / area / latency | static PPA / spec fields | uW, um^2, ns | Design |
+| Parameter | Meaning | Unit | Constraint | Source |
+|---|---|---|---|---|
+| `code_to_signal` ($L$) | LUT entry per integer code | V | — | Design |
+| `drive_thermal__V` ($\sigma_{\mathrm{drive}}$) | additive drive-thermal noise standard deviation | V | $\geq 0$ | Measured |
+| `energy_per_op__fJ` | per-conversion dynamic energy | fJ | $\geq 0$ | Design |
+| `latency_per_op__ns` | per-conversion latency | ns | $\geq 0$ | Design |
+| leakage / area | static PPA / spec fields | uW, um^2 | $\geq 0$ | Design |
 
 Provenance terms are defined in [module_parameter](../../../conventions/module_parameter.md).
 

@@ -1,30 +1,18 @@
 # Monotonic SAR ADC
 
-## Summary
-
-`SarAdcMono` (`adc/sar_mono.py`) is the monotonic (Set-and-Down) differential SAR ADC. Its fabrication state is wired but the differential conversion kernel is unrealised.
+`SarAdcMono` is a fabrication-only placeholder: the static-mismatch state is sampled, but the differential conversion kernel is unrealised.
 
 ## Design decisions
 
-- **Fabrication wired ahead of the kernel.** `_sample_fabricate_mismatch` already builds the per-leg cap arrays (`c_p__fF` / `c_n__fF`, independently sampled at `_inst_shape`) and the `comparator_offset__V`, so the static state path is exercisable before the convert kernel exists. These, plus per-call kT/C and per-cycle comparator noise, are the convert kernel's inputs.
-- **Config shape shared with the MCS variant.** Same fields as `McsSarAdcConfig` (`max_bits`, cap / comparator mismatch sigmas, energy overhead, static PPA) — including the same no-reference-ladder choice (the references come from the injected `v_refs__V` tensor) and the same no-`latency_per_op__ns` choice (latency is derivable as `(adc_operation_point.adc_bits + 1) * clk_period__ns`). The shared shape keeps the two SAR topologies swappable once the kernel lands.
+- **Fabrication wired ahead of the kernel.** `_sample_fabricate_mismatch` builds the two independently-sampled per-leg cap arrays (`c_p__fF`, `c_n__fF`) and `comparator_offset__V` at `_inst_shape`, so the static-mismatch path runs while the conversion kernel is still absent.
 
 ## Contracts & invariants
 
-- **`convert(...)` raises `NotImplementedError`.** The differential kernel is a placeholder; callers must not route production traffic here. Use mcs_sar for current SAR work.
-- **`SarAdcMonoPolicy` mirrors `McsSarAdcPolicy`** (`cap_mismatch`, `comparator_offset`, `comparator_thermal_noise`, `sampling_thermal_noise`).
-
-## Performance & resources
-
-N/A - no conversion path to profile yet.
-
-## Gotchas
-
-- **Do not treat `SarAdcMono` as a drop-in SAR.** The fabricated state is real but the conversion is not; selecting it as an operating ADC raises at `convert`.
+- **Policy and config stay in lockstep with the MCS SAR variant.** `SarAdcMonoPolicy` carries the same toggles as `McsSarAdcPolicy` (`cap_mismatch`, `comparator_offset`, `comparator_thermal_noise`, `sampling_thermal_noise`) and `SarAdcMonoConfig` reuses the MCS SAR field vocabulary; keeping them mirrored is what lets the two SAR topologies swap at the ADC interface.
 
 ## Known limitations
 
-- **The differential convert kernel is unrealised.** Until the kernel lands the topology is fabrication-only and untested on the conversion path.
+- **The differential convert kernel is unrealised**, so the conversion path is unverified.
 
 ---
 

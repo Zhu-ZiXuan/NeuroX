@@ -61,16 +61,16 @@ class GeneralADCConfig(ADCConfig):
 
     def validate_boundaries(self) -> None:
         self._require_min_length(self.boundaries, 1, "boundaries")
-        self._require_strictly_increasing(self.boundaries, "boundaries")
+        self._require_increasing(self.boundaries, "boundaries")
 
     def validate_noise(self) -> None:
-        self._require_nonneg(self.sampling_noise__V, "sampling_noise__V")
-        self._require_nonneg(self.comparator_noise__V, "comparator_noise__V")
+        self._require_non_neg(self.sampling_noise__V, "sampling_noise__V")
+        self._require_non_neg(self.comparator_noise__V, "comparator_noise__V")
 
     def validate_ppa(self) -> None:
         super().validate_ppa()
-        self._require_nonneg(self.energy_per_op__fJ, "energy_per_op__fJ")
-        self._require_nonneg(self.latency_per_op__ns, "latency_per_op__ns")
+        self._require_non_neg(self.energy_per_op__fJ, "energy_per_op__fJ")
+        self._require_non_neg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
 @dataclass(frozen=True)

@@ -1,8 +1,6 @@
 # MCS SAR ADC
 
-## Summary / role
-
-`McsSarAdc` is the $V_{\mathrm{cm}}$-based (Merged Capacitor Switching) differential SAR ADC: a successive-approximation converter with explicit cap-mismatch and comparator-noise modelling and calibrated multi-mode operation. It is the production SAR member of the [ADC family](family.md) and honours the family signed-code and floor contract in [base](family.md).
+A $V_{\mathrm{cm}}$-based (Merged Capacitor Switching, MCS) differential SAR ADC. Each conversion digitizes the differential legs $V^{+}, V^{-}$ against a mode-selected reference $V_{\mathrm{ref}}$ at a runtime resolution $b \leq b_{\max}$, returning a signed integer code; the sign (MSB) is resolved by a free top-plate comparison and each remaining bit by a merged-capacitor charge-redistribution step.
 
 ## Physical model
 
@@ -22,7 +20,7 @@ Each SAR cycle perturbs the differential top-plate voltage by the merged-capacit
 
 $$\Delta V_{\mathrm{top},k} = \pm\, (V_{\mathrm{ref}} - V_{\mathrm{cm}})\,\frac{C_k}{C_{\mathrm{total}}} \;\xrightarrow{V_{\mathrm{cm}} = V_{\mathrm{ref}}/2}\; \pm\, V_{\mathrm{cm}}\,\frac{C_k}{C_{\mathrm{total}}} = \pm\, \frac{V_{\mathrm{ref}}}{2}\,\frac{C_k}{C_{\mathrm{total}}},$$
 
-where $C_k$ is the capacitance of the cap switched on cycle $k$, carrying the static per-cap Pelgrom mismatch (independent legs), and $C_{\mathrm{total}}$ the array total. The $V_{\mathrm{cm}}$ form is an identity valid only because $V_{\mathrm{ref}} - V_{\mathrm{cm}} = V_{\mathrm{cm}}$ at the design point; the bottom-plate swing is $V_{\mathrm{ref}}/2$ (half $V_{\mathrm{ref}}$). The MSB is the sign of the free differential comparison; each subsequent bit is the sign of the running differential after the cycle's step, accumulated into the unsigned code. The unsigned code is then clamped to $[0,\ 2^{b}-1]$ and shifted by the zero code $2^{\,b-1}$ to the signed range $[-2^{\,b-1},\ 2^{\,b-1}-1]$ per the family contract in [base](family.md#signed-code-range). The zero code $2^{\,b-1}$ is the bucket midpoint of the symmetric differential design, where $V^{+} - V^{-} = 0$ sits centred between the rail-symmetric extremes $\pm V_{\mathrm{ref}}$, justifying the symmetric zero point.
+where $C_k$ is the capacitance of the cap switched on cycle $k$, carrying the static per-cap Pelgrom mismatch (independent legs), and $C_{\mathrm{total}}$ the array total. The $V_{\mathrm{cm}}$ form is an identity valid only because $V_{\mathrm{ref}} - V_{\mathrm{cm}} = V_{\mathrm{cm}}$ at the design point; the bottom-plate swing is $V_{\mathrm{ref}}/2$ (half $V_{\mathrm{ref}}$). The MSB is the sign of the free differential comparison; each subsequent bit is the sign of the running differential after the cycle's step, accumulated into the unsigned code. The unsigned code is then clamped to $[0,\ 2^{b}-1]$ and shifted by the zero code $2^{\,b-1}$ to the signed range $[-2^{\,b-1},\ 2^{\,b-1}-1]$, following the [family](family.md#signed-code-range) signed-code convention. The zero code $2^{\,b-1}$ is the bucket midpoint of the symmetric differential design, where $V^{+} - V^{-} = 0$ sits centred between the rail-symmetric extremes $\pm V_{\mathrm{ref}}$, justifying the symmetric zero point.
 
 ## Numerical method
 
@@ -34,6 +32,7 @@ Per-conversion energy is the sum of:
 
 - one-shot sampling energy: the bottom plates track $V_{\mathrm{in}}$ during sample and snap to $V_{\mathrm{cm}}$ on release;
 - per-cycle MCS switching energy (derived below);
+- reset energy dissipating the residual differential charge left on the two arrays (derived below);
 - a lump-sum overhead $E_{\mathrm{bootstrap}} + b\cdot E_{\mathrm{const}/\mathrm{bit}}$.
 
 ### Switching energy
@@ -64,6 +63,18 @@ $$\overline{E}_{\mathrm{sw}} = \left(\sum_{i=1}^{b-1} 2^{\,b-2-2i}\,(2^{\,i} - 1
 
 The upper limit $b-1$ reflects the free MSB plus the $b-1$ switched bits. At $b = 10$ this evaluates to $\overline{E}_{\mathrm{sw}} = 170.2\,C_{\mathrm{unit}}V_{\mathrm{ref}}^2$, 87.52% below the conventional baseline $1363.3\,C_{\mathrm{unit}}V_{\mathrm{ref}}^2$ (this is the generic tri-level $V_{\mathrm{cm}}$-based number, not a monotonic-variant figure). Both numbers are reproducible only within this one unit-cap normalisation. The code average is a topology-level comparative figure, not a precise per-conversion power: it is sensitive to the unit-cap normalisation, the $(V_{\mathrm{ref}} - V_{\mathrm{cm}})$ half-swing assumption, and ideal settling.
 
+### Reset energy
+
+After the SAR loop the two CDAC arrays hold a residual differential charge, dissipated when they reset to the sampling configuration for the next conversion. Summing the signed leg-to-leg capacitance difference over the $b-1$ switched caps,
+
+$$C_{\mathrm{diff}} = \sum_{k=1}^{b-1}\left(\tfrac{1}{2} - D_k\right)\left(C_{p,k} - C_{n,k}\right),$$
+
+with $D_k \in \{0,1\}$ the decided bit and $C_{p,k}, C_{n,k}$ the positive- and negative-leg instances of the switched cap $C_k$ (independent Pelgrom mismatch), the reset dissipation is
+
+$$E_{\mathrm{reset}} = \tfrac{1}{2}\,V_{\mathrm{ref}}^2\,|C_{\mathrm{diff}}|.$$
+
+It vanishes for perfectly matched legs ($C_{p,k} = C_{n,k}$): the term is nonzero only through the differential cap mismatch.
+
 ## Noise & non-idealities
 
 | Source | Physical origin | Statistical model | Parameter |
@@ -86,19 +97,19 @@ TODO (domain author): citations for the MCS switching-energy and Pelgrom models.
 
 ## Parameters
 
-| Parameter | Meaning | Unit | Source |
-|---|---|---|---|
-| `max_bits` | physical CDAC depth $b_{\max}$ | — | Design |
-| `clk_period__ns` | SAR clock period | ns | Design |
-| `c_unit__fF` | unit-cap capacitance | fF | Design |
-| `cap_mismatch_sigma_relative` | per-cap Pelgrom mismatch sigma | — | Measured |
-| `comparator_offset_sigma__V` | static comparator-offset sigma | V | Measured |
-| `comparator_thermal_noise_sigma__V` | per-cycle comparator-noise sigma (at 300 K) | V | Measured |
-| `e_bootstrap__fJ` | per-conversion bootstrap energy | fJ | Design |
-| `e_constant_per_bit__fJ` | per-bit constant energy overhead | fJ | Design |
-| leakage / area | static PPA / spec fields | uW, um^2 | Design |
+| Parameter | Meaning | Unit | Constraint | Source |
+|---|---|---|---|---|
+| `max_bits` | physical CDAC depth $b_{\max}$ | — | $\geq 2$ | Design |
+| `clk_period__ns` | SAR clock period | ns | $> 0$ | Design |
+| `c_unit__fF` | unit-cap capacitance | fF | $> 0$ | Design |
+| `cap_mismatch_sigma_relative` | per-cap Pelgrom mismatch sigma | — | $\geq 0$ | Measured |
+| `comparator_offset_sigma__V` | static comparator-offset sigma | V | $\geq 0$ | Measured |
+| `comparator_thermal_noise_sigma__V` | per-cycle comparator-noise sigma (at 300 K) | V | $\geq 0$ | Measured |
+| `e_bootstrap__fJ` | per-conversion bootstrap energy | fJ | $\geq 0$ | Design |
+| `e_constant_per_bit__fJ` | per-bit constant energy overhead | fJ | $\geq 0$ | Design |
+| leakage / area | static PPA / spec fields | uW, um^2 | $\geq 0$ | Design |
 
-The reference voltage is not a parameter of this ADC — it is one of the taps the family injects per call (see [base](family.md#parameters)). A conversion spans $b+1$ clock periods (one sample cycle plus $b$ comparison cycles), so its latency is $(b+1)\cdot$ `clk_period__ns`. Provenance terms are defined in [module_parameter](../../../conventions/module_parameter.md).
+The reference voltage is not a parameter of this ADC — it is one of the reference taps supplied per conversion (see [family](family.md)). A conversion spans $b+1$ clock periods (one sample cycle plus $b$ comparison cycles), so its latency is $(b+1)\cdot$ `clk_period__ns`. Provenance terms are defined in [module_parameter](../../../conventions/module_parameter.md).
 
 ## Symbols
 
@@ -108,14 +119,16 @@ The reference voltage is not a parameter of this ADC — it is one of the taps t
 | $V_{\mathrm{cm}}$ | common-mode third reference, $V_{\mathrm{ref}}/2$ | V | derived |
 | $V_{\mathrm{ref}}$ | reference voltage | V | `v_refs__V[..., mode]` |
 | $V_{\mathrm{in}}$ | sampled input on a leg | V | sampled in `convert` |
-| $C_k$ | capacitance of cap $k$ (mismatched after fabricate) | fF | per-leg cap arrays |
+| $C_k$ | capacitance of cap $k$ (mismatched after fabricate) | fF | `c_p__fF`, `c_n__fF` |
 | $C_{\mathrm{total}}$ | total array capacitance, $2^{\,b_{\max}-1}C_{\mathrm{unit}}$ | fF | derived |
 | $C_{\mathrm{unit}}$ | unit-cap capacitance | fF | `c_unit__fF` |
+| $C_{\mathrm{diff}}$ | residual differential capacitance after the SAR loop | fF | `c_diff__fF` |
 | $b$ | resolution (bits) | — | `adc_bits` |
 | $b_{\max}$ | physical CDAC depth | — | `max_bits` |
 | $E_k$ | signed per-cycle MCS switching energy | fJ | energy accounting |
 | $\overline{E}_{\mathrm{sw}}$ | equiprobable-code-average switching energy | fJ | energy accounting |
 | $f_k$ | signed prior-bit factor in $E_k$ | — | energy accounting |
+| $E_{\mathrm{reset}}$ | reset-phase residual-charge dissipation | fJ | energy accounting |
 | $E_{\mathrm{bootstrap}}, E_{\mathrm{const}/\mathrm{bit}}$ | energy overheads | fJ | `e_bootstrap__fJ`, `e_constant_per_bit__fJ` |
 | $T$ | operating temperature | K | `T__K` |
 | $k_B$ | Boltzmann constant | J/K | `K_BOLTZMANN__J_per_K` |

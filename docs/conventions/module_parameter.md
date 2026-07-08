@@ -22,6 +22,14 @@ Rules:
 - **Distinguish near neighbours**: Measured (we/partners measured it) vs Process (foundry nominal); Process (layout-independent nominal) vs Extracted (layout-dependent geometry); Design (freely chosen) vs Process (locked).
 - **Runtime inputs** (activations, weights, temperature $T$) are inputs, not parameters — never list them in §Parameters.
 
+## Constraint
+
+A Reference §Parameters table carries a Constraint column giving each parameter's physical valid domain — the range physics allows, such as a positive ratio or a bound like n > 1. Physical validity is model content, so it lives in Reference.
+
+- Write `—` when the parameter is physically unconstrained.
+- Write `TODO (domain author)` for a non-obvious bound; never fabricate one.
+- State the physical domain only. What the code raises when a value falls outside the domain is runtime-validation behavior and belongs to Internals, not this column.
+
 ## Config layering
 
 Every `config` parameter belongs to one of four layers, distinguished by when it is fixed and who owns it:

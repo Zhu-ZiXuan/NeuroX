@@ -1,28 +1,23 @@
 # Subtractor
 
-## Summary
-
-`Subtractor` computes an element-wise integer difference of two broadcastable tensors and emits its own PPA events. It is the sign twin of adder.
-
 ## Design decisions
 
-- **Behavioural, not gate-level.** Same rationale as the adder: the block models the function and a flat per-op cost, not a borrow-chain netlist, because the digital periphery is not the fidelity-critical path.
-- **Kept a separate class, not a flag on the adder.** The subtract is a distinct operation with its own minuend/subtrahend argument semantics and its own config and PPA numbers; folding it into the adder via a sign flag would overload one call signature and conflate two cost models. The duplication is intentional and minimal.
-- **No wrap, `bit_width` informational.** As with the adder, neither saturation nor modular wrap is applied; `bit_width` is metadata for PPA sizing only.
+- **Behavioural, not gate-level.** The digital periphery is not the fidelity-critical path, so the block carries the flat per-op cost model specified in Reference rather than a gate-level borrow chain.
+- **A separate class, not a flag on the adder.** The subtract has its own minuend/subtrahend argument order and its own config and PPA numbers; folding it into the adder via a sign flag would overload one call signature and conflate two cost models. The duplication is intentional and minimal.
 
 ## Contracts & invariants
 
-- **`operate(a, b)` computes `a - b` element-wise with broadcasting**; `a` is the minuend, `b` the subtrahend. The serial-op count uses the broadcast output numel divided by the instance count.
+- **`operate(a, b)`** takes `a` and a broadcast-compatible `b` and returns their difference at the broadcast shape.
 - **Energy and latency are two independent profiler emissions.**
 
 ## Performance & resources
 
-- A single element-wise kernel; per-op constants fold under `@torch.compile` with no graph break.
+- A single element-wise kernel; the per-op constants fold under `@torch.compile` with no graph break.
 
 ## Gotchas
 
-- **Operand order is load-bearing.** Unlike the adder, the subtract is not commutative; swapping `a` and `b` negates the result. The minuend is the first argument.
-- **No range guard**: a difference exceeding the nominal width is not detected. **`inst_count` guarded against zero** in the divisor (`max(inst_count, 1)`).
+- **Operand order is load-bearing.** The first argument is the minuend; swapping the operands negates the result.
+- **No range guard**: a difference exceeding the nominal bit width is not detected. **`inst_count` is guarded against zero** in the serial-op divisor (`max(inst_count, 1)`).
 
 ## Known limitations
 

@@ -74,7 +74,7 @@ def _make_tia(
         c_ox__fF_per_um2=31.4,
         vth0__V=0.40,
         n_factor=1.25,
-        T_ref__K=300.0,
+        T_nom__K=300.0,
         ute=1.5,
         kt1__V=-0.002,
         A_vt__mV_um=0.0,
