@@ -15,6 +15,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
+from neurox.architecture.unit.matmul import QuantMatMul
 from neurox.common.quant import (
     PerChannelSymmObserver,
     PerTensorObserver,
@@ -24,7 +25,6 @@ from neurox.common.quant import (
     stochastic_floor_div,
 )
 from neurox.primitive.analog.adc import AdcOperationPoint
-from neurox.architecture.unit.matmul import QuantMatMul
 
 X_QMIN = 0
 X_QMAX = 15

@@ -12,8 +12,8 @@ from dataclasses import dataclass
 import torch
 
 from neurox.primitive.analog.tia import OpAmpTIA, OpAmpTIAConfig, OpAmpTIAPolicy
-from neurox.primitive.physical_constant import T_ROOM__K
 from neurox.primitive.device import MOSFETPolicy
+from neurox.primitive.physical_constant import T_ROOM__K
 
 
 def build_tia(config: OpAmpTIAConfig, *, device: torch.device) -> OpAmpTIA:

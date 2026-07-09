@@ -92,9 +92,7 @@ class QATLeNet5(nn.Module):
 # ---------------------------------------------------------------------------
 
 
-def _conv_macro(
-    factory: MacroFactory, name: str, out_channels: int, in_channels: int, kernel_size: int
-) -> QuantMatMul:
+def _conv_macro(factory: MacroFactory, name: str, out_channels: int, in_channels: int, kernel_size: int) -> QuantMatMul:
     """Build a macro shaped for this conv layer's unfolded matmul."""
     return factory(name=name, w_logical_shape=(out_channels, in_channels * kernel_size * kernel_size))
 

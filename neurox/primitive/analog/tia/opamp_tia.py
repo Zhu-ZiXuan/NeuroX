@@ -9,8 +9,8 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor
 
-from neurox.primitive.nonideality import apply_gaussian
 from neurox.primitive.device import NMOS, MOSFETConfig, MOSFETPolicy, MOSFETSnap
+from neurox.primitive.nonideality import apply_gaussian
 
 from .base import TIA, TIAConfig, TIAPolicy, TIASnap
 

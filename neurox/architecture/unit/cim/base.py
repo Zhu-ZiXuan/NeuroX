@@ -14,8 +14,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
-from neurox.primitive.analog.adc import AdcOperationPoint
 from neurox.common.mixin import FabricateMixin, ProfileMixin, RegistryMixin, ValidateMixin
+from neurox.primitive.analog.adc import AdcOperationPoint
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
 
 

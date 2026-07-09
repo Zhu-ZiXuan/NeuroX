@@ -73,7 +73,9 @@ def main() -> None:
     # mode 4 (v_ref = 0.05 V) matches the post-solver-fix v_diff p99 ≈ 0.025 V;
     # see example/lenet/model_quant.py:_LAYER_MODE for the same reasoning.
     n_replaced = to_quant(model, ckpt["layers"], macro_factory, mode_picker=4)
-    print(f"Quant-replaced {n_replaced} Linear layers; config={args.config} policy={args.policy} (cim_macro={args.cim_macro})")
+    print(
+        f"Quant-replaced {n_replaced} Linear layers; config={args.config} policy={args.policy} (cim_macro={args.cim_macro})"
+    )
     model.eval()
 
     loader: DataLoader = create_sst2_dataloader(

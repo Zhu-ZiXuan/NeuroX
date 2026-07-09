@@ -27,6 +27,7 @@ from neurox.primitive.device import (
     RRAMPolicy,
     RRAMSnap,
 )
+
 from .base import (
     XbarCell,
     XbarCellConfig,

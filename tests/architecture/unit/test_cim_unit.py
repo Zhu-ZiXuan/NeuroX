@@ -7,8 +7,6 @@ from typing import Any
 import pytest
 import torch
 
-from neurox.primitive.analog.adc import AdcOperationPoint
-from neurox.primitive.digital import AccumulatorConfig, ShiftAdderConfig
 from neurox.architecture.unit.cim import (
     CimUnit,
     DirectCimUnit,
@@ -24,6 +22,8 @@ from neurox.architecture.unit.cim import (
     IntraArraySliceCimUnitConfig,
     IntraArraySliceCimUnitPolicy,
 )
+from neurox.primitive.analog.adc import AdcOperationPoint
+from neurox.primitive.digital import AccumulatorConfig, ShiftAdderConfig
 from neurox.primitive.macro.cim import IdealCimMacroConfig, IdealCimMacroPolicy
 
 # All tests use IdealCimMacroConfig as the embedded xbar config, so its nonideality

@@ -12,15 +12,15 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor
 
-from neurox.primitive.analog.adc import AdcOperationPoint
+from neurox.architecture.unit.cim.slicer import SerialSlicer, SimpleSlicer
 from neurox.common.encoding import Encoding
+from neurox.primitive.analog.adc import AdcOperationPoint
 from neurox.primitive.digital import (
     Accumulator,
     AccumulatorConfig,
     ShiftAdder,
     ShiftAdderConfig,
 )
-from neurox.architecture.unit.cim.slicer import SerialSlicer, SimpleSlicer
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
 
 from .base import CimUnit, CimUnitConfig, CimUnitPolicy

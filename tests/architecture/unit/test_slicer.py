@@ -7,8 +7,8 @@ from typing import Any
 import pytest
 import torch
 
-from neurox.common.encoding import Encoding, Transcoder
 from neurox.architecture.unit.cim.slicer import SerialSlicer, SimpleSlicer
+from neurox.common.encoding import Encoding, Transcoder
 
 
 def _decode_serial_slices(slices: torch.Tensor, weights: tuple[int, ...]) -> torch.Tensor:

@@ -25,9 +25,9 @@ from typing import Any
 import torch
 from torch import Tensor
 
+from neurox.common.load_dump import dataclass_from_file
 from neurox.primitive.analog import VoltageDriver, VoltageDriverPolicy, VoltageReference, VoltageReferencePolicy
 from neurox.primitive.analog.tia import OpAmpTIA, OpAmpTIAConfig, OpAmpTIAPolicy
-from neurox.common.load_dump import dataclass_from_file
 from neurox.primitive.device import MOSFETPolicy, RRAMPolicy
 from neurox.primitive.xbar.cell import XbarCell1T1R, XbarCell1T1RPolicy, XbarCell1T1RSnap
 from neurox.primitive.xbar.solver import Solver, SolverConfig

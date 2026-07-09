@@ -18,7 +18,14 @@ from torch import Tensor
 
 from neurox.primitive.circuit import CircuitConfig
 from neurox.primitive.xbar.array.base import XbarArray
-from neurox.primitive.xbar.cell import XbarCell
+from neurox.primitive.xbar.cell import (
+    XbarCell,
+    XbarCell1T1R,
+    XbarCell1T1RConfig,
+    XbarCell1T1RDCOP,
+    XbarCell1T1RPolicy,
+    XbarCell1T1RSnap,
+)
 from neurox.primitive.xbar.solver import (
     ClampDriver,
     Solver,
@@ -29,14 +36,6 @@ from neurox.primitive.xbar.solver import (
     reassemble_chunks,
 )
 from neurox.primitive.xbar.solver.clamp import ClampSnap
-
-from neurox.primitive.xbar.cell import (
-    XbarCell1T1R,
-    XbarCell1T1RConfig,
-    XbarCell1T1RDCOP,
-    XbarCell1T1RPolicy,
-    XbarCell1T1RSnap,
-)
 
 BLSnapT = TypeVar("BLSnapT", bound=ClampSnap)
 SLSnapT = TypeVar("SLSnapT", bound=ClampSnap)
@@ -441,12 +440,8 @@ class XbarArray1T1R(XbarArray[XbarArray1T1RConfig]):
                 multi_coords=mc,
                 t_elapsed=0.0,
             )
-            bl_snap = bl_driver.snapshot(
-                v_ref__V=bl_v_ref__V, shape=(*leading, *line_trailing), multi_coords=mc
-            )
-            sl_snap = sl_driver.snapshot(
-                v_ref__V=sl_v_ref__V, shape=(*leading, *line_trailing), multi_coords=mc
-            )
+            bl_snap = bl_driver.snapshot(v_ref__V=bl_v_ref__V, shape=(*leading, *line_trailing), multi_coords=mc)
+            sl_snap = sl_driver.snapshot(v_ref__V=sl_v_ref__V, shape=(*leading, *line_trailing), multi_coords=mc)
 
             solver_dcop_chunk = self.solver.solve_dc(
                 bl_segment_r__MOhm=self.bl_segment_r__MOhm,

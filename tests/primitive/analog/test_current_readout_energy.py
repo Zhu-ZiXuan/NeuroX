@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import torch
 
+from neurox.common.profiler import NeuroxProfiler
 from neurox.primitive.analog.current_mirror import (
     CurrentMirror,
     CurrentMirrorConfig,
@@ -25,7 +26,6 @@ from neurox.primitive.analog.current_mux import (
     CurrentMuxConfig,
     CurrentMuxPolicy,
 )
-from neurox.common.profiler import NeuroxProfiler
 
 
 def _energy_total(events: list, name: str) -> float:

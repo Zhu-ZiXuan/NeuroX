@@ -14,8 +14,8 @@ from pathlib import Path
 import torch
 
 import works.offset_1t1r  # noqa: F401  # registers the Offset1T1RCimMacro kind
-from neurox.architecture.unit.matmul import QuantMatMul
 from neurox.architecture.unit.cim import CimUnit, CimUnitConfig, CimUnitPolicy
+from neurox.architecture.unit.matmul import QuantMatMul
 from neurox.common import dataclass_from_file
 from neurox.primitive.physical_constant import T_ROOM__K
 

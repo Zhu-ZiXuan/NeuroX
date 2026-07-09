@@ -311,9 +311,7 @@ class NestedParallelRailSolver(Solver):
         v_bl_seed = bl_driver_snap.v_ref__V
         v_sl_seed = sl_driver_snap.v_ref__V
         # Shape: [..., num_line, num_series]
-        i_cell, _g_bl_init, _g_sl_init = cell.solve_branch(
-            v_bl_seed.unsqueeze(-1), v_sl_seed.unsqueeze(-1), cell_snap
-        )
+        i_cell, _g_bl_init, _g_sl_init = cell.solve_branch(v_bl_seed.unsqueeze(-1), v_sl_seed.unsqueeze(-1), cell_snap)
         *_batch, num_col, num_row = i_cell.shape
         if not (num_col > 1):
             raise ValueError(f"require: num_col ({num_col}) > 1")

@@ -12,8 +12,8 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor
 
-from neurox.primitive.analog.adc import AdcOperationPoint
 from neurox.common.encoding import Encoding, Transcoder
+from neurox.primitive.analog.adc import AdcOperationPoint
 from neurox.primitive.digital import (
     Accumulator,
     AccumulatorConfig,

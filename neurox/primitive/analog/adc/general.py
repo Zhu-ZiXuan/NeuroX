@@ -13,8 +13,8 @@ from typing import Literal
 import torch
 from torch import Tensor
 
-from neurox.primitive.nonideality import apply_gaussian
 from neurox.common.quant import floor_bucketize
+from neurox.primitive.nonideality import apply_gaussian
 
 from .base import ADC, ADCConfig, AdcOperationPoint, ADCPolicy
 

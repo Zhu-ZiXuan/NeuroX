@@ -13,8 +13,8 @@ from typing import Generic, TypeVar
 import torch
 from torch import Tensor
 
-from neurox.primitive.circuit import CircuitBase, CircuitConfig
 from neurox.common.mixin import RegistryMixin
+from neurox.primitive.circuit import CircuitBase, CircuitConfig
 
 
 @dataclass(frozen=True)

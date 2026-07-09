@@ -1,6 +1,6 @@
 """NeuroX device models."""
 
-from .mosfet import MOSFET, NMOS, PMOS, MOSFETConfig, MOSFETDCOP, MOSFETPolicy, MOSFETSnap
+from .mosfet import MOSFET, MOSFETDCOP, NMOS, PMOS, MOSFETConfig, MOSFETPolicy, MOSFETSnap
 from .rram import RRAM, RRAMDCOP, RRAMConfig, RRAMPolicy, RRAMSnap
 from .selector import Selector, SelectorConfig, SelectorPolicy
 

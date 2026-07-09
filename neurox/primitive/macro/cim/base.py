@@ -13,9 +13,9 @@ from typing import TYPE_CHECKING
 import torch
 from torch import Tensor
 
+from neurox.common.mixin import RegistryMixin
 from neurox.primitive.analog.adc import AdcOperationPoint
 from neurox.primitive.circuit import CircuitBase, CircuitConfig
-from neurox.common.mixin import RegistryMixin
 
 if TYPE_CHECKING:
     from .ideal import IdealCimMacro

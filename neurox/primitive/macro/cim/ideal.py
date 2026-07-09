@@ -11,8 +11,8 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor
 
-from neurox.primitive.analog.adc import AdcOperationPoint
 from neurox.common.quant import stochastic_floor_to_int
+from neurox.primitive.analog.adc import AdcOperationPoint
 
 from .base import CimMacro, CimMacroConfig, CimMacroPolicy
 

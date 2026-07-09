@@ -25,6 +25,8 @@ from typing import Any
 import pytest
 import torch
 
+from neurox.common.load_dump import dataclass_from_file
+from neurox.common.profiler import NeuroxProfiler
 from neurox.primitive.analog.current_reference import (
     CurrentReference,
     CurrentReferenceConfig,
@@ -35,8 +37,6 @@ from neurox.primitive.analog.voltage_reference import (
     VoltageReferenceConfig,
     VoltageReferencePolicy,
 )
-from neurox.common.load_dump import dataclass_from_file
-from neurox.common.profiler import NeuroxProfiler
 
 # (ref_cls, config_cls, policy_cls, field_name, nominal_taps)
 _CASES = [
