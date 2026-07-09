@@ -20,5 +20,5 @@ The ADC family: the abstract `ADC` (`adc/base.py`) carries the registry, `from_c
 ---
 
 - **Reference**: [adc base](../../../../reference/primitive/analog/adc/family.md)
-- **Implementation**: `neurox/analog/adc/base.py`, `neurox/analog/adc/_multimode.py`
+- **Implementation**: `neurox/primitive/analog/adc/base.py`, `neurox/primitive/analog/adc/_multimode.py`
 - **Tests**: TODO - name the guarding test

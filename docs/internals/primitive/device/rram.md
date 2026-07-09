@@ -32,5 +32,5 @@ The state is one conductance buffer at the programmed broadcast shape. The read 
 ---
 
 - **Reference**: [rram](../../../reference/primitive/device/rram.md)
-- **Implementation**: `neurox/device/rram.py`
+- **Implementation**: `neurox/primitive/device/rram.py`
 - **Tests**: `tests/test_xbar_cell.py`, `tests/test_xbar_physics.py`

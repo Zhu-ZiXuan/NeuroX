@@ -25,5 +25,5 @@ N/A — per-call elementwise map off the memory- and compile-critical path.
 ---
 
 - **Reference**: [current_mux](../../../reference/primitive/analog/current_mux.md)
-- **Implementation**: `neurox/analog/current_mux.py`
+- **Implementation**: `neurox/primitive/analog/current_mux.py`
 - **Tests**: `tests/test_current_readout_energy.py`

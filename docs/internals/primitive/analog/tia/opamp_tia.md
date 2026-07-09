@@ -30,5 +30,5 @@ TODO - record the clamp-evaluation cost and any inner-solve memory once profiled
 ---
 
 - **Reference**: [opamp_tia](../../../../reference/primitive/analog/tia/opamp_tia.md)
-- **Implementation**: `neurox/analog/tia/opamp_tia.py`
+- **Implementation**: `neurox/primitive/analog/tia/opamp_tia.py`
 - **Tests**: TODO - name the guarding test

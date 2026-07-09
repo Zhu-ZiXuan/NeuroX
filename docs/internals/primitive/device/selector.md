@@ -28,5 +28,5 @@ State is one threshold buffer at `inst_shape` plus its scalar nominal. `sample_v
 ---
 
 - **Reference**: [selector](../../../reference/primitive/device/selector.md)
-- **Implementation**: `neurox/device/selector.py`
+- **Implementation**: `neurox/primitive/device/selector.py`
 - **Tests**: TODO — no dedicated selector tests yet

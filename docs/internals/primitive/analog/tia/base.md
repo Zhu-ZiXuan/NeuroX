@@ -17,5 +17,5 @@ The abstract root the TIA family inherits: it carries the config-dispatched regi
 ---
 
 - **Reference**: [tia base](../../../../reference/primitive/analog/tia/family.md)
-- **Implementation**: `neurox/analog/tia/base.py`
+- **Implementation**: `neurox/primitive/analog/tia/base.py`
 - **Tests**: TODO - name the guarding test

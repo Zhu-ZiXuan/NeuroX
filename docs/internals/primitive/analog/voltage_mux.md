@@ -17,5 +17,5 @@ N/A — transport is a per-call elementwise map off the memory- and compile-crit
 ---
 
 - **Reference**: [voltage_mux](../../../reference/primitive/analog/voltage_mux.md)
-- **Implementation**: `neurox/analog/voltage_mux.py`
+- **Implementation**: `neurox/primitive/analog/voltage_mux.py`
 - **Tests**: TODO — name the guarding test

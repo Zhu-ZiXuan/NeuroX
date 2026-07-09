@@ -31,5 +31,5 @@ The SAR loop is `bits` sequential decision cycles. To keep the unrolled compiled
 ---
 
 - **Reference**: [mcs_sar](../../../../reference/primitive/analog/adc/mcs_sar.md)
-- **Implementation**: `neurox/analog/adc/mcs_sar.py`
+- **Implementation**: `neurox/primitive/analog/adc/mcs_sar.py`
 - **Tests**: TODO - name the guarding test

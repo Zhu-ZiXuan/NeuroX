@@ -27,5 +27,5 @@ A single `floor_bucketize` per call, off the memory- and compile-critical path.
 ---
 
 - **Reference**: [general](../../../../reference/primitive/analog/adc/general.md)
-- **Implementation**: `neurox/analog/adc/general.py`
+- **Implementation**: `neurox/primitive/analog/adc/general.py`
 - **Tests**: TODO - name the guarding test

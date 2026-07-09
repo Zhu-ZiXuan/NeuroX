@@ -21,5 +21,5 @@ N/A — `replicate` is a per-call elementwise map off the memory- and compile-cr
 ---
 
 - **Reference**: [current_mirror](../../../reference/primitive/analog/current_mirror.md)
-- **Implementation**: `neurox/analog/current_mirror.py`
+- **Implementation**: `neurox/primitive/analog/current_mirror.py`
 - **Tests**: `tests/test_current_readout_energy.py`

@@ -30,5 +30,5 @@ N/A — no inner solve and no shape-dependent state.
 ---
 
 - **Reference**: [voltage_driver](../../../reference/primitive/analog/voltage_driver.md)
-- **Implementation**: `neurox/analog/voltage_driver.py`
+- **Implementation**: `neurox/primitive/analog/voltage_driver.py`
 - **Tests**: TODO — name the guarding test

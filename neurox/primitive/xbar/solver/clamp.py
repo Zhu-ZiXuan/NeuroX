@@ -10,7 +10,7 @@ attribute. :class:`ClampDriver` names that capability contract as a
 structural (``Protocol``) role rather than a registry base class: there
 is no inheritance and no ``RegistryMixin``. The role lives beside the
 solver because the solver is its only consumer; concrete clamps (the
-``TIA`` family, the ``VoltageDriver``) live in ``neurox/analog`` and
+``TIA`` family, the ``VoltageDriver``) live in ``neurox/primitive/analog`` and
 satisfy it structurally, without importing it.
 
 The role is generic over ``SnapT`` so that each conforming circuit ties

@@ -17,5 +17,5 @@
 ---
 
 - **Reference**: [sar_mono](../../../../reference/primitive/analog/adc/sar_mono.md)
-- **Implementation**: `neurox/analog/adc/sar_mono.py`
+- **Implementation**: `neurox/primitive/analog/adc/sar_mono.py`
 - **Tests**: TODO - name the guarding test (none until the kernel is realised)

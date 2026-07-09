@@ -54,7 +54,7 @@ python -m example.bert.evaluate \
   --dataset-dir dataset/sst2 \
   --checkpoint weight/bert_small_hat.pth \
   --device cuda:0 \
-  --xbar physical
+  --cim_macro physical
 ```
 
 ## Notes
@@ -70,7 +70,7 @@ python -m example.bert.evaluate \
   `example/bert/macro.toml` (which pulls the 1T1R xbar reference from
   `example/config/1t1r_28nm.toml` via `_neurox_use`). To
   change the ADC resolution, edit the `[bl_adc].boundaries` list and
-  add a matching `[[xbar.adc_calibration]]` record accordingly; the CLI
+  add a matching `[[cim_macro.adc_calibration]]` record accordingly; the CLI
   has no hardware knobs.
 - **ADC resolution and depth**: the bundled 16-level (4-bit) ADC
   collapses BERT-small's signal to chance accuracy — 26 linear

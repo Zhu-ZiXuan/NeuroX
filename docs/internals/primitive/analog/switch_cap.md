@@ -20,5 +20,5 @@
 ---
 
 - **Reference**: [switch_cap](../../../reference/primitive/analog/switch_cap.md)
-- **Implementation**: `neurox/analog/switch_cap.py`
+- **Implementation**: `neurox/primitive/analog/switch_cap.py`
 - **Tests**: TODO - name the guarding test

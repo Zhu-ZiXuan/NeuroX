@@ -17,5 +17,5 @@
 ---
 
 - **Reference**: [general](../../../../reference/primitive/analog/dac/general.md)
-- **Implementation**: `neurox/analog/dac/general.py`
+- **Implementation**: `neurox/primitive/analog/dac/general.py`
 - **Tests**: TODO - name the guarding test

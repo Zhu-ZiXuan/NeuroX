@@ -17,5 +17,5 @@ The root of the DAC family: `DAC` provides the shared construction, registration
 ---
 
 - **Reference**: [dac base](../../../../reference/primitive/analog/dac/family.md)
-- **Implementation**: `neurox/analog/dac/base.py`
+- **Implementation**: `neurox/primitive/analog/dac/base.py`
 - **Tests**: TODO - name the guarding test
