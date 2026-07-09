@@ -1,4 +1,4 @@
-"""Topology-agnostic SL/BL IR-drop DC solver — framework, nested impl, and primitives.
+"""Topology-agnostic SL/BL IR-drop DC solver — framework, nested impl, and numerical helpers.
 
 The :class:`Solver` base, its config / DCOP / residual containers, and the
 :class:`NestedParallelRailSolver` impl drive the two wire ladders and the two clamp
@@ -6,12 +6,12 @@ boundaries; the cell and both clamp drivers are per-call parameters of
 :meth:`Solver.solve_dc`, so any SL/BL topology whose cell condenses to one
 branch reuses the same solver. The :class:`ClampDriver` role — the
 structural contract each boundary clamp satisfies — lives here beside its
-only consumer (the solver). The shared numerical primitives
-(:func:`col_driver_current`, :func:`col_wire_kcl_residual`,
-:func:`solve_block_tridiagonal`) are re-exported here so
-``from neurox.primitive.xbar.solver import ...`` resolves both the framework and the
-primitives. Less-used primitives stay importable from
-:mod:`neurox.primitive.xbar.solver.primitives`. The leading-batch chunking helpers
+only consumer (the solver). The numerical solves
+(:func:`solve_block_tridiagonal` and its siblings) stay in
+:mod:`neurox.primitive.xbar.solver._linalg`, and the wire-KCL builders
+(:func:`col_driver_current`, :func:`col_wire_kcl_residual`) in
+:mod:`neurox.primitive.xbar.solver._wire_kcl`; the package surface re-exports
+neither, so import them straight from those modules. The leading-batch chunking helpers
 (:func:`classify_leading_positions`, :func:`iter_chunks`,
 :func:`reassemble_chunks`, :class:`ChunkSpec`) — the per-chunk peak-memory
 mechanism any solver-driven core uses to stream its leading batch — are
@@ -27,11 +27,6 @@ from .chunking import (
 )
 from .clamp import ClampDriver
 from .nested import NestedParallelRailSolver, NestedParallelRailSolverConfig
-from .primitives import (
-    col_driver_current,
-    col_wire_kcl_residual,
-    solve_block_tridiagonal,
-)
 
 __all__ = [
     "ChunkSpec",
@@ -43,9 +38,6 @@ __all__ = [
     "SolverDCOP",
     "SolverResiduals",
     "classify_leading_positions",
-    "col_driver_current",
-    "col_wire_kcl_residual",
     "iter_chunks",
     "reassemble_chunks",
-    "solve_block_tridiagonal",
 ]

@@ -22,7 +22,7 @@ All tools are **config-driven**: each takes a single `--config <run.toml>` plus 
 - `resolve_relative_path(path, base)` — resolve a TOML-supplied path against `base.parent`; absolute paths and `None` are returned unchanged.
 - `setup_logging(level_name)` — configure `neurox.tools` logging from `args.log_level`.
 
-**Logging format.** `neurox/tools/logging.py` centralises the logging setup so every tool emits in the same paste-ready format: a plain `"%(message)s"` (no level / timestamp / logger-name prefix) on stderr, so a tool's output lines drop straight into a TOML / config file. The setup is idempotent. Tools never call `logging.basicConfig(...)` directly.
+**Logging format.** `neurox/tools/_logging.py` centralises the logging setup so every tool emits in the same paste-ready format: a plain `"%(message)s"` (no level / timestamp / logger-name prefix) on stderr, so a tool's output lines drop straight into a TOML / config file. The setup is idempotent. Tools never call `logging.basicConfig(...)` directly.
 
 ## Two-stage ADC pipeline
 

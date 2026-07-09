@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import TypeVar
 
 from neurox.common import dataclass_from_file
-from neurox.tools.logging import config_tool_logging
+from neurox.tools._logging import config_tool_logging
 
 _T = TypeVar("_T")
 

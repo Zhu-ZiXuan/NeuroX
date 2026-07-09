@@ -1,6 +1,6 @@
 # ADC base
 
-The ADC family: the abstract `ADC` (`adc/base.py`) carries the registry, `from_config`, the abstract `convert` / `max_bits` / `signed_range` surface, and the multi-mode support types (`adc/_multimode.py`). The ADC owns the digitize step alone; current-to-voltage clamping belongs to the tia / voltage_driver, column multiplexing to the voltage_mux, and the code-to-scale rescale to the caller. The ADC self-holds no reference - every reference tap arrives as a per-call argument.
+The ADC family: the abstract `ADC` (`adc/base.py`) carries the registry, `from_config`, the abstract `convert` / `max_bits` / `signed_range` surface, and the multi-mode support types. The ADC owns the digitize step alone; current-to-voltage clamping belongs to the tia / voltage_driver, column multiplexing to the voltage_mux, and the code-to-scale rescale to the caller. The ADC self-holds no reference - every reference tap arrives as a per-call argument.
 
 ## Design decisions
 
@@ -20,5 +20,5 @@ The ADC family: the abstract `ADC` (`adc/base.py`) carries the registry, `from_c
 ---
 
 - **Reference**: [adc base](../../../../reference/primitive/analog/adc/family.md)
-- **Implementation**: `neurox/primitive/analog/adc/base.py`, `neurox/primitive/analog/adc/_multimode.py`
+- **Implementation**: `neurox/primitive/analog/adc/base.py`
 - **Tests**: TODO - name the guarding test

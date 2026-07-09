@@ -43,15 +43,16 @@ from typing import IO
 
 import torch
 
+import neurox.primitive.xbar.solver._linalg as _linalg
+
 # IMPORTANT: monkey-patch the solver before importing anything that pulls
 # in the nested solver, otherwise the resolved binding sticks.
 import neurox.primitive.xbar.solver.nested as _nested
-import neurox.primitive.xbar.solver.primitives as _primitives
 
 _SOLVER_TABLE = {
-    "thomas": _primitives.solve_block_tridiagonal,
-    "pcr": _primitives.solve_block_tridiagonal_pcr,
-    "dense": _primitives.solve_block_tridiagonal_dense,
+    "thomas": _linalg.solve_block_tridiagonal,
+    "pcr": _linalg.solve_block_tridiagonal_pcr,
+    "dense": _linalg.solve_block_tridiagonal_dense,
 }
 
 

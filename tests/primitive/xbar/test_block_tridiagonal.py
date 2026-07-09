@@ -1,4 +1,4 @@
-"""Unit tests for :func:`neurox.primitive.xbar.solver.solve_block_tridiagonal`.
+"""Unit tests for :func:`neurox.primitive.xbar.solver._linalg.solve_block_tridiagonal`.
 
 Covers:
   * ``block_size = 1`` reduces to the existing scalar Thomas solver
@@ -16,8 +16,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from neurox.primitive.xbar.solver import solve_block_tridiagonal
-from neurox.primitive.xbar.solver.primitives import solve_tridiagonal
+from neurox.primitive.xbar.solver._linalg import solve_block_tridiagonal, solve_tridiagonal
 
 
 def _dense_from_blocks(sub: torch.Tensor, diag: torch.Tensor, sup: torch.Tensor) -> torch.Tensor:

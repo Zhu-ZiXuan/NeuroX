@@ -20,13 +20,10 @@ from torch import Tensor
 
 from neurox.primitive.xbar.cell import XbarCell, XbarCellDCOP, XbarCellSnap
 
+from ._linalg import solve_block_tridiagonal
+from ._wire_kcl import col_driver_current, col_wire_kcl_residual
 from .base import Solver, SolverConfig, SolverDCOP, SolverResiduals
 from .clamp import ClampDriver, ClampSnap
-from .primitives import (
-    col_driver_current,
-    col_wire_kcl_residual,
-    solve_block_tridiagonal,
-)
 
 # ---------------------------------------------------------------------------
 # Per-call method-generic type vars
