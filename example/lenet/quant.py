@@ -36,7 +36,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
-from neurox.analog.adc import AdcOperationPoint
 from neurox.common.quant import (
     PerChannelSymmObserver,
     PerTensorObserver,
@@ -45,7 +44,8 @@ from neurox.common.quant import (
     fake_quant_symm_per_channel_ste,
     stochastic_floor_div,
 )
-from neurox.macro.base import NeuroxMacroQuantMatMul
+from neurox.primitive.analog.adc import AdcOperationPoint
+from neurox.architecture.unit.matmul import QuantMatMul
 
 # --- LeNet quantization grid ---
 X_QMIN = 0
@@ -165,7 +165,7 @@ class QATLinear(nn.Linear):
 # ---------------------------------------------------------------------------
 
 
-def _default_op_point(macro: NeuroxMacroQuantMatMul, adc_mode: int | None) -> AdcOperationPoint:
+def _default_op_point(macro: QuantMatMul, adc_mode: int | None) -> AdcOperationPoint:
     mode = 0 if adc_mode is None else adc_mode
     return AdcOperationPoint(adc_mode=mode, adc_bits=macro.adc_max_bits)
 
@@ -288,7 +288,7 @@ class QuantConv2d(nn.Module):
     def __init__(
         self,
         *,
-        macro: NeuroxMacroQuantMatMul,
+        macro: QuantMatMul,
         weight_int: Tensor,
         bias_float: Tensor | None,
         s_x: Tensor,
@@ -355,7 +355,7 @@ class QuantConv2d(nn.Module):
     def from_state(
         cls,
         *,
-        macro: NeuroxMacroQuantMatMul,
+        macro: QuantMatMul,
         state: dict[str, Any],
         adc_mode: int | None = None,
     ) -> Self:
@@ -392,7 +392,7 @@ class QuantLinear(nn.Module):
     def __init__(
         self,
         *,
-        macro: NeuroxMacroQuantMatMul,
+        macro: QuantMatMul,
         weight_int: Tensor,
         bias_float: Tensor | None,
         s_x: Tensor,
@@ -444,7 +444,7 @@ class QuantLinear(nn.Module):
     def from_state(
         cls,
         *,
-        macro: NeuroxMacroQuantMatMul,
+        macro: QuantMatMul,
         state: dict[str, Any],
         adc_mode: int | None = None,
     ) -> Self:

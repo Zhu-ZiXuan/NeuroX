@@ -53,9 +53,9 @@ The integer exponent $N$ in $10^{-N}$ is the single source of truth for each can
 ## CLI usage
 
 ```bash
-python -m <scheme>.tools.xbar_adc.statistic \
-    --config <scheme>/config/xbar_adc_statistic.toml \
-    --plot-dir log/xbar_adc/statistic/ \
+python -m <scheme>.tools.macro_adc.statistic \
+    --config <scheme>/config/macro_adc_statistic.toml \
+    --plot-dir log/macro_adc/statistic/ \
     --device cuda:0
 ```
 
@@ -63,7 +63,7 @@ Workload, sampling, and plot knobs live in the TOML config; the CLI carries only
 
 | Flag | Type | Default | Role |
 |---|---|---|---|
-| `--config` | path | required | Statistic-run TOML; sections `[xbar]`, `[workload]`, `[statistic]`, `[plot]` |
+| `--config` | path | required | Statistic-run TOML; sections `[cim_macro]`, `[workload]`, `[statistic]`, `[plot]` |
 | `--device` | str | `cpu` | `cpu` / `cuda` / `cuda:N`; omit to use CPU (no implicit GPU pickup) |
 | `--plot-dir` | path | `None` | Optional directory; writes `overview.png` plus a per-candidate `spotlight_*.png` |
 | `--log-level` | str | `INFO` | Logger level |
@@ -88,8 +88,8 @@ When `--plot-dir DIR` is supplied the tool writes `overview.png` plus one `spotl
 ## TOML schema
 
 ```toml
-[xbar]
-_neurox_use = "1t1r_28nm.toml:xbar"   # path relative to this TOML
+[cim_macro]
+_neurox_use = "1t1r_28nm.toml:cim_macro"   # path relative to this TOML
 
 [workload]
 # distribution = "..."   # omit to use a uniform synthetic workload

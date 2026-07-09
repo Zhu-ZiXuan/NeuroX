@@ -4,7 +4,6 @@ See also:
     docs/internals/common/README.md
 """
 
-from .circuit import CircuitBase, CircuitConfig
 from .load_dump import (
     dataclass_from_dict,
     dataclass_from_file,
@@ -17,13 +16,6 @@ from .load_dump import (
     merge_dicts,
     resolve_uses,
 )
-from .physical_constant import (
-    ELEM_CHARGE__C,
-    T_ROOM__K,
-    EPS_0__F_per_m,
-    K_BOLTZMANN__J_per_K,
-    thermal_voltage__V,
-)
 from .quant import (
     floor_bucketize,
     stochastic_floor_div,
@@ -31,12 +23,6 @@ from .quant import (
 )
 
 __all__ = [
-    "CircuitBase",
-    "CircuitConfig",
-    "ELEM_CHARGE__C",
-    "EPS_0__F_per_m",
-    "K_BOLTZMANN__J_per_K",
-    "T_ROOM__K",
     "dataclass_from_dict",
     "dataclass_from_file",
     "dataclass_to_dict",
@@ -50,5 +36,4 @@ __all__ = [
     "resolve_uses",
     "stochastic_floor_div",
     "stochastic_floor_to_int",
-    "thermal_voltage__V",
 ]

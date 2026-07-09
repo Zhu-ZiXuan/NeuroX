@@ -56,7 +56,7 @@ test: ## Run pytest
 #
 # Hardware knobs: HAT uses the bundled 1T1R TOML and the lossless
 # ideal xbar; evaluate defaults to ``physical`` for deployment
-# accuracy.  Override ``XBAR=...`` to swap.
+# accuracy.  Override ``CIM_MACRO=...`` to swap.
 
 DEVICE      ?= cuda:0
 MAX_SAMPLES ?=
@@ -73,8 +73,8 @@ hat-lenet:                        LR          ?= 2e-5
 hat-lenet:                        CAL_BATCHES ?= 128
 hat-lenet:                        KD_ALPHA    ?= 0.1
 hat-lenet:                        KD_TEMP     ?= 2.0
-hat-lenet:                        XBAR        ?= ideal
-eval-lenet:                       XBAR        ?= physical
+hat-lenet:                        CIM_MACRO   ?= ideal
+eval-lenet:                       CIM_MACRO   ?= physical
 eval-lenet:                       EVAL_CKPT   ?= weight/lenet_qat.pth
 eval-lenet:                       CONFIG      ?= macro_with_physical_xbar.toml
 eval-lenet:                       POLICY      ?= macro_with_physical_xbar.policy.toml
@@ -88,7 +88,7 @@ train-lenet: ## Float-train LeNet-5 on MNIST
 hat-lenet: ## Hardware-aware QAT for LeNet-5 (macro-in-the-loop, KD)
 	$(PYTHON) -m example.lenet.hat_qat --dataset-dir $(DATASET_DIR) \
 		--float-checkpoint $(RAW_CKPT) --checkpoint $(HAT_CKPT) \
-		--device $(DEVICE) --xbar $(XBAR) \
+		--device $(DEVICE) --cim_macro $(CIM_MACRO) \
 		--batch-size $(BATCH_SIZE) --epochs $(EPOCHS) --lr $(LR) \
 		--calibration-batches $(CAL_BATCHES) \
 		--kd-alpha $(KD_ALPHA) --kd-temperature $(KD_TEMP)
@@ -97,7 +97,7 @@ hat-lenet: ## Hardware-aware QAT for LeNet-5 (macro-in-the-loop, KD)
 eval-lenet: ## Evaluate a LeNet QAT checkpoint on MNIST
 	$(PYTHON) -m example.lenet.evaluate --dataset-dir $(DATASET_DIR) \
 		--checkpoint $(EVAL_CKPT) --config $(CONFIG) --policy $(POLICY) \
-		--device $(DEVICE) --xbar $(XBAR) --batch-size $(BATCH_SIZE) \
+		--device $(DEVICE) --cim_macro $(CIM_MACRO) --batch-size $(BATCH_SIZE) \
 		$(if $(MAX_SAMPLES),--max-samples $(MAX_SAMPLES))
 
 # BERT-small on SST-2
@@ -112,8 +112,8 @@ hat-bert:           CAL_BATCHES ?= 128
 hat-bert:           KD_ALPHA    ?= 0.5
 hat-bert:           KD_TEMP     ?= 2.0
 hat-bert:           KD_HIDDEN   ?= 0.3
-hat-bert:           XBAR        ?= ideal
-eval-bert:          XBAR        ?= physical
+hat-bert:           CIM_MACRO        ?= ideal
+eval-bert:          CIM_MACRO        ?= physical
 eval-bert:          EVAL_CKPT   ?= weight/bert_small_qat.pth
 eval-bert:          CONFIG      ?= macro.toml
 eval-bert:          POLICY      ?= macro.policy.toml
@@ -122,7 +122,7 @@ eval-bert:          POLICY      ?= macro.policy.toml
 hat-bert: ## Hardware-aware QAT for BERT-small on SST-2 (KD + pooled MSE)
 	$(PYTHON) -m example.bert.hat_qat --dataset-dir $(DATASET_DIR) \
 		--float-checkpoint $(RAW_CKPT) --checkpoint $(HAT_CKPT) \
-		--device $(DEVICE) --xbar $(XBAR) \
+		--device $(DEVICE) --cim_macro $(CIM_MACRO) \
 		--batch-size $(BATCH_SIZE) --epochs $(EPOCHS) --lr $(LR) \
 		--max-length $(MAX_LENGTH) --calibration-batches $(CAL_BATCHES) \
 		--kd-alpha $(KD_ALPHA) --kd-temperature $(KD_TEMP) --kd-hidden-weight $(KD_HIDDEN)
@@ -131,7 +131,7 @@ hat-bert: ## Hardware-aware QAT for BERT-small on SST-2 (KD + pooled MSE)
 eval-bert: ## Evaluate a BERT-small QAT checkpoint on SST-2
 	$(PYTHON) -m example.bert.evaluate --dataset-dir $(DATASET_DIR) \
 		--checkpoint $(EVAL_CKPT) --config $(CONFIG) --policy $(POLICY) \
-		--device $(DEVICE) --xbar $(XBAR) \
+		--device $(DEVICE) --cim_macro $(CIM_MACRO) \
 		--batch-size $(BATCH_SIZE) --max-length $(MAX_LENGTH) \
 		$(if $(MAX_SAMPLES),--max-samples $(MAX_SAMPLES))
 
@@ -148,8 +148,8 @@ hat-spikingvgg:                                  LR          ?= 1e-5
 hat-spikingvgg:                                  CAL_BATCHES ?= 8
 hat-spikingvgg:                                  KD_ALPHA    ?= 0.3
 hat-spikingvgg:                                  KD_TEMP     ?= 4.0
-hat-spikingvgg:                                  XBAR        ?= ideal
-eval-spikingvgg:                                 XBAR        ?= physical
+hat-spikingvgg:                                  CIM_MACRO        ?= ideal
+eval-spikingvgg:                                 CIM_MACRO        ?= physical
 
 .PHONY: train-spikingvgg
 train-spikingvgg: ## Float-train SpikingVGG-5 on CIFAR-10
@@ -161,7 +161,7 @@ train-spikingvgg: ## Float-train SpikingVGG-5 on CIFAR-10
 hat-spikingvgg: ## Hardware-aware QAT for SpikingVGG-5 (macro-in-the-loop, KD)
 	$(PYTHON) -m example.spikingvgg.hat_qat --dataset-dir $(DATASET_DIR) \
 		--float-checkpoint $(RAW_CKPT) --checkpoint $(HAT_CKPT) \
-		--device $(DEVICE) --xbar $(XBAR) \
+		--device $(DEVICE) --cim_macro $(CIM_MACRO) \
 		--batch-size $(BATCH_SIZE) --epochs $(EPOCHS) --lr $(LR) \
 		--time-step $(TIME_STEP) --calibration-batches $(CAL_BATCHES) \
 		--kd-alpha $(KD_ALPHA) --kd-temperature $(KD_TEMP)
@@ -169,7 +169,7 @@ hat-spikingvgg: ## Hardware-aware QAT for SpikingVGG-5 (macro-in-the-loop, KD)
 .PHONY: eval-spikingvgg
 eval-spikingvgg: ## Evaluate a NeuroX-flat SpikingVGG-5 checkpoint on CIFAR-10
 	$(PYTHON) -m example.spikingvgg.evaluate --dataset-dir $(DATASET_DIR) \
-		--checkpoint $(HAT_CKPT) --device $(DEVICE) --xbar $(XBAR) \
+		--checkpoint $(HAT_CKPT) --device $(DEVICE) --cim_macro $(CIM_MACRO) \
 		--batch-size $(BATCH_SIZE) --time-step $(TIME_STEP) \
 		$(if $(MAX_SAMPLES),--max-samples $(MAX_SAMPLES))
 
@@ -186,8 +186,8 @@ hat-spikformer:                                  LR          ?= 1e-5
 hat-spikformer:                                  CAL_BATCHES ?= 16
 hat-spikformer:                                  KD_ALPHA    ?= 0.3
 hat-spikformer:                                  KD_TEMP     ?= 4.0
-hat-spikformer:                                  XBAR        ?= ideal
-eval-spikformer:                                 XBAR        ?= physical
+hat-spikformer:                                  CIM_MACRO        ?= ideal
+eval-spikformer:                                 CIM_MACRO        ?= physical
 
 .PHONY: train-spikformer
 train-spikformer: ## Float-train Spikformer-256 on CIFAR-10
@@ -199,7 +199,7 @@ train-spikformer: ## Float-train Spikformer-256 on CIFAR-10
 hat-spikformer: ## Hardware-aware QAT for Spikformer-256 (macro-in-the-loop, KD)
 	$(PYTHON) -m example.spikformer.hat_qat --dataset-dir $(DATASET_DIR) \
 		--float-checkpoint $(RAW_CKPT) --checkpoint $(HAT_CKPT) \
-		--device $(DEVICE) --xbar $(XBAR) \
+		--device $(DEVICE) --cim_macro $(CIM_MACRO) \
 		--batch-size $(BATCH_SIZE) --epochs $(EPOCHS) --lr $(LR) \
 		--time-step $(TIME_STEP) --calibration-batches $(CAL_BATCHES) \
 		--kd-alpha $(KD_ALPHA) --kd-temperature $(KD_TEMP)
@@ -207,7 +207,7 @@ hat-spikformer: ## Hardware-aware QAT for Spikformer-256 (macro-in-the-loop, KD)
 .PHONY: eval-spikformer
 eval-spikformer: ## Evaluate a NeuroX-flat Spikformer-256 checkpoint on CIFAR-10
 	$(PYTHON) -m example.spikformer.evaluate --dataset-dir $(DATASET_DIR) \
-		--checkpoint $(HAT_CKPT) --device $(DEVICE) --xbar $(XBAR) \
+		--checkpoint $(HAT_CKPT) --device $(DEVICE) --cim_macro $(CIM_MACRO) \
 		--batch-size $(BATCH_SIZE) --time-step $(TIME_STEP) \
 		$(if $(MAX_SAMPLES),--max-samples $(MAX_SAMPLES))
 

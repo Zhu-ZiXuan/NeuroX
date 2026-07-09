@@ -1,5 +1,5 @@
 # LeNet macro configuration: lossless integer-matmul baseline.
-# IdealXbarMacro is the degenerate member of the XbarMacro family — no
+# IdealCimUnit is the degenerate member of the CimUnit family — no
 # xbar tile, no slicing, no transcoding. Useful as a numerical ground
 # truth when isolating QAT issues from analog / IO modelling.
 # BRING-UP / REFERENCE ONLY — value-domain upper bound, no ADC / no PPA; never
@@ -34,8 +34,8 @@ encoding = "true_form"
 digit_num = 4
 
 
-[macro]
-_neurox_type = "IdealXbarMacroConfig"
+[cim_unit]
+_neurox_type = "IdealCimUnitConfig"
 
 # Matches the (x[0,15], w[-1,1]) grid the physical/ideal xbar macros land on
 # under the 3-state ternary setting (Sa=4, Sw=1, w_digit_count=1, true_form).

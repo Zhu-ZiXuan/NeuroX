@@ -40,7 +40,7 @@ def main() -> None:
         help=f"Nonideality policy TOML filename under {CONFIG_DIR.name}/ (e.g. macro_with_physical_xbar.policy.toml)",
     )
     parser.add_argument(
-        "--xbar",
+        "--cim_macro",
         choices=("physical", "ideal"),
         default="physical",
         help="Tile implementation. 'ideal' swaps physical for lossless twin; only meaningful "
@@ -66,7 +66,7 @@ def main() -> None:
     macro_factory = build_macro_factory(
         config_path,
         policy_path,
-        ideal_xbar=(args.xbar == "ideal"),
+        ideal_xbar=(args.cim_macro == "ideal"),
     )
     model = QuantLeNet5(macro_factory, ckpt["layers"]).to(device).eval()
 
@@ -87,7 +87,7 @@ def main() -> None:
     acc = correct / total if total else 0.0
     static = NeuroxProfiler.analyze_static(model)
     leakage_energy__fJ = static.leakage_power__uW * profiler.total_latency__ns
-    print(f"config:                   {args.config} (xbar={args.xbar})")
+    print(f"config:                   {args.config} (cim_macro={args.cim_macro})")
     print(f"policy:                   {args.policy}")
     print(f"samples:                  {total}")
     print(f"top1_accuracy:            {acc:.4f}")

@@ -6,14 +6,14 @@ Most tools here are *calibration* flows that produce the parameters tying an abs
 
 ## Tool conventions
 
-All tools are **config-driven**: each takes a single `--config <run.toml>` plus a handful of runtime / output flags. Every input that affects the result lives in the TOML — chip preset (typically wrapping a preset via `[xbar]._neurox_use`), workload, sweep ranges, RNG seed, dtype. The CLI carries only runtime / output knobs:
+All tools are **config-driven**: each takes a single `--config <run.toml>` plus a handful of runtime / output flags. Every input that affects the result lives in the TOML — chip preset (typically wrapping a preset via `[cim_macro]._neurox_use`), workload, sweep ranges, RNG seed, dtype. The CLI carries only runtime / output knobs:
 
 - `--config <run.toml>` — the run config; its dataclass schema lives with the tool.
 - `--device` — compute device, default `cpu`. There is no implicit GPU pickup; pass `--device cuda:N` explicitly. Tools with no GPU code path (e.g. the 1T1R state map, which runs entirely in float64 on CPU) opt out of this flag.
 - `--plot-dir` / `--plot` / `--output` — output destinations, as applicable per tool.
 - `--log-level` — one of `DEBUG / INFO / WARNING / ERROR / CRITICAL`, default `INFO`. Enforced via argparse `choices` so a typo errors at parse time.
 
-**Sample-TOML naming.** A ready-to-edit sample config sits beside each tool's scheme config dir and bears the tool's module path, e.g. `<scheme>/config/xbar_adc_statistic.toml`.
+**Sample-TOML naming.** A ready-to-edit sample config sits beside each tool's scheme config dir and bears the tool's module path, e.g. `<scheme>/config/macro_adc_statistic.toml`.
 
 **Shared helpers.** `neurox/tools/_config.py` provides the CLI helpers every tool's `main()` calls:
 
@@ -30,8 +30,8 @@ The ADC-side tools form a two-stage pipeline with no overlap — first pick the 
 
 | Stage | Tool | What it answers |
 |---|---|---|
-| 1 | `xbar_adc.statistic` | "What is the ADC analog-input distribution?" — probes $v_\mathrm{diff}$ and recommends $[-A, A]$ input-range candidates at a ladder of clip rates. Output is the `v_refs` list to paste into the chip's ADC config. |
-| 2 | `xbar_adc.calibrate` | "What is the recovery rescale at a fixed (mode, bits)?" — runs an all-off xbar against an ideal twin and fits the scalar `rescale_factor` (zero-through-origin least squares) per `adc_mode`. Output is the `[[xbar.adc_calibration]]` block. |
+| 1 | `macro_adc.statistic` | "What is the ADC analog-input distribution?" — probes $v_\mathrm{diff}$ and recommends $[-A, A]$ input-range candidates at a ladder of clip rates. Output is the `v_refs` list to paste into the chip's ADC config. |
+| 2 | `macro_adc.calibrate` | "What is the recovery rescale at a fixed (mode, bits)?" — runs an all-off cim_macro against an ideal twin and fits the scalar `rescale_factor` (zero-through-origin least squares) per `adc_mode`. Output is the `[[cim_macro.adc_calibration]]` block. |
 
 ## Per-tool guides
 
@@ -43,4 +43,4 @@ The ADC-side tools form a two-stage pipeline with no overlap — first pick the 
 
 ---
 
-- See also: [rescale convention](../../reference/xbar/family.md#output-rescale), [solver iteration internals](../../internals/xbar/solver.md), [config & policy](../../internals/config_and_policy.md)
+- See also: [rescale convention](../../reference/primitive/macro/cim/README.md#output-rescale), [solver iteration internals](../../internals/primitive/xbar/solver.md), [config & policy](../../internals/config_and_policy.md)

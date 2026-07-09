@@ -54,14 +54,14 @@ Workload and sampling knobs live in a TOML config; the CLI carries only runtime 
 
 | Flag | Type | Default | Role |
 |---|---|---|---|
-| `--config` | path | required | Calibrate-run TOML; sections `[xbar]`, `[workload]`, `[adc]` |
+| `--config` | path | required | Calibrate-run TOML; sections `[cim_macro]`, `[workload]`, `[adc]` |
 | `--device` | str | `cpu` | `cpu` / `cuda` / `cuda:N`; omit for CPU (no implicit GPU pickup) |
 | `--plot` | path | `None` | Optional PNG output (two-panel figure) |
 | `--log-level` | str | `"INFO"` | Logger level |
 
 ```toml
-[xbar]
-_neurox_use = "1t1r_28nm.toml:xbar"   # path relative to this TOML
+[cim_macro]
+_neurox_use = "1t1r_28nm.toml:cim_macro"   # path relative to this TOML
 
 [workload]
 # distribution = "..."           # optional; defaults to uniform
@@ -71,13 +71,13 @@ batch_size = 128
 seed = 0
 
 [adc]
-mode = 0                         # operating-point index; 0 <= mode < xbar.adc_mode_num
+mode = 0                         # operating-point index; 0 <= mode < cim_macro.adc_mode_num
 ```
 
 ```bash
-python -m <scheme>.tools.xbar_adc.calibrate \
-    --config <scheme>/config/xbar_adc_calibrate.toml \
-    --plot log/xbar_adc/calibrate/mode0.png \
+python -m <scheme>.tools.macro_adc.calibrate \
+    --config <scheme>/config/macro_adc_calibrate.toml \
+    --plot log/macro_adc/calibrate/mode0.png \
     --device cuda:0
 ```
 
@@ -112,7 +112,7 @@ adc_bits = 4
 rescale_factor = ...
 ```
 
-For SAR-family ADCs (which support `bits < max_bits` on the same range) the derived lower-bit table is printed for information; you choose which derived rows to add to the chip TOML. For non-SAR ADCs (e.g. `GeneralADC`) the derived table is skipped, as those topologies do not support flexible bit widths. Paste the snippet under the `[xbar]` section of the chip TOML.
+For SAR-family ADCs (which support `bits < max_bits` on the same range) the derived lower-bit table is printed for information; you choose which derived rows to add to the chip TOML. For non-SAR ADCs (e.g. `GeneralADC`) the derived table is skipped, as those topologies do not support flexible bit widths. Paste the snippet under the `[cim_macro]` section of the chip TOML.
 
 A scheme xbar that instantiates one physically-identical `bl_adc` module per readout group flattens the $(\mathrm{phys\_code}, \mathrm{ideal\_vmm})$ pairs across all instances before the fit. This is intentional — real silicon shares the same ADC circuit design and bias network across slices, so a single scalar `rescale_factor` is the correct model.
 
@@ -121,5 +121,5 @@ When `--plot PATH` is supplied, the left panel scatters $(\mathrm{phys\_code}, \
 ## See also
 
 - [ADC range probing](adc_range_probing.md) — the prerequisite stage that settles the analog range this tool calibrates against.
-- [ADC base reference](../../reference/analog/adc/family.md) — the signed code convention and the `convert` contract.
+- [ADC base reference](../../reference/primitive/analog/adc/family.md) — the signed code convention and the `convert` contract.
 - [Calibration hub](README.md) — all calibration stages.

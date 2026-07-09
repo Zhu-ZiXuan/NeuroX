@@ -5,7 +5,7 @@ island, so it is NOT part of the macro `matmul` graph. We force it eager
 here (monkeypatch to the undecorated callable) only to skip its ~10 min
 cold compile — the macro graph under study is unchanged.
 
-We then drive `InterArraySliceXbarMacro.matmul` (the bert macro type) with
+We then drive `InterArraySliceCimUnit.matmul` (the bert macro type) with
 a controlled matrix of (tile geometry, input rank, batch size) and read
 `torch._dynamo`'s recompile log + the global unique-graph counter to
 attribute each recompile to a specific guard:
@@ -25,10 +25,10 @@ from pathlib import Path
 
 import torch
 
-from neurox.analog.adc import AdcOperationPoint
-from neurox.common import T_ROOM__K
-from neurox.macro.xbar import XbarMacro
-from neurox.xbar.solver import NestedParallelRailSolver
+from neurox.architecture.unit.cim import CimUnit
+from neurox.primitive.physical_constant import T_ROOM__K
+from neurox.primitive.analog.adc import AdcOperationPoint
+from neurox.primitive.xbar.solver import NestedParallelRailSolver
 
 from example.bert.macro_factory import read_macro_config, read_macro_policy
 
@@ -52,20 +52,20 @@ def _force_macro_eager_backend() -> None:
     The original is `@torch.no_grad` wrapped; we drop that and drive the body
     under an explicit `torch.no_grad()` in `_run`.
     """
-    from neurox.macro.xbar.inter_array_slice import InterArraySliceXbarMacro
+    from neurox.architecture.unit.cim.inter_array_slice import InterArraySliceCimUnit
 
-    raw = getattr(InterArraySliceXbarMacro.matmul, "_torchdynamo_orig_callable", None)
+    raw = getattr(InterArraySliceCimUnit.matmul, "_torchdynamo_orig_callable", None)
     if raw is None:
         # Production state: the macro matmul is eager (not self-compiled), so
         # there is nothing to re-wrap. The probe then measures ~0 macro graphs,
         # which is the regression check that the explosion stays fixed.
         print("[probe] macro matmul is eager (not self-compiled) — expect ~0 macro graphs", flush=True)
         return
-    InterArraySliceXbarMacro.matmul = torch.compile(raw, backend="eager", dynamic=True)  # type: ignore[assignment]
+    InterArraySliceCimUnit.matmul = torch.compile(raw, backend="eager", dynamic=True)  # type: ignore[assignment]
 
 
-def _build_macro(n: int, k: int, device: torch.device) -> XbarMacro:
-    macro = XbarMacro.from_config(
+def _build_macro(n: int, k: int, device: torch.device) -> CimUnit:
+    macro = CimUnit.from_config(
         config=read_macro_config(MACRO_TOML),
         policy=read_macro_policy(POLICY_TOML),
         name=f"m_{n}x{k}",
@@ -80,7 +80,7 @@ def _build_macro(n: int, k: int, device: torch.device) -> XbarMacro:
     return macro
 
 
-def _run(macro: XbarMacro, leading: tuple[int, ...], k: int, device: torch.device) -> None:
+def _run(macro: CimUnit, leading: tuple[int, ...], k: int, device: torch.device) -> None:
     op = AdcOperationPoint(adc_mode=0, adc_bits=macro.adc_max_bits)
     x = torch.zeros(*leading, 1, k, dtype=torch.int32, device=device)  # (..., M=1, K)
     with torch.no_grad():

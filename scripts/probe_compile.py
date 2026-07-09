@@ -2,7 +2,7 @@
 warm runtime, and peak compiled-mode memory under realistic leading-batch
 sizes.
 
-Builds a minimal ``DirectXbarMacro`` wrapping an ``Offset1T1RXbar`` from the
+Builds a minimal ``DirectCimUnit`` wrapping an ``Offset1T1RCimMacro`` from the
 1t1r_28nm preset, then triggers one cold ``@torch.compile`` of the macro
 ``matmul`` followed by one warm call. Reports:
 
@@ -15,7 +15,7 @@ Builds a minimal ``DirectXbarMacro`` wrapping an ``Offset1T1RXbar`` from the
     LeNet- or BERT-sized leading batches.
 
 The ``--solver`` flag picks which block-tridiagonal implementation
-``neurox.xbar.solver.nested`` will call. The probe monkey-patches
+``neurox.primitive.xbar.solver.nested`` will call. The probe monkey-patches
 the symbol at import time, so the same script can sweep Thomas / PCR /
 dense without manual edits.
 
@@ -45,8 +45,8 @@ import torch
 
 # IMPORTANT: monkey-patch the solver before importing anything that pulls
 # in the nested solver, otherwise the resolved binding sticks.
-import neurox.xbar.solver.nested as _nested
-import neurox.xbar.solver.primitives as _primitives
+import neurox.primitive.xbar.solver.nested as _nested
+import neurox.primitive.xbar.solver.primitives as _primitives
 
 _SOLVER_TABLE = {
     "thomas": _primitives.solve_block_tridiagonal,
@@ -61,22 +61,24 @@ def _bind_solver(name: str) -> None:
     _nested.solve_block_tridiagonal = _SOLVER_TABLE[name]
 
 
-import works.offset_1t1r  # noqa: F401  (register the Offset1T1RXbar kind)
-from neurox.analog import SwitchCapPolicy, VoltageDriverPolicy, VoltageMuxPolicy
-from neurox.analog.adc import AdcOperationPoint, McsSarAdcConfig, McsSarAdcPolicy
-from neurox.analog.dac import GeneralDACPolicy
-from neurox.analog.tia import OpAmpTIAPolicy
-from neurox.analog.voltage_reference import VoltageReferencePolicy
-from neurox.common import T_ROOM__K, dataclass_from_file
-from neurox.device import NMOSPolicy, RRAMPolicy
-from neurox.digital import AccumulatorConfig
-from neurox.macro.xbar import (
-    DirectXbarMacroConfig,
-    DirectXbarMacroPolicy,
-    XbarMacro,
+import works.offset_1t1r  # noqa: F401  (register the Offset1T1RCimMacro kind)
+from neurox.architecture.unit.cim import (
+    CimUnit,
+    DirectCimUnitConfig,
+    DirectCimUnitPolicy,
 )
-from neurox.xbar import Core1T1RPolicy, XbarCell1T1RPolicy
-from works.offset_1t1r.xbar import Offset1T1RXbarConfig, Offset1T1RXbarPolicy
+from neurox.common import dataclass_from_file
+from neurox.primitive.physical_constant import T_ROOM__K
+from neurox.primitive.analog import SwitchCapPolicy, VoltageDriverPolicy, VoltageMuxPolicy
+from neurox.primitive.analog.adc import AdcOperationPoint, McsSarAdcConfig, McsSarAdcPolicy
+from neurox.primitive.analog.dac import GeneralDACPolicy
+from neurox.primitive.analog.tia import OpAmpTIAPolicy
+from neurox.primitive.analog.voltage_reference import VoltageReferencePolicy
+from neurox.primitive.device import NMOSPolicy, RRAMPolicy
+from neurox.primitive.digital import AccumulatorConfig
+from neurox.primitive.xbar.array import XbarArray1T1RPolicy
+from neurox.primitive.xbar.cell import XbarCell1T1RPolicy
+from works.offset_1t1r.macro import Offset1T1RCimMacroConfig, Offset1T1RCimMacroPolicy
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PRESET = REPO_ROOT / "example" / "config" / "1t1r_28nm.toml"
@@ -96,11 +98,11 @@ class _Tee:
             s.flush()
 
 
-def _all_off_xbar_policy(config: Offset1T1RXbarConfig) -> Offset1T1RXbarPolicy:
+def _all_off_xbar_policy(config: Offset1T1RCimMacroConfig) -> Offset1T1RCimMacroPolicy:
     if not isinstance(config.adc_config, McsSarAdcConfig):
         raise TypeError(f"probe expects McsSarAdcConfig; got {type(config.adc_config).__name__}")
-    return Offset1T1RXbarPolicy(
-        core=Core1T1RPolicy(
+    return Offset1T1RCimMacroPolicy(
+        array=XbarArray1T1RPolicy(
             cell=XbarCell1T1RPolicy(
                 rram=RRAMPolicy(prog_gamma=False, stuck_at=False, read_telegraph=False, read_thermal=False),
                 nmos=NMOSPolicy(A_vt_mismatch=False, A_beta_mismatch=False),
@@ -173,7 +175,7 @@ def _run(args: argparse.Namespace) -> None:
     if not PRESET.is_file():
         raise SystemExit(f"missing preset: {PRESET}")
 
-    xbar_cfg_full = dataclass_from_file(Offset1T1RXbarConfig, PRESET, section="xbar")
+    xbar_cfg_full = dataclass_from_file(Offset1T1RCimMacroConfig, PRESET, section="cim_macro")
     ref_group_size = min(xbar_cfg_full.ref_group_size, args.col_num)
     while args.col_num % ref_group_size != 0:
         ref_group_size -= 1
@@ -195,16 +197,16 @@ def _run(args: argparse.Namespace) -> None:
         bit_width=32, energy_per_op__fJ=0.0, latency_per_op__ns=0.0,
         leakage_per_inst__uW=0.0, area_per_inst__um2=0.0,
     )
-    direct_cfg = DirectXbarMacroConfig(
+    direct_cfg = DirectCimUnitConfig(
         xbar_config=xbar_cfg,
         w_encoding="true_form",
         col_accumulator_config=accum_cfg,
     )
-    policy = DirectXbarMacroPolicy(xbar=_all_off_xbar_policy(xbar_cfg))
+    policy = DirectCimUnitPolicy(cim_macro=_all_off_xbar_policy(xbar_cfg))
 
     n_logical = xbar_cfg.col_num
     k_logical = xbar_cfg.row_num
-    macro = XbarMacro.from_config(
+    macro = CimUnit.from_config(
         config=direct_cfg,
         policy=policy,
         name="probe",

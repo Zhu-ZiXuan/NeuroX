@@ -1,10 +1,10 @@
 # State-map calibration
 
-Goal: derive the per-state RRAM conductance ladder `state_to_g_map__uS` so that the 1T1R cell read current is *linear in the state index* under a fixed read bias. This ladder is consumed by [reference/xbar/_1t1r/core](../../reference/xbar/_1t1r/core.md) (`[xbar.core_config.cell_config]`). The tool is the offline single-cell CLI `<scheme>/tools/calculate_1t1r_states.py`.
+Goal: derive the per-state RRAM conductance ladder `state_to_g_map__uS` so that the 1T1R cell read current is *linear in the state index* under a fixed read bias. This ladder is consumed by [reference/primitive/xbar/array/_1t1r/array](../../reference/primitive/xbar/array/_1t1r/array.md) (`[cim_macro.array_config.cell_config]`). The tool is the offline single-cell CLI `<scheme>/tools/calculate_1t1r_states.py`.
 
 ## What the tool produces
 
-The CLI emits two paste-ready lines through the Python `logging` framework (INFO level on the tool's `calculate_1t1r_states` logger) for direct paste into `[xbar.core_config.cell_config]`:
+The CLI emits two paste-ready lines through the Python `logging` framework (INFO level on the tool's `calculate_1t1r_states` logger) for direct paste into `[cim_macro.array_config.cell_config]`:
 
 ```toml
 rram_g_max__uS = 100.0
@@ -26,7 +26,7 @@ It solves the KCL of a single cell wired as
 BL — RRAM — V_X — NMOS — SL,    gate = WL
 ```
 
-It does **not** instantiate `Xbar`, `Macro`, `Readout`, or `ADC`, and it includes **no** wire parasitics (no BL / SL / WL IR drops), no TIA, no Mux, and no ADC behaviour. It therefore does *not* compute ADC boundaries, `v_refs__V`, or any `rescale_factor` — those belong to the ADC-side calibration guides.
+It does **not** instantiate `CimMacro`, `CimUnit`, `Readout`, or `ADC`, and it includes **no** wire parasitics (no BL / SL / WL IR drops), no TIA, no Mux, and no ADC behaviour. It therefore does *not* compute ADC boundaries, `v_refs__V`, or any `rescale_factor` — those belong to the ADC-side calibration guides.
 
 ## Forced all-off nonideality policy
 
@@ -123,8 +123,8 @@ All output goes through `logger.info(...)` in this order: load notices $\rightar
 
 ---
 
-- **See also**: [Core1T1R reference](../../reference/xbar/_1t1r/core.md) (consumer of `state_to_g_map__uS`)
-- [RRAM device reference](../../reference/device/rram.md)
-- [access-NMOS device reference](../../reference/device/mosfet.md)
+- **See also**: [XbarArray1T1R reference](../../reference/primitive/xbar/array/_1t1r/array.md) (consumer of `state_to_g_map__uS`)
+- [RRAM device reference](../../reference/primitive/device/rram.md)
+- [access-NMOS device reference](../../reference/primitive/device/mosfet.md)
 - [module parameter](../../conventions/module_parameter.md)
 - [calibration hub](README.md)

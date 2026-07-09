@@ -56,7 +56,7 @@ def main() -> None:
 
     def make_probe(name: str, original_fn):  # noqa: ANN001
         def probed(x, *, adc_operation_point):  # noqa: ANN001
-            # Replicate IdealXbar.vec_mat_mul's pre-ADC dot product so we
+            # Replicate IdealCimMacro.vec_mat_mul's pre-ADC dot product so we
             # can inspect the raw range without quantization-induced clipping.
             xbar = original_fn.__self__
             digits = xbar.digits.to(torch.int64)

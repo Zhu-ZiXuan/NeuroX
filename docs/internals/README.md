@@ -15,8 +15,8 @@ Shared primitives (mirrors `neurox/common/`):
 
 Per-subsystem (mirrors Reference):
 
-- [device](device/README.md)
-- [analog](analog/README.md)
-- [digital](digital/README.md)
-- [xbar](xbar/README.md)
-- [macro](macro/README.md)
+- [device](primitive/device/README.md)
+- [analog](primitive/analog/README.md)
+- [digital](primitive/digital/README.md)
+- [xbar](primitive/xbar/README.md)
+- [unit](architecture/unit/README.md)

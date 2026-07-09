@@ -2,11 +2,11 @@
 
 Goal: pick the trans-impedance amplifier (TIA) design knobs — op-amp gain, pseudo-NMOS load geometry, and NMOS bias — that best read out one xbar tile's bit-line current, given a Gaussian model of the per-column workload current. This is an offline, config-driven sweep: it does not touch a model or a checkpoint, only a TIA circuit and a current distribution.
 
-The tool is `neurox.tools.xbar_tia.optimize`. It sweeps the cartesian product of four design axes under one fixed `[hardware]` block, scores each candidate against the `[workload]` Gaussian, and prints a ranked top-K plus optional transfer-curve plots. Everything comes from a single tool-run TOML — there is no chip preset on the command line and no other flag carries design state.
+The tool is `neurox.tools.macro_tia.optimize`. It sweeps the cartesian product of four design axes under one fixed `[hardware]` block, scores each candidate against the `[workload]` Gaussian, and prints a ranked top-K plus optional transfer-curve plots. Everything comes from a single tool-run TOML — there is no chip preset on the command line and no other flag carries design state.
 
 ## How it works
 
-For each point in the sweep grid the tool runs the same four shared primitives (in `neurox/tools/xbar_tia/_common.py`):
+For each point in the sweep grid the tool runs the same four shared primitives (in `neurox/tools/macro_tia/_common.py`):
 
 1. `build_tia(config, *, device)` — assemble an `OpAmpTIA` from the `[hardware]` block plus the one sweep cell (gain, W, L, bias).
 2. `sweep_transfer(tia, *, i_min_uA, i_max_uA, n_points, device)` — evaluate the TIA transfer curve $v_\mathrm{out}(I_\mathrm{BL})$ over an input bit-line current range, returning a `TransferCurve`.
@@ -21,13 +21,13 @@ Higher is better. Each candidate is scored against the `[workload]` Gaussian, an
 - `v_util` / `range_use` — an output-range utilisation term: how much of the chosen output ceiling the workload band fills.
 - `sat_match` / `overshoot_safe` — a saturation/overshoot-guard term: it penalises a TIA whose readout range fails to cover the high-current tail or overshoots the output ceiling toward the chip rail.
 
-The intent is a TIA that is linear where it matters, fills the chosen output ceiling, and does not clip the high-current tail. The exact objective is defined in the tool source (`neurox/tools/xbar_tia/optimize.py`) and is the authority.
+The intent is a TIA that is linear where it matters, fills the chosen output ceiling, and does not clip the high-current tail. The exact objective is defined in the tool source (`neurox/tools/macro_tia/optimize.py`) and is the authority.
 
 ## How to run
 
 ```bash
-python -m neurox.tools.xbar_tia.optimize \
-    --config example/config/xbar_tia_optimize.toml \
+python -m neurox.tools.macro_tia.optimize \
+    --config example/config/macro_tia_optimize.toml \
     --device cpu \
     --top-k 10
 ```
@@ -53,7 +53,7 @@ Nothing else is written; the tool emits no config or checkpoint.
 
 ## Config schema
 
-The config maps to a frozen `TiaDesignConfig` (`neurox/tools/xbar_tia/optimize.py`) with three required sections. There are no defaults — every field must be present.
+The config maps to a frozen `TiaDesignConfig` (`neurox/tools/macro_tia/optimize.py`) with three required sections. There are no defaults — every field must be present.
 
 ```toml
 [hardware]
@@ -81,13 +81,13 @@ v_nmos_bias__V    = [0.90]
 - `[workload]` — the Gaussian model $\mathcal{N}(\mu, \sigma^2)$ of the per-column bit-line current. Derive $\mu$ and $\sigma$ from the chip's conductance state map and the activation statistics; the bundled example shows the full derivation in its comments.
 - `[sweep]` — the four design axes. The tool sweeps their cartesian product, so $|\mathrm{gain}| \times |W| \times |L| \times |v_\mathrm{bias}|$ candidates total; each axis must be non-empty.
 
-A runnable template lives at `example/config/xbar_tia_optimize.toml`.
+A runnable template lives at `example/config/macro_tia_optimize.toml`.
 
 ## See also
 
-- [Reference: op-amp TIA](../../reference/analog/tia/opamp_tia.md) — the device physics and transfer model the sweep evaluates.
-- [Reference: ADC base](../../reference/analog/adc/family.md) — the readout stage whose `v_ref` mode sets `target_v_max__V`.
-- [Internals: op-amp TIA](../../internals/analog/tia/opamp_tia.md) — the `OpAmpTIA` Newton solve invoked by `build_tia`.
+- [Reference: op-amp TIA](../../reference/primitive/analog/tia/opamp_tia.md) — the device physics and transfer model the sweep evaluates.
+- [Reference: ADC base](../../reference/primitive/analog/adc/family.md) — the readout stage whose `v_ref` mode sets `target_v_max__V`.
+- [Internals: op-amp TIA](../../internals/primitive/analog/tia/opamp_tia.md) — the `OpAmpTIA` Newton solve invoked by `build_tia`.
 - [API: configuration](../../api/configuration.md) — the TOML schema and `_neurox_use_preset` directive.
 - [Convention: module parameter](../../conventions/module_parameter.md) — sourcing the `[workload]` and `[hardware]` numbers.
 - [Calibration guides](../calibration/README.md) — the complementary task of fitting model parameters to a chip.

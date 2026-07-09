@@ -2,14 +2,14 @@
 #
 # References the offset scheme's all-off policy (works/offset_1t1r/); every switch is off by default.
 # To enable a nonideality, override the matching switch inline, e.g.:
-#   [policy.xbar.tia]
+#   [policy.cim_macro.tia]
 #   opamp_gain_sigma = true
-# Chunking knob lives under [policy.xbar.core] (solve_chunk_size).
+# Chunking knob lives under [policy.cim_macro.array] (solve_chunk_size).
 
 [policy]
-_neurox_use = "../../works/offset_1t1r/presets/policy/all_off.toml:macro"
+_neurox_use = "../../works/offset_1t1r/presets/policy/all_off.toml:cim_unit"
 
-[policy.xbar.core]
+[policy.cim_macro.array]
 # Max instances solved per chunk = per-chunk peak-memory budget. Sized for the
 # COMPILED solve, whose block-Thomas forward/backward sweep keeps its
 # intermediates co-resident (no per-step release), so the budget is smaller than

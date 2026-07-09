@@ -47,7 +47,7 @@ A family document uses the sections below in order. The document file is `family
 - `Assumptions, scope & validity` (on-demand): the family-level assumptions and the range over which the shared conventions hold; omit when none are family-wide.
 - `References` (on-demand): the family-level literature; leave a `TODO` when it is applicable but unwritten, and omit the section when there is none.
 
-Insert an optional `Noise & non-idealities` section, after Governing laws, only for a statement genuinely shared by every member — for example, that quantization is intrinsic to the whole family. Shared cross-device sources belong in [nonideality](../reference/nonideality.md).
+Insert an optional `Noise & non-idealities` section, after Governing laws, only for a statement genuinely shared by every member — for example, that quantization is intrinsic to the whole family. Shared cross-device sources belong in [nonideality](../reference/primitive/nonideality.md).
 
 The footer is traceability: Internals points to the base document that owns the family's software contract, Validation to the family-level evidence, and Configuration to the family's shared config and policy schema.
 

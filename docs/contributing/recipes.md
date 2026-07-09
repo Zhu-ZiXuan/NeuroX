@@ -37,7 +37,7 @@ Applies to analog and digital leaf circuits that inherit `CircuitBase` and emit 
 Use the common checklist, then:
 
 - Define `*Config(CircuitConfig)` and validation groups.
-- Use the `CircuitBase` construction and profiling contract in [common/circuit](../internals/common/circuit.md) and [common/mixin/profile](../internals/common/mixin/profile.md).
+- Use the `CircuitBase` construction and profiling contract in [common/circuit](../internals/primitive/circuit.md) and [common/mixin/profile](../internals/common/mixin/profile.md).
 - Implement the family or leaf primary method defined by its base class.
 - Emit dynamic energy and latency only for quantities this leaf owns.
 - Keep fixed latency in config; derive parametric latency inside the primary method when required.

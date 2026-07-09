@@ -3,8 +3,8 @@
 Builds a standalone :class:`XbarCell1T1R` (owning fabricated RRAM /
 access-NMOS), independent OpAmpTIA / VoltageDriver boundary modules, and a
 chip-preset-driven stateless ``Solver``, with synthetic mid-range RRAM g
-and a configurable ``v_wl_drive`` grid. Does NOT touch ``Core1T1R``
-/ ``Offset1T1RXbar`` — solver tests should depend only on the solver.
+and a configurable ``v_wl_drive`` grid. Does NOT touch ``XbarArray1T1R``
+/ ``Offset1T1RCimMacro`` — solver tests should depend only on the solver.
 
 Public surface: :func:`build_solver_harness` returns a frozen
 ``SolverHarness`` carrying the constructed solver, the fabricated cell,
@@ -25,13 +25,13 @@ from typing import Any
 import torch
 from torch import Tensor
 
-from neurox.analog import VoltageDriver, VoltageDriverPolicy, VoltageReference, VoltageReferencePolicy
-from neurox.analog.tia import OpAmpTIA, OpAmpTIAConfig, OpAmpTIAPolicy
+from neurox.primitive.analog import VoltageDriver, VoltageDriverPolicy, VoltageReference, VoltageReferencePolicy
+from neurox.primitive.analog.tia import OpAmpTIA, OpAmpTIAConfig, OpAmpTIAPolicy
 from neurox.common.load_dump import dataclass_from_file
-from neurox.device import MOSFETPolicy, RRAMPolicy
-from neurox.xbar._1t1r import XbarCell1T1R, XbarCell1T1RPolicy, XbarCell1T1RSnap
-from neurox.xbar.solver import Solver, SolverConfig
-from works.offset_1t1r.xbar import Offset1T1RXbarConfig
+from neurox.primitive.device import MOSFETPolicy, RRAMPolicy
+from neurox.primitive.xbar.cell import XbarCell1T1R, XbarCell1T1RPolicy, XbarCell1T1RSnap
+from neurox.primitive.xbar.solver import Solver, SolverConfig
+from works.offset_1t1r.macro import Offset1T1RCimMacroConfig
 
 
 @dataclass(frozen=True)
@@ -104,7 +104,7 @@ def build_solver_harness(
 ) -> SolverHarness:
     """Construct a standalone solver test harness from a chip preset.
 
-    Reads only ``[xbar]`` from the TOML for chip constants (the 1T1R cell
+    Reads only ``[cim_macro]`` from the TOML for chip constants (the 1T1R cell
     config carrying RRAM / NMOS + sizing + state map, the TIA / VoltageDriver
     configs, and wire R/C). The cell and the two boundary drivers are
     built fresh with no nonideality policy and fabricated once; the cell's
@@ -114,7 +114,7 @@ def build_solver_harness(
     cell + drivers are supplied per call (see :meth:`SolverHarness.solver_kwargs`).
 
     Args:
-        config_path: Path to a chip TOML carrying ``[xbar]`` (Offset1T1RXbarConfig).
+        config_path: Path to a chip TOML carrying ``[cim_macro]`` (Offset1T1RCimMacroConfig).
         solver_config: Concrete ``SolverConfig`` (nested).
         inst_shape: Tile multiplicity (e.g. ``(4,)`` or ``(2, 1, 2)`` —
             interpreted as the prefix preceding ``(phys_col, row)``).
@@ -125,8 +125,8 @@ def build_solver_harness(
             ``rram_g_max__uS`` (default 0.4 ≈ mid-range).
         v_wl_drive__V: Uniform WL drive voltage for the harness call.
     """
-    xbar_config = dataclass_from_file(Offset1T1RXbarConfig, config_path, section="xbar")
-    core_cfg = xbar_config.core_config
+    xbar_config = dataclass_from_file(Offset1T1RCimMacroConfig, config_path, section="cim_macro")
+    core_cfg = xbar_config.array_config
     cell_cfg = core_cfg.cell_config
     phys_col_num = xbar_config.col_num * xbar_config.w_digit_count + (
         xbar_config.col_num * xbar_config.w_digit_count // xbar_config.ref_group_size

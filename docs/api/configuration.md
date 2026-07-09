@@ -24,29 +24,29 @@ Bundled process presets (device parameters) live under `neurox/presets/`, pulled
 The TOML section tree mirrors the construction tree. For the offset 1T1R macro the config nests as:
 
 ```toml
-[xbar]
-[xbar.core_config]
-[xbar.core_config.cell_config]
-[xbar.core_config.solver_config]
-[xbar.wl_dac_config]
-[xbar.tia_config]
-[xbar.sl_driver_config]
-[xbar.clamp_ref_config]
-[xbar.signal_switchcap_config]
-[xbar.ref_switchcap_config]
-[xbar.voltage_mux_config]
-[xbar.adc_config]
-[xbar.adc_v_ref_config]
+[cim_macro]
+[cim_macro.array_config]
+[cim_macro.array_config.cell_config]
+[cim_macro.array_config.solver_config]
+[cim_macro.wl_dac_config]
+[cim_macro.tia_config]
+[cim_macro.sl_driver_config]
+[cim_macro.clamp_ref_config]
+[cim_macro.signal_switchcap_config]
+[cim_macro.ref_switchcap_config]
+[cim_macro.voltage_mux_config]
+[cim_macro.adc_config]
+[cim_macro.adc_v_ref_config]
 ```
 
-The core array owns only the cell and solver; the WL DAC, BL/SL clamp drivers, boundary reference, and readout blocks are the xbar's peers above the core. The policy mirrors the same ownership:
+The array owns only the cell and solver; the WL DAC, BL/SL clamp drivers, boundary reference, and readout blocks are the cim_macro's peers above the array. The policy mirrors the same ownership:
 
 ```toml
 [policy]
-[policy.xbar.core.cell]
-[policy.xbar.tia]
+[policy.cim_macro.array.cell]
+[policy.cim_macro.tia]
 ```
 
 ## Field semantics
 
-Each field's meaning, unit, and Source are documented in the matching subsystem's Reference Parameters section — e.g. the `[xbar.core_config]` fields in [reference/xbar/_1t1r/core](../reference/xbar/_1t1r/core.md), and the driver / inline-readout fields (WL DAC, BL/SL clamp drivers, boundary reference, signal / ref switch-cap, voltage mux, ADC, ADC-ladder reference) under your scheme xbar and the [analog leaves](../reference/analog/README.md). The Source taxonomy (Measured / Process / Design / Calibrated / ...) is defined in [module_parameter](../conventions/module_parameter.md). The runnable end-to-end usage is in the [algorithm-engineer guide](../guides/algorithm_engineer/README.md).
+Each field's meaning, unit, and Source are documented in the matching subsystem's Reference Parameters section — e.g. the `[cim_macro.array_config]` fields in [reference/primitive/xbar/array/_1t1r/array](../reference/primitive/xbar/array/_1t1r/array.md), and the driver / inline-readout fields (WL DAC, BL/SL clamp drivers, boundary reference, signal / ref switch-cap, voltage mux, ADC, ADC-ladder reference) under your scheme cim_macro and the [analog leaves](../reference/primitive/analog/README.md). The Source taxonomy (Measured / Process / Design / Calibrated / ...) is defined in [module_parameter](../conventions/module_parameter.md). The runnable end-to-end usage is in the [algorithm-engineer guide](../guides/algorithm_engineer/README.md).

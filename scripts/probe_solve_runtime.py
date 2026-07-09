@@ -26,10 +26,10 @@ import torch
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-import neurox.xbar.solver.nested as nested_solver  # noqa: E402
-from neurox.xbar.solver import solve_block_tridiagonal  # noqa: E402
-from neurox.xbar.solver.primitives import solve_block_tridiagonal_pcr  # noqa: E402
-from neurox.tools.xbar_adc._sampling import build_offset_1t1r_xbar_all_off  # noqa: E402
+import neurox.primitive.xbar.solver.nested as nested_solver  # noqa: E402
+from neurox.primitive.xbar.solver import solve_block_tridiagonal  # noqa: E402
+from neurox.primitive.xbar.solver.primitives import solve_block_tridiagonal_pcr  # noqa: E402
+from works.offset_1t1r.tools.macro_adc._sampling import build_offset_1t1r_xbar_all_off  # noqa: E402
 
 XBAR_CONFIG = REPO_ROOT / "example" / "config" / "1t1r_28nm.toml"
 

@@ -13,7 +13,7 @@ vth0__V = 0.40
 n_factor = 1.25
 
 # --- Temperature coefficients ---
-T_ref__K = 300.0
+T_nom__K = 300.0
 ute = 1.5
 kt1__V = -0.002
 

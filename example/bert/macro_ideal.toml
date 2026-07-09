@@ -1,13 +1,13 @@
 # BERT-small standalone ideal-twin macro config (synthetic 8-bit ADC).
 # Mirrors example/bert/macro.toml structurally; the only change is the
-# inner xbar — a directly-instantiated IdealXbarConfig (adc_max_bits = 8)
+# inner xbar — a directly-instantiated IdealCimMacroConfig (adc_max_bits = 8)
 # in place of the physical 1T1R tile.
 #
 # BRING-UP / REFERENCE ONLY — NOT FOR PRODUCTION. Direct instantiation of an
 # ideal xbar is a convenience for getting the flow working and for a lossless
 # sanity reference; its parameters are hand-authored, tied to no fabricated
 # chip, and uncalibrated, so its accuracy / PPA are a synthetic reference, not
-# a hardware result. The faithful ideal twin is `evaluate.py --xbar ideal` on
+# a hardware result. The faithful ideal twin is `evaluate.py --cim_macro ideal` on
 # the physical config (macro.toml), which derives the twin from the real chip
 # via `to_ideal()`.
 
@@ -40,15 +40,15 @@ encoding = "true_form"
 digit_num = 4
 
 
-[macro]
-_neurox_type = "InterArraySliceXbarMacroConfig"
+[cim_unit]
+_neurox_type = "InterArraySliceCimUnitConfig"
 
 w_slice_num = 1
 x_slice_num = 4
 w_encoding = "true_form"
 
-[macro.xbar_config]
-_neurox_type = "IdealXbarConfig"
+[cim_unit.cim_macro_config]
+_neurox_type = "IdealCimMacroConfig"
 
 col_num = 64
 row_num = 64
@@ -62,27 +62,27 @@ w_digit_radix = 2
 w_digit_range = [-1, 1]
 
 # 8-bit synthetic ADC reference (see comment in lenet/macro_with_ideal_xbar.toml).
-# IdealXbar derives the rescale from adc_bits + integer geometry; no
+# IdealCimMacro derives the rescale from adc_bits + integer geometry; no
 # calibration table needed here.
 adc_mode_num = 1
 adc_max_bits = 8
 
 
-[macro.col_accumulator_config]
+[cim_unit.col_accumulator_config]
 bit_width = 32
 area_per_inst__um2 = 60.0
 leakage_per_inst__uW = 1.0
 latency_per_op__ns = 0.5
 energy_per_op__fJ = 50.0
 
-[macro.sa_shift_adder_config]
+[cim_unit.sa_shift_adder_config]
 bit_width = 32
 area_per_inst__um2 = 75.0
 leakage_per_inst__uW = 1.5
 latency_per_op__ns = 0.5
 energy_per_op__fJ = 80.0
 
-[macro.sw_shift_adder_config]
+[cim_unit.sw_shift_adder_config]
 bit_width = 32
 area_per_inst__um2 = 75.0
 leakage_per_inst__uW = 1.5

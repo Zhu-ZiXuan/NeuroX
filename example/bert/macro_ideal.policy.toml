@@ -1,10 +1,10 @@
 # Nonideality policy for the BERT ideal-xbar macro.
 #
 # The ideal xbar carries no physical nonidealities, so its policy is the
-# empty IdealXbarPolicy wrapped in the macro policy.
+# empty IdealCimMacroPolicy wrapped in the macro policy.
 
 [policy]
-_neurox_type = "InterArraySliceXbarMacroPolicy"
+_neurox_type = "InterArraySliceCimUnitPolicy"
 
-[policy.xbar]
-_neurox_type = "IdealXbarPolicy"
+[policy.cim_macro]
+_neurox_type = "IdealCimMacroPolicy"

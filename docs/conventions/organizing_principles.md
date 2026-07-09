@@ -68,7 +68,7 @@ Each tree names the layers in its own domain's words — the Internals inheritan
 These rules hold across the templates:
 
 - **Existence is asymmetric** — a Reference document, family or module, exists only for a science-bearing module, so a base can stand in the 2×2 with no family twin. A family document is optional, written only when the shared science is substantial; otherwise each member carries its own.
-- **Layering** — a family document holds only the science shared within one family; cross-device shared science, such as Pelgrom mismatch and $kT/C$ noise, stays at [nonideality](../reference/nonideality.md) and is referenced, not restated.
+- **Layering** — a family document holds only the science shared within one family; cross-device shared science, such as Pelgrom mismatch and $kT/C$ noise, stays at [nonideality](../reference/primitive/nonideality.md) and is referenced, not restated.
 
 ## De-specific voice
 

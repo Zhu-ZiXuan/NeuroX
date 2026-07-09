@@ -50,7 +50,7 @@ def _solve_chunk_free(
 
 
 class _MockCore(nn.Module):
-    """Tiny stand-in for ``Core1T1R`` carrying two fab buffers."""
+    """Tiny stand-in for ``XbarArray1T1R`` carrying two fab buffers."""
 
     g_static: Tensor
     vth: Tensor

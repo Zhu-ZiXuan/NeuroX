@@ -23,11 +23,11 @@ from collections.abc import Callable
 import torch.nn as nn
 from torch import Tensor
 
-from neurox.macro import NeuroxMacroQuantMatMul
+from neurox.architecture.unit.matmul import QuantMatMul
 
 from .quant import QATConv2d, QATLinear, QuantConv2d, QuantLinear
 
-MacroFactory = Callable[..., NeuroxMacroQuantMatMul]
+MacroFactory = Callable[..., QuantMatMul]
 
 # Per-layer ADC operating-mode pick. Indices match the chip preset's
 # ``v_refs__V`` list (currently [0.8, 0.4, 0.2]); add 0.1 / 0.05 entries
@@ -94,12 +94,12 @@ class QATLeNet5(nn.Module):
 
 def _conv_macro(
     factory: MacroFactory, name: str, out_channels: int, in_channels: int, kernel_size: int
-) -> NeuroxMacroQuantMatMul:
+) -> QuantMatMul:
     """Build a macro shaped for this conv layer's unfolded matmul."""
     return factory(name=name, w_logical_shape=(out_channels, in_channels * kernel_size * kernel_size))
 
 
-def _linear_macro(factory: MacroFactory, name: str, out_features: int, in_features: int) -> NeuroxMacroQuantMatMul:
+def _linear_macro(factory: MacroFactory, name: str, out_features: int, in_features: int) -> QuantMatMul:
     return factory(name=name, w_logical_shape=(out_features, in_features))
 
 

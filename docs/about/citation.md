@@ -12,10 +12,10 @@ TODO — BibTeX entry (add once CITATION.cff is populated)
 
 ## Public API surface
 
-The supported public surface of NeuroX stops at `neurox.macro`. The device, crossbar, analog, digital, and profiler layers below it are implementation detail: their classes, configs, and signatures may change without a deprecation cycle. Build against `neurox.macro` for any code you intend to keep working across releases; reach below it only with the understanding that it is unstable by design.
+The supported public surface of NeuroX stops at `neurox.architecture.unit`. The device, crossbar, analog, digital, and profiler layers below it are implementation detail: their classes, configs, and signatures may change without a deprecation cycle. Build against `neurox.architecture.unit` for any code you intend to keep working across releases; reach below it only with the understanding that it is unstable by design.
 
 ## Versioning policy
 
-NeuroX is at version 0.1.0. While the project is pre-1.0, any release may change the API, including the `neurox.macro` surface.
+NeuroX is at version 0.1.0. While the project is pre-1.0, any release may change the API, including the `neurox.architecture.unit` surface.
 
-TODO — state the post-1.0 stability and deprecation policy (semantic-versioning contract, what a major/minor/patch bump guarantees for `neurox.macro`, deprecation window) once the public API is frozen for a 1.0 release.
+TODO — state the post-1.0 stability and deprecation policy (semantic-versioning contract, what a major/minor/patch bump guarantees for `neurox.architecture.unit`, deprecation window) once the public API is frozen for a 1.0 release.

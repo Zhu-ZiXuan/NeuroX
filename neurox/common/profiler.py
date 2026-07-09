@@ -14,7 +14,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
-from .circuit import CircuitBase
+from neurox.primitive.circuit import CircuitBase
 
 
 @dataclass(frozen=True)

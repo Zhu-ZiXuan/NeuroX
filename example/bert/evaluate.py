@@ -30,7 +30,7 @@ def main() -> None:
         default="macro.toml",
         help=f"Circuit config TOML under {CONFIG_DIR.name}/ (default: macro.toml). "
         "macro_ideal.toml is a standalone ideal reference for flow bring-up only "
-        "(not a production result); for a faithful ideal twin use --xbar ideal on the physical config.",
+        "(not a production result); for a faithful ideal twin use --cim_macro ideal on the physical config.",
     )
     parser.add_argument(
         "--policy",
@@ -40,7 +40,7 @@ def main() -> None:
     )
     parser.add_argument("--device", type=str, default="cuda:0")
     parser.add_argument(
-        "--xbar",
+        "--cim_macro",
         choices=("physical", "ideal"),
         default="physical",
         help="'ideal' replaces the physical tile with its lossless to_ideal() twin "
@@ -66,14 +66,14 @@ def main() -> None:
     macro_factory = build_macro_factory(
         config_path,
         policy_path,
-        ideal_xbar=(args.xbar == "ideal"),
+        ideal_xbar=(args.cim_macro == "ideal"),
     )
     model = create_bert_small(num_labels=2, cache_dir=str(args.dataset_dir))
     model = model.to(device)
     # mode 4 (v_ref = 0.05 V) matches the post-solver-fix v_diff p99 ≈ 0.025 V;
     # see example/lenet/model_quant.py:_LAYER_MODE for the same reasoning.
     n_replaced = to_quant(model, ckpt["layers"], macro_factory, mode_picker=4)
-    print(f"Quant-replaced {n_replaced} Linear layers; config={args.config} policy={args.policy} (xbar={args.xbar})")
+    print(f"Quant-replaced {n_replaced} Linear layers; config={args.config} policy={args.policy} (cim_macro={args.cim_macro})")
     model.eval()
 
     loader: DataLoader = create_sst2_dataloader(
