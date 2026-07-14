@@ -39,23 +39,13 @@ def fixture_config() -> Iterator[Path]:
     yield XBAR_CONFIG
 
 
-@pytest.fixture(scope="module")
-def device() -> torch.device:
-    if torch.cuda.is_available():
-        return torch.device("cuda:0")
-    return torch.device("cpu")
-
-
 @pytest.fixture(autouse=True)
 def _eager_solver() -> Iterator[None]:
     """Run the solver eagerly for these tests.
 
-    They assert the solver's convergence and numerics (residuals to
-    machine precision), not codegen. ``solve_dc`` is
-    ``@torch.compile(dynamic=False)``; at the large iteration counts
-    these tests use, fully unrolling it would spend minutes compiling for
-    no benefit to what is asserted. Disabling dynamo keeps the tests fast
-    and focused on the solver rather than the compiler.
+    ``solve_dc`` is ``@torch.compile(dynamic=False)``; at the large
+    iteration counts these tests use, fully unrolling it would spend
+    minutes compiling for no benefit to what is asserted.
     """
     with torch._dynamo.config.patch(disable=True):
         yield
@@ -93,9 +83,8 @@ def test_nested_inner_only_converges(fixture_config: Path, device: torch.device)
     solver = harness.solver
     assert isinstance(solver, NestedParallelRailSolver)
     # Pinned clamps at the clamp-reference voltages — same shape as the
-    # solver's port-current tensors. The stateless solver carries no drivers,
-    # and the drivers no longer hold a v_ref; the reference is injected per
-    # snapshot, so the resolved taps come from the harness.
+    # solver's port-current tensors. The reference is injected per snapshot,
+    # so the resolved taps come from the harness.
     v_wl = harness.v_wl_drive__V
     *batch, phys_col, _row = v_wl.shape
     dtype = v_wl.dtype

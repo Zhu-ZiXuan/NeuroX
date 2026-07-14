@@ -94,8 +94,6 @@ The channel polarity $p$ is fixed by device type ($+1$ n-channel, $-1$ p-channel
 
 ## Assumptions, scope & validity
 
-Stated assumptions of the current model:
-
 - A single smooth EKV-softplus surface spans subthreshold and above-threshold operation; no separate region piecing.
 - The square-law corner is softened by a softplus whose scale tracks $n V_T$; the model is exact only in the sharp-corner limit and smooths the transition otherwise.
 - Polarity is a discrete $\pm 1$ selector distinguishing the two channel types; one model core serves both, with the threshold sign and any n/p process asymmetry carried by each device's own $V_{\mathrm{th0}}$ and process values rather than modeled intrinsically.

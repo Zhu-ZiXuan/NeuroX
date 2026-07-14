@@ -42,8 +42,6 @@ The cell contributes the **device-capacitor dynamic energy** — the per-read ch
 
 ## Assumptions, scope & validity
 
-Stated assumptions of the shared model:
-
 - A cell is two-terminal: it connects exactly one bit-line node and one source-line node, with every internal node condensed inside the cell.
 - The branch presents definite-sign terminal conductances, $\partial I/\partial V_{\mathrm{BL}} \ge 0$ and $\partial I/\partial V_{\mathrm{SL}} \le 0$, at every operating point.
 - The solve is quasi-static: it finds the DC operating point and does not model transient device switching within a read pulse.

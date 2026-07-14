@@ -1,10 +1,5 @@
 """Shape-independent pure-array core for a 1T1R crossbar tile.
 
-The core holds ONLY the cell array, the wire parasitics, and the DC solver.
-The boundary drivers (WL DAC, BL clamp, SL drive) and the boundary voltage
-reference are peers of the core under the scheme xbar — they are passed into
-:meth:`XbarArray1T1R.solve_array` per call, not owned here.
-
 See also:
     docs/reference/primitive/xbar/array/_1t1r/array.md
 """
@@ -16,10 +11,8 @@ from typing import TypeVar
 import torch
 from torch import Tensor
 
-from neurox.primitive.circuit import CircuitConfig
-from neurox.primitive.xbar.array.base import XbarArray
+from neurox.primitive.xbar.array.base import XbarArray, XbarArrayConfig, XbarArrayPolicy
 from neurox.primitive.xbar.cell import (
-    XbarCell,
     XbarCell1T1R,
     XbarCell1T1RConfig,
     XbarCell1T1RDCOP,
@@ -46,7 +39,7 @@ SLSnapT = TypeVar("SLSnapT", bound=ClampSnap)
 
 
 @dataclass(frozen=True, kw_only=True)
-class XbarArray1T1RConfig(CircuitConfig):
+class XbarArray1T1RConfig(XbarArrayConfig):
     """Shape-independent physical knobs for a 1T1R pure-array core.
 
     Attributes:
@@ -71,16 +64,11 @@ class XbarArray1T1RConfig(CircuitConfig):
             device configs, sizing, parasitic-cap densities, programming
             map, and per-cell branch-solve knobs.
         solver_config: DC-solver fixed numerical knobs. Concrete subclass
-            of :class:`SolverConfig` (``NestedParallelRailSolverConfig``) picks which
-            solver implementation the core instantiates via
-            ``Solver.from_config(...)``.
+            of :class:`SolverConfig` picks which solver implementation the
+            core instantiates.
         area_per_inst__um2: Array (cell array + wire infra) silicon area
-            per fabricated tile instance. **Excludes** the boundary
-            drivers / DAC / reference, which are peers of the core under
-            the scheme xbar and roll up separately. Device-side
-            contributions (RRAM / NMOS) are not separately rolled up —
-            their physical area must be folded into this field by the
-            caller (devices do not inherit ``CircuitBase``).
+            per fabricated tile instance. Device-side (RRAM / NMOS) area
+            must be folded into this field by the caller.
         leakage_per_inst__uW: Array static leakage per fabricated tile
             instance. Same scope as ``area_per_inst__um2``.
         latency_per_op__ns: Array-side per-VMM latency that the
@@ -163,7 +151,7 @@ class XbarArray1T1RConfig(CircuitConfig):
 
 
 @dataclass(frozen=True)
-class XbarArray1T1RPolicy:
+class XbarArray1T1RPolicy(XbarArrayPolicy):
     """Composite nonideality policy for a 1T1R pure-array core.
 
     Attributes:
@@ -173,13 +161,7 @@ class XbarArray1T1RPolicy:
             budget. ``0`` runs the whole leading in one block; any
             positive value forces the memory-bounded chunked path,
             splitting the leading into contiguous slices of at most this
-            many instances regardless of which leading axes are serial or
-            inst. Runtime knob (depends on GPU memory budget / throughput
-            target, and is larger under eager than compiled execution),
-            not a chip-preset constant.
-
-    Solvers have **no Policy** — all their knobs are fixed numerical
-    constants and live on :class:`XbarArray1T1RConfig.solver_config`.
+            many instances. Runtime knob, not a chip-preset constant.
     """
 
     cell: XbarCell1T1RPolicy
@@ -212,7 +194,7 @@ class XbarArraySteadyState:
 # ---------------------------------------------------------------------------
 
 
-class XbarArray1T1R(XbarArray[XbarArray1T1RConfig]):
+class XbarArray1T1R(XbarArray[XbarArray1T1RConfig, XbarArray1T1RPolicy]):
     """Shape-independent 1T1R pure array: cells, wire parasitics, and solver."""
 
     config: XbarArray1T1RConfig
@@ -256,21 +238,20 @@ class XbarArray1T1R(XbarArray[XbarArray1T1RConfig]):
         if not (row_num > 1):
             raise ValueError(f"require: row_num ({row_num}) > 1")
 
-        super().__init__(config=config, name=name, inst_shape=tuple(prefix))
-        self.policy = policy
+        super().__init__(config=config, policy=policy, name=name, inst_shape=tuple(prefix))
+        self._area_per_inst__um2 = config.area_per_inst__um2
+        self._leakage_per_inst__uW = config.leakage_per_inst__uW
         self.dtype = dtype
         self.T__K = T__K
         self._w_layout_shape = tuple(w_layout_shape)
 
-        cell = XbarCell.from_config(
+        self.cell = XbarCell1T1R(
             config=config.cell_config,
             policy=policy.cell,
             inst_shape=self._w_layout_shape,
             dtype=dtype,
             T__K=T__K,
         )
-        assert isinstance(cell, XbarCell1T1R)
-        self.cell = cell
 
         self.w_states = self.cell.w_states
 
@@ -313,12 +294,7 @@ class XbarArray1T1R(XbarArray[XbarArray1T1RConfig]):
 
     @property
     def weight_grid_shape(self) -> tuple[int, ...]:
-        """Shape of the weight grid (RRAM conductance array): ``(*inst, phys_col, row)``.
-
-        The xbar uses this to expand the activation to the full broadcast
-        leading before the WL DAC convert, preserving the per-instance
-        noise behaviour of the DAC drive.
-        """
+        """Shape of the weight grid (RRAM conductance array): ``(*inst, phys_col, row)``."""
         return tuple(self.cell.rram.g__uS.shape)
 
     # -----------------------------------------------------------------
@@ -358,21 +334,10 @@ class XbarArray1T1R(XbarArray[XbarArray1T1RConfig]):
     ) -> XbarArraySteadyState:
         """Settle the 1T1R array to DC under an analog WL drive.
 
-        Eager island (``@torch.compiler.disable``). This method owns the
-        chunk loop, whose trip count ``ceil(leading / solve_chunk_size)``
-        is a runtime value — tracing it into the caller's compiled graph
-        would unroll a huge, recompiling loop and explode compile time.
-        Keeping it eager pins the loop in Python; the per-chunk DC solve
-        (``self.solver.solve_dc``) is itself ``@torch.compile``-decorated,
-        so it compiles once at the fixed chunk shape and every chunk /
-        VMM / caller instance reuses that one graph.
-
-        Plain forward: settle the array boundary clamps to DC in chunked
-        Newton sub-solves, accumulate per-VMM dynamic energy, emit one
-        energy + one latency profile event, and return the reassembled BL
-        port current + BL clamp voltage the xbar's I→V readout consumes.
-        The chunked sub-solves are an internal memory-bounding detail —
-        from the caller's view this is a single forward call.
+        Settle the array boundary clamps to DC in chunked Newton
+        sub-solves, accumulate per-VMM dynamic energy, emit one energy +
+        one latency profile event, and return the reassembled BL port
+        current + BL clamp voltage the xbar's I→V readout consumes.
 
         Args:
             v_wl: Analog WL drive [V] (the xbar already ran the WL DAC).
@@ -415,12 +380,6 @@ class XbarArray1T1R(XbarArray[XbarArray1T1RConfig]):
         v_wl_full = v_wl_grid.expand(*leading, 1, row_num)
 
         # --- Per-chunk loop: sample → solve → energy ---
-        # Only the small per-chunk tensors needed for reassembly +
-        # per-chunk energy are retained. The heavy ``solver_dcop_chunk``
-        # (carrying ``v_bl_node`` / ``v_sl_node`` plus the condensed cell
-        # DCOP sized ``(chunk_size, phys_col, row)``) lives only within
-        # one loop iteration and is released by Python's GC before the
-        # next chunk starts — preserving chunking's peak-memory contract.
 
         i_bl_port_chunks: list[Tensor] = []
         v_bl_clamp_chunks: list[Tensor] = []
@@ -465,8 +424,6 @@ class XbarArray1T1R(XbarArray[XbarArray1T1RConfig]):
             i_bl_port_chunks.append(solver_dcop_chunk.i_bl_driver)
             v_bl_clamp_chunks.append(solver_dcop_chunk.v_bl_clamp)
             global_indices.append(spec.flat_global_idx)
-            # solver_dcop_chunk goes out of scope at iteration end → heavy
-            # per-cell tensors freed before the next chunk allocates.
 
         # --- Reassemble outputs ---
 
@@ -478,11 +435,7 @@ class XbarArray1T1R(XbarArray[XbarArray1T1RConfig]):
 
         # Serial is the x-side broadcast (a_positions); the inst-side
         # (b_positions) is parallel physical hardware and must not enter
-        # the per-op-latency serial count — same convention as every
-        # other emitting leaf, where parallel multiplicity divides out
-        # of ``numel(output)``. Here a/b is broadcast-determined so we
-        # use ``classify_leading_positions``'s explicit split rather
-        # than dividing by a static ``inst_count``.
+        # the per-op-latency serial count.
         serial_op_count = math.prod(leading[p] for p in a_positions) if a_positions else 1
         latency__ns = torch.tensor(
             self.config.latency_per_op__ns * serial_op_count,

@@ -13,7 +13,7 @@
 - **`program(...)` mutates state by buffer reassignment.** The stored conductance is replaced (`self.g__uS = ...`), not edited in place, so the buffer can grow from its scalar-zero initial shape to the programmed shape. Consumers must read `g__uS` fresh after a program, not cache a view.
 - **`snapshot(shape, multi_coords)` is the only read path into fabricated state.** It expands `g__uS` to the per-call broadcast `shape`, optionally advanced-indexes a chunk via `multi_coords` (the chunked-solve selector), applies the read-time noise stack, and re-clamps. `multi_coords=None` returns the full broadcast view. Fabricated buffers stay on the device and are never mirrored into the snapshot caller.
 - **`solve_dc(v, snap)` is stateless in the device.** It reads conductance only from the passed `RRAMSnap`, never from `self.g__uS`, so a chunk's snap and its solve stay paired.
-- **No static fabricate mismatch.** `RRAM` inherits `FabricateMixin` to join the cascade but declares an explicit no-op `_sample_fabricate_mismatch` — RRAM variation enters through `program(...)` (state-dependent Gamma, stuck-at), not through `fabricate()`.
+- **No static fabricate mismatch.** `RRAM` is a bare `ModuleBase` leaf (no `ProfileMixin`, no PPA); it joins the fabricate cascade through `ModuleBase`'s `FabricateMixin` but declares an explicit no-op `_sample_fabricate_mismatch` — RRAM variation enters through `program(...)` (state-dependent Gamma, stuck-at), not through `fabricate()`.
 
 ## Performance & resources
 

@@ -48,8 +48,6 @@ An optional lead paragraph directly under the H1 stands in for a Summary: one-li
 - `Gotchas`: error-prone behavior and anti-patterns.
 - `Known limitations`: implementation TODOs, workarounds, and verification coverage gaps.
 
-Omit a section that carries no content rather than padding it.
-
 The footer is traceability: write Implementation and Tests as inline code at file level only, never a class, function, or line. The Implementation entry is the document's code map, so the body adds no per-file code listing.
 
 ## Content rules

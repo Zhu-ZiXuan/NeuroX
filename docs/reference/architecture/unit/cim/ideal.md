@@ -4,7 +4,7 @@ The ideal unit is the lossless limit of the unit family: it carries the integer 
 
 ## Physical model
 
-The model realizes no hardware. It deliberately removes every tiling, slicing, aggregation, and analog step, so no ADC quantization enters and the integer matrix product is returned exactly. It exercises the same value-domain contract as the physical modes — the accepted integer weight and activation ranges and the integer matmul protocol — but carries no ADC, and is therefore the exact integer reference the physical modes approach as their per-tile ADC quantization becomes negligible.
+The model realizes no hardware. It deliberately removes every tiling, slicing, aggregation, and analog step, so no ADC quantization enters and the integer matrix product is returned exactly.
 
 ## Governing equations
 
@@ -12,7 +12,7 @@ The model computes the exact integer dot product over the accepted value domain,
 
 $$Y_{m,n} = \sum_{k} X_{m,k}\,W_{n,k},$$
 
-with the contraction carried out at full integer width. No quantization, no rescale, no decomposition: the result is the exact $\mathbf{Y} = \mathbf{X}\,\mathbf{W}^{\!\top}$, exact by construction since no ADC is present.
+with the contraction carried out at full integer width. No quantization, no rescale, no decomposition: the result is the exact $\mathbf{Y} = \mathbf{X}\,\mathbf{W}^{\!\top}$.
 
 ## Noise & non-idealities
 

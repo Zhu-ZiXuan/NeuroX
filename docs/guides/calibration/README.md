@@ -18,7 +18,7 @@ All tools are **config-driven**: each takes a single `--config <run.toml>` plus 
 **Shared helpers.** `neurox/tools/_config.py` provides the CLI helpers every tool's `main()` calls:
 
 - `add_standard_args(parser, *, device=True, plot_dir=False, plot_file=False, output_file=False)` — append the standard flags. Pass `device=False` for tools with no GPU code path so the CLI does not expose a knob the tool would silently ignore.
-- `load_tool_config(cls, config_path)` — thin wrapper over `dataclass_from_file(cls, config_path)`, so tool-side imports stay shallow.
+- `load_tool_config(cls, config_path)` — thin wrapper over `cls.from_file(config_path)`, so tool-side imports stay shallow.
 - `resolve_relative_path(path, base)` — resolve a TOML-supplied path against `base.parent`; absolute paths and `None` are returned unchanged.
 - `setup_logging(level_name)` — configure `neurox.tools` logging from `args.log_level`.
 

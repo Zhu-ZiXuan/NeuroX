@@ -78,8 +78,7 @@ def sweep_transfer(
     """Sweep DC ``I_port`` across ``[i_min_uA, i_max_uA]`` and capture ``v_out``.
 
     The reference clamp voltage is injected per call into
-    :meth:`OpAmpTIA.snapshot` as a 0-d tensor built from ``v_ref__V``
-    (the design tool's externally-fixed ``[hardware].v_ref__V`` knob).
+    :meth:`OpAmpTIA.snapshot` as a 0-d tensor built from ``v_ref__V``.
     """
     if n_points < 2:
         raise ValueError(f"n_points ({n_points}) must be >= 2")
@@ -102,12 +101,7 @@ def sweep_transfer(
 
 
 def linearity_r2(curve: TransferCurve, *, lo_uA: float, hi_uA: float) -> float:
-    """Pearson R² of ``v_out ≈ a · I + b`` over an explicit ``[lo_uA, hi_uA]``.
-
-    1.0 = perfectly linear over the chosen range; approaching 0 means the
-    TIA's softclip / NMOS nonlinearity has bent the response so any linear
-    fit leaves big residuals.
-    """
+    """Pearson R² of ``v_out ≈ a · I + b`` over an explicit ``[lo_uA, hi_uA]``."""
     mask = (curve.i_uA >= lo_uA) & (curve.i_uA <= hi_uA)
     n = int(mask.sum().item())
     if n < 2:

@@ -79,8 +79,6 @@ Wire-segment, control-line (WL), and DC-conduction energy, together with the dev
 
 ## Assumptions, scope & validity
 
-Stated assumptions of the current model:
-
 - The cell has exactly one internal node ($V_{\mathrm{X}}$); the series stack is RRAM then access NMOS.
 - The solve is quasi-static: it finds the DC access-node operating point and does not model transient device switching within a pulse.
 - The device-capacitor energy assumes a complete $0 \to \mathrm{DC} \to 0$ charge/discharge cycle per cap per WL pulse; the NMOS drain-body cap is referenced to $V_{\mathrm{X}}$.

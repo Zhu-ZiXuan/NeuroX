@@ -9,7 +9,7 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor
 
-from neurox.common.mixin import ValidateMixin
+from neurox.common import ConfigBase
 
 # ---------------------------------------------------------------------------
 # Stuck-at fault
@@ -17,7 +17,7 @@ from neurox.common.mixin import ValidateMixin
 
 
 @dataclass(frozen=True)
-class StuckAtFaultConfig(ValidateMixin):
+class StuckAtFaultConfig(ConfigBase):
     """Stuck-at fault probabilities.
 
     Attributes:
@@ -90,7 +90,7 @@ def apply_gaussian(x: Tensor, sigma: float | Tensor, *, enabled: bool) -> Tensor
 
 
 @dataclass(frozen=True)
-class StateDependentGaussianConfig(ValidateMixin):
+class StateDependentGaussianConfig(ConfigBase):
     """State-dependent Gaussian noise config.
 
     Attributes:
@@ -137,7 +137,7 @@ def apply_state_dependent_gaussian(
 
 
 @dataclass(frozen=True)
-class LognormalConfig(ValidateMixin):
+class LognormalConfig(ConfigBase):
     """Multiplicative log-normal noise config.
 
     Attributes:
@@ -170,7 +170,7 @@ def apply_lognormal(x: Tensor, config: LognormalConfig, *, enabled: bool) -> Ten
 
 
 @dataclass(frozen=True)
-class StateDependentLognormalConfig(ValidateMixin):
+class StateDependentLognormalConfig(ConfigBase):
     """State-dependent log-normal noise config.
 
     Attributes:
@@ -224,7 +224,7 @@ def apply_state_dependent_lognormal(
 
 
 @dataclass(frozen=True)
-class GammaConfig(ValidateMixin):
+class GammaConfig(ConfigBase):
     """Multiplicative Gamma noise config (constant shape and scale).
 
     Attributes:
@@ -263,7 +263,7 @@ def apply_gamma_noise(x: Tensor, config: GammaConfig, *, enabled: bool) -> Tenso
 
 
 @dataclass(frozen=True)
-class StateDependentGammaConfig(ValidateMixin):
+class StateDependentGammaConfig(ConfigBase):
     """State-dependent Gamma noise config.
 
     Attributes:
@@ -343,7 +343,7 @@ def apply_state_dependent_gamma(
 
 
 @dataclass(frozen=True)
-class TelegraphConfig(ValidateMixin):
+class TelegraphConfig(ConfigBase):
     """Random telegraph noise config.
 
     Attributes:
@@ -367,9 +367,6 @@ class TelegraphConfig(ValidateMixin):
 
 def apply_telegraph_noise(x: Tensor, config: TelegraphConfig, *, enabled: bool) -> Tensor:
     """Apply random telegraph noise.
-
-    Composed branch-free as ``perturb = amplitude * sign * mask`` so
-    the surrounding kernel can fuse the random draws efficiently.
 
     Args:
         x: Input conductance. Shape: arbitrary.

@@ -1,8 +1,7 @@
 """Local macro factory for the LeNet example. Self-contained, no shared code.
 
 Loads the immutable circuit config and the mutable nonideality policy from
-their own TOML files, then instantiates one macro per layer. Used by
-``model_quant.py`` to construct one macro per layer.
+their own TOML files, then instantiates one macro per layer.
 """
 
 from __future__ import annotations
@@ -16,7 +15,6 @@ import torch
 import works.offset_1t1r  # noqa: F401  # registers the Offset1T1RCimMacro kind
 from neurox.architecture.unit.cim import CimUnit, CimUnitConfig, CimUnitPolicy
 from neurox.architecture.unit.matmul import QuantMatMul
-from neurox.common import dataclass_from_file
 from neurox.primitive.physical_constant import T_ROOM__K
 
 _CIRCUIT_DTYPE = torch.float32
@@ -24,12 +22,12 @@ _CIRCUIT_DTYPE = torch.float32
 
 @cache
 def read_macro_config(config_path: Path) -> CimUnitConfig:
-    return dataclass_from_file(CimUnitConfig, config_path, section="cim_unit")
+    return CimUnitConfig.from_file(config_path, section="cim_unit")
 
 
 @cache
 def read_macro_policy(policy_path: Path) -> CimUnitPolicy:
-    return dataclass_from_file(CimUnitPolicy, policy_path, section="policy")
+    return CimUnitPolicy.from_file(policy_path, section="policy")
 
 
 def build_macro_factory(

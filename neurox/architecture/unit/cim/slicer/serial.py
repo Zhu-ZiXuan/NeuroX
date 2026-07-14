@@ -16,11 +16,6 @@ from .base import Slicer
 class SerialSlicer(Slicer):
     """Radix-``r`` serial decomposition with structural ``digit_count = 1``.
 
-    The activation grid is unsigned by construction, so the sign-magnitude
-    (``true_form``) encoding is the only compatible policy — non-negative
-    inputs decompose into non-negative digits that fit directly into
-    the xbar's unsigned primitive cell.
-
     Args:
         slice_num: Number of per-cycle digits (shape shorthand ``Sa``).
         digit_radix: Activation-cell positional radix ``r``. The implied

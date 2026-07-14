@@ -2,9 +2,9 @@
 
 ## Design decisions
 
-- **PPA is static-only; nothing to log per call.** The reference emits no dynamic energy and no latency, so its area and always-on bias power ride the inherited `area_per_inst__um2` / `leakage_per_inst__uW`, collected by the profiler's static walk over `CircuitBase`. There is no `v_supply__V` field and no bias-current field — the same behavioural-source stance as voltage_driver.
-- **Two-stage sampling split.** The initial-accuracy spread is sampled once in `_sample_fabricate_mismatch` and held in the `v_refs__V` buffer; the per-read noise is resampled every `snapshot`. This fabricate-then-runtime split (as in switch_cap) holds a die's tolerance fixed across reads — it must not change between two reads of the same die — while the per-read noise varies per call.
-- **Both departures are relative (multiplicative).** `nominal * (1 + randn * sigma)` for each stage, so one sigma applies uniformly to taps of differing magnitude; an absolute per-tap sigma would need a tuple. This matches `CurrentMirror`'s relative ratio mismatch.
+- **PPA is static-only; nothing to log per call.** The reference emits no dynamic energy and no latency, so its area and always-on bias power ride the `area_per_inst__um2` / `leakage_per_inst__uW` on its own config, surfaced by the `area__um2` / `leakage__uW` properties (a sized `AnalogBase` leaf, [base](base.md)) and collected by the profiler's static walk over `ProfileMixin`. There is no `v_supply__V` field and no bias-current field.
+- **Two-stage sampling split.** The initial-accuracy spread is sampled once in `_sample_fabricate_mismatch` and held in the `v_refs__V` buffer; the per-read noise is resampled every `snapshot`. This fabricate-then-runtime split holds a die's tolerance fixed across reads while the per-read noise varies per call.
+- **Both departures are relative (multiplicative).** `nominal * (1 + randn * sigma)` for each stage, so one sigma applies uniformly to taps of differing magnitude; an absolute per-tap sigma would need a tuple.
 - **`snapshot()` takes no external `shape`.** A reference has no per-element solve grid to broadcast onto; its output is intrinsically `(*inst_shape, num_refs)`.
 
 ## Contracts & invariants

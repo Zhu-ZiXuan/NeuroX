@@ -16,7 +16,6 @@ from pathlib import Path
 
 import torch
 
-from neurox.common.load_dump import dataclass_from_file
 from neurox.common.mixin import FabricateMixin
 from neurox.primitive.device import MOSFETPolicy, RRAMPolicy
 from neurox.primitive.device.mosfet import NMOS
@@ -30,7 +29,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 CHIP_CONFIG = REPO_ROOT / "works" / "offset_1t1r" / "config" / "1t1r_28nm.toml"
 
 
-def _build_array(*, mismatch: bool) -> XbarArray1T1R:
+def _build_array(*, mismatch: bool, device: torch.device) -> XbarArray1T1R:
     """Build a small standalone 1T1R pure array from the chip preset.
 
     Reads only ``[cim_macro]`` for the owned ``core_config`` (an
@@ -38,7 +37,7 @@ def _build_array(*, mismatch: bool) -> XbarArray1T1R:
     device-mismatch toggles set from ``mismatch`` so the fabricate cascade has
     real static state to resample.
     """
-    macro_config = dataclass_from_file(Offset1T1RCimMacroConfig, CHIP_CONFIG, section="cim_macro")
+    macro_config = Offset1T1RCimMacroConfig.from_file(CHIP_CONFIG, section="cim_macro")
     core_config = macro_config.array_config
     policy = XbarArray1T1RPolicy(
         cell=XbarCell1T1RPolicy(
@@ -55,6 +54,7 @@ def _build_array(*, mismatch: bool) -> XbarArray1T1R:
         dtype=torch.float64,
         T__K=300.0,
     )
+    array.to(device)
     array.eval()
     return array
 
@@ -66,15 +66,14 @@ def _fabricable_tree(node: FabricateMixin) -> Iterator[FabricateMixin]:
         yield from _fabricable_tree(child)
 
 
-def test_xbar_array_abc_supplies_noop_sample_fabricate_mismatch() -> None:
+def test_xbar_array_abc_supplies_noop_sample_fabricate_mismatch(device: torch.device) -> None:
     """The ABC owns the no-op; the concrete 1T1R array does not override it."""
-    # Not overridden by the concrete array — inherited straight from the ABC.
     assert "_sample_fabricate_mismatch" not in XbarArray1T1R.__dict__
     assert "_sample_fabricate_mismatch" in XbarArray.__dict__
     assert XbarArray1T1R._sample_fabricate_mismatch is XbarArray._sample_fabricate_mismatch
 
     # And it is a genuine no-op: returns None and touches no state.
-    array = _build_array(mismatch=False)
+    array = _build_array(mismatch=False, device=device)
     before = {name: buf.clone() for name, buf in array.named_buffers()}
     array._sample_fabricate_mismatch()  # no-op: must neither raise nor mutate state
     after = dict(array.named_buffers())
@@ -83,9 +82,9 @@ def test_xbar_array_abc_supplies_noop_sample_fabricate_mismatch() -> None:
         assert torch.equal(buf, after[name])
 
 
-def test_array_fabricate_resamples_each_node_once_preorder() -> None:
+def test_array_fabricate_resamples_each_node_once_preorder(device: torch.device) -> None:
     """``fabricate()`` visits every fabricable node exactly once, pre-order."""
-    array = _build_array(mismatch=True)
+    array = _build_array(mismatch=True, device=device)
 
     # Snapshot the true tree BEFORE patching so traversal is untouched.
     nodes = list(_fabricable_tree(array))

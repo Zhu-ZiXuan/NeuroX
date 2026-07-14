@@ -8,7 +8,6 @@
 ## Contracts & invariants
 
 - **`operate(a, b)`** takes `a` and a broadcast-compatible `b` and returns their difference at the broadcast shape.
-- **Energy and latency are two independent profiler emissions.**
 
 ## Performance & resources
 
@@ -17,7 +16,7 @@
 ## Gotchas
 
 - **Operand order is load-bearing.** The first argument is the minuend; swapping the operands negates the result.
-- **No range guard**: a difference exceeding the nominal bit width is not detected. **`inst_count` is guarded against zero** in the serial-op divisor (`max(inst_count, 1)`).
+- **No range guard**: a difference exceeding the nominal bit width is not detected.
 
 ## Known limitations
 

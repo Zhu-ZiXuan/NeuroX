@@ -11,8 +11,6 @@ import torch
 
 from neurox.primitive.macro.cim.ideal import IdealCimMacro, IdealCimMacroConfig, IdealCimMacroPolicy
 
-_CPU = torch.device("cpu")
-
 
 def _make_xbar(
     *,
@@ -110,8 +108,7 @@ class TestRescaleScope:
         )
         # ``radix^count - 1`` overclips for asymmetric signed digit ranges
         # where the larger |bound| < radix-1; the correct bound is
-        # ``max(|d_lo|, |d_hi|) · sum(radix^k)``. See
-        # ``test_naive_formula_overclips_signed`` below.
+        # ``max(|d_lo|, |d_hi|) · sum(radix^k)``.
         expected = _expected_max_dot(w_digit_range=(-1, 2), w_digit_radix=3, w_digit_count=2, x_range=(0, 1), row_num=8)
         assert xbar._max_dot_abs == expected
 

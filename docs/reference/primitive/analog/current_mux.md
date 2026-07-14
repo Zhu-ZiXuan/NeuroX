@@ -2,7 +2,7 @@
 
 ## Physical model
 
-An ideal single-ended N:1 time-share current transport: the shared output lane carries one selected column current at a time, scaled by an exact matched transport gain, and the group's N columns are visited serially, one transport each. It is a pure current-transport primitive — it draws no rail energy of its own (the downstream current-domain consumer that owns the rail tallies dissipation); beyond the exact transported value the model tallies one effect, the fixed serial per-operation latency, which the N:1 fan-in does not scale.
+An ideal single-ended N:1 time-share current transport: the shared output lane carries one selected column current at a time, scaled by an exact matched transport gain, and the group's N columns are visited serially, one transport each. It is a pure current-transport primitive — it draws no rail energy of its own (the downstream current-domain consumer that owns the rail tallies dissipation); beyond the exact transported value the model tallies one effect, the fixed serial per-operation latency.
 
 ## Governing equations
 
@@ -49,7 +49,7 @@ Provenance terms are defined in [module_parameter](../../../conventions/module_p
 
 ## Assumptions, scope & validity
 
-The mux is modelled as an exact gained-transport time-share element. No per-lane gain mismatch, signal-dependent on-resistance, charge-injection pedestal, settling error, or crosstalk is modelled; the only departure from a lossless ideal is the serial per-operation latency, and it accounts no rail energy of its own. The model is valid where the transported current sits within the lane's (unmodelled) linear settled band.
+The mux is modelled as an exact gained-transport time-share element. No per-lane gain mismatch, signal-dependent on-resistance, charge-injection pedestal, settling error, or crosstalk is modelled. The model is valid where the transported current sits within the lane's (unmodelled) linear settled band.
 
 ## Validation
 

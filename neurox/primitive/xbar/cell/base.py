@@ -1,13 +1,5 @@
 """Pluggable crossbar-cell abstraction.
 
-A cell encapsulates the analog two-terminal device branch seen by the
-array solver between a bit-line node and a source-line node: its DC
-current, the signed branch conductances the wire Jacobian needs, and the
-per-cell device-capacitance switching energy. Concrete cells own their
-``nn.Module`` device children and expose a single condensed branch — any
-internal device topology node is solved inside the cell, never by the
-array solver.
-
 See also:
     docs/reference/primitive/xbar/cell/README.md
 """
@@ -16,13 +8,12 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Generic, TypeVar
+from typing import ClassVar, Generic, TypeVar
 
 import torch
-import torch.nn as nn
 from torch import Tensor
 
-from neurox.common.mixin import FabricateMixin, RegistryMixin, ValidateMixin
+from neurox.common import ConfigBase, ModuleBase, PolicyBase
 
 # ---------------------------------------------------------------------------
 # Config / policy / result bases
@@ -30,14 +21,12 @@ from neurox.common.mixin import FabricateMixin, RegistryMixin, ValidateMixin
 
 
 @dataclass(frozen=True)
-class XbarCellConfig(ValidateMixin):
+class XbarCellConfig(ConfigBase):
     """Abstract base for crossbar-cell configs.
 
     Empty by design — each concrete cell carries its own subclass with
     the device configs, sizing, and per-cell parasitic-cap densities it
-    needs. A cell config has no PPA fields: the cell owns ``nn.Module``
-    device children whose physical area / leakage roll up through the
-    owning core's PPA budget, not through the cell.
+    needs.
     """
 
     def __post_init__(self) -> None:
@@ -48,7 +37,7 @@ class XbarCellConfig(ValidateMixin):
 
 
 @dataclass(frozen=True)
-class XbarCellPolicy:
+class XbarCellPolicy(PolicyBase):
     """Abstract marker base for crossbar-cell nonideality policies.
 
     Concrete cells carry a subclass bundling the per-device policies of
@@ -110,35 +99,22 @@ DCOPT = TypeVar("DCOPT", bound=XbarCellDCOP)
 
 
 class XbarCell(
-    FabricateMixin,
-    nn.Module,
-    RegistryMixin[type["XbarCellConfig"], "XbarCell"],
+    ModuleBase[XbarCellConfig, XbarCellPolicy],
     Generic[SnapT, DCOPT],
     ABC,
 ):
-    """Abstract base for pluggable crossbar cells with config-keyed dispatch.
+    """Abstract base for pluggable crossbar cells.
 
-    Parameterised by the concrete snap and DCOP types
-    (``SnapT`` / ``DCOPT``) so each implementation declares those
-    dataclasses once and the snap-consuming methods (:meth:`snapshot`,
-    :meth:`solve_branch`, :meth:`solve_dc`, :meth:`dynamic_energy`) carry
-    the concrete types without an LSP-narrowing override. The registry-impl
-    slot is unparameterised because Python generics are invariant — each
-    concrete impl binds the two type vars to its own subclasses.
+    A cell owns its device ``nn.Module`` children and exposes one
+    condensed two-terminal branch to the array solver.
 
-    A cell owns its device ``nn.Module`` children (``FabricateMixin`` +
-    ``nn.Module`` so manufacturing variation cascades and buffers move
-    with ``.to`` / ``.eval``) and exposes one condensed two-terminal
-    branch to the array solver. Each concrete cell registers itself
-    against the :class:`XbarCellConfig` subclass it consumes via
-    ``@XbarCell.register_key(SomeCellConfig)``; callers reach it through
-    :meth:`from_config`.
-
-    A cell carries **no PPA** — it is not a ``CircuitBase``. Its device
-    children's physical area / leakage roll up through the owning core's
-    PPA budget; the cell only contributes the per-VMM dynamic switching
-    energy of its device capacitances via :meth:`dynamic_energy`.
+    A cell is a non-reporting :class:`ModuleBase` leaf
+    (``reports_static_ppa`` is ``False``): it self-accounts no static PPA.
+    Its device children's physical area / leakage roll up through the
+    owning core's PPA budget.
     """
+
+    reports_static_ppa: ClassVar[bool] = False
 
     def __init__(
         self,
@@ -158,30 +134,8 @@ class XbarCell(
             dtype: Tensor dtype for internal buffers.
             T__K: Operating temperature.
         """
-        del policy, dtype, T__K  # consumed by the subclass init
-        super().__init__()
-        self.config = config
-        self._inst_shape = inst_shape
-
-    @classmethod
-    def from_config(
-        cls,
-        *,
-        config: XbarCellConfig,
-        policy: XbarCellPolicy,
-        inst_shape: tuple[int, ...],
-        dtype: torch.dtype,
-        T__K: float,
-    ) -> XbarCell:
-        """Build the concrete impl registered for ``type(config)``."""
-        impl = cls._lookup_impl(type(config))
-        return impl(
-            config=config,
-            policy=policy,
-            inst_shape=inst_shape,
-            dtype=dtype,
-            T__K=T__K,
-        )
+        del dtype, T__K  # consumed by the subclass init
+        super().__init__(config=config, policy=policy, inst_shape=inst_shape)
 
     def _sample_fabricate_mismatch(self) -> None:
         pass  # container: device mismatch is sampled through the cascade

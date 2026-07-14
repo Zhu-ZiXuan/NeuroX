@@ -1,6 +1,6 @@
 # Monotonic SAR ADC
 
-The monotonic (Set-and-Down) differential SAR ADC digitizes a differential input into a signed integer code, a member of the [ADC family](family.md) honouring the family signed-code and floor contract in [base](family.md).
+The monotonic (Set-and-Down) differential SAR ADC digitizes a differential input into a signed integer code, a member of the [ADC family](family.md) honouring the family signed-code and floor contract.
 
 ## Physical model
 

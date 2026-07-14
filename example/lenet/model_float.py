@@ -1,15 +1,11 @@
 """LeNet-5 architecture for MNIST.
 
-Plain ``nn.Module`` with no quantization-specific scaffolding — the
-PT2E quantization flow (``torchao.quantization.pt2e``) operates on the
-exported FX graph, so ``QuantStub`` / ``DeQuantStub`` and explicit
-``fuse_modules_qat`` calls aren't needed; the quantizer pattern-matches
-``Conv -> ReLU`` / ``Linear -> ReLU`` directly on the graph.
+Plain ``nn.Module``; the PT2E quantization flow
+(``torchao.quantization.pt2e``) operates on the exported FX graph.
 
 Input spec:
     Shape: ``[N, 1, 28, 28]`` (standard MNIST).  The first conv uses
-    ``padding=2`` to recover the classic LeNet-5 32×32 input feature map
-    after the initial padding.
+    ``padding=2`` to recover the classic LeNet-5 32×32 input feature map.
 """
 
 import torch.nn as nn

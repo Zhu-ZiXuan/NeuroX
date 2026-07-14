@@ -1,12 +1,4 @@
-"""Shared helpers for the config-driven CLI tools under :mod:`neurox.tools`.
-
-All tools follow the same pattern: a TOML config carries every input that
-affects the result (chip preset, workload, sweep ranges, numerical knobs,
-seed, dtype), while CLI keeps only runtime / output knobs (target device,
-output paths, log level).
-
-This module centralises the boilerplate that pattern requires.
-"""
+"""Shared helpers for the config-driven CLI tools under :mod:`neurox.tools`."""
 
 from __future__ import annotations
 
@@ -15,10 +7,10 @@ import logging
 from pathlib import Path
 from typing import TypeVar
 
-from neurox.common import dataclass_from_file
+from neurox.common.mixin import SerializeMixin
 from neurox.tools._logging import config_tool_logging
 
-_T = TypeVar("_T")
+_T = TypeVar("_T", bound=SerializeMixin)
 
 
 _LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
@@ -33,12 +25,6 @@ def add_standard_args(
     output_file: bool = False,
 ) -> None:
     """Append the standard runtime / output flags to ``parser``.
-
-    All tools take ``--config`` and ``--log-level``. ``--device`` is
-    opt-in (default ``True``): pass ``device=False`` for tools that run
-    in fixed precision on CPU so the CLI surface does not expose a knob
-    the tool would silently ignore. Output flags are opt-in via keyword
-    arguments.
 
     Args:
         parser: The argparse parser to add flags to.
@@ -92,12 +78,8 @@ def setup_logging(level_name: str) -> None:
 
 
 def load_tool_config(cls: type[_T], config_path: Path) -> _T:
-    """Parse the tool-run TOML into ``cls`` via :func:`dataclass_from_file`.
-
-    Convenience over calling ``dataclass_from_file`` directly: the
-    function exists so tool-side imports stay shallow.
-    """
-    return dataclass_from_file(cls, config_path)
+    """Parse the tool-run TOML into ``cls`` via :meth:`SerializeMixin.from_file`."""
+    return cls.from_file(config_path)
 
 
 def resolve_relative_path(path: Path | str | None, base: Path) -> Path | None:

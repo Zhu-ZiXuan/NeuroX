@@ -43,7 +43,7 @@ The footer is traceability. `Reference` links the family's Reference document, o
 
 ### Software is the subject
 
-A base document specifies software structure — the shared surface, the abstract obligations, and the invariants — and that structure is its proper subject; class and Protocol names belong here. It does not re-narrate or restate the family's Reference spec: where a contract rests on a physical fact, state the fact once in Reference and cite it. The same anti-padding and omit-empty rules apply — omit a section that carries no content rather than keeping an empty heading.
+A base document specifies software structure — the shared surface, the abstract obligations, and the invariants — and that structure is its proper subject; class and Protocol names belong here. It does not re-narrate or restate the family's Reference spec: where a contract rests on a physical fact, state the fact once in Reference and cite it.
 
 ### No downward links
 

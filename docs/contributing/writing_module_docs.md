@@ -61,7 +61,7 @@ An optional lead paragraph directly under the H1 stands in for a Summary section
 - `Validation`: how the model is checked against physical data or analytic results.
 - `References`: the literature backing the model.
 
-Omit a section that carries no model content rather than padding it. Do not invent physical claims, numbers, equations, validation results, or citations — leave `TODO`.
+Do not invent physical claims, numbers, equations, validation results, or citations — leave `TODO`.
 
 The footer is traceability only: Reference points to Internals, Validation, and Configuration — it lists no source files or tests, because Internals points to code and tests.
 

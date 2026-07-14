@@ -5,7 +5,7 @@ The cross-unit software contract: the structural `QuantMatMul` Protocol that eve
 ## Design decisions
 
 - **The contract is a structural `Protocol`, not a shared base class.** A unit satisfies `QuantMatMul` by shape, not by inheritance. Structural typing lets heterogeneous units — a degenerate exact-integer member and registry-organized crossbar members — present one consumer-facing surface without a forced common ancestor, so no member inherits a base it does not need.
-- **A unit is not a `CircuitBase`.** A unit owns no silicon of its own, so the contract carries no `CircuitConfig`-backed PPA; area and leakage appear in reports only through the constituent circuits (tiles, reducers) it aggregates. Modeling a unit as a circuit would double-count or invent area it does not have.
+- **The `QuantMatMul` contract mandates no PPA surface.** The structural Protocol is silent on area and leakage — a unit reports them by what it composes, not by satisfying the contract. A `CimUnit` implementation is a `ProfileMixin` node that reports only its unit-local peripheral overhead; the tiles and reducers it aggregates each self-report their own silicon, so the unit never double-counts or invents the children's area.
 - **`[Sa, Sw, Tc, Tr]` is the fixed leading-axis order.** Every mode's organized weight tensor places its present slice/tile axes in this canonical order ahead of the tile-owned `(data, D, row)` trailing block. A mode that does not use an axis omits it entirely rather than padding it size-1 (the `M=1` / `Sa=1` placeholders inserted for broadcast against the activation are a separate matter). Fixing the order across modes is what lets the aggregate reductions name their axes by a stable negative index.
 
 ## Contracts & invariants

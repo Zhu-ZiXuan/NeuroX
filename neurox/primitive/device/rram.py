@@ -5,12 +5,12 @@ See also:
 """
 
 from dataclasses import dataclass
+from typing import ClassVar
 
 import torch
-import torch.nn as nn
 from torch import Tensor
 
-from neurox.common.mixin import FabricateMixin, ValidateMixin
+from neurox.common import ConfigBase, ModuleBase, PolicyBase
 from neurox.primitive.nonideality import (
     StateDependentGammaConfig,
     StuckAtFaultConfig,
@@ -23,7 +23,7 @@ from neurox.primitive.nonideality import (
 
 
 @dataclass(frozen=True)
-class RRAMConfig(ValidateMixin):
+class RRAMConfig(ConfigBase):
     """Static RRAM device configuration.
 
     Attributes:
@@ -95,7 +95,7 @@ class RRAMConfig(ValidateMixin):
 
 
 @dataclass(frozen=True)
-class RRAMPolicy:
+class RRAMPolicy(PolicyBase):
     """Per-source toggles selecting which RRAM nonidealities are active.
 
     Attributes:
@@ -135,8 +135,11 @@ class RRAMSnap:
     g__uS: Tensor
 
 
-class RRAM(FabricateMixin, nn.Module):
+class RRAM(ModuleBase[RRAMConfig, RRAMPolicy]):
     """Stateful RRAM array model."""
+
+    # non-reporter: silicon rolls up to the owner
+    reports_static_ppa: ClassVar[bool] = False
 
     g__uS: Tensor
 
@@ -160,14 +163,11 @@ class RRAM(FabricateMixin, nn.Module):
             T__K: Operating temperature.
             g_max__uS: Maximum programmable conductance.
         """
-        super().__init__()
+        super().__init__(config=config, policy=policy, inst_shape=inst_shape)
 
         if not (g_max__uS > config.g_min__uS):
             raise ValueError(f"require: g_max__uS ({g_max__uS}) > config.g_min__uS ({config.g_min__uS})")
 
-        self.config = config
-        self.policy = policy
-        self._inst_shape = inst_shape
         self.dtype = dtype
         self.T__K = T__K
         self.g_min__uS = config.g_min__uS

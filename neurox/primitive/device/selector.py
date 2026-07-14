@@ -5,17 +5,17 @@ See also:
 """
 
 from dataclasses import dataclass
+from typing import ClassVar
 
 import torch
-import torch.nn as nn
 from torch import Tensor
 
-from neurox.common.mixin import FabricateMixin, ValidateMixin
+from neurox.common import ConfigBase, ModuleBase, PolicyBase
 from neurox.primitive.nonideality import apply_gaussian
 
 
 @dataclass(frozen=True)
-class SelectorConfig(ValidateMixin):
+class SelectorConfig(ConfigBase):
     """Immutable configuration for an OTS threshold selector.
 
     Attributes:
@@ -38,7 +38,7 @@ class SelectorConfig(ValidateMixin):
 
 
 @dataclass(frozen=True)
-class SelectorPolicy:
+class SelectorPolicy(PolicyBase):
     """Per-source toggles selecting which selector nonidealities are active.
 
     Attributes:
@@ -48,8 +48,11 @@ class SelectorPolicy:
     vth_mismatch: bool
 
 
-class Selector(FabricateMixin, nn.Module):
+class Selector(ModuleBase[SelectorConfig, SelectorPolicy]):
     """OTS selector with static per-cell V_th mismatch."""
+
+    # non-reporter: silicon rolls up to the owner
+    reports_static_ppa: ClassVar[bool] = False
 
     nominal_vth__V: Tensor
     vth__V: Tensor
@@ -63,11 +66,7 @@ class Selector(FabricateMixin, nn.Module):
         dtype: torch.dtype,
         T__K: float,
     ) -> None:
-        """Initialize the selector model."""
-        super().__init__()
-        self.config = config
-        self.policy = policy
-        self._inst_shape = inst_shape
+        super().__init__(config=config, policy=policy, inst_shape=inst_shape)
         self.T__K = T__K
         self.dtype = dtype
         self.register_buffer(

@@ -4,7 +4,7 @@ The simplest member of the [ADC family](family.md): a single-mode digitizer whos
 
 ## Physical model
 
-The model floors the differential input against a sorted list of comparator thresholds carried in the instance input unit (uA for a current-mode ADC, V for a voltage-mode one); the index of the bucket the input falls into is the raw code. A monotone input transform - the identity for a linear ADC or a base-2 logarithm (companding) for a logarithmic one - is applied before the bucketize, and being monotone it preserves the threshold ordering; the logarithmic transform is floored at a small positive value so it stays inside the logarithm's domain. Two additive Gaussian noise stages perturb the signal: input-referred sampling noise before the transform and a single comparator-noise term after it. The bucketize is reference-free - it uses no reference tap.
+The model floors the differential input against a sorted list of comparator thresholds carried in the instance input unit (uA for a current-mode ADC, V for a voltage-mode one); the index of the bucket the input falls into is the raw code. A monotone input transform - the identity for a linear ADC or a base-2 logarithm (companding) for a logarithmic one - is applied before the bucketize. Two additive Gaussian noise stages perturb the signal: input-referred sampling noise before the transform and a single comparator-noise term after it. The bucketize is reference-free - it uses no reference tap.
 
 ## Governing equations
 
@@ -12,7 +12,7 @@ The conversion maps the raw differential input $x^{+} - x^{-}$ to a signed code.
 
 $$\mathrm{code} = \operatorname{clamp}\!\Big(\operatorname{bucketize}\big(g(x^{+}-x^{-}+n_s)+n_{c},\ \{B_c\}\big),\ 0,\ n_{\mathrm{codes}}-1\Big) - z,$$
 
-where $\operatorname{bucketize}$ floors the transformed signal against the fixed thresholds $\{B_c\}$, $n_{\mathrm{codes}}$ is the number of code buckets implied by the threshold list, and $z$ is the topology zero code. In the linear case the signal and thresholds share the per-instance input unit (uA for current-mode, V for voltage-mode); in the logarithmic case $g$ floors its argument at $\epsilon = 10^{-12}$ (input unit) before the base-2 logarithm, keeping it inside the transform's domain. The signed output lies in $[-z,\ n_{\mathrm{codes}}-1-z]$. The underlying floor against ordered boundaries is the family floor-quantization law ([family contract](family.md#governing-laws)); the clamp bounds the raw bucket index to the legal code range $[0,\ n_{\mathrm{codes}}-1]$ before the zero shift. The calibrated thresholds $\{B_c\}$ may be non-uniformly spaced and need not number a power of two, as the family boundary contract allows.
+where $\operatorname{bucketize}$ floors the transformed signal against the fixed thresholds $\{B_c\}$, $n_{\mathrm{codes}}$ is the number of code buckets implied by the threshold list, and $z$ is the topology zero code. In the linear case the signal and thresholds share the per-instance input unit (uA for current-mode, V for voltage-mode); in the logarithmic case $g$ floors its argument at $\epsilon = 10^{-12}$ (input unit) before the base-2 logarithm, keeping it inside the transform's domain. The signed output lies in $[-z,\ n_{\mathrm{codes}}-1-z]$. The underlying floor against ordered boundaries is the family floor-quantization law ([family contract](family.md#governing-laws)).
 
 The topology is single-mode: its one operating point is $\mathrm{mode} = 0$ at the boundary-implied bit width $b$.
 

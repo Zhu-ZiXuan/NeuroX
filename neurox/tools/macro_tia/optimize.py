@@ -38,6 +38,7 @@ from pathlib import Path
 
 import torch
 
+from neurox.common import ConfigBase
 from neurox.primitive.analog.tia import OpAmpTIAConfig
 from neurox.primitive.device import MOSFETConfig
 from neurox.tools._config import add_standard_args, load_tool_config, setup_logging
@@ -65,11 +66,7 @@ class HardwareSection:
         v_ref__V: Reference voltage of the BL clamp.
         output_saturation_softness__V: Softclip softness band.
         target_v_max__V: User-chosen ceiling for the TIA output that
-            aligns with the downstream ADC's largest v_ref mode
-            (chip's softclip upper rail = ``v_dd`` is the physical hard
-            cap, but the user typically wants ``v_out`` to stay below
-            the ADC's biggest v_ref to maximise usable signal span
-            without rail clipping).
+            aligns with the downstream ADC's largest v_ref mode.
         tia_n_newton: Newton iteration count for the inner TIA solve.
     """
 
@@ -112,7 +109,7 @@ class SweepSection:
 
 
 @dataclass(frozen=True)
-class TiaDesignConfig:
+class TiaDesignConfig(ConfigBase):
     """Top-level config consumed by ``optimize.py``."""
 
     hardware: HardwareSection
@@ -148,11 +145,7 @@ class CandidateResult:
 
 
 def _build_tia_config(hw: HardwareSection, gain: float, w: float, nmos_L_um: float, vb: float) -> OpAmpTIAConfig:
-    """Stitch a per-combo :class:`OpAmpTIAConfig`.
-
-    The reference clamp voltage is injected per call into the TIA's snap
-    (see :func:`sweep_transfer`); ``hw.v_ref__V`` is consumed there.
-    """
+    """Stitch a per-combo :class:`OpAmpTIAConfig`."""
     return OpAmpTIAConfig(
         v_nmos_bias__V=vb,
         v_dd__V=hw.v_dd__V,

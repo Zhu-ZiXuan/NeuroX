@@ -42,7 +42,7 @@ python -m example.lenet.evaluate    --device cuda:0 --dataset-dir dataset/mnist 
 
 Swap `--config macro_with_ideal_xbar.toml --policy macro_with_ideal_xbar.policy.toml --cim_macro ideal` for the lossless baseline. The physical path is memory-heavy (im2col explodes the solver's leading batch); keep `--batch-size` small first, then set the chunking knob (`solve_chunk_size`) in the policy file (see below).
 
-The examples default to GPU because both workloads are too slow on CPU to be useful as training references. Pass `--device cpu` explicitly when GPU is unavailable (LeNet is feasible on CPU; BERT is not).
+The examples default to GPU. Pass `--device cpu` explicitly when GPU is unavailable (LeNet is feasible on CPU; BERT is not).
 
 ## Circuit config and nonideality policy
 

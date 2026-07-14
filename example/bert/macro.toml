@@ -30,7 +30,7 @@ digit_num = 4
 
 
 [cim_unit]
-_neurox_type = "InterArraySliceCimUnitConfig"
+_neurox_class = "InterArraySliceCimUnitConfig"
 
 # --- Slice counts ---
 w_slice_num = 1
@@ -38,6 +38,10 @@ x_slice_num = 4
 
 # --- Slice encodings ---
 w_encoding = "true_form"
+
+# --- Unit-local peripheral PPA (TODO(data-gap): excludes children, which self-report) ---
+area_per_inst__um2 = 0.0
+leakage_per_inst__uW = 0.0
 
 [cim_unit.cim_macro_config]
 _neurox_use = "../../works/offset_1t1r/config/1t1r_28nm.toml:cim_macro"

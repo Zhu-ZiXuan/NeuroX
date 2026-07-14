@@ -26,7 +26,7 @@ def thermal_voltage__V(temperature__K: float) -> float:
         temperature__K: Absolute temperature; must be > 0.
 
     Returns:
-        Thermal voltage in plain SI volts (not millivolts), matching the ``__V`` suffix.
+        Thermal voltage in SI volts.
 
     Raises:
         ValueError: If ``temperature__K`` is not positive.

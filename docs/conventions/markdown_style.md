@@ -21,7 +21,7 @@ Follow these public conventions unless a rule here is stricter or a deviation is
 
 ## Symbols and math
 
-A formula's symbols go through LaTeX — `$...$` inline, `$$...$$` block; a lone symbol in prose may be a raw whitelisted character (see [notation_conventions](notation_conventions.md)), and everything else is ASCII or LaTeX. Inside a formula a raw Unicode glyph renders in the upright body font and clashes with the italic MathJax math font, so LaTeX sets the whole expression in one math font.
+A formula's symbols go through LaTeX — `$...$` inline, `$$...$$` block; a lone symbol in prose may be a raw whitelisted character (see [notation_conventions](notation_conventions.md)), and everything else is ASCII or LaTeX.
 
 - **Structural math** — roots, powers, fractions, and big operators are LaTeX, where braces delimit scope: `\sqrt{...}`, `e^{x}`, `\frac{a}{b}`, `\sum_{k}`. Never render a 2-D or scoped construct as a raw Unicode glyph.
 - **Units** — a physical unit is its ASCII name; see [notation_conventions §Units](notation_conventions.md#units-and-naming).

@@ -9,13 +9,13 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor
 
-from neurox.primitive.circuit import CircuitBase, CircuitConfig
+from neurox.primitive.analog.base import AnalogBase, AnalogConfig, AnalogPolicy
 from neurox.primitive.nonideality import apply_gaussian, apply_pelgrom_mismatch
 from neurox.primitive.physical_constant import K_BOLTZMANN__J_per_K
 
 
 @dataclass(frozen=True, kw_only=True)
-class SwitchCapConfig(CircuitConfig):
+class SwitchCapConfig(AnalogConfig):
     """Immutable physical configuration for :class:`SwitchCap`.
 
     Attributes:
@@ -24,6 +24,8 @@ class SwitchCapConfig(CircuitConfig):
         energy_per_sample_overhead__fJ: Per-bank switching overhead.
         latency_per_op__ns: Per-sample-and-accumulate latency;
             multiplied by the runtime serial-op count at logging time.
+        area_per_inst__um2: Silicon area per fabricated instance.
+        leakage_per_inst__uW: Static leakage per instance.
     """
 
     # --- Unit capacitance ---
@@ -35,6 +37,10 @@ class SwitchCapConfig(CircuitConfig):
     # --- Energy / latency ---
     energy_per_sample_overhead__fJ: float
     latency_per_op__ns: float
+
+    # --- Static PPA ---
+    area_per_inst__um2: float
+    leakage_per_inst__uW: float
 
     def __post_init__(self) -> None:
         self.validate()
@@ -51,13 +57,14 @@ class SwitchCapConfig(CircuitConfig):
         self._require_non_neg(self.cap_mismatch_sigma_relative, "cap_mismatch_sigma_relative")
 
     def validate_ppa(self) -> None:
-        super().validate_ppa()
+        self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
+        self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
         self._require_non_neg(self.energy_per_sample_overhead__fJ, "energy_per_sample_overhead__fJ")
         self._require_non_neg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
 @dataclass(frozen=True)
-class SwitchCapPolicy:
+class SwitchCapPolicy(AnalogPolicy):
     """Per-source toggles selecting which SwitchCap nonidealities are active.
 
     Attributes:
@@ -69,7 +76,7 @@ class SwitchCapPolicy:
     sampling_thermal_noise: bool
 
 
-class SwitchCap(CircuitBase[SwitchCapConfig]):
+class SwitchCap(AnalogBase[SwitchCapConfig, SwitchCapPolicy]):
     """Bottom-plate-sampled cap bank with passive charge-share averaging.
 
     Args:
@@ -96,7 +103,7 @@ class SwitchCap(CircuitBase[SwitchCapConfig]):
         T__K: float,
         cap_weights: tuple[float, ...],
     ) -> None:
-        super().__init__(config=config, name=name, inst_shape=inst_shape)
+        super().__init__(config=config, policy=policy, name=name, inst_shape=inst_shape)
         if not (T__K > 0.0):
             raise ValueError(f"SwitchCap.T__K ({T__K}) must be > 0")
         if len(cap_weights) < 1:
@@ -105,7 +112,8 @@ class SwitchCap(CircuitBase[SwitchCapConfig]):
             if not (w > 0.0):
                 raise ValueError(f"require: cap_weights[{k}] ({w}) > 0")
 
-        self.policy = policy
+        self._area_per_inst__um2 = config.area_per_inst__um2
+        self._leakage_per_inst__uW = config.leakage_per_inst__uW
         self.T__K = T__K
         self.dtype = dtype
         self.n_caps = len(cap_weights)
@@ -149,9 +157,6 @@ class SwitchCap(CircuitBase[SwitchCapConfig]):
         c_total__fF = c__fF.sum(dim=-1)
         v_out__V = torch.sum(c__fF * v_hold__V, dim=-1) / c_total__fF
 
-        # Serial op count via the position-invariant numel rule on the
-        # output ``v_out__V`` (n_caps was already reduced out, so divisor
-        # is just inst_count — same form as every other emitting leaf).
         e_caps__fJ = 0.5 * torch.sum(c__fF * v_in__V * v_in__V, dim=-1)
         dynamic_energy__fJ = e_caps__fJ + self.config.energy_per_sample_overhead__fJ
         serial_op_count = max(1, v_out__V.numel() // max(self.inst_count, 1))

@@ -14,17 +14,20 @@ import torch
 from torch import Tensor
 
 from neurox.common.mixin import RegistryMixin
-from neurox.primitive.circuit import CircuitBase, CircuitConfig
+from neurox.primitive.analog.base import AnalogBase, AnalogConfig, AnalogPolicy
 
 
 @dataclass(frozen=True)
-class TIAConfig(CircuitConfig):
+class TIAConfig(AnalogConfig):
     """Base configuration for TIA implementations.
 
-    The reference clamp voltage is not a config field — it is injected
-    per call into :meth:`TIA.snapshot` as a ``Tensor`` and stored in the
-    snap.
+    Attributes:
+        area_per_inst__um2: Silicon area per fabricated instance.
+        leakage_per_inst__uW: Static leakage per instance.
     """
+
+    area_per_inst__um2: float
+    leakage_per_inst__uW: float
 
     def __post_init__(self) -> None:
         self.validate()
@@ -32,9 +35,13 @@ class TIAConfig(CircuitConfig):
     def validate(self) -> None:
         self.validate_ppa()
 
+    def validate_ppa(self) -> None:
+        self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
+        self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
+
 
 @dataclass(frozen=True)
-class TIAPolicy:
+class TIAPolicy(AnalogPolicy):
     """Abstract marker base for TIA-family nonideality policies."""
 
 
@@ -47,19 +54,11 @@ SnapT = TypeVar("SnapT", bound=TIASnap)
 
 
 class TIA(
-    CircuitBase[TIAConfig],
+    AnalogBase[TIAConfig, TIAPolicy],
     RegistryMixin[type["TIAConfig"], "TIA"],
     Generic[SnapT],
 ):
-    """Abstract base for transimpedance-amp clamp drivers.
-
-    Parameterised by the concrete snap type ``SnapT`` so each
-    implementation declares its snap dataclass exactly once and
-    ``snapshot`` / ``solve_clamp`` carry that concrete type without an
-    LSP-narrowing override. The registry-impl slot is unparameterised
-    because Python generics are invariant — each concrete impl binds
-    ``SnapT`` to its own snap subclass.
-    """
+    """Abstract base for transimpedance-amp clamp drivers."""
 
     def __init__(
         self,
@@ -72,8 +71,8 @@ class TIA(
         T__K: float,
     ) -> None:
         """Register the instance with :class:`nn.Module` and the profiler."""
-        del policy, dtype, T__K  # captured by the subclass init
-        super().__init__(config=config, name=name, inst_shape=inst_shape)
+        del dtype, T__K  # captured by the subclass init
+        super().__init__(config=config, policy=policy, name=name, inst_shape=inst_shape)
 
     @classmethod
     def from_config(

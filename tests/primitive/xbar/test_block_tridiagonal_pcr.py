@@ -38,22 +38,22 @@ def _dense_from_blocks(sub: torch.Tensor, diag: torch.Tensor, sup: torch.Tensor)
 
 
 def _make_diag_dominant_blocks(
-    n: int, b: int, *, dtype: torch.dtype = torch.float64, seed: int = 0
+    n: int, b: int, *, dtype: torch.dtype = torch.float64, seed: int = 0, device: torch.device
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    g = torch.Generator().manual_seed(seed)
-    sub = torch.randn(n, b, b, dtype=dtype, generator=g) * 0.3
-    sup = torch.randn(n, b, b, dtype=dtype, generator=g) * 0.3
-    diag = torch.randn(n, b, b, dtype=dtype, generator=g) * 0.1
-    diag = diag + torch.eye(b, dtype=dtype) * 3.0
+    g = torch.Generator(device=device).manual_seed(seed)
+    sub = torch.randn(n, b, b, dtype=dtype, generator=g, device=device) * 0.3
+    sup = torch.randn(n, b, b, dtype=dtype, generator=g, device=device) * 0.3
+    diag = torch.randn(n, b, b, dtype=dtype, generator=g, device=device) * 0.1
+    diag = diag + torch.eye(b, dtype=dtype, device=device) * 3.0
     return sub, diag, sup
 
 
 @pytest.mark.parametrize("b", [2, 3, 4])
 @pytest.mark.parametrize("n", [1, 2, 3, 8, 17, 64, 128])
-def test_pcr_matches_dense_lu(b: int, n: int) -> None:
-    sub, diag, sup = _make_diag_dominant_blocks(n, b, seed=n * 31 + b)
-    g = torch.Generator().manual_seed(n * 13 + b * 7)
-    rhs = torch.randn(n, b, dtype=torch.float64, generator=g)
+def test_pcr_matches_dense_lu(b: int, n: int, device: torch.device) -> None:
+    sub, diag, sup = _make_diag_dominant_blocks(n, b, seed=n * 31 + b, device=device)
+    g = torch.Generator(device=device).manual_seed(n * 13 + b * 7)
+    rhs = torch.randn(n, b, dtype=torch.float64, generator=g, device=device)
 
     x_pcr = solve_block_tridiagonal_pcr(sub, diag, sup, rhs)
     if n == 1:
@@ -67,10 +67,10 @@ def test_pcr_matches_dense_lu(b: int, n: int) -> None:
 
 
 @pytest.mark.parametrize("n", [3, 8, 17, 64, 128, 256])
-def test_pcr_matches_thomas_fp64(n: int) -> None:
-    sub, diag, sup = _make_diag_dominant_blocks(n, 2, seed=n)
-    g = torch.Generator().manual_seed(n * 5)
-    rhs = torch.randn(n, 2, dtype=torch.float64, generator=g)
+def test_pcr_matches_thomas_fp64(n: int, device: torch.device) -> None:
+    sub, diag, sup = _make_diag_dominant_blocks(n, 2, seed=n, device=device)
+    g = torch.Generator(device=device).manual_seed(n * 5)
+    rhs = torch.randn(n, 2, dtype=torch.float64, generator=g, device=device)
 
     x_pcr = solve_block_tridiagonal_pcr(sub, diag, sup, rhs)
     x_thomas = solve_block_tridiagonal(sub, diag, sup, rhs)
@@ -79,11 +79,11 @@ def test_pcr_matches_thomas_fp64(n: int) -> None:
 
 
 @pytest.mark.parametrize("n", [3, 8, 17, 64, 128, 256])
-def test_pcr_matches_thomas_fp32(n: int) -> None:
+def test_pcr_matches_thomas_fp32(n: int, device: torch.device) -> None:
     """PCR accumulates log N rounding steps vs Thomas's sweep; gap stays small."""
-    sub, diag, sup = _make_diag_dominant_blocks(n, 2, dtype=torch.float32, seed=n + 1)
-    g = torch.Generator().manual_seed(n * 7 + 3)
-    rhs = torch.randn(n, 2, dtype=torch.float32, generator=g)
+    sub, diag, sup = _make_diag_dominant_blocks(n, 2, dtype=torch.float32, seed=n + 1, device=device)
+    g = torch.Generator(device=device).manual_seed(n * 7 + 3)
+    rhs = torch.randn(n, 2, dtype=torch.float32, generator=g, device=device)
 
     x_pcr = solve_block_tridiagonal_pcr(sub, diag, sup, rhs)
     x_thomas = solve_block_tridiagonal(sub, diag, sup, rhs)
@@ -91,17 +91,17 @@ def test_pcr_matches_thomas_fp32(n: int) -> None:
     assert rel_err < 1e-4, f"N={n}: PCR vs Thomas fp32 rel err {rel_err.item():.2e}"
 
 
-def test_pcr_batched() -> None:
+def test_pcr_batched(device: torch.device) -> None:
     n, b = 32, 2
     batch_shape = (4, 7)
-    g = torch.Generator().manual_seed(1234)
+    g = torch.Generator(device=device).manual_seed(1234)
     diag = (
-        torch.eye(b, dtype=torch.float64) * 3
-        + torch.randn(*batch_shape, n, b, b, dtype=torch.float64, generator=g) * 0.1
+        torch.eye(b, dtype=torch.float64, device=device) * 3
+        + torch.randn(*batch_shape, n, b, b, dtype=torch.float64, generator=g, device=device) * 0.1
     )
-    sub = torch.randn(*batch_shape, n, b, b, dtype=torch.float64, generator=g) * 0.3
-    sup = torch.randn(*batch_shape, n, b, b, dtype=torch.float64, generator=g) * 0.3
-    rhs = torch.randn(*batch_shape, n, b, dtype=torch.float64, generator=g)
+    sub = torch.randn(*batch_shape, n, b, b, dtype=torch.float64, generator=g, device=device) * 0.3
+    sup = torch.randn(*batch_shape, n, b, b, dtype=torch.float64, generator=g, device=device) * 0.3
+    rhs = torch.randn(*batch_shape, n, b, dtype=torch.float64, generator=g, device=device)
 
     x_pcr = solve_block_tridiagonal_pcr(sub, diag, sup, rhs)
     assert x_pcr.shape == (*batch_shape, n, b)
@@ -113,13 +113,13 @@ def test_pcr_batched() -> None:
         assert rel_err < 1e-10, f"batch {idx}: rel err {rel_err.item():.2e}"
 
 
-def test_pcr_zero_off_diagonals_reduces_to_block_diag() -> None:
+def test_pcr_zero_off_diagonals_reduces_to_block_diag(device: torch.device) -> None:
     n, b = 5, 2
-    g = torch.Generator().manual_seed(7)
-    diag = torch.eye(b, dtype=torch.float64) * 2 + torch.randn(n, b, b, dtype=torch.float64, generator=g) * 0.05
-    sub = torch.zeros(n, b, b, dtype=torch.float64)
-    sup = torch.zeros(n, b, b, dtype=torch.float64)
-    rhs = torch.randn(n, b, dtype=torch.float64, generator=g)
+    g = torch.Generator(device=device).manual_seed(7)
+    diag = torch.eye(b, dtype=torch.float64, device=device) * 2 + torch.randn(n, b, b, dtype=torch.float64, generator=g, device=device) * 0.05
+    sub = torch.zeros(n, b, b, dtype=torch.float64, device=device)
+    sup = torch.zeros(n, b, b, dtype=torch.float64, device=device)
+    rhs = torch.randn(n, b, dtype=torch.float64, generator=g, device=device)
 
     x_pcr = solve_block_tridiagonal_pcr(sub, diag, sup, rhs)
     for k in range(n):
@@ -127,23 +127,23 @@ def test_pcr_zero_off_diagonals_reduces_to_block_diag() -> None:
         assert torch.allclose(x_pcr[k], x_expected, atol=1e-12)
 
 
-def test_pcr_m_matrix_wire_jacobian_2x2() -> None:
+def test_pcr_m_matrix_wire_jacobian_2x2(device: torch.device) -> None:
     """BL/SL block-2×2 structure used by the nested solver."""
     n, b = 64, 2
     wire_g = 5.0e3
     a = 100.0
     b_cross = -50.0
-    diag = torch.zeros(n, b, b, dtype=torch.float64)
+    diag = torch.zeros(n, b, b, dtype=torch.float64, device=device)
     diag[..., 0, 0] = 2 * wire_g + a
     diag[..., 0, 1] = b_cross
     diag[..., 1, 0] = -a
     diag[..., 1, 1] = 2 * wire_g - b_cross
-    off = torch.zeros(n, b, b, dtype=torch.float64)
+    off = torch.zeros(n, b, b, dtype=torch.float64, device=device)
     off[..., 0, 0] = -wire_g
     off[..., 1, 1] = -wire_g
     sub = off.clone()
     sup = off.clone()
-    rhs = torch.randn(n, b, dtype=torch.float64, generator=torch.Generator().manual_seed(99))
+    rhs = torch.randn(n, b, dtype=torch.float64, generator=torch.Generator(device=device).manual_seed(99), device=device)
 
     x_pcr = solve_block_tridiagonal_pcr(sub, diag, sup, rhs)
     a_dense = _dense_from_blocks(sub, diag, sup)

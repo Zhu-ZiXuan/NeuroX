@@ -36,19 +36,18 @@ def _dense_from_blocks(sub: torch.Tensor, diag: torch.Tensor, sup: torch.Tensor)
 
 
 def _make_diag_dominant_blocks(
-    n: int, b: int, *, dtype: torch.dtype = torch.float64, seed: int = 0
+    n: int, b: int, *, dtype: torch.dtype = torch.float64, seed: int = 0, device: torch.device
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Random block-tridiagonal where each diag block is diagonally dominant."""
-    g = torch.Generator().manual_seed(seed)
-    sub = torch.randn(n, b, b, dtype=dtype, generator=g) * 0.3
-    sup = torch.randn(n, b, b, dtype=dtype, generator=g) * 0.3
-    diag = torch.randn(n, b, b, dtype=dtype, generator=g) * 0.1
-    # Add dominant diagonal to every block.
-    diag = diag + torch.eye(b, dtype=dtype) * 3.0
+    g = torch.Generator(device=device).manual_seed(seed)
+    sub = torch.randn(n, b, b, dtype=dtype, generator=g, device=device) * 0.3
+    sup = torch.randn(n, b, b, dtype=dtype, generator=g, device=device) * 0.3
+    diag = torch.randn(n, b, b, dtype=dtype, generator=g, device=device) * 0.1
+    diag = diag + torch.eye(b, dtype=dtype, device=device) * 3.0
     return sub, diag, sup
 
 
-def test_block_size_1_matches_scalar_thomas() -> None:
+def test_block_size_1_matches_scalar_thomas(device: torch.device) -> None:
     """B = 1 should agree with scalar Thomas to fp64 round-off.
 
     Not bit-exact — block path goes through ``torch.linalg.solve`` (LU)
@@ -56,11 +55,11 @@ def test_block_size_1_matches_scalar_thomas() -> None:
     accumulation order. ~1e-14 relative tolerance is appropriate.
     """
     n = 12
-    g = torch.Generator().manual_seed(42)
-    diag_s = torch.rand(n, dtype=torch.float64, generator=g) + 1.0
-    sub_s = torch.rand(n, dtype=torch.float64, generator=g) * 0.1
-    sup_s = torch.rand(n, dtype=torch.float64, generator=g) * 0.1
-    rhs_s = torch.rand(n, dtype=torch.float64, generator=g)
+    g = torch.Generator(device=device).manual_seed(42)
+    diag_s = torch.rand(n, dtype=torch.float64, generator=g, device=device) + 1.0
+    sub_s = torch.rand(n, dtype=torch.float64, generator=g, device=device) * 0.1
+    sup_s = torch.rand(n, dtype=torch.float64, generator=g, device=device) * 0.1
+    rhs_s = torch.rand(n, dtype=torch.float64, generator=g, device=device)
 
     x_scalar = solve_tridiagonal(sub_s, diag_s, sup_s, rhs_s, dim=0)
     x_block = solve_block_tridiagonal(
@@ -76,11 +75,11 @@ def test_block_size_1_matches_scalar_thomas() -> None:
 
 @pytest.mark.parametrize("b", [2, 3, 4])
 @pytest.mark.parametrize("n", [1, 3, 8, 17])
-def test_block_solve_matches_dense(b: int, n: int) -> None:
+def test_block_solve_matches_dense(b: int, n: int, device: torch.device) -> None:
     """Block Thomas matches dense ``torch.linalg.solve`` on the assembled matrix."""
-    sub, diag, sup = _make_diag_dominant_blocks(n, b, seed=n * 31 + b)
-    g = torch.Generator().manual_seed(n * 13 + b * 7)
-    rhs = torch.randn(n, b, dtype=torch.float64, generator=g)
+    sub, diag, sup = _make_diag_dominant_blocks(n, b, seed=n * 31 + b, device=device)
+    g = torch.Generator(device=device).manual_seed(n * 13 + b * 7)
+    rhs = torch.randn(n, b, dtype=torch.float64, generator=g, device=device)
 
     if n == 1:
         x_dense = torch.linalg.solve(diag[0], rhs[0])
@@ -93,18 +92,18 @@ def test_block_solve_matches_dense(b: int, n: int) -> None:
     assert rel_err < 1e-10, f"B={b} N={n}: rel error {rel_err.item():.2e}"
 
 
-def test_batched_block_solve() -> None:
+def test_batched_block_solve(device: torch.device) -> None:
     """Leading batch dims pass through; per-batch result matches dense."""
     n, b = 8, 3
     batch_shape = (4, 7)
-    g = torch.Generator().manual_seed(1234)
+    g = torch.Generator(device=device).manual_seed(1234)
     diag = (
-        torch.eye(b, dtype=torch.float64) * 3
-        + torch.randn(*batch_shape, n, b, b, dtype=torch.float64, generator=g) * 0.1
+        torch.eye(b, dtype=torch.float64, device=device) * 3
+        + torch.randn(*batch_shape, n, b, b, dtype=torch.float64, generator=g, device=device) * 0.1
     )
-    sub = torch.randn(*batch_shape, n, b, b, dtype=torch.float64, generator=g) * 0.3
-    sup = torch.randn(*batch_shape, n, b, b, dtype=torch.float64, generator=g) * 0.3
-    rhs = torch.randn(*batch_shape, n, b, dtype=torch.float64, generator=g)
+    sub = torch.randn(*batch_shape, n, b, b, dtype=torch.float64, generator=g, device=device) * 0.3
+    sup = torch.randn(*batch_shape, n, b, b, dtype=torch.float64, generator=g, device=device) * 0.3
+    rhs = torch.randn(*batch_shape, n, b, dtype=torch.float64, generator=g, device=device)
 
     x_block = solve_block_tridiagonal(sub, diag, sup, rhs)
     assert x_block.shape == (*batch_shape, n, b)
@@ -117,14 +116,14 @@ def test_batched_block_solve() -> None:
         assert rel_err < 1e-10, f"batch {idx}: rel error {rel_err.item():.2e}"
 
 
-def test_zero_off_diagonals_reduce_to_block_diag() -> None:
+def test_zero_off_diagonals_reduce_to_block_diag(device: torch.device) -> None:
     """Sub/sup all zero → solution is per-block independent solve."""
     n, b = 5, 2
-    g = torch.Generator().manual_seed(7)
-    diag = torch.eye(b, dtype=torch.float64) * 2 + torch.randn(n, b, b, dtype=torch.float64, generator=g) * 0.05
-    sub = torch.zeros(n, b, b, dtype=torch.float64)
-    sup = torch.zeros(n, b, b, dtype=torch.float64)
-    rhs = torch.randn(n, b, dtype=torch.float64, generator=g)
+    g = torch.Generator(device=device).manual_seed(7)
+    diag = torch.eye(b, dtype=torch.float64, device=device) * 2 + torch.randn(n, b, b, dtype=torch.float64, generator=g, device=device) * 0.05
+    sub = torch.zeros(n, b, b, dtype=torch.float64, device=device)
+    sup = torch.zeros(n, b, b, dtype=torch.float64, device=device)
+    rhs = torch.randn(n, b, dtype=torch.float64, generator=g, device=device)
 
     x_block = solve_block_tridiagonal(sub, diag, sup, rhs)
     for k in range(n):
@@ -132,11 +131,11 @@ def test_zero_off_diagonals_reduce_to_block_diag() -> None:
         assert torch.allclose(x_block[k], x_expected, atol=1e-12)
 
 
-def test_m_matrix_block_2x2_mirrors_nested_wire_jacobian() -> None:
+def test_m_matrix_block_2x2_mirrors_nested_wire_jacobian(device: torch.device) -> None:
     """Reproduce the BL/SL block-2×2 wire-Newton structure used by the
-    Phase-C nested solver upgrade: positive diagonal blocks, scalar
-    negative off-diagonals (wire coupling), small off-diagonal cell
-    cross-terms. Must solve cleanly even when off-diagonals are present.
+    nested solver: positive diagonal blocks, scalar negative off-diagonals
+    (wire coupling), small off-diagonal cell cross-terms. Must solve
+    cleanly even when off-diagonals are present.
     """
     n = 16
     b = 2
@@ -145,19 +144,19 @@ def test_m_matrix_block_2x2_mirrors_nested_wire_jacobian() -> None:
     b_cross = -50.0  # ∂I_cell/∂V_SL (negative)
 
     # Diagonal block: [[wire_diag + a, b_cross], [-a, wire_diag - b_cross]].
-    diag = torch.zeros(n, b, b, dtype=torch.float64)
+    diag = torch.zeros(n, b, b, dtype=torch.float64, device=device)
     diag[..., 0, 0] = 2 * wire_g + a
     diag[..., 0, 1] = b_cross
     diag[..., 1, 0] = -a
     diag[..., 1, 1] = 2 * wire_g - b_cross
     # Off-diagonal blocks: diagonal 2×2 with -wire_g on BL-BL and SL-SL only.
-    off = torch.zeros(n, b, b, dtype=torch.float64)
+    off = torch.zeros(n, b, b, dtype=torch.float64, device=device)
     off[..., 0, 0] = -wire_g
     off[..., 1, 1] = -wire_g
     sub = off.clone()
     sup = off.clone()
 
-    rhs = torch.randn(n, b, dtype=torch.float64, generator=torch.Generator().manual_seed(99))
+    rhs = torch.randn(n, b, dtype=torch.float64, generator=torch.Generator(device=device).manual_seed(99), device=device)
 
     x_block = solve_block_tridiagonal(sub, diag, sup, rhs)
     a_dense = _dense_from_blocks(sub, diag, sup)

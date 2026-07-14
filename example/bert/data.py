@@ -1,12 +1,4 @@
-"""SST-2 (GLUE) data loading + tokenization for the BERT example.
-
-Uses HuggingFace ``datasets`` to fetch the GLUE / SST-2 corpus and the
-matching ``transformers`` tokenizer to produce fixed-length ``input_ids``
-/ ``attention_mask`` / ``token_type_ids`` tensors.  The dataloader yields
-4-tuples ``(input_ids, attention_mask, token_type_ids, labels)``; the
-training / evaluation scripts unpack and forward them through the BERT
-model directly.
-"""
+"""SST-2 (GLUE) data loading + tokenization for the BERT example."""
 
 from collections.abc import Sequence
 from pathlib import Path
@@ -75,13 +67,11 @@ def create_sst2_dataloader(
     Args:
         dataset_dir: Cache directory for the GLUE / SST-2 corpus and the
             tokenizer files (passed as ``cache_dir`` to HuggingFace).
-        batch_size: Batch size.
         device: Runtime device (used only for ``pin_memory``).
         split: ``"train"`` for training; anything else (default
             ``"validation"``) selects the validation split.  SST-2's
             test split has no labels in GLUE — use ``"validation"`` for
             scoring.
-        shuffle: Whether to shuffle.
         max_length: Maximum token sequence length.  128 covers the SST-2
             distribution comfortably (median ≈ 11 tokens).
         model_name: HuggingFace tokenizer / model identifier.  Must match

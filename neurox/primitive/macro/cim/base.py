@@ -13,24 +13,28 @@ from typing import TYPE_CHECKING
 import torch
 from torch import Tensor
 
+from neurox.common import ConfigBase, ModuleBase, PolicyBase
 from neurox.common.mixin import RegistryMixin
 from neurox.primitive.analog.adc import AdcOperationPoint
-from neurox.primitive.circuit import CircuitBase, CircuitConfig
 
 if TYPE_CHECKING:
     from .ideal import IdealCimMacro
 
 
 @dataclass(frozen=True)
-class CimMacroConfig(CircuitConfig):
+class CimMacroConfig(ConfigBase):
     """Geometry and PPA shared by every xbar tile.
 
     Attributes:
+        area_per_inst__um2: Silicon area per fabricated instance.
+        leakage_per_inst__uW: Static leakage per instance.
         col_num: Number of columns per tile (cells aggregating to
             one output).
         row_num: Number of rows per tile (cells sharing one input).
     """
 
+    area_per_inst__um2: float
+    leakage_per_inst__uW: float
     col_num: int
     row_num: int
 
@@ -48,6 +52,10 @@ class CimMacroConfig(CircuitConfig):
         if not (self.row_num > 1):
             raise ValueError(f"require: row_num ({self.row_num}) > 1")
 
+    def validate_ppa(self) -> None:
+        self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
+        self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
+
     def validate_value_grid(self) -> None:
         """Reject degenerate single-point ranges that collapse rescale math."""
         if hasattr(self, "x_range"):
@@ -61,11 +69,14 @@ class CimMacroConfig(CircuitConfig):
 
 
 @dataclass(frozen=True)
-class CimMacroPolicy:
+class CimMacroPolicy(PolicyBase):
     """Abstract marker base for CimMacro-family nonideality policies."""
 
 
-class CimMacro(CircuitBase[CimMacroConfig], RegistryMixin[type["CimMacroConfig"], "CimMacro"]):
+class CimMacro(
+    ModuleBase[CimMacroConfig, CimMacroPolicy],
+    RegistryMixin[type["CimMacroConfig"], "CimMacro"],
+):
     """Abstract base class for a physical crossbar tile.
 
     Args:
@@ -92,8 +103,7 @@ class CimMacro(CircuitBase[CimMacroConfig], RegistryMixin[type["CimMacroConfig"]
         dtype: torch.dtype,
         T__K: float,
     ) -> None:
-        super().__init__(config=config, name=name, inst_shape=inst_shape)
-        self.policy = policy
+        super().__init__(config=config, policy=policy, name=name, inst_shape=inst_shape)
         self.T__K = T__K
         self.dtype = dtype
 
@@ -210,8 +220,7 @@ class CimMacro(CircuitBase[CimMacroConfig], RegistryMixin[type["CimMacroConfig"]
         """Return the lossless ideal twin of this tile.
 
         The twin inherits this tile's per-instance multiplicity and ADC
-        operating-point metadata. A tile that is already ideal overrides
-        this to ``return self``.
+        operating-point metadata.
         """
         # Local import — the ``ideal`` module imports from this file,
         # so the symbol is only safe to resolve at call time.

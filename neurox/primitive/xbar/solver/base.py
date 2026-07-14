@@ -1,19 +1,10 @@
 """Topology-agnostic SL/BL IR-drop DC-solver framework.
 
 Hosts :class:`SolverConfig`, :class:`Solver`, :class:`SolverDCOP`, and
-:class:`SolverResiduals`; the internals doc covers the design rationale
-(registry dispatch, residual container reuse).
-
-The solver drives only the two wire ladders and the two clamp boundaries.
-The cell and both clamp drivers are per-call, method-generic parameters of
-:meth:`Solver.solve_dc` rather than construction-time fields, so the
-solver class is non-generic and stateless (it holds only its config). Any
-SL/BL topology whose cell condenses to one two-terminal branch reuses the
-same solver — the topology lives entirely in the supplied cell.
+:class:`SolverResiduals`.
 
 See also:
     docs/reference/primitive/xbar/solver/README.md
-    docs/internals/primitive/xbar/solver.md
 """
 
 from __future__ import annotations
@@ -24,7 +15,8 @@ from typing import Generic, TypeVar
 
 from torch import Tensor
 
-from neurox.common.mixin import RegistryMixin, ValidateMixin
+from neurox.common import ConfigBase
+from neurox.common.mixin import RegistryMixin
 from neurox.primitive.xbar.cell import XbarCell, XbarCellDCOP, XbarCellSnap
 
 from .clamp import ClampDriver, ClampSnap
@@ -34,10 +26,7 @@ from .clamp import ClampDriver, ClampSnap
 # ---------------------------------------------------------------------------
 
 # Bound only inside the solve-method signatures so mypy infers them per
-# call and the solver class itself stays non-generic. ``CellSnapT`` /
-# ``CellDCOPT`` carry the cell's own bounds (mirroring ``XbarCell``); the
-# driver snaps are bound to ``ClampSnap``, matching ``ClampDriver`` — the
-# snap carries the injected reference voltage the solver seeds from.
+# call and the solver class itself stays non-generic.
 CellSnapT = TypeVar("CellSnapT", bound=XbarCellSnap)
 CellDCOPT = TypeVar("CellDCOPT", bound=XbarCellDCOP)
 BLSnapT = TypeVar("BLSnapT", bound=ClampSnap)
@@ -49,19 +38,11 @@ SLSnapT = TypeVar("SLSnapT", bound=ClampSnap)
 
 
 @dataclass(frozen=True)
-class SolverConfig(ValidateMixin):
+class SolverConfig(ConfigBase):
     """Abstract base for DC-solver fixed-knob configs.
 
-    Empty by design — each concrete solver carries its own subclass with
-    iteration counts and any other compile-time-constant numerical knobs.
-    Pure algorithmic safety constants (Newton damping caps, Jacobian
-    floors) are method-intrinsic and live as class attributes on the
-    concrete solver class, NOT in this config tree.
-
-    Solvers have **no Policy** — there is no per-source nonideality
-    toggle in a pure numerical method; every knob is either a fixed
-    design constant (here) or a method-intrinsic safety bound (on the
-    concrete solver class).
+    Each concrete solver carries its own subclass with iteration counts and
+    any other compile-time-constant numerical knobs.
     """
 
     def __post_init__(self) -> None:
@@ -83,9 +64,7 @@ class SolverResiduals:
     Solver-owned residuals only: the wire-ladder and clamp-boundary KCL
     mismatches. The per-cell internal-KCL residual lives on the cell DCOP
     (``SolverDCOP.cell.residuals``). Populated only when
-    ``solve_dc(compute_residuals=True)``; the hot path leaves the whole
-    bundle as ``None`` so the residual algebra (two wire-KCL sweeps plus
-    two clamp evaluations) is pruned away.
+    ``solve_dc(compute_residuals=True)``.
 
     Attributes:
         wire_bl__uA: BL wire KCL residual per node.
@@ -111,9 +90,7 @@ class SolverDCOP(Generic[CellDCOPT]):
     The condensed cell working point (branch current, signed terminal
     conductances, internal node voltage, and the per-cell KCL residual) is
     carried on :attr:`cell`; the solver owns only the wire and clamp
-    boundary state. ``CellDCOPT`` is the concrete cell DCOP type supplied
-    to :meth:`Solver.solve_dc`, so the returned DCOP keeps the cell's exact
-    working-point type end to end.
+    boundary state.
 
     Attributes:
         i_bl_driver: BL driver current [uA]. Shape: ``[..., num_col]``.
@@ -125,10 +102,8 @@ class SolverDCOP(Generic[CellDCOPT]):
             per-cell internal-KCL residual.
         v_bl_clamp: BL clamp voltages [V]. Shape: ``[..., num_col]``.
         v_sl_drive: SL drive voltages [V]. Shape: ``[..., num_col]``.
-        residuals: Optional per-element wire / clamp residual diagnostics.
-            Hot path sets this to ``None`` — the extra KCL evaluations are
-            skipped entirely. Calibration / debug paths call
-            ``solve_dc(compute_residuals=True)`` to fill it.
+        residuals: Optional per-element wire / clamp residual diagnostics;
+            ``None`` unless ``solve_dc(compute_residuals=True)``.
     """
 
     i_bl_driver: Tensor
@@ -152,21 +127,13 @@ class Solver(RegistryMixin[type["SolverConfig"], "Solver"], ABC):
     Each concrete solver registers itself against the :class:`SolverConfig`
     subclass it consumes via ``@Solver.register_key(SomeSolverConfig)``;
     callers reach it through :meth:`Solver.from_config`. Solvers are plain
-    stateless tool classes — not ``nn.Module``, no buffers, no parameters,
-    and no boundary-actor fields — so the base intentionally stays minimal
-    and ``from_config`` takes only the config.
-
-    The cell and the two clamp drivers are per-call, method-generic
-    parameters of :meth:`solve_dc` rather than construction-time bindings.
-    The cell owns the two-terminal device branch and condenses any internal
-    node; the solver drives only the wire ladders and clamp boundaries. Any
-    SL/BL topology whose cell condenses to one branch reuses this solver
-    unchanged — the topology lives entirely in the supplied cell.
+    stateless tool classes (not ``nn.Module``); the cell and the two clamp
+    drivers are per-call, method-generic parameters of :meth:`solve_dc`.
     """
 
     @abstractmethod
     def __init__(self, *, config: SolverConfig, series_axis: int = -1) -> None:
-        """Bind the solver to its config and layout axis; subclasses do the real init.
+        """Bind the solver to its config and layout axis.
 
         Args:
             config: The concrete solver's fixed-knob config.

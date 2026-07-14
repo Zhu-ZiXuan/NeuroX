@@ -1,0 +1,297 @@
+"""Dict <-> dataclass coercion via runtime reflection.
+
+Recursive, type-checked conversion between plain mappings and frozen dataclass
+trees, plus the ``_neurox_class`` polymorphic discriminator that instantiates a
+named subclass. Pure stdlib reflection: no config, policy, or file-I/O imports.
+
+See also:
+    docs/internals/common/serialize/README.md
+"""
+
+from __future__ import annotations
+
+import typing
+from collections.abc import Mapping
+from dataclasses import fields, is_dataclass
+from enum import Enum
+from types import NoneType, UnionType
+from typing import Any, TypeVar, Union, get_args, get_origin, get_type_hints
+
+from neurox.common.serialize.keys import CLASS_DISCRIMINATOR
+
+T = TypeVar("T")
+
+
+# --- type helpers ---
+
+
+def _is_dataclass_type(tp: Any) -> bool:
+    return isinstance(tp, type) and is_dataclass(tp)
+
+
+def _is_enum_type(tp: Any) -> bool:
+    return isinstance(tp, type) and issubclass(tp, Enum)
+
+
+def _dataclass_field_names(cls: Any) -> set[str]:
+    """Return the declared field names of a dataclass type."""
+    return {f.name for f in fields(cls)}
+
+
+# --- dict → dataclass ---
+
+
+def _recursive_dataclass_descendants(base: type) -> list[str]:
+    """List every dataclass descendant of ``base`` by ``__name__``."""
+    out: list[str] = []
+    for sub in base.__subclasses__():
+        if _is_dataclass_type(sub):
+            out.append(sub.__name__)
+        out.extend(_recursive_dataclass_descendants(sub))
+    return out
+
+
+def _resolve_concrete_dataclass(base: type, type_name: str) -> type:
+    """Find a dataclass in ``{base} ∪ recursive-subclasses`` named ``type_name``.
+
+    Raises:
+        TypeError: When no dataclass in ``{base} ∪ recursive-subclasses`` has the
+            given name.
+    """
+    if base.__name__ == type_name and _is_dataclass_type(base):
+        return base
+    for sub in base.__subclasses__():
+        if sub.__name__ == type_name and _is_dataclass_type(sub):
+            return sub
+        try:
+            return _resolve_concrete_dataclass(sub, type_name)
+        except TypeError:
+            continue
+    raise TypeError(
+        f"_neurox_class {type_name!r} is not {base.__name__} nor a subclass of it; "
+        f"candidates in this slot (recursive): "
+        f"{sorted(_recursive_dataclass_descendants(base)) or '<none>'}"
+    )
+
+
+def _build_value(value: Any, tp: Any) -> Any:
+    """Coerce ``value`` into the annotated type ``tp`` recursively.
+
+    Unions are resolved by trying each arm and returning the first that
+    accepts the value. Polymorphic dataclass fields with a ``_neurox_class``
+    discriminator in the value mapping instantiate the named subclass.
+    ``Literal[...]`` annotations enforce membership in the declared set.
+    """
+    origin = get_origin(tp)
+    args = get_args(tp)
+
+    # --- Literal: enforce membership ---
+
+    if origin is typing.Literal:
+        if value not in args:
+            raise ValueError(f"value {value!r} not in Literal{list(args)}")
+        return value
+
+    # --- unions (includes Optional) ---
+
+    if origin is Union or origin is UnionType:
+        if value is None and NoneType in args:
+            return None
+        last_exc: Exception | None = None
+        for arg in args:
+            if arg is NoneType:
+                continue
+            try:
+                return _build_value(value, arg)
+            except (TypeError, ValueError) as exc:
+                last_exc = exc
+                continue
+        if last_exc is not None:
+            raise last_exc
+        return value
+
+    # --- nested dataclass ---
+
+    if _is_dataclass_type(tp):
+        if not isinstance(value, Mapping):
+            raise TypeError(f"Expected mapping for {tp.__name__}, got {type(value).__name__}")
+        type_name = value.get(CLASS_DISCRIMINATOR)
+        if type_name is not None:
+            concrete = _resolve_concrete_dataclass(tp, type_name)
+            filtered = {k: v for k, v in value.items() if k != CLASS_DISCRIMINATOR}
+            return dataclass_from_dict(concrete, filtered)
+        return dataclass_from_dict(tp, value)
+
+    # --- enum ---
+
+    if _is_enum_type(tp):
+        if isinstance(value, tp):
+            return value
+        return tp(value)
+
+    # --- generic containers ---
+
+    if origin in (list, tuple, set, frozenset):
+        # ``str`` / ``bytes`` are iterables of length-1 elements; if a
+        # config field is annotated ``list[T]`` and the TOML supplies a
+        # string by mistake, the silent character-iteration that
+        # results is almost always wrong. Reject it explicitly.
+        if isinstance(value, (str, bytes)):
+            raise TypeError(f"Expected list/tuple/set for {tp}, got {type(value).__name__}: {value!r}")
+        if not args:
+            return value
+        if origin is tuple and len(args) == 2 and args[1] is Ellipsis:
+            return tuple(_build_value(x, args[0]) for x in value)
+        if origin is tuple:
+            if len(value) != len(args):
+                raise ValueError(
+                    f"tuple length mismatch: expected {len(args)} element(s) for "
+                    f"tuple[{', '.join(getattr(a, '__name__', str(a)) for a in args)}], "
+                    f"got {len(value)}"
+                )
+            return tuple(_build_value(x, a) for x, a in zip(value, args, strict=True))
+        inner = args[0]
+        return origin(_build_value(x, inner) for x in value)
+
+    if origin is dict:
+        if len(args) < 2:
+            return value
+        v_tp = args[1]
+        return {k: _build_value(v, v_tp) for k, v in value.items()}
+
+    # --- primitive (int / float / bool / str) ---
+
+    if tp in (int, float, bool, str):
+        return _coerce_primitive(value, tp)
+
+    # --- untyped / Any ---
+
+    return value
+
+
+def _coerce_primitive(value: Any, tp: type) -> Any:
+    """Validate a primitive value against ``tp``; reject silent mis-coercion.
+
+    Rules:
+      * ``bool`` is **not** a valid ``int`` here — Python's
+        ``isinstance(True, int) is True`` would otherwise let bool
+        fields collapse into int fields.
+      * ``int`` is accepted as ``float`` (TOML / YAML round-trip
+        regularly emits ``1`` where ``1.0`` is intended).
+      * ``str``, ``bytes``, and any other non-numeric type are rejected
+        for numeric fields with a clear ``TypeError``.
+    """
+    if tp is bool:
+        if isinstance(value, bool):
+            return value
+        raise TypeError(f"Expected bool, got {type(value).__name__}: {value!r}")
+    if tp is int:
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise TypeError(f"Expected int, got {type(value).__name__}: {value!r}")
+        return value
+    if tp is float:
+        if isinstance(value, bool):
+            raise TypeError(f"Expected float, got {type(value).__name__}: {value!r}")
+        if isinstance(value, (int, float)):
+            return float(value)
+        raise TypeError(f"Expected float, got {type(value).__name__}: {value!r}")
+    if tp is str:
+        if isinstance(value, str):
+            return value
+        raise TypeError(f"Expected str, got {type(value).__name__}: {value!r}")
+    return value
+
+
+def dataclass_from_dict(cls: type[T], data: Mapping[str, Any]) -> T:
+    """Build a dataclass instance from a mapping.
+
+    Nested dataclass and ``Enum`` fields are resolved recursively.
+    A top-level ``_neurox_class`` discriminator dispatches to the named
+    subclass of ``cls``.
+
+    Args:
+        cls: Target frozen dataclass type.
+        data: Source mapping.
+
+    Returns:
+        Instance of ``cls`` (or its named subclass).
+
+    Raises:
+        TypeError: ``cls`` is not a dataclass, ``data`` carries a key that
+            matches no field of the resolved class, or the resolved class is
+            an abstract config base (has dataclass subclasses) rather than a
+            concrete leaf.
+    """
+    if not _is_dataclass_type(cls):
+        raise TypeError(f"{cls.__name__} is not a dataclass type")
+    type_name = data.get(CLASS_DISCRIMINATOR)
+    if type_name is not None:
+        concrete = _resolve_concrete_dataclass(cls, type_name)
+        if concrete is not cls:
+            filtered = {k: v for k, v in data.items() if k != CLASS_DISCRIMINATOR}
+            return dataclass_from_dict(concrete, filtered)
+    hints = get_type_hints(cls)
+    names = _dataclass_field_names(cls)
+    unknown = [k for k in data if k != CLASS_DISCRIMINATOR and k not in names]
+    if unknown:
+        raise TypeError(f"{cls.__name__}: unknown key(s) {sorted(unknown)}; valid fields: {sorted(names)}")
+    kwargs: dict[str, Any] = {}
+    for name, raw in data.items():
+        if name == CLASS_DISCRIMINATOR:
+            continue
+        kwargs[name] = _build_value(raw, hints.get(name, Any))
+    descendants = sorted(_recursive_dataclass_descendants(cls))
+    if descendants:
+        raise TypeError(
+            f"{cls.__name__} is an abstract config base; select a concrete subclass "
+            f"via the _neurox_class discriminator (one of: {descendants})"
+        )
+    return cls(**kwargs)
+
+
+# --- dataclass → dict ---
+
+
+def _is_polymorphic_dataclass(tp: type) -> bool:
+    """``True`` iff ``tp`` participates in a polymorphic family."""
+    if any(_is_dataclass_type(base) and base is not tp for base in tp.__mro__):
+        return True
+    return any(_is_dataclass_type(sub) for sub in tp.__subclasses__())
+
+
+def _to_primitive(obj: Any) -> Any:
+    """Recursively convert a dataclass tree to primitive Python values."""
+    if isinstance(obj, Enum):
+        return obj.value
+    if is_dataclass(obj) and not isinstance(obj, type):
+        out: dict[str, Any] = {}
+        cls = type(obj)
+        if _is_polymorphic_dataclass(cls):
+            out[CLASS_DISCRIMINATOR] = cls.__name__
+        for f in fields(obj):
+            out[f.name] = _to_primitive(getattr(obj, f.name))
+        return out
+    if isinstance(obj, Mapping):
+        return {k: _to_primitive(v) for k, v in obj.items()}
+    if isinstance(obj, list | tuple | set | frozenset):
+        return [_to_primitive(x) for x in obj]
+    return obj
+
+
+def dataclass_to_dict(obj: Any) -> dict[str, Any]:
+    """Convert a dataclass instance to a plain dict.
+
+    ``Enum`` values are written as their ``.value``.
+
+    Args:
+        obj: Frozen dataclass instance.
+
+    Returns:
+        Nested dict ready for TOML / YAML dumping.
+    """
+    if not is_dataclass(obj) or isinstance(obj, type):
+        raise TypeError(f"{type(obj).__name__} is not a dataclass instance")
+    result = _to_primitive(obj)
+    if not isinstance(result, dict):
+        raise TypeError(f"Expected dict result, got {type(result).__name__}")
+    return result

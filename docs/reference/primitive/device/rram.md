@@ -88,8 +88,6 @@ Provenance terms are defined in [module_parameter](../../../conventions/module_p
 
 ## Assumptions, scope & validity
 
-Stated assumptions of the current model:
-
 - Conduction is quasi-static: a read returns the DC operating point at the applied voltage, with no within-read switching transient.
 - The I-V law is symmetric in $V$ (the $\sinh$ form has odd symmetry); no rectifying / asymmetric conduction is modeled.
 - $G_{\max}$ is a design ceiling enforced by clamping, representing external current limiting, not an intrinsic saturation of the device physics.

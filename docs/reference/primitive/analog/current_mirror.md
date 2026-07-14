@@ -41,7 +41,7 @@ Provenance terms are defined in [module_parameter](../../../conventions/module_p
 
 ## Assumptions, scope & validity
 
-The mirror is modelled as a ratio-copy element whose only departure from a lossless ideal is the copy-ratio mismatch; it is a pure current-copy primitive that accounts no rail energy of its own. The copy stays linear only while the mirror operates inside its (unmodelled) compliance band; the model assumes this condition holds.
+The copy stays linear only while the mirror operates inside its (unmodelled) compliance band; the model assumes this condition holds.
 
 ## Validation
 

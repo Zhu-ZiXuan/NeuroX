@@ -57,12 +57,12 @@ class ValidateMixin:
 
     @staticmethod
     def _require_pos(value: float, name: str) -> None:
-        """Require ``value`` is positive."""
+        """Require ``value`` > 0."""
         ValidateMixin._require_gt(value, name, 0.0)
 
     @staticmethod
     def _require_non_neg(value: float, name: str) -> None:
-        """Require ``value`` is non-negative."""
+        """Require ``value`` >= 0."""
         ValidateMixin._require_ge(value, name, 0.0)
 
     @staticmethod
@@ -81,7 +81,7 @@ class ValidateMixin:
 
     @staticmethod
     def _require_min_length(seq: Iterable[object], min_len: int, name: str) -> None:
-        """Require ``len(seq) < min_len``."""
+        """Require ``len(seq) >= min_len``."""
         n = sum(1 for _ in seq)
         if n < min_len:
             raise ValueError(f"require: len({name}) ({n}) >= {min_len}")

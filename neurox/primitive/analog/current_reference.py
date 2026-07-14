@@ -9,11 +9,11 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor
 
-from neurox.primitive.circuit import CircuitBase, CircuitConfig
+from neurox.primitive.analog.base import AnalogBase, AnalogConfig, AnalogPolicy
 
 
 @dataclass(frozen=True, kw_only=True)
-class CurrentReferenceConfig(CircuitConfig):
+class CurrentReferenceConfig(AnalogConfig):
     """Immutable configuration for :class:`CurrentReference`.
 
     Attributes:
@@ -44,6 +44,10 @@ class CurrentReferenceConfig(CircuitConfig):
     # --- Runtime noise (per-call) ---
     noise_sigma_relative: float
 
+    # --- Static PPA ---
+    area_per_inst__um2: float
+    leakage_per_inst__uW: float
+
     def __post_init__(self) -> None:
         self.validate()
 
@@ -61,9 +65,13 @@ class CurrentReferenceConfig(CircuitConfig):
         self._require_non_neg(self.tolerance_sigma_relative, "tolerance_sigma_relative")
         self._require_non_neg(self.noise_sigma_relative, "noise_sigma_relative")
 
+    def validate_ppa(self) -> None:
+        self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
+        self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
+
 
 @dataclass(frozen=True)
-class CurrentReferencePolicy:
+class CurrentReferencePolicy(AnalogPolicy):
     """Per-source toggles selecting which CurrentReference nonidealities are active.
 
     Attributes:
@@ -89,7 +97,7 @@ class CurrentReferenceSnap:
     i_refs__uA: Tensor
 
 
-class CurrentReference(CircuitBase[CurrentReferenceConfig]):
+class CurrentReference(AnalogBase[CurrentReferenceConfig, CurrentReferencePolicy]):
     """Multi-output current reference source — PPA + state, no compute.
 
     A behavioural reference: it sources one or more nominal current taps
@@ -99,11 +107,7 @@ class CurrentReference(CircuitBase[CurrentReferenceConfig]):
     per-call snap, read back through :meth:`i_ref__uA`.
     It performs no transport, copy, or solve, and emits neither dynamic
     energy nor latency: its entire hardware cost is static and is
-    collected by the profiler's static walk over ``CircuitBase``.
-
-    The bias power that generates the reference currents is static and
-    is folded into ``leakage_per_inst__uW`` — it is not derived from the
-    tap values.
+    collected by the profiler's static walk over ``ProfileMixin``.
 
     Two nonidealities perturb the taps. The per-instance initial
     accuracy is a static spread sampled once at ``fabricate`` time
@@ -133,8 +137,9 @@ class CurrentReference(CircuitBase[CurrentReferenceConfig]):
         dtype: torch.dtype,
         T__K: float,
     ) -> None:
-        super().__init__(config=config, name=name, inst_shape=inst_shape)
-        self.policy = policy
+        super().__init__(config=config, policy=policy, name=name, inst_shape=inst_shape)
+        self._area_per_inst__um2 = config.area_per_inst__um2
+        self._leakage_per_inst__uW = config.leakage_per_inst__uW
         self.dtype = dtype
         self.T__K = T__K
 
@@ -182,9 +187,7 @@ class CurrentReference(CircuitBase[CurrentReferenceConfig]):
 
         The encapsulated read path: returns every tap (count is
         ``num_refs``) so a consumer selects one by index and broadcasts
-        it onto its own grid. Reading through the snap rather than the
-        post-fabricate buffer guarantees the per-call ``noise`` is
-        included. Pairs with :meth:`snapshot`.
+        it onto its own grid. Pairs with :meth:`snapshot`.
 
         Args:
             snap: Per-call snap returned by :meth:`snapshot`.

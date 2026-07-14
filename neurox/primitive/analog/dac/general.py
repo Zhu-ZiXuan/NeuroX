@@ -76,6 +76,7 @@ class GeneralDAC(DAC):
     """General DAC model."""
 
     config: GeneralDACConfig
+    policy: GeneralDACPolicy
     code_to_signal: Tensor
 
     def __init__(
@@ -98,7 +99,8 @@ class GeneralDAC(DAC):
             T__K=T__K,
         )
 
-        self.policy = policy
+        self._area_per_inst__um2 = config.area_per_inst__um2
+        self._leakage_per_inst__uW = config.leakage_per_inst__uW
         self.T__K = T__K
         self.dtype = dtype
 
@@ -109,7 +111,6 @@ class GeneralDAC(DAC):
 
     @property
     def code_max(self) -> int:
-        """Maximum valid input code (inclusive); valid codes lie in ``[0, code_max]``."""
         return len(self.config.code_to_signal) - 1
 
     def convert(self, code: Tensor) -> Tensor:

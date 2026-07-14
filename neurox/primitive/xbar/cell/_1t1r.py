@@ -1,11 +1,5 @@
 """1T1R crossbar cell — series access-NMOS and RRAM with a condensed branch.
 
-The cell solves its internal access node ``V_X`` (the NMOS drain / RRAM
-bottom electrode) per call and presents one condensed BL-to-SL branch to
-the array solver. The series stack is ``BL — RRAM — V_X — NMOS — SL``
-with the NMOS gate driven by the word line; ``V_X`` is eliminated by a
-per-cell Newton on the access-node KCL ``F_X = I_NMOS - I_RRAM``.
-
 See also:
     docs/reference/primitive/xbar/cell/_1t1r/cell.md
 """
@@ -179,16 +173,8 @@ class XbarCell1T1RDCOP(XbarCellDCOP[XbarCell1T1RResiduals]):
 # ---------------------------------------------------------------------------
 
 
-@XbarCell.register_key(XbarCell1T1RConfig)
 class XbarCell1T1R(XbarCell[XbarCell1T1RSnap, XbarCell1T1RDCOP]):
-    """Series access-NMOS + RRAM 1T1R cell with a condensed BL-to-SL branch.
-
-    The internal access node ``V_X`` is eliminated per call by a Pade
-    current-divider seed followed by a fixed number of unrolled Newton
-    steps on the access-node KCL ``F_X = I_NMOS(V_X) - I_RRAM(V_X)``. The
-    condensed branch presents the RRAM current and the two signed
-    terminal conductances the array wire Newton needs.
-    """
+    """Series access-NMOS + RRAM 1T1R cell with a condensed BL-to-SL branch."""
 
     rram: RRAM
     nmos: NMOS
@@ -292,8 +278,7 @@ class XbarCell1T1R(XbarCell[XbarCell1T1RSnap, XbarCell1T1RDCOP]):
         """Condense the access node ``V_X`` and read off the branch quantities.
 
         Pade current-divider seed for ``V_X`` followed by ``n_newton``
-        unrolled Newton steps on ``F_X = I_NMOS(V_X) - I_RRAM(V_X)``. All
-        functional (no in-place) so the body is compile-safe.
+        unrolled Newton steps on ``F_X = I_NMOS(V_X) - I_RRAM(V_X)``.
 
         Returns ``(i_r, i_n, di_dvbl__uS, di_dvsl__uS, v_x)`` where
         ``i_r`` is the RRAM current (drained from BL), ``i_n`` is the NMOS

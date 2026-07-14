@@ -8,7 +8,7 @@
 ## Contracts & invariants
 
 - **Canonical leaf signature.** The per-instance count is locked from `inst_shape` at construction.
-- **Static power only.** The block accounts no dynamic energy; static power lives in `leakage_per_inst__uW`.
+- **Bare of PPA.** The mirror accounts no dynamic energy and carries no static-PPA surface — it is a bare `AnalogBase` leaf ([base](base.md)) with no `ProfileMixin`; its area and static power roll up into the owning current-domain circuit's config.
 
 ## Performance & resources
 

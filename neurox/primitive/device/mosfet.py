@@ -1,35 +1,30 @@
 """Continuous EKV-softplus MOSFET electrical primitive.
 
-A single polarity-parameterized model core (:class:`MOSFET`) carries all
-physics; the concrete :class:`NMOS` / :class:`PMOS` specializations fix only
-the channel polarity.
-
 See also:
     docs/reference/primitive/device/mosfet.md
 """
 
 import math
 from dataclasses import dataclass
+from typing import ClassVar
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
-from neurox.common.mixin import FabricateMixin, ValidateMixin
+from neurox.common import ConfigBase, ModuleBase, PolicyBase
 from neurox.primitive.nonideality import apply_gaussian
 from neurox.primitive.physical_constant import thermal_voltage__V
 
 
 @dataclass(frozen=True)
-class MOSFETConfig(ValidateMixin):
+class MOSFETConfig(ConfigBase):
     """Immutable PDK config for a MOSFET (polarity-agnostic).
 
     The same field set describes n- and p-channel devices: ``mu0`` and
     ``c_ox`` are positive magnitudes, and ``vth0`` is a signed threshold
     whose sign is set by the device flavor (enhancement / depletion), not by
-    channel polarity. Channel polarity is carried by the concrete
-    :class:`NMOS` / :class:`PMOS` class, never by this config.
+    channel polarity.
 
     Attributes:
         T_nom__K: Reference temperature at which ``mu0`` and ``vth0`` are stated.
@@ -80,7 +75,7 @@ class MOSFETConfig(ValidateMixin):
 
 
 @dataclass(frozen=True)
-class MOSFETPolicy:
+class MOSFETPolicy(PolicyBase):
     """Per-source toggles selecting which MOSFET nonidealities are active.
 
     Attributes:
@@ -124,16 +119,11 @@ class MOSFETSnap:
     vth__V: Tensor
 
 
-class MOSFET(FabricateMixin, nn.Module):
+class MOSFET(ModuleBase[MOSFETConfig, MOSFETPolicy]):
     """EKV-softplus MOSFET electrical primitive (polarity-parameterized base).
 
     All physics lives here; concrete subclasses fix only the channel
-    polarity (:class:`NMOS` = ``+1``, :class:`PMOS` = ``-1``). With the
-    signed overdrives scaled by ``polarity`` and the drain-source current
-    carrying one ``polarity`` factor, the three node partials w.r.t. the
-    terminal voltages are polarity-independent in form, so the
-    ``did_dvd__uS >= 0`` / ``did_dvs__uS <= 0`` contract holds for both
-    polarities while ``β`` stays a positive magnitude.
+    polarity (:class:`NMOS` = ``+1``, :class:`PMOS` = ``-1``).
 
     Args:
         config: Concrete configuration dataclass.
@@ -144,6 +134,9 @@ class MOSFET(FabricateMixin, nn.Module):
         W__um: Channel width.
         L__um: Channel length.
     """
+
+    # non-reporter: silicon rolls up to the owner
+    reports_static_ppa: ClassVar[bool] = False
 
     polarity: int
 
@@ -163,7 +156,7 @@ class MOSFET(FabricateMixin, nn.Module):
         W__um: float,
         L__um: float,
     ) -> None:
-        super().__init__()
+        super().__init__(config=config, policy=policy, inst_shape=inst_shape)
 
         if type(self) is MOSFET:
             raise TypeError("MOSFET is abstract; instantiate NMOS or PMOS")
@@ -174,9 +167,6 @@ class MOSFET(FabricateMixin, nn.Module):
         if not (L__um > 0.0):
             raise ValueError(f"require: L__um ({L__um}) > 0.0")
 
-        self.config = config
-        self.policy = policy
-        self._inst_shape = inst_shape
         self.W__um = W__um
         self.L__um = L__um
         self.T__K = T__K

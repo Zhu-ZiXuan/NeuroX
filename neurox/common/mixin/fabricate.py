@@ -15,8 +15,8 @@ import torch.nn as nn
 class FabricateMixin:
     """Grant a host an automatic pre-order ``fabricate()`` cascade.
 
-    A host inherits this to get static manufacturing-variation sampling for
-    free: the inherited ``fabricate()`` resamples the host's own static state,
+    A host inherits this to get static manufacturing-variation sampling:
+    the inherited ``fabricate()`` resamples the host's own static state,
     then recurses into every ``FabricateMixin`` descendant in one pre-order
     pass. A subclass implements only its own per-layer sampling step. The mixin
     samples static mismatch only; it never writes a programmed weight.
@@ -41,8 +41,7 @@ class FabricateMixin:
         """Re-sample static manufacturing variation across self and descendants.
 
         Runs pre-order — self first via ``_sample_fabricate_mismatch``, then
-        each fabricable child. Children in ``nn.ModuleList`` / ``nn.ModuleDict``
-        are reached transparently; non-``FabricateMixin`` children are skipped.
+        each fabricable child.
         """
         self._sample_fabricate_mismatch()
         for child in self._fabricable_children():

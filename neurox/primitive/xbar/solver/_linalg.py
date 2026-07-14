@@ -1,14 +1,9 @@
 """Purely numerical linear-algebra helpers for crossbar IR-drop simulation.
 
-This module owns purely numerical helpers — the scalar tridiagonal Thomas
-algorithm, the block-tridiagonal Thomas algorithm, the block-tridiagonal
-Parallel Cyclic Reduction solver, and an autograd element-wise derivative.
-Every helper takes its tensors as plain arguments and owns no circuit
-topology, device handle, or solver framework. The wire-ladder KCL builders
-that DO own a layout convention live in the sibling
-:mod:`neurox.primitive.xbar.solver._wire_kcl`; the solver framework that
-consumes both (:class:`neurox.primitive.xbar.solver.base.Solver` and its
-nested impl) lives in the other modules of this package.
+The scalar tridiagonal Thomas algorithm, the block-tridiagonal Thomas
+algorithm, the block-tridiagonal Parallel Cyclic Reduction solver, and an
+autograd element-wise derivative. Every helper takes its tensors as plain
+arguments and owns no circuit topology, device handle, or solver framework.
 
 See also:
     docs/reference/primitive/xbar/solver/README.md
@@ -64,10 +59,6 @@ def solve_block_tridiagonal(
       * super-diagonal block ``sup[..., k, :, :]`` (coupling to row ``k+1``);
         the entry at ``k = N-1`` is unused
 
-    Each ``B × B`` block-inverse step uses ``torch.linalg.solve``; for
-    ``B = 1`` the algorithm reduces to scalar Thomas (no overhead beyond
-    the extra rank).
-
     Args:
         sub: Sub-diagonal blocks. Shape ``[..., N, B, B]``.
         diag: Main diagonal blocks. Same shape as ``sub``.
@@ -79,11 +70,9 @@ def solve_block_tridiagonal(
     """
     n = rhs.shape[-2]
     if n == 1:
-        # Single block: just one B×B solve.
         return torch.linalg.solve(diag[..., 0, :, :], rhs[..., 0, :].unsqueeze(-1)).squeeze(-1)
 
-    # Forward sweep — keep C_{k} = M_k⁻¹ · sup_k and d_k = M_k⁻¹ · (rhs - sub · d_{k-1})
-    # in lists; never write in-place so ``torch.compile`` can fuse.
+    # Forward sweep: C_k = M_k⁻¹ · sup_k, d_k = M_k⁻¹ · (rhs - sub · d_{k-1}).
     m_0 = diag[..., 0, :, :]
     rhs_0 = rhs[..., 0, :].unsqueeze(-1)
     # Stack [sup, rhs] as RHS columns so we do one solve per step instead of two.
@@ -117,19 +106,7 @@ def solve_block_tridiagonal_dense(
 ) -> Tensor:
     """Solve batched block-tridiagonal systems by densifying to a ``[NB, NB]`` solve.
 
-    Same input/output contract as :func:`solve_block_tridiagonal`. Trades
-    asymptotic work (``O((NB)³)`` flops vs ``O(N · B³)``) for **graph
-    flatness**: the entire path is a fixed-shape sequence of three
-    ``einsum`` placements + one ``torch.linalg.solve`` — no Python loop
-    over ``N``, no list mutation, no per-step intermediate. dynamo sees
-    O(1) nodes regardless of N.
-
-    On GPU, dense ``NB × NB`` solves at ``NB ≤ 256`` (i.e. N ≤ 128 for
-    B=2) are dominated by kernel launch + memory bandwidth, not flops,
-    so this beats Thomas in eager runtime as well. Memory scales as
-    ``O(N² · B²)`` per (batch, inst); at N≈1024 this becomes the
-    limiting factor — use ``solve_block_tridiagonal`` (Thomas) for very
-    large N where memory matters more than depth.
+    Same input/output contract as :func:`solve_block_tridiagonal`.
 
     Args:
         sub: Sub-diagonal blocks. Shape ``[..., N, B, B]``. ``sub[0]`` is
@@ -197,9 +174,8 @@ def _pcr_validity_mask(n: int, stride: int, dim: int, ndim: int, device: torch.d
 def _pcr_shift_zero(t: Tensor, stride: int, dim: int) -> Tensor:
     """Shift ``t`` along ``dim`` so position k gets the value at position ``k - stride``.
 
-    Implemented as one ``torch.roll`` + a broadcast multiplicative mask
-    that zeros wraparound positions — both are graph-friendlier than
-    ``narrow + zeros + cat`` for the unrolled PCR loop.
+    A ``torch.roll`` + a broadcast multiplicative mask that zeros wraparound
+    positions.
     """
     if abs(stride) >= t.shape[dim]:
         return torch.zeros_like(t)
@@ -325,9 +301,7 @@ def solve_tridiagonal(
     if N == 1:
         return rhs / diag
 
-    # Forward sweep — collect updated diagonal and rhs slices into lists
-    # without any in-place writes; ``torch.compile`` is responsible for
-    # fusing the per-step elementwise ops.
+    # Forward sweep.
     d_list: list[Tensor] = [diag.select(dim, 0)]
     r_list: list[Tensor] = [rhs.select(dim, 0)]
     for i in range(1, N):

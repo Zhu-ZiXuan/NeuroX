@@ -10,7 +10,7 @@ The no-slice mode. It owns a tile, a weight `Transcoder`, and a contraction-tile
 ## Contracts & invariants
 
 - **Organized W shape** is `[..., M=1, Tc, Tr, col_num, D, row_num]`; **organized X shape** is `[..., M, Tc, Tr=1, row_num]`. The `Tr=1` placeholder on X lets it broadcast against the W tensor's real `Tr`.
-- **Aggregate** is `vec_mat_mul → Tc accumulate (dim=-3) → flatten (Tr, col_num) → trim to N`. There is no shift-add stage. The returned tensor is pre-requantize int; it applies no bias or rescale.
+- **Aggregate** is `vec_mat_mul → Tc accumulate (dim=-3) → flatten (Tr, col_num) → trim to N`. There is no shift-add stage. The returned tensor is pre-requantize int.
 - **`program` shape gate.** `program(weight)` rejects any shape other than the bound `w_logical_shape`.
 
 ## Performance & resources

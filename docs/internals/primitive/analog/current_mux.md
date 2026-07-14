@@ -3,20 +3,16 @@
 ## Design decisions
 
 - **Not polymorphic.** One concrete ideal mux, constructed directly rather than dispatched through a registry. It has no error sources, so its `Policy` is an empty marker.
-- **Ideal value path, self-logged latency only.** The value path applies only the matched gain — no numeric non-ideality — and `transport` does not self-log rail energy. It still self-logs serial latency, so a lossless block contributes to the latency tally. Governing equations in Reference.
-- **`select_num` is design fan-in, not a latency multiplier.** Latency scales by the runtime `serial_op_count` (`numel // inst_count`), never by `select_num`, which would double-count the already-tallied column visits (see Reference).
+- **Ideal, lossless value path — no emission.** The value path applies only the matched gain — no numeric non-ideality — and `transport` self-logs neither rail energy nor latency; the block is a bare `AnalogBase` leaf ([base](base.md)) with no `ProfileMixin`, so a lossless copy contributes nothing to the PPA tally. Governing equations in Reference.
+- **`select_num` is design fan-in.** It sizes the modelled N:1 mux but is not a runtime multiplier of any tally.
 
 ## Contracts & invariants
 
-- **Canonical leaf signature.** The per-instance count is fixed from `inst_shape` and drives the serial-op count.
+- **Canonical leaf signature.** The per-instance count is fixed from `inst_shape` at construction.
 
 ## Performance & resources
 
 N/A — per-call elementwise map off the memory- and compile-critical path.
-
-## Gotchas
-
-- The latency accounting uses the runtime `serial_op_count`, never `select_num` — see Design decisions.
 
 ## Known limitations
 

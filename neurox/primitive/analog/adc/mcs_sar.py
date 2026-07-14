@@ -24,12 +24,6 @@ from .base import ADC, ADCConfig, AdcOperationPoint, ADCPolicy
 class McsSarAdcConfig(ADCConfig):
     """Immutable design-parameter config for :class:`McsSarAdc`.
 
-    Per-op latency is parametric: each ``convert`` call computes
-    ``(adc_operation_point.adc_bits + 1) · clk_period__ns`` and feeds
-    it to ``_log_latency`` — there is no ``latency_per_op__ns`` field
-    because the value is not knowable until the runtime op point is
-    chosen.
-
     Attributes:
         max_bits: Physical bit width; active array carries
             ``max_bits - 1`` binary-weighted caps + a dummy cap
@@ -131,6 +125,7 @@ class McsSarAdc(ADC):
     """
 
     config: McsSarAdcConfig
+    policy: McsSarAdcPolicy
     nominal_c__fF: Tensor
     nominal_comparator_offset__V: Tensor
     c_p__fF: Tensor
@@ -158,7 +153,8 @@ class McsSarAdc(ADC):
         if not (T__K > 0.0):
             raise ValueError(f"McsSarAdc T__K ({T__K}) must be > 0")
 
-        self.policy = policy
+        self._area_per_inst__um2 = config.area_per_inst__um2
+        self._leakage_per_inst__uW = config.leakage_per_inst__uW
         self.T__K = T__K
         self.dtype = dtype
 
@@ -331,12 +327,8 @@ class McsSarAdc(ADC):
         # The SAR loop reads c_p/c_n at idx = (max_bits - bits + 1) + k for
         # k = bits-2 .. 0; slicing once gives a [..., bits-1] table the loop
         # can index by k directly. v_p_step, v_n_step, the switch-energy and
-        # c_diff increments all depend only on these caps + v_ref / v_cm
-        # (runtime-input-independent), so they are precomputed here. Keeping
-        # only the where / compare / shift inside the loop body shortens the
-        # unrolled inductor graph: conversion runs on the caller's
-        # compiled path, so a short SAR loop keeps it from bloating that
-        # graph.
+        # c_diff increments depend only on these caps + v_ref / v_cm
+        # (runtime-input-independent), so they are precomputed here.
         cap_lo = config.max_bits - bits + 1
         c_p_used__fF = c_p__fF[..., cap_lo : config.max_bits]
         c_n_used__fF = c_n__fF[..., cap_lo : config.max_bits]
@@ -380,9 +372,7 @@ class McsSarAdc(ADC):
         # The SAR loop output is in [0, 2**bits - 1] by construction (each
         # iter ORs in a 0/1 bit), and ``apply_lsb_jitter`` clamps back
         # into that range after the +1 overflow case — so no extra clamp
-        # is needed here. Both tail-end constants come from the
-        # per-resolution Python int tables prepared in ``__init__``;
-        # this keeps the compiled graph free of ``1 << <SymInt>`` ops.
+        # is needed here.
         code = apply_lsb_jitter(
             code,
             unsigned_max=self._unsigned_max_table[bits],

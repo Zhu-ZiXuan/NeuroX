@@ -4,7 +4,7 @@
 
 ## The three schemes
 
-The chunked 1T1R DC solve path — the 1T1R core's chunked read reaching the topology-agnostic `solve_dc` leaf — is the one place the library must self-compile and the one place a naive boundary fails (see [§The problem it solves](#the-problem-it-solves) below). Three schemes address it, in increasing power and engineering cost. The current scheme is the minimal one that works; the others are recorded as deferred designs to migrate to under named conditions.
+The chunked 1T1R DC solve path — the 1T1R core's chunked read reaching the topology-agnostic `solve_dc` leaf — is the one place the library must self-compile and the one place a naive boundary fails (see [§The problem it solves](#the-problem-it-solves) below). Three schemes address it, in increasing power and engineering cost.
 
 | Scheme | Status | Summary | Adopt when |
 | --- | --- | --- | --- |

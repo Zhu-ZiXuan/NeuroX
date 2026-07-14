@@ -1,0 +1,360 @@
+"""Directive-and-preset composition, dict merging, and file->dict orchestration.
+
+Expands the ``_neurox_use`` / ``_neurox_use_preset`` directives that layer config
+fragments across files, resolves bundled-preset references anchored at
+``neurox/presets/``, provides the deep-merge used to fold a fragment into its
+inline overrides, and orchestrates the multi-file load-resolve-merge-pluck flow
+that produces the plain dict a dataclass is built from.
+
+See also:
+    docs/internals/common/serialize/README.md
+"""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from pathlib import Path
+from typing import Any
+
+from neurox.common.serialize.file import dict_from_file
+from neurox.common.serialize.keys import (
+    CLASS_DISCRIMINATOR,
+    USE_DIRECTIVE,
+    USE_PRESET_DIRECTIVE,
+)
+
+# --- dict merging ---
+
+
+def _deep_fill_defaults(override: dict[str, Any], default: dict[str, Any], strict_type: bool) -> dict[str, Any]:
+    """Fill missing keys in ``override`` from ``default`` recursively."""
+    merged = override.copy()
+    for k, d_v in default.items():
+        if k not in merged:
+            merged[k] = d_v
+            continue
+        o_v = merged[k]
+        if isinstance(o_v, dict) and isinstance(d_v, dict):
+            merged[k] = _deep_fill_defaults(o_v, d_v, strict_type=strict_type)
+        elif strict_type and isinstance(o_v, dict) != isinstance(d_v, dict):
+            raise ValueError(
+                f"Cannot merge key '{k}': type mismatch. override={type(o_v).__name__}, default={type(d_v).__name__}",
+            )
+    return merged
+
+
+def merge_dicts(*dicts: dict[str, Any], strict_type: bool = True) -> dict[str, Any]:
+    """Deep-merge dicts from left (highest priority) to right.
+
+    Args:
+        dicts: Dicts ordered by descending priority.
+        strict_type: Reject dict/non-dict conflicts when ``True``.
+
+    Returns:
+        New merged dict; inputs are not modified.
+    """
+    if not dicts:
+        return {}
+    if len(dicts) == 1:
+        return dicts[0].copy()
+
+    merged = dicts[0].copy()
+    for d in dicts[1:]:
+        merged = _deep_fill_defaults(merged, d, strict_type=strict_type)
+    return merged
+
+
+# --- _neurox_use cross-file references ---
+
+
+def _resolve_fragment_path(rel: str, base_dir: Path) -> Path:
+    """Resolve a ``_neurox_use`` relative path to an existing file.
+
+    Suffix-free paths try ``.toml`` then ``.yaml`` / ``.yml``.
+    """
+    candidate = base_dir / rel
+    if candidate.exists():
+        return candidate
+    if candidate.suffix == "":
+        for suffix in (".toml", ".yaml", ".yml"):
+            with_suffix = candidate.with_suffix(suffix)
+            if with_suffix.exists():
+                return with_suffix
+    raise FileNotFoundError(f"{USE_DIRECTIVE} fragment {rel!r} not found relative to {base_dir}")
+
+
+def _parse_use_ref(ref: Any, base_dir: Path) -> tuple[Path, str]:
+    """Parse ``"<rel_path>:<section>"`` into ``(absolute_path, section_name)``."""
+    if not isinstance(ref, str):
+        raise TypeError(f"{USE_DIRECTIVE} must be a string, got {type(ref).__name__}")
+    if ":" not in ref:
+        raise ValueError(f"{USE_DIRECTIVE} reference {ref!r} missing ':' (expected '<path>:<section>')")
+    rel, section = ref.split(":", 1)
+    if not rel or not section:
+        raise ValueError(f"{USE_DIRECTIVE} reference {ref!r} has empty path or section")
+    return _resolve_fragment_path(rel, base_dir), section
+
+
+def _presets_root() -> Path:
+    """Return the absolute path to the ``neurox/presets/`` directory.
+
+    Uses ``importlib.resources`` so editable installs and wheel installs both
+    work; the directory's location follows wherever the ``neurox`` package is.
+    """
+    import importlib.resources
+
+    return Path(str(importlib.resources.files("neurox") / "presets"))
+
+
+def _validate_preset_ref_path(rel: str) -> None:
+    """Reject preset paths that are absolute or try to escape the presets root."""
+    if not rel:
+        raise ValueError(f"{USE_PRESET_DIRECTIVE} path is empty")
+    if rel.startswith("./") or rel.startswith("/") or rel.startswith("\\"):
+        raise ValueError(f"{USE_PRESET_DIRECTIVE} path must not start with './' or be absolute: {rel!r}")
+    if any(part == ".." for part in rel.replace("\\", "/").split("/")):
+        raise ValueError(f"{USE_PRESET_DIRECTIVE} path must not contain '..' segments: {rel!r}")
+
+
+def _resolve_preset_fragment_path(rel: str) -> Path:
+    """Resolve a preset-relative path to an existing file under ``neurox/presets/``."""
+    root = _presets_root()
+    candidate = root / rel
+    if candidate.is_file():
+        return candidate
+    if candidate.suffix == "":
+        for suffix in (".toml", ".yaml", ".yml"):
+            with_suffix = candidate.with_suffix(suffix)
+            if with_suffix.is_file():
+                return with_suffix
+    raise FileNotFoundError(f"{USE_PRESET_DIRECTIVE} fragment {rel!r} not found under {root}")
+
+
+def parse_preset_ref(ref: Any) -> tuple[Path, str]:
+    """Parse a preset ``"<rel_path>:<section>"`` anchored at ``neurox/presets/``."""
+    if not isinstance(ref, str):
+        raise TypeError(f"{USE_PRESET_DIRECTIVE} must be a string, got {type(ref).__name__}")
+    if ":" not in ref:
+        raise ValueError(f"{USE_PRESET_DIRECTIVE} reference {ref!r} missing ':' (expected '<path>:<section>')")
+    rel, section = ref.split(":", 1)
+    if not rel or not section:
+        raise ValueError(f"{USE_PRESET_DIRECTIVE} reference {ref!r} has empty path or section")
+    _validate_preset_ref_path(rel)
+    return _resolve_preset_fragment_path(rel), section
+
+
+def _resolve_directive_branch(
+    value: Mapping[str, Any],
+    *,
+    directive: str,
+    path: Path,
+    section: str,
+    base_dir_for_fragment: Path,
+    base_dir_for_inline: Path,
+    in_preset_for_fragment: bool,
+    in_preset_for_inline: bool,
+    cache: dict[Path, dict[str, Any]],
+    in_progress: frozenset[tuple[Path, str]],
+) -> Any:
+    """Resolve one ``(directive, path, section)`` fragment-merge step.
+
+    Shared core of the ``_neurox_use`` and ``_neurox_use_preset`` branches:
+    detect cycles, load the target section, recurse into the fragment and
+    the inline override under their respective ``(base_dir, in_preset)``
+    contexts, then merge with inline taking priority.
+    """
+    key = (path, section)
+    if key in in_progress:
+        trail = " -> ".join(f"{p.name}:{s}" for p, s in in_progress)
+        raise ValueError(f"{directive} cycle detected: {trail} -> {path.name}:{section}")
+    if path not in cache:
+        cache[path] = dict_from_file(path)
+    root = cache[path]
+    if section not in root:
+        raise KeyError(f"{directive} target section {section!r} not found in {path} (keys: {sorted(root)})")
+    target = root[section]
+    if not isinstance(target, Mapping):
+        raise TypeError(f"{directive} target {value[directive]!r} must be a table, got {type(target).__name__}")
+    resolved_fragment = _resolve_uses_in_value(
+        dict(target),
+        base_dir_for_fragment,
+        cache=cache,
+        in_progress=in_progress | {key},
+        in_preset=in_preset_for_fragment,
+    )
+    inline = {k: v for k, v in value.items() if k != directive}
+    resolved_inline = _resolve_uses_in_value(
+        inline,
+        base_dir_for_inline,
+        cache=cache,
+        in_progress=in_progress,
+        in_preset=in_preset_for_inline,
+    )
+    return merge_dicts(resolved_inline, resolved_fragment, strict_type=True)
+
+
+def _resolve_uses_in_value(
+    value: Any,
+    base_dir: Path,
+    *,
+    cache: dict[Path, dict[str, Any]],
+    in_progress: frozenset[tuple[Path, str]],
+    in_preset: bool = False,
+) -> Any:
+    """Recursively resolve ``_neurox_use`` and ``_neurox_use_preset`` in ``value``.
+
+    A mapping carrying either directive is replaced by
+    ``merge_dicts(inline, fragment)``; the inline override takes priority.
+
+    The two directives differ only in path resolution:
+
+    - ``_neurox_use`` resolves relative to ``base_dir`` (the directory of the
+      file containing the directive).
+    - ``_neurox_use_preset`` resolves relative to ``neurox/presets/``; the
+      resolved subtree is entered in *preset mode* (``in_preset=True``), which
+      forbids a nested ``_neurox_use``.
+
+    The two directives are mutually exclusive in the same sub-table, and neither
+    may co-occur with a ``_neurox_class`` discriminator: the referenced fragment
+    or preset is the sole class authority. A ``(path, section)`` re-entry raises
+    ``ValueError`` as a cycle.
+    """
+    if isinstance(value, Mapping):
+        has_use = USE_DIRECTIVE in value
+        has_preset = USE_PRESET_DIRECTIVE in value
+        if has_use and has_preset:
+            raise ValueError(
+                f"{USE_DIRECTIVE!r} and {USE_PRESET_DIRECTIVE!r} are mutually exclusive in the same table"
+            )
+        if (has_use or has_preset) and CLASS_DISCRIMINATOR in value:
+            directive = USE_DIRECTIVE if has_use else USE_PRESET_DIRECTIVE
+            raise ValueError(
+                f"{directive!r} table may not also declare {CLASS_DISCRIMINATOR!r}; "
+                f"the referenced fragment/preset is the sole class authority "
+                f"(table keys: {sorted(value)})"
+            )
+        if in_preset and has_use:
+            raise ValueError(
+                f"{USE_DIRECTIVE!r} is forbidden inside neurox/presets/; use {USE_PRESET_DIRECTIVE!r} instead"
+            )
+        if has_preset:
+            path, section = parse_preset_ref(value[USE_PRESET_DIRECTIVE])
+            return _resolve_directive_branch(
+                value,
+                directive=USE_PRESET_DIRECTIVE,
+                path=path,
+                section=section,
+                base_dir_for_fragment=_presets_root(),
+                base_dir_for_inline=base_dir,
+                in_preset_for_fragment=True,
+                in_preset_for_inline=in_preset,
+                cache=cache,
+                in_progress=in_progress,
+            )
+        if has_use:
+            path, section = _parse_use_ref(value[USE_DIRECTIVE], base_dir)
+            return _resolve_directive_branch(
+                value,
+                directive=USE_DIRECTIVE,
+                path=path,
+                section=section,
+                base_dir_for_fragment=path.parent,
+                base_dir_for_inline=base_dir,
+                in_preset_for_fragment=in_preset,
+                in_preset_for_inline=in_preset,
+                cache=cache,
+                in_progress=in_progress,
+            )
+        return {
+            k: _resolve_uses_in_value(v, base_dir, cache=cache, in_progress=in_progress, in_preset=in_preset)
+            for k, v in value.items()
+        }
+    if isinstance(value, list):
+        return [
+            _resolve_uses_in_value(x, base_dir, cache=cache, in_progress=in_progress, in_preset=in_preset)
+            for x in value
+        ]
+    return value
+
+
+def resolve_uses(data: dict[str, Any], base_dir: Path) -> dict[str, Any]:
+    """Expand every ``_neurox_use`` / ``_neurox_use_preset`` directive in ``data``.
+
+    ``_neurox_use = "<rel_path>:<section>"`` resolves the path relative to
+    ``base_dir`` (the directory of the file containing the directive) and
+    pulls the named section from that file; inline keys override the
+    fragment. ``_neurox_use_preset`` follows the same merge semantics but
+    resolves paths from ``neurox/presets/`` and forbids ``_neurox_use``
+    inside the preset subtree.
+
+    Args:
+        data: Loaded dict from a config file (TOML or YAML).
+        base_dir: Directory for resolving relative ``_neurox_use`` paths.
+
+    Returns:
+        New dict with every directive expanded.
+
+    Raises:
+        ValueError: A malformed reference, a resolution cycle, a preset path
+            that is not forward-relative, or a ``_neurox_use`` reached inside
+            a preset subtree.
+        FileNotFoundError: A referenced fragment file does not exist.
+        KeyError: The referenced section is absent from the target file.
+        TypeError: A directive value, or the section it names, is not the
+            expected type.
+    """
+    result = _resolve_uses_in_value(data, base_dir, cache={}, in_progress=frozenset())
+    if not isinstance(result, dict):
+        raise TypeError(f"directive resolution expected dict root, got {type(result).__name__}")
+    return result
+
+
+# --- file -> dict orchestration ---
+
+
+def _pluck_section(data: dict[str, Any], section: str | None) -> dict[str, Any]:
+    if section is None:
+        return data
+    if section not in data:
+        raise KeyError(f"Section '{section}' not found in config file (keys: {sorted(data)})")
+    sub = data[section]
+    if not isinstance(sub, dict):
+        raise TypeError(f"Section '{section}' must be a table, got {type(sub).__name__}")
+    return sub
+
+
+def load_config_dict(
+    *files: Path,
+    section: str | None = None,
+    encoding: str | None = "utf-8",
+    strict_type: bool = True,
+) -> dict[str, Any]:
+    """Load, resolve, merge, and pluck one or more config files into a plain dict.
+
+    Each file is parsed, its ``_neurox_use`` / ``_neurox_use_preset``
+    directives are expanded (relative to that file's own directory), then
+    ``section`` is plucked (if given). The per-file results are merged in
+    descending priority (first wins).
+
+    Args:
+        files: Config file paths, ordered by descending priority.
+        section: Optional top-level table name to extract from each file.
+        encoding: YAML text encoding (ignored for TOML).
+        strict_type: Reject dict/non-dict conflicts during merge.
+
+    Returns:
+        The merged dict, ready for coercion into a dataclass.
+
+    Raises:
+        ValueError: No files were given (at least one is required).
+    """
+    if not files:
+        raise ValueError("At least one config file must be provided")
+    raw = [
+        _pluck_section(
+            resolve_uses(dict_from_file(f, encoding=encoding), base_dir=f.parent),
+            section,
+        )
+        for f in files
+    ]
+    return merge_dicts(*raw, strict_type=strict_type)

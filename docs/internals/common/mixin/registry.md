@@ -20,4 +20,4 @@
 
 - **Reference**: N/A — software mechanism
 - **Implementation**: `neurox/common/mixin/registry.py`
-- **Tests**: `tests/test_xbar_macro.py`, `tests/test_transcoder.py`
+- **Tests**: `tests/architecture/unit/test_cim_unit.py`, `tests/common/test_transcoder.py`

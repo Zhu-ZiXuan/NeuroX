@@ -3,25 +3,12 @@
 The array solver drives each boundary port through a clamp circuit and
 needs only two capabilities from it: a per-call snap of fabricated state
 and a clamp solve mapping port current to ``(v_clamp, dVclamp/dI)``. The
-reference clamp voltage is INJECTED per call as a plain ``Tensor`` into
+reference clamp voltage is injected per call as a plain ``Tensor`` into
 :meth:`ClampDriver.snapshot` and rides in the resulting snap (a
-:class:`ClampSnap`), so the role does not expose a ``v_ref__V``
-attribute. :class:`ClampDriver` names that capability contract as a
-structural (``Protocol``) role rather than a registry base class: there
-is no inheritance and no ``RegistryMixin``. The role lives beside the
-solver because the solver is its only consumer; concrete clamps (the
-``TIA`` family, the ``VoltageDriver``) live in ``neurox/primitive/analog`` and
-satisfy it structurally, without importing it.
-
-The role is generic over ``SnapT`` so that each conforming circuit ties
-its own :meth:`ClampDriver.snapshot` output to its
-:meth:`ClampDriver.solve_clamp` input, keeping the snap type consistent
-end to end without forcing a shared snap hierarchy. ``SnapT`` is bound to
-:class:`ClampSnap`: every conforming snap carries the injected reference
-``v_ref__V`` so the solver can read its warm-start seed from the snap.
-The TIA family (e.g. ``OpAmpTIA`` as ``ClampDriver[OpAmpTIASnap]``), the
-``VoltageDriver`` (``ClampDriver[VoltageDriverSnap]``), and a future CSA
-each satisfy the role structurally without declaring inheritance.
+:class:`ClampSnap`). :class:`ClampDriver` names that capability contract as
+a structural (``Protocol``) role, generic over ``SnapT`` (bound to
+:class:`ClampSnap`) so each conforming circuit ties its own snap type end
+to end.
 
 See also:
     docs/internals/primitive/xbar/solver.md
@@ -37,15 +24,9 @@ from torch import Tensor
 class ClampSnap(Protocol):
     """Structural lower bound for any clamp-driver snap.
 
-    Every conforming snap carries the injected reference clamp voltage so
-    the solver can read its warm-start seed directly from the snap.
-
     Attributes:
         v_ref__V: Reference / zero-current clamp voltage carried forward
             by :meth:`ClampDriver.snapshot` from its injected ``v_ref__V``.
-            Declared read-only so the frozen-dataclass snaps
-            (``VoltageDriverSnap`` / ``OpAmpTIASnap`` / ``GeneralTIASnap``)
-            satisfy the protocol structurally.
     """
 
     @property
@@ -56,16 +37,7 @@ SnapT = TypeVar("SnapT", bound=ClampSnap)
 
 
 class ClampDriver(Protocol[SnapT]):
-    """Structural contract any boundary clamp circuit satisfies.
-
-    Methods:
-        snapshot: Sample one per-call snap of the fabricated state over a
-            broadcast ``shape``, applying any per-call nonidealities and
-            carrying the injected reference ``v_ref__V`` into the snap;
-            optionally selects a chunk via ``multi_coords``.
-        solve_clamp: Boundary clamp solve mapping port current to the
-            clamp voltage and its small-signal slope.
-    """
+    """Structural contract any boundary clamp circuit satisfies."""
 
     def snapshot(
         self,

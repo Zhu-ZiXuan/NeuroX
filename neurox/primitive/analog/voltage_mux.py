@@ -9,12 +9,12 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor
 
-from neurox.primitive.circuit import CircuitBase, CircuitConfig
+from neurox.primitive.analog.base import AnalogBase, AnalogConfig, AnalogPolicy
 from neurox.primitive.nonideality import apply_gaussian
 
 
 @dataclass(frozen=True, kw_only=True)
-class VoltageMuxConfig(CircuitConfig):
+class VoltageMuxConfig(AnalogConfig):
     """Immutable configuration for :class:`VoltageMux`.
 
     Attributes:
@@ -29,6 +29,8 @@ class VoltageMuxConfig(CircuitConfig):
         mux_noise_dm_sigma__V: Differential-mode noise σ;
             added to ``v_pos`` and subtracted from ``v_neg``, so it
             survives a differential ADC.
+        area_per_inst__um2: Silicon area per fabricated instance.
+        leakage_per_inst__uW: Static leakage per instance.
     """
 
     # --- Gain ---
@@ -47,6 +49,10 @@ class VoltageMuxConfig(CircuitConfig):
     energy_per_access__fJ: float
     latency_per_op__ns: float
 
+    # --- Static PPA ---
+    area_per_inst__um2: float
+    leakage_per_inst__uW: float
+
     def __post_init__(self) -> None:
         self.validate()
 
@@ -64,13 +70,14 @@ class VoltageMuxConfig(CircuitConfig):
         self._require_non_neg(self.mux_noise_dm_sigma__V, "mux_noise_dm_sigma__V")
 
     def validate_ppa(self) -> None:
-        super().validate_ppa()
+        self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
+        self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
         self._require_non_neg(self.energy_per_access__fJ, "energy_per_access__fJ")
         self._require_non_neg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
 @dataclass(frozen=True)
-class VoltageMuxPolicy:
+class VoltageMuxPolicy(AnalogPolicy):
     """Per-source toggles selecting which VoltageMux nonidealities are active.
 
     Attributes:
@@ -84,7 +91,7 @@ class VoltageMuxPolicy:
     mux_noise_dm: bool
 
 
-class VoltageMux(CircuitBase[VoltageMuxConfig]):
+class VoltageMux(AnalogBase[VoltageMuxConfig, VoltageMuxPolicy]):
     """Differential voltage-transport block — gain + CM/DM noise + access energy.
 
     Args:
@@ -109,8 +116,9 @@ class VoltageMux(CircuitBase[VoltageMuxConfig]):
         dtype: torch.dtype,
         T__K: float,
     ) -> None:
-        super().__init__(config=config, name=name, inst_shape=inst_shape)
-        self.policy = policy
+        super().__init__(config=config, policy=policy, name=name, inst_shape=inst_shape)
+        self._area_per_inst__um2 = config.area_per_inst__um2
+        self._leakage_per_inst__uW = config.leakage_per_inst__uW
         self.dtype = dtype
         self.T__K = T__K
 
@@ -158,8 +166,6 @@ class VoltageMux(CircuitBase[VoltageMuxConfig]):
         v_pos_muxed__V = v_pos_muxed__V + n_dm__V
         v_neg_muxed__V = v_neg_muxed__V - n_dm__V
 
-        # VoltageMux has no extra parallel trailing beyond inst_shape;
-        # serial count via the position-invariant numel rule.
         serial_op_count = max(1, v_pos__V.numel() // max(self.inst_count, 1))
         dynamic_energy__fJ = torch.full_like(v_pos__V, self.config.energy_per_access__fJ)
         latency__ns = torch.tensor(

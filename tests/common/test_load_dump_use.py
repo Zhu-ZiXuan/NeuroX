@@ -1,4 +1,4 @@
-"""Tests for the ``_neurox_use`` / ``_neurox_use_preset`` directives in ``load_dump``."""
+"""Tests for the ``_neurox_use`` / ``_neurox_use_preset`` directives."""
 
 from __future__ import annotations
 
@@ -7,8 +7,10 @@ from pathlib import Path
 
 import pytest
 
-from neurox.common import dataclass_from_file, load_dump, resolve_uses
-from neurox.common.load_dump import dict_from_file
+from neurox.common.serialize import dict_from_file
+from neurox.common.serialize import compose
+from neurox.common.serialize.build import dataclass_from_dict
+from neurox.common.serialize.compose import load_config_dict, resolve_uses
 
 
 @dataclass(frozen=True)
@@ -29,6 +31,15 @@ class _Outer:
 def _write(path: Path, body: str) -> Path:
     path.write_text(body)
     return path
+
+
+def dataclass_from_file(
+    cls: type,
+    *files: Path,
+    section: str | None = None,
+) -> object:
+    """Load-resolve-merge-coerce a config file into ``cls`` (white-box test helper)."""
+    return dataclass_from_dict(cls, load_config_dict(*files, section=section))
 
 
 @pytest.fixture
@@ -181,7 +192,7 @@ def presets_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Override ``_presets_root()`` to a hermetic tmp directory for the test."""
     root = tmp_path / "presets"
     root.mkdir()
-    monkeypatch.setattr(load_dump, "_presets_root", lambda: root)
+    monkeypatch.setattr(compose, "_presets_root", lambda: root)
     return root
 
 

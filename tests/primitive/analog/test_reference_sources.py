@@ -25,7 +25,6 @@ from typing import Any
 import pytest
 import torch
 
-from neurox.common.load_dump import dataclass_from_file
 from neurox.common.profiler import NeuroxProfiler
 from neurox.primitive.analog.current_reference import (
     CurrentReference,
@@ -196,8 +195,8 @@ def test_static_ppa_and_no_dynamic_events(case: tuple[Any, ...]) -> None:
         case, inst_shape=(3,), tolerance=True, noise=True, tol_sigma=0.1, noise_sigma=0.05, area=2.0, leakage=0.5
     )
 
-    assert ref.inst_area__um2 == pytest.approx(2.0 * 3)
-    assert ref.inst_leakage__uW == pytest.approx(0.5 * 3)
+    assert ref.area__um2 == pytest.approx(2.0 * 3)
+    assert ref.leakage__uW == pytest.approx(0.5 * 3)
 
     records = NeuroxProfiler.collect_static(ref)
     assert len(records) == 1
@@ -227,7 +226,7 @@ def test_toml_array_loads_as_tuple(case: tuple[Any, ...], tmp_path: Path) -> Non
     path = tmp_path / "ref.toml"
     path.write_text(toml, encoding="utf-8")
 
-    config = dataclass_from_file(config_cls, path, section="ref")
+    config = config_cls.from_file(path, section="ref")
     loaded = getattr(config, field)
     assert isinstance(loaded, tuple)
     assert loaded == taps

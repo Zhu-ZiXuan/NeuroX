@@ -3,6 +3,7 @@
 
 
 [nmos_28_rvt]
+_neurox_class = "MOSFETConfig"
 
 # --- Process electrical ---
 mu0__cm2_per_V_s = 200.0

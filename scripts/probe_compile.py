@@ -68,7 +68,6 @@ from neurox.architecture.unit.cim import (
     DirectCimUnitConfig,
     DirectCimUnitPolicy,
 )
-from neurox.common import dataclass_from_file
 from neurox.primitive.physical_constant import T_ROOM__K
 from neurox.primitive.analog import SwitchCapPolicy, VoltageDriverPolicy, VoltageMuxPolicy
 from neurox.primitive.analog.adc import AdcOperationPoint, McsSarAdcConfig, McsSarAdcPolicy
@@ -176,7 +175,7 @@ def _run(args: argparse.Namespace) -> None:
     if not PRESET.is_file():
         raise SystemExit(f"missing preset: {PRESET}")
 
-    xbar_cfg_full = dataclass_from_file(Offset1T1RCimMacroConfig, PRESET, section="cim_macro")
+    xbar_cfg_full = Offset1T1RCimMacroConfig.from_file(PRESET, section="cim_macro")
     ref_group_size = min(xbar_cfg_full.ref_group_size, args.col_num)
     while args.col_num % ref_group_size != 0:
         ref_group_size -= 1

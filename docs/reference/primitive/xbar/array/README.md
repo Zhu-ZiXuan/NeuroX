@@ -55,8 +55,6 @@ Provenance terms are defined in [module_parameter](../../../../conventions/modul
 
 ## Assumptions, scope & validity
 
-Stated assumptions of the abstract array model:
-
 - The array is topology-agnostic in the cell: it sees each site only as one condensed two-terminal branch and holds no internal cell node.
 - Each line is a lumped per-segment R/C ladder along a single series axis, not a distributed line.
 - The word line is the driven boundary, carries no DC conduction path, and enters as the input drive plus a lumped line capacitance.

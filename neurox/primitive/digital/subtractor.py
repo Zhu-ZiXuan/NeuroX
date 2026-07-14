@@ -9,13 +9,11 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor
 
-from neurox.primitive.circuit import CircuitConfig
-
-from .base import DigitalCircuit
+from .base import DigitalBase, DigitalConfig, DigitalPolicy
 
 
 @dataclass(frozen=True)
-class SubtractorConfig(CircuitConfig):
+class SubtractorConfig(DigitalConfig):
     """Immutable configuration for a Subtractor instance.
 
     Attributes:
@@ -46,17 +44,20 @@ class SubtractorConfig(CircuitConfig):
         self._require_non_neg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
-class Subtractor(DigitalCircuit[SubtractorConfig]):
+class Subtractor(DigitalBase[SubtractorConfig]):
     """Element-wise integer subtractor. No saturation or wrap."""
 
     def __init__(
         self,
         *,
         config: SubtractorConfig,
+        policy: DigitalPolicy,
         name: str,
         inst_shape: tuple[int, ...],
     ) -> None:
-        super().__init__(config=config, name=name, inst_shape=inst_shape)
+        super().__init__(config=config, policy=policy, name=name, inst_shape=inst_shape)
+        self._area_per_inst__um2 = config.area_per_inst__um2
+        self._leakage_per_inst__uW = config.leakage_per_inst__uW
 
     def operate(self, a: Tensor, b: Tensor) -> Tensor:
         """Subtract ``b`` from ``a`` element-wise.
@@ -69,8 +70,6 @@ class Subtractor(DigitalCircuit[SubtractorConfig]):
             ``y = a - b``.
         """
         y = a - b
-        # Subtractor is element-wise; serial via the position-invariant
-        # numel rule (same form as Adder).
         serial_op_count = -(-y.numel() // max(self.inst_count, 1))  # ceil(numel / inst); empty -> 0
         dynamic_energy__fJ = torch.full_like(y, self.config.energy_per_op__fJ, dtype=torch.float32)
         latency__ns = torch.tensor(

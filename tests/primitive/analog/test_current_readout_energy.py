@@ -6,7 +6,7 @@ owns the rail tallies dissipation. These blocks only transform the current.
 - ``CurrentMirror.replicate`` is a pure ratio copy
   ``mirror_ratio·ratio_mismatch·i_in`` and logs NO dynamic energy.
 - ``CurrentMux.transport`` is a pure ``mux_gain·i`` copy that logs NO dynamic
-  energy but KEEPS its transport-latency self-log.
+  energy and NO latency.
 
 Events are captured under :class:`NeuroxProfiler`.
 """
@@ -33,11 +33,6 @@ def _energy_total(events: list, name: str) -> float:
     return sum(e.dynamic_energy__fJ for e in events if e.qualified_name == name)
 
 
-def _latency_total(events: list, name: str) -> float:
-    """Sum the logged latency [ns] of events emitted by ``name``."""
-    return sum(e.latency__ns for e in events if e.qualified_name == name)
-
-
 def test_current_mirror_pure_copy_no_energy() -> None:
     """``replicate`` is a pure ratio copy and logs no dynamic energy."""
     mirror_ratio = 2.0
@@ -45,8 +40,6 @@ def test_current_mirror_pure_copy_no_energy() -> None:
         config=CurrentMirrorConfig(
             mirror_ratio=mirror_ratio,
             ratio_sigma_relative=0.1,
-            area_per_inst__um2=1.0,
-            leakage_per_inst__uW=1.0,
         ),
         policy=CurrentMirrorPolicy(mismatch=False),
         name="mirror",
@@ -73,8 +66,6 @@ def test_current_mirror_copy_carries_ratio_mismatch() -> None:
         config=CurrentMirrorConfig(
             mirror_ratio=2.0,
             ratio_sigma_relative=0.1,
-            area_per_inst__um2=1.0,
-            leakage_per_inst__uW=1.0,
         ),
         policy=CurrentMirrorPolicy(mismatch=True),
         name="mirror",
@@ -92,10 +83,9 @@ def test_current_mirror_copy_carries_ratio_mismatch() -> None:
     torch.testing.assert_close(out, expected)
 
 
-def test_current_mux_pure_copy_no_energy_keeps_latency() -> None:
-    """``transport`` is a pure ``mux_gain·i`` copy: no energy, latency kept."""
+def test_current_mux_pure_copy_no_energy_no_latency() -> None:
+    """``transport`` is a pure ``mux_gain·i`` copy: no energy, no latency."""
     select_num = 4
-    latency_per_op__ns = 5.0
     i__uA = torch.tensor([10.0, -4.0], dtype=torch.float64)
 
     for mux_gain in (1.0, 2.0):
@@ -103,9 +93,6 @@ def test_current_mux_pure_copy_no_energy_keeps_latency() -> None:
             config=CurrentMuxConfig(
                 select_num=select_num,
                 mux_gain=mux_gain,
-                latency_per_op__ns=latency_per_op__ns,
-                area_per_inst__um2=1.0,
-                leakage_per_inst__uW=1.0,
             ),
             policy=CurrentMuxPolicy(),
             name="mux",
@@ -120,9 +107,6 @@ def test_current_mux_pure_copy_no_energy_keeps_latency() -> None:
             out = mux.transport(i__uA)
         torch.testing.assert_close(out, i_out__uA)
 
-        # No dynamic energy self-log.
+        # Pure transport primitive: no dynamic energy and no latency self-log.
         assert _energy_total(p.energy_events, "mux") == 0.0
-        # Latency self-log is KEPT: inst_shape=() → inst_count 1, so
-        # serial_op_count = numel = 2 visits.
-        expected_latency__ns = latency_per_op__ns * i__uA.numel()
-        assert _latency_total(p.latency_events, "mux") == expected_latency__ns
+        assert p.latency_events == []

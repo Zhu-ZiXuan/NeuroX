@@ -2,8 +2,7 @@
 
 Trains from random init with SGD + momentum + cosine LR schedule, keeps
 the best-validation checkpoint, and writes its ``state_dict`` to
-``--checkpoint``.  The resulting file is the pretrained starting point
-consumed by ``example/lenet/qat.py``.
+``--checkpoint``.
 """
 
 # ruff: noqa: T201
@@ -18,7 +17,7 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader
 
 from example.lenet.data import create_mnist_dataloader
-from example.lenet.model import LeNet5
+from example.lenet.model_float import LeNet5
 
 
 def _validate(model: nn.Module, loader: DataLoader, device: torch.device) -> float:

@@ -4,7 +4,7 @@
 
 ## Design decisions
 
-- **PPA is static-only; no dynamic energy, no latency.** Area and the always-on bias power live in the inherited `area_per_inst__um2` / `leakage_per_inst__uW`, collected by the profiler's static walk over `CircuitBase`. The bias power that generates the reference currents is folded into `leakage_per_inst__uW` and is **not** derived from the tap values. There is no `v_supply__V` field.
+- **PPA is static-only; no dynamic energy, no latency.** Area and the always-on bias power live in the `area_per_inst__um2` / `leakage_per_inst__uW` on its own config, surfaced by the `area__um2` / `leakage__uW` properties (a sized `AnalogBase` leaf, [base](base.md)) and collected by the profiler's static walk over `ProfileMixin`. The bias power that generates the reference currents is folded into `leakage_per_inst__uW` and is **not** derived from the tap values. There is no `v_supply__V` field.
 - **Two-stage non-ideality split mirrors the fabrication lifecycle.** The initial-accuracy spread is a per-die constant sampled once in `_sample_fabricate_mismatch` (stored in the `i_refs__uA` buffer); the per-read noise is resampled every `snapshot`.
 - **One relative (multiplicative) sigma per stage.** A single scalar covers taps of differing magnitude; an absolute departure would instead need a per-tap tuple.
 - **`snapshot()` takes no external `shape`** — the output is intrinsically `(*inst_shape, num_refs)`; a consumer selects a tap and broadcasts it.

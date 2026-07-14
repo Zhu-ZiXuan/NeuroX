@@ -34,9 +34,9 @@ def test_serial_slicer_contract() -> None:
     assert slicer.slice_weights == (1, 4, 16)
 
 
-def test_serial_slicer_shape_and_roundtrip() -> None:
+def test_serial_slicer_shape_and_roundtrip(device: torch.device) -> None:
     slicer = SerialSlicer(slice_num=3, digit_radix=4)
-    x = torch.arange(0, 4**3, dtype=torch.int32).reshape(8, 8)
+    x = torch.arange(0, 4**3, dtype=torch.int32, device=device).reshape(8, 8)
     sliced = slicer.slice(x)
     assert sliced.shape == (8, 8, 3, 1)
     decoded = _decode_serial_slices(sliced, slicer.slice_weights)
@@ -51,10 +51,10 @@ def test_serial_slicer_shape_and_roundtrip() -> None:
         (4, 2),
     ],
 )
-def test_serial_slicer_roundtrip_for_geometry_cases(slice_num: int, digit_radix: int) -> None:
+def test_serial_slicer_roundtrip_for_geometry_cases(slice_num: int, digit_radix: int, device: torch.device) -> None:
     slicer = SerialSlicer(slice_num=slice_num, digit_radix=digit_radix)
     lo, hi = slicer.value_range
-    x = torch.arange(lo, hi + 1, dtype=torch.int32)
+    x = torch.arange(lo, hi + 1, dtype=torch.int32, device=device)
     sliced = slicer.slice(x)
     assert sliced.shape == (hi - lo + 1, slice_num, 1)
     decoded = _decode_serial_slices(sliced, slicer.slice_weights)
@@ -78,10 +78,10 @@ def test_simple_slicer_contract() -> None:
     assert slicer.slice_weights == (1, 8)
 
 
-def test_simple_slicer_shape_and_roundtrip() -> None:
+def test_simple_slicer_shape_and_roundtrip(device: torch.device) -> None:
     slicer = SimpleSlicer(slice_num=2, digit_count=3, digit_radix=2, encoding="true_form")
     lo, hi = slicer.value_range
-    w = torch.arange(lo, hi + 1, dtype=torch.int32)
+    w = torch.arange(lo, hi + 1, dtype=torch.int32, device=device)
     sliced = slicer.slice(w)
     assert sliced.shape == (hi - lo + 1, 2, 3)
     decoded = _decode_simple_slices(sliced, digit_radix=2, weights=slicer.slice_weights)
@@ -105,6 +105,7 @@ def test_simple_slicer_roundtrip_for_encoding_and_geometry_cases(
     slice_num: int,
     digit_count: int,
     digit_radix: int,
+    device: torch.device,
 ) -> None:
     slicer = SimpleSlicer(
         slice_num=slice_num,
@@ -113,7 +114,7 @@ def test_simple_slicer_roundtrip_for_encoding_and_geometry_cases(
         encoding=encoding,
     )
     lo, hi = slicer.value_range
-    values = torch.arange(lo, hi + 1, dtype=torch.int32)
+    values = torch.arange(lo, hi + 1, dtype=torch.int32, device=device)
     sliced = slicer.slice(values)
     assert sliced.shape == (hi - lo + 1, slice_num, digit_count)
     decoded = _decode_simple_slices(sliced, digit_radix=digit_radix, weights=slicer.slice_weights)

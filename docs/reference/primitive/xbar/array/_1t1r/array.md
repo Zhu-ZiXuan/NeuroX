@@ -90,8 +90,6 @@ By Tellegen's theorem $E_{\mathrm{DC}}$ equals the sum of the cell-branch and BL
 
 ## Assumptions, scope & validity
 
-Stated assumptions of the current model:
-
 - Interconnect is a lumped per-segment R/C ladder, not a distributed line.
 - The WL line carries no DC conduction path and is a single lumped capacitance, uniform along the series.
 - The energy model assumes a complete $0 \to \mathrm{DC} \to 0$ charge/discharge cycle per parasitic cap per WL pulse.

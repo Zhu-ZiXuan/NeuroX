@@ -43,8 +43,6 @@ Provenance terms are defined in [module_parameter](../../../conventions/module_p
 
 ## Assumptions, scope & validity
 
-Stated assumptions of the current model:
-
 - The selector is reduced to a threshold-voltage map; no conduction I-V law, hysteresis, or holding behavior is modeled at the device level.
 - Mismatch is static (sampled at fabricate time), additive, and Gaussian; no per-read threshold noise is modeled.
 - The threshold is temperature-independent at this level.

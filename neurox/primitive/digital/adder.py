@@ -9,13 +9,11 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor
 
-from neurox.primitive.circuit import CircuitConfig
-
-from .base import DigitalCircuit
+from .base import DigitalBase, DigitalConfig, DigitalPolicy
 
 
 @dataclass(frozen=True)
-class AdderConfig(CircuitConfig):
+class AdderConfig(DigitalConfig):
     """Immutable configuration for an Adder instance.
 
     Attributes:
@@ -46,17 +44,20 @@ class AdderConfig(CircuitConfig):
         self._require_non_neg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
-class Adder(DigitalCircuit[AdderConfig]):
+class Adder(DigitalBase[AdderConfig]):
     """Element-wise integer adder. No saturation or wrap."""
 
     def __init__(
         self,
         *,
         config: AdderConfig,
+        policy: DigitalPolicy,
         name: str,
         inst_shape: tuple[int, ...],
     ) -> None:
-        super().__init__(config=config, name=name, inst_shape=inst_shape)
+        super().__init__(config=config, policy=policy, name=name, inst_shape=inst_shape)
+        self._area_per_inst__um2 = config.area_per_inst__um2
+        self._leakage_per_inst__uW = config.leakage_per_inst__uW
 
     def operate(self, a: Tensor, b: Tensor) -> Tensor:
         """Add ``a`` and ``b`` element-wise.
@@ -69,8 +70,6 @@ class Adder(DigitalCircuit[AdderConfig]):
             ``y = a + b``.
         """
         y = a + b
-        # Adder is element-wise; serial via the position-invariant
-        # numel rule (total output elements / parallel inst_count).
         serial_op_count = -(-y.numel() // max(self.inst_count, 1))  # ceil(numel / inst); empty -> 0
         dynamic_energy__fJ = torch.full_like(y, self.config.energy_per_op__fJ, dtype=torch.float32)
         latency__ns = torch.tensor(

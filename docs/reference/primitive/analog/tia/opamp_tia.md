@@ -6,7 +6,7 @@ The op-amp TIA is the non-linear, closed-loop transimpedance amplifier of the [T
 
 An op-amp holds its input at the reference voltage $V_{\mathrm{ref}}$ by negative feedback through an NMOS pseudo-resistor — an NMOS biased into its resistive feedback regime, modelled by the [MOSFET](../../device/mosfet.md) device model. The finite op-amp gain sets how tightly the input is clamped: a higher gain gives a stiffer virtual ground (smaller clamp-voltage sensitivity to port current), a finite gain leaves a non-zero sensitivity. The modelled non-idealities are static op-amp gain mismatch and the internal NMOS device non-idealities.
 
-The op-amp output is bounded to the supply window $[0, V_{\mathrm{dd}}]$. The model captures this saturation with a single-parameter $\tanh$ soft-clip centred at $V_{\mathrm{dd}}/2$ with half-span $V_{\mathrm{dd}}/2$, so the output stays within $[0, V_{\mathrm{dd}}]$ and compresses smoothly toward each rail. The $\tanh$ form is a differentiable modeling choice, chosen for gradient stability, not derived from output-stage device physics.
+The op-amp output is bounded to the supply window $[0, V_{\mathrm{dd}}]$. The model captures this saturation with a single-parameter $\tanh$ soft-clip centred at $V_{\mathrm{dd}}/2$ with half-span $V_{\mathrm{dd}}/2$, so the output stays within $[0, V_{\mathrm{dd}}]$ and compresses smoothly toward each rail.
 
 ## Governing equations
 
@@ -16,7 +16,7 @@ $$V_{\mathrm{BL,CL}} = \operatorname{TIA}(I_{\mathrm{BL,port}}),$$
 
 set by the op-amp holding its input near $V_{\mathrm{ref}}$ through the NMOS pseudo-resistor feedback, with the finite-gain virtual-ground stiffness determining the small-signal sensitivity $\partial V_{\mathrm{BL,CL}}/\partial I_{\mathrm{BL,port}}$ (MOhm).
 
-The op-amp output applies a soft output-rail saturation to the linear drive $x = A\,(V_{\mathrm{ref}} - V_{\mathrm{BL,CL}})$. As a modeling approximation (see Physical model and Assumptions, not a derived transistor-level law), the saturation is taken as the single-parameter $\tanh$ soft-clip
+The op-amp output applies a soft output-rail saturation to the linear drive $x = A\,(V_{\mathrm{ref}} - V_{\mathrm{BL,CL}})$, taken as the single-parameter $\tanh$ soft-clip
 
 $$V_{\mathrm{out}} = c + h \tanh\!\big((x - c)/s\big), \qquad c = h = \tfrac{1}{2} V_{\mathrm{dd}},$$
 

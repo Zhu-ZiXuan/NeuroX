@@ -14,7 +14,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
-from neurox.primitive.circuit import CircuitBase
+from neurox.common.mixin import ProfileMixin
 
 
 @dataclass(frozen=True)
@@ -157,7 +157,6 @@ class NeuroxProfiler:
         self._latency_by_name: dict[str, float] = {}
 
     def __enter__(self) -> Self:
-        # Fresh recording state on every entry.
         self.energy_events = []
         self.latency_events = []
         self._pending_energy = []
@@ -274,33 +273,29 @@ class NeuroxProfiler:
     def collect_static(model: nn.Module) -> list[StaticRecord]:
         """Build a per-module ``StaticRecord`` list by walking ``model``.
 
-        Only :class:`CircuitBase` instances are collected — that's the
-        layer that carries the static-PPA contract; pure ``ProfileMixin``
-        subclasses (if any) emit dynamic events but don't have static
-        PPA fields. Devices (RRAM / MOSFET / Selector) are not circuits
-        and don't contribute to this report; their physical contribution
-        rolls up into the owning circuit's PPA.
+        Static PPA is collected from :class:`ProfileMixin` hosts whose
+        ``reports_static_ppa`` is ``True``.
         """
         return [
             StaticRecord(
                 qualified_name=module.qualified_name,
                 module_type=module.module_type,
-                area__um2=module.inst_area__um2,
-                leakage_power__uW=module.inst_leakage__uW,
+                area__um2=module.area__um2,
+                leakage_power__uW=module.leakage__uW,
             )
             for module in model.modules()
-            if isinstance(module, CircuitBase)
+            if isinstance(module, ProfileMixin) and module.reports_static_ppa
         ]
 
     @staticmethod
     def analyze_static(model: nn.Module) -> StaticMetrics:
-        """Aggregate total area and leakage power across all circuits."""
+        """Aggregate total area and leakage power across all profiled modules."""
         area = 0.0
         leakage = 0.0
         for module in model.modules():
-            if isinstance(module, CircuitBase):
-                area += module.inst_area__um2
-                leakage += module.inst_leakage__uW
+            if isinstance(module, ProfileMixin) and module.reports_static_ppa:
+                area += module.area__um2
+                leakage += module.leakage__uW
         return StaticMetrics(area__um2=area, leakage_power__uW=leakage)
 
     @staticmethod

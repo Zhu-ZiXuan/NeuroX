@@ -1,14 +1,9 @@
 """Crossbar wire-ladder KCL residual and driver-current builders.
 
-Unlike the topology-free numerical helpers in the sibling
-:mod:`neurox.primitive.xbar.solver._linalg`, these builders DO own the
-wire-ladder layout convention: the wire axis (column = ``dim=-1``, row =
-``dim=-2``), the driver node at index 0, the per-segment
-conductance-to-left / conductance-to-right mapping, and the KCL sign
-convention ``r = i_inject + Δv_left · g_left + Δv_right · g_right``. They
-take their tensors as plain arguments, but this layout convention is baked
-in — a caller whose wire runs along a different axis or seats the driver
-elsewhere cannot reuse them.
+These builders own the wire-ladder layout convention: the wire axis
+(column = ``dim=-1``, row = ``dim=-2``), the driver node at index 0, the
+per-segment conductance-to-left / conductance-to-right mapping, and the KCL
+sign convention ``r = i_inject + Δv_left · g_left + Δv_right · g_right``.
 
 See also:
     docs/reference/primitive/xbar/solver/README.md

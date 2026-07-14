@@ -94,6 +94,7 @@ class GeneralADC(ADC):
     """
 
     config: GeneralADCConfig
+    policy: GeneralADCPolicy
     boundaries: Tensor
 
     def __init__(
@@ -114,7 +115,8 @@ class GeneralADC(ADC):
             dtype=dtype,
             T__K=T__K,
         )
-        self.policy = policy
+        self._area_per_inst__um2 = config.area_per_inst__um2
+        self._leakage_per_inst__uW = config.leakage_per_inst__uW
         self.dtype = dtype
         self.T__K = T__K
 
@@ -153,10 +155,8 @@ class GeneralADC(ADC):
         GeneralADC's code count (``n_boundaries + 1``) is fixed at
         construction and may not equal ``2 ** adc_bits``. The actual
         signed range after the ``code - zero_code`` shift is
-        ``[-zero_code, n_codes - 1 - zero_code]`` — narrower than the
-        canonical SAR endpoints when ``n_codes`` is not a power of two.
-        ``adc_bits`` is accepted for protocol symmetry but ignored
-        because GeneralADC is single-mode by construction.
+        ``[-zero_code, n_codes - 1 - zero_code]``. ``adc_bits`` is
+        accepted for protocol symmetry but ignored.
         """
         del adc_bits
         return -self._zero_code, self._n_codes - 1 - self._zero_code
@@ -183,9 +183,6 @@ class GeneralADC(ADC):
             Signed ``int16`` code tensor in
             ``[-zero_code, n_codes - 1 - zero_code]`` (see :meth:`signed_range`),
             shaped like ``v_pos__V``.
-            ``floor_bucketize`` emits an unsigned bucket index which is shifted
-            by the topology-specific zero code (``n_codes // 2``, cached at
-            construction) to align with the signed-output convention.
         """
         del v_refs__V  # reference-free; accepted for protocol symmetry
         self._validate_runtime_args(adc_operation_point)

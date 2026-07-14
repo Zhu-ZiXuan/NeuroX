@@ -24,7 +24,7 @@ where $C_k$ is the capacitance of the cap switched on cycle $k$, carrying the st
 
 ## Numerical method
 
-The conversion performs $b$ comparisons total — one free MSB comparison (no cap switched) plus $b-1$ in-loop decision cycles, each a single cap switch per leg followed by a comparison, giving $b-1$ switch events in all. Each in-loop cycle is a closed-form step and a sign decision, with no inner iteration. The loop is exact for the modelled topology - it is not an iterative root find.
+The conversion performs $b$ comparisons total — one free MSB comparison (no cap switched) plus $b-1$ in-loop decision cycles, each a single cap switch per leg followed by a comparison, giving $b-1$ switch events in all. Each in-loop cycle is a closed-form step and a sign decision, with no inner iteration.
 
 ## Energy model
 

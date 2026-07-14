@@ -1,6 +1,6 @@
 # Configuration and policy
 
-A NeuroX run is configured by two TOML files passed to the entry points: `--config` (the immutable circuit design) and `--policy` (the nonideality switches). They are separate on purpose — the config fully specifies a chip's physical design; the policy selects which nonidealities are active for a run.
+A NeuroX run is configured by two TOML files passed to the entry points: `--config` (the immutable circuit design) and `--policy` (the nonideality switches).
 
 ## The two files
 
@@ -11,13 +11,15 @@ A NeuroX run is configured by two TOML files passed to the entry points: `--conf
 
 The loader recognizes three directives:
 
-- `_neurox_type = "<Name>Config"` — selects the concrete config class for a polymorphic field; construction dispatches on it.
-- `_neurox_use = "<file>[:<section>]"` — composes in another TOML file or section, so a shared design fragment is written once.
-- `_neurox_use_preset = "<preset>[:<section>]"` — references a bundled preset under `neurox/presets/` (e.g. `process/rram:default`).
+- `_neurox_class = "<Name>Config"` — selects the concrete config class for a polymorphic field; construction dispatches on it. A polymorphic base (one with dataclass subclasses) can never be constructed directly, so every occurrence of it — top-level target, discriminator target, or nested field — must resolve to a concrete leaf.
+- `_neurox_use = "<file>:<section>"` — composes in another TOML file or section, so a shared design fragment is written once.
+- `_neurox_use_preset = "<preset>:<section>"` — references a bundled preset under `neurox/presets/` (e.g. `process/rram:default`).
+
+A table carrying `_neurox_use` or `_neurox_use_preset` must not also declare `_neurox_class` — the referenced fragment or preset is the sole owner of its class; ordinary field values may still be overridden inline beside the directive. A bundled preset pulls straight into a nested field either as an inline table, `field = { _neurox_use_preset = "process/rram:default" }`, or as the equivalent TOML dotted-key form, `field._neurox_use_preset = "process/rram:default"` — both parse to the same nested mapping.
 
 ## Presets
 
-Bundled process presets (device parameters) live under `neurox/presets/`, pulled in via `_neurox_use_preset`. The shared all-off policy preset ships with the scheme, not under `neurox/presets/`; it turns every nonideality off, and a run enables one source by overriding its `bool` inline after the `_neurox_use` line that pulls it in.
+Bundled process presets (device parameters) live under `neurox/presets/`, pulled in via `_neurox_use_preset` and self-describing their own `_neurox_class`. The shared all-off policy preset ships with the scheme, not under `neurox/presets/`; it turns every nonideality off, and a run enables one source by overriding its `bool` inline after the `_neurox_use` line that pulls it in. A config or policy dataclass can also load a bundled preset directly via `Cls.from_preset("family/file:section")`, without a host file.
 
 ## Structure
 

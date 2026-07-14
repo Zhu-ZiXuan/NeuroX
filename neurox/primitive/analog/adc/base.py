@@ -13,7 +13,7 @@ import torch
 from torch import Tensor
 
 from neurox.common.mixin import RegistryMixin, ValidateMixin
-from neurox.primitive.circuit import CircuitBase, CircuitConfig
+from neurox.primitive.analog.base import AnalogBase, AnalogConfig, AnalogPolicy
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,8 +55,16 @@ class AdcCalibrationRecord(ValidateMixin):
 
 
 @dataclass(frozen=True)
-class ADCConfig(CircuitConfig):
-    """Base config for ADC implementations."""
+class ADCConfig(AnalogConfig):
+    """Base config for ADC implementations.
+
+    Attributes:
+        area_per_inst__um2: Silicon area per fabricated instance.
+        leakage_per_inst__uW: Static leakage per instance.
+    """
+
+    area_per_inst__um2: float
+    leakage_per_inst__uW: float
 
     def __post_init__(self) -> None:
         self.validate()
@@ -64,9 +72,13 @@ class ADCConfig(CircuitConfig):
     def validate(self) -> None:
         self.validate_ppa()
 
+    def validate_ppa(self) -> None:
+        self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
+        self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
+
 
 @dataclass(frozen=True)
-class ADCPolicy:
+class ADCPolicy(AnalogPolicy):
     """Abstract marker base for ADC-family nonideality policies."""
 
 
@@ -108,15 +120,8 @@ class ADCMode(ValidateMixin):
         return self.max_signal / self.n_codes
 
 
-class ADC(CircuitBase[ADCConfig], RegistryMixin[type["ADCConfig"], "ADC"]):
-    """Abstract base class for ADC implementations.
-
-    Per-op latency is leaf-defined and emitted via ``_log_latency`` in
-    each concrete ``convert`` body — fixed-latency impls read
-    ``self.config.latency_per_op__ns``; parametric impls derive it from
-    the runtime ``adc_operation_point``. There is no family-base latency
-    contract.
-    """
+class ADC(AnalogBase[ADCConfig, ADCPolicy], RegistryMixin[type["ADCConfig"], "ADC"]):
+    """Abstract base class for ADC implementations."""
 
     @classmethod
     def from_config(
@@ -160,8 +165,8 @@ class ADC(CircuitBase[ADCConfig], RegistryMixin[type["ADCConfig"], "ADC"]):
             dtype: Tensor dtype for internal buffers.
             T__K: Operating temperature.
         """
-        del policy, dtype, T__K  # captured by the subclass init
-        super().__init__(config=config, name=name, inst_shape=inst_shape)
+        del dtype, T__K  # captured by the subclass init
+        super().__init__(config=config, policy=policy, name=name, inst_shape=inst_shape)
 
     @property
     @abstractmethod
@@ -194,16 +199,10 @@ class ADC(CircuitBase[ADCConfig], RegistryMixin[type["ADCConfig"], "ADC"]):
 
         Returns:
             Signed integer code tensor, same shape as ``v_pos__V``, in
-            the range reported by :meth:`signed_range` for ``adc_bits`` —
-            the canonical ``[-2**(adc_bits-1), 2**(adc_bits-1) - 1]`` when
-            the code count is ``2 ** adc_bits``, narrower otherwise. The
-            signed convention aligns with the
-            consumer's ideal vector-matrix product and the consumer model
-            ``M_ideal ≈ code · rescale_factor`` (where ``rescale_factor``
-            is strictly positive). Each concrete subclass is responsible
-            for converting from its native internal representation to the
-            signed output. Dynamic energy and latency are emitted through
-            the profiler side channel.
+            the range reported by :meth:`signed_range` for ``adc_bits``.
+            The consumer model is ``M_ideal ≈ code · rescale_factor``
+            (``rescale_factor`` strictly positive). Dynamic energy and
+            latency are emitted through the profiler side channel.
         """
         raise NotImplementedError
 
@@ -214,9 +213,7 @@ class ADC(CircuitBase[ADCConfig], RegistryMixin[type["ADCConfig"], "ADC"]):
         For ADCs whose code count matches ``2 ** adc_bits`` exactly,
         this is the canonical
         ``(-2 ** (adc_bits - 1), 2 ** (adc_bits - 1) - 1)``. For ADCs
-        whose code count is **not** a power of two (an arbitrary
-        boundary list), the returned bounds reflect the actual
-        realisable signed code range — saturation tests must consult
-        this surface rather than assume the canonical endpoints.
+        whose code count is **not** a power of two, the returned bounds
+        reflect the actual realisable signed code range.
         """
         raise NotImplementedError

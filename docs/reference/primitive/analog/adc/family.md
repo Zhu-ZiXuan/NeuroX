@@ -1,6 +1,6 @@
 # ADC family
 
-Every concrete ADC in the family digitizes a differential analog input into a signed integer code under one shared set of conventions: the same signed-code output convention, the same monotone floor-quantization semantics, and digitization against an externally supplied reference.
+Every concrete ADC in the family digitizes a differential analog input into a signed integer code under one shared set of conventions.
 
 ## Shared conventions
 
@@ -18,11 +18,11 @@ where $\operatorname{bucketize}(x,\ \{B_c\})$ returns the index of the bucket in
 
 ### Signed-code range
 
-A conversion returns a **signed** integer code. The raw unsigned bucket index lies in $[0,\ n_{\mathrm{codes}}-1]$, and subtracting the zero code $z$ shifts it to the signed range $[-z,\ n_{\mathrm{codes}}-1-z]$. The differential input is genuinely two-sided, so a signed code represents it directly, carrying the sign of the analog input. The zero code is topology-specific: a symmetric design places it at the bucket midpoint, but an asymmetric or single-ended design places it elsewhere.
+A conversion returns a **signed** integer code. The raw unsigned bucket index lies in $[0,\ n_{\mathrm{codes}}-1]$, and subtracting the zero code $z$ shifts it to the signed range $[-z,\ n_{\mathrm{codes}}-1-z]$. The zero code is topology-specific: a symmetric design places it at the bucket midpoint, but an asymmetric or single-ended design places it elsewhere.
 
 ### Uniform sub-case
 
-For linear / uniform-quantization ADCs (all current concrete members) the boundaries are evenly spaced, $B_c = c\cdot \mathrm{LSB}$, with $\mathrm{LSB} = \mathrm{FSR} / 2^{b}$ the full-scale range divided by the code count and $n_{\mathrm{codes}} = 2^{b}$. A symmetric zero code $z = 2^{\,b-1}$ then yields the range $[-2^{\,b-1},\ 2^{\,b-1}-1]$. This is the uniform sub-case, not universal: a non-uniform member overrides it with a calibrated boundary set.
+For linear / uniform-quantization ADCs (all current concrete members) the boundaries are evenly spaced, $B_c = c\cdot \mathrm{LSB}$, with $\mathrm{LSB} = \mathrm{FSR} / 2^{b}$ the full-scale range divided by the code count and $n_{\mathrm{codes}} = 2^{b}$. A symmetric zero code $z = 2^{\,b-1}$ then yields the range $[-2^{\,b-1},\ 2^{\,b-1}-1]$. A non-uniform member overrides it with a calibrated boundary set.
 
 ## Noise & non-idealities
 

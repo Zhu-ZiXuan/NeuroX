@@ -166,7 +166,6 @@ nav:
     - Encoding:
       - Overview: internals/common/encoding/README.md
       - Encodings: internals/common/encoding/encodings.md
-    - Load dump: internals/common/load_dump.md
     - Nonideality: internals/primitive/nonideality.md
     - Physical constant: internals/primitive/physical_constant.md
     - Profiler: internals/common/profiler.md

@@ -33,11 +33,6 @@ class OpAmpTIAConfig(TIAConfig):
             Compile-time constant; pick via
             ``solver_calibrate.tia`` against the target
             workload.
-
-    The Newton damping cap and the Jacobian-floor safety clamp are
-    method-intrinsic constants on :class:`OpAmpTIA` (``MAX_STEP__V`` /
-    ``G_EFF_MAX__uS``) — they are not exposed in this config because they
-    do not vary per chip preset.
     """
 
     # --- Bias / supply ---
@@ -138,19 +133,16 @@ class OpAmpTIA(TIA[OpAmpTIASnap]):
 
     Class-level numerical constants (method-intrinsic, not chip-tuneable):
 
-      * ``MAX_STEP__V``: Per-iteration ``|Δv_clamp|`` cap. Stops the
-        damped Newton from sticking at a rail after a single overshoot in
-        regions where ``tanh`` saturates (``g_clip → 0``).
+      * ``MAX_STEP__V``: Per-iteration ``|Δv_clamp|`` cap.
       * ``G_EFF_MAX__uS``: Upper clamp on the effective KCL Jacobian
-        ``df/dV_clamp``. Always negative; without it the Newton step
-        diverges when the NMOS feedback loop's local derivative crosses
-        zero.
+        ``df/dV_clamp``.
     """
 
     MAX_STEP__V: float = 0.05
     G_EFF_MAX__uS: float = -1e-6
 
     config: OpAmpTIAConfig
+    policy: OpAmpTIAPolicy
     nominal_opamp_gain: Tensor
     opamp_gain: Tensor
 
@@ -173,7 +165,8 @@ class OpAmpTIA(TIA[OpAmpTIASnap]):
             T__K=T__K,
         )
 
-        self.policy = policy
+        self._area_per_inst__um2 = config.area_per_inst__um2
+        self._leakage_per_inst__uW = config.leakage_per_inst__uW
         self.T__K = T__K
         self.dtype = dtype
 
@@ -223,21 +216,6 @@ class OpAmpTIA(TIA[OpAmpTIASnap]):
         shape: tuple[int, ...],
         multi_coords: tuple[Tensor, ...] | None,
     ) -> OpAmpTIASnap:
-        """Sample one per-call runtime snap over ``shape``.
-
-        Args:
-            v_ref__V: Injected reference clamp voltage. A scalar or
-                instance-shaped tensor that broadcasts onto ``shape``;
-                stored in the returned snap.
-            shape: Per-call broadcast shape; the snap fills tensor
-                fields at this shape.
-            multi_coords: Advanced-index tuple selecting a chunk's
-                positions from the broadcast view; ``None`` returns the
-                full view.
-
-        Returns:
-            Per-call snap of the fabricated state.
-        """
         v_view = v_ref__V.expand(shape) if shape else v_ref__V
         v = v_view if multi_coords is None else v_view[multi_coords]
         gain_view = self.opamp_gain.expand(shape) if shape else self.opamp_gain

@@ -1,8 +1,7 @@
 """BERT quantization layers — self-contained, Linear only.
 
-Mirror of ``example/lenet/quant.py`` minus the Conv2d branch — BERT only
-needs Linear replacement. Constants match the chip preset's exposed
-value ranges (4-bit unsigned x, ternary w, signed 4-bit y).
+Constants match the chip preset's exposed value ranges (4-bit unsigned x,
+ternary w, signed 4-bit y).
 """
 
 from __future__ import annotations
@@ -105,7 +104,7 @@ def _fold_for_macro(
     s_y: Tensor,
     r_adc: float,
 ) -> _FoldedScales:
-    """Fold ``r_ADC`` into ``(mult, rshift, bias_int)`` — see lenet.quant for derivation."""
+    """Fold ``r_ADC`` into ``(mult, rshift, bias_int)``."""
     w_sum = weight_int.to(torch.int64).sum(dim=tuple(range(1, weight_int.ndim)))
     sx = s_x.to(torch.float64)
     zp = zp_x.to(torch.float64)

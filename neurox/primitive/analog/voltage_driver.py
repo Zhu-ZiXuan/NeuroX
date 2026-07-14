@@ -9,12 +9,12 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor
 
-from neurox.primitive.circuit import CircuitBase, CircuitConfig
+from neurox.primitive.analog.base import AnalogBase, AnalogConfig, AnalogPolicy
 from neurox.primitive.nonideality import apply_gaussian
 
 
 @dataclass(frozen=True, kw_only=True)
-class VoltageDriverConfig(CircuitConfig):
+class VoltageDriverConfig(AnalogConfig):
     """Immutable configuration for :class:`VoltageDriver`.
 
     Attributes:
@@ -39,6 +39,10 @@ class VoltageDriverConfig(CircuitConfig):
     # --- Thermal noise ---
     thermal_sigma__V: float
 
+    # --- Static PPA ---
+    area_per_inst__um2: float
+    leakage_per_inst__uW: float
+
     def __post_init__(self) -> None:
         self.validate()
 
@@ -54,9 +58,13 @@ class VoltageDriverConfig(CircuitConfig):
         self._require_non_neg(self.offset_sigma__V, "offset_sigma__V")
         self._require_non_neg(self.thermal_sigma__V, "thermal_sigma__V")
 
+    def validate_ppa(self) -> None:
+        self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
+        self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
+
 
 @dataclass(frozen=True)
-class VoltageDriverPolicy:
+class VoltageDriverPolicy(AnalogPolicy):
     """Per-source toggles selecting which clamp nonidealities are active.
 
     Attributes:
@@ -84,7 +92,7 @@ class VoltageDriverSnap:
     r_out__MOhm: Tensor
 
 
-class VoltageDriver(CircuitBase[VoltageDriverConfig]):
+class VoltageDriver(AnalogBase[VoltageDriverConfig, VoltageDriverPolicy]):
     """Generic Thevenin voltage-source clamp driver.
 
     A design-agnostic boundary clamp: a reference voltage source
@@ -94,18 +102,11 @@ class VoltageDriver(CircuitBase[VoltageDriverConfig]):
     map ``v_clamp = v_ref - i_port * r_out``; ``r_out = 0`` recovers the
     ideal voltage source (flat clamp), and a finite ``r_out`` is the
     physical series impedance the consuming solver sees as the clamp
-    slope ``dVclamp/dI``. The map has no data-dependent control flow, so
-    it compiles inside the array solver leaf.
+    slope ``dVclamp/dI``.
 
-    Conduction dissipation is deliberately not modelled here. The power
-    burned holding the clamp under load, ``(V_supply - v_clamp) * I``,
-    flows from the supply rail the consuming core owns, not from this
-    block: the driver is a behavioural Thevenin source, blind to the rail
-    it hangs off. The consuming core (the rail owner) tallies that
-    conduction term; this block carries only its own static power, folded
-    into ``leakage_per_inst__uW`` (including any internal amplifier or
-    bias network). The block therefore exposes no ``v_dd`` field, no bias
-    current, no ``solve_dc``, and no ``dynamic_energy*`` method.
+    This block carries only its own static power, folded into
+    ``leakage_per_inst__uW`` (including any internal amplifier or bias
+    network).
 
     It satisfies the structural ``ClampDriver`` role (``snapshot``,
     ``solve_clamp``) without inheriting the protocol; the reference
@@ -133,9 +134,11 @@ class VoltageDriver(CircuitBase[VoltageDriverConfig]):
         dtype: torch.dtype,
         T__K: float,
     ) -> None:
-        super().__init__(config=config, name=name, inst_shape=inst_shape)
+        super().__init__(config=config, policy=policy, name=name, inst_shape=inst_shape)
 
-        self.policy = policy
+        self._area_per_inst__um2 = config.area_per_inst__um2
+        self._leakage_per_inst__uW = config.leakage_per_inst__uW
+
         self.dtype = dtype
         self.T__K = T__K
 
@@ -208,9 +211,6 @@ class VoltageDriver(CircuitBase[VoltageDriverConfig]):
         v_clamp_init__V: Tensor | None,
     ) -> tuple[Tensor, Tensor]:
         """Solve the Thevenin clamp at the present port current.
-
-        Closed-form, with no data-dependent control flow, so it compiles
-        inside the array-solver leaf.
 
         Args:
             i_port__uA: Port current.

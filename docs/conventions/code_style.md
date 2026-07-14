@@ -15,9 +15,9 @@ Follow these public conventions unless a rule here is stricter.
 
 ## Characters and notation
 
-[notation_conventions](notation_conventions.md) is the authority for the non-ASCII whitelist and for where a formula may live; this section states only how that policy applies inside a code file.
+[notation_conventions](notation_conventions.md) is the authority for the non-ASCII whitelist and for where a formula may live.
 
-**Effective code is ASCII.** Identifiers and protocol or data string literals use only ASCII. Python 3 accepts unicode identifiers, so this is an enforced rule, not an automatic property. A human-facing string — a log line, a `print`, an exception message — is not effective code; it follows the comment whitelist, not this rule. notation_conventions §Notation by string class gives the full split.
+**Effective code is ASCII.** Identifiers and protocol or data string literals use only ASCII. A human-facing string — a log line, a `print`, an exception message — is not effective code; it follows the comment whitelist, not this rule. notation_conventions §Notation by string class gives the full split.
 
 A docstring or comment carries raw whitelisted unicode, no LaTeX, and no hosted formula, per [notation_conventions](notation_conventions.md).
 

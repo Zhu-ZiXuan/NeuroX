@@ -3,8 +3,7 @@
 Builds a standalone :class:`XbarCell1T1R` (owning fabricated RRAM /
 access-NMOS), independent OpAmpTIA / VoltageDriver boundary modules, and a
 chip-preset-driven stateless ``Solver``, with synthetic mid-range RRAM g
-and a configurable ``v_wl_drive`` grid. Does NOT touch ``XbarArray1T1R``
-/ ``Offset1T1RCimMacro`` — solver tests should depend only on the solver.
+and a configurable ``v_wl_drive`` grid.
 
 Public surface: :func:`build_solver_harness` returns a frozen
 ``SolverHarness`` carrying the constructed solver, the fabricated cell,
@@ -25,7 +24,6 @@ from typing import Any
 import torch
 from torch import Tensor
 
-from neurox.common.load_dump import dataclass_from_file
 from neurox.primitive.analog import VoltageDriver, VoltageDriverPolicy, VoltageReference, VoltageReferencePolicy
 from neurox.primitive.analog.tia import OpAmpTIA, OpAmpTIAConfig, OpAmpTIAPolicy
 from neurox.primitive.device import MOSFETPolicy, RRAMPolicy
@@ -50,10 +48,9 @@ class SolverHarness:
     sl_segment_g__uS: Tensor
     v_wl_drive__V: Tensor
     # Resolved clamp-reference taps (post-snapshot) injected into the driver
-    # snaps: the BL-clamp tap and the SL-drive tap. The drivers no longer hold
-    # a v_ref__V; the reference is owned by the core's VoltageReference and
-    # injected per snapshot. Tests read these (or the driver snaps' v_ref__V)
-    # to pin clamp voltages.
+    # snaps: the BL-clamp tap and the SL-drive tap. The reference is owned by
+    # the core's VoltageReference and injected per snapshot. Tests read these
+    # (or the driver snaps' v_ref__V) to pin clamp voltages.
     bl_v_ref__V: Tensor
     sl_v_ref__V: Tensor
     inst_shape: tuple[int, ...] = field(default_factory=tuple)
@@ -71,7 +68,7 @@ class SolverHarness:
         """Pack the per-call kwargs for ``solver.solve_dc(...)``.
 
         Includes the cell and the two clamp drivers — the stateless solver
-        takes them per call, not at construction.
+        takes them per call.
         """
         return {
             "bl_segment_r__MOhm": self.bl_segment_r__MOhm,
@@ -125,7 +122,7 @@ def build_solver_harness(
             ``rram_g_max__uS`` (default 0.4 ≈ mid-range).
         v_wl_drive__V: Uniform WL drive voltage for the harness call.
     """
-    xbar_config = dataclass_from_file(Offset1T1RCimMacroConfig, config_path, section="cim_macro")
+    xbar_config = Offset1T1RCimMacroConfig.from_file(config_path, section="cim_macro")
     core_cfg = xbar_config.array_config
     cell_cfg = core_cfg.cell_config
     phys_col_num = xbar_config.col_num * xbar_config.w_digit_count + (
@@ -169,8 +166,8 @@ def build_solver_harness(
         T__K=300.0,
     )
     # Core-owned clamp reference (two ordered taps: BL-clamp, SL-drive). The
-    # drivers no longer hold their own v_ref; the reference is snapshotted once
-    # and the resolved taps are injected into each driver snapshot.
+    # reference is snapshotted once and the resolved taps are injected into
+    # each driver snapshot.
     clamp_ref = VoltageReference(
         config=xbar_config.clamp_ref_config,
         policy=VoltageReferencePolicy(tolerance=False, noise=False),

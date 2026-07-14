@@ -6,9 +6,7 @@ Two layer families live here:
   ``nn.Linear`` subclasses with input / weight / output observers
   attached. ``forward`` runs ``fake_quant`` on input + weight, then
   the standard float ``F.conv2d`` / ``F.linear`` (NOT the macro);
-  output observer tracks the per-tensor y range. Backward is STE
-  because ``fake_quant_*`` clamps quantized values through detached
-  rounding.
+  output observer tracks the per-tensor y range. Backward is STE.
 - ``QuantConv2d`` / ``QuantLinear`` — inference-time. Macro-backed
   integer matmul; macro's ``adc_rescale_factor`` is folded into
   ``(mult, rshift, bias_int)`` at construction time so the runtime
@@ -21,9 +19,7 @@ dict produced by ``QATLayer.export_state`` and consumed by
 
 NOTE on the quant grid: the constants below match what
 ``macro_with_ideal_xbar.toml`` / ``macro_with_physical_xbar.toml``
-expose as ``x_value_range`` / ``w_value_range``. They are restated
-here (rather than queried from the macro) to keep the training-side
-code entirely free of macro imports.
+expose as ``x_value_range`` / ``w_value_range``.
 """
 
 from __future__ import annotations
@@ -61,13 +57,10 @@ Y_QMAX = 15
 
 
 class QATConv2d(nn.Conv2d):
-    """Training-time fake-quantized conv2d. No macro, no STE-with-hardware.
+    """Training-time fake-quantized conv2d.
 
     Observers are nn.Module children: ``model.train()`` enables their EMA
-    update; ``freeze_observers(model)`` pins them after calibration. The
-    ``training`` flag does NOT toggle stochastic-rounding internals (which
-    live in the macro at inference); inference uses deterministic rounding
-    per the project-wide rule.
+    update; ``freeze_observers(model)`` pins them after calibration.
     """
 
     def __init__(
@@ -271,9 +264,7 @@ def _fold_conv_output(y: Tensor, out_channels: int, batch_shape: tuple[int, ...]
 class QuantConv2d(nn.Module):
     """Inference: macro-backed integer conv2d with folded rescale.
 
-    ``adc_mode`` (default 0) is the per-layer hardware mode pick — different
-    layers in the same network can route through different ADC operating
-    points by passing different values here.
+    ``adc_mode`` (default 0) is the per-layer hardware mode pick.
     """
 
     weight_int: Tensor
@@ -329,11 +320,7 @@ class QuantConv2d(nn.Module):
         self.register_buffer("zp_x", zp_x.to(torch.int32).reshape(()))
         self.register_buffer("s_y", s_y.to(torch.float32).reshape(()))
         self.register_buffer("zp_y", zp_y.to(torch.int32).reshape(()))
-        # Program macro now that weights and shape are known. Macro expects
-        # weights in its physical layout: (col_num, w_digit_count, row_num).
-        # For LeNet kernel=5×5, in_channels small, the macro factory was
-        # built with w_logical_shape=(out_channels, in_channels*kH*kW). We
-        # already pass that; here we just program the int weight reshaped.
+        # Reshape to the macro's logical weight shape (out_channels, C*kH*kW).
         w_for_macro = weight_int.reshape(out_channels, in_channels * kernel_size[0] * kernel_size[1])
         macro.fabricate()
         macro.program(w_for_macro.to(torch.int32))

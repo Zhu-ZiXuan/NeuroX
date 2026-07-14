@@ -122,6 +122,7 @@ class SarAdcMono(ADC):
     """
 
     config: SarAdcMonoConfig
+    policy: SarAdcMonoPolicy
     nominal_cap_weights__fF: Tensor
     nominal_comparator_offset__V: Tensor
     c_p__fF: Tensor
@@ -148,7 +149,8 @@ class SarAdcMono(ADC):
         )
         if not (T__K > 0.0):
             raise ValueError(f"SarAdcMono T__K ({T__K}) must be > 0")
-        self.policy = policy
+        self._area_per_inst__um2 = config.area_per_inst__um2
+        self._leakage_per_inst__uW = config.leakage_per_inst__uW
         self.T__K = T__K
         self.dtype = dtype
 
@@ -189,8 +191,7 @@ class SarAdcMono(ADC):
     def signed_range(self, adc_bits: int) -> tuple[int, int]:
         """Canonical SAR signed-bit endpoints at ``adc_bits``.
 
-        Mirrors :meth:`McsSarAdc.signed_range` — the CDAC code count is
-        exactly ``2 ** adc_bits``.
+        The CDAC code count is exactly ``2 ** adc_bits``.
         """
         if not (1 <= adc_bits <= self.max_bits):
             raise ValueError(f"adc_bits {adc_bits} outside [1, {self.max_bits}]")

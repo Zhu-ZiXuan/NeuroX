@@ -14,24 +14,7 @@ from neurox.primitive.analog.adc import AdcOperationPoint
 
 
 class QuantMatMul(Protocol):
-    """Structural contract every macro impl satisfies.
-
-    Attributes:
-        w_value_range: Inclusive integer weight range accepted by the macro.
-        x_value_range: Inclusive integer activation range accepted by the macro.
-        adc_mode_num: Number of ADC operating points the macro supports.
-        adc_max_bits: Maximum ``adc_bits`` value the macro supports.
-
-    Methods:
-        adc_rescale_factor: Recovery-side multiplier for a given
-            ``adc_operation_point``: ``M_ideal ≈ code · rescale_factor``.
-        fabricate: Resample static manufacturing variation across the macro
-            tree. No arguments.
-        program: Write the macro's static weight state from one logical
-            integer weight tensor.
-        matmul: Execute one integer matrix multiply against the programmed
-            weight state for the given ``adc_operation_point``.
-    """
+    """Structural contract every macro impl satisfies."""
 
     @property
     def w_value_range(self) -> tuple[int, int]:

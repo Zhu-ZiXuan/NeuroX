@@ -16,11 +16,9 @@ from .base import Slicer
 class SimpleSlicer(Slicer):
     """Direct digitise-then-group signed-digit decomposer.
 
-    Strategy: encode the input into a single radix-``digit_radix`` digit
-    string of length ``slice_num * digit_count``, then unflatten the
-    trailing axis into ``[slice_num, digit_count]``. Digit-grid
-    compatibility with the xbar's primitive cell is a caller-side
-    invariant.
+    Encodes the input into a single radix-``digit_radix`` digit string of
+    length ``slice_num * digit_count``, then unflattens the trailing axis
+    into ``[slice_num, digit_count]``.
 
     Args:
         slice_num: Number of macro-external xbar-word slices (shape
@@ -46,8 +44,6 @@ class SimpleSlicer(Slicer):
             raise ValueError(f"require: digit_radix ({digit_radix}) >= 2")
         self._slice_num = slice_num
         self._digit_count = digit_count
-        # One transcoder covers the entire ``slice_num * digit_count``
-        # digit string; the slicer just regroups its output.
         self._transcoder = Transcoder.create(
             encoding,
             radix=digit_radix,

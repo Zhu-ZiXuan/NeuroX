@@ -1,24 +1,5 @@
 """Quantization primitives shared by every NeuroX user pipeline.
 
-The module groups three categories of helpers, all stateless except the
-two observer classes (which carry frozen-EMA buffers):
-
-- **Stochastic rounding**: ``stochastic_floor_div`` / ``stochastic_floor_to_int``
-  / ``floor_bucketize`` — used by integer-rescaling internals and any QAT
-  path that wants dithering during training.
-- **Fixed-point scale conversion**: ``derive_multiplier_and_shift_tensor``
-  — convert a float scale factor into ``(multiplier, rshift)`` for
-  hardware-compatible integer rescaling.
-- **QAT-side training primitives**: ``PerTensorObserver`` /
-  ``PerChannelSymmObserver`` (EMA min/max trackers with a freeze flag);
-  ``fake_quant_ste`` / ``fake_quant_symm_per_channel_ste`` (STE
-  fake-quantize for forward, identity backward).
-
-The contract is intentionally narrow: **none of these helpers know about
-the consumer that calls them**. They are pure quantization math + observer
-state. Each user pipeline composes them into its own training / inference
-flow.
-
 See also:
     docs/internals/common/quant.md
 """
@@ -42,8 +23,7 @@ def stochastic_floor_div(
 ) -> Tensor:
     """Compute ``numerator >> rshift`` with optional unbiased jitter.
 
-    Stochastic rounding is applied when ``training`` is ``True`` and
-    skipped otherwise.
+    Stochastic rounding is applied when ``training`` is ``True``.
 
     Args:
         numerator: Integer tensor to be shifted.
@@ -133,7 +113,6 @@ def floor_bucketize(
         signal = signal + jitter
     # ``right=True`` gives floor semantics: signal at an exact
     # boundary lands in the upper bin (code = C when signal == C·LSB).
-    # The default ``right=False`` would round-to-nearest at boundaries.
     return torch.bucketize(signal, boundaries, right=True, out_int32=True).to(out_dtype)
 
 

@@ -3,9 +3,7 @@
 Loads the HuggingFace-pretrained BERT-small encoder + a randomly-
 initialised classification head, fine-tunes on the SST-2 training split
 with AdamW + linear warmup / cosine decay, keeps the best-validation
-checkpoint, and writes its ``state_dict`` to ``--checkpoint``.  The
-resulting file is the pretrained starting point consumed by
-``example/bert/hat_qat.py`` and ``example/bert/evaluate.py``.
+checkpoint, and writes its ``state_dict`` to ``--checkpoint``.
 """
 
 # ruff: noqa: T201

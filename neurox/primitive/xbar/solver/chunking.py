@@ -1,21 +1,7 @@
 """Leading-batch chunking helpers for any solver-driven core's ``solve_array``.
 
-These partition the broadcast leading into peak-memory-bounded slices for any
-core whose ``solve_array`` drives the shared solver; they bind to no specific core.
-
-:func:`iter_chunks` partitions the broadcast leading (``prod(leading)``
-instances) into contiguous C-order slices of at most ``solve_chunk_size``
-instances. Each slice's flat indices unravel to a ``multi_coords`` tuple
-indexed by leading position — exactly what advanced indexing on the broadcast
-view needs — and the flat index is the canonical global index reassembly
-scatters back by. A single ``solve_chunk_size`` budget bounds per-chunk
-peak memory directly, independent of which leading axes are serial or inst.
-
-:func:`classify_leading_positions` is separate: it splits leading into the
-**A subset** (``x`` real, ``g`` placeholder — the serial x-batch / M / Sa
-dims) and the **B subset** (``g`` real — the parallel Sw / Tc / Tr inst
-dims). That split is not used for chunking; a consuming ``solve_array`` uses the A subset
-to count the serial per-op latency multiplicity.
+Partition the broadcast leading into peak-memory-bounded slices for any core
+whose ``solve_array`` drives the shared solver; they bind to no specific core.
 """
 
 from __future__ import annotations
@@ -81,15 +67,11 @@ def iter_chunks(
     """Yield ``ChunkSpec`` partitioning the broadcast leading into pieces of
     at most ``chunk_size`` instances.
 
-    The full leading carries ``prod(leading)`` instances. They are split into
-    contiguous C-order slices of at most ``chunk_size``; each slice's flat
-    indices unravel to the per-position ``multi_coords`` tuple that advanced
-    indexing on the broadcast view needs, and the flat index is itself the
-    canonical global index used for reassembly. ``chunk_size <= 0`` puts the
-    whole leading in one chunk. Instances in a chunk are independent (every
-    instance is solved once), so the contiguous-slice partition is purely a
-    memory-bounding choice — ``chunk_size`` is the per-chunk leading, i.e. the
-    peak-memory budget, regardless of which leading axes are serial or inst.
+    The full leading (``prod(leading)`` instances) is split into contiguous
+    C-order slices of at most ``chunk_size``; each slice's flat indices unravel
+    to the per-position ``multi_coords`` tuple advanced indexing on the
+    broadcast view needs, and the flat index is the canonical global index used
+    for reassembly. ``chunk_size <= 0`` puts the whole leading in one chunk.
     """
     total = math.prod(leading) if leading else 1
     c = chunk_size if chunk_size > 0 else total

@@ -1,12 +1,4 @@
-"""Shared pytest fixtures for ``packages/<sub>/tests``.
-
-Replicated across every sub-package so each ``pytest packages/<sub>/tests``
-invocation discovers the same ``--device`` CLI option and ``device``
-fixture.  When multiple per-package test dirs are unioned in a single
-pytest run, the duplicate ``--device`` registration is silently ignored
-by the ``ValueError`` guard — only the first conftest to load wins, all
-others reuse the same option.
-"""
+"""Shared pytest fixtures registering the ``--device`` option and ``device`` fixture."""
 
 import contextlib
 
@@ -15,9 +7,7 @@ import torch
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
-    # Another per-package conftest in this same pytest session may
-    # have already registered ``--device``; suppress the duplicate
-    # registration ValueError and reuse the existing option.
+    # A sibling conftest may already have registered ``--device``; reuse it.
     with contextlib.suppress(ValueError):
         parser.addoption(
             "--device",
@@ -27,7 +17,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         )
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def device(request: pytest.FixtureRequest) -> torch.device:
     device_name = str(request.config.getoption("device"))
     target = torch.device(device_name)

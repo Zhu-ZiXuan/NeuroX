@@ -91,6 +91,8 @@ def _direct_config(
         cim_macro_config=_ideal_xbar_config(x_range=x_range, w_digit_count=w_digit_count),
         w_encoding="true_form",
         col_accumulator_config=_accumulator_config(),
+        area_per_inst__um2=0.0,
+        leakage_per_inst__uW=0.0,
     )
 
 
@@ -102,6 +104,8 @@ def _ideal_macro_config(
     return IdealCimUnitConfig(
         x_value_range=x_value_range,
         w_value_range=w_value_range,
+        area_per_inst__um2=0.0,
+        leakage_per_inst__uW=0.0,
     )
 
 
@@ -120,6 +124,8 @@ def _slice_config(
         "col_accumulator_config": _accumulator_config(),
         "sa_shift_adder_config": _shift_adder_config(),
         "sw_shift_adder_config": _shift_adder_config(),
+        "area_per_inst__um2": 0.0,
+        "leakage_per_inst__uW": 0.0,
     }
 
 
@@ -325,6 +331,8 @@ def test_direct_cim_unit_lsb_first_place_values_on_asymmetric_weights() -> None:
         cim_macro_config=_ideal_xbar_config(w_digit_count=2, w_digit_radix=2, w_digit_range=(-1, 1)),
         w_encoding="true_form",
         col_accumulator_config=_accumulator_config(),
+        area_per_inst__um2=0.0,
+        leakage_per_inst__uW=0.0,
     )
     macro = _build_direct(config, name="direct_asym", w_logical_shape=(2, 2))
     weight = torch.tensor([[1, 2], [-1, -2]], dtype=torch.int32)

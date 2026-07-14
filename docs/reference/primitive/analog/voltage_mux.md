@@ -35,8 +35,6 @@ N/A — the transport is a closed-form per-call map; no iteration.
 
 Inter-leg gain mismatch is **static** (sampled once at fabrication, per instance) and multiplicative; the two noise sources are **dynamic** (re-sampled every transport), zero-mean, and signal-independent. The mismatch sigma $\sigma_{\varepsilon_g}$ is a flat dimensionless constant: the model carries no per-leg device-area parameter, so it applies no Pelgrom area scaling. TODO (domain author): upgrade $\sigma_{\varepsilon_g}$ to the area-scaled Pelgrom form once a switch-device-area knob exists. For the dynamic terms, $kT/C$ sampling noise is the physical origin motivating the CM/DM sigma in V; the model carries no sampling capacitance $C$, so no derived variance $k_B T / C$ is asserted. The shared area-scaled mismatch and $kT/C$ sampling laws are in [nonideality](../nonideality.md).
 
-The dynamic terms are mathematically orthogonal to the static mismatch: a zero-mean additive sample has zero correlation with the input ($\mathbb{E}[n]=0$, $\mathbb{E}[n\,V_{\mathrm{cm}}]=0$), whereas the mismatch error $g\,\varepsilon_g\,V_{\mathrm{cm}}$ is a deterministic, input-correlated function of $V_{\mathrm{cm}}$; no additive sigma can represent it.
-
 ### Static inter-leg gain mismatch (CM-to-DM conversion)
 
 Writing the matched (mean) gain and the fractional mismatch as

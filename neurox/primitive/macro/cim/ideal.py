@@ -21,17 +21,12 @@ from .base import CimMacro, CimMacroConfig, CimMacroPolicy
 class IdealCimMacroConfig(CimMacroConfig):
     """Configuration for :class:`IdealCimMacro`.
 
-    Building an ``IdealCimMacro`` directly from this config is bring-up /
-    reference use only; the production provenance is :meth:`CimMacro.to_ideal`
-    (see :class:`IdealCimMacro`).
-
     Attributes:
         x_range: Inclusive single-cycle integer input range.
         w_digit_count: Digits per ``w``.
         w_digit_radix: In-tile positional radix.
         w_digit_range: Inclusive integer range a single digit can carry.
-        adc_mode_num: Number of supported ADC operating points (the mode
-            value is opaque to the ideal tile; see :class:`IdealCimMacro`).
+        adc_mode_num: Number of supported ADC operating points.
         adc_max_bits: Maximum supported ``adc_bits`` value; ``0`` is the
             lossless-sentinel bit width.
     """
@@ -63,17 +58,8 @@ class IdealCimMacro(CimMacro):
 
     The rescale at a given ``adc_bits`` is derived in :meth:`__init__`
     from integer geometry alone; no chip calibration enters the
-    computation (rescale formula in docs/reference/primitive/macro/cim/README.md).
-    ``adc_operation_point.adc_mode`` is opaque and not read at runtime.
-
-    Provenance: the faithful lossless reference is obtained from a
-    fabricated physical xbar via :meth:`CimMacro.to_ideal`, which binds this
-    twin's geometry and ADC surface to the real device. Constructing
-    ``IdealCimMacro`` directly from a standalone config (config dispatch) is a
-    convenience for flow bring-up and isolated tests only — its parameters
-    are hand-authored, tied to no fabricated device, and uncalibrated, so
-    its outputs are a synthetic reference, never a production accuracy or
-    PPA result.
+    computation. ``adc_operation_point.adc_mode`` is opaque and not read
+    at runtime.
 
     Args:
         config: Concrete configuration dataclass.
@@ -108,6 +94,8 @@ class IdealCimMacro(CimMacro):
             dtype=dtype,
             T__K=T__K,
         )
+        self._area_per_inst__um2 = 0.0
+        self._leakage_per_inst__uW = 0.0
         if config.w_digit_count <= 0:
             raise ValueError(f"require: w_digit_count ({config.w_digit_count}) > 0")
         if config.w_digit_radix <= 1:
@@ -184,17 +172,9 @@ class IdealCimMacro(CimMacro):
         return self
 
     def adc_rescale_factor(self, adc_operation_point: AdcOperationPoint) -> float:
-        """Rescale factor for ``adc_operation_point``; raises ``KeyError`` if uncalibrated."""
         return self._rescale_by_bits[adc_operation_point.adc_bits]
 
     def program(self, w: Tensor) -> None:
-        """Write the tile's owned device buffers from one xbar-native digit tensor.
-
-        Args:
-            w: Integer digit tensor whose shape matches
-                ``self._w_layout_shape = (*inst_shape, col_num, w_digit_count, row_num)``.
-                Entries must lie in :attr:`w_digit_range`.
-        """
         if tuple(w.shape) != self._w_layout_shape:
             raise ValueError(f"program() expects w.shape {self._w_layout_shape}; got {tuple(w.shape)}")
         if w.is_floating_point() or w.is_complex():

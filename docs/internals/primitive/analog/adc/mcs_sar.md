@@ -24,10 +24,6 @@ The SAR loop is `bits` sequential decision cycles. To keep the unrolled compiled
 - **`bits < max_bits` leaves caps idle, it does not rescale them.** The loop engages only the top `bits - 1` caps; the smaller caps contribute no switching energy. Treating a reduced-depth conversion as a full-depth one with scaled caps would mis-account energy.
 - **Training-mode LSB jitter makes `convert` non-deterministic.** After the SAR loop the code passes through `apply_lsb_jitter(..., enabled=self.training)` — a Bernoulli(0.5) +0/+1 LSB stochastic-rounding fallback gated by `nn.Module.training`, not a policy flag. Left at the default `training=True`, the output is per-call random even under an all-off policy; call `.eval()` for deterministic, chunk-bit-exact codes.
 
-## Known limitations
-
-- **No measured compile / benchmark numbers recorded here yet** - the SAR-loop compile constraints are stated but the latency / memory profile is a TODO.
-
 ---
 
 - **Reference**: [mcs_sar](../../../../reference/primitive/analog/adc/mcs_sar.md)

@@ -5,26 +5,24 @@ See also:
 """
 
 from dataclasses import dataclass
+from typing import ClassVar
 
 import torch
 from torch import Tensor
 
-from neurox.primitive.circuit import CircuitBase, CircuitConfig
+from neurox.primitive.analog.base import AnalogBase, AnalogConfig, AnalogPolicy
 
 
 @dataclass(frozen=True, kw_only=True)
-class CurrentMuxConfig(CircuitConfig):
+class CurrentMuxConfig(AnalogConfig):
     """Immutable configuration for :class:`CurrentMux`.
 
     Attributes:
         select_num: Design N of the N:1 fan-in — the number of columns
             sharing one lane. Cross-checked by the caller against its
-            reference group size; it does NOT scale energy or latency.
+            reference group size; design-only, with no effect on the
+            transport.
         mux_gain: Scalar matched transport gain (copy/transport factor).
-        latency_per_op__ns: Per-transport latency; multiplied by the
-            runtime serial-op count at logging time.
-        area_per_inst__um2: Silicon area per fabricated instance.
-        leakage_per_inst__uW: Static leakage per instance.
     """
 
     # --- Fan-in (design only) ---
@@ -33,17 +31,12 @@ class CurrentMuxConfig(CircuitConfig):
     # --- Gain ---
     mux_gain: float
 
-    # --- Latency ---
-    latency_per_op__ns: float
-
     def __post_init__(self) -> None:
         self.validate()
 
     def validate(self) -> None:
         self.validate_fan_in()
         self.validate_gain()
-        self.validate_latency()
-        self.validate_ppa()
 
     def validate_fan_in(self) -> None:
         self._require_pos(self.select_num, "select_num")
@@ -51,16 +44,13 @@ class CurrentMuxConfig(CircuitConfig):
     def validate_gain(self) -> None:
         self._require_pos(self.mux_gain, "mux_gain")
 
-    def validate_latency(self) -> None:
-        self._require_non_neg(self.latency_per_op__ns, "latency_per_op__ns")
-
 
 @dataclass(frozen=True)
-class CurrentMuxPolicy:
+class CurrentMuxPolicy(AnalogPolicy):
     """Abstract marker for CurrentMux nonideality policy — no sources."""
 
 
-class CurrentMux(CircuitBase[CurrentMuxConfig]):
+class CurrentMux(AnalogBase[CurrentMuxConfig, CurrentMuxPolicy]):
     """Ideal N:1 time-share current mux — identity·gain transport.
 
     Args:
@@ -72,6 +62,9 @@ class CurrentMux(CircuitBase[CurrentMuxConfig]):
         T__K: Operating temperature.
     """
 
+    # Non-reporter: embedded primitive whose static PPA rolls up to the owning block.
+    reports_static_ppa: ClassVar[bool] = False
+
     def __init__(
         self,
         *,
@@ -82,8 +75,7 @@ class CurrentMux(CircuitBase[CurrentMuxConfig]):
         dtype: torch.dtype,
         T__K: float,
     ) -> None:
-        super().__init__(config=config, name=name, inst_shape=inst_shape)
-        self.policy = policy
+        super().__init__(config=config, policy=policy, name=name, inst_shape=inst_shape)
         self.dtype = dtype
         self.T__K = T__K
 
@@ -99,16 +91,4 @@ class CurrentMux(CircuitBase[CurrentMuxConfig]):
         Returns:
             Lane output current ``mux_gain * i__uA``.
         """
-        i_out__uA = self.config.mux_gain * i__uA
-
-        # serial_op_count counts the per-group column visits already; the
-        # N:1 fan-in (select_num) is NOT an extra multiplier.
-        if self.config.latency_per_op__ns > 0.0:
-            serial_op_count = max(1, i__uA.numel() // max(self.inst_count, 1))
-            latency__ns = torch.tensor(
-                self.config.latency_per_op__ns * serial_op_count,
-                device=i__uA.device,
-                dtype=i__uA.dtype,
-            )
-            self._log_latency(latency__ns)
-        return i_out__uA
+        return self.config.mux_gain * i__uA

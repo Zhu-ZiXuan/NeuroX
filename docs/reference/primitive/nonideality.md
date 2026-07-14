@@ -13,7 +13,7 @@ Every perturbation belongs to one of two classes, distinguished by fixedness —
 - **Static** — fixed once and held until the device is re-fabricated or re-programmed. It covers fabrication mismatch, from spatially-uncorrelated microscopic process fluctuations averaged over the device area, together with the programming write deviation left by a finite-precision write.
 - **Dynamic** — resampled at every access, set by the operating point and temperature at that access rather than frozen. It covers thermal, flicker, random-telegraph, and charge-sampling ($kT/C$) fluctuations.
 
-Both classes hold more sources than this document names, and the two laws it does collect — Pelgrom area-scaled mismatch and $kT/C$ charge sampling — are representative of the general cross-device kind, not an exhaustive catalogue. A source can be static yet device-specific, like programming variation.
+A source can be static yet device-specific, like programming variation.
 
 ## State dependence of the spread
 

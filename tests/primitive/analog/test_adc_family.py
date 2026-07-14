@@ -3,16 +3,12 @@
 Covers the shared :class:`ADCMode` invariants and the two concrete
 implementations (:class:`GeneralADC`, :class:`McsSarAdc`) under the
 **signed-code output convention**: every ADC's ``convert`` returns codes
-in ``[-2**(bits-1), 2**(bits-1) - 1]``. How each concrete ADC produces
-that signed output (precomputed zero code vs per-call shift) is its own
-topology-specific implementation detail; the tests here only assert
-behaviour, not implementation.
+in ``[-2**(bits-1), 2**(bits-1) - 1]``.
 
-This file does NOT cover :class:`SarAdcMono`: that class is a
-future-work placeholder, lives in ``neurox.primitive.analog.adc.sar_mono`` but
-is **not** re-exported from ``neurox.primitive.analog.adc``. Its ``convert``
-raises ``NotImplementedError`` so it cannot participate in any
-end-to-end test.
+This file does NOT cover :class:`SarAdcMono`: that class lives in
+``neurox.primitive.analog.adc.sar_mono`` but is **not** re-exported from
+``neurox.primitive.analog.adc``. Its ``convert`` raises
+``NotImplementedError`` so it cannot participate in any end-to-end test.
 """
 
 from __future__ import annotations
@@ -40,12 +36,7 @@ from neurox.primitive.analog.voltage_reference import (
 
 
 def _ref_taps(taps: tuple[float, ...]) -> torch.Tensor:
-    """Build a global-scalar VoltageReference and read its taps as an injectable tensor.
-
-    Mirrors how an xbar owns its ADC-ladder reference: a global-scalar
-    (``inst_shape=()``) source, snapshotted once, whose accessor returns
-    all taps shaped ``(num_refs,)`` for injection into ``ADC.convert``.
-    """
+    """Build a global-scalar VoltageReference and read its taps as an injectable tensor."""
     ref = VoltageReference(
         config=VoltageReferenceConfig(
             v_refs__V=taps,
@@ -193,10 +184,8 @@ def _build_mcs_sar_adc(
 ) -> tuple[McsSarAdc, torch.Tensor]:
     """Build an McsSarAdc and the injectable ``v_refs__V`` tap tensor.
 
-    The V_ref ladder is no longer an ADC-config field; it is sourced by an
-    owned VoltageReference and injected per ``convert``. The taps stay
-    paired with the ADC here so each test's ``adc_mode`` indexes the
-    expected tap (mode 0 = first tap, etc.).
+    The taps stay paired with the ADC here so each test's ``adc_mode``
+    indexes the expected tap (mode 0 = first tap, etc.).
     """
     config = McsSarAdcConfig(
         max_bits=max_bits,
@@ -322,8 +311,6 @@ class TestOperatingPointValidation:
 
     def test_mcs_sar_rejects_mode_out_of_range(self) -> None:
         # 2 injected taps -> valid adc_mode is [0, 2); mode 2 is out of range.
-        # The bound is now checked against the injected v_refs__V tensor, not
-        # a config field.
         adc, v_refs = _build_mcs_sar_adc(max_bits=4, v_refs=(0.8, 0.4))
         adc.eval()
         adc.fabricate()

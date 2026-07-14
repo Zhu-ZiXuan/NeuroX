@@ -2,6 +2,7 @@
 
 
 [default]
+_neurox_class = "RRAMConfig"
 
 # --- Working range ---
 g_min__uS = 10.0

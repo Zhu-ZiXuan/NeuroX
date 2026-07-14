@@ -1,9 +1,8 @@
-"""Tests for the new signal-chain primitives.
+"""Tests for the signal-chain primitives.
 
 Covers the standalone behaviour of :class:`OpAmpTIA` and
-:class:`VoltageMux` in isolation from the xbar.  The xbar's
-integration with these primitives is exercised via the macro-level
-tests; here we just confirm the per-component contracts hold.
+:class:`VoltageMux` in isolation from the xbar. The xbar's integration
+with these primitives is exercised via the macro-level tests.
 """
 
 from __future__ import annotations
@@ -27,13 +26,8 @@ _TIA_OFF = OpAmpTIAPolicy(opamp_gain_sigma=False, nmos=_NMOS_OFF)
 _TIA_ON_GAIN = OpAmpTIAPolicy(opamp_gain_sigma=True, nmos=_NMOS_OFF)
 
 
-def _v_ref_tap(value: float) -> torch.Tensor:
-    """Build a global-scalar VoltageReference and read its single tap.
-
-    The OpAmpTIA reference clamp voltage is no longer a config field; it is
-    injected per call into ``snapshot``. This mirrors how the circuit core
-    owns a VoltageReference and threads the resolved tap into the BL TIA.
-    """
+def _v_ref_tap(value: float, *, device: torch.device) -> torch.Tensor:
+    """Build a global-scalar VoltageReference and read its single tap."""
     ref = VoltageReference(
         config=VoltageReferenceConfig(
             v_refs__V=(value,),
@@ -48,6 +42,7 @@ def _v_ref_tap(value: float) -> torch.Tensor:
         dtype=torch.float64,
         T__K=300.0,
     )
+    ref.to(device)
     return ref.v_ref__V(ref.snapshot())[0]
 
 
@@ -57,18 +52,14 @@ _V_REF__V = 0.2  # the BL-clamp reference these TIA tests inject into snapshot
 def _make_tia(
     *,
     inst_shape: tuple[int, ...],
+    device: torch.device,
     opamp_gain: float = 20.0,
     v_dd__V: float = 0.9,
     v_nmos_bias__V: float = 0.9,
     opamp_gain_sigma: float = 0.0,
     apply_opamp_gain_sigma: bool = False,
 ) -> OpAmpTIA:
-    """Build a OpAmpTIA + internal NMOS pseudo-resistor sized for the tests.
-
-    The reference clamp voltage is no longer held by the config; tests build
-    it via :func:`_v_ref_tap` (tap = :data:`_V_REF__V`) and inject it into
-    each ``snapshot`` call.
-    """
+    """Build a OpAmpTIA + internal NMOS pseudo-resistor sized for the tests."""
     nmos_config = MOSFETConfig(
         mu0__cm2_per_V_s=200.0,
         c_ox__fF_per_um2=31.4,
@@ -94,7 +85,7 @@ def _make_tia(
         area_per_inst__um2=0.0,
     )
     policy = _TIA_ON_GAIN if apply_opamp_gain_sigma else _TIA_OFF
-    return OpAmpTIA(
+    tia = OpAmpTIA(
         config=config,
         policy=policy,
         name="tia",
@@ -102,19 +93,21 @@ def _make_tia(
         dtype=torch.float64,
         T__K=300.0,
     )
+    tia.to(device)
+    return tia
 
 
-def test_tia_fabricate_shapes() -> None:
+def test_tia_fabricate_shapes(device: torch.device) -> None:
     """fabricate populates internal buffers at the inst_shape from __init__."""
     shape = (8,)
-    tia = _make_tia(inst_shape=shape)
+    tia = _make_tia(inst_shape=shape, device=device)
     tia.fabricate()
     assert tia.opamp_gain.shape == shape
     assert tia.nmos.beta__uA_per_V2.shape == shape
     assert tia.nmos.vth__V.shape == shape
 
 
-def test_tia_solve_dc_zero_current() -> None:
+def test_tia_solve_dc_zero_current(device: torch.device) -> None:
     """At ``i_in = 0`` the NMOS is off, so ``v_clamp = v_out``.
 
     With the smooth softclip the equilibrium shifts slightly from the
@@ -123,10 +116,10 @@ def test_tia_solve_dc_zero_current() -> None:
     stays close to ``v_ref``.  The strong invariant is the off-NMOS
     condition ``v_d = v_s`` (i.e. ``v_out = v_clamp``).
     """
-    tia = _make_tia(inst_shape=(4,), opamp_gain=20.0)
+    tia = _make_tia(inst_shape=(4,), opamp_gain=20.0, device=device)
     tia.fabricate()
-    runtime = tia.snapshot(v_ref__V=_v_ref_tap(_V_REF__V), shape=(4,), multi_coords=None)
-    i_in = torch.zeros(4, dtype=torch.float64)
+    runtime = tia.snapshot(v_ref__V=_v_ref_tap(_V_REF__V, device=device), shape=(4,), multi_coords=None)
+    i_in = torch.zeros(4, dtype=torch.float64, device=device)
     dc = tia.solve_dc(i_in, runtime, v_clamp_init__V=None)
     # NMOS off: v_out = v_clamp.
     assert torch.allclose(dc.v_out__V, dc.v_clamp__V, atol=1e-6)
@@ -136,12 +129,12 @@ def test_tia_solve_dc_zero_current() -> None:
     assert torch.all((dc.v_clamp__V - pure_linear).abs() < 5e-3)
 
 
-def test_tia_solve_dc_monotone_in_linear_region() -> None:
+def test_tia_solve_dc_monotone_in_linear_region(device: torch.device) -> None:
     """``v_out`` increases monotonically with input current in the linear region."""
-    tia = _make_tia(inst_shape=(5,), opamp_gain=20.0, v_dd__V=0.9)
+    tia = _make_tia(inst_shape=(5,), opamp_gain=20.0, v_dd__V=0.9, device=device)
     tia.fabricate()
-    runtime = tia.snapshot(v_ref__V=_v_ref_tap(_V_REF__V), shape=(5,), multi_coords=None)
-    i_in = torch.tensor([0.0, 5.0, 15.0, 30.0, 60.0], dtype=torch.float64)
+    runtime = tia.snapshot(v_ref__V=_v_ref_tap(_V_REF__V, device=device), shape=(5,), multi_coords=None)
+    i_in = torch.tensor([0.0, 5.0, 15.0, 30.0, 60.0], dtype=torch.float64, device=device)
     dc = tia.solve_dc(i_in, runtime, v_clamp_init__V=None)
 
     # v_out is monotonically non-decreasing with input current.
@@ -161,7 +154,7 @@ def test_tia_solve_dc_monotone_in_linear_region() -> None:
     assert torch.all(dc.v_out__V > 0.0)
 
 
-def test_tia_solve_dc_smooth_saturation_near_vdd() -> None:
+def test_tia_solve_dc_smooth_saturation_near_vdd(device: torch.device) -> None:
     """Driving the stage past its triode capacity smoothly approaches ``v_dd``.
 
     With the rail limit modeled by an in-residual softclip, ``v_out``
@@ -171,14 +164,14 @@ def test_tia_solve_dc_smooth_saturation_near_vdd() -> None:
     and the transimpedance must have dropped by ≥ 1 decade relative to
     the linear regime.
     """
-    tia = _make_tia(inst_shape=(1,), opamp_gain=20.0, v_dd__V=0.9)
+    tia = _make_tia(inst_shape=(1,), opamp_gain=20.0, v_dd__V=0.9, device=device)
     tia.fabricate()
-    runtime = tia.snapshot(v_ref__V=_v_ref_tap(_V_REF__V), shape=(1,), multi_coords=None)
+    runtime = tia.snapshot(v_ref__V=_v_ref_tap(_V_REF__V, device=device), shape=(1,), multi_coords=None)
     # 10 uA is well below the saturation knee for this 1-um W device;
     # 800 uA pushes the pseudo-resistor's triode capacity to where the
     # op-amp output is approaching the rail.
-    dc_lin = tia.solve_dc(torch.tensor([10.0], dtype=torch.float64), runtime, v_clamp_init__V=None)
-    dc_sat = tia.solve_dc(torch.tensor([800.0], dtype=torch.float64), runtime, v_clamp_init__V=None)
+    dc_lin = tia.solve_dc(torch.tensor([10.0], dtype=torch.float64, device=device), runtime, v_clamp_init__V=None)
+    dc_sat = tia.solve_dc(torch.tensor([800.0], dtype=torch.float64, device=device), runtime, v_clamp_init__V=None)
 
     # v_out approaches the upper rail (allow ``==`` in floating point).
     assert torch.all(dc_sat.v_out__V <= 0.9 + 1e-9)
@@ -194,16 +187,16 @@ def test_tia_solve_dc_smooth_saturation_near_vdd() -> None:
 
     # Continuity across the saturation knee: a small bump in i_in
     # produces a small bump in v_out, not a discontinuous jump.
-    dc_more = tia.solve_dc(torch.tensor([801.0], dtype=torch.float64), runtime, v_clamp_init__V=None)
+    dc_more = tia.solve_dc(torch.tensor([801.0], dtype=torch.float64, device=device), runtime, v_clamp_init__V=None)
     assert torch.all((dc_more.v_out__V - dc_sat.v_out__V).abs() < 1e-3)
 
 
-def test_tia_solve_dc_residual_is_small() -> None:
+def test_tia_solve_dc_residual_is_small(device: torch.device) -> None:
     """After Newton convergence the closed-loop residual is below 1e-3 uA."""
-    tia = _make_tia(inst_shape=(6,), opamp_gain=20.0, v_dd__V=0.9)
+    tia = _make_tia(inst_shape=(6,), opamp_gain=20.0, v_dd__V=0.9, device=device)
     tia.fabricate()
-    runtime = tia.snapshot(v_ref__V=_v_ref_tap(_V_REF__V), shape=(6,), multi_coords=None)
-    i_in = torch.tensor([0.0, 1.0, 3.0, 10.0, 30.0, 60.0], dtype=torch.float64)
+    runtime = tia.snapshot(v_ref__V=_v_ref_tap(_V_REF__V, device=device), shape=(6,), multi_coords=None)
+    i_in = torch.tensor([0.0, 1.0, 3.0, 10.0, 30.0, 60.0], dtype=torch.float64, device=device)
     dc = tia.solve_dc(i_in, runtime, v_clamp_init__V=None)
     # NMOS current at the converged operating point should match i_in
     # (when not in the clip / saturation regime — pick currents below
@@ -218,12 +211,12 @@ def test_tia_solve_dc_residual_is_small() -> None:
     assert torch.all(residual < 1e-3), f"residual = {residual.tolist()}"
 
 
-def test_tia_solve_dc_sensitivity_matches_finite_difference() -> None:
+def test_tia_solve_dc_sensitivity_matches_finite_difference(device: torch.device) -> None:
     """Analytical ``dVclamp_dI`` / ``dVout_dI`` agree with a finite-difference probe."""
-    tia = _make_tia(inst_shape=(4,), opamp_gain=20.0, v_dd__V=0.9)
+    tia = _make_tia(inst_shape=(4,), opamp_gain=20.0, v_dd__V=0.9, device=device)
     tia.fabricate()
-    runtime = tia.snapshot(v_ref__V=_v_ref_tap(_V_REF__V), shape=(4,), multi_coords=None)
-    i_in = torch.tensor([1.0, 10.0, 30.0, 60.0], dtype=torch.float64)
+    runtime = tia.snapshot(v_ref__V=_v_ref_tap(_V_REF__V, device=device), shape=(4,), multi_coords=None)
+    i_in = torch.tensor([1.0, 10.0, 30.0, 60.0], dtype=torch.float64, device=device)
     dc = tia.solve_dc(i_in, runtime, v_clamp_init__V=None)
     h = 1e-3
     dc_eps = tia.solve_dc(i_in + h, runtime, v_clamp_init__V=None)
@@ -258,7 +251,7 @@ _MUX_CM_ON = VoltageMuxPolicy(mux_gain_mismatch=False, mux_noise_cm=True, mux_no
 _MUX_DM_ON = VoltageMuxPolicy(mux_gain_mismatch=False, mux_noise_cm=False, mux_noise_dm=True)
 
 
-def test_voltage_mux_passthrough() -> None:
+def test_voltage_mux_passthrough(device: torch.device) -> None:
     """Default ``mux_gain=1.0`` with both sigmas ``None`` is a pure pass-through.
 
     Energy flows through the profiler side channel; ``transport``
@@ -272,14 +265,15 @@ def test_voltage_mux_passthrough() -> None:
         dtype=torch.float32,
         T__K=300.0,
     )
-    v_pos = torch.tensor([0.1, 0.2, 0.3])
-    v_neg = torch.tensor([0.0, 0.1, 0.2])
+    mux.to(device)
+    v_pos = torch.tensor([0.1, 0.2, 0.3], device=device)
+    v_neg = torch.tensor([0.0, 0.1, 0.2], device=device)
     out_pos, out_neg = mux.transport(v_pos, v_neg)
     assert torch.equal(out_pos, v_pos)
     assert torch.equal(out_neg, v_neg)
 
 
-def test_voltage_mux_gain_attenuates_both_legs() -> None:
+def test_voltage_mux_gain_attenuates_both_legs(device: torch.device) -> None:
     """``mux_gain`` scales both legs identically; no inline noise added."""
     mux = VoltageMux(
         config=_make_mux_config(mux_gain=0.5),
@@ -289,14 +283,15 @@ def test_voltage_mux_gain_attenuates_both_legs() -> None:
         dtype=torch.float32,
         T__K=300.0,
     )
-    v_pos = torch.tensor([0.4, 0.6])
-    v_neg = torch.tensor([0.2, 0.3])
+    mux.to(device)
+    v_pos = torch.tensor([0.4, 0.6], device=device)
+    v_neg = torch.tensor([0.2, 0.3], device=device)
     out_pos, out_neg = mux.transport(v_pos, v_neg)
     assert torch.equal(out_pos, 0.5 * v_pos)
     assert torch.equal(out_neg, 0.5 * v_neg)
 
 
-def test_voltage_mux_cm_noise_is_common_to_both_legs() -> None:
+def test_voltage_mux_cm_noise_is_common_to_both_legs(device: torch.device) -> None:
     """CM noise lands with matching sign on both legs (suppressed by diff ADC)."""
     torch.manual_seed(0)
     mux = VoltageMux(
@@ -307,8 +302,9 @@ def test_voltage_mux_cm_noise_is_common_to_both_legs() -> None:
         dtype=torch.float32,
         T__K=300.0,
     )
-    v_pos = torch.zeros(10_000)
-    v_neg = torch.zeros(10_000)
+    mux.to(device)
+    v_pos = torch.zeros(10_000, device=device)
+    v_neg = torch.zeros(10_000, device=device)
     out_pos, out_neg = mux.transport(v_pos, v_neg)
     # Both legs see the *same* CM realisation each draw.
     assert torch.allclose(out_pos, out_neg)
@@ -316,7 +312,7 @@ def test_voltage_mux_cm_noise_is_common_to_both_legs() -> None:
     assert abs(float(out_pos.std()) - 0.05) < 5e-3
 
 
-def test_voltage_mux_dm_noise_is_antisymmetric() -> None:
+def test_voltage_mux_dm_noise_is_antisymmetric(device: torch.device) -> None:
     """DM noise lands with opposite sign on the two legs."""
     torch.manual_seed(0)
     mux = VoltageMux(
@@ -327,8 +323,9 @@ def test_voltage_mux_dm_noise_is_antisymmetric() -> None:
         dtype=torch.float32,
         T__K=300.0,
     )
-    v_pos = torch.zeros(10_000)
-    v_neg = torch.zeros(10_000)
+    mux.to(device)
+    v_pos = torch.zeros(10_000, device=device)
+    v_neg = torch.zeros(10_000, device=device)
     out_pos, out_neg = mux.transport(v_pos, v_neg)
     # n_pos == +n_dm, n_neg == -n_dm.
     assert torch.allclose(out_pos, -out_neg)

@@ -34,7 +34,9 @@ def _build_dense(sub: torch.Tensor, diag: torch.Tensor, sup: torch.Tensor, dim: 
     return mat
 
 
-def _random_diag_dominant(shape: tuple[int, ...], N: int, dim: int, dtype: torch.dtype) -> tuple[torch.Tensor, ...]:
+def _random_diag_dominant(
+    shape: tuple[int, ...], N: int, dim: int, dtype: torch.dtype, device: torch.device
+) -> tuple[torch.Tensor, ...]:
     """Make a random diagonally-dominant tridiagonal system of length ``N`` along ``dim``.
 
     The boundary entries ``sub[..., 0, ...]`` and ``sup[..., N-1, ...]`` are
@@ -43,12 +45,12 @@ def _random_diag_dominant(shape: tuple[int, ...], N: int, dim: int, dtype: torch
     """
     full_shape = list(shape)
     full_shape.insert(dim if dim >= 0 else dim + len(full_shape) + 1, N)
-    gen = torch.Generator().manual_seed(1234)
-    sub = torch.randn(full_shape, dtype=dtype, generator=gen)
-    sup = torch.randn(full_shape, dtype=dtype, generator=gen)
+    gen = torch.Generator(device=device).manual_seed(1234)
+    sub = torch.randn(full_shape, dtype=dtype, generator=gen, device=device)
+    sup = torch.randn(full_shape, dtype=dtype, generator=gen, device=device)
     # diag = 1 + |sub| + |sup|  → strictly row-wise diagonally dominant.
     diag = (sub.abs() + sup.abs() + 1.0).to(dtype)
-    rhs = torch.randn(full_shape, dtype=dtype, generator=gen)
+    rhs = torch.randn(full_shape, dtype=dtype, generator=gen, device=device)
     # Poison the boundary placeholder positions so the test exercises the
     # internal zero-masking path.
     if N >= 1:
@@ -62,9 +64,11 @@ def _random_diag_dominant(shape: tuple[int, ...], N: int, dim: int, dtype: torch
 @pytest.mark.parametrize("N", [1, 2, 3, 5, 16, 64, 128])
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
 @pytest.mark.parametrize("batch_shape", [(), (3,), (2, 4)])
-def test_pcr_matches_dense_solve(N: int, dtype: torch.dtype, batch_shape: tuple[int, ...]) -> None:
+def test_pcr_matches_dense_solve(
+    N: int, dtype: torch.dtype, batch_shape: tuple[int, ...], device: torch.device
+) -> None:
     """PCR output must match a dense LU solve within a floor × N × eps."""
-    sub, diag, sup, rhs = _random_diag_dominant(batch_shape, N, dim=-1, dtype=dtype)
+    sub, diag, sup, rhs = _random_diag_dominant(batch_shape, N, dim=-1, dtype=dtype, device=device)
     x = solve_tridiagonal(sub, diag, sup, rhs, dim=-1)
     dense = _build_dense(sub, diag, sup, dim=-1)
     reference = torch.linalg.solve(dense, rhs.unsqueeze(-1)).squeeze(-1)
@@ -76,11 +80,11 @@ def test_pcr_matches_dense_solve(N: int, dtype: torch.dtype, batch_shape: tuple[
 
 
 @pytest.mark.parametrize("dim", [-1, -2])
-def test_pcr_matches_dense_solve_on_production_shapes(dim: int) -> None:
+def test_pcr_matches_dense_solve_on_production_shapes(dim: int, device: torch.device) -> None:
     """Mirrors the production shape: ``[batch=8, col=64, row=64]`` along either wire axis."""
     N = 64
     batch = (8,)
-    sub, diag, sup, rhs = _random_diag_dominant((*batch, 64), N=N, dim=dim, dtype=torch.float32)
+    sub, diag, sup, rhs = _random_diag_dominant((*batch, 64), N=N, dim=dim, dtype=torch.float32, device=device)
     x = solve_tridiagonal(sub, diag, sup, rhs, dim=dim)
     dense = _build_dense(sub, diag, sup, dim=dim)
     rhs_moved = rhs.movedim(dim, -1)
@@ -89,14 +93,14 @@ def test_pcr_matches_dense_solve_on_production_shapes(dim: int) -> None:
     assert max_diff < 1e-4, f"PCR / dense max abs diff = {max_diff:.3e}"
 
 
-def test_pcr_tolerates_non_zero_boundary_placeholders() -> None:
+def test_pcr_tolerates_non_zero_boundary_placeholders(device: torch.device) -> None:
     """``sub[..., 0]`` and ``sup[..., -1]`` must be ignored (per contract)."""
     N = 16
-    gen = torch.Generator().manual_seed(7)
-    sub = torch.randn(N, generator=gen)
-    sup = torch.randn(N, generator=gen)
+    gen = torch.Generator(device=device).manual_seed(7)
+    sub = torch.randn(N, generator=gen, device=device)
+    sup = torch.randn(N, generator=gen, device=device)
     diag = sub.abs() + sup.abs() + 1.0
-    rhs = torch.randn(N, generator=gen)
+    rhs = torch.randn(N, generator=gen, device=device)
 
     # Both variants of the boundary placeholders must give the same answer.
     sub_variant_a = sub.clone()
@@ -113,10 +117,10 @@ def test_pcr_tolerates_non_zero_boundary_placeholders() -> None:
     assert torch.allclose(x_a, x_b, atol=1e-6), "placeholder values leaked into the solution"
 
 
-def test_pcr_pow2_and_non_pow2_sizes() -> None:
+def test_pcr_pow2_and_non_pow2_sizes(device: torch.device) -> None:
     """Regression guard: the ``while k < N`` loop must handle non-power-of-two ``N``."""
     for N in (7, 9, 15, 17, 33, 65):
-        sub, diag, sup, rhs = _random_diag_dominant((), N=N, dim=-1, dtype=torch.float64)
+        sub, diag, sup, rhs = _random_diag_dominant((), N=N, dim=-1, dtype=torch.float64, device=device)
         x = solve_tridiagonal(sub, diag, sup, rhs, dim=-1)
         dense = _build_dense(sub, diag, sup, dim=-1)
         reference = torch.linalg.solve(dense, rhs.unsqueeze(-1)).squeeze(-1)
@@ -127,11 +131,11 @@ def test_pcr_pow2_and_non_pow2_sizes() -> None:
         assert max_diff < max(tol, 1e-10), f"N={N}: max diff = {max_diff:.3e}, tol = {tol:.3e}"
 
 
-def test_pcr_preserves_dtype_and_shape() -> None:
+def test_pcr_preserves_dtype_and_shape(device: torch.device) -> None:
     """Output must match ``rhs`` exactly in dtype, device, and shape."""
     shape = (2, 3, 64, 4)
     dim = -2
-    sub, diag, sup, rhs = _random_diag_dominant((2, 3, 4), N=64, dim=dim, dtype=torch.float32)
+    sub, diag, sup, rhs = _random_diag_dominant((2, 3, 4), N=64, dim=dim, dtype=torch.float32, device=device)
     # _random_diag_dominant inserts N at `dim` on the leading shape; re-align for this test.
     assert sub.shape == shape
     x = solve_tridiagonal(sub, diag, sup, rhs, dim=dim)
@@ -140,12 +144,12 @@ def test_pcr_preserves_dtype_and_shape() -> None:
     assert x.device == rhs.device
 
 
-def test_pcr_n_equals_one_fast_path() -> None:
+def test_pcr_n_equals_one_fast_path(device: torch.device) -> None:
     """``N == 1`` must return ``rhs / diag`` without entering the PCR loop."""
-    sub = torch.tensor([9.0])
-    diag = torch.tensor([2.5])
-    sup = torch.tensor([-7.0])
-    rhs = torch.tensor([5.0])
+    sub = torch.tensor([9.0], device=device)
+    diag = torch.tensor([2.5], device=device)
+    sup = torch.tensor([-7.0], device=device)
+    rhs = torch.tensor([5.0], device=device)
     x = solve_tridiagonal(sub, diag, sup, rhs, dim=-1)
-    assert torch.allclose(x, torch.tensor([2.0]))
+    assert torch.allclose(x, torch.tensor([2.0], device=device))
     assert math.isclose(x.item(), 5.0 / 2.5, rel_tol=1e-12)

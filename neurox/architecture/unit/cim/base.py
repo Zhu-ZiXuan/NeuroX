@@ -10,32 +10,48 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
-from neurox.common.mixin import FabricateMixin, ProfileMixin, RegistryMixin, ValidateMixin
+from neurox.common import ConfigBase, ModuleBase, PolicyBase
+from neurox.common.mixin import RegistryMixin
 from neurox.primitive.analog.adc import AdcOperationPoint
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
 
 
 @dataclass(frozen=True)
-class CimUnitConfig(ValidateMixin):
-    """Abstract config root for the :class:`CimUnit` registry."""
+class CimUnitConfig(ConfigBase):
+    """Abstract config root for the :class:`CimUnit` registry.
+
+    Attributes:
+        area_per_inst__um2: Unit-local peripheral silicon area per instance;
+            excludes children, which self-report their own PPA.
+        leakage_per_inst__uW: Unit-local peripheral static leakage per instance;
+            excludes children, which self-report their own PPA.
+    """
+
+    area_per_inst__um2: float
+    leakage_per_inst__uW: float
 
     def __post_init__(self) -> None:
         self.validate()
 
     def validate(self) -> None:
         """Run all ``validate_*`` checks."""
+        self.validate_ppa()
+
+    def validate_ppa(self) -> None:
+        """Require non-negative unit-local PPA fields."""
+        self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
+        self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
 
 
 @dataclass(frozen=True)
-class CimUnitPolicy:
+class CimUnitPolicy(PolicyBase):
     """Abstract marker base for CimUnit-family nonideality policies."""
 
 
-class CimUnit(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["CimUnitConfig"], "CimUnit"], ABC):
+class CimUnit(ModuleBase[CimUnitConfig, CimUnitPolicy], RegistryMixin[type["CimUnitConfig"], "CimUnit"], ABC):
     """Abstract base for the CimUnit family.
 
     Args:
@@ -64,14 +80,10 @@ class CimUnit(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["CimUn
         T__K: float,
         ideal_xbar: bool,
     ) -> None:
-        nn.Module.__init__(self)
-        ProfileMixin.__init__(self, name)
+        ModuleBase.__init__(self, config=config, policy=policy, name=name, inst_shape=())
         if len(w_logical_shape) < 2:
             raise ValueError(f"w_logical_shape must have at least 2 trailing dims (N, K); got {w_logical_shape}")
-        self.config = config
-        self.policy = policy
         self._w_logical_shape = tuple(w_logical_shape)
-        self._inst_shape = ()
         self._macro_dtype = dtype
         self._macro_T__K = T__K
         self._ideal_xbar = ideal_xbar
@@ -103,18 +115,6 @@ class CimUnit(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["CimUn
 
     def _sample_fabricate_mismatch(self) -> None:
         pass  # container: child mismatch is sampled through the cascade
-
-    # --- PPA contract (macros aggregate via children) ---
-
-    @property
-    def area_per_inst__um2(self) -> float:
-        """Silicon area per instance."""
-        return 0.0
-
-    @property
-    def leakage_per_inst__uW(self) -> float:
-        """Static leakage per instance."""
-        return 0.0
 
     # --- value-range contract ---
 
@@ -189,8 +189,7 @@ class CimUnit(FabricateMixin, nn.Module, ProfileMixin, RegistryMixin[type["CimUn
         """Construct the owned xbar at a derived per-instance multiplicity.
 
         Args:
-            xbar_config: Subclass-owned xbar configuration (the base does not
-                require its concrete config to carry one).
+            xbar_config: Subclass-owned xbar configuration.
             xbar_policy: Subclass-owned xbar nonideality policy.
                 If ``ideal_xbar`` is true the policy is discarded in favor
                 of an empty :class:`IdealCimMacroPolicy`.

@@ -73,11 +73,11 @@ class GeneralTIA(TIA[GeneralTIASnap]):
     A Thevenin-input + resistive-transimpedance model: the clamp node
     sits at ``v_ref`` plus an ``input_impedance`` drop, and the output
     is ``v_ref`` plus the ``load_resistance`` conversion of the port
-    current. Exact and loop-free — the linear sibling of
-    :class:`OpAmpTIA`.
+    current.
     """
 
     config: GeneralTIAConfig
+    policy: GeneralTIAPolicy
 
     def __init__(
         self,
@@ -98,7 +98,8 @@ class GeneralTIA(TIA[GeneralTIASnap]):
             T__K=T__K,
         )
 
-        self.policy = policy
+        self._area_per_inst__um2 = config.area_per_inst__um2
+        self._leakage_per_inst__uW = config.leakage_per_inst__uW
         self.dtype = dtype
         self.T__K = T__K
 
@@ -114,20 +115,6 @@ class GeneralTIA(TIA[GeneralTIASnap]):
         shape: tuple[int, ...],
         multi_coords: tuple[Tensor, ...] | None,
     ) -> GeneralTIASnap:
-        """Store the injected reference into the per-call snap.
-
-        Args:
-            v_ref__V: Injected reference clamp voltage. A scalar or
-                instance-shaped tensor that broadcasts onto ``shape``.
-            shape: Per-call broadcast shape; the snap fills the reference
-                field at this shape.
-            multi_coords: Advanced-index tuple selecting a chunk's
-                positions from the broadcast view; ``None`` returns the
-                full view.
-
-        Returns:
-            A :class:`GeneralTIASnap` carrying the injected reference.
-        """
         v_view = v_ref__V.expand(shape) if shape else v_ref__V
         v = v_view if multi_coords is None else v_view[multi_coords]
         return GeneralTIASnap(v_ref__V=v)

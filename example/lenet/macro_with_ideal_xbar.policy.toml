@@ -4,7 +4,7 @@
 # empty IdealCimMacroPolicy wrapped in the macro policy.
 
 [policy]
-_neurox_type = "InterArraySliceCimUnitPolicy"
+_neurox_class = "InterArraySliceCimUnitPolicy"
 
 [policy.cim_macro]
-_neurox_type = "IdealCimMacroPolicy"
+_neurox_class = "IdealCimMacroPolicy"

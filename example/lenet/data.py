@@ -33,11 +33,9 @@ def create_mnist_dataloader(
     Args:
         dataset_dir: Root directory under which ``MNIST/raw/`` lives (or
             will be downloaded to when ``download=True``).
-        batch_size: Batch size.
         device: Runtime device (used only for ``pin_memory``).
         split: ``"train"`` for the training split; anything else selects
             the test split used as validation.
-        shuffle: Whether to shuffle.
         download: If ``True`` and the dataset is not found under
             ``dataset_dir``, torchvision downloads it on first use.
         indices: Optional subset indices for sharded evaluation.

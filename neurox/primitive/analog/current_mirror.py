@@ -5,15 +5,16 @@ See also:
 """
 
 from dataclasses import dataclass
+from typing import ClassVar
 
 import torch
 from torch import Tensor
 
-from neurox.primitive.circuit import CircuitBase, CircuitConfig
+from neurox.primitive.analog.base import AnalogBase, AnalogConfig, AnalogPolicy
 
 
 @dataclass(frozen=True, kw_only=True)
-class CurrentMirrorConfig(CircuitConfig):
+class CurrentMirrorConfig(AnalogConfig):
     """Immutable configuration for :class:`CurrentMirror`.
 
     Attributes:
@@ -21,8 +22,6 @@ class CurrentMirrorConfig(CircuitConfig):
         ratio_sigma_relative: Relative (Pelgrom) σ of the static
             per-instance mirror-ratio mismatch [dimensionless]; ``0``
             leaves the exact ratio copy.
-        area_per_inst__um2: Silicon area per fabricated instance.
-        leakage_per_inst__uW: Static leakage per instance.
     """
 
     # --- Copy ratio ---
@@ -36,7 +35,6 @@ class CurrentMirrorConfig(CircuitConfig):
 
     def validate(self) -> None:
         self.validate_ratio()
-        self.validate_ppa()
 
     def validate_ratio(self) -> None:
         self._require_pos(self.mirror_ratio, "mirror_ratio")
@@ -44,7 +42,7 @@ class CurrentMirrorConfig(CircuitConfig):
 
 
 @dataclass(frozen=True)
-class CurrentMirrorPolicy:
+class CurrentMirrorPolicy(AnalogPolicy):
     """Per-source toggles selecting which CurrentMirror nonidealities are active.
 
     Attributes:
@@ -56,13 +54,12 @@ class CurrentMirrorPolicy:
     mismatch: bool
 
 
-class CurrentMirror(CircuitBase[CurrentMirrorConfig]):
+class CurrentMirror(AnalogBase[CurrentMirrorConfig, CurrentMirrorPolicy]):
     """Single-ended current mirror — pure ratio-copy transport primitive.
 
     The copy is exact at ``mirror_ratio`` unless the ``mismatch`` policy is on,
     in which case the ratio carries a static per-instance multiplicative
-    (Pelgrom) Gaussian with relative σ ``ratio_sigma_relative``. Rail energy is
-    owned by the downstream current-domain consumer, not tallied here.
+    (Pelgrom) Gaussian with relative σ ``ratio_sigma_relative``.
 
     Args:
         config: Concrete configuration dataclass.
@@ -72,6 +69,9 @@ class CurrentMirror(CircuitBase[CurrentMirrorConfig]):
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature.
     """
+
+    # Non-reporter: embedded primitive whose static PPA rolls up to the owning block.
+    reports_static_ppa: ClassVar[bool] = False
 
     ratio_mismatch: Tensor
 
@@ -85,8 +85,7 @@ class CurrentMirror(CircuitBase[CurrentMirrorConfig]):
         dtype: torch.dtype,
         T__K: float,
     ) -> None:
-        super().__init__(config=config, name=name, inst_shape=inst_shape)
-        self.policy = policy
+        super().__init__(config=config, policy=policy, name=name, inst_shape=inst_shape)
         self.dtype = dtype
         self.T__K = T__K
 
@@ -113,9 +112,7 @@ class CurrentMirror(CircuitBase[CurrentMirrorConfig]):
         """Copy the input current at the configured mirror ratio.
 
         Scales the nominal ``mirror_ratio`` by the static per-instance
-        copy-ratio mismatch (unit when ``mismatch`` is off). The mismatch has
-        the per-instance ``inst_shape`` and broadcasts over the leading
-        batch / im2col / element dims of ``i_in__uA``.
+        copy-ratio mismatch (unit when ``mismatch`` is off).
 
         Args:
             i_in__uA: Input branch current, shape ``(*leading, *inst_shape)``.

@@ -20,7 +20,9 @@ from .base import CimUnit, CimUnitConfig, CimUnitPolicy
 class IdealCimUnitConfig(CimUnitConfig):
     """Configuration for :class:`IdealCimUnit`.
 
-    Bring-up / reference use only — see :class:`IdealCimUnit`.
+    Bring-up / reference use only — see :class:`IdealCimUnit`. A no-PPA
+    reference: the inherited ``area_per_inst__um2`` / ``leakage_per_inst__uW``
+    are supplied as ``0.0`` at construction.
 
     Attributes:
         x_value_range: Inclusive integer activation range.
@@ -83,6 +85,8 @@ class IdealCimUnit(CimUnit):
             ideal_xbar=ideal_xbar,
         )
         self.config = config
+        self._area_per_inst__um2 = config.area_per_inst__um2
+        self._leakage_per_inst__uW = config.leakage_per_inst__uW
         self._inst_shape = self._w_logical_shape[:-2]
 
         # 0-d nominal weight: broadcasts to a zero-weight matmul before any
@@ -94,22 +98,18 @@ class IdealCimUnit(CimUnit):
 
     @property
     def w_value_range(self) -> tuple[int, int]:
-        """Inclusive integer weight range accepted by the macro."""
         return self.config.w_value_range
 
     @property
     def x_value_range(self) -> tuple[int, int]:
-        """Inclusive integer activation range accepted by the macro."""
         return self.config.x_value_range
 
     @property
     def adc_mode_num(self) -> int:
-        """Number of supported ADC operating points; valid ``adc_mode`` values are ``[0, adc_mode_num)``."""
         return 1
 
     @property
     def adc_max_bits(self) -> int:
-        """Maximum supported ``adc_bits`` value."""
         # ``0`` is the sentinel meaning no output quantization is applied.
         return 0
 
@@ -121,30 +121,12 @@ class IdealCimUnit(CimUnit):
     # --- lifecycle ---
 
     def program(self, weight: Tensor) -> None:
-        """Write the macro's static weight state from one logical weight tensor.
-
-        Args:
-            weight: Integer weight tensor whose shape matches
-                ``self._w_logical_shape``.
-        """
         if tuple(weight.shape) != self._w_logical_shape:
             raise ValueError(f"program() expects weight.shape {self._w_logical_shape}; got {tuple(weight.shape)}")
         self.weight = weight
 
     @torch.no_grad()
     def matmul(self, input: Tensor, *, adc_operation_point: AdcOperationPoint) -> Tensor:
-        """Execute one integer matrix multiply against the programmed weight state.
-
-        Matches ``torch.matmul`` semantics (pure matmul, no bias). Bias add
-        and requantize live in the operator layer.
-
-        Args:
-            input: Integer activation tensor. Shape: ``[..., M, K]``.
-            adc_operation_point: Runtime ADC operating point.
-
-        Returns:
-            Integer pre-requantize output tensor. Shape: ``[..., M, N]``.
-        """
         del adc_operation_point  # accepted for API uniformity
         weight = self.weight
         return torch.matmul(input.to(torch.int64), weight.to(torch.int64).transpose(-2, -1))

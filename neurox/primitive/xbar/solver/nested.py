@@ -2,8 +2,7 @@
 
 The two array rails (BL, SL) run side by side along a single shared series
 axis; the gate/control line is a driven boundary, so the parallel (per-driver)
-lines are independent and batched. Orthogonal BL/SL meshes are a future,
-separate solver.
+lines are independent and batched.
 
 See also:
     docs/reference/primitive/xbar/solver/README.md
@@ -30,10 +29,7 @@ from .clamp import ClampDriver, ClampSnap
 # ---------------------------------------------------------------------------
 
 # Bound only inside the solve-method signatures so mypy infers them per
-# call and the solver class itself stays non-generic. ``CellSnapT`` /
-# ``CellDCOPT`` carry the cell's own bounds (mirroring ``XbarCell``); the
-# driver snaps carry ``ClampSnap`` (mirroring ``ClampDriver``), which the
-# solver relies on to read each driver snap's injected ``v_ref__V`` seed.
+# call and the solver class itself stays non-generic.
 CellSnapT = TypeVar("CellSnapT", bound=XbarCellSnap)
 CellDCOPT = TypeVar("CellDCOPT", bound=XbarCellDCOP)
 BLSnapT = TypeVar("BLSnapT", bound=ClampSnap)
@@ -73,19 +69,13 @@ def _swap_trailing_axes(obj: _T) -> _T:
 class NestedParallelRailSolverConfig(SolverConfig):
     """Workload-tuned numerical knobs for :class:`NestedParallelRailSolver`.
 
-    Carries only fields that need re-calibration per chip preset. The
-    Newton damping caps are method-intrinsic safety constants and live
-    on the solver class itself.
-
     Attributes:
         n_outer: Outer Newton iterations on the per-column clamp voltage.
             Each outer step takes one implicit-Jacobian Newton step on
             V_clamp and then runs ``n_inner`` inner array Newton steps at
             the updated V_clamp (clamp-first ordering).
         n_inner: Inner Newton iterations on the wire / cell coupled state
-            at a frozen V_clamp boundary. ``n_inner = 1`` is often enough
-            since the outer Gauss-Seidel sweep drives the per-cell
-            convergence — see ``solver_calibrate.nested``.
+            at a frozen V_clamp boundary.
     """
 
     n_outer: int
@@ -142,15 +132,9 @@ class NestedParallelRailSolver(Solver):
     # Public entry point: full nested solve
     # ---------------------------------------------------------------
 
-    # Compiled as a fixed-shape regional leaf. ``solve_array`` (an eager island)
-    # feeds it one chunk at a time at a constant ``solve_chunk_size`` leading,
-    # so a single graph is built once and reused across every chunk, VMM, and
-    # caller instance (``inline_inbuilt_nn_modules`` lifts the device buffers as
-    # shape-guarded inputs — verified one shared graph across instances).
-    # ``dynamic=False`` pins the unrolled iteration counts (n_outer, num_series) as
-    # compile-time constants. The compiled block-tridiagonal Thomas sweep runs
-    # fastest and leanest, and with a uniform chunk shape its one long cold
-    # compile happens once and is cached.
+    # Compiled as a fixed-shape regional leaf fed one chunk at a time at a
+    # constant ``solve_chunk_size`` leading. ``dynamic=False`` pins the unrolled
+    # iteration counts (n_outer, num_series) as compile-time constants.
     @torch.compile(dynamic=False)
     def solve_dc(
         self,
@@ -171,11 +155,8 @@ class NestedParallelRailSolver(Solver):
 
         Normalizes the caller's layout to canonical (series axis last) before
         the block-tridiagonal body. ``self._series_axis == -1`` is the
-        canonical no-op fast path (byte-identical to the bare body); ``-2``
-        swaps the two trailing cell-grid axes of ``cell_snap`` in and the grid
-        outputs back. ``_series_axis`` is a Python int, so the branch is a
-        compile-time constant — the ``-1`` path compiles to exactly the
-        canonical graph with no permute.
+        canonical no-op fast path; ``-2`` swaps the two trailing cell-grid axes
+        of ``cell_snap`` in and the grid outputs back.
 
         Args:
             bl_segment_r__MOhm: 1-D BL segment resistances; index 0
@@ -758,10 +739,7 @@ class NestedParallelRailSolver(Solver):
         Builds and solves the coupled block-2×2 tridiagonal wire system:
         the per-node diagonal block carries the cell's BL / SL
         cross-coupling and the sub / super blocks are diagonal (BL and SL
-        are independent ladders, no cross-rail wire coupling). For an
-        SL-grounded chip the coupling is numerically tiny, reducing to
-        near-independent BL / SL solves; a variable-SL chip keeps the full
-        linearisation through the same code path.
+        are independent ladders, no cross-rail wire coupling).
 
         Shape conventions:
           * ``v_bl_node``, ``f_bl_kcl``, ``f_sl_kcl``, ``g_*_eff``:
@@ -839,10 +817,7 @@ class NestedParallelRailSolver(Solver):
         node voltages to the clamp pair. Each column is one block-
         tridiagonal solve of the coupled inner wire Jacobian ``J_inner``
         (the same assembled by ``_wire_newton_coupled_block2x2``) against a
-        node-0 boundary-forcing basis vector, read off at row 0. The two
-        basis solves (BL and SL) are mathematically independent — pack them
-        only if a future block-tridiagonal kernel exposes a multi-RHS
-        interface.
+        node-0 boundary-forcing basis vector, read off at row 0.
 
         Returns ``K`` of shape ``[..., num_line, 2, 2]``.
         """

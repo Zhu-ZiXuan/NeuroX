@@ -17,6 +17,7 @@ from neurox.primitive.analog.adc import AdcOperationPoint
 from neurox.primitive.digital import (
     Accumulator,
     AccumulatorConfig,
+    DigitalPolicy,
 )
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
 
@@ -88,6 +89,8 @@ class DirectCimUnit(CimUnit):
             ideal_xbar=ideal_xbar,
         )
         self.config = config
+        self._area_per_inst__um2 = config.area_per_inst__um2
+        self._leakage_per_inst__uW = config.leakage_per_inst__uW
         xbar_config = config.cim_macro_config
         col_num = xbar_config.col_num
         row_num = xbar_config.row_num
@@ -118,12 +121,12 @@ class DirectCimUnit(CimUnit):
         prefix = f"{name}." if name else ""
         self.col_accumulator = Accumulator(
             config=config.col_accumulator_config,
+            policy=DigitalPolicy(),
             name=f"{prefix}col_accumulator",
             inst_shape=(self._w_parallel_size, tr),
         )
 
     def extra_repr(self) -> str:
-        """One-line summary shown by ``print(model)``."""
         return (
             f"xbar={type(self.xbar).__name__}, "
             f"row_num={self.xbar.row_num}, col_num={self.xbar.col_num}, "
@@ -131,33 +134,27 @@ class DirectCimUnit(CimUnit):
         )
 
     def __repr__(self) -> str:
-        """Compact repr that hides internals from ``print(model)``."""
         return f"{type(self).__name__}({self.extra_repr()})"
 
     # --- value-range / ADC surface ---
 
     @property
     def w_value_range(self) -> tuple[int, int]:
-        """Inclusive integer weight range accepted by the macro."""
         return self.w_transcoder.value_range
 
     @property
     def x_value_range(self) -> tuple[int, int]:
-        """Inclusive integer activation range accepted by the macro."""
         return self.xbar.x_range
 
     @property
     def adc_mode_num(self) -> int:
-        """Number of supported ADC operating points; valid ``adc_mode`` values are ``[0, adc_mode_num)``."""
         return self.xbar.adc_mode_num
 
     @property
     def adc_max_bits(self) -> int:
-        """Maximum supported ``adc_bits`` value."""
         return self.xbar.adc_max_bits
 
     def adc_rescale_factor(self, adc_operation_point: AdcOperationPoint) -> float:
-        """Rescale factor for ``adc_operation_point``; raises ``KeyError`` if uncalibrated."""
         return self.xbar.adc_rescale_factor(adc_operation_point)
 
     # --- organize ---
@@ -207,12 +204,6 @@ class DirectCimUnit(CimUnit):
     # --- lifecycle ---
 
     def program(self, weight: Tensor) -> None:
-        """Write the macro's static weight state from one logical weight tensor.
-
-        Args:
-            weight: Integer weight tensor whose shape matches
-                ``self._w_logical_shape``.
-        """
         if tuple(weight.shape) != self._w_logical_shape:
             raise ValueError(f"program() expects weight.shape {self._w_logical_shape}; got {tuple(weight.shape)}")
         organized = self._organize_w(weight)
@@ -220,18 +211,6 @@ class DirectCimUnit(CimUnit):
 
     @torch.no_grad()
     def matmul(self, input: Tensor, *, adc_operation_point: AdcOperationPoint) -> Tensor:
-        """Execute one integer matrix multiply against the programmed weight state.
-
-        Matches ``torch.matmul`` semantics (pure matmul, no bias). Bias add
-        and requantize live in the operator layer.
-
-        Args:
-            input: Integer activation tensor. Shape: ``[..., M, K]``.
-            adc_operation_point: Runtime ADC operating point.
-
-        Returns:
-            Integer pre-requantize output tensor. Shape: ``[..., M, N]``.
-        """
         n_logical = self._n_logical
 
         x = self._organize_x(input)

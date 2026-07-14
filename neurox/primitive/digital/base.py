@@ -6,22 +6,42 @@ See also:
 
 from __future__ import annotations
 
-from typing import TypeVar
+from dataclasses import dataclass
+from typing import Generic, TypeVar
 
-from neurox.primitive.circuit import CircuitBase, CircuitConfig
-
-DigitalConfigT = TypeVar("DigitalConfigT", bound=CircuitConfig)
+from neurox.common import ConfigBase, ModuleBase, PolicyBase
 
 
-class DigitalCircuit(CircuitBase[DigitalConfigT]):
+@dataclass(frozen=True)
+class DigitalConfig(ConfigBase):
+    """Static PPA fields shared by every digital, integer-exact block.
+
+    Attributes:
+        area_per_inst__um2: Silicon area per fabricated instance.
+        leakage_per_inst__uW: Static leakage per instance.
+    """
+
+    area_per_inst__um2: float
+    leakage_per_inst__uW: float
+
+    def validate_ppa(self) -> None:
+        self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
+        self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
+
+
+@dataclass(frozen=True)
+class DigitalPolicy(PolicyBase):
+    """Empty policy marker — integer-exact blocks carry no nonidealities."""
+
+
+DigitalConfigT = TypeVar("DigitalConfigT", bound="DigitalConfig")
+
+
+class DigitalBase(ModuleBase[DigitalConfigT, DigitalPolicy], Generic[DigitalConfigT]):
     """Base for digital, integer-exact circuit blocks.
 
-    A digital block computes an exact integer function and holds no analog
-    device state, so it has no static manufacturing variation to resample.
-    This base states that once for the whole family by implementing the
-    fabricate hook as an explicit no-op; each digital leaf inherits "no
-    mismatch here" instead of restating it, while the root ``FabricateMixin``
-    keeps no default so a node that forgets the hook still fails loudly.
+    Implements the fabricate hook as a no-op. Each concrete leaf binds its
+    per-instance area and leakage in ``__init__``.
     """
 
     def _sample_fabricate_mismatch(self) -> None:

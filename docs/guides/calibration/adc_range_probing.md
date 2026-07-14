@@ -78,7 +78,7 @@ A header line precedes the candidate ladder and reports the ADC-instance pooling
 adc_instance_count: 4 (pooled across all instances; identical circuits + shared bias)
 ```
 
-The xbar instantiates one physically-identical `bl_adc` module per readout group. All of their captured analog inputs are flattened into a single statistical pool — the design intent, mirroring real silicon where multiple ADC slices share the same circuit design and bias network. So `adc_instance_count` is the number of identical `bl_adc` instances whose $V_{\mathrm{diff}}$ samples were merged.
+The xbar instantiates one physically-identical `bl_adc` module per readout group. All of their captured analog inputs are flattened into a single statistical pool. So `adc_instance_count` is the number of identical `bl_adc` instances whose $V_{\mathrm{diff}}$ samples were merged.
 
 When `--plot-dir DIR` is supplied the tool writes `overview.png` plus one `spotlight_*.png` per ladder entry (`spotlight_max_abs.png`, then `spotlight_exp{N}.png`). Bin widths are derived from the ADC code grid so no plot goes coarser than the LSB:
 
