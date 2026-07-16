@@ -106,8 +106,7 @@ class CurrentReference(AnalogBase[CurrentReferenceConfig, CurrentReferencePolicy
     and (2) hand downstream blocks the actual tap values through a
     per-call snap, read back through :meth:`i_ref__uA`.
     It performs no transport, copy, or solve, and emits neither dynamic
-    energy nor latency: its entire hardware cost is static and is
-    collected by the profiler's static walk over ``ProfileMixin``.
+    energy nor latency: its entire hardware cost is static.
 
     Two nonidealities perturb the taps. The per-instance initial
     accuracy is a static spread sampled once at ``fabricate`` time
@@ -118,7 +117,6 @@ class CurrentReference(AnalogBase[CurrentReferenceConfig, CurrentReferencePolicy
     Args:
         config: Concrete configuration dataclass.
         policy: Per-source nonideality enable flags.
-        name: Hierarchical instance name used by the profiler.
         inst_shape: Per-instance fabrication shape.
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature.
@@ -132,12 +130,11 @@ class CurrentReference(AnalogBase[CurrentReferenceConfig, CurrentReferencePolicy
         *,
         config: CurrentReferenceConfig,
         policy: CurrentReferencePolicy,
-        name: str,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
     ) -> None:
-        super().__init__(config=config, policy=policy, name=name, inst_shape=inst_shape)
+        super().__init__(config=config, policy=policy, inst_shape=inst_shape)
         self._area_per_inst__um2 = config.area_per_inst__um2
         self._leakage_per_inst__uW = config.leakage_per_inst__uW
         self.dtype = dtype

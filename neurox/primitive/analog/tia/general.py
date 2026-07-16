@@ -84,7 +84,6 @@ class GeneralTIA(TIA[GeneralTIASnap]):
         *,
         config: GeneralTIAConfig,
         policy: GeneralTIAPolicy,
-        name: str,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -92,7 +91,6 @@ class GeneralTIA(TIA[GeneralTIASnap]):
         super().__init__(
             config=config,
             policy=policy,
-            name=name,
             inst_shape=inst_shape,
             dtype=dtype,
             T__K=T__K,

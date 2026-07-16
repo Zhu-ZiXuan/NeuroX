@@ -25,7 +25,6 @@ def build_tia(config: OpAmpTIAConfig, *, device: torch.device) -> OpAmpTIA:
     tia = OpAmpTIA(
         config=config,
         policy=tia_policy,
-        name="probe",
         inst_shape=(1,),
         dtype=torch.float64,
         T__K=T_ROOM__K,

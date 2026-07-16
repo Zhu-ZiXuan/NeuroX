@@ -1,8 +1,4 @@
-"""Shared mixin for profile-event emission.
-
-See also:
-    docs/internals/common/mixin/profile.md
-"""
+"""Shared mixin for profile-event emission."""
 
 from __future__ import annotations
 
@@ -15,9 +11,10 @@ from torch import Tensor
 class ProfileMixin:
     """Emit a host's dynamic PPA events and aggregate its static PPA.
 
-    A host gets a hierarchical dotted instance name plus two emit hooks —
-    ``_log_dynamic_energy`` and ``_log_latency`` — through which a leaf
-    attributes its own runtime energy and latency to the active profiler. For
+    Two emit hooks — ``_log_dynamic_energy`` and ``_log_latency`` — attribute a
+    leaf's own runtime energy and latency to the active profiler, which records
+    the emitting module itself. Naming is not the emitter's business: the
+    reporting side derives every hierarchical name from the module tree. For
     dynamic PPA the mixin only routes a caller-built tensor, so every emit is a
     pure side channel — a no-op outside a profiler that never alters host
     numerics. For static PPA it owns the aggregation: ``area__um2`` and
@@ -26,14 +23,18 @@ class ProfileMixin:
     lives in the profiler.
 
     Host requirements:
-        - Inherit ``nn.Module`` alongside this mixin, so a profiled instance
-          lives in the module tree the collector walks.
-        - Thread the owner-supplied ``name`` to this mixin's ``__init__``
-          (typically via ``super().__init__``). The parent composes it as a
-          dotted hierarchical path; the mixin stores it verbatim and neither
-          validates nor transforms it, so the owner owns uniqueness — a
-          duplicated or omitted prefix yields colliding names that silently
-          merge two emitters.
+        - Inherit ``nn.Module`` alongside this mixin, and be reachable from
+          the reported root as a registered child — an emitter the traversal
+          cannot reach has no name and reports under an ``<unrooted>``
+          placeholder. Holding an emitter in a plain container instead of
+          binding it as an attribute hides it from the traversal.
+        - Call ``_log_dynamic_energy`` / ``_log_latency`` at the end of the
+          primary method, after all kernel math, once the output tensor
+          exists, and at most once each per logical operation.
+        - Own the emit decision: the hooks apply no value-based gating, so call
+          each only for a quantity this leaf models, and guard a conditional
+          emit at the call site — pushing a zero through unconditionally
+          records a spurious event.
         - Set the bare ``_area_per_inst__um2`` and ``_leakage_per_inst__uW``
           per-instance data (a leaf, in its own ``__init__``) and expose
           ``inst_count``; unset per-instance data raises ``AttributeError`` on
@@ -43,20 +44,17 @@ class ProfileMixin:
     # Host ModuleBase leaf sets these bare per-inst data; the mixin aggregates by inst_count.
     _area_per_inst__um2: float
     _leakage_per_inst__uW: float
+
     # Profiler collects static PPA only where True; non-reporters whose silicon rolls up to an owner override to False.
     reports_static_ppa: ClassVar[bool] = True
 
-    def __init__(self, name: str) -> None:
-        self._neurox_name = name
-
     @property
-    def qualified_name(self) -> str:
-        """Hierarchical dotted instance name, fixed at construction."""
-        return self._neurox_name
+    def inst_count(self) -> int:
+        raise NotImplementedError
 
     @property
     def module_type(self) -> str:
-        """Short class-name tag (``type(self).__name__``) emitted with the name."""
+        """Short class-name tag (``type(self).__name__``) recorded on each event."""
         return type(self).__name__
 
     @property
@@ -85,11 +83,7 @@ class ProfileMixin:
         profiler = NeuroxProfiler.get_current()
         if profiler is None:
             return
-        profiler._record_energy(
-            qualified_name=self._neurox_name,
-            module_type=self.module_type,
-            dynamic_energy__fJ=dynamic_energy__fJ,
-        )
+        profiler._record_energy(module=self, dynamic_energy__fJ=dynamic_energy__fJ)
 
     @torch.compiler.disable
     def _log_latency(self, latency__ns: Tensor) -> None:
@@ -110,8 +104,4 @@ class ProfileMixin:
         profiler = NeuroxProfiler.get_current()
         if profiler is None:
             return
-        profiler._record_latency(
-            qualified_name=self._neurox_name,
-            module_type=self.module_type,
-            latency__ns=latency__ns,
-        )
+        profiler._record_latency(module=self, latency__ns=latency__ns)

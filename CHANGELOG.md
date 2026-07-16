@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased — Profiled Names Derived from the PyTorch Module Tree
+
+### Changed
+
+- **A module no longer carries a name.** The `name` parameter is removed from `ModuleBase.__init__` and from every constructor and `from_config` that threaded it — roughly 40 call sites across the primitive, macro, and architecture layers. A module cannot know its own name: `nn.Module.__setattr__` records a child as a key in its parent's `_modules` dict and leaves the child untouched, so there is no back-link and no stored path; the dotted name exists only as a value `named_modules()` composes while threading a prefix down from a root. Nor was the hand-built name reliable, since a tree is re-parented after construction (a probe swapped in for an ADC, an `nn.Linear` replaced by its quantized twin). Owners no longer compose `f"{name}.child"` prefixes, `CimMacro.to_ideal()` no longer forwards a name to its twin, and the BERT example no longer threads a qualified name into its macro factory.
+- **The profiler records the emitting module, and the report names it.** `EnergyEvent` / `LatencyEvent` carry `module` in place of `qualified_name`, so a caller holding a module selects its events by identity without naming anything. `energy_by_name` / `latency_by_name` move from `NeuroxProfiler` to `ProfilerReport`, which `report(model)` builds against the root it is handed — the profiler is a context, not a tree, and structurally has no root to name an emitter against. `energy_by_type` stays on the profiler: a module's type is intrinsic and needs no root. `ProfilerReport` gains the `qualified_names` map and `name_of(module)`. `StaticRecord` keeps its `qualified_name`, now taken from the walk that reaches it (`collect_static` uses `named_modules()`).
+- **Reported names now match the module tree exactly.** A name is the attribute path from the root passed to `report(model)`, so it no longer carries a hand-built prefix, it includes every real level of ownership (a macro bound at `self.macro` reports under `...query.macro.xbar`), and the reported root itself is named `""`. Energy, latency, and area values are unchanged — only the label is.
+- **An event the reported root cannot name is labelled `<unrooted>.<ModuleType>`.** Events belong to the profiler context, not the model, so an emitter outside the reported tree still contributes to the totals rather than vanishing or merging into a real name; the angle brackets cannot occur in an attribute path, so the label never collides with a traversal name. Reaching it usually means an emitter is held in a plain container instead of bound as a child, which hides it from the walk.
+
+### Removed
+
+- **`ProfileMixin.__init__` and `ProfileMixin.qualified_name`.** The mixin no longer holds name state, so it has no initializer; `nn.Module.__init__` is not cooperative (`call_super_init` defaults false), so the initializer was never reached in any case.
+
+## Unreleased — DAC Split into `voltage_dac` / `current_dac` Families
+
+### Added
+
+- **`current_dac` family** (`neurox/primitive/analog/current_dac/`), mirroring the ADC split: the DAC primitive splits into two independent families, `voltage_dac` and `current_dac`. `CurrentDac` is the new abstract base with a concrete current-steering leaf, `GeneralCurrentDac`. Both families are now exported from `neurox.primitive.analog` (the DAC family was previously not exported there at all). There is deliberately no `dac_common` module — unlike the ADC, the DAC has no per-call operating point or calibration record to share across families.
+
+### Changed
+
+- **The pre-existing DAC is renamed `voltage_dac`** (`neurox/primitive/analog/dac/` → `neurox/primitive/analog/voltage_dac/`): it was always a voltage DAC. Classes rename accordingly and normalize the acronym to PascalCase, matching the sibling `Adc` family: `DAC` → `VoltageDac`, `GeneralDAC` → `GeneralVoltageDac` (and correspondingly for their config/policy classes). Four config/policy TOML files' `_neurox_class` discriminator strings change to match.
+
 ## Unreleased — NMOS Generalized to a Polarity-Parameterized MOSFET
 
 ### Added
@@ -29,7 +52,7 @@
 
 ### Changed
 
-- **Reference voltages are injected per call, not self-held (GOAL A).** The ADC family, `VoltageDriver`, and the TIA family no longer carry their reference as a config field / nominal buffer / property; the value is injected per call as a plain `Tensor`. `ADC.convert` gains a keyword-only `v_refs__V: Tensor` (all taps, shape `(*inst, num_refs)`; `adc_mode` indexes its trailing axis, so the mode bound is checked against the tensor, not config), and the abstract `ADC.mode_num` / concrete `available_modes` / `mode_num` are removed — an xbar reports `adc_mode_num` from its reference source's `num_refs`. `VoltageDriver.snapshot` / `TIA.snapshot` gain a keyword `v_ref__V: Tensor` stored in the snap, which the clamp / DC solve reads (the `ClampDriver` role drops its `v_ref__V` member). `GeneralADC` loses `drive_value` / `drive_thermal__V` (and ignores the injected `v_refs__V`); `McsSarAdcConfig` / `SarAdcMonoConfig` lose `v_refs__V`. Consumers own a `VoltageReference` and snapshot it once per forward: the core sources the boundary-clamp reference (BL-clamp + SL-drive taps) once per `cim_read`, and each operating xbar sources the ADC-ladder reference (one tap per mode) once per VMM — one global-scalar draw shared across chunks, preserving chunk bit-exactness.
+- **Reference voltages are injected per call, not self-held (GOAL A).** The ADC family, `VoltageDriver`, and the TIA family no longer carry their reference as a config field / nominal buffer / property; the value is injected per call as a plain `Tensor`. `VoltageAdc.convert` gains a keyword-only `v_refs__V: Tensor` (all taps, shape `(*inst, num_refs)`; `adc_mode` indexes its trailing axis, so the mode bound is checked against the tensor, not config), and the abstract `VoltageAdc.mode_num` / concrete `available_modes` / `mode_num` are removed — an xbar reports `adc_mode_num` from its reference source's `num_refs`. `VoltageDriver.snapshot` / `TIA.snapshot` gain a keyword `v_ref__V: Tensor` stored in the snap, which the clamp / DC solve reads (the `ClampDriver` role drops its `v_ref__V` member). `GeneralVoltageAdc` loses `drive_value` / `drive_thermal__V` (and ignores the injected `v_refs__V`); `McsSarVoltageAdcConfig` / `SarMonoVoltageAdcConfig` lose `v_refs__V`. Consumers own a `VoltageReference` and snapshot it once per forward: the core sources the boundary-clamp reference (BL-clamp + SL-drive taps) once per `cim_read`, and each operating xbar sources the ADC-ladder reference (one tap per mode) once per VMM — one global-scalar draw shared across chunks, preserving chunk bit-exactness.
 - **Reference-source taps are now non-negative (GOAL A).** `VoltageReferenceConfig` / `CurrentReferenceConfig` relax tap validation from strictly-positive to non-negative; a `0` V / `0` uA tap denotes a ground/rail reference (relative noise `* 0 == 0`, so it stays stable and exact). This lets the SL driver clamp to ground through the reference source.
 
 ### Removed
@@ -632,7 +655,7 @@
   - ``DAC.convert(code) -> Tensor`` (was ``(Tensor, Tensor)``)
   - ``SwitchCap.sample_and_accumulate(v) -> Tensor``
   - ``AnalogMux.transport(v_pos, v_neg) -> (v_pos, v_neg)`` (no energy)
-  - ``ADC.convert(...) -> Tensor`` (every concrete ADC)
+  - ``VoltageAdc.convert(...) -> Tensor`` (every concrete VoltageAdc)
   - ``Accumulator.operate / ShiftAdder.operate / Requantizer.operate -> Tensor``
   - ``Xbar.vec_mat_mul(x) -> Tensor``
   - ``XbarMacro.matmul(...) -> Tensor`` (and ``FakeMacro.matmul``)
@@ -678,11 +701,11 @@
 ### Added
 
 - **Physics-based ADC family** (`neurox.analog.adc`): concrete
-  topologies with per-tech-node energy / latency models — `GeneralADC`
-  (boundary-bucketize fallback), `McsSarAdc`, `SarAdcMono`,
-  `PipelineADC`, `CyclicADC`, `RampADC`.  All share an `ADC` ABC and a
+  topologies with per-tech-node energy / latency models — `GeneralVoltageAdc`
+  (boundary-bucketize fallback), `McsSarVoltageAdc`, `SarMonoVoltageAdc`,
+  `PipelineADC`, `CyclicADC`, `RampADC`.  All share a `VoltageAdc` ABC and a
   multi-mode `(n_bits, n_states, max_signal)` configuration via
-  `ADCMode`.
+  `VoltageAdcMode`.
 - **Transimpedance amplifier** (`neurox.analog.tia.TIA`): owns the BL
   clamp voltage and the column-current → voltage stage.  State-
   dependent latency follows the NeuroSIM `CurrentSenseAmp.cpp`

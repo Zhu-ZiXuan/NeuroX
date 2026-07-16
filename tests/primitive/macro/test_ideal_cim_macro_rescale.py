@@ -37,7 +37,6 @@ def _make_xbar(
     xbar = IdealCimMacro(
         config=config,
         policy=IdealCimMacroPolicy(),
-        name="x",
         inst_shape=(),
         dtype=torch.float32,
         T__K=300.0,

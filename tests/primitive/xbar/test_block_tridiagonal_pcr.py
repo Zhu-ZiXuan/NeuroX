@@ -116,7 +116,10 @@ def test_pcr_batched(device: torch.device) -> None:
 def test_pcr_zero_off_diagonals_reduces_to_block_diag(device: torch.device) -> None:
     n, b = 5, 2
     g = torch.Generator(device=device).manual_seed(7)
-    diag = torch.eye(b, dtype=torch.float64, device=device) * 2 + torch.randn(n, b, b, dtype=torch.float64, generator=g, device=device) * 0.05
+    diag = (
+        torch.eye(b, dtype=torch.float64, device=device) * 2
+        + torch.randn(n, b, b, dtype=torch.float64, generator=g, device=device) * 0.05
+    )
     sub = torch.zeros(n, b, b, dtype=torch.float64, device=device)
     sup = torch.zeros(n, b, b, dtype=torch.float64, device=device)
     rhs = torch.randn(n, b, dtype=torch.float64, generator=g, device=device)
@@ -143,7 +146,9 @@ def test_pcr_m_matrix_wire_jacobian_2x2(device: torch.device) -> None:
     off[..., 1, 1] = -wire_g
     sub = off.clone()
     sup = off.clone()
-    rhs = torch.randn(n, b, dtype=torch.float64, generator=torch.Generator(device=device).manual_seed(99), device=device)
+    rhs = torch.randn(
+        n, b, dtype=torch.float64, generator=torch.Generator(device=device).manual_seed(99), device=device
+    )
 
     x_pcr = solve_block_tridiagonal_pcr(sub, diag, sup, rhs)
     a_dense = _dense_from_blocks(sub, diag, sup)

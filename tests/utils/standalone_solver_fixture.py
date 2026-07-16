@@ -152,7 +152,6 @@ def build_solver_harness(
             opamp_gain_sigma=False,
             nmos=MOSFETPolicy(A_vt_mismatch=False, A_beta_mismatch=False),
         ),
-        name="harness.bl_driver",
         inst_shape=(*inst_shape, phys_col_num),
         dtype=dtype,
         T__K=300.0,
@@ -160,7 +159,6 @@ def build_solver_harness(
     sl_driver = VoltageDriver(
         config=xbar_config.sl_driver_config,
         policy=VoltageDriverPolicy(offset=False, thermal=False),
-        name="harness.sl_driver",
         inst_shape=(*inst_shape, phys_col_num),
         dtype=dtype,
         T__K=300.0,
@@ -171,7 +169,6 @@ def build_solver_harness(
     clamp_ref = VoltageReference(
         config=xbar_config.clamp_ref_config,
         policy=VoltageReferencePolicy(tolerance=False, noise=False),
-        name="harness.clamp_ref",
         inst_shape=(),
         dtype=dtype,
         T__K=300.0,

@@ -19,6 +19,7 @@ from neurox.primitive.xbar.solver.clamp import ClampSnap
 if TYPE_CHECKING:
     from ._1t1r import XbarArraySteadyState
 
+
 @dataclass(frozen=True)
 class XbarArrayConfig(ConfigBase):
     """Static PPA fields common to every crossbar pure-array config.

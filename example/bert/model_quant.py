@@ -71,7 +71,6 @@ def to_quant(
         if qualified not in layer_state:
             raise KeyError(f"layer_state has no entry for {qualified!r}")
         macro = macro_factory(
-            name=qualified,
             w_logical_shape=(original.out_features, original.in_features),
         )
         return QuantLinear.from_state(

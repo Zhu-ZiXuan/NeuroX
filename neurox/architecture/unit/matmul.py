@@ -1,7 +1,7 @@
 """Cross-macro Protocol shared by every concrete macro implementation.
 
 See also:
-    docs/reference/architecture/unit/README.md
+    docs/internals/architecture/unit/matmul.md
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ from typing import Protocol
 
 from torch import Tensor
 
-from neurox.primitive.analog.adc import AdcOperationPoint
+from neurox.primitive.analog.adc_common import AdcOperationPoint
 
 
 class QuantMatMul(Protocol):

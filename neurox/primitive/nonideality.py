@@ -1,7 +1,7 @@
 """Reusable analog non-ideality kernels and their config dataclasses.
 
 See also:
-    docs/reference/nonideality.md
+    docs/reference/primitive/nonideality.md
 """
 
 from dataclasses import dataclass

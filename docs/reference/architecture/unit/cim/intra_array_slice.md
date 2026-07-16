@@ -45,7 +45,7 @@ Activations are unsigned true-form by definition (no activation encoding). Prove
 | $T_c$ | contraction-axis tile count | — | structure count |
 | $T_r$ | output-axis tile count | — | structure count |
 
-The logical dims, value-domain symbols, and the ADC surface are in [unit/base](../base.md#symbols).
+The logical dims, value-domain symbols, and the ADC surface are in [unit/family](../family.md#symbols).
 
 ## Assumptions, scope & validity
 

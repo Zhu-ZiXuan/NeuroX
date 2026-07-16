@@ -112,7 +112,7 @@ adc_bits = 4
 rescale_factor = ...
 ```
 
-For SAR-family ADCs (which support `bits < max_bits` on the same range) the derived lower-bit table is printed for information; you choose which derived rows to add to the chip TOML. For non-SAR ADCs (e.g. `GeneralADC`) the derived table is skipped, as those topologies do not support flexible bit widths. Paste the snippet under the `[cim_macro]` section of the chip TOML.
+For SAR-family ADCs (which support `bits < max_bits` on the same range) the derived lower-bit table is printed for information; you choose which derived rows to add to the chip TOML. For non-SAR ADCs (e.g. `GeneralVoltageAdc`) the derived table is skipped, as those topologies do not support flexible bit widths. Paste the snippet under the `[cim_macro]` section of the chip TOML.
 
 A scheme xbar that instantiates one physically-identical `bl_adc` module per readout group flattens the $(\mathrm{phys\_code}, \mathrm{ideal\_vmm})$ pairs across all instances before the fit.
 
@@ -121,5 +121,5 @@ When `--plot PATH` is supplied, the left panel scatters $(\mathrm{phys\_code}, \
 ## See also
 
 - [ADC range probing](adc_range_probing.md) — the prerequisite stage that settles the analog range this tool calibrates against.
-- [ADC base reference](../../reference/primitive/analog/adc/family.md) — the signed code convention and the `convert` contract.
+- [ADC base reference](../../reference/primitive/analog/voltage_adc/family.md) — the signed code convention and the `convert` contract.
 - [Calibration hub](README.md) — all calibration stages.

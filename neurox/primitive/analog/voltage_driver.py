@@ -115,7 +115,6 @@ class VoltageDriver(AnalogBase[VoltageDriverConfig, VoltageDriverPolicy]):
     Args:
         config: Concrete configuration dataclass.
         policy: Per-source nonideality enable flags.
-        name: Hierarchical instance name used by the profiler.
         inst_shape: Per-instance fabrication shape.
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature.
@@ -129,12 +128,11 @@ class VoltageDriver(AnalogBase[VoltageDriverConfig, VoltageDriverPolicy]):
         *,
         config: VoltageDriverConfig,
         policy: VoltageDriverPolicy,
-        name: str,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
     ) -> None:
-        super().__init__(config=config, policy=policy, name=name, inst_shape=inst_shape)
+        super().__init__(config=config, policy=policy, inst_shape=inst_shape)
 
         self._area_per_inst__um2 = config.area_per_inst__um2
         self._leakage_per_inst__uW = config.leakage_per_inst__uW

@@ -45,11 +45,10 @@ Reference mirrors the physics-bearing core library and Internals the software co
 
 ## Document classes
 
-Reference and Internals hold three classes of document, told apart by what they mirror and what they carry:
+Reference and Internals hold two classes of document, told apart by what they mirror and what they carry:
 
 - A **module-mirroring document** covers one science-bearing code module. It carries the prescribed template sections and the traceability footer, and it participates in the Reference-Internals correspondence, so the 2×2 below classifies it.
-- A **mixin document** covers one pure-software mechanism class. It likewise carries a prescribed template and footer, but with no physics to specify it has no Reference twin, so it stands alone in Internals, outside the 2×2. Write it per [writing_mixin_docs](../contributing/writing_mixin_docs.md).
-- A **cross-cutting document** spans modules and sits at the Reference or Internals root. It carries neither a template nor a footer and organizes freely around its own content, so it too sits outside the 2×2.
+- A **cross-cutting document** spans modules and sits at the Reference or Internals root. It carries neither a template nor a footer and organizes freely around its own content, so it sits outside the 2×2.
 
 Two orthogonal axes classify a module-mirroring document. The tree is the authority boundary: a statement that survives a code rewrite is Reference, the scientific spec that owns physics and math; one that describes the program is Internals, the software implementation that owns contract and design. The kind is the layer: the shared layer is the abstraction every member holds in common, and the concrete layer is one scheme.
 
@@ -105,8 +104,8 @@ This holds for docstrings, comments, Reference, and Internals alike. One example
 
 ## Traceability footer
 
-- The traceability footer is the only exception to dependency direction and single source: the closing block on a template-bearing document — module-mirroring or mixin — that links it to its related documents; a cross-cutting document carries no footer.
-- Each such class fixes its own footer contents in its writing guide, so the family, module, base, leaf, and mixin footers each carry their own lines. A mixin has no Reference twin, so its footer Reference line is always `N/A — software mechanism`.
+- The traceability footer is the only exception to dependency direction and single source: the closing block on a template-bearing document — module-mirroring — that links it to its related documents; a cross-cutting document carries no footer.
+- Each such class fixes its own footer contents in its writing guide, so the family, module, base, and leaf footers each carry their own lines.
 
 ## Present state only
 

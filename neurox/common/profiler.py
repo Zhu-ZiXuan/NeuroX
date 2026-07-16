@@ -16,19 +16,25 @@ from torch import Tensor
 
 from neurox.common.mixin import ProfileMixin
 
+# Label for an event whose emitter the reported root cannot reach. Angle
+# brackets cannot occur in an attribute path, so this never collides with a
+# traversal name.
+_UNROOTED_PREFIX = "<unrooted>."
+
 
 @dataclass(frozen=True)
 class EnergyEvent:
     """One dynamic-energy event from a physical module's primary execution call.
 
     Attributes:
-        qualified_name: Hierarchical module identifier
-            (``<layer>.<owner>...<leaf>``).
+        module: The emitting module. A module never knows its own name — the
+            hierarchical name is a property of the tree, resolved against a
+            root by :meth:`ProfilerReport.energy_by_name`.
         module_type: Short class-name tag of the emitting module.
         dynamic_energy__fJ: Switching energy attributed to this call.
     """
 
-    qualified_name: str
+    module: ProfileMixin
     module_type: str
     dynamic_energy__fJ: float
 
@@ -38,13 +44,14 @@ class LatencyEvent:
     """One latency event from a physical module's primary execution call.
 
     Attributes:
-        qualified_name: Hierarchical module identifier
-            (``<layer>.<owner>...<leaf>``).
+        module: The emitting module. A module never knows its own name — the
+            hierarchical name is a property of the tree, resolved against a
+            root by :meth:`ProfilerReport.latency_by_name`.
         module_type: Short class-name tag of the emitting module.
         latency__ns: Latency contribution attributed to this call.
     """
 
-    qualified_name: str
+    module: ProfileMixin
     module_type: str
     latency__ns: float
 
@@ -54,7 +61,7 @@ class StaticRecord:
     """Per-module static-metric record built from fabrication-time state.
 
     Attributes:
-        qualified_name: Hierarchical module identifier.
+        qualified_name: Hierarchical name, as the walked root names the module.
         module_type: Short class-name tag of the module.
         area__um2: Module-local total area = ``area_per_inst * inst_count``.
         leakage_power__uW: Module-local leakage power total.
@@ -92,12 +99,16 @@ class ProfilerReport:
         latency_events: Latency events captured during the profiler context.
         static_records: Per-module static-metric records.
         static: Aggregated static metrics across the whole model.
+        qualified_names: Hierarchical dotted name of every profiled module the
+            reported root reaches, as the root's own traversal names it. The
+            root itself is named ``""``.
     """
 
     energy_events: list[EnergyEvent] = field(default_factory=list)
     latency_events: list[LatencyEvent] = field(default_factory=list)
     static_records: list[StaticRecord] = field(default_factory=list)
     static: StaticMetrics = field(default_factory=StaticMetrics)
+    qualified_names: dict[ProfileMixin, str] = field(default_factory=dict)
 
     @property
     def total_dynamic_energy__fJ(self) -> float:
@@ -111,6 +122,36 @@ class ProfilerReport:
     def leakage_energy__fJ(self) -> float:
         """Derived ``static.leakage_power__uW × total_latency__ns``."""
         return self.static.leakage_power__uW * self.total_latency__ns
+
+    def name_of(self, module: ProfileMixin) -> str:
+        """Name ``module`` as the reported root's own traversal names it.
+
+        An emitter the root does not reach has no hierarchical name — only a
+        type — and is labelled ``"<unrooted>.<ModuleType>"`` so its events stay
+        visible in the grouped sums instead of vanishing or merging into a real
+        name. A root that does not reach an emitter it should have is the tell
+        of an emitter held in a plain container rather than bound as a child.
+        """
+        name = self.qualified_names.get(module)
+        return f"{_UNROOTED_PREFIX}{module.module_type}" if name is None else name
+
+    @property
+    def energy_by_name(self) -> dict[str, float]:
+        """Dynamic energy grouped by qualified module name [fJ]."""
+        by_name: dict[str, float] = {}
+        for e in self.energy_events:
+            name = self.name_of(e.module)
+            by_name[name] = by_name.get(name, 0.0) + e.dynamic_energy__fJ
+        return by_name
+
+    @property
+    def latency_by_name(self) -> dict[str, float]:
+        """Runtime latency grouped by qualified module name [ns]."""
+        by_name: dict[str, float] = {}
+        for e in self.latency_events:
+            name = self.name_of(e.module)
+            by_name[name] = by_name.get(name, 0.0) + e.latency__ns
+        return by_name
 
 
 class NeuroxProfiler:
@@ -126,6 +167,13 @@ class NeuroxProfiler:
         # mid-with is unsupported.
         print(profiler.total_dynamic_energy__fJ, profiler.total_latency__ns)
         report = profiler.report(model)
+        print(report.energy_by_name)
+
+    An event records its emitting module, not a name: a module never knows
+    its own name, so only a walk from a root can name it. The aggregations
+    this class exposes are the ones a root is not needed for; the per-name
+    breakdown lives on :class:`ProfilerReport`, which ``report(model)``
+    builds against the root it is handed.
 
     Leaves that own a dynamic profile model call
     ``_log_dynamic_energy(tensor)`` and / or ``_log_latency(tensor)``
@@ -145,16 +193,15 @@ class NeuroxProfiler:
     def __init__(self) -> None:
         self.energy_events: list[EnergyEvent] = []
         self.latency_events: list[LatencyEvent] = []
-        # Recording buffers: 0-D tensors on the recording device; one
-        # batched stack→cpu→tolist sync per quantity at _finalize.
-        self._pending_energy: list[tuple[str, str, Tensor]] = []
-        self._pending_latency: list[tuple[str, str, Tensor]] = []
+        # Recording buffers: the emitting module plus a 0-D tensor on the
+        # recording device; one batched stack→cpu→tolist sync per quantity
+        # at _finalize.
+        self._pending_energy: list[tuple[ProfileMixin, Tensor]] = []
+        self._pending_latency: list[tuple[ProfileMixin, Tensor]] = []
         # Cached aggregations (populated by _finalize at __exit__).
         self._total_dynamic_energy__fJ: float = 0.0
         self._total_latency__ns: float = 0.0
-        self._energy_by_name: dict[str, float] = {}
         self._energy_by_type: dict[str, float] = {}
-        self._latency_by_name: dict[str, float] = {}
 
     def __enter__(self) -> Self:
         self.energy_events = []
@@ -163,9 +210,7 @@ class NeuroxProfiler:
         self._pending_latency = []
         self._total_dynamic_energy__fJ = 0.0
         self._total_latency__ns = 0.0
-        self._energy_by_name = {}
         self._energy_by_type = {}
-        self._latency_by_name = {}
         NeuroxProfiler._local.current = self
         return self
 
@@ -190,25 +235,13 @@ class NeuroxProfiler:
     # Side-channel entry points (called by ProfileMixin._log_*)
     # ----------------------------------------------------------------
 
-    def _record_energy(
-        self,
-        *,
-        qualified_name: str,
-        module_type: str,
-        dynamic_energy__fJ: Tensor,
-    ) -> None:
-        """Stash a 0-D energy reduction into the energy pending buffer."""
-        self._pending_energy.append((qualified_name, module_type, dynamic_energy__fJ.detach().sum()))
+    def _record_energy(self, *, module: ProfileMixin, dynamic_energy__fJ: Tensor) -> None:
+        """Stash the emitter and a 0-D energy reduction into the energy pending buffer."""
+        self._pending_energy.append((module, dynamic_energy__fJ.detach().sum()))
 
-    def _record_latency(
-        self,
-        *,
-        qualified_name: str,
-        module_type: str,
-        latency__ns: Tensor,
-    ) -> None:
-        """Stash a 0-D latency reduction into the latency pending buffer."""
-        self._pending_latency.append((qualified_name, module_type, latency__ns.detach().sum()))
+    def _record_latency(self, *, module: ProfileMixin, latency__ns: Tensor) -> None:
+        """Stash the emitter and a 0-D latency reduction into the latency pending buffer."""
+        self._pending_latency.append((module, latency__ns.detach().sum()))
 
     # ----------------------------------------------------------------
     # Finalization — one batched sync per quantity, invoked by __exit__
@@ -217,24 +250,23 @@ class NeuroxProfiler:
     def _finalize(self) -> None:
         """Drain pending energy + latency buffers and populate aggregations."""
         if self._pending_energy:
-            stacked_e = torch.stack([t for _, _, t in self._pending_energy])
+            stacked_e = torch.stack([t for _, t in self._pending_energy])
             energies = stacked_e.cpu().tolist()
-            for (name, mtype, _t), energy in zip(self._pending_energy, energies, strict=True):
-                self.energy_events.append(
-                    EnergyEvent(qualified_name=name, module_type=mtype, dynamic_energy__fJ=energy)
-                )
+            for (module, _t), energy in zip(self._pending_energy, energies, strict=True):
+                mtype = module.module_type
+                self.energy_events.append(EnergyEvent(module=module, module_type=mtype, dynamic_energy__fJ=energy))
                 self._total_dynamic_energy__fJ += energy
-                self._energy_by_name[name] = self._energy_by_name.get(name, 0.0) + energy
                 self._energy_by_type[mtype] = self._energy_by_type.get(mtype, 0.0) + energy
             self._pending_energy = []
 
         if self._pending_latency:
-            stacked_l = torch.stack([t for _, _, t in self._pending_latency])
+            stacked_l = torch.stack([t for _, t in self._pending_latency])
             latencies = stacked_l.cpu().tolist()
-            for (name, mtype, _t), latency in zip(self._pending_latency, latencies, strict=True):
-                self.latency_events.append(LatencyEvent(qualified_name=name, module_type=mtype, latency__ns=latency))
+            for (module, _t), latency in zip(self._pending_latency, latencies, strict=True):
+                self.latency_events.append(
+                    LatencyEvent(module=module, module_type=module.module_type, latency__ns=latency)
+                )
                 self._total_latency__ns += latency
-                self._latency_by_name[name] = self._latency_by_name.get(name, 0.0) + latency
             self._pending_latency = []
 
     # --------------------- Runtime aggregations ---------------------
@@ -253,19 +285,9 @@ class NeuroxProfiler:
         return self._total_latency__ns
 
     @property
-    def energy_by_name(self) -> dict[str, float]:
-        """Dynamic energy grouped by qualified module name [fJ]."""
-        return self._energy_by_name
-
-    @property
     def energy_by_type(self) -> dict[str, float]:
         """Dynamic energy grouped by module class name [fJ]."""
         return self._energy_by_type
-
-    @property
-    def latency_by_name(self) -> dict[str, float]:
-        """Runtime latency grouped by qualified module name [ns]."""
-        return self._latency_by_name
 
     # --------------------- Static aggregation -----------------------
 
@@ -278,12 +300,12 @@ class NeuroxProfiler:
         """
         return [
             StaticRecord(
-                qualified_name=module.qualified_name,
+                qualified_name=name,
                 module_type=module.module_type,
                 area__um2=module.area__um2,
                 leakage_power__uW=module.leakage__uW,
             )
-            for module in model.modules()
+            for name, module in model.named_modules()
             if isinstance(module, ProfileMixin) and module.reports_static_ppa
         ]
 
@@ -311,6 +333,12 @@ class NeuroxProfiler:
     def report(self, model: nn.Module) -> ProfilerReport:
         """Bundle this context's runtime events with the model's static state.
 
+        ``model`` is the root every hierarchical name is derived from, so the
+        same events reported against a different root read out under different
+        names. Events are the context's, not the model's: an emitter outside
+        ``model`` still contributes to the totals, under an ``<unrooted>``
+        label (see :meth:`ProfilerReport.name_of`).
+
         Must be called after the ``with`` block exits — at that point
         ``__exit__`` has invoked ``_finalize`` and every aggregation is
         ready. Calling ``report()`` from inside the ``with`` block yields
@@ -322,6 +350,9 @@ class NeuroxProfiler:
             latency_events=list(self.latency_events),
             static_records=NeuroxProfiler.collect_static(model),
             static=NeuroxProfiler.analyze_static(model),
+            qualified_names={
+                module: name for name, module in model.named_modules() if isinstance(module, ProfileMixin)
+            },
         )
 
     def summary(

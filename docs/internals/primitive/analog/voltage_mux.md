@@ -2,7 +2,7 @@
 
 ## Design decisions
 
-- **Not polymorphic.** There is one concrete mux; parent circuits construct it directly from its config rather than dispatching through a family base. Adding a registry would buy nothing while a single topology exists, and the canonical leaf signature already standardises construction.
+- **Not polymorphic.** There is one concrete mux; parent circuits construct it directly from its config rather than dispatching through a family base.
 - **Static mismatch vs dynamic noise.** `_sample_fabricate_mismatch` samples the inter-leg gain mismatch `eps_g` once at fabricate from `mux_gain_mismatch_sigma_relative`; `transport` then applies the resulting per-leg static gains, while CM and DM noise stay dynamic, re-sampled inside `transport`.
 
 ## Contracts & invariants

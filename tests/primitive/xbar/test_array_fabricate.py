@@ -49,7 +49,6 @@ def _build_array(*, mismatch: bool, device: torch.device) -> XbarArray1T1R:
     array = XbarArray1T1R(
         config=core_config,
         policy=policy,
-        name="test.array",
         w_layout_shape=(8, 8),
         dtype=torch.float64,
         T__K=300.0,

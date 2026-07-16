@@ -211,7 +211,6 @@ class XbarArray1T1R(XbarArray[XbarArray1T1RConfig, XbarArray1T1RPolicy]):
         *,
         config: XbarArray1T1RConfig,
         policy: XbarArray1T1RPolicy,
-        name: str,
         w_layout_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -221,7 +220,6 @@ class XbarArray1T1R(XbarArray[XbarArray1T1RConfig, XbarArray1T1RPolicy]):
         Args:
             config: Concrete configuration dataclass.
             policy: Composite nonideality policy.
-            name: Hierarchical instance name used by the profiler.
             w_layout_shape: Per-instance state-index tensor shape
                 ``(*prefix, phys_col_num, row_num)`` that
                 ``program(...)`` will receive.
@@ -238,7 +236,7 @@ class XbarArray1T1R(XbarArray[XbarArray1T1RConfig, XbarArray1T1RPolicy]):
         if not (row_num > 1):
             raise ValueError(f"require: row_num ({row_num}) > 1")
 
-        super().__init__(config=config, policy=policy, name=name, inst_shape=tuple(prefix))
+        super().__init__(config=config, policy=policy, inst_shape=tuple(prefix))
         self._area_per_inst__um2 = config.area_per_inst__um2
         self._leakage_per_inst__uW = config.leakage_per_inst__uW
         self.dtype = dtype

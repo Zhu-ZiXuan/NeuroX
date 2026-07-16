@@ -7,4 +7,4 @@ The unit family that organizes [crossbar tiles](../../../primitive/xbar/README.m
 - [intra_array_slice](intra_array_slice.md) — weight slices gathered into adjacent columns of one tile, recombined by intra-tile shift-add.
 - [ideal](ideal.md) — the lossless integer-matmul twin: no tile, the value-domain reference any physical mode is compared against.
 
-The abstract contract these share — the tiling scheme, the value domain, and the ADC surface — is in unit/base.
+The abstract contract these share — the tiling scheme, the value domain, and the ADC surface — is in [unit/family](../family.md).

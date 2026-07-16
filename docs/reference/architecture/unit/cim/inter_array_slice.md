@@ -47,7 +47,7 @@ Activations are unsigned true-form by definition (no activation encoding). Prove
 | $T_c$ | contraction-axis tile count | — | structure count |
 | $T_r$ | output-axis tile count | — | structure count |
 
-The equations above use these slice radices and the tile counts $T_r$, $T_c$; the logical dims, value-domain symbols, and ADC surface are in [unit/base](../base.md#symbols).
+The equations above use these slice radices and the tile counts $T_r$, $T_c$; the logical dims, value-domain symbols, and ADC surface are in [unit/family](../family.md#symbols).
 
 ## Assumptions, scope & validity
 

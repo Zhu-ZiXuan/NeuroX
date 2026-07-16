@@ -1,8 +1,4 @@
-"""Dict <-> file I/O for TOML and YAML.
-
-See also:
-    docs/internals/common/serialize/README.md
-"""
+"""Dict <-> file I/O for TOML and YAML."""
 
 import tomllib
 from collections.abc import Mapping
@@ -25,13 +21,18 @@ def dict_from_toml(file: Path) -> dict[str, Any]:
 
 
 def dict_to_toml(data: Mapping[str, Any], file: Path) -> None:
-    """Write a mapping to a TOML file. ``None`` values are stripped recursively."""
+    """Write a mapping to a TOML file.
+
+    TOML has no null literal, so a ``None`` value is dropped from a mapping and
+    its key is absent from the file. A ``None`` inside a list is not dropped and
+    raises ``TypeError``.
+    """
     with file.open(mode="wb") as f:
         tomli_w.dump(_strip_none(data), f)
 
 
 def _strip_none(data: Any) -> Any:
-    """Recursively drop ``None`` values."""
+    """Recursively drop ``None`` values from mappings."""
     if isinstance(data, Mapping):
         return {k: _strip_none(v) for k, v in data.items() if v is not None}
     if isinstance(data, list | tuple):

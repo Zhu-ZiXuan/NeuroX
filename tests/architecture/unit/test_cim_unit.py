@@ -22,7 +22,7 @@ from neurox.architecture.unit.cim import (
     IntraArraySliceCimUnitConfig,
     IntraArraySliceCimUnitPolicy,
 )
-from neurox.primitive.analog.adc import AdcOperationPoint
+from neurox.primitive.analog.adc_common import AdcOperationPoint
 from neurox.primitive.digital import AccumulatorConfig, ShiftAdderConfig
 from neurox.primitive.macro.cim import IdealCimMacroConfig, IdealCimMacroPolicy
 
@@ -132,13 +132,11 @@ def _slice_config(
 def _build_ideal(
     config: IdealCimUnitConfig,
     *,
-    name: str,
     w_logical_shape: tuple[int, ...],
 ) -> IdealCimUnit:
     macro = IdealCimUnit(
         config=config,
         policy=_IDEAL_MACRO_POLICY,
-        name=name,
         w_logical_shape=w_logical_shape,
         dtype=torch.float32,
         T__K=300.0,
@@ -151,13 +149,11 @@ def _build_ideal(
 def _build_direct(
     config: DirectCimUnitConfig,
     *,
-    name: str,
     w_logical_shape: tuple[int, ...],
 ) -> DirectCimUnit:
     macro = DirectCimUnit(
         config=config,
         policy=_DIRECT_MACRO_POLICY,
-        name=name,
         w_logical_shape=w_logical_shape,
         dtype=torch.float32,
         T__K=300.0,
@@ -170,13 +166,11 @@ def _build_direct(
 def _build_inter(
     config: InterArraySliceCimUnitConfig,
     *,
-    name: str,
     w_logical_shape: tuple[int, ...],
 ) -> InterArraySliceCimUnit:
     macro = InterArraySliceCimUnit(
         config=config,
         policy=_INTER_MACRO_POLICY,
-        name=name,
         w_logical_shape=w_logical_shape,
         dtype=torch.float32,
         T__K=300.0,
@@ -189,13 +183,11 @@ def _build_inter(
 def _build_intra(
     config: IntraArraySliceCimUnitConfig,
     *,
-    name: str,
     w_logical_shape: tuple[int, ...],
 ) -> IntraArraySliceCimUnit:
     macro = IntraArraySliceCimUnit(
         config=config,
         policy=_INTRA_MACRO_POLICY,
-        name=name,
         w_logical_shape=w_logical_shape,
         dtype=torch.float32,
         T__K=300.0,
@@ -218,20 +210,19 @@ def _build_macro_for_kind(
     macro_kind: str,
     config: IdealCimUnitConfig | DirectCimUnitConfig | InterArraySliceCimUnitConfig | IntraArraySliceCimUnitConfig,
     *,
-    name: str,
     w_logical_shape: tuple[int, ...],
 ) -> CimUnit:
     if macro_kind == "ideal":
         assert isinstance(config, IdealCimUnitConfig)
-        return _build_ideal(config, name=name, w_logical_shape=w_logical_shape)
+        return _build_ideal(config, w_logical_shape=w_logical_shape)
     if macro_kind == "direct":
         assert isinstance(config, DirectCimUnitConfig)
-        return _build_direct(config, name=name, w_logical_shape=w_logical_shape)
+        return _build_direct(config, w_logical_shape=w_logical_shape)
     if macro_kind == "inter":
         assert isinstance(config, InterArraySliceCimUnitConfig)
-        return _build_inter(config, name=name, w_logical_shape=w_logical_shape)
+        return _build_inter(config, w_logical_shape=w_logical_shape)
     assert isinstance(config, IntraArraySliceCimUnitConfig)
-    return _build_intra(config, name=name, w_logical_shape=w_logical_shape)
+    return _build_intra(config, w_logical_shape=w_logical_shape)
 
 
 def _randint_in_range(value_range: tuple[int, int], shape: tuple[int, ...]) -> torch.Tensor:
@@ -274,7 +265,7 @@ def test_chunk_pad_along_accepts_negative_axis() -> None:
 @pytest.mark.parametrize(("n", "k", "m"), _SHAPE_CASES)
 def test_ideal_xbar_macro_matches_torch_matmul_for_shape_cases(n: int, k: int, m: int) -> None:
     torch.manual_seed(900 + n * 13 + k * 7 + m)
-    macro = _build_ideal(_ideal_macro_config(), name="ideal", w_logical_shape=(n, k))
+    macro = _build_ideal(_ideal_macro_config(), w_logical_shape=(n, k))
     weight = _randint_in_range(macro.w_value_range, (n, k))
     activation = _randint_in_range(macro.x_value_range, (m, k))
     _assert_macro_matches_torch(macro, weight, activation)
@@ -283,7 +274,6 @@ def test_ideal_xbar_macro_matches_torch_matmul_for_shape_cases(n: int, k: int, m
 def test_ideal_xbar_macro_uses_lossless_integer_matmul() -> None:
     macro = _build_ideal(
         _ideal_macro_config(x_value_range=(-4095, 4095), w_value_range=(-4095, 4095)),
-        name="ideal_lossless",
         w_logical_shape=(3, 257),
     )
     weight = torch.full((3, 257), 4095, dtype=torch.int32)
@@ -294,7 +284,7 @@ def test_ideal_xbar_macro_uses_lossless_integer_matmul() -> None:
 @pytest.mark.parametrize(("n", "k", "m"), _SHAPE_CASES)
 def test_direct_xbar_macro_matches_torch_matmul_for_shape_cases(n: int, k: int, m: int) -> None:
     torch.manual_seed(1000 + n * 13 + k * 7 + m)
-    macro = _build_direct(_direct_config(), name="direct", w_logical_shape=(n, k))
+    macro = _build_direct(_direct_config(), w_logical_shape=(n, k))
     weight = _randint_in_range(macro.w_value_range, (n, k))
     activation = _randint_in_range(macro.x_value_range, (m, k))
     _assert_macro_matches_torch(macro, weight, activation)
@@ -303,7 +293,7 @@ def test_direct_xbar_macro_matches_torch_matmul_for_shape_cases(n: int, k: int, 
 def test_direct_xbar_macro_handles_multi_digit_xbar_words() -> None:
     torch.manual_seed(1)
     n, k, m = 13, 20, 8
-    macro = _build_direct(_direct_config(w_digit_count=2), name="direct_d2", w_logical_shape=(n, k))
+    macro = _build_direct(_direct_config(w_digit_count=2), w_logical_shape=(n, k))
     weight = torch.randint(-15, 16, (n, k), dtype=torch.int32)
     activation = torch.randint(0, 2, (m, k), dtype=torch.int32)
     _assert_macro_matches_torch(macro, weight, activation)
@@ -313,7 +303,7 @@ def test_direct_cim_unit_transcoder_matches_wired_cim_macro_place_values() -> No
     """BI-1: the wired ``CimMacro``'s digit geometry must drive the unit's
     weight transcoder, so digit place-values line up through the
     ``_build_cim_macro`` boundary (transcoder → macro)."""
-    macro = _build_direct(_direct_config(w_digit_count=2), name="direct_pv", w_logical_shape=(13, 20))
+    macro = _build_direct(_direct_config(w_digit_count=2), w_logical_shape=(13, 20))
     assert macro.w_transcoder.radix == macro.xbar.w_digit_radix
     assert macro.w_transcoder.digit_count == macro.xbar.w_digit_count
 
@@ -334,7 +324,7 @@ def test_direct_cim_unit_lsb_first_place_values_on_asymmetric_weights() -> None:
         area_per_inst__um2=0.0,
         leakage_per_inst__uW=0.0,
     )
-    macro = _build_direct(config, name="direct_asym", w_logical_shape=(2, 2))
+    macro = _build_direct(config, w_logical_shape=(2, 2))
     weight = torch.tensor([[1, 2], [-1, -2]], dtype=torch.int32)
     activation = torch.tensor([[1, 1]], dtype=torch.int32)
     _assert_macro_matches_torch(macro, weight, activation)
@@ -344,7 +334,7 @@ def test_direct_cim_unit_lsb_first_place_values_on_asymmetric_weights() -> None:
 def test_inter_array_slice_xbar_macro_matches_torch_matmul_for_shape_cases(n: int, k: int, m: int) -> None:
     torch.manual_seed(2000 + n * 13 + k * 7 + m)
     config = InterArraySliceCimUnitConfig(**_slice_config(w_slice_num=3, x_slice_num=4))
-    macro = _build_inter(config, name="inter", w_logical_shape=(n, k))
+    macro = _build_inter(config, w_logical_shape=(n, k))
     weight = _randint_in_range(macro.w_value_range, (n, k))
     activation = _randint_in_range(macro.x_value_range, (m, k))
     _assert_macro_matches_torch(macro, weight, activation)
@@ -354,7 +344,7 @@ def test_inter_array_slice_xbar_macro_matches_torch_matmul_for_shape_cases(n: in
 def test_intra_array_slice_xbar_macro_matches_torch_matmul_for_shape_cases(n: int, k: int, m: int) -> None:
     torch.manual_seed(3000 + n * 13 + k * 7 + m)
     config = IntraArraySliceCimUnitConfig(**_slice_config(w_slice_num=3, x_slice_num=4))
-    macro = _build_intra(config, name="intra", w_logical_shape=(n, k))
+    macro = _build_intra(config, w_logical_shape=(n, k))
     weight = _randint_in_range(macro.w_value_range, (n, k))
     activation = _randint_in_range(macro.x_value_range, (m, k))
     _assert_macro_matches_torch(macro, weight, activation)
@@ -384,7 +374,7 @@ def test_inter_array_slice_xbar_macro_matches_torch_for_slice_digit_cases(
             x_range=x_range,
         )
     )
-    macro = _build_inter(config, name="inter_digits", w_logical_shape=(n, k))
+    macro = _build_inter(config, w_logical_shape=(n, k))
     weight = _randint_in_range(macro.w_value_range, (n, k))
     activation = _randint_in_range(macro.x_value_range, (m, k))
     _assert_macro_matches_torch(macro, weight, activation)
@@ -414,7 +404,7 @@ def test_intra_array_slice_xbar_macro_matches_torch_for_slice_digit_cases(
             x_range=x_range,
         )
     )
-    macro = _build_intra(config, name="intra_digits", w_logical_shape=(n, k))
+    macro = _build_intra(config, w_logical_shape=(n, k))
     weight = _randint_in_range(macro.w_value_range, (n, k))
     activation = _randint_in_range(macro.x_value_range, (m, k))
     _assert_macro_matches_torch(macro, weight, activation)
@@ -423,9 +413,9 @@ def test_intra_array_slice_xbar_macro_matches_torch_for_slice_digit_cases(
 def test_direct_and_inter_slice_one_agree() -> None:
     torch.manual_seed(4)
     n, k, m = 13, 20, 8
-    direct = _build_direct(_direct_config(), name="direct", w_logical_shape=(n, k))
+    direct = _build_direct(_direct_config(), w_logical_shape=(n, k))
     inter_config = InterArraySliceCimUnitConfig(**_slice_config(w_slice_num=1, x_slice_num=1))
-    inter = _build_inter(inter_config, name="inter11", w_logical_shape=(n, k))
+    inter = _build_inter(inter_config, w_logical_shape=(n, k))
     weight = torch.randint(-3, 4, (n, k), dtype=torch.int32)
     activation = torch.randint(0, 2, (m, k), dtype=torch.int32)
 
@@ -442,8 +432,8 @@ def test_inter_and_intra_slice_macros_agree() -> None:
     n, k, m = 13, 20, 8
     inter_config = InterArraySliceCimUnitConfig(**_slice_config(w_slice_num=3, x_slice_num=4))
     intra_config = IntraArraySliceCimUnitConfig(**_slice_config(w_slice_num=3, x_slice_num=4))
-    inter = _build_inter(inter_config, name="inter", w_logical_shape=(n, k))
-    intra = _build_intra(intra_config, name="intra", w_logical_shape=(n, k))
+    inter = _build_inter(inter_config, w_logical_shape=(n, k))
+    intra = _build_intra(intra_config, w_logical_shape=(n, k))
     weight = torch.randint(-63, 64, (n, k), dtype=torch.int32)
     activation = torch.randint(0, 16, (m, k), dtype=torch.int32)
 
@@ -470,7 +460,7 @@ def test_macro_program_replaces_owned_weight_state(
 ) -> None:
     torch.manual_seed(6000)
     n, k, m = 13, 20, 8
-    macro = _build_macro_for_kind(macro_kind, config, name=f"stateful_{macro_kind}", w_logical_shape=(n, k))
+    macro = _build_macro_for_kind(macro_kind, config, w_logical_shape=(n, k))
     activation = _randint_in_range(macro.x_value_range, (m, k))
     weight_a = _randint_in_range(macro.w_value_range, (n, k))
     weight_b = _randint_in_range(macro.w_value_range, (n, k))
@@ -527,7 +517,7 @@ def test_xbar_macro_supports_weight_and_activation_batch_prefixes(
     activation_shape: tuple[int, ...],
 ) -> None:
     torch.manual_seed(7000 + len(weight_shape) * 100 + len(activation_shape))
-    macro = _build_macro_for_kind(macro_kind, config, name=f"batch_{macro_kind}", w_logical_shape=weight_shape)
+    macro = _build_macro_for_kind(macro_kind, config, w_logical_shape=weight_shape)
     weight = _randint_in_range(macro.w_value_range, weight_shape)
     activation = _randint_in_range(macro.x_value_range, activation_shape)
     _assert_macro_matches_torch(macro, weight, activation)
@@ -536,7 +526,6 @@ def test_xbar_macro_supports_weight_and_activation_batch_prefixes(
 def test_ideal_xbar_macro_public_properties() -> None:
     macro = _build_ideal(
         _ideal_macro_config(x_value_range=(-5, 7), w_value_range=(-11, 13)),
-        name="ideal_props",
         w_logical_shape=(13, 20),
     )
     assert macro.w_value_range == (-11, 13)
@@ -549,7 +538,6 @@ def test_ideal_xbar_macro_public_properties() -> None:
 def test_direct_xbar_macro_public_properties() -> None:
     macro = _build_direct(
         _direct_config(x_range=(0, 3), w_digit_count=2),
-        name="direct_props",
         w_logical_shape=(13, 20),
     )
     assert macro.w_value_range == (-15, 15)
@@ -565,7 +553,7 @@ def test_inter_array_slice_xbar_macro_public_properties() -> None:
     config = InterArraySliceCimUnitConfig(
         **_slice_config(w_slice_num=3, x_slice_num=2, x_range=(0, 3), w_digit_count=2)
     )
-    macro = _build_inter(config, name="inter_props", w_logical_shape=(13, 20))
+    macro = _build_inter(config, w_logical_shape=(13, 20))
     assert macro.w_value_range == (-4095, 4095)
     assert macro.x_value_range == (0, 15)
     # Ideal-backed → bits == 0 → identity rescale.
@@ -576,7 +564,7 @@ def test_intra_array_slice_xbar_macro_public_properties() -> None:
     config = IntraArraySliceCimUnitConfig(
         **_slice_config(w_slice_num=3, x_slice_num=2, x_range=(0, 3), w_digit_count=2)
     )
-    macro = _build_intra(config, name="intra_props", w_logical_shape=(13, 20))
+    macro = _build_intra(config, w_logical_shape=(13, 20))
     assert macro.w_value_range == (-4095, 4095)
     assert macro.x_value_range == (0, 15)
     # Ideal-backed → bits == 0 → identity rescale.
@@ -605,7 +593,6 @@ def test_xbar_macro_from_config_dispatches_to_registered_subclass(
     macro = CimUnit.from_config(
         config=config,
         policy=policy_by_config[type(config)],
-        name="from_config",
         w_logical_shape=(13, 20),
         dtype=torch.float32,
         T__K=300.0,

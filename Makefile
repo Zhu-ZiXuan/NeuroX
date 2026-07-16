@@ -220,7 +220,7 @@ docs-serve: ## Serve documentation locally
 
 .PHONY: docs-build
 docs-build: ## Build documentation site
-	mkdocs build
+	mkdocs build --strict
 
 
 # --- Cleaning ---

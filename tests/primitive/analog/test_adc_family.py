@@ -1,13 +1,13 @@
 """Tests for the ADC family.
 
-Covers the shared :class:`ADCMode` invariants and the two concrete
-implementations (:class:`GeneralADC`, :class:`McsSarAdc`) under the
+Covers the shared :class:`AdcMode` invariants and the two concrete
+implementations (:class:`GeneralVoltageAdc`, :class:`McsSarVoltageAdc`) under the
 **signed-code output convention**: every ADC's ``convert`` returns codes
 in ``[-2**(bits-1), 2**(bits-1) - 1]``.
 
-This file does NOT cover :class:`SarAdcMono`: that class lives in
-``neurox.primitive.analog.adc.sar_mono`` but is **not** re-exported from
-``neurox.primitive.analog.adc``. Its ``convert`` raises
+This file does NOT cover :class:`SarMonoVoltageAdc`: that class lives in
+``neurox.primitive.analog.voltage_adc.sar_mono`` but is **not** re-exported from
+``neurox.primitive.analog.voltage_adc``. Its ``convert`` raises
 ``NotImplementedError`` so it cannot participate in any end-to-end test.
 """
 
@@ -18,15 +18,14 @@ import math
 import pytest
 import torch
 
-from neurox.primitive.analog.adc import (
-    ADCMode,
-    AdcOperationPoint,
-    GeneralADC,
-    GeneralADCConfig,
-    GeneralADCPolicy,
-    McsSarAdc,
-    McsSarAdcConfig,
-    McsSarAdcPolicy,
+from neurox.primitive.analog.adc_common import AdcMode, AdcOperationPoint
+from neurox.primitive.analog.voltage_adc import (
+    GeneralVoltageAdc,
+    GeneralVoltageAdcConfig,
+    GeneralVoltageAdcPolicy,
+    McsSarVoltageAdc,
+    McsSarVoltageAdcConfig,
+    McsSarVoltageAdcPolicy,
 )
 from neurox.primitive.analog.voltage_reference import (
     VoltageReference,
@@ -46,7 +45,6 @@ def _ref_taps(taps: tuple[float, ...]) -> torch.Tensor:
             leakage_per_inst__uW=0.0,
         ),
         policy=VoltageReferencePolicy(tolerance=False, noise=False),
-        name="adc_v_ref",
         inst_shape=(),
         dtype=torch.float64,
         T__K=300.0,
@@ -55,7 +53,7 @@ def _ref_taps(taps: tuple[float, ...]) -> torch.Tensor:
 
 
 # ---------------------------------------------------------------------------
-# ADCMode invariants
+# AdcMode invariants
 # ---------------------------------------------------------------------------
 
 
@@ -64,34 +62,34 @@ def _ref_taps(taps: tuple[float, ...]) -> torch.Tensor:
     [(8, 256), (8, 193), (6, 64), (4, 16)],
 )
 def test_adc_mode_validation(n_bits: int, n_states: int) -> None:
-    mode = ADCMode(n_bits=n_bits, n_states=n_states, max_signal=1.2)
+    mode = AdcMode(n_bits=n_bits, n_states=n_states, max_signal=1.2)
     assert mode.n_codes == 1 << n_bits
     assert math.isclose(mode.lsb, 1.2 / mode.n_codes)
 
 
 def test_adc_mode_rejects_invalid_combos() -> None:
     with pytest.raises(ValueError):
-        ADCMode(n_bits=0, n_states=2, max_signal=1.0)
+        AdcMode(n_bits=0, n_states=2, max_signal=1.0)
     with pytest.raises(ValueError):
-        ADCMode(n_bits=4, n_states=1, max_signal=1.0)
+        AdcMode(n_bits=4, n_states=1, max_signal=1.0)
     with pytest.raises(ValueError):
-        ADCMode(n_bits=4, n_states=32, max_signal=1.0)
+        AdcMode(n_bits=4, n_states=32, max_signal=1.0)
     with pytest.raises(ValueError):
-        ADCMode(n_bits=4, n_states=4, max_signal=0.0)
+        AdcMode(n_bits=4, n_states=4, max_signal=0.0)
 
 
 # ---------------------------------------------------------------------------
-# GeneralADC convert — signed output
+# GeneralVoltageAdc convert — signed output
 # ---------------------------------------------------------------------------
 
 
-# GeneralADC is reference-free; convert accepts v_refs__V only for ADC-protocol
+# GeneralVoltageAdc is reference-free; convert accepts v_refs__V only for ADC-protocol
 # symmetry and ignores it. A 1-tap dummy keeps the call signature satisfied.
 _GENERAL_DUMMY_VREFS = torch.zeros(1, dtype=torch.float64)
 
 
-def _build_general_adc(boundaries: list[float]) -> GeneralADC:
-    config = GeneralADCConfig(
+def _build_general_adc(boundaries: list[float]) -> GeneralVoltageAdc:
+    config = GeneralVoltageAdcConfig(
         boundaries=tuple(boundaries),
         sampling_noise__V=0.0,
         comparator_noise__V=0.0,
@@ -101,11 +99,10 @@ def _build_general_adc(boundaries: list[float]) -> GeneralADC:
         leakage_per_inst__uW=0.0,
         area_per_inst__um2=0.0,
     )
-    policy = GeneralADCPolicy(sampling_noise=False, comparator_noise=False)
-    return GeneralADC(
+    policy = GeneralVoltageAdcPolicy(sampling_noise=False, comparator_noise=False)
+    return GeneralVoltageAdc(
         config=config,
         policy=policy,
-        name="general_adc",
         inst_shape=(1,),
         dtype=torch.float64,
         T__K=300.0,
@@ -175,19 +172,19 @@ class TestGeneralAdcSignedConvert:
 
 
 # ---------------------------------------------------------------------------
-# McsSarAdc convert — signed output, multi-mode, flexible bits
+# McsSarVoltageAdc convert — signed output, multi-mode, flexible bits
 # ---------------------------------------------------------------------------
 
 
 def _build_mcs_sar_adc(
     max_bits: int = 4, v_refs: tuple[float, ...] = (0.8, 0.4, 0.2)
-) -> tuple[McsSarAdc, torch.Tensor]:
-    """Build an McsSarAdc and the injectable ``v_refs__V`` tap tensor.
+) -> tuple[McsSarVoltageAdc, torch.Tensor]:
+    """Build an McsSarVoltageAdc and the injectable ``v_refs__V`` tap tensor.
 
     The taps stay paired with the ADC here so each test's ``adc_mode``
     indexes the expected tap (mode 0 = first tap, etc.).
     """
-    config = McsSarAdcConfig(
+    config = McsSarVoltageAdcConfig(
         max_bits=max_bits,
         clk_period__ns=2.0,
         c_unit__fF=2.0,
@@ -199,16 +196,15 @@ def _build_mcs_sar_adc(
         leakage_per_inst__uW=0.0,
         area_per_inst__um2=0.0,
     )
-    policy = McsSarAdcPolicy(
+    policy = McsSarVoltageAdcPolicy(
         cap_mismatch=False,
         comparator_offset=False,
         comparator_thermal_noise=False,
         sampling_thermal_noise=False,
     )
-    adc = McsSarAdc(
+    adc = McsSarVoltageAdc(
         config=config,
         policy=policy,
-        name="mcs_sar",
         inst_shape=(1,),
         dtype=torch.float64,
         T__K=300.0,
@@ -216,7 +212,7 @@ def _build_mcs_sar_adc(
     return adc, _ref_taps(v_refs)
 
 
-class TestMcsSarAdcSignedConvert:
+class TestMcsSarVoltageAdcSignedConvert:
     def test_output_lies_in_signed_range_at_max_bits(self) -> None:
         adc, v_refs = _build_mcs_sar_adc(max_bits=4)
         adc.eval()

@@ -53,10 +53,9 @@ class Accumulator(DigitalBase[AccumulatorConfig]):
         *,
         config: AccumulatorConfig,
         policy: DigitalPolicy,
-        name: str,
         inst_shape: tuple[int, ...],
     ) -> None:
-        super().__init__(config=config, policy=policy, name=name, inst_shape=inst_shape)
+        super().__init__(config=config, policy=policy, inst_shape=inst_shape)
         self._area_per_inst__um2 = config.area_per_inst__um2
         self._leakage_per_inst__uW = config.leakage_per_inst__uW
 

@@ -2,7 +2,7 @@
 
 ## Scope
 
-A base document describes the abstract root a polymorphic family inherits. It specifies the surface every subclass inherits and the obligations every subclass must meet: the shared contract, never any one implementation. It speaks in family-level role language and names no concrete subclass.
+A base document describes the abstract root a polymorphic family inherits — the shared contract, never any one implementation. It speaks in family-level role language and names no concrete subclass.
 
 The same template covers a family base and the root base every electrical-circuit module inherits. Which concrete members a family has belongs in the family README, not here.
 
@@ -19,8 +19,6 @@ Only `Contracts & invariants` is required; an optional lead paragraph under the 
 
 ## Contracts & invariants
 
-## Composition
-
 ---
 
 - **Reference**: [<family doc>](<relative .md path>), N/A — <reason>, or [<README>](<relative .md path>)
@@ -31,9 +29,8 @@ Only `Contracts & invariants` is required; an optional lead paragraph under the 
 ## Filling each section
 
 - Lead paragraph [optional]: the family's role and the boundary of what the base does not own, in role language; keep it only when it synthesizes more than the H1, route the reader to the README for the concrete members, and never hard-link a concrete subclass. Do not add a `## Summary` heading.
-- `Design decisions` [on demand, usually present]: the family-level software rationale — config-type dispatch, an empty-marker `Config` / `Policy`, the membership call (whether the base itself inherits the root base), the generic or type-parameterized surface, and any rejected alternative.
-- `Contracts & invariants` [required]: the payload. State the shared surface the base provides, the abstract obligations each subclass must implement (signature and semantics), and the invariants the base guarantees. Role language only; no concrete-subclass link.
-- `Composition` [on demand]: the mixin stack and MRO order, and the membership boundary — what is inside the base and what is deliberately out.
+- `Design decisions` [on demand, usually present]: the family-level software rationale, told as *why it is so* rather than restated from the class statement — config-type dispatch, an empty-marker `Config` / `Policy`, the membership calls (whether the base itself inherits the root base, and which responsibilities are deliberately left outside it), and the generic or type-parameterized surface.
+- `Contracts & invariants` [required]: the payload. State the family-wide guarantee no single symbol carries — what every subclass's implementation must satisfy beyond its signature, and the output, range, and ownership invariants the base holds across the family. Cite a per-symbol contract at its docstring instead of re-listing it. Role language only; no concrete-subclass link.
 
 Add a family-level performance or compile-boundary note only when one genuinely exists at the shared layer; otherwise omit it — never write `N/A at this level`. A base owns no parameters, so it has no `Parameters` section; parameters belong to the concrete scheme and roll up into PPA. If a shared parameter is truly unavoidable, state it in one sentence rather than adding the section.
 
@@ -43,7 +40,7 @@ The footer is traceability. `Reference` links the family's Reference document, o
 
 ### Software is the subject
 
-A base document specifies software structure — the shared surface, the abstract obligations, and the invariants — and that structure is its proper subject; class and Protocol names belong here. It does not re-narrate or restate the family's Reference spec: where a contract rests on a physical fact, state the fact once in Reference and cite it.
+A base document specifies software structure, and that structure is its proper subject; class and Protocol names belong here. It does not re-narrate or restate the family's Reference spec: where a contract rests on a physical fact, state the fact once in Reference and cite it.
 
 ### No downward links
 
@@ -51,4 +48,4 @@ A concrete subclass depends on its base, so the base is the lower module and its
 
 ### Contracts & invariants
 
-The base is the single home of the family's shared contract; a leaf document states only its own deltas and never restates the contract. Put here every obligation and invariant common to the family — the construction signature, the abstract method surface with its semantics, and the guaranteed output, range, and ownership invariants — so each leaf can rely on this one authoritative statement.
+The base is the single home of the family-wide guarantee: a leaf document states only its own deltas, so every member can rely on one authoritative statement.

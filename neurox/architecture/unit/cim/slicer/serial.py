@@ -1,7 +1,7 @@
 """SerialSlicer — true-form radix-``r`` positional decomposition.
 
 See also:
-    docs/reference/architecture/unit/base.md
+    docs/reference/architecture/unit/family.md
 """
 
 from __future__ import annotations

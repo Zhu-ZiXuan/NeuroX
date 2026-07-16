@@ -13,7 +13,7 @@ import torch
 from torch import Tensor
 
 from neurox.common.encoding import Encoding, Transcoder
-from neurox.primitive.analog.adc import AdcOperationPoint
+from neurox.primitive.analog.adc_common import AdcOperationPoint
 from neurox.primitive.digital import (
     Accumulator,
     AccumulatorConfig,
@@ -73,7 +73,6 @@ class DirectCimUnit(CimUnit):
         *,
         config: DirectCimUnitConfig,
         policy: DirectCimUnitPolicy,
-        name: str,
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -82,7 +81,6 @@ class DirectCimUnit(CimUnit):
         super().__init__(
             config=config,
             policy=policy,
-            name=name,
             w_logical_shape=w_logical_shape,
             dtype=dtype,
             T__K=T__K,
@@ -118,11 +116,9 @@ class DirectCimUnit(CimUnit):
         self._n_logical = n_logical
         self._row_tile_num = tr
 
-        prefix = f"{name}." if name else ""
         self.col_accumulator = Accumulator(
             config=config.col_accumulator_config,
             policy=DigitalPolicy(),
-            name=f"{prefix}col_accumulator",
             inst_shape=(self._w_parallel_size, tr),
         )
 

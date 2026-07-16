@@ -29,7 +29,6 @@ Granularity is the main design choice:
 
 - **C1 — wrap `solve_array`.** Hides the solver chunk loop; readout stays on the traceable path; output is the clamp-voltage tensor. Cleanest output shape, but `solve_array`'s profiler emit and energy bookkeeping are side effects that a (functional) op must not hold internally.
 - **C2 — wrap `vec_mat_mul`.** Hides core and readout together; output is the ADC-code tensor the macro wants. Larger black box, so the macro can fuse no readout math, and the ADC operating point / rescale enter the op.
-- **C3 — wrap only the per-chunk solve body.** Rejected: the chunk loop stays in the parent graph, so the graph holds a custom-op node per chunk and still grows with chunk count — it hides one chunk's internals, not the loop.
 
 Because the op must be functional, it requires scheme B first: all state arrives as tensor arguments, a Python wrapper extracts those tensors from the xbar/core objects, and the op body only computes. Profiler events are emitted **outside** the op (or the op returns energy/latency tensors recorded by an eager wrapper) — Python list mutation must never sit inside a `fullgraph` target.
 

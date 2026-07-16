@@ -7,8 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from neurox.common.serialize import dict_from_file
-from neurox.common.serialize import compose
+from neurox.common.serialize import compose, dict_from_file
 from neurox.common.serialize.build import dataclass_from_dict
 from neurox.common.serialize.compose import load_config_dict, resolve_uses
 

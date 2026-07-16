@@ -80,13 +80,13 @@ class QATLeNet5(nn.Module):
 # ---------------------------------------------------------------------------
 
 
-def _conv_macro(factory: MacroFactory, name: str, out_channels: int, in_channels: int, kernel_size: int) -> QuantMatMul:
+def _conv_macro(factory: MacroFactory, out_channels: int, in_channels: int, kernel_size: int) -> QuantMatMul:
     """Build a macro shaped for this conv layer's unfolded matmul."""
-    return factory(name=name, w_logical_shape=(out_channels, in_channels * kernel_size * kernel_size))
+    return factory(w_logical_shape=(out_channels, in_channels * kernel_size * kernel_size))
 
 
-def _linear_macro(factory: MacroFactory, name: str, out_features: int, in_features: int) -> QuantMatMul:
-    return factory(name=name, w_logical_shape=(out_features, in_features))
+def _linear_macro(factory: MacroFactory, out_features: int, in_features: int) -> QuantMatMul:
+    return factory(w_logical_shape=(out_features, in_features))
 
 
 class QuantLeNet5(nn.Module):
@@ -105,14 +105,14 @@ class QuantLeNet5(nn.Module):
     ) -> None:
         super().__init__()
         self.conv1 = QuantConv2d.from_state(
-            macro=_conv_macro(macro_factory, "conv1", 6, 1, 5),
+            macro=_conv_macro(macro_factory, 6, 1, 5),
             state=layer_state["conv1"],
             adc_mode=_LAYER_MODE["conv1"],
         )
         self.relu1 = nn.ReLU()
         self.pool1 = nn.MaxPool2d(2, 2)
         self.conv2 = QuantConv2d.from_state(
-            macro=_conv_macro(macro_factory, "conv2", 16, 6, 5),
+            macro=_conv_macro(macro_factory, 16, 6, 5),
             state=layer_state["conv2"],
             adc_mode=_LAYER_MODE["conv2"],
         )
@@ -120,19 +120,19 @@ class QuantLeNet5(nn.Module):
         self.pool2 = nn.MaxPool2d(2, 2)
         self.flatten = nn.Flatten()
         self.fc1 = QuantLinear.from_state(
-            macro=_linear_macro(macro_factory, "fc1", 120, 16 * 5 * 5),
+            macro=_linear_macro(macro_factory, 120, 16 * 5 * 5),
             state=layer_state["fc1"],
             adc_mode=_LAYER_MODE["fc1"],
         )
         self.relu3 = nn.ReLU()
         self.fc2 = QuantLinear.from_state(
-            macro=_linear_macro(macro_factory, "fc2", 84, 120),
+            macro=_linear_macro(macro_factory, 84, 120),
             state=layer_state["fc2"],
             adc_mode=_LAYER_MODE["fc2"],
         )
         self.relu4 = nn.ReLU()
         self.fc3 = QuantLinear.from_state(
-            macro=_linear_macro(macro_factory, "fc3", num_classes, 84),
+            macro=_linear_macro(macro_factory, num_classes, 84),
             state=layer_state["fc3"],
             adc_mode=_LAYER_MODE["fc3"],
         )

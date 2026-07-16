@@ -82,7 +82,6 @@ class SwitchCap(AnalogBase[SwitchCapConfig, SwitchCapPolicy]):
     Args:
         config: Concrete configuration dataclass.
         policy: Per-source nonideality enable flags.
-        name: Hierarchical instance name used by the profiler.
         inst_shape: Per-instance fabrication shape.
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature.
@@ -97,13 +96,12 @@ class SwitchCap(AnalogBase[SwitchCapConfig, SwitchCapPolicy]):
         *,
         config: SwitchCapConfig,
         policy: SwitchCapPolicy,
-        name: str,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
         cap_weights: tuple[float, ...],
     ) -> None:
-        super().__init__(config=config, policy=policy, name=name, inst_shape=inst_shape)
+        super().__init__(config=config, policy=policy, inst_shape=inst_shape)
         if not (T__K > 0.0):
             raise ValueError(f"SwitchCap.T__K ({T__K}) must be > 0")
         if len(cap_weights) < 1:

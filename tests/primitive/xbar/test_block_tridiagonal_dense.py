@@ -116,7 +116,9 @@ def test_dense_m_matrix_wire_jacobian_2x2(device: torch.device) -> None:
     off[..., 1, 1] = -wire_g
     sub = off.clone()
     sup = off.clone()
-    rhs = torch.randn(n, b, dtype=torch.float64, generator=torch.Generator(device=device).manual_seed(99), device=device)
+    rhs = torch.randn(
+        n, b, dtype=torch.float64, generator=torch.Generator(device=device).manual_seed(99), device=device
+    )
 
     x = solve_block_tridiagonal_dense(sub, diag, sup, rhs)
     a_dense = _dense_from_blocks(sub, diag, sup)

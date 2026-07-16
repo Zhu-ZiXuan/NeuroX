@@ -65,14 +65,13 @@ class TIA(
         *,
         config: TIAConfig,
         policy: TIAPolicy,
-        name: str,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
     ) -> None:
-        """Register the instance with :class:`nn.Module` and the profiler."""
+        """Register the instance with :class:`nn.Module`."""
         del dtype, T__K  # captured by the subclass init
-        super().__init__(config=config, policy=policy, name=name, inst_shape=inst_shape)
+        super().__init__(config=config, policy=policy, inst_shape=inst_shape)
 
     @classmethod
     def from_config(
@@ -80,7 +79,6 @@ class TIA(
         *,
         config: TIAConfig,
         policy: TIAPolicy,
-        name: str,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -90,7 +88,6 @@ class TIA(
         return impl(
             config=config,
             policy=policy,
-            name=name,
             inst_shape=inst_shape,
             dtype=dtype,
             T__K=T__K,

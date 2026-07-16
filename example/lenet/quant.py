@@ -41,7 +41,7 @@ from neurox.common.quant import (
     fake_quant_symm_per_channel_ste,
     stochastic_floor_div,
 )
-from neurox.primitive.analog.adc import AdcOperationPoint
+from neurox.primitive.analog.adc_common import AdcOperationPoint
 
 # --- LeNet quantization grid ---
 X_QMIN = 0

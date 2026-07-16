@@ -29,7 +29,7 @@ No tile geometry or slice counts enter: the model does no tiling or slicing. Pro
 
 ## Symbols
 
-This mode introduces no new symbols. The logical dims ($N$, $K$, $M$), the value-domain ranges, and the ADC surface are in [unit/base](../base.md#symbols).
+This mode introduces no new symbols. The logical dims ($N$, $K$, $M$), the value-domain ranges, and the ADC surface are in [unit/family](../family.md#symbols).
 
 ## Assumptions, scope & validity
 

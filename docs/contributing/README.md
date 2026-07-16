@@ -8,7 +8,6 @@ Entry point for the NeuroX contributing guides — authoring documentation, the 
 - [writing_module_docs](writing_module_docs.md) — a single module's Reference document
 - [writing_base_docs](writing_base_docs.md) — the shared Internals contract of an abstract base
 - [writing_leaf_docs](writing_leaf_docs.md) — a single concrete member's Internals document
-- [writing_mixin_docs](writing_mixin_docs.md) — a reusable mixin's Internals document
 - [workflow](workflow.md) — branch / PR flow and quality gates
 - [recipes](recipes.md) — task-shape checklists and routing
 

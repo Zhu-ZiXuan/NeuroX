@@ -1,8 +1,4 @@
-"""Serialization machinery: the single import boundary consumers touch.
-
-See also:
-    docs/internals/common/serialize/README.md
-"""
+"""Serialization machinery: the single import boundary consumers touch."""
 
 from neurox.common.serialize.build import (
     T,

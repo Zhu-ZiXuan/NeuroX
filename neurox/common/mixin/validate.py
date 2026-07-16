@@ -1,8 +1,4 @@
-"""Runtime-check helpers for host ``validate`` methods.
-
-See also:
-    docs/internals/common/mixin/validate.md
-"""
+"""Runtime-check helpers for host ``validate`` methods."""
 
 from __future__ import annotations
 
@@ -16,10 +12,12 @@ class ValidateMixin:
     A host inherits this and calls the helpers through ``self`` from inside its
     own ``validate_*`` methods to assert runtime constraints that static typing
     cannot express — numeric bounds, monotonicity, length, cross-field
-    relations. It is a pure helper: it owns no field, no construction hook, and
-    no ``validate`` of its own, so inheriting it supplies the checks but does
-    not by itself make a host validated — running validation at construction is
-    the host's to wire.
+    relations. Each helper raises ``ValueError`` on the first violated
+    constraint, so a host that validates at construction never comes into
+    existence in a partially-valid state. It is a pure helper: it owns no
+    field, no construction hook, and no ``validate`` of its own, so inheriting
+    it supplies the checks but does not by itself make a host validated —
+    running validation at construction is the host's to wire.
 
     Host requirements:
         - Inherit ``ValidateMixin`` and reach the helpers through ``self``.
@@ -31,6 +29,7 @@ class ValidateMixin:
           with a leading ``super().validate()`` so the chain runs end to end.
     """
 
+    # The helpers read no instance state, so they are static; self._require_* at the call site is only for readability.
     @staticmethod
     def _require_gt(value: float, name: str, ref: float) -> None:
         """Require ``value`` > ``ref``."""

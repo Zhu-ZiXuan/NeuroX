@@ -39,7 +39,7 @@ Activations are unsigned true-form by definition, so the mode carries no activat
 | $D$ | digits per slice (digit count) | — | `xbar.w_digit_count` |
 | $r$ | digit radix | — | `xbar.w_digit_radix` |
 
-The logical dims ($N$, $K$, $M$), the value-domain symbols, and the ADC surface are in [unit/base](../base.md#symbols).
+The logical dims ($N$, $K$, $M$), the value-domain symbols, and the ADC surface are in [unit/family](../family.md#symbols).
 
 ## Assumptions, scope & validity
 

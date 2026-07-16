@@ -30,7 +30,7 @@ The encoding choice selects which digit alphabet — and therefore which represe
 
 ## Design decisions
 
-- **Encoding is selected by a string discriminator, not an `isinstance` ladder.** `Transcoder` is a registry family keyed by the `Encoding` literal, so adding an encoding is one new file plus one registration decorator and never edits a shared factory; the dispatch substrate is [registry](../mixin/registry.md).
+- **Encoding is selected by a string discriminator, not an `isinstance` ladder.** `Transcoder` is a `RegistryMixin` family keyed by the `Encoding` literal, so adding an encoding is one new file plus one registration decorator and never edits a shared factory.
 - **`decode` lives on the ABC; only `encode` and `value_range` are abstract.** The positional weighted sum is identical for every encoding (they differ only in the forward alphabet), so the shared reduction is written once on the base. Pushing it down to subclasses would duplicate it three ways and let them drift.
 
 ## Contracts & invariants

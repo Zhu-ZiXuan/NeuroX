@@ -2,7 +2,7 @@
 
 ## Design decisions
 
-- **`cap_weights` is an `__init__` argument, not a config field.** The per-cap weights are a structural deployment property fixed at construction - they do not change across re-fabricates - whereas the config describes the unit cell (capacitance, mismatch sigma, PPA). Putting `cap_weights` and `inst_shape` together in `__init__` matches the canonical leaf signature shared with MOSFET / ADC / DAC / mux / driver / TIA, which makes `_sample_fabricate_mismatch` a pure shape-only resampling step. Rejected - a config field: it would conflate "what cell" with "how deployed" and force the config to vary per call site.
+- **`cap_weights` is an `__init__` argument, not a config field.** The per-cap weights are a structural deployment property fixed at construction - they do not change across re-fabricates - whereas the config describes the unit cell (capacitance, mismatch sigma, PPA). Putting `cap_weights` and `inst_shape` together in `__init__` matches the canonical leaf signature shared with MOSFET / ADC / DAC / mux / driver / TIA, which makes `_sample_fabricate_mismatch` a pure shape-only resampling step.
 - **The class is encoding-agnostic.** The semantic meaning of the weights (binary, unit, positional digit) is not part of the `SwitchCap` contract; a consumer assigns it, keeping one bank reusable across encodings.
 - **`T__K` is an `__init__` argument, not a config field.** It sets the kT/C noise sigma - an operating-state quantity, not a design parameter - so it is bound with the operating point at construction, not frozen into the design config.
 

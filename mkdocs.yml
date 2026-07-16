@@ -72,20 +72,30 @@ nav:
     - Current mirror: reference/primitive/analog/current_mirror.md
     - Current mux: reference/primitive/analog/current_mux.md
     - Current reference: reference/primitive/analog/current_reference.md
+    - Current subtractor: reference/primitive/analog/current_subtractor.md
     - Switch cap: reference/primitive/analog/switch_cap.md
     - Voltage driver: reference/primitive/analog/voltage_driver.md
     - Voltage mux: reference/primitive/analog/voltage_mux.md
     - Voltage reference: reference/primitive/analog/voltage_reference.md
-    - ADC:
-      - Overview: reference/primitive/analog/adc/README.md
-      - Family: reference/primitive/analog/adc/family.md
-      - General: reference/primitive/analog/adc/general.md
-      - MCS SAR: reference/primitive/analog/adc/mcs_sar.md
-      - SAR mono: reference/primitive/analog/adc/sar_mono.md
-    - DAC:
-      - Overview: reference/primitive/analog/dac/README.md
-      - Family: reference/primitive/analog/dac/family.md
-      - General: reference/primitive/analog/dac/general.md
+    - Voltage ADC:
+      - Overview: reference/primitive/analog/voltage_adc/README.md
+      - Family: reference/primitive/analog/voltage_adc/family.md
+      - General: reference/primitive/analog/voltage_adc/general.md
+      - MCS SAR: reference/primitive/analog/voltage_adc/mcs_sar.md
+      - SAR mono: reference/primitive/analog/voltage_adc/sar_mono.md
+    - Current ADC:
+      - Overview: reference/primitive/analog/current_adc/README.md
+      - Family: reference/primitive/analog/current_adc/family.md
+      - SAR: reference/primitive/analog/current_adc/sar.md
+    - ADC common: reference/primitive/analog/adc_common.md
+    - Voltage DAC:
+      - Overview: reference/primitive/analog/voltage_dac/README.md
+      - Family: reference/primitive/analog/voltage_dac/family.md
+      - General: reference/primitive/analog/voltage_dac/general.md
+    - Current DAC:
+      - Overview: reference/primitive/analog/current_dac/README.md
+      - Family: reference/primitive/analog/current_dac/family.md
+      - General: reference/primitive/analog/current_dac/general.md
     - TIA:
       - Overview: reference/primitive/analog/tia/README.md
       - Family: reference/primitive/analog/tia/family.md
@@ -104,7 +114,7 @@ nav:
     - Subtractor: reference/primitive/digital/subtractor.md
   - Unit:
     - Overview: reference/architecture/unit/README.md
-    - Family: reference/architecture/unit/base.md
+    - Family: reference/architecture/unit/family.md
     - CIM:
       - Overview: reference/architecture/unit/cim/README.md
       - Direct: reference/architecture/unit/cim/direct.md
@@ -139,30 +149,40 @@ nav:
   - Package surface: internals/package_surface.md
   - Analog:
     - Overview: internals/primitive/analog/README.md
+    - Base: internals/primitive/analog/base.md
     - Current mirror: internals/primitive/analog/current_mirror.md
     - Current mux: internals/primitive/analog/current_mux.md
     - Current reference: internals/primitive/analog/current_reference.md
+    - Current subtractor: internals/primitive/analog/current_subtractor.md
     - Switch cap: internals/primitive/analog/switch_cap.md
     - Voltage driver: internals/primitive/analog/voltage_driver.md
     - Voltage mux: internals/primitive/analog/voltage_mux.md
     - Voltage reference: internals/primitive/analog/voltage_reference.md
-    - ADC:
-      - Overview: internals/primitive/analog/adc/README.md
-      - Base: internals/primitive/analog/adc/base.md
-      - General: internals/primitive/analog/adc/general.md
-      - MCS SAR: internals/primitive/analog/adc/mcs_sar.md
-      - SAR mono: internals/primitive/analog/adc/sar_mono.md
-    - DAC:
-      - Overview: internals/primitive/analog/dac/README.md
-      - Base: internals/primitive/analog/dac/base.md
-      - General: internals/primitive/analog/dac/general.md
+    - Voltage ADC:
+      - Overview: internals/primitive/analog/voltage_adc/README.md
+      - Base: internals/primitive/analog/voltage_adc/base.md
+      - General: internals/primitive/analog/voltage_adc/general.md
+      - MCS SAR: internals/primitive/analog/voltage_adc/mcs_sar.md
+      - SAR mono: internals/primitive/analog/voltage_adc/sar_mono.md
+    - Current ADC:
+      - Overview: internals/primitive/analog/current_adc/README.md
+      - Base: internals/primitive/analog/current_adc/base.md
+      - SAR: internals/primitive/analog/current_adc/sar.md
+    - Voltage DAC:
+      - Overview: internals/primitive/analog/voltage_dac/README.md
+      - Base: internals/primitive/analog/voltage_dac/base.md
+      - General: internals/primitive/analog/voltage_dac/general.md
+    - Current DAC:
+      - Overview: internals/primitive/analog/current_dac/README.md
+      - Base: internals/primitive/analog/current_dac/base.md
+      - General: internals/primitive/analog/current_dac/general.md
     - TIA:
       - Overview: internals/primitive/analog/tia/README.md
       - Base: internals/primitive/analog/tia/base.md
       - Opamp TIA: internals/primitive/analog/tia/opamp_tia.md
   - Common:
     - Overview: internals/common/README.md
-    - Circuit: internals/primitive/circuit.md
+    - Base: internals/common/base.md
     - Encoding:
       - Overview: internals/common/encoding/README.md
       - Encodings: internals/common/encoding/encodings.md
@@ -170,12 +190,6 @@ nav:
     - Physical constant: internals/primitive/physical_constant.md
     - Profiler: internals/common/profiler.md
     - Quant: internals/common/quant.md
-    - Mixin:
-      - Overview: internals/common/mixin/README.md
-      - Fabricate: internals/common/mixin/fabricate.md
-      - Profile: internals/common/mixin/profile.md
-      - Registry: internals/common/mixin/registry.md
-      - Validate: internals/common/mixin/validate.md
   - Device:
     - Overview: internals/primitive/device/README.md
     - MOSFET: internals/primitive/device/mosfet.md
@@ -190,7 +204,7 @@ nav:
     - Subtractor: internals/primitive/digital/subtractor.md
   - Unit:
     - Overview: internals/architecture/unit/README.md
-    - Base: internals/architecture/unit/base.md
+    - Matmul: internals/architecture/unit/matmul.md
     - CIM:
       - Overview: internals/architecture/unit/cim/README.md
       - Base: internals/architecture/unit/cim/base.md
@@ -200,7 +214,7 @@ nav:
       - Intra-array slice: internals/architecture/unit/cim/intra_array_slice.md
       - Slicer:
         - Overview: internals/architecture/unit/cim/slicer/README.md
-        - Slicer: internals/architecture/unit/cim/slicer/slicer.md
+        - Base: internals/architecture/unit/cim/slicer/base.md
   - Crossbar:
     - Overview: internals/primitive/xbar/README.md
     - Base: internals/primitive/macro/cim/base.md
@@ -226,7 +240,6 @@ nav:
   - Writing module docs: contributing/writing_module_docs.md
   - Writing base docs: contributing/writing_base_docs.md
   - Writing leaf docs: contributing/writing_leaf_docs.md
-  - Writing mixin docs: contributing/writing_mixin_docs.md
   - Workflow: contributing/workflow.md
   - Recipes: contributing/recipes.md
 - About:

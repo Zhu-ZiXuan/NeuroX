@@ -8,7 +8,7 @@
 ## Contracts & invariants
 
 - **Canonical leaf signature.** The per-instance count is locked from `inst_shape` at construction.
-- **Bare of PPA.** The mirror accounts no dynamic energy and carries no static-PPA surface — it is a bare `AnalogBase` leaf ([base](base.md)) with no `ProfileMixin`; its area and static power roll up into the owning current-domain circuit's config.
+- **Static PPA rolls up to the owner.** The mirror's silicon is accounted in the owning current-domain circuit's config, so it declares no per-instance area or leakage data of its own and sets `reports_static_ppa` false ([base](base.md)).
 
 ## Performance & resources
 

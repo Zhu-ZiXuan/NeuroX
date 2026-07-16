@@ -71,7 +71,6 @@ def _make(
     return ref_cls(
         config=config,
         policy=policy_cls(tolerance=tolerance, noise=noise),
-        name="ref",
         inst_shape=inst_shape,
         dtype=torch.float64,
         T__K=300.0,

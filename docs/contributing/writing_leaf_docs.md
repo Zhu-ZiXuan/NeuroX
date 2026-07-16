@@ -6,7 +6,7 @@ A leaf document captures one concrete scheme's own software — one member of a 
 
 A leaf document holds:
 
-- design decisions and rejected alternatives
+- design decisions
 - its differences from the base contract, and its own cross-file contracts, ownership, and lifecycle rules
 - shape / dtype / buffer and compile invariants
 - complexity, memory model, and performance trade-offs
@@ -42,7 +42,7 @@ A leaf document's H1 is verbatim identical to its module document's title; when 
 
 An optional lead paragraph directly under the H1 stands in for a Summary: one-line orientation. Keep it only when it synthesizes more than the H1; omit it otherwise, and do not add a `## Summary` heading. The matching Reference spec is linked from the footer.
 
-- `Design decisions`: the core section — non-obvious choices, their rationale, rejected alternatives, and verification-strategy rationale, not ordinary implementation steps.
+- `Design decisions`: the core section — non-obvious choices, their rationale, and verification-strategy rationale, not ordinary implementation steps.
 - `Contracts & invariants`: the cross-file rules and invariants.
 - `Performance & resources`: complexity, memory model, chunking, dtype trade-offs, compile boundaries, and benchmark implications.
 - `Gotchas`: error-prone behavior and anti-patterns.

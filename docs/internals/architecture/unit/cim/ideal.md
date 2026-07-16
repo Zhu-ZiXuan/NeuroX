@@ -5,7 +5,7 @@ The degenerate `CimUnit` family member: it joins the registry without owning a t
 ## Design decisions
 
 - **In the registry, but skips every layered step.** It registers via `@CimUnit.register_key(IdealCimUnitConfig)` so it shares the family factory and the `QuantMatMul` surface, but it declares no `xbar`, builds none (`_build_cim_macro` is never called), carries an empty `IdealCimUnitPolicy`, and sets its `IdealCimUnitConfig` unit-local peripheral PPA (`area_per_inst__um2` / `leakage_per_inst__uW`) to zero — the no-overhead reference. The family signature args `policy` / `dtype` / `T__K` / `ideal_xbar` are accepted for uniformity and ignored.
-- **Sentinel ADC surface.** `adc_mode_num == 1`, `adc_max_bits == 0`, `adc_rescale_factor == 1.0`. The `0` bit count is the "no output quantization" sentinel — see [base](../base.md).
+- **Sentinel ADC surface.** `adc_mode_num == 1`, `adc_max_bits == 0`, `adc_rescale_factor == 1.0`. The `0` bit count is the "no output quantization" sentinel — see [matmul](../matmul.md).
 - **0-d nominal weight buffer.** `weight` and `nominal_weight` register as 0-d `int32` buffers (`persistent=False`), giving `weight` a defined attribute placeholder before any `program` call while keeping it out of the state dict.
 
 ## Contracts & invariants
@@ -15,7 +15,7 @@ The degenerate `CimUnit` family member: it joins the registry without owning a t
 
 ## Performance & resources
 
-A single dense `int64` matmul; no tiling, no analog cost. No PPA contribution (no constituent circuits), so profiler aggregation over an ideal unit is sparse.
+A single dense `int64` matmul; no tiling, no analog cost. Its own peripheral PPA is the reference zero and it owns no circuit children to report any, so profiler aggregation over an ideal unit is sparse.
 
 ## Gotchas
 

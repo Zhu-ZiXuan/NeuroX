@@ -1,7 +1,7 @@
 """SimpleSlicer — direct digitise-then-group decomposer.
 
 See also:
-    docs/reference/architecture/unit/base.md
+    docs/reference/architecture/unit/family.md
 """
 
 from __future__ import annotations

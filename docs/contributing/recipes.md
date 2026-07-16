@@ -19,12 +19,12 @@ Small internal refactors that do not change behavior or contracts may skip Refer
 
 ## Add a pure electrical primitive
 
-Applies to foundational electrical models such as devices and other primitive I/V elements that are bare `ModuleBase` leaves (no `ProfileMixin`, no PPA).
+Applies to foundational electrical models such as devices and other primitive I/V elements whose silicon rolls up to an owning block, so they self-account no static PPA.
 
 Use the common checklist, then:
 
-- Define `*Config` and, when runtime switches exist, `*Policy`.
-- Implement the primitive as a bare `ModuleBase` leaf (it composes `nn.Module` + `FabricateMixin`; no `ProfileMixin`).
+- Define `*Config` and, when runtime switches exist, `*Policy`; declare no per-instance area / leakage fields, as the owner budgets them.
+- Implement the primitive as a `ModuleBase` leaf that overrides `reports_static_ppa: ClassVar[bool] = False`, so the profiler's static walk skips it and its area and leakage are counted once at the owner.
 - Follow the physical-state and lifecycle contracts in [physical_state](../internals/physical_state.md).
 - Provide `snapshot` and / or `solve_dc` only when the primitive owns that runtime concept.
 - Export the public class and role dataclasses from the owning package.
@@ -32,12 +32,12 @@ Use the common checklist, then:
 
 ## Add a profiled circuit leaf
 
-Applies to analog and digital leaf circuits that compose `ProfileMixin` (a sized `ModuleBase` leaf) and emit PPA profile events.
+Applies to analog and digital leaf circuits that own their own silicon and emit PPA profile events.
 
 Use the common checklist, then:
 
 - Define `*Config` (extending the subsystem config base — e.g. `AnalogConfig` plus its own `area_per_inst__um2` / `leakage_per_inst__uW`, or `DigitalConfig`) and its `*Policy`, plus validation groups.
-- Use the `ModuleBase` + `ProfileMixin` construction and profiling contract in [common/base](../internals/common/base.md) and [common/mixin/profile](../internals/common/mixin/profile.md); a sized leaf sets its bare per-instance PPA data (`_area_per_inst__um2` / `_leakage_per_inst__uW`) for `ProfileMixin` to aggregate into `area__um2` / `leakage__uW`.
+- Use the construction contract in [common/base](../internals/common/base.md) and the `ProfileMixin` emitter contract: set the bare per-instance PPA data (`_area_per_inst__um2` / `_leakage_per_inst__uW`) in `__init__`, which `area__um2` / `leakage__uW` scale by `inst_count`.
 - Implement the family or leaf primary method defined by its base class.
 - Emit dynamic energy and latency only for quantities this leaf owns.
 - Keep fixed latency in config; derive parametric latency inside the primary method when required.
@@ -50,7 +50,7 @@ Applies when adding a dispatchable abstract family.
 Use the common checklist, then:
 
 - Define base `*Config` / `*Policy` role types only when the family owns those concepts.
-- Define the abstract base surface and `from_config` dispatch through [RegistryMixin](../internals/common/mixin/registry.md) or a documented equivalent.
+- Define the abstract base surface and `from_config` dispatch through `RegistryMixin` or a documented equivalent.
 - Document the family contract in the family base Reference / Internals pages before adding concrete members.
 - Keep shared method docstrings on the abstract declaration.
 - Add at least one concrete member or document why the base is introduced ahead of implementations.
@@ -89,7 +89,7 @@ Use the common checklist, then:
 
 - Document the mathematical method in Reference and the implementation constraints in Internals.
 - State shape, dtype, convergence, memory, and compile-safety contracts explicitly.
-- Do not force the implementation into a sized `ProfileMixin` module or hardware-module patterns unless it truly owns that role.
+- Do not force the implementation into a `ModuleBase` leaf or other hardware-module pattern unless it truly owns that role.
 - Keep hot paths free of Python-state mutation and dynamic behavior forbidden by the compile contract.
 - Test residuals, convergence / fixed-iteration behavior, shape edge cases, dtype behavior, and chunk reassembly.
 

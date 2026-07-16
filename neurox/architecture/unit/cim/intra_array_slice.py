@@ -15,7 +15,7 @@ from torch import Tensor
 
 from neurox.architecture.unit.cim.slicer import SerialSlicer, SimpleSlicer
 from neurox.common.encoding import Encoding
-from neurox.primitive.analog.adc import AdcOperationPoint
+from neurox.primitive.analog.adc_common import AdcOperationPoint
 from neurox.primitive.digital import (
     Accumulator,
     AccumulatorConfig,
@@ -85,7 +85,6 @@ class IntraArraySliceCimUnit(CimUnit):
         *,
         config: IntraArraySliceCimUnitConfig,
         policy: IntraArraySliceCimUnitPolicy,
-        name: str,
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -94,7 +93,6 @@ class IntraArraySliceCimUnit(CimUnit):
         super().__init__(
             config=config,
             policy=policy,
-            name=name,
             w_logical_shape=w_logical_shape,
             dtype=dtype,
             T__K=T__K,
@@ -142,24 +140,20 @@ class IntraArraySliceCimUnit(CimUnit):
         self._n_logical = n_logical
         self._row_tile_num = tr
 
-        prefix = f"{name}." if name else ""
         helper_shape = (self._w_parallel_size, tr)
         self.col_accumulator = Accumulator(
             config=config.col_accumulator_config,
             policy=DigitalPolicy(),
-            name=f"{prefix}col_accumulator",
             inst_shape=helper_shape,
         )
         self.sa_shift_adder = ShiftAdder(
             config=config.sa_shift_adder_config,
             policy=DigitalPolicy(),
-            name=f"{prefix}sa_shift_adder",
             inst_shape=helper_shape,
         )
         self.sw_shift_adder = ShiftAdder(
             config=config.sw_shift_adder_config,
             policy=DigitalPolicy(),
-            name=f"{prefix}sw_shift_adder",
             inst_shape=helper_shape,
         )
 

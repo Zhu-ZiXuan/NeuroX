@@ -120,7 +120,10 @@ def test_zero_off_diagonals_reduce_to_block_diag(device: torch.device) -> None:
     """Sub/sup all zero → solution is per-block independent solve."""
     n, b = 5, 2
     g = torch.Generator(device=device).manual_seed(7)
-    diag = torch.eye(b, dtype=torch.float64, device=device) * 2 + torch.randn(n, b, b, dtype=torch.float64, generator=g, device=device) * 0.05
+    diag = (
+        torch.eye(b, dtype=torch.float64, device=device) * 2
+        + torch.randn(n, b, b, dtype=torch.float64, generator=g, device=device) * 0.05
+    )
     sub = torch.zeros(n, b, b, dtype=torch.float64, device=device)
     sup = torch.zeros(n, b, b, dtype=torch.float64, device=device)
     rhs = torch.randn(n, b, dtype=torch.float64, generator=g, device=device)
@@ -156,7 +159,9 @@ def test_m_matrix_block_2x2_mirrors_nested_wire_jacobian(device: torch.device) -
     sub = off.clone()
     sup = off.clone()
 
-    rhs = torch.randn(n, b, dtype=torch.float64, generator=torch.Generator(device=device).manual_seed(99), device=device)
+    rhs = torch.randn(
+        n, b, dtype=torch.float64, generator=torch.Generator(device=device).manual_seed(99), device=device
+    )
 
     x_block = solve_block_tridiagonal(sub, diag, sup, rhs)
     a_dense = _dense_from_blocks(sub, diag, sup)

@@ -3,12 +3,13 @@
 ## Design decisions
 
 - **Not polymorphic.** One concrete ideal mux, constructed directly rather than dispatched through a registry. It has no error sources, so its `Policy` is an empty marker.
-- **Ideal, lossless value path — no emission.** The value path applies only the matched gain — no numeric non-ideality — and `transport` self-logs neither rail energy nor latency; the block is a bare `AnalogBase` leaf ([base](base.md)) with no `ProfileMixin`, so a lossless copy contributes nothing to the PPA tally. Governing equations in Reference.
+- **Ideal, lossless value path — no emission.** The value path applies only the matched gain — no numeric non-ideality — and `transport` self-logs neither rail energy nor latency, so a lossless copy contributes nothing to the dynamic tally. Governing equations in Reference.
 - **`select_num` is design fan-in.** It sizes the modelled N:1 mux but is not a runtime multiplier of any tally.
 
 ## Contracts & invariants
 
 - **Canonical leaf signature.** The per-instance count is fixed from `inst_shape` at construction.
+- **Static PPA rolls up to the owner.** The mux's silicon is accounted in the owning current-domain circuit's config, so it declares no per-instance area or leakage data of its own and sets `reports_static_ppa` false ([base](base.md)).
 
 ## Performance & resources
 

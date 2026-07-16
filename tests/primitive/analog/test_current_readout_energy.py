@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import torch
 
+from neurox.common.mixin import ProfileMixin
 from neurox.common.profiler import NeuroxProfiler
 from neurox.primitive.analog.current_mirror import (
     CurrentMirror,
@@ -28,9 +29,9 @@ from neurox.primitive.analog.current_mux import (
 )
 
 
-def _energy_total(events: list, name: str) -> float:
-    """Sum the logged dynamic energy [fJ] of events emitted by ``name``."""
-    return sum(e.dynamic_energy__fJ for e in events if e.qualified_name == name)
+def _energy_total(events: list, module: ProfileMixin) -> float:
+    """Sum the logged dynamic energy [fJ] of the events ``module`` emitted."""
+    return sum(e.dynamic_energy__fJ for e in events if e.module is module)
 
 
 def test_current_mirror_pure_copy_no_energy() -> None:
@@ -42,7 +43,6 @@ def test_current_mirror_pure_copy_no_energy() -> None:
             ratio_sigma_relative=0.1,
         ),
         policy=CurrentMirrorPolicy(mismatch=False),
-        name="mirror",
         inst_shape=(),
         dtype=torch.float64,
         T__K=300.0,
@@ -57,7 +57,7 @@ def test_current_mirror_pure_copy_no_energy() -> None:
     torch.testing.assert_close(out, i_out__uA)
 
     # Pure transport primitive: no dynamic energy self-log.
-    assert _energy_total(p.energy_events, "mirror") == 0.0
+    assert _energy_total(p.energy_events, mirror) == 0.0
 
 
 def test_current_mirror_copy_carries_ratio_mismatch() -> None:
@@ -68,7 +68,6 @@ def test_current_mirror_copy_carries_ratio_mismatch() -> None:
             ratio_sigma_relative=0.1,
         ),
         policy=CurrentMirrorPolicy(mismatch=True),
-        name="mirror",
         inst_shape=(3,),
         dtype=torch.float64,
         T__K=300.0,
@@ -95,7 +94,6 @@ def test_current_mux_pure_copy_no_energy_no_latency() -> None:
                 mux_gain=mux_gain,
             ),
             policy=CurrentMuxPolicy(),
-            name="mux",
             inst_shape=(),
             dtype=torch.float64,
             T__K=300.0,
@@ -108,5 +106,5 @@ def test_current_mux_pure_copy_no_energy_no_latency() -> None:
         torch.testing.assert_close(out, i_out__uA)
 
         # Pure transport primitive: no dynamic energy and no latency self-log.
-        assert _energy_total(p.energy_events, "mux") == 0.0
+        assert _energy_total(p.energy_events, mux) == 0.0
         assert p.latency_events == []

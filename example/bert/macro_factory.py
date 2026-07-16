@@ -36,7 +36,7 @@ def build_macro_factory(
     *,
     ideal_xbar: bool,
 ) -> Callable[..., QuantMatMul]:
-    """Return ``(name, w_logical_shape) → macro`` for the given config + policy TOMLs.
+    """Return ``(w_logical_shape) → macro`` for the given config + policy TOMLs.
 
     The circuit design lives in ``config_path`` (section ``[cim_unit]``); the
     nonideality switches live in ``policy_path`` (section ``[policy]``).
@@ -44,11 +44,10 @@ def build_macro_factory(
     meaningful when the config carries a physical xbar).
     """
 
-    def factory(*, name: str, w_logical_shape: tuple[int, ...]) -> QuantMatMul:
+    def factory(*, w_logical_shape: tuple[int, ...]) -> QuantMatMul:
         return CimUnit.from_config(
             config=read_macro_config(config_path),
             policy=read_macro_policy(policy_path),
-            name=name,
             w_logical_shape=w_logical_shape,
             dtype=_CIRCUIT_DTYPE,
             T__K=T_ROOM__K,

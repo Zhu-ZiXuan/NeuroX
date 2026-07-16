@@ -86,7 +86,7 @@ A runnable template lives at `example/config/macro_tia_optimize.toml`.
 ## See also
 
 - [Reference: op-amp TIA](../../reference/primitive/analog/tia/opamp_tia.md) — the device physics and transfer model the sweep evaluates.
-- [Reference: ADC base](../../reference/primitive/analog/adc/family.md) — the readout stage whose `v_ref` mode sets `target_v_max__V`.
+- [Reference: ADC base](../../reference/primitive/analog/voltage_adc/family.md) — the readout stage whose `v_ref` mode sets `target_v_max__V`.
 - [Internals: op-amp TIA](../../internals/primitive/analog/tia/opamp_tia.md) — the `OpAmpTIA` Newton solve invoked by `build_tia`.
 - [API: configuration](../../api/configuration.md) — the TOML schema and `_neurox_use_preset` directive.
 - [Convention: module parameter](../../conventions/module_parameter.md) — sourcing the `[workload]` and `[hardware]` numbers.

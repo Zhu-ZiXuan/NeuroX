@@ -5,9 +5,6 @@ fragments across files, resolves bundled-preset references anchored at
 ``neurox/presets/``, provides the deep-merge used to fold a fragment into its
 inline overrides, and orchestrates the multi-file load-resolve-merge-pluck flow
 that produces the plain dict a dataclass is built from.
-
-See also:
-    docs/internals/common/serialize/README.md
 """
 
 from __future__ import annotations
@@ -223,9 +220,7 @@ def _resolve_uses_in_value(
         has_use = USE_DIRECTIVE in value
         has_preset = USE_PRESET_DIRECTIVE in value
         if has_use and has_preset:
-            raise ValueError(
-                f"{USE_DIRECTIVE!r} and {USE_PRESET_DIRECTIVE!r} are mutually exclusive in the same table"
-            )
+            raise ValueError(f"{USE_DIRECTIVE!r} and {USE_PRESET_DIRECTIVE!r} are mutually exclusive in the same table")
         if (has_use or has_preset) and CLASS_DISCRIMINATOR in value:
             directive = USE_DIRECTIVE if has_use else USE_PRESET_DIRECTIVE
             raise ValueError(

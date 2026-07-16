@@ -3,9 +3,6 @@
 Recursive, type-checked conversion between plain mappings and frozen dataclass
 trees, plus the ``_neurox_class`` polymorphic discriminator that instantiates a
 named subclass. Pure stdlib reflection: no config, policy, or file-I/O imports.
-
-See also:
-    docs/internals/common/serialize/README.md
 """
 
 from __future__ import annotations
@@ -207,7 +204,10 @@ def dataclass_from_dict(cls: type[T], data: Mapping[str, Any]) -> T:
 
     Nested dataclass and ``Enum`` fields are resolved recursively.
     A top-level ``_neurox_class`` discriminator dispatches to the named
-    subclass of ``cls``.
+    subclass of ``cls``; it resolves only within ``cls`` and its subclasses, so
+    the receiver bounds what the data can construct. The abstract-base
+    rejection applies wherever such a base appears: as ``cls`` itself, as the
+    class a discriminator names, or as a base-typed nested field.
 
     Args:
         cls: Target frozen dataclass type.
@@ -217,8 +217,11 @@ def dataclass_from_dict(cls: type[T], data: Mapping[str, Any]) -> T:
         Instance of ``cls`` (or its named subclass).
 
     Raises:
-        TypeError: ``cls`` is not a dataclass, ``data`` carries a key that
-            matches no field of the resolved class, or the resolved class is
+        TypeError: ``cls`` is not a dataclass, ``data`` names a
+            ``_neurox_class`` that is neither ``cls`` nor a subclass of it,
+            ``data`` carries a key that matches no field of the resolved
+            class, a value does not match its field's declared primitive type
+            (only an ``int`` widens to a ``float``), or the resolved class is
             an abstract config base (has dataclass subclasses) rather than a
             concrete leaf.
     """
@@ -281,7 +284,10 @@ def _to_primitive(obj: Any) -> Any:
 def dataclass_to_dict(obj: Any) -> dict[str, Any]:
     """Convert a dataclass instance to a plain dict.
 
-    ``Enum`` values are written as their ``.value``.
+    ``Enum`` values are written as their ``.value``. A class that participates
+    in a polymorphic family — one with a dataclass ancestor or descendant —
+    writes a ``_neurox_class`` tag so the round trip can re-select the leaf; a
+    standalone dataclass with no relatives omits it.
 
     Args:
         obj: Frozen dataclass instance.

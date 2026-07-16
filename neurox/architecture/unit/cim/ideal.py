@@ -11,7 +11,7 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor
 
-from neurox.primitive.analog.adc import AdcOperationPoint
+from neurox.primitive.analog.adc_common import AdcOperationPoint
 
 from .base import CimUnit, CimUnitConfig, CimUnitPolicy
 
@@ -53,7 +53,6 @@ class IdealCimUnit(CimUnit):
     Args:
         config: Concrete configuration dataclass.
         policy: Empty :class:`IdealCimUnitPolicy` marker.
-        name: Hierarchical instance name used by the profiler.
         w_logical_shape: Logical weight shape ``(*prefix, N, K)`` bound to ``program(...)``.
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature.
@@ -69,7 +68,6 @@ class IdealCimUnit(CimUnit):
         *,
         config: IdealCimUnitConfig,
         policy: IdealCimUnitPolicy,
-        name: str,
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -78,7 +76,6 @@ class IdealCimUnit(CimUnit):
         super().__init__(
             config=config,
             policy=policy,
-            name=name,
             w_logical_shape=w_logical_shape,
             dtype=dtype,
             T__K=T__K,

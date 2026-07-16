@@ -8,5 +8,4 @@ The cross-cutting software primitives shared across every NeuroX subsystem, mirr
 - [physical_constant](../primitive/physical_constant.md) — the canonical SI physical constants and the derived thermal voltage.
 - [profiler](profiler.md) — the `NeuroxProfiler` collector for the PPA side channel.
 - [quant](quant.md) — the shared quantization kernels: stochastic-rounding and fake-quantize.
-- [serialize/](serialize/README.md) — the dataclass serialization machinery: dict <-> file I/O, coercion, `_neurox_class` dispatch, `_neurox_use` / `_neurox_use_preset` directives.
-- [mixin/](mixin/README.md) — the reusable mixin classes for circuit modules and configs, including the `SerializeMixin` front onto `serialize/`.
+- [serialize](../../api/configuration.md) — the dataclass serialization machinery: config and policy file loading, directives, and presets.

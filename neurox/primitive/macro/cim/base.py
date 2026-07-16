@@ -15,7 +15,7 @@ from torch import Tensor
 
 from neurox.common import ConfigBase, ModuleBase, PolicyBase
 from neurox.common.mixin import RegistryMixin
-from neurox.primitive.analog.adc import AdcOperationPoint
+from neurox.primitive.analog.adc_common import AdcOperationPoint
 
 if TYPE_CHECKING:
     from .ideal import IdealCimMacro
@@ -82,7 +82,6 @@ class CimMacro(
     Args:
         config: Concrete configuration dataclass.
         policy: Composite nonideality policy.
-        name: Hierarchical instance name used by the profiler.
         inst_shape: Per-instance multiplicity prefix; trailing
             ``(col_num, w_digit_count, row_num)`` is derived from config.
         dtype: Tensor dtype for internal buffers.
@@ -98,12 +97,11 @@ class CimMacro(
         *,
         config: CimMacroConfig,
         policy: CimMacroPolicy,
-        name: str,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
     ) -> None:
-        super().__init__(config=config, policy=policy, name=name, inst_shape=inst_shape)
+        super().__init__(config=config, policy=policy, inst_shape=inst_shape)
         self.T__K = T__K
         self.dtype = dtype
 
@@ -121,7 +119,6 @@ class CimMacro(
         *,
         config: CimMacroConfig,
         policy: CimMacroPolicy,
-        name: str,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -131,7 +128,6 @@ class CimMacro(
         return impl(
             config=config,
             policy=policy,
-            name=name,
             inst_shape=inst_shape,
             dtype=dtype,
             T__K=T__K,
@@ -239,7 +235,6 @@ class CimMacro(
         return IdealCimMacro(
             config=ideal_config,
             policy=IdealCimMacroPolicy(),
-            name=self.qualified_name,
             inst_shape=self._inst_shape,
             dtype=self.dtype,
             T__K=self.T__K,

@@ -6,7 +6,7 @@
 
 ## Design decisions
 
-- **These constants are the sanctioned exception to the "no code defaults for physical params" rule.** Device- and circuit-level physical parameters must come from config, never a hard-coded literal; the constants here are the single exception, because they do not vary by device, process, or chip and so are fixed on purpose. `thermal_voltage__V` stays a helper derived from those constants rather than a stored value, so it adds no independent magic number of its own.
+- **Device- and circuit-level physical parameters come from config, never a hard-coded literal.** The constants here are the single exception, because they do not vary by device, process, or chip and so are fixed on purpose. `thermal_voltage__V` stays a helper derived from those constants rather than a stored value, so it adds no independent magic number of its own.
 
 ---
 

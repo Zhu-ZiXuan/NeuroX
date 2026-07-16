@@ -1,8 +1,4 @@
-"""Cross-cutting mixin classes shared across NeuroX physical modules.
-
-See also:
-    docs/internals/common/mixin/README.md
-"""
+"""Cross-cutting mixin classes shared across NeuroX circuit modules and config dataclasses."""
 
 from .fabricate import FabricateMixin
 from .profile import ProfileMixin

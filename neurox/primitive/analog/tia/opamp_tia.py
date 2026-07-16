@@ -151,7 +151,6 @@ class OpAmpTIA(TIA[OpAmpTIASnap]):
         *,
         config: OpAmpTIAConfig,
         policy: OpAmpTIAPolicy,
-        name: str,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -159,7 +158,6 @@ class OpAmpTIA(TIA[OpAmpTIASnap]):
         super().__init__(
             config=config,
             policy=policy,
-            name=name,
             inst_shape=inst_shape,
             dtype=dtype,
             T__K=T__K,

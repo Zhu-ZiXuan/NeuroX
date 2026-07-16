@@ -15,7 +15,7 @@ from torch import Tensor
 
 from neurox.common import ConfigBase, ModuleBase, PolicyBase
 from neurox.common.mixin import RegistryMixin
-from neurox.primitive.analog.adc import AdcOperationPoint
+from neurox.primitive.analog.adc_common import AdcOperationPoint
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
 
 
@@ -57,7 +57,6 @@ class CimUnit(ModuleBase[CimUnitConfig, CimUnitPolicy], RegistryMixin[type["CimU
     Args:
         config: Concrete configuration dataclass.
         policy: Composite nonideality policy.
-        name: Hierarchical instance name used by the profiler.
         w_logical_shape: Logical weight shape ``(*prefix, N, K)`` bound to ``program(...)``.
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature.
@@ -74,20 +73,18 @@ class CimUnit(ModuleBase[CimUnitConfig, CimUnitPolicy], RegistryMixin[type["CimU
         *,
         config: CimUnitConfig,
         policy: CimUnitPolicy,
-        name: str,
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
         ideal_xbar: bool,
     ) -> None:
-        ModuleBase.__init__(self, config=config, policy=policy, name=name, inst_shape=())
+        ModuleBase.__init__(self, config=config, policy=policy, inst_shape=())
         if len(w_logical_shape) < 2:
             raise ValueError(f"w_logical_shape must have at least 2 trailing dims (N, K); got {w_logical_shape}")
         self._w_logical_shape = tuple(w_logical_shape)
         self._macro_dtype = dtype
         self._macro_T__K = T__K
         self._ideal_xbar = ideal_xbar
-        self._macro_name = name
 
     @classmethod
     def from_config(
@@ -95,7 +92,6 @@ class CimUnit(ModuleBase[CimUnitConfig, CimUnitPolicy], RegistryMixin[type["CimU
         *,
         config: CimUnitConfig,
         policy: CimUnitPolicy,
-        name: str,
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -106,7 +102,6 @@ class CimUnit(ModuleBase[CimUnitConfig, CimUnitPolicy], RegistryMixin[type["CimU
         return impl(
             config=config,
             policy=policy,
-            name=name,
             w_logical_shape=w_logical_shape,
             dtype=dtype,
             T__K=T__K,
@@ -200,11 +195,9 @@ class CimUnit(ModuleBase[CimUnitConfig, CimUnitPolicy], RegistryMixin[type["CimU
         Returns:
             The xbar (physical or ideal twin per ``ideal_xbar``).
         """
-        prefix = f"{self._macro_name}." if self._macro_name else ""
         xbar = CimMacro.from_config(
             config=xbar_config,
             policy=xbar_policy,
-            name=f"{prefix}xbar",
             inst_shape=inst_shape,
             dtype=self._macro_dtype,
             T__K=self._macro_T__K,

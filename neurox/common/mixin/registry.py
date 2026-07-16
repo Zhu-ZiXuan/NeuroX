@@ -1,8 +1,4 @@
-"""Key-based dispatch mixin for polymorphic families.
-
-See also:
-    docs/internals/common/mixin/registry.md
-"""
+"""Key-based dispatch mixin for polymorphic families."""
 
 from __future__ import annotations
 
@@ -31,6 +27,11 @@ class RegistryMixin(Generic[KeyT, ImplT]):
         - Do not hand-declare ``_impl_registry``; the mixin materialises it,
           and a manual declaration shadows the mechanism and can break sibling
           isolation.
+        - Ensure any co-mixin that also hooks ``__init_subclass__`` forwards
+          ``super().__init_subclass__(**kwargs)``; one that swallows the call
+          keeps this mixin's hook from running, so the family root is left with
+          no registry and the first ``register_key`` or ``_lookup_impl`` raises
+          ``AttributeError``.
         - Import every impl module from the family package ``__init__`` so its
           ``register_key`` runs; an un-imported impl is absent from the
           registry and surfaces only as a lookup ``TypeError``.
@@ -47,6 +48,8 @@ class RegistryMixin(Generic[KeyT, ImplT]):
           their ``register_key`` decorators run.
     """
 
+    # PEP 526 forbids a TypeVar inside a ClassVar, so the stored value type stays broad;
+    # Generic[KeyT, ImplT] carries the KeyT -> type[ImplT] relation on the public surface.
     _impl_registry: ClassVar[dict[object, type]]
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
@@ -79,6 +82,7 @@ class RegistryMixin(Generic[KeyT, ImplT]):
 
         def _decorator(impl_cls: type[ImplT]) -> type[ImplT]:
             existing = registry.get(key)
+            # The same-class carve-out keeps a re-imported impl module harmless.
             if existing is not None and existing is not impl_cls:
                 raise TypeError(
                     f"key {key!r} already registered to {existing.__name__}; cannot rebind to {impl_cls.__name__}."
@@ -109,6 +113,8 @@ class RegistryMixin(Generic[KeyT, ImplT]):
         if impl is None:
             known = ", ".join(sorted(_key_repr(k) for k in cls._impl_registry)) or "<empty>"
             raise TypeError(f"no {cls.__name__} impl registered for key {_key_repr(key)}; known: {known}")
+        # Narrows the deliberately broad registry value back. Fixing the generic is not open here:
+        # PEP 526 forbids a TypeVar inside the ClassVar that holds the mapping.
         return cast("type[ImplT]", impl)
 
 

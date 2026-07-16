@@ -56,7 +56,6 @@ class CurrentMux(AnalogBase[CurrentMuxConfig, CurrentMuxPolicy]):
     Args:
         config: Concrete configuration dataclass.
         policy: Per-source nonideality enable flags.
-        name: Hierarchical instance name used by the profiler.
         inst_shape: Per-instance fabrication shape.
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature.
@@ -70,12 +69,11 @@ class CurrentMux(AnalogBase[CurrentMuxConfig, CurrentMuxPolicy]):
         *,
         config: CurrentMuxConfig,
         policy: CurrentMuxPolicy,
-        name: str,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
     ) -> None:
-        super().__init__(config=config, policy=policy, name=name, inst_shape=inst_shape)
+        super().__init__(config=config, policy=policy, inst_shape=inst_shape)
         self.dtype = dtype
         self.T__K = T__K
 

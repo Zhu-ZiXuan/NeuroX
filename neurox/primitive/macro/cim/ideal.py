@@ -12,7 +12,7 @@ import torch
 from torch import Tensor
 
 from neurox.common.quant import stochastic_floor_to_int
-from neurox.primitive.analog.adc import AdcOperationPoint
+from neurox.primitive.analog.adc_common import AdcOperationPoint
 
 from .base import CimMacro, CimMacroConfig, CimMacroPolicy
 
@@ -64,7 +64,6 @@ class IdealCimMacro(CimMacro):
     Args:
         config: Concrete configuration dataclass.
         policy: Empty :class:`IdealCimMacroPolicy` marker.
-        name: Hierarchical instance name used by the profiler.
         inst_shape: Per-instance multiplicity prefix; trailing
             ``(col_num, w_digit_count, row_num)`` is derived from config.
         dtype: Tensor dtype for internal buffers.
@@ -81,7 +80,6 @@ class IdealCimMacro(CimMacro):
         *,
         config: IdealCimMacroConfig,
         policy: IdealCimMacroPolicy,
-        name: str,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -89,7 +87,6 @@ class IdealCimMacro(CimMacro):
         super().__init__(
             config=config,
             policy=policy,
-            name=name,
             inst_shape=inst_shape,
             dtype=dtype,
             T__K=T__K,

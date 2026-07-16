@@ -37,7 +37,6 @@ def _v_ref_tap(value: float, *, device: torch.device) -> torch.Tensor:
             leakage_per_inst__uW=0.0,
         ),
         policy=VoltageReferencePolicy(tolerance=False, noise=False),
-        name="bl_clamp_ref",
         inst_shape=(),
         dtype=torch.float64,
         T__K=300.0,
@@ -88,7 +87,6 @@ def _make_tia(
     tia = OpAmpTIA(
         config=config,
         policy=policy,
-        name="tia",
         inst_shape=inst_shape,
         dtype=torch.float64,
         T__K=300.0,
@@ -260,7 +258,6 @@ def test_voltage_mux_passthrough(device: torch.device) -> None:
     mux = VoltageMux(
         config=_make_mux_config(energy_per_access__fJ=1.0),
         policy=_MUX_OFF,
-        name="mux",
         inst_shape=(),
         dtype=torch.float32,
         T__K=300.0,
@@ -278,7 +275,6 @@ def test_voltage_mux_gain_attenuates_both_legs(device: torch.device) -> None:
     mux = VoltageMux(
         config=_make_mux_config(mux_gain=0.5),
         policy=_MUX_OFF,
-        name="mux",
         inst_shape=(),
         dtype=torch.float32,
         T__K=300.0,
@@ -297,7 +293,6 @@ def test_voltage_mux_cm_noise_is_common_to_both_legs(device: torch.device) -> No
     mux = VoltageMux(
         config=_make_mux_config(mux_noise_cm_sigma__V=0.05),
         policy=_MUX_CM_ON,
-        name="mux",
         inst_shape=(),
         dtype=torch.float32,
         T__K=300.0,
@@ -318,7 +313,6 @@ def test_voltage_mux_dm_noise_is_antisymmetric(device: torch.device) -> None:
     mux = VoltageMux(
         config=_make_mux_config(mux_noise_dm_sigma__V=0.05),
         policy=_MUX_DM_ON,
-        name="mux",
         inst_shape=(),
         dtype=torch.float32,
         T__K=300.0,
@@ -337,7 +331,6 @@ def test_voltage_mux_invalid_gain() -> None:
         VoltageMux(
             config=_make_mux_config(mux_gain=0.0),
             policy=_MUX_OFF,
-            name="mux",
             inst_shape=(),
             dtype=torch.float32,
             T__K=300.0,

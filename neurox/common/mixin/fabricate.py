@@ -1,8 +1,4 @@
-"""Auto-cascading ``fabricate()`` for static manufacturing-variation sampling.
-
-See also:
-    docs/internals/common/mixin/fabricate.md
-"""
+"""Auto-cascading ``fabricate()`` for static manufacturing-variation sampling."""
 
 from __future__ import annotations
 
@@ -33,6 +29,9 @@ class FabricateMixin:
         - Hold a fabricable submodule as a registered child — directly or
           inside an ``nn.ModuleList`` / ``nn.ModuleDict``. One kept in a plain
           attribute falls outside ``self.children()`` and is never reached.
+        - Mix auxiliary ``nn.Module`` children — helpers, ``nn.Parameter``
+          holders — into the same tree freely: a registered child that is not a
+          ``FabricateMixin`` is skipped silently, with no opt-out flag to set.
     """
 
     _inst_shape: tuple[int, ...]
