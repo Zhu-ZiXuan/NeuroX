@@ -21,7 +21,7 @@ from neurox.common import ConfigBase, ModuleBase, PolicyBase
 
 
 @dataclass(frozen=True)
-class XbarCellConfig(ConfigBase):
+class XbarCellConfig(ConfigBase, ABC):
     """Abstract base for crossbar-cell configs.
 
     Empty by design — each concrete cell carries its own subclass with
@@ -37,7 +37,7 @@ class XbarCellConfig(ConfigBase):
 
 
 @dataclass(frozen=True)
-class XbarCellPolicy(PolicyBase):
+class XbarCellPolicy(PolicyBase, ABC):
     """Abstract marker base for crossbar-cell nonideality policies.
 
     Concrete cells carry a subclass bundling the per-device policies of
@@ -68,7 +68,7 @@ ResidualsT = TypeVar("ResidualsT", bound=XbarCellResiduals)
 
 
 @dataclass(frozen=True)
-class XbarCellDCOP(Generic[ResidualsT]):
+class XbarCellDcop(Generic[ResidualsT]):
     """Condensed branch working point of one cell DC evaluation.
 
     Attributes:
@@ -95,7 +95,7 @@ class XbarCellDCOP(Generic[ResidualsT]):
 
 
 SnapT = TypeVar("SnapT", bound=XbarCellSnap)
-DCOPT = TypeVar("DCOPT", bound=XbarCellDCOP)
+DCOPT = TypeVar("DCOPT", bound=XbarCellDcop)
 
 
 class XbarCell(
@@ -109,12 +109,12 @@ class XbarCell(
     condensed two-terminal branch to the array solver.
 
     A cell is a non-reporting :class:`ModuleBase` leaf
-    (``reports_static_ppa`` is ``False``): it self-accounts no static PPA.
+    (``is_profile_target`` is ``False``): it self-accounts no static PPA.
     Its device children's physical area / leakage roll up through the
     owning core's PPA budget.
     """
 
-    reports_static_ppa: ClassVar[bool] = False
+    is_profile_target: ClassVar[bool] = False
 
     def __init__(
         self,
@@ -223,11 +223,11 @@ class XbarCell(
             v_sl: Source-line node voltage [V]. Shape: ``[..., col, row]``.
             snap: Per-call snap from :meth:`snapshot`.
             compute_residuals: When True, populate
-                :attr:`XbarCellDCOP.residuals`; when False (hot path)
+                :attr:`XbarCellDcop.residuals`; when False (hot path)
                 leaves it as ``None``.
 
         Returns:
-            Concrete :class:`XbarCellDCOP` subclass with the branch
+            Concrete :class:`XbarCellDcop` subclass with the branch
             working point and internal-node voltages.
         """
         raise NotImplementedError

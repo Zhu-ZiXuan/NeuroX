@@ -20,7 +20,7 @@ from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
 
 
 @dataclass(frozen=True)
-class CimUnitConfig(ConfigBase):
+class CimUnitConfig(ConfigBase, ABC):
     """Abstract config root for the :class:`CimUnit` registry.
 
     Attributes:
@@ -47,7 +47,7 @@ class CimUnitConfig(ConfigBase):
 
 
 @dataclass(frozen=True)
-class CimUnitPolicy(PolicyBase):
+class CimUnitPolicy(PolicyBase, ABC):
     """Abstract marker base for CimUnit-family nonideality policies."""
 
 

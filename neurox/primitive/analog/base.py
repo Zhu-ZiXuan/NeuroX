@@ -6,6 +6,7 @@ See also:
 
 from __future__ import annotations
 
+from abc import ABC
 from dataclasses import dataclass
 from typing import TypeVar
 
@@ -13,12 +14,12 @@ from neurox.common import ConfigBase, ModuleBase, PolicyBase
 
 
 @dataclass(frozen=True)
-class AnalogConfig(ConfigBase):
+class AnalogConfig(ConfigBase, ABC):
     """Root config for analog primitives — empty marker, no shared PPA fields."""
 
 
 @dataclass(frozen=True)
-class AnalogPolicy(PolicyBase):
+class AnalogPolicy(PolicyBase, ABC):
     """Root policy for analog primitives — empty marker."""
 
 
@@ -26,5 +27,5 @@ ConfigT = TypeVar("ConfigT", bound=AnalogConfig)
 PolicyT = TypeVar("PolicyT", bound=AnalogPolicy)
 
 
-class AnalogBase(ModuleBase[ConfigT, PolicyT]):
+class AnalogBase(ModuleBase[ConfigT, PolicyT], ABC):
     """Common base for analog primitive modules."""

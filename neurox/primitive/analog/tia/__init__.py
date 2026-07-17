@@ -4,23 +4,23 @@ See also:
     docs/reference/primitive/analog/tia/README.md
 """
 
-from .base import TIA, TIAConfig, TIAPolicy, TIASnap
-from .general import GeneralTIA, GeneralTIAConfig, GeneralTIADCOP, GeneralTIAPolicy, GeneralTIASnap
-from .opamp_tia import OpAmpTIA, OpAmpTIAConfig, OpAmpTIADCOP, OpAmpTIAPolicy, OpAmpTIASnap
+from .base import Tia, TiaConfig, TiaPolicy, TiaSnap
+from .general import GeneralTia, GeneralTiaConfig, GeneralTiaDcop, GeneralTiaPolicy, GeneralTiaSnap
+from .opamp_tia import OpAmpTia, OpAmpTiaConfig, OpAmpTiaDcop, OpAmpTiaPolicy, OpAmpTiaSnap
 
 __all__ = [
-    "GeneralTIA",
-    "GeneralTIAConfig",
-    "GeneralTIADCOP",
-    "GeneralTIAPolicy",
-    "GeneralTIASnap",
-    "OpAmpTIA",
-    "OpAmpTIAConfig",
-    "OpAmpTIADCOP",
-    "OpAmpTIAPolicy",
-    "OpAmpTIASnap",
-    "TIA",
-    "TIAConfig",
-    "TIAPolicy",
-    "TIASnap",
+    "GeneralTia",
+    "GeneralTiaConfig",
+    "GeneralTiaDcop",
+    "GeneralTiaPolicy",
+    "GeneralTiaSnap",
+    "OpAmpTia",
+    "OpAmpTiaConfig",
+    "OpAmpTiaDcop",
+    "OpAmpTiaPolicy",
+    "OpAmpTiaSnap",
+    "Tia",
+    "TiaConfig",
+    "TiaPolicy",
+    "TiaSnap",
 ]

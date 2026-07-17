@@ -39,8 +39,8 @@ from pathlib import Path
 import torch
 
 from neurox.common import ConfigBase
-from neurox.primitive.analog.tia import OpAmpTIAConfig
-from neurox.primitive.device import MOSFETConfig
+from neurox.primitive.analog.tia import OpAmpTiaConfig
+from neurox.primitive.device import MosfetConfig
 from neurox.tools._config import add_standard_args, load_tool_config, setup_logging
 from neurox.tools.macro_tia._common import (
     TransferCurve,
@@ -70,7 +70,7 @@ class HardwareSection:
         tia_n_newton: Newton iteration count for the inner TIA solve.
     """
 
-    nmos_config: MOSFETConfig
+    nmos_config: MosfetConfig
     v_dd__V: float
     v_ref__V: float
     output_saturation_softness__V: float
@@ -144,9 +144,9 @@ class CandidateResult:
     is_feasible: bool  # False if slope(μ)~0 or μ pinned at high rail
 
 
-def _build_tia_config(hw: HardwareSection, gain: float, w: float, nmos_L_um: float, vb: float) -> OpAmpTIAConfig:
-    """Stitch a per-combo :class:`OpAmpTIAConfig`."""
-    return OpAmpTIAConfig(
+def _build_tia_config(hw: HardwareSection, gain: float, w: float, nmos_L_um: float, vb: float) -> OpAmpTiaConfig:
+    """Stitch a per-combo :class:`OpAmpTiaConfig`."""
+    return OpAmpTiaConfig(
         v_nmos_bias__V=vb,
         v_dd__V=hw.v_dd__V,
         opamp_gain=gain,

@@ -1,6 +1,6 @@
 """Shared helpers for the macro_tia tool.
 
-Build an :class:`OpAmpTIA` from a parameter set, sweep its ``I_port → v_out``
+Build an :class:`OpAmpTia` from a parameter set, sweep its ``I_port → v_out``
 DC transfer curve, and compute scoring metrics against a Gaussian workload
 current model.
 """
@@ -11,18 +11,18 @@ from dataclasses import dataclass
 
 import torch
 
-from neurox.primitive.analog.tia import OpAmpTIA, OpAmpTIAConfig, OpAmpTIAPolicy
-from neurox.primitive.device import MOSFETPolicy
+from neurox.primitive.analog.tia import OpAmpTia, OpAmpTiaConfig, OpAmpTiaPolicy
+from neurox.primitive.device import MosfetPolicy
 from neurox.primitive.physical_constant import T_ROOM__K
 
 
-def build_tia(config: OpAmpTIAConfig, *, device: torch.device) -> OpAmpTIA:
-    """Build a fabricated, nonideality-free :class:`OpAmpTIA` for sweeping."""
-    tia_policy = OpAmpTIAPolicy(
+def build_tia(config: OpAmpTiaConfig, *, device: torch.device) -> OpAmpTia:
+    """Build a fabricated, nonideality-free :class:`OpAmpTia` for sweeping."""
+    tia_policy = OpAmpTiaPolicy(
         opamp_gain_sigma=False,
-        nmos=MOSFETPolicy(A_vt_mismatch=False, A_beta_mismatch=False),
+        nmos=MosfetPolicy(A_vt_mismatch=False, A_beta_mismatch=False),
     )
-    tia = OpAmpTIA(
+    tia = OpAmpTia(
         config=config,
         policy=tia_policy,
         inst_shape=(1,),
@@ -66,7 +66,7 @@ class TransferCurve:
 
 
 def sweep_transfer(
-    tia: OpAmpTIA,
+    tia: OpAmpTia,
     *,
     v_ref__V: float,
     i_min_uA: float,
@@ -77,7 +77,7 @@ def sweep_transfer(
     """Sweep DC ``I_port`` across ``[i_min_uA, i_max_uA]`` and capture ``v_out``.
 
     The reference clamp voltage is injected per call into
-    :meth:`OpAmpTIA.snapshot` as a 0-d tensor built from ``v_ref__V``.
+    :meth:`OpAmpTia.snapshot` as a 0-d tensor built from ``v_ref__V``.
     """
     if n_points < 2:
         raise ValueError(f"n_points ({n_points}) must be >= 2")

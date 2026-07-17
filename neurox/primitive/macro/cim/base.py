@@ -6,7 +6,7 @@ See also:
 
 from __future__ import annotations
 
-from abc import abstractmethod
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, fields
 from typing import TYPE_CHECKING
 
@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True)
-class CimMacroConfig(ConfigBase):
+class CimMacroConfig(ConfigBase, ABC):
     """Geometry and PPA shared by every xbar tile.
 
     Attributes:
@@ -69,13 +69,14 @@ class CimMacroConfig(ConfigBase):
 
 
 @dataclass(frozen=True)
-class CimMacroPolicy(PolicyBase):
+class CimMacroPolicy(PolicyBase, ABC):
     """Abstract marker base for CimMacro-family nonideality policies."""
 
 
 class CimMacro(
     ModuleBase[CimMacroConfig, CimMacroPolicy],
     RegistryMixin[type["CimMacroConfig"], "CimMacro"],
+    ABC,
 ):
     """Abstract base class for a physical crossbar tile.
 

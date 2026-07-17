@@ -17,8 +17,8 @@ Entry $k$ of `state_to_g_map__uS` is the RRAM conductance whose single-cell read
 
 This tool operates at the **device + one-cell circuit** level only. It instantiates exactly:
 
-- one `RRAM` with `inst_shape = ()`, `dtype = float64`, at the configured temperature and `g_max__uS`;
-- one `NMOS` with `inst_shape = ()`, `dtype = float64`, at the configured temperature, width $W$, and length $L$.
+- one `Rram` with `inst_shape = ()`, `dtype = float64`, at the configured temperature and `g_max__uS`;
+- one `Nmos` with `inst_shape = ()`, `dtype = float64`, at the configured temperature, width $W$, and length $L$.
 
 It solves the KCL of a single cell wired as
 
@@ -32,10 +32,10 @@ It does **not** instantiate `CimMacro`, `CimUnit`, `Readout`, or `ADC`, and it i
 
 The ladder must be deterministic, so the tool forces every randomness source off rather than reading a policy file. It builds:
 
-- `RRAMPolicy(prog_gamma=False, stuck_at=False, read_telegraph=False, read_thermal=False)`
-- `MOSFETPolicy(A_vt_mismatch=False, A_beta_mismatch=False)`
+- `RramPolicy(prog_gamma=False, stuck_at=False, read_telegraph=False, read_thermal=False)`
+- `MosfetPolicy(A_vt_mismatch=False, A_beta_mismatch=False)`
 
-Conductance drift is skipped because programming uses `t_elapsed = 0.0`, which the RRAM model treats as a no-drift snap by its own contract. Each candidate conductance is applied once via `RRAM.program` followed by a single `RRAM.snapshot`; that snap is reused at every solver evaluation for that conductance.
+Conductance drift is skipped because programming uses `t_elapsed = 0.0`, which the RRAM model treats as a no-drift snap by its own contract. Each candidate conductance is applied once via `Rram.program` followed by a single `Rram.snapshot`; that snap is reused at every solver evaluation for that conductance.
 
 ## Numerical method — double nested bisection
 
@@ -100,10 +100,10 @@ There is intentionally no `--device` flag; the single-cell bisection solve runs 
 
 ## TOML schema
 
-The config is the frozen dataclass `Calculate1T1RStatesConfig` with four sections:
+The config is the frozen dataclass `Calculate1t1rStatesConfig` with four sections:
 
-- `[rram]` — an `RRAMConfig` (or `_neurox_use_preset = "process/rram:..."`).
-- `[nmos]` — a `MOSFETConfig` (or `_neurox_use_preset = "process/mos:..."`).
+- `[rram]` — an `RramConfig` (or `_neurox_use_preset = "process/rram:..."`).
+- `[nmos]` — a `MosfetConfig` (or `_neurox_use_preset = "process/mos:..."`).
 - `[bias]` — the per-cell read bias used during ladder derivation:
   - `v_wl__V: float` — WL drive voltage.
   - `v_bl__V: float` — BL drive voltage.
@@ -123,7 +123,7 @@ All output goes through `logger.info(...)` in this order: load notices $\rightar
 
 ---
 
-- **See also**: [XbarArray1T1R reference](../../reference/primitive/xbar/array/_1t1r/array.md) (consumer of `state_to_g_map__uS`)
+- **See also**: [XbarArray1t1r reference](../../reference/primitive/xbar/array/_1t1r/array.md) (consumer of `state_to_g_map__uS`)
 - [RRAM device reference](../../reference/primitive/device/rram.md)
 - [access-NMOS device reference](../../reference/primitive/device/mosfet.md)
 - [module parameter](../../conventions/module_parameter.md)

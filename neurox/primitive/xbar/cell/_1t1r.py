@@ -12,20 +12,20 @@ import torch
 from torch import Tensor
 
 from neurox.primitive.device import (
-    NMOS,
-    RRAM,
-    MOSFETConfig,
-    MOSFETPolicy,
-    MOSFETSnap,
-    RRAMConfig,
-    RRAMPolicy,
-    RRAMSnap,
+    MosfetConfig,
+    MosfetPolicy,
+    MosfetSnap,
+    Nmos,
+    Rram,
+    RramConfig,
+    RramPolicy,
+    RramSnap,
 )
 
 from .base import (
     XbarCell,
     XbarCellConfig,
-    XbarCellDCOP,
+    XbarCellDcop,
     XbarCellPolicy,
     XbarCellResiduals,
     XbarCellSnap,
@@ -37,7 +37,7 @@ from .base import (
 
 
 @dataclass(frozen=True, kw_only=True)
-class XbarCell1T1RConfig(XbarCellConfig):
+class XbarCell1t1rConfig(XbarCellConfig):
     """Physical knobs for a 1T1R cell.
 
     Attributes:
@@ -59,8 +59,8 @@ class XbarCell1T1RConfig(XbarCellConfig):
             after the Pade current-divider seed.
     """
 
-    rram_config: RRAMConfig
-    nmos_config: MOSFETConfig
+    rram_config: RramConfig
+    nmos_config: MosfetConfig
 
     rram_g_max__uS: float
 
@@ -116,7 +116,7 @@ class XbarCell1T1RConfig(XbarCellConfig):
 
 
 @dataclass(frozen=True)
-class XbarCell1T1RPolicy(XbarCellPolicy):
+class XbarCell1t1rPolicy(XbarCellPolicy):
     """Composite nonideality policy for a 1T1R cell.
 
     Attributes:
@@ -124,12 +124,12 @@ class XbarCell1T1RPolicy(XbarCellPolicy):
         nmos: Access-NMOS nonideality policy.
     """
 
-    rram: RRAMPolicy
-    nmos: MOSFETPolicy
+    rram: RramPolicy
+    nmos: MosfetPolicy
 
 
 @dataclass(frozen=True)
-class XbarCell1T1RResiduals(XbarCellResiduals):
+class XbarCell1t1rResiduals(XbarCellResiduals):
     """Per-cell access-node KCL residual of a 1T1R branch solve.
 
     Attributes:
@@ -141,7 +141,7 @@ class XbarCell1T1RResiduals(XbarCellResiduals):
 
 
 @dataclass(frozen=True)
-class XbarCell1T1RSnap(XbarCellSnap):
+class XbarCell1t1rSnap(XbarCellSnap):
     """Per-call snap of a 1T1R cell's fabricated state.
 
     Attributes:
@@ -151,13 +151,13 @@ class XbarCell1T1RSnap(XbarCellSnap):
             to ``[..., col, row]``.
     """
 
-    rram: RRAMSnap
-    nmos: MOSFETSnap
+    rram: RramSnap
+    nmos: MosfetSnap
     v_wl__V: Tensor
 
 
 @dataclass(frozen=True)
-class XbarCell1T1RDCOP(XbarCellDCOP[XbarCell1T1RResiduals]):
+class XbarCell1t1rDcop(XbarCellDcop[XbarCell1t1rResiduals]):
     """1T1R branch working point with the condensed access-node voltage.
 
     Attributes:
@@ -173,25 +173,25 @@ class XbarCell1T1RDCOP(XbarCellDCOP[XbarCell1T1RResiduals]):
 # ---------------------------------------------------------------------------
 
 
-class XbarCell1T1R(XbarCell[XbarCell1T1RSnap, XbarCell1T1RDCOP]):
+class XbarCell1t1r(XbarCell[XbarCell1t1rSnap, XbarCell1t1rDcop]):
     """Series access-NMOS + RRAM 1T1R cell with a condensed BL-to-SL branch."""
 
-    rram: RRAM
-    nmos: NMOS
+    rram: Rram
+    nmos: Nmos
     state_to_g_map__uS: Tensor
 
     def __init__(
         self,
         *,
-        config: XbarCell1T1RConfig,
-        policy: XbarCell1T1RPolicy,
+        config: XbarCell1t1rConfig,
+        policy: XbarCell1t1rPolicy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=inst_shape, dtype=dtype, T__K=T__K)
 
-        self.rram = RRAM(
+        self.rram = Rram(
             config=config.rram_config,
             policy=policy.rram,
             inst_shape=inst_shape,
@@ -199,7 +199,7 @@ class XbarCell1T1R(XbarCell[XbarCell1T1RSnap, XbarCell1T1RDCOP]):
             T__K=T__K,
             g_max__uS=config.rram_g_max__uS,
         )
-        self.nmos = NMOS(
+        self.nmos = Nmos(
             config=config.nmos_config,
             policy=policy.nmos,
             inst_shape=inst_shape,
@@ -233,7 +233,7 @@ class XbarCell1T1R(XbarCell[XbarCell1T1RSnap, XbarCell1T1RDCOP]):
         shape: tuple[int, ...],
         multi_coords: tuple[Tensor, ...] | None,
         t_elapsed: float,
-    ) -> XbarCell1T1RSnap:
+    ) -> XbarCell1t1rSnap:
         """Bundle RRAM / NMOS device snaps with the WL control drive.
 
         Args:
@@ -253,7 +253,7 @@ class XbarCell1T1R(XbarCell[XbarCell1T1RSnap, XbarCell1T1RDCOP]):
         del t_elapsed  # no time-dependent read state in this cell
         rram_snap = self.rram.snapshot(shape=shape, multi_coords=multi_coords)
         nmos_snap = self.nmos.snapshot(shape=shape, multi_coords=multi_coords)
-        return XbarCell1T1RSnap(rram=rram_snap, nmos=nmos_snap, v_wl__V=control)
+        return XbarCell1t1rSnap(rram=rram_snap, nmos=nmos_snap, v_wl__V=control)
 
     def program(self, w_state_idx: Tensor) -> None:
         """Program the RRAM cells from one state-index tensor.
@@ -273,7 +273,7 @@ class XbarCell1T1R(XbarCell[XbarCell1T1RSnap, XbarCell1T1RDCOP]):
         self,
         v_bl: Tensor,
         v_sl: Tensor,
-        snap: XbarCell1T1RSnap,
+        snap: XbarCell1t1rSnap,
     ) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
         """Condense the access node ``V_X`` and read off the branch quantities.
 
@@ -329,7 +329,7 @@ class XbarCell1T1R(XbarCell[XbarCell1T1RSnap, XbarCell1T1RDCOP]):
         self,
         v_bl: Tensor,
         v_sl: Tensor,
-        snap: XbarCell1T1RSnap,
+        snap: XbarCell1t1rSnap,
     ) -> tuple[Tensor, Tensor, Tensor]:
         """Condensed branch solve: ``(i__uA, di_dvbl__uS, di_dvsl__uS)``."""
         i_r, _i_n, di_dvbl__uS, di_dvsl__uS, _v_x = self._solve_vx(v_bl, v_sl, snap)
@@ -339,14 +339,14 @@ class XbarCell1T1R(XbarCell[XbarCell1T1RSnap, XbarCell1T1RDCOP]):
         self,
         v_bl: Tensor,
         v_sl: Tensor,
-        snap: XbarCell1T1RSnap,
+        snap: XbarCell1t1rSnap,
         compute_residuals: bool = False,
-    ) -> XbarCell1T1RDCOP:
+    ) -> XbarCell1t1rDcop:
         """Full branch working point including the condensed ``V_X``."""
         i_r, i_n, di_dvbl__uS, di_dvsl__uS, v_x = self._solve_vx(v_bl, v_sl, snap)
-        residuals: XbarCell1T1RResiduals | None
-        residuals = XbarCell1T1RResiduals(cell__uA=(i_n - i_r).abs()) if compute_residuals else None
-        return XbarCell1T1RDCOP(
+        residuals: XbarCell1t1rResiduals | None
+        residuals = XbarCell1t1rResiduals(cell__uA=(i_n - i_r).abs()) if compute_residuals else None
+        return XbarCell1t1rDcop(
             i__uA=i_r,
             di_dvbl__uS=di_dvbl__uS,
             di_dvsl__uS=di_dvsl__uS,
@@ -362,8 +362,8 @@ class XbarCell1T1R(XbarCell[XbarCell1T1RSnap, XbarCell1T1RDCOP]):
         self,
         v_bl: Tensor,
         v_sl: Tensor,
-        dcop: XbarCell1T1RDCOP,
-        snap: XbarCell1T1RSnap,
+        dcop: XbarCell1t1rDcop,
+        snap: XbarCell1t1rSnap,
     ) -> Tensor:
         """Per-cell device-capacitance switching energy [fJ].
 

@@ -40,4 +40,4 @@ TODO.
 
 - **Internals**: [tia base internals](../../../../internals/primitive/analog/tia/base.md)
 - **Validation**: TODO - validation evidence not yet written
-- **Configuration**: `TIAConfig` (see `api`)
+- **Configuration**: `TiaConfig` (see `api`)

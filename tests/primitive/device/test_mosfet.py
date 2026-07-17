@@ -1,7 +1,7 @@
 """Device-level tests for the polarity-parameterized MOSFET primitive.
 
 Exercises the EKV-softplus I-V law and its three node partials for both
-the :class:`NMOS` (polarity +1) and :class:`PMOS` (polarity -1)
+the :class:`Nmos` (polarity +1) and :class:`Pmos` (polarity -1)
 specializations, the finite-difference consistency of those partials,
 fabricate-time Pelgrom mismatch, and config validation. Everything runs
 on CPU in ``float64`` with no ``torch.compile``.
@@ -13,10 +13,10 @@ import pytest
 import torch
 from torch import Tensor
 
-from neurox.primitive.device import MOSFET, NMOS, PMOS, MOSFETConfig, MOSFETPolicy
+from neurox.primitive.device import Mosfet, MosfetConfig, MosfetPolicy, Nmos, Pmos
 
-_OFF = MOSFETPolicy(A_vt_mismatch=False, A_beta_mismatch=False)
-_ON = MOSFETPolicy(A_vt_mismatch=True, A_beta_mismatch=True)
+_OFF = MosfetPolicy(A_vt_mismatch=False, A_beta_mismatch=False)
+_ON = MosfetPolicy(A_vt_mismatch=True, A_beta_mismatch=True)
 
 _BASE_CONFIG: dict[str, float] = {
     "mu0__cm2_per_V_s": 200.0,
@@ -31,21 +31,21 @@ _BASE_CONFIG: dict[str, float] = {
 }
 
 
-def _config(**overrides: float) -> MOSFETConfig:
-    """Build a :class:`MOSFETConfig` from the base field set with overrides."""
-    return MOSFETConfig(**{**_BASE_CONFIG, **overrides})
+def _config(**overrides: float) -> MosfetConfig:
+    """Build a :class:`MosfetConfig` from the base field set with overrides."""
+    return MosfetConfig(**{**_BASE_CONFIG, **overrides})
 
 
 def _make(
-    cls: type[MOSFET],
+    cls: type[Mosfet],
     *,
     vth0__V: float,
     inst_shape: tuple[int, ...],
-    policy: MOSFETPolicy = _OFF,
+    policy: MosfetPolicy = _OFF,
     W__um: float = 1.0,
     L__um: float = 1.0,
     **config_overrides: float,
-) -> MOSFET:
+) -> Mosfet:
     """Construct and fabricate a concrete MOSFET sized for the tests."""
     dev = cls(
         config=_config(vth0__V=vth0__V, **config_overrides),
@@ -63,7 +63,7 @@ def _make(
 def test_nmos_enhancement_conducts_and_partial_signs() -> None:
     """Enhancement NMOS (vth0 > 0): forward bias conducts, ids rises with Vg, partial signs hold."""
     k = 6
-    dev = _make(NMOS, vth0__V=0.4, inst_shape=(k,))
+    dev = _make(Nmos, vth0__V=0.4, inst_shape=(k,))
     snap = dev.snapshot(shape=(k,), multi_coords=None)
     vg = torch.linspace(0.5, 1.0, k, dtype=torch.float64)
     vd = torch.full((k,), 0.6, dtype=torch.float64)
@@ -82,7 +82,7 @@ def test_pmos_enhancement_conducts_negative() -> None:
     """Enhancement PMOS (vth0 < 0): source-high / drain-low with a low gate conducts; ids < 0."""
     k = 6
     v_dd = 0.9
-    dev = _make(PMOS, vth0__V=-0.4, inst_shape=(k,))
+    dev = _make(Pmos, vth0__V=-0.4, inst_shape=(k,))
     snap = dev.snapshot(shape=(k,), multi_coords=None)
     # Gate swept low -> high; source held high (v_dd), drain low (0).
     vg = torch.linspace(0.0, 0.5, k, dtype=torch.float64)
@@ -102,7 +102,7 @@ def test_pmos_enhancement_conducts_negative() -> None:
 
 def test_depletion_nmos_conducts_at_zero_gate() -> None:
     """Depletion NMOS (vth0 < 0) is accepted by config and conducts at Vg = 0 with vd > vs."""
-    dev = _make(NMOS, vth0__V=-0.4, inst_shape=(1,))
+    dev = _make(Nmos, vth0__V=-0.4, inst_shape=(1,))
     snap = dev.snapshot(shape=(1,), multi_coords=None)
     dc = dev.solve_dc(
         vg__V=torch.zeros(1, dtype=torch.float64),
@@ -116,12 +116,12 @@ def test_depletion_nmos_conducts_at_zero_gate() -> None:
 @pytest.mark.parametrize(
     ("cls", "vth0", "vg", "vd", "vs"),
     [
-        (NMOS, 0.4, [0.70, 0.80, 0.90, 1.00], [0.50, 0.45, 0.55, 0.40], [0.10, 0.12, 0.08, 0.15]),
-        (PMOS, -0.4, [0.20, 0.10, 0.30, 0.05], [0.10, 0.12, 0.08, 0.15], [0.90, 0.88, 0.92, 0.85]),
+        (Nmos, 0.4, [0.70, 0.80, 0.90, 1.00], [0.50, 0.45, 0.55, 0.40], [0.10, 0.12, 0.08, 0.15]),
+        (Pmos, -0.4, [0.20, 0.10, 0.30, 0.05], [0.10, 0.12, 0.08, 0.15], [0.90, 0.88, 0.92, 0.85]),
     ],
 )
 def test_partials_match_finite_difference(
-    cls: type[MOSFET],
+    cls: type[Mosfet],
     vth0: float,
     vg: list[float],
     vd: list[float],
@@ -154,7 +154,7 @@ def test_mismatch_keeps_beta_positive_mean_near_nominal() -> None:
     torch.manual_seed(0)
     k = 50_000
     dev = _make(
-        NMOS,
+        Nmos,
         vth0__V=0.4,
         inst_shape=(k,),
         policy=_ON,
@@ -174,7 +174,7 @@ def test_mismatch_keeps_beta_positive_mean_near_nominal() -> None:
 def test_mismatch_sigmas_positive_for_pmos_config() -> None:
     """β / V_th matching sigmas stay positive for a p-channel config (β remains a magnitude)."""
     dev = _make(
-        PMOS,
+        Pmos,
         vth0__V=-0.4,
         inst_shape=(1,),
         policy=_ON,
@@ -190,7 +190,7 @@ def test_all_off_snapshot_deterministic() -> None:
     """With every mismatch toggle off, fabricate + snapshot are deterministic and uniform."""
     k = 8
     dev = _make(
-        NMOS,
+        Nmos,
         vth0__V=0.4,
         inst_shape=(k,),
         policy=_OFF,
@@ -210,7 +210,7 @@ def test_all_off_snapshot_deterministic() -> None:
 def test_abstract_base_cannot_instantiate() -> None:
     """The polarity-free MOSFET base is abstract; only NMOS / PMOS construct."""
     with pytest.raises(TypeError):
-        MOSFET(
+        Mosfet(
             config=_config(vth0__V=0.4),
             policy=_OFF,
             inst_shape=(1,),

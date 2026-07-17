@@ -1,24 +1,24 @@
 """NeuroX device models."""
 
-from .mosfet import MOSFET, MOSFETDCOP, NMOS, PMOS, MOSFETConfig, MOSFETPolicy, MOSFETSnap
-from .rram import RRAM, RRAMDCOP, RRAMConfig, RRAMPolicy, RRAMSnap
+from .mosfet import Mosfet, MosfetConfig, MosfetDcop, MosfetPolicy, MosfetSnap, Nmos, Pmos
+from .rram import Rram, RramConfig, RramDcop, RramPolicy, RramSnap
 from .selector import Selector, SelectorConfig, SelectorPolicy
 
 __all__ = [
     # --- MOSFET ---
-    "MOSFET",
-    "NMOS",
-    "PMOS",
-    "MOSFETConfig",
-    "MOSFETDCOP",
-    "MOSFETPolicy",
-    "MOSFETSnap",
+    "Mosfet",
+    "Nmos",
+    "Pmos",
+    "MosfetConfig",
+    "MosfetDcop",
+    "MosfetPolicy",
+    "MosfetSnap",
     # --- RRAM ---
-    "RRAM",
-    "RRAMConfig",
-    "RRAMDCOP",
-    "RRAMPolicy",
-    "RRAMSnap",
+    "Rram",
+    "RramConfig",
+    "RramDcop",
+    "RramPolicy",
+    "RramSnap",
     # --- Selector ---
     "Selector",
     "SelectorConfig",

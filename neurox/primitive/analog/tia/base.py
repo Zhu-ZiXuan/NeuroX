@@ -6,7 +6,7 @@ See also:
 
 from __future__ import annotations
 
-from abc import abstractmethod
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Generic, TypeVar
 
@@ -18,7 +18,7 @@ from neurox.primitive.analog.base import AnalogBase, AnalogConfig, AnalogPolicy
 
 
 @dataclass(frozen=True)
-class TIAConfig(AnalogConfig):
+class TiaConfig(AnalogConfig, ABC):
     """Base configuration for TIA implementations.
 
     Attributes:
@@ -41,30 +41,31 @@ class TIAConfig(AnalogConfig):
 
 
 @dataclass(frozen=True)
-class TIAPolicy(AnalogPolicy):
+class TiaPolicy(AnalogPolicy, ABC):
     """Abstract marker base for TIA-family nonideality policies."""
 
 
 @dataclass(frozen=True)
-class TIASnap:
+class TiaSnap:
     """Marker base for per-call snaps of a TIA's fabricated state."""
 
 
-SnapT = TypeVar("SnapT", bound=TIASnap)
+SnapT = TypeVar("SnapT", bound=TiaSnap)
 
 
-class TIA(
-    AnalogBase[TIAConfig, TIAPolicy],
-    RegistryMixin[type["TIAConfig"], "TIA"],
+class Tia(
+    AnalogBase[TiaConfig, TiaPolicy],
+    RegistryMixin[type["TiaConfig"], "Tia"],
     Generic[SnapT],
+    ABC,
 ):
     """Abstract base for transimpedance-amp clamp drivers."""
 
     def __init__(
         self,
         *,
-        config: TIAConfig,
-        policy: TIAPolicy,
+        config: TiaConfig,
+        policy: TiaPolicy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -77,12 +78,12 @@ class TIA(
     def from_config(
         cls,
         *,
-        config: TIAConfig,
-        policy: TIAPolicy,
+        config: TiaConfig,
+        policy: TiaPolicy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
-    ) -> TIA:
+    ) -> Tia:
         """Build the concrete impl registered for ``type(config)``."""
         impl = cls._lookup_impl(type(config))
         return impl(

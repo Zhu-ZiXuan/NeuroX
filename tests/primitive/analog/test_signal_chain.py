@@ -1,6 +1,6 @@
 """Tests for the signal-chain primitives.
 
-Covers the standalone behaviour of :class:`OpAmpTIA` and
+Covers the standalone behaviour of :class:`OpAmpTia` and
 :class:`VoltageMux` in isolation from the xbar. The xbar's integration
 with these primitives is exercised via the macro-level tests.
 """
@@ -18,12 +18,12 @@ from neurox.primitive.analog import (
     VoltageReferenceConfig,
     VoltageReferencePolicy,
 )
-from neurox.primitive.analog.tia import OpAmpTIA, OpAmpTIAConfig, OpAmpTIAPolicy
-from neurox.primitive.device import MOSFETConfig, MOSFETPolicy
+from neurox.primitive.analog.tia import OpAmpTia, OpAmpTiaConfig, OpAmpTiaPolicy
+from neurox.primitive.device import MosfetConfig, MosfetPolicy
 
-_NMOS_OFF = MOSFETPolicy(A_vt_mismatch=False, A_beta_mismatch=False)
-_TIA_OFF = OpAmpTIAPolicy(opamp_gain_sigma=False, nmos=_NMOS_OFF)
-_TIA_ON_GAIN = OpAmpTIAPolicy(opamp_gain_sigma=True, nmos=_NMOS_OFF)
+_NMOS_OFF = MosfetPolicy(A_vt_mismatch=False, A_beta_mismatch=False)
+_TIA_OFF = OpAmpTiaPolicy(opamp_gain_sigma=False, nmos=_NMOS_OFF)
+_TIA_ON_GAIN = OpAmpTiaPolicy(opamp_gain_sigma=True, nmos=_NMOS_OFF)
 
 
 def _v_ref_tap(value: float, *, device: torch.device) -> torch.Tensor:
@@ -57,9 +57,9 @@ def _make_tia(
     v_nmos_bias__V: float = 0.9,
     opamp_gain_sigma: float = 0.0,
     apply_opamp_gain_sigma: bool = False,
-) -> OpAmpTIA:
-    """Build a OpAmpTIA + internal NMOS pseudo-resistor sized for the tests."""
-    nmos_config = MOSFETConfig(
+) -> OpAmpTia:
+    """Build a OpAmpTia + internal NMOS pseudo-resistor sized for the tests."""
+    nmos_config = MosfetConfig(
         mu0__cm2_per_V_s=200.0,
         c_ox__fF_per_um2=31.4,
         vth0__V=0.40,
@@ -70,7 +70,7 @@ def _make_tia(
         A_vt__mV_um=0.0,
         A_beta_relative__um=0.0,
     )
-    config = OpAmpTIAConfig(
+    config = OpAmpTiaConfig(
         v_nmos_bias__V=v_nmos_bias__V,
         v_dd__V=v_dd__V,
         opamp_gain=opamp_gain,
@@ -84,7 +84,7 @@ def _make_tia(
         area_per_inst__um2=0.0,
     )
     policy = _TIA_ON_GAIN if apply_opamp_gain_sigma else _TIA_OFF
-    tia = OpAmpTIA(
+    tia = OpAmpTia(
         config=config,
         policy=policy,
         inst_shape=inst_shape,

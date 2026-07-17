@@ -16,6 +16,13 @@ Every module is configured by two parallel objects passed together at constructi
 - **Not one-to-one.** Parameters and toggles are not in one-to-one correspondence. Some sources scale a relative noise off a quantity that is already present and so hold no parameter of their own, carrying only a toggle. In the other direction, a config field that is not a noise magnitude — a structural construction choice, or a numerical hyperparameter — carries no toggle at all.
 - **Decision lives on `policy`.** Either way, the apply / skip decision lives on the policy and never on the config: a config field states a value, never whether that value is used. Folding that decision onto the config as an `enable_*` flag would conflate a source's magnitude with the decision to model it, and would bind that decision to the immutable design.
 
+## Owner constructs its children
+
+The config tree mirrors the ownership tree.
+
+- **Config carries the child.** When `A` owns `B`, `A`'s config carries `B`'s config as a field, so ownership is readable from the config structure, and `A.__init__` builds `B` directly — no external factory closure decides which child class is instantiated.
+- **Polymorphic children dispatch through the family.** A child chosen from an implementation family is built through the family's `from_config`, which resolves the concrete class from the family's `RegistryMixin` key map.
+
 ## Policy mirrors config
 
 A `policy` mirrors its `config` in structure.

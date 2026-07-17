@@ -1,17 +1,17 @@
 """Crossbar cell family: shared ABC and concrete 1T1R cell."""
 
 from ._1t1r import (
-    XbarCell1T1R,
-    XbarCell1T1RConfig,
-    XbarCell1T1RDCOP,
-    XbarCell1T1RPolicy,
-    XbarCell1T1RResiduals,
-    XbarCell1T1RSnap,
+    XbarCell1t1r,
+    XbarCell1t1rConfig,
+    XbarCell1t1rDcop,
+    XbarCell1t1rPolicy,
+    XbarCell1t1rResiduals,
+    XbarCell1t1rSnap,
 )
 from .base import (
     XbarCell,
     XbarCellConfig,
-    XbarCellDCOP,
+    XbarCellDcop,
     XbarCellPolicy,
     XbarCellResiduals,
     XbarCellSnap,
@@ -19,14 +19,14 @@ from .base import (
 
 __all__ = [
     "XbarCell",
-    "XbarCell1T1R",
-    "XbarCell1T1RConfig",
-    "XbarCell1T1RDCOP",
-    "XbarCell1T1RPolicy",
-    "XbarCell1T1RResiduals",
-    "XbarCell1T1RSnap",
+    "XbarCell1t1r",
+    "XbarCell1t1rConfig",
+    "XbarCell1t1rDcop",
+    "XbarCell1t1rPolicy",
+    "XbarCell1t1rResiduals",
+    "XbarCell1t1rSnap",
     "XbarCellConfig",
-    "XbarCellDCOP",
+    "XbarCellDcop",
     "XbarCellPolicy",
     "XbarCellResiduals",
     "XbarCellSnap",

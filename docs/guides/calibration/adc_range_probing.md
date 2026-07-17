@@ -7,14 +7,14 @@ This tool only logs (and optionally plots) range candidates. It does not choose 
 ## What it does
 
 1. Build a physical xbar from the chip TOML with every nonideality flag `False`.
-2. Replace `xbar.bl_adc` with a `ProbeADC` (capture-only stand-in).
+2. Replace `xbar.bl_adc` with a `ProbeAdc` (capture-only stand-in).
 3. Sample `weight_samples` independent programmed states in `weight_samples / batch_size` serial passes; each pass programs `batch_size` weights into the `inst_shape=(batch_size,)` xbar in parallel. For each pass: call `xbar.program(w)`, then sample `input_samples_per_weight` input vectors and broadcast them against the `batch_size` parallel weights in a single `xbar.vec_mat_mul` call (not input-chunked).
-4. The `ProbeADC` accumulates $V_{\mathrm{pos}}$ / $V_{\mathrm{neg}}$ per call; the differential analog input the ADC would see is $V_{\mathrm{diff}} = V_{\mathrm{pos}} - V_{\mathrm{neg}}$.
+4. The `ProbeAdc` accumulates $V_{\mathrm{pos}}$ / $V_{\mathrm{neg}}$ per call; the differential analog input the ADC would see is $V_{\mathrm{diff}} = V_{\mathrm{pos}} - V_{\mathrm{neg}}$.
 5. After sampling, restore the original ADC and build the range-candidate ladder from the empirical $|V_{\mathrm{diff}}|$ distribution.
 
-### `ProbeADC` — the capture-only stand-in
+### `ProbeAdc` — the capture-only stand-in
 
-`ProbeADC` is a tool-local subclass of `VoltageAdc` that satisfies the inlined readout chain's static `bl_adc: VoltageAdc` interface without quantising. It:
+`ProbeAdc` is a tool-local subclass of `VoltageAdc` that satisfies the inlined readout chain's static `bl_adc: VoltageAdc` interface without quantising. It:
 
 - inherits `VoltageAdc`, so `setattr(xbar, "bl_adc", probe)` type-checks;
 - is **not** registered with the ADC family (no `@VoltageAdc.register_key`) and so is never resolvable through `VoltageAdc.from_config` — it exists only to be installed manually by this tool;

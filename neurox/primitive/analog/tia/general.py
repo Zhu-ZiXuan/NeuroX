@@ -9,12 +9,12 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor
 
-from .base import TIA, TIAConfig, TIAPolicy, TIASnap
+from .base import Tia, TiaConfig, TiaPolicy, TiaSnap
 
 
 @dataclass(frozen=True, kw_only=True)
-class GeneralTIAConfig(TIAConfig):
-    """Configuration for :class:`GeneralTIA`.
+class GeneralTiaConfig(TiaConfig):
+    """Configuration for :class:`GeneralTia`.
 
     Attributes:
         input_impedance__MOhm: Thevenin small-signal input impedance
@@ -33,13 +33,13 @@ class GeneralTIAConfig(TIAConfig):
 
 
 @dataclass(frozen=True)
-class GeneralTIAPolicy(TIAPolicy):
-    """Nonideality policy for GeneralTIA — ideal, no toggles."""
+class GeneralTiaPolicy(TiaPolicy):
+    """Nonideality policy for GeneralTia — ideal, no toggles."""
 
 
 @dataclass(frozen=True)
-class GeneralTIASnap(TIASnap):
-    """Per-call GeneralTIA snap.
+class GeneralTiaSnap(TiaSnap):
+    """Per-call GeneralTia snap.
 
     Attributes:
         v_ref__V: Injected reference clamp voltage, broadcast to the
@@ -50,8 +50,8 @@ class GeneralTIASnap(TIASnap):
 
 
 @dataclass(frozen=True)
-class GeneralTIADCOP:
-    """DC operating-point result of :meth:`GeneralTIA.solve_dc`.
+class GeneralTiaDcop:
+    """DC operating-point result of :meth:`GeneralTia.solve_dc`.
 
     Attributes:
         v_clamp__V: Clamp-node voltage at the operating point.
@@ -66,8 +66,8 @@ class GeneralTIADCOP:
     dVout_dI__MOhm: Tensor
 
 
-@TIA.register_key(GeneralTIAConfig)
-class GeneralTIA(TIA[GeneralTIASnap]):
+@Tia.register_key(GeneralTiaConfig)
+class GeneralTia(Tia[GeneralTiaSnap]):
     """Linear (no-Newton) TIA clamp driver.
 
     A Thevenin-input + resistive-transimpedance model: the clamp node
@@ -76,14 +76,14 @@ class GeneralTIA(TIA[GeneralTIASnap]):
     current.
     """
 
-    config: GeneralTIAConfig
-    policy: GeneralTIAPolicy
+    config: GeneralTiaConfig
+    policy: GeneralTiaPolicy
 
     def __init__(
         self,
         *,
-        config: GeneralTIAConfig,
-        policy: GeneralTIAPolicy,
+        config: GeneralTiaConfig,
+        policy: GeneralTiaPolicy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -112,21 +112,21 @@ class GeneralTIA(TIA[GeneralTIASnap]):
         v_ref__V: Tensor,
         shape: tuple[int, ...],
         multi_coords: tuple[Tensor, ...] | None,
-    ) -> GeneralTIASnap:
+    ) -> GeneralTiaSnap:
         v_view = v_ref__V.expand(shape) if shape else v_ref__V
         v = v_view if multi_coords is None else v_view[multi_coords]
-        return GeneralTIASnap(v_ref__V=v)
+        return GeneralTiaSnap(v_ref__V=v)
 
     # --- forward path ---
 
     def solve_dc(
         self,
         i_port__uA: Tensor,
-        snap: GeneralTIASnap,
+        snap: GeneralTiaSnap,
         *,
         v_clamp_init__V: Tensor | None,
-    ) -> GeneralTIADCOP:
-        """Solve the linear GeneralTIA at one port current.
+    ) -> GeneralTiaDcop:
+        """Solve the linear GeneralTia at one port current.
 
         Args:
             i_port__uA: Port-output current; positive = sourcing.
@@ -148,7 +148,7 @@ class GeneralTIA(TIA[GeneralTIASnap]):
         dVclamp_dI__MOhm = torch.full_like(i_port__uA, z_in__MOhm)
         dVout_dI__MOhm = torch.full_like(i_port__uA, r_load__MOhm)
 
-        return GeneralTIADCOP(
+        return GeneralTiaDcop(
             v_clamp__V=v_clamp__V,
             v_out__V=v_out__V,
             dVclamp_dI__MOhm=dVclamp_dI__MOhm,
@@ -158,7 +158,7 @@ class GeneralTIA(TIA[GeneralTIASnap]):
     def solve_clamp(
         self,
         i_port__uA: Tensor,
-        snap: GeneralTIASnap,
+        snap: GeneralTiaSnap,
         *,
         v_clamp_init__V: Tensor | None,
     ) -> tuple[Tensor, Tensor]:
@@ -180,7 +180,7 @@ class GeneralTIA(TIA[GeneralTIASnap]):
     def dynamic_energy__fJ(
         self,
         i_port__uA: Tensor,
-        dcop: GeneralTIADCOP,
+        dcop: GeneralTiaDcop,
         *,
         read_pulse__ns: float,
     ) -> Tensor:

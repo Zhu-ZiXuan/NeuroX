@@ -1,6 +1,6 @@
 """Topology-agnostic SL/BL IR-drop DC-solver framework.
 
-Hosts :class:`SolverConfig`, :class:`Solver`, :class:`SolverDCOP`, and
+Hosts :class:`SolverConfig`, :class:`Solver`, :class:`SolverDcop`, and
 :class:`SolverResiduals`.
 
 See also:
@@ -17,7 +17,7 @@ from torch import Tensor
 
 from neurox.common import ConfigBase
 from neurox.common.mixin import RegistryMixin
-from neurox.primitive.xbar.cell import XbarCell, XbarCellDCOP, XbarCellSnap
+from neurox.primitive.xbar.cell import XbarCell, XbarCellDcop, XbarCellSnap
 
 from .clamp import ClampDriver, ClampSnap
 
@@ -28,7 +28,7 @@ from .clamp import ClampDriver, ClampSnap
 # Bound only inside the solve-method signatures so mypy infers them per
 # call and the solver class itself stays non-generic.
 CellSnapT = TypeVar("CellSnapT", bound=XbarCellSnap)
-CellDCOPT = TypeVar("CellDCOPT", bound=XbarCellDCOP)
+CellDCOPT = TypeVar("CellDCOPT", bound=XbarCellDcop)
 BLSnapT = TypeVar("BLSnapT", bound=ClampSnap)
 SLSnapT = TypeVar("SLSnapT", bound=ClampSnap)
 
@@ -38,7 +38,7 @@ SLSnapT = TypeVar("SLSnapT", bound=ClampSnap)
 
 
 @dataclass(frozen=True)
-class SolverConfig(ConfigBase):
+class SolverConfig(ConfigBase, ABC):
     """Abstract base for DC-solver fixed-knob configs.
 
     Each concrete solver carries its own subclass with iteration counts and
@@ -63,7 +63,7 @@ class SolverResiduals:
 
     Solver-owned residuals only: the wire-ladder and clamp-boundary KCL
     mismatches. The per-cell internal-KCL residual lives on the cell DCOP
-    (``SolverDCOP.cell.residuals``). Populated only when
+    (``SolverDcop.cell.residuals``). Populated only when
     ``solve_dc(compute_residuals=True)``.
 
     Attributes:
@@ -84,7 +84,7 @@ class SolverResiduals:
 
 
 @dataclass(frozen=True)
-class SolverDCOP(Generic[CellDCOPT]):
+class SolverDcop(Generic[CellDCOPT]):
     """Complete steady-state solution of one DC solve.
 
     The condensed cell working point (branch current, signed terminal
@@ -170,7 +170,7 @@ class Solver(RegistryMixin[type["SolverConfig"], "Solver"], ABC):
         sl_driver: ClampDriver[SLSnapT],
         sl_driver_snap: SLSnapT,
         compute_residuals: bool = False,
-    ) -> SolverDCOP[CellDCOPT]:
+    ) -> SolverDcop[CellDCOPT]:
         """Solve the fabricated tile for one cell snap.
 
         Args:
@@ -191,7 +191,7 @@ class Solver(RegistryMixin[type["SolverConfig"], "Solver"], ABC):
             sl_driver: SL clamp driver.
             sl_driver_snap: Per-solve SL driver snap.
             compute_residuals: When True, populate
-                :attr:`SolverDCOP.residuals` after convergence; when False
+                :attr:`SolverDcop.residuals` after convergence; when False
                 (hot path) leaves it as ``None``.
 
         Returns:

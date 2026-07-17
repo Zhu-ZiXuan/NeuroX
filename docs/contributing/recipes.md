@@ -24,7 +24,7 @@ Applies to foundational electrical models such as devices and other primitive I/
 Use the common checklist, then:
 
 - Define `*Config` and, when runtime switches exist, `*Policy`; declare no per-instance area / leakage fields, as the owner budgets them.
-- Implement the primitive as a `ModuleBase` leaf that overrides `reports_static_ppa: ClassVar[bool] = False`, so the profiler's static walk skips it and its area and leakage are counted once at the owner.
+- Implement the primitive as a `ModuleBase` leaf that overrides `is_profile_target: ClassVar[bool] = False`, so the profiler's static walk skips it, its area and leakage are counted once at the owner, and it must emit no dynamic event of its own.
 - Follow the physical-state and lifecycle contracts in [physical_state](../internals/physical_state.md).
 - Provide `snapshot` and / or `solve_dc` only when the primitive owns that runtime concept.
 - Export the public class and role dataclasses from the owning package.
@@ -37,7 +37,7 @@ Applies to analog and digital leaf circuits that own their own silicon and emit 
 Use the common checklist, then:
 
 - Define `*Config` (extending the subsystem config base — e.g. `AnalogConfig` plus its own `area_per_inst__um2` / `leakage_per_inst__uW`, or `DigitalConfig`) and its `*Policy`, plus validation groups.
-- Use the construction contract in [common/base](../internals/common/base.md) and the `ProfileMixin` emitter contract: set the bare per-instance PPA data (`_area_per_inst__um2` / `_leakage_per_inst__uW`) in `__init__`, which `area__um2` / `leakage__uW` scale by `inst_count`.
+- Use the `ModuleBase` construction contract and the `ProfileMixin` emitter contract: set the bare per-instance PPA data (`_area_per_inst__um2` / `_leakage_per_inst__uW`) in `__init__`, which `area__um2` / `leakage__uW` scale by `inst_count`.
 - Implement the family or leaf primary method defined by its base class.
 - Emit dynamic energy and latency only for quantities this leaf owns.
 - Keep fixed latency in config; derive parametric latency inside the primary method when required.

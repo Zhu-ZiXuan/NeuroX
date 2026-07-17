@@ -1,7 +1,7 @@
 """Standalone solver harness for solver-only tests.
 
-Builds a standalone :class:`XbarCell1T1R` (owning fabricated RRAM /
-access-NMOS), independent OpAmpTIA / VoltageDriver boundary modules, and a
+Builds a standalone :class:`XbarCell1t1r` (owning fabricated RRAM /
+access-NMOS), independent OpAmpTia / VoltageDriver boundary modules, and a
 chip-preset-driven stateless ``Solver``, with synthetic mid-range RRAM g
 and a configurable ``v_wl_drive`` grid.
 
@@ -25,11 +25,11 @@ import torch
 from torch import Tensor
 
 from neurox.primitive.analog import VoltageDriver, VoltageDriverPolicy, VoltageReference, VoltageReferencePolicy
-from neurox.primitive.analog.tia import OpAmpTIA, OpAmpTIAConfig, OpAmpTIAPolicy
-from neurox.primitive.device import MOSFETPolicy, RRAMPolicy
-from neurox.primitive.xbar.cell import XbarCell1T1R, XbarCell1T1RPolicy, XbarCell1T1RSnap
+from neurox.primitive.analog.tia import OpAmpTia, OpAmpTiaConfig, OpAmpTiaPolicy
+from neurox.primitive.device import MosfetPolicy, RramPolicy
+from neurox.primitive.xbar.cell import XbarCell1t1r, XbarCell1t1rPolicy, XbarCell1t1rSnap
 from neurox.primitive.xbar.solver import Solver, SolverConfig
-from works.offset_1t1r.macro import Offset1T1RCimMacroConfig
+from works.offset_1t1r.macro import Offset1t1rCimMacroConfig
 
 
 @dataclass(frozen=True)
@@ -37,8 +37,8 @@ class SolverHarness:
     """All inputs required to call :meth:`Solver.solve_dc` directly."""
 
     solver: Solver
-    cell: XbarCell1T1R
-    bl_driver: OpAmpTIA
+    cell: XbarCell1t1r
+    bl_driver: OpAmpTia
     sl_driver: VoltageDriver
     bl_driver_snap: Any
     sl_driver_snap: Any
@@ -55,7 +55,7 @@ class SolverHarness:
     sl_v_ref__V: Tensor
     inst_shape: tuple[int, ...] = field(default_factory=tuple)
 
-    def cell_snapshot(self) -> XbarCell1T1RSnap:
+    def cell_snapshot(self) -> XbarCell1t1rSnap:
         """Build the per-call cell snap at the harness WL drive."""
         return self.cell.snapshot(
             control=self.v_wl_drive__V,
@@ -111,7 +111,7 @@ def build_solver_harness(
     cell + drivers are supplied per call (see :meth:`SolverHarness.solver_kwargs`).
 
     Args:
-        config_path: Path to a chip TOML carrying ``[cim_macro]`` (Offset1T1RCimMacroConfig).
+        config_path: Path to a chip TOML carrying ``[cim_macro]`` (Offset1t1rCimMacroConfig).
         solver_config: Concrete ``SolverConfig`` (nested).
         inst_shape: Tile multiplicity (e.g. ``(4,)`` or ``(2, 1, 2)`` —
             interpreted as the prefix preceding ``(phys_col, row)``).
@@ -122,7 +122,7 @@ def build_solver_harness(
             ``rram_g_max__uS`` (default 0.4 ≈ mid-range).
         v_wl_drive__V: Uniform WL drive voltage for the harness call.
     """
-    xbar_config = Offset1T1RCimMacroConfig.from_file(config_path, section="cim_macro")
+    xbar_config = Offset1t1rCimMacroConfig.from_file(config_path, section="cim_macro")
     core_cfg = xbar_config.array_config
     cell_cfg = core_cfg.cell_config
     phys_col_num = xbar_config.col_num * xbar_config.w_digit_count + (
@@ -134,23 +134,23 @@ def build_solver_harness(
 
     # --- Cell + boundary drivers (no nonideality) ---
 
-    cell = XbarCell1T1R(
+    cell = XbarCell1t1r(
         config=cell_cfg,
-        policy=XbarCell1T1RPolicy(
-            rram=RRAMPolicy(prog_gamma=False, stuck_at=False, read_telegraph=False, read_thermal=False),
-            nmos=MOSFETPolicy(A_vt_mismatch=False, A_beta_mismatch=False),
+        policy=XbarCell1t1rPolicy(
+            rram=RramPolicy(prog_gamma=False, stuck_at=False, read_telegraph=False, read_thermal=False),
+            nmos=MosfetPolicy(A_vt_mismatch=False, A_beta_mismatch=False),
         ),
         inst_shape=inst_full,
         dtype=dtype,
         T__K=300.0,
     )
     tia_cfg = xbar_config.tia_config
-    assert isinstance(tia_cfg, OpAmpTIAConfig)
-    bl_driver = OpAmpTIA(
+    assert isinstance(tia_cfg, OpAmpTiaConfig)
+    bl_driver = OpAmpTia(
         config=tia_cfg,
-        policy=OpAmpTIAPolicy(
+        policy=OpAmpTiaPolicy(
             opamp_gain_sigma=False,
-            nmos=MOSFETPolicy(A_vt_mismatch=False, A_beta_mismatch=False),
+            nmos=MosfetPolicy(A_vt_mismatch=False, A_beta_mismatch=False),
         ),
         inst_shape=(*inst_shape, phys_col_num),
         dtype=dtype,

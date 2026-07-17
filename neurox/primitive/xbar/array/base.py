@@ -6,7 +6,7 @@ See also:
 
 from __future__ import annotations
 
-from abc import abstractmethod
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, TypeVar
 
@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True)
-class XbarArrayConfig(ConfigBase):
+class XbarArrayConfig(ConfigBase, ABC):
     """Static PPA fields common to every crossbar pure-array config.
 
     Attributes:
@@ -42,7 +42,7 @@ class XbarArrayConfig(ConfigBase):
 
 
 @dataclass(frozen=True)
-class XbarArrayPolicy(PolicyBase):
+class XbarArrayPolicy(PolicyBase, ABC):
     """Abstract marker base for crossbar pure-array nonideality policies.
 
     Concrete arrays carry a subclass bundling the per-cell policy plus any
@@ -56,7 +56,7 @@ BLSnapT = TypeVar("BLSnapT", bound=ClampSnap)
 SLSnapT = TypeVar("SLSnapT", bound=ClampSnap)
 
 
-class XbarArray(ModuleBase[ConfigT, PolicyT]):
+class XbarArray(ModuleBase[ConfigT, PolicyT], ABC):
     """Abstract base for a shape-independent crossbar pure array.
 
     A pure array holds the cell grid, the wire parasitics, and the DC
@@ -67,7 +67,7 @@ class XbarArray(ModuleBase[ConfigT, PolicyT]):
     per-column BL port current plus BL clamp voltage the macro readout
     consumes.
 
-    A reporting node (``reports_static_ppa`` default): a concrete array sets
+    A reporting node (``is_profile_target`` default): a concrete array sets
     the bare per-instance PPA data (cell grid + wire infrastructure area /
     leakage, from config) that ``ProfileMixin`` aggregates into the reported
     ``area__um2`` / ``leakage__uW``.

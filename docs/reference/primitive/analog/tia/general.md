@@ -43,7 +43,7 @@ The virtual-ground reference $V_{\mathrm{ref}}$ is a supplied input, not a confi
 | Symbol | Meaning | Unit | Code field |
 |---|---|---|---|
 | $V_{\mathrm{BL,CL}}$ | BL clamp voltage | V | `v_clamp__V` |
-| $V_{\mathrm{ref}}$ | virtual-ground reference (injected per call, carried in the snap) | V | `snapshot(v_ref__V=...)`, `GeneralTIASnap.v_ref__V` |
+| $V_{\mathrm{ref}}$ | virtual-ground reference (injected per call, carried in the snap) | V | `snapshot(v_ref__V=...)`, `GeneralTiaSnap.v_ref__V` |
 | $I_{\mathrm{BL,port}}$ | BL boundary port current | uA | `i_port__uA` |
 | $V_{\mathrm{out}}$ | transimpedance output | V | `v_out__V` |
 | $Z_{\mathrm{in}}$ | Thevenin input impedance | MOhm | `input_impedance__MOhm` |
@@ -67,4 +67,4 @@ TODO: cite the resistive transimpedance clamp.
 
 - **Internals**: TODO - internals doc not yet written.
 - **Validation**: TODO - validation evidence not yet written.
-- **Configuration**: `GeneralTIAConfig`, `GeneralTIAPolicy` (see `api`)
+- **Configuration**: `GeneralTiaConfig`, `GeneralTiaPolicy` (see `api`)

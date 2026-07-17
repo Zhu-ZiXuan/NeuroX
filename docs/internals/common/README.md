@@ -2,7 +2,6 @@
 
 The cross-cutting software primitives shared across every NeuroX subsystem, mirroring the `neurox/common/` package.
 
-- [base](base.md) — the `ModuleBase` module root and the `ConfigBase` / `PolicyBase` config-dataclass roots.
 - [encoding/](encoding/README.md) — the `Transcoder` codec layer between integers and signed-digit strings.
 - [nonideality](../primitive/nonideality.md) — the reusable analog non-ideality kernels and their configs.
 - [physical_constant](../primitive/physical_constant.md) — the canonical SI physical constants and the derived thermal voltage.

@@ -1,6 +1,6 @@
 # LeNet macro configuration with a lossless ideal xbar tile (no noise / no IR-drop).
 # Mirrors macro_with_physical_xbar.toml structurally; the only change is the
-# inner xbar config — IdealCimMacroConfig in place of Offset1T1RCimMacroConfig.
+# inner xbar config — IdealCimMacroConfig in place of Offset1t1rCimMacroConfig.
 # The IdealCimMacroConfig structural fields (x_range, w_digit_count/radix/range)
 # match the physical 1T1R defaults so this TOML is numerically equivalent to
 # running macro_with_physical_xbar.toml with ``--cim_macro ideal``.

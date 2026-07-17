@@ -23,7 +23,7 @@ from neurox.primitive.nonideality import (
 
 
 @dataclass(frozen=True)
-class RRAMConfig(ConfigBase):
+class RramConfig(ConfigBase):
     """Static RRAM device configuration.
 
     Attributes:
@@ -95,7 +95,7 @@ class RRAMConfig(ConfigBase):
 
 
 @dataclass(frozen=True)
-class RRAMPolicy(PolicyBase):
+class RramPolicy(PolicyBase):
     """Per-source toggles selecting which RRAM nonidealities are active.
 
     Attributes:
@@ -112,7 +112,7 @@ class RRAMPolicy(PolicyBase):
 
 
 @dataclass(frozen=True)
-class RRAMDCOP:
+class RramDcop:
     """Device current and local differential conductance.
 
     Attributes:
@@ -125,7 +125,7 @@ class RRAMDCOP:
 
 
 @dataclass(frozen=True)
-class RRAMSnap:
+class RramSnap:
     """Per-call read conductance snap.
 
     Attributes:
@@ -135,19 +135,19 @@ class RRAMSnap:
     g__uS: Tensor
 
 
-class RRAM(ModuleBase[RRAMConfig, RRAMPolicy]):
+class Rram(ModuleBase[RramConfig, RramPolicy]):
     """Stateful RRAM array model."""
 
     # non-reporter: silicon rolls up to the owner
-    reports_static_ppa: ClassVar[bool] = False
+    is_profile_target: ClassVar[bool] = False
 
     g__uS: Tensor
 
     def __init__(
         self,
         *,
-        config: RRAMConfig,
-        policy: RRAMPolicy,
+        config: RramConfig,
+        policy: RramPolicy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -218,7 +218,7 @@ class RRAM(ModuleBase[RRAMConfig, RRAMPolicy]):
         *,
         shape: tuple[int, ...],
         multi_coords: tuple[Tensor, ...] | None,
-    ) -> RRAMSnap:
+    ) -> RramSnap:
         """Sample one per-call runtime snap over ``shape``.
 
         Args:
@@ -236,9 +236,9 @@ class RRAM(ModuleBase[RRAMConfig, RRAMPolicy]):
         g = apply_telegraph_noise(g, self.config.read_telegraph, enabled=self.policy.read_telegraph)
         g = apply_gaussian(g, self.config.read_thermal__uS, enabled=self.policy.read_thermal)
         g = g.clamp(self.g_min__uS, self.g_max__uS)
-        return RRAMSnap(g__uS=g)
+        return RramSnap(g__uS=g)
 
-    def solve_dc(self, v__V: Tensor, snap: RRAMSnap) -> RRAMDCOP:
+    def solve_dc(self, v__V: Tensor, snap: RramSnap) -> RramDcop:
         """Evaluate current and differential conductance.
 
         Args:
@@ -258,4 +258,4 @@ class RRAM(ModuleBase[RRAMConfig, RRAMPolicy]):
             ax = alpha * v__V
             i__uA = g__uS * torch.sinh(ax) / alpha
             di_dv__uS = g__uS * torch.cosh(ax)
-        return RRAMDCOP(i__uA=i__uA, di_dv__uS=di_dv__uS)
+        return RramDcop(i__uA=i__uA, di_dv__uS=di_dv__uS)

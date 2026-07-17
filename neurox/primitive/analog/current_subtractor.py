@@ -88,7 +88,7 @@ class CurrentSubtractor(AnalogBase[CurrentSubtractorConfig, CurrentSubtractorPol
     """
 
     # Non-reporter: embedded primitive whose static PPA rolls up to the owning block.
-    reports_static_ppa: ClassVar[bool] = False
+    is_profile_target: ClassVar[bool] = False
 
     ratio_mismatch: Tensor
     offset__uA: Tensor

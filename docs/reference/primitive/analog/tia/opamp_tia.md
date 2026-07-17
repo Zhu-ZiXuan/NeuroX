@@ -68,7 +68,7 @@ The virtual-ground reference $V_{\mathrm{ref}}$ is a per-call runtime input, not
 | Symbol | Meaning | Unit | Code field |
 |---|---|---|---|
 | $V_{\mathrm{BL,CL}}$ | BL clamp voltage | V | `v_clamp__V` |
-| $V_{\mathrm{ref}}$ | virtual-ground reference (per-call input) | V | `snapshot(v_ref__V=...)`, `OpAmpTIASnap.v_ref__V` |
+| $V_{\mathrm{ref}}$ | virtual-ground reference (per-call input) | V | `snapshot(v_ref__V=...)`, `OpAmpTiaSnap.v_ref__V` |
 | $I_{\mathrm{BL,port}}$ | BL boundary port current | uA | `i_port__uA` |
 | $I$ | NMOS pseudo-resistor current | uA | `ids__uA` |
 | $V_{\mathrm{out}}$ | soft-saturated op-amp output | V | `v_out__V` |
@@ -105,4 +105,4 @@ TODO: cite the op-amp transimpedance clamp and the NMOS pseudo-resistor feedback
 
 - **Internals**: [opamp_tia internals](../../../../internals/primitive/analog/tia/opamp_tia.md)
 - **Validation**: TODO - validation evidence not yet written
-- **Configuration**: `OpAmpTIAConfig`, `OpAmpTIAPolicy` (see `api`)
+- **Configuration**: `OpAmpTiaConfig`, `OpAmpTiaPolicy` (see `api`)

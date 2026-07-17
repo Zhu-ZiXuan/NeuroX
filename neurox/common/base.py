@@ -1,12 +1,13 @@
 """Root bases for physical modules and their config/policy dataclasses.
 
 See also:
-    docs/internals/common/base.md
+    docs/internals/config_and_policy.md
 """
 
 from __future__ import annotations
 
 import math
+from abc import ABC
 from typing import Generic, TypeVar
 
 import torch.nn as nn
@@ -14,7 +15,7 @@ import torch.nn as nn
 from neurox.common.mixin import FabricateMixin, ProfileMixin, SerializeMixin, ValidateMixin
 
 
-class ConfigBase(SerializeMixin, ValidateMixin):
+class ConfigBase(SerializeMixin, ValidateMixin, ABC):
     """Root of every configuration dataclass.
 
     A configuration is a frozen dataclass inheriting this root, directly or
@@ -22,7 +23,7 @@ class ConfigBase(SerializeMixin, ValidateMixin):
     """
 
 
-class PolicyBase(SerializeMixin):
+class PolicyBase(SerializeMixin, ABC):
     """Root of every policy dataclass.
 
     A policy is a frozen dataclass of non-ideality switches.
@@ -33,7 +34,7 @@ ConfigT = TypeVar("ConfigT", bound=ConfigBase)
 PolicyT = TypeVar("PolicyT", bound=PolicyBase)
 
 
-class ModuleBase(FabricateMixin, nn.Module, ProfileMixin, Generic[ConfigT, PolicyT]):
+class ModuleBase(FabricateMixin, nn.Module, ProfileMixin, Generic[ConfigT, PolicyT], ABC):
     """Root of every physical module.
 
     A subclass parameterizes the config / policy pair with its own types, so
@@ -54,7 +55,7 @@ class ModuleBase(FabricateMixin, nn.Module, ProfileMixin, Generic[ConfigT, Polic
         - Set the bare ``_area_per_inst__um2`` / ``_leakage_per_inst__uW`` in
           ``__init__``, which ``ProfileMixin`` aggregates into the reported
           ``area__um2`` / ``leakage__uW``. A module whose silicon rolls up into
-          an owner's budget sets neither and overrides ``reports_static_ppa`` to
+          an owner's budget sets neither and overrides ``is_profile_target`` to
           ``False``, keeping it out of the profiler's static walk.
     """
 

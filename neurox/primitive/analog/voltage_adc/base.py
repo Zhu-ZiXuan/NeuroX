@@ -6,7 +6,7 @@ See also:
 
 from __future__ import annotations
 
-from abc import abstractmethod
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 import torch
@@ -18,7 +18,7 @@ from neurox.primitive.analog.base import AnalogBase, AnalogConfig, AnalogPolicy
 
 
 @dataclass(frozen=True)
-class VoltageAdcConfig(AnalogConfig):
+class VoltageAdcConfig(AnalogConfig, ABC):
     """Base config for voltage-domain ADC implementations.
 
     Attributes:
@@ -41,13 +41,14 @@ class VoltageAdcConfig(AnalogConfig):
 
 
 @dataclass(frozen=True)
-class VoltageAdcPolicy(AnalogPolicy):
+class VoltageAdcPolicy(AnalogPolicy, ABC):
     """Abstract marker base for voltage-ADC-family nonideality policies."""
 
 
 class VoltageAdc(
     AnalogBase[VoltageAdcConfig, VoltageAdcPolicy],
     RegistryMixin[type["VoltageAdcConfig"], "VoltageAdc"],
+    ABC,
 ):
     """Abstract base class for voltage-domain ADC implementations."""
 

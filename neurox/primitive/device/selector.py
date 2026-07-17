@@ -52,7 +52,7 @@ class Selector(ModuleBase[SelectorConfig, SelectorPolicy]):
     """OTS selector with static per-cell V_th mismatch."""
 
     # non-reporter: silicon rolls up to the owner
-    reports_static_ppa: ClassVar[bool] = False
+    is_profile_target: ClassVar[bool] = False
 
     nominal_vth__V: Tensor
     vth__V: Tensor

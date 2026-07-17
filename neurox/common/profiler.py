@@ -296,7 +296,7 @@ class NeuroxProfiler:
         """Build a per-module ``StaticRecord`` list by walking ``model``.
 
         Static PPA is collected from :class:`ProfileMixin` hosts whose
-        ``reports_static_ppa`` is ``True``.
+        ``is_profile_target`` is ``True``.
         """
         return [
             StaticRecord(
@@ -306,7 +306,7 @@ class NeuroxProfiler:
                 leakage_power__uW=module.leakage__uW,
             )
             for name, module in model.named_modules()
-            if isinstance(module, ProfileMixin) and module.reports_static_ppa
+            if isinstance(module, ProfileMixin) and module.is_profile_target
         ]
 
     @staticmethod
@@ -315,7 +315,7 @@ class NeuroxProfiler:
         area = 0.0
         leakage = 0.0
         for module in model.modules():
-            if isinstance(module, ProfileMixin) and module.reports_static_ppa:
+            if isinstance(module, ProfileMixin) and module.is_profile_target:
                 area += module.area__um2
                 leakage += module.leakage__uW
         return StaticMetrics(area__um2=area, leakage_power__uW=leakage)

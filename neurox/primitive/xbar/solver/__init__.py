@@ -1,6 +1,6 @@
 """Topology-agnostic SL/BL IR-drop DC solver: framework, nested impl, and numerical helpers."""
 
-from .base import Solver, SolverConfig, SolverDCOP, SolverResiduals
+from .base import Solver, SolverConfig, SolverDcop, SolverResiduals
 from .chunking import (
     ChunkSpec,
     classify_leading_positions,
@@ -17,7 +17,7 @@ __all__ = [
     "NestedParallelRailSolverConfig",
     "Solver",
     "SolverConfig",
-    "SolverDCOP",
+    "SolverDcop",
     "SolverResiduals",
     "classify_leading_positions",
     "iter_chunks",

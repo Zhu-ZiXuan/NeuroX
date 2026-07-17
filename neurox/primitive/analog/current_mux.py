@@ -62,7 +62,7 @@ class CurrentMux(AnalogBase[CurrentMuxConfig, CurrentMuxPolicy]):
     """
 
     # Non-reporter: embedded primitive whose static PPA rolls up to the owning block.
-    reports_static_ppa: ClassVar[bool] = False
+    is_profile_target: ClassVar[bool] = False
 
     def __init__(
         self,

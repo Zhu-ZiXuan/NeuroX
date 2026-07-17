@@ -19,22 +19,22 @@ import pytest
 
 import works.offset_1t1r  # noqa: F401  # registers concrete config subclasses
 from neurox.common.mixin import SerializeMixin
-from neurox.primitive.device.mosfet import MOSFETConfig
-from neurox.primitive.device.rram import RRAMConfig
+from neurox.primitive.device.mosfet import MosfetConfig
+from neurox.primitive.device.rram import RramConfig
 
 # --- 1. from_preset happy path: bundled preset -> the receiver's own type ---
 
 
 def test_from_preset_rram_builds_expected_instance() -> None:
-    cfg = RRAMConfig.from_preset("process/rram:default")
-    assert isinstance(cfg, RRAMConfig)
+    cfg = RramConfig.from_preset("process/rram:default")
+    assert isinstance(cfg, RramConfig)
     assert cfg.g_min__uS == 10.0
     assert cfg.nonlinearity_alpha == 0.5
 
 
 def test_from_preset_mosfet_builds_expected_instance() -> None:
-    cfg = MOSFETConfig.from_preset("process/mos:nmos_28_rvt")
-    assert isinstance(cfg, MOSFETConfig)
+    cfg = MosfetConfig.from_preset("process/mos:nmos_28_rvt")
+    assert isinstance(cfg, MosfetConfig)
     assert cfg.vth0__V == 0.40
     assert cfg.n_factor == 1.25
 
@@ -44,10 +44,10 @@ def test_from_preset_mosfet_builds_expected_instance() -> None:
 
 def test_from_preset_wrong_receiver_raises_type_mismatch() -> None:
     with pytest.raises(TypeError) as exc:
-        MOSFETConfig.from_preset("process/rram:default")
+        MosfetConfig.from_preset("process/rram:default")
     msg = str(exc.value)
-    assert "RRAMConfig" in msg
-    assert "MOSFETConfig" in msg
+    assert "RramConfig" in msg
+    assert "MosfetConfig" in msg
 
 
 # --- 3. rule #1: a directive and _neurox_class may not co-occur in one table ---
@@ -56,11 +56,11 @@ def test_from_preset_wrong_receiver_raises_type_mismatch() -> None:
 def test_use_preset_and_class_discriminator_conflict(tmp_path: Path) -> None:
     file = tmp_path / "conflict_preset.toml"
     file.write_text(
-        '[thing]\n_neurox_use_preset = "process/rram:default"\n_neurox_class = "RRAMConfig"\n',
+        '[thing]\n_neurox_use_preset = "process/rram:default"\n_neurox_class = "RramConfig"\n',
         encoding="utf-8",
     )
     with pytest.raises(ValueError) as exc:
-        RRAMConfig.from_file(file, section="thing")
+        RramConfig.from_file(file, section="thing")
     assert "_neurox_class" in str(exc.value)
 
 
@@ -68,11 +68,11 @@ def test_use_and_class_discriminator_conflict(tmp_path: Path) -> None:
     file = tmp_path / "conflict_use.toml"
     # The conflict fires before path resolution, so the fragment need not exist.
     file.write_text(
-        '[thing]\n_neurox_use = "fragment:sec"\n_neurox_class = "RRAMConfig"\n',
+        '[thing]\n_neurox_use = "fragment:sec"\n_neurox_class = "RramConfig"\n',
         encoding="utf-8",
     )
     with pytest.raises(ValueError) as exc:
-        RRAMConfig.from_file(file, section="thing")
+        RramConfig.from_file(file, section="thing")
     assert "_neurox_class" in str(exc.value)
 
 
@@ -80,10 +80,10 @@ def test_use_and_class_discriminator_conflict(tmp_path: Path) -> None:
 
 
 @dataclass(frozen=True)
-class _RRAMBox(SerializeMixin):
-    """Container with a single polymorphic-slot field typed as ``RRAMConfig``."""
+class _RramBox(SerializeMixin):
+    """Container with a single polymorphic-slot field typed as ``RramConfig``."""
 
-    device: RRAMConfig
+    device: RramConfig
 
 
 def test_inline_table_matches_section_header_and_direct_preset(tmp_path: Path) -> None:
@@ -98,11 +98,11 @@ def test_inline_table_matches_section_header_and_direct_preset(tmp_path: Path) -
         encoding="utf-8",
     )
 
-    box_inline = _RRAMBox.from_file(inline)
-    box_section = _RRAMBox.from_file(section)
-    direct = RRAMConfig.from_preset("process/rram:default")
+    box_inline = _RramBox.from_file(inline)
+    box_section = _RramBox.from_file(section)
+    direct = RramConfig.from_preset("process/rram:default")
 
-    assert type(box_inline.device) is RRAMConfig
+    assert type(box_inline.device) is RramConfig
     assert box_inline.device == direct
     assert box_inline == box_section
 
@@ -132,10 +132,10 @@ def test_abstract_base_from_dict_raises() -> None:
 
 
 def test_self_describing_leaf_resolves_to_receiver() -> None:
-    expected = RRAMConfig.from_preset("process/rram:default")
+    expected = RramConfig.from_preset("process/rram:default")
     # A leaf preset carries _neurox_class equal to its own class name; the
     # resolver must consider the receiver ("base itself"), not only subclasses.
-    data = {**expected.to_dict(), "_neurox_class": "RRAMConfig"}
-    resolved = RRAMConfig.from_dict(data)
-    assert type(resolved) is RRAMConfig
+    data = {**expected.to_dict(), "_neurox_class": "RramConfig"}
+    resolved = RramConfig.from_dict(data)
+    assert type(resolved) is RramConfig
     assert resolved == expected

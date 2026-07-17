@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from abc import abstractmethod
+from abc import ABC, abstractmethod
 from collections.abc import Iterator
 
 import torch.nn as nn
 
 
-class FabricateMixin:
+class FabricateMixin(ABC):
     """Grant a host an automatic pre-order ``fabricate()`` cascade.
 
     A host inherits this to get static manufacturing-variation sampling:

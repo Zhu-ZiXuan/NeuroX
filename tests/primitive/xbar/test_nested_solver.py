@@ -10,7 +10,7 @@ Covers:
 All tests build a standalone :class:`Solver` harness via
 :func:`tests.utils.standalone_solver_fixture.build_solver_harness` and
 call ``solver.solve_dc`` directly — they do not depend on
-:class:`XbarArray1T1R` or :class:`Offset1T1RCimMacro`. Convergence
+:class:`XbarArray1t1r` or :class:`Offset1t1rCimMacro`. Convergence
 properties of the solver hold under any in-range inputs; the harness
 uses a uniform mid-range RRAM g pattern and a uniform WL drive so the
 tests are reproducible without a workload sampler.

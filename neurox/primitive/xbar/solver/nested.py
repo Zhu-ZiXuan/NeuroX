@@ -17,11 +17,11 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor
 
-from neurox.primitive.xbar.cell import XbarCell, XbarCellDCOP, XbarCellSnap
+from neurox.primitive.xbar.cell import XbarCell, XbarCellDcop, XbarCellSnap
 
 from ._linalg import solve_block_tridiagonal
 from ._wire_kcl import col_driver_current, col_wire_kcl_residual
-from .base import Solver, SolverConfig, SolverDCOP, SolverResiduals
+from .base import Solver, SolverConfig, SolverDcop, SolverResiduals
 from .clamp import ClampDriver, ClampSnap
 
 # ---------------------------------------------------------------------------
@@ -31,7 +31,7 @@ from .clamp import ClampDriver, ClampSnap
 # Bound only inside the solve-method signatures so mypy infers them per
 # call and the solver class itself stays non-generic.
 CellSnapT = TypeVar("CellSnapT", bound=XbarCellSnap)
-CellDCOPT = TypeVar("CellDCOPT", bound=XbarCellDCOP)
+CellDCOPT = TypeVar("CellDCOPT", bound=XbarCellDcop)
 BLSnapT = TypeVar("BLSnapT", bound=ClampSnap)
 SLSnapT = TypeVar("SLSnapT", bound=ClampSnap)
 
@@ -150,7 +150,7 @@ class NestedParallelRailSolver(Solver):
         sl_driver: ClampDriver[SLSnapT],
         sl_driver_snap: SLSnapT,
         compute_residuals: bool = False,
-    ) -> SolverDCOP[CellDCOPT]:
+    ) -> SolverDcop[CellDCOPT]:
         """Solve the fabricated tile for one cell snap.
 
         Normalizes the caller's layout to canonical (series axis last) before
@@ -174,7 +174,7 @@ class NestedParallelRailSolver(Solver):
             sl_driver: SL clamp driver.
             sl_driver_snap: Per-solve SL driver snap.
             compute_residuals: When True, populate
-                :attr:`SolverDCOP.residuals` after the exit-state refresh;
+                :attr:`SolverDcop.residuals` after the exit-state refresh;
                 when False (hot path) leaves it as ``None``.
 
         Returns:
@@ -214,7 +214,7 @@ class NestedParallelRailSolver(Solver):
         )
         return self._restore_grid_layout(dcop)
 
-    def _restore_grid_layout(self, dcop: SolverDCOP[CellDCOPT]) -> SolverDCOP[CellDCOPT]:
+    def _restore_grid_layout(self, dcop: SolverDcop[CellDCOPT]) -> SolverDcop[CellDCOPT]:
         """Swap the grid-shaped DCOP fields back to the caller's ``-2`` layout.
 
         Grid fields (``v_bl_node`` / ``v_sl_node``, the cell DCOP, and the
@@ -230,7 +230,7 @@ class NestedParallelRailSolver(Solver):
                 clamp_bl__V=residuals.clamp_bl__V,
                 clamp_sl__V=residuals.clamp_sl__V,
             )
-        return SolverDCOP(
+        return SolverDcop(
             i_bl_driver=dcop.i_bl_driver,
             i_sl_driver=dcop.i_sl_driver,
             v_bl_node=dcop.v_bl_node.transpose(-1, -2),
@@ -255,7 +255,7 @@ class NestedParallelRailSolver(Solver):
         sl_driver: ClampDriver[SLSnapT],
         sl_driver_snap: SLSnapT,
         compute_residuals: bool = False,
-    ) -> SolverDCOP[CellDCOPT]:
+    ) -> SolverDcop[CellDCOPT]:
         """Canonical-layout nested solve (series axis last).
 
         Verbatim block-tridiagonal body. Called directly on the ``-1`` fast
@@ -501,7 +501,7 @@ class NestedParallelRailSolver(Solver):
         else:
             residuals = None
 
-        return SolverDCOP(
+        return SolverDcop(
             i_bl_driver=i_bl_driver,
             i_sl_driver=i_sl_driver,
             v_bl_node=v_bl_node,
@@ -528,7 +528,7 @@ class NestedParallelRailSolver(Solver):
         cell: XbarCell[CellSnapT, CellDCOPT],
         cell_snap: CellSnapT,
         compute_residuals: bool = False,
-    ) -> SolverDCOP[CellDCOPT]:
+    ) -> SolverDcop[CellDCOPT]:
         """Run only the inner array Newton loop at FIXED clamp boundaries.
 
         Debug entry point — bypasses the outer V_clamp Newton entirely so
@@ -551,7 +551,7 @@ class NestedParallelRailSolver(Solver):
             compute_residuals: Populate ``residuals`` if True.
 
         Returns:
-            ``SolverDCOP`` with the inner solution; ``i_bl_driver``
+            ``SolverDcop`` with the inner solution; ``i_bl_driver``
             and ``i_sl_driver`` are computed from the held clamp values
             so the caller can inspect inner-port currents.
         """
@@ -592,7 +592,7 @@ class NestedParallelRailSolver(Solver):
         cell: XbarCell[CellSnapT, CellDCOPT],
         cell_snap: CellSnapT,
         compute_residuals: bool = False,
-    ) -> SolverDCOP[CellDCOPT]:
+    ) -> SolverDcop[CellDCOPT]:
         """Canonical-layout inner-only solve (series axis last).
 
         Verbatim inner Newton body. See :meth:`solve_array_fixed_clamp` for
@@ -673,7 +673,7 @@ class NestedParallelRailSolver(Solver):
         else:
             residuals = None
 
-        return SolverDCOP(
+        return SolverDcop(
             i_bl_driver=i_bl_driver,
             i_sl_driver=i_sl_driver,
             v_bl_node=v_bl_node,

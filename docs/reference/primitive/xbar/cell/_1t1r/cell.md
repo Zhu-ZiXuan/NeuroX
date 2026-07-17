@@ -63,13 +63,13 @@ Wire-segment, control-line (WL), and DC-conduction energy, together with the dev
 |---|---|---|---|
 | $V_{\mathrm{BL}}$ | bit-line node voltage (cell terminal) | V | `v_bl` |
 | $V_{\mathrm{SL}}$ | source-line node voltage (cell terminal) | V | `v_sl` |
-| $V_{\mathrm{X}}$ | RRAM-NMOS internal access node | V | `XbarCell1T1RDCOP.v_x__V` |
-| $V_{\mathrm{WL}}$ | word-line drive voltage (input) | V | `XbarCell1T1RSnap.v_wl__V` |
-| $I$ | condensed branch current (BL $\to$ SL) | uA | `XbarCellDCOP.i__uA` |
-| $I_{\mathrm{R}}$ | RRAM current | uA | `RRAM.solve_dc` |
-| $I_{\mathrm{N}}$ | access-NMOS current | uA | `NMOS.solve_dc` |
-| $g_{\mathrm{R}}$ | RRAM differential conductance | uS | `RRAM.solve_dc` |
-| $g_{\mathrm{N},d}, g_{\mathrm{N},s}$ | NMOS drain / source partials | uS | `NMOS.solve_dc` |
+| $V_{\mathrm{X}}$ | RRAM-NMOS internal access node | V | `XbarCell1t1rDcop.v_x__V` |
+| $V_{\mathrm{WL}}$ | word-line drive voltage (input) | V | `XbarCell1t1rSnap.v_wl__V` |
+| $I$ | condensed branch current (BL $\to$ SL) | uA | `XbarCellDcop.i__uA` |
+| $I_{\mathrm{R}}$ | RRAM current | uA | `Rram.solve_dc` |
+| $I_{\mathrm{N}}$ | access-NMOS current | uA | `Nmos.solve_dc` |
+| $g_{\mathrm{R}}$ | RRAM differential conductance | uS | `Rram.solve_dc` |
+| $g_{\mathrm{N},d}, g_{\mathrm{N},s}$ | NMOS drain / source partials | uS | `Nmos.solve_dc` |
 | $\partial I/\partial V_{\mathrm{BL}}$ | BL-side branch conductance ($\ge 0$) | uS | `di_dvbl__uS` |
 | $\partial I/\partial V_{\mathrm{SL}}$ | SL-side branch conductance ($\le 0$) | uS | `di_dvsl__uS` |
 | $G_{\mathrm{RRAM,max}}$ | max programmable RRAM conductance | uS | `rram_g_max__uS` |

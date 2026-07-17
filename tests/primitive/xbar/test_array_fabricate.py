@@ -1,10 +1,10 @@
 """R25 fabricate-contract regression for the ``XbarArray`` ABC.
 
 The ``XbarArray`` ABC sits between :class:`FabricateMixin` and the concrete
-:class:`XbarArray1T1R`. It owns no static state of its own, so it must supply
+:class:`XbarArray1t1r`. It owns no static state of its own, so it must supply
 ``_sample_fabricate_mismatch`` as an explicit no-op; if it forgot it, either the
 abstract method would re-raise or a spurious body would perturb the once-per-node
-resample. These tests pin that ``fabricate()`` on an ``XbarArray1T1R`` resamples
+resample. These tests pin that ``fabricate()`` on an ``XbarArray1t1r`` resamples
 every fabricable node's static state EXACTLY ONCE in pre-order, and that the ABC
 override is a genuine no-op the concrete array inherits unchanged.
 """
@@ -17,36 +17,36 @@ from pathlib import Path
 import torch
 
 from neurox.common.mixin import FabricateMixin
-from neurox.primitive.device import MOSFETPolicy, RRAMPolicy
-from neurox.primitive.device.mosfet import NMOS
-from neurox.primitive.device.rram import RRAM
-from neurox.primitive.xbar.array import XbarArray1T1R, XbarArray1T1RPolicy
+from neurox.primitive.device import MosfetPolicy, RramPolicy
+from neurox.primitive.device.mosfet import Nmos
+from neurox.primitive.device.rram import Rram
+from neurox.primitive.xbar.array import XbarArray1t1r, XbarArray1t1rPolicy
 from neurox.primitive.xbar.array.base import XbarArray
-from neurox.primitive.xbar.cell import XbarCell1T1R, XbarCell1T1RPolicy
-from works.offset_1t1r.macro import Offset1T1RCimMacroConfig
+from neurox.primitive.xbar.cell import XbarCell1t1r, XbarCell1t1rPolicy
+from works.offset_1t1r.macro import Offset1t1rCimMacroConfig
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 CHIP_CONFIG = REPO_ROOT / "works" / "offset_1t1r" / "config" / "1t1r_28nm.toml"
 
 
-def _build_array(*, mismatch: bool, device: torch.device) -> XbarArray1T1R:
+def _build_array(*, mismatch: bool, device: torch.device) -> XbarArray1t1r:
     """Build a small standalone 1T1R pure array from the chip preset.
 
     Reads only ``[cim_macro]`` for the owned ``core_config`` (an
-    ``XbarArray1T1RConfig``); the composite policy is constructed with the
+    ``XbarArray1t1rConfig``); the composite policy is constructed with the
     device-mismatch toggles set from ``mismatch`` so the fabricate cascade has
     real static state to resample.
     """
-    macro_config = Offset1T1RCimMacroConfig.from_file(CHIP_CONFIG, section="cim_macro")
+    macro_config = Offset1t1rCimMacroConfig.from_file(CHIP_CONFIG, section="cim_macro")
     core_config = macro_config.array_config
-    policy = XbarArray1T1RPolicy(
-        cell=XbarCell1T1RPolicy(
-            rram=RRAMPolicy(prog_gamma=mismatch, stuck_at=mismatch, read_telegraph=False, read_thermal=False),
-            nmos=MOSFETPolicy(A_vt_mismatch=mismatch, A_beta_mismatch=mismatch),
+    policy = XbarArray1t1rPolicy(
+        cell=XbarCell1t1rPolicy(
+            rram=RramPolicy(prog_gamma=mismatch, stuck_at=mismatch, read_telegraph=False, read_thermal=False),
+            nmos=MosfetPolicy(A_vt_mismatch=mismatch, A_beta_mismatch=mismatch),
         ),
         solve_chunk_size=0,
     )
-    array = XbarArray1T1R(
+    array = XbarArray1t1r(
         config=core_config,
         policy=policy,
         w_layout_shape=(8, 8),
@@ -67,9 +67,9 @@ def _fabricable_tree(node: FabricateMixin) -> Iterator[FabricateMixin]:
 
 def test_xbar_array_abc_supplies_noop_sample_fabricate_mismatch(device: torch.device) -> None:
     """The ABC owns the no-op; the concrete 1T1R array does not override it."""
-    assert "_sample_fabricate_mismatch" not in XbarArray1T1R.__dict__
+    assert "_sample_fabricate_mismatch" not in XbarArray1t1r.__dict__
     assert "_sample_fabricate_mismatch" in XbarArray.__dict__
-    assert XbarArray1T1R._sample_fabricate_mismatch is XbarArray._sample_fabricate_mismatch
+    assert XbarArray1t1r._sample_fabricate_mismatch is XbarArray._sample_fabricate_mismatch
 
     # And it is a genuine no-op: returns None and touches no state.
     array = _build_array(mismatch=False, device=device)
@@ -91,10 +91,10 @@ def test_array_fabricate_resamples_each_node_once_preorder(device: torch.device)
     # The cell/array split must still expose the cell + its RRAM / NMOS as
     # fabricable descendants of the array.
     node_types = {type(n) for n in nodes}
-    assert XbarArray1T1R in node_types
-    assert XbarCell1T1R in node_types
-    assert RRAM in node_types
-    assert NMOS in node_types
+    assert XbarArray1t1r in node_types
+    assert XbarCell1t1r in node_types
+    assert Rram in node_types
+    assert Nmos in node_types
 
     order: list[FabricateMixin] = []
     counts: dict[int, int] = {id(n): 0 for n in nodes}

@@ -6,7 +6,7 @@ See also:
 
 from __future__ import annotations
 
-from abc import abstractmethod
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 import torch
@@ -17,7 +17,7 @@ from neurox.primitive.analog.base import AnalogBase, AnalogConfig, AnalogPolicy
 
 
 @dataclass(frozen=True)
-class CurrentDacConfig(AnalogConfig):
+class CurrentDacConfig(AnalogConfig, ABC):
     """Base config for current-domain DAC implementations.
 
     Attributes:
@@ -40,13 +40,14 @@ class CurrentDacConfig(AnalogConfig):
 
 
 @dataclass(frozen=True)
-class CurrentDacPolicy(AnalogPolicy):
+class CurrentDacPolicy(AnalogPolicy, ABC):
     """Abstract marker base for current-DAC-family nonideality policies."""
 
 
 class CurrentDac(
     AnalogBase[CurrentDacConfig, CurrentDacPolicy],
     RegistryMixin[type["CurrentDacConfig"], "CurrentDac"],
+    ABC,
 ):
     """Abstract base class for current-domain DAC implementations.
 

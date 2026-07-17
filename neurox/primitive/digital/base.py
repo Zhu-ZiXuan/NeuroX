@@ -6,6 +6,7 @@ See also:
 
 from __future__ import annotations
 
+from abc import ABC
 from dataclasses import dataclass
 from typing import Generic, TypeVar
 
@@ -13,7 +14,7 @@ from neurox.common import ConfigBase, ModuleBase, PolicyBase
 
 
 @dataclass(frozen=True)
-class DigitalConfig(ConfigBase):
+class DigitalConfig(ConfigBase, ABC):
     """Static PPA fields shared by every digital, integer-exact block.
 
     Attributes:
@@ -37,7 +38,7 @@ class DigitalPolicy(PolicyBase):
 DigitalConfigT = TypeVar("DigitalConfigT", bound="DigitalConfig")
 
 
-class DigitalBase(ModuleBase[DigitalConfigT, DigitalPolicy], Generic[DigitalConfigT]):
+class DigitalBase(ModuleBase[DigitalConfigT, DigitalPolicy], Generic[DigitalConfigT], ABC):
     """Base for digital, integer-exact circuit blocks.
 
     Implements the fabricate hook as a no-op. Each concrete leaf binds its

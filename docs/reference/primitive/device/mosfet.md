@@ -69,17 +69,17 @@ The channel polarity $p$ is fixed by device type ($+1$ n-channel, $-1$ p-channel
 
 | Symbol | Meaning | Unit | Code field |
 |---|---|---|---|
-| $I_{\mathrm{ds}}$ | drain-source current (drain→source positive) | uA | `MOSFETDCOP.ids__uA` |
-| $\partial I_{\mathrm{ds}}/\partial V_g$ | gate transconductance $g_m$ | uS | `MOSFETDCOP.did_dvg__uS` |
-| $\partial I_{\mathrm{ds}}/\partial V_d$ | drain conductance $1/r_o$ ($\ge 0$) | uS | `MOSFETDCOP.did_dvd__uS` |
-| $\partial I_{\mathrm{ds}}/\partial V_s$ | source conductance ($\le 0$) | uS | `MOSFETDCOP.did_dvs__uS` |
+| $I_{\mathrm{ds}}$ | drain-source current (drain→source positive) | uA | `MosfetDcop.ids__uA` |
+| $\partial I_{\mathrm{ds}}/\partial V_g$ | gate transconductance $g_m$ | uS | `MosfetDcop.did_dvg__uS` |
+| $\partial I_{\mathrm{ds}}/\partial V_d$ | drain conductance $1/r_o$ ($\ge 0$) | uS | `MosfetDcop.did_dvd__uS` |
+| $\partial I_{\mathrm{ds}}/\partial V_s$ | source conductance ($\le 0$) | uS | `MosfetDcop.did_dvs__uS` |
 | $p$ | channel polarity (+1 n-channel, -1 p-channel) | — | `polarity` |
 | $V_g, V_d, V_s$ | gate, drain, source voltages (runtime inputs) | V | `vg__V`, `vd__V`, `vs__V` |
 | $V_{\mathrm{ov,s}}, V_{\mathrm{ov,d}}$ | polarity-scaled source-, drain-referred overdrive | V | — |
 | $v_s, v_d$ | softplus-smoothed effective overdrives | V | `v_eff_s`, `v_eff_d` |
 | $\sigma_s, \sigma_d$ | sigmoid derivatives of the softplus | — | `sigma_s`, `sigma_d` |
-| $\beta$ | per-cell transconductance-factor magnitude | uA/V^2 | `MOSFETSnap.beta__uA_per_V2` |
-| $V_{\mathrm{th}}$ | per-cell signed threshold voltage | V | `MOSFETSnap.vth__V` |
+| $\beta$ | per-cell transconductance-factor magnitude | uA/V^2 | `MosfetSnap.beta__uA_per_V2` |
+| $V_{\mathrm{th}}$ | per-cell signed threshold voltage | V | `MosfetSnap.vth__V` |
 | $\beta_{\mathrm{nom}}, V_{\mathrm{th,nom}}$ | temperature-scaled nominals | uA/V^2, V | `nominal_beta__uA_per_V2`, `nominal_vth__V` |
 | $\lambda$ | softplus / sigmoid smoothing scale | 1/V | `_inv_smooth_scale__per_V` |
 | $\mu_0$ | low-field mobility at $T_{\mathrm{ref}}$ | cm^2/V/s | `mu0__cm2_per_V_s` |
@@ -115,4 +115,4 @@ TODO: cite the EKV transistor model and the Pelgrom mismatch law.
 
 - **Internals**: [mosfet internals](../../../internals/primitive/device/mosfet.md)
 - **Validation**: TODO — `validation/device` (not yet written)
-- **Configuration**: `api` (`MOSFETConfig`, `MOSFETPolicy`)
+- **Configuration**: `api` (`MosfetConfig`, `MosfetPolicy`)

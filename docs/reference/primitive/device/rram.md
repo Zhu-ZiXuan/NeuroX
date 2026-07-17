@@ -72,8 +72,8 @@ Provenance terms are defined in [module_parameter](../../../conventions/module_p
 | $G_{\mathrm{lo}}, G_{\mathrm{hi}}$ | `prog_gamma` normalization bounds (independent of $G_{\min}, G_{\max}$) | uS | `prog_gamma.min_val`, `prog_gamma.max_val` |
 | $\hat G$ | normalized conductance state | — | — |
 | $V$ | device terminal voltage (runtime input) | V | `v__V` |
-| $I_{\mathrm R}$ | device read current | uA | `RRAMDCOP.i__uA` |
-| $\partial I_{\mathrm R}/\partial V$ | local differential conductance | uS | `RRAMDCOP.di_dv__uS` |
+| $I_{\mathrm R}$ | device read current | uA | `RramDcop.i__uA` |
+| $\partial I_{\mathrm R}/\partial V$ | local differential conductance | uS | `RramDcop.di_dv__uS` |
 | $\alpha$ | I-V nonlinearity factor | 1/V | `nonlinearity_alpha` |
 | $G_{\mathrm t}$ | target programming conductance (runtime input) | uS | `target_g__uS` |
 | $d(t)$ | power-law drift gain | — | — |
@@ -109,4 +109,4 @@ TODO: cite the hyperbolic-sine RRAM I-V model, the power-law conductance-drift m
 
 - **Internals**: [rram internals](../../../internals/primitive/device/rram.md)
 - **Validation**: TODO — `validation/device` (not yet written)
-- **Configuration**: `api` (`RRAMConfig`, `RRAMPolicy`)
+- **Configuration**: `api` (`RramConfig`, `RramPolicy`)

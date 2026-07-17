@@ -9,7 +9,7 @@ The canonical term, symbol, and code name for each concept used across NeuroX su
 - **snapshot** — the verb (the `snapshot()` method) that materializes a per-call `snap` from current dynamic noise; never persisted.
 - **solve_dc** — solve a circuit's DC steady state under its boundary constraints, returning a per-call `dcop`; each solving module implements its own `solve_dc`.
 - **snap** — the per-call frozen container a `snapshot` produces, holding one call's materialized dynamic noise; `*Snap` suffix. Never "transient"; write "per-call".
-- **dcop** — DC operating point: the per-call frozen DC steady-state solution (node voltages / branch currents) returned by a `solve_dc`; `*DCOP` suffix.
+- **dcop** — DC operating point: the per-call frozen DC steady-state solution (node voltages / branch currents) returned by a `solve_dc`; `*Dcop` suffix.
 
 ## Value domain and slicing
 

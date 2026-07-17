@@ -5,6 +5,7 @@ See also:
 """
 
 import math
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import ClassVar
 
@@ -18,7 +19,7 @@ from neurox.primitive.physical_constant import thermal_voltage__V
 
 
 @dataclass(frozen=True)
-class MOSFETConfig(ConfigBase):
+class MosfetConfig(ConfigBase):
     """Immutable PDK config for a MOSFET (polarity-agnostic).
 
     The same field set describes n- and p-channel devices: ``mu0`` and
@@ -75,7 +76,7 @@ class MOSFETConfig(ConfigBase):
 
 
 @dataclass(frozen=True)
-class MOSFETPolicy(PolicyBase):
+class MosfetPolicy(PolicyBase):
     """Per-source toggles selecting which MOSFET nonidealities are active.
 
     Attributes:
@@ -88,7 +89,7 @@ class MOSFETPolicy(PolicyBase):
 
 
 @dataclass(frozen=True)
-class MOSFETDCOP:
+class MosfetDcop:
     """Caller-facing working-point result for one MOSFET evaluation.
 
     Attributes:
@@ -107,7 +108,7 @@ class MOSFETDCOP:
 
 
 @dataclass(frozen=True)
-class MOSFETSnap:
+class MosfetSnap:
     """Per-call MOSFET state snap.
 
     Attributes:
@@ -119,11 +120,11 @@ class MOSFETSnap:
     vth__V: Tensor
 
 
-class MOSFET(ModuleBase[MOSFETConfig, MOSFETPolicy]):
+class Mosfet(ModuleBase[MosfetConfig, MosfetPolicy], ABC):
     """EKV-softplus MOSFET electrical primitive (polarity-parameterized base).
 
     All physics lives here; concrete subclasses fix only the channel
-    polarity (:class:`NMOS` = ``+1``, :class:`PMOS` = ``-1``).
+    polarity (:class:`Nmos` = ``+1``, :class:`Pmos` = ``-1``).
 
     Args:
         config: Concrete configuration dataclass.
@@ -136,9 +137,12 @@ class MOSFET(ModuleBase[MOSFETConfig, MOSFETPolicy]):
     """
 
     # non-reporter: silicon rolls up to the owner
-    reports_static_ppa: ClassVar[bool] = False
+    is_profile_target: ClassVar[bool] = False
 
-    polarity: int
+    @property
+    @abstractmethod
+    def polarity(self) -> int:
+        """Channel polarity sign: ``+1`` (n-channel) or ``-1`` (p-channel)."""
 
     nominal_beta__uA_per_V2: Tensor
     nominal_vth__V: Tensor
@@ -148,8 +152,8 @@ class MOSFET(ModuleBase[MOSFETConfig, MOSFETPolicy]):
     def __init__(
         self,
         *,
-        config: MOSFETConfig,
-        policy: MOSFETPolicy,
+        config: MosfetConfig,
+        policy: MosfetPolicy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -158,8 +162,6 @@ class MOSFET(ModuleBase[MOSFETConfig, MOSFETPolicy]):
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
 
-        if type(self) is MOSFET:
-            raise TypeError("MOSFET is abstract; instantiate NMOS or PMOS")
         if self.polarity not in (1, -1):
             raise ValueError(f"require: polarity ({self.polarity}) in (1, -1)")
         if not (W__um > 0.0):
@@ -231,7 +233,7 @@ class MOSFET(ModuleBase[MOSFETConfig, MOSFETPolicy]):
         *,
         shape: tuple[int, ...],
         multi_coords: tuple[Tensor, ...] | None,
-    ) -> MOSFETSnap:
+    ) -> MosfetSnap:
         """Sample one per-call runtime snap over ``shape``.
 
         Args:
@@ -247,8 +249,8 @@ class MOSFET(ModuleBase[MOSFETConfig, MOSFETPolicy]):
         vth_view = self.vth__V.expand(shape) if shape else self.vth__V
         beta_view = self.beta__uA_per_V2.expand(shape) if shape else self.beta__uA_per_V2
         if multi_coords is None:
-            return MOSFETSnap(vth__V=vth_view, beta__uA_per_V2=beta_view)
-        return MOSFETSnap(
+            return MosfetSnap(vth__V=vth_view, beta__uA_per_V2=beta_view)
+        return MosfetSnap(
             vth__V=vth_view[multi_coords],
             beta__uA_per_V2=beta_view[multi_coords],
         )
@@ -258,8 +260,8 @@ class MOSFET(ModuleBase[MOSFETConfig, MOSFETPolicy]):
         vg__V: Tensor | float,
         vd__V: Tensor | float,
         vs__V: Tensor | float,
-        snap: MOSFETSnap,
-    ) -> MOSFETDCOP:
+        snap: MosfetSnap,
+    ) -> MosfetDcop:
         """Evaluate ``I_ds`` and its three node partials at one op point.
 
         Args:
@@ -269,7 +271,7 @@ class MOSFET(ModuleBase[MOSFETConfig, MOSFETPolicy]):
             snap: Per-call MOSFET snap carrying ``β`` and ``V_th``.
 
         Returns:
-            :class:`MOSFETDCOP`.
+            :class:`MosfetDcop`.
         """
         p = self.polarity
         beta__uA_per_V2 = snap.beta__uA_per_V2
@@ -301,7 +303,7 @@ class MOSFET(ModuleBase[MOSFETConfig, MOSFETPolicy]):
         did_dvd__uS = beta__uA_per_V2 * v_d_sigma_d
         did_dvs__uS = -beta__uA_per_V2 * v_s_sigma_s
 
-        return MOSFETDCOP(
+        return MosfetDcop(
             ids__uA=ids__uA,
             did_dvg__uS=did_dvg__uS,
             did_dvd__uS=did_dvd__uS,
@@ -309,13 +311,13 @@ class MOSFET(ModuleBase[MOSFETConfig, MOSFETPolicy]):
         )
 
 
-class NMOS(MOSFET):
+class Nmos(Mosfet):
     """N-channel MOSFET."""
 
     polarity = 1
 
 
-class PMOS(MOSFET):
+class Pmos(Mosfet):
     """P-channel MOSFET."""
 
     polarity = -1

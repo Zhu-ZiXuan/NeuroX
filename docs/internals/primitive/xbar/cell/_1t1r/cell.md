@@ -1,12 +1,12 @@
 # 1T1R cell
 
-`XbarCell1T1R` (`xbar/_1t1r/cell.py`) is the concrete `XbarCell`; the shared family and container contracts live at [xbar cell base](../README.md).
+`XbarCell1t1r` (`xbar/_1t1r/cell.py`) is the concrete `XbarCell`; the shared family and container contracts live at [xbar cell base](../README.md).
 
 ## Design decisions
 
 - **Pade current-divider seed before the Newton loop.** Seeding $V_{\mathrm{X}}$ from a first-order conductance-divider split of the BL-to-SL drop lands the iterate inside the Newton basin, so a small fixed step count converges. A cold seed would need more steps or risk a bad first step on the stiff NMOS / RRAM I-V.
 - **Fixed unrolled `n_newton`, no convergence branch.** The Newton loop runs exactly `n_newton` steps with no data-dependent stopping test. A runtime `while` on a tensor residual breaks `torch.compile` tracing; a fixed trip count keeps the Newton loop compile-safe. The count is calibrated, not guessed (next bullet).
-- **`n_newton` is calibrated per cell type and owned by the cell config.** It is a numerical-convergence knob, not a chip-physics parameter and not a per-source nonideality toggle, so it lives on `XbarCell1T1RConfig` (calibrated by step-ratio plateau, see [calibration guide](../../../../../guides/calibration/README.md)) and never on a Policy. Each cell type calibrates its own count because the condensation it solves is its own.
+- **`n_newton` is calibrated per cell type and owned by the cell config.** It is a numerical-convergence knob, not a chip-physics parameter and not a per-source nonideality toggle, so it lives on `XbarCell1t1rConfig` (calibrated by step-ratio plateau, see [calibration guide](../../../../../guides/calibration/README.md)) and never on a Policy. Each cell type calibrates its own count because the condensation it solves is its own.
 
 ## Contracts & invariants
 

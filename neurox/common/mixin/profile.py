@@ -22,6 +22,13 @@ class ProfileMixin:
     The collector half — capture, batched sync, aggregation, the static walk —
     lives in the profiler.
 
+    ``is_profile_target`` gates a host's whole profiling role, both sides at
+    once. Static: the profiler's static walk collects area / leakage only from
+    hosts where it is ``True``. Dynamic: a non-target must never emit — both
+    emit hooks raise if called on one. A non-reporter whose silicon rolls up
+    into an owner's budget overrides it to ``False``, and is then absent from
+    the static walk and forbidden to emit.
+
     Host requirements:
         - Inherit ``nn.Module`` alongside this mixin, and be reachable from
           the reported root as a registered child — an emitter the traversal
@@ -45,8 +52,8 @@ class ProfileMixin:
     _area_per_inst__um2: float
     _leakage_per_inst__uW: float
 
-    # Profiler collects static PPA only where True; non-reporters whose silicon rolls up to an owner override to False.
-    reports_static_ppa: ClassVar[bool] = True
+    # Two-way profiling gate: static walk collects PPA only where True; a non-target must never emit (both hooks raise). Roll-up non-reporters override to False.
+    is_profile_target: ClassVar[bool] = True
 
     @property
     def inst_count(self) -> int:
@@ -78,6 +85,8 @@ class ProfileMixin:
         Args:
             dynamic_energy__fJ: Per-op switching energy tensor.
         """
+        if not self.is_profile_target:
+            raise RuntimeError(f"{type(self).__name__} is not a profile target but emitted a dynamic-energy event")
         from neurox.common.profiler import NeuroxProfiler  # local import: avoid cycle
 
         profiler = NeuroxProfiler.get_current()
@@ -99,6 +108,8 @@ class ProfileMixin:
         Args:
             latency__ns: Per-op latency contribution tensor.
         """
+        if not self.is_profile_target:
+            raise RuntimeError(f"{type(self).__name__} is not a profile target but emitted a latency event")
         from neurox.common.profiler import NeuroxProfiler  # local import: avoid cycle
 
         profiler = NeuroxProfiler.get_current()

@@ -182,7 +182,6 @@ nav:
       - Opamp TIA: internals/primitive/analog/tia/opamp_tia.md
   - Common:
     - Overview: internals/common/README.md
-    - Base: internals/common/base.md
     - Encoding:
       - Overview: internals/common/encoding/README.md
       - Encodings: internals/common/encoding/encodings.md

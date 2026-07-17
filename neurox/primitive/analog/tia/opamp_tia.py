@@ -9,15 +9,15 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor
 
-from neurox.primitive.device import NMOS, MOSFETConfig, MOSFETPolicy, MOSFETSnap
+from neurox.primitive.device import MosfetConfig, MosfetPolicy, MosfetSnap, Nmos
 from neurox.primitive.nonideality import apply_gaussian
 
-from .base import TIA, TIAConfig, TIAPolicy, TIASnap
+from .base import Tia, TiaConfig, TiaPolicy, TiaSnap
 
 
 @dataclass(frozen=True, kw_only=True)
-class OpAmpTIAConfig(TIAConfig):
-    """Configuration for :class:`OpAmpTIA`.
+class OpAmpTiaConfig(TiaConfig):
+    """Configuration for :class:`OpAmpTia`.
 
     Attributes:
         v_nmos_bias__V: Pseudo-resistor gate bias.
@@ -46,7 +46,7 @@ class OpAmpTIAConfig(TIAConfig):
     opamp_gain_sigma: float
 
     # --- Pseudo-resistor NMOS ---
-    nmos_config: MOSFETConfig
+    nmos_config: MosfetConfig
     pseudo_nmos_W__um: float
     pseudo_nmos_L__um: float
 
@@ -77,8 +77,8 @@ class OpAmpTIAConfig(TIAConfig):
 
 
 @dataclass(frozen=True)
-class OpAmpTIAPolicy(TIAPolicy):
-    """Per-source nonideality toggles for OpAmpTIA.
+class OpAmpTiaPolicy(TiaPolicy):
+    """Per-source nonideality toggles for OpAmpTia.
 
     Attributes:
         opamp_gain_sigma: Apply ``opamp_gain_sigma`` at fabricate time.
@@ -86,12 +86,12 @@ class OpAmpTIAPolicy(TIAPolicy):
     """
 
     opamp_gain_sigma: bool
-    nmos: MOSFETPolicy
+    nmos: MosfetPolicy
 
 
 @dataclass(frozen=True)
-class OpAmpTIADCOP:
-    """DC operating-point result of :meth:`OpAmpTIA.solve_dc`.
+class OpAmpTiaDcop:
+    """DC operating-point result of :meth:`OpAmpTia.solve_dc`.
 
     Attributes:
         v_clamp__V: Clamp-node voltage at the converged operating point.
@@ -112,8 +112,8 @@ class OpAmpTIADCOP:
 
 
 @dataclass(frozen=True)
-class OpAmpTIASnap(TIASnap):
-    """Per-call OpAmpTIA snap.
+class OpAmpTiaSnap(TiaSnap):
+    """Per-call OpAmpTia snap.
 
     Attributes:
         v_ref__V: Injected reference clamp voltage, broadcast to the
@@ -124,12 +124,12 @@ class OpAmpTIASnap(TIASnap):
 
     v_ref__V: Tensor
     opamp_gain: Tensor
-    nmos_snap: MOSFETSnap
+    nmos_snap: MosfetSnap
 
 
-@TIA.register_key(OpAmpTIAConfig)
-class OpAmpTIA(TIA[OpAmpTIASnap]):
-    """Non-linear OpAmpTIA clamp driver.
+@Tia.register_key(OpAmpTiaConfig)
+class OpAmpTia(Tia[OpAmpTiaSnap]):
+    """Non-linear OpAmpTia clamp driver.
 
     Class-level numerical constants (method-intrinsic, not chip-tuneable):
 
@@ -141,16 +141,16 @@ class OpAmpTIA(TIA[OpAmpTIASnap]):
     MAX_STEP__V: float = 0.05
     G_EFF_MAX__uS: float = -1e-6
 
-    config: OpAmpTIAConfig
-    policy: OpAmpTIAPolicy
+    config: OpAmpTiaConfig
+    policy: OpAmpTiaPolicy
     nominal_opamp_gain: Tensor
     opamp_gain: Tensor
 
     def __init__(
         self,
         *,
-        config: OpAmpTIAConfig,
-        policy: OpAmpTIAPolicy,
+        config: OpAmpTiaConfig,
+        policy: OpAmpTiaPolicy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -168,7 +168,7 @@ class OpAmpTIA(TIA[OpAmpTIASnap]):
         self.T__K = T__K
         self.dtype = dtype
 
-        self.nmos = NMOS(
+        self.nmos = Nmos(
             config=config.nmos_config,
             policy=policy.nmos,
             inst_shape=inst_shape,
@@ -213,13 +213,13 @@ class OpAmpTIA(TIA[OpAmpTIASnap]):
         v_ref__V: Tensor,
         shape: tuple[int, ...],
         multi_coords: tuple[Tensor, ...] | None,
-    ) -> OpAmpTIASnap:
+    ) -> OpAmpTiaSnap:
         v_view = v_ref__V.expand(shape) if shape else v_ref__V
         v = v_view if multi_coords is None else v_view[multi_coords]
         gain_view = self.opamp_gain.expand(shape) if shape else self.opamp_gain
         gain = gain_view if multi_coords is None else gain_view[multi_coords]
         nmos_snap = self.nmos.snapshot(shape=shape, multi_coords=multi_coords)
-        return OpAmpTIASnap(v_ref__V=v, opamp_gain=gain, nmos_snap=nmos_snap)
+        return OpAmpTiaSnap(v_ref__V=v, opamp_gain=gain, nmos_snap=nmos_snap)
 
     # --- forward path ---
 
@@ -243,11 +243,11 @@ class OpAmpTIA(TIA[OpAmpTIASnap]):
     def solve_dc(
         self,
         i_port__uA: Tensor,
-        snap: OpAmpTIASnap,
+        snap: OpAmpTiaSnap,
         *,
         v_clamp_init__V: Tensor | None,
-    ) -> OpAmpTIADCOP:
-        """Solve the closed-loop OpAmpTIA at one port current.
+    ) -> OpAmpTiaDcop:
+        """Solve the closed-loop OpAmpTia at one port current.
 
         Args:
             i_port__uA: Port-output current; positive = sourcing.
@@ -312,7 +312,7 @@ class OpAmpTIA(TIA[OpAmpTIASnap]):
         # ``solver_calibrate.tia`` to consume.
         residual__uA = (nmos_dc_final.ids__uA - i_port__uA).abs()
 
-        return OpAmpTIADCOP(
+        return OpAmpTiaDcop(
             v_clamp__V=v_clamp,
             v_out__V=v_out,
             dVclamp_dI__MOhm=dVclamp_dI__MOhm,
@@ -323,7 +323,7 @@ class OpAmpTIA(TIA[OpAmpTIASnap]):
     def solve_clamp(
         self,
         i_port__uA: Tensor,
-        snap: OpAmpTIASnap,
+        snap: OpAmpTiaSnap,
         *,
         v_clamp_init__V: Tensor | None,
     ) -> tuple[Tensor, Tensor]:

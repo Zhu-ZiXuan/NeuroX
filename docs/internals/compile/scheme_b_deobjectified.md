@@ -34,19 +34,19 @@ def solve_nested_chunk(
     bl_segment_g__uS: Tensor,
     sl_segment_g__uS: Tensor,
     cell_snap: XbarCellSnap,
-    bl_driver_snap: OpAmpTIASnap,
+    bl_driver_snap: OpAmpTiaSnap,
     sl_driver_snap: VoltageDriverSnap,
     params: NestedParallelRailSolverCompileParams,
 ) -> tuple[Tensor, ...]:
     ...
 ```
 
-The sketch flattens the per-call actors (the cell, the two clamp drivers) down to their snaps for the functionalization step: the cell condenses its own RRAM / NMOS device branch into `cell_snap` (the free function never sees raw `rram_snap` / `nmos_snap`), and each clamp driver's fabricated state arrives as its own driver snap. The device behaviour and the clamp solves are recovered by calling each actor's stateless solve helper on the matching snap, exactly as `NestedParallelRailSolver.solve_dc` does today. `NestedParallelRailSolver.solve_dc` then becomes the adapter that only: reads its scalar config off `self`, takes the cell, the two clamp drivers, and their snaps from the call, calls the free function, and reassembles the returned tuple into `SolverDCOP`. If the snap dataclasses themselves cause recompiles, the next step is to expand them into plain `Tensor` arguments so the signature is fully tensor-and-scalar.
+The sketch flattens the per-call actors (the cell, the two clamp drivers) down to their snaps for the functionalization step: the cell condenses its own RRAM / NMOS device branch into `cell_snap` (the free function never sees raw `rram_snap` / `nmos_snap`), and each clamp driver's fabricated state arrives as its own driver snap. The device behaviour and the clamp solves are recovered by calling each actor's stateless solve helper on the matching snap, exactly as `NestedParallelRailSolver.solve_dc` does today. `NestedParallelRailSolver.solve_dc` then becomes the adapter that only: reads its scalar config off `self`, takes the cell, the two clamp drivers, and their snaps from the call, calls the free function, and reassembles the returned tuple into `SolverDcop`. If the snap dataclasses themselves cause recompiles, the next step is to expand them into plain `Tensor` arguments so the signature is fully tensor-and-scalar.
 
 ## Trade-offs
 
 - **vs. scheme A.** Gains a compile cache key that is object-independent by construction, so cross-instance reuse is guaranteed rather than incidental, and the "every layer recompiles" failure mode is structurally impossible; also lays the functional foundation scheme C requires. Loses code simplicity: the solver gains a wrapper/core split and a longer surface, and the adapter's packing must be kept in sync with the free function's signature.
-- **Returning a dataclass vs a tuple.** Returning `SolverDCOP` keeps call sites unchanged but ties the compiled region to a PyTree-stable structure; returning a bare tuple and reassembling in the adapter is more robust to PyTree edges at the cost of an explicit repack.
+- **Returning a dataclass vs a tuple.** Returning `SolverDcop` keeps call sites unchanged but ties the compiled region to a PyTree-stable structure; returning a bare tuple and reassembling in the adapter is more robust to PyTree edges at the cost of an explicit repack.
 - **Dataclass snap args vs pure tensors.** Dataclass args stay close to current code; pure-tensor args maximize cache stability but lengthen the signature. Start with dataclass snaps and only flatten if recompiles are observed.
 
 ## Performance and resources (theoretical)

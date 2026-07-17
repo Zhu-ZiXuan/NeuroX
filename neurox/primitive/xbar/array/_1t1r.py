@@ -13,17 +13,17 @@ from torch import Tensor
 
 from neurox.primitive.xbar.array.base import XbarArray, XbarArrayConfig, XbarArrayPolicy
 from neurox.primitive.xbar.cell import (
-    XbarCell1T1R,
-    XbarCell1T1RConfig,
-    XbarCell1T1RDCOP,
-    XbarCell1T1RPolicy,
-    XbarCell1T1RSnap,
+    XbarCell1t1r,
+    XbarCell1t1rConfig,
+    XbarCell1t1rDcop,
+    XbarCell1t1rPolicy,
+    XbarCell1t1rSnap,
 )
 from neurox.primitive.xbar.solver import (
     ClampDriver,
     Solver,
     SolverConfig,
-    SolverDCOP,
+    SolverDcop,
     classify_leading_positions,
     iter_chunks,
     reassemble_chunks,
@@ -39,7 +39,7 @@ SLSnapT = TypeVar("SLSnapT", bound=ClampSnap)
 
 
 @dataclass(frozen=True, kw_only=True)
-class XbarArray1T1RConfig(XbarArrayConfig):
+class XbarArray1t1rConfig(XbarArrayConfig):
     """Shape-independent physical knobs for a 1T1R pure-array core.
 
     Attributes:
@@ -97,7 +97,7 @@ class XbarArray1T1RConfig(XbarArrayConfig):
     wl_segment_r__MOhm: float
     wl_segment_c__fF: float
 
-    cell_config: XbarCell1T1RConfig
+    cell_config: XbarCell1t1rConfig
     solver_config: SolverConfig
 
     latency_per_op__ns: float
@@ -151,7 +151,7 @@ class XbarArray1T1RConfig(XbarArrayConfig):
 
 
 @dataclass(frozen=True)
-class XbarArray1T1RPolicy(XbarArrayPolicy):
+class XbarArray1t1rPolicy(XbarArrayPolicy):
     """Composite nonideality policy for a 1T1R pure-array core.
 
     Attributes:
@@ -164,7 +164,7 @@ class XbarArray1T1RPolicy(XbarArrayPolicy):
             many instances. Runtime knob, not a chip-preset constant.
     """
 
-    cell: XbarCell1T1RPolicy
+    cell: XbarCell1t1rPolicy
     solve_chunk_size: int
 
 
@@ -194,11 +194,11 @@ class XbarArraySteadyState:
 # ---------------------------------------------------------------------------
 
 
-class XbarArray1T1R(XbarArray[XbarArray1T1RConfig, XbarArray1T1RPolicy]):
+class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
     """Shape-independent 1T1R pure array: cells, wire parasitics, and solver."""
 
-    config: XbarArray1T1RConfig
-    cell: XbarCell1T1R
+    config: XbarArray1t1rConfig
+    cell: XbarCell1t1r
     bl_segment_r__MOhm: Tensor
     sl_segment_r__MOhm: Tensor
     bl_segment_g__uS: Tensor
@@ -209,8 +209,8 @@ class XbarArray1T1R(XbarArray[XbarArray1T1RConfig, XbarArray1T1RPolicy]):
     def __init__(
         self,
         *,
-        config: XbarArray1T1RConfig,
-        policy: XbarArray1T1RPolicy,
+        config: XbarArray1t1rConfig,
+        policy: XbarArray1t1rPolicy,
         w_layout_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -243,7 +243,7 @@ class XbarArray1T1R(XbarArray[XbarArray1T1RConfig, XbarArray1T1RPolicy]):
         self.T__K = T__K
         self._w_layout_shape = tuple(w_layout_shape)
 
-        self.cell = XbarCell1T1R(
+        self.cell = XbarCell1t1r(
             config=config.cell_config,
             policy=policy.cell,
             inst_shape=self._w_layout_shape,
@@ -451,8 +451,8 @@ class XbarArray1T1R(XbarArray[XbarArray1T1RConfig, XbarArray1T1RPolicy]):
     def _compute_array_energy__fJ(
         self,
         *,
-        solver_dcop: SolverDCOP[XbarCell1T1RDCOP],
-        cell_snap: XbarCell1T1RSnap,
+        solver_dcop: SolverDcop[XbarCell1t1rDcop],
+        cell_snap: XbarCell1t1rSnap,
     ) -> Tensor:
         """Per-VMM array-internal energy. Shape: [...batch...].
 

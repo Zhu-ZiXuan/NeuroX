@@ -10,7 +10,7 @@
 ## Contracts & invariants
 
 - **Canonical leaf signature.** The per-instance count is locked from `inst_shape` at construction, and both mismatch buffers are shaped `inst_shape`.
-- **Static PPA rolls up to the owner.** The subtractor accounts no dynamic energy, and its silicon is accounted in the owning current-domain circuit's config, so it declares no per-instance area or leakage data of its own and sets `reports_static_ppa` false ([base](base.md)).
+- **Static PPA rolls up to the owner.** The subtractor accounts no dynamic energy, and its silicon is accounted in the owning current-domain circuit's config, so it declares no per-instance area or leakage data of its own and sets `is_profile_target` false ([base](base.md)).
 
 ## Performance & resources
 
