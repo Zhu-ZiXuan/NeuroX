@@ -19,7 +19,7 @@ from torch import Tensor
 
 from neurox.primitive.xbar.cell import XbarCell, XbarCellDcop, XbarCellSnap
 
-from ._linalg import solve_block_tridiagonal
+from ._linalg import block_solve, solve_block_tridiagonal
 from ._wire_kcl import col_driver_current, col_wire_kcl_residual
 from .base import Solver, SolverConfig, SolverDcop, SolverResiduals
 from .clamp import ClampDriver, ClampSnap
@@ -412,7 +412,7 @@ class NestedParallelRailSolver(Solver):
             # Shape: [..., num_line, 2]
             f_outer = torch.stack([f_bl_outer, f_sl_outer], dim=-1)
             # Solve 2×2 system per column: δ = -inv(df_outer) · f_outer.
-            delta_2 = torch.linalg.solve(df_outer, -f_outer.unsqueeze(-1)).squeeze(-1)
+            delta_2 = block_solve(df_outer, -f_outer.unsqueeze(-1)).squeeze(-1)
             delta_bl = delta_2[..., 0].clamp(min=-max_outer_step__V, max=max_outer_step__V)
             delta_sl = delta_2[..., 1].clamp(min=-max_outer_step__V, max=max_outer_step__V)
             v_bl_clamp__V = v_bl_clamp__V + delta_bl

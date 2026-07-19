@@ -37,6 +37,50 @@ def elementwise_diff(fn: Callable[..., Tensor], *, wrt: str, **kwargs: Tensor) -
     return dy_dx
 
 
+def block_matmul(p: Tensor, q: Tensor) -> Tensor:
+    """Batched block product ``p @ q`` with a closed-form 2×2 fast path.
+
+    ``p`` is ``[..., B, B]`` and ``q`` is ``[..., B, K]``. For ``B == 2`` the
+    product is expanded into elementwise multiply-adds: a batched ``bmm`` on
+    tens of millions of 2×2 blocks dispatches to tile-based GEMM kernels whose
+    per-launch cost is orders of magnitude above the arithmetic, and the
+    elementwise form also fuses under ``torch.compile``. Any other block size
+    falls through to ``p @ q``.
+    """
+    if p.shape[-1] == 2 and p.shape[-2] == 2:
+        q0 = q[..., 0, :]
+        q1 = q[..., 1, :]
+        out0 = p[..., 0, 0].unsqueeze(-1) * q0 + p[..., 0, 1].unsqueeze(-1) * q1
+        out1 = p[..., 1, 0].unsqueeze(-1) * q0 + p[..., 1, 1].unsqueeze(-1) * q1
+        return torch.stack((out0, out1), dim=-2)
+    return p @ q
+
+
+def block_solve(m: Tensor, rhs: Tensor) -> Tensor:
+    """Batched block solve ``m⁻¹ @ rhs`` with a closed-form 2×2 fast path.
+
+    ``m`` is ``[..., B, B]`` and ``rhs`` is ``[..., B, K]``. For ``B == 2``
+    the solve is the adjugate/determinant closed form — elementwise arithmetic
+    instead of a batched LU (``torch.linalg.solve``), whose per-launch cost on
+    tens of millions of 2×2 blocks dwarfs the arithmetic. The closed form
+    matches LU to fp round-off in the diagonally-dominant regime the wire
+    Newton Jacobian occupies. Any other block size falls through to
+    ``torch.linalg.solve``.
+    """
+    if m.shape[-1] == 2 and m.shape[-2] == 2:
+        a = m[..., 0, 0].unsqueeze(-1)
+        b = m[..., 0, 1].unsqueeze(-1)
+        c = m[..., 1, 0].unsqueeze(-1)
+        d = m[..., 1, 1].unsqueeze(-1)
+        det = a * d - b * c
+        r0 = rhs[..., 0, :]
+        r1 = rhs[..., 1, :]
+        x0 = (d * r0 - b * r1) / det
+        x1 = (a * r1 - c * r0) / det
+        return torch.stack((x0, x1), dim=-2)
+    return torch.linalg.solve(m, rhs)
+
+
 def solve_block_tridiagonal(
     sub: Tensor,
     diag: Tensor,
@@ -70,13 +114,13 @@ def solve_block_tridiagonal(
     """
     n = rhs.shape[-2]
     if n == 1:
-        return torch.linalg.solve(diag[..., 0, :, :], rhs[..., 0, :].unsqueeze(-1)).squeeze(-1)
+        return block_solve(diag[..., 0, :, :], rhs[..., 0, :].unsqueeze(-1)).squeeze(-1)
 
     # Forward sweep: C_k = M_k⁻¹ · sup_k, d_k = M_k⁻¹ · (rhs - sub · d_{k-1}).
     m_0 = diag[..., 0, :, :]
     rhs_0 = rhs[..., 0, :].unsqueeze(-1)
     # Stack [sup, rhs] as RHS columns so we do one solve per step instead of two.
-    sol_0 = torch.linalg.solve(m_0, torch.cat((sup[..., 0, :, :], rhs_0), dim=-1))
+    sol_0 = block_solve(m_0, torch.cat((sup[..., 0, :, :], rhs_0), dim=-1))
     c_list: list[Tensor] = [sol_0[..., :-1]]
     d_list: list[Tensor] = [sol_0[..., -1:]]
     for k in range(1, n):
@@ -84,15 +128,15 @@ def solve_block_tridiagonal(
         diag_k = diag[..., k, :, :]
         sup_k = sup[..., k, :, :]
         rhs_k = rhs[..., k, :].unsqueeze(-1)
-        m_k = diag_k - sub_k @ c_list[k - 1]
-        sol_k = torch.linalg.solve(m_k, torch.cat((sup_k, rhs_k - sub_k @ d_list[k - 1]), dim=-1))
+        m_k = diag_k - block_matmul(sub_k, c_list[k - 1])
+        sol_k = block_solve(m_k, torch.cat((sup_k, rhs_k - block_matmul(sub_k, d_list[k - 1])), dim=-1))
         c_list.append(sol_k[..., :-1])
         d_list.append(sol_k[..., -1:])
 
     # Back substitution — build the solution list right-to-left.
     x_list: list[Tensor] = [d_list[n - 1].squeeze(-1)]
     for k in range(n - 2, -1, -1):
-        x_list.append((d_list[k] - c_list[k] @ x_list[-1].unsqueeze(-1)).squeeze(-1))
+        x_list.append((d_list[k] - block_matmul(c_list[k], x_list[-1].unsqueeze(-1))).squeeze(-1))
     x_list.reverse()
 
     return torch.stack(x_list, dim=-2)
@@ -243,7 +287,7 @@ def solve_block_tridiagonal_pcr(
     vec_dim = -2
 
     if n == 1:
-        return torch.linalg.solve(diag[..., 0, :, :], rhs[..., 0, :].unsqueeze(-1)).squeeze(-1)
+        return block_solve(diag[..., 0, :, :], rhs[..., 0, :].unsqueeze(-1)).squeeze(-1)
 
     a, b, c, r = sub, diag, sup, rhs
 
@@ -259,18 +303,20 @@ def solve_block_tridiagonal_pcr(
         r_r = _pcr_shift_zero(r, -stride, vec_dim)
 
         # α = -a · b_l⁻¹  via  α · b_l = -a  →  b_l.T · α.T = -a.T
-        alpha = torch.linalg.solve(b_l.transpose(-1, -2), -a.transpose(-1, -2)).transpose(-1, -2)
-        beta = torch.linalg.solve(b_r.transpose(-1, -2), -c.transpose(-1, -2)).transpose(-1, -2)
+        alpha = block_solve(b_l.transpose(-1, -2), -a.transpose(-1, -2)).transpose(-1, -2)
+        beta = block_solve(b_r.transpose(-1, -2), -c.transpose(-1, -2)).transpose(-1, -2)
 
-        new_a = alpha @ a_l
-        new_c = beta @ c_r
-        new_b = b + alpha @ c_l + beta @ a_r
-        new_r = (r.unsqueeze(-1) + alpha @ r_l.unsqueeze(-1) + beta @ r_r.unsqueeze(-1)).squeeze(-1)
+        new_a = block_matmul(alpha, a_l)
+        new_c = block_matmul(beta, c_r)
+        new_b = b + block_matmul(alpha, c_l) + block_matmul(beta, a_r)
+        new_r = (
+            r.unsqueeze(-1) + block_matmul(alpha, r_l.unsqueeze(-1)) + block_matmul(beta, r_r.unsqueeze(-1))
+        ).squeeze(-1)
 
         a, b, c, r = new_a, new_b, new_c, new_r
         stride *= 2
 
-    return torch.linalg.solve(b, r.unsqueeze(-1)).squeeze(-1)
+    return block_solve(b, r.unsqueeze(-1)).squeeze(-1)
 
 
 def solve_tridiagonal(
