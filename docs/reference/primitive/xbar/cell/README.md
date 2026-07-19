@@ -38,7 +38,7 @@ The cell itself owns no static mismatch. Non-idealities enter through the cell's
 
 ## Energy model
 
-The cell contributes the **device-capacitor dynamic energy** — the per-read charge/discharge energy of the capacitances internal to its own devices, summed at the converged operating point (the terminal voltages and the condensed internal-node voltages). It excludes the wire-segment, control-line, and DC-conduction energy, which lie outside the cell. The cell carries no other PPA: its device children's silicon area and leakage roll up at the array level, not through the cell. The concrete capacitance inventory is topology-specific.
+The cell contributes the **per-cell node-capacitance dynamic energy** — the per-read charge/discharge energy of its per-cell node-to-ground capacitances, summed at the converged operating point (the terminal voltages and the condensed internal-node voltages). It excludes the wire-segment and DC-conduction energy, which lie outside the cell. The cell carries no other PPA: its device children's silicon area and leakage roll up at the array level, not through the cell. The concrete node-capacitance inventory is topology-specific.
 
 ## Assumptions, scope & validity
 

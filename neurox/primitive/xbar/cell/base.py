@@ -14,6 +14,7 @@ import torch
 from torch import Tensor
 
 from neurox.common import ConfigBase, ModuleBase, PolicyBase
+from neurox.common.mixin import RegistryMixin
 
 # ---------------------------------------------------------------------------
 # Config / policy / result bases
@@ -25,8 +26,7 @@ class XbarCellConfig(ConfigBase, ABC):
     """Abstract base for crossbar-cell configs.
 
     Empty by design — each concrete cell carries its own subclass with
-    the device configs, sizing, and per-cell parasitic-cap densities it
-    needs.
+    the device configs, sizing, and per-cell capacitances it needs.
     """
 
     def __post_init__(self) -> None:
@@ -100,6 +100,7 @@ DCOPT = TypeVar("DCOPT", bound=XbarCellDcop)
 
 class XbarCell(
     ModuleBase[XbarCellConfig, XbarCellPolicy],
+    RegistryMixin[type[XbarCellConfig], "XbarCell"],
     Generic[SnapT, DCOPT],
     ABC,
 ):
@@ -136,6 +137,26 @@ class XbarCell(
         """
         del dtype, T__K  # consumed by the subclass init
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
+
+    @classmethod
+    def from_config(
+        cls,
+        *,
+        config: XbarCellConfig,
+        policy: XbarCellPolicy,
+        inst_shape: tuple[int, ...],
+        dtype: torch.dtype,
+        T__K: float,
+    ) -> XbarCell:
+        """Build the concrete impl registered for ``type(config)``."""
+        impl = cls._lookup_impl(type(config))
+        return impl(
+            config=config,
+            policy=policy,
+            inst_shape=inst_shape,
+            dtype=dtype,
+            T__K=T__K,
+        )
 
     def _sample_fabricate_mismatch(self) -> None:
         pass  # container: device mismatch is sampled through the cascade
@@ -240,12 +261,12 @@ class XbarCell(
         dcop: DCOPT,
         snap: SnapT,
     ) -> Tensor:
-        """Per-cell device-capacitance switching energy [fJ].
+        """Per-cell capacitance switching energy [fJ].
 
-        Sums the cell's internal device-capacitance charge/discharge
-        energy from the node voltages of the converged operating point.
-        Excludes wire-segment and control-line capacitances (owned by the
-        core) — only the capacitances internal to the cell's devices.
+        Sums the cell's per-node capacitance charge/discharge energy
+        from the node voltages of the converged operating point.
+        Excludes wire-segment capacitances (owned by the core) — only
+        the per-cell node loading.
 
         Args:
             v_bl: Bit-line node voltage [V]. Shape: ``[..., col, row]``.

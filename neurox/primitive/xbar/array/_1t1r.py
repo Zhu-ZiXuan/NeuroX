@@ -13,6 +13,7 @@ from torch import Tensor
 
 from neurox.primitive.xbar.array.base import XbarArray, XbarArrayConfig, XbarArrayPolicy
 from neurox.primitive.xbar.cell import (
+    XbarCell,
     XbarCell1t1r,
     XbarCell1t1rConfig,
     XbarCell1t1rDcop,
@@ -60,9 +61,10 @@ class XbarArray1t1rConfig(XbarArrayConfig):
         wl_first_c__fF: WL driver-to-first-cell segment capacitance.
         wl_segment_r__MOhm: WL cell-to-cell segment resistance.
         wl_segment_c__fF: WL cell-to-cell segment capacitance.
-        cell_config: 1T1R cell configuration. Owns the RRAM / access-NMOS
-            device configs, sizing, parasitic-cap densities, programming
-            map, and per-cell branch-solve knobs.
+        cell_config: 1T1R cell configuration. Concrete subclass of
+            :class:`XbarCell1t1rConfig` picks the cell model the core
+            builds through the family registry; it owns the cell's
+            node-to-ground capacitances and model-specific knobs.
         solver_config: DC-solver fixed numerical knobs. Concrete subclass
             of :class:`SolverConfig` picks which solver implementation the
             core instantiates.
@@ -155,7 +157,8 @@ class XbarArray1t1rPolicy(XbarArrayPolicy):
     """Composite nonideality policy for a 1T1R pure-array core.
 
     Attributes:
-        cell: 1T1R cell nonideality policy (RRAM + access-NMOS).
+        cell: 1T1R cell nonideality policy; concrete subclass matches
+            the configured cell model.
         solve_chunk_size: Maximum number of broadcast-leading instances
             ``solve_array`` solves per chunk — the per-chunk peak-memory
             budget. ``0`` runs the whole leading in one block; any
@@ -243,13 +246,15 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
         self.T__K = T__K
         self._w_layout_shape = tuple(w_layout_shape)
 
-        self.cell = XbarCell1t1r(
+        cell = XbarCell.from_config(
             config=config.cell_config,
             policy=policy.cell,
             inst_shape=self._w_layout_shape,
             dtype=dtype,
             T__K=T__K,
         )
+        assert isinstance(cell, XbarCell1t1r)
+        self.cell = cell
 
         self.w_states = self.cell.w_states
 
@@ -292,8 +297,8 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
 
     @property
     def weight_grid_shape(self) -> tuple[int, ...]:
-        """Shape of the weight grid (RRAM conductance array): ``(*inst, phys_col, row)``."""
-        return tuple(self.cell.rram.g__uS.shape)
+        """Shape of the weight grid (per-cell state array): ``(*inst, phys_col, row)``."""
+        return self._w_layout_shape
 
     # -----------------------------------------------------------------
     # Programming
@@ -358,7 +363,7 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
         # ``row`` and the ``phys_col`` slot opens for the solver-side
         # broadcast against the RRAM grid.
         v_wl_grid = v_wl.unsqueeze(-2)
-        g_shape = self.cell.rram.g__uS.shape
+        g_shape = self._w_layout_shape
         full_shape = torch.broadcast_shapes(g_shape, v_wl_grid.shape)
         *batch_list, phys_col_num, row_num = full_shape
         leading = tuple(batch_list)
@@ -458,7 +463,7 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
 
         Sums the core-owned terms — DC conduction at the rail clamps plus
         wire-segment (BL / SL) and WL-line capacitive cycling — with the
-        per-cell device-capacitance switching energy delegated to
+        per-cell node-capacitance switching energy delegated to
         :meth:`XbarCell.dynamic_energy`.
 
         Args:
@@ -504,7 +509,7 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
         sl_seg_q__V2 = (v_sl_left__V.square() + v_sl_left__V * v_sl__V + v_sl__V.square()) / 3.0
         e_sl_wire_cap__fJ = (self.sl_segment_c__fF * sl_seg_q__V2).sum(dim=(-2, -1))
 
-        # --- Per-cell device-capacitance switching energy ---
+        # --- Per-cell node-capacitance switching energy ---
 
         # Shape: [..., phys_col_num, row_num] -> [...]
         e_cell__fJ = self.cell.dynamic_energy(v_bl__V, v_sl__V, solver_dcop.cell, cell_snap).sum(dim=(-2, -1))

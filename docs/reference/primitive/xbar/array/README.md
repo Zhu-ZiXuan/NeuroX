@@ -24,7 +24,7 @@ TODO: once the device / analog Reference documents settle, state exactly which s
 
 ## Energy model
 
-Per VMM the array dissipates wire-capacitor, control-line, DC-conduction, and device-capacitor energy. The device-capacitor term — the capacitances internal to each cell's devices — is a per-cell contribution ([cell](../cell/README.md)) summed over the array; the wire-capacitor, control-line, and DC-conduction terms are array-level. The array is a full electrical circuit and aggregates the device children's silicon area and static leakage at the array level (the cells contribute only per-read device-capacitor switching energy). The injected boundary blocks self-account their own drive / reference / readout energy.
+Per VMM the array dissipates wire-capacitor, control-line, DC-conduction, and per-cell node-capacitance energy. The node-capacitance term — each cell's per-node grounded capacitances — is a per-cell contribution ([cell](../cell/README.md)) summed over the array; the wire-capacitor, control-line, and DC-conduction terms are array-level. The array is a full electrical circuit and aggregates the device children's silicon area and static leakage at the array level (the cells contribute only per-read node-capacitance switching energy). The injected boundary blocks self-account their own drive / reference / readout energy.
 
 ## Parameters
 

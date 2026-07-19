@@ -27,7 +27,7 @@ from torch import Tensor
 from neurox.primitive.analog import VoltageDriver, VoltageDriverPolicy, VoltageReference, VoltageReferencePolicy
 from neurox.primitive.analog.tia import OpAmpTia, OpAmpTiaConfig, OpAmpTiaPolicy
 from neurox.primitive.device import MosfetPolicy, RramPolicy
-from neurox.primitive.xbar.cell import XbarCell1t1r, XbarCell1t1rPolicy, XbarCell1t1rSnap
+from neurox.primitive.xbar.cell import XbarCell1t1r, XbarCell1t1rDetail, XbarCell1t1rDetailPolicy, XbarCell1t1rSnap
 from neurox.primitive.xbar.solver import Solver, SolverConfig
 from works.offset_1t1r.macro import Offset1t1rCimMacroConfig
 
@@ -134,9 +134,9 @@ def build_solver_harness(
 
     # --- Cell + boundary drivers (no nonideality) ---
 
-    cell = XbarCell1t1r(
+    cell = XbarCell1t1rDetail(
         config=cell_cfg,
-        policy=XbarCell1t1rPolicy(
+        policy=XbarCell1t1rDetailPolicy(
             rram=RramPolicy(prog_gamma=False, stuck_at=False, read_telegraph=False, read_thermal=False),
             nmos=MosfetPolicy(A_vt_mismatch=False, A_beta_mismatch=False),
         ),

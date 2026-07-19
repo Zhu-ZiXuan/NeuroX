@@ -14,10 +14,6 @@ nonlinearity_alpha = 0.5
 drift_decay_rate = 0.03
 drift_t0 = 1.0
 
-# --- Per-cell parasitics ---
-c_top__fF = 0.1
-c_bot__fF = 0.1
-
 # --- Read thermal noise ---
 read_thermal__uS = 0.002
 

@@ -1,0 +1,152 @@
+"""Closed-form and registry checks for :class:`XbarCell1t1rLinear`.
+
+Covers registry dispatch from the config type, the WL-switched series
+branch math against hand-built tables, and the empty-policy
+deserialization path.
+"""
+
+from pathlib import Path
+
+import pytest
+import torch
+
+from neurox.primitive.device import MosfetPolicy, RramPolicy
+from neurox.primitive.xbar.cell import (
+    XbarCell,
+    XbarCell1t1rDetailPolicy,
+    XbarCell1t1rLinear,
+    XbarCell1t1rLinearConfig,
+    XbarCell1t1rLinearPolicy,
+    XbarCell1t1rPolicy,
+)
+
+_G_BL_TABLE__uS = ((5.0, 10.0), (50.0, 100.0))
+_G_SL_TABLE__uS = ((1e-4, 2000.0), (2e-4, 1500.0))
+_V_WL_ON_THRESHOLD__V = 0.45
+
+
+def _hand_built_config() -> XbarCell1t1rLinearConfig:
+    return XbarCell1t1rLinearConfig(
+        c_bl__fF=0.2,
+        c_x__fF=0.3,
+        c_sl__fF=0.1,
+        c_wl__fF=0.2,
+        g_bl_table__uS=_G_BL_TABLE__uS,
+        g_sl_table__uS=_G_SL_TABLE__uS,
+        v_wl_on_threshold__V=_V_WL_ON_THRESHOLD__V,
+    )
+
+
+def _build_cell(inst_shape: tuple[int, ...]) -> XbarCell1t1rLinear:
+    cell = XbarCell.from_config(
+        config=_hand_built_config(),
+        policy=XbarCell1t1rLinearPolicy(),
+        inst_shape=inst_shape,
+        dtype=torch.float64,
+        T__K=300.0,
+    )
+    assert isinstance(cell, XbarCell1t1rLinear)
+    cell.eval()
+    cell.fabricate()
+    return cell
+
+
+def test_registry_dispatch_yields_linear_leaf() -> None:
+    cell = XbarCell.from_config(
+        config=_hand_built_config(),
+        policy=XbarCell1t1rLinearPolicy(),
+        inst_shape=(2, 2),
+        dtype=torch.float64,
+        T__K=300.0,
+    )
+    assert type(cell) is XbarCell1t1rLinear
+
+
+def test_solve_branch_matches_series_conductance() -> None:
+    cell = _build_cell((2, 2))
+    w_state = torch.tensor([[0, 1], [1, 0]], dtype=torch.long)
+    cell.program(w_state)
+
+    v_wl = torch.tensor([[0.0, 0.9], [0.9, 0.0]], dtype=torch.float64)
+    snap = cell.snapshot(control=v_wl, shape=(2, 2), multi_coords=None, t_elapsed=0.0)
+
+    g_bl_table = torch.tensor(_G_BL_TABLE__uS, dtype=torch.float64)
+    g_sl_table = torch.tensor(_G_SL_TABLE__uS, dtype=torch.float64)
+    on = v_wl > _V_WL_ON_THRESHOLD__V
+    x_idx = on.long()
+    g_bl = g_bl_table[w_state, x_idx]
+    g_sl = g_sl_table[w_state, x_idx]
+    g_series = g_bl * g_sl / (g_bl + g_sl)
+
+    v_bl = torch.full((2, 2), 0.3, dtype=torch.float64)
+    v_sl = torch.full((2, 2), 0.05, dtype=torch.float64)
+    i__uA, di_dvbl__uS, di_dvsl__uS = cell.solve_branch(v_bl, v_sl, snap)
+
+    torch.testing.assert_close(i__uA, g_series * (v_bl - v_sl))
+    torch.testing.assert_close(di_dvbl__uS, g_series)
+    torch.testing.assert_close(di_dvsl__uS, -g_series)
+
+
+def test_wl_threshold_switches_off_at_and_below() -> None:
+    cell = _build_cell((1, 1))
+    cell.program(torch.tensor([[1]], dtype=torch.long))
+    v_bl = torch.full((1, 1), 0.3, dtype=torch.float64)
+    v_sl = torch.zeros((1, 1), dtype=torch.float64)
+
+    i_levels = []
+    for v_wl__V in (_V_WL_ON_THRESHOLD__V, _V_WL_ON_THRESHOLD__V + 0.01):
+        v_wl = torch.full((1, 1), v_wl__V, dtype=torch.float64)
+        snap = cell.snapshot(control=v_wl, shape=(1, 1), multi_coords=None, t_elapsed=0.0)
+        i_levels.append(float(cell.solve_branch(v_bl, v_sl, snap)[0]))
+    i_at_threshold, i_above = i_levels
+
+    g_bl_off, g_sl_off = _G_BL_TABLE__uS[1][0], _G_SL_TABLE__uS[1][0]
+    g_off = g_bl_off * g_sl_off / (g_bl_off + g_sl_off)
+    assert i_at_threshold == pytest.approx(g_off * 0.3)
+    assert i_above > i_at_threshold * 1e3
+
+
+def test_solve_dc_divider_vx_and_zero_residuals() -> None:
+    cell = _build_cell((1, 1))
+    cell.program(torch.tensor([[0]], dtype=torch.long))
+    v_bl = torch.full((1, 1), 0.3, dtype=torch.float64)
+    v_sl = torch.zeros((1, 1), dtype=torch.float64)
+    v_wl = torch.full((1, 1), 0.9, dtype=torch.float64)
+    snap = cell.snapshot(control=v_wl, shape=(1, 1), multi_coords=None, t_elapsed=0.0)
+
+    dcop = cell.solve_dc(v_bl, v_sl, snap, compute_residuals=True)
+
+    g_bl_on, g_sl_on = _G_BL_TABLE__uS[0][1], _G_SL_TABLE__uS[0][1]
+    g_series = g_bl_on * g_sl_on / (g_bl_on + g_sl_on)
+    i__uA = g_series * 0.3
+    assert float(dcop.i__uA) == pytest.approx(i__uA)
+    assert float(dcop.v_x__V) == pytest.approx(0.3 - i__uA / g_bl_on)
+    assert dcop.residuals is not None
+    assert torch.all(dcop.residuals.cell__uA == 0.0)
+
+
+def test_empty_policy_deserializes(tmp_path: Path) -> None:
+    policy_toml = tmp_path / "policy.toml"
+    policy_toml.write_text('[policy]\n_neurox_class = "XbarCell1t1rLinearPolicy"\n')
+    policy = XbarCell1t1rPolicy.from_file(policy_toml, section="policy")
+    assert isinstance(policy, XbarCell1t1rLinearPolicy)
+
+
+def test_wrong_policy_type_raises() -> None:
+    detail_policy = XbarCell1t1rDetailPolicy(
+        rram=RramPolicy(
+            prog_gamma=False,
+            stuck_at=False,
+            read_telegraph=False,
+            read_thermal=False,
+        ),
+        nmos=MosfetPolicy(A_vt_mismatch=False, A_beta_mismatch=False),
+    )
+    with pytest.raises(TypeError):
+        XbarCell1t1rLinear(
+            config=_hand_built_config(),
+            policy=detail_policy,
+            inst_shape=(1, 1),
+            dtype=torch.float64,
+            T__K=300.0,
+        )

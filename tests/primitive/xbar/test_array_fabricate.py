@@ -22,7 +22,7 @@ from neurox.primitive.device.mosfet import Nmos
 from neurox.primitive.device.rram import Rram
 from neurox.primitive.xbar.array import XbarArray1t1r, XbarArray1t1rPolicy
 from neurox.primitive.xbar.array.base import XbarArray
-from neurox.primitive.xbar.cell import XbarCell1t1r, XbarCell1t1rPolicy
+from neurox.primitive.xbar.cell import XbarCell1t1rDetail, XbarCell1t1rDetailPolicy
 from works.offset_1t1r.macro import Offset1t1rCimMacroConfig
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -40,7 +40,7 @@ def _build_array(*, mismatch: bool, device: torch.device) -> XbarArray1t1r:
     macro_config = Offset1t1rCimMacroConfig.from_file(CHIP_CONFIG, section="cim_macro")
     core_config = macro_config.array_config
     policy = XbarArray1t1rPolicy(
-        cell=XbarCell1t1rPolicy(
+        cell=XbarCell1t1rDetailPolicy(
             rram=RramPolicy(prog_gamma=mismatch, stuck_at=mismatch, read_telegraph=False, read_thermal=False),
             nmos=MosfetPolicy(A_vt_mismatch=mismatch, A_beta_mismatch=mismatch),
         ),
@@ -92,7 +92,7 @@ def test_array_fabricate_resamples_each_node_once_preorder(device: torch.device)
     # fabricable descendants of the array.
     node_types = {type(n) for n in nodes}
     assert XbarArray1t1r in node_types
-    assert XbarCell1t1r in node_types
+    assert XbarCell1t1rDetail in node_types
     assert Rram in node_types
     assert Nmos in node_types
 

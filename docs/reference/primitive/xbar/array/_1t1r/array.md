@@ -47,11 +47,11 @@ The array's own parameters are the interconnect ladder, the WL pulse, and the so
 | `wl_pulse_length__ns` | WL access duration (drives wire-RC charging energy) | ns | $> 0$ | Design |
 | solver iteration counts | numerical settling | — | integer $\ge 1$ | Calibrated (numerical convergence) |
 
-Provenance terms are defined in [module_parameter](../../../../../conventions/module_parameter.md). How to obtain values for a new chip: [calibration guide](../../../../../guides/calibration/README.md); file-level schema: [config reference](../../../../../api/README.md). The cell's cross-field validation constraints (conductance map vs RRAM window vs device floor) are stated in [cell](../../cell/_1t1r/cell.md).
+Provenance terms are defined in [module_parameter](../../../../../conventions/module_parameter.md). How to obtain values for a new chip: [calibration guide](../../../../../guides/calibration/README.md); file-level schema: [config reference](../../../../../api/README.md). The cell's cross-field validation constraints (conductance map vs RRAM window vs device floor) are stated in [cell detail](../../cell/_1t1r/cell_detail.md).
 
 ## Energy model
 
-Per VMM the array dissipates wire-capacitor, control-line, DC-conduction, and device-capacitor energy. The **device-capacitor** term — the RRAM-electrode and access-NMOS capacitances internal to each cell — is a per-cell contribution ([cell](../../cell/_1t1r/cell.md)) summed over the array; the wire-capacitor, control-line, and DC-conduction terms are array-level. The model assumes a full $0 \to \mathrm{DC} \to 0$ charge cycle per parasitic capacitor over one WL pulse. A grounded cap dissipates $E = C\,V_{\mathrm{final}}^2$ and a coupled cap $E = C\,(V_a - V_b)^2$ (no extra factor of two). The array-level terms are the BL/SL wire caps and the WL-line cap; the BL/SL wire-cap energy uses a per-segment linear-voltage profile,
+Per VMM the array dissipates wire-capacitor, control-line, DC-conduction, and per-cell node-capacitance energy. The **node-capacitance** term — the cell's four grounded node-to-ground capacitances — is a per-cell contribution ([cell](../../cell/_1t1r/cell.md)) summed over the array; the wire-capacitor, control-line, and DC-conduction terms are array-level. The model assumes a full $0 \to \mathrm{DC} \to 0$ charge cycle per capacitor over one WL pulse; a grounded cap dissipates $E = C\,V_{\mathrm{final}}^2$ (no extra factor of two). The array-level terms are the BL/SL wire caps and the WL-line cap; the BL/SL wire-cap energy uses a per-segment linear-voltage profile,
 
 $$E_{\mathrm{wire}} = C\,\frac{V_L^2 + V_L V_R + V_R^2}{3},$$
 
@@ -71,7 +71,7 @@ By Tellegen's theorem $E_{\mathrm{DC}}$ equals the sum of the cell-branch and BL
 | $V_{\mathrm{BL,CL}}$ | BL clamp voltage | V | `v_bl_clamp` |
 | $V_{\mathrm{SL,CL}}$ | SL clamp voltage | V | `v_sl_drive` |
 | $V_L, V_R$ | wire-segment endpoint voltages | V | adjacent node voltages |
-| $V_a, V_b, V_{\mathrm{final}}$ | coupled / grounded cap node voltages | V | solver node voltages |
+| $V_{\mathrm{final}}$ | grounded cap node voltage | V | solver node voltages |
 | $I_{\mathrm{cell},k}$ | condensed cell branch current (BL $\to$ SL) | uA | `cell.solve_branch` |
 | $I_{\mathrm{BL,port}}, I_{\mathrm{SL,port}}$ | first-segment boundary port currents | uA | derived from node voltages |
 | $G_{\mathrm{seg}}$ | wire segment conductance | uS | `bl_segment_g__uS`, `sl_segment_g__uS` |
@@ -80,7 +80,7 @@ By Tellegen's theorem $E_{\mathrm{DC}}$ equals the sum of the cell-branch and BL
 | $G_{\mathrm{RRAM,max}}$ | max programmable RRAM conductance | uS | `cell_config.rram_g_max__uS` |
 | $G_{\mathrm{min}}$ | RRAM device conductance floor | uS | `cell_config.rram_config.g_min__uS` |
 | $R_{\mathrm{seg}}$ | wire segment resistance | MOhm | `*_segment_r__MOhm` |
-| $C$ | parasitic capacitance | fF | wire / NMOS cap fields |
+| $C$ | parasitic capacitance | fF | wire / cell node-cap fields |
 | $E_{\mathrm{wire}}, E_{\mathrm{DC}}$ | per-VMM wire-cap / DC-conduction energy | fJ | `array_energy__fJ` |
 | $t_{\mathrm{WL}}$ | WL pulse length | ns | `wl_pulse_length__ns` |
 | $C_{\mathrm{WL,row}}$ | WL lumped capacitance per series | fF | `c_wl_wire_per_row__fF` |

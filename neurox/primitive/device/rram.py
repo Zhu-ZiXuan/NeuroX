@@ -31,8 +31,6 @@ class RramConfig(ConfigBase):
         nonlinearity_alpha: Hyperbolic-sine I-V nonlinearity factor [1/V].
         drift_decay_rate: Power-law drift exponent.
         drift_t0: Reference drift time [s].
-        c_top__fF: Top-electrode parasitic capacitance per cell.
-        c_bot__fF: Bottom-electrode parasitic capacitance per cell.
         read_thermal__uS: Gaussian read-noise σ.
         prog_gamma: Programming-variation model parameters.
         read_telegraph: Telegraph-noise model parameters.
@@ -48,10 +46,6 @@ class RramConfig(ConfigBase):
     # --- Drift ---
     drift_decay_rate: float
     drift_t0: float
-
-    # --- Per-cell parasitics ---
-    c_top__fF: float
-    c_bot__fF: float
 
     # --- Read thermal noise ---
     read_thermal__uS: float
@@ -72,7 +66,6 @@ class RramConfig(ConfigBase):
         self.validate_range()
         self.validate_iv()
         self.validate_drift()
-        self.validate_parasitics()
         self.validate_noise()
 
     def validate_range(self) -> None:
@@ -84,10 +77,6 @@ class RramConfig(ConfigBase):
     def validate_drift(self) -> None:
         self._require_non_neg(self.drift_decay_rate, "drift_decay_rate")
         self._require_non_neg(self.drift_t0, "drift_t0")
-
-    def validate_parasitics(self) -> None:
-        self._require_non_neg(self.c_top__fF, "c_top__fF")
-        self._require_non_neg(self.c_bot__fF, "c_bot__fF")
 
     def validate_noise(self) -> None:
         # Nested *Config self-validates in its own __post_init__.
@@ -177,16 +166,6 @@ class Rram(ModuleBase[RramConfig, RramPolicy]):
 
     def _sample_fabricate_mismatch(self) -> None:
         pass  # variation enters via program() / snapshot(), not fabrication
-
-    @property
-    def c_top__fF(self) -> float:
-        """Top-electrode (BL-side) parasitic capacitance per cell."""
-        return self.config.c_top__fF
-
-    @property
-    def c_bot__fF(self) -> float:
-        """Bottom-electrode (internal-node-side) parasitic capacitance per cell."""
-        return self.config.c_bot__fF
 
     def program(self, target_g__uS: Tensor, t_elapsed: float) -> None:
         """Program the stored conductance.

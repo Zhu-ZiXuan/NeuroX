@@ -9,7 +9,7 @@ The device is abstracted as a programmable conductor with a single state variabl
 - a **write** that drives the stored conductance toward a target value, subject to programming variation, conductance drift over the elapsed retention time, and stuck-at faults;
 - a **read** that draws current from the present stored conductance under telegraph and thermal read noise.
 
-The conduction itself is taken as instantaneous and quasi-static: a read returns the DC current at the applied terminal voltage with no transient switching dynamics within the read. The per-cell electrode parasitic capacitances ($C_{\mathrm{top}}$ on the BL side, $C_{\mathrm{bot}}$ on the internal-node side) bear on the cell's dynamic energy but do not enter the conduction law.
+The conduction itself is taken as instantaneous and quasi-static: a read returns the DC current at the applied terminal voltage with no transient switching dynamics within the read.
 
 ## Governing equations
 
@@ -54,8 +54,6 @@ After the read-time sources, the read conductance is re-clamped to $[G_{\min}, G
 | `nonlinearity_alpha` | hyperbolic-sine I-V factor $\alpha$ | 1/V | $\ge 0$ | Measured |
 | `drift_decay_rate` | power-law drift exponent $\nu$ | — | $\ge 0$ | Measured |
 | `drift_t0` | reference drift time $t_0$ | s | $> 0$ | Measured |
-| `c_top__fF` | top-electrode (BL-side) parasitic capacitance per cell $C_{\mathrm{top}}$ | fF | $\ge 0$ | Process |
-| `c_bot__fF` | bottom-electrode (internal-node-side) parasitic capacitance per cell $C_{\mathrm{bot}}$ | fF | $\ge 0$ | Process |
 | `read_thermal__uS` | thermal read-noise sigma $\sigma_{\mathrm{th}}$ | uS | $\ge 0$ | Measured |
 | `prog_gamma` ($k_{\mathrm{slope}}, k_{\mathrm{int}}, \theta$, norm range) | state-dependent programming-variation parameters | — | $\theta > 0$; $k_{\mathrm{int}} > 0$; $G_{\mathrm{hi}} > G_{\mathrm{lo}}$ | Measured |
 | `read_telegraph` ($\mu_a, \sigma_a, p_{\mathrm{high}}$) | telegraph read-noise parameters | uS, uS, — | $\sigma_a \ge 0$; $0 \le p_{\mathrm{high}} \le 1$ | Measured |
@@ -84,7 +82,6 @@ Provenance terms are defined in [module_parameter](../../../conventions/module_p
 | $p_{\min}, p_{\max}$ | stuck-at-min / -max probabilities | — | `stuck_at` |
 | $\mu_a, \sigma_a, p_{\mathrm{high}}$ | telegraph amplitude mean, std, active probability | uS, uS, — | `read_telegraph` |
 | $\sigma_{\mathrm{th}}$ | thermal read-noise sigma | uS | `read_thermal__uS` |
-| $C_{\mathrm{top}}, C_{\mathrm{bot}}$ | per-cell electrode capacitances | fF | `c_top__fF`, `c_bot__fF` |
 
 ## Assumptions, scope & validity
 
