@@ -187,6 +187,18 @@ class CimMacro(
         mask = self._active_row_mask.reshape(-1, *(1,) * inst_rank, self.row_num)
         return torch.where(mask, x.unsqueeze(max(-(inst_rank + 2), -(x.ndim + 1))), x.new_zeros(()))
 
+    @staticmethod
+    def _split_col_lanes(t: Tensor, *, col_per_lane: int) -> Tensor:
+        """Split the trailing column axis into ``(lane_num, col_per_lane)``.
+
+        The lane axis aligns with fabricated instance axes (parallel
+        circuit copies); the trailing axis is time-serial on each lane,
+        with ``lane = col // col_per_lane``. Requires exact divisibility.
+        """
+        if t.shape[-1] % col_per_lane != 0:
+            raise ValueError(f"require: trailing col axis ({t.shape[-1]}) % col_per_lane ({col_per_lane}) == 0")
+        return t.unflatten(-1, (-1, col_per_lane))
+
     # ----- Value-domain semantics (abstract) -----
 
     @property

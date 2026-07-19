@@ -4,6 +4,8 @@
   divisibility) and the derived ``active_phase_num``.
 - ``_active_row_mask`` / ``_unroll_row_phase``: phase ``p`` keeps exactly
   rows ``[p*A, (p+1)*A)``, zeros elsewhere, dtype preserved.
+- ``_split_col_lanes``: trailing col axis -> ``(lane_num, col_per_lane)``
+  with ``lane = col // col_per_lane``; exact divisibility required.
 """
 
 from __future__ import annotations
@@ -11,6 +13,7 @@ from __future__ import annotations
 import pytest
 import torch
 
+from neurox.primitive.macro.cim import CimMacro
 from neurox.primitive.macro.cim.ideal import IdealCimMacro, IdealCimMacroConfig, IdealCimMacroPolicy
 
 
@@ -153,3 +156,30 @@ class TestUnrollRowPhase:
             expected = torch.zeros_like(x)
             expected[..., p * 4 : (p + 1) * 4] = x[..., p * 4 : (p + 1) * 4]
             assert torch.equal(y[:, p], expected)
+
+
+# ---------------------------------------------------------------------------
+# _split_col_lanes
+# ---------------------------------------------------------------------------
+
+
+class TestSplitColLanes:
+    def test_lane_order_and_mapping(self) -> None:
+        t = torch.arange(8)
+        y = CimMacro._split_col_lanes(t, col_per_lane=4)
+        assert y.shape == (2, 4)
+        # lane = col // col_per_lane: lane axis first, serial position within
+        # the lane trailing.
+        for col in range(8):
+            assert y[col // 4, col % 4].item() == col
+
+    def test_batch_prefix_preserved(self) -> None:
+        t = torch.randn(3, 5, 8)
+        y = CimMacro._split_col_lanes(t, col_per_lane=2)
+        assert y.shape == (3, 5, 4, 2)
+        assert torch.equal(y.flatten(start_dim=-2), t)
+
+    def test_non_divisible_rejected(self) -> None:
+        t = torch.arange(10)
+        with pytest.raises(ValueError, match=r"col_per_lane"):
+            CimMacro._split_col_lanes(t, col_per_lane=4)
