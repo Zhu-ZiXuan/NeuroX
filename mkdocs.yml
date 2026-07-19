@@ -109,6 +109,7 @@ nav:
   - Digital:
     - Overview: reference/primitive/digital/README.md
     - Accumulator: reference/primitive/digital/accumulator.md
+    - Serial accumulator: reference/primitive/digital/serial_accumulator.md
     - Adder: reference/primitive/digital/adder.md
     - Shift adder: reference/primitive/digital/shift_adder.md
     - Subtractor: reference/primitive/digital/subtractor.md
@@ -199,6 +200,7 @@ nav:
     - Overview: internals/primitive/digital/README.md
     - Base: internals/primitive/digital/base.md
     - Accumulator: internals/primitive/digital/accumulator.md
+    - Serial accumulator: internals/primitive/digital/serial_accumulator.md
     - Adder: internals/primitive/digital/adder.md
     - Shift adder: internals/primitive/digital/shift_adder.md
     - Subtractor: internals/primitive/digital/subtractor.md

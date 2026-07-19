@@ -1,0 +1,22 @@
+# Serial accumulator
+
+## Contracts & invariants
+
+- **`operate(x, dim)` reduces exactly one time-serial axis** with the same modular-wrap function as the accumulator; only the billing differs — one energy quantum per input element (the energy tensor is `full_like(x, ...)`) and a serial-op count of `ceil(numel(x) / max(inst_count, 1))`, where the accumulator bills both against the output-element count.
+- **Stateless, single-call reduction.** The serial-register semantics live only in the accounting; the reduce itself is one batched kernel with no cross-call state.
+- **Config is `AccumulatorConfig`, reused unchanged.** The subclass adds no fields; the per-op terms are re-read as per-input-element quantities.
+
+## Performance & resources
+
+- The reduction and the modular wrap are a single shape-clean kernel; per-op constants fold as compile-time constants under `@torch.compile`, so no graph break is introduced by the block.
+
+## Gotchas
+
+- **Wrap is silent.** An out-of-range sum aliases with no error or warning; a caller treating the block as saturating gets wrong results.
+- **Do not use for parallel adder trees.** A reduction realized as a parallel tree carries the accumulator's per-output billing; this block would over-bill it by the reduced-axis extent.
+
+---
+
+- **Reference**: [serial_accumulator](../../../reference/primitive/digital/serial_accumulator.md)
+- **Implementation**: `neurox/primitive/digital/serial_accumulator.py`
+- **Tests**: `tests/primitive/digital/test_serial_accumulator.py`

@@ -59,6 +59,12 @@ class QuantMatMul(Protocol):
         Matches ``torch.matmul`` semantics (pure matmul, no bias). Bias add
         and requantize live in the operator layer.
 
+        Internally, the owned CIM macro emits per-phase ADC codes with a
+        trailing ``[active_phase_num, col_num]`` layout; the unit performs
+        the two-stage digital accumulation — the active-phase axis at each
+        tile's output port (``phase_accumulator``), then the ``Tc`` tile
+        axis at the unit (``col_accumulator``).
+
         Args:
             input: Integer activation tensor. Shape: ``[..., M, K]``.
             adc_operation_point: Runtime ADC operating point.

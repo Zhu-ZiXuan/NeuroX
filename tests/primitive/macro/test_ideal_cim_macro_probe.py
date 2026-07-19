@@ -17,6 +17,7 @@ def _make_xbar(*, adc_max_bits: int) -> IdealCimMacro:
     config = IdealCimMacroConfig(
         col_num=3,
         row_num=4,
+        active_row_num=4,
         area_per_inst__um2=0.0,
         leakage_per_inst__uW=0.0,
         x_range=(0, 1),
@@ -44,7 +45,7 @@ def _program_and_input(xbar: IdealCimMacro) -> torch.Tensor:
     return torch.tensor([1, 0, 1, 1], dtype=torch.int32)
 
 
-def test_lossless_path_emits_the_returned_dot() -> None:
+def test_lossless_path_emits_the_returned_phase_dots() -> None:
     xbar = _make_xbar(adc_max_bits=0)
     x = _program_and_input(xbar)
     with AdcProber() as prober:

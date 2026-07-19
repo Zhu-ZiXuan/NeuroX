@@ -31,12 +31,16 @@ class CimMacroConfig(ConfigBase, ABC):
         col_num: Number of columns per tile (cells aggregating to
             one output).
         row_num: Number of rows per tile (cells sharing one input).
+        active_row_num: Rows simultaneously activated per active phase;
+            sets the per-phase analog dot-product dynamic range and
+            therefore the ADC calibration.
     """
 
     area_per_inst__um2: float
     leakage_per_inst__uW: float
     col_num: int
     row_num: int
+    active_row_num: int
 
     def __post_init__(self) -> None:
         self.validate()
@@ -51,6 +55,16 @@ class CimMacroConfig(ConfigBase, ABC):
             raise ValueError(f"require: col_num ({self.col_num}) > 1")
         if not (self.row_num > 1):
             raise ValueError(f"require: row_num ({self.row_num}) > 1")
+        if not (1 <= self.active_row_num <= self.row_num):
+            raise ValueError(f"require: 1 <= active_row_num ({self.active_row_num}) <= row_num ({self.row_num})")
+        # Uniform phases: every phase has the same dot-product dynamic range.
+        if not (self.row_num % self.active_row_num == 0):
+            raise ValueError(f"require: row_num ({self.row_num}) % active_row_num ({self.active_row_num}) == 0")
+
+    @property
+    def active_phase_num(self) -> int:
+        """Number of serial active phases per VMM (``row_num // active_row_num``)."""
+        return self.row_num // self.active_row_num
 
     def validate_ppa(self) -> None:
         self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
@@ -92,6 +106,7 @@ class CimMacro(
     policy: CimMacroPolicy
     T__K: float
     dtype: torch.dtype
+    _active_row_mask: Tensor
 
     def __init__(
         self,
@@ -108,6 +123,14 @@ class CimMacro(
 
         self.col_num = config.col_num
         self.row_num = config.row_num
+        self.active_row_num = config.active_row_num
+        # Phase p owns rows ``[p * active_row_num, (p + 1) * active_row_num)``.
+        self.register_buffer(
+            "_active_row_mask",
+            torch.arange(config.row_num) // config.active_row_num
+            == torch.arange(config.active_phase_num).unsqueeze(-1),
+            persistent=False,
+        )
 
     @property
     def _w_layout_shape(self) -> tuple[int, ...]:
@@ -136,6 +159,33 @@ class CimMacro(
 
     def _sample_fabricate_mismatch(self) -> None:
         pass  # container: cell / peripheral mismatch is sampled through the cascade
+
+    # ----- Intra-tile serialization helpers -----
+    # Serial-vs-parallel semantics live in tensor shape: axes matching a
+    # stage's fabricated ``inst_shape`` are parallel circuit copies; every
+    # other axis is time-serial on that hardware.
+
+    def _unroll_row_phase(self, x: Tensor) -> Tensor:
+        """Expand trailing ``[row_num]`` to the per-phase masked WL planes.
+
+        The active-phase axis is inserted immediately LEFT of the
+        inst-alignment span: the result trails
+        ``[active_phase_num, *span, row_num]``, where ``*span`` is
+        ``len(inst_shape)`` axes — ``x``'s own alignment axes, or size-1
+        slots when ``x`` omits them. Downstream right-alignment against
+        per-instance tensors therefore keeps the phase axis
+        broadcast-leading (time-serial) and it can never collide with an
+        inst axis. With an empty ``inst_shape`` the result trails
+        ``[active_phase_num, row_num]``.
+
+        Zero entries hold the row's word line at its off level (the
+        unselected-row physical state), so each phase's solve sees the
+        full fabricated array with only its own rows driven. Dtype and
+        device follow ``x``.
+        """
+        inst_rank = len(self._inst_shape)
+        mask = self._active_row_mask.reshape(-1, *(1,) * inst_rank, self.row_num)
+        return torch.where(mask, x.unsqueeze(max(-(inst_rank + 2), -(x.ndim + 1))), x.new_zeros(()))
 
     # ----- Value-domain semantics (abstract) -----
 
@@ -200,7 +250,12 @@ class CimMacro(
 
     @abstractmethod
     def vec_mat_mul(self, x: Tensor, *, adc_operation_point: AdcOperationPoint) -> Tensor:
-        """Run one analog VMM through the tile.
+        """Run one analog VMM through the tile as serial row active phases.
+
+        The macro boundary is digital -> DAC -> analog -> ADC -> digital,
+        encapsulating the minimal analog chain; any accumulation or
+        routing of per-phase codes is the caller's (unit's)
+        digital-domain decision.
 
         Args:
             x: Activation tensor with primitive trailing ``[row_num]``.
@@ -209,7 +264,10 @@ class CimMacro(
             adc_operation_point: Runtime ADC operating point.
 
         Returns:
-            ADC-code tensor with primitive trailing ``[col_num]``.
+            Per-phase ADC-code tensor with primitive trailing
+            ``[active_phase_num, col_num]`` (col innermost; the
+            active-phase axis immediately left). The axis is always
+            present — size 1 when ``active_row_num == row_num``.
         """
         raise NotImplementedError
 

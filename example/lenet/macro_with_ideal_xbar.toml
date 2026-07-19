@@ -60,6 +60,7 @@ _neurox_class = "IdealCimMacroConfig"
 # --- Tile size ---
 col_num = 64
 row_num = 64
+active_row_num = 64  # rows activated per active phase (= row_num: single-phase)
 
 # --- PPA ---
 leakage_per_inst__uW = 5.0
@@ -82,6 +83,13 @@ w_digit_range = [-1, 1]
 adc_mode_num = 1
 adc_max_bits = 8
 
+
+[cim_unit.phase_accumulator_config]
+bit_width = 32
+area_per_inst__um2 = 60.0
+leakage_per_inst__uW = 1.0
+latency_per_op__ns = 0.5
+energy_per_op__fJ = 50.0
 
 [cim_unit.col_accumulator_config]
 bit_width = 32

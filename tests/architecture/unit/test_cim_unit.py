@@ -22,8 +22,9 @@ from neurox.architecture.unit.cim import (
     IntraArraySliceCimUnitConfig,
     IntraArraySliceCimUnitPolicy,
 )
+from neurox.common.profiler import NeuroxProfiler
 from neurox.primitive.analog.adc_common import AdcOperationPoint
-from neurox.primitive.digital import AccumulatorConfig, ShiftAdderConfig
+from neurox.primitive.digital import AccumulatorConfig, SerialAccumulator, ShiftAdderConfig
 from neurox.primitive.macro.cim import IdealCimMacroConfig, IdealCimMacroPolicy
 
 # All tests use IdealCimMacroConfig as the embedded xbar config, so its nonideality
@@ -46,14 +47,17 @@ def _ideal_xbar_config(
     *,
     col_num: int = 16,
     row_num: int = 16,
+    active_row_num: int | None = None,
     x_range: tuple[int, int] = (0, 1),
     w_digit_count: int = 1,
     w_digit_radix: int = 4,
     w_digit_range: tuple[int, int] = (-3, 3),
+    adc_max_bits: int = _TEST_ADC_BITS,
 ) -> IdealCimMacroConfig:
     return IdealCimMacroConfig(
         col_num=col_num,
         row_num=row_num,
+        active_row_num=row_num if active_row_num is None else active_row_num,
         leakage_per_inst__uW=0.0,
         area_per_inst__um2=0.0,
         x_range=x_range,
@@ -61,7 +65,7 @@ def _ideal_xbar_config(
         w_digit_radix=w_digit_radix,
         w_digit_range=w_digit_range,
         adc_mode_num=1,
-        adc_max_bits=_TEST_ADC_BITS,
+        adc_max_bits=adc_max_bits,
     )
 
 
@@ -86,11 +90,15 @@ def _direct_config(
     *,
     x_range: tuple[int, int] = (0, 1),
     w_digit_count: int = 1,
+    active_row_num: int | None = None,
 ) -> DirectCimUnitConfig:
     return DirectCimUnitConfig(
-        cim_macro_config=_ideal_xbar_config(x_range=x_range, w_digit_count=w_digit_count),
+        cim_macro_config=_ideal_xbar_config(
+            x_range=x_range, w_digit_count=w_digit_count, active_row_num=active_row_num
+        ),
         w_encoding="true_form",
         col_accumulator_config=_accumulator_config(),
+        phase_accumulator_config=_accumulator_config(),
         area_per_inst__um2=0.0,
         leakage_per_inst__uW=0.0,
     )
@@ -115,13 +123,17 @@ def _slice_config(
     x_slice_num: int,
     x_range: tuple[int, int] = (0, 1),
     w_digit_count: int = 1,
+    active_row_num: int | None = None,
 ) -> dict[str, Any]:
     return {
-        "cim_macro_config": _ideal_xbar_config(x_range=x_range, w_digit_count=w_digit_count),
+        "cim_macro_config": _ideal_xbar_config(
+            x_range=x_range, w_digit_count=w_digit_count, active_row_num=active_row_num
+        ),
         "w_slice_num": w_slice_num,
         "x_slice_num": x_slice_num,
         "w_encoding": "true_form",
         "col_accumulator_config": _accumulator_config(),
+        "phase_accumulator_config": _accumulator_config(),
         "sa_shift_adder_config": _shift_adder_config(),
         "sw_shift_adder_config": _shift_adder_config(),
         "area_per_inst__um2": 0.0,
@@ -321,6 +333,7 @@ def test_direct_cim_unit_lsb_first_place_values_on_asymmetric_weights() -> None:
         cim_macro_config=_ideal_xbar_config(w_digit_count=2, w_digit_radix=2, w_digit_range=(-1, 1)),
         w_encoding="true_form",
         col_accumulator_config=_accumulator_config(),
+        phase_accumulator_config=_accumulator_config(),
         area_per_inst__um2=0.0,
         leakage_per_inst__uW=0.0,
     )
@@ -521,6 +534,106 @@ def test_xbar_macro_supports_weight_and_activation_batch_prefixes(
     weight = _randint_in_range(macro.w_value_range, weight_shape)
     activation = _randint_in_range(macro.x_value_range, activation_shape)
     _assert_macro_matches_torch(macro, weight, activation)
+
+
+@pytest.mark.parametrize(
+    ("macro_kind", "config"),
+    [
+        ("direct", _direct_config(active_row_num=4)),
+        ("inter", InterArraySliceCimUnitConfig(**_slice_config(w_slice_num=3, x_slice_num=4, active_row_num=4))),
+        ("intra", IntraArraySliceCimUnitConfig(**_slice_config(w_slice_num=3, x_slice_num=4, active_row_num=4))),
+    ],
+)
+def test_multi_phase_lossless_unit_matches_torch_matmul(
+    macro_kind: str,
+    config: DirectCimUnitConfig | InterArraySliceCimUnitConfig | IntraArraySliceCimUnitConfig,
+) -> None:
+    """P=4 with the lossless adc_bits=0 sentinel: the phase accumulator sums
+    exact per-phase partials, so the unit still matches ``torch.matmul``."""
+    torch.manual_seed(8000)
+    n, k, m = 13, 20, 8
+    macro = _build_macro_for_kind(macro_kind, config, w_logical_shape=(n, k))
+    weight = _randint_in_range(macro.w_value_range, (n, k))
+    activation = _randint_in_range(macro.x_value_range, (m, k))
+    _assert_macro_matches_torch(macro, weight, activation)
+
+
+def test_direct_unit_multi_phase_quantized_end_to_end() -> None:
+    """P=2 with adc_bits>0: the unit output equals per-phase quantized codes
+    accumulated over the phase axis, then the Tc/col pipeline."""
+    torch.manual_seed(8100)
+    n, k, m = 8, 16, 5
+    adc_bits = 6
+    active_row_num = 8
+    phase_num = 2
+    config = DirectCimUnitConfig(
+        cim_macro_config=_ideal_xbar_config(active_row_num=active_row_num, adc_max_bits=adc_bits),
+        w_encoding="true_form",
+        col_accumulator_config=_accumulator_config(),
+        phase_accumulator_config=_accumulator_config(),
+        area_per_inst__um2=0.0,
+        leakage_per_inst__uW=0.0,
+    )
+    macro = _build_direct(config, w_logical_shape=(n, k))  # .eval() → deterministic floor
+    weight = _randint_in_range(macro.w_value_range, (n, k))
+    activation = _randint_in_range(macro.x_value_range, (m, k))
+    macro.program(weight)
+    actual = macro.matmul(activation, adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=adc_bits))
+
+    # Reference: per-phase partial dots, quantized per phase against the
+    # per-phase range, then accumulated over the phase axis (Tc = Tr = 1).
+    half_range = (1 << (adc_bits - 1)) - 1
+    rescale = (active_row_num * 3 * 1) / half_range  # active_row_num · max|w| · max|x|
+    xp = activation.to(torch.int64).unflatten(-1, (phase_num, active_row_num))
+    wp = weight.to(torch.int64).unflatten(-1, (phase_num, active_row_num))
+    phase_dot = torch.einsum("mpa,npa->mpn", xp, wp)
+    bound = 1 << (adc_bits - 1)
+    codes = torch.floor(phase_dot.to(torch.float32) * (1.0 / rescale)).to(torch.int64).clamp(-bound, bound - 1)
+    expected = codes.sum(dim=-2)  # [m, n]
+
+    assert actual.shape == (m, n)
+    assert torch.equal(actual.to(torch.int64), expected)
+    # Quantize-then-accumulate must differ from accumulate-then-quantize on
+    # this random draw — otherwise the case does not pin the phase semantics.
+    whole_dot = activation.to(torch.int64) @ weight.to(torch.int64).transpose(-1, -2)
+    whole_code = torch.floor(whole_dot.to(torch.float32) * (1.0 / rescale)).to(torch.int64).clamp(-bound, bound - 1)
+    assert not torch.equal(expected, whole_code)
+
+
+def test_phase_accumulator_energy_scales_with_active_phase_num() -> None:
+    """The phase accumulator is a ``SerialAccumulator`` billed per arriving
+    per-phase code, so at fixed geometry its accumulate energy scales with
+    ``active_phase_num``: P=2 logs exactly twice the energy of P=1."""
+    torch.manual_seed(8200)
+    n, k, m = 8, 16, 5
+    row_num = 16
+    energies: dict[int, float] = {}
+    for active_row_num in (16, 8):  # P = 1, P = 2
+        config = DirectCimUnitConfig(
+            cim_macro_config=_ideal_xbar_config(active_row_num=active_row_num),
+            w_encoding="true_form",
+            col_accumulator_config=_accumulator_config(),
+            phase_accumulator_config=AccumulatorConfig(
+                bit_width=32,
+                energy_per_op__fJ=1.0,
+                latency_per_op__ns=0.0,
+                leakage_per_inst__uW=0.0,
+                area_per_inst__um2=0.0,
+            ),
+            area_per_inst__um2=0.0,
+            leakage_per_inst__uW=0.0,
+        )
+        macro = _build_direct(config, w_logical_shape=(n, k))
+        assert isinstance(macro.phase_accumulator, SerialAccumulator)
+        weight = _randint_in_range(macro.w_value_range, (n, k))
+        activation = _randint_in_range(macro.x_value_range, (m, k))
+        macro.program(weight)
+        with NeuroxProfiler() as p:
+            macro.matmul(activation, adc_operation_point=_TEST_ADC_OP)
+        phase_num = row_num // active_row_num
+        energies[phase_num] = sum(e.dynamic_energy__fJ for e in p.energy_events if e.module is macro.phase_accumulator)
+    assert energies[1] > 0.0
+    assert energies[2] == pytest.approx(2.0 * energies[1])
 
 
 def test_ideal_xbar_macro_public_properties() -> None:

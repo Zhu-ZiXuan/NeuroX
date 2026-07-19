@@ -145,7 +145,7 @@ class AdcProber(Prober):
 
     ``adc.convert`` carries every physical ADC conversion (inputs, code,
     operating-point fields as the emitting family defines); ``adc.ideal_vmm``
-    carries the ideal tile's codes. Pairing the two streams from a
+    carries the ideal tile's per-phase codes. Pairing the two streams from a
     physical and an ideal run of the same stimulus is the calibration view a
     rescale fit consumes.
     """

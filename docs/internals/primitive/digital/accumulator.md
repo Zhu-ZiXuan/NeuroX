@@ -15,10 +15,10 @@
 
 ## Known limitations
 
-- No dedicated unit test exists for the modular-wrap function or the PPA accounting; coverage is only indirect through higher-level macro tests.
+- No standalone accumulator test module exists; the modular-wrap function and the per-output billing are covered directly by the billing-contrast tests in `tests/primitive/digital/test_serial_accumulator.py`.
 
 ---
 
 - **Reference**: [accumulator](../../../reference/primitive/digital/accumulator.md)
-- **Implementation**: `neurox/digital/accumulator.py`
-- **Tests**: TODO - no dedicated digital test module yet
+- **Implementation**: `neurox/primitive/digital/accumulator.py`
+- **Tests**: `tests/primitive/digital/test_serial_accumulator.py` (billing contrast)

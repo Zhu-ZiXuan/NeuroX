@@ -18,6 +18,7 @@ from neurox.primitive.digital import (
     Accumulator,
     AccumulatorConfig,
     DigitalPolicy,
+    SerialAccumulator,
 )
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
 
@@ -34,12 +35,14 @@ class DirectCimUnitConfig(CimUnitConfig):
     Attributes:
         cim_macro_config: Owned physical-xbar config.
         w_encoding: Signed-digit encoding for the weight transcoder.
+        phase_accumulator_config: Active-phase-axis per-tile-port accumulator config.
         col_accumulator_config: Tc-axis cross-tile accumulator config.
     """
 
     cim_macro_config: CimMacroConfig
     w_encoding: Encoding
 
+    phase_accumulator_config: AccumulatorConfig
     col_accumulator_config: AccumulatorConfig
 
 
@@ -116,6 +119,11 @@ class DirectCimUnit(CimUnit):
         self._n_logical = n_logical
         self._row_tile_num = tr
 
+        self.phase_accumulator = SerialAccumulator(
+            config=config.phase_accumulator_config,
+            policy=DigitalPolicy(),
+            inst_shape=(self._w_parallel_size, tc, tr),
+        )
         self.col_accumulator = Accumulator(
             config=config.col_accumulator_config,
             policy=DigitalPolicy(),
@@ -211,8 +219,10 @@ class DirectCimUnit(CimUnit):
 
         x = self._organize_x(input)
 
-        # Shape: [..., M, Tc, Tr=1, row_num] -> [..., M, Tc, Tr, col_num]
+        # Shape: [..., M, Tc, Tr=1, row_num] -> [..., M, Tc, Tr, P, col_num]
         y = self.xbar.vec_mat_mul(x, adc_operation_point=adc_operation_point).to(torch.int64)
+        # Shape: [..., M, Tc, Tr, P, col_num] -> [..., M, Tc, Tr, col_num]
+        y = self.phase_accumulator.operate(y, dim=-2)
         # Shape: [..., M, Tc, Tr, col_num] -> [..., M, Tr, col_num]
         y = self.col_accumulator.operate(y, dim=-3)
         # Shape: [..., M, Tr, col_num] -> [..., M, N]

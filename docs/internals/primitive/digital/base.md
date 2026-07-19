@@ -13,7 +13,7 @@
 
 - **Leaf construction takes `config` / `policy`.** A leaf's `__init__` forwards `config=..., policy=..., name=..., inst_shape=...` to `DigitalBase` (i.e. `ModuleBase`); the leaf config extends `DigitalConfig` (the inherited PPA fields first, then its own arithmetic / energy / latency fields) and `policy` is the empty `DigitalPolicy`.
 - **`fabricate()` is a family-wide pass-through.** The base no-op resamples nothing and no digital leaf adds fabricated mismatch, so `fabricate()` introduces no per-instance variation on any leaf.
-- **Energy and latency are two independent profiler emissions** (`_log_dynamic_energy` then `_log_latency`): the energy tensor is per-output-element while the latency is a single scalar scaled by the serial-op count. One event does not carry both.
+- **Energy and latency are two independent profiler emissions** (`_log_dynamic_energy` then `_log_latency`): the energy tensor carries one per-op quantum per billed element — each leaf's billing law fixes whether the input or the output element count is billed — while the latency is a single scalar scaled by the serial-op count. One event does not carry both.
 - **`inst_count` is guarded against zero** in the serial-op divisor (`max(inst_count, 1)`), so a leaf's serial-op math must not assume a positive instance count.
 
 ---

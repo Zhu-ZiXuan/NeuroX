@@ -46,6 +46,13 @@ leakage_per_inst__uW = 0.0
 [cim_unit.cim_macro_config]
 _neurox_use = "../../works/offset_1t1r/config/1t1r_28nm.toml:cim_macro"
 
+[cim_unit.phase_accumulator_config]
+bit_width = 32
+area_per_inst__um2 = 60.0
+leakage_per_inst__uW = 1.0
+latency_per_op__ns = 0.5
+energy_per_op__fJ = 50.0
+
 [cim_unit.col_accumulator_config]
 bit_width = 32
 area_per_inst__um2 = 60.0

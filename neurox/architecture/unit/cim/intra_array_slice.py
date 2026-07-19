@@ -20,6 +20,7 @@ from neurox.primitive.digital import (
     Accumulator,
     AccumulatorConfig,
     DigitalPolicy,
+    SerialAccumulator,
     ShiftAdder,
     ShiftAdderConfig,
 )
@@ -37,6 +38,7 @@ class IntraArraySliceCimUnitConfig(CimUnitConfig):
         w_slice_num: Per-weight Sw slice count.
         x_slice_num: Per-activation Sa slice count.
         w_encoding: Signed-digit encoding for the weight slicer.
+        phase_accumulator_config: Active-phase-axis per-tile-port accumulator config.
         col_accumulator_config: Tc-axis cross-tile accumulator config.
         sa_shift_adder_config: Sa-axis intra-xbar shift-adder config.
         sw_shift_adder_config: Sw-axis intra-xbar shift-adder config.
@@ -47,6 +49,7 @@ class IntraArraySliceCimUnitConfig(CimUnitConfig):
     x_slice_num: int
     w_encoding: Encoding
 
+    phase_accumulator_config: AccumulatorConfig
     col_accumulator_config: AccumulatorConfig
     sa_shift_adder_config: ShiftAdderConfig
     sw_shift_adder_config: ShiftAdderConfig
@@ -141,6 +144,11 @@ class IntraArraySliceCimUnit(CimUnit):
         self._row_tile_num = tr
 
         helper_shape = (self._w_parallel_size, tr)
+        self.phase_accumulator = SerialAccumulator(
+            config=config.phase_accumulator_config,
+            policy=DigitalPolicy(),
+            inst_shape=(self._w_parallel_size, tc, tr),
+        )
         self.col_accumulator = Accumulator(
             config=config.col_accumulator_config,
             policy=DigitalPolicy(),
@@ -283,8 +291,10 @@ class IntraArraySliceCimUnit(CimUnit):
         x_slice_radix = self.x_slicer.slice_radix
         w_slice_radix = self.w_slicer.slice_radix
 
-        # Shape: [..., M, Sa, Tc, Tr=1, row_num] -> [..., M, Sa, Tc, Tr, data_num]
+        # Shape: [..., M, Sa, Tc, Tr=1, row_num] -> [..., M, Sa, Tc, Tr, P, data_num]
         y = self.xbar.vec_mat_mul(x, adc_operation_point=adc_operation_point).to(torch.int64)
+        # Shape: [..., M, Sa, Tc, Tr, P, data_num] -> [..., M, Sa, Tc, Tr, data_num]
+        y = self.phase_accumulator.operate(y, dim=-2)
         # Shape: [..., M, Sa, Tc, Tr, data_num=col_num] -> [..., M, Sa, Tc, Tr, wpx*Sw]
         y = y[..., :used]
         # Shape: [..., M, Sa, Tc, Tr, wpx*Sw] -> [..., M, Sa, Tc, Tr, wpx, Sw_real]

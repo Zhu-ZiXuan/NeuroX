@@ -1,6 +1,6 @@
 # DirectCimUnit
 
-The no-slice mode. It owns a tile, a weight `Transcoder`, and a contraction-tile `Accumulator`, but no slicer and no shift-adder.
+The no-slice mode. It owns a tile, a weight `Transcoder`, an active-phase `Accumulator`, and a contraction-tile `Accumulator`, but no slicer and no shift-adder.
 
 ## Design decisions
 
@@ -10,7 +10,7 @@ The no-slice mode. It owns a tile, a weight `Transcoder`, and a contraction-tile
 ## Contracts & invariants
 
 - **Organized W shape** is `[..., M=1, Tc, Tr, col_num, D, row_num]`; **organized X shape** is `[..., M, Tc, Tr=1, row_num]`. The `Tr=1` placeholder on X lets it broadcast against the W tensor's real `Tr`.
-- **Aggregate** is `vec_mat_mul → Tc accumulate (dim=-3) → flatten (Tr, col_num) → trim to N`. There is no shift-add stage. The returned tensor is pre-requantize int.
+- **Aggregate** is `vec_mat_mul → int64 upcast → phase accumulate (dim=-2) → Tc accumulate (dim=-3) → flatten (Tr, col_num) → trim to N`. The tile read returns per-phase codes `[..., M, Tc, Tr, P, col_num]`; the `phase_accumulator` (inst shape `(w_parallel, Tc, Tr)` — phase-accumulation hardware exists per tile output port) reduces the active-phase axis before the `Tc` accumulate. There is no shift-add stage. The returned tensor is pre-requantize int.
 - **`program` shape gate.** `program(weight)` rejects any shape other than the bound `w_logical_shape`.
 
 ## Performance & resources

@@ -3,12 +3,16 @@
 The recovery rescale must clip exactly at the signed N-bit endpoints
 under any legal ``w_digit_range`` — including signed-digit and offset
 encodings whose extremes are not the canonical ``[0, radix^count - 1]``.
+The rescale denominator is the per-phase bound ``_max_phase_dot_abs``:
+each conversion digitizes one active phase of ``active_row_num`` rows,
+so the bound scales with ``active_row_num``, not ``row_num``.
 """
 
 from __future__ import annotations
 
 import torch
 
+from neurox.primitive.analog.adc_common import AdcOperationPoint
 from neurox.primitive.macro.cim.ideal import IdealCimMacro, IdealCimMacroConfig, IdealCimMacroPolicy
 
 
@@ -21,10 +25,12 @@ def _make_xbar(
     row_num: int,
     col_num: int,
     adc_bits: int,
+    active_row_num: int | None = None,
 ) -> IdealCimMacro:
     config = IdealCimMacroConfig(
         col_num=col_num,
         row_num=row_num,
+        active_row_num=row_num if active_row_num is None else active_row_num,
         area_per_inst__um2=0.0,
         leakage_per_inst__uW=0.0,
         x_range=x_range,
@@ -46,24 +52,24 @@ def _make_xbar(
     return xbar
 
 
-def _expected_max_dot(
+def _expected_max_phase_dot(
     *,
     w_digit_range: tuple[int, int],
     w_digit_radix: int,
     w_digit_count: int,
     x_range: tuple[int, int],
-    row_num: int,
+    active_row_num: int,
 ) -> int:
     d_lo, d_hi = w_digit_range
     max_digit_abs = max(abs(d_lo), abs(d_hi))
     weight_sum = sum((w_digit_radix**k for k in range(w_digit_count)), start=0)
     max_w_abs = max_digit_abs * weight_sum
     x_lo, x_hi = x_range
-    return int(row_num * max_w_abs * max(abs(x_lo), abs(x_hi)))
+    return int(active_row_num * max_w_abs * max(abs(x_lo), abs(x_hi)))
 
 
 class TestRescaleScope:
-    """``_max_dot_abs`` must use the actual w_digit_range, not radix^count."""
+    """``_max_phase_dot_abs`` must use the actual w_digit_range, not radix^count."""
 
     def test_signed_symmetric_range(self) -> None:
         """w_digit_range = [-d_max, d_max] — symmetric signed digit."""
@@ -76,8 +82,10 @@ class TestRescaleScope:
             col_num=4,
             adc_bits=8,
         )
-        expected = _expected_max_dot(w_digit_range=(-3, 3), w_digit_radix=4, w_digit_count=2, x_range=(0, 1), row_num=8)
-        assert xbar._max_dot_abs == expected
+        expected = _expected_max_phase_dot(
+            w_digit_range=(-3, 3), w_digit_radix=4, w_digit_count=2, x_range=(0, 1), active_row_num=8
+        )
+        assert xbar._max_phase_dot_abs == expected
         assert xbar._rescale_by_bits[8] == expected / ((1 << 7) - 1)
 
     def test_offset_nonneg_range(self) -> None:
@@ -91,8 +99,10 @@ class TestRescaleScope:
             col_num=4,
             adc_bits=8,
         )
-        expected = _expected_max_dot(w_digit_range=(0, 3), w_digit_radix=4, w_digit_count=2, x_range=(0, 1), row_num=8)
-        assert xbar._max_dot_abs == expected
+        expected = _expected_max_phase_dot(
+            w_digit_range=(0, 3), w_digit_radix=4, w_digit_count=2, x_range=(0, 1), active_row_num=8
+        )
+        assert xbar._max_phase_dot_abs == expected
 
     def test_asymmetric_signed_range(self) -> None:
         """w_digit_range = [-1, 2] — asymmetric: max_abs picks the larger side."""
@@ -108,8 +118,10 @@ class TestRescaleScope:
         # ``radix^count - 1`` overclips for asymmetric signed digit ranges
         # where the larger |bound| < radix-1; the correct bound is
         # ``max(|d_lo|, |d_hi|) · sum(radix^k)``.
-        expected = _expected_max_dot(w_digit_range=(-1, 2), w_digit_radix=3, w_digit_count=2, x_range=(0, 1), row_num=8)
-        assert xbar._max_dot_abs == expected
+        expected = _expected_max_phase_dot(
+            w_digit_range=(-1, 2), w_digit_radix=3, w_digit_count=2, x_range=(0, 1), active_row_num=8
+        )
+        assert xbar._max_phase_dot_abs == expected
 
     def test_naive_formula_overclips_signed(self) -> None:
         """w_digit_range = [-1, 1] with radix=4, count=2: the naive
@@ -126,10 +138,74 @@ class TestRescaleScope:
         )
         naive_overclip = 4**2 - 1
         correct = 1 * (1 + 4)
-        assert xbar._max_dot_abs == 8 * correct
+        assert xbar._max_phase_dot_abs == 8 * correct
         # And the rescale derived from it must use the correct bound.
         assert xbar._rescale_by_bits[8] == 8 * correct / ((1 << 7) - 1)
         assert xbar._rescale_by_bits[8] != 8 * naive_overclip / ((1 << 7) - 1)
+
+    def test_partial_activation_uses_active_row_num(self) -> None:
+        """``active_row_num < row_num``: the per-conversion bound counts the
+        rows of one active phase, not the full array height."""
+        xbar = _make_xbar(
+            w_digit_range=(-3, 3),
+            w_digit_radix=4,
+            w_digit_count=2,
+            x_range=(0, 1),
+            row_num=8,
+            col_num=4,
+            adc_bits=8,
+            active_row_num=2,
+        )
+        expected = _expected_max_phase_dot(
+            w_digit_range=(-3, 3), w_digit_radix=4, w_digit_count=2, x_range=(0, 1), active_row_num=2
+        )
+        assert xbar._max_phase_dot_abs == expected
+        assert xbar._rescale_by_bits[8] == expected / ((1 << 7) - 1)
+
+
+class TestPerPhaseOutput:
+    """``vec_mat_mul`` emits per-phase codes with trailing ``[P, col_num]``."""
+
+    @staticmethod
+    def _programmed_xbar(*, active_row_num: int | None, adc_bits: int) -> IdealCimMacro:
+        torch.manual_seed(42)
+        xbar = _make_xbar(
+            w_digit_range=(-3, 3),
+            w_digit_radix=2,
+            w_digit_count=1,
+            x_range=(0, 1),
+            row_num=8,
+            col_num=4,
+            adc_bits=adc_bits,
+            active_row_num=active_row_num,
+        )
+        w = torch.randint(-3, 4, xbar._w_layout_shape, dtype=torch.int32)
+        xbar.program(w)
+        return xbar
+
+    def test_multi_phase_output_shape(self) -> None:
+        xbar = self._programmed_xbar(active_row_num=2, adc_bits=8)
+        x = torch.randint(0, 2, (3, 5, 8), dtype=torch.int32)
+        y = xbar.vec_mat_mul(x, adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=8))
+        assert y.shape == (3, 5, 4, 4)  # [..., P=row_num/active_row_num, col_num]
+
+    def test_single_phase_axis_present(self) -> None:
+        """``active_row_num == row_num`` keeps the phase axis with size 1."""
+        xbar = self._programmed_xbar(active_row_num=None, adc_bits=8)
+        x = torch.randint(0, 2, (3, 8), dtype=torch.int32)
+        y = xbar.vec_mat_mul(x, adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=8))
+        assert y.shape == (3, 1, 4)
+
+    def test_lossless_phase_sum_matches_whole_dot(self) -> None:
+        """``adc_bits == 0``: summing per-phase partials over the phase axis
+        recovers the lossless full dot product."""
+        xbar = self._programmed_xbar(active_row_num=2, adc_bits=0)
+        x = torch.randint(0, 2, (5, 8), dtype=torch.int32)
+        y = xbar.vec_mat_mul(x, adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=0))
+        assert y.shape == (5, 4, 4)
+        w_logical = xbar.digits.to(torch.int64).squeeze(-2)  # [col_num, row_num], D=1
+        expected = x.to(torch.int64) @ w_logical.transpose(-1, -2)
+        assert torch.equal(y.sum(dim=-2), expected)
 
 
 class TestProgramOwnership:
