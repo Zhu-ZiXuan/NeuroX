@@ -254,7 +254,7 @@ class McsSarVoltageAdc(VoltageAdc):
 
     # --- convert ---
 
-    def convert(
+    def _convert_impl(
         self,
         v_pos__V: Tensor,
         v_neg__V: Tensor,

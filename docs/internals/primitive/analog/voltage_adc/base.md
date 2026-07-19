@@ -1,6 +1,6 @@
 # Voltage ADC base
 
-The voltage ADC family: the abstract `VoltageAdc` carries the registry, `from_config`, and the abstract `convert` / `max_bits` / `signed_range` surface. The ADC owns the digitize step alone; current-to-voltage clamping belongs to the tia / voltage_driver, column multiplexing to the voltage_mux, and the code-to-scale rescale to the caller. The ADC self-holds no reference - every reference tap arrives as a per-call argument.
+The voltage ADC family: the abstract `VoltageAdc` carries the registry, `from_config`, the concrete `convert` template method over the leaf-provided `_convert_impl` hook, and the abstract `max_bits` / `signed_range` surface. The ADC owns the digitize step alone; current-to-voltage clamping belongs to the tia / voltage_driver, column multiplexing to the voltage_mux, and the code-to-scale rescale to the caller. The ADC self-holds no reference - every reference tap arrives as a per-call argument.
 
 ## Design decisions
 
@@ -8,6 +8,7 @@ The voltage ADC family: the abstract `VoltageAdc` carries the registry, `from_co
 - **Empty marker `VoltageAdcPolicy`.** The base policy carries no switch; each concrete ADC declares its own `*Policy(VoltageAdcPolicy)` with that topology's toggles, so the policy shape follows the chosen topology, not a union of all topologies.
 - **The zero code is not centralised.** Mapping the raw unsigned bucket to the signed output by subtracting a zero code is left to each topology rather than a shared base helper: different ADC families could place the zero point differently (asymmetric boundaries, single-ended). The base makes no commitment; it only fixes the signed *output range* contract.
 - **Per-op latency is leaf-defined, not a base contract.** There is no `latency_per_op__ns` field on `VoltageAdc` / `VoltageAdcConfig`. Fixed-latency impls carry the field on their own config; parametric impls derive latency from the runtime operating point. Each `convert` emits its own latency through the profiler side channel. A base field would force a single latency shape on topologies whose latency model genuinely differs.
+- **`convert` is a probe-emitting template method; `_convert_impl` is not `@abstractmethod`.** The base's concrete `convert` calls `self._convert_impl(...)` and then emits the call's inputs, `code`, and the `AdcOperationPoint` fields on the `adc.convert` probe channel (`AdcProber.ADC_CONVERT`; a no-op without an active prober, never touching the returned code). `_convert_impl` raises `NotImplementedError` instead of being declared abstract — a deliberate loosening so a capture-style subclass can override `convert` wholesale and stay instantiable without a conversion body.
 - **Rounding follows `self.training`, no override flag.** Stochastic-versus-deterministic rounding is the standard `nn.Module` train/eval state; there is no constructor-time override knob, so behaviour is toggled the same way as the rest of the model.
 
 ## Contracts & invariants

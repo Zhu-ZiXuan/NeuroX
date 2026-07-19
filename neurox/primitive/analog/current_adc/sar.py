@@ -280,7 +280,7 @@ class SarCurrentAdc(CurrentAdc):
 
     # --- Conversion ---
 
-    def convert(self, i_in__uA: Tensor, *, adc_operation_point: AdcOperationPoint) -> Tensor:
+    def _convert_impl(self, i_in__uA: Tensor, *, adc_operation_point: AdcOperationPoint) -> Tensor:
         """Quantize ``i_in`` to an unsigned magnitude code via ``n_bits``-step binary search.
 
         Runs an ``n_bits``-step binary search over the ``2 ** n_bits - 1`` nominal

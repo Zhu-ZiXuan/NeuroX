@@ -13,6 +13,7 @@ import torch
 from torch import Tensor
 
 from neurox.common.mixin import RegistryMixin
+from neurox.common.prober import AdcProber
 from neurox.primitive.analog.adc_common import AdcOperationPoint
 from neurox.primitive.analog.base import AnalogBase, AnalogConfig, AnalogPolicy
 
@@ -99,7 +100,6 @@ class VoltageAdc(
         """Physical bit width — the maximum ``adc_bits`` value."""
         raise NotImplementedError
 
-    @abstractmethod
     def convert(
         self,
         v_pos__V: Tensor,
@@ -109,6 +109,12 @@ class VoltageAdc(
         adc_operation_point: AdcOperationPoint,
     ) -> Tensor:
         """Digitise a differential analog voltage into a signed integer code.
+
+        Template method: delegates the conversion to :meth:`_convert_impl`,
+        then emits the call's inputs, code, and operating point on the
+        ``adc.convert`` probe channel (a no-op without an active
+        :class:`~neurox.common.prober.Prober`) before returning the code
+        unchanged.
 
         Args:
             v_pos__V: Positive-side analog input voltage.  Shape:
@@ -128,6 +134,38 @@ class VoltageAdc(
             The consumer model is ``M_ideal ≈ code · rescale_factor``
             (``rescale_factor`` strictly positive). Dynamic energy and
             latency are emitted through the profiler side channel.
+        """
+        code = self._convert_impl(
+            v_pos__V,
+            v_neg__V,
+            v_refs__V=v_refs__V,
+            adc_operation_point=adc_operation_point,
+        )
+        self._probe_record(
+            AdcProber.ADC_CONVERT,
+            v_pos__V=v_pos__V,
+            v_neg__V=v_neg__V,
+            v_refs__V=v_refs__V,
+            code=code,
+            adc_mode=torch.tensor(adc_operation_point.adc_mode),
+            adc_bits=torch.tensor(adc_operation_point.adc_bits),
+        )
+        return code
+
+    def _convert_impl(
+        self,
+        v_pos__V: Tensor,
+        v_neg__V: Tensor,
+        *,
+        v_refs__V: Tensor,
+        adc_operation_point: AdcOperationPoint,
+    ) -> Tensor:
+        """Conversion body a concrete impl provides; contract as :meth:`convert`.
+
+        Deliberately ``NotImplementedError``-raising rather than
+        ``@abstractmethod``: a capture-style subclass may override
+        :meth:`convert` wholesale and must stay instantiable without a
+        conversion body.
         """
         raise NotImplementedError
 

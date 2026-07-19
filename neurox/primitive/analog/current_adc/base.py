@@ -13,6 +13,7 @@ import torch
 from torch import Tensor
 
 from neurox.common.mixin import RegistryMixin
+from neurox.common.prober import AdcProber
 from neurox.primitive.analog.adc_common import AdcOperationPoint
 from neurox.primitive.analog.base import AnalogBase, AnalogConfig, AnalogPolicy
 
@@ -105,9 +106,14 @@ class CurrentAdc(
         """Physical bit width — the maximum ``adc_bits`` value."""
         raise NotImplementedError
 
-    @abstractmethod
     def convert(self, i_in__uA: Tensor, *, adc_operation_point: AdcOperationPoint) -> Tensor:
         """Digitise a single-ended magnitude current into an unsigned integer code.
+
+        Template method: delegates the conversion to :meth:`_convert_impl`,
+        then emits the call's input, code, and operating point on the
+        ``adc.convert`` probe channel (a no-op without an active
+        :class:`~neurox.common.prober.Prober`) before returning the code
+        unchanged.
 
         Args:
             i_in__uA: Non-negative magnitude current [uA]. Shape: arbitrary.
@@ -117,6 +123,24 @@ class CurrentAdc(
             Unsigned integer code tensor, same shape as ``i_in__uA``, in the
             range reported by :meth:`unsigned_range` for ``adc_bits``. Dynamic
             energy and latency are emitted through the profiler side channel.
+        """
+        code = self._convert_impl(i_in__uA, adc_operation_point=adc_operation_point)
+        self._probe_record(
+            AdcProber.ADC_CONVERT,
+            i_in__uA=i_in__uA,
+            code=code,
+            adc_mode=torch.tensor(adc_operation_point.adc_mode),
+            adc_bits=torch.tensor(adc_operation_point.adc_bits),
+        )
+        return code
+
+    def _convert_impl(self, i_in__uA: Tensor, *, adc_operation_point: AdcOperationPoint) -> Tensor:
+        """Conversion body a concrete impl provides; contract as :meth:`convert`.
+
+        Deliberately ``NotImplementedError``-raising rather than
+        ``@abstractmethod``: a capture-style subclass may override
+        :meth:`convert` wholesale and must stay instantiable without a
+        conversion body.
         """
         raise NotImplementedError
 

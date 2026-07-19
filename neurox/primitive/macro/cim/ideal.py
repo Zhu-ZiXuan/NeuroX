@@ -11,6 +11,7 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor
 
+from neurox.common.prober import AdcProber
 from neurox.common.quant import stochastic_floor_to_int
 from neurox.primitive.analog.adc_common import AdcOperationPoint
 
@@ -216,6 +217,7 @@ class IdealCimMacro(CimMacro):
         dot = (x * w).sum(dim=-1)
 
         if adc_operation_point.adc_bits == 0:
+            self._probe_record(AdcProber.ADC_IDEAL_VMM, code=dot)
             return dot
 
         scale = self._scale_by_bits[adc_operation_point.adc_bits]
@@ -226,4 +228,6 @@ class IdealCimMacro(CimMacro):
             training=self.training,
         )
         bound = 1 << (adc_operation_point.adc_bits - 1)
-        return code.clamp(-bound, bound - 1)
+        code = code.clamp(-bound, bound - 1)
+        self._probe_record(AdcProber.ADC_IDEAL_VMM, code=code)
+        return code

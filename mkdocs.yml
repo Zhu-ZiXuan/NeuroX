@@ -187,6 +187,7 @@ nav:
       - Encodings: internals/common/encoding/encodings.md
     - Nonideality: internals/primitive/nonideality.md
     - Physical constant: internals/primitive/physical_constant.md
+    - Prober: internals/common/prober.md
     - Profiler: internals/common/profiler.md
     - Quant: internals/common/quant.md
   - Device:

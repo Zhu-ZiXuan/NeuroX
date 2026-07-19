@@ -1,6 +1,6 @@
 # Current ADC base
 
-The current ADC family: the abstract `CurrentAdc` (`current_adc/base.py`) carries the registry, `from_config`, and the abstract `convert` / `max_bits` / `unsigned_range` surface. The ADC owns the digitize step alone; the sign is handled outside by the caller, and the code-to-scale rescale is the caller's too. The ADC self-holds no reference — the reference levels arrive on the concrete config.
+The current ADC family: the abstract `CurrentAdc` (`current_adc/base.py`) carries the registry, `from_config`, the concrete `convert` template method over the leaf-provided `_convert_impl` hook, and the abstract `max_bits` / `unsigned_range` surface. The ADC owns the digitize step alone; the sign is handled outside by the caller, and the code-to-scale rescale is the caller's too. The ADC self-holds no reference — the reference levels arrive on the concrete config.
 
 ## Design decisions
 
@@ -8,6 +8,7 @@ The current ADC family: the abstract `CurrentAdc` (`current_adc/base.py`) carrie
 - **Empty marker `CurrentAdcPolicy`.** The base policy carries no switch; each concrete current ADC declares its own `*Policy(CurrentAdcPolicy)` with that topology's toggles.
 - **Unsigned single-ended output, no zero shift.** The input is a non-negative magnitude and the output is an unsigned code in `[0, 2**adc_bits - 1]`; there is no offset-binary re-bias. The sign is the caller's concern — this keeps the ADC a pure magnitude quantizer and lets the sign path (e.g. a current subtractor upstream) own the sign bit.
 - **Shared operating-point types.** `AdcOperationPoint` and `AdcCalibrationRecord` are the domain-neutral types from `neurox/primitive/analog/adc_common.py`, imported by both the voltage and current ADC families so neither depends on the other.
+- **`convert` is a probe-emitting template method; `_convert_impl` is not `@abstractmethod`.** The base's concrete `convert` calls `self._convert_impl(...)` and then emits the call's input, `code`, and the `AdcOperationPoint` fields on the `adc.convert` probe channel (`AdcProber.ADC_CONVERT`; a no-op without an active prober, never touching the returned code). `_convert_impl` raises `NotImplementedError` instead of being declared abstract — a deliberate loosening so a capture-style subclass can override `convert` wholesale and stay instantiable without a conversion body.
 
 ## Contracts & invariants
 

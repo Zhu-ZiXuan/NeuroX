@@ -160,7 +160,7 @@ class GeneralVoltageAdc(VoltageAdc):
         del adc_bits
         return -self._zero_code, self._n_codes - 1 - self._zero_code
 
-    def convert(
+    def _convert_impl(
         self,
         v_pos__V: Tensor,
         v_neg__V: Tensor,
