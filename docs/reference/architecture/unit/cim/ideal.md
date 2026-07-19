@@ -33,7 +33,7 @@ This mode introduces no new symbols. The logical dims ($N$, $K$, $M$), the value
 
 ## Assumptions, scope & validity
 
-- The accepted value ranges are published, not enforced: the model computes the exact matmul whether or not the inputs fit `w_value_range` / `x_value_range`, carrying out-of-range values through exactly.
+- The accepted value ranges are published, not enforced at run time: inputs are assumed to fit `w_value_range` / `x_value_range`, and the exact-integer guarantee is stated over the accepted value domain.
 - It is a lossless value-domain reference only, with no PPA contribution and no fabrication variation: the lossless upper bound, not a hardware-faithful accuracy, energy, or area figure.
 
 ## Validation

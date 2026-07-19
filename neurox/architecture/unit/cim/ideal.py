@@ -86,6 +86,16 @@ class IdealCimUnit(CimUnit):
         self._leakage_per_inst__uW = config.leakage_per_inst__uW
         self._inst_shape = self._w_logical_shape[:-2]
 
+        # fp32-exact fast-path eligibility: CUDA has no integer-matmul
+        # kernel. With every per-element product and every partial sum
+        # bounded by ``K * max|x| * max|w| < 2^24``, IEEE fp32 matmul
+        # accumulation (the framework default; TF32 disabled) reproduces
+        # the int64 contraction bit-exactly for range-conformant operands.
+        x_lo, x_hi = config.x_value_range
+        w_lo, w_hi = config.w_value_range
+        max_dot_abs = self._w_logical_shape[-1] * max(abs(x_lo), abs(x_hi)) * max(abs(w_lo), abs(w_hi))
+        self._fp32_exact: bool = max_dot_abs < 2**24
+
         # 0-d nominal weight: broadcasts to a zero-weight matmul before any
         # ``program(...)`` call.
         self.register_buffer("nominal_weight", torch.zeros((), dtype=torch.int32), persistent=False)
@@ -126,4 +136,9 @@ class IdealCimUnit(CimUnit):
     def matmul(self, input: Tensor, *, adc_operation_point: AdcOperationPoint) -> Tensor:
         del adc_operation_point  # accepted for API uniformity
         weight = self.weight
+        if self._fp32_exact:
+            # Bound checked in ``__init__`` against the config value
+            # ranges; the cast back to int64 is lossless.
+            out = torch.matmul(input.to(torch.float32), weight.to(torch.float32).transpose(-2, -1))
+            return out.to(torch.int64)
         return torch.matmul(input.to(torch.int64), weight.to(torch.int64).transpose(-2, -1))

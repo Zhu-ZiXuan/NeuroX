@@ -131,6 +131,13 @@ class IdealCimMacro(CimMacro):
         # One ADC conversion digitizes one active phase, so the rescale
         # range is the per-phase partial dot, not the full-row dot.
         self._max_phase_dot_abs: int = config.active_row_num * max_w_logical_abs * max_x_abs
+        # fp32-exact fast-path eligibility: CUDA has no integer-matmul
+        # kernel. With every per-cell product and every partial sum
+        # bounded by ``_max_phase_dot_abs < 2^24``, IEEE fp32 einsum
+        # accumulation (the framework default; TF32 disabled) reproduces
+        # the int64 per-phase dots bit-exactly for range-conformant
+        # digits and inputs.
+        self._fp32_exact: bool = self._max_phase_dot_abs < 2**24
 
         # Bit-width-keyed rescale / scale tables. ``adc_bits == 0`` is the
         # lossless sentinel — ``vec_mat_mul`` returns the integer per-phase
@@ -214,26 +221,39 @@ class IdealCimMacro(CimMacro):
             dots are returned unmodified.
         """
         # Widen to int64 before any integer arithmetic so per-cell products
-        # and the row-num / digit-num reductions cannot overflow.
+        # and the row-num / digit-num reductions cannot overflow. The digit
+        # reduction is elementwise (CUDA-safe at int64); only the row dot
+        # below needs the fp32-exact fast path.
         digits = self.digits.to(torch.int64)
         # Shape: [..., col_num, w_digit_count, row_num] -> [..., col_num, row_num]
         digit_weights = self.digit_weights.to(torch.int64).view(*([1] * (digits.ndim - 2)), -1, 1)
         w = (digits * digit_weights).sum(dim=-2)
 
         phase_num = self.config.active_phase_num
-        # Shape: [..., row_num] -> [..., 1, row_num]
-        x = x.to(torch.int64).unsqueeze(-2)
+        if self._fp32_exact:
+            # fp32-exact fast path (bound checked in ``__init__``): the
+            # einsum contracts each phase's own row block; the cast back
+            # to int64 is lossless.
+            # Shape: [..., col_num, active_phase_num, active_row_num]
+            w_f32 = w.to(torch.float32).unflatten(-1, (phase_num, self.active_row_num))
+            # Shape: [..., active_phase_num, active_row_num]
+            x_f32 = x.to(torch.float32).unflatten(-1, (phase_num, self.active_row_num))
+            # Shape: [..., active_phase_num, col_num]
+            phase_dot = torch.einsum("...cpr,...pr->...pc", w_f32, x_f32).to(torch.int64)
+        else:
+            # Shape: [..., row_num] -> [..., 1, row_num]
+            x = x.to(torch.int64).unsqueeze(-2)
 
-        full_shape = torch.broadcast_shapes(w.shape, x.shape)
-        w = w.expand(full_shape)
-        x = x.expand(full_shape)
-        # Shape: [..., col_num, row_num]
-        prod = x * w
-        # Per-phase partial dots: reduce each phase's own row block.
-        # Shape: [..., col_num, active_phase_num]
-        phase_dot = prod.unflatten(-1, (phase_num, self.active_row_num)).sum(dim=-1)
-        # Shape: [..., active_phase_num, col_num]
-        phase_dot = phase_dot.transpose(-1, -2)
+            full_shape = torch.broadcast_shapes(w.shape, x.shape)
+            w = w.expand(full_shape)
+            x = x.expand(full_shape)
+            # Shape: [..., col_num, row_num]
+            prod = x * w
+            # Per-phase partial dots: reduce each phase's own row block.
+            # Shape: [..., col_num, active_phase_num]
+            phase_dot = prod.unflatten(-1, (phase_num, self.active_row_num)).sum(dim=-1)
+            # Shape: [..., active_phase_num, col_num]
+            phase_dot = phase_dot.transpose(-1, -2)
 
         if adc_operation_point.adc_bits == 0:
             self._probe_record(AdcProber.ADC_IDEAL_VMM, code=phase_dot)

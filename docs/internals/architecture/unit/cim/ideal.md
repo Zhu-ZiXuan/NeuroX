@@ -11,11 +11,11 @@ The degenerate `CimUnit` family member: it joins the registry without owning a t
 ## Contracts & invariants
 
 - **`program` shape gate, then verbatim store.** `program(weight)` rejects any shape other than `w_logical_shape`, then stores the tensor unchanged into `self.weight` — no encoding, no slicing.
-- **`matmul` widens to int64.** Both operands cast to `int64` before `torch.matmul` so the full-width integer contraction cannot overflow.
+- **`matmul` is exact on both arithmetic paths.** `__init__` sizes the dot bound `K * max|x| * max|w|` from the config value ranges: below `2^24` the contraction runs as an fp32 `torch.matmul` — every product and partial sum stays exactly representable in IEEE fp32 (framework-default matmul precision, TF32 disabled) and the cast back to `int64` is lossless — which is what makes the unit GPU-capable, since CUDA has no integer-matmul kernel. At or above the bound both operands widen to `int64` before `torch.matmul`, exact at any magnitude but CPU-by-design. Fast-path exactness assumes range-conformant operands.
 
 ## Performance & resources
 
-A single dense `int64` matmul; no tiling, no analog cost. Its own peripheral PPA is the reference zero and it owns no circuit children to report any, so profiler aggregation over an ideal unit is sparse.
+A single dense matmul (fp32 on the fast path, `int64` otherwise); no tiling, no analog cost. Its own peripheral PPA is the reference zero and it owns no circuit children to report any, so profiler aggregation over an ideal unit is sparse.
 
 ## Gotchas
 
@@ -26,4 +26,4 @@ A single dense `int64` matmul; no tiling, no analog cost. Its own peripheral PPA
 
 - **Reference**: [ideal](../../../../reference/architecture/unit/cim/ideal.md)
 - **Implementation**: `neurox/architecture/unit/cim/ideal.py`
-- **Tests**: `tests/architecture/unit/test_cim_unit.py`
+- **Tests**: `tests/architecture/unit/test_cim_unit.py`, `tests/architecture/unit/test_ideal_cim_unit_fp32_exact.py`
