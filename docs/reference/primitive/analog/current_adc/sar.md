@@ -6,11 +6,11 @@ A triple-margin current-mode successive-approximation ADC, a member of the [curr
 
 Each single comparison mirrors $I_{\mathrm{in}}$ and the step's reference $I_{\mathrm{ref}}$ through input mirrors sized $n = $ `input_mirror_ratio` times the reference legs, then a deterministic pre-gain $A = $ `margin_gain` amplifies the clean current difference $I_{\mathrm{in}} - I_{\mathrm{ref}}$ before the latch resolves its sign. The input-referred SA offset is a current-domain margin perturbation added **after** the pre-gain, so its effective value at the decision is divided by $A$ — the triple-margin benefit: a raw offset $\sigma$ acts as $\sigma / A$.
 
-The $2^{b}-1$ nominal mid-point thresholds `ref_levels__uA` are a config tuple; the ADC reads them directly and self-holds no external reference.
+The nominal mid-point thresholds `ref_levels__uA` are a 2-D config tuple `[mode][tap]` — one strictly increasing ladder of $2^{b}-1$ thresholds per operating mode. The per-call operating point selects the ladder row via `adc_mode` (a quasi-static selection: switching modes dissipates no per-conversion energy) and must carry `adc_bits` equal to the physical $b$. The ADC reads the selected row directly and self-holds no external reference.
 
 ## Governing equations
 
-The conversion runs a $b$-step binary search (MSB-first). At step $s$ (with $s = 0$ the MSB) the partial code resolved so far selects a mid-point reference $I_{\mathrm{ref},s}$; the bit is the sign of the pre-gained clean margin plus the held offset,
+The conversion runs a $b$-step binary search (MSB-first) over the ladder row `adc_mode` selects. At step $s$ (with $s = 0$ the MSB) the partial code resolved so far selects a mid-point reference $I_{\mathrm{ref},s}$ from that row; the bit is the sign of the pre-gained clean margin plus the held offset,
 
 $$D_s = \big[\,A\,(I_{\mathrm{in}} - I_{\mathrm{ref},s}) + \delta\,\big] > 0,$$
 
@@ -45,11 +45,11 @@ Both static offsets are sampled once at fabricate and held constant across the $
 | `n_bits` ($b$) | output magnitude resolution | — | $> 0$ | Design |
 | `margin_gain` ($A$) | triple-margin pre-gain before the latch | — | $> 0$ | Design |
 | `input_mirror_ratio` ($n$) | regeneration mirror ratio vs the unity legs | — | $> 0$ | Design |
-| `ref_levels__uA` ($I_{\mathrm{ref},c}$) | $2^{b}-1$ nominal mid-point thresholds | uA | strictly increasing | Calibrated (physical data) |
+| `ref_levels__uA` ($I_{\mathrm{ref},m,c}$) | nominal mid-point threshold ladders, `[mode][tap]`, $2^{b}-1$ per row | uA | per-row strictly increasing | Calibrated (physical data) |
 | `v_rail_sa__V` | SA-leg overdrive the regeneration current is pulled across | V | $\geq 0$ | Design |
 | `t_eff__ns` | effective conduction time the regeneration is drawn over | ns | $\geq 0$ | Design |
 | `e_fixed_per_op__fJ` | data-independent per-op energy constant | fJ | $\geq 0$ | Design |
-| `step_latency__ns` | per-step decision latency, one entry per step | ns | $\geq 0$ | Design |
+| `step_latency__ns` | per-step decision latency, exactly one entry per step | ns | length $= b$, $\geq 0$ | Design |
 | `comparator_offset_sigma__uA` | static input-referred SA offset sigma | uA | $\geq 0$ | Measured |
 | `coupling_mismatch_sigma__uA` | residual coupling-driven offset sigma | uA | $\geq 0$ | Measured |
 | `mirror_mismatch_sigma_relative` | relative sigma on the mirror ratios | — | $\geq 0$ | Measured |

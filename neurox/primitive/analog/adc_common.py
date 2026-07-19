@@ -16,8 +16,10 @@ class AdcOperationPoint:
     """ADC operating point — the runtime selection passed per call.
 
     Attributes:
-        adc_mode: Operating-point index selecting a reference tap from the
-            injected reference tensor — valid range ``[0, num_refs)``.
+        adc_mode: Operating-point index selecting the reference set the
+            emitting family defines — a tap of the injected reference tensor
+            (voltage) or a threshold-ladder row (current); valid range
+            ``[0, mode count)``.
         adc_bits: Active bit width, ``1 <= adc_bits <= max_bits``.
     """
 

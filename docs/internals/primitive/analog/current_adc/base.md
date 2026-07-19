@@ -18,4 +18,4 @@ The current ADC family: the abstract `CurrentAdc` (`current_adc/base.py`) carrie
 
 - **Reference**: [current ADC family](../../../../reference/primitive/analog/current_adc/family.md)
 - **Implementation**: `neurox/primitive/analog/current_adc/base.py`
-- **Tests**: TODO - name the guarding test
+- **Tests**: `tests/primitive/analog/test_current_adc_modes.py`

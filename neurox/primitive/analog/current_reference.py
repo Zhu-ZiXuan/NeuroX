@@ -17,12 +17,15 @@ class CurrentReferenceConfig(AnalogConfig):
     """Immutable configuration for :class:`CurrentReference`.
 
     Attributes:
-        i_refs__uA: Nominal reference-current taps. One module
-            sources ``len(i_refs__uA)`` independent taps; the taps are
-            unordered. Each tap is non-negative; 0 uA denotes a
-            ground/rail reference (relative noise * 0 == 0, so a 0 tap
-            stays stable and exact). A TOML array loads straight into this
-            tuple.
+        i_refs__uA: Nominal reference-current taps, 2-D ``[mode][tap]``.
+            One module holds ``mode_num`` quasi-statically selectable tap
+            rows of ``tap_num`` taps each; every row is strictly
+            increasing and all rows have equal length. Taps are
+            non-negative; 0 uA denotes a ground/rail reference (relative
+            noise * 0 == 0, so a 0 tap stays stable and exact). A nested
+            TOML array loads straight into this tuple-of-tuples; a flat
+            tuple of floats passed in code is canonicalized to a single
+            mode row.
         tolerance_sigma_relative: Relative per-instance initial-accuracy
             σ [dimensionless], applied multiplicatively at fabricate
             time; ``0`` leaves the exact nominal taps.
@@ -35,8 +38,8 @@ class CurrentReferenceConfig(AnalogConfig):
             generates the references.
     """
 
-    # --- Reference taps ---
-    i_refs__uA: tuple[float, ...]
+    # --- Reference taps, [mode][tap] ---
+    i_refs__uA: tuple[tuple[float, ...], ...]
 
     # --- Initial accuracy (fabricate-time, per-instance) ---
     tolerance_sigma_relative: float
@@ -49,7 +52,21 @@ class CurrentReferenceConfig(AnalogConfig):
     leakage_per_inst__uW: float
 
     def __post_init__(self) -> None:
+        # A flat tuple of floats is the single-mode shorthand: canonicalize
+        # to one mode row so the validated form is always 2-D [mode][tap].
+        if len(self.i_refs__uA) > 0 and not isinstance(self.i_refs__uA[0], tuple):
+            object.__setattr__(self, "i_refs__uA", (tuple(self.i_refs__uA),))
         self.validate()
+
+    @property
+    def mode_num(self) -> int:
+        """Number of quasi-statically selectable tap rows."""
+        return len(self.i_refs__uA)
+
+    @property
+    def tap_num(self) -> int:
+        """Number of taps per mode row (equal across rows)."""
+        return len(self.i_refs__uA[0])
 
     def validate(self) -> None:
         self.validate_taps()
@@ -58,8 +75,16 @@ class CurrentReferenceConfig(AnalogConfig):
 
     def validate_taps(self) -> None:
         self._require_min_length(self.i_refs__uA, 1, "i_refs__uA")
-        for i, v in enumerate(self.i_refs__uA):
-            self._require_non_neg(v, f"i_refs__uA[{i}]")
+        tap_num = len(self.i_refs__uA[0])
+        for m, row in enumerate(self.i_refs__uA):
+            self._require_min_length(row, 1, f"i_refs__uA[{m}]")
+            if len(row) != tap_num:
+                raise ValueError(
+                    f"require: equal row lengths in i_refs__uA; row {m} has {len(row)} tap(s), row 0 has {tap_num}"
+                )
+            self._require_increasing(row, f"i_refs__uA[{m}]")
+            for t, v in enumerate(row):
+                self._require_non_neg(v, f"i_refs__uA[{m}][{t}]")
 
     def validate_noise(self) -> None:
         self._require_non_neg(self.tolerance_sigma_relative, "tolerance_sigma_relative")
@@ -91,7 +116,7 @@ class CurrentReferenceSnap:
 
     Attributes:
         i_refs__uA: Actual reference-current taps, post
-            tolerance + noise, shape ``(*inst_shape, num_refs)``.
+            tolerance + noise, shape ``(*inst_shape, mode_num, tap_num)``.
     """
 
     i_refs__uA: Tensor
@@ -100,13 +125,16 @@ class CurrentReferenceSnap:
 class CurrentReference(AnalogBase[CurrentReferenceConfig, CurrentReferencePolicy]):
     """Multi-output current reference source — PPA + state, no compute.
 
-    A behavioural reference: it sources one or more nominal current taps
-    and exists to (1) carry the reference's static PPA — silicon area
-    plus the always-on bias power folded into ``leakage_per_inst__uW`` —
-    and (2) hand downstream blocks the actual tap values through a
-    per-call snap, read back through :meth:`i_ref__uA`.
-    It performs no transport, copy, or solve, and emits neither dynamic
-    energy nor latency: its entire hardware cost is static.
+    A behavioural reference: it holds a ``[mode_num, tap_num]`` bank of
+    nominal current-tap rows and exists to (1) carry the reference's
+    static PPA — silicon area plus the always-on bias power folded into
+    ``leakage_per_inst__uW`` — and (2) hand downstream blocks the actual
+    tap values through a per-call snap, read back through
+    :meth:`i_ref__uA`. Mode selection is quasi-static: a consumer indexes
+    one mode row and holds it across conversions, so switching modes
+    costs no per-conversion energy and the module emits neither dynamic
+    energy nor latency — its entire hardware cost is static. It performs
+    no transport, copy, or solve.
 
     Two nonidealities perturb the taps. The per-instance initial
     accuracy is a static spread sampled once at ``fabricate`` time
@@ -140,24 +168,30 @@ class CurrentReference(AnalogBase[CurrentReferenceConfig, CurrentReferencePolicy
         self.dtype = dtype
         self.T__K = T__K
 
+        # Nominal tap bank, [mode_num, tap_num].
         nominal_i_refs__uA = torch.tensor(config.i_refs__uA, dtype=dtype)
         self.register_buffer("nominal_i_refs__uA", nominal_i_refs__uA, persistent=False)
         # Actual per-instance taps before any fabricate() call: the
         # broadcast nominal. fabricate() resamples the static tolerance.
         self.register_buffer(
             "i_refs__uA",
-            nominal_i_refs__uA.expand(*inst_shape, self.num_refs).clone(),
+            nominal_i_refs__uA.expand(*inst_shape, self.mode_num, self.tap_num).clone(),
             persistent=False,
         )
 
     @property
-    def num_refs(self) -> int:
-        """Number of reference taps sourced by this module."""
-        return len(self.config.i_refs__uA)
+    def mode_num(self) -> int:
+        """Number of quasi-statically selectable tap rows."""
+        return self.config.mode_num
+
+    @property
+    def tap_num(self) -> int:
+        """Number of taps per mode row."""
+        return self.config.tap_num
 
     def _sample_fabricate_mismatch(self) -> None:
-        """Resample the per-instance initial-accuracy spread at ``(*inst_shape, num_refs)``."""
-        base = self.nominal_i_refs__uA.expand(*self._inst_shape, self.num_refs)
+        """Resample the per-instance initial-accuracy spread at ``(*inst_shape, mode_num, tap_num)``."""
+        base = self.nominal_i_refs__uA.expand(*self._inst_shape, self.mode_num, self.tap_num)
         if self.policy.tolerance:
             self.i_refs__uA = base * (1.0 + torch.randn_like(base) * self.config.tolerance_sigma_relative)
         else:
@@ -169,8 +203,8 @@ class CurrentReference(AnalogBase[CurrentReferenceConfig, CurrentReferencePolicy
         Reads the fabricated per-instance taps and applies the per-call
         relative noise (gated by the ``noise`` policy). No external
         shape: a reference's output is intrinsically ``(*inst_shape,
-        num_refs)`` — a consumer picks a tap and broadcasts it onto its
-        own grid.
+        mode_num, tap_num)`` — a consumer indexes its quasi-static mode
+        row, picks a tap, and broadcasts it onto its own grid.
 
         Returns:
             Per-call snap carrying the actual reference-current taps.
@@ -182,14 +216,14 @@ class CurrentReference(AnalogBase[CurrentReferenceConfig, CurrentReferencePolicy
     def i_ref__uA(self, snap: CurrentReferenceSnap) -> Tensor:
         """Read all reference-current taps from a per-call snap.
 
-        The encapsulated read path: returns every tap (count is
-        ``num_refs``) so a consumer selects one by index and broadcasts
-        it onto its own grid. Pairs with :meth:`snapshot`.
+        The encapsulated read path: returns the full tap bank so a
+        consumer indexes its quasi-static mode row, selects a tap, and
+        broadcasts it onto its own grid. Pairs with :meth:`snapshot`.
 
         Args:
             snap: Per-call snap returned by :meth:`snapshot`.
 
         Returns:
-            Reference-current taps, shape ``(*inst_shape, num_refs)``.
+            Reference-current taps, shape ``(*inst_shape, mode_num, tap_num)``.
         """
         return snap.i_refs__uA

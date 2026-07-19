@@ -15,8 +15,12 @@ input-referred comparator offset is a current-domain margin perturbation added
 ``margin_gain`` (the triple-margin benefit): a raw ``sigma`` offset acts as
 ``sigma / margin_gain`` at the decision.
 
-The nominal mid-point thresholds ``ref_levels__uA`` are a config tuple; the ADC
-reads them directly and self-holds no external reference.
+The nominal mid-point thresholds ``ref_levels__uA`` are a 2-D config tuple
+``[mode][tap]`` — one strictly increasing ladder of ``2 ** n_bits - 1``
+thresholds per operating mode; the per-call
+``adc_operation_point.adc_mode`` selects the ladder row (a quasi-static
+selection: switching modes costs no per-conversion energy). The ADC reads the
+selected row directly and self-holds no external reference.
 
 The binary-search steps are an internal Python loop — the sub-comparisons are not
 separate profiled leaves, so the whole conversion emits exactly **one**
@@ -67,8 +71,12 @@ class SarCurrentAdcConfig(CurrentAdcConfig):
             after this gain, so the effective offset is ``offset_sigma / margin_gain``.
         input_mirror_ratio: Regeneration mirror ratio relative to the unity legs;
             sets the ``input_mirror_ratio * I`` replica legs the SA rails feed.
-        ref_levels__uA: ``2 ** n_bits - 1`` nominal mid-point thresholds [uA],
-            strictly increasing.
+        ref_levels__uA: Nominal mid-point thresholds [uA], 2-D ``[mode][tap]``:
+            one row of exactly ``2 ** n_bits - 1`` strictly increasing
+            thresholds per operating mode. The per-call
+            ``adc_operation_point.adc_mode`` selects the row. A nested TOML
+            array loads straight into this tuple-of-tuples; a flat tuple of
+            floats passed in code is canonicalized to a single mode row.
         v_rail_sa__V: SA-leg overdrive ``V_DD_SA - V_node`` [V] the regenerated
             ``n``-path replica currents are pulled across.
         t_eff__ns: Effective conduction time [ns] the ``n``-path regeneration
@@ -94,7 +102,7 @@ class SarCurrentAdcConfig(CurrentAdcConfig):
     n_bits: int
     margin_gain: float
     input_mirror_ratio: float
-    ref_levels__uA: tuple[float, ...]
+    ref_levels__uA: tuple[tuple[float, ...], ...]
 
     v_rail_sa__V: float
     t_eff__ns: float
@@ -107,6 +115,18 @@ class SarCurrentAdcConfig(CurrentAdcConfig):
     coupling_mismatch_sigma__uA: float
     mirror_mismatch_sigma_relative: float
 
+    def __post_init__(self) -> None:
+        # A flat tuple of floats is the single-mode shorthand: canonicalize
+        # to one mode row so the validated form is always 2-D [mode][tap].
+        if len(self.ref_levels__uA) > 0 and not isinstance(self.ref_levels__uA[0], tuple):
+            object.__setattr__(self, "ref_levels__uA", (tuple(self.ref_levels__uA),))
+        super().__post_init__()
+
+    @property
+    def mode_num(self) -> int:
+        """Number of operating modes — the ladder-row count of ``ref_levels__uA``."""
+        return len(self.ref_levels__uA)
+
     def validate(self) -> None:
         self.validate_quantizer()
         self.validate_energy()
@@ -118,8 +138,12 @@ class SarCurrentAdcConfig(CurrentAdcConfig):
         self._require_pos(self.n_bits, "n_bits")
         self._require_pos(self.margin_gain, "margin_gain")
         self._require_pos(self.input_mirror_ratio, "input_mirror_ratio")
-        self._require_min_length(self.ref_levels__uA, 2**self.n_bits - 1, "ref_levels__uA")
-        self._require_increasing(self.ref_levels__uA, "ref_levels__uA")
+        self._require_min_length(self.ref_levels__uA, 1, "ref_levels__uA")
+        level_num = 2**self.n_bits - 1
+        for m, row in enumerate(self.ref_levels__uA):
+            if len(row) != level_num:
+                raise ValueError(f"require: len(ref_levels__uA[{m}]) ({len(row)}) == 2**n_bits - 1 ({level_num})")
+            self._require_increasing(row, f"ref_levels__uA[{m}]")
 
     def validate_energy(self) -> None:
         self._require_non_neg(self.v_rail_sa__V, "v_rail_sa__V")
@@ -127,7 +151,12 @@ class SarCurrentAdcConfig(CurrentAdcConfig):
         self._require_non_neg(self.e_fixed_per_op__fJ, "e_fixed_per_op__fJ")
 
     def validate_timing(self) -> None:
-        self._require_min_length(self.step_latency__ns, self.n_bits, "step_latency__ns")
+        # Exactly one entry per binary-search step: the conversion latency is
+        # the sum of the whole tuple, so a surplus entry (e.g. an n_bits
+        # overlay inheriting a longer parent list) would silently overbill
+        # every conversion.
+        if len(self.step_latency__ns) != self.n_bits:
+            raise ValueError(f"require: len(step_latency__ns) ({len(self.step_latency__ns)}) == n_bits ({self.n_bits})")
         for latency in self.step_latency__ns:
             self._require_non_neg(latency, "step_latency__ns")
 
@@ -168,9 +197,12 @@ class SarCurrentAdc(CurrentAdc):
 
     A single current-mode SA realizes an ``n_bits``-bit unsigned magnitude ADC by
     comparing ``i_in`` against ``n_bits`` binary-search-selected mid-point
-    references out of the ``2 ** n_bits - 1`` nominal ``ref_levels__uA``. The
-    sub-comparisons are not separate profiled leaves, so :meth:`convert`
-    aggregates the steps and emits exactly one dynamic-energy + one latency event.
+    references out of the ``2 ** n_bits - 1`` nominal thresholds of the
+    ``ref_levels__uA`` mode row the per-call
+    ``adc_operation_point.adc_mode`` selects (quasi-static: mode switching
+    costs no per-conversion energy). The sub-comparisons are not separate
+    profiled leaves, so :meth:`convert` aggregates the steps and emits exactly
+    one dynamic-energy + one latency event.
     """
 
     config: SarCurrentAdcConfig
@@ -213,6 +245,7 @@ class SarCurrentAdc(CurrentAdc):
         self.dtype = dtype
         self.T__K = T__K
 
+        # Nominal threshold ladders, [mode_num, 2**n_bits - 1].
         self.register_buffer(
             "ref_levels__uA",
             torch.tensor(config.ref_levels__uA, dtype=dtype),
@@ -233,6 +266,11 @@ class SarCurrentAdc(CurrentAdc):
     def max_bits(self) -> int:
         """Physical magnitude resolution — the maximum ``adc_bits`` value."""
         return self.config.n_bits
+
+    @property
+    def mode_num(self) -> int:
+        """Number of operating modes; valid ``adc_mode`` values are ``[0, mode_num)``."""
+        return self.config.mode_num
 
     def unsigned_range(self, adc_bits: int) -> tuple[int, int]:
         """Unsigned magnitude code endpoints at ``adc_bits`` — ``(0, 2 ** adc_bits - 1)``."""
@@ -283,25 +321,38 @@ class SarCurrentAdc(CurrentAdc):
     def _convert_impl(self, i_in__uA: Tensor, *, adc_operation_point: AdcOperationPoint) -> Tensor:
         """Quantize ``i_in`` to an unsigned magnitude code via ``n_bits``-step binary search.
 
-        Runs an ``n_bits``-step binary search over the ``2 ** n_bits - 1`` nominal
-        mid-point ``ref_levels__uA``: each step selects a reference (data-dependent
-        on the bits resolved so far), forms the clean margin ``i_in - i_ref``,
-        applies the ``margin_gain`` pre-gain and adds the input-referred offset
-        **after** it, and resolves one bit. The step energies are aggregated and
-        one dynamic-energy + one latency event (``sum(step_latency__ns)``) is
-        emitted on completion. The sub-comparisons are a method-internal Python
-        loop, never separate leaves.
+        Consumes the operating point: ``adc_mode`` selects the threshold
+        ladder row of ``ref_levels__uA`` (bounds-checked against
+        :attr:`mode_num`; the selection is quasi-static, so no mode-switching
+        energy is emitted) and ``adc_bits`` must equal the physical
+        ``n_bits``. The ``n_bits``-step binary search then runs over the
+        selected row's ``2 ** n_bits - 1`` nominal mid-point thresholds: each
+        step selects a reference (data-dependent on the bits resolved so
+        far), forms the clean margin ``i_in - i_ref``, applies the
+        ``margin_gain`` pre-gain and adds the input-referred offset **after**
+        it, and resolves one bit. The step energies are aggregated and one
+        dynamic-energy + one latency event (``sum(step_latency__ns)``) is
+        emitted on completion. The sub-comparisons are a method-internal
+        Python loop, never separate leaves.
 
         Args:
             i_in__uA: Unsigned magnitude current [uA]. Shape: ``[..., n_col]``.
-            adc_operation_point: Runtime operating point (reserved; thresholds come
-                from ``ref_levels__uA``).
+            adc_operation_point: Runtime operating point; ``adc_mode`` in
+                ``[0, mode_num)``, ``adc_bits == n_bits``.
 
         Returns:
             Unsigned magnitude code [long] in ``[0, 2 ** n_bits - 1]``. Shape:
             ``[..., n_col]``. The sign is combined by the caller.
         """
-        del adc_operation_point  # reserved; thresholds come from ref_levels__uA
+        adc_mode = adc_operation_point.adc_mode
+        if not (0 <= adc_mode < self.mode_num):
+            raise ValueError(f"require: adc_mode ({adc_mode}) in [0, mode_num ({self.mode_num}))")
+        if adc_operation_point.adc_bits != self.config.n_bits:
+            raise ValueError(
+                f"require: adc_bits ({adc_operation_point.adc_bits}) == n_bits ({self.config.n_bits}); "
+                "this single-point quantizer digitizes at exactly n_bits"
+            )
+        ref_row__uA = self.ref_levels__uA[adc_mode]
 
         n_bits = self.config.n_bits
         margin_gain = self.config.margin_gain
@@ -324,7 +375,7 @@ class SarCurrentAdc(CurrentAdc):
         offset__uA = (self.comparator_offset__uA + self.coupling_offset__uA).index_select(-1, lane)
 
         for step in range(n_bits):
-            i_ref__uA = self._select_ref(code, step)
+            i_ref__uA = self._select_ref(ref_row__uA, code, step)
             i_ref_pos__uA = i_ref__uA.clamp_min(0.0)
 
             clean_margin__uA = i_in__uA - i_ref__uA
@@ -356,15 +407,18 @@ class SarCurrentAdc(CurrentAdc):
 
     # --- Binary-search helpers (method-internal; not leaves) ---
 
-    def _select_ref(self, code: Tensor, step: int) -> Tensor:
+    def _select_ref(self, ref_row__uA: Tensor, code: Tensor, step: int) -> Tensor:
         """Mid-point reference [uA] for ``step``, data-dependent on resolved bits.
 
-        Binary search over the ``2 ** n_bits - 1`` nominal mid-point thresholds:
-        the partial code from the bits resolved so far (MSB-first) indexes the
-        reference for the current step. Step 0 selects the central threshold;
-        each later step bisects the surviving sub-interval.
+        Binary search over the selected mode row's ``2 ** n_bits - 1`` nominal
+        mid-point thresholds: the partial code from the bits resolved so far
+        (MSB-first) indexes the reference for the current step. Step 0 selects
+        the central threshold; each later step bisects the surviving
+        sub-interval.
 
         Args:
+            ref_row__uA: Threshold ladder of the selected mode, shape
+                ``[2 ** n_bits - 1]``.
             code: Partial magnitude code with the high ``step`` bits set.
                 Shape: ``[..., n_col]``.
             step: Zero-based binary-search step (``0`` is the MSB).
@@ -379,7 +433,7 @@ class SarCurrentAdc(CurrentAdc):
         shift = n_bits - step
         prefix = code >> shift
         idx = (prefix << shift) + (1 << (shift - 1)) - 1
-        return self.ref_levels__uA[idx]
+        return ref_row__uA[idx]
 
     def _set_bit(self, code: Tensor, step: int, bit: Tensor) -> Tensor:
         """Write the ``step``-th magnitude bit (MSB-first) into ``code``."""
