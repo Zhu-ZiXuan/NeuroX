@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from abc import ABC
 from dataclasses import dataclass
 
 import pytest
@@ -10,8 +11,8 @@ from neurox.common.mixin import SerializeMixin
 
 
 @dataclass(frozen=True)
-class _Fam(SerializeMixin):
-    """Base of a polymorphic family for the abstract-base / receiver-bounded tests."""
+class _Fam(SerializeMixin, ABC):
+    """Abstract base (declared ``ABC`` signal) of a polymorphic family."""
 
 
 @dataclass(frozen=True)
@@ -20,12 +21,22 @@ class _LeafA(_Fam):
 
 
 @dataclass(frozen=True)
-class _Other(SerializeMixin):
+class _Other(SerializeMixin, ABC):
     """A second, unrelated polymorphic family."""
 
 
 @dataclass(frozen=True)
 class _LeafB(_Other):
+    pass
+
+
+@dataclass(frozen=True)
+class _ConcreteRoot(SerializeMixin):
+    """Concrete class that happens to have a subclass — still buildable."""
+
+
+@dataclass(frozen=True)
+class _Skin(_ConcreteRoot):
     pass
 
 
@@ -52,6 +63,26 @@ def test_from_dict_abstract_base_with_discriminator_yields_leaf() -> None:
 def test_from_dict_leaf_succeeds_without_discriminator() -> None:
     leaf = _LeafA.from_dict({})
     assert leaf == _LeafA()
+
+
+# --- concrete-with-subclass: abstractness is the declared ABC signal, not
+# --- subclass existence — a concrete family root stays buildable even when a
+# --- subclass of it is imported elsewhere.
+
+
+def test_from_dict_concrete_root_with_subclass_builds_bare() -> None:
+    root = _ConcreteRoot.from_dict({})
+    assert type(root) is _ConcreteRoot
+
+
+def test_from_dict_concrete_root_self_discriminator_builds_root() -> None:
+    root = _ConcreteRoot.from_dict({"_neurox_class": "_ConcreteRoot"})
+    assert type(root) is _ConcreteRoot
+
+
+def test_from_dict_concrete_root_subclass_discriminator_builds_skin() -> None:
+    skin = _ConcreteRoot.from_dict({"_neurox_class": "_Skin"})
+    assert type(skin) is _Skin
 
 
 # --- receiver-bounded: the discriminator only resolves within the receiver's subtree ---

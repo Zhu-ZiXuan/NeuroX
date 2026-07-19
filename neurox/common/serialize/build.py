@@ -7,7 +7,9 @@ named subclass. Pure stdlib reflection: no config, policy, or file-I/O imports.
 
 from __future__ import annotations
 
+import inspect
 import typing
+from abc import ABC
 from collections.abc import Mapping
 from dataclasses import fields, is_dataclass
 from enum import Enum
@@ -222,8 +224,11 @@ def dataclass_from_dict(cls: type[T], data: Mapping[str, Any]) -> T:
             ``data`` carries a key that matches no field of the resolved
             class, a value does not match its field's declared primitive type
             (only an ``int`` widens to a ``float``), or the resolved class is
-            an abstract config base (has dataclass subclasses) rather than a
-            concrete leaf.
+            an abstract config base (declares ``ABC`` as a direct base or has
+            unimplemented abstract methods) rather than a concrete class. A
+            concrete class stays buildable even when subclasses of it exist
+            elsewhere — abstractness is the class's own declared signal, never
+            a side effect of what other packages import.
     """
     if not _is_dataclass_type(cls):
         raise TypeError(f"{cls.__name__} is not a dataclass type")
@@ -233,6 +238,12 @@ def dataclass_from_dict(cls: type[T], data: Mapping[str, Any]) -> T:
         if concrete is not cls:
             filtered = {k: v for k, v in data.items() if k != CLASS_DISCRIMINATOR}
             return dataclass_from_dict(concrete, filtered)
+    if ABC in cls.__bases__ or inspect.isabstract(cls):
+        descendants = sorted(_recursive_dataclass_descendants(cls))
+        raise TypeError(
+            f"{cls.__name__} is an abstract config base; select a concrete subclass "
+            f"via the _neurox_class discriminator (one of: {descendants or '<none>'})"
+        )
     hints = get_type_hints(cls)
     names = _dataclass_field_names(cls)
     unknown = [k for k in data if k != CLASS_DISCRIMINATOR and k not in names]
@@ -243,12 +254,6 @@ def dataclass_from_dict(cls: type[T], data: Mapping[str, Any]) -> T:
         if name == CLASS_DISCRIMINATOR:
             continue
         kwargs[name] = _build_value(raw, hints.get(name, Any))
-    descendants = sorted(_recursive_dataclass_descendants(cls))
-    if descendants:
-        raise TypeError(
-            f"{cls.__name__} is an abstract config base; select a concrete subclass "
-            f"via the _neurox_class discriminator (one of: {descendants})"
-        )
     return cls(**kwargs)
 
 

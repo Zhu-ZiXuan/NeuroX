@@ -12,6 +12,7 @@ as real fixtures here.
 
 from __future__ import annotations
 
+from abc import ABC
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -111,8 +112,8 @@ def test_inline_table_matches_section_header_and_direct_preset(tmp_path: Path) -
 
 
 @dataclass(frozen=True)
-class _Base(SerializeMixin):
-    """Polymorphic base: abstract because it has a dataclass subclass."""
+class _Base(SerializeMixin, ABC):
+    """Polymorphic base: abstract via the declared ``ABC`` signal."""
 
 
 @dataclass(frozen=True)

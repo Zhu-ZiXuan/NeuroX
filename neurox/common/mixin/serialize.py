@@ -50,7 +50,8 @@ class SerializeMixin:
         Raises:
             TypeError: ``data`` carries a key matching no field of the resolved
                 class, names a ``_neurox_class`` outside ``cls``'s subtree, or
-                resolves to an abstract base rather than a concrete leaf.
+                resolves to an abstract base (declared ``ABC`` signal) rather
+                than a concrete class.
         """
         return dataclass_from_dict(cls, data)
 

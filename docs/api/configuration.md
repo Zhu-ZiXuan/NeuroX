@@ -11,7 +11,7 @@ A NeuroX run is configured by two config files passed to the entry points: `--co
 
 A directive is a reserved key the loader interprets: a field takes a nested mapping carrying a `_neurox_*` key, which a stock TOML or YAML parser reads as ordinary data. The loader recognizes three:
 
-- `_neurox_class = "<Name>Config"` — selects the concrete config class for a polymorphic field; construction dispatches on it. A polymorphic base (one with dataclass subclasses) can never be constructed directly, so every occurrence of it — top-level target, discriminator target, or nested field — must resolve to a concrete leaf.
+- `_neurox_class = "<Name>Config"` — selects the concrete config class for a polymorphic field; construction dispatches on it. An abstract config base (one that declares the `ABC` signal in its own bases) can never be constructed directly, so every occurrence of it — top-level target, discriminator target, or nested field — must resolve to a concrete class. A concrete class remains constructible even when subclasses of it exist; abstractness is the class's own declaration, never a side effect of which packages are imported.
 - `_neurox_use = "<file>:<section>"` — composes in another file or section, so a shared design fragment is written once. The path resolves against the directory of the file that carries the directive.
 - `_neurox_use_preset = "<preset>:<section>"` — references a bundled preset under `neurox/presets/` (e.g. `process/rram:default`), resolved against that root wherever the referencing file sits.
 
