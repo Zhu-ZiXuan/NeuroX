@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 import torch
 
-from neurox.architecture.unit.cim.slicer import SerialSlicer, SimpleSlicer
+from neurox.architecture.unit.cim.slicer import DirectSlicer, SerialSlicer, SimpleSlicer
 from neurox.common.encoding import Encoding, Transcoder
 
 
@@ -144,3 +144,47 @@ def test_simple_slicer_rejects_invalid_geometry(kwargs: dict[str, Any]) -> None:
 def test_serial_slicer_rejects_invalid_geometry(kwargs: dict[str, int]) -> None:
     with pytest.raises(ValueError):
         SerialSlicer(**kwargs)
+
+
+@pytest.mark.parametrize("value_range", [(-8, 7), (0, 15)])
+def test_direct_slicer_contract(value_range: tuple[int, int]) -> None:
+    slicer = DirectSlicer(value_range=value_range)
+    lo, hi = value_range
+    assert slicer.value_range == value_range
+    assert slicer.slice_radix == hi - lo + 1
+    assert slicer.slice_weights == (1,)
+
+
+@pytest.mark.parametrize("dtype", [torch.int8, torch.int32, torch.int64])
+def test_direct_slicer_slice_is_identity_with_structural_axes(dtype: torch.dtype, device: torch.device) -> None:
+    slicer = DirectSlicer(value_range=(-8, 7))
+    x = torch.arange(-8, 8, dtype=dtype, device=device).reshape(4, 4)
+    sliced = slicer.slice(x)
+    assert sliced.shape == (4, 4, 1, 1)
+    assert sliced.dtype == dtype
+    assert torch.equal(sliced.squeeze(-1).squeeze(-1), x)
+
+
+@pytest.mark.parametrize("value_range", [(-8, 7), (0, 15)])
+def test_direct_slicer_weighted_sum_reconstruction(value_range: tuple[int, int], device: torch.device) -> None:
+    slicer = DirectSlicer(value_range=value_range)
+    lo, hi = value_range
+    x = torch.arange(lo, hi + 1, dtype=torch.int32, device=device).reshape(2, 2, 4)
+    sliced = slicer.slice(x)
+    weights = torch.tensor(slicer.slice_weights, dtype=sliced.dtype, device=device)
+    reconstructed = (sliced.squeeze(-1) * weights).sum(dim=-1)
+    assert torch.equal(reconstructed, x)
+
+
+@pytest.mark.parametrize("value_range", [(7, -8), (0, 0), (5, 5)])
+def test_direct_slicer_rejects_invalid_value_range(value_range: tuple[int, int]) -> None:
+    with pytest.raises(ValueError):
+        DirectSlicer(value_range=value_range)
+
+
+@pytest.mark.parametrize("bad_value", [-9, 8])
+def test_direct_slicer_rejects_out_of_range_input(bad_value: int, device: torch.device) -> None:
+    slicer = DirectSlicer(value_range=(-8, 7))
+    x = torch.tensor([0, bad_value], dtype=torch.int32, device=device)
+    with pytest.raises(ValueError):
+        slicer.slice(x)

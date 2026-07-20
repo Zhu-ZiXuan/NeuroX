@@ -1,7 +1,7 @@
-"""Intra-array slice macro: ``Sw`` gathered inside one xbar (Strategy 2).
+"""Intra-array slice engine: ``Sw`` gathered inside one xbar (Strategy 2).
 
 See also:
-    docs/reference/architecture/unit/cim/intra_array_slice.md
+    docs/reference/architecture/unit/cim/engine/intra_array_slice.md
 """
 
 from __future__ import annotations
@@ -14,43 +14,32 @@ import torch.nn.functional as F
 from torch import Tensor
 
 from neurox.architecture.unit.cim.slicer import SerialSlicer, SimpleSlicer
-from neurox.common.encoding import Encoding
 from neurox.primitive.analog.adc_common import AdcOperationPoint
 from neurox.primitive.digital import (
     Accumulator,
-    AccumulatorConfig,
     DigitalPolicy,
     SerialAccumulator,
     ShiftAdder,
     ShiftAdderConfig,
 )
-from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
 
-from .base import CimUnit, CimUnitConfig, CimUnitPolicy
+from .base import CimEngine, CimEngineConfig, CimEnginePolicy
 
 
 @dataclass(frozen=True)
-class IntraArraySliceCimUnitConfig(CimUnitConfig):
-    """Configuration for :class:`IntraArraySliceCimUnit`.
+class IntraArraySliceCimEngineConfig(CimEngineConfig):
+    """Configuration for :class:`IntraArraySliceCimEngine`.
 
     Attributes:
-        cim_macro_config: Owned physical-xbar config.
         w_slice_num: Per-weight Sw slice count.
         x_slice_num: Per-activation Sa slice count.
-        w_encoding: Signed-digit encoding for the weight slicer.
-        phase_accumulator_config: Active-phase-axis per-tile-port accumulator config.
-        col_accumulator_config: Tc-axis cross-tile accumulator config.
         sa_shift_adder_config: Sa-axis intra-xbar shift-adder config.
         sw_shift_adder_config: Sw-axis intra-xbar shift-adder config.
     """
 
-    cim_macro_config: CimMacroConfig
     w_slice_num: int
     x_slice_num: int
-    w_encoding: Encoding
 
-    phase_accumulator_config: AccumulatorConfig
-    col_accumulator_config: AccumulatorConfig
     sa_shift_adder_config: ShiftAdderConfig
     sw_shift_adder_config: ShiftAdderConfig
 
@@ -60,34 +49,22 @@ class IntraArraySliceCimUnitConfig(CimUnitConfig):
         self._require_pos(self.x_slice_num, "x_slice_num")
 
 
-@dataclass(frozen=True)
-class IntraArraySliceCimUnitPolicy(CimUnitPolicy):
-    """Composite policy for :class:`IntraArraySliceCimUnit`.
-
-    Attributes:
-        cim_macro: Embedded xbar nonideality policy.
-    """
-
-    cim_macro: CimMacroPolicy
-
-
-@CimUnit.register_key(IntraArraySliceCimUnitConfig)
-class IntraArraySliceCimUnit(CimUnit):
-    """CIM unit that gathers all slices of one logical weight in one xbar.
+@CimEngine.register_key(IntraArraySliceCimEngineConfig)
+class IntraArraySliceCimEngine(CimEngine):
+    """CIM engine that gathers all slices of one logical weight in one xbar.
 
     A logical weight's ``Sw`` slices sit in adjacent cols of the same xbar.
     Per-xbar effective capacity is ``(col_num // Sw) * Sw`` cells; the
     remaining ``col_num - (col_num // Sw) * Sw`` cells per xbar are idle.
     """
 
-    xbar: CimMacro
-    config: IntraArraySliceCimUnitConfig
+    config: IntraArraySliceCimEngineConfig
 
     def __init__(
         self,
         *,
-        config: IntraArraySliceCimUnitConfig,
-        policy: IntraArraySliceCimUnitPolicy,
+        config: IntraArraySliceCimEngineConfig,
+        policy: CimEnginePolicy,
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -101,9 +78,6 @@ class IntraArraySliceCimUnit(CimUnit):
             T__K=T__K,
             ideal_xbar=ideal_xbar,
         )
-        self.config = config
-        self._area_per_inst__um2 = config.area_per_inst__um2
-        self._leakage_per_inst__uW = config.leakage_per_inst__uW
         xbar_config = config.cim_macro_config
         col_num = xbar_config.col_num
         row_num = xbar_config.row_num
@@ -120,10 +94,11 @@ class IntraArraySliceCimUnit(CimUnit):
         tr = (n_logical + wpx - 1) // wpx
         tc = (k_logical + row_num - 1) // row_num
 
-        self.xbar = self._build_cim_macro(
-            xbar_config=xbar_config,
-            xbar_policy=policy.cim_macro,
+        self._init_engine_backend(
             inst_shape=(*w_batch, 1, 1, tc, tr),
+            n_logical=n_logical,
+            w_parallel_size=max(math.prod(w_batch), 1),
+            row_tile_num=tr,
         )
         xbar = self.xbar
 
@@ -138,10 +113,8 @@ class IntraArraySliceCimUnit(CimUnit):
             slice_num=config.x_slice_num,
             digit_radix=x_hi - x_lo + 1,
         )
-
-        self._w_parallel_size = max(math.prod(w_batch), 1)
-        self._n_logical = n_logical
-        self._row_tile_num = tr
+        self._w_value_range = self.w_slicer.value_range
+        self._x_value_range = self.x_slicer.value_range
 
         helper_shape = (self._w_parallel_size, tr)
         self.phase_accumulator = SerialAccumulator(
@@ -164,38 +137,6 @@ class IntraArraySliceCimUnit(CimUnit):
             policy=DigitalPolicy(),
             inst_shape=helper_shape,
         )
-
-    def extra_repr(self) -> str:
-        return (
-            f"xbar={type(self.xbar).__name__}, "
-            f"row_num={self.xbar.row_num}, col_num={self.xbar.col_num}, "
-            f"weights_per_xbar={self._weights_per_xbar}, "
-            f"w_value_range={self.w_value_range}, x_value_range={self.x_value_range}"
-        )
-
-    def __repr__(self) -> str:
-        return f"{type(self).__name__}({self.extra_repr()})"
-
-    # --- value-range / ADC surface ---
-
-    @property
-    def w_value_range(self) -> tuple[int, int]:
-        return self.w_slicer.value_range
-
-    @property
-    def x_value_range(self) -> tuple[int, int]:
-        return self.x_slicer.value_range
-
-    @property
-    def adc_mode_num(self) -> int:
-        return self.xbar.adc_mode_num
-
-    @property
-    def adc_max_bits(self) -> int:
-        return self.xbar.adc_max_bits
-
-    def adc_rescale_factor(self, adc_operation_point: AdcOperationPoint) -> float:
-        return self.xbar.adc_rescale_factor(adc_operation_point)
 
     # --- organize ---
 
@@ -273,12 +214,6 @@ class IntraArraySliceCimUnit(CimUnit):
 
     # --- lifecycle ---
 
-    def program(self, weight: Tensor) -> None:
-        if tuple(weight.shape) != self._w_logical_shape:
-            raise ValueError(f"program() expects weight.shape {self._w_logical_shape}; got {tuple(weight.shape)}")
-        organized = self._organize_w(weight)
-        self.xbar.program(organized)
-
     @torch.no_grad()
     def matmul(self, input: Tensor, *, adc_operation_point: AdcOperationPoint) -> Tensor:
         n_logical = self._n_logical
@@ -286,15 +221,19 @@ class IntraArraySliceCimUnit(CimUnit):
         used = self._used_data_num
         sw = self.config.w_slice_num
 
+        # Shape: [..., M, K] -> [..., M, Sa, Tc, Tr=1, row_num]
         x = self._organize_x(input)
 
         x_slice_radix = self.x_slicer.slice_radix
         w_slice_radix = self.w_slicer.slice_radix
 
-        # Shape: [..., M, Sa, Tc, Tr=1, row_num] -> [..., M, Sa, Tc, Tr, P, data_num]
-        y = self.xbar.vec_mat_mul(x, adc_operation_point=adc_operation_point).to(torch.int64)
-        # Shape: [..., M, Sa, Tc, Tr, P, data_num] -> [..., M, Sa, Tc, Tr, data_num]
-        y = self.phase_accumulator.operate(y, dim=-2)
+        # Shape: [..., M, Sa, Tc, Tr, row_num] -> [..., P, M, Sa, Tc, Tr, row_num]
+        planes = self._unroll_sub_phase(x)
+        # *w_batch~ = weight-batch axes materialized by broadcast against the inst grid.
+        # Shape: [..., P, M, Sa, Tc, Tr, row_num] -> [..., P, *w_batch~, M, Sa, Tc, Tr, data_num]
+        y = self.xbar.vec_mat_mul(planes, adc_operation_point=adc_operation_point).to(torch.int64)
+        # Shape: [..., P, *w_batch~, M, Sa, Tc, Tr, data_num] -> [..., *w_batch~, M, Sa, Tc, Tr, data_num]
+        y = self.phase_accumulator.operate(y, dim=self._sub_phase_dim)  # -(b+6)
         # Shape: [..., M, Sa, Tc, Tr, data_num=col_num] -> [..., M, Sa, Tc, Tr, wpx*Sw]
         y = y[..., :used]
         # Shape: [..., M, Sa, Tc, Tr, wpx*Sw] -> [..., M, Sa, Tc, Tr, wpx, Sw_real]

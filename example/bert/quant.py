@@ -14,7 +14,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
-from neurox.architecture.unit.matmul import QuantMatMul
+from neurox.architecture.unit import LinearUnit
 from neurox.common.quant import (
     PerChannelSymmObserver,
     PerTensorObserver,
@@ -82,7 +82,7 @@ class QATLinear(nn.Linear):
 # ---------------------------------------------------------------------------
 
 
-def _op_point(macro: QuantMatMul, adc_mode: int | None) -> AdcOperationPoint:
+def _op_point(macro: LinearUnit, adc_mode: int | None) -> AdcOperationPoint:
     return AdcOperationPoint(adc_mode=0 if adc_mode is None else adc_mode, adc_bits=macro.adc_max_bits)
 
 
@@ -147,7 +147,7 @@ class QuantLinear(nn.Module):
     def __init__(
         self,
         *,
-        macro: QuantMatMul,
+        macro: LinearUnit,
         weight_int: Tensor,
         bias_float: Tensor | None,
         s_x: Tensor,
@@ -187,9 +187,9 @@ class QuantLinear(nn.Module):
 
     @torch.no_grad()
     def forward(self, x: Tensor) -> Tensor:
-        # x: (..., K). Macro expects (..., M, K).
+        # Shape: [..., K] -> [..., 1, K]; linear passes leading dims through.
         x_int = _quantize_input(x, self.s_x, self.zp_x).unsqueeze(-2)
-        code = self.macro.matmul(x_int, adc_operation_point=self.adc_operation_point).to(torch.int32).squeeze(-2)
+        code = self.macro.linear(x_int, adc_operation_point=self.adc_operation_point).to(torch.int32).squeeze(-2)
         y = (code + self.bias_int) * self.mult
         y = stochastic_floor_div(y, self.rshift, training=False)
         y = (y + self.zp_y.to(torch.int32)).clamp(Y_QMIN, Y_QMAX)
@@ -199,7 +199,7 @@ class QuantLinear(nn.Module):
     def from_state(
         cls,
         *,
-        macro: QuantMatMul,
+        macro: LinearUnit,
         state: dict[str, Any],
         adc_mode: int | None = None,
     ) -> Self:

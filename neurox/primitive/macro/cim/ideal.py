@@ -55,15 +55,15 @@ class IdealCimMacroPolicy(CimMacroPolicy):
 
 @CimMacro.register_key(IdealCimMacroConfig)
 class IdealCimMacro(CimMacro):
-    """Tile-level ideal VMM with adc_bits-driven per-phase quantization.
+    """Tile-level ideal VMM with adc_bits-driven per-plane quantization.
 
-    Each active phase's partial dot product is quantized independently
-    into a per-phase code; accumulation over the active-phase axis
-    happens outside the macro. The rescale at a given ``adc_bits`` is
-    derived in :meth:`__init__` from integer geometry alone (per
-    conversion, i.e. per phase); no chip calibration enters the
-    computation. ``adc_operation_point.adc_mode`` is opaque and not read
-    at runtime.
+    One call quantizes each WL plane's dot product independently into
+    one code per column; any accumulation of plane codes happens outside
+    the macro, on the caller's leading axes. The rescale at a given
+    ``adc_bits`` is derived in :meth:`__init__` from integer geometry
+    alone (per conversion, i.e. per plane); no chip calibration enters
+    the computation. ``adc_operation_point.adc_mode`` is opaque and not
+    read at runtime.
 
     Args:
         config: Concrete configuration dataclass.
@@ -128,20 +128,22 @@ class IdealCimMacro(CimMacro):
         max_w_logical_abs = max_digit_abs * int(digit_weights.sum().item())
         x_lo, x_hi = config.x_range
         max_x_abs = max(abs(x_lo), abs(x_hi))
-        # One ADC conversion digitizes one active phase, so the rescale
-        # range is the per-phase partial dot, not the full-row dot.
-        self._max_phase_dot_abs: int = config.active_row_num * max_w_logical_abs * max_x_abs
+        # One ADC conversion digitizes one WL plane; with at most
+        # ``max_active_rows`` live rows per conformant plane, the
+        # per-conversion range is active_row_num * max|w_logical| * max|x|.
+        self._max_plane_dot_abs: int = config.active_row_num * max_w_logical_abs * max_x_abs
         # fp32-exact fast-path eligibility: CUDA has no integer-matmul
-        # kernel. With every per-cell product and every partial sum
-        # bounded by ``_max_phase_dot_abs < 2^24``, IEEE fp32 einsum
-        # accumulation (the framework default; TF32 disabled) reproduces
-        # the int64 per-phase dots bit-exactly for range-conformant
-        # digits and inputs.
-        self._fp32_exact: bool = self._max_phase_dot_abs < 2**24
+        # kernel. Every per-cell product and every partial sum of the
+        # plane dot is bounded by ``_max_plane_dot_abs`` (a conformant
+        # plane has at most ``active_row_num`` non-zero rows), so with
+        # ``_max_plane_dot_abs < 2^24`` IEEE fp32 einsum accumulation
+        # (the framework default; TF32 disabled) reproduces the int64
+        # plane dots bit-exactly for range-conformant digits and inputs.
+        self._fp32_exact: bool = self._max_plane_dot_abs < 2**24
 
         # Bit-width-keyed rescale / scale tables. ``adc_bits == 0`` is the
-        # lossless sentinel — ``vec_mat_mul`` returns the integer per-phase
-        # partial dots unmodified and the rescale is identity. Skip
+        # lossless sentinel — ``vec_mat_mul`` returns the integer plane
+        # dots unmodified and the rescale is identity. Skip
         # ``bits == 1``: the signed 1-bit endpoint ``2^0 - 1 == 0`` makes
         # the rescale formula degenerate; callers asking for it hit a
         # natural ``KeyError`` at lookup time.
@@ -149,7 +151,7 @@ class IdealCimMacro(CimMacro):
         self._scale_by_bits: dict[int, float] = {}
         for bits in range(2, config.adc_max_bits + 1):
             half_range = (1 << (bits - 1)) - 1
-            rescale = self._max_phase_dot_abs / half_range
+            rescale = self._max_plane_dot_abs / half_range
             self._rescale_by_bits[bits] = rescale
             self._scale_by_bits[bits] = 1.0 / rescale
 
@@ -192,33 +194,35 @@ class IdealCimMacro(CimMacro):
         self.digits = w.detach().clone().to(self.digit_weights.device)
 
     def vec_mat_mul(self, x: Tensor, *, adc_operation_point: AdcOperationPoint) -> Tensor:
-        """Ideal per-phase VMM with adc_bits-driven output quantization.
+        """Ideal per-plane VMM with adc_bits-driven output quantization.
 
-        Each active phase is digitized independently; accumulation over
-        the active-phase axis is the caller's digital-domain concern.
-        Quantize-then-accumulate is the modeled physical semantics:
-        ``Q(sum) != sum(Q)`` in general. Only
-        ``adc_operation_point.adc_bits`` enters the computation;
+        One call performs one independent ADC conversion per column per
+        WL plane. Quantize-then-accumulate is the modeled physical
+        semantics (``Q(sum) != sum(Q)`` in general); it is preserved
+        because the caller presents each sub-phase as its own plane.
+        Only ``adc_operation_point.adc_bits`` enters the computation;
         ``adc_mode`` is opaque to the ideal tile and not read.
         ``adc_bits == 0`` is a sentinel: skip ADC quantization and the
-        signed clamp, returning the lossless integer per-phase partial
-        dots whose sum over the phase axis equals the lossless full dot.
-        Either way the returned tensor is emitted on the
+        signed clamp, returning the lossless integer plane dots. Either
+        way the returned tensor is emitted on the
         ``AdcProber.ADC_IDEAL_VMM`` probe channel as ``code``.
 
         Args:
-            x: Activation tensor with primitive trailing
-                ``[row_num]``.
+            x: WL plane tensor with primitive trailing ``[row_num]``;
+                rows outside the caller's active window (at most
+                :attr:`max_active_rows` live rows per plane) must arrive
+                zeroed (WL off). Leading axes are anonymous broadcast
+                batch.
             adc_operation_point: Runtime ADC operating point; only
                 ``adc_bits`` is consumed.
 
         Returns:
-            Signed per-phase ADC-code tensor with primitive trailing
-            ``[active_phase_num, col_num]``. When ``adc_bits > 0`` each
-            per-phase code is clamped to
+            Signed ADC-code tensor with the leading order preserved and
+            primitive trailing ``[col_num]``. When ``adc_bits > 0`` each
+            code is clamped to
             ``[-2^(adc_bits-1), 2^(adc_bits-1) - 1]``; when
-            ``adc_bits == 0`` the lossless integer per-phase partial
-            dots are returned unmodified.
+            ``adc_bits == 0`` the lossless integer plane dots are
+            returned unmodified.
         """
         # Widen to int64 before any integer arithmetic so per-cell products
         # and the row-num / digit-num reductions cannot overflow. The digit
@@ -229,39 +233,27 @@ class IdealCimMacro(CimMacro):
         digit_weights = self.digit_weights.to(torch.int64).view(*([1] * (digits.ndim - 2)), -1, 1)
         w = (digits * digit_weights).sum(dim=-2)
 
-        phase_num = self.config.active_phase_num
         if self._fp32_exact:
-            # fp32-exact fast path (bound checked in ``__init__``): the
-            # einsum contracts each phase's own row block; the cast back
-            # to int64 is lossless.
-            # Shape: [..., col_num, active_phase_num, active_row_num]
-            w_f32 = w.to(torch.float32).unflatten(-1, (phase_num, self.active_row_num))
-            # Shape: [..., active_phase_num, active_row_num]
-            x_f32 = x.to(torch.float32).unflatten(-1, (phase_num, self.active_row_num))
-            # Shape: [..., active_phase_num, col_num]
-            phase_dot = torch.einsum("...cpr,...pr->...pc", w_f32, x_f32).to(torch.int64)
+            # fp32-exact fast path (bound checked in ``__init__``):
+            # full-row contraction; zeroed rows contribute nothing, so
+            # the dot equals the per-conversion partial dot. The cast
+            # back to int64 is lossless.
+            # Shape: [..., col_num, row_num] x [..., row_num] -> [..., col_num]
+            plane_dot = torch.einsum("...cr,...r->...c", w.to(torch.float32), x.to(torch.float32)).to(torch.int64)
         else:
             # Shape: [..., row_num] -> [..., 1, row_num]
             x = x.to(torch.int64).unsqueeze(-2)
-
             full_shape = torch.broadcast_shapes(w.shape, x.shape)
-            w = w.expand(full_shape)
-            x = x.expand(full_shape)
-            # Shape: [..., col_num, row_num]
-            prod = x * w
-            # Per-phase partial dots: reduce each phase's own row block.
-            # Shape: [..., col_num, active_phase_num]
-            phase_dot = prod.unflatten(-1, (phase_num, self.active_row_num)).sum(dim=-1)
-            # Shape: [..., active_phase_num, col_num]
-            phase_dot = phase_dot.transpose(-1, -2)
+            # Shape: [..., col_num, row_num] -> [..., col_num]
+            plane_dot = (w.expand(full_shape) * x.expand(full_shape)).sum(dim=-1)
 
         if adc_operation_point.adc_bits == 0:
-            self._probe_record(AdcProber.ADC_IDEAL_VMM, code=phase_dot)
-            return phase_dot
+            self._probe_record(AdcProber.ADC_IDEAL_VMM, code=plane_dot)
+            return plane_dot
 
         scale = self._scale_by_bits[adc_operation_point.adc_bits]
         code = stochastic_floor_to_int(
-            phase_dot.to(torch.float32),
+            plane_dot.to(torch.float32),
             scale,
             out_dtype=torch.int16,
             training=self.training,

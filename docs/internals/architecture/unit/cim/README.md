@@ -2,9 +2,10 @@
 
 How the `CimUnit` family is built.
 
-- [base](base.md) — `CimUnit` registry root, the `_build_cim_macro` helper, the `chunk_pad_along` primitive, and the construction scaffolding shared by xbar-using modes.
-- [direct](direct.md) — `DirectCimUnit`: the no-slice pipeline.
-- [inter_array_slice](inter_array_slice.md) — `InterArraySliceCimUnit`: cross-plane `Sw` layout and its aggregate dual.
-- [intra_array_slice](intra_array_slice.md) — `IntraArraySliceCimUnit`: intra-tile `Sw` fold and its aggregate dual.
-- [ideal](ideal.md) — `IdealCimUnit`: the degenerate member that joins the registry without a tile.
-- [slicer/](slicer/README.md) — the `Slicer` ABC observable surface and the two value-decomposition implementations.
+- [base](base.md) — `CimUnit` registry root plus the `EngineBackedCimUnit` intermediate that owns and delegates to a `CimEngine`.
+- [linear](linear.md) — `LinearCimUnit`: the linear-operator engine-backed unit.
+- [conv2d](conv2d.md) — `Conv2dCimUnit`: the conv2d-operator engine-backed unit (Toeplitz lowering).
+- [engine/](engine/README.md) — the `CimEngine` registry family: the tile-build helper, the sub-phase plane machinery, the chunk-and-pad primitive, and the per-variant organize/aggregate shape pipelines.
+- [slicer/](slicer/README.md) — the `Slicer` ABC observable surface and the value-decomposition implementations.
+
+The registry's substrate-free members — `IdealLinearUnit` and `IdealConv2dUnit` — live beside their operator ABCs one level up and are documented on those pages.

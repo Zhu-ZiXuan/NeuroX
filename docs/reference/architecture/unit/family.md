@@ -1,10 +1,26 @@
 # Unit family
 
-A unit decomposes a high-precision quantized-integer matrix multiply onto the native integer value domain of one or more crossbar tiles and recombines the per-tile partial reads into one integer dot product. It factors out the architecture every member shares: the two orthogonal axes — matrix tiling and precision slicing — that place a matmul on the tiles, and the radix-weighted shift-add that inverts the slicing.
+A unit is an exact-integer drop-in replacement for one PyTorch operator — `F.linear` or `F.conv2d` — realized by decomposing a high-precision quantized-integer matrix multiply onto the native integer value domain of the execution substrate and recombining the partial reads into one integer result. The family contract factors out what every member shares: the operator law, the matmul-shaped lowering template, the integer-bias domain, the two orthogonal placement axes — matrix tiling and precision slicing — and the radix-weighted shift-add that inverts the slicing.
+
+## Operator law
+
+Unit operators are exact-integer replicas of `F.linear` / `F.conv2d`: over its accepted integer value domain a unit computes the same result as the replaced PyTorch function applied to the same integer operands, returned pre-requantize; the only deviation is the substrate's own non-ideality (for CIM, the per-tile ADC quantization of each constituent read). There is no public matmul operator — a matmul consumer is a linear consumer with `bias=None` (the engine-internal primitive keeps the `matmul` name).
+
+**Lowering template.** Every operator lowers onto one protected matmul-shaped substrate call through three hook seams: a program-time weight-to-matrix map, a call-time activation-to-planes map, and a call-time aggregation-undo that removes exactly the axes the second seam introduced. `F.linear` uses the identity weight map and a size-1 plane axis; `F.conv2d` uses geometry-parameterized seams ([conv2d](conv2d.md)).
+
+**Shape-deviation law.** Whoever introduces a shape change deviating from the replaced function's expectation undoes it: unit-introduced value slicing is recombined by radix-weighted shift-add, unit-introduced tiling and padding are accumulated and trimmed, and unit-introduced operator lowering axes are folded back. Caller-owned axes — batch dims, any time axis — ride through untouched: the unit never reduces, reorders, or interprets a leading dim.
+
+**Integer bias domain.** The bias belonging to `F.linear` / `F.conv2d` semantics lives inside the unit: it is programmed alongside the weight as an integer vector and added in the int64 accumulation domain, before any requantization. Bias preloads the final full-scale accumulation stage, after the last shift-add; it costs zero additional cycles and zero dynamic energy, and its static area/leakage belongs to the unit-level PPA fields.
+
+**Linear lowering.** With trailing contraction axis $K$ and programmed weight $\mathbf{W}$ of shape $(N, K)$,
+
+$$y_{\ldots,n} = \sum_{k} x_{\ldots,k}\, W_{n,k} + b_n,$$
+
+realized by inserting a size-1 plane axis, running the substrate matmul, removing it, and adding the bias $b$ (if programmed).
 
 ## Shared conventions
 
-A unit is value-domain only: it accepts integer weights and activations within its published value ranges and returns an integer, pre-requantize dot product. Bias addition and the requantization back to the activation grid lie outside its scope.
+A unit is value-domain only: it accepts integer weights and activations within its published value ranges and returns an integer, pre-requantize result. Requantization back to the activation grid lies outside its scope; the only bias it adds is the integer bias of the operator law above.
 
 Two orthogonal axes place the matmul on physical tiles: a matrix-**tiling** axis ($T_r$, $T_c$) that splits any matmul too large for one tile, and a precision-**slicing** axis ($S_w$, $S_a$; specific to compute-in-memory) that decomposes a high-precision value into tile-carriable pieces. Matrix tiling is application-neutral — it applies to any matmul and adds no value decomposition. The slice counts $S_w$, $S_a$ are config-given, not inferred; the degenerate $S_w = S_a = 1$ performs no slicing.
 
@@ -32,11 +48,11 @@ the aggregation primitive that folds the slice axis with the positional weights 
 
 $$M_{\mathrm{ideal}} \approx \mathrm{code}\cdot s.$$
 
-A unit exposes a discrete set of operating points and a maximum resolution across them, both inherited from the tiles it aggregates; the rescale convention and its calibration are the [physical-tile contract](../../primitive/macro/cim/README.md#output-rescale). A degenerate member performing an exact integer matmul carries no output quantization: it exposes a single operating point with unit rescale, $s = 1$.
+A unit exposes a discrete set of operating points and a maximum resolution across them, both inherited from the tiles it aggregates; the rescale convention and its calibration are the [physical-tile contract](../../primitive/macro/cim/README.md#output-rescale). A degenerate member performing an exact integer computation carries no output quantization: it exposes a single operating point with unit rescale, $s = 1$.
 
 ## Noise & non-idealities
 
-A unit adds no non-ideality of its own: the slicing and aggregation arithmetic is exact by construction. Every deviation from the exact integer dot product enters through the tiles it aggregates — their analog non-idealities and ADC quantization — specified in the [physical-tile contract](../../primitive/macro/cim/README.md) and the topology families beneath it.
+A unit adds no non-ideality of its own: the lowering, slicing, and aggregation arithmetic is exact by construction. Every deviation from the exact integer result enters through the tiles it aggregates — their analog non-idealities and ADC quantization — specified in the [physical-tile contract](../../primitive/macro/cim/README.md) and the topology families beneath it.
 
 ## Symbols
 
@@ -44,8 +60,9 @@ A unit adds no non-ideality of its own: the slicing and aggregation arithmetic i
 |---|---|---|---|
 | $\mathbf{W}$ | logical weight matrix (runtime input) | — | `weight` |
 | $\mathbf{X}$ | logical activation matrix (runtime input) | — | `input` |
-| $\mathbf{Y}$ | pre-requantize integer output | — | `matmul` return |
+| $\mathbf{Y}$ | pre-requantize integer output | — | `linear` / `conv2d` return |
 | $N, K, M$ | output, contraction, and activation-row dims | — | `w_logical_shape`, input shape |
+| $b$ | integer bias vector (length $N$ or $C_{\mathrm{out}}$) | — | `int_bias` |
 | $S_w, S_a$ | weight-, activation-slice counts (precision-slicing axis) | — | `w_slice_num`, `x_slice_num` |
 | $T_r, T_c$ | output-, contraction-axis tile counts (matrix-tiling axis) | — | — |
 | $D$ | digits per slice (from the tile) | — | `w_digit_count` |
@@ -59,9 +76,9 @@ A unit adds no non-ideality of its own: the slicing and aggregation arithmetic i
 
 Stated assumptions:
 
-- A unit returns a pre-requantize integer result; bias and requantization lie outside its scope.
-- The decomposition is defined for integer weights and activations within the value ranges the unit accepts.
-- The decomposition is value-domain exact: the only deviation from the exact integer dot product is the analog non-ideality of the constituent tile reads, not the slicing or aggregation arithmetic.
+- A unit returns a pre-requantize integer result; requantization lies outside its scope, and the only bias it adds is the integer bias of the operator law.
+- The contracts are defined for integer weights and activations within the value ranges the unit accepts.
+- The decomposition is value-domain exact: the only deviation from the exact integer result is the analog non-ideality of the constituent tile reads, not the lowering, slicing, or aggregation arithmetic.
 
 TODO (domain author): state the validity boundary of the slice-and-shift-add decomposition — the exact per-slice value range per encoding, the saturation of the positional recombination $M = \sum_i m_i R^i$, the largest dot-product magnitude representable before the ADC code clamps, and any regime where the value-domain-exact assumption breaks.
 
@@ -71,6 +88,6 @@ TODO.
 
 ---
 
-- **Internals**: [QuantMatMul internals](../../../internals/architecture/unit/matmul.md)
+- **Internals**: [unit base internals](../../../internals/architecture/unit/base.md)
 - **Validation**: TODO — `validation/macro` (not yet written)
 - **Configuration**: [config reference](../../../api/README.md)

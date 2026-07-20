@@ -1,9 +1,9 @@
-"""Row active-phase serialization mechanics on the CimMacro base.
+"""Row activation geometry on the CimMacro base.
 
 - ``CimMacroConfig`` geometry guards for ``active_row_num`` (range and
-  divisibility) and the derived ``active_phase_num``.
-- ``_active_row_mask`` / ``_unroll_row_phase``: phase ``p`` keeps exactly
-  rows ``[p*A, (p+1)*A)``, zeros elsewhere, dtype preserved.
+  divisibility).
+- ``max_active_rows``: the single sub-phase query for upper layers, reading
+  ``config.active_row_num``.
 - ``_split_col_lanes``: trailing col axis -> ``(lane_num, col_per_lane)``
   with ``lane = col // col_per_lane``; exact divisibility required.
 """
@@ -70,92 +70,13 @@ class TestActiveRowNumValidation:
 
     def test_full_activation_accepted(self) -> None:
         cfg = IdealCimMacroConfig(**_config_kwargs(row_num=8, active_row_num=8))
-        assert cfg.active_phase_num == 1
+        assert cfg.active_row_num == 8
 
-    def test_active_phase_num_derived(self) -> None:
-        cfg = IdealCimMacroConfig(**_config_kwargs(row_num=8, active_row_num=2))
-        assert cfg.active_phase_num == 4
-
-
-# ---------------------------------------------------------------------------
-# _active_row_mask / _unroll_row_phase
-# ---------------------------------------------------------------------------
-
-
-class TestUnrollRowPhase:
-    def test_mask_partitions_rows(self) -> None:
+    def test_max_active_rows_property(self) -> None:
         xbar = _make_xbar(row_num=8, active_row_num=2)
-        mask = xbar._active_row_mask
-        assert mask.shape == (4, 8)
-        assert mask.dtype == torch.bool
-        rows = torch.arange(8)
-        expected = rows.unsqueeze(0) // 2 == torch.arange(4).unsqueeze(-1)
-        assert torch.equal(mask, expected)
-        # Each row belongs to exactly one phase.
-        assert torch.equal(mask.sum(dim=0), torch.ones(8, dtype=mask.sum(dim=0).dtype))
-
-    def test_unroll_keeps_own_rows_only(self) -> None:
-        xbar = _make_xbar(row_num=8, active_row_num=2)
-        x = torch.arange(1, 9, dtype=torch.int32)
-        y = xbar._unroll_row_phase(x)
-        assert y.shape == (4, 8)
-        assert y.dtype == torch.int32
-        for p in range(4):
-            own = slice(p * 2, (p + 1) * 2)
-            assert torch.equal(y[p, own], x[own])
-            others = y[p].clone()
-            others[own] = 0
-            assert others.abs().sum().item() == 0
-
-    def test_unroll_preserves_batch_prefix_and_float_dtype(self) -> None:
-        xbar = _make_xbar(row_num=8, active_row_num=4)
-        x = torch.randn(2, 3, 8, dtype=torch.float32)
-        y = xbar._unroll_row_phase(x)
-        assert y.shape == (2, 3, 2, 8)
-        assert y.dtype == torch.float32
-        expected = torch.where(xbar._active_row_mask, x.unsqueeze(-2), x.new_zeros(()))
-        assert torch.equal(y, expected)
-
-    def test_single_phase_axis_present(self) -> None:
-        xbar = _make_xbar(row_num=8, active_row_num=8)
-        x = torch.arange(1, 9, dtype=torch.int32)
-        y = xbar._unroll_row_phase(x)
-        assert y.shape == (1, 8)
-        assert torch.equal(y[0], x)
-
-    def test_phase_axis_left_of_inst_span(self) -> None:
-        """Non-empty inst prefix: the phase axis inserts LEFT of the span."""
-        xbar = _make_xbar(row_num=8, active_row_num=2, inst_shape=(3,))
-        x = torch.randn(3, 8)  # inst-alignment axis present in x
-        y = xbar._unroll_row_phase(x)
-        assert y.shape == (4, 3, 8)
-        for p in range(4):
-            expected = torch.zeros_like(x)
-            expected[:, p * 2 : (p + 1) * 2] = x[:, p * 2 : (p + 1) * 2]
-            assert torch.equal(y[p], expected)
-
-    def test_inst_span_singletons_when_x_omits_it(self) -> None:
-        """x without inst axes gains size-1 slots so alignment cannot collide."""
-        xbar = _make_xbar(row_num=8, active_row_num=4, inst_shape=(2, 3))
-        x = torch.arange(1, 9, dtype=torch.int32)
-        y = xbar._unroll_row_phase(x)
-        assert y.shape == (2, 1, 1, 8)
-        assert y.dtype == torch.int32
-        assert torch.equal(y[0, 0, 0, :4], x[:4])
-        assert torch.equal(y[1, 0, 0, 4:], x[4:])
-        assert y[0, 0, 0, 4:].abs().sum().item() == 0
-        assert y[1, 0, 0, :4].abs().sum().item() == 0
-
-    def test_batch_rides_left_of_phase_with_inst_span(self) -> None:
-        """Batch leading stays left of the phase axis; inst span stays right."""
-        xbar = _make_xbar(row_num=8, active_row_num=4, inst_shape=(3,))
-        x = torch.randn(5, 3, 8)  # (batch, inst, row)
-        y = xbar._unroll_row_phase(x)
-        assert y.shape == (5, 2, 3, 8)
-        for p in range(2):
-            expected = torch.zeros_like(x)
-            expected[..., p * 4 : (p + 1) * 4] = x[..., p * 4 : (p + 1) * 4]
-            assert torch.equal(y[:, p], expected)
+        assert xbar.max_active_rows == 2
+        full = _make_xbar(row_num=8, active_row_num=8)
+        assert full.max_active_rows == 8
 
 
 # ---------------------------------------------------------------------------

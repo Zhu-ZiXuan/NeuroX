@@ -1,10 +1,13 @@
 """IdealCimMacro fp32-exact dot fast path.
 
-The per-phase dot computation switches to fp32 einsum when
-``_max_phase_dot_abs < 2^24`` (every per-cell product and partial sum then
+The plane dot computation switches to fp32 einsum when
+``_max_plane_dot_abs < 2^24`` (every per-cell product and partial sum then
 accumulates exactly in IEEE fp32) and stays on the int64 elementwise path
 otherwise. Both paths must be bit-identical, on CPU and GPU, for the
-lossless sentinel and the quantized per-phase path alike.
+lossless sentinel and the quantized per-plane path alike. Planes arrive
+pre-masked from the caller (at most ``max_active_rows`` live rows each);
+the macro output keeps the leading order with primitive trailing
+``[col_num]``.
 """
 
 from __future__ import annotations
@@ -68,14 +71,26 @@ def _random_operands(xbar: IdealCimMacro, *, batch: int, seed: int) -> tuple[tor
     return digits, x
 
 
-def _phase_dot_oracle(xbar: IdealCimMacro, x: torch.Tensor) -> torch.Tensor:
-    """CPU int64 per-phase partial dots ``[..., active_phase_num, col_num]``."""
+def _masked_planes(x: torch.Tensor, *, row_num: int, max_active_rows: int) -> torch.Tensor:
+    """Pre-masked WL planes via the engine mask formula.
+
+    Shape: [..., row_num] -> [..., P, row_num]; plane ``p`` keeps exactly
+    rows ``[p*max_active_rows, (p+1)*max_active_rows)``, zeros elsewhere.
+    """
+    p_num = row_num // max_active_rows
+    mask = torch.arange(row_num) // max_active_rows == torch.arange(p_num).unsqueeze(-1)
+    # Shape: [..., row_num] -> [..., P, row_num]
+    return torch.where(mask, x.unsqueeze(-2), x.new_zeros(()))
+
+
+def _plane_dot_oracle(xbar: IdealCimMacro, planes: torch.Tensor) -> torch.Tensor:
+    """CPU int64 lossless plane dots. Shape: [..., row_num] -> [..., col_num]."""
     digits = xbar.digits.to("cpu", torch.int64)
     digit_weights = xbar.digit_weights.to("cpu", torch.int64).view(*([1] * (digits.ndim - 2)), -1, 1)
+    # Shape: [col_num, w_digit_count, row_num] -> [col_num, row_num]
     w = (digits * digit_weights).sum(dim=-2)
-    prod = x.to("cpu", torch.int64).unsqueeze(-2) * w
-    phase_dot = prod.unflatten(-1, (xbar.config.active_phase_num, xbar.active_row_num)).sum(dim=-1)
-    return phase_dot.transpose(-1, -2)
+    # Shape: [..., row_num] -> [..., 1, row_num]; row contraction -> [..., col_num]
+    return (planes.to("cpu", torch.int64).unsqueeze(-2) * w).sum(dim=-1)
 
 
 _REPRESENTATIVE = [
@@ -108,9 +123,11 @@ class TestFastPathLossless:
         )
         assert xbar._fp32_exact is True
         _, x = _random_operands(xbar, batch=5, seed=101)
-        y = xbar.vec_mat_mul(x, adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=0))
+        planes = _masked_planes(x, row_num=64, max_active_rows=16)
+        y = xbar.vec_mat_mul(planes, adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=0))
         assert y.dtype == torch.int64
-        assert torch.equal(y, _phase_dot_oracle(xbar, x))
+        assert y.shape == (5, 4, 8)  # leading [batch, P] preserved, trailing [col_num]
+        assert torch.equal(y, _plane_dot_oracle(xbar, planes))
 
     @pytest.mark.parametrize(("x_range", "w_digit_count", "w_digit_radix", "w_digit_range"), _REPRESENTATIVE)
     def test_gpu_matches_cpu_oracle(
@@ -131,15 +148,16 @@ class TestFastPathLossless:
             w_digit_range=w_digit_range,
         )
         _, x = _random_operands(xbar, batch=5, seed=202)
-        oracle = _phase_dot_oracle(xbar, x)
+        planes = _masked_planes(x, row_num=64, max_active_rows=16)
+        oracle = _plane_dot_oracle(xbar, planes)
         xbar.to(device)
-        y = xbar.vec_mat_mul(x.to(device), adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=0))
+        y = xbar.vec_mat_mul(planes.to(device), adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=0))
         assert y.device.type == device.type
         assert torch.equal(y.cpu(), oracle)
 
 
 class TestFastPathQuantized:
-    """``adc_bits > 0``: per-phase codes byte-identical to the int64 path."""
+    """``adc_bits > 0``: per-plane codes byte-identical to the int64 path."""
 
     def _quantized_xbar(self) -> IdealCimMacro:
         return _make_xbar(
@@ -159,19 +177,21 @@ class TestFastPathQuantized:
         xbar_ref._fp32_exact = False  # force the int64 elementwise path
         _, x = _random_operands(xbar_fast, batch=5, seed=303)
         _random_operands(xbar_ref, batch=5, seed=303)
+        planes = _masked_planes(x, row_num=64, max_active_rows=16)
         op = AdcOperationPoint(adc_mode=0, adc_bits=4)
-        y_fast = xbar_fast.vec_mat_mul(x, adc_operation_point=op)
-        y_ref = xbar_ref.vec_mat_mul(x, adc_operation_point=op)
+        y_fast = xbar_fast.vec_mat_mul(planes, adc_operation_point=op)
+        y_ref = xbar_ref.vec_mat_mul(planes, adc_operation_point=op)
         assert y_fast.dtype == y_ref.dtype == torch.int16
         assert torch.equal(y_fast, y_ref)
 
     def test_codes_gpu_match_cpu_oracle(self, device: torch.device) -> None:
         xbar = self._quantized_xbar()
         _, x = _random_operands(xbar, batch=5, seed=404)
+        planes = _masked_planes(x, row_num=64, max_active_rows=16)
         op = AdcOperationPoint(adc_mode=0, adc_bits=4)
-        y_cpu = xbar.vec_mat_mul(x, adc_operation_point=op)
+        y_cpu = xbar.vec_mat_mul(planes, adc_operation_point=op)
         xbar.to(device)
-        y_dev = xbar.vec_mat_mul(x.to(device), adc_operation_point=op)
+        y_dev = xbar.vec_mat_mul(planes.to(device), adc_operation_point=op)
         assert torch.equal(y_dev.cpu(), y_cpu)
 
     def test_training_jitter_rng_stream_identical_across_paths(self) -> None:
@@ -183,11 +203,12 @@ class TestFastPathQuantized:
         xbar_ref.train()
         _, x = _random_operands(xbar_fast, batch=5, seed=505)
         _random_operands(xbar_ref, batch=5, seed=505)
+        planes = _masked_planes(x, row_num=64, max_active_rows=16)
         op = AdcOperationPoint(adc_mode=0, adc_bits=4)
         torch.manual_seed(7)
-        y_fast = xbar_fast.vec_mat_mul(x, adc_operation_point=op)
+        y_fast = xbar_fast.vec_mat_mul(planes, adc_operation_point=op)
         torch.manual_seed(7)
-        y_ref = xbar_ref.vec_mat_mul(x, adc_operation_point=op)
+        y_ref = xbar_ref.vec_mat_mul(planes, adc_operation_point=op)
         assert torch.equal(y_fast, y_ref)
 
 
@@ -195,7 +216,7 @@ class TestFallbackTrigger:
     """Bound at or above ``2^24`` keeps the int64 path (and stays exact)."""
 
     def test_flag_disabled_and_exact_beyond_fp32(self) -> None:
-        # _max_phase_dot_abs = 3 * 2^23 * 1 >= 2^24 -> fallback.
+        # _max_plane_dot_abs = 3 * 2^23 * 1 >= 2^24 -> fallback.
         xbar = _make_xbar(
             row_num=3,
             active_row_num=3,
@@ -209,8 +230,9 @@ class TestFallbackTrigger:
         assert torch.tensor(2**24 + 1, dtype=torch.float32).item() == 2**24
         digits = torch.tensor([[[2**23, 2**23, 1]], [[0, 0, 0]]], dtype=torch.int32)
         xbar.program(digits)
+        # Full-row plane is conformant here: active_row_num == row_num.
         x = torch.ones(3, dtype=torch.int32)
         y = xbar.vec_mat_mul(x, adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=0))
-        assert y.shape == (1, 2)  # [P, col]
-        assert y[0, 0].item() == 2**24 + 1
-        assert y[0, 1].item() == 0
+        assert y.shape == (2,)  # trailing [col_num], no phase axis
+        assert y[0].item() == 2**24 + 1
+        assert y[1].item() == 0

@@ -2,7 +2,7 @@
 
 Goal: evaluate how your model's accuracy and energy behave when its linear layers run on a real RRAM crossbar instead of ideal arithmetic.
 
-The supported workflow is **manual operator replacement**: define a quantized model whose conv / linear layers are backed by `neurox.architecture.unit`, train (or load) a QAT checkpoint, and evaluate against either the lossless `IdealCimUnit` or a physical-xbar chip configured by `--config` / `--policy` TOML files. The public surface stops at `neurox.architecture.unit`; everything under `example/` is user code, not part of the API.
+The supported workflow is **manual operator replacement**: define a quantized model whose conv / linear layers are backed by `neurox.architecture.unit`, train (or load) a QAT checkpoint, and evaluate against either the lossless `IdealLinearUnit` or a physical-xbar chip configured by `--config` / `--policy` TOML files. The public surface stops at `neurox.architecture.unit`; everything under `example/` is user code, not part of the API.
 
 Two bundled end-to-end examples demonstrate the full flow:
 
@@ -16,7 +16,7 @@ For each model directory:
 - `model_float.py` / `model_quant.py` — float reference and QAT / macro-quantized model definitions.
 - `data.py` — dataset loader (MNIST or SST-2).
 - `train_float.py` / `train_quant.py` — float pretraining and QAT scripts. QAT takes the float checkpoint and emits a QAT checkpoint; it never touches the chip.
-- `evaluate.py` — evaluation against either the lossless `IdealCimUnit` or the physical-xbar chip.
+- `evaluate.py` — evaluation against either the lossless `IdealLinearUnit` or the physical-xbar chip.
 - `macro_factory.py` — loads the circuit config (`--config`) and the nonideality policy (`--policy`) from their TOML files and builds one macro per layer.
 - `quant.py` — per-layer quantized conv / linear operators.
 

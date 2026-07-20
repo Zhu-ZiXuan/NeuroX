@@ -116,12 +116,14 @@ nav:
   - Unit:
     - Overview: reference/architecture/unit/README.md
     - Family: reference/architecture/unit/family.md
+    - Conv2d: reference/architecture/unit/conv2d.md
     - CIM:
       - Overview: reference/architecture/unit/cim/README.md
-      - Direct: reference/architecture/unit/cim/direct.md
-      - Ideal: reference/architecture/unit/cim/ideal.md
-      - Inter-array slice: reference/architecture/unit/cim/inter_array_slice.md
-      - Intra-array slice: reference/architecture/unit/cim/intra_array_slice.md
+      - Engine:
+        - Overview: reference/architecture/unit/cim/engine/README.md
+        - Direct: reference/architecture/unit/cim/engine/direct.md
+        - Inter-array slice: reference/architecture/unit/cim/engine/inter_array_slice.md
+        - Intra-array slice: reference/architecture/unit/cim/engine/intra_array_slice.md
   - Crossbar:
     - Overview: reference/primitive/xbar/README.md
     - Family: reference/primitive/macro/cim/README.md
@@ -206,14 +208,20 @@ nav:
     - Subtractor: internals/primitive/digital/subtractor.md
   - Unit:
     - Overview: internals/architecture/unit/README.md
-    - Matmul: internals/architecture/unit/matmul.md
+    - Base: internals/architecture/unit/base.md
+    - Linear: internals/architecture/unit/linear.md
+    - Conv2d: internals/architecture/unit/conv2d.md
     - CIM:
       - Overview: internals/architecture/unit/cim/README.md
       - Base: internals/architecture/unit/cim/base.md
-      - Direct: internals/architecture/unit/cim/direct.md
-      - Ideal: internals/architecture/unit/cim/ideal.md
-      - Inter-array slice: internals/architecture/unit/cim/inter_array_slice.md
-      - Intra-array slice: internals/architecture/unit/cim/intra_array_slice.md
+      - Linear: internals/architecture/unit/cim/linear.md
+      - Conv2d: internals/architecture/unit/cim/conv2d.md
+      - Engine:
+        - Overview: internals/architecture/unit/cim/engine/README.md
+        - Base: internals/architecture/unit/cim/engine/base.md
+        - Direct: internals/architecture/unit/cim/engine/direct.md
+        - Inter-array slice: internals/architecture/unit/cim/engine/inter_array_slice.md
+        - Intra-array slice: internals/architecture/unit/cim/engine/intra_array_slice.md
       - Slicer:
         - Overview: internals/architecture/unit/cim/slicer/README.md
         - Base: internals/architecture/unit/cim/slicer/base.md

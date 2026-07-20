@@ -1,4 +1,4 @@
-"""Abstract base for the CimUnit family.
+"""Abstract bases for the CimUnit family.
 
 See also:
     docs/reference/architecture/unit/cim/README.md
@@ -6,17 +6,19 @@ See also:
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from abc import ABC
 from dataclasses import dataclass
 
 import torch
-import torch.nn.functional as F
 from torch import Tensor
 
+from neurox.architecture.unit.base import UnitBase
 from neurox.common import ConfigBase, ModuleBase, PolicyBase
 from neurox.common.mixin import RegistryMixin
 from neurox.primitive.analog.adc_common import AdcOperationPoint
-from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
+from neurox.primitive.macro.cim import CimMacroPolicy
+
+from .engine import CimEngine, CimEngineConfig, CimEnginePolicy
 
 
 @dataclass(frozen=True)
@@ -51,8 +53,15 @@ class CimUnitPolicy(PolicyBase, ABC):
     """Abstract marker base for CimUnit-family nonideality policies."""
 
 
-class CimUnit(ModuleBase[CimUnitConfig, CimUnitPolicy], RegistryMixin[type["CimUnitConfig"], "CimUnit"], ABC):
-    """Abstract base for the CimUnit family.
+class CimUnit(
+    ModuleBase[CimUnitConfig, CimUnitPolicy], RegistryMixin[type["CimUnitConfig"], "CimUnit"], UnitBase, ABC
+):
+    """Abstract root of the config-dispatched CimUnit family.
+
+    The value-range / ADC surface and the protected lowering machinery
+    come from :class:`UnitBase`; the operator surface comes from the
+    ``UnitBase``-derived operator ABC mixed in by each concrete leaf;
+    ``fabricate`` is satisfied by the ``FabricateMixin`` cascade.
 
     Args:
         config: Concrete configuration dataclass.
@@ -111,133 +120,96 @@ class CimUnit(ModuleBase[CimUnitConfig, CimUnitPolicy], RegistryMixin[type["CimU
     def _sample_fabricate_mismatch(self) -> None:
         pass  # container: child mismatch is sampled through the cascade
 
-    # --- value-range contract ---
 
-    @property
-    @abstractmethod
-    def w_value_range(self) -> tuple[int, int]:
-        """Inclusive integer weight range accepted by the macro."""
-        raise NotImplementedError
+@dataclass(frozen=True)
+class EngineBackedCimUnitConfig(CimUnitConfig, ABC):
+    """Abstract config base for engine-backed CIM units.
 
-    @property
-    @abstractmethod
-    def x_value_range(self) -> tuple[int, int]:
-        """Inclusive integer activation range accepted by the macro."""
-        raise NotImplementedError
+    Attributes:
+        engine: Nested engine config; its concrete type selects the
+            execution variant through the ``_neurox_class`` discriminator.
+    """
 
-    # --- ADC operating-point surface ---
+    engine: CimEngineConfig
 
-    @property
-    @abstractmethod
-    def adc_mode_num(self) -> int:
-        """Number of supported ADC operating points; valid ``adc_mode`` values are ``[0, adc_mode_num)``."""
-        raise NotImplementedError
 
-    @property
-    @abstractmethod
-    def adc_max_bits(self) -> int:
-        """Maximum supported ``adc_bits`` value."""
-        raise NotImplementedError
+@dataclass(frozen=True)
+class EngineBackedCimUnitPolicy(CimUnitPolicy, ABC):
+    """Abstract policy base for engine-backed CIM units.
 
-    @abstractmethod
-    def adc_rescale_factor(self, adc_operation_point: AdcOperationPoint) -> float:
-        """Rescale factor for ``adc_operation_point``; raises ``KeyError`` if uncalibrated."""
-        raise NotImplementedError
+    Attributes:
+        cim_macro: Embedded xbar nonideality policy, forwarded to the
+            engine's composite policy.
+    """
 
-    # --- lifecycle ---
+    cim_macro: CimMacroPolicy
 
-    @abstractmethod
-    def program(self, weight: Tensor) -> None:
-        """Write the macro's static weight state from one logical weight tensor.
 
-        Args:
-            weight: Integer weight tensor whose shape matches
-                ``self._w_logical_shape``.
-        """
-        raise NotImplementedError
+class EngineBackedCimUnit(CimUnit, ABC):
+    """Unregistered intermediate: a CIM unit delegating execution to an owned engine.
 
-    @abstractmethod
-    def matmul(self, input: Tensor, *, adc_operation_point: AdcOperationPoint) -> Tensor:
-        """Execute one integer matrix multiply against the programmed weight state.
+    Builds the :class:`CimEngine` selected by ``config.engine`` and
+    delegates the whole execution surface to it; concrete subclasses add
+    only their operator's ``program`` mapping.
+    """
 
-        Matches ``torch.matmul`` semantics (pure matmul, no bias). Bias add
-        and requantize live in the operator layer.
+    engine: CimEngine
+    config: EngineBackedCimUnitConfig
+    policy: EngineBackedCimUnitPolicy
 
-        Args:
-            input: Integer activation tensor. Shape: ``[..., M, K]``.
-            adc_operation_point: Runtime ADC operating point.
-
-        Returns:
-            Integer pre-requantize output tensor. Shape: ``[..., M, N]``.
-        """
-        raise NotImplementedError
-
-    # --- xbar construction helper for xbar-using subclasses ---
-
-    def _build_cim_macro(
+    def __init__(
         self,
         *,
-        xbar_config: CimMacroConfig,
-        xbar_policy: CimMacroPolicy,
-        inst_shape: tuple[int, ...],
-    ) -> CimMacro:
-        """Construct the owned xbar at a derived per-instance multiplicity.
-
-        Args:
-            xbar_config: Subclass-owned xbar configuration.
-            xbar_policy: Subclass-owned xbar nonideality policy.
-                If ``ideal_xbar`` is true the policy is discarded in favor
-                of an empty :class:`IdealCimMacroPolicy`.
-            inst_shape: Per-instance multiplicity prefix; the xbar
-                derives the trailing ``(col_num, w_digit_count,
-                row_num)`` dims from its own config.
-
-        Returns:
-            The xbar (physical or ideal twin per ``ideal_xbar``).
-        """
-        xbar = CimMacro.from_config(
-            config=xbar_config,
-            policy=xbar_policy,
-            inst_shape=inst_shape,
-            dtype=self._macro_dtype,
-            T__K=self._macro_T__K,
+        config: EngineBackedCimUnitConfig,
+        policy: EngineBackedCimUnitPolicy,
+        w_logical_shape: tuple[int, ...],
+        dtype: torch.dtype,
+        T__K: float,
+        ideal_xbar: bool,
+    ) -> None:
+        super().__init__(
+            config=config,
+            policy=policy,
+            w_logical_shape=w_logical_shape,
+            dtype=dtype,
+            T__K=T__K,
+            ideal_xbar=ideal_xbar,
         )
-        return xbar.to_ideal() if self._ideal_xbar else xbar
+        self._area_per_inst__um2 = config.area_per_inst__um2
+        self._leakage_per_inst__uW = config.leakage_per_inst__uW
+        self.engine = CimEngine.from_config(
+            config=config.engine,
+            policy=CimEnginePolicy(cim_macro=policy.cim_macro),
+            w_logical_shape=self._engine_w_logical_shape(),
+            dtype=dtype,
+            T__K=T__K,
+            ideal_xbar=ideal_xbar,
+        )
 
-    # --- shared tensor utility ---
+    def _engine_w_logical_shape(self) -> tuple[int, ...]:
+        """Logical weight shape handed to the engine; defaults to the unit's own."""
+        return self._w_logical_shape
 
-    @staticmethod
-    def chunk_pad_along(
-        t: Tensor,
-        *,
-        axis: int,
-        chunk_size: int,
-        pad_value: int,
-    ) -> Tensor:
-        """Right-pad ``t`` along ``axis`` to a multiple of ``chunk_size``, then
-        split that axis into ``(num_chunks, chunk_size)``.
+    # --- delegation to the engine ---
 
-        Args:
-            t: Input tensor.
-            axis: Axis to chunk; negative indices count from the end.
-            chunk_size: Chunk size along ``axis``; must be ``>= 1``.
-            pad_value: Fill value for the padding region.
+    @property
+    def w_value_range(self) -> tuple[int, int]:
+        return self.engine.w_value_range
 
-        Returns:
-            Tensor where ``axis`` becomes ``num_chunks`` and a new
-            ``chunk_size`` axis is inserted immediately after it.
-        """
-        if chunk_size < 1:
-            raise ValueError(f"require: chunk_size ({chunk_size}) >= 1")
-        if axis < 0:
-            axis += t.ndim
-        if not (0 <= axis < t.ndim):
-            raise ValueError(f"require: 0 <= axis ({axis}) < ndim ({t.ndim})")
-        n = t.size(axis)
-        num_chunks = (n + chunk_size - 1) // chunk_size
-        pad_amount = num_chunks * chunk_size - n
-        if pad_amount > 0:
-            # F.pad indexes from the last dim; pad axis only on the high side.
-            pad_spec = [0, 0] * (t.ndim - axis - 1) + [0, pad_amount]
-            t = F.pad(t, pad_spec, value=pad_value)
-        return t.unflatten(axis, (num_chunks, chunk_size))
+    @property
+    def x_value_range(self) -> tuple[int, int]:
+        return self.engine.x_value_range
+
+    @property
+    def adc_mode_num(self) -> int:
+        return self.engine.adc_mode_num
+
+    @property
+    def adc_max_bits(self) -> int:
+        return self.engine.adc_max_bits
+
+    def adc_rescale_factor(self, adc_operation_point: AdcOperationPoint) -> float:
+        return self.engine.adc_rescale_factor(adc_operation_point)
+
+    def _matmul(self, input: Tensor, *, adc_operation_point: AdcOperationPoint) -> Tensor:
+        return self.engine.matmul(input, adc_operation_point=adc_operation_point)

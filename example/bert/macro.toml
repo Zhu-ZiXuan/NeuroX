@@ -30,7 +30,14 @@ digit_num = 4
 
 
 [cim_unit]
-_neurox_class = "InterArraySliceCimUnitConfig"
+_neurox_class = "LinearCimUnitConfig"
+
+# --- Unit-local peripheral PPA (TODO(data-gap): excludes children, which self-report) ---
+area_per_inst__um2 = 0.0
+leakage_per_inst__uW = 0.0
+
+[cim_unit.engine]
+_neurox_class = "InterArraySliceCimEngineConfig"
 
 # --- Slice counts ---
 w_slice_num = 1
@@ -39,35 +46,31 @@ x_slice_num = 4
 # --- Slice encodings ---
 w_encoding = "true_form"
 
-# --- Unit-local peripheral PPA (TODO(data-gap): excludes children, which self-report) ---
-area_per_inst__um2 = 0.0
-leakage_per_inst__uW = 0.0
-
-[cim_unit.cim_macro_config]
+[cim_unit.engine.cim_macro_config]
 _neurox_use = "../../works/offset_1t1r/config/1t1r_28nm.toml:cim_macro"
 
-[cim_unit.phase_accumulator_config]
+[cim_unit.engine.phase_accumulator_config]
 bit_width = 32
 area_per_inst__um2 = 60.0
 leakage_per_inst__uW = 1.0
 latency_per_op__ns = 0.5
 energy_per_op__fJ = 50.0
 
-[cim_unit.col_accumulator_config]
+[cim_unit.engine.col_accumulator_config]
 bit_width = 32
 area_per_inst__um2 = 60.0
 leakage_per_inst__uW = 1.0
 latency_per_op__ns = 0.5
 energy_per_op__fJ = 50.0
 
-[cim_unit.sa_shift_adder_config]
+[cim_unit.engine.sa_shift_adder_config]
 bit_width = 32
 area_per_inst__um2 = 75.0
 leakage_per_inst__uW = 1.5
 latency_per_op__ns = 0.5
 energy_per_op__fJ = 80.0
 
-[cim_unit.sw_shift_adder_config]
+[cim_unit.engine.sw_shift_adder_config]
 bit_width = 32
 area_per_inst__um2 = 75.0
 leakage_per_inst__uW = 1.5

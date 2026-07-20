@@ -4,34 +4,28 @@ See also:
     docs/reference/architecture/unit/cim/README.md
 """
 
-from .base import CimUnit, CimUnitConfig, CimUnitPolicy
-from .direct import DirectCimUnit, DirectCimUnitConfig, DirectCimUnitPolicy
-from .ideal import IdealCimUnit, IdealCimUnitConfig, IdealCimUnitPolicy
-from .inter_array_slice import (
-    InterArraySliceCimUnit,
-    InterArraySliceCimUnitConfig,
-    InterArraySliceCimUnitPolicy,
+from .base import (
+    CimUnit,
+    CimUnitConfig,
+    CimUnitPolicy,
+    EngineBackedCimUnit,
+    EngineBackedCimUnitConfig,
+    EngineBackedCimUnitPolicy,
 )
-from .intra_array_slice import (
-    IntraArraySliceCimUnit,
-    IntraArraySliceCimUnitConfig,
-    IntraArraySliceCimUnitPolicy,
-)
+from .conv2d import Conv2dCimUnit, Conv2dCimUnitConfig, Conv2dCimUnitPolicy
+from .linear import LinearCimUnit, LinearCimUnitConfig, LinearCimUnitPolicy
 
 __all__ = [
     "CimUnit",
     "CimUnitConfig",
     "CimUnitPolicy",
-    "DirectCimUnit",
-    "DirectCimUnitConfig",
-    "DirectCimUnitPolicy",
-    "IdealCimUnit",
-    "IdealCimUnitConfig",
-    "IdealCimUnitPolicy",
-    "InterArraySliceCimUnit",
-    "InterArraySliceCimUnitConfig",
-    "InterArraySliceCimUnitPolicy",
-    "IntraArraySliceCimUnit",
-    "IntraArraySliceCimUnitConfig",
-    "IntraArraySliceCimUnitPolicy",
+    "Conv2dCimUnit",
+    "Conv2dCimUnitConfig",
+    "Conv2dCimUnitPolicy",
+    "EngineBackedCimUnit",
+    "EngineBackedCimUnitConfig",
+    "EngineBackedCimUnitPolicy",
+    "LinearCimUnit",
+    "LinearCimUnitConfig",
+    "LinearCimUnitPolicy",
 ]

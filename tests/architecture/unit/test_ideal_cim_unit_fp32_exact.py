@@ -1,9 +1,10 @@
-"""IdealCimUnit fp32-exact matmul fast path.
+"""IdealLinearUnit fp32-exact fast path, exercised via the public ``linear()``.
 
-``matmul`` switches to fp32 when ``K * max|x| * max|w| < 2^24`` (every
-partial sum then accumulates exactly in IEEE fp32) and stays on the int64
-matmul otherwise. The fast path is what makes the unit GPU-capable: CUDA
-has no integer-matmul kernel, so the fallback path is CPU-by-design.
+The substrate ``_matmul`` switches to fp32 when ``K * max|x| * max|w| <
+2^24`` (every partial sum then accumulates exactly in IEEE fp32) and stays
+on the int64 matmul otherwise. The fast path is what makes the unit
+GPU-capable: CUDA has no integer-matmul kernel, so the fallback path is
+CPU-by-design.
 """
 
 from __future__ import annotations
@@ -11,7 +12,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from neurox.architecture.unit.cim import IdealCimUnit, IdealCimUnitConfig, IdealCimUnitPolicy
+from neurox.architecture.unit import IdealLinearUnit, IdealLinearUnitConfig, IdealLinearUnitPolicy
 from neurox.primitive.analog.adc_common import AdcOperationPoint
 
 _OP = AdcOperationPoint(adc_mode=0, adc_bits=0)
@@ -22,15 +23,15 @@ def _build_unit(
     x_value_range: tuple[int, int],
     w_value_range: tuple[int, int],
     w_logical_shape: tuple[int, ...],
-) -> IdealCimUnit:
-    unit = IdealCimUnit(
-        config=IdealCimUnitConfig(
+) -> IdealLinearUnit:
+    unit = IdealLinearUnit(
+        config=IdealLinearUnitConfig(
             x_value_range=x_value_range,
             w_value_range=w_value_range,
             area_per_inst__um2=0.0,
             leakage_per_inst__uW=0.0,
         ),
-        policy=IdealCimUnitPolicy(),
+        policy=IdealLinearUnitPolicy(),
         w_logical_shape=w_logical_shape,
         dtype=torch.float32,
         T__K=300.0,
@@ -40,7 +41,7 @@ def _build_unit(
     return unit
 
 
-def _random_program_and_input(unit: IdealCimUnit, *, batch: int, seed: int) -> tuple[torch.Tensor, torch.Tensor]:
+def _random_program_and_input(unit: IdealLinearUnit, *, batch: int, seed: int) -> tuple[torch.Tensor, torch.Tensor]:
     generator = torch.Generator().manual_seed(seed)
     w_lo, w_hi = unit.w_value_range
     weight = torch.randint(w_lo, w_hi + 1, unit._w_logical_shape, dtype=torch.int32, generator=generator)
@@ -70,7 +71,7 @@ class TestFastPathBitExactness:
         unit = _build_unit(x_value_range=x_value_range, w_value_range=w_value_range, w_logical_shape=w_logical_shape)
         assert unit._fp32_exact is True
         weight, x = _random_program_and_input(unit, batch=7, seed=11)
-        y = unit.matmul(x, adc_operation_point=_OP)
+        y = unit.linear(x, adc_operation_point=_OP)
         oracle = x.to(torch.int64) @ weight.to(torch.int64).transpose(-2, -1)
         assert y.dtype == torch.int64
         assert torch.equal(y, oracle)
@@ -87,7 +88,7 @@ class TestFastPathBitExactness:
         weight, x = _random_program_and_input(unit, batch=7, seed=13)
         oracle = x.to(torch.int64) @ weight.to(torch.int64).transpose(-2, -1)
         unit.to(device)
-        y = unit.matmul(x.to(device), adc_operation_point=_OP)
+        y = unit.linear(x.to(device), adc_operation_point=_OP)
         assert y.device.type == device.type
         assert torch.equal(y.cpu(), oracle)
 
@@ -96,7 +97,7 @@ class TestFastPathBitExactness:
         weight, _ = _random_program_and_input(unit, batch=1, seed=17)
         generator = torch.Generator().manual_seed(19)
         x = torch.randint(0, 2, (2, 3, 5, 32), dtype=torch.int32, generator=generator)
-        y = unit.matmul(x, adc_operation_point=_OP)
+        y = unit.linear(x, adc_operation_point=_OP)
         oracle = x.to(torch.int64) @ weight.to(torch.int64).transpose(-2, -1)
         assert y.shape == (2, 3, 5, 4)
         assert torch.equal(y, oracle)
@@ -114,5 +115,5 @@ class TestFallbackTrigger:
         assert torch.tensor(2**24 + 1, dtype=torch.float32).item() == 2**24
         unit.program(torch.tensor([[2**23, 2**23, 1]], dtype=torch.int32))
         x = torch.ones(1, 3, dtype=torch.int32)
-        y = unit.matmul(x, adc_operation_point=_OP)
+        y = unit.linear(x, adc_operation_point=_OP)
         assert y.item() == 2**24 + 1
