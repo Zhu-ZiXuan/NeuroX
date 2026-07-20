@@ -1,0 +1,486 @@
+# Canonical design params for the hypothetical simplified 1T1R xbar unit
+# (modeled after the read-out chain of Xue et al., JSSC 2020).
+#
+# A single-tile folded crossbar: the kernel IR-drop 1T1R pure array
+# (XbarArray1t1r) with macro-owned boundary drivers (1-bit WL DAC,
+# current-aware BL clamp, SL drive, shared clamp reference), read out by an
+# inline kernel chain (p-mirror -> n-mirror -> subtractor -> SAR current ADC,
+# plus the threshold Reference block). Ternary weights {-1, 0, +1} on P/N physical column pairs,
+# 1-bit inputs, 6-bit signed-magnitude output (sign + 5-bit magnitude),
+# multi-mode threshold bank (2 operating modes: signed / unsigned deployment
+# layer groups; the ladders coincide because both modes quantize at 1 MAC
+# LSB per code). No input sub-phases, no sample-and-hold, no weight MSB/LSB
+# digits.
+#
+# Value provenance is marked inline per field:
+#   [sourced]    = from the paper / cited literature
+#   [derived]    = derived from another field or a physical argument
+#   [uncertain]  = paper-absent free tuning knob
+#   [calibrated] = probed from the modeled read chain at a stated geometry
+#
+# Leakage seeds (REAL-INSTANCE model): each reporter block's
+# leakage_per_inst__uW is a GENUINE per-circuit value; the total scales with
+# the real shared device count derived from the geometry via mux_factor /
+# io_col_num (never with the raw column count). The per-circuit seeds are
+# ported from the paper's power-breakdown-derived values (Fig. 18 shares of
+# 5.13 mW over the real shared counts); this chip is hypothetical, so every
+# leakage seed is [derived][uncertain].
+#
+# Pull this fragment from a user config with:
+#   [cim_macro]
+#   _neurox_use = "params/default.toml:cim_macro"   # (path relative to your file)
+
+[cim_macro]
+_neurox_class = "IsubIadc1t1rCimMacroConfig"
+
+# --- Tile size ---
+# Parent-scale tile: phys_col_num = 2 * col_num = 512 physical columns (one
+# P/N polarity pair per logical column).
+col_num = 256
+row_num = 256
+# [derived] 64 of the 256 rows are activated per WL sub-phase ->
+# row_num / active_row_num = 4 WL sub-phases per VMM;
+# active_row_num sets the per-conversion analog dot-product dynamic range, so
+# the ADC ref_levels__uA / i_refs__uA thresholds are probed at this value.
+active_row_num = 64
+
+# --- Readout column-MUX time-sharing (LOGICAL columns, per polarity) ---
+# The readout circuits are column-MUX time-multiplexed, so their REAL
+# physical instance count is derived from the geometry (NOT the column count);
+# col_num must divide exactly by mux_factor and io_col_num (strict
+# divisibility, ValueError otherwise):
+#   - front-end (clamp / p-mirror): n_lane = col_num // mux_factor lanes per
+#     polarity -> 2 * n_lane devices (P and N conduct simultaneously through
+#     separate devices)
+#   - back-end (n-mirror): 2 * n_io; subtractor + ADC: n_io each, with
+#     n_io = col_num // io_col_num
+#   - shared static Reference (CurrentReference): 1 per tile
+# [derived] from the paper's 32-BL MUX lane and 128-column CIM-IO at 2
+# physical columns per logical column: 32 phys / 2 = 16 logical columns per
+# lane per polarity; 128 phys / 2 = 64 logical columns per IO. At this
+# geometry: n_lane = 256 // 16 = 16, n_io = 256 // 64 = 4. The BL clamp is
+# sized from the same lane granularity (device count 2 * n_lane).
+mux_factor = 16
+io_col_num = 64
+
+# --- Supply + CMD precharge (the macro is the rail owner) ---
+v_dd__V = 1.0                     # [sourced] 1.0 V supply rail
+c_cmd_per_col__fF = 5.0           # [uncertain] BL -> readout-front-end CMD precharge node cap
+
+# --- PPA: the macro-owned lumped leakage ---
+# [derived][uncertain] Hypothetical chip; per-circuit seeds ported from the
+# paper's Fig.18-derived values, rolled up where the block is a bare
+# kernel non-reporter (p/n mirrors, subtractor). Lump breakdown AT THIS
+# GEOMETRY (col_num = 256, mux_factor = 16, io_col_num = 64 -> n_lane = 16,
+# n_io = 4; front-end devices 2*n_lane = 32, back-end devices 2*n_io = 8,
+# subtractor n_io = 4):
+#   Control    1  x 187.25    = 187.25
+#   p-stage    32 x 4.609375  = 147.5
+#   n-stage    8  x 12.825    = 102.6
+#   subtractor 4  x 5.450625  =  21.8025
+#   lump       = 459.1525 uW
+# GEOMETRY-DEPENDENT: the lump folds the device counts at this tile —
+# re-derive it if col_num / mux_factor / io_col_num change. Area
+# un-extracted. [uncertain]
+area_per_inst__um2 = 0.0
+leakage_per_inst__uW = 459.1525
+
+# --- Macro-owned readout accounting knobs (billed once per ACTIVE PHASE) ---
+# The kernel mirrors / subtractor are pure transports; the macro logs their
+# stage rails, bias floors, and branch energies itself, per row active phase.
+p_mirror_v_drop__V = 0.5          # [derived] front-end mirror output-leg rail drop (V_DD - V_CMD)
+p_mirror_bias__uA = 1.0           # [derived] front-end fixed mirror-bias floor (seed ~ n^2*I_HRS), billed per (phase, logical column)
+n_mirror_v_drop__V = 0.3          # [derived] back-end mirror output-leg incremental drop
+n_mirror_bias__uA = 1.0           # [derived] back-end cascode bias floor
+sub_v_drop_int__V = 1.0           # [uncertain] full-rail VDD->GND internal-replica conduction (~v_dd)
+sub_v_drop_out__V = 0.3           # [derived] subtractor output drop delivering I_SUB to the ADC
+sub_n_hc_copy = 3                 # I_HC sink replica count (paper Fig.8 topology: MHCM1/MN4/MOUTN), 1:1 mirrors assumed (topology-derived)
+readout_t_phase__ns = 1.5         # [derived] readout-stage conduction window inside the 11.75 ns binary-mode T_AC
+readout_latency_per_op__ns = 1.61 # [derived] readout share of the 2.41 ns non-sensing budget (see timing note on array_config)
+
+
+# --- ADC ``adc_operation_point -> rescale_factor`` lookup table ---
+# The ADC is a 5-bit unsigned-magnitude quantizer (sign from the subtractor
+# -> 6-bit signed-magnitude output); the rescale factor maps its integer
+# code back to the ideal per-phase MAC scale. Two operating modes, one per
+# deployment sign group (mode 0 = signed layers, mode 1 = unsigned layers,
+# from the mode-derivation clustering of the target checkpoint's learned
+# per-layer ADC range params — every layer clusters to one range per sign
+# group, so both modes quantize at 1 MAC LSB per code and their ladders
+# coincide; the mode split is kept because the operating-point contract is
+# per-mode). [calibrated] rescale_factor fitted per mode by
+# neurox.tools.calibrate_adc.rescale_fit (zero-through-origin LS on paired
+# physical/ideal probed runs, top-code-saturated samples excluded; run
+# config = params/calibrate_rescale.toml, fits in
+# log/calibration/rescale_fit_*.log + figures). Both modes fit exactly
+# 1.0 with zero residual (R^2 = 1): decode over the fit battery is
+# bit-exact, matching the positive-band-margin ladder.
+[[cim_macro.adc_calibration]]
+adc_mode = 0
+adc_bits = 5
+rescale_factor = 1.0
+
+[[cim_macro.adc_calibration]]
+adc_mode = 1
+adc_bits = 5
+rescale_factor = 1.0
+
+
+# ===========================================================================
+# Array (kernel XbarArray1t1r) — IR-drop 1T1R pure array: cells + wire + solver
+# ===========================================================================
+[cim_macro.array_config]
+
+# --- PPA (cell array + wire infra) ---
+# [uncertain] area un-extracted. Leakage: the array+wire static share is not
+# a separately-published slice (array conduction is DYNAMIC energy, not
+# leakage). Built with inst_shape = () (inst_count = 1) -> per-tile floor;
+# seed small, refine later.
+area_per_inst__um2 = 0.0
+leakage_per_inst__uW = 1.0
+# --- Timing anchored to the paper's binary-mode T_AC = 11.75 ns [sourced]
+# = 9.34 ns sensing (3 sourced steps) + 2.41 ns non-sensing: the 5-bit
+# search extends sensing to 15.566667 ns (see adc_config.step_latency__ns);
+# the 2.41 ns non-sensing budget splits [derived] as array 0.8 ns + readout
+# chain 1.61 ns ([cim_macro].readout_latency_per_op__ns), unchanged by the
+# search depth.
+latency_per_op__ns = 0.8
+
+# --- Pulse timing ---
+wl_pulse_length__ns = 1.5         # [derived] WL pulse per row active phase inside the 11.75 ns binary-mode T_AC
+
+# --- Layout pitch ---
+row_first_space__um = 1.000       # [uncertain] 28nm-class pitch placeholders
+row_cell_space__um = 0.040
+col_first_space__um = 1.000
+col_cell_space__um = 0.040
+
+# --- BL wire segments --- [derived][uncertain] strapped read lines
+# The 6-bit read chain drives per-BL currents up to ~1 mA (31 LRS cells
+# per active phase at ~1 MOhm-scale cell paths), so the BL/SL rails run
+# in a wide top-metal strap in parallel with the minimum-width local
+# line (standard mA-class read-rail engineering; a minimum-width local
+# line alone would spread the per-phase I_SUB bands past the 1-MAC-LSB
+# code spacing — see the band-separation note on adc_config).
+# Per-segment R is the 40 nm-pitch share of the strapped pair (~0.3125
+# Ohm/um, ~1/16 of the local line alone); C doubles (two coupled lines).
+# Un-extracted 28nm-class values scaled by that physical argument;
+# re-probe ref_levels__uA if the wire budget changes.
+bl_first_r__MOhm = 3.125e-7
+bl_first_c__fF = 0.400
+bl_segment_r__MOhm = 1.25e-8
+bl_segment_c__fF = 0.016
+
+# --- SL wire segments --- [derived][uncertain] (same strap argument)
+sl_first_r__MOhm = 3.125e-7
+sl_first_c__fF = 0.400
+sl_segment_r__MOhm = 1.25e-8
+sl_segment_c__fF = 0.016
+
+# --- WL wire segments --- [uncertain]
+wl_first_r__MOhm = 5e-6
+wl_first_c__fF = 0.200
+wl_segment_r__MOhm = 2e-7
+wl_segment_c__fF = 0.008
+
+
+[cim_macro.array_config.cell_config]
+_neurox_class = "XbarCell1t1rDetailConfig"
+
+# --- Access-NMOS sizing --- [uncertain] 28nm-class placeholders
+access_nmos_W__um = 0.150
+access_nmos_L__um = 0.028
+
+# --- Per-cell node-to-ground capacitances --- [uncertain] per-cell
+# node-to-ground totals, un-extracted placeholders
+c_bl__fF = 0.2
+c_x__fF = 0.3
+c_sl__fF = 0.1
+c_wl__fF = 0.2
+
+# --- RRAM design window + state map ---
+# [sourced] SLC 1T1R, length-2 state map: HRS state, LRS ~ 100 uS state.
+# Locked design is R-ratio 20 with g_lrs ~ 100 uS (R_LRS ~ 10 kOhm) => g_hrs
+# ~ 5 uS (R_HRS ~ 200 kOhm, I_HRS ~ 1.5 uA leakage). State 0 = HRS, 1 = LRS.
+# [calibrated] HRS = 5 uS (R-ratio 20); enabled by the per-scheme g_min__uS =
+# 5.0 override on rram_config below (the shared process/rram preset floor is
+# 10 uS).
+rram_g_max__uS = 100.0
+state_to_g_map__uS = [5.0, 100.0]
+
+# --- Per-cell access-node Newton iteration count --- [derived] seed;
+# calibrate via calibrate_cell for production accuracy.
+n_newton = 5
+
+
+[cim_macro.array_config.cell_config.rram_config]
+_neurox_use_preset = "process/rram:default"
+# [calibrated] Per-scheme override of the shared preset's g_min floor (10 uS)
+# so this unit's locked R-ratio-20 HRS (g_hrs = 5 uS) is programmable +
+# un-clamped. Inline keys win over the preset fragment; the shared
+# process/rram preset is NOT modified (other units depend on its 10 uS
+# floor). g_min = g_hrs here so the HRS leakage current is the real ~1.5 uA.
+g_min__uS = 5.0
+
+
+[cim_macro.array_config.cell_config.nmos_config]
+_neurox_use_preset = "process/mos:nmos_28_rvt"
+
+
+[cim_macro.array_config.solver_config]
+_neurox_class = "NestedParallelRailSolverConfig"
+# --- DC-solver iteration counts ---
+# [calibrated] Swept with the neurox/tools/_plateau.py framework (step
+# deltas between candidate counts + workload-relative residual guard,
+# fp32, log/calibration/solver_sweep_*.log + figures) over the
+# calibration-battery loading envelope at THIS geometry and electrical
+# operating point (strapped read wires + 30-Ohm clamp residual): diluted
+# and UNDILUTED full-drive count grids, count-capped random blocks at
+# <= 0.5 drive density, full-drive cap-15/31 stress patterns, dense
+# random-ternary columns, and the fully-dense saturating extreme — the
+# whole envelope converges (no excluded patterns). The outer step-ratio
+# plateau sits at n_outer = 20 (steps decay geometrically to the fp32
+# voltage floor ~3e-8 V; no further progress at 30), the inner plateau
+# at n_inner = 4. At the pick every residual class is within the 1%
+# workload-relative guard except the wire-KCL class, which sits on its
+# n-independent fp32 EVALUATION floor (~5 uA = segment conductance 8e7
+# uS x fp32 voltage eps); the same solve in fp64 puts it at ~9e-9 uA
+# (relative ~3e-10) on every envelope workload, confirming true
+# convergence. Re-probe together with ref_levels__uA if the geometry /
+# conductance window / wire budget changes.
+n_outer = 20
+n_inner = 4
+
+
+# ===========================================================================
+# Boundary drivers + clamp reference — macro-owned peers of the array
+# ===========================================================================
+[cim_macro.bl_clamp_config]
+_neurox_class = "VoltageDriverConfig"
+# --- Current-aware BL clamp: the generic Thevenin VoltageDriver (v_ref = V_BLC) ---
+# Column-MUX time-shared front-end lane: device count 2 * n_lane
+# (2 * (col_num // mux_factor)), inst_shape trailing (2, n_lane, 1).
+area_per_inst__um2 = 0.0
+# [derived][uncertain] genuine per-circuit value, carries ALL clamp static
+# power incl. the feedback bias; ported from the paper's CABLC share:
+# CABLC = 0.149 * 5.13 mW ~= 0.764 mW total; per_circuit = 0.764 mW /
+# (16 lanes x 8 sub-arrays) = 5.96875 uW.
+# At this geometry the real count is 32 (2 * ((512 // 2) // 16)), so the
+# tile carries 32 x 5.96875 uW.
+leakage_per_inst__uW = 5.96875
+# v_ref does not live here: the target BL clamp voltage V_BLC is sourced by
+# the shared VoltageReference (clamp_ref_config tap 0) and injected per
+# snapshot. [uncertain] V_BLC ~0.3 V
+# [derived] Regulation residual of the current-aware clamp sized for the
+# 6-bit read range: the CABLC-style segmented feedback (paper Fig. 9/14)
+# holds its residual V_BL droop bounded (~27 mV) across its DESIGN
+# current span; this design's span is 0..~900 uA per BL (31 LRS cells
+# per active phase), so the Thevenin slope is ~27 mV / ~900 uA ~= 30 Ohm.
+# Strictly >= 0 (solver well-posedness). Band separation of the 6-bit
+# ladder depends on this residual — re-probe ref_levels__uA if changed.
+r_out__MOhm = 3e-5
+offset_sigma__V = 0.0             # nonideality sigma (gated by policy)
+thermal_sigma__V = 0.0
+# v_dd__V lives at the [cim_macro] level (the clamp-transistor conduction is
+# the macro's clamp-drop term); the clamp static bias is folded into
+# leakage_per_inst__uW above.
+
+
+[cim_macro.sl_driver_config]
+_neurox_class = "VoltageDriverConfig"
+# --- SL ideal clamp: the generic Thevenin VoltageDriver held at ground ---
+area_per_inst__um2 = 0.0
+leakage_per_inst__uW = 0.0
+# v_ref does not live here: the SL drive level (ground) is sourced by the
+# shared VoltageReference (clamp_ref_config tap 1) and injected per snapshot.
+r_out__MOhm = 0.0                 # ideal flat clamp (zero series resistance)
+offset_sigma__V = 0.0             # nonideality sigma (gated by policy)
+thermal_sigma__V = 0.0
+
+
+# --- Shared boundary-clamp voltage reference (neurox.primitive.analog.VoltageReference) ---
+# One static reference source per tile feeding BOTH boundary clamps,
+# mirroring the per-tile CurrentReference shared by the ADC. Taps in
+# order [BL-clamp V_BLC, SL-drive V_SL]: tap 0 -> BL clamp reference, tap 1
+# -> SL driver. The macro snapshots it once per VMM and injects each tap
+# into the driver snapshot. PPA leakage only (no forward path).
+[cim_macro.clamp_ref_config]
+_neurox_class = "VoltageReferenceConfig"
+area_per_inst__um2 = 0.0
+leakage_per_inst__uW = 0.0        # [uncertain] reference bias folds into the driver leakage shares; seed 0
+v_refs__V = [0.3, 0.0]            # [0] V_BLC ~0.3 V [uncertain]; [1] SL ground [sourced]
+tolerance_sigma_relative = 0.0    # per-instance initial-accuracy spread (gated by `tolerance`)
+noise_sigma_relative = 0.0        # per-call noise (gated by `noise`)
+
+
+[cim_macro.wl_dac_config]
+_neurox_class = "GeneralVoltageDacConfig"
+# --- 1-bit ON/OFF WL DAC (code_max = 1 -> x_states = 2) ---
+# [sourced] binary WL drive: OFF -> 0 V, ON -> V_WL. V_WL placeholder 0.9 V. [uncertain]
+code_to_signal = [0.0, 0.9]
+drive_thermal__V = 0.0
+energy_per_op__fJ = 0.0
+latency_per_op__ns = 0.0
+leakage_per_inst__uW = 0.0
+area_per_inst__um2 = 0.0
+
+
+# ===========================================================================
+# Front-end mirror stage — generic CurrentMirror (non-reporter)
+# ===========================================================================
+# One front-end mirror device per MUX lane per polarity (2 * n_lane devices,
+# inst_shape trailing (2, n_lane, 1)). Its silicon rolls up into the
+# [cim_macro] lump (p-stage 4.609375 uW per device); rail drop / bias floor
+# are the macro-level p_mirror_* knobs.
+[cim_macro.p_mirror_config]
+mirror_ratio = 0.25               # [derived] global down-scale 1/k = 1/4
+ratio_sigma_relative = 0.0        # mirror-mismatch sigma (gated by the `mismatch` policy)
+
+
+# ===========================================================================
+# Back-end mirror stage — generic CurrentMirror (non-reporter)
+# ===========================================================================
+# One back-end mirror device per CIM-IO per polarity (2 * n_io devices,
+# inst_shape trailing (2, n_io, 1)). Silicon rolls up into the [cim_macro]
+# lump (n-stage 12.825 uW per device); rail drop / bias floor are the
+# macro-level n_mirror_* knobs.
+[cim_macro.n_mirror_config]
+mirror_ratio = 0.25               # [derived] combiner normalization; net BL -> ADC transfer = 0.25 * 0.25 = 1/16
+ratio_sigma_relative = 0.0        # mirror-mismatch sigma (gated by the `mismatch` policy)
+
+
+# ===========================================================================
+# Subtractor — generic CurrentSubtractor (non-reporter)
+# ===========================================================================
+# One subtractor per CIM-IO (n_io devices, inst_shape trailing (n_io, 1)),
+# consuming both polarities. Silicon rolls up into the [cim_macro] lump
+# (5.450625 uW per device); branch energies are the macro-level sub_* knobs.
+[cim_macro.subtractor_config]
+gain = 1.0                        # [sourced] unit-gain magnitude-and-sign difference
+mismatch_sigma_relative = 0.0     # subtracted-leg ratio sigma (gated by the `mismatch` policy)
+offset_sigma__uA = 0.0            # sign-comparator offset sigma (gated by the `offset` policy)
+
+
+# ===========================================================================
+# ADC — SAR current-mode quantizer (macro inner ADC, self.bl_adc)
+# ===========================================================================
+[cim_macro.adc_config]
+area_per_inst__um2 = 0.0
+# [derived][uncertain] genuine per-circuit value ported from the paper's
+# TMCSA share: TMCSA = 0.093 * 5.13 mW ~= 0.477 mW total; per_circuit =
+# 0.477 mW / (4 IO x 8 sub-arrays) = 14.90625 uW. One time-shared SA per
+# CIM-IO -> n_io = 4 at this geometry. The 5-bit search deepens the
+# time-multiplexed step count only (latency + dynamic energy scale with
+# the step count); the SA is the same single circuit, so its static bias
+# is step-count-independent and the per-circuit seed carries over.
+# (Excludes the Reference replica array, a separate block below.)
+leakage_per_inst__uW = 14.90625
+
+# [derived] 5-bit magnitude + subtractor sign = 6-bit signed-magnitude
+# output, matching the deployment's 6-bit ADC operating point (learned
+# range 32 at 1 MAC LSB per code). Per-phase magnitude clamps at +-31;
+# the deployment's training-side floor quantizer spans [-32, 31], so the
+# -32 floor code is unreachable on this sign-magnitude hardware (a +-31
+# clamp) — a one-code floor-domain asymmetry, not a defect.
+n_bits = 5
+margin_gain = 3.0                 # [sourced] triple margin
+input_mirror_ratio = 2.0          # [sourced] regeneration legs = 2x unity legs
+
+# [calibrated] Per-mode nominal mid-point threshold ladders [mode][tap]
+# (2**n_bits - 1 = 31 thresholds per row; adc_operation_point.adc_mode
+# selects the row). Row 0 = mode 0 (signed layer group), row 1 = mode 1
+# (unsigned layer group); both modes quantize at 1 MAC LSB per code, so
+# the rows coincide and one physical 31-tap bank serves both. Single
+# source of truth on the Reference block: MUST equal
+# reference_config.i_refs__uA mode for mode.
+# The analog I_SUB at the ADC input is loading-dependent (clamp r_out and
+# BL/SL wire IR shift with the driven-row background, the cross-column LRS
+# loading, and the active phase's row position along the wires), so each
+# threshold centers the observed I_SUB BAND of its code boundary over a
+# representative calibration battery: ref[j] = 0.5 * (hi(j) + lo(j+1)),
+# hi/lo = max/min I_SUB observed at per-phase |MAC| = j across the battery
+# (probed by neurox.tools.calibrate_adc.threshold_probe at THIS geometry,
+# all_off policy, calibrated g_hrs = 5 uS; run config =
+# params/calibrate_threshold.toml, band grid + margins in
+# log/calibration/threshold_probe_*.log + figures). Battery: diluted
+# single-cell-LSB count grid (every |MAC| 0..31 exact, full drive, every
+# 8th column) + count-capped single-sign random blocks (caps 7/15/23/31;
+# full drive + 0.25/0.5 drive densities for every cap) + the fully-dense
+# saturating extreme — the whole battery converges at the shipped
+# operating point (see solver_config note).
+# Band-separation envelope: ALL band margins are positive (minimum
+# +0.637772 uA at the 30/31 boundary; every |MAC| band is separable), so
+# decode of every observed band sample is exact over the battery: the
+# per-phase code equals clip(|MAC|, 0, 31) bit-exactly at the shipped
+# operating point. The observed band spread (loading + active-phase
+# position, both ~proportional to I_SUB) stays below the ~1.59 uA/LSB
+# code spacing at every code because the strapped read wires and the
+# 6-bit-range clamp residual (see the wire-segment and bl_clamp_config
+# notes) bound the array-side IR excursion to well under half an LSB.
+# Geometry-dependent — re-probe if the array size / active_row_num /
+# conductance window / wire budget / clamp residual changes.
+ref_levels__uA = [
+    [0.816584, 2.464652, 4.103780, 5.730987, 7.352233, 8.958578, 10.553002, 12.144446, 13.720989, 15.288591, 16.850233, 18.396974, 19.943714, 21.472573, 22.977591, 24.485588, 25.981665, 27.462840, 28.961897, 30.434132, 31.882524, 33.286213, 34.722687, 36.114456, 37.530064, 38.957596, 40.367245, 41.779875, 43.177605, 44.572353, 45.958160],
+    [0.816584, 2.464652, 4.103780, 5.730987, 7.352233, 8.958578, 10.553002, 12.144446, 13.720989, 15.288591, 16.850233, 18.396974, 19.943714, 21.472573, 22.977591, 24.485588, 25.981665, 27.462840, 28.961897, 30.434132, 31.882524, 33.286213, 34.722687, 36.114456, 37.530064, 38.957596, 40.367245, 41.779875, 43.177605, 44.572353, 45.958160],
+]
+
+v_rail_sa__V = 0.5                # [derived] SA-leg overdrive V_DD_SA - V_node (the n-path regeneration draw)
+t_eff__ns = 1.0                   # [uncertain] effective conduction time the n-path regeneration is drawn over
+e_fixed_per_op__fJ = 7.0          # [uncertain] data-independent constant folding sampling/latch/coupling + REF-selector switching, billed per binary-search step (5 steps per conversion at n_bits = 5)
+
+# [sourced][derived] Per-step decision latency, one entry per binary-search
+# step: the first three steps carry the paper's measured per-step decision
+# latencies (sum 9.34 ns = the sensing part of the 11.75 ns binary-mode
+# T_AC); the 5-bit search appends two steps [derived] at the sourced
+# per-step mean (9.34 / 3 = 3.113333 ns). Sensing total 15.566667 ns; with
+# the unchanged 2.41 ns non-sensing budget (core 0.8 + readout 1.61) the
+# per-conversion cycle is 17.976667 ns.
+step_latency__ns = [3.16, 3.07, 3.11, 3.113333, 3.113333]
+
+# --- Nonideality sigmas (gated by policy) ---
+# Current-domain input-referred margin perturbations [uA] (added after the
+# margin_gain pre-gain -> effective sigma / margin_gain).
+comparator_offset_sigma__uA = 0.0
+coupling_mismatch_sigma__uA = 0.0
+mirror_mismatch_sigma_relative = 0.0
+
+
+# ===========================================================================
+# Reference — shared static current-reference source (neurox.primitive.analog.CurrentReference)
+# ===========================================================================
+# The 31 mid-point ADC thresholds are sourced by a generic CurrentReference:
+# a static block (PPA leakage only, no forward path). The replica-array +
+# selector silicon is its leakage; the REF-selector switching energy is
+# folded into the ADC e_fixed_per_op (see adc_config). ONE instance per tile
+# (per-xbar inst_shape), shared by the ADC lanes and by both operating
+# modes (the mode rows coincide, so the physical bank is the 31-tap union).
+[cim_macro.reference_config]
+_neurox_class = "CurrentReferenceConfig"
+area_per_inst__um2 = 0.0
+# [derived][uncertain] genuine per-circuit value: the paper's Reference
+# share (0.237 x 5.13 mW over 1 per sub-array x 8 sub-arrays) gives
+# 151.97625 uW for a 7-tap (3-bit) replica bank; the replica-column count
+# scales with the distinct static tap count, so the 31-tap 5-bit bank
+# carries 151.97625 x 31 / 7 = 673.0376785714286 uW per circuit. One
+# shared static source per tile (mode selection is quasi-static tap
+# switching, not a second bank — the two mode rows coincide).
+leakage_per_inst__uW = 673.0376785714286
+
+# [calibrated] Per-mode mid-point threshold tap rows [mode][tap] = single
+# source of truth. MUST equal adc_config.ref_levels__uA mode for mode
+# (pinned by validate_ref_consistency). Row 0 = mode 0 (signed group), row
+# 1 = mode 1 (unsigned group); the rows coincide (1 MAC LSB per code in
+# both modes). See the derivation note on adc_config.ref_levels__uA above
+# (mid-points probed from the modeled read chain; probe geometry + I_SUB(M)
+# band grid recorded there). The generic config enforces strictly
+# increasing equal-length rows; the per-row length-31 (2**n_bits - 1)
+# guard lives on the ADC side and is enforced transitively through the
+# per-mode equality check.
+i_refs__uA = [
+    [0.816584, 2.464652, 4.103780, 5.730987, 7.352233, 8.958578, 10.553002, 12.144446, 13.720989, 15.288591, 16.850233, 18.396974, 19.943714, 21.472573, 22.977591, 24.485588, 25.981665, 27.462840, 28.961897, 30.434132, 31.882524, 33.286213, 34.722687, 36.114456, 37.530064, 38.957596, 40.367245, 41.779875, 43.177605, 44.572353, 45.958160],
+    [0.816584, 2.464652, 4.103780, 5.730987, 7.352233, 8.958578, 10.553002, 12.144446, 13.720989, 15.288591, 16.850233, 18.396974, 19.943714, 21.472573, 22.977591, 24.485588, 25.981665, 27.462840, 28.961897, 30.434132, 31.882524, 33.286213, 34.722687, 36.114456, 37.530064, 38.957596, 40.367245, 41.779875, 43.177605, 44.572353, 45.958160],
+]
+
+# --- Nonideality sigmas (relative; gated by the reference policy) ---
+tolerance_sigma_relative = 0.0    # per-instance initial-accuracy spread (gated by `tolerance`)
+noise_sigma_relative = 0.0        # per-call noise (gated by `noise`)

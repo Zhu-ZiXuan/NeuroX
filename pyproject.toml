@@ -9,7 +9,7 @@ description = "A PyTorch-based neuromorphic computing simulation framework, for 
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
-authors = [{ name = "Zhu-Zixuan" }]
+authors = [{ name = "ZHU-ZiXuan" }]
 dependencies = [
     "torch>=2.9",
     "pydantic>=2.0",
@@ -39,17 +39,16 @@ demo = [
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/Zhu-Zixuan/NeuroX"
-"Bug Tracker" = "https://github.com/Zhu-Zixuan/NeuroX/issues"
+"Homepage" = "https://github.com/Zhu-ZiXuan/NeuroX"
+"Bug Tracker" = "https://github.com/Zhu-ZiXuan/NeuroX/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["neurox*"]
 
-# Ship the bundled ``.toml`` presets so ``importlib.resources.files("neurox")``
-# resolves to a real directory both in editable installs and wheel installs.
 [tool.setuptools.package-data]
 "neurox.presets" = ["**/*.toml"]
+"neurox.works" = ["**/*.toml"]
 
 [tool.ruff]
 target-version = "py311"
@@ -96,7 +95,6 @@ ignore = [
     "N815", # mixedCase variable in class scope
 ]
 
-# Allow fix for all enabled rules (when "--fix") is provided.
 fixable = ["ALL"]
 unfixable = []
 

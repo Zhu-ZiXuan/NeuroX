@@ -24,6 +24,9 @@ from pathlib import Path
 
 import torch
 
+# Registers the scheme classes so the tool config's `_neurox_class`
+# discriminators can resolve works-defined macro config / policy subclasses.
+import neurox.works  # noqa: F401
 from neurox.common import ConfigBase
 from neurox.primitive.macro.cim import CimMacroConfig, CimMacroPolicy
 from neurox.primitive.xbar.solver import NestedParallelRailSolverConfig, Solver
@@ -86,7 +89,8 @@ class CalibrateSolverNestedConfig(ConfigBase):
 
     ``cim_macro`` / ``cim_macro_policy`` are abstract-typed: the TOML selects
     the concrete scheme classes via ``_neurox_class`` (usually by
-    ``_neurox_use``-ing a registered chip params + all-off policy preset).
+    ``_neurox_use``-ing a scheme's chip params + all-off policy preset); this
+    module imports :mod:`neurox.works` so the discriminators resolve.
     """
 
     cim_macro: CimMacroConfig

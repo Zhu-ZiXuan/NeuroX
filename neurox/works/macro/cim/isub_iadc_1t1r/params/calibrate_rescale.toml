@@ -1,0 +1,40 @@
+# Run config for neurox.tools.calibrate_adc.rescale_fit on this scheme.
+#
+# Fits the per-(adc_mode, adc_bits) rescale_factor of the tile built from
+# params/default.toml under the all-off policy, via the dual
+# physical/ideal probed run. The fitted [[adc_calibration]] fragment is
+# pasted (nested under [cim_macro]) back into params/default.toml.
+#
+# Run from the repo root:
+#   python -m neurox.tools.calibrate_adc.rescale_fit \
+#     --config neurox/works/macro/cim/isub_iadc_1t1r/params/calibrate_rescale.toml \
+#     --device cuda:0 --output log/calibration/rescale_fragment.toml
+
+# Mode set emitted by calibrate_modes.toml (mode_derive --output); every
+# mode is fitted unless --modes selects a subset. Per mode, pairs with
+# |M_ideal| above the mode's range and top-code-saturated pairs are
+# excluded from the fit. The path resolves relative to this file
+# (params/ -> repo root is six levels up).
+modes_file = "../../../../../../log/calibration/adc_modes.toml"
+
+[macro]
+# Descending merge priority (first-wins deep merge; a geometry overlay
+# may precede the scheme default).
+config_files = ["default.toml"]
+config_section = "cim_macro"
+policy_file = "../policy/all_off.toml"
+policy_section = "policy"
+
+[stimulus]
+seed = 0
+# Ternary weight densities x binary WL drive densities; each combo runs
+# x_batch drive vectors against patterns_per_density fresh weight draws.
+# Deployment-representative operating region: dense BWN-like ternary
+# weights against SPARSE binary WL planes (a TTFS time-plane drives ~1/T
+# of the rows, T = 16, so per-phase drive density sits near 0.0625; the
+# 0.125 / 0.25 points cover denser planes). The fitted rescale then
+# weights the code region the deployment actually occupies.
+w_densities = [0.5, 1.0]
+x_densities = [0.0625, 0.125, 0.25]
+patterns_per_density = 2
+x_batch = 4

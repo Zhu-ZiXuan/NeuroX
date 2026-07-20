@@ -85,4 +85,4 @@ TODO (domain author): cite the adder-tree architecture and the PPA basis.
 
 - **Internals**: [accumulator internals](../../../internals/primitive/digital/accumulator.md)
 - **Validation**: TODO - validation artefact not yet written
-- **Configuration**: `neurox/digital/accumulator.py` (`AccumulatorConfig`)
+- **Configuration**: `neurox/primitive/digital/accumulator.py` (`AccumulatorConfig`)

@@ -131,6 +131,8 @@ nav:
     - Solver: reference/primitive/xbar/solver/README.md
     - 1T1R:
       - Cell: reference/primitive/xbar/cell/_1t1r/cell.md
+      - Detail cell: reference/primitive/xbar/cell/_1t1r/cell_detail.md
+      - Linear cell: reference/primitive/xbar/cell/_1t1r/cell_linear.md
       - Array: reference/primitive/xbar/array/_1t1r/array.md
 - Validation:
   - Overview: validation/README.md
@@ -232,7 +234,15 @@ nav:
     - Solver: internals/primitive/xbar/solver.md
     - 1T1R:
       - Cell: internals/primitive/xbar/cell/_1t1r/cell.md
+      - Detail cell: internals/primitive/xbar/cell/_1t1r/cell_detail.md
+      - Linear cell: internals/primitive/xbar/cell/_1t1r/cell_linear.md
       - Array: internals/primitive/xbar/array/_1t1r/array.md
+- Works:
+  - Overview: works/README.md
+  - isub_iadc_1t1r:
+    - Overview: works/macro/cim/isub_iadc_1t1r/README.md
+    - Tile reference: works/macro/cim/isub_iadc_1t1r/reference/macro.md
+    - Tile internals: works/macro/cim/isub_iadc_1t1r/internals/macro.md
 - Conventions:
   - Overview: conventions/README.md
   - Organizing principles: conventions/organizing_principles.md

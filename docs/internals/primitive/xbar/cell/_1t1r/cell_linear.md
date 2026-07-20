@@ -27,4 +27,4 @@ The branch solve is a handful of elementwise ops on chunk-shaped tensors — no 
 
 - **Reference**: [Linear cell](../../../../../reference/primitive/xbar/cell/_1t1r/cell_linear.md)
 - **Implementation**: `neurox/primitive/xbar/cell/_1t1r_linear.py`
-- **Tests**: `tests/primitive/xbar/test_cell_linear.py`, `tests/tools/test_cell_calibrate_linear.py`
+- **Tests**: `tests/primitive/xbar/test_cell_linear.py`, `tests/tools/test_calibrate_cell_linear.py`

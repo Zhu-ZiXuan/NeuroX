@@ -18,6 +18,9 @@ from typing import Any
 import torch
 from torch import Tensor
 
+# Registers the scheme classes so CimMacro.from_config / the config
+# `_neurox_class` discriminators can resolve works-defined subclasses.
+import neurox.works  # noqa: F401
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
 from neurox.primitive.xbar.array import XbarArray1t1r, XbarArray1t1rConfig, XbarArray1t1rPolicy
 from neurox.primitive.xbar.solver import Solver, SolverConfig

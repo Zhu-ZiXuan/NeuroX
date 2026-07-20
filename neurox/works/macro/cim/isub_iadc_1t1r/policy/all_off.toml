@@ -1,0 +1,92 @@
+# Nonideality-free ("all-off") policy for the simplified crossbar tile.
+#
+# Every per-source toggle on every owned ModuleBase block is false: the
+# kernel pure array (cell RRAM/NMOS), the macro-owned boundary drivers
+# (BL clamp, SL driver, shared boundary-clamp VoltageReference, WL DAC),
+# the kernel readout blocks (p/n mirrors, subtractor, SAR current ADC), and
+# the shared static CurrentReference source. This is the lossless baseline.
+#
+# Note the BL-clamp ideal limit: with all toggles off, R_out -> 0 recovers
+# the ideal constant-voltage clamp (V_BL = V_BLC exactly, zero clamp
+# dissipation). That R_out value lives in the config TOML
+# (params/default.toml), not here; point the config at an ideal
+# r_out__MOhm = 0.0 for the exact ideal limit (the default ships a small
+# positive clamp regulation residual for solver well-posedness).
+#
+# Pull with:
+#   [policy]
+#   _neurox_use = "policy/all_off.toml:policy"
+
+[policy]
+_neurox_class = "IsubIadc1t1rCimMacroPolicy"
+
+
+# --- Pure array (kernel XbarArray1t1r) ---
+[policy.array]
+
+# solve_chunk_size is a runtime memory knob, NOT a nonideality (load-bearing,
+# never disabled). 0 = whole-leading in one block (small tile); raise to bound
+# per-chunk peak memory on large workloads.
+solve_chunk_size = 0
+
+[policy.array.cell]
+_neurox_class = "XbarCell1t1rDetailPolicy"
+
+[policy.array.cell.rram]
+prog_gamma = false
+stuck_at = false
+read_telegraph = false
+read_thermal = false
+
+[policy.array.cell.nmos]
+A_vt_mismatch = false
+A_beta_mismatch = false
+
+
+# --- Boundary drivers + clamp reference (macro-owned peers of the array) ---
+[policy.bl_clamp]
+offset = false
+thermal = false
+
+[policy.sl_driver]
+offset = false
+thermal = false
+
+# Shared boundary-clamp voltage reference (BL V_BLC + SL ground taps).
+[policy.clamp_ref]
+tolerance = false
+noise = false
+
+[policy.wl_dac]
+_neurox_class = "GeneralVoltageDacPolicy"
+drive_thermal = false
+
+
+# --- Front-end mirror stage (generic CurrentMirror) ---
+[policy.p_mirror]
+mismatch = false
+
+
+# --- Back-end mirror stage (generic CurrentMirror) ---
+[policy.n_mirror]
+mismatch = false
+
+
+# --- Subtractor (generic CurrentSubtractor) ---
+[policy.subtractor]
+mismatch = false
+offset = false
+
+
+# --- ADC (SAR current-mode quantizer) ---
+[policy.adc]
+comparator_offset = false
+replica_threshold_variation = false
+mirror_mismatch = false
+coupling_mismatch = false
+
+
+# --- Reference (shared static neurox.primitive.analog.CurrentReference source) ---
+[policy.reference]
+tolerance = false
+noise = false

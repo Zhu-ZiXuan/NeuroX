@@ -21,6 +21,9 @@ from pathlib import Path
 import torch
 from torch import Tensor
 
+# Registers the scheme classes so CimMacroConfig.from_file / CimMacro.from_config
+# can resolve works-defined subclasses named by `_neurox_class`.
+import neurox.works  # noqa: F401
 from neurox.common.prober import AdcProber
 from neurox.primitive.analog.adc_common import AdcOperationPoint
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy

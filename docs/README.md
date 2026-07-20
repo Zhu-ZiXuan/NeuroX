@@ -10,6 +10,7 @@ Find a section by what you are doing:
 - [Validation](validation/README.md) — evidence the models are faithful and correctly implemented
 - [API](api/README.md) — Python API and config / policy schema
 - [Internals](internals/README.md) — how the codebase is built
+- [Works](works/README.md) — packaged literature-derived schemes, by circuit layer
 - [Conventions](conventions/README.md) — documentation and coding standards, notation, glossary
 - [Contributing](contributing/README.md) — doc-authoring guides, workflow, recipes
 - [About](about/README.md) — scope and limitations, citation
