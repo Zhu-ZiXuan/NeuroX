@@ -53,9 +53,9 @@ The integer exponent $N$ in $10^{-N}$ is the single source of truth for each can
 ## CLI usage
 
 ```bash
-python -m <scheme>.tools.macro_adc.statistic \
-    --config <scheme>/config/macro_adc_statistic.toml \
-    --plot-dir log/macro_adc/statistic/ \
+python -m <scheme>.tools.calibrate_adc.statistic \
+    --config <scheme>/config/calibrate_adc_statistic.toml \
+    --plot-dir log/calibrate_adc/statistic/ \
     --device cuda:0
 ```
 

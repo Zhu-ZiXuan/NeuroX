@@ -58,12 +58,11 @@ nav:
     - Overview: guides/algorithm_engineer/README.md
   - Calibration:
     - Overview: guides/calibration/README.md
+    - Generic ADC calibration: guides/calibration/calibrate_adc.md
     - ADC range probing: guides/calibration/adc_range_probing.md
     - ADC rescale: guides/calibration/adc_rescale.md
     - Solver iteration counts: guides/calibration/solver_iteration_counts.md
     - State map: guides/calibration/state_map.md
-  - TIA design:
-    - Overview: guides/tia_design/README.md
 - Reference:
   - Overview: reference/README.md
   - Nonideality: reference/primitive/nonideality.md

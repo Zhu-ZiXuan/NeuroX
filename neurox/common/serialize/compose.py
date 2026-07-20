@@ -61,6 +61,31 @@ def merge_dicts(*dicts: dict[str, Any], strict_type: bool = True) -> dict[str, A
     return merged
 
 
+# --- section lookup ---
+
+
+def _lookup_section(root: Mapping[str, Any], section: str) -> Any:
+    """Look up ``section`` in ``root``; a dotted name descends nested tables.
+
+    An exact top-level key wins; otherwise the name is split on ``.`` and
+    walked table by table, so ``"a.b.c"`` reaches the ``[a.b.c]`` TOML table.
+
+    Raises:
+        KeyError: A path segment is absent (or reached inside a non-table).
+    """
+    if section in root:
+        return root[section]
+    node: Any = root
+    for part in section.split("."):
+        if not isinstance(node, Mapping) or part not in node:
+            raise KeyError(
+                f"section {section!r} not found: segment {part!r} missing "
+                f"(available keys: {sorted(node) if isinstance(node, Mapping) else '<not a table>'})"
+            )
+        node = node[part]
+    return node
+
+
 # --- _neurox_use cross-file references ---
 
 
@@ -167,9 +192,10 @@ def _resolve_directive_branch(
     if path not in cache:
         cache[path] = dict_from_file(path)
     root = cache[path]
-    if section not in root:
-        raise KeyError(f"{directive} target section {section!r} not found in {path} (keys: {sorted(root)})")
-    target = root[section]
+    try:
+        target = _lookup_section(root, section)
+    except KeyError as exc:
+        raise KeyError(f"{directive} target in {path}: {exc.args[0]}") from None
     if not isinstance(target, Mapping):
         raise TypeError(f"{directive} target {value[directive]!r} must be a table, got {type(target).__name__}")
     resolved_fragment = _resolve_uses_in_value(
@@ -277,8 +303,8 @@ def resolve_uses(data: dict[str, Any], base_dir: Path) -> dict[str, Any]:
 
     ``_neurox_use = "<rel_path>:<section>"`` resolves the path relative to
     ``base_dir`` (the directory of the file containing the directive) and
-    pulls the named section from that file; inline keys override the
-    fragment. ``_neurox_use_preset`` follows the same merge semantics but
+    pulls the named section from that file (a dotted section name descends
+    nested tables); inline keys override the fragment. ``_neurox_use_preset`` follows the same merge semantics but
     resolves paths from ``neurox/presets/`` and forbids ``_neurox_use``
     inside the preset subtree.
 
@@ -310,9 +336,7 @@ def resolve_uses(data: dict[str, Any], base_dir: Path) -> dict[str, Any]:
 def _pluck_section(data: dict[str, Any], section: str | None) -> dict[str, Any]:
     if section is None:
         return data
-    if section not in data:
-        raise KeyError(f"Section '{section}' not found in config file (keys: {sorted(data)})")
-    sub = data[section]
+    sub = _lookup_section(data, section)
     if not isinstance(sub, dict):
         raise TypeError(f"Section '{section}' must be a table, got {type(sub).__name__}")
     return sub
@@ -333,7 +357,8 @@ def load_config_dict(
 
     Args:
         files: Config file paths, ordered by descending priority.
-        section: Optional top-level table name to extract from each file.
+        section: Optional table name to extract from each file; a dotted
+            name descends nested tables.
         encoding: YAML text encoding (ignored for TOML).
         strict_type: Reject dict/non-dict conflicts during merge.
 

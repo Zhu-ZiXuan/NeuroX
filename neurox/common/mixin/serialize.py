@@ -85,8 +85,8 @@ class SerializeMixin:
         Args:
             files: Config file paths (TOML or YAML), ordered by descending
                 priority — the first file wins a conflict.
-            section: Top-level table to pluck from each file; ``None`` takes the
-                file root.
+            section: Table to pluck from each file (a dotted name descends
+                nested tables); ``None`` takes the file root.
             encoding: YAML text encoding; ignored for TOML.
             strict_type: Reject a dict / non-dict conflict while merging.
 

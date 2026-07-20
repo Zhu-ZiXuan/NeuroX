@@ -75,9 +75,9 @@ mode = 0                         # operating-point index; 0 <= mode < cim_macro.
 ```
 
 ```bash
-python -m <scheme>.tools.macro_adc.calibrate \
-    --config <scheme>/config/macro_adc_calibrate.toml \
-    --plot log/macro_adc/calibrate/mode0.png \
+python -m <scheme>.tools.calibrate_adc.calibrate \
+    --config <scheme>/config/calibrate_adc_calibrate.toml \
+    --plot log/calibrate_adc/calibrate/mode0.png \
     --device cuda:0
 ```
 

@@ -21,8 +21,8 @@ def add_standard_args(
     *,
     device: bool = True,
     plot_dir: bool = False,
-    plot_file: bool = False,
     output_file: bool = False,
+    output_dir: bool = False,
 ) -> None:
     """Append the standard runtime / output flags to ``parser``.
 
@@ -31,8 +31,9 @@ def add_standard_args(
         device: Whether to add ``--device`` (default ``True``).
         plot_dir: Add a ``--plot-dir`` flag for tools that emit multiple
             PNGs into one directory.
-        plot_file: Add a ``--plot`` flag for tools that emit a single PNG.
         output_file: Add a ``--output`` flag for tools that emit a TOML.
+        output_dir: Add an ``--output-dir`` flag for tools that emit
+            multiple TOML fragments into one directory.
     """
     parser.add_argument("--config", type=Path, required=True, help="Tool-run TOML config path")
     if device:
@@ -49,19 +50,19 @@ def add_standard_args(
             default=None,
             help="Optional directory for plot PNGs",
         )
-    if plot_file:
-        parser.add_argument(
-            "--plot",
-            type=Path,
-            default=None,
-            help="Optional output PNG path",
-        )
     if output_file:
         parser.add_argument(
             "--output",
             type=Path,
             default=None,
             help="Optional output TOML path",
+        )
+    if output_dir:
+        parser.add_argument(
+            "--output-dir",
+            type=Path,
+            default=None,
+            help="Optional directory for emitted TOML fragments",
         )
     parser.add_argument(
         "--log-level",
