@@ -27,7 +27,10 @@ class GeneralVoltageDacConfig(VoltageDacConfig):
             codes.
         drive_thermal__V: Gaussian thermal noise σ [V] added to each
             output sample after LUT lookup.
-        energy_per_op__fJ: Dynamic energy per conversion operation.
+        energy_per_op__fJ: Dynamic energy per output charge/discharge
+            cycle (full interface-cap C*V^2); logged only for elements
+            whose nominal output is nonzero — a 0 V output delivers no
+            charge and logs zero.
         latency_per_op__ns: Per-conversion latency; multiplied by
             the runtime serial-op count at logging time.
     """
@@ -120,8 +123,9 @@ class GeneralVoltageDac(VoltageDac):
         Returns:
             Analog output voltage [V], same shape as ``code``.
         """
+        nominal__V = self.code_to_signal[code]
         signal = apply_gaussian(
-            self.code_to_signal[code],
+            nominal__V,
             self.config.drive_thermal__V,
             enabled=self.policy.drive_thermal,
         )
@@ -131,6 +135,9 @@ class GeneralVoltageDac(VoltageDac):
         # parallel structure is exactly ``inst_count`` — no extra
         # parallel trailing — so the divisor is ``self.inst_count``.
         serial_op_count = max(1, signal.numel() // max(self.inst_count, 1))
+        # Per-op driver-circuit energy: one constant per conversion op
+        # (the drive LOAD's capacitive cycling is billed by the load's
+        # owner, e.g. the array's WL wire + gate terms — not here).
         dynamic_energy__fJ = torch.full_like(signal, self.config.energy_per_op__fJ, dtype=torch.float32)
         latency__ns = torch.tensor(
             self.config.latency_per_op__ns * serial_op_count,

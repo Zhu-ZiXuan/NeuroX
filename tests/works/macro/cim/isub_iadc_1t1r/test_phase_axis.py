@@ -192,9 +192,7 @@ def test_inst_prefix_per_instance_decode(device: torch.device, n_inst: int) -> N
     w, x = _per_instance_patterns(n_inst)
     xbar.program(w.to(device))
     # Shape: [n_inst, row_num] -> [P, n_inst, row_num]   P left of the inst span
-    planes = masked_planes(
-        x.to(device), row_num=TINY_ROW_NUM, max_active_rows=TINY_ACTIVE_ROW_NUM, inst_rank=1
-    )
+    planes = masked_planes(x.to(device), row_num=TINY_ROW_NUM, max_active_rows=TINY_ACTIVE_ROW_NUM, inst_rank=1)
     with torch.no_grad():
         out = xbar.vec_mat_mul(planes, adc_operation_point=ADC_OP)
     assert tuple(out.shape) == (TINY_PHASE_NUM, n_inst, TINY_COL_NUM)
@@ -205,9 +203,7 @@ def test_inst_prefix_per_instance_decode(device: torch.device, n_inst: int) -> N
     # Batched leading rides left of the [..., P, inst, col] axes.
     xb = x.unsqueeze(0).expand(2, n_inst, TINY_ROW_NUM)
     # Shape: [2, n_inst, row_num] -> [2, P, n_inst, row_num]
-    planes_b = masked_planes(
-        xb.to(device), row_num=TINY_ROW_NUM, max_active_rows=TINY_ACTIVE_ROW_NUM, inst_rank=1
-    )
+    planes_b = masked_planes(xb.to(device), row_num=TINY_ROW_NUM, max_active_rows=TINY_ACTIVE_ROW_NUM, inst_rank=1)
     with torch.no_grad():
         outb = xbar.vec_mat_mul(planes_b, adc_operation_point=ADC_OP)
     assert tuple(outb.shape) == (2, TINY_PHASE_NUM, n_inst, TINY_COL_NUM)
@@ -258,10 +254,10 @@ def test_static_mismatch_shared_across_phases(device: torch.device) -> None:
     bit-identical too (no per-call draw).
     """
     xbar = _build_variant(device, all_static_mismatch=True)
-    # Real-device buffer shapes: trailing size-1 broadcast axis, NO phase axis.
-    assert tuple(xbar.p_mirror.ratio_mismatch.shape) == (2, xbar.n_lane, 1)
-    assert tuple(xbar.n_mirror.ratio_mismatch.shape) == (2, xbar.n_io, 1)
-    assert tuple(xbar.subtractor.ratio_mismatch.shape) == (xbar.n_io, 1)
+    # Real-device buffer shapes: native inst alignment, NO phase axis.
+    assert tuple(xbar.p_mirror.ratio_mismatch.shape) == (2, xbar.n_lane)
+    assert tuple(xbar.n_mirror.ratio_mismatch.shape) == (2, xbar.n_io)
+    assert tuple(xbar.subtractor.ratio_mismatch.shape) == (xbar.n_io,)
     assert not torch.equal(xbar.p_mirror.ratio_mismatch, torch.ones_like(xbar.p_mirror.ratio_mismatch))
 
     _program_plus_column(xbar)

@@ -6,7 +6,7 @@ See also:
 
 import math
 from dataclasses import dataclass
-from typing import TypeVar
+from typing import ClassVar, TypeVar
 
 import torch
 from torch import Tensor
@@ -44,7 +44,6 @@ class XbarArray1t1rConfig(XbarArrayConfig):
     """Shape-independent physical knobs for a 1T1R pure-array core.
 
     Attributes:
-        wl_pulse_length__ns: Word-line pulse length.
         row_first_space__um: Row pitch from the driver to the first cell.
         row_cell_space__um: Row pitch between adjacent cells.
         col_first_space__um: Column pitch from the driver to the first cell.
@@ -77,8 +76,6 @@ class XbarArray1t1rConfig(XbarArrayConfig):
             profiler attributes the dynamic-energy event to.
     """
 
-    wl_pulse_length__ns: float
-
     row_first_space__um: float
     row_cell_space__um: float
     col_first_space__um: float
@@ -108,7 +105,6 @@ class XbarArray1t1rConfig(XbarArrayConfig):
         self.validate()
 
     def validate(self) -> None:
-        self.validate_wl_pulse()
         self.validate_layout_pitch()
         self.validate_wire_segments()
         self.validate_ppa()
@@ -116,9 +112,6 @@ class XbarArray1t1rConfig(XbarArrayConfig):
     def validate_ppa(self) -> None:
         super().validate_ppa()
         self._require_non_neg(self.latency_per_op__ns, "latency_per_op__ns")
-
-    def validate_wl_pulse(self) -> None:
-        self._require_non_neg(self.wl_pulse_length__ns, "wl_pulse_length__ns")
 
     def validate_layout_pitch(self) -> None:
         for field in (
@@ -200,6 +193,9 @@ class XbarArraySteadyState:
 class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
     """Shape-independent 1T1R pure array: cells, wire parasitics, and solver."""
 
+    is_column_separable: ClassVar[bool] = True
+    """The DC solve is column-separable: WL is gate-only and carries no DC current, and BL and SL are both column-parallel wires, so columns share no current-carrying structure and callers may fold column serialization into the batch/column axis."""
+
     config: XbarArray1t1rConfig
     cell: XbarCell1t1r
     bl_segment_r__MOhm: Tensor
@@ -258,8 +254,6 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
 
         self.w_states = self.cell.w_states
 
-        self.c_wl_wire_per_row__fF = config.wl_first_c__fF + (phys_col_num - 1) * config.wl_segment_c__fF
-
         # Per-line segment buffers; index 0 is the driver-to-first segment.
         bl_segment_r__MOhm = torch.tensor(
             [config.bl_first_r__MOhm] + [config.bl_segment_r__MOhm] * (row_num - 1),
@@ -283,6 +277,11 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
         self.register_buffer("sl_segment_g__uS", 1.0 / sl_segment_r__MOhm, persistent=False)
         self.register_buffer("bl_segment_c__fF", bl_segment_c__fF, persistent=False)
         self.register_buffer("sl_segment_c__fF", sl_segment_c__fF, persistent=False)
+
+        # Per-row WL wire capacitance total (the WL runs along the column
+        # direction: one driver-to-first segment + phys_col_num - 1
+        # cell-to-cell segments per row).
+        self.c_wl_wire_per_row__fF = config.wl_first_c__fF + (phys_col_num - 1) * config.wl_segment_c__fF
 
         # This 1T1R grid is [..., col, row] with the wire ladder along the
         # last (row) axis → canonical series-last (series_axis = -1).
@@ -334,6 +333,7 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
         bl_v_ref__V: Tensor,
         sl_driver: ClampDriver[SLSnapT],
         sl_v_ref__V: Tensor,
+        t_conduct__ns: float,
     ) -> XbarArraySteadyState:
         """Settle the 1T1R array to DC under an analog WL drive.
 
@@ -350,6 +350,8 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
                 snapshotted once and broadcasts onto every chunk grid.
             sl_driver: SL boundary clamp (structural ``ClampDriver`` role).
             sl_v_ref__V: SL-drive reference tap, a 0-d scalar.
+            t_conduct__ns: Conduction window of one solved WL plane [ns]
+                — the time the DC-conduction energy term integrates over.
 
         Returns:
             :class:`XbarArraySteadyState` carrying the per-column BL port
@@ -422,6 +424,7 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
                 self._compute_array_energy__fJ(
                     solver_dcop=solver_dcop_chunk,
                     cell_snap=cell_snap,
+                    t_conduct__ns=t_conduct__ns,
                 )
             )
             i_bl_port_chunks.append(solver_dcop_chunk.i_bl_driver)
@@ -458,13 +461,16 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
         *,
         solver_dcop: SolverDcop[XbarCell1t1rDcop],
         cell_snap: XbarCell1t1rSnap,
+        t_conduct__ns: float,
     ) -> Tensor:
         """Per-VMM array-internal energy. Shape: [...batch...].
 
-        Sums the core-owned terms — DC conduction at the rail clamps plus
-        wire-segment (BL / SL) and WL-line capacitive cycling — with the
+        Sums the core-owned terms — DC conduction of the full
+        below-clamp sub-branch (V_BL -> GND) over the conduction window
+        plus wire-segment (BL / SL / WL) capacitive cycling — with the
         per-cell node-capacitance switching energy delegated to
-        :meth:`XbarCell.dynamic_energy`.
+        :meth:`XbarCell.dynamic_energy` (the cell computes, the array is
+        the sole logger).
 
         Args:
             solver_dcop: Inner array solver's converged DCOP, carrying the
@@ -472,24 +478,23 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
                 per-column port currents.
             cell_snap: Per-solve cell snap bundling the device
                 snaps and the WL control drive ``[..., 1, row_num]``.
+            t_conduct__ns: Conduction window of one solved WL plane [ns].
         """
 
-        # WL drive recovered from the cell snap; drop the WL-fanout
-        # slot so the WL-wire term sums to ``[...]``.
-        v_wl__V = cell_snap.v_wl__V.squeeze(-2)
         v_bl__V = solver_dcop.v_bl_node
         v_sl__V = solver_dcop.v_sl_node
         v_bl_clamp__V = solver_dcop.v_bl_clamp
         v_sl_drive__V = solver_dcop.v_sl_drive
-        pulse__ns = self.config.wl_pulse_length__ns
 
         # --- DC conduction ---
 
+        # The solver-solved BL port is the sole sanctioned branch split:
+        # the macro bills the (V_DD - V_BL) clamp segment, the array
+        # bills the whole sub-branch below it (V_BL -> GND: wires,
+        # cells, and the SL-driver sink segment) as V_BL * I_BL.
         # Shape: [..., phys_col_num] -> [...]
-        array_power__uW = (v_bl_clamp__V * solver_dcop.i_bl_driver).sum(dim=-1) + (
-            v_sl_drive__V * solver_dcop.i_sl_driver
-        ).sum(dim=-1)
-        e_dc_cond__fJ = array_power__uW * pulse__ns
+        array_power__uW = (v_bl_clamp__V * solver_dcop.i_bl_driver).sum(dim=-1)
+        e_dc_cond__fJ = array_power__uW * t_conduct__ns
 
         # --- Capacitive cycling ---
 
@@ -497,9 +502,6 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
         v_bl_left__V = torch.cat((v_bl_clamp__V.unsqueeze(-1), v_bl__V[..., :-1]), dim=-1)
         # Shape: [..., phys_col_num] -> [..., phys_col_num, row_num]
         v_sl_left__V = torch.cat((v_sl_drive__V.unsqueeze(-1), v_sl__V[..., :-1]), dim=-1)
-
-        # Shape: [..., row_num] -> [...]
-        e_wl_wire_cap__fJ = (self.c_wl_wire_per_row__fF * v_wl__V.square()).sum(dim=-1)
 
         # Shape: [..., phys_col_num, row_num] -> [...]
         bl_seg_q__V2 = (v_bl_left__V.square() + v_bl_left__V * v_bl__V + v_bl__V.square()) / 3.0
@@ -509,9 +511,14 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
         sl_seg_q__V2 = (v_sl_left__V.square() + v_sl_left__V * v_sl__V + v_sl__V.square()) / 3.0
         e_sl_wire_cap__fJ = (self.sl_segment_c__fF * sl_seg_q__V2).sum(dim=(-2, -1))
 
+        # WL wire: gate-only (no DC droop), driven flat at v_wl per row;
+        # full 0 -> DC -> 0 cycle per solved plane (held scan).
+        # Shape: [..., 1, row_num] -> [...]
+        e_wl_wire_cap__fJ = (self.c_wl_wire_per_row__fF * cell_snap.v_wl__V.square()).sum(dim=(-2, -1))
+
         # --- Per-cell node-capacitance switching energy ---
 
         # Shape: [..., phys_col_num, row_num] -> [...]
         e_cell__fJ = self.cell.dynamic_energy(v_bl__V, v_sl__V, solver_dcop.cell, cell_snap).sum(dim=(-2, -1))
 
-        return e_dc_cond__fJ + e_wl_wire_cap__fJ + e_bl_wire_cap__fJ + e_sl_wire_cap__fJ + e_cell__fJ
+        return e_dc_cond__fJ + e_bl_wire_cap__fJ + e_sl_wire_cap__fJ + e_wl_wire_cap__fJ + e_cell__fJ

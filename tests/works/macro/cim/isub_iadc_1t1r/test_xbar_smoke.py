@@ -21,10 +21,13 @@ batch into zero-masked WL planes (engine mask formula), runs
   * the VMM is deterministic under ``all_off``: a second call is bit-exact,
     and an independently rebuilt + refabricated tile reproduces the output,
   * a :class:`NeuroxProfiler` report shows per-module dynamic energy for the
-    forward reporters (``core`` + ``bl_adc``) plus the xbar-owned lumped
-    readout events, a separately-derived nonzero static leakage that
-    reconciles as ``leakage_power__uW x total_latency__ns``, and NO dynamic
-    event from the static-only shared CurrentReference.
+    forward reporters (``core``, ``bl_clamp``, ``subtractor``, ``bl_adc``)
+    plus the xbar-owned clamp-drop + seam-branch events, zero-valued
+    ``sl_driver`` (physical zero — direct ground tie) and ``wl_dac``
+    (driver-circuit seed zero; the WL LOAD caps are array-billed) events, a
+    separately-derived nonzero static leakage that reconciles as
+    ``leakage_power__uW x total_latency__ns``, and NO dynamic event from the
+    static-only shared CurrentReference.
 
 Runs eagerly (dynamo disabled) so the ``@torch.compile`` solver leaf is not
 unrolled — the whole test finishes in a few seconds.
@@ -60,12 +63,12 @@ _PHYS_COL_NUM = 2 * TINY_COL_NUM
 
 # Forward reporters, named as the xbar root's own traversal names them (the
 # SAR quantizer leaf is named ``bl_adc`` — the inner-ADC role). The kernel
-# mirrors / subtractor are pure transports that log nothing of their own; the
-# whole mirror-rail + bias-floor + subtractor-branch energy is logged by the
-# xbar itself (asserted separately). The shared CurrentReference is NOT here —
+# mirrors are pure transports that log nothing of their own; the three seam
+# branches and the clamp-side array-branch split are logged by the xbar
+# itself (asserted separately). The shared CurrentReference is NOT here —
 # it is a static-only source asserted on the static-leakage side instead.
-_FORWARD_REPORTER_NAMES = ("core", "bl_adc")
-_FORWARD_REPORTER_TYPES = ("XbarArray1t1r", "SarCurrentAdc")
+_FORWARD_REPORTER_NAMES = ("core", "bl_clamp", "subtractor", "bl_adc")
+_FORWARD_REPORTER_TYPES = ("XbarArray1t1r", "VoltageDriver", "CurrentSubtractor", "SarCurrentAdc")
 _REFERENCE_BLOCK_NAME = "reference"
 _REFERENCE_BLOCK_TYPE = "CurrentReference"
 
@@ -148,11 +151,20 @@ def test_xbar_end_to_end_smoke(device: torch.device) -> None:
         assert block_type in by_type, f"missing dynamic-energy type {block_type}; have {sorted(by_type)}"
         assert by_type[block_type] > 0.0
 
-    # The mirror-stage + subtractor dynamic energy is lumped onto the xbar
-    # itself (the kernel transports log none): strictly positive from the
-    # stage rails + bias floors + subtractor branches.
+    # The clamp-side array-branch split and the three whole seam branches are
+    # logged by the xbar itself (the kernel mirrors log none): strictly
+    # positive under conduction.
     xbar_owned__fJ = sum(e.dynamic_energy__fJ for e in report.energy_events if e.module is xbar)
     assert xbar_owned__fJ > 0.0, f"non-positive xbar-owned readout energy: {xbar_owned__fJ}"
+
+    # The SL driver's per-op interface energy is a physical zero (direct
+    # ground tie): its events exist but carry no energy.
+    assert by_name.get("sl_driver", 0.0) == 0.0
+
+    # The WL DAC bills only its own driver-circuit energy (seeded zero);
+    # the WL LOAD caps (wire + gates) are array-billed, so the array's
+    # ``core`` energy above carries them and the DAC events are zero.
+    assert by_name.get("wl_dac", 0.0) == 0.0
 
     # The shared CurrentReference is static-only: no dynamic event at all.
     assert _REFERENCE_BLOCK_NAME not in by_name

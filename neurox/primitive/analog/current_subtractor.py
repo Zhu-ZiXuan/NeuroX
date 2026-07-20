@@ -5,7 +5,6 @@ See also:
 """
 
 from dataclasses import dataclass
-from typing import ClassVar
 
 import torch
 from torch import Tensor
@@ -25,6 +24,11 @@ class CurrentSubtractorConfig(AnalogConfig):
             exact unit ratio.
         offset_sigma__uA: σ of the static per-instance sign-comparator
             input-referred current offset [uA]; ``0`` leaves a zero offset.
+        v_rail__V: Supply rail the three internal replica branches
+            (I_pos copy, I_neg copy, I_sub formation) conduct across.
+        area_per_inst__um2: Silicon area per fabricated instance.
+        leakage_per_inst__uW: Static leakage per instance; carries
+            all standing bias of the replica branches and comparator.
     """
 
     # --- Subtraction gain ---
@@ -36,12 +40,21 @@ class CurrentSubtractorConfig(AnalogConfig):
     # --- Sign-comparator offset ---
     offset_sigma__uA: float
 
+    # --- Internal replica rail ---
+    v_rail__V: float
+
+    # --- Static PPA ---
+    area_per_inst__um2: float
+    leakage_per_inst__uW: float
+
     def __post_init__(self) -> None:
         self.validate()
 
     def validate(self) -> None:
         self.validate_gain()
         self.validate_sigmas()
+        self.validate_rail()
+        self.validate_ppa()
 
     def validate_gain(self) -> None:
         self._require_pos(self.gain, "gain")
@@ -49,6 +62,13 @@ class CurrentSubtractorConfig(AnalogConfig):
     def validate_sigmas(self) -> None:
         self._require_non_neg(self.mismatch_sigma_relative, "mismatch_sigma_relative")
         self._require_non_neg(self.offset_sigma__uA, "offset_sigma__uA")
+
+    def validate_rail(self) -> None:
+        self._require_non_neg(self.v_rail__V, "v_rail__V")
+
+    def validate_ppa(self) -> None:
+        self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
+        self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
 
 
 @dataclass(frozen=True)
@@ -79,6 +99,13 @@ class CurrentSubtractor(AnalogBase[CurrentSubtractorConfig, CurrentSubtractorPol
     additive input-referred offset (σ ``offset_sigma__uA``), both fixed at
     fabrication and off unless their policy toggle is on.
 
+    Energy accounting: the block self-bills its three generic internal replica
+    branches — the I_pos copy, the I_neg copy, and the I_sub formation — each
+    conducting from ``v_rail__V`` to ground for the conduction window. Its
+    input-sampling branch is billed upstream (the mirror-stage seam) and its
+    output-delivery branch downstream (the composing macro); it re-bills
+    neither.
+
     Args:
         config: Concrete configuration dataclass.
         policy: Per-source nonideality enable flags.
@@ -86,9 +113,6 @@ class CurrentSubtractor(AnalogBase[CurrentSubtractorConfig, CurrentSubtractorPol
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature.
     """
-
-    # Non-reporter: embedded primitive whose static PPA rolls up to the owning block.
-    is_profile_target: ClassVar[bool] = False
 
     ratio_mismatch: Tensor
     offset__uA: Tensor
@@ -103,6 +127,10 @@ class CurrentSubtractor(AnalogBase[CurrentSubtractorConfig, CurrentSubtractorPol
         T__K: float,
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
+
+        self._area_per_inst__um2 = config.area_per_inst__um2
+        self._leakage_per_inst__uW = config.leakage_per_inst__uW
+
         self.dtype = dtype
         self.T__K = T__K
 
@@ -141,7 +169,9 @@ class CurrentSubtractor(AnalogBase[CurrentSubtractorConfig, CurrentSubtractorPol
             enabled=self.policy.offset,
         )
 
-    def subtract(self, i_a__uA: Tensor, i_b__uA: Tensor) -> tuple[Tensor, Tensor]:
+    def subtract(
+        self, i_a__uA: Tensor, i_b__uA: Tensor, *, t_conduct__ns: float
+    ) -> tuple[Tensor, Tensor]:
         """Emit the gained magnitude and sign of the two legs' current difference.
 
         Scales the subtracted ``i_b`` leg by the static per-instance ratio (unit
@@ -149,9 +179,19 @@ class CurrentSubtractor(AnalogBase[CurrentSubtractorConfig, CurrentSubtractorPol
         (zero when ``offset`` is off) before taking the gained absolute
         difference.
 
+        Self-bills one dynamic-energy event per call: the three internal
+        replica branches — the I_pos copy (raw ``i_a`` magnitude), the I_neg
+        copy (mismatch-scaled ``i_b`` magnitude), and the I_sub formation
+        (output magnitude) — each conduct rail-to-ground from ``v_rail__V``
+        for ``t_conduct__ns``. The input-sampling branch is billed upstream
+        (the mirror-stage seam) and the output-delivery branch downstream
+        (the composing macro); neither is re-billed here.
+
         Args:
             i_a__uA: Added leg current, shape ``(*leading, *inst_shape)``.
             i_b__uA: Subtracted leg current, same shape as ``i_a__uA``.
+            t_conduct__ns: Conduction window of the internal replica
+                branches for this call.
 
         Returns:
             Tuple ``(i_diff__uA, sign)`` of the non-negative magnitude
@@ -159,7 +199,12 @@ class CurrentSubtractor(AnalogBase[CurrentSubtractorConfig, CurrentSubtractorPol
             direction bit ``sign`` (``True`` where the subtracted leg dominates),
             both shaped like the inputs.
         """
-        delta__uA = i_a__uA - self.ratio_mismatch * i_b__uA + self.offset__uA
+        i_neg__uA = self.ratio_mismatch * i_b__uA
+        delta__uA = i_a__uA - i_neg__uA + self.offset__uA
         i_diff__uA = self.config.gain * delta__uA.abs()  # physical unipolar magnitude
         sign = delta__uA < 0  # True => i_b leg dominates
+
+        # Three intra-block replica branches, each V_rail x I x t; uA * ns * V = fJ.
+        e__fJ = self.config.v_rail__V * t_conduct__ns * (i_a__uA + i_neg__uA + i_diff__uA)
+        self._log_dynamic_energy(e__fJ)
         return i_diff__uA, sign

@@ -2,9 +2,9 @@
 
 The two mirror stages are column-MUX time-shared kernel
 :class:`~neurox.primitive.analog.CurrentMirror` blocks whose fabricated
-buffers live at the REAL device count with a trailing size-1 broadcast axis
-(the reshape-broadcast sharing trick): front-end ``(2, n_lane, 1)`` against a
-``[..., 2, n_lane, col/n_lane]`` forward tensor, back-end ``(2, n_io, 1)``.
+buffers live at the REAL device count: front-end ``(2, n_lane)``, back-end
+``(2, n_io)``; the serial column axes of the forward tensors ride the
+broadcast leading.
 P and N polarities conduct through separate devices and must carry
 INDEPENDENT static mismatch draws. This suite builds the full tile at the
 tiny overlay geometry (``n_lane = 2``, ``n_io = 1``) and asserts:
@@ -99,9 +99,13 @@ def _probe_chain(xbar: IsubIadc1t1rCimMacro) -> tuple[Tensor, Tensor]:
 
     with torch.no_grad():
         steady = array_read(xbar, x)
-        i_pol = steady.i_bl_port__uA.unflatten(-1, (xbar.col_num, 2)).movedim(-1, -2)
-        i_lane = xbar._split_col_lanes(i_pol, col_per_lane=xbar.config.mux_factor)
-        i_wdl = xbar.p_mirror.replicate(i_lane)
+        i_lane = (
+            steady.i_bl_port__uA.unflatten(-1, (xbar.col_num, 2))
+            .movedim(-1, -2)
+            .unflatten(-1, (xbar.n_lane, xbar.config.mux_factor))
+            .movedim(-1, 0)
+        )
+        i_wdl = xbar.p_mirror.replicate(i_lane)  # [mux, ..., 2, n_lane]
     i_sub, _sign = probe_i_sub(xbar, x)
     return i_wdl, i_sub
 
@@ -148,10 +152,10 @@ def test_mismatch_perturbs_chain_and_repeats(device: torch.device) -> None:
 
     on = _build(device, p_sigma=_SIGMA, n_sigma=_SIGMA, p_mismatch=True, n_mismatch=True, seed=20200709)
 
-    # The fabricated buffers live at the REAL shared device shape (trailing
-    # size-1 broadcast axis) and depart from unity.
-    assert tuple(on.p_mirror.ratio_mismatch.shape) == (2, on.n_lane, 1)
-    assert tuple(on.n_mirror.ratio_mismatch.shape) == (2, on.n_io, 1)
+    # The fabricated buffers live at the REAL shared device shape and depart
+    # from unity.
+    assert tuple(on.p_mirror.ratio_mismatch.shape) == (2, on.n_lane)
+    assert tuple(on.n_mirror.ratio_mismatch.shape) == (2, on.n_io)
     assert not torch.equal(on.p_mirror.ratio_mismatch, torch.ones_like(on.p_mirror.ratio_mismatch))
     assert not torch.equal(on.n_mirror.ratio_mismatch, torch.ones_like(on.n_mirror.ratio_mismatch))
 
@@ -178,14 +182,14 @@ def test_p_and_n_mismatch_independent(device: torch.device) -> None:
     on = _build(device, p_sigma=_SIGMA, n_sigma=_SIGMA, p_mismatch=True, n_mismatch=True, seed=20200709)
 
     # Within each stage: the leading polarity axis carries independent draws.
-    p_buf = on.p_mirror.ratio_mismatch  # (2, n_lane = 2, 1)
-    n_buf = on.n_mirror.ratio_mismatch  # (2, n_io = 1, 1)
+    p_buf = on.p_mirror.ratio_mismatch  # (2, n_lane = 2)
+    n_buf = on.n_mirror.ratio_mismatch  # (2, n_io = 1)
     assert not torch.equal(p_buf[0], p_buf[1]), "P and N front-end devices must draw independently"
     assert not torch.equal(n_buf[0], n_buf[1]), "P and N back-end devices must draw independently"
 
     # Across stages: the front-end and back-end draws are independent
     # (compare the first lane of each polarity against the back-end device).
-    assert not torch.equal(p_buf[:, :1, :], n_buf)
+    assert not torch.equal(p_buf[:, :1], n_buf)
 
     # Enabling only the p-stage leaves the n-stage at the exact unit ratio.
     p_only = _build(device, p_sigma=_SIGMA, n_sigma=_SIGMA, p_mismatch=True, n_mismatch=False, seed=20200709)

@@ -12,11 +12,10 @@ stages, one :class:`~neurox.primitive.analog.CurrentSubtractor`, and the
 :class:`~neurox.primitive.analog.SarCurrentAdc` quantizer against a shared
 static :class:`~neurox.primitive.analog.CurrentReference` threshold source.
 All of the readout is folded directly into
-:meth:`IsubIadc1t1rCimMacro.vec_mat_mul`; there is no separate readout object
-and no scheme-specific circuit class. In the read-out chain of the provenance
-paper (Xue et al., JSSC 2020) the BL clamp sits at the CABLC slot, the two
-mirror stages at the DSWCT and combiner slots, and the subtractor at the
-PN-ISUB slot; here they are the bare generic kernel blocks.
+:meth:`IsubIadc1t1rCimMacro.vec_mat_mul`. In the read-out chain of the
+provenance paper (Xue et al., JSSC 2020) the BL clamp sits at the CABLC slot,
+the two mirror stages at the DSWCT and combiner slots, and the subtractor at
+the PN-ISUB slot; here they are the bare generic kernel blocks.
 
 Column layout: each logical ternary weight (one output column) maps to **2
 physical columns** — a P (positive) and an N (negative) column — so
@@ -25,65 +24,42 @@ the N cell, ``0`` neither. The signed difference and the sign bit are
 recovered by the current subtractor; the magnitude is quantized by the SAR
 current ADC against the shared CurrentReference mid-point thresholds.
 
-End-to-end orchestration (one independent conversion per WL plane; the
-planes arrive pre-expanded from the caller — the macro performs no phase
-expansion of its own, and any serial axis, e.g. the engine's sub-phase
-axis, rides the anonymous broadcast leading through every stage below, so
-the profiler's serial-op accounting picks up its factor automatically):
+Orchestration (one independent conversion per WL plane; planes arrive
+pre-expanded, every leading axis of ``x`` is anonymous broadcast batch): the
+WL DAC drives the planes, the array settles once at full leading (FLAT solve,
+the existing chunking bounds memory), and the post-solve readout regroups the
+BL currents by polarity / MUX lane / CIM-IO with the column-serial axes moved
+to the broadcast leading — so every readout block operates at its native
+fabricated ``inst_shape`` (static mismatch shared across the serial axes and
+the caller's planes, per-call draws at full shape) — then p-mirror ->
+n-mirror -> subtractor -> ADC recovers the signed-magnitude codes, reassembled
+to the caller's order with primitive trailing ``[col_num]``. No in-macro
+accumulation and no phase axis of the macro's own.
 
-1. The WL DAC converts the batched WL planes to the analog WL drive;
-   the boundary-clamp reference is snapshotted once per VMM and its two taps
-   feed the BL clamp + SL drive; ``core.solve_array`` settles the array once
-   for the batched planes and returns the per-physical-column BL current per
-   plane. The macro then logs its own array-side terms — the
-   ``(V_DD - V_BL) * I_BL`` clamp-transistor drop and the full-swing CMD
-   precharge — as the owner of the supply rail and the boundary clamp.
-2. Split the BL currents into the P / N polarity groups and regroup by
-   front-end MUX lane (``_split_col_lanes``).
-3. ``p_mirror.replicate`` applies the front-end ``1/k`` down-scale.
-4. Regroup by CIM-IO (``_split_col_lanes``); ``n_mirror.replicate`` applies
-   the back-end normalization.
-5. ``subtractor.subtract`` produces the sign bit and
-   ``I_SUB = |I_DL_P - I_DL_N|``, cancelling the common HRS leakage.
-6. ``bl_adc.convert`` quantizes ``I_SUB`` to the ``n_bits`` unsigned magnitude
-   against the shared :class:`~neurox.primitive.analog.CurrentReference`
-   mid-point thresholds (a static source; the ADC reads its own config copy).
-7. Assemble the signed-magnitude codes, keeping the leading order
-   preserved, with primitive trailing ``[col_num]``; there is NO in-macro
-   accumulation and no phase axis of the macro's own — any accumulation of
-   leading axes is the caller's digital-domain decision.
+Sharing granularity: the boundary clamp and the readout blocks are column-MUX
+time-shared, so their fabricated ``inst_shape`` carries the REAL device count
+(front-end ``(2, n_lane)``, back-end ``(2, n_io)``, subtractor / ADC
+``(n_io,)``). The BL clamp keeps a trailing size-1 broadcast axis and reaches
+the flat array solve through the :class:`_LaneGroupedClamp` adapter; the
+post-solve blocks need no broadcast axis — their serial columns ride the
+leading.
 
-Mismatch granularity (the reshape-broadcast sharing trick): the boundary
-clamp and the readout blocks are column-MUX time-shared, so their fabricated
-buffers live at the REAL device count and broadcast onto the forward tensors
-purely via a trailing size-1 axis. ``inst_shape = (*prefix, 2, n_lane, 1)``
-gives ``inst_count = 2 * n_lane`` (the correct device count — P and N conduct
-simultaneously through separate devices) and its buffer broadcasts against a
-``[..., 2, n_lane, cols_per_lane]`` forward tensor, so every column a device
-time-serves shares that device's single static draw while P and N carry
-independent mismatch. The BL clamp reaches the pure array through the
-:class:`_LaneGroupedClamp` adapter, which draws its snapshot at the grouped
-view and regroups to the flat physical-column order the solver needs. No
-gather indices, no wrapper circuit classes. Any caller serial axis (the
-engine's sub-phase axis) sits anonymously in the broadcast leading, so static
-mismatch is shared across the planes (the same physical devices serve every
-plane) while per-call snapshot noise draws independently per plane
-(full-shape sampling).
-
-Accounting ownership (no double-count): the pure array self-logs its internal
-terms (rail-clamp DC conduction, wire / WL capacitive cycling, per-cell
-switching) and the array latency; the macro — owner of the supply rail, the
-boundary clamp, and the CMD interface node — logs the
-``(V_DD - V_BL) * I_BL`` clamp-transistor drop plus the full-swing CMD
-precharge once per solved WL plane; the mirror INPUT-leg conduction is that
-same clamp-drop term, so the kernel mirrors and the subtractor are pure
-transports that log nothing; the macro owns the two mirror-stage output rails
-+ bias floors and the subtractor internal/output branches (logged once per
-WL PLANE — bias flows in every plane — in
-:meth:`IsubIadc1t1rCimMacro.vec_mat_mul`); the ADC self-logs its conversion.
-The bare kernel mirrors / subtractor are non-reporters whose static PPA rolls
-up into the macro's lumped ``leakage_per_inst__uW`` / ``area_per_inst__um2``;
-the CurrentReference is static-only (PPA leakage, no forward path).
+Accounting ownership (the seam / intra-block law): the energy atom is one
+rail-to-GND branch, ``E = V_rail * I_branch * t``. Intra-block branches are
+self-billed by the owning block: the pure array bills its internal terms
+(cell-side DC conduction, wire / cell capacitive cycling) and the subtractor
+its three internal replica branches; the ADC bills its per-step switching
+constant; the WL DAC and BL clamp bill their interface-node charge as per-op
+energy. The array branch at the solver-solved ``V_BL`` node is the single
+split branch: the array bills the cell side ``V_BL * I_BL`` and the macro —
+the rail owner — bills the clamp side ``(V_DD - V_BL) * I_BL``. The three
+inter-stage seam branches (p-mirror output, n-mirror output, subtractor
+output delivery) are billed WHOLE by the macro at ``V_DD * I * t_conduct``,
+once each. The conduction window ``t_conduct__ns`` of the no-S&H chain is
+derived from the ADC per-step latencies. The bare kernel mirrors are pure
+transports; their static PPA rolls up into the macro's lumped
+``leakage_per_inst__uW`` / ``area_per_inst__um2``. The CurrentReference is
+static-only (PPA leakage, no forward path).
 """
 
 from __future__ import annotations
@@ -220,20 +196,26 @@ class IsubIadc1t1rCimMacroConfig(CimMacroConfig):
             whole CIM-IO: the n-mirror device count is ``2 * n_io``, the
             subtractor and the ADC count ``n_io`` (one per IO, consuming both
             polarities), with ``n_io = col_num // io_col_num``. ``col_num``
-            must divide exactly by ``io_col_num`` (the CIM-IO regrouping is an
-            exact reshape). The shared CurrentReference source is one per
-            tile, not per IO.
+            must divide exactly by ``io_col_num``, and ``io_col_num`` by
+            ``mux_factor`` (each IO contains whole mux lanes; the lane-to-IO
+            regroup is an exact reshape). The shared CurrentReference source
+            is one per tile, not per IO.
         adc_calibration: Externally-calibrated ``(adc_mode, adc_bits) ->
             rescale_factor`` records; ``M_ideal ~= code * rescale_factor``.
             Lists the set of ADC operating points the tile supports.
         array_config: Owned kernel pure-array config (cell array + wire
             parasitics + solver). Excludes the boundary drivers / DAC /
             reference, which are macro-owned peers of the array.
-        wl_dac_config: WL 1-bit ON/OFF DAC configuration.
+        wl_dac_config: WL 1-bit ON/OFF DAC configuration. Its
+            ``energy_per_op__fJ`` carries only the driver circuit's own
+            conversion energy; the WL load caps (wire + gates) are
+            array-billed from the array's own geometry.
         bl_clamp_config: BL current-aware clamp configuration — a generic
             :class:`~neurox.primitive.analog.VoltageDriver`. It does not
             self-hold ``V_BLC``; the macro injects the clamp reference per
             ``snapshot`` from the shared ``clamp_ref_config`` source (tap 0).
+            Its ``energy_per_op__fJ`` carries the full ``C * V_DD**2``
+            charge/discharge cycle of the per-column CMD interface node.
         sl_driver_config: SL ideal-clamp driver configuration. Like the BL
             clamp it receives its reference per call from ``clamp_ref_config``
             (tap 1), not from its own config.
@@ -245,51 +227,33 @@ class IsubIadc1t1rCimMacroConfig(CimMacroConfig):
             chunk bit-exactness).
         p_mirror_config: Front-end mirror-stage config — the generic
             :class:`~neurox.primitive.analog.CurrentMirror` applying the
-            global ``1/k`` down-scale (``mirror_ratio = 0.25``). A
-            non-reporter: its silicon rolls up into the macro's lumped static
-            PPA; its rail drop / bias floor are the macro-level
-            ``p_mirror_v_drop__V`` / ``p_mirror_bias__uA``.
+            global ``1/k`` down-scale. A non-reporter pure transport: its
+            silicon rolls up into the macro's lumped static PPA; its output
+            seam branch is billed whole by the macro.
         n_mirror_config: Back-end mirror-stage config — the combiner
-            normalization (``mirror_ratio = 0.25``), same roll-up rules as
+            normalization, same roll-up and seam-billing rules as
             ``p_mirror_config``.
         subtractor_config: Kernel
             :class:`~neurox.primitive.analog.CurrentSubtractor` config (unit
-            gain). Non-reporter; its energy branches are the macro-level
-            ``sub_*`` knobs below.
+            gain). A reporter: it self-holds its static PPA and self-bills
+            its internal replica branches per :meth:`subtract` call. Its
+            ``v_rail__V`` must equal the tile's ``v_dd__V`` (pinned by
+            :meth:`validate_supply`).
         adc_config: SAR current-ADC quantizer config. Its per-mode
             ``ref_levels__uA`` ladders must equal the CurrentReference tap
             rows mode for mode — the shared CurrentReference source is the
             single source of truth (pinned by
-            :meth:`validate_ref_consistency`).
+            :meth:`validate_ref_consistency`). Its ``step_latency__ns``
+            entries also derive the tile's conduction window
+            :attr:`t_conduct__ns`.
         reference_config: Shared
             :class:`~neurox.primitive.analog.CurrentReference` config — the
             static per-mode current-reference tap rows (the mid-point ADC
             threshold ladders, one row per ADC operating mode), the single
             source of truth.
         v_dd__V: Supply-rail voltage [V]. The macro is the rail owner: it
-            sets the ``(V_DD - V_BL) * I_BL`` clamp-transistor dissipation
-            the macro accounts for, and the full-swing CMD precharge level.
-        c_cmd_per_col__fF: Per-BL CMD precharge node capacitance [fF] — the
-            BL → readout-front-end interface node the macro precharges to
-            ``V_DD`` each solved WL plane. Single owner (macro-owned, not
-            duplicated on the array side).
-        p_mirror_v_drop__V: Front-end mirror output-leg rail drop [V] the
-            down-scaled current is drawn across; sets the p-stage
-            data-dependent rail energy and the bias-floor energy.
-        p_mirror_bias__uA: Front-end fixed mirror-bias overdrive floor [uA] —
-            overhead current billed at the macro level once per (WL plane,
-            logical column); bias flows in every plane.
-        n_mirror_v_drop__V: Back-end mirror output-leg rail drop [V].
-        n_mirror_bias__uA: Back-end fixed mirror-bias overdrive floor [uA].
-        sub_v_drop_int__V: Subtractor internal-replica rail drop [V] the
-            internal mirror branches conduct full-rail across.
-        sub_v_drop_out__V: Subtractor output drop [V] delivering ``I_SUB`` to
-            the ADC input.
-        sub_n_hc_copy: Count of ``I_HC`` sink replica branches inside the
-            subtractor — a topology-derived structural count, not a free knob.
-        readout_t_phase__ns: Readout-stage active time [ns] (the mirror /
-            subtractor conduction window) scaling every macro-owned readout
-            energy term.
+            bills the ``(V_DD - V_BL) * I_BL`` clamp-side split of the array
+            branch and the three whole readout seam branches at this rail.
         readout_latency_per_op__ns: Readout-chain per-op latency [ns], logged
             at the macro level scaled by the back-end serial op count (batch
             — including any caller plane serialization — and per-IO
@@ -297,9 +261,9 @@ class IsubIadc1t1rCimMacroConfig(CimMacroConfig):
             adds its own step latency).
         area_per_inst__um2: Macro-owned silicon area per fabricated tile
             instance [um²] — lumped Control infrastructure plus the
-            non-reporter blocks (p/n mirrors, subtractor). Excludes the owned
-            reporter children (array / boundary drivers / ADC / references),
-            which roll up separately.
+            non-reporter blocks (p/n mirrors). Excludes the owned reporter
+            children (array / boundary drivers / subtractor / ADC /
+            references), which roll up separately.
         leakage_per_inst__uW: Macro-owned static leakage per fabricated tile
             instance [uW] — same lump scope as ``area_per_inst__um2``. The
             value is geometry-DEPENDENT (it folds device counts at this tile's
@@ -326,25 +290,26 @@ class IsubIadc1t1rCimMacroConfig(CimMacroConfig):
     adc_config: SarCurrentAdcConfig
     reference_config: CurrentReferenceConfig
 
-    # --- Macro-owned array-side accounting knobs (rail owner) ---
+    # --- Macro-owned accounting (rail owner) ---
     v_dd__V: float
-    c_cmd_per_col__fF: float
-
-    # --- Macro-owned readout accounting knobs ---
-    p_mirror_v_drop__V: float
-    p_mirror_bias__uA: float
-    n_mirror_v_drop__V: float
-    n_mirror_bias__uA: float
-    sub_v_drop_int__V: float
-    sub_v_drop_out__V: float
-    sub_n_hc_copy: float
-    readout_t_phase__ns: float
     readout_latency_per_op__ns: float
 
     @property
     def phys_col_num(self) -> int:
         """Physical column count — ``2 * col_num`` (P/N polarity pair per output)."""
         return _PHYS_PER_COL * self.col_num
+
+    @property
+    def t_conduct__ns(self) -> float:
+        """Conduction window of one solved WL plane [ns] — ``sum(adc_config.step_latency__ns)``.
+
+        The chain has no sample-and-hold, so the array DC conduction, the
+        clamp-side drop, the seam branches, and the subtractor's internal
+        branches all conduct for the whole per-conversion sensing window.
+        Single-sourced from the ADC per-step latencies, it auto-scales with
+        the binary-search depth (``n_bits``).
+        """
+        return sum(self.adc_config.step_latency__ns)
 
     def n_lane(self) -> int:
         """Real physical lane count for the per-MUX-lane front-end, per polarity.
@@ -393,24 +358,27 @@ class IsubIadc1t1rCimMacroConfig(CimMacroConfig):
                 f"require: col_num ({self.col_num}) % io_col_num ({self.io_col_num}) == 0 — "
                 "the CIM-IO regrouping is an exact reshape"
             )
+        # The physical mux tree of one lane is contained in one CIM-IO, so
+        # each IO must hold whole lanes.
+        if self.io_col_num % self.mux_factor != 0:
+            raise ValueError(
+                f"require: io_col_num ({self.io_col_num}) % mux_factor ({self.mux_factor}) == 0 — "
+                "the lane-to-IO regroup is an exact reshape (each IO contains whole mux lanes)"
+            )
 
     def validate_supply(self) -> None:
         self._require_non_neg(self.v_dd__V, "v_dd__V")
-        self._require_non_neg(self.c_cmd_per_col__fF, "c_cmd_per_col__fF")
+        # The subtractor's internal replica branches conduct from the tile's
+        # supply rail; a diverging copy would silently bill a different rail.
+        if self.subtractor_config.v_rail__V != self.v_dd__V:
+            raise ValueError(
+                f"require: subtractor_config.v_rail__V ({self.subtractor_config.v_rail__V}) == "
+                f"v_dd__V ({self.v_dd__V}) — the subtractor's internal branches conduct from the "
+                "tile's supply rail"
+            )
 
     def validate_accounting(self) -> None:
-        for field in (
-            "p_mirror_v_drop__V",
-            "p_mirror_bias__uA",
-            "n_mirror_v_drop__V",
-            "n_mirror_bias__uA",
-            "sub_v_drop_int__V",
-            "sub_v_drop_out__V",
-            "sub_n_hc_copy",
-            "readout_t_phase__ns",
-            "readout_latency_per_op__ns",
-        ):
-            self._require_non_neg(getattr(self, field), field)
+        self._require_non_neg(self.readout_latency_per_op__ns, "readout_latency_per_op__ns")
 
     def validate_adc_calibration(self) -> None:
         if len(self.adc_calibration) == 0:
@@ -542,6 +510,7 @@ class IsubIadc1t1rCimMacro(CimMacro):
     """
 
     config: IsubIadc1t1rCimMacroConfig
+    policy: IsubIadc1t1rCimMacroPolicy
 
     def __init__(
         self,
@@ -582,12 +551,12 @@ class IsubIadc1t1rCimMacro(CimMacro):
         # CABLC) is a column-MUX time-shared front-end lane, one per
         # mux_factor LOGICAL columns per polarity: its fabricated inst_shape
         # carries the REAL device count (2 * n_lane) with a trailing size-1
-        # axis (the reshape-broadcast sharing trick), and it reaches the
-        # array through the _LaneGroupedClamp adapter. The SL driver clamps
-        # every physical column; the clamp reference is a global-scalar
-        # source (inst_shape=()) snapshotted once per VMM, its two ordered
-        # taps feeding [BL clamp, SL drive] — one reference per tile,
-        # mirroring the per-tile CurrentReference shared by the ADCs.
+        # broadcast axis, because it enters the FLAT array solve through the
+        # _LaneGroupedClamp adapter. The SL driver clamps every physical
+        # column; the clamp reference is a global-scalar source
+        # (inst_shape=()) snapshotted once per VMM, its two ordered taps
+        # feeding [BL clamp, SL drive] — one reference per tile, mirroring
+        # the per-tile CurrentReference shared by the ADCs.
         self.wl_dac = VoltageDac.from_config(
             config=config.wl_dac_config,
             policy=policy.wl_dac,
@@ -619,51 +588,44 @@ class IsubIadc1t1rCimMacro(CimMacro):
         )
 
         # --- Readout blocks: column-MUX time-shared, NOT per-column ---
-        # The fabricated inst_shape carries the REAL device count with a
-        # trailing size-1 axis, so each block's static-mismatch buffer
-        # broadcasts onto its regrouped forward tensor (the reshape-broadcast
-        # sharing trick, see the module docstring): front-end
-        # (*prefix, 2, n_lane, 1) against [..., *prefix, 2, n_lane,
-        # col/n_lane], back-end (*prefix, 2, n_io, 1) against
-        # [..., *prefix, 2, n_io, col/n_io], subtractor / ADC
-        # (*prefix, n_io, 1) against [..., *prefix, n_io, col/n_io].
-        # The leading ``...`` (the caller's serial axes, e.g. the engine's
-        # sub-phase axis, ride there anonymously) sits LEFT of the inst
-        # prefix, so the right-aligned buffers never collide with it: the
-        # same physical devices serve every plane, so static draws are
-        # shared across planes. P and N polarities carry independent
-        # mismatch. The mirrors and the subtractor are non-reporters — their
-        # static PPA is the macro's lump — so no _area_per_inst__um2 /
-        # _leakage_per_inst__uW is set on them.
+        # Each block is fabricated at its REAL device count. The post-solve
+        # readout in vec_mat_mul moves the column-serial axes (mux slot,
+        # lanes-per-IO) to the anonymous broadcast leading, so every forward
+        # tensor right-aligns with these native inst shapes: static draws
+        # are shared across the serial axes and the caller's planes, while
+        # per-call draws sample at full shape. P and N polarities carry
+        # independent mismatch. The mirrors are non-reporters — their static
+        # PPA is the macro's lump — so no _area_per_inst__um2 /
+        # _leakage_per_inst__uW is set on them; the subtractor and the ADC
+        # are reporters and self-hold theirs.
         self.p_mirror = CurrentMirror(
             config=config.p_mirror_config,
             policy=policy.p_mirror,
-            inst_shape=(*prefix, _POLARITY_NUM, self.n_lane, 1),
+            inst_shape=(*prefix, _POLARITY_NUM, self.n_lane),
             dtype=dtype,
             T__K=T__K,
         )
         self.n_mirror = CurrentMirror(
             config=config.n_mirror_config,
             policy=policy.n_mirror,
-            inst_shape=(*prefix, _POLARITY_NUM, self.n_io, 1),
+            inst_shape=(*prefix, _POLARITY_NUM, self.n_io),
             dtype=dtype,
             T__K=T__K,
         )
         self.subtractor = CurrentSubtractor(
             config=config.subtractor_config,
             policy=policy.subtractor,
-            inst_shape=(*prefix, self.n_io, 1),
+            inst_shape=(*prefix, self.n_io),
             dtype=dtype,
             T__K=T__K,
         )
-        # The ADC's static offset buffers live at inst_shape, so the same
-        # trailing size-1 pattern holds its per-IO offsets constant across the
-        # columns each IO time-serves (its internal column->lane gather is the
-        # identity within the lane axis). Reporter: self-holds its static PPA.
+        # The ADC's forward tensor carries exactly n_io trailing positions,
+        # matching inst_shape, so its internal column-to-lane gather is the
+        # identity. Reporter: self-holds its static PPA.
         self.bl_adc = SarCurrentAdc(
             config=config.adc_config,
             policy=policy.adc,
-            inst_shape=(*prefix, self.n_io, 1),
+            inst_shape=(*prefix, self.n_io),
             dtype=dtype,
             T__K=T__K,
         )
@@ -784,23 +746,27 @@ class IsubIadc1t1rCimMacro(CimMacro):
     def vec_mat_mul(self, x: Tensor, *, adc_operation_point: AdcOperationPoint) -> Tensor:
         """Run one independent conversion per WL plane through the array and readout chain.
 
-        Converts the WL DAC once at full leading, settles the array once
-        for the batched planes, splits the BL currents into the P / N
-        polarity groups, and runs the p-mirror -> n-mirror -> subtractor ->
-        ADC chain per plane to recover the signed-magnitude codes. Every
-        leading axis of ``x`` is anonymous broadcast batch (the engine's
-        sub-phase axis rides there): one batched DC solve (the existing
-        chunking bounds memory), static mismatch shared across planes,
-        per-call snapshot noise drawn per plane, and every
+        Converts the WL DAC once at full leading, settles the array once for
+        the batched planes (FLAT solve; the existing chunking bounds memory),
+        then regroups the BL currents for the readout chain with the column
+        index law ``c = (io * lanes_per_io + lane_in_io) * mux_factor + slot``
+        (``lanes_per_io = io_col_num // mux_factor``): polarity split, then
+        the mux-slot and lanes-per-IO serial axes move to the broadcast
+        leading so p-mirror / n-mirror / subtractor / ADC each operate at
+        their native fabricated ``inst_shape`` — static mismatch broadcasts
+        over the serial axes and the caller's planes, per-call draws sample
+        at full shape. Every leading axis of ``x`` is anonymous broadcast
+        batch (the engine's sub-phase axis rides there); every
         ``serial_op_count = numel // inst_count`` accounting picks up the
-        plane factor automatically. The pure array and the ADC self-emit
-        their own profiler events; the shared CurrentReference is
-        static-only (no forward path, no dynamic event). This method
-        additionally logs the macro-owned terms once per solved WL plane
-        (bias flows in every plane; the kernel mirrors / subtractor own
-        nothing): the array-side clamp drop + CMD precharge, the two
-        mirror-stage rail + bias-floor energies, the subtractor branch
-        energies, and the readout-chain latency.
+        plane and column-serial factors automatically.
+
+        Billing: the pure array, the drivers, the subtractor, and the ADC
+        self-emit their own events; the macro adds the clamp-side split of
+        the array branch (:meth:`_log_array_side_block`) and the three whole
+        seam branches plus the readout latency (:meth:`_log_readout_block`),
+        all over the derived conduction window
+        :attr:`IsubIadc1t1rCimMacroConfig.t_conduct__ns`. The shared
+        CurrentReference is static-only (no forward path, no dynamic event).
 
         Compile-path: yes (via the macro entry). The bottleneck DC solve is
         compiled one layer down inside :meth:`XbarArray1t1r.solve_array`'s
@@ -825,19 +791,17 @@ class IsubIadc1t1rCimMacro(CimMacro):
             accumulation and no phase axis of the macro's own.
         """
         cfg = self.config
+        t_conduct__ns = cfg.t_conduct__ns
 
         # --- 1. Boundary drive + array steady state per plane ---
         # The WL DAC converts at the weight-grid full leading (per-instance
-        # draws + per-op energy counted once), matching the array's
-        # broadcast; the leading ``...`` of ``x`` carries the caller's
-        # serial axes (the engine's sub-phase axis) anonymously. Shape
-        # comments below write the inst-alignment span as *inst; it is
-        # empty at inst_shape = (). The boundary-clamp reference is
-        # snapshotted ONCE per VMM (so the per-read noise is common across
-        # every chunk, preserving chunk bit-exactness); its taps are 0-d
-        # scalars that broadcast onto any per-column grid: tap 0 = BL clamp
-        # V_BLC, tap 1 = SL drive. The BL clamp reaches the array through
-        # the lane-grouped adapter (see _LaneGroupedClamp).
+        # draws + per-op energy counted once per row per plane). The
+        # boundary-clamp reference is snapshotted ONCE per VMM (so the
+        # per-read noise is common across every chunk, preserving chunk
+        # bit-exactness); its taps are 0-d scalars that broadcast onto any
+        # per-column grid: tap 0 = BL clamp V_BLC, tap 1 = SL drive. The BL
+        # clamp reaches the array through the lane-grouped adapter (see
+        # _LaneGroupedClamp).
         _phys_col_num, row_num = self.core.weight_grid_shape[-2:]
         leading = torch.broadcast_shapes(self.core.weight_grid_shape, x.unsqueeze(-2).shape)[:-2]
         v_wl = self.wl_dac.convert(x.expand(*leading, row_num))
@@ -848,34 +812,40 @@ class IsubIadc1t1rCimMacro(CimMacro):
             bl_v_ref__V=clamp_taps[0],
             sl_driver=self.sl_driver,
             sl_v_ref__V=clamp_taps[1],
+            t_conduct__ns=t_conduct__ns,
         )
-        i_bl = steady.i_bl_port__uA  # [..., *inst, 2 * col_num]
+        i_bl = steady.i_bl_port__uA  # [..., 2 * col_num]
 
-        # --- 2. Macro-owned array-side terms, once per solved WL plane ---
+        # --- 2. Macro-owned clamp-side split of the array branch ---
         self._log_array_side_block(steady.v_bl_clamp__V, i_bl)
 
-        # --- 3. Split polarity, regroup by front-end MUX lane ---
-        # Physical 2c = P, 2c+1 = N; the [..., *inst] leading rides:
-        # [..., 2*col] -> [..., col, 2] -> [..., 2, col] ->
-        # [..., 2, n_lane, mux_factor].
-        i_pol = i_bl.unflatten(-1, (self.col_num, _POLARITY_NUM)).movedim(-1, -2)
-        i_lane = self._split_col_lanes(i_pol, col_per_lane=cfg.mux_factor)
+        # --- 3. Post-solve regroup: polarity split, serial axes to leading ---
+        # Column index law: c = (io * lanes_per_io + lane_in_io) * mux_factor
+        # + slot. Physical 2c = P, 2c+1 = N. Shapes:
+        # [..., 2*col] -> [..., col, 2] -> [..., 2, col]
+        # -> [..., 2, n_lane, mux] -> [mux, ..., 2, n_lane].
+        lanes_per_io = cfg.io_col_num // cfg.mux_factor
+        i_lane = (
+            i_bl.unflatten(-1, (self.col_num, _POLARITY_NUM))
+            .movedim(-1, -2)
+            .unflatten(-1, (self.n_lane, cfg.mux_factor))
+            .movedim(-1, 0)
+        )
 
         # --- 4. Front-end mirror stage: global 1/k down-scale ---
-        # Pure ratio-copy transport (no energy or time on the kernel mirror);
-        # the mirror INPUT-leg conduction is the macro-owned clamp-drop term,
-        # so it is not re-counted. The static ratio mismatch broadcasts from
-        # (*prefix, 2, n_lane, 1).
-        i_wdl = self.p_mirror.replicate(i_lane)
+        i_wdl = self.p_mirror.replicate(i_lane)  # [mux, ..., 2, n_lane]
 
         # --- 5. Regroup by CIM-IO; back-end mirror stage: normalization ---
-        i_io = self._split_col_lanes(i_wdl.flatten(-2, -1), col_per_lane=cfg.io_col_num)
-        i_dl = self.n_mirror.replicate(i_io)  # [..., *inst, 2, n_io, col/n_io]
+        # [mux, ..., 2, n_lane] -> [mux, ..., 2, n_io, lanes_per_io]
+        # -> [lpi, mux, ..., 2, n_io].
+        i_io = i_wdl.unflatten(-1, (self.n_io, lanes_per_io)).movedim(-1, 0)
+        i_dl = self.n_mirror.replicate(i_io)
 
         # --- 6. Subtractor: sign bit + |I_DL_P - I_DL_N| per logical column ---
-        i_dl_p = i_dl[..., 0, :, :]  # [..., *inst, n_io, col/n_io]
-        i_dl_n = i_dl[..., 1, :, :]
-        i_sub, sign = self.subtractor.subtract(i_dl_p, i_dl_n)
+        # Self-bills its internal replica branches over the conduction window.
+        i_dl_p = i_dl[..., 0, :]  # [lpi, mux, ..., n_io]
+        i_dl_n = i_dl[..., 1, :]
+        i_sub, sign = self.subtractor.subtract(i_dl_p, i_dl_n, t_conduct__ns=t_conduct__ns)
 
         # --- 7. ADC: n_bits unsigned magnitude against the Reference thresholds ---
         # The shared CurrentReference is a static source (no forward path);
@@ -883,140 +853,80 @@ class IsubIadc1t1rCimMacro(CimMacro):
         # CurrentReference taps by validate_ref_consistency).
         magnitude = self.bl_adc.convert(i_sub, adc_operation_point=adc_operation_point)
 
-        # --- 8. Assemble the signed-magnitude codes ---
+        # --- 8. Macro-owned seam branches + readout latency, once per plane ---
+        self._log_readout_block(i_wdl__uA=i_wdl, i_dl__uA=i_dl, i_sub__uA=i_sub)
+
+        # --- 9. Assemble the signed-magnitude codes ---
         sign_factor = 1 - 2 * sign.long()  # +1 (P >= N) / -1 (N dominates)
-        codes = (sign_factor * magnitude).flatten(-2, -1)  # [..., *inst, col_num]
-
-        # --- 9. Macro-owned readout accounting, once per WL plane ---
-        self._log_readout_block(
-            i_wdl__uA=i_wdl,
-            i_dl__uA=i_dl,
-            i_dl_p__uA=i_dl_p,
-            i_dl_n__uA=i_dl_n,
-            i_sub__uA=i_sub,
-        )
-
-        return codes
+        codes = sign_factor * magnitude  # [lpi, mux, ..., n_io]
+        # Serial axes back to trailing, then flatten by the column index law:
+        # [lpi, mux, ..., n_io] -> [..., n_io, lpi, mux] -> [..., col_num].
+        return codes.movedim(0, -1).movedim(0, -1).flatten(-3)
 
     def _log_array_side_block(self, v_bl_clamp__V: Tensor, i_bl__uA: Tensor) -> None:
-        """Emit the macro-owned array-side terms once per solved WL plane.
+        """Emit the clamp-side split of the array branch, once per solved WL plane.
 
-        The macro is the supply-rail and boundary-clamp owner, so two terms
-        the pure array cannot see are billed here, both per solved WL plane
-        (each leading batch element — the caller's plane serialization rides
-        the input tensors' leading anonymously):
-
-        - ``e_clamp_drop``: the ``(V_DD - V_BL) * I_BL`` clamp-transistor
-          dissipation — the current-aware clamp pulls ``I_BL`` from the
-          ``V_DD`` rail down to ``V_BL``, so the array's cell-side
-          ``V_BL * I_BL`` plus this clamp-side term together account for the
-          true rail draw ``V_DD * I_BL``. Data-dependent. This is also the
-          mirror INPUT-leg conduction, so the front-end mirror bills no
-          input term of its own.
-        - ``e_cmd_precharge``: the full-swing CMD precharge — the per-BL
-          CMD interface node is precharged to ``V_DD`` at each read-cycle
-          start, a data-independent constant
-          ``0.5 * c_cmd_per_col__fF * V_DD**2`` summed over the physical
-          columns.
-
-        The clamp feedback's static bias is NOT a per-op dynamic term here —
-        it is folded into the BL clamp's ``leakage_per_inst__uW`` share (the
-        :class:`~neurox.primitive.analog.VoltageDriver` clamp owns no
-        dynamic energy).
+        The array branch is the single branch split across owners, at the
+        solver-solved ``V_BL`` node: the pure array bills the cell side
+        ``V_BL * I_BL`` and the macro — the supply-rail and boundary-clamp
+        owner — bills the clamp side ``(V_DD - V_BL) * I_BL`` here, over the
+        conduction window, so the two terms together account for the true
+        rail draw ``V_DD * I_BL``. Data-dependent; this is also the p-mirror
+        INPUT-leg conduction, so the front-end seam bills no input term. The
+        clamp feedback's static bias lives in the BL clamp's
+        ``leakage_per_inst__uW``; the CMD interface-node charge is the BL
+        clamp's per-op ``energy_per_op__fJ``, self-logged at snapshot.
 
         Args:
             v_bl_clamp__V: Converged BL clamp voltage per physical column,
                 shape ``[..., phys_col_num]``.
             i_bl__uA: BL port current per physical column, same shape.
         """
-        v_dd__V = self.config.v_dd__V
-        pulse__ns = self.config.array_config.wl_pulse_length__ns
+        cfg = self.config
         # Shape: [..., phys_col_num] -> [...]
-        e_clamp_drop__fJ = ((v_dd__V - v_bl_clamp__V) * i_bl__uA).sum(dim=-1) * pulse__ns
-        e_cmd_precharge__fJ = 0.5 * self.config.c_cmd_per_col__fF * v_dd__V * v_dd__V * i_bl__uA.shape[-1]
-        self._log_dynamic_energy(e_clamp_drop__fJ + torch.full_like(e_clamp_drop__fJ, e_cmd_precharge__fJ))
+        e_clamp_drop__fJ = ((cfg.v_dd__V - v_bl_clamp__V) * i_bl__uA).sum(dim=-1) * cfg.t_conduct__ns
+        self._log_dynamic_energy(e_clamp_drop__fJ)
 
-    def _log_readout_block(
-        self,
-        *,
-        i_wdl__uA: Tensor,
-        i_dl__uA: Tensor,
-        i_dl_p__uA: Tensor,
-        i_dl_n__uA: Tensor,
-        i_sub__uA: Tensor,
-    ) -> None:
-        """Emit the macro-owned readout terms once per WL plane.
+    def _log_readout_block(self, *, i_wdl__uA: Tensor, i_dl__uA: Tensor, i_sub__uA: Tensor) -> None:
+        """Emit the three whole seam branches + the readout latency, once per WL plane.
 
-        The kernel mirrors and the subtractor are pure transports with no
-        energy or time. The OWNER logs, once per WL plane (the caller's
-        plane serialization rides the input tensors' leading, so every term
-        — data-dependent rails AND the per-op bias / replica floors, which
-        physically flow in every plane — bills per plane automatically):
-        each mirror stage's
-        output-leg rail energy ``V_drop * |i_out| * t_phase`` plus its per-op
-        bias floor, and the subtractor's two branch terms
-        (count-output-not-input: only the currents the subtractor drives —
-        the internal replica branches and the ``I_SUB`` delivery; its input
-        path receives the mirror-stage output, billed above). The
-        readout-chain latency is one event over the serial op count of the
-        owning back-end stage's devices (``n_io`` semantics, matching the
-        ADC's denominator).
+        The three inter-stage seam branches — the p-mirror output feeding the
+        n-mirror, the n-mirror output feeding the subtractor, and the
+        subtractor output delivering ``I_SUB`` to the ADC — each conduct
+        rail-to-ground and are billed WHOLE by the composing macro, once
+        each: ``E = V_DD * t_conduct * (sum|I_WDL| + sum|I_DL| + sum I_SUB)``.
+        The blocks' intra-branch terms are self-billed (the subtractor's
+        replica branches, the ADC's switching constant); the p-mirror input
+        leg is the clamp-side array-branch split
+        (:meth:`_log_array_side_block`). The readout-chain latency is one
+        event over the serial op count of the owning back-end stage's
+        devices (the subtractor's ``inst_count``, ``n_io`` semantics,
+        matching the ADC's denominator).
 
         Args:
-            i_wdl__uA: Front-end mirror output ``[..., *inst, 2, n_lane,
-                col/n_lane]``; its magnitude sets the p-stage rail energy.
-            i_dl__uA: Back-end mirror output ``[..., *inst, 2, n_io,
-                col/n_io]``; its magnitude sets the n-stage rail energy.
-            i_dl_p__uA: P-polarity data-line current ``[..., *inst, n_io,
-                col/n_io]`` entering the subtractor.
-            i_dl_n__uA: N-polarity data-line current, same shape.
+            i_wdl__uA: Front-end mirror output ``[mux, ..., 2, n_lane]``.
+            i_dl__uA: Back-end mirror output ``[lpi, mux, ..., 2, n_io]``.
             i_sub__uA: Subtractor output magnitude ``|I_DL_P - I_DL_N|``,
-                same shape; sets the output-delivery energy and, over the
-                subtractor's device ``inst_count``, the serial-op latency
-                multiplier.
+                ``[lpi, mux, ..., n_io]``; also sets, over the subtractor's
+                device ``inst_count``, the serial-op latency multiplier.
         """
         cfg = self.config
-        t_phase__ns = cfg.readout_t_phase__ns
 
-        # --- Mirror-stage rail energies + per-op bias floors ---
-        # Data term: each stage's down-scaled output current draws V_drop over
-        # t_phase on its output rail; the polarity axis reduces and the lane /
-        # IO grouping flattens to the [..., *inst, col_num] per-plane
-        # shape. Bias floor: one constant per (instance, plane, logical
-        # column), broadcast to the same shape (the profiler .sum()-reduces).
-        i_wdl_col__uA = i_wdl__uA.abs().sum(dim=-3).flatten(-2, -1)  # [..., *inst, col_num]
-        i_dl_col__uA = i_dl__uA.abs().sum(dim=-3).flatten(-2, -1)  # [..., *inst, col_num]
-        e_p__fJ = cfg.p_mirror_v_drop__V * t_phase__ns * i_wdl_col__uA + torch.full_like(
-            i_wdl_col__uA, cfg.p_mirror_v_drop__V * cfg.p_mirror_bias__uA * t_phase__ns
+        # Reduce the macro-internal axes (leading serial mux / lanes-per-IO,
+        # trailing polarity / device) so the event tensor keeps the caller's
+        # leading batch shape.
+        i_seam__uA = (
+            i_wdl__uA.abs().sum(dim=(0, -2, -1))
+            + i_dl__uA.abs().sum(dim=(0, 1, -2, -1))
+            + i_sub__uA.sum(dim=(0, 1, -1))
         )
-        e_n__fJ = cfg.n_mirror_v_drop__V * t_phase__ns * i_dl_col__uA + torch.full_like(
-            i_dl_col__uA, cfg.n_mirror_v_drop__V * cfg.n_mirror_bias__uA * t_phase__ns
-        )
-        self._log_dynamic_energy(e_p__fJ + e_n__fJ)
-
-        # --- Subtractor branches (count-output-not-input) ---
-        # e_int: the internal replica branches — ~sub_n_hc_copy copies of I_HC
-        # sunk full-rail (an ALWAYS-ON floor that persists at MACV ~ 0 where
-        # I_SUB -> 0 but I_HC stays full), plus the I_LC copy and the internal
-        # I_SUB copy. e_out: the output replica delivering I_SUB to the ADC
-        # input. The subtractor input path receives the mirror-stage output
-        # and is billed by the n-stage term above, so it is not re-billed.
-        i_hc__uA = torch.maximum(i_dl_p__uA, i_dl_n__uA)
-        i_lc__uA = torch.minimum(i_dl_p__uA, i_dl_n__uA)
-        i_sub_path__uA = i_hc__uA - i_lc__uA  # = |I_DL_P - I_DL_N|, >= 0
-        e_int__fJ = (
-            t_phase__ns
-            * cfg.sub_v_drop_int__V
-            * (cfg.sub_n_hc_copy * i_hc__uA + i_lc__uA + i_sub_path__uA).sum(dim=(-2, -1))
-        )
-        e_out__fJ = t_phase__ns * cfg.sub_v_drop_out__V * i_sub__uA.sum(dim=(-2, -1))
-        self._log_dynamic_energy(e_int__fJ + e_out__fJ)
+        self._log_dynamic_energy(cfg.v_dd__V * cfg.t_conduct__ns * i_seam__uA)
 
         # --- Readout-chain latency: per-op time over the serial op count ---
         # The parallel divisor is the OWNING back-end stage's device count
         # (the subtractor's inst_count, n_io semantics — matching the ADC's
         # denominator), NOT the macro tile inst_count: each back-end device
-        # serially serves its col/n_io columns in every plane, so the batch
+        # serially serves its io_col_num columns in every plane, so the batch
         # (including the caller's plane serialization) and column-serial
         # factors remain in the multiplier.
         serial_op_count = max(1, i_sub__uA.numel() // max(self.subtractor.inst_count, 1))

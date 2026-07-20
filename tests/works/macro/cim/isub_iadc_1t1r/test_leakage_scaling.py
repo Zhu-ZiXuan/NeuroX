@@ -4,20 +4,23 @@ The readout circuits are column-MUX time-multiplexed, so every reporter's
 static leakage must equal its GENUINE per-circuit ``leakage_per_inst__uW``
 times the REAL shared instance count derived from the geometry (never the raw
 column count), and the profiler's static total must equal the sum of the
-per-reporter products. The kernel mirrors / subtractor are non-reporters:
-their silicon is the xbar's lumped ``leakage_per_inst__uW``, whose breakdown
-is pinned against the TOML derivation comment:
+per-reporter products. The kernel mirrors are non-reporters: their silicon is
+the xbar's lumped ``leakage_per_inst__uW``, whose breakdown is pinned against
+the TOML derivation comment:
 
     lump = Control 187.25 + p-stage 32 x 4.609375 + n-stage 8 x 12.825
-         + subtractor 4 x 5.450625 = 459.1525 uW   (at the canonical tile)
+         = 437.35 uW   (at the canonical tile)
+
+The subtractor is a reporter with its own per-circuit seed (5.450625 uW,
+counted at ``n_io``).
 
 Asserts, at the canonical geometry (col_num = 256 -> n_lane = 16, n_io = 4):
 
   (a) each reporter's collected leakage == per-inst x inst_count with the
       geometry-derived counts (core (pure array) x1, bl_clamp x 2*n_lane,
-      sl_driver x phys_col, adc x n_io, reference x1, macro lump x1);
-  (b) the non-reporters (p/n mirrors, subtractor, cell) are ABSENT from the
-      static walk;
+      sl_driver x phys_col, subtractor x n_io, adc x n_io, reference x1,
+      macro lump x1);
+  (b) the non-reporters (p/n mirrors, cell) are ABSENT from the static walk;
   (c) the profiler total == the sum of the TOML-seeded breakdown;
 
 and, across geometries (col_num = 64 / 128 / 256 by frozen-dataclass replace,
@@ -26,8 +29,8 @@ clamping):
 
   (d) the per-circuit config seeds are byte-identical (geometry-independent)
       while the counts scale with the real lane / IO derivation — bl_clamp
-      with ``2 * (col_num // mux_factor)``, the ADC with ``n_io`` — and the
-      shared reference count stays 1.
+      with ``2 * (col_num // mux_factor)``, the subtractor and the ADC with
+      ``n_io`` — and the shared reference count stays 1.
 
 CPU-only; the static walk needs no forward pass, so this is millisecond-fast
 apart from the builds.
@@ -57,15 +60,10 @@ from tests.works.macro.cim.isub_iadc_1t1r._utils import (
 _CONTROL__uW = 187.25
 _P_STAGE_PER_DEVICE__uW = 4.609375
 _N_STAGE_PER_DEVICE__uW = 12.825
-_SUB_PER_DEVICE__uW = 5.450625
+_SUB_PER_DEVICE__uW = 5.450625  # reporter seed on subtractor_config, NOT in the lump
 _N_LANE = 16
 _N_IO = 4
-_LUMP__uW = (
-    _CONTROL__uW
-    + 2 * _N_LANE * _P_STAGE_PER_DEVICE__uW
-    + 2 * _N_IO * _N_STAGE_PER_DEVICE__uW
-    + _N_IO * _SUB_PER_DEVICE__uW
-)
+_LUMP__uW = _CONTROL__uW + 2 * _N_LANE * _P_STAGE_PER_DEVICE__uW + 2 * _N_IO * _N_STAGE_PER_DEVICE__uW
 # Genuine per-circuit reporter seeds. The Reference seed carries the 31-tap
 # (5-bit) replica-bank scaling of the paper's 7-tap share:
 # 151.97625 x 31 / 7 uW.
@@ -128,18 +126,25 @@ def test_static_totals_match_toml_breakdown() -> None:
     assert xbar.sl_driver.inst_count == phys_col
     assert leak["clamp_ref"] == pytest.approx(0.0)
     assert leak["wl_dac"] == pytest.approx(0.0)
+    assert xbar.subtractor.inst_count == xbar.n_io == _N_IO
+    assert leak["subtractor"] == pytest.approx(_SUB_PER_DEVICE__uW * xbar.n_io)
     assert xbar.bl_adc.inst_count == xbar.n_io == _N_IO
     assert leak["bl_adc"] == pytest.approx(_ADC_PER_INST__uW * xbar.n_io)
     assert xbar.reference.inst_count == 1
     assert leak["reference"] == pytest.approx(_REFERENCE_PER_INST__uW * 1)
 
     # --- (b) non-reporters are absent from the static walk (rolled up) ---
-    for non_reporter in ("p_mirror", "n_mirror", "subtractor", "core.cell"):
+    for non_reporter in ("p_mirror", "n_mirror", "core.cell"):
         assert non_reporter not in leak, f"non-reporter {non_reporter} leaked into the static walk"
 
     # --- (c) the profiler total equals the breakdown sum ---
     expected_total__uW = (
-        _LUMP__uW + _CORE__uW + _CABLC_PER_INST__uW * n_cablc + _ADC_PER_INST__uW * xbar.n_io + _REFERENCE_PER_INST__uW
+        _LUMP__uW
+        + _CORE__uW
+        + _CABLC_PER_INST__uW * n_cablc
+        + _SUB_PER_DEVICE__uW * xbar.n_io
+        + _ADC_PER_INST__uW * xbar.n_io
+        + _REFERENCE_PER_INST__uW
     )
     total__uW = NeuroxProfiler.analyze_static(xbar).leakage_power__uW
     assert total__uW == pytest.approx(sum(leak.values()))
@@ -164,6 +169,7 @@ def test_leakage_scales_with_real_shared_instance_count() -> None:
         cfg = xbar.config
         # (d) the per-circuit seeds are byte-identical across geometries.
         assert cfg.bl_clamp_config.leakage_per_inst__uW == _CABLC_PER_INST__uW
+        assert cfg.subtractor_config.leakage_per_inst__uW == _SUB_PER_DEVICE__uW
         assert cfg.adc_config.leakage_per_inst__uW == _ADC_PER_INST__uW
         assert cfg.reference_config.leakage_per_inst__uW == _REFERENCE_PER_INST__uW
 
@@ -171,6 +177,8 @@ def test_leakage_scales_with_real_shared_instance_count() -> None:
         n_cablc = 2 * (cfg.col_num // cfg.mux_factor)
         assert xbar.bl_clamp.inst_count == n_cablc
         assert leak["bl_clamp"] == pytest.approx(_CABLC_PER_INST__uW * n_cablc)
+        assert xbar.subtractor.inst_count == xbar.n_io
+        assert leak["subtractor"] == pytest.approx(_SUB_PER_DEVICE__uW * xbar.n_io)
         assert xbar.bl_adc.inst_count == xbar.n_io
         assert leak["bl_adc"] == pytest.approx(_ADC_PER_INST__uW * xbar.n_io)
         # The shared reference is one per tile at EVERY geometry.
@@ -180,4 +188,5 @@ def test_leakage_scales_with_real_shared_instance_count() -> None:
     # The scaling is lane / IO derived, never the raw 4x column growth.
     assert _static_by_name(mid)["bl_clamp"] == pytest.approx(2 * _static_by_name(small)["bl_clamp"])
     assert _static_by_name(full)["bl_clamp"] == pytest.approx(4 * _static_by_name(small)["bl_clamp"])
+    assert _static_by_name(full)["subtractor"] == pytest.approx(4 * _static_by_name(small)["subtractor"])
     assert _static_by_name(full)["bl_adc"] == pytest.approx(4 * _static_by_name(small)["bl_adc"])

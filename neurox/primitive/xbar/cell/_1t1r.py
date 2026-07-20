@@ -31,8 +31,7 @@ class XbarCell1t1rConfig(XbarCellConfig, ABC):
     """Node-to-ground capacitance knobs shared by every 1T1R cell model.
 
     Node-centric per-cell totals: each field is the total capacitance to
-    ground seen at one of the cell's four nodes. Both leaves consume them
-    identically in the shared energy model.
+    ground seen at one of the cell's four nodes.
 
     Attributes:
         c_bl__fF: Per-cell node-to-ground total capacitance at the BL
@@ -42,7 +41,7 @@ class XbarCell1t1rConfig(XbarCellConfig, ABC):
         c_sl__fF: Per-cell node-to-ground total capacitance at the SL
             node.
         c_wl__fF: Per-cell node-to-ground total capacitance at the WL
-            node.
+            node (NMOS gate load).
     """
 
     c_bl__fF: float
@@ -115,7 +114,9 @@ class XbarCell1t1r(XbarCell[XbarCell1t1rSnap, XbarCell1t1rDcop], ABC):
 
     Owns the shared substrate of every 1T1R model: the four per-cell
     node-to-ground capacitances and the grounded-cap switching-energy
-    formula. Concrete leaves supply the branch physics (``snapshot`` /
+    formula over the array-internal nodes (BL, X, SL); the WL node's
+    charge is billed by the row driver. Concrete leaves supply the
+    branch physics (``snapshot`` /
     ``program`` / ``solve_branch`` / ``solve_dc``) and must derive and
     set ``w_states`` in ``__init__``.
     """
@@ -152,16 +153,18 @@ class XbarCell1t1r(XbarCell[XbarCell1t1rSnap, XbarCell1t1rDcop], ABC):
     ) -> Tensor:
         """Per-cell node-capacitance switching energy [fJ].
 
-        Sums the grounded ``C·V²`` switching terms of the four cell nodes
-        (BL, internal X, SL, WL) at the converged operating point
-        (``V_BL``, ``V_SL``, the condensed ``V_X``, and ``V_WL``),
+        Sums the grounded ``C·V²`` switching terms of the cell's nodes
+        (BL, internal X, SL, WL gate) at the converged operating point
+        (``V_BL``, ``V_SL``, the condensed ``V_X``, and the WL drive),
         assuming a full 0 → DC → 0 charge/discharge cycle per node.
+        Pure computation: the owning array is the sole logger of every
+        cell energy term — the cell emits nothing itself.
 
         Args:
             v_bl: Bit-line node voltage [V]. Shape: ``[..., col, row]``.
             v_sl: Source-line node voltage [V]. Shape: ``[..., col, row]``.
             dcop: Converged DCOP carrying ``v_x__V``.
-            snap: Per-call snap carrying ``v_wl__V``.
+            snap: Per-call snap from :meth:`snapshot`.
 
         Returns:
             Per-cell switching energy [fJ]. Shape: ``[..., col, row]``.

@@ -12,7 +12,8 @@ Covers the build / dispatch / validation foundation of
     signed-magnitude contract,
   * config validation rejects every strict-divisibility violation
     (``row_num % active_row_num``, ``col_num % mux_factor``,
-    ``col_num % io_col_num``), an out-of-range ``active_row_num``,
+    ``col_num % io_col_num``, ``io_col_num % mux_factor``), an out-of-range
+    ``active_row_num``, a subtractor rail diverging from ``v_dd__V``,
     inconsistent ADC-vs-Reference threshold copies, and a calibration record
     at the wrong bit width,
   * :meth:`IsubIadc1t1rCimMacro.program` rejects an out-of-range ternary
@@ -129,6 +130,23 @@ def test_validate_rejects_bad_io_blocking() -> None:
     config = load_config(CONFIG_PATH)
     with pytest.raises(ValueError, match="% io_col_num"):
         dataclasses.replace(config, io_col_num=48)
+
+
+def test_validate_rejects_io_not_whole_lanes() -> None:
+    """``io_col_num % mux_factor != 0`` breaks the exact lane-to-IO regroup."""
+    config = load_config(CONFIG_PATH)
+    # col_num = 256 divides by 8, but io_col_num = 8 does not hold whole
+    # mux_factor = 16 lanes.
+    with pytest.raises(ValueError, match=r"io_col_num \(8\) % mux_factor"):
+        dataclasses.replace(config, io_col_num=8)
+
+
+def test_validate_rejects_subtractor_rail_divergence() -> None:
+    """``subtractor_config.v_rail__V`` must equal the tile's ``v_dd__V``."""
+    config = load_config(CONFIG_PATH)
+    bad_sub = dataclasses.replace(config.subtractor_config, v_rail__V=config.v_dd__V + 0.1)
+    with pytest.raises(ValueError, match=r"v_rail__V .* == v_dd__V"):
+        dataclasses.replace(config, subtractor_config=bad_sub)
 
 
 def test_validate_rejects_ref_level_mismatch() -> None:

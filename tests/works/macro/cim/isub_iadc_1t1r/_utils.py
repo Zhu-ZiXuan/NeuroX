@@ -66,9 +66,9 @@ def masked_planes(x: Tensor, *, row_num: int, max_active_rows: int, inst_rank: i
     zeros elsewhere (WL off).
     """
     p_num = row_num // max_active_rows
-    mask = torch.arange(row_num, device=x.device) // max_active_rows == torch.arange(
-        p_num, device=x.device
-    ).unsqueeze(-1)
+    mask = torch.arange(row_num, device=x.device) // max_active_rows == torch.arange(p_num, device=x.device).unsqueeze(
+        -1
+    )
     # Shape: [P, row_num] -> [P, 1*inst_rank, row_num]
     mask = mask.reshape(p_num, *(1,) * inst_rank, row_num)
     # Shape: [..., *span, row_num] -> [..., P, *span, row_num]
@@ -150,6 +150,7 @@ def array_read(xbar: IsubIadc1t1rCimMacro, x_planes: Tensor) -> XbarArraySteadyS
             bl_v_ref__V=clamp_taps[0],
             sl_driver=xbar.sl_driver,
             sl_v_ref__V=clamp_taps[1],
+            t_conduct__ns=xbar.config.t_conduct__ns,
         )
 
 
@@ -157,18 +158,29 @@ def probe_i_sub(xbar: IsubIadc1t1rCimMacro, x_planes: Tensor) -> tuple[Tensor, T
     """Analog ``(i_sub, sign)`` at the ADC input for WL planes ``[..., row_num]``.
 
     Reproduces the ``vec_mat_mul`` analog chain up to the ADC input (boundary
-    drive + array solve -> polarity split -> p-mirror -> n-mirror ->
-    subtractor). Leading dims of ``x_planes`` (batch and/or the sub-phase
-    axis) ride through unchanged.
+    drive + array solve -> polarity split + serial axes to leading ->
+    p-mirror -> n-mirror -> subtractor), then moves the serial axes back
+    trailing so the probe returns ``[..., n_io, io_col_num]`` with the
+    columns of each IO in logical order. Leading dims of ``x_planes`` (batch
+    and/or the sub-phase axis) ride through unchanged.
     """
+    cfg = xbar.config
+    lanes_per_io = cfg.io_col_num // cfg.mux_factor
     with torch.no_grad():
         steady = array_read(xbar, x_planes)
-        i_pol = steady.i_bl_port__uA.unflatten(-1, (xbar.col_num, 2)).movedim(-1, -2)
-        i_lane = xbar._split_col_lanes(i_pol, col_per_lane=xbar.config.mux_factor)
-        i_wdl = xbar.p_mirror.replicate(i_lane)
-        i_io = xbar._split_col_lanes(i_wdl.flatten(-2, -1), col_per_lane=xbar.config.io_col_num)
-        i_dl = xbar.n_mirror.replicate(i_io)
-        i_sub, sign = xbar.subtractor.subtract(i_dl[..., 0, :, :], i_dl[..., 1, :, :])
+        i_lane = (
+            steady.i_bl_port__uA.unflatten(-1, (xbar.col_num, 2))
+            .movedim(-1, -2)
+            .unflatten(-1, (xbar.n_lane, cfg.mux_factor))
+            .movedim(-1, 0)
+        )
+        i_wdl = xbar.p_mirror.replicate(i_lane)  # [mux, ..., 2, n_lane]
+        i_io = i_wdl.unflatten(-1, (xbar.n_io, lanes_per_io)).movedim(-1, 0)
+        i_dl = xbar.n_mirror.replicate(i_io)  # [lpi, mux, ..., 2, n_io]
+        i_sub, sign = xbar.subtractor.subtract(i_dl[..., 0, :], i_dl[..., 1, :], t_conduct__ns=cfg.t_conduct__ns)
+        # [lpi, mux, ..., n_io] -> [..., n_io, lpi, mux] -> [..., n_io, io_col_num]
+        i_sub = i_sub.movedim(0, -1).movedim(0, -1).flatten(-2)
+        sign = sign.movedim(0, -1).movedim(0, -1).flatten(-2)
     return i_sub, sign
 
 
@@ -210,9 +222,7 @@ def decode(
     """
     device = tile_device(xbar)
     xbar.program(w.to(device))
-    planes = masked_planes(
-        x.to(device), row_num=xbar.config.row_num, max_active_rows=xbar.max_active_rows
-    )
+    planes = masked_planes(x.to(device), row_num=xbar.config.row_num, max_active_rows=xbar.max_active_rows)
     with torch.no_grad():
         out = xbar.vec_mat_mul(planes, adc_operation_point=adc_operation_point)
     return out.cpu()

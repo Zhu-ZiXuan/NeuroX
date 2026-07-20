@@ -63,39 +63,33 @@ active_row_num = 64
 mux_factor = 16
 io_col_num = 64
 
-# --- Supply + CMD precharge (the macro is the rail owner) ---
+# --- Supply rail (the macro is the rail owner) ---
+# The macro bills the clamp-side (V_DD - V_BL) * I_BL split of the array
+# branch and the three whole readout seam branches at this rail, over the
+# derived conduction window t_conduct__ns = sum(adc_config.step_latency__ns)
+# (15.566666 ns at the 5-bit search). Must equal
+# subtractor_config.v_rail__V (validate_supply).
 v_dd__V = 1.0                     # [sourced] 1.0 V supply rail
-c_cmd_per_col__fF = 5.0           # [uncertain] BL -> readout-front-end CMD precharge node cap
 
 # --- PPA: the macro-owned lumped leakage ---
 # [derived][uncertain] Hypothetical chip; per-circuit seeds ported from the
 # paper's Fig.18-derived values, rolled up where the block is a bare
-# kernel non-reporter (p/n mirrors, subtractor). Lump breakdown AT THIS
-# GEOMETRY (col_num = 256, mux_factor = 16, io_col_num = 64 -> n_lane = 16,
-# n_io = 4; front-end devices 2*n_lane = 32, back-end devices 2*n_io = 8,
-# subtractor n_io = 4):
+# kernel non-reporter (p/n mirrors). Lump breakdown AT THIS GEOMETRY
+# (col_num = 256, mux_factor = 16, io_col_num = 64 -> n_lane = 16,
+# n_io = 4; front-end devices 2*n_lane = 32, back-end devices 2*n_io = 8):
 #   Control    1  x 187.25    = 187.25
 #   p-stage    32 x 4.609375  = 147.5
 #   n-stage    8  x 12.825    = 102.6
-#   subtractor 4  x 5.450625  =  21.8025
-#   lump       = 459.1525 uW
+#   lump       = 437.35 uW
+# The subtractor share (4 x 5.450625 uW at this geometry) lives on its own
+# reporter block (subtractor_config below), not in the lump.
 # GEOMETRY-DEPENDENT: the lump folds the device counts at this tile —
 # re-derive it if col_num / mux_factor / io_col_num change. Area
 # un-extracted. [uncertain]
 area_per_inst__um2 = 0.0
-leakage_per_inst__uW = 459.1525
+leakage_per_inst__uW = 437.35
 
-# --- Macro-owned readout accounting knobs (billed once per ACTIVE PHASE) ---
-# The kernel mirrors / subtractor are pure transports; the macro logs their
-# stage rails, bias floors, and branch energies itself, per row active phase.
-p_mirror_v_drop__V = 0.5          # [derived] front-end mirror output-leg rail drop (V_DD - V_CMD)
-p_mirror_bias__uA = 1.0           # [derived] front-end fixed mirror-bias floor (seed ~ n^2*I_HRS), billed per (phase, logical column)
-n_mirror_v_drop__V = 0.3          # [derived] back-end mirror output-leg incremental drop
-n_mirror_bias__uA = 1.0           # [derived] back-end cascode bias floor
-sub_v_drop_int__V = 1.0           # [uncertain] full-rail VDD->GND internal-replica conduction (~v_dd)
-sub_v_drop_out__V = 0.3           # [derived] subtractor output drop delivering I_SUB to the ADC
-sub_n_hc_copy = 3                 # I_HC sink replica count (paper Fig.8 topology: MHCM1/MN4/MOUTN), 1:1 mirrors assumed (topology-derived)
-readout_t_phase__ns = 1.5         # [derived] readout-stage conduction window inside the 11.75 ns binary-mode T_AC
+# --- Macro-owned readout latency ---
 readout_latency_per_op__ns = 1.61 # [derived] readout share of the 2.41 ns non-sensing budget (see timing note on array_config)
 
 
@@ -140,14 +134,12 @@ area_per_inst__um2 = 0.0
 leakage_per_inst__uW = 1.0
 # --- Timing anchored to the paper's binary-mode T_AC = 11.75 ns [sourced]
 # = 9.34 ns sensing (3 sourced steps) + 2.41 ns non-sensing: the 5-bit
-# search extends sensing to 15.566667 ns (see adc_config.step_latency__ns);
+# search extends sensing to 15.566666 ns (see adc_config.step_latency__ns;
+# that sum is also the tile's derived conduction window t_conduct__ns);
 # the 2.41 ns non-sensing budget splits [derived] as array 0.8 ns + readout
 # chain 1.61 ns ([cim_macro].readout_latency_per_op__ns), unchanged by the
 # search depth.
 latency_per_op__ns = 0.8
-
-# --- Pulse timing ---
-wl_pulse_length__ns = 1.5         # [derived] WL pulse per row active phase inside the 11.75 ns binary-mode T_AC
 
 # --- Layout pitch ---
 row_first_space__um = 1.000       # [uncertain] 28nm-class pitch placeholders
@@ -281,6 +273,10 @@ leakage_per_inst__uW = 5.96875
 r_out__MOhm = 3e-5
 offset_sigma__V = 0.0             # nonideality sigma (gated by policy)
 thermal_sigma__V = 0.0
+# [derived] Full C x V_DD^2 charge/discharge cycle of the 5 fF per-column
+# CMD interface node (the BL -> readout-front-end node this clamp drives),
+# billed per column-op at snapshot: 5 fF x (1.0 V)^2 = 5.0 fJ.
+energy_per_op__fJ = 5.0
 # v_dd__V lives at the [cim_macro] level (the clamp-transistor conduction is
 # the macro's clamp-drop term); the clamp static bias is folded into
 # leakage_per_inst__uW above.
@@ -296,6 +292,7 @@ leakage_per_inst__uW = 0.0
 r_out__MOhm = 0.0                 # ideal flat clamp (zero series resistance)
 offset_sigma__V = 0.0             # nonideality sigma (gated by policy)
 thermal_sigma__V = 0.0
+energy_per_op__fJ = 0.0           # physical zero — direct ground tie, no conversion energy
 
 
 # --- Shared boundary-clamp voltage reference (neurox.primitive.analog.VoltageReference) ---
@@ -319,6 +316,9 @@ _neurox_class = "GeneralVoltageDacConfig"
 # [sourced] binary WL drive: OFF -> 0 V, ON -> V_WL. V_WL placeholder 0.9 V. [uncertain]
 code_to_signal = [0.0, 0.9]
 drive_thermal__V = 0.0
+# Driver-circuit conversion energy only; the WL LOAD (wire + gate caps)
+# is array-billed from its own geometry at the driven v_wl (full cycle
+# per plane, held scan). [uncertain] driver core itself seeded 0.
 energy_per_op__fJ = 0.0
 latency_per_op__ns = 0.0
 leakage_per_inst__uW = 0.0
@@ -329,9 +329,9 @@ area_per_inst__um2 = 0.0
 # Front-end mirror stage — generic CurrentMirror (non-reporter)
 # ===========================================================================
 # One front-end mirror device per MUX lane per polarity (2 * n_lane devices,
-# inst_shape trailing (2, n_lane, 1)). Its silicon rolls up into the
-# [cim_macro] lump (p-stage 4.609375 uW per device); rail drop / bias floor
-# are the macro-level p_mirror_* knobs.
+# inst_shape trailing (2, n_lane)). Its silicon rolls up into the
+# [cim_macro] lump (p-stage 4.609375 uW per device); its output seam branch
+# is billed whole by the macro at V_DD over the conduction window.
 [cim_macro.p_mirror_config]
 mirror_ratio = 0.25               # [derived] global down-scale 1/k = 1/4
 ratio_sigma_relative = 0.0        # mirror-mismatch sigma (gated by the `mismatch` policy)
@@ -341,24 +341,31 @@ ratio_sigma_relative = 0.0        # mirror-mismatch sigma (gated by the `mismatc
 # Back-end mirror stage — generic CurrentMirror (non-reporter)
 # ===========================================================================
 # One back-end mirror device per CIM-IO per polarity (2 * n_io devices,
-# inst_shape trailing (2, n_io, 1)). Silicon rolls up into the [cim_macro]
-# lump (n-stage 12.825 uW per device); rail drop / bias floor are the
-# macro-level n_mirror_* knobs.
+# inst_shape trailing (2, n_io)). Silicon rolls up into the [cim_macro]
+# lump (n-stage 12.825 uW per device); its output seam branch is billed
+# whole by the macro at V_DD over the conduction window.
 [cim_macro.n_mirror_config]
 mirror_ratio = 0.25               # [derived] combiner normalization; net BL -> ADC transfer = 0.25 * 0.25 = 1/16
 ratio_sigma_relative = 0.0        # mirror-mismatch sigma (gated by the `mismatch` policy)
 
 
 # ===========================================================================
-# Subtractor — generic CurrentSubtractor (non-reporter)
+# Subtractor — generic CurrentSubtractor (reporter)
 # ===========================================================================
-# One subtractor per CIM-IO (n_io devices, inst_shape trailing (n_io, 1)),
-# consuming both polarities. Silicon rolls up into the [cim_macro] lump
-# (5.450625 uW per device); branch energies are the macro-level sub_* knobs.
+# One subtractor per CIM-IO (n_io devices, inst_shape trailing (n_io,)),
+# consuming both polarities. It self-holds its static PPA and self-bills its
+# three internal replica branches per subtract call over the conduction
+# window; its output seam branch is billed whole by the macro.
 [cim_macro.subtractor_config]
 gain = 1.0                        # [sourced] unit-gain magnitude-and-sign difference
 mismatch_sigma_relative = 0.0     # subtracted-leg ratio sigma (gated by the `mismatch` policy)
 offset_sigma__uA = 0.0            # sign-comparator offset sigma (gated by the `offset` policy)
+v_rail__V = 1.0                   # [derived] internal replica branches conduct full-rail (== [cim_macro].v_dd__V, pinned by validate_supply)
+area_per_inst__um2 = 0.0          # [uncertain] area un-extracted
+# [derived][uncertain] genuine per-circuit seed ported from the paper's
+# Fig.18-derived share, self-reported by the block (excluded from the
+# [cim_macro] lump). At this geometry the tile carries n_io = 4 x 5.450625 uW.
+leakage_per_inst__uW = 5.450625
 
 
 # ===========================================================================
@@ -384,7 +391,6 @@ leakage_per_inst__uW = 14.90625
 # clamp) — a one-code floor-domain asymmetry, not a defect.
 n_bits = 5
 margin_gain = 3.0                 # [sourced] triple margin
-input_mirror_ratio = 2.0          # [sourced] regeneration legs = 2x unity legs
 
 # [calibrated] Per-mode nominal mid-point threshold ladders [mode][tap]
 # (2**n_bits - 1 = 31 thresholds per row; adc_operation_point.adc_mode
@@ -424,17 +430,20 @@ ref_levels__uA = [
     [0.816584, 2.464652, 4.103780, 5.730987, 7.352233, 8.958578, 10.553002, 12.144446, 13.720989, 15.288591, 16.850233, 18.396974, 19.943714, 21.472573, 22.977591, 24.485588, 25.981665, 27.462840, 28.961897, 30.434132, 31.882524, 33.286213, 34.722687, 36.114456, 37.530064, 38.957596, 40.367245, 41.779875, 43.177605, 44.572353, 45.958160],
 ]
 
-v_rail_sa__V = 0.5                # [derived] SA-leg overdrive V_DD_SA - V_node (the n-path regeneration draw)
-t_eff__ns = 1.0                   # [uncertain] effective conduction time the n-path regeneration is drawn over
-e_fixed_per_op__fJ = 7.0          # [uncertain] data-independent constant folding sampling/latch/coupling + REF-selector switching, billed per binary-search step (5 steps per conversion at n_bits = 5)
+# [uncertain] Data-independent constant folding sampling/latch/coupling +
+# REF-selector switching, billed per binary-search step (5 steps per
+# conversion at n_bits = 5); the ADC's conversion energy is exactly
+# n_bits x this constant per element (all analog conduction of its input
+# path is billed upstream).
+e_fixed_per_op__fJ = 7.0
 
 # [sourced][derived] Per-step decision latency, one entry per binary-search
 # step: the first three steps carry the paper's measured per-step decision
 # latencies (sum 9.34 ns = the sensing part of the 11.75 ns binary-mode
 # T_AC); the 5-bit search appends two steps [derived] at the sourced
-# per-step mean (9.34 / 3 = 3.113333 ns). Sensing total 15.566667 ns; with
+# per-step mean (9.34 / 3 = 3.113333 ns). Sensing total 15.566666 ns; with
 # the unchanged 2.41 ns non-sensing budget (core 0.8 + readout 1.61) the
-# per-conversion cycle is 17.976667 ns.
+# per-conversion cycle is 17.976666 ns.
 step_latency__ns = [3.16, 3.07, 3.11, 3.113333, 3.113333]
 
 # --- Nonideality sigmas (gated by policy) ---

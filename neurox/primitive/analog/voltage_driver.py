@@ -25,6 +25,9 @@ class VoltageDriverConfig(AnalogConfig):
             on the reference.
         thermal_sigma__V: σ of the per-solve Gaussian thermal noise
             on the reference.
+        energy_per_op__fJ: Per-column-op interface energy, e.g. one full
+            ``C·V²`` interface-node precharge cycle; a physical zero is
+            a legitimate value.
         area_per_inst__um2: Silicon area per fabricated instance.
         leakage_per_inst__uW: Static leakage per instance; carries
             all static power, including any internal amplifier / bias.
@@ -38,6 +41,9 @@ class VoltageDriverConfig(AnalogConfig):
 
     # --- Thermal noise ---
     thermal_sigma__V: float
+
+    # --- Per-op interface energy ---
+    energy_per_op__fJ: float
 
     # --- Static PPA ---
     area_per_inst__um2: float
@@ -59,6 +65,7 @@ class VoltageDriverConfig(AnalogConfig):
         self._require_non_neg(self.thermal_sigma__V, "thermal_sigma__V")
 
     def validate_ppa(self) -> None:
+        self._require_non_neg(self.energy_per_op__fJ, "energy_per_op__fJ")
         self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
 
@@ -104,9 +111,10 @@ class VoltageDriver(AnalogBase[VoltageDriverConfig, VoltageDriverPolicy]):
     physical series impedance the consuming solver sees as the clamp
     slope ``dVclamp/dI``.
 
-    This block carries only its own static power, folded into
-    ``leakage_per_inst__uW`` (including any internal amplifier or bias
-    network).
+    Static power is folded into ``leakage_per_inst__uW`` (including any
+    internal amplifier or bias network). The interface-node charge the
+    driver delivers is billed as ``energy_per_op__fJ`` per column-op,
+    self-logged element-wise at :meth:`snapshot`.
 
     It satisfies the structural ``ClampDriver`` role (``snapshot``,
     ``solve_clamp``) without inheriting the protocol; the reference
@@ -180,6 +188,12 @@ class VoltageDriver(AnalogBase[VoltageDriverConfig, VoltageDriverPolicy]):
         the per-instance ``inst_shape`` and is broadcast to ``shape`` and
         chunk-selected by ``multi_coords`` in lockstep with the reference.
 
+        Also logs ``energy_per_op__fJ`` per snap element — one
+        interface-charge event per column-op. The consuming array
+        snapshots each chunk of a disjoint partition of the solved
+        plane-batch exactly once, so element-wise logging bills each
+        column-op exactly once per solve.
+
         Args:
             v_ref__V: Injected reference / zero-current clamp voltage
                 — the Thevenin open-circuit voltage. A scalar or
@@ -199,6 +213,7 @@ class VoltageDriver(AnalogBase[VoltageDriverConfig, VoltageDriverPolicy]):
             offset_view = self.offset__V.expand(shape) if shape else self.offset__V
             v = v + (offset_view if multi_coords is None else offset_view[multi_coords])
         v = apply_gaussian(v, self.config.thermal_sigma__V, enabled=self.policy.thermal)
+        self._log_dynamic_energy(torch.full_like(v, self.config.energy_per_op__fJ, dtype=torch.float32))
         return VoltageDriverSnap(v_ref__V=v, r_out__MOhm=self.frozen_r_out__MOhm)
 
     def solve_clamp(

@@ -2,8 +2,8 @@
 
 The subtractor is a per-CIM-IO kernel
 :class:`~neurox.primitive.analog.CurrentSubtractor` whose static buffers live
-at ``(n_io, 1)`` (the real shared device count with the trailing broadcast
-axis). Two static nonidealities gate on it: the subtracted-leg ratio
+at ``(n_io,)`` (the real shared device count; the serial column axes ride
+the broadcast leading). Two static nonidealities gate on it: the subtracted-leg ratio
 ``mismatch`` (multiplicative, perturbs the recovered magnitude) and the
 sign-comparator ``offset`` (additive input-referred current, can flip the
 decoded sign where the polarity difference is small). This suite builds the
@@ -129,7 +129,7 @@ def test_nonzero_sigma_policy_off_is_identity(device: torch.device) -> None:
         offset=False,
         seed=20200709,
     )
-    assert tuple(gated.subtractor.ratio_mismatch.shape) == (gated.n_io, 1)
+    assert tuple(gated.subtractor.ratio_mismatch.shape) == (gated.n_io,)
     assert torch.equal(gated.subtractor.ratio_mismatch, torch.ones_like(gated.subtractor.ratio_mismatch))
     assert torch.equal(gated.subtractor.offset__uA, torch.zeros_like(gated.subtractor.offset__uA))
 

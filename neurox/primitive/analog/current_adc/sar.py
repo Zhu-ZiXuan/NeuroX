@@ -7,8 +7,8 @@ code from a single-ended magnitude current ``i_in__uA``. The sign is handled
 outside the ADC by the caller.
 
 Each single comparison mirrors ``i_in`` and the step's reference ``i_ref``
-through input mirrors (sized ``input_mirror_ratio`` times the reference legs),
-then a deterministic ``margin_gain`` pre-gain amplifies the clean current
+into the sense amplifier, then a deterministic ``margin_gain`` pre-gain
+amplifies the clean current
 difference ``i_in - i_ref`` before the latch resolves its sign. The
 input-referred comparator offset is a current-domain margin perturbation added
 **after** the ``margin_gain`` pre-gain, so the effective offset is divided by
@@ -26,15 +26,12 @@ The binary-search steps are an internal Python loop — the sub-comparisons are 
 separate profiled leaves, so the whole conversion emits exactly **one**
 dynamic-energy event and **one** latency event (``sum(step_latency__ns)``).
 
-Dynamic energy is the data-dependent regeneration the sense amplifier's sized
-mirror controls, plus one data-independent per-op constant: per sensing step
-``e_dyn_step = v_rail_sa * n * (i_in_pos + i_ref_pos) * t_eff + e_fixed_per_op``
-with ``n = input_mirror_ratio`` (the regeneration legs). The control-based
-attribution bills only the currents whose magnitude the ADC controls: the unity
-input and reference legs are owned/billed by the upstream blocks that source
-them, so neither is re-billed here. ``e_fixed_per_op`` folds the data-independent
-sampling, latch, coupling, and reference-selector switching into a single per-op
-constant.
+Dynamic energy is data-independent: each sensing step bills only the per-step
+switching constant ``e_fixed_per_op`` (sampling, latch, coupling, and
+reference-selector switching), so one conversion costs
+``n_bits * e_fixed_per_op`` per element. All analog conduction of the ADC's
+input path is billed upstream: the unity legs by the blocks that source them,
+and the delivery seam branch whole by the composing macro.
 
 The single sense amplifier is heavily time-shared: it is multiplexed over the
 ``n_bits`` binary-search steps and across a whole set of columns. Its fabricated
@@ -69,20 +66,15 @@ class SarCurrentAdcConfig(CurrentAdcConfig):
         margin_gain: Deterministic triple-margin pre-gain applied to the clean
             ``i_in - i_ref`` before the latch. The input-referred offset is added
             after this gain, so the effective offset is ``offset_sigma / margin_gain``.
-        input_mirror_ratio: Regeneration mirror ratio relative to the unity legs;
-            sets the ``input_mirror_ratio * I`` replica legs the SA rails feed.
         ref_levels__uA: Nominal mid-point thresholds [uA], 2-D ``[mode][tap]``:
             one row of exactly ``2 ** n_bits - 1`` strictly increasing
             thresholds per operating mode. The per-call
             ``adc_operation_point.adc_mode`` selects the row. A nested TOML
             array loads straight into this tuple-of-tuples; a flat tuple of
             floats passed in code is canonicalized to a single mode row.
-        v_rail_sa__V: SA-leg overdrive ``V_DD_SA - V_node`` [V] the regenerated
-            ``n``-path replica currents are pulled across.
-        t_eff__ns: Effective conduction time [ns] the ``n``-path regeneration
-            current is drawn over.
-        e_fixed_per_op__fJ: Single data-independent per-op energy constant [fJ]
-            folding sampling, latch, coupling, and reference-selector switching.
+        e_fixed_per_op__fJ: Data-independent per-step energy constant [fJ]
+            folding sampling, latch, coupling, and reference-selector switching;
+            billed once per binary-search step.
         step_latency__ns: Per-step decision latency, one entry per binary-search
             step [ns]; the conversion latency is their sum.
         comparator_offset_sigma__uA: Input-referred SA offset sigma [uA] — a
@@ -101,11 +93,8 @@ class SarCurrentAdcConfig(CurrentAdcConfig):
 
     n_bits: int
     margin_gain: float
-    input_mirror_ratio: float
     ref_levels__uA: tuple[tuple[float, ...], ...]
 
-    v_rail_sa__V: float
-    t_eff__ns: float
     e_fixed_per_op__fJ: float
 
     step_latency__ns: tuple[float, ...]
@@ -137,7 +126,6 @@ class SarCurrentAdcConfig(CurrentAdcConfig):
     def validate_quantizer(self) -> None:
         self._require_pos(self.n_bits, "n_bits")
         self._require_pos(self.margin_gain, "margin_gain")
-        self._require_pos(self.input_mirror_ratio, "input_mirror_ratio")
         self._require_min_length(self.ref_levels__uA, 1, "ref_levels__uA")
         level_num = 2**self.n_bits - 1
         for m, row in enumerate(self.ref_levels__uA):
@@ -146,8 +134,6 @@ class SarCurrentAdcConfig(CurrentAdcConfig):
             self._require_increasing(row, f"ref_levels__uA[{m}]")
 
     def validate_energy(self) -> None:
-        self._require_non_neg(self.v_rail_sa__V, "v_rail_sa__V")
-        self._require_non_neg(self.t_eff__ns, "t_eff__ns")
         self._require_non_neg(self.e_fixed_per_op__fJ, "e_fixed_per_op__fJ")
 
     def validate_timing(self) -> None:
@@ -356,15 +342,10 @@ class SarCurrentAdc(CurrentAdc):
 
         n_bits = self.config.n_bits
         margin_gain = self.config.margin_gain
-        mirror_ratio = self.config.input_mirror_ratio
-        v_rail_sa = self.config.v_rail_sa__V
-        t_eff = self.config.t_eff__ns
         e_fixed = self.config.e_fixed_per_op__fJ
 
         code = torch.zeros_like(i_in__uA, dtype=torch.long)
         e_dyn__fJ = torch.zeros_like(i_in__uA)
-
-        i_in_pos__uA = i_in__uA.clamp_min(0.0)
 
         # Static input-referred SA offset gathered ONCE to the forward
         # logical-column axis and HELD CONSTANT across all binary-search steps:
@@ -376,22 +357,17 @@ class SarCurrentAdc(CurrentAdc):
 
         for step in range(n_bits):
             i_ref__uA = self._select_ref(ref_row__uA, code, step)
-            i_ref_pos__uA = i_ref__uA.clamp_min(0.0)
 
             clean_margin__uA = i_in__uA - i_ref__uA
             bit = (margin_gain * clean_margin__uA + offset__uA) > 0.0
             code = self._set_bit(code, step, bit)
 
             # --- Per-step dynamic energy ---
-            # Control-based attribution: the ADC bills ONLY the "n"-path
-            # regeneration its sized mirror controls (n = input_mirror_ratio),
-            # drawn across the SA-leg overdrive over the effective conduction
-            # time. The unity input / reference legs are owned/billed by the
-            # upstream blocks that source them, so they are NOT re-billed. The
-            # data-independent per-op constant e_fixed_per_op is broadcast onto
-            # the per-column term each step.
-            e_dyn_step__fJ = v_rail_sa * mirror_ratio * (i_in_pos__uA + i_ref_pos__uA) * t_eff + e_fixed
-            e_dyn__fJ = e_dyn__fJ + e_dyn_step__fJ
+            # Data-independent per-step switching constant only (sampling,
+            # latch, coupling, REF-selector switching). All analog conduction
+            # of the input path is billed upstream: unity legs by their source
+            # blocks, the delivery seam branch whole by the composing macro.
+            e_dyn__fJ = e_dyn__fJ + e_fixed
 
         # --- One aggregated energy + one latency event for the whole convert ---
 
