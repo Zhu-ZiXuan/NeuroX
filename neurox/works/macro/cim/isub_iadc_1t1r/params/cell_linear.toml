@@ -1,12 +1,13 @@
 # Linearized 1T1R cell fragment for this scheme (XbarCell1t1rLinearConfig).
 # Emitted by neurox.tools.calibrate_cell (run config =
-# params/calibrate_cell.toml, fp64, all-off policy) as secant
-# sub-conductances of the shipped Detail cell (the cell_config table in
-# params/default.toml) at the scheme's nominal read point v_bl = 0.3 V
+# params/calibrate_cell.toml, fp64, all-off policy): per-state chord
+# conductance g_cell = I / (v_bl - v_sl) and BL-side drop fraction
+# vx_ratio = (v_bl - V_X) / (v_bl - v_sl) of the shipped Detail cell (the
+# cell_config table in params/default.toml), one flat per-state table per
+# WL level (off / on), at the scheme's nominal read point v_bl = 0.3 V
 # (V_BLC), v_sl = 0.0 V (SL ground), WL levels 0.0 / 0.9 V; the WL
 # threshold is the midpoint of the two WL levels. The four node-to-ground
-# capacitances copy verbatim from the Detail cell fragment. Run log under
-# log/calibration/.
+# capacitances copy verbatim from the Detail cell fragment.
 # Selecting it is a pure config choice — the shipped default stays the
 # Detail cell; point the array's cell_config table at this file, e.g.
 #   [cim_macro.array_config.cell_config]
@@ -19,24 +20,20 @@ c_bl__fF = 0.2
 c_x__fF = 0.3
 c_sl__fF = 0.1
 c_wl__fF = 0.2
-g_bl_table__uS = [
-    [
-        5.000000000007258,
-        5.018659330788288,
-    ],
-    [
-        100.00000000000036,
-        100.33363242834668,
-    ],
+g_cell_off_table__uS = [
+    9.838203135599463e-05,
+    9.838203294624665e-05,
 ]
-g_sl_table__uS = [
-    [
-        9.838396719890381e-05,
-        1679.9967220825558,
-    ],
-    [
-        9.838212973658594e-05,
-        1652.5401619407412,
-    ],
+g_cell_on_table__uS = [
+    5.003711727486659,
+    94.59058473797377,
+]
+vx_ratio_off_table = [
+    1.9676406271170364e-05,
+    9.83820329462463e-07,
+]
+vx_ratio_on_table = [
+    0.99702159435092,
+    0.9427604926546012,
 ]
 v_wl_on_threshold__V = 0.45

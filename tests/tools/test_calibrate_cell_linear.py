@@ -1,10 +1,10 @@
 """Linear-fragment extraction sanity for :mod:`neurox.tools.calibrate_cell`.
 
 Pulls a real Detail cell fragment through the tool-run config path, extracts
-the secant linearization at a nominal operating point, and checks that the
-emitted fragment deserializes into a buildable
-:class:`XbarCell1t1rLinearConfig` whose series conductance reproduces the
-Detail branch current at that operating point.
+the divider linearization (chord conductance + BL-side drop fraction) at a
+nominal operating point, and checks that the emitted fragment deserializes
+into a buildable :class:`XbarCell1t1rLinearConfig` that reproduces the
+Detail branch current and access node at that operating point.
 """
 
 import tomllib
@@ -72,7 +72,7 @@ def detail_config(tmp_path_factory: pytest.TempPathFactory) -> XbarCell1t1rDetai
 
 @pytest.fixture(scope="module")
 def linear_config(detail_config: XbarCell1t1rDetailConfig) -> XbarCell1t1rLinearConfig:
-    """Secant linearization of the Detail cell at the nominal OP."""
+    """Divider linearization of the Detail cell at the nominal OP."""
     return extract_linear_cell_config(
         detail_config,
         v_bl_op__V=_V_BL_OP__V,
@@ -94,12 +94,12 @@ def test_fragment_fields_copied_from_detail(
     assert linear_config.c_sl__fF == detail_config.c_sl__fF
     assert linear_config.c_wl__fF == detail_config.c_wl__fF
     assert linear_config.v_wl_on_threshold__V == pytest.approx((_V_WL_OFF__V + _V_WL_ON__V) / 2.0)
-    assert len(linear_config.g_bl_table__uS) == n_states
-    assert len(linear_config.g_sl_table__uS) == n_states
-    for table in (linear_config.g_bl_table__uS, linear_config.g_sl_table__uS):
-        for row in table:
-            assert len(row) == 2
-            assert all(entry > 0.0 for entry in row)
+    for table in (linear_config.g_cell_off_table__uS, linear_config.g_cell_on_table__uS):
+        assert len(table) == n_states
+        assert all(entry >= 0.0 for entry in table)
+    for table in (linear_config.vx_ratio_off_table, linear_config.vx_ratio_on_table):
+        assert len(table) == n_states
+        assert all(0.0 <= entry <= 1.0 for entry in table)
 
 
 def test_emitted_fragment_deserializes_and_builds(
@@ -116,7 +116,7 @@ def test_emitted_fragment_deserializes_and_builds(
     cell = XbarCell.from_config(
         config=loaded,
         policy=XbarCell1t1rLinearPolicy(),
-        inst_shape=(len(loaded.g_bl_table__uS),),
+        inst_shape=(len(loaded.g_cell_off_table__uS),),
         dtype=torch.float64,
         T__K=300.0,
     )
@@ -130,28 +130,37 @@ def test_n_newton_fragment_parses(tmp_path: Path) -> None:
     assert data["cell_config"]["n_newton"] == 7
 
 
-def test_series_g_reproduces_detail_current_at_op(
+def test_divider_reproduces_detail_at_op(
     detail_config: XbarCell1t1rDetailConfig,
     linear_config: XbarCell1t1rLinearConfig,
 ) -> None:
-    """Series secant conductance at WL-on matches the Detail solve at the OP."""
+    """Chord conductance and drop fraction match the Detail solve at the OP.
+
+    ``I = g_cell * span`` and ``V_X = v_bl_op - vx_ratio * span`` reproduce
+    the Detail branch at both WL levels — the full-span denominators keep
+    the cut-off (WL-off) level as well-conditioned as the conducting one.
+    """
     cell = _build_cell(
         detail_config,
         n_newton=detail_config.n_newton,
         device=torch.device("cpu"),
         dtype=torch.float64,
     )
+    span__V = _V_BL_OP__V - _V_SL_OP__V
     v_bl = torch.full((1, 1), _V_BL_OP__V, dtype=torch.float64)
     v_sl = torch.full((1, 1), _V_SL_OP__V, dtype=torch.float64)
-    v_wl = torch.full((1, 1), _V_WL_ON__V, dtype=torch.float64)
+    levels = (
+        (_V_WL_OFF__V, linear_config.g_cell_off_table__uS, linear_config.vx_ratio_off_table),
+        (_V_WL_ON__V, linear_config.g_cell_on_table__uS, linear_config.vx_ratio_on_table),
+    )
     for s in range(len(detail_config.state_to_g_map__uS)):
         cell.program(torch.full((1,), s, dtype=torch.long))
-        snap = cell.snapshot(control=v_wl, shape=(1, 1), multi_coords=None, t_elapsed=0.0)
-        i_detail__uA = float(cell.solve_dc(v_bl, v_sl, snap).i__uA)
+        for v_wl__V, g_table, vx_table in levels:
+            v_wl = torch.full((1, 1), v_wl__V, dtype=torch.float64)
+            snap = cell.snapshot(control=v_wl, shape=(1, 1), multi_coords=None, t_elapsed=0.0)
+            dcop = cell.solve_dc(v_bl, v_sl, snap)
 
-        g_bl_on__uS = linear_config.g_bl_table__uS[s][1]
-        g_sl_on__uS = linear_config.g_sl_table__uS[s][1]
-        g_series__uS = g_bl_on__uS * g_sl_on__uS / (g_bl_on__uS + g_sl_on__uS)
-        i_linear__uA = g_series__uS * (_V_BL_OP__V - _V_SL_OP__V)
-
-        assert i_linear__uA == pytest.approx(i_detail__uA, rel=1e-3)
+            g_cell__uS = g_table[s]
+            vx_ratio = vx_table[s]
+            assert g_cell__uS * span__V == pytest.approx(float(dcop.i__uA), rel=1e-9)
+            assert _V_BL_OP__V - vx_ratio * span__V == pytest.approx(float(dcop.v_x__V), rel=1e-9, abs=1e-12)

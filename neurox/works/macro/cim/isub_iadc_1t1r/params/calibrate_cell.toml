@@ -1,7 +1,7 @@
 # Run config for neurox.tools.calibrate_cell on this scheme.
 #
 # Calibrates the Detail cell's access-node condensation count (n_newton
-# step-ratio plateau + margin) and extracts the linearized-cell secant
+# step-ratio plateau + margin) and extracts the linearized-cell divider
 # fragment at the scheme's nominal read point: BL clamped at V_BLC (the
 # clamp_ref_config tap 0, 0.3 V), SL driven to ground (tap 1, 0.0 V), WL
 # swung between the 1-bit WL DAC levels (0.0 / 0.9 V). The terminal grid
@@ -21,7 +21,8 @@ _neurox_use = "default.toml:cim_macro.array_config.cell_config"
 # v_bl / v_sl swept independently over [0.0, 0.4] V (full n_terminal^2
 # outer product), WL off / on at the scheme's 1-bit DAC levels, every
 # programmed RRAM state (added automatically). v_bl_op / v_sl_op anchor
-# the linearized-cell secant extraction at the nominal read point.
+# the linearized-cell chord / drop-fraction extraction at the nominal
+# read point.
 [grid]
 v_terminal_min__V = 0.0
 v_terminal_max__V = 0.4

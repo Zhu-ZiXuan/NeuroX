@@ -86,7 +86,7 @@ The per-cell access-node condensation in $\operatorname{XbarCell1t1rDetail}$ run
 One run emits **two TOML fragments** into `--output-dir`, in addition to the log:
 
 - `cell_detail_n_newton.toml` — the margined `n_newton` pick to merge into the scheme's Detail cell fragment;
-- `cell_linear.toml` — a complete linearized-cell (`XbarCell1t1rLinearConfig`) fragment: the shared physical fields copied from the input Detail config, and per-(state, WL-level) secant sub-conductances of the Detail cell extracted at the nominal operating point given by the grid's `v_bl_op__V` / `v_sl_op__V`, with the WL on/off threshold at the midpoint of the grid's two WL levels. Degenerate (cut-off) entries floor at a tiny positive conductance with a logged warning. Selecting the Linear cell is a pure config choice — point the array's `cell_config` table at the fragment via `_neurox_use`.
+- `cell_linear.toml` — a complete linearized-cell (`XbarCell1t1rLinearConfig`) fragment: the shared physical fields copied from the input Detail config, and per-(state, WL-level) chord conductance / BL-side drop fraction of the Detail cell extracted at the nominal operating point given by the grid's `v_bl_op__V` / `v_sl_op__V`, with the WL on/off threshold at the midpoint of the grid's two WL levels. Both quantities put the fixed read span `v_bl_op__V - v_sl_op__V` in the denominator, so cut-off entries stay well-conditioned (their chord conductance is the honest leakage value). Selecting the Linear cell is a pure config choice — point the array's `cell_config` table at the fragment via `_neurox_use`.
 
 ```bash
 python -m neurox.tools.calibrate_cell._1t1r \

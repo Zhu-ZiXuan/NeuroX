@@ -1,4 +1,5 @@
-"""Linearized 1T1R cell — table-driven per-state sub-conductances, no devices.
+"""Linearized 1T1R cell — table-driven per-state chord conductance and
+divider drop fraction, no devices.
 
 See also:
     docs/reference/primitive/xbar/cell/_1t1r/cell_linear.md
@@ -6,6 +7,7 @@ See also:
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import torch
@@ -31,19 +33,32 @@ class XbarCell1t1rLinearConfig(XbarCell1t1rConfig):
     """Physical knobs for the linearized (table-driven) 1T1R cell.
 
     Attributes:
-        g_bl_table__uS: Per-w_state BL-side (RRAM-slot) effective
-            conductance, one ``(off, on)`` pair per row indexed by the
-            WL on/off level. The row count defines the cell's weight-state
-            count; all entries positive.
-        g_sl_table__uS: Per-w_state SL-side (access-slot) effective
-            conductance; same shape and constraints as
-            ``g_bl_table__uS``.
+        g_cell_off_table__uS: Per-w_state total BL-to-SL branch chord
+            conductance ``g_cell = I / (v_bl_op - v_sl_op)`` at the
+            calibration operating point with the WL off, indexed by the
+            weight-state index. The length defines the cell's
+            weight-state count (all four tables share it, >= 1); all
+            entries finite and >= 0 (zero is a cut-off branch's honest
+            leakage value — array nonsingularity is carried by the wire
+            conductances).
+        g_cell_on_table__uS: The same chord conductance with the WL on.
+            Same length and constraints as ``g_cell_off_table__uS``.
+        vx_ratio_off_table: Per-w_state dimensionless BL-side drop
+            fraction ``vx_ratio = (v_bl_op - V_X) / (v_bl_op - v_sl_op)``
+            with the WL off, i.e. ``V_X = V_BL - vx_ratio * (V_BL -
+            V_SL)`` — equivalently ``R_BL / (R_BL + R_SL)`` of the
+            branch divider. Same length as ``g_cell_off_table__uS``; all
+            entries finite and in ``[0, 1]``.
+        vx_ratio_on_table: The same drop fraction with the WL on. Same
+            length and constraints as ``vx_ratio_off_table``.
         v_wl_on_threshold__V: Analog WL level above which the access
             device counts as on.
     """
 
-    g_bl_table__uS: tuple[tuple[float, float], ...]
-    g_sl_table__uS: tuple[tuple[float, float], ...]
+    g_cell_off_table__uS: tuple[float, ...]
+    g_cell_on_table__uS: tuple[float, ...]
+    vx_ratio_off_table: tuple[float, ...]
+    vx_ratio_on_table: tuple[float, ...]
 
     v_wl_on_threshold__V: float
 
@@ -52,21 +67,23 @@ class XbarCell1t1rLinearConfig(XbarCell1t1rConfig):
         self.validate_tables()
 
     def validate_tables(self) -> None:
-        if len(self.g_sl_table__uS) != len(self.g_bl_table__uS):
-            raise ValueError(
-                f"require: len(g_sl_table__uS) ({len(self.g_sl_table__uS)}) == "
-                f"len(g_bl_table__uS) ({len(self.g_bl_table__uS)})"
-            )
-        for name, table in (
-            ("g_bl_table__uS", self.g_bl_table__uS),
-            ("g_sl_table__uS", self.g_sl_table__uS),
-        ):
-            for row_idx, row in enumerate(table):
-                if len(row) != 2:
-                    raise ValueError(f"require: len({name}[{row_idx}]) ({len(row)}) == 2 (off, on)")
-                for entry in row:
-                    if not (entry > 0):
-                        raise ValueError(f"require: every {name} entry > 0; got {entry} in row {row_idx}")
+        w_states = len(self.g_cell_off_table__uS)
+        if w_states < 1:
+            raise ValueError(f"require: len(g_cell_off_table__uS) ({w_states}) >= 1")
+        for name in ("g_cell_on_table__uS", "vx_ratio_off_table", "vx_ratio_on_table"):
+            table: tuple[float, ...] = getattr(self, name)
+            if len(table) != w_states:
+                raise ValueError(f"require: len({name}) ({len(table)}) == len(g_cell_off_table__uS) ({w_states})")
+        for name in ("g_cell_off_table__uS", "g_cell_on_table__uS"):
+            for state_idx, entry in enumerate(getattr(self, name)):
+                if not (math.isfinite(entry) and entry >= 0):
+                    raise ValueError(f"require: every {name} entry finite and >= 0; got {entry} at state {state_idx}")
+        for name in ("vx_ratio_off_table", "vx_ratio_on_table"):
+            for state_idx, entry in enumerate(getattr(self, name)):
+                if not (math.isfinite(entry) and 0.0 <= entry <= 1.0):
+                    raise ValueError(
+                        f"require: every {name} entry finite and in [0, 1]; got {entry} at state {state_idx}"
+                    )
 
 
 @dataclass(frozen=True)
@@ -74,7 +91,7 @@ class XbarCell1t1rLinearPolicy(XbarCell1t1rPolicy):
     """Empty nonideality policy for the linearized 1T1R cell.
 
     The linear model is deterministic: every nonideality it represents
-    is baked into its conductance tables at calibration time.
+    is baked into its tables at calibration time.
     """
 
 
@@ -83,17 +100,17 @@ class XbarCell1t1rLinearSnap(XbarCell1t1rSnap):
     """Per-call snap of a linearized 1T1R cell's programmed state.
 
     Attributes:
-        g_bl_on__uS: BL-side conductance at WL on. Shape:
+        g_cell_on__uS: Branch chord conductance at WL on. Shape:
             ``[..., col, row]`` (chunk-sliced).
-        g_bl_off__uS: BL-side conductance at WL off. Same shape.
-        g_sl_on__uS: SL-side conductance at WL on. Same shape.
-        g_sl_off__uS: SL-side conductance at WL off. Same shape.
+        g_cell_off__uS: Branch chord conductance at WL off. Same shape.
+        vx_ratio_on: BL-side drop fraction at WL on. Same shape.
+        vx_ratio_off: BL-side drop fraction at WL off. Same shape.
     """
 
-    g_bl_on__uS: Tensor
-    g_bl_off__uS: Tensor
-    g_sl_on__uS: Tensor
-    g_sl_off__uS: Tensor
+    g_cell_on__uS: Tensor
+    g_cell_off__uS: Tensor
+    vx_ratio_on: Tensor
+    vx_ratio_off: Tensor
 
 
 # ---------------------------------------------------------------------------
@@ -103,20 +120,22 @@ class XbarCell1t1rLinearSnap(XbarCell1t1rSnap):
 
 @XbarCell.register_key(XbarCell1t1rLinearConfig)
 class XbarCell1t1rLinear(XbarCell1t1r):
-    """Table-driven linearized 1T1R cell with a closed-form branch.
+    """Table-driven linearized 1T1R cell with a division-free closed form.
 
-    Owns no device children. ``program`` gathers the per-state
-    ``(off, on)`` sub-conductance tables once into instance-shaped
-    buffers; the branch solve is a pure elementwise series combination
-    switched by the WL threshold.
+    Owns no device children. ``program`` gathers the four flat per-state
+    chord-conductance and drop-fraction tables once into instance-shaped
+    buffers; the branch solve is a pure elementwise multiply switched by
+    the WL threshold.
     """
 
-    _g_bl_table__uS: Tensor
-    _g_sl_table__uS: Tensor
-    g_bl_on__uS: Tensor
-    g_bl_off__uS: Tensor
-    g_sl_on__uS: Tensor
-    g_sl_off__uS: Tensor
+    _g_cell_off_table__uS: Tensor
+    _g_cell_on_table__uS: Tensor
+    _vx_ratio_off_table: Tensor
+    _vx_ratio_on_table: Tensor
+    g_cell_on__uS: Tensor
+    g_cell_off__uS: Tensor
+    vx_ratio_on: Tensor
+    vx_ratio_off: Tensor
 
     def __init__(
         self,
@@ -131,21 +150,18 @@ class XbarCell1t1rLinear(XbarCell1t1r):
             raise TypeError(f"XbarCell1t1rLinear requires an XbarCell1t1rLinearPolicy; got {type(policy).__name__}")
         super().__init__(config=config, policy=policy, inst_shape=inst_shape, dtype=dtype, T__K=T__K)
 
-        self.register_buffer(
-            "_g_bl_table__uS",
-            torch.tensor(config.g_bl_table__uS, dtype=dtype),
-            persistent=False,
-        )
-        self.register_buffer(
-            "_g_sl_table__uS",
-            torch.tensor(config.g_sl_table__uS, dtype=dtype),
-            persistent=False,
-        )
+        for name, table in (
+            ("_g_cell_off_table__uS", config.g_cell_off_table__uS),
+            ("_g_cell_on_table__uS", config.g_cell_on_table__uS),
+            ("_vx_ratio_off_table", config.vx_ratio_off_table),
+            ("_vx_ratio_on_table", config.vx_ratio_on_table),
+        ):
+            self.register_buffer(name, torch.tensor(table, dtype=dtype), persistent=False)
         # Programmed at the w_layout shape by ``program``; 0-d until then.
-        for name in ("g_bl_on__uS", "g_bl_off__uS", "g_sl_on__uS", "g_sl_off__uS"):
+        for name in ("g_cell_on__uS", "g_cell_off__uS", "vx_ratio_on", "vx_ratio_off"):
             self.register_buffer(name, torch.zeros((), dtype=dtype), persistent=False)
 
-        self.w_states = len(config.g_bl_table__uS)
+        self.w_states = len(config.g_cell_off_table__uS)
 
         self.v_wl_on_threshold__V = config.v_wl_on_threshold__V
 
@@ -154,10 +170,11 @@ class XbarCell1t1rLinear(XbarCell1t1r):
     # -----------------------------------------------------------------
 
     def program(self, w_state_idx: Tensor) -> None:
-        """Materialize the per-cell sub-conductance buffers from state indices.
+        """Materialize the per-cell branch-parameter buffers from state indices.
 
-        Gathers the ``(off, on)`` conductance tables by state index once,
-        keeping the branch-solve hot path gather-free.
+        Gathers each flat per-state chord-conductance and drop-fraction
+        table by state index once, keeping the branch-solve hot path
+        gather-free.
 
         Args:
             w_state_idx: State-index tensor in ``[0, w_states - 1]`` at
@@ -168,12 +185,10 @@ class XbarCell1t1rLinear(XbarCell1t1r):
         idx = w_state_idx.long()
         if bool((idx < 0).any()) or bool((idx >= self.w_states).any()):
             raise ValueError(f"program() expects state indices in [0, {self.w_states}); got out-of-range entries")
-        g_bl = self._g_bl_table__uS[idx]
-        g_sl = self._g_sl_table__uS[idx]
-        self.g_bl_off__uS = g_bl[..., 0]
-        self.g_bl_on__uS = g_bl[..., 1]
-        self.g_sl_off__uS = g_sl[..., 0]
-        self.g_sl_on__uS = g_sl[..., 1]
+        self.g_cell_off__uS = self._g_cell_off_table__uS[idx]
+        self.g_cell_on__uS = self._g_cell_on_table__uS[idx]
+        self.vx_ratio_off = self._vx_ratio_off_table[idx]
+        self.vx_ratio_on = self._vx_ratio_on_table[idx]
 
     def snapshot(
         self,
@@ -183,7 +198,7 @@ class XbarCell1t1rLinear(XbarCell1t1r):
         multi_coords: tuple[Tensor, ...] | None,
         t_elapsed: float,
     ) -> XbarCell1t1rLinearSnap:
-        """Bundle the programmed sub-conductances with the WL control drive.
+        """Bundle the programmed branch parameters with the WL control drive.
 
         Deterministic — the empty policy holds no draws; the programmed
         buffers are broadcast to ``shape`` and chunk-selected by
@@ -193,7 +208,7 @@ class XbarCell1t1rLinear(XbarCell1t1r):
             control: Word-line drive voltage [V]; broadcasts to
                 ``[..., col, row]``.
             shape: Per-call broadcast shape ``(*leading, col, row)`` the
-                conductance fields fill.
+                branch-parameter fields fill.
             multi_coords: Advanced-index tuple selecting a chunk's
                 positions from the broadcast view; ``None`` returns the
                 full view.
@@ -211,23 +226,22 @@ class XbarCell1t1rLinear(XbarCell1t1r):
 
         return XbarCell1t1rLinearSnap(
             v_wl__V=control,
-            g_bl_on__uS=view(self.g_bl_on__uS),
-            g_bl_off__uS=view(self.g_bl_off__uS),
-            g_sl_on__uS=view(self.g_sl_on__uS),
-            g_sl_off__uS=view(self.g_sl_off__uS),
+            g_cell_on__uS=view(self.g_cell_on__uS),
+            g_cell_off__uS=view(self.g_cell_off__uS),
+            vx_ratio_on=view(self.vx_ratio_on),
+            vx_ratio_off=view(self.vx_ratio_off),
         )
 
     # -----------------------------------------------------------------
     # Branch solve
     # -----------------------------------------------------------------
 
-    def _branch_conductances(self, snap: XbarCell1t1rLinearSnap) -> tuple[Tensor, Tensor, Tensor]:
-        """WL-switched ``(g_bl, g_sl, g_series)`` of the linear branch [uS]."""
+    def _branch_params(self, snap: XbarCell1t1rLinearSnap) -> tuple[Tensor, Tensor]:
+        """WL-switched ``(g_cell [uS], vx_ratio)`` of the linear branch."""
         on = snap.v_wl__V > self.v_wl_on_threshold__V
-        g_bl = torch.where(on, snap.g_bl_on__uS, snap.g_bl_off__uS)
-        g_sl = torch.where(on, snap.g_sl_on__uS, snap.g_sl_off__uS)
-        g_series = g_bl * g_sl / (g_bl + g_sl)
-        return g_bl, g_sl, g_series
+        g_cell = torch.where(on, snap.g_cell_on__uS, snap.g_cell_off__uS)
+        vx_ratio = torch.where(on, snap.vx_ratio_on, snap.vx_ratio_off)
+        return g_cell, vx_ratio
 
     def solve_branch(
         self,
@@ -236,9 +250,9 @@ class XbarCell1t1rLinear(XbarCell1t1r):
         snap: XbarCell1t1rLinearSnap,
     ) -> tuple[Tensor, Tensor, Tensor]:
         """Closed-form branch solve: ``(i__uA, di_dvbl__uS, di_dvsl__uS)``."""
-        _g_bl, _g_sl, g_series = self._branch_conductances(snap)
-        i__uA = g_series * (v_bl - v_sl)
-        return i__uA, g_series, -g_series
+        g_cell, _vx_ratio = self._branch_params(snap)
+        i__uA = g_cell * (v_bl - v_sl)
+        return i__uA, g_cell, -g_cell
 
     def solve_dc(
         self,
@@ -248,16 +262,17 @@ class XbarCell1t1rLinear(XbarCell1t1r):
         compute_residuals: bool = False,
     ) -> XbarCell1t1rDcop:
         """Full branch working point including the divider ``V_X``."""
-        g_bl, _g_sl, g_series = self._branch_conductances(snap)
-        i__uA = g_series * (v_bl - v_sl)
-        v_x = v_bl - i__uA / g_bl
+        g_cell, vx_ratio = self._branch_params(snap)
+        dv = v_bl - v_sl
+        i__uA = g_cell * dv
+        v_x = v_bl - vx_ratio * dv
         residuals: XbarCell1t1rResiduals | None
         # Internal KCL is exact by construction in the linear divider.
         residuals = XbarCell1t1rResiduals(cell__uA=torch.zeros_like(i__uA)) if compute_residuals else None
         return XbarCell1t1rDcop(
             i__uA=i__uA,
-            di_dvbl__uS=g_series,
-            di_dvsl__uS=-g_series,
+            di_dvbl__uS=g_cell,
+            di_dvsl__uS=-g_cell,
             residuals=residuals,
             v_x__V=v_x,
         )

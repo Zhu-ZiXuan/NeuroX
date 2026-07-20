@@ -1,10 +1,12 @@
 """Closed-form and registry checks for :class:`XbarCell1t1rLinear`.
 
-Covers registry dispatch from the config type, the WL-switched series
-branch math against hand-built tables, the empty-policy deserialization
-path, and a sanity solve on the calibrated isub scheme fragment.
+Covers registry dispatch from the config type, the WL-switched
+division-free branch math against hand-built tables, table validation
+bounds, the empty-policy deserialization path, and a sanity solve on the
+calibrated isub scheme fragment.
 """
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -25,8 +27,10 @@ _ISUB_LINEAR_FRAGMENT = (
     _REPO_ROOT / "neurox" / "works" / "macro" / "cim" / "isub_iadc_1t1r" / "params" / "cell_linear.toml"
 )
 
-_G_BL_TABLE__uS = ((5.0, 10.0), (50.0, 100.0))
-_G_SL_TABLE__uS = ((1e-4, 2000.0), (2e-4, 1500.0))
+_G_CELL_OFF_TABLE__uS = (1e-4, 2e-4)
+_G_CELL_ON_TABLE__uS = (5.0, 95.0)
+_VX_RATIO_OFF_TABLE = (2e-5, 1e-5)
+_VX_RATIO_ON_TABLE = (0.98, 0.94)
 _V_WL_ON_THRESHOLD__V = 0.45
 
 
@@ -36,8 +40,10 @@ def _hand_built_config() -> XbarCell1t1rLinearConfig:
         c_x__fF=0.3,
         c_sl__fF=0.1,
         c_wl__fF=0.2,
-        g_bl_table__uS=_G_BL_TABLE__uS,
-        g_sl_table__uS=_G_SL_TABLE__uS,
+        g_cell_off_table__uS=_G_CELL_OFF_TABLE__uS,
+        g_cell_on_table__uS=_G_CELL_ON_TABLE__uS,
+        vx_ratio_off_table=_VX_RATIO_OFF_TABLE,
+        vx_ratio_on_table=_VX_RATIO_ON_TABLE,
         v_wl_on_threshold__V=_V_WL_ON_THRESHOLD__V,
     )
 
@@ -67,7 +73,7 @@ def test_registry_dispatch_yields_linear_leaf() -> None:
     assert type(cell) is XbarCell1t1rLinear
 
 
-def test_solve_branch_matches_series_conductance() -> None:
+def test_solve_branch_matches_table_conductance() -> None:
     cell = _build_cell((2, 2))
     w_state = torch.tensor([[0, 1], [1, 0]], dtype=torch.long)
     cell.program(w_state)
@@ -75,21 +81,18 @@ def test_solve_branch_matches_series_conductance() -> None:
     v_wl = torch.tensor([[0.0, 0.9], [0.9, 0.0]], dtype=torch.float64)
     snap = cell.snapshot(control=v_wl, shape=(2, 2), multi_coords=None, t_elapsed=0.0)
 
-    g_bl_table = torch.tensor(_G_BL_TABLE__uS, dtype=torch.float64)
-    g_sl_table = torch.tensor(_G_SL_TABLE__uS, dtype=torch.float64)
+    g_cell_off = torch.tensor(_G_CELL_OFF_TABLE__uS, dtype=torch.float64)[w_state]
+    g_cell_on = torch.tensor(_G_CELL_ON_TABLE__uS, dtype=torch.float64)[w_state]
     on = v_wl > _V_WL_ON_THRESHOLD__V
-    x_idx = on.long()
-    g_bl = g_bl_table[w_state, x_idx]
-    g_sl = g_sl_table[w_state, x_idx]
-    g_series = g_bl * g_sl / (g_bl + g_sl)
+    g_cell = torch.where(on, g_cell_on, g_cell_off)
 
     v_bl = torch.full((2, 2), 0.3, dtype=torch.float64)
     v_sl = torch.full((2, 2), 0.05, dtype=torch.float64)
     i__uA, di_dvbl__uS, di_dvsl__uS = cell.solve_branch(v_bl, v_sl, snap)
 
-    torch.testing.assert_close(i__uA, g_series * (v_bl - v_sl))
-    torch.testing.assert_close(di_dvbl__uS, g_series)
-    torch.testing.assert_close(di_dvsl__uS, -g_series)
+    torch.testing.assert_close(i__uA, g_cell * (v_bl - v_sl))
+    torch.testing.assert_close(di_dvbl__uS, g_cell)
+    torch.testing.assert_close(di_dvsl__uS, -g_cell)
 
 
 def test_wl_threshold_switches_off_at_and_below() -> None:
@@ -105,13 +108,12 @@ def test_wl_threshold_switches_off_at_and_below() -> None:
         i_levels.append(float(cell.solve_branch(v_bl, v_sl, snap)[0]))
     i_at_threshold, i_above = i_levels
 
-    g_bl_off, g_sl_off = _G_BL_TABLE__uS[1][0], _G_SL_TABLE__uS[1][0]
-    g_off = g_bl_off * g_sl_off / (g_bl_off + g_sl_off)
+    g_off = _G_CELL_OFF_TABLE__uS[1]
     assert i_at_threshold == pytest.approx(g_off * 0.3)
     assert i_above > i_at_threshold * 1e3
 
 
-def test_solve_dc_divider_vx_and_zero_residuals() -> None:
+def test_solve_dc_vx_multiplication_form_and_zero_residuals() -> None:
     cell = _build_cell((1, 1))
     cell.program(torch.tensor([[0]], dtype=torch.long))
     v_bl = torch.full((1, 1), 0.3, dtype=torch.float64)
@@ -121,13 +123,40 @@ def test_solve_dc_divider_vx_and_zero_residuals() -> None:
 
     dcop = cell.solve_dc(v_bl, v_sl, snap, compute_residuals=True)
 
-    g_bl_on, g_sl_on = _G_BL_TABLE__uS[0][1], _G_SL_TABLE__uS[0][1]
-    g_series = g_bl_on * g_sl_on / (g_bl_on + g_sl_on)
-    i__uA = g_series * 0.3
-    assert float(dcop.i__uA) == pytest.approx(i__uA)
-    assert float(dcop.v_x__V) == pytest.approx(0.3 - i__uA / g_bl_on)
+    g_cell_on = _G_CELL_ON_TABLE__uS[0]
+    vx_ratio_on = _VX_RATIO_ON_TABLE[0]
+    assert float(dcop.i__uA) == pytest.approx(g_cell_on * 0.3)
+    assert float(dcop.v_x__V) == pytest.approx(0.3 - vx_ratio_on * 0.3)
     assert dcop.residuals is not None
     assert torch.all(dcop.residuals.cell__uA == 0.0)
+
+
+def test_table_validation_bounds() -> None:
+    base = _hand_built_config()
+    # Boundary values are legal: zero chord conductance (cut-off leakage)
+    # and drop fractions at 0 / 1.
+    replace(base, g_cell_off_table__uS=(0.0, 2e-4)).validate()
+    replace(base, vx_ratio_off_table=(0.0, 0.5), vx_ratio_on_table=(1.0, 0.25)).validate()
+    with pytest.raises(ValueError):
+        replace(base, g_cell_off_table__uS=(-1.0, 2e-4)).validate()
+    with pytest.raises(ValueError):
+        replace(base, g_cell_on_table__uS=(float("inf"), 95.0)).validate()
+    with pytest.raises(ValueError):
+        replace(base, vx_ratio_on_table=(1.5, 0.94)).validate()
+    with pytest.raises(ValueError):
+        replace(base, vx_ratio_off_table=(-0.1, 1e-5)).validate()
+    with pytest.raises(ValueError):
+        replace(base, vx_ratio_off_table=(float("nan"), 1e-5)).validate()
+    with pytest.raises(ValueError):
+        replace(base, vx_ratio_on_table=(0.98,)).validate()
+    with pytest.raises(ValueError):
+        replace(
+            base,
+            g_cell_off_table__uS=(),
+            g_cell_on_table__uS=(),
+            vx_ratio_off_table=(),
+            vx_ratio_on_table=(),
+        ).validate()
 
 
 def test_empty_policy_deserializes(tmp_path: Path) -> None:
@@ -161,7 +190,7 @@ def test_isub_fragment_builds_and_solves() -> None:
     config = XbarCell1t1rLinearConfig.from_file(_ISUB_LINEAR_FRAGMENT, section="cell_config")
     assert isinstance(config, XbarCell1t1rLinearConfig)
 
-    n_states = len(config.g_bl_table__uS)
+    n_states = len(config.g_cell_off_table__uS)
     cell = XbarCell.from_config(
         config=config,
         policy=XbarCell1t1rLinearPolicy(),

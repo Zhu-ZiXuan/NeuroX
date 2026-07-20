@@ -3,8 +3,8 @@ emit the two chip-config fragments derived from one run:
 
   1. the margined ``n_newton`` pick for the Detail cell fragment;
   2. a :class:`XbarCell1t1rLinearConfig` fragment whose per-(state, WL-level)
-     sub-conductances are secants of the Detail model at a nominal operating
-     point.
+     chord conductance and BL-side drop fraction reproduce the Detail model's
+     branch current and access node at a nominal operating point.
 
 CLI: ``python -m neurox.tools.calibrate_cell._1t1r --help``
 """
@@ -51,9 +51,9 @@ class _GridCfg:
         v_wl_off__V: Word-line drive [V] for the off state (NMOS cut off).
         v_wl_on__V: Word-line drive [V] for the on state (NMOS conducting).
         v_bl_op__V: Nominal bit-line operating voltage [V] the linearized
-            cell's secant sub-conductances are extracted at.
+            cell's chord conductance and drop fraction are extracted at.
         v_sl_op__V: Nominal source-line operating voltage [V] for the same
-            secant extraction.
+            extraction.
     """
 
     v_terminal_min__V: float
@@ -285,38 +285,37 @@ def sweep_n_newton(
 # Linear-cell fragment extraction
 # ---------------------------------------------------------------------------
 
-_G_FLOOR__uS = 1e-9
-"""Positive floor replacing a degenerate secant sub-conductance [uS]."""
-
-_I_EPS__uA = 1e-12
-"""Below this branch-current magnitude the secant is treated as degenerate."""
-
-_DV_EPS__V = 1e-12
-"""Below this voltage-drop magnitude the secant is treated as degenerate."""
+_VX_RATIO_TOL = 1e-9
+"""Tolerance for clamping fp excursions of ``vx_ratio`` just outside [0, 1]."""
 
 
-def _secant_g__uS(i__uA: float, dv__V: float, *, label: str) -> float:
-    """Secant conductance ``i / dv`` [uS], floored to a tiny positive epsilon.
+def _chord_params(
+    i__uA: float,
+    v_x__V: float,
+    *,
+    v_bl_op__V: float,
+    v_sl_op__V: float,
+    label: str,
+) -> tuple[float, float]:
+    """``(g_cell__uS, vx_ratio)`` of one converged Detail branch at the OP.
 
-    A degenerate entry — near-zero current or drop, a non-positive ratio, or
-    a non-finite ratio — encodes a cut-off branch whose linear model only
-    needs a positive but negligible conductance; it floors at
-    ``_G_FLOOR__uS`` with a warning.
+    Both quantities put the fixed read span ``v_bl_op - v_sl_op`` in the
+    denominator, so a cut-off branch stays well-conditioned: its chord
+    conductance is its honest (possibly zero) leakage value. ``vx_ratio``
+    is clamped into ``[0, 1]`` only for tiny fp excursions (logged); a
+    gross excursion or a non-finite value raises.
     """
-    if abs(i__uA) <= _I_EPS__uA or abs(dv__V) <= _DV_EPS__V:
-        log.warning(
-            "secant %s degenerate (i = %.3e uA, dv = %.3e V); flooring at %.1e uS",
-            label,
-            i__uA,
-            dv__V,
-            _G_FLOOR__uS,
-        )
-        return _G_FLOOR__uS
-    g__uS = i__uA / dv__V
-    if not math.isfinite(g__uS) or g__uS <= 0.0:
-        log.warning("secant %s non-physical (g = %.3e uS); flooring at %.1e uS", label, g__uS, _G_FLOOR__uS)
-        return _G_FLOOR__uS
-    return g__uS
+    span__V = v_bl_op__V - v_sl_op__V
+    g_cell__uS = i__uA / span__V
+    vx_ratio = (v_bl_op__V - v_x__V) / span__V
+    if not (math.isfinite(g_cell__uS) and math.isfinite(vx_ratio)):
+        raise ValueError(f"non-finite chord params {label}: g_cell = {g_cell__uS!r} uS, vx_ratio = {vx_ratio!r}")
+    if not (-_VX_RATIO_TOL <= vx_ratio <= 1.0 + _VX_RATIO_TOL):
+        raise ValueError(f"vx_ratio {label} grossly outside [0, 1]: {vx_ratio!r}")
+    clamped = min(max(vx_ratio, 0.0), 1.0)
+    if clamped != vx_ratio:
+        log.info("clamped vx_ratio %s from %.17g into [0, 1]", label, vx_ratio)
+    return g_cell__uS, clamped
 
 
 def extract_linear_cell_config(
@@ -334,16 +333,17 @@ def extract_linear_cell_config(
 
     Solves the noise-off Detail cell exactly at ``(v_bl_op__V, v_sl_op__V)``
     for every programmed state at both WL levels, and converts each converged
-    branch into the secant sub-conductance pair
+    branch ``(I, V_X)`` into the divider pair
 
-    ``g_bl = i / (v_bl - v_x)``, ``g_sl = i / (v_x - v_sl)``,
+    ``g_cell = I / (v_bl_op - v_sl_op)``,
+    ``vx_ratio = (v_bl_op - V_X) / (v_bl_op - v_sl_op)``,
 
-    so the linear series combination reproduces the Detail branch current at
-    the operating point. Degenerate entries (a cut-off branch draws no
-    current, leaving both secants 0/0) floor at a tiny positive epsilon with
-    a warning. The four shared node-to-ground capacitances copy verbatim
-    from ``cell_config``; the WL on/off threshold is the midpoint of the
-    two WL levels.
+    so the linear branch reproduces the Detail branch current and access
+    node at the operating point. The fixed read span in both denominators
+    keeps cut-off branches well-conditioned: their chord conductance is the
+    honest (possibly zero) leakage value. The four shared node-to-ground
+    capacitances copy verbatim from ``cell_config``; the WL on/off
+    threshold is the midpoint of the two WL levels.
 
     Args:
         cell_config: Detail cell fragment under calibration.
@@ -365,31 +365,38 @@ def extract_linear_cell_config(
     v_bl = torch.full((1, 1), v_bl_op__V, dtype=dtype, device=device)
     v_sl = torch.full((1, 1), v_sl_op__V, dtype=dtype, device=device)
 
-    g_bl_rows: list[tuple[float, float]] = []
-    g_sl_rows: list[tuple[float, float]] = []
+    g_cell_off: list[float] = []
+    g_cell_on: list[float] = []
+    vx_ratio_off: list[float] = []
+    vx_ratio_on: list[float] = []
     for s in range(n_states):
         cell.program(torch.full((1,), s, dtype=torch.long, device=device))
-        g_bl_pair: list[float] = []
-        g_sl_pair: list[float] = []
-        for level, v_wl__V in (("off", v_wl_off__V), ("on", v_wl_on__V)):
+        for level, v_wl__V, g_table, vx_table in (
+            ("off", v_wl_off__V, g_cell_off, vx_ratio_off),
+            ("on", v_wl_on__V, g_cell_on, vx_ratio_on),
+        ):
             v_wl = torch.full((1, 1), v_wl__V, dtype=dtype, device=device)
             snap = cell.snapshot(control=v_wl, shape=(1, 1), multi_coords=None, t_elapsed=0.0)
             dcop = cell.solve_dc(v_bl, v_sl, snap)
-            i__uA = float(dcop.i__uA)
-            v_x__V = float(dcop.v_x__V)
-            label = f"(state {s}, wl {level})"
-            g_bl_pair.append(_secant_g__uS(i__uA, v_bl_op__V - v_x__V, label=f"g_bl {label}"))
-            g_sl_pair.append(_secant_g__uS(i__uA, v_x__V - v_sl_op__V, label=f"g_sl {label}"))
-        g_bl_rows.append((g_bl_pair[0], g_bl_pair[1]))
-        g_sl_rows.append((g_sl_pair[0], g_sl_pair[1]))
+            g_cell__uS, vx_ratio = _chord_params(
+                float(dcop.i__uA),
+                float(dcop.v_x__V),
+                v_bl_op__V=v_bl_op__V,
+                v_sl_op__V=v_sl_op__V,
+                label=f"(state {s}, wl {level})",
+            )
+            g_table.append(g_cell__uS)
+            vx_table.append(vx_ratio)
 
     return XbarCell1t1rLinearConfig(
         c_bl__fF=cell_config.c_bl__fF,
         c_x__fF=cell_config.c_x__fF,
         c_sl__fF=cell_config.c_sl__fF,
         c_wl__fF=cell_config.c_wl__fF,
-        g_bl_table__uS=tuple(g_bl_rows),
-        g_sl_table__uS=tuple(g_sl_rows),
+        g_cell_off_table__uS=tuple(g_cell_off),
+        g_cell_on_table__uS=tuple(g_cell_on),
+        vx_ratio_off_table=tuple(vx_ratio_off),
+        vx_ratio_on_table=tuple(vx_ratio_on),
         v_wl_on_threshold__V=(v_wl_off__V + v_wl_on__V) / 2.0,
     )
 
@@ -421,11 +428,13 @@ def linear_fragment_text(
     """The linearized-cell fragment as TOML text (header comment + table)."""
     header = (
         "# Linearized 1T1R cell fragment emitted by neurox.tools.calibrate_cell.\n"
-        "# Secant sub-conductances of the Detail cell at the nominal operating\n"
-        f"# point v_bl = {v_bl_op__V} V, v_sl = {v_sl_op__V} V; the WL threshold is the\n"
-        "# midpoint of the calibration grid's off/on WL levels. Selecting it is\n"
-        "# a pure config choice: point the array's cell_config table at this\n"
-        "# file, e.g.\n"
+        "# Per-state chord conductance g_cell = I / (v_bl - v_sl) and BL-side\n"
+        "# drop fraction vx_ratio = (v_bl - V_X) / (v_bl - v_sl) of the Detail\n"
+        "# cell, one flat table per WL level (off / on), at the nominal\n"
+        f"# operating point v_bl = {v_bl_op__V} V, v_sl = {v_sl_op__V} V; the WL\n"
+        "# threshold is the midpoint of the calibration grid's off/on WL\n"
+        "# levels. Selecting it is a pure config choice: point the array's\n"
+        "# cell_config table at this file, e.g.\n"
         "#   [cim_macro.array_config.cell_config]\n"
         '#   _neurox_use = "cell_linear.toml:cell_config"\n'
     )
@@ -527,18 +536,25 @@ def main(argv: list[str] | None = None) -> int:
         n_newton=final,
     )
     log.info(
-        "Linear-cell secant tables at OP (v_bl = %.3f V, v_sl = %.3f V):",
+        "Linear-cell divider tables at OP (v_bl = %.3f V, v_sl = %.3f V):",
         cfg.grid.v_bl_op__V,
         cfg.grid.v_sl_op__V,
     )
-    for s, (g_bl, g_sl) in enumerate(zip(linear_config.g_bl_table__uS, linear_config.g_sl_table__uS, strict=True)):
+    per_state = zip(
+        linear_config.g_cell_off_table__uS,
+        linear_config.g_cell_on_table__uS,
+        linear_config.vx_ratio_off_table,
+        linear_config.vx_ratio_on_table,
+        strict=True,
+    )
+    for s, (g_off, g_on, vx_off, vx_on) in enumerate(per_state):
         log.info(
-            "  state %d: g_bl(off/on) = %.6e / %.6e uS, g_sl(off/on) = %.6e / %.6e uS",
+            "  state %d: g_cell(off/on) = %.6e / %.6e uS, vx_ratio(off/on) = %.9f / %.9f",
             s,
-            g_bl[0],
-            g_bl[1],
-            g_sl[0],
-            g_sl[1],
+            g_off,
+            g_on,
+            vx_off,
+            vx_on,
         )
     log.info("=" * 80)
 
