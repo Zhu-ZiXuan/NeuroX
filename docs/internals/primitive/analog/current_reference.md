@@ -26,4 +26,4 @@
 
 - **Reference**: [current_reference](../../../reference/primitive/analog/current_reference.md)
 - **Implementation**: `neurox/primitive/analog/current_reference.py`
-- **Tests**: `tests/primitive/analog/test_reference_sources.py`
+- **Tests**: `tests/primitive/analog/test_current_reference.py`

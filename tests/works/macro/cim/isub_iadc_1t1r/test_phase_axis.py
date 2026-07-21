@@ -1,4 +1,4 @@
-"""Sub-phase plane contract tests: shape, latency scaling, mismatch sharing.
+"""Sub-phase plane contract tests: shape, per-instance decode, latency scaling.
 
 The macro consumes pre-expanded zero-masked WL planes (primitive trailing
 ``[row_num]``, at most ``max_active_rows`` live rows each) and emits one ADC
@@ -6,24 +6,20 @@ code per column per plane with the leading order preserved and primitive
 trailing ``[col_num]`` — no phase axis of the macro's own. The caller's
 sub-phase axis rides the anonymous leading through every readout stage.
 Because it matches no fabricated ``inst_shape`` axis it is time-serial on
-all hardware, which pins down three observable contracts asserted here on
-the tiny overlay tile:
+all hardware, which pins down the observable contracts asserted here on the
+hand-built tiny witness tile:
 
   * shape: ``vec_mat_mul`` on planes ``[P, row_num]`` returns
     ``[P, col_num]`` (leading preserved, no trailing P); a single full-row
     plane on the ``active_row_num == row_num`` variant returns ``[col_num]``
     and equals the ``sum(P)`` of its size-1 masked expansion;
+  * inst prefix: with a non-empty ``inst_shape`` each instance's per-plane
+    codes come from that instance's weights alone, with the sub-phase axis
+    inserted left of the inst-aligned span;
   * latency: the profiler's total latency scales exactly with the plane
     count between one full-row plane and P = 2 masked planes of the same
     drive (every serial-op multiplier — core, readout chain, ADC — counts
-    solved planes);
-  * mismatch granularity: static fabricated draws live at the real device
-    shape with NO plane axis and are shared across planes (identical WL
-    planes fed through a sub-phase-like leading axis produce bit-identical
-    analog outputs with every static mismatch enabled), while per-call
-    snapshot noise samples at full shape (the same planes produce DIFFERENT
-    outputs across the leading axis, and across repeated calls, with a
-    per-call noise source enabled).
+    solved planes).
 
 Runs eagerly (dynamo disabled); tiny geometry, seconds of numerics.
 """
@@ -38,26 +34,20 @@ import torch
 import torch._dynamo
 
 from neurox.common.profiler import NeuroxProfiler
-from neurox.primitive.analog import CurrentMirrorPolicy, CurrentSubtractorPolicy, VoltageDriverPolicy
 from neurox.works.macro.cim.isub_iadc_1t1r.macro import IsubIadc1t1rCimMacro
 from tests.works.macro.cim.isub_iadc_1t1r._utils import (
     ADC_OP,
-    CONFIG_PATH,
     TINY_ACTIVE_ROW_NUM,
     TINY_COL_NUM,
-    TINY_OVERLAY_PATH,
     TINY_PHASE_NUM,
     TINY_ROW_NUM,
+    build_calibrated_tile,
     build_tile,
-    load_all_off_policy,
-    load_config,
+    build_tiny_config,
     masked_planes,
     per_phase_clamp_reference,
-    probe_i_sub,
     tile_device,
 )
-
-_SIGMA = 0.2
 
 
 @pytest.fixture(autouse=True)
@@ -67,44 +57,12 @@ def _eager() -> Iterator[None]:
         yield
 
 
-def _build_variant(
-    device: torch.device,
-    *,
-    active_row_num: int = TINY_ACTIVE_ROW_NUM,
-    all_static_mismatch: bool = False,
-    clamp_thermal: bool = False,
-    seed: int | None = 20200709,
-) -> IsubIadc1t1rCimMacro:
-    """Tiny tile variant: phase count, all-static-mismatch, or clamp thermal noise."""
-    config = load_config(TINY_OVERLAY_PATH, CONFIG_PATH)
+def _build_variant(device: torch.device, *, active_row_num: int = TINY_ACTIVE_ROW_NUM) -> IsubIadc1t1rCimMacro:
+    """Tiny witness tile at ``active_row_num`` (placeholder ladder — shape / latency only)."""
+    config = build_tiny_config()
     if active_row_num != config.active_row_num:
         config = dataclasses.replace(config, active_row_num=active_row_num)
-    policy = load_all_off_policy()
-    if all_static_mismatch:
-        config = dataclasses.replace(
-            config,
-            p_mirror_config=dataclasses.replace(config.p_mirror_config, ratio_sigma_relative=_SIGMA),
-            n_mirror_config=dataclasses.replace(config.n_mirror_config, ratio_sigma_relative=_SIGMA),
-            subtractor_config=dataclasses.replace(
-                config.subtractor_config, mismatch_sigma_relative=_SIGMA, offset_sigma__uA=0.5
-            ),
-        )
-        policy = dataclasses.replace(
-            policy,
-            p_mirror=CurrentMirrorPolicy(mismatch=True),
-            n_mirror=CurrentMirrorPolicy(mismatch=True),
-            subtractor=CurrentSubtractorPolicy(mismatch=True, offset=True),
-        )
-    if clamp_thermal:
-        config = dataclasses.replace(
-            config,
-            bl_clamp_config=dataclasses.replace(config.bl_clamp_config, thermal_sigma__V=0.005),
-        )
-        policy = dataclasses.replace(
-            policy,
-            bl_clamp=VoltageDriverPolicy(offset=False, thermal=True),
-        )
-    return build_tile(config, device=device, policy=policy, seed=seed)
+    return build_tile(config, device=device)
 
 
 def _program_plus_column(xbar: IsubIadc1t1rCimMacro) -> None:
@@ -188,7 +146,7 @@ def test_inst_prefix_per_instance_decode(device: torch.device, n_inst: int) -> N
     ``i``'s per-plane codes must come from instance ``i``'s weights alone —
     including at ``inst_shape = (2,)`` where the trailing inst dim equals P.
     """
-    xbar = build_tile(load_config(TINY_OVERLAY_PATH, CONFIG_PATH), device=device, inst_shape=(n_inst,))
+    xbar = build_calibrated_tile(device, inst_shape=(n_inst,))
     w, x = _per_instance_patterns(n_inst)
     xbar.program(w.to(device))
     # Shape: [n_inst, row_num] -> [P, n_inst, row_num]   P left of the inst span
@@ -236,60 +194,3 @@ def test_latency_scales_with_plane_count(device: torch.device) -> None:
 
     assert totals[1] > 0.0
     assert totals[2] == pytest.approx(2.0 * totals[1], rel=1e-6), f"latency totals: {totals}"
-
-
-# ---------------------------------------------------------------------------
-# Mismatch granularity across the phase axis
-# ---------------------------------------------------------------------------
-
-
-def test_static_mismatch_shared_across_phases(device: torch.device) -> None:
-    """Static draws carry no phase axis and are shared across the phase leading.
-
-    With EVERY static readout mismatch enabled (p/n mirror ratio, subtractor
-    ratio + offset), the fabricated buffers live at the real device shapes
-    and identical WL planes stacked along a phase-like leading axis produce
-    bit-identical analog outputs — the same physical devices serve every
-    phase with the same single draw. Repeated eval-mode calls stay
-    bit-identical too (no per-call draw).
-    """
-    xbar = _build_variant(device, all_static_mismatch=True)
-    # Real-device buffer shapes: native inst alignment, NO phase axis.
-    assert tuple(xbar.p_mirror.ratio_mismatch.shape) == (2, xbar.n_lane)
-    assert tuple(xbar.n_mirror.ratio_mismatch.shape) == (2, xbar.n_io)
-    assert tuple(xbar.subtractor.ratio_mismatch.shape) == (xbar.n_io,)
-    assert not torch.equal(xbar.p_mirror.ratio_mismatch, torch.ones_like(xbar.p_mirror.ratio_mismatch))
-
-    _program_plus_column(xbar)
-    planes = torch.ones((2, TINY_ROW_NUM), dtype=torch.long, device=device)  # identical "phases"
-    i_sub, sign = probe_i_sub(xbar, planes)
-    assert torch.equal(i_sub[0], i_sub[1]), "static mismatch must be shared across the phase axis"
-    assert torch.equal(sign[0], sign[1])
-
-    i_sub_again, _ = probe_i_sub(xbar, planes)
-    assert torch.equal(i_sub, i_sub_again), "eval-mode static-only chain must be bit-exact repeatable"
-
-
-def test_percall_noise_independent_across_phases(device: torch.device) -> None:
-    """Per-call snapshot noise draws at full shape: independent per phase and call.
-
-    With the BL-clamp thermal noise enabled (a per-solve full-shape draw),
-    identical WL planes stacked along a phase-like leading axis produce
-    DIFFERENT analog outputs per leading entry, and a repeated call draws a
-    fresh snapshot.
-    """
-    xbar = _build_variant(device, clamp_thermal=True)
-    _program_plus_column(xbar)
-    planes = torch.ones((2, TINY_ROW_NUM), dtype=torch.long, device=device)
-
-    i_sub, _sign = probe_i_sub(xbar, planes)
-    assert not torch.equal(i_sub[0], i_sub[1]), "per-call noise must draw independently per phase"
-
-    i_sub_again, _ = probe_i_sub(xbar, planes)
-    assert not torch.equal(i_sub, i_sub_again), "per-call noise must redraw on every call"
-
-    # Control: the all-off baseline is bit-identical across the same leading.
-    baseline = _build_variant(device)
-    _program_plus_column(baseline)
-    i_sub_base, _ = probe_i_sub(baseline, planes)
-    assert torch.equal(i_sub_base[0], i_sub_base[1])

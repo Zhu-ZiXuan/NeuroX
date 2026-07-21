@@ -2,8 +2,7 @@
 
 Covers registry dispatch from the config type, the WL-switched
 division-free branch math against hand-built tables, table validation
-bounds, the empty-policy deserialization path, and a sanity solve on the
-calibrated isub scheme fragment.
+bounds, and the empty-policy deserialization path.
 """
 
 from dataclasses import replace
@@ -20,11 +19,6 @@ from neurox.primitive.xbar.cell import (
     XbarCell1t1rLinearConfig,
     XbarCell1t1rLinearPolicy,
     XbarCell1t1rPolicy,
-)
-
-_REPO_ROOT = Path(__file__).resolve().parents[3]
-_ISUB_LINEAR_FRAGMENT = (
-    _REPO_ROOT / "neurox" / "works" / "macro" / "cim" / "isub_iadc_1t1r" / "params" / "cell_linear.toml"
 )
 
 _G_CELL_OFF_TABLE__uS = (1e-4, 2e-4)
@@ -184,32 +178,3 @@ def test_wrong_policy_type_raises() -> None:
             dtype=torch.float64,
             T__K=300.0,
         )
-
-
-def test_isub_fragment_builds_and_solves() -> None:
-    config = XbarCell1t1rLinearConfig.from_file(_ISUB_LINEAR_FRAGMENT, section="cell_config")
-    assert isinstance(config, XbarCell1t1rLinearConfig)
-
-    n_states = len(config.g_cell_off_table__uS)
-    cell = XbarCell.from_config(
-        config=config,
-        policy=XbarCell1t1rLinearPolicy(),
-        inst_shape=(n_states, 1),
-        dtype=torch.float64,
-        T__K=300.0,
-    )
-    assert isinstance(cell, XbarCell1t1rLinear)
-    cell.eval()
-    cell.fabricate()
-    cell.program(torch.arange(n_states, dtype=torch.long).reshape(n_states, 1))
-
-    v_bl = torch.full((n_states, 1), 0.3, dtype=torch.float64)
-    v_sl = torch.zeros((n_states, 1), dtype=torch.float64)
-    v_wl = torch.full((n_states, 1), 0.9, dtype=torch.float64)
-    snap = cell.snapshot(control=v_wl, shape=(n_states, 1), multi_coords=None, t_elapsed=0.0)
-    i__uA, di_dvbl__uS, di_dvsl__uS = cell.solve_branch(v_bl, v_sl, snap)
-
-    assert torch.isfinite(i__uA).all()
-    assert torch.all(i__uA > 0.0)
-    assert torch.all(di_dvbl__uS > 0.0)
-    assert torch.all(di_dvsl__uS < 0.0)

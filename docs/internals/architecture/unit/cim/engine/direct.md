@@ -28,4 +28,4 @@ The variant adds only the transcode, the identity slice check, and the contracti
 
 - **Reference**: [direct engine](../../../../../reference/architecture/unit/cim/engine/direct.md)
 - **Implementation**: `neurox/architecture/unit/cim/engine/direct.py`
-- **Tests**: `tests/architecture/unit/test_cim_unit.py`, `tests/architecture/unit/test_operator_cim_unit.py`
+- **Tests**: `tests/architecture/unit/test_cim_unit.py`, `tests/architecture/unit/test_linear_cim_unit.py`

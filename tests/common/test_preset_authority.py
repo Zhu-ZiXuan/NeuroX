@@ -5,9 +5,6 @@ mutual exclusion between the ``_neurox_use`` / ``_neurox_use_preset`` directives
 and the ``_neurox_class`` discriminator, inline-table vs section-header
 equivalence, the post-split abstract-base rule, and the self-describing-leaf
 resolver path that must include the receiver class itself.
-
-Importing ``works.offset_1t1r`` registers the concrete config subclasses used
-as real fixtures here.
 """
 
 from __future__ import annotations
@@ -18,7 +15,6 @@ from pathlib import Path
 
 import pytest
 
-import works.offset_1t1r  # noqa: F401  # registers concrete config subclasses
 from neurox.common.mixin import SerializeMixin
 from neurox.primitive.device.mosfet import MosfetConfig
 from neurox.primitive.device.rram import RramConfig

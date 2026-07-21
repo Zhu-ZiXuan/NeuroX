@@ -23,4 +23,4 @@
 
 - **Reference**: [unit family](../../../reference/architecture/unit/family.md)
 - **Implementation**: `neurox/architecture/unit/base.py`
-- **Tests**: `tests/architecture/unit/test_operator_cim_unit.py`
+- **Tests**: `tests/architecture/unit/test_linear_cim_unit.py`

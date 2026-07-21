@@ -24,4 +24,4 @@
 
 - **Reference**: [voltage_reference](../../../reference/primitive/analog/voltage_reference.md)
 - **Implementation**: `neurox/primitive/analog/voltage_reference.py`
-- **Tests**: `tests/test_reference_sources.py`
+- **Tests**: `tests/primitive/analog/test_voltage_reference.py`

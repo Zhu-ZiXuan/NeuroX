@@ -1,6 +1,6 @@
 """Linear-fragment extraction sanity for :mod:`neurox.tools.calibrate_cell`.
 
-Pulls a real Detail cell fragment through the tool-run config path, extracts
+Pulls a hand-written Detail cell fragment through the tool-run config path, extracts
 the divider linearization (chord conductance + BL-side drop fraction) at a
 nominal operating point, and checks that the emitted fragment deserializes
 into a buildable :class:`XbarCell1t1rLinearConfig` that reproduces the
@@ -28,9 +28,6 @@ from neurox.tools.calibrate_cell._1t1r import (
     n_newton_fragment_text,
 )
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-_ISUB_DEFAULT = _REPO_ROOT / "neurox" / "works" / "macro" / "cim" / "isub_iadc_1t1r" / "params" / "default.toml"
-
 _V_BL_OP__V = 0.3
 _V_SL_OP__V = 0.0
 _V_WL_OFF__V = 0.0
@@ -38,7 +35,22 @@ _V_WL_ON__V = 0.9
 
 _RUN_TOML = f"""\
 [cell_config]
-_neurox_use = "{_ISUB_DEFAULT}:cim_macro.array_config.cell_config"
+_neurox_class = "XbarCell1t1rDetailConfig"
+access_nmos_W__um = 0.2
+access_nmos_L__um = 0.1
+c_bl__fF = 0.1
+c_x__fF = 0.2
+c_sl__fF = 0.1
+c_wl__fF = 0.1
+rram_g_max__uS = 100.0
+state_to_g_map__uS = [10.0, 100.0]
+n_newton = 4
+
+[cell_config.rram_config]
+_neurox_use_preset = "process/rram:default"
+
+[cell_config.nmos_config]
+_neurox_use_preset = "process/mos:nmos_28_rvt"
 
 [grid]
 v_terminal_min__V = 0.0

@@ -1,4 +1,4 @@
-"""Tests for the linear operator unit and the abstract operator / engine bases."""
+"""Tests for the linear CIM unit and the abstract unit / engine bases."""
 
 from __future__ import annotations
 
@@ -340,7 +340,7 @@ def test_linear_registered_for_from_config_dispatch() -> None:
     assert isinstance(unit, LinearCimUnit)
 
 
-# --- abstract operator / engine bases ---
+# --- abstract unit / engine bases ---
 
 
 @pytest.mark.parametrize(

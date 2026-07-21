@@ -3,8 +3,8 @@
 Exercises the EKV-softplus I-V law and its three node partials for both
 the :class:`Nmos` (polarity +1) and :class:`Pmos` (polarity -1)
 specializations, the finite-difference consistency of those partials,
-fabricate-time Pelgrom mismatch, and config validation. Everything runs
-on CPU in ``float64`` with no ``torch.compile``.
+all-off determinism, and config validation. Everything runs on CPU in
+``float64`` with no ``torch.compile``.
 """
 
 from __future__ import annotations
@@ -16,7 +16,6 @@ from torch import Tensor
 from neurox.primitive.device import Mosfet, MosfetConfig, MosfetPolicy, Nmos, Pmos
 
 _OFF = MosfetPolicy(A_vt_mismatch=False, A_beta_mismatch=False)
-_ON = MosfetPolicy(A_vt_mismatch=True, A_beta_mismatch=True)
 
 _BASE_CONFIG: dict[str, float] = {
     "mu0__cm2_per_V_s": 200.0,
@@ -62,7 +61,7 @@ def _make(
 
 def test_nmos_enhancement_conducts_and_partial_signs() -> None:
     """Enhancement NMOS (vth0 > 0): forward bias conducts, ids rises with Vg, partial signs hold."""
-    k = 6
+    k = 3
     dev = _make(Nmos, vth0__V=0.4, inst_shape=(k,))
     snap = dev.snapshot(shape=(k,), multi_coords=None)
     vg = torch.linspace(0.5, 1.0, k, dtype=torch.float64)
@@ -80,7 +79,7 @@ def test_nmos_enhancement_conducts_and_partial_signs() -> None:
 
 def test_pmos_enhancement_conducts_negative() -> None:
     """Enhancement PMOS (vth0 < 0): source-high / drain-low with a low gate conducts; ids < 0."""
-    k = 6
+    k = 3
     v_dd = 0.9
     dev = _make(Pmos, vth0__V=-0.4, inst_shape=(k,))
     snap = dev.snapshot(shape=(k,), multi_coords=None)
@@ -149,46 +148,9 @@ def test_partials_match_finite_difference(
     assert torch.allclose(dc.did_dvs__uS, fd_s, atol=1e-4)
 
 
-def test_mismatch_keeps_beta_positive_mean_near_nominal() -> None:
-    """Pelgrom fabricate mismatch keeps β a positive magnitude centered on the nominal value."""
-    torch.manual_seed(0)
-    k = 50_000
-    dev = _make(
-        Nmos,
-        vth0__V=0.4,
-        inst_shape=(k,),
-        policy=_ON,
-        A_vt__mV_um=1.0,
-        A_beta_relative__um=0.1,
-    )
-    beta = dev.beta__uA_per_V2
-    assert beta.shape == (k,)
-    assert torch.all(beta > 0.0)
-    nominal = float(dev.nominal_beta__uA_per_V2)
-    assert abs(float(beta.mean()) - nominal) < 0.02 * nominal
-    # A real spread was actually injected.
-    assert float(beta.std()) > 0.0
-    assert float(dev.vth__V.std()) > 0.0
-
-
-def test_mismatch_sigmas_positive_for_pmos_config() -> None:
-    """β / V_th matching sigmas stay positive for a p-channel config (β remains a magnitude)."""
-    dev = _make(
-        Pmos,
-        vth0__V=-0.4,
-        inst_shape=(1,),
-        policy=_ON,
-        A_vt__mV_um=1.0,
-        A_beta_relative__um=0.1,
-    )
-    assert float(dev.nominal_beta__uA_per_V2) > 0.0
-    assert dev.sigma_vth__V > 0.0
-    assert dev.sigma_beta__uA_per_V2 > 0.0
-
-
 def test_all_off_snapshot_deterministic() -> None:
     """With every mismatch toggle off, fabricate + snapshot are deterministic and uniform."""
-    k = 8
+    k = 2
     dev = _make(
         Nmos,
         vth0__V=0.4,

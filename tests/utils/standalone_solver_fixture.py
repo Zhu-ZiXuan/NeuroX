@@ -1,61 +1,127 @@
-"""Standalone solver harness for solver-only tests.
+"""Standalone linear solver harness for solver-only tests.
 
-Builds a standalone :class:`XbarCell1t1r` (owning fabricated RRAM /
-access-NMOS), independent OpAmpTia / VoltageDriver boundary modules, and a
-chip-preset-driven stateless ``Solver``, with synthetic mid-range RRAM g
-and a configurable ``v_wl_drive`` grid.
+Builds a fully hand-written, fully linear tiny tile: an
+:class:`XbarCell1t1rLinear` cell grid (table-driven chord conductance,
+empty policy), two IDEAL :class:`VoltageDriver` rail clamps
+(``r_out = 0``, so ``solve_clamp`` returns the reference voltage
+exactly), and a hand-built two-tap :class:`VoltageReference`. Every
+config value is an explicit in-code witness; no config file is read and
+no nonideality toggle is enabled, so the assembled system is an exactly
+linear resistor network with Dirichlet rail boundaries — a dense KCL
+oracle can reproduce the solver's DCOP to round-off.
 
 Public surface: :func:`build_solver_harness` returns a frozen
-``SolverHarness`` carrying the constructed solver, the fabricated cell,
-the boundary drivers, sampled boundary snaps, wire R/G tensors, and
-the ``v_wl_drive`` tensor. The solver is stateless, so the cell and the
-two clamp drivers are packed as per-call kwargs alongside their snaps.
-Tests call ``harness.solver.solve_dc(**harness.solver_kwargs(),
-compute_residuals=True)`` to exercise the solver; the per-call cell snap
-is rebuilt by :meth:`SolverHarness.cell_snapshot`.
+``SolverHarness`` carrying the constructed solver, the programmed cell,
+the two ideal clamp drivers with their snaps, the wire R/G tensors, the
+WL drive, and the oracle inputs (the cell config, the programmed state
+indices, and the resolved rail reference taps). Tests call
+``harness.solver.solve_dc(**harness.solver_kwargs(), ...)``; the
+per-call cell snap is rebuilt by :meth:`SolverHarness.cell_snapshot`.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from pathlib import Path
+from dataclasses import dataclass
 from typing import Any
 
 import torch
 from torch import Tensor
 
-from neurox.primitive.analog import VoltageDriver, VoltageDriverPolicy, VoltageReference, VoltageReferencePolicy
-from neurox.primitive.analog.tia import OpAmpTia, OpAmpTiaConfig, OpAmpTiaPolicy
-from neurox.primitive.device import MosfetPolicy, RramPolicy
-from neurox.primitive.xbar.cell import XbarCell1t1r, XbarCell1t1rDetail, XbarCell1t1rDetailPolicy, XbarCell1t1rSnap
+from neurox.primitive.analog import (
+    VoltageDriver,
+    VoltageDriverConfig,
+    VoltageDriverPolicy,
+    VoltageDriverSnap,
+    VoltageReference,
+    VoltageReferenceConfig,
+    VoltageReferencePolicy,
+)
+from neurox.primitive.xbar.cell import (
+    XbarCell1t1rLinear,
+    XbarCell1t1rLinearConfig,
+    XbarCell1t1rLinearPolicy,
+    XbarCell1t1rLinearSnap,
+)
 from neurox.primitive.xbar.solver import Solver, SolverConfig
-from works.offset_1t1r.macro import Offset1t1rCimMacroConfig
+
+# --- Hand-written harness constants (arbitrary small witnesses) ---
+
+COL_NUM = 3
+ROW_NUM = 4
+X_BATCH = 1
+
+# Two weight states: WL-off leakage ~5 uS, WL-on chord ~50/100 uS.
+G_CELL_OFF_TABLE__uS = (4.0, 5.0)
+G_CELL_ON_TABLE__uS = (50.0, 100.0)
+VX_RATIO_OFF_TABLE = (0.5, 0.5)
+VX_RATIO_ON_TABLE = (0.4, 0.6)
+V_WL_ON_THRESHOLD__V = 0.5
+
+C_NODE__fF = 0.1
+
+# Wire segment resistances [MOhm]; index 0 is driver-to-first. BL and SL
+# values differ so a rail swap cannot cancel.
+BL_FIRST_R__MOhm = 2e-4
+BL_SEGMENT_R__MOhm = 1e-4
+SL_FIRST_R__MOhm = 4e-4
+SL_SEGMENT_R__MOhm = 2e-4
+
+# Rail reference taps [V]: tap 0 = BL clamp, tap 1 = SL drive.
+BL_V_REF__V = 0.3
+SL_V_REF__V = 0.1
+
+
+def _linear_cell_config() -> XbarCell1t1rLinearConfig:
+    return XbarCell1t1rLinearConfig(
+        c_bl__fF=C_NODE__fF,
+        c_x__fF=C_NODE__fF,
+        c_sl__fF=C_NODE__fF,
+        c_wl__fF=C_NODE__fF,
+        g_cell_off_table__uS=G_CELL_OFF_TABLE__uS,
+        g_cell_on_table__uS=G_CELL_ON_TABLE__uS,
+        vx_ratio_off_table=VX_RATIO_OFF_TABLE,
+        vx_ratio_on_table=VX_RATIO_ON_TABLE,
+        v_wl_on_threshold__V=V_WL_ON_THRESHOLD__V,
+    )
+
+
+def _ideal_driver_config() -> VoltageDriverConfig:
+    return VoltageDriverConfig(
+        r_out__MOhm=0.0,
+        offset_sigma__V=0.0,
+        thermal_sigma__V=0.0,
+        energy_per_op__fJ=0.0,
+        area_per_inst__um2=0.0,
+        leakage_per_inst__uW=0.0,
+    )
 
 
 @dataclass(frozen=True)
 class SolverHarness:
-    """All inputs required to call :meth:`Solver.solve_dc` directly."""
+    """All inputs required to call :meth:`Solver.solve_dc` directly.
+
+    Also carries the dense-oracle inputs: the hand-written linear cell
+    config, the programmed state-index grid, and the resolved rail
+    reference taps (exact clamp targets, since both drivers are ideal).
+    """
 
     solver: Solver
-    cell: XbarCell1t1r
-    bl_driver: OpAmpTia
+    cell: XbarCell1t1rLinear
+    cell_config: XbarCell1t1rLinearConfig
+    w_state_idx: Tensor
+    bl_driver: VoltageDriver
     sl_driver: VoltageDriver
-    bl_driver_snap: Any
-    sl_driver_snap: Any
+    bl_driver_snap: VoltageDriverSnap
+    sl_driver_snap: VoltageDriverSnap
     bl_segment_r__MOhm: Tensor
     sl_segment_r__MOhm: Tensor
     bl_segment_g__uS: Tensor
     sl_segment_g__uS: Tensor
     v_wl_drive__V: Tensor
-    # Resolved clamp-reference taps (post-snapshot) injected into the driver
-    # snaps: the BL-clamp tap and the SL-drive tap. The reference is owned by
-    # the core's VoltageReference and injected per snapshot. Tests read these
-    # (or the driver snaps' v_ref__V) to pin clamp voltages.
     bl_v_ref__V: Tensor
     sl_v_ref__V: Tensor
-    inst_shape: tuple[int, ...] = field(default_factory=tuple)
 
-    def cell_snapshot(self) -> XbarCell1t1rSnap:
+    def cell_snapshot(self) -> XbarCell1t1rLinearSnap:
         """Build the per-call cell snap at the harness WL drive."""
         return self.cell.snapshot(
             control=self.v_wl_drive__V,
@@ -90,84 +156,63 @@ def _wire_seg_tensor(first: float, segment: float, row_num: int, device: torch.d
 
 def build_solver_harness(
     *,
-    config_path: Path,
     solver_config: SolverConfig,
-    inst_shape: tuple[int, ...],
-    x_batch: int,
     device: torch.device,
     dtype: torch.dtype = torch.float64,
-    g_uniform_frac: float = 0.4,
-    v_wl_drive__V: float = 0.7,
+    v_wl_drive__V: float = 0.9,
 ) -> SolverHarness:
-    """Construct a standalone solver test harness from a chip preset.
+    """Construct the standalone linear solver harness.
 
-    Reads only ``[cim_macro]`` from the TOML for chip constants (the 1T1R cell
-    config carrying RRAM / NMOS + sizing + state map, the TIA / VoltageDriver
-    configs, and wire R/C). The cell and the two boundary drivers are
-    built fresh with no nonideality policy and fabricated once; the cell's
-    RRAM is programmed to a uniform mid-range conductance derived from the
-    cell config's ``rram_g_max__uS`` via a synthetic state-index tensor.
-    The solver is built standalone via :meth:`Solver.from_config`; the
-    cell + drivers are supplied per call (see :meth:`SolverHarness.solver_kwargs`).
+    The cell grid is ``(COL_NUM, ROW_NUM)`` with a leading x-batch of
+    ``X_BATCH``; the programmed state indices alternate over the two
+    table states so both table entries are exercised. Both rail clamps
+    are ideal ``VoltageDriver`` instances (``r_out = 0``) whose snaps
+    resolve the two hand-built reference taps, so the clamp boundaries
+    are exact Dirichlet values and the whole system is linear.
 
     Args:
-        config_path: Path to a chip TOML carrying ``[cim_macro]`` (Offset1t1rCimMacroConfig).
         solver_config: Concrete ``SolverConfig`` (nested).
-        inst_shape: Tile multiplicity (e.g. ``(4,)`` or ``(2, 1, 2)`` —
-            interpreted as the prefix preceding ``(phys_col, row)``).
-        x_batch: Leading x-batch size in front of ``inst_shape``.
         device: Torch device.
         dtype: Float dtype for device buffers.
-        g_uniform_frac: RRAM conductance as a fraction of the cell's
-            ``rram_g_max__uS`` (default 0.4 ≈ mid-range).
-        v_wl_drive__V: Uniform WL drive voltage for the harness call.
+        v_wl_drive__V: Uniform WL drive voltage for the harness call
+            (default above the on-threshold: every access device on).
     """
-    xbar_config = Offset1t1rCimMacroConfig.from_file(config_path, section="cim_macro")
-    core_cfg = xbar_config.array_config
-    cell_cfg = core_cfg.cell_config
-    phys_col_num = xbar_config.col_num * xbar_config.w_digit_count + (
-        xbar_config.col_num * xbar_config.w_digit_count // xbar_config.ref_group_size
-    )
-    row_num = xbar_config.row_num
+    cell_config = _linear_cell_config()
+    grid_shape = (COL_NUM, ROW_NUM)
 
-    inst_full = (*inst_shape, phys_col_num, row_num)
+    # --- Cell + ideal boundary drivers (all policies empty / all-off) ---
 
-    # --- Cell + boundary drivers (no nonideality) ---
-
-    cell = XbarCell1t1rDetail(
-        config=cell_cfg,
-        policy=XbarCell1t1rDetailPolicy(
-            rram=RramPolicy(prog_gamma=False, stuck_at=False, read_telegraph=False, read_thermal=False),
-            nmos=MosfetPolicy(A_vt_mismatch=False, A_beta_mismatch=False),
-        ),
-        inst_shape=inst_full,
+    cell = XbarCell1t1rLinear(
+        config=cell_config,
+        policy=XbarCell1t1rLinearPolicy(),
+        inst_shape=grid_shape,
         dtype=dtype,
         T__K=300.0,
     )
-    tia_cfg = xbar_config.tia_config
-    assert isinstance(tia_cfg, OpAmpTiaConfig)
-    bl_driver = OpAmpTia(
-        config=tia_cfg,
-        policy=OpAmpTiaPolicy(
-            opamp_gain_sigma=False,
-            nmos=MosfetPolicy(A_vt_mismatch=False, A_beta_mismatch=False),
-        ),
-        inst_shape=(*inst_shape, phys_col_num),
+    driver_config = _ideal_driver_config()
+    driver_policy = VoltageDriverPolicy(offset=False, thermal=False)
+    bl_driver = VoltageDriver(
+        config=driver_config,
+        policy=driver_policy,
+        inst_shape=(COL_NUM,),
         dtype=dtype,
         T__K=300.0,
     )
     sl_driver = VoltageDriver(
-        config=xbar_config.sl_driver_config,
-        policy=VoltageDriverPolicy(offset=False, thermal=False),
-        inst_shape=(*inst_shape, phys_col_num),
+        config=driver_config,
+        policy=driver_policy,
+        inst_shape=(COL_NUM,),
         dtype=dtype,
         T__K=300.0,
     )
-    # Core-owned clamp reference (two ordered taps: BL-clamp, SL-drive). The
-    # reference is snapshotted once and the resolved taps are injected into
-    # each driver snapshot.
     clamp_ref = VoltageReference(
-        config=xbar_config.clamp_ref_config,
+        config=VoltageReferenceConfig(
+            v_refs__V=(BL_V_REF__V, SL_V_REF__V),
+            tolerance_sigma_relative=0.0,
+            noise_sigma_relative=0.0,
+            area_per_inst__um2=0.0,
+            leakage_per_inst__uW=0.0,
+        ),
         policy=VoltageReferencePolicy(tolerance=False, noise=False),
         inst_shape=(),
         dtype=dtype,
@@ -179,49 +224,29 @@ def build_solver_harness(
         m.eval()
         m.fabricate()
 
-    # --- Cell programming: uniform mid-range g via a state index ---
+    # --- Cell programming: alternate the two table states over the grid ---
 
-    # Pick the state whose mapped conductance is nearest to the requested
-    # mid-range fraction so the synthetic program stays inside the window.
-    g_target__uS = float(cell_cfg.rram_g_max__uS) * g_uniform_frac
-    state_map = torch.tensor(cell_cfg.state_to_g_map__uS, dtype=dtype)
-    state_idx = int((state_map - g_target__uS).abs().argmin().item())
-    w_state_idx = torch.full(inst_full, state_idx, device=device, dtype=torch.long)
+    w_state_idx = (torch.arange(COL_NUM * ROW_NUM, device=device) % 2).reshape(grid_shape)
     cell.program(w_state_idx)
 
     # --- Wire R / G tensors ---
 
-    bl_seg_r = _wire_seg_tensor(
-        core_cfg.bl_first_r__MOhm,
-        core_cfg.bl_segment_r__MOhm,
-        row_num,
-        device,
-        dtype,
-    )
-    sl_seg_r = _wire_seg_tensor(
-        core_cfg.sl_first_r__MOhm,
-        core_cfg.sl_segment_r__MOhm,
-        row_num,
-        device,
-        dtype,
-    )
+    bl_seg_r = _wire_seg_tensor(BL_FIRST_R__MOhm, BL_SEGMENT_R__MOhm, ROW_NUM, device, dtype)
+    sl_seg_r = _wire_seg_tensor(SL_FIRST_R__MOhm, SL_SEGMENT_R__MOhm, ROW_NUM, device, dtype)
     bl_seg_g = 1.0 / bl_seg_r
     sl_seg_g = 1.0 / sl_seg_r
 
-    # --- v_wl_drive — uniform per-row WL control for the cell snap ---
+    # --- v_wl_drive — uniform per-cell WL control for the cell snap ---
 
-    full_shape = (x_batch, *inst_shape, phys_col_num, row_num)
-    v_wl_drive = torch.full(full_shape, v_wl_drive__V, device=device, dtype=dtype)
+    v_wl_drive = torch.full((X_BATCH, *grid_shape), v_wl_drive__V, device=device, dtype=dtype)
 
     # --- Clamp-reference snapshot (once) + boundary-driver snaps ---
 
-    # Snapshot the clamp reference once and inject the resolved taps into each
-    # driver snapshot: tap 0 = BL-clamp reference, tap 1 = SL-drive reference.
     clamp_taps = clamp_ref.v_ref__V(clamp_ref.snapshot())
     bl_v_ref = clamp_taps[0]
     sl_v_ref = clamp_taps[1]
-    bl_drv_snap = bl_driver.snapshot(v_ref__V=bl_v_ref, shape=(x_batch, *inst_shape, phys_col_num), multi_coords=None)
-    sl_drv_snap = sl_driver.snapshot(v_ref__V=sl_v_ref, shape=(x_batch, *inst_shape, phys_col_num), multi_coords=None)
+    bl_drv_snap = bl_driver.snapshot(v_ref__V=bl_v_ref, shape=(X_BATCH, COL_NUM), multi_coords=None)
+    sl_drv_snap = sl_driver.snapshot(v_ref__V=sl_v_ref, shape=(X_BATCH, COL_NUM), multi_coords=None)
 
     # --- Solver (stateless: cell + drivers supplied per call) ---
 
@@ -230,6 +255,8 @@ def build_solver_harness(
     return SolverHarness(
         solver=solver,
         cell=cell,
+        cell_config=cell_config,
+        w_state_idx=w_state_idx,
         bl_driver=bl_driver,
         sl_driver=sl_driver,
         bl_driver_snap=bl_drv_snap,
@@ -241,5 +268,4 @@ def build_solver_harness(
         v_wl_drive__V=v_wl_drive,
         bl_v_ref__V=bl_v_ref,
         sl_v_ref__V=sl_v_ref,
-        inst_shape=inst_shape,
     )

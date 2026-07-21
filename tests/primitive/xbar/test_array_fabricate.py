@@ -1,4 +1,4 @@
-"""R25 fabricate-contract regression for the ``XbarArray`` ABC.
+"""Fabricate-contract regression for the ``XbarArray`` ABC.
 
 The ``XbarArray`` ABC sits between :class:`FabricateMixin` and the concrete
 :class:`XbarArray1t1r`. It owns no static state of its own, so it must supply
@@ -6,50 +6,83 @@ The ``XbarArray`` ABC sits between :class:`FabricateMixin` and the concrete
 abstract method would re-raise or a spurious body would perturb the once-per-node
 resample. These tests pin that ``fabricate()`` on an ``XbarArray1t1r`` resamples
 every fabricable node's static state EXACTLY ONCE in pre-order, and that the ABC
-override is a genuine no-op the concrete array inherits unchanged.
+override is a genuine no-op the concrete array inherits unchanged. All policies
+are all-off — the spy counts ``_sample_fabricate_mismatch`` calls, which fire
+regardless of whether any perturbation is enabled.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
-from pathlib import Path
 
+import pytest
 import torch
 
 from neurox.common.mixin import FabricateMixin
-from neurox.primitive.device import MosfetPolicy, RramPolicy
+from neurox.primitive.device import MosfetConfig, MosfetPolicy, RramConfig, RramPolicy
 from neurox.primitive.device.mosfet import Nmos
 from neurox.primitive.device.rram import Rram
-from neurox.primitive.xbar.array import XbarArray1t1r, XbarArray1t1rPolicy
+from neurox.primitive.xbar.array import XbarArray1t1r, XbarArray1t1rConfig, XbarArray1t1rPolicy
 from neurox.primitive.xbar.array.base import XbarArray
-from neurox.primitive.xbar.cell import XbarCell1t1rDetail, XbarCell1t1rDetailPolicy
-from works.offset_1t1r.macro import Offset1t1rCimMacroConfig
-
-REPO_ROOT = Path(__file__).resolve().parents[3]
-CHIP_CONFIG = REPO_ROOT / "works" / "offset_1t1r" / "config" / "1t1r_28nm.toml"
+from neurox.primitive.xbar.cell import XbarCell1t1rDetail, XbarCell1t1rDetailConfig, XbarCell1t1rDetailPolicy
+from neurox.primitive.xbar.solver import NestedParallelRailSolverConfig
 
 
-def _build_array(*, mismatch: bool, device: torch.device) -> XbarArray1t1r:
-    """Build a small standalone 1T1R pure array from the chip preset.
+def _array_config() -> XbarArray1t1rConfig:
+    """Hand-written tiny array config; only the device configs come from
+    the library presets (the sanctioned device exception)."""
+    rram_config = RramConfig.from_preset("process/rram:default")
+    cell_config = XbarCell1t1rDetailConfig(
+        c_bl__fF=0.1,
+        c_x__fF=0.1,
+        c_sl__fF=0.1,
+        c_wl__fF=0.1,
+        rram_config=rram_config,
+        nmos_config=MosfetConfig.from_preset("process/mos:nmos_28_rvt"),
+        state_to_g_map__uS=(rram_config.g_min__uS, 100.0),
+        access_nmos_W__um=0.1,
+        access_nmos_L__um=0.05,
+        rram_g_max__uS=100.0,
+        n_newton=2,
+    )
+    return XbarArray1t1rConfig(
+        row_first_space__um=1.0,
+        row_cell_space__um=1.0,
+        col_first_space__um=1.0,
+        col_cell_space__um=1.0,
+        bl_first_r__MOhm=2e-4,
+        bl_first_c__fF=0.1,
+        bl_segment_r__MOhm=1e-4,
+        bl_segment_c__fF=0.1,
+        sl_first_r__MOhm=2e-4,
+        sl_first_c__fF=0.1,
+        sl_segment_r__MOhm=1e-4,
+        sl_segment_c__fF=0.1,
+        wl_first_r__MOhm=2e-4,
+        wl_first_c__fF=0.1,
+        wl_segment_r__MOhm=1e-4,
+        wl_segment_c__fF=0.1,
+        cell_config=cell_config,
+        solver_config=NestedParallelRailSolverConfig(n_outer=1, n_inner=1),
+        latency_per_op__ns=1.0,
+        area_per_inst__um2=0.0,
+        leakage_per_inst__uW=0.0,
+    )
 
-    Reads only ``[cim_macro]`` for the owned ``core_config`` (an
-    ``XbarArray1t1rConfig``); the composite policy is constructed with the
-    device-mismatch toggles set from ``mismatch`` so the fabricate cascade has
-    real static state to resample.
-    """
-    macro_config = Offset1t1rCimMacroConfig.from_file(CHIP_CONFIG, section="cim_macro")
-    core_config = macro_config.array_config
+
+def _build_array(*, device: torch.device) -> XbarArray1t1r:
+    """Build a minimal standalone 1T1R pure array, every policy toggle off."""
     policy = XbarArray1t1rPolicy(
         cell=XbarCell1t1rDetailPolicy(
-            rram=RramPolicy(prog_gamma=mismatch, stuck_at=mismatch, read_telegraph=False, read_thermal=False),
-            nmos=MosfetPolicy(A_vt_mismatch=mismatch, A_beta_mismatch=mismatch),
+            rram=RramPolicy(prog_gamma=False, stuck_at=False, read_telegraph=False, read_thermal=False),
+            nmos=MosfetPolicy(A_vt_mismatch=False, A_beta_mismatch=False),
         ),
         solve_chunk_size=0,
     )
     array = XbarArray1t1r(
-        config=core_config,
+        config=_array_config(),
         policy=policy,
-        w_layout_shape=(8, 8),
+        w_layout_shape=(2, 2),
         dtype=torch.float64,
         T__K=300.0,
     )
@@ -72,7 +105,7 @@ def test_xbar_array_abc_supplies_noop_sample_fabricate_mismatch(device: torch.de
     assert XbarArray1t1r._sample_fabricate_mismatch is XbarArray._sample_fabricate_mismatch
 
     # And it is a genuine no-op: returns None and touches no state.
-    array = _build_array(mismatch=False, device=device)
+    array = _build_array(device=device)
     before = {name: buf.clone() for name, buf in array.named_buffers()}
     array._sample_fabricate_mismatch()  # no-op: must neither raise nor mutate state
     after = dict(array.named_buffers())
@@ -81,9 +114,9 @@ def test_xbar_array_abc_supplies_noop_sample_fabricate_mismatch(device: torch.de
         assert torch.equal(buf, after[name])
 
 
-def test_array_fabricate_resamples_each_node_once_preorder(device: torch.device) -> None:
+def test_array_fabricate_resamples_each_node_once_preorder(device: torch.device, monkeypatch: pytest.MonkeyPatch) -> None:
     """``fabricate()`` visits every fabricable node exactly once, pre-order."""
-    array = _build_array(mismatch=True, device=device)
+    array = _build_array(device=device)
 
     # Snapshot the true tree BEFORE patching so traversal is untouched.
     nodes = list(_fabricable_tree(array))
@@ -111,7 +144,7 @@ def test_array_fabricate_resamples_each_node_once_preorder(device: torch.device)
             return spy
 
         # Instance-level shadow of the bound method; class methods untouched.
-        node._sample_fabricate_mismatch = make_spy(node, original)  # type: ignore[method-assign]
+        monkeypatch.setattr(node, "_sample_fabricate_mismatch", make_spy(node, original))
 
     array.fabricate()
 

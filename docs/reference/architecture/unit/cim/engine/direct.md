@@ -52,7 +52,7 @@ TODO (domain author): the exact value-range bound per encoding and the saturatio
 
 ## Validation
 
-Bit-exact parity against an int64 CPU matmul oracle — `tests/architecture/unit/test_operator_cim_unit.py`.
+Bit-exact parity against an int64 CPU matmul oracle — `tests/architecture/unit/test_linear_cim_unit.py`.
 
 ## References
 

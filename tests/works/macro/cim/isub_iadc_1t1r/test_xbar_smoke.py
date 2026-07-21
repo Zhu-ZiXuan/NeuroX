@@ -1,11 +1,12 @@
 """Eager end-to-end smoke test for the simplified crossbar tile (device-threaded).
 
 Builds the full folded :class:`IsubIadc1t1rCimMacro` (core + the inline
-kernel readout chain) from the canonical ``params/default.toml`` config + the
-``policy/all_off.toml`` policy, with the tile geometry reshaped to the tall
-two-output size via the first-wins ``tiny_xbar.toml`` overlay (``col_num = 2``
--> 4 physical columns, ``row_num = 16``, ``active_row_num = 8`` -> P = 2
-serial WL sub-phases, ``n_lane = 2`` front-end lanes per polarity).
+kernel readout chain) from the hand-built tiny witness config
+(``_utils.build_tiny_config``: ``col_num = 2`` -> 4 physical columns,
+``row_num = 16``, ``active_row_num = 8`` -> P = 2 serial WL sub-phases,
+``n_lane = 2`` front-end lanes per polarity) with the in-code all-off policy,
+the ADC ladder calibrated in-code from the tile's own analog transfer
+(``_utils.build_calibrated_tile``).
 
 Programs a small mixed-sign ternary weight, expands a binary activation
 batch into zero-masked WL planes (engine mask formula), runs
@@ -46,15 +47,12 @@ from neurox.common.profiler import NeuroxProfiler
 from neurox.works.macro.cim.isub_iadc_1t1r.macro import IsubIadc1t1rCimMacro
 from tests.works.macro.cim.isub_iadc_1t1r._utils import (
     ADC_OP,
-    CONFIG_PATH,
     MAG_MAX,
     TINY_ACTIVE_ROW_NUM,
     TINY_COL_NUM,
-    TINY_OVERLAY_PATH,
     TINY_PHASE_NUM,
     TINY_ROW_NUM,
-    build_tile,
-    load_config,
+    build_calibrated_tile,
     masked_planes,
     per_phase_clamp_reference,
 )
@@ -81,8 +79,8 @@ def _eager() -> Iterator[None]:
 
 
 def _build(device: torch.device) -> IsubIadc1t1rCimMacro:
-    """Build the fabricated tiny tile (overlay first-wins on the canonical config)."""
-    xbar = build_tile(load_config(TINY_OVERLAY_PATH, CONFIG_PATH), device=device)
+    """Build the fabricated calibrated tiny tile from the hand-built witness config."""
+    xbar = build_calibrated_tile(device)
     assert xbar.physical_col_num == _PHYS_COL_NUM
     assert (xbar.n_lane, xbar.n_io) == (2, 1)
     assert xbar.config.row_num // xbar.max_active_rows == TINY_PHASE_NUM
