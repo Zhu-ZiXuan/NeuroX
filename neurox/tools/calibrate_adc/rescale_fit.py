@@ -13,9 +13,9 @@ concatenate).
 For each requested ``adc_mode`` the tool programs random ternary weight
 patterns into the physical tile and its lossless
 :meth:`~neurox.primitive.macro.cim.CimMacro.to_ideal` twin, drives random
-binary WL batches through both under an
-:class:`~neurox.common.prober.AdcProber`, pairs the ``adc.convert`` /
-``adc.ideal_vmm`` streams element for element, drops pairs outside the
+binary WL batches through both, pairs the physical tile's
+``current_adc.convert`` observations with the ideal twin's ``vec_mat_mul``
+return element for element, drops pairs outside the
 mode's design range on the ideal axis (``|M_ideal| > range``) and
 top-code-saturated pairs (both drop counts logged per mode), and solves
 the zero-through-origin least squares
@@ -267,26 +267,26 @@ def main(argv: list[str] | None = None) -> int:
     ideal = build_ideal_twin(physical, device=device)
 
     if args.modes is not None:
-        selected = tuple(int(m) for m in args.modes.split(","))
-        known = {m.adc_mode for m in mode_set.modes}
-        for m in selected:
-            if m not in known:
-                raise SystemExit(f"--modes entry {m} not in the mode set {sorted(known)} ({modes_path})")
-        modes = tuple(m for m in mode_set.modes if m.adc_mode in selected)
+        selected = tuple(int(value) for value in args.modes.split(","))
+        known = {mode.adc_mode for mode in mode_set.modes}
+        for mode_idx in selected:
+            if mode_idx not in known:
+                raise SystemExit(f"--modes entry {mode_idx} not in the mode set {sorted(known)} ({modes_path})")
+        modes = tuple(mode for mode in mode_set.modes if mode.adc_mode in selected)
     else:
         modes = mode_set.modes
     adc_bits = physical.adc_max_bits
-    for m in modes:
-        if not (0 <= m.adc_mode < physical.adc_mode_num):
-            raise SystemExit(f"mode-set adc_mode {m.adc_mode} outside [0, adc_mode_num ({physical.adc_mode_num}))")
-    logger.info("fitting modes %s at adc_bits = %d on %s", [m.adc_mode for m in modes], adc_bits, device)
+    for mode in modes:
+        if not (0 <= mode.adc_mode < physical.adc_mode_num):
+            raise SystemExit(f"mode-set adc_mode {mode.adc_mode} outside [0, adc_mode_num ({physical.adc_mode_num}))")
+    logger.info("fitting modes %s at adc_bits = %d on %s", [mode.adc_mode for mode in modes], adc_bits, device)
 
     results: list[ModeFitResult] = []
-    for m in modes:
+    for mode in modes:
         result = _fit_one_mode(
             physical,
             ideal,
-            mode=m,
+            mode=mode,
             adc_bits=adc_bits,
             stimulus=cfg.stimulus,
             row_num=physical.row_num,
@@ -296,14 +296,14 @@ def main(argv: list[str] | None = None) -> int:
         logger.info(
             "mode %d: rescale_factor = %.6f  R^2 = %.6f  rmse = %.4f  max|res| = %.4f  "
             "samples = %d of %d (out-of-range |M| > %g excluded %d, top-code-saturated excluded %d)",
-            m.adc_mode,
+            mode.adc_mode,
             result.fit.rescale_factor,
             result.fit.r2,
             result.fit.rmse,
             result.fit.max_abs_residual,
             result.fit.sample_num,
             result.total_num,
-            m.range,
+            mode.range,
             result.range_dropped_num,
             result.saturated_num,
         )

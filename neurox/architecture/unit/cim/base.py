@@ -53,9 +53,7 @@ class CimUnitPolicy(PolicyBase, ABC):
     """Abstract marker base for CimUnit-family nonideality policies."""
 
 
-class CimUnit(
-    ModuleBase[CimUnitConfig, CimUnitPolicy], RegistryMixin[type["CimUnitConfig"], "CimUnit"], UnitBase, ABC
-):
+class CimUnit(ModuleBase[CimUnitConfig, CimUnitPolicy], RegistryMixin[type["CimUnitConfig"], "CimUnit"], UnitBase, ABC):
     """Abstract root of the config-dispatched CimUnit family.
 
     The value-range / ADC surface and the protected lowering machinery

@@ -1,21 +1,21 @@
 """Voltage-ADC family template method: probe-off equivalence + probe capture.
 
 ``VoltageAdc.convert`` delegates to ``_convert_impl`` and emits the call on
-the ``adc.convert`` probe channel. Without an active prober the template must
-be bit-identical to the leaf conversion body; with one, the record must carry
-the call's inputs, code, and operating-point fields.
+:class:`VoltageAdcProber`. Without an active prober the
+template must be bit-identical to the leaf conversion body; with one, the
+record must carry the call's inputs, code, and operating-point fields.
 """
 
 from __future__ import annotations
 
 import torch
 
-from neurox.common.prober import AdcProber, Prober
 from neurox.primitive.analog.adc_common import AdcOperationPoint
 from neurox.primitive.analog.voltage_adc import (
     GeneralVoltageAdc,
     GeneralVoltageAdcConfig,
     GeneralVoltageAdcPolicy,
+    VoltageAdcProber,
 )
 
 
@@ -59,7 +59,7 @@ def test_probe_off_convert_matches_convert_impl(device: torch.device) -> None:
     v_pos, v_neg = _inputs(device)
     op = AdcOperationPoint(adc_mode=0, adc_bits=4)
 
-    assert not Prober._active_stack
+    assert not VoltageAdcProber._active_stack
     via_template = adc.convert(v_pos, v_neg, v_refs__V=_dummy_vrefs(device), adc_operation_point=op)
     direct = adc._convert_impl(v_pos, v_neg, v_refs__V=_dummy_vrefs(device), adc_operation_point=op)
     assert torch.equal(via_template, direct)
@@ -71,19 +71,18 @@ def test_probe_capture_carries_inputs_code_and_op_point(device: torch.device) ->
     v_refs = _dummy_vrefs(device)
     op = AdcOperationPoint(adc_mode=0, adc_bits=4)
 
-    with AdcProber() as prober:
+    with VoltageAdcProber() as prober:
         out = adc.convert(v_pos, v_neg, v_refs__V=v_refs, adc_operation_point=op)
 
-    records = prober.convert_records()
+    records = prober.records
     assert len(records) == 1
-    module, tensors = records[0]
-    assert module is adc
-    assert torch.equal(tensors["v_pos__V"], v_pos)
-    assert torch.equal(tensors["v_neg__V"], v_neg)
-    assert torch.equal(tensors["v_refs__V"], v_refs)
-    assert torch.equal(tensors["code"], out)
-    assert tensors["adc_mode"].item() == 0
-    assert tensors["adc_bits"].item() == 4
+    observation = records[0]
+    assert torch.equal(observation.v_pos__V, v_pos)
+    assert torch.equal(observation.v_neg__V, v_neg)
+    assert torch.equal(observation.v_refs__V, v_refs)
+    assert torch.equal(observation.code, out)
+    assert observation.adc_mode == 0
+    assert observation.adc_bits == 4
 
 
 def test_no_record_without_prober(device: torch.device) -> None:
@@ -91,7 +90,7 @@ def test_no_record_without_prober(device: torch.device) -> None:
     v_pos, v_neg = _inputs(device)
     op = AdcOperationPoint(adc_mode=0, adc_bits=4)
 
-    with AdcProber() as outer:
+    with VoltageAdcProber() as outer:
         pass  # closed before the call: nothing may be recorded
     adc.convert(v_pos, v_neg, v_refs__V=_dummy_vrefs(device), adc_operation_point=op)
-    assert outer.convert_records() == []
+    assert outer.records == []

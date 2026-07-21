@@ -54,7 +54,7 @@ $$
 
 so the guard does not false-fire under fp32 while still catching genuine divergence: a 1% residual ratio means wire KCL is off by 1% of cell current, which is clearly broken. fp64 workloads land $8+$ orders of magnitude below this threshold.
 
-If a chip's workload pushes wire ladders much longer or its signal scale much smaller, the operator may need to raise `--reltol` further. The CLI exposes `--reltol`, `--ratio-threshold`, and `--margin` for that.
+If a chip's workload pushes wire ladders much longer or its signal scale much smaller, the operator may need to raise `reltol` further. The run config's `[sweep]` section carries `reltol`, `ratio_threshold`, and the per-axis margins for that.
 
 ## Why not absolute residual / ADC-relative / huge-iteration reference?
 
@@ -78,6 +78,12 @@ The chip-preset comments record the production dtype explicitly so calibration r
 ## From plateau to stored count
 
 Each picked count is the raw plateau $n^*$ plus a fixed $+1$ safety margin — the nested solver takes the margin on its outer axis ($n_{\mathrm{outer}}$, inner left at its plateau), and the cell takes it on its single axis ($n_{\mathrm{newton}}$). The margined values are written into the chip config, never into this guide: the array-solver counts live in `[cim_macro.array_config.solver_config]` (`n_outer`, `n_inner`) and the per-cell count in `[cim_macro.array_config.cell_config]` (`n_newton`). To read a chip's counts, open its config; to re-pick them for a chip, re-run the tools below. This guide states the method and the margin rule, not any chip's numbers, because those go stale against the config.
+
+## Array-solver workload driving
+
+`calibrate_solver` is host-agnostic: it binds only to the nested solver family, the 1T1R cell observation it consumes, and the abstract `CimMacro` surface. The run config names the macro by file (`[macro].config_files` / `config_section` / `policy_file` / `policy_section`) and locates the nested-solver table inside that config with a dotted `[macro].solver_section` (e.g. `array_config.solver_config`). Each candidate rebuilds a fresh macro from the config with the swept iteration count patched onto that table — no object mutation, no reach-through into a concrete host topology.
+
+Every candidate is driven by the identical workload (sampled once, seeded) through the macro's public `vec_mat_mul`. Dense sampled activation planes are serialized over the hardware sub-phase axis exactly as the runtime engine drives the macro: `[workload].active_rows` sets how many word lines are simultaneously live per plane, and the rest arrive zeroed. Set `active_rows` to the macro's `max_active_rows` for the production-faithful operating point, or to `row_num` for the conservative single-plane envelope; any in-range value is legal and the choice is never defaulted in code. The step-delta and residual data ride the solver / cell probe channels *upstream* of ADC conversion, so the discarded ADC codes — and any code clipping at a conservative operating point — are irrelevant to the pick. Calibration presumes an all-off policy so the per-candidate macro rebuilds are comparable.
 
 ## Per-cell condensation count
 

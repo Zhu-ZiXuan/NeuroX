@@ -1,135 +1,139 @@
-"""Tests for the probe side channel: stack nesting, allowlist gating, alignment.
+"""Tests for the probe side channel: per-subclass isolation, stacking, gating.
 
-A probe record carries its emitting module and detached tensors; naming is
-resolved only against a root, exactly as the profiler does it.
+A probe record is a detached payload alone — no emitting module or name is
+stored. Each concrete :class:`Prober` subclass binds one observation link and
+carries its own active stack, so a payload submitted to one subclass never
+reaches an active prober of another. That isolation is the link routing that
+replaces channel filtering.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass, replace
+from typing import ClassVar
+
 import pytest
 import torch
-import torch.nn as nn
 from torch import Tensor
 
-from neurox.common.mixin import ProbeMixin
-from neurox.common.prober import AdcProber, Prober
+from neurox.common.prober import Prober
 
 
-class _Emitter(nn.Module, ProbeMixin):
-    """Minimal emitting host: same base pairing as ``ModuleBase``."""
+@dataclass(frozen=True)
+class _Payload:
+    """A minimal probe payload that records whether ``detach`` ran."""
 
-    def emit(self, channel: str, **tensors: Tensor) -> None:
-        self._probe_record(channel, **tensors)
+    code: Tensor
+    detached: bool = False
 
-
-class _Owner(nn.Module):
-    def __init__(self, emitter: _Emitter) -> None:
-        super().__init__()
-        self.emitter = emitter
+    def detach(self) -> _Payload:
+        return replace(self, code=self.code.detach(), detached=True)
 
 
-def test_submit_stores_detached_records_in_order() -> None:
-    """Records keep submission order; stored tensors are detached views."""
-    emitter = _Emitter()
+class _ProberA(Prober[_Payload]):
+    """First link's capture point."""
+
+    _active_stack: ClassVar[list[Prober[_Payload]]] = []
+
+    @classmethod
+    def _stack(cls) -> list[Prober[_Payload]]:
+        return cls._active_stack
+
+
+class _ProberB(Prober[_Payload]):
+    """Second, independent link's capture point."""
+
+    _active_stack: ClassVar[list[Prober[_Payload]]] = []
+
+    @classmethod
+    def _stack(cls) -> list[Prober[_Payload]]:
+        return cls._active_stack
+
+
+def test_subclass_stacks_are_isolated() -> None:
+    """A payload submitted to subclass A never reaches an active B prober."""
+    with _ProberA() as a, _ProberB() as b:
+        _ProberA.submit(_Payload(code=torch.tensor([1.0])))
+        _ProberB.submit(_Payload(code=torch.tensor([2.0])))
+    assert [r.code.item() for r in a.records] == [1.0]
+    assert [r.code.item() for r in b.records] == [2.0]
+
+
+def test_submit_stores_detached_payloads_in_order() -> None:
+    """Payloads keep submission order and are stored via ``detach``."""
     x = torch.tensor([1.0, 2.0], requires_grad=True)
-    with Prober() as prober:
-        emitter.emit("ch", code=x)
-        emitter.emit("ch", code=torch.tensor([3.0]))
-    records = prober.records("ch")
-    assert [module for module, _ in records] == [emitter, emitter]
-    assert not records[0][1]["code"].requires_grad
-    assert torch.equal(records[0][1]["code"], torch.tensor([1.0, 2.0]))
-    assert torch.equal(records[1][1]["code"], torch.tensor([3.0]))
+    with _ProberA() as prober:
+        _ProberA.submit(_Payload(code=x))
+        _ProberA.submit(_Payload(code=torch.tensor([3.0])))
+    records = prober.records
+    assert [r.detached for r in records] == [True, True]
+    assert not records[0].code.requires_grad
+    assert records[0].code.grad_fn is None
+    assert torch.equal(records[0].code, torch.tensor([1.0, 2.0]))
+    assert torch.equal(records[1].code, torch.tensor([3.0]))
 
 
 def test_no_active_prober_is_a_no_op() -> None:
-    """Without a session the hook returns before touching any tensor."""
-    emitter = _Emitter()
-    emitter.emit("ch", code=torch.tensor([1.0]))  # must not raise
-    with Prober() as prober:
-        pass
-    assert prober.records("ch") == []
+    """Submitting without a session returns before touching the payload."""
+    _ProberA.submit(_Payload(code=torch.tensor([1.0])))  # must not raise
+    assert _ProberA.active() is False
 
 
 def test_stack_nesting_routes_to_every_active_prober() -> None:
     """An emission reaches every stacked prober; a popped prober stops receiving."""
-    emitter = _Emitter()
-    with Prober() as outer:
-        emitter.emit("ch", code=torch.tensor([1.0]))
-        with Prober() as inner:
-            emitter.emit("ch", code=torch.tensor([2.0]))
-        emitter.emit("ch", code=torch.tensor([3.0]))
-    assert [t["code"].item() for _, t in outer.records("ch")] == [1.0, 2.0, 3.0]
-    assert [t["code"].item() for _, t in inner.records("ch")] == [2.0]
-    assert Prober._active_stack == []
+    with _ProberA() as outer:
+        _ProberA.submit(_Payload(code=torch.tensor([1.0])))
+        with _ProberA() as inner:
+            _ProberA.submit(_Payload(code=torch.tensor([2.0])))
+        _ProberA.submit(_Payload(code=torch.tensor([3.0])))
+    assert [r.code.item() for r in outer.records] == [1.0, 2.0, 3.0]
+    assert [r.code.item() for r in inner.records] == [2.0]
+    assert _ProberA._active_stack == []
 
 
-def test_channel_allowlist_gates_submission() -> None:
-    """A prober stores only allowlisted channels; ``None`` accepts everything."""
-    emitter = _Emitter()
-    with Prober(channels=frozenset({"keep"})) as gated, Prober() as open_prober:
-        emitter.emit("keep", code=torch.tensor([1.0]))
-        emitter.emit("drop", code=torch.tensor([2.0]))
-    assert len(gated.records("keep")) == 1
-    assert gated.records("drop") == []
-    assert len(open_prober.records("keep")) == 1
-    assert len(open_prober.records("drop")) == 1
+def test_nested_same_subclass_probers_share_one_detached_object() -> None:
+    """Stacked probers of one subclass hold the SAME payload object, detached once."""
+    with _ProberA() as outer, _ProberA() as inner:
+        _ProberA.submit(_Payload(code=torch.tensor([1.0])))
+    assert outer.records[0] is inner.records[0]
+    assert outer.records[0].detached is True
 
 
-def test_stacked_stacks_one_key_across_records() -> None:
-    """``stacked`` adds a leading record axis in submission order."""
-    emitter = _Emitter()
-    with Prober() as prober:
-        emitter.emit("ch", code=torch.tensor([1, 2]))
-        emitter.emit("ch", code=torch.tensor([3, 4]))
-    assert torch.equal(prober.stacked("ch", "code"), torch.tensor([[1, 2], [3, 4]]))
-    with pytest.raises(ValueError, match="no records"):
-        prober.stacked("empty", "code")
+def test_active_lifecycle() -> None:
+    """``active`` is False before entry, True inside, False after exit."""
+    assert _ProberA.active() is False
+    with _ProberA():
+        assert _ProberA.active() is True
+    assert _ProberA.active() is False
 
 
-def test_paired_aligns_records_by_order() -> None:
-    """``paired`` zips two channels positionally and rejects a length mismatch."""
-    a, b = _Emitter(), _Emitter()
-    with Prober() as prober:
-        a.emit("ch.a", code=torch.tensor([1.0]))
-        b.emit("ch.b", code=torch.tensor([10.0]))
-        a.emit("ch.a", code=torch.tensor([2.0]))
-        b.emit("ch.b", code=torch.tensor([20.0]))
-    pairs = prober.paired("ch.a", "ch.b")
-    assert [(ra[1]["code"].item(), rb[1]["code"].item()) for ra, rb in pairs] == [(1.0, 10.0), (2.0, 20.0)]
-    with Prober() as lopsided:
-        a.emit("ch.a", code=torch.tensor([1.0]))
-    with pytest.raises(ValueError, match="record counts differ"):
-        lopsided.paired("ch.a", "ch.b")
-
-
-def test_resolve_names_maps_id_to_qualified_name() -> None:
-    """The name map comes from the root's traversal; the root itself is ``""``."""
-    emitter = _Emitter()
-    owner = _Owner(emitter)
-    names = Prober.resolve_names(owner)
-    assert names[id(emitter)] == "emitter"
-    assert names[id(owner)] == ""
-
-
-def test_adc_prober_defaults_to_the_adc_channels() -> None:
-    """``AdcProber()`` admits exactly the two ADC channels; views read them."""
-    emitter = _Emitter()
-    with AdcProber() as prober:
-        emitter.emit(AdcProber.ADC_CONVERT, code=torch.tensor([1]))
-        emitter.emit(AdcProber.ADC_IDEAL_VMM, code=torch.tensor([2]))
-        emitter.emit("other", code=torch.tensor([3]))
-    assert prober.channels == frozenset({"adc.convert", "adc.ideal_vmm"})
-    assert len(prober.convert_records()) == 1
-    assert len(prober.ideal_vmm_records()) == 1
-    assert prober.records("other") == []
-    ((_, convert), (_, ideal)) = prober.paired_conversions()[0]
-    assert convert["code"].item() == 1
-    assert ideal["code"].item() == 2
+def test_active_is_per_subclass() -> None:
+    """An active A prober does not make B active."""
+    with _ProberA():
+        assert _ProberA.active() is True
+        assert _ProberB.active() is False
 
 
 def test_exit_restores_the_stack_on_exception() -> None:
     """A raising body still pops the prober's own frame."""
-    with pytest.raises(RuntimeError, match="boom"), Prober():
+    with pytest.raises(RuntimeError, match="boom"), _ProberA():
         raise RuntimeError("boom")
-    assert Prober._active_stack == []
+    assert _ProberA._active_stack == []
+
+
+def test_active_on_abstract_base_raises() -> None:
+    """The abstract base provides no concrete active stack."""
+    with pytest.raises(NotImplementedError):
+        Prober.active()
+
+
+def test_submit_on_abstract_base_raises() -> None:
+    """The abstract base cannot route a submitted payload."""
+    with pytest.raises(NotImplementedError):
+        Prober.submit(_Payload(code=torch.tensor([1.0])))
+
+
+def test_abstract_base_cannot_be_instantiated() -> None:
+    """The abstract :class:`Prober` base is not instantiable."""
+    with pytest.raises(TypeError):
+        Prober()

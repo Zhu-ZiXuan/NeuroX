@@ -9,7 +9,8 @@
 - **Shared `dynamic_energy`, grounded node caps only.** The grounded-cap formula lives once in the base and reads only the four base-owned node caps plus the operating-point voltages — no leaf-supplied cap attributes, no coupled terms. Both leaves consume it identically; only `v_x__V` differs by each leaf's condensation.
 - **`w_states` is a per-leaf derivation.** The base declares the attribute; each leaf derives and sets it in `__init__` from its own config (Detail: state-map length; Linear: table row count), so the array's `self.w_states = self.cell.w_states` contract is model-agnostic.
 - **Policy is an abstract marker.** `XbarCell1t1rPolicy` is an empty ABC; each leaf declares its own policy subclass (a composite of device policies, or empty for a deterministic model). The concrete policy type is the TOML discriminator that pairs with the leaf's config type.
-- **Explicit ABC per house convention.** The base declares `ABC` and re-binds the family generics as `XbarCell[XbarCell1t1rSnap, XbarCell1t1rDcop]`; leaves narrow their snap parameter internally.
+- **Explicit ABC per house convention.** The base declares `ABC` and keeps its snap type generic under the `XbarCell1t1rSnap` bound; each leaf binds that parameter to its concrete snap type while the whole family shares `XbarCell1t1rDcop`.
+- **The 1T1R family root carries the registry and `from_config`.** `XbarCell1t1r` mixes in `RegistryMixin` and owns the `from_config(*, config, policy, inst_shape, dtype, T__K)` factory; each leaf self-registers with `@XbarCell1t1r.register_key(<LeafConfig>)`. The registry's key domain is the 1T1R config subtree, so dispatch is family-bounded by type — the owning array resolves and builds its cell here with no post-build `isinstance` narrowing. The universal `XbarCell` base stays a pure solver-facing contract, free of any construction machinery.
 
 ## Contracts & invariants
 

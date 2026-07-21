@@ -11,7 +11,6 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor
 
-from neurox.common.prober import AdcProber
 from neurox.common.quant import stochastic_floor_to_int
 from neurox.primitive.analog.adc_common import AdcOperationPoint
 
@@ -203,9 +202,7 @@ class IdealCimMacro(CimMacro):
         Only ``adc_operation_point.adc_bits`` enters the computation;
         ``adc_mode`` is opaque to the ideal tile and not read.
         ``adc_bits == 0`` is a sentinel: skip ADC quantization and the
-        signed clamp, returning the lossless integer plane dots. Either
-        way the returned tensor is emitted on the
-        ``AdcProber.ADC_IDEAL_VMM`` probe channel as ``code``.
+        signed clamp, returning the lossless integer plane dots.
 
         Args:
             x: WL plane tensor with primitive trailing ``[row_num]``;
@@ -248,7 +245,6 @@ class IdealCimMacro(CimMacro):
             plane_dot = (w.expand(full_shape) * x.expand(full_shape)).sum(dim=-1)
 
         if adc_operation_point.adc_bits == 0:
-            self._probe_record(AdcProber.ADC_IDEAL_VMM, code=plane_dot)
             return plane_dot
 
         scale = self._scale_by_bits[adc_operation_point.adc_bits]
@@ -260,5 +256,4 @@ class IdealCimMacro(CimMacro):
         )
         bound = 1 << (adc_operation_point.adc_bits - 1)
         code = code.clamp(-bound, bound - 1)
-        self._probe_record(AdcProber.ADC_IDEAL_VMM, code=code)
         return code

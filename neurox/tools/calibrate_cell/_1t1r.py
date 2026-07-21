@@ -26,8 +26,8 @@ from neurox.primitive.xbar.cell import (
     XbarCell1t1rDetail,
     XbarCell1t1rDetailConfig,
     XbarCell1t1rDetailPolicy,
+    XbarCell1t1rDetailProber,
     XbarCell1t1rLinearConfig,
-    XbarCell1t1rResiduals,
 )
 from neurox.tools._config import add_standard_args, load_tool_config, setup_logging
 from neurox.tools._plateau import CandidateRow, WorkloadScale, pick_with_plateau_and_guard
@@ -212,16 +212,16 @@ def _solve_grid_for_candidate(
         shape = (n_pts, 1)
         v_wl_pts = v_wl[mask].reshape(n_pts, 1)
         snap = cell.snapshot(control=v_wl_pts, shape=shape, multi_coords=None, t_elapsed=0.0)
-        dcop = cell.solve_dc(
-            v_bl[mask].reshape(n_pts, 1),
-            v_sl[mask].reshape(n_pts, 1),
-            snap,
-            compute_residuals=True,
-        )
-        residuals = dcop.residuals
-        assert isinstance(residuals, XbarCell1t1rResiduals)
+        with XbarCell1t1rDetailProber() as cp:
+            dcop = cell.solve_dc(
+                v_bl[mask].reshape(n_pts, 1),
+                v_sl[mask].reshape(n_pts, 1),
+                snap,
+            )
+        records = cp.records
+        assert len(records) == 1
         v_x[mask] = dcop.v_x__V.reshape(n_pts)
-        cell_residual[mask] = residuals.cell__uA.reshape(n_pts)
+        cell_residual[mask] = records[0].cell__uA.reshape(n_pts)
         i_cell[mask] = dcop.i__uA.reshape(n_pts)
     return v_x, cell_residual, i_cell
 

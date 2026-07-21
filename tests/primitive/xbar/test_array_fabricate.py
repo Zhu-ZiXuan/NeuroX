@@ -114,7 +114,9 @@ def test_xbar_array_abc_supplies_noop_sample_fabricate_mismatch(device: torch.de
         assert torch.equal(buf, after[name])
 
 
-def test_array_fabricate_resamples_each_node_once_preorder(device: torch.device, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_array_fabricate_resamples_each_node_once_preorder(
+    device: torch.device, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """``fabricate()`` visits every fabricable node exactly once, pre-order."""
     array = _build_array(device=device)
 

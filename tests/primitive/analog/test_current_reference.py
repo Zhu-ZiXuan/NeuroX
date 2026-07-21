@@ -8,8 +8,7 @@ whose mode selection is quasi-static. These tests pin, all with the policy
 all-off:
 
 - 2-D validation on the bank: strictly increasing rows, equal row
-  lengths, non-negative taps, and the flat-tuple single-mode
-  canonicalization for in-code construction;
+  lengths, and non-negative taps;
 - ``mode_num`` / ``tap_num`` report the bank geometry;
 - ``snapshot`` is deterministic and matches the nominal taps, broadcast
   to ``(*inst_shape, mode_num, tap_num)``;
@@ -93,14 +92,6 @@ def test_bank_2d_validation() -> None:
             _config(i_refs__uA=bad)
     # A 0 first tap denotes a ground/rail reference and is accepted.
     _config(i_refs__uA=((0.0, 0.6),))
-
-
-def test_flat_tuple_canonicalizes_to_single_mode() -> None:
-    """A flat in-code tap tuple canonicalizes to one mode row (single-mode shorthand)."""
-    config = _config(i_refs__uA=(1.0, 5.0, 20.0))
-    assert config.i_refs__uA == ((1.0, 5.0, 20.0),)
-    assert config.mode_num == 1
-    assert config.tap_num == 3
 
 
 def test_mode_tap_counts() -> None:

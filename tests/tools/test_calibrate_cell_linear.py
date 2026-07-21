@@ -14,7 +14,7 @@ import pytest
 import torch
 
 from neurox.primitive.xbar.cell import (
-    XbarCell,
+    XbarCell1t1r,
     XbarCell1t1rDetailConfig,
     XbarCell1t1rLinear,
     XbarCell1t1rLinearConfig,
@@ -125,7 +125,7 @@ def test_emitted_fragment_deserializes_and_builds(
     assert isinstance(loaded, XbarCell1t1rLinearConfig)
     assert loaded == linear_config
 
-    cell = XbarCell.from_config(
+    cell = XbarCell1t1r.from_config(
         config=loaded,
         policy=XbarCell1t1rLinearPolicy(),
         inst_shape=(len(loaded.g_cell_off_table__uS),),

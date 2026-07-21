@@ -4,13 +4,20 @@ Two-axis sweep using **step-ratio plateau detection** (primary) +
 **relative residual guard** (sanity), staged:
 
   Stage A: fix ``n_inner = n_inner_ref`` (generous), sweep ``n_outer``
-           → pick the smallest ``n_outer`` at the step plateau.
+           -> pick the smallest ``n_outer`` at the step plateau.
 
   Stage B: fix ``n_outer = pick_outer``, sweep ``n_inner``
-           → pick the smallest ``n_inner`` at the step plateau.
+           -> pick the smallest ``n_inner`` at the step plateau.
 
-Both criteria are chip-parameter-free; see :mod:`neurox.tools._plateau` for
-details.
+Host-agnostic: the tool binds only to its calibration target (the nested
+solver family + the 1T1R cell observation it consumes) and the abstract
+:class:`~neurox.primitive.macro.cim.CimMacro` surface. Each candidate is a
+FRESH macro rebuilt from the macro config file with the swept iteration count
+patched onto the nested-solver table located by ``[macro].solver_section``; the
+workload rides the public ``vec_mat_mul`` over serialized row planes and the
+calibration data is captured by the solver / cell probers upstream of
+the ADC. Both criteria are chip-parameter-free; see
+:mod:`neurox.tools._plateau`.
 
 CLI: ``python -m neurox.tools.calibrate_solver.nested --help``
 """
@@ -24,12 +31,8 @@ from pathlib import Path
 
 import torch
 
-# Registers the scheme classes so the tool config's `_neurox_class`
-# discriminators can resolve works-defined macro config / policy subclasses.
-import neurox.works  # noqa: F401
 from neurox.common import ConfigBase
 from neurox.primitive.macro.cim import CimMacroConfig, CimMacroPolicy
-from neurox.primitive.xbar.solver import NestedParallelRailSolverConfig, Solver
 from neurox.tools._config import (
     add_standard_args,
     load_tool_config,
@@ -38,7 +41,14 @@ from neurox.tools._config import (
 )
 from neurox.tools._plateau import CandidateRow, WorkloadScale, pick_with_plateau_and_guard
 
-from ._common import aggregate_xbar_sweep, build_xbar_for_calibration
+from ._common import (
+    MacroSection,
+    SolverSweepContext,
+    aggregate_solver_sweep,
+    build_calibration_macro,
+    load_macro_config_dict,
+    resolve_macro_files,
+)
 
 # ---------------------------------------------------------------------------
 # TOML config schema
@@ -47,9 +57,26 @@ from ._common import aggregate_xbar_sweep, build_xbar_for_calibration
 
 @dataclass(frozen=True)
 class _WorkloadCfg:
-    """``[workload]`` section: sampling sweep dimensions + optional distribution."""
+    """``[workload]`` section: sampling sweep dimensions + row-block serialization.
+
+    Attributes:
+        inst_shape: Fabricated per-instance shape; the rank-1 parallel
+            weight-program axis, bound to equal ``[batch_w]``.
+        active_rows: Simultaneously active word lines per serialized
+            sub-phase plane; ``1 <= active_rows <= row_num``. Set to the
+            macro's ``max_active_rows`` for the production-faithful operating
+            point, or to ``row_num`` for the conservative single-plane
+            envelope; any in-range value is legal — the choice belongs to the
+            user and is NEVER defaulted in code.
+        weight_samples: Number of distinct programmed weights to sweep.
+        input_samples_per_weight: Input vectors per weight (per VMM batch).
+        batch_w: Weight-axis chunk size for the sampler.
+        distribution: Optional synthetic-workload distribution TOML; absent
+            means uniform sampling.
+    """
 
     inst_shape: list[int]
+    active_rows: int
     weight_samples: int
     input_samples_per_weight: int
     batch_w: int
@@ -71,30 +98,28 @@ class _SweepCfg:
 
 @dataclass(frozen=True)
 class _RuntimeCfg:
-    """``[runtime]`` section: dtype + RNG seed + array chunking.
+    """``[runtime]`` section: dtype + RNG seed.
 
-    ``solve_chunk_size`` is the array's solve-chunking knob for the
-    calibration runs (a runtime numerical setting, not a physical
-    parameter); ``0`` disables chunking (single-block solve).
+    Array solve chunking is NOT a tool knob — it rides the macro policy
+    (``all_off`` preset) verbatim, so the real chunked forward path is
+    exercised.
     """
 
     dtype: str
     seed: int
-    solve_chunk_size: int = 0
 
 
 @dataclass(frozen=True)
 class CalibrateSolverNestedConfig(ConfigBase):
     """Top-level config for :mod:`neurox.tools.calibrate_solver.nested`.
 
-    ``cim_macro`` / ``cim_macro_policy`` are abstract-typed: the TOML selects
+    ``[macro]`` is abstract-typed: the referenced config / policy files select
     the concrete scheme classes via ``_neurox_class`` (usually by
-    ``_neurox_use``-ing a scheme's chip params + all-off policy preset); this
-    module imports :mod:`neurox.works` so the discriminators resolve.
+    ``_neurox_use``-ing a scheme's chip params + all-off policy preset), and
+    ``solver_section`` locates the nested-solver table the sweep patches.
     """
 
-    cim_macro: CimMacroConfig
-    cim_macro_policy: CimMacroPolicy
+    macro: MacroSection
     workload: _WorkloadCfg
     sweep: _SweepCfg
     runtime: _RuntimeCfg
@@ -105,32 +130,15 @@ log = logging.getLogger(__name__)
 
 def _format_row(row: CandidateRow, label: str) -> str:
     step = f"{row.step_max__V:9.2e}" if row.step_max__V is not None else "     ---"
+    cell = row.residual_max.get("cell__uA")
+    cell_str = f"{cell:9.2e}" if cell is not None else "      n/a"
     return (
         f"{label}={row.iter_count:3d}  "
         f"step={step}  "
-        f"|F|.cell={row.residual_max['cell__uA']:9.2e}  "
+        f"|F|.cell={cell_str}  "
         f"wire_bl={row.residual_max['wire_bl__uA']:9.2e}  "
         f"clamp_bl={row.residual_max['clamp_bl__V']:9.2e}"
     )
-
-
-def _build_candidates(
-    *,
-    axis: str,
-    candidates: list[int],
-    other_value: int,
-) -> list[tuple[int, Solver]]:
-    """Build per-axis sweep candidates with the orthogonal axis pinned."""
-    out: list[tuple[int, Solver]] = []
-    for n in candidates:
-        if axis == "n_outer":
-            cfg = NestedParallelRailSolverConfig(n_outer=n, n_inner=other_value)
-        elif axis == "n_inner":
-            cfg = NestedParallelRailSolverConfig(n_outer=other_value, n_inner=n)
-        else:
-            raise ValueError(axis)
-        out.append((n, Solver.from_config(config=cfg)))
-    return out
 
 
 def plot_stage(
@@ -157,34 +165,36 @@ def plot_stage(
     ax_step.plot(step_xs, steps, marker="o")
     ax_step.set_yscale("log")
     ax_step.set_xlabel(axis_label)
-    ax_step.set_ylabel("max |u_n − u_{n-1}| [V]")
+    ax_step.set_ylabel("max |u_n - u_{n-1}| [V]")
     ax_step.set_title(f"Solution step ({axis_label} sweep)")
     ax_step.grid(True, which="both", ls=":", lw=0.4)
 
     for key, color in (("cell__uA", "C0"), ("wire_bl__uA", "C1"), ("wire_sl__uA", "C2")):
-        ax_curr.plot(xs_all, [r.residual_max[key] for r in rows], marker=".", color=color, label=key)
+        ys = [r.residual_max.get(key, 0.0) for r in rows]
+        ax_curr.plot(xs_all, ys, marker=".", color=color, label=key)
     ax_curr.axhline(
         reltol * scale.i_cell_typ__uA,
         ls="--",
         color="gray",
         lw=0.7,
-        label=f"guard ({reltol:.1e} × max|I_cell| = {reltol * scale.i_cell_typ__uA:.2e} μA)",
+        label=f"guard ({reltol:.1e} x max|I_cell| = {reltol * scale.i_cell_typ__uA:.2e} uA)",
     )
     ax_curr.set_yscale("log")
     ax_curr.set_xlabel(axis_label)
-    ax_curr.set_ylabel("max |residual| [μA]")
+    ax_curr.set_ylabel("max |residual| [uA]")
     ax_curr.set_title("Current residuals")
     ax_curr.grid(True, which="both", ls=":", lw=0.4)
     ax_curr.legend(fontsize="x-small", loc="upper right")
 
     for key, color in (("clamp_bl__V", "C3"), ("clamp_sl__V", "C4")):
-        ax_volt.plot(xs_all, [r.residual_max[key] for r in rows], marker=".", color=color, label=key)
+        ys = [r.residual_max.get(key, 0.0) for r in rows]
+        ax_volt.plot(xs_all, ys, marker=".", color=color, label=key)
     ax_volt.axhline(
         reltol * scale.v_node_typ__V,
         ls="--",
         color="gray",
         lw=0.7,
-        label=f"guard ({reltol:.1e} × max|V_node| = {reltol * scale.v_node_typ__V:.2e} V)",
+        label=f"guard ({reltol:.1e} x max|V_node| = {reltol * scale.v_node_typ__V:.2e} V)",
     )
     ax_volt.set_yscale("log")
     ax_volt.set_xlabel(axis_label)
@@ -222,16 +232,34 @@ def main(argv: list[str] | None = None) -> int:
         )
     dtype = torch.float32 if cfg.runtime.dtype == "float32" else torch.float64
     device = torch.device(args.device)
+
+    # Resolve the macro files once; the base dict is patched per candidate and
+    # the sampling host is a single tile built from the shipped config.
+    config_paths, policy_path = resolve_macro_files(cfg.macro, base=args.config)
+    base_macro_dict = load_macro_config_dict(config_paths, config_section=cfg.macro.config_section)
+    policy = CimMacroPolicy.from_file(policy_path, section=cfg.macro.policy_section)
+    base_config = CimMacroConfig.from_dict(base_macro_dict)
+    sampling_host = build_calibration_macro(base_config, policy, device=device, inst_shape=inst_shape, dtype=dtype)
+
+    active_rows = cfg.workload.active_rows
+    if not (1 <= active_rows <= sampling_host.row_num):
+        raise SystemExit(
+            f"[workload].active_rows ({active_rows}) must satisfy 1 <= active_rows <= row_num "
+            f"({sampling_host.row_num})."
+        )
+
     distribution_path = resolve_relative_path(cfg.workload.distribution, args.config)
 
     log.info("=" * 80)
     log.info("NestedParallelRailSolver — step-ratio plateau calibration (2-axis staged)")
     log.info(
-        "workload: inst=%s, %d weights × %d inputs (batch_w=%d)",
+        "workload: inst=%s, %d weights x %d inputs (batch_w=%d), active_rows=%d of row_num=%d",
         inst_shape,
         cfg.workload.weight_samples,
         cfg.workload.input_samples_per_weight,
         cfg.workload.batch_w,
+        active_rows,
+        sampling_host.row_num,
     )
     log.info(
         "criteria: ratio_threshold=%.3f, reltol=%.1e, outer_margin=%d, inner_margin=%d",
@@ -242,33 +270,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     log.info("=" * 80)
 
-    # Build host xbar; solvers swap per candidate. The tool-run TOML's
-    # ``[cim_macro]`` / ``[cim_macro_policy]`` sections use ``_neurox_use``
-    # so any scheme's chip config + noise-off policy resolve transparently
-    # through ``from_file``; the registry dispatches the concrete macro.
-    stub = NestedParallelRailSolverConfig(n_outer=1, n_inner=1)
-    xbar = build_xbar_for_calibration(
-        cfg.cim_macro,
-        cfg.cim_macro_policy,
-        device=device,
+    sweep_context = SolverSweepContext(
+        base_macro_dict=base_macro_dict,
+        solver_section=cfg.macro.solver_section,
+        policy=policy,
+        sampling_host=sampling_host,
         inst_shape=inst_shape,
         dtype=dtype,
-        solver_config=stub,
-        solve_chunk_size=cfg.runtime.solve_chunk_size,
-    )
-
-    # --- Stage A: sweep n_outer at n_inner = inner_ref ---
-
-    log.info("Stage A: sweep n_outer with n_inner pinned at %d", cfg.sweep.inner_ref)
-    log.info("-" * 80)
-    outer_candidates = _build_candidates(
-        axis="n_outer",
-        candidates=cfg.sweep.outer_candidates,
-        other_value=cfg.sweep.inner_ref,
-    )
-    outer_rows, outer_scale = aggregate_xbar_sweep(
-        xbar,
-        candidate_solvers=outer_candidates,
+        active_rows=active_rows,
         n_weight=cfg.workload.weight_samples,
         n_input_per_weight=cfg.workload.input_samples_per_weight,
         batch_w=cfg.workload.batch_w,
@@ -276,8 +285,19 @@ def main(argv: list[str] | None = None) -> int:
         device=device,
         seed=cfg.runtime.seed,
     )
+
+    # --- Stage A: sweep n_outer at n_inner = inner_ref ---
+
+    log.info("Stage A: sweep n_outer with n_inner pinned at %d", cfg.sweep.inner_ref)
+    log.info("-" * 80)
+    outer_rows, outer_scale = aggregate_solver_sweep(
+        swept_key="n_outer",
+        candidates=cfg.sweep.outer_candidates,
+        fixed_overrides={"n_inner": cfg.sweep.inner_ref},
+        context=sweep_context,
+    )
     log.info(
-        "workload scale: max|I_cell|=%.3e μA, max|V_BL_node|=%.3e V",
+        "workload scale: max|I_cell|=%.3e uA, max|V_BL_node|=%.3e V",
         outer_scale.i_cell_typ__uA,
         outer_scale.v_node_typ__V,
     )
@@ -311,20 +331,11 @@ def main(argv: list[str] | None = None) -> int:
     log.info("=" * 80)
     log.info("Stage B: sweep n_inner with n_outer pinned at %d", pick_outer)
     log.info("-" * 80)
-    inner_candidates = _build_candidates(
-        axis="n_inner",
+    inner_rows, inner_scale = aggregate_solver_sweep(
+        swept_key="n_inner",
         candidates=cfg.sweep.inner_candidates,
-        other_value=pick_outer,
-    )
-    inner_rows, inner_scale = aggregate_xbar_sweep(
-        xbar,
-        candidate_solvers=inner_candidates,
-        n_weight=cfg.workload.weight_samples,
-        n_input_per_weight=cfg.workload.input_samples_per_weight,
-        batch_w=cfg.workload.batch_w,
-        distribution_path=distribution_path,
-        device=device,
-        seed=cfg.runtime.seed,
+        fixed_overrides={"n_outer": pick_outer},
+        context=sweep_context,
     )
     log.info("")
     for r in inner_rows:
@@ -388,8 +399,7 @@ def main(argv: list[str] | None = None) -> int:
     for k, v in outer_pick.residual_guard_ratios.items():
         log.info("    %-12s  %.3e  (reltol = %.1e)", k, v, cfg.sweep.reltol)
     log.info("")
-    log.info("TOML fragment for chip preset:")
-    log.info("    [cim_macro.array_config.solver_config]")
+    log.info("TOML fragment for the solver table at %s:", cfg.macro.solver_section)
     log.info('    _neurox_class = "NestedParallelRailSolverConfig"')
     log.info("    n_outer = %d", final_outer)
     log.info("    n_inner = %d", final_inner)

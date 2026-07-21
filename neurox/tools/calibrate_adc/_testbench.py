@@ -2,12 +2,16 @@
 
 The testbench is registry-driven and scheme-agnostic: the tool TOML names a
 macro config/policy file pair, ``CimMacroConfig.from_file`` +
-``CimMacro.from_config`` resolve the concrete tile, and the calibration
-views come from the :class:`~neurox.common.prober.AdcProber` channels —
-``adc.convert`` on the physical tile, ``adc.ideal_vmm`` on its
-:meth:`~neurox.primitive.macro.cim.CimMacro.to_ideal` twin. Pairing relies
-on the macro preserving logical-column order through exact reshapes (the
-CimMacro layout contract), so the flattened per-record streams align
+``CimMacro.from_config`` resolve the concrete tile, and the two calibration
+views are obtained by different means. The physical tile's analog ADC input
+and code come from the
+:class:`~neurox.primitive.analog.current_adc.CurrentAdcProber`; the lossless
+integer dots come
+straight from the RETURN VALUE of the
+:meth:`~neurox.primitive.macro.cim.CimMacro.to_ideal` twin's ``vec_mat_mul``
+(the ideal tile is reachable data, so it needs no side channel). Pairing
+relies on the macro preserving logical-column order through exact reshapes
+(the CimMacro layout contract), so the flattened per-record streams align
 element for element.
 """
 
@@ -24,8 +28,8 @@ from torch import Tensor
 # Registers the scheme classes so CimMacroConfig.from_file / CimMacro.from_config
 # can resolve works-defined subclasses named by `_neurox_class`.
 import neurox.works  # noqa: F401
-from neurox.common.prober import AdcProber
 from neurox.primitive.analog.adc_common import AdcOperationPoint
+from neurox.primitive.analog.current_adc import CurrentAdcProber
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
 from neurox.primitive.macro.cim.ideal import IdealCimMacro
 from neurox.primitive.physical_constant import T_ROOM__K
@@ -293,10 +297,10 @@ class PairedConversion:
 
     Attributes:
         i_in__uA: Analog ADC input per conversion element (physical run,
-            ``adc.convert``), CPU float64, 1-D.
+            :class:`CurrentAdcProber`), CPU float64, 1-D.
         code: ADC output code per element (physical run), CPU int64, 1-D.
-        ideal_m: Lossless integer per-phase dot per element (ideal run,
-            ``adc.ideal_vmm`` at the ``adc_bits = 0`` sentinel), CPU
+        ideal_m: Lossless integer per-phase dot per element (ideal run's
+            ``vec_mat_mul`` return at the ``adc_bits = 0`` sentinel), CPU
             int64, 1-D, signed.
     """
 
@@ -313,16 +317,18 @@ def run_paired_stimulus(
     x: Tensor,
     adc_operation_point: AdcOperationPoint,
 ) -> PairedConversion:
-    """Program + run one stimulus through both tiles under one prober.
+    """Program + run one stimulus through both tiles, pairing their views.
 
     Both tiles are programmed with the same digit tensor (the ideal twin
     shares no state) and driven with the same sub-phase-expanded WL
     planes (:func:`_unroll_sub_phase`, so calibration converts under the
-    per-sub-phase masked drive the runtime applies and probe pairing
-    stays element-aligned); the physical VMM runs at
-    ``adc_operation_point``, the ideal VMM at the lossless
-    ``adc_bits = 0`` sentinel, and the ``adc.convert`` /
-    ``adc.ideal_vmm`` streams are paired positionally.
+    per-sub-phase masked drive the runtime applies and the streams stay
+    element-aligned). The physical VMM runs at ``adc_operation_point``
+    under a :class:`CurrentAdcProber` capturing the convert observations;
+    the ideal VMM runs at the lossless ``adc_bits = 0`` sentinel and its
+    integer-dot RETURN value is the ideal view (the ideal tile emits no
+    probe). The physical observations and the ideal returns are paired
+    positionally.
 
     Args:
         physical: Fabricated physical tile.
@@ -336,9 +342,10 @@ def run_paired_stimulus(
         The flattened order-aligned streams (see :class:`PairedConversion`).
 
     Raises:
-        ValueError: If the two channels disagree in record count or in
-            per-record element count (a macro that breaks the
-            column-order-preserving layout contract).
+        ValueError: If the physical macro emitted no convert observation, if
+            the physical and ideal streams disagree in count, or if a paired
+            physical / ideal entry disagrees in element count (a macro that
+            breaks the column-order-preserving layout contract).
     """
     device = next(physical.buffers()).device
     w = w.to(device)
@@ -356,17 +363,27 @@ def run_paired_stimulus(
         inst_rank=len(physical.inst_shape),
     )
     lossless_op = AdcOperationPoint(adc_mode=adc_operation_point.adc_mode, adc_bits=0)
-    with AdcProber() as prober, torch.no_grad():
+    with CurrentAdcProber() as prober, torch.no_grad():
         physical.vec_mat_mul(x, adc_operation_point=adc_operation_point)
-        ideal.vec_mat_mul(x, adc_operation_point=lossless_op)
+        # The ideal twin is reachable data: its return is the lossless view,
+        # positionally paired with the physical convert observations.
+        ideal_dots: list[Tensor] = [ideal.vec_mat_mul(x, adc_operation_point=lossless_op)]
+
+    convert_observations = prober.records
+    if not convert_observations:
+        raise ValueError("no paired conversions recorded — the physical macro emitted no current_adc.convert events")
+    if len(convert_observations) != len(ideal_dots):
+        raise ValueError(
+            f"paired stream counts differ (convert {len(convert_observations)} vs ideal {len(ideal_dots)})"
+        )
 
     i_in_parts: list[Tensor] = []
     code_parts: list[Tensor] = []
     ideal_parts: list[Tensor] = []
-    for (_, convert_tensors), (_, ideal_tensors) in prober.paired_conversions():
-        i_in = convert_tensors["i_in__uA"].detach().flatten().to("cpu", torch.float64)
-        code = convert_tensors["code"].detach().flatten().to("cpu", torch.int64)
-        ideal_m = ideal_tensors["code"].detach().flatten().to("cpu", torch.int64)
+    for observation, ideal_dot in zip(convert_observations, ideal_dots, strict=True):
+        i_in = observation.i_in__uA.flatten().to("cpu", torch.float64)
+        code = observation.code.flatten().to("cpu", torch.int64)
+        ideal_m = ideal_dot.flatten().to("cpu", torch.int64)
         if i_in.numel() != ideal_m.numel():
             raise ValueError(
                 f"paired record element counts differ (convert {i_in.numel()} vs ideal {ideal_m.numel()}); "
@@ -375,8 +392,6 @@ def run_paired_stimulus(
         i_in_parts.append(i_in)
         code_parts.append(code)
         ideal_parts.append(ideal_m)
-    if not i_in_parts:
-        raise ValueError("no paired conversions recorded — the macro emitted no adc.convert/adc.ideal_vmm events")
     return PairedConversion(
         i_in__uA=torch.cat(i_in_parts),
         code=torch.cat(code_parts),

@@ -6,7 +6,7 @@ Implementation notes for `IsubIadc1t1rCimMacro` — the scientific spec is [refe
 
 | Attribute | Class | `inst_shape` trailing | Reporter |
 | --- | --- | --- | --- |
-| `core` | `XbarArray1t1r` | `()` (w_layout `(*prefix, 2*col, row)`) | yes |
+| `array` | `XbarArray1t1r` | `()` (w_layout `(*prefix, 2*col, row)`) | yes |
 | `wl_dac` | `VoltageDac` | `(row,)` | yes |
 | `bl_clamp` | `VoltageDriver` | `(2, n_lane, 1)` | yes |
 | `sl_driver` | `VoltageDriver` | `(2*col,)` | yes |
@@ -27,7 +27,7 @@ The WL planes arrive pre-expanded from the caller — the macro performs no phas
 | --- | --- |
 | input WL planes (pre-masked by the caller) | `[..., row]` |
 | `wl_dac.convert` at the weight-grid full leading | `[..., row]` (analog) |
-| `core.solve_array(...).i_bl_port__uA` (one batched solve) | `[..., 2*col]` |
+| `array.solve_array(...).i_bl_port__uA` (one batched solve) | `[..., 2*col]` |
 | unflatten + movedim (P-polarity = phys `2c`, N = `2c+1`) | `[..., 2, col]` |
 | `_split_col_lanes(col_per_lane=mux_factor)` | `[..., 2, n_lane, col/n_lane]` |
 | `p_mirror.replicate` | same |
@@ -41,7 +41,7 @@ The `[..., col]` code tensor is the return value — leading order preserved, pr
 
 ## Array solve stage
 
-`vec_mat_mul` converts the WL DAC once at the weight-grid full leading (`x.expand(*leading, row)` against `core.weight_grid_shape`, so per-instance drive draws and per-op DAC energy count once), snapshots `clamp_ref` once per call (its two 0-d taps broadcast onto every chunk grid, preserving chunk bit-exactness: tap 0 = BL clamp $V_{BLC}$, tap 1 = SL drive), and calls the kernel `core.solve_array` with the two boundary drivers. Chunking and the eager-island compile boundary live in the kernel array — see [array internals](../../../../../internals/primitive/xbar/array/_1t1r/array.md).
+`vec_mat_mul` converts the WL DAC once at the weight-grid full leading (`x.expand(*leading, row)` against `array.weight_grid_shape`, so per-instance drive draws and per-op DAC energy count once), snapshots `clamp_ref` once per call (its two 0-d taps broadcast onto every chunk grid, preserving chunk bit-exactness: tap 0 = BL clamp $V_{BLC}$, tap 1 = SL drive), and calls the kernel `array.solve_array` with the two boundary drivers. Chunking and the eager-island compile boundary live in the kernel array — see [array internals](../../../../../internals/primitive/xbar/array/_1t1r/array.md).
 
 ### BL-clamp lane adapter
 
@@ -53,7 +53,7 @@ Fabricated buffers live at the real device count and broadcast onto the forward 
 
 ## Programming
 
-`program(w)` takes `(*inst_shape, col_num, 1, row_num)` (the size-1 digit axis kept for the CimMacro contract), validates shape and the ternary digit range explicitly (a clear error instead of a downstream state-map IndexError), then scatters: magnitude to the polarity column matching the sign via `torch.where`, `torch.stack((pwg, nwg), dim=-2).flatten(-3, -2)` producing the `[..., 2*col, row]` physical state indices for `core.program` — the inverse of the forward unflatten.
+`program(w)` takes `(*inst_shape, col_num, 1, row_num)` (the size-1 digit axis kept for the CimMacro contract), validates shape and the ternary digit range explicitly (a clear error instead of a downstream state-map IndexError), then scatters: magnitude to the polarity column matching the sign via `torch.where`, `torch.stack((pwg, nwg), dim=-2).flatten(-3, -2)` producing the `[..., 2*col, row]` physical state indices for `array.program` — the inverse of the forward unflatten.
 
 ## Accounting ownership
 
@@ -61,7 +61,7 @@ No double-count; each energy has exactly one owner. Every serial axis (the engin
 
 | Term | Owner |
 | --- | --- |
-| Array conduction, wire caps, cell switching; array latency | core (`solve_array`, one event each covering all planes) |
+| Array conduction, wire caps, cell switching; array latency | array (`solve_array`, one event each covering all planes) |
 | Clamp drop (= mirror input leg) $\sum_c (V_{DD} - V_{BL,c}) I_{BL,c} t_{pulse}$ + per-plane CMD precharge | macro (`_log_array_side_block`) |
 | p-stage output rail $V_{drop} \lvert i \rvert t$ + bias floor per (instance, plane, logical column) | macro (`_log_readout_block`) |
 | n-stage output rail + bias floor | macro |
@@ -73,7 +73,7 @@ The readout-latency parallel divisor is the OWNING back-end stage's device count
 
 ## Compile boundary
 
-`vec_mat_mul` is on the compile path via the macro entry: tracing fuses the DAC/reshape/readout math and breaks only at `core.solve_array` (the kernel eager island — see [array internals](../../../../../internals/primitive/xbar/array/_1t1r/array.md)). The scheme adds no `@torch.compile` decorators.
+`vec_mat_mul` is on the compile path via the macro entry: tracing fuses the DAC/reshape/readout math and breaks only at `array.solve_array` (the kernel eager island — see [array internals](../../../../../internals/primitive/xbar/array/_1t1r/array.md)). The scheme adds no `@torch.compile` decorators.
 
 ## Validation
 

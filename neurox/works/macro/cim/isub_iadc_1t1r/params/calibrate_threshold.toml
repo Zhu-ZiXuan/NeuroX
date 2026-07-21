@@ -2,7 +2,7 @@
 #
 # Probes the I_SUB(|M|) band grid of the tile built from
 # params/default.toml (all-off policy) through the modeled read chain
-# (core -> p/n mirrors -> subtractor, captured at the ADC input via the
+# (array -> p/n mirrors -> subtractor, captured at the ADC input via the
 # adc.convert probe channel) and places the mid-point threshold ladder
 # per mode with the band-margin report. The emitted ref_levels__uA /
 # i_refs__uA rows are pasted into params/default.toml (adc_config +

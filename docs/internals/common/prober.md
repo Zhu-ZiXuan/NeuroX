@@ -2,40 +2,41 @@
 
 ## Summary
 
-`Prober` (`common/prober.py`) is the context manager that collects the probe side channel: full per-call tensors that hosts emit on named channels, for calibration fits and diagnostics. It is the collector half of the mechanism — the per-module emitter is the probe mixin's `_probe_record` hook. `AdcProber` is the ADC-scoped subclass carrying the calibration channel names (`adc.convert`, `adc.ideal_vmm`) and the paired calibration view a rescale fit consumes.
+`neurox/common/prober.py` is pure mechanism: a `SupportsDetach` payload protocol plus an abstract `Prober(Generic[PayloadT])` base requiring each subclass to provide its own typed LIFO active stack, context-manager scoping, a `.records` list, and two classmethods — `active()` (demand predicate) and `submit(payload)` (single central detach, shared across every active prober of that subclass). The mechanism carries no channels, no allowlists, and no per-module wiring.
 
 ## Design decisions
 
-- **Tensors arrive on a side channel, not in return values.** Same rationale as the profiler: every numerical return stays the analog / digital result, and a leaf deep in a composite hands its intermediates out without widening any call signature. An emit is a pure side channel — a no-op without an active prober, never altering host numerics.
-- **Probers stack; the profiler slot does not.** The profiler holds one active context per thread because events are scalar reductions any single collector aggregates. A probe session is a windowed capture: an outer session-scoped prober keeps recording while an inner one captures a narrow window, so activation is a class-level LIFO stack and an emission reaches every stacked prober.
-- **Channel gating is the prober's, not the emitter's.** The emitter's hook is presence-gated only; each prober applies its own `channels` allowlist at `submit`. One emission site can thus feed differently-scoped probers simultaneously, and adding a channel never touches emitter code.
-- **Records are stored full, detached, on the recording device.** Unlike the profiler's 0-D reductions, a probe's value is the tensor itself (a fit consumes every element), so `submit` detaches without reducing, syncing, or copying to host. The memory cost is deliberate: a probing run holds every submitted tensor alive until the prober is dropped.
-- **A record carries its emitting module, not a name.** A module cannot name itself; `resolve_names(root)` builds a read-only `id(module) -> qualified name` map from a root's traversal, mirroring the profiler's report-side naming.
-- **Pairing is positional.** `paired(ch_a, ch_b)` zips two channels record-by-record and rejects a count mismatch. The intended use runs the same stimulus sequence through a physical and an ideal model so record `i` on each channel describes the same call.
+- **One concrete `Prober` subclass per observation link.** A link is one emitter site plus its payload type — `SolverProber`, `XbarCell1t1rDetailProber`, `CurrentAdcProber`, `VoltageAdcProber`. Each subclass is the sole capture point for its link; there is no shared "any channel" prober.
+- **Co-location is the law: a link's `Prober` subclass lives in the same file as its payload class, next to the emitter.** `SolverProber` + `SolverObservation` sit in `solver/nested.py` beside `NestedParallelRailSolver`; `XbarCell1t1rDetailProber` + `XbarCell1t1rDetailObservation` sit in `cell/_1t1r_detail.py`; `CurrentAdcProber` / `VoltageAdcProber` sit in their family's `base.py` beside the family's `Observation`. The observation contract — what a link captures and at what level of generality — is authored once, at the emitter, not split across a mechanism module and a call site.
+- **Each link subclass explicitly owns one typed active stack.** The generic base cannot type a class variable in terms of `Self` or `PayloadT`, so each concrete link declares `_active_stack: ClassVar[list[Prober[ConcretePayload]]]` and returns it through the abstract `_stack()` classmethod. Entering a prober of one subclass never captures an emission another subclass submits; that isolation is the whole routing mechanism.
+- **Emitters inherit nothing and declare nothing.** There is no allowlist to satisfy and no per-module wiring to set up. The idiom at every emission site is `if XxxProber.active(): <build payload>; XxxProber.submit(Payload(...))` — demand-gated so an unsubscribed run pays nothing beyond the boolean check, and both the diagnostic computation and the payload construction sit inside the guard.
+- **Probers stack; a session nests inside a narrower capture.** Activation is a class-level LIFO stack per subclass, so an outer session-scoped prober keeps recording while an inner one captures a narrow window, and an emission reaches every active prober of the emitted link's subclass.
+- **Records are stored full, detached, on the recording device.** A probe's value is the payload's tensors themselves, so `submit` detaches once — never reducing, syncing, or copying to host — and shares the same frozen object across every active prober of the subclass; a probing run holds every submitted payload alive until the prober is dropped.
+- **No emitting module or name is stored.** A record is the payload alone.
+- **The abstract base is not instantiable.** `_stack()` is the required abstract classmethod, so a link that does not provide typed storage cannot be instantiated. Calling `active()` or `submit()` on the abstract base reaches `_stack()`'s `NotImplementedError` rather than a fabricated fallback stack.
 
 ## Contracts & invariants
 
-- **Emit at most once per logical operation per channel.** The pairing contract depends on record order matching the call sequence.
+- **Emit at most once per logical operation per link, unless the caller documents otherwise.** A driving solver's nested inner steps are the one documented exception — see the solver and Detail-cell docs for their own per-call emission counts.
 - **LIFO discipline.** `__exit__` pops its own frame and raises if the stack top is not `self`; `with`-block usage guarantees this. The stack is class-level and process-wide, not thread-scoped.
-- **The allowlist is init-fixed.** `channels=None` accepts every channel; a `frozenset` admits exactly its members. `AdcProber()` defaults to the two ADC channels.
 
 ### Public API
 
-- `submit(channel, module, tensors)` — allowlist gate, then store one detached `(module, dict)` record in submission order (called by `ProbeMixin._probe_record`).
-- `records(channel)` — submission-ordered record list; empty list for an unseen channel.
-- `stacked(channel, key)` — one named tensor stacked across records with a new leading record axis; raises on an empty channel.
-- `paired(ch_a, ch_b)` — order-aligned record pairs; raises on a count mismatch.
-- `resolve_names(root)` — read-only `id -> qualified name` map from `root.named_modules()`.
-- `AdcProber` — `ADC_CONVERT` / `ADC_IDEAL_VMM` constants, ADC-channel default allowlist, and the views `convert_records()` / `ideal_vmm_records()` / `paired_conversions()`.
+- `SupportsDetach` — the payload `Protocol`: `detach(self) -> Self`.
+- `Prober[PayloadT]` — generic abstract base; a link subclass binds `PayloadT` to its own observation type.
+- `SomeLinkProber._stack()` — returns that link's explicitly declared typed active stack.
+- `with SomeLinkProber() as prober:` — enters the link's active stack; `prober.records` accumulates for the block's duration.
+- `SomeLinkProber.active()` — `@torch.compiler.disable`; `True` iff some prober of that subclass is currently active. The guard an emitter checks before building and submitting a payload.
+- `SomeLinkProber.submit(payload)` — `@torch.compiler.disable`; no-op on an empty stack, else detaches `payload` once and appends the same object to every active prober's `.records`.
 
 ## Performance & resources
 
-With no active prober `_probe_record` returns after one empty-list check — no tensor is touched — and `@torch.compiler.disable` keeps the hook out of any caller's compiled graph. Per emission with $k$ active probers: $k$ allowlist checks plus, per admitting prober, one detached-view dict and a Python append; no device sync ever happens on the emit path. Memory grows linearly with admitted records.
+With no active prober, `active()` returns `False` and the guarded diagnostic computation and payload construction never run — no tensor is touched, and `@torch.compiler.disable` keeps the guard (and the branch it collapses at trace time) out of any caller's compiled graph. Per emission with $k$ active probers of the link's subclass: one `active()` check, then — only when it is `True` — the payload build plus one `detach()` and $k$ Python appends; no device sync ever happens on the emit path. Memory grows linearly with admitted records.
 
 ## Gotchas
 
-- **Do not probe an unbounded run.** Records are full tensors; a long capture accumulates them all. Scope the `with` block to the stimulus batch being fitted.
-- **`stacked` requires a common shape.** Records on one channel must carry the key at one shape; mixed-geometry captures must be read via `records` instead.
+- **Do not probe an unbounded run.** Records are full payloads; a long capture accumulates them all. Scope the `with` block to the stimulus batch being fitted.
+- **A prober only ever sees its own subclass's link.** Opening `SolverProber()` reaches nothing an `XbarCell1t1rDetailProber` emits, even inside the same `with` block; open every link a consumer needs as its own `with`-bound name.
 
 ## Known limitations
 
@@ -44,5 +45,5 @@ With no active prober `_probe_record` returns after one empty-list check — no 
 ---
 
 - **Reference**: N/A — the prober has no physics spec; the calibration procedures consuming it live with their tools
-- **Implementation**: `neurox/common/prober.py`, `neurox/common/mixin/probe.py`
+- **Implementation**: `neurox/common/prober.py`
 - **Tests**: `tests/common/test_prober.py`

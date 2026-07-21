@@ -8,7 +8,7 @@
 - **Pure elementwise branch, division-free, compile-safe.** `solve_branch` is `where` on the WL threshold plus the chord conductance times the terminal drop — no division, no loops, no Python branches on tensor values, no in-place writes. `solve_dc` adds the divider `v_x__V = v_bl - vx_ratio * (v_bl - v_sl)` and, on request, an exactly-zero residual (`zeros_like`): the branch divider satisfies its internal KCL by construction, so there is no convergence knob.
 - **Snapshot is expand + chunk-slice, no draws.** `snapshot` broadcasts the four programmed buffers to the per-call shape and selects the chunk positions by `multi_coords` (the same pattern the voltage-driver snapshot uses), bundling them with the WL control in `XbarCell1t1rLinearSnap`. The policy is empty, so the snap is deterministic; `t_elapsed` is unused — the model holds no time-dependent read state.
 - **Empty policy, loudly type-checked.** `XbarCell1t1rLinearPolicy` is a truly empty frozen dataclass (every nonideality the model represents is baked into its tables at extraction). `__init__` raises `TypeError` on any other policy type, so wiring a Detail policy TOML against a Linear config fails at construction, not silently.
-- **Registry-selected by config type.** The class is decorated `@XbarCell.register_key(XbarCell1t1rLinearConfig)`; switching a scheme to the Linear model is purely a `_neurox_class` choice on the `cell_config` table, with no code change anywhere.
+- **Registry-selected by config type.** The class is decorated `@XbarCell1t1r.register_key(XbarCell1t1rLinearConfig)` on the 1T1R family root; switching a scheme to the Linear model is purely a `_neurox_class` choice on the `cell_config` table, with no code change anywhere.
 
 ## Contracts & invariants
 

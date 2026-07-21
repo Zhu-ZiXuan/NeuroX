@@ -1,4 +1,4 @@
-"""Side-channel tensor prober for calibration and diagnostics.
+"""Side-channel payload prober for calibration and diagnostics.
 
 See also:
     docs/internals/common/prober.md
@@ -6,57 +6,68 @@ See also:
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from abc import ABC, abstractmethod
 from types import TracebackType
-from typing import ClassVar, Self
+from typing import Generic, Protocol, Self, TypeVar
 
 import torch
-import torch.nn as nn
-from torch import Tensor
-
-from neurox.common.mixin import ProbeMixin
-
-# One probe record: the emitting module plus the named tensors it submitted.
-ProbeRecord = tuple[ProbeMixin, dict[str, Tensor]]
 
 
-class Prober:
-    """Context manager that captures per-call tensor records on named channels.
+class SupportsDetach(Protocol):
+    """A probe payload: a value able to return a detached copy of itself.
 
-    Canonical usage — record inside the ``with`` block, read the channel
-    accessors after it::
-
-        with Prober(channels=frozenset({"some.channel"})) as prober:
-            model(...)
-        for module, tensors in prober.records("some.channel"):
-            ...
-
-    Probers stack: entering pushes onto a class-level active stack, exiting
-    pops. An emission reaches every stacked prober, so an outer
-    session-scoped prober keeps recording while an inner one captures a
-    narrow window. Each prober applies its own channel allowlist;
-    ``channels=None`` accepts every channel.
-
-    A record carries its emitting module, not a name: a module never knows
-    its own name, so only a walk from a root can name it —
-    :meth:`resolve_names` builds that map read-only. Tensors are stored
-    detached, on their recording device; no sync or copy happens at
-    submission time.
-
-    Unlike the profiler's energy path, records are not reduced: a probe
-    stores full tensors for downstream fitting / diagnostics, so a probing
-    run holds every submitted tensor alive until the prober is dropped.
+    A payload is a small frozen dataclass of per-call tensors (plus plain
+    scalar metadata); ``detach`` returns an equivalent payload whose tensor
+    fields are detached, so a probe never keeps a live compute graph alive.
     """
 
-    # Class-level LIFO stack of active probers; emissions reach every member.
-    _active_stack: ClassVar[list[Prober]] = []
+    def detach(self) -> Self: ...
 
-    def __init__(self, *, channels: frozenset[str] | None = None) -> None:
-        self._channels = channels
-        self._records: dict[str, list[ProbeRecord]] = {}
+
+PayloadT = TypeVar("PayloadT", bound=SupportsDetach)
+
+
+class Prober(Generic[PayloadT], ABC):
+    """Context manager capturing one observation link's per-call payloads.
+
+    Pure mechanism: each concrete subclass binds ONE observation link (an
+    emitter site + its payload type) and is the sole capture point for that
+    link. A subclass provides its OWN typed active stack through :meth:`_stack`,
+    so entering a prober of one subclass never captures an emission a prober of
+    another subclass submits.
+    That per-subclass isolation is the link routing: an emitter names its
+    link's subclass at the call site and reaches exactly the probers of that
+    subclass.
+
+    Canonical usage — record inside the ``with`` block, read the stream
+    after it::
+
+        with SomeLinkProber() as prober:
+            model(...)
+        for payload in prober.records:
+            ...
+
+    Probers of the same subclass stack: entering pushes onto that subclass's
+    active stack, exiting pops. An emission reaches every stacked prober of
+    the link's subclass, so an outer session-scoped prober keeps recording
+    while an inner one captures a narrow window. A record is the payload
+    alone: no emitting module or name is stored. Payloads are detached once
+    at submission (via :meth:`SupportsDetach.detach`) and the same frozen
+    object is shared across every active prober — safe because payloads are
+    frozen dataclasses — so a probing run never keeps a compute graph alive.
+    """
+
+    @classmethod
+    @abstractmethod
+    def _stack(cls) -> list[Prober[PayloadT]]:
+        """Return the concrete observation link's active-prober stack."""
+        raise NotImplementedError
+
+    def __init__(self) -> None:
+        self.records: list[PayloadT] = []
 
     def __enter__(self) -> Self:
-        Prober._active_stack.append(self)
+        type(self)._stack().append(self)
         return self
 
     def __exit__(
@@ -65,109 +76,40 @@ class Prober:
         exc_val: BaseException | None,
         exc_tb: TracebackType | None,
     ) -> None:
-        popped = Prober._active_stack.pop()
+        popped = type(self)._stack().pop()
         if popped is not self:
             raise RuntimeError("Prober exited out of LIFO order; the active stack is corrupted")
 
-    @property
-    def channels(self) -> frozenset[str] | None:
-        """Channel allowlist; ``None`` accepts every channel."""
-        return self._channels
+    @classmethod
+    @torch.compiler.disable
+    def active(cls) -> bool:
+        """True iff at least one prober of this subclass is currently active.
 
-    # ----------------------------------------------------------------
-    # Side-channel entry point (called by ProbeMixin._probe_record)
-    # ----------------------------------------------------------------
+        Emitters gate their diagnostic computation, payload construction, and
+        emission on this: ``if SomeLinkProber.active(): <build payload>;
+        SomeLinkProber.submit(payload)``. Without an active prober the emitter
+        never pays for a payload it would drop. ``@torch.compiler.disable``
+        keeps the predicate — and the guarded branch it collapses at trace
+        time — out of any caller's compiled graph.
 
-    def submit(self, channel: str, module: ProbeMixin, tensors: Mapping[str, Tensor]) -> None:
-        """Store one detached record on ``channel`` if the allowlist admits it.
-
-        Args:
-            channel: Probe channel name the emitter submitted on.
-            module: The emitting module; stored by identity, never named.
-            tensors: Named per-call tensors; stored detached, in
-                submission order.
         """
-        if self._channels is not None and channel not in self._channels:
+        return bool(cls._stack())
+
+    @classmethod
+    @torch.compiler.disable
+    def submit(cls, payload: PayloadT) -> None:
+        """Submit ``payload`` to every active prober of this subclass.
+
+        A no-op with an empty stack (returns before touching the payload).
+        Otherwise the payload is detached ONCE and the same frozen object is
+        appended to every active prober's records — sharing is safe because
+        payloads are frozen. ``@torch.compiler.disable`` keeps the hook out of
+        any caller's compiled graph.
+
+        """
+        stack = cls._stack()
+        if not stack:
             return
-        self._records.setdefault(channel, []).append((module, {k: v.detach() for k, v in tensors.items()}))
-
-    # --------------------------- Accessors ---------------------------
-
-    def records(self, channel: str) -> list[ProbeRecord]:
-        """Submission-ordered ``(module, tensors)`` records on ``channel``."""
-        return list(self._records.get(channel, []))
-
-    def stacked(self, channel: str, key: str) -> Tensor:
-        """Stack one named tensor across every record on ``channel``.
-
-        Args:
-            channel: Probe channel to read.
-            key: Tensor name within each record; every record must carry
-                it at a common shape.
-
-        Returns:
-            Tensor with a new leading record axis, in submission order.
-        """
-        recs = self._records.get(channel, [])
-        if not recs:
-            raise ValueError(f"no records on channel {channel!r}")
-        return torch.stack([tensors[key] for _, tensors in recs])
-
-    def paired(self, ch_a: str, ch_b: str) -> list[tuple[ProbeRecord, ProbeRecord]]:
-        """Order-aligned record pairs from two channels.
-
-        Alignment is positional: record ``i`` of ``ch_a`` pairs with
-        record ``i`` of ``ch_b``, so the two channels must have been fed
-        by the same call sequence.
-
-        Raises:
-            ValueError: If the two channels hold different record counts.
-        """
-        recs_a = self._records.get(ch_a, [])
-        recs_b = self._records.get(ch_b, [])
-        if len(recs_a) != len(recs_b):
-            raise ValueError(f"paired({ch_a!r}, {ch_b!r}): record counts differ ({len(recs_a)} vs {len(recs_b)})")
-        return list(zip(recs_a, recs_b, strict=True))
-
-    @staticmethod
-    def resolve_names(root: nn.Module) -> dict[int, str]:
-        """Read-only ``id(module) -> qualified name`` map from ``root``.
-
-        The map keys on ``id`` so a stored emitter is named without
-        assuming it is hashable-by-identity elsewhere; the root itself is
-        named ``""``, as its own traversal names it.
-        """
-        return {id(module): name for name, module in root.named_modules()}
-
-
-class AdcProber(Prober):
-    """Prober pre-scoped to the ADC calibration channels.
-
-    ``adc.convert`` carries every physical ADC conversion (inputs, code,
-    operating-point fields as the emitting family defines); ``adc.ideal_vmm``
-    carries the ideal tile's per-phase codes. Pairing the two streams from a
-    physical and an ideal run of the same stimulus is the calibration view a
-    rescale fit consumes.
-    """
-
-    ADC_CONVERT: ClassVar[str] = "adc.convert"
-    ADC_IDEAL_VMM: ClassVar[str] = "adc.ideal_vmm"
-
-    def __init__(self, *, channels: frozenset[str] | None = None) -> None:
-        if channels is None:
-            channels = frozenset({AdcProber.ADC_CONVERT, AdcProber.ADC_IDEAL_VMM})
-        super().__init__(channels=channels)
-
-    # ---------------------- Calibration views -----------------------
-
-    def convert_records(self) -> list[ProbeRecord]:
-        """Submission-ordered records on :data:`ADC_CONVERT`."""
-        return self.records(AdcProber.ADC_CONVERT)
-
-    def ideal_vmm_records(self) -> list[ProbeRecord]:
-        """Submission-ordered records on :data:`ADC_IDEAL_VMM`."""
-        return self.records(AdcProber.ADC_IDEAL_VMM)
-
-    def paired_conversions(self) -> list[tuple[ProbeRecord, ProbeRecord]]:
-        """Order-aligned ``(convert, ideal_vmm)`` record pairs."""
-        return self.paired(AdcProber.ADC_CONVERT, AdcProber.ADC_IDEAL_VMM)
+        detached = payload.detach()
+        for prober in stack:
+            prober.records.append(detached)

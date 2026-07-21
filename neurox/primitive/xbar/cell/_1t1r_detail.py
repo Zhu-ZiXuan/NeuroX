@@ -6,11 +6,13 @@ See also:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from typing import ClassVar, Self
 
 import torch
 from torch import Tensor
 
+from neurox.common.prober import Prober
 from neurox.primitive.device import (
     MosfetConfig,
     MosfetPolicy,
@@ -27,10 +29,50 @@ from ._1t1r import (
     XbarCell1t1rConfig,
     XbarCell1t1rDcop,
     XbarCell1t1rPolicy,
-    XbarCell1t1rResiduals,
     XbarCell1t1rSnap,
 )
-from .base import XbarCell
+
+# ---------------------------------------------------------------------------
+# Observation side-channel payload
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class XbarCell1t1rDetailObservation:
+    """Per-cell access-node KCL residual of a detailed 1T1R branch solve.
+
+    Built at the converged ``V_X`` of a :meth:`XbarCell1t1rDetail.solve_dc`
+    call and submitted to :class:`XbarCell1t1rDetailProber` only when a prober
+    is active.
+
+    Attributes:
+        cell__uA: ``|I_NMOS - I_RRAM|`` per cell at the condensed ``V_X``.
+            Shape: ``[..., col, row]``.
+    """
+
+    cell__uA: Tensor
+
+    def detach(self) -> Self:
+        """Return an equivalent payload with the tensor field detached."""
+        return replace(self, cell__uA=self.cell__uA.detach())
+
+
+class XbarCell1t1rDetailProber(Prober[XbarCell1t1rDetailObservation]):
+    """Capture point for the detailed 1T1R cell's access-node observation link.
+
+    :class:`XbarCell1t1rDetail` emits a :class:`XbarCell1t1rDetailObservation`
+    — the access-node KCL residual ``|I_NMOS - I_RRAM|`` at the converged
+    ``V_X`` — once per :meth:`XbarCell1t1rDetail.solve_dc` call when a prober
+    is active.
+    """
+
+    _active_stack: ClassVar[list[Prober[XbarCell1t1rDetailObservation]]] = []
+
+    @classmethod
+    def _stack(cls) -> list[Prober[XbarCell1t1rDetailObservation]]:
+        """Return this observation link's active-prober stack."""
+        return cls._active_stack
+
 
 # ---------------------------------------------------------------------------
 # Config / policy / result containers
@@ -132,9 +174,14 @@ class XbarCell1t1rDetailSnap(XbarCell1t1rSnap):
 # ---------------------------------------------------------------------------
 
 
-@XbarCell.register_key(XbarCell1t1rDetailConfig)
-class XbarCell1t1rDetail(XbarCell1t1r):
-    """Series access-NMOS + RRAM 1T1R cell with a condensed BL-to-SL branch."""
+@XbarCell1t1r.register_key(XbarCell1t1rDetailConfig)
+class XbarCell1t1rDetail(XbarCell1t1r[XbarCell1t1rDetailSnap]):
+    """Series access-NMOS + RRAM 1T1R cell with a condensed BL-to-SL branch.
+
+    Emits the converged-``V_X`` :class:`XbarCell1t1rDetailObservation` to
+    :class:`XbarCell1t1rDetailProber` once per :meth:`solve_dc` call, but only
+    when a prober is active.
+    """
 
     state_to_g_map__uS: Tensor
     rram: Rram
@@ -296,16 +343,19 @@ class XbarCell1t1rDetail(XbarCell1t1r):
         v_bl: Tensor,
         v_sl: Tensor,
         snap: XbarCell1t1rDetailSnap,
-        compute_residuals: bool = False,
     ) -> XbarCell1t1rDcop:
-        """Full branch working point including the condensed ``V_X``."""
+        """Full branch working point including the condensed ``V_X``.
+
+        Emits the access-node KCL residual at the converged ``V_X`` to
+        :class:`XbarCell1t1rDetailProber`, demand-gated: the residual is
+        computed and the payload built only when a prober is active.
+        """
         i_r, i_n, di_dvbl__uS, di_dvsl__uS, v_x = self._solve_vx(v_bl, v_sl, snap)
-        residuals: XbarCell1t1rResiduals | None
-        residuals = XbarCell1t1rResiduals(cell__uA=(i_n - i_r).abs()) if compute_residuals else None
+        if XbarCell1t1rDetailProber.active():
+            XbarCell1t1rDetailProber.submit(XbarCell1t1rDetailObservation(cell__uA=(i_n - i_r).abs()))
         return XbarCell1t1rDcop(
             i__uA=i_r,
             di_dvbl__uS=di_dvbl__uS,
             di_dvsl__uS=di_dvsl__uS,
-            residuals=residuals,
             v_x__V=v_x,
         )

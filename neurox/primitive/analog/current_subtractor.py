@@ -169,9 +169,7 @@ class CurrentSubtractor(AnalogBase[CurrentSubtractorConfig, CurrentSubtractorPol
             enabled=self.policy.offset,
         )
 
-    def subtract(
-        self, i_a__uA: Tensor, i_b__uA: Tensor, *, t_conduct__ns: float
-    ) -> tuple[Tensor, Tensor]:
+    def subtract(self, i_a__uA: Tensor, i_b__uA: Tensor, *, t_conduct__ns: float) -> tuple[Tensor, Tensor]:
         """Emit the gained magnitude and sign of the two legs' current difference.
 
         Scales the subtracted ``i_b`` leg by the static per-instance ratio (unit

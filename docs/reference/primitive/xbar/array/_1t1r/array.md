@@ -1,18 +1,18 @@
 # 1T1R array
 
-The 1T1R array joins a grid of [cell](../../cell/_1t1r/cell.md) sites with resistive-capacitive interconnect, driven at the word lines and clamped at the bit-line and source-line boundaries. Each site is a two-terminal element between a bit-line node and a source-line node whose internal device topology the cell condenses. An array solve takes the analog word-line drive and the two boundary clamp voltages, settles the array to a DC operating point under the interconnect parasitics, and yields the per-line boundary current and clamp voltage.
+The 1T1R array joins a grid of [cell](../../cell/_1t1r/cell.md) sites with resistive-capacitive interconnect, driven at the word lines and clamped at the bit-line and source-line boundaries. Each site is a two-terminal element between a bit-line node and a source-line node whose internal device topology the cell condenses. An array solve takes the analog word-line drive and the two boundary clamp voltages, settles the array to a DC operating point under the interconnect parasitics, and yields the per-column boundary current and clamp voltage.
 
 ## Physical model
 
-A cell at series position $k$, parallel line $c$ presents a two-terminal branch between its bit-line node $V_{\mathrm{BL},k}$ and source-line node $V_{\mathrm{SL},k}$, gated by the word-line voltage $V_{\mathrm{WL},k}$. The branch current and its two signed terminal conductances come from the [cell](../../cell/_1t1r/cell.md), which condenses its own internal node; the array model treats each cell as that condensed element and does not see the internal node. Two boundary clamp drivers close the circuit: the BL clamp voltage $V_{\mathrm{BL,CL}}$ held by the BL clamp driver absorbing the line's BL port current, and the SL clamp voltage $V_{\mathrm{SL,CL}}$ from the SL driver. The word line is an input: $V_{\mathrm{WL},k}$ is the analog word-line drive.
+A cell at column $c$, row $k$ presents a two-terminal branch between its bit-line node $V_{\mathrm{BL},k}$ and source-line node $V_{\mathrm{SL},k}$, gated by the word-line voltage $V_{\mathrm{WL},k}$. The branch current and its two signed terminal conductances come from the [cell](../../cell/_1t1r/cell.md), which condenses its own internal node; the array model treats each cell as that condensed element and does not see the internal node. Two boundary clamp drivers close the circuit: the BL clamp voltage $V_{\mathrm{BL,CL}}$ held by the BL clamp driver absorbing the column's BL port current, and the SL clamp voltage $V_{\mathrm{SL,CL}}$ from the SL driver. The word line is an input: $V_{\mathrm{WL},k}$ is the analog word-line drive.
 
-Each line is an RC ladder, described per segment by a first driver-to-cell segment and a repeated cell-to-cell segment; IR drop develops along the resistive interconnect segments of each line. The word line is the driven boundary, carries no DC conduction path, and is treated as a single lumped capacitance along the series. The WL lumped capacitance is the first driver-to-cell segment plus the repeated cell-to-cell segments across the physical parallel lines,
+Each column's BL/SL rails are RC ladders along the row axis, described per segment by a first driver-to-cell segment and repeated cell-to-cell segments. The word line is the driven boundary, carries no DC conduction path, and is treated as a single lumped capacitance across the columns. The WL lumped capacitance is the first driver-to-cell segment plus the repeated cell-to-cell segments across the physical columns,
 
-$$C_{\mathrm{WL,row}} = C_{\mathrm{WL,first}} + (N_{\mathrm{line}} - 1)\,C_{\mathrm{WL,seg}}.$$
+$$C_{\mathrm{WL,row}} = C_{\mathrm{WL,first}} + (N_{\mathrm{col}} - 1)\,C_{\mathrm{WL,seg}}.$$
 
 ## Governing equations
 
-The DC operating point of one BL/SL line over $N_{\mathrm{series}}$ cells has unknowns $\{V_{\mathrm{BL},k}, V_{\mathrm{SL},k}\}_{k=0}^{N_{\mathrm{series}}-1}$ plus the boundary scalars $V_{\mathrm{BL,CL}}, V_{\mathrm{SL,CL}}$. The internal cell node is not an array unknown — each cell condenses it and reports a single branch current $I_{\mathrm{cell},k}(V_{\mathrm{BL},k}, V_{\mathrm{SL},k})$ (positive from $V_{\mathrm{BL}}$ to $V_{\mathrm{SL}}$) with its two signed terminal conductances, per [cell](../../cell/_1t1r/cell.md). The residuals are the per-node wire-ladder KCL on the BL and SL lines,
+The DC operating point of one column over $N_{\mathrm{row}}$ cells has unknowns $\{V_{\mathrm{BL},k}, V_{\mathrm{SL},k}\}_{k=0}^{N_{\mathrm{row}}-1}$ plus the boundary scalars $V_{\mathrm{BL,CL}}, V_{\mathrm{SL,CL}}$. The internal cell node is not an array unknown — each cell condenses it and reports a single branch current $I_{\mathrm{cell},k}(V_{\mathrm{BL},k}, V_{\mathrm{SL},k})$ (positive from $V_{\mathrm{BL}}$ to $V_{\mathrm{SL}}$) with its two signed terminal conductances, per [cell](../../cell/_1t1r/cell.md). The residuals are the per-node wire-ladder KCL on the BL and SL rails,
 
 $$F_{\mathrm{BL},k} = \operatorname{wire}_{\mathrm{BL},k}\!\left(V_{\mathrm{BL}}, V_{\mathrm{BL,CL}}\right) + I_{\mathrm{cell},k}\!\left(V_{\mathrm{BL},k}, V_{\mathrm{SL},k}\right) = 0,$$
 
@@ -24,11 +24,11 @@ $$F_{\mathrm{CL,BL}} = V_{\mathrm{BL,CL}} - \operatorname{driver}_{\mathrm{BL}}\
 
 $$F_{\mathrm{CL,SL}} = V_{\mathrm{SL,CL}} - \operatorname{driver}_{\mathrm{SL}}\!\left(I_{\mathrm{SL,port}}\right) = 0, \qquad I_{\mathrm{SL,port}} = G_{\mathrm{seg},0}\,\left(V_{\mathrm{SL,CL}} - V_{\mathrm{SL},0}\right).$$
 
-The same condensed branch current leaves the BL line ($F_{\mathrm{BL}}$ injects $I_{\mathrm{cell}}$) and enters the SL line ($F_{\mathrm{SL}}$ draws it), so the array sees one current per cell with no internal-node residual. The cell branch $I_{\mathrm{cell}}(\cdot)$ — set by the RRAM conductance $G_{\mathrm{RRAM}}$ in series with the access NMOS — is specified in [cell](../../cell/_1t1r/cell.md); the boundary functions $\operatorname{driver}_{\mathrm{BL}}(\cdot)$, $\operatorname{driver}_{\mathrm{SL}}(\cdot)$ are the clamp-driver transfer characteristics in [reference/analog](../../../analog/README.md). The operating-point solution yields the per-line BL port current $I_{\mathrm{BL,port}}$ and BL clamp voltage $V_{\mathrm{BL,CL}}$.
+The same condensed branch current leaves the BL rail ($F_{\mathrm{BL}}$ injects $I_{\mathrm{cell}}$) and enters the SL rail ($F_{\mathrm{SL}}$ draws it), so the array sees one current per cell with no internal-node residual. The cell branch $I_{\mathrm{cell}}(\cdot)$ — set by the RRAM conductance $G_{\mathrm{RRAM}}$ in series with the access NMOS — is specified in [cell](../../cell/_1t1r/cell.md); the boundary functions $\operatorname{driver}_{\mathrm{BL}}(\cdot)$, $\operatorname{driver}_{\mathrm{SL}}(\cdot)$ are the clamp-driver transfer characteristics in [reference/analog](../../../analog/README.md). The operating-point solution yields the per-column BL port current $I_{\mathrm{BL,port}}$ and BL clamp voltage $V_{\mathrm{BL,CL}}$.
 
 ## Numerical method
 
-The array operating point is solved by damped Newton iteration: an outer Newton on the clamp pair $(V_{\mathrm{BL,CL}}, V_{\mathrm{SL,CL}})$ wraps an inner coupled block-$2\times2$ wire Newton on $(V_{\mathrm{BL}}, V_{\mathrm{SL}})$ along the series ladder, with each cell condensing its internal node at every step. The formulation, its well-posedness, and the block-tridiagonal linear algebra are specified in [solver](../../solver/README.md).
+The array operating point is solved by damped Newton iteration: an outer Newton on the clamp pair $(V_{\mathrm{BL,CL}}, V_{\mathrm{SL,CL}})$ wraps an inner coupled block-$2\times2$ wire Newton on $(V_{\mathrm{BL}}, V_{\mathrm{SL}})$ along the row axis, with each cell condensing its internal node at every step. The formulation, its well-posedness, and the block-tridiagonal linear algebra are specified in [solver](../../solver/README.md).
 
 ## Noise & non-idealities
 
@@ -43,7 +43,7 @@ The array's own parameters are the interconnect ladder, the WL pulse, and the so
 | Parameter | Meaning | Unit | Constraint | Source |
 |---|---|---|---|---|
 | `cell_config` | 1T1R cell sub-module config (devices, sizing, state map, `n_newton`) | — | — | see [cell](../../cell/_1t1r/cell.md) |
-| BL/SL/WL `first_*` / `segment_*` R, C | per-line interconnect ladder | MOhm, fF | $> 0$ | Extracted |
+| BL/SL/WL `first_*` / `segment_*` R, C | array interconnect ladders | MOhm, fF | $> 0$ | Extracted |
 | `wl_pulse_length__ns` | WL access duration (drives wire-RC charging energy) | ns | $> 0$ | Design |
 | solver iteration counts | numerical settling | — | integer $\ge 1$ | Calibrated (numerical convergence) |
 
@@ -65,7 +65,7 @@ By Tellegen's theorem $E_{\mathrm{DC}}$ equals the sum of the cell-branch and BL
 
 | Symbol | Meaning | Unit | Code field |
 |---|---|---|---|
-| $V_{\mathrm{BL},k}$ | BL wire node voltage (series $k$) | V | `v_bl_node` |
+| $V_{\mathrm{BL},k}$ | BL wire node voltage at row $k$ | V | `v_bl_node` |
 | $V_{\mathrm{SL},k}$ | SL wire node voltage | V | `v_sl_node` |
 | $V_{\mathrm{WL},k}$ | WL analog drive voltage (input) | V | `v_wl` |
 | $V_{\mathrm{BL,CL}}$ | BL clamp voltage | V | `v_bl_clamp` |
@@ -83,15 +83,15 @@ By Tellegen's theorem $E_{\mathrm{DC}}$ equals the sum of the cell-branch and BL
 | $C$ | parasitic capacitance | fF | wire / cell node-cap fields |
 | $E_{\mathrm{wire}}, E_{\mathrm{DC}}$ | per-VMM wire-cap / DC-conduction energy | fJ | `array_energy__fJ` |
 | $t_{\mathrm{WL}}$ | WL pulse length | ns | `wl_pulse_length__ns` |
-| $C_{\mathrm{WL,row}}$ | WL lumped capacitance per series | fF | `c_wl_wire_per_row__fF` |
+| $C_{\mathrm{WL,row}}$ | WL lumped capacitance per row | fF | `c_wl_wire_per_row__fF` |
 | $C_{\mathrm{WL,first}}, C_{\mathrm{WL,seg}}$ | WL first / cell-to-cell segment cap | fF | `wl_first_c__fF`, `wl_segment_c__fF` |
-| $N_{\mathrm{series}}$ | number of cells along a line (series axis) | — | `row_num` |
-| $N_{\mathrm{line}}$ | number of physical parallel lines | — | `phys_col_num` |
+| $N_{\mathrm{row}}$ | number of rows along each BL/SL wire ladder | — | `row_num` |
+| $N_{\mathrm{col}}$ | number of physical columns | — | `phys_col_num` |
 
 ## Assumptions, scope & validity
 
 - Interconnect is a lumped per-segment R/C ladder, not a distributed line.
-- The WL line carries no DC conduction path and is a single lumped capacitance, uniform along the series.
+- The WL line carries no DC conduction path and is a single lumped capacitance, uniform across the columns.
 - The energy model assumes a complete $0 \to \mathrm{DC} \to 0$ charge/discharge cycle per parasitic cap per WL pulse.
 - The solve is quasi-static: it finds the DC operating point and does not model transient device switching within a pulse.
 

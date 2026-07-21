@@ -23,9 +23,7 @@ class CurrentReferenceConfig(AnalogConfig):
             increasing and all rows have equal length. Taps are
             non-negative; 0 uA denotes a ground/rail reference (relative
             noise * 0 == 0, so a 0 tap stays stable and exact). A nested
-            TOML array loads straight into this tuple-of-tuples; a flat
-            tuple of floats passed in code is canonicalized to a single
-            mode row.
+            TOML array loads straight into this tuple-of-tuples.
         tolerance_sigma_relative: Relative per-instance initial-accuracy
             σ [dimensionless], applied multiplicatively at fabricate
             time; ``0`` leaves the exact nominal taps.
@@ -52,10 +50,6 @@ class CurrentReferenceConfig(AnalogConfig):
     leakage_per_inst__uW: float
 
     def __post_init__(self) -> None:
-        # A flat tuple of floats is the single-mode shorthand: canonicalize
-        # to one mode row so the validated form is always 2-D [mode][tap].
-        if len(self.i_refs__uA) > 0 and not isinstance(self.i_refs__uA[0], tuple):
-            object.__setattr__(self, "i_refs__uA", (tuple(self.i_refs__uA),))
         self.validate()
 
     @property

@@ -27,7 +27,7 @@ These definite signs are a family-wide invariant of the branch: raising the bit-
 | $V_{\mathrm{BL}}$ | bit-line node voltage (cell terminal) | V | `v_bl` |
 | $V_{\mathrm{SL}}$ | source-line node voltage (cell terminal) | V | `v_sl` |
 | $\mathbf{V}_{\mathrm{int}}$ | internal-node voltage vector (condensed in the cell) | V | concrete `XbarCellDcop` subclass |
-| $\mathbf{F}_{\mathrm{int}}$ | internal-node KCL residual vector | uA | `XbarCellResiduals` subclass |
+| $\mathbf{F}_{\mathrm{int}}$ | internal-node KCL residual vector, where the topology has one | uA | concrete cell's own probe-channel payload |
 | $I$ | condensed branch current (BL $\to$ SL) | uA | `XbarCellDcop.i__uA` |
 | $\partial I/\partial V_{\mathrm{BL}}$ | BL-side branch conductance ($\ge 0$) | uS | `XbarCellDcop.di_dvbl__uS` |
 | $\partial I/\partial V_{\mathrm{SL}}$ | SL-side branch conductance ($\le 0$) | uS | `XbarCellDcop.di_dvsl__uS` |

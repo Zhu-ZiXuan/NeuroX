@@ -538,7 +538,7 @@ class IsubIadc1t1rCimMacro(CimMacro):
         self.n_io = config.n_io()
 
         # --- Pure array: cells + wire parasitics + DC solver ---
-        self.core = XbarArray1t1r(
+        self.array = XbarArray1t1r(
             config=config.array_config,
             policy=policy.array,
             w_layout_shape=(*prefix, self.physical_col_num, config.row_num),
@@ -741,7 +741,7 @@ class IsubIadc1t1rCimMacro(CimMacro):
         # unflatten. Shape: [*inst, col, row] x2 -> [*inst, 2*col, row].
         w_phys = torch.stack((pwg_state, nwg_state), dim=-2).flatten(-3, -2)
 
-        self.core.program(w_phys)
+        self.array.program(w_phys)
 
     def vec_mat_mul(self, x: Tensor, *, adc_operation_point: AdcOperationPoint) -> Tensor:
         """Run one independent conversion per WL plane through the array and readout chain.
@@ -802,11 +802,11 @@ class IsubIadc1t1rCimMacro(CimMacro):
         # per-column grid: tap 0 = BL clamp V_BLC, tap 1 = SL drive. The BL
         # clamp reaches the array through the lane-grouped adapter (see
         # _LaneGroupedClamp).
-        _phys_col_num, row_num = self.core.weight_grid_shape[-2:]
-        leading = torch.broadcast_shapes(self.core.weight_grid_shape, x.unsqueeze(-2).shape)[:-2]
+        _phys_col_num, row_num = self.array.weight_grid_shape[-2:]
+        leading = torch.broadcast_shapes(self.array.weight_grid_shape, x.unsqueeze(-2).shape)[:-2]
         v_wl = self.wl_dac.convert(x.expand(*leading, row_num))
         clamp_taps = self.clamp_ref.v_ref__V(self.clamp_ref.snapshot())  # (2,)
-        steady = self.core.solve_array(
+        steady = self.array.solve_array(
             v_wl,
             bl_driver=self._bl_clamp_lanes,
             bl_v_ref__V=clamp_taps[0],

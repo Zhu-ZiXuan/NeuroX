@@ -1,16 +1,16 @@
 # Xbar array abstract layer
 
-A crossbar pure array is the shared physical body of one compute-in-memory tile: a grid of [cell](../cell/README.md) sites bridged by resistive-capacitive interconnect, driven at the word lines and clamped at the bit-line and source-line boundaries. It owns only the cell grid, the wire parasitics, and the DC solver; the boundary blocks (word-line drive, bit-line clamp, source-line drive, boundary voltage reference) are peers under the scheme macro, injected into an array solve rather than owned. An array solve takes the analog word-line drive and the two boundary clamp references, settles the array to a DC operating point under the interconnect parasitics, and yields the per-line boundary port current and clamp voltage the macro readout consumes. This layer is agnostic to the cell's internal device topology; a concrete array realizes it for one array geometry.
+A crossbar pure array is the shared physical body of one compute-in-memory tile: a grid of [cell](../cell/README.md) sites bridged by resistive-capacitive interconnect, driven at the word lines and clamped at the bit-line and source-line boundaries. It owns only the cell grid, the wire parasitics, and the DC solver; the boundary blocks (word-line drive, bit-line clamp, source-line drive, boundary voltage reference) are peers under the scheme macro, injected into an array solve rather than owned. An array solve takes the analog word-line drive and the two boundary clamp references, settles the array to a DC operating point under the interconnect parasitics, and yields the per-column boundary port current and clamp voltage the macro readout consumes. This layer is agnostic to the cell's internal device topology; a concrete array realizes it for one array geometry.
 
 ## Physical model
 
-The array holds one cell at each series position $k$, parallel line $c$. Every cell is a two-terminal branch between its bit-line node $V_{\mathrm{BL},k}$ and source-line node $V_{\mathrm{SL},k}$, gated by the word-line voltage $V_{\mathrm{WL},k}$; the branch current and its two signed terminal conductances come from the [cell](../cell/README.md), which condenses its own internal node so the array treats each site as a single condensed element and never sees the internal node. Each bit line and source line is a resistive-capacitive ladder along the series axis; IR drop develops along the resistive interconnect segments. The word line is the driven boundary, carries no DC conduction path, and enters the array only as the input drive $V_{\mathrm{WL},k}$ plus a lumped line capacitance.
+The array holds one cell at each column $c$ and row $k$. Every cell is a two-terminal branch between its bit-line node $V_{\mathrm{BL},k}$ and source-line node $V_{\mathrm{SL},k}$, gated by the word-line voltage $V_{\mathrm{WL},k}$; the branch current and its two signed terminal conductances come from the [cell](../cell/README.md), which condenses its own internal node so the array treats each site as a single condensed element and never sees the internal node. Each column's bit line and source line are resistive-capacitive ladders along the row axis; IR drop develops along their resistive interconnect segments. The word line is the driven boundary, carries no DC conduction path, and enters the array only as the input drive $V_{\mathrm{WL},k}$ plus a lumped line capacitance.
 
-Two boundary clamp drivers close the circuit at each line: the bit-line clamp holds $V_{\mathrm{BL,CL}}$ while absorbing the line's bit-line port current, and the source-line driver holds $V_{\mathrm{SL,CL}}$. Both are peer blocks — the array does not own their transfer characteristics or their reference taps, but receives them per solve and pins its boundary voltages to them.
+Two boundary clamp drivers close the circuit at each column: the bit-line clamp holds $V_{\mathrm{BL,CL}}$ while absorbing the column's bit-line port current, and the source-line driver holds $V_{\mathrm{SL,CL}}$. Both are peer blocks — the array does not own their transfer characteristics or their reference taps, but receives them per solve and pins its boundary voltages to them.
 
 ## Operating point
 
-An array solve is defined over one bit-line / source-line line of $N_{\mathrm{series}}$ cells with unknowns the wire-node voltages $\{V_{\mathrm{BL},k}, V_{\mathrm{SL},k}\}$ plus the two boundary clamp scalars $V_{\mathrm{BL,CL}}, V_{\mathrm{SL,CL}}$. The internal cell node is not an array unknown — each cell condenses it and reports a single branch current $I_{\mathrm{cell},k}(V_{\mathrm{BL},k}, V_{\mathrm{SL},k})$, positive from $V_{\mathrm{BL}}$ into $V_{\mathrm{SL}}$, with its two signed terminal conductances. The residuals are the per-node wire-ladder KCL on the two lines — the same condensed branch current leaves the bit-line KCL and enters the source-line KCL, so the array carries no per-cell internal residual — plus the two boundary constraints pinning the clamp voltages to the injected clamp drivers' transfer functions at the boundary port current. The solution yields the per-line bit-line port current $I_{\mathrm{BL,port}}$ and bit-line clamp voltage $V_{\mathrm{BL,CL}}$, the two quantities the macro readout consumes. The formulation, its well-posedness, and the block-tridiagonal linear algebra are specified in [solver](../solver/README.md); the per-cell condensed branch and its signed-conductance contract in [cell](../cell/README.md); the boundary clamp-driver transfer characteristics in [reference/analog](../../analog/README.md).
+An array solve is defined over one column of $N_{\mathrm{row}}$ cells with unknowns the wire-node voltages $\{V_{\mathrm{BL},k}, V_{\mathrm{SL},k}\}$ plus the two boundary clamp scalars $V_{\mathrm{BL,CL}}, V_{\mathrm{SL,CL}}$. The internal cell node is not an array unknown — each cell condenses it and reports a single branch current $I_{\mathrm{cell},k}(V_{\mathrm{BL},k}, V_{\mathrm{SL},k})$, positive from $V_{\mathrm{BL}}$ into $V_{\mathrm{SL}}$, with its two signed terminal conductances. The residuals are the per-node wire-ladder KCL on the two rails — the same condensed branch current leaves the bit-line KCL and enters the source-line KCL, so the array carries no per-cell internal residual — plus the two boundary constraints pinning the clamp voltages to the injected clamp drivers' transfer functions at the boundary port current. The solution yields the per-column bit-line port current $I_{\mathrm{BL,port}}$ and bit-line clamp voltage $V_{\mathrm{BL,CL}}$, the two quantities the macro readout consumes. The formulation, its well-posedness, and the block-tridiagonal linear algebra are specified in [solver](../solver/README.md); the per-cell condensed branch and its signed-conductance contract in [cell](../cell/README.md); the boundary clamp-driver transfer characteristics in [reference/analog](../../analog/README.md).
 
 ## Programming
 
@@ -33,7 +33,7 @@ The array's own parameters are the interconnect ladder, the word-line pulse, and
 | Parameter | Meaning | Unit | Constraint | Source |
 |---|---|---|---|---|
 | cell sub-module config | cell devices, sizing, state map, per-cell Newton count | — | — | see [cell](../cell/README.md) |
-| bit-line / source-line / word-line ladder R, C | per-line interconnect ladder | MOhm, fF | $> 0$ | Extracted |
+| bit-line / source-line / word-line ladder R, C | array interconnect ladders | MOhm, fF | $> 0$ | Extracted |
 | word-line pulse length | access duration (drives wire-RC charging energy) | ns | $> 0$ | Design |
 | solver iteration counts | numerical settling | — | integer $\ge 1$ | Calibrated (numerical convergence) |
 
@@ -43,20 +43,20 @@ Provenance terms are defined in [module_parameter](../../../../conventions/modul
 
 | Symbol | Meaning | Unit | Code field |
 |---|---|---|---|
-| $V_{\mathrm{BL},k}$ | bit-line wire node voltage (series $k$) | V | `v_bl_node` |
+| $V_{\mathrm{BL},k}$ | bit-line wire node voltage at row $k$ | V | `v_bl_node` |
 | $V_{\mathrm{SL},k}$ | source-line wire node voltage | V | `v_sl_node` |
 | $V_{\mathrm{WL},k}$ | word-line analog drive voltage (input) | V | `v_wl` |
 | $V_{\mathrm{BL,CL}}$ | bit-line clamp voltage | V | `v_bl_clamp` |
 | $V_{\mathrm{SL,CL}}$ | source-line clamp voltage | V | `v_sl_drive` |
 | $I_{\mathrm{cell},k}$ | condensed cell branch current (BL $\to$ SL) | uA | `cell.solve_branch` |
 | $I_{\mathrm{BL,port}}, I_{\mathrm{SL,port}}$ | boundary port currents | uA | derived from node voltages |
-| $N_{\mathrm{series}}$ | number of cells along a line (series axis) | — | `row_num` |
-| $N_{\mathrm{line}}$ | number of physical parallel lines | — | `phys_col_num` |
+| $N_{\mathrm{row}}$ | number of rows along each BL/SL wire ladder | — | `row_num` |
+| $N_{\mathrm{col}}$ | number of physical columns | — | `phys_col_num` |
 
 ## Assumptions, scope & validity
 
 - The array is topology-agnostic in the cell: it sees each site only as one condensed two-terminal branch and holds no internal cell node.
-- Each line is a lumped per-segment R/C ladder along a single series axis, not a distributed line.
+- Each column's BL/SL rails are lumped per-segment R/C ladders along the row axis, not distributed lines.
 - The word line is the driven boundary, carries no DC conduction path, and enters as the input drive plus a lumped line capacitance.
 - The boundary blocks (drive, clamp, reference, readout) are peers injected per solve, not owned by the array.
 - The solve is quasi-static: it finds the DC operating point and does not model transient device switching within a pulse.

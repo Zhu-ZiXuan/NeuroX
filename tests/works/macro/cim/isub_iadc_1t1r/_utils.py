@@ -273,15 +273,16 @@ def build_tile(
 def with_ref_levels(
     config: IsubIadc1t1rCimMacroConfig, ref_levels__uA: tuple[float, ...]
 ) -> IsubIadc1t1rCimMacroConfig:
-    """Install one flat ladder on BOTH threshold copies (kept consistent).
+    """Install one single-mode ladder on BOTH threshold copies (kept consistent).
 
-    The flat tuple canonicalizes to a single-mode 2-D row on both configs, so
-    the per-mode consistency law keeps holding.
+    The explicit outer tuple is the mode axis, so the per-mode consistency law
+    keeps holding.
     """
+    ref_bank__uA = (tuple(ref_levels__uA),)
     return dataclasses.replace(
         config,
-        adc_config=dataclasses.replace(config.adc_config, ref_levels__uA=tuple(ref_levels__uA)),
-        reference_config=dataclasses.replace(config.reference_config, i_refs__uA=tuple(ref_levels__uA)),
+        adc_config=dataclasses.replace(config.adc_config, ref_levels__uA=ref_bank__uA),
+        reference_config=dataclasses.replace(config.reference_config, i_refs__uA=ref_bank__uA),
     )
 
 
@@ -292,12 +293,12 @@ def array_read(xbar: IsubIadc1t1rCimMacro, x_planes: Tensor) -> XbarArraySteadyS
     weight-grid full leading, one clamp-reference snapshot, and the kernel
     ``solve_array`` with the macro's lane-grouped BL clamp adapter.
     """
-    _phys_col_num, row_num = xbar.core.weight_grid_shape[-2:]
-    leading = torch.broadcast_shapes(xbar.core.weight_grid_shape, x_planes.unsqueeze(-2).shape)[:-2]
+    _phys_col_num, row_num = xbar.array.weight_grid_shape[-2:]
+    leading = torch.broadcast_shapes(xbar.array.weight_grid_shape, x_planes.unsqueeze(-2).shape)[:-2]
     with torch.no_grad():
         v_wl = xbar.wl_dac.convert(x_planes.expand(*leading, row_num))
         clamp_taps = xbar.clamp_ref.v_ref__V(xbar.clamp_ref.snapshot())
-        return xbar.core.solve_array(
+        return xbar.array.solve_array(
             v_wl,
             bl_driver=xbar._bl_clamp_lanes,
             bl_v_ref__V=clamp_taps[0],

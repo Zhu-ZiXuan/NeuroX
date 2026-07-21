@@ -12,7 +12,7 @@ Asserts, on the hand-built tiny witness config at two SMALL geometries
 ``mux_factor`` / ``io_col_num``, strict divisibility, no clamping):
 
   (a) each reporter's collected leakage == the config's own per-inst seed x
-      the geometry-derived count (core (pure array) x1, bl_clamp x
+      the geometry-derived count (array x1, bl_clamp x
       ``2 * (col_num // mux_factor)``, sl_driver x ``2 * col_num``,
       subtractor x n_io, adc x n_io, reference x1, macro lump x1);
   (b) the non-reporters (p/n mirrors, cell) are ABSENT from the static walk;
@@ -75,7 +75,7 @@ def _assert_reporter_products(xbar: IsubIadc1t1rCimMacro) -> float:
     n_cablc = 2 * (cfg.col_num // cfg.mux_factor)
     n_io = cfg.col_num // cfg.io_col_num
     assert leak[""] == pytest.approx(cfg.leakage_per_inst__uW)  # root: the xbar's own lump, x1
-    assert leak["core"] == pytest.approx(cfg.array_config.leakage_per_inst__uW * 1)
+    assert leak["array"] == pytest.approx(cfg.array_config.leakage_per_inst__uW * 1)
     assert xbar.bl_clamp.inst_count == n_cablc
     assert leak["bl_clamp"] == pytest.approx(cfg.bl_clamp_config.leakage_per_inst__uW * n_cablc)
     assert xbar.sl_driver.inst_count == cfg.phys_col_num == 2 * cfg.col_num
@@ -90,7 +90,7 @@ def _assert_reporter_products(xbar: IsubIadc1t1rCimMacro) -> float:
     assert leak["reference"] == pytest.approx(cfg.reference_config.leakage_per_inst__uW * 1)
 
     # --- (b) non-reporters are absent from the static walk (rolled up) ---
-    for non_reporter in ("p_mirror", "n_mirror", "core.cell"):
+    for non_reporter in ("p_mirror", "n_mirror", "array.cell"):
         assert non_reporter not in leak, f"non-reporter {non_reporter} leaked into the static walk"
 
     # --- (c) the profiler total equals the config-derived breakdown sum ---

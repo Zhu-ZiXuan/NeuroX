@@ -229,9 +229,9 @@ class Conv2dCimUnit(Conv2dUnit, EngineBackedCimUnit):
             x = F.pad(x, (p_w, pad_right, p_h, pad_bottom))
         device = x.device
         # h_idx[ho, i] = ho*s_h + i*d_h   Shape: [H_out, kh]
-        h_idx = (torch.arange(h_out, device=device) * s_h).view(-1, 1) + (
-            torch.arange(kh, device=device) * d_h
-        ).view(1, -1)
+        h_idx = (torch.arange(h_out, device=device) * s_h).view(-1, 1) + (torch.arange(kh, device=device) * d_h).view(
+            1, -1
+        )
         # w_idx[t, s] = t*W_g*s_w + s    Shape: [T_seg, W_strip]
         w_idx = (torch.arange(t_seg, device=device) * (w_g * s_w)).view(-1, 1) + torch.arange(
             w_strip, device=device

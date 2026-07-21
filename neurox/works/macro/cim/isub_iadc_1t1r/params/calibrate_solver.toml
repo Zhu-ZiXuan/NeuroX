@@ -1,0 +1,65 @@
+# Run config for neurox.tools.calibrate_solver.nested on this scheme.
+#
+# Calibrates the nested parallel-rail DC solver's (n_outer, n_inner) pair
+# for the tile built from params/default.toml (all-off policy). Each
+# candidate rebuilds a fresh macro with the swept iteration count patched
+# onto the nested-solver table located by [macro].solver_section; the
+# workload rides the macro's public vec_mat_mul over serialized row planes
+# and the step-delta / residual data is captured on the solver + cell probe
+# channels UPSTREAM of the ADC (the ADC codes are discarded). Stage A picks
+# n_outer at n_inner = inner_ref; Stage B picks n_inner at the Stage-A
+# n_outer. The picked counts (plus margins) are pasted into
+# params/default.toml at cim_macro.array_config.solver_config.
+#
+# Run from the repo root:
+#   python -m neurox.tools.calibrate_solver.nested \
+#     --config neurox/works/macro/cim/isub_iadc_1t1r/params/calibrate_solver.toml \
+#     --plot-dir log/calibration/figures --device cuda:0
+
+[macro]
+# Descending merge priority (first-wins deep merge; a geometry overlay
+# may precede the scheme default).
+config_files = ["default.toml"]
+config_section = "cim_macro"
+policy_file = "../policy/all_off.toml"
+policy_section = "policy"
+# Dotted path (relative to config_section) to the nested-solver config table
+# the sweep patches n_outer / n_inner on.
+solver_section = "array_config.solver_config"
+
+
+# Per-VMM workload + row-block serialization:
+#   inst_shape                parallel weight-program axis (must equal [batch_w])
+#   active_rows               simultaneously active word lines per serialized
+#                             sub-phase plane; set to the macro's
+#                             max_active_rows (= active_row_num, 64) for the
+#                             production-faithful operating point
+#   weight_samples            total distinct weight programmings (multiple of batch_w)
+#   input_samples_per_weight  per-programming input vector count
+#   batch_w                   weight-axis chunk size during streaming
+[workload]
+inst_shape = [2]
+active_rows = 64
+weight_samples = 4
+input_samples_per_weight = 2
+batch_w = 2
+# distribution = "synthetic.toml"   # optional, relative to this TOML
+
+
+# 2-axis sweep: Stage A picks n_outer at n_inner = inner_ref; Stage B picks
+# n_inner at the Stage-A n_outer pick. Margins add to the final picked
+# counts for safety. The candidate ranges bracket the shipped
+# (n_outer = 20, n_inner = 4) plateau.
+[sweep]
+outer_candidates = [5, 10, 15, 20, 25, 30]
+inner_candidates = [1, 2, 3, 4, 5, 6]
+inner_ref = 6
+ratio_threshold = 0.5
+reltol = 1e-2
+outer_margin = 0
+inner_margin = 0
+
+
+[runtime]
+dtype = "float32"
+seed = 0

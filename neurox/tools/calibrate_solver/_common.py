@@ -1,17 +1,29 @@
-"""Shared xbar builder + workload-streaming sweep aggregator for the solver
+"""Host-agnostic builder + workload-streaming sweep aggregator for the solver
 calibration tools.
 
-Registry-driven and scheme-agnostic: the tool TOML carries an abstract-typed
-macro config + policy pair (concrete classes selected by ``_neurox_class``,
-scheme fragments pulled in via ``_neurox_use``), and the built macro must
-expose the structural surface the solver drive reads — ``core`` (an
-:class:`~neurox.primitive.xbar.array.XbarArray1t1r`), ``wl_dac``,
-``clamp_ref``, ``bl_clamp``, and ``sl_driver``.
+Registry-driven and scheme-agnostic: the tool TOML names a macro config /
+policy file pair (concrete classes selected by ``_neurox_class``, scheme
+fragments pulled in via ``_neurox_use``) built through
+:meth:`~neurox.primitive.macro.cim.CimMacro.from_config`, exactly the way
+:mod:`neurox.tools.calibrate_adc` builds its tile. The tool binds only to its
+calibration target — the nested parallel-rail solver family and the 1T1R
+cell-family observation it consumes — plus the abstract
+:class:`~neurox.primitive.macro.cim.CimMacro` surface; it never reaches through
+a concrete host topology.
+
+Candidate iteration counts are swept in config space: per candidate the macro
+config file is loaded as a plain dict (serialization machinery), the nested
+solver table located by a dotted ``solver_section`` path is patched, and a
+FRESH macro is built from the patched dict. The workload rides the macro's
+public ``vec_mat_mul`` (row planes serialized over the sub-phase axis); the
+calibration data is captured by the solver / cell probers UPSTREAM of the ADC,
+so the discarded ADC codes never matter.
 """
 
 from __future__ import annotations
 
-from dataclasses import replace
+import copy
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -21,96 +33,238 @@ from torch import Tensor
 # Registers the scheme classes so CimMacro.from_config / the config
 # `_neurox_class` discriminators can resolve works-defined subclasses.
 import neurox.works  # noqa: F401
+from neurox.common.serialize import load_config_dict
+from neurox.primitive.analog.adc_common import AdcOperationPoint
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
-from neurox.primitive.xbar.array import XbarArray1t1r, XbarArray1t1rConfig, XbarArray1t1rPolicy
-from neurox.primitive.xbar.solver import Solver, SolverConfig
+from neurox.primitive.physical_constant import T_ROOM__K
+from neurox.primitive.xbar.cell import XbarCell1t1rDcop, XbarCell1t1rDetailProber
+from neurox.primitive.xbar.solver import (
+    NestedParallelRailSolverConfig,
+    SolverObservation,
+    SolverProber,
+)
+from neurox.tools._config import resolve_relative_path
 from neurox.tools._plateau import CandidateRow, WorkloadScale
 
 from ._sampling import load_distribution, make_generator, sample_w, sample_x_batches
 
-
-def _calibration_core(xbar: CimMacro) -> XbarArray1t1r:
-    """The macro's owned pure array, type-checked for the solver drive."""
-    core = getattr(xbar, "core", None)
-    if not isinstance(core, XbarArray1t1r):
-        raise TypeError(
-            f"solver calibration requires a macro exposing an XbarArray1t1r 'core'; "
-            f"{type(xbar).__name__} has {type(core).__name__}"
-        )
-    return core
+# ---------------------------------------------------------------------------
+# Macro section (TOML schema fragment)
+# ---------------------------------------------------------------------------
 
 
-def build_xbar_for_calibration(
+@dataclass(frozen=True)
+class MacroSection:
+    """``[macro]`` section: which tile to build + where its solver table lives.
+
+    Attributes:
+        config_files: Macro config TOML paths in descending merge priority
+            (first-wins deep merge, e.g. a geometry overlay on top of the
+            scheme default), relative to the tool TOML.
+        config_section: Section name inside the config files holding the
+            ``_neurox_class``-tagged macro config.
+        policy_file: Nonideality policy TOML path (the all-off preset for
+            calibration), relative to the tool TOML.
+        policy_section: Section name inside ``policy_file``.
+        solver_section: Dotted path, RELATIVE to ``config_section``, locating
+            the nested-solver config table inside the macro config
+            (e.g. ``"array_config.solver_config"``). The candidate sweep
+            patches ``n_outer`` / ``n_inner`` here; a path that does not
+            resolve to a nested-solver config raises.
+    """
+
+    config_files: tuple[Path, ...]
+    config_section: str
+    policy_file: Path
+    policy_section: str
+    solver_section: str
+
+    def __post_init__(self) -> None:
+        if not self.config_files:
+            raise ValueError("require: [macro].config_files non-empty")
+        if not self.solver_section:
+            raise ValueError("require: [macro].solver_section non-empty")
+
+
+def resolve_macro_files(section: MacroSection, *, base: Path) -> tuple[list[Path], Path]:
+    """Resolve the ``[macro]`` config / policy file references against ``base``."""
+    config_paths: list[Path] = []
+    for file in section.config_files:
+        resolved = resolve_relative_path(file, base)
+        assert resolved is not None
+        config_paths.append(resolved)
+    policy_path = resolve_relative_path(section.policy_file, base)
+    assert policy_path is not None
+    return config_paths, policy_path
+
+
+def load_macro_config_dict(config_paths: list[Path], *, config_section: str) -> dict[str, Any]:
+    """Load the fully-resolved macro config as a plain dict.
+
+    Reuses the serialization machinery: each file is parsed, its
+    ``_neurox_use`` / ``_neurox_use_preset`` directives are expanded, the
+    ``config_section`` table is plucked, and the per-file results are merged.
+    The returned dict is exactly what :meth:`CimMacroConfig.from_dict` coerces,
+    so patching a value in it and rebuilding is equivalent to editing the TOML.
+    """
+    return load_config_dict(*config_paths, section=config_section)
+
+
+def _fabricated_macro(
     config: CimMacroConfig,
     policy: CimMacroPolicy,
     *,
     device: torch.device,
     inst_shape: tuple[int, ...],
     dtype: torch.dtype,
-    solver_config: SolverConfig,
-    solve_chunk_size: int = 0,
 ) -> CimMacro:
-    """Build a noise-off xbar with the supplied solver config.
-
-    Substitutes ``solver_config`` on the macro's array config and the
-    run-specific ``solve_chunk_size`` chunking knob on its array policy;
-    everything else comes verbatim from ``config`` / ``policy`` (a noise-off
-    policy preset for calibration).
-
-    Args:
-        config: Concrete macro config; must carry an
-            :class:`XbarArray1t1rConfig` ``array_config`` field.
-        policy: Matching macro policy; must carry an
-            :class:`XbarArray1t1rPolicy` ``array`` field.
-        device: Target torch device.
-        inst_shape: Per-instance shape for the xbar fabricator.
-        dtype: Tensor dtype.
-        solver_config: Concrete :class:`SolverConfig` subclass selecting
-            which solver implementation to dispatch via the registry.
-        solve_chunk_size: Array chunking knob override; ``0`` disables
-            chunking (single-block solve).
-
-    Returns:
-        A fabricated macro resolved through the :class:`CimMacro` registry.
-    """
-    array_config = getattr(config, "array_config", None)
-    if not isinstance(array_config, XbarArray1t1rConfig):
-        raise TypeError(
-            f"solver calibration requires a macro config with an XbarArray1t1rConfig "
-            f"'array_config' field; {type(config).__name__} has {type(array_config).__name__}"
-        )
-    array_policy = getattr(policy, "array", None)
-    if not isinstance(array_policy, XbarArray1t1rPolicy):
-        raise TypeError(
-            f"solver calibration requires a macro policy with an XbarArray1t1rPolicy "
-            f"'array' field; {type(policy).__name__} has {type(array_policy).__name__}"
-        )
-
-    new_config = replace(config, array_config=replace(array_config, solver_config=solver_config))
-    new_policy = replace(policy, array=replace(array_policy, solve_chunk_size=solve_chunk_size))
-
-    xbar = CimMacro.from_config(
-        config=new_config,
-        policy=new_policy,
+    """Build, move, eval-freeze, and fabricate a macro through the registry."""
+    macro = CimMacro.from_config(
+        config=config,
+        policy=policy,
         inst_shape=inst_shape,
         dtype=dtype,
-        T__K=300.0,
+        T__K=T_ROOM__K,
     )
-    xbar.to(device)
-    xbar.eval()
-    xbar.fabricate()
-    return xbar
+    macro = macro.to(device)
+    macro.eval()
+    macro.fabricate()
+    return macro
+
+
+def build_calibration_macro(
+    config: CimMacroConfig,
+    policy: CimMacroPolicy,
+    *,
+    device: torch.device,
+    inst_shape: tuple[int, ...],
+    dtype: torch.dtype,
+) -> CimMacro:
+    """Build the reference tile (geometry query + workload sampling host)."""
+    return _fabricated_macro(config, policy, device=device, inst_shape=inst_shape, dtype=dtype)
+
+
+def resolve_solver_table(root: dict[str, Any], solver_section: str) -> dict[str, Any]:
+    """Descend ``solver_section`` and validate the table is a nested-solver config.
+
+    Walks the dotted path table by table (plain-dict navigation over the
+    already-resolved macro config dict), then checks the resolved table
+    plausibly IS a :class:`NestedParallelRailSolverConfig`: its
+    ``_neurox_class`` discriminator must name that class when present, and in
+    its absence the ``n_outer`` / ``n_inner`` keys must be present.
+
+    Returns the LIVE sub-dict (a reference into ``root``), so a caller
+    patching keys on it mutates ``root``.
+
+    Raises:
+        ValueError: A path segment is missing / not a table, or the table
+            carries neither the discriminator nor the swept keys.
+        TypeError: The discriminator names a class other than
+            ``NestedParallelRailSolverConfig``.
+    """
+    node: Any = root
+    for part in solver_section.split("."):
+        if not isinstance(node, dict) or part not in node:
+            available = sorted(node) if isinstance(node, dict) else "<not a table>"
+            raise ValueError(
+                f"solver_section {solver_section!r}: segment {part!r} not found (available keys: {available})"
+            )
+        node = node[part]
+    if not isinstance(node, dict):
+        raise ValueError(f"solver_section {solver_section!r} resolves to a {type(node).__name__}, not a table")
+    discriminator = node.get("_neurox_class")
+    if discriminator is not None:
+        if discriminator != NestedParallelRailSolverConfig.__name__:
+            raise TypeError(
+                f"solver_section {solver_section!r} resolves to _neurox_class {discriminator!r}, "
+                f"not {NestedParallelRailSolverConfig.__name__}"
+            )
+    elif not all(key in node for key in ("n_outer", "n_inner")):
+        raise ValueError(
+            f"solver_section {solver_section!r} table declares no _neurox_class and lacks the "
+            f"'n_outer' / 'n_inner' keys — it does not look like a nested-solver config"
+        )
+    return node
+
+
+def build_candidate_macro(
+    base_macro_dict: dict[str, Any],
+    *,
+    solver_section: str,
+    overrides: dict[str, int],
+    policy: CimMacroPolicy,
+    device: torch.device,
+    inst_shape: tuple[int, ...],
+    dtype: torch.dtype,
+) -> CimMacro:
+    """Build a fresh macro with ``overrides`` applied to its solver table.
+
+    Deep-copies ``base_macro_dict`` (leaving the caller's shared dict
+    untouched), patches the swept iteration counts on the dotted-located
+    nested-solver table, then builds the macro config from the patched dict
+    with the SAME builder the serialization machinery provides
+    (:meth:`CimMacroConfig.from_dict`) and fabricates the tile.
+    """
+    patched = copy.deepcopy(base_macro_dict)
+    table = resolve_solver_table(patched, solver_section)
+    table.update(overrides)
+    config = CimMacroConfig.from_dict(patched)
+    return _fabricated_macro(config, policy, device=device, inst_shape=inst_shape, dtype=dtype)
 
 
 # ---------------------------------------------------------------------------
-# Step-ratio plateau sweep aggregator (nested SL/BL solver)
+# Row-block serialized drive (engine sub-phase mirror)
 # ---------------------------------------------------------------------------
 
 
-# Step-delta classes (plateau picker). ``v_x`` is the condensed
-# access-node voltage carried on the cell DCOP (``SolverDcop.cell.v_x__V``);
-# the rest are solver-owned wire / clamp unknowns read straight off the DCOP.
-_XBAR_SOLVER_UNKNOWN_FIELDS: tuple[str, ...] = (
+def unroll_sub_phase(x: Tensor, *, row_num: int, active_rows: int, inst_rank: int) -> Tensor:
+    """Serialize dense WL planes over the sub-phase axis (engine-layer mirror).
+
+    Local, explicitly-labelled mirror of the runtime engine serialization: the
+    sub-phase axis ``P = ceil(row_num / active_rows)`` is inserted immediately
+    LEFT of the macro's inst-alignment span (``inst_rank`` size-1 slots), and
+    rows outside a plane's active window are zeroed (WL off), so every
+    conversion drives at most ``active_rows`` live rows — the per-conversion
+    drive context the ``vec_mat_mul`` contract requires. Parameterized by
+    ``active_rows`` (the calibration knob) rather than the macro's
+    ``max_active_rows``.
+
+    Args:
+        x: Dense WL plane tensor with trailing ``[row_num]`` and anonymous
+            leading batch (no inst slots).
+        row_num: Macro row count.
+        active_rows: Simultaneously active word lines per plane; ``1 <=
+            active_rows <= row_num``. Any in-range value is legal — the plane
+            partition uses a ceil count so the rows are always fully covered.
+        inst_rank: Rank of the macro's fabricated ``inst_shape``.
+
+    Returns:
+        Masked plane tensor trailing ``[P, *(1,) * inst_rank, row_num]``;
+        dtype and device follow ``x``.
+    """
+    n_planes = -(-row_num // active_rows)
+    # Static row -> sub-phase ownership; plane p owns rows
+    # [p * active_rows, (p + 1) * active_rows). Shape: [P, row_num]
+    plane_of_row = torch.arange(row_num, device=x.device) // active_rows
+    mask = plane_of_row == torch.arange(n_planes, device=x.device).unsqueeze(-1)
+    # Shape: [P, row_num] -> [P, *(1,) * inst_rank, row_num]
+    mask = mask.reshape(n_planes, *(1,) * inst_rank, row_num)
+    # Insert the P slot + inst-span size-1 slots just left of the row axis so
+    # x broadcasts against the mask. Shape: [*batch, row] ->
+    # [*batch, 1, *(1,) * inst_rank, row].
+    x_expanded = x.reshape(*x.shape[:-1], 1, *(1,) * inst_rank, x.shape[-1])
+    # Shape: [*batch, P, *(1,) * inst_rank, row]; zero-fill = WL off.
+    return torch.where(mask, x_expanded, x.new_zeros(()))
+
+
+# ---------------------------------------------------------------------------
+# Step-delta / residual classes (plateau picker)
+# ---------------------------------------------------------------------------
+
+# ``v_x`` is the condensed access-node voltage carried on the cell DCOP
+# (``SolverDcop.cell.v_x__V``); the rest are solver-owned wire / clamp
+# unknowns read straight off the DCOP.
+_SOLVER_UNKNOWN_FIELDS: tuple[str, ...] = (
     "v_bl_node",
     "v_sl_node",
     "v_bl_clamp",
@@ -118,214 +272,283 @@ _XBAR_SOLVER_UNKNOWN_FIELDS: tuple[str, ...] = (
 )
 """SolverDcop-owned fields tracked for the plateau picker's step deltas."""
 
-_XBAR_CELL_STEP_KEY = "v_x"
+_CELL_STEP_KEY = "v_x"
 """Step-delta key for the cell's condensed access-node voltage (``cell.v_x__V``)."""
 
-_XBAR_UNKNOWN_FIELDS: tuple[str, ...] = (*_XBAR_SOLVER_UNKNOWN_FIELDS, _XBAR_CELL_STEP_KEY)
-"""All step-delta classes (solver wire / clamp unknowns + the cell access node)."""
-
-# Residual classes (safety guard). ``cell__uA`` is the per-cell internal-KCL
-# residual on the cell DCOP (``SolverDcop.cell.residuals.cell__uA``); the
-# rest are solver-owned wire / clamp residuals.
-_XBAR_SOLVER_RESIDUAL_FIELDS: tuple[str, ...] = (
+# The wire / clamp residuals ride :class:`SolverProber`; ``cell__uA``
+# (the per-cell internal-KCL residual) rides :class:`XbarCell1t1rDetailProber`
+# and is tracked only when the built cell emits it.
+_SOLVER_RESIDUAL_FIELDS: tuple[str, ...] = (
     "wire_bl__uA",
     "wire_sl__uA",
     "clamp_bl__V",
     "clamp_sl__V",
 )
-"""SolverResiduals fields tracked for the residual safety guard."""
+"""SolverObservation fields tracked for the residual safety guard."""
 
-_XBAR_CELL_RESIDUAL_KEY = "cell__uA"
-"""Residual key for the per-cell internal-KCL mismatch (``cell.residuals.cell__uA``)."""
-
-_XBAR_RESIDUAL_FIELDS: tuple[str, ...] = (_XBAR_CELL_RESIDUAL_KEY, *_XBAR_SOLVER_RESIDUAL_FIELDS)
-"""All residual classes (per-cell internal KCL + solver wire / clamp)."""
+_CELL_RESIDUAL_KEY = "cell__uA"
+"""Residual key for the per-cell internal-KCL mismatch (``XbarCell1t1rDetailProber``)."""
 
 
-def _solver_inputs_from_xbar(xbar: CimMacro, x: Tensor) -> dict[str, Any]:
-    """Assemble :meth:`Solver.solve_dc` kwargs from an already-fabricated xbar.
+def solver_step_fields(observation: SolverObservation[Any]) -> dict[str, Tensor]:
+    """Extract the step-delta unknown tensors from one solver observation.
 
-    Drives the solver under realistic chip context (cell conductances
-    programmed via workload sampling, real wire R/G, real DAC drive) while
-    bypassing the macro's ``vec_mat_mul`` so raw :class:`SolverDcop`
-    residuals are inspectable. Single-block (unchunked) solve. Reads the
-    macro's structural surface (``core`` / ``wl_dac`` / ``clamp_ref`` /
-    ``bl_clamp`` / ``sl_driver``).
+    The four solver-owned wire / clamp unknowns are always present; the cell
+    access-node ``v_x__V`` is added only when the cell DCOP is an
+    :class:`XbarCell1t1rDcop` (the down-drill the calibration target sanctions).
     """
-    core = _calibration_core(xbar)
-    # The sampler yields a raw activation batch ``(batch, row)`` with no
-    # weight-instance slots. Insert size-1 placeholders in every g-instance
-    # leading position so the activation batch and the fabricated-instance
-    # axes occupy DISJOINT leading positions and broadcast into a combined
-    # ``(batch, *inst)`` leading, instead of colliding batch against instance.
-    g_shape = core.weight_grid_shape
-    inst_rank = len(g_shape) - 2
-    *x_batch, x_row = x.shape
-    # ``x_code`` matches the forward input contract: ``(*batch, *1_inst, row)``.
-    x_code = x.reshape(*x_batch, *(1,) * inst_rank, x_row)
-
-    # Keep ``x_code`` for the DAC convert in its natural ``(*leading, row)``
-    # shape; the fanout slot is added back via unsqueeze(-2) after convert so
-    # the cell snap's WL drive is ``(*leading, 1, row)`` as the solver expects.
-    x_grid = x_code.unsqueeze(-2)
-    full_shape = torch.broadcast_shapes(g_shape, x_grid.shape)
-    *batch_list, phys_col_num, row_num = full_shape
-    leading = tuple(batch_list)
-    cell_trailing = (phys_col_num, row_num)
-    line_trailing = (phys_col_num,)
-    x_dac_input = x_code.expand(*leading, row_num)
-    v_wl_dac = xbar.wl_dac.convert(x_dac_input)
-    v_wl_drive = v_wl_dac.unsqueeze(-2)
-
-    # Mirror the forward boundary-clamp reference injection: snapshot the
-    # xbar-owned clamp reference once and thread its 0-d scalar taps
-    # (tap 0 = BL clamp, tap 1 = SL drive) into each driver snapshot.
-    clamp_taps = xbar.clamp_ref.v_ref__V(xbar.clamp_ref.snapshot())
-    bl_v_ref = clamp_taps[0]
-    sl_v_ref = clamp_taps[1]
-    return {
-        "bl_segment_r__MOhm": core.bl_segment_r__MOhm,
-        "sl_segment_r__MOhm": core.sl_segment_r__MOhm,
-        "bl_segment_g__uS": core.bl_segment_g__uS,
-        "sl_segment_g__uS": core.sl_segment_g__uS,
-        "cell": core.cell,
-        "cell_snap": core.cell.snapshot(
-            control=v_wl_drive,
-            shape=(*leading, *cell_trailing),
-            multi_coords=None,
-            t_elapsed=0.0,
-        ),
-        "bl_driver": xbar.bl_clamp,
-        "bl_driver_snap": xbar.bl_clamp.snapshot(
-            v_ref__V=bl_v_ref, shape=(*leading, *line_trailing), multi_coords=None
-        ),
-        "sl_driver": xbar.sl_driver,
-        "sl_driver_snap": xbar.sl_driver.snapshot(
-            v_ref__V=sl_v_ref, shape=(*leading, *line_trailing), multi_coords=None
-        ),
-    }
+    fields = {name: getattr(observation.dcop, name) for name in _SOLVER_UNKNOWN_FIELDS}
+    cell_dcop = observation.dcop.cell
+    if isinstance(cell_dcop, XbarCell1t1rDcop):
+        fields[_CELL_STEP_KEY] = cell_dcop.v_x__V
+    return fields
 
 
-def aggregate_xbar_sweep(
-    xbar: CimMacro,
+def step_delta_over_streams(
+    prev: list[SolverObservation[Any]],
+    curr: list[SolverObservation[Any]],
+) -> dict[str, float]:
+    """Per-unknown-class ``max |u_curr - u_prev|`` over two 1:1-aligned streams.
+
+    Both streams must carry the same record count (adjacent candidates driven
+    by the identical workload); each aligned pair contributes its per-field
+    max-abs difference and the per-class result is the max over pairs.
+    """
+    if len(prev) != len(curr):
+        raise ValueError(f"record streams misaligned: prev {len(prev)} vs curr {len(curr)}")
+    if not curr:
+        return {}
+    # Seed every tracked class at zero so an unchanged field reports 0.0 (a
+    # genuine plateau) rather than dropping out of the max.
+    step: dict[str, float] = dict.fromkeys(solver_step_fields(curr[0]), 0.0)
+    for prev_obs, curr_obs in zip(prev, curr, strict=True):
+        prev_fields = solver_step_fields(prev_obs)
+        curr_fields = solver_step_fields(curr_obs)
+        for name, curr_val in curr_fields.items():
+            delta = float((curr_val - prev_fields[name]).abs().max().item())
+            if delta > step[name]:
+                step[name] = delta
+    return step
+
+
+def solver_residual_max(records: list[SolverObservation[Any]]) -> dict[str, float]:
+    """Per-class ``max |residual|`` over a solver observation stream."""
+    residual: dict[str, float] = dict.fromkeys(_SOLVER_RESIDUAL_FIELDS, 0.0)
+    for observation in records:
+        for name in _SOLVER_RESIDUAL_FIELDS:
+            val = float(getattr(observation, name).abs().max().item())
+            if val > residual[name]:
+                residual[name] = val
+    return residual
+
+
+# ---------------------------------------------------------------------------
+# Candidate sweep aggregator
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class _DriveResult:
+    """Pooled records of one candidate's drive over the whole workload.
+
+    Attributes:
+        solver_records: Ordered :class:`SolverProber` stream (one per
+            plane per chunk).
+        cell_count: Total :class:`XbarCell1t1rDetailProber` records; ``0`` for
+            a closed-form cell family that never emits.
+        cell_residual__uA: ``max |cell__uA|`` over the cell stream (``0.0``
+            when no cell records were emitted).
+    """
+
+    solver_records: list[SolverObservation[Any]]
+    cell_count: int
+    cell_residual__uA: float
+
+
+def _drive_candidate(
+    macro: CimMacro,
+    workload: list[tuple[Tensor, Tensor]],
     *,
-    candidate_solvers: list[tuple[int, Solver]],
-    n_weight: int,
-    n_input_per_weight: int,
-    batch_w: int,
-    distribution_path: Path | None,
+    active_rows: int,
     device: torch.device,
-    seed: int,
+) -> _DriveResult:
+    """Program + drive the whole workload; pool the solver / cell records.
+
+    Each ``(w, x)`` is programmed once, serialized into row planes, and driven
+    through the macro's public ``vec_mat_mul`` under probers capturing the
+    solver / cell observation links. The returned ADC codes are DISCARDED —
+    the calibration data rides :class:`SolverProber` upstream of ADC
+    conversion, so code clipping at a conservative operating point is
+    irrelevant. One drive yields ``n_planes x n_chunks`` solver records (array
+    chunking runs inside the real forward path).
+    """
+    inst_rank = len(macro.inst_shape)
+    operation_point = AdcOperationPoint(adc_mode=0, adc_bits=macro.adc_max_bits)
+    solver_records: list[SolverObservation[Any]] = []
+    cell_count = 0
+    cell_residual__uA = 0.0
+    for w, x in workload:
+        macro.program(w.to(device))
+        planes = unroll_sub_phase(x.to(device), row_num=macro.row_num, active_rows=active_rows, inst_rank=inst_rank)
+        with SolverProber() as sp, XbarCell1t1rDetailProber() as cp, torch.no_grad():
+            macro.vec_mat_mul(planes, adc_operation_point=operation_point)
+        batch_solver = sp.records
+        batch_cell = cp.records
+        if batch_cell and len(batch_cell) != len(batch_solver):
+            raise ValueError(
+                f"cell / solver record counts differ ({len(batch_cell)} vs {len(batch_solver)}) — "
+                "the cell must emit exactly one internal-KCL residual per solver solve"
+            )
+        solver_records.extend(batch_solver)
+        cell_count += len(batch_cell)
+        for cell_observation in batch_cell:
+            val = float(cell_observation.cell__uA.abs().max().item())
+            if val > cell_residual__uA:
+                cell_residual__uA = val
+    return _DriveResult(solver_records=solver_records, cell_count=cell_count, cell_residual__uA=cell_residual__uA)
+
+
+@dataclass(frozen=True, kw_only=True)
+class SolverSweepContext:
+    """Stage-invariant sweep context: everything a sweep pass needs beyond its axis.
+
+    Bundles the resolved run inputs (patched-config source, built sampling
+    host, workload dimensions, runtime knobs) that are identical for every
+    sweep stage; the per-stage axis (``swept_key`` / ``candidates`` /
+    ``fixed_overrides``) stays a direct argument of
+    :func:`aggregate_solver_sweep`.
+    """
+
+    base_macro_dict: dict[str, Any]
+    solver_section: str
+    policy: CimMacroPolicy
+    sampling_host: CimMacro
+    inst_shape: tuple[int, ...]
+    dtype: torch.dtype
+    active_rows: int
+    n_weight: int
+    n_input_per_weight: int
+    batch_w: int
+    distribution_path: Path | None
+    device: torch.device
+    seed: int
+
+
+def aggregate_solver_sweep(
+    *,
+    swept_key: str,
+    candidates: list[int],
+    fixed_overrides: dict[str, int],
+    context: SolverSweepContext,
 ) -> tuple[list[CandidateRow], WorkloadScale]:
-    """Stream the workload, run every candidate per ``(w, x)``, and aggregate.
+    """Sweep one iteration-count axis, rebuilding a fresh macro per candidate.
 
-    For each ``(w, x)`` batch we run all candidate solvers in order and:
+    The ``(w, x)`` workload is sampled ONCE (seeded) from the context's sampling host and
+    reused identically across every candidate, so only the swept solver knob
+    differs between passes; calibration presumes an all-off policy, which makes
+    the per-candidate macro rebuilds comparable. For each candidate we
 
-      * accumulate per-candidate ``max |residual|`` over the workload;
-      * accumulate per-candidate ``max |u_n − u_{n-1}|`` (step delta) over
-        the workload, for the five unknown classes ``V_BL``, ``V_SL``,
-        ``V_X``, ``V_BL_clamp``, ``V_SL_drive``;
-      * track workload-derived signal scales (``max |I_cell|`` for current
-        residuals, ``max |V_BL_node|`` for voltage residuals) from the
-        most-converged candidate.
+      * patch ``{**fixed_overrides, swept_key: value}`` onto the macro's
+        nested-solver table and build a fresh tile;
+      * drive the workload and pool the solver / cell observation records;
+      * accumulate per-candidate ``max |residual|`` over the pooled stream;
+      * accumulate per-candidate ``max |u_n - u_{n-1}|`` (step delta) against
+        the predecessor candidate on the 1:1-aligned record streams.
 
-    The leading candidate (``i = 0``) has no predecessor — its
-    ``step_max__V`` field is ``None``.
+    The leading candidate has no predecessor — its ``step_max__V`` is ``None``.
+    Workload signal scales (``max |I_cell|``, ``max |V_BL_node|``) are read off
+    the most-converged (last) candidate.
 
-    The solvers are stateless (config-only): every candidate is driven
-    against the same per-call cell / driver state assembled once from
-    ``xbar.core`` for each ``(w, x)``, so only the solver config differs
-    between passes. Total cost ≈ ``len(candidates) × workload_solve_time``.
-
-    Args:
-        xbar: A built xbar (e.g. via :func:`build_xbar_for_calibration`).
-        candidate_solvers: ``[(iter_count, solver)]`` ordered by ascending
-            ``iter_count``.
-        n_weight: Number of distinct programmed weights to sweep.
-        n_input_per_weight: Inputs per weight (per VMM batch).
-        batch_w: Weight-axis chunk size for the sampler.
-        distribution_path: Optional workload distribution TOML; ``None``
-            falls back to uniform sampling.
-        device: Torch device.
-        seed: RNG seed for reproducibility.
+    Raises:
+        ValueError: ``candidates`` is empty, aligned record counts disagree, or
+            EVERY step delta across the sweep is exactly zero — the signature
+            of a ``solver_section`` that does not point at the solver the macro
+            actually uses (the patched knob had no effect).
 
     Returns:
-        ``(rows, scale)``: ``rows`` are per-candidate aggregates (one per
-        entry in ``candidate_solvers``) and ``scale`` is the workload-derived
-        :class:`WorkloadScale`. Feed both to
+        ``(rows, scale)`` ready for
         :func:`neurox.tools._plateau.pick_with_plateau_and_guard`.
     """
-    n_candidates = len(candidate_solvers)
+    n_candidates = len(candidates)
     if n_candidates == 0:
-        raise ValueError("candidate_solvers must not be empty")
+        raise ValueError("candidates must not be empty")
 
-    distribution = load_distribution(distribution_path, xbar)
-    g = make_generator(seed, device)
+    host = context.sampling_host
+    device = context.device
+    distribution = load_distribution(context.distribution_path, host)
+    generator = make_generator(context.seed, device)
+    workload: list[tuple[Tensor, Tensor]] = [
+        (w, x)
+        for w in sample_w(
+            distribution, host, n=context.n_weight, batch_w=context.batch_w, device=device, generator=generator
+        )
+        for x in sample_x_batches(
+            distribution,
+            host,
+            n_total=context.n_input_per_weight,
+            batch_size=context.n_input_per_weight,
+            device=device,
+            generator=generator,
+        )
+    ]
 
-    step_per_class: list[dict[str, float]] = [dict.fromkeys(_XBAR_UNKNOWN_FIELDS, 0.0) for _ in range(n_candidates)]
-    residual_max: list[dict[str, float]] = [dict.fromkeys(_XBAR_RESIDUAL_FIELDS, 0.0) for _ in range(n_candidates)]
+    step_per_class: list[dict[str, float]] = [{} for _ in range(n_candidates)]
+    residual_max: list[dict[str, float]] = [{} for _ in range(n_candidates)]
     i_cell_typ__uA = 0.0
     v_node_typ__V = 0.0
 
-    for w in sample_w(distribution, xbar, n=n_weight, batch_w=batch_w, device=device, generator=g):
-        xbar.program(w)
-        for x in sample_x_batches(
-            distribution,
-            xbar,
-            n_total=n_input_per_weight,
-            batch_size=n_input_per_weight,
+    prev_records: list[SolverObservation[Any]] | None = None
+    for ci, value in enumerate(candidates):
+        macro = build_candidate_macro(
+            context.base_macro_dict,
+            solver_section=context.solver_section,
+            overrides={**fixed_overrides, swept_key: value},
+            policy=context.policy,
             device=device,
-            generator=g,
-        ):
-            solver_inputs = _solver_inputs_from_xbar(xbar, x)
-            prev_fields: dict[str, Tensor] | None = None
-            for ci, (_iter_count, solver) in enumerate(candidate_solvers):
-                solver_dcop = solver.solve_dc(**solver_inputs, compute_residuals=True)
-                assert solver_dcop.residuals is not None
-                assert solver_dcop.cell.residuals is not None
-                # Per-candidate residual maxima. The per-cell internal-KCL
-                # residual lives on the cell DCOP; the wire / clamp residuals
-                # on the solver DCOP.
-                cell_res = float(solver_dcop.cell.residuals.cell__uA.abs().max().item())
-                if cell_res > residual_max[ci][_XBAR_CELL_RESIDUAL_KEY]:
-                    residual_max[ci][_XBAR_CELL_RESIDUAL_KEY] = cell_res
-                for f in _XBAR_SOLVER_RESIDUAL_FIELDS:
-                    val = float(getattr(solver_dcop.residuals, f).abs().max().item())
-                    if val > residual_max[ci][f]:
-                        residual_max[ci][f] = val
-                # Step delta vs the predecessor candidate at the SAME (w, x).
-                # The access-node voltage is condensed on the cell DCOP.
-                curr_fields = {f: getattr(solver_dcop, f) for f in _XBAR_SOLVER_UNKNOWN_FIELDS}
-                curr_fields[_XBAR_CELL_STEP_KEY] = solver_dcop.cell.v_x__V
-                if prev_fields is not None:
-                    for f in _XBAR_UNKNOWN_FIELDS:
-                        val = float((curr_fields[f] - prev_fields[f]).abs().max().item())
-                        if val > step_per_class[ci][f]:
-                            step_per_class[ci][f] = val
-                prev_fields = curr_fields
-                # Workload scale: read off the most-converged candidate so the
-                # signal-scale denominator is at the true operating point.
-                if ci == n_candidates - 1:
-                    val_i = float(solver_dcop.cell.i__uA.abs().max().item())
-                    if val_i > i_cell_typ__uA:
-                        i_cell_typ__uA = val_i
-                    val_v = float(solver_dcop.v_bl_node.abs().max().item())
-                    if val_v > v_node_typ__V:
-                        v_node_typ__V = val_v
+            inst_shape=context.inst_shape,
+            dtype=context.dtype,
+        )
+        drive = _drive_candidate(macro, workload, active_rows=context.active_rows, device=device)
+        records = drive.solver_records
+
+        residual = solver_residual_max(records)
+        if drive.cell_count:
+            if drive.cell_count != len(records):
+                raise ValueError(f"cell record count ({drive.cell_count}) != solver record count ({len(records)})")
+            residual[_CELL_RESIDUAL_KEY] = drive.cell_residual__uA
+        residual_max[ci] = residual
+
+        if prev_records is not None:
+            step_per_class[ci] = step_delta_over_streams(prev_records, records)
+        prev_records = records
+
+        if ci == n_candidates - 1:
+            for observation in records:
+                val_i = float(observation.dcop.cell.i__uA.abs().max().item())
+                if val_i > i_cell_typ__uA:
+                    i_cell_typ__uA = val_i
+                val_v = float(observation.dcop.v_bl_node.abs().max().item())
+                if val_v > v_node_typ__V:
+                    v_node_typ__V = val_v
+
+    if n_candidates >= 2 and all(
+        not step_per_class[ci] or max(step_per_class[ci].values()) == 0.0 for ci in range(1, n_candidates)
+    ):
+        raise ValueError(
+            f"every step delta over the '{swept_key}' sweep is exactly zero — the patched knob had no "
+            f"effect, so solver_section {context.solver_section!r} likely does not point at the solver the macro uses"
+        )
 
     rows: list[CandidateRow] = []
-    for ci, (iter_count, _solver) in enumerate(candidate_solvers):
-        step_max = max(step_per_class[ci].values()) if ci > 0 else None
+    for ci, value in enumerate(candidates):
+        step_max = max(step_per_class[ci].values()) if ci > 0 and step_per_class[ci] else None
         rows.append(
             CandidateRow(
-                iter_count=iter_count,
+                iter_count=value,
                 step_max__V=step_max,
                 step_per_class__V=dict(step_per_class[ci]),
                 residual_max=dict(residual_max[ci]),
             )
         )
-    scale = WorkloadScale(
-        i_cell_typ__uA=i_cell_typ__uA,
-        v_node_typ__V=v_node_typ__V,
-    )
+    scale = WorkloadScale(i_cell_typ__uA=i_cell_typ__uA, v_node_typ__V=v_node_typ__V)
     return rows, scale

@@ -1,7 +1,8 @@
 """Generic macro-ADC calibration tools (config-driven, scheme-agnostic).
 
-Three CLI entries built on the :class:`~neurox.common.prober.AdcProber`
-calibration channels and the ``CimMacro`` registry:
+Three CLI entries built on the ``current_adc.convert`` probe channel (with
+the ideal twin's ``vec_mat_mul`` return as the lossless view) and the
+``CimMacro`` registry:
 
 - :mod:`.rescale_fit` — dual physical/ideal probed run; zero-through-origin
   LS fit of the per-(mode, bits) ``rescale_factor``; ``[[adc_calibration]]``

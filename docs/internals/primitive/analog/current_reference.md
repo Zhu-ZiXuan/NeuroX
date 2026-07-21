@@ -15,7 +15,7 @@
 - **Buffer lifecycle.** `nominal_i_refs__uA` (shape `(mode_num, tap_num)`) → `i_refs__uA` (shape `(*inst_shape, mode_num, tap_num)`, post-fabricate). Before any `fabricate()` the actual buffer is the broadcast nominal; `fabricate()` resamples the tolerance (or restores the broadcast nominal when `tolerance` is off). Both buffers are non-persistent.
 - **`mode_num` / `tap_num` are properties** on config and module (`len(config.i_refs__uA)` / `len(config.i_refs__uA[0])`). They are the source-side interface a consumer queries for the bank geometry; the consumer holds no tap count of its own.
 - **Read path is `i_ref__uA(snap)`.** The encapsulated accessor returns the full `(*inst_shape, mode_num, tap_num)` tap tensor from the snap (never the buffer), so the per-call `noise` is always included; a consumer then indexes its mode row, selects a tap, and broadcasts it. The owner — not the consumer — holds the module, calls `snapshot()` once and `i_ref__uA(snap)`, and passes the resulting tensor in.
-- **Rows are strictly increasing, equal-length, and non-negative**, validated at config time (`>= 1` mode row, equal row lengths, per-row strictly increasing, each tap `>= 0`); a `0` uA first tap is permitted. A flat in-code tap tuple canonicalizes to a single mode row in `__post_init__`; a flat TOML array is rejected by deserialization (the field is 2-D).
+- **Rows are strictly increasing, equal-length, and non-negative**, validated at config time (`>= 1` mode row, equal row lengths, per-row strictly increasing, each tap `>= 0`); a `0` uA first tap is permitted. The field is always an explicit 2-D bank, including for a single mode; a flat TOML array is rejected by deserialization.
 
 ## Gotchas
 

@@ -1,32 +1,32 @@
 # Parallel BL/SL DC solver
 
-The DC operating point of a crossbar array with **parallel BL/SL rails** is found by damped Newton iteration over the two wire ladders and the two clamp boundaries. Every array site condenses to a single signed two-terminal branch and every line boundary is a clamp driver, so the formulation holds for any parallel-rail topology whose site condenses to one branch.
+The DC operating point of a crossbar array with **parallel BL/SL rails** is found by damped Newton iteration over the two wire ladders and the two clamp boundaries. Every array site condenses to a single signed two-terminal branch and every column boundary has a clamp driver, so the formulation holds for any parallel-rail topology whose site condenses to one branch.
 
 ## Structural assumptions
 
-The formulation is specialised to a **parallel BL/SL** array — the BL rail and the SL rail run side by side along one shared series direction — and rests on four assumptions:
+The formulation is specialised to a **parallel BL/SL** array — the BL rail and the SL rail run side by side along the row direction — and rests on four assumptions:
 
 1. **Exactly two array rails.** Each site couples a BL node and an SL node; the coupled wire Newton is therefore a block-$2\times2$ per node.
 2. **One signed two-terminal branch.** The two rails couple only through a single signed cell branch current; the cell self-condenses any internal node, so the array carries no per-cell internal unknown.
-3. **The control line is a driven boundary.** The gate/control line (the word line) is an externally driven boundary, not a solved mesh node. Hence the parallel (per-driver) lines are mutually independent.
-4. **Each rail is a 1-D series ladder.** IR drop accumulates along one series axis per rail, giving the (block-)tridiagonal structure the Thomas sweep exploits.
+3. **The control line is a driven boundary.** The gate/control line (the word line) is an externally driven boundary, not a solved mesh node. Hence the columns and their driver pairs are mutually independent.
+4. **Each rail is a 1-D series ladder.** IR drop accumulates along the row axis of each rail, giving the (block-)tridiagonal structure the Thomas sweep exploits.
 
 The orthogonal case (BL $\perp$ SL forming a 2-D mesh, where the two rails are *not* parallel and a line is a solved node) violates assumption 3 and is out of scope here.
 
 ## Formulation
 
-The solve is a nested (block-Gauss-Seidel) decomposition: an *outer* $2\times2$ Newton on the per-column clamp pair $(V_{\mathrm{BL,CL}}, V_{\mathrm{SL,CL}})$ wrapped around an *inner* array solve at a frozen clamp pair. The inner solve is a coupled block-$2\times2$ wire Newton on $(V_{\mathrm{BL}}, V_{\mathrm{SL}})$ along each line. The cell does not enter the array unknowns: at each inner step every cell condenses its internal node to a single branch current with its two signed terminal conductances, which enter the wire Newton directly.
+The solve is a nested (block-Gauss-Seidel) decomposition: an *outer* $2\times2$ Newton on the per-column clamp pair $(V_{\mathrm{BL,CL}}, V_{\mathrm{SL,CL}})$ wrapped around an *inner* array solve at a frozen clamp pair. The inner solve is a coupled block-$2\times2$ wire Newton on $(V_{\mathrm{BL}}, V_{\mathrm{SL}})$ along the rows of each column. The cell does not enter the array unknowns: at each inner step every cell condenses its internal node to a single branch current with its two signed terminal conductances, which enter the wire Newton directly.
 
 ## Cell branch and driver transfer
 
-The formulation is defined over two constitutive relations — the condensed cell branch at every array site and the monotone clamp-driver transfer at every line boundary.
+The formulation is defined over two constitutive relations — the condensed cell branch at every array site and the monotone clamp-driver transfer at every column boundary.
 
 The cell branch:
 
 - **Single branch current.** Each site carries one condensed current $I_{\mathrm{cell}}(V_{\mathrm{BL}}, V_{\mathrm{SL}})$, positive from $V_{\mathrm{BL}}$ to $V_{\mathrm{SL}}$. The same current leaves the BL wire KCL and enters the SL wire KCL, so the array carries no per-cell internal residual.
 - **Signed terminal derivatives.** $\partial I_{\mathrm{cell}}/\partial V_{\mathrm{BL}} \ge 0$ and $\partial I_{\mathrm{cell}}/\partial V_{\mathrm{SL}} \le 0$. These definite signs make the inner wire system a well-posed M-matrix-flavour problem (below).
 
-The clamp-driver transfer (one driver per line boundary, BL and SL):
+The clamp-driver transfer (one BL driver and one SL driver per column boundary):
 
 - **Monotone scalar transfer.** Each driver maps its boundary port current to a clamp voltage with a strict, definite-sign response: the BL clamp driver strictly monotone in $I_{\mathrm{BL,port}}$, the SL driver strictly monotone in $I_{\mathrm{SL,port}}$.
 
@@ -42,7 +42,7 @@ so the SL sign is absorbed into a magnitude and the assembled Jacobians are sign
 
 ### Inner wire Jacobian
 
-The inner solve is a coupled block-$2\times2$ wire Newton on $(V_{\mathrm{BL}}, V_{\mathrm{SL}})$ along the series ladder; its residuals are the per-node wire KCL with the shared cell branch entering both rails — the BL residual $F_{\mathrm{BL}}$ takes $+I_{\mathrm{cell}}$ (drained from BL), the SL residual $F_{\mathrm{SL}}$ takes $-I_{\mathrm{cell}}$ (injected into SL). The Jacobian $J_{\mathrm{inner}}$ is block-tridiagonal in the series index $k$, and its per-node diagonal block carries the cell's cross-coupling between the two rails,
+The inner solve is a coupled block-$2\times2$ wire Newton on $(V_{\mathrm{BL}}, V_{\mathrm{SL}})$ along the row axis; its residuals are the per-node wire KCL with the shared cell branch entering both rails — the BL residual $F_{\mathrm{BL}}$ takes $+I_{\mathrm{cell}}$ (drained from BL), the SL residual $F_{\mathrm{SL}}$ takes $-I_{\mathrm{cell}}$ (injected into SL). The Jacobian $J_{\mathrm{inner}}$ is block-tridiagonal in the row index $k$, and its per-node diagonal block carries the cell's cross-coupling between the two rails,
 
 $$J^{\mathrm{diag}}_k = \begin{bmatrix} d^{\mathrm{BL}}_k + g_{\mathrm{BL,eff},k} & -\,g_{\mathrm{SL,eff},k} \\ -\,g_{\mathrm{BL,eff},k} & d^{\mathrm{SL}}_k + g_{\mathrm{SL,eff},k} \end{bmatrix},$$
 
@@ -76,7 +76,7 @@ Each outer step solves $\dfrac{\partial F_{\mathrm{outer}}}{\partial V_{\mathrm{
 
 The monotonicity directions follow from the cell's signed-conductance contract and the wire-ladder structure. The cell branch current is increasing in $V_{\mathrm{BL}}$ and decreasing in $V_{\mathrm{SL}}$ ($\partial I_{\mathrm{cell}}/\partial V_{\mathrm{BL}} \ge 0$, $\partial I_{\mathrm{cell}}/\partial V_{\mathrm{SL}} \le 0$), so the inner coupled wire system is a block-$2\times2$ tridiagonal M-matrix-flavour system with a unique fixed point at any frozen clamp pair. Because the cell branch currents are monotone in the node voltages, the boundary port currents $I_{\mathrm{BL,port}}$, $I_{\mathrm{SL,port}}$ are themselves monotone in the clamp voltages, so each boundary clamp-driver response is strictly monotone in a definite direction: raising $V_{\mathrm{BL,CL}}$ increases the cell read current and hence the BL port current it must absorb, while raising $V_{\mathrm{SL,CL}}$ lowers the cell drive and hence the SL port current. The outer map on $(V_{\mathrm{BL,CL}}, V_{\mathrm{SL,CL}})$ composes the strictly monotone driver responses (the BL clamp driver strictly monotone in $I_{\mathrm{BL,port}}$, the SL driver strictly monotone in $I_{\mathrm{SL,port}}$) with the strictly monotone array response, giving a unique fixed point; the damped $2\times2$ Newton converges quadratically near it. Rail pseudo-equilibria are excluded, because the outer Newton is a well-conditioned per-column $2\times2$ problem away from the rails; a rail is reached only when the port current is genuinely outside the driver's reachable range, where the rail is the correct physics.
 
-The formulation carries IR drop through the per-segment interconnect resistances of the wire ladder: node voltages along the series axis differ from the clamp voltage by the resistive drop the segment currents develop, and these drops enter the wire-ladder KCL residuals directly, for any per-segment interconnect-resistance profile along the series axis.
+The formulation carries IR drop through the per-segment interconnect resistances of the wire ladder: node voltages along the row axis differ from the clamp voltage by the resistive drop the segment currents develop, and these drops enter the wire-ladder KCL residuals directly, for any per-segment interconnect-resistance profile along the row axis.
 
 ## Symbols
 

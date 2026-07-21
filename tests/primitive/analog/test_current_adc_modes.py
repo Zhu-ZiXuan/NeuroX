@@ -4,15 +4,16 @@
 are 2-D ``[mode][tap]`` banks; ``SarCurrentAdc._convert_impl`` consumes
 ``adc_operation_point.adc_mode`` to select the ladder row. These tests pin:
 
-- 2-D config validation: per-row exact ``2 ** n_bits - 1`` length, strictly
-  increasing rows, and the flat-tuple single-mode canonicalization;
+- 2-D config validation: per-row exact ``2 ** n_bits - 1`` length and strictly
+  increasing rows;
 - mode-selection correctness: two artificial ladders yield different codes
   for the same input, each matching the single-mode reference conversion;
 - the ``adc_mode`` bounds error and the ``adc_bits == n_bits`` validation;
 - quasi-static mode semantics: selecting a mode row changes no energy or
   latency accounting versus a single-mode ADC holding the same ladder;
 - ``CurrentAdc.convert`` template method: probe-off equivalence with
-  ``_convert_impl`` and probe capture of input, code, and operating point.
+  ``_convert_impl`` and :class:`CurrentAdcProber` capture of input, code, and
+  operating point.
 """
 
 from __future__ import annotations
@@ -20,10 +21,10 @@ from __future__ import annotations
 import pytest
 import torch
 
-from neurox.common.prober import AdcProber, Prober
 from neurox.common.profiler import NeuroxProfiler
 from neurox.primitive.analog.adc_common import AdcOperationPoint
 from neurox.primitive.analog.current_adc import (
+    CurrentAdcProber,
     SarCurrentAdc,
     SarCurrentAdcConfig,
     SarCurrentAdcPolicy,
@@ -35,7 +36,7 @@ _LADDER_A = (1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0)
 _LADDER_B = (10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0)
 
 
-def _config(ref_levels__uA: tuple[tuple[float, ...], ...] | tuple[float, ...]) -> SarCurrentAdcConfig:
+def _config(ref_levels__uA: tuple[tuple[float, ...], ...]) -> SarCurrentAdcConfig:
     return SarCurrentAdcConfig(
         area_per_inst__um2=0.0,
         leakage_per_inst__uW=0.0,
@@ -50,7 +51,7 @@ def _config(ref_levels__uA: tuple[tuple[float, ...], ...] | tuple[float, ...]) -
     )
 
 
-def _build(ref_levels__uA: tuple[tuple[float, ...], ...] | tuple[float, ...], device: torch.device) -> SarCurrentAdc:
+def _build(ref_levels__uA: tuple[tuple[float, ...], ...], device: torch.device) -> SarCurrentAdc:
     adc = SarCurrentAdc(
         config=_config(ref_levels__uA),
         policy=SarCurrentAdcPolicy(
@@ -91,13 +92,6 @@ def test_config_rejects_bad_2d_banks() -> None:
             _config(bad)
     # Both rows well-formed: accepted, mode_num == 2.
     assert _config((_LADDER_A, _LADDER_B)).mode_num == 2
-
-
-def test_flat_tuple_canonicalizes_to_single_mode() -> None:
-    """A flat in-code ladder canonicalizes to one mode row (single-mode shorthand)."""
-    config = _config(_LADDER_A)
-    assert config.ref_levels__uA == (_LADDER_A,)
-    assert config.mode_num == 1
 
 
 # ---------------------------------------------------------------------------
@@ -188,7 +182,7 @@ def test_probe_off_convert_matches_convert_impl(device: torch.device) -> None:
     i_in = torch.tensor([0.5, 4.5, 35.0], dtype=torch.float64, device=device)
     op = _op(1)
 
-    assert not Prober._active_stack
+    assert not CurrentAdcProber._active_stack
     via_template = adc.convert(i_in, adc_operation_point=op)
     direct = adc._convert_impl(i_in, adc_operation_point=op)
     assert torch.equal(via_template, direct)
@@ -200,14 +194,13 @@ def test_probe_capture_carries_input_code_and_op_point(device: torch.device) -> 
     i_in = torch.tensor([0.5, 4.5, 35.0], dtype=torch.float64, device=device)
     op = _op(1)
 
-    with AdcProber() as prober:
+    with CurrentAdcProber() as prober:
         code = adc.convert(i_in, adc_operation_point=op)
 
-    records = prober.convert_records()
+    records = prober.records
     assert len(records) == 1
-    module, tensors = records[0]
-    assert module is adc
-    assert torch.equal(tensors["i_in__uA"], i_in)
-    assert torch.equal(tensors["code"], code)
-    assert int(tensors["adc_mode"]) == 1
-    assert int(tensors["adc_bits"]) == 3
+    observation = records[0]
+    assert torch.equal(observation.i_in__uA, i_in)
+    assert torch.equal(observation.code, code)
+    assert observation.adc_mode == 1
+    assert observation.adc_bits == 3

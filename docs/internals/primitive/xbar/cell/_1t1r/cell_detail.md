@@ -10,7 +10,7 @@
 
 ## Contracts & invariants
 
-- **Returned current is the RRAM leg.** `solve_branch` and `solve_dc` report the RRAM current `i_r` as the condensed branch current `i__uA`; `solve_dc(compute_residuals=True)` returns `|i_n - i_r|` as the per-cell KCL residual, the signal for whether `n_newton` is sufficient.
+- **Returned current is the RRAM leg.** `solve_branch` and `solve_dc` report the RRAM current `i_r` as the condensed branch current `i__uA`. `XbarCell1t1rDetailProber(Prober[XbarCell1t1rDetailObservation])` is co-located in this module beside `XbarCell1t1rDetail`; `solve_dc` computes `|i_n - i_r|` at the converged `V_X` and submits it once per call as a `XbarCell1t1rDetailObservation` payload — the signal for whether `n_newton` is sufficient — but only when `XbarCell1t1rDetailProber.active()` is true, i.e. a `XbarCell1t1rDetailProber` is active; unsubscribed, neither the `.abs()` diagnostic nor the payload is built. A driving solver that calls `solve_dc` more than once per its own public entry produces one record per call; only the last is at the converged operating point, a consumer-side concern rather than the emitter's.
 - **`program` writes only the storage device.** It maps a state-index tensor through `state_to_g_map__uS` and programs the RRAM; the NMOS is not programmed. The state-index shape must match the cell's `inst_shape`.
 
 ## Performance & resources
@@ -23,7 +23,7 @@ The cell's per-call working set is the device snaps plus a handful of node-volta
 
 ## Known limitations
 
-- **Cell-internal convergence is verified through residuals, not a closed-form root.** The per-cell KCL residual (`solve_dc(compute_residuals=True)`) is the standing check that the fixed `n_newton` condenses $V_{\mathrm{X}}$ to the numerical floor; there is no separate analytic-root cross-check. The device-derivative signs are checked directly — the test asserts the returned conductances are non-negative / non-positive (footer's Tests).
+- **Cell-internal convergence is verified through residuals, not a closed-form root.** The per-cell KCL residual carried by `XbarCell1t1rDetailObservation` is the standing check that the fixed `n_newton` condenses $V_{\mathrm{X}}$ to the numerical floor; there is no separate analytic-root cross-check. The device-derivative signs are checked directly — the test asserts the returned conductances are non-negative / non-positive (footer's Tests).
 
 ---
 

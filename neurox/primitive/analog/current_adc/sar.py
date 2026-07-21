@@ -70,8 +70,7 @@ class SarCurrentAdcConfig(CurrentAdcConfig):
             one row of exactly ``2 ** n_bits - 1`` strictly increasing
             thresholds per operating mode. The per-call
             ``adc_operation_point.adc_mode`` selects the row. A nested TOML
-            array loads straight into this tuple-of-tuples; a flat tuple of
-            floats passed in code is canonicalized to a single mode row.
+            array loads straight into this tuple-of-tuples.
         e_fixed_per_op__fJ: Data-independent per-step energy constant [fJ]
             folding sampling, latch, coupling, and reference-selector switching;
             billed once per binary-search step.
@@ -103,13 +102,6 @@ class SarCurrentAdcConfig(CurrentAdcConfig):
     comparator_offset_sigma__uA: float
     coupling_mismatch_sigma__uA: float
     mirror_mismatch_sigma_relative: float
-
-    def __post_init__(self) -> None:
-        # A flat tuple of floats is the single-mode shorthand: canonicalize
-        # to one mode row so the validated form is always 2-D [mode][tap].
-        if len(self.ref_levels__uA) > 0 and not isinstance(self.ref_levels__uA[0], tuple):
-            object.__setattr__(self, "ref_levels__uA", (tuple(self.ref_levels__uA),))
-        super().__post_init__()
 
     @property
     def mode_num(self) -> int:

@@ -8,16 +8,18 @@ from __future__ import annotations
 
 from abc import ABC
 from dataclasses import dataclass
+from typing import Generic, TypeVar
 
 import torch
 from torch import Tensor
+
+from neurox.common.mixin import RegistryMixin
 
 from .base import (
     XbarCell,
     XbarCellConfig,
     XbarCellDcop,
     XbarCellPolicy,
-    XbarCellResiduals,
     XbarCellSnap,
 )
 
@@ -68,18 +70,6 @@ class XbarCell1t1rPolicy(XbarCellPolicy, ABC):
     """
 
 
-@dataclass(frozen=True)
-class XbarCell1t1rResiduals(XbarCellResiduals):
-    """Per-cell access-node KCL residual of a 1T1R branch solve.
-
-    Attributes:
-        cell__uA: ``|I_NMOS - I_RRAM|`` per cell at the condensed ``V_X``.
-            Shape: ``[..., col, row]``.
-    """
-
-    cell__uA: Tensor
-
-
 @dataclass(frozen=True, kw_only=True)
 class XbarCell1t1rSnap(XbarCellSnap):
     """Per-call snap base of a 1T1R cell's fabricated state.
@@ -93,7 +83,7 @@ class XbarCell1t1rSnap(XbarCellSnap):
 
 
 @dataclass(frozen=True)
-class XbarCell1t1rDcop(XbarCellDcop[XbarCell1t1rResiduals]):
+class XbarCell1t1rDcop(XbarCellDcop):
     """1T1R branch working point with the condensed access-node voltage.
 
     Attributes:
@@ -104,12 +94,20 @@ class XbarCell1t1rDcop(XbarCellDcop[XbarCell1t1rResiduals]):
     v_x__V: Tensor
 
 
+CellSnapT = TypeVar("CellSnapT", bound=XbarCell1t1rSnap)
+
+
 # ---------------------------------------------------------------------------
 # Cell
 # ---------------------------------------------------------------------------
 
 
-class XbarCell1t1r(XbarCell[XbarCell1t1rSnap, XbarCell1t1rDcop], ABC):
+class XbarCell1t1r(
+    XbarCell[CellSnapT, XbarCell1t1rDcop],
+    RegistryMixin[type[XbarCell1t1rConfig], "XbarCell1t1r"],
+    Generic[CellSnapT],
+    ABC,
+):
     """Abstract series access-device + storage 1T1R cell with a condensed branch.
 
     Owns the shared substrate of every 1T1R model: the four per-cell
@@ -139,6 +137,31 @@ class XbarCell1t1r(XbarCell[XbarCell1t1rSnap, XbarCell1t1rDcop], ABC):
         self.c_x__fF = config.c_x__fF
         self.c_sl__fF = config.c_sl__fF
         self.c_wl__fF = config.c_wl__fF
+
+    @classmethod
+    def from_config(
+        cls,
+        *,
+        config: XbarCell1t1rConfig,
+        policy: XbarCell1t1rPolicy,
+        inst_shape: tuple[int, ...],
+        dtype: torch.dtype,
+        T__K: float,
+    ) -> XbarCell1t1r:
+        """Build the 1T1R cell registered for ``type(config)``.
+
+        Family-bounded dispatch: the key domain is the 1T1R config
+        subtree, so the resolved impl is always an :class:`XbarCell1t1r`
+        leaf — the owning array needs no post-build type narrowing.
+        """
+        impl = cls._lookup_impl(type(config))
+        return impl(
+            config=config,
+            policy=policy,
+            inst_shape=inst_shape,
+            dtype=dtype,
+            T__K=T__K,
+        )
 
     # -----------------------------------------------------------------
     # Dynamic energy

@@ -6,7 +6,7 @@ See also:
 
 from neurox.primitive.analog.adc_common import AdcCalibrationRecord, AdcMode, AdcOperationPoint
 
-from .base import CurrentAdc, CurrentAdcConfig, CurrentAdcPolicy
+from .base import CurrentAdc, CurrentAdcConfig, CurrentAdcObservation, CurrentAdcPolicy, CurrentAdcProber
 from .sar import SarCurrentAdc, SarCurrentAdcConfig, SarCurrentAdcPolicy
 
 __all__ = [
@@ -15,7 +15,9 @@ __all__ = [
     "AdcOperationPoint",
     "CurrentAdc",
     "CurrentAdcConfig",
+    "CurrentAdcObservation",
     "CurrentAdcPolicy",
+    "CurrentAdcProber",
     "SarCurrentAdc",
     "SarCurrentAdcConfig",
     "SarCurrentAdcPolicy",

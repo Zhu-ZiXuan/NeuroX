@@ -14,7 +14,6 @@ import torch
 from torch import Tensor
 
 from neurox.common import ConfigBase, ModuleBase, PolicyBase
-from neurox.common.mixin import RegistryMixin
 
 # ---------------------------------------------------------------------------
 # Config / policy / result bases
@@ -46,16 +45,6 @@ class XbarCellPolicy(PolicyBase, ABC):
 
 
 @dataclass(frozen=True)
-class XbarCellResiduals:
-    """Marker base for per-cell DC-solve residual diagnostics.
-
-    Concrete cells carry a subclass holding the absolute internal-KCL
-    residual of their own condensation (for example an access-node
-    current mismatch).
-    """
-
-
-@dataclass(frozen=True)
 class XbarCellSnap:
     """Marker base for per-call snaps of a cell's fabricated state.
 
@@ -64,11 +53,8 @@ class XbarCellSnap:
     """
 
 
-ResidualsT = TypeVar("ResidualsT", bound=XbarCellResiduals)
-
-
 @dataclass(frozen=True)
-class XbarCellDcop(Generic[ResidualsT]):
+class XbarCellDcop:
     """Condensed branch working point of one cell DC evaluation.
 
     Attributes:
@@ -79,14 +65,11 @@ class XbarCellDcop(Generic[ResidualsT]):
             Shape: ``[..., col, row]``.
         di_dvsl__uS: ``∂I/∂V_SL``, the SL-side branch conductance
             (non-positive). Shape: ``[..., col, row]``.
-        residuals: Optional internal-KCL residual diagnostics; ``None``
-            on the hot path. Populated by ``solve_dc(compute_residuals=True)``.
     """
 
     i__uA: Tensor
     di_dvbl__uS: Tensor
     di_dvsl__uS: Tensor
-    residuals: ResidualsT | None
 
 
 # ---------------------------------------------------------------------------
@@ -100,14 +83,21 @@ DCOPT = TypeVar("DCOPT", bound=XbarCellDcop)
 
 class XbarCell(
     ModuleBase[XbarCellConfig, XbarCellPolicy],
-    RegistryMixin[type[XbarCellConfig], "XbarCell"],
     Generic[SnapT, DCOPT],
     ABC,
 ):
-    """Abstract base for pluggable crossbar cells.
+    """Solver-facing crossbar-cell contract.
 
-    A cell owns its device ``nn.Module`` children and exposes one
-    condensed two-terminal branch to the array solver.
+    Defines the condensed two-terminal branch element the array solver
+    consumes: :meth:`solve_branch` / :meth:`solve_dc` together with the
+    :class:`XbarCellDcop` fields are the solver-cell ABI. A cell owns its
+    device ``nn.Module`` children and condenses every internal node to
+    expose that single branch.
+
+    Construction and dispatch are not part of this contract: the
+    config-keyed registry and ``from_config`` live on the family roots
+    (e.g. :class:`XbarCell1t1r`), so a cell is built family-bounded by
+    type rather than through a universal factory plus runtime narrowing.
 
     A cell is a non-reporting :class:`ModuleBase` leaf
     (``is_profile_target`` is ``False``): it self-accounts no static PPA.
@@ -137,26 +127,6 @@ class XbarCell(
         """
         del dtype, T__K  # consumed by the subclass init
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
-
-    @classmethod
-    def from_config(
-        cls,
-        *,
-        config: XbarCellConfig,
-        policy: XbarCellPolicy,
-        inst_shape: tuple[int, ...],
-        dtype: torch.dtype,
-        T__K: float,
-    ) -> XbarCell:
-        """Build the concrete impl registered for ``type(config)``."""
-        impl = cls._lookup_impl(type(config))
-        return impl(
-            config=config,
-            policy=policy,
-            inst_shape=inst_shape,
-            dtype=dtype,
-            T__K=T__K,
-        )
 
     def _sample_fabricate_mismatch(self) -> None:
         pass  # container: device mismatch is sampled through the cascade
@@ -230,22 +200,19 @@ class XbarCell(
         v_bl: Tensor,
         v_sl: Tensor,
         snap: SnapT,
-        compute_residuals: bool = False,
     ) -> DCOPT:
         """Full branch DC working point, including internal-node state.
 
         Diagnostic / energy-side superset of :meth:`solve_branch`: returns
         the condensed branch quantities plus the cell's internal node
-        voltages (carried on the concrete DCOP subclass) and, optionally,
-        the internal-KCL residual.
+        voltages (carried on the concrete DCOP subclass). A cell that owns
+        a per-cell KCL residual computes it at the converged internal node
+        and emits it on its own probe channel.
 
         Args:
             v_bl: Bit-line node voltage [V]. Shape: ``[..., col, row]``.
             v_sl: Source-line node voltage [V]. Shape: ``[..., col, row]``.
             snap: Per-call snap from :meth:`snapshot`.
-            compute_residuals: When True, populate
-                :attr:`XbarCellDcop.residuals`; when False (hot path)
-                leaves it as ``None``.
 
         Returns:
             Concrete :class:`XbarCellDcop` subclass with the branch

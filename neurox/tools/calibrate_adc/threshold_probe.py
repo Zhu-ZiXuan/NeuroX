@@ -10,9 +10,9 @@ per-(column, phase)-block magnitude ``0 .. m_max`` realized by
 single-cell-LSB patterns under full WL drive), count-capped random
 single-sign block patterns, dense saturating columns, and random WL drive
 densities. Each battery element runs through the physical tile and its
-lossless twin under an :class:`~neurox.common.prober.AdcProber`; the
-``adc.convert`` captured analog inputs pair with the ``adc.ideal_vmm``
-integer dots, giving the observed analog band per ``|M|``. The modes come
+lossless twin; the physical tile's ``current_adc.convert`` captured analog
+inputs pair with the ideal twin's ``vec_mat_mul`` integer dots, giving the
+observed analog band per ``|M|``. The modes come
 from the mode-set TOML named by the run config (``modes_file``, see
 :mod:`._modes`); per mode the ladder top is ``m_max = ceil(range)`` (the
 ladder must cover the mode's design range). Per mode the tool places the

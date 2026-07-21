@@ -79,7 +79,7 @@ The virtual-ground reference $V_{\mathrm{ref}}$ is a per-call runtime input, not
 | $h$ | soft-clip half-span, $\tfrac{1}{2}V_{\mathrm{dd}}$ | V | `softclip_half_span__V` |
 | $s$ | $\tanh$ output-rail softness scale | V | `output_saturation_softness__V` |
 | $g_{\mathrm{clip}}$ | local $\tanh$ soft-clip gradient | — | `g_clip` |
-| $f$ | clamp-node KCL residual | uA | `residual__uA` |
+| $f$ | clamp-node KCL residual (Newton root condition; not a returned field) | uA | — |
 | $v_d$ | NMOS drain voltage, $= V_{\mathrm{out}}$ | V | `vd__V` |
 | $v_s$ | NMOS source voltage, $= V_{\mathrm{BL,CL}}$ | V | `vs__V` |
 

@@ -110,9 +110,6 @@ python_version = "3.11"
 namespace_packages = true
 explicit_package_bases = true
 ignore_missing_imports = true
-
-exclude = ["tests/"]
-
 warn_return_any = true
 warn_unused_configs = true
 warn_redundant_casts = true

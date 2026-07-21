@@ -18,10 +18,8 @@ from ._1t1r import (
     XbarCell1t1rConfig,
     XbarCell1t1rDcop,
     XbarCell1t1rPolicy,
-    XbarCell1t1rResiduals,
     XbarCell1t1rSnap,
 )
-from .base import XbarCell
 
 # ---------------------------------------------------------------------------
 # Config / policy / result containers
@@ -118,8 +116,8 @@ class XbarCell1t1rLinearSnap(XbarCell1t1rSnap):
 # ---------------------------------------------------------------------------
 
 
-@XbarCell.register_key(XbarCell1t1rLinearConfig)
-class XbarCell1t1rLinear(XbarCell1t1r):
+@XbarCell1t1r.register_key(XbarCell1t1rLinearConfig)
+class XbarCell1t1rLinear(XbarCell1t1r[XbarCell1t1rLinearSnap]):
     """Table-driven linearized 1T1R cell with a division-free closed form.
 
     Owns no device children. ``program`` gathers the four flat per-state
@@ -259,20 +257,19 @@ class XbarCell1t1rLinear(XbarCell1t1r):
         v_bl: Tensor,
         v_sl: Tensor,
         snap: XbarCell1t1rLinearSnap,
-        compute_residuals: bool = False,
     ) -> XbarCell1t1rDcop:
-        """Full branch working point including the divider ``V_X``."""
+        """Full branch working point including the divider ``V_X``.
+
+        The linear divider's internal KCL is exact by construction, so the
+        cell carries no residual concept.
+        """
         g_cell, vx_ratio = self._branch_params(snap)
         dv = v_bl - v_sl
         i__uA = g_cell * dv
         v_x = v_bl - vx_ratio * dv
-        residuals: XbarCell1t1rResiduals | None
-        # Internal KCL is exact by construction in the linear divider.
-        residuals = XbarCell1t1rResiduals(cell__uA=torch.zeros_like(i__uA)) if compute_residuals else None
         return XbarCell1t1rDcop(
             i__uA=i__uA,
             di_dvbl__uS=g_cell,
             di_dvsl__uS=-g_cell,
-            residuals=residuals,
             v_x__V=v_x,
         )

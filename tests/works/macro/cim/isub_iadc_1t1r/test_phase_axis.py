@@ -18,7 +18,7 @@ hand-built tiny witness tile:
     inserted left of the inst-aligned span;
   * latency: the profiler's total latency scales exactly with the plane
     count between one full-row plane and P = 2 masked planes of the same
-    drive (every serial-op multiplier — core, readout chain, ADC — counts
+    drive (every serial-op multiplier — array, readout chain, ADC — counts
     solved planes).
 
 Runs eagerly (dynamo disabled); tiny geometry, seconds of numerics.
@@ -177,7 +177,7 @@ def test_latency_scales_with_plane_count(device: torch.device) -> None:
     """Total profiled latency of one VMM scales exactly with the plane count.
 
     Every latency event multiplies a per-op circuit property by a serial op
-    count that counts solved WL planes (core plane count, readout-chain and
+    count that counts solved WL planes (array plane count, readout-chain and
     ADC column-serial counts), so P = 2 masked planes cost exactly twice one
     full-row plane of the same drive.
     """

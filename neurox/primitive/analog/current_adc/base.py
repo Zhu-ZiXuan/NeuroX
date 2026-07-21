@@ -7,15 +7,52 @@ See also:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from typing import ClassVar, Self
 
 import torch
 from torch import Tensor
 
 from neurox.common.mixin import RegistryMixin
-from neurox.common.prober import AdcProber
+from neurox.common.prober import Prober
 from neurox.primitive.analog.adc_common import AdcOperationPoint
 from neurox.primitive.analog.base import AnalogBase, AnalogConfig, AnalogPolicy
+
+
+@dataclass(frozen=True)
+class CurrentAdcObservation:
+    """One :meth:`CurrentAdc.convert` call, captured for calibration/diagnostics.
+
+    Attributes:
+        i_in__uA: The call's input magnitude current.
+        code: The call's returned unsigned integer code.
+        adc_mode: Operating-point mode index (plain ``int``, not a tensor).
+        adc_bits: Active bit width (plain ``int``, not a tensor).
+    """
+
+    i_in__uA: Tensor
+    code: Tensor
+    adc_mode: int
+    adc_bits: int
+
+    def detach(self) -> Self:
+        return replace(self, i_in__uA=self.i_in__uA.detach(), code=self.code.detach())
+
+
+class CurrentAdcProber(Prober[CurrentAdcObservation]):
+    """Capture point for the current ADC's conversion observation link.
+
+    :class:`CurrentAdc` emits a :class:`CurrentAdcObservation` — the
+    call's input magnitude current, returned code, and operating point — once
+    per :meth:`CurrentAdc.convert` call when a prober is active.
+    """
+
+    _active_stack: ClassVar[list[Prober[CurrentAdcObservation]]] = []
+
+    @classmethod
+    def _stack(cls) -> list[Prober[CurrentAdcObservation]]:
+        """Return this observation link's active-prober stack."""
+        return cls._active_stack
 
 
 @dataclass(frozen=True)
@@ -110,10 +147,9 @@ class CurrentAdc(
         """Digitise a single-ended magnitude current into an unsigned integer code.
 
         Template method: delegates the conversion to :meth:`_convert_impl`,
-        then emits the call's input, code, and operating point on the
-        ``adc.convert`` probe channel (a no-op without an active
-        :class:`~neurox.common.prober.Prober`) before returning the code
-        unchanged.
+        then, only when a :class:`CurrentAdcProber` is active, builds and
+        emits the call's input, code, and operating point before returning the
+        code unchanged.
 
         Args:
             i_in__uA: Non-negative magnitude current [uA]. Shape: arbitrary.
@@ -125,13 +161,15 @@ class CurrentAdc(
             energy and latency are emitted through the profiler side channel.
         """
         code = self._convert_impl(i_in__uA, adc_operation_point=adc_operation_point)
-        self._probe_record(
-            AdcProber.ADC_CONVERT,
-            i_in__uA=i_in__uA,
-            code=code,
-            adc_mode=torch.tensor(adc_operation_point.adc_mode),
-            adc_bits=torch.tensor(adc_operation_point.adc_bits),
-        )
+        if CurrentAdcProber.active():
+            CurrentAdcProber.submit(
+                CurrentAdcObservation(
+                    i_in__uA=i_in__uA,
+                    code=code,
+                    adc_mode=adc_operation_point.adc_mode,
+                    adc_bits=adc_operation_point.adc_bits,
+                ),
+            )
         return code
 
     def _convert_impl(self, i_in__uA: Tensor, *, adc_operation_point: AdcOperationPoint) -> Tensor:

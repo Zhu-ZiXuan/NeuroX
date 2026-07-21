@@ -96,15 +96,12 @@ class OpAmpTiaDcop:
         v_out__V: Soft-saturated op-amp output voltage.
         dVclamp_dI__MOhm: ``∂v_clamp / ∂i_port``.
         dVout_dI__MOhm: ``∂v_out / ∂i_port``.
-        residual__uA: ``|I_nmos(v_clamp) - i_port|`` at the final
-            iterate.
     """
 
     v_clamp__V: Tensor
     v_out__V: Tensor
     dVclamp_dI__MOhm: Tensor
     dVout_dI__MOhm: Tensor
-    residual__uA: Tensor
 
 
 @dataclass(frozen=True)
@@ -304,15 +301,11 @@ class OpAmpTia(Tia[OpAmpTiaSnap]):
         dVclamp_dI__MOhm = 1.0 / df_dVclamp_final
         dVout_dI__MOhm = dvout_dvclamp * dVclamp_dI__MOhm
 
-        # Final-iterate KCL residual ``|NMOS Ids - i_port|``.
-        residual__uA = (nmos_dc_final.ids__uA - i_port__uA).abs()
-
         return OpAmpTiaDcop(
             v_clamp__V=v_clamp,
             v_out__V=v_out,
             dVclamp_dI__MOhm=dVclamp_dI__MOhm,
             dVout_dI__MOhm=dVout_dI__MOhm,
-            residual__uA=residual__uA,
         )
 
     def solve_clamp(

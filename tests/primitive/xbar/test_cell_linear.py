@@ -13,7 +13,7 @@ import torch
 
 from neurox.primitive.device import MosfetPolicy, RramPolicy
 from neurox.primitive.xbar.cell import (
-    XbarCell,
+    XbarCell1t1r,
     XbarCell1t1rDetailPolicy,
     XbarCell1t1rLinear,
     XbarCell1t1rLinearConfig,
@@ -43,7 +43,7 @@ def _hand_built_config() -> XbarCell1t1rLinearConfig:
 
 
 def _build_cell(inst_shape: tuple[int, ...]) -> XbarCell1t1rLinear:
-    cell = XbarCell.from_config(
+    cell = XbarCell1t1r.from_config(
         config=_hand_built_config(),
         policy=XbarCell1t1rLinearPolicy(),
         inst_shape=inst_shape,
@@ -57,7 +57,7 @@ def _build_cell(inst_shape: tuple[int, ...]) -> XbarCell1t1rLinear:
 
 
 def test_registry_dispatch_yields_linear_leaf() -> None:
-    cell = XbarCell.from_config(
+    cell = XbarCell1t1r.from_config(
         config=_hand_built_config(),
         policy=XbarCell1t1rLinearPolicy(),
         inst_shape=(2, 2),
@@ -107,7 +107,7 @@ def test_wl_threshold_switches_off_at_and_below() -> None:
     assert i_above > i_at_threshold * 1e3
 
 
-def test_solve_dc_vx_multiplication_form_and_zero_residuals() -> None:
+def test_solve_dc_vx_multiplication_form() -> None:
     cell = _build_cell((1, 1))
     cell.program(torch.tensor([[0]], dtype=torch.long))
     v_bl = torch.full((1, 1), 0.3, dtype=torch.float64)
@@ -115,14 +115,12 @@ def test_solve_dc_vx_multiplication_form_and_zero_residuals() -> None:
     v_wl = torch.full((1, 1), 0.9, dtype=torch.float64)
     snap = cell.snapshot(control=v_wl, shape=(1, 1), multi_coords=None, t_elapsed=0.0)
 
-    dcop = cell.solve_dc(v_bl, v_sl, snap, compute_residuals=True)
+    dcop = cell.solve_dc(v_bl, v_sl, snap)
 
     g_cell_on = _G_CELL_ON_TABLE__uS[0]
     vx_ratio_on = _VX_RATIO_ON_TABLE[0]
     assert float(dcop.i__uA) == pytest.approx(g_cell_on * 0.3)
     assert float(dcop.v_x__V) == pytest.approx(0.3 - vx_ratio_on * 0.3)
-    assert dcop.residuals is not None
-    assert torch.all(dcop.residuals.cell__uA == 0.0)
 
 
 def test_table_validation_bounds() -> None:

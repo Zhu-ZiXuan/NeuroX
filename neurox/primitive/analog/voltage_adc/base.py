@@ -7,15 +7,63 @@ See also:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from typing import ClassVar, Self
 
 import torch
 from torch import Tensor
 
 from neurox.common.mixin import RegistryMixin
-from neurox.common.prober import AdcProber
+from neurox.common.prober import Prober
 from neurox.primitive.analog.adc_common import AdcOperationPoint
 from neurox.primitive.analog.base import AnalogBase, AnalogConfig, AnalogPolicy
+
+
+@dataclass(frozen=True)
+class VoltageAdcObservation:
+    """One :meth:`VoltageAdc.convert` call, captured for calibration/diagnostics.
+
+    Attributes:
+        v_pos__V: The call's positive-side input voltage.
+        v_neg__V: The call's negative-side input voltage.
+        v_refs__V: The call's injected reference taps.
+        code: The call's returned signed integer code.
+        adc_mode: Operating-point mode index (plain ``int``, not a tensor).
+        adc_bits: Active bit width (plain ``int``, not a tensor).
+    """
+
+    v_pos__V: Tensor
+    v_neg__V: Tensor
+    v_refs__V: Tensor
+    code: Tensor
+    adc_mode: int
+    adc_bits: int
+
+    def detach(self) -> Self:
+        return replace(
+            self,
+            v_pos__V=self.v_pos__V.detach(),
+            v_neg__V=self.v_neg__V.detach(),
+            v_refs__V=self.v_refs__V.detach(),
+            code=self.code.detach(),
+        )
+
+
+class VoltageAdcProber(Prober[VoltageAdcObservation]):
+    """Capture point for the voltage ADC's conversion observation link.
+
+    :class:`VoltageAdc` emits a :class:`VoltageAdcObservation` — the
+    call's differential input voltages, reference taps, returned code, and
+    operating point — once per :meth:`VoltageAdc.convert` call when a prober
+    is active.
+    """
+
+    _active_stack: ClassVar[list[Prober[VoltageAdcObservation]]] = []
+
+    @classmethod
+    def _stack(cls) -> list[Prober[VoltageAdcObservation]]:
+        """Return this observation link's active-prober stack."""
+        return cls._active_stack
 
 
 @dataclass(frozen=True)
@@ -111,10 +159,9 @@ class VoltageAdc(
         """Digitise a differential analog voltage into a signed integer code.
 
         Template method: delegates the conversion to :meth:`_convert_impl`,
-        then emits the call's inputs, code, and operating point on the
-        ``adc.convert`` probe channel (a no-op without an active
-        :class:`~neurox.common.prober.Prober`) before returning the code
-        unchanged.
+        then, only when a :class:`VoltageAdcProber` is active, builds and
+        emits the call's inputs, code, and operating point before returning
+        the code unchanged.
 
         Args:
             v_pos__V: Positive-side analog input voltage.  Shape:
@@ -141,15 +188,17 @@ class VoltageAdc(
             v_refs__V=v_refs__V,
             adc_operation_point=adc_operation_point,
         )
-        self._probe_record(
-            AdcProber.ADC_CONVERT,
-            v_pos__V=v_pos__V,
-            v_neg__V=v_neg__V,
-            v_refs__V=v_refs__V,
-            code=code,
-            adc_mode=torch.tensor(adc_operation_point.adc_mode),
-            adc_bits=torch.tensor(adc_operation_point.adc_bits),
-        )
+        if VoltageAdcProber.active():
+            VoltageAdcProber.submit(
+                VoltageAdcObservation(
+                    v_pos__V=v_pos__V,
+                    v_neg__V=v_neg__V,
+                    v_refs__V=v_refs__V,
+                    code=code,
+                    adc_mode=adc_operation_point.adc_mode,
+                    adc_bits=adc_operation_point.adc_bits,
+                ),
+            )
         return code
 
     def _convert_impl(

@@ -12,7 +12,7 @@ from typing import Generic, TypeVar
 
 import torch.nn as nn
 
-from neurox.common.mixin import FabricateMixin, ProbeMixin, ProfileMixin, SerializeMixin, ValidateMixin
+from neurox.common.mixin import FabricateMixin, ProfileMixin, SerializeMixin, ValidateMixin
 
 
 class ConfigBase(SerializeMixin, ValidateMixin, ABC):
@@ -34,7 +34,7 @@ ConfigT = TypeVar("ConfigT", bound=ConfigBase)
 PolicyT = TypeVar("PolicyT", bound=PolicyBase)
 
 
-class ModuleBase(FabricateMixin, nn.Module, ProfileMixin, ProbeMixin, Generic[ConfigT, PolicyT], ABC):
+class ModuleBase(FabricateMixin, nn.Module, ProfileMixin, Generic[ConfigT, PolicyT], ABC):
     """Root of every physical module.
 
     A subclass parameterizes the config / policy pair with its own types, so
@@ -47,8 +47,10 @@ class ModuleBase(FabricateMixin, nn.Module, ProfileMixin, ProbeMixin, Generic[Co
     count.
 
     No inherited surface is opt-in: every module joins the pre-order
-    ``fabricate()`` cascade, is a profiling host, and is a probe-emission
-    host (``ProbeMixin``).
+    ``fabricate()`` cascade and is a profiling host. Probe emission is not
+    universal and carries no inherited surface — only the leaves that own an
+    observation link emit, guarding each call on the link's ``Prober``
+    subclass.
 
     Subclass requirements:
         - Implement ``_sample_fabricate_mismatch``, the per-layer sampling step

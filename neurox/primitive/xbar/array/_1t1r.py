@@ -13,7 +13,6 @@ from torch import Tensor
 
 from neurox.primitive.xbar.array.base import XbarArray, XbarArrayConfig, XbarArrayPolicy
 from neurox.primitive.xbar.cell import (
-    XbarCell,
     XbarCell1t1r,
     XbarCell1t1rConfig,
     XbarCell1t1rDcop,
@@ -175,10 +174,10 @@ class XbarArraySteadyState:
 
     Attributes:
         i_bl_port__uA: BL port current at the converged operating point.
-            Shape: ``[..., num_line]``.
+            Shape: ``[..., num_col]``.
         v_bl_clamp__V: BL clamp voltage at the converged operating point,
             a warm-start seed for the xbar's I→V readout solve.
-            Shape: ``[..., num_line]``.
+            Shape: ``[..., num_col]``.
     """
 
     i_bl_port__uA: Tensor
@@ -242,19 +241,18 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
         self.T__K = T__K
         self._w_layout_shape = tuple(w_layout_shape)
 
-        cell = XbarCell.from_config(
+        self.cell = XbarCell1t1r.from_config(
             config=config.cell_config,
             policy=policy.cell,
             inst_shape=self._w_layout_shape,
             dtype=dtype,
             T__K=T__K,
         )
-        assert isinstance(cell, XbarCell1t1r)
-        self.cell = cell
 
         self.w_states = self.cell.w_states
 
-        # Per-line segment buffers; index 0 is the driver-to-first segment.
+        # BL/SL segment profiles follow the row axis; index 0 is the
+        # driver-to-first segment.
         bl_segment_r__MOhm = torch.tensor(
             [config.bl_first_r__MOhm] + [config.bl_segment_r__MOhm] * (row_num - 1),
             dtype=dtype,
@@ -283,9 +281,7 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
         # cell-to-cell segments per row).
         self.c_wl_wire_per_row__fF = config.wl_first_c__fF + (phys_col_num - 1) * config.wl_segment_c__fF
 
-        # This 1T1R grid is [..., col, row] with the wire ladder along the
-        # last (row) axis → canonical series-last (series_axis = -1).
-        self.solver = Solver.from_config(config=config.solver_config, series_axis=-1)
+        self.solver = Solver.from_config(config=config.solver_config)
 
         self.fabricated_col_num = phys_col_num
         self.fabricated_row_num = row_num
@@ -370,7 +366,7 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
         *batch_list, phys_col_num, row_num = full_shape
         leading = tuple(batch_list)
         cell_trailing = (phys_col_num, row_num)
-        line_trailing = (phys_col_num,)
+        col_trailing = (phys_col_num,)
 
         # --- Classify leading positions (for the serial latency count) ---
 
@@ -404,8 +400,8 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
                 multi_coords=mc,
                 t_elapsed=0.0,
             )
-            bl_snap = bl_driver.snapshot(v_ref__V=bl_v_ref__V, shape=(*leading, *line_trailing), multi_coords=mc)
-            sl_snap = sl_driver.snapshot(v_ref__V=sl_v_ref__V, shape=(*leading, *line_trailing), multi_coords=mc)
+            bl_snap = bl_driver.snapshot(v_ref__V=bl_v_ref__V, shape=(*leading, *col_trailing), multi_coords=mc)
+            sl_snap = sl_driver.snapshot(v_ref__V=sl_v_ref__V, shape=(*leading, *col_trailing), multi_coords=mc)
 
             solver_dcop_chunk = self.solver.solve_dc(
                 bl_segment_r__MOhm=self.bl_segment_r__MOhm,
@@ -418,7 +414,6 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
                 bl_driver_snap=bl_snap,
                 sl_driver=sl_driver,
                 sl_driver_snap=sl_snap,
-                compute_residuals=False,
             )
             chunk_energies.append(
                 self._compute_array_energy__fJ(
@@ -433,8 +428,8 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
 
         # --- Reassemble outputs ---
 
-        i_bl_port__uA = reassemble_chunks(i_bl_port_chunks, global_indices, leading, line_trailing)
-        v_bl_clamp__V = reassemble_chunks(v_bl_clamp_chunks, global_indices, leading, line_trailing)
+        i_bl_port__uA = reassemble_chunks(i_bl_port_chunks, global_indices, leading, col_trailing)
+        v_bl_clamp__V = reassemble_chunks(v_bl_clamp_chunks, global_indices, leading, col_trailing)
         array_energy__fJ = reassemble_chunks(chunk_energies, global_indices, leading, ())
 
         # --- Emit one energy + one latency event for this VMM ---

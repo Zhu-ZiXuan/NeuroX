@@ -23,23 +23,23 @@ ALL_PYTHON_DIR := neurox example tests
 RUFF_FORMAT_UNSAFE_FIX_RULES := ANN201,ANN204,B007,C408,D212,D400,D403,E731,I001,PERF102,RUF005,RUF046,RUF059,SIM108,SIM118,TID252,UP007
 .PHONY: format
 format: ## Run `ruff` formatter with auto fix
-	ruff format $(ALL_PYTHON_DIR)
-	ruff check --fix-only $(ALL_PYTHON_DIR)
-	ruff check --fix-only $(ALL_PYTHON_DIR) --unsafe-fixes --select $(RUFF_FORMAT_UNSAFE_FIX_RULES)
+	uv run ruff format $(ALL_PYTHON_DIR)
+	uv run ruff check --fix-only $(ALL_PYTHON_DIR)
+	uv run ruff check --fix-only $(ALL_PYTHON_DIR) --unsafe-fixes --select $(RUFF_FORMAT_UNSAFE_FIX_RULES)
 
 .PHONY: lint
 lint: format ## Run `ruff` linter
-	ruff check $(ALL_PYTHON_DIR) --ignore RUF001,RUF002,RUF003 2>&1 | tee ruff_report.log
+	uv run ruff check $(ALL_PYTHON_DIR) --ignore RUF001,RUF002,RUF003 2>&1 | tee ruff_report.log
 
 .PHONY: check
 check: ## Run `mypy` static analysis
-	mypy $(ALL_PYTHON_DIR) 2>&1 | tee mypy_report.log
+	uv run mypy neurox 2>&1 | tee mypy_report.log
 
 PYTEST_DIRS ?= tests
 
 .PHONY: test
 test: ## Run pytest
-	pytest $(PYTEST_DIRS)
+	uv run pytest $(PYTEST_DIRS)
 
 
 # --- Examples ---

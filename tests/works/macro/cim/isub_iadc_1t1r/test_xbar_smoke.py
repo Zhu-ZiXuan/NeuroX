@@ -1,6 +1,6 @@
 """Eager end-to-end smoke test for the simplified crossbar tile (device-threaded).
 
-Builds the full folded :class:`IsubIadc1t1rCimMacro` (core + the inline
+Builds the full folded :class:`IsubIadc1t1rCimMacro` (array + the inline
 kernel readout chain) from the hand-built tiny witness config
 (``_utils.build_tiny_config``: ``col_num = 2`` -> 4 physical columns,
 ``row_num = 16``, ``active_row_num = 8`` -> P = 2 serial WL sub-phases,
@@ -22,7 +22,7 @@ batch into zero-masked WL planes (engine mask formula), runs
   * the VMM is deterministic under ``all_off``: a second call is bit-exact,
     and an independently rebuilt + refabricated tile reproduces the output,
   * a :class:`NeuroxProfiler` report shows per-module dynamic energy for the
-    forward reporters (``core``, ``bl_clamp``, ``subtractor``, ``bl_adc``)
+    forward reporters (``array``, ``bl_clamp``, ``subtractor``, ``bl_adc``)
     plus the xbar-owned clamp-drop + seam-branch events, zero-valued
     ``sl_driver`` (physical zero — direct ground tie) and ``wl_dac``
     (driver-circuit seed zero; the WL LOAD caps are array-billed) events, a
@@ -65,7 +65,7 @@ _PHYS_COL_NUM = 2 * TINY_COL_NUM
 # branches and the clamp-side array-branch split are logged by the xbar
 # itself (asserted separately). The shared CurrentReference is NOT here —
 # it is a static-only source asserted on the static-leakage side instead.
-_FORWARD_REPORTER_NAMES = ("core", "bl_clamp", "subtractor", "bl_adc")
+_FORWARD_REPORTER_NAMES = ("array", "bl_clamp", "subtractor", "bl_adc")
 _FORWARD_REPORTER_TYPES = ("XbarArray1t1r", "VoltageDriver", "CurrentSubtractor", "SarCurrentAdc")
 _REFERENCE_BLOCK_NAME = "reference"
 _REFERENCE_BLOCK_TYPE = "CurrentReference"
@@ -160,8 +160,8 @@ def test_xbar_end_to_end_smoke(device: torch.device) -> None:
     assert by_name.get("sl_driver", 0.0) == 0.0
 
     # The WL DAC bills only its own driver-circuit energy (seeded zero);
-    # the WL LOAD caps (wire + gates) are array-billed, so the array's
-    # ``core`` energy above carries them and the DAC events are zero.
+    # the WL LOAD caps (wire + gates) are array-billed, so the ``array``
+    # energy above carries them and the DAC events are zero.
     assert by_name.get("wl_dac", 0.0) == 0.0
 
     # The shared CurrentReference is static-only: no dynamic event at all.

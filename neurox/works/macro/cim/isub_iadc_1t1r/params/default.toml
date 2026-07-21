@@ -442,7 +442,7 @@ e_fixed_per_op__fJ = 7.0
 # latencies (sum 9.34 ns = the sensing part of the 11.75 ns binary-mode
 # T_AC); the 5-bit search appends two steps [derived] at the sourced
 # per-step mean (9.34 / 3 = 3.113333 ns). Sensing total 15.566666 ns; with
-# the unchanged 2.41 ns non-sensing budget (core 0.8 + readout 1.61) the
+# the unchanged 2.41 ns non-sensing budget (array 0.8 + readout 1.61) the
 # per-conversion cycle is 17.976666 ns.
 step_latency__ns = [3.16, 3.07, 3.11, 3.113333, 3.113333]
 
