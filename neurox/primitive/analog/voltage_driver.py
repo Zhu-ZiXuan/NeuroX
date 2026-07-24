@@ -40,18 +40,14 @@ class VoltageDriverConfig(AnalogConfig):
     leakage_per_inst__uW: float
 
     def validate(self) -> None:
-        self.validate_source()
-        self.validate_noise()
-        self.validate_ppa()
+        # --- Source and noise ---
 
-    def validate_source(self) -> None:
         self._require_non_neg(self.r_out__MOhm, "r_out__MOhm")
-
-    def validate_noise(self) -> None:
         self._require_non_neg(self.offset_sigma__V, "offset_sigma__V")
         self._require_non_neg(self.thermal_sigma__V, "thermal_sigma__V")
 
-    def validate_ppa(self) -> None:
+        # --- PPA ---
+
         self._require_non_neg(self.energy_per_op__fJ, "energy_per_op__fJ")
         self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
@@ -101,11 +97,11 @@ class VoltageDriver(AnalogBase[VoltageDriverConfig, VoltageDriverPolicy]):
 
     # --- Immutable model buffers ---
 
-    frozen_r_out__MOhm: Tensor
+    _frozen_r_out__MOhm: Tensor
 
     # --- Fabrication source buffers ---
 
-    nominal_offset__V: Tensor
+    _nominal_offset__V: Tensor
 
     def __init__(
         self,
@@ -122,7 +118,7 @@ class VoltageDriver(AnalogBase[VoltageDriverConfig, VoltageDriverPolicy]):
         self._leakage_per_inst__uW = config.leakage_per_inst__uW
 
         self.register_buffer(
-            "frozen_r_out__MOhm",
+            "_frozen_r_out__MOhm",
             torch.tensor(config.r_out__MOhm, dtype=dtype),
             persistent=False,
         )
@@ -131,14 +127,14 @@ class VoltageDriver(AnalogBase[VoltageDriverConfig, VoltageDriverPolicy]):
     def _register_fabrication_buffers(self, *, dtype: torch.dtype) -> None:
         """Register immutable tensors used as fabrication sources."""
         self.register_buffer(
-            "nominal_offset__V",
+            "_nominal_offset__V",
             torch.zeros((), dtype=dtype),
             persistent=False,
         )
 
     def _sample_fabricate_mismatch(self) -> None:
-        self.offset__V = apply_gaussian(
-            self.nominal_offset__V.clone().expand(self.inst_shape),
+        self._offset__V = apply_gaussian(
+            self._nominal_offset__V.clone().expand(self.inst_shape),
             self.config.offset_sigma__V,
             enabled=self.policy.offset,
         )
@@ -168,11 +164,11 @@ class VoltageDriver(AnalogBase[VoltageDriverConfig, VoltageDriverPolicy]):
         v_view = v_ref__V.expand(shape) if shape else v_ref__V
         v = (v_view if multi_coords is None else v_view[multi_coords]).clone()
         if self.policy.offset:
-            offset_view = self.offset__V.expand(shape) if shape else self.offset__V
+            offset_view = self._offset__V.expand(shape) if shape else self._offset__V
             v = v + (offset_view if multi_coords is None else offset_view[multi_coords])
         v = apply_gaussian(v, self.config.thermal_sigma__V, enabled=self.policy.thermal)
-        self._log_dynamic_energy(torch.full_like(v, self.config.energy_per_op__fJ, dtype=torch.float32))
-        return VoltageDriverSnap(v_ref__V=v, r_out__MOhm=self.frozen_r_out__MOhm)
+        self._record_dynamic_energy(torch.full_like(v, self.config.energy_per_op__fJ, dtype=torch.float32))
+        return VoltageDriverSnap(v_ref__V=v, r_out__MOhm=self._frozen_r_out__MOhm)
 
     def solve_clamp(
         self,

@@ -54,7 +54,7 @@ Provenance terms are defined in [module_parameter](../../../conventions/module_p
 |---|---|---|---|
 | $a$ | minuend (runtime input) | — | `a` |
 | $b$ | subtrahend, broadcastable to $a$ (runtime input) | — | `b` |
-| $y$ | element-wise difference | — | return of `operate` |
+| $y$ | element-wise difference | — | return of `subtract` |
 | $E_{\mathrm{op}}$ | dynamic energy per output element | fJ | `energy_per_op__fJ` |
 | $t_{\mathrm{op}}$ | latency per output element | ns | `latency_per_op__ns` |
 | $n_{\mathrm{serial}}$ | serial-op count of a call | — | `serial_op_count` |

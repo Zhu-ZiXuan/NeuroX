@@ -24,7 +24,7 @@ from neurox.architecture.unit.cim.engine import (
 from neurox.primitive.digital import AccumulatorConfig, ShiftAdderConfig
 from neurox.primitive.macro.cim import IdealCimMacroConfig, IdealCimMacroPolicy
 
-# All engines are built on IdealCimMacroConfig, so the embedded xbar policy is
+# All engines are built on IdealCimMacroConfig, so the embedded macro policy is
 # the empty marker. ``adc_bits == 0`` is the lossless sentinel: no ADC
 # quantization, so engine outputs equal ``torch.matmul`` exactly.
 _IDEAL_MACRO_POLICY = IdealCimMacroPolicy()
@@ -32,7 +32,7 @@ _ADC_MODE = 0
 _ADC_BITS = 0
 
 
-def _ideal_xbar_config(
+def _ideal_macro_config(
     *,
     col_num: int = 8,
     row_num: int = 8,
@@ -44,10 +44,10 @@ def _ideal_xbar_config(
         active_row_num=active_row_num,
         leakage_per_inst__uW=0.0,
         area_per_inst__um2=0.0,
-        x_range=(0, 1),
+        x_value_range=(0, 1),
         w_digit_count=1,
         w_digit_radix=4,
-        w_digit_range=(-3, 3),
+        w_digit_value_range=(-3, 3),
         adc_mode_num=1,
         adc_max_bits=0,
     )
@@ -76,7 +76,7 @@ def _engine_kwargs(w_logical_shape: tuple[int, ...], policy: CimEnginePolicy) ->
         "w_logical_shape": w_logical_shape,
         "dtype": torch.float32,
         "T__K": 300.0,
-        "ideal_xbar": False,
+        "ideal_macro": False,
     }
 
 
@@ -87,7 +87,7 @@ def _build_direct(
     active_row_num: int = 2,
 ) -> DirectCimEngine:
     config = DirectCimEngineConfig(
-        cim_macro_config=_ideal_xbar_config(row_num=row_num, active_row_num=active_row_num),
+        cim_macro_config=_ideal_macro_config(row_num=row_num, active_row_num=active_row_num),
         w_encoding="true_form",
         col_accumulator_config=_accumulator_config(),
         phase_accumulator_config=_accumulator_config(),
@@ -105,7 +105,7 @@ def _build_direct(
 
 def _slice_config_kwargs(*, row_num: int, active_row_num: int) -> dict[str, Any]:
     return {
-        "cim_macro_config": _ideal_xbar_config(row_num=row_num, active_row_num=active_row_num),
+        "cim_macro_config": _ideal_macro_config(row_num=row_num, active_row_num=active_row_num),
         "w_slice_num": 2,
         "x_slice_num": 2,
         "w_encoding": "true_form",

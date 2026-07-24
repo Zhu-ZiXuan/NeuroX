@@ -41,7 +41,7 @@ Provenance terms are defined in [module_parameter](../../../conventions/module_p
 | Symbol | Meaning | Unit | Code field |
 |---|---|---|---|
 | $I_{\mathrm{ref},m,k}^{\mathrm{nom}}$ | nominal reference-current tap rows, `[mode][tap]` | uA | `i_refs__uA` |
-| $I_{\mathrm{ref},m,k}$ | actual sourced taps (post tolerance + noise), full per-instance bank `[*inst, mode, tap]` | uA | `i_ref__uA` |
+| $I_{\mathrm{ref},m,k}$ | actual sourced taps (post tolerance + noise), full per-instance bank `[*inst, mode, tap]` | uA | `CurrentReferenceSnap.i_refs__uA` |
 | $\sigma_{\mathrm{tol}}$ | relative initial-accuracy sigma | — | `tolerance_sigma_relative` |
 | $\sigma_{\mathrm{noise}}$ | relative per-read noise sigma | — | `noise_sigma_relative` |
 

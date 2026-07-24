@@ -57,7 +57,7 @@ Provenance terms are defined in [module_parameter](../../../conventions/module_p
 | Symbol | Meaning | Unit | Code field |
 |---|---|---|---|
 | $x$ | integer input tensor (runtime input) | — | `x` |
-| $y$ | modular-wrapped reduced output | — | return of `operate` |
+| $y$ | modular-wrapped reduced output | — | return of `accumulate` |
 | $w$ | signed output register width | — | `bit_width` |
 | $E_{\mathrm{op}}$ | dynamic energy per output element | fJ | `energy_per_op__fJ` |
 | $t_{\mathrm{op}}$ | latency per output element | ns | `latency_per_op__ns` |

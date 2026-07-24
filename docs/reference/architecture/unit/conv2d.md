@@ -58,7 +58,7 @@ The mapping adds no non-ideality of its own: gather, placement, fold, trim, and 
 | $W_{\mathrm{strip}}$ | input columns per strip | — | derived at construction |
 | $K', N'$ | lowered contraction / output dims | — | engine logical shape |
 | $T_{\mathrm{seg}}$ | strip segments per output row | — | — |
-| $N_{\mathrm{row}}, N_{\mathrm{col}}$ | tile row / column count | — | `xbar.row_num`, `xbar.col_num` |
+| $N_{\mathrm{row}}, N_{\mathrm{col}}$ | tile row / column count | — | `cim_macro.row_num`, `cim_macro.col_num` |
 | $b$ | integer bias vector (length $C_{\mathrm{out}}$) | — | `int_bias` |
 
 The value-domain and ADC-surface symbols are in [family](family.md#symbols).

@@ -32,8 +32,8 @@ An engine adds no non-ideality of its own: the slicing and aggregation arithmeti
 |---|---|---|---|
 | $S_w, S_a$ | weight-, activation-slice counts | — | `w_slice_num`, `x_slice_num` |
 | $T_r, T_c$ | output-, contraction-axis tile counts | — | structure count |
-| $N_{\mathrm{row}}, N_{\mathrm{col}}$ | tile row / column count | — | `xbar.row_num`, `xbar.col_num` |
-| $A$ | rows simultaneously active per conversion | — | `xbar.max_active_rows` |
+| $N_{\mathrm{row}}, N_{\mathrm{col}}$ | tile row / column count | — | `cim_macro.row_num`, `cim_macro.col_num` |
+| $A$ | rows simultaneously active per conversion | — | `cim_macro.max_active_rows` |
 | $P$ | sub-phases per tile read, $P = N_{\mathrm{row}} / A$ | — | `_sub_phase_num` |
 
 The logical dims, value-domain symbols, and the ADC surface are in [unit/family](../../family.md#symbols).

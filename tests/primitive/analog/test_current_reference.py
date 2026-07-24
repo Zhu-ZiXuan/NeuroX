@@ -12,8 +12,7 @@ all-off:
 - ``mode_num`` / ``tap_num`` report the bank geometry;
 - ``snapshot`` is deterministic and matches the nominal taps, broadcast
   to ``(*inst_shape, mode_num, tap_num)``;
-- the ``i_ref__uA`` accessor returns every tap from a snap (the
-  encapsulated read path consumers use instead of the buffer);
+- the snapshot returns every tap without exposing stored state;
 - static PPA equals ``per_inst * inst_count`` and is visible to the
   profiler's static walk, while ``fabricate`` + ``snapshot`` emit zero
   energy / latency events;
@@ -124,20 +123,6 @@ def test_inst_shape_broadcasts_taps() -> None:
     nominal = torch.tensor(_TAPS, dtype=torch.float64)
     assert out.shape == (1, 2, *_BANK_SHAPE)
     torch.testing.assert_close(out, nominal.expand(1, 2, *_BANK_SHAPE))
-
-
-def test_accessor_reads_taps_from_snap() -> None:
-    """The ``i_ref__uA`` accessor returns every tap from a snap."""
-    ref = _make(inst_shape=(1, 2))
-    ref.fabricate()
-    snap = ref.snapshot()
-    out = ref.i_ref__uA(snap)
-
-    # Encapsulated read: returns the snap's own tensor, full tap set.
-    assert out.shape == (1, 2, *_BANK_SHAPE)
-    assert torch.equal(out, snap.i_refs__uA)
-    # Pure: re-reading the same snap returns the same tensor.
-    assert torch.equal(ref.i_ref__uA(snap), out)
 
 
 def test_static_ppa_and_no_dynamic_events() -> None:

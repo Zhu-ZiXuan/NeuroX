@@ -70,7 +70,7 @@ class XbarCell1t1rDetailConfig(XbarCell1t1rConfig):
         access_nmos_W__um: Access-NMOS width.
         access_nmos_L__um: Access-NMOS length.
         rram_g_max__uS: Maximum programmable RRAM conductance.
-        n_newton: Number of unrolled per-cell Newton steps on ``V_X``
+        newton_iter_num: Number of unrolled per-cell Newton steps on ``V_X``
             after the Pade current-divider seed.
     """
 
@@ -84,26 +84,22 @@ class XbarCell1t1rDetailConfig(XbarCell1t1rConfig):
 
     rram_g_max__uS: float
 
-    n_newton: int
+    newton_iter_num: int
 
     def validate(self) -> None:
         super().validate()
-        self.validate_access_nmos()
-        self.validate_rram_window()
-        self.validate_state_map()
-        self.validate_solver()
 
-    def validate_access_nmos(self) -> None:
+        # --- Access transistor and RRAM window ---
+
         self._require_pos(self.access_nmos_W__um, "access_nmos_W__um")
         self._require_pos(self.access_nmos_L__um, "access_nmos_L__um")
-
-    def validate_rram_window(self) -> None:
         if not (self.rram_g_max__uS > self.rram_config.g_min__uS):
             raise ValueError(
                 f"require: rram_g_max__uS ({self.rram_g_max__uS}) > rram_config.g_min__uS ({self.rram_config.g_min__uS})"
             )
 
-    def validate_state_map(self) -> None:
+        # --- State map ---
+
         self._require_min_length(self.state_to_g_map__uS, 2, "state_to_g_map__uS")
         self._require_increasing(self.state_to_g_map__uS, "state_to_g_map__uS")
         if self.state_to_g_map__uS[0] < self.rram_config.g_min__uS:
@@ -117,8 +113,9 @@ class XbarCell1t1rDetailConfig(XbarCell1t1rConfig):
                 f"rram_g_max__uS ({self.rram_g_max__uS})"
             )
 
-    def validate_solver(self) -> None:
-        self._require_pos(self.n_newton, "n_newton")
+        # --- Solver ---
+
+        self._require_pos(self.newton_iter_num, "newton_iter_num")
 
 
 class XbarCell1t1rDetailPolicy(XbarCell1t1rPolicy):
@@ -160,7 +157,7 @@ class XbarCell1t1rDetail(XbarCell1t1r[XbarCell1t1rDetailConfig, XbarCell1t1rDeta
 
     # --- Immutable model buffers ---
 
-    state_to_g_map__uS: Tensor
+    _state_to_g_map__uS: Tensor
 
     def __init__(
         self,
@@ -174,12 +171,12 @@ class XbarCell1t1rDetail(XbarCell1t1r[XbarCell1t1rDetailConfig, XbarCell1t1rDeta
         super().__init__(config=config, policy=policy, inst_shape=inst_shape, dtype=dtype, T__K=T__K)
 
         self.register_buffer(
-            "state_to_g_map__uS",
+            "_state_to_g_map__uS",
             torch.tensor(config.state_to_g_map__uS, dtype=dtype),
             persistent=False,
         )
-        self.w_states = len(config.state_to_g_map__uS)
-        self.n_newton = config.n_newton
+        self.w_state_num = len(config.state_to_g_map__uS)
+        self._newton_iter_num = config.newton_iter_num
 
         self._init_children(dtype=dtype, T__K=T__K)
 
@@ -238,10 +235,10 @@ class XbarCell1t1rDetail(XbarCell1t1r[XbarCell1t1rDetailConfig, XbarCell1t1rDeta
         """Program the RRAM cells from one state-index tensor.
 
         Args:
-            w_state_idx: State-index tensor in ``[0, w_states - 1]`` at
+            w_state_idx: State-index tensor in ``[0, w_state_num - 1]`` at
                 ``self.inst_shape``.
         """
-        target_g__uS = self.state_to_g_map__uS[w_state_idx.long()]
+        target_g__uS = self._state_to_g_map__uS[w_state_idx.long()]
         self.rram.program(target_g__uS, t_elapsed=0.0)
 
     def _solve_vx(
@@ -277,7 +274,7 @@ class XbarCell1t1rDetail(XbarCell1t1r[XbarCell1t1rDetailConfig, XbarCell1t1rDeta
 
         # --- 2: solve F_X = I_NMOS - I_RRAM with Newton iterations ---
 
-        for _ in range(self.n_newton):
+        for _ in range(self._newton_iter_num):
             dc_nmos = self.nmos.solve_dc(v_wl, v_x, v_sl, nmos_snap)
             dc_rram = self.rram.solve_dc(v_bl - v_x, rram_snap)
             f_cell = dc_nmos.ids__uA - dc_rram.i__uA

@@ -121,11 +121,11 @@ class NestedParallelRailSolver(Solver):
         config: Fixed nested-solver iteration counts.
     """
 
-    MAX_OUTER_STEP__V: float = 0.10
-    MAX_INNER_STEP__V: float = 0.05
+    _MAX_OUTER_STEP__V: float = 0.10
+    _MAX_INNER_STEP__V: float = 0.05
 
     def __init__(self, *, config: NestedParallelRailSolverConfig) -> None:
-        self.config = config
+        self._config = config
 
     def solve_dc(
         self,
@@ -259,11 +259,11 @@ class NestedParallelRailSolver(Solver):
 
         # --- 6: solve coupled clamps and wire nodes ---
 
-        max_inner_step__V = self.MAX_INNER_STEP__V
-        max_outer_step__V = self.MAX_OUTER_STEP__V
-        n_inner = self.config.n_inner
+        max_inner_step__V = self._MAX_INNER_STEP__V
+        max_outer_step__V = self._MAX_OUTER_STEP__V
+        n_inner = self._config.n_inner
 
-        for _ in range(self.config.n_outer):
+        for _ in range(self._config.n_outer):
             # Coupled 2×2 Newton step on ``(V_BL_clamp, V_SL_drive)``.
             # K = ∂V_node[0]/∂V_clamp captures cross-rail cell coupling.
             g_cell_bl_eff = di_dvbl
@@ -390,7 +390,7 @@ class NestedParallelRailSolver(Solver):
         sl_driver_snap: SLSnapT,
     ) -> SolverObservation[CellDCOPT]:
         """Compute wire and clamp residuals at a converged point."""
-        wire_bl_res, wire_sl_res = self._wire_residuals(dcop, bl_segment_g__uS, sl_segment_g__uS)
+        wire_bl_res, wire_sl_res = self._compute_wire_residuals(dcop, bl_segment_g__uS, sl_segment_g__uS)
 
         # Clamp residual: |driver(I_port) - V_clamp| at the converged
         # operating point. Zero at the outer Newton fixed point.
@@ -417,7 +417,7 @@ class NestedParallelRailSolver(Solver):
         )
 
     @staticmethod
-    def _wire_residuals(
+    def _compute_wire_residuals(
         dcop: SolverDcop[CellDCOPT],
         bl_segment_g__uS: Tensor,
         sl_segment_g__uS: Tensor,
@@ -473,7 +473,7 @@ class NestedParallelRailSolver(Solver):
             cell_snap=cell_snap,
         )
         if SolverProber.active():
-            wire_bl_res, wire_sl_res = self._wire_residuals(dcop, bl_segment_g__uS, sl_segment_g__uS)
+            wire_bl_res, wire_sl_res = self._compute_wire_residuals(dcop, bl_segment_g__uS, sl_segment_g__uS)
             clamp_zero = torch.zeros_like(dcop.v_bl_clamp)
             SolverProber.submit(
                 SolverObservation(
@@ -522,8 +522,8 @@ class NestedParallelRailSolver(Solver):
             num_row,
         )
 
-        max_inner_step__V = self.MAX_INNER_STEP__V
-        for _ in range(self.config.n_inner):
+        max_inner_step__V = self._MAX_INNER_STEP__V
+        for _ in range(self._config.n_inner):
             i_cell, di_dvbl, di_dvsl = cell.solve_branch(v_bl_node, v_sl_node, cell_snap)
             g_cell_bl_eff = di_dvbl
             g_cell_sl_eff = -di_dvsl

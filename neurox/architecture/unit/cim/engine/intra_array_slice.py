@@ -21,7 +21,7 @@ from neurox.primitive.digital import (
     ShiftAdderConfig,
 )
 
-from .base import CimEngine, CimEngineConfig, CimEnginePolicy
+from .base import CimEngine, CimEngineConfig, CimEnginePolicy, _chunk_pad_along
 
 
 class IntraArraySliceCimEngineConfig(CimEngineConfig):
@@ -52,11 +52,11 @@ class IntraArraySliceCimEnginePolicy(CimEnginePolicy):
 
 @CimEngine.register_key(IntraArraySliceCimEngineConfig)
 class IntraArraySliceCimEngine(CimEngine[IntraArraySliceCimEngineConfig, IntraArraySliceCimEnginePolicy]):
-    """CIM engine that gathers all slices of one logical weight in one xbar.
+    """CIM engine that gathers all slices of one logical weight in one macro.
 
-    A logical weight's ``Sw`` slices sit in adjacent cols of the same xbar.
-    Per-xbar effective capacity is ``(col_num // Sw) * Sw`` cells; the
-    remaining ``col_num - (col_num // Sw) * Sw`` cells per xbar are idle.
+    A logical weight's ``Sw`` slices sit in adjacent columns of the same macro.
+    Per-macro effective capacity is ``(col_num // Sw) * Sw`` cells; the
+    remaining ``col_num - (col_num // Sw) * Sw`` cells per macro are idle.
     """
 
     def __init__(
@@ -67,7 +67,7 @@ class IntraArraySliceCimEngine(CimEngine[IntraArraySliceCimEngineConfig, IntraAr
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
-        ideal_xbar: bool,
+        ideal_macro: bool,
     ) -> None:
         super().__init__(
             config=config,
@@ -75,20 +75,20 @@ class IntraArraySliceCimEngine(CimEngine[IntraArraySliceCimEngineConfig, IntraAr
             w_logical_shape=w_logical_shape,
             dtype=dtype,
             T__K=T__K,
-            ideal_xbar=ideal_xbar,
+            ideal_macro=ideal_macro,
         )
-        xbar_config = config.cim_macro_config
-        col_num = xbar_config.col_num
-        row_num = xbar_config.row_num
+        cim_macro_config = config.cim_macro_config
+        col_num = cim_macro_config.col_num
+        row_num = cim_macro_config.row_num
         if config.w_slice_num > col_num:
-            raise ValueError(f"require: w_slice_num ({config.w_slice_num}) <= xbar.col_num ({col_num})")
-        self._weights_per_xbar = col_num // config.w_slice_num
-        self._used_data_num = self._weights_per_xbar * config.w_slice_num
-        self._idle_per_xbar = col_num - self._used_data_num
+            raise ValueError(f"require: w_slice_num ({config.w_slice_num}) <= cim_macro.col_num ({col_num})")
+        self._weights_per_macro = col_num // config.w_slice_num
+        self._used_data_num = self._weights_per_macro * config.w_slice_num
+        self._idle_per_macro = col_num - self._used_data_num
 
         *w_batch, n_logical, k_logical = w_logical_shape
-        wpx = self._weights_per_xbar
-        tr = (n_logical + wpx - 1) // wpx
+        weights_per_macro = self._weights_per_macro
+        tr = (n_logical + weights_per_macro - 1) // weights_per_macro
         tc = (k_logical + row_num - 1) // row_num
 
         self._init_engine_backend(
@@ -103,20 +103,20 @@ class IntraArraySliceCimEngine(CimEngine[IntraArraySliceCimEngineConfig, IntraAr
     def _init_data_path_children(self, *, tc: int, tr: int) -> None:
         """Construct the slicers and digital reducers."""
         config = self.config
-        xbar = self.xbar
-        x_lo, x_hi = xbar.x_range
-        self.w_slicer = SimpleSlicer(
+        cim_macro = self.cim_macro
+        x_lo, x_hi = cim_macro.x_value_range
+        self._w_slicer = SimpleSlicer(
             slice_num=config.w_slice_num,
-            digit_count=xbar.w_digit_count,
-            digit_radix=xbar.w_digit_radix,
+            digit_count=cim_macro.w_digit_count,
+            digit_radix=cim_macro.w_digit_radix,
             encoding=config.w_encoding,
         )
-        self.x_slicer = SerialSlicer(
+        self._x_slicer = SerialSlicer(
             slice_num=config.x_slice_num,
             digit_radix=x_hi - x_lo + 1,
         )
-        self._w_value_range = self.w_slicer.value_range
-        self._x_value_range = self.x_slicer.value_range
+        self._w_value_range = self._w_slicer.value_range
+        self._x_value_range = self._x_slicer.value_range
 
         helper_shape = (self._w_parallel_size, tr)
         self.phase_accumulator = SerialAccumulator(
@@ -141,7 +141,7 @@ class IntraArraySliceCimEngine(CimEngine[IntraArraySliceCimEngineConfig, IntraAr
         )
 
     def _organize_w(self, weight: Tensor) -> Tensor:
-        """Map a logical weight tensor into xbar-native layout.
+        """Map a logical weight tensor into macro-native layout.
 
         Args:
             weight: Integer weight tensor of shape ``[..., N, K]``.
@@ -149,40 +149,40 @@ class IntraArraySliceCimEngine(CimEngine[IntraArraySliceCimEngineConfig, IntraAr
         Returns:
             Tensor of shape
             ``[..., M=1, Sa=1, Tc, Tr, data_num, D, row_num]``.
-            The trailing ``col_num - (col_num // Sw) * Sw`` cells per xbar are zero-padded.
+            The trailing ``col_num - (col_num // Sw) * Sw`` cells per macro are zero-padded.
         """
-        row_num = self.xbar.row_num
-        wpx = self._weights_per_xbar
-        idle = self._idle_per_xbar
+        row_num = self.cim_macro.row_num
+        weights_per_macro = self._weights_per_macro
+        idle = self._idle_per_macro
 
         n_logical = weight.shape[-2]
-        # Keep every logical weight within one xbar.
-        n_padded = ((n_logical + wpx - 1) // wpx) * wpx
-        tr = n_padded // wpx
+        # Keep every logical weight within one macro.
+        n_padded = ((n_logical + weights_per_macro - 1) // weights_per_macro) * weights_per_macro
+        tr = n_padded // weights_per_macro
 
         # Shape: [..., N, K] -> [..., N, K, Sw, D]
-        sliced = self.w_slicer.slice(weight)
+        sliced = self._w_slicer.slice(weight)
 
         # Shape: [..., N, K, Sw, D] -> [..., n_padded, K, Sw, D]
         n_pad = n_padded - n_logical
         if n_pad > 0:
             sliced = F.pad(sliced, (0, 0, 0, 0, 0, 0, 0, n_pad))
 
-        # Shape: [..., n_padded, K, Sw, D] -> [..., Tr, wpx, K, Sw, D]
-        unflat = sliced.unflatten(-4, (tr, wpx))
+        # Shape: [..., n_padded, K, Sw, D] -> [..., Tr, weights_per_macro, K, Sw, D]
+        unflat = sliced.unflatten(-4, (tr, weights_per_macro))
 
-        # Shape: [..., Tr, wpx, K, Sw, D] -> [..., Tr, wpx, Tc, row_num, Sw, D]
-        tiled = self.chunk_pad_along(unflat, axis=-3, chunk_size=row_num, pad_value=0)
+        # Shape: [..., Tr, weights_per_macro, K, Sw, D] -> [..., Tr, weights_per_macro, Tc, row_num, Sw, D]
+        tiled = _chunk_pad_along(unflat, axis=-3, chunk_size=row_num, pad_value=0)
 
-        # Shape: [..., Tr, wpx, Tc, row_num, Sw, D] -> [..., Tc, Tr, wpx, Sw, D, row_num]
+        # Shape: [..., Tr, weights_per_macro, Tc, row_num, Sw, D] -> [..., Tc, Tr, weights_per_macro, Sw, D, row_num]
         b = tiled.ndim - 6
         perm = [*range(b), b + 2, b + 0, b + 1, b + 4, b + 5, b + 3]
         arranged = tiled.permute(perm)
 
-        # Shape: [..., Tc, Tr, wpx, Sw, D, row_num] -> [..., Tc, Tr, wpx*Sw, D, row_num]
+        # Shape: [..., Tc, Tr, weights_per_macro, Sw, D, row_num] -> [..., Tc, Tr, weights_per_macro*Sw, D, row_num]
         merged = arranged.flatten(start_dim=b + 2, end_dim=b + 3)
 
-        # Shape: [..., Tc, Tr, wpx*Sw, D, row_num] -> [..., Tc, Tr, data_num, D, row_num]
+        # Shape: [..., Tc, Tr, weights_per_macro*Sw, D, row_num] -> [..., Tc, Tr, data_num, D, row_num]
         if idle > 0:
             merged = F.pad(merged, (0, 0, 0, 0, 0, idle))
 
@@ -190,7 +190,7 @@ class IntraArraySliceCimEngine(CimEngine[IntraArraySliceCimEngineConfig, IntraAr
         return merged.unsqueeze(b).unsqueeze(b)
 
     def _organize_x(self, x: Tensor) -> Tensor:
-        """Map a logical activation tensor into xbar-native layout.
+        """Map a logical activation tensor into macro-native layout.
 
         Args:
             x: Integer activation tensor of shape ``[..., M, K]``.
@@ -199,10 +199,10 @@ class IntraArraySliceCimEngine(CimEngine[IntraArraySliceCimEngineConfig, IntraAr
             Tensor of shape ``[..., M, Sa, Tc, Tr=1, row_num]``.
         """
         # Shape: [..., M, K] -> [..., M, K, Sa, digit_count=1]
-        sliced = self.x_slicer.slice(x)
+        sliced = self._x_slicer.slice(x)
 
         # Shape: [..., M, K, Sa, digit_count=1] -> [..., M, Tc, row_num, Sa, digit_count=1]
-        tiled = self.chunk_pad_along(sliced, axis=-3, chunk_size=self.xbar.row_num, pad_value=0)
+        tiled = _chunk_pad_along(sliced, axis=-3, chunk_size=self.cim_macro.row_num, pad_value=0)
 
         # Shape: [..., M, Tc, row_num, Sa, digit_count=1] -> [..., M, Tc, row_num, Sa]
         squeezed = tiled.squeeze(-1)
@@ -215,32 +215,32 @@ class IntraArraySliceCimEngine(CimEngine[IntraArraySliceCimEngineConfig, IntraAr
     @torch.no_grad()
     def matmul(self, input: Tensor, *, adc_mode: int, adc_bits: int) -> Tensor:
         n_logical = self._n_logical
-        wpx = self._weights_per_xbar
+        weights_per_macro = self._weights_per_macro
         used = self._used_data_num
         sw = self.config.w_slice_num
 
         # Shape: [..., M, K] -> [..., M, Sa, Tc, Tr=1, row_num]
         x = self._organize_x(input)
 
-        x_slice_radix = self.x_slicer.slice_radix
-        w_slice_radix = self.w_slicer.slice_radix
+        x_slice_radix = self._x_slicer.slice_radix
+        w_slice_radix = self._w_slicer.slice_radix
 
         # Shape: [..., M, Sa, Tc, Tr, row_num] -> [..., P, M, Sa, Tc, Tr, row_num]
         planes = self._unroll_sub_phase(x)
         # Weight-batch axes are materialized by broadcast against the instance grid.
         # Shape: [..., P, M, Sa, Tc, Tr, row_num] -> [..., P, *w_batch, M, Sa, Tc, Tr, data_num]
-        y = self.xbar.vec_mat_mul(planes, adc_mode=adc_mode, adc_bits=adc_bits).to(torch.int64)
+        y = self.cim_macro.vec_mat_mul(planes, adc_mode=adc_mode, adc_bits=adc_bits).to(torch.int64)
         # Shape: [..., P, *w_batch, M, Sa, Tc, Tr, data_num] -> [..., *w_batch, M, Sa, Tc, Tr, data_num]
-        y = self.phase_accumulator.operate(y, dim=self._sub_phase_dim)
-        # Shape: [..., M, Sa, Tc, Tr, data_num=col_num] -> [..., M, Sa, Tc, Tr, wpx*Sw]
+        y = self.phase_accumulator.accumulate(y, dim=self._sub_phase_dim)
+        # Shape: [..., M, Sa, Tc, Tr, data_num=col_num] -> [..., M, Sa, Tc, Tr, weights_per_macro*Sw]
         y = y[..., :used]
-        # Shape: [..., M, Sa, Tc, Tr, wpx*Sw] -> [..., M, Sa, Tc, Tr, wpx, Sw_real]
-        y = y.unflatten(-1, (wpx, sw))
-        # Shape: [..., M, Sa, Tc, Tr, wpx, Sw_real] -> [..., M, Sa, Tc, Tr, wpx]
-        y = self.sw_shift_adder.operate(y, w_slice_radix, dim=-1, init_val=None)
-        # Shape: [..., M, Sa, Tc, Tr, wpx] -> [..., M, Tc, Tr, wpx]
-        y = self.sa_shift_adder.operate(y, x_slice_radix, dim=-4, init_val=None)
-        # Shape: [..., M, Tc, Tr, wpx] -> [..., M, Tr, wpx]
-        y = self.col_accumulator.operate(y, dim=-3)
-        # Shape: [..., M, Tr, wpx] -> [..., M, N]
+        # Shape: [..., M, Sa, Tc, Tr, weights_per_macro*Sw] -> [..., M, Sa, Tc, Tr, weights_per_macro, Sw_real]
+        y = y.unflatten(-1, (weights_per_macro, sw))
+        # Shape: [..., M, Sa, Tc, Tr, weights_per_macro, Sw_real] -> [..., M, Sa, Tc, Tr, weights_per_macro]
+        y = self.sw_shift_adder.shift_add(y, w_slice_radix, dim=-1, init_val=None)
+        # Shape: [..., M, Sa, Tc, Tr, weights_per_macro] -> [..., M, Tc, Tr, weights_per_macro]
+        y = self.sa_shift_adder.shift_add(y, x_slice_radix, dim=-4, init_val=None)
+        # Shape: [..., M, Tc, Tr, weights_per_macro] -> [..., M, Tr, weights_per_macro]
+        y = self.col_accumulator.accumulate(y, dim=-3)
+        # Shape: [..., M, Tr, weights_per_macro] -> [..., M, N]
         return y.flatten(start_dim=-2)[..., :n_logical]

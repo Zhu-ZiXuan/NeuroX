@@ -170,8 +170,8 @@ def _whole_input_branch(macro: Xue2020JsscCimMacro, x: Tensor) -> float:
     cfg = macro.config
     device = x.device
     v_dd = cfg.v_dd__V
-    bl_v_ref = torch.tensor(cfg.v_bl_clamp__V, dtype=macro.dtype, device=device)
-    sl_v_ref = torch.tensor(0.0, dtype=macro.dtype, device=device)
+    bl_v_ref = torch.tensor(cfg.v_bl_clamp__V, dtype=torch.float64, device=device)
+    sl_v_ref = torch.tensor(0.0, dtype=torch.float64, device=device)
     x_long = x.long()
     window = cfg.window_array__ns
 

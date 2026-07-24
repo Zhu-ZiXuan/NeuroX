@@ -53,8 +53,8 @@ Provenance terms are defined in [module_parameter](../../../conventions/module_p
 
 | Symbol | Meaning | Unit | Code field |
 |---|---|---|---|
-| $N$ | number of caps in the bank | — | `n_caps` |
-| $C_k$ | fabricated capacitance of cap $k$ | fF | `c__fF` |
+| $N$ | number of caps in the bank | — | `_cap_num` |
+| $C_k$ | fabricated capacitance of cap $k$ | fF | `_c__fF` |
 | $C_{\mathrm{unit}}$ | unit-cell capacitance | fF | `c_unit__fF` |
 | $a_k$ | per-cap weight on $C_{\mathrm{unit}}$ | — | `cap_weights` |
 | $V_k$ | sampled voltage on cap $k$ | V | `v_in__V` |

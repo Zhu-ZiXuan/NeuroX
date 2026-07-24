@@ -1,6 +1,6 @@
 # MOSFET
 
-`Mosfet` is a stateless-in-conduction primitive: it precomputes temperature-scaled nominals and Pelgrom sigmas at construction, resamples per-cell `beta__uA_per_V2` / `vth__V` at fabricate time, and evaluates the I-V law and its three node partials in closed form. The abstract base carries the entire model; the concrete `Nmos` / `Pmos` subclasses fix only the channel polarity.
+`Mosfet` is a stateless-in-conduction primitive: it precomputes temperature-scaled nominals and Pelgrom sigmas at construction, resamples per-cell `_beta__uA_per_V2` / `_vth__V` state at fabricate time, and evaluates the I-V law and its three node partials in closed form. The abstract base carries the entire model; the concrete `Nmos` / `Pmos` subclasses fix only the channel polarity.
 
 ## Design decisions
 
@@ -12,7 +12,7 @@
 
 ## Contracts & invariants
 
-- **`_sample_fabricate_mismatch()` is re-callable and shape-stable.** Each call resamples `beta__uA_per_V2` / `vth__V` at `self.inst_shape`; the fabricated maps live on the device and are not mirrored elsewhere.
+- **`_sample_fabricate_mismatch()` is re-callable and shape-stable.** Each call resamples `_beta__uA_per_V2` / `_vth__V` at `self.inst_shape`; the fabricated maps live on the device and are not mirrored elsewhere.
 - **`snapshot(shape, multi_coords)` is the read path into fabricated state.** It expands the per-cell maps to the per-call `shape`, optionally advanced-indexes a chunk via `multi_coords`, and returns a `MosfetSnap`. The solve reads `beta__uA_per_V2` and `vth__V` only from the snap, never from `self`.
 - **`solve_dc(vg, vd, vs, snap)` returns three node partials with fixed signs.** $\partial I/\partial V_d \ge 0$ and $\partial I/\partial V_s \le 0$ by construction for both polarities. Inputs may be scalars or tensors and broadcast against the snap.
 

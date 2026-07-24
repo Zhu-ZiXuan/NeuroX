@@ -40,19 +40,15 @@ class VoltageMuxConfig(AnalogConfig):
     leakage_per_inst__uW: float
 
     def validate(self) -> None:
-        self.validate_gain()
-        self.validate_noise()
-        self.validate_ppa()
+        # --- Gain and noise ---
 
-    def validate_gain(self) -> None:
         self._require_pos(self.mux_gain, "mux_gain")
         self._require_non_neg(self.mux_gain_mismatch_sigma_relative, "mux_gain_mismatch_sigma_relative")
-
-    def validate_noise(self) -> None:
         self._require_non_neg(self.mux_noise_cm_sigma__V, "mux_noise_cm_sigma__V")
         self._require_non_neg(self.mux_noise_dm_sigma__V, "mux_noise_dm_sigma__V")
 
-    def validate_ppa(self) -> None:
+        # --- PPA ---
+
         self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
         self._require_non_neg(self.energy_per_access__fJ, "energy_per_access__fJ")
@@ -86,7 +82,7 @@ class VoltageMux(AnalogBase[VoltageMuxConfig, VoltageMuxPolicy]):
 
     # --- Fabrication source buffers ---
 
-    nominal_eps_g: Tensor
+    _nominal_eps_g: Tensor
 
     def __init__(
         self,
@@ -100,17 +96,17 @@ class VoltageMux(AnalogBase[VoltageMuxConfig, VoltageMuxPolicy]):
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
         self._area_per_inst__um2 = config.area_per_inst__um2
         self._leakage_per_inst__uW = config.leakage_per_inst__uW
-        self.sigma_eps_g = config.mux_gain_mismatch_sigma_relative
+        self._sigma_eps_g = config.mux_gain_mismatch_sigma_relative
         self._register_fabrication_buffers(dtype=dtype)
 
     def _register_fabrication_buffers(self, *, dtype: torch.dtype) -> None:
         """Register immutable tensors used as fabrication sources."""
-        self.register_buffer("nominal_eps_g", torch.zeros((), dtype=dtype), persistent=False)
+        self.register_buffer("_nominal_eps_g", torch.zeros((), dtype=dtype), persistent=False)
 
     def _sample_fabricate_mismatch(self) -> None:
-        self.eps_g = apply_gaussian(
-            self.nominal_eps_g.clone().expand(self.inst_shape),
-            self.sigma_eps_g,
+        self._eps_g = apply_gaussian(
+            self._nominal_eps_g.clone().expand(self.inst_shape),
+            self._sigma_eps_g,
             enabled=self.policy.mux_gain_mismatch,
         )
 
@@ -130,8 +126,8 @@ class VoltageMux(AnalogBase[VoltageMuxConfig, VoltageMuxPolicy]):
             ``(v_pos_muxed__V, v_neg_muxed__V)`` — both share ``v_pos__V``'s shape.
         """
         gain = self.config.mux_gain
-        gain_pos = gain * (1 + 0.5 * self.eps_g)
-        gain_neg = gain * (1 - 0.5 * self.eps_g)
+        gain_pos = gain * (1 + 0.5 * self._eps_g)
+        gain_neg = gain * (1 - 0.5 * self._eps_g)
         v_pos_muxed__V = gain_pos * v_pos__V
         v_neg_muxed__V = gain_neg * v_neg__V
 
@@ -152,6 +148,6 @@ class VoltageMux(AnalogBase[VoltageMuxConfig, VoltageMuxPolicy]):
             device=v_pos__V.device,
             dtype=dynamic_energy__fJ.dtype,
         )
-        self._log_dynamic_energy(dynamic_energy__fJ)
-        self._log_latency(latency__ns)
+        self._record_dynamic_energy(dynamic_energy__fJ)
+        self._record_latency(latency__ns)
         return v_pos_muxed__V, v_neg_muxed__V

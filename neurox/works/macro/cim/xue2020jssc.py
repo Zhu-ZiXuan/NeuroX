@@ -183,7 +183,7 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
         sl_driver_config: SL ideal-clamp seat = the array's ``sl_driver``
             (VoltageDriver, ``r_out__MOhm = 0``).
         adc_config: TMCSA SAR current-ADC config (B-form). The macro builds the
-            TMCSA with ``record_latency=False`` so it emits NO latency event — the
+            TMCSA with ``enable_latency_record=False`` so it emits NO latency event — the
             macro is the sole latency emitter (``t_cycle * serial`` already spans
             sensing). The ADC keeps its REAL ``step_latency__ns`` and
             ``t_conduct_per_step__ns`` (its conduction energy is unchanged), and the
@@ -307,38 +307,16 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
 
     def validate(self) -> None:
         super().validate()
-        self.validate_weight_geometry()
-        self.validate_input()
-        self.validate_mux()
-        self.validate_anchors()
-        self.validate_windows()
-        self.validate_supply()
-        self.validate_reference()
-        self.validate_adc_calibration()
 
-    def validate_geometry(self) -> None:
-        # Hard bounds only. This scheme runs NO macro-level row-block
-        # serialization (the engine owns row-blocking; active_row_num is the
-        # kernel row-block size), so the paper geometry (256 rows, 9-row block)
-        # need not have row_num divisible by active_row_num.
-        if not (self.col_num > 1):
-            raise ValueError(f"require: col_num ({self.col_num}) > 1")
-        if not (self.row_num > 1):
-            raise ValueError(f"require: row_num ({self.row_num}) > 1")
-        if not (1 <= self.active_row_num <= self.row_num):
-            raise ValueError(f"require: 1 <= active_row_num ({self.active_row_num}) <= row_num ({self.row_num})")
+        # --- Data geometry ---
 
-    def validate_weight_geometry(self) -> None:
         # General sign-magnitude weight: >= 1 magnitude digit, radix >= 2 so a
         # digit carries at least the {0, 1} magnitude the P/N pair encodes.
         self._require_pos(self.w_digit_num, "w_digit_num")
         if not (self.w_digit_radix >= 2):
             raise ValueError(f"require: w_digit_radix ({self.w_digit_radix}) >= 2")
 
-    def validate_input(self) -> None:
         self._require_pos(self.input_bit_num, "input_bit_num")
-
-    def validate_mux(self) -> None:
         self._require_pos(self.mux_factor, "mux_factor")
         # The IO regrouping is a reshape, so it needs exact blocking.
         if self.col_num % self.mux_factor != 0:
@@ -347,11 +325,11 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
                 "the CIM-IO regrouping is an exact reshape"
             )
 
-    def validate_anchors(self) -> None:
+        # --- Analog transfer and timing ---
+
         self._require_pos(self.dswct_ratio_msb, "dswct_ratio_msb")
         self._require_pos(self.sc_ratio_msb, "sc_ratio_msb")
 
-    def validate_windows(self) -> None:
         # One sample window per SAMPLED bit; the live bit (K-1) has none.
         if len(self.t_sample__ns) != self.input_bit_num - 1:
             raise ValueError(
@@ -371,7 +349,6 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
         self._require_non_neg(self.e_control_per_op__fJ, "e_control_per_op__fJ")
         self._require_non_neg(self.e_pn_isub_per_op__fJ, "e_pn_isub_per_op__fJ")
 
-    def validate_supply(self) -> None:
         self._require_non_neg(self.v_dd__V, "v_dd__V")
         self._require_non_neg(self.v_bl_clamp__V, "v_bl_clamp__V")
         # The clamp reference is a BL node between the SL ground and the V_DD
@@ -379,7 +356,8 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
         if not (self.v_bl_clamp__V <= self.v_dd__V):
             raise ValueError(f"require: v_bl_clamp__V ({self.v_bl_clamp__V}) <= v_dd__V ({self.v_dd__V})")
 
-    def validate_reference(self) -> None:
+        # --- ADC reference and calibration ---
+
         # The TMCSA reads its ladder from the shared CurrentReference, so the tap
         # count must match the binary-search depth exactly.
         want_taps = (1 << self.adc_config.bits) - 1
@@ -389,7 +367,6 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
                 f"2**adc_config.bits - 1 ({want_taps})"
             )
 
-    def validate_adc_calibration(self) -> None:
         if len(self.adc_calibration) == 0:
             raise ValueError("require: adc_calibration must contain at least one entry")
         adc_max_bits = self.adc_config.bits
@@ -561,7 +538,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
 
         # The macro is the sole latency emitter: its ``t_cycle * serial`` event
         # already spans the whole access period, sensing included. Build the
-        # TMCSA with ``record_latency=False`` so its ``convert`` logs no latency
+        # TMCSA with ``enable_latency_record=False`` so its ``convert`` logs no latency
         # event; the ADC keeps its real ``step_latency__ns`` and
         # ``t_conduct_per_step__ns`` (its conduction energy is untouched), and the
         # read-chain window ``t_other`` folds the honest sensing durations back in.
@@ -571,7 +548,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
             inst_shape=(*self.inst_shape, gn),
             dtype=dtype,
             T__K=T__K,
-            record_latency=False,
+            enable_latency_record=False,
         )
         # One static threshold source per fabricated sub-array copy ([mode, tap]
         # bank), shared across that copy's TMCSAs (no IO axis). It carries the
@@ -621,7 +598,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
     # -----------------------------------------------------------------
 
     @property
-    def x_range(self) -> tuple[int, int]:
+    def x_value_range(self) -> tuple[int, int]:
         """Inclusive K-bit activation range — the macro decomposes it into WL sub-phases internally."""
         return (0, (1 << self.config.input_bit_num) - 1)
 
@@ -636,7 +613,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         return self.config.w_digit_radix
 
     @property
-    def w_digit_range(self) -> tuple[int, int]:
+    def w_digit_value_range(self) -> tuple[int, int]:
         """Inclusive signed per-digit range — sign-magnitude, ``(-(radix-1), radix-1)``."""
         mag = self.config.w_digit_radix - 1
         return (-mag, mag)
@@ -678,8 +655,8 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
 
         Args:
             w: Sign-magnitude digit tensor whose shape matches
-                ``self._w_layout_shape = (*inst_shape, col_num, w_digit_count,
-                row_num)``. Entries must lie in :attr:`w_digit_range`.
+                ``self.w_layout_shape = (*inst_shape, col_num, w_digit_count,
+                row_num)``. Entries must lie in :attr:`w_digit_value_range`.
         """
         # The magnitude routes to the state index (0 -> HRS, m -> the m-th
         # conductance state); the cell's table lookup is the sole digit-range
@@ -721,7 +698,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
 
         Args:
             x: Activation tensor with primitive trailing ``[row_num]``; entries in
-                :attr:`x_range`. Rows outside the caller's active window (at most
+                :attr:`x_value_range`. Rows outside the caller's active window (at most
                 :attr:`max_active_rows` live rows per sub-phase) must arrive
                 zeroed. Every leading axis is anonymous broadcast batch.
             adc_mode: ADC operating-point index selecting the shared reference
@@ -775,7 +752,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         read_power = (v_dd * i_bl_port).sum(dim=-1)
         # Shape: [*B, x_bits] -> [*B]
         e_cablc = (read_power * self._window_array__ns).sum(dim=-1)
-        self._log_dynamic_energy(e_cablc, channel="cablc")
+        self._record_dynamic_energy(e_cablc, channel="cablc")
 
         # Recover the grouped readout layout from the flat BL port;
         # column-separable, so a pure reshape.
@@ -791,7 +768,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         i_wdl_per_bit = i_wdl.abs().sum(dim=(-4, -3, -2, -1))
         # Shape: [*B, x_bits] -> [*B]
         e_dswct = v_dd * (i_wdl_per_bit * self._window_array__ns).sum(dim=-1)
-        self._log_dynamic_energy(e_dswct, channel="dswct")
+        self._record_dynamic_energy(e_dswct, channel="dswct")
 
         # --- Step 4: SINWP-SC spatial + temporal input-radix combine -> I_DL_PN ---
 
@@ -802,7 +779,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         i_sc_per_bit = i_dl_pn_bit.sum(dim=(-3, -2, -1))
         # Shape: [*B, x_bits] -> [*B]
         e_sinwp = v_dd * (i_sc_per_bit * self._window_sc__ns).sum(dim=-1)
-        self._log_dynamic_energy(e_sinwp, channel="sinwp_sc")
+        self._record_dynamic_energy(e_sinwp, channel="sinwp_sc")
 
         # Temporal weighted sum over bits (input radix).
         # Shape: [x_bits, gs=1, gn=1, P/N=1]
@@ -819,7 +796,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         sign = i_dl_pn_n > i_dl_pn_p
         # Bill pn_isub INLINE (three-branch conduction + per-op comparator).
         e_pnisub = v_dd * config.t_other__ns * (i_dl_pn_p + i_dl_pn_n + i_sub) + config.e_pn_isub_per_op__fJ
-        self._log_dynamic_energy(e_pnisub, channel="pn_isub")
+        self._record_dynamic_energy(e_pnisub, channel="pn_isub")
 
         # --- Step 6: TMCSA quantize against the per-instance reference ladder ---
 
@@ -833,7 +810,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
                 self.adc_current_reference.tap_num,
             ),
         )
-        adc_i_refs__uA = self.adc_current_reference.i_ref__uA(ref_snap)
+        adc_i_refs__uA = ref_snap.i_refs__uA
         # Shape: [*inst, mode, tap] -> [*inst, tap]
         adc_refs_mode__uA = adc_i_refs__uA[..., adc_mode, :]
         # Shape: [*B, gs, gn]
@@ -849,14 +826,14 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         # latency emitter.
         # Shape: [*B, gs]
         e_control = signed.new_full(signed.shape[:-1], config.e_control_per_op__fJ, dtype=torch.float32)
-        self._log_dynamic_energy(e_control, channel="control")
+        self._record_dynamic_energy(e_control, channel="control")
         serial_op_count = max(1, signed.numel() // max(self.inst_count * gn, 1))
         latency__ns = torch.tensor(
             config.t_cycle__ns * serial_op_count,
             device=signed.device,
             dtype=torch.float32,
         )
-        self._log_latency(latency__ns)
+        self._record_latency(latency__ns)
 
         # col = io * mux_factor + slot = gn * group_size + gs
         # Shape: [*B, gs, gn] -> [*B, col_num]

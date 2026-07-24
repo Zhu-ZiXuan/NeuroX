@@ -325,7 +325,7 @@ def encode_weights(w_signed: Tensor, *, transcoder: TrueFormTranscoder = TRANSCO
 
     The macro's ``program()`` consumes the transcoder's sign-magnitude digits
     with digit 0 = LSB; the digit axis is inserted immediately left of the row
-    axis to match ``_w_layout_shape = (*inst_shape, col_num, w_digit_count, row_num)``.
+    axis to match ``w_layout_shape = (*inst_shape, col_num, w_digit_count, row_num)``.
     The default radix-2 two-digit transcoder matches the paper witness; pass a
     matching transcoder for a generalized ``w_digit_num`` / ``w_digit_radix`` macro.
     """
@@ -344,7 +344,7 @@ def probe_i_sub_grid(macro: Xue2020JsscCimMacro, *, m_max: int) -> list[float]:
     """Probe the analog ``I_SUB(M)`` grid [uA] for MAC ``M = 0..m_max`` on an all-``+1`` column.
 
     Programs logical column 0 all ``+1`` (others 0) and drives inputs whose row
-    sum equals ``M`` (greedy fill, per-row value in ``x_range``); column 0 lives
+    sum equals ``M`` (greedy fill, per-row value in ``x_value_range``); column 0 lives
     at mux slot 0 of IO 0, so the grid rides ``i_sub[m, 0, 0]``. The pre-ADC
     magnitude ``I_SUB`` is captured through the ADC's own
     :class:`SingleEndedCurrentAdcProber` (``i_in__uA`` per convert). All-off makes

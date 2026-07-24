@@ -5,8 +5,8 @@
 - **Per-resolution constant tables dodge a dynamo `1 << SymInt` miscompile.** `bits` is a per-call runtime parameter, so the unsigned clamp bound `2**bits - 1` and the zero offset `2**(bits-1)` vary per conversion. Evaluating `1 << bits` inside `_convert_impl` would emit a `1 << <SymInt>` op that dynamo's lshift lowering currently mishandles, so `__init__` precomputes both as plain-`int` tuples (`_unsigned_max_table`, `_zero_offset_table`) that `_convert_impl` and the `unsigned_range` / `zero_offset` accessors index by the runtime `bits`.
 - **One instance covers the full resolution envelope.** The per-call `bits` value selects the active SAR depth; the selected `v_ref__V` tensor is supplied directly.
 - **No `latency_per_op__ns` field.** Per-op latency `(bits + 1) * clk_period__ns` is derived in `_convert_impl` from the runtime op point and emitted through the profiler latency side channel — the SAR latency depends on the runtime depth, so a static config field would be wrong.
-- **Comparator-noise sigma temperature-scaled at `__init__`.** `comparator_noise_sigma__V` is scaled once at construction, not resampled at fabricate, because `T__K` is bound at construction; Reference gives the `sqrt(T)` law.
-- **Independent positive / negative CDAC legs.** Cap-mismatch is drawn independently for the two legs (`c_p__fF`, `c_n__fF`); a shared draw would understate the differential error.
+- **Comparator-noise sigma temperature-scaled at `__init__`.** `_comparator_noise_sigma__V` is scaled once at construction, not resampled at fabricate, because `T__K` is bound at construction; Reference gives the `sqrt(T)` law.
+- **Independent positive / negative CDAC legs.** Cap-mismatch is drawn independently for the two legs (`_c_p__fF`, `_c_n__fF`); a shared draw would understate the differential error.
 
 ## Contracts & invariants
 

@@ -31,11 +31,6 @@ class CimUnitConfig(ConfigBase, ABC):
     leakage_per_inst__uW: float
 
     def validate(self) -> None:
-        """Run all ``validate_*`` checks."""
-        self.validate_ppa()
-
-    def validate_ppa(self) -> None:
-        """Require non-negative unit-local PPA fields."""
         self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
 
@@ -63,7 +58,7 @@ class CimUnit(
         w_logical_shape: Logical weight shape ``(*prefix, N, K)`` bound to ``program(...)``.
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature.
-        ideal_xbar: Whether to replace the configured xbar with its ideal model.
+        ideal_macro: Whether to replace the configured CIM macro with its ideal model.
     """
 
     def __init__(
@@ -74,7 +69,7 @@ class CimUnit(
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
-        ideal_xbar: bool,
+        ideal_macro: bool,
     ) -> None:
         ModuleBase.__init__(self, config=config, policy=policy, inst_shape=())
         if len(w_logical_shape) < 2:
@@ -90,7 +85,7 @@ class CimUnit(
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
-        ideal_xbar: bool,
+        ideal_macro: bool,
     ) -> CimUnit:
         """Build the concrete impl registered for ``type(config)``."""
         impl = cls._lookup_impl(type(config))
@@ -100,7 +95,7 @@ class CimUnit(
             w_logical_shape=w_logical_shape,
             dtype=dtype,
             T__K=T__K,
-            ideal_xbar=ideal_xbar,
+            ideal_macro=ideal_macro,
         )
 
     def _sample_fabricate_mismatch(self) -> None:
@@ -142,7 +137,7 @@ class EngineBackedCimUnit(CimUnit[EbConfigT, EbPolicyT], Generic[EbConfigT, EbPo
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
-        ideal_xbar: bool,
+        ideal_macro: bool,
     ) -> None:
         super().__init__(
             config=config,
@@ -150,13 +145,13 @@ class EngineBackedCimUnit(CimUnit[EbConfigT, EbPolicyT], Generic[EbConfigT, EbPo
             w_logical_shape=w_logical_shape,
             dtype=dtype,
             T__K=T__K,
-            ideal_xbar=ideal_xbar,
+            ideal_macro=ideal_macro,
         )
         self._area_per_inst__um2 = config.area_per_inst__um2
         self._leakage_per_inst__uW = config.leakage_per_inst__uW
-        self._init_engine_child(dtype=dtype, T__K=T__K, ideal_xbar=ideal_xbar)
+        self._init_engine_child(dtype=dtype, T__K=T__K, ideal_macro=ideal_macro)
 
-    def _init_engine_child(self, *, dtype: torch.dtype, T__K: float, ideal_xbar: bool) -> None:
+    def _init_engine_child(self, *, dtype: torch.dtype, T__K: float, ideal_macro: bool) -> None:
         """Construct the configured execution engine."""
         self.engine = CimEngine.from_config(
             config=self.config.engine,
@@ -164,7 +159,7 @@ class EngineBackedCimUnit(CimUnit[EbConfigT, EbPolicyT], Generic[EbConfigT, EbPo
             w_logical_shape=self._engine_w_logical_shape(),
             dtype=dtype,
             T__K=T__K,
-            ideal_xbar=ideal_xbar,
+            ideal_macro=ideal_macro,
         )
 
     def _engine_w_logical_shape(self) -> tuple[int, ...]:

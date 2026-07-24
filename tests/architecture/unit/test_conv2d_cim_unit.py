@@ -22,12 +22,12 @@ _ADC_MODE = 0
 _ADC_BITS = 0
 
 
-def _ideal_xbar_config(
+def _ideal_macro_config(
     *,
     row_num: int = 16,
     col_num: int = 16,
     active_row_num: int | None = None,
-    x_range: tuple[int, int] = (0, 3),
+    x_value_range: tuple[int, int] = (0, 3),
 ) -> IdealCimMacroConfig:
     return IdealCimMacroConfig(
         col_num=col_num,
@@ -35,10 +35,10 @@ def _ideal_xbar_config(
         active_row_num=row_num if active_row_num is None else active_row_num,
         leakage_per_inst__uW=0.0,
         area_per_inst__um2=0.0,
-        x_range=x_range,
+        x_value_range=x_value_range,
         w_digit_count=1,
         w_digit_radix=4,
-        w_digit_range=(-3, 3),
+        w_digit_value_range=(-3, 3),
         adc_mode_num=1,
         adc_max_bits=0,
     )
@@ -62,14 +62,14 @@ def _unit_config(
     stride: tuple[int, int] = (1, 1),
     padding: tuple[int, int] = (0, 0),
     dilation: tuple[int, int] = (1, 1),
-    x_range: tuple[int, int] = (0, 3),
+    x_value_range: tuple[int, int] = (0, 3),
 ) -> Conv2dCimUnitConfig:
     return Conv2dCimUnitConfig(
         area_per_inst__um2=0.0,
         leakage_per_inst__uW=0.0,
         engine=DirectCimEngineConfig(
-            cim_macro_config=_ideal_xbar_config(
-                row_num=row_num, col_num=col_num, active_row_num=active_row_num, x_range=x_range
+            cim_macro_config=_ideal_macro_config(
+                row_num=row_num, col_num=col_num, active_row_num=active_row_num, x_value_range=x_value_range
             ),
             w_encoding="true_form",
             phase_accumulator_config=_accumulator_config(),
@@ -92,7 +92,7 @@ def _build_unit(
         w_logical_shape=w_logical_shape,
         dtype=torch.float32,
         T__K=300.0,
-        ideal_xbar=True,
+        ideal_macro=True,
     )
     unit.eval()
     return unit
@@ -119,7 +119,7 @@ def _build_ideal_unit(
         w_logical_shape=w_logical_shape,
         dtype=torch.float32,
         T__K=300.0,
-        ideal_xbar=False,
+        ideal_macro=False,
     )
     unit.eval()
     return unit
@@ -417,20 +417,20 @@ def test_rejects_non_4d_w_logical_shape() -> None:
         _build_unit(_unit_config(), w_logical_shape=(3, 18))
 
 
-def test_padding_requires_x_range_covering_zero() -> None:
+def test_padding_requires_x_value_range_covering_zero() -> None:
     with pytest.raises(ValueError, match="x_value_range"):
         _build_unit(
-            _unit_config(padding=(1, 1), x_range=(1, 3)),
+            _unit_config(padding=(1, 1), x_value_range=(1, 3)),
             w_logical_shape=(3, 2, 3, 3),
         )
 
 
-def test_multi_window_requires_x_range_covering_zero() -> None:
+def test_multi_window_requires_x_value_range_covering_zero() -> None:
     # W_g = 3 > 1 with zero padding: strip right-padding and surplus windows
     # still inject x = 0.
     with pytest.raises(ValueError, match="x_value_range"):
         _build_unit(
-            _unit_config(row_num=4, col_num=16, x_range=(1, 3)),
+            _unit_config(row_num=4, col_num=16, x_value_range=(1, 3)),
             w_logical_shape=(1, 1, 1, 2),
         )
 

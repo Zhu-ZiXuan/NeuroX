@@ -7,7 +7,7 @@
 
 ## Contracts & invariants
 
-- **`operate(a, b)`** takes `a` and a broadcast-compatible `b` and returns their difference at the broadcast shape.
+- **`subtract(a, b)`** takes `a` and a broadcast-compatible `b` and returns their difference at the broadcast shape.
 
 ## Performance & resources
 

@@ -5,8 +5,8 @@ The no-slice variant. It owns a tile, a weight `Transcoder`, an identity `Direct
 ## Design decisions
 
 - **No slice axes in the layout, not size-1 placeholders.** Because `Sw = Sa = 1` are meaningless here, the organized weight tensor `[..., M=1, Tc, Tr, col_num, D, row_num]` simply has no `Sa` / `Sw` axes rather than carrying them as size-1. The `[Sa, Sw, Tc, Tr]` convention applies by omission: the present axes keep their relative order. Only the `M=1` placeholder is inserted, for Cartesian broadcast against the activation.
-- **The identity slicer is the semantic witness.** `x_slicer = DirectSlicer(value_range=xbar.x_range)`: the activation slicing step exists in the pipeline and decomposes nothing — `_organize_x` runs `x_slicer.slice(x).squeeze(-1).squeeze(-1)`, which validates the range elementwise and returns the values unchanged. Tiling is not the slicer's job; it stays in the engine's `chunk_pad_along` step.
-- **Value-range sources.** The ctor sets `_w_value_range` from the transcoder's `value_range` and `_x_value_range` from the `DirectSlicer`'s range (the tile's `x_range`); the base publishes them.
+- **The identity slicer is the semantic witness.** `x_slicer = DirectSlicer(value_range=cim_macro.x_value_range)`: the activation slicing step exists in the pipeline and decomposes nothing — `_organize_x` runs `x_slicer.slice(x).squeeze(-1).squeeze(-1)`, which validates the range elementwise and returns the values unchanged. Tiling is not the slicer's job; it stays in the engine's `_chunk_pad_along` step.
+- **Value-range sources.** The ctor sets `_w_value_range` from the transcoder's `value_range` and `_x_value_range` from the `DirectSlicer`'s range (the tile's `x_value_range`); the base publishes them.
 - **Construction-time fp32-exactness gate.** `__init__` computes the worst-case per-tile dot `row_num * max|w| * max|x|` from the tile's digit geometry and rejects configurations reaching `2^24`. Below the bound, every per-tile partial survives an fp32 matmul bit-exactly, so the engine stays GPU-capable (CUDA has no integer matmul kernel); the ideal-tile path is elementwise int64 and the physical-tile path is a float solve, both CUDA-safe.
 
 ## Contracts & invariants
@@ -22,7 +22,7 @@ The variant adds only the transcode, the identity slice check, and the contracti
 
 ## Gotchas
 
-- **Last-tile padding is silent.** Trailing columns of the last output tile and trailing rows of the last contraction tile are zero-padded by `chunk_pad_along`; the padded lanes contribute zero and are trimmed, but a caller inspecting intermediate tile shapes sees the padded extent, not `N` / `K`.
+- **Last-tile padding is silent.** Trailing columns of the last output tile and trailing rows of the last contraction tile are zero-padded by `_chunk_pad_along`; the padded lanes contribute zero and are trimmed, but a caller inspecting intermediate tile shapes sees the padded extent, not `N` / `K`.
 
 ---
 

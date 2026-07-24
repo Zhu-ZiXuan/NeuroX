@@ -2,7 +2,7 @@
 
 ## Contracts & invariants
 
-- **`operate(a, b)` is element-wise with PyTorch broadcasting**; the output shape is the broadcast of the two operands.
+- **`add(a, b)` is element-wise with PyTorch broadcasting**; the output shape is the broadcast of the two operands.
 
 ## Performance & resources
 
@@ -10,7 +10,7 @@
 
 ## Gotchas
 
-- **No runtime range check.** `operate` enforces no bound on the operand sum; a value exceeding the nominal `bit_width` passes through undetected.
+- **No runtime range check.** `add` enforces no bound on the operand sum; a value exceeding the nominal `bit_width` passes through undetected.
 
 ## Known limitations
 

@@ -35,7 +35,7 @@ def _build_unit(
         w_logical_shape=w_logical_shape,
         dtype=torch.float32,
         T__K=300.0,
-        ideal_xbar=False,
+        ideal_macro=False,
     )
     unit.eval()
     return unit

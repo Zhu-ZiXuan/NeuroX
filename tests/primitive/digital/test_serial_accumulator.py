@@ -60,14 +60,14 @@ def test_serial_accumulator_reduce_matches_plain_accumulator() -> None:
     x = torch.randint(-100, 100, (3, 4, 5), dtype=torch.int64)
     serial = _build_serial((3, 5))
     plain = _build_plain((3, 5))
-    assert torch.equal(serial.operate(x, dim=-2), plain.operate(x, dim=-2))
+    assert torch.equal(serial.accumulate(x, dim=-2), plain.accumulate(x, dim=-2))
 
 
 def test_serial_accumulator_wraps_modulo_bit_width() -> None:
     """A 4-bit register wraps 7 + 7 = 14 to -2 in two's-complement."""
     acc = _build_serial((), bit_width=4)
     x = torch.tensor([7, 7], dtype=torch.int64)
-    assert acc.operate(x, dim=0).item() == -2
+    assert acc.accumulate(x, dim=0).item() == -2
 
 
 def test_serial_accumulator_bills_energy_per_input_element() -> None:
@@ -76,7 +76,7 @@ def test_serial_accumulator_bills_energy_per_input_element() -> None:
     x = torch.randint(-3, 4, (2, 4, 5), dtype=torch.int64)
     acc = _build_serial((2, 5))
     with NeuroxProfiler() as p:
-        acc.operate(x, dim=-2)
+        acc.accumulate(x, dim=-2)
     assert _energy_total(p.energy_events, acc) == pytest.approx(_E_OP__FJ * x.numel())
 
 
@@ -90,8 +90,8 @@ def test_serial_accumulator_energy_scales_with_reduced_axis_extent() -> None:
     for reduce_extent in (1, 4):
         x = torch.ones((2, reduce_extent, 5), dtype=torch.int64)
         with NeuroxProfiler() as p:
-            serial.operate(x, dim=-2)
-            plain.operate(x, dim=-2)
+            serial.accumulate(x, dim=-2)
+            plain.accumulate(x, dim=-2)
         energies[reduce_extent] = (
             _energy_total(p.energy_events, serial),
             _energy_total(p.energy_events, plain),
@@ -106,7 +106,7 @@ def test_serial_accumulator_latency_counts_serial_inputs_per_instance() -> None:
     x = torch.ones((2, 4, 5), dtype=torch.int64)  # 40 inputs
     acc = _build_serial((2, 5))  # inst_count 10 -> 4 serial ops
     with NeuroxProfiler() as p:
-        acc.operate(x, dim=-2)
+        acc.accumulate(x, dim=-2)
     assert _latency_total(p.latency_events, acc) == pytest.approx(_T_OP__NS * 4)
 
 
@@ -115,5 +115,5 @@ def test_serial_accumulator_latency_ceils_partial_instance_load() -> None:
     x = torch.ones((3, 2, 5), dtype=torch.int64)  # 30 inputs
     acc = _build_serial((4,))  # inst_count 4 -> ceil(30 / 4) = 8
     with NeuroxProfiler() as p:
-        acc.operate(x, dim=-2)
+        acc.accumulate(x, dim=-2)
     assert _latency_total(p.latency_events, acc) == pytest.approx(_T_OP__NS * 8)

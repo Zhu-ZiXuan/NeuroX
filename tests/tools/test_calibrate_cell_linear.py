@@ -25,7 +25,7 @@ from neurox.tools.calibrate_cell._1t1r import (
     _build_cell,
     extract_linear_cell_config,
     linear_fragment_text,
-    n_newton_fragment_text,
+    newton_iter_num_fragment_text,
 )
 
 _V_BL_OP__V = 0.3
@@ -44,7 +44,7 @@ c_sl__fF = 0.1
 c_wl__fF = 0.1
 rram_g_max__uS = 100.0
 state_to_g_map__uS = [10.0, 100.0]
-n_newton = 4
+newton_iter_num = 4
 
 [cell_config.rram_config]
 _neurox_use_preset = "process/rram:default"
@@ -135,11 +135,11 @@ def test_emitted_fragment_deserializes_and_builds(
     assert isinstance(cell, XbarCell1t1rLinear)
 
 
-def test_n_newton_fragment_parses(tmp_path: Path) -> None:
-    path = tmp_path / "cell_detail_n_newton.toml"
-    path.write_text(n_newton_fragment_text(7))
+def test_newton_iter_num_fragment_parses(tmp_path: Path) -> None:
+    path = tmp_path / "cell_detail_newton_iter_num.toml"
+    path.write_text(newton_iter_num_fragment_text(7))
     data = tomllib.loads(path.read_text())
-    assert data["cell_config"]["n_newton"] == 7
+    assert data["cell_config"]["newton_iter_num"] == 7
 
 
 def test_divider_reproduces_detail_at_op(
@@ -154,7 +154,7 @@ def test_divider_reproduces_detail_at_op(
     """
     cell = _build_cell(
         detail_config,
-        n_newton=detail_config.n_newton,
+        newton_iter_num=detail_config.newton_iter_num,
         device=torch.device("cpu"),
         dtype=torch.float64,
     )

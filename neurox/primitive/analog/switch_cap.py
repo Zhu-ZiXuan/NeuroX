@@ -33,17 +33,13 @@ class SwitchCapConfig(AnalogConfig):
     leakage_per_inst__uW: float
 
     def validate(self) -> None:
-        self.validate_capacitance()
-        self.validate_noise()
-        self.validate_ppa()
+        # --- Capacitance and mismatch ---
 
-    def validate_capacitance(self) -> None:
         self._require_pos(self.c_unit__fF, "c_unit__fF")
-
-    def validate_noise(self) -> None:
         self._require_non_neg(self.cap_mismatch_sigma_relative, "cap_mismatch_sigma_relative")
 
-    def validate_ppa(self) -> None:
+        # --- PPA ---
+
         self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
         self._require_non_neg(self.energy_per_sample_overhead__fJ, "energy_per_sample_overhead__fJ")
@@ -76,7 +72,7 @@ class SwitchCap(AnalogBase[SwitchCapConfig, SwitchCapPolicy]):
 
     # --- Fabrication source buffers ---
 
-    nominal_c__fF: Tensor
+    _nominal_c__fF: Tensor
 
     def __init__(
         self,
@@ -99,8 +95,8 @@ class SwitchCap(AnalogBase[SwitchCapConfig, SwitchCapPolicy]):
 
         self._area_per_inst__um2 = config.area_per_inst__um2
         self._leakage_per_inst__uW = config.leakage_per_inst__uW
-        self.T__K = T__K
-        self.n_caps = len(cap_weights)
+        self._T__K = T__K
+        self._cap_num = len(cap_weights)
         self._register_fabrication_buffers(dtype=dtype, cap_weights=cap_weights)
 
     def _register_fabrication_buffers(
@@ -111,15 +107,15 @@ class SwitchCap(AnalogBase[SwitchCapConfig, SwitchCapPolicy]):
     ) -> None:
         """Register immutable tensors used as fabrication sources."""
         self.register_buffer(
-            "nominal_c__fF",
+            "_nominal_c__fF",
             self.config.c_unit__fF * torch.tensor(cap_weights, dtype=dtype),
             persistent=False,
         )
 
     def _sample_fabricate_mismatch(self) -> None:
         config = self.config
-        self.c__fF = apply_pelgrom_mismatch(
-            self.nominal_c__fF.clone().expand(*self.inst_shape, self.n_caps),
+        self._c__fF = apply_pelgrom_mismatch(
+            self._nominal_c__fF.clone().expand(*self.inst_shape, self._cap_num),
             config.cap_mismatch_sigma_relative,
             unit=config.c_unit__fF,
             floor=0.1 * config.c_unit__fF,
@@ -131,14 +127,14 @@ class SwitchCap(AnalogBase[SwitchCapConfig, SwitchCapPolicy]):
 
         Args:
             v_in__V: Per-cap sampled voltages,
-                shape ``(*batch, *bank_shape, n_caps)``.
+                shape ``(*batch, *bank_shape, cap_num)``.
 
         Returns:
             Node voltage with shape ``(*batch, *bank_shape)``.
         """
-        c__fF = self.c__fF
+        c__fF = self._c__fF
         # kT/C settling noise: kt__fJ = k_B·T·1e15 so kt/c lands in V^2.
-        kt__fJ = K_BOLTZMANN__J_per_K * self.T__K * 1e15
+        kt__fJ = K_BOLTZMANN__J_per_K * self._T__K * 1e15
         sigma__V = torch.sqrt(kt__fJ / c__fF)
         v_hold__V = apply_gaussian(v_in__V, sigma__V, enabled=self.policy.sampling_thermal_noise)
         # Passive charge-share: node settles to the charge-weighted mean of the
@@ -154,6 +150,6 @@ class SwitchCap(AnalogBase[SwitchCapConfig, SwitchCapPolicy]):
             device=v_in__V.device,
             dtype=dynamic_energy__fJ.dtype,
         )
-        self._log_dynamic_energy(dynamic_energy__fJ)
-        self._log_latency(latency__ns)
+        self._record_dynamic_energy(dynamic_energy__fJ)
+        self._record_latency(latency__ns)
         return v_out__V

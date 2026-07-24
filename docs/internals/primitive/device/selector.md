@@ -6,12 +6,12 @@
 
 - **`inst_shape` is an `__init__` argument, not a config field.** The per-instance shape is a property of the deployment instance, not of the device, so it is passed to the constructor and kept out of the frozen `SelectorConfig`. The config carries the nominal threshold and the mismatch sigma only.
 - **Mismatch sigma stays in the config; the policy only gates it.** `vth_mismatch__V` is a direct `SelectorConfig` field, and `SelectorPolicy.vth_mismatch` is the boolean that decides whether the fabricate sample is applied; with the flag off the threshold map stays the uniform nominal.
-- **`T__K` is stored but unused.** The constructor takes the uniform device-construction context (`dtype`, `T__K`) for interface uniformity with the other devices; the selector model has no temperature dependence, so `T__K` is held, not consumed.
+- **`T__K` is accepted but unused.** The constructor takes the uniform device-construction context (`dtype`, `T__K`) for interface uniformity with the other devices; the selector model has no temperature dependence.
 
 ## Contracts & invariants
 
-- **`_sample_fabricate_mismatch()` resamples the whole map.** It re-expands `nominal_vth__V` to `self.inst_shape` and redraws every cell's threshold rather than updating in place.
-- **`sample_vth_like(reference)` is the read path.** It broadcasts the fabricated `vth__V` to the reference tensor's shape / device / dtype. The reference tensor defines the target — the selector imposes no shape of its own.
+- **`_sample_fabricate_mismatch()` resamples the whole map.** It re-expands `_nominal_vth__V` to `self.inst_shape` and redraws every cell's `_vth__V` state rather than updating in place.
+- **`sample_vth_like(reference)` is the read path.** It broadcasts the fabricated threshold to the reference tensor's shape. The reference tensor defines the target; the selector imposes no shape of its own.
 
 ## Performance & resources
 

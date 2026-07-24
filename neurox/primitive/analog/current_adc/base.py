@@ -58,9 +58,6 @@ class SingleEndedCurrentAdcConfig(AnalogConfig, ABC):
     leakage_per_inst__uW: float
 
     def validate(self) -> None:
-        self.validate_ppa()
-
-    def validate_ppa(self) -> None:
         self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
 
@@ -87,7 +84,7 @@ class SingleEndedCurrentAdc(
         inst_shape: Per-instance fabrication shape.
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature.
-        record_latency: Whether conversions emit latency events.
+        enable_latency_record: Whether conversions emit latency events.
     """
 
     @classmethod
@@ -99,7 +96,7 @@ class SingleEndedCurrentAdc(
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
-        record_latency: bool = True,
+        enable_latency_record: bool = True,
     ) -> SingleEndedCurrentAdc:
         """Build the implementation registered for ``type(config)``.
 
@@ -109,7 +106,7 @@ class SingleEndedCurrentAdc(
             inst_shape: Per-instance fabrication shape.
             dtype: Tensor dtype for internal buffers.
             T__K: Operating temperature.
-            record_latency: Whether conversions emit latency events.
+            enable_latency_record: Whether conversions emit latency events.
 
         Returns:
             Registered current-ADC implementation.
@@ -121,7 +118,7 @@ class SingleEndedCurrentAdc(
             inst_shape=inst_shape,
             dtype=dtype,
             T__K=T__K,
-            record_latency=record_latency,
+            enable_latency_record=enable_latency_record,
         )
 
     def __init__(
@@ -132,14 +129,14 @@ class SingleEndedCurrentAdc(
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
-        record_latency: bool = True,
+        enable_latency_record: bool = True,
     ) -> None:
         del dtype, T__K
         super().__init__(
             config=config,
             policy=policy,
             inst_shape=inst_shape,
-            record_latency=record_latency,
+            enable_latency_record=enable_latency_record,
         )
 
     @property

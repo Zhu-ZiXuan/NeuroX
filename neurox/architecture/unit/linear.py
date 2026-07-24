@@ -51,7 +51,7 @@ class LinearUnit(UnitBase, ABC):
             leading dims mirror ``input``.
         """
         y = self._lower_matmul(input, adc_mode=adc_mode, adc_bits=adc_bits)
-        int_bias = self.int_bias
+        int_bias = self._int_bias
         if int_bias is not None:
             # Shape: [..., N] + [N] -> [..., N]
             y = y + int_bias
@@ -88,7 +88,7 @@ class IdealLinearUnit(LinearUnit, CimUnit[IdealLinearUnitConfig, IdealLinearUnit
         w_logical_shape: Logical weight shape ``(*prefix, N, K)`` bound to ``program(...)``.
         dtype: Requested tensor dtype; it does not affect exact integer execution.
         T__K: Operating temperature.
-        ideal_xbar: Accepted without changing this already ideal unit.
+        ideal_macro: Accepted without changing this already ideal unit.
     """
 
     def __init__(
@@ -99,7 +99,7 @@ class IdealLinearUnit(LinearUnit, CimUnit[IdealLinearUnitConfig, IdealLinearUnit
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
-        ideal_xbar: bool,
+        ideal_macro: bool,
     ) -> None:
         super().__init__(
             config=config,
@@ -107,7 +107,7 @@ class IdealLinearUnit(LinearUnit, CimUnit[IdealLinearUnitConfig, IdealLinearUnit
             w_logical_shape=w_logical_shape,
             dtype=dtype,
             T__K=T__K,
-            ideal_xbar=ideal_xbar,
+            ideal_macro=ideal_macro,
         )
         self._area_per_inst__um2 = config.area_per_inst__um2
         self._leakage_per_inst__uW = config.leakage_per_inst__uW
@@ -145,13 +145,13 @@ class IdealLinearUnit(LinearUnit, CimUnit[IdealLinearUnitConfig, IdealLinearUnit
     def program(self, weight: Tensor, bias: Tensor | None = None) -> None:
         if tuple(weight.shape) != self._w_logical_shape:
             raise ValueError(f"program() expects weight.shape {self._w_logical_shape}; got {tuple(weight.shape)}")
-        self.weight = weight
+        self._weight = weight
         self._program_int_bias(bias, channels=self._w_logical_shape[-2])
 
     @torch.no_grad()
     def _matmul(self, input: Tensor, *, adc_mode: int, adc_bits: int) -> Tensor:
         del adc_mode, adc_bits
-        weight = self.weight
+        weight = self._weight
         if self._fp32_exact:
             # Shape: [..., M, K] @ [*prefix, K, N] -> [..., M, N]
             out = torch.matmul(input.to(torch.float32), weight.to(torch.float32).transpose(-2, -1))

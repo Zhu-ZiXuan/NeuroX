@@ -66,7 +66,7 @@ def main() -> None:
     macro_factory = build_macro_factory(
         config_path,
         policy_path,
-        ideal_xbar=(args.cim_macro == "ideal"),
+        ideal_macro=(args.cim_macro == "ideal"),
     )
     model = create_bert_small(num_labels=2, cache_dir=str(args.dataset_dir))
     model = model.to(device)

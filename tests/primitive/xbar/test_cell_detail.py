@@ -35,7 +35,7 @@ def _build_cell(inst_shape: tuple[int, ...]) -> XbarCell1t1rDetail:
         access_nmos_W__um=0.1,
         access_nmos_L__um=0.05,
         rram_g_max__uS=100.0,
-        n_newton=4,
+        newton_iter_num=4,
     )
     policy = XbarCell1t1rDetailPolicy(
         rram_policy=RramPolicy(prog_gamma=False, stuck_at=False, read_telegraph=False, read_thermal=False),

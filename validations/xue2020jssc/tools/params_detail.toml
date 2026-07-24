@@ -7,7 +7,7 @@
 #   - calibrate_cell (tools/calibrate_cell.toml) pulls the Detail cell_config
 #     below (via _neurox_use) and extracts the exact Linear chord g_cell_on/off +
 #     vx_ratio at the nominal OP (v_bl = V_BLC = 0.29 V, v_sl = 0 V) plus the
-#     Detail n_newton -> written back into ../params.toml's [cim_macro.array_config.cell_config].
+#     Detail newton_iter_num -> written back into ../params.toml's [cim_macro.array_config.cell_config].
 #   - calibrate_solver (tools/calibrate_solver.toml) locates the array-solver
 #     table at solver_section = "array_config.solver_config".
 #
@@ -85,7 +85,7 @@ state_to_g_map__uS = [5.0, 100.0]
 # --- Per-cell access-node Newton count ---
 # [calibrated] calibrate_cell 2026-07-22: 9 Newton steps for the Detail access-node
 # solve to converge the chord extraction at V_BLC = 0.29 V.
-n_newton = 9
+newton_iter_num = 9
 
 
 [cim_macro.array_config.cell_config.rram_config]

@@ -62,7 +62,7 @@ class Conv2dUnit(UnitBase, ABC):
         planes = self._conv2d_planes(input, out_hw=out_hw)
         y = self._matmul(planes, adc_mode=adc_mode, adc_bits=adc_bits)
         y = self._conv2d_fold(y, out_hw=out_hw)
-        int_bias = self.int_bias
+        int_bias = self._int_bias
         if int_bias is not None:
             # Shape: [C_out] -> [C_out, 1, 1]
             y = y + int_bias.view(-1, 1, 1)
@@ -129,10 +129,7 @@ class IdealConv2dUnitConfig(CimUnitConfig):
 
     def validate(self) -> None:
         super().validate()
-        self.validate_geometry()
 
-    def validate_geometry(self) -> None:
-        """Require positive stride / dilation and non-negative padding."""
         self._require_pos(self.stride[0], "stride[0]")
         self._require_pos(self.stride[1], "stride[1]")
         self._require_pos(self.dilation[0], "dilation[0]")
@@ -155,7 +152,7 @@ class IdealConv2dUnit(Conv2dUnit, CimUnit[IdealConv2dUnitConfig, IdealConv2dUnit
         w_logical_shape: Logical kernel shape ``(C_out, C_in, kh, kw)`` bound to ``program(...)``.
         dtype: Requested tensor dtype; it does not affect exact integer execution.
         T__K: Operating temperature.
-        ideal_xbar: Accepted without changing this already ideal unit.
+        ideal_macro: Accepted without changing this already ideal unit.
     """
 
     def __init__(
@@ -166,7 +163,7 @@ class IdealConv2dUnit(Conv2dUnit, CimUnit[IdealConv2dUnitConfig, IdealConv2dUnit
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
-        ideal_xbar: bool,
+        ideal_macro: bool,
     ) -> None:
         super().__init__(
             config=config,
@@ -174,7 +171,7 @@ class IdealConv2dUnit(Conv2dUnit, CimUnit[IdealConv2dUnitConfig, IdealConv2dUnit
             w_logical_shape=w_logical_shape,
             dtype=dtype,
             T__K=T__K,
-            ideal_xbar=ideal_xbar,
+            ideal_macro=ideal_macro,
         )
         if len(self._w_logical_shape) != 4:
             raise ValueError(f"w_logical_shape must be (C_out, C_in, kh, kw); got {w_logical_shape}")
@@ -216,7 +213,7 @@ class IdealConv2dUnit(Conv2dUnit, CimUnit[IdealConv2dUnitConfig, IdealConv2dUnit
             raise ValueError(f"program() expects weight.shape {self._w_logical_shape}; got {tuple(weight.shape)}")
         if weight.is_floating_point() or weight.is_complex():
             raise TypeError(f"program() expects an integer weight tensor; got dtype {weight.dtype}")
-        self.weight = self._weight_to_matrix(weight.detach())
+        self._weight = self._weight_to_matrix(weight.detach())
         self._program_int_bias(bias, channels=self._w_logical_shape[0])
 
     def _conv2d_planes(self, input: Tensor, *, out_hw: tuple[int, int]) -> Tensor:
@@ -250,7 +247,7 @@ class IdealConv2dUnit(Conv2dUnit, CimUnit[IdealConv2dUnitConfig, IdealConv2dUnit
     def _matmul(self, planes: Tensor, *, adc_mode: int, adc_bits: int) -> Tensor:
         del adc_mode, adc_bits
         # Shape: [..., L, C_in*kh*kw] @ [C_in*kh*kw, C_out] -> [..., L, C_out]
-        return planes.to(torch.int64) @ self.weight.transpose(-2, -1)
+        return planes.to(torch.int64) @ self._weight.transpose(-2, -1)
 
     def _conv2d_fold(self, output: Tensor, *, out_hw: tuple[int, int]) -> Tensor:
         # Shape: [..., L, C_out] -> [..., C_out, H_out, W_out]

@@ -30,15 +30,15 @@ _ADC_MODE = 0
 _ADC_BITS = 0
 
 
-def _ideal_xbar_config(
+def _ideal_macro_config(
     *,
     col_num: int = 16,
     row_num: int = 16,
     active_row_num: int | None = None,
-    x_range: tuple[int, int] = (0, 1),
+    x_value_range: tuple[int, int] = (0, 1),
     w_digit_count: int = 1,
     w_digit_radix: int = 4,
-    w_digit_range: tuple[int, int] = (-3, 3),
+    w_digit_value_range: tuple[int, int] = (-3, 3),
 ) -> IdealCimMacroConfig:
     return IdealCimMacroConfig(
         col_num=col_num,
@@ -46,10 +46,10 @@ def _ideal_xbar_config(
         active_row_num=row_num if active_row_num is None else active_row_num,
         leakage_per_inst__uW=0.0,
         area_per_inst__um2=0.0,
-        x_range=x_range,
+        x_value_range=x_value_range,
         w_digit_count=w_digit_count,
         w_digit_radix=w_digit_radix,
-        w_digit_range=w_digit_range,
+        w_digit_value_range=w_digit_value_range,
         adc_mode_num=1,
         adc_max_bits=0,
     )
@@ -67,7 +67,7 @@ def _accumulator_config(*, energy_per_op__fJ: float = 0.0) -> AccumulatorConfig:
 
 def _unit_config(
     *,
-    xbar_config: IdealCimMacroConfig | None = None,
+    cim_macro_config: IdealCimMacroConfig | None = None,
     phase_energy_per_op__fJ: float = 0.0,
     area_per_inst__um2: float = 0.0,
 ) -> LinearCimUnitConfig:
@@ -75,7 +75,7 @@ def _unit_config(
         area_per_inst__um2=area_per_inst__um2,
         leakage_per_inst__uW=0.0,
         engine=DirectCimEngineConfig(
-            cim_macro_config=_ideal_xbar_config() if xbar_config is None else xbar_config,
+            cim_macro_config=_ideal_macro_config() if cim_macro_config is None else cim_macro_config,
             w_encoding="true_form",
             phase_accumulator_config=_accumulator_config(energy_per_op__fJ=phase_energy_per_op__fJ),
             col_accumulator_config=_accumulator_config(),
@@ -94,7 +94,7 @@ def _build_unit(
         w_logical_shape=w_logical_shape,
         dtype=torch.float32,
         T__K=300.0,
-        ideal_xbar=False,
+        ideal_macro=False,
     )
     unit.eval()
     return unit
@@ -175,7 +175,7 @@ def test_linear_multi_sub_phase_lossless_matches_oracle() -> None:
     """P = 4: lossless per-sub-phase partials still reduce to the exact product."""
     torch.manual_seed(400)
     n, k = 13, 20
-    config = _unit_config(xbar_config=_ideal_xbar_config(active_row_num=4))
+    config = _unit_config(cim_macro_config=_ideal_macro_config(active_row_num=4))
     unit = _build_unit(config, w_logical_shape=(n, k))
     weight = _random_weight(unit, (n, k))
     x = _random_binary((8, k))
@@ -242,7 +242,7 @@ def test_linear_reprogram_without_bias_clears_slot() -> None:
     x = _random_binary((m, k))
     unit.program(weight, torch.randint(-7, 8, (n,), dtype=torch.int32))
     unit.program(weight)
-    assert unit.int_bias is None
+    assert unit._int_bias is None
     actual = unit.linear(x, adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
     assert torch.equal(actual.to(torch.int64), _cpu_int64_linear_oracle(x, weight))
 
@@ -288,7 +288,7 @@ def test_linear_phase_accounting_scales_with_sub_phase_num() -> None:
     energies: dict[int, float] = {}
     for active_row_num in (16, 8):  # P = 1, P = 2
         config = _unit_config(
-            xbar_config=_ideal_xbar_config(active_row_num=active_row_num),
+            cim_macro_config=_ideal_macro_config(active_row_num=active_row_num),
             phase_energy_per_op__fJ=1.0,
         )
         unit = _build_unit(config, w_logical_shape=(n, k))
@@ -315,19 +315,19 @@ def test_linear_config_rejects_non_divisor_row_blocking() -> None:
     # The base macro accepts a non-divisible geometry (16 % 6 != 0); the linear
     # operator reads every row, so LinearCimUnitConfig is where the uniform
     # row-blocking divisor is enforced.
-    assert _ideal_xbar_config(row_num=16, active_row_num=6).active_row_num == 6
+    assert _ideal_macro_config(row_num=16, active_row_num=6).active_row_num == 6
     with pytest.raises(ValueError, match=r"active_row_num"):
-        _unit_config(xbar_config=_ideal_xbar_config(row_num=16, active_row_num=6))
+        _unit_config(cim_macro_config=_ideal_macro_config(row_num=16, active_row_num=6))
 
 
 def test_linear_rejects_fp32_exactness_bound_violation() -> None:
     # row_num * max|w| * max|x| = 4224 * 4095 * 1 > 2^24.
     config = _unit_config(
-        xbar_config=_ideal_xbar_config(
+        cim_macro_config=_ideal_macro_config(
             row_num=4224,
             w_digit_count=3,
             w_digit_radix=16,
-            w_digit_range=(-15, 15),
+            w_digit_value_range=(-15, 15),
         )
     )
     with pytest.raises(ValueError, match="2\\^24"):
@@ -346,7 +346,7 @@ def test_linear_registered_for_from_config_dispatch() -> None:
         w_logical_shape=(13, 20),
         dtype=torch.float32,
         T__K=300.0,
-        ideal_xbar=False,
+        ideal_macro=False,
     )
     assert isinstance(unit, LinearCimUnit)
 

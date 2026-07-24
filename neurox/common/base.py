@@ -88,7 +88,7 @@ class ModuleBase(FabricateMixin, nn.Module, ProfileMixin, Generic[ConfigT, Polic
         config: Immutable physical configuration.
         policy: Immutable runtime policy.
         inst_shape: Multiplicity of parallel physical instances.
-        record_latency: Whether this module emits latency events.
+        enable_latency_record: Whether this module emits latency events.
     """
 
     def __init__(
@@ -97,14 +97,14 @@ class ModuleBase(FabricateMixin, nn.Module, ProfileMixin, Generic[ConfigT, Polic
         config: ConfigT,
         policy: PolicyT,
         inst_shape: tuple[int, ...],
-        record_latency: bool = True,
+        enable_latency_record: bool = True,
     ) -> None:
         nn.Module.__init__(self)
         self.__config = config
         self.__policy = policy
         self.__inst_shape = inst_shape
         self.__inst_count = math.prod(inst_shape)
-        self.record_latency = record_latency
+        self.enable_latency_record = enable_latency_record
 
     @property
     @final

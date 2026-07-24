@@ -19,10 +19,7 @@ class LinearCimUnitConfig(EngineBackedCimUnitConfig):
 
     def validate(self) -> None:
         super().validate()
-        self.validate_geometry()
 
-    def validate_geometry(self) -> None:
-        """Require uniform row blocking."""
         macro = self.engine.cim_macro_config
         if macro.row_num % macro.active_row_num != 0:
             raise ValueError(
@@ -47,7 +44,7 @@ class LinearCimUnit(LinearUnit, EngineBackedCimUnit[LinearCimUnitConfig, LinearC
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
-        ideal_xbar: bool,
+        ideal_macro: bool,
     ) -> None:
         super().__init__(
             config=config,
@@ -55,7 +52,7 @@ class LinearCimUnit(LinearUnit, EngineBackedCimUnit[LinearCimUnitConfig, LinearC
             w_logical_shape=w_logical_shape,
             dtype=dtype,
             T__K=T__K,
-            ideal_xbar=ideal_xbar,
+            ideal_macro=ideal_macro,
         )
 
     def program(self, weight: Tensor, bias: Tensor | None = None) -> None:

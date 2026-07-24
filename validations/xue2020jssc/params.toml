@@ -21,7 +21,7 @@
 #   [uncertain] = a physical value the paper does NOT give (wire R/C); a declared
 #                 estimate, NEVER assumed zero in code (the solver needs R > 0)
 #   [seed]      = a placeholder awaiting a calibrate_* tool write-back (chord g,
-#                 vx_ratio, n_newton, solver n_outer/n_inner, reference ladder)
+#                 vx_ratio, newton_iter_num, solver n_outer/n_inner, reference ladder)
 #
 # ENERGY-BASIS accounting (spec S4.3 / S8): the profiler reports energy. Static
 # energy per access = leakage_power * t_cycle (the macro logs latency = t_cycle *

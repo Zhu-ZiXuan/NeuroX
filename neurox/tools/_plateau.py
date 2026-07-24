@@ -29,7 +29,7 @@ class CandidateRow:
 
     Attributes:
         iter_count: Logical iteration count of this candidate (e.g.
-            ``n_newton`` for a local nonlinear solve or ``n_outer`` for
+            ``newton_iter_num`` for a local nonlinear solve or ``n_outer`` for
             the current axis being swept in a nested solve).
         step_max__V: ``max |u_n − u_{n-1}|`` across all 5 (or fewer)
             unknown classes and all (batch, col, row). The primary

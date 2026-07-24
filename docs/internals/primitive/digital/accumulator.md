@@ -2,8 +2,8 @@
 
 ## Contracts & invariants
 
-- **`operate(x, dim)` reduces exactly one axis**, so `numel(y)` already excludes the reduced extent and the serial-op divisor is the bare `inst_count`.
-- **Stateless, single-call reduction.** One `operate` reduces the whole axis in a single batched reduce; the block carries no running total or register state across calls, despite the name.
+- **`accumulate(x, dim)` reduces exactly one axis**, so `numel(y)` already excludes the reduced extent and the serial-op divisor is the bare `inst_count`.
+- **Stateless, single-call reduction.** One `accumulate` reduces the whole axis in a single batched reduce; the block carries no running total or register state across calls, despite the name.
 
 ## Performance & resources
 

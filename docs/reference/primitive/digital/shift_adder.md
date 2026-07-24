@@ -57,7 +57,7 @@ The radix $r$ and the partial sum $p$ are runtime call arguments, not configurat
 | $D$ | digit count (length of the digit axis) | — | `x.size(dim)` |
 | $r$ | digit radix | — | `scale` |
 | $p$ | partial-sum offset (runtime input) | — | `init_val` |
-| $y$ | recombined, wrapped, offset output | — | return of `operate` |
+| $y$ | recombined, wrapped, offset output | — | return of `shift_add` |
 | $w$ | signed output register width | — | `bit_width` |
 | $E_{\mathrm{op}}$ | dynamic energy per output element | fJ | `energy_per_op__fJ` |
 | $t_{\mathrm{op}}$ | latency per output element | ns | `latency_per_op__ns` |

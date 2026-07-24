@@ -7,7 +7,7 @@
 
 ## Contracts & invariants
 
-- **Construction.** `__init__` follows the [current DAC base](base.md) keyword signature and registers `code_to_signal` as a non-persistent buffer at the constructor `dtype`.
+- **Construction.** `__init__` follows the [current DAC base](base.md) keyword signature and registers `_code_to_signal` as a non-persistent buffer at the constructor `dtype`.
 - **`convert` side effects.** Beyond returning the sampled current, `convert` emits per-call dynamic energy and latency through the profiler side channel; the drive-thermal noise is gated by `policy.drive_thermal`.
 
 ## Gotchas

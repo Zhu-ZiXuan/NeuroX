@@ -18,9 +18,9 @@ resolution ``bits`` is passed directly. These tests pin:
   exceeds; a call at a lower ``bits`` (< the physical max) digitizes at that
   resolution;
 - B-form energy: fixed-only when the window (or rail) is zero — which also pins
-  the base ``_input_dynamic_energy__fJ`` hook at zero — and linear in both
+  the base ``_compute_input_dynamic_energy__fJ`` hook at zero — and linear in both
   ``v_rail__V`` and ``t_conduct_per_step__ns``; latency sums only the first
-  ``bits`` step windows, and ``record_latency=False`` suppresses the latency
+  ``bits`` step windows, and ``enable_latency_record=False`` suppresses the latency
   event while keeping the dynamic-energy event;
 - ``SingleEndedCurrentAdc.convert`` template method: probe-off equivalence with
   ``_convert_impl`` and :class:`SingleEndedCurrentAdcProber` capture of input,
@@ -73,7 +73,7 @@ def _build(
     config: SarSingleEndedCurrentAdcConfig,
     device: torch.device,
     *,
-    record_latency: bool = True,
+    enable_latency_record: bool = True,
 ) -> SarSingleEndedCurrentAdc:
     adc = SarSingleEndedCurrentAdc(
         config=config,
@@ -86,7 +86,7 @@ def _build(
         inst_shape=(1,),
         dtype=torch.float64,
         T__K=300.0,
-        record_latency=record_latency,
+        enable_latency_record=enable_latency_record,
     )
     adc.to(device)
     adc.eval()
@@ -192,7 +192,7 @@ def test_energy_is_fixed_only_without_conduction(device: torch.device) -> None:
 
     With ``v_rail__V`` on but the window zero, the conduction term vanishes, so
     the whole per-conversion energy is exactly ``numel * bits * e_fixed`` — a
-    surviving contribution from the ``_input_dynamic_energy__fJ`` hook (base
+    surviving contribution from the ``_compute_input_dynamic_energy__fJ`` hook (base
     zero) would break this equality.
     """
     adc = _build(_config(v_rail__V=1.0, t_conduct_per_step__ns=(0.0, 0.0, 0.0), e_fixed_per_op__fJ=7.0), device)
@@ -241,10 +241,10 @@ def test_latency_sums_only_the_requested_step_windows(device: torch.device) -> N
     assert p2.total_latency__ns == pytest.approx(3.0 + 5.0)
 
 
-def test_record_latency_false_suppresses_only_latency(device: torch.device) -> None:
-    """``record_latency=False`` drops the latency event but keeps the dynamic-energy event."""
+def test_enable_latency_record_false_suppresses_only_latency(device: torch.device) -> None:
+    """``enable_latency_record=False`` drops the latency event but keeps the dynamic-energy event."""
     config = _config(adc_bits=3, step_latency__ns=(3.0, 5.0, 7.0), e_fixed_per_op__fJ=7.0)
-    adc = _build(config, device, record_latency=False)
+    adc = _build(config, device, enable_latency_record=False)
     i_in = torch.tensor([0.5, 4.5, 35.0], dtype=torch.float64, device=device)
 
     with NeuroxProfiler() as p:

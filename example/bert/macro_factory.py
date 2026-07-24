@@ -33,14 +33,14 @@ def build_macro_factory(
     config_path: Path,
     policy_path: Path,
     *,
-    ideal_xbar: bool,
+    ideal_macro: bool,
 ) -> Callable[..., LinearUnit]:
     """Return ``(w_logical_shape) → macro`` for the given config + policy TOMLs.
 
     The circuit design lives in ``config_path`` (section ``[cim_unit]``); the
     nonideality switches live in ``policy_path`` (section ``[policy]``).
-    ``ideal_xbar=True`` swaps the physical xbar for its ideal twin (only
-    meaningful when the config carries a physical xbar).
+    ``ideal_macro=True`` swaps the physical macro for its ideal twin (only
+    meaningful when the config carries a physical macro).
     """
 
     def factory(*, w_logical_shape: tuple[int, ...]) -> LinearUnit:
@@ -50,7 +50,7 @@ def build_macro_factory(
             w_logical_shape=w_logical_shape,
             dtype=_CIRCUIT_DTYPE,
             T__K=T_ROOM__K,
-            ideal_xbar=ideal_xbar,
+            ideal_macro=ideal_macro,
         )
 
     return factory

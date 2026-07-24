@@ -1,7 +1,7 @@
 """Calibrate :class:`XbarCell1t1rDetail`'s access-node condensation count and
 emit the two chip-config fragments derived from one run:
 
-  1. the margined ``n_newton`` pick for the Detail cell fragment;
+  1. the margined ``newton_iter_num`` pick for the Detail cell fragment;
   2. a :class:`XbarCell1t1rLinearConfig` fragment whose per-(state, WL-level)
      chord conductance and BL-side drop fraction reproduce the Detail model's
      branch current and access node at a nominal operating point.
@@ -115,12 +115,12 @@ def _all_off_policy() -> XbarCell1t1rDetailPolicy:
 def _build_cell(
     cell_config: XbarCell1t1rDetailConfig,
     *,
-    n_newton: int,
+    newton_iter_num: int,
     device: torch.device,
     dtype: torch.dtype,
 ) -> XbarCell1t1rDetail:
     """Build a noise-off Detail 1T1R cell with the given condensation count."""
-    cfg = replace(cell_config, n_newton=n_newton)
+    cfg = replace(cell_config, newton_iter_num=newton_iter_num)
     cell = XbarCell1t1rDetail(
         config=cfg,
         policy=_all_off_policy(),
@@ -225,7 +225,7 @@ def _solve_grid_for_candidate(
     return v_x, cell_residual, i_cell
 
 
-def sweep_n_newton(
+def sweep_newton_iterations(
     *,
     cell_config: XbarCell1t1rDetailConfig,
     candidates: list[int],
@@ -233,7 +233,7 @@ def sweep_n_newton(
     device: torch.device,
     dtype: torch.dtype,
 ) -> tuple[list[CandidateRow], WorkloadScale]:
-    """Run the cell at each candidate ``n_newton`` and collect step + residual.
+    """Run the cell at each candidate ``newton_iter_num`` and collect step + residual.
 
     The cell has one internal unknown per grid point (``V_X``), so the
     step-delta is a point-wise comparison reduced to its grid maximum. The
@@ -246,8 +246,8 @@ def sweep_n_newton(
     rows: list[CandidateRow] = []
     i_cell_typ__uA = 0.0
     v_x_prev: Tensor | None = None
-    for n_newton in candidates:
-        cell = _build_cell(cell_config, n_newton=n_newton, device=device, dtype=dtype)
+    for newton_iter_num in candidates:
+        cell = _build_cell(cell_config, newton_iter_num=newton_iter_num, device=device, dtype=dtype)
         v_x, cell_residual, i_cell = _solve_grid_for_candidate(
             cell,
             v_bl=v_bl,
@@ -266,7 +266,7 @@ def sweep_n_newton(
 
         rows.append(
             CandidateRow(
-                iter_count=n_newton,
+                iter_count=newton_iter_num,
                 step_max__V=step_max__V,
                 step_per_class__V={"v_x": step_max__V if step_max__V is not None else 0.0},
                 residual_max={"cell__uA": residual_max__uA},
@@ -326,7 +326,7 @@ def extract_linear_cell_config(
     v_wl_on__V: float,
     device: torch.device,
     dtype: torch.dtype,
-    n_newton: int | None = None,
+    newton_iter_num: int | None = None,
 ) -> XbarCell1t1rLinearConfig:
     """Extract the linearized-cell config from the Detail model at one OP.
 
@@ -352,14 +352,14 @@ def extract_linear_cell_config(
         v_wl_on__V: Word-line on drive.
         device: Torch device for the solves.
         dtype: Tensor dtype for the solves.
-        n_newton: Condensation count override for the extraction solves;
-            ``None`` keeps ``cell_config.n_newton``.
+        newton_iter_num: Condensation count override for the extraction solves;
+            ``None`` keeps ``cell_config.newton_iter_num``.
 
     Returns:
         A validated, buildable :class:`XbarCell1t1rLinearConfig`.
     """
-    count = cell_config.n_newton if n_newton is None else n_newton
-    cell = _build_cell(cell_config, n_newton=count, device=device, dtype=dtype)
+    count = cell_config.newton_iter_num if newton_iter_num is None else newton_iter_num
+    cell = _build_cell(cell_config, newton_iter_num=count, device=device, dtype=dtype)
     n_states = len(cell_config.state_to_g_map__uS)
     v_bl = torch.full((1, 1), v_bl_op__V, dtype=dtype, device=device)
     v_sl = torch.full((1, 1), v_sl_op__V, dtype=dtype, device=device)
@@ -408,14 +408,14 @@ _FRAGMENT_SECTION = "cell_config"
 """Top-level table both emitted fragments live under."""
 
 
-def n_newton_fragment_text(n_newton: int) -> str:
-    """The Detail ``n_newton`` fragment as TOML text (header comment + table)."""
+def newton_iter_num_fragment_text(newton_iter_num: int) -> str:
+    """The Detail ``newton_iter_num`` fragment as TOML text (header comment + table)."""
     header = (
-        "# Detail-cell n_newton pick emitted by neurox.tools.calibrate_cell\n"
+        "# Detail-cell newton_iter_num pick emitted by neurox.tools.calibrate_cell\n"
         "# (step-ratio plateau + margin). Merge into the scheme's Detail cell\n"
         "# fragment (its cell_config table).\n"
     )
-    return header + tomli_w.dumps({_FRAGMENT_SECTION: {"n_newton": n_newton}})
+    return header + tomli_w.dumps({_FRAGMENT_SECTION: {"newton_iter_num": newton_iter_num}})
 
 
 def linear_fragment_text(
@@ -447,7 +447,7 @@ def linear_fragment_text(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Calibrate XbarCell1t1rDetail access-node n_newton via step-ratio plateau "
+        description="Calibrate XbarCell1t1rDetail access-node newton_iter_num via step-ratio plateau "
         "and emit the Detail / Linear config fragments."
     )
     add_standard_args(parser, output_dir=True)
@@ -484,7 +484,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     log.info("=" * 80)
 
-    rows, scale = sweep_n_newton(
+    rows, scale = sweep_newton_iterations(
         cell_config=cell_config,
         candidates=cfg.sweep.candidates,
         grid=cfg.grid,
@@ -511,8 +511,8 @@ def main(argv: list[str] | None = None) -> int:
 
     final = pick.iter_count + cfg.sweep.margin
     log.info("=" * 80)
-    log.info("Picked n_newton = %d  (%s)", pick.iter_count, pick.reason)
-    log.info("Recommended with margin %d: n_newton = %d", cfg.sweep.margin, final)
+    log.info("Picked newton_iter_num = %d  (%s)", pick.iter_count, pick.reason)
+    log.info("Recommended with margin %d: newton_iter_num = %d", cfg.sweep.margin, final)
     log.info(
         "Residual guard ratio at pick: cell=%.3e  (reltol = %.1e)",
         pick.residual_guard_ratios.get("cell__uA", 0.0),
@@ -520,7 +520,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     log.info("")
     log.info("TOML fragment for the scheme's Detail cell_config table:")
-    log.info("    n_newton = %d", final)
+    log.info("    newton_iter_num = %d", final)
     log.info("=" * 80)
 
     # --- Linear-cell fragment at the nominal operating point ---
@@ -532,7 +532,7 @@ def main(argv: list[str] | None = None) -> int:
         v_wl_on__V=cfg.grid.v_wl_on__V,
         device=device,
         dtype=dtype,
-        n_newton=final,
+        newton_iter_num=final,
     )
     log.info(
         "Linear-cell divider tables at OP (v_bl = %.3f V, v_sl = %.3f V):",
@@ -559,9 +559,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.output_dir is not None:
         args.output_dir.mkdir(parents=True, exist_ok=True)
-        n_newton_path = args.output_dir / "cell_detail_n_newton.toml"
-        n_newton_path.write_text(n_newton_fragment_text(final))
-        log.info("wrote Detail n_newton fragment to %s", n_newton_path)
+        newton_iter_num_path = args.output_dir / "cell_detail_newton_iter_num.toml"
+        newton_iter_num_path.write_text(newton_iter_num_fragment_text(final))
+        log.info("wrote Detail newton_iter_num fragment to %s", newton_iter_num_path)
         linear_path = args.output_dir / "cell_linear.toml"
         linear_path.write_text(
             linear_fragment_text(linear_config, v_bl_op__V=cfg.grid.v_bl_op__V, v_sl_op__V=cfg.grid.v_sl_op__V)
@@ -572,7 +572,7 @@ def main(argv: list[str] | None = None) -> int:
 
 def _format_row(row: CandidateRow) -> str:
     step = f"{row.step_max__V:9.2e}" if row.step_max__V is not None else "     ---"
-    return f"n_newton={row.iter_count:3d}  step_v_x={step}  residual.cell.max={row.residual_max['cell__uA']:9.2e} uA"
+    return f"newton_iter_num={row.iter_count:3d}  step_v_x={step}  residual.cell.max={row.residual_max['cell__uA']:9.2e} uA"
 
 
 if __name__ == "__main__":

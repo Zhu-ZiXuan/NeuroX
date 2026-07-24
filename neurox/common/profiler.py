@@ -30,7 +30,7 @@ class EnergyEvent:
         module_type: Short class-name tag of the emitting module.
         dynamic_energy__fJ: Switching energy attributed to this call.
         channel: Optional sub-branch label the emitter passed to
-            ``_log_dynamic_energy``; ``None`` for an un-channelled event.
+            ``_record_dynamic_energy``; ``None`` for an un-channelled event.
     """
 
     module: ProfileMixin
@@ -206,7 +206,9 @@ class NeuroxProfiler:
         """Return the active profiler for this thread, or ``None``."""
         return getattr(cls._local, "current", None)
 
-    def _record_energy(self, *, module: ProfileMixin, dynamic_energy__fJ: Tensor, channel: str | None = None) -> None:
+    def _record_dynamic_energy(
+        self, *, module: ProfileMixin, dynamic_energy__fJ: Tensor, channel: str | None = None
+    ) -> None:
         self._pending_energy.append((module, channel, dynamic_energy__fJ.detach().sum()))
 
     def _record_latency(self, *, module: ProfileMixin, latency__ns: Tensor) -> None:

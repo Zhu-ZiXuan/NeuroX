@@ -47,7 +47,7 @@ class Selector(ModuleBase[SelectorConfig, SelectorPolicy]):
 
     # --- Fabrication source buffers ---
 
-    nominal_vth__V: Tensor
+    _nominal_vth__V: Tensor
 
     def __init__(
         self,
@@ -64,26 +64,26 @@ class Selector(ModuleBase[SelectorConfig, SelectorPolicy]):
     def _register_fabrication_buffers(self, *, dtype: torch.dtype) -> None:
         """Register immutable tensors used as fabrication sources."""
         self.register_buffer(
-            "nominal_vth__V",
+            "_nominal_vth__V",
             torch.tensor(self.config.vth_nominal__V, dtype=dtype),
             persistent=False,
         )
 
     def _sample_fabricate_mismatch(self) -> None:
-        self.vth__V = apply_gaussian(
-            self.nominal_vth__V.clone().expand(self.inst_shape),
+        self._vth__V = apply_gaussian(
+            self._nominal_vth__V.clone().expand(self.inst_shape),
             self.config.vth_mismatch__V,
             enabled=self.policy.vth_mismatch,
         )
 
     def sample_vth_like(self, reference: Tensor) -> Tensor:
-        """Broadcast the fabricated ``vth__V`` to ``reference``'s shape/device/dtype.
+        """Broadcast the fabricated threshold to ``reference``'s shape.
 
         Args:
-            reference: Tensor whose shape, device, and dtype define the
-                target threshold tensor (typically the cell-voltage tensor).
+            reference: Tensor whose shape defines the target threshold
+                tensor (typically the cell-voltage tensor).
 
         Returns:
             Threshold voltage tensor [V]. Shape: ``reference.shape``.
         """
-        return torch.broadcast_to(self.vth__V, reference.shape)
+        return torch.broadcast_to(self._vth__V, reference.shape)

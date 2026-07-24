@@ -47,7 +47,7 @@ def _ref_taps(taps: tuple[float, ...]) -> torch.Tensor:
         T__K=300.0,
     )
     ref.fabricate()
-    return ref.v_ref__V(ref.snapshot())
+    return ref.snapshot().v_refs__V
 
 
 # ---------------------------------------------------------------------------
@@ -61,8 +61,8 @@ def _ref_taps(taps: tuple[float, ...]) -> torch.Tensor:
 )
 def test_adc_mode_validation(adc_bits: int, n_states: int) -> None:
     mode = AdcMode(bits=adc_bits, n_states=n_states, max_signal=1.2)
-    assert mode.n_codes == 1 << adc_bits
-    assert math.isclose(mode.lsb, 1.2 / mode.n_codes)
+    assert mode.code_num == 1 << adc_bits
+    assert math.isclose(mode.lsb, 1.2 / mode.code_num)
 
 
 def test_adc_mode_rejects_invalid_combos() -> None:

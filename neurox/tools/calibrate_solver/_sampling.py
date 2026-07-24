@@ -1,7 +1,7 @@
 """Synthetic-workload sampling backend for the solver calibration tools.
 
 Scheme-agnostic: every helper reads only the :class:`CimMacro` base surface
-(``w_digit_range`` / ``x_range`` / ``col_num`` / ``w_digit_count`` /
+(``w_digit_value_range`` / ``x_value_range`` / ``col_num`` / ``w_digit_count`` /
 ``row_num``), so any registered macro works as the sampling host.
 """
 
@@ -62,7 +62,7 @@ def load_distribution(path: Path | None, xbar: CimMacro) -> Distribution:
 
     Args:
         path: TOML path or ``None``.
-        xbar: Built xbar — supplies ``w_digit_range`` / ``x_range`` for
+        xbar: Built xbar — supplies ``w_digit_value_range`` / ``x_value_range`` for
             value-set validation.
 
     Returns:
@@ -88,8 +88,8 @@ def load_distribution(path: Path | None, xbar: CimMacro) -> Distribution:
         raise ValueError(
             f"distribution TOML at {path}: unknown top-level key(s) {unknown}; only '[w]' and '[x]' are recognised"
         )
-    w_values, w_probs = _load_axis(raw, "w", xbar.w_digit_range)
-    x_values, x_probs = _load_axis(raw, "x", xbar.x_range)
+    w_values, w_probs = _load_axis(raw, "w", xbar.w_digit_value_range)
+    x_values, x_probs = _load_axis(raw, "x", xbar.x_value_range)
     return Distribution(
         w_values=w_values,
         w_probs=w_probs,
@@ -165,7 +165,7 @@ def sample_w(
     "at least N" coverage.
 
     With ``batch_w == 1`` (default), each yielded tensor matches
-    :attr:`_w_layout_shape` for an ``inst_shape=()`` xbar, i.e.
+    :attr:`w_layout_shape` for an ``inst_shape=()`` xbar, i.e.
     ``(col_num, w_digit_count, row_num)``. With ``batch_w > 1``, each
     yield is ``(batch_w, col_num, w_digit_count, row_num)``.
     """
@@ -182,7 +182,7 @@ def sample_w(
     num_yields = n // batch_w
     for _ in range(num_yields):
         if distribution.w_values is None:
-            lo, hi = xbar.w_digit_range
+            lo, hi = xbar.w_digit_value_range
             yield torch.randint(
                 lo,
                 hi + 1,
@@ -222,7 +222,7 @@ def sample_x_batches(
     while remaining > 0:
         cur = min(batch_size, remaining)
         if distribution.x_values is None:
-            lo, hi = xbar.x_range
+            lo, hi = xbar.x_value_range
             x = torch.randint(
                 lo,
                 hi + 1,

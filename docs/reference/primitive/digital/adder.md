@@ -54,7 +54,7 @@ Provenance terms: [module_parameter](../../../conventions/module_parameter.md). 
 |---|---|---|---|
 | $a$ | left operand (runtime input) | — | `a` |
 | $b$ | right operand, broadcastable to $a$ (runtime input) | — | `b` |
-| $y$ | element-wise sum | — | return of `operate` |
+| $y$ | element-wise sum | — | return of `add` |
 | $E_{\mathrm{op}}$ | dynamic energy per output element | fJ | `energy_per_op__fJ` |
 | $t_{\mathrm{op}}$ | latency per output element | ns | `latency_per_op__ns` |
 | $n_{\mathrm{serial}}$ | serial-op count of a call | — | `serial_op_count` |

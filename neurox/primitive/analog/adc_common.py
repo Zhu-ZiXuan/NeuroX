@@ -68,11 +68,11 @@ class AdcMode(ValidateMixin):
             raise ValueError(f"require: max_signal ({self.max_signal}) > 0")
 
     @property
-    def n_codes(self) -> int:
+    def code_num(self) -> int:
         """Number of distinct output codes — ``2 ** bits``."""
         return 1 << self.bits
 
     @property
     def lsb(self) -> float:
-        """Bin width — ``max_signal / n_codes``."""
-        return self.max_signal / self.n_codes
+        """Bin width — ``max_signal / code_num``."""
+        return self.max_signal / self.code_num

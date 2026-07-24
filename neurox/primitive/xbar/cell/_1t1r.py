@@ -47,9 +47,6 @@ class XbarCell1t1rConfig(XbarCellConfig, ABC):
     c_wl__fF: float
 
     def validate(self) -> None:
-        self.validate_node_caps()
-
-    def validate_node_caps(self) -> None:
         self._require_non_neg(self.c_bl__fF, "c_bl__fF")
         self._require_non_neg(self.c_x__fF, "c_x__fF")
         self._require_non_neg(self.c_sl__fF, "c_sl__fF")
@@ -105,12 +102,12 @@ class XbarCell1t1r(
         T__K: Operating temperature.
 
     Attributes:
-        w_states: Number of programmable weight states.
+        w_state_num: Number of programmable weight states.
     """
 
     # --- Subclass contract ---
 
-    w_states: int
+    w_state_num: int
 
     def __init__(
         self,
@@ -122,11 +119,6 @@ class XbarCell1t1r(
         T__K: float,
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=inst_shape, dtype=dtype, T__K=T__K)
-
-        self.c_bl__fF = config.c_bl__fF
-        self.c_x__fF = config.c_x__fF
-        self.c_sl__fF = config.c_sl__fF
-        self.c_wl__fF = config.c_wl__fF
 
     @classmethod
     def from_config(
@@ -159,7 +151,7 @@ class XbarCell1t1r(
             T__K=T__K,
         )
 
-    def dynamic_energy(
+    def compute_dynamic_energy(
         self,
         v_bl: Tensor,
         v_sl: Tensor,
@@ -180,9 +172,10 @@ class XbarCell1t1r(
         Returns:
             Per-cell switching energy [fJ]. Shape: ``[..., col, row]``.
         """
-        e_bl__fJ = self.c_bl__fF * v_bl.square()
-        e_x__fJ = self.c_x__fF * dcop.v_x__V.square()
-        e_sl__fJ = self.c_sl__fF * v_sl.square()
-        e_wl__fJ = self.c_wl__fF * snap.v_wl__V.square()
+        config = self.config
+        e_bl__fJ = config.c_bl__fF * v_bl.square()
+        e_x__fJ = config.c_x__fF * dcop.v_x__V.square()
+        e_sl__fJ = config.c_sl__fF * v_sl.square()
+        e_wl__fJ = config.c_wl__fF * snap.v_wl__V.square()
 
         return e_bl__fJ + e_x__fJ + e_sl__fJ + e_wl__fJ

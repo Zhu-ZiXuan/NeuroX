@@ -199,7 +199,7 @@ def test_w_digit_num_1_ternary_transfer(device: torch.device) -> None:
     """
     macro = build_calibrated_macro(device=device, w_digit_num=1)
     assert macro.w_digit_count == 1
-    assert macro.w_digit_range == (-1, 1)
+    assert macro.w_digit_value_range == (-1, 1)
 
     torch.manual_seed(11)
     w = torch.randint(-1, 2, (TINY_COL_NUM, TINY_ROW_NUM), dtype=torch.long)  # ternary

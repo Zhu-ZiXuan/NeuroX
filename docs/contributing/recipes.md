@@ -36,7 +36,7 @@ Applies to analog and digital leaf circuits that own their own silicon and emit 
 
 Use the common checklist, then:
 
-- Define `*Config` (extending the subsystem config base — e.g. `AnalogConfig` plus its own `area_per_inst__um2` / `leakage_per_inst__uW`, or `DigitalConfig`) and its `*Policy` without repeated dataclass decorators, plus validation groups.
+- Define `*Config` (extending the subsystem config base — e.g. `AnalogConfig` plus its own `area_per_inst__um2` / `leakage_per_inst__uW`, or `DigitalConfig`) and its `*Policy` without repeated dataclass decorators, plus their `validate()` checks.
 - Use the `ModuleBase` construction contract and the `ProfileMixin` emitter contract: set the bare per-instance PPA data (`_area_per_inst__um2` / `_leakage_per_inst__uW`) in `__init__`, which `area__um2` / `leakage__uW` scale by `inst_count`.
 - Implement the family or leaf primary method defined by its base class.
 - Emit dynamic energy and latency only for quantities this leaf owns.
@@ -114,7 +114,7 @@ Adding a policy switch is a deliberate breaking change: `*Policy` fields carry n
 Use the common checklist, then apply the six-step procedure:
 
 1. Add the `*Config` magnitude field when the source has one.
-2. Add the `validate_*` clause that bounds that field.
+2. Add the field's bounds directly to the owning class's `validate()` method.
 3. Add the `bool` field to `*Policy`, with no `enable_` prefix.
 4. Add the `apply_*` call gated by the policy `bool` on the runtime path.
 5. Set the value in every preset and config / policy TOML the switch reaches.

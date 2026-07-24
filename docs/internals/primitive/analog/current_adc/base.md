@@ -14,7 +14,7 @@ The abstract `SingleEndedCurrentAdc` carries config-keyed construction, the `con
 ## Contracts & invariants
 
 - **Uniform construction.** `from_config` builds every registered impl through one call shape, so each concrete current ADC must accept the base's construction arguments unchanged — narrowing or reordering them breaks dispatch. The shared shape is why the base accepts `dtype` / `T__K` it never uses; the subclass captures them.
-- **`record_latency` passthrough.** `__init__` and `from_config` accept `record_latency: bool = True` and forward it to `ModuleBase`. A leaf gates only its latency emission on this flag; dynamic energy remains enabled.
+- **`enable_latency_record` passthrough.** `__init__` and `from_config` accept `enable_latency_record: bool = True` and forward it to `ModuleBase`. A leaf gates only its latency emission on this flag; dynamic energy remains enabled.
 
 ---
 

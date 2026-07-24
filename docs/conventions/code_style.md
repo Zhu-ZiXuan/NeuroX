@@ -96,7 +96,9 @@ Use an integer or dotted hierarchical number, such as ``2`` or ``2.1``. Align ea
 - Declare config and policy descendants as ordinary classes inheriting `ConfigBase` or `PolicyBase`. The roots automatically apply `dataclass(frozen=True, kw_only=True)` to every descendant; never repeat `@dataclass` or write `__init__` on one.
 - Declare every field with an annotation and document it under `Attributes:` in the class docstring. Follow the explicit-value and parameter-ownership rules in [config and policy](../internals/config_and_policy.md).
 - Put config- and policy-domain checks in `validate()`. Both roots invoke the most-derived implementation after construction, so a descendant never declares `__post_init__` or calls `validate()` itself.
-- Preserve inherited validation. A descendant extending a parent with constraints calls `super().validate()` or invokes the parent's named validation groups before its own checks.
+- Preserve inherited validation. A descendant extending a parent with constraints calls `super().validate()` before checking its own fields.
+- Keep single-use validation groups inline in `validate()`. Separate substantial groups with an unnumbered `# --- Description ---` marker when that improves scanning; do not create `_validate_*` methods merely to move adjacent checks elsewhere.
+- Extract a validation helper only when the same check is genuinely reused or the helper implements a substantial standalone algorithm.
 - Treat freezing as shallow. Config and policy fields use immutable value types unless mutation is explicitly part of the field contract.
 
 ## Property vs method

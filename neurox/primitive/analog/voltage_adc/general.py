@@ -44,20 +44,16 @@ class GeneralDifferentialVoltageAdcConfig(DifferentialVoltageAdcConfig):
 
     def validate(self) -> None:
         super().validate()
-        self.validate_boundaries()
-        self.validate_noise()
-        self.validate_ppa()
 
-    def validate_boundaries(self) -> None:
+        # --- Transfer ---
+
         self._require_min_length(self.boundaries, 1, "boundaries")
         self._require_increasing(self.boundaries, "boundaries")
 
-    def validate_noise(self) -> None:
+        # --- Noise and PPA ---
+
         self._require_non_neg(self.sampling_noise__V, "sampling_noise__V")
         self._require_non_neg(self.comparator_noise__V, "comparator_noise__V")
-
-    def validate_ppa(self) -> None:
-        super().validate_ppa()
         self._require_non_neg(self.energy_per_op__fJ, "energy_per_op__fJ")
         self._require_non_neg(self.latency_per_op__ns, "latency_per_op__ns")
 
@@ -90,7 +86,7 @@ class GeneralDifferentialVoltageAdc(
 
     # --- Immutable model buffers ---
 
-    boundaries: Tensor
+    _boundaries: Tensor
 
     def __init__(
         self,
@@ -112,12 +108,12 @@ class GeneralDifferentialVoltageAdc(
         self._leakage_per_inst__uW = config.leakage_per_inst__uW
 
         boundaries_t = torch.tensor(config.boundaries, dtype=dtype)
-        self.register_buffer("boundaries", boundaries_t, persistent=False)
+        self.register_buffer("_boundaries", boundaries_t, persistent=False)
 
-        n_codes = boundaries_t.numel() + 1
-        self._bits = max(math.ceil(math.log2(n_codes)), 1)
-        self._n_codes = n_codes
-        self._zero_code = n_codes // 2
+        code_num = boundaries_t.numel() + 1
+        self._bits = max(math.ceil(math.log2(code_num)), 1)
+        self._code_num = code_num
+        self._zero_code = code_num // 2
 
         if boundaries_t.numel() >= 2:
             self._lsb_estimate = float((boundaries_t[1:] - boundaries_t[:-1]).mean().item())
@@ -134,17 +130,17 @@ class GeneralDifferentialVoltageAdc(
 
     @property
     def zero_code(self) -> int:
-        """Raw code representing analog zero — the fixed bucket midpoint ``n_codes // 2``."""
+        """Raw code representing analog zero — the fixed bucket midpoint ``code_num // 2``."""
         return self._zero_code
 
     def unsigned_range(self, bits: int) -> tuple[int, int]:
-        """Realisable raw code bounds at ``bits`` — ``(0, n_codes - 1)``.
+        """Realisable raw code bounds at ``bits`` — ``(0, code_num - 1)``.
 
         The code count is fixed at construction and may not equal
         ``2 ** bits``. ``bits`` is accepted but does not alter the range.
         """
         del bits
-        return 0, self._n_codes - 1
+        return 0, self._code_num - 1
 
     def zero_offset(self, bits: int) -> int:
         """Bucket-midpoint zero code, bit-independent (single fixed bit width)."""
@@ -170,7 +166,7 @@ class GeneralDifferentialVoltageAdc(
 
         Returns:
             Raw unsigned ``int16`` bucket-index code tensor in
-            ``[0, n_codes - 1]``, shaped like ``v_pos__V``.
+            ``[0, code_num - 1]``, shaped like ``v_pos__V``.
         """
         del v_ref__V
         self._validate_runtime_args(bits)
@@ -191,7 +187,7 @@ class GeneralDifferentialVoltageAdc(
 
         code = floor_bucketize(
             signal,
-            self.boundaries,
+            self._boundaries,
             out_dtype=torch.int16,
             training=self.training,
             lsb=self._lsb_estimate,
@@ -204,11 +200,11 @@ class GeneralDifferentialVoltageAdc(
             device=code.device,
             dtype=dynamic_energy__fJ.dtype,
         )
-        self._log_dynamic_energy(dynamic_energy__fJ)
-        self._log_latency(latency__ns)
+        self._record_dynamic_energy(dynamic_energy__fJ)
+        self._record_latency(latency__ns)
 
         # Stochastic jitter may cross either outer bucket boundary.
-        return code.clamp(min=0, max=self._n_codes - 1)
+        return code.clamp(min=0, max=self._code_num - 1)
 
     def _validate_runtime_args(self, bits: int) -> None:
         if bits != self._bits:

@@ -37,8 +37,8 @@ Provenance terms are defined in [module_parameter](../../../conventions/module_p
 
 | Symbol | Meaning | Unit | Code field |
 |---|---|---|---|
-| $V_{\mathrm{th}}$ | per-cell fabricated threshold voltage | V | `vth__V` |
-| $V_{\mathrm{th,nom}}$ | nominal threshold voltage | V | `nominal_vth__V` |
+| $V_{\mathrm{th}}$ | per-cell fabricated threshold voltage | V | `_vth__V` |
+| $V_{\mathrm{th,nom}}$ | nominal threshold voltage | V | `config.vth_nominal__V` |
 | $\sigma_{V_{\mathrm{th}}}$ | mismatch sigma | V | `vth_mismatch__V` |
 
 ## Assumptions, scope & validity

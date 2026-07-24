@@ -169,7 +169,7 @@ class XbarCell(
         raise NotImplementedError
 
     @abstractmethod
-    def dynamic_energy(
+    def compute_dynamic_energy(
         self,
         v_bl: Tensor,
         v_sl: Tensor,

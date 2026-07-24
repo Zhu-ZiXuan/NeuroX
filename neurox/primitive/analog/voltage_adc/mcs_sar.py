@@ -52,29 +52,22 @@ class McsSarDifferentialVoltageAdcConfig(DifferentialVoltageAdcConfig):
 
     def validate(self) -> None:
         super().validate()
-        self.validate_topology()
-        self.validate_timing()
-        self.validate_cdac()
-        self.validate_comparator()
-        self.validate_energy()
-        self.validate_ppa()
 
-    def validate_topology(self) -> None:
+        # --- Topology and timing ---
+
         if not (self.max_bits >= 2):
             raise ValueError(f"require: max_bits ({self.max_bits}) >= 2")
-
-    def validate_timing(self) -> None:
         self._require_pos(self.clk_period__ns, "clk_period__ns")
 
-    def validate_cdac(self) -> None:
+        # --- CDAC and comparator ---
+
         self._require_pos(self.c_unit__fF, "c_unit__fF")
         self._require_non_neg(self.cap_mismatch_sigma_relative, "cap_mismatch_sigma_relative")
-
-    def validate_comparator(self) -> None:
         self._require_non_neg(self.comparator_offset_sigma__V, "comparator_offset_sigma__V")
         self._require_non_neg(self.comparator_thermal_noise_sigma__V, "comparator_thermal_noise_sigma__V")
 
-    def validate_energy(self) -> None:
+        # --- Energy ---
+
         self._require_non_neg(self.e_bootstrap__fJ, "e_bootstrap__fJ")
         self._require_non_neg(self.e_constant_per_bit__fJ, "e_constant_per_bit__fJ")
 
@@ -111,8 +104,8 @@ class McsSarDifferentialVoltageAdc(
 
     # --- Fabrication source buffers ---
 
-    nominal_c__fF: Tensor
-    nominal_comparator_offset__V: Tensor
+    _nominal_c__fF: Tensor
+    _nominal_comparator_offset__V: Tensor
 
     def __init__(
         self,
@@ -135,11 +128,11 @@ class McsSarDifferentialVoltageAdc(
 
         self._area_per_inst__um2 = config.area_per_inst__um2
         self._leakage_per_inst__uW = config.leakage_per_inst__uW
-        self.T__K = T__K
+        self._T__K = T__K
 
-        self.comparator_noise_sigma__V = config.comparator_thermal_noise_sigma__V * math.sqrt(T__K / 300.0)
+        self._comparator_noise_sigma__V = config.comparator_thermal_noise_sigma__V * math.sqrt(T__K / 300.0)
 
-        self.n_caps = config.max_bits
+        self._cap_num = config.max_bits
         self._register_fabrication_buffers(dtype=dtype)
 
         # Precompute integer tables to avoid symbolic left shifts at runtime.
@@ -154,9 +147,9 @@ class McsSarDifferentialVoltageAdc(
             [c_unit] + [c_unit * (2**k) for k in range(config.max_bits - 1)],
             dtype=dtype,
         )
-        self.register_buffer("nominal_c__fF", nominal_c__fF, persistent=False)
+        self.register_buffer("_nominal_c__fF", nominal_c__fF, persistent=False)
         self.register_buffer(
-            "nominal_comparator_offset__V",
+            "_nominal_comparator_offset__V",
             torch.zeros((), dtype=dtype),
             persistent=False,
         )
@@ -184,22 +177,22 @@ class McsSarDifferentialVoltageAdc(
     def _sample_fabricate_mismatch(self) -> None:
         # Two independently-sampled cap arrays for the differential CDAC.
         policy = self.policy
-        self.c_p__fF = apply_pelgrom_mismatch(
-            self.nominal_c__fF.clone().expand(*self.inst_shape, self.n_caps),
+        self._c_p__fF = apply_pelgrom_mismatch(
+            self._nominal_c__fF.clone().expand(*self.inst_shape, self._cap_num),
             self.config.cap_mismatch_sigma_relative,
             unit=self.config.c_unit__fF,
             floor=0.1 * self.config.c_unit__fF,
             enabled=policy.cap_mismatch,
         )
-        self.c_n__fF = apply_pelgrom_mismatch(
-            self.nominal_c__fF.clone().expand(*self.inst_shape, self.n_caps),
+        self._c_n__fF = apply_pelgrom_mismatch(
+            self._nominal_c__fF.clone().expand(*self.inst_shape, self._cap_num),
             self.config.cap_mismatch_sigma_relative,
             unit=self.config.c_unit__fF,
             floor=0.1 * self.config.c_unit__fF,
             enabled=policy.cap_mismatch,
         )
-        self.comparator_offset__V = apply_gaussian(
-            self.nominal_comparator_offset__V.clone().expand(self.inst_shape),
+        self._comparator_offset__V = apply_gaussian(
+            self._nominal_comparator_offset__V.clone().expand(self.inst_shape),
             self.config.comparator_offset_sigma__V,
             enabled=policy.comparator_offset,
         )
@@ -227,11 +220,11 @@ class McsSarDifferentialVoltageAdc(
 
         v_cm__V = 0.5 * v_ref__V
 
-        c_p__fF = self.c_p__fF
-        c_n__fF = self.c_n__fF
-        # Shape: [..., n_caps] -> [...]
+        c_p__fF = self._c_p__fF
+        c_n__fF = self._c_n__fF
+        # Shape: [..., cap_num] -> [...]
         c_p_total__fF = c_p__fF.sum(dim=-1)
-        # Shape: [..., n_caps] -> [...]
+        # Shape: [..., cap_num] -> [...]
         c_n_total__fF = c_n__fF.sum(dim=-1)
 
         # --- 1: sample and hold ---
@@ -242,7 +235,7 @@ class McsSarDifferentialVoltageAdc(
         v_n_top__V = 2 * v_cm__V - v_neg__V
 
         # sample thermal noise on each held top plate (per-leg kT/C).
-        kt__fJ = K_BOLTZMANN__J_per_K * self.T__K * 1e15
+        kt__fJ = K_BOLTZMANN__J_per_K * self._T__K * 1e15
         v_p_top__V = apply_gaussian(
             v_p_top__V, torch.sqrt(kt__fJ / c_p_total__fF), enabled=self.policy.sampling_thermal_noise
         )
@@ -265,9 +258,9 @@ class McsSarDifferentialVoltageAdc(
 
         # The active capacitor slice is indexed directly by the SAR bit.
         cap_lo = self.config.max_bits - bits + 1
-        # Shape: [..., n_caps] -> [..., bits-1]
+        # Shape: [..., cap_num] -> [..., bits-1]
         c_p_used__fF = c_p__fF[..., cap_lo : self.config.max_bits]
-        # Shape: [..., n_caps] -> [..., bits-1]
+        # Shape: [..., cap_num] -> [..., bits-1]
         c_n_used__fF = c_n__fF[..., cap_lo : self.config.max_bits]
         # Shape: [...] -> [..., 1]
         c_p_total_e__fF = c_p_total__fF.unsqueeze(-1)
@@ -326,8 +319,8 @@ class McsSarDifferentialVoltageAdc(
             device=code.device,
             dtype=e_dynamic__fJ.dtype,
         )
-        self._log_dynamic_energy(e_dynamic__fJ)
-        self._log_latency(latency__ns)
+        self._record_dynamic_energy(e_dynamic__fJ)
+        self._record_latency(latency__ns)
         return code
 
     def _compare(self, v_pos__V: Tensor, v_neg__V: Tensor) -> Tensor:
@@ -345,10 +338,10 @@ class McsSarDifferentialVoltageAdc(
         """
         v_diff__V = apply_gaussian(
             v_pos__V - v_neg__V,
-            self.comparator_noise_sigma__V,
+            self._comparator_noise_sigma__V,
             enabled=self.policy.comparator_thermal_noise,
         )
-        return v_diff__V > self.comparator_offset__V
+        return v_diff__V > self._comparator_offset__V
 
     def _validate_runtime_args(self, bits: int) -> None:
         if not (1 <= bits <= self.config.max_bits):

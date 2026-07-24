@@ -42,7 +42,7 @@ The array's own parameters are the interconnect ladder and the solver iteration 
 
 | Parameter | Meaning | Unit | Constraint | Source |
 |---|---|---|---|---|
-| `cell_config` | 1T1R cell sub-module config (devices, sizing, state map, `n_newton`) | — | — | see [cell](../../cell/_1t1r/cell.md) |
+| `cell_config` | 1T1R cell sub-module config (devices, sizing, state map, `newton_iter_num`) | — | — | see [cell](../../cell/_1t1r/cell.md) |
 | BL/SL/WL `first_*` / `segment_*` R, C | array interconnect ladders | MOhm, fF | $> 0$ | Extracted |
 | solver iteration counts | numerical settling | — | integer $\ge 1$ | Calibrated (numerical convergence) |
 
@@ -69,8 +69,8 @@ where $V_L, V_R$ are the segment-endpoint voltages. The read-current DC conducti
 | $V_{\mathrm{final}}$ | grounded cap node voltage | V | solver node voltages |
 | $I_{\mathrm{cell},k}$ | condensed cell branch current (BL $\to$ SL) | uA | `cell.solve_branch` |
 | $I_{\mathrm{BL,port}}, I_{\mathrm{SL,port}}$ | first-segment boundary port currents | uA | derived from node voltages |
-| $G_{\mathrm{seg}}$ | wire segment conductance | uS | `bl_segment_g__uS`, `sl_segment_g__uS` |
-| $G_{\mathrm{seg},0}$ | first wire-segment conductance | uS | `bl_segment_g__uS[0]`, `sl_segment_g__uS[0]` |
+| $G_{\mathrm{seg}}$ | wire segment conductance | uS | `_bl_segment_g__uS`, `_sl_segment_g__uS` |
+| $G_{\mathrm{seg},0}$ | first wire-segment conductance | uS | `_bl_segment_g__uS[0]`, `_sl_segment_g__uS[0]` |
 | $G_{\mathrm{RRAM}}$ | RRAM conductance | uS | `cell_config.state_to_g_map__uS` |
 | $G_{\mathrm{RRAM,max}}$ | max programmable RRAM conductance | uS | `cell_config.rram_g_max__uS` |
 | $G_{\mathrm{min}}$ | RRAM device conductance floor | uS | `cell_config.rram_config.g_min__uS` |

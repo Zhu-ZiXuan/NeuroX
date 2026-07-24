@@ -1,10 +1,10 @@
 # Run-config for neurox.tools.calibrate_cell._1t1r on the xue2020jssc Detail cell.
 #
-# Calibrates the XbarCell1t1rDetail access-node condensation count (n_newton) via
+# Calibrates the XbarCell1t1rDetail access-node condensation count (newton_iter_num) via
 # step-ratio plateau, and in the SAME run extracts the linearized-cell fragment
 # (XbarCell1t1rLinearConfig: per-(state, WL-level) chord conductance + BL-side
 # drop fraction) at the nominal read OP. The two emitted TOML fragments (--output-dir):
-#   - cell_detail_n_newton.toml : the margined n_newton;
+#   - cell_detail_newton_iter_num.toml : the margined newton_iter_num;
 #   - cell_linear.toml          : the Linear chord tables + node caps + WL threshold
 #                                 EXTRACTED from the Detail source.
 #
@@ -15,7 +15,7 @@
 # Only the RRAM R-ratio is paper-sourced, so the absolute g_map is a declared value (spec S1):
 # the Detail extraction gives g_cell_on ~= [5.0, 94.6] uS (the LRS chord sags ~5.4 % from the
 # access-NMOS series drop) and vx_ratio_on ~= [0.997, 0.943]. The emitted cell_linear.toml
-# carries a header pointing array_config.cell_config at itself, and the n_newton fragment
+# carries a header pointing array_config.cell_config at itself, and the newton_iter_num fragment
 # characterizes the Detail-source access-node plateau.
 #
 # The Detail cell under calibration is the shared source model params_detail.toml;
@@ -45,7 +45,7 @@ v_sl_op__V = 0.0                  # source line grounded
 candidates = [2, 4, 6, 8, 10, 12]
 ratio_threshold = 0.5             # step-ratio plateau threshold (methodological)
 reltol = 1e-2                     # relative-residual guard (methodological, not chip-tuned)
-margin = 1                        # +1 safety margin on the picked n_newton
+margin = 1                        # +1 safety margin on the picked newton_iter_num
 
 [runtime]
 dtype = "float32"                 # match the fp32 production dtype (the runtime Linear cell is fp32)

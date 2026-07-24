@@ -66,17 +66,15 @@ class SarSingleEndedCurrentAdcConfig(SingleEndedCurrentAdcConfig):
     mirror_mismatch_sigma_relative: float
 
     def validate(self) -> None:
-        self.validate_quantizer()
-        self.validate_energy()
-        self.validate_timing()
-        self.validate_nonideality()
-        self.validate_ppa()
+        super().validate()
 
-    def validate_quantizer(self) -> None:
+        # --- Quantizer ---
+
         self._require_pos(self.bits, "bits")
         self._require_pos(self.margin_gain, "margin_gain")
 
-    def validate_energy(self) -> None:
+        # --- Energy and timing ---
+
         self._require_non_neg(self.e_fixed_per_op__fJ, "e_fixed_per_op__fJ")
         self._require_non_neg(self.v_rail__V, "v_rail__V")
         if len(self.t_conduct_per_step__ns) < self.bits:
@@ -86,13 +84,13 @@ class SarSingleEndedCurrentAdcConfig(SingleEndedCurrentAdcConfig):
         for t in self.t_conduct_per_step__ns:
             self._require_non_neg(t, "t_conduct_per_step__ns")
 
-    def validate_timing(self) -> None:
         if len(self.step_latency__ns) < self.bits:
             raise ValueError(f"require: len(step_latency__ns) ({len(self.step_latency__ns)}) >= bits ({self.bits})")
         for latency in self.step_latency__ns:
             self._require_non_neg(latency, "step_latency__ns")
 
-    def validate_nonideality(self) -> None:
+        # --- Nonidealities ---
+
         self._require_non_neg(self.comparator_offset_sigma__uA, "comparator_offset_sigma__uA")
         self._require_non_neg(self.coupling_mismatch_sigma__uA, "coupling_mismatch_sigma__uA")
         self._require_non_neg(self.mirror_mismatch_sigma_relative, "mirror_mismatch_sigma_relative")
@@ -129,13 +127,13 @@ class SarSingleEndedCurrentAdc(SingleEndedCurrentAdc[SarSingleEndedCurrentAdcCon
         inst_shape: Fabricated shared-sense-lane shape.
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature.
-        record_latency: Whether conversions emit latency events.
+        enable_latency_record: Whether conversions emit latency events.
     """
 
     # --- Fabrication source buffers ---
 
-    nominal_comparator_offset__uA: Tensor
-    nominal_coupling_offset__uA: Tensor
+    _nominal_comparator_offset__uA: Tensor
+    _nominal_coupling_offset__uA: Tensor
 
     def __init__(
         self,
@@ -145,7 +143,7 @@ class SarSingleEndedCurrentAdc(SingleEndedCurrentAdc[SarSingleEndedCurrentAdcCon
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
-        record_latency: bool = True,
+        enable_latency_record: bool = True,
     ) -> None:
         super().__init__(
             config=config,
@@ -153,7 +151,7 @@ class SarSingleEndedCurrentAdc(SingleEndedCurrentAdc[SarSingleEndedCurrentAdcCon
             inst_shape=inst_shape,
             dtype=dtype,
             T__K=T__K,
-            record_latency=record_latency,
+            enable_latency_record=enable_latency_record,
         )
         self._area_per_inst__um2 = config.area_per_inst__um2
         self._leakage_per_inst__uW = config.leakage_per_inst__uW
@@ -161,8 +159,8 @@ class SarSingleEndedCurrentAdc(SingleEndedCurrentAdc[SarSingleEndedCurrentAdcCon
 
     def _register_fabrication_buffers(self, *, dtype: torch.dtype) -> None:
         """Register immutable tensors used as fabrication sources."""
-        self.register_buffer("nominal_comparator_offset__uA", torch.zeros((), dtype=dtype), persistent=False)
-        self.register_buffer("nominal_coupling_offset__uA", torch.zeros((), dtype=dtype), persistent=False)
+        self.register_buffer("_nominal_comparator_offset__uA", torch.zeros((), dtype=dtype), persistent=False)
+        self.register_buffer("_nominal_coupling_offset__uA", torch.zeros((), dtype=dtype), persistent=False)
 
     @property
     def max_bits(self) -> int:
@@ -176,13 +174,13 @@ class SarSingleEndedCurrentAdc(SingleEndedCurrentAdc[SarSingleEndedCurrentAdcCon
         return 0, (1 << bits) - 1
 
     def _sample_fabricate_mismatch(self) -> None:
-        self.comparator_offset__uA = apply_gaussian(
-            self.nominal_comparator_offset__uA.clone().expand(self.inst_shape),
+        self._comparator_offset__uA = apply_gaussian(
+            self._nominal_comparator_offset__uA.clone().expand(self.inst_shape),
             self.config.comparator_offset_sigma__uA,
             enabled=self.policy.comparator_offset,
         )
-        self.coupling_offset__uA = apply_gaussian(
-            self.nominal_coupling_offset__uA.clone().expand(self.inst_shape),
+        self._coupling_offset__uA = apply_gaussian(
+            self._nominal_coupling_offset__uA.clone().expand(self.inst_shape),
             self.config.coupling_mismatch_sigma__uA,
             enabled=self.policy.coupling_mismatch,
         )
@@ -241,7 +239,7 @@ class SarSingleEndedCurrentAdc(SingleEndedCurrentAdc[SarSingleEndedCurrentAdcCon
         # The fabricated lane offset remains fixed throughout the binary search.
         lane = self._col_to_lane(i_in__uA.shape[-1], i_in__uA.device)
         # Shape: [*prefix, n_lane] -> [*prefix, n_col]
-        offset__uA = (self.comparator_offset__uA + self.coupling_offset__uA).index_select(-1, lane)
+        offset__uA = (self._comparator_offset__uA + self._coupling_offset__uA).index_select(-1, lane)
 
         for step in range(bits):
             i_ref__uA = self._select_ref(ref_b, code, step, bits)
@@ -255,21 +253,21 @@ class SarSingleEndedCurrentAdc(SingleEndedCurrentAdc[SarSingleEndedCurrentAdcCon
                 e_dyn__fJ
                 + e_fixed
                 + v_rail * (i_in__uA + i_ref__uA) * t_conduct[step]
-                + self._input_dynamic_energy__fJ(i_in__uA, i_ref__uA)
+                + self._compute_input_dynamic_energy__fJ(i_in__uA, i_ref__uA)
             )
 
-        self._log_dynamic_energy(e_dyn__fJ)
-        if self.record_latency:
+        self._record_dynamic_energy(e_dyn__fJ)
+        if self.enable_latency_record:
             latency__ns = torch.tensor(
-                sum(self.config.step_latency__ns[:bits]) * self._serial_op_count(i_in__uA),
+                sum(self.config.step_latency__ns[:bits]) * self._count_serial_ops(i_in__uA),
                 device=i_in__uA.device,
                 dtype=e_dyn__fJ.dtype,
             )
-            self._log_latency(latency__ns)
+            self._record_latency(latency__ns)
 
         return code
 
-    def _input_dynamic_energy__fJ(self, i_in__uA: Tensor, i_ref__uA: Tensor) -> Tensor:
+    def _compute_input_dynamic_energy__fJ(self, i_in__uA: Tensor, i_ref__uA: Tensor) -> Tensor:
         """Return additional per-step conduction energy.
 
         Args:
@@ -307,7 +305,7 @@ class SarSingleEndedCurrentAdc(SingleEndedCurrentAdc[SarSingleEndedCurrentAdcCon
         bit_pos = bits - 1 - step
         return code | (bit.long() << bit_pos)
 
-    def _serial_op_count(self, out: Tensor) -> int:
+    def _count_serial_ops(self, out: Tensor) -> int:
         """Return the serial-operation count for latency.
 
         Args:

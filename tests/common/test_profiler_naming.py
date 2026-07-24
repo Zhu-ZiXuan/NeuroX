@@ -29,9 +29,9 @@ class _Leaf(nn.Module, ProfileMixin):
 
     def run(self, *, channel: str | None = None) -> None:
         if self._energy__fJ:
-            self._log_dynamic_energy(torch.tensor(self._energy__fJ), channel=channel)
+            self._record_dynamic_energy(torch.tensor(self._energy__fJ), channel=channel)
         if self._latency__ns:
-            self._log_latency(torch.tensor(self._latency__ns))
+            self._record_latency(torch.tensor(self._latency__ns))
 
 
 class _Owner(nn.Module):

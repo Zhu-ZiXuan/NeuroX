@@ -53,16 +53,15 @@ class MosfetConfig(ConfigBase):
     A_beta_relative__um: float
 
     def validate(self) -> None:
-        self.validate_process()
-        self.validate_mismatch()
+        # --- Process ---
 
-    def validate_process(self) -> None:
         self._require_pos(self.T_nom__K, "T_nom__K")
         self._require_pos(self.c_ox__fF_per_um2, "c_ox__fF_per_um2")
         self._require_pos(self.mu0__cm2_per_V_s, "mu0__cm2_per_V_s")
         self._require_gt(self.n_factor, "n_factor", 1.0)
 
-    def validate_mismatch(self) -> None:
+        # --- Mismatch ---
+
         self._require_non_neg(self.A_vt__mV_um, "A_vt__mV_um")
         self._require_non_neg(self.A_beta_relative__um, "A_beta_relative__um")
 
@@ -128,8 +127,8 @@ class Mosfet(ModuleBase[MosfetConfig, MosfetPolicy], ABC):
 
     # --- Fabrication source buffers ---
 
-    nominal_beta__uA_per_V2: Tensor
-    nominal_vth__V: Tensor
+    _nominal_beta__uA_per_V2: Tensor
+    _nominal_vth__V: Tensor
 
     @property
     @abstractmethod
@@ -177,8 +176,8 @@ class Mosfet(ModuleBase[MosfetConfig, MosfetPolicy], ABC):
 
         # Pelgrom area-scaled sigma precomputed once.
         nominal_isqrt_area__per_um = 1.0 / math.sqrt(W__um * L__um)
-        self.sigma_vth__V = config.A_vt__mV_um * 1e-3 * nominal_isqrt_area__per_um
-        self.sigma_beta__uA_per_V2 = nominal_beta__uA_per_V2 * config.A_beta_relative__um * nominal_isqrt_area__per_um
+        self._sigma_vth__V = config.A_vt__mV_um * 1e-3 * nominal_isqrt_area__per_um
+        self._sigma_beta__uA_per_V2 = nominal_beta__uA_per_V2 * config.A_beta_relative__um * nominal_isqrt_area__per_um
 
     def _register_fabrication_buffers(
         self,
@@ -189,25 +188,25 @@ class Mosfet(ModuleBase[MosfetConfig, MosfetPolicy], ABC):
     ) -> None:
         """Register immutable tensors used as fabrication sources."""
         self.register_buffer(
-            "nominal_beta__uA_per_V2",
+            "_nominal_beta__uA_per_V2",
             torch.tensor(nominal_beta__uA_per_V2, dtype=dtype),
             persistent=False,
         )
         self.register_buffer(
-            "nominal_vth__V",
+            "_nominal_vth__V",
             torch.tensor(nominal_vth__V, dtype=dtype),
             persistent=False,
         )
 
     def _sample_fabricate_mismatch(self) -> None:
-        self.beta__uA_per_V2 = apply_gaussian(
-            self.nominal_beta__uA_per_V2.clone().expand(self.inst_shape),
-            self.sigma_beta__uA_per_V2,
+        self._beta__uA_per_V2 = apply_gaussian(
+            self._nominal_beta__uA_per_V2.clone().expand(self.inst_shape),
+            self._sigma_beta__uA_per_V2,
             enabled=self.policy.A_beta_mismatch,
         )
-        self.vth__V = apply_gaussian(
-            self.nominal_vth__V.clone().expand(self.inst_shape),
-            self.sigma_vth__V,
+        self._vth__V = apply_gaussian(
+            self._nominal_vth__V.clone().expand(self.inst_shape),
+            self._sigma_vth__V,
             enabled=self.policy.A_vt_mismatch,
         )
 
@@ -229,8 +228,8 @@ class Mosfet(ModuleBase[MosfetConfig, MosfetPolicy], ABC):
         Returns:
             Per-call snap of the fabricated state.
         """
-        vth_view = self.vth__V.expand(shape) if shape else self.vth__V
-        beta_view = self.beta__uA_per_V2.expand(shape) if shape else self.beta__uA_per_V2
+        vth_view = self._vth__V.expand(shape) if shape else self._vth__V
+        beta_view = self._beta__uA_per_V2.expand(shape) if shape else self._beta__uA_per_V2
         if multi_coords is None:
             return MosfetSnap(vth__V=vth_view, beta__uA_per_V2=beta_view)
         return MosfetSnap(

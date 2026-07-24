@@ -65,8 +65,8 @@ Provenance terms are defined in [module_parameter](../../../conventions/module_p
 
 | Symbol | Meaning | Unit | Code field |
 |---|---|---|---|
-| $G$ | per-cell programmed conductance | uS | `g__uS` |
-| $G_{\min}, G_{\max}$ | working-range bounds | uS | `g_min__uS`, `g_max__uS` |
+| $G$ | per-cell programmed conductance | uS | `_g__uS`; read as `RramSnap.g__uS` |
+| $G_{\min}, G_{\max}$ | working-range bounds | uS | `_g_min__uS`, `_g_max__uS` |
 | $G_{\mathrm{lo}}, G_{\mathrm{hi}}$ | `prog_gamma` normalization bounds (independent of $G_{\min}, G_{\max}$) | uS | `prog_gamma.min_val`, `prog_gamma.max_val` |
 | $\hat G$ | normalized conductance state | — | — |
 | $V$ | device terminal voltage (runtime input) | V | `v__V` |

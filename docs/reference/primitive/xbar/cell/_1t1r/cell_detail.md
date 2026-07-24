@@ -40,7 +40,7 @@ In addition to the [shared family parameters](cell.md):
 | `access_nmos_W__um` | access-NMOS width | um | $> 0$ | Design |
 | `access_nmos_L__um` | access-NMOS length | um | $> 0$ | Design |
 | `rram_g_max__uS` | maximum programmable RRAM conductance | uS | $> G_{\mathrm{min}}$ | Design |
-| `n_newton` | per-cell access-node Newton iteration count | — | $\ge 1$ | Calibrated (numerical convergence) |
+| `newton_iter_num` | per-cell access-node Newton iteration count | — | $\ge 1$ | Calibrated (numerical convergence) |
 
 Provenance terms are defined in [module_parameter](../../../../../conventions/module_parameter.md); how to obtain values for a new chip: [calibration guide](../../../../../guides/calibration/README.md).
 

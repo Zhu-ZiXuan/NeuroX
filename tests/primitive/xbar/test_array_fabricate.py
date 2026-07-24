@@ -43,7 +43,7 @@ def _array_config() -> XbarArray1t1rConfig:
         access_nmos_W__um=0.1,
         access_nmos_L__um=0.05,
         rram_g_max__uS=100.0,
-        n_newton=2,
+        newton_iter_num=2,
     )
     return XbarArray1t1rConfig(
         row_first_space__um=1.0,

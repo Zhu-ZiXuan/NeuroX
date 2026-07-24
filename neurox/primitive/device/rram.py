@@ -52,22 +52,15 @@ class RramConfig(ConfigBase):
     stuck_at: StuckAtFaultConfig
 
     def validate(self) -> None:
-        self.validate_range()
-        self.validate_iv()
-        self.validate_drift()
-        self.validate_noise()
+        # --- Conductance and I-V ---
 
-    def validate_range(self) -> None:
         self._require_non_neg(self.g_min__uS, "g_min__uS")
-
-    def validate_iv(self) -> None:
         self._require_non_neg(self.nonlinearity_alpha, "nonlinearity_alpha")
 
-    def validate_drift(self) -> None:
+        # --- Drift and noise ---
+
         self._require_non_neg(self.drift_decay_rate, "drift_decay_rate")
         self._require_non_neg(self.drift_t0, "drift_t0")
-
-    def validate_noise(self) -> None:
         self._require_non_neg(self.read_thermal__uS, "read_thermal__uS")
 
 
@@ -140,8 +133,8 @@ class Rram(ModuleBase[RramConfig, RramPolicy]):
         if not (g_max__uS > config.g_min__uS):
             raise ValueError(f"require: g_max__uS ({g_max__uS}) > config.g_min__uS ({config.g_min__uS})")
 
-        self.g_min__uS = config.g_min__uS
-        self.g_max__uS = g_max__uS
+        self._g_min__uS = config.g_min__uS
+        self._g_max__uS = g_max__uS
 
     def _sample_fabricate_mismatch(self) -> None:
         pass
@@ -154,7 +147,7 @@ class Rram(ModuleBase[RramConfig, RramPolicy]):
                 preserved in the programmed state.
             t_elapsed: Time elapsed since programming [s].
         """
-        g__uS = target_g__uS.clamp(self.g_min__uS, self.g_max__uS)
+        g__uS = target_g__uS.clamp(self._g_min__uS, self._g_max__uS)
         g__uS = apply_state_dependent_gamma(g__uS, self.config.prog_gamma, enabled=self.policy.prog_gamma)
         if self.config.drift_decay_rate > 0.0 and t_elapsed > self.config.drift_t0:
             drift_factor = (t_elapsed / self.config.drift_t0) ** (-self.config.drift_decay_rate)
@@ -163,14 +156,14 @@ class Rram(ModuleBase[RramConfig, RramPolicy]):
         g__uS = apply_stuck_at_fault(
             x=g__uS,
             config=self.config.stuck_at,
-            min_val=self.g_min__uS,
-            max_val=self.g_max__uS,
+            min_val=self._g_min__uS,
+            max_val=self._g_max__uS,
             enabled=self.policy.stuck_at,
         )
 
-        g__uS = g__uS.clamp(self.g_min__uS, self.g_max__uS)
+        g__uS = g__uS.clamp(self._g_min__uS, self._g_max__uS)
 
-        self.g__uS = g__uS
+        self._g__uS = g__uS
 
     def snapshot(
         self,
@@ -190,11 +183,11 @@ class Rram(ModuleBase[RramConfig, RramPolicy]):
         Returns:
             Per-call snap of the fabricated state.
         """
-        g_view = self.g__uS.expand(shape) if shape else self.g__uS
+        g_view = self._g__uS.expand(shape) if shape else self._g__uS
         g = g_view if multi_coords is None else g_view[multi_coords]
         g = apply_telegraph_noise(g, self.config.read_telegraph, enabled=self.policy.read_telegraph)
         g = apply_gaussian(g, self.config.read_thermal__uS, enabled=self.policy.read_thermal)
-        g = g.clamp(self.g_min__uS, self.g_max__uS)
+        g = g.clamp(self._g_min__uS, self._g_max__uS)
         return RramSnap(g__uS=g)
 
     def solve_dc(self, v__V: Tensor, snap: RramSnap) -> RramDcop:

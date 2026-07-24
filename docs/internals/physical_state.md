@@ -2,6 +2,12 @@
 
 Physical modules distinguish immutable tensor sources from lifecycle-produced state. Nominal fabrication sources and fixed model tables are buffers so construction-time `dtype` and a pre-materialization `to(device)` determine where later work runs. Fabricated and programmed values are ordinary tensor attributes created by their lifecycle methods. Per-call snaps remain local values.
 
+Module-owned nominal, fabricated, programmed, and fixed-model tensors are
+implementation state. Consumers read them through the relevant `*Snap` or
+`*Dcop` value object, or through a purpose-specific method/property when the
+value is part of the module contract. Registered child `nn.Module` attributes
+remain structural names because PyTorch uses them in the module tree.
+
 ## State categories
 
 - **Fabrication source** — an immutable `nominal_*` buffer used by `fabricate()`. A scalar physical baseline is normally 0-D; a genuinely multi-valued baseline, such as a reference ladder or capacitor bank, remains a compact vector or table.

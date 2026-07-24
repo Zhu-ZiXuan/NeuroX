@@ -33,12 +33,12 @@ Activations are unsigned true-form by definition, so the variant carries no acti
 
 | Symbol | Meaning | Unit | Code field |
 |---|---|---|---|
-| $N_{\mathrm{row}}$ | tile row count | — | `xbar.row_num` |
-| $N_{\mathrm{col}}$ | tile column count | — | `xbar.col_num` |
+| $N_{\mathrm{row}}$ | tile row count | — | `cim_macro.row_num` |
+| $N_{\mathrm{col}}$ | tile column count | — | `cim_macro.col_num` |
 | $T_r$ | output-axis tile count | — | structure count |
 | $T_c$ | contraction-axis tile count | — | structure count |
-| $D$ | digits per slice (digit count) | — | `xbar.w_digit_count` |
-| $r$ | digit radix | — | `xbar.w_digit_radix` |
+| $D$ | digits per slice (digit count) | — | `cim_macro.w_digit_count` |
+| $r$ | digit radix | — | `cim_macro.w_digit_radix` |
 
 The logical dims ($N$, $K$, $M$), the value-domain symbols, and the ADC surface are in [unit/family](../../family.md#symbols).
 

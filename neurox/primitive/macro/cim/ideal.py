@@ -18,25 +18,34 @@ class IdealCimMacroConfig(CimMacroConfig):
     """Configuration for :class:`IdealCimMacro`.
 
     Attributes:
-        x_range: Inclusive single-cycle integer input range.
+        x_value_range: Inclusive single-cycle integer input range.
         w_digit_count: Digits per ``w``.
         w_digit_radix: In-tile positional radix.
-        w_digit_range: Inclusive integer range a single digit can carry.
+        w_digit_value_range: Inclusive integer range a single digit can carry.
         adc_mode_num: Number of supported ADC operating points.
         adc_max_bits: Maximum supported ``adc_bits`` value; ``0`` is the
             lossless-sentinel bit width.
     """
 
-    x_range: tuple[int, int]
+    x_value_range: tuple[int, int]
     w_digit_count: int
     w_digit_radix: int
-    w_digit_range: tuple[int, int]
+    w_digit_value_range: tuple[int, int]
     adc_mode_num: int
     adc_max_bits: int
 
     def validate(self) -> None:
         super().validate()
-        self.validate_value_grid()
+
+        # --- Value ranges ---
+
+        if self.x_value_range == (0, 0):
+            raise ValueError("require: x_value_range cannot be (0, 0) — collapses rescale math")
+        if self.w_digit_value_range == (0, 0):
+            raise ValueError("require: w_digit_value_range cannot be (0, 0) — collapses rescale math")
+
+        # --- ADC ---
+
         if not (self.adc_mode_num >= 1):
             raise ValueError(f"require: adc_mode_num ({self.adc_mode_num}) >= 1")
         if not (self.adc_max_bits >= 0):
@@ -44,7 +53,7 @@ class IdealCimMacroConfig(CimMacroConfig):
 
 
 class IdealCimMacroPolicy(CimMacroPolicy):
-    """Empty nonideality policy — ideal xbar has no nonidealities to toggle."""
+    """Empty nonideality policy for the ideal CIM macro."""
 
 
 @CimMacro.register_key(IdealCimMacroConfig)
@@ -62,7 +71,7 @@ class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
 
     # --- Immutable model buffers ---
 
-    digit_weights: Tensor
+    _digit_weights: Tensor
 
     def __init__(
         self,
@@ -91,12 +100,12 @@ class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
             [config.w_digit_radix**k for k in range(config.w_digit_count)],
             dtype=torch.int32,
         )
-        self.register_buffer("digit_weights", digit_weights, persistent=False)
+        self.register_buffer("_digit_weights", digit_weights, persistent=False)
 
-        d_lo, d_hi = config.w_digit_range
+        d_lo, d_hi = config.w_digit_value_range
         max_digit_abs = max(abs(d_lo), abs(d_hi))
         max_w_logical_abs = max_digit_abs * int(digit_weights.sum().item())
-        x_lo, x_hi = config.x_range
+        x_lo, x_hi = config.x_value_range
         max_x_abs = max(abs(x_lo), abs(x_hi))
         # One conversion covers at most ``max_active_rows`` nonzero rows.
         self._max_plane_dot_abs = config.active_row_num * max_w_logical_abs * max_x_abs
@@ -113,8 +122,8 @@ class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
             self._scale_by_bits[bits] = 1.0 / rescale
 
     @property
-    def x_range(self) -> tuple[int, int]:
-        return self.config.x_range
+    def x_value_range(self) -> tuple[int, int]:
+        return self.config.x_value_range
 
     @property
     def w_digit_count(self) -> int:
@@ -125,8 +134,8 @@ class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
         return self.config.w_digit_radix
 
     @property
-    def w_digit_range(self) -> tuple[int, int]:
-        return self.config.w_digit_range
+    def w_digit_value_range(self) -> tuple[int, int]:
+        return self.config.w_digit_value_range
 
     @property
     def adc_mode_num(self) -> int:
@@ -137,7 +146,7 @@ class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
         return self.config.adc_max_bits
 
     def to_ideal(self) -> IdealCimMacro:
-        """An ideal xbar is its own ideal counterpart."""
+        """Return this already ideal macro."""
         return self
 
     def adc_rescale_factor(self, *, adc_mode: int, adc_bits: int) -> float:
@@ -145,11 +154,11 @@ class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
         return self._rescale_by_bits[adc_bits]
 
     def program(self, w: Tensor) -> None:
-        if tuple(w.shape) != self._w_layout_shape:
-            raise ValueError(f"program() expects w.shape {self._w_layout_shape}; got {tuple(w.shape)}")
+        if tuple(w.shape) != self.w_layout_shape:
+            raise ValueError(f"program() expects w.shape {self.w_layout_shape}; got {tuple(w.shape)}")
         if w.is_floating_point() or w.is_complex():
             raise TypeError(f"program() expects an integer digit tensor; got dtype {w.dtype}")
-        self.digits = w.detach().clone()
+        self._digits = w.detach().clone()
 
     def vec_mat_mul(self, x: Tensor, *, adc_mode: int, adc_bits: int) -> Tensor:
         """Ideal per-plane VMM with adc_bits-driven output quantization.
@@ -170,10 +179,10 @@ class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
         """
         del adc_mode
 
-        digits = self.digits.to(torch.int64)
+        digits = self._digits.to(torch.int64)
 
         # Shape: [w_digit_count] -> [1, ..., w_digit_count, 1]
-        digit_weights = self.digit_weights.to(torch.int64).view(*([1] * (digits.ndim - 2)), -1, 1)
+        digit_weights = self._digit_weights.to(torch.int64).view(*([1] * (digits.ndim - 2)), -1, 1)
 
         # Shape: [..., col_num, w_digit_count, row_num] -> [..., col_num, row_num]
         w = (digits * digit_weights).sum(dim=-2)

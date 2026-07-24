@@ -6,13 +6,13 @@
 
 - **`g_max__uS` is an `__init__` kwarg, not a config field.** The ceiling is a design value, not an intrinsic device parameter, so it stays outside the frozen `RramConfig` per the project rule that device design parameters are explicit constructor arguments. `g_min__uS` (intrinsic) lives in the config. The constructor enforces `g_max__uS > config.g_min__uS`.
 - **Policy is separate from config.** `RramConfig` carries the physics; `RramPolicy` carries the per-run decision of which non-idealities are active, as flat `bool` fields with no defaults. The policy is loaded independently and is never embedded in the device physics.
-- **Program-time vs read-time sources are partitioned by surface.** Programming Gamma, drift, and stuck-at are baked into `g__uS` by `program(...)`; telegraph and thermal are resampled per `snapshot(...)`. This split is a contract, not an accident: re-running `snapshot` must not re-roll the programmed-in faults.
+- **Program-time vs read-time sources are partitioned by surface.** Programming Gamma, drift, and stuck-at are baked into `_g__uS` by `program(...)`; telegraph and thermal are resampled per `snapshot(...)`. This split is a contract, not an accident: re-running `snapshot` must not re-roll the programmed-in faults.
 
 ## Contracts & invariants
 
-- **`program(...)` creates ordinary tensor state.** Construction allocates no conductance placeholder. The target already carries the intended device and dtype; programming applies the configured effects and assigns `self.g__uS`. A later `to(device)` does not migrate this state, so move first and program afterward.
-- **`snapshot(shape, multi_coords)` is the only read path into fabricated state.** It expands `g__uS` to the per-call broadcast `shape`, optionally advanced-indexes a chunk via `multi_coords`, applies the read-time noise stack, and re-clamps. `multi_coords=None` returns the full broadcast view. The returned snapshot contains the read state; it does not register or duplicate device buffers.
-- **`solve_dc(v, snap)` is stateless in the device.** It reads conductance only from the passed `RramSnap`, never from `self.g__uS`, so a chunk's snap and its solve stay paired.
+- **`program(...)` creates ordinary tensor state.** Construction allocates no conductance placeholder. The target already carries the intended device and dtype; programming applies the configured effects and assigns `_g__uS`. A later `to(device)` does not migrate this state, so move first and program afterward.
+- **`snapshot(shape, multi_coords)` is the only read path into programmed state.** It expands `_g__uS` to the per-call broadcast `shape`, optionally advanced-indexes a chunk via `multi_coords`, applies the read-time noise stack, and re-clamps. `multi_coords=None` returns the full broadcast view. The returned snapshot contains the read state; it does not register or duplicate device buffers.
+- **`solve_dc(v, snap)` is stateless in the device.** It reads conductance only from the passed `RramSnap`, never from `self._g__uS`, so a chunk's snap and its solve stay paired.
 - **No static fabricate mismatch.** `Rram` joins the fabricate cascade but declares an explicit no-op `_sample_fabricate_mismatch` — RRAM variation enters through `program(...)` (state-dependent Gamma, stuck-at), not through `fabricate()`.
 
 ## Performance & resources

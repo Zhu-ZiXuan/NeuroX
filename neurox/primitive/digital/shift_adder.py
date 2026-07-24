@@ -27,14 +27,14 @@ class ShiftAdderConfig(DigitalConfig):
     latency_per_op__ns: float
 
     def validate(self) -> None:
-        self.validate_arithmetic()
-        self.validate_ppa()
+        super().validate()
 
-    def validate_arithmetic(self) -> None:
+        # --- Arithmetic ---
+
         self._require_pos(self.bit_width, "bit_width")
 
-    def validate_ppa(self) -> None:
-        super().validate_ppa()
+        # --- PPA ---
+
         self._require_non_neg(self.energy_per_op__fJ, "energy_per_op__fJ")
         self._require_non_neg(self.latency_per_op__ns, "latency_per_op__ns")
 
@@ -59,7 +59,7 @@ class ShiftAdder(DigitalBase[ShiftAdderConfig]):
         self._area_per_inst__um2 = config.area_per_inst__um2
         self._leakage_per_inst__uW = config.leakage_per_inst__uW
 
-    def operate(self, x: Tensor, scale: int, dim: int, init_val: Tensor | None) -> Tensor:
+    def shift_add(self, x: Tensor, scale: int, dim: int, init_val: Tensor | None) -> Tensor:
         """Compute the radix-weighted digit sum and wrap to ``bit_width`` bits.
 
         Args:
@@ -91,6 +91,6 @@ class ShiftAdder(DigitalBase[ShiftAdderConfig]):
             device=y.device,
             dtype=dynamic_energy__fJ.dtype,
         )
-        self._log_dynamic_energy(dynamic_energy__fJ)
-        self._log_latency(latency__ns)
+        self._record_dynamic_energy(dynamic_energy__fJ)
+        self._record_latency(latency__ns)
         return y

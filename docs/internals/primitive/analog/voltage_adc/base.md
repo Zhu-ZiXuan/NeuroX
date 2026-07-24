@@ -16,7 +16,7 @@ The abstract `DifferentialVoltageAdc` carries config-keyed construction, the `co
 
 - **Uniform construction.** `from_config` builds every registered impl through one call shape, so each concrete voltage ADC must accept the base's construction arguments unchanged — narrowing or reordering them breaks dispatch. The shared shape is why the base accepts `dtype` / `T__K` it never uses; the subclass captures them.
 - **Per-call operating point.** `convert(v_pos__V, v_neg__V, *, v_ref__V, bits)` receives one selected reference tensor plus the resolution. The interface carries no operating-mode identity and the ADC self-holds no reference.
-- **Raw unsigned code output, clamped to the legal range.** Every `convert` clamps the raw bucket to `[0, n_codes-1]` and returns it unshifted; the clamp guards against stochastic-rounding jitter pushing the bucket out of range. When `n_codes = 2**bits` the raw range is `[0, 2**bits-1]`.
+- **Raw unsigned code output, clamped to the legal range.** Every `convert` clamps the raw bucket to `[0, code_num-1]` and returns it unshifted; the clamp guards against stochastic-rounding jitter pushing the bucket out of range. When `code_num = 2**bits` the raw range is `[0, 2**bits-1]`.
 
 ---
 

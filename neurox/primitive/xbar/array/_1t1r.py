@@ -90,15 +90,10 @@ class XbarArray1t1rConfig(XbarArrayConfig):
     latency_per_op__ns: float
 
     def validate(self) -> None:
-        self.validate_layout_pitch()
-        self.validate_wire_segments()
-        self.validate_ppa()
+        super().validate()
 
-    def validate_ppa(self) -> None:
-        super().validate_ppa()
-        self._require_non_neg(self.latency_per_op__ns, "latency_per_op__ns")
+        # --- Layout pitch ---
 
-    def validate_layout_pitch(self) -> None:
         for field in (
             "row_first_space__um",
             "row_cell_space__um",
@@ -107,7 +102,8 @@ class XbarArray1t1rConfig(XbarArrayConfig):
         ):
             self._require_pos(getattr(self, field), field)
 
-    def validate_wire_segments(self) -> None:
+        # --- Wire segments ---
+
         for field in (
             "bl_first_r__MOhm",
             "bl_first_c__fF",
@@ -123,6 +119,10 @@ class XbarArray1t1rConfig(XbarArrayConfig):
             "wl_segment_c__fF",
         ):
             self._require_pos(getattr(self, field), field)
+
+        # --- PPA ---
+
+        self._require_non_neg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
 class XbarArray1t1rPolicy(XbarArrayPolicy):
@@ -177,12 +177,12 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
 
     # --- Immutable model buffers ---
 
-    bl_segment_r__MOhm: Tensor
-    sl_segment_r__MOhm: Tensor
-    bl_segment_g__uS: Tensor
-    sl_segment_g__uS: Tensor
-    bl_segment_c__fF: Tensor
-    sl_segment_c__fF: Tensor
+    _bl_segment_r__MOhm: Tensor
+    _sl_segment_r__MOhm: Tensor
+    _bl_segment_g__uS: Tensor
+    _sl_segment_g__uS: Tensor
+    _bl_segment_c__fF: Tensor
+    _sl_segment_c__fF: Tensor
 
     def __init__(
         self,
@@ -209,7 +209,7 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
         self._init_children(dtype=dtype, T__K=T__K)
         self._register_wire_buffers(dtype=dtype)
 
-        self.c_wl_wire_per_row__fF = config.wl_first_c__fF + (col_num - 1) * config.wl_segment_c__fF
+        self._c_wl_wire_per_row__fF = config.wl_first_c__fF + (col_num - 1) * config.wl_segment_c__fF
 
     def _init_children(self, *, dtype: torch.dtype, T__K: float) -> None:
         """Construct the cell model and numerical solver."""
@@ -220,7 +220,7 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
             dtype=dtype,
             T__K=T__K,
         )
-        self.solver = Solver.from_config(config=self.config.solver_config)
+        self._solver = Solver.from_config(config=self.config.solver_config)
 
     def _register_wire_buffers(self, *, dtype: torch.dtype) -> None:
         """Register fixed wire resistance, conductance, and capacitance tensors."""
@@ -242,17 +242,17 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
             [config.sl_first_c__fF] + [config.sl_segment_c__fF] * (self._row_num - 1),
             dtype=dtype,
         )
-        self.register_buffer("bl_segment_r__MOhm", bl_segment_r__MOhm, persistent=False)
-        self.register_buffer("sl_segment_r__MOhm", sl_segment_r__MOhm, persistent=False)
-        self.register_buffer("bl_segment_g__uS", 1.0 / bl_segment_r__MOhm, persistent=False)
-        self.register_buffer("sl_segment_g__uS", 1.0 / sl_segment_r__MOhm, persistent=False)
-        self.register_buffer("bl_segment_c__fF", bl_segment_c__fF, persistent=False)
-        self.register_buffer("sl_segment_c__fF", sl_segment_c__fF, persistent=False)
+        self.register_buffer("_bl_segment_r__MOhm", bl_segment_r__MOhm, persistent=False)
+        self.register_buffer("_sl_segment_r__MOhm", sl_segment_r__MOhm, persistent=False)
+        self.register_buffer("_bl_segment_g__uS", 1.0 / bl_segment_r__MOhm, persistent=False)
+        self.register_buffer("_sl_segment_g__uS", 1.0 / sl_segment_r__MOhm, persistent=False)
+        self.register_buffer("_bl_segment_c__fF", bl_segment_c__fF, persistent=False)
+        self.register_buffer("_sl_segment_c__fF", sl_segment_c__fF, persistent=False)
 
     @property
-    def w_states(self) -> int:
+    def w_state_num(self) -> int:
         """Number of programmable states exposed by each cell."""
-        return self.cell.w_states
+        return self.cell.w_state_num
 
     @property
     def weight_grid_shape(self) -> tuple[int, ...]:
@@ -263,7 +263,7 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
         """Write the cells from one state-index tensor.
 
         Args:
-            w_state_idx: State-index tensor in ``[0, w_states - 1]``,
+            w_state_idx: State-index tensor in ``[0, w_state_num - 1]``,
                 shape must match ``self.weight_grid_shape =
                 (*inst, col_num, row_num)``.
         """
@@ -346,11 +346,11 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
             bl_snap = bl_driver.snapshot(v_ref__V=bl_v_ref__V, shape=(*leading, *col_trailing), multi_coords=mc)
             sl_snap = sl_driver.snapshot(v_ref__V=sl_v_ref__V, shape=(*leading, *col_trailing), multi_coords=mc)
 
-            solver_dcop_chunk = self.solver.solve_dc(
-                bl_segment_r__MOhm=self.bl_segment_r__MOhm,
-                sl_segment_r__MOhm=self.sl_segment_r__MOhm,
-                bl_segment_g__uS=self.bl_segment_g__uS,
-                sl_segment_g__uS=self.sl_segment_g__uS,
+            solver_dcop_chunk = self._solver.solve_dc(
+                bl_segment_r__MOhm=self._bl_segment_r__MOhm,
+                sl_segment_r__MOhm=self._sl_segment_r__MOhm,
+                bl_segment_g__uS=self._bl_segment_g__uS,
+                sl_segment_g__uS=self._sl_segment_g__uS,
                 cell=self.cell,
                 cell_snap=cell_snap,
                 bl_driver=bl_driver,
@@ -385,8 +385,8 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
             device=array_energy__fJ.device,
             dtype=array_energy__fJ.dtype,
         )
-        self._log_dynamic_energy(array_energy__fJ)
-        self._log_latency(latency__ns)
+        self._record_dynamic_energy(array_energy__fJ)
+        self._record_latency(latency__ns)
         return XbarArraySteadyState(i_bl_port__uA=i_bl_port__uA, v_bl_clamp__V=v_bl_clamp__V)
 
     def _compute_array_energy__fJ(
@@ -421,18 +421,18 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
 
         # Shape: [..., col_num, row_num] -> [...]
         bl_seg_q__V2 = (v_bl_left__V.square() + v_bl_left__V * v_bl__V + v_bl__V.square()) / 3.0
-        e_bl_wire_cap__fJ = (self.bl_segment_c__fF * bl_seg_q__V2).sum(dim=(-2, -1))
+        e_bl_wire_cap__fJ = (self._bl_segment_c__fF * bl_seg_q__V2).sum(dim=(-2, -1))
 
         # Shape: [..., col_num, row_num] -> [...]
         sl_seg_q__V2 = (v_sl_left__V.square() + v_sl_left__V * v_sl__V + v_sl__V.square()) / 3.0
-        e_sl_wire_cap__fJ = (self.sl_segment_c__fF * sl_seg_q__V2).sum(dim=(-2, -1))
+        e_sl_wire_cap__fJ = (self._sl_segment_c__fF * sl_seg_q__V2).sum(dim=(-2, -1))
 
         # Shape: [..., 1, row_num] -> [...]
-        e_wl_wire_cap__fJ = (self.c_wl_wire_per_row__fF * cell_snap.v_wl__V.square()).sum(dim=(-2, -1))
+        e_wl_wire_cap__fJ = (self._c_wl_wire_per_row__fF * cell_snap.v_wl__V.square()).sum(dim=(-2, -1))
 
         # --- 2: compute cell-capacitance energy ---
 
         # Shape: [..., col_num, row_num] -> [...]
-        e_cell__fJ = self.cell.dynamic_energy(v_bl__V, v_sl__V, solver_dcop.cell, cell_snap).sum(dim=(-2, -1))
+        e_cell__fJ = self.cell.compute_dynamic_energy(v_bl__V, v_sl__V, solver_dcop.cell, cell_snap).sum(dim=(-2, -1))
 
         return e_bl_wire_cap__fJ + e_sl_wire_cap__fJ + e_wl_wire_cap__fJ + e_cell__fJ

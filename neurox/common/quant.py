@@ -100,13 +100,13 @@ def floor_bucketize(
     Args:
         signal: Float input.
         boundaries: Sorted ascending threshold tensor of shape
-            ``[n_codes - 1]``. Code edges: ``B_c = c · LSB``.
+            ``[code_num - 1]``. Code edges: ``B_c = c · LSB``.
         out_dtype: Target integer dtype.
         training: ``module.training`` flag.
         lsb: Bin width used to size the stochastic jitter.
 
     Returns:
-        Code tensor in ``[0, n_codes - 1]``.
+        Code tensor in ``[0, code_num - 1]``.
     """
     if training:
         jitter = torch.rand(signal.shape, device=signal.device, dtype=signal.dtype) * lsb

@@ -51,7 +51,7 @@ class ProfileMixin:
         return self._leakage_per_inst__uW * self.inst_count
 
     @torch.compiler.disable
-    def _log_dynamic_energy(self, dynamic_energy__fJ: Tensor, *, channel: str | None = None) -> None:
+    def _record_dynamic_energy(self, dynamic_energy__fJ: Tensor, *, channel: str | None = None) -> None:
         """Record one dynamic-energy event to the active profiler (no-op outside one).
 
         Args:
@@ -65,10 +65,10 @@ class ProfileMixin:
         profiler = NeuroxProfiler.get_current()
         if profiler is None:
             return
-        profiler._record_energy(module=self, dynamic_energy__fJ=dynamic_energy__fJ, channel=channel)
+        profiler._record_dynamic_energy(module=self, dynamic_energy__fJ=dynamic_energy__fJ, channel=channel)
 
     @torch.compiler.disable
-    def _log_latency(self, latency__ns: Tensor) -> None:
+    def _record_latency(self, latency__ns: Tensor) -> None:
         """Record one latency event to the active profiler (no-op outside one).
 
         Args:

@@ -24,13 +24,7 @@ class CurrentMuxConfig(AnalogConfig):
     mux_gain: float
 
     def validate(self) -> None:
-        self.validate_fan_in()
-        self.validate_gain()
-
-    def validate_fan_in(self) -> None:
         self._require_pos(self.select_num, "select_num")
-
-    def validate_gain(self) -> None:
         self._require_pos(self.mux_gain, "mux_gain")
 
 

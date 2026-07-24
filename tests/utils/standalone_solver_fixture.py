@@ -242,7 +242,7 @@ def build_solver_harness(
 
     # --- Clamp-reference snapshot (once) + boundary-driver snaps ---
 
-    clamp_taps = clamp_ref.v_ref__V(clamp_ref.snapshot())
+    clamp_taps = clamp_ref.snapshot().v_refs__V
     bl_v_ref = clamp_taps[0]
     sl_v_ref = clamp_taps[1]
     bl_drv_snap = bl_driver.snapshot(v_ref__V=bl_v_ref, shape=(X_BATCH, COL_NUM), multi_coords=None)

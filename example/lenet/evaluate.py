@@ -44,7 +44,7 @@ def main() -> None:
         choices=("physical", "ideal"),
         default="physical",
         help="Tile implementation. 'ideal' swaps physical for lossless twin; only meaningful "
-        "when the chosen config carries a physical xbar.",
+        "when the chosen config carries a physical cim_macro.",
     )
     parser.add_argument("--device", type=str, default="cuda:0")
     parser.add_argument("--batch-size", type=int, default=128)
@@ -66,7 +66,7 @@ def main() -> None:
     macro_factory = build_macro_factory(
         config_path,
         policy_path,
-        ideal_xbar=(args.cim_macro == "ideal"),
+        ideal_macro=(args.cim_macro == "ideal"),
     )
     model = QuantLeNet5(macro_factory, ckpt["layers"]).to(device).eval()
 

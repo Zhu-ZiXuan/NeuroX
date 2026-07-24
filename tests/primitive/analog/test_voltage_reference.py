@@ -100,20 +100,6 @@ def test_inst_shape_broadcasts_taps() -> None:
     torch.testing.assert_close(out, nominal.expand(1, 2, len(_TAPS)))
 
 
-def test_accessor_reads_taps_from_snap() -> None:
-    """The ``v_ref__V`` accessor returns every tap from a snap."""
-    ref = _make(inst_shape=(1, 2))
-    ref.fabricate()
-    snap = ref.snapshot()
-    out = ref.v_ref__V(snap)
-
-    # Encapsulated read: returns the snap's own tensor, full tap set.
-    assert out.shape == (1, 2, len(_TAPS))
-    assert torch.equal(out, snap.v_refs__V)
-    # Pure: re-reading the same snap returns the same tensor.
-    assert torch.equal(ref.v_ref__V(snap), out)
-
-
 def test_static_ppa_and_no_dynamic_events() -> None:
     """Static PPA scales by ``inst_count``; fabricate/snapshot emit no events."""
     ref = _make(inst_shape=(2,), area=2.0, leakage=0.5)

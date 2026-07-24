@@ -57,16 +57,14 @@ class XbarCell1t1rLinearConfig(XbarCell1t1rConfig):
 
     def validate(self) -> None:
         super().validate()
-        self.validate_tables()
 
-    def validate_tables(self) -> None:
-        w_states = len(self.g_cell_off_table__uS)
-        if w_states < 1:
-            raise ValueError(f"require: len(g_cell_off_table__uS) ({w_states}) >= 1")
+        w_state_num = len(self.g_cell_off_table__uS)
+        if w_state_num < 1:
+            raise ValueError(f"require: len(g_cell_off_table__uS) ({w_state_num}) >= 1")
         for name in ("g_cell_on_table__uS", "vx_ratio_off_table", "vx_ratio_on_table"):
             table: tuple[float, ...] = getattr(self, name)
-            if len(table) != w_states:
-                raise ValueError(f"require: len({name}) ({len(table)}) == len(g_cell_off_table__uS) ({w_states})")
+            if len(table) != w_state_num:
+                raise ValueError(f"require: len({name}) ({len(table)}) == len(g_cell_off_table__uS) ({w_state_num})")
         for name in ("g_cell_off_table__uS", "g_cell_on_table__uS"):
             for state_idx, entry in enumerate(getattr(self, name)):
                 if not (math.isfinite(entry) and entry >= 0):
@@ -154,26 +152,26 @@ class XbarCell1t1rLinear(XbarCell1t1r[XbarCell1t1rLinearConfig, XbarCell1t1rLine
             persistent=False,
         )
 
-        self.w_states = len(config.g_cell_off_table__uS)
+        self.w_state_num = len(config.g_cell_off_table__uS)
 
-        self.v_wl_on_threshold__V = config.v_wl_on_threshold__V
+        self._v_wl_on_threshold__V = config.v_wl_on_threshold__V
 
     def program(self, w_state_idx: Tensor) -> None:
         """Program per-cell branch parameters from state indices.
 
         Args:
-            w_state_idx: State-index tensor in ``[0, w_states - 1]`` at
+            w_state_idx: State-index tensor in ``[0, w_state_num - 1]`` at
                 ``self.inst_shape``.
         """
         if tuple(w_state_idx.shape) != self.inst_shape:
             raise ValueError(f"program() expects w_state_idx.shape {self.inst_shape}; got {tuple(w_state_idx.shape)}")
         idx = w_state_idx.long()
-        if bool((idx < 0).any()) or bool((idx >= self.w_states).any()):
-            raise ValueError(f"program() expects state indices in [0, {self.w_states}); got out-of-range entries")
-        self.g_cell_off__uS = self._g_cell_off_table__uS[idx]
-        self.g_cell_on__uS = self._g_cell_on_table__uS[idx]
-        self.vx_ratio_off = self._vx_ratio_off_table[idx]
-        self.vx_ratio_on = self._vx_ratio_on_table[idx]
+        if bool((idx < 0).any()) or bool((idx >= self.w_state_num).any()):
+            raise ValueError(f"program() expects state indices in [0, {self.w_state_num}); got out-of-range entries")
+        self._g_cell_off__uS = self._g_cell_off_table__uS[idx]
+        self._g_cell_on__uS = self._g_cell_on_table__uS[idx]
+        self._vx_ratio_off = self._vx_ratio_off_table[idx]
+        self._vx_ratio_on = self._vx_ratio_on_table[idx]
 
     def snapshot(
         self,
@@ -207,15 +205,15 @@ class XbarCell1t1rLinear(XbarCell1t1r[XbarCell1t1rLinearConfig, XbarCell1t1rLine
 
         return XbarCell1t1rLinearSnap(
             v_wl__V=control,
-            g_cell_on__uS=view(self.g_cell_on__uS),
-            g_cell_off__uS=view(self.g_cell_off__uS),
-            vx_ratio_on=view(self.vx_ratio_on),
-            vx_ratio_off=view(self.vx_ratio_off),
+            g_cell_on__uS=view(self._g_cell_on__uS),
+            g_cell_off__uS=view(self._g_cell_off__uS),
+            vx_ratio_on=view(self._vx_ratio_on),
+            vx_ratio_off=view(self._vx_ratio_off),
         )
 
-    def _branch_params(self, snap: XbarCell1t1rLinearSnap) -> tuple[Tensor, Tensor]:
+    def _select_branch_params(self, snap: XbarCell1t1rLinearSnap) -> tuple[Tensor, Tensor]:
         """WL-switched ``(g_cell [uS], vx_ratio)`` of the linear branch."""
-        on = snap.v_wl__V > self.v_wl_on_threshold__V
+        on = snap.v_wl__V > self._v_wl_on_threshold__V
         g_cell = torch.where(on, snap.g_cell_on__uS, snap.g_cell_off__uS)
         vx_ratio = torch.where(on, snap.vx_ratio_on, snap.vx_ratio_off)
         return g_cell, vx_ratio
@@ -227,7 +225,7 @@ class XbarCell1t1rLinear(XbarCell1t1r[XbarCell1t1rLinearConfig, XbarCell1t1rLine
         snap: XbarCell1t1rLinearSnap,
     ) -> tuple[Tensor, Tensor, Tensor]:
         """Closed-form branch solve: ``(i__uA, di_dvbl__uS, di_dvsl__uS)``."""
-        g_cell, _vx_ratio = self._branch_params(snap)
+        g_cell, _vx_ratio = self._select_branch_params(snap)
         i__uA = g_cell * (v_bl - v_sl)
         return i__uA, g_cell, -g_cell
 
@@ -242,7 +240,7 @@ class XbarCell1t1rLinear(XbarCell1t1r[XbarCell1t1rLinearConfig, XbarCell1t1rLine
         The linear divider's internal KCL is exact by construction, so the
         cell carries no residual concept.
         """
-        g_cell, vx_ratio = self._branch_params(snap)
+        g_cell, vx_ratio = self._select_branch_params(snap)
         dv = v_bl - v_sl
         i__uA = g_cell * dv
         v_x = v_bl - vx_ratio * dv

@@ -27,10 +27,10 @@ def _config_kwargs(*, row_num: int, active_row_num: int) -> dict[str, object]:
         "active_row_num": active_row_num,
         "area_per_inst__um2": 0.0,
         "leakage_per_inst__uW": 0.0,
-        "x_range": (0, 1),
+        "x_value_range": (0, 1),
         "w_digit_count": 1,
         "w_digit_radix": 2,
-        "w_digit_range": (0, 1),
+        "w_digit_value_range": (0, 1),
         "adc_mode_num": 1,
         "adc_max_bits": 8,
     }

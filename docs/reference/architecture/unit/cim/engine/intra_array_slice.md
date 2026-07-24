@@ -41,7 +41,7 @@ Activations are unsigned true-form by definition (no activation encoding). Prove
 | $S_a$ | per-activation slice count | — | `x_slice_num` |
 | $R_w$ | per-slice weight radix | — | `w_slicer.slice_radix` |
 | $R_a$ | per-cycle activation radix | — | `x_slicer.slice_radix` |
-| $N_{\mathrm{col}}$ | tile column count | — | `xbar.col_num` |
+| $N_{\mathrm{col}}$ | tile column count | — | `cim_macro.col_num` |
 | $\lfloor N_{\mathrm{col}}/S_w\rfloor$ | per-tile weight capacity | — | structure count |
 | $T_c$ | contraction-axis tile count | — | structure count |
 | $T_r$ | output-axis tile count | — | structure count |

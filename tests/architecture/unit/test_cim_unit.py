@@ -35,13 +35,14 @@ from neurox.architecture.unit.cim.engine import (
     IntraArraySliceCimEngineConfig,
     IntraArraySliceCimEnginePolicy,
 )
+from neurox.architecture.unit.cim.engine.base import _chunk_pad_along
 from neurox.common.profiler import NeuroxProfiler
 from neurox.primitive.digital import AccumulatorConfig, SerialAccumulator, ShiftAdderConfig
 from neurox.primitive.macro.cim import IdealCimMacroConfig, IdealCimMacroPolicy
 
-# All tests use IdealCimMacroConfig as the embedded xbar config, so its
+# All tests use IdealCimMacroConfig as the embedded macro config, so its
 # nonideality policy is the empty marker.
-_IDEAL_XBAR_POLICY = IdealCimMacroPolicy()
+_IDEAL_MACRO_POLICY = IdealCimMacroPolicy()
 _IDEAL_UNIT_POLICY = IdealLinearUnitPolicy()
 
 # Test-only sentinel: ``adc_bits == 0`` instructs IdealCimMacro to skip ADC
@@ -51,15 +52,15 @@ _TEST_ADC_BITS = 0
 _TEST_ADC_MODE = 0
 
 
-def _ideal_xbar_config(
+def _ideal_macro_config(
     *,
     col_num: int = 16,
     row_num: int = 16,
     active_row_num: int | None = None,
-    x_range: tuple[int, int] = (0, 1),
+    x_value_range: tuple[int, int] = (0, 1),
     w_digit_count: int = 1,
     w_digit_radix: int = 4,
-    w_digit_range: tuple[int, int] = (-3, 3),
+    w_digit_value_range: tuple[int, int] = (-3, 3),
     adc_max_bits: int = _TEST_ADC_BITS,
 ) -> IdealCimMacroConfig:
     return IdealCimMacroConfig(
@@ -68,10 +69,10 @@ def _ideal_xbar_config(
         active_row_num=row_num if active_row_num is None else active_row_num,
         leakage_per_inst__uW=0.0,
         area_per_inst__um2=0.0,
-        x_range=x_range,
+        x_value_range=x_value_range,
         w_digit_count=w_digit_count,
         w_digit_radix=w_digit_radix,
-        w_digit_range=w_digit_range,
+        w_digit_value_range=w_digit_value_range,
         adc_mode_num=1,
         adc_max_bits=adc_max_bits,
     )
@@ -110,7 +111,7 @@ def _engine_policy(config: CimEngineConfig) -> CimEnginePolicy:
         InterArraySliceCimEngineConfig: InterArraySliceCimEnginePolicy,
         IntraArraySliceCimEngineConfig: IntraArraySliceCimEnginePolicy,
     }
-    return policies[type(config)](cim_macro_policy=_IDEAL_XBAR_POLICY)
+    return policies[type(config)](cim_macro_policy=_IDEAL_MACRO_POLICY)
 
 
 def _linear_unit_policy(config: LinearCimUnitConfig) -> LinearCimUnitPolicy:
@@ -119,13 +120,13 @@ def _linear_unit_policy(config: LinearCimUnitConfig) -> LinearCimUnitPolicy:
 
 def _direct_engine_config(
     *,
-    x_range: tuple[int, int] = (0, 1),
+    x_value_range: tuple[int, int] = (0, 1),
     w_digit_count: int = 1,
     active_row_num: int | None = None,
 ) -> DirectCimEngineConfig:
     return DirectCimEngineConfig(
-        cim_macro_config=_ideal_xbar_config(
-            x_range=x_range, w_digit_count=w_digit_count, active_row_num=active_row_num
+        cim_macro_config=_ideal_macro_config(
+            x_value_range=x_value_range, w_digit_count=w_digit_count, active_row_num=active_row_num
         ),
         w_encoding="true_form",
         col_accumulator_config=_accumulator_config(),
@@ -135,12 +136,12 @@ def _direct_engine_config(
 
 def _direct_config(
     *,
-    x_range: tuple[int, int] = (0, 1),
+    x_value_range: tuple[int, int] = (0, 1),
     w_digit_count: int = 1,
     active_row_num: int | None = None,
 ) -> LinearCimUnitConfig:
     return _wrap_unit(
-        _direct_engine_config(x_range=x_range, w_digit_count=w_digit_count, active_row_num=active_row_num)
+        _direct_engine_config(x_value_range=x_value_range, w_digit_count=w_digit_count, active_row_num=active_row_num)
     )
 
 
@@ -161,13 +162,13 @@ def _slice_config(
     *,
     w_slice_num: int,
     x_slice_num: int,
-    x_range: tuple[int, int] = (0, 1),
+    x_value_range: tuple[int, int] = (0, 1),
     w_digit_count: int = 1,
     active_row_num: int | None = None,
 ) -> dict[str, Any]:
     return {
-        "cim_macro_config": _ideal_xbar_config(
-            x_range=x_range, w_digit_count=w_digit_count, active_row_num=active_row_num
+        "cim_macro_config": _ideal_macro_config(
+            x_value_range=x_value_range, w_digit_count=w_digit_count, active_row_num=active_row_num
         ),
         "w_slice_num": w_slice_num,
         "x_slice_num": x_slice_num,
@@ -198,7 +199,7 @@ def _build_ideal(
         w_logical_shape=w_logical_shape,
         dtype=torch.float32,
         T__K=300.0,
-        ideal_xbar=False,
+        ideal_macro=False,
     )
     assert isinstance(unit, IdealLinearUnit)
     unit.eval()
@@ -216,7 +217,7 @@ def _build_linear(
         w_logical_shape=w_logical_shape,
         dtype=torch.float32,
         T__K=300.0,
-        ideal_xbar=False,
+        ideal_macro=False,
     )
     unit.eval()
     return unit
@@ -267,14 +268,14 @@ _SHAPE_CASES = [
 
 def test_chunk_pad_along_without_padding() -> None:
     x = torch.arange(16)
-    y = CimEngine.chunk_pad_along(x, axis=0, chunk_size=4, pad_value=0)
+    y = _chunk_pad_along(x, axis=0, chunk_size=4, pad_value=0)
     assert y.shape == (4, 4)
     assert torch.equal(y.flatten(), x)
 
 
 def test_chunk_pad_along_with_padding() -> None:
     x = torch.arange(13)
-    y = CimEngine.chunk_pad_along(x, axis=0, chunk_size=16, pad_value=0)
+    y = _chunk_pad_along(x, axis=0, chunk_size=16, pad_value=0)
     assert y.shape == (1, 16)
     assert torch.equal(y[0, :13], x)
     assert torch.equal(y[0, 13:], torch.zeros(3, dtype=x.dtype))
@@ -282,7 +283,7 @@ def test_chunk_pad_along_with_padding() -> None:
 
 def test_chunk_pad_along_accepts_negative_axis() -> None:
     x = torch.arange(60).reshape(3, 4, 5)
-    y = CimEngine.chunk_pad_along(x, axis=-1, chunk_size=3, pad_value=0)
+    y = _chunk_pad_along(x, axis=-1, chunk_size=3, pad_value=0)
     assert y.shape == (3, 4, 2, 3)
 
 
@@ -328,8 +329,8 @@ def test_direct_engine_transcoder_matches_wired_cim_macro_place_values() -> None
     weight transcoder, so digit place-values line up through the
     ``_build_cim_macro`` boundary (transcoder → macro)."""
     unit = _build_linear(_direct_config(w_digit_count=2), w_logical_shape=(13, 20))
-    assert unit.engine.w_transcoder.radix == unit.engine.xbar.w_digit_radix
-    assert unit.engine.w_transcoder.digit_count == unit.engine.xbar.w_digit_count
+    assert unit.engine._w_transcoder.radix == unit.engine.cim_macro.w_digit_radix
+    assert unit.engine._w_transcoder.digit_count == unit.engine.cim_macro.w_digit_count
 
 
 def test_direct_engine_lsb_first_place_values_on_asymmetric_weights() -> None:
@@ -343,7 +344,7 @@ def test_direct_engine_lsb_first_place_values_on_asymmetric_weights() -> None:
     """
     config = _wrap_unit(
         DirectCimEngineConfig(
-            cim_macro_config=_ideal_xbar_config(w_digit_count=2, w_digit_radix=2, w_digit_range=(-1, 1)),
+            cim_macro_config=_ideal_macro_config(w_digit_count=2, w_digit_radix=2, w_digit_value_range=(-1, 1)),
             w_encoding="true_form",
             col_accumulator_config=_accumulator_config(),
             phase_accumulator_config=_accumulator_config(),
@@ -374,7 +375,7 @@ def test_intra_array_slice_engine_unit_matches_torch_matmul_for_shape_cases(n: i
 
 
 @pytest.mark.parametrize(
-    ("w_slice_num", "x_slice_num", "w_digit_count", "x_range"),
+    ("w_slice_num", "x_slice_num", "w_digit_count", "x_value_range"),
     [
         (1, 1, 2, (0, 1)),
         (2, 3, 2, (0, 1)),
@@ -385,7 +386,7 @@ def test_inter_array_slice_engine_unit_matches_torch_for_slice_digit_cases(
     w_slice_num: int,
     x_slice_num: int,
     w_digit_count: int,
-    x_range: tuple[int, int],
+    x_value_range: tuple[int, int],
 ) -> None:
     torch.manual_seed(4000 + w_slice_num * 100 + x_slice_num * 10 + w_digit_count)
     n, k, m = 17, 19, 5
@@ -393,7 +394,7 @@ def test_inter_array_slice_engine_unit_matches_torch_for_slice_digit_cases(
         w_slice_num=w_slice_num,
         x_slice_num=x_slice_num,
         w_digit_count=w_digit_count,
-        x_range=x_range,
+        x_value_range=x_value_range,
     )
     unit = _build_linear(config, w_logical_shape=(n, k))
     weight = _randint_in_range(unit.w_value_range, (n, k))
@@ -402,7 +403,7 @@ def test_inter_array_slice_engine_unit_matches_torch_for_slice_digit_cases(
 
 
 @pytest.mark.parametrize(
-    ("w_slice_num", "x_slice_num", "w_digit_count", "x_range"),
+    ("w_slice_num", "x_slice_num", "w_digit_count", "x_value_range"),
     [
         (1, 1, 2, (0, 1)),
         (2, 3, 2, (0, 1)),
@@ -413,7 +414,7 @@ def test_intra_array_slice_engine_unit_matches_torch_for_slice_digit_cases(
     w_slice_num: int,
     x_slice_num: int,
     w_digit_count: int,
-    x_range: tuple[int, int],
+    x_value_range: tuple[int, int],
 ) -> None:
     torch.manual_seed(5000 + w_slice_num * 100 + x_slice_num * 10 + w_digit_count)
     n, k, m = 17, 19, 5
@@ -421,7 +422,7 @@ def test_intra_array_slice_engine_unit_matches_torch_for_slice_digit_cases(
         w_slice_num=w_slice_num,
         x_slice_num=x_slice_num,
         w_digit_count=w_digit_count,
-        x_range=x_range,
+        x_value_range=x_value_range,
     )
     unit = _build_linear(config, w_logical_shape=(n, k))
     weight = _randint_in_range(unit.w_value_range, (n, k))
@@ -546,7 +547,7 @@ def test_direct_engine_unit_multi_sub_phase_quantized_end_to_end() -> None:
     sub_phase_num = 2
     config = _wrap_unit(
         DirectCimEngineConfig(
-            cim_macro_config=_ideal_xbar_config(active_row_num=active_row_num, adc_max_bits=adc_bits),
+            cim_macro_config=_ideal_macro_config(active_row_num=active_row_num, adc_max_bits=adc_bits),
             w_encoding="true_form",
             col_accumulator_config=_accumulator_config(),
             phase_accumulator_config=_accumulator_config(),
@@ -590,7 +591,7 @@ def test_phase_accumulator_energy_scales_with_sub_phase_num() -> None:
     for active_row_num in (16, 8):  # P = 1, P = 2
         config = _wrap_unit(
             DirectCimEngineConfig(
-                cim_macro_config=_ideal_xbar_config(active_row_num=active_row_num),
+                cim_macro_config=_ideal_macro_config(active_row_num=active_row_num),
                 w_encoding="true_form",
                 col_accumulator_config=_accumulator_config(),
                 phase_accumulator_config=AccumulatorConfig(
@@ -630,7 +631,7 @@ def test_ideal_unit_public_properties() -> None:
 
 def test_direct_engine_unit_public_properties() -> None:
     unit = _build_linear(
-        _direct_config(x_range=(0, 3), w_digit_count=2),
+        _direct_config(x_value_range=(0, 3), w_digit_count=2),
         w_logical_shape=(13, 20),
     )
     assert unit.w_value_range == (-15, 15)
@@ -643,7 +644,7 @@ def test_direct_engine_unit_public_properties() -> None:
 
 
 def test_inter_array_slice_engine_unit_public_properties() -> None:
-    config = _inter_config(w_slice_num=3, x_slice_num=2, x_range=(0, 3), w_digit_count=2)
+    config = _inter_config(w_slice_num=3, x_slice_num=2, x_value_range=(0, 3), w_digit_count=2)
     unit = _build_linear(config, w_logical_shape=(13, 20))
     assert unit.w_value_range == (-4095, 4095)
     assert unit.x_value_range == (0, 15)
@@ -652,7 +653,7 @@ def test_inter_array_slice_engine_unit_public_properties() -> None:
 
 
 def test_intra_array_slice_engine_unit_public_properties() -> None:
-    config = _intra_config(w_slice_num=3, x_slice_num=2, x_range=(0, 3), w_digit_count=2)
+    config = _intra_config(w_slice_num=3, x_slice_num=2, x_value_range=(0, 3), w_digit_count=2)
     unit = _build_linear(config, w_logical_shape=(13, 20))
     assert unit.w_value_range == (-4095, 4095)
     assert unit.x_value_range == (0, 15)
@@ -680,7 +681,7 @@ def test_unit_from_config_dispatches_to_registered_subclass(
         w_logical_shape=(13, 20),
         dtype=torch.float32,
         T__K=300.0,
-        ideal_xbar=False,
+        ideal_macro=False,
     )
     unit.eval()
     assert isinstance(unit, expected_type)
@@ -704,7 +705,7 @@ def test_engine_from_config_dispatches_to_registered_variant(
         w_logical_shape=(13, 20),
         dtype=torch.float32,
         T__K=300.0,
-        ideal_xbar=False,
+        ideal_macro=False,
     )
     assert isinstance(engine, expected_type)
 
@@ -725,10 +726,10 @@ def test_unit_config_nested_engine_deserialization() -> None:
                 "active_row_num": 16,
                 "leakage_per_inst__uW": 0.0,
                 "area_per_inst__um2": 0.0,
-                "x_range": [0, 1],
+                "x_value_range": [0, 1],
                 "w_digit_count": 1,
                 "w_digit_radix": 4,
-                "w_digit_range": [-3, 3],
+                "w_digit_value_range": [-3, 3],
                 "adc_mode_num": 1,
                 "adc_max_bits": 0,
             },

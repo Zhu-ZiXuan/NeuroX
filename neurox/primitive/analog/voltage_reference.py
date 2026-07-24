@@ -38,20 +38,16 @@ class VoltageReferenceConfig(AnalogConfig):
     leakage_per_inst__uW: float
 
     def validate(self) -> None:
-        self.validate_taps()
-        self.validate_noise()
-        self.validate_ppa()
+        # --- Reference bank ---
 
-    def validate_taps(self) -> None:
         self._require_min_length(self.v_refs__V, 1, "v_refs__V")
         for i, v in enumerate(self.v_refs__V):
             self._require_non_neg(v, f"v_refs__V[{i}]")
 
-    def validate_noise(self) -> None:
+        # --- Noise and PPA ---
+
         self._require_non_neg(self.tolerance_sigma_relative, "tolerance_sigma_relative")
         self._require_non_neg(self.noise_sigma_relative, "noise_sigma_relative")
-
-    def validate_ppa(self) -> None:
         self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
 
@@ -76,7 +72,7 @@ class VoltageReferenceSnap:
 
     Attributes:
         v_refs__V: Actual reference-voltage taps, post
-            tolerance + noise, shape ``(*inst_shape, num_refs)``.
+            tolerance + noise, shape ``(*inst_shape, ref_num)``.
     """
 
     v_refs__V: Tensor
@@ -95,7 +91,7 @@ class VoltageReference(AnalogBase[VoltageReferenceConfig, VoltageReferencePolicy
 
     # --- Fabrication source buffers ---
 
-    nominal_v_refs__V: Tensor
+    _nominal_v_refs__V: Tensor
 
     def __init__(
         self,
@@ -114,22 +110,22 @@ class VoltageReference(AnalogBase[VoltageReferenceConfig, VoltageReferencePolicy
     def _register_fabrication_buffers(self, *, dtype: torch.dtype) -> None:
         """Register immutable tensors used as fabrication sources."""
         self.register_buffer(
-            "nominal_v_refs__V",
+            "_nominal_v_refs__V",
             torch.tensor(self.config.v_refs__V, dtype=dtype),
             persistent=False,
         )
 
     @property
-    def num_refs(self) -> int:
+    def ref_num(self) -> int:
         """Number of reference taps sourced by this module."""
         return len(self.config.v_refs__V)
 
     def _sample_fabricate_mismatch(self) -> None:
-        base = self.nominal_v_refs__V.expand(*self.inst_shape, self.num_refs)
+        base = self._nominal_v_refs__V.expand(*self.inst_shape, self.ref_num)
         if self.policy.tolerance:
-            self.v_refs__V = base * (1.0 + torch.randn_like(base) * self.config.tolerance_sigma_relative)
+            self._v_refs__V = base * (1.0 + torch.randn_like(base) * self.config.tolerance_sigma_relative)
         else:
-            self.v_refs__V = base.clone()
+            self._v_refs__V = base.clone()
 
     def snapshot(self) -> VoltageReferenceSnap:
         """Sample reference taps with per-call noise.
@@ -137,17 +133,6 @@ class VoltageReference(AnalogBase[VoltageReferenceConfig, VoltageReferencePolicy
         Returns:
             Per-call snap carrying the actual reference-voltage taps.
         """
-        v = self.v_refs__V
+        v = self._v_refs__V
         v = v * (1.0 + torch.randn_like(v) * self.config.noise_sigma_relative) if self.policy.noise else v.clone()
         return VoltageReferenceSnap(v_refs__V=v)
-
-    def v_ref__V(self, snap: VoltageReferenceSnap) -> Tensor:
-        """Read all reference-voltage taps from a snap.
-
-        Args:
-            snap: Per-call snap returned by :meth:`snapshot`.
-
-        Returns:
-            Reference-voltage taps, shape ``(*inst_shape, num_refs)``.
-        """
-        return snap.v_refs__V

@@ -42,7 +42,7 @@ class UnitBase(ABC):
 
     # --- Programmed state ---
 
-    int_bias: Tensor | None = None
+    _int_bias: Tensor | None = None
 
     @property
     @abstractmethod
@@ -113,4 +113,4 @@ class UnitBase(ABC):
 
     def _program_int_bias(self, bias: Tensor | None, *, channels: int) -> None:
         """Store the validated int64 bias, or clear it with ``None``."""
-        self.int_bias = None if bias is None else _validate_int_bias(bias, channels=channels)
+        self._int_bias = None if bias is None else _validate_int_bias(bias, channels=channels)

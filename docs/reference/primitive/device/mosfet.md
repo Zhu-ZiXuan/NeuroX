@@ -80,7 +80,7 @@ The channel polarity $p$ is fixed by device type ($+1$ n-channel, $-1$ p-channel
 | $\sigma_s, \sigma_d$ | sigmoid derivatives of the softplus | — | `sigma_s`, `sigma_d` |
 | $\beta$ | per-cell transconductance-factor magnitude | uA/V^2 | `MosfetSnap.beta__uA_per_V2` |
 | $V_{\mathrm{th}}$ | per-cell signed threshold voltage | V | `MosfetSnap.vth__V` |
-| $\beta_{\mathrm{nom}}, V_{\mathrm{th,nom}}$ | temperature-scaled nominals | uA/V^2, V | `nominal_beta__uA_per_V2`, `nominal_vth__V` |
+| $\beta_{\mathrm{nom}}, V_{\mathrm{th,nom}}$ | temperature-scaled internal nominals | uA/V^2, V | `_nominal_beta__uA_per_V2`, `_nominal_vth__V` |
 | $\lambda$ | softplus / sigmoid smoothing scale | 1/V | `_inv_smooth_scale__per_V` |
 | $\mu_0$ | low-field mobility at $T_{\mathrm{ref}}$ | cm^2/V/s | `mu0__cm2_per_V_s` |
 | $C_{\mathrm{ox}}$ | gate-oxide capacitance per area | fF/um^2 | `c_ox__fF_per_um2` |

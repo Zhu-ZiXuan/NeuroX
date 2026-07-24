@@ -14,7 +14,7 @@ config (``_utils.build_config``):
   * the derived DSWCT / SINWP-SC ratio anchors and the conduction-window laws
     (``t_other``, ``window_array``, ``window_sc``) as laws — checked over two
     distinct window parameterisations,
-  * the value-domain contract (``x_range``, ``w_digit_range``, ``w_digit_count``,
+  * the value-domain contract (``x_value_range``, ``w_digit_value_range``, ``w_digit_count``,
     ``w_digit_radix``, ADC mode / bit surface),
   * config validation rejects the exact-reshape ``col_num % mux_factor``
     violation, a ``w_digit_radix < 2`` weight structure, and a ``t_sample__ns``
@@ -181,10 +181,10 @@ def test_value_domain_contract() -> None:
     """The macro exposes the fixed K-bit input / sign-magnitude weight contract."""
     config = build_config()
     macro = build_macro(config)
-    assert macro.x_range == (0, (1 << config.input_bit_num) - 1) == (0, 3)
+    assert macro.x_value_range == (0, (1 << config.input_bit_num) - 1) == (0, 3)
     assert macro.w_digit_count == 2
     assert macro.w_digit_radix == 2
-    assert macro.w_digit_range == (-1, 1)
+    assert macro.w_digit_value_range == (-1, 1)
     assert macro.adc_max_bits == config.adc_config.bits == TINY_ADC_BITS
     assert macro.adc_mode_num == config.reference_config.mode_num == 1
     for mode in range(config.reference_config.mode_num):
@@ -237,7 +237,7 @@ def test_generalized_w_digit_num_accepted() -> None:
     assert d1.w_digit_num == 1
     macro1 = build_macro(d1)
     assert macro1.w_digit_count == 1
-    assert macro1.w_digit_range == (-1, 1)  # radix 2 -> single-digit magnitude {0, 1}
+    assert macro1.w_digit_value_range == (-1, 1)  # radix 2 -> single-digit magnitude {0, 1}
     assert macro1.config.phys_col_num == d1.col_num * 1 * 2
 
     d3 = build_config(w_digit_num=3)  # also accepted
@@ -252,7 +252,7 @@ def test_generalized_w_digit_radix_accepted() -> None:
     # The macro's signed per-digit range widens with the radix (a radix-level cell
     # table would supply the extra states; here we assert the config-level surface).
     macro = build_macro(build_config())
-    assert macro.w_digit_range == (-1, 1)  # radix 2 -> single-bit magnitude
+    assert macro.w_digit_value_range == (-1, 1)  # radix 2 -> single-bit magnitude
 
 
 def test_input_bit_num_one_accepted() -> None:
@@ -267,7 +267,7 @@ def test_input_bit_num_one_accepted() -> None:
     assert config.window_array__ns == (config.t_other__ns,)
     assert config.window_sc__ns == (config.t_other__ns,)
     macro = build_macro(config)
-    assert macro.x_range == (0, 1)  # single input bit
+    assert macro.x_value_range == (0, 1)  # single input bit
 
 
 # ---------------------------------------------------------------------------
@@ -278,11 +278,10 @@ def test_input_bit_num_one_accepted() -> None:
 def test_non_divisible_active_row_num_accepted() -> None:
     """The paper 256-row / 9-row-block geometry validates — the engine owns row-block serialization.
 
-    The base ``CimMacroConfig`` requires ``row_num % active_row_num == 0``
-    (uniform macro-level row-block serialization); the scheme overrides
-    ``validate_geometry`` to drop that rule (S1: the engine serializes row
-    blocks; ``active_row_num`` is the 3x3-kernel block size and the conducting
-    rows are data-driven), keeping only the hard bounds.
+    The engine serializes row blocks, so ``active_row_num`` is the 3x3-kernel
+    block size and the conducting rows are data-driven. The macro therefore
+    enforces only the hard bounds and does not require
+    ``row_num % active_row_num == 0``.
     """
     assert 256 % 9 != 0  # not a divisor — the base rule would reject this
     config = dataclasses.replace(build_config(), row_num=256, active_row_num=9)

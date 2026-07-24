@@ -34,10 +34,7 @@ class Conv2dCimUnitConfig(EngineBackedCimUnitConfig):
 
     def validate(self) -> None:
         super().validate()
-        self.validate_geometry()
 
-    def validate_geometry(self) -> None:
-        """Require positive stride / dilation and non-negative padding."""
         self._require_pos(self.stride[0], "stride[0]")
         self._require_pos(self.stride[1], "stride[1]")
         self._require_pos(self.dilation[0], "dilation[0]")
@@ -62,7 +59,7 @@ class Conv2dCimUnit(Conv2dUnit, EngineBackedCimUnit[Conv2dCimUnitConfig, Conv2dC
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
-        ideal_xbar: bool,
+        ideal_macro: bool,
     ) -> None:
         if len(w_logical_shape) != 4:
             raise ValueError(f"w_logical_shape must be (C_out, C_in, kh, kw); got {w_logical_shape}")
@@ -80,7 +77,7 @@ class Conv2dCimUnit(Conv2dUnit, EngineBackedCimUnit[Conv2dCimUnitConfig, Conv2dC
             w_logical_shape=w_logical_shape,
             dtype=dtype,
             T__K=T__K,
-            ideal_xbar=ideal_xbar,
+            ideal_macro=ideal_macro,
         )
         self._init_conv2d_operator(
             kernel_size=(kh, kw),

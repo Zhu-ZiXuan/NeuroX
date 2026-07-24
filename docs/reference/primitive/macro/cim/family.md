@@ -31,7 +31,7 @@ obtains it from calibration.
 
 | Symbol | Meaning | Unit | Code field |
 |---|---|---|---|
-| $\mathcal{X}$ | integer input grid | — | `x_range` |
+| $\mathcal{X}$ | integer input grid | — | `x_value_range` |
 | $D$ | digits per programmed value | — | `w_digit_count` |
 | $r$ | digit radix | — | `w_digit_radix` |
 | $R$ | slice radix, $r^D$ | — | — |

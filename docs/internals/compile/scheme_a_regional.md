@@ -58,7 +58,7 @@ Every deviation from the eager default lives here; module docs only point back:
 
 - **Eager island** — `XbarArray1t1r.solve_array` (`@torch.compiler.disable(recursive=False)`). Owns the chunk loop, list accumulation, snap indexing, and the profiler emit. Under a caller-applied compile it stays an eager island while still letting the nested leaf compile.
 - **Regional leaf** — the concrete solver's `solve_dc` (`NestedParallelRailSolver.solve_dc`, `@torch.compile(dynamic=False)`; the abstract `Solver.solve_dc` is undecorated). The **only** region the library self-compiles. Shape-stable: the chunk indexing in `solve_array` flattens every call to one `(chunk_size, 1, row)` shape. Obeys the contracts.
-- **Disabled hooks** — `ProfileMixin._log_dynamic_energy` / `_log_latency` (`@torch.compiler.disable`); side-channel writes, placed after the kernel math so fusion is unaffected.
+- **Disabled hooks** — `ProfileMixin._record_dynamic_energy` / `_record_latency` (`@torch.compiler.disable`); side-channel writes, placed after the kernel math so fusion is unaffected.
 - **No self-compiled forward** — `CimUnit.matmul`, `vec_mat_mul`, readout, and digital aggregation run eager. They obey the contracts so a caller *may* compile them, but the library does not self-decorate them.
 
 ## Performance and resources (theoretical)

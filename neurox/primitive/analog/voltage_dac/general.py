@@ -39,18 +39,9 @@ class GeneralVoltageDacConfig(VoltageDacConfig):
 
     def validate(self) -> None:
         super().validate()
-        self.validate_lut()
-        self.validate_noise()
-        self.validate_ppa()
 
-    def validate_lut(self) -> None:
         self._require_min_length(self.code_to_signal, 1, "code_to_signal")
-
-    def validate_noise(self) -> None:
         self._require_non_neg(self.drive_thermal__V, "drive_thermal__V")
-
-    def validate_ppa(self) -> None:
-        super().validate_ppa()
         self._require_non_neg(self.energy_per_op__fJ, "energy_per_op__fJ")
         self._require_non_neg(self.latency_per_op__ns, "latency_per_op__ns")
 
@@ -79,7 +70,7 @@ class GeneralVoltageDac(VoltageDac[GeneralVoltageDacConfig, GeneralVoltageDacPol
 
     # --- Immutable model buffers ---
 
-    code_to_signal: Tensor
+    _code_to_signal: Tensor
 
     def __init__(
         self,
@@ -101,7 +92,7 @@ class GeneralVoltageDac(VoltageDac[GeneralVoltageDacConfig, GeneralVoltageDacPol
         self._area_per_inst__um2 = config.area_per_inst__um2
         self._leakage_per_inst__uW = config.leakage_per_inst__uW
 
-        self.register_buffer("code_to_signal", torch.tensor(config.code_to_signal, dtype=dtype), persistent=False)
+        self.register_buffer("_code_to_signal", torch.tensor(config.code_to_signal, dtype=dtype), persistent=False)
 
     def _sample_fabricate_mismatch(self) -> None:
         pass
@@ -119,7 +110,7 @@ class GeneralVoltageDac(VoltageDac[GeneralVoltageDacConfig, GeneralVoltageDacPol
         Returns:
             Analog output voltage [V], same shape as ``code``.
         """
-        nominal__V = self.code_to_signal[code]
+        nominal__V = self._code_to_signal[code]
         signal = apply_gaussian(
             nominal__V,
             self.config.drive_thermal__V,
@@ -134,7 +125,7 @@ class GeneralVoltageDac(VoltageDac[GeneralVoltageDacConfig, GeneralVoltageDacPol
             device=signal.device,
             dtype=dynamic_energy__fJ.dtype,
         )
-        self._log_dynamic_energy(dynamic_energy__fJ)
-        self._log_latency(latency__ns)
+        self._record_dynamic_energy(dynamic_energy__fJ)
+        self._record_latency(latency__ns)
 
         return signal

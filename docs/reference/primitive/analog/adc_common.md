@@ -4,7 +4,7 @@ Domain-neutral types that carry no physical model — they name the multi-mode d
 
 ## Types
 
-- `AdcMode` — one operating mode of a multi-mode ADC: `(bits, n_states, max_signal)`, with derived `n_codes = 2 ** bits` and `lsb = max_signal / n_codes`. `max_signal` is the full-scale input magnitude in the family's native analog quantity — voltage [V] for a voltage ADC, current [uA] for a current ADC.
+- `AdcMode` — one operating mode of a multi-mode ADC: `(bits, n_states, max_signal)`, with derived `code_num = 2 ** bits` and `lsb = max_signal / code_num`. `max_signal` is the full-scale input magnitude in the family's native analog quantity — voltage [V] for a voltage ADC, current [uA] for a current ADC.
 - `AdcCalibrationRecord` — one `(mode, bits) -> rescale_factor` row of a calibration lookup. The recovery model is `M_ideal ≈ code · rescale_factor` with `rescale_factor` strictly positive; the quantize inverse is `code = floor(M_ideal / rescale_factor)`.
 
 ## Placement

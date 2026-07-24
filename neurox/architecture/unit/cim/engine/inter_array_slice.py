@@ -1,4 +1,4 @@
-"""Inter-array slice engine: ``Sw`` distributed across xbar planes (Strategy 1).
+"""Inter-array slice engine: ``Sw`` distributed across macro planes (Strategy 1).
 
 See also:
     docs/reference/architecture/unit/cim/engine/inter_array_slice.md
@@ -20,7 +20,7 @@ from neurox.primitive.digital import (
     ShiftAdderConfig,
 )
 
-from .base import CimEngine, CimEngineConfig, CimEnginePolicy
+from .base import CimEngine, CimEngineConfig, CimEnginePolicy, _chunk_pad_along
 
 
 class InterArraySliceCimEngineConfig(CimEngineConfig):
@@ -51,9 +51,9 @@ class InterArraySliceCimEnginePolicy(CimEnginePolicy):
 
 @CimEngine.register_key(InterArraySliceCimEngineConfig)
 class InterArraySliceCimEngine(CimEngine[InterArraySliceCimEngineConfig, InterArraySliceCimEnginePolicy]):
-    """CIM engine that distributes weight slices across separate xbar planes.
+    """CIM engine that distributes weight slices across separate macro planes.
 
-    One xbar plane holds one ``Sw`` slice index across every logical weight.
+    One macro plane holds one ``Sw`` slice index across every logical weight.
     """
 
     def __init__(
@@ -64,7 +64,7 @@ class InterArraySliceCimEngine(CimEngine[InterArraySliceCimEngineConfig, InterAr
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
-        ideal_xbar: bool,
+        ideal_macro: bool,
     ) -> None:
         super().__init__(
             config=config,
@@ -72,11 +72,11 @@ class InterArraySliceCimEngine(CimEngine[InterArraySliceCimEngineConfig, InterAr
             w_logical_shape=w_logical_shape,
             dtype=dtype,
             T__K=T__K,
-            ideal_xbar=ideal_xbar,
+            ideal_macro=ideal_macro,
         )
-        xbar_config = config.cim_macro_config
-        col_num = xbar_config.col_num
-        row_num = xbar_config.row_num
+        cim_macro_config = config.cim_macro_config
+        col_num = cim_macro_config.col_num
+        row_num = cim_macro_config.row_num
 
         *w_batch, n_logical, k_logical = w_logical_shape
         tr = (n_logical + col_num - 1) // col_num
@@ -95,20 +95,20 @@ class InterArraySliceCimEngine(CimEngine[InterArraySliceCimEngineConfig, InterAr
     def _init_data_path_children(self, *, sw: int, tc: int, tr: int) -> None:
         """Construct the slicers and digital reducers."""
         config = self.config
-        xbar = self.xbar
-        x_lo, x_hi = xbar.x_range
-        self.w_slicer = SimpleSlicer(
+        cim_macro = self.cim_macro
+        x_lo, x_hi = cim_macro.x_value_range
+        self._w_slicer = SimpleSlicer(
             slice_num=config.w_slice_num,
-            digit_count=xbar.w_digit_count,
-            digit_radix=xbar.w_digit_radix,
+            digit_count=cim_macro.w_digit_count,
+            digit_radix=cim_macro.w_digit_radix,
             encoding=config.w_encoding,
         )
-        self.x_slicer = SerialSlicer(
+        self._x_slicer = SerialSlicer(
             slice_num=config.x_slice_num,
             digit_radix=x_hi - x_lo + 1,
         )
-        self._w_value_range = self.w_slicer.value_range
-        self._x_value_range = self.x_slicer.value_range
+        self._w_value_range = self._w_slicer.value_range
+        self._x_value_range = self._x_slicer.value_range
 
         self.phase_accumulator = SerialAccumulator(
             config=config.phase_accumulator_config,
@@ -132,7 +132,7 @@ class InterArraySliceCimEngine(CimEngine[InterArraySliceCimEngineConfig, InterAr
         )
 
     def _organize_w(self, weight: Tensor) -> Tensor:
-        """Map a logical weight tensor into xbar-native layout.
+        """Map a logical weight tensor into macro-native layout.
 
         Args:
             weight: Integer weight tensor of shape ``[..., N, K]``.
@@ -141,16 +141,16 @@ class InterArraySliceCimEngine(CimEngine[InterArraySliceCimEngineConfig, InterAr
             Tensor of shape
             ``[..., M=1, Sa=1, Sw, Tc, Tr, data_num, D, row_num]``.
         """
-        col_num = self.xbar.col_num
-        row_num = self.xbar.row_num
+        col_num = self.cim_macro.col_num
+        row_num = self.cim_macro.row_num
 
         # Shape: [..., N, K] -> [..., N, K, Sw, D]
-        sliced = self.w_slicer.slice(weight)
+        sliced = self._w_slicer.slice(weight)
 
         # Shape: [..., N, K, Sw, D] -> [..., Tr, data_num, K, Sw, D]
-        tiled = self.chunk_pad_along(sliced, axis=-4, chunk_size=col_num, pad_value=0)
+        tiled = _chunk_pad_along(sliced, axis=-4, chunk_size=col_num, pad_value=0)
         # Shape: [..., Tr, data_num, K, Sw, D] -> [..., Tr, data_num, Tc, row_num, Sw, D]
-        tiled = self.chunk_pad_along(tiled, axis=-3, chunk_size=row_num, pad_value=0)
+        tiled = _chunk_pad_along(tiled, axis=-3, chunk_size=row_num, pad_value=0)
 
         # Shape: [..., Tr, data_num, Tc, row_num, Sw, D] -> [..., Sw, Tc, Tr, data_num, D, row_num]
         b = tiled.ndim - 6
@@ -161,7 +161,7 @@ class InterArraySliceCimEngine(CimEngine[InterArraySliceCimEngineConfig, InterAr
         return arranged.unsqueeze(b).unsqueeze(b)
 
     def _organize_x(self, x: Tensor) -> Tensor:
-        """Map a logical activation tensor into xbar-native layout.
+        """Map a logical activation tensor into macro-native layout.
 
         Args:
             x: Integer activation tensor of shape ``[..., M, K]``.
@@ -170,10 +170,10 @@ class InterArraySliceCimEngine(CimEngine[InterArraySliceCimEngineConfig, InterAr
             Tensor of shape ``[..., M, Sa, Sw=1, Tc, Tr=1, row_num]``.
         """
         # Shape: [..., M, K] -> [..., M, K, Sa, digit_count=1]
-        sliced = self.x_slicer.slice(x)
+        sliced = self._x_slicer.slice(x)
 
         # Shape: [..., M, K, Sa, digit_count=1] -> [..., M, Tc, row_num, Sa, digit_count=1]
-        tiled = self.chunk_pad_along(sliced, axis=-3, chunk_size=self.xbar.row_num, pad_value=0)
+        tiled = _chunk_pad_along(sliced, axis=-3, chunk_size=self.cim_macro.row_num, pad_value=0)
 
         # Shape: [..., M, Tc, row_num, Sa, digit_count=1] -> [..., M, Tc, row_num, Sa]
         squeezed = tiled.squeeze(-1)
@@ -190,21 +190,21 @@ class InterArraySliceCimEngine(CimEngine[InterArraySliceCimEngineConfig, InterAr
         # Shape: [..., M, K] -> [..., M, Sa, Sw=1, Tc, Tr=1, row_num]
         x = self._organize_x(input)
 
-        x_slice_radix = self.x_slicer.slice_radix
-        w_slice_radix = self.w_slicer.slice_radix
+        x_slice_radix = self._x_slicer.slice_radix
+        w_slice_radix = self._w_slicer.slice_radix
 
         # Shape: [..., M, Sa, Sw, Tc, Tr, row_num] -> [..., P, M, Sa, Sw, Tc, Tr, row_num]
         planes = self._unroll_sub_phase(x)
         # Weight-batch axes are materialized by broadcast against the instance grid.
         # Shape: [..., P, M, Sa, Sw, Tc, Tr, row_num] -> [..., P, *w_batch, M, Sa, Sw, Tc, Tr, data_num]
-        y = self.xbar.vec_mat_mul(planes, adc_mode=adc_mode, adc_bits=adc_bits).to(torch.int64)
+        y = self.cim_macro.vec_mat_mul(planes, adc_mode=adc_mode, adc_bits=adc_bits).to(torch.int64)
         # Shape: [..., P, *w_batch, M, Sa, Sw, Tc, Tr, data_num] -> [..., *w_batch, M, Sa, Sw, Tc, Tr, data_num]
-        y = self.phase_accumulator.operate(y, dim=self._sub_phase_dim)
+        y = self.phase_accumulator.accumulate(y, dim=self._sub_phase_dim)
         # Shape: [..., M, Sa, Sw, Tc, Tr, data_num] -> [..., M, Sw, Tc, Tr, data_num]
-        y = self.sa_shift_adder.operate(y, x_slice_radix, dim=-5, init_val=None)
+        y = self.sa_shift_adder.shift_add(y, x_slice_radix, dim=-5, init_val=None)
         # Shape: [..., M, Sw, Tc, Tr, data_num] -> [..., M, Tc, Tr, data_num]
-        y = self.sw_shift_adder.operate(y, w_slice_radix, dim=-4, init_val=None)
+        y = self.sw_shift_adder.shift_add(y, w_slice_radix, dim=-4, init_val=None)
         # Shape: [..., M, Tc, Tr, data_num] -> [..., M, Tr, data_num]
-        y = self.col_accumulator.operate(y, dim=-3)
+        y = self.col_accumulator.accumulate(y, dim=-3)
         # Shape: [..., M, Tr, data_num] -> [..., M, N]
         return y.flatten(start_dim=-2)[..., :n_logical]

@@ -32,7 +32,7 @@ MacroFactory = Callable[..., LinearUnit]
 _LAYER_MODE: dict[str, int] = {
     # v_diff p99 ≈ 0.025 V across the synthetic uniform workload, so the
     # smallest v_ref mode (mode 4, v_ref = 0.05 V → LSB ≈ 0.4 mV) gives
-    # non-trivial bits for typical activations. ideal_xbar TOMLs ignore the
+    # non-trivial bits for typical activations. ideal_macro TOMLs ignore the
     # mode and use their own synthetic full-range ADC.
     "conv1": 4,
     "conv2": 4,

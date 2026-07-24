@@ -64,7 +64,7 @@ Provenance terms are defined in [module_parameter](../../../conventions/module_p
 | Symbol | Meaning | Unit | Code field |
 |---|---|---|---|
 | $g$ | matched scalar transport gain | — | `mux_gain` |
-| $\varepsilon_g$ | fractional inter-leg gain mismatch (static, fabrication-fixed) | — | `eps_g` |
+| $\varepsilon_g$ | fractional inter-leg gain mismatch (static, fabrication-fixed) | — | `_eps_g` |
 | $\sigma_{\varepsilon_g}$ | per-instance fractional gain-mismatch sigma | — | `mux_gain_mismatch_sigma_relative` |
 | $V_{\mathrm{in}}^{\pm}$ | input differential legs | V | `v_pos__V`, `v_neg__V` |
 | $V_{\mathrm{out}}^{\pm}$ | output differential legs | V | `v_pos_muxed__V`, `v_neg_muxed__V` |

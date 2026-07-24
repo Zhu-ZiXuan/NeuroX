@@ -1,4 +1,4 @@
-"""Abstract physical-crossbar primitive.
+"""Abstract CIM-macro primitive.
 
 See also:
     docs/internals/primitive/macro/cim/base.md
@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 
 class CimMacroConfig(ConfigBase, ABC):
-    """Geometry and PPA shared by every xbar tile.
+    """Geometry and PPA shared by every CIM macro.
 
     Attributes:
         area_per_inst__um2: Silicon area per fabricated instance.
@@ -41,10 +41,8 @@ class CimMacroConfig(ConfigBase, ABC):
     active_row_num: int
 
     def validate(self) -> None:
-        self.validate_geometry()
-        self.validate_ppa()
+        # --- Geometry ---
 
-    def validate_geometry(self) -> None:
         # Physical array solvers require at least two nodes per wire.
         if not (self.col_num > 1):
             raise ValueError(f"require: col_num ({self.col_num}) > 1")
@@ -53,20 +51,10 @@ class CimMacroConfig(ConfigBase, ABC):
         if not (1 <= self.active_row_num <= self.row_num):
             raise ValueError(f"require: 1 <= active_row_num ({self.active_row_num}) <= row_num ({self.row_num})")
 
-    def validate_ppa(self) -> None:
+        # --- PPA ---
+
         self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
-
-    def validate_value_grid(self) -> None:
-        """Reject degenerate single-point ranges that collapse rescale math."""
-        if hasattr(self, "x_range"):
-            x_lo, x_hi = self.x_range
-            if x_lo == 0 and x_hi == 0:
-                raise ValueError("require: x_range cannot be (0, 0) — collapses rescale math")
-        if hasattr(self, "w_digit_range"):
-            d_lo, d_hi = self.w_digit_range
-            if d_lo == 0 and d_hi == 0:
-                raise ValueError("require: w_digit_range cannot be (0, 0) — collapses rescale math")
 
 
 class CimMacroPolicy(PolicyBase, ABC):
@@ -83,7 +71,7 @@ class CimMacro(
     Generic[ConfigT, PolicyT],
     ABC,
 ):
-    """Abstract base class for a physical crossbar tile.
+    """Abstract base class for a CIM macro.
 
     Args:
         config: Concrete configuration dataclass.
@@ -104,8 +92,8 @@ class CimMacro(
         T__K: float,
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
-        self.T__K = T__K
-        self.dtype = dtype
+        self._T__K = T__K
+        self._dtype = dtype
 
         self.col_num = config.col_num
         self.row_num = config.row_num
@@ -116,7 +104,7 @@ class CimMacro(
         return self.config.active_row_num
 
     @property
-    def _w_layout_shape(self) -> tuple[int, ...]:
+    def w_layout_shape(self) -> tuple[int, ...]:
         """Full digit-tensor shape ``(*inst_shape, col_num, w_digit_count, row_num)``."""
         return (*self.inst_shape, self.col_num, self.w_digit_count, self.row_num)
 
@@ -162,11 +150,12 @@ class CimMacro(
         """
         if t.shape[-1] % col_per_lane != 0:
             raise ValueError(f"require: trailing col axis ({t.shape[-1]}) % col_per_lane ({col_per_lane}) == 0")
-        return t.unflatten(-1, (-1, col_per_lane))
+        split: Tensor = t.unflatten(-1, (-1, col_per_lane))
+        return split
 
     @property
     @abstractmethod
-    def x_range(self) -> tuple[int, int]:
+    def x_value_range(self) -> tuple[int, int]:
         """Inclusive single-cycle integer input range the tile accepts."""
         raise NotImplementedError
 
@@ -184,7 +173,7 @@ class CimMacro(
 
     @property
     @abstractmethod
-    def w_digit_range(self) -> tuple[int, int]:
+    def w_digit_value_range(self) -> tuple[int, int]:
         """Inclusive integer range a single digit cell can carry physically.
 
         Set by the array structure and the per-cell device-state count.
@@ -220,8 +209,8 @@ class CimMacro(
 
         Args:
             w: Integer digit tensor whose shape matches
-                ``self._w_layout_shape = (*inst_shape, col_num, w_digit_count, row_num)``.
-                Entries must lie in :attr:`w_digit_range`.
+                ``self.w_layout_shape = (*inst_shape, col_num, w_digit_count, row_num)``.
+                Entries must lie in :attr:`w_digit_value_range`.
         """
         raise NotImplementedError
 
@@ -233,7 +222,7 @@ class CimMacro(
             x: WL plane tensor with primitive trailing ``[row_num]``;
                 leading axes are broadcast batch dimensions. At most
                 :attr:`max_active_rows` rows may be nonzero per plane.
-                Entries must lie in :attr:`x_range`.
+                Entries must lie in :attr:`x_value_range`.
             adc_mode: ADC operating-point index selecting the reference
                 row / tap set; valid values are ``[0, adc_mode_num)``.
             adc_bits: ADC resolution [bits] the conversion runs at.
@@ -256,10 +245,10 @@ class CimMacro(
         base_kwargs = {f.name: getattr(self.config, f.name) for f in fields(CimMacroConfig)}
         ideal_config = IdealCimMacroConfig(
             **base_kwargs,
-            x_range=self.x_range,
+            x_value_range=self.x_value_range,
             w_digit_count=self.w_digit_count,
             w_digit_radix=self.w_digit_radix,
-            w_digit_range=self.w_digit_range,
+            w_digit_value_range=self.w_digit_value_range,
             adc_mode_num=self.adc_mode_num,
             adc_max_bits=self.adc_max_bits,
         )
@@ -267,6 +256,6 @@ class CimMacro(
             config=ideal_config,
             policy=IdealCimMacroPolicy(),
             inst_shape=self.inst_shape,
-            dtype=self.dtype,
-            T__K=self.T__K,
+            dtype=self._dtype,
+            T__K=self._T__K,
         )

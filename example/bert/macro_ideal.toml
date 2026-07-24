@@ -64,10 +64,10 @@ active_row_num = 64  # rows activated per active phase (= row_num: single-phase)
 leakage_per_inst__uW = 5.0
 area_per_inst__um2 = 500.0
 
-x_range = [0, 1]
+x_value_range = [0, 1]
 w_digit_count = 1
 w_digit_radix = 2
-w_digit_range = [-1, 1]
+w_digit_value_range = [-1, 1]
 
 # 8-bit synthetic ADC reference (see comment in lenet/macro_with_ideal_xbar.toml).
 # IdealCimMacro derives the rescale from adc_bits + integer geometry; no

@@ -48,11 +48,8 @@ class CurrentReferenceConfig(AnalogConfig):
         return len(self.i_refs__uA[0])
 
     def validate(self) -> None:
-        self.validate_taps()
-        self.validate_noise()
-        self.validate_ppa()
+        # --- Reference bank ---
 
-    def validate_taps(self) -> None:
         self._require_min_length(self.i_refs__uA, 1, "i_refs__uA")
         tap_num = len(self.i_refs__uA[0])
         for m, row in enumerate(self.i_refs__uA):
@@ -65,11 +62,10 @@ class CurrentReferenceConfig(AnalogConfig):
             for t, v in enumerate(row):
                 self._require_non_neg(v, f"i_refs__uA[{m}][{t}]")
 
-    def validate_noise(self) -> None:
+        # --- Noise and PPA ---
+
         self._require_non_neg(self.tolerance_sigma_relative, "tolerance_sigma_relative")
         self._require_non_neg(self.noise_sigma_relative, "noise_sigma_relative")
-
-    def validate_ppa(self) -> None:
         self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
 
@@ -113,7 +109,7 @@ class CurrentReference(AnalogBase[CurrentReferenceConfig, CurrentReferencePolicy
 
     # --- Fabrication source buffers ---
 
-    nominal_i_refs__uA: Tensor
+    _nominal_i_refs__uA: Tensor
 
     def __init__(
         self,
@@ -132,7 +128,7 @@ class CurrentReference(AnalogBase[CurrentReferenceConfig, CurrentReferencePolicy
     def _register_fabrication_buffers(self, *, dtype: torch.dtype) -> None:
         """Register immutable tensors used as fabrication sources."""
         self.register_buffer(
-            "nominal_i_refs__uA",
+            "_nominal_i_refs__uA",
             torch.tensor(self.config.i_refs__uA, dtype=dtype),
             persistent=False,
         )
@@ -148,11 +144,11 @@ class CurrentReference(AnalogBase[CurrentReferenceConfig, CurrentReferencePolicy
         return self.config.tap_num
 
     def _sample_fabricate_mismatch(self) -> None:
-        base = self.nominal_i_refs__uA.expand(*self.inst_shape, self.mode_num, self.tap_num)
+        base = self._nominal_i_refs__uA.expand(*self.inst_shape, self.mode_num, self.tap_num)
         if self.policy.tolerance:
-            self.i_refs__uA = base * (1.0 + torch.randn_like(base) * self.config.tolerance_sigma_relative)
+            self._i_refs__uA = base * (1.0 + torch.randn_like(base) * self.config.tolerance_sigma_relative)
         else:
-            self.i_refs__uA = base.clone()
+            self._i_refs__uA = base.clone()
 
     def snapshot(self, *, shape: tuple[int, ...] = ()) -> CurrentReferenceSnap:
         """Sample reference taps with per-call noise.
@@ -164,7 +160,7 @@ class CurrentReference(AnalogBase[CurrentReferenceConfig, CurrentReferencePolicy
         Returns:
             Per-call snap carrying the actual reference-current taps.
         """
-        base = self.i_refs__uA
+        base = self._i_refs__uA
         view = base.expand(shape) if shape else base
         view = (
             view * (1.0 + torch.randn_like(view) * self.config.noise_sigma_relative)
@@ -172,14 +168,3 @@ class CurrentReference(AnalogBase[CurrentReferenceConfig, CurrentReferencePolicy
             else view.clone()
         )
         return CurrentReferenceSnap(i_refs__uA=view)
-
-    def i_ref__uA(self, snap: CurrentReferenceSnap) -> Tensor:
-        """Read all reference-current taps from a snap.
-
-        Args:
-            snap: Per-call snap returned by :meth:`snapshot`.
-
-        Returns:
-            Reference-current taps, shape ``(*inst_shape, mode_num, tap_num)``.
-        """
-        return snap.i_refs__uA
