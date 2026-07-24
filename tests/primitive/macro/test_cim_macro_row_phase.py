@@ -13,6 +13,8 @@
 
 from __future__ import annotations
 
+from typing import TypedDict
+
 import pytest
 import torch
 
@@ -20,7 +22,21 @@ from neurox.primitive.macro.cim import CimMacro
 from neurox.primitive.macro.cim.ideal import IdealCimMacro, IdealCimMacroConfig, IdealCimMacroPolicy
 
 
-def _config_kwargs(*, row_num: int, active_row_num: int) -> dict[str, object]:
+class _IdealCimMacroKwargs(TypedDict):
+    col_num: int
+    row_num: int
+    active_row_num: int
+    area_per_inst__um2: float
+    leakage_per_inst__uW: float
+    x_value_range: tuple[int, int]
+    w_digit_count: int
+    w_digit_radix: int
+    w_digit_value_range: tuple[int, int]
+    adc_mode_num: int
+    adc_max_bits: int
+
+
+def _config_kwargs(*, row_num: int, active_row_num: int) -> _IdealCimMacroKwargs:
     return {
         "col_num": 4,
         "row_num": row_num,

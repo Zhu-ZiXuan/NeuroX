@@ -32,11 +32,11 @@ off). A ``w_digit_radix > 2`` cell requires a radix-level conductance table in t
 cell config (the config author's responsibility).
 
 Composition: the array (cell grid + wire + solver), a 1-bit ON/OFF WL
-:class:`~neurox.primitive.analog.voltage_dac.VoltageDac`, the CABLC and SL clamp
+:class:`~neurox.primitive.analog.voltage_dac.Vdac`, the CABLC and SL clamp
 seats (generic Thevenin VoltageDriver, ``r_out = 0`` ideal source — the wire IR
 drop lives in the array, these are the boundary clamps + static leakage seats),
-the TMCSA :class:`~neurox.primitive.analog.current_adc.SarSingleEndedCurrentAdc`
-against a shared static :class:`~neurox.primitive.analog.CurrentReference` tap
+the TMCSA :class:`~neurox.primitive.analog.current_adc.SarIadc`
+against a shared static :class:`~neurox.primitive.analog.Iref` tap
 bank, and two :class:`~neurox.primitive.analog.UnmodeledBlock` seats (control +
 PN-ISUB bias/comparator). The DSWCT place-value weighting, the SINWP-SC
 input-radix combine, and the PN-ISUB subtraction are pure macro tensor operations
@@ -66,7 +66,7 @@ on its own channels: the DSWCT output legs ``V_DD * I_WDL`` under ``dswct``; the
 SINWP-SC held/live legs under ``sinwp_sc``; the PN-ISUB three-branch conduction
 plus its per-op comparator decision under ``pn_isub``; the control per-op constant
 under ``control``. The TMCSA self-bills its per-step sensing energy. The
-CurrentReference, the two UnmodeledBlock seats, the ADC, and the clamp
+Iref, the two UnmodeledBlock seats, the ADC, and the clamp
 VoltageDrivers are static-only.
 
 See also:
@@ -79,9 +79,9 @@ import torch
 from torch import Tensor
 
 from neurox.primitive.analog import (
-    CurrentReference,
-    CurrentReferenceConfig,
-    CurrentReferencePolicy,
+    Iref,
+    IrefConfig,
+    IrefPolicy,
     UnmodeledBlock,
     UnmodeledBlockConfig,
     UnmodeledBlockPolicy,
@@ -91,11 +91,11 @@ from neurox.primitive.analog import (
 )
 from neurox.primitive.analog.adc_common import AdcCalibrationRecord
 from neurox.primitive.analog.current_adc import (
-    SarSingleEndedCurrentAdc,
-    SarSingleEndedCurrentAdcConfig,
-    SarSingleEndedCurrentAdcPolicy,
+    SarIadc,
+    SarIadcConfig,
+    SarIadcPolicy,
 )
-from neurox.primitive.analog.voltage_dac import VoltageDac, VoltageDacConfig, VoltageDacPolicy
+from neurox.primitive.analog.voltage_dac import Vdac, VdacConfig, VdacPolicy
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
 from neurox.primitive.xbar.array import XbarArray1t1r, XbarArray1t1rConfig, XbarArray1t1rPolicy
 
@@ -189,7 +189,7 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
             ``t_conduct_per_step__ns`` (its conduction energy is unchanged), and the
             sensing durations feed the read-chain window ``t_other``
             (:attr:`t_other__ns`).
-        reference_config: Shared static CurrentReference — the ``[mode, tap]``
+        reference_config: Shared static Iref — the ``[mode, tap]``
             threshold bank; the macro selects one mode row and passes the
             per-instance ladder straight to the ADC.
             ``tap_num == 2**adc_config.bits - 1``.
@@ -227,11 +227,11 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
 
     # --- Device-bearing sub-blocks (full nested configs) ---
     array_config: XbarArray1t1rConfig
-    wl_dac_config: VoltageDacConfig
+    wl_dac_config: VdacConfig
     cablc_config: VoltageDriverConfig
     sl_driver_config: VoltageDriverConfig
-    adc_config: SarSingleEndedCurrentAdcConfig
-    reference_config: CurrentReferenceConfig
+    adc_config: SarIadcConfig
+    reference_config: IrefConfig
 
     # --- ADC calibration ---
     adc_calibration: tuple[AdcCalibrationRecord, ...]
@@ -358,7 +358,7 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
 
         # --- ADC reference and calibration ---
 
-        # The TMCSA reads its ladder from the shared CurrentReference, so the tap
+        # The TMCSA reads its ladder from the shared Iref, so the tap
         # count must match the binary-search depth exactly.
         want_taps = (1 << self.adc_config.bits) - 1
         if self.reference_config.tap_num != want_taps:
@@ -424,11 +424,11 @@ class Xue2020JsscCimMacroPolicy(CimMacroPolicy):
     """
 
     array_policy: XbarArray1t1rPolicy
-    wl_dac_policy: VoltageDacPolicy
+    wl_dac_policy: VdacPolicy
     cablc_policy: VoltageDriverPolicy
     sl_driver_policy: VoltageDriverPolicy
-    adc_policy: SarSingleEndedCurrentAdcPolicy
-    reference_policy: CurrentReferencePolicy
+    adc_policy: SarIadcPolicy
+    reference_policy: IrefPolicy
     control_policy: UnmodeledBlockPolicy
     pn_isub_policy: UnmodeledBlockPolicy
 
@@ -507,7 +507,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
 
         # --- WL 1-bit ON/OFF DAC (K single-bit sub-phases; one broadcast solve) ---
 
-        self.wl_dac = VoltageDac.from_config(
+        self.wl_dac = Vdac.from_config(
             config=config.wl_dac_config,
             policy=policy.wl_dac_policy,
             inst_shape=(*self.inst_shape, config.row_num),
@@ -546,7 +546,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         # event; the ADC keeps its real ``step_latency__ns`` and
         # ``t_conduct_per_step__ns`` (its conduction energy is untouched), and the
         # read-chain window ``t_other`` folds the honest sensing durations back in.
-        self.tmcsa = SarSingleEndedCurrentAdc(
+        self.tmcsa = SarIadc(
             config=config.adc_config,
             policy=policy.adc_policy,
             inst_shape=(*self.inst_shape, gn),
@@ -559,7 +559,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         # fabrication prefix so its static PPA scales with parallel copies like
         # every other seat; the per-instance ladder is passed straight to the ADC
         # (see :meth:`vec_mat_mul`) as the ADC's per-instance reference contract.
-        self.adc_current_reference = CurrentReference(
+        self.adc_current_reference = Iref(
             config=config.reference_config,
             policy=policy.reference_policy,
             inst_shape=self.inst_shape,

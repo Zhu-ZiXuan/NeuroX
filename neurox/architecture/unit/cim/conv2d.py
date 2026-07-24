@@ -10,13 +10,14 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor
 
-from neurox.architecture.unit.cim.base import (
+from neurox.architecture.unit.conv2d import Conv2dUnit
+
+from .base import (
     CimUnit,
     EngineBackedCimUnit,
     EngineBackedCimUnitConfig,
     EngineBackedCimUnitPolicy,
 )
-from neurox.architecture.unit.conv2d import Conv2dUnit
 
 
 class Conv2dCimUnitConfig(EngineBackedCimUnitConfig):

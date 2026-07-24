@@ -1,6 +1,7 @@
 """Public API for constructing and running NeuroX compute units."""
 
-from neurox.architecture.unit import (
+from . import architecture, common, primitive, works
+from .architecture.unit import (
     Conv2dUnit,
     IdealConv2dUnit,
     IdealConv2dUnitConfig,
@@ -11,7 +12,7 @@ from neurox.architecture.unit import (
     LinearUnit,
     UnitBase,
 )
-from neurox.architecture.unit.cim import (
+from .architecture.unit.cim import (
     CimUnit,
     CimUnitConfig,
     CimUnitPolicy,
@@ -22,8 +23,8 @@ from neurox.architecture.unit.cim import (
     LinearCimUnitConfig,
     LinearCimUnitPolicy,
 )
-from neurox.common.mixin import ProfileMixin
-from neurox.common.profiler import (
+from .common.mixin import ProfileMixin
+from .common.profiler import (
     EnergyEvent,
     LatencyEvent,
     NeuroxProfiler,
@@ -31,7 +32,7 @@ from neurox.common.profiler import (
     StaticMetrics,
     StaticRecord,
 )
-from neurox.primitive.macro.cim import (
+from .primitive.macro.cim import (
     CimMacro,
     CimMacroConfig,
     CimMacroPolicy,
@@ -41,6 +42,10 @@ from neurox.primitive.macro.cim import (
 )
 
 __all__ = [
+    "architecture",
+    "common",
+    "primitive",
+    "works",
     "EnergyEvent",
     "LatencyEvent",
     "NeuroxProfiler",

@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import dataclasses
 from collections.abc import Iterator
+from typing import TypedDict
 
 import pytest
 import torch
@@ -51,7 +52,8 @@ import torch._dynamo
 from torch import Tensor
 
 from neurox.common.profiler import NeuroxProfiler, ProfilerReport
-from tests.works.macro.cim.xue2020jssc._utils import (
+
+from ._utils import (
     ADC_MODE,
     TINY_ADC_BITS,
     TINY_COL_NUM,
@@ -62,6 +64,12 @@ from tests.works.macro.cim.xue2020jssc._utils import (
     build_macro,
     encode_weights,
 )
+
+
+class _AdcConfigUpdates(TypedDict, total=False):
+    t_conduct_per_step__ns: tuple[float, ...]
+    v_rail__V: float
+
 
 _CHANNELS = ("cablc", "dswct", "sinwp_sc", "pn_isub", "control")
 _READ_CHANNELS = ("cablc", "dswct", "sinwp_sc")  # window-dependent conduction channels
@@ -126,7 +134,7 @@ def _with_adc(
     v_rail: float | None = None,
 ) -> Xue2020JsscCimMacroConfig:
     """Replace only the TMCSA conduction knobs (energy-path only; windows untouched)."""
-    kw: dict[str, object] = {}
+    kw: _AdcConfigUpdates = {}
     if t_conduct is not None:
         kw["t_conduct_per_step__ns"] = t_conduct
     if v_rail is not None:

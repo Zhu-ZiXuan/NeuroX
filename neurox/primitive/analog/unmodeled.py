@@ -6,7 +6,7 @@ See also:
 
 import torch
 
-from neurox.primitive.analog.base import AnalogBase, AnalogConfig, AnalogPolicy
+from .base import AnalogBase, AnalogConfig, AnalogPolicy
 
 
 class UnmodeledBlockConfig(AnalogConfig):

@@ -1,6 +1,6 @@
 # Current reference
 
-`CurrentReference` is a leaf multi-output source holding a 2-D `[mode][tap]` bank and exposing per-call tap values through `CurrentReferenceSnap`.
+`Iref` is a leaf multi-output source holding a 2-D `[mode][tap]` bank and exposing per-call tap values through `IrefSnap`.
 
 ## Design decisions
 

@@ -26,7 +26,13 @@ import torch
 import torch._dynamo
 from torch import Tensor
 
-from neurox.primitive.xbar.solver import NestedParallelRailSolver, NestedParallelRailSolverConfig, SolverProber
+from neurox.primitive.xbar.cell import XbarCellDcop
+from neurox.primitive.xbar.solver import (
+    NestedParallelRailSolver,
+    NestedParallelRailSolverConfig,
+    SolverObservation,
+    SolverProber,
+)
 from tests.utils.standalone_solver_fixture import SolverHarness, build_solver_harness
 
 
@@ -124,11 +130,8 @@ def test_dcop_matches_dense_kcl_oracle(device: torch.device) -> None:
     torch.testing.assert_close(dcop.i_sl_driver[0], i_sl_exp, **tol)
 
 
-def _assert_fully_detached(observation: object) -> None:
+def _assert_fully_detached(observation: SolverObservation[XbarCellDcop]) -> None:
     """Every tensor on the observation — including inside its DCOP — is detached."""
-    from neurox.primitive.xbar.solver import SolverObservation
-
-    assert isinstance(observation, SolverObservation)
     for tensor in (
         observation.wire_bl__uA,
         observation.wire_sl__uA,

@@ -1,19 +1,19 @@
 from .base import (
-    SingleEndedCurrentAdc,
-    SingleEndedCurrentAdcConfig,
-    SingleEndedCurrentAdcObservation,
-    SingleEndedCurrentAdcPolicy,
-    SingleEndedCurrentAdcProber,
+    Iadc,
+    IadcConfig,
+    IadcObservation,
+    IadcPolicy,
+    IadcProber,
 )
-from .sar import SarSingleEndedCurrentAdc, SarSingleEndedCurrentAdcConfig, SarSingleEndedCurrentAdcPolicy
+from .sar import SarIadc, SarIadcConfig, SarIadcPolicy
 
 __all__ = [
-    "SarSingleEndedCurrentAdc",
-    "SarSingleEndedCurrentAdcConfig",
-    "SarSingleEndedCurrentAdcPolicy",
-    "SingleEndedCurrentAdc",
-    "SingleEndedCurrentAdcConfig",
-    "SingleEndedCurrentAdcObservation",
-    "SingleEndedCurrentAdcPolicy",
-    "SingleEndedCurrentAdcProber",
+    "SarIadc",
+    "SarIadcConfig",
+    "SarIadcPolicy",
+    "Iadc",
+    "IadcConfig",
+    "IadcObservation",
+    "IadcPolicy",
+    "IadcProber",
 ]

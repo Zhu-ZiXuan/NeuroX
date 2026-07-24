@@ -63,4 +63,4 @@ TODO: cite the reference-accuracy and drift models.
 
 - **Internals**: [voltage_reference internals](../../../internals/primitive/analog/voltage_reference.md)
 - **Validation**: TODO — validation evidence not yet written
-- **Configuration**: `VoltageReferenceConfig`, `VoltageReferencePolicy` (see `api`)
+- **Configuration**: `VrefConfig`, `VrefPolicy` (see `api`)

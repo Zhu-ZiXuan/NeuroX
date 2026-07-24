@@ -2,19 +2,15 @@
 
 ## Physical model
 
-An ideal single-ended N:1 time-share current transport: the shared output lane carries one selected column current at a time, scaled by an exact matched transport gain, and the group's N columns are visited serially. The model includes fixed serial per-operation latency and no rail-energy term.
+An ideal single-ended N:1 time-share current transport. Its owner supplies currents in an explicit access/lane layout and thereby defines which source reaches each physical lane during each access. The mux preserves that layout and applies an exact matched transport gain.
 
 ## Governing equations
 
-The lane output current is the gained transport of the selected column current,
+For an input with shape $[\ldots,A,L]$, where $A$ is the number of serial accesses and $L$ is the number of parallel lanes, transport requires $A=N$, where $N$ is `mux_ratio`, and applies
 
-$$I_{\mathrm{out}} = g \, I_{\mathrm{in}},$$
+$$I_{\mathrm{out}}[\ldots,a,l] = g\,I_{\mathrm{in}}[\ldots,a,l].$$
 
-with $g$ the dimensionless matched transport gain. The serial latency scales the per-operation latency by the serial-op count $n_{\mathrm{op}}$,
-
-$$t_{\mathrm{lat}} = t_{\mathrm{op}} \, n_{\mathrm{op}},$$
-
-with $t_{\mathrm{op}}$ the per-transport latency and $n_{\mathrm{op}}$ the number of serial column visits in the group. The serial-op count already tallies those visits, so the N:1 fan-in is not a further multiplier.
+The output has the same shape. Axis $a$ indexes time-serial accesses and axis $l$ indexes spatially parallel lanes. The primitive emits no energy or latency; the consuming readout owns those costs.
 
 ## Numerical method
 
@@ -28,10 +24,8 @@ None. The transport is ideal; the neglected non-idealities are named in Assumpti
 
 | Parameter | Meaning | Unit | Constraint | Source |
 |---|---|---|---|---|
-| `select_num` ($N$) | design N:1 fan-in (columns sharing the lane); does not scale latency | — | $\geq 1$ | Design |
+| `mux_ratio` ($N$) | N in the N:1 fan-in ratio and required access-axis length | — | $\geq 1$ | Design |
 | `mux_gain` ($g$) | matched scalar transport gain | — | $> 0$ | Design |
-| `latency_per_op__ns` ($t_{\mathrm{op}}$) | per-transport latency, scaled by the serial-op count | ns | $\geq 0$ | Design |
-| leakage / area | static PPA / spec fields | uW, um^2 | $\geq 0$ | Design |
 
 Provenance terms are defined in [module_parameter](../../../conventions/module_parameter.md).
 
@@ -39,13 +33,10 @@ Provenance terms are defined in [module_parameter](../../../conventions/module_p
 
 | Symbol | Meaning | Unit | Code field |
 |---|---|---|---|
-| $I_{\mathrm{in}}$ | selected column input current | uA | `i__uA` |
-| $I_{\mathrm{out}}$ | lane output current | uA | `transport` return |
+| $I_{\mathrm{in}}$ | single-ended column-current input | uA | `i__uA` |
+| $I_{\mathrm{out}}$ | access/lane output | uA | `transport` return |
 | $g$ | matched transport gain | — | `mux_gain` |
-| $N$ | N:1 fan-in (columns per group) | — | `select_num` |
-| $t_{\mathrm{op}}$ | per-transport latency | ns | `latency_per_op__ns` |
-| $n_{\mathrm{op}}$ | serial-op count (column visits per group) | — | derived at logging time |
-| $t_{\mathrm{lat}}$ | serial latency over one group | ns | logged latency |
+| $N$ | N:1 fan-in ratio | — | `mux_ratio` |
 
 ## Assumptions, scope & validity
 
@@ -63,4 +54,4 @@ TODO: cite the time-share current transport and the serial-latency model.
 
 - **Internals**: [current_mux internals](../../../internals/primitive/analog/current_mux.md)
 - **Validation**: TODO - validation evidence not yet written
-- **Configuration**: `CurrentMuxConfig`, `CurrentMuxPolicy` (see `api`)
+- **Configuration**: `ImuxConfig`, `ImuxPolicy` (see `api`)

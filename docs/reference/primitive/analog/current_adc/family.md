@@ -1,4 +1,4 @@
-# Current ADC family
+# Single-ended current ADC family
 
 Every concrete current ADC digitizes a single-ended magnitude current into an unsigned integer code under one shared set of conventions.
 
@@ -43,5 +43,5 @@ TODO.
 
 ---
 
-- **Internals**: [current ADC base internals](../../../../internals/primitive/analog/current_adc/base.md)
-- **Configuration**: `SingleEndedCurrentAdcConfig` (see `api`)
+- **Internals**: [single-ended current ADC base](../../../../internals/primitive/analog/current_adc/base.md)
+- **Configuration**: `IadcConfig` (see `api`)

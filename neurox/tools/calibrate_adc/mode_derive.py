@@ -32,9 +32,10 @@ from pathlib import Path
 
 from neurox.common import ConfigBase
 from neurox.tools._config import add_standard_args, load_tool_config, resolve_relative_path, setup_logging
-from neurox.tools.calibrate_adc._math import ValueCluster, cluster_values
-from neurox.tools.calibrate_adc._modes import AdcMode, LayerRange, ModeSet, dump_mode_set, load_layer_ranges
-from neurox.tools.calibrate_adc._testbench import add_file_logging
+
+from ._math import ValueCluster, cluster_values
+from ._modes import AdcMode, LayerRange, ModeSet, dump_mode_set, load_layer_ranges
+from ._testbench import add_file_logging
 
 logger = logging.getLogger(__name__)
 

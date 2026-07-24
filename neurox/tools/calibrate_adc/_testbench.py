@@ -5,7 +5,7 @@ macro config/policy file pair, ``CimMacroConfig.from_file`` +
 ``CimMacro.from_config`` resolve the concrete tile, and the two calibration
 views are obtained by different means. The physical tile's analog ADC input
 and code come from the
-:class:`~neurox.primitive.analog.current_adc.SingleEndedCurrentAdcProber`; the lossless
+:class:`~neurox.primitive.analog.current_adc.IadcProber`; the lossless
 integer dots come
 straight from the RETURN VALUE of the
 :meth:`~neurox.primitive.macro.cim.CimMacro.to_ideal` twin's ``vec_mat_mul``
@@ -25,10 +25,7 @@ from pathlib import Path
 import torch
 from torch import Tensor
 
-# Registers the scheme classes so CimMacroConfig.from_file / CimMacro.from_config
-# can resolve works-defined subclasses named by `_neurox_class`.
-import neurox.works  # noqa: F401
-from neurox.primitive.analog.current_adc import SingleEndedCurrentAdcProber
+from neurox.primitive.analog.current_adc import IadcProber
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
 from neurox.primitive.macro.cim.ideal import IdealCimMacro
 from neurox.primitive.physical_constant import T_ROOM__K
@@ -308,7 +305,7 @@ class PairedConversion:
 
     Attributes:
         i_in__uA: Analog ADC input per conversion element (physical run,
-            :class:`SingleEndedCurrentAdcProber`), CPU float64, 1-D.
+            :class:`IadcProber`), CPU float64, 1-D.
         code: ADC output code per element (physical run), CPU int64, 1-D.
         ideal_m: Lossless integer per-phase dot per element (ideal run's
             ``vec_mat_mul`` return at the ``adc_bits = 0`` sentinel), CPU
@@ -336,7 +333,7 @@ def run_paired_stimulus(
     planes (:func:`_unroll_sub_phase`, so calibration converts under the
     per-sub-phase masked drive the runtime applies and the streams stay
     element-aligned). The physical VMM runs at ``(adc_mode, adc_bits)``
-    under a :class:`SingleEndedCurrentAdcProber` capturing the convert observations;
+    under a :class:`IadcProber` capturing the convert observations;
     the ideal VMM runs at the lossless ``adc_bits = 0`` sentinel and its
     integer-dot RETURN value is the ideal view (the ideal tile emits no
     probe). The physical observations and the ideal returns are paired
@@ -375,7 +372,7 @@ def run_paired_stimulus(
         max_active_rows=physical.max_active_rows,
         inst_rank=len(physical.inst_shape),
     )
-    with SingleEndedCurrentAdcProber() as prober, torch.no_grad():
+    with IadcProber() as prober, torch.no_grad():
         physical.vec_mat_mul(x, adc_mode=adc_mode, adc_bits=adc_bits)
         # The ideal twin is reachable data: its return is the lossless view,
         # positionally paired with the physical convert observations.

@@ -35,7 +35,8 @@ import torch._dynamo
 from torch import Tensor
 
 from neurox.works.macro.cim.xue2020jssc import Xue2020JsscCimMacro
-from tests.works.macro.cim.xue2020jssc._utils import (
+
+from ._utils import (
     MAG_MAX,
     TINY_ADC_BITS,
     TINY_COL_NUM,
@@ -75,7 +76,7 @@ def test_grid_monotone_and_thresholds_consistent(device: torch.device) -> None:
     grid = probe_i_sub_grid(macro, m_max=MAG_MAX)
     assert grid[0] == pytest.approx(0.0, abs=1e-6)  # M = 0: exact-zero HRS branch, no leakage
     assert all(b > a for a, b in itertools.pairwise(grid)), f"non-monotone I_SUB grid: {grid}"
-    # The installed mid-points (the single CurrentReference ladder source)
+    # The installed mid-points (the single Iref ladder source)
     # separate the grid points: I_SUB(M) decodes to code M.
     ladder = macro.config.reference_config.i_refs__uA[0]  # single-mode witness: mode row 0
     for m in range(MAG_MAX + 1):

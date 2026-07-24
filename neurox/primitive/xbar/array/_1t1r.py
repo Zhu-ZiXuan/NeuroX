@@ -11,7 +11,6 @@ from typing import TypeVar
 import torch
 from torch import Tensor
 
-from neurox.primitive.xbar.array.base import XbarArray, XbarArrayConfig, XbarArrayPolicy
 from neurox.primitive.xbar.cell import (
     XbarCell1t1r,
     XbarCell1t1rConfig,
@@ -29,6 +28,8 @@ from neurox.primitive.xbar.solver import (
     reassemble_chunks,
 )
 from neurox.primitive.xbar.solver.clamp import ClampSnap
+
+from .base import XbarArray, XbarArrayConfig, XbarArrayPolicy
 
 BLSnapT = TypeVar("BLSnapT", bound=ClampSnap)
 SLSnapT = TypeVar("SLSnapT", bound=ClampSnap)
@@ -365,14 +366,17 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
                 sl_driver_snap=sl_snap,
             )
             if record_dynamic_energy:
-                chunk_energies.append(
-                    self._compute_array_energy__fJ(
-                        solver_dcop=solver_dcop_chunk,
-                        cell_snap=cell_snap,
-                    )
+                chunk_energy__fJ = self._compute_array_energy__fJ(
+                    solver_dcop=solver_dcop_chunk,
+                    cell_snap=cell_snap,
                 )
-            i_bl_port_chunks.append(solver_dcop_chunk.i_bl_driver)
-            v_bl_clamp_chunks.append(solver_dcop_chunk.v_bl_clamp)
+                chunk_energies.append(chunk_energy__fJ[: spec.valid_size] if leading else chunk_energy__fJ)
+            i_bl_port_chunks.append(
+                solver_dcop_chunk.i_bl_driver[: spec.valid_size] if leading else solver_dcop_chunk.i_bl_driver
+            )
+            v_bl_clamp_chunks.append(
+                solver_dcop_chunk.v_bl_clamp[: spec.valid_size] if leading else solver_dcop_chunk.v_bl_clamp
+            )
             global_indices.append(spec.flat_global_idx)
 
         # --- 4: reassemble the leading dimensions ---

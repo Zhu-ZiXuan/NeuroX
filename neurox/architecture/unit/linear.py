@@ -11,7 +11,7 @@ from abc import ABC, abstractmethod
 import torch
 from torch import Tensor
 
-from neurox.architecture.unit.base import UnitBase
+from .base import UnitBase
 
 
 class LinearUnit(UnitBase, ABC):

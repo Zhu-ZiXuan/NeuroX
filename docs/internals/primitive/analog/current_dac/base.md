@@ -1,12 +1,12 @@
 # Current DAC base
 
-The root of the current DAC family: `CurrentDac` provides the shared construction and registration surface every member inherits and fixes the abstract conversion surface each concrete impl must fill; the code-to-current transfer and its non-idealities belong to the member.
+The root of the current DAC family: `Idac` provides the shared construction and registration surface every member inherits and fixes the abstract conversion surface each concrete impl must fill; the code-to-current transfer and its non-idealities belong to the member.
 
 ## Design decisions
 
-- **Family dispatch keyed on config and policy types.** `CurrentDac.from_config(...)` resolves `(type(config), type(policy))`; a concrete current DAC registers both concrete types, so mismatched wiring fails before leaf construction.
+- **Family dispatch keyed on config and policy types.** `Idac.from_config(...)` resolves `(type(config), type(policy))`; a concrete current DAC registers both concrete types, so mismatched wiring fails before leaf construction.
 - **No family-specific runtime extras.** The current DAC has no per-call operating point analogous to the ADC's `(mode, bits)`; the `from_config` signature is the canonical one and the conversion takes only the code, off the memory- and compile-critical path.
-- **Empty marker `CurrentDacPolicy`.** The base policy carries no switch; each concrete current DAC declares its own `*Policy(CurrentDacPolicy)` with that topology's toggles.
+- **Empty marker `IdacPolicy`.** The base policy carries no switch; each concrete current DAC declares its own `*Policy(IdacPolicy)` with that topology's toggles.
 
 ## Contracts & invariants
 

@@ -222,7 +222,7 @@ n_inner = 3                       # [calibrated] inner wire/cell coupled Newton 
 # WL DAC -- 1-bit ON/OFF word-line driver (K serial single-bit sub-phases)
 # ===========================================================================
 [cim_macro.wl_dac_config]
-_neurox_class = "GeneralVoltageDacConfig"
+_neurox_class = "GeneralVdacConfig"
 # [sourced] binary WL drive: OFF -> 0 V, ON -> V_WL. [declared] V_WL 0.9 V (the
 # paper does not give the WL on-voltage). latency_per_op = 0 so the WL sub-phase
 # folds into t_cycle (the macro is the sole latency emitter).
@@ -267,7 +267,7 @@ leakage_per_inst__uW = 0.0
 
 
 # ===========================================================================
-# TMCSA -- triple-margin current-mode SA quantizer (SarSingleEndedCurrentAdc, B-form)
+# TMCSA -- triple-margin current-mode SA quantizer (SarIadc, B-form)
 # ===========================================================================
 [cim_macro.adc_config]
 area_per_inst__um2 = 0.0
@@ -299,14 +299,13 @@ e_fixed_per_op__fJ = 10.0
 # --- Nonideality sigmas (gated by policy; all-off here) ---
 comparator_offset_sigma__uA = 0.0
 coupling_mismatch_sigma__uA = 0.0
-mirror_mismatch_sigma_relative = 0.0
 
 
 # ===========================================================================
-# Reference -- shared static current-reference source (CurrentReference)
+# Reference -- shared static current-reference source (Iref)
 # ===========================================================================
 # The 7 mid-point ADC thresholds I_REF[6:0] are sourced by a static
-# CurrentReference (PPA leakage only, no forward path), shared by the 4 TMCSAs, one
+# Iref (PPA leakage only, no forward path), shared by the 4 TMCSAs, one
 # instance per sub-array. The [mode, tap] bank is sliced to a 1-D ladder per call;
 # tap_num MUST == 2**adc_config.bits - 1 = 7, mode_num = 1.
 [cim_macro.reference_config]

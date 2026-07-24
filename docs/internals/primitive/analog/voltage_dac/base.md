@@ -1,12 +1,12 @@
 # Voltage DAC base
 
-The root of the voltage DAC family: `VoltageDac` provides the shared construction and registration surface every member inherits and fixes the abstract conversion surface each concrete impl must fill; the code-to-voltage transfer and its non-idealities belong to the member.
+The root of the voltage DAC family: `Vdac` provides the shared construction and registration surface every member inherits and fixes the abstract conversion surface each concrete impl must fill; the code-to-voltage transfer and its non-idealities belong to the member.
 
 ## Design decisions
 
-- **Family dispatch keyed on config and policy types.** `VoltageDac.from_config(...)` resolves `(type(config), type(policy))`; a concrete voltage DAC registers both concrete types, so mismatched wiring fails before leaf construction.
+- **Family dispatch keyed on config and policy types.** `Vdac.from_config(...)` resolves `(type(config), type(policy))`; a concrete voltage DAC registers both concrete types, so mismatched wiring fails before leaf construction.
 - **No family-specific runtime extras.** The voltage DAC has no per-call operating point analogous to the ADC's `(mode, bits)`; the `from_config` signature is the canonical one and the conversion takes only the code, off the memory- and compile-critical path.
-- **Empty marker `VoltageDacPolicy`.** The base policy carries no switch; each concrete voltage DAC declares its own `*Policy(VoltageDacPolicy)` with that topology's toggles.
+- **Empty marker `VdacPolicy`.** The base policy carries no switch; each concrete voltage DAC declares its own `*Policy(VdacPolicy)` with that topology's toggles.
 
 ## Contracts & invariants
 

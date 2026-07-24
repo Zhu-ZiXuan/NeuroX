@@ -17,11 +17,11 @@
 
 ### Added
 
-- **`current_dac` family** (`neurox/primitive/analog/current_dac/`), mirroring the ADC split: the DAC primitive splits into two independent families, `voltage_dac` and `current_dac`. `CurrentDac` is the new abstract base with a concrete current-steering leaf, `GeneralCurrentDac`. Both families are now exported from `neurox.primitive.analog` (the DAC family was previously not exported there at all). There is deliberately no `dac_common` module — unlike the ADC, the DAC has no per-call operating point or calibration record to share across families.
+- **`current_dac` family** (`neurox/primitive/analog/current_dac/`), mirroring the ADC split: the DAC primitive splits into two independent families, `voltage_dac` and `current_dac`. `Idac` is the new abstract base with a concrete current-steering leaf, `GeneralIdac`. Both families are now exported from `neurox.primitive.analog` (the DAC family was previously not exported there at all). There is deliberately no `dac_common` module — unlike the ADC, the DAC has no per-call operating point or calibration record to share across families.
 
 ### Changed
 
-- **The pre-existing DAC is renamed `voltage_dac`** (`neurox/primitive/analog/dac/` → `neurox/primitive/analog/voltage_dac/`): it was always a voltage DAC. Classes rename accordingly and normalize the acronym to PascalCase, matching the sibling `Adc` family: `DAC` → `VoltageDac`, `GeneralDAC` → `GeneralVoltageDac` (and correspondingly for their config/policy classes). Four config/policy TOML files' `_neurox_class` discriminator strings change to match.
+- **The pre-existing DAC is renamed `voltage_dac`** (`neurox/primitive/analog/dac/` → `neurox/primitive/analog/voltage_dac/`): it was always a voltage DAC. Classes rename accordingly and normalize the acronym to PascalCase, matching the sibling `Adc` family: `DAC` → `Vdac`, `GeneralDAC` → `GeneralVdac` (and correspondingly for their config/policy classes). Four config/policy TOML files' `_neurox_class` discriminator strings change to match.
 
 ## Unreleased — NMOS Generalized to a Polarity-Parameterized MOSFET
 
@@ -52,35 +52,35 @@
 
 ### Changed
 
-- **Reference voltages are injected per call, not self-held (GOAL A).** The ADC family, `VoltageDriver`, and the TIA family no longer carry their reference as a config field / nominal buffer / property; the value is injected per call as a plain `Tensor`. `VoltageAdc.convert` gains a keyword-only `v_refs__V: Tensor` (all taps, shape `(*inst, num_refs)`; `adc_mode` indexes its trailing axis, so the mode bound is checked against the tensor, not config), and the abstract `VoltageAdc.mode_num` / concrete `available_modes` / `mode_num` are removed — an xbar reports `adc_mode_num` from its reference source's `num_refs`. `VoltageDriver.snapshot` / `TIA.snapshot` gain a keyword `v_ref__V: Tensor` stored in the snap, which the clamp / DC solve reads (the `ClampDriver` role drops its `v_ref__V` member). `GeneralVoltageAdc` loses `drive_value` / `drive_thermal__V` (and ignores the injected `v_refs__V`); `McsSarVoltageAdcConfig` / `SarMonoVoltageAdcConfig` lose `v_refs__V`. Consumers own a `VoltageReference` and snapshot it once per forward: the core sources the boundary-clamp reference (BL-clamp + SL-drive taps) once per `cim_read`, and each operating xbar sources the ADC-ladder reference (one tap per mode) once per VMM — one global-scalar draw shared across chunks, preserving chunk bit-exactness.
-- **Reference-source taps are now non-negative (GOAL A).** `VoltageReferenceConfig` / `CurrentReferenceConfig` relax tap validation from strictly-positive to non-negative; a `0` V / `0` uA tap denotes a ground/rail reference (relative noise `* 0 == 0`, so it stays stable and exact). This lets the SL driver clamp to ground through the reference source.
+- **Reference voltages are injected per call, not self-held (GOAL A).** The ADC family, `VoltageDriver`, and the TIA family no longer carry their reference as a config field / nominal buffer / property; the value is injected per call as a plain `Tensor`. `VoltageAdc.convert` gains a keyword-only `v_refs__V: Tensor` (all taps, shape `(*inst, num_refs)`; `adc_mode` indexes its trailing axis, so the mode bound is checked against the tensor, not config), and the abstract `VoltageAdc.mode_num` / concrete `available_modes` / `mode_num` are removed — an xbar reports `adc_mode_num` from its reference source's `num_refs`. `VoltageDriver.snapshot` / `TIA.snapshot` gain a keyword `v_ref__V: Tensor` stored in the snap, which the clamp / DC solve reads (the `ClampDriver` role drops its `v_ref__V` member). `GeneralVoltageAdc` loses `drive_value` / `drive_thermal__V` (and ignores the injected `v_refs__V`); `McsSarVoltageAdcConfig` / `SarMonoVoltageAdcConfig` lose `v_refs__V`. Consumers own a `Vref` and snapshot it once per forward: the core sources the boundary-clamp reference (BL-clamp + SL-drive taps) once per `cim_read`, and each operating xbar sources the ADC-ladder reference (one tap per mode) once per VMM — one global-scalar draw shared across chunks, preserving chunk bit-exactness.
+- **Reference-source taps are now non-negative (GOAL A).** `VrefConfig` / `IrefConfig` relax tap validation from strictly-positive to non-negative; a `0` V / `0` uA tap denotes a ground/rail reference (relative noise `* 0 == 0`, so it stays stable and exact). This lets the SL driver clamp to ground through the reference source.
 
 ### Removed
 
 - **The `ReadOut` container is dissolved (GOAL B).** `neurox/xbar/readout/` is deleted; the offset switch-cap / mux / differential-ADC chain is inlined directly into `Offset1T1RXbar.vec_mat_mul`. `Offset1T1RXbarConfig` drops `readout_config` and gains the flat child configs (`signal_switchcap_config`, `ref_switchcap_config`, `voltage_mux_config`, `adc_config`), the orchestration knobs (`energy_per_op__fJ`, `latency_per_op__ns`), and the owned `adc_v_ref_config`; the policy flattens to `signal_switchcap` / `ref_switchcap` / `voltage_mux` / `bl_adc` / `adc_v_ref`. The readout reference docs are removed and their inbound links repoint to the inline-readout description on the offset xbar page.
 
-## Unreleased — `CurrentReference` / `VoltageReference` Reference Sources
+## Unreleased — `Iref` / `Vref` Reference Sources
 
 ### Added
 
-- **`CurrentReference` / `VoltageReference` analog reference sources** (`neurox/analog/current_reference.py`, `neurox/analog/voltage_reference.py`). Behavioural multi-output reference sources: one module sources a tuple of nominal current (`i_refs__uA`) or voltage (`v_refs__V`) taps, carries the reference's static PPA (area + the always-on bias power folded into `leakage_per_inst__uW`), and hands consumers the actual taps through a `*Snap`, read back through an encapsulated `v_ref__V` / `i_ref__uA` accessor (the source-side `num_refs` property reports how many taps a module sources). They perform no computation and emit no dynamic energy or latency. Two policy-gated non-idealities perturb the taps: a per-die initial-accuracy `tolerance` fixed at fabricate time and a per-read `noise`, both relative (multiplicative). Each is wired into the config/policy/snap modelling system and exported from `neurox.analog`.
+- **`Iref` / `Vref` analog reference sources** (`neurox/analog/current_reference.py`, `neurox/analog/voltage_reference.py`). Behavioural multi-output reference sources: one module sources a tuple of nominal current (`i_refs__uA`) or voltage (`v_refs__V`) taps, carries the reference's static PPA (area + the always-on bias power folded into `leakage_per_inst__uW`), and hands consumers the actual taps through a `*Snap`, read back through an encapsulated `v_ref__V` / `i_ref__uA` accessor (the source-side `num_refs` property reports how many taps a module sources). They perform no computation and emit no dynamic energy or latency. Two policy-gated non-idealities perturb the taps: a per-die initial-accuracy `tolerance` fixed at fabricate time and a per-read `noise`, both relative (multiplicative). Each is wired into the config/policy/snap modelling system and exported from `neurox.analog`.
 
-## Unreleased — CurrentMirror/CurrentMux Energy Counts Output Side Only
-
-### Changed
-
-- **`CurrentMirror` / `CurrentMux` internal dynamic energy now counts the OUTPUT side only.** `CurrentMirror` drops the input-branch term, logging `v_supply * |i_out| * read_pulse` (was `v_supply * (|i_in| + |i_out|) * read_pulse`); `CurrentMux` already counted output only. Rationale: the input current is sourced externally and its production energy is accounted by the upstream block.
-
-## Unreleased — `AnalogMux` Renamed → `VoltageMux`
+## Unreleased — CurrentMirror/Imux Energy Counts Output Side Only
 
 ### Changed
 
-- **`AnalogMux` renamed `VoltageMux`** (`neurox/analog/analog_mux.py`
+- **`CurrentMirror` / `Imux` internal dynamic energy now counts the OUTPUT side only.** `CurrentMirror` drops the input-branch term, logging `v_supply * |i_out| * read_pulse` (was `v_supply * (|i_in| + |i_out|) * read_pulse`); `Imux` already counted output only. Rationale: the input current is sourced externally and its production energy is accounted by the upstream block.
+
+## Unreleased — `AnalogMux` Renamed → `Vmux`
+
+### Changed
+
+- **`AnalogMux` renamed `Vmux`** (`neurox/analog/analog_mux.py`
   → `neurox/analog/voltage_mux.py`) — the differential
   **voltage**-transport readout leaf becomes the explicit sibling of
-  `CurrentMux`, matching the voltage/current split across the analog
-  layer. `AnalogMuxConfig` / `AnalogMuxPolicy` → `VoltageMuxConfig` /
-  `VoltageMuxPolicy`; the readout composition field `analog_mux_config`
+  `Imux`, matching the voltage/current split across the analog
+  layer. `AnalogMuxConfig` / `AnalogMuxPolicy` → `VmuxConfig` /
+  `VmuxPolicy`; the readout composition field `analog_mux_config`
   and policy slot `analog_mux` → `voltage_mux_config` / `voltage_mux`,
   with the matching config / all-off-policy TOML sections renamed.
 

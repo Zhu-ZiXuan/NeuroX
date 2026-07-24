@@ -41,7 +41,7 @@ Provenance terms are defined in [module_parameter](../../../conventions/module_p
 | Symbol | Meaning | Unit | Code field |
 |---|---|---|---|
 | $I_{\mathrm{ref},m,k}^{\mathrm{nom}}$ | nominal reference-current tap rows, `[mode][tap]` | uA | `i_refs__uA` |
-| $I_{\mathrm{ref},m,k}$ | actual sourced taps (post tolerance + noise), full per-instance bank `[*inst, mode, tap]` | uA | `CurrentReferenceSnap.i_refs__uA` |
+| $I_{\mathrm{ref},m,k}$ | actual sourced taps (post tolerance + noise), full per-instance bank `[*inst, mode, tap]` | uA | `IrefSnap.i_refs__uA` |
 | $\sigma_{\mathrm{tol}}$ | relative initial-accuracy sigma | — | `tolerance_sigma_relative` |
 | $\sigma_{\mathrm{noise}}$ | relative per-read noise sigma | — | `noise_sigma_relative` |
 
@@ -63,4 +63,4 @@ TODO: cite the reference-accuracy and drift models.
 
 - **Internals**: [current_reference internals](../../../internals/primitive/analog/current_reference.md)
 - **Validation**: TODO — validation evidence not yet written
-- **Configuration**: `CurrentReferenceConfig`, `CurrentReferencePolicy` (see `api`)
+- **Configuration**: `IrefConfig`, `IrefPolicy` (see `api`)

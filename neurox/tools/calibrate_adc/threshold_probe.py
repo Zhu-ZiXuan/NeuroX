@@ -48,15 +48,16 @@ from neurox.common import ConfigBase
 from neurox.primitive.macro.cim import CimMacro
 from neurox.primitive.macro.cim.ideal import IdealCimMacro
 from neurox.tools._config import add_standard_args, load_tool_config, resolve_relative_path, setup_logging
-from neurox.tools.calibrate_adc._math import (
+
+from ._math import (
     MagnitudeBand,
     ThresholdPlacement,
     band_stats,
     fit_linear,
     place_thresholds,
 )
-from neurox.tools.calibrate_adc._modes import load_mode_set
-from neurox.tools.calibrate_adc._testbench import (
+from ._modes import load_mode_set
+from ._testbench import (
     MacroSection,
     add_file_logging,
     build_ideal_twin,

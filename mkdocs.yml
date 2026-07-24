@@ -74,11 +74,11 @@ nav:
     - Voltage driver: reference/primitive/analog/voltage_driver.md
     - Voltage mux: reference/primitive/analog/voltage_mux.md
     - Voltage reference: reference/primitive/analog/voltage_reference.md
-    - Voltage ADC:
-      - Family: reference/primitive/analog/voltage_adc/family.md
-      - General: reference/primitive/analog/voltage_adc/general.md
-      - MCS SAR: reference/primitive/analog/voltage_adc/mcs_sar.md
-    - Current ADC:
+    - Differential voltage ADC:
+      - Family: reference/primitive/analog/diff_voltage_adc/family.md
+      - General: reference/primitive/analog/diff_voltage_adc/general.md
+      - MCS SAR: reference/primitive/analog/diff_voltage_adc/mcs_sar.md
+    - Single-ended current ADC:
       - Family: reference/primitive/analog/current_adc/family.md
       - SAR: reference/primitive/analog/current_adc/sar.md
     - ADC common: reference/primitive/analog/adc_common.md
@@ -147,11 +147,11 @@ nav:
     - Voltage driver: internals/primitive/analog/voltage_driver.md
     - Voltage mux: internals/primitive/analog/voltage_mux.md
     - Voltage reference: internals/primitive/analog/voltage_reference.md
-    - Voltage ADC:
-      - Base: internals/primitive/analog/voltage_adc/base.md
-      - General: internals/primitive/analog/voltage_adc/general.md
-      - MCS SAR: internals/primitive/analog/voltage_adc/mcs_sar.md
-    - Current ADC:
+    - Differential voltage ADC:
+      - Base: internals/primitive/analog/diff_voltage_adc/base.md
+      - General: internals/primitive/analog/diff_voltage_adc/general.md
+      - MCS SAR: internals/primitive/analog/diff_voltage_adc/mcs_sar.md
+    - Single-ended current ADC:
       - Base: internals/primitive/analog/current_adc/base.md
       - SAR: internals/primitive/analog/current_adc/sar.md
     - Voltage DAC:

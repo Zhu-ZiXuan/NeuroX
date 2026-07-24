@@ -26,4 +26,4 @@ TODO.
 
 - **Internals**: [current DAC base internals](../../../../internals/primitive/analog/current_dac/base.md)
 - **Validation**: TODO - validation evidence not yet written
-- **Configuration**: `CurrentDacConfig` (see `api`)
+- **Configuration**: `IdacConfig` (see `api`)

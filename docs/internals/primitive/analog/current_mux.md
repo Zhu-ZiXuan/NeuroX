@@ -3,17 +3,18 @@
 ## Design decisions
 
 - **Not polymorphic.** One concrete ideal mux, constructed directly rather than dispatched through a registry. It has no error sources, so its `Policy` is an empty marker.
-- **Ideal, lossless value path — no emission.** The value path applies only the matched gain — no numeric non-ideality — and `transport` self-logs neither rail energy nor latency, so a lossless copy contributes nothing to the dynamic tally. Governing equations in Reference.
-- **`select_num` is design fan-in.** It sizes the modelled N:1 mux but is not a runtime multiplier of any tally.
+- **Ideal, lossless value path — no emission.** The value path applies only the matched gain and preserves the caller-provided `(..., access_num, lane_num)` layout. `transport` self-logs neither rail energy nor latency.
+- **Connectivity belongs to the owner.** The owner maps source signals onto accesses and lanes before calling `transport`; the mux neither groups nor permutes axes.
+- **The trailing axes distinguish serial and parallel work.** `access_num` is the number of sequential mux accesses and must equal `mux_ratio`; `lane_num` is the number of parallel output lanes and must match the final `inst_shape` extent.
 
 ## Contracts & invariants
 
-- **Canonical leaf signature.** The per-instance count is fixed from `inst_shape` at construction.
+- **Input layout.** The two trailing axes must be `(mux_ratio, lane_num)`.
 - **Static PPA rolls up to the owner.** The mux's silicon is accounted in the owning current-domain circuit's config, so it declares no per-instance area or leakage data of its own and sets `is_profile_target` false ([base](base.md)).
 
 ## Performance & resources
 
-N/A — per-call elementwise map off the memory- and compile-critical path.
+N/A — the value path is one elementwise gain operation.
 
 ## Known limitations
 

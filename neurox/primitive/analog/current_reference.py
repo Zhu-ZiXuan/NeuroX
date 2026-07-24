@@ -9,11 +9,11 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor
 
-from neurox.primitive.analog.base import AnalogBase, AnalogConfig, AnalogPolicy
+from .base import AnalogBase, AnalogConfig, AnalogPolicy
 
 
-class CurrentReferenceConfig(AnalogConfig):
-    """Immutable configuration for :class:`CurrentReference`.
+class IrefConfig(AnalogConfig):
+    """Immutable configuration for :class:`Iref`.
 
     Attributes:
         i_refs__uA: Nominal reference-current taps, 2-D ``[mode][tap]``.
@@ -70,8 +70,8 @@ class CurrentReferenceConfig(AnalogConfig):
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
 
 
-class CurrentReferencePolicy(AnalogPolicy):
-    """Per-source toggles selecting which CurrentReference nonidealities are active.
+class IrefPolicy(AnalogPolicy):
+    """Per-source toggles selecting which Iref nonidealities are active.
 
     Attributes:
         tolerance: Apply the per-instance initial-accuracy spread
@@ -85,7 +85,7 @@ class CurrentReferencePolicy(AnalogPolicy):
 
 
 @dataclass(frozen=True)
-class CurrentReferenceSnap:
+class IrefSnap:
     """One sampled reference snap.
 
     Attributes:
@@ -96,7 +96,7 @@ class CurrentReferenceSnap:
     i_refs__uA: Tensor
 
 
-class CurrentReference(AnalogBase[CurrentReferenceConfig, CurrentReferencePolicy]):
+class Iref(AnalogBase[IrefConfig, IrefPolicy]):
     """Multi-output current reference with static tolerance and runtime noise.
 
     Args:
@@ -114,8 +114,8 @@ class CurrentReference(AnalogBase[CurrentReferenceConfig, CurrentReferencePolicy
     def __init__(
         self,
         *,
-        config: CurrentReferenceConfig,
-        policy: CurrentReferencePolicy,
+        config: IrefConfig,
+        policy: IrefPolicy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -150,7 +150,7 @@ class CurrentReference(AnalogBase[CurrentReferenceConfig, CurrentReferencePolicy
         else:
             self._i_refs__uA = base.clone()
 
-    def snapshot(self, *, shape: tuple[int, ...] = ()) -> CurrentReferenceSnap:
+    def snapshot(self, *, shape: tuple[int, ...] = ()) -> IrefSnap:
         """Sample reference taps with per-call noise.
 
         Args:
@@ -167,4 +167,4 @@ class CurrentReference(AnalogBase[CurrentReferenceConfig, CurrentReferencePolicy
             if self.policy.noise
             else view.clone()
         )
-        return CurrentReferenceSnap(i_refs__uA=view)
+        return IrefSnap(i_refs__uA=view)

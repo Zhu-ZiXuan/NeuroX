@@ -1,3 +1,3 @@
-from neurox.works.macro import cim
+from . import cim
 
 __all__ = ["cim"]

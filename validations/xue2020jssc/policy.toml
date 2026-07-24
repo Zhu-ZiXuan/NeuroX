@@ -3,7 +3,7 @@
 #
 # One child policy per owned ModuleBase block: the 1T1R pure array (linearized
 # cell + solver chunk knob), the WL DAC, the CABLC / SL clamp seats, the TMCSA SAR
-# current ADC, the shared static CurrentReference, and the control / PN-ISUB static
+# current ADC, the shared static Iref, and the control / PN-ISUB static
 # seats. This scheme models no mismatch or noise, so every per-source toggle is
 # false -- the lossless baseline and the only intended policy.
 #
@@ -28,7 +28,7 @@ _neurox_class = "XbarCell1t1rLinearPolicy"
 
 # --- WL 1-bit ON/OFF DAC ---
 [policy.wl_dac_policy]
-_neurox_class = "GeneralVoltageDacPolicy"
+_neurox_class = "GeneralVdacPolicy"
 drive_thermal = false
 
 
@@ -47,8 +47,6 @@ thermal = false
 # --- TMCSA SAR current-mode quantizer ---
 [policy.adc_policy]
 comparator_offset = false
-replica_threshold_variation = false
-mirror_mismatch = false
 coupling_mismatch = false
 
 

@@ -1,13 +1,12 @@
 """Boundary-bucketize voltage ADC with optional Gaussian noise stages.
 
 See also:
-    docs/reference/primitive/analog/voltage_adc/general.md
+    docs/reference/primitive/analog/diff_voltage_adc/general.md
 """
 
 from __future__ import annotations
 
 import math
-from typing import Literal
 
 import torch
 from torch import Tensor
@@ -15,17 +14,16 @@ from torch import Tensor
 from neurox.common.quant import floor_bucketize
 from neurox.primitive.nonideality import apply_gaussian
 
-from .base import DifferentialVoltageAdc, DifferentialVoltageAdcConfig, DifferentialVoltageAdcPolicy
+from .base import DiffVadc, DiffVadcConfig, DiffVadcPolicy
 
 
-class GeneralDifferentialVoltageAdcConfig(DifferentialVoltageAdcConfig):
-    """Immutable configuration for :class:`GeneralDifferentialVoltageAdc`.
+class GeneralDiffVadcConfig(DiffVadcConfig):
+    """Immutable configuration for :class:`GeneralDiffVadc`.
 
     Attributes:
         boundaries: Sorted comparator thresholds in input units
             (excluding the implicit ±inf outer bounds). ``N`` thresholds
             define ``N + 1`` output codes ``[0, N]``.
-        input_transform: ``"linear"`` (identity) or ``"log2"``.
         sampling_noise__V: Input-referred Gaussian sampling-stage
             noise σ.
         comparator_noise__V: Comparator (thermal/decision) noise σ
@@ -38,7 +36,6 @@ class GeneralDifferentialVoltageAdcConfig(DifferentialVoltageAdcConfig):
     boundaries: tuple[float, ...]
     sampling_noise__V: float
     comparator_noise__V: float
-    input_transform: Literal["linear", "log2"]
     energy_per_op__fJ: float
     latency_per_op__ns: float
 
@@ -58,8 +55,8 @@ class GeneralDifferentialVoltageAdcConfig(DifferentialVoltageAdcConfig):
         self._require_non_neg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
-class GeneralDifferentialVoltageAdcPolicy(DifferentialVoltageAdcPolicy):
-    """Per-source toggles selecting which GeneralDifferentialVoltageAdc nonidealities are active.
+class GeneralDiffVadcPolicy(DiffVadcPolicy):
+    """Per-source toggles selecting which GeneralDiffVadc nonidealities are active.
 
     Attributes:
         sampling_noise: Apply ``sampling_noise__V`` at convert time.
@@ -70,13 +67,11 @@ class GeneralDifferentialVoltageAdcPolicy(DifferentialVoltageAdcPolicy):
     comparator_noise: bool
 
 
-@DifferentialVoltageAdc.register_neurox_module(
-    config_type=GeneralDifferentialVoltageAdcConfig,
-    policy_type=GeneralDifferentialVoltageAdcPolicy,
+@DiffVadc.register_neurox_module(
+    config_type=GeneralDiffVadcConfig,
+    policy_type=GeneralDiffVadcPolicy,
 )
-class GeneralDifferentialVoltageAdc(
-    DifferentialVoltageAdc[GeneralDifferentialVoltageAdcConfig, GeneralDifferentialVoltageAdcPolicy]
-):
+class GeneralDiffVadc(DiffVadc[GeneralDiffVadcConfig, GeneralDiffVadcPolicy]):
     """Boundary-bucketized voltage ADC with sampling and comparator noise.
 
     Args:
@@ -95,8 +90,8 @@ class GeneralDifferentialVoltageAdc(
     def __init__(
         self,
         *,
-        config: GeneralDifferentialVoltageAdcConfig,
-        policy: GeneralDifferentialVoltageAdcPolicy,
+        config: GeneralDiffVadcConfig,
+        policy: GeneralDiffVadcPolicy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -185,9 +180,6 @@ class GeneralDifferentialVoltageAdc(
             enabled=self.policy.sampling_noise,
         )
 
-        if self.config.input_transform == "log2":
-            signal = torch.log2(signal.clamp_min(1e-12))
-
         signal = apply_gaussian(
             signal,
             self.config.comparator_noise__V,
@@ -213,4 +205,4 @@ class GeneralDifferentialVoltageAdc(
 
     def _validate_runtime_args(self, bits: int) -> None:
         if bits != self._bits:
-            raise ValueError(f"GeneralDifferentialVoltageAdc: bits ({bits}) must equal self._bits ({self._bits})")
+            raise ValueError(f"GeneralDiffVadc: bits ({bits}) must equal self._bits ({self._bits})")

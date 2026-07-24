@@ -64,7 +64,6 @@ from pathlib import Path
 
 import torch
 
-import neurox.works  # noqa: F401  registers every scheme class, incl. xue2020jssc
 from neurox.common.encoding import TrueFormTranscoder
 from neurox.common.profiler import NeuroxProfiler, ProfilerReport
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy

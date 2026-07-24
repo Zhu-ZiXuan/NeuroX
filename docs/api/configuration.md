@@ -31,6 +31,8 @@ A file's root must be a table of named sections, and the section tree mirrors th
 
 A key that matches no field of the target class fails the load. So does a value whose type does not match the field's declared type: a `bool` is not an `int`, and a quoted number is not a number. The one accepted widening is an `int` for a `float` field, so `g_min__uS = 10` and `g_min__uS = 10.0` both load.
 
+Before field construction, the loader normalizes every file to one format-independent value tree: `None`, `bool`, `int`, `float`, and `str` leaves; lists; and mappings with string keys. Values outside that contract are rejected at the file boundary. In particular, quote YAML values that would otherwise be inferred as dates or other YAML-specific Python objects.
+
 Each field's meaning, unit, and Source are documented in the matching subsystem's Reference Parameters section — e.g. the `[cim_macro.array_config]` fields in [reference/primitive/xbar/array/_1t1r/array](../reference/primitive/xbar/array/_1t1r/array.md), with driver and readout fields under the Analog group in [Reference](../reference/README.md). The Source taxonomy (Measured / Process / Design / Calibrated / ...) is defined in [module_parameter](../conventions/module_parameter.md). The runnable end-to-end usage is in the [algorithm-engineer workflow](../guides/algorithm_engineer/workflow.md).
 
 ## TOML

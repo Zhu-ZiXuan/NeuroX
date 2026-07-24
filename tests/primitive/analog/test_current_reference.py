@@ -1,6 +1,6 @@
-"""CurrentReference: 2-D mode/tap bank and the PPA-only contract.
+"""Iref: 2-D mode/tap bank and the PPA-only contract.
 
-``CurrentReference`` is a behavioural reference source: it carries static
+``Iref`` is a behavioural reference source: it carries static
 PPA (area + leakage) and hands out the actual tap values through a snap,
 but performs no computation and emits no dynamic energy or latency. It
 holds a 2-D ``[mode][tap]`` bank of strictly increasing equal-length rows
@@ -30,16 +30,16 @@ import torch
 
 from neurox.common.profiler import NeuroxProfiler
 from neurox.primitive.analog.current_reference import (
-    CurrentReference,
-    CurrentReferenceConfig,
-    CurrentReferencePolicy,
+    Iref,
+    IrefConfig,
+    IrefPolicy,
 )
 
 _TAPS = ((1.0, 5.0, 20.0), (2.0, 6.0, 25.0))
 _BANK_SHAPE = (2, 3)
 
 
-def _config(**overrides: Any) -> CurrentReferenceConfig:
+def _config(**overrides: Any) -> IrefConfig:
     base = {
         "i_refs__uA": _TAPS,
         "tolerance_sigma_relative": 0.0,
@@ -47,7 +47,7 @@ def _config(**overrides: Any) -> CurrentReferenceConfig:
         "area_per_inst__um2": 0.0,
         "leakage_per_inst__uW": 0.0,
     }
-    return CurrentReferenceConfig(**{**base, **overrides})
+    return IrefConfig(**{**base, **overrides})
 
 
 def _make(
@@ -55,10 +55,10 @@ def _make(
     inst_shape: tuple[int, ...] = (),
     area: float = 0.0,
     leakage: float = 0.0,
-) -> CurrentReference:
-    ref = CurrentReference(
+) -> Iref:
+    ref = Iref(
         config=_config(area_per_inst__um2=area, leakage_per_inst__uW=leakage),
-        policy=CurrentReferencePolicy(tolerance=False, noise=False),
+        policy=IrefPolicy(tolerance=False, noise=False),
         inst_shape=inst_shape,
         dtype=torch.float64,
         T__K=300.0,
@@ -157,7 +157,7 @@ def test_toml_nested_array_loads_as_tuple(tmp_path: Path) -> None:
     path = tmp_path / "ref.toml"
     path.write_text(toml, encoding="utf-8")
 
-    config = CurrentReferenceConfig.from_file(path, section="ref")
+    config = IrefConfig.from_file(path, section="ref")
     assert isinstance(config.i_refs__uA, tuple)
     assert config.i_refs__uA == _TAPS
 
@@ -175,4 +175,4 @@ def test_toml_flat_array_rejected(tmp_path: Path) -> None:
     path = tmp_path / "ref.toml"
     path.write_text(toml, encoding="utf-8")
     with pytest.raises(TypeError):
-        CurrentReferenceConfig.from_file(path, section="ref")
+        IrefConfig.from_file(path, section="ref")

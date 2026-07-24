@@ -16,7 +16,7 @@ from neurox.common.mixin import RegistryMixin
 from neurox.primitive.analog.base import AnalogBase, AnalogConfig, AnalogPolicy
 
 
-class VoltageDacConfig(AnalogConfig, ABC):
+class VdacConfig(AnalogConfig, ABC):
     """Base config for voltage-domain DAC implementations.
 
     Attributes:
@@ -32,17 +32,17 @@ class VoltageDacConfig(AnalogConfig, ABC):
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
 
 
-class VoltageDacPolicy(AnalogPolicy, ABC):
+class VdacPolicy(AnalogPolicy, ABC):
     """Abstract marker base for voltage-DAC-family nonideality policies."""
 
 
-ConfigT = TypeVar("ConfigT", bound=VoltageDacConfig)
-PolicyT = TypeVar("PolicyT", bound=VoltageDacPolicy)
+ConfigT = TypeVar("ConfigT", bound=VdacConfig)
+PolicyT = TypeVar("PolicyT", bound=VdacPolicy)
 
 
-class VoltageDac(
+class Vdac(
     AnalogBase[ConfigT, PolicyT],
-    RegistryMixin["VoltageDacConfig", "VoltageDacPolicy", "VoltageDac"],
+    RegistryMixin["VdacConfig", "VdacPolicy", "Vdac"],
     Generic[ConfigT, PolicyT],
     ABC,
 ):
@@ -60,12 +60,12 @@ class VoltageDac(
     def from_config(
         cls,
         *,
-        config: VoltageDacConfig,
-        policy: VoltageDacPolicy,
+        config: VdacConfig,
+        policy: VdacPolicy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
-    ) -> VoltageDac:
+    ) -> Vdac:
         """Build the implementation registered for the config-policy pair.
 
         Args:

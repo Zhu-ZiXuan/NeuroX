@@ -4,7 +4,7 @@ Builds a fully hand-written, fully linear tiny tile: an
 :class:`XbarCell1t1rLinear` cell grid (table-driven chord conductance,
 empty policy), two IDEAL :class:`VoltageDriver` rail clamps
 (``r_out = 0``, so ``solve_clamp`` returns the reference voltage
-exactly), and a hand-built two-tap :class:`VoltageReference`. Every
+exactly), and a hand-built two-tap :class:`Vref`. Every
 config value is an explicit in-code witness; no config file is read and
 no nonideality toggle is enabled, so the assembled system is an exactly
 linear resistor network with Dirichlet rail boundaries — a dense KCL
@@ -32,9 +32,9 @@ from neurox.primitive.analog import (
     VoltageDriverConfig,
     VoltageDriverPolicy,
     VoltageDriverSnap,
-    VoltageReference,
-    VoltageReferenceConfig,
-    VoltageReferencePolicy,
+    Vref,
+    VrefConfig,
+    VrefPolicy,
 )
 from neurox.primitive.xbar.cell import (
     XbarCell1t1rLinear,
@@ -205,15 +205,15 @@ def build_solver_harness(
         dtype=dtype,
         T__K=300.0,
     )
-    clamp_ref = VoltageReference(
-        config=VoltageReferenceConfig(
+    clamp_ref = Vref(
+        config=VrefConfig(
             v_refs__V=(BL_V_REF__V, SL_V_REF__V),
             tolerance_sigma_relative=0.0,
             noise_sigma_relative=0.0,
             area_per_inst__um2=0.0,
             leakage_per_inst__uW=0.0,
         ),
-        policy=VoltageReferencePolicy(tolerance=False, noise=False),
+        policy=VrefPolicy(tolerance=False, noise=False),
         inst_shape=(),
         dtype=dtype,
         T__K=300.0,

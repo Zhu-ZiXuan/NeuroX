@@ -1,7 +1,7 @@
 """Tests for the ADC family.
 
 Covers the shared :class:`AdcMode` invariants and the two concrete
-implementations (:class:`GeneralDifferentialVoltageAdc`, :class:`McsSarDifferentialVoltageAdc`) under the
+implementations (:class:`GeneralDiffVadc`, :class:`McsSarDiffVadc`) under the
 **raw-code output convention**: every ADC's ``convert`` returns raw
 unsigned codes in ``[0, 2**bits - 1]``; the zero point (``zero_offset`` /
 ``zero_code``) is subtracted consumer-side, not inside the ADC.
@@ -16,32 +16,32 @@ import pytest
 import torch
 
 from neurox.primitive.analog.adc_common import AdcMode
-from neurox.primitive.analog.voltage_adc import (
-    GeneralDifferentialVoltageAdc,
-    GeneralDifferentialVoltageAdcConfig,
-    GeneralDifferentialVoltageAdcPolicy,
-    McsSarDifferentialVoltageAdc,
-    McsSarDifferentialVoltageAdcConfig,
-    McsSarDifferentialVoltageAdcPolicy,
+from neurox.primitive.analog.diff_voltage_adc import (
+    GeneralDiffVadc,
+    GeneralDiffVadcConfig,
+    GeneralDiffVadcPolicy,
+    McsSarDiffVadc,
+    McsSarDiffVadcConfig,
+    McsSarDiffVadcPolicy,
 )
 from neurox.primitive.analog.voltage_reference import (
-    VoltageReference,
-    VoltageReferenceConfig,
-    VoltageReferencePolicy,
+    Vref,
+    VrefConfig,
+    VrefPolicy,
 )
 
 
 def _ref_taps(taps: tuple[float, ...]) -> torch.Tensor:
-    """Build a global-scalar VoltageReference and read its taps as an injectable tensor."""
-    ref = VoltageReference(
-        config=VoltageReferenceConfig(
+    """Build a global-scalar Vref and read its taps as an injectable tensor."""
+    ref = Vref(
+        config=VrefConfig(
             v_refs__V=taps,
             tolerance_sigma_relative=0.0,
             noise_sigma_relative=0.0,
             area_per_inst__um2=0.0,
             leakage_per_inst__uW=0.0,
         ),
-        policy=VoltageReferencePolicy(tolerance=False, noise=False),
+        policy=VrefPolicy(tolerance=False, noise=False),
         inst_shape=(),
         dtype=torch.float64,
         T__K=300.0,
@@ -77,28 +77,27 @@ def test_adc_mode_rejects_invalid_combos() -> None:
 
 
 # ---------------------------------------------------------------------------
-# GeneralDifferentialVoltageAdc convert — raw unsigned output
+# GeneralDiffVadc convert — raw unsigned output
 # ---------------------------------------------------------------------------
 
 
-# GeneralDifferentialVoltageAdc is reference-free; convert accepts v_ref__V only for ADC-protocol
+# GeneralDiffVadc is reference-free; convert accepts v_ref__V only for ADC-protocol
 # symmetry and ignores it. A preselected scalar dummy tap keeps the call signature satisfied.
 _GENERAL_DUMMY_VREF = torch.zeros((), dtype=torch.float64)
 
 
-def _build_general_adc(boundaries: list[float]) -> GeneralDifferentialVoltageAdc:
-    config = GeneralDifferentialVoltageAdcConfig(
+def _build_general_adc(boundaries: list[float]) -> GeneralDiffVadc:
+    config = GeneralDiffVadcConfig(
         boundaries=tuple(boundaries),
         sampling_noise__V=0.0,
         comparator_noise__V=0.0,
-        input_transform="linear",
         energy_per_op__fJ=0.0,
         latency_per_op__ns=1.0,
         leakage_per_inst__uW=0.0,
         area_per_inst__um2=0.0,
     )
-    policy = GeneralDifferentialVoltageAdcPolicy(sampling_noise=False, comparator_noise=False)
-    return GeneralDifferentialVoltageAdc(
+    policy = GeneralDiffVadcPolicy(sampling_noise=False, comparator_noise=False)
+    return GeneralDiffVadc(
         config=config,
         policy=policy,
         inst_shape=(1,),
@@ -163,19 +162,19 @@ class TestGeneralAdcRawConvert:
 
 
 # ---------------------------------------------------------------------------
-# McsSarDifferentialVoltageAdc convert — raw unsigned output, multi-mode, flexible bits
+# McsSarDiffVadc convert — raw unsigned output, multi-mode, flexible bits
 # ---------------------------------------------------------------------------
 
 
 def _build_mcs_sar_adc(
     max_bits: int = 4, v_refs: tuple[float, ...] = (0.8, 0.4, 0.2)
-) -> tuple[McsSarDifferentialVoltageAdc, torch.Tensor]:
-    """Build an McsSarDifferentialVoltageAdc and the injectable tap tensor.
+) -> tuple[McsSarDiffVadc, torch.Tensor]:
+    """Build an McsSarDiffVadc and the injectable tap tensor.
 
     The taps stay paired with the ADC here so each test selects its own
     reference tap owner-side (``v_refs[..., mode]``) before the mode-blind convert.
     """
-    config = McsSarDifferentialVoltageAdcConfig(
+    config = McsSarDiffVadcConfig(
         max_bits=max_bits,
         clk_period__ns=2.0,
         c_unit__fF=2.0,
@@ -187,13 +186,13 @@ def _build_mcs_sar_adc(
         leakage_per_inst__uW=0.0,
         area_per_inst__um2=0.0,
     )
-    policy = McsSarDifferentialVoltageAdcPolicy(
+    policy = McsSarDiffVadcPolicy(
         cap_mismatch=False,
         comparator_offset=False,
         comparator_thermal_noise=False,
         sampling_thermal_noise=False,
     )
-    adc = McsSarDifferentialVoltageAdc(
+    adc = McsSarDiffVadc(
         config=config,
         policy=policy,
         inst_shape=(1,),
@@ -203,7 +202,7 @@ def _build_mcs_sar_adc(
     return adc, _ref_taps(v_refs)
 
 
-class TestMcsSarDifferentialVoltageAdcRawConvert:
+class TestMcsSarDiffVadcRawConvert:
     def test_output_lies_in_raw_range_at_max_bits(self) -> None:
         adc, v_refs = _build_mcs_sar_adc(max_bits=4)
         adc.eval()

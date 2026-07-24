@@ -1,4 +1,4 @@
-"""Voltage multiplexer — differential voltage-transport behavioural block.
+"""Single-ended N:1 voltage multiplexer.
 
 See also:
     docs/reference/primitive/analog/voltage_mux.md
@@ -7,33 +7,32 @@ See also:
 import torch
 from torch import Tensor
 
-from neurox.primitive.analog.base import AnalogBase, AnalogConfig, AnalogPolicy
 from neurox.primitive.nonideality import apply_gaussian
 
+from .base import AnalogBase, AnalogConfig, AnalogPolicy
 
-class VoltageMuxConfig(AnalogConfig):
-    """Immutable configuration for :class:`VoltageMux`.
+
+class VmuxConfig(AnalogConfig):
+    """Immutable configuration for :class:`Vmux`.
 
     Attributes:
+        mux_ratio: N in the N:1 ratio of inputs to each output lane.
         energy_per_access__fJ: Per-access dynamic energy.
         latency_per_op__ns: Per-transport latency; multiplied by
             the runtime serial-op count at logging time.
-        mux_gain: Scalar matched transport gain applied to both legs.
-        mux_gain_mismatch_sigma_relative: Per-mux fractional inter-leg
-            gain-mismatch σ; flat (not area-scaled).
-        mux_noise_cm_sigma__V: Common-mode noise σ; same sign
-            on both legs, cancels in a differential ADC.
-        mux_noise_dm_sigma__V: Differential-mode noise σ;
-            added to ``v_pos`` and subtracted from ``v_neg``, so it
-            survives a differential ADC.
+        mux_gain: Scalar transport gain.
+        mux_gain_mismatch_sigma_relative: Per-instance fractional gain
+            mismatch standard deviation; flat (not area-scaled).
+        mux_noise_sigma__V: Additive per-access voltage noise standard
+            deviation.
         area_per_inst__um2: Silicon area per fabricated instance.
         leakage_per_inst__uW: Static leakage per instance.
     """
 
+    mux_ratio: int
     mux_gain: float
     mux_gain_mismatch_sigma_relative: float
-    mux_noise_cm_sigma__V: float
-    mux_noise_dm_sigma__V: float
+    mux_noise_sigma__V: float
     energy_per_access__fJ: float
     latency_per_op__ns: float
     area_per_inst__um2: float
@@ -42,10 +41,10 @@ class VoltageMuxConfig(AnalogConfig):
     def validate(self) -> None:
         # --- Gain and noise ---
 
+        self._require_pos(self.mux_ratio, "mux_ratio")
         self._require_pos(self.mux_gain, "mux_gain")
         self._require_non_neg(self.mux_gain_mismatch_sigma_relative, "mux_gain_mismatch_sigma_relative")
-        self._require_non_neg(self.mux_noise_cm_sigma__V, "mux_noise_cm_sigma__V")
-        self._require_non_neg(self.mux_noise_dm_sigma__V, "mux_noise_dm_sigma__V")
+        self._require_non_neg(self.mux_noise_sigma__V, "mux_noise_sigma__V")
 
         # --- PPA ---
 
@@ -55,22 +54,20 @@ class VoltageMuxConfig(AnalogConfig):
         self._require_non_neg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
-class VoltageMuxPolicy(AnalogPolicy):
-    """Per-source toggles selecting which VoltageMux nonidealities are active.
+class VmuxPolicy(AnalogPolicy):
+    """Per-source toggles selecting which Vmux nonidealities are active.
 
     Attributes:
         mux_gain_mismatch: Apply ``mux_gain_mismatch_sigma_relative`` at fabricate time.
-        mux_noise_cm: Apply ``mux_noise_cm_sigma__V`` per call.
-        mux_noise_dm: Apply ``mux_noise_dm_sigma__V`` per call.
+        mux_noise: Apply ``mux_noise_sigma__V`` per call.
     """
 
     mux_gain_mismatch: bool
-    mux_noise_cm: bool
-    mux_noise_dm: bool
+    mux_noise: bool
 
 
-class VoltageMux(AnalogBase[VoltageMuxConfig, VoltageMuxPolicy]):
-    """Differential voltage-transport block — gain + CM/DM noise + access energy.
+class Vmux(AnalogBase[VmuxConfig, VmuxPolicy]):
+    """Single-ended N:1 voltage transport with gain, noise, and PPA.
 
     Args:
         config: Concrete configuration dataclass.
@@ -91,8 +88,8 @@ class VoltageMux(AnalogBase[VoltageMuxConfig, VoltageMuxPolicy]):
     def __init__(
         self,
         *,
-        config: VoltageMuxConfig,
-        policy: VoltageMuxPolicy,
+        config: VmuxConfig,
+        policy: VmuxPolicy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -121,38 +118,39 @@ class VoltageMux(AnalogBase[VoltageMuxConfig, VoltageMuxPolicy]):
 
     def transport(
         self,
-        v_pos__V: Tensor,
-        v_neg__V: Tensor,
-    ) -> tuple[Tensor, Tensor]:
-        """Apply gain + CM/DM transport noise to a differential pair.
+        v__V: Tensor,
+    ) -> Tensor:
+        """Transport voltages already scheduled across mux accesses and lanes.
 
         Args:
-            v_pos__V: Positive-leg input voltage.
-            v_neg__V: Negative-leg input voltage, broadcastable with
-                ``v_pos__V``.
+            v__V: Single-ended input voltages. Shape:
+                ``[..., access_num, lane_num]``, where ``access_num`` equals
+                ``mux_ratio``.
 
         Returns:
-            ``(v_pos_muxed__V, v_neg_muxed__V)`` — both share ``v_pos__V``'s shape.
+            Transported voltages with the same shape as ``v__V``.
         """
-        gain = self.config.mux_gain
-        gain_pos = gain * (1 + 0.5 * self._eps_g)
-        gain_neg = gain * (1 - 0.5 * self._eps_g)
-        v_pos_muxed__V = gain_pos * v_pos__V
-        v_neg_muxed__V = gain_neg * v_neg__V
+        lane_num = self.inst_shape[-1] if self.inst_shape else 1
+        expected_trailing = (self.config.mux_ratio, lane_num)
+        if v__V.shape[-2:] != expected_trailing:
+            raise ValueError(
+                f"trailing axes must be (access_num={self.config.mux_ratio}, lane_num={lane_num}); "
+                f"got {tuple(v__V.shape[-2:])}"
+            )
 
-        # CM: same sign on both legs. DM: +pos, -neg.
-        zeros = torch.zeros_like(v_pos_muxed__V)
-        n_cm__V = apply_gaussian(zeros, self.config.mux_noise_cm_sigma__V, enabled=self.policy.mux_noise_cm)
-        v_pos_muxed__V = v_pos_muxed__V + n_cm__V
-        v_neg_muxed__V = v_neg_muxed__V + n_cm__V
+        # Shape: [*inst_shape] -> [*inst_prefix, access=1, lane_num]
+        eps_g = self._eps_g.reshape(*self.inst_shape[:-1], 1, lane_num)
+        gain = self.config.mux_gain * (1 + eps_g)
+        v_muxed__V = gain * v__V
+        v_muxed__V = apply_gaussian(
+            v_muxed__V,
+            self.config.mux_noise_sigma__V,
+            enabled=self.policy.mux_noise,
+        )
 
-        n_dm__V = apply_gaussian(zeros, self.config.mux_noise_dm_sigma__V, enabled=self.policy.mux_noise_dm)
-        v_pos_muxed__V = v_pos_muxed__V + n_dm__V
-        v_neg_muxed__V = v_neg_muxed__V - n_dm__V
-
-        serial_round_count = self._count_serial_rounds(v_pos__V.numel())
+        serial_round_count = self._count_serial_rounds(v_muxed__V.numel())
         latency__ns = self._latency_per_op__ns * serial_round_count
         if self._is_dynamic_energy_profile_active():
-            self._record_dynamic_energy(torch.full_like(v_pos__V, self.config.energy_per_access__fJ))
+            self._record_dynamic_energy(torch.full_like(v_muxed__V, self.config.energy_per_access__fJ))
         self._record_latency(latency__ns)
-        return v_pos_muxed__V, v_neg_muxed__V
+        return v_muxed__V

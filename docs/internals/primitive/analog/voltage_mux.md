@@ -2,20 +2,30 @@
 
 ## Design decisions
 
-- **Not polymorphic.** There is one concrete mux; parent circuits construct it directly from its config rather than dispatching through a family base.
-- **Static mismatch vs dynamic noise.** `_sample_fabricate_mismatch` samples inter-leg gain mismatch `_eps_g` once at fabricate from `mux_gain_mismatch_sigma_relative`; `transport` then applies the resulting per-leg static gains, while CM and DM noise stay dynamic, re-sampled inside `transport`.
+- **Single-ended N:1 transport.** `transport` accepts and preserves a
+  caller-provided `(..., access_num, lane_num)` layout.
+- **Connectivity belongs to the owner.** The owner maps source signals onto
+  accesses and lanes before calling `transport`; the mux neither groups nor
+  permutes axes.
+- **Static mismatch vs dynamic noise.** `_sample_fabricate_mismatch` samples
+  one fractional gain error per physical instance. `transport` applies
+  additive voltage noise independently on every access.
+- **Per-call PPA tally.** Dynamic energy follows the time-expanded output.
+  Latency is `latency_per_op * ceil(work_item_count / inst_count)`.
 
 ## Contracts & invariants
 
-- **Canonical leaf signature.** `__init__(*, config, policy, inst_shape, dtype, T__K)` matches the other leaves; the per-instance count is locked from `inst_shape` at construction.
-- **Per-call PPA tally.** `transport` computes and logs per-access dynamic energy only when a profiler is active, and always emits the per-op latency times `ceil(work_item_count / inst_count)`. With no parallel trailing extent beyond `inst_shape`, each input element is one work item.
+- The two trailing axes must be `(mux_ratio, lane_num)`.
+- `access_num` is serial and equals `mux_ratio`; `lane_num` is parallel and
+  matches the final `inst_shape` extent.
+- Gain mismatch is static across calls; transport noise is resampled per call.
 
 ## Performance & resources
 
-N/A — transport is a per-call elementwise map off the memory- and compile-critical path.
+The value tensor undergoes only elementwise gain and noise operations.
 
 ---
 
 - **Reference**: [voltage_mux](../../../reference/primitive/analog/voltage_mux.md)
 - **Implementation**: `neurox/primitive/analog/voltage_mux.py`
-- **Tests**: TODO — name the guarding test
+- **Tests**: `tests/primitive/analog/test_voltage_mux.py`

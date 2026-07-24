@@ -1,8 +1,9 @@
 """User-facing compute units that implement neural-network operators."""
 
-from neurox.architecture.unit.base import UnitBase
-from neurox.architecture.unit.conv2d import Conv2dUnit
-from neurox.architecture.unit.ideal import (
+from . import cim, ideal
+from .base import UnitBase
+from .conv2d import Conv2dUnit
+from .ideal import (
     IdealConv2dUnit,
     IdealConv2dUnitConfig,
     IdealConv2dUnitPolicy,
@@ -10,9 +11,11 @@ from neurox.architecture.unit.ideal import (
     IdealLinearUnitConfig,
     IdealLinearUnitPolicy,
 )
-from neurox.architecture.unit.linear import LinearUnit
+from .linear import LinearUnit
 
 __all__ = [
+    "cim",
+    "ideal",
     "Conv2dUnit",
     "IdealConv2dUnit",
     "IdealConv2dUnitConfig",

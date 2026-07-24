@@ -1,11 +1,11 @@
-from .base import VoltageDac, VoltageDacConfig, VoltageDacPolicy
-from .general import GeneralVoltageDac, GeneralVoltageDacConfig, GeneralVoltageDacPolicy
+from .base import Vdac, VdacConfig, VdacPolicy
+from .general import GeneralVdac, GeneralVdacConfig, GeneralVdacPolicy
 
 __all__ = [
-    "GeneralVoltageDac",
-    "GeneralVoltageDacConfig",
-    "GeneralVoltageDacPolicy",
-    "VoltageDac",
-    "VoltageDacConfig",
-    "VoltageDacPolicy",
+    "GeneralVdac",
+    "GeneralVdacConfig",
+    "GeneralVdacPolicy",
+    "Vdac",
+    "VdacConfig",
+    "VdacPolicy",
 ]

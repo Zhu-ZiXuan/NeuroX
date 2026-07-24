@@ -9,8 +9,9 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor
 
-from neurox.primitive.analog.base import AnalogBase, AnalogConfig, AnalogPolicy
 from neurox.primitive.nonideality import apply_gaussian
+
+from .base import AnalogBase, AnalogConfig, AnalogPolicy
 
 
 class VoltageDriverConfig(AnalogConfig):

@@ -1,6 +1,6 @@
 # Triple-margin current SAR ADC
 
-How `SarSingleEndedCurrentAdc` (`current_adc/sar.py`) realises the triple-margin current SAR contract.
+How `SarIadc` (`current_adc/sar.py`) realises the triple-margin current SAR contract.
 
 ## Design decisions
 
@@ -16,7 +16,6 @@ How `SarSingleEndedCurrentAdc` (`current_adc/sar.py`) realises the triple-margin
 - **`max_bits` = `config.bits`; `unsigned_range(bits)` = `(0, 2**bits - 1)`.** `config.bits` is the physical (maximum) resolution; a call requests any `bits` in `[1, config.bits]`, and `unsigned_range` validates that bound.
 - **Per-call resolution windows.** The conduction (`t_conduct_per_step__ns`) and latency (`step_latency__ns`) lists must be at least `config.bits` long; a call at `bits` sums only their first `bits` entries, so a shared shipped list covers several resolutions without overbilling.
 - **Latency emission is construction-gated.** `enable_latency_record` (constructor keyword, default `True`) gates only the latency event: `_convert_impl` always computes and emits the summed dynamic-energy event, but builds the latency tensor and calls `_record_latency` only when `enable_latency_record` is set.
-- **Not-yet-modelled toggles.** `mirror_mismatch` / `mirror_mismatch_sigma_relative` and `replica_threshold_variation` are wired in the policy/config but left as a domain-author TODO in `_sample_fabricate_mismatch`.
 
 ---
 

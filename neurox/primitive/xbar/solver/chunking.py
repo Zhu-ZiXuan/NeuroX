@@ -46,13 +46,17 @@ class ChunkSpec(NamedTuple):
     """Chunk coordinates and global indices.
 
     Attributes:
-        multi_coords: Coordinate tensor per leading dimension.
-        chunk_size: Number of positions in the chunk.
-        flat_global_idx: Flat indices into the complete leading shape.
+        multi_coords: Coordinate tensor per leading dimension. Its length is
+            ``solve_size`` and may include repeated padding coordinates.
+        solve_size: Number of positions passed to the solver.
+        valid_size: Number of real positions before tail padding.
+        flat_global_idx: Flat indices of the valid positions in the complete
+            leading shape.
     """
 
     multi_coords: tuple[Tensor, ...]
-    chunk_size: int
+    solve_size: int
+    valid_size: int
     flat_global_idx: Tensor
 
 
@@ -66,25 +70,33 @@ def iter_chunks(
 
     Args:
         leading: Broadcast-leading shape.
-        chunk_size: Maximum positions per chunk. A non-positive value
-            yields one chunk.
+        chunk_size: Solver leading size. A positive value pads every
+            chunk to this exact size; a non-positive value yields one
+            unpadded chunk.
         device: Device for coordinate and index tensors.
 
     Yields:
         Chunk coordinates and global indices.
     """
     total = math.prod(leading) if leading else 1
-    c = chunk_size if chunk_size > 0 else total
-    c = min(max(c, 1), total)
+    solve_size = chunk_size if chunk_size > 0 and leading else total
+    step = min(max(solve_size, 1), total)
 
-    for start in range(0, total, c):
-        end = min(start + c, total)
-        flat = torch.arange(start, end, device=device, dtype=torch.long)
-        multi_coords = torch.unravel_index(flat, leading) if leading else ()
+    for start in range(0, total, step):
+        end = min(start + step, total)
+        flat_valid = torch.arange(start, end, device=device, dtype=torch.long)
+        valid_size = end - start
+        if valid_size < solve_size:
+            padding = flat_valid[-1].expand(solve_size - valid_size)
+            flat_solve = torch.cat((flat_valid, padding))
+        else:
+            flat_solve = flat_valid
+        multi_coords = torch.unravel_index(flat_solve, leading) if leading else ()
         yield ChunkSpec(
             multi_coords=tuple(multi_coords),
-            chunk_size=end - start,
-            flat_global_idx=flat,
+            solve_size=solve_size,
+            valid_size=valid_size,
+            flat_global_idx=flat_valid,
         )
 
 

@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Self
+from typing import Self
 
 from neurox.common.serialize import (
+    ConfigDict,
+    ConfigValue,
     dataclass_from_dict,
     dataclass_to_dict,
     dict_to_file,
@@ -23,7 +25,7 @@ class SerializeMixin:
     """
 
     @classmethod
-    def from_dict(cls, data: Mapping[str, Any]) -> Self:
+    def from_dict(cls, data: Mapping[str, ConfigValue]) -> Self:
         """Build an instance from a plain mapping.
 
         Args:
@@ -38,7 +40,7 @@ class SerializeMixin:
         """
         return dataclass_from_dict(cls, data)
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> ConfigDict:
         """Serialize to a plain nested dict.
 
         Enums serialize by value, supported containers are converted

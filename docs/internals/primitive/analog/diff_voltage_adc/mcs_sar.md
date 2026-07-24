@@ -25,6 +25,6 @@ The SAR loop is `bits` sequential decision cycles. To keep an unrolled compiled 
 
 ---
 
-- **Reference**: [mcs_sar](../../../../reference/primitive/analog/voltage_adc/mcs_sar.md)
-- **Implementation**: `neurox/primitive/analog/voltage_adc/mcs_sar.py`
+- **Reference**: [mcs_sar](../../../../reference/primitive/analog/diff_voltage_adc/mcs_sar.md)
+- **Implementation**: `neurox/primitive/analog/diff_voltage_adc/mcs_sar.py`
 - **Tests**: `tests/primitive/analog/test_adc_family.py`

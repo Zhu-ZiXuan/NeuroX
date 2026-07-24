@@ -19,8 +19,8 @@ from neurox.primitive.analog.base import AnalogBase, AnalogConfig, AnalogPolicy
 
 
 @dataclass(frozen=True)
-class SingleEndedCurrentAdcObservation:
-    """One :meth:`SingleEndedCurrentAdc.convert` call, captured for calibration/diagnostics.
+class IadcObservation:
+    """One :meth:`Iadc.convert` call, captured for calibration/diagnostics.
 
     Attributes:
         i_in__uA: The call's input magnitude current.
@@ -36,17 +36,17 @@ class SingleEndedCurrentAdcObservation:
         return replace(self, i_in__uA=self.i_in__uA.detach(), code=self.code.detach())
 
 
-class SingleEndedCurrentAdcProber(Prober[SingleEndedCurrentAdcObservation]):
+class IadcProber(Prober[IadcObservation]):
     """Capture current-ADC conversion observations."""
 
-    _active_stack: ClassVar[list[Prober[SingleEndedCurrentAdcObservation]]] = []
+    _active_stack: ClassVar[list[Prober[IadcObservation]]] = []
 
     @classmethod
-    def _stack(cls) -> list[Prober[SingleEndedCurrentAdcObservation]]:
+    def _stack(cls) -> list[Prober[IadcObservation]]:
         return cls._active_stack
 
 
-class SingleEndedCurrentAdcConfig(AnalogConfig, ABC):
+class IadcConfig(AnalogConfig, ABC):
     """Base config for single-ended current-domain ADC implementations.
 
     Attributes:
@@ -62,20 +62,20 @@ class SingleEndedCurrentAdcConfig(AnalogConfig, ABC):
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
 
 
-class SingleEndedCurrentAdcPolicy(AnalogPolicy, ABC):
+class IadcPolicy(AnalogPolicy, ABC):
     """Abstract marker base for single-ended-current-ADC-family nonideality policies."""
 
 
-ConfigT = TypeVar("ConfigT", bound=SingleEndedCurrentAdcConfig)
-PolicyT = TypeVar("PolicyT", bound=SingleEndedCurrentAdcPolicy)
+ConfigT = TypeVar("ConfigT", bound=IadcConfig)
+PolicyT = TypeVar("PolicyT", bound=IadcPolicy)
 
 
-class SingleEndedCurrentAdc(
+class Iadc(
     AnalogBase[ConfigT, PolicyT],
     RegistryMixin[
-        "SingleEndedCurrentAdcConfig",
-        "SingleEndedCurrentAdcPolicy",
-        "SingleEndedCurrentAdc",
+        "IadcConfig",
+        "IadcPolicy",
+        "Iadc",
     ],
     Generic[ConfigT, PolicyT],
     ABC,
@@ -95,13 +95,13 @@ class SingleEndedCurrentAdc(
     def from_config(
         cls,
         *,
-        config: SingleEndedCurrentAdcConfig,
-        policy: SingleEndedCurrentAdcPolicy,
+        config: IadcConfig,
+        policy: IadcPolicy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
         enable_latency_record: bool = True,
-    ) -> SingleEndedCurrentAdc:
+    ) -> Iadc:
         """Build the implementation registered for the config-policy pair.
 
         Args:
@@ -172,9 +172,9 @@ class SingleEndedCurrentAdc(
             energy and latency are emitted through the profiler side channel.
         """
         code = self._convert_impl(i_in__uA, i_refs__uA, bits=bits)
-        if SingleEndedCurrentAdcProber.active():
-            SingleEndedCurrentAdcProber.submit(
-                SingleEndedCurrentAdcObservation(
+        if IadcProber.active():
+            IadcProber.submit(
+                IadcObservation(
                     i_in__uA=i_in__uA,
                     code=code,
                     bits=bits,
@@ -182,6 +182,7 @@ class SingleEndedCurrentAdc(
             )
         return code
 
+    @abstractmethod
     def _convert_impl(
         self,
         i_in__uA: Tensor,

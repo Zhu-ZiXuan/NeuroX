@@ -26,4 +26,4 @@ TODO.
 
 - **Internals**: [voltage DAC base internals](../../../../internals/primitive/analog/voltage_dac/base.md)
 - **Validation**: TODO - validation evidence not yet written
-- **Configuration**: `VoltageDacConfig` (see `api`)
+- **Configuration**: `VdacConfig` (see `api`)

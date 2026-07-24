@@ -34,7 +34,8 @@ import torch
 import torch._dynamo
 
 from neurox.common.profiler import NeuroxProfiler
-from tests.works.macro.cim.xue2020jssc._utils import (
+
+from ._utils import (
     ADC_MODE,
     MAG_MAX,
     TINY_ADC_BITS,

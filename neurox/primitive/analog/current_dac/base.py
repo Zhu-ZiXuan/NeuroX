@@ -16,7 +16,7 @@ from neurox.common.mixin import RegistryMixin
 from neurox.primitive.analog.base import AnalogBase, AnalogConfig, AnalogPolicy
 
 
-class CurrentDacConfig(AnalogConfig, ABC):
+class IdacConfig(AnalogConfig, ABC):
     """Base config for current-domain DAC implementations.
 
     Attributes:
@@ -32,17 +32,17 @@ class CurrentDacConfig(AnalogConfig, ABC):
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
 
 
-class CurrentDacPolicy(AnalogPolicy, ABC):
+class IdacPolicy(AnalogPolicy, ABC):
     """Abstract marker base for current-DAC-family nonideality policies."""
 
 
-ConfigT = TypeVar("ConfigT", bound=CurrentDacConfig)
-PolicyT = TypeVar("PolicyT", bound=CurrentDacPolicy)
+ConfigT = TypeVar("ConfigT", bound=IdacConfig)
+PolicyT = TypeVar("PolicyT", bound=IdacPolicy)
 
 
-class CurrentDac(
+class Idac(
     AnalogBase[ConfigT, PolicyT],
-    RegistryMixin["CurrentDacConfig", "CurrentDacPolicy", "CurrentDac"],
+    RegistryMixin["IdacConfig", "IdacPolicy", "Idac"],
     Generic[ConfigT, PolicyT],
     ABC,
 ):
@@ -60,12 +60,12 @@ class CurrentDac(
     def from_config(
         cls,
         *,
-        config: CurrentDacConfig,
-        policy: CurrentDacPolicy,
+        config: IdacConfig,
+        policy: IdacPolicy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
-    ) -> CurrentDac:
+    ) -> Idac:
         """Build the implementation registered for the config-policy pair.
 
         Args:

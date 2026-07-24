@@ -40,9 +40,10 @@ from neurox.common import ConfigBase
 from neurox.primitive.macro.cim import CimMacro
 from neurox.primitive.macro.cim.ideal import IdealCimMacro
 from neurox.tools._config import add_standard_args, load_tool_config, resolve_relative_path, setup_logging
-from neurox.tools.calibrate_adc._math import RescaleFit, filter_fit_samples, fit_rescale_through_origin
-from neurox.tools.calibrate_adc._modes import AdcMode, load_mode_set
-from neurox.tools.calibrate_adc._testbench import (
+
+from ._math import RescaleFit, filter_fit_samples, fit_rescale_through_origin
+from ._modes import AdcMode, load_mode_set
+from ._testbench import (
     MacroSection,
     add_file_logging,
     build_ideal_twin,

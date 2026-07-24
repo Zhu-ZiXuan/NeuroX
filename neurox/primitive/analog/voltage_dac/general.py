@@ -1,4 +1,4 @@
-"""General-purpose LUT voltage DAC — concrete :class:`VoltageDac` implementation.
+"""General-purpose LUT voltage DAC — concrete :class:`Vdac` implementation.
 
 See also:
     docs/reference/primitive/analog/voltage_dac/general.md
@@ -11,11 +11,11 @@ from torch import Tensor
 
 from neurox.primitive.nonideality import apply_gaussian
 
-from .base import VoltageDac, VoltageDacConfig, VoltageDacPolicy
+from .base import Vdac, VdacConfig, VdacPolicy
 
 
-class GeneralVoltageDacConfig(VoltageDacConfig):
-    """Immutable configuration for :class:`GeneralVoltageDac`.
+class GeneralVdacConfig(VdacConfig):
+    """Immutable configuration for :class:`GeneralVdac`.
 
     Attributes:
         code_to_signal: Voltage lookup table indexed by integer code.
@@ -46,8 +46,8 @@ class GeneralVoltageDacConfig(VoltageDacConfig):
         self._require_non_neg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
-class GeneralVoltageDacPolicy(VoltageDacPolicy):
-    """Per-source toggles selecting which GeneralVoltageDac nonidealities are active.
+class GeneralVdacPolicy(VdacPolicy):
+    """Per-source toggles selecting which GeneralVdac nonidealities are active.
 
     Attributes:
         drive_thermal: Apply ``drive_thermal__V`` at convert time.
@@ -56,8 +56,8 @@ class GeneralVoltageDacPolicy(VoltageDacPolicy):
     drive_thermal: bool
 
 
-@VoltageDac.register_neurox_module(config_type=GeneralVoltageDacConfig, policy_type=GeneralVoltageDacPolicy)
-class GeneralVoltageDac(VoltageDac[GeneralVoltageDacConfig, GeneralVoltageDacPolicy]):
+@Vdac.register_neurox_module(config_type=GeneralVdacConfig, policy_type=GeneralVdacPolicy)
+class GeneralVdac(Vdac[GeneralVdacConfig, GeneralVdacPolicy]):
     """General voltage DAC model with a code-to-voltage LUT.
 
     Args:
@@ -76,8 +76,8 @@ class GeneralVoltageDac(VoltageDac[GeneralVoltageDacConfig, GeneralVoltageDacPol
     def __init__(
         self,
         *,
-        config: GeneralVoltageDacConfig,
-        policy: GeneralVoltageDacPolicy,
+        config: GeneralVdacConfig,
+        policy: GeneralVdacPolicy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -123,7 +123,6 @@ class GeneralVoltageDac(VoltageDac[GeneralVoltageDacConfig, GeneralVoltageDacPol
             enabled=self.policy.drive_thermal,
         )
 
-        assert signal.numel() % self.inst_count == 0
         serial_round_count = self._count_serial_rounds(signal.numel())
         latency__ns = self._latency_per_op__ns * serial_round_count
         if self._is_dynamic_energy_profile_active():

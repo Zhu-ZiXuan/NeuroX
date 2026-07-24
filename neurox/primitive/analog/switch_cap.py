@@ -7,9 +7,10 @@ See also:
 import torch
 from torch import Tensor
 
-from neurox.primitive.analog.base import AnalogBase, AnalogConfig, AnalogPolicy
 from neurox.primitive.nonideality import apply_gaussian, apply_pelgrom_mismatch
 from neurox.primitive.physical_constant import K_BOLTZMANN__J_per_K
+
+from .base import AnalogBase, AnalogConfig, AnalogPolicy
 
 
 class SwitchCapConfig(AnalogConfig):

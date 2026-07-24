@@ -9,30 +9,30 @@ from typing import ClassVar
 import torch
 from torch import Tensor
 
-from neurox.primitive.analog.base import AnalogBase, AnalogConfig, AnalogPolicy
+from .base import AnalogBase, AnalogConfig, AnalogPolicy
 
 
-class CurrentMuxConfig(AnalogConfig):
-    """Immutable configuration for :class:`CurrentMux`.
+class ImuxConfig(AnalogConfig):
+    """Immutable configuration for :class:`Imux`.
 
     Attributes:
-        select_num: Number of inputs sharing one lane.
+        mux_ratio: N in the N:1 ratio of inputs to each output lane.
         mux_gain: Scalar matched transport gain (copy/transport factor).
     """
 
-    select_num: int
+    mux_ratio: int
     mux_gain: float
 
     def validate(self) -> None:
-        self._require_pos(self.select_num, "select_num")
+        self._require_pos(self.mux_ratio, "mux_ratio")
         self._require_pos(self.mux_gain, "mux_gain")
 
 
-class CurrentMuxPolicy(AnalogPolicy):
-    """Abstract marker for CurrentMux nonideality policy — no sources."""
+class ImuxPolicy(AnalogPolicy):
+    """Abstract marker for Imux nonideality policy — no sources."""
 
 
-class CurrentMux(AnalogBase[CurrentMuxConfig, CurrentMuxPolicy]):
+class Imux(AnalogBase[ImuxConfig, ImuxPolicy]):
     """Ideal N:1 time-share current mux — identity·gain transport.
 
     Args:
@@ -48,8 +48,8 @@ class CurrentMux(AnalogBase[CurrentMuxConfig, CurrentMuxPolicy]):
     def __init__(
         self,
         *,
-        config: CurrentMuxConfig,
-        policy: CurrentMuxPolicy,
+        config: ImuxConfig,
+        policy: ImuxPolicy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -60,12 +60,21 @@ class CurrentMux(AnalogBase[CurrentMuxConfig, CurrentMuxPolicy]):
         pass
 
     def transport(self, i__uA: Tensor) -> Tensor:
-        """Transport one current through the shared lane at the configured gain.
+        """Transport currents already scheduled across mux accesses and lanes.
 
         Args:
-            i__uA: Per-column input current.
+            i__uA: Single-ended input currents. Shape:
+                ``[..., access_num, lane_num]``, where ``access_num`` equals
+                ``mux_ratio``.
 
         Returns:
-            Lane output current ``mux_gain * i__uA``.
+            Gained currents with the same shape as ``i__uA``.
         """
+        lane_num = self.inst_shape[-1] if self.inst_shape else 1
+        expected_trailing = (self.config.mux_ratio, lane_num)
+        if i__uA.shape[-2:] != expected_trailing:
+            raise ValueError(
+                f"trailing axes must be (access_num={self.config.mux_ratio}, lane_num={lane_num}); "
+                f"got {tuple(i__uA.shape[-2:])}"
+            )
         return self.config.mux_gain * i__uA

@@ -14,5 +14,5 @@ Domain-neutral types that carry no physical model — they name the multi-mode d
 ---
 
 - **Implementation**: `neurox/primitive/analog/adc_common.py` (`AdcMode`, `AdcCalibrationRecord`)
-- **Voltage family**: [voltage ADC family](voltage_adc/family.md)
-- **Current family**: [current ADC family](current_adc/family.md)
+- **Differential voltage family**: [differential voltage ADC family](diff_voltage_adc/family.md)
+- **Single-ended current family**: [single-ended current ADC family](current_adc/family.md)

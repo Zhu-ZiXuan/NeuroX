@@ -36,14 +36,15 @@ config under test, not from shipped numbers.
 from __future__ import annotations
 
 import dataclasses
+from typing import TypedDict, Unpack
 
 import torch
 from torch import Tensor
 
 from neurox.common.encoding import TrueFormTranscoder
 from neurox.primitive.analog import (
-    CurrentReferenceConfig,
-    CurrentReferencePolicy,
+    IrefConfig,
+    IrefPolicy,
     UnmodeledBlockConfig,
     UnmodeledBlockPolicy,
     VoltageDriverConfig,
@@ -51,11 +52,11 @@ from neurox.primitive.analog import (
 )
 from neurox.primitive.analog.adc_common import AdcCalibrationRecord
 from neurox.primitive.analog.current_adc import (
-    SarSingleEndedCurrentAdcConfig,
-    SarSingleEndedCurrentAdcPolicy,
+    SarIadcConfig,
+    SarIadcPolicy,
 )
-from neurox.primitive.analog.current_adc.base import SingleEndedCurrentAdcProber
-from neurox.primitive.analog.voltage_dac import GeneralVoltageDacConfig, GeneralVoltageDacPolicy
+from neurox.primitive.analog.current_adc.base import IadcProber
+from neurox.primitive.analog.voltage_dac import GeneralVdacConfig, GeneralVdacPolicy
 from neurox.primitive.macro.cim import CimMacro
 from neurox.primitive.xbar.array import XbarArray1t1rConfig, XbarArray1t1rPolicy
 from neurox.primitive.xbar.cell import XbarCell1t1rLinearConfig, XbarCell1t1rLinearPolicy
@@ -87,6 +88,23 @@ _WIRE_SEGMENT_R__MOhm = 5.0e-6  # 5 Ohm
 # The framework transcoder the macro's program() consumes: sign-magnitude,
 # radix 2, two magnitude digits (LSB-first) -> a 3-bit signed weight.
 TRANSCODER = TrueFormTranscoder(radix=2, digit_count=2)
+
+
+class _BuildConfigKwargs(TypedDict, total=False):
+    col_num: int
+    row_num: int
+    active_row_num: int | None
+    mux_factor: int
+    w_digit_num: int
+    w_digit_radix: int
+    input_bit_num: int
+    adc_bits: int
+    t_sample__ns: tuple[float, ...] | None
+    t_settle__ns: float
+    t_cycle__ns: float
+    t_conduct_per_step__ns: tuple[float, ...] | None
+    step_latency__ns: tuple[float, ...] | None
+    ref_levels__uA: tuple[float, ...] | None
 
 
 def _default_ref_levels(adc_bits: int) -> tuple[float, ...]:
@@ -221,7 +239,7 @@ def build_config(
         control_config=UnmodeledBlockConfig(area_per_inst__um2=0.0, leakage_per_inst__uW=6.0),
         pn_isub_config=UnmodeledBlockConfig(area_per_inst__um2=0.0, leakage_per_inst__uW=3.0),
         array_config=_array_config(),
-        wl_dac_config=GeneralVoltageDacConfig(
+        wl_dac_config=GeneralVdacConfig(
             area_per_inst__um2=0.0,
             leakage_per_inst__uW=0.0,
             code_to_signal=(0.0, 0.9),  # 1-bit ON/OFF WL drive
@@ -245,7 +263,7 @@ def build_config(
             area_per_inst__um2=0.0,
             leakage_per_inst__uW=1.0,
         ),
-        adc_config=SarSingleEndedCurrentAdcConfig(
+        adc_config=SarIadcConfig(
             bits=adc_bits,
             margin_gain=3.0,
             e_fixed_per_op__fJ=2.0,
@@ -254,11 +272,10 @@ def build_config(
             step_latency__ns=step_latency__ns,  # honest sensing; macro suppresses ADC latency emit
             comparator_offset_sigma__uA=0.0,
             coupling_mismatch_sigma__uA=0.0,
-            mirror_mismatch_sigma_relative=0.0,
             area_per_inst__um2=0.0,
             leakage_per_inst__uW=4.0,
         ),
-        reference_config=CurrentReferenceConfig(
+        reference_config=IrefConfig(
             i_refs__uA=(tuple(ref_levels__uA),),  # outer tuple = mode axis (single mode)
             tolerance_sigma_relative=0.0,
             noise_sigma_relative=0.0,
@@ -273,16 +290,14 @@ def build_all_off_policy() -> Xue2020JsscCimMacroPolicy:
     """All-off (lossless baseline) composite policy — the scheme's only intended policy."""
     return Xue2020JsscCimMacroPolicy(
         array_policy=XbarArray1t1rPolicy(cell_policy=XbarCell1t1rLinearPolicy(), solve_chunk_size=0),
-        wl_dac_policy=GeneralVoltageDacPolicy(drive_thermal=False),
+        wl_dac_policy=GeneralVdacPolicy(drive_thermal=False),
         cablc_policy=VoltageDriverPolicy(offset=False, thermal=False),
         sl_driver_policy=VoltageDriverPolicy(offset=False, thermal=False),
-        adc_policy=SarSingleEndedCurrentAdcPolicy(
+        adc_policy=SarIadcPolicy(
             comparator_offset=False,
-            replica_threshold_variation=False,
-            mirror_mismatch=False,
             coupling_mismatch=False,
         ),
-        reference_policy=CurrentReferencePolicy(tolerance=False, noise=False),
+        reference_policy=IrefPolicy(tolerance=False, noise=False),
         control_policy=UnmodeledBlockPolicy(),
         pn_isub_policy=UnmodeledBlockPolicy(),
     )
@@ -333,7 +348,7 @@ def encode_weights(w_signed: Tensor, *, transcoder: TrueFormTranscoder = TRANSCO
 
 
 def with_ref_levels(config: Xue2020JsscCimMacroConfig, ref_levels__uA: tuple[float, ...]) -> Xue2020JsscCimMacroConfig:
-    """Install one single-mode ladder on the CurrentReference (the single ladder source)."""
+    """Install one single-mode ladder on the Iref (the single ladder source)."""
     return dataclasses.replace(
         config,
         reference_config=dataclasses.replace(config.reference_config, i_refs__uA=(tuple(ref_levels__uA),)),
@@ -347,7 +362,7 @@ def probe_i_sub_grid(macro: Xue2020JsscCimMacro, *, m_max: int) -> list[float]:
     sum equals ``M`` (greedy fill, per-row value in ``x_value_range``); column 0 lives
     at mux slot 0 of IO 0, so the grid rides ``i_sub[m, 0, 0]``. The pre-ADC
     magnitude ``I_SUB`` is captured through the ADC's own
-    :class:`SingleEndedCurrentAdcProber` (``i_in__uA`` per convert). All-off makes
+    :class:`IadcProber` (``i_in__uA`` per convert). All-off makes
     the probe deterministic. NOTE: reprograms the macro.
     """
     device = macro_device(macro)
@@ -368,7 +383,7 @@ def probe_i_sub_grid(macro: Xue2020JsscCimMacro, *, m_max: int) -> list[float]:
             remaining -= v
         assert remaining == 0, f"cannot reach MAC {m} with {row_num} rows of max {x_max}"
 
-    with SingleEndedCurrentAdcProber() as probe, torch.no_grad():
+    with IadcProber() as probe, torch.no_grad():
         macro.vec_mat_mul(x, adc_mode=ADC_MODE, adc_bits=TINY_ADC_BITS)
     # One convert per vec_mat_mul; i_in__uA is the pre-ADC magnitude I_SUB.
     i_sub = probe.records[-1].i_in__uA  # [m_max + 1, group_size, group_num]
@@ -386,7 +401,7 @@ def build_calibrated_macro(
     *,
     device: torch.device | None = None,
     inst_shape: tuple[int, ...] = (),
-    **config_kwargs: object,
+    **config_kwargs: Unpack[_BuildConfigKwargs],
 ) -> Xue2020JsscCimMacro:
     """Macro with an in-code calibrated ladder: probe the ``I_SUB(M)`` grid, install mid-points, rebuild.
 

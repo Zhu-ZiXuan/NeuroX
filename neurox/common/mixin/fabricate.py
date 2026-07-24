@@ -41,13 +41,14 @@ class FabricateMixin(ABC):
         """Iterate direct fabricable children."""
         assert isinstance(self, nn.Module)
         for child in self.children():
-            if isinstance(child, FabricateMixin):
-                yield child
-            elif isinstance(child, nn.ModuleList):
-                for sub in child:
-                    if isinstance(sub, FabricateMixin):
-                        yield sub
-            elif isinstance(child, nn.ModuleDict):
-                for sub in child.values():
-                    if isinstance(sub, FabricateMixin):
-                        yield sub
+            yield from self._walk_standard_container(child)
+
+    @classmethod
+    def _walk_standard_container(cls, module: nn.Module) -> Iterator[FabricateMixin]:
+        """Yield fabricable nodes through PyTorch standard containers."""
+        if isinstance(module, FabricateMixin):
+            yield module
+            return
+        if isinstance(module, nn.ModuleList | nn.ModuleDict | nn.Sequential):
+            for child in module.children():
+                yield from cls._walk_standard_container(child)

@@ -1,4 +1,4 @@
-# Voltage ADC family
+# Differential voltage ADC family
 
 Every member digitizes a differential voltage into a raw unsigned integer code.
 
@@ -67,6 +67,6 @@ boundary model remains valid.
 
 ---
 
-- **Internals**: [voltage ADC base](../../../../internals/primitive/analog/voltage_adc/base.md)
+- **Internals**: [differential voltage ADC base](../../../../internals/primitive/analog/diff_voltage_adc/base.md)
 - **Validation**: TODO — validation evidence not yet written
-- **Configuration**: `DifferentialVoltageAdcConfig` (see `api`)
+- **Configuration**: `DiffVadcConfig` (see `api`)

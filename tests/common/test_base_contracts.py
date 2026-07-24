@@ -63,6 +63,21 @@ class _ValidatedConfig(ConfigBase):
 
 
 class _FabricableModule(FabricateMixin, nn.Module):
+    def __init__(self) -> None:
+        nn.Module.__init__(self)
+        self.sample_count = 0
+
+    def _sample_fabricate_mismatch(self) -> None:
+        self.sample_count += 1
+
+
+class _FabricableContainerHost(FabricateMixin, nn.Module):
+    def __init__(self) -> None:
+        nn.Module.__init__(self)
+        self.sequential = nn.Sequential(_FabricableModule())
+        self.module_list = nn.ModuleList([nn.Sequential(_FabricableModule())])
+        self.module_dict = nn.ModuleDict({"child": nn.ModuleList([_FabricableModule()])})
+
     def _sample_fabricate_mismatch(self) -> None:
         pass
 
@@ -185,6 +200,18 @@ def test_fabricate_mixin_rejects_non_module_subclass() -> None:
 def test_fabricate_mixin_accepts_module_subclass() -> None:
     module = _FabricableModule()
     module.fabricate()
+    assert module.sample_count == 1
+
+
+def test_fabricate_mixin_walks_pytorch_standard_containers() -> None:
+    module = _FabricableContainerHost()
+    module.fabricate()
+    descendants = (
+        module.sequential[0],
+        module.module_list[0][0],
+        module.module_dict["child"][0],
+    )
+    assert all(isinstance(child, _FabricableModule) and child.sample_count == 1 for child in descendants)
 
 
 def test_module_registry_resolves_config_and_policy_instances() -> None:

@@ -69,4 +69,4 @@ TODO.
 
 - **Internals**: [general internals](../../../../internals/primitive/analog/current_dac/general.md)
 - **Validation**: TODO - validation evidence not yet written
-- **Configuration**: `GeneralCurrentDacConfig`, `GeneralCurrentDacPolicy` (see `api`)
+- **Configuration**: `GeneralIdacConfig`, `GeneralIdacPolicy` (see `api`)

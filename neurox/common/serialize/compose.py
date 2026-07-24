@@ -2,19 +2,18 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
 
-from neurox.common.serialize.file import dict_from_file
-from neurox.common.serialize.keys import (
+from .file import dict_from_file
+from .keys import (
     CLASS_DISCRIMINATOR,
     USE_DIRECTIVE,
     USE_PRESET_DIRECTIVE,
 )
+from .value import ConfigDict, ConfigValue
 
 
-def _deep_fill_defaults(override: dict[str, Any], default: dict[str, Any], strict_type: bool) -> dict[str, Any]:
+def _deep_fill_defaults(override: ConfigDict, default: ConfigDict, strict_type: bool) -> ConfigDict:
     """Fill missing keys in ``override`` from ``default`` recursively."""
     merged = override.copy()
     for k, d_v in default.items():
@@ -31,7 +30,7 @@ def _deep_fill_defaults(override: dict[str, Any], default: dict[str, Any], stric
     return merged
 
 
-def merge_dicts(*dicts: dict[str, Any], strict_type: bool = True) -> dict[str, Any]:
+def merge_dicts(*dicts: ConfigDict, strict_type: bool = True) -> ConfigDict:
     """Deep-merge dicts from left (highest priority) to right.
 
     Args:
@@ -52,7 +51,7 @@ def merge_dicts(*dicts: dict[str, Any], strict_type: bool = True) -> dict[str, A
     return merged
 
 
-def _lookup_section(root: Mapping[str, Any], section: str) -> Any:
+def _lookup_section(root: ConfigDict, section: str) -> ConfigValue:
     """Look up ``section`` in ``root``; a dotted name descends nested tables.
 
     An exact top-level key wins; otherwise the name is split on ``.`` and
@@ -63,12 +62,12 @@ def _lookup_section(root: Mapping[str, Any], section: str) -> Any:
     """
     if section in root:
         return root[section]
-    node: Any = root
+    node: ConfigValue = root
     for part in section.split("."):
-        if not isinstance(node, Mapping) or part not in node:
+        if not isinstance(node, dict) or part not in node:
             raise KeyError(
                 f"section {section!r} not found: segment {part!r} missing "
-                f"(available keys: {sorted(node) if isinstance(node, Mapping) else '<not a table>'})"
+                f"(available keys: {sorted(node) if isinstance(node, dict) else '<not a table>'})"
             )
         node = node[part]
     return node
@@ -90,7 +89,7 @@ def _resolve_fragment_path(rel: str, base_dir: Path) -> Path:
     raise FileNotFoundError(f"{USE_DIRECTIVE} fragment {rel!r} not found relative to {base_dir}")
 
 
-def _parse_use_ref(ref: Any, base_dir: Path) -> tuple[Path, str]:
+def _parse_use_ref(ref: ConfigValue, base_dir: Path) -> tuple[Path, str]:
     """Parse ``"<rel_path>:<section>"`` into ``(absolute_path, section_name)``."""
     if not isinstance(ref, str):
         raise TypeError(f"{USE_DIRECTIVE} must be a string, got {type(ref).__name__}")
@@ -133,7 +132,7 @@ def _resolve_preset_fragment_path(rel: str) -> Path:
     raise FileNotFoundError(f"{USE_PRESET_DIRECTIVE} fragment {rel!r} not found under {root}")
 
 
-def parse_preset_ref(ref: Any) -> tuple[Path, str]:
+def parse_preset_ref(ref: str) -> tuple[Path, str]:
     """Parse a preset ``"<rel_path>:<section>"`` anchored at ``neurox/presets/``."""
     if not isinstance(ref, str):
         raise TypeError(f"{USE_PRESET_DIRECTIVE} must be a string, got {type(ref).__name__}")
@@ -147,7 +146,7 @@ def parse_preset_ref(ref: Any) -> tuple[Path, str]:
 
 
 def _resolve_directive_branch(
-    value: Mapping[str, Any],
+    value: ConfigDict,
     *,
     directive: str,
     path: Path,
@@ -156,9 +155,9 @@ def _resolve_directive_branch(
     base_dir_for_inline: Path,
     in_preset_for_fragment: bool,
     in_preset_for_inline: bool,
-    cache: dict[Path, dict[str, Any]],
+    cache: dict[Path, ConfigDict],
     in_progress: frozenset[tuple[Path, str]],
-) -> Any:
+) -> ConfigDict:
     """Resolve and merge one referenced configuration fragment."""
     key = (path, section)
     if key in in_progress:
@@ -171,17 +170,17 @@ def _resolve_directive_branch(
         target = _lookup_section(root, section)
     except KeyError as exc:
         raise KeyError(f"{directive} target in {path}: {exc.args[0]}") from None
-    if not isinstance(target, Mapping):
+    if not isinstance(target, dict):
         raise TypeError(f"{directive} target {value[directive]!r} must be a table, got {type(target).__name__}")
-    resolved_fragment = _resolve_uses_in_value(
-        dict(target),
+    resolved_fragment = _resolve_uses_in_dict(
+        target,
         base_dir_for_fragment,
         cache=cache,
         in_progress=in_progress | {key},
         in_preset=in_preset_for_fragment,
     )
     inline = {k: v for k, v in value.items() if k != directive}
-    resolved_inline = _resolve_uses_in_value(
+    resolved_inline = _resolve_uses_in_dict(
         inline,
         base_dir_for_inline,
         cache=cache,
@@ -191,63 +190,82 @@ def _resolve_directive_branch(
     return merge_dicts(resolved_inline, resolved_fragment, strict_type=True)
 
 
-def _resolve_uses_in_value(
-    value: Any,
+def _resolve_uses_in_dict(
+    value: ConfigDict,
     base_dir: Path,
     *,
-    cache: dict[Path, dict[str, Any]],
+    cache: dict[Path, ConfigDict],
     in_progress: frozenset[tuple[Path, str]],
     in_preset: bool = False,
-) -> Any:
-    """Recursively resolve use directives in ``value``."""
-    if isinstance(value, Mapping):
-        has_use = USE_DIRECTIVE in value
-        has_preset = USE_PRESET_DIRECTIVE in value
-        if has_use and has_preset:
-            raise ValueError(f"{USE_DIRECTIVE!r} and {USE_PRESET_DIRECTIVE!r} are mutually exclusive in the same table")
-        if (has_use or has_preset) and CLASS_DISCRIMINATOR in value:
-            directive = USE_DIRECTIVE if has_use else USE_PRESET_DIRECTIVE
-            raise ValueError(
-                f"{directive!r} table may not also declare {CLASS_DISCRIMINATOR!r}; "
-                f"the referenced fragment/preset is the sole class authority "
-                f"(table keys: {sorted(value)})"
-            )
-        if in_preset and has_use:
-            raise ValueError(
-                f"{USE_DIRECTIVE!r} is forbidden inside neurox/presets/; use {USE_PRESET_DIRECTIVE!r} instead"
-            )
-        if has_preset:
-            path, section = parse_preset_ref(value[USE_PRESET_DIRECTIVE])
-            return _resolve_directive_branch(
-                value,
-                directive=USE_PRESET_DIRECTIVE,
-                path=path,
-                section=section,
-                base_dir_for_fragment=_presets_root(),
-                base_dir_for_inline=base_dir,
-                in_preset_for_fragment=True,
-                in_preset_for_inline=in_preset,
-                cache=cache,
-                in_progress=in_progress,
-            )
-        if has_use:
-            path, section = _parse_use_ref(value[USE_DIRECTIVE], base_dir)
-            return _resolve_directive_branch(
-                value,
-                directive=USE_DIRECTIVE,
-                path=path,
-                section=section,
-                base_dir_for_fragment=path.parent,
-                base_dir_for_inline=base_dir,
-                in_preset_for_fragment=in_preset,
-                in_preset_for_inline=in_preset,
-                cache=cache,
-                in_progress=in_progress,
-            )
-        return {
-            k: _resolve_uses_in_value(v, base_dir, cache=cache, in_progress=in_progress, in_preset=in_preset)
-            for k, v in value.items()
-        }
+) -> ConfigDict:
+    """Recursively resolve use directives in one configuration mapping."""
+    has_use = USE_DIRECTIVE in value
+    has_preset = USE_PRESET_DIRECTIVE in value
+    if has_use and has_preset:
+        raise ValueError(f"{USE_DIRECTIVE!r} and {USE_PRESET_DIRECTIVE!r} are mutually exclusive in the same table")
+    if (has_use or has_preset) and CLASS_DISCRIMINATOR in value:
+        directive = USE_DIRECTIVE if has_use else USE_PRESET_DIRECTIVE
+        raise ValueError(
+            f"{directive!r} table may not also declare {CLASS_DISCRIMINATOR!r}; "
+            f"the referenced fragment/preset is the sole class authority "
+            f"(table keys: {sorted(value)})"
+        )
+    if in_preset and has_use:
+        raise ValueError(f"{USE_DIRECTIVE!r} is forbidden inside neurox/presets/; use {USE_PRESET_DIRECTIVE!r} instead")
+    if has_preset:
+        ref = value[USE_PRESET_DIRECTIVE]
+        if not isinstance(ref, str):
+            raise TypeError(f"{USE_PRESET_DIRECTIVE} must be a string, got {type(ref).__name__}")
+        path, section = parse_preset_ref(ref)
+        return _resolve_directive_branch(
+            value,
+            directive=USE_PRESET_DIRECTIVE,
+            path=path,
+            section=section,
+            base_dir_for_fragment=_presets_root(),
+            base_dir_for_inline=base_dir,
+            in_preset_for_fragment=True,
+            in_preset_for_inline=in_preset,
+            cache=cache,
+            in_progress=in_progress,
+        )
+    if has_use:
+        path, section = _parse_use_ref(value[USE_DIRECTIVE], base_dir)
+        return _resolve_directive_branch(
+            value,
+            directive=USE_DIRECTIVE,
+            path=path,
+            section=section,
+            base_dir_for_fragment=path.parent,
+            base_dir_for_inline=base_dir,
+            in_preset_for_fragment=in_preset,
+            in_preset_for_inline=in_preset,
+            cache=cache,
+            in_progress=in_progress,
+        )
+    return {
+        key: _resolve_uses_in_value(item, base_dir, cache=cache, in_progress=in_progress, in_preset=in_preset)
+        for key, item in value.items()
+    }
+
+
+def _resolve_uses_in_value(
+    value: ConfigValue,
+    base_dir: Path,
+    *,
+    cache: dict[Path, ConfigDict],
+    in_progress: frozenset[tuple[Path, str]],
+    in_preset: bool = False,
+) -> ConfigValue:
+    """Recursively resolve use directives in one configuration value."""
+    if isinstance(value, dict):
+        return _resolve_uses_in_dict(
+            value,
+            base_dir,
+            cache=cache,
+            in_progress=in_progress,
+            in_preset=in_preset,
+        )
     if isinstance(value, list):
         return [
             _resolve_uses_in_value(x, base_dir, cache=cache, in_progress=in_progress, in_preset=in_preset)
@@ -256,7 +274,7 @@ def _resolve_uses_in_value(
     return value
 
 
-def resolve_uses(data: dict[str, Any], base_dir: Path) -> dict[str, Any]:
+def resolve_uses(data: ConfigDict, base_dir: Path) -> ConfigDict:
     """Expand every ``_neurox_use`` / ``_neurox_use_preset`` directive in ``data``.
 
     ``_neurox_use = "<rel_path>:<section>"`` resolves the path relative to
@@ -282,13 +300,10 @@ def resolve_uses(data: dict[str, Any], base_dir: Path) -> dict[str, Any]:
         TypeError: A directive value, or the section it names, is not the
             expected type.
     """
-    result = _resolve_uses_in_value(data, base_dir, cache={}, in_progress=frozenset())
-    if not isinstance(result, dict):
-        raise TypeError(f"directive resolution expected dict root, got {type(result).__name__}")
-    return result
+    return _resolve_uses_in_dict(data, base_dir, cache={}, in_progress=frozenset())
 
 
-def _pluck_section(data: dict[str, Any], section: str | None) -> dict[str, Any]:
+def _pluck_section(data: ConfigDict, section: str | None) -> ConfigDict:
     if section is None:
         return data
     sub = _lookup_section(data, section)
@@ -302,7 +317,7 @@ def load_config_dict(
     section: str | None = None,
     encoding: str | None = "utf-8",
     strict_type: bool = True,
-) -> dict[str, Any]:
+) -> ConfigDict:
     """Load, resolve, merge, and pluck one or more config files into a plain dict.
 
     Each file is parsed, its ``_neurox_use`` / ``_neurox_use_preset``

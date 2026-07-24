@@ -4,12 +4,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TypeVar
 
 import pytest
 
 from neurox.common.serialize import compose, dict_from_file
 from neurox.common.serialize.build import dataclass_from_dict
 from neurox.common.serialize.compose import load_config_dict, resolve_uses
+
+T = TypeVar("T")
 
 
 @dataclass(frozen=True)
@@ -33,10 +36,10 @@ def _write(path: Path, body: str) -> Path:
 
 
 def dataclass_from_file(
-    cls: type,
+    cls: type[T],
     *files: Path,
     section: str | None = None,
-) -> object:
+) -> T:
     """Load-resolve-merge-coerce a config file into ``cls`` (white-box test helper)."""
     return dataclass_from_dict(cls, load_config_dict(*files, section=section))
 

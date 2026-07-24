@@ -14,7 +14,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
-from neurox.common.mixin import ProfileMixin
+from .mixin import ProfileMixin
 
 _UNROOTED_PREFIX = "<unrooted>."
 
@@ -181,6 +181,8 @@ class NeuroxProfiler:
         self._energy_by_type: dict[str, float] = {}
 
     def __enter__(self) -> Self:
+        if NeuroxProfiler.get_current() is not None:
+            raise RuntimeError("only one NeuroxProfiler may be active at a time")
         self.energy_events = []
         self.latency_events = []
         self._pending_energy = []

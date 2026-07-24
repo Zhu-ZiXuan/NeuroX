@@ -9,7 +9,7 @@ from typing import Generic, TypeVar, dataclass_transform, final
 
 import torch.nn as nn
 
-from neurox.common.mixin import FabricateMixin, ProfileMixin, SerializeMixin, ValidateMixin
+from .mixin import FabricateMixin, ProfileMixin, SerializeMixin, ValidateMixin
 
 
 @dataclass_transform(frozen_default=True, kw_only_default=True)

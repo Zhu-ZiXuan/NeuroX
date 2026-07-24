@@ -1,9 +1,7 @@
-"""CurrentMux is a pure transport primitive.
+"""Imux transports pre-scheduled single-ended currents.
 
-The mux does not self-account rail energy: the current-domain consumer
-that owns the rail tallies dissipation. ``CurrentMux.transport`` is a pure
-``mux_gain·i`` copy that logs NO dynamic energy and NO latency. Events are
-captured under :class:`NeuroxProfiler`.
+The mux does not self-account rail energy or latency. Its caller owns the
+access/lane layout; the mux preserves that layout and applies transport gain.
 """
 
 from __future__ import annotations
@@ -14,9 +12,9 @@ import torch
 from neurox.common.mixin import ProfileMixin
 from neurox.common.profiler import NeuroxProfiler
 from neurox.primitive.analog.current_mux import (
-    CurrentMux,
-    CurrentMuxConfig,
-    CurrentMuxPolicy,
+    Imux,
+    ImuxConfig,
+    ImuxPolicy,
 )
 
 
@@ -26,26 +24,37 @@ def _energy_total(events: list, module: ProfileMixin) -> float:
 
 
 @pytest.mark.parametrize("mux_gain", [1.0, 2.0])
-def test_pure_copy_no_energy_no_latency(mux_gain: float) -> None:
-    """``transport`` is a pure ``mux_gain·i`` copy: no energy, no latency."""
-    mux = CurrentMux(
-        config=CurrentMuxConfig(
-            select_num=4,
+def test_transport_preserves_access_lane_layout(mux_gain: float) -> None:
+    mux = Imux(
+        config=ImuxConfig(
+            mux_ratio=4,
             mux_gain=mux_gain,
         ),
-        policy=CurrentMuxPolicy(),
-        inst_shape=(),
+        policy=ImuxPolicy(),
+        inst_shape=(2,),
         dtype=torch.float64,
         T__K=300.0,
     )
     mux.eval()
 
-    i__uA = torch.tensor([10.0, -4.0], dtype=torch.float64)
-    i_out__uA = mux_gain * i__uA
+    i__uA = torch.arange(16, dtype=torch.float64).reshape(2, 4, 2)
     with NeuroxProfiler() as p:
         out = mux.transport(i__uA)
-    torch.testing.assert_close(out, i_out__uA)
+    assert out.shape == i__uA.shape
+    torch.testing.assert_close(out, mux_gain * i__uA)
 
-    # Pure transport primitive: no dynamic energy and no latency self-log.
     assert _energy_total(p.energy_events, mux) == 0.0
     assert p.latency_events == []
+
+
+@pytest.mark.parametrize("shape", [(3, 2), (4, 3), (8,)])
+def test_transport_requires_access_lane_layout(shape: tuple[int, ...]) -> None:
+    mux = Imux(
+        config=ImuxConfig(mux_ratio=4, mux_gain=1.0),
+        policy=ImuxPolicy(),
+        inst_shape=(2,),
+        dtype=torch.float64,
+        T__K=300.0,
+    )
+    with pytest.raises(ValueError, match="trailing axes"):
+        mux.transport(torch.ones(shape))

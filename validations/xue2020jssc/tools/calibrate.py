@@ -38,9 +38,8 @@ from pathlib import Path
 
 import torch
 
-import neurox.works  # noqa: F401
 from neurox.common.encoding import TrueFormTranscoder
-from neurox.primitive.analog.current_adc.base import SingleEndedCurrentAdcProber
+from neurox.primitive.analog.current_adc.base import IadcProber
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
 from neurox.works.macro.cim.xue2020jssc import Xue2020JsscCimMacro
 
@@ -66,7 +65,7 @@ def unit_isub_staircase(macro: Xue2020JsscCimMacro) -> tuple[list[float], list[f
     rows (``0..active_row_num-1``) sum to MAC value ``0..2**adc_bits-1`` (greedy
     fill), then DRIVES THE MACRO DIRECTLY (``vec_mat_mul``) and captures the pre-ADC
     magnitude current ``i_sub`` through the ADC's own
-    :class:`SingleEndedCurrentAdcProber` (``i_in__uA`` per convert) -- the true
+    :class:`IadcProber` (``i_in__uA`` per convert) -- the true
     IR-drop array-solve path, no manual replay, no to_ideal. Column 0 sits at mux
     slot 0 of IO 0 (grouped ``gs=0, gn=0``), so ``i_sub[m, 0, 0]`` is the staircase.
     The reference taps are the adjacent midpoints ``0.5 * (I(m) + I(m+1))``.
@@ -94,7 +93,7 @@ def unit_isub_staircase(macro: Xue2020JsscCimMacro) -> tuple[list[float], list[f
     # Drive the full macro (array IR-drop solve + readout chain) once and capture
     # the pre-ADC magnitude current through the ADC's own observation prober. One
     # convert per vec_mat_mul, so records[-1].i_in__uA is this call's I_SUB.
-    with SingleEndedCurrentAdcProber() as probe, torch.no_grad():
+    with IadcProber() as probe, torch.no_grad():
         macro.vec_mat_mul(x.float(), adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
     i_sub = probe.records[-1].i_in__uA  # [m_max + 1, group_size, group_num]
 

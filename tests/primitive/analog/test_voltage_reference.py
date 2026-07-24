@@ -1,6 +1,6 @@
-"""VoltageReference: flat multi-tap source and the PPA-only contract.
+"""Vref: flat multi-tap source and the PPA-only contract.
 
-``VoltageReference`` is a behavioural reference source: it carries static
+``Vref`` is a behavioural reference source: it carries static
 PPA (area + leakage) and hands out the actual tap values through a snap,
 but performs no computation and emits no dynamic energy or latency. It
 holds a flat unordered tap tuple. These tests pin, all with the policy
@@ -27,15 +27,15 @@ import torch
 
 from neurox.common.profiler import NeuroxProfiler
 from neurox.primitive.analog.voltage_reference import (
-    VoltageReference,
-    VoltageReferenceConfig,
-    VoltageReferencePolicy,
+    Vref,
+    VrefConfig,
+    VrefPolicy,
 )
 
 _TAPS = (0.6, 1.2, 0.3)
 
 
-def _config(**overrides: Any) -> VoltageReferenceConfig:
+def _config(**overrides: Any) -> VrefConfig:
     base = {
         "v_refs__V": _TAPS,
         "tolerance_sigma_relative": 0.0,
@@ -43,7 +43,7 @@ def _config(**overrides: Any) -> VoltageReferenceConfig:
         "area_per_inst__um2": 0.0,
         "leakage_per_inst__uW": 0.0,
     }
-    return VoltageReferenceConfig(**{**base, **overrides})
+    return VrefConfig(**{**base, **overrides})
 
 
 def _make(
@@ -51,10 +51,10 @@ def _make(
     inst_shape: tuple[int, ...] = (),
     area: float = 0.0,
     leakage: float = 0.0,
-) -> VoltageReference:
-    ref = VoltageReference(
+) -> Vref:
+    ref = Vref(
         config=_config(area_per_inst__um2=area, leakage_per_inst__uW=leakage),
-        policy=VoltageReferencePolicy(tolerance=False, noise=False),
+        policy=VrefPolicy(tolerance=False, noise=False),
         inst_shape=inst_shape,
         dtype=torch.float64,
         T__K=300.0,
@@ -132,6 +132,6 @@ def test_toml_array_loads_as_tuple(tmp_path: Path) -> None:
     path = tmp_path / "ref.toml"
     path.write_text(toml, encoding="utf-8")
 
-    config = VoltageReferenceConfig.from_file(path, section="ref")
+    config = VrefConfig.from_file(path, section="ref")
     assert isinstance(config.v_refs__V, tuple)
     assert config.v_refs__V == _TAPS

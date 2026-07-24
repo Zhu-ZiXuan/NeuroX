@@ -1,11 +1,11 @@
-from .base import CurrentDac, CurrentDacConfig, CurrentDacPolicy
-from .general import GeneralCurrentDac, GeneralCurrentDacConfig, GeneralCurrentDacPolicy
+from .base import Idac, IdacConfig, IdacPolicy
+from .general import GeneralIdac, GeneralIdacConfig, GeneralIdacPolicy
 
 __all__ = [
-    "CurrentDac",
-    "CurrentDacConfig",
-    "CurrentDacPolicy",
-    "GeneralCurrentDac",
-    "GeneralCurrentDacConfig",
-    "GeneralCurrentDacPolicy",
+    "Idac",
+    "IdacConfig",
+    "IdacPolicy",
+    "GeneralIdac",
+    "GeneralIdacConfig",
+    "GeneralIdacPolicy",
 ]

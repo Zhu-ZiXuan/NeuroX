@@ -14,8 +14,6 @@ from pathlib import Path
 import pytest
 import torch
 
-# Registers the scheme classes so the shipped run-TOML's macro config resolves.
-import neurox.works  # noqa: F401
 from neurox.primitive.xbar.cell import XbarCell1t1rDcop
 from neurox.primitive.xbar.solver import SolverDcop, SolverObservation
 from neurox.tools.calibrate_solver._common import (

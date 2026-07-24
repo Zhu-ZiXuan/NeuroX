@@ -1,6 +1,6 @@
 """Single-ended current ADC: per-instance references + bits + B-form energy.
 
-``SarSingleEndedCurrentAdc.convert(i_in__uA, i_refs__uA, *, bits)`` takes the reference
+``SarIadc.convert(i_in__uA, i_refs__uA, *, bits)`` takes the reference
 ladder per call as a ``[*R, n_ref]`` tensor of ``2 ** bits - 1`` ascending taps
 on the **last** axis (the caller has already selected the operating mode's row —
 mode is invisible to the ADC); the ``[*R]`` leading broadcasts right-aligned
@@ -22,8 +22,8 @@ resolution ``bits`` is passed directly. These tests pin:
   ``v_rail__V`` and ``t_conduct_per_step__ns``; latency sums only the first
   ``bits`` step windows, and ``enable_latency_record=False`` suppresses the latency
   event while keeping the dynamic-energy event;
-- ``SingleEndedCurrentAdc.convert`` template method: probe-off equivalence with
-  ``_convert_impl`` and :class:`SingleEndedCurrentAdcProber` capture of input,
+- ``Iadc.convert`` template method: probe-off equivalence with
+  ``_convert_impl`` and :class:`IadcProber` capture of input,
   code, and resolution.
 """
 
@@ -34,10 +34,10 @@ import torch
 
 from neurox.common.profiler import NeuroxProfiler
 from neurox.primitive.analog.current_adc import (
-    SarSingleEndedCurrentAdc,
-    SarSingleEndedCurrentAdcConfig,
-    SarSingleEndedCurrentAdcPolicy,
-    SingleEndedCurrentAdcProber,
+    IadcProber,
+    SarIadc,
+    SarIadcConfig,
+    SarIadcPolicy,
 )
 
 # A 3-bit ladder (7 taps) with unit steps: code = count of taps the input exceeds.
@@ -53,8 +53,8 @@ def _config(
     t_conduct_per_step__ns: tuple[float, ...] = (0.0, 0.0, 0.0),
     step_latency__ns: tuple[float, ...] = (3.0, 3.0, 3.0),
     e_fixed_per_op__fJ: float = 7.0,
-) -> SarSingleEndedCurrentAdcConfig:
-    return SarSingleEndedCurrentAdcConfig(
+) -> SarIadcConfig:
+    return SarIadcConfig(
         area_per_inst__um2=0.0,
         leakage_per_inst__uW=0.0,
         bits=adc_bits,
@@ -65,22 +65,19 @@ def _config(
         step_latency__ns=step_latency__ns,
         comparator_offset_sigma__uA=0.0,
         coupling_mismatch_sigma__uA=0.0,
-        mirror_mismatch_sigma_relative=0.0,
     )
 
 
 def _build(
-    config: SarSingleEndedCurrentAdcConfig,
+    config: SarIadcConfig,
     device: torch.device,
     *,
     enable_latency_record: bool = True,
-) -> SarSingleEndedCurrentAdc:
-    adc = SarSingleEndedCurrentAdc(
+) -> SarIadc:
+    adc = SarIadc(
         config=config,
-        policy=SarSingleEndedCurrentAdcPolicy(
+        policy=SarIadcPolicy(
             comparator_offset=False,
-            replica_threshold_variation=False,
-            mirror_mismatch=False,
             coupling_mismatch=False,
         ),
         inst_shape=(1,),
@@ -99,7 +96,7 @@ def _refs(taps: tuple[float, ...], device: torch.device) -> torch.Tensor:
     return torch.tensor(taps, dtype=torch.float64, device=device)
 
 
-def _convert_energy(adc: SarSingleEndedCurrentAdc, i_in: torch.Tensor, refs: torch.Tensor, adc_bits: int) -> float:
+def _convert_energy(adc: SarIadc, i_in: torch.Tensor, refs: torch.Tensor, adc_bits: int) -> float:
     with NeuroxProfiler() as profiler:
         adc.convert(i_in, refs, bits=adc_bits)
     return profiler.total_dynamic_energy__fJ
@@ -267,7 +264,7 @@ def test_probe_preserves_output_and_captures_call(device: torch.device) -> None:
     i_in = torch.tensor([0.5, 4.5, 35.0], dtype=torch.float64, device=device)
 
     expected = adc.convert(i_in, refs, bits=3)
-    with SingleEndedCurrentAdcProber() as prober:
+    with IadcProber() as prober:
         code = adc.convert(i_in, refs, bits=3)
 
     assert torch.equal(code, expected)

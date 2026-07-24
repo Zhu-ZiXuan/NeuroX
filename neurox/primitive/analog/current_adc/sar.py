@@ -11,10 +11,10 @@ from torch import Tensor
 
 from neurox.primitive.nonideality import apply_gaussian
 
-from .base import SingleEndedCurrentAdc, SingleEndedCurrentAdcConfig, SingleEndedCurrentAdcPolicy
+from .base import Iadc, IadcConfig, IadcPolicy
 
 
-class SarSingleEndedCurrentAdcConfig(SingleEndedCurrentAdcConfig):
+class SarIadcConfig(IadcConfig):
     """Physical knobs for the triple-margin current-mode SAR ADC.
 
     Attributes:
@@ -44,8 +44,6 @@ class SarSingleEndedCurrentAdcConfig(SingleEndedCurrentAdcConfig):
         coupling_mismatch_sigma__uA: Residual coupling-driven offset sigma — a
             current-domain margin perturbation added after the ``margin_gain``
             pre-gain (effective ``sigma / margin_gain``).
-        mirror_mismatch_sigma_relative: Relative multiplicative sigma on the
-            mirror ratios (gated by ``mirror_mismatch``).
         area_per_inst__um2: SA silicon area per fabricated shared sense-lane
             instance.
         leakage_per_inst__uW: SA static leakage per fabricated shared sense-lane
@@ -63,7 +61,6 @@ class SarSingleEndedCurrentAdcConfig(SingleEndedCurrentAdcConfig):
 
     comparator_offset_sigma__uA: float
     coupling_mismatch_sigma__uA: float
-    mirror_mismatch_sigma_relative: float
 
     def validate(self) -> None:
         super().validate()
@@ -93,35 +90,29 @@ class SarSingleEndedCurrentAdcConfig(SingleEndedCurrentAdcConfig):
 
         self._require_non_neg(self.comparator_offset_sigma__uA, "comparator_offset_sigma__uA")
         self._require_non_neg(self.coupling_mismatch_sigma__uA, "coupling_mismatch_sigma__uA")
-        self._require_non_neg(self.mirror_mismatch_sigma_relative, "mirror_mismatch_sigma_relative")
 
 
-class SarSingleEndedCurrentAdcPolicy(SingleEndedCurrentAdcPolicy):
-    """Per-source toggles selecting which SarSingleEndedCurrentAdc nonidealities are active.
+class SarIadcPolicy(IadcPolicy):
+    """Per-source toggles selecting which SarIadc nonidealities are active.
 
     Attributes:
         comparator_offset: Inject ``comparator_offset_sigma__uA`` as a
             current-domain margin perturbation added **after** ``margin_gain``
             (effective offset ``sigma / margin_gain`` — the triple-margin benefit).
-        replica_threshold_variation: Track cell-current sigma on each reference
-            level. Wired but inert, which uses the nominal config tuple.
-        mirror_mismatch: Perturb the mirror ratios by ``mirror_mismatch_sigma_relative``.
         coupling_mismatch: Inject ``coupling_mismatch_sigma__uA`` as a residual
             current-domain margin perturbation added after ``margin_gain``
             (effective ``sigma / margin_gain``).
     """
 
     comparator_offset: bool
-    replica_threshold_variation: bool
-    mirror_mismatch: bool
     coupling_mismatch: bool
 
 
-@SingleEndedCurrentAdc.register_neurox_module(
-    config_type=SarSingleEndedCurrentAdcConfig,
-    policy_type=SarSingleEndedCurrentAdcPolicy,
+@Iadc.register_neurox_module(
+    config_type=SarIadcConfig,
+    policy_type=SarIadcPolicy,
 )
-class SarSingleEndedCurrentAdc(SingleEndedCurrentAdc[SarSingleEndedCurrentAdcConfig, SarSingleEndedCurrentAdcPolicy]):
+class SarIadc(Iadc[SarIadcConfig, SarIadcPolicy]):
     """Triple-margin current ADC using a binary search over injected references.
 
     Args:
@@ -145,8 +136,8 @@ class SarSingleEndedCurrentAdc(SingleEndedCurrentAdc[SarSingleEndedCurrentAdcCon
     def __init__(
         self,
         *,
-        config: SarSingleEndedCurrentAdcConfig,
-        policy: SarSingleEndedCurrentAdcPolicy,
+        config: SarIadcConfig,
+        policy: SarIadcPolicy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -196,7 +187,6 @@ class SarSingleEndedCurrentAdc(SingleEndedCurrentAdc[SarSingleEndedCurrentAdcCon
             self.config.coupling_mismatch_sigma__uA,
             enabled=self.policy.coupling_mismatch,
         )
-        # TODO: Model mirror mismatch and replica-threshold variation.
 
     def _col_to_lane(self, n_col: int, device: torch.device) -> Tensor:
         """Map logical columns to contiguous shared-sense lanes.

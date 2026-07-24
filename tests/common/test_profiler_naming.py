@@ -6,6 +6,7 @@ report resolves the name against the root it is handed.
 
 from __future__ import annotations
 
+import pytest
 import torch
 import torch.nn as nn
 
@@ -149,3 +150,12 @@ def test_default_channel_is_none_and_matches_unchannelled_behavior() -> None:
     report = p.report(owner)
     assert report.energy_by_name == {"leaf": 4.0}
     assert report.energy_events[0].channel is None
+
+
+def test_profiler_rejects_nested_active_contexts() -> None:
+    with (
+        NeuroxProfiler(),
+        pytest.raises(RuntimeError, match="only one NeuroxProfiler"),
+        NeuroxProfiler(),
+    ):
+        pass

@@ -1,4 +1,4 @@
-"""General-purpose LUT current DAC — concrete :class:`CurrentDac` implementation.
+"""General-purpose LUT current DAC — concrete :class:`Idac` implementation.
 
 See also:
     docs/reference/primitive/analog/current_dac/general.md
@@ -11,11 +11,11 @@ from torch import Tensor
 
 from neurox.primitive.nonideality import apply_gaussian
 
-from .base import CurrentDac, CurrentDacConfig, CurrentDacPolicy
+from .base import Idac, IdacConfig, IdacPolicy
 
 
-class GeneralCurrentDacConfig(CurrentDacConfig):
-    """Immutable configuration for :class:`GeneralCurrentDac`.
+class GeneralIdacConfig(IdacConfig):
+    """Immutable configuration for :class:`GeneralIdac`.
 
     Attributes:
         code_to_signal: Current lookup table indexed by integer code.
@@ -43,8 +43,8 @@ class GeneralCurrentDacConfig(CurrentDacConfig):
         self._require_non_neg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
-class GeneralCurrentDacPolicy(CurrentDacPolicy):
-    """Per-source toggles selecting which GeneralCurrentDac nonidealities are active.
+class GeneralIdacPolicy(IdacPolicy):
+    """Per-source toggles selecting which GeneralIdac nonidealities are active.
 
     Attributes:
         drive_thermal: Apply ``drive_thermal__uA`` at convert time.
@@ -53,8 +53,8 @@ class GeneralCurrentDacPolicy(CurrentDacPolicy):
     drive_thermal: bool
 
 
-@CurrentDac.register_neurox_module(config_type=GeneralCurrentDacConfig, policy_type=GeneralCurrentDacPolicy)
-class GeneralCurrentDac(CurrentDac[GeneralCurrentDacConfig, GeneralCurrentDacPolicy]):
+@Idac.register_neurox_module(config_type=GeneralIdacConfig, policy_type=GeneralIdacPolicy)
+class GeneralIdac(Idac[GeneralIdacConfig, GeneralIdacPolicy]):
     """General current DAC model — code-to-current LUT plus signal-independent output noise.
 
     Args:
@@ -73,8 +73,8 @@ class GeneralCurrentDac(CurrentDac[GeneralCurrentDacConfig, GeneralCurrentDacPol
     def __init__(
         self,
         *,
-        config: GeneralCurrentDacConfig,
-        policy: GeneralCurrentDacPolicy,
+        config: GeneralIdacConfig,
+        policy: GeneralIdacPolicy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,

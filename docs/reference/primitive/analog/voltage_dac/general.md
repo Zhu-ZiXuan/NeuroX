@@ -65,4 +65,4 @@ TODO.
 
 - **Internals**: [general internals](../../../../internals/primitive/analog/voltage_dac/general.md)
 - **Validation**: TODO - validation evidence not yet written
-- **Configuration**: `GeneralVoltageDacConfig`, `GeneralVoltageDacPolicy` (see `api`)
+- **Configuration**: `GeneralVdacConfig`, `GeneralVdacPolicy` (see `api`)

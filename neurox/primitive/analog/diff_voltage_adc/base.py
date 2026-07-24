@@ -1,7 +1,7 @@
-"""Abstract base class for voltage-domain ADC models.
+"""Abstract base class for differential voltage-domain ADC models.
 
 See also:
-    docs/internals/primitive/analog/voltage_adc/base.md
+    docs/internals/primitive/analog/diff_voltage_adc/base.md
 """
 
 from __future__ import annotations
@@ -19,8 +19,8 @@ from neurox.primitive.analog.base import AnalogBase, AnalogConfig, AnalogPolicy
 
 
 @dataclass(frozen=True)
-class DifferentialVoltageAdcObservation:
-    """One :meth:`DifferentialVoltageAdc.convert` call, captured for calibration/diagnostics.
+class DiffVadcObservation:
+    """One :meth:`DiffVadc.convert` call, captured for calibration/diagnostics.
 
     Attributes:
         v_pos__V: The call's positive-side input voltage.
@@ -46,18 +46,18 @@ class DifferentialVoltageAdcObservation:
         )
 
 
-class DifferentialVoltageAdcProber(Prober[DifferentialVoltageAdcObservation]):
+class DiffVadcProber(Prober[DiffVadcObservation]):
     """Capture differential-voltage ADC conversion observations."""
 
-    _active_stack: ClassVar[list[Prober[DifferentialVoltageAdcObservation]]] = []
+    _active_stack: ClassVar[list[Prober[DiffVadcObservation]]] = []
 
     @classmethod
-    def _stack(cls) -> list[Prober[DifferentialVoltageAdcObservation]]:
+    def _stack(cls) -> list[Prober[DiffVadcObservation]]:
         return cls._active_stack
 
 
-class DifferentialVoltageAdcConfig(AnalogConfig, ABC):
-    """Base config for voltage-domain ADC implementations.
+class DiffVadcConfig(AnalogConfig, ABC):
+    """Base config for differential voltage-domain ADC implementations.
 
     Attributes:
         area_per_inst__um2: Silicon area per fabricated instance.
@@ -72,20 +72,20 @@ class DifferentialVoltageAdcConfig(AnalogConfig, ABC):
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
 
 
-class DifferentialVoltageAdcPolicy(AnalogPolicy, ABC):
-    """Abstract marker base for voltage-ADC-family nonideality policies."""
+class DiffVadcPolicy(AnalogPolicy, ABC):
+    """Abstract marker base for differential-voltage-ADC nonideality policies."""
 
 
-ConfigT = TypeVar("ConfigT", bound=DifferentialVoltageAdcConfig)
-PolicyT = TypeVar("PolicyT", bound=DifferentialVoltageAdcPolicy)
+ConfigT = TypeVar("ConfigT", bound=DiffVadcConfig)
+PolicyT = TypeVar("PolicyT", bound=DiffVadcPolicy)
 
 
-class DifferentialVoltageAdc(
+class DiffVadc(
     AnalogBase[ConfigT, PolicyT],
     RegistryMixin[
-        "DifferentialVoltageAdcConfig",
-        "DifferentialVoltageAdcPolicy",
-        "DifferentialVoltageAdc",
+        "DiffVadcConfig",
+        "DiffVadcPolicy",
+        "DiffVadc",
     ],
     Generic[ConfigT, PolicyT],
     ABC,
@@ -104,12 +104,12 @@ class DifferentialVoltageAdc(
     def from_config(
         cls,
         *,
-        config: DifferentialVoltageAdcConfig,
-        policy: DifferentialVoltageAdcPolicy,
+        config: DiffVadcConfig,
+        policy: DiffVadcPolicy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
-    ) -> DifferentialVoltageAdc:
+    ) -> DiffVadc:
         """Build the implementation registered for the config-policy pair.
 
         Args:
@@ -179,9 +179,9 @@ class DifferentialVoltageAdc(
             v_ref__V=v_ref__V,
             bits=bits,
         )
-        if DifferentialVoltageAdcProber.active():
-            DifferentialVoltageAdcProber.submit(
-                DifferentialVoltageAdcObservation(
+        if DiffVadcProber.active():
+            DiffVadcProber.submit(
+                DiffVadcObservation(
                     v_pos__V=v_pos__V,
                     v_neg__V=v_neg__V,
                     v_ref__V=v_ref__V,
@@ -191,6 +191,7 @@ class DifferentialVoltageAdc(
             )
         return code
 
+    @abstractmethod
     def _convert_impl(
         self,
         v_pos__V: Tensor,

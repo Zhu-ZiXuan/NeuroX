@@ -25,7 +25,7 @@ import pytest
 import torch
 import torch._dynamo
 
-import neurox.works  # noqa: F401  registers every scheme class, incl. xue2020jssc
+from neurox.common import PolicyBase
 from neurox.common.serialize import dict_from_file
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
 from neurox.works.macro.cim.xue2020jssc import (
@@ -47,13 +47,14 @@ def _eager() -> Iterator[None]:
         yield
 
 
-def _assert_all_toggles_false(obj: object, path: str = "policy") -> None:
+def _assert_all_toggles_false(obj: PolicyBase, path: str = "policy") -> None:
     """Every bool field in the (nested) policy dataclass tree is False."""
     for field in dataclasses.fields(obj):
         value = getattr(obj, field.name)
         if isinstance(value, bool):
             assert value is False, f"{path}.{field.name} is on in the all-off policy"
         elif dataclasses.is_dataclass(value):
+            assert isinstance(value, PolicyBase)
             _assert_all_toggles_false(value, f"{path}.{field.name}")
 
 

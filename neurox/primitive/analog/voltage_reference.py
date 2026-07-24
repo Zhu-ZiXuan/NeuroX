@@ -9,11 +9,11 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor
 
-from neurox.primitive.analog.base import AnalogBase, AnalogConfig, AnalogPolicy
+from .base import AnalogBase, AnalogConfig, AnalogPolicy
 
 
-class VoltageReferenceConfig(AnalogConfig):
-    """Immutable configuration for :class:`VoltageReference`.
+class VrefConfig(AnalogConfig):
+    """Immutable configuration for :class:`Vref`.
 
     Attributes:
         v_refs__V: Nominal reference-voltage taps. Values are unordered
@@ -52,8 +52,8 @@ class VoltageReferenceConfig(AnalogConfig):
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
 
 
-class VoltageReferencePolicy(AnalogPolicy):
-    """Per-source toggles selecting which VoltageReference nonidealities are active.
+class VrefPolicy(AnalogPolicy):
+    """Per-source toggles selecting which Vref nonidealities are active.
 
     Attributes:
         tolerance: Apply the per-instance initial-accuracy spread
@@ -67,7 +67,7 @@ class VoltageReferencePolicy(AnalogPolicy):
 
 
 @dataclass(frozen=True)
-class VoltageReferenceSnap:
+class VrefSnap:
     """One sampled reference snap.
 
     Attributes:
@@ -78,7 +78,7 @@ class VoltageReferenceSnap:
     v_refs__V: Tensor
 
 
-class VoltageReference(AnalogBase[VoltageReferenceConfig, VoltageReferencePolicy]):
+class Vref(AnalogBase[VrefConfig, VrefPolicy]):
     """Multi-output voltage reference with static tolerance and runtime noise.
 
     Args:
@@ -96,8 +96,8 @@ class VoltageReference(AnalogBase[VoltageReferenceConfig, VoltageReferencePolicy
     def __init__(
         self,
         *,
-        config: VoltageReferenceConfig,
-        policy: VoltageReferencePolicy,
+        config: VrefConfig,
+        policy: VrefPolicy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -127,7 +127,7 @@ class VoltageReference(AnalogBase[VoltageReferenceConfig, VoltageReferencePolicy
         else:
             self._v_refs__V = base.clone()
 
-    def snapshot(self) -> VoltageReferenceSnap:
+    def snapshot(self) -> VrefSnap:
         """Sample reference taps with per-call noise.
 
         Returns:
@@ -135,4 +135,4 @@ class VoltageReference(AnalogBase[VoltageReferenceConfig, VoltageReferencePolicy
         """
         v = self._v_refs__V
         v = v * (1.0 + torch.randn_like(v) * self.config.noise_sigma_relative) if self.policy.noise else v.clone()
-        return VoltageReferenceSnap(v_refs__V=v)
+        return VrefSnap(v_refs__V=v)

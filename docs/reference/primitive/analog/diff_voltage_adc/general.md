@@ -1,18 +1,18 @@
 # General voltage ADC
 
-The simplest member of the [voltage ADC family](family.md): a single-mode digitizer whose resolution is fixed by a calibrated list of comparator thresholds, obeying the family raw-code and floor-quantization contract.
+The simplest member of the [differential voltage ADC family](family.md): a single-mode digitizer whose resolution is fixed by a calibrated list of comparator thresholds, obeying the family raw-code and floor-quantization contract.
 
 ## Physical model
 
-The model floors the differential input against a sorted list of voltage thresholds; the bucket index is the raw code. A monotone input transform - identity or base-2 logarithm - is applied before bucketization. Two additive Gaussian stages perturb the signal: input-referred sampling noise before the transform and comparator noise after it. The bucketization uses no reference tap.
+The model floors the differential input against a sorted list of voltage thresholds; the bucket index is the raw code. Two additive Gaussian stages perturb the signal before bucketization. The bucketization uses no reference tap.
 
 ## Governing equations
 
-The conversion maps the raw differential input $x^{+} - x^{-}$ to a raw unsigned code. A monotone input transform $g$ - the identity (linear) or the base-2 logarithm (logarithmic companding) - is applied to the noisy input before the bucketize; being monotone it preserves the boundary ordering. With input-referred sampling noise $n_s$ added before the transform and comparator noise $n_{c}$ after it,
+The conversion maps the raw differential input $x^{+} - x^{-}$ directly to a raw unsigned code. With input-referred sampling noise $n_s$ and comparator noise $n_c$,
 
-$$\mathrm{code} = \operatorname{clamp}\!\Big(\operatorname{bucketize}\big(g(x^{+}-x^{-}+n_s)+n_{c},\ \{B_c\}\big),\ 0,\ n_{\mathrm{codes}}-1\Big),$$
+$$\mathrm{code} = \operatorname{clamp}\!\Big(\operatorname{bucketize}\big(x^{+}-x^{-}+n_s+n_{c},\ \{B_c\}\big),\ 0,\ n_{\mathrm{codes}}-1\Big),$$
 
-where $\operatorname{bucketize}$ floors the transformed signal against the fixed thresholds $\{B_c\}$ and $n_{\mathrm{codes}}$ is the number of code buckets implied by the threshold list. In the linear case the signal and thresholds are in volts; in the logarithmic case $g$ floors its argument at $\epsilon = 10^{-12}$ V before the base-2 logarithm. The raw code lies in $[0,\ n_{\mathrm{codes}}-1]$ and its signed magnitude is obtained by subtracting the topology zero code $z$. The underlying floor against ordered boundaries is the [family quantization law](family.md#governing-laws).
+where $\operatorname{bucketize}$ floors the signal against the fixed thresholds $\{B_c\}$ and $n_{\mathrm{codes}}$ is the number of code buckets implied by the threshold list. The raw code lies in $[0,\ n_{\mathrm{codes}}-1]$ and its signed magnitude is obtained by subtracting the topology zero code $z$. The underlying floor against ordered boundaries is the [family quantization law](family.md#governing-laws).
 
 The topology has one boundary-implied resolution $b$.
 
@@ -37,7 +37,6 @@ TODO (domain author): physical derivation and citation for each noise sigma.
 | Parameter | Meaning | Unit | Constraint | Source |
 |---|---|---|---|---|
 | `boundaries` ($B_c$) | sorted comparator thresholds, in the instance input unit | uA or V | strictly increasing | Calibrated (physical data) |
-| `input_transform` ($g$) | input companding law | — | linear or log2 | Design |
 | `sampling_noise__V` | input-referred sampling-noise sigma | V | $\geq 0$ | Measured |
 | `comparator_noise__V` | comparator-noise sigma on the post-transform signal | V | $\geq 0$ | Measured |
 | `energy_per_op__fJ` | dynamic energy per conversion | fJ | $\geq 0$ | Design |
@@ -51,7 +50,6 @@ Provenance terms are defined in [module_parameter](../../../../conventions/modul
 | Symbol | Meaning | Unit | Code field |
 |---|---|---|---|
 | $x^{+}, x^{-}$ | differential input legs (per-instance input unit) | V or uA | `v_pos__V`, `v_neg__V` |
-| $g$ | monotone input transform (identity or $\log_2$) | — | `input_transform` |
 | $B_c$ | comparator threshold at index $c$ (per-instance input unit) | V or uA | `boundaries` |
 | $n_{\mathrm{codes}}$ | number of code buckets | — | derived from `boundaries` |
 | $z$ | topology zero code | — | `zero_code` / `zero_offset(bits)` |
@@ -77,6 +75,6 @@ TODO.
 
 ---
 
-- **Internals**: [general internals](../../../../internals/primitive/analog/voltage_adc/general.md)
+- **Internals**: [general internals](../../../../internals/primitive/analog/diff_voltage_adc/general.md)
 - **Validation**: TODO - validation evidence not yet written
-- **Configuration**: `GeneralDifferentialVoltageAdcConfig`, `GeneralDifferentialVoltageAdcPolicy` (see `api`)
+- **Configuration**: `GeneralDiffVadcConfig`, `GeneralDiffVadcPolicy` (see `api`)

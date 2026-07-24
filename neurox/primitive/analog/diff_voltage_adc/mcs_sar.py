@@ -1,7 +1,7 @@
 """V_cm-based (Merged Capacitor Switching, MCS) differential SAR voltage ADC.
 
 See also:
-    docs/reference/primitive/analog/voltage_adc/mcs_sar.md
+    docs/reference/primitive/analog/diff_voltage_adc/mcs_sar.md
 """
 
 import math
@@ -16,11 +16,11 @@ from neurox.primitive.nonideality import (
 )
 from neurox.primitive.physical_constant import K_BOLTZMANN__J_per_K
 
-from .base import DifferentialVoltageAdc, DifferentialVoltageAdcConfig, DifferentialVoltageAdcPolicy
+from .base import DiffVadc, DiffVadcConfig, DiffVadcPolicy
 
 
-class McsSarDifferentialVoltageAdcConfig(DifferentialVoltageAdcConfig):
-    """Immutable design-parameter config for :class:`McsSarDifferentialVoltageAdc`.
+class McsSarDiffVadcConfig(DiffVadcConfig):
+    """Immutable design-parameter config for :class:`McsSarDiffVadc`.
 
     Attributes:
         max_bits: Physical bit width; active array carries
@@ -72,8 +72,8 @@ class McsSarDifferentialVoltageAdcConfig(DifferentialVoltageAdcConfig):
         self._require_non_neg(self.e_constant_per_bit__fJ, "e_constant_per_bit__fJ")
 
 
-class McsSarDifferentialVoltageAdcPolicy(DifferentialVoltageAdcPolicy):
-    """Per-source toggles selecting which McsSarDifferentialVoltageAdc nonidealities are active.
+class McsSarDiffVadcPolicy(DiffVadcPolicy):
+    """Per-source toggles selecting which McsSarDiffVadc nonidealities are active.
 
     Attributes:
         cap_mismatch: Apply ``cap_mismatch_sigma_relative`` at fabricate time.
@@ -88,13 +88,11 @@ class McsSarDifferentialVoltageAdcPolicy(DifferentialVoltageAdcPolicy):
     sampling_thermal_noise: bool
 
 
-@DifferentialVoltageAdc.register_neurox_module(
-    config_type=McsSarDifferentialVoltageAdcConfig,
-    policy_type=McsSarDifferentialVoltageAdcPolicy,
+@DiffVadc.register_neurox_module(
+    config_type=McsSarDiffVadcConfig,
+    policy_type=McsSarDiffVadcPolicy,
 )
-class McsSarDifferentialVoltageAdc(
-    DifferentialVoltageAdc[McsSarDifferentialVoltageAdcConfig, McsSarDifferentialVoltageAdcPolicy]
-):
+class McsSarDiffVadc(DiffVadc[McsSarDiffVadcConfig, McsSarDiffVadcPolicy]):
     """V_cm-based (MCS) differential SAR voltage ADC.
 
     Args:
@@ -117,8 +115,8 @@ class McsSarDifferentialVoltageAdc(
     def __init__(
         self,
         *,
-        config: McsSarDifferentialVoltageAdcConfig,
-        policy: McsSarDifferentialVoltageAdcPolicy,
+        config: McsSarDiffVadcConfig,
+        policy: McsSarDiffVadcPolicy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -131,7 +129,7 @@ class McsSarDifferentialVoltageAdc(
             T__K=T__K,
         )
         if not (T__K > 0.0):
-            raise ValueError(f"McsSarDifferentialVoltageAdc T__K ({T__K}) must be > 0")
+            raise ValueError(f"McsSarDiffVadc T__K ({T__K}) must be > 0")
 
         self._area_per_inst__um2 = config.area_per_inst__um2
         self._leakage_per_inst__uW = config.leakage_per_inst__uW

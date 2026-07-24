@@ -1,6 +1,6 @@
 # Triple-margin current SAR ADC
 
-A triple-margin current-mode successive-approximation ADC, a member of the [current ADC family](family.md). A single current-mode sense amplifier (SA) is time-multiplexed over $b$ sequential comparisons — a binary search across $2^{b}-1$ nominal mid-point reference levels — producing a $b$-bit unsigned magnitude code from a single-ended magnitude current $I_{\mathrm{in}}$.
+A triple-margin current-mode successive-approximation ADC, a member of the [single-ended current ADC family](family.md). A single current-mode sense amplifier (SA) is time-multiplexed over $b$ sequential comparisons — a binary search across $2^{b}-1$ nominal mid-point reference levels — producing a $b$-bit unsigned magnitude code from a single-ended magnitude current $I_{\mathrm{in}}$.
 
 ## Physical model
 
@@ -36,7 +36,7 @@ with $V_{\mathrm{rail}} = $ `v_rail__V` and $t_{\mathrm{cond},s} = $ `t_conduct_
 | coupling mismatch | residual coupling-driven offset | static Gaussian current-domain margin, added after the pre-gain (effective $\sigma / A$), at fabricate | `coupling_mismatch_sigma__uA` |
 | quantization | intrinsic binary-search resolution | deterministic threshold compare | `i_refs__uA` (per call) |
 
-Both static offsets are sampled once at fabricate and held constant across the $b$ binary-search steps; each is zero when its policy toggle is off. The mirror-ratio mismatch (`mirror_mismatch_sigma_relative`) and reference-level tracking (`replica_threshold_variation`) are wired in the policy but not yet modelled.
+Both static offsets are sampled once at fabricate and held constant across the $b$ binary-search steps; each is zero when its policy toggle is off.
 
 ## Parameters
 
@@ -50,7 +50,6 @@ Both static offsets are sampled once at fabricate and held constant across the $
 | `step_latency__ns` | per-step decision latency; the first $b$ entries are summed per call | ns | length $\geq b_{\max}$, $\geq 0$ | Design |
 | `comparator_offset_sigma__uA` | static input-referred SA offset sigma | uA | $\geq 0$ | Measured |
 | `coupling_mismatch_sigma__uA` | residual coupling-driven offset sigma | uA | $\geq 0$ | Measured |
-| `mirror_mismatch_sigma_relative` | relative sigma on the mirror ratios | — | $\geq 0$ | Measured |
 | leakage / area | static PPA / spec fields | uW, um^2 | $\geq 0$ | Design |
 
 Provenance terms are defined in [module_parameter](../../../../conventions/module_parameter.md).
@@ -89,4 +88,4 @@ TODO: cite the triple-margin current-mode sense-amplifier SAR topology.
 
 - **Internals**: [sar internals](../../../../internals/primitive/analog/current_adc/sar.md)
 - **Validation**: TODO - validation evidence not yet written
-- **Configuration**: `SarSingleEndedCurrentAdcConfig`, `SarSingleEndedCurrentAdcPolicy` (see `api`)
+- **Configuration**: `SarIadcConfig`, `SarIadcPolicy` (see `api`)

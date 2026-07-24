@@ -5,7 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+import pytest
+
 from neurox.common.mixin import SerializeMixin
+from neurox.common.serialize import dict_from_file
 
 
 @dataclass(frozen=True)
@@ -24,6 +27,16 @@ class _Shape(SerializeMixin):
 @dataclass(frozen=True)
 class _Circle(_Shape):
     radius: float
+
+
+@dataclass(frozen=True)
+class _PathBox(SerializeMixin):
+    path: Path
+
+
+@dataclass(frozen=True)
+class _UnsupportedValue(SerializeMixin):
+    value: complex
 
 
 # --- dict round-trip ---
@@ -67,3 +80,31 @@ def test_from_dict_discriminator_yields_subclass_instance() -> None:
     shape = _Shape.from_dict(data)
     assert isinstance(shape, _Circle)
     assert shape == _Circle(name="c1", radius=2.5)
+
+
+def test_path_round_trip_uses_string_value(tmp_path: Path) -> None:
+    expected = _PathBox(path=Path("models/config.toml"))
+    assert expected.to_dict() == {"path": "models/config.toml"}
+
+    file = tmp_path / "path.toml"
+    expected.to_file(file)
+    assert _PathBox.from_file(file) == expected
+
+
+def test_to_dict_rejects_unsupported_leaf_value() -> None:
+    with pytest.raises(TypeError, match="unsupported configuration value complex"):
+        _UnsupportedValue(value=1 + 2j).to_dict()
+
+
+@pytest.mark.parametrize(
+    "body, message",
+    [
+        ("1: value\n", "configuration mapping key must be str"),
+        ("value: 2025-01-01\n", "unsupported configuration value date"),
+    ],
+)
+def test_yaml_loader_rejects_values_outside_config_contract(tmp_path: Path, body: str, message: str) -> None:
+    file = tmp_path / "invalid.yaml"
+    file.write_text(body)
+    with pytest.raises(TypeError, match=message):
+        dict_from_file(file)
