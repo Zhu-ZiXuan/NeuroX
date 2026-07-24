@@ -1,6 +1,6 @@
 """Energy-basis, total-only, non-circular validation for the xue2020jssc CIM sub-array.
 
-Builds :class:`~neurox.works.macro.cim.xue2020jssc.macro.Xue2020JsscCimMacro` from
+Builds :class:`~neurox.works.macro.cim.xue2020jssc.Xue2020JsscCimMacro` from
 ``params.toml`` + ``policy.toml``, drives it DIRECTLY (rows ``0..active_row_num-1``
 live, the rest zeroed) over ``N`` random draws per the ``anchors.toml`` data
 conventions, and reduces the profiler to the ENERGY PER ACCESS (spec S8). The one
@@ -68,7 +68,7 @@ import neurox.works  # noqa: F401  registers every scheme class, incl. xue2020js
 from neurox.common.encoding import TrueFormTranscoder
 from neurox.common.profiler import NeuroxProfiler, ProfilerReport
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
-from neurox.works.macro.cim.xue2020jssc.macro import Xue2020JsscCimMacro
+from neurox.works.macro.cim.xue2020jssc import Xue2020JsscCimMacro
 
 _HERE = Path(__file__).resolve()
 _VAL_DIR = _HERE.parent

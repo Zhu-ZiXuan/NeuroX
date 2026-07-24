@@ -27,7 +27,7 @@ import torch._dynamo
 import neurox.works  # noqa: F401  registers every scheme class, incl. xue2020jssc
 from neurox.common.serialize import dict_from_file
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
-from neurox.works.macro.cim.xue2020jssc.macro import (
+from neurox.works.macro.cim.xue2020jssc import (
     Xue2020JsscCimMacro,
     Xue2020JsscCimMacroConfig,
     Xue2020JsscCimMacroPolicy,

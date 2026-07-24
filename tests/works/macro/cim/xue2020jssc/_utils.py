@@ -60,7 +60,7 @@ from neurox.primitive.macro.cim import CimMacro
 from neurox.primitive.xbar.array import XbarArray1t1rConfig, XbarArray1t1rPolicy
 from neurox.primitive.xbar.cell import XbarCell1t1rLinearConfig, XbarCell1t1rLinearPolicy
 from neurox.primitive.xbar.solver import NestedParallelRailSolverConfig
-from neurox.works.macro.cim.xue2020jssc.macro import (
+from neurox.works.macro.cim.xue2020jssc import (
     Xue2020JsscCimMacro,
     Xue2020JsscCimMacroConfig,
     Xue2020JsscCimMacroPolicy,

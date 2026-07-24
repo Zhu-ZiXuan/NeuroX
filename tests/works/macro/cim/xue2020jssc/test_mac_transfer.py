@@ -34,7 +34,7 @@ import torch
 import torch._dynamo
 from torch import Tensor
 
-from neurox.works.macro.cim.xue2020jssc.macro import Xue2020JsscCimMacro
+from neurox.works.macro.cim.xue2020jssc import Xue2020JsscCimMacro
 from tests.works.macro.cim.xue2020jssc._utils import (
     MAG_MAX,
     TINY_ADC_BITS,

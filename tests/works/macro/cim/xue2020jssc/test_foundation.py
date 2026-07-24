@@ -41,7 +41,7 @@ import torch
 import torch._dynamo
 
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig
-from neurox.works.macro.cim.xue2020jssc.macro import Xue2020JsscCimMacro, Xue2020JsscCimMacroConfig
+from neurox.works.macro.cim.xue2020jssc import Xue2020JsscCimMacro, Xue2020JsscCimMacroConfig
 from tests.works.macro.cim.xue2020jssc._utils import (
     TINY_ADC_BITS,
     build_all_off_policy,

@@ -42,7 +42,7 @@ import neurox.works  # noqa: F401
 from neurox.common.encoding import TrueFormTranscoder
 from neurox.primitive.analog.current_adc.base import SingleEndedCurrentAdcProber
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
-from neurox.works.macro.cim.xue2020jssc.macro import Xue2020JsscCimMacro
+from neurox.works.macro.cim.xue2020jssc import Xue2020JsscCimMacro
 
 _HERE = Path(__file__).resolve()
 _VAL_DIR = _HERE.parents[1]
