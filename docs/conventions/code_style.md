@@ -41,6 +41,23 @@ A docstring or comment carries raw whitelisted unicode, no LaTeX, and no hosted 
 - Use inline comments for local implementation help: non-obvious math, numerical intent, shape, and step markers.
 - Design rationale, lifecycle, ownership, and cross-file contracts belong in Internals.
 
+## Class state declarations
+
+- Do not repeat an attribute at class scope when a direct ``self.attr = ...`` assignment in the same class lets mypy infer it. This applies equally to assignments in ``__init__``, construction helpers, ``fabricate()``, and ``program(...)``.
+- Keep class-scope declarations only for attributes created indirectly (notably ``register_buffer``), real class variables or defaults, and contracts consumed by a base class but supplied by subclasses. Dataclass, config, policy, snap, and Protocol fields remain explicit because their declarations define those data structures.
+- Register each buffer with an explicit literal name. Do not hide buffer creation behind a loop or ``setattr``.
+- Group retained declarations by responsibility, such as immutable model buffers, fabrication source buffers, or subclass contracts.
+- Separate non-empty groups with a standalone `# --- Description ---` comment and one blank line on each side. A lifecycle-significant group may keep its marker when it currently contains only one declaration.
+- A group name describes ownership or lifecycle, not a procedural step; it therefore carries no step number.
+
+## Construction
+
+- Keep `__init__` focused on validation, binding compact scalar metadata, and ordering construction phases.
+- Move a substantial child-object construction block to a narrowly named `_init_*_children(...)` helper.
+- Move a substantial nominal-source registration block to `_register_fabrication_buffers(...)`. Fixed functional LUTs and other short model-buffer registrations may remain inline.
+- Do not create fabricated or programmed placeholder buffers. `fabricate()` and `program(...)` create ordinary tensor attributes after module device migration.
+- Do not split short constructors mechanically; a helper must expose a real construction phase rather than merely move a few assignments.
+
 ## Shape annotations
 
 - Shape annotations are local implementation aids; the owning Reference or Internals document or the public docstring states the public shape contract.

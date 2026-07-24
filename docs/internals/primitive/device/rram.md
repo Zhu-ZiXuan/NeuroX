@@ -1,6 +1,6 @@
 # RRAM
 
-`Rram` is a stateful conductance-cell module owning the programmed conductance buffer, the programming write, the per-call read snap, and the current and differential-conductance solve.
+`Rram` is a stateful conductance-cell module owning programmed conductance state, the programming write, the per-call read snap, and the current and differential-conductance solve.
 
 ## Design decisions
 
@@ -10,14 +10,14 @@
 
 ## Contracts & invariants
 
-- **`program(...)` mutates state by buffer reassignment.** The stored conductance is replaced (`self.g__uS = ...`), not edited in place, so the buffer can grow from its scalar-zero initial shape to the programmed shape. A view obtained before `program(...)` does not represent the replacement buffer.
+- **`program(...)` creates ordinary tensor state.** Construction allocates no conductance placeholder. The target already carries the intended device and dtype; programming applies the configured effects and assigns `self.g__uS`. A later `to(device)` does not migrate this state, so move first and program afterward.
 - **`snapshot(shape, multi_coords)` is the only read path into fabricated state.** It expands `g__uS` to the per-call broadcast `shape`, optionally advanced-indexes a chunk via `multi_coords`, applies the read-time noise stack, and re-clamps. `multi_coords=None` returns the full broadcast view. The returned snapshot contains the read state; it does not register or duplicate device buffers.
 - **`solve_dc(v, snap)` is stateless in the device.** It reads conductance only from the passed `RramSnap`, never from `self.g__uS`, so a chunk's snap and its solve stay paired.
 - **No static fabricate mismatch.** `Rram` joins the fabricate cascade but declares an explicit no-op `_sample_fabricate_mismatch` — RRAM variation enters through `program(...)` (state-dependent Gamma, stuck-at), not through `fabricate()`.
 
 ## Performance & resources
 
-The state is one conductance buffer at the programmed broadcast shape. The read snap allocates noise draws at the per-call `shape` (or the indexed chunk); the chunked-solve `multi_coords` path sizes that allocation per chunk rather than over the full leading batch.
+The state is one ordinary conductance tensor at the programmed broadcast shape. The read snap allocates noise draws at the per-call `shape` (or the indexed chunk); the chunked-solve `multi_coords` path sizes that allocation per chunk rather than over the full leading batch.
 
 ## Gotchas
 

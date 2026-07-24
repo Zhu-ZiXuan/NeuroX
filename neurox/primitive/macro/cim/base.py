@@ -94,9 +94,6 @@ class CimMacro(
         T__K: Operating temperature.
     """
 
-    T__K: float
-    dtype: torch.dtype
-
     def __init__(
         self,
         *,

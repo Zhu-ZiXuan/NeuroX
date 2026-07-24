@@ -45,8 +45,9 @@ class Selector(ModuleBase[SelectorConfig, SelectorPolicy]):
 
     is_profile_target: ClassVar[bool] = False
 
+    # --- Fabrication source buffers ---
+
     nominal_vth__V: Tensor
-    vth__V: Tensor
 
     def __init__(
         self,
@@ -58,16 +59,13 @@ class Selector(ModuleBase[SelectorConfig, SelectorPolicy]):
         T__K: float,
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
-        self.T__K = T__K
-        self.dtype = dtype
+        self._register_fabrication_buffers(dtype=dtype)
+
+    def _register_fabrication_buffers(self, *, dtype: torch.dtype) -> None:
+        """Register immutable tensors used as fabrication sources."""
         self.register_buffer(
             "nominal_vth__V",
-            torch.tensor(config.vth_nominal__V, dtype=dtype),
-            persistent=False,
-        )
-        self.register_buffer(
-            "vth__V",
-            self.nominal_vth__V.clone(),
+            torch.tensor(self.config.vth_nominal__V, dtype=dtype),
             persistent=False,
         )
 
@@ -88,5 +86,4 @@ class Selector(ModuleBase[SelectorConfig, SelectorPolicy]):
         Returns:
             Threshold voltage tensor [V]. Shape: ``reference.shape``.
         """
-        vth = self.vth__V.to(device=reference.device, dtype=reference.dtype)
-        return torch.broadcast_to(vth, reference.shape)
+        return torch.broadcast_to(self.vth__V, reference.shape)

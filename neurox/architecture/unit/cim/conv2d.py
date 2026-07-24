@@ -54,12 +54,6 @@ class Conv2dCimUnitPolicy(EngineBackedCimUnitPolicy):
 class Conv2dCimUnit(Conv2dUnit, EngineBackedCimUnit[Conv2dCimUnitConfig, Conv2dCimUnitPolicy]):
     """CIM-backed convolution using a Toeplitz input-stationary mapping."""
 
-    _kw_eff: int
-    _w_g: int
-    _w_strip: int
-    _k_prime: int
-    _n_prime: int
-
     def __init__(
         self,
         *,
@@ -73,19 +67,13 @@ class Conv2dCimUnit(Conv2dUnit, EngineBackedCimUnit[Conv2dCimUnitConfig, Conv2dC
         if len(w_logical_shape) != 4:
             raise ValueError(f"w_logical_shape must be (C_out, C_in, kh, kw); got {w_logical_shape}")
         c_out, c_in, kh, kw = w_logical_shape
-        row_num = config.engine.cim_macro_config.row_num
-        col_num = config.engine.cim_macro_config.col_num
-        s_w = config.stride[1]
-        d_w = config.dilation[1]
-        # The engine constructor reads this derived Toeplitz geometry.
-        self._kw_eff = (kw - 1) * d_w + 1
-        # Choose the largest window group that fits both array dimensions.
-        g_k = 1 + (row_num // (c_in * kh) - self._kw_eff) // s_w
-        g_n = col_num // c_out
-        self._w_g = max(1, min(g_k, g_n))
-        self._w_strip = self._kw_eff + (self._w_g - 1) * s_w
-        self._k_prime = c_in * kh * self._w_strip
-        self._n_prime = self._w_g * c_out
+        self._init_toeplitz_geometry(
+            config=config,
+            c_out=c_out,
+            c_in=c_in,
+            kh=kh,
+            kw=kw,
+        )
         super().__init__(
             config=config,
             policy=policy,
@@ -112,6 +100,29 @@ class Conv2dCimUnit(Conv2dUnit, EngineBackedCimUnit[Conv2dCimUnitConfig, Conv2dC
                     f"require: x_value_range ({(x_lo, x_hi)}) covers 0 — zero-padding, strip "
                     "right-padding, and last-segment surplus windows inject x = 0 activations"
                 )
+
+    def _init_toeplitz_geometry(
+        self,
+        *,
+        config: Conv2dCimUnitConfig,
+        c_out: int,
+        c_in: int,
+        kh: int,
+        kw: int,
+    ) -> None:
+        """Derive the matrix geometry passed to the execution engine."""
+        row_num = config.engine.cim_macro_config.row_num
+        col_num = config.engine.cim_macro_config.col_num
+        s_w = config.stride[1]
+        d_w = config.dilation[1]
+        self._kw_eff = (kw - 1) * d_w + 1
+        # Choose the largest window group that fits both array dimensions.
+        g_k = 1 + (row_num // (c_in * kh) - self._kw_eff) // s_w
+        g_n = col_num // c_out
+        self._w_g = max(1, min(g_k, g_n))
+        self._w_strip = self._kw_eff + (self._w_g - 1) * s_w
+        self._k_prime = c_in * kh * self._w_strip
+        self._n_prime = self._w_g * c_out
 
     def _engine_w_logical_shape(self) -> tuple[int, ...]:
         """Toeplitz matrix shape ``(N', K')`` handed to the engine."""

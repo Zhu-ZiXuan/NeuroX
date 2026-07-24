@@ -61,8 +61,6 @@ class CurrentMux(AnalogBase[CurrentMuxConfig, CurrentMuxPolicy]):
         T__K: float,
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
-        self.dtype = dtype
-        self.T__K = T__K
 
     def _sample_fabricate_mismatch(self) -> None:
         pass

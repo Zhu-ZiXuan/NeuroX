@@ -149,8 +149,8 @@ def test_linear_matches_int64_cpu_oracle_on_device(
     unit = _build_unit(_unit_config(), w_logical_shape=(n, k))
     weight = _random_weight(unit, (n, k))
     x = _random_binary((*batch, k))
-    unit.program(weight)
     unit.to(device)
+    unit.program(weight.to(device))
     actual = unit.linear(x.to(device), adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
     assert actual.device.type == device.type
     expected = _cpu_int64_linear_oracle(x, weight)

@@ -41,14 +41,20 @@ def _build_unit(
     return unit
 
 
-def _random_program_and_input(unit: IdealLinearUnit, *, batch: int, seed: int) -> tuple[torch.Tensor, torch.Tensor]:
+def _random_program_and_input(
+    unit: IdealLinearUnit,
+    *,
+    batch: int,
+    seed: int,
+    device: torch.device,
+) -> tuple[torch.Tensor, torch.Tensor]:
     generator = torch.Generator().manual_seed(seed)
     w_lo, w_hi = unit.w_value_range
     weight = torch.randint(w_lo, w_hi + 1, unit._w_logical_shape, dtype=torch.int32, generator=generator)
     x_lo, x_hi = unit.x_value_range
     k = unit._w_logical_shape[-1]
     x = torch.randint(x_lo, x_hi + 1, (batch, k), dtype=torch.int32, generator=generator)
-    unit.program(weight)
+    unit.program(weight.to(device))
     return weight, x
 
 
@@ -70,7 +76,7 @@ class TestFastPathBitExactness:
     ) -> None:
         unit = _build_unit(x_value_range=x_value_range, w_value_range=w_value_range, w_logical_shape=w_logical_shape)
         assert unit._fp32_exact is True
-        weight, x = _random_program_and_input(unit, batch=7, seed=11)
+        weight, x = _random_program_and_input(unit, batch=7, seed=11, device=torch.device("cpu"))
         y = unit.linear(x, adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
         oracle = x.to(torch.int64) @ weight.to(torch.int64).transpose(-2, -1)
         assert y.dtype == torch.int64
@@ -85,16 +91,16 @@ class TestFastPathBitExactness:
         w_logical_shape: tuple[int, ...],
     ) -> None:
         unit = _build_unit(x_value_range=x_value_range, w_value_range=w_value_range, w_logical_shape=w_logical_shape)
-        weight, x = _random_program_and_input(unit, batch=7, seed=13)
-        oracle = x.to(torch.int64) @ weight.to(torch.int64).transpose(-2, -1)
         unit.to(device)
+        weight, x = _random_program_and_input(unit, batch=7, seed=13, device=device)
+        oracle = x.to(torch.int64) @ weight.to(torch.int64).transpose(-2, -1)
         y = unit.linear(x.to(device), adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
         assert y.device.type == device.type
         assert torch.equal(y.cpu(), oracle)
 
     def test_leading_batch_dims_broadcast(self) -> None:
         unit = _build_unit(x_value_range=(0, 1), w_value_range=(-3, 3), w_logical_shape=(4, 32))
-        weight, _ = _random_program_and_input(unit, batch=1, seed=17)
+        weight, _ = _random_program_and_input(unit, batch=1, seed=17, device=torch.device("cpu"))
         generator = torch.Generator().manual_seed(19)
         x = torch.randint(0, 2, (2, 3, 5, 32), dtype=torch.int32, generator=generator)
         y = unit.linear(x, adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)

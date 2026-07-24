@@ -132,8 +132,10 @@ class SarSingleEndedCurrentAdc(SingleEndedCurrentAdc[SarSingleEndedCurrentAdcCon
         record_latency: Whether conversions emit latency events.
     """
 
-    comparator_offset__uA: Tensor
-    coupling_offset__uA: Tensor
+    # --- Fabrication source buffers ---
+
+    nominal_comparator_offset__uA: Tensor
+    nominal_coupling_offset__uA: Tensor
 
     def __init__(
         self,
@@ -155,11 +157,12 @@ class SarSingleEndedCurrentAdc(SingleEndedCurrentAdc[SarSingleEndedCurrentAdcCon
         )
         self._area_per_inst__um2 = config.area_per_inst__um2
         self._leakage_per_inst__uW = config.leakage_per_inst__uW
-        self.dtype = dtype
-        self.T__K = T__K
+        self._register_fabrication_buffers(dtype=dtype)
 
-        self.register_buffer("comparator_offset__uA", torch.zeros(inst_shape, dtype=dtype), persistent=False)
-        self.register_buffer("coupling_offset__uA", torch.zeros(inst_shape, dtype=dtype), persistent=False)
+    def _register_fabrication_buffers(self, *, dtype: torch.dtype) -> None:
+        """Register immutable tensors used as fabrication sources."""
+        self.register_buffer("nominal_comparator_offset__uA", torch.zeros((), dtype=dtype), persistent=False)
+        self.register_buffer("nominal_coupling_offset__uA", torch.zeros((), dtype=dtype), persistent=False)
 
     @property
     def max_bits(self) -> int:
@@ -174,12 +177,12 @@ class SarSingleEndedCurrentAdc(SingleEndedCurrentAdc[SarSingleEndedCurrentAdcCon
 
     def _sample_fabricate_mismatch(self) -> None:
         self.comparator_offset__uA = apply_gaussian(
-            torch.zeros_like(self.comparator_offset__uA),
+            self.nominal_comparator_offset__uA.clone().expand(self.inst_shape),
             self.config.comparator_offset_sigma__uA,
             enabled=self.policy.comparator_offset,
         )
         self.coupling_offset__uA = apply_gaussian(
-            torch.zeros_like(self.coupling_offset__uA),
+            self.nominal_coupling_offset__uA.clone().expand(self.inst_shape),
             self.config.coupling_mismatch_sigma__uA,
             enabled=self.policy.coupling_mismatch,
         )

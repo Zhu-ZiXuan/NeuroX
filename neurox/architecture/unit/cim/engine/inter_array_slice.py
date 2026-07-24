@@ -90,8 +90,12 @@ class InterArraySliceCimEngine(CimEngine[InterArraySliceCimEngineConfig, InterAr
             w_parallel_size=max(math.prod(w_batch), 1),
             row_tile_num=tr,
         )
-        xbar = self.xbar
+        self._init_data_path_children(sw=sw, tc=tc, tr=tr)
 
+    def _init_data_path_children(self, *, sw: int, tc: int, tr: int) -> None:
+        """Construct the slicers and digital reducers."""
+        config = self.config
+        xbar = self.xbar
         x_lo, x_hi = xbar.x_range
         self.w_slicer = SimpleSlicer(
             slice_num=config.w_slice_num,

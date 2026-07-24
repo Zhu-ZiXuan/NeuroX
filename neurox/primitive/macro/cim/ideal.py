@@ -60,8 +60,8 @@ class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
         T__K: Operating temperature.
     """
 
-    nominal_digits: Tensor
-    digits: Tensor
+    # --- Immutable model buffers ---
+
     digit_weights: Tensor
 
     def __init__(
@@ -87,16 +87,6 @@ class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
         if config.w_digit_radix <= 1:
             raise ValueError(f"require: w_digit_radix ({config.w_digit_radix}) > 1")
 
-        self.register_buffer(
-            "nominal_digits",
-            torch.zeros((), dtype=torch.int32),
-            persistent=False,
-        )
-        self.register_buffer(
-            "digits",
-            self.nominal_digits.clone(),
-            persistent=False,
-        )
         digit_weights = torch.tensor(
             [config.w_digit_radix**k for k in range(config.w_digit_count)],
             dtype=torch.int32,
@@ -109,13 +99,13 @@ class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
         x_lo, x_hi = config.x_range
         max_x_abs = max(abs(x_lo), abs(x_hi))
         # One conversion covers at most ``max_active_rows`` nonzero rows.
-        self._max_plane_dot_abs: int = config.active_row_num * max_w_logical_abs * max_x_abs
+        self._max_plane_dot_abs = config.active_row_num * max_w_logical_abs * max_x_abs
         # Integers below 2^24 are exactly representable by IEEE fp32.
-        self._fp32_exact: bool = self._max_plane_dot_abs < 2**24
+        self._fp32_exact = self._max_plane_dot_abs < 2**24
 
         # A zero bit width selects lossless output; one bit has no signed range.
-        self._rescale_by_bits: dict[int, float] = {0: 1.0}
-        self._scale_by_bits: dict[int, float] = {}
+        self._rescale_by_bits = {0: 1.0}
+        self._scale_by_bits = {}
         for bits in range(2, config.adc_max_bits + 1):
             half_range = (1 << (bits - 1)) - 1
             rescale = self._max_plane_dot_abs / half_range
@@ -159,7 +149,7 @@ class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
             raise ValueError(f"program() expects w.shape {self._w_layout_shape}; got {tuple(w.shape)}")
         if w.is_floating_point() or w.is_complex():
             raise TypeError(f"program() expects an integer digit tensor; got dtype {w.dtype}")
-        self.digits = w.detach().clone().to(self.digit_weights.device)
+        self.digits = w.detach().clone()
 
     def vec_mat_mul(self, x: Tensor, *, adc_mode: int, adc_bits: int) -> Tensor:
         """Ideal per-plane VMM with adc_bits-driven output quantization.

@@ -91,9 +91,6 @@ class IdealLinearUnit(LinearUnit, CimUnit[IdealLinearUnitConfig, IdealLinearUnit
         ideal_xbar: Accepted without changing this already ideal unit.
     """
 
-    nominal_weight: Tensor
-    weight: Tensor
-
     def __init__(
         self,
         *,
@@ -123,12 +120,7 @@ class IdealLinearUnit(LinearUnit, CimUnit[IdealLinearUnitConfig, IdealLinearUnit
         x_lo, x_hi = config.x_value_range
         w_lo, w_hi = config.w_value_range
         max_dot_abs = self._w_logical_shape[-1] * max(abs(x_lo), abs(x_hi)) * max(abs(w_lo), abs(w_hi))
-        self._fp32_exact: bool = max_dot_abs < 2**24
-
-        # A scalar zero provides a valid pre-programming weight.
-        self.register_buffer("nominal_weight", torch.zeros((), dtype=torch.int32), persistent=False)
-        self.register_buffer("weight", self.nominal_weight.clone(), persistent=False)
-        self._init_int_bias_slot()
+        self._fp32_exact = max_dot_abs < 2**24
 
     @property
     def w_value_range(self) -> tuple[int, int]:

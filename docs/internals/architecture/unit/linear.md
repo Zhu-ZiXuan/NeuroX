@@ -8,7 +8,7 @@
 - **The ideal leaf lives beside its operator ABC.** `IdealLinearUnit{,Config,Policy}` are defined in the same module, after a deferred `from neurox.architecture.unit.cim.base import ...` (module-tail import: loading `cim.base` executes the `cim` package `__init__`, whose leaves import `LinearUnit` from this module — the ordering breaks the cycle). Cross-module imports in the unit tree name concrete modules, never a package `__init__`.
 - **Registry membership without a tile.** `IdealLinearUnit` registers via `@CimUnit.register_key(IdealLinearUnitConfig)`, so `CimUnitConfig.from_file` + `CimUnit.from_config` dispatch to it exactly like any engine-backed member; it owns no engine and no `xbar`, carries an empty policy marker, and `dtype` / `T__K` / `ideal_xbar` are accepted for uniformity and ignored.
 - **Sentinel ADC surface.** `adc_mode_num == 1`, `adc_max_bits == 0`, `adc_rescale_factor == 1.0`. The `0` bit count is the "no output quantization" sentinel ([UnitBase](base.md)).
-- **0-d nominal weight buffer.** `weight` and `nominal_weight` register as 0-d `int32` buffers (`persistent=False`), giving `weight` a defined attribute placeholder before any `program` call while keeping it out of the state dict.
+- **Weight is program-produced state.** Construction allocates no nominal or placeholder weight. `program` stores the caller's tensor as an ordinary attribute, so execution requires programming and device migration must precede it.
 
 ## Contracts & invariants
 

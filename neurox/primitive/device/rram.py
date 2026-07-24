@@ -125,8 +125,6 @@ class Rram(ModuleBase[RramConfig, RramPolicy]):
 
     is_profile_target: ClassVar[bool] = False
 
-    g__uS: Tensor
-
     def __init__(
         self,
         *,
@@ -142,12 +140,8 @@ class Rram(ModuleBase[RramConfig, RramPolicy]):
         if not (g_max__uS > config.g_min__uS):
             raise ValueError(f"require: g_max__uS ({g_max__uS}) > config.g_min__uS ({config.g_min__uS})")
 
-        self.dtype = dtype
-        self.T__K = T__K
         self.g_min__uS = config.g_min__uS
         self.g_max__uS = g_max__uS
-
-        self.register_buffer("g__uS", torch.zeros((), dtype=dtype), persistent=False)
 
     def _sample_fabricate_mismatch(self) -> None:
         pass
@@ -156,10 +150,11 @@ class Rram(ModuleBase[RramConfig, RramPolicy]):
         """Program the stored conductance.
 
         Args:
-            target_g__uS: Target conductance tensor.
+            target_g__uS: Target conductance tensor. Its device and dtype are
+                preserved in the programmed state.
             t_elapsed: Time elapsed since programming [s].
         """
-        g__uS = target_g__uS.to(dtype=self.dtype).clamp(self.g_min__uS, self.g_max__uS)
+        g__uS = target_g__uS.clamp(self.g_min__uS, self.g_max__uS)
         g__uS = apply_state_dependent_gamma(g__uS, self.config.prog_gamma, enabled=self.policy.prog_gamma)
         if self.config.drift_decay_rate > 0.0 and t_elapsed > self.config.drift_t0:
             drift_factor = (t_elapsed / self.config.drift_t0) ** (-self.config.drift_decay_rate)

@@ -74,6 +74,8 @@ class GeneralCurrentDac(CurrentDac[GeneralCurrentDacConfig, GeneralCurrentDacPol
         T__K: Operating temperature.
     """
 
+    # --- Immutable model buffers ---
+
     code_to_signal: Tensor
 
     def __init__(
@@ -95,8 +97,6 @@ class GeneralCurrentDac(CurrentDac[GeneralCurrentDacConfig, GeneralCurrentDacPol
 
         self._area_per_inst__um2 = config.area_per_inst__um2
         self._leakage_per_inst__uW = config.leakage_per_inst__uW
-        self.T__K = T__K
-        self.dtype = dtype
 
         self.register_buffer("code_to_signal", torch.tensor(config.code_to_signal, dtype=dtype), persistent=False)
 

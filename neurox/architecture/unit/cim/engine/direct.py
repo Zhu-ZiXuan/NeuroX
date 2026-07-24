@@ -71,8 +71,13 @@ class DirectCimEngine(CimEngine[DirectCimEngineConfig, DirectCimEnginePolicy]):
             w_parallel_size=max(math.prod(w_batch), 1),
             row_tile_num=tr,
         )
-        xbar = self.xbar
+        self._init_data_path_children(tc=tc, tr=tr)
+        self._derive_numeric_bounds(row_num=row_num)
 
+    def _init_data_path_children(self, *, tc: int, tr: int) -> None:
+        """Construct the data organizers and digital accumulators."""
+        config = self.config
+        xbar = self.xbar
         self.w_transcoder = Transcoder.create(
             encoding=config.w_encoding,
             radix=xbar.w_digit_radix,
@@ -81,8 +86,20 @@ class DirectCimEngine(CimEngine[DirectCimEngineConfig, DirectCimEnginePolicy]):
         self.x_slicer = DirectSlicer(value_range=xbar.x_range)
         self._w_value_range = self.w_transcoder.value_range
         self._x_value_range = self.x_slicer.value_range
+        self.phase_accumulator = SerialAccumulator(
+            config=config.phase_accumulator_config,
+            policy=DigitalPolicy(),
+            inst_shape=(self._w_parallel_size, tc, tr),
+        )
+        self.col_accumulator = Accumulator(
+            config=config.col_accumulator_config,
+            policy=DigitalPolicy(),
+            inst_shape=(self._w_parallel_size, tr),
+        )
 
-        # Keep the CUDA fp32 contraction exact for every possible tile.
+    def _derive_numeric_bounds(self, *, row_num: int) -> None:
+        """Derive and validate the exact fp32 tile-dot bound."""
+        xbar = self.xbar
         x_lo, x_hi = xbar.x_range
         d_lo, d_hi = xbar.w_digit_range
         max_digit_abs = max(abs(d_lo), abs(d_hi))
@@ -95,17 +112,6 @@ class DirectCimEngine(CimEngine[DirectCimEngineConfig, DirectCimEnginePolicy]):
                 "so per-tile dot products survive an fp32 matmul bit-exactly"
             )
         self._max_tile_dot_abs = max_tile_dot_abs
-
-        self.phase_accumulator = SerialAccumulator(
-            config=config.phase_accumulator_config,
-            policy=DigitalPolicy(),
-            inst_shape=(self._w_parallel_size, tc, tr),
-        )
-        self.col_accumulator = Accumulator(
-            config=config.col_accumulator_config,
-            policy=DigitalPolicy(),
-            inst_shape=(self._w_parallel_size, tr),
-        )
 
     def _organize_w(self, weight: Tensor) -> Tensor:
         """Map a logical weight tensor into xbar-native layout.

@@ -90,6 +90,7 @@ def _build(
     )
     adc.to(device)
     adc.eval()
+    adc.fabricate()
     return adc
 
 

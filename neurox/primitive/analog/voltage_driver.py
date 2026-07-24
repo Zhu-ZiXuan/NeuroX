@@ -99,8 +99,13 @@ class VoltageDriver(AnalogBase[VoltageDriverConfig, VoltageDriverPolicy]):
         T__K: Operating temperature.
     """
 
+    # --- Immutable model buffers ---
+
     frozen_r_out__MOhm: Tensor
-    offset__V: Tensor
+
+    # --- Fabrication source buffers ---
+
+    nominal_offset__V: Tensor
 
     def __init__(
         self,
@@ -116,25 +121,27 @@ class VoltageDriver(AnalogBase[VoltageDriverConfig, VoltageDriverPolicy]):
         self._area_per_inst__um2 = config.area_per_inst__um2
         self._leakage_per_inst__uW = config.leakage_per_inst__uW
 
-        self.dtype = dtype
-        self.T__K = T__K
-
         self.register_buffer(
             "frozen_r_out__MOhm",
             torch.tensor(config.r_out__MOhm, dtype=dtype),
             persistent=False,
         )
+        self._register_fabrication_buffers(dtype=dtype)
+
+    def _register_fabrication_buffers(self, *, dtype: torch.dtype) -> None:
+        """Register immutable tensors used as fabrication sources."""
         self.register_buffer(
-            "offset__V",
-            torch.zeros(inst_shape, dtype=dtype),
+            "nominal_offset__V",
+            torch.zeros((), dtype=dtype),
             persistent=False,
         )
 
     def _sample_fabricate_mismatch(self) -> None:
-        if self.policy.offset:
-            self.offset__V = torch.randn_like(self.offset__V) * self.config.offset_sigma__V
-        else:
-            self.offset__V = torch.zeros_like(self.offset__V)
+        self.offset__V = apply_gaussian(
+            self.nominal_offset__V.clone().expand(self.inst_shape),
+            self.config.offset_sigma__V,
+            enabled=self.policy.offset,
+        )
 
     def snapshot(
         self,

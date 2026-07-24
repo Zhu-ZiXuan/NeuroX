@@ -56,8 +56,6 @@ class UnmodeledBlock(AnalogBase[UnmodeledBlockConfig, UnmodeledBlockPolicy]):
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
         self._area_per_inst__um2 = config.area_per_inst__um2
         self._leakage_per_inst__uW = config.leakage_per_inst__uW
-        self.dtype = dtype
-        self.T__K = T__K
 
     def _sample_fabricate_mismatch(self) -> None:
         pass

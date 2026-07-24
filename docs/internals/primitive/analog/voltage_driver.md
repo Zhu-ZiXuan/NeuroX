@@ -8,7 +8,7 @@
 
 ## Contracts & invariants
 
-- **Construction commits `inst_shape`.** `__init__(*, config, policy, name, inst_shape, dtype, T__K)` is the canonical leaf signature. `frozen_r_out__MOhm` is a 0-d non-persistent buffer; the systematic per-instance `offset__V` is a second non-persistent buffer at `inst_shape`, sampled at `fabricate`. There is no nominal-`v_ref` buffer — the reference is injected per call, not held.
+- **Construction commits `inst_shape`.** `__init__(*, config, policy, inst_shape, dtype, T__K)` is the canonical leaf signature. `frozen_r_out__MOhm` is a 0-D immutable model buffer and `nominal_offset__V` is a 0-D fabrication source buffer. `fabricate()` expands the latter to `inst_shape` and assigns `offset__V` as ordinary fabricated state. There is no nominal-`v_ref` buffer — the reference is injected per call, not held.
 - **The reference is injected, not config-held.** `VoltageDriver` carries no `v_ref__V` config field and no `v_ref__V` property; `snapshot(*, v_ref__V, shape, multi_coords)` takes the reference as a `Tensor` keyword, applies offset then thermal to it, and stores the result in the snap.
 - **Closed-form `solve_clamp`.** `v_clamp = snap.v_ref__V - i_port__uA * snap.r_out__MOhm` has no data-dependent control flow, so it introduces no graph break under `torch.compile`. `v_clamp_init__V` is accepted (interface parity with iterative clamps) and ignored.
 - **Snap carries both fields.** `VoltageDriverSnap` holds the noised `v_ref__V` (broadcast to the per-call shape) and the 0-d frozen `r_out__MOhm`, so `solve_clamp` is a pure function of the snap.

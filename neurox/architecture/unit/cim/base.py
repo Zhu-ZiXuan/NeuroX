@@ -80,9 +80,6 @@ class CimUnit(
         if len(w_logical_shape) < 2:
             raise ValueError(f"w_logical_shape must have at least 2 trailing dims (N, K); got {w_logical_shape}")
         self._w_logical_shape = tuple(w_logical_shape)
-        self._macro_dtype = dtype
-        self._macro_T__K = T__K
-        self._ideal_xbar = ideal_xbar
 
     @classmethod
     def from_config(
@@ -137,8 +134,6 @@ EbPolicyT = TypeVar("EbPolicyT", bound=EngineBackedCimUnitPolicy)
 class EngineBackedCimUnit(CimUnit[EbConfigT, EbPolicyT], Generic[EbConfigT, EbPolicyT], ABC):
     """CIM unit backed by the engine selected by ``config.engine``."""
 
-    engine: CimEngine
-
     def __init__(
         self,
         *,
@@ -159,9 +154,13 @@ class EngineBackedCimUnit(CimUnit[EbConfigT, EbPolicyT], Generic[EbConfigT, EbPo
         )
         self._area_per_inst__um2 = config.area_per_inst__um2
         self._leakage_per_inst__uW = config.leakage_per_inst__uW
+        self._init_engine_child(dtype=dtype, T__K=T__K, ideal_xbar=ideal_xbar)
+
+    def _init_engine_child(self, *, dtype: torch.dtype, T__K: float, ideal_xbar: bool) -> None:
+        """Construct the configured execution engine."""
         self.engine = CimEngine.from_config(
-            config=config.engine,
-            policy=policy.engine,
+            config=self.config.engine,
+            policy=self.policy.engine,
             w_logical_shape=self._engine_w_logical_shape(),
             dtype=dtype,
             T__K=T__K,

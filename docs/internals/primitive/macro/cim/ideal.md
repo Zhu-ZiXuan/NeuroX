@@ -18,7 +18,7 @@
 
 ## Contracts & invariants
 
-- `program` stores one integer digit tensor matching `_w_layout_shape`.
+- `program` stores one integer digit tensor matching `_w_layout_shape` as ordinary programmed state. The input already carries the intended device; module migration must precede programming.
 - `vec_mat_mul` preserves leading-axis order and returns trailing
   `[col_num]`.
 - Training mode uses stochastic floor quantization; evaluation mode uses

@@ -158,9 +158,9 @@ class XbarCell1t1rDetail(XbarCell1t1r[XbarCell1t1rDetailConfig, XbarCell1t1rDeta
         T__K: Operating temperature.
     """
 
+    # --- Immutable model buffers ---
+
     state_to_g_map__uS: Tensor
-    rram: Rram
-    nmos: Nmos
 
     def __init__(
         self,
@@ -179,11 +179,18 @@ class XbarCell1t1rDetail(XbarCell1t1r[XbarCell1t1rDetailConfig, XbarCell1t1rDeta
             persistent=False,
         )
         self.w_states = len(config.state_to_g_map__uS)
+        self.n_newton = config.n_newton
 
+        self._init_children(dtype=dtype, T__K=T__K)
+
+    def _init_children(self, *, dtype: torch.dtype, T__K: float) -> None:
+        """Construct the storage and access devices."""
+        config = self.config
+        policy = self.policy
         self.rram = Rram(
             config=config.rram_config,
             policy=policy.rram_policy,
-            inst_shape=inst_shape,
+            inst_shape=self.inst_shape,
             dtype=dtype,
             T__K=T__K,
             g_max__uS=config.rram_g_max__uS,
@@ -191,14 +198,12 @@ class XbarCell1t1rDetail(XbarCell1t1r[XbarCell1t1rDetailConfig, XbarCell1t1rDeta
         self.nmos = Nmos(
             config=config.nmos_config,
             policy=policy.nmos_policy,
-            inst_shape=inst_shape,
+            inst_shape=self.inst_shape,
             dtype=dtype,
             T__K=T__K,
             W__um=config.access_nmos_W__um,
             L__um=config.access_nmos_L__um,
         )
-
-        self.n_newton = config.n_newton
 
     def snapshot(
         self,

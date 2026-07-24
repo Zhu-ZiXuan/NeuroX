@@ -93,8 +93,9 @@ class VoltageReference(AnalogBase[VoltageReferenceConfig, VoltageReferencePolicy
         T__K: Operating temperature.
     """
 
+    # --- Fabrication source buffers ---
+
     nominal_v_refs__V: Tensor
-    v_refs__V: Tensor
 
     def __init__(
         self,
@@ -108,14 +109,13 @@ class VoltageReference(AnalogBase[VoltageReferenceConfig, VoltageReferencePolicy
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
         self._area_per_inst__um2 = config.area_per_inst__um2
         self._leakage_per_inst__uW = config.leakage_per_inst__uW
-        self.dtype = dtype
-        self.T__K = T__K
+        self._register_fabrication_buffers(dtype=dtype)
 
-        nominal_v_refs__V = torch.tensor(config.v_refs__V, dtype=dtype)
-        self.register_buffer("nominal_v_refs__V", nominal_v_refs__V, persistent=False)
+    def _register_fabrication_buffers(self, *, dtype: torch.dtype) -> None:
+        """Register immutable tensors used as fabrication sources."""
         self.register_buffer(
-            "v_refs__V",
-            nominal_v_refs__V.expand(*inst_shape, self.num_refs).clone(),
+            "nominal_v_refs__V",
+            torch.tensor(self.config.v_refs__V, dtype=dtype),
             persistent=False,
         )
 

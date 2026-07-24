@@ -149,6 +149,8 @@ class PerTensorObserver(nn.Module):
         momentum: EMA weight on the newest batch.
     """
 
+    # --- Observer state buffers ---
+
     min_val: Tensor
     max_val: Tensor
     frozen: Tensor
@@ -207,6 +209,8 @@ class PerChannelSymmObserver(nn.Module):
         qmax: Symmetric grid half-width.
         momentum: EMA weight on the newest batch.
     """
+
+    # --- Observer state buffers ---
 
     abs_max: Tensor
     frozen: Tensor

@@ -476,6 +476,15 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
     ``[col_num]``.
     """
 
+    # --- Immutable model buffers ---
+
+    _bl_v_ref__V: Tensor
+    _sl_v_ref__V: Tensor
+    _window_array__ns: Tensor
+    _digit_ratios: Tensor
+    _window_sc__ns: Tensor
+    _x_bit_ratios: Tensor
+
     def __init__(
         self,
         *,
@@ -488,10 +497,18 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         super().__init__(config=config, policy=policy, inst_shape=inst_shape, dtype=dtype, T__K=T__K)
         self._area_per_inst__um2 = config.area_per_inst__um2
         self._leakage_per_inst__uW = config.leakage_per_inst__uW
+        self._init_children(dtype=dtype, T__K=T__K)
+        self._register_model_buffers(dtype=dtype)
+        self._rescale_lut = {(e.mode, e.bits): e.rescale_factor for e in config.adc_calibration}
 
-        gn = config.io_num  # CIM-IO sense-lane count (group_num)
+    def _init_children(self, *, dtype: torch.dtype, T__K: float) -> None:
+        """Construct the array, readout chain, and static PPA seats."""
+        config = self.config
+        policy = self.policy
+        gn = config.io_num
 
         # --- Programmable weights + wire + solver: the 1T1R pure array ---
+
         # Grouped layout [group_size(mux slot), group_num(io), P/N, w_digit, row]
         # folds into the array's flat [phys_col, row]: each physical column is an
         # independent BL/SL ladder, so the column-MUX regroup is a pure reshape.
@@ -500,7 +517,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         self.array = XbarArray1t1r(
             config=config.array_config,
             policy=policy.array_policy,
-            inst_shape=inst_shape,
+            inst_shape=self.inst_shape,
             col_num=config.phys_col_num,
             row_num=config.row_num,
             dtype=dtype,
@@ -508,15 +525,17 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         )
 
         # --- WL 1-bit ON/OFF DAC (K single-bit sub-phases; one broadcast solve) ---
+
         self.wl_dac = VoltageDac.from_config(
             config=config.wl_dac_config,
             policy=policy.wl_dac_policy,
-            inst_shape=(*inst_shape, config.row_num),
+            inst_shape=(*self.inst_shape, config.row_num),
             dtype=dtype,
             T__K=T__K,
         )
 
         # --- Clamp seats = the array's boundary drivers (ideal r_out = 0) ---
+
         # The CABLC is column-MUX time-shared: 4 physical clamps per CIM-IO
         # (P/N x MSB/LSB), so its fabricated inst_shape carries the real device
         # count for PPA. In the value path the solver snapshots it per physical
@@ -526,19 +545,20 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         self.cablc = VoltageDriver(
             config=config.cablc_config,
             policy=policy.cablc_policy,
-            inst_shape=(*inst_shape, gn, _POLARITY_NUM, config.w_digit_num),
+            inst_shape=(*self.inst_shape, gn, _POLARITY_NUM, config.w_digit_num),
             dtype=dtype,
             T__K=T__K,
         )
         self.sl_driver = VoltageDriver(
             config=config.sl_driver_config,
             policy=policy.sl_driver_policy,
-            inst_shape=(*inst_shape, gn, _POLARITY_NUM, config.w_digit_num),
+            inst_shape=(*self.inst_shape, gn, _POLARITY_NUM, config.w_digit_num),
             dtype=dtype,
             T__K=T__K,
         )
 
         # --- TMCSA SAR current ADC, one per IO; self-holds no ladder ---
+
         # The macro is the sole latency emitter: its ``t_cycle * serial`` event
         # already spans the whole access period, sensing included. Build the
         # TMCSA with ``record_latency=False`` so its ``convert`` logs no latency
@@ -548,7 +568,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         self.tmcsa = SarSingleEndedCurrentAdc(
             config=config.adc_config,
             policy=policy.adc_policy,
-            inst_shape=(*inst_shape, gn),
+            inst_shape=(*self.inst_shape, gn),
             dtype=dtype,
             T__K=T__K,
             record_latency=False,
@@ -561,33 +581,40 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         self.adc_current_reference = CurrentReference(
             config=config.reference_config,
             policy=policy.reference_policy,
-            inst_shape=inst_shape,
+            inst_shape=self.inst_shape,
             dtype=dtype,
             T__K=T__K,
         )
 
         # --- Static-PPA seats (dynamic billed by the macro on its channels) ---
+
         # Both carry the fabrication prefix (one control block / PN-ISUB seat per
         # parallel sub-array copy), so their static PPA scales with the prefix in
         # step with the macro-billed dynamic energy, which already does.
         self.control = UnmodeledBlock(
             config=config.control_config,
             policy=policy.control_policy,
-            inst_shape=inst_shape,
+            inst_shape=self.inst_shape,
             dtype=dtype,
             T__K=T__K,
         )
         self.pn_isub = UnmodeledBlock(
             config=config.pn_isub_config,
             policy=policy.pn_isub_policy,
-            inst_shape=(*inst_shape, gn),
+            inst_shape=(*self.inst_shape, gn),
             dtype=dtype,
             T__K=T__K,
         )
 
-        self._rescale_lut: dict[tuple[int, int], float] = {
-            (e.mode, e.bits): e.rescale_factor for e in config.adc_calibration
-        }
+    def _register_model_buffers(self, *, dtype: torch.dtype) -> None:
+        """Register fixed tensors consumed by the readout path."""
+        config = self.config
+        self.register_buffer("_bl_v_ref__V", torch.tensor(config.v_bl_clamp__V, dtype=dtype), persistent=False)
+        self.register_buffer("_sl_v_ref__V", torch.tensor(_V_SL_DRIVE__V, dtype=dtype), persistent=False)
+        self.register_buffer("_window_array__ns", torch.tensor(config.window_array__ns, dtype=dtype), persistent=False)
+        self.register_buffer("_digit_ratios", torch.tensor(config.digit_ratios, dtype=dtype), persistent=False)
+        self.register_buffer("_window_sc__ns", torch.tensor(config.window_sc__ns, dtype=dtype), persistent=False)
+        self.register_buffer("_x_bit_ratios", torch.tensor(config.x_bit_ratios, dtype=dtype), persistent=False)
 
     # -----------------------------------------------------------------
     # Value-domain semantics
@@ -729,15 +756,12 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         # steady currents are window-independent and the x-bit axis rides the
         # solve leading (the array returns both tensors with x_bits already in
         # place, no manual stack).
-        bl_v_ref__V = torch.tensor(config.v_bl_clamp__V, dtype=self.dtype, device=x.device)
-        sl_v_ref__V = torch.tensor(_V_SL_DRIVE__V, dtype=self.dtype, device=x.device)
-        window_array__ns = torch.tensor(config.window_array__ns, dtype=self.dtype, device=x.device)
         steady = self.array.solve_array(
             v_wl,
             bl_driver=self.cablc,
-            bl_v_ref__V=bl_v_ref__V,
+            bl_v_ref__V=self._bl_v_ref__V,
             sl_driver=self.sl_driver,
-            sl_v_ref__V=sl_v_ref__V,
+            sl_v_ref__V=self._sl_v_ref__V,
         )
         # Shape: [*B, x_bits, phys_col]
         i_bl_port = steady.i_bl_port__uA
@@ -750,7 +774,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         # Shape: [*B, x_bits, phys_col] -> [*B, x_bits]
         read_power = (v_dd * i_bl_port).sum(dim=-1)
         # Shape: [*B, x_bits] -> [*B]
-        e_cablc = (read_power * window_array__ns).sum(dim=-1)
+        e_cablc = (read_power * self._window_array__ns).sum(dim=-1)
         self._log_dynamic_energy(e_cablc, channel="cablc")
 
         # Recover the grouped readout layout from the flat BL port;
@@ -761,13 +785,12 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         # --- Step 3: DSWCT place-value weighting -> I_WDL ---
 
         # LSB-first per-digit mirror ratios.
-        digit_ratios = i_dl.new_tensor(config.digit_ratios)
-        i_wdl = i_dl * digit_ratios
+        i_wdl = i_dl * self._digit_ratios
         # Bill dswct INLINE at the output-leg production site.
         # Shape: [*B, x_bits, gs, gn, P/N, wd] -> [*B, x_bits]
         i_wdl_per_bit = i_wdl.abs().sum(dim=(-4, -3, -2, -1))
         # Shape: [*B, x_bits] -> [*B]
-        e_dswct = v_dd * (i_wdl_per_bit * window_array__ns).sum(dim=-1)
+        e_dswct = v_dd * (i_wdl_per_bit * self._window_array__ns).sum(dim=-1)
         self._log_dynamic_energy(e_dswct, channel="dswct")
 
         # --- Step 4: SINWP-SC spatial + temporal input-radix combine -> I_DL_PN ---
@@ -775,16 +798,15 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         # Shape: [*B, x_bits, gs, gn, P/N, wd] -> [*B, x_bits, gs, gn, P/N]
         i_dl_pn_bit = i_wdl.sum(dim=-1)
         # Bill sinwp_sc INLINE at the held/live-leg production site.
-        window_sc__ns = i_dl.new_tensor(config.window_sc__ns)
         # Shape: [*B, x_bits, gs, gn, P/N] -> [*B, x_bits]
         i_sc_per_bit = i_dl_pn_bit.sum(dim=(-3, -2, -1))
         # Shape: [*B, x_bits] -> [*B]
-        e_sinwp = v_dd * (i_sc_per_bit * window_sc__ns).sum(dim=-1)
+        e_sinwp = v_dd * (i_sc_per_bit * self._window_sc__ns).sum(dim=-1)
         self._log_dynamic_energy(e_sinwp, channel="sinwp_sc")
 
         # Temporal weighted sum over bits (input radix).
         # Shape: [x_bits, gs=1, gn=1, P/N=1]
-        x_bit_ratios = i_dl.new_tensor(config.x_bit_ratios).view(n_x_bits, 1, 1, 1)
+        x_bit_ratios = self._x_bit_ratios.view(n_x_bits, 1, 1, 1)
         # Shape: [*B, x_bits, gs, gn, P/N] -> [*B, gs, gn, P/N]
         i_dl_pn = (i_dl_pn_bit * x_bit_ratios).sum(dim=-4)
 

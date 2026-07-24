@@ -108,6 +108,8 @@ class XbarCell1t1r(
         w_states: Number of programmable weight states.
     """
 
+    # --- Subclass contract ---
+
     w_states: int
 
     def __init__(

@@ -53,7 +53,13 @@ def _make_xbar(
     return xbar
 
 
-def _random_operands(xbar: IdealCimMacro, *, batch: int, seed: int) -> tuple[torch.Tensor, torch.Tensor]:
+def _random_operands(
+    xbar: IdealCimMacro,
+    *,
+    batch: int,
+    seed: int,
+    device: torch.device,
+) -> tuple[torch.Tensor, torch.Tensor]:
     """Random in-range digits (programmed) and activations on CPU."""
     generator = torch.Generator().manual_seed(seed)
     d_lo, d_hi = xbar.config.w_digit_range
@@ -66,7 +72,7 @@ def _random_operands(xbar: IdealCimMacro, *, batch: int, seed: int) -> tuple[tor
     )
     x_lo, x_hi = xbar.config.x_range
     x = torch.randint(x_lo, x_hi + 1, (batch, xbar.config.row_num), dtype=torch.int32, generator=generator)
-    xbar.program(digits)
+    xbar.program(digits.to(device))
     return digits, x
 
 
@@ -121,7 +127,7 @@ class TestFastPathLossless:
             w_digit_range=w_digit_range,
         )
         assert xbar._fp32_exact is True
-        _, x = _random_operands(xbar, batch=5, seed=101)
+        _, x = _random_operands(xbar, batch=5, seed=101, device=torch.device("cpu"))
         planes = _masked_planes(x, row_num=64, max_active_rows=16)
         y = xbar.vec_mat_mul(planes, adc_mode=0, adc_bits=0)
         assert y.dtype == torch.int64
@@ -146,10 +152,10 @@ class TestFastPathLossless:
             w_digit_radix=w_digit_radix,
             w_digit_range=w_digit_range,
         )
-        _, x = _random_operands(xbar, batch=5, seed=202)
+        xbar.to(device)
+        _, x = _random_operands(xbar, batch=5, seed=202, device=device)
         planes = _masked_planes(x, row_num=64, max_active_rows=16)
         oracle = _plane_dot_oracle(xbar, planes)
-        xbar.to(device)
         y = xbar.vec_mat_mul(planes.to(device), adc_mode=0, adc_bits=0)
         assert y.device.type == device.type
         assert torch.equal(y.cpu(), oracle)
@@ -174,8 +180,8 @@ class TestFastPathQuantized:
         xbar_fast = self._quantized_xbar()
         xbar_ref = self._quantized_xbar()
         xbar_ref._fp32_exact = False  # force the int64 elementwise path
-        _, x = _random_operands(xbar_fast, batch=5, seed=303)
-        _random_operands(xbar_ref, batch=5, seed=303)
+        _, x = _random_operands(xbar_fast, batch=5, seed=303, device=torch.device("cpu"))
+        _random_operands(xbar_ref, batch=5, seed=303, device=torch.device("cpu"))
         planes = _masked_planes(x, row_num=64, max_active_rows=16)
         adc_mode, adc_bits = 0, 4
         y_fast = xbar_fast.vec_mat_mul(planes, adc_mode=adc_mode, adc_bits=adc_bits)
@@ -185,11 +191,12 @@ class TestFastPathQuantized:
 
     def test_codes_gpu_match_cpu_oracle(self, device: torch.device) -> None:
         xbar = self._quantized_xbar()
-        _, x = _random_operands(xbar, batch=5, seed=404)
+        digits, x = _random_operands(xbar, batch=5, seed=404, device=torch.device("cpu"))
         planes = _masked_planes(x, row_num=64, max_active_rows=16)
         adc_mode, adc_bits = 0, 4
         y_cpu = xbar.vec_mat_mul(planes, adc_mode=adc_mode, adc_bits=adc_bits)
         xbar.to(device)
+        xbar.program(digits.to(device))
         y_dev = xbar.vec_mat_mul(planes.to(device), adc_mode=adc_mode, adc_bits=adc_bits)
         assert torch.equal(y_dev.cpu(), y_cpu)
 
@@ -200,8 +207,8 @@ class TestFastPathQuantized:
         xbar_ref._fp32_exact = False
         xbar_fast.train()
         xbar_ref.train()
-        _, x = _random_operands(xbar_fast, batch=5, seed=505)
-        _random_operands(xbar_ref, batch=5, seed=505)
+        _, x = _random_operands(xbar_fast, batch=5, seed=505, device=torch.device("cpu"))
+        _random_operands(xbar_ref, batch=5, seed=505, device=torch.device("cpu"))
         planes = _masked_planes(x, row_num=64, max_active_rows=16)
         adc_mode, adc_bits = 0, 4
         torch.manual_seed(7)

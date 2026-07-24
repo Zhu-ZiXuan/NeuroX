@@ -126,15 +126,15 @@ class Mosfet(ModuleBase[MosfetConfig, MosfetPolicy], ABC):
 
     is_profile_target: ClassVar[bool] = False
 
+    # --- Fabrication source buffers ---
+
+    nominal_beta__uA_per_V2: Tensor
+    nominal_vth__V: Tensor
+
     @property
     @abstractmethod
     def polarity(self) -> int:
         """Channel polarity sign: ``+1`` (n-channel) or ``-1`` (p-channel)."""
-
-    nominal_beta__uA_per_V2: Tensor
-    nominal_vth__V: Tensor
-    beta__uA_per_V2: Tensor
-    vth__V: Tensor
 
     def __init__(
         self,
@@ -156,11 +156,6 @@ class Mosfet(ModuleBase[MosfetConfig, MosfetPolicy], ABC):
         if not (L__um > 0.0):
             raise ValueError(f"require: L__um ({L__um}) > 0.0")
 
-        self.W__um = W__um
-        self.L__um = L__um
-        self.T__K = T__K
-        self.dtype = dtype
-
         T_ratio = T__K / config.T_nom__K
         mu_scale = math.pow(T_ratio, -config.ute)
         vth_shift__V = config.kt1__V * (T_ratio - 1.0)
@@ -174,6 +169,25 @@ class Mosfet(ModuleBase[MosfetConfig, MosfetPolicy], ABC):
         nominal_beta__uA_per_V2 = nominal_mu__cm2_per_V_s * config.c_ox__fF_per_um2 * 0.1 * (W__um / L__um)
         nominal_vth__V = config.vth0__V + vth_shift__V
 
+        self._register_fabrication_buffers(
+            dtype=dtype,
+            nominal_beta__uA_per_V2=nominal_beta__uA_per_V2,
+            nominal_vth__V=nominal_vth__V,
+        )
+
+        # Pelgrom area-scaled sigma precomputed once.
+        nominal_isqrt_area__per_um = 1.0 / math.sqrt(W__um * L__um)
+        self.sigma_vth__V = config.A_vt__mV_um * 1e-3 * nominal_isqrt_area__per_um
+        self.sigma_beta__uA_per_V2 = nominal_beta__uA_per_V2 * config.A_beta_relative__um * nominal_isqrt_area__per_um
+
+    def _register_fabrication_buffers(
+        self,
+        *,
+        dtype: torch.dtype,
+        nominal_beta__uA_per_V2: float,
+        nominal_vth__V: float,
+    ) -> None:
+        """Register immutable tensors used as fabrication sources."""
         self.register_buffer(
             "nominal_beta__uA_per_V2",
             torch.tensor(nominal_beta__uA_per_V2, dtype=dtype),
@@ -184,21 +198,6 @@ class Mosfet(ModuleBase[MosfetConfig, MosfetPolicy], ABC):
             torch.tensor(nominal_vth__V, dtype=dtype),
             persistent=False,
         )
-        self.register_buffer(
-            "beta__uA_per_V2",
-            self.nominal_beta__uA_per_V2.clone(),
-            persistent=False,
-        )
-        self.register_buffer(
-            "vth__V",
-            self.nominal_vth__V.clone(),
-            persistent=False,
-        )
-
-        # Pelgrom area-scaled σ precomputed once.
-        nominal_isqrt_area__per_um = 1.0 / math.sqrt(W__um * L__um)
-        self.sigma_vth__V = config.A_vt__mV_um * 1e-3 * nominal_isqrt_area__per_um
-        self.sigma_beta__uA_per_V2 = nominal_beta__uA_per_V2 * config.A_beta_relative__um * nominal_isqrt_area__per_um
 
     def _sample_fabricate_mismatch(self) -> None:
         self.beta__uA_per_V2 = apply_gaussian(

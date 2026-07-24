@@ -88,6 +88,8 @@ class GeneralDifferentialVoltageAdc(
         T__K: Operating temperature.
     """
 
+    # --- Immutable model buffers ---
+
     boundaries: Tensor
 
     def __init__(
@@ -108,12 +110,8 @@ class GeneralDifferentialVoltageAdc(
         )
         self._area_per_inst__um2 = config.area_per_inst__um2
         self._leakage_per_inst__uW = config.leakage_per_inst__uW
-        self.dtype = dtype
-        self.T__K = T__K
 
         boundaries_t = torch.tensor(config.boundaries, dtype=dtype)
-        if boundaries_t.numel() < 1:
-            raise ValueError("GeneralDifferentialVoltageAdcConfig.boundaries must contain at least one threshold")
         self.register_buffer("boundaries", boundaries_t, persistent=False)
 
         n_codes = boundaries_t.numel() + 1

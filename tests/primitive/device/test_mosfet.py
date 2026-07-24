@@ -169,6 +169,14 @@ def test_all_off_snapshot_deterministic() -> None:
     assert torch.equal(snap1.vth__V, snap2.vth__V)
 
 
+def test_only_nominal_fabrication_sources_are_buffers() -> None:
+    dev = _make(Nmos, vth0__V=0.4, inst_shape=(2,))
+    buffers = dict(dev.named_buffers())
+    assert {"nominal_beta__uA_per_V2", "nominal_vth__V"} <= buffers.keys()
+    assert "beta__uA_per_V2" not in buffers
+    assert "vth__V" not in buffers
+
+
 def test_abstract_base_cannot_instantiate() -> None:
     """The polarity-free MOSFET base is abstract; only NMOS / PMOS construct."""
     with pytest.raises(TypeError):

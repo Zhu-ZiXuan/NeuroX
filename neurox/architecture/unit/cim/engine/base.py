@@ -73,16 +73,14 @@ class CimEngine(
 
     is_profile_target: ClassVar[bool] = False
 
-    xbar: CimMacro
+    # --- Immutable execution buffers ---
+
     _active_row_mask: Tensor
+
+    # --- Subclass contracts ---
+
     _w_value_range: tuple[int, int]
     _x_value_range: tuple[int, int]
-    _xbar_inst_rank: int
-    _sub_phase_num: int
-    _sub_phase_dim: int
-    _n_logical: int
-    _w_parallel_size: int
-    _row_tile_num: int
 
     def __init__(
         self,
@@ -146,11 +144,7 @@ class CimEngine(
             w_parallel_size: Parallel weight-instance count (``prod(w_batch)``).
             row_tile_num: Output tile count ``Tr``.
         """
-        self.xbar = self._build_cim_macro(
-            xbar_config=self.config.cim_macro_config,
-            xbar_policy=self.policy.cim_macro_policy,
-            inst_shape=inst_shape,
-        )
+        self._init_macro_child(inst_shape=inst_shape)
         self._n_logical = n_logical
         self._w_parallel_size = w_parallel_size
         self._row_tile_num = row_tile_num
@@ -161,6 +155,18 @@ class CimEngine(
         # Omit row phases containing only tile padding.
         real_row_extent = min(k_logical, row_num)
         self._sub_phase_num = -(-real_row_extent // max_rows)
+        self._register_row_phase_buffers(row_num=row_num, max_rows=max_rows)
+
+    def _init_macro_child(self, *, inst_shape: tuple[int, ...]) -> None:
+        """Construct the physical or ideal CIM macro child."""
+        self.xbar = self._build_cim_macro(
+            xbar_config=self.config.cim_macro_config,
+            xbar_policy=self.policy.cim_macro_policy,
+            inst_shape=inst_shape,
+        )
+
+    def _register_row_phase_buffers(self, *, row_num: int, max_rows: int) -> None:
+        """Register the fixed active-row mask for every sub-phase."""
         # Shape: [P, row_num]
         self.register_buffer(
             "_active_row_mask",

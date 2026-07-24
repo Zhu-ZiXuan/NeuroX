@@ -15,7 +15,7 @@
 
 ## Performance & resources
 
-State is one threshold buffer at `inst_shape` plus its scalar nominal. `sample_vth_like` broadcasts (no copy of the underlying storage) to the reference shape.
+State is one ordinary threshold tensor at `inst_shape` plus its 0-D nominal source buffer. `sample_vth_like` broadcasts the fabricated tensor, without copying its underlying storage, to the reference shape.
 
 ## Gotchas
 

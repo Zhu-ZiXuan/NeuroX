@@ -74,8 +74,9 @@ class SwitchCap(AnalogBase[SwitchCapConfig, SwitchCapPolicy]):
         cap_weights: Per-cap multipliers on ``config.c_unit__fF``.
     """
 
+    # --- Fabrication source buffers ---
+
     nominal_c__fF: Tensor
-    c__fF: Tensor
 
     def __init__(
         self,
@@ -99,14 +100,19 @@ class SwitchCap(AnalogBase[SwitchCapConfig, SwitchCapPolicy]):
         self._area_per_inst__um2 = config.area_per_inst__um2
         self._leakage_per_inst__uW = config.leakage_per_inst__uW
         self.T__K = T__K
-        self.dtype = dtype
         self.n_caps = len(cap_weights)
+        self._register_fabrication_buffers(dtype=dtype, cap_weights=cap_weights)
 
-        nominal_c__fF = config.c_unit__fF * torch.tensor(cap_weights, dtype=dtype)
-        self.register_buffer("nominal_c__fF", nominal_c__fF, persistent=False)
+    def _register_fabrication_buffers(
+        self,
+        *,
+        dtype: torch.dtype,
+        cap_weights: tuple[float, ...],
+    ) -> None:
+        """Register immutable tensors used as fabrication sources."""
         self.register_buffer(
-            "c__fF",
-            self.nominal_c__fF.clone(),
+            "nominal_c__fF",
+            self.config.c_unit__fF * torch.tensor(cap_weights, dtype=dtype),
             persistent=False,
         )
 

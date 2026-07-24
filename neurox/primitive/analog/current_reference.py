@@ -111,8 +111,9 @@ class CurrentReference(AnalogBase[CurrentReferenceConfig, CurrentReferencePolicy
         T__K: Operating temperature.
     """
 
+    # --- Fabrication source buffers ---
+
     nominal_i_refs__uA: Tensor
-    i_refs__uA: Tensor
 
     def __init__(
         self,
@@ -126,14 +127,13 @@ class CurrentReference(AnalogBase[CurrentReferenceConfig, CurrentReferencePolicy
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
         self._area_per_inst__um2 = config.area_per_inst__um2
         self._leakage_per_inst__uW = config.leakage_per_inst__uW
-        self.dtype = dtype
-        self.T__K = T__K
+        self._register_fabrication_buffers(dtype=dtype)
 
-        nominal_i_refs__uA = torch.tensor(config.i_refs__uA, dtype=dtype)
-        self.register_buffer("nominal_i_refs__uA", nominal_i_refs__uA, persistent=False)
+    def _register_fabrication_buffers(self, *, dtype: torch.dtype) -> None:
+        """Register immutable tensors used as fabrication sources."""
         self.register_buffer(
-            "i_refs__uA",
-            nominal_i_refs__uA.expand(*inst_shape, self.mode_num, self.tap_num).clone(),
+            "nominal_i_refs__uA",
+            torch.tensor(self.config.i_refs__uA, dtype=dtype),
             persistent=False,
         )
 

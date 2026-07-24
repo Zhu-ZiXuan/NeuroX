@@ -109,11 +109,10 @@ class McsSarDifferentialVoltageAdc(
         T__K: Operating temperature.
     """
 
+    # --- Fabrication source buffers ---
+
     nominal_c__fF: Tensor
     nominal_comparator_offset__V: Tensor
-    c_p__fF: Tensor
-    c_n__fF: Tensor
-    comparator_offset__V: Tensor
 
     def __init__(
         self,
@@ -137,12 +136,19 @@ class McsSarDifferentialVoltageAdc(
         self._area_per_inst__um2 = config.area_per_inst__um2
         self._leakage_per_inst__uW = config.leakage_per_inst__uW
         self.T__K = T__K
-        self.dtype = dtype
 
         self.comparator_noise_sigma__V = config.comparator_thermal_noise_sigma__V * math.sqrt(T__K / 300.0)
 
         self.n_caps = config.max_bits
+        self._register_fabrication_buffers(dtype=dtype)
 
+        # Precompute integer tables to avoid symbolic left shifts at runtime.
+        self._unsigned_max_table = tuple(((1 << b) - 1) if b >= 1 else 0 for b in range(config.max_bits + 1))
+        self._zero_offset_table = tuple((1 << (b - 1)) if b >= 1 else 0 for b in range(config.max_bits + 1))
+
+    def _register_fabrication_buffers(self, *, dtype: torch.dtype) -> None:
+        """Register immutable tensors used as fabrication sources."""
+        config = self.config
         c_unit = config.c_unit__fF
         nominal_c__fF = torch.tensor(
             [c_unit] + [c_unit * (2**k) for k in range(config.max_bits - 1)],
@@ -153,30 +159,6 @@ class McsSarDifferentialVoltageAdc(
             "nominal_comparator_offset__V",
             torch.zeros((), dtype=dtype),
             persistent=False,
-        )
-
-        self.register_buffer(
-            "c_p__fF",
-            self.nominal_c__fF.clone(),
-            persistent=False,
-        )
-        self.register_buffer(
-            "c_n__fF",
-            self.nominal_c__fF.clone(),
-            persistent=False,
-        )
-        self.register_buffer(
-            "comparator_offset__V",
-            self.nominal_comparator_offset__V.clone(),
-            persistent=False,
-        )
-
-        # Precompute integer tables to avoid symbolic left shifts at runtime.
-        self._unsigned_max_table: tuple[int, ...] = tuple(
-            ((1 << b) - 1) if b >= 1 else 0 for b in range(config.max_bits + 1)
-        )
-        self._zero_offset_table: tuple[int, ...] = tuple(
-            (1 << (b - 1)) if b >= 1 else 0 for b in range(config.max_bits + 1)
         )
 
     def unsigned_range(self, bits: int) -> tuple[int, int]:

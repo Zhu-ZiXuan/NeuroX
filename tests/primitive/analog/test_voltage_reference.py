@@ -52,13 +52,15 @@ def _make(
     area: float = 0.0,
     leakage: float = 0.0,
 ) -> VoltageReference:
-    return VoltageReference(
+    ref = VoltageReference(
         config=_config(area_per_inst__um2=area, leakage_per_inst__uW=leakage),
         policy=VoltageReferencePolicy(tolerance=False, noise=False),
         inst_shape=inst_shape,
         dtype=torch.float64,
         T__K=300.0,
     )
+    ref.fabricate()
+    return ref
 
 
 def test_validation_rejects_bad_config() -> None:

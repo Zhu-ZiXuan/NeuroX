@@ -84,8 +84,9 @@ class VoltageMux(AnalogBase[VoltageMuxConfig, VoltageMuxPolicy]):
         T__K: Operating temperature.
     """
 
+    # --- Fabrication source buffers ---
+
     nominal_eps_g: Tensor
-    eps_g: Tensor
 
     def __init__(
         self,
@@ -99,13 +100,12 @@ class VoltageMux(AnalogBase[VoltageMuxConfig, VoltageMuxPolicy]):
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
         self._area_per_inst__um2 = config.area_per_inst__um2
         self._leakage_per_inst__uW = config.leakage_per_inst__uW
-        self.dtype = dtype
-        self.T__K = T__K
-
-        # ε_g zero until fabricated; flat σ, no Pelgrom area scaling.
-        self.register_buffer("nominal_eps_g", torch.zeros((), dtype=dtype), persistent=False)
-        self.register_buffer("eps_g", self.nominal_eps_g.clone(), persistent=False)
         self.sigma_eps_g = config.mux_gain_mismatch_sigma_relative
+        self._register_fabrication_buffers(dtype=dtype)
+
+    def _register_fabrication_buffers(self, *, dtype: torch.dtype) -> None:
+        """Register immutable tensors used as fabrication sources."""
+        self.register_buffer("nominal_eps_g", torch.zeros((), dtype=dtype), persistent=False)
 
     def _sample_fabricate_mismatch(self) -> None:
         self.eps_g = apply_gaussian(

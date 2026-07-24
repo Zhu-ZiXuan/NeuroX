@@ -57,7 +57,6 @@ class LinearCimUnit(LinearUnit, EngineBackedCimUnit[LinearCimUnitConfig, LinearC
             T__K=T__K,
             ideal_xbar=ideal_xbar,
         )
-        self._init_int_bias_slot()
 
     def program(self, weight: Tensor, bias: Tensor | None = None) -> None:
         self.engine.program(self._weight_to_matrix(weight))

@@ -46,6 +46,7 @@ def _ref_taps(taps: tuple[float, ...]) -> torch.Tensor:
         dtype=torch.float64,
         T__K=300.0,
     )
+    ref.fabricate()
     return ref.v_ref__V(ref.snapshot())
 
 

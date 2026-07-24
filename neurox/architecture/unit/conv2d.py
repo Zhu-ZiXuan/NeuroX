@@ -92,7 +92,7 @@ class Conv2dUnit(UnitBase, ABC):
         padding: tuple[int, int],
         dilation: tuple[int, int],
     ) -> None:
-        """Store the conv geometry and register the ``int_bias`` buffer slot.
+        """Store the convolution geometry.
 
         Args:
             kernel_size: Kernel map extent ``(kh, kw)``.
@@ -104,7 +104,6 @@ class Conv2dUnit(UnitBase, ABC):
         self._conv2d_stride = (int(stride[0]), int(stride[1]))
         self._conv2d_padding = (int(padding[0]), int(padding[1]))
         self._conv2d_dilation = (int(dilation[0]), int(dilation[1]))
-        self._init_int_bias_slot()
 
 
 # Deferred to avoid a circular import with CIM unit implementations.
@@ -159,9 +158,6 @@ class IdealConv2dUnit(Conv2dUnit, CimUnit[IdealConv2dUnitConfig, IdealConv2dUnit
         ideal_xbar: Accepted without changing this already ideal unit.
     """
 
-    nominal_weight: Tensor
-    weight: Tensor
-
     def __init__(
         self,
         *,
@@ -190,9 +186,6 @@ class IdealConv2dUnit(Conv2dUnit, CimUnit[IdealConv2dUnitConfig, IdealConv2dUnit
             padding=config.padding,
             dilation=config.dilation,
         )
-        # A scalar zero provides a valid pre-programming weight.
-        self.register_buffer("nominal_weight", torch.zeros((), dtype=torch.int64), persistent=False)
-        self.register_buffer("weight", self.nominal_weight.clone(), persistent=False)
 
     @property
     def w_value_range(self) -> tuple[int, int]:

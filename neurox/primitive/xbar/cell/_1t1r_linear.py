@@ -113,14 +113,12 @@ class XbarCell1t1rLinear(XbarCell1t1r[XbarCell1t1rLinearConfig, XbarCell1t1rLine
         T__K: Operating temperature.
     """
 
+    # --- Immutable model buffers ---
+
     _g_cell_off_table__uS: Tensor
     _g_cell_on_table__uS: Tensor
     _vx_ratio_off_table: Tensor
     _vx_ratio_on_table: Tensor
-    g_cell_on__uS: Tensor
-    g_cell_off__uS: Tensor
-    vx_ratio_on: Tensor
-    vx_ratio_off: Tensor
 
     def __init__(
         self,
@@ -135,15 +133,26 @@ class XbarCell1t1rLinear(XbarCell1t1r[XbarCell1t1rLinearConfig, XbarCell1t1rLine
             raise TypeError(f"XbarCell1t1rLinear requires an XbarCell1t1rLinearPolicy; got {type(policy).__name__}")
         super().__init__(config=config, policy=policy, inst_shape=inst_shape, dtype=dtype, T__K=T__K)
 
-        for name, table in (
-            ("_g_cell_off_table__uS", config.g_cell_off_table__uS),
-            ("_g_cell_on_table__uS", config.g_cell_on_table__uS),
-            ("_vx_ratio_off_table", config.vx_ratio_off_table),
-            ("_vx_ratio_on_table", config.vx_ratio_on_table),
-        ):
-            self.register_buffer(name, torch.tensor(table, dtype=dtype), persistent=False)
-        for name in ("g_cell_on__uS", "g_cell_off__uS", "vx_ratio_on", "vx_ratio_off"):
-            self.register_buffer(name, torch.zeros((), dtype=dtype), persistent=False)
+        self.register_buffer(
+            "_g_cell_off_table__uS",
+            torch.tensor(config.g_cell_off_table__uS, dtype=dtype),
+            persistent=False,
+        )
+        self.register_buffer(
+            "_g_cell_on_table__uS",
+            torch.tensor(config.g_cell_on_table__uS, dtype=dtype),
+            persistent=False,
+        )
+        self.register_buffer(
+            "_vx_ratio_off_table",
+            torch.tensor(config.vx_ratio_off_table, dtype=dtype),
+            persistent=False,
+        )
+        self.register_buffer(
+            "_vx_ratio_on_table",
+            torch.tensor(config.vx_ratio_on_table, dtype=dtype),
+            persistent=False,
+        )
 
         self.w_states = len(config.g_cell_off_table__uS)
 

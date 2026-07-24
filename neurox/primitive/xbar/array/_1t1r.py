@@ -175,7 +175,8 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
         T__K: Operating temperature.
     """
 
-    cell: XbarCell1t1r
+    # --- Immutable model buffers ---
+
     bl_segment_r__MOhm: Tensor
     sl_segment_r__MOhm: Tensor
     bl_segment_g__uS: Tensor
@@ -202,36 +203,43 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
         self._area_per_inst__um2 = config.area_per_inst__um2
         self._leakage_per_inst__uW = config.leakage_per_inst__uW
-        self.dtype = dtype
-        self.T__K = T__K
         self._row_num = row_num
         self._col_num = col_num
 
+        self._init_children(dtype=dtype, T__K=T__K)
+        self._register_wire_buffers(dtype=dtype)
+
+        self.c_wl_wire_per_row__fF = config.wl_first_c__fF + (col_num - 1) * config.wl_segment_c__fF
+
+    def _init_children(self, *, dtype: torch.dtype, T__K: float) -> None:
+        """Construct the cell model and numerical solver."""
         self.cell = XbarCell1t1r.from_config(
-            config=config.cell_config,
-            policy=policy.cell_policy,
+            config=self.config.cell_config,
+            policy=self.policy.cell_policy,
             inst_shape=self.weight_grid_shape,
             dtype=dtype,
             T__K=T__K,
         )
+        self.solver = Solver.from_config(config=self.config.solver_config)
 
-        self.w_states = self.cell.w_states
-
+    def _register_wire_buffers(self, *, dtype: torch.dtype) -> None:
+        """Register fixed wire resistance, conductance, and capacitance tensors."""
+        config = self.config
         # Segment index zero connects the driver to the first cell.
         bl_segment_r__MOhm = torch.tensor(
-            [config.bl_first_r__MOhm] + [config.bl_segment_r__MOhm] * (row_num - 1),
+            [config.bl_first_r__MOhm] + [config.bl_segment_r__MOhm] * (self._row_num - 1),
             dtype=dtype,
         )
         sl_segment_r__MOhm = torch.tensor(
-            [config.sl_first_r__MOhm] + [config.sl_segment_r__MOhm] * (row_num - 1),
+            [config.sl_first_r__MOhm] + [config.sl_segment_r__MOhm] * (self._row_num - 1),
             dtype=dtype,
         )
         bl_segment_c__fF = torch.tensor(
-            [config.bl_first_c__fF] + [config.bl_segment_c__fF] * (row_num - 1),
+            [config.bl_first_c__fF] + [config.bl_segment_c__fF] * (self._row_num - 1),
             dtype=dtype,
         )
         sl_segment_c__fF = torch.tensor(
-            [config.sl_first_c__fF] + [config.sl_segment_c__fF] * (row_num - 1),
+            [config.sl_first_c__fF] + [config.sl_segment_c__fF] * (self._row_num - 1),
             dtype=dtype,
         )
         self.register_buffer("bl_segment_r__MOhm", bl_segment_r__MOhm, persistent=False)
@@ -241,12 +249,10 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
         self.register_buffer("bl_segment_c__fF", bl_segment_c__fF, persistent=False)
         self.register_buffer("sl_segment_c__fF", sl_segment_c__fF, persistent=False)
 
-        self.c_wl_wire_per_row__fF = config.wl_first_c__fF + (col_num - 1) * config.wl_segment_c__fF
-
-        self.solver = Solver.from_config(config=config.solver_config)
-
-        self.fabricated_col_num = col_num
-        self.fabricated_row_num = row_num
+    @property
+    def w_states(self) -> int:
+        """Number of programmable states exposed by each cell."""
+        return self.cell.w_states
 
     @property
     def weight_grid_shape(self) -> tuple[int, ...]:

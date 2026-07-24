@@ -1,55 +1,60 @@
 # Physical state
 
-Physical-modeling modules carry their physical state in named buffers, and the lifecycle methods evolve each quantity from its ideal design value to the noisy value a run sees. A single physical quantity is held at three fidelity levels along one line: the ideal **nominal** value; the **actual** realization that either bakes in static per-instance mismatch or writes a programmed value; and the per-call **snap** that adds dynamic noise. Only physical quantities travel this line — integer weights, converter lookup tables, and config-derived constant tables are documented with the module that owns each, and a purely arithmetic module carries none of this machinery.
+Physical modules distinguish immutable tensor sources from lifecycle-produced state. Nominal fabrication sources and fixed model tables are buffers so construction-time `dtype` and a pre-materialization `to(device)` determine where later work runs. Fabricated and programmed values are ordinary tensor attributes created by their lifecycle methods. Per-call snaps remain local values.
 
-## State tiers
+## State categories
 
-Buffers live on concrete leaves, not on the abstract bases above them. A leaf carries three tiers of one physical quantity:
+- **Fabrication source** — an immutable `nominal_*` buffer used by `fabricate()`. A scalar physical baseline is normally 0-D; a genuinely multi-valued baseline, such as a reference ladder or capacitor bank, remains a compact vector or table.
+- **Fixed model tensor** — an immutable buffer used directly by the model, such as a transfer LUT, state map, row mask, or wire-parameter vector. It is not part of the nominal/actual/snap progression.
+- **Fabricated state** — an ordinary tensor attribute created or replaced by `fabricate()`. It contains static per-instance mismatch around a nominal source and normally has `inst_shape`.
+- **Programmed state** — an ordinary tensor attribute created or replaced by `program(...)`. It contains the value written by the caller after mapping and programming effects.
+- **Snap** — a fresh local tensor or frozen dataclass created for one call. It adds dynamic noise to fabricated or programmed state and is never stored on the module.
+- **Learned runtime statistics** — observer state and similar PyTorch-managed statistics remain buffers because their lifecycle is training/calibration rather than physical fabrication or programming.
 
-- **Nominal** — the design value before any per-instance spread, held in a 0-d `nominal_*` template derived from config at construction. It never changes afterward and is the fixed reference the later tiers derive from.
-- **Actual** — the realized electrical characteristic, held in a buffer that drops the `nominal_` prefix. A leaf takes exactly one of two branches: a fabricate buffer, into which fabrication samples static per-instance mismatch around the nominal template; or a program buffer, into which programming writes the target value. A leaf never carries both.
-- **Snap** — the per-call value the run path sees, derived from the actual buffer at one call and carrying the dynamic noise present at that instant. It is produced fresh each call and never stored.
+A leaf uses only the categories it needs. A programmable leaf may have no nominal source, while a deterministic LUT leaf may have no fabricated state.
 
-Freezing the actual buffer across a call lets the call's many iterations run against a fixed characteristic rather than one drifting between them.
+## Lifecycle
 
-Some programmable devices carry no nominal template and no fabricate buffer at all — only a program buffer initialized to zeros that receives its target value directly.
+The supported order is:
 
-## Lifecycle methods
+```text
+construct -> to(device) -> fabricate -> program -> execute
+```
 
-Four methods drive a module's state. `__init__` runs once at construction; `fabricate()` and `program(...)` run after it, any number of times; `snapshot(...)` runs once per call on the run path. `fabricate()` and `program(...)` write orthogonal state — mismatch versus programmed value — so their order is free.
+`fabricate` or `program` may be absent when a model has no corresponding state.
 
-### `__init__`
+### Construction
 
-`__init__` binds config, commits the module's shape, and registers the buffers; an owning module also builds its children here. It registers the 0-d nominal template and, beside it, the actual placeholder: the fabricate branch initializes the placeholder to `nominal.clone()`, the program branch to zeros. Because the placeholder is well-defined from construction, a leaf produces sensible output before either `fabricate()` or `program(...)` has run — the mismatch-free nominal value on the fabricate branch, zero on the program branch. Each module family documents its own construction signature — the exact parameters and the child shapes a composite derives — in that family's own documentation.
+`__init__` binds config, policy, instance shape, immutable model metadata, child modules, and immutable buffers. It does not allocate instance-shaped placeholders for future fabricated or programmed state. Consequently, a stateful run path has no defined pre-fabrication or pre-program behavior.
 
-### `fabricate()`
+Nominal sources are registered directly at their intended dtype. Code must not recover a source's dtype or device from an unrelated runtime tensor, and must not recreate a fixed source from Python data inside `fabricate`, `program`, or the execution path.
 
-`fabricate()` resamples static per-instance mismatch from the unchanged nominal template into the fabricate buffer, and only fabricate-branch leaves carry it. One call cascades over the whole module tree, so a newly layered module participates without extra code.
+### Device migration
 
-### `program(...)`
+Call `to(device)` after construction and before materializing physical state. PyTorch migrates parameters and registered buffers, which moves every nominal source and fixed model tensor. Later lifecycle methods derive their tensors from those migrated sources or accept an already placed programming input.
 
-`program(...)` writes the programmed value into the program buffer of a programmable leaf. Unlike `fabricate()` it is dispatched per layer rather than cascaded, because it consumes one logical weight that only the owning module can organize and encode; there is no tree-uniform argument to hand every child. The run path then reads this established value rather than receiving the weight as an argument.
+Fabricated and programmed states are ordinary attributes, so a later `to(device)` does not migrate them. Code relying on migration after state materialization is unsupported. If migration is unavoidable, move the module and then rerun `fabricate()` and `program(...)` before execution.
 
-### `snapshot(...)`
+### Fabrication
 
-`snapshot(*, shape)` derives the per-call snap from the actual buffer. `fabricate()` samples static mismatch at the construction-time `inst_shape`; `snapshot` then expands and samples the dynamic noise over the per-call (serial-execution) broadcast `shape` on top of that realization. A snap's fields are tensors or nested snaps only, so the whole structure is device-migratable. A snap is valid for exactly one call — its memory scales with the call's leading batch rather than `inst_shape` and is freed when the call returns, and caching one across calls is a bug. A snap may cross module boundaries, read by a module other than the one that owns it, each snap type carrying its own semantics and documented by the receiver's signature. The concrete fields of each snap belong to the leaf that produces it.
+`fabricate()` resamples local static mismatch from unchanged nominal buffers and assigns the resulting tensors to fabricated-state attributes. The call traverses fabricable child modules in pre-order. Repeated calls replace prior realizations rather than perturbing them cumulatively.
 
-## Buffer reassignment and idempotency
+### Programming
 
-A module holds two groups of buffers — the nominal templates and their actual counterparts — and the two counts need not match: a module may template several quantities, and a program buffer has no template at all, so the nominal-to-actual mapping is per module, not one-to-one. Both groups are registered `persistent=False`.
+`program(...)` creates or replaces programmed-state attributes. Programming inputs must already be on the intended device and use the intended dtype unless the public method explicitly defines a value-domain conversion. A module must not use an unrelated tensor as an implicit placement anchor.
 
-The actual buffer is updated by attribute reassignment — `self.x = new_tensor` — never by a second `register_buffer`.
+Programming is dispatched by the owner rather than cascaded uniformly because each owner organizes a different logical value for its children. Repeated calls replace prior programmed state.
 
-`fabricate()` and `program(...)` may each run any number of times, and every call resamples or re-encodes from the unchanged nominal template, reassigning the actual buffer without accumulating state — repeated fabrication and programming are idempotent in distribution, a fresh draw rather than an additive update.
+### Snapshot
 
-Because the actual buffers are `persistent=False`, they stay out of `state_dict`. The upper-layer weight is the persisted source of truth; a `program(...)` at checkpoint-load time regenerates the per-cell state, so checkpoints stay independent of device and geometry.
+`snapshot(...)` derives one call-local view from fabricated or programmed state, optionally expands it to the call shape, and samples dynamic noise. A snap is not cached, registered, or persisted.
 
-## State ownership
+## Persistence and ownership
 
-Physical state lives in the owning module; a parent reads a child's state through the child, never mirroring it.
+Nominal and fixed model buffers are normally `persistent=False`; they are reproducible from config and construction arguments. Fabricated and programmed ordinary attributes are absent from `state_dict` by construction. The persisted upper-layer weight remains the source of truth, and loading a checkpoint must be followed by the normal fabrication/programming lifecycle.
 
-## Call cadence and determinism
+Physical state lives only on its owning module. A parent delegates to a child or consumes the child's public snap; it does not mirror the child's state.
 
-Resampling stays off the inference hot path — `program(...)` and `fabricate()` run before inference, neither during it. Each `fabricate()` is a single pass over the module tree whose allocation scales with `inst_shape`, not with any per-call batch.
+## Parallel execution
 
-Fabrication draws its mismatch from the RNG, so a reproducible realization requires a fixed seed set before fabricating. Across data-parallel ranks each rank draws its own mismatch realization and the lifecycle does not synchronize, so coordinate RNG seeds before fabricating if cross-rank-consistent mismatch is required.
+Each data-parallel rank materializes its own ordinary fabricated/programmed state. Framework buffer broadcast does not synchronize those attributes. Coordinate seeds and lifecycle calls explicitly when ranks must share one physical realization.

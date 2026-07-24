@@ -9,7 +9,6 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 
 import torch
-import torch.nn as nn
 from torch import Tensor
 
 
@@ -41,7 +40,9 @@ class UnitBase(ABC):
     accumulated in the ``torch.int64`` output domain.
     """
 
-    int_bias: Tensor | None
+    # --- Programmed state ---
+
+    int_bias: Tensor | None = None
 
     @property
     @abstractmethod
@@ -110,11 +111,6 @@ class UnitBase(ABC):
         y = self._matmul(planes, adc_mode=adc_mode, adc_bits=adc_bits)
         return self._undo_aggregation(y)
 
-    def _init_int_bias_slot(self) -> None:
-        """Register the optional integer-bias buffer."""
-        assert isinstance(self, nn.Module)
-        self.register_buffer("int_bias", None, persistent=False)
-
     def _program_int_bias(self, bias: Tensor | None, *, channels: int) -> None:
-        """Store the validated int64 bias, or clear the slot with ``None``."""
+        """Store the validated int64 bias, or clear it with ``None``."""
         self.int_bias = None if bias is None else _validate_int_bias(bias, channels=channels)

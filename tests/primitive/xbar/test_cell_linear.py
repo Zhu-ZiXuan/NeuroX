@@ -89,6 +89,22 @@ def test_solve_branch_matches_table_conductance() -> None:
     torch.testing.assert_close(di_dvsl__uS, -g_cell)
 
 
+def test_programmed_branch_parameters_are_not_buffers() -> None:
+    cell = _build_cell((2, 2))
+    cell.program(torch.tensor([[0, 1], [1, 0]], dtype=torch.long))
+    buffers = dict(cell.named_buffers())
+    assert {
+        "_g_cell_off_table__uS",
+        "_g_cell_on_table__uS",
+        "_vx_ratio_off_table",
+        "_vx_ratio_on_table",
+    } <= buffers.keys()
+    assert "g_cell_off__uS" not in buffers
+    assert "g_cell_on__uS" not in buffers
+    assert "vx_ratio_off" not in buffers
+    assert "vx_ratio_on" not in buffers
+
+
 def test_wl_threshold_switches_off_at_and_below() -> None:
     cell = _build_cell((1, 1))
     cell.program(torch.tensor([[1]], dtype=torch.long))
