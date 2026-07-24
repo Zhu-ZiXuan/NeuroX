@@ -185,7 +185,7 @@ class CurrentReference(AnalogBase[CurrentReferenceConfig, CurrentReferencePolicy
 
     def _sample_fabricate_mismatch(self) -> None:
         """Resample the per-instance initial-accuracy spread at ``(*inst_shape, mode_num, tap_num)``."""
-        base = self.nominal_i_refs__uA.expand(*self._inst_shape, self.mode_num, self.tap_num)
+        base = self.nominal_i_refs__uA.expand(*self.inst_shape, self.mode_num, self.tap_num)
         if self.policy.tolerance:
             self.i_refs__uA = base * (1.0 + torch.randn_like(base) * self.config.tolerance_sigma_relative)
         else:

@@ -26,8 +26,8 @@ Each paper block, its NeuroX composition, who bills its per-op energy, and the c
 
 | Paper block | Our composition | Billing owner | Window |
 |---|---|---|---|
-| Row array (1T1R cells + BL/SL wire) | `array` — `XbarArray1t1r` (Linear cell grid + wire R/C + DC solver); grouped weights fold into the flat `[phys_col, row]` layout, solved once per WL sub-phase | `array` module row bills the cell-side `V_BL * I_DL` plus BL/SL/WL wire-cap cycling; folds into the `cablc` slice | per-bit `window_array` |
-| CABLC (current-aware BL clamp) | `cablc` — the array's `bl_driver`, a `VoltageDriver` (`r_out__MOhm = 0`; device count `[io, P/N, digit]` via `inst_shape`) | macro `cablc` channel bills the clamp-side `(V_DD - V_BL) * I_DL` (sum with the array's cell-side row = the whole input branch `V_DD * I_DL`) + `cablc_config` leakage seat | per-bit `window_array` |
+| Row array (1T1R cells + BL/SL wire) | `array` — `XbarArray1t1r` (Linear cell grid + wire R/C + DC solver); grouped weights fold into the flat `[phys_col, row]` layout, solved once per WL sub-phase | `array` module row bills BL/SL/WL wire-cap + per-cell node-cap cycling only (no conduction); folds into the `cablc` slice | — (caps only) |
+| CABLC (current-aware BL clamp) | `cablc` — the array's `bl_driver`, a `VoltageDriver` (`r_out__MOhm = 0`; device count `[io, P/N, digit]` via `inst_shape`) | macro `cablc` channel bills the whole input branch `V_DD * I_DL` (the macro owns the per-bit conduction window) + `cablc_config` leakage seat | per-bit `window_array` |
 | SL drive | `sl_driver` — the array's `sl_driver`, ideal `VoltageDriver` (`r_out__MOhm = 0`, grounded) | leakage seat only (ideal, no conduction energy) | — (static) |
 | WL driver | `wl_dac` — 1-bit ON/OFF `VoltageDac`; `latency_per_op__ns = 0` (folds into `t_cycle`) | leakage seat only | — (static) |
 | DSWCT (down-scaling weighting mirrors) | macro tensor op — the place-value ratios `r_d` scale `I_DL` into `I_WDL` (linear current mirroring is KCL, not a block) | macro `dswct` channel (output legs `V_DD * abs(I_WDL)`); no static seat | per-bit `window_array` |
@@ -67,7 +67,7 @@ The energy atom is the rail-to-GND branch `E = V_DD * I * t`, split into a dynam
   - `window_sc[k]` — the SINWP-SC leg window: a held leg conducts from its sample sub-phase to the end, so it is the suffix sum `sum(t_sample__ns[k:]) + t_other`; the live leg reduces to `t_other`.
   - The TMCSA's SAR sensing durations (`adc_config.step_latency__ns`, paper 3.16/3.07/3.11 ns) enter `t_other` so the read chain conducts through sensing, and are mirrored by `t_conduct_per_step__ns` for the ADC's own `V_rail * (I_in + I_ref)` sensing-conduction energy.
 
-The whole input branch `V_DD * I_DL` is split along the sole sanctioned BL port: the `array` module row bills the cell-side `V_BL * I_DL` (plus its wire-cap cycling), the macro `cablc` channel bills the clamp-side `(V_DD - V_BL) * I_DL`, and the validation slice map sums the array row and the `cablc` channel into one `cablc` slice. `t_cycle__ns` must contain the whole conduction span `sum(t_sample) + t_other`; the read path idles for the remainder of the period.
+The whole input branch `V_DD * I_DL` is billed by the macro on the `cablc` channel (the macro owns the per-input-bit conduction window `t`); the `array` module row bills only its BL/SL/WL wire-cap + per-cell node-cap cycling, no conduction. The validation slice map sums the array module row (caps) and the `cablc` channel (whole conduction) into one `cablc` slice. `t_cycle__ns` must contain the whole conduction span `sum(t_sample) + t_other`; the read path idles for the remainder of the period.
 
 ### Per-access normalization
 

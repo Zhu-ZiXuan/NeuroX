@@ -176,10 +176,10 @@ class XbarCell1t1rLinear(XbarCell1t1r[XbarCell1t1rLinearConfig, XbarCell1t1rLine
 
         Args:
             w_state_idx: State-index tensor in ``[0, w_states - 1]`` at
-                ``self._inst_shape``.
+                ``self.inst_shape``.
         """
-        if tuple(w_state_idx.shape) != self._inst_shape:
-            raise ValueError(f"program() expects w_state_idx.shape {self._inst_shape}; got {tuple(w_state_idx.shape)}")
+        if tuple(w_state_idx.shape) != self.inst_shape:
+            raise ValueError(f"program() expects w_state_idx.shape {self.inst_shape}; got {tuple(w_state_idx.shape)}")
         idx = w_state_idx.long()
         if bool((idx < 0).any()) or bool((idx >= self.w_states).any()):
             raise ValueError(f"program() expects state indices in [0, {self.w_states}); got out-of-range entries")

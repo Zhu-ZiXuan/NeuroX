@@ -216,14 +216,14 @@ class Mosfet(ModuleBase[MosfetConfig, MosfetPolicy], ABC):
         self.sigma_beta__uA_per_V2 = nominal_beta__uA_per_V2 * config.A_beta_relative__um * nominal_isqrt_area__per_um
 
     def _sample_fabricate_mismatch(self) -> None:
-        """Resample β and V_th at ``self._inst_shape`` (re-callable)."""
+        """Resample β and V_th at ``self.inst_shape`` (re-callable)."""
         self.beta__uA_per_V2 = apply_gaussian(
-            self.nominal_beta__uA_per_V2.clone().expand(self._inst_shape),
+            self.nominal_beta__uA_per_V2.clone().expand(self.inst_shape),
             self.sigma_beta__uA_per_V2,
             enabled=self.policy.A_beta_mismatch,
         )
         self.vth__V = apply_gaussian(
-            self.nominal_vth__V.clone().expand(self._inst_shape),
+            self.nominal_vth__V.clone().expand(self.inst_shape),
             self.sigma_vth__V,
             enabled=self.policy.A_vt_mismatch,
         )

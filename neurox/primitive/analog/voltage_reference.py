@@ -157,7 +157,7 @@ class VoltageReference(AnalogBase[VoltageReferenceConfig, VoltageReferencePolicy
 
     def _sample_fabricate_mismatch(self) -> None:
         """Resample the per-instance initial-accuracy spread at ``(*inst_shape, num_refs)``."""
-        base = self.nominal_v_refs__V.expand(*self._inst_shape, self.num_refs)
+        base = self.nominal_v_refs__V.expand(*self.inst_shape, self.num_refs)
         if self.policy.tolerance:
             self.v_refs__V = base * (1.0 + torch.randn_like(base) * self.config.tolerance_sigma_relative)
         else:

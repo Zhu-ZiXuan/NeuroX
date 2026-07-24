@@ -10,7 +10,7 @@
 
 ## Contracts & invariants
 
-- **`_sample_fabricate_mismatch()` resamples the whole map.** It re-expands `nominal_vth__V` to `self._inst_shape` and redraws every cell's threshold rather than updating in place.
+- **`_sample_fabricate_mismatch()` resamples the whole map.** It re-expands `nominal_vth__V` to `self.inst_shape` and redraws every cell's threshold rather than updating in place.
 - **`sample_vth_like(reference)` is the read path.** It broadcasts the fabricated `vth__V` to the reference tensor's shape / device / dtype. The reference tensor defines the target — the selector imposes no shape of its own.
 
 ## Performance & resources

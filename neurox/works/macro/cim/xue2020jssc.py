@@ -20,8 +20,9 @@ generic Thevenin :class:`~neurox.primitive.analog.VoltageDriver`); the SL is the
 grounded drive. Wire resistance is a required field of the nested array config —
 a small positive value (the paper gives none), NEVER assumed zero in code; the
 solver needs ``R > 0`` (conductance ``g = 1/R``). All ``K`` word-line sub-phases
-settle in ONE broadcast array solve (the x-bit axis rides the solve leading);
-each plane's conduction window is applied post-solve to the DC-conduction energy.
+settle in ONE broadcast array solve (the x-bit axis rides the solve leading); the
+macro applies each plane's conduction window post-solve to the whole input-branch
+read energy ``V_DD * I_DL`` it bills on the ``cablc`` channel.
 
 Generality: ``w_digit_num >= 1``, ``w_digit_radix >= 2``, and ``input_bit_num >= 1``
 are all free. The vectorized readout degenerates cleanly at size-1 digit / bit
@@ -55,11 +56,10 @@ Energy accounting (branch atom ``E = V * I * t``). The static-energy time base i
 profiler's ``leakage_energy = leakage_power * total_latency`` is then the static
 energy over the full period. The array's ``latency_per_op__ns`` is 0 (the macro
 is the sole latency emitter). The short conduction windows (``t_sample[k]``,
-``t_other``) feed ONLY dynamic energy. The input branch ``V_DD * I_DL`` is split
-along the sole sanctioned BL port: the array bills the cell-side ``V_BL * I_DL``
-(plus its wire-cap cycling) as its own module row, and the macro bills the
-clamp-side ``(V_DD - V_BL) * I_DL`` on the ``cablc`` channel — their sum is the
-whole input branch, and a validation slice map sums the array row and the
+``t_other``) feed ONLY dynamic energy. The whole input branch ``V_DD * I_DL`` is
+billed by the macro on the ``cablc`` channel (the macro owns the per-bit conduction
+window ``t``); the array bills only its wire / cell capacitive cycling as its own
+module row, no conduction. A validation slice map sums the array module row and the
 ``cablc`` channel into one ``cablc`` slice. The remaining data-dependent draws,
 each an additive ``V_DD`` draw (p.204, no double-count), are billed by the macro
 on its own channels: the DSWCT output legs ``V_DD * I_WDL`` under ``dswct``; the
@@ -158,8 +158,8 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
             ``leakage_energy = leakage_power * latency`` is then the static energy
             over the full period. Must be ``>=`` the sum of the conduction windows.
         v_dd__V: Supply-rail voltage [V] (paper 1.0); the rail every channelled
-            branch is billed across, and the top of the input branch the CABLC
-            clamp-side ``(V_DD - V_BL)`` is measured from.
+            branch is billed across, including the whole input branch ``V_DD *
+            I_DL`` the macro bills on the ``cablc`` channel.
         v_bl_clamp__V: BL clamp reference tap [V] (paper V_BLC ~0.29). Fed to the
             array's ``bl_driver`` as its Thevenin reference; the actual per-cell
             ``V_BL`` droops below it by the wire IR drop the solver computes. Must
@@ -377,8 +377,8 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
     def validate_supply(self) -> None:
         self._require_non_neg(self.v_dd__V, "v_dd__V")
         self._require_non_neg(self.v_bl_clamp__V, "v_bl_clamp__V")
-        # The clamp sits below the rail; the CABLC clamp-side branch bills
-        # (V_DD - V_BL), which must be non-negative.
+        # The clamp reference is a BL node between the SL ground and the V_DD
+        # supply, so it must not exceed the rail.
         if not (self.v_bl_clamp__V <= self.v_dd__V):
             raise ValueError(f"require: v_bl_clamp__V ({self.v_bl_clamp__V}) <= v_dd__V ({self.v_dd__V})")
 
@@ -742,21 +742,19 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
             bl_v_ref__V=bl_v_ref__V,
             sl_driver=self.sl_driver,
             sl_v_ref__V=sl_v_ref__V,
-            t_conduct__ns=window_array__ns,
         )
         # Shape: [*B, x_bits, phys_col]
         i_bl_port = steady.i_bl_port__uA
-        v_bl_clamp = steady.v_bl_clamp__V
 
-        # Bill cablc INLINE (production site of I_DL + clamp voltage): the
-        # clamp-side (V_DD - V_BL) * I_DL of the input branch, summed over
-        # physical columns per bit and weighted by the bit window. The array's
-        # module row already bills the cell-side V_BL * I_DL; the two sum to the
-        # whole input branch V_DD * I_DL.
+        # Bill cablc INLINE at the I_DL production site: the whole input branch
+        # V_DD * I_DL, summed over physical columns per bit and weighted by the bit
+        # window. The array bills only its capacitive cycling; the read current
+        # conduction energy is entirely the macro's (the macro owns the per-bit
+        # conduction window t).
         # Shape: [*B, x_bits, phys_col] -> [*B, x_bits]
-        clamp_power = ((v_dd - v_bl_clamp) * i_bl_port).sum(dim=-1)
+        read_power = (v_dd * i_bl_port).sum(dim=-1)
         # Shape: [*B, x_bits] -> [*B]
-        e_cablc = (clamp_power * window_array__ns).sum(dim=-1)
+        e_cablc = (read_power * window_array__ns).sum(dim=-1)
         self._log_dynamic_energy(e_cablc, channel="cablc")
 
         # Recover the grouped readout layout from the flat BL port;
@@ -812,7 +810,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         # per-instance ladder [*inst, tap] (n_ref = tap), no 1-D collapse.
         ref_snap = self.adc_current_reference.snapshot(
             shape=(
-                *self._inst_shape,
+                *self.inst_shape,
                 self.adc_current_reference.mode_num,
                 self.adc_current_reference.tap_num,
             ),

@@ -81,9 +81,9 @@ class Selector(ModuleBase[SelectorConfig, SelectorPolicy]):
         )
 
     def _sample_fabricate_mismatch(self) -> None:
-        """Resample per-cell V_th at ``self._inst_shape``."""
+        """Resample per-cell V_th at ``self.inst_shape``."""
         self.vth__V = apply_gaussian(
-            self.nominal_vth__V.clone().expand(self._inst_shape),
+            self.nominal_vth__V.clone().expand(self.inst_shape),
             self.config.vth_mismatch__V,
             enabled=self.policy.vth_mismatch,
         )

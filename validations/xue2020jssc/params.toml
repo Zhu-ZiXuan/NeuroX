@@ -121,9 +121,9 @@ rescale_factor = 1.0
 # ===========================================================================
 # The macro composes this array (spec S4.1): each WL sub-phase is one DC solve at
 # the position-dependent wire IR drop, returning the per-column BL port current
-# I_DL. The array is a REPORTER: it bills the cell-side V_BL*I_DL + wire-cap cycling
-# on its own module row; the macro bills the clamp-side (V_DD - V_BL)*I_DL on the
-# cablc channel (their sum = the whole input branch, summed into the cablc slice).
+# I_DL. The array is a REPORTER: it bills ONLY its wire / cell capacitive cycling
+# on its own module row; the macro bills the whole input branch V_DD*I_DL on the
+# cablc channel (the array caps row + that channel = the cablc slice).
 [cim_macro.array_config]
 area_per_inst__um2 = 0.0          # [derived] un-extracted (device area folds into the macro lump)
 # [declared] Read-path static seat = 0 (spec S8: read-path static is declared
@@ -240,8 +240,8 @@ leakage_per_inst__uW = 0.0
 [cim_macro.cablc_config]
 # Column-MUX time-shared: fabricated at inst_shape (n_io, 2, 2) = 16 devices per
 # sub-array (4 per CIM-IO: P/N x MSB/LSB). Ideal source (r_out = 0): the wire IR
-# drop lives in the ARRAY, not the clamp. The clamp-side conduction
-# (V_DD - V_BL)*I_DL is billed by the macro cablc channel; energy_per_op MUST be 0
+# drop lives in the ARRAY, not the clamp. The whole input-branch conduction
+# V_DD*I_DL is billed by the macro cablc channel; energy_per_op MUST be 0
 # (the CMD precharge is under the control channel).
 r_out__MOhm = 0.0
 offset_sigma__V = 0.0

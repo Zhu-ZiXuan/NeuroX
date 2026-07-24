@@ -53,7 +53,7 @@ sample window (bit 0) and the tail. `t_other = t_settle + Σ(ADC step_latency)`.
 | `t_settle` | 2.66 | tail non-sensing settle |
 | `Σ step_latency` | 9.34 | STP1/2/3 = 3.16 / 3.07 / 3.11 (sourced) |
 | `t_other` | 12.0 | live/tail = `t_settle + Σ step_latency` |
-| `window_array` (per bit) | (2.6, 12.0) | array / CABLC / DSWCT conduction |
+| `window_array` (per bit) | (2.6, 12.0) | CABLC (whole input branch) / DSWCT conduction |
 | `window_sc` (per bit) | (14.6, 12.0) | SINWP-SC held-leg = `Σ t_sample[k:] + t_other` |
 
 ## Energy channels → Fig.18 slice mapping
@@ -66,7 +66,7 @@ the Fig.18 breakdown as (S6 slice ownership, the paper's own practice):
 |---|---|---|---|
 | Control | 29.2% | `control` channel + `control_config` leakage | 90% dyn `e_control_per_op` / 10% static |
 | Reference | 23.7% | `reference_config` leakage | 100% static |
-| CABLC | 14.9% | `cablc` channel (array cell-side V_BLC·I_DL folds in) + `cablc_config` leakage | dyn conduction + small/zero static |
+| CABLC | 14.9% | `cablc` channel (whole input branch V_DD·I_DL; array caps row folds in) + `cablc_config` leakage | dyn conduction + small/zero static |
 | DSWCT | 11.5% | `dswct` channel (+ macro-lump silicon) | dynamic |
 | SINWP-SC | 8.0% | `sinwp_sc` channel (+ macro-lump silicon) | dynamic |
 | PN-ISUB | 3.4% | `pn_isub` channel (3-branch conduction + `e_pn_isub_per_op`) + `pn_isub_config` leakage | dyn conduction + small/zero static |

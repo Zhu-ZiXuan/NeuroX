@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import math
 from abc import ABC
-from typing import Generic, TypeVar
+from typing import Generic, TypeVar, final
 
 import torch.nn as nn
 
@@ -68,9 +68,6 @@ class ModuleBase(FabricateMixin, nn.Module, ProfileMixin, Generic[ConfigT, Polic
           ``False``, keeping it out of the profiler's static walk.
     """
 
-    config: ConfigT
-    policy: PolicyT
-
     def __init__(
         self,
         *,
@@ -80,11 +77,28 @@ class ModuleBase(FabricateMixin, nn.Module, ProfileMixin, Generic[ConfigT, Polic
         record_latency: bool = True,
     ) -> None:
         nn.Module.__init__(self)
-        self.config = config
-        self.policy = policy
-        self.inst_shape = inst_shape
+        self.__config = config
+        self.__policy = policy
+        self.__inst_shape = inst_shape
+        self.__inst_count = math.prod(inst_shape)
         self.record_latency = record_latency
 
     @property
+    @final
+    def config(self) -> ConfigT:
+        return self.__config
+
+    @property
+    @final
+    def policy(self) -> PolicyT:
+        return self.__policy
+
+    @property
+    @final
+    def inst_shape(self) -> tuple[int, ...]:
+        return self.__inst_shape
+
+    @property
+    @final
     def inst_count(self) -> int:
-        return math.prod(self._inst_shape)
+        return self.__inst_count

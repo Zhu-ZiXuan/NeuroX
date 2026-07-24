@@ -229,28 +229,26 @@ class McsSarDifferentialVoltageAdc(
 
     def _sample_fabricate_mismatch(self) -> None:
         """Resample independent differential cap arrays and comparator offset."""
-        config = self.config
-        inst_shape = self._inst_shape
 
         # Two independently-sampled cap arrays for the differential CDAC.
         policy = self.policy
         self.c_p__fF = apply_pelgrom_mismatch(
-            self.nominal_c__fF.clone().expand(*inst_shape, self.n_caps),
-            config.cap_mismatch_sigma_relative,
-            unit=config.c_unit__fF,
-            floor=0.1 * config.c_unit__fF,
+            self.nominal_c__fF.clone().expand(*self.inst_shape, self.n_caps),
+            self.config.cap_mismatch_sigma_relative,
+            unit=self.config.c_unit__fF,
+            floor=0.1 * self.config.c_unit__fF,
             enabled=policy.cap_mismatch,
         )
         self.c_n__fF = apply_pelgrom_mismatch(
-            self.nominal_c__fF.clone().expand(*inst_shape, self.n_caps),
-            config.cap_mismatch_sigma_relative,
-            unit=config.c_unit__fF,
-            floor=0.1 * config.c_unit__fF,
+            self.nominal_c__fF.clone().expand(*self.inst_shape, self.n_caps),
+            self.config.cap_mismatch_sigma_relative,
+            unit=self.config.c_unit__fF,
+            floor=0.1 * self.config.c_unit__fF,
             enabled=policy.cap_mismatch,
         )
         self.comparator_offset__V = apply_gaussian(
-            self.nominal_comparator_offset__V.clone().expand(inst_shape),
-            config.comparator_offset_sigma__V,
+            self.nominal_comparator_offset__V.clone().expand(self.inst_shape),
+            self.config.comparator_offset_sigma__V,
             enabled=policy.comparator_offset,
         )
 
@@ -280,7 +278,6 @@ class McsSarDifferentialVoltageAdc(
         """
         self._validate_runtime_args(bits)
 
-        config = self.config
         v_cm__V = 0.5 * v_ref__V
 
         c_p__fF = self.c_p__fF
@@ -307,7 +304,7 @@ class McsSarDifferentialVoltageAdc(
         # Sample energy: input source charges the bottom-plate caps from V_cm to V_in.
         e_p_sample__fJ = c_p_total__fF * v_pos__V * torch.clamp_min(v_pos__V - v_cm__V, 0)
         e_n_sample__fJ = c_n_total__fF * v_neg__V * torch.clamp_min(v_neg__V - v_cm__V, 0)
-        e_sample__fJ = e_p_sample__fJ + e_n_sample__fJ + config.e_bootstrap__fJ
+        e_sample__fJ = e_p_sample__fJ + e_n_sample__fJ + self.config.e_bootstrap__fJ
 
         # --- 2. MSB decision (free, no cap switch) ---
 
@@ -322,9 +319,9 @@ class McsSarDifferentialVoltageAdc(
         # can index by k directly. v_p_step, v_n_step, the switch-energy and
         # c_diff increments depend only on these caps + v_ref / v_cm
         # (runtime-input-independent), so they are precomputed here.
-        cap_lo = config.max_bits - bits + 1
-        c_p_used__fF = c_p__fF[..., cap_lo : config.max_bits]
-        c_n_used__fF = c_n__fF[..., cap_lo : config.max_bits]
+        cap_lo = self.config.max_bits - bits + 1
+        c_p_used__fF = c_p__fF[..., cap_lo : self.config.max_bits]
+        c_n_used__fF = c_n__fF[..., cap_lo : self.config.max_bits]
         c_p_total_e__fF = c_p_total__fF.unsqueeze(-1)
         c_n_total_e__fF = c_n_total__fF.unsqueeze(-1)
         v_p_step_table__V = v_cm__V * c_p_used__fF / c_p_total_e__fF
@@ -350,7 +347,7 @@ class McsSarDifferentialVoltageAdc(
         bit_seq = ((code.unsqueeze(-1) >> shifts) & 1).to(torch.bool)
         e_detect__fJ = (
             torch.where(bit_seq, e_step_p_table__fJ, e_step_n_table__fJ).sum(dim=-1)
-            + bits * config.e_constant_per_bit__fJ
+            + bits * self.config.e_constant_per_bit__fJ
         )
         c_diff__fF = (torch.where(bit_seq, -0.5, 0.5) * c_diff_step_table__fF).sum(dim=-1)
 
@@ -376,7 +373,7 @@ class McsSarDifferentialVoltageAdc(
         # rule. Per-op latency is parametric in the runtime bit width:
         # one sample cycle + `bits` SAR comparisons → (bits + 1) clocks.
         serial_op_count = max(1, code.numel() // max(self.inst_count, 1))
-        per_op_latency__ns = (bits + 1) * config.clk_period__ns
+        per_op_latency__ns = (bits + 1) * self.config.clk_period__ns
         latency__ns = torch.tensor(
             per_op_latency__ns * serial_op_count,
             device=code.device,
@@ -411,6 +408,5 @@ class McsSarDifferentialVoltageAdc(
 
     def _validate_runtime_args(self, bits: int) -> None:
         """Validate the per-call bit width against the config bound."""
-        config = self.config
-        if not (1 <= bits <= config.max_bits):
-            raise ValueError(f"bits {bits} outside [1, {config.max_bits}]")
+        if not (1 <= bits <= self.config.max_bits):
+            raise ValueError(f"bits {bits} outside [1, {self.config.max_bits}]")

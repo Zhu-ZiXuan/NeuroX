@@ -263,7 +263,7 @@ class XbarCell1t1rDetail(XbarCell1t1r[XbarCell1t1rDetailConfig, XbarCell1t1rDeta
 
         Args:
             w_state_idx: State-index tensor in ``[0, w_states - 1]`` at
-                ``self._inst_shape``.
+                ``self.inst_shape``.
         """
         target_g__uS = self.state_to_g_map__uS[w_state_idx.long()]
         self.rram.program(target_g__uS, t_elapsed=0.0)

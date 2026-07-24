@@ -29,11 +29,11 @@ a sensitivity SWEEP -- it is NEVER solved to hit the gate. The headline is "the
 model brackets 32.06 pJ/access for plausible sparsity", read off the
 total-energy-vs-``p_zero`` curve.
 
-The macro composes the ``XbarArray1t1r`` (IR-drop solve): the input branch is split
-along the BL port, the array module row billing the cell-side ``V_BL * I_DL`` (+
-wire caps) and the macro ``cablc`` channel the clamp-side ``(V_DD - V_BL) * I_DL``.
-The ``cablc`` slice SUMS the array module row and the ``cablc`` channel -- their sum
-is the whole ``V_DD * I_DL`` input branch (spec S13).
+The macro composes the ``XbarArray1t1r`` (IR-drop solve): the array module row bills
+only its wire / cell capacitive cycling, and the macro ``cablc`` channel bills the
+whole input branch ``V_DD * I_DL``. The ``cablc`` slice SUMS the array module row and
+the ``cablc`` channel -- the array caps plus the whole ``V_DD * I_DL`` input branch
+(spec S13).
 
 Large N (spec S13): ``--n`` may be ~1e6. Draws are profiled in chunks of
 ``--chunk-size`` (default 1e4), each chunk in its own profiler context; the
@@ -80,11 +80,11 @@ _ADOPTED_SLICES = ("control", "reference")
 _ALL_SLICES = (*_ADOPTED_SLICES, *_READ_PATH_SLICES)
 
 # Profiler energy-row keys per Fig.18 slice (dynamic side). A slice may pool
-# several rows. The ``cablc`` slice is the WHOLE input branch: the ``array`` module
-# energy row (the array bills the cell-side ``V_BL * I_DL`` + wire-cap cycling) PLUS
-# the macro ``.cablc`` channel (the clamp-side ``(V_DD - V_BL) * I_DL``); their sum
-# is ``V_DD * I_DL`` (spec S13). ``reference`` has no dynamic row (100 % static);
-# ``tmcsa`` self-bills as a module row.
+# several rows. The ``cablc`` slice pools the ``array`` module energy row (the array
+# bills only its wire / cell capacitive cycling) PLUS the macro ``.cablc`` channel
+# (the whole input branch ``V_DD * I_DL``); their sum is the array caps plus the
+# whole ``V_DD * I_DL`` input branch (spec S13). ``reference`` has no dynamic row
+# (100 % static); ``tmcsa`` self-bills as a module row.
 _DYN_NAMES: dict[str, tuple[str, ...]] = {
     "cablc": (".cablc", "array"),
     "dswct": (".dswct",),

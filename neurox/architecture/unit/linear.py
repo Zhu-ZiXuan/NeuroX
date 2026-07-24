@@ -141,10 +141,8 @@ class IdealLinearUnit(LinearUnit, CimUnit[IdealLinearUnitConfig, IdealLinearUnit
             T__K=T__K,
             ideal_xbar=ideal_xbar,
         )
-        self.config = config
         self._area_per_inst__um2 = config.area_per_inst__um2
         self._leakage_per_inst__uW = config.leakage_per_inst__uW
-        self._inst_shape = self._w_logical_shape[:-2]
 
         # fp32-exact fast-path eligibility: CUDA has no integer-matmul
         # kernel. With every per-element product and every partial sum

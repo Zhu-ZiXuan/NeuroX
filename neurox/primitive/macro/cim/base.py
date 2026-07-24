@@ -131,7 +131,7 @@ class CimMacro(
     @property
     def _w_layout_shape(self) -> tuple[int, ...]:
         """Full digit-tensor shape ``(*inst_shape, col_num, w_digit_count, row_num)``."""
-        return (*self._inst_shape, self.col_num, self.w_digit_count, self.row_num)
+        return (*self.inst_shape, self.col_num, self.w_digit_count, self.row_num)
 
     @classmethod
     def from_config(
@@ -290,7 +290,7 @@ class CimMacro(
         return IdealCimMacro(
             config=ideal_config,
             policy=IdealCimMacroPolicy(),
-            inst_shape=self._inst_shape,
+            inst_shape=self.inst_shape,
             dtype=self.dtype,
             T__K=self.T__K,
         )

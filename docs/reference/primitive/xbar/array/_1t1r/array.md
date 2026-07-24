@@ -38,7 +38,7 @@ TODO: once the device/analog Reference documents exist, state exactly which sour
 
 ## Parameters
 
-The array's own parameters are the interconnect ladder and the solver iteration counts; the DC-conduction window is a per-solve argument, not a stored parameter. The cell sub-module's parameters (state map, RRAM window, access-NMOS sizing / parasitic caps, per-cell Newton count) live in the cell config table `[cim_macro.array_config.cell_config]`, specified in [cell](../../cell/_1t1r/cell.md).
+The array's own parameters are the interconnect ladder and the solver iteration counts. The cell sub-module's parameters (state map, RRAM window, access-NMOS sizing / parasitic caps, per-cell Newton count) live in the cell config table `[cim_macro.array_config.cell_config]`, specified in [cell](../../cell/_1t1r/cell.md).
 
 | Parameter | Meaning | Unit | Constraint | Source |
 |---|---|---|---|---|
@@ -50,15 +50,11 @@ Provenance terms are defined in [module_parameter](../../../../../conventions/mo
 
 ## Energy model
 
-Per VMM the array dissipates wire-capacitor, control-line, DC-conduction, and per-cell node-capacitance energy. The **node-capacitance** term — the cell's four grounded node-to-ground capacitances — is a per-cell contribution ([cell](../../cell/_1t1r/cell.md)) summed over the array; the wire-capacitor, control-line, and DC-conduction terms are array-level. The model assumes a full $0 \to \mathrm{DC} \to 0$ charge cycle per capacitor per settled plane; a grounded cap dissipates $E = C\,V_{\mathrm{final}}^2$ (no extra factor of two). The array-level terms are the BL/SL wire caps and the WL-line cap; the BL/SL wire-cap energy uses a per-segment linear-voltage profile,
+Per VMM the array dissipates wire-capacitor, control-line, and per-cell node-capacitance energy — all capacitive. The **node-capacitance** term — the cell's four grounded node-to-ground capacitances — is a per-cell contribution ([cell](../../cell/_1t1r/cell.md)) summed over the array; the wire-capacitor and control-line terms are array-level. The model assumes a full $0 \to \mathrm{DC} \to 0$ charge cycle per capacitor per settled plane; a grounded cap dissipates $E = C\,V_{\mathrm{final}}^2$ (no extra factor of two). The array-level terms are the BL/SL wire caps and the WL-line cap; the BL/SL wire-cap energy uses a per-segment linear-voltage profile,
 
 $$E_{\mathrm{wire}} = C\,\frac{V_L^2 + V_L V_R + V_R^2}{3},$$
 
-where $V_L, V_R$ are the segment-endpoint voltages. DC conduction energy is the net supply power into the boundaries over the conduction window, using the first-segment port currents $I_{\mathrm{BL,port}}$, $I_{\mathrm{SL,port}}$ defined above,
-
-$$E_{\mathrm{DC}} = t_{\mathrm{cond}}\left(\sum_c V_{\mathrm{BL,CL}}\,I_{\mathrm{BL,port}} + \sum_c V_{\mathrm{SL,CL}}\,I_{\mathrm{SL,port}}\right).$$
-
-The conduction window $t_{\mathrm{cond}}$ is supplied per solve, not a stored array parameter: a scalar for a single settled plane, or a per-plane vector broadcasting against the solve leading when several input planes settle through one broadcast solve, scaling the DC-conduction energy plane by plane. By Tellegen's theorem $E_{\mathrm{DC}}$ equals the sum of the cell-branch and BL/SL wire-resistor Joule losses inside the array.
+where $V_L, V_R$ are the segment-endpoint voltages. The read-current DC conduction ($V \cdot I \cdot t$) is not part of the array's energy model: the array settles one batched leading with no notion of which position is a serial time step, so it cannot apply the per-event conduction-time weight. That energy carries a per-input-bit duration and is billed by the consuming layer that owns the conduction-time axis (the macro).
 
 ## Symbols
 
@@ -80,8 +76,7 @@ The conduction window $t_{\mathrm{cond}}$ is supplied per solve, not a stored ar
 | $G_{\mathrm{min}}$ | RRAM device conductance floor | uS | `cell_config.rram_config.g_min__uS` |
 | $R_{\mathrm{seg}}$ | wire segment resistance | MOhm | `*_segment_r__MOhm` |
 | $C$ | parasitic capacitance | fF | wire / cell node-cap fields |
-| $E_{\mathrm{wire}}, E_{\mathrm{DC}}$ | per-VMM wire-cap / DC-conduction energy | fJ | `array_energy__fJ` |
-| $t_{\mathrm{cond}}$ | DC-conduction window (per-solve; scalar or per-plane) | ns | `t_conduct__ns` |
+| $E_{\mathrm{wire}}$ | per-VMM wire-segment capacitive energy | fJ | `array_energy__fJ` |
 | $C_{\mathrm{WL,row}}$ | WL lumped capacitance per row | fF | `c_wl_wire_per_row__fF` |
 | $C_{\mathrm{WL,first}}, C_{\mathrm{WL,seg}}$ | WL first / cell-to-cell segment cap | fF | `wl_first_c__fF`, `wl_segment_c__fF` |
 | $N_{\mathrm{row}}$ | number of rows along each BL/SL wire ladder | — | `row_num` |

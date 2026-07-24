@@ -23,9 +23,10 @@ class FabricateMixin(ABC):
         - Implement ``_sample_fabricate_mismatch`` to resample this node's own
           static mismatch; a container that owns no static state implements it
           as an explicit no-op.
-        - Assign ``self._inst_shape: tuple[int, ...]`` in ``__init__``,
-          encoding the per-instance multiplicity at this layer. The mixin
-          reads it but never assigns it.
+        - ``ModuleBase.__init__`` sets the public ``inst_shape`` — the
+          per-instance fabrication multiplicity at this layer.
+          ``FabricateMixin`` neither assigns nor reads it; ``inst_count`` and
+          subclass ``_sample_fabricate_mismatch`` implementations read it.
         - Hold a fabricable submodule as a registered child — directly or
           inside an ``nn.ModuleList`` / ``nn.ModuleDict``. One kept in a plain
           attribute falls outside ``self.children()`` and is never reached.
@@ -33,8 +34,6 @@ class FabricateMixin(ABC):
           holders — into the same tree freely: a registered child that is not a
           ``FabricateMixin`` is skipped silently, with no opt-out flag to set.
     """
-
-    _inst_shape: tuple[int, ...]
 
     def fabricate(self) -> None:
         """Re-sample static manufacturing variation across self and descendants.

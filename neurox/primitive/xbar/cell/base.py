@@ -166,7 +166,7 @@ class XbarCell(
         """Program the cell's storage device from a state-index tensor.
 
         Args:
-            w_state_idx: State-index tensor at ``self._inst_shape``.
+            w_state_idx: State-index tensor at ``self.inst_shape``.
         """
         raise NotImplementedError
 

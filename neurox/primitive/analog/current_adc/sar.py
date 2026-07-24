@@ -307,7 +307,7 @@ class SarSingleEndedCurrentAdc(SingleEndedCurrentAdc[SarSingleEndedCurrentAdcCon
         column ``c`` maps to lane ``(c * n_lane) // n_col`` — every column a lane
         time-serves shares that lane's single static offset.
         """
-        n_lane = self._inst_shape[-1] if self._inst_shape else 1
+        n_lane = self.inst_shape[-1] if self.inst_shape else 1
         # Shape: [n_col]
         return (torch.arange(n_col, device=device) * n_lane) // n_col
 

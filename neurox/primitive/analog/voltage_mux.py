@@ -126,9 +126,9 @@ class VoltageMux(AnalogBase[VoltageMuxConfig, VoltageMuxPolicy]):
         self.sigma_eps_g = config.mux_gain_mismatch_sigma_relative
 
     def _sample_fabricate_mismatch(self) -> None:
-        """Resample inter-leg gain mismatch ε_g at ``self._inst_shape``."""
+        """Resample inter-leg gain mismatch ε_g at ``self.inst_shape``."""
         self.eps_g = apply_gaussian(
-            self.nominal_eps_g.clone().expand(self._inst_shape),
+            self.nominal_eps_g.clone().expand(self.inst_shape),
             self.sigma_eps_g,
             enabled=self.policy.mux_gain_mismatch,
         )

@@ -10,7 +10,7 @@
 
 ## Contracts & invariants
 
-- **Fabricated state at `_inst_shape`.** `_sample_fabricate_mismatch` (driven by `FabricateMixin.fabricate()`) samples the per-cap Pelgrom mismatch (both legs) and the static comparator offset; the nominal cap / comparator-offset buffers are seeded at `__init__`.
+- **Fabricated state at `inst_shape`.** `_sample_fabricate_mismatch` (driven by `FabricateMixin.fabricate()`) samples the per-cap Pelgrom mismatch (both legs) and the static comparator offset; the nominal cap / comparator-offset buffers are seeded at `__init__`.
 - **Raw offset-binary code returned, zero point exposed not folded.** `_convert_impl` returns the raw offset-binary SAR code in `[0, 2**bits - 1]`; `_zero_offset_table[bits]` is exposed through `zero_offset(bits)` and never subtracted inside the ADC. No standalone unsigned clamp runs — the SAR loop leaves `code` in range by construction, and `apply_lsb_jitter` re-clamps after its `+1` overflow.
 - **Per-call operating point.** `v_ref__V` broadcasts through the tensor-valued `v_cm`, step-table, and energy math; `bits <= max_bits` sets the active depth. No mode index enters the ADC.
 

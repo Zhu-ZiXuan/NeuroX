@@ -98,7 +98,6 @@ class XbarArray(ModuleBase[ConfigT, PolicyT], ABC):
         bl_v_ref__V: Tensor,
         sl_driver: ClampDriver[SLSnapT],
         sl_v_ref__V: Tensor,
-        t_conduct__ns: float | Tensor,
     ) -> XbarArraySteadyState:
         """Settle the array to DC under an analog WL drive.
 
@@ -108,9 +107,6 @@ class XbarArray(ModuleBase[ConfigT, PolicyT], ABC):
             bl_v_ref__V: BL-clamp reference tap, a 0-d scalar.
             sl_driver: SL boundary clamp (structural ``ClampDriver`` role).
             sl_v_ref__V: SL-drive reference tap, a 0-d scalar.
-            t_conduct__ns: Scalar (single plane) or a per-plane vector
-                broadcasting against the solve leading; scales the
-                DC-conduction energy per plane.
 
         Returns:
             :class:`XbarArraySteadyState` carrying the per-column BL port

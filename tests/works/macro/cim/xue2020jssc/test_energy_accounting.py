@@ -25,11 +25,13 @@ Coverage:
     dynamic energy is unchanged; doubling a conduction window (``t_settle``)
     scales the read channels but leaves the static energy — and the
     window-invariant control channel — untouched,
-  * the input branch is SPLIT along the sole sanctioned BL port with no
-    double-bill: the array module row bills the cell-side ``V_BL * I_DL`` (plus
-    wire caps) and the ``cablc`` channel bills the clamp-side ``(V_DD - V_BL) *
-    I_DL``; the channel matches the reconstructed clamp side exactly and their sum
-    covers the whole input branch ``V_DD * I_DL``,
+  * the input branch conduction is billed WHOLE by the macro on the ``cablc``
+    channel (``V_DD * I_DL`` over the per-bit window — the macro owns the
+    conduction window), while the array module row bills ONLY its wire / node
+    capacitive cycling: the channel matches the reconstructed whole branch
+    exactly, the array row is strictly positive yet window-invariant (the cap
+    oracle), and array + channel cover the whole branch plus the caps with no
+    double-bill,
   * the control channel fires once per access (``mux_factor`` mux steps x batch),
   * each read channel is LINEAR in every window knob (``t_sample[k]``,
     ``t_settle``), the SC held-leg SUFFIX-SUM law (window
@@ -71,7 +73,7 @@ _CHANNELS = ("cablc", "dswct", "sinwp_sc", "pn_isub", "control")
 _READ_CHANNELS = ("cablc", "dswct", "sinwp_sc")  # window-dependent conduction channels
 # Kernel primitives removed by the rewrite (S3) + the dissolved combining blocks +
 # the non-reporter cell: none of these may surface as a dynamic or static row. The
-# restored array (S4.1) is NOT here — it self-bills its cell-side row.
+# array (S4.1) is NOT here — it self-bills its own capacitive module row.
 _REMOVED_ROWS = (
     "dswct_msb",
     "dswct_lsb",
@@ -150,23 +152,20 @@ def _with_adc(
     return dataclasses.replace(config, adc_config=dataclasses.replace(config.adc_config, **kw))
 
 
-def _input_branch(macro: Xue2020JsscCimMacro, x: Tensor) -> tuple[float, float, float]:
-    """Reconstruct the input-branch energy split from a re-solve, batch-summed [fJ].
+def _whole_input_branch(macro: Xue2020JsscCimMacro, x: Tensor) -> float:
+    """Reconstruct the WHOLE input-branch read energy from a re-solve, batch-summed [fJ].
 
     Re-runs the array DC solve (cells + wire IR drop) per WL plane against the same
-    ``window_array`` windows the macro uses, matching :meth:`vec_mat_mul`
-    bit-for-bit (deterministic under all-off + eval), and returns
-    ``(whole, clamp, cell_dc)`` where per bit ``k`` over its window:
+    ``window_array`` windows :meth:`vec_mat_mul` uses, matching it bit-for-bit
+    (deterministic under all-off + eval), and returns the whole input branch the
+    macro bills on the ``cablc`` channel::
 
-      * ``whole   = sum  V_DD          * I_DL * window`` — the whole input branch,
-      * ``clamp   = sum (V_DD - V_BL)  * I_DL * window`` — the macro's ``cablc`` bill,
-      * ``cell_dc = sum  V_BL          * I_DL * window`` — the array row's DC term
-        (the array module row additionally carries wire / node caps, so the row
-        strictly exceeds ``cell_dc``).
+        whole = sum_k  V_DD * I_DL * window_array[k]
 
-    ``V_BL`` is the per-column clamp voltage the solver returns (drooped below the
-    reference by the wire IR drop); ``I_DL`` is the per-column BL port current.
-    The re-solve runs OUTSIDE any profiler so it logs nothing of its own.
+    where ``I_DL`` is the per-column BL port current the solver returns and the
+    conduction window ``t`` is the macro's, applied here post-solve. The array no
+    longer carries any conduction term, so there is no clamp / cell split to
+    reconstruct. The re-solve runs OUTSIDE any profiler so it logs nothing of its own.
     """
     cfg = macro.config
     device = x.device
@@ -176,7 +175,7 @@ def _input_branch(macro: Xue2020JsscCimMacro, x: Tensor) -> tuple[float, float, 
     x_long = x.long()
     window = cfg.window_array__ns
 
-    whole = clamp = cell_dc = 0.0
+    whole = 0.0
     for k in range(cfg.input_bit_num):
         plane = (x_long >> k) & 1  # [*batch, row]
         v_wl = macro.wl_dac.convert(plane)  # [*batch, row]
@@ -186,14 +185,10 @@ def _input_branch(macro: Xue2020JsscCimMacro, x: Tensor) -> tuple[float, float, 
             bl_v_ref__V=bl_v_ref,
             sl_driver=macro.sl_driver,
             sl_v_ref__V=sl_v_ref,
-            t_conduct__ns=window[k],
         )
         i_bl = steady.i_bl_port__uA  # [*batch, phys_col]
-        v_bl = steady.v_bl_clamp__V  # [*batch, phys_col]
         whole += float(((v_dd * i_bl).sum(dim=-1) * window[k]).sum())
-        clamp += float((((v_dd - v_bl) * i_bl).sum(dim=-1) * window[k]).sum())
-        cell_dc += float(((v_bl * i_bl).sum(dim=-1) * window[k]).sum())
-    return whole, clamp, cell_dc
+    return whole
 
 
 # ---------------------------------------------------------------------------
@@ -217,10 +212,10 @@ def test_array_and_adc_self_bill_dynamic_rows(device: torch.device) -> None:
     x = torch.tensor([[1, 2, 1, 0], [3, 3, 1, 0]], dtype=torch.long)
     _prof, report = _run(build_config(), _w_full(), x, device=device)
     by_name = report.energy_by_name
-    # The restored array bills its cell-side branch + caps; the TMCSA bills sensing.
+    # The array bills its capacitive cycling (caps only); the TMCSA bills sensing.
     assert by_name.get("array", 0.0) > 0.0, f"missing/empty array row; have {sorted(by_name)}"
     assert by_name.get("tmcsa", 0.0) > 0.0, f"missing/empty tmcsa row; have {sorted(by_name)}"
-    # The clamp-side input branch is a macro channel (.cablc), PN-ISUB is a macro
+    # The whole input branch is a macro channel (.cablc), PN-ISUB is a macro
     # channel (.pn_isub); the non-reporter cell and the PN-ISUB seat emit no
     # self-billed dynamic row.
     for absent in ("cell", "pn_isub"):
@@ -304,50 +299,62 @@ def test_static_energy_scales_with_t_cycle_not_conduction_windows(device: torch.
 
 
 # ---------------------------------------------------------------------------
-# Input-branch ownership: array (cell-side) + cablc (clamp-side), no double-bill
+# Input-branch ownership: cablc bills the whole branch, array bills caps only
 # ---------------------------------------------------------------------------
 
 
-def test_input_branch_split_array_cell_side_plus_cablc_clamp_side(device: torch.device) -> None:
-    """The input branch is SPLIT: array bills the cell side, ``cablc`` the clamp side (S4.1).
+def test_input_branch_billed_whole_by_cablc_array_bills_caps_only(device: torch.device) -> None:
+    """The macro bills the WHOLE input branch on ``.cablc``; the array bills caps only (S4.1 + S3).
 
-    The array module row bills the cell-side ``V_BL * I_DL`` (plus wire / node
-    caps) and the macro's ``.cablc`` channel bills the clamp-side ``(V_DD - V_BL)
-    * I_DL``. Their sum covers the whole input branch ``V_DD * I_DL`` with no
-    double-bill. Reconciled against a re-solve: the ``.cablc`` channel matches the
-    reconstructed clamp side EXACTLY (billing only the clamp segment, strictly
-    below the whole rail — the regression a whole-rail cablc + a vanished array
-    would show), and the array row exceeds the cell-side DC term by exactly the
-    caps. This is the ``cablc`` validation slice (array + channel) summing the
-    whole branch.
+    The ``.cablc`` channel bills the whole input branch ``V_DD * I_DL`` over the
+    per-bit conduction window (the macro owns the window); the array module row
+    bills ONLY its wire / node capacitive cycling — no conduction. Reconciled
+    against a re-solve: ``.cablc`` matches the reconstructed WHOLE branch EXACTLY
+    (a clamp-side-only ``(V_DD - V_BL)`` bill would fall strictly below it), the
+    array row is strictly positive (caps) yet window-INVARIANT — the cap oracle: a
+    conduction term would move it with the window and double-count the branch — and
+    ``array + cablc`` covers the whole branch plus the caps with no double-bill.
+    This is the ``cablc`` validation slice (array + channel).
     """
     cfg = build_config()
     w = _w_full()
     x = torch.tensor([[1, 2, 1, 0], [3, 3, 1, 0]], dtype=torch.long)  # batch (2,)
-    macro = build_macro(cfg, device=device)
-    macro.program(encode_weights(w.to(device)))
-    with NeuroxProfiler() as prof, torch.no_grad():
-        macro.vec_mat_mul(x.to(device), adc_mode=ADC_MODE, adc_bits=TINY_ADC_BITS)
-    report = prof.report(macro)
-    cablc = report.energy_by_name.get(".cablc", 0.0)
-    array = report.energy_by_name.get("array", 0.0)
 
-    whole, clamp, cell_dc = _input_branch(macro, x.to(device))
-    # The witness must actually draw BL current at V_BLC > 0, else clamp and cell
-    # sides coincide and the split cannot be distinguished.
-    assert cell_dc > 0.0 and clamp > 0.0 and whole > clamp, (
-        f"witness draws no distinguishable branch: whole={whole} clamp={clamp} cell_dc={cell_dc}"
+    def run(config: Xue2020JsscCimMacroConfig) -> tuple[float, float, float]:
+        macro = build_macro(config, device=device)
+        macro.program(encode_weights(w.to(device)))
+        with NeuroxProfiler() as prof, torch.no_grad():
+            macro.vec_mat_mul(x.to(device), adc_mode=ADC_MODE, adc_bits=TINY_ADC_BITS)
+        report = prof.report(macro)
+        cablc = report.energy_by_name.get(".cablc", 0.0)
+        array = report.energy_by_name.get("array", 0.0)
+        # No cell row double-bills the branch (the cell is a non-reporter).
+        assert "cell" not in report.energy_by_name
+        whole = _whole_input_branch(macro, x.to(device))
+        return cablc, array, whole
+
+    cablc, array, whole = run(cfg)
+    # The witness must actually draw BL current at V_BLC > 0, else the whole branch
+    # is zero and the collapse cannot be distinguished.
+    assert whole > 0.0, f"witness draws no branch current: whole={whole}"
+    # cablc bills the WHOLE input branch (V_DD * I_DL), matching the re-solve — NOT
+    # the clamp-side (V_DD - V_BL) fraction alone.
+    assert cablc == pytest.approx(whole), f"cablc {cablc} != reconstructed whole branch {whole}"
+    # The array self-bills its capacitive cycling only (strictly positive, no conduction).
+    assert array > 0.0, f"array row {array} must bill its capacitive cycling"
+    # The two together cover the whole branch plus the caps — the cablc slice is
+    # array + channel: no energy lost, no double-bill.
+    assert cablc + array > whole, f"array + cablc {cablc + array} must exceed the whole branch {whole} by the caps"
+
+    # The array row is the CAP oracle: purely capacitive, hence window-INVARIANT,
+    # while cablc (the whole conduction branch) scales with the window. A conduction
+    # term left in the array would move the array row and double-count the branch.
+    cablc_wide, array_wide, whole_wide = run(dataclasses.replace(cfg, t_settle__ns=cfg.t_settle__ns + 3.0))
+    assert array_wide == pytest.approx(array), (
+        f"array row moved with the conduction window {array} -> {array_wide} (conduction leaked back into the array)"
     )
-    # cablc bills the clamp side ONLY (not the whole rail — the old behavior).
-    assert cablc == pytest.approx(clamp), f"cablc {cablc} != reconstructed clamp side {clamp}"
-    assert cablc < whole, f"cablc {cablc} bills the whole rail {whole} (cell side not folded into the array)"
-    # The array row carries the cell-side DC term plus (strictly positive) caps.
-    assert array > cell_dc, f"array row {array} must exceed cell-side DC {cell_dc} by the wire/node caps"
-    # The two together cover the whole input branch — the cablc slice is array +
-    # channel, no double-bill.
-    assert cablc + array > whole, f"array + cablc {cablc + array} must cover the whole branch {whole}"
-    # No cell row double-bills the cell side (the cell is a non-reporter).
-    assert "cell" not in report.energy_by_name
+    assert cablc_wide == pytest.approx(whole_wide), f"cablc {cablc_wide} != reconstructed whole branch {whole_wide}"
+    assert cablc_wide > cablc, f"cablc must grow with the conduction window {cablc} -> {cablc_wide}"
 
 
 # ---------------------------------------------------------------------------

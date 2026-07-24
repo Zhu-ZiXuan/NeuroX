@@ -125,10 +125,10 @@ class SwitchCap(AnalogBase[SwitchCapConfig, SwitchCapPolicy]):
         )
 
     def _sample_fabricate_mismatch(self) -> None:
-        """Resample per-cap mismatch at ``(*self._inst_shape, n_caps)``."""
+        """Resample per-cap mismatch at ``(*self.inst_shape, n_caps)``."""
         config = self.config
         self.c__fF = apply_pelgrom_mismatch(
-            self.nominal_c__fF.clone().expand(*self._inst_shape, self.n_caps),
+            self.nominal_c__fF.clone().expand(*self.inst_shape, self.n_caps),
             config.cap_mismatch_sigma_relative,
             unit=config.c_unit__fF,
             floor=0.1 * config.c_unit__fF,
