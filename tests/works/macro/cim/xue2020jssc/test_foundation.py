@@ -221,19 +221,19 @@ def test_validate_rejects_bad_t_sample_length() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Generalized weight / input geometry (the fixed "== 2" guards are GONE)
+# Generalized weight and input geometry
 # ---------------------------------------------------------------------------
 
 
 def test_generalized_w_digit_num_accepted() -> None:
-    """The old ``w_digit_num == 2`` guard is gone: 1 and 3 magnitude digits both validate + build.
+    """One and three magnitude digits both validate and build.
 
     The DSWCT digit sum is a plain ``.sum(-1)`` that degenerates to identity at a
     single digit, so a general ``w_digit_num`` needs no special case. A single P/N
     digit (``w_digit_num = 1``, weights in ``{-1, 0, 1}``) and three digits both
     construct without raising and expose the right per-weight geometry.
     """
-    d1 = build_config(w_digit_num=1)  # no ValueError — the "== 2" guard is gone
+    d1 = build_config(w_digit_num=1)
     assert d1.w_digit_num == 1
     macro1 = build_macro(d1)
     assert macro1.w_digit_count == 1
@@ -246,13 +246,11 @@ def test_generalized_w_digit_num_accepted() -> None:
 
 
 def test_generalized_w_digit_radix_accepted() -> None:
-    """The old ``w_digit_radix == 2`` guard is gone: a radix > 2 digit validates (>= 2 only)."""
-    d3 = build_config(w_digit_radix=3)  # no ValueError — only the >= 2 lower bound remains
+    """A radix-three digit validates, builds, and exposes its signed range."""
+    d3 = build_config(w_digit_radix=3)
     assert d3.w_digit_radix == 3
-    # The macro's signed per-digit range widens with the radix (a radix-level cell
-    # table would supply the extra states; here we assert the config-level surface).
-    macro = build_macro(build_config())
-    assert macro.w_digit_value_range == (-1, 1)  # radix 2 -> single-bit magnitude
+    macro = build_macro(d3)
+    assert macro.w_digit_value_range == (-2, 2)
 
 
 def test_input_bit_num_one_accepted() -> None:

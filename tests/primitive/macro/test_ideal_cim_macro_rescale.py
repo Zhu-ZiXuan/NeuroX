@@ -3,11 +3,11 @@
 The recovery rescale must clip exactly at the signed N-bit endpoints
 under any legal ``w_digit_value_range`` — including signed-digit and offset
 encodings whose extremes are not the canonical ``[0, radix^count - 1]``.
-The rescale denominator is the per-conversion bound ``_max_plane_dot_abs``:
-each conversion digitizes one WL plane of at most ``active_row_num`` live
-rows, so the bound scales with ``active_row_num``, not ``row_num``. The
-macro treats every leading axis as anonymous batch — the caller (engine)
-owns any phase axis and its accumulation.
+The rescale denominator is the maximum magnitude of one conversion: each
+conversion digitizes one WL plane of at most ``active_row_num`` live rows, so
+the bound scales with ``active_row_num``, not ``row_num``. The macro treats
+every leading axis as anonymous batch; the caller owns any phase axis and its
+accumulation.
 """
 
 from __future__ import annotations
@@ -70,7 +70,7 @@ def _expected_max_plane_dot(
 
 
 class TestRescaleScope:
-    """``_max_plane_dot_abs`` must use the actual w_digit_value_range, not radix^count."""
+    """The public rescale factor follows the actual digit and activation ranges."""
 
     def test_signed_symmetric_range(self) -> None:
         """w_digit_value_range = [-d_max, d_max] — symmetric signed digit."""
@@ -86,8 +86,7 @@ class TestRescaleScope:
         expected = _expected_max_plane_dot(
             w_digit_value_range=(-3, 3), w_digit_radix=4, w_digit_count=2, x_value_range=(0, 1), active_row_num=8
         )
-        assert xbar._max_plane_dot_abs == expected
-        assert xbar._rescale_by_bits[8] == expected / ((1 << 7) - 1)
+        assert xbar.adc_rescale_factor(adc_mode=0, adc_bits=8) == expected / ((1 << 7) - 1)
 
     def test_offset_nonneg_range(self) -> None:
         """w_digit_value_range = [0, d_max] — canonical non-negative."""
@@ -103,7 +102,7 @@ class TestRescaleScope:
         expected = _expected_max_plane_dot(
             w_digit_value_range=(0, 3), w_digit_radix=4, w_digit_count=2, x_value_range=(0, 1), active_row_num=8
         )
-        assert xbar._max_plane_dot_abs == expected
+        assert xbar.adc_rescale_factor(adc_mode=0, adc_bits=8) == expected / ((1 << 7) - 1)
 
     def test_asymmetric_signed_range(self) -> None:
         """w_digit_value_range = [-1, 2] — asymmetric: max_abs picks the larger side."""
@@ -122,7 +121,7 @@ class TestRescaleScope:
         expected = _expected_max_plane_dot(
             w_digit_value_range=(-1, 2), w_digit_radix=3, w_digit_count=2, x_value_range=(0, 1), active_row_num=8
         )
-        assert xbar._max_plane_dot_abs == expected
+        assert xbar.adc_rescale_factor(adc_mode=0, adc_bits=8) == expected / ((1 << 7) - 1)
 
     def test_naive_formula_overclips_signed(self) -> None:
         """w_digit_value_range = [-1, 1] with radix=4, count=2: the naive
@@ -139,10 +138,9 @@ class TestRescaleScope:
         )
         naive_overclip = 4**2 - 1
         correct = 1 * (1 + 4)
-        assert xbar._max_plane_dot_abs == 8 * correct
-        # And the rescale derived from it must use the correct bound.
-        assert xbar._rescale_by_bits[8] == 8 * correct / ((1 << 7) - 1)
-        assert xbar._rescale_by_bits[8] != 8 * naive_overclip / ((1 << 7) - 1)
+        rescale = xbar.adc_rescale_factor(adc_mode=0, adc_bits=8)
+        assert rescale == 8 * correct / ((1 << 7) - 1)
+        assert rescale != 8 * naive_overclip / ((1 << 7) - 1)
 
     def test_partial_activation_uses_active_row_num(self) -> None:
         """``active_row_num < row_num``: the per-conversion bound counts the
@@ -160,8 +158,7 @@ class TestRescaleScope:
         expected = _expected_max_plane_dot(
             w_digit_value_range=(-3, 3), w_digit_radix=4, w_digit_count=2, x_value_range=(0, 1), active_row_num=2
         )
-        assert xbar._max_plane_dot_abs == expected
-        assert xbar._rescale_by_bits[8] == expected / ((1 << 7) - 1)
+        assert xbar.adc_rescale_factor(adc_mode=0, adc_bits=8) == expected / ((1 << 7) - 1)
 
 
 class TestPlaneOutput:
@@ -169,7 +166,7 @@ class TestPlaneOutput:
     every leading axis anonymous — the caller owns any phase axis."""
 
     @staticmethod
-    def _programmed_xbar(*, active_row_num: int | None, adc_bits: int) -> IdealCimMacro:
+    def _programmed_xbar(*, active_row_num: int | None, adc_bits: int) -> tuple[IdealCimMacro, torch.Tensor]:
         torch.manual_seed(42)
         xbar = _make_xbar(
             w_digit_value_range=(-3, 3),
@@ -183,29 +180,30 @@ class TestPlaneOutput:
         )
         w = torch.randint(-3, 4, xbar.w_layout_shape, dtype=torch.int32)
         xbar.program(w)
-        return xbar
+        return xbar, w
 
     def test_leading_axes_preserved(self) -> None:
         """A caller-supplied phase axis is opaque batch: trailing row_num -> col_num."""
-        xbar = self._programmed_xbar(active_row_num=2, adc_bits=8)
+        xbar, _ = self._programmed_xbar(active_row_num=2, adc_bits=8)
         x = torch.randint(0, 2, (3, 5, 8), dtype=torch.int32)
         y = xbar.vec_mat_mul(x, adc_mode=0, adc_bits=8)
         assert y.shape == (3, 5, 4)  # [..., col_num]
 
     def test_single_leading_axis(self) -> None:
         """One leading batch axis is preserved; no phase axis is manufactured."""
-        xbar = self._programmed_xbar(active_row_num=None, adc_bits=8)
+        xbar, _ = self._programmed_xbar(active_row_num=None, adc_bits=8)
         x = torch.randint(0, 2, (3, 8), dtype=torch.int32)
         y = xbar.vec_mat_mul(x, adc_mode=0, adc_bits=8)
         assert y.shape == (3, 4)
 
     def test_lossless_matches_whole_dot(self) -> None:
         """``adc_bits == 0``: the plane dot equals the lossless integer dot."""
-        xbar = self._programmed_xbar(active_row_num=2, adc_bits=0)
+        xbar, w = self._programmed_xbar(active_row_num=2, adc_bits=0)
         x = torch.randint(0, 2, (5, 8), dtype=torch.int32)
         y = xbar.vec_mat_mul(x, adc_mode=0, adc_bits=0)
         assert y.shape == (5, 4)
-        w_logical = xbar._digits.to(torch.int64).squeeze(-2)  # [col_num, row_num], D=1
+        # Shape: [col_num, w_digit_count=1, row_num] -> [col_num, row_num]
+        w_logical = w.to(torch.int64).squeeze(-2)
         expected = x.to(torch.int64) @ w_logical.transpose(-1, -2)
         assert torch.equal(y, expected)
 
@@ -227,4 +225,6 @@ class TestProgramOwnership:
         xbar.program(w)
         # Caller-side mutation must not affect the stored state.
         w.fill_(1)
-        assert xbar._digits.abs().sum().item() == 0
+        x = torch.ones(xbar.config.row_num, dtype=torch.int32)
+        out = xbar.vec_mat_mul(x, adc_mode=0, adc_bits=0)
+        assert torch.equal(out, torch.zeros(xbar.config.col_num, dtype=torch.int64))

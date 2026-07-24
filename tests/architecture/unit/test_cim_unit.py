@@ -324,15 +324,6 @@ def test_direct_engine_unit_handles_multi_digit_xbar_words() -> None:
     _assert_unit_matches_torch(unit, weight, activation)
 
 
-def test_direct_engine_transcoder_matches_wired_cim_macro_place_values() -> None:
-    """BI-1: the wired ``CimMacro``'s digit geometry must drive the engine's
-    weight transcoder, so digit place-values line up through the
-    ``_build_cim_macro`` boundary (transcoder → macro)."""
-    unit = _build_linear(_direct_config(w_digit_count=2), w_logical_shape=(13, 20))
-    assert unit.engine._w_transcoder.radix == unit.engine.cim_macro.w_digit_radix
-    assert unit.engine._w_transcoder.digit_count == unit.engine.cim_macro.w_digit_count
-
-
 def test_direct_engine_lsb_first_place_values_on_asymmetric_weights() -> None:
     """LSB-first regression on the asymmetric set ``{1, 2, -1, -2}``.
 

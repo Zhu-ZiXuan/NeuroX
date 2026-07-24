@@ -53,24 +53,16 @@ def _inputs(device: torch.device) -> tuple[torch.Tensor, torch.Tensor]:
     return v_pos, torch.zeros_like(v_pos)
 
 
-def test_probe_off_convert_matches_convert_impl(device: torch.device) -> None:
-    adc = _build_general_adc(device)
-    v_pos, v_neg = _inputs(device)
-
-    assert not DifferentialVoltageAdcProber._active_stack
-    via_template = adc.convert(v_pos, v_neg, v_ref__V=_dummy_vref(device), bits=4)
-    direct = adc._convert_impl(v_pos, v_neg, v_ref__V=_dummy_vref(device), bits=4)
-    assert torch.equal(via_template, direct)
-
-
-def test_probe_capture_carries_inputs_code_and_op_point(device: torch.device) -> None:
+def test_probe_preserves_output_and_captures_call(device: torch.device) -> None:
     adc = _build_general_adc(device)
     v_pos, v_neg = _inputs(device)
     v_ref = _dummy_vref(device)
 
+    expected = adc.convert(v_pos, v_neg, v_ref__V=v_ref, bits=4)
     with DifferentialVoltageAdcProber() as prober:
         out = adc.convert(v_pos, v_neg, v_ref__V=v_ref, bits=4)
 
+    assert torch.equal(out, expected)
     records = prober.records
     assert len(records) == 1
     observation = records[0]

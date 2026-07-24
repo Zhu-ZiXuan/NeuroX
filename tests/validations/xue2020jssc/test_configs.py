@@ -8,10 +8,11 @@ nonideality toggle off, and ``anchors.toml`` parses with the validation
 convention keys the Batch-2 calibration / validation solve depends on. No numeric
 MAC assertions, no forward pass.
 
-The shipped artifacts carry the restored macro schema (S4.1 / S13): the macro
-composes ``XbarArray1t1r``, so the config carries a nested ``array_config`` (Linear
-cell + wire parasitics + solver) and uses ``sc_ratio_msb`` / ``v_bl_clamp__V``; the
-all-off policy nests ``array_policy: XbarArray1t1rPolicy(cell_policy=..., solve_chunk_size=0)``.
+The shipped artifacts cover the complete composed schema: the macro contains an
+``XbarArray1t1r``, so the config carries a nested ``array_config`` (linear cell,
+wire parasitics, and solver) and uses ``sc_ratio_msb`` / ``v_bl_clamp__V``. The
+all-off policy nests ``array_policy:
+XbarArray1t1rPolicy(cell_policy=..., solve_chunk_size=0)``.
 """
 
 from __future__ import annotations

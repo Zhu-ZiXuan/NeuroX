@@ -1,7 +1,6 @@
-"""Eager energy-accounting laws for the xue2020jssc SINWP 1T1R CIM sub-array.
+"""Eager energy-accounting laws for the xue2020jssc SINWP 1T1R CIM macro.
 
-Pins the branch-ownership / channel-billing contract of S4.3 (with the
-t_cycle static-time-base ruling) on the hand-built near-ideal witness macro
+Pins the branch-ownership and channel-billing contract on the hand-built near-ideal witness macro
 (``_utils.build_config``). Every check is a LAW read off the profiler report, not
 a magic number: the coefficients are whatever the deterministic all-off analog
 chain produces, and the assertions constrain how the billed energy MOVES.
@@ -11,15 +10,10 @@ Coverage:
   * the five macro-billed channels ``cablc`` / ``dswct`` / ``sinwp_sc`` /
     ``pn_isub`` / ``control`` appear under their exact dotted names (the macro
     root is named ``""`` so a channelled row reads ``".<channel>"``), and the
-    self-billing dynamic module rows are the restored array ``array`` and the
-    TMCSA ``tmcsa``,
-  * the dissolved DSWCT / SINWP-SC / PN-ISUB combining logs NOTHING of its own
-    as a module — the macro bills those branches under the channels — and the
-    removed kernel primitives (current mirror / adder / subtractor) plus the
-    non-reporter cell leave no dynamic or static row,
+    self-billing dynamic module rows are the array ``array`` and the TMCSA
+    ``tmcsa``,
   * the static report seats the reporter leaves (control / adc_current_reference /
-    cablc / sl_driver / pn_isub / tmcsa / array + the macro root) and does NOT seat the
-    dissolved DSWCT / SINWP-SC combining or the (non-target) cell,
+    cablc / sl_driver / pn_isub / tmcsa / array + the macro root),
   * **the static-energy time base is ``t_cycle`` (50 ns), NOT the conduction
     windows**: doubling ``t_cycle`` doubles the leakage (static) energy while the
     dynamic energy is unchanged; doubling a conduction window (``t_settle``)
@@ -71,18 +65,6 @@ from tests.works.macro.cim.xue2020jssc._utils import (
 
 _CHANNELS = ("cablc", "dswct", "sinwp_sc", "pn_isub", "control")
 _READ_CHANNELS = ("cablc", "dswct", "sinwp_sc")  # window-dependent conduction channels
-# Kernel primitives removed by the rewrite (S3) + the dissolved combining blocks +
-# the non-reporter cell: none of these may surface as a dynamic or static row. The
-# array (S4.1) is NOT here — it self-bills its own capacitive module row.
-_REMOVED_ROWS = (
-    "dswct_msb",
-    "dswct_lsb",
-    "sc_adder",
-    "current_mirror",
-    "current_adder",
-    "current_subtractor",
-    "cell",
-)
 
 
 @pytest.fixture(autouse=True)
@@ -208,33 +190,17 @@ def test_channels_present_with_exact_dotted_names(device: torch.device) -> None:
 
 
 def test_array_and_adc_self_bill_dynamic_rows(device: torch.device) -> None:
-    """The array + the TMCSA self-bill dynamic rows; no cell / pn_isub row exists (S4.1)."""
+    """The array and TMCSA self-bill; macro-owned branches appear only as channels."""
     x = torch.tensor([[1, 2, 1, 0], [3, 3, 1, 0]], dtype=torch.long)
     _prof, report = _run(build_config(), _w_full(), x, device=device)
     by_name = report.energy_by_name
     # The array bills its capacitive cycling (caps only); the TMCSA bills sensing.
     assert by_name.get("array", 0.0) > 0.0, f"missing/empty array row; have {sorted(by_name)}"
     assert by_name.get("tmcsa", 0.0) > 0.0, f"missing/empty tmcsa row; have {sorted(by_name)}"
-    # The whole input branch is a macro channel (.cablc), PN-ISUB is a macro
-    # channel (.pn_isub); the non-reporter cell and the PN-ISUB seat emit no
-    # self-billed dynamic row.
+    # The whole input branch and PN-ISUB are macro channels rather than
+    # self-billed module rows.
     for absent in ("cell", "pn_isub"):
         assert absent not in by_name, f"unexpected self-billing module row {absent}: {sorted(by_name)}"
-
-
-def test_removed_primitives_emit_nothing(device: torch.device) -> None:
-    """The dissolved combining + removed kernel primitives log neither dynamic nor static rows."""
-    macro = build_macro(build_config(), device=device)
-    x = torch.tensor([[1, 2, 1, 0], [3, 3, 1, 0]], dtype=torch.long)
-    with NeuroxProfiler() as prof, torch.no_grad():
-        macro.program(encode_weights(_w_full().to(device)))
-        macro.vec_mat_mul(x.to(device), adc_mode=ADC_MODE, adc_bits=TINY_ADC_BITS)
-    by_name = prof.report(macro).energy_by_name
-    static = {r.qualified_name for r in NeuroxProfiler.collect_static(macro)}
-    for name in _REMOVED_ROWS:
-        assert name not in by_name, f"removed block {name} self-billed dynamic energy; have {sorted(by_name)}"
-        assert not any(k.startswith(f"{name}.") for k in by_name), f"{name} emitted a channel row"
-        assert name not in static, f"removed block {name} seated static PPA; have {sorted(static)}"
 
 
 # ---------------------------------------------------------------------------
@@ -243,19 +209,16 @@ def test_removed_primitives_emit_nothing(device: torch.device) -> None:
 
 
 def test_static_report_seats_reporters_only(device: torch.device) -> None:
-    """The static walk seats the reporter leaves (+ the macro root) and NOT the dissolved combining."""
+    """The static walk contains every configured PPA-reporting module."""
     macro = build_macro(build_config(), device=device)
     static = {r.qualified_name: r.leakage_power__uW for r in NeuroxProfiler.collect_static(macro)}
     # Seats: the macro root (named ""), control (UnmodeledBlock),
     # adc_current_reference, the clamp drivers, the PN-ISUB static seat
-    # (UnmodeledBlock), the ADC, and the restored array (reporter leaf: cell grid +
-    # wire infrastructure PPA).
+    # (UnmodeledBlock), the ADC, and the array (cell grid + wire infrastructure
+    # PPA).
     for seat in ("", "control", "adc_current_reference", "cablc", "sl_driver", "pn_isub", "tmcsa", "array"):
         assert seat in static, f"missing static seat {seat!r}; have {sorted(static)}"
         assert static[seat] > 0.0, f"non-positive leakage seat {seat!r}: {static[seat]}"
-    # The dissolved combining + the non-target cell are absent from the walk.
-    for absent in _REMOVED_ROWS:
-        assert absent not in static, f"{absent} must not seat static PPA"
 
 
 # ---------------------------------------------------------------------------
@@ -304,7 +267,7 @@ def test_static_energy_scales_with_t_cycle_not_conduction_windows(device: torch.
 
 
 def test_input_branch_billed_whole_by_cablc_array_bills_caps_only(device: torch.device) -> None:
-    """The macro bills the WHOLE input branch on ``.cablc``; the array bills caps only (S4.1 + S3).
+    """The macro bills the whole input branch on ``.cablc``; the array bills caps only.
 
     The ``.cablc`` channel bills the whole input branch ``V_DD * I_DL`` over the
     per-bit conduction window (the macro owns the window); the array module row

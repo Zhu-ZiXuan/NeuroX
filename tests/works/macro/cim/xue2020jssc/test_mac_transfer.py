@@ -12,7 +12,7 @@ consistency, a strictly monotone single-row input sweep over ``0..2**K - 1``,
 saturation clipping at ``+-(2**adc_bits - 1)``, zero-weight / zero-input decode,
 mixed-sign columns, a random-batch bit-exactness gate, a generalized
 ``w_digit_num = 1`` (ternary weight) transfer check, and — the LSB-first guard
-per S5 — a TrueFormTranscoder-driven asymmetric-weight regression plus a focused
+— a TrueFormTranscoder-driven asymmetric-weight regression plus a focused
 single-row place-value check that a reversed-but-consistent digit convention
 would fail.
 
@@ -192,10 +192,10 @@ def test_random_batch_bit_exact(device: torch.device) -> None:
 def test_w_digit_num_1_ternary_transfer(device: torch.device) -> None:
     """A single-digit (``w_digit_num = 1``, radix 2) macro decodes the ternary-weight MAC exactly.
 
-    The old ``w_digit_num == 2`` guard is gone: with one magnitude digit the
-    DSWCT digit sum degenerates to identity, so weights live in ``{-1, 0, 1}`` and
-    the read chain still resolves the signed integer MAC. The calibration helpers
-    build the matching single-digit transcoder from the macro's own geometry.
+    With one magnitude digit the DSWCT digit sum degenerates to identity, so
+    weights live in ``{-1, 0, 1}`` and the read chain still resolves the signed
+    integer MAC. The calibration helpers build the matching single-digit
+    transcoder from the macro's own geometry.
     """
     macro = build_calibrated_macro(device=device, w_digit_num=1)
     assert macro.w_digit_count == 1
@@ -211,7 +211,7 @@ def test_w_digit_num_1_ternary_transfer(device: torch.device) -> None:
 
 
 # ---------------------------------------------------------------------------
-# LSB-first digit guard (per S5)
+# LSB-first digit guard
 # ---------------------------------------------------------------------------
 
 

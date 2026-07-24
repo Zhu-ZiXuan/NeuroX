@@ -20,9 +20,9 @@ row active, no engine masking), ``input_bit_num = 2`` (K serial WL sub-phases,
 LSB first), a 3-bit ADC magnitude. The WL DAC latency is zero and the ADC step
 latency is the honest per-step SAR sensing durations (feeding the read-chain
 window ``t_other``); the macro builds the TMCSA so it emits NO latency, staying
-the sole latency emitter, so the static-energy time base is ``t_cycle`` alone
-(S4.3 / D3). :func:`build_config` is parameterised by geometry and window knobs so
-other test files reuse it.
+the sole latency emitter, so the static-energy time base is ``t_cycle`` alone.
+:func:`build_config` is parameterised by geometry and window knobs so other test
+files reuse it.
 
 The analog ``I_SUB(M)`` grid depends on the whole electrical config, so the
 witness ships a placeholder ladder and decode-bearing tests calibrate in-code

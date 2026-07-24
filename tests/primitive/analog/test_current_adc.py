@@ -260,27 +260,17 @@ def test_enable_latency_record_false_suppresses_only_latency(device: torch.devic
 # ---------------------------------------------------------------------------
 
 
-def test_probe_off_convert_matches_convert_impl(device: torch.device) -> None:
-    """Without an active prober the template equals the leaf conversion body."""
+def test_probe_preserves_output_and_captures_call(device: torch.device) -> None:
+    """An active prober preserves conversion and records the call."""
     adc = _build(_config(), device)
     refs = _refs(_LADDER_A, device)
     i_in = torch.tensor([0.5, 4.5, 35.0], dtype=torch.float64, device=device)
 
-    assert not SingleEndedCurrentAdcProber._active_stack
-    via_template = adc.convert(i_in, refs, bits=3)
-    direct = adc._convert_impl(i_in, refs, bits=3)
-    assert torch.equal(via_template, direct)
-
-
-def test_probe_capture_carries_input_code_and_bits(device: torch.device) -> None:
-    """An active prober records the call's input, code, and resolution."""
-    adc = _build(_config(), device)
-    refs = _refs(_LADDER_A, device)
-    i_in = torch.tensor([0.5, 4.5, 35.0], dtype=torch.float64, device=device)
-
+    expected = adc.convert(i_in, refs, bits=3)
     with SingleEndedCurrentAdcProber() as prober:
         code = adc.convert(i_in, refs, bits=3)
 
+    assert torch.equal(code, expected)
     records = prober.records
     assert len(records) == 1
     observation = records[0]

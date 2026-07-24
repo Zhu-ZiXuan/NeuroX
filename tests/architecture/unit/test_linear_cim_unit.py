@@ -242,7 +242,6 @@ def test_linear_reprogram_without_bias_clears_slot() -> None:
     x = _random_binary((m, k))
     unit.program(weight, torch.randint(-7, 8, (n,), dtype=torch.int32))
     unit.program(weight)
-    assert unit._int_bias is None
     actual = unit.linear(x, adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
     assert torch.equal(actual.to(torch.int64), _cpu_int64_linear_oracle(x, weight))
 

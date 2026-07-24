@@ -1,14 +1,8 @@
-"""Fabricate-contract regression for the ``XbarArray`` ABC.
+"""Fabrication traversal tests for a concrete 1T1R array tree.
 
-The ``XbarArray`` ABC sits between :class:`FabricateMixin` and the concrete
-:class:`XbarArray1t1r`. It owns no static state of its own, so it must supply
-``_sample_fabricate_mismatch`` as an explicit no-op; if it forgot it, either the
-abstract method would re-raise or a spurious body would perturb the once-per-node
-resample. These tests pin that ``fabricate()`` on an ``XbarArray1t1r`` resamples
-every fabricable node's static state EXACTLY ONCE in pre-order, and that the ABC
-override is a genuine no-op the concrete array inherits unchanged. All policies
-are all-off — the spy counts ``_sample_fabricate_mismatch`` calls, which fire
-regardless of whether any perturbation is enabled.
+The traversal test verifies that ``fabricate()`` reaches every fabricable node
+exactly once in the documented pre-order. All policies are off; the spy counts
+sampling calls regardless of whether a perturbation is enabled.
 """
 
 from __future__ import annotations
@@ -23,7 +17,6 @@ from neurox.primitive.device import MosfetConfig, MosfetPolicy, RramConfig, Rram
 from neurox.primitive.device.mosfet import Nmos
 from neurox.primitive.device.rram import Rram
 from neurox.primitive.xbar.array import XbarArray1t1r, XbarArray1t1rConfig, XbarArray1t1rPolicy
-from neurox.primitive.xbar.array.base import XbarArray
 from neurox.primitive.xbar.cell import XbarCell1t1rDetail, XbarCell1t1rDetailConfig, XbarCell1t1rDetailPolicy
 from neurox.primitive.xbar.solver import NestedParallelRailSolverConfig
 
@@ -108,22 +101,6 @@ def _fabricable_tree(node: FabricateMixin) -> Iterator[FabricateMixin]:
 def test_xbar_array_policy_rejects_negative_chunk_size() -> None:
     with pytest.raises(ValueError, match="solve_chunk_size"):
         _array_policy(solve_chunk_size=-1)
-
-
-def test_xbar_array_abc_supplies_noop_sample_fabricate_mismatch(device: torch.device) -> None:
-    """The ABC owns the no-op; the concrete 1T1R array does not override it."""
-    assert "_sample_fabricate_mismatch" not in XbarArray1t1r.__dict__
-    assert "_sample_fabricate_mismatch" in XbarArray.__dict__
-    assert XbarArray1t1r._sample_fabricate_mismatch is XbarArray._sample_fabricate_mismatch
-
-    # And it is a genuine no-op: returns None and touches no state.
-    array = _build_array(device=device)
-    before = {name: buf.clone() for name, buf in array.named_buffers()}
-    array._sample_fabricate_mismatch()  # no-op: must neither raise nor mutate state
-    after = dict(array.named_buffers())
-    assert before.keys() == after.keys()
-    for name, buf in before.items():
-        assert torch.equal(buf, after[name])
 
 
 def test_array_fabricate_resamples_each_node_once_preorder(

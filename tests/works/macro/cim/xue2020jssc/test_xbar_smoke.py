@@ -50,7 +50,7 @@ from tests.works.macro.cim.xue2020jssc._utils import (
 )
 
 _CHANNEL_KEYS = (".cablc", ".dswct", ".sinwp_sc", ".pn_isub", ".control")
-_MODULE_ROWS = ("array", "tmcsa")  # the restored array + the ADC self-bill dynamic energy (S4.1)
+_MODULE_ROWS = ("array", "tmcsa")  # the array and ADC self-bill dynamic energy
 
 
 @pytest.fixture(autouse=True)
@@ -103,9 +103,9 @@ def test_xbar_end_to_end_and_profiler(device: torch.device) -> None:
     for mod in _MODULE_ROWS:
         assert mod in by_name, f"missing module row {mod}; have {sorted(by_name)}"
         assert by_name[mod] > 0.0
-    # S4.1: the array self-bills its capacitive row and the macro bills the whole
-    # input branch under ``.cablc``; the non-reporter cell and the PN-ISUB seat (a
-    # macro channel) emit no self-billed dynamic row.
+    # The array self-bills its capacitive row and the macro bills the whole input
+    # branch under ``.cablc``. The cell and PN-ISUB seat emit no separate dynamic
+    # row.
     for absent in ("cell", "pn_isub"):
         assert absent not in by_name, f"unexpected self-billing module row {absent}: {sorted(by_name)}"
 

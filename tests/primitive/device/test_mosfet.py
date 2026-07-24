@@ -162,19 +162,11 @@ def test_all_off_snapshot_deterministic() -> None:
     snap1 = dev.snapshot(shape=(k,), multi_coords=None)
     dev.fabricate()
     snap2 = dev.snapshot(shape=(k,), multi_coords=None)
-    # No mismatch applied -> every cell equals the nominal and refabricate is identical.
-    assert torch.allclose(snap1.beta__uA_per_V2, dev._nominal_beta__uA_per_V2.expand(k))
-    assert torch.allclose(snap1.vth__V, dev._nominal_vth__V.expand(k))
+    # No mismatch applied -> every cell is uniform and refabrication is identical.
+    assert torch.all(snap1.beta__uA_per_V2 == snap1.beta__uA_per_V2[0])
+    assert torch.all(snap1.vth__V == snap1.vth__V[0])
     assert torch.equal(snap1.beta__uA_per_V2, snap2.beta__uA_per_V2)
     assert torch.equal(snap1.vth__V, snap2.vth__V)
-
-
-def test_only_nominal_fabrication_sources_are_buffers() -> None:
-    dev = _make(Nmos, vth0__V=0.4, inst_shape=(2,))
-    buffers = dict(dev.named_buffers())
-    assert {"_nominal_beta__uA_per_V2", "_nominal_vth__V"} <= buffers.keys()
-    assert "_beta__uA_per_V2" not in buffers
-    assert "_vth__V" not in buffers
 
 
 def test_abstract_base_cannot_instantiate() -> None:

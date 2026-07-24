@@ -88,7 +88,7 @@ def test_stack_nesting_routes_to_every_active_prober() -> None:
         _ProberA.submit(_Payload(code=torch.tensor([3.0])))
     assert [r.code.item() for r in outer.records] == [1.0, 2.0, 3.0]
     assert [r.code.item() for r in inner.records] == [2.0]
-    assert _ProberA._active_stack == []
+    assert _ProberA.active() is False
 
 
 def test_nested_same_subclass_probers_share_one_detached_object() -> None:
@@ -118,7 +118,7 @@ def test_exit_restores_the_stack_on_exception() -> None:
     """A raising body still pops the prober's own frame."""
     with pytest.raises(RuntimeError, match="boom"), _ProberA():
         raise RuntimeError("boom")
-    assert _ProberA._active_stack == []
+    assert _ProberA.active() is False
 
 
 def test_active_on_abstract_base_raises() -> None:
