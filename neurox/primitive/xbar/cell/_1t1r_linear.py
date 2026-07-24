@@ -21,12 +21,7 @@ from ._1t1r import (
     XbarCell1t1rSnap,
 )
 
-# ---------------------------------------------------------------------------
-# Config / policy / result containers
-# ---------------------------------------------------------------------------
 
-
-@dataclass(frozen=True, kw_only=True)
 class XbarCell1t1rLinearConfig(XbarCell1t1rConfig):
     """Physical knobs for the linearized (table-driven) 1T1R cell.
 
@@ -84,13 +79,8 @@ class XbarCell1t1rLinearConfig(XbarCell1t1rConfig):
                     )
 
 
-@dataclass(frozen=True)
 class XbarCell1t1rLinearPolicy(XbarCell1t1rPolicy):
-    """Empty nonideality policy for the linearized 1T1R cell.
-
-    The linear model is deterministic: every nonideality it represents
-    is baked into its tables at calibration time.
-    """
+    """Empty nonideality policy for the deterministic linear cell."""
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -111,19 +101,16 @@ class XbarCell1t1rLinearSnap(XbarCell1t1rSnap):
     vx_ratio_off: Tensor
 
 
-# ---------------------------------------------------------------------------
-# Cell
-# ---------------------------------------------------------------------------
-
-
 @XbarCell1t1r.register_key(XbarCell1t1rLinearConfig)
 class XbarCell1t1rLinear(XbarCell1t1r[XbarCell1t1rLinearConfig, XbarCell1t1rLinearPolicy, XbarCell1t1rLinearSnap]):
-    """Table-driven linearized 1T1R cell with a division-free closed form.
+    """Table-driven linearized 1T1R cell.
 
-    Owns no device children. ``program`` gathers the four flat per-state
-    chord-conductance and drop-fraction tables once into instance-shaped
-    buffers; the branch solve is a pure elementwise multiply switched by
-    the WL threshold.
+    Args:
+        config: Linearized 1T1R configuration.
+        policy: Linearized 1T1R policy.
+        inst_shape: Per-instance shape ``(*prefix, col, row)``.
+        dtype: Tensor dtype for internal buffers.
+        T__K: Operating temperature.
     """
 
     _g_cell_off_table__uS: Tensor
@@ -155,7 +142,6 @@ class XbarCell1t1rLinear(XbarCell1t1r[XbarCell1t1rLinearConfig, XbarCell1t1rLine
             ("_vx_ratio_on_table", config.vx_ratio_on_table),
         ):
             self.register_buffer(name, torch.tensor(table, dtype=dtype), persistent=False)
-        # Programmed at the w_layout shape by ``program``; 0-d until then.
         for name in ("g_cell_on__uS", "g_cell_off__uS", "vx_ratio_on", "vx_ratio_off"):
             self.register_buffer(name, torch.zeros((), dtype=dtype), persistent=False)
 
@@ -163,16 +149,8 @@ class XbarCell1t1rLinear(XbarCell1t1r[XbarCell1t1rLinearConfig, XbarCell1t1rLine
 
         self.v_wl_on_threshold__V = config.v_wl_on_threshold__V
 
-    # -----------------------------------------------------------------
-    # Snapshot / programming
-    # -----------------------------------------------------------------
-
     def program(self, w_state_idx: Tensor) -> None:
-        """Materialize the per-cell branch-parameter buffers from state indices.
-
-        Gathers each flat per-state chord-conductance and drop-fraction
-        table by state index once, keeping the branch-solve hot path
-        gather-free.
+        """Program per-cell branch parameters from state indices.
 
         Args:
             w_state_idx: State-index tensor in ``[0, w_states - 1]`` at
@@ -198,10 +176,6 @@ class XbarCell1t1rLinear(XbarCell1t1r[XbarCell1t1rLinearConfig, XbarCell1t1rLine
     ) -> XbarCell1t1rLinearSnap:
         """Bundle the programmed branch parameters with the WL control drive.
 
-        Deterministic — the empty policy holds no draws; the programmed
-        buffers are broadcast to ``shape`` and chunk-selected by
-        ``multi_coords``.
-
         Args:
             control: Word-line drive voltage [V]; broadcasts to
                 ``[..., col, row]``.
@@ -216,7 +190,7 @@ class XbarCell1t1rLinear(XbarCell1t1r[XbarCell1t1rLinearConfig, XbarCell1t1rLine
         Returns:
             Per-call linearized 1T1R cell snap.
         """
-        del t_elapsed  # no time-dependent read state in this cell
+        del t_elapsed
 
         def view(buf: Tensor) -> Tensor:
             expanded = buf.expand(shape) if shape else buf
@@ -229,10 +203,6 @@ class XbarCell1t1rLinear(XbarCell1t1r[XbarCell1t1rLinearConfig, XbarCell1t1rLine
             vx_ratio_on=view(self.vx_ratio_on),
             vx_ratio_off=view(self.vx_ratio_off),
         )
-
-    # -----------------------------------------------------------------
-    # Branch solve
-    # -----------------------------------------------------------------
 
     def _branch_params(self, snap: XbarCell1t1rLinearSnap) -> tuple[Tensor, Tensor]:
         """WL-switched ``(g_cell [uS], vx_ratio)`` of the linear branch."""

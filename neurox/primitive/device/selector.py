@@ -4,7 +4,6 @@ See also:
     docs/reference/primitive/device/selector.md
 """
 
-from dataclasses import dataclass
 from typing import ClassVar
 
 import torch
@@ -14,7 +13,6 @@ from neurox.common import ConfigBase, ModuleBase, PolicyBase
 from neurox.primitive.nonideality import apply_gaussian
 
 
-@dataclass(frozen=True)
 class SelectorConfig(ConfigBase):
     """Immutable configuration for an OTS threshold selector.
 
@@ -24,20 +22,14 @@ class SelectorConfig(ConfigBase):
         vth_mismatch__V: Additive Gaussian mismatch on ``V_th``.
     """
 
-    # --- Nominal threshold ---
     vth_nominal__V: float
 
-    # --- V_th mismatch ---
     vth_mismatch__V: float
-
-    def __post_init__(self) -> None:
-        self.validate()
 
     def validate(self) -> None:
         self._require_non_neg(self.vth_mismatch__V, "vth_mismatch__V")
 
 
-@dataclass(frozen=True)
 class SelectorPolicy(PolicyBase):
     """Per-source toggles selecting which selector nonidealities are active.
 
@@ -51,7 +43,6 @@ class SelectorPolicy(PolicyBase):
 class Selector(ModuleBase[SelectorConfig, SelectorPolicy]):
     """OTS selector with static per-cell V_th mismatch."""
 
-    # non-reporter: silicon rolls up to the owner
     is_profile_target: ClassVar[bool] = False
 
     nominal_vth__V: Tensor
@@ -81,7 +72,6 @@ class Selector(ModuleBase[SelectorConfig, SelectorPolicy]):
         )
 
     def _sample_fabricate_mismatch(self) -> None:
-        """Resample per-cell V_th at ``self.inst_shape``."""
         self.vth__V = apply_gaussian(
             self.nominal_vth__V.clone().expand(self.inst_shape),
             self.config.vth_mismatch__V,

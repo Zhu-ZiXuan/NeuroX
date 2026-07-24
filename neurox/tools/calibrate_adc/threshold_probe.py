@@ -147,7 +147,6 @@ class _ProbeCfg:
     adc_mode: int
 
 
-@dataclass(frozen=True)
 class ThresholdProbeToolConfig(ConfigBase):
     """Top-level config for :mod:`neurox.tools.calibrate_adc.threshold_probe`.
 

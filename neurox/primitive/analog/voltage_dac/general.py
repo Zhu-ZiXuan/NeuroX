@@ -6,8 +6,6 @@ See also:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 import torch
 from torch import Tensor
 
@@ -16,7 +14,6 @@ from neurox.primitive.nonideality import apply_gaussian
 from .base import VoltageDac, VoltageDacConfig, VoltageDacPolicy
 
 
-@dataclass(frozen=True)
 class GeneralVoltageDacConfig(VoltageDacConfig):
     """Immutable configuration for :class:`GeneralVoltageDac`.
 
@@ -25,7 +22,7 @@ class GeneralVoltageDacConfig(VoltageDacConfig):
             ``code_to_signal[i]`` is the nominal analog output in [V]
             for digital code ``i``. Length equals the number of input
             codes.
-        drive_thermal__V: Gaussian thermal noise σ [V] added to each
+        drive_thermal__V: Gaussian thermal noise σ added to each
             output sample after LUT lookup.
         energy_per_op__fJ: Dynamic energy per output charge/discharge
             cycle (full interface-cap C*V^2); logged only for elements
@@ -35,13 +32,8 @@ class GeneralVoltageDacConfig(VoltageDacConfig):
             the runtime serial-op count at logging time.
     """
 
-    # --- LUT ---
     code_to_signal: tuple[float, ...]
-
-    # --- Drive thermal noise ---
     drive_thermal__V: float
-
-    # --- Energy / latency ---
     energy_per_op__fJ: float
     latency_per_op__ns: float
 
@@ -63,7 +55,6 @@ class GeneralVoltageDacConfig(VoltageDacConfig):
         self._require_non_neg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
-@dataclass(frozen=True)
 class GeneralVoltageDacPolicy(VoltageDacPolicy):
     """Per-source toggles selecting which GeneralVoltageDac nonidealities are active.
 
@@ -76,7 +67,15 @@ class GeneralVoltageDacPolicy(VoltageDacPolicy):
 
 @VoltageDac.register_key(GeneralVoltageDacConfig)
 class GeneralVoltageDac(VoltageDac[GeneralVoltageDacConfig, GeneralVoltageDacPolicy]):
-    """General voltage DAC model — code-to-voltage LUT plus output thermal noise."""
+    """General voltage DAC model with a code-to-voltage LUT.
+
+    Args:
+        config: Concrete configuration dataclass.
+        policy: Per-source nonideality flags.
+        inst_shape: Per-instance fabrication shape.
+        dtype: Tensor dtype for internal buffers.
+        T__K: Operating temperature.
+    """
 
     code_to_signal: Tensor
 
@@ -89,7 +88,6 @@ class GeneralVoltageDac(VoltageDac[GeneralVoltageDacConfig, GeneralVoltageDacPol
         dtype: torch.dtype,
         T__K: float,
     ) -> None:
-        """Initialize the LUT buffer."""
         super().__init__(
             config=config,
             policy=policy,
@@ -106,7 +104,7 @@ class GeneralVoltageDac(VoltageDac[GeneralVoltageDacConfig, GeneralVoltageDacPol
         self.register_buffer("code_to_signal", torch.tensor(config.code_to_signal, dtype=dtype), persistent=False)
 
     def _sample_fabricate_mismatch(self) -> None:
-        pass  # drive-thermal noise is drawn per convert(), not fabricated
+        pass
 
     @property
     def code_max(self) -> int:
@@ -130,9 +128,6 @@ class GeneralVoltageDac(VoltageDac[GeneralVoltageDacConfig, GeneralVoltageDacPol
 
         assert signal.numel() % self.inst_count == 0
         serial_op_count = max(1, signal.numel() // max(self.inst_count, 1))
-        # Per-op driver-circuit energy: one constant per conversion op
-        # (the drive LOAD's capacitive cycling is billed by the load's
-        # owner, e.g. the array's WL wire + gate terms — not here).
         dynamic_energy__fJ = torch.full_like(signal, self.config.energy_per_op__fJ, dtype=torch.float32)
         latency__ns = torch.tensor(
             self.config.latency_per_op__ns * serial_op_count,

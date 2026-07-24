@@ -19,6 +19,8 @@ When a statement could fit two carriers: survives a code rewrite → Reference; 
 
 The code is itself the carrier of what it already states — a signature, a type, a `raise NotImplementedError`. No document restates such a fact; each holds only the reason the code cannot show.
 
+The common infrastructure roots and mixins are a deliberate source-authority exception. Their primary callers are subclass authors, so the class docstring beside the enforcing code owns the complete current extension contract — injected behavior, lifecycle, host requirements, ownership visibility, and failure conditions — and no module-mirroring Internals page duplicates it. Historical alternatives still stay out of source.
+
 The same split governs tensor shape: Reference owns scientific or mathematical tensor meaning; Internals owns implementation layout, broadcast, batching, and reshape invariants.
 
 ## Specify the model, not the physical realization
@@ -41,7 +43,7 @@ Each top-level `docs/` directory owns one kind of content:
 - `contributing/` — how to write each document class, plus the contribution workflow.
 - `about/` — citation and the simulator's scope and limitations.
 
-Reference mirrors the physics-bearing core library and Internals the software core library, each to directory granularity, so a subsystem's science and its implementation sit at matching paths. A directory is a concept grouping and an extension point: a new subsystem adds a directory of its own name under both trees, each carrying a README index beside the subsystem's documents.
+Reference mirrors the physics-bearing core library and Internals the software core library, each to directory granularity, so a subsystem's science and its implementation sit at matching paths. Cross-cutting common infrastructure is covered by the relevant topic document rather than a file-by-file Internals mirror. A directory is a concept grouping and an extension point: a new subsystem adds a directory of its own name under both trees, each carrying a README index beside the subsystem's documents.
 
 ## Document classes
 

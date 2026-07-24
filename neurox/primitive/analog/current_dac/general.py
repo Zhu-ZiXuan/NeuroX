@@ -6,8 +6,6 @@ See also:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 import torch
 from torch import Tensor
 
@@ -16,7 +14,6 @@ from neurox.primitive.nonideality import apply_gaussian
 from .base import CurrentDac, CurrentDacConfig, CurrentDacPolicy
 
 
-@dataclass(frozen=True)
 class GeneralCurrentDacConfig(CurrentDacConfig):
     """Immutable configuration for :class:`GeneralCurrentDac`.
 
@@ -25,20 +22,15 @@ class GeneralCurrentDacConfig(CurrentDacConfig):
             ``code_to_signal[i]`` is the nominal analog output in [uA]
             for digital code ``i``. Length equals the number of input
             codes.
-        drive_thermal__uA: Signal-independent Gaussian output-noise σ
-            [uA] added to each output sample after LUT lookup.
+        drive_thermal__uA: Signal-independent Gaussian output-noise σ added to
+            each output sample after LUT lookup.
         energy_per_op__fJ: Dynamic energy per conversion operation.
         latency_per_op__ns: Per-conversion latency; multiplied by
             the runtime serial-op count at logging time.
     """
 
-    # --- LUT ---
     code_to_signal: tuple[float, ...]
-
-    # --- Drive thermal noise ---
     drive_thermal__uA: float
-
-    # --- Energy / latency ---
     energy_per_op__fJ: float
     latency_per_op__ns: float
 
@@ -60,7 +52,6 @@ class GeneralCurrentDacConfig(CurrentDacConfig):
         self._require_non_neg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
-@dataclass(frozen=True)
 class GeneralCurrentDacPolicy(CurrentDacPolicy):
     """Per-source toggles selecting which GeneralCurrentDac nonidealities are active.
 
@@ -75,9 +66,12 @@ class GeneralCurrentDacPolicy(CurrentDacPolicy):
 class GeneralCurrentDac(CurrentDac[GeneralCurrentDacConfig, GeneralCurrentDacPolicy]):
     """General current DAC model — code-to-current LUT plus signal-independent output noise.
 
-    Behavioural current-steering model: the code selects a steered output
-    current from ``code_to_signal`` and the output carries an additive Gaussian
-    noise of constant σ ``drive_thermal__uA``, independent of the selected code.
+    Args:
+        config: Concrete configuration dataclass.
+        policy: Per-source nonideality flags.
+        inst_shape: Per-instance fabrication shape.
+        dtype: Tensor dtype for internal buffers.
+        T__K: Operating temperature.
     """
 
     code_to_signal: Tensor
@@ -91,7 +85,6 @@ class GeneralCurrentDac(CurrentDac[GeneralCurrentDacConfig, GeneralCurrentDacPol
         dtype: torch.dtype,
         T__K: float,
     ) -> None:
-        """Initialize the LUT buffer."""
         super().__init__(
             config=config,
             policy=policy,
@@ -108,7 +101,7 @@ class GeneralCurrentDac(CurrentDac[GeneralCurrentDacConfig, GeneralCurrentDacPol
         self.register_buffer("code_to_signal", torch.tensor(config.code_to_signal, dtype=dtype), persistent=False)
 
     def _sample_fabricate_mismatch(self) -> None:
-        pass  # drive-thermal noise is drawn per convert(), not fabricated
+        pass
 
     @property
     def code_max(self) -> int:
@@ -129,10 +122,6 @@ class GeneralCurrentDac(CurrentDac[GeneralCurrentDacConfig, GeneralCurrentDacPol
             enabled=self.policy.drive_thermal,
         )
 
-        # Serial-op count via the position-invariant numel rule: total
-        # output elements / parallel hardware multiplicity. For DAC the
-        # parallel structure is exactly ``inst_count`` — no extra
-        # parallel trailing — so the divisor is ``self.inst_count``.
         serial_op_count = max(1, signal.numel() // max(self.inst_count, 1))
         dynamic_energy__fJ = torch.full_like(signal, self.config.energy_per_op__fJ, dtype=torch.float32)
         latency__ns = torch.tensor(

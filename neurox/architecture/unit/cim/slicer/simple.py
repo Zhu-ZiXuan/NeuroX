@@ -16,10 +16,6 @@ from .base import Slicer
 class SimpleSlicer(Slicer):
     """Direct digitise-then-group signed-digit decomposer.
 
-    Encodes the input into a single radix-``digit_radix`` digit string of
-    length ``slice_num * digit_count``, then unflattens the trailing axis
-    into ``[slice_num, digit_count]``.
-
     Args:
         slice_num: Number of macro-external xbar-word slices (shape
             shorthand ``Sw``). Any ``slice_num >= 1`` is supported.
@@ -65,7 +61,6 @@ class SimpleSlicer(Slicer):
         return tuple(r**i for i in range(self._slice_num))
 
     def slice(self, x: Tensor) -> Tensor:
-        # LSB-first digit ordering.
         # Shape: [...] -> [..., slice_num * digit_count]
         flat_digits = self._transcoder.encode(x, dim=-1)
         # Shape: [..., slice_num * digit_count] -> [..., slice_num, digit_count]

@@ -21,15 +21,6 @@ class CanonicalTranscoder(Transcoder):
     """
 
     def encode(self, x: Tensor, *, dim: int = -1) -> Tensor:
-        """Encode integer tensor into canonical signed-digit form.
-
-        Args:
-            x: Integer tensor to encode.
-            dim: Axis at which the digit dimension is inserted.
-
-        Returns:
-            Digit tensor with a new size-``digit_count`` axis at ``dim``.
-        """
         radix = self._radix
         all_digits: list[Tensor] = []
         for _ in range(self._digit_count):
@@ -42,6 +33,7 @@ class CanonicalTranscoder(Transcoder):
             carry = carry & (rem != 0)
             x = x + carry
             all_digits.append(torch.where(carry, rem - radix, rem))
+        # Shape: [...] -> [..., digit_count, ...]
         return torch.stack(all_digits, dim=dim)
 
     @property

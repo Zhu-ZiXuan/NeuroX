@@ -20,11 +20,6 @@ Encoding: TypeAlias = Literal["true_form", "complement", "canonical"]
 class Transcoder(RegistryMixin[Encoding, "Transcoder"], ABC):
     """Fixed-length positional signed-digit transcoder.
 
-    Holds the shared positional-radix state ``(radix, digit_count)`` and
-    the encoding-agnostic ``decode`` reduction. Subclasses supply the
-    encoding-specific ``encode`` and ``value_range``, and self-register
-    against their :data:`Encoding` discriminator.
-
     Args:
         radix: Positional base ``r`` of the digit representation.
         digit_count: Number of digits produced by ``encode``.

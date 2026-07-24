@@ -12,17 +12,13 @@ from torch import Tensor
 from neurox.primitive.analog.base import AnalogBase, AnalogConfig, AnalogPolicy
 
 
-@dataclass(frozen=True, kw_only=True)
 class VoltageReferenceConfig(AnalogConfig):
     """Immutable configuration for :class:`VoltageReference`.
 
     Attributes:
-        v_refs__V: Nominal reference-voltage taps. One module
-            sources ``len(v_refs__V)`` independent taps; the taps are
-            unordered (unlike an ADC's ordered mode anchors). Each tap is
-            non-negative; 0 V denotes a ground/rail reference (relative
-            noise * 0 == 0, so a 0 tap stays stable and exact). A TOML
-            array loads straight into this tuple.
+        v_refs__V: Nominal reference-voltage taps. Values are unordered
+            and non-negative. A zero tap remains exact under relative
+            noise.
         tolerance_sigma_relative: Relative per-instance initial-accuracy
             σ [dimensionless], applied multiplicatively at fabricate
             time; ``0`` leaves the exact nominal taps.
@@ -35,21 +31,11 @@ class VoltageReferenceConfig(AnalogConfig):
             generates the references.
     """
 
-    # --- Reference taps ---
     v_refs__V: tuple[float, ...]
-
-    # --- Initial accuracy (fabricate-time, per-instance) ---
     tolerance_sigma_relative: float
-
-    # --- Runtime noise (per-call) ---
     noise_sigma_relative: float
-
-    # --- Static PPA ---
     area_per_inst__um2: float
     leakage_per_inst__uW: float
-
-    def __post_init__(self) -> None:
-        self.validate()
 
     def validate(self) -> None:
         self.validate_taps()
@@ -70,7 +56,6 @@ class VoltageReferenceConfig(AnalogConfig):
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
 
 
-@dataclass(frozen=True)
 class VoltageReferencePolicy(AnalogPolicy):
     """Per-source toggles selecting which VoltageReference nonidealities are active.
 
@@ -98,21 +83,7 @@ class VoltageReferenceSnap:
 
 
 class VoltageReference(AnalogBase[VoltageReferenceConfig, VoltageReferencePolicy]):
-    """Multi-output voltage reference source — PPA + state, no compute.
-
-    A behavioural reference: it sources one or more nominal voltage taps
-    and exists to (1) carry the reference's static PPA — silicon area
-    plus the always-on bias power folded into ``leakage_per_inst__uW`` —
-    and (2) hand downstream blocks the actual tap values through a
-    per-call snap, read back through :meth:`v_ref__V`.
-    It performs no transport, copy, or solve, and emits neither dynamic
-    energy nor latency: its entire hardware cost is static.
-
-    Two nonidealities perturb the taps. The per-instance initial
-    accuracy is a static spread sampled once at ``fabricate`` time
-    (``tolerance``); per-call noise is resampled every ``snapshot``
-    (``noise``). Both are relative (multiplicative), so a single σ
-    applies uniformly across taps of differing magnitude.
+    """Multi-output voltage reference with static tolerance and runtime noise.
 
     Args:
         config: Concrete configuration dataclass.
@@ -142,8 +113,6 @@ class VoltageReference(AnalogBase[VoltageReferenceConfig, VoltageReferencePolicy
 
         nominal_v_refs__V = torch.tensor(config.v_refs__V, dtype=dtype)
         self.register_buffer("nominal_v_refs__V", nominal_v_refs__V, persistent=False)
-        # Actual per-instance taps before any fabricate() call: the
-        # broadcast nominal. fabricate() resamples the static tolerance.
         self.register_buffer(
             "v_refs__V",
             nominal_v_refs__V.expand(*inst_shape, self.num_refs).clone(),
@@ -156,7 +125,6 @@ class VoltageReference(AnalogBase[VoltageReferenceConfig, VoltageReferencePolicy
         return len(self.config.v_refs__V)
 
     def _sample_fabricate_mismatch(self) -> None:
-        """Resample the per-instance initial-accuracy spread at ``(*inst_shape, num_refs)``."""
         base = self.nominal_v_refs__V.expand(*self.inst_shape, self.num_refs)
         if self.policy.tolerance:
             self.v_refs__V = base * (1.0 + torch.randn_like(base) * self.config.tolerance_sigma_relative)
@@ -164,13 +132,7 @@ class VoltageReference(AnalogBase[VoltageReferenceConfig, VoltageReferencePolicy
             self.v_refs__V = base.clone()
 
     def snapshot(self) -> VoltageReferenceSnap:
-        """Sample one per-call reference snap.
-
-        Reads the fabricated per-instance taps and applies the per-call
-        relative noise (gated by the ``noise`` policy). No external
-        shape: a reference's output is intrinsically ``(*inst_shape,
-        num_refs)`` — a consumer picks a tap and broadcasts it onto its
-        own grid.
+        """Sample reference taps with per-call noise.
 
         Returns:
             Per-call snap carrying the actual reference-voltage taps.
@@ -180,11 +142,7 @@ class VoltageReference(AnalogBase[VoltageReferenceConfig, VoltageReferencePolicy
         return VoltageReferenceSnap(v_refs__V=v)
 
     def v_ref__V(self, snap: VoltageReferenceSnap) -> Tensor:
-        """Read all reference-voltage taps from a per-call snap.
-
-        The encapsulated read path: returns every tap (count is
-        ``num_refs``) so a consumer selects one by index and broadcasts
-        it onto its own grid. Pairs with :meth:`snapshot`.
+        """Read all reference-voltage taps from a snap.
 
         Args:
             snap: Per-call snap returned by :meth:`snapshot`.

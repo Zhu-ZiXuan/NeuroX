@@ -42,17 +42,17 @@ class _GridCfg:
     """``[grid]`` section: terminal-voltage / word-line operating sweep.
 
     Attributes:
-        v_terminal_min__V: Minimum bit-line / source-line node voltage [V]
+        v_terminal_min__V: Minimum bit-line / source-line node voltage
             of the read-voltage sweep.
-        v_terminal_max__V: Maximum bit-line / source-line node voltage [V].
+        v_terminal_max__V: Maximum bit-line / source-line node voltage.
         n_terminal: Number of points per terminal axis; the grid is the
             full ``n_terminal x n_terminal`` ``(v_bl, v_sl)`` outer
             product (both rails swept independently).
-        v_wl_off__V: Word-line drive [V] for the off state (NMOS cut off).
-        v_wl_on__V: Word-line drive [V] for the on state (NMOS conducting).
-        v_bl_op__V: Nominal bit-line operating voltage [V] the linearized
+        v_wl_off__V: Word-line drive for the off state (NMOS cut off).
+        v_wl_on__V: Word-line drive for the on state (NMOS conducting).
+        v_bl_op__V: Nominal bit-line operating voltage the linearized
             cell's chord conductance and drop fraction are extracted at.
-        v_sl_op__V: Nominal source-line operating voltage [V] for the same
+        v_sl_op__V: Nominal source-line operating voltage for the same
             extraction.
     """
 
@@ -82,7 +82,6 @@ class _RuntimeCfg:
     dtype: str
 
 
-@dataclass(frozen=True)
 class CalibrateCell1t1rConfig(ConfigBase):
     """Top-level config for :mod:`neurox.tools.calibrate_cell._1t1r`.
 
@@ -347,10 +346,10 @@ def extract_linear_cell_config(
 
     Args:
         cell_config: Detail cell fragment under calibration.
-        v_bl_op__V: Nominal bit-line operating voltage [V].
-        v_sl_op__V: Nominal source-line operating voltage [V].
-        v_wl_off__V: Word-line off drive [V].
-        v_wl_on__V: Word-line on drive [V].
+        v_bl_op__V: Nominal bit-line operating voltage.
+        v_sl_op__V: Nominal source-line operating voltage.
+        v_wl_off__V: Word-line off drive.
+        v_wl_on__V: Word-line on drive.
         device: Torch device for the solves.
         dtype: Tensor dtype for the solves.
         n_newton: Condensation count override for the extraction solves;

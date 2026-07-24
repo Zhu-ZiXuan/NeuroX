@@ -18,7 +18,6 @@ from neurox.primitive.nonideality import apply_gaussian
 from neurox.primitive.physical_constant import thermal_voltage__V
 
 
-@dataclass(frozen=True)
 class MosfetConfig(ConfigBase):
     """Immutable PDK config for a MOSFET (polarity-agnostic).
 
@@ -39,8 +38,6 @@ class MosfetConfig(ConfigBase):
         A_beta_relative__um: Pelgrom relative-β matching coefficient.
     """
 
-    # --- BSIM-like process parameter ---
-
     T_nom__K: float
     c_ox__fF_per_um2: float
 
@@ -52,13 +49,8 @@ class MosfetConfig(ConfigBase):
 
     n_factor: float
 
-    # --- Fabrication mismatch parameter ---
-
     A_vt__mV_um: float
     A_beta_relative__um: float
-
-    def __post_init__(self) -> None:
-        self.validate()
 
     def validate(self) -> None:
         self.validate_process()
@@ -75,7 +67,6 @@ class MosfetConfig(ConfigBase):
         self._require_non_neg(self.A_beta_relative__um, "A_beta_relative__um")
 
 
-@dataclass(frozen=True)
 class MosfetPolicy(PolicyBase):
     """Per-source toggles selecting which MOSFET nonidealities are active.
 
@@ -121,10 +112,7 @@ class MosfetSnap:
 
 
 class Mosfet(ModuleBase[MosfetConfig, MosfetPolicy], ABC):
-    """EKV-softplus MOSFET electrical primitive (polarity-parameterized base).
-
-    All physics lives here; concrete subclasses fix only the channel
-    polarity (:class:`Nmos` = ``+1``, :class:`Pmos` = ``-1``).
+    """Polarity-parameterized EKV-softplus MOSFET.
 
     Args:
         config: Concrete configuration dataclass.
@@ -136,7 +124,6 @@ class Mosfet(ModuleBase[MosfetConfig, MosfetPolicy], ABC):
         L__um: Channel length.
     """
 
-    # non-reporter: silicon rolls up to the owner
     is_profile_target: ClassVar[bool] = False
 
     @property
@@ -178,8 +165,6 @@ class Mosfet(ModuleBase[MosfetConfig, MosfetPolicy], ABC):
         mu_scale = math.pow(T_ratio, -config.ute)
         vth_shift__V = config.kt1__V * (T_ratio - 1.0)
 
-        # --- Derived electrical constants ---
-
         # Smoothing scale used by softplus and sigmoid.
         self._inv_smooth_scale__per_V = 1.0 / (2.0 * config.n_factor * thermal_voltage__V(T__K))
 
@@ -216,7 +201,6 @@ class Mosfet(ModuleBase[MosfetConfig, MosfetPolicy], ABC):
         self.sigma_beta__uA_per_V2 = nominal_beta__uA_per_V2 * config.A_beta_relative__um * nominal_isqrt_area__per_um
 
     def _sample_fabricate_mismatch(self) -> None:
-        """Resample β and V_th at ``self.inst_shape`` (re-callable)."""
         self.beta__uA_per_V2 = apply_gaussian(
             self.nominal_beta__uA_per_V2.clone().expand(self.inst_shape),
             self.sigma_beta__uA_per_V2,
@@ -278,23 +262,23 @@ class Mosfet(ModuleBase[MosfetConfig, MosfetPolicy], ABC):
         vth__V = snap.vth__V
         inv_smooth_scale__per_V = self._inv_smooth_scale__per_V
 
-        # --- 1. source-side smoothed voltage & sigma ---
+        # --- 1: evaluate source-side smoothed voltage ---
 
         v_ov_s__V = p * (vg__V - vs__V - vth__V)
         v_eff_s__V = F.softplus(v_ov_s__V, beta=inv_smooth_scale__per_V)
         sigma_s = F.sigmoid(v_ov_s__V * inv_smooth_scale__per_V)
 
-        # --- 2. drain-side smoothed voltage & sigma ---
+        # --- 2: evaluate drain-side smoothed voltage ---
 
         v_ov_d__V = p * (vg__V - vd__V - vth__V)
         v_eff_d__V = F.softplus(v_ov_d__V, beta=inv_smooth_scale__per_V)
         sigma_d = F.sigmoid(v_ov_d__V * inv_smooth_scale__per_V)
 
-        # --- 3. drain-source current ---
+        # --- 3: compute drain-source current ---
 
         ids__uA = 0.5 * p * beta__uA_per_V2 * (v_eff_s__V * v_eff_s__V - v_eff_d__V * v_eff_d__V)
 
-        # --- 4. derivative ---
+        # --- 4: compute node derivatives ---
 
         v_s_sigma_s = v_eff_s__V * sigma_s
         v_d_sigma_d = v_eff_d__V * sigma_d

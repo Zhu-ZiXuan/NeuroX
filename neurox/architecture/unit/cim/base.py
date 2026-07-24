@@ -7,7 +7,6 @@ See also:
 from __future__ import annotations
 
 from abc import ABC
-from dataclasses import dataclass
 from typing import Generic, TypeVar
 
 import torch
@@ -16,27 +15,20 @@ from torch import Tensor
 from neurox.architecture.unit.base import UnitBase
 from neurox.common import ConfigBase, ModuleBase, PolicyBase
 from neurox.common.mixin import RegistryMixin
-from neurox.primitive.macro.cim import CimMacroPolicy
 
 from .engine import CimEngine, CimEngineConfig, CimEnginePolicy
 
 
-@dataclass(frozen=True)
 class CimUnitConfig(ConfigBase, ABC):
     """Abstract config root for the :class:`CimUnit` registry.
 
     Attributes:
-        area_per_inst__um2: Unit-local peripheral silicon area per instance;
-            excludes children, which self-report their own PPA.
-        leakage_per_inst__uW: Unit-local peripheral static leakage per instance;
-            excludes children, which self-report their own PPA.
+        area_per_inst__um2: Unit-local peripheral silicon area per instance.
+        leakage_per_inst__uW: Unit-local peripheral static leakage per instance.
     """
 
     area_per_inst__um2: float
     leakage_per_inst__uW: float
-
-    def __post_init__(self) -> None:
-        self.validate()
 
     def validate(self) -> None:
         """Run all ``validate_*`` checks."""
@@ -48,7 +40,6 @@ class CimUnitConfig(ConfigBase, ABC):
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
 
 
-@dataclass(frozen=True)
 class CimUnitPolicy(PolicyBase, ABC):
     """Abstract marker base for CimUnit-family nonideality policies."""
 
@@ -64,12 +55,7 @@ class CimUnit(
     Generic[ConfigT, PolicyT],
     ABC,
 ):
-    """Abstract root of the config-dispatched CimUnit family.
-
-    The value-range / ADC surface and the protected lowering machinery
-    come from :class:`UnitBase`; the operator surface comes from the
-    ``UnitBase``-derived operator ABC mixed in by each concrete leaf;
-    ``fabricate`` is satisfied by the ``FabricateMixin`` cascade.
+    """Config-dispatched base for CIM compute units.
 
     Args:
         config: Concrete configuration dataclass.
@@ -77,9 +63,7 @@ class CimUnit(
         w_logical_shape: Logical weight shape ``(*prefix, N, K)`` bound to ``program(...)``.
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature.
-        ideal_xbar: Hint accepted for API uniformity. Consumed by
-            xbar-using subclasses (swaps the physical xbar for its ideal
-            twin); degenerate members ignore it.
+        ideal_xbar: Whether to replace the configured xbar with its ideal model.
     """
 
     def __init__(
@@ -123,31 +107,27 @@ class CimUnit(
         )
 
     def _sample_fabricate_mismatch(self) -> None:
-        pass  # container: child mismatch is sampled through the cascade
+        pass
 
 
-@dataclass(frozen=True)
 class EngineBackedCimUnitConfig(CimUnitConfig, ABC):
     """Abstract config base for engine-backed CIM units.
 
     Attributes:
-        engine: Nested engine config; its concrete type selects the
-            execution variant through the ``_neurox_class`` discriminator.
+        engine: Execution-engine configuration.
     """
 
     engine: CimEngineConfig
 
 
-@dataclass(frozen=True)
 class EngineBackedCimUnitPolicy(CimUnitPolicy, ABC):
     """Abstract policy base for engine-backed CIM units.
 
     Attributes:
-        cim_macro_policy: Embedded xbar nonideality policy, forwarded to the
-            engine's composite policy.
+        engine: Execution-engine policy matching ``config.engine``.
     """
 
-    cim_macro_policy: CimMacroPolicy
+    engine: CimEnginePolicy
 
 
 EbConfigT = TypeVar("EbConfigT", bound=EngineBackedCimUnitConfig)
@@ -155,12 +135,7 @@ EbPolicyT = TypeVar("EbPolicyT", bound=EngineBackedCimUnitPolicy)
 
 
 class EngineBackedCimUnit(CimUnit[EbConfigT, EbPolicyT], Generic[EbConfigT, EbPolicyT], ABC):
-    """Unregistered intermediate: a CIM unit delegating execution to an owned engine.
-
-    Builds the :class:`CimEngine` selected by ``config.engine`` and
-    delegates the whole execution surface to it; concrete subclasses add
-    only their operator's ``program`` mapping.
-    """
+    """CIM unit backed by the engine selected by ``config.engine``."""
 
     engine: CimEngine
 
@@ -186,7 +161,7 @@ class EngineBackedCimUnit(CimUnit[EbConfigT, EbPolicyT], Generic[EbConfigT, EbPo
         self._leakage_per_inst__uW = config.leakage_per_inst__uW
         self.engine = CimEngine.from_config(
             config=config.engine,
-            policy=CimEnginePolicy(cim_macro_policy=policy.cim_macro_policy),
+            policy=policy.engine,
             w_logical_shape=self._engine_w_logical_shape(),
             dtype=dtype,
             T__K=T__K,
@@ -196,8 +171,6 @@ class EngineBackedCimUnit(CimUnit[EbConfigT, EbPolicyT], Generic[EbConfigT, EbPo
     def _engine_w_logical_shape(self) -> tuple[int, ...]:
         """Logical weight shape handed to the engine; defaults to the unit's own."""
         return self._w_logical_shape
-
-    # --- delegation to the engine ---
 
     @property
     def w_value_range(self) -> tuple[int, int]:

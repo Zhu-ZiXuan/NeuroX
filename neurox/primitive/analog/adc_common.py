@@ -1,4 +1,4 @@
-"""Domain-neutral ADC descriptor/calibration types (AdcMode, AdcCalibrationRecord) shared by the voltage and current ADC families.
+"""Domain-neutral ADC operating-mode and calibration records.
 
 See also:
     docs/reference/primitive/analog/adc_common.md
@@ -18,13 +18,10 @@ class AdcCalibrationRecord(ValidateMixin):
     Attributes:
         mode: Operating-point index.
         bits: Active bit width.
-        rescale_factor: Recovery-side multiplier. Codes are raw (unsigned /
-            offset-binary), so recovery is consumer-side and affine-aware:
+        rescale_factor: Affine-recovery multiplier for raw codes:
             ``M_ideal ≈ (code − zero) · rescale_factor``, where ``zero`` is
-            the emitting ADC's zero-point offset for the operating point (0
-            for a genuinely single-ended magnitude ADC). The record stores
-            only the linear coefficient; the ``zero`` offset comes from the
-            ADC, not from this record.
+            the ADC's zero-point offset. This record stores only the linear
+            coefficient.
     """
 
     mode: int

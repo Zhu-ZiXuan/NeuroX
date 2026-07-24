@@ -1,9 +1,4 @@
-"""Purely numerical linear-algebra helpers for crossbar IR-drop simulation.
-
-The scalar tridiagonal Thomas algorithm, the block-tridiagonal Thomas
-algorithm, the block-tridiagonal Parallel Cyclic Reduction solver, and an
-autograd element-wise derivative. Every helper takes its tensors as plain
-arguments and owns no circuit topology, device handle, or solver framework.
+"""Numerical linear-algebra helpers for crossbar IR-drop simulation.
 
 See also:
     docs/reference/primitive/xbar/solver/nested.md
@@ -38,45 +33,47 @@ def elementwise_diff(fn: Callable[..., Tensor], *, wrt: str, **kwargs: Tensor) -
 
 
 def block_matmul(p: Tensor, q: Tensor) -> Tensor:
-    """Batched block product ``p @ q`` with a closed-form 2×2 fast path.
+    """Compute batched ``p @ q`` with a closed-form 2×2 path.
 
     ``p`` is ``[..., B, B]`` and ``q`` is ``[..., B, K]``. For ``B == 2`` the
-    product is expanded into elementwise multiply-adds: a batched ``bmm`` on
-    tens of millions of 2×2 blocks dispatches to tile-based GEMM kernels whose
-    per-launch cost is orders of magnitude above the arithmetic, and the
-    elementwise form also fuses under ``torch.compile``. Any other block size
-    falls through to ``p @ q``.
+    product uses elementwise multiply-adds. Other block sizes use ``p @ q``.
     """
     if p.shape[-1] == 2 and p.shape[-2] == 2:
+        # Shape: [..., B, K] -> [..., K]
         q0 = q[..., 0, :]
+        # Shape: [..., B, K] -> [..., K]
         q1 = q[..., 1, :]
         out0 = p[..., 0, 0].unsqueeze(-1) * q0 + p[..., 0, 1].unsqueeze(-1) * q1
         out1 = p[..., 1, 0].unsqueeze(-1) * q0 + p[..., 1, 1].unsqueeze(-1) * q1
+        # Shape: [..., K] -> [..., B, K]
         return torch.stack((out0, out1), dim=-2)
     return p @ q
 
 
 def block_solve(m: Tensor, rhs: Tensor) -> Tensor:
-    """Batched block solve ``m⁻¹ @ rhs`` with a closed-form 2×2 fast path.
+    """Solve batched ``m x = rhs`` with a closed-form 2×2 path.
 
     ``m`` is ``[..., B, B]`` and ``rhs`` is ``[..., B, K]``. For ``B == 2``
-    the solve is the adjugate/determinant closed form — elementwise arithmetic
-    instead of a batched LU (``torch.linalg.solve``), whose per-launch cost on
-    tens of millions of 2×2 blocks dwarfs the arithmetic. The closed form
-    matches LU to fp round-off in the diagonally-dominant regime the wire
-    Newton Jacobian occupies. Any other block size falls through to
+    the solve uses the adjugate/determinant formula. Other block sizes use
     ``torch.linalg.solve``.
     """
     if m.shape[-1] == 2 and m.shape[-2] == 2:
+        # Shape: [..., B, B] -> [..., 1]
         a = m[..., 0, 0].unsqueeze(-1)
+        # Shape: [..., B, B] -> [..., 1]
         b = m[..., 0, 1].unsqueeze(-1)
+        # Shape: [..., B, B] -> [..., 1]
         c = m[..., 1, 0].unsqueeze(-1)
+        # Shape: [..., B, B] -> [..., 1]
         d = m[..., 1, 1].unsqueeze(-1)
         det = a * d - b * c
+        # Shape: [..., B, K] -> [..., K]
         r0 = rhs[..., 0, :]
+        # Shape: [..., B, K] -> [..., K]
         r1 = rhs[..., 1, :]
         x0 = (d * r0 - b * r1) / det
         x1 = (a * r1 - c * r0) / det
+        # Shape: [..., K] -> [..., B, K]
         return torch.stack((x0, x1), dim=-2)
     return torch.linalg.solve(m, rhs)
 
@@ -187,17 +184,21 @@ def solve_block_tridiagonal_dense(
     sub_shift = torch.diag_embed(ones_n1, offset=-1)
     sup_shift = torch.diag_embed(ones_n1, offset=+1)
 
-    # Place blocks via einsum: '...kij,km->...kimj'. The output shape
-    # [..., k=n, i=B, m=n, j=B] is then flattened to [..., n·B, n·B] so
-    # that index (k, i) → row k·B+i and (m, j) → col m·B+j.
+    # ``(k, i)`` and ``(m, j)`` become the dense row and column indices.
+    # Shape: [..., N, B, B] -> [..., N, B, N, B] -> [..., N*B, N*B]
     diag_part = torch.einsum("...kij,km->...kimj", diag, eye_n).flatten(-4, -3).flatten(-2, -1)
+    # Shape: [..., N, B, B] -> [..., N, B, N, B] -> [..., N*B, N*B]
     sub_part = torch.einsum("...kij,km->...kimj", sub_clean, sub_shift).flatten(-4, -3).flatten(-2, -1)
+    # Shape: [..., N, B, B] -> [..., N, B, N, B] -> [..., N*B, N*B]
     sup_part = torch.einsum("...kij,km->...kimj", sup_clean, sup_shift).flatten(-4, -3).flatten(-2, -1)
 
     dense_matrix = diag_part + sub_part + sup_part
 
+    # Shape: [..., N, B] -> [..., N*B, 1]
     rhs_flat = rhs.reshape(*rhs.shape[:-2], nb).unsqueeze(-1)
+    # Shape: [..., N*B, 1] -> [..., N*B]
     x_flat = torch.linalg.solve(dense_matrix, rhs_flat).squeeze(-1)
+    # Shape: [..., N*B] -> [..., N, B]
     return x_flat.view(*rhs.shape)
 
 
@@ -250,37 +251,10 @@ def solve_block_tridiagonal_pcr(
     sup: Tensor,
     rhs: Tensor,
 ) -> Tensor:
-    """Solve batched block-tridiagonal systems via Parallel Cyclic Reduction.
+    """Solve batched block-tridiagonal systems by Parallel Cyclic Reduction.
 
-    Same input/output contract as :func:`solve_block_tridiagonal` (block
-    Thomas), but the unrolled dynamo graph has depth ``ceil(log2 N)``
-    instead of ``N``. Each PCR step is a fixed-shape batched B×B matrix
-    kernel — no Python list mutation, no ``torch.compile`` graph break.
-
-    Algorithm sketch (block size B, system size N):
-
-    1. At stride ``s = 1, 2, 4, ..., < N``, compute for every k::
-
-           α_k = -sub_k · diag_{k-s}⁻¹      (zero where k - s < 0)
-           β_k = -sup_k · diag_{k+s}⁻¹      (zero where k + s ≥ N)
-           sub_k  ← α_k · sub_{k-s}
-           sup_k  ← β_k · sup_{k+s}
-           diag_k ← diag_k + α_k · sup_{k-s} + β_k · sub_{k+s}
-           rhs_k  ← rhs_k + α_k · rhs_{k-s} + β_k · rhs_{k+s}
-
-       Out-of-range ``diag_{...}`` is padded with the identity, all other
-       out-of-range tensors with zero. Each step halves the sub/sup
-       neighbour distance, so after ``ceil(log2 N)`` steps the off-diagonals
-       are zero.
-
-    2. The decoupled diagonal system ``diag_k · x_k = rhs_k`` is solved as
-       one batched B×B inverse.
-
-    Numerical stability: PCR has the same forward error as Thomas for
-    diagonally-dominant systems (the regime our Newton Jacobian sits in),
-    but without partial pivoting it is slightly more sensitive in
-    ill-conditioned corners. Verified against Thomas + dense LU in
-    :file:`tests/test_block_tridiagonal_pcr.py` (rtol 1e-10 fp64, 1e-4 fp32).
+    Uses the same tensor contract as :func:`solve_block_tridiagonal`.
+    The implementation has no pivoting and is intended for diagonally-dominant systems.
     """
     n = diag.shape[-3]
     block_dim = -3

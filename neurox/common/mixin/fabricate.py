@@ -9,37 +9,24 @@ import torch.nn as nn
 
 
 class FabricateMixin(ABC):
-    """Grant a host an automatic pre-order ``fabricate()`` cascade.
-
-    A host inherits this to get static manufacturing-variation sampling:
-    the inherited ``fabricate()`` resamples the host's own static state,
-    then recurses into every ``FabricateMixin`` descendant in one pre-order
-    pass. A subclass implements only its own per-layer sampling step. The mixin
-    samples static mismatch only; it never writes a programmed weight.
+    """Add fabrication traversal to an ``nn.Module``.
 
     Host requirements:
-        - Inherit ``nn.Module`` alongside this mixin; the cascade walks
-          ``self.children()``.
-        - Implement ``_sample_fabricate_mismatch`` to resample this node's own
-          static mismatch; a container that owns no static state implements it
-          as an explicit no-op.
-        - ``ModuleBase.__init__`` sets the public ``inst_shape`` — the
-          per-instance fabrication multiplicity at this layer.
-          ``FabricateMixin`` neither assigns nor reads it; ``inst_count`` and
-          subclass ``_sample_fabricate_mismatch`` implementations read it.
-        - Hold a fabricable submodule as a registered child — directly or
-          inside an ``nn.ModuleList`` / ``nn.ModuleDict``. One kept in a plain
-          attribute falls outside ``self.children()`` and is never reached.
-        - Mix auxiliary ``nn.Module`` children — helpers, ``nn.Parameter``
-          holders — into the same tree freely: a registered child that is not a
-          ``FabricateMixin`` is skipped silently, with no opt-out flag to set.
+        - Also inherit :class:`torch.nn.Module`.
+        - Implement :meth:`_sample_fabricate_mismatch` for local static state.
+        - Register fabricable children as ``nn.Module`` children.
     """
 
-    def fabricate(self) -> None:
-        """Re-sample static manufacturing variation across self and descendants.
+    def __init_subclass__(cls) -> None:
+        super().__init_subclass__()
+        if not issubclass(cls, nn.Module):
+            raise TypeError(f"{cls.__qualname__} must also inherit torch.nn.Module")
 
-        Runs pre-order — self first via ``_sample_fabricate_mismatch``, then
-        each fabricable child.
+    def fabricate(self) -> None:
+        """Resample static variation on this module and its descendants.
+
+        Traversal is pre-order: the host hook runs once before each direct
+        fabricable child recursively receives the same call.
         """
         self._sample_fabricate_mismatch()
         for child in self._fabricable_children():
@@ -51,13 +38,7 @@ class FabricateMixin(ABC):
         raise NotImplementedError
 
     def _fabricable_children(self) -> Iterator[FabricateMixin]:
-        """Iterate direct ``FabricateMixin`` children.
-
-        Returns:
-            Each direct child that is a :class:`FabricateMixin`;
-            ``nn.ModuleList`` / ``nn.ModuleDict`` containers are
-            transparently expanded so their members yield directly.
-        """
+        """Iterate direct fabricable children."""
         assert isinstance(self, nn.Module)
         for child in self.children():
             if isinstance(child, FabricateMixin):

@@ -7,18 +7,15 @@ See also:
 from __future__ import annotations
 
 from abc import ABC
-from dataclasses import dataclass
 from typing import TypeVar
 
 from neurox.common import ConfigBase, ModuleBase, PolicyBase
 
 
-@dataclass(frozen=True)
 class AnalogConfig(ConfigBase, ABC):
     """Root config for analog primitives — empty marker, no shared PPA fields."""
 
 
-@dataclass(frozen=True)
 class AnalogPolicy(PolicyBase, ABC):
     """Root policy for analog primitives — empty marker."""
 

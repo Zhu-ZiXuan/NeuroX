@@ -1,7 +1,5 @@
 """Topology-agnostic SL/BL IR-drop DC-solver framework.
 
-Hosts :class:`SolverConfig`, :class:`Solver`, and :class:`SolverDcop`.
-
 See also:
     docs/internals/primitive/xbar/solver.md
 """
@@ -20,49 +18,22 @@ from neurox.primitive.xbar.cell import XbarCell, XbarCellDcop, XbarCellSnap
 
 from .clamp import ClampDriver, ClampSnap
 
-# ---------------------------------------------------------------------------
-# Per-call method-generic type vars
-# ---------------------------------------------------------------------------
-
-# Bound only inside the solve-method signatures so mypy infers them per
-# call and the solver class itself stays non-generic.
 CellSnapT = TypeVar("CellSnapT", bound=XbarCellSnap)
 CellDCOPT = TypeVar("CellDCOPT", bound=XbarCellDcop)
 BLSnapT = TypeVar("BLSnapT", bound=ClampSnap)
 SLSnapT = TypeVar("SLSnapT", bound=ClampSnap)
 
-# ---------------------------------------------------------------------------
-# Config base
-# ---------------------------------------------------------------------------
 
-
-@dataclass(frozen=True)
 class SolverConfig(ConfigBase, ABC):
-    """Abstract base for DC-solver fixed-knob configs.
-
-    Each concrete solver carries its own subclass with iteration counts and
-    any other compile-time-constant numerical knobs.
-    """
-
-    def __post_init__(self) -> None:
-        self.validate()
+    """Base class for fixed DC-solver parameters."""
 
     def validate(self) -> None:
         """Hook for subclasses to enforce parameter ranges."""
 
 
-# ---------------------------------------------------------------------------
-# Result containers (shared across all solvers)
-# ---------------------------------------------------------------------------
-
-
 @dataclass(frozen=True)
 class SolverDcop(Generic[CellDCOPT]):
     """Complete steady-state solution of one DC solve.
-
-    The condensed cell working point (branch current, signed terminal
-    conductances, and internal node voltage) is carried on :attr:`cell`;
-    the solver owns only the wire and clamp boundary state.
 
     Attributes:
         i_bl_driver: BL driver current [uA]. Shape: ``[..., num_col]``.
@@ -84,28 +55,15 @@ class SolverDcop(Generic[CellDCOPT]):
     v_sl_drive: Tensor
 
 
-# ---------------------------------------------------------------------------
-# Solver base + registry
-# ---------------------------------------------------------------------------
-
-
 class Solver(RegistryMixin[type["SolverConfig"], "Solver"], ABC):
-    """Abstract base for SL/BL IR-drop DC solvers with config-keyed dispatch.
+    """Base class for SL/BL IR-drop DC solvers.
 
-    Each concrete solver registers itself against the :class:`SolverConfig`
-    subclass it consumes via ``@Solver.register_key(SomeSolverConfig)``;
-    callers reach it through :meth:`Solver.from_config`. Solvers are plain
-    stateless tool classes (not ``nn.Module``); the cell and the two clamp
-    drivers are per-call, method-generic parameters of :meth:`solve_dc`.
+    Args:
+        config: Fixed numerical parameters for the concrete solver.
     """
 
     @abstractmethod
     def __init__(self, *, config: SolverConfig) -> None:
-        """Bind the solver to its config.
-
-        Args:
-            config: The concrete solver's fixed-knob config.
-        """
         raise NotImplementedError
 
     @classmethod
@@ -114,6 +72,9 @@ class Solver(RegistryMixin[type["SolverConfig"], "Solver"], ABC):
 
         Args:
             config: Selects the impl (registry key) and its numerical knobs.
+
+        Returns:
+            Registered solver implementation.
         """
         impl = cls._lookup_impl(type(config))
         return impl(config=config)
@@ -144,8 +105,7 @@ class Solver(RegistryMixin[type["SolverConfig"], "Solver"], ABC):
                 ``bl_segment_r__MOhm``.
             sl_segment_g__uS: SL segment conductances, reciprocal of
                 ``sl_segment_r__MOhm``.
-            cell: Pluggable cell; owns the device branch and condenses any
-                internal node.
+            cell: Condensed cell branch model.
             cell_snap: Per-solve cell snap bundling the device snaps and the
                 per-cell control-line (WL) drive.
             bl_driver: BL clamp driver.

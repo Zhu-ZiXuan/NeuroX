@@ -1,9 +1,4 @@
-"""Dict <-> dataclass coercion via runtime reflection.
-
-Recursive, type-checked conversion between plain mappings and frozen dataclass
-trees, plus the ``_neurox_class`` polymorphic discriminator that instantiates a
-named subclass. Pure stdlib reflection: no config, policy, or file-I/O imports.
-"""
+"""Convert between mappings and dataclass trees."""
 
 from __future__ import annotations
 
@@ -21,9 +16,6 @@ from neurox.common.serialize.keys import CLASS_DISCRIMINATOR
 T = TypeVar("T")
 
 
-# --- type helpers ---
-
-
 def _is_dataclass_type(tp: Any) -> bool:
     return isinstance(tp, type) and is_dataclass(tp)
 
@@ -35,9 +27,6 @@ def _is_enum_type(tp: Any) -> bool:
 def _dataclass_field_names(cls: Any) -> set[str]:
     """Return the declared field names of a dataclass type."""
     return {f.name for f in fields(cls)}
-
-
-# --- dict → dataclass ---
 
 
 def _recursive_dataclass_descendants(base: type) -> list[str]:
@@ -74,25 +63,17 @@ def _resolve_concrete_dataclass(base: type, type_name: str) -> type:
 
 
 def _build_value(value: Any, tp: Any) -> Any:
-    """Coerce ``value`` into the annotated type ``tp`` recursively.
-
-    Unions are resolved by trying each arm and returning the first that
-    accepts the value. Polymorphic dataclass fields with a ``_neurox_class``
-    discriminator in the value mapping instantiate the named subclass.
-    ``Literal[...]`` annotations enforce membership in the declared set.
-    """
+    """Coerce ``value`` recursively into the annotated type ``tp``."""
     origin = get_origin(tp)
     args = get_args(tp)
 
-    # --- Literal: enforce membership ---
-
+    # Literal.
     if origin is typing.Literal:
         if value not in args:
             raise ValueError(f"value {value!r} not in Literal{list(args)}")
         return value
 
-    # --- unions (includes Optional) ---
-
+    # Union, including Optional.
     if origin is Union or origin is UnionType:
         if value is None and NoneType in args:
             return None
@@ -109,8 +90,7 @@ def _build_value(value: Any, tp: Any) -> Any:
             raise last_exc
         return value
 
-    # --- nested dataclass ---
-
+    # Nested dataclass.
     if _is_dataclass_type(tp):
         if not isinstance(value, Mapping):
             raise TypeError(f"Expected mapping for {tp.__name__}, got {type(value).__name__}")
@@ -121,20 +101,14 @@ def _build_value(value: Any, tp: Any) -> Any:
             return dataclass_from_dict(concrete, filtered)
         return dataclass_from_dict(tp, value)
 
-    # --- enum ---
-
+    # Enum.
     if _is_enum_type(tp):
         if isinstance(value, tp):
             return value
         return tp(value)
 
-    # --- generic containers ---
-
+    # Generic containers.
     if origin in (list, tuple, set, frozenset):
-        # ``str`` / ``bytes`` are iterables of length-1 elements; if a
-        # config field is annotated ``list[T]`` and the TOML supplies a
-        # string by mistake, the silent character-iteration that
-        # results is almost always wrong. Reject it explicitly.
         if isinstance(value, (str, bytes)):
             raise TypeError(f"Expected list/tuple/set for {tp}, got {type(value).__name__}: {value!r}")
         if not args:
@@ -158,28 +132,15 @@ def _build_value(value: Any, tp: Any) -> Any:
         v_tp = args[1]
         return {k: _build_value(v, v_tp) for k, v in value.items()}
 
-    # --- primitive (int / float / bool / str) ---
-
+    # Primitive.
     if tp in (int, float, bool, str):
         return _coerce_primitive(value, tp)
-
-    # --- untyped / Any ---
 
     return value
 
 
 def _coerce_primitive(value: Any, tp: type) -> Any:
-    """Validate a primitive value against ``tp``; reject silent mis-coercion.
-
-    Rules:
-      * ``bool`` is **not** a valid ``int`` here — Python's
-        ``isinstance(True, int) is True`` would otherwise let bool
-        fields collapse into int fields.
-      * ``int`` is accepted as ``float`` (TOML / YAML round-trip
-        regularly emits ``1`` where ``1.0`` is intended).
-      * ``str``, ``bytes``, and any other non-numeric type are rejected
-        for numeric fields with a clear ``TypeError``.
-    """
+    """Validate a primitive value against ``tp`` without silent coercion."""
     if tp is bool:
         if isinstance(value, bool):
             return value
@@ -257,9 +218,6 @@ def dataclass_from_dict(cls: type[T], data: Mapping[str, Any]) -> T:
     return cls(**kwargs)
 
 
-# --- dataclass → dict ---
-
-
 def _is_polymorphic_dataclass(tp: type) -> bool:
     """``True`` iff ``tp`` participates in a polymorphic family."""
     if any(_is_dataclass_type(base) and base is not tp for base in tp.__mro__):
@@ -288,11 +246,6 @@ def _to_primitive(obj: Any) -> Any:
 
 def dataclass_to_dict(obj: Any) -> dict[str, Any]:
     """Convert a dataclass instance to a plain dict.
-
-    ``Enum`` values are written as their ``.value``. A class that participates
-    in a polymorphic family — one with a dataclass ancestor or descendant —
-    writes a ``_neurox_class`` tag so the round trip can re-select the leaf; a
-    standalone dataclass with no relatives omits it.
 
     Args:
         obj: Frozen dataclass instance.

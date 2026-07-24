@@ -50,7 +50,6 @@ class _ClusterCfg:
     max_modes_per_group: int
 
 
-@dataclass(frozen=True)
 class ModeDeriveToolConfig(ConfigBase):
     """Top-level config for :mod:`neurox.tools.calibrate_adc.mode_derive`.
 

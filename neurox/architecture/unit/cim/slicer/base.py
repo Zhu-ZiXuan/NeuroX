@@ -12,11 +12,7 @@ from torch import Tensor
 
 
 class Slicer(ABC):
-    """Abstract value-domain decomposer.
-
-    A slicer turns an integer-valued tensor into a digit tensor with
-    trailing-2 axes ``[slice_num, digit_count]``.
-    """
+    """Decompose integers into trailing ``[slice_num, digit_count]`` axes."""
 
     @property
     @abstractmethod
@@ -27,13 +23,13 @@ class Slicer(ABC):
     @property
     @abstractmethod
     def slice_radix(self) -> int:
-        """Per-slice positional radix; drives the downstream shift-add reduction."""
+        """Return the positional radix between adjacent slices."""
         raise NotImplementedError
 
     @property
     @abstractmethod
     def slice_weights(self) -> tuple[int, ...]:
-        """LSB-first positional weight of each slice ``(1, R, R², ..., R^(slice_num-1))``."""
+        """Return the LSB-first positional weight of each slice."""
         raise NotImplementedError
 
     @abstractmethod

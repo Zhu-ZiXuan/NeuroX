@@ -22,15 +22,6 @@ class TrueFormTranscoder(Transcoder):
     """
 
     def encode(self, x: Tensor, *, dim: int = -1) -> Tensor:
-        """Encode integer tensor into sign-magnitude digit form.
-
-        Args:
-            x: Integer tensor to encode.
-            dim: Axis at which the digit dimension is inserted.
-
-        Returns:
-            Digit tensor with a new size-``digit_count`` axis at ``dim``.
-        """
         sign = x.sign()
         x = x.abs()
         all_digits: list[Tensor] = []
@@ -38,6 +29,7 @@ class TrueFormTranscoder(Transcoder):
             rem = x % self._radix
             x = x // self._radix
             all_digits.append(rem * sign)
+        # Shape: [...] -> [..., digit_count, ...]
         return torch.stack(all_digits, dim=dim)
 
     @property

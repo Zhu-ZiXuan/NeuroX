@@ -7,29 +7,13 @@ from itertools import pairwise
 
 
 class ValidateMixin:
-    """Grant a host a small set of runtime-check helpers.
-
-    A host inherits this and calls the helpers through ``self`` from inside its
-    own ``validate_*`` methods to assert runtime constraints that static typing
-    cannot express — numeric bounds, monotonicity, length, cross-field
-    relations. Each helper raises ``ValueError`` on the first violated
-    constraint, so a host that validates at construction never comes into
-    existence in a partially-valid state. It is a pure helper: it owns no
-    field, no construction hook, and no ``validate`` of its own, so inheriting
-    it supplies the checks but does not by itself make a host validated —
-    running validation at construction is the host's to wire.
+    """Provide reusable predicates for ``validate`` methods.
 
     Host requirements:
-        - Inherit ``ValidateMixin`` and reach the helpers through ``self``.
-        - Declare a ``__post_init__`` that calls ``self.validate()`` so checks
-          run at construction; the mixin installs no such hook itself.
-        - Declare one or more ``validate_<group>()`` methods holding the checks
-          (a single-field host may inline its check directly in ``validate()``).
-        - Begin any ``validate()`` that overrides a base carrying its own checks
-          with a leading ``super().validate()`` so the chain runs end to end.
+        - Invoke validation explicitly when the host does not inherit
+          ``ConfigBase`` or ``PolicyBase``.
     """
 
-    # The helpers read no instance state, so they are static; self._require_* at the call site is only for readability.
     @staticmethod
     def _require_gt(value: float, name: str, ref: float) -> None:
         """Require ``value`` > ``ref``."""

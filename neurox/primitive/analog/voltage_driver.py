@@ -13,7 +13,6 @@ from neurox.primitive.analog.base import AnalogBase, AnalogConfig, AnalogPolicy
 from neurox.primitive.nonideality import apply_gaussian
 
 
-@dataclass(frozen=True, kw_only=True)
 class VoltageDriverConfig(AnalogConfig):
     """Immutable configuration for :class:`VoltageDriver`.
 
@@ -33,24 +32,12 @@ class VoltageDriverConfig(AnalogConfig):
             all static power, including any internal amplifier / bias.
     """
 
-    # --- Series output resistance (constant clamp slope) ---
     r_out__MOhm: float
-
-    # --- Systematic offset ---
     offset_sigma__V: float
-
-    # --- Thermal noise ---
     thermal_sigma__V: float
-
-    # --- Per-op interface energy ---
     energy_per_op__fJ: float
-
-    # --- Static PPA ---
     area_per_inst__um2: float
     leakage_per_inst__uW: float
-
-    def __post_init__(self) -> None:
-        self.validate()
 
     def validate(self) -> None:
         self.validate_source()
@@ -70,7 +57,6 @@ class VoltageDriverConfig(AnalogConfig):
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
 
 
-@dataclass(frozen=True)
 class VoltageDriverPolicy(AnalogPolicy):
     """Per-source toggles selecting which clamp nonidealities are active.
 
@@ -102,23 +88,8 @@ class VoltageDriverSnap:
 class VoltageDriver(AnalogBase[VoltageDriverConfig, VoltageDriverPolicy]):
     """Generic Thevenin voltage-source clamp driver.
 
-    A design-agnostic boundary clamp: a reference voltage source
-    ``v_ref`` in series with a constant output resistance ``r_out``,
-    holding a port near ``v_ref`` and drooping linearly with the current
-    it sources or sinks. The clamp transfer is the closed-form Thevenin
-    map ``v_clamp = v_ref - i_port * r_out``; ``r_out = 0`` recovers the
-    ideal voltage source (flat clamp), and a finite ``r_out`` is the
-    physical series impedance the consuming solver sees as the clamp
-    slope ``dVclamp/dI``.
-
-    Static power is folded into ``leakage_per_inst__uW`` (including any
-    internal amplifier or bias network). The interface-node charge the
-    driver delivers is billed as ``energy_per_op__fJ`` per column-op,
-    self-logged element-wise at :meth:`snapshot`.
-
-    It satisfies the structural ``ClampDriver`` role (``snapshot``,
-    ``solve_clamp``) without inheriting the protocol; the reference
-    voltage is injected per call into :meth:`snapshot`.
+    The clamp follows ``v_clamp = v_ref - i_port * r_out``. A zero output
+    resistance represents an ideal voltage source.
 
     Args:
         config: Concrete configuration dataclass.
@@ -153,8 +124,6 @@ class VoltageDriver(AnalogBase[VoltageDriverConfig, VoltageDriverPolicy]):
             torch.tensor(config.r_out__MOhm, dtype=dtype),
             persistent=False,
         )
-        # Held static systematic per-instance reference offset; zero when the
-        # offset is off.
         self.register_buffer(
             "offset__V",
             torch.zeros(inst_shape, dtype=dtype),
@@ -162,17 +131,10 @@ class VoltageDriver(AnalogBase[VoltageDriverConfig, VoltageDriverPolicy]):
         )
 
     def _sample_fabricate_mismatch(self) -> None:
-        """Sample the static systematic per-instance offset over ``inst_shape``.
-
-        Additive zero-mean Gaussian with σ ``offset_sigma__V``; ``offset`` off
-        holds a zero offset.
-        """
         if self.policy.offset:
             self.offset__V = torch.randn_like(self.offset__V) * self.config.offset_sigma__V
         else:
             self.offset__V = torch.zeros_like(self.offset__V)
-
-    # --- Snapshot + clamp solve ---
 
     def snapshot(
         self,
@@ -181,18 +143,7 @@ class VoltageDriver(AnalogBase[VoltageDriverConfig, VoltageDriverPolicy]):
         shape: tuple[int, ...],
         multi_coords: tuple[Tensor, ...] | None,
     ) -> VoltageDriverSnap:
-        """Sample one per-call runtime snap over ``shape``.
-
-        Adds the static systematic per-instance offset to the injected
-        reference, then the per-solve thermal fluctuation. The offset shares
-        the per-instance ``inst_shape`` and is broadcast to ``shape`` and
-        chunk-selected by ``multi_coords`` in lockstep with the reference.
-
-        Also logs ``energy_per_op__fJ`` per snap element — one
-        interface-charge event per column-op. The consuming array
-        snapshots each chunk of a disjoint partition of the solved
-        plane-batch exactly once, so element-wise logging bills each
-        column-op exactly once per solve.
+        """Sample the driver state and runtime noise over ``shape``.
 
         Args:
             v_ref__V: Injected reference / zero-current clamp voltage

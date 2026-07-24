@@ -7,13 +7,11 @@ See also:
 from __future__ import annotations
 
 from abc import ABC
-from dataclasses import dataclass
 from typing import Generic, TypeVar
 
 from neurox.common import ConfigBase, ModuleBase, PolicyBase
 
 
-@dataclass(frozen=True)
 class DigitalConfig(ConfigBase, ABC):
     """Static PPA fields shared by every digital, integer-exact block.
 
@@ -30,7 +28,6 @@ class DigitalConfig(ConfigBase, ABC):
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
 
 
-@dataclass(frozen=True)
 class DigitalPolicy(PolicyBase):
     """Empty policy marker — integer-exact blocks carry no nonidealities."""
 
@@ -39,11 +36,7 @@ DigitalConfigT = TypeVar("DigitalConfigT", bound="DigitalConfig")
 
 
 class DigitalBase(ModuleBase[DigitalConfigT, DigitalPolicy], Generic[DigitalConfigT], ABC):
-    """Base for digital, integer-exact circuit blocks.
-
-    Implements the fabricate hook as a no-op. Each concrete leaf binds its
-    per-instance area and leakage in ``__init__``.
-    """
+    """Base for digital, integer-exact circuit blocks."""
 
     def _sample_fabricate_mismatch(self) -> None:
-        pass  # digital logic carries no static analog mismatch
+        pass

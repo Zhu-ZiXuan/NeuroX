@@ -7,7 +7,7 @@ See also:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, fields
+from dataclasses import fields
 from typing import TYPE_CHECKING, Generic, TypeVar
 
 import torch
@@ -20,7 +20,6 @@ if TYPE_CHECKING:
     from .ideal import IdealCimMacro
 
 
-@dataclass(frozen=True)
 class CimMacroConfig(ConfigBase, ABC):
     """Geometry and PPA shared by every xbar tile.
 
@@ -41,26 +40,18 @@ class CimMacroConfig(ConfigBase, ABC):
     row_num: int
     active_row_num: int
 
-    def __post_init__(self) -> None:
-        self.validate()
-
     def validate(self) -> None:
         self.validate_geometry()
         self.validate_ppa()
 
     def validate_geometry(self) -> None:
-        # IR-drop solvers assume at least two nodes per wire.
+        # Physical array solvers require at least two nodes per wire.
         if not (self.col_num > 1):
             raise ValueError(f"require: col_num ({self.col_num}) > 1")
         if not (self.row_num > 1):
             raise ValueError(f"require: row_num ({self.row_num}) > 1")
         if not (1 <= self.active_row_num <= self.row_num):
             raise ValueError(f"require: 1 <= active_row_num ({self.active_row_num}) <= row_num ({self.row_num})")
-        # No divisibility guard here: a tile may have any row_num / active_row_num
-        # ratio. The engine covers every row with a ceil number of sub-phases (the
-        # last block partially active). Uniform row-blocking — where a divisor is
-        # required so every sub-phase reads the same dot-product dynamic range — is
-        # an operator-layer contract enforced by the consuming unit (LinearCimUnit).
 
     def validate_ppa(self) -> None:
         self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
@@ -78,7 +69,6 @@ class CimMacroConfig(ConfigBase, ABC):
                 raise ValueError("require: w_digit_range cannot be (0, 0) — collapses rescale math")
 
 
-@dataclass(frozen=True)
 class CimMacroPolicy(PolicyBase, ABC):
     """Abstract marker base for CimMacro-family nonideality policies."""
 
@@ -125,7 +115,7 @@ class CimMacro(
 
     @property
     def max_active_rows(self) -> int:
-        """Maximum simultaneously active word lines per conversion; the single sub-phase query for upper layers."""
+        """Maximum simultaneously active word lines per conversion."""
         return self.config.active_row_num
 
     @property
@@ -143,7 +133,18 @@ class CimMacro(
         dtype: torch.dtype,
         T__K: float,
     ) -> CimMacro:
-        """Build the concrete impl registered for ``type(config)``."""
+        """Build the implementation registered for ``type(config)``.
+
+        Args:
+            config: Concrete configuration dataclass.
+            policy: Composite nonideality policy.
+            inst_shape: Per-instance multiplicity prefix.
+            dtype: Tensor dtype for internal buffers.
+            T__K: Operating temperature.
+
+        Returns:
+            Registered CIM macro implementation.
+        """
         impl = cls._lookup_impl(type(config))
         return impl(
             config=config,
@@ -154,26 +155,17 @@ class CimMacro(
         )
 
     def _sample_fabricate_mismatch(self) -> None:
-        pass  # container: cell / peripheral mismatch is sampled through the cascade
-
-    # ----- Intra-tile serialization helpers -----
-    # Serial-vs-parallel semantics live in tensor shape: axes matching a
-    # stage's fabricated ``inst_shape`` are parallel circuit copies; every
-    # other axis is time-serial on that hardware.
+        pass
 
     @staticmethod
     def _split_col_lanes(t: Tensor, *, col_per_lane: int) -> Tensor:
         """Split the trailing column axis into ``(lane_num, col_per_lane)``.
 
-        The lane axis aligns with fabricated instance axes (parallel
-        circuit copies); the trailing axis is time-serial on each lane,
-        with ``lane = col // col_per_lane``. Requires exact divisibility.
+        Requires exact divisibility.
         """
         if t.shape[-1] % col_per_lane != 0:
             raise ValueError(f"require: trailing col axis ({t.shape[-1]}) % col_per_lane ({col_per_lane}) == 0")
         return t.unflatten(-1, (-1, col_per_lane))
-
-    # ----- Value-domain semantics (abstract) -----
 
     @property
     @abstractmethod
@@ -202,8 +194,6 @@ class CimMacro(
         """
         raise NotImplementedError
 
-    # ----- ADC operating-point surface -----
-
     @property
     @abstractmethod
     def adc_mode_num(self) -> int:
@@ -227,11 +217,9 @@ class CimMacro(
         """
         raise NotImplementedError
 
-    # ----- Lifecycle -----
-
     @abstractmethod
     def program(self, w: Tensor) -> None:
-        """Write the tile's owned device buffers from one xbar-native digit tensor.
+        """Program the macro from an array-native digit tensor.
 
         Args:
             w: Integer digit tensor whose shape matches
@@ -242,28 +230,20 @@ class CimMacro(
 
     @abstractmethod
     def vec_mat_mul(self, x: Tensor, *, adc_mode: int, adc_bits: int) -> Tensor:
-        """Run one independent analog conversion per WL plane through the tile.
-
-        The macro boundary is digital -> DAC -> analog -> ADC -> digital,
-        encapsulating the minimal analog chain.
+        """Run one conversion per word-line plane.
 
         Args:
             x: WL plane tensor with primitive trailing ``[row_num]``;
-                every leading axis is anonymous broadcast batch — the
-                macro never inspects, reorders, or reduces leading axes.
-                Rows outside the caller's active window (at most
-                :attr:`max_active_rows` live rows per plane) must arrive
-                zeroed (WL off). Entries must lie in :attr:`x_range`.
+                leading axes are broadcast batch dimensions. At most
+                :attr:`max_active_rows` rows may be nonzero per plane.
+                Entries must lie in :attr:`x_range`.
             adc_mode: ADC operating-point index selecting the reference
                 row / tap set; valid values are ``[0, adc_mode_num)``.
             adc_bits: ADC resolution [bits] the conversion runs at.
 
         Returns:
-            ADC-code tensor with the same leading order and primitive
-            trailing ``[col_num]``. The macro performs no phase
-            expansion, no trailing movedim, and no accumulation; any
-            routing or accumulation of leading axes is the caller's
-            digital-domain decision.
+            ADC-code tensor with the same leading dimensions and trailing
+            ``[col_num]``.
         """
         raise NotImplementedError
 
@@ -273,8 +253,7 @@ class CimMacro(
         The twin inherits this tile's per-instance multiplicity and ADC
         operating-point metadata.
         """
-        # Local import — the ``ideal`` module imports from this file,
-        # so the symbol is only safe to resolve at call time.
+        # Resolve lazily to avoid the module import cycle.
         from .ideal import IdealCimMacro, IdealCimMacroConfig, IdealCimMacroPolicy
 
         base_kwargs = {f.name: getattr(self.config, f.name) for f in fields(CimMacroConfig)}

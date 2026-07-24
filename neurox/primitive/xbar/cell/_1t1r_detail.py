@@ -32,18 +32,10 @@ from ._1t1r import (
     XbarCell1t1rSnap,
 )
 
-# ---------------------------------------------------------------------------
-# Observation side-channel payload
-# ---------------------------------------------------------------------------
-
 
 @dataclass(frozen=True)
 class XbarCell1t1rDetailObservation:
     """Per-cell access-node KCL residual of a detailed 1T1R branch solve.
-
-    Built at the converged ``V_X`` of a :meth:`XbarCell1t1rDetail.solve_dc`
-    call and submitted to :class:`XbarCell1t1rDetailProber` only when a prober
-    is active.
 
     Attributes:
         cell__uA: ``|I_NMOS - I_RRAM|`` per cell at the condensed ``V_X``.
@@ -53,33 +45,19 @@ class XbarCell1t1rDetailObservation:
     cell__uA: Tensor
 
     def detach(self) -> Self:
-        """Return an equivalent payload with the tensor field detached."""
         return replace(self, cell__uA=self.cell__uA.detach())
 
 
 class XbarCell1t1rDetailProber(Prober[XbarCell1t1rDetailObservation]):
-    """Capture point for the detailed 1T1R cell's access-node observation link.
-
-    :class:`XbarCell1t1rDetail` emits a :class:`XbarCell1t1rDetailObservation`
-    — the access-node KCL residual ``|I_NMOS - I_RRAM|`` at the converged
-    ``V_X`` — once per :meth:`XbarCell1t1rDetail.solve_dc` call when a prober
-    is active.
-    """
+    """Capture detailed-cell access-node KCL residuals."""
 
     _active_stack: ClassVar[list[Prober[XbarCell1t1rDetailObservation]]] = []
 
     @classmethod
     def _stack(cls) -> list[Prober[XbarCell1t1rDetailObservation]]:
-        """Return this observation link's active-prober stack."""
         return cls._active_stack
 
 
-# ---------------------------------------------------------------------------
-# Config / policy / result containers
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True, kw_only=True)
 class XbarCell1t1rDetailConfig(XbarCell1t1rConfig):
     """Physical knobs for the detailed (nonlinear-device) 1T1R cell.
 
@@ -143,7 +121,6 @@ class XbarCell1t1rDetailConfig(XbarCell1t1rConfig):
         self._require_pos(self.n_newton, "n_newton")
 
 
-@dataclass(frozen=True)
 class XbarCell1t1rDetailPolicy(XbarCell1t1rPolicy):
     """Composite nonideality policy for the detailed 1T1R cell.
 
@@ -169,18 +146,16 @@ class XbarCell1t1rDetailSnap(XbarCell1t1rSnap):
     nmos: MosfetSnap
 
 
-# ---------------------------------------------------------------------------
-# Cell
-# ---------------------------------------------------------------------------
-
-
 @XbarCell1t1r.register_key(XbarCell1t1rDetailConfig)
 class XbarCell1t1rDetail(XbarCell1t1r[XbarCell1t1rDetailConfig, XbarCell1t1rDetailPolicy, XbarCell1t1rDetailSnap]):
-    """Series access-NMOS + RRAM 1T1R cell with a condensed BL-to-SL branch.
+    """Series access-NMOS and RRAM cell with a condensed BL-to-SL branch.
 
-    Emits the converged-``V_X`` :class:`XbarCell1t1rDetailObservation` to
-    :class:`XbarCell1t1rDetailProber` once per :meth:`solve_dc` call, but only
-    when a prober is active.
+    Args:
+        config: Detailed 1T1R configuration.
+        policy: Detailed 1T1R nonideality policy.
+        inst_shape: Per-instance shape ``(*prefix, col, row)``.
+        dtype: Tensor dtype for internal buffers.
+        T__K: Operating temperature.
     """
 
     state_to_g_map__uS: Tensor
@@ -225,10 +200,6 @@ class XbarCell1t1rDetail(XbarCell1t1r[XbarCell1t1rDetailConfig, XbarCell1t1rDeta
 
         self.n_newton = config.n_newton
 
-    # -----------------------------------------------------------------
-    # Snapshot / programming
-    # -----------------------------------------------------------------
-
     def snapshot(
         self,
         *,
@@ -253,7 +224,7 @@ class XbarCell1t1rDetail(XbarCell1t1r[XbarCell1t1rDetailConfig, XbarCell1t1rDeta
         Returns:
             Per-call detailed 1T1R cell snap.
         """
-        del t_elapsed  # no time-dependent read state in this cell
+        del t_elapsed
         rram_snap = self.rram.snapshot(shape=shape, multi_coords=multi_coords)
         nmos_snap = self.nmos.snapshot(shape=shape, multi_coords=multi_coords)
         return XbarCell1t1rDetailSnap(rram=rram_snap, nmos=nmos_snap, v_wl__V=control)
@@ -268,32 +239,27 @@ class XbarCell1t1rDetail(XbarCell1t1r[XbarCell1t1rDetailConfig, XbarCell1t1rDeta
         target_g__uS = self.state_to_g_map__uS[w_state_idx.long()]
         self.rram.program(target_g__uS, t_elapsed=0.0)
 
-    # -----------------------------------------------------------------
-    # Branch solve
-    # -----------------------------------------------------------------
-
     def _solve_vx(
         self,
         v_bl: Tensor,
         v_sl: Tensor,
         snap: XbarCell1t1rDetailSnap,
     ) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
-        """Condense the access node ``V_X`` and read off the branch quantities.
+        """Condense the access node ``V_X``.
 
-        Pade current-divider seed for ``V_X`` followed by ``n_newton``
-        unrolled Newton steps on ``F_X = I_NMOS(V_X) - I_RRAM(V_X)``.
+        Args:
+            v_bl: Bit-line node voltage [V].
+            v_sl: Source-line node voltage [V].
+            snap: Per-call detailed-cell snapshot.
 
-        Returns ``(i_r, i_n, di_dvbl__uS, di_dvsl__uS, v_x)`` where
-        ``i_r`` is the RRAM current (drained from BL), ``i_n`` is the NMOS
-        current (delivered to SL), and the two conductances are the signed
-        terminal derivatives of the condensed branch. At cell convergence
-        ``i_r == i_n``; their difference is the access-node KCL residual.
+        Returns:
+            Tuple ``(i_rram, i_nmos, di_dvbl, di_dvsl, v_x)``.
         """
         v_wl = snap.v_wl__V
         rram_snap = snap.rram
         nmos_snap = snap.nmos
 
-        # --- Pade current-divider seed for V_X ---
+        # --- 1: initialize V_X with a Pade current divider ---
 
         # First-order split of the BL-to-SL drop across the NMOS output
         # conductance and the programmed RRAM conductance, evaluated at the
@@ -304,7 +270,7 @@ class XbarCell1t1rDetail(XbarCell1t1r[XbarCell1t1rDetailConfig, XbarCell1t1rDeta
         v_rram_drop_init = dc_nmos_seed.did_dvd__uS * v_cell_bl_to_sl / (dc_nmos_seed.did_dvd__uS + g_rram_seed)
         v_x = v_bl - v_rram_drop_init
 
-        # --- Unrolled per-cell Newton on F_X = I_NMOS - I_RRAM ---
+        # --- 2: solve F_X = I_NMOS - I_RRAM with Newton iterations ---
 
         for _ in range(self.n_newton):
             dc_nmos = self.nmos.solve_dc(v_wl, v_x, v_sl, nmos_snap)
@@ -313,7 +279,7 @@ class XbarCell1t1rDetail(XbarCell1t1r[XbarCell1t1rDetailConfig, XbarCell1t1rDeta
             df_dvx = dc_nmos.did_dvd__uS + dc_rram.di_dv__uS
             v_x = v_x - f_cell / df_dvx
 
-        # --- Final cell evaluation + signed terminal conductances ---
+        # --- 3: evaluate the final current and terminal derivatives ---
 
         dc_nmos = self.nmos.solve_dc(v_wl, v_x, v_sl, nmos_snap)
         dc_rram = self.rram.solve_dc(v_bl - v_x, rram_snap)
@@ -344,12 +310,7 @@ class XbarCell1t1rDetail(XbarCell1t1r[XbarCell1t1rDetailConfig, XbarCell1t1rDeta
         v_sl: Tensor,
         snap: XbarCell1t1rDetailSnap,
     ) -> XbarCell1t1rDcop:
-        """Full branch working point including the condensed ``V_X``.
-
-        Emits the access-node KCL residual at the converged ``V_X`` to
-        :class:`XbarCell1t1rDetailProber`, demand-gated: the residual is
-        computed and the payload built only when a prober is active.
-        """
+        """Return the branch working point including condensed ``V_X``."""
         i_r, i_n, di_dvbl__uS, di_dvsl__uS, v_x = self._solve_vx(v_bl, v_sl, snap)
         if XbarCell1t1rDetailProber.active():
             XbarCell1t1rDetailProber.submit(XbarCell1t1rDetailObservation(cell__uA=(i_n - i_r).abs()))

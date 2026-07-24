@@ -25,7 +25,8 @@ A docstring or comment carries raw whitelisted unicode, no LaTeX, and no hosted 
 
 - Use Google-style docstrings.
 - Write for the caller of the symbol: public semantics, and tensor shapes when shape is part of the public contract. A pure elementwise API may omit shape or state the same-shape rule once.
-- Write the complete interface docstring on the abstract base, mixin, or Protocol. An unchanged override inherits it instead of copying it; document only the difference when an override changes contract, shape, side effects, units, or errors.
+- Write the complete callable interface on the abstract method, mixin method, or Protocol method. An unchanged override inherits it instead of copying it; document only the difference when an override changes contract, shape, side effects, units, or errors.
+- A base or mixin class docstring contains only a short responsibility statement and requirements imposed on subclasses or hosts. General guidance, design rationale, lifecycle, ownership, and implementation details belong in the relevant Conventions or Internals document.
 - An interface docstring states what the method does, not a directive to whoever implements it — "a subclass must implement this" stops holding once one has. The obligation to implement belongs in the class docstring, the not-yet-implemented fact in `raise NotImplementedError`, and the rationale in Internals.
 - A lifecycle magic method (`__post_init__`, `__init_subclass__`) carries no docstring — a caller never invokes it directly, so the docstring would go unread. State the behavior it drives in the class docstring instead.
 - A regular implementation module's docstring states the file's responsibility. When a matching Reference or Internals document exists, it must include a `See also:` entry pointing to that document.
@@ -60,11 +61,11 @@ Separate major procedural phases with this exact format, one blank line above an
 
 ```python
 
-# --- Step 2: condense the cell network onto wire nodes ---
+# --- 2: condense the cell network onto wire nodes ---
 
 ```
 
-Number the steps and align each number and name with the ordered procedure in the module's Reference or Internals document. When the code directly implements a numbered procedure, the step numbers and names match that document.
+Use an integer or dotted hierarchical number, such as ``2`` or ``2.1``. Align each number and name with the ordered procedure in the module's Reference or Internals document.
 
 ## Type annotations
 
@@ -72,6 +73,14 @@ Number the steps and align each number and name with the ordered procedure in th
 - Treat mypy as the baseline. When a false positive comes from an external library or a pattern mypy cannot express — a TypeVar not re-bound after an `isinstance` narrowing, a `fields()` or `replace()` call needing a `DataclassInstance` — leave the error unsuppressed; the project treats mypy as a helper. Never write `# type: ignore`.
 - For base-class-related narrowing, fix the generic rather than reach for `cast`.
 - Never add a meaningless runtime conversion only to satisfy typing.
+
+## Config and policy dataclasses
+
+- Declare config and policy descendants as ordinary classes inheriting `ConfigBase` or `PolicyBase`. The roots automatically apply `dataclass(frozen=True, kw_only=True)` to every descendant; never repeat `@dataclass` or write `__init__` on one.
+- Declare every field with an annotation and document it under `Attributes:` in the class docstring. Follow the explicit-value and parameter-ownership rules in [config and policy](../internals/config_and_policy.md).
+- Put config- and policy-domain checks in `validate()`. Both roots invoke the most-derived implementation after construction, so a descendant never declares `__post_init__` or calls `validate()` itself.
+- Preserve inherited validation. A descendant extending a parent with constraints calls `super().validate()` or invokes the parent's named validation groups before its own checks.
+- Treat freezing as shallow. Config and policy fields use immutable value types unless mutation is explicitly part of the field contract.
 
 ## Property vs method
 

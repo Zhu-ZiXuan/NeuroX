@@ -7,7 +7,6 @@ See also:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from typing import Generic, TypeVar
 
 import torch
@@ -17,7 +16,6 @@ from neurox.common.mixin import RegistryMixin
 from neurox.primitive.analog.base import AnalogBase, AnalogConfig, AnalogPolicy
 
 
-@dataclass(frozen=True)
 class CurrentDacConfig(AnalogConfig, ABC):
     """Base config for current-domain DAC implementations.
 
@@ -29,9 +27,6 @@ class CurrentDacConfig(AnalogConfig, ABC):
     area_per_inst__um2: float
     leakage_per_inst__uW: float
 
-    def __post_init__(self) -> None:
-        self.validate()
-
     def validate(self) -> None:
         self.validate_ppa()
 
@@ -40,7 +35,6 @@ class CurrentDacConfig(AnalogConfig, ABC):
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
 
 
-@dataclass(frozen=True)
 class CurrentDacPolicy(AnalogPolicy, ABC):
     """Abstract marker base for current-DAC-family nonideality policies."""
 
@@ -55,12 +49,14 @@ class CurrentDac(
     Generic[ConfigT, PolicyT],
     ABC,
 ):
-    """Abstract base class for current-domain DAC implementations.
+    """Base class for current-domain DAC implementations.
 
-    A current DAC drives an unsigned integer code onto a single-ended analog
-    current. The DAC self-holds its own code-to-current transfer, so it has no
-    per-call operating point analogous to the ADC's ``(mode, bits)``:
-    :meth:`convert` takes only the code.
+    Args:
+        config: Concrete configuration dataclass.
+        policy: Per-source nonideality flags.
+        inst_shape: Per-instance fabrication shape.
+        dtype: Tensor dtype for internal buffers.
+        T__K: Operating temperature.
     """
 
     @classmethod
@@ -73,7 +69,18 @@ class CurrentDac(
         dtype: torch.dtype,
         T__K: float,
     ) -> CurrentDac:
-        """Build the concrete impl registered for ``type(config)``."""
+        """Build the implementation registered for ``type(config)``.
+
+        Args:
+            config: Concrete configuration dataclass.
+            policy: Per-source nonideality flags.
+            inst_shape: Per-instance fabrication shape.
+            dtype: Tensor dtype for internal buffers.
+            T__K: Operating temperature.
+
+        Returns:
+            Registered current-DAC implementation.
+        """
         impl = cls._lookup_impl(type(config))
         return impl(
             config=config,
@@ -92,16 +99,7 @@ class CurrentDac(
         dtype: torch.dtype,
         T__K: float,
     ) -> None:
-        """Register the instance with :class:`nn.Module`.
-
-        Args:
-            config: Concrete configuration dataclass.
-            policy: Per-source nonideality enable flags.
-            inst_shape: Per-instance fabrication shape.
-            dtype: Tensor dtype for internal buffers.
-            T__K: Operating temperature.
-        """
-        del dtype, T__K  # captured by the subclass init
+        del dtype, T__K
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
 
     @property

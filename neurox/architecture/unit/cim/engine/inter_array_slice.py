@@ -7,7 +7,6 @@ See also:
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
 
 import torch
 from torch import Tensor
@@ -24,7 +23,6 @@ from neurox.primitive.digital import (
 from .base import CimEngine, CimEngineConfig, CimEnginePolicy
 
 
-@dataclass(frozen=True)
 class InterArraySliceCimEngineConfig(CimEngineConfig):
     """Configuration for :class:`InterArraySliceCimEngine`.
 
@@ -47,8 +45,12 @@ class InterArraySliceCimEngineConfig(CimEngineConfig):
         self._require_pos(self.x_slice_num, "x_slice_num")
 
 
+class InterArraySliceCimEnginePolicy(CimEnginePolicy):
+    """Policy for :class:`InterArraySliceCimEngine`."""
+
+
 @CimEngine.register_key(InterArraySliceCimEngineConfig)
-class InterArraySliceCimEngine(CimEngine[InterArraySliceCimEngineConfig]):
+class InterArraySliceCimEngine(CimEngine[InterArraySliceCimEngineConfig, InterArraySliceCimEnginePolicy]):
     """CIM engine that distributes weight slices across separate xbar planes.
 
     One xbar plane holds one ``Sw`` slice index across every logical weight.
@@ -58,7 +60,7 @@ class InterArraySliceCimEngine(CimEngine[InterArraySliceCimEngineConfig]):
         self,
         *,
         config: InterArraySliceCimEngineConfig,
-        policy: CimEnginePolicy,
+        policy: InterArraySliceCimEnginePolicy,
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -76,8 +78,6 @@ class InterArraySliceCimEngine(CimEngine[InterArraySliceCimEngineConfig]):
         col_num = xbar_config.col_num
         row_num = xbar_config.row_num
 
-        # Organized shape: (*batch, M=1, Sa=1, Sw, Tc, Tr, col_num, D, row_num).
-        # The trailing (col_num, D, row_num) is owned by the xbar.
         *w_batch, n_logical, k_logical = w_logical_shape
         tr = (n_logical + col_num - 1) // col_num
         tc = (k_logical + row_num - 1) // row_num
@@ -126,8 +126,6 @@ class InterArraySliceCimEngine(CimEngine[InterArraySliceCimEngineConfig]):
             policy=DigitalPolicy(),
             inst_shape=(self._w_parallel_size, tr),
         )
-
-    # --- organize ---
 
     def _organize_w(self, weight: Tensor) -> Tensor:
         """Map a logical weight tensor into xbar-native layout.
@@ -181,8 +179,6 @@ class InterArraySliceCimEngine(CimEngine[InterArraySliceCimEngineConfig]):
         # Shape: [..., M, Sa, Tc, row_num] -> [..., M, Sa, Sw=1, Tc, Tr=1, row_num]
         return permuted.unsqueeze(b + 2).unsqueeze(b + 4)
 
-    # --- lifecycle ---
-
     @torch.no_grad()
     def matmul(self, input: Tensor, *, adc_mode: int, adc_bits: int) -> Tensor:
         n_logical = self._n_logical
@@ -195,11 +191,11 @@ class InterArraySliceCimEngine(CimEngine[InterArraySliceCimEngineConfig]):
 
         # Shape: [..., M, Sa, Sw, Tc, Tr, row_num] -> [..., P, M, Sa, Sw, Tc, Tr, row_num]
         planes = self._unroll_sub_phase(x)
-        # *w_batch~ = weight-batch axes materialized by broadcast against the inst grid.
-        # Shape: [..., P, M, Sa, Sw, Tc, Tr, row_num] -> [..., P, *w_batch~, M, Sa, Sw, Tc, Tr, data_num]
+        # Weight-batch axes are materialized by broadcast against the instance grid.
+        # Shape: [..., P, M, Sa, Sw, Tc, Tr, row_num] -> [..., P, *w_batch, M, Sa, Sw, Tc, Tr, data_num]
         y = self.xbar.vec_mat_mul(planes, adc_mode=adc_mode, adc_bits=adc_bits).to(torch.int64)
-        # Shape: [..., P, *w_batch~, M, Sa, Sw, Tc, Tr, data_num] -> [..., *w_batch~, M, Sa, Sw, Tc, Tr, data_num]
-        y = self.phase_accumulator.operate(y, dim=self._sub_phase_dim)  # -(b+7)
+        # Shape: [..., P, *w_batch, M, Sa, Sw, Tc, Tr, data_num] -> [..., *w_batch, M, Sa, Sw, Tc, Tr, data_num]
+        y = self.phase_accumulator.operate(y, dim=self._sub_phase_dim)
         # Shape: [..., M, Sa, Sw, Tc, Tr, data_num] -> [..., M, Sw, Tc, Tr, data_num]
         y = self.sa_shift_adder.operate(y, x_slice_radix, dim=-5, init_val=None)
         # Shape: [..., M, Sw, Tc, Tr, data_num] -> [..., M, Tc, Tr, data_num]

@@ -16,9 +16,6 @@ from torch import Tensor
 
 from neurox.common.mixin import ProfileMixin
 
-# Label for an event whose emitter the reported root cannot reach. Angle
-# brackets cannot occur in an attribute path, so this never collides with a
-# traversal name.
 _UNROOTED_PREFIX = "<unrooted>."
 
 
@@ -127,14 +124,7 @@ class ProfilerReport:
         return self.static.leakage_power__uW * self.total_latency__ns
 
     def name_of(self, module: ProfileMixin) -> str:
-        """Name ``module`` as the reported root's own traversal names it.
-
-        An emitter the root does not reach has no hierarchical name — only a
-        type — and is labelled ``"<unrooted>.<ModuleType>"`` so its events stay
-        visible in the grouped sums instead of vanishing or merging into a real
-        name. A root that does not reach an emitter it should have is the tell
-        of an emitter held in a plain container rather than bound as a child.
-        """
+        """Return the module's root-relative name or an unrooted label."""
         name = self.qualified_names.get(module)
         return f"{_UNROOTED_PREFIX}{module.module_type}" if name is None else name
 
@@ -167,35 +157,16 @@ class ProfilerReport:
 class NeuroxProfiler:
     """Context manager that captures physical-module side-channel events.
 
-    Canonical usage — record inside the ``with`` block, read totals /
-    call ``report()`` after the block exits::
+    Read totals or call :meth:`report` after leaving the context::
 
         with NeuroxProfiler() as profiler:
             model(...)
-        # _finalize runs in __exit__ — exactly one batched GPU→CPU
-        # sync per quantity. Reading aggregations or calling report()
-        # mid-with is unsupported.
         print(profiler.total_dynamic_energy__fJ, profiler.total_latency__ns)
         report = profiler.report(model)
-        print(report.energy_by_name)
-
-    An event records its emitting module, not a name: a module never knows
-    its own name, so only a walk from a root can name it. The aggregations
-    this class exposes are the ones a root is not needed for; the per-name
-    breakdown lives on :class:`ProfilerReport`, which ``report(model)``
-    builds against the root it is handed.
-
-    Leaves that own a dynamic profile model call
-    ``_log_dynamic_energy(tensor)`` and / or ``_log_latency(tensor)``
-    independently inside their primary method; leaves without a
-    dynamic model (devices, dynamics-less analog blocks) emit nothing.
-    Pending tensors stay on the recording device until ``_finalize``
-    drains them. Reading any aggregation property after exit is a
-    pure-CPU field access.
 
     Attributes:
-        energy_events: Resolved dynamic-energy events (populated by ``_finalize``).
-        latency_events: Resolved latency events (populated by ``_finalize``).
+        energy_events: Captured dynamic-energy events.
+        latency_events: Captured latency events.
     """
 
     _local = threading.local()
@@ -203,12 +174,8 @@ class NeuroxProfiler:
     def __init__(self) -> None:
         self.energy_events: list[EnergyEvent] = []
         self.latency_events: list[LatencyEvent] = []
-        # Recording buffers: the emitting module (+ optional channel) plus a
-        # 0-D tensor on the recording device; one batched stack→cpu→tolist
-        # sync per quantity at _finalize.
         self._pending_energy: list[tuple[ProfileMixin, str | None, Tensor]] = []
         self._pending_latency: list[tuple[ProfileMixin, Tensor]] = []
-        # Cached aggregations (populated by _finalize at __exit__).
         self._total_dynamic_energy__fJ: float = 0.0
         self._total_latency__ns: float = 0.0
         self._energy_by_type: dict[str, float] = {}
@@ -231,8 +198,6 @@ class NeuroxProfiler:
         exc_tb: TracebackType | None,
     ) -> None:
         NeuroxProfiler._local.current = None
-        # Auto-finalize on clean exit; on an exception the partial state
-        # is not useful and a stray GPU sync could mask the original error.
         if exc_type is None:
             self._finalize()
 
@@ -241,24 +206,13 @@ class NeuroxProfiler:
         """Return the active profiler for this thread, or ``None``."""
         return getattr(cls._local, "current", None)
 
-    # ----------------------------------------------------------------
-    # Side-channel entry points (called by ProfileMixin._log_*)
-    # ----------------------------------------------------------------
-
     def _record_energy(self, *, module: ProfileMixin, dynamic_energy__fJ: Tensor, channel: str | None = None) -> None:
-        """Stash the emitter, its channel, and a 0-D energy reduction into the energy pending buffer."""
         self._pending_energy.append((module, channel, dynamic_energy__fJ.detach().sum()))
 
     def _record_latency(self, *, module: ProfileMixin, latency__ns: Tensor) -> None:
-        """Stash the emitter and a 0-D latency reduction into the latency pending buffer."""
         self._pending_latency.append((module, latency__ns.detach().sum()))
 
-    # ----------------------------------------------------------------
-    # Finalization — one batched sync per quantity, invoked by __exit__
-    # ----------------------------------------------------------------
-
     def _finalize(self) -> None:
-        """Drain pending energy + latency buffers and populate aggregations."""
         if self._pending_energy:
             stacked_e = torch.stack([t for _, _, t in self._pending_energy])
             energies = stacked_e.cpu().tolist()
@@ -281,11 +235,6 @@ class NeuroxProfiler:
                 self._total_latency__ns += latency
             self._pending_latency = []
 
-    # --------------------- Runtime aggregations ---------------------
-    #
-    # All properties below are pure cached-field reads after
-    # ``_finalize`` has run (i.e. after the ``with`` block exits).
-
     @property
     def total_dynamic_energy__fJ(self) -> float:
         """Sum of dynamic energy across all energy events."""
@@ -300,8 +249,6 @@ class NeuroxProfiler:
     def energy_by_type(self) -> dict[str, float]:
         """Dynamic energy grouped by module class name [fJ]."""
         return self._energy_by_type
-
-    # --------------------- Static aggregation -----------------------
 
     @staticmethod
     def collect_static(model: nn.Module) -> list[StaticRecord]:
@@ -340,22 +287,11 @@ class NeuroxProfiler:
             static=NeuroxProfiler.analyze_static(model),
         )
 
-    # --------------------------- Report -----------------------------
-
     def report(self, model: nn.Module) -> ProfilerReport:
         """Bundle this context's runtime events with the model's static state.
 
-        ``model`` is the root every hierarchical name is derived from, so the
-        same events reported against a different root read out under different
-        names. Events are the context's, not the model's: an emitter outside
-        ``model`` still contributes to the totals, under an ``<unrooted>``
-        label (see :meth:`ProfilerReport.name_of`).
-
-        Must be called after the ``with`` block exits — at that point
-        ``__exit__`` has invoked ``_finalize`` and every aggregation is
-        ready. Calling ``report()`` from inside the ``with`` block yields
-        an incomplete report (pending events are still on the recording
-        device).
+        Call this method after leaving the profiler context. ``model`` is the
+        root used to derive hierarchical module names.
         """
         return ProfilerReport(
             energy_events=list(self.energy_events),

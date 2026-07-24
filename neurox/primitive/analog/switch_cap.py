@@ -4,8 +4,6 @@ See also:
     docs/reference/primitive/analog/switch_cap.md
 """
 
-from dataclasses import dataclass
-
 import torch
 from torch import Tensor
 
@@ -14,7 +12,6 @@ from neurox.primitive.nonideality import apply_gaussian, apply_pelgrom_mismatch
 from neurox.primitive.physical_constant import K_BOLTZMANN__J_per_K
 
 
-@dataclass(frozen=True, kw_only=True)
 class SwitchCapConfig(AnalogConfig):
     """Immutable physical configuration for :class:`SwitchCap`.
 
@@ -28,22 +25,12 @@ class SwitchCapConfig(AnalogConfig):
         leakage_per_inst__uW: Static leakage per instance.
     """
 
-    # --- Unit capacitance ---
     c_unit__fF: float
-
-    # --- Cap mismatch (Pelgrom) ---
     cap_mismatch_sigma_relative: float
-
-    # --- Energy / latency ---
     energy_per_sample_overhead__fJ: float
     latency_per_op__ns: float
-
-    # --- Static PPA ---
     area_per_inst__um2: float
     leakage_per_inst__uW: float
-
-    def __post_init__(self) -> None:
-        self.validate()
 
     def validate(self) -> None:
         self.validate_capacitance()
@@ -63,7 +50,6 @@ class SwitchCapConfig(AnalogConfig):
         self._require_non_neg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
-@dataclass(frozen=True)
 class SwitchCapPolicy(AnalogPolicy):
     """Per-source toggles selecting which SwitchCap nonidealities are active.
 
@@ -125,7 +111,6 @@ class SwitchCap(AnalogBase[SwitchCapConfig, SwitchCapPolicy]):
         )
 
     def _sample_fabricate_mismatch(self) -> None:
-        """Resample per-cap mismatch at ``(*self.inst_shape, n_caps)``."""
         config = self.config
         self.c__fF = apply_pelgrom_mismatch(
             self.nominal_c__fF.clone().expand(*self.inst_shape, self.n_caps),

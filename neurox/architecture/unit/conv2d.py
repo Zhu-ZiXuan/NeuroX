@@ -7,7 +7,6 @@ See also:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 
 import torch
 import torch.nn.functional as F
@@ -17,20 +16,9 @@ from neurox.architecture.unit.base import UnitBase
 
 
 class Conv2dUnit(UnitBase, ABC):
-    """Operator ABC for an exact-integer drop-in replacement of ``F.conv2d``.
+    """Interface for an integer ``torch.nn.functional.conv2d`` replacement.
 
-    Owns the conv2d template: per-call output-map geometry plus the conv
-    specializations of seams 2 and 3 (:meth:`_conv2d_planes` /
-    :meth:`_conv2d_fold`). The fold needs the per-call ``(H_out, W_out)``,
-    so it is passed explicitly — no per-call state is ever stashed on
-    ``self``. The integer bias belonging to ``F.conv2d``'s algorithmic
-    scope is added in the int64 accumulation domain. Grouped convolution
-    is not supported.
-
-    Concrete hosts must be ``nn.Module`` instances and call
-    :meth:`_init_conv2d_operator` in their constructor. Zero-padding
-    injects ``x = 0`` activations, so a host configured with a non-zero
-    padding must require ``x_value_range`` to cover ``0``.
+    Grouped convolution is not supported.
     """
 
     @abstractmethod
@@ -45,28 +33,19 @@ class Conv2dUnit(UnitBase, ABC):
         """
         raise NotImplementedError
 
-    # --- conv specializations of UnitBase seams 2 and 3 (geometry-parameterized) ---
-
     @abstractmethod
     def _conv2d_planes(self, input: Tensor, *, out_hw: tuple[int, int]) -> Tensor:
-        """Conv seam 2: ``[..., C_in, H, W]`` -> matmul-shaped planes with trailing ``[*, K_planes]``."""
+        """Convert convolution input to matmul-shaped planes."""
         raise NotImplementedError
 
     @abstractmethod
     def _conv2d_fold(self, output: Tensor, *, out_hw: tuple[int, int]) -> Tensor:
-        """Conv seam 3: substrate output -> ``[..., C_out, H_out, W_out]`` (undoes exactly the seam-2 axes)."""
+        """Fold matmul output to ``[..., C_out, H_out, W_out]``."""
         raise NotImplementedError
 
     @torch.no_grad()
     def conv2d(self, input: Tensor, *, adc_mode: int, adc_bits: int) -> Tensor:
         """Execute one integer 2-D convolution against the programmed state.
-
-        Matches ``torch.nn.functional.conv2d`` shape semantics: the
-        trailing axes are ``[C_in, H, W]`` and every leading dim is a
-        broadcast batch dim passed through untouched. Template: conv
-        seam 2 -> :meth:`UnitBase._matmul` -> conv seam 3, then the
-        programmed integer bias (if any) is added in the int64
-        accumulation domain.
 
         Args:
             input: Integer activation tensor with trailing ``[C_in, H, W]``.
@@ -85,7 +64,7 @@ class Conv2dUnit(UnitBase, ABC):
         y = self._conv2d_fold(y, out_hw=out_hw)
         int_bias = self.int_bias
         if int_bias is not None:
-            # Shape: [C_out] -> [C_out, 1, 1]; broadcast add over [..., C_out, H_out, W_out]
+            # Shape: [C_out] -> [C_out, 1, 1]
             y = y + int_bias.view(-1, 1, 1)
         return y
 
@@ -104,8 +83,6 @@ class Conv2dUnit(UnitBase, ABC):
         if h_out < 1 or w_out < 1:
             raise ValueError(f"require: positive output map; got (H_out, W_out) = {(h_out, w_out)}")
         return (h_out, w_out)
-
-    # --- construction helper for concrete hosts ---
 
     def _init_conv2d_operator(
         self,
@@ -130,25 +107,16 @@ class Conv2dUnit(UnitBase, ABC):
         self._init_int_bias_slot()
 
 
-# Imported after the operator ABC definition: loading ``...cim.base``
-# executes the ``cim`` package __init__, whose leaves import ``Conv2dUnit``
-# from this module.
+# Deferred to avoid a circular import with CIM unit implementations.
 from neurox.architecture.unit.cim.base import CimUnit, CimUnitConfig, CimUnitPolicy  # noqa: E402
 
 
-@dataclass(frozen=True, kw_only=True)
 class IdealConv2dUnitConfig(CimUnitConfig):
     """Configuration for :class:`IdealConv2dUnit`.
 
-    Bring-up / reference use only — see :class:`IdealConv2dUnit`. A no-PPA
-    reference: the inherited ``area_per_inst__um2`` / ``leakage_per_inst__uW``
-    are supplied as ``0.0`` at construction.
-
     Attributes:
-        x_value_range: Inclusive integer activation range (reported surface
-            only; the ideal reference computes in int64 regardless).
-        w_value_range: Inclusive integer weight range (reported surface
-            only; the ideal reference computes in int64 regardless).
+        x_value_range: Inclusive integer activation range.
+        w_value_range: Inclusive integer weight range.
         stride: Output step ``(s_h, s_w)``.
         padding: Zero-pad extent ``(p_h, p_w)`` on each side.
         dilation: Kernel tap spacing ``(d_h, d_w)``.
@@ -174,32 +142,21 @@ class IdealConv2dUnitConfig(CimUnitConfig):
         self._require_non_neg(self.padding[1], "padding[1]")
 
 
-@dataclass(frozen=True)
 class IdealConv2dUnitPolicy(CimUnitPolicy):
     """Empty policy — :class:`IdealConv2dUnit` has no nonidealities to toggle."""
 
 
 @CimUnit.register_key(IdealConv2dUnitConfig)
 class IdealConv2dUnit(Conv2dUnit, CimUnit[IdealConv2dUnitConfig, IdealConv2dUnitPolicy]):
-    """Degenerate ``CimUnit``: exact-integer ``F.conv2d`` reference, substrate-free.
-
-    Digital im2col by integer indexing plus an int64 contraction — no xbar
-    tile, no slicing, no transcoding, no fp32 fast path: every contraction
-    runs in int64. ``dtype``, ``T__K``, and ``ideal_xbar`` are accepted for
-    API uniformity and ignored.
-
-    Reference, not hardware: a value-domain / lossless upper-bound baseline
-    with no tile, ADC, fabrication, or PPA. Use it for flow bring-up and to
-    isolate QAT issues from analog modelling — never as a stand-in for a
-    physical macro in a production accuracy or PPA study.
+    """Exact integer convolution unit without output quantization.
 
     Args:
         config: Concrete configuration dataclass.
-        policy: Empty :class:`IdealConv2dUnitPolicy` marker.
+        policy: Nonideality policy.
         w_logical_shape: Logical kernel shape ``(C_out, C_in, kh, kw)`` bound to ``program(...)``.
-        dtype: Tensor dtype for internal buffers.
+        dtype: Requested tensor dtype; it does not affect exact integer execution.
         T__K: Operating temperature.
-        ideal_xbar: Accepted for API uniformity and ignored (no xbar tile to swap).
+        ideal_xbar: Accepted without changing this already ideal unit.
     """
 
     nominal_weight: Tensor
@@ -233,11 +190,9 @@ class IdealConv2dUnit(Conv2dUnit, CimUnit[IdealConv2dUnitConfig, IdealConv2dUnit
             padding=config.padding,
             dilation=config.dilation,
         )
-        # 0-d nominal weight: placeholder before any ``program(...)`` call.
+        # A scalar zero provides a valid pre-programming weight.
         self.register_buffer("nominal_weight", torch.zeros((), dtype=torch.int64), persistent=False)
         self.register_buffer("weight", self.nominal_weight.clone(), persistent=False)
-
-    # --- value-range / ADC surface ---
 
     @property
     def w_value_range(self) -> tuple[int, int]:
@@ -253,28 +208,17 @@ class IdealConv2dUnit(Conv2dUnit, CimUnit[IdealConv2dUnitConfig, IdealConv2dUnit
 
     @property
     def adc_max_bits(self) -> int:
-        # ``0`` is the sentinel meaning no output quantization is applied.
         return 0
 
     def adc_rescale_factor(self, *, adc_mode: int, adc_bits: int) -> float:
-        """Rescale factor for ``(adc_mode, adc_bits)``; always ``1.0`` (no ADC)."""
-        del adc_mode, adc_bits  # accepted for API uniformity
+        del adc_mode, adc_bits
         return 1.0
-
-    # --- lifecycle ---
 
     def _weight_to_matrix(self, weight: Tensor) -> Tensor:
         # Shape: [C_out, C_in, kh, kw] -> [C_out, C_in*kh*kw]
         return weight.flatten(start_dim=1).to(torch.int64)
 
     def program(self, weight: Tensor, bias: Tensor | None = None) -> None:
-        """Write the unit's static weight state and optional integer bias.
-
-        Args:
-            weight: Integer weight tensor of shape ``(C_out, C_in, kh, kw)``.
-            bias: Optional integer bias tensor of shape ``(C_out,)``;
-                ``None`` clears any programmed bias.
-        """
         if tuple(weight.shape) != self._w_logical_shape:
             raise ValueError(f"program() expects weight.shape {self._w_logical_shape}; got {tuple(weight.shape)}")
         if weight.is_floating_point() or weight.is_complex():
@@ -283,7 +227,6 @@ class IdealConv2dUnit(Conv2dUnit, CimUnit[IdealConv2dUnitConfig, IdealConv2dUnit
         self._program_int_bias(bias, channels=self._w_logical_shape[0])
 
     def _conv2d_planes(self, input: Tensor, *, out_hw: tuple[int, int]) -> Tensor:
-        """Conv seam 2: digital im2col by pure integer indexing (dtype-agnostic data movement)."""
         h_out, w_out = out_hw
         kh, kw = self._conv2d_kernel_size
         s_h, s_w = self._conv2d_stride
@@ -292,11 +235,9 @@ class IdealConv2dUnit(Conv2dUnit, CimUnit[IdealConv2dUnitConfig, IdealConv2dUnit
 
         x = input
         if p_h > 0 or p_w > 0:
-            # Zero-fill pad on the trailing (H, W) axes only.
             # Shape: [..., C_in, H, W] -> [..., C_in, Hp, Wp]
             x = F.pad(x, (p_w, p_w, p_h, p_h))
 
-        # Integer index grids over the padded map: output position x kernel tap.
         device = x.device
         rows = (torch.arange(h_out, device=device) * s_h).view(h_out, 1, 1, 1) + (
             torch.arange(kh, device=device) * d_h
@@ -314,12 +255,10 @@ class IdealConv2dUnit(Conv2dUnit, CimUnit[IdealConv2dUnitConfig, IdealConv2dUnit
 
     @torch.no_grad()
     def _matmul(self, planes: Tensor, *, adc_mode: int, adc_bits: int) -> Tensor:
-        """Lossless int64 contraction; ``adc_mode`` / ``adc_bits`` are unused (lossless reference)."""
-        del adc_mode, adc_bits  # accepted for API uniformity
+        del adc_mode, adc_bits
         # Shape: [..., L, C_in*kh*kw] @ [C_in*kh*kw, C_out] -> [..., L, C_out]
         return planes.to(torch.int64) @ self.weight.transpose(-2, -1)
 
     def _conv2d_fold(self, output: Tensor, *, out_hw: tuple[int, int]) -> Tensor:
-        """Conv seam 3: undo the im2col axes."""
         # Shape: [..., L, C_out] -> [..., C_out, H_out, W_out]
         return output.transpose(-2, -1).unflatten(-1, out_hw)

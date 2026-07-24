@@ -16,30 +16,33 @@ from neurox.architecture.unit import (
 from neurox.architecture.unit.cim import (
     CimUnit,
     CimUnitConfig,
+    CimUnitPolicy,
     LinearCimUnit,
     LinearCimUnitConfig,
     LinearCimUnitPolicy,
 )
 from neurox.architecture.unit.cim.engine import (
     CimEngine,
+    CimEngineConfig,
     CimEnginePolicy,
     DirectCimEngine,
     DirectCimEngineConfig,
+    DirectCimEnginePolicy,
     InterArraySliceCimEngine,
     InterArraySliceCimEngineConfig,
+    InterArraySliceCimEnginePolicy,
     IntraArraySliceCimEngine,
     IntraArraySliceCimEngineConfig,
+    IntraArraySliceCimEnginePolicy,
 )
 from neurox.common.profiler import NeuroxProfiler
 from neurox.primitive.digital import AccumulatorConfig, SerialAccumulator, ShiftAdderConfig
 from neurox.primitive.macro.cim import IdealCimMacroConfig, IdealCimMacroPolicy
 
-# All tests use IdealCimMacroConfig as the embedded xbar config, so its nonideality
-# policy is the empty marker; the units surrounding it carry that empty
-# policy in their `cim_macro_policy=` field.
+# All tests use IdealCimMacroConfig as the embedded xbar config, so its
+# nonideality policy is the empty marker.
 _IDEAL_XBAR_POLICY = IdealCimMacroPolicy()
 _IDEAL_UNIT_POLICY = IdealLinearUnitPolicy()
-_LINEAR_UNIT_POLICY = LinearCimUnitPolicy(cim_macro_policy=_IDEAL_XBAR_POLICY)
 
 # Test-only sentinel: ``adc_bits == 0`` instructs IdealCimMacro to skip ADC
 # quantization and the signed clamp, so unit outputs equal ``torch.matmul``
@@ -99,6 +102,19 @@ def _wrap_unit(
         leakage_per_inst__uW=0.0,
         engine=engine_config,
     )
+
+
+def _engine_policy(config: CimEngineConfig) -> CimEnginePolicy:
+    policies: dict[type[CimEngineConfig], type[CimEnginePolicy]] = {
+        DirectCimEngineConfig: DirectCimEnginePolicy,
+        InterArraySliceCimEngineConfig: InterArraySliceCimEnginePolicy,
+        IntraArraySliceCimEngineConfig: IntraArraySliceCimEnginePolicy,
+    }
+    return policies[type(config)](cim_macro_policy=_IDEAL_XBAR_POLICY)
+
+
+def _linear_unit_policy(config: LinearCimUnitConfig) -> LinearCimUnitPolicy:
+    return LinearCimUnitPolicy(engine=_engine_policy(config.engine))
 
 
 def _direct_engine_config(
@@ -196,7 +212,7 @@ def _build_linear(
 ) -> LinearCimUnit:
     unit = LinearCimUnit(
         config=config,
-        policy=_LINEAR_UNIT_POLICY,
+        policy=_linear_unit_policy(config),
         w_logical_shape=w_logical_shape,
         dtype=torch.float32,
         T__K=300.0,
@@ -657,7 +673,7 @@ def test_unit_from_config_dispatches_to_registered_subclass(
     config: IdealLinearUnitConfig | LinearCimUnitConfig,
     expected_type: type[CimUnit],
 ) -> None:
-    policy = _IDEAL_UNIT_POLICY if isinstance(config, IdealLinearUnitConfig) else _LINEAR_UNIT_POLICY
+    policy = _IDEAL_UNIT_POLICY if isinstance(config, IdealLinearUnitConfig) else _linear_unit_policy(config)
     unit = CimUnit.from_config(
         config=config,
         policy=policy,
@@ -684,7 +700,7 @@ def test_engine_from_config_dispatches_to_registered_variant(
 ) -> None:
     engine = CimEngine.from_config(
         config=engine_config,
-        policy=CimEnginePolicy(cim_macro_policy=_IDEAL_XBAR_POLICY),
+        policy=_engine_policy(engine_config),
         w_logical_shape=(13, 20),
         dtype=torch.float32,
         T__K=300.0,
@@ -725,3 +741,19 @@ def test_unit_config_nested_engine_deserialization() -> None:
     assert type(config) is LinearCimUnitConfig
     assert type(config.engine) is DirectCimEngineConfig
     assert type(config.engine.cim_macro_config) is IdealCimMacroConfig
+
+
+def test_unit_policy_nested_engine_deserialization() -> None:
+    payload = {
+        "_neurox_class": "LinearCimUnitPolicy",
+        "engine": {
+            "_neurox_class": "DirectCimEnginePolicy",
+            "cim_macro_policy": {
+                "_neurox_class": "IdealCimMacroPolicy",
+            },
+        },
+    }
+    policy = CimUnitPolicy.from_dict(payload)
+    assert type(policy) is LinearCimUnitPolicy
+    assert type(policy.engine) is DirectCimEnginePolicy
+    assert type(policy.engine.cim_macro_policy) is IdealCimMacroPolicy

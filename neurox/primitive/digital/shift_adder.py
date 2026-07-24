@@ -4,15 +4,12 @@ See also:
     docs/reference/primitive/digital/shift_adder.md
 """
 
-from dataclasses import dataclass
-
 import torch
 from torch import Tensor
 
 from .base import DigitalBase, DigitalConfig, DigitalPolicy
 
 
-@dataclass(frozen=True)
 class ShiftAdderConfig(DigitalConfig):
     """Immutable configuration for a ShiftAdder instance.
 
@@ -29,9 +26,6 @@ class ShiftAdderConfig(DigitalConfig):
     energy_per_op__fJ: float
     latency_per_op__ns: float
 
-    def __post_init__(self) -> None:
-        self.validate()
-
     def validate(self) -> None:
         self.validate_arithmetic()
         self.validate_ppa()
@@ -46,7 +40,13 @@ class ShiftAdderConfig(DigitalConfig):
 
 
 class ShiftAdder(DigitalBase[ShiftAdderConfig]):
-    """Weighted positional-sum unit for digit recombination."""
+    """Weighted positional-sum unit for digit recombination.
+
+    Args:
+        config: Shift-adder configuration.
+        policy: Digital execution policy.
+        inst_shape: Per-instance fabrication shape.
+    """
 
     def __init__(
         self,

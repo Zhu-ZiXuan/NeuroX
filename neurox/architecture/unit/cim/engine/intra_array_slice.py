@@ -7,7 +7,6 @@ See also:
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
 
 import torch
 import torch.nn.functional as F
@@ -25,7 +24,6 @@ from neurox.primitive.digital import (
 from .base import CimEngine, CimEngineConfig, CimEnginePolicy
 
 
-@dataclass(frozen=True)
 class IntraArraySliceCimEngineConfig(CimEngineConfig):
     """Configuration for :class:`IntraArraySliceCimEngine`.
 
@@ -48,8 +46,12 @@ class IntraArraySliceCimEngineConfig(CimEngineConfig):
         self._require_pos(self.x_slice_num, "x_slice_num")
 
 
+class IntraArraySliceCimEnginePolicy(CimEnginePolicy):
+    """Policy for :class:`IntraArraySliceCimEngine`."""
+
+
 @CimEngine.register_key(IntraArraySliceCimEngineConfig)
-class IntraArraySliceCimEngine(CimEngine[IntraArraySliceCimEngineConfig]):
+class IntraArraySliceCimEngine(CimEngine[IntraArraySliceCimEngineConfig, IntraArraySliceCimEnginePolicy]):
     """CIM engine that gathers all slices of one logical weight in one xbar.
 
     A logical weight's ``Sw`` slices sit in adjacent cols of the same xbar.
@@ -61,7 +63,7 @@ class IntraArraySliceCimEngine(CimEngine[IntraArraySliceCimEngineConfig]):
         self,
         *,
         config: IntraArraySliceCimEngineConfig,
-        policy: CimEnginePolicy,
+        policy: IntraArraySliceCimEnginePolicy,
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -84,8 +86,6 @@ class IntraArraySliceCimEngine(CimEngine[IntraArraySliceCimEngineConfig]):
         self._used_data_num = self._weights_per_xbar * config.w_slice_num
         self._idle_per_xbar = col_num - self._used_data_num
 
-        # Organized shape: (*batch, M=1, Sa=1, Tc, Tr, col_num, D, row_num).
-        # The trailing (col_num, D, row_num) is owned by the xbar.
         *w_batch, n_logical, k_logical = w_logical_shape
         wpx = self._weights_per_xbar
         tr = (n_logical + wpx - 1) // wpx
@@ -136,8 +136,6 @@ class IntraArraySliceCimEngine(CimEngine[IntraArraySliceCimEngineConfig]):
             inst_shape=helper_shape,
         )
 
-    # --- organize ---
-
     def _organize_w(self, weight: Tensor) -> Tensor:
         """Map a logical weight tensor into xbar-native layout.
 
@@ -154,7 +152,7 @@ class IntraArraySliceCimEngine(CimEngine[IntraArraySliceCimEngineConfig]):
         idle = self._idle_per_xbar
 
         n_logical = weight.shape[-2]
-        # No logical weight may straddle two xbars: pad N up to a multiple of wpx.
+        # Keep every logical weight within one xbar.
         n_padded = ((n_logical + wpx - 1) // wpx) * wpx
         tr = n_padded // wpx
 
@@ -210,8 +208,6 @@ class IntraArraySliceCimEngine(CimEngine[IntraArraySliceCimEngineConfig]):
         # Shape: [..., M, Sa, Tc, row_num] -> [..., M, Sa, Tc, Tr=1, row_num]
         return permuted.unsqueeze(b + 3)
 
-    # --- lifecycle ---
-
     @torch.no_grad()
     def matmul(self, input: Tensor, *, adc_mode: int, adc_bits: int) -> Tensor:
         n_logical = self._n_logical
@@ -227,11 +223,11 @@ class IntraArraySliceCimEngine(CimEngine[IntraArraySliceCimEngineConfig]):
 
         # Shape: [..., M, Sa, Tc, Tr, row_num] -> [..., P, M, Sa, Tc, Tr, row_num]
         planes = self._unroll_sub_phase(x)
-        # *w_batch~ = weight-batch axes materialized by broadcast against the inst grid.
-        # Shape: [..., P, M, Sa, Tc, Tr, row_num] -> [..., P, *w_batch~, M, Sa, Tc, Tr, data_num]
+        # Weight-batch axes are materialized by broadcast against the instance grid.
+        # Shape: [..., P, M, Sa, Tc, Tr, row_num] -> [..., P, *w_batch, M, Sa, Tc, Tr, data_num]
         y = self.xbar.vec_mat_mul(planes, adc_mode=adc_mode, adc_bits=adc_bits).to(torch.int64)
-        # Shape: [..., P, *w_batch~, M, Sa, Tc, Tr, data_num] -> [..., *w_batch~, M, Sa, Tc, Tr, data_num]
-        y = self.phase_accumulator.operate(y, dim=self._sub_phase_dim)  # -(b+6)
+        # Shape: [..., P, *w_batch, M, Sa, Tc, Tr, data_num] -> [..., *w_batch, M, Sa, Tc, Tr, data_num]
+        y = self.phase_accumulator.operate(y, dim=self._sub_phase_dim)
         # Shape: [..., M, Sa, Tc, Tr, data_num=col_num] -> [..., M, Sa, Tc, Tr, wpx*Sw]
         y = y[..., :used]
         # Shape: [..., M, Sa, Tc, Tr, wpx*Sw] -> [..., M, Sa, Tc, Tr, wpx, Sw_real]

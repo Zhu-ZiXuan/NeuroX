@@ -7,7 +7,6 @@ See also:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from typing import ClassVar, Generic, TypeVar
 
 import torch
@@ -21,15 +20,11 @@ from neurox.primitive.digital import AccumulatorConfig
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
 
 
-@dataclass(frozen=True)
 class CimEngineConfig(ConfigBase, ABC):
     """Abstract config root for the :class:`CimEngine` registry.
 
-    The concrete subclass type selects the engine variant through the
-    ``_neurox_class`` discriminator when nested inside a unit config.
-
     Attributes:
-        cim_macro_config: Owned physical-xbar config.
+        cim_macro_config: CIM macro configuration.
         w_encoding: Signed-digit encoding for the weight transcoder / slicer.
         phase_accumulator_config: Sub-phase-axis per-tile-port accumulator config.
         col_accumulator_config: Tc-axis cross-tile accumulator config.
@@ -41,16 +36,12 @@ class CimEngineConfig(ConfigBase, ABC):
     phase_accumulator_config: AccumulatorConfig
     col_accumulator_config: AccumulatorConfig
 
-    def __post_init__(self) -> None:
-        self.validate()
-
     def validate(self) -> None:
         """Run all ``validate_*`` checks."""
 
 
-@dataclass(frozen=True)
-class CimEnginePolicy(PolicyBase):
-    """Composite policy the owning unit assembles for its engine in code.
+class CimEnginePolicy(PolicyBase, ABC):
+    """Abstract nonideality-policy root for the CIM-engine family.
 
     Attributes:
         cim_macro_policy: Embedded xbar nonideality policy.
@@ -60,25 +51,20 @@ class CimEnginePolicy(PolicyBase):
 
 
 ConfigT = TypeVar("ConfigT", bound=CimEngineConfig)
+PolicyT = TypeVar("PolicyT", bound=CimEnginePolicy)
 
 
 class CimEngine(
-    ModuleBase[ConfigT, CimEnginePolicy],
+    ModuleBase[ConfigT, PolicyT],
     RegistryMixin[type["CimEngineConfig"], "CimEngine"],
-    Generic[ConfigT],
+    Generic[ConfigT, PolicyT],
     ABC,
 ):
-    """Abstract base for the CIM execution engines.
-
-    An engine is the workload-agnostic slicing / tiling / macro-cycle /
-    aggregation pipeline behind a CIM unit: it owns the xbar and the
-    digital reduction primitives and exposes the ``torch.matmul``-shaped
-    integer contract the unit delegates to. It is a container with no own
-    PPA (``is_profile_target`` is ``False``); its children self-report.
+    """Base for slicing, tiling, macro execution, and digital aggregation.
 
     Args:
         config: Concrete configuration dataclass.
-        policy: Composite nonideality policy assembled by the owning unit.
+        policy: Composite nonideality policy.
         w_logical_shape: Logical weight shape ``(*prefix, N, K)`` bound to ``program(...)``.
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature.
@@ -102,7 +88,7 @@ class CimEngine(
         self,
         *,
         config: ConfigT,
-        policy: CimEnginePolicy,
+        policy: PolicyT,
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -139,9 +125,7 @@ class CimEngine(
         )
 
     def _sample_fabricate_mismatch(self) -> None:
-        pass  # container: child mismatch is sampled through the cascade
-
-    # --- shared engine backend: xbar + tiling + sub-phase machinery ---
+        pass
 
     def _init_engine_backend(
         self,
@@ -152,10 +136,10 @@ class CimEngine(
         w_parallel_size: int,
         row_tile_num: int,
     ) -> None:
-        """Build the owned xbar plus shared tiling and sub-phase machinery.
+        """Initialize the CIM macro, tiling metadata, and row phases.
 
         Args:
-            inst_shape: Per-instance multiplicity prefix for the owned xbar.
+            inst_shape: Per-instance multiplicity prefix for the CIM macro.
             n_logical: Logical output width ``N`` before tile padding.
             k_logical: Logical contraction width ``K`` before tile padding;
                 fixes how many sub-phases carry real (non-padding) rows.
@@ -174,24 +158,10 @@ class CimEngine(
         self._sub_phase_dim = -(len(inst_shape) + 2)
         row_num = self.xbar.row_num
         max_rows = self.xbar.max_active_rows
-        # Skip sub-phases that would read only zero-padded rows. A tile spans at
-        # most row_num rows, but when the logical contraction dim k_logical fits
-        # in a single tile the widest tile carries only k_logical real rows
-        # (rows beyond it are zero padding in every tile). The widest tile's
-        # real-row count is therefore min(k_logical, row_num): a full tile
-        # (k_logical > row_num) spans row_num, a single short tile spans
-        # k_logical. Sub-phases past that extent read only padding and
-        # contributed exactly 0, so dropping them is bit-identical while cutting
-        # per-op / latency energy for narrow (K < row_num) layers.
+        # Omit row phases containing only tile padding.
         real_row_extent = min(k_logical, row_num)
-        # Ceil so a non-divisible geometry still covers every real row: the last
-        # kept sub-phase reads the short remainder block (< max_rows live rows).
         self._sub_phase_num = -(-real_row_extent // max_rows)
-        # Static row -> sub-phase WL mask; zero-fill = WL off. Shape: [P, row_num]
-        # Row r belongs to sub-phase r // max_rows; rows whose block index reaches
-        # P are pure padding and stay off in every plane. Every real row lands in
-        # exactly one sub-phase and the short final block leaves its own rows the
-        # only ones live in that plane.
+        # Shape: [P, row_num]
         self.register_buffer(
             "_active_row_mask",
             torch.arange(row_num) // max_rows == torch.arange(self._sub_phase_num).unsqueeze(-1),
@@ -199,48 +169,31 @@ class CimEngine(
         )
 
     def _unroll_sub_phase(self, x: Tensor) -> Tensor:
-        """Expand WL planes over the hardware sub-phase axis.
-
-        The P axis is inserted immediately LEFT of the xbar's inst-aligned
-        trailing block (right of all other batch axes); always present,
-        size 1 when ``active_row_num == row_num``. Rows outside a plane's
-        active window are zeroed (WL off).
-        """
+        """Insert the row-phase axis and mask inactive rows."""
         inst_rank = self._xbar_inst_rank
         # Shape: [P, row_num] -> [P, 1*inst_rank, row_num]
         mask = self._active_row_mask.reshape(-1, *(1,) * inst_rank, self.xbar.row_num)
         # Shape: [..., *span, row_num] -> [..., P, *span, row_num]
         return torch.where(mask, x.unsqueeze(max(-(inst_rank + 2), -(x.ndim + 1))), x.new_zeros(()))
 
-    # --- value-range contract ---
-
     @property
     def w_value_range(self) -> tuple[int, int]:
-        """Inclusive integer weight range accepted by the engine."""
         return self._w_value_range
 
     @property
     def x_value_range(self) -> tuple[int, int]:
-        """Inclusive integer activation range accepted by the engine."""
         return self._x_value_range
-
-    # --- ADC operating-point surface ---
 
     @property
     def adc_mode_num(self) -> int:
-        """Number of supported ADC operating points; valid ``adc_mode`` values are ``[0, adc_mode_num)``."""
         return self.xbar.adc_mode_num
 
     @property
     def adc_max_bits(self) -> int:
-        """Maximum supported ``adc_bits`` value."""
         return self.xbar.adc_max_bits
 
     def adc_rescale_factor(self, *, adc_mode: int, adc_bits: int) -> float:
-        """Rescale factor for ``(adc_mode, adc_bits)``; raises ``KeyError`` if uncalibrated."""
         return self.xbar.adc_rescale_factor(adc_mode=adc_mode, adc_bits=adc_bits)
-
-    # --- lifecycle ---
 
     def program(self, weight: Tensor) -> None:
         """Write the xbar's static weight state from one logical weight tensor.
@@ -267,17 +220,6 @@ class CimEngine(
     def matmul(self, input: Tensor, *, adc_mode: int, adc_bits: int) -> Tensor:
         """Execute one integer matrix multiply against the programmed weight state.
 
-        Matches ``torch.matmul`` semantics (pure matmul, no bias).
-        Internally, the engine expands WL planes over its hardware
-        sub-phase axis (``P = ceil(min(K, row_num) / max_active_rows)``,
-        always present, immediately left of the xbar's inst-aligned block,
-        skipping the trailing all-padding blocks of a narrow layer); the
-        xbar returns per-plane codes with primitive trailing
-        ``[col_num]`` and leading order preserved; the engine sums
-        exactly its own sub-phase axis (``phase_accumulator``) before
-        the leaf-specific slice/tile reductions (``col_accumulator`` on
-        ``Tc``, shift-adders on ``Sa``/``Sw``).
-
         Args:
             input: Integer activation tensor. Shape: ``[..., M, K]``.
             adc_mode: Runtime ADC operating-point index.
@@ -287,8 +229,6 @@ class CimEngine(
             Integer pre-requantize output tensor. Shape: ``[..., M, N]``.
         """
         raise NotImplementedError
-
-    # --- repr ---
 
     def extra_repr(self) -> str:
         return (
@@ -300,8 +240,6 @@ class CimEngine(
     def __repr__(self) -> str:
         return f"{type(self).__name__}({self.extra_repr()})"
 
-    # --- xbar construction helper for concrete engines ---
-
     def _build_cim_macro(
         self,
         *,
@@ -309,16 +247,14 @@ class CimEngine(
         xbar_policy: CimMacroPolicy,
         inst_shape: tuple[int, ...],
     ) -> CimMacro:
-        """Construct the owned xbar at a derived per-instance multiplicity.
+        """Construct a CIM macro at the requested instance multiplicity.
 
         Args:
-            xbar_config: Engine-owned xbar configuration.
-            xbar_policy: Engine-owned xbar nonideality policy.
+            xbar_config: CIM macro configuration.
+            xbar_policy: CIM macro nonideality policy.
                 If ``ideal_xbar`` is true the policy is discarded in favor
                 of an empty :class:`IdealCimMacroPolicy`.
-            inst_shape: Per-instance multiplicity prefix; the xbar
-                derives the trailing ``(col_num, w_digit_count,
-                row_num)`` dims from its own config.
+            inst_shape: Per-instance multiplicity prefix.
 
         Returns:
             The xbar (physical or ideal twin per ``ideal_xbar``).
@@ -331,8 +267,6 @@ class CimEngine(
             T__K=self._macro_T__K,
         )
         return xbar.to_ideal() if self._ideal_xbar else xbar
-
-    # --- shared tensor utility ---
 
     @staticmethod
     def chunk_pad_along(

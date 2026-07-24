@@ -109,7 +109,6 @@ class _RuntimeCfg:
     seed: int
 
 
-@dataclass(frozen=True)
 class CalibrateSolverNestedConfig(ConfigBase):
     """Top-level config for :mod:`neurox.tools.calibrate_solver.nested`.
 

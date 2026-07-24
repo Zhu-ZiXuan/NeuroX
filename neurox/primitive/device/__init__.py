@@ -3,7 +3,6 @@ from .rram import Rram, RramConfig, RramDcop, RramPolicy, RramSnap
 from .selector import Selector, SelectorConfig, SelectorPolicy
 
 __all__ = [
-    # --- MOSFET ---
     "Mosfet",
     "Nmos",
     "Pmos",
@@ -11,13 +10,11 @@ __all__ = [
     "MosfetDcop",
     "MosfetPolicy",
     "MosfetSnap",
-    # --- RRAM ---
     "Rram",
     "RramConfig",
     "RramDcop",
     "RramPolicy",
     "RramSnap",
-    # --- Selector ---
     "Selector",
     "SelectorConfig",
     "SelectorPolicy",

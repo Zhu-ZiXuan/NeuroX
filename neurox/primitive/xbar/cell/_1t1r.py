@@ -23,12 +23,7 @@ from .base import (
     XbarCellSnap,
 )
 
-# ---------------------------------------------------------------------------
-# Config / policy / result containers
-# ---------------------------------------------------------------------------
 
-
-@dataclass(frozen=True, kw_only=True)
 class XbarCell1t1rConfig(XbarCellConfig, ABC):
     """Node-to-ground capacitance knobs shared by every 1T1R cell model.
 
@@ -61,13 +56,8 @@ class XbarCell1t1rConfig(XbarCellConfig, ABC):
         self._require_non_neg(self.c_wl__fF, "c_wl__fF")
 
 
-@dataclass(frozen=True)
 class XbarCell1t1rPolicy(XbarCellPolicy, ABC):
-    """Abstract marker base for 1T1R cell nonideality policies.
-
-    Each concrete 1T1R cell model carries its own subclass bundling the
-    per-device policies of the devices it owns (possibly none).
-    """
+    """Base policy for 1T1R cell nonidealities."""
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -99,31 +89,26 @@ ConfigT = TypeVar("ConfigT", bound=XbarCell1t1rConfig)
 PolicyT = TypeVar("PolicyT", bound=XbarCell1t1rPolicy)
 
 
-# ---------------------------------------------------------------------------
-# Cell
-# ---------------------------------------------------------------------------
-
-
 class XbarCell1t1r(
     XbarCell[ConfigT, PolicyT, CellSnapT, XbarCell1t1rDcop],
     RegistryMixin[type[XbarCell1t1rConfig], "XbarCell1t1r"],
     Generic[ConfigT, PolicyT, CellSnapT],
     ABC,
 ):
-    """Abstract series access-device + storage 1T1R cell with a condensed branch.
+    """Base class for condensed series access-device and storage cells.
 
-    Owns the shared substrate of every 1T1R model: the four per-cell
-    node-to-ground capacitances and the grounded-cap switching-energy
-    formula over all four cell nodes (BL, internal X, SL, and the WL
-    NMOS gate the cell owns); the WL wire charge is billed by the
-    owning array. Concrete leaves supply the
-    branch physics (``snapshot`` /
-    ``program`` / ``solve_branch`` / ``solve_dc``) and must derive and
-    set ``w_states`` in ``__init__``.
+    Args:
+        config: Concrete 1T1R cell configuration.
+        policy: Composite per-device nonideality policy.
+        inst_shape: Per-instance shape ``(*prefix, col, row)``.
+        dtype: Tensor dtype for internal buffers.
+        T__K: Operating temperature.
+
+    Attributes:
+        w_states: Number of programmable weight states.
     """
 
     w_states: int
-    """Programmable weight-state count; each leaf derives and sets it in ``__init__``."""
 
     def __init__(
         self,
@@ -153,9 +138,15 @@ class XbarCell1t1r(
     ) -> XbarCell1t1r:
         """Build the 1T1R cell registered for ``type(config)``.
 
-        Family-bounded dispatch: the key domain is the 1T1R config
-        subtree, so the resolved impl is always an :class:`XbarCell1t1r`
-        leaf — the owning array needs no post-build type narrowing.
+        Args:
+            config: Concrete 1T1R cell configuration.
+            policy: Composite per-device nonideality policy.
+            inst_shape: Per-instance shape ``(*prefix, col, row)``.
+            dtype: Tensor dtype for internal buffers.
+            T__K: Operating temperature.
+
+        Returns:
+            Registered 1T1R cell implementation.
         """
         impl = cls._lookup_impl(type(config))
         return impl(
@@ -166,10 +157,6 @@ class XbarCell1t1r(
             T__K=T__K,
         )
 
-    # -----------------------------------------------------------------
-    # Dynamic energy
-    # -----------------------------------------------------------------
-
     def dynamic_energy(
         self,
         v_bl: Tensor,
@@ -179,12 +166,8 @@ class XbarCell1t1r(
     ) -> Tensor:
         """Per-cell node-capacitance switching energy [fJ].
 
-        Sums the grounded ``C·V²`` switching terms of the cell's nodes
-        (BL, internal X, SL, WL gate) at the converged operating point
-        (``V_BL``, ``V_SL``, the condensed ``V_X``, and the WL drive),
-        assuming a full 0 → DC → 0 charge/discharge cycle per node.
-        Pure computation: the owning array is the sole logger of every
-        cell energy term — the cell emits nothing itself.
+        Uses grounded ``C·V²`` terms for BL, X, SL, and WL under a full
+        0 → DC → 0 cycle.
 
         Args:
             v_bl: Bit-line node voltage [V]. Shape: ``[..., col, row]``.

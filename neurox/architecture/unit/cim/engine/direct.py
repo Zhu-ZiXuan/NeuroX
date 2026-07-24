@@ -7,7 +7,6 @@ See also:
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
 
 import torch
 from torch import Tensor
@@ -27,35 +26,23 @@ from .base import CimEngine, CimEngineConfig, CimEnginePolicy
 _FP32_EXACT_BOUND = 1 << 24
 
 
-@dataclass(frozen=True)
 class DirectCimEngineConfig(CimEngineConfig):
-    """Configuration for :class:`DirectCimEngine`.
+    """Configuration for :class:`DirectCimEngine`."""
 
-    No slice counts and no shift-adders — the direct engine maps logical
-    weights / activations straight onto one xbar's value range.
-    """
+
+class DirectCimEnginePolicy(CimEnginePolicy):
+    """Policy for :class:`DirectCimEngine`."""
 
 
 @CimEngine.register_key(DirectCimEngineConfig)
-class DirectCimEngine(CimEngine[DirectCimEngineConfig]):
-    """CIM engine with no activation / weight slicing — transcode only.
-
-    The activation slicing step is the identity :class:`DirectSlicer`
-    over the xbar's ``x_range``: inputs are already on the macro's
-    per-cycle grid, so ``slice`` only validates the range. Weights are
-    transcoded onto the xbar's digit geometry.
-
-    Construction rejects geometries whose worst-case per-tile dot product
-    reaches 2^24: below that bound every per-tile partial survives an fp32
-    matmul bit-exactly, which keeps the integer MAC engine GPU-capable
-    (CUDA has no integer matmul kernel).
-    """
+class DirectCimEngine(CimEngine[DirectCimEngineConfig, DirectCimEnginePolicy]):
+    """CIM engine that transcodes weights without activation or weight slicing."""
 
     def __init__(
         self,
         *,
         config: DirectCimEngineConfig,
-        policy: CimEnginePolicy,
+        policy: DirectCimEnginePolicy,
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -73,8 +60,6 @@ class DirectCimEngine(CimEngine[DirectCimEngineConfig]):
         col_num = xbar_config.col_num
         row_num = xbar_config.row_num
 
-        # Organized shape: (*batch, M=1, Tc, Tr, col_num, D, row_num).
-        # The trailing (col_num, D, row_num) is owned by the xbar.
         *w_batch, n_logical, k_logical = w_logical_shape
         tr = (n_logical + col_num - 1) // col_num
         tc = (k_logical + row_num - 1) // row_num
@@ -97,7 +82,7 @@ class DirectCimEngine(CimEngine[DirectCimEngineConfig]):
         self._w_value_range = self.w_transcoder.value_range
         self._x_value_range = self.x_slicer.value_range
 
-        # fp32-exactness bound on the worst-case per-tile dot product.
+        # Keep the CUDA fp32 contraction exact for every possible tile.
         x_lo, x_hi = xbar.x_range
         d_lo, d_hi = xbar.w_digit_range
         max_digit_abs = max(abs(d_lo), abs(d_hi))
@@ -121,8 +106,6 @@ class DirectCimEngine(CimEngine[DirectCimEngineConfig]):
             policy=DigitalPolicy(),
             inst_shape=(self._w_parallel_size, tr),
         )
-
-    # --- organize ---
 
     def _organize_w(self, weight: Tensor) -> Tensor:
         """Map a logical weight tensor into xbar-native layout.
@@ -162,14 +145,11 @@ class DirectCimEngine(CimEngine[DirectCimEngineConfig]):
             Tensor of shape ``[..., M, Tc, Tr=1, row_num]``.
         """
         # Shape: [..., M, K] -> [..., M, K, 1, 1] -> [..., M, K]
-        # Identity slicing: validates the range, changes nothing.
         x = self.x_slicer.slice(x).squeeze(-1).squeeze(-1)
         # Shape: [..., M, K] -> [..., M, Tc, row_num]
         tiled = self.chunk_pad_along(x, axis=-1, chunk_size=self.xbar.row_num, pad_value=0)
         # Shape: [..., M, Tc, row_num] -> [..., M, Tc, Tr=1, row_num]
         return tiled.unsqueeze(-2)
-
-    # --- lifecycle ---
 
     @torch.no_grad()
     def matmul(self, input: Tensor, *, adc_mode: int, adc_bits: int) -> Tensor:
@@ -180,11 +160,11 @@ class DirectCimEngine(CimEngine[DirectCimEngineConfig]):
 
         # Shape: [..., M, Tc, Tr, row_num] -> [..., P, M, Tc, Tr, row_num]
         planes = self._unroll_sub_phase(x)
-        # *w_batch~ = weight-batch axes materialized by broadcast against the inst grid.
-        # Shape: [..., P, M, Tc, Tr, row_num] -> [..., P, *w_batch~, M, Tc, Tr, col_num]
+        # Weight-batch axes are materialized by broadcast against the instance grid.
+        # Shape: [..., P, M, Tc, Tr, row_num] -> [..., P, *w_batch, M, Tc, Tr, col_num]
         y = self.xbar.vec_mat_mul(planes, adc_mode=adc_mode, adc_bits=adc_bits).to(torch.int64)
-        # Shape: [..., P, *w_batch~, M, Tc, Tr, col_num] -> [..., *w_batch~, M, Tc, Tr, col_num]
-        y = self.phase_accumulator.operate(y, dim=self._sub_phase_dim)  # -(b+5)
+        # Shape: [..., P, *w_batch, M, Tc, Tr, col_num] -> [..., *w_batch, M, Tc, Tr, col_num]
+        y = self.phase_accumulator.operate(y, dim=self._sub_phase_dim)
         # Shape: [..., M, Tc, Tr, col_num] -> [..., M, Tr, col_num]
         y = self.col_accumulator.operate(y, dim=-3)
         # Shape: [..., M, Tr, col_num] -> [..., M, N]

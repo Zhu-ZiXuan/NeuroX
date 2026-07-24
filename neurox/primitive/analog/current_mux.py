@@ -4,7 +4,6 @@ See also:
     docs/reference/primitive/analog/current_mux.md
 """
 
-from dataclasses import dataclass
 from typing import ClassVar
 
 import torch
@@ -13,26 +12,16 @@ from torch import Tensor
 from neurox.primitive.analog.base import AnalogBase, AnalogConfig, AnalogPolicy
 
 
-@dataclass(frozen=True, kw_only=True)
 class CurrentMuxConfig(AnalogConfig):
     """Immutable configuration for :class:`CurrentMux`.
 
     Attributes:
-        select_num: Design N of the N:1 fan-in — the number of columns
-            sharing one lane. Cross-checked by the caller against its
-            reference group size; design-only, with no effect on the
-            transport.
+        select_num: Number of inputs sharing one lane.
         mux_gain: Scalar matched transport gain (copy/transport factor).
     """
 
-    # --- Fan-in (design only) ---
     select_num: int
-
-    # --- Gain ---
     mux_gain: float
-
-    def __post_init__(self) -> None:
-        self.validate()
 
     def validate(self) -> None:
         self.validate_fan_in()
@@ -45,7 +34,6 @@ class CurrentMuxConfig(AnalogConfig):
         self._require_pos(self.mux_gain, "mux_gain")
 
 
-@dataclass(frozen=True)
 class CurrentMuxPolicy(AnalogPolicy):
     """Abstract marker for CurrentMux nonideality policy — no sources."""
 
@@ -61,7 +49,6 @@ class CurrentMux(AnalogBase[CurrentMuxConfig, CurrentMuxPolicy]):
         T__K: Operating temperature.
     """
 
-    # Non-reporter: embedded primitive whose static PPA rolls up to the owning block.
     is_profile_target: ClassVar[bool] = False
 
     def __init__(
@@ -78,7 +65,7 @@ class CurrentMux(AnalogBase[CurrentMuxConfig, CurrentMuxPolicy]):
         self.T__K = T__K
 
     def _sample_fabricate_mismatch(self) -> None:
-        pass  # ideal identity-gain transport: no static mismatch
+        pass
 
     def transport(self, i__uA: Tensor) -> Tensor:
         """Transport one current through the shared lane at the configured gain.

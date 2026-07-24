@@ -4,8 +4,6 @@ See also:
     docs/reference/primitive/analog/voltage_mux.md
 """
 
-from dataclasses import dataclass
-
 import torch
 from torch import Tensor
 
@@ -13,7 +11,6 @@ from neurox.primitive.analog.base import AnalogBase, AnalogConfig, AnalogPolicy
 from neurox.primitive.nonideality import apply_gaussian
 
 
-@dataclass(frozen=True, kw_only=True)
 class VoltageMuxConfig(AnalogConfig):
     """Immutable configuration for :class:`VoltageMux`.
 
@@ -33,28 +30,14 @@ class VoltageMuxConfig(AnalogConfig):
         leakage_per_inst__uW: Static leakage per instance.
     """
 
-    # --- Gain ---
     mux_gain: float
-
-    # --- Inter-leg gain mismatch ---
     mux_gain_mismatch_sigma_relative: float
-
-    # --- Common-mode noise ---
     mux_noise_cm_sigma__V: float
-
-    # --- Differential-mode noise ---
     mux_noise_dm_sigma__V: float
-
-    # --- Energy / latency ---
     energy_per_access__fJ: float
     latency_per_op__ns: float
-
-    # --- Static PPA ---
     area_per_inst__um2: float
     leakage_per_inst__uW: float
-
-    def __post_init__(self) -> None:
-        self.validate()
 
     def validate(self) -> None:
         self.validate_gain()
@@ -76,7 +59,6 @@ class VoltageMuxConfig(AnalogConfig):
         self._require_non_neg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
-@dataclass(frozen=True)
 class VoltageMuxPolicy(AnalogPolicy):
     """Per-source toggles selecting which VoltageMux nonidealities are active.
 
@@ -126,7 +108,6 @@ class VoltageMux(AnalogBase[VoltageMuxConfig, VoltageMuxPolicy]):
         self.sigma_eps_g = config.mux_gain_mismatch_sigma_relative
 
     def _sample_fabricate_mismatch(self) -> None:
-        """Resample inter-leg gain mismatch ε_g at ``self.inst_shape``."""
         self.eps_g = apply_gaussian(
             self.nominal_eps_g.clone().expand(self.inst_shape),
             self.sigma_eps_g,

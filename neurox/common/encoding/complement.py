@@ -22,15 +22,6 @@ class ComplementTranscoder(Transcoder):
     """
 
     def encode(self, x: Tensor, *, dim: int = -1) -> Tensor:
-        """Encode integer tensor into radix-complement digit form.
-
-        Args:
-            x: Integer tensor to encode.
-            dim: Axis at which the digit dimension is inserted.
-
-        Returns:
-            Digit tensor with a new size-``digit_count`` axis at ``dim``.
-        """
         radix = self._radix
         all_digits: list[Tensor] = []
         for _ in range(self._digit_count):
@@ -39,6 +30,7 @@ class ComplementTranscoder(Transcoder):
             all_digits.append(rem)
         msb = all_digits[-1]
         all_digits[-1] = torch.where(msb >= (radix + 1) // 2, msb - radix, msb)
+        # Shape: [...] -> [..., digit_count, ...]
         return torch.stack(all_digits, dim=dim)
 
     @property

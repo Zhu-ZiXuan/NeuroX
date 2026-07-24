@@ -75,8 +75,6 @@ See also:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 import torch
 from torch import Tensor
 
@@ -114,7 +112,6 @@ _V_SL_DRIVE__V = 0.0  # SL grounded (paper topology: BL -> RRAM -> SL(GND))
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True, kw_only=True)
 class Xue2020JsscCimMacroConfig(CimMacroConfig):
     """Configuration for the xue2020jssc SINWP 1T1R CIM sub-array.
 
@@ -146,28 +143,28 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
             per-input-bit leg ratio ``s_k = sc_ratio_msb * 2**(k - (K-1))``
             (LSB-first k) is derived DOWNWARD from it; ``input_bit_num = 1`` uses
             the anchor directly with the sample-and-hold leg off.
-        t_sample__ns: Sample sub-phase windows [ns], one per SAMPLED input bit
+        t_sample__ns: Sample sub-phase windows, one per SAMPLED input bit
             (length ``input_bit_num - 1``; empty for K=1). Dynamic-energy only.
             The live bit (K-1) conducts in ``t_other`` instead.
-        t_settle__ns: Tail non-sensing settle window [ns] — the live-bit settle
+        t_settle__ns: Tail non-sensing settle window — the live-bit settle
             ONLY. The SAR sensing is carried separately by
             ``array_config.solver_config`` timing and the ADC step windows; part of
             ``t_other``, dynamic-energy only.
-        t_cycle__ns: Declared operating period [ns] (paper 50 ns = 1/20 MHz); the
+        t_cycle__ns: Declared operating period (paper 50 ns = 1/20 MHz); the
             static-energy time base. The macro logs latency ``t_cycle * serial``;
             ``leakage_energy = leakage_power * latency`` is then the static energy
             over the full period. Must be ``>=`` the sum of the conduction windows.
-        v_dd__V: Supply-rail voltage [V] (paper 1.0); the rail every channelled
+        v_dd__V: Supply-rail voltage (paper 1.0); the rail every channelled
             branch is billed across, including the whole input branch ``V_DD *
             I_DL`` the macro bills on the ``cablc`` channel.
-        v_bl_clamp__V: BL clamp reference tap [V] (paper V_BLC ~0.29). Fed to the
+        v_bl_clamp__V: BL clamp reference tap (paper V_BLC ~0.29). Fed to the
             array's ``bl_driver`` as its Thevenin reference; the actual per-cell
             ``V_BL`` droops below it by the wire IR drop the solver computes. Must
             be in ``[0, v_dd__V]``.
-        e_control_per_op__fJ: Control per-conversion dynamic energy [fJ] (address
+        e_control_per_op__fJ: Control per-conversion dynamic energy (address
             decode, CMD precharge, timing) billed under the ``control`` channel —
             includes the CMD precharge, so NO CMD capacitance is modeled anywhere.
-        e_pn_isub_per_op__fJ: PN-ISUB comparator per-decision energy [fJ]
+        e_pn_isub_per_op__fJ: PN-ISUB comparator per-decision energy
             (data-independent), billed per column under the ``pn_isub`` channel.
         control_config: Static-PPA seat for the (functionally unmodeled) control
             block.
@@ -431,7 +428,6 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True)
 class Xue2020JsscCimMacroPolicy(CimMacroPolicy):
     """Composite nonideality policy for :class:`Xue2020JsscCimMacro`.
 

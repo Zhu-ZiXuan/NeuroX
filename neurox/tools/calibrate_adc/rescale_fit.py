@@ -90,7 +90,6 @@ class _StimulusCfg:
                 raise ValueError(f"require: densities in [0, 1]; got {d}")
 
 
-@dataclass(frozen=True)
 class RescaleFitToolConfig(ConfigBase):
     """Top-level config for :mod:`neurox.tools.calibrate_adc.rescale_fit`.
 

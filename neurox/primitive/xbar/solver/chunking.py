@@ -1,8 +1,4 @@
-"""Leading-batch chunking helpers for any solver-driven core's ``solve_array``.
-
-Partition the broadcast leading into peak-memory-bounded slices for any core
-whose ``solve_array`` drives the shared solver; they bind to no specific core.
-"""
+"""Memory-bounded chunking helpers for broadcast-leading dimensions."""
 
 from __future__ import annotations
 
@@ -42,20 +38,22 @@ def classify_leading_positions(
         if xd > 1 and gd == 1:
             a_positions.append(i)
         elif gd > 1:
-            # g-real or matched (both > 1) — per the caller's A/B
-            # axis taxonomy these are inst positions (parallel hardware),
-            # always B.
             b_positions.append(i)
-        # both 1 → degenerate, omit
     return tuple(a_positions), tuple(b_positions)
 
 
 class ChunkSpec(NamedTuple):
-    """Per-chunk dispatch payload."""
+    """Chunk coordinates and global indices.
 
-    multi_coords: tuple[Tensor, ...]  # one per leading position, shape (chunk_size,)
-    chunk_size: int  # length of this contiguous broadcast-leading slice (end - start, <= solve_chunk_size)
-    flat_global_idx: Tensor  # shape (chunk_size,), index into the unraveled leading
+    Attributes:
+        multi_coords: Coordinate tensor per leading dimension.
+        chunk_size: Number of positions in the chunk.
+        flat_global_idx: Flat indices into the complete leading shape.
+    """
+
+    multi_coords: tuple[Tensor, ...]
+    chunk_size: int
+    flat_global_idx: Tensor
 
 
 def iter_chunks(
@@ -64,14 +62,16 @@ def iter_chunks(
     chunk_size: int,
     device: torch.device,
 ) -> Iterator[ChunkSpec]:
-    """Yield ``ChunkSpec`` partitioning the broadcast leading into pieces of
-    at most ``chunk_size`` instances.
+    """Partition a broadcast-leading shape into contiguous chunks.
 
-    The full leading (``prod(leading)`` instances) is split into contiguous
-    C-order slices of at most ``chunk_size``; each slice's flat indices unravel
-    to the per-position ``multi_coords`` tuple advanced indexing on the
-    broadcast view needs, and the flat index is the canonical global index used
-    for reassembly. ``chunk_size <= 0`` puts the whole leading in one chunk.
+    Args:
+        leading: Broadcast-leading shape.
+        chunk_size: Maximum positions per chunk. A non-positive value
+            yields one chunk.
+        device: Device for coordinate and index tensors.
+
+    Yields:
+        Chunk coordinates and global indices.
     """
     total = math.prod(leading) if leading else 1
     c = chunk_size if chunk_size > 0 else total
@@ -108,9 +108,6 @@ def reassemble_chunks(
     Returns:
         Tensor of shape ``(*leading, *trailing)``.
     """
-    # Degenerate leading: iter_chunks yields exactly one chunk that
-    # already carries the full payload at trailing shape — no cat /
-    # scatter is well-defined on 0-D leading.
     if not leading:
         return chunks[0]
     all_chunks = torch.cat(chunks, dim=0)

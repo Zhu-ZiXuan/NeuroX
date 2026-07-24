@@ -6,5 +6,8 @@
 [policy]
 _neurox_class = "LinearCimUnitPolicy"
 
-[policy.cim_macro_policy]
+[policy.engine]
+_neurox_class = "InterArraySliceCimEnginePolicy"
+
+[policy.engine.cim_macro_policy]
 _neurox_class = "IdealCimMacroPolicy"

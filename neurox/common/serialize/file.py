@@ -8,8 +8,6 @@ from typing import Any
 import tomli_w
 import yaml
 
-# --- format-specific loaders / dumpers ---
-
 
 def dict_from_toml(file: Path) -> dict[str, Any]:
     """Load a dict from a TOML file."""
@@ -60,8 +58,6 @@ def dict_to_yaml(data: Mapping[str, Any], file: Path, *, encoding: str | None = 
             default_flow_style=False,
         )
 
-
-# --- file interface ---
 
 toml_suffixes = {".toml"}
 yaml_suffixes = {".yaml", ".yml"}

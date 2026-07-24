@@ -22,7 +22,6 @@ from neurox.primitive.nonideality import (
 )
 
 
-@dataclass(frozen=True)
 class RramConfig(ConfigBase):
     """Static RRAM device configuration.
 
@@ -37,30 +36,20 @@ class RramConfig(ConfigBase):
         stuck_at: Stuck-at fault model parameters.
     """
 
-    # --- Working range ---
     g_min__uS: float
 
-    # --- I-V nonlinearity ---
     nonlinearity_alpha: float
 
-    # --- Drift ---
     drift_decay_rate: float
     drift_t0: float
 
-    # --- Read thermal noise ---
     read_thermal__uS: float
 
-    # --- Programming Gamma ---
     prog_gamma: StateDependentGammaConfig
 
-    # --- Read telegraph noise ---
     read_telegraph: TelegraphConfig
 
-    # --- Stuck-at fault ---
     stuck_at: StuckAtFaultConfig
-
-    def __post_init__(self) -> None:
-        self.validate()
 
     def validate(self) -> None:
         self.validate_range()
@@ -79,11 +68,9 @@ class RramConfig(ConfigBase):
         self._require_non_neg(self.drift_t0, "drift_t0")
 
     def validate_noise(self) -> None:
-        # Nested *Config self-validates in its own __post_init__.
         self._require_non_neg(self.read_thermal__uS, "read_thermal__uS")
 
 
-@dataclass(frozen=True)
 class RramPolicy(PolicyBase):
     """Per-source toggles selecting which RRAM nonidealities are active.
 
@@ -125,9 +112,17 @@ class RramSnap:
 
 
 class Rram(ModuleBase[RramConfig, RramPolicy]):
-    """Stateful RRAM array model."""
+    """Stateful programmable-conductance RRAM model.
 
-    # non-reporter: silicon rolls up to the owner
+    Args:
+        config: Device configuration.
+        policy: Nonideality policy.
+        inst_shape: Per-instance fabrication shape.
+        dtype: Tensor dtype for internal buffers.
+        T__K: Operating temperature.
+        g_max__uS: Maximum programmable conductance.
+    """
+
     is_profile_target: ClassVar[bool] = False
 
     g__uS: Tensor
@@ -142,16 +137,6 @@ class Rram(ModuleBase[RramConfig, RramPolicy]):
         T__K: float,
         g_max__uS: float,
     ) -> None:
-        """Construct one stateful RRAM model.
-
-        Args:
-            config: Concrete configuration dataclass.
-            policy: Per-source nonideality enable flags.
-            inst_shape: Per-instance fabrication shape.
-            dtype: Tensor dtype for internal buffers.
-            T__K: Operating temperature.
-            g_max__uS: Maximum programmable conductance.
-        """
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
 
         if not (g_max__uS > config.g_min__uS):
@@ -165,7 +150,7 @@ class Rram(ModuleBase[RramConfig, RramPolicy]):
         self.register_buffer("g__uS", torch.zeros((), dtype=dtype), persistent=False)
 
     def _sample_fabricate_mismatch(self) -> None:
-        pass  # variation enters via program() / snapshot(), not fabrication
+        pass
 
     def program(self, target_g__uS: Tensor, t_elapsed: float) -> None:
         """Program the stored conductance.

@@ -72,13 +72,7 @@ def _array_config() -> XbarArray1t1rConfig:
 
 def _build_array(*, device: torch.device) -> XbarArray1t1r:
     """Build a minimal standalone 1T1R pure array, every policy toggle off."""
-    policy = XbarArray1t1rPolicy(
-        cell_policy=XbarCell1t1rDetailPolicy(
-            rram_policy=RramPolicy(prog_gamma=False, stuck_at=False, read_telegraph=False, read_thermal=False),
-            nmos_policy=MosfetPolicy(A_vt_mismatch=False, A_beta_mismatch=False),
-        ),
-        solve_chunk_size=0,
-    )
+    policy = _array_policy(solve_chunk_size=0)
     array = XbarArray1t1r(
         config=_array_config(),
         policy=policy,
@@ -93,11 +87,27 @@ def _build_array(*, device: torch.device) -> XbarArray1t1r:
     return array
 
 
+def _array_policy(*, solve_chunk_size: int) -> XbarArray1t1rPolicy:
+    """Build an all-off policy with the requested solver chunk size."""
+    return XbarArray1t1rPolicy(
+        cell_policy=XbarCell1t1rDetailPolicy(
+            rram_policy=RramPolicy(prog_gamma=False, stuck_at=False, read_telegraph=False, read_thermal=False),
+            nmos_policy=MosfetPolicy(A_vt_mismatch=False, A_beta_mismatch=False),
+        ),
+        solve_chunk_size=solve_chunk_size,
+    )
+
+
 def _fabricable_tree(node: FabricateMixin) -> Iterator[FabricateMixin]:
     """Yield ``node`` then every fabricable descendant in pre-order."""
     yield node
     for child in node._fabricable_children():
         yield from _fabricable_tree(child)
+
+
+def test_xbar_array_policy_rejects_negative_chunk_size() -> None:
+    with pytest.raises(ValueError, match="solve_chunk_size"):
+        _array_policy(solve_chunk_size=-1)
 
 
 def test_xbar_array_abc_supplies_noop_sample_fabricate_mismatch(device: torch.device) -> None:

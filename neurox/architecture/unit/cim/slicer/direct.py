@@ -12,13 +12,7 @@ from .base import Slicer
 
 
 class DirectSlicer(Slicer):
-    """Identity member of the slicer family — one slice, one digit.
-
-    For inputs already on the macro's per-cycle grid: ``slice`` validates
-    the value range and appends the structural trailing
-    ``[slice_num=1, digit_count=1]`` axes without changing values or
-    dtype. With a single slice no positional ratio is ever applied, so
-    ``slice_radix`` reduces to the alphabet size.
+    """Validate values and append one slice and one digit axis.
 
     Args:
         value_range: Inclusive integer ``(lo, hi)`` accepted by ``slice``;
@@ -37,8 +31,6 @@ class DirectSlicer(Slicer):
 
     @property
     def slice_radix(self) -> int:
-        # Alphabet size: with slice_num == 1 the positional ratio between
-        # adjacent slices never applies.
         lo, hi = self._value_range
         return hi - lo + 1
 

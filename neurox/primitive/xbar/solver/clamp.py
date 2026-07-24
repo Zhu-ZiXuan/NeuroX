@@ -1,14 +1,4 @@
-"""Structural clamp-driver role consumed by the array solver.
-
-The array solver drives each boundary port through a clamp circuit and
-needs only two capabilities from it: a per-call snap of fabricated state
-and a clamp solve mapping port current to ``(v_clamp, dVclamp/dI)``. The
-reference clamp voltage is injected per call as a plain ``Tensor`` into
-:meth:`ClampDriver.snapshot` and rides in the resulting snap (a
-:class:`ClampSnap`). :class:`ClampDriver` names that capability contract as
-a structural (``Protocol``) role, generic over ``SnapT`` (bound to
-:class:`ClampSnap`) so each conforming circuit ties its own snap type end
-to end.
+"""Structural interface for boundary clamp drivers.
 
 See also:
     docs/internals/primitive/xbar/solver.md
@@ -22,11 +12,10 @@ from torch import Tensor
 
 
 class ClampSnap(Protocol):
-    """Structural lower bound for any clamp-driver snap.
+    """Required clamp-snapshot interface.
 
     Attributes:
-        v_ref__V: Reference / zero-current clamp voltage carried forward
-            by :meth:`ClampDriver.snapshot` from its injected ``v_ref__V``.
+        v_ref__V: Reference or zero-current clamp voltage.
     """
 
     @property

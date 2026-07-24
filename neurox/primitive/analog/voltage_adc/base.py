@@ -25,9 +25,8 @@ class DifferentialVoltageAdcObservation:
     Attributes:
         v_pos__V: The call's positive-side input voltage.
         v_neg__V: The call's negative-side input voltage.
-        v_ref__V: The call's owner-preselected single reference tap.
-        code: The call's returned raw unsigned integer code (offset-binary /
-            bucket index; the zero point is recovered consumer-side).
+        v_ref__V: The call's reference voltage.
+        code: The call's raw unsigned integer code.
         bits: Active bit width (plain ``int``, not a tensor).
     """
 
@@ -48,23 +47,15 @@ class DifferentialVoltageAdcObservation:
 
 
 class DifferentialVoltageAdcProber(Prober[DifferentialVoltageAdcObservation]):
-    """Capture point for the voltage ADC's conversion observation link.
-
-    :class:`DifferentialVoltageAdc` emits a :class:`DifferentialVoltageAdcObservation` — the
-    call's differential input voltages, selected reference tap, returned code, and
-    resolution — once per :meth:`DifferentialVoltageAdc.convert` call when a prober
-    is active.
-    """
+    """Capture differential-voltage ADC conversion observations."""
 
     _active_stack: ClassVar[list[Prober[DifferentialVoltageAdcObservation]]] = []
 
     @classmethod
     def _stack(cls) -> list[Prober[DifferentialVoltageAdcObservation]]:
-        """Return this observation link's active-prober stack."""
         return cls._active_stack
 
 
-@dataclass(frozen=True)
 class DifferentialVoltageAdcConfig(AnalogConfig, ABC):
     """Base config for voltage-domain ADC implementations.
 
@@ -76,9 +67,6 @@ class DifferentialVoltageAdcConfig(AnalogConfig, ABC):
     area_per_inst__um2: float
     leakage_per_inst__uW: float
 
-    def __post_init__(self) -> None:
-        self.validate()
-
     def validate(self) -> None:
         self.validate_ppa()
 
@@ -87,7 +75,6 @@ class DifferentialVoltageAdcConfig(AnalogConfig, ABC):
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
 
 
-@dataclass(frozen=True)
 class DifferentialVoltageAdcPolicy(AnalogPolicy, ABC):
     """Abstract marker base for voltage-ADC-family nonideality policies."""
 
@@ -102,7 +89,15 @@ class DifferentialVoltageAdc(
     Generic[ConfigT, PolicyT],
     ABC,
 ):
-    """Abstract base class for voltage-domain ADC implementations."""
+    """Base class for differential voltage-domain ADC implementations.
+
+    Args:
+        config: Concrete configuration dataclass.
+        policy: Per-source nonideality flags.
+        inst_shape: Per-instance fabrication shape.
+        dtype: Tensor dtype for internal buffers.
+        T__K: Operating temperature.
+    """
 
     @classmethod
     def from_config(
@@ -114,7 +109,18 @@ class DifferentialVoltageAdc(
         dtype: torch.dtype,
         T__K: float,
     ) -> DifferentialVoltageAdc:
-        """Build the concrete impl registered for ``type(config)``."""
+        """Build the implementation registered for ``type(config)``.
+
+        Args:
+            config: Concrete configuration dataclass.
+            policy: Per-source nonideality flags.
+            inst_shape: Per-instance fabrication shape.
+            dtype: Tensor dtype for internal buffers.
+            T__K: Operating temperature.
+
+        Returns:
+            Registered voltage-ADC implementation.
+        """
         impl = cls._lookup_impl(type(config))
         return impl(
             config=config,
@@ -133,16 +139,7 @@ class DifferentialVoltageAdc(
         dtype: torch.dtype,
         T__K: float,
     ) -> None:
-        """Register the instance with :class:`nn.Module`.
-
-        Args:
-            config: Concrete configuration dataclass.
-            policy: Per-source nonideality enable flags.
-            inst_shape: Per-instance fabrication shape.
-            dtype: Tensor dtype for internal buffers.
-            T__K: Operating temperature.
-        """
-        del dtype, T__K  # captured by the subclass init
+        del dtype, T__K
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
 
     @property
@@ -161,32 +158,19 @@ class DifferentialVoltageAdc(
     ) -> Tensor:
         """Digitise a differential analog voltage into a raw unsigned code.
 
-        Template method: delegates the conversion to :meth:`_convert_impl`,
-        then, only when a :class:`DifferentialVoltageAdcProber` is active, builds and
-        emits the call's inputs, code, and resolution before returning
-        the code unchanged.
-
         Args:
-            v_pos__V: Positive-side analog input voltage.  Shape:
-                arbitrary.
-            v_neg__V: Negative-side analog input voltage.  Same
+            v_pos__V: Positive-side analog input voltage. Shape arbitrary.
+            v_neg__V: Negative-side analog input voltage. Same
                 shape as ``v_pos__V``.
-            v_ref__V: The single reference tap the owner has already
-                selected, shape ``(*inst,)`` (the result of
-                ``v_refs__V[..., mode]``). The ADC is reference-consuming
-                but mode-blind: mode selection happens caller-side.
+            v_ref__V: Reference voltage, broadcastable to the input shape.
             bits: Active conversion resolution [bits].
 
         Returns:
             Raw unsigned integer code tensor, same shape as ``v_pos__V``,
             in the range reported by :meth:`unsigned_range` for
-            ``bits`` (offset-binary / bucket index — the ADC does NOT
-            fold the zero point in). The consumer recovers the signed
-            magnitude affinely as
+            ``bits``. For offset-binary codes, recover the signed value as
             ``M_ideal ≈ (code − zero_offset(bits)) · rescale_factor``
-            (``rescale_factor`` strictly positive), where the zero point
-            comes from :meth:`zero_offset`. Dynamic energy and latency are
-            emitted through the profiler side channel.
+            with a positive ``rescale_factor``.
         """
         code = self._convert_impl(
             v_pos__V,
@@ -214,13 +198,7 @@ class DifferentialVoltageAdc(
         v_ref__V: Tensor,
         bits: int,
     ) -> Tensor:
-        """Conversion body a concrete impl provides; contract as :meth:`convert`.
-
-        Deliberately ``NotImplementedError``-raising rather than
-        ``@abstractmethod``: a capture-style subclass may override
-        :meth:`convert` wholesale and must stay instantiable without a
-        conversion body.
-        """
+        """Convert inputs according to the :meth:`convert` contract."""
         raise NotImplementedError
 
     @abstractmethod
@@ -239,11 +217,9 @@ class DifferentialVoltageAdc(
     def zero_offset(self, bits: int) -> int:
         """Return the raw code representing analog zero at ``bits``.
 
-        The consumer subtracts this offset before scaling:
+        Subtract this offset before scaling:
         ``M_ideal ≈ (code − zero_offset(bits)) · rescale_factor``. Sign
-        and offset handling live entirely on the consumer side — the ADC
-        emits only the raw unsigned code. For a symmetric power-of-two
-        design this is ``2 ** (bits - 1)``; an asymmetric or
-        single-ended design places it elsewhere.
+        and offset are not folded into the emitted code. For a symmetric
+        power-of-two design this is ``2 ** (bits - 1)``.
         """
         raise NotImplementedError

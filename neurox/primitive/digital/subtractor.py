@@ -4,15 +4,12 @@ See also:
     docs/reference/primitive/digital/subtractor.md
 """
 
-from dataclasses import dataclass
-
 import torch
 from torch import Tensor
 
 from .base import DigitalBase, DigitalConfig, DigitalPolicy
 
 
-@dataclass(frozen=True)
 class SubtractorConfig(DigitalConfig):
     """Immutable configuration for a Subtractor instance.
 
@@ -28,9 +25,6 @@ class SubtractorConfig(DigitalConfig):
     energy_per_op__fJ: float
     latency_per_op__ns: float
 
-    def __post_init__(self) -> None:
-        self.validate()
-
     def validate(self) -> None:
         self.validate_arithmetic()
         self.validate_ppa()
@@ -45,7 +39,13 @@ class SubtractorConfig(DigitalConfig):
 
 
 class Subtractor(DigitalBase[SubtractorConfig]):
-    """Element-wise integer subtractor. No saturation or wrap."""
+    """Element-wise integer subtractor without saturation or wrapping.
+
+    Args:
+        config: Subtractor configuration.
+        policy: Digital execution policy.
+        inst_shape: Per-instance fabrication shape.
+    """
 
     def __init__(
         self,

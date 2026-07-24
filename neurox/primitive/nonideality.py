@@ -4,19 +4,12 @@ See also:
     docs/reference/primitive/nonideality.md
 """
 
-from dataclasses import dataclass
-
 import torch
 from torch import Tensor
 
 from neurox.common import ConfigBase
 
-# ---------------------------------------------------------------------------
-# Stuck-at fault
-# ---------------------------------------------------------------------------
 
-
-@dataclass(frozen=True)
 class StuckAtFaultConfig(ConfigBase):
     """Stuck-at fault probabilities.
 
@@ -27,9 +20,6 @@ class StuckAtFaultConfig(ConfigBase):
 
     p_at_min: float
     p_at_max: float
-
-    def __post_init__(self) -> None:
-        self.validate()
 
     def validate(self) -> None:
         self._require_non_neg(self.p_at_min, "p_at_min")
@@ -68,11 +58,6 @@ def apply_stuck_at_fault(
     return torch.where(is_min, min_val, torch.where(is_max, max_val, x))
 
 
-# ---------------------------------------------------------------------------
-# Gaussian
-# ---------------------------------------------------------------------------
-
-
 def apply_gaussian(x: Tensor, sigma: float | Tensor, *, enabled: bool) -> Tensor:
     """Apply additive Gaussian noise.
 
@@ -89,7 +74,6 @@ def apply_gaussian(x: Tensor, sigma: float | Tensor, *, enabled: bool) -> Tensor
     return x + torch.randn_like(x) * sigma
 
 
-@dataclass(frozen=True)
 class StateDependentGaussianConfig(ConfigBase):
     """State-dependent Gaussian noise config.
 
@@ -100,9 +84,6 @@ class StateDependentGaussianConfig(ConfigBase):
 
     sigma_slope: float
     sigma_intercept: float
-
-    def __post_init__(self) -> None:
-        self.validate()
 
     def validate(self) -> None:
         self._require_non_neg(self.sigma_slope, "sigma_slope")
@@ -131,12 +112,6 @@ def apply_state_dependent_gaussian(
     return x + torch.randn_like(x) * sigma
 
 
-# ---------------------------------------------------------------------------
-# Log-normal
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
 class LognormalConfig(ConfigBase):
     """Multiplicative log-normal noise config.
 
@@ -145,9 +120,6 @@ class LognormalConfig(ConfigBase):
     """
 
     sigma: float
-
-    def __post_init__(self) -> None:
-        self.validate()
 
     def validate(self) -> None:
         self._require_non_neg(self.sigma, "sigma")
@@ -169,7 +141,6 @@ def apply_lognormal(x: Tensor, config: LognormalConfig, *, enabled: bool) -> Ten
     return x * torch.exp(torch.randn_like(x) * config.sigma)
 
 
-@dataclass(frozen=True)
 class StateDependentLognormalConfig(ConfigBase):
     """State-dependent log-normal noise config.
 
@@ -184,9 +155,6 @@ class StateDependentLognormalConfig(ConfigBase):
     sigma_intercept: float
     min_val: float
     max_val: float
-
-    def __post_init__(self) -> None:
-        self.validate()
 
     def validate(self) -> None:
         self._require_non_neg(self.sigma_slope, "sigma_slope")
@@ -218,12 +186,6 @@ def apply_state_dependent_lognormal(
     return x * torch.exp(torch.randn_like(x) * sigma)
 
 
-# ---------------------------------------------------------------------------
-# Gamma
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
 class GammaConfig(ConfigBase):
     """Multiplicative Gamma noise config (constant shape and scale).
 
@@ -234,9 +196,6 @@ class GammaConfig(ConfigBase):
 
     shape_k: float
     scale_theta: float
-
-    def __post_init__(self) -> None:
-        self.validate()
 
     def validate(self) -> None:
         self._require_pos(self.shape_k, "shape_k")
@@ -262,7 +221,6 @@ def apply_gamma_noise(x: Tensor, config: GammaConfig, *, enabled: bool) -> Tenso
     return x * (gamma_sample / mean)
 
 
-@dataclass(frozen=True)
 class StateDependentGammaConfig(ConfigBase):
     """State-dependent Gamma noise config.
 
@@ -279,9 +237,6 @@ class StateDependentGammaConfig(ConfigBase):
     theta: float
     min_val: float
     max_val: float
-
-    def __post_init__(self) -> None:
-        self.validate()
 
     def validate(self) -> None:
         self._require_pos(self.k_intercept, "k_intercept")
@@ -316,33 +271,27 @@ def apply_state_dependent_gamma(
     needs_cast = in_dtype not in (torch.float32, torch.float64)
     x32 = x.float() if needs_cast else x
 
-    # --- 1. Normalise conductance state ---
+    # --- 1: normalize the conductance state ---
 
     x_norm = (x32 - config.min_val) / (config.max_val - config.min_val + 1e-12)
 
-    # --- 2. Derive state-dependent shape ---
+    # --- 2: derive the state-dependent shape ---
 
     k = (x_norm * config.k_slope + config.k_intercept).clamp(min=0.1)
 
-    # --- 3. Sample gamma noise elementwise ---
+    # --- 3: sample elementwise gamma noise ---
 
     theta_tensor = torch.full(x32.shape, config.theta, dtype=x32.dtype, device=x32.device)
     rate = 1.0 / theta_tensor
     gamma_sample = torch.distributions.Gamma(concentration=k, rate=rate).sample()
 
-    # --- 4. Normalise to unit-mean gain ---
+    # --- 4: normalize to unit-mean gain ---
 
     mean = (k * theta_tensor).clamp(min=1e-12)
     result = x32 * (gamma_sample / mean)
     return result.to(in_dtype) if needs_cast else result
 
 
-# ---------------------------------------------------------------------------
-# Telegraph (Random Telegraph Noise)
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
 class TelegraphConfig(ConfigBase):
     """Random telegraph noise config.
 
@@ -355,9 +304,6 @@ class TelegraphConfig(ConfigBase):
     amplitude_mean: float
     amplitude_std: float
     p_high_state: float
-
-    def __post_init__(self) -> None:
-        self.validate()
 
     def validate(self) -> None:
         self._require_non_neg(self.amplitude_std, "amplitude_std")
@@ -382,11 +328,6 @@ def apply_telegraph_noise(x: Tensor, config: TelegraphConfig, *, enabled: bool) 
     sign = torch.where(torch.rand_like(x) < 0.5, -1.0, 1.0).to(dtype=x.dtype)
     mask = (torch.rand_like(x) < config.p_high_state).to(dtype=x.dtype)
     return x + amplitude * sign * mask
-
-
-# ---------------------------------------------------------------------------
-# Pelgrom-law mismatch (state-dependent area-scaled Gaussian)
-# ---------------------------------------------------------------------------
 
 
 def apply_pelgrom_mismatch(
@@ -420,11 +361,6 @@ def apply_pelgrom_mismatch(
     return out
 
 
-# ---------------------------------------------------------------------------
-# LSB stochastic-rounding jitter on integer codes
-# ---------------------------------------------------------------------------
-
-
 def apply_lsb_jitter(
     code: Tensor,
     *,
@@ -433,17 +369,11 @@ def apply_lsb_jitter(
 ) -> Tensor:
     """Add a Bernoulli(0.5) 0/+1 LSB jitter to an integer code.
 
-    Coarse stochastic-rounding fallback for ADCs whose physical model
-    does not already inject per-cycle randomness. Output is clamped to
-    ``[0, unsigned_max]`` so the +1 overflow at the top of the legal
-    range is absorbed here — the caller does not need a second clamp.
+    Output is clamped to ``[0, unsigned_max]``.
 
     Args:
         code: Integer code tensor.
-        unsigned_max: ``2 ** n_bits - 1`` for the active resolution.
-            Passed as a precomputed Python int so the compiled graph
-            never contains a ``1 << <SymInt>`` op (dynamo's SymInt
-            left-shift lowering currently mishandles that path).
+        unsigned_max: Maximum emitted code.
         enabled: Master toggle. ``False`` returns ``code`` unchanged.
 
     Returns:

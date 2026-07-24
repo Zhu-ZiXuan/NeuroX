@@ -13,10 +13,13 @@ from neurox.architecture.unit.cim.engine import (
     CimEnginePolicy,
     DirectCimEngine,
     DirectCimEngineConfig,
+    DirectCimEnginePolicy,
     InterArraySliceCimEngine,
     InterArraySliceCimEngineConfig,
+    InterArraySliceCimEnginePolicy,
     IntraArraySliceCimEngine,
     IntraArraySliceCimEngineConfig,
+    IntraArraySliceCimEnginePolicy,
 )
 from neurox.primitive.digital import AccumulatorConfig, ShiftAdderConfig
 from neurox.primitive.macro.cim import IdealCimMacroConfig, IdealCimMacroPolicy
@@ -24,7 +27,7 @@ from neurox.primitive.macro.cim import IdealCimMacroConfig, IdealCimMacroPolicy
 # All engines are built on IdealCimMacroConfig, so the embedded xbar policy is
 # the empty marker. ``adc_bits == 0`` is the lossless sentinel: no ADC
 # quantization, so engine outputs equal ``torch.matmul`` exactly.
-_ENGINE_POLICY = CimEnginePolicy(cim_macro_policy=IdealCimMacroPolicy())
+_IDEAL_MACRO_POLICY = IdealCimMacroPolicy()
 _ADC_MODE = 0
 _ADC_BITS = 0
 
@@ -67,9 +70,9 @@ def _shift_adder_config() -> ShiftAdderConfig:
     return ShiftAdderConfig(bit_width=32, **_zero_ppa())
 
 
-def _engine_kwargs(w_logical_shape: tuple[int, ...]) -> dict[str, Any]:
+def _engine_kwargs(w_logical_shape: tuple[int, ...], policy: CimEnginePolicy) -> dict[str, Any]:
     return {
-        "policy": _ENGINE_POLICY,
+        "policy": policy,
         "w_logical_shape": w_logical_shape,
         "dtype": torch.float32,
         "T__K": 300.0,
@@ -89,7 +92,13 @@ def _build_direct(
         col_accumulator_config=_accumulator_config(),
         phase_accumulator_config=_accumulator_config(),
     )
-    engine = DirectCimEngine(config=config, **_engine_kwargs(w_logical_shape))
+    engine = DirectCimEngine(
+        config=config,
+        **_engine_kwargs(
+            w_logical_shape,
+            DirectCimEnginePolicy(cim_macro_policy=_IDEAL_MACRO_POLICY),
+        ),
+    )
     engine.eval()
     return engine
 
@@ -114,7 +123,13 @@ def _build_inter(
     active_row_num: int = 2,
 ) -> InterArraySliceCimEngine:
     config = InterArraySliceCimEngineConfig(**_slice_config_kwargs(row_num=row_num, active_row_num=active_row_num))
-    engine = InterArraySliceCimEngine(config=config, **_engine_kwargs(w_logical_shape))
+    engine = InterArraySliceCimEngine(
+        config=config,
+        **_engine_kwargs(
+            w_logical_shape,
+            InterArraySliceCimEnginePolicy(cim_macro_policy=_IDEAL_MACRO_POLICY),
+        ),
+    )
     engine.eval()
     return engine
 
@@ -126,7 +141,13 @@ def _build_intra(
     active_row_num: int = 2,
 ) -> IntraArraySliceCimEngine:
     config = IntraArraySliceCimEngineConfig(**_slice_config_kwargs(row_num=row_num, active_row_num=active_row_num))
-    engine = IntraArraySliceCimEngine(config=config, **_engine_kwargs(w_logical_shape))
+    engine = IntraArraySliceCimEngine(
+        config=config,
+        **_engine_kwargs(
+            w_logical_shape,
+            IntraArraySliceCimEnginePolicy(cim_macro_policy=_IDEAL_MACRO_POLICY),
+        ),
+    )
     engine.eval()
     return engine
 

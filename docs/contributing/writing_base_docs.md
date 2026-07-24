@@ -2,9 +2,9 @@
 
 ## Scope
 
-A base document describes the abstract root a polymorphic family inherits — the shared contract, never any one implementation. It speaks in family-level role language and names no concrete subclass.
+A base document describes the abstract root a polymorphic module family inherits — the shared contract, never any one implementation. It speaks in family-level role language and names no concrete subclass.
 
-The same template covers a family base and the root base every electrical-circuit module inherits. Which concrete members a family has belongs in the site navigation, not here.
+Cross-cutting common infrastructure is documented by its relevant topic page rather than by a file-by-file Internals mirror. Its class docstrings remain limited to direct subclass or host requirements. Which concrete members a module family has belongs in the site navigation, not in its base document.
 
 ## Document template
 

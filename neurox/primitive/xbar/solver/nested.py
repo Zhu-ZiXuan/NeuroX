@@ -25,31 +25,14 @@ from ._wire_kcl import col_driver_current, col_wire_kcl_residual
 from .base import Solver, SolverConfig, SolverDcop
 from .clamp import ClampDriver, ClampSnap
 
-# ---------------------------------------------------------------------------
-# Per-call method-generic type vars
-# ---------------------------------------------------------------------------
-
-# Bound only inside the solve-method signatures so mypy infers them per
-# call and the solver class itself stays non-generic.
 CellSnapT = TypeVar("CellSnapT", bound=XbarCellSnap)
 CellDCOPT = TypeVar("CellDCOPT", bound=XbarCellDcop)
 BLSnapT = TypeVar("BLSnapT", bound=ClampSnap)
 SLSnapT = TypeVar("SLSnapT", bound=ClampSnap)
 
 
-# ---------------------------------------------------------------------------
-# Observation side-channel payload
-# ---------------------------------------------------------------------------
-
-
 def _detach_dataclass_tensors(obj: object) -> object:
-    """Return a deep copy of a frozen dataclass with every nested tensor detached.
-
-    Walks ``obj``'s dataclass fields, detaching each :class:`~torch.Tensor`
-    and recursing into nested dataclass fields; other values pass through
-    unchanged. Keeps :class:`SolverObservation.detach` self-contained so no
-    detach method is forced onto the solver / cell DCOP core ABI.
-    """
+    """Detach every tensor in a nested dataclass."""
     if isinstance(obj, Tensor):
         return obj.detach()
     if is_dataclass(obj) and not isinstance(obj, type):
@@ -61,13 +44,6 @@ def _detach_dataclass_tensors(obj: object) -> object:
 @dataclass(frozen=True)
 class SolverObservation(Generic[CellDCOPT]):
     """Converged operating point plus KCL residuals from one DC solve.
-
-    Merges the full converged :class:`SolverDcop` with the solver-owned
-    residual diagnostics — the wire-ladder and clamp-boundary KCL
-    mismatches. The per-cell internal-KCL residual is emitted separately by
-    the cell on its own observation link. Built at the converged operating
-    point and submitted to :class:`SolverProber` only when a prober is
-    active.
 
     Attributes:
         dcop: The converged :class:`SolverDcop`; its cell working point is
@@ -89,12 +65,7 @@ class SolverObservation(Generic[CellDCOPT]):
     clamp_sl__V: Tensor
 
     def detach(self) -> Self:
-        """Return an equivalent payload with every tensor detached.
-
-        Fully detaches the four residual tensors and every tensor nested
-        inside :attr:`dcop` (including ``dcop.cell``), so a probe never keeps
-        a live compute graph alive.
-        """
+        """Return an equivalent observation with detached tensors."""
         detached_dcop = _detach_dataclass_tensors(self.dcop)
         assert isinstance(detached_dcop, SolverDcop)
         return replace(
@@ -108,27 +79,15 @@ class SolverObservation(Generic[CellDCOPT]):
 
 
 class SolverProber(Prober[SolverObservation[XbarCellDcop]]):
-    """Capture point for the solver's converged-point observation link.
-
-    :class:`NestedParallelRailSolver` emits a :class:`SolverObservation` —
-    the converged :class:`SolverDcop` plus the wire-ladder and clamp-boundary
-    KCL residuals — once per public solve entry when a prober is active.
-    """
+    """Capture converged solver states and residuals."""
 
     _active_stack: ClassVar[list[Prober[SolverObservation[XbarCellDcop]]]] = []
 
     @classmethod
     def _stack(cls) -> list[Prober[SolverObservation[XbarCellDcop]]]:
-        """Return this observation link's active-prober stack."""
         return cls._active_stack
 
 
-# ---------------------------------------------------------------------------
-# Solver config
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
 class NestedParallelRailSolverConfig(SolverConfig):
     """Workload-tuned numerical knobs for :class:`NestedParallelRailSolver`.
 
@@ -150,11 +109,6 @@ class NestedParallelRailSolverConfig(SolverConfig):
         self._require_pos(self.n_inner, "n_inner")
 
 
-# ---------------------------------------------------------------------------
-# Solver
-# ---------------------------------------------------------------------------
-
-
 @Solver.register_key(NestedParallelRailSolverConfig)
 class NestedParallelRailSolver(Solver):
     """Block Gauss-Seidel + implicit-Newton DC solver for a parallel BL/SL tile.
@@ -163,29 +117,15 @@ class NestedParallelRailSolver(Solver):
     wire-ladder / IR-drop direction and the second-to-last axis indexes the
     independent columns.
 
-    Emits the converged-point :class:`SolverObservation` to
-    :class:`SolverProber` once per public solve entry, but only when a prober
-    is active: the residual diagnostics are computed and the payload built in
-    the eager wrapper after the compiled leaf returns, so the compiled graph
-    carries no probe logic when unprobed.
+    Args:
+        config: Fixed nested-solver iteration counts.
     """
 
     MAX_OUTER_STEP__V: float = 0.10
     MAX_INNER_STEP__V: float = 0.05
 
     def __init__(self, *, config: NestedParallelRailSolverConfig) -> None:
-        """Bind the solver to its fixed iteration and step knobs.
-
-        Args:
-            config: Fixed iteration / step knobs. The cell and the two
-                clamp drivers are supplied per call to :meth:`solve_dc`,
-                not here — the solver is stateless except for ``config``.
-        """
         self.config = config
-
-    # ---------------------------------------------------------------
-    # Public entry point: full nested solve
-    # ---------------------------------------------------------------
 
     def solve_dc(
         self,
@@ -203,13 +143,6 @@ class NestedParallelRailSolver(Solver):
     ) -> SolverDcop[CellDCOPT]:
         """Solve the fabricated tile for one cell snap.
 
-        Eager wrapper around the compiled solve leaf. The cell grid must use
-        ``[..., num_col, num_row]`` with the wire-ladder row axis last. When
-        (and only when) a :class:`SolverProber` is active, the converged-point
-        residual diagnostics are read off the returned DCOP and emitted once
-        as a :class:`SolverObservation`; the compiled leaf itself carries no
-        probe logic, so the returned DCOP is bit-identical probed vs unprobed.
-
         Args:
             bl_segment_r__MOhm: 1-D BL segment resistances; index 0
                 is driver-to-first.
@@ -217,8 +150,7 @@ class NestedParallelRailSolver(Solver):
                 is driver-to-first.
             bl_segment_g__uS: BL segment conductances.
             sl_segment_g__uS: SL segment conductances.
-            cell: Pluggable cell; owns the device branch and condenses any
-                internal node.
+            cell: Condensed cell branch model.
             cell_snap: Per-solve cell snap bundling the device snaps and the
                 per-cell control-line (WL) drive.
             bl_driver: BL clamp driver.
@@ -254,9 +186,6 @@ class NestedParallelRailSolver(Solver):
             SolverProber.submit(observation)
         return dcop
 
-    # Compiled as a fixed-shape regional leaf fed one chunk at a time at a
-    # constant ``solve_chunk_size`` leading. ``dynamic=False`` pins the unrolled
-    # iteration counts (n_outer, num_row) as compile-time constants.
     @torch.compile(dynamic=False)
     def _solve_dc_compiled(
         self,
@@ -272,35 +201,25 @@ class NestedParallelRailSolver(Solver):
         sl_driver: ClampDriver[SLSnapT],
         sl_driver_snap: SLSnapT,
     ) -> SolverDcop[CellDCOPT]:
-        """Run the nested solve with the wire-ladder row axis last.
+        """Run the fixed-shape nested solve."""
 
-        Inputs use ``[..., num_col, num_row]`` cell grids with per-column
-        ``[..., num_col]`` driver snaps. See :meth:`solve_dc` for the
-        argument contract. Returns the converged DCOP only; residual
-        diagnostics are a separate eager readout in :meth:`solve_dc`.
-        """
-
-        # --- Per-solve wire Jacobian templates ---
+        # --- 1: build wire-Jacobian templates ---
 
         # Shape: [num_row]
         bl_wire_diag_tmpl = bl_segment_g__uS + F.pad(bl_segment_g__uS[1:], (0, 1))
+        # Shape: [num_row]
         sl_wire_diag_tmpl = sl_segment_g__uS + F.pad(sl_segment_g__uS[1:], (0, 1))
         # Shape: [num_row-1]
         bl_wire_offdiag = -bl_segment_g__uS[1:]
+        # Shape: [num_row-1]
         sl_wire_offdiag = -sl_segment_g__uS[1:]
         # Shape: []
         bl_driver_segment_g = bl_segment_g__uS[0]
+        # Shape: []
         sl_driver_segment_g = sl_segment_g__uS[0]
 
-        # --- Warm start phase 1: condensed cell seed at ref clamp ---
+        # --- 2: initialize the cell at the reference clamps ---
 
-        # The cell condenses its own internal node; the solver seeds only
-        # the BL / SL node voltages. The reference-clamp seed rides in each
-        # driver snap (the injected, post-noise tap); unsqueezing the
-        # trailing axis aligns ``(*lead, num_col)`` with the
-        # ``(*lead, num_col, num_row)`` branch grid so the cell broadcasts
-        # its branch against the fabricated device grid and reports the
-        # full branch shape. A scalar snap value also broadcasts here.
         v_bl_seed = bl_driver_snap.v_ref__V
         v_sl_seed = sl_driver_snap.v_ref__V
         # Shape: [..., num_col, num_row]
@@ -311,22 +230,18 @@ class NestedParallelRailSolver(Solver):
         if not (num_row > 1):
             raise ValueError(f"require: num_row ({num_row}) > 1")
 
-        # --- First clamp-driver evaluation from cell-sum seed ---
+        # --- 3: initialize the clamp voltages ---
 
-        # BL clamp sees the cell current drained from BL; SL drive sees the
-        # same current pushed into SL (the cell self-converges so one
-        # signed branch current serves both rails).
         # Shape: [..., num_col, num_row] -> [..., num_col]
         i_bl_seed__uA = i_cell.sum(dim=-1)
+        # Shape: [..., num_col, num_row] -> [..., num_col]
         i_sl_seed__uA = -i_cell.sum(dim=-1)
         # Shape: [..., num_col]
         v_bl_clamp__V, _ = bl_driver.solve_clamp(i_bl_seed__uA, bl_driver_snap, v_clamp_init__V=None)
         v_sl_drive__V, _ = sl_driver.solve_clamp(i_sl_seed__uA, sl_driver_snap, v_clamp_init__V=None)
 
-        # --- Warm start phase 2: first-order IR-drop wire seed ---
+        # --- 4: initialize wire nodes with first-order IR drop ---
 
-        # BL ladder propagates ``+i`` (drained from BL); SL ladder
-        # propagates ``-i`` (injected into SL).
         # Shape: [..., num_col, num_row]
         v_bl_node, v_sl_node = self._wire_ir_drop_seed(
             i_cell,
@@ -338,39 +253,19 @@ class NestedParallelRailSolver(Solver):
             num_row,
         )
 
-        # --- Pre-loop cell refresh ---
+        # --- 5: refresh the cell at the wire-node seed ---
 
-        # First outer step's V_clamp Jacobian needs the signed branch
-        # derivatives and the cell current at the POST-IR-drop seed; the
-        # scalar warm start above reported them at the PRE-IR-drop state.
         i_cell, di_dvbl, di_dvsl = cell.solve_branch(v_bl_node, v_sl_node, cell_snap)
 
-        # --- Outer V_clamp Newton  ×  n_outer ---
-
-        # Clamp-FIRST ordering per outer step:
-        #   (a) implicit-Jacobian Newton step on V_clamp using current
-        #       g_cell_eff for K_inner
-        #   (b) inner array Newton (n_inner damped steps) at the NEW
-        #       V_clamp so the loop exits with V_array converged for the
-        #       latest V_clamp boundary (no final consistency refresh
-        #       needed).
+        # --- 6: solve coupled clamps and wire nodes ---
 
         max_inner_step__V = self.MAX_INNER_STEP__V
         max_outer_step__V = self.MAX_OUTER_STEP__V
         n_inner = self.config.n_inner
 
         for _ in range(self.config.n_outer):
-            # (a) Coupled 2×2 outer Newton step on (V_BL_clamp, V_SL_drive).
-            # Implicit-function-theorem K = ∂V_node[0]/∂V_clamp is a 2×2
-            # matrix per column; one block-tridiagonal solve per basis
-            # direction reads off its columns. K captures the BL ↔ SL
-            # cross-coupling through the cell — a variable-SL chip can
-            # have non-negligible cross terms.
-            # Signed-to-magnitude adaptation: the wire Jacobian is built
-            # from the BL-side branch conductance ``di_dvbl`` (>= 0) and
-            # the SL-side magnitude ``-di_dvsl`` (>= 0, since ``di_dvsl``
-            # <= 0). Feeding these keeps the assembled block-2×2 Jacobian
-            # identical in value.
+            # Coupled 2×2 Newton step on ``(V_BL_clamp, V_SL_drive)``.
+            # K = ∂V_node[0]/∂V_clamp captures cross-rail cell coupling.
             g_cell_bl_eff = di_dvbl
             g_cell_sl_eff = -di_dvsl
             # Shape: [..., num_col, 2, 2]
@@ -433,7 +328,7 @@ class NestedParallelRailSolver(Solver):
             v_bl_clamp__V = v_bl_clamp__V + delta_bl
             v_sl_drive__V = v_sl_drive__V + delta_sl
 
-            # (b) inner array Newton at the NEW V_clamp.
+            # Solve the inner wire state at the updated clamp voltages.
             # Shape: [..., num_col] -> [..., num_col, 1]
             v_bl_clamp_grid__V = v_bl_clamp__V.unsqueeze(-1)
             v_sl_drive_grid__V = v_sl_drive__V.unsqueeze(-1)
@@ -443,15 +338,9 @@ class NestedParallelRailSolver(Solver):
                 i_cell, di_dvbl, di_dvsl = cell.solve_branch(v_bl_node, v_sl_node, cell_snap)
                 g_cell_bl_eff = di_dvbl
                 g_cell_sl_eff = -di_dvsl
-                # The cell self-converges its internal node, so one signed
-                # branch current ``i`` serves both rails: BL wire KCL uses
-                # ``+i`` (current drained from BL), SL wire KCL uses ``-i``
-                # (current injected into SL).
                 # Shape: [..., num_col, num_row]
                 f_bl_kcl = col_wire_kcl_residual(v_bl_node, v_bl_clamp_grid__V, bl_segment_g__uS, i_cell)
                 f_sl_kcl = col_wire_kcl_residual(v_sl_node, v_sl_drive_grid__V, sl_segment_g__uS, -i_cell)
-                # Coupled block-2×2 wire Newton — captures BL/SL cross terms
-                # ``∂F_BL/∂V_SL = -g_cell_sl_eff`` and ``∂F_SL/∂V_BL = -g_cell_bl_eff``.
                 dv_bl_node, dv_sl_node = self._wire_newton_coupled_block2x2(
                     v_bl_node,
                     f_bl_kcl,
@@ -468,16 +357,13 @@ class NestedParallelRailSolver(Solver):
                 v_bl_node = v_bl_node + dv_bl_node
                 v_sl_node = v_sl_node + dv_sl_node
 
-        # --- Exit-state cell refresh ---
+        # --- 7: refresh the cell and boundary currents ---
 
-        # The last inner step updated V_BL / V_SL but the cell working
-        # point still carries the pre-update wire state. One full cell
-        # solve re-aligns it (and condenses the internal node) so the
-        # returned DCOP is self-consistent.
         cell_dcop = cell.solve_dc(v_bl_node, v_sl_node, cell_snap)
 
-        # Boundary currents on the converged wire + clamp state.
+        # Shape: [..., num_col] -> [..., num_col, 1]
         v_bl_clamp_grid__V = v_bl_clamp__V.unsqueeze(-1)
+        # Shape: [..., num_col] -> [..., num_col, 1]
         v_sl_drive_grid__V = v_sl_drive__V.unsqueeze(-1)
         i_bl_driver = col_driver_current(v_bl_node, v_bl_clamp_grid__V, bl_segment_g__uS)
         i_sl_driver = col_driver_current(v_sl_node, v_sl_drive_grid__V, sl_segment_g__uS)
@@ -492,10 +378,6 @@ class NestedParallelRailSolver(Solver):
             v_sl_drive=v_sl_drive__V,
         )
 
-    # ---------------------------------------------------------------
-    # Eager residual readout (demand-gated observation build)
-    # ---------------------------------------------------------------
-
     def _converged_observation(
         self,
         *,
@@ -507,14 +389,7 @@ class NestedParallelRailSolver(Solver):
         sl_driver: ClampDriver[SLSnapT],
         sl_driver_snap: SLSnapT,
     ) -> SolverObservation[CellDCOPT]:
-        """Read the converged-point residual diagnostics off a full-solve DCOP.
-
-        A pure readout of the solver's own equation assembly at the DCOP the
-        compiled leaf returned: the wire KCL residuals evaluate the wire
-        ladder at the converged node voltages, and the clamp residuals
-        re-drive each clamp driver from its converged port current. Only
-        invoked under the :class:`SolverProber` demand gate.
-        """
+        """Compute wire and clamp residuals at a converged point."""
         wire_bl_res, wire_sl_res = self._wire_residuals(dcop, bl_segment_g__uS, sl_segment_g__uS)
 
         # Clamp residual: |driver(I_port) - V_clamp| at the converged
@@ -558,10 +433,6 @@ class NestedParallelRailSolver(Solver):
         wire_sl_res = col_wire_kcl_residual(dcop.v_sl_node, v_sl_drive_grid__V, sl_segment_g__uS, -i_cell).abs()
         return wire_bl_res, wire_sl_res
 
-    # ---------------------------------------------------------------
-    # Public entry point: inner-only solve (calibration tool)
-    # ---------------------------------------------------------------
-
     def solve_array_fixed_clamp(
         self,
         *,
@@ -576,30 +447,20 @@ class NestedParallelRailSolver(Solver):
     ) -> SolverDcop[CellDCOPT]:
         """Run only the inner array Newton loop at FIXED clamp boundaries.
 
-        Debug entry point — bypasses the outer V_clamp Newton entirely so
-        the inner sub-problem can be inspected in isolation (clamps
-        pinned at the supplied values, no BL / SL clamp-driver feedback).
-        The cell grid follows the same row-last contract as
-        :meth:`solve_dc`. When (and only when) a :class:`SolverProber` is
-        active, the converged-point diagnostics are emitted once as a
-        :class:`SolverObservation`; the pinned clamps make the clamp residual
-        identically zero.
-
         Args:
             v_bl_clamp__V: BL clamp voltage held fixed throughout the
                 solve. Shape: ``[..., num_col]``.
             v_sl_drive__V: SL drive voltage held fixed. Shape:
                 ``[..., num_col]``.
-            cell: Pluggable cell; owns the device branch and condenses any
-                internal node.
-            cell_snap: Per-solve cell snap. Clamp-driver snaps and outer
-                driver state are NOT touched.
-            (other args): same as :meth:`solve_dc`.
+            bl_segment_r__MOhm: BL segment resistances.
+            sl_segment_r__MOhm: SL segment resistances.
+            bl_segment_g__uS: BL segment conductances.
+            sl_segment_g__uS: SL segment conductances.
+            cell: Condensed cell branch model.
+            cell_snap: Per-solve cell snapshot.
 
         Returns:
-            ``SolverDcop`` with the inner solution; ``i_bl_driver``
-            and ``i_sl_driver`` are computed from the held clamp values
-            so the caller can inspect inner-port currents.
+            Steady-state solution at the fixed clamp voltages.
         """
         dcop = self._solve_array_fixed_clamp_impl(
             v_bl_clamp__V=v_bl_clamp__V,
@@ -612,8 +473,6 @@ class NestedParallelRailSolver(Solver):
             cell_snap=cell_snap,
         )
         if SolverProber.active():
-            # Pinned clamps are inputs, not solved → the clamp residual is
-            # identically zero; fill with zeros for shape parity.
             wire_bl_res, wire_sl_res = self._wire_residuals(dcop, bl_segment_g__uS, sl_segment_g__uS)
             clamp_zero = torch.zeros_like(dcop.v_bl_clamp)
             SolverProber.submit(
@@ -639,22 +498,15 @@ class NestedParallelRailSolver(Solver):
         cell: XbarCell[Any, Any, CellSnapT, CellDCOPT],
         cell_snap: CellSnapT,
     ) -> SolverDcop[CellDCOPT]:
-        """Run the inner-only solve with the wire-ladder row axis last.
-
-        Verbatim inner Newton body, returning the converged DCOP only. See
-        :meth:`solve_array_fixed_clamp` for the argument contract.
-        """
+        """Run the fixed-clamp inner solve."""
         bl_wire_diag_tmpl = bl_segment_g__uS + F.pad(bl_segment_g__uS[1:], (0, 1))
         bl_wire_offdiag = -bl_segment_g__uS[1:]
         sl_wire_diag_tmpl = sl_segment_g__uS + F.pad(sl_segment_g__uS[1:], (0, 1))
         sl_wire_offdiag = -sl_segment_g__uS[1:]
 
-        # Condensed cell warm start with the supplied clamp as the seed.
-        # The grid clamp broadcasts against the cell's fabricated device
-        # grid; the returned branch current carries the full
-        # ``[..., num_col, num_row]`` shape.
         # Shape: [..., num_col] -> [..., num_col, 1]
         v_bl_clamp_grid__V = v_bl_clamp__V.unsqueeze(-1)
+        # Shape: [..., num_col] -> [..., num_col, 1]
         v_sl_drive_grid__V = v_sl_drive__V.unsqueeze(-1)
         i_seed, _g_bl_init, _g_sl_init = cell.solve_branch(v_bl_clamp_grid__V, v_sl_drive_grid__V, cell_snap)
         num_row = i_seed.shape[-1]
@@ -694,8 +546,6 @@ class NestedParallelRailSolver(Solver):
             v_bl_node = v_bl_node + dv_bl_node
             v_sl_node = v_sl_node + dv_sl_node
 
-        # Final cell refresh so the returned cell working point aligns with
-        # the returned wire state.
         cell_dcop = cell.solve_dc(v_bl_node, v_sl_node, cell_snap)
 
         i_bl_driver = col_driver_current(v_bl_node, v_bl_clamp_grid__V, bl_segment_g__uS)
@@ -711,10 +561,6 @@ class NestedParallelRailSolver(Solver):
             v_sl_drive=v_sl_drive__V,
         )
 
-    # ---------------------------------------------------------------
-    # Wire helpers
-    # ---------------------------------------------------------------
-
     @staticmethod
     def _wire_ir_drop_seed(
         i_cell: Tensor,
@@ -727,11 +573,17 @@ class NestedParallelRailSolver(Solver):
     ) -> tuple[Tensor, Tensor]:
         """First-order IR-drop seed for the wire ladders.
 
-        The cell condenses to one signed branch current ``i``: the BL
-        ladder propagates ``+i`` (drained from BL) and the SL ladder
-        propagates ``-i`` (injected into SL). The seed accumulates the
-        downstream current at each segment and subtracts the cumulative
-        IR drop from the boundary voltage.
+        Args:
+            i_cell: Signed cell branch currents [uA].
+            v_bl_clamp__V: BL clamp voltages.
+            v_sl_drive__V: SL drive voltages.
+            bl_segment_r__MOhm: BL segment resistances.
+            sl_segment_r__MOhm: SL segment resistances.
+            ndim: Rank of the cell-current tensor.
+            num_row: Number of wire nodes per column.
+
+        Returns:
+            Initial BL and SL node voltages [V].
         """
         shape_broadcast = [1] * ndim
         shape_broadcast[-1] = num_row
@@ -763,18 +615,21 @@ class NestedParallelRailSolver(Solver):
     ) -> tuple[Tensor, Tensor]:
         """Coupled BL/SL wire Newton step at frozen V_clamp / V_SL_drive.
 
-        Builds and solves the coupled block-2×2 tridiagonal wire system:
-        the per-node diagonal block carries the cell's BL / SL
-        cross-coupling and the sub / super blocks are diagonal (BL and SL
-        are independent ladders, no cross-rail wire coupling).
+        Args:
+            v_bl_node: BL node voltages [V], shape
+                ``[..., num_col, num_row]``.
+            f_bl_kcl: BL KCL residuals [uA], same shape as ``v_bl_node``.
+            f_sl_kcl: SL KCL residuals [uA], same shape as ``v_bl_node``.
+            g_cell_bl_eff: BL-side cell derivatives [uS].
+            g_cell_sl_eff: Negated SL-side cell derivatives [uS].
+            bl_wire_diag_tmpl: BL wire diagonal, shape ``[num_row]``.
+            sl_wire_diag_tmpl: SL wire diagonal, shape ``[num_row]``.
+            bl_wire_offdiag: BL wire off-diagonal, shape ``[num_row - 1]``.
+            sl_wire_offdiag: SL wire off-diagonal, shape ``[num_row - 1]``.
 
-        Shape conventions:
-          * ``v_bl_node``, ``f_bl_kcl``, ``f_sl_kcl``, ``g_*_eff``:
-            ``[..., num_col, num_row]``.
-          * ``bl/sl_wire_diag_tmpl``: ``[num_row]``.
-          * ``bl/sl_wire_offdiag``: ``[num_row - 1]``.
-
-        Returns ``(dv_bl, dv_sl)``, each shape ``[..., num_col, num_row]``.
+        Returns:
+            BL and SL Newton voltage steps [V], each shaped like
+            ``v_bl_node``.
         """
         num_axis = v_bl_node.shape[-1]
         shape_broadcast = [1] * v_bl_node.ndim
@@ -840,19 +695,27 @@ class NestedParallelRailSolver(Solver):
     ) -> Tensor:
         """Compute the 2×2 ``K_inner = ∂V_array[0] / ∂V_clamp`` per column.
 
-        The implicit-function-theorem sensitivity of the port-adjacent
-        node voltages to the clamp pair. Each column is one block-
-        tridiagonal solve of the coupled inner wire Jacobian ``J_inner``
-        (the same assembled by ``_wire_newton_coupled_block2x2``) against a
-        node-0 boundary-forcing basis vector, read off at row 0.
+        Args:
+            v_bl_node: BL node voltages [V], shape
+                ``[..., num_col, num_row]``.
+            g_cell_bl_eff: BL-side cell derivatives [uS].
+            g_cell_sl_eff: Negated SL-side cell derivatives [uS].
+            bl_wire_diag_tmpl: BL wire diagonal, shape ``[num_row]``.
+            sl_wire_diag_tmpl: SL wire diagonal, shape ``[num_row]``.
+            bl_wire_offdiag: BL wire off-diagonal, shape ``[num_row - 1]``.
+            sl_wire_offdiag: SL wire off-diagonal, shape ``[num_row - 1]``.
+            bl_driver_segment_g__uS: First BL segment conductance.
+            sl_driver_segment_g__uS: First SL segment conductance.
 
-        Returns ``K`` of shape ``[..., num_col, 2, 2]``.
+        Returns:
+            Clamp-to-port-node sensitivity, shape
+            ``[..., num_col, 2, 2]``.
         """
         num_row = v_bl_node.shape[-1]
         shape_broadcast = [1] * v_bl_node.ndim
         shape_broadcast[-1] = num_row
 
-        # --- Build the block-2×2 inner Jacobian (same as the wire Newton) ---
+        # --- 1: build the block-2x2 inner Jacobian ---
 
         bl_diag_node = bl_wire_diag_tmpl.view(shape_broadcast) + g_cell_bl_eff
         sl_diag_node = sl_wire_diag_tmpl.view(shape_broadcast) + g_cell_sl_eff
@@ -891,10 +754,9 @@ class NestedParallelRailSolver(Solver):
             dim=-2,
         )
 
-        # --- Boundary-forcing basis vectors ---
+        # --- 2: build boundary-forcing basis vectors ---
 
-        # RHS for ``V_BL_CL`` perturbation: e_0 with BL component = g_BL_seg[0],
-        # SL component = 0. RHS shape ``[..., num_col, num_row, 2]``.
+        # BL-clamp forcing is nonzero only at the first BL wire node.
         zeros_node = torch.zeros_like(v_bl_node)
         # Per-row BL-only basis: g_BL_seg[0] at row 0, 0 elsewhere.
         g_bl_at_row0_per_row = F.pad(
@@ -905,10 +767,12 @@ class NestedParallelRailSolver(Solver):
             sl_driver_segment_g__uS.expand(*v_bl_node.shape[:-1], 1),
             (0, num_row - 1),
         )
+        # Shape: [..., num_col, num_row] -> [..., num_col, num_row, 2]
         rhs_bl_basis = torch.stack([g_bl_at_row0_per_row, zeros_node], dim=-1)
+        # Shape: [..., num_col, num_row] -> [..., num_col, num_row, 2]
         rhs_sl_basis = torch.stack([zeros_node, g_sl_at_row0_per_row], dim=-1)
 
-        # --- Solve and extract row-0 responses ---
+        # --- 3: solve and extract row-zero responses ---
 
         # Shape: [..., num_col, num_row, 2]
         u_bl = solve_block_tridiagonal(sub_blocks, diag_blocks, sup_blocks, rhs_bl_basis)

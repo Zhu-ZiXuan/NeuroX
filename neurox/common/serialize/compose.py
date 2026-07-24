@@ -1,11 +1,4 @@
-"""Directive-and-preset composition, dict merging, and file->dict orchestration.
-
-Expands the ``_neurox_use`` / ``_neurox_use_preset`` directives that layer config
-fragments across files, resolves bundled-preset references anchored at
-``neurox/presets/``, provides the deep-merge used to fold a fragment into its
-inline overrides, and orchestrates the multi-file load-resolve-merge-pluck flow
-that produces the plain dict a dataclass is built from.
-"""
+"""Resolve, merge, and select configuration mappings."""
 
 from __future__ import annotations
 
@@ -19,8 +12,6 @@ from neurox.common.serialize.keys import (
     USE_DIRECTIVE,
     USE_PRESET_DIRECTIVE,
 )
-
-# --- dict merging ---
 
 
 def _deep_fill_defaults(override: dict[str, Any], default: dict[str, Any], strict_type: bool) -> dict[str, Any]:
@@ -61,9 +52,6 @@ def merge_dicts(*dicts: dict[str, Any], strict_type: bool = True) -> dict[str, A
     return merged
 
 
-# --- section lookup ---
-
-
 def _lookup_section(root: Mapping[str, Any], section: str) -> Any:
     """Look up ``section`` in ``root``; a dotted name descends nested tables.
 
@@ -84,9 +72,6 @@ def _lookup_section(root: Mapping[str, Any], section: str) -> Any:
             )
         node = node[part]
     return node
-
-
-# --- _neurox_use cross-file references ---
 
 
 def _resolve_fragment_path(rel: str, base_dir: Path) -> Path:
@@ -118,11 +103,7 @@ def _parse_use_ref(ref: Any, base_dir: Path) -> tuple[Path, str]:
 
 
 def _presets_root() -> Path:
-    """Return the absolute path to the ``neurox/presets/`` directory.
-
-    Uses ``importlib.resources`` so editable installs and wheel installs both
-    work; the directory's location follows wherever the ``neurox`` package is.
-    """
+    """Return the installed ``neurox/presets/`` path."""
     import importlib.resources
 
     return Path(str(importlib.resources.files("neurox") / "presets"))
@@ -178,13 +159,7 @@ def _resolve_directive_branch(
     cache: dict[Path, dict[str, Any]],
     in_progress: frozenset[tuple[Path, str]],
 ) -> Any:
-    """Resolve one ``(directive, path, section)`` fragment-merge step.
-
-    Shared core of the ``_neurox_use`` and ``_neurox_use_preset`` branches:
-    detect cycles, load the target section, recurse into the fragment and
-    the inline override under their respective ``(base_dir, in_preset)``
-    contexts, then merge with inline taking priority.
-    """
+    """Resolve and merge one referenced configuration fragment."""
     key = (path, section)
     if key in in_progress:
         trail = " -> ".join(f"{p.name}:{s}" for p, s in in_progress)
@@ -224,24 +199,7 @@ def _resolve_uses_in_value(
     in_progress: frozenset[tuple[Path, str]],
     in_preset: bool = False,
 ) -> Any:
-    """Recursively resolve ``_neurox_use`` and ``_neurox_use_preset`` in ``value``.
-
-    A mapping carrying either directive is replaced by
-    ``merge_dicts(inline, fragment)``; the inline override takes priority.
-
-    The two directives differ only in path resolution:
-
-    - ``_neurox_use`` resolves relative to ``base_dir`` (the directory of the
-      file containing the directive).
-    - ``_neurox_use_preset`` resolves relative to ``neurox/presets/``; the
-      resolved subtree is entered in *preset mode* (``in_preset=True``), which
-      forbids a nested ``_neurox_use``.
-
-    The two directives are mutually exclusive in the same sub-table, and neither
-    may co-occur with a ``_neurox_class`` discriminator: the referenced fragment
-    or preset is the sole class authority. A ``(path, section)`` re-entry raises
-    ``ValueError`` as a cycle.
-    """
+    """Recursively resolve use directives in ``value``."""
     if isinstance(value, Mapping):
         has_use = USE_DIRECTIVE in value
         has_preset = USE_PRESET_DIRECTIVE in value
@@ -328,9 +286,6 @@ def resolve_uses(data: dict[str, Any], base_dir: Path) -> dict[str, Any]:
     if not isinstance(result, dict):
         raise TypeError(f"directive resolution expected dict root, got {type(result).__name__}")
     return result
-
-
-# --- file -> dict orchestration ---
 
 
 def _pluck_section(data: dict[str, Any], section: str | None) -> dict[str, Any]:

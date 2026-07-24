@@ -37,22 +37,15 @@ class SingleEndedCurrentAdcObservation:
 
 
 class SingleEndedCurrentAdcProber(Prober[SingleEndedCurrentAdcObservation]):
-    """Capture point for the single-ended current ADC's conversion observation link.
-
-    :class:`SingleEndedCurrentAdc` emits a :class:`SingleEndedCurrentAdcObservation`
-    — the call's input magnitude current, returned code, and resolution — once
-    per :meth:`SingleEndedCurrentAdc.convert` call when a prober is active.
-    """
+    """Capture current-ADC conversion observations."""
 
     _active_stack: ClassVar[list[Prober[SingleEndedCurrentAdcObservation]]] = []
 
     @classmethod
     def _stack(cls) -> list[Prober[SingleEndedCurrentAdcObservation]]:
-        """Return this observation link's active-prober stack."""
         return cls._active_stack
 
 
-@dataclass(frozen=True)
 class SingleEndedCurrentAdcConfig(AnalogConfig, ABC):
     """Base config for single-ended current-domain ADC implementations.
 
@@ -64,9 +57,6 @@ class SingleEndedCurrentAdcConfig(AnalogConfig, ABC):
     area_per_inst__um2: float
     leakage_per_inst__uW: float
 
-    def __post_init__(self) -> None:
-        self.validate()
-
     def validate(self) -> None:
         self.validate_ppa()
 
@@ -75,7 +65,6 @@ class SingleEndedCurrentAdcConfig(AnalogConfig, ABC):
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
 
 
-@dataclass(frozen=True)
 class SingleEndedCurrentAdcPolicy(AnalogPolicy, ABC):
     """Abstract marker base for single-ended-current-ADC-family nonideality policies."""
 
@@ -90,15 +79,15 @@ class SingleEndedCurrentAdc(
     Generic[ConfigT, PolicyT],
     ABC,
 ):
-    """Abstract base class for single-ended current-domain ADC implementations.
+    """Base class for single-ended current ADCs with injected references.
 
-    A current ADC digitizes a single-ended magnitude current ``i_in__uA`` into an
-    **unsigned** integer code. The input is a non-negative magnitude and the sign
-    is handled outside the ADC by the caller. The ADC self-holds no reference and
-    knows nothing of operating modes: the caller (the composing macro) has already
-    selected the mode's row, so a per-instance ladder ``i_refs__uA`` (``n_ref =
-    2 ** bits - 1`` taps ascending along the last axis, broadcasting against the
-    input) and the resolution ``bits`` arrive per ``convert`` call directly.
+    Args:
+        config: Concrete configuration dataclass.
+        policy: Per-source nonideality flags.
+        inst_shape: Per-instance fabrication shape.
+        dtype: Tensor dtype for internal buffers.
+        T__K: Operating temperature.
+        record_latency: Whether conversions emit latency events.
     """
 
     @classmethod
@@ -112,7 +101,19 @@ class SingleEndedCurrentAdc(
         T__K: float,
         record_latency: bool = True,
     ) -> SingleEndedCurrentAdc:
-        """Build the concrete impl registered for ``type(config)``."""
+        """Build the implementation registered for ``type(config)``.
+
+        Args:
+            config: Concrete configuration dataclass.
+            policy: Per-source nonideality flags.
+            inst_shape: Per-instance fabrication shape.
+            dtype: Tensor dtype for internal buffers.
+            T__K: Operating temperature.
+            record_latency: Whether conversions emit latency events.
+
+        Returns:
+            Registered current-ADC implementation.
+        """
         impl = cls._lookup_impl(type(config))
         return impl(
             config=config,
@@ -133,17 +134,7 @@ class SingleEndedCurrentAdc(
         T__K: float,
         record_latency: bool = True,
     ) -> None:
-        """Register the instance with :class:`nn.Module`.
-
-        Args:
-            config: Concrete configuration dataclass.
-            policy: Per-source nonideality enable flags.
-            inst_shape: Per-instance fabrication shape.
-            dtype: Tensor dtype for internal buffers.
-            T__K: Operating temperature.
-            record_latency: Whether the ADC emits a latency event.
-        """
-        del dtype, T__K  # captured by the subclass init
+        del dtype, T__K
         super().__init__(
             config=config,
             policy=policy,
@@ -166,18 +157,11 @@ class SingleEndedCurrentAdc(
     ) -> Tensor:
         """Digitise a single-ended magnitude current into an unsigned integer code.
 
-        Template method: delegates the conversion to :meth:`_convert_impl`,
-        then, only when a :class:`SingleEndedCurrentAdcProber` is active, builds
-        and emits the call's input, code, and resolution before returning the
-        code unchanged.
-
         Args:
-            i_in__uA: Non-negative magnitude current [uA]. Shape: arbitrary.
-            i_refs__uA: Reference ladder [uA], shape ``[*R, n_ref]`` with
+            i_in__uA: Non-negative magnitude current. Shape: arbitrary.
+            i_refs__uA: Reference ladder, shape ``[*R, n_ref]`` with
                 ``n_ref = 2 ** bits - 1`` taps ascending along the last axis;
-                ``[*R]`` right-broadcasts against ``i_in__uA``. Supplied per call
-                by the caller, which has already selected the operating mode's
-                row. Mode is invisible to the ADC.
+                ``[*R]`` right-broadcasts against ``i_in__uA``.
             bits: Conversion resolution [bits]; drives the binary-search step
                 count and must satisfy ``i_refs__uA.shape[-1] == 2 ** bits - 1``.
 
@@ -204,13 +188,7 @@ class SingleEndedCurrentAdc(
         *,
         bits: int,
     ) -> Tensor:
-        """Conversion body a concrete impl provides; contract as :meth:`convert`.
-
-        Deliberately ``NotImplementedError``-raising rather than
-        ``@abstractmethod``: a capture-style subclass may override
-        :meth:`convert` wholesale and must stay instantiable without a
-        conversion body.
-        """
+        """Convert inputs according to the :meth:`convert` contract."""
         raise NotImplementedError
 
     @abstractmethod

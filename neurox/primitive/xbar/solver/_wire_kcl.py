@@ -1,9 +1,4 @@
-"""Crossbar wire-ladder KCL residual and driver-current builders.
-
-These builders own the wire-ladder layout convention: the wire axis
-(column = ``dim=-1``, row = ``dim=-2``), the driver node at index 0, the
-per-segment conductance-to-left / conductance-to-right mapping, and the KCL
-sign convention ``r = i_inject + Δv_left · g_left + Δv_right · g_right``.
+"""Wire-ladder KCL residuals and driver-current calculations.
 
 See also:
     docs/reference/primitive/xbar/solver/nested.md
@@ -24,10 +19,7 @@ def col_wire_kcl_residual(
 ) -> Tensor:
     """KCL residual at every node of a column-oriented wire.
 
-    The wire runs along ``dim=-1`` (the ``row_num`` axis); the driver
-    sits at index 0. Per-segment conductances ``segment_g[k]`` map index
-    0 to the driver-to-first segment and index ``k`` to the
-    ``node-(k-1) → node-k`` segment.
+    The wire runs along ``dim=-1`` and its driver is at index 0.
 
     Args:
         v_node: Wire node voltages [V]. Shape
@@ -43,14 +35,19 @@ def col_wire_kcl_residual(
     num_row = v_node.shape[dim]
     shape_broadcast = [1] * v_node.ndim
     shape_broadcast[dim] = num_row
+    # Shape: [row_num] -> [1, ..., row_num]
     g_to_left = segment_g.view(shape_broadcast)
     # g_to_right[k] = segment_g[k+1] for k <= N-2; 0 at k = N-1 (no right segment).
+    # Shape: [row_num] -> [1, ..., row_num]
     g_to_right = F.pad(segment_g[1:], (0, 1)).view(shape_broadcast)
 
     # dv_to_left[k] = v_node[k] - v_node[k-1] for k >= 1; v_node[0] - v_drive at k = 0.
+    # Shape: [..., col_num, wire_point]
     v_with_drive = torch.cat((v_drive, v_node), dim=dim)
+    # Shape: [..., col_num, wire_point] -> [..., col_num, row_num]
     dv_to_left = torch.diff(v_with_drive, dim=dim)
     # dv_to_right[k] = v_node[k] - v_node[k+1] for k <= N-2; 0 at k = N-1.
+    # Shape: [..., col_num, row_num]
     dv_to_right = F.pad(-torch.diff(v_node, dim=dim), (0, 1))
 
     return i_inject + dv_to_left * g_to_left + dv_to_right * g_to_right
@@ -80,11 +77,16 @@ def row_wire_kcl_residual(
     num_col = v_node.shape[dim]
     shape_broadcast = [1] * v_node.ndim
     shape_broadcast[dim] = num_col
+    # Shape: [col_num] -> [1, ..., col_num, 1]
     g_to_left = segment_g.view(shape_broadcast)
+    # Shape: [col_num] -> [1, ..., col_num, 1]
     g_to_right = F.pad(segment_g[1:], (0, 1)).view(shape_broadcast)
 
+    # Shape: [..., wire_point, row_num]
     v_with_drive = torch.cat((v_drive, v_node), dim=dim)
+    # Shape: [..., wire_point, row_num] -> [..., col_num, row_num]
     dv_to_left = torch.diff(v_with_drive, dim=dim)
+    # Shape: [..., col_num, row_num]
     dv_to_right = F.pad(-torch.diff(v_node, dim=dim), (0, 0, 0, 1))
 
     return i_inject + dv_to_left * g_to_left + dv_to_right * g_to_right
@@ -108,6 +110,7 @@ def col_driver_current(
         Drive current [uA]. Shape ``[..., col_num]``.
     """
     dim = -1
+    # Shape: [..., col_num, 1] -> [..., col_num]
     return (v_drive.squeeze(dim) - v_node.select(dim, 0)) * segment_g[0]
 
 
@@ -129,4 +132,5 @@ def row_driver_current(
         Drive current [uA]. Shape ``[..., row_num]``.
     """
     dim = -2
+    # Shape: [..., 1, row_num] -> [..., row_num]
     return (v_drive.squeeze(dim) - v_node.select(dim, 0)) * segment_g[0]

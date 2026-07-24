@@ -28,7 +28,7 @@ def stochastic_floor_div(
     Args:
         numerator: Integer tensor to be shifted.
         rshift: Right-shift amount; scalar or broadcastable tensor.
-        training: ``module.training`` flag from the caller.
+        training: Whether stochastic training behavior is enabled.
 
     Returns:
         Quotient tensor (same dtype as ``numerator``).
@@ -116,11 +116,6 @@ def floor_bucketize(
     return torch.bucketize(signal, boundaries, right=True, out_int32=True).to(out_dtype)
 
 
-# ---------------------------------------------------------------------------
-# Fixed-point scale → (multiplier, rshift)
-# ---------------------------------------------------------------------------
-
-
 def derive_multiplier_and_shift_tensor(
     scale_tensor: Tensor,
     mult_bits: int = DEFAULT_MULT_BITS,
@@ -140,11 +135,6 @@ def derive_multiplier_and_shift_tensor(
     multiplier = torch.clamp(multiplier, max=mult_max).to(torch.int32)
     shift = (mult_bits - exponent).to(torch.int32)
     return multiplier, shift
-
-
-# ---------------------------------------------------------------------------
-# Min/max observers (per-tensor asymmetric, per-channel symmetric)
-# ---------------------------------------------------------------------------
 
 
 class PerTensorObserver(nn.Module):
@@ -256,11 +246,6 @@ class PerChannelSymmObserver(nn.Module):
         scale = (self.abs_max / self.qmax).clamp(min=1e-8)
         zp = torch.zeros_like(scale, dtype=torch.int32)
         return scale.detach().to(torch.float32), zp
-
-
-# ---------------------------------------------------------------------------
-# STE fake-quantize
-# ---------------------------------------------------------------------------
 
 
 def fake_quant_ste(x: Tensor, scale: Tensor, zero_point: Tensor, qmin: int, qmax: int) -> Tensor:

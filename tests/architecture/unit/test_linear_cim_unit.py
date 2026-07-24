@@ -14,12 +14,14 @@ from neurox.architecture.unit.cim import (
     LinearCimUnitConfig,
     LinearCimUnitPolicy,
 )
-from neurox.architecture.unit.cim.engine import CimEngine, DirectCimEngineConfig
+from neurox.architecture.unit.cim.engine import CimEngine, DirectCimEngineConfig, DirectCimEnginePolicy
 from neurox.common.profiler import NeuroxProfiler
 from neurox.primitive.digital import AccumulatorConfig, SerialAccumulator
 from neurox.primitive.macro.cim import IdealCimMacroConfig, IdealCimMacroPolicy
 
-_UNIT_POLICY = LinearCimUnitPolicy(cim_macro_policy=IdealCimMacroPolicy())
+_UNIT_POLICY = LinearCimUnitPolicy(
+    engine=DirectCimEnginePolicy(cim_macro_policy=IdealCimMacroPolicy()),
+)
 
 # ``adc_bits == 0`` is the IdealCimMacro lossless sentinel: per-plane codes
 # are the exact integer partial dots, so the whole unit pipeline must match

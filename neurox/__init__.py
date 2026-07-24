@@ -41,7 +41,6 @@ from neurox.primitive.macro.cim import (
 )
 
 __all__ = [
-    # profiler
     "EnergyEvent",
     "LatencyEvent",
     "NeuroxProfiler",
@@ -49,14 +48,12 @@ __all__ = [
     "ProfilerReport",
     "StaticMetrics",
     "StaticRecord",
-    # macro tile public surface
     "CimMacro",
     "CimMacroConfig",
     "CimMacroPolicy",
     "IdealCimMacro",
     "IdealCimMacroConfig",
     "IdealCimMacroPolicy",
-    # unit operator surface
     "Conv2dUnit",
     "IdealConv2dUnit",
     "IdealConv2dUnitConfig",
@@ -66,7 +63,6 @@ __all__ = [
     "IdealLinearUnitPolicy",
     "LinearUnit",
     "UnitBase",
-    # compute-unit public surface
     "CimUnit",
     "CimUnitConfig",
     "CimUnitPolicy",

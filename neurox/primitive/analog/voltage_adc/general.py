@@ -7,7 +7,6 @@ See also:
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
 from typing import Literal
 
 import torch
@@ -19,7 +18,6 @@ from neurox.primitive.nonideality import apply_gaussian
 from .base import DifferentialVoltageAdc, DifferentialVoltageAdcConfig, DifferentialVoltageAdcPolicy
 
 
-@dataclass(frozen=True)
 class GeneralDifferentialVoltageAdcConfig(DifferentialVoltageAdcConfig):
     """Immutable configuration for :class:`GeneralDifferentialVoltageAdc`.
 
@@ -37,19 +35,10 @@ class GeneralDifferentialVoltageAdcConfig(DifferentialVoltageAdcConfig):
             the runtime serial-op count at logging time.
     """
 
-    # --- Bucketize boundaries ---
     boundaries: tuple[float, ...]
-
-    # --- Sampling noise ---
     sampling_noise__V: float
-
-    # --- Comparator noise ---
     comparator_noise__V: float
-
-    # --- Input transform ---
     input_transform: Literal["linear", "log2"]
-
-    # --- Energy / latency ---
     energy_per_op__fJ: float
     latency_per_op__ns: float
 
@@ -73,7 +62,6 @@ class GeneralDifferentialVoltageAdcConfig(DifferentialVoltageAdcConfig):
         self._require_non_neg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
-@dataclass(frozen=True)
 class GeneralDifferentialVoltageAdcPolicy(DifferentialVoltageAdcPolicy):
     """Per-source toggles selecting which GeneralDifferentialVoltageAdc nonidealities are active.
 
@@ -90,10 +78,14 @@ class GeneralDifferentialVoltageAdcPolicy(DifferentialVoltageAdcPolicy):
 class GeneralDifferentialVoltageAdc(
     DifferentialVoltageAdc[GeneralDifferentialVoltageAdcConfig, GeneralDifferentialVoltageAdcPolicy]
 ):
-    """Boundary-bucketize voltage ADC with two Gaussian noise stages.
+    """Boundary-bucketized voltage ADC with sampling and comparator noise.
 
-    Reference-free and mode-blind: ``bits`` must equal the
-    boundary-implied bit width.
+    Args:
+        config: Concrete configuration dataclass.
+        policy: Per-source nonideality flags.
+        inst_shape: Per-instance fabrication shape.
+        dtype: Tensor dtype for internal buffers.
+        T__K: Operating temperature.
     """
 
     boundaries: Tensor
@@ -127,21 +119,15 @@ class GeneralDifferentialVoltageAdc(
         n_codes = boundaries_t.numel() + 1
         self._bits = max(math.ceil(math.log2(n_codes)), 1)
         self._n_codes = n_codes
-        # Topology-specific zero code: GeneralDifferentialVoltageAdc has fixed bit width, so
-        # its midpoint code (the one representing analog 0 under a symmetric
-        # boundary placement) is committed at construction.
         self._zero_code = n_codes // 2
 
-        # Average spacing → stochastic-jitter LSB estimate.
         if boundaries_t.numel() >= 2:
             self._lsb_estimate = float((boundaries_t[1:] - boundaries_t[:-1]).mean().item())
         else:
             self._lsb_estimate = float(boundaries_t.item())
 
     def _sample_fabricate_mismatch(self) -> None:
-        pass  # sampling / comparator noise are drawn per convert(), not fabricated
-
-    # --- ADC interface ---
+        pass
 
     @property
     def max_bits(self) -> int:
@@ -156,10 +142,8 @@ class GeneralDifferentialVoltageAdc(
     def unsigned_range(self, bits: int) -> tuple[int, int]:
         """Realisable raw code bounds at ``bits`` — ``(0, n_codes - 1)``.
 
-        GeneralDifferentialVoltageAdc's code count (``n_boundaries + 1``) is fixed at
-        construction and may not equal ``2 ** bits``. The raw bucket
-        index ranges over ``[0, n_codes - 1]``. ``bits`` is accepted
-        for protocol symmetry but ignored.
+        The code count is fixed at construction and may not equal
+        ``2 ** bits``. ``bits`` is accepted but does not alter the range.
         """
         del bits
         return 0, self._n_codes - 1
@@ -182,18 +166,15 @@ class GeneralDifferentialVoltageAdc(
         Args:
             v_pos__V: Positive-side analog input voltage.
             v_neg__V: Negative-side analog input voltage, same shape.
-            v_ref__V: Accepted for ADC-protocol symmetry and ignored —
-                GeneralDifferentialVoltageAdc's bucketize boundaries are reference-free.
+            v_ref__V: Accepted and ignored because the boundaries are fixed.
             bits: Active resolution [bits]; must equal the boundary-implied
                 bit width.
 
         Returns:
             Raw unsigned ``int16`` bucket-index code tensor in
-            ``[0, n_codes - 1]`` (see :meth:`unsigned_range`), shaped like
-            ``v_pos__V``. The zero point (:meth:`zero_offset` / :attr:`zero_code`)
-            is subtracted consumer-side, not here.
+            ``[0, n_codes - 1]``, shaped like ``v_pos__V``.
         """
-        del v_ref__V  # reference-free; accepted for protocol symmetry
+        del v_ref__V
         self._validate_runtime_args(bits)
         signal = apply_gaussian(
             v_pos__V - v_neg__V,
@@ -218,9 +199,6 @@ class GeneralDifferentialVoltageAdc(
             lsb=self._lsb_estimate,
         )
 
-        # GeneralDifferentialVoltageAdc: code shape carries no extra parallel trailing beyond
-        # inst_shape; serial count via the position-invariant numel rule
-        # (total output elements / parallel multiplicity).
         serial_op_count = max(1, code.numel() // max(self.inst_count, 1))
         dynamic_energy__fJ = torch.full_like(code, self.config.energy_per_op__fJ, dtype=torch.float32)
         latency__ns = torch.tensor(
@@ -231,13 +209,8 @@ class GeneralDifferentialVoltageAdc(
         self._log_dynamic_energy(dynamic_energy__fJ)
         self._log_latency(latency__ns)
 
-        # Clamp to the legal unsigned bucket range; stochastic-rounding
-        # jitter in floor_bucketize can push values to -1 or n_codes, which
-        # would fall outside the raw code range if not bounded. The zero
-        # point is left for the consumer to subtract.
+        # Stochastic jitter may cross either outer bucket boundary.
         return code.clamp(min=0, max=self._n_codes - 1)
-
-    # --- shared helpers ---
 
     def _validate_runtime_args(self, bits: int) -> None:
         if bits != self._bits:

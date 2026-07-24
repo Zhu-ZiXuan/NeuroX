@@ -7,12 +7,14 @@ import torch
 import torch.nn.functional as F
 
 from neurox.architecture.unit.cim import Conv2dCimUnit, Conv2dCimUnitConfig, Conv2dCimUnitPolicy
-from neurox.architecture.unit.cim.engine import CimEngine, DirectCimEngineConfig
+from neurox.architecture.unit.cim.engine import CimEngine, DirectCimEngineConfig, DirectCimEnginePolicy
 from neurox.architecture.unit.conv2d import IdealConv2dUnit, IdealConv2dUnitConfig, IdealConv2dUnitPolicy
 from neurox.primitive.digital import AccumulatorConfig
 from neurox.primitive.macro.cim import IdealCimMacroConfig, IdealCimMacroPolicy
 
-_UNIT_POLICY = Conv2dCimUnitPolicy(cim_macro_policy=IdealCimMacroPolicy())
+_UNIT_POLICY = Conv2dCimUnitPolicy(
+    engine=DirectCimEnginePolicy(cim_macro_policy=IdealCimMacroPolicy()),
+)
 
 # ``adc_bits == 0`` is the IdealCimMacro lossless sentinel: the unit pipeline
 # must match the exact-integer references bit-exactly.

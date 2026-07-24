@@ -7,7 +7,6 @@ See also:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 
 import torch
 from torch import Tensor
@@ -16,14 +15,7 @@ from neurox.architecture.unit.base import UnitBase
 
 
 class LinearUnit(UnitBase, ABC):
-    """Operator ABC for an exact-integer drop-in replacement of ``F.linear``.
-
-    The integer bias belonging to ``F.linear``'s algorithmic scope is
-    programmed alongside the weight and added in the int64 accumulation
-    domain. :meth:`linear` runs the inherited lowering template; every
-    leading input dim is a broadcast batch dim that rides through
-    untouched.
-    """
+    """Interface for an integer ``torch.nn.functional.linear`` replacement."""
 
     @abstractmethod
     def program(self, weight: Tensor, bias: Tensor | None = None) -> None:
@@ -49,11 +41,6 @@ class LinearUnit(UnitBase, ABC):
     def linear(self, input: Tensor, *, adc_mode: int, adc_bits: int) -> Tensor:
         """Execute one integer linear operator against the programmed state.
 
-        Matches ``torch.nn.functional.linear`` shape semantics: the
-        trailing axis is the contraction axis and every leading dim is a
-        broadcast batch dim passed through untouched. The programmed
-        integer bias, if any, is added in the int64 accumulation domain.
-
         Args:
             input: Integer activation tensor with trailing ``[K]``.
             adc_mode: Runtime ADC operating-point index.
@@ -66,24 +53,17 @@ class LinearUnit(UnitBase, ABC):
         y = self._lower_matmul(input, adc_mode=adc_mode, adc_bits=adc_bits)
         int_bias = self.int_bias
         if int_bias is not None:
-            # Shape: [..., N] + [N] -> [..., N]  (broadcast add)
+            # Shape: [..., N] + [N] -> [..., N]
             y = y + int_bias
         return y
 
 
-# Imported after the operator ABC definition: loading ``...cim.base``
-# executes the ``cim`` package __init__, whose leaves import ``LinearUnit``
-# from this module.
+# Deferred to avoid a circular import with CIM unit implementations.
 from neurox.architecture.unit.cim.base import CimUnit, CimUnitConfig, CimUnitPolicy  # noqa: E402
 
 
-@dataclass(frozen=True, kw_only=True)
 class IdealLinearUnitConfig(CimUnitConfig):
     """Configuration for :class:`IdealLinearUnit`.
-
-    Bring-up / reference use only — see :class:`IdealLinearUnit`. A no-PPA
-    reference: the inherited ``area_per_inst__um2`` / ``leakage_per_inst__uW``
-    are supplied as ``0.0`` at construction.
 
     Attributes:
         x_value_range: Inclusive integer activation range.
@@ -94,30 +74,21 @@ class IdealLinearUnitConfig(CimUnitConfig):
     w_value_range: tuple[int, int]
 
 
-@dataclass(frozen=True)
 class IdealLinearUnitPolicy(CimUnitPolicy):
     """Empty policy — :class:`IdealLinearUnit` has no nonidealities to toggle."""
 
 
 @CimUnit.register_key(IdealLinearUnitConfig)
 class IdealLinearUnit(LinearUnit, CimUnit[IdealLinearUnitConfig, IdealLinearUnitPolicy]):
-    """Degenerate ``CimUnit``: stores the integer weight and runs the exact integer matmul against it.
-
-    No xbar tile, no slicing, no transcoding. ``dtype``, ``T__K``, and
-    ``ideal_xbar`` are accepted for API uniformity and ignored.
-
-    Reference, not hardware: a value-domain / lossless upper-bound baseline
-    with no tile, ADC, fabrication, or PPA. Use it for flow bring-up and to
-    isolate QAT issues from analog modelling — never as a stand-in for a
-    physical macro in a production accuracy or PPA study.
+    """Exact integer linear unit without output quantization.
 
     Args:
         config: Concrete configuration dataclass.
-        policy: Empty :class:`IdealLinearUnitPolicy` marker.
+        policy: Nonideality policy.
         w_logical_shape: Logical weight shape ``(*prefix, N, K)`` bound to ``program(...)``.
-        dtype: Tensor dtype for internal buffers.
+        dtype: Requested tensor dtype; it does not affect exact integer execution.
         T__K: Operating temperature.
-        ideal_xbar: Accepted for API uniformity and ignored (no xbar tile to swap).
+        ideal_xbar: Accepted without changing this already ideal unit.
     """
 
     nominal_weight: Tensor
@@ -154,13 +125,10 @@ class IdealLinearUnit(LinearUnit, CimUnit[IdealLinearUnitConfig, IdealLinearUnit
         max_dot_abs = self._w_logical_shape[-1] * max(abs(x_lo), abs(x_hi)) * max(abs(w_lo), abs(w_hi))
         self._fp32_exact: bool = max_dot_abs < 2**24
 
-        # 0-d nominal weight: broadcasts to a zero-weight matmul before any
-        # ``program(...)`` call.
+        # A scalar zero provides a valid pre-programming weight.
         self.register_buffer("nominal_weight", torch.zeros((), dtype=torch.int32), persistent=False)
         self.register_buffer("weight", self.nominal_weight.clone(), persistent=False)
         self._init_int_bias_slot()
-
-    # --- value-range / ADC surface ---
 
     @property
     def w_value_range(self) -> tuple[int, int]:
@@ -176,25 +144,13 @@ class IdealLinearUnit(LinearUnit, CimUnit[IdealLinearUnitConfig, IdealLinearUnit
 
     @property
     def adc_max_bits(self) -> int:
-        # ``0`` is the sentinel meaning no output quantization is applied.
         return 0
 
     def adc_rescale_factor(self, *, adc_mode: int, adc_bits: int) -> float:
-        """Rescale factor for ``(adc_mode, adc_bits)``; always ``1.0`` (no ADC)."""
-        del adc_mode, adc_bits  # accepted for API uniformity
+        del adc_mode, adc_bits
         return 1.0
 
-    # --- lifecycle ---
-
     def program(self, weight: Tensor, bias: Tensor | None = None) -> None:
-        """Write the unit's static weight state and optional integer bias.
-
-        Args:
-            weight: Integer weight tensor whose shape matches the unit's
-                ``w_logical_shape``.
-            bias: Optional integer bias tensor of shape ``(N,)``; ``None``
-                clears any programmed bias.
-        """
         if tuple(weight.shape) != self._w_logical_shape:
             raise ValueError(f"program() expects weight.shape {self._w_logical_shape}; got {tuple(weight.shape)}")
         self.weight = weight
@@ -202,11 +158,9 @@ class IdealLinearUnit(LinearUnit, CimUnit[IdealLinearUnitConfig, IdealLinearUnit
 
     @torch.no_grad()
     def _matmul(self, input: Tensor, *, adc_mode: int, adc_bits: int) -> Tensor:
-        del adc_mode, adc_bits  # accepted for API uniformity
+        del adc_mode, adc_bits
         weight = self.weight
         if self._fp32_exact:
-            # Bound checked in ``__init__`` against the config value
-            # ranges; the cast back to int64 is lossless.
             # Shape: [..., M, K] @ [*prefix, K, N] -> [..., M, N]
             out = torch.matmul(input.to(torch.float32), weight.to(torch.float32).transpose(-2, -1))
             return out.to(torch.int64)

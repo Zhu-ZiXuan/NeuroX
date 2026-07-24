@@ -14,7 +14,7 @@ from .base import Slicer
 
 
 class SerialSlicer(Slicer):
-    """Radix-``r`` serial decomposition with structural ``digit_count = 1``.
+    """Radix-``r`` serial decomposition with one digit per slice.
 
     Args:
         slice_num: Number of per-cycle digits (shape shorthand ``Sa``).
@@ -33,7 +33,6 @@ class SerialSlicer(Slicer):
 
     @property
     def value_range(self) -> tuple[int, int]:
-        # Unsigned positional decomposition: [0, r^Sa - 1].
         return 0, self._digit_radix**self._slice_num - 1
 
     @property

@@ -11,14 +11,7 @@ from .accumulator import Accumulator
 
 
 class SerialAccumulator(Accumulator):
-    """Modular accumulator that folds a time-serial axis one operand at a time.
-
-    Same reduce function and modular wrap as :class:`Accumulator`, but the
-    reduced axis is a time-serial operand stream on one physical register:
-    every arriving input element costs one accumulate op, so dynamic energy
-    scales with the input-element count and latency with the per-instance
-    serial input count.
-    """
+    """Modular accumulator for a time-serial operand axis."""
 
     def operate(self, x: Tensor, dim: int) -> Tensor:
         """Sum ``x`` along ``dim`` and wrap into the signed ``bit_width`` range.
