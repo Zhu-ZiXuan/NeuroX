@@ -4,7 +4,7 @@ The root of the voltage DAC family: `VoltageDac` provides the shared constructio
 
 ## Design decisions
 
-- **Family dispatch keyed on config type.** `VoltageDac.from_config(...)` discriminates on `type(config)` through `RegistryMixin[type[VoltageDacConfig], VoltageDac]`; `VoltageDacConfig` is the family config base — it declares the shared static-PPA fields (`area_per_inst__um2`, `leakage_per_inst__uW`) once for every member ([base](../base.md)), is the type the registry keys on, and is extended by every concrete config. Adding a concrete voltage DAC adds a registration line and a config subclass, nothing in the base.
+- **Family dispatch keyed on config and policy types.** `VoltageDac.from_config(...)` resolves `(type(config), type(policy))`; a concrete voltage DAC registers both concrete types, so mismatched wiring fails before leaf construction.
 - **No family-specific runtime extras.** The voltage DAC has no per-call operating point analogous to the ADC's `(mode, bits)`; the `from_config` signature is the canonical one and the conversion takes only the code, off the memory- and compile-critical path.
 - **Empty marker `VoltageDacPolicy`.** The base policy carries no switch; each concrete voltage DAC declares its own `*Policy(VoltageDacPolicy)` with that topology's toggles.
 

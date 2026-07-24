@@ -60,7 +60,7 @@ class RramConfig(ConfigBase):
         # --- Drift and noise ---
 
         self._require_non_neg(self.drift_decay_rate, "drift_decay_rate")
-        self._require_non_neg(self.drift_t0, "drift_t0")
+        self._require_pos(self.drift_t0, "drift_t0")
         self._require_non_neg(self.read_thermal__uS, "read_thermal__uS")
 
 
@@ -69,12 +69,14 @@ class RramPolicy(PolicyBase):
 
     Attributes:
         prog_gamma: Apply state-dependent programming Gamma at program time.
+        drift: Apply power-law conductance drift at program time.
         stuck_at: Apply stuck-at faults at program time.
         read_telegraph: Apply telegraph noise at snapshot time.
         read_thermal: Apply Gaussian read noise at snapshot time.
     """
 
     prog_gamma: bool
+    drift: bool
     stuck_at: bool
     read_telegraph: bool
     read_thermal: bool
@@ -149,7 +151,7 @@ class Rram(ModuleBase[RramConfig, RramPolicy]):
         """
         g__uS = target_g__uS.clamp(self._g_min__uS, self._g_max__uS)
         g__uS = apply_state_dependent_gamma(g__uS, self.config.prog_gamma, enabled=self.policy.prog_gamma)
-        if self.config.drift_decay_rate > 0.0 and t_elapsed > self.config.drift_t0:
+        if self.policy.drift and self.config.drift_decay_rate > 0.0 and t_elapsed > self.config.drift_t0:
             drift_factor = (t_elapsed / self.config.drift_t0) ** (-self.config.drift_decay_rate)
             g__uS = g__uS * drift_factor
 

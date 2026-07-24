@@ -2,7 +2,7 @@
 
 ## Contracts & invariants
 
-- **`accumulate(x, dim)` reduces exactly one time-serial axis** with the same modular-wrap function as the accumulator; only the billing differs — one energy quantum per input element (the energy tensor is `full_like(x, ...)`) and a serial-op count of `ceil(numel(x) / max(inst_count, 1))`, where the accumulator bills both against the output-element count.
+- **`accumulate(x, dim)` reduces exactly one time-serial axis** with the same modular-wrap function as the accumulator; only the billing differs — one energy quantum per input element and a serial-round count of `ceil(numel(x) / inst_count)`, where the accumulator bills against the output-element count. The full per-input energy tensor is created only while a profiler is active.
 - **Stateless, single-call reduction.** The serial-register semantics live only in the accounting; the reduce itself is one batched kernel with no cross-call state.
 - **Config is `AccumulatorConfig`, reused unchanged.** The subclass adds no fields; the per-op terms are re-read as per-input-element quantities.
 

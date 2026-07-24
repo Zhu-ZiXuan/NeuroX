@@ -4,7 +4,7 @@ The abstract `SingleEndedCurrentAdc` carries config-keyed construction, the `con
 
 ## Design decisions
 
-- **Family dispatch keyed on config type.** `SingleEndedCurrentAdc.from_config(...)` discriminates on `type(config)` through `RegistryMixin[type[SingleEndedCurrentAdcConfig], SingleEndedCurrentAdc]`; adding a concrete current ADC only adds a registration line and a config subclass, never touches `from_config`. `SingleEndedCurrentAdcConfig` is the family config base — it declares the shared static-PPA fields (`area_per_inst__um2`, `leakage_per_inst__uW`) once for every member ([base](../base.md)).
+- **Family dispatch keyed on config and policy types.** `SingleEndedCurrentAdc.from_config(...)` resolves `(type(config), type(policy))`; adding a concrete current ADC registers its concrete pair and never touches `from_config`. A mismatched pair fails before leaf construction.
 - **Empty marker `SingleEndedCurrentAdcPolicy`.** The base policy carries no switch; each concrete current ADC declares its own `*Policy(SingleEndedCurrentAdcPolicy)` with that topology's toggles.
 - **Unsigned single-ended output, no zero shift.** The input is a non-negative magnitude and the output is an unsigned code in `[0, 2**bits - 1]`; there is no offset-binary re-bias.
 - **Mode-free conversion.** `convert` receives an ascending per-instance ladder `i_refs__uA` with trailing length `2**bits - 1` and the resolution `bits`. No operating-mode object or rescale data enters the ADC interface.

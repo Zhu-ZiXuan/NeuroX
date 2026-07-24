@@ -47,6 +47,11 @@ class _Box(SerializeMixin):
     item: _Fam
 
 
+@dataclass(frozen=True)
+class _UnsupportedAnnotation(SerializeMixin):
+    value: complex
+
+
 # --- abstract base: an undiscriminated abstract base cannot be built directly ---
 
 
@@ -109,3 +114,8 @@ def test_nested_field_without_discriminator_raises() -> None:
 def test_nested_field_with_discriminator_yields_leaf() -> None:
     box = _Box.from_dict({"item": {"_neurox_class": "_LeafA"}})
     assert isinstance(box.item, _LeafA)
+
+
+def test_unsupported_field_annotation_raises_at_deserialization() -> None:
+    with pytest.raises(TypeError, match=r"_UnsupportedAnnotation\.value: unsupported field annotation"):
+        _UnsupportedAnnotation.from_dict({"value": 1.0})

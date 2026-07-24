@@ -15,6 +15,7 @@ from neurox.architecture.unit.cim import (
     LinearCimUnitPolicy,
 )
 from neurox.architecture.unit.cim.engine import CimEngine, DirectCimEngineConfig, DirectCimEnginePolicy
+from neurox.common.encoding import Encoding
 from neurox.common.profiler import NeuroxProfiler
 from neurox.primitive.digital import AccumulatorConfig, SerialAccumulator
 from neurox.primitive.macro.cim import IdealCimMacroConfig, IdealCimMacroPolicy
@@ -76,7 +77,7 @@ def _unit_config(
         leakage_per_inst__uW=0.0,
         engine=DirectCimEngineConfig(
             cim_macro_config=_ideal_macro_config() if cim_macro_config is None else cim_macro_config,
-            w_encoding="true_form",
+            w_encoding=Encoding.TRUE_FORM,
             phase_accumulator_config=_accumulator_config(energy_per_op__fJ=phase_energy_per_op__fJ),
             col_accumulator_config=_accumulator_config(),
         ),
@@ -268,6 +269,21 @@ def test_linear_program_rejects_float_bias() -> None:
         unit.program(weight, torch.zeros(n, dtype=torch.float32))
 
 
+def test_linear_cim_rejects_float_weight() -> None:
+    n, k = 13, 20
+    unit = _build_unit(_unit_config(), w_logical_shape=(n, k))
+    with pytest.raises(TypeError, match="integer weight tensor"):
+        unit.program(torch.zeros((n, k), dtype=torch.float32))
+
+
+def test_linear_cim_rejects_float_input() -> None:
+    n, k = 13, 20
+    unit = _build_unit(_unit_config(), w_logical_shape=(n, k))
+    unit.program(_random_weight(unit, (n, k)))
+    with pytest.raises(TypeError, match="integer input tensor"):
+        unit.linear(torch.zeros((2, k), dtype=torch.float32), adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
+
+
 def test_linear_program_rejects_wrong_shape_bias() -> None:
     n, k = 13, 20
     unit = _build_unit(_unit_config(), w_logical_shape=(n, k))
@@ -319,8 +335,7 @@ def test_linear_config_rejects_non_divisor_row_blocking() -> None:
         _unit_config(cim_macro_config=_ideal_macro_config(row_num=16, active_row_num=6))
 
 
-def test_linear_rejects_fp32_exactness_bound_violation() -> None:
-    # row_num * max|w| * max|x| = 4224 * 4095 * 1 > 2^24.
+def test_direct_engine_leaves_numeric_path_selection_to_macro() -> None:
     config = _unit_config(
         cim_macro_config=_ideal_macro_config(
             row_num=4224,
@@ -329,8 +344,8 @@ def test_linear_rejects_fp32_exactness_bound_violation() -> None:
             w_digit_value_range=(-15, 15),
         )
     )
-    with pytest.raises(ValueError, match="2\\^24"):
-        _build_unit(config, w_logical_shape=(13, 20))
+    unit = _build_unit(config, w_logical_shape=(13, 20))
+    assert isinstance(unit, LinearCimUnit)
 
 
 def test_linear_x_value_range_follows_engine() -> None:

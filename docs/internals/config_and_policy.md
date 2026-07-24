@@ -23,7 +23,9 @@ Every module class defines config and policy types, retaining an explicit empty 
 The config tree mirrors the ownership tree.
 
 - **Config carries the child.** When `A` owns `B`, `A`'s config carries `B`'s config as a field, so ownership is readable from the config structure, and `A.__init__` builds `B` directly — no external factory closure decides which child class is instantiated.
-- **Polymorphic children dispatch through the family.** A child chosen from an implementation family is built through the family's `from_config`, which resolves the concrete class from the family's `RegistryMixin` key map.
+- **Polymorphic children dispatch through the family.** A child chosen from an implementation family is built through the family's `from_config`. Each leaf uses `register_neurox_module(config_type=..., policy_type=...)`; lookup receives the config and policy objects separately, while `RegistryMixin` alone forms the internal type-pair key. A mismatched pair therefore fails at dispatch rather than inside a leaf constructor.
+
+- **Instance multiplicity is never empty hardware.** `inst_shape=()` means one instance with no replication axes. Every explicit extent must be positive; a shape containing zero or a negative extent is rejected by `ModuleBase`, so `inst_count` is always positive.
 
 ## Policy mirrors config
 

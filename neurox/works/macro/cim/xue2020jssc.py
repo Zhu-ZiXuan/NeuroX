@@ -438,7 +438,10 @@ class Xue2020JsscCimMacroPolicy(CimMacroPolicy):
 # ---------------------------------------------------------------------------
 
 
-@CimMacro.register_key(Xue2020JsscCimMacroConfig)
+@CimMacro.register_neurox_module(
+    config_type=Xue2020JsscCimMacroConfig,
+    policy_type=Xue2020JsscCimMacroPolicy,
+)
 class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacroPolicy]):
     """Xue2020 JSSC SINWP 1T1R CIM sub-array with an inline current-mode readout chain.
 
@@ -461,6 +464,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
     _digit_ratios: Tensor
     _window_sc__ns: Tensor
     _x_bit_ratios: Tensor
+    _t_cycle__ns: Tensor
 
     def __init__(
         self,
@@ -592,6 +596,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         self.register_buffer("_digit_ratios", torch.tensor(config.digit_ratios, dtype=dtype), persistent=False)
         self.register_buffer("_window_sc__ns", torch.tensor(config.window_sc__ns, dtype=dtype), persistent=False)
         self.register_buffer("_x_bit_ratios", torch.tensor(config.x_bit_ratios, dtype=dtype), persistent=False)
+        self.register_buffer("_t_cycle__ns", torch.tensor(config.t_cycle__ns, dtype=dtype), persistent=False)
 
     # -----------------------------------------------------------------
     # Value-domain semantics
@@ -748,11 +753,13 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         # window. The array bills only its capacitive cycling; the read current
         # conduction energy is entirely the macro's (the macro owns the per-bit
         # conduction window t).
-        # Shape: [*B, x_bits, phys_col] -> [*B, x_bits]
-        read_power = (v_dd * i_bl_port).sum(dim=-1)
-        # Shape: [*B, x_bits] -> [*B]
-        e_cablc = (read_power * self._window_array__ns).sum(dim=-1)
-        self._record_dynamic_energy(e_cablc, channel="cablc")
+        record_dynamic_energy = self._is_dynamic_energy_profile_active()
+        if record_dynamic_energy:
+            # Shape: [*B, x_bits, phys_col] -> [*B, x_bits]
+            read_power = (v_dd * i_bl_port).sum(dim=-1)
+            # Shape: [*B, x_bits] -> [*B]
+            e_cablc = (read_power * self._window_array__ns).sum(dim=-1)
+            self._record_dynamic_energy(e_cablc, channel="cablc")
 
         # Recover the grouped readout layout from the flat BL port;
         # column-separable, so a pure reshape.
@@ -763,23 +770,23 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
 
         # LSB-first per-digit mirror ratios.
         i_wdl = i_dl * self._digit_ratios
-        # Bill dswct INLINE at the output-leg production site.
-        # Shape: [*B, x_bits, gs, gn, P/N, wd] -> [*B, x_bits]
-        i_wdl_per_bit = i_wdl.abs().sum(dim=(-4, -3, -2, -1))
-        # Shape: [*B, x_bits] -> [*B]
-        e_dswct = v_dd * (i_wdl_per_bit * self._window_array__ns).sum(dim=-1)
-        self._record_dynamic_energy(e_dswct, channel="dswct")
+        if record_dynamic_energy:
+            # Shape: [*B, x_bits, gs, gn, P/N, wd] -> [*B, x_bits]
+            i_wdl_per_bit = i_wdl.abs().sum(dim=(-4, -3, -2, -1))
+            # Shape: [*B, x_bits] -> [*B]
+            e_dswct = v_dd * (i_wdl_per_bit * self._window_array__ns).sum(dim=-1)
+            self._record_dynamic_energy(e_dswct, channel="dswct")
 
         # --- Step 4: SINWP-SC spatial + temporal input-radix combine -> I_DL_PN ---
 
         # Shape: [*B, x_bits, gs, gn, P/N, wd] -> [*B, x_bits, gs, gn, P/N]
         i_dl_pn_bit = i_wdl.sum(dim=-1)
-        # Bill sinwp_sc INLINE at the held/live-leg production site.
-        # Shape: [*B, x_bits, gs, gn, P/N] -> [*B, x_bits]
-        i_sc_per_bit = i_dl_pn_bit.sum(dim=(-3, -2, -1))
-        # Shape: [*B, x_bits] -> [*B]
-        e_sinwp = v_dd * (i_sc_per_bit * self._window_sc__ns).sum(dim=-1)
-        self._record_dynamic_energy(e_sinwp, channel="sinwp_sc")
+        if record_dynamic_energy:
+            # Shape: [*B, x_bits, gs, gn, P/N] -> [*B, x_bits]
+            i_sc_per_bit = i_dl_pn_bit.sum(dim=(-3, -2, -1))
+            # Shape: [*B, x_bits] -> [*B]
+            e_sinwp = v_dd * (i_sc_per_bit * self._window_sc__ns).sum(dim=-1)
+            self._record_dynamic_energy(e_sinwp, channel="sinwp_sc")
 
         # Temporal weighted sum over bits (input radix).
         # Shape: [x_bits, gs=1, gn=1, P/N=1]
@@ -794,9 +801,9 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         i_dl_pn_n = i_dl_pn[..., 1]
         i_sub = (i_dl_pn_p - i_dl_pn_n).abs()
         sign = i_dl_pn_n > i_dl_pn_p
-        # Bill pn_isub INLINE (three-branch conduction + per-op comparator).
-        e_pnisub = v_dd * config.t_other__ns * (i_dl_pn_p + i_dl_pn_n + i_sub) + config.e_pn_isub_per_op__fJ
-        self._record_dynamic_energy(e_pnisub, channel="pn_isub")
+        if record_dynamic_energy:
+            e_pnisub = v_dd * config.t_other__ns * (i_dl_pn_p + i_dl_pn_n + i_sub) + config.e_pn_isub_per_op__fJ
+            self._record_dynamic_energy(e_pnisub, channel="pn_isub")
 
         # --- Step 6: TMCSA quantize against the per-instance reference ladder ---
 
@@ -824,15 +831,13 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         # operating period t_cycle scaled by the serial-access count (mux_factor
         # column-MUX steps per fabricated instance); the macro is the sole
         # latency emitter.
-        # Shape: [*B, gs]
-        e_control = signed.new_full(signed.shape[:-1], config.e_control_per_op__fJ, dtype=torch.float32)
-        self._record_dynamic_energy(e_control, channel="control")
-        serial_op_count = max(1, signed.numel() // max(self.inst_count * gn, 1))
-        latency__ns = torch.tensor(
-            config.t_cycle__ns * serial_op_count,
-            device=signed.device,
-            dtype=torch.float32,
-        )
+        if record_dynamic_energy:
+            # Shape: [*B, gs]
+            e_control = signed.new_full(signed.shape[:-1], config.e_control_per_op__fJ, dtype=torch.float32)
+            self._record_dynamic_energy(e_control, channel="control")
+        parallel_instance_count = self.inst_count * gn
+        serial_round_count = (signed.numel() + parallel_instance_count - 1) // parallel_instance_count
+        latency__ns = self._t_cycle__ns * serial_round_count
         self._record_latency(latency__ns)
 
         # col = io * mux_factor + slot = gn * group_size + gs

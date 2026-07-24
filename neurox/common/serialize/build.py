@@ -8,6 +8,7 @@ from abc import ABC
 from collections.abc import Mapping
 from dataclasses import fields, is_dataclass
 from enum import Enum
+from pathlib import Path
 from types import NoneType, UnionType
 from typing import Any, TypeVar, Union, get_args, get_origin, get_type_hints
 
@@ -62,10 +63,13 @@ def _resolve_concrete_dataclass(base: type, type_name: str) -> type:
     )
 
 
-def _build_value(value: Any, tp: Any) -> Any:
+def _build_value(value: Any, tp: Any, *, path: str) -> Any:
     """Coerce ``value`` recursively into the annotated type ``tp``."""
     origin = get_origin(tp)
     args = get_args(tp)
+
+    if tp is Any:
+        return value
 
     # Literal.
     if origin is typing.Literal:
@@ -82,7 +86,7 @@ def _build_value(value: Any, tp: Any) -> Any:
             if arg is NoneType:
                 continue
             try:
-                return _build_value(value, arg)
+                return _build_value(value, arg, path=path)
             except (TypeError, ValueError) as exc:
                 last_exc = exc
                 continue
@@ -114,7 +118,7 @@ def _build_value(value: Any, tp: Any) -> Any:
         if not args:
             return value
         if origin is tuple and len(args) == 2 and args[1] is Ellipsis:
-            return tuple(_build_value(x, args[0]) for x in value)
+            return tuple(_build_value(x, args[0], path=f"{path}[{index}]") for index, x in enumerate(value))
         if origin is tuple:
             if len(value) != len(args):
                 raise ValueError(
@@ -122,21 +126,34 @@ def _build_value(value: Any, tp: Any) -> Any:
                     f"tuple[{', '.join(getattr(a, '__name__', str(a)) for a in args)}], "
                     f"got {len(value)}"
                 )
-            return tuple(_build_value(x, a) for x, a in zip(value, args, strict=True))
+            return tuple(
+                _build_value(x, item_type, path=f"{path}[{index}]")
+                for index, (x, item_type) in enumerate(zip(value, args, strict=True))
+            )
         inner = args[0]
-        return origin(_build_value(x, inner) for x in value)
+        return origin(_build_value(x, inner, path=f"{path}[{index}]") for index, x in enumerate(value))
 
     if origin is dict:
         if len(args) < 2:
             return value
-        v_tp = args[1]
-        return {k: _build_value(v, v_tp) for k, v in value.items()}
+        if not isinstance(value, Mapping):
+            raise TypeError(f"{path}: expected mapping for {tp}, got {type(value).__name__}")
+        key_type, value_type = args
+        return {
+            _build_value(k, key_type, path=f"{path}.<key>"): _build_value(v, value_type, path=f"{path}[{k!r}]")
+            for k, v in value.items()
+        }
 
     # Primitive.
     if tp in (int, float, bool, str):
         return _coerce_primitive(value, tp)
 
-    return value
+    if tp is Path:
+        if not isinstance(value, str | Path):
+            raise TypeError(f"{path}: expected path string, got {type(value).__name__}")
+        return Path(value)
+
+    raise TypeError(f"{path}: unsupported field annotation {tp!r}")
 
 
 def _coerce_primitive(value: Any, tp: type) -> Any:
@@ -214,7 +231,7 @@ def dataclass_from_dict(cls: type[T], data: Mapping[str, Any]) -> T:
     for name, raw in data.items():
         if name == CLASS_DISCRIMINATOR:
             continue
-        kwargs[name] = _build_value(raw, hints.get(name, Any))
+        kwargs[name] = _build_value(raw, hints.get(name, Any), path=f"{cls.__name__}.{name}")
     return cls(**kwargs)
 
 

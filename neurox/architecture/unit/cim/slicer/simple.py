@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from torch import Tensor
 
-from neurox.common.encoding import Encoding, Transcoder
+from neurox.common.encoding import Encoding, create_transcoder
 
 from .base import Slicer
 
@@ -40,8 +40,8 @@ class SimpleSlicer(Slicer):
             raise ValueError(f"require: digit_radix ({digit_radix}) >= 2")
         self._slice_num = slice_num
         self._digit_count = digit_count
-        self._transcoder = Transcoder.create(
-            encoding,
+        self._transcoder = create_transcoder(
+            encoding=encoding,
             radix=digit_radix,
             digit_count=slice_num * digit_count,
         )

@@ -117,7 +117,10 @@ class SarSingleEndedCurrentAdcPolicy(SingleEndedCurrentAdcPolicy):
     coupling_mismatch: bool
 
 
-@SingleEndedCurrentAdc.register_key(SarSingleEndedCurrentAdcConfig)
+@SingleEndedCurrentAdc.register_neurox_module(
+    config_type=SarSingleEndedCurrentAdcConfig,
+    policy_type=SarSingleEndedCurrentAdcPolicy,
+)
 class SarSingleEndedCurrentAdc(SingleEndedCurrentAdc[SarSingleEndedCurrentAdcConfig, SarSingleEndedCurrentAdcPolicy]):
     """Triple-margin current ADC using a binary search over injected references.
 
@@ -129,6 +132,10 @@ class SarSingleEndedCurrentAdc(SingleEndedCurrentAdc[SarSingleEndedCurrentAdcCon
         T__K: Operating temperature.
         enable_latency_record: Whether conversions emit latency events.
     """
+
+    # --- Immutable PPA buffers ---
+
+    _step_latency__ns: Tensor
 
     # --- Fabrication source buffers ---
 
@@ -155,6 +162,11 @@ class SarSingleEndedCurrentAdc(SingleEndedCurrentAdc[SarSingleEndedCurrentAdcCon
         )
         self._area_per_inst__um2 = config.area_per_inst__um2
         self._leakage_per_inst__uW = config.leakage_per_inst__uW
+        self.register_buffer(
+            "_step_latency__ns",
+            torch.tensor(config.step_latency__ns, dtype=dtype),
+            persistent=False,
+        )
         self._register_fabrication_buffers(dtype=dtype)
 
     def _register_fabrication_buffers(self, *, dtype: torch.dtype) -> None:
@@ -234,7 +246,7 @@ class SarSingleEndedCurrentAdc(SingleEndedCurrentAdc[SarSingleEndedCurrentAdcCon
         t_conduct = self.config.t_conduct_per_step__ns
 
         code = torch.zeros_like(i_in__uA, dtype=torch.long)
-        e_dyn__fJ = torch.zeros_like(i_in__uA)
+        e_dyn__fJ = torch.zeros_like(i_in__uA) if self._is_dynamic_energy_profile_active() else None
 
         # The fabricated lane offset remains fixed throughout the binary search.
         lane = self._col_to_lane(i_in__uA.shape[-1], i_in__uA.device)
@@ -248,21 +260,19 @@ class SarSingleEndedCurrentAdc(SingleEndedCurrentAdc[SarSingleEndedCurrentAdcCon
             bit = (margin_gain * clean_margin__uA + offset__uA) > 0.0
             code = self._set_bit(code, step, bit, bits)
 
-            # V * uA * ns = fJ.
-            e_dyn__fJ = (
-                e_dyn__fJ
-                + e_fixed
-                + v_rail * (i_in__uA + i_ref__uA) * t_conduct[step]
-                + self._compute_input_dynamic_energy__fJ(i_in__uA, i_ref__uA)
-            )
+            if e_dyn__fJ is not None:
+                # V * uA * ns = fJ.
+                e_dyn__fJ = (
+                    e_dyn__fJ
+                    + e_fixed
+                    + v_rail * (i_in__uA + i_ref__uA) * t_conduct[step]
+                    + self._compute_input_dynamic_energy__fJ(i_in__uA, i_ref__uA)
+                )
 
-        self._record_dynamic_energy(e_dyn__fJ)
+        if e_dyn__fJ is not None:
+            self._record_dynamic_energy(e_dyn__fJ)
         if self.enable_latency_record:
-            latency__ns = torch.tensor(
-                sum(self.config.step_latency__ns[:bits]) * self._count_serial_ops(i_in__uA),
-                device=i_in__uA.device,
-                dtype=e_dyn__fJ.dtype,
-            )
+            latency__ns = self._step_latency__ns[:bits].sum() * self._count_serial_rounds(i_in__uA.numel())
             self._record_latency(latency__ns)
 
         return code
@@ -304,14 +314,3 @@ class SarSingleEndedCurrentAdc(SingleEndedCurrentAdc[SarSingleEndedCurrentAdcCon
         """Write the ``step``-th magnitude bit (MSB-first) into ``code``."""
         bit_pos = bits - 1 - step
         return code | (bit.long() << bit_pos)
-
-    def _count_serial_ops(self, out: Tensor) -> int:
-        """Return the serial-operation count for latency.
-
-        Args:
-            out: Conversion output tensor.
-
-        Returns:
-            Number of serialized operations per fabricated instance.
-        """
-        return max(1, out.numel() // max(self.inst_count, 1))

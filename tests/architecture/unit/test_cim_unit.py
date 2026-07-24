@@ -36,6 +36,7 @@ from neurox.architecture.unit.cim.engine import (
     IntraArraySliceCimEnginePolicy,
 )
 from neurox.architecture.unit.cim.engine.base import _chunk_pad_along
+from neurox.common.encoding import Encoding
 from neurox.common.profiler import NeuroxProfiler
 from neurox.primitive.digital import AccumulatorConfig, SerialAccumulator, ShiftAdderConfig
 from neurox.primitive.macro.cim import IdealCimMacroConfig, IdealCimMacroPolicy
@@ -128,7 +129,7 @@ def _direct_engine_config(
         cim_macro_config=_ideal_macro_config(
             x_value_range=x_value_range, w_digit_count=w_digit_count, active_row_num=active_row_num
         ),
-        w_encoding="true_form",
+        w_encoding=Encoding.TRUE_FORM,
         col_accumulator_config=_accumulator_config(),
         phase_accumulator_config=_accumulator_config(),
     )
@@ -336,7 +337,7 @@ def test_direct_engine_lsb_first_place_values_on_asymmetric_weights() -> None:
     config = _wrap_unit(
         DirectCimEngineConfig(
             cim_macro_config=_ideal_macro_config(w_digit_count=2, w_digit_radix=2, w_digit_value_range=(-1, 1)),
-            w_encoding="true_form",
+            w_encoding=Encoding.TRUE_FORM,
             col_accumulator_config=_accumulator_config(),
             phase_accumulator_config=_accumulator_config(),
         )
@@ -539,7 +540,7 @@ def test_direct_engine_unit_multi_sub_phase_quantized_end_to_end() -> None:
     config = _wrap_unit(
         DirectCimEngineConfig(
             cim_macro_config=_ideal_macro_config(active_row_num=active_row_num, adc_max_bits=adc_bits),
-            w_encoding="true_form",
+            w_encoding=Encoding.TRUE_FORM,
             col_accumulator_config=_accumulator_config(),
             phase_accumulator_config=_accumulator_config(),
         )
@@ -583,7 +584,7 @@ def test_phase_accumulator_energy_scales_with_sub_phase_num() -> None:
         config = _wrap_unit(
             DirectCimEngineConfig(
                 cim_macro_config=_ideal_macro_config(active_row_num=active_row_num),
-                w_encoding="true_form",
+                w_encoding=Encoding.TRUE_FORM,
                 col_accumulator_config=_accumulator_config(),
                 phase_accumulator_config=AccumulatorConfig(
                     bit_width=32,
@@ -676,6 +677,22 @@ def test_unit_from_config_dispatches_to_registered_subclass(
     )
     unit.eval()
     assert isinstance(unit, expected_type)
+
+
+def test_unit_from_config_rejects_mismatched_policy_type() -> None:
+    config = _direct_config()
+    with pytest.raises(
+        TypeError,
+        match=r"no CimUnit module registered for config LinearCimUnitConfig and policy IdealLinearUnitPolicy",
+    ):
+        CimUnit.from_config(
+            config=config,
+            policy=_IDEAL_UNIT_POLICY,
+            w_logical_shape=(13, 20),
+            dtype=torch.float32,
+            T__K=300.0,
+            ideal_macro=False,
+        )
 
 
 @pytest.mark.parametrize(

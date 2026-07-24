@@ -39,7 +39,7 @@ The statistical forms below are the device's own non-ideality sources; the share
 
 - **Programming variation** (program time) — a multiplicative Gamma perturbation, normalized to unit mean, whose shape parameter $k$ depends on the normalized conductance state $\hat G = (G - G_{\mathrm{lo}})/(G_{\mathrm{hi}} - G_{\mathrm{lo}})$: $k(\hat G) = \max(k_{\mathrm{slope}}\,\hat G + k_{\mathrm{int}},\,0.1)$ at fixed scale $\theta$. The normalization bounds $G_{\mathrm{lo}}, G_{\mathrm{hi}}$ belong to the programming-variation model and are independent of the device working-range bounds $G_{\min}, G_{\max}$. The applied gain is $\gamma/\mathbb{E}[\gamma]$ with $\gamma \sim \operatorname{Gamma}(k,\theta)$, so the perturbation preserves the mean conductance and only injects state-dependent spread.
 - **Stuck-at fault** (program time) — each cell is independently forced to $G_{\min}$ with probability $p_{\min}$ or to $G_{\max}$ with probability $p_{\max}$ (requiring $p_{\min}+p_{\max}<1$), else left unchanged.
-- **Conductance drift** (program time) — the power-law gain $d(t)$ above, applied when $\nu>0$ and $t>t_0$.
+- **Conductance drift** (program time) — the power-law gain $d(t)$ above, applied when its policy is enabled, $\nu>0$, and $t>t_0$.
 - **Telegraph read noise** (read time) — random telegraph noise sampled on each read: a cell is in the active state with probability $p_{\mathrm{high}}$, and when active receives an additive perturbation of random sign and Gaussian-distributed amplitude (mean $\mu_a$, std $\sigma_a$).
 - **Thermal read noise** (read time) — additive zero-mean Gaussian noise of std $\sigma_{\mathrm{th}}$ on the read conductance.
 

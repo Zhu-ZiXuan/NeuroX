@@ -30,7 +30,7 @@ $$E = E_{\mathrm{op}}\, \operatorname{numel}(x),$$
 
 where $\operatorname{numel}(x)$ includes the reduced (time-serial) axis. Latency is set by the busiest instance: the serial-op count of a call is the number of input elements on the instance carrying the most work,
 
-$$n_{\mathrm{serial}} = \left\lceil \frac{\operatorname{numel}(x)}{\max(N_{\mathrm{inst}}, 1)} \right\rceil,$$
+$$n_{\mathrm{serial}} = \left\lceil \frac{\operatorname{numel}(x)}{N_{\mathrm{inst}}} \right\rceil,$$
 
 so its latency is
 
@@ -63,7 +63,7 @@ Provenance terms are defined in [module_parameter](../../../conventions/module_p
 | $w$ | signed output register width | — | `bit_width` |
 | $E_{\mathrm{op}}$ | dynamic energy per input element | fJ | `energy_per_op__fJ` |
 | $t_{\mathrm{op}}$ | latency per input element | ns | `latency_per_op__ns` |
-| $n_{\mathrm{serial}}$ | serial-op count of a call | — | `serial_op_count` |
+| $n_{\mathrm{serial}}$ | serial rounds of a call | — | `serial_round_count` |
 | $N_{\mathrm{inst}}$ | fabricated instance count | — | `inst_count` |
 | $A_{\mathrm{inst}}$ | area per instance | um^2 | `area_per_inst__um2` |
 | $P_{\mathrm{inst}}$ | leakage per instance | uW | `leakage_per_inst__uW` |

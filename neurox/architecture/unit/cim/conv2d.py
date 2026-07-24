@@ -47,7 +47,7 @@ class Conv2dCimUnitPolicy(EngineBackedCimUnitPolicy):
     """Composite policy for :class:`Conv2dCimUnit`; no fields beyond the inherited set."""
 
 
-@CimUnit.register_key(Conv2dCimUnitConfig)
+@CimUnit.register_neurox_module(config_type=Conv2dCimUnitConfig, policy_type=Conv2dCimUnitPolicy)
 class Conv2dCimUnit(Conv2dUnit, EngineBackedCimUnit[Conv2dCimUnitConfig, Conv2dCimUnitPolicy]):
     """CIM-backed convolution using a Toeplitz input-stationary mapping."""
 
@@ -148,6 +148,8 @@ class Conv2dCimUnit(Conv2dUnit, EngineBackedCimUnit[Conv2dCimUnitConfig, Conv2dC
     def program(self, weight: Tensor, bias: Tensor | None = None) -> None:
         if tuple(weight.shape) != self._w_logical_shape:
             raise ValueError(f"program() expects weight.shape {self._w_logical_shape}; got {tuple(weight.shape)}")
+        if weight.dtype.is_floating_point or weight.dtype.is_complex or weight.dtype == torch.bool:
+            raise TypeError(f"CIM execution requires an integer weight tensor; got dtype {weight.dtype}")
         self.engine.program(self._weight_to_matrix(weight))
         self._program_int_bias(bias, channels=self._w_logical_shape[0])
 

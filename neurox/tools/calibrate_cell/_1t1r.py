@@ -104,6 +104,7 @@ def _all_off_policy() -> XbarCell1t1rDetailPolicy:
     return XbarCell1t1rDetailPolicy(
         rram_policy=RramPolicy(
             prog_gamma=False,
+            drift=False,
             stuck_at=False,
             read_telegraph=False,
             read_thermal=False,

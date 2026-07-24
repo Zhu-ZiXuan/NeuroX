@@ -12,7 +12,6 @@ from torch import Tensor
 from .base import Transcoder
 
 
-@Transcoder.register_key("true_form")
 class TrueFormTranscoder(Transcoder):
     """Sign-magnitude signed-digit encoding.
 

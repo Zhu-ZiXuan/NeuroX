@@ -1,12 +1,12 @@
 # LinearUnit / IdealLinearUnit
 
-`neurox/architecture/unit/linear.py`: the `LinearUnit` operator ABC — the `F.linear` specialization of the [UnitBase](base.md) template — and the concrete `IdealLinearUnit`, the substrate-free exact-integer reference member of the `CimUnit` registry.
+`neurox/architecture/unit/linear.py` defines the `LinearUnit` operator ABC, the `F.linear` specialization of the [UnitBase](base.md) template. `neurox/architecture/unit/ideal/linear.py` defines the substrate-free exact-integer `IdealLinearUnit` reference.
 
 ## Design decisions
 
 - **Linear is the generic-seam operator.** `LinearUnit` overrides seams 2 and 3 only: `_activation_to_planes` inserts the size-1 `M` axis (`[..., K] -> [..., 1, K]`), `_undo_aggregation` removes it. `linear()` runs the inherited `_lower_matmul` template and adds the programmed integer bias in the int64 accumulation domain; `program(weight, bias=None)` stays abstract (the host owns the substrate write).
-- **The ideal leaf lives beside its operator ABC.** `IdealLinearUnit{,Config,Policy}` are defined in the same module, after a deferred `from neurox.architecture.unit.cim.base import ...` (module-tail import: loading `cim.base` executes the `cim` package `__init__`, whose leaves import `LinearUnit` from this module — the ordering breaks the cycle). Cross-module imports in the unit tree name concrete modules, never a package `__init__`.
-- **Registry membership without a tile.** `IdealLinearUnit` registers via `@CimUnit.register_key(IdealLinearUnitConfig)`, so `CimUnitConfig.from_file` + `CimUnit.from_config` dispatch to it exactly like any engine-backed member; it owns no engine and no `xbar`, carries an empty policy marker, and `dtype` / `T__K` / `ideal_macro` are accepted for uniformity and ignored.
+- **The interface does not import implementations.** The operator ABC is independent of `CimUnit`; the ideal leaf depends on both interfaces from `architecture/unit/ideal/linear.py`. Package initialization imports concrete leaves to establish registry membership without a deferred module-tail import.
+- **Registry membership without a tile.** `IdealLinearUnit` registers its `(IdealLinearUnitConfig, IdealLinearUnitPolicy)` pair, so `CimUnitConfig.from_file` + `CimUnit.from_config` dispatch to it exactly like any engine-backed member; it owns no engine and no `xbar`, and `dtype` / `T__K` / `ideal_macro` are accepted for uniformity and ignored.
 - **Sentinel ADC surface.** `adc_mode_num == 1`, `adc_max_bits == 0`, `adc_rescale_factor == 1.0`. The `0` bit count is the "no output quantization" sentinel ([UnitBase](base.md)).
 - **Weight is program-produced state.** Construction allocates no nominal or placeholder weight. `program` stores the caller's tensor as an ordinary attribute, so execution requires programming and device migration must precede it.
 
@@ -23,5 +23,5 @@
 ---
 
 - **Reference**: [unit family](../../../reference/architecture/unit/family.md)
-- **Implementation**: `neurox/architecture/unit/linear.py`
+- **Implementation**: `neurox/architecture/unit/linear.py`, `neurox/architecture/unit/ideal/linear.py`
 - **Tests**: `tests/architecture/unit/test_cim_unit.py`, `tests/architecture/unit/test_ideal_cim_unit_fp32_exact.py`

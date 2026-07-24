@@ -42,7 +42,7 @@ PolicyT = TypeVar("PolicyT", bound=CurrentDacPolicy)
 
 class CurrentDac(
     AnalogBase[ConfigT, PolicyT],
-    RegistryMixin[type["CurrentDacConfig"], "CurrentDac"],
+    RegistryMixin["CurrentDacConfig", "CurrentDacPolicy", "CurrentDac"],
     Generic[ConfigT, PolicyT],
     ABC,
 ):
@@ -66,7 +66,7 @@ class CurrentDac(
         dtype: torch.dtype,
         T__K: float,
     ) -> CurrentDac:
-        """Build the implementation registered for ``type(config)``.
+        """Build the implementation registered for the config-policy pair.
 
         Args:
             config: Concrete configuration dataclass.
@@ -78,7 +78,7 @@ class CurrentDac(
         Returns:
             Registered current-DAC implementation.
         """
-        impl = cls._lookup_impl(type(config))
+        impl = cls._lookup_neurox_module(config=config, policy=policy)
         return impl(
             config=config,
             policy=policy,

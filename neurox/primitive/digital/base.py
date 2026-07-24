@@ -9,6 +9,9 @@ from __future__ import annotations
 from abc import ABC
 from typing import Generic, TypeVar
 
+import torch
+from torch import Tensor
+
 from neurox.common import ConfigBase, ModuleBase, PolicyBase
 
 
@@ -37,6 +40,18 @@ DigitalConfigT = TypeVar("DigitalConfigT", bound="DigitalConfig")
 
 class DigitalBase(ModuleBase[DigitalConfigT, DigitalPolicy], Generic[DigitalConfigT], ABC):
     """Base for digital, integer-exact circuit blocks."""
+
+    # --- Immutable PPA buffers ---
+
+    _latency_per_op__ns: Tensor
+
+    def _register_latency_buffer(self, latency_per_op__ns: float) -> None:
+        """Register the fixed per-operation latency source."""
+        self.register_buffer(
+            "_latency_per_op__ns",
+            torch.tensor(latency_per_op__ns, dtype=torch.float32),
+            persistent=False,
+        )
 
     def _sample_fabricate_mismatch(self) -> None:
         pass

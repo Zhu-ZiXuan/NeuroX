@@ -8,7 +8,7 @@
 ## Contracts & invariants
 
 - **Canonical leaf signature.** `__init__(*, config, policy, inst_shape, dtype, T__K)` matches the other leaves; the per-instance count is locked from `inst_shape` at construction.
-- **Per-call PPA tally.** `transport` logs per-access dynamic energy and a latency of the per-op cost times the serial-op count; with no parallel trailing beyond `inst_shape`, that count is `numel // inst_count`.
+- **Per-call PPA tally.** `transport` computes and logs per-access dynamic energy only when a profiler is active, and always emits the per-op latency times `ceil(work_item_count / inst_count)`. With no parallel trailing extent beyond `inst_shape`, each input element is one work item.
 
 ## Performance & resources
 

@@ -17,8 +17,8 @@
 
 A single `floor_bucketize` per call, off the memory- and compile-critical path.
 
-- **Per-convert energy / latency self-log.** After the bucketize, `_convert_impl` attributes its own runtime energy and latency through two profiler side-channel emits (both no-ops outside a profiler, neither touching the returned code): `_record_dynamic_energy` receives `torch.full_like(code, energy_per_op__fJ, dtype=torch.float32)` — one `energy_per_op__fJ` charge per output-code element, so the profiler's `.sum()` totals `energy_per_op__fJ * code.numel()`; `_record_latency` receives the scalar `latency_per_op__ns * serial_op_count`. Both are static config fields (fixed-per-op leaf).
-- **Serial-op count.** `serial_op_count = max(1, code.numel() // max(self.inst_count, 1))` divides the total output elements by the fabrication multiplicity `inst_count = prod(inst_shape)` — fabricated instances convert in parallel, the remaining leading (batch) elements pass serially through the shared converter. GeneralDifferentialVoltageAdc's `code` carries no parallel trailing dim beyond `inst_shape`, so this position-invariant numel ratio is the exact serial count; the outer `max(1, ...)` floors it at one op and `max(self.inst_count, 1)` guards a zero divisor.
+- **Per-convert energy / latency self-log.** After the bucketize, `_convert_impl` attributes its own runtime energy and latency through two profiler side-channel emits without changing the returned code. With an active profiler, `_record_dynamic_energy` receives `torch.full_like(code, energy_per_op__fJ, dtype=torch.float32)` and the profiler alone reduces it. `_record_latency` receives `latency_per_op__ns * serial_round_count`.
+- **Serial-round count.** `_count_serial_rounds(code.numel())` computes `ceil(code.numel() / inst_count)`. Fabricated instances convert in parallel and the remaining logical conversions are sequential; an empty code tensor produces zero rounds.
 
 ## Known limitations
 

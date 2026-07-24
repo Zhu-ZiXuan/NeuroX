@@ -50,7 +50,10 @@ class IntraArraySliceCimEnginePolicy(CimEnginePolicy):
     """Policy for :class:`IntraArraySliceCimEngine`."""
 
 
-@CimEngine.register_key(IntraArraySliceCimEngineConfig)
+@CimEngine.register_neurox_module(
+    config_type=IntraArraySliceCimEngineConfig,
+    policy_type=IntraArraySliceCimEnginePolicy,
+)
 class IntraArraySliceCimEngine(CimEngine[IntraArraySliceCimEngineConfig, IntraArraySliceCimEnginePolicy]):
     """CIM engine that gathers all slices of one logical weight in one macro.
 
@@ -95,7 +98,7 @@ class IntraArraySliceCimEngine(CimEngine[IntraArraySliceCimEngineConfig, IntraAr
             inst_shape=(*w_batch, 1, 1, tc, tr),
             n_logical=n_logical,
             k_logical=k_logical,
-            w_parallel_size=max(math.prod(w_batch), 1),
+            w_parallel_size=math.prod(w_batch),
             row_tile_num=tr,
         )
         self._init_data_path_children(tc=tc, tr=tr)
@@ -133,11 +136,15 @@ class IntraArraySliceCimEngine(CimEngine[IntraArraySliceCimEngineConfig, IntraAr
             config=config.sa_shift_adder_config,
             policy=DigitalPolicy(),
             inst_shape=helper_shape,
+            scale=self._x_slicer.slice_radix,
+            digit_count=config.x_slice_num,
         )
         self.sw_shift_adder = ShiftAdder(
             config=config.sw_shift_adder_config,
             policy=DigitalPolicy(),
             inst_shape=helper_shape,
+            scale=self._w_slicer.slice_radix,
+            digit_count=config.w_slice_num,
         )
 
     def _organize_w(self, weight: Tensor) -> Tensor:
@@ -222,9 +229,6 @@ class IntraArraySliceCimEngine(CimEngine[IntraArraySliceCimEngineConfig, IntraAr
         # Shape: [..., M, K] -> [..., M, Sa, Tc, Tr=1, row_num]
         x = self._organize_x(input)
 
-        x_slice_radix = self._x_slicer.slice_radix
-        w_slice_radix = self._w_slicer.slice_radix
-
         # Shape: [..., M, Sa, Tc, Tr, row_num] -> [..., P, M, Sa, Tc, Tr, row_num]
         planes = self._unroll_sub_phase(x)
         # Weight-batch axes are materialized by broadcast against the instance grid.
@@ -237,9 +241,9 @@ class IntraArraySliceCimEngine(CimEngine[IntraArraySliceCimEngineConfig, IntraAr
         # Shape: [..., M, Sa, Tc, Tr, weights_per_macro*Sw] -> [..., M, Sa, Tc, Tr, weights_per_macro, Sw_real]
         y = y.unflatten(-1, (weights_per_macro, sw))
         # Shape: [..., M, Sa, Tc, Tr, weights_per_macro, Sw_real] -> [..., M, Sa, Tc, Tr, weights_per_macro]
-        y = self.sw_shift_adder.shift_add(y, w_slice_radix, dim=-1, init_val=None)
+        y = self.sw_shift_adder.shift_add(y, dim=-1, init_val=None)
         # Shape: [..., M, Sa, Tc, Tr, weights_per_macro] -> [..., M, Tc, Tr, weights_per_macro]
-        y = self.sa_shift_adder.shift_add(y, x_slice_radix, dim=-4, init_val=None)
+        y = self.sa_shift_adder.shift_add(y, dim=-4, init_val=None)
         # Shape: [..., M, Tc, Tr, weights_per_macro] -> [..., M, Tr, weights_per_macro]
         y = self.col_accumulator.accumulate(y, dim=-3)
         # Shape: [..., M, Tr, weights_per_macro] -> [..., M, N]

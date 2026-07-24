@@ -67,16 +67,24 @@ class _FabricableModule(FabricateMixin, nn.Module):
         pass
 
 
-class _RegistryRoot(RegistryMixin[str, "_RegistryRoot"]):
+class _ModuleConfig(ConfigBase):
     pass
 
 
-@_RegistryRoot.register_key("impl")
-class _RegistryImpl(_RegistryRoot):
+class _ModulePolicy(PolicyBase):
     pass
 
 
-class _OtherRegistryRoot(RegistryMixin[str, "_OtherRegistryRoot"]):
+class _ModuleRegistryRoot(
+    RegistryMixin[_ModuleConfig, _ModulePolicy, "_ModuleRegistryRoot"],
+    ModuleBase[_ModuleConfig, _ModulePolicy],
+):
+    def _sample_fabricate_mismatch(self) -> None:
+        pass
+
+
+@_ModuleRegistryRoot.register_neurox_module(config_type=_ModuleConfig, policy_type=_ModulePolicy)
+class _RegisteredModule(_ModuleRegistryRoot):
     pass
 
 
@@ -179,18 +187,26 @@ def test_fabricate_mixin_accepts_module_subclass() -> None:
     module.fabricate()
 
 
-def test_registry_resolves_registered_implementation() -> None:
-    assert _RegistryRoot._lookup_impl("impl") is _RegistryImpl
+def test_module_registry_resolves_config_and_policy_instances() -> None:
+    assert (
+        _ModuleRegistryRoot._lookup_neurox_module(config=_ModuleConfig(), policy=_ModulePolicy()) is _RegisteredModule
+    )
 
 
-def test_registry_is_isolated_per_family() -> None:
-    with pytest.raises(TypeError, match="known: <empty>"):
-        _OtherRegistryRoot._lookup_impl("impl")
-
-
-def test_registry_rejects_duplicate_key() -> None:
-    with pytest.raises(TypeError, match="already registered"):
-
-        @_RegistryRoot.register_key("impl")
-        class _DuplicateRegistryImpl(_RegistryRoot):
+@pytest.mark.parametrize("inst_shape", [(0,), (2, 0, 3), (-1,)])
+def test_module_base_rejects_non_positive_instance_extents(inst_shape: tuple[int, ...]) -> None:
+    class _Module(ModuleBase[_ModuleConfig, _ModulePolicy]):
+        def _sample_fabricate_mismatch(self) -> None:
             pass
+
+    with pytest.raises(ValueError, match="inst_shape extents must be positive"):
+        _Module(config=_ModuleConfig(), policy=_ModulePolicy(), inst_shape=inst_shape)
+
+
+def test_empty_instance_shape_represents_one_instance() -> None:
+    class _Module(ModuleBase[_ModuleConfig, _ModulePolicy]):
+        def _sample_fabricate_mismatch(self) -> None:
+            pass
+
+    module = _Module(config=_ModuleConfig(), policy=_ModulePolicy(), inst_shape=())
+    assert module.inst_count == 1

@@ -72,7 +72,11 @@ PolicyT = TypeVar("PolicyT", bound=SingleEndedCurrentAdcPolicy)
 
 class SingleEndedCurrentAdc(
     AnalogBase[ConfigT, PolicyT],
-    RegistryMixin[type["SingleEndedCurrentAdcConfig"], "SingleEndedCurrentAdc"],
+    RegistryMixin[
+        "SingleEndedCurrentAdcConfig",
+        "SingleEndedCurrentAdcPolicy",
+        "SingleEndedCurrentAdc",
+    ],
     Generic[ConfigT, PolicyT],
     ABC,
 ):
@@ -98,7 +102,7 @@ class SingleEndedCurrentAdc(
         T__K: float,
         enable_latency_record: bool = True,
     ) -> SingleEndedCurrentAdc:
-        """Build the implementation registered for ``type(config)``.
+        """Build the implementation registered for the config-policy pair.
 
         Args:
             config: Concrete configuration dataclass.
@@ -111,7 +115,7 @@ class SingleEndedCurrentAdc(
         Returns:
             Registered current-ADC implementation.
         """
-        impl = cls._lookup_impl(type(config))
+        impl = cls._lookup_neurox_module(config=config, policy=policy)
         return impl(
             config=config,
             policy=policy,

@@ -162,14 +162,18 @@ def test_wrong_policy_type_raises() -> None:
     detail_policy = XbarCell1t1rDetailPolicy(
         rram_policy=RramPolicy(
             prog_gamma=False,
+            drift=False,
             stuck_at=False,
             read_telegraph=False,
             read_thermal=False,
         ),
         nmos_policy=MosfetPolicy(A_vt_mismatch=False, A_beta_mismatch=False),
     )
-    with pytest.raises(TypeError):
-        XbarCell1t1rLinear(
+    with pytest.raises(
+        TypeError,
+        match=r"no XbarCell1t1r impl registered for key \(XbarCell1t1rLinearConfig, XbarCell1t1rDetailPolicy\)",
+    ):
+        XbarCell1t1r.from_config(
             config=_hand_built_config(),
             policy=detail_policy,
             inst_shape=(1, 1),

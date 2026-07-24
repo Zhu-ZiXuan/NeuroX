@@ -26,7 +26,7 @@ N/A — exact digital function; the only non-infinite-precision effect is the de
 
 Per reduced output element the block dissipates a fixed dynamic energy $E_{\mathrm{op}}$, so work scales with the output-element count. Latency is set by the busiest instance: the serial-op count of a call is the number of output elements on the instance carrying the most work,
 
-$$n_{\mathrm{serial}} = \left\lceil \frac{\operatorname{numel}(y)}{\max(N_{\mathrm{inst}}, 1)} \right\rceil,$$
+$$n_{\mathrm{serial}} = \left\lceil \frac{\operatorname{numel}(y)}{N_{\mathrm{inst}}} \right\rceil,$$
 
 where $\operatorname{numel}(y)$ already excludes the reduced axis, so its latency is
 
@@ -61,7 +61,7 @@ Provenance terms are defined in [module_parameter](../../../conventions/module_p
 | $w$ | signed output register width | — | `bit_width` |
 | $E_{\mathrm{op}}$ | dynamic energy per output element | fJ | `energy_per_op__fJ` |
 | $t_{\mathrm{op}}$ | latency per output element | ns | `latency_per_op__ns` |
-| $n_{\mathrm{serial}}$ | serial-op count of a call | — | `serial_op_count` |
+| $n_{\mathrm{serial}}$ | serial rounds of a call | — | `serial_round_count` |
 | $N_{\mathrm{inst}}$ | fabricated instance count | — | `inst_count` |
 | $A_{\mathrm{inst}}$ | area per instance | um^2 | `area_per_inst__um2` |
 | $P_{\mathrm{inst}}$ | leakage per instance | uW | `leakage_per_inst__uW` |

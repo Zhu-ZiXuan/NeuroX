@@ -1,4 +1,4 @@
-"""Transcoder ABC and ``Encoding`` discriminator.
+"""Transcoder ABC and encoding identifiers.
 
 See also:
     docs/internals/common/encoding/encodings.md
@@ -7,17 +7,20 @@ See also:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Literal, TypeAlias
+from enum import StrEnum
 
-import torch
 from torch import Tensor
 
-from neurox.common.mixin import RegistryMixin
 
-Encoding: TypeAlias = Literal["true_form", "complement", "canonical"]
+class Encoding(StrEnum):
+    """Supported signed-digit encoding algorithms."""
+
+    TRUE_FORM = "true_form"
+    COMPLEMENT = "complement"
+    CANONICAL = "canonical"
 
 
-class Transcoder(RegistryMixin[Encoding, "Transcoder"], ABC):
+class Transcoder(ABC):
     """Fixed-length positional signed-digit transcoder.
 
     Args:
@@ -66,32 +69,14 @@ class Transcoder(RegistryMixin[Encoding, "Transcoder"], ABC):
         Returns:
             Integer tensor with ``dim`` removed.
         """
-        scales = torch.tensor(
-            [self._radix**i for i in range(digits.size(dim))],
-            device=digits.device,
-            dtype=digits.dtype,
-        )
-        shape = [1] * digits.ndim
-        shape[dim] = digits.size(dim)
-        return (digits * scales.view(*shape)).sum(dim=dim)
+        parts = digits.unbind(dim=dim)
+        decoded = parts[-1]
+        for part in reversed(parts[:-1]):
+            decoded = decoded * self._radix + part
+        return decoded
 
     @property
     @abstractmethod
     def value_range(self) -> tuple[int, int]:
         """Inclusive integer range one digit string can losslessly represent."""
         raise NotImplementedError
-
-    @classmethod
-    def create(cls, encoding: Encoding, *, radix: int, digit_count: int) -> Transcoder:
-        """Build the concrete subclass registered for ``encoding``.
-
-        Args:
-            encoding: One of ``"true_form"``, ``"complement"``, ``"canonical"``.
-            radix: Positional base ``r``.
-            digit_count: Number of digits.
-
-        Returns:
-            Concrete transcoder instance bound to ``(radix, digit_count)``.
-        """
-        impl = cls._lookup_impl(encoding)
-        return impl(radix=radix, digit_count=digit_count)

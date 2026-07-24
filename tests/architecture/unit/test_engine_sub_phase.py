@@ -21,6 +21,7 @@ from neurox.architecture.unit.cim.engine import (
     IntraArraySliceCimEngineConfig,
     IntraArraySliceCimEnginePolicy,
 )
+from neurox.common.encoding import Encoding
 from neurox.primitive.digital import AccumulatorConfig, ShiftAdderConfig
 from neurox.primitive.macro.cim import IdealCimMacroConfig, IdealCimMacroPolicy
 
@@ -88,7 +89,7 @@ def _build_direct(
 ) -> DirectCimEngine:
     config = DirectCimEngineConfig(
         cim_macro_config=_ideal_macro_config(row_num=row_num, active_row_num=active_row_num),
-        w_encoding="true_form",
+        w_encoding=Encoding.TRUE_FORM,
         col_accumulator_config=_accumulator_config(),
         phase_accumulator_config=_accumulator_config(),
     )

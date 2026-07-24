@@ -88,7 +88,7 @@ PolicyT = TypeVar("PolicyT", bound=XbarCell1t1rPolicy)
 
 class XbarCell1t1r(
     XbarCell[ConfigT, PolicyT, CellSnapT, XbarCell1t1rDcop],
-    RegistryMixin[type[XbarCell1t1rConfig], "XbarCell1t1r"],
+    RegistryMixin[XbarCell1t1rConfig, XbarCell1t1rPolicy, "XbarCell1t1r"],
     Generic[ConfigT, PolicyT, CellSnapT],
     ABC,
 ):
@@ -130,7 +130,7 @@ class XbarCell1t1r(
         dtype: torch.dtype,
         T__K: float,
     ) -> XbarCell1t1r:
-        """Build the 1T1R cell registered for ``type(config)``.
+        """Build the 1T1R cell registered for the config-policy pair.
 
         Args:
             config: Concrete 1T1R cell configuration.
@@ -142,7 +142,7 @@ class XbarCell1t1r(
         Returns:
             Registered 1T1R cell implementation.
         """
-        impl = cls._lookup_impl(type(config))
+        impl = cls._lookup_neurox_module(config=config, policy=policy)
         return impl(
             config=config,
             policy=policy,

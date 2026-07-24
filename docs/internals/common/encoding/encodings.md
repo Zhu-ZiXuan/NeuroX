@@ -28,18 +28,18 @@ The encoding choice selects which digit alphabet — and therefore which represe
 
 ## Design decisions
 
-- **Encoding is selected by a string discriminator, not an `isinstance` ladder.** `Transcoder` is a `RegistryMixin` family keyed by the `Encoding` literal, so adding an encoding is one new file plus one registration decorator and never edits a shared factory.
+- **Encoding is a closed software choice.** `Encoding` is a `StrEnum`, and `create_transcoder` explicitly maps each member to its implementation. Transcoders do not use the physical-module registry: adding an encoding extends the enum and the factory together, making the closed set and its construction path visible in one place.
 - **`decode` lives on the ABC; only `encode` and `value_range` are abstract.** The positional weighted sum is identical for every encoding (they differ only in the forward alphabet), so the shared reduction is written once on the base. Pushing it down to subclasses would duplicate it three ways and let them drift.
 
 ## Contracts & invariants
 
 - **ABC observable surface.** A `Transcoder` exposes exactly: `encode(x, *, dim=-1) -> Tensor` (inserts a size-`digit_count` axis at `dim`), `decode(digits, *, dim=-1) -> Tensor` (removes that axis), and the `radix` / `digit_count` / `value_range` properties. `encode` and `decode` are mutual inverses *only within* `value_range`; outside it the forward map wraps and the round-trip is not recoverable.
-- **`encode` is shape-agnostic in `dim`.** The `dim` argument selects the inserted digit axis; the implementation assumes no fixed position. `decode` reduces the supplied digit axis and builds its positional-weight vector on the digit tensor's device and dtype.
+- **`encode` is shape-agnostic in `dim`.** The `dim` argument selects the inserted digit axis; the implementation assumes no fixed position. `decode` reduces that axis with Horner's rule, avoiding a temporary positional-weight tensor.
 - **Validation is at construction.** `radix >= 2` and `digit_count >= 1` are checked in the base `__init__`; subclasses add no further construction validation.
 
 ## Numerical method
 
-The encodings are exact integer arithmetic, evaluated digit-by-digit by repeated division and remainder by $r$ over the $D$ positions; there is no iteration to converge and no floating-point error. True-form takes the absolute value first and re-applies the sign per digit. Radix-complement post-folds only the top digit. Canonical carries a $+1$ into the next position whenever the current remainder rounds up, so the digit it emits at that position is the down-folded $d_i - r$; at $r = 2$ this carry reduces to the non-adjacent-form rule. The decode is the single weighted sum above.
+The encodings are exact integer arithmetic, evaluated digit-by-digit by repeated division and remainder by $r$ over the $D$ positions; there is no iteration to converge and no floating-point error. True-form takes the absolute value first and re-applies the sign per digit. Radix-complement post-folds only the top digit. Canonical carries a $+1$ into the next position whenever the current remainder rounds up, so the digit it emits at that position is the down-folded $d_i - r$; at $r = 2$ this carry reduces to the non-adjacent-form rule. Decode evaluates the same positional polynomial with Horner's rule.
 
 ## Performance & resources
 
@@ -57,5 +57,5 @@ The encodings are exact integer arithmetic, evaluated digit-by-digit by repeated
 ---
 
 - **Reference**: N/A — generic integer codec
-- **Implementation**: `neurox/common/encoding/base.py`, `neurox/common/encoding/true_form.py`, `neurox/common/encoding/complement.py`, `neurox/common/encoding/canonical.py`
+- **Implementation**: `neurox/common/encoding/base.py`, `neurox/common/encoding/factory.py`, `neurox/common/encoding/true_form.py`, `neurox/common/encoding/complement.py`, `neurox/common/encoding/canonical.py`
 - **Tests**: `tests/common/test_transcoder.py`

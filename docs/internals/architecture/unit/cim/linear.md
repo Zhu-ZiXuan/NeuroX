@@ -11,7 +11,7 @@ The engine-backed CIM unit exposing the linear operator: `LinearUnit` × `Engine
 
 ## Contracts & invariants
 
-- Registered via `@CimUnit.register_key(LinearCimUnitConfig)`.
+- Registered with the `(LinearCimUnitConfig, LinearCimUnitPolicy)` key.
 - `linear` accepts any leading dim set over the trailing `[K]` — every leading dim (including a caller time axis) is a broadcast batch dim that rides through untouched.
 - The engine-delegated `_matmul` never includes the bias; only `linear` adds it.
 

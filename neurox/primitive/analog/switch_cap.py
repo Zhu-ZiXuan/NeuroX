@@ -70,6 +70,10 @@ class SwitchCap(AnalogBase[SwitchCapConfig, SwitchCapPolicy]):
         cap_weights: Per-cap multipliers on ``config.c_unit__fF``.
     """
 
+    # --- Immutable PPA buffers ---
+
+    _latency_per_op__ns: Tensor
+
     # --- Fabrication source buffers ---
 
     _nominal_c__fF: Tensor
@@ -97,6 +101,11 @@ class SwitchCap(AnalogBase[SwitchCapConfig, SwitchCapPolicy]):
         self._leakage_per_inst__uW = config.leakage_per_inst__uW
         self._T__K = T__K
         self._cap_num = len(cap_weights)
+        self.register_buffer(
+            "_latency_per_op__ns",
+            torch.tensor(config.latency_per_op__ns, dtype=dtype),
+            persistent=False,
+        )
         self._register_fabrication_buffers(dtype=dtype, cap_weights=cap_weights)
 
     def _register_fabrication_buffers(
@@ -142,14 +151,10 @@ class SwitchCap(AnalogBase[SwitchCapConfig, SwitchCapPolicy]):
         c_total__fF = c__fF.sum(dim=-1)
         v_out__V = torch.sum(c__fF * v_hold__V, dim=-1) / c_total__fF
 
-        e_caps__fJ = 0.5 * torch.sum(c__fF * v_in__V * v_in__V, dim=-1)
-        dynamic_energy__fJ = e_caps__fJ + self.config.energy_per_sample_overhead__fJ
-        serial_op_count = max(1, v_out__V.numel() // max(self.inst_count, 1))
-        latency__ns = torch.tensor(
-            self.config.latency_per_op__ns * serial_op_count,
-            device=v_in__V.device,
-            dtype=dynamic_energy__fJ.dtype,
-        )
-        self._record_dynamic_energy(dynamic_energy__fJ)
+        serial_round_count = self._count_serial_rounds(v_out__V.numel())
+        latency__ns = self._latency_per_op__ns * serial_round_count
+        if self._is_dynamic_energy_profile_active():
+            e_caps__fJ = 0.5 * torch.sum(c__fF * v_in__V * v_in__V, dim=-1)
+            self._record_dynamic_energy(e_caps__fJ + self.config.energy_per_sample_overhead__fJ)
         self._record_latency(latency__ns)
         return v_out__V

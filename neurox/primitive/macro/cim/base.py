@@ -67,7 +67,7 @@ PolicyT = TypeVar("PolicyT", bound=CimMacroPolicy)
 
 class CimMacro(
     ModuleBase[ConfigT, PolicyT],
-    RegistryMixin[type["CimMacroConfig"], "CimMacro"],
+    RegistryMixin["CimMacroConfig", "CimMacroPolicy", "CimMacro"],
     Generic[ConfigT, PolicyT],
     ABC,
 ):
@@ -118,7 +118,7 @@ class CimMacro(
         dtype: torch.dtype,
         T__K: float,
     ) -> CimMacro:
-        """Build the implementation registered for ``type(config)``.
+        """Build the implementation registered for the config-policy pair.
 
         Args:
             config: Concrete configuration dataclass.
@@ -130,7 +130,7 @@ class CimMacro(
         Returns:
             Registered CIM macro implementation.
         """
-        impl = cls._lookup_impl(type(config))
+        impl = cls._lookup_neurox_module(config=config, policy=policy)
         return impl(
             config=config,
             policy=policy,

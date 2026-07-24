@@ -81,7 +81,7 @@ PolicyT = TypeVar("PolicyT", bound=CimEnginePolicy)
 
 class CimEngine(
     ModuleBase[ConfigT, PolicyT],
-    RegistryMixin[type["CimEngineConfig"], "CimEngine"],
+    RegistryMixin["CimEngineConfig", "CimEnginePolicy", "CimEngine"],
     Generic[ConfigT, PolicyT],
     ABC,
 ):
@@ -136,8 +136,8 @@ class CimEngine(
         T__K: float,
         ideal_macro: bool,
     ) -> CimEngine:
-        """Build the concrete impl registered for ``type(config)``."""
-        impl = cls._lookup_impl(type(config))
+        """Build the concrete impl registered for the config-policy pair."""
+        impl = cls._lookup_neurox_module(config=config, policy=policy)
         return impl(
             config=config,
             policy=policy,
@@ -267,9 +267,6 @@ class CimEngine(
             f"row_num={self.cim_macro.row_num}, col_num={self.cim_macro.col_num}, "
             f"w_value_range={self.w_value_range}, x_value_range={self.x_value_range}"
         )
-
-    def __repr__(self) -> str:
-        return f"{type(self).__name__}({self.extra_repr()})"
 
     def _build_cim_macro(
         self,

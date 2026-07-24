@@ -45,7 +45,7 @@ PolicyT = TypeVar("PolicyT", bound=CimUnitPolicy)
 
 class CimUnit(
     ModuleBase[ConfigT, PolicyT],
-    RegistryMixin[type["CimUnitConfig"], "CimUnit"],
+    RegistryMixin["CimUnitConfig", "CimUnitPolicy", "CimUnit"],
     UnitBase,
     Generic[ConfigT, PolicyT],
     ABC,
@@ -87,8 +87,8 @@ class CimUnit(
         T__K: float,
         ideal_macro: bool,
     ) -> CimUnit:
-        """Build the concrete impl registered for ``type(config)``."""
-        impl = cls._lookup_impl(type(config))
+        """Build the concrete impl registered for the config-policy pair."""
+        impl = cls._lookup_neurox_module(config=config, policy=policy)
         return impl(
             config=config,
             policy=policy,
@@ -186,4 +186,6 @@ class EngineBackedCimUnit(CimUnit[EbConfigT, EbPolicyT], Generic[EbConfigT, EbPo
         return self.engine.adc_rescale_factor(adc_mode=adc_mode, adc_bits=adc_bits)
 
     def _matmul(self, input: Tensor, *, adc_mode: int, adc_bits: int) -> Tensor:
+        if input.dtype.is_floating_point or input.dtype.is_complex or input.dtype == torch.bool:
+            raise TypeError(f"CIM execution requires an integer input tensor; got dtype {input.dtype}")
         return self.engine.matmul(input, adc_mode=adc_mode, adc_bits=adc_bits)

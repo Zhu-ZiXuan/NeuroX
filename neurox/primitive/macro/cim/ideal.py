@@ -56,7 +56,7 @@ class IdealCimMacroPolicy(CimMacroPolicy):
     """Empty nonideality policy for the ideal CIM macro."""
 
 
-@CimMacro.register_key(IdealCimMacroConfig)
+@CimMacro.register_neurox_module(config_type=IdealCimMacroConfig, policy_type=IdealCimMacroPolicy)
 class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
     """Ideal tile VMM with per-plane output quantization.
 
@@ -156,8 +156,6 @@ class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
     def program(self, w: Tensor) -> None:
         if tuple(w.shape) != self.w_layout_shape:
             raise ValueError(f"program() expects w.shape {self.w_layout_shape}; got {tuple(w.shape)}")
-        if w.is_floating_point() or w.is_complex():
-            raise TypeError(f"program() expects an integer digit tensor; got dtype {w.dtype}")
         self._digits = w.detach().clone()
 
     def vec_mat_mul(self, x: Tensor, *, adc_mode: int, adc_bits: int) -> Tensor:

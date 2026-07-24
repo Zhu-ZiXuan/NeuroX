@@ -8,7 +8,8 @@ import torch.nn.functional as F
 
 from neurox.architecture.unit.cim import Conv2dCimUnit, Conv2dCimUnitConfig, Conv2dCimUnitPolicy
 from neurox.architecture.unit.cim.engine import CimEngine, DirectCimEngineConfig, DirectCimEnginePolicy
-from neurox.architecture.unit.conv2d import IdealConv2dUnit, IdealConv2dUnitConfig, IdealConv2dUnitPolicy
+from neurox.architecture.unit.ideal import IdealConv2dUnit, IdealConv2dUnitConfig, IdealConv2dUnitPolicy
+from neurox.common.encoding import Encoding
 from neurox.primitive.digital import AccumulatorConfig
 from neurox.primitive.macro.cim import IdealCimMacroConfig, IdealCimMacroPolicy
 
@@ -71,7 +72,7 @@ def _unit_config(
             cim_macro_config=_ideal_macro_config(
                 row_num=row_num, col_num=col_num, active_row_num=active_row_num, x_value_range=x_value_range
             ),
-            w_encoding="true_form",
+            w_encoding=Encoding.TRUE_FORM,
             phase_accumulator_config=_accumulator_config(),
             col_accumulator_config=_accumulator_config(),
         ),
@@ -415,6 +416,13 @@ def test_toeplitz_matrix_placement() -> None:
 def test_rejects_non_4d_w_logical_shape() -> None:
     with pytest.raises(ValueError, match="C_out, C_in, kh, kw"):
         _build_unit(_unit_config(), w_logical_shape=(3, 18))
+
+
+def test_conv2d_cim_rejects_float_weight() -> None:
+    shape = (2, 1, 2, 2)
+    unit = _build_unit(_unit_config(), w_logical_shape=shape)
+    with pytest.raises(TypeError, match="integer weight tensor"):
+        unit.program(torch.zeros(shape, dtype=torch.float32))
 
 
 def test_padding_requires_x_value_range_covering_zero() -> None:

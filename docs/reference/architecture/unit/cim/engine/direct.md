@@ -1,6 +1,6 @@
 # Direct engine
 
-The no-slice corner of the precision-slicing axis: one weight slice and one activation slice ($S_w = S_a = 1$). A weight value maps onto one tile's native value range unsliced through the weight codec, and an input value is already on the tile's per-cycle input grid — the activation slicing step is the identity member of the slicer family, which validates the range and decomposes nothing. The variant applies when the quantization grid already fits inside one tile's value range; binary $\{0, 1\}$ inputs are simply the caller's choice of a narrow integer alphabet.
+The no-slice corner of the precision-slicing axis: one weight slice and one activation slice ($S_w = S_a = 1$). A weight value maps onto one tile's native value range unsliced through the weight codec, and an input value is already on the tile's per-cycle input grid — the activation slicing step is the identity member of the slicer family and decomposes nothing. The variant applies when the quantization grid already fits inside one tile's value range; binary $\{0, 1\}$ inputs are simply the caller's choice of a narrow integer alphabet.
 
 ## Physical model
 
@@ -44,8 +44,7 @@ The logical dims ($N$, $K$, $M$), the value-domain symbols, and the ADC surface 
 
 ## Assumptions, scope & validity
 
-- Weight values must fit the codec's value range (encoding-dependent, e.g. true-form $\pm(r^{D}-1)$); the range is not enforced at `program` time. Input values must fit the tile's input grid; the identity slicer validates them elementwise and rejects out-of-range inputs.
-- Construction rejects geometries whose worst-case per-tile dot product $N_{\mathrm{row}} \cdot \max|w| \cdot \max|x|$ reaches $2^{24}$: below that bound every per-tile partial is exactly representable in fp32, which keeps the integer MAC engine executable on GPUs (CUDA provides no integer matmul kernel).
+- Weight values must fit the codec's value range (encoding-dependent, e.g. true-form $\pm(r^{D}-1)$), and input values must fit the tile's input grid. These owner-side contracts are published as value ranges but are not enforced by elementwise runtime scans.
 - The variant applies only when the quantization grid fits one tile's value range; for $S_w > 1$ or $S_a > 1$ use inter_array_slice or intra_array_slice.
 
 TODO (domain author): the exact value-range bound per encoding and the saturation behaviour at the tile boundary.

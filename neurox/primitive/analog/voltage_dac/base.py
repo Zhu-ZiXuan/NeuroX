@@ -42,7 +42,7 @@ PolicyT = TypeVar("PolicyT", bound=VoltageDacPolicy)
 
 class VoltageDac(
     AnalogBase[ConfigT, PolicyT],
-    RegistryMixin[type["VoltageDacConfig"], "VoltageDac"],
+    RegistryMixin["VoltageDacConfig", "VoltageDacPolicy", "VoltageDac"],
     Generic[ConfigT, PolicyT],
     ABC,
 ):
@@ -66,7 +66,7 @@ class VoltageDac(
         dtype: torch.dtype,
         T__K: float,
     ) -> VoltageDac:
-        """Build the implementation registered for ``type(config)``.
+        """Build the implementation registered for the config-policy pair.
 
         Args:
             config: Concrete configuration dataclass.
@@ -78,7 +78,7 @@ class VoltageDac(
         Returns:
             Registered voltage-DAC implementation.
         """
-        impl = cls._lookup_impl(type(config))
+        impl = cls._lookup_neurox_module(config=config, policy=policy)
         return impl(
             config=config,
             policy=policy,

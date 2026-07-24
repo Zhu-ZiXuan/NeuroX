@@ -21,7 +21,7 @@ The state is one ordinary conductance tensor at the programmed broadcast shape. 
 
 ## Gotchas
 
-- **Drift is unconditional, not policy-gated.** Unlike the four policy-flagged sources, the power-law drift gain is applied whenever `drift_decay_rate > 0` and `t_elapsed > drift_t0` — there is no `RramPolicy` switch for it. To disable drift, set the device parameters, not a policy flag.
+- **Drift is program-time state evolution.** The power-law drift gain is applied only when the `drift` policy is enabled, `drift_decay_rate > 0`, and `t_elapsed > drift_t0`; disabling the policy preserves the programmed conductance regardless of elapsed time.
 - **`alpha == 0` is a distinct branch.** The linear I-V path returns `g.expand_as(i)` for the differential conductance; do not assume the `sinh`/`cosh` form is always taken. The branch is on the config value, so it is compile-time-constant per instance.
 - **Read noise is reseeded every snapshot.** Two snaps of the same programmed state differ under a noise-on policy; chunked reads are therefore not bit-identical to a single-block read with noise on.
 

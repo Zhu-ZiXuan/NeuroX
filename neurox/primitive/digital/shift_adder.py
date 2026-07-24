@@ -46,7 +46,13 @@ class ShiftAdder(DigitalBase[ShiftAdderConfig]):
         config: Shift-adder configuration.
         policy: Digital execution policy.
         inst_shape: Per-instance fabrication shape.
+        scale: Positional radix.
+        digit_count: Number of positional digits reduced per operation.
     """
+
+    # --- Immutable model buffers ---
+
+    _scales: Tensor
 
     def __init__(
         self,
@@ -54,17 +60,28 @@ class ShiftAdder(DigitalBase[ShiftAdderConfig]):
         config: ShiftAdderConfig,
         policy: DigitalPolicy,
         inst_shape: tuple[int, ...],
+        scale: int,
+        digit_count: int,
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
         self._area_per_inst__um2 = config.area_per_inst__um2
         self._leakage_per_inst__uW = config.leakage_per_inst__uW
+        self._register_latency_buffer(config.latency_per_op__ns)
+        if scale < 2:
+            raise ValueError(f"require: scale ({scale}) >= 2")
+        if digit_count < 1:
+            raise ValueError(f"require: digit_count ({digit_count}) >= 1")
+        self.register_buffer(
+            "_scales",
+            torch.tensor([scale**i for i in range(digit_count)], dtype=torch.int64),
+            persistent=False,
+        )
 
-    def shift_add(self, x: Tensor, scale: int, dim: int, init_val: Tensor | None) -> Tensor:
+    def shift_add(self, x: Tensor, dim: int, init_val: Tensor | None) -> Tensor:
         """Compute the radix-weighted digit sum and wrap to ``bit_width`` bits.
 
         Args:
             x: Integer digit tensor; size of ``dim`` is the digit count.
-            scale: Radix of the digit representation.
             dim: Axis indexing the digit positions.
             init_val: Optional partial-sum tensor added after the modular wrap,
                 broadcastable to the output shape.
@@ -75,22 +92,17 @@ class ShiftAdder(DigitalBase[ShiftAdderConfig]):
         bw = self.config.bit_width
         half = 1 << (bw - 1)
         full = 1 << bw
-        scales = torch.tensor([scale**i for i in range(x.size(dim))], device=x.device, dtype=x.dtype)
 
         shape = [1] * x.ndim
         shape[dim] = x.size(dim)
-        y = ((x * scales.view(*shape)).sum(dim=dim) + half) % full - half
+        y = ((x * self._scales.view(*shape)).sum(dim=dim) + half) % full - half
 
         if init_val is not None:
             y = y + init_val
 
-        serial_op_count = -(-y.numel() // max(self.inst_count, 1))  # ceil(numel / inst); empty -> 0
-        dynamic_energy__fJ = torch.full_like(y, self.config.energy_per_op__fJ, dtype=torch.float32)
-        latency__ns = torch.tensor(
-            self.config.latency_per_op__ns * serial_op_count,
-            device=y.device,
-            dtype=dynamic_energy__fJ.dtype,
-        )
-        self._record_dynamic_energy(dynamic_energy__fJ)
+        serial_round_count = self._count_serial_rounds(y.numel())
+        latency__ns = self._latency_per_op__ns * serial_round_count
+        if self._is_dynamic_energy_profile_active():
+            self._record_dynamic_energy(torch.full_like(y, self.config.energy_per_op__fJ, dtype=torch.float32))
         self._record_latency(latency__ns)
         return y

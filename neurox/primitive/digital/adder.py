@@ -57,6 +57,7 @@ class Adder(DigitalBase[AdderConfig]):
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
         self._area_per_inst__um2 = config.area_per_inst__um2
         self._leakage_per_inst__uW = config.leakage_per_inst__uW
+        self._register_latency_buffer(config.latency_per_op__ns)
 
     def add(self, a: Tensor, b: Tensor) -> Tensor:
         """Add ``a`` and ``b`` element-wise.
@@ -69,13 +70,9 @@ class Adder(DigitalBase[AdderConfig]):
             ``y = a + b``.
         """
         y = a + b
-        serial_op_count = -(-y.numel() // max(self.inst_count, 1))  # ceil(numel / inst); empty -> 0
-        dynamic_energy__fJ = torch.full_like(y, self.config.energy_per_op__fJ, dtype=torch.float32)
-        latency__ns = torch.tensor(
-            self.config.latency_per_op__ns * serial_op_count,
-            device=y.device,
-            dtype=dynamic_energy__fJ.dtype,
-        )
-        self._record_dynamic_energy(dynamic_energy__fJ)
+        serial_round_count = self._count_serial_rounds(y.numel())
+        latency__ns = self._latency_per_op__ns * serial_round_count
+        if self._is_dynamic_energy_profile_active():
+            self._record_dynamic_energy(torch.full_like(y, self.config.energy_per_op__fJ, dtype=torch.float32))
         self._record_latency(latency__ns)
         return y

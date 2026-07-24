@@ -80,6 +80,10 @@ class VoltageMux(AnalogBase[VoltageMuxConfig, VoltageMuxPolicy]):
         T__K: Operating temperature.
     """
 
+    # --- Immutable PPA buffers ---
+
+    _latency_per_op__ns: Tensor
+
     # --- Fabrication source buffers ---
 
     _nominal_eps_g: Tensor
@@ -97,6 +101,11 @@ class VoltageMux(AnalogBase[VoltageMuxConfig, VoltageMuxPolicy]):
         self._area_per_inst__um2 = config.area_per_inst__um2
         self._leakage_per_inst__uW = config.leakage_per_inst__uW
         self._sigma_eps_g = config.mux_gain_mismatch_sigma_relative
+        self.register_buffer(
+            "_latency_per_op__ns",
+            torch.tensor(config.latency_per_op__ns, dtype=dtype),
+            persistent=False,
+        )
         self._register_fabrication_buffers(dtype=dtype)
 
     def _register_fabrication_buffers(self, *, dtype: torch.dtype) -> None:
@@ -141,13 +150,9 @@ class VoltageMux(AnalogBase[VoltageMuxConfig, VoltageMuxPolicy]):
         v_pos_muxed__V = v_pos_muxed__V + n_dm__V
         v_neg_muxed__V = v_neg_muxed__V - n_dm__V
 
-        serial_op_count = max(1, v_pos__V.numel() // max(self.inst_count, 1))
-        dynamic_energy__fJ = torch.full_like(v_pos__V, self.config.energy_per_access__fJ)
-        latency__ns = torch.tensor(
-            self.config.latency_per_op__ns * serial_op_count,
-            device=v_pos__V.device,
-            dtype=dynamic_energy__fJ.dtype,
-        )
-        self._record_dynamic_energy(dynamic_energy__fJ)
+        serial_round_count = self._count_serial_rounds(v_pos__V.numel())
+        latency__ns = self._latency_per_op__ns * serial_round_count
+        if self._is_dynamic_energy_profile_active():
+            self._record_dynamic_energy(torch.full_like(v_pos__V, self.config.energy_per_access__fJ))
         self._record_latency(latency__ns)
         return v_pos_muxed__V, v_neg_muxed__V

@@ -32,7 +32,7 @@ It does **not** instantiate `CimMacro`, `CimUnit`, readout blocks, or an ADC, an
 
 The ladder must be deterministic, so the tool forces every randomness source off rather than reading a policy file. It builds:
 
-- `RramPolicy(prog_gamma=False, stuck_at=False, read_telegraph=False, read_thermal=False)`
+- `RramPolicy(prog_gamma=False, drift=False, stuck_at=False, read_telegraph=False, read_thermal=False)`
 - `MosfetPolicy(A_vt_mismatch=False, A_beta_mismatch=False)`
 
 Conductance drift is skipped because programming uses `t_elapsed = 0.0`, which the RRAM model treats as a no-drift snap by its own contract. Each candidate conductance is applied once via `Rram.program` followed by a single `Rram.snapshot`; that snap is reused at every solver evaluation for that conductance.

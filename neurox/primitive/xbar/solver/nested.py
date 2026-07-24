@@ -109,7 +109,6 @@ class NestedParallelRailSolverConfig(SolverConfig):
         self._require_pos(self.n_inner, "n_inner")
 
 
-@Solver.register_key(NestedParallelRailSolverConfig)
 class NestedParallelRailSolver(Solver):
     """Block Gauss-Seidel + implicit-Newton DC solver for a parallel BL/SL tile.
 

@@ -99,7 +99,10 @@ class XbarCell1t1rLinearSnap(XbarCell1t1rSnap):
     vx_ratio_off: Tensor
 
 
-@XbarCell1t1r.register_key(XbarCell1t1rLinearConfig)
+@XbarCell1t1r.register_neurox_module(
+    config_type=XbarCell1t1rLinearConfig,
+    policy_type=XbarCell1t1rLinearPolicy,
+)
 class XbarCell1t1rLinear(XbarCell1t1r[XbarCell1t1rLinearConfig, XbarCell1t1rLinearPolicy, XbarCell1t1rLinearSnap]):
     """Table-driven linearized 1T1R cell.
 
@@ -127,8 +130,6 @@ class XbarCell1t1rLinear(XbarCell1t1r[XbarCell1t1rLinearConfig, XbarCell1t1rLine
         dtype: torch.dtype,
         T__K: float,
     ) -> None:
-        if not isinstance(policy, XbarCell1t1rLinearPolicy):
-            raise TypeError(f"XbarCell1t1rLinear requires an XbarCell1t1rLinearPolicy; got {type(policy).__name__}")
         super().__init__(config=config, policy=policy, inst_shape=inst_shape, dtype=dtype, T__K=T__K)
 
         self.register_buffer(

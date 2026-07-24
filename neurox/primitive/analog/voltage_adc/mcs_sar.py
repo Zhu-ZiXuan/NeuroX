@@ -88,7 +88,10 @@ class McsSarDifferentialVoltageAdcPolicy(DifferentialVoltageAdcPolicy):
     sampling_thermal_noise: bool
 
 
-@DifferentialVoltageAdc.register_key(McsSarDifferentialVoltageAdcConfig)
+@DifferentialVoltageAdc.register_neurox_module(
+    config_type=McsSarDifferentialVoltageAdcConfig,
+    policy_type=McsSarDifferentialVoltageAdcPolicy,
+)
 class McsSarDifferentialVoltageAdc(
     DifferentialVoltageAdc[McsSarDifferentialVoltageAdcConfig, McsSarDifferentialVoltageAdcPolicy]
 ):
@@ -101,6 +104,10 @@ class McsSarDifferentialVoltageAdc(
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature.
     """
+
+    # --- Immutable PPA buffers ---
+
+    _clk_period__ns: Tensor
 
     # --- Fabrication source buffers ---
 
@@ -133,6 +140,11 @@ class McsSarDifferentialVoltageAdc(
         self._comparator_noise_sigma__V = config.comparator_thermal_noise_sigma__V * math.sqrt(T__K / 300.0)
 
         self._cap_num = config.max_bits
+        self.register_buffer(
+            "_clk_period__ns",
+            torch.tensor(config.clk_period__ns, dtype=dtype),
+            persistent=False,
+        )
         self._register_fabrication_buffers(dtype=dtype)
 
         # Precompute integer tables to avoid symbolic left shifts at runtime.
@@ -243,11 +255,6 @@ class McsSarDifferentialVoltageAdc(
             v_n_top__V, torch.sqrt(kt__fJ / c_n_total__fF), enabled=self.policy.sampling_thermal_noise
         )
 
-        # Sample energy: input source charges the bottom-plate caps from V_cm to V_in.
-        e_p_sample__fJ = c_p_total__fF * v_pos__V * torch.clamp_min(v_pos__V - v_cm__V, 0)
-        e_n_sample__fJ = c_n_total__fF * v_neg__V * torch.clamp_min(v_neg__V - v_cm__V, 0)
-        e_sample__fJ = e_p_sample__fJ + e_n_sample__fJ + self.config.e_bootstrap__fJ
-
         # --- 2: resolve the MSB without capacitor switching ---
 
         # neg cap top to comparator Vin+, pos cap top to comparator Vin-
@@ -268,9 +275,6 @@ class McsSarDifferentialVoltageAdc(
         c_n_total_e__fF = c_n_total__fF.unsqueeze(-1)
         v_p_step_table__V = v_cm__V * c_p_used__fF / c_p_total_e__fF
         v_n_step_table__V = v_cm__V * c_n_used__fF / c_n_total_e__fF
-        e_step_p_table__fJ = 0.5 * v_ref__V**2 * c_p_used__fF * (1 - c_p_used__fF / c_p_total_e__fF)
-        e_step_n_table__fJ = 0.5 * v_ref__V**2 * c_n_used__fF * (1 - c_n_used__fF / c_n_total_e__fF)
-        c_diff_step_table__fF = c_p_used__fF - c_n_used__fF
 
         # --- 4: run the SAR decisions ---
 
@@ -285,26 +289,31 @@ class McsSarDifferentialVoltageAdc(
             last_bit = self._compare(v_pos__V=v_n_top__V, v_neg__V=v_p_top__V)
             code = (code << 1) | last_bit.to(torch.int32)
 
-        # --- 5: accumulate vectorized energy and capacitance terms ---
+        # --- 5: record dynamic energy when requested ---
 
-        shifts = torch.arange(1, bits, device=code.device, dtype=code.dtype)
-        # Shape: [...] -> [..., bits-1]
-        bit_seq = ((code.unsqueeze(-1) >> shifts) & 1).to(torch.bool)
-        # Shape: [..., bits-1] -> [...]
-        e_detect__fJ = (
-            torch.where(bit_seq, e_step_p_table__fJ, e_step_n_table__fJ).sum(dim=-1)
-            + bits * self.config.e_constant_per_bit__fJ
-        )
-        # Shape: [..., bits-1] -> [...]
-        c_diff__fF = (torch.where(bit_seq, -0.5, 0.5) * c_diff_step_table__fF).sum(dim=-1)
+        if self._is_dynamic_energy_profile_active():
+            e_p_sample__fJ = c_p_total__fF * v_pos__V * torch.clamp_min(v_pos__V - v_cm__V, 0)
+            e_n_sample__fJ = c_n_total__fF * v_neg__V * torch.clamp_min(v_neg__V - v_cm__V, 0)
+            e_sample__fJ = e_p_sample__fJ + e_n_sample__fJ + self.config.e_bootstrap__fJ
 
-        # --- 6: dissipate residual differential charge ---
+            e_step_p_table__fJ = 0.5 * v_ref__V**2 * c_p_used__fF * (1 - c_p_used__fF / c_p_total_e__fF)
+            e_step_n_table__fJ = 0.5 * v_ref__V**2 * c_n_used__fF * (1 - c_n_used__fF / c_n_total_e__fF)
+            c_diff_step_table__fF = c_p_used__fF - c_n_used__fF
 
-        e_reset__fJ = torch.abs(0.5 * v_ref__V**2 * c_diff__fF)
+            shifts = torch.arange(1, bits, device=code.device, dtype=code.dtype)
+            # Shape: [...] -> [..., bits-1]
+            bit_seq = ((code.unsqueeze(-1) >> shifts) & 1).to(torch.bool)
+            # Shape: [..., bits-1] -> [...]
+            e_detect__fJ = (
+                torch.where(bit_seq, e_step_p_table__fJ, e_step_n_table__fJ).sum(dim=-1)
+                + bits * self.config.e_constant_per_bit__fJ
+            )
+            # Shape: [..., bits-1] -> [...]
+            c_diff__fF = (torch.where(bit_seq, -0.5, 0.5) * c_diff_step_table__fF).sum(dim=-1)
+            e_reset__fJ = torch.abs(0.5 * v_ref__V**2 * c_diff__fF)
+            self._record_dynamic_energy(e_sample__fJ + e_detect__fJ + e_reset__fJ)
 
-        e_dynamic__fJ = e_sample__fJ + e_detect__fJ + e_reset__fJ
-
-        # --- 7: apply optional stochastic LSB jitter ---
+        # --- 6: apply optional stochastic LSB jitter ---
 
         code = apply_lsb_jitter(
             code,
@@ -312,14 +321,8 @@ class McsSarDifferentialVoltageAdc(
             enabled=self.training,
         )
         # One sample cycle plus ``bits`` SAR comparisons.
-        serial_op_count = max(1, code.numel() // max(self.inst_count, 1))
-        per_op_latency__ns = (bits + 1) * self.config.clk_period__ns
-        latency__ns = torch.tensor(
-            per_op_latency__ns * serial_op_count,
-            device=code.device,
-            dtype=e_dynamic__fJ.dtype,
-        )
-        self._record_dynamic_energy(e_dynamic__fJ)
+        serial_round_count = self._count_serial_rounds(code.numel())
+        latency__ns = self._clk_period__ns * (bits + 1) * serial_round_count
         self._record_latency(latency__ns)
         return code
 

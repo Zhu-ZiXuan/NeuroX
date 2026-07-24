@@ -4,7 +4,7 @@
 
 ## Design decisions
 
-- **Family dispatch keyed on config type.** `type(config)` is the discriminator, so adding a member adds one registry entry and never changes `from_config`.
+- **Family dispatch keyed on config and policy types.** `(type(config), type(policy))` is the discriminator, so adding a member registers one concrete pair and never changes `from_config`; mismatched config-policy wiring fails before leaf construction.
 
 ## Contracts & invariants
 

@@ -8,7 +8,7 @@ import pytest
 import torch
 
 from neurox.architecture.unit.cim.slicer import DirectSlicer, SerialSlicer, SimpleSlicer
-from neurox.common.encoding import Encoding, Transcoder
+from neurox.common.encoding import Encoding, create_transcoder
 
 
 def _decode_serial_slices(slices: torch.Tensor, weights: tuple[int, ...]) -> torch.Tensor:
@@ -63,23 +63,23 @@ def test_serial_slicer_roundtrip_for_geometry_cases(slice_num: int, digit_radix:
 
 @pytest.mark.parametrize(
     "encoding",
-    ["true_form", "complement", "canonical"],
+    [Encoding.TRUE_FORM, Encoding.COMPLEMENT, Encoding.CANONICAL],
 )
 def test_simple_slicer_value_range_delegates_to_full_length_transcoder(encoding: Encoding) -> None:
     slicer = SimpleSlicer(slice_num=2, digit_count=3, digit_radix=2, encoding=encoding)
-    transcoder = Transcoder.create(encoding, radix=2, digit_count=6)
+    transcoder = create_transcoder(encoding=encoding, radix=2, digit_count=6)
     assert slicer.value_range == transcoder.value_range
 
 
 def test_simple_slicer_contract() -> None:
-    slicer = SimpleSlicer(slice_num=2, digit_count=3, digit_radix=2, encoding="true_form")
+    slicer = SimpleSlicer(slice_num=2, digit_count=3, digit_radix=2, encoding=Encoding.TRUE_FORM)
     assert slicer.value_range == (-63, 63)
     assert slicer.slice_radix == 8
     assert slicer.slice_weights == (1, 8)
 
 
 def test_simple_slicer_shape_and_roundtrip(device: torch.device) -> None:
-    slicer = SimpleSlicer(slice_num=2, digit_count=3, digit_radix=2, encoding="true_form")
+    slicer = SimpleSlicer(slice_num=2, digit_count=3, digit_radix=2, encoding=Encoding.TRUE_FORM)
     lo, hi = slicer.value_range
     w = torch.arange(lo, hi + 1, dtype=torch.int32, device=device)
     sliced = slicer.slice(w)
@@ -91,13 +91,13 @@ def test_simple_slicer_shape_and_roundtrip(device: torch.device) -> None:
 @pytest.mark.parametrize(
     ("encoding", "slice_num", "digit_count", "digit_radix"),
     [
-        ("true_form", 1, 1, 4),
-        ("true_form", 3, 1, 4),
-        ("true_form", 2, 3, 2),
-        ("complement", 2, 3, 2),
-        ("complement", 3, 2, 3),
-        ("canonical", 2, 3, 2),
-        ("canonical", 2, 2, 4),
+        (Encoding.TRUE_FORM, 1, 1, 4),
+        (Encoding.TRUE_FORM, 3, 1, 4),
+        (Encoding.TRUE_FORM, 2, 3, 2),
+        (Encoding.COMPLEMENT, 2, 3, 2),
+        (Encoding.COMPLEMENT, 3, 2, 3),
+        (Encoding.CANONICAL, 2, 3, 2),
+        (Encoding.CANONICAL, 2, 2, 4),
     ],
 )
 def test_simple_slicer_roundtrip_for_encoding_and_geometry_cases(
@@ -124,9 +124,9 @@ def test_simple_slicer_roundtrip_for_encoding_and_geometry_cases(
 @pytest.mark.parametrize(
     "kwargs",
     [
-        {"slice_num": 0, "digit_count": 3, "digit_radix": 2, "encoding": "true_form"},
-        {"slice_num": 1, "digit_count": 0, "digit_radix": 2, "encoding": "true_form"},
-        {"slice_num": 1, "digit_count": 3, "digit_radix": 1, "encoding": "true_form"},
+        {"slice_num": 0, "digit_count": 3, "digit_radix": 2, "encoding": Encoding.TRUE_FORM},
+        {"slice_num": 1, "digit_count": 0, "digit_radix": 2, "encoding": Encoding.TRUE_FORM},
+        {"slice_num": 1, "digit_count": 3, "digit_radix": 1, "encoding": Encoding.TRUE_FORM},
     ],
 )
 def test_simple_slicer_rejects_invalid_geometry(kwargs: dict[str, Any]) -> None:
@@ -182,9 +182,9 @@ def test_direct_slicer_rejects_invalid_value_range(value_range: tuple[int, int])
         DirectSlicer(value_range=value_range)
 
 
-@pytest.mark.parametrize("bad_value", [-9, 8])
-def test_direct_slicer_rejects_out_of_range_input(bad_value: int, device: torch.device) -> None:
+@pytest.mark.parametrize("value", [-9, 8])
+def test_direct_slicer_does_not_scan_runtime_values(value: int, device: torch.device) -> None:
     slicer = DirectSlicer(value_range=(-8, 7))
-    x = torch.tensor([0, bad_value], dtype=torch.int32, device=device)
-    with pytest.raises(ValueError):
-        slicer.slice(x)
+    x = torch.tensor([0, value], dtype=torch.int32, device=device)
+    sliced = slicer.slice(x)
+    assert torch.equal(sliced[..., 0, 0], x)

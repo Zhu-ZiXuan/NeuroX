@@ -42,7 +42,7 @@ from neurox.primitive.xbar.cell import (
     XbarCell1t1rLinearPolicy,
     XbarCell1t1rLinearSnap,
 )
-from neurox.primitive.xbar.solver import Solver, SolverConfig
+from neurox.primitive.xbar.solver import NestedParallelRailSolver, NestedParallelRailSolverConfig
 
 # --- Hand-written harness constants (arbitrary small witnesses) ---
 
@@ -105,7 +105,7 @@ class SolverHarness:
     reference taps (exact clamp targets, since both drivers are ideal).
     """
 
-    solver: Solver
+    solver: NestedParallelRailSolver
     cell: XbarCell1t1rLinear
     cell_config: XbarCell1t1rLinearConfig
     w_state_idx: Tensor
@@ -156,7 +156,7 @@ def _wire_seg_tensor(first: float, segment: float, row_num: int, device: torch.d
 
 def build_solver_harness(
     *,
-    solver_config: SolverConfig,
+    solver_config: NestedParallelRailSolverConfig,
     device: torch.device,
     dtype: torch.dtype = torch.float64,
     v_wl_drive__V: float = 0.9,
@@ -171,7 +171,7 @@ def build_solver_harness(
     are exact Dirichlet values and the whole system is linear.
 
     Args:
-        solver_config: Concrete ``SolverConfig`` (nested).
+        solver_config: Nested parallel-rail solver parameters.
         device: Torch device.
         dtype: Float dtype for device buffers.
         v_wl_drive__V: Uniform WL drive voltage for the harness call
@@ -250,7 +250,7 @@ def build_solver_harness(
 
     # --- Solver (stateless: cell + drivers supplied per call) ---
 
-    solver = Solver.from_config(config=solver_config)
+    solver = NestedParallelRailSolver(config=solver_config)
 
     return SolverHarness(
         solver=solver,

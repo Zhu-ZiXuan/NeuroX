@@ -51,6 +51,14 @@ class ProfileMixin:
         return self._leakage_per_inst__uW * self.inst_count
 
     @torch.compiler.disable
+    def _is_dynamic_energy_profile_active(self) -> bool:
+        """Return whether the active profiler requests dynamic energy."""
+        from neurox.common.profiler import NeuroxProfiler
+
+        profiler = NeuroxProfiler.get_current()
+        return profiler is not None
+
+    @torch.compiler.disable
     def _record_dynamic_energy(self, dynamic_energy__fJ: Tensor, *, channel: str | None = None) -> None:
         """Record one dynamic-energy event to the active profiler (no-op outside one).
 

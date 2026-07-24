@@ -56,7 +56,7 @@ class GeneralVoltageDacPolicy(VoltageDacPolicy):
     drive_thermal: bool
 
 
-@VoltageDac.register_key(GeneralVoltageDacConfig)
+@VoltageDac.register_neurox_module(config_type=GeneralVoltageDacConfig, policy_type=GeneralVoltageDacPolicy)
 class GeneralVoltageDac(VoltageDac[GeneralVoltageDacConfig, GeneralVoltageDacPolicy]):
     """General voltage DAC model with a code-to-voltage LUT.
 
@@ -71,6 +71,7 @@ class GeneralVoltageDac(VoltageDac[GeneralVoltageDacConfig, GeneralVoltageDacPol
     # --- Immutable model buffers ---
 
     _code_to_signal: Tensor
+    _latency_per_op__ns: Tensor
 
     def __init__(
         self,
@@ -93,6 +94,11 @@ class GeneralVoltageDac(VoltageDac[GeneralVoltageDacConfig, GeneralVoltageDacPol
         self._leakage_per_inst__uW = config.leakage_per_inst__uW
 
         self.register_buffer("_code_to_signal", torch.tensor(config.code_to_signal, dtype=dtype), persistent=False)
+        self.register_buffer(
+            "_latency_per_op__ns",
+            torch.tensor(config.latency_per_op__ns, dtype=dtype),
+            persistent=False,
+        )
 
     def _sample_fabricate_mismatch(self) -> None:
         pass
@@ -118,14 +124,10 @@ class GeneralVoltageDac(VoltageDac[GeneralVoltageDacConfig, GeneralVoltageDacPol
         )
 
         assert signal.numel() % self.inst_count == 0
-        serial_op_count = max(1, signal.numel() // max(self.inst_count, 1))
-        dynamic_energy__fJ = torch.full_like(signal, self.config.energy_per_op__fJ, dtype=torch.float32)
-        latency__ns = torch.tensor(
-            self.config.latency_per_op__ns * serial_op_count,
-            device=signal.device,
-            dtype=dynamic_energy__fJ.dtype,
-        )
-        self._record_dynamic_energy(dynamic_energy__fJ)
+        serial_round_count = self._count_serial_rounds(signal.numel())
+        latency__ns = self._latency_per_op__ns * serial_round_count
+        if self._is_dynamic_energy_profile_active():
+            self._record_dynamic_energy(torch.full_like(signal, self.config.energy_per_op__fJ, dtype=torch.float32))
         self._record_latency(latency__ns)
 
         return signal

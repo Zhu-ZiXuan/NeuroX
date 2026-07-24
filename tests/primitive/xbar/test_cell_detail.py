@@ -38,7 +38,13 @@ def _build_cell(inst_shape: tuple[int, ...]) -> XbarCell1t1rDetail:
         newton_iter_num=4,
     )
     policy = XbarCell1t1rDetailPolicy(
-        rram_policy=RramPolicy(prog_gamma=False, stuck_at=False, read_telegraph=False, read_thermal=False),
+        rram_policy=RramPolicy(
+            prog_gamma=False,
+            drift=False,
+            stuck_at=False,
+            read_telegraph=False,
+            read_thermal=False,
+        ),
         nmos_policy=MosfetPolicy(A_vt_mismatch=False, A_beta_mismatch=False),
     )
     cell = XbarCell1t1r.from_config(

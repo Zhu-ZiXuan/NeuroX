@@ -26,7 +26,7 @@ N/A — exact digital function; no register wrap, no static mismatch, no per-cal
 
 The subtract is element-wise, so each output element is one subtractor evaluation. Latency is set by the busiest instance: the serial-op count of a call is the number of output elements on the instance carrying the most work,
 
-$$n_{\mathrm{serial}} = \left\lceil \frac{\operatorname{numel}(y)}{\max(N_{\mathrm{inst}}, 1)} \right\rceil,$$
+$$n_{\mathrm{serial}} = \left\lceil \frac{\operatorname{numel}(y)}{N_{\mathrm{inst}}} \right\rceil,$$
 
 so its latency is $t = t_{\mathrm{op}}\, n_{\mathrm{serial}}$. Dynamic energy is total work, independent of how the outputs distribute across instances,
 
@@ -57,7 +57,7 @@ Provenance terms are defined in [module_parameter](../../../conventions/module_p
 | $y$ | element-wise difference | — | return of `subtract` |
 | $E_{\mathrm{op}}$ | dynamic energy per output element | fJ | `energy_per_op__fJ` |
 | $t_{\mathrm{op}}$ | latency per output element | ns | `latency_per_op__ns` |
-| $n_{\mathrm{serial}}$ | serial-op count of a call | — | `serial_op_count` |
+| $n_{\mathrm{serial}}$ | serial rounds of a call | — | `serial_round_count` |
 | $N_{\mathrm{inst}}$ | fabricated instance count | — | `inst_count` |
 | $A_{\mathrm{inst}}$ | area per instance | um^2 | `area_per_inst__um2` |
 | $P_{\mathrm{inst}}$ | leakage per instance | uW | `leakage_per_inst__uW` |

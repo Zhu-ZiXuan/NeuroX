@@ -2,7 +2,7 @@
 
 ## Design decisions
 
-- **Direct registry member.** `IdealCimMacro` registers its config type and can
+- **Direct registry member.** `IdealCimMacro` registers its config-policy pair and can
   be built either directly or as the ideal counterpart of another family
   member.
 - **Per-plane quantization.** `vec_mat_mul` uses `adc_bits` and treats

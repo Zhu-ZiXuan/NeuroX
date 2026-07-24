@@ -143,7 +143,10 @@ class XbarCell1t1rDetailSnap(XbarCell1t1rSnap):
     nmos: MosfetSnap
 
 
-@XbarCell1t1r.register_key(XbarCell1t1rDetailConfig)
+@XbarCell1t1r.register_neurox_module(
+    config_type=XbarCell1t1rDetailConfig,
+    policy_type=XbarCell1t1rDetailPolicy,
+)
 class XbarCell1t1rDetail(XbarCell1t1r[XbarCell1t1rDetailConfig, XbarCell1t1rDetailPolicy, XbarCell1t1rDetailSnap]):
     """Series access-NMOS and RRAM cell with a condensed BL-to-SL branch.
 

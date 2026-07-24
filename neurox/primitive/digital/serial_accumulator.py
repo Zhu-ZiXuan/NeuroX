@@ -29,13 +29,9 @@ class SerialAccumulator(Accumulator):
         full = 1 << bw
         y = (x.sum(dim) + half) % full - half
 
-        serial_op_count = -(-x.numel() // max(self.inst_count, 1))  # ceil(numel / inst); empty -> 0
-        dynamic_energy__fJ = torch.full_like(x, self.config.energy_per_op__fJ, dtype=torch.float32)
-        latency__ns = torch.tensor(
-            self.config.latency_per_op__ns * serial_op_count,
-            device=y.device,
-            dtype=dynamic_energy__fJ.dtype,
-        )
-        self._record_dynamic_energy(dynamic_energy__fJ)
+        serial_round_count = self._count_serial_rounds(x.numel())
+        latency__ns = self._latency_per_op__ns * serial_round_count
+        if self._is_dynamic_energy_profile_active():
+            self._record_dynamic_energy(torch.full_like(x, self.config.energy_per_op__fJ, dtype=torch.float32))
         self._record_latency(latency__ns)
         return y

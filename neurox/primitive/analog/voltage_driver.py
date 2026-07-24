@@ -167,7 +167,8 @@ class VoltageDriver(AnalogBase[VoltageDriverConfig, VoltageDriverPolicy]):
             offset_view = self._offset__V.expand(shape) if shape else self._offset__V
             v = v + (offset_view if multi_coords is None else offset_view[multi_coords])
         v = apply_gaussian(v, self.config.thermal_sigma__V, enabled=self.policy.thermal)
-        self._record_dynamic_energy(torch.full_like(v, self.config.energy_per_op__fJ, dtype=torch.float32))
+        if self._is_dynamic_energy_profile_active():
+            self._record_dynamic_energy(torch.full_like(v, self.config.energy_per_op__fJ, dtype=torch.float32))
         return VoltageDriverSnap(v_ref__V=v, r_out__MOhm=self._frozen_r_out__MOhm)
 
     def solve_clamp(

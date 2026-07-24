@@ -12,7 +12,7 @@ import torch
 from torch import Tensor
 
 from neurox.architecture.unit.cim.slicer import DirectSlicer
-from neurox.common.encoding import Transcoder
+from neurox.common.encoding import create_transcoder
 from neurox.primitive.digital import (
     Accumulator,
     DigitalPolicy,
@@ -20,10 +20,6 @@ from neurox.primitive.digital import (
 )
 
 from .base import CimEngine, CimEngineConfig, CimEnginePolicy, _chunk_pad_along
-
-# Largest integer count fp32 represents exactly (2^24): any per-tile dot
-# product below this bound survives an fp32 matmul bit-exactly.
-_FP32_EXACT_BOUND = 1 << 24
 
 
 class DirectCimEngineConfig(CimEngineConfig):
@@ -34,7 +30,7 @@ class DirectCimEnginePolicy(CimEnginePolicy):
     """Policy for :class:`DirectCimEngine`."""
 
 
-@CimEngine.register_key(DirectCimEngineConfig)
+@CimEngine.register_neurox_module(config_type=DirectCimEngineConfig, policy_type=DirectCimEnginePolicy)
 class DirectCimEngine(CimEngine[DirectCimEngineConfig, DirectCimEnginePolicy]):
     """CIM engine that transcodes weights without activation or weight slicing."""
 
@@ -68,17 +64,16 @@ class DirectCimEngine(CimEngine[DirectCimEngineConfig, DirectCimEnginePolicy]):
             inst_shape=(*w_batch, 1, tc, tr),
             n_logical=n_logical,
             k_logical=k_logical,
-            w_parallel_size=max(math.prod(w_batch), 1),
+            w_parallel_size=math.prod(w_batch),
             row_tile_num=tr,
         )
         self._init_data_path_children(tc=tc, tr=tr)
-        self._derive_numeric_bounds(row_num=row_num)
 
     def _init_data_path_children(self, *, tc: int, tr: int) -> None:
         """Construct the data organizers and digital accumulators."""
         config = self.config
         cim_macro = self.cim_macro
-        self._w_transcoder = Transcoder.create(
+        self._w_transcoder = create_transcoder(
             encoding=config.w_encoding,
             radix=cim_macro.w_digit_radix,
             digit_count=cim_macro.w_digit_count,
@@ -96,22 +91,6 @@ class DirectCimEngine(CimEngine[DirectCimEngineConfig, DirectCimEnginePolicy]):
             policy=DigitalPolicy(),
             inst_shape=(self._w_parallel_size, tr),
         )
-
-    def _derive_numeric_bounds(self, *, row_num: int) -> None:
-        """Derive and validate the exact fp32 tile-dot bound."""
-        cim_macro = self.cim_macro
-        x_lo, x_hi = cim_macro.x_value_range
-        d_lo, d_hi = cim_macro.w_digit_value_range
-        max_digit_abs = max(abs(d_lo), abs(d_hi))
-        max_w_abs = max_digit_abs * sum(cim_macro.w_digit_radix**k for k in range(cim_macro.w_digit_count))
-        max_x_abs = max(abs(x_lo), abs(x_hi))
-        max_tile_dot_abs = row_num * max_w_abs * max_x_abs
-        if not (max_tile_dot_abs < _FP32_EXACT_BOUND):
-            raise ValueError(
-                f"require: row_num * max|w| * max|x| ({max_tile_dot_abs}) < 2^24 "
-                "so per-tile dot products survive an fp32 matmul bit-exactly"
-            )
-        self._max_tile_dot_abs = max_tile_dot_abs
 
     def _organize_w(self, weight: Tensor) -> Tensor:
         """Map a logical weight tensor into macro-native layout.

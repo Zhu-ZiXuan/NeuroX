@@ -12,7 +12,6 @@ from torch import Tensor
 from .base import Transcoder
 
 
-@Transcoder.register_key("canonical")
 class CanonicalTranscoder(Transcoder):
     """Non-adjacent-form-style canonical signed-digit encoding.
 

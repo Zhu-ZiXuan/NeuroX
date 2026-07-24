@@ -70,7 +70,10 @@ class GeneralDifferentialVoltageAdcPolicy(DifferentialVoltageAdcPolicy):
     comparator_noise: bool
 
 
-@DifferentialVoltageAdc.register_key(GeneralDifferentialVoltageAdcConfig)
+@DifferentialVoltageAdc.register_neurox_module(
+    config_type=GeneralDifferentialVoltageAdcConfig,
+    policy_type=GeneralDifferentialVoltageAdcPolicy,
+)
 class GeneralDifferentialVoltageAdc(
     DifferentialVoltageAdc[GeneralDifferentialVoltageAdcConfig, GeneralDifferentialVoltageAdcPolicy]
 ):
@@ -87,6 +90,7 @@ class GeneralDifferentialVoltageAdc(
     # --- Immutable model buffers ---
 
     _boundaries: Tensor
+    _latency_per_op__ns: Tensor
 
     def __init__(
         self,
@@ -109,6 +113,11 @@ class GeneralDifferentialVoltageAdc(
 
         boundaries_t = torch.tensor(config.boundaries, dtype=dtype)
         self.register_buffer("_boundaries", boundaries_t, persistent=False)
+        self.register_buffer(
+            "_latency_per_op__ns",
+            torch.tensor(config.latency_per_op__ns, dtype=dtype),
+            persistent=False,
+        )
 
         code_num = boundaries_t.numel() + 1
         self._bits = max(math.ceil(math.log2(code_num)), 1)
@@ -193,14 +202,10 @@ class GeneralDifferentialVoltageAdc(
             lsb=self._lsb_estimate,
         )
 
-        serial_op_count = max(1, code.numel() // max(self.inst_count, 1))
-        dynamic_energy__fJ = torch.full_like(code, self.config.energy_per_op__fJ, dtype=torch.float32)
-        latency__ns = torch.tensor(
-            self.config.latency_per_op__ns * serial_op_count,
-            device=code.device,
-            dtype=dynamic_energy__fJ.dtype,
-        )
-        self._record_dynamic_energy(dynamic_energy__fJ)
+        serial_round_count = self._count_serial_rounds(code.numel())
+        latency__ns = self._latency_per_op__ns * serial_round_count
+        if self._is_dynamic_energy_profile_active():
+            self._record_dynamic_energy(torch.full_like(code, self.config.energy_per_op__fJ, dtype=torch.float32))
         self._record_latency(latency__ns)
 
         # Stochastic jitter may cross either outer bucket boundary.

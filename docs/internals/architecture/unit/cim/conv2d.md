@@ -13,7 +13,7 @@ The engine-backed CIM unit exposing the conv2d operator through the Toeplitz / i
 
 ## Contracts & invariants
 
-- Registered via `@CimUnit.register_key(Conv2dCimUnitConfig)`; `w_logical_shape` must be exactly `(C_out, C_in, kh, kw)` (no batch prefix).
+- Registered with the `(Conv2dCimUnitConfig, Conv2dCimUnitPolicy)` key; `w_logical_shape` must be exactly `(C_out, C_in, kh, kw)` (no batch prefix).
 - **Placement law.** Window `g`, out-channel `n`, kernel entry `weight[n, ci, i, j]` lands at column `c = g*C_out + n`, row `r = (ci*kh + i)*W_strip + (g*sw + j*dw)`; the strip gather's row-major flatten of `(C_in, kh, W_strip)` reproduces the same row indexing, so the contraction aligns by construction.
 - `program(weight, bias=None)` shape-gates the 4-D kernel, programs the Toeplitz matrix through the engine, and programs the `(C_out,)` integer bias through the base slot.
 - `conv2d` is the inherited `Conv2dUnit` template — no override; surplus windows of the last segment compute valid zero-filled results and are trimmed at fold.

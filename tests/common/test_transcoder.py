@@ -11,6 +11,7 @@ from neurox.common.encoding import (
     Encoding,
     Transcoder,
     TrueFormTranscoder,
+    create_transcoder,
 )
 
 
@@ -55,13 +56,13 @@ def test_canonical_value_range(radix: int, digit_count: int, expected: tuple[int
 @pytest.mark.parametrize(
     ("encoding", "expected_type"),
     [
-        ("true_form", TrueFormTranscoder),
-        ("complement", ComplementTranscoder),
-        ("canonical", CanonicalTranscoder),
+        (Encoding.TRUE_FORM, TrueFormTranscoder),
+        (Encoding.COMPLEMENT, ComplementTranscoder),
+        (Encoding.CANONICAL, CanonicalTranscoder),
     ],
 )
-def test_transcoder_create_dispatches(encoding: Encoding, expected_type: type[Transcoder]) -> None:
-    transcoder = Transcoder.create(encoding, radix=2, digit_count=3)
+def test_create_transcoder_dispatches_enum(encoding: Encoding, expected_type: type[Transcoder]) -> None:
+    transcoder = create_transcoder(encoding=encoding, radix=2, digit_count=3)
     assert isinstance(transcoder, expected_type)
 
 

@@ -32,7 +32,7 @@ class LinearCimUnitPolicy(EngineBackedCimUnitPolicy):
     """Composite policy for :class:`LinearCimUnit`; no fields beyond the inherited set."""
 
 
-@CimUnit.register_key(LinearCimUnitConfig)
+@CimUnit.register_neurox_module(config_type=LinearCimUnitConfig, policy_type=LinearCimUnitPolicy)
 class LinearCimUnit(LinearUnit, EngineBackedCimUnit[LinearCimUnitConfig, LinearCimUnitPolicy]):
     """CIM-backed integer linear unit."""
 
@@ -56,5 +56,7 @@ class LinearCimUnit(LinearUnit, EngineBackedCimUnit[LinearCimUnitConfig, LinearC
         )
 
     def program(self, weight: Tensor, bias: Tensor | None = None) -> None:
+        if weight.dtype.is_floating_point or weight.dtype.is_complex or weight.dtype == torch.bool:
+            raise TypeError(f"CIM execution requires an integer weight tensor; got dtype {weight.dtype}")
         self.engine.program(self._weight_to_matrix(weight))
         self._program_int_bias(bias, channels=self._w_logical_shape[-2])

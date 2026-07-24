@@ -12,7 +12,6 @@ from torch import Tensor
 from .base import Transcoder
 
 
-@Transcoder.register_key("complement")
 class ComplementTranscoder(Transcoder):
     """Radix-complement encoding (two's-complement when ``r = 2``).
 

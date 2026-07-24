@@ -21,8 +21,8 @@ from neurox.primitive.xbar.cell import (
 )
 from neurox.primitive.xbar.solver import (
     ClampDriver,
-    Solver,
-    SolverConfig,
+    NestedParallelRailSolver,
+    NestedParallelRailSolverConfig,
     SolverDcop,
     classify_leading_positions,
     iter_chunks,
@@ -56,8 +56,7 @@ class XbarArray1t1rConfig(XbarArrayConfig):
         wl_segment_c__fF: WL cell-to-cell segment capacitance.
         cell_config: 1T1R cell configuration. Concrete subclass of
             :class:`XbarCell1t1rConfig` selects the cell model.
-        solver_config: DC-solver fixed numerical knobs. Concrete subclass
-            of :class:`SolverConfig` selects the solver implementation.
+        solver_config: Nested parallel-rail solver numerical parameters.
         area_per_inst__um2: Cell-grid and wire area per instance [um²].
         leakage_per_inst__uW: Cell-grid and wire leakage per instance.
         latency_per_op__ns: Array-side per-VMM latency that the
@@ -85,7 +84,7 @@ class XbarArray1t1rConfig(XbarArrayConfig):
     wl_segment_c__fF: float
 
     cell_config: XbarCell1t1rConfig
-    solver_config: SolverConfig
+    solver_config: NestedParallelRailSolverConfig
 
     latency_per_op__ns: float
 
@@ -183,6 +182,7 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
     _sl_segment_g__uS: Tensor
     _bl_segment_c__fF: Tensor
     _sl_segment_c__fF: Tensor
+    _latency_per_op__ns: Tensor
 
     def __init__(
         self,
@@ -207,7 +207,7 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
         self._col_num = col_num
 
         self._init_children(dtype=dtype, T__K=T__K)
-        self._register_wire_buffers(dtype=dtype)
+        self._register_model_buffers(dtype=dtype)
 
         self._c_wl_wire_per_row__fF = config.wl_first_c__fF + (col_num - 1) * config.wl_segment_c__fF
 
@@ -220,10 +220,10 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
             dtype=dtype,
             T__K=T__K,
         )
-        self._solver = Solver.from_config(config=self.config.solver_config)
+        self._solver = NestedParallelRailSolver(config=self.config.solver_config)
 
-    def _register_wire_buffers(self, *, dtype: torch.dtype) -> None:
-        """Register fixed wire resistance, conductance, and capacitance tensors."""
+    def _register_model_buffers(self, *, dtype: torch.dtype) -> None:
+        """Register fixed wire and PPA tensors."""
         config = self.config
         # Segment index zero connects the driver to the first cell.
         bl_segment_r__MOhm = torch.tensor(
@@ -248,6 +248,11 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
         self.register_buffer("_sl_segment_g__uS", 1.0 / sl_segment_r__MOhm, persistent=False)
         self.register_buffer("_bl_segment_c__fF", bl_segment_c__fF, persistent=False)
         self.register_buffer("_sl_segment_c__fF", sl_segment_c__fF, persistent=False)
+        self.register_buffer(
+            "_latency_per_op__ns",
+            torch.tensor(config.latency_per_op__ns, dtype=dtype),
+            persistent=False,
+        )
 
     @property
     def w_state_num(self) -> int:
@@ -328,6 +333,7 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
         v_bl_clamp_chunks: list[Tensor] = []
         chunk_energies: list[Tensor] = []
         global_indices: list[Tensor] = []
+        record_dynamic_energy = self._is_dynamic_energy_profile_active()
 
         for spec in iter_chunks(
             leading=leading,
@@ -358,12 +364,13 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
                 sl_driver=sl_driver,
                 sl_driver_snap=sl_snap,
             )
-            chunk_energies.append(
-                self._compute_array_energy__fJ(
-                    solver_dcop=solver_dcop_chunk,
-                    cell_snap=cell_snap,
+            if record_dynamic_energy:
+                chunk_energies.append(
+                    self._compute_array_energy__fJ(
+                        solver_dcop=solver_dcop_chunk,
+                        cell_snap=cell_snap,
+                    )
                 )
-            )
             i_bl_port_chunks.append(solver_dcop_chunk.i_bl_driver)
             v_bl_clamp_chunks.append(solver_dcop_chunk.v_bl_clamp)
             global_indices.append(spec.flat_global_idx)
@@ -374,18 +381,14 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
         i_bl_port__uA = reassemble_chunks(i_bl_port_chunks, global_indices, leading, col_trailing)
         # Shape: [*leading, col_num]
         v_bl_clamp__V = reassemble_chunks(v_bl_clamp_chunks, global_indices, leading, col_trailing)
-        # Shape: [*leading]
-        array_energy__fJ = reassemble_chunks(chunk_energies, global_indices, leading, ())
-
         # --- 5: record aggregate energy and latency ---
 
-        serial_op_count = math.prod(leading[p] for p in a_positions) if a_positions else 1
-        latency__ns = torch.tensor(
-            self.config.latency_per_op__ns * serial_op_count,
-            device=array_energy__fJ.device,
-            dtype=array_energy__fJ.dtype,
-        )
-        self._record_dynamic_energy(array_energy__fJ)
+        serial_round_count = math.prod(leading[p] for p in a_positions) if a_positions else 1
+        latency__ns = self._latency_per_op__ns * serial_round_count
+        if record_dynamic_energy:
+            # Shape: [*leading]
+            array_energy__fJ = reassemble_chunks(chunk_energies, global_indices, leading, ())
+            self._record_dynamic_energy(array_energy__fJ)
         self._record_latency(latency__ns)
         return XbarArraySteadyState(i_bl_port__uA=i_bl_port__uA, v_bl_clamp__V=v_bl_clamp__V)
 

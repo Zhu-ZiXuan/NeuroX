@@ -12,11 +12,10 @@ from .base import Slicer
 
 
 class DirectSlicer(Slicer):
-    """Validate values and append one slice and one digit axis.
+    """Append one slice axis and one digit axis.
 
     Args:
-        value_range: Inclusive integer ``(lo, hi)`` accepted by ``slice``;
-            requires ``lo < hi``.
+        value_range: Inclusive integer range represented by the direct path.
     """
 
     def __init__(self, *, value_range: tuple[int, int]) -> None:
@@ -39,17 +38,14 @@ class DirectSlicer(Slicer):
         return (1,)
 
     def slice(self, x: Tensor) -> Tensor:
-        """Validate the value range and append the two structural trailing axes.
+        """Append the two structural trailing axes.
 
         Args:
-            x: Integer tensor with every value inside ``value_range``.
+            x: Integer tensor.
 
         Returns:
             ``x`` with two size-1 trailing axes: shape
             ``[..., slice_num=1, digit_count=1]``, same dtype and values.
         """
-        lo, hi = self._value_range
-        if bool((x < lo).any()) or bool((x > hi).any()):
-            raise ValueError(f"require: x values within value_range [{lo}, {hi}]")
         # Shape: [...] -> [..., slice_num=1, digit_count=1]
         return x.unsqueeze(-1).unsqueeze(-1)

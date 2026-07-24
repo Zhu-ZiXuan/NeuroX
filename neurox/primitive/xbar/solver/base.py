@@ -1,4 +1,4 @@
-"""Topology-agnostic SL/BL IR-drop DC-solver framework.
+"""Shared interfaces for SL/BL IR-drop DC solvers.
 
 See also:
     docs/internals/primitive/xbar/solver.md
@@ -13,7 +13,6 @@ from typing import Any, Generic, TypeVar
 from torch import Tensor
 
 from neurox.common import ConfigBase
-from neurox.common.mixin import RegistryMixin
 from neurox.primitive.xbar.cell import XbarCell, XbarCellDcop, XbarCellSnap
 
 from .clamp import ClampDriver, ClampSnap
@@ -55,7 +54,7 @@ class SolverDcop(Generic[CellDCOPT]):
     v_sl_drive: Tensor
 
 
-class Solver(RegistryMixin[type["SolverConfig"], "Solver"], ABC):
+class Solver(ABC):
     """Base class for SL/BL IR-drop DC solvers.
 
     Args:
@@ -65,19 +64,6 @@ class Solver(RegistryMixin[type["SolverConfig"], "Solver"], ABC):
     @abstractmethod
     def __init__(self, *, config: SolverConfig) -> None:
         raise NotImplementedError
-
-    @classmethod
-    def from_config(cls, *, config: SolverConfig) -> Solver:
-        """Build the concrete impl registered for ``type(config)``.
-
-        Args:
-            config: Selects the impl (registry key) and its numerical knobs.
-
-        Returns:
-            Registered solver implementation.
-        """
-        impl = cls._lookup_impl(type(config))
-        return impl(config=config)
 
     @abstractmethod
     def solve_dc(

@@ -5,18 +5,18 @@
 ## Design decisions
 
 - **Behavioural, not gate-level.** The block models the radix-fold function and a flat per-op cost, not a shift-and-add netlist, because the digital periphery is not the fidelity-critical path.
-- **Radix and partial sum are call arguments, not config.** The radix `scale`, the digit axis `dim`, and the optional partial sum `init_val` are passed per call rather than fixed in the config. Only the cost terms and the register width are construction-time constants.
+- **Positional geometry is bound at construction.** The radix `scale` and `digit_count` are explicit init arguments because one hardware instance implements one fixed recombination geometry. The digit axis `dim` and optional partial sum `init_val` remain call arguments.
 - **Partial sum added after the wrap, not before.** `init_val` is summed onto the wrapped radix-fold result, so a running accumulator can carry a total past the per-call register range. Folding it in before the wrap would clip the running total to one call's register and break chaining; this ordering is correctness-relevant.
 
 ## Contracts & invariants
 
-- **`shift_add(x, scale, dim, init_val)` reduces exactly the `dim` axis**; the radix weights are built on `x`'s device and dtype. The reduced axis is gone from the output, so the serial-op divisor is the instance count.
+- **`shift_add(x, dim, init_val)` reduces exactly the `dim` axis.** The fixed radix weights are an immutable int64 buffer, so they follow module device migration and are not reconstructed in the execution path. The reduced axis is gone from the output.
 - **`init_val` must broadcast to the reduced output shape** (post-reduction, digit axis removed), not to the input shape.
 - **No per-call sampling state.** The shift-adder holds no fabricated mismatch, so the base fabricate no-op ([base](base.md)) applies unchanged.
 
 ## Performance & resources
 
-- The weight-vector construction, the weighted sum, the modular wrap, and the optional partial-sum add are a single shape-clean kernel. The per-op constants fold under `@torch.compile`, but `scale` and `x.size(dim)` are runtime values, so the radix-weight construction may specialize or guard on the digit count rather than fold unconditionally.
+- The weighted sum, modular wrap, and optional partial-sum add are a shape-clean kernel. Construction materializes the fixed positional-weight vector once; execution introduces no Python-to-Tensor conversion for it.
 
 ## Gotchas
 

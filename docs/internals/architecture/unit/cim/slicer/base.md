@@ -4,7 +4,7 @@
 
 ## Design decisions
 
-- **The ABC is a pure interface — no shared state, no `RegistryMixin`.** A slicer is selected by the data role at its construction site, not by a runtime string discriminator, so there is no registry here (unlike the transcoder). The base declares only the observable surface and leaves all state to the subclass.
+- **The ABC is a pure interface — no shared state and no registry.** A slicer is selected by the data role at its construction site. The base declares only the observable surface and leaves all state to the subclass.
 - **The construction inputs are not re-exposed.** Only `value_range`, `slice_radix`, `slice_weights`, and `slice()` are observable; no caller reads `slice_num` / `digit_count` back through the slicer. `slice_weights` is part of the contract even when a given consumer does not read it, because it names how the slice axis recombines.
 
 ## Contracts & invariants

@@ -100,6 +100,8 @@ class ModuleBase(FabricateMixin, nn.Module, ProfileMixin, Generic[ConfigT, Polic
         enable_latency_record: bool = True,
     ) -> None:
         nn.Module.__init__(self)
+        if any(size <= 0 for size in inst_shape):
+            raise ValueError(f"inst_shape extents must be positive; got {inst_shape}")
         self.__config = config
         self.__policy = policy
         self.__inst_shape = inst_shape
@@ -125,3 +127,8 @@ class ModuleBase(FabricateMixin, nn.Module, ProfileMixin, Generic[ConfigT, Polic
     @final
     def inst_count(self) -> int:
         return self.__inst_count
+
+    @final
+    def _count_serial_rounds(self, work_item_count: int) -> int:
+        """Return balanced serial rounds across the physical instances."""
+        return (work_item_count + self.__inst_count - 1) // self.__inst_count

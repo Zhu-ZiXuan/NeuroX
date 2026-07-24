@@ -82,7 +82,11 @@ PolicyT = TypeVar("PolicyT", bound=DifferentialVoltageAdcPolicy)
 
 class DifferentialVoltageAdc(
     AnalogBase[ConfigT, PolicyT],
-    RegistryMixin[type["DifferentialVoltageAdcConfig"], "DifferentialVoltageAdc"],
+    RegistryMixin[
+        "DifferentialVoltageAdcConfig",
+        "DifferentialVoltageAdcPolicy",
+        "DifferentialVoltageAdc",
+    ],
     Generic[ConfigT, PolicyT],
     ABC,
 ):
@@ -106,7 +110,7 @@ class DifferentialVoltageAdc(
         dtype: torch.dtype,
         T__K: float,
     ) -> DifferentialVoltageAdc:
-        """Build the implementation registered for ``type(config)``.
+        """Build the implementation registered for the config-policy pair.
 
         Args:
             config: Concrete configuration dataclass.
@@ -118,7 +122,7 @@ class DifferentialVoltageAdc(
         Returns:
             Registered voltage-ADC implementation.
         """
-        impl = cls._lookup_impl(type(config))
+        impl = cls._lookup_neurox_module(config=config, policy=policy)
         return impl(
             config=config,
             policy=policy,

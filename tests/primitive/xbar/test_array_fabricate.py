@@ -84,7 +84,13 @@ def _array_policy(*, solve_chunk_size: int) -> XbarArray1t1rPolicy:
     """Build an all-off policy with the requested solver chunk size."""
     return XbarArray1t1rPolicy(
         cell_policy=XbarCell1t1rDetailPolicy(
-            rram_policy=RramPolicy(prog_gamma=False, stuck_at=False, read_telegraph=False, read_thermal=False),
+            rram_policy=RramPolicy(
+                prog_gamma=False,
+                drift=False,
+                stuck_at=False,
+                read_telegraph=False,
+                read_thermal=False,
+            ),
             nmos_policy=MosfetPolicy(A_vt_mismatch=False, A_beta_mismatch=False),
         ),
         solve_chunk_size=solve_chunk_size,
