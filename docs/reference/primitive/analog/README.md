@@ -1,6 +1,6 @@
 # Analog circuits
 
-Analog circuit models on the array boundary and in the readout chain: the current-to-voltage clamp, the integer-code drivers, the column transport, the charge-share bank, and the digitizers. Each document specifies a circuit's transfer characteristic, its non-idealities, and its parameters.
+Analog circuit models on the array boundary and in the readout chain: the boundary drivers, integer-code drivers, column transport, charge-share bank, and digitizers. Each document specifies a circuit's transfer characteristic, its non-idealities, and its parameters.
 
 - [voltage_driver](voltage_driver.md) — the generic Thevenin voltage-source clamp (finite series output resistance; the ideal constant-voltage source is its zero-resistance limit).
 - [voltage_mux](voltage_mux.md) — differential voltage column transport with common-mode / differential-mode noise.
@@ -14,4 +14,3 @@ Analog circuit models on the array boundary and in the readout chain: the curren
 - [adc_common](adc_common.md) — the domain-neutral ADC descriptor / calibration types (`AdcMode`, `AdcCalibrationRecord`).
 - [voltage_dac/](voltage_dac/README.md) — the voltage DAC family: integer-code to analog-drive-voltage conversion.
 - [current_dac/](current_dac/README.md) — the current DAC family: integer-code to single-ended analog-current conversion.
-- [tia/](tia/README.md) — the TIA family: the BL clamp transimpedance amplifier.

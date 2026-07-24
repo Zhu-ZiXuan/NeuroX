@@ -34,7 +34,7 @@ def solve_nested_chunk(
     bl_segment_g__uS: Tensor,
     sl_segment_g__uS: Tensor,
     cell_snap: XbarCellSnap,
-    bl_driver_snap: OpAmpTiaSnap,
+    bl_driver_snap: VoltageDriverSnap,
     sl_driver_snap: VoltageDriverSnap,
     params: NestedParallelRailSolverCompileParams,
 ) -> tuple[Tensor, ...]:

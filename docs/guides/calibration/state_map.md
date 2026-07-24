@@ -26,7 +26,7 @@ It solves the KCL of a single cell wired as
 BL — RRAM — V_X — NMOS — SL,    gate = WL
 ```
 
-It does **not** instantiate `CimMacro`, `CimUnit`, `Readout`, or `ADC`, and it includes **no** wire parasitics (no BL / SL / WL IR drops), no TIA, no Mux, and no ADC behaviour. It therefore does *not* compute ADC boundaries, `v_refs__V`, or any `rescale_factor` — those belong to the ADC-side calibration guides.
+It does **not** instantiate `CimMacro`, `CimUnit`, readout blocks, or an ADC, and it includes **no** wire parasitics (no BL / SL / WL IR drops), boundary-clamp behaviour, muxing, or ADC behaviour. It therefore does *not* compute ADC boundaries, `v_refs__V`, or any `rescale_factor` — those belong to the ADC-side calibration guides.
 
 ## Forced all-off nonideality policy
 

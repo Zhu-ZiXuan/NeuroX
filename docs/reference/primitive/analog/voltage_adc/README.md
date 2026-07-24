@@ -1,8 +1,7 @@
 # Voltage ADC family
 
-The voltage ADC family digitizes the readout chain's differential analog signal to a raw unsigned integer code (sign and zero-point recovered consumer-side). An abstract family contract plus its concrete topologies (a boundary-bucketize behavioural ADC and the SAR variants).
+The voltage ADC family digitizes the readout chain's differential analog signal to a raw unsigned integer code (sign and zero-point recovered consumer-side). An abstract family contract plus its concrete topologies (a boundary-bucketize behavioural ADC and the MCS SAR ADC).
 
 - [base](family.md) — the abstract `DifferentialVoltageAdc` contract: raw-code convention, floor semantics, multi-mode operating point, what the ADC does and does not own.
 - [general](general.md) — the boundary-bucketize behavioural ADC.
 - [mcs_sar](mcs_sar.md) — the $V_{\mathrm{cm}}$-based (Merged Capacitor Switching) differential SAR ADC.
-- [sar_mono](sar_mono.md) — the monotonic (Set-and-Down) differential SAR ADC.

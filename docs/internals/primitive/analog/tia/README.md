@@ -1,6 +1,0 @@
-# TIA family
-
-How the TIA family is built.
-
-- [base](base.md) — registry dispatch, the snap type parameter, the solver-facing surface, the per-call reference injected through `snapshot` into the snap.
-- [opamp_tia](opamp_tia.md) — `OpAmpTia` ownership of the internal NMOS and its composite policy.

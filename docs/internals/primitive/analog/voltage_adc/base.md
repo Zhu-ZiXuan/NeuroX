@@ -1,6 +1,6 @@
 # Voltage ADC base
 
-The voltage ADC family: the abstract `DifferentialVoltageAdc` carries the registry, `from_config`, the concrete `convert` template method over the leaf-provided `_convert_impl` hook, and the abstract `max_bits` / `unsigned_range` / `zero_offset` surface. The ADC owns the digitize step alone, emitting a raw unsigned code; current-to-voltage clamping belongs to the tia / voltage_driver, column multiplexing to the voltage_mux, and both the zero-point subtraction and the code-to-scale rescale to the caller. The ADC self-holds no reference - every reference tap arrives as a per-call argument.
+The voltage ADC family: the abstract `DifferentialVoltageAdc` carries the registry, `from_config`, the concrete `convert` template method over the leaf-provided `_convert_impl` hook, and the abstract `max_bits` / `unsigned_range` / `zero_offset` surface. The ADC owns the digitize step alone, emitting a raw unsigned code; input generation and clamping belong to the composing macro's driver/readout blocks, column multiplexing to the voltage mux, and both the zero-point subtraction and the code-to-scale rescale to the caller. The ADC self-holds no reference - every reference tap arrives as a per-call argument.
 
 ## Design decisions
 

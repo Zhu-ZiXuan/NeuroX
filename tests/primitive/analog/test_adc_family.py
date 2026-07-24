@@ -6,10 +6,6 @@ implementations (:class:`GeneralDifferentialVoltageAdc`, :class:`McsSarDifferent
 unsigned codes in ``[0, 2**bits - 1]``; the zero point (``zero_offset`` /
 ``zero_code``) is subtracted consumer-side, not inside the ADC.
 
-This file does NOT cover :class:`SarMonoDifferentialVoltageAdc`: that class lives in
-``neurox.primitive.analog.voltage_adc.sar_mono`` but is **not** re-exported from
-``neurox.primitive.analog.voltage_adc``. Its ``convert`` raises
-``NotImplementedError`` so it cannot participate in any end-to-end test.
 """
 
 from __future__ import annotations

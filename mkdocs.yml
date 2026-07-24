@@ -79,7 +79,6 @@ nav:
       - Family: reference/primitive/analog/voltage_adc/family.md
       - General: reference/primitive/analog/voltage_adc/general.md
       - MCS SAR: reference/primitive/analog/voltage_adc/mcs_sar.md
-      - SAR mono: reference/primitive/analog/voltage_adc/sar_mono.md
     - Current ADC:
       - Overview: reference/primitive/analog/current_adc/README.md
       - Family: reference/primitive/analog/current_adc/family.md
@@ -93,11 +92,6 @@ nav:
       - Overview: reference/primitive/analog/current_dac/README.md
       - Family: reference/primitive/analog/current_dac/family.md
       - General: reference/primitive/analog/current_dac/general.md
-    - TIA:
-      - Overview: reference/primitive/analog/tia/README.md
-      - Family: reference/primitive/analog/tia/family.md
-      - General: reference/primitive/analog/tia/general.md
-      - Opamp TIA: reference/primitive/analog/tia/opamp_tia.md
   - Device:
     - Overview: reference/primitive/device/README.md
     - MOSFET: reference/primitive/device/mosfet.md
@@ -163,7 +157,6 @@ nav:
       - Base: internals/primitive/analog/voltage_adc/base.md
       - General: internals/primitive/analog/voltage_adc/general.md
       - MCS SAR: internals/primitive/analog/voltage_adc/mcs_sar.md
-      - SAR mono: internals/primitive/analog/voltage_adc/sar_mono.md
     - Current ADC:
       - Overview: internals/primitive/analog/current_adc/README.md
       - Base: internals/primitive/analog/current_adc/base.md
@@ -176,10 +169,6 @@ nav:
       - Overview: internals/primitive/analog/current_dac/README.md
       - Base: internals/primitive/analog/current_dac/base.md
       - General: internals/primitive/analog/current_dac/general.md
-    - TIA:
-      - Overview: internals/primitive/analog/tia/README.md
-      - Base: internals/primitive/analog/tia/base.md
-      - Opamp TIA: internals/primitive/analog/tia/opamp_tia.md
   - Common:
     - Overview: internals/common/README.md
     - Encoding:

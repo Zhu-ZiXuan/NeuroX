@@ -14,4 +14,3 @@ How the analog circuit layer is built. This side covers only what the code canno
 - [current_adc/](current_adc/README.md) — the current ADC family: registry dispatch, single-ended magnitude / unsigned-code contract, shared-lane fabrication.
 - [voltage_dac/](voltage_dac/README.md) — the voltage DAC family: registry dispatch, the unsigned code-to-voltage contract, the code-only convert with no per-call operating point.
 - [current_dac/](current_dac/README.md) — the current DAC family: registry dispatch, the unsigned code-to-current contract, single-ended drive and leaf-defined per-op latency.
-- [tia/](tia/README.md) — the TIA family: snap typing and the solver-facing surface.

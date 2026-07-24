@@ -1,9 +1,8 @@
 # Nonideality policy for the LeNet physical-xbar macro.
 #
 # References the offset scheme's all-off policy (works/offset_1t1r/); every switch is off by default.
-# To enable a nonideality, override the matching switch inline, e.g.:
-#   [policy.cim_macro.tia]
-#   opamp_gain_sigma = true
+# To enable a nonideality, override a switch exposed by the selected
+# concrete macro policy.
 # Chunking knob lives under [policy.cim_macro.array] (solve_chunk_size).
 
 [policy]

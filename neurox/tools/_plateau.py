@@ -29,8 +29,8 @@ class CandidateRow:
 
     Attributes:
         iter_count: Logical iteration count of this candidate (e.g.
-            ``n_newton`` for TIA, ``n_outer`` for the
-            current axis being swept in nested).
+            ``n_newton`` for a local nonlinear solve or ``n_outer`` for
+            the current axis being swept in a nested solve).
         step_max__V: ``max |u_n − u_{n-1}|`` across all 5 (or fewer)
             unknown classes and all (batch, col, row). The primary
             convergence indicator. ``None`` for the first candidate
@@ -60,9 +60,7 @@ class WorkloadScale:
         i_cell_typ__uA: ``max |I_cell|`` over the full workload. Used
             as denominator for cell + wire current residuals.
         v_node_typ__V: ``max |V_BL_node|`` over the full workload.
-            Used as denominator for clamp voltage residuals. For TIA
-            standalone calibration this is the TIA's own ``V_clamp``
-            scale instead.
+            Used as denominator for clamp voltage residuals.
     """
 
     i_cell_typ__uA: float
