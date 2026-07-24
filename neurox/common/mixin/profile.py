@@ -75,7 +75,7 @@ class ProfileMixin:
         return self._leakage_per_inst__uW * self.inst_count
 
     @torch.compiler.disable
-    def _log_dynamic_energy(self, dynamic_energy__fJ: Tensor) -> None:
+    def _log_dynamic_energy(self, dynamic_energy__fJ: Tensor, *, channel: str | None = None) -> None:
         """Record one dynamic-energy event to the active profiler (no-op outside one).
 
         Caller-side construction: ``dynamic_energy__fJ = torch.full_like(y, per_op_energy__fJ)``
@@ -84,6 +84,12 @@ class ProfileMixin:
 
         Args:
             dynamic_energy__fJ: Per-op switching energy tensor.
+            channel: Optional sub-branch label for a composite emitting more than
+                one distinct energy branch per op (e.g. a scheme billing a
+                clamp-side branch separately from its array-side branch). The
+                profiler keys the event by ``(module, channel)``; a report names
+                a channelled row ``<module dotted name>.<channel>``. ``None``
+                (the default) reproduces today's un-channelled behavior exactly.
         """
         if not self.is_profile_target:
             raise RuntimeError(f"{type(self).__name__} is not a profile target but emitted a dynamic-energy event")
@@ -92,7 +98,7 @@ class ProfileMixin:
         profiler = NeuroxProfiler.get_current()
         if profiler is None:
             return
-        profiler._record_energy(module=self, dynamic_energy__fJ=dynamic_energy__fJ)
+        profiler._record_energy(module=self, dynamic_energy__fJ=dynamic_energy__fJ, channel=channel)
 
     @torch.compiler.disable
     def _log_latency(self, latency__ns: Tensor) -> None:

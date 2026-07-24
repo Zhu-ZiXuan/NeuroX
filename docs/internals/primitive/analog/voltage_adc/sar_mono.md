@@ -1,6 +1,6 @@
 # Monotonic SAR voltage ADC
 
-`SarMonoVoltageAdc` is a fabrication-only placeholder: the static-mismatch state is sampled, but the differential conversion kernel is unrealised.
+`SarMonoDifferentialVoltageAdc` is a fabrication-only placeholder: the static-mismatch state is sampled, but the differential conversion kernel is unrealised.
 
 ## Design decisions
 
@@ -8,7 +8,7 @@
 
 ## Contracts & invariants
 
-- **Policy and config stay in lockstep with the MCS SAR variant.** `SarMonoVoltageAdcPolicy` carries the same toggles as `McsSarVoltageAdcPolicy` (`cap_mismatch`, `comparator_offset`, `comparator_thermal_noise`, `sampling_thermal_noise`) and `SarMonoVoltageAdcConfig` reuses the MCS SAR field vocabulary; keeping them mirrored is what lets the two SAR topologies swap at the ADC interface.
+- **Policy and config stay in lockstep with the MCS SAR variant.** `SarMonoDifferentialVoltageAdcPolicy` carries the same toggles as `McsSarDifferentialVoltageAdcPolicy` (`cap_mismatch`, `comparator_offset`, `comparator_thermal_noise`, `sampling_thermal_noise`) and `SarMonoDifferentialVoltageAdcConfig` reuses the MCS SAR field vocabulary; keeping them mirrored is what lets the two SAR topologies swap at the ADC interface.
 
 ## Known limitations
 

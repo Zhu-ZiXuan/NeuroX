@@ -148,12 +148,12 @@ class XbarCell1t1rDetailPolicy(XbarCell1t1rPolicy):
     """Composite nonideality policy for the detailed 1T1R cell.
 
     Attributes:
-        rram: RRAM storage-device nonideality policy.
-        nmos: Access-NMOS nonideality policy.
+        rram_policy: RRAM storage-device nonideality policy.
+        nmos_policy: Access-NMOS nonideality policy.
     """
 
-    rram: RramPolicy
-    nmos: MosfetPolicy
+    rram_policy: RramPolicy
+    nmos_policy: MosfetPolicy
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -175,7 +175,7 @@ class XbarCell1t1rDetailSnap(XbarCell1t1rSnap):
 
 
 @XbarCell1t1r.register_key(XbarCell1t1rDetailConfig)
-class XbarCell1t1rDetail(XbarCell1t1r[XbarCell1t1rDetailSnap]):
+class XbarCell1t1rDetail(XbarCell1t1r[XbarCell1t1rDetailConfig, XbarCell1t1rDetailPolicy, XbarCell1t1rDetailSnap]):
     """Series access-NMOS + RRAM 1T1R cell with a condensed BL-to-SL branch.
 
     Emits the converged-``V_X`` :class:`XbarCell1t1rDetailObservation` to
@@ -207,7 +207,7 @@ class XbarCell1t1rDetail(XbarCell1t1r[XbarCell1t1rDetailSnap]):
 
         self.rram = Rram(
             config=config.rram_config,
-            policy=policy.rram,
+            policy=policy.rram_policy,
             inst_shape=inst_shape,
             dtype=dtype,
             T__K=T__K,
@@ -215,7 +215,7 @@ class XbarCell1t1rDetail(XbarCell1t1r[XbarCell1t1rDetailSnap]):
         )
         self.nmos = Nmos(
             config=config.nmos_config,
-            policy=policy.nmos,
+            policy=policy.nmos_policy,
             inst_shape=inst_shape,
             dtype=dtype,
             T__K=T__K,

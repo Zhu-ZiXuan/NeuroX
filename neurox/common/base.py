@@ -46,6 +46,12 @@ class ModuleBase(FabricateMixin, nn.Module, ProfileMixin, Generic[ConfigT, Polic
     the copies fabricated in parallel behind one module, never a serial-op
     count.
 
+    ``record_latency`` gates whether the module emits latency events; an owner
+    that already bills the serial-op latency downstream passes ``False`` so the
+    submodule contributes energy without double-counting time. The flag is the
+    reusable home of the decision — each emitter guards its own
+    ``_log_latency`` call on it.
+
     No inherited surface is opt-in: every module joins the pre-order
     ``fabricate()`` cascade and is a profiling host. Probe emission is not
     universal and carries no inherited surface — only the leaves that own an
@@ -71,15 +77,13 @@ class ModuleBase(FabricateMixin, nn.Module, ProfileMixin, Generic[ConfigT, Polic
         config: ConfigT,
         policy: PolicyT,
         inst_shape: tuple[int, ...],
+        record_latency: bool = True,
     ) -> None:
         nn.Module.__init__(self)
         self.config = config
         self.policy = policy
-        self._inst_shape = inst_shape
-
-    @property
-    def inst_shape(self) -> tuple[int, ...]:
-        return self._inst_shape
+        self.inst_shape = inst_shape
+        self.record_latency = record_latency
 
     @property
     def inst_count(self) -> int:

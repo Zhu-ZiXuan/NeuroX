@@ -7,7 +7,7 @@ Find a section by what you are doing:
 - [Get started](get_started/README.md) — install, quickstart
 - [Guides](guides/README.md) — task how-to, by audience (algorithm / architecture / device engineer)
 - [Reference](reference/README.md) — the scientific spec (physical models, equations, numerical methods), by subsystem
-- [Validation](validation/README.md) — evidence the models are faithful and correctly implemented
+- [Validation](validation/README.md) — evidence the models are faithful and correctly implemented, including the per-paper calibration campaigns under `validations/`
 - [API](api/README.md) — Python API and config / policy schema
 - [Internals](internals/README.md) — how the codebase is built
 - [Works](works/README.md) — packaged literature-derived schemes, by circuit layer

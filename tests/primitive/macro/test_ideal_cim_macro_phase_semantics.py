@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import torch
 
-from neurox.primitive.analog.adc_common import AdcOperationPoint
 from neurox.primitive.macro.cim.ideal import IdealCimMacro, IdealCimMacroConfig, IdealCimMacroPolicy
 
 
@@ -79,7 +78,7 @@ class TestPerPlaneClampVsWholeSum:
     def test_per_plane_codes_hit_conversion_extremes(self) -> None:
         xbar = self._saturating_xbar()
         planes = _masked_planes(torch.ones(4, dtype=torch.int32), row_num=4, max_active_rows=2)
-        y = xbar.vec_mat_mul(planes, adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=3))
+        y = xbar.vec_mat_mul(planes, adc_mode=0, adc_bits=3)
         assert y.dtype == torch.int16
         assert y.shape == (2, 2)  # leading [P] preserved, trailing [col_num]
         # scale = ((1<<2)-1) / (A·max|w|·max|x|) = 3/6: codes floor(dot·0.5).
@@ -90,13 +89,13 @@ class TestPerPlaneClampVsWholeSum:
         """``sum(Q(plane_dot))`` != ``Q(sum(plane_dot))`` at the same scale."""
         xbar = self._saturating_xbar()
         planes = _masked_planes(torch.ones(4, dtype=torch.int32), row_num=4, max_active_rows=2)
-        y = xbar.vec_mat_mul(planes, adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=3))
+        y = xbar.vec_mat_mul(planes, adc_mode=0, adc_bits=3)
         # Shape: [P, col] -> [col]   caller-side digital accumulation
         plane_code_sum = y.to(torch.int64).sum(dim=0)
         # Whole dots are 0 for both cols; quantizing the whole sum at the
         # per-conversion scale yields 0 — but col 1's per-plane codes sum to -1.
         whole_dot = torch.tensor([0, 0], dtype=torch.int64)
-        rescale = xbar.adc_rescale_factor(AdcOperationPoint(adc_mode=0, adc_bits=3))
+        rescale = xbar.adc_rescale_factor(adc_mode=0, adc_bits=3)
         whole_code = torch.floor(whole_dot.to(torch.float32) * (1.0 / rescale)).to(torch.int64)
         assert torch.equal(plane_code_sum, torch.tensor([0, -1], dtype=torch.int64))
         assert not torch.equal(plane_code_sum, whole_code)
@@ -112,7 +111,7 @@ class TestLosslessSentinel:
         _program_cols(xbar, w.tolist())
         x = torch.randint(0, 2, (3, 4), dtype=torch.int32)
         planes = _masked_planes(x, row_num=4, max_active_rows=2)
-        y = xbar.vec_mat_mul(planes, adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=0))
+        y = xbar.vec_mat_mul(planes, adc_mode=0, adc_bits=0)
         assert y.dtype == torch.int64
         assert y.shape == (3, 2, 2)  # leading [batch, P] preserved, trailing [col_num]
         w64 = w.to(torch.int64)
@@ -135,7 +134,7 @@ class TestFullActivationParity:
         w = torch.randint(-3, 4, (2, 4), dtype=torch.int32)
         _program_cols(xbar, w.tolist())
         x = torch.randint(0, 2, (5, 4), dtype=torch.int32)
-        y = xbar.vec_mat_mul(x, adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=3))
+        y = xbar.vec_mat_mul(x, adc_mode=0, adc_bits=3)
         assert y.shape == (5, 2)  # no phase axis: leading order preserved
         whole_dot = x.to(torch.int64) @ w.to(torch.int64).transpose(-1, -2)
         rescale = xbar._max_plane_dot_abs / ((1 << 2) - 1)

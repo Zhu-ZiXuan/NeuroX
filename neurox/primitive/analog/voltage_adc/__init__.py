@@ -1,32 +1,45 @@
-"""Voltage-domain ADC family — abstract base plus concrete implementations.
+"""Differential voltage-domain ADC family — abstract base plus concrete implementations.
 
 See also:
     docs/reference/primitive/analog/voltage_adc/README.md
 """
 
-from neurox.primitive.analog.adc_common import AdcCalibrationRecord, AdcMode, AdcOperationPoint
-
-from .base import VoltageAdc, VoltageAdcConfig, VoltageAdcObservation, VoltageAdcPolicy, VoltageAdcProber
-from .general import GeneralVoltageAdc, GeneralVoltageAdcConfig, GeneralVoltageAdcPolicy
-from .mcs_sar import McsSarVoltageAdc, McsSarVoltageAdcConfig, McsSarVoltageAdcPolicy
-from .sar_mono import SarMonoVoltageAdc, SarMonoVoltageAdcConfig, SarMonoVoltageAdcPolicy
+from .base import (
+    DifferentialVoltageAdc,
+    DifferentialVoltageAdcConfig,
+    DifferentialVoltageAdcObservation,
+    DifferentialVoltageAdcPolicy,
+    DifferentialVoltageAdcProber,
+)
+from .general import (
+    GeneralDifferentialVoltageAdc,
+    GeneralDifferentialVoltageAdcConfig,
+    GeneralDifferentialVoltageAdcPolicy,
+)
+from .mcs_sar import (
+    McsSarDifferentialVoltageAdc,
+    McsSarDifferentialVoltageAdcConfig,
+    McsSarDifferentialVoltageAdcPolicy,
+)
+from .sar_mono import (
+    SarMonoDifferentialVoltageAdc,
+    SarMonoDifferentialVoltageAdcConfig,
+    SarMonoDifferentialVoltageAdcPolicy,
+)
 
 __all__ = [
-    "AdcCalibrationRecord",
-    "AdcMode",
-    "AdcOperationPoint",
-    "GeneralVoltageAdc",
-    "GeneralVoltageAdcConfig",
-    "GeneralVoltageAdcPolicy",
-    "McsSarVoltageAdc",
-    "McsSarVoltageAdcConfig",
-    "McsSarVoltageAdcPolicy",
-    "SarMonoVoltageAdc",
-    "SarMonoVoltageAdcConfig",
-    "SarMonoVoltageAdcPolicy",
-    "VoltageAdc",
-    "VoltageAdcConfig",
-    "VoltageAdcObservation",
-    "VoltageAdcPolicy",
-    "VoltageAdcProber",
+    "DifferentialVoltageAdc",
+    "DifferentialVoltageAdcConfig",
+    "DifferentialVoltageAdcObservation",
+    "DifferentialVoltageAdcPolicy",
+    "DifferentialVoltageAdcProber",
+    "GeneralDifferentialVoltageAdc",
+    "GeneralDifferentialVoltageAdcConfig",
+    "GeneralDifferentialVoltageAdcPolicy",
+    "McsSarDifferentialVoltageAdc",
+    "McsSarDifferentialVoltageAdcConfig",
+    "McsSarDifferentialVoltageAdcPolicy",
+    "SarMonoDifferentialVoltageAdc",
+    "SarMonoDifferentialVoltageAdcConfig",
+    "SarMonoDifferentialVoltageAdcPolicy",
 ]

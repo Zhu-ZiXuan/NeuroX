@@ -1,6 +1,6 @@
 # General voltage ADC
 
-The simplest member of the [voltage ADC family](family.md): a single-mode digitizer whose resolution is fixed by a calibrated list of comparator thresholds, obeying the family signed-code and floor-quantization contract.
+The simplest member of the [voltage ADC family](family.md): a single-mode digitizer whose resolution is fixed by a calibrated list of comparator thresholds, obeying the family raw-code and floor-quantization contract.
 
 ## Physical model
 
@@ -8,11 +8,11 @@ The model floors the differential input against a sorted list of comparator thre
 
 ## Governing equations
 
-The conversion maps the raw differential input $x^{+} - x^{-}$ to a signed code. A monotone input transform $g$ - the identity (linear) or the base-2 logarithm (logarithmic companding) - is applied to the noisy input before the bucketize; being monotone it preserves the boundary ordering. With input-referred sampling noise $n_s$ added before the transform and comparator noise $n_{c}$ after it,
+The conversion maps the raw differential input $x^{+} - x^{-}$ to a raw unsigned code. A monotone input transform $g$ - the identity (linear) or the base-2 logarithm (logarithmic companding) - is applied to the noisy input before the bucketize; being monotone it preserves the boundary ordering. With input-referred sampling noise $n_s$ added before the transform and comparator noise $n_{c}$ after it,
 
-$$\mathrm{code} = \operatorname{clamp}\!\Big(\operatorname{bucketize}\big(g(x^{+}-x^{-}+n_s)+n_{c},\ \{B_c\}\big),\ 0,\ n_{\mathrm{codes}}-1\Big) - z,$$
+$$\mathrm{code} = \operatorname{clamp}\!\Big(\operatorname{bucketize}\big(g(x^{+}-x^{-}+n_s)+n_{c},\ \{B_c\}\big),\ 0,\ n_{\mathrm{codes}}-1\Big),$$
 
-where $\operatorname{bucketize}$ floors the transformed signal against the fixed thresholds $\{B_c\}$, $n_{\mathrm{codes}}$ is the number of code buckets implied by the threshold list, and $z$ is the topology zero code. In the linear case the signal and thresholds share the per-instance input unit (uA for current-mode, V for voltage-mode); in the logarithmic case $g$ floors its argument at $\epsilon = 10^{-12}$ (input unit) before the base-2 logarithm, keeping it inside the transform's domain. The signed output lies in $[-z,\ n_{\mathrm{codes}}-1-z]$. The underlying floor against ordered boundaries is the family floor-quantization law ([family contract](family.md#governing-laws)).
+where $\operatorname{bucketize}$ floors the transformed signal against the fixed thresholds $\{B_c\}$ and $n_{\mathrm{codes}}$ is the number of code buckets implied by the threshold list. In the linear case the signal and thresholds share the per-instance input unit (uA for current-mode, V for voltage-mode); in the logarithmic case $g$ floors its argument at $\epsilon = 10^{-12}$ (input unit) before the base-2 logarithm, keeping it inside the transform's domain. The raw code lies in $[0,\ n_{\mathrm{codes}}-1]$; the consumer subtracts the topology zero code $z$ (exposed as `zero_offset` / `zero_code`) to recover the signed magnitude. The underlying floor against ordered boundaries is the family floor-quantization law ([family contract](family.md#governing-laws)).
 
 The topology is single-mode: its one operating point is $\mathrm{mode} = 0$ at the boundary-implied bit width $b$.
 
@@ -54,7 +54,7 @@ Provenance terms are defined in [module_parameter](../../../../conventions/modul
 | $g$ | monotone input transform (identity or $\log_2$) | — | `input_transform` |
 | $B_c$ | comparator threshold at index $c$ (per-instance input unit) | V or uA | `boundaries` |
 | $n_{\mathrm{codes}}$ | number of code buckets | — | derived from `boundaries` |
-| $z$ | topology zero code | — | `_zero_code` |
+| $z$ | topology zero code (subtracted consumer-side) | — | `zero_code` / `zero_offset(bits)` |
 | $b$ | boundary-implied resolution (bits) | — | `max_bits` |
 | $n_s, n_{c}$ | sampling / comparator noise samples (per-instance input unit) | V or uA | sampled in `convert` |
 
@@ -79,4 +79,4 @@ TODO.
 
 - **Internals**: [general internals](../../../../internals/primitive/analog/voltage_adc/general.md)
 - **Validation**: TODO - validation evidence not yet written
-- **Configuration**: `GeneralVoltageAdcConfig`, `GeneralVoltageAdcPolicy` (see `api`)
+- **Configuration**: `GeneralDifferentialVoltageAdcConfig`, `GeneralDifferentialVoltageAdcPolicy` (see `api`)

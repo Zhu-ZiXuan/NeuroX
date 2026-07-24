@@ -5,7 +5,7 @@ macro config/policy file pair, ``CimMacroConfig.from_file`` +
 ``CimMacro.from_config`` resolve the concrete tile, and the two calibration
 views are obtained by different means. The physical tile's analog ADC input
 and code come from the
-:class:`~neurox.primitive.analog.current_adc.CurrentAdcProber`; the lossless
+:class:`~neurox.primitive.analog.current_adc.SingleEndedCurrentAdcProber`; the lossless
 integer dots come
 straight from the RETURN VALUE of the
 :meth:`~neurox.primitive.macro.cim.CimMacro.to_ideal` twin's ``vec_mat_mul``
@@ -28,8 +28,7 @@ from torch import Tensor
 # Registers the scheme classes so CimMacroConfig.from_file / CimMacro.from_config
 # can resolve works-defined subclasses named by `_neurox_class`.
 import neurox.works  # noqa: F401
-from neurox.primitive.analog.adc_common import AdcOperationPoint
-from neurox.primitive.analog.current_adc import CurrentAdcProber
+from neurox.primitive.analog.current_adc import SingleEndedCurrentAdcProber
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
 from neurox.primitive.macro.cim.ideal import IdealCimMacro
 from neurox.primitive.physical_constant import T_ROOM__K
@@ -162,23 +161,26 @@ def sample_capped_block_w(
     Each (column, phase) block programs ``m ~ Uniform{0 .. cap}`` cells at
     random row positions within the block, all sharing one random sign per
     block — so under full WL drive the block's per-phase MAC magnitude is
-    exactly ``m`` (the single-cell-LSB battery pattern).
+    exactly ``m`` (the single-cell-LSB battery pattern). When ``active_row_num``
+    does not divide ``row_num`` the final block is short (its padded tail is
+    truncated), mirroring the engine's partial last sub-phase.
 
     Returns:
         Digit tensor ``(col_num, 1, row_num)``.
     """
-    if row_num % active_row_num != 0:
-        raise ValueError(f"require: row_num ({row_num}) % active_row_num ({active_row_num}) == 0")
     if not (0 <= cap <= active_row_num):
         raise ValueError(f"require: 0 <= cap ({cap}) <= active_row_num ({active_row_num})")
-    phase_num = row_num // active_row_num
+    # Ceil so a non-divisible geometry still covers every row; the padded tail
+    # is dropped after the reshape (short final block == the engine's partial
+    # last sub-phase). When active_row_num divides row_num this is exact.
+    phase_num = -(-row_num // active_row_num)
     counts = torch.randint(0, cap + 1, (col_num, phase_num), generator=gen)
     signs = torch.where(torch.rand((col_num, phase_num), generator=gen) < 0.5, -1, 1)
     # Rank positions per block by random score; the first `count` win.
     score = torch.rand((col_num, phase_num, active_row_num), generator=gen)
     rank = score.argsort(dim=-1).argsort(dim=-1)
     w_block = torch.where(rank < counts.unsqueeze(-1), signs.unsqueeze(-1), torch.zeros_like(signs).unsqueeze(-1))
-    return w_block.reshape(col_num, 1, row_num).to(torch.long)
+    return w_block.reshape(col_num, 1, phase_num * active_row_num)[..., :row_num].to(torch.long)
 
 
 def grid_block_w(
@@ -203,18 +205,21 @@ def grid_block_w(
     pattern covers ``min(col_num // col_stride, m_max + 1)`` distinct
     magnitudes; a caller needing full coverage runs
     ``ceil((m_max + 1) / (col_num // col_stride))`` patterns at offsets
-    ``0, col_num // col_stride, ...``.
+    ``0, col_num // col_stride, ...``. When ``active_row_num`` does not divide
+    ``row_num`` the final block is short (its padded tail is truncated),
+    mirroring the engine's partial last sub-phase.
 
     Returns:
         Digit tensor ``(col_num, 1, row_num)``.
     """
-    if row_num % active_row_num != 0:
-        raise ValueError(f"require: row_num ({row_num}) % active_row_num ({active_row_num}) == 0")
     if not (1 <= m_max <= active_row_num):
         raise ValueError(f"require: 1 <= m_max ({m_max}) <= active_row_num ({active_row_num})")
     if not (1 <= col_stride <= col_num):
         raise ValueError(f"require: 1 <= col_stride ({col_stride}) <= col_num ({col_num})")
-    phase_num = row_num // active_row_num
+    # Ceil so a non-divisible geometry still covers every row; the padded tail
+    # is dropped after the reshape (short final block == the engine's partial
+    # last sub-phase). When active_row_num divides row_num this is exact.
+    phase_num = -(-row_num // active_row_num)
     col = torch.arange(col_num)
     programmed = col % col_stride == 0  # (col,)
     grid_idx = col // col_stride  # (col,)
@@ -226,7 +231,7 @@ def grid_block_w(
         signs.view(-1, 1, 1),
         torch.zeros((), dtype=torch.long),
     ).expand(col_num, phase_num, active_row_num)
-    return w_block.reshape(col_num, 1, row_num).to(torch.long)
+    return w_block.reshape(col_num, 1, phase_num * active_row_num)[..., :row_num].to(torch.long)
 
 
 def saturating_w(*, col_num: int, row_num: int, active_row_num: int) -> Tensor:
@@ -234,18 +239,21 @@ def saturating_w(*, col_num: int, row_num: int, active_row_num: int) -> Tensor:
 
     Column pattern cycles through the three saturating shapes; under full
     drive every phase saturates the readout (clips at the top code) —
-    the loading-envelope extreme of the battery.
+    the loading-envelope extreme of the battery. When ``active_row_num`` does
+    not divide ``row_num`` the final block is short (its padded tail is
+    truncated), mirroring the engine's partial last sub-phase.
     """
-    if row_num % active_row_num != 0:
-        raise ValueError(f"require: row_num ({row_num}) % active_row_num ({active_row_num}) == 0")
-    phase_num = row_num // active_row_num
+    # Ceil so a non-divisible geometry still covers every row; the padded tail
+    # is dropped after the reshape (short final block == the engine's partial
+    # last sub-phase). When active_row_num divides row_num this is exact.
+    phase_num = -(-row_num // active_row_num)
     kind = torch.arange(col_num) % 3
     phase_sign = torch.where(torch.arange(phase_num) % 2 == 0, 1, -1)  # (phase,)
     w_block = torch.empty((col_num, phase_num, active_row_num), dtype=torch.long)
     w_block[kind == 0] = 1
     w_block[kind == 1] = -1
     w_block[kind == 2] = phase_sign.view(1, -1, 1)
-    return w_block.reshape(col_num, 1, row_num)
+    return w_block.reshape(col_num, 1, phase_num * active_row_num)[..., :row_num]
 
 
 def sample_binary_x(gen: torch.Generator, *, batch: int, row_num: int, density: float) -> Tensor:
@@ -262,7 +270,7 @@ def _unroll_sub_phase(x: Tensor, *, row_num: int, max_active_rows: int, inst_ran
     """Expand WL planes over the macro's hardware sub-phase axis.
 
     Local mirror of the runtime engine-layer serialization: the sub-phase
-    axis ``P = row_num / max_active_rows`` is inserted immediately LEFT
+    axis ``P = ceil(row_num / max_active_rows)`` is inserted immediately LEFT
     of the macro's inst-alignment span (``inst_rank`` size-1 slots), and
     rows outside a plane's active window are zeroed (WL off), so every
     conversion drives at most ``max_active_rows`` live rows — the
@@ -270,8 +278,9 @@ def _unroll_sub_phase(x: Tensor, *, row_num: int, max_active_rows: int, inst_ran
 
     Args:
         x: WL plane tensor with trailing ``[row_num]``.
-        row_num: Macro row count (must be a multiple of
-            ``max_active_rows``; the macro config enforces this).
+        row_num: Macro row count. When ``max_active_rows`` does not divide it
+            the final sub-phase reads the short remainder block (mirrors the
+            engine's ceil sub-phase count).
         max_active_rows: Maximum simultaneously active word lines per
             conversion (``CimMacro.max_active_rows``).
         inst_rank: Rank of the macro's fabricated ``inst_shape``.
@@ -281,9 +290,11 @@ def _unroll_sub_phase(x: Tensor, *, row_num: int, max_active_rows: int, inst_ran
         dtype and device follow ``x``.
     """
     # Static row -> sub-phase ownership; phase p owns rows
-    # [p * max_active_rows, (p + 1) * max_active_rows). Shape: [P, row_num]
+    # [p * max_active_rows, (p + 1) * max_active_rows). Ceil so every real row
+    # lands in exactly one sub-phase; the short final block leaves its own rows
+    # the only ones live in that plane. Shape: [P, row_num]
     mask = torch.arange(row_num, device=x.device) // max_active_rows == torch.arange(
-        row_num // max_active_rows, device=x.device
+        -(-row_num // max_active_rows), device=x.device
     ).unsqueeze(-1)
     # Shape: [P, row_num] -> [P, *(1,) * inst_rank, row_num]
     mask = mask.reshape(-1, *(1,) * inst_rank, row_num)
@@ -297,7 +308,7 @@ class PairedConversion:
 
     Attributes:
         i_in__uA: Analog ADC input per conversion element (physical run,
-            :class:`CurrentAdcProber`), CPU float64, 1-D.
+            :class:`SingleEndedCurrentAdcProber`), CPU float64, 1-D.
         code: ADC output code per element (physical run), CPU int64, 1-D.
         ideal_m: Lossless integer per-phase dot per element (ideal run's
             ``vec_mat_mul`` return at the ``adc_bits = 0`` sentinel), CPU
@@ -315,7 +326,8 @@ def run_paired_stimulus(
     *,
     w: Tensor,
     x: Tensor,
-    adc_operation_point: AdcOperationPoint,
+    adc_mode: int,
+    adc_bits: int,
 ) -> PairedConversion:
     """Program + run one stimulus through both tiles, pairing their views.
 
@@ -323,8 +335,8 @@ def run_paired_stimulus(
     shares no state) and driven with the same sub-phase-expanded WL
     planes (:func:`_unroll_sub_phase`, so calibration converts under the
     per-sub-phase masked drive the runtime applies and the streams stay
-    element-aligned). The physical VMM runs at ``adc_operation_point``
-    under a :class:`CurrentAdcProber` capturing the convert observations;
+    element-aligned). The physical VMM runs at ``(adc_mode, adc_bits)``
+    under a :class:`SingleEndedCurrentAdcProber` capturing the convert observations;
     the ideal VMM runs at the lossless ``adc_bits = 0`` sentinel and its
     integer-dot RETURN value is the ideal view (the ideal tile emits no
     probe). The physical observations and the ideal returns are paired
@@ -336,7 +348,8 @@ def run_paired_stimulus(
         w: Digit tensor matching the macro weight layout.
         x: Activation tensor with trailing ``[row_num]``; the testbench
             performs the sub-phase expansion internally.
-        adc_operation_point: Operating point of the physical run.
+        adc_mode: Operating mode of the physical run.
+        adc_bits: ADC resolution of the physical run.
 
     Returns:
         The flattened order-aligned streams (see :class:`PairedConversion`).
@@ -362,12 +375,11 @@ def run_paired_stimulus(
         max_active_rows=physical.max_active_rows,
         inst_rank=len(physical.inst_shape),
     )
-    lossless_op = AdcOperationPoint(adc_mode=adc_operation_point.adc_mode, adc_bits=0)
-    with CurrentAdcProber() as prober, torch.no_grad():
-        physical.vec_mat_mul(x, adc_operation_point=adc_operation_point)
+    with SingleEndedCurrentAdcProber() as prober, torch.no_grad():
+        physical.vec_mat_mul(x, adc_mode=adc_mode, adc_bits=adc_bits)
         # The ideal twin is reachable data: its return is the lossless view,
         # positionally paired with the physical convert observations.
-        ideal_dots: list[Tensor] = [ideal.vec_mat_mul(x, adc_operation_point=lossless_op)]
+        ideal_dots: list[Tensor] = [ideal.vec_mat_mul(x, adc_mode=adc_mode, adc_bits=0)]
 
     convert_observations = prober.records
     if not convert_observations:

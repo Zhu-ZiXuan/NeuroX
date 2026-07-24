@@ -1,0 +1,66 @@
+# Nonideality-free ("all-off") policy for the xue2020jssc SINWP 1T1R CIM sub-array
+# (spec v2 redesign schema).
+#
+# One child policy per owned ModuleBase block: the 1T1R pure array (linearized
+# cell + solver chunk knob), the WL DAC, the CABLC / SL clamp seats, the TMCSA SAR
+# current ADC, the shared static CurrentReference, and the control / PN-ISUB static
+# seats. This scheme models no mismatch or noise, so every per-source toggle is
+# false -- the lossless baseline and the only intended policy.
+#
+# Pull with:
+#   [policy]
+#   _neurox_use = "policy.toml:policy"
+
+[policy]
+_neurox_class = "Xue2020JsscCimMacroPolicy"
+
+
+# --- 1T1R pure array (linearized cell + solver chunk knob) ---
+# solve_chunk_size = 0 solves the whole broadcast leading in one block (no
+# per-chunk memory bound); the nested cell policy is the deterministic linear
+# lookup (source-free).
+[policy.array_policy]
+solve_chunk_size = 0
+
+[policy.array_policy.cell_policy]
+_neurox_class = "XbarCell1t1rLinearPolicy"
+
+
+# --- WL 1-bit ON/OFF DAC ---
+[policy.wl_dac_policy]
+_neurox_class = "GeneralVoltageDacPolicy"
+drive_thermal = false
+
+
+# --- CABLC BL-clamp seat (ideal Thevenin VoltageDriver) ---
+[policy.cablc_policy]
+offset = false
+thermal = false
+
+
+# --- SL ideal-clamp seat ---
+[policy.sl_driver_policy]
+offset = false
+thermal = false
+
+
+# --- TMCSA SAR current-mode quantizer ---
+[policy.adc_policy]
+comparator_offset = false
+replica_threshold_variation = false
+mirror_mismatch = false
+coupling_mismatch = false
+
+
+# --- Shared static current-reference source ---
+[policy.reference_policy]
+tolerance = false
+noise = false
+
+
+# --- Control static seat (UnmodeledBlock; source-free marker) ---
+[policy.control_policy]
+
+
+# --- PN-ISUB static seat (UnmodeledBlock; source-free marker) ---
+[policy.pn_isub_policy]

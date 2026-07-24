@@ -67,7 +67,7 @@ class GeneralTiaDcop:
 
 
 @Tia.register_key(GeneralTiaConfig)
-class GeneralTia(Tia[GeneralTiaSnap]):
+class GeneralTia(Tia[GeneralTiaConfig, GeneralTiaPolicy, GeneralTiaSnap]):
     """Linear (no-Newton) TIA clamp driver.
 
     A Thevenin-input + resistive-transimpedance model: the clamp node
@@ -75,9 +75,6 @@ class GeneralTia(Tia[GeneralTiaSnap]):
     is ``v_ref`` plus the ``load_resistance`` conversion of the port
     current.
     """
-
-    config: GeneralTiaConfig
-    policy: GeneralTiaPolicy
 
     def __init__(
         self,

@@ -8,14 +8,13 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, fields
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Generic, TypeVar
 
 import torch
 from torch import Tensor
 
 from neurox.common import ConfigBase, ModuleBase, PolicyBase
 from neurox.common.mixin import RegistryMixin
-from neurox.primitive.analog.adc_common import AdcOperationPoint
 
 if TYPE_CHECKING:
     from .ideal import IdealCimMacro
@@ -57,10 +56,11 @@ class CimMacroConfig(ConfigBase, ABC):
             raise ValueError(f"require: row_num ({self.row_num}) > 1")
         if not (1 <= self.active_row_num <= self.row_num):
             raise ValueError(f"require: 1 <= active_row_num ({self.active_row_num}) <= row_num ({self.row_num})")
-        # Uniform serialization: callers derive row_num / active_row_num
-        # equal sub-phases, each with the same dot-product dynamic range.
-        if not (self.row_num % self.active_row_num == 0):
-            raise ValueError(f"require: row_num ({self.row_num}) % active_row_num ({self.active_row_num}) == 0")
+        # No divisibility guard here: a tile may have any row_num / active_row_num
+        # ratio. The engine covers every row with a ceil number of sub-phases (the
+        # last block partially active). Uniform row-blocking — where a divisor is
+        # required so every sub-phase reads the same dot-product dynamic range — is
+        # an operator-layer contract enforced by the consuming unit (LinearCimUnit).
 
     def validate_ppa(self) -> None:
         self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
@@ -83,9 +83,14 @@ class CimMacroPolicy(PolicyBase, ABC):
     """Abstract marker base for CimMacro-family nonideality policies."""
 
 
+ConfigT = TypeVar("ConfigT", bound=CimMacroConfig)
+PolicyT = TypeVar("PolicyT", bound=CimMacroPolicy)
+
+
 class CimMacro(
-    ModuleBase[CimMacroConfig, CimMacroPolicy],
+    ModuleBase[ConfigT, PolicyT],
     RegistryMixin[type["CimMacroConfig"], "CimMacro"],
+    Generic[ConfigT, PolicyT],
     ABC,
 ):
     """Abstract base class for a physical crossbar tile.
@@ -99,15 +104,14 @@ class CimMacro(
         T__K: Operating temperature.
     """
 
-    policy: CimMacroPolicy
     T__K: float
     dtype: torch.dtype
 
     def __init__(
         self,
         *,
-        config: CimMacroConfig,
-        policy: CimMacroPolicy,
+        config: ConfigT,
+        policy: PolicyT,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -213,8 +217,14 @@ class CimMacro(
         raise NotImplementedError
 
     @abstractmethod
-    def adc_rescale_factor(self, adc_operation_point: AdcOperationPoint) -> float:
-        """Rescale factor for ``adc_operation_point``; raises ``KeyError`` if uncalibrated."""
+    def adc_rescale_factor(self, *, adc_mode: int, adc_bits: int) -> float:
+        """Rescale factor for ``(adc_mode, adc_bits)``; raises ``KeyError`` if uncalibrated.
+
+        Args:
+            adc_mode: ADC operating-point index selecting the reference
+                row / tap set; valid values are ``[0, adc_mode_num)``.
+            adc_bits: ADC resolution [bits] the conversion runs at.
+        """
         raise NotImplementedError
 
     # ----- Lifecycle -----
@@ -231,7 +241,7 @@ class CimMacro(
         raise NotImplementedError
 
     @abstractmethod
-    def vec_mat_mul(self, x: Tensor, *, adc_operation_point: AdcOperationPoint) -> Tensor:
+    def vec_mat_mul(self, x: Tensor, *, adc_mode: int, adc_bits: int) -> Tensor:
         """Run one independent analog conversion per WL plane through the tile.
 
         The macro boundary is digital -> DAC -> analog -> ADC -> digital,
@@ -244,7 +254,9 @@ class CimMacro(
                 Rows outside the caller's active window (at most
                 :attr:`max_active_rows` live rows per plane) must arrive
                 zeroed (WL off). Entries must lie in :attr:`x_range`.
-            adc_operation_point: Runtime ADC operating point.
+            adc_mode: ADC operating-point index selecting the reference
+                row / tap set; valid values are ``[0, adc_mode_num)``.
+            adc_bits: ADC resolution [bits] the conversion runs at.
 
         Returns:
             ADC-code tensor with the same leading order and primitive

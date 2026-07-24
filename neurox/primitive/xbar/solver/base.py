@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Generic, TypeVar
+from typing import Any, Generic, TypeVar
 
 from torch import Tensor
 
@@ -126,7 +126,7 @@ class Solver(RegistryMixin[type["SolverConfig"], "Solver"], ABC):
         sl_segment_r__MOhm: Tensor,
         bl_segment_g__uS: Tensor,
         sl_segment_g__uS: Tensor,
-        cell: XbarCell[CellSnapT, CellDCOPT],
+        cell: XbarCell[Any, Any, CellSnapT, CellDCOPT],
         cell_snap: CellSnapT,
         bl_driver: ClampDriver[BLSnapT],
         bl_driver_snap: BLSnapT,

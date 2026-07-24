@@ -12,8 +12,8 @@ The pure-array family: the abstract `XbarArray` plus the `XbarArraySteadyState` 
 
 ## Contracts & invariants
 
-- **`weight_grid_shape` property.** An init-determined constant `tuple[int, ...]`, the conductance grid shape `(*inst, phys_col, row)`, so a caller can size a full-leading per-instance input. It is a property because the shape is fixed at construction.
-- **`program(w_state_idx)`.** Writes the cells from one state-index tensor whose shape matches the array's own `(*prefix, phys_col_num, row_num)` layout; the abstract method every concrete array implements.
+- **`weight_grid_shape` property.** An init-determined constant `tuple[int, ...]`, the conductance grid shape `(*inst, col, row)`, so a caller can size a full-leading per-instance input. It is a property because the shape is fixed at construction.
+- **`program(w_state_idx)`.** Writes the cells from one state-index tensor whose shape matches the array's own `(*prefix, col_num, row_num)` layout; the abstract method every concrete array implements.
 - **`solve_array` returns an `XbarArraySteadyState`, not a DCOP.** The frozen result carries the per-column bit-line port current `i_bl_port__uA` and bit-line clamp voltage `v_bl_clamp__V`, both at full leading. Energy and latency are emitted internally through the `ProfileMixin` hooks, not returned; the array builds no DCOP of its own.
 - **Boundary blocks arrive per call.** `bl_driver` / `sl_driver` are the structural `ClampDriver` role and `bl_v_ref__V` / `sl_v_ref__V` are 0-d scalar reference taps. The array constructs none of them and re-registers no child driver state; each concrete array snapshots the passed-in drivers at the call shape.
 - **Abstract method set.** `weight_grid_shape`, `program`, and `solve_array` are `@abstractmethod`; `_sample_fabricate_mismatch` is the base's only concrete body (the no-op above). A concrete array supplies the three abstract members plus its own construction of the cell grid, wire buffers, and solver.

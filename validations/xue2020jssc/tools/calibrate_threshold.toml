@@ -1,0 +1,47 @@
+# Run-config for neurox.tools.calibrate_adc.threshold_probe on the xue2020jssc macro.
+#
+# Stage 1 of the ADC pipeline: probe the analog I_SUB band the TMCSA sees at every
+# integer per-conversion MAC magnitude |M| in [0, m_max] and place the mid-point
+# threshold ladder (one i_refs__uA reference-config row per adc_mode).
+#
+# Divisibility blocker REMOVED (spec S12): the generic threshold_probe stimulus battery
+# (grid_block_w / sample_capped_block_w / saturating_w) and its sub-phase unrolling
+# (_unroll_sub_phase) now CEIL-divide row_num by active_row_num and mask, so the paper
+# 256/9 geometry is covered by a short final block (rows 252..255) -- mirroring the engine's
+# ceil sub-phase count. No row_num % active_row_num requirement remains.
+#
+# NOT YET a drop-in replacement for the scheme-local calibrate.py at THIS config: the
+# generic testbench drives the macro with a single-digit ternary weight tensor
+# (col_num, 1, row_num) passed straight to program(), while the paper macro is w_digit_num=2
+# and program() expects (col_num, 2, row_num) (calibrate.py transcodes via
+# TrueFormTranscoder(digit_count=2)). Running here builds the ideal twin + battery (all 256
+# rows covered) then raises at program() on the digit-axis shape -- a transcode/digit-layout
+# gap in the generic testbench, ORTHOGONAL to divisibility, and it also needs the macro's
+# w_digit_num==2 assert relaxed (macro-rewrite workflow). Applies as-is once the testbench
+# emits the macro's full digit layout (or the macro is run at a w_digit_num=1 config).
+#
+# Run:
+#   python -m neurox.tools.calibrate_adc.threshold_probe \
+#       --config validations/xue2020jssc/tools/calibrate_threshold.toml --device cpu
+
+# Top-level scalar (must precede the first table header): the mode-set source.
+modes_file = "modes.toml"
+
+[macro]
+config_files = ["../params.toml"]
+config_section = "cim_macro"
+policy_file = "../policy.toml"
+policy_section = "policy"
+
+[probe]
+adc_mode = 0                      # single mode; the captured analog input is mode-independent
+
+[stimulus]
+seed = 0
+lsb_caps = [1, 3, 5, 7, 9]        # single-sign count caps (up to active_row_num = 9)
+patterns_per_cap = 8
+x_densities = [0.25, 0.5, 1.0]
+full_drive_caps = [1, 3, 5, 7, 9] # safe: the linear cell + wire ladder solves stably
+x_batch = 8
+grid_col_stride = 1               # exact per-column count grid (the linear wire-ladder solve needs no dilution)
+include_saturating = true         # dense saturating columns are valid under the linear array solve

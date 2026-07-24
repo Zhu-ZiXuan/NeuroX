@@ -13,7 +13,6 @@ import torch
 from torch import Tensor
 
 from neurox.architecture.unit.base import UnitBase
-from neurox.primitive.analog.adc_common import AdcOperationPoint
 
 
 class LinearUnit(UnitBase, ABC):
@@ -47,7 +46,7 @@ class LinearUnit(UnitBase, ABC):
         return output.squeeze(-2)
 
     @torch.no_grad()
-    def linear(self, input: Tensor, *, adc_operation_point: AdcOperationPoint) -> Tensor:
+    def linear(self, input: Tensor, *, adc_mode: int, adc_bits: int) -> Tensor:
         """Execute one integer linear operator against the programmed state.
 
         Matches ``torch.nn.functional.linear`` shape semantics: the
@@ -57,13 +56,14 @@ class LinearUnit(UnitBase, ABC):
 
         Args:
             input: Integer activation tensor with trailing ``[K]``.
-            adc_operation_point: Runtime ADC operating point.
+            adc_mode: Runtime ADC operating-point index.
+            adc_bits: Runtime ADC resolution.
 
         Returns:
             Integer pre-requantize output tensor with trailing ``[N]``;
             leading dims mirror ``input``.
         """
-        y = self._lower_matmul(input, adc_operation_point=adc_operation_point)
+        y = self._lower_matmul(input, adc_mode=adc_mode, adc_bits=adc_bits)
         int_bias = self.int_bias
         if int_bias is not None:
             # Shape: [..., N] + [N] -> [..., N]  (broadcast add)
@@ -100,7 +100,7 @@ class IdealLinearUnitPolicy(CimUnitPolicy):
 
 
 @CimUnit.register_key(IdealLinearUnitConfig)
-class IdealLinearUnit(LinearUnit, CimUnit):
+class IdealLinearUnit(LinearUnit, CimUnit[IdealLinearUnitConfig, IdealLinearUnitPolicy]):
     """Degenerate ``CimUnit``: stores the integer weight and runs the exact integer matmul against it.
 
     No xbar tile, no slicing, no transcoding. ``dtype``, ``T__K``, and
@@ -120,7 +120,6 @@ class IdealLinearUnit(LinearUnit, CimUnit):
         ideal_xbar: Accepted for API uniformity and ignored (no xbar tile to swap).
     """
 
-    config: IdealLinearUnitConfig
     nominal_weight: Tensor
     weight: Tensor
 
@@ -182,9 +181,9 @@ class IdealLinearUnit(LinearUnit, CimUnit):
         # ``0`` is the sentinel meaning no output quantization is applied.
         return 0
 
-    def adc_rescale_factor(self, adc_operation_point: AdcOperationPoint) -> float:
-        """Rescale factor for ``adc_operation_point``; always ``1.0`` (no ADC)."""
-        del adc_operation_point  # accepted for API uniformity
+    def adc_rescale_factor(self, *, adc_mode: int, adc_bits: int) -> float:
+        """Rescale factor for ``(adc_mode, adc_bits)``; always ``1.0`` (no ADC)."""
+        del adc_mode, adc_bits  # accepted for API uniformity
         return 1.0
 
     # --- lifecycle ---
@@ -204,8 +203,8 @@ class IdealLinearUnit(LinearUnit, CimUnit):
         self._program_int_bias(bias, channels=self._w_logical_shape[-2])
 
     @torch.no_grad()
-    def _matmul(self, input: Tensor, *, adc_operation_point: AdcOperationPoint) -> Tensor:
-        del adc_operation_point  # accepted for API uniformity
+    def _matmul(self, input: Tensor, *, adc_mode: int, adc_bits: int) -> Tensor:
+        del adc_mode, adc_bits  # accepted for API uniformity
         weight = self.weight
         if self._fp32_exact:
             # Bound checked in ``__init__`` against the config value

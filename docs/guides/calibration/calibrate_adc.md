@@ -26,7 +26,7 @@ Probes the analog band the ADC input sees at every integer per-conversion MAC ma
 3. Pair each conversion's captured analog input (the physical tile's `current_adc.convert` probe observation) with its realized ideal $|M|$ (the ideal tile's `vec_mat_mul` return value); pool into per-$|M|$ bands $[\mathrm{lo}(k), \mathrm{hi}(k)]$ (magnitudes above the top code fold into the top band).
 4. Per mode in the mode set (each mode's grid top $m_{\max} = \lceil \mathrm{range} \rceil$ comes from its `[[modes]]` record), place $t_k = \tfrac{1}{2}(\mathrm{hi}(k) + \mathrm{lo}(k+1))$ and report the band margins $\mathrm{lo}(k+1) - \mathrm{hi}(k)$ — the minimum margin is the headline; a negative margin means adjacent bands overlap and the placement is invalid at that boundary. A pooled linear $I(M)$ fit and a strict band-mean monotonicity check accompany the report.
 
-Output: a `ref_levels__uA` / `i_refs__uA` row fragment (row index = `adc_mode`) plus figures (grid curve with bands and thresholds per mode; per-mode margin bars).
+Output: a single `i_refs__uA` reference-config row fragment (row index = `adc_mode`) — the reference block is the single ladder source the ADC reads per call — plus figures (grid curve with bands and thresholds per mode; per-mode margin bars).
 
 Capture staging bounds single-command runtime on large batteries: the element list is deterministic for a given config, so `--element-range a:b` probes a contiguous slice, `--capture-out part.pt` saves that slice's pooled streams and defers placement, and a final run merges every `--capture-in` part ahead of its own slice before placing the ladder (the log records the merged provenance).
 

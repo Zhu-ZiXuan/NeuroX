@@ -34,7 +34,7 @@ Each top-level `docs/` directory owns one kind of content:
 - `get-started/` — installation and quickstart.
 - `guides/` — task how-to, grouped by engineer audience.
 - `reference/` — the scientific spec, by subsystem.
-- `validation/` — evidence that the models are faithful and correctly implemented.
+- `validation/` — evidence that the models are faithful and correctly implemented, including the per-paper calibration campaigns kept in the repository's `validations/` directory.
 - `api/` — the Python API and the config and policy schema.
 - `internals/` — the software implementation companion to Reference, by subsystem.
 - `conventions/` — documentation and coding standards, plus the shared vocabulary.

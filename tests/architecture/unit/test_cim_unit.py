@@ -31,22 +31,21 @@ from neurox.architecture.unit.cim.engine import (
     IntraArraySliceCimEngineConfig,
 )
 from neurox.common.profiler import NeuroxProfiler
-from neurox.primitive.analog.adc_common import AdcOperationPoint
 from neurox.primitive.digital import AccumulatorConfig, SerialAccumulator, ShiftAdderConfig
 from neurox.primitive.macro.cim import IdealCimMacroConfig, IdealCimMacroPolicy
 
 # All tests use IdealCimMacroConfig as the embedded xbar config, so its nonideality
 # policy is the empty marker; the units surrounding it carry that empty
-# policy in their `cim_macro=` field.
+# policy in their `cim_macro_policy=` field.
 _IDEAL_XBAR_POLICY = IdealCimMacroPolicy()
 _IDEAL_UNIT_POLICY = IdealLinearUnitPolicy()
-_LINEAR_UNIT_POLICY = LinearCimUnitPolicy(cim_macro=_IDEAL_XBAR_POLICY)
+_LINEAR_UNIT_POLICY = LinearCimUnitPolicy(cim_macro_policy=_IDEAL_XBAR_POLICY)
 
 # Test-only sentinel: ``adc_bits == 0`` instructs IdealCimMacro to skip ADC
 # quantization and the signed clamp, so unit outputs equal ``torch.matmul``
 # exactly — the same behaviour ``IdealLinearUnit`` provides natively.
 _TEST_ADC_BITS = 0
-_TEST_ADC_OP = AdcOperationPoint(adc_mode=0, adc_bits=_TEST_ADC_BITS)
+_TEST_ADC_MODE = 0
 
 
 def _ideal_xbar_config(
@@ -209,7 +208,7 @@ def _build_linear(
 
 def _assert_unit_matches_torch(unit: LinearUnit, weight: torch.Tensor, activation: torch.Tensor) -> torch.Tensor:
     unit.program(weight)
-    actual = unit.linear(activation, adc_operation_point=_TEST_ADC_OP)
+    actual = unit.linear(activation, adc_mode=_TEST_ADC_MODE, adc_bits=_TEST_ADC_BITS)
     # F.linear-form oracle: activation [..., K] against weight [*prefix, N, K];
     # the weight prefix broadcasts right-aligned over the activation batch dims.
     # Shape: [..., K] -> [..., 1, K] @ [*prefix, K, N] -> [..., 1, N] -> [..., N]
@@ -425,8 +424,8 @@ def test_direct_and_inter_slice_one_agree() -> None:
     direct.program(weight)
     inter.program(weight)
     assert torch.equal(
-        direct.linear(activation, adc_operation_point=_TEST_ADC_OP),
-        inter.linear(activation, adc_operation_point=_TEST_ADC_OP),
+        direct.linear(activation, adc_mode=_TEST_ADC_MODE, adc_bits=_TEST_ADC_BITS),
+        inter.linear(activation, adc_mode=_TEST_ADC_MODE, adc_bits=_TEST_ADC_BITS),
     )
 
 
@@ -441,8 +440,8 @@ def test_inter_and_intra_slice_engines_agree() -> None:
     inter.program(weight)
     intra.program(weight)
     assert torch.equal(
-        inter.linear(activation, adc_operation_point=_TEST_ADC_OP),
-        intra.linear(activation, adc_operation_point=_TEST_ADC_OP),
+        inter.linear(activation, adc_mode=_TEST_ADC_MODE, adc_bits=_TEST_ADC_BITS),
+        intra.linear(activation, adc_mode=_TEST_ADC_MODE, adc_bits=_TEST_ADC_BITS),
     )
 
 
@@ -541,7 +540,7 @@ def test_direct_engine_unit_multi_sub_phase_quantized_end_to_end() -> None:
     weight = _randint_in_range(unit.w_value_range, (n, k))
     activation = _randint_in_range(unit.x_value_range, (m, k))
     unit.program(weight)
-    actual = unit.linear(activation, adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=adc_bits))
+    actual = unit.linear(activation, adc_mode=0, adc_bits=adc_bits)
 
     # Reference: per-sub-phase partial dots, quantized per plane against the
     # per-conversion range, then accumulated over the sub-phase axis
@@ -593,7 +592,7 @@ def test_phase_accumulator_energy_scales_with_sub_phase_num() -> None:
         activation = _randint_in_range(unit.x_value_range, (m, k))
         unit.program(weight)
         with NeuroxProfiler() as p:
-            unit.linear(activation, adc_operation_point=_TEST_ADC_OP)
+            unit.linear(activation, adc_mode=_TEST_ADC_MODE, adc_bits=_TEST_ADC_BITS)
         energies[unit.engine._sub_phase_num] = sum(
             e.dynamic_energy__fJ for e in p.energy_events if e.module is unit.engine.phase_accumulator
         )
@@ -610,7 +609,7 @@ def test_ideal_unit_public_properties() -> None:
     assert unit.x_value_range == (-5, 7)
     assert unit.adc_mode_num == 1
     assert unit.adc_max_bits == 0
-    assert unit.adc_rescale_factor(AdcOperationPoint(adc_mode=0, adc_bits=0)) == 1.0
+    assert unit.adc_rescale_factor(adc_mode=0, adc_bits=0) == 1.0
 
 
 def test_direct_engine_unit_public_properties() -> None:
@@ -624,7 +623,7 @@ def test_direct_engine_unit_public_properties() -> None:
     assert unit.adc_max_bits == _TEST_ADC_BITS
     # Ideal-backed units derive rescale from bit width alone: bits == 0
     # (the full-precision sentinel) → identity rescale of 1.0.
-    assert unit.adc_rescale_factor(_TEST_ADC_OP) == 1.0
+    assert unit.adc_rescale_factor(adc_mode=_TEST_ADC_MODE, adc_bits=_TEST_ADC_BITS) == 1.0
 
 
 def test_inter_array_slice_engine_unit_public_properties() -> None:
@@ -633,7 +632,7 @@ def test_inter_array_slice_engine_unit_public_properties() -> None:
     assert unit.w_value_range == (-4095, 4095)
     assert unit.x_value_range == (0, 15)
     # Ideal-backed → bits == 0 → identity rescale.
-    assert unit.adc_rescale_factor(_TEST_ADC_OP) == 1.0
+    assert unit.adc_rescale_factor(adc_mode=_TEST_ADC_MODE, adc_bits=_TEST_ADC_BITS) == 1.0
 
 
 def test_intra_array_slice_engine_unit_public_properties() -> None:
@@ -642,7 +641,7 @@ def test_intra_array_slice_engine_unit_public_properties() -> None:
     assert unit.w_value_range == (-4095, 4095)
     assert unit.x_value_range == (0, 15)
     # Ideal-backed → bits == 0 → identity rescale.
-    assert unit.adc_rescale_factor(_TEST_ADC_OP) == 1.0
+    assert unit.adc_rescale_factor(adc_mode=_TEST_ADC_MODE, adc_bits=_TEST_ADC_BITS) == 1.0
 
 
 @pytest.mark.parametrize(
@@ -685,7 +684,7 @@ def test_engine_from_config_dispatches_to_registered_variant(
 ) -> None:
     engine = CimEngine.from_config(
         config=engine_config,
-        policy=CimEnginePolicy(cim_macro=_IDEAL_XBAR_POLICY),
+        policy=CimEnginePolicy(cim_macro_policy=_IDEAL_XBAR_POLICY),
         w_logical_shape=(13, 20),
         dtype=torch.float32,
         T__K=300.0,

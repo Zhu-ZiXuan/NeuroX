@@ -16,16 +16,16 @@ from neurox.architecture.unit.cim import (
 )
 from neurox.architecture.unit.cim.engine import CimEngine, DirectCimEngineConfig
 from neurox.common.profiler import NeuroxProfiler
-from neurox.primitive.analog.adc_common import AdcOperationPoint
 from neurox.primitive.digital import AccumulatorConfig, SerialAccumulator
 from neurox.primitive.macro.cim import IdealCimMacroConfig, IdealCimMacroPolicy
 
-_UNIT_POLICY = LinearCimUnitPolicy(cim_macro=IdealCimMacroPolicy())
+_UNIT_POLICY = LinearCimUnitPolicy(cim_macro_policy=IdealCimMacroPolicy())
 
 # ``adc_bits == 0`` is the IdealCimMacro lossless sentinel: per-plane codes
 # are the exact integer partial dots, so the whole unit pipeline must match
 # an int64 CPU matmul oracle bit-exactly.
-_LOSSLESS_ADC_OP = AdcOperationPoint(adc_mode=0, adc_bits=0)
+_ADC_MODE = 0
+_ADC_BITS = 0
 
 
 def _ideal_xbar_config(
@@ -133,7 +133,7 @@ def test_linear_matches_int64_cpu_oracle_on_cpu(n: int, k: int, batch: tuple[int
     weight = _random_weight(unit, (n, k))
     x = _random_binary((*batch, k))
     unit.program(weight)
-    actual = unit.linear(x, adc_operation_point=_LOSSLESS_ADC_OP)
+    actual = unit.linear(x, adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
     expected = _cpu_int64_linear_oracle(x, weight)
     assert actual.shape == (*batch, n)
     assert torch.equal(actual.to(torch.int64), expected)
@@ -149,7 +149,7 @@ def test_linear_matches_int64_cpu_oracle_on_device(
     x = _random_binary((*batch, k))
     unit.program(weight)
     unit.to(device)
-    actual = unit.linear(x.to(device), adc_operation_point=_LOSSLESS_ADC_OP)
+    actual = unit.linear(x.to(device), adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
     assert actual.device.type == device.type
     expected = _cpu_int64_linear_oracle(x, weight)
     assert torch.equal(actual.cpu().to(torch.int64), expected)
@@ -164,7 +164,7 @@ def test_linear_lowering_matches_int64_cpu_oracle() -> None:
     weight = _random_weight(unit, (n, k))
     x = _random_binary((m, k))
     unit.program(weight)
-    actual = unit._lower_matmul(x, adc_operation_point=_LOSSLESS_ADC_OP)
+    actual = unit._lower_matmul(x, adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
     expected = torch.matmul(x.to(torch.int64), weight.to(torch.int64).transpose(-1, -2))
     assert torch.equal(actual.to(torch.int64), expected)
 
@@ -178,7 +178,7 @@ def test_linear_multi_sub_phase_lossless_matches_oracle() -> None:
     weight = _random_weight(unit, (n, k))
     x = _random_binary((8, k))
     unit.program(weight)
-    actual = unit.linear(x, adc_operation_point=_LOSSLESS_ADC_OP)
+    actual = unit.linear(x, adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
     assert torch.equal(actual.to(torch.int64), _cpu_int64_linear_oracle(x, weight))
 
 
@@ -189,7 +189,7 @@ def test_linear_accepts_single_vector_input() -> None:
     weight = _random_weight(unit, (n, k))
     x = _random_binary((k,))
     unit.program(weight)
-    actual = unit.linear(x, adc_operation_point=_LOSSLESS_ADC_OP)
+    actual = unit.linear(x, adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
     assert actual.shape == (n,)
     assert torch.equal(actual.to(torch.int64), _cpu_int64_linear_oracle(x, weight))
 
@@ -206,9 +206,9 @@ def test_linear_leading_time_axis_transparency() -> None:
     weight = _random_weight(unit, (n, k))
     x = _random_binary((t, b, k))
     unit.program(weight)
-    batched = unit.linear(x, adc_operation_point=_LOSSLESS_ADC_OP)
+    batched = unit.linear(x, adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
     per_plane = torch.stack(
-        [unit.linear(x[i], adc_operation_point=_LOSSLESS_ADC_OP) for i in range(t)],
+        [unit.linear(x[i], adc_mode=_ADC_MODE, adc_bits=_ADC_BITS) for i in range(t)],
         dim=0,
     )
     assert batched.shape == (t, b, n)
@@ -227,7 +227,7 @@ def test_linear_program_with_integer_bias_adds_exactly() -> None:
     bias = torch.randint(-7, 8, (n,), dtype=torch.int32)
     x = _random_binary((m, k))
     unit.program(weight, bias)
-    actual = unit.linear(x, adc_operation_point=_LOSSLESS_ADC_OP)
+    actual = unit.linear(x, adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
     expected = _cpu_int64_linear_oracle(x, weight) + bias.to(torch.int64)
     assert torch.equal(actual.to(torch.int64), expected)
 
@@ -241,7 +241,7 @@ def test_linear_reprogram_without_bias_clears_slot() -> None:
     unit.program(weight, torch.randint(-7, 8, (n,), dtype=torch.int32))
     unit.program(weight)
     assert unit.int_bias is None
-    actual = unit.linear(x, adc_operation_point=_LOSSLESS_ADC_OP)
+    actual = unit.linear(x, adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
     assert torch.equal(actual.to(torch.int64), _cpu_int64_linear_oracle(x, weight))
 
 
@@ -254,7 +254,7 @@ def test_linear_lowering_never_includes_bias() -> None:
     weight = _random_weight(unit, (n, k))
     x = _random_binary((m, k))
     unit.program(weight, torch.randint(-7, 8, (n,), dtype=torch.int32))
-    actual = unit._lower_matmul(x, adc_operation_point=_LOSSLESS_ADC_OP)
+    actual = unit._lower_matmul(x, adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
     expected = torch.matmul(x.to(torch.int64), weight.to(torch.int64).transpose(-1, -2))
     assert torch.equal(actual.to(torch.int64), expected)
 
@@ -293,7 +293,7 @@ def test_linear_phase_accounting_scales_with_sub_phase_num() -> None:
         assert isinstance(unit.engine.phase_accumulator, SerialAccumulator)
         unit.program(_random_weight(unit, (n, k)))
         with NeuroxProfiler() as p:
-            unit.linear(_random_binary((m, k)), adc_operation_point=_LOSSLESS_ADC_OP)
+            unit.linear(_random_binary((m, k)), adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
         energies[unit.engine._sub_phase_num] = sum(
             e.dynamic_energy__fJ for e in p.energy_events if e.module is unit.engine.phase_accumulator
         )
@@ -307,6 +307,15 @@ def test_linear_phase_accounting_scales_with_sub_phase_num() -> None:
 def test_linear_config_rejects_negative_ppa() -> None:
     with pytest.raises(ValueError, match="area_per_inst__um2"):
         _unit_config(area_per_inst__um2=-1.0)
+
+
+def test_linear_config_rejects_non_divisor_row_blocking() -> None:
+    # The base macro accepts a non-divisible geometry (16 % 6 != 0); the linear
+    # operator reads every row, so LinearCimUnitConfig is where the uniform
+    # row-blocking divisor is enforced.
+    assert _ideal_xbar_config(row_num=16, active_row_num=6).active_row_num == 6
+    with pytest.raises(ValueError, match=r"active_row_num"):
+        _unit_config(xbar_config=_ideal_xbar_config(row_num=16, active_row_num=6))
 
 
 def test_linear_rejects_fp32_exactness_bound_violation() -> None:

@@ -51,12 +51,14 @@ class TiaSnap:
 
 
 SnapT = TypeVar("SnapT", bound=TiaSnap)
+ConfigT = TypeVar("ConfigT", bound=TiaConfig)
+PolicyT = TypeVar("PolicyT", bound=TiaPolicy)
 
 
 class Tia(
-    AnalogBase[TiaConfig, TiaPolicy],
+    AnalogBase[ConfigT, PolicyT],
     RegistryMixin[type["TiaConfig"], "Tia"],
-    Generic[SnapT],
+    Generic[ConfigT, PolicyT, SnapT],
     ABC,
 ):
     """Abstract base for transimpedance-amp clamp drivers."""
@@ -64,8 +66,8 @@ class Tia(
     def __init__(
         self,
         *,
-        config: TiaConfig,
-        policy: TiaPolicy,
+        config: ConfigT,
+        policy: PolicyT,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,

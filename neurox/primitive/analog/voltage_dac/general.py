@@ -75,11 +75,9 @@ class GeneralVoltageDacPolicy(VoltageDacPolicy):
 
 
 @VoltageDac.register_key(GeneralVoltageDacConfig)
-class GeneralVoltageDac(VoltageDac):
+class GeneralVoltageDac(VoltageDac[GeneralVoltageDacConfig, GeneralVoltageDacPolicy]):
     """General voltage DAC model — code-to-voltage LUT plus output thermal noise."""
 
-    config: GeneralVoltageDacConfig
-    policy: GeneralVoltageDacPolicy
     code_to_signal: Tensor
 
     def __init__(
@@ -130,10 +128,7 @@ class GeneralVoltageDac(VoltageDac):
             enabled=self.policy.drive_thermal,
         )
 
-        # Serial-op count via the position-invariant numel rule: total
-        # output elements / parallel hardware multiplicity. For DAC the
-        # parallel structure is exactly ``inst_count`` — no extra
-        # parallel trailing — so the divisor is ``self.inst_count``.
+        assert signal.numel() % self.inst_count == 0
         serial_op_count = max(1, signal.numel() // max(self.inst_count, 1))
         # Per-op driver-circuit energy: one constant per conversion op
         # (the drive LOAD's capacitive cycling is billed by the load's

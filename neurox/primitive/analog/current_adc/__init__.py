@@ -1,24 +1,25 @@
-"""Current-domain ADC family — abstract base plus concrete implementations.
+"""Single-ended current-domain ADC family — abstract base plus concrete implementations.
 
 See also:
     docs/reference/primitive/analog/current_adc/README.md
 """
 
-from neurox.primitive.analog.adc_common import AdcCalibrationRecord, AdcMode, AdcOperationPoint
-
-from .base import CurrentAdc, CurrentAdcConfig, CurrentAdcObservation, CurrentAdcPolicy, CurrentAdcProber
-from .sar import SarCurrentAdc, SarCurrentAdcConfig, SarCurrentAdcPolicy
+from .base import (
+    SingleEndedCurrentAdc,
+    SingleEndedCurrentAdcConfig,
+    SingleEndedCurrentAdcObservation,
+    SingleEndedCurrentAdcPolicy,
+    SingleEndedCurrentAdcProber,
+)
+from .sar import SarSingleEndedCurrentAdc, SarSingleEndedCurrentAdcConfig, SarSingleEndedCurrentAdcPolicy
 
 __all__ = [
-    "AdcCalibrationRecord",
-    "AdcMode",
-    "AdcOperationPoint",
-    "CurrentAdc",
-    "CurrentAdcConfig",
-    "CurrentAdcObservation",
-    "CurrentAdcPolicy",
-    "CurrentAdcProber",
-    "SarCurrentAdc",
-    "SarCurrentAdcConfig",
-    "SarCurrentAdcPolicy",
+    "SarSingleEndedCurrentAdc",
+    "SarSingleEndedCurrentAdcConfig",
+    "SarSingleEndedCurrentAdcPolicy",
+    "SingleEndedCurrentAdc",
+    "SingleEndedCurrentAdcConfig",
+    "SingleEndedCurrentAdcObservation",
+    "SingleEndedCurrentAdcPolicy",
+    "SingleEndedCurrentAdcProber",
 ]

@@ -105,6 +105,9 @@ unfixable = []
     "T201", # `print` found
 ]
 
+[tool.pytest.ini_options]
+pythonpath = ["."]
+
 [tool.mypy]
 python_version = "3.11"
 namespace_packages = true

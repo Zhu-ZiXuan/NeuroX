@@ -52,11 +52,11 @@ Each macro is built from two separate TOML files; the full schema and the `_neur
 - **`--policy`** — the mutable nonideality switches. The example policy files reference the all-off preset shipped with the scheme via `_neurox_use`, so every nonideality (device mismatch, thermal noise, programming noise, ADC offsets, ...) is off by default. To enable one, override the matching switch inline:
 
   ```toml
-  [policy.cim_macro.tia]
+  [policy.cim_macro_policy.tia_policy]
   opamp_gain_sigma = true
   ```
 
-  The solver chunking knob (`solve_chunk_size`) also lives here, under `[policy.cim_macro.array]`.
+  The solver chunking knob (`solve_chunk_size`) also lives here, under `[policy.cim_macro_policy.array_policy]`.
 
 ## See also
 

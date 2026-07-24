@@ -27,9 +27,9 @@ class _Leaf(nn.Module, ProfileMixin):
     def inst_count(self) -> int:
         return 1
 
-    def run(self) -> None:
+    def run(self, *, channel: str | None = None) -> None:
         if self._energy__fJ:
-            self._log_dynamic_energy(torch.tensor(self._energy__fJ))
+            self._log_dynamic_energy(torch.tensor(self._energy__fJ), channel=channel)
         if self._latency__ns:
             self._log_latency(torch.tensor(self._latency__ns))
 
@@ -110,3 +110,42 @@ def test_static_record_name_comes_from_the_walk() -> None:
     records = NeuroxProfiler.collect_static(owner)
     assert [r.qualified_name for r in records] == ["leaf"]
     assert records[0].module_type == "_Leaf"
+
+
+def test_channelled_energy_groups_under_module_dot_channel() -> None:
+    """A channelled event's report row reads ``<module dotted name>.<channel>``."""
+    owner = _Owner(_Leaf(energy__fJ=4.0))
+    with NeuroxProfiler() as p:
+        owner.leaf.run(channel="cablc")
+    assert p.report(owner).energy_by_name == {"leaf.cablc": 4.0}
+
+
+def test_distinct_channels_on_the_same_module_stay_separate_rows() -> None:
+    """One emitter billing multiple branches per op keeps each channel its own row."""
+    owner = _Owner(_Leaf(energy__fJ=4.0))
+    with NeuroxProfiler() as p:
+        owner.leaf.run(channel="cablc")
+        owner.leaf.run(channel="dswct")
+        owner.leaf.run()  # un-channelled event on the same emitter
+    by_name = p.report(owner).energy_by_name
+    assert by_name == {"leaf.cablc": 4.0, "leaf.dswct": 4.0, "leaf": 4.0}
+    assert sum(by_name.values()) == p.total_dynamic_energy__fJ == 12.0
+
+
+def test_unrooted_channelled_event_keeps_the_channel_suffix() -> None:
+    """An unrooted emitter's channel still appends onto the ``<unrooted>`` label."""
+    outside = _Leaf(energy__fJ=7.0)
+    owner = _Owner(_Leaf())
+    with NeuroxProfiler() as p:
+        outside.run(channel="dswct")
+    assert p.report(owner).energy_by_name == {"<unrooted>._Leaf.dswct": 7.0}
+
+
+def test_default_channel_is_none_and_matches_unchannelled_behavior() -> None:
+    """``channel=None`` (the default) is byte-identical to the un-channelled call."""
+    owner = _Owner(_Leaf(energy__fJ=4.0))
+    with NeuroxProfiler() as p:
+        owner.leaf.run(channel=None)
+    report = p.report(owner)
+    assert report.energy_by_name == {"leaf": 4.0}
+    assert report.energy_events[0].channel is None

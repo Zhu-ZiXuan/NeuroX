@@ -79,11 +79,13 @@ class XbarCellDcop:
 
 SnapT = TypeVar("SnapT", bound=XbarCellSnap)
 DCOPT = TypeVar("DCOPT", bound=XbarCellDcop)
+ConfigT = TypeVar("ConfigT", bound=XbarCellConfig)
+PolicyT = TypeVar("PolicyT", bound=XbarCellPolicy)
 
 
 class XbarCell(
-    ModuleBase[XbarCellConfig, XbarCellPolicy],
-    Generic[SnapT, DCOPT],
+    ModuleBase[ConfigT, PolicyT],
+    Generic[ConfigT, PolicyT, SnapT, DCOPT],
     ABC,
 ):
     """Solver-facing crossbar-cell contract.
@@ -110,8 +112,8 @@ class XbarCell(
     def __init__(
         self,
         *,
-        config: XbarCellConfig,
-        policy: XbarCellPolicy,
+        config: ConfigT,
+        policy: PolicyT,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,

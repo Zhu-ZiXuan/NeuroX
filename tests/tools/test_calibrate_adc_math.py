@@ -28,6 +28,12 @@ from neurox.tools.calibrate_adc._modes import (
     load_layer_ranges,
     load_mode_set,
 )
+from neurox.tools.calibrate_adc._testbench import (
+    _unroll_sub_phase,
+    grid_block_w,
+    sample_capped_block_w,
+    saturating_w,
+)
 from neurox.tools.calibrate_adc.mode_derive import derive_modes
 
 
@@ -306,6 +312,60 @@ class TestModeSet:
         path.write_text(dump_mode_set(self._mode_set()) + "\n[extra]\nx = 1\n")
         with pytest.raises(ValueError, match="top-level keys"):
             load_mode_set(path)
+
+
+class TestStimulusCeilBlocking:
+    """The stimulus generators + sub-phase mirror ceil-divide + mask, so a
+    non-divisible row/active-row geometry (the paper 256/9) is covered by a
+    short final block instead of raising on a divisibility assertion.
+    """
+
+    # Paper sub-array geometry: 256 % 9 != 0.
+    _COL, _ROW, _ACTIVE = 4, 256, 9
+
+    def _gen(self) -> torch.Generator:
+        return torch.Generator().manual_seed(0)
+
+    def test_grid_block_w_non_divisible_shape(self) -> None:
+        w = grid_block_w(col_num=self._COL, row_num=self._ROW, active_row_num=self._ACTIVE, m_max=self._ACTIVE)
+        assert tuple(w.shape) == (self._COL, 1, self._ROW)
+        assert set(w.unique().tolist()) <= {-1, 0, 1}
+
+    def test_capped_block_w_non_divisible_shape(self) -> None:
+        w = sample_capped_block_w(
+            self._gen(), col_num=self._COL, row_num=self._ROW, active_row_num=self._ACTIVE, cap=self._ACTIVE
+        )
+        assert tuple(w.shape) == (self._COL, 1, self._ROW)
+        assert set(w.unique().tolist()) <= {-1, 0, 1}
+
+    def test_saturating_w_non_divisible_shape(self) -> None:
+        w = saturating_w(col_num=self._COL, row_num=self._ROW, active_row_num=self._ACTIVE)
+        assert tuple(w.shape) == (self._COL, 1, self._ROW)
+
+    def test_grid_block_w_divisible_leading_count(self) -> None:
+        """At a divisible geometry every full block programs exactly ``count`` leading cells."""
+        col_num, row_num, active = 3, 12, 4  # 12 % 4 == 0, 3 phases
+        w = grid_block_w(col_num=col_num, row_num=row_num, active_row_num=active, m_max=active, col_stride=1)
+        blocks = w.reshape(col_num, row_num // active, active)
+        # Column c (grid_idx c, offset 0) programs c % (active + 1) leading cells per block.
+        for c in range(col_num):
+            for p in range(row_num // active):
+                assert int(blocks[c, p].abs().sum()) == c % (active + 1)
+
+    def test_unroll_mirror_covers_every_row_exactly_once(self) -> None:
+        """Ceil sub-phase count: each real row is live in exactly one plane."""
+        x = torch.ones((2, self._ROW), dtype=torch.long)
+        planes = _unroll_sub_phase(x, row_num=self._ROW, max_active_rows=self._ACTIVE, inst_rank=0)
+        p_num = -(-self._ROW // self._ACTIVE)  # ceil(256 / 9) == 29
+        assert tuple(planes.shape) == (2, p_num, self._ROW)
+        # Sum over the P axis: every (batch, row) is active in exactly one plane.
+        assert torch.equal(planes.sum(dim=1), x)
+
+    def test_unroll_mirror_divisible_equals_exact_quotient(self) -> None:
+        x = torch.ones((12,), dtype=torch.long)  # trailing row_num == 12
+        planes = _unroll_sub_phase(x, row_num=12, max_active_rows=4, inst_rank=0)
+        assert planes.shape[-2] == 3  # 12 / 4 exact
+        assert torch.equal(planes.sum(dim=-2), x)
 
 
 class TestDeriveModes:

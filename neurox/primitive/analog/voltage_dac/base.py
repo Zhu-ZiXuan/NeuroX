@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import Generic, TypeVar
 
 import torch
 from torch import Tensor
@@ -44,9 +45,14 @@ class VoltageDacPolicy(AnalogPolicy, ABC):
     """Abstract marker base for voltage-DAC-family nonideality policies."""
 
 
+ConfigT = TypeVar("ConfigT", bound=VoltageDacConfig)
+PolicyT = TypeVar("PolicyT", bound=VoltageDacPolicy)
+
+
 class VoltageDac(
-    AnalogBase[VoltageDacConfig, VoltageDacPolicy],
+    AnalogBase[ConfigT, PolicyT],
     RegistryMixin[type["VoltageDacConfig"], "VoltageDac"],
+    Generic[ConfigT, PolicyT],
     ABC,
 ):
     """Abstract base class for voltage-domain DAC implementations.
@@ -80,8 +86,8 @@ class VoltageDac(
     def __init__(
         self,
         *,
-        config: VoltageDacConfig,
-        policy: VoltageDacPolicy,
+        config: ConfigT,
+        policy: PolicyT,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,

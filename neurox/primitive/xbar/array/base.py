@@ -76,7 +76,7 @@ class XbarArray(ModuleBase[ConfigT, PolicyT], ABC):
     @property
     @abstractmethod
     def weight_grid_shape(self) -> tuple[int, ...]:
-        """Shape of the conductance grid ``(*inst, phys_col, row)``."""
+        """Shape of the conductance grid ``(*inst, col, row)``."""
         raise NotImplementedError
 
     @abstractmethod
@@ -85,7 +85,7 @@ class XbarArray(ModuleBase[ConfigT, PolicyT], ABC):
 
         Args:
             w_state_idx: State-index tensor whose shape matches the array's
-                own ``(*prefix, phys_col_num, row_num)`` layout.
+                own ``(*inst, col_num, row_num)`` layout.
         """
         raise NotImplementedError
 
@@ -98,7 +98,7 @@ class XbarArray(ModuleBase[ConfigT, PolicyT], ABC):
         bl_v_ref__V: Tensor,
         sl_driver: ClampDriver[SLSnapT],
         sl_v_ref__V: Tensor,
-        t_conduct__ns: float,
+        t_conduct__ns: float | Tensor,
     ) -> XbarArraySteadyState:
         """Settle the array to DC under an analog WL drive.
 
@@ -108,8 +108,9 @@ class XbarArray(ModuleBase[ConfigT, PolicyT], ABC):
             bl_v_ref__V: BL-clamp reference tap, a 0-d scalar.
             sl_driver: SL boundary clamp (structural ``ClampDriver`` role).
             sl_v_ref__V: SL-drive reference tap, a 0-d scalar.
-            t_conduct__ns: Conduction window of one solved WL plane [ns],
-                scaling the array-side DC-conduction energy.
+            t_conduct__ns: Scalar (single plane) or a per-plane vector
+                broadcasting against the solve leading; scales the
+                DC-conduction energy per plane.
 
         Returns:
             :class:`XbarArraySteadyState` carrying the per-column BL port

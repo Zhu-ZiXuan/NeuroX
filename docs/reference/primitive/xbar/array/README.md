@@ -51,7 +51,7 @@ Provenance terms are defined in [module_parameter](../../../../conventions/modul
 | $I_{\mathrm{cell},k}$ | condensed cell branch current (BL $\to$ SL) | uA | `cell.solve_branch` |
 | $I_{\mathrm{BL,port}}, I_{\mathrm{SL,port}}$ | boundary port currents | uA | derived from node voltages |
 | $N_{\mathrm{row}}$ | number of rows along each BL/SL wire ladder | — | `row_num` |
-| $N_{\mathrm{col}}$ | number of physical columns | — | `phys_col_num` |
+| $N_{\mathrm{col}}$ | number of physical columns | — | `col_num` |
 
 ## Assumptions, scope & validity
 

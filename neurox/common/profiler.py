@@ -32,11 +32,14 @@ class EnergyEvent:
             root by :meth:`ProfilerReport.energy_by_name`.
         module_type: Short class-name tag of the emitting module.
         dynamic_energy__fJ: Switching energy attributed to this call.
+        channel: Optional sub-branch label the emitter passed to
+            ``_log_dynamic_energy``; ``None`` for an un-channelled event.
     """
 
     module: ProfileMixin
     module_type: str
     dynamic_energy__fJ: float
+    channel: str | None = None
 
 
 @dataclass(frozen=True)
@@ -137,10 +140,17 @@ class ProfilerReport:
 
     @property
     def energy_by_name(self) -> dict[str, float]:
-        """Dynamic energy grouped by qualified module name [fJ]."""
+        """Dynamic energy grouped by qualified module name [fJ].
+
+        A channelled event groups under ``"<module dotted name>.<channel>"``
+        instead of the bare module name, so a composite's distinct billed
+        branches appear as separate rows.
+        """
         by_name: dict[str, float] = {}
         for e in self.energy_events:
             name = self.name_of(e.module)
+            if e.channel is not None:
+                name = f"{name}.{e.channel}"
             by_name[name] = by_name.get(name, 0.0) + e.dynamic_energy__fJ
         return by_name
 
@@ -193,10 +203,10 @@ class NeuroxProfiler:
     def __init__(self) -> None:
         self.energy_events: list[EnergyEvent] = []
         self.latency_events: list[LatencyEvent] = []
-        # Recording buffers: the emitting module plus a 0-D tensor on the
-        # recording device; one batched stack→cpu→tolist sync per quantity
-        # at _finalize.
-        self._pending_energy: list[tuple[ProfileMixin, Tensor]] = []
+        # Recording buffers: the emitting module (+ optional channel) plus a
+        # 0-D tensor on the recording device; one batched stack→cpu→tolist
+        # sync per quantity at _finalize.
+        self._pending_energy: list[tuple[ProfileMixin, str | None, Tensor]] = []
         self._pending_latency: list[tuple[ProfileMixin, Tensor]] = []
         # Cached aggregations (populated by _finalize at __exit__).
         self._total_dynamic_energy__fJ: float = 0.0
@@ -235,9 +245,9 @@ class NeuroxProfiler:
     # Side-channel entry points (called by ProfileMixin._log_*)
     # ----------------------------------------------------------------
 
-    def _record_energy(self, *, module: ProfileMixin, dynamic_energy__fJ: Tensor) -> None:
-        """Stash the emitter and a 0-D energy reduction into the energy pending buffer."""
-        self._pending_energy.append((module, dynamic_energy__fJ.detach().sum()))
+    def _record_energy(self, *, module: ProfileMixin, dynamic_energy__fJ: Tensor, channel: str | None = None) -> None:
+        """Stash the emitter, its channel, and a 0-D energy reduction into the energy pending buffer."""
+        self._pending_energy.append((module, channel, dynamic_energy__fJ.detach().sum()))
 
     def _record_latency(self, *, module: ProfileMixin, latency__ns: Tensor) -> None:
         """Stash the emitter and a 0-D latency reduction into the latency pending buffer."""
@@ -250,11 +260,13 @@ class NeuroxProfiler:
     def _finalize(self) -> None:
         """Drain pending energy + latency buffers and populate aggregations."""
         if self._pending_energy:
-            stacked_e = torch.stack([t for _, t in self._pending_energy])
+            stacked_e = torch.stack([t for _, _, t in self._pending_energy])
             energies = stacked_e.cpu().tolist()
-            for (module, _t), energy in zip(self._pending_energy, energies, strict=True):
+            for (module, channel, _t), energy in zip(self._pending_energy, energies, strict=True):
                 mtype = module.module_type
-                self.energy_events.append(EnergyEvent(module=module, module_type=mtype, dynamic_energy__fJ=energy))
+                self.energy_events.append(
+                    EnergyEvent(module=module, module_type=mtype, dynamic_energy__fJ=energy, channel=channel)
+                )
                 self._total_dynamic_energy__fJ += energy
                 self._energy_by_type[mtype] = self._energy_by_type.get(mtype, 0.0) + energy
             self._pending_energy = []

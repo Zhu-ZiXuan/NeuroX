@@ -18,8 +18,9 @@ from the mode-set TOML named by the run config (``modes_file``, see
 ladder must cover the mode's design range). Per mode the tool places the
 mid-point threshold ladder
 ``t[k] = (hi(k) + lo(k+1)) / 2``, reports the band margins (headline: the
-minimum), and emits a ``ref_levels__uA`` / ``i_refs__uA`` row fragment
-plus figures (grid curve with bands + thresholds, per-mode margin bars).
+minimum), and emits a single ``i_refs__uA`` reference-config row fragment
+(the reference block is the single ladder source) plus figures (grid curve
+with bands + thresholds, per-mode margin bars).
 
 Capture staging bounds single-command runtime on large batteries: the
 battery element list is deterministic for a given config, so
@@ -44,7 +45,6 @@ from pathlib import Path
 import torch
 
 from neurox.common import ConfigBase
-from neurox.primitive.analog.adc_common import AdcOperationPoint
 from neurox.primitive.macro.cim import CimMacro
 from neurox.primitive.macro.cim.ideal import IdealCimMacro
 from neurox.tools._config import add_standard_args, load_tool_config, resolve_relative_path, setup_logging
@@ -238,7 +238,6 @@ def _probe_grid(
     element_range: tuple[int, int | None],
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Run the battery slice; return pooled ``(|M|, i_in__uA)`` CPU streams."""
-    op = AdcOperationPoint(adc_mode=cfg.probe.adc_mode, adc_bits=physical.adc_max_bits)
     batteries = _build_battery(physical, cfg=cfg, grid_top=grid_top)
     start, stop = element_range
     battery_slice = batteries[start:stop]
@@ -251,7 +250,9 @@ def _probe_grid(
     m_parts: list[torch.Tensor] = []
     i_parts: list[torch.Tensor] = []
     for name, w, x in battery_slice:
-        pair = run_paired_stimulus(physical, ideal, w=w, x=x, adc_operation_point=op)
+        pair = run_paired_stimulus(
+            physical, ideal, w=w, x=x, adc_mode=cfg.probe.adc_mode, adc_bits=physical.adc_max_bits
+        )
         m_parts.append(pair.ideal_m.abs())
         i_parts.append(pair.i_in__uA)
         logger.info("battery %-14s -> %d conversion samples", name, pair.i_in__uA.numel())
@@ -274,7 +275,13 @@ class ModePlacement:
 
 
 def _fragment_lines(placements: list[ModePlacement]) -> list[str]:
-    """The threshold-ladder fragment (mode rows, ascending ``adc_mode``)."""
+    """The threshold-ladder fragment (mode rows, ascending ``adc_mode``).
+
+    One fragment for the reference block — the single ladder source. The ADC
+    reads its references per call from the reference block, so the placed 2-D
+    ``[mode][tap]`` bank is pasted into ``reference_config.i_refs__uA`` only
+    (row index = ``adc_mode``).
+    """
     rows = [
         "[" + ", ".join(f"{t:.6f}" for t in p.placement.thresholds) + "]"
         for p in sorted(placements, key=lambda p: p.adc_mode)
@@ -282,9 +289,8 @@ def _fragment_lines(placements: list[ModePlacement]) -> list[str]:
     body = ",\n    ".join(rows)
     return [
         "# threshold ladders probed by neurox.tools.calibrate_adc.threshold_probe;",
-        "# paste the same 2-D bank into BOTH adc_config.ref_levels__uA and",
-        "# reference_config.i_refs__uA (row index = adc_mode).",
-        "ref_levels__uA = [\n    " + body + ",\n]",
+        "# paste the 2-D bank into reference_config.i_refs__uA (row index = adc_mode)",
+        "# — the reference block is the single ladder source the ADC reads per call.",
         "i_refs__uA = [\n    " + body + ",\n]",
     ]
 

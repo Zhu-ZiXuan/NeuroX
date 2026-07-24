@@ -2,7 +2,7 @@
 
 ## Design decisions
 
-- **Per-resolution constant tables dodge a dynamo `1 << SymInt` miscompile.** `bits` is a per-call runtime parameter, so the unsigned clamp bound `2**bits - 1` and the zero offset `2**(bits-1)` vary per conversion. Evaluating `1 << bits` inside `_convert_impl` would emit a `1 << <SymInt>` op that dynamo's lshift lowering currently mishandles, so `__init__` precomputes both as plain-`int` tuples (`_unsigned_max_table`, `_zero_offset_table`) that `_convert_impl` indexes by the runtime `bits`.
+- **Per-resolution constant tables dodge a dynamo `1 << SymInt` miscompile.** `bits` is a per-call runtime parameter, so the unsigned clamp bound `2**bits - 1` and the zero offset `2**(bits-1)` vary per conversion. Evaluating `1 << bits` inside `_convert_impl` would emit a `1 << <SymInt>` op that dynamo's lshift lowering currently mishandles, so `__init__` precomputes both as plain-`int` tuples (`_unsigned_max_table`, `_zero_offset_table`) that `_convert_impl` and the `unsigned_range` / `zero_offset` accessors index by the runtime `bits`.
 - **One instance covers the full envelope.** The runtime `mode` and `bits` select an injected reference tap and the active SAR depth, so a single fabricated instance serves every operating point; no per-mode instance is constructed.
 - **The `mode` bound is checked against the injected tensor.** Because the reference ladder is injected per call, `_validate_runtime_args` keeps only the config-knowable `bits` bound; the `0 <= mode < v_refs__V.shape[-1]` check lives in `_convert_impl`, where the injected tensor is in hand.
 - **No `latency_per_op__ns` field.** Per-op latency `(bits + 1) * clk_period__ns` is derived in `_convert_impl` from the runtime op point and emitted through the profiler latency side channel — the SAR latency depends on the runtime depth, so a static config field would be wrong.
@@ -12,7 +12,7 @@
 ## Contracts & invariants
 
 - **Fabricated state at `_inst_shape`.** `_sample_fabricate_mismatch` (driven by `FabricateMixin.fabricate()`) samples the per-cap Pelgrom mismatch (both legs) and the static comparator offset; the nominal cap / comparator-offset buffers are seeded at `__init__`.
-- **Offset-binary code re-biased by table subtraction.** `_convert_impl` returns `code - _zero_offset_table[bits]`, re-biasing the offset-binary SAR code to two's complement per the family signed-code-range convention; the bias is subtracted (rather than flipping the MSB) to preserve the int32 storage of negatives. No standalone unsigned clamp runs — the SAR loop leaves `code` in `[0, 2**bits - 1]` by construction, and `apply_lsb_jitter` re-clamps after its `+1` overflow.
+- **Raw offset-binary code returned, zero point exposed not folded.** `_convert_impl` returns the raw offset-binary SAR code in `[0, 2**bits - 1]` per the family raw-code convention; the zero point `_zero_offset_table[bits]` is exposed through `zero_offset(bits)` for the consumer to subtract, never subtracted inside the ADC. No standalone unsigned clamp runs — the SAR loop leaves `code` in `[0, 2**bits - 1]` by construction, and `apply_lsb_jitter` re-clamps after its `+1` overflow.
 - **Multi-mode per-call kwargs.** `mode` indexes the injected `v_refs__V` (shape `(*inst, num_refs)`): `v_ref__V = v_refs__V[..., mode]` is a `Tensor` tap that broadcasts through the tensor-valued `v_cm` / step-table / energy math, and `bits <= max_bits` sets the active depth.
 
 ## Performance & resources

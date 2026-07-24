@@ -23,7 +23,6 @@ from neurox.common.quant import (
     fake_quant_symm_per_channel_ste,
     stochastic_floor_div,
 )
-from neurox.primitive.analog.adc_common import AdcOperationPoint
 
 X_QMIN = 0
 X_QMAX = 15
@@ -82,8 +81,8 @@ class QATLinear(nn.Linear):
 # ---------------------------------------------------------------------------
 
 
-def _op_point(macro: LinearUnit, adc_mode: int | None) -> AdcOperationPoint:
-    return AdcOperationPoint(adc_mode=0 if adc_mode is None else adc_mode, adc_bits=macro.adc_max_bits)
+def _default_op(macro: LinearUnit, adc_mode: int | None) -> tuple[int, int]:
+    return (0 if adc_mode is None else adc_mode, macro.adc_max_bits)
 
 
 @dataclass
@@ -163,8 +162,8 @@ class QuantLinear(nn.Module):
         self.macro = macro
         self.in_features = in_features
         self.out_features = out_features
-        self.adc_operation_point = _op_point(macro, adc_mode)
-        r_adc = macro.adc_rescale_factor(self.adc_operation_point)
+        self.adc_mode, self.adc_bits = _default_op(macro, adc_mode)
+        r_adc = macro.adc_rescale_factor(adc_mode=self.adc_mode, adc_bits=self.adc_bits)
         folded = _fold_for_macro(
             weight_int=weight_int,
             bias_float=bias_float,
@@ -189,7 +188,7 @@ class QuantLinear(nn.Module):
     def forward(self, x: Tensor) -> Tensor:
         # Shape: [..., K] -> [..., 1, K]; linear passes leading dims through.
         x_int = _quantize_input(x, self.s_x, self.zp_x).unsqueeze(-2)
-        code = self.macro.linear(x_int, adc_operation_point=self.adc_operation_point).to(torch.int32).squeeze(-2)
+        code = self.macro.linear(x_int, adc_mode=self.adc_mode, adc_bits=self.adc_bits).to(torch.int32).squeeze(-2)
         y = (code + self.bias_int) * self.mult
         y = stochastic_floor_div(y, self.rshift, training=False)
         y = (y + self.zp_y.to(torch.int32)).clamp(Y_QMIN, Y_QMAX)

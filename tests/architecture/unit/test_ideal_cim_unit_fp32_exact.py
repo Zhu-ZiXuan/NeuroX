@@ -13,9 +13,9 @@ import pytest
 import torch
 
 from neurox.architecture.unit import IdealLinearUnit, IdealLinearUnitConfig, IdealLinearUnitPolicy
-from neurox.primitive.analog.adc_common import AdcOperationPoint
 
-_OP = AdcOperationPoint(adc_mode=0, adc_bits=0)
+_ADC_MODE = 0
+_ADC_BITS = 0
 
 
 def _build_unit(
@@ -71,7 +71,7 @@ class TestFastPathBitExactness:
         unit = _build_unit(x_value_range=x_value_range, w_value_range=w_value_range, w_logical_shape=w_logical_shape)
         assert unit._fp32_exact is True
         weight, x = _random_program_and_input(unit, batch=7, seed=11)
-        y = unit.linear(x, adc_operation_point=_OP)
+        y = unit.linear(x, adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
         oracle = x.to(torch.int64) @ weight.to(torch.int64).transpose(-2, -1)
         assert y.dtype == torch.int64
         assert torch.equal(y, oracle)
@@ -88,7 +88,7 @@ class TestFastPathBitExactness:
         weight, x = _random_program_and_input(unit, batch=7, seed=13)
         oracle = x.to(torch.int64) @ weight.to(torch.int64).transpose(-2, -1)
         unit.to(device)
-        y = unit.linear(x.to(device), adc_operation_point=_OP)
+        y = unit.linear(x.to(device), adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
         assert y.device.type == device.type
         assert torch.equal(y.cpu(), oracle)
 
@@ -97,7 +97,7 @@ class TestFastPathBitExactness:
         weight, _ = _random_program_and_input(unit, batch=1, seed=17)
         generator = torch.Generator().manual_seed(19)
         x = torch.randint(0, 2, (2, 3, 5, 32), dtype=torch.int32, generator=generator)
-        y = unit.linear(x, adc_operation_point=_OP)
+        y = unit.linear(x, adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
         oracle = x.to(torch.int64) @ weight.to(torch.int64).transpose(-2, -1)
         assert y.shape == (2, 3, 5, 4)
         assert torch.equal(y, oracle)
@@ -115,5 +115,5 @@ class TestFallbackTrigger:
         assert torch.tensor(2**24 + 1, dtype=torch.float32).item() == 2**24
         unit.program(torch.tensor([[2**23, 2**23, 1]], dtype=torch.int32))
         x = torch.ones(1, 3, dtype=torch.int32)
-        y = unit.linear(x, adc_operation_point=_OP)
+        y = unit.linear(x, adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
         assert y.item() == 2**24 + 1

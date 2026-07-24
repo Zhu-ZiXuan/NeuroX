@@ -121,6 +121,15 @@ Every variable or config field carrying a physical quantity uses `<name>__<unit>
 - Multiplication is implicit, joining adjacent unit tokens with `_`, e.g. `A_vt__mV_um`.
 - Division uses `_per_`, e.g. `mu0__cm2_per_V_s`.
 
+## Energy accounting basis
+
+The energy atom is one rail-to-GND branch, $E = V \cdot I \cdot t$. The runtime-unit closure $1\,\mathrm{V} \cdot 1\,\mathrm{uA} \cdot 1\,\mathrm{ns} = 1\,\mathrm{fJ}$ makes every branch product land in fJ with no rescaling. A branch's energy splits by time base:
+
+- **Dynamic energy** integrates the branch current over its conduction windows only — the intervals a current actually flows.
+- **Static (leakage) energy** integrates over the full operating period — the measurement or clock cycle a module occupies, not the conduction span — realized as the latency a leaf emits (period times serial-op count). The single derivation `leakage_energy = leakage_power * total_latency` lives in the [profiler](../internals/common/profiler.md).
+
+A module that conducts only briefly within a long cycle therefore emits a latency spanning the whole cycle, so its leakage is charged over the full period, while it bills its dynamic branches over their short conduction windows alone.
+
 ## Physical constants
 
 The canonical constants live in one place so device and analog modules pull them from a single source. The elementary charge $q$ and Boltzmann constant $k_B$ are exact by SI definition (zero uncertainty); the vacuum permittivity $\varepsilon_0$ is a measured / derived quantity carrying a relative uncertainty of $\sim 1.6 \times 10^{-10}$, listed at its CODATA-2018 value. $T_{\mathrm{room}}$ is the default operating temperature used whenever no explicit $T$ (`T__K`) is supplied. The thermal voltage $V_T = k_B T / q$ is derived from the first two constants at the given temperature.

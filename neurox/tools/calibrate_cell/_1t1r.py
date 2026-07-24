@@ -103,13 +103,13 @@ log = logging.getLogger(__name__)
 def _all_off_policy() -> XbarCell1t1rDetailPolicy:
     """All-off composite policy so the residual floor is pure round-off."""
     return XbarCell1t1rDetailPolicy(
-        rram=RramPolicy(
+        rram_policy=RramPolicy(
             prog_gamma=False,
             stuck_at=False,
             read_telegraph=False,
             read_thermal=False,
         ),
-        nmos=MosfetPolicy(A_vt_mismatch=False, A_beta_mismatch=False),
+        nmos_policy=MosfetPolicy(A_vt_mismatch=False, A_beta_mismatch=False),
     )
 
 

@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import torch
 
-from neurox.primitive.analog.adc_common import AdcOperationPoint
 from neurox.primitive.macro.cim.ideal import IdealCimMacro, IdealCimMacroConfig, IdealCimMacroPolicy
 
 
@@ -190,21 +189,21 @@ class TestPlaneOutput:
         """A caller-supplied phase axis is opaque batch: trailing row_num -> col_num."""
         xbar = self._programmed_xbar(active_row_num=2, adc_bits=8)
         x = torch.randint(0, 2, (3, 5, 8), dtype=torch.int32)
-        y = xbar.vec_mat_mul(x, adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=8))
+        y = xbar.vec_mat_mul(x, adc_mode=0, adc_bits=8)
         assert y.shape == (3, 5, 4)  # [..., col_num]
 
     def test_single_leading_axis(self) -> None:
         """One leading batch axis is preserved; no phase axis is manufactured."""
         xbar = self._programmed_xbar(active_row_num=None, adc_bits=8)
         x = torch.randint(0, 2, (3, 8), dtype=torch.int32)
-        y = xbar.vec_mat_mul(x, adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=8))
+        y = xbar.vec_mat_mul(x, adc_mode=0, adc_bits=8)
         assert y.shape == (3, 4)
 
     def test_lossless_matches_whole_dot(self) -> None:
         """``adc_bits == 0``: the plane dot equals the lossless integer dot."""
         xbar = self._programmed_xbar(active_row_num=2, adc_bits=0)
         x = torch.randint(0, 2, (5, 8), dtype=torch.int32)
-        y = xbar.vec_mat_mul(x, adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=0))
+        y = xbar.vec_mat_mul(x, adc_mode=0, adc_bits=0)
         assert y.shape == (5, 4)
         w_logical = xbar.digits.to(torch.int64).squeeze(-2)  # [col_num, row_num], D=1
         expected = x.to(torch.int64) @ w_logical.transpose(-1, -2)

@@ -1,0 +1,43 @@
+# Run-config for neurox.tools.calibrate_solver.nested on the xue2020jssc array solver.
+#
+# GENUINE (spec S13): the runtime macro (../params.toml) composes XbarArray1t1r with a
+# NestedParallelRailSolver over a positive wire ladder (BL/SL first 20 Ohm, segment 5 Ohm),
+# so the solver iteration counts (n_outer, n_inner) are really used -- the wire IR drop
+# couples BL/SL and the DC solve is non-trivial. This run-config targets the Detail SOURCE
+# model (params_detail.toml), a config-complete xbar whose wire ladder MIRRORS the runtime
+# array, so the calibrated (n_outer, n_inner) transfer to ../params.toml. It also:
+#   - reactivates tests/tools/test_calibrate_solver.py::TestShippedRunConfig (the three
+#     shipped-config tests: schema parse, solver_section resolution in the macro dict,
+#     active_rows == active_row_num);
+#   - documents the solver knobs for the physical Detail model calibrate_cell extracts from.
+#
+# Run (on the Detail source model):
+#   python -m neurox.tools.calibrate_solver.nested \
+#       --config validations/xue2020jssc/tools/calibrate_solver.toml --device cpu
+
+[macro]
+config_files = ["../params.toml"]            # the shipped Linear-cell macro (the config the scheme actually runs)
+config_section = "cim_macro"
+policy_file = "../policy.toml"                # all-off (loaded only by an actual sweep, not the tests)
+policy_section = "policy"
+solver_section = "array_config.solver_config" # dotted path to the NestedParallelRailSolverConfig table
+
+[workload]
+inst_shape = [4]                  # bound to [batch_w]; the parallel weight-program axis
+active_rows = 9                   # == params_detail active_row_num (production-faithful row block)
+weight_samples = 4
+input_samples_per_weight = 8
+batch_w = 4
+
+[sweep]
+outer_candidates = [1, 2, 3, 4, 5, 6]
+inner_candidates = [1, 2, 3, 4]
+inner_ref = 4                     # generous n_inner while sweeping n_outer (stage A)
+ratio_threshold = 0.5
+reltol = 1e-2
+outer_margin = 1                  # +1 on n_outer
+inner_margin = 0                  # n_inner taken at its plateau
+
+[runtime]
+dtype = "float32"
+seed = 0

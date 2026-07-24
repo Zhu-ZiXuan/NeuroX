@@ -20,6 +20,28 @@ from .base import CimUnit, EngineBackedCimUnit, EngineBackedCimUnitConfig, Engin
 class LinearCimUnitConfig(EngineBackedCimUnitConfig):
     """Configuration for :class:`LinearCimUnit`; no fields beyond the inherited set."""
 
+    def validate(self) -> None:
+        super().validate()
+        self.validate_geometry()
+
+    def validate_geometry(self) -> None:
+        """Require uniform row-blocking on the owned xbar.
+
+        The linear operator reads every row of the weight matrix, so the
+        engine's sub-phases must tile ``row_num`` into equal
+        ``active_row_num`` blocks — every sub-phase then carries the same
+        dot-product dynamic range (hence the same ADC calibration). A
+        non-divisible geometry would leave the final block short, which is
+        valid for an operator that tolerates unused rows (Conv2d) but not
+        for linear.
+        """
+        macro = self.engine.cim_macro_config
+        if macro.row_num % macro.active_row_num != 0:
+            raise ValueError(
+                f"require: row_num ({macro.row_num}) % active_row_num ({macro.active_row_num}) == 0 "
+                "(the linear operator reads every row; uniform row-blocking)"
+            )
+
 
 @dataclass(frozen=True)
 class LinearCimUnitPolicy(EngineBackedCimUnitPolicy):
@@ -27,16 +49,13 @@ class LinearCimUnitPolicy(EngineBackedCimUnitPolicy):
 
 
 @CimUnit.register_key(LinearCimUnitConfig)
-class LinearCimUnit(LinearUnit, EngineBackedCimUnit):
+class LinearCimUnit(LinearUnit, EngineBackedCimUnit[LinearCimUnitConfig, LinearCimUnitPolicy]):
     """CIM unit exposing the linear operator over the configured engine.
 
     ``linear`` (inherited from :class:`LinearUnit`) runs the inherited
     lowering template onto the engine-delegated ``_matmul`` and adds the
     programmed integer bias in the int64 accumulation domain.
     """
-
-    config: LinearCimUnitConfig
-    policy: LinearCimUnitPolicy
 
     def __init__(
         self,

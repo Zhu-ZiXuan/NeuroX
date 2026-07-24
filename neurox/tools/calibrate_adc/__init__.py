@@ -8,7 +8,8 @@ the ideal twin's ``vec_mat_mul`` return as the lossless view) and the
   LS fit of the per-(mode, bits) ``rescale_factor``; ``[[adc_calibration]]``
   fragment.
 - :mod:`.threshold_probe` — controlled-stimulus ``I(M)`` grid sweep;
-  mid-point threshold placement with band-margin analysis; ladder fragment.
+  mid-point threshold placement with band-margin analysis; single
+  reference-config (``i_refs__uA``) ladder fragment.
 - :mod:`.mode_derive` — mode-set derivation from a per-layer range mapping
   file (sign-group split, 1-D clustering); emits the mode-set TOML the two
   calibration CLIs consume.

@@ -38,28 +38,27 @@ TODO: once the device/analog Reference documents exist, state exactly which sour
 
 ## Parameters
 
-The array's own parameters are the interconnect ladder, the WL pulse, and the solver iteration counts; the cell sub-module's parameters (state map, RRAM window, access-NMOS sizing / parasitic caps, per-cell Newton count) live in the cell config table `[cim_macro.array_config.cell_config]`, specified in [cell](../../cell/_1t1r/cell.md).
+The array's own parameters are the interconnect ladder and the solver iteration counts; the DC-conduction window is a per-solve argument, not a stored parameter. The cell sub-module's parameters (state map, RRAM window, access-NMOS sizing / parasitic caps, per-cell Newton count) live in the cell config table `[cim_macro.array_config.cell_config]`, specified in [cell](../../cell/_1t1r/cell.md).
 
 | Parameter | Meaning | Unit | Constraint | Source |
 |---|---|---|---|---|
 | `cell_config` | 1T1R cell sub-module config (devices, sizing, state map, `n_newton`) | — | — | see [cell](../../cell/_1t1r/cell.md) |
 | BL/SL/WL `first_*` / `segment_*` R, C | array interconnect ladders | MOhm, fF | $> 0$ | Extracted |
-| `wl_pulse_length__ns` | WL access duration (drives wire-RC charging energy) | ns | $> 0$ | Design |
 | solver iteration counts | numerical settling | — | integer $\ge 1$ | Calibrated (numerical convergence) |
 
 Provenance terms are defined in [module_parameter](../../../../../conventions/module_parameter.md). How to obtain values for a new chip: [calibration guide](../../../../../guides/calibration/README.md); file-level schema: [config reference](../../../../../api/README.md). The cell's cross-field validation constraints (conductance map vs RRAM window vs device floor) are stated in [cell detail](../../cell/_1t1r/cell_detail.md).
 
 ## Energy model
 
-Per VMM the array dissipates wire-capacitor, control-line, DC-conduction, and per-cell node-capacitance energy. The **node-capacitance** term — the cell's four grounded node-to-ground capacitances — is a per-cell contribution ([cell](../../cell/_1t1r/cell.md)) summed over the array; the wire-capacitor, control-line, and DC-conduction terms are array-level. The model assumes a full $0 \to \mathrm{DC} \to 0$ charge cycle per capacitor over one WL pulse; a grounded cap dissipates $E = C\,V_{\mathrm{final}}^2$ (no extra factor of two). The array-level terms are the BL/SL wire caps and the WL-line cap; the BL/SL wire-cap energy uses a per-segment linear-voltage profile,
+Per VMM the array dissipates wire-capacitor, control-line, DC-conduction, and per-cell node-capacitance energy. The **node-capacitance** term — the cell's four grounded node-to-ground capacitances — is a per-cell contribution ([cell](../../cell/_1t1r/cell.md)) summed over the array; the wire-capacitor, control-line, and DC-conduction terms are array-level. The model assumes a full $0 \to \mathrm{DC} \to 0$ charge cycle per capacitor per settled plane; a grounded cap dissipates $E = C\,V_{\mathrm{final}}^2$ (no extra factor of two). The array-level terms are the BL/SL wire caps and the WL-line cap; the BL/SL wire-cap energy uses a per-segment linear-voltage profile,
 
 $$E_{\mathrm{wire}} = C\,\frac{V_L^2 + V_L V_R + V_R^2}{3},$$
 
-where $V_L, V_R$ are the segment-endpoint voltages. DC conduction energy is the net supply power into the boundaries over the WL pulse, using the first-segment port currents $I_{\mathrm{BL,port}}$, $I_{\mathrm{SL,port}}$ defined above,
+where $V_L, V_R$ are the segment-endpoint voltages. DC conduction energy is the net supply power into the boundaries over the conduction window, using the first-segment port currents $I_{\mathrm{BL,port}}$, $I_{\mathrm{SL,port}}$ defined above,
 
-$$E_{\mathrm{DC}} = t_{\mathrm{WL}}\left(\sum_c V_{\mathrm{BL,CL}}\,I_{\mathrm{BL,port}} + \sum_c V_{\mathrm{SL,CL}}\,I_{\mathrm{SL,port}}\right).$$
+$$E_{\mathrm{DC}} = t_{\mathrm{cond}}\left(\sum_c V_{\mathrm{BL,CL}}\,I_{\mathrm{BL,port}} + \sum_c V_{\mathrm{SL,CL}}\,I_{\mathrm{SL,port}}\right).$$
 
-By Tellegen's theorem $E_{\mathrm{DC}}$ equals the sum of the cell-branch and BL/SL wire-resistor Joule losses inside the array.
+The conduction window $t_{\mathrm{cond}}$ is supplied per solve, not a stored array parameter: a scalar for a single settled plane, or a per-plane vector broadcasting against the solve leading when several input planes settle through one broadcast solve, scaling the DC-conduction energy plane by plane. By Tellegen's theorem $E_{\mathrm{DC}}$ equals the sum of the cell-branch and BL/SL wire-resistor Joule losses inside the array.
 
 ## Symbols
 
@@ -82,17 +81,17 @@ By Tellegen's theorem $E_{\mathrm{DC}}$ equals the sum of the cell-branch and BL
 | $R_{\mathrm{seg}}$ | wire segment resistance | MOhm | `*_segment_r__MOhm` |
 | $C$ | parasitic capacitance | fF | wire / cell node-cap fields |
 | $E_{\mathrm{wire}}, E_{\mathrm{DC}}$ | per-VMM wire-cap / DC-conduction energy | fJ | `array_energy__fJ` |
-| $t_{\mathrm{WL}}$ | WL pulse length | ns | `wl_pulse_length__ns` |
+| $t_{\mathrm{cond}}$ | DC-conduction window (per-solve; scalar or per-plane) | ns | `t_conduct__ns` |
 | $C_{\mathrm{WL,row}}$ | WL lumped capacitance per row | fF | `c_wl_wire_per_row__fF` |
 | $C_{\mathrm{WL,first}}, C_{\mathrm{WL,seg}}$ | WL first / cell-to-cell segment cap | fF | `wl_first_c__fF`, `wl_segment_c__fF` |
 | $N_{\mathrm{row}}$ | number of rows along each BL/SL wire ladder | — | `row_num` |
-| $N_{\mathrm{col}}$ | number of physical columns | — | `phys_col_num` |
+| $N_{\mathrm{col}}$ | number of physical columns | — | `col_num` |
 
 ## Assumptions, scope & validity
 
 - Interconnect is a lumped per-segment R/C ladder, not a distributed line.
 - The WL line carries no DC conduction path and is a single lumped capacitance, uniform across the columns.
-- The energy model assumes a complete $0 \to \mathrm{DC} \to 0$ charge/discharge cycle per parasitic cap per WL pulse.
+- The energy model assumes a complete $0 \to \mathrm{DC} \to 0$ charge/discharge cycle per parasitic cap per settled plane.
 - The solve is quasi-static: it finds the DC operating point and does not model transient device switching within a pulse.
 
 TODO (domain author): give the quantitative validity boundary — array-size range over which the lumped-segment approximation holds, the temperature treatment, neglected frequency-dependent / transient effects, and regimes where the model should not be trusted.

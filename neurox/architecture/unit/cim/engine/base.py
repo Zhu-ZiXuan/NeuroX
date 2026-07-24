@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import ClassVar
+from typing import ClassVar, Generic, TypeVar
 
 import torch
 import torch.nn.functional as F
@@ -17,7 +17,6 @@ from torch import Tensor
 from neurox.common import ConfigBase, ModuleBase, PolicyBase
 from neurox.common.encoding import Encoding
 from neurox.common.mixin import RegistryMixin
-from neurox.primitive.analog.adc_common import AdcOperationPoint
 from neurox.primitive.digital import AccumulatorConfig
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
 
@@ -54,13 +53,21 @@ class CimEnginePolicy(PolicyBase):
     """Composite policy the owning unit assembles for its engine in code.
 
     Attributes:
-        cim_macro: Embedded xbar nonideality policy.
+        cim_macro_policy: Embedded xbar nonideality policy.
     """
 
-    cim_macro: CimMacroPolicy
+    cim_macro_policy: CimMacroPolicy
 
 
-class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy], RegistryMixin[type["CimEngineConfig"], "CimEngine"], ABC):
+ConfigT = TypeVar("ConfigT", bound=CimEngineConfig)
+
+
+class CimEngine(
+    ModuleBase[ConfigT, CimEnginePolicy],
+    RegistryMixin[type["CimEngineConfig"], "CimEngine"],
+    Generic[ConfigT],
+    ABC,
+):
     """Abstract base for the CIM execution engines.
 
     An engine is the workload-agnostic slicing / tiling / macro-cycle /
@@ -80,9 +87,6 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy], RegistryMixin[type
 
     is_profile_target: ClassVar[bool] = False
 
-    config: CimEngineConfig
-    policy: CimEnginePolicy
-
     xbar: CimMacro
     _active_row_mask: Tensor
     _w_value_range: tuple[int, int]
@@ -97,7 +101,7 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy], RegistryMixin[type
     def __init__(
         self,
         *,
-        config: CimEngineConfig,
+        config: ConfigT,
         policy: CimEnginePolicy,
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
@@ -144,6 +148,7 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy], RegistryMixin[type
         *,
         inst_shape: tuple[int, ...],
         n_logical: int,
+        k_logical: int,
         w_parallel_size: int,
         row_tile_num: int,
     ) -> None:
@@ -152,12 +157,14 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy], RegistryMixin[type
         Args:
             inst_shape: Per-instance multiplicity prefix for the owned xbar.
             n_logical: Logical output width ``N`` before tile padding.
+            k_logical: Logical contraction width ``K`` before tile padding;
+                fixes how many sub-phases carry real (non-padding) rows.
             w_parallel_size: Parallel weight-instance count (``prod(w_batch)``).
             row_tile_num: Output tile count ``Tr``.
         """
         self.xbar = self._build_cim_macro(
             xbar_config=self.config.cim_macro_config,
-            xbar_policy=self.policy.cim_macro,
+            xbar_policy=self.policy.cim_macro_policy,
             inst_shape=inst_shape,
         )
         self._n_logical = n_logical
@@ -167,8 +174,24 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy], RegistryMixin[type
         self._sub_phase_dim = -(len(inst_shape) + 2)
         row_num = self.xbar.row_num
         max_rows = self.xbar.max_active_rows
-        self._sub_phase_num = row_num // max_rows
+        # Skip sub-phases that would read only zero-padded rows. A tile spans at
+        # most row_num rows, but when the logical contraction dim k_logical fits
+        # in a single tile the widest tile carries only k_logical real rows
+        # (rows beyond it are zero padding in every tile). The widest tile's
+        # real-row count is therefore min(k_logical, row_num): a full tile
+        # (k_logical > row_num) spans row_num, a single short tile spans
+        # k_logical. Sub-phases past that extent read only padding and
+        # contributed exactly 0, so dropping them is bit-identical while cutting
+        # per-op / latency energy for narrow (K < row_num) layers.
+        real_row_extent = min(k_logical, row_num)
+        # Ceil so a non-divisible geometry still covers every real row: the last
+        # kept sub-phase reads the short remainder block (< max_rows live rows).
+        self._sub_phase_num = -(-real_row_extent // max_rows)
         # Static row -> sub-phase WL mask; zero-fill = WL off. Shape: [P, row_num]
+        # Row r belongs to sub-phase r // max_rows; rows whose block index reaches
+        # P are pure padding and stay off in every plane. Every real row lands in
+        # exactly one sub-phase and the short final block leaves its own rows the
+        # only ones live in that plane.
         self.register_buffer(
             "_active_row_mask",
             torch.arange(row_num) // max_rows == torch.arange(self._sub_phase_num).unsqueeze(-1),
@@ -213,9 +236,9 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy], RegistryMixin[type
         """Maximum supported ``adc_bits`` value."""
         return self.xbar.adc_max_bits
 
-    def adc_rescale_factor(self, adc_operation_point: AdcOperationPoint) -> float:
-        """Rescale factor for ``adc_operation_point``; raises ``KeyError`` if uncalibrated."""
-        return self.xbar.adc_rescale_factor(adc_operation_point)
+    def adc_rescale_factor(self, *, adc_mode: int, adc_bits: int) -> float:
+        """Rescale factor for ``(adc_mode, adc_bits)``; raises ``KeyError`` if uncalibrated."""
+        return self.xbar.adc_rescale_factor(adc_mode=adc_mode, adc_bits=adc_bits)
 
     # --- lifecycle ---
 
@@ -241,13 +264,14 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy], RegistryMixin[type
         raise NotImplementedError
 
     @abstractmethod
-    def matmul(self, input: Tensor, *, adc_operation_point: AdcOperationPoint) -> Tensor:
+    def matmul(self, input: Tensor, *, adc_mode: int, adc_bits: int) -> Tensor:
         """Execute one integer matrix multiply against the programmed weight state.
 
         Matches ``torch.matmul`` semantics (pure matmul, no bias).
         Internally, the engine expands WL planes over its hardware
-        sub-phase axis (``P = row_num / max_active_rows``, always
-        present, immediately left of the xbar's inst-aligned block); the
+        sub-phase axis (``P = ceil(min(K, row_num) / max_active_rows)``,
+        always present, immediately left of the xbar's inst-aligned block,
+        skipping the trailing all-padding blocks of a narrow layer); the
         xbar returns per-plane codes with primitive trailing
         ``[col_num]`` and leading order preserved; the engine sums
         exactly its own sub-phase axis (``phase_accumulator``) before
@@ -256,7 +280,8 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy], RegistryMixin[type
 
         Args:
             input: Integer activation tensor. Shape: ``[..., M, K]``.
-            adc_operation_point: Runtime ADC operating point.
+            adc_mode: Runtime ADC operating-point index.
+            adc_bits: Runtime ADC resolution.
 
         Returns:
             Integer pre-requantize output tensor. Shape: ``[..., M, N]``.

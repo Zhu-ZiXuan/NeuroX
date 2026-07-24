@@ -14,7 +14,6 @@ import torch.nn.functional as F
 from torch import Tensor
 
 from neurox.architecture.unit.cim.slicer import SerialSlicer, SimpleSlicer
-from neurox.primitive.analog.adc_common import AdcOperationPoint
 from neurox.primitive.digital import (
     Accumulator,
     DigitalPolicy,
@@ -50,15 +49,13 @@ class IntraArraySliceCimEngineConfig(CimEngineConfig):
 
 
 @CimEngine.register_key(IntraArraySliceCimEngineConfig)
-class IntraArraySliceCimEngine(CimEngine):
+class IntraArraySliceCimEngine(CimEngine[IntraArraySliceCimEngineConfig]):
     """CIM engine that gathers all slices of one logical weight in one xbar.
 
     A logical weight's ``Sw`` slices sit in adjacent cols of the same xbar.
     Per-xbar effective capacity is ``(col_num // Sw) * Sw`` cells; the
     remaining ``col_num - (col_num // Sw) * Sw`` cells per xbar are idle.
     """
-
-    config: IntraArraySliceCimEngineConfig
 
     def __init__(
         self,
@@ -97,6 +94,7 @@ class IntraArraySliceCimEngine(CimEngine):
         self._init_engine_backend(
             inst_shape=(*w_batch, 1, 1, tc, tr),
             n_logical=n_logical,
+            k_logical=k_logical,
             w_parallel_size=max(math.prod(w_batch), 1),
             row_tile_num=tr,
         )
@@ -215,7 +213,7 @@ class IntraArraySliceCimEngine(CimEngine):
     # --- lifecycle ---
 
     @torch.no_grad()
-    def matmul(self, input: Tensor, *, adc_operation_point: AdcOperationPoint) -> Tensor:
+    def matmul(self, input: Tensor, *, adc_mode: int, adc_bits: int) -> Tensor:
         n_logical = self._n_logical
         wpx = self._weights_per_xbar
         used = self._used_data_num
@@ -231,7 +229,7 @@ class IntraArraySliceCimEngine(CimEngine):
         planes = self._unroll_sub_phase(x)
         # *w_batch~ = weight-batch axes materialized by broadcast against the inst grid.
         # Shape: [..., P, M, Sa, Tc, Tr, row_num] -> [..., P, *w_batch~, M, Sa, Tc, Tr, data_num]
-        y = self.xbar.vec_mat_mul(planes, adc_operation_point=adc_operation_point).to(torch.int64)
+        y = self.xbar.vec_mat_mul(planes, adc_mode=adc_mode, adc_bits=adc_bits).to(torch.int64)
         # Shape: [..., P, *w_batch~, M, Sa, Tc, Tr, data_num] -> [..., *w_batch~, M, Sa, Tc, Tr, data_num]
         y = self.phase_accumulator.operate(y, dim=self._sub_phase_dim)  # -(b+6)
         # Shape: [..., M, Sa, Tc, Tr, data_num=col_num] -> [..., M, Sa, Tc, Tr, wpx*Sw]

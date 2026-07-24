@@ -72,7 +72,7 @@ class GeneralCurrentDacPolicy(CurrentDacPolicy):
 
 
 @CurrentDac.register_key(GeneralCurrentDacConfig)
-class GeneralCurrentDac(CurrentDac):
+class GeneralCurrentDac(CurrentDac[GeneralCurrentDacConfig, GeneralCurrentDacPolicy]):
     """General current DAC model — code-to-current LUT plus signal-independent output noise.
 
     Behavioural current-steering model: the code selects a steered output
@@ -80,8 +80,6 @@ class GeneralCurrentDac(CurrentDac):
     noise of constant σ ``drive_thermal__uA``, independent of the selected code.
     """
 
-    config: GeneralCurrentDacConfig
-    policy: GeneralCurrentDacPolicy
     code_to_signal: Tensor
 
     def __init__(

@@ -73,16 +73,18 @@ def _array_config() -> XbarArray1t1rConfig:
 def _build_array(*, device: torch.device) -> XbarArray1t1r:
     """Build a minimal standalone 1T1R pure array, every policy toggle off."""
     policy = XbarArray1t1rPolicy(
-        cell=XbarCell1t1rDetailPolicy(
-            rram=RramPolicy(prog_gamma=False, stuck_at=False, read_telegraph=False, read_thermal=False),
-            nmos=MosfetPolicy(A_vt_mismatch=False, A_beta_mismatch=False),
+        cell_policy=XbarCell1t1rDetailPolicy(
+            rram_policy=RramPolicy(prog_gamma=False, stuck_at=False, read_telegraph=False, read_thermal=False),
+            nmos_policy=MosfetPolicy(A_vt_mismatch=False, A_beta_mismatch=False),
         ),
         solve_chunk_size=0,
     )
     array = XbarArray1t1r(
         config=_array_config(),
         policy=policy,
-        w_layout_shape=(2, 2),
+        inst_shape=(),
+        row_num=2,
+        col_num=2,
         dtype=torch.float64,
         T__K=300.0,
     )

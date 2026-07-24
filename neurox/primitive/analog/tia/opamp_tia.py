@@ -80,11 +80,11 @@ class OpAmpTiaPolicy(TiaPolicy):
 
     Attributes:
         opamp_gain_sigma: Apply ``opamp_gain_sigma`` at fabricate time.
-        nmos: Pseudo-resistor NMOS nonideality policy.
+        nmos_policy: Pseudo-resistor NMOS nonideality policy.
     """
 
     opamp_gain_sigma: bool
-    nmos: MosfetPolicy
+    nmos_policy: MosfetPolicy
 
 
 @dataclass(frozen=True)
@@ -121,7 +121,7 @@ class OpAmpTiaSnap(TiaSnap):
 
 
 @Tia.register_key(OpAmpTiaConfig)
-class OpAmpTia(Tia[OpAmpTiaSnap]):
+class OpAmpTia(Tia[OpAmpTiaConfig, OpAmpTiaPolicy, OpAmpTiaSnap]):
     """Non-linear OpAmpTia clamp driver.
 
     Class-level numerical constants (method-intrinsic, not chip-tuneable):
@@ -134,8 +134,6 @@ class OpAmpTia(Tia[OpAmpTiaSnap]):
     MAX_STEP__V: float = 0.05
     G_EFF_MAX__uS: float = -1e-6
 
-    config: OpAmpTiaConfig
-    policy: OpAmpTiaPolicy
     nominal_opamp_gain: Tensor
     opamp_gain: Tensor
 
@@ -163,7 +161,7 @@ class OpAmpTia(Tia[OpAmpTiaSnap]):
 
         self.nmos = Nmos(
             config=config.nmos_config,
-            policy=policy.nmos,
+            policy=policy.nmos_policy,
             inst_shape=inst_shape,
             dtype=dtype,
             T__K=T__K,

@@ -34,7 +34,6 @@ from torch import Tensor
 # `_neurox_class` discriminators can resolve works-defined subclasses.
 import neurox.works  # noqa: F401
 from neurox.common.serialize import load_config_dict
-from neurox.primitive.analog.adc_common import AdcOperationPoint
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
 from neurox.primitive.physical_constant import T_ROOM__K
 from neurox.primitive.xbar.cell import XbarCell1t1rDcop, XbarCell1t1rDetailProber
@@ -383,7 +382,6 @@ def _drive_candidate(
     chunking runs inside the real forward path).
     """
     inst_rank = len(macro.inst_shape)
-    operation_point = AdcOperationPoint(adc_mode=0, adc_bits=macro.adc_max_bits)
     solver_records: list[SolverObservation[Any]] = []
     cell_count = 0
     cell_residual__uA = 0.0
@@ -391,7 +389,7 @@ def _drive_candidate(
         macro.program(w.to(device))
         planes = unroll_sub_phase(x.to(device), row_num=macro.row_num, active_rows=active_rows, inst_rank=inst_rank)
         with SolverProber() as sp, XbarCell1t1rDetailProber() as cp, torch.no_grad():
-            macro.vec_mat_mul(planes, adc_operation_point=operation_point)
+            macro.vec_mat_mul(planes, adc_mode=0, adc_bits=macro.adc_max_bits)
         batch_solver = sp.records
         batch_cell = cp.records
         if batch_cell and len(batch_cell) != len(batch_solver):

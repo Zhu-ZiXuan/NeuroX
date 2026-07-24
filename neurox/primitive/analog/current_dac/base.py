@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import Generic, TypeVar
 
 import torch
 from torch import Tensor
@@ -44,9 +45,14 @@ class CurrentDacPolicy(AnalogPolicy, ABC):
     """Abstract marker base for current-DAC-family nonideality policies."""
 
 
+ConfigT = TypeVar("ConfigT", bound=CurrentDacConfig)
+PolicyT = TypeVar("PolicyT", bound=CurrentDacPolicy)
+
+
 class CurrentDac(
-    AnalogBase[CurrentDacConfig, CurrentDacPolicy],
+    AnalogBase[ConfigT, PolicyT],
     RegistryMixin[type["CurrentDacConfig"], "CurrentDac"],
+    Generic[ConfigT, PolicyT],
     ABC,
 ):
     """Abstract base class for current-domain DAC implementations.
@@ -80,8 +86,8 @@ class CurrentDac(
     def __init__(
         self,
         *,
-        config: CurrentDacConfig,
-        policy: CurrentDacPolicy,
+        config: ConfigT,
+        policy: PolicyT,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,

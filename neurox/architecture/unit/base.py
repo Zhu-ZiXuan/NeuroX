@@ -12,8 +12,6 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
-from neurox.primitive.analog.adc_common import AdcOperationPoint
-
 
 def _validate_int_bias(bias: Tensor, *, channels: int) -> Tensor:
     """Validate an integer per-channel bias vector and return it as int64.
@@ -90,8 +88,8 @@ class UnitBase(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def adc_rescale_factor(self, adc_operation_point: AdcOperationPoint) -> float:
-        """Rescale factor for ``adc_operation_point``; raises ``KeyError`` if uncalibrated.
+    def adc_rescale_factor(self, *, adc_mode: int, adc_bits: int) -> float:
+        """Rescale factor for ``(adc_mode, adc_bits)``; raises ``KeyError`` if uncalibrated.
 
         Degenerate substrates accept the operating point for API uniformity
         and return ``1.0``.
@@ -108,12 +106,13 @@ class UnitBase(ABC):
     # --- protected matmul-shaped lowering primitive (substrate seam) ---
 
     @abstractmethod
-    def _matmul(self, input: Tensor, *, adc_operation_point: AdcOperationPoint) -> Tensor:
+    def _matmul(self, input: Tensor, *, adc_mode: int, adc_bits: int) -> Tensor:
         """Integer matmul against the programmed state (substrate seam).
 
         Args:
             input: Integer activation planes. Shape: ``[..., M, K]``.
-            adc_operation_point: Runtime ADC operating point.
+            adc_mode: Runtime ADC operating-point index.
+            adc_bits: Runtime ADC resolution.
 
         Returns:
             Integer pre-requantize output tensor. Shape: ``[..., M, N]``;
@@ -135,10 +134,10 @@ class UnitBase(ABC):
         """Seam 3 (call time): undo exactly the axes seam 2 introduced."""
         return output
 
-    def _lower_matmul(self, input: Tensor, *, adc_operation_point: AdcOperationPoint) -> Tensor:
+    def _lower_matmul(self, input: Tensor, *, adc_mode: int, adc_bits: int) -> Tensor:
         """Template driver: seam 2 -> :meth:`_matmul` -> seam 3."""
         planes = self._activation_to_planes(input)
-        y = self._matmul(planes, adc_operation_point=adc_operation_point)
+        y = self._matmul(planes, adc_mode=adc_mode, adc_bits=adc_bits)
         return self._undo_aggregation(y)
 
     # --- integer-bias slot for concrete hosts ---

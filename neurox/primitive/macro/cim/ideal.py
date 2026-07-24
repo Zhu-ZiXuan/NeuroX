@@ -12,7 +12,6 @@ import torch
 from torch import Tensor
 
 from neurox.common.quant import stochastic_floor_to_int
-from neurox.primitive.analog.adc_common import AdcOperationPoint
 
 from .base import CimMacro, CimMacroConfig, CimMacroPolicy
 
@@ -53,7 +52,7 @@ class IdealCimMacroPolicy(CimMacroPolicy):
 
 
 @CimMacro.register_key(IdealCimMacroConfig)
-class IdealCimMacro(CimMacro):
+class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
     """Tile-level ideal VMM with adc_bits-driven per-plane quantization.
 
     One call quantizes each WL plane's dot product independently into
@@ -61,8 +60,7 @@ class IdealCimMacro(CimMacro):
     the macro, on the caller's leading axes. The rescale at a given
     ``adc_bits`` is derived in :meth:`__init__` from integer geometry
     alone (per conversion, i.e. per plane); no chip calibration enters
-    the computation. ``adc_operation_point.adc_mode`` is opaque and not
-    read at runtime.
+    the computation. ``adc_mode`` is opaque and not read at runtime.
 
     Args:
         config: Concrete configuration dataclass.
@@ -73,7 +71,6 @@ class IdealCimMacro(CimMacro):
         T__K: Operating temperature.
     """
 
-    config: IdealCimMacroConfig
     nominal_digits: Tensor
     digits: Tensor
     digit_weights: Tensor
@@ -182,8 +179,9 @@ class IdealCimMacro(CimMacro):
         """An ideal xbar is its own ideal counterpart."""
         return self
 
-    def adc_rescale_factor(self, adc_operation_point: AdcOperationPoint) -> float:
-        return self._rescale_by_bits[adc_operation_point.adc_bits]
+    def adc_rescale_factor(self, *, adc_mode: int, adc_bits: int) -> float:
+        del adc_mode  # opaque to the ideal tile; only adc_bits is consumed
+        return self._rescale_by_bits[adc_bits]
 
     def program(self, w: Tensor) -> None:
         if tuple(w.shape) != self._w_layout_shape:
@@ -192,15 +190,15 @@ class IdealCimMacro(CimMacro):
             raise TypeError(f"program() expects an integer digit tensor; got dtype {w.dtype}")
         self.digits = w.detach().clone().to(self.digit_weights.device)
 
-    def vec_mat_mul(self, x: Tensor, *, adc_operation_point: AdcOperationPoint) -> Tensor:
+    def vec_mat_mul(self, x: Tensor, *, adc_mode: int, adc_bits: int) -> Tensor:
         """Ideal per-plane VMM with adc_bits-driven output quantization.
 
         One call performs one independent ADC conversion per column per
         WL plane. Quantize-then-accumulate is the modeled physical
         semantics (``Q(sum) != sum(Q)`` in general); it is preserved
         because the caller presents each sub-phase as its own plane.
-        Only ``adc_operation_point.adc_bits`` enters the computation;
-        ``adc_mode`` is opaque to the ideal tile and not read.
+        Only ``adc_bits`` enters the computation; ``adc_mode`` is opaque
+        to the ideal tile and not read.
         ``adc_bits == 0`` is a sentinel: skip ADC quantization and the
         signed clamp, returning the lossless integer plane dots.
 
@@ -210,8 +208,9 @@ class IdealCimMacro(CimMacro):
                 :attr:`max_active_rows` live rows per plane) must arrive
                 zeroed (WL off). Leading axes are anonymous broadcast
                 batch.
-            adc_operation_point: Runtime ADC operating point; only
-                ``adc_bits`` is consumed.
+            adc_mode: Opaque to the ideal tile; not read.
+            adc_bits: ADC resolution [bits]; the sole operating-point
+                input consumed.
 
         Returns:
             Signed ADC-code tensor with the leading order preserved and
@@ -221,6 +220,7 @@ class IdealCimMacro(CimMacro):
             ``adc_bits == 0`` the lossless integer plane dots are
             returned unmodified.
         """
+        del adc_mode  # opaque to the ideal tile; only adc_bits is consumed
         # Widen to int64 before any integer arithmetic so per-cell products
         # and the row-num / digit-num reductions cannot overflow. The digit
         # reduction is elementwise (CUDA-safe at int64); only the row dot
@@ -244,16 +244,16 @@ class IdealCimMacro(CimMacro):
             # Shape: [..., col_num, row_num] -> [..., col_num]
             plane_dot = (w.expand(full_shape) * x.expand(full_shape)).sum(dim=-1)
 
-        if adc_operation_point.adc_bits == 0:
+        if adc_bits == 0:
             return plane_dot
 
-        scale = self._scale_by_bits[adc_operation_point.adc_bits]
+        scale = self._scale_by_bits[adc_bits]
         code = stochastic_floor_to_int(
             plane_dot.to(torch.float32),
             scale,
             out_dtype=torch.int16,
             training=self.training,
         )
-        bound = 1 << (adc_operation_point.adc_bits - 1)
+        bound = 1 << (adc_bits - 1)
         code = code.clamp(-bound, bound - 1)
         return code

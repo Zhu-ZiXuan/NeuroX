@@ -4,4 +4,4 @@ Documentation for the literature-derived schemes packaged under `neurox/works/`,
 
 | Scheme | Scope |
 | --- | --- |
-| [macro/cim/isub_iadc_1t1r](macro/cim/isub_iadc_1t1r/README.md) | Single-tile 1T1R CIM macro with a current-subtractor / current-ADC readout |
+| [macro/cim/xue2020jssc](macro/cim/xue2020jssc/README.md) | SINWP 1T1R CIM sub-array (Xue et al. JSSC 2020): 3-bit sign-magnitude weights, 2-bit sample-and-hold inputs, PN-ISUB / TMCSA readout |

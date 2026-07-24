@@ -13,7 +13,6 @@ import torch
 from torch import Tensor
 
 from neurox.architecture.unit.cim.slicer import SerialSlicer, SimpleSlicer
-from neurox.primitive.analog.adc_common import AdcOperationPoint
 from neurox.primitive.digital import (
     Accumulator,
     DigitalPolicy,
@@ -49,13 +48,11 @@ class InterArraySliceCimEngineConfig(CimEngineConfig):
 
 
 @CimEngine.register_key(InterArraySliceCimEngineConfig)
-class InterArraySliceCimEngine(CimEngine):
+class InterArraySliceCimEngine(CimEngine[InterArraySliceCimEngineConfig]):
     """CIM engine that distributes weight slices across separate xbar planes.
 
     One xbar plane holds one ``Sw`` slice index across every logical weight.
     """
-
-    config: InterArraySliceCimEngineConfig
 
     def __init__(
         self,
@@ -89,6 +86,7 @@ class InterArraySliceCimEngine(CimEngine):
         self._init_engine_backend(
             inst_shape=(*w_batch, 1, 1, sw, tc, tr),
             n_logical=n_logical,
+            k_logical=k_logical,
             w_parallel_size=max(math.prod(w_batch), 1),
             row_tile_num=tr,
         )
@@ -186,7 +184,7 @@ class InterArraySliceCimEngine(CimEngine):
     # --- lifecycle ---
 
     @torch.no_grad()
-    def matmul(self, input: Tensor, *, adc_operation_point: AdcOperationPoint) -> Tensor:
+    def matmul(self, input: Tensor, *, adc_mode: int, adc_bits: int) -> Tensor:
         n_logical = self._n_logical
 
         # Shape: [..., M, K] -> [..., M, Sa, Sw=1, Tc, Tr=1, row_num]
@@ -199,7 +197,7 @@ class InterArraySliceCimEngine(CimEngine):
         planes = self._unroll_sub_phase(x)
         # *w_batch~ = weight-batch axes materialized by broadcast against the inst grid.
         # Shape: [..., P, M, Sa, Sw, Tc, Tr, row_num] -> [..., P, *w_batch~, M, Sa, Sw, Tc, Tr, data_num]
-        y = self.xbar.vec_mat_mul(planes, adc_operation_point=adc_operation_point).to(torch.int64)
+        y = self.xbar.vec_mat_mul(planes, adc_mode=adc_mode, adc_bits=adc_bits).to(torch.int64)
         # Shape: [..., P, *w_batch~, M, Sa, Sw, Tc, Tr, data_num] -> [..., *w_batch~, M, Sa, Sw, Tc, Tr, data_num]
         y = self.phase_accumulator.operate(y, dim=self._sub_phase_dim)  # -(b+7)
         # Shape: [..., M, Sa, Sw, Tc, Tr, data_num] -> [..., M, Sw, Tc, Tr, data_num]

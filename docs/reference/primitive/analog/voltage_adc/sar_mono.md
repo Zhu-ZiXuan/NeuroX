@@ -1,6 +1,6 @@
 # Monotonic SAR voltage ADC
 
-The monotonic (Set-and-Down) differential SAR ADC digitizes a differential input into a signed integer code, a member of the [voltage ADC family](family.md) honouring the family signed-code and floor contract.
+The monotonic (Set-and-Down) differential SAR ADC digitizes a differential input into a raw unsigned integer code, a member of the [voltage ADC family](family.md) honouring the family raw-code and floor contract.
 
 ## Physical model
 
@@ -12,7 +12,7 @@ Each cycle steps the larger top plate down by the monotonic Set-and-Down step
 
 $$\Delta V_{\mathrm{top},k} = -\,V_{\mathrm{ref}}\,\frac{C_k}{C_{\mathrm{total}}},$$
 
-with $C_k$ the capacitance switched on cycle $k$, carrying the static per-leg Pelgrom cap mismatch. The bit decisions and the unsigned-to-signed shift follow the family contract in [base](family.md#signed-code-range).
+with $C_k$ the capacitance switched on cycle $k$, carrying the static per-leg Pelgrom cap mismatch. The bit decisions produce a raw offset-binary code; the consumer-side zero-point recovery follows the family contract in [base](family.md#raw-code-range-and-consumer-side-recovery).
 
 TODO (domain author): the full per-cycle decision and code-accumulation equations.
 
@@ -82,4 +82,4 @@ TODO: cite the monotonic (Set-and-Down) SAR switching scheme.
 
 - **Internals**: [sar_mono internals](../../../../internals/primitive/analog/voltage_adc/sar_mono.md)
 - **Validation**: TODO - validation evidence not yet written
-- **Configuration**: `SarMonoVoltageAdcConfig`, `SarMonoVoltageAdcPolicy` (see `api`)
+- **Configuration**: `SarMonoDifferentialVoltageAdcConfig`, `SarMonoDifferentialVoltageAdcPolicy` (see `api`)

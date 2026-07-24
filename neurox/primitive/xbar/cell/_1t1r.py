@@ -95,6 +95,8 @@ class XbarCell1t1rDcop(XbarCellDcop):
 
 
 CellSnapT = TypeVar("CellSnapT", bound=XbarCell1t1rSnap)
+ConfigT = TypeVar("ConfigT", bound=XbarCell1t1rConfig)
+PolicyT = TypeVar("PolicyT", bound=XbarCell1t1rPolicy)
 
 
 # ---------------------------------------------------------------------------
@@ -103,17 +105,18 @@ CellSnapT = TypeVar("CellSnapT", bound=XbarCell1t1rSnap)
 
 
 class XbarCell1t1r(
-    XbarCell[CellSnapT, XbarCell1t1rDcop],
+    XbarCell[ConfigT, PolicyT, CellSnapT, XbarCell1t1rDcop],
     RegistryMixin[type[XbarCell1t1rConfig], "XbarCell1t1r"],
-    Generic[CellSnapT],
+    Generic[ConfigT, PolicyT, CellSnapT],
     ABC,
 ):
     """Abstract series access-device + storage 1T1R cell with a condensed branch.
 
     Owns the shared substrate of every 1T1R model: the four per-cell
     node-to-ground capacitances and the grounded-cap switching-energy
-    formula over the array-internal nodes (BL, X, SL); the WL node's
-    charge is billed by the row driver. Concrete leaves supply the
+    formula over all four cell nodes (BL, internal X, SL, and the WL
+    NMOS gate the cell owns); the WL wire charge is billed by the
+    owning array. Concrete leaves supply the
     branch physics (``snapshot`` /
     ``program`` / ``solve_branch`` / ``solve_dc``) and must derive and
     set ``w_states`` in ``__init__``.
@@ -125,8 +128,8 @@ class XbarCell1t1r(
     def __init__(
         self,
         *,
-        config: XbarCell1t1rConfig,
-        policy: XbarCell1t1rPolicy,
+        config: ConfigT,
+        policy: PolicyT,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,

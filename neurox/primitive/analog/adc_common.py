@@ -1,4 +1,4 @@
-"""Domain-neutral ADC types shared by the voltage and current ADC families.
+"""Domain-neutral ADC descriptor/calibration types (AdcMode, AdcCalibrationRecord) shared by the voltage and current ADC families.
 
 See also:
     docs/reference/primitive/analog/adc_common.md
@@ -11,43 +11,32 @@ from dataclasses import dataclass
 from neurox.common.mixin import ValidateMixin
 
 
-@dataclass(frozen=True, slots=True)
-class AdcOperationPoint:
-    """ADC operating point — the runtime selection passed per call.
-
-    Attributes:
-        adc_mode: Operating-point index selecting the reference set the
-            emitting family defines — a tap of the injected reference tensor
-            (voltage) or a threshold-ladder row (current); valid range
-            ``[0, mode count)``.
-        adc_bits: Active bit width, ``1 <= adc_bits <= max_bits``.
-    """
-
-    adc_mode: int
-    adc_bits: int
-
-
 @dataclass(frozen=True)
 class AdcCalibrationRecord(ValidateMixin):
-    """One row of the ADC ``adc_operation_point -> rescale_factor`` lookup table.
+    """``(mode, bits) -> rescale_factor`` lookup row.
 
     Attributes:
-        adc_mode: Operating-point index.
-        adc_bits: Active bit width.
-        rescale_factor: Recovery-side multiplier; ``M_ideal ≈ code · rescale_factor``.
-            Quantize is the inverse: ``code = floor(M_ideal / rescale_factor)``.
+        mode: Operating-point index.
+        bits: Active bit width.
+        rescale_factor: Recovery-side multiplier. Codes are raw (unsigned /
+            offset-binary), so recovery is consumer-side and affine-aware:
+            ``M_ideal ≈ (code − zero) · rescale_factor``, where ``zero`` is
+            the emitting ADC's zero-point offset for the operating point (0
+            for a genuinely single-ended magnitude ADC). The record stores
+            only the linear coefficient; the ``zero`` offset comes from the
+            ADC, not from this record.
     """
 
-    adc_mode: int
-    adc_bits: int
+    mode: int
+    bits: int
     rescale_factor: float
 
     def __post_init__(self) -> None:
         self.validate()
 
     def validate(self) -> None:
-        self._require_non_neg(self.adc_mode, "adc_mode")
-        self._require_non_neg(self.adc_bits, "adc_bits")
+        self._require_non_neg(self.mode, "mode")
+        self._require_non_neg(self.bits, "bits")
 
 
 @dataclass(frozen=True)
@@ -59,12 +48,12 @@ class AdcMode(ValidateMixin):
     [uA] for a current ADC.
 
     Attributes:
-        n_bits: Bit width of the mode.
+        bits: Bit width of the mode.
         n_states: Number of analog states represented by the mode.
         max_signal: Full-scale analog input magnitude.
     """
 
-    n_bits: int
+    bits: int
     n_states: int
     max_signal: float
 
@@ -72,19 +61,19 @@ class AdcMode(ValidateMixin):
         self.validate()
 
     def validate(self) -> None:
-        if self.n_bits < 1:
-            raise ValueError(f"require: n_bits ({self.n_bits}) >= 1")
+        if self.bits < 1:
+            raise ValueError(f"require: bits ({self.bits}) >= 1")
         if self.n_states < 2:
             raise ValueError(f"require: n_states ({self.n_states}) >= 2")
-        if self.n_states > (1 << self.n_bits):
-            raise ValueError(f"require: n_states ({self.n_states}) <= 2**n_bits ({1 << self.n_bits})")
+        if self.n_states > (1 << self.bits):
+            raise ValueError(f"require: n_states ({self.n_states}) <= 2**bits ({1 << self.bits})")
         if not (self.max_signal > 0.0):
             raise ValueError(f"require: max_signal ({self.max_signal}) > 0")
 
     @property
     def n_codes(self) -> int:
-        """Number of distinct output codes — ``2 ** n_bits``."""
-        return 1 << self.n_bits
+        """Number of distinct output codes — ``2 ** bits``."""
+        return 1 << self.bits
 
     @property
     def lsb(self) -> float:

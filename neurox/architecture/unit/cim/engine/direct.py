@@ -14,7 +14,6 @@ from torch import Tensor
 
 from neurox.architecture.unit.cim.slicer import DirectSlicer
 from neurox.common.encoding import Transcoder
-from neurox.primitive.analog.adc_common import AdcOperationPoint
 from neurox.primitive.digital import (
     Accumulator,
     DigitalPolicy,
@@ -38,7 +37,7 @@ class DirectCimEngineConfig(CimEngineConfig):
 
 
 @CimEngine.register_key(DirectCimEngineConfig)
-class DirectCimEngine(CimEngine):
+class DirectCimEngine(CimEngine[DirectCimEngineConfig]):
     """CIM engine with no activation / weight slicing — transcode only.
 
     The activation slicing step is the identity :class:`DirectSlicer`
@@ -51,8 +50,6 @@ class DirectCimEngine(CimEngine):
     matmul bit-exactly, which keeps the integer MAC engine GPU-capable
     (CUDA has no integer matmul kernel).
     """
-
-    config: DirectCimEngineConfig
 
     def __init__(
         self,
@@ -85,6 +82,7 @@ class DirectCimEngine(CimEngine):
         self._init_engine_backend(
             inst_shape=(*w_batch, 1, tc, tr),
             n_logical=n_logical,
+            k_logical=k_logical,
             w_parallel_size=max(math.prod(w_batch), 1),
             row_tile_num=tr,
         )
@@ -174,7 +172,7 @@ class DirectCimEngine(CimEngine):
     # --- lifecycle ---
 
     @torch.no_grad()
-    def matmul(self, input: Tensor, *, adc_operation_point: AdcOperationPoint) -> Tensor:
+    def matmul(self, input: Tensor, *, adc_mode: int, adc_bits: int) -> Tensor:
         n_logical = self._n_logical
 
         # Shape: [..., M, K] -> [..., M, Tc, Tr=1, row_num]
@@ -184,7 +182,7 @@ class DirectCimEngine(CimEngine):
         planes = self._unroll_sub_phase(x)
         # *w_batch~ = weight-batch axes materialized by broadcast against the inst grid.
         # Shape: [..., P, M, Tc, Tr, row_num] -> [..., P, *w_batch~, M, Tc, Tr, col_num]
-        y = self.xbar.vec_mat_mul(planes, adc_operation_point=adc_operation_point).to(torch.int64)
+        y = self.xbar.vec_mat_mul(planes, adc_mode=adc_mode, adc_bits=adc_bits).to(torch.int64)
         # Shape: [..., P, *w_batch~, M, Tc, Tr, col_num] -> [..., *w_batch~, M, Tc, Tr, col_num]
         y = self.phase_accumulator.operate(y, dim=self._sub_phase_dim)  # -(b+5)
         # Shape: [..., M, Tc, Tr, col_num] -> [..., M, Tr, col_num]

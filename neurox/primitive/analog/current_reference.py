@@ -191,21 +191,33 @@ class CurrentReference(AnalogBase[CurrentReferenceConfig, CurrentReferencePolicy
         else:
             self.i_refs__uA = base.clone()
 
-    def snapshot(self) -> CurrentReferenceSnap:
+    def snapshot(self, *, shape: tuple[int, ...] = ()) -> CurrentReferenceSnap:
         """Sample one per-call reference snap.
 
-        Reads the fabricated per-instance taps and applies the per-call
-        relative noise (gated by the ``noise`` policy). No external
-        shape: a reference's output is intrinsically ``(*inst_shape,
-        mode_num, tap_num)`` — a consumer indexes its quasi-static mode
-        row, picks a tap, and broadcasts it onto its own grid.
+        Reads the fabricated per-instance taps, expands them to the
+        requested ``shape``, and applies the per-call relative noise
+        (gated by the ``noise`` policy). Expanding before the noise draw
+        lets a noise-enabled snap sample independently at every position
+        of ``shape`` instead of broadcasting a single draw.
+
+        Args:
+            shape: Full requested snap shape, with intrinsic trailing
+                ``(mode_num, tap_num)``; the caller passes
+                ``(*inst_shape, mode_num, tap_num)``. Empty leaves the
+                taps at their fabricated ``(*inst_shape, mode_num,
+                tap_num)`` shape.
 
         Returns:
             Per-call snap carrying the actual reference-current taps.
         """
-        i = self.i_refs__uA
-        i = i * (1.0 + torch.randn_like(i) * self.config.noise_sigma_relative) if self.policy.noise else i.clone()
-        return CurrentReferenceSnap(i_refs__uA=i)
+        base = self.i_refs__uA
+        view = base.expand(shape) if shape else base
+        view = (
+            view * (1.0 + torch.randn_like(view) * self.config.noise_sigma_relative)
+            if self.policy.noise
+            else view.clone()
+        )
+        return CurrentReferenceSnap(i_refs__uA=view)
 
     def i_ref__uA(self, snap: CurrentReferenceSnap) -> Tensor:
         """Read all reference-current taps from a per-call snap.

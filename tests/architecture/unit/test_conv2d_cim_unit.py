@@ -9,27 +9,28 @@ import torch.nn.functional as F
 from neurox.architecture.unit.cim import Conv2dCimUnit, Conv2dCimUnitConfig, Conv2dCimUnitPolicy
 from neurox.architecture.unit.cim.engine import CimEngine, DirectCimEngineConfig
 from neurox.architecture.unit.conv2d import IdealConv2dUnit, IdealConv2dUnitConfig, IdealConv2dUnitPolicy
-from neurox.primitive.analog.adc_common import AdcOperationPoint
 from neurox.primitive.digital import AccumulatorConfig
 from neurox.primitive.macro.cim import IdealCimMacroConfig, IdealCimMacroPolicy
 
-_UNIT_POLICY = Conv2dCimUnitPolicy(cim_macro=IdealCimMacroPolicy())
+_UNIT_POLICY = Conv2dCimUnitPolicy(cim_macro_policy=IdealCimMacroPolicy())
 
 # ``adc_bits == 0`` is the IdealCimMacro lossless sentinel: the unit pipeline
 # must match the exact-integer references bit-exactly.
-_LOSSLESS_ADC_OP = AdcOperationPoint(adc_mode=0, adc_bits=0)
+_ADC_MODE = 0
+_ADC_BITS = 0
 
 
 def _ideal_xbar_config(
     *,
     row_num: int = 16,
     col_num: int = 16,
+    active_row_num: int | None = None,
     x_range: tuple[int, int] = (0, 3),
 ) -> IdealCimMacroConfig:
     return IdealCimMacroConfig(
         col_num=col_num,
         row_num=row_num,
-        active_row_num=row_num,
+        active_row_num=row_num if active_row_num is None else active_row_num,
         leakage_per_inst__uW=0.0,
         area_per_inst__um2=0.0,
         x_range=x_range,
@@ -55,6 +56,7 @@ def _unit_config(
     *,
     row_num: int = 16,
     col_num: int = 16,
+    active_row_num: int | None = None,
     stride: tuple[int, int] = (1, 1),
     padding: tuple[int, int] = (0, 0),
     dilation: tuple[int, int] = (1, 1),
@@ -64,7 +66,9 @@ def _unit_config(
         area_per_inst__um2=0.0,
         leakage_per_inst__uW=0.0,
         engine=DirectCimEngineConfig(
-            cim_macro_config=_ideal_xbar_config(row_num=row_num, col_num=col_num, x_range=x_range),
+            cim_macro_config=_ideal_xbar_config(
+                row_num=row_num, col_num=col_num, active_row_num=active_row_num, x_range=x_range
+            ),
             w_encoding="true_form",
             phase_accumulator_config=_accumulator_config(),
             col_accumulator_config=_accumulator_config(),
@@ -231,7 +235,7 @@ def test_ideal_conv2d_exact(
     weight = _random_weight(unit, (c_out, c_in, kh, kw))
     x = _random_activation(unit, (2, c_in, h, w))  # leading batch dim
     unit.program(weight)
-    actual = unit.conv2d(x, adc_operation_point=_LOSSLESS_ADC_OP)
+    actual = unit.conv2d(x, adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
     expected = _conv2d_int64_oracle(x, weight, stride=stride, padding=padding, dilation=dilation)
     assert actual.shape == expected.shape
     assert torch.equal(actual.to(torch.int64), expected)
@@ -251,7 +255,7 @@ def test_ideal_conv2d_bias_exact() -> None:
     bias = torch.randint(-7, 8, (c_out,), dtype=torch.int32)
     x = _random_activation(unit, (c_in, h, w))
     unit.program(weight, bias)
-    actual = unit.conv2d(x, adc_operation_point=_LOSSLESS_ADC_OP)
+    actual = unit.conv2d(x, adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
     expected = _conv2d_int64_oracle(x, weight, stride=stride, padding=padding, dilation=dilation) + bias.to(
         torch.int64
     ).view(-1, 1, 1)
@@ -286,8 +290,8 @@ def _assert_matches_ideal(
     x = _random_activation(unit, x_shape)
     unit.program(weight, bias)
     ideal.program(weight, bias)
-    actual = unit.conv2d(x, adc_operation_point=_LOSSLESS_ADC_OP)
-    expected = ideal.conv2d(x, adc_operation_point=_LOSSLESS_ADC_OP)
+    actual = unit.conv2d(x, adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
+    expected = ideal.conv2d(x, adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
     assert actual.shape == expected.shape
     assert torch.equal(actual.to(torch.int64), expected.to(torch.int64))
     return unit
@@ -438,6 +442,32 @@ def test_toeplitz_requires_w_range_covering_zero(monkeypatch: pytest.MonkeyPatch
 
 
 # --- 6. Engine-tiling composition ---
+
+
+def test_conv2d_accepts_non_divisor_row_blocking_and_stays_exact() -> None:
+    # 16 % 6 != 0: the base macro accepts it and Conv2dCimUnitConfig adds no
+    # divisor guard (the operator tolerates unused rows). The engine must tile
+    # the 16 rows into P = ceil(16/6) = 3 sub-phases (short final block of 4
+    # rows) covering every row, so the Toeplitz path still matches the ideal
+    # conv2d oracle bit-exactly. Under the old floor division (P = 2) rows
+    # 12..15 would be dropped and the result would be wrong.
+    torch.manual_seed(700)
+    c_out, c_in, kh, kw = 2, 1, 2, 2
+    w_shape = (c_out, c_in, kh, kw)
+    unit = _build_unit(
+        _unit_config(row_num=16, col_num=16, active_row_num=6),
+        w_logical_shape=w_shape,
+    )
+    assert unit.engine._sub_phase_num == 3
+    ideal = _build_ideal_unit(w_logical_shape=w_shape)
+    weight = _random_weight(unit, w_shape)
+    x = _random_activation(unit, (1, 5, 8))
+    unit.program(weight)
+    ideal.program(weight)
+    actual = unit.conv2d(x, adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
+    expected = ideal.conv2d(x, adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
+    assert actual.shape == expected.shape
+    assert torch.equal(actual.to(torch.int64), expected.to(torch.int64))
 
 
 def test_engine_tiling_composition_matches_ideal() -> None:

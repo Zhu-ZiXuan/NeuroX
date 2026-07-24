@@ -2,7 +2,7 @@
 
 ## Physical model
 
-A multi-output current reference holding a bank of per-mode tap rows (`[mode][tap]`): one strictly increasing row of nominal reference currents per operating mode, with a quasi-statically selected mode row — the consumer holds one row across conversions, so mode switching dissipates no per-conversion energy. The bias-generation topology is not modelled — the bias power that generates the reference currents is a static, always-on draw, not derived from the tap values, so there is no data-dependent dissipation and the entire hardware cost is static (bias power plus silicon area). Two departures from the nominal taps are modelled: a per-instance initial-accuracy spread (process variation plus trim residual) fixed at fabrication, and a per-read noise (thermal / flicker). Both are relative to the nominal tap, so a single sigma applies uniformly across taps of differing magnitude.
+A multi-output current reference holding a bank of per-mode tap rows (`[mode][tap]`): one strictly increasing row of nominal reference currents per operating mode, with a quasi-statically selected mode row — the consumer holds one row across conversions, so mode switching dissipates no per-conversion energy. The bank is per-instance: every fabricated instance carries its own initial-accuracy spread, so the read path returns the full `[*inst, mode, tap]` bank; a consumer indexes its mode row and passes the resulting per-instance ladder `[*inst, tap]` downstream unchanged, each instance keeping its own tap realization with no collapse across instances. The bias-generation topology is not modelled — the bias power that generates the reference currents is a static, always-on draw, not derived from the tap values, so there is no data-dependent dissipation and the entire hardware cost is static (bias power plus silicon area). Two departures from the nominal taps are modelled: a per-instance initial-accuracy spread (process variation plus trim residual) fixed at fabrication, and a per-read noise (thermal / flicker). Both are relative to the nominal tap, so a single sigma applies uniformly across taps of differing magnitude.
 
 ## Governing equations
 
@@ -41,7 +41,7 @@ Provenance terms are defined in [module_parameter](../../../conventions/module_p
 | Symbol | Meaning | Unit | Code field |
 |---|---|---|---|
 | $I_{\mathrm{ref},m,k}^{\mathrm{nom}}$ | nominal reference-current tap rows, `[mode][tap]` | uA | `i_refs__uA` |
-| $I_{\mathrm{ref},m,k}$ | actual sourced taps (post tolerance + noise) | uA | `i_ref__uA` |
+| $I_{\mathrm{ref},m,k}$ | actual sourced taps (post tolerance + noise), full per-instance bank `[*inst, mode, tap]` | uA | `i_ref__uA` |
 | $\sigma_{\mathrm{tol}}$ | relative initial-accuracy sigma | — | `tolerance_sigma_relative` |
 | $\sigma_{\mathrm{noise}}$ | relative per-read noise sigma | — | `noise_sigma_relative` |
 

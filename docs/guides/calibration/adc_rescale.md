@@ -2,7 +2,7 @@
 
 Goal: fit the scalar `rescale_factor` that maps a physical ADC's signed integer codes back to the ideal integer VMM output, for one configured ADC operating point. This is the second calibration stage: the analog range must already be settled by [ADC range probing](adc_range_probing.md) — this tool does not choose the range, it only calibrates the code-to-output scale for a range that is already fixed in the chip TOML.
 
-The fitted record is a single `(adc_mode, adc_bits) → rescale_factor` entry. The consumer model is $M_{\mathrm{ideal}} \approx \mathrm{code} \cdot \mathrm{rescale\_factor}$, where the signed code carries the sign of $M_{\mathrm{ideal}}$ directly.
+The fitted record is a single `(mode, bits) → rescale_factor` entry. The consumer model is $M_{\mathrm{ideal}} \approx \mathrm{code} \cdot \mathrm{rescale\_factor}$, where the signed code carries the sign of $M_{\mathrm{ideal}}$ directly.
 
 ## Prerequisite
 
@@ -17,8 +17,8 @@ The fit drives a physical tile and its lossless twin against the same inputs, th
 3. Stream `weight_samples` programmed states in `weight_samples / batch_size` serial passes; each pass programs `batch_size` weights into the `inst_shape=(batch_size,)` xbar in parallel. For each pass $w$:
     - call `physical.program(w)` **and** `ideal.program(w)` as separate program calls (the twin shares no state with the physical tile);
     - sample `input_samples_per_weight` input vectors, broadcast against the `batch_size` parallel weights in a single VMM call (not input-chunked);
-    - run `phys_code = physical.vec_mat_mul(x, adc_operation_point=AdcOperationPoint(adc_mode, adc_max_bits))`;
-    - run `ideal_vmm = ideal.vec_mat_mul(x, adc_operation_point=AdcOperationPoint(0, 0))` — `adc_bits=0` is the lossless sentinel that returns the raw int64 dot product;
+    - run `phys_code = physical.vec_mat_mul(x, adc_mode=adc_mode, adc_bits=adc_max_bits)`;
+    - run `ideal_vmm = ideal.vec_mat_mul(x, adc_mode=0, adc_bits=0)` — `adc_bits=0` is the lossless sentinel that returns the raw int64 dot product;
     - accumulate the $(\mathrm{phys\_code}, \mathrm{ideal\_vmm})$ pairs.
 4. Apply the saturation mask and drop the flagged pairs from the fit (see [Saturation filtering](#saturation-filtering)).
 5. Solve the rescale at max bit width on the surviving pairs (see [Least-squares fit](#least-squares-fit)).
@@ -103,16 +103,16 @@ residual_std: ...
 max_abs_residual: ...
 ```
 
-It emits a copyable TOML snippet for the single calibrated `(adc_mode, max_bits)` record only. The snippet uses the `AdcCalibrationRecord` schema (fields `adc_mode`, `adc_bits`, `rescale_factor`):
+It emits a copyable TOML snippet for the single calibrated `(mode, max_bits)` record only. The snippet uses the `AdcCalibrationRecord` schema (fields `mode`, `bits`, `rescale_factor`):
 
 ```toml
 [[adc_calibration]]
-adc_mode = 0
-adc_bits = 4
+mode = 0
+bits = 4
 rescale_factor = ...
 ```
 
-For SAR-family ADCs (which support `bits < max_bits` on the same range) the derived lower-bit table is printed for information; you choose which derived rows to add to the chip TOML. For non-SAR ADCs (e.g. `GeneralVoltageAdc`) the derived table is skipped, as those topologies do not support flexible bit widths. Paste the snippet under the `[cim_macro]` section of the chip TOML.
+For SAR-family ADCs (which support `bits < max_bits` on the same range) the derived lower-bit table is printed for information; you choose which derived rows to add to the chip TOML. For non-SAR ADCs (e.g. `GeneralDifferentialVoltageAdc`) the derived table is skipped, as those topologies do not support flexible bit widths. Paste the snippet under the `[cim_macro]` section of the chip TOML.
 
 A scheme xbar that instantiates one physically-identical `bl_adc` module per readout group flattens the $(\mathrm{phys\_code}, \mathrm{ideal\_vmm})$ pairs across all instances before the fit.
 

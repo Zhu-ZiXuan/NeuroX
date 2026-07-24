@@ -4,12 +4,12 @@ NeuroX is a static-PPA + functional-accuracy co-simulation framework for memrist
 
 ## Public surface
 
-The core library's public surface stops at `neurox.architecture`. Above that line — training loops, observer calibration, model rewriting — lives in `example/` and is not a stable API. Below it, every primitive (`CimMacro`, `Solver`, `OpAmpTIA`, `McsSarVoltageAdc`, …) follows the same family-base + concrete-config + `from_config` registry pattern documented in [`docs/internals/config_and_policy.md`](docs/internals/config_and_policy.md).
+The core library's public surface stops at `neurox.architecture`. Above that line — training loops, observer calibration, model rewriting — lives in `example/` and is not a stable API. Below it, every primitive (`CimMacro`, `Solver`, `OpAmpTIA`, `McsSarDifferentialVoltageAdc`, …) follows the same family-base + concrete-config + `from_config` registry pattern documented in [`docs/internals/config_and_policy.md`](docs/internals/config_and_policy.md).
 
 ## Layout
 
 - `neurox/primitive/device/` — RRAM, NMOS, Selector device-physics primitives.
-- `neurox/primitive/analog/` — VoltageDriver clamp, VoltageMux, CurrentMirror, CurrentMux, SwitchCap, `dac/` / `adc/` / `tia/` polymorphic families.
+- `neurox/primitive/analog/` — VoltageDriver clamp, VoltageMux, CurrentMux, SwitchCap, `dac/` / `adc/` / `tia/` polymorphic families.
 - `neurox/primitive/digital/` — integer accumulators, shift-adders, subtractors.
 - `neurox/primitive/xbar/` — `cell/` (abstract `XbarCell` + the `_1t1r` concrete cell), `array/` (abstract `XbarArray` + the `_1t1r` concrete array with its DC solver), and `solver/` (the shared block-tridiagonal DC solver).
 - `neurox/primitive/macro/cim/` — abstract `CimMacro`, `IdealCimMacro` reference twin; concrete tiles (e.g. the offset-coded 1T1R tile) live in `works/`.

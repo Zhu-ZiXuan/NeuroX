@@ -8,66 +8,64 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, replace
-from typing import ClassVar, Self
+from typing import ClassVar, Generic, Self, TypeVar
 
 import torch
 from torch import Tensor
 
 from neurox.common.mixin import RegistryMixin
 from neurox.common.prober import Prober
-from neurox.primitive.analog.adc_common import AdcOperationPoint
 from neurox.primitive.analog.base import AnalogBase, AnalogConfig, AnalogPolicy
 
 
 @dataclass(frozen=True)
-class VoltageAdcObservation:
-    """One :meth:`VoltageAdc.convert` call, captured for calibration/diagnostics.
+class DifferentialVoltageAdcObservation:
+    """One :meth:`DifferentialVoltageAdc.convert` call, captured for calibration/diagnostics.
 
     Attributes:
         v_pos__V: The call's positive-side input voltage.
         v_neg__V: The call's negative-side input voltage.
-        v_refs__V: The call's injected reference taps.
-        code: The call's returned signed integer code.
-        adc_mode: Operating-point mode index (plain ``int``, not a tensor).
-        adc_bits: Active bit width (plain ``int``, not a tensor).
+        v_ref__V: The call's owner-preselected single reference tap.
+        code: The call's returned raw unsigned integer code (offset-binary /
+            bucket index; the zero point is recovered consumer-side).
+        bits: Active bit width (plain ``int``, not a tensor).
     """
 
     v_pos__V: Tensor
     v_neg__V: Tensor
-    v_refs__V: Tensor
+    v_ref__V: Tensor
     code: Tensor
-    adc_mode: int
-    adc_bits: int
+    bits: int
 
     def detach(self) -> Self:
         return replace(
             self,
             v_pos__V=self.v_pos__V.detach(),
             v_neg__V=self.v_neg__V.detach(),
-            v_refs__V=self.v_refs__V.detach(),
+            v_ref__V=self.v_ref__V.detach(),
             code=self.code.detach(),
         )
 
 
-class VoltageAdcProber(Prober[VoltageAdcObservation]):
+class DifferentialVoltageAdcProber(Prober[DifferentialVoltageAdcObservation]):
     """Capture point for the voltage ADC's conversion observation link.
 
-    :class:`VoltageAdc` emits a :class:`VoltageAdcObservation` — the
-    call's differential input voltages, reference taps, returned code, and
-    operating point — once per :meth:`VoltageAdc.convert` call when a prober
+    :class:`DifferentialVoltageAdc` emits a :class:`DifferentialVoltageAdcObservation` — the
+    call's differential input voltages, selected reference tap, returned code, and
+    resolution — once per :meth:`DifferentialVoltageAdc.convert` call when a prober
     is active.
     """
 
-    _active_stack: ClassVar[list[Prober[VoltageAdcObservation]]] = []
+    _active_stack: ClassVar[list[Prober[DifferentialVoltageAdcObservation]]] = []
 
     @classmethod
-    def _stack(cls) -> list[Prober[VoltageAdcObservation]]:
+    def _stack(cls) -> list[Prober[DifferentialVoltageAdcObservation]]:
         """Return this observation link's active-prober stack."""
         return cls._active_stack
 
 
 @dataclass(frozen=True)
-class VoltageAdcConfig(AnalogConfig, ABC):
+class DifferentialVoltageAdcConfig(AnalogConfig, ABC):
     """Base config for voltage-domain ADC implementations.
 
     Attributes:
@@ -90,13 +88,18 @@ class VoltageAdcConfig(AnalogConfig, ABC):
 
 
 @dataclass(frozen=True)
-class VoltageAdcPolicy(AnalogPolicy, ABC):
+class DifferentialVoltageAdcPolicy(AnalogPolicy, ABC):
     """Abstract marker base for voltage-ADC-family nonideality policies."""
 
 
-class VoltageAdc(
-    AnalogBase[VoltageAdcConfig, VoltageAdcPolicy],
-    RegistryMixin[type["VoltageAdcConfig"], "VoltageAdc"],
+ConfigT = TypeVar("ConfigT", bound=DifferentialVoltageAdcConfig)
+PolicyT = TypeVar("PolicyT", bound=DifferentialVoltageAdcPolicy)
+
+
+class DifferentialVoltageAdc(
+    AnalogBase[ConfigT, PolicyT],
+    RegistryMixin[type["DifferentialVoltageAdcConfig"], "DifferentialVoltageAdc"],
+    Generic[ConfigT, PolicyT],
     ABC,
 ):
     """Abstract base class for voltage-domain ADC implementations."""
@@ -105,12 +108,12 @@ class VoltageAdc(
     def from_config(
         cls,
         *,
-        config: VoltageAdcConfig,
-        policy: VoltageAdcPolicy,
+        config: DifferentialVoltageAdcConfig,
+        policy: DifferentialVoltageAdcPolicy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
-    ) -> VoltageAdc:
+    ) -> DifferentialVoltageAdc:
         """Build the concrete impl registered for ``type(config)``."""
         impl = cls._lookup_impl(type(config))
         return impl(
@@ -124,8 +127,8 @@ class VoltageAdc(
     def __init__(
         self,
         *,
-        config: VoltageAdcConfig,
-        policy: VoltageAdcPolicy,
+        config: ConfigT,
+        policy: PolicyT,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -145,7 +148,7 @@ class VoltageAdc(
     @property
     @abstractmethod
     def max_bits(self) -> int:
-        """Physical bit width — the maximum ``adc_bits`` value."""
+        """Physical bit width — the maximum ``bits`` value."""
         raise NotImplementedError
 
     def convert(
@@ -153,14 +156,14 @@ class VoltageAdc(
         v_pos__V: Tensor,
         v_neg__V: Tensor,
         *,
-        v_refs__V: Tensor,
-        adc_operation_point: AdcOperationPoint,
+        v_ref__V: Tensor,
+        bits: int,
     ) -> Tensor:
-        """Digitise a differential analog voltage into a signed integer code.
+        """Digitise a differential analog voltage into a raw unsigned code.
 
         Template method: delegates the conversion to :meth:`_convert_impl`,
-        then, only when a :class:`VoltageAdcProber` is active, builds and
-        emits the call's inputs, code, and operating point before returning
+        then, only when a :class:`DifferentialVoltageAdcProber` is active, builds and
+        emits the call's inputs, code, and resolution before returning
         the code unchanged.
 
         Args:
@@ -168,35 +171,37 @@ class VoltageAdc(
                 arbitrary.
             v_neg__V: Negative-side analog input voltage.  Same
                 shape as ``v_pos__V``.
-            v_refs__V: All injected reference taps, shape
-                ``(*inst, num_refs)``; the impl selects one with
-                ``adc_operation_point.adc_mode``. Reference-agnostic:
-                supplied per call by the caller from its
-                :class:`~neurox.primitive.analog.VoltageReference`.
-            adc_operation_point: Runtime operating point.
+            v_ref__V: The single reference tap the owner has already
+                selected, shape ``(*inst,)`` (the result of
+                ``v_refs__V[..., mode]``). The ADC is reference-consuming
+                but mode-blind: mode selection happens caller-side.
+            bits: Active conversion resolution [bits].
 
         Returns:
-            Signed integer code tensor, same shape as ``v_pos__V``, in
-            the range reported by :meth:`signed_range` for ``adc_bits``.
-            The consumer model is ``M_ideal ≈ code · rescale_factor``
-            (``rescale_factor`` strictly positive). Dynamic energy and
-            latency are emitted through the profiler side channel.
+            Raw unsigned integer code tensor, same shape as ``v_pos__V``,
+            in the range reported by :meth:`unsigned_range` for
+            ``bits`` (offset-binary / bucket index — the ADC does NOT
+            fold the zero point in). The consumer recovers the signed
+            magnitude affinely as
+            ``M_ideal ≈ (code − zero_offset(bits)) · rescale_factor``
+            (``rescale_factor`` strictly positive), where the zero point
+            comes from :meth:`zero_offset`. Dynamic energy and latency are
+            emitted through the profiler side channel.
         """
         code = self._convert_impl(
             v_pos__V,
             v_neg__V,
-            v_refs__V=v_refs__V,
-            adc_operation_point=adc_operation_point,
+            v_ref__V=v_ref__V,
+            bits=bits,
         )
-        if VoltageAdcProber.active():
-            VoltageAdcProber.submit(
-                VoltageAdcObservation(
+        if DifferentialVoltageAdcProber.active():
+            DifferentialVoltageAdcProber.submit(
+                DifferentialVoltageAdcObservation(
                     v_pos__V=v_pos__V,
                     v_neg__V=v_neg__V,
-                    v_refs__V=v_refs__V,
+                    v_ref__V=v_ref__V,
                     code=code,
-                    adc_mode=adc_operation_point.adc_mode,
-                    adc_bits=adc_operation_point.adc_bits,
+                    bits=bits,
                 ),
             )
         return code
@@ -206,8 +211,8 @@ class VoltageAdc(
         v_pos__V: Tensor,
         v_neg__V: Tensor,
         *,
-        v_refs__V: Tensor,
-        adc_operation_point: AdcOperationPoint,
+        v_ref__V: Tensor,
+        bits: int,
     ) -> Tensor:
         """Conversion body a concrete impl provides; contract as :meth:`convert`.
 
@@ -219,13 +224,26 @@ class VoltageAdc(
         raise NotImplementedError
 
     @abstractmethod
-    def signed_range(self, adc_bits: int) -> tuple[int, int]:
-        """Return ``(min_code, max_code)`` the ADC can emit at ``adc_bits``.
+    def unsigned_range(self, bits: int) -> tuple[int, int]:
+        """Return ``(min_code, max_code)`` the ADC can emit at ``bits``.
 
-        For ADCs whose code count matches ``2 ** adc_bits`` exactly,
-        this is the canonical
-        ``(-2 ** (adc_bits - 1), 2 ** (adc_bits - 1) - 1)``. For ADCs
-        whose code count is **not** a power of two, the returned bounds
-        reflect the actual realisable signed code range.
+        The code is raw (unsigned / offset-binary), so ``min_code`` is
+        ``0``. For ADCs whose code count matches ``2 ** bits`` exactly
+        this is ``(0, 2 ** bits - 1)``; for ADCs whose code count is
+        **not** a power of two the upper bound reflects the actual
+        realisable code count.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def zero_offset(self, bits: int) -> int:
+        """Return the raw code representing analog zero at ``bits``.
+
+        The consumer subtracts this offset before scaling:
+        ``M_ideal ≈ (code − zero_offset(bits)) · rescale_factor``. Sign
+        and offset handling live entirely on the consumer side — the ADC
+        emits only the raw unsigned code. For a symmetric power-of-two
+        design this is ``2 ** (bits - 1)``; an asymmetric or
+        single-ended design places it elsewhere.
         """
         raise NotImplementedError

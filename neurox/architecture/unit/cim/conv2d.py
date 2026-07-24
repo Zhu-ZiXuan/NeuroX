@@ -55,7 +55,7 @@ class Conv2dCimUnitPolicy(EngineBackedCimUnitPolicy):
 
 
 @CimUnit.register_key(Conv2dCimUnitConfig)
-class Conv2dCimUnit(Conv2dUnit, EngineBackedCimUnit):
+class Conv2dCimUnit(Conv2dUnit, EngineBackedCimUnit[Conv2dCimUnitConfig, Conv2dCimUnitPolicy]):
     """CIM unit exposing the conv2d operator through a Toeplitz / input-stationary mapping.
 
     The engine is programmed with one ``(N', K')`` Toeplitz matrix whose
@@ -78,9 +78,6 @@ class Conv2dCimUnit(Conv2dUnit, EngineBackedCimUnit):
     ``kw_eff = (kw - 1)*d_w + 1``, ``W_strip = kw_eff + (W_g - 1)*s_w``,
     ``K' = C_in*kh*W_strip``, ``N' = W_g*C_out``.
     """
-
-    config: Conv2dCimUnitConfig
-    policy: Conv2dCimUnitPolicy
 
     _kw_eff: int
     _w_g: int

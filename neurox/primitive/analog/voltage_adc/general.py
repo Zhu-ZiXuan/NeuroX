@@ -14,15 +14,14 @@ import torch
 from torch import Tensor
 
 from neurox.common.quant import floor_bucketize
-from neurox.primitive.analog.adc_common import AdcOperationPoint
 from neurox.primitive.nonideality import apply_gaussian
 
-from .base import VoltageAdc, VoltageAdcConfig, VoltageAdcPolicy
+from .base import DifferentialVoltageAdc, DifferentialVoltageAdcConfig, DifferentialVoltageAdcPolicy
 
 
 @dataclass(frozen=True)
-class GeneralVoltageAdcConfig(VoltageAdcConfig):
-    """Immutable configuration for :class:`GeneralVoltageAdc`.
+class GeneralDifferentialVoltageAdcConfig(DifferentialVoltageAdcConfig):
+    """Immutable configuration for :class:`GeneralDifferentialVoltageAdc`.
 
     Attributes:
         boundaries: Sorted comparator thresholds in input units
@@ -75,8 +74,8 @@ class GeneralVoltageAdcConfig(VoltageAdcConfig):
 
 
 @dataclass(frozen=True)
-class GeneralVoltageAdcPolicy(VoltageAdcPolicy):
-    """Per-source toggles selecting which GeneralVoltageAdc nonidealities are active.
+class GeneralDifferentialVoltageAdcPolicy(DifferentialVoltageAdcPolicy):
+    """Per-source toggles selecting which GeneralDifferentialVoltageAdc nonidealities are active.
 
     Attributes:
         sampling_noise: Apply ``sampling_noise__V`` at convert time.
@@ -87,22 +86,23 @@ class GeneralVoltageAdcPolicy(VoltageAdcPolicy):
     comparator_noise: bool
 
 
-@VoltageAdc.register_key(GeneralVoltageAdcConfig)
-class GeneralVoltageAdc(VoltageAdc):
+@DifferentialVoltageAdc.register_key(GeneralDifferentialVoltageAdcConfig)
+class GeneralDifferentialVoltageAdc(
+    DifferentialVoltageAdc[GeneralDifferentialVoltageAdcConfig, GeneralDifferentialVoltageAdcPolicy]
+):
     """Boundary-bucketize voltage ADC with two Gaussian noise stages.
 
-    Single-mode: ``(mode, bits)`` must be ``(0, n_bits_implied_by_boundaries)``.
+    Reference-free and mode-blind: ``bits`` must equal the
+    boundary-implied bit width.
     """
 
-    config: GeneralVoltageAdcConfig
-    policy: GeneralVoltageAdcPolicy
     boundaries: Tensor
 
     def __init__(
         self,
         *,
-        config: GeneralVoltageAdcConfig,
-        policy: GeneralVoltageAdcPolicy,
+        config: GeneralDifferentialVoltageAdcConfig,
+        policy: GeneralDifferentialVoltageAdcPolicy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -121,13 +121,13 @@ class GeneralVoltageAdc(VoltageAdc):
 
         boundaries_t = torch.tensor(config.boundaries, dtype=dtype)
         if boundaries_t.numel() < 1:
-            raise ValueError("GeneralVoltageAdcConfig.boundaries must contain at least one threshold")
+            raise ValueError("GeneralDifferentialVoltageAdcConfig.boundaries must contain at least one threshold")
         self.register_buffer("boundaries", boundaries_t, persistent=False)
 
         n_codes = boundaries_t.numel() + 1
-        self._n_bits = max(math.ceil(math.log2(n_codes)), 1)
+        self._bits = max(math.ceil(math.log2(n_codes)), 1)
         self._n_codes = n_codes
-        # Topology-specific zero code: GeneralVoltageAdc has fixed bit width, so
+        # Topology-specific zero code: GeneralDifferentialVoltageAdc has fixed bit width, so
         # its midpoint code (the one representing analog 0 under a symmetric
         # boundary placement) is committed at construction.
         self._zero_code = n_codes // 2
@@ -146,45 +146,55 @@ class GeneralVoltageAdc(VoltageAdc):
     @property
     def max_bits(self) -> int:
         """Boundary-implied bit width."""
-        return self._n_bits
+        return self._bits
 
-    def signed_range(self, adc_bits: int) -> tuple[int, int]:
-        """Realisable signed code bounds at ``adc_bits``.
+    @property
+    def zero_code(self) -> int:
+        """Raw code representing analog zero — the fixed bucket midpoint ``n_codes // 2``."""
+        return self._zero_code
 
-        GeneralVoltageAdc's code count (``n_boundaries + 1``) is fixed at
-        construction and may not equal ``2 ** adc_bits``. The actual
-        signed range after the ``code - zero_code`` shift is
-        ``[-zero_code, n_codes - 1 - zero_code]``. ``adc_bits`` is
-        accepted for protocol symmetry but ignored.
+    def unsigned_range(self, bits: int) -> tuple[int, int]:
+        """Realisable raw code bounds at ``bits`` — ``(0, n_codes - 1)``.
+
+        GeneralDifferentialVoltageAdc's code count (``n_boundaries + 1``) is fixed at
+        construction and may not equal ``2 ** bits``. The raw bucket
+        index ranges over ``[0, n_codes - 1]``. ``bits`` is accepted
+        for protocol symmetry but ignored.
         """
-        del adc_bits
-        return -self._zero_code, self._n_codes - 1 - self._zero_code
+        del bits
+        return 0, self._n_codes - 1
+
+    def zero_offset(self, bits: int) -> int:
+        """Bucket-midpoint zero code, bit-independent (single fixed bit width)."""
+        del bits
+        return self._zero_code
 
     def _convert_impl(
         self,
         v_pos__V: Tensor,
         v_neg__V: Tensor,
         *,
-        v_refs__V: Tensor,
-        adc_operation_point: AdcOperationPoint,
+        v_ref__V: Tensor,
+        bits: int,
     ) -> Tensor:
-        """Quantise a differential analog voltage to a signed code (floor-bucketize + zero shift).
+        """Quantise a differential analog voltage to a raw code (floor-bucketize).
 
         Args:
             v_pos__V: Positive-side analog input voltage.
             v_neg__V: Negative-side analog input voltage, same shape.
-            v_refs__V: Accepted for ADC-protocol symmetry and ignored —
-                GeneralVoltageAdc's bucketize boundaries are reference-free.
-            adc_operation_point: Runtime operating point. ``adc_operation_point.adc_mode`` must be ``0``;
-                ``adc_operation_point.adc_bits`` must equal the boundary-implied bit width.
+            v_ref__V: Accepted for ADC-protocol symmetry and ignored —
+                GeneralDifferentialVoltageAdc's bucketize boundaries are reference-free.
+            bits: Active resolution [bits]; must equal the boundary-implied
+                bit width.
 
         Returns:
-            Signed ``int16`` code tensor in
-            ``[-zero_code, n_codes - 1 - zero_code]`` (see :meth:`signed_range`),
-            shaped like ``v_pos__V``.
+            Raw unsigned ``int16`` bucket-index code tensor in
+            ``[0, n_codes - 1]`` (see :meth:`unsigned_range`), shaped like
+            ``v_pos__V``. The zero point (:meth:`zero_offset` / :attr:`zero_code`)
+            is subtracted consumer-side, not here.
         """
-        del v_refs__V  # reference-free; accepted for protocol symmetry
-        self._validate_runtime_args(adc_operation_point)
+        del v_ref__V  # reference-free; accepted for protocol symmetry
+        self._validate_runtime_args(bits)
         signal = apply_gaussian(
             v_pos__V - v_neg__V,
             self.config.sampling_noise__V,
@@ -208,7 +218,7 @@ class GeneralVoltageAdc(VoltageAdc):
             lsb=self._lsb_estimate,
         )
 
-        # GeneralVoltageAdc: code shape carries no extra parallel trailing beyond
+        # GeneralDifferentialVoltageAdc: code shape carries no extra parallel trailing beyond
         # inst_shape; serial count via the position-invariant numel rule
         # (total output elements / parallel multiplicity).
         serial_op_count = max(1, code.numel() // max(self.inst_count, 1))
@@ -221,18 +231,14 @@ class GeneralVoltageAdc(VoltageAdc):
         self._log_dynamic_energy(dynamic_energy__fJ)
         self._log_latency(latency__ns)
 
-        # Clamp to the legal unsigned bucket range before the zero shift;
-        # stochastic-rounding jitter in floor_bucketize can push values to
-        # -1 or n_codes, which would skew the signed output if not bounded.
-        code = code.clamp(min=0, max=self._n_codes - 1)
-        return code - self._zero_code
+        # Clamp to the legal unsigned bucket range; stochastic-rounding
+        # jitter in floor_bucketize can push values to -1 or n_codes, which
+        # would fall outside the raw code range if not bounded. The zero
+        # point is left for the consumer to subtract.
+        return code.clamp(min=0, max=self._n_codes - 1)
 
     # --- shared helpers ---
 
-    def _validate_runtime_args(self, adc_operation_point: AdcOperationPoint) -> None:
-        if adc_operation_point.adc_mode != 0:
-            raise ValueError(f"GeneralVoltageAdc: mode ({adc_operation_point.adc_mode}) must be 0")
-        if adc_operation_point.adc_bits != self._n_bits:
-            raise ValueError(
-                f"GeneralVoltageAdc: bits ({adc_operation_point.adc_bits}) must equal self._n_bits ({self._n_bits})"
-            )
+    def _validate_runtime_args(self, bits: int) -> None:
+        if bits != self._bits:
+            raise ValueError(f"GeneralDifferentialVoltageAdc: bits ({bits}) must equal self._bits ({self._bits})")

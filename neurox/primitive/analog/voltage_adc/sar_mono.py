@@ -9,18 +9,17 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor
 
-from neurox.primitive.analog.adc_common import AdcOperationPoint
 from neurox.primitive.nonideality import (
     apply_gaussian,
     apply_pelgrom_mismatch,
 )
 
-from .base import VoltageAdc, VoltageAdcConfig, VoltageAdcPolicy
+from .base import DifferentialVoltageAdc, DifferentialVoltageAdcConfig, DifferentialVoltageAdcPolicy
 
 
 @dataclass(frozen=True)
-class SarMonoVoltageAdcConfig(VoltageAdcConfig):
-    """Immutable design-parameter config for :class:`SarMonoVoltageAdc`.
+class SarMonoDifferentialVoltageAdcConfig(DifferentialVoltageAdcConfig):
+    """Immutable design-parameter config for :class:`SarMonoDifferentialVoltageAdc`.
 
     Attributes:
         max_bits: Physical bit width; active array carries
@@ -93,8 +92,8 @@ class SarMonoVoltageAdcConfig(VoltageAdcConfig):
 
 
 @dataclass(frozen=True)
-class SarMonoVoltageAdcPolicy(VoltageAdcPolicy):
-    """Per-source toggles selecting which SarMonoVoltageAdc nonidealities are active.
+class SarMonoDifferentialVoltageAdcPolicy(DifferentialVoltageAdcPolicy):
+    """Per-source toggles selecting which SarMonoDifferentialVoltageAdc nonidealities are active.
 
     Attributes:
         cap_mismatch: Apply ``cap_mismatch_sigma_relative`` at fabricate time.
@@ -109,8 +108,10 @@ class SarMonoVoltageAdcPolicy(VoltageAdcPolicy):
     sampling_thermal_noise: bool
 
 
-@VoltageAdc.register_key(SarMonoVoltageAdcConfig)
-class SarMonoVoltageAdc(VoltageAdc):
+@DifferentialVoltageAdc.register_key(SarMonoDifferentialVoltageAdcConfig)
+class SarMonoDifferentialVoltageAdc(
+    DifferentialVoltageAdc[SarMonoDifferentialVoltageAdcConfig, SarMonoDifferentialVoltageAdcPolicy]
+):
     """Monotonic (Set-and-Down) differential SAR voltage ADC — placeholder.
 
     Args:
@@ -121,8 +122,6 @@ class SarMonoVoltageAdc(VoltageAdc):
         T__K: Operating temperature.
     """
 
-    config: SarMonoVoltageAdcConfig
-    policy: SarMonoVoltageAdcPolicy
     nominal_cap_weights__fF: Tensor
     nominal_comparator_offset__V: Tensor
     c_p__fF: Tensor
@@ -132,8 +131,8 @@ class SarMonoVoltageAdc(VoltageAdc):
     def __init__(
         self,
         *,
-        config: SarMonoVoltageAdcConfig,
-        policy: SarMonoVoltageAdcPolicy,
+        config: SarMonoDifferentialVoltageAdcConfig,
+        policy: SarMonoDifferentialVoltageAdcPolicy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -146,7 +145,7 @@ class SarMonoVoltageAdc(VoltageAdc):
             T__K=T__K,
         )
         if not (T__K > 0.0):
-            raise ValueError(f"SarMonoVoltageAdc T__K ({T__K}) must be > 0")
+            raise ValueError(f"SarMonoDifferentialVoltageAdc T__K ({T__K}) must be > 0")
         self._area_per_inst__um2 = config.area_per_inst__um2
         self._leakage_per_inst__uW = config.leakage_per_inst__uW
         self.T__K = T__K
@@ -183,18 +182,23 @@ class SarMonoVoltageAdc(VoltageAdc):
 
     @property
     def max_bits(self) -> int:
-        """Physical CDAC bit width — the maximum ``adc_bits`` value."""
+        """Physical CDAC bit width — the maximum ``bits`` value."""
         return self.config.max_bits
 
-    def signed_range(self, adc_bits: int) -> tuple[int, int]:
-        """Canonical SAR signed-bit endpoints at ``adc_bits``.
+    def unsigned_range(self, bits: int) -> tuple[int, int]:
+        """Raw offset-binary code endpoints at ``bits`` — ``(0, 2 ** bits - 1)``.
 
-        The CDAC code count is exactly ``2 ** adc_bits``.
+        The CDAC code count is exactly ``2 ** bits``.
         """
-        if not (1 <= adc_bits <= self.max_bits):
-            raise ValueError(f"adc_bits {adc_bits} outside [1, {self.max_bits}]")
-        half = 1 << (adc_bits - 1)
-        return -half, half - 1
+        if not (1 <= bits <= self.max_bits):
+            raise ValueError(f"bits {bits} outside [1, {self.max_bits}]")
+        return 0, (1 << bits) - 1
+
+    def zero_offset(self, bits: int) -> int:
+        """Offset-binary zero code at ``bits`` — ``2 ** (bits - 1)``."""
+        if not (1 <= bits <= self.max_bits):
+            raise ValueError(f"bits {bits} outside [1, {self.max_bits}]")
+        return 1 << (bits - 1)
 
     # --- fabricate (static non-idealities) ---
 
@@ -232,22 +236,19 @@ class SarMonoVoltageAdc(VoltageAdc):
         v_pos__V: Tensor,
         v_neg__V: Tensor,
         *,
-        v_refs__V: Tensor,
-        adc_operation_point: AdcOperationPoint,
+        v_ref__V: Tensor,
+        bits: int,
     ) -> Tensor:
         """Differential monotonic SAR conversion — not yet implemented."""
-        del v_pos__V, v_neg__V, v_refs__V, adc_operation_point
-        raise NotImplementedError("Differential monotonic SAR is not yet implemented; use McsSarVoltageAdc.")
+        del v_pos__V, v_neg__V, v_ref__V, bits
+        raise NotImplementedError(
+            "Differential monotonic SAR is not yet implemented; use McsSarDifferentialVoltageAdc."
+        )
 
     # --- shared helpers ---
 
-    def _validate_runtime_args(self, adc_operation_point: AdcOperationPoint) -> None:
-        """Validate per-call ``adc_operation_point``.
-
-        The ``adc_mode`` bound depends on the injected ``v_refs__V`` tap
-        count, so it is checked in :meth:`convert`; only the bit-width
-        bound is config-knowable here.
-        """
+    def _validate_runtime_args(self, bits: int) -> None:
+        """Validate the per-call bit width against the config bound."""
         config = self.config
-        if not (1 <= adc_operation_point.adc_bits <= config.max_bits):
-            raise ValueError(f"bits {adc_operation_point.adc_bits} outside [1, {config.max_bits}]")
+        if not (1 <= bits <= config.max_bits):
+            raise ValueError(f"bits {bits} outside [1, {config.max_bits}]")

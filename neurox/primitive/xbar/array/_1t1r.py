@@ -6,7 +6,7 @@ See also:
 
 import math
 from dataclasses import dataclass
-from typing import ClassVar, TypeVar
+from typing import TypeVar
 
 import torch
 from torch import Tensor
@@ -149,7 +149,7 @@ class XbarArray1t1rPolicy(XbarArrayPolicy):
     """Composite nonideality policy for a 1T1R pure-array core.
 
     Attributes:
-        cell: 1T1R cell nonideality policy; concrete subclass matches
+        cell_policy: 1T1R cell nonideality policy; concrete subclass matches
             the configured cell model.
         solve_chunk_size: Maximum number of broadcast-leading instances
             ``solve_array`` solves per chunk — the per-chunk peak-memory
@@ -159,7 +159,7 @@ class XbarArray1t1rPolicy(XbarArrayPolicy):
             many instances. Runtime knob, not a chip-preset constant.
     """
 
-    cell: XbarCell1t1rPolicy
+    cell_policy: XbarCell1t1rPolicy
     solve_chunk_size: int
 
 
@@ -192,10 +192,6 @@ class XbarArraySteadyState:
 class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
     """Shape-independent 1T1R pure array: cells, wire parasitics, and solver."""
 
-    is_column_separable: ClassVar[bool] = True
-    """The DC solve is column-separable: WL is gate-only and carries no DC current, and BL and SL are both column-parallel wires, so columns share no current-carrying structure and callers may fold column serialization into the batch/column axis."""
-
-    config: XbarArray1t1rConfig
     cell: XbarCell1t1r
     bl_segment_r__MOhm: Tensor
     sl_segment_r__MOhm: Tensor
@@ -209,7 +205,9 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
         *,
         config: XbarArray1t1rConfig,
         policy: XbarArray1t1rPolicy,
-        w_layout_shape: tuple[int, ...],
+        inst_shape: tuple[int, ...],
+        row_num: int,
+        col_num: int,
         dtype: torch.dtype,
         T__K: float,
     ) -> None:
@@ -218,33 +216,30 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
         Args:
             config: Concrete configuration dataclass.
             policy: Composite nonideality policy.
-            w_layout_shape: Per-instance state-index tensor shape
-                ``(*prefix, phys_col_num, row_num)`` that
-                ``program(...)`` will receive.
+            inst_shape: Replication prefix — the leading broadcast dims the
+                array replicates over, per the standard module contract.
+            row_num: Crossbar row count (cells per BL/SL wire ladder).
+            col_num: Crossbar column count (one BL/SL wire ladder per column).
             dtype: Tensor dtype for internal buffers.
             T__K: Operating temperature.
         """
-        if len(w_layout_shape) < 2:
-            raise ValueError(
-                f"w_layout_shape must have at least 2 trailing dims (phys_col_num, row_num); got {w_layout_shape}"
-            )
-        *prefix, phys_col_num, row_num = w_layout_shape
-        if not (phys_col_num > 1):
-            raise ValueError(f"require: phys_col_num ({phys_col_num}) > 1")
+        if not (col_num > 1):
+            raise ValueError(f"require: col_num ({col_num}) > 1")
         if not (row_num > 1):
             raise ValueError(f"require: row_num ({row_num}) > 1")
 
-        super().__init__(config=config, policy=policy, inst_shape=tuple(prefix))
+        super().__init__(config=config, policy=policy, inst_shape=inst_shape)
         self._area_per_inst__um2 = config.area_per_inst__um2
         self._leakage_per_inst__uW = config.leakage_per_inst__uW
         self.dtype = dtype
         self.T__K = T__K
-        self._w_layout_shape = tuple(w_layout_shape)
+        self._row_num = row_num
+        self._col_num = col_num
 
         self.cell = XbarCell1t1r.from_config(
             config=config.cell_config,
-            policy=policy.cell,
-            inst_shape=self._w_layout_shape,
+            policy=policy.cell_policy,
+            inst_shape=self.weight_grid_shape,
             dtype=dtype,
             T__K=T__K,
         )
@@ -277,13 +272,13 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
         self.register_buffer("sl_segment_c__fF", sl_segment_c__fF, persistent=False)
 
         # Per-row WL wire capacitance total (the WL runs along the column
-        # direction: one driver-to-first segment + phys_col_num - 1
+        # direction: one driver-to-first segment + col_num - 1
         # cell-to-cell segments per row).
-        self.c_wl_wire_per_row__fF = config.wl_first_c__fF + (phys_col_num - 1) * config.wl_segment_c__fF
+        self.c_wl_wire_per_row__fF = config.wl_first_c__fF + (col_num - 1) * config.wl_segment_c__fF
 
         self.solver = Solver.from_config(config=config.solver_config)
 
-        self.fabricated_col_num = phys_col_num
+        self.fabricated_col_num = col_num
         self.fabricated_row_num = row_num
 
     # -----------------------------------------------------------------
@@ -292,8 +287,8 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
 
     @property
     def weight_grid_shape(self) -> tuple[int, ...]:
-        """Shape of the weight grid (per-cell state array): ``(*inst, phys_col, row)``."""
-        return self._w_layout_shape
+        """Shape of the weight grid (per-cell state array): ``(*inst, col, row)``."""
+        return (*self._inst_shape, self._col_num, self._row_num)
 
     # -----------------------------------------------------------------
     # Programming
@@ -304,12 +299,12 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
 
         Args:
             w_state_idx: State-index tensor in ``[0, w_states - 1]``,
-                shape must match ``self._w_layout_shape =
-                (*prefix, phys_col_num, row_num)``.
+                shape must match ``self.weight_grid_shape =
+                (*inst, col_num, row_num)``.
         """
-        if tuple(w_state_idx.shape) != self._w_layout_shape:
+        if tuple(w_state_idx.shape) != self.weight_grid_shape:
             raise ValueError(
-                f"program() expects w_state_idx.shape {self._w_layout_shape}; got {tuple(w_state_idx.shape)}"
+                f"program() expects w_state_idx.shape {self.weight_grid_shape}; got {tuple(w_state_idx.shape)}"
             )
         self.cell.program(w_state_idx)
 
@@ -329,7 +324,7 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
         bl_v_ref__V: Tensor,
         sl_driver: ClampDriver[SLSnapT],
         sl_v_ref__V: Tensor,
-        t_conduct__ns: float,
+        t_conduct__ns: float | Tensor,
     ) -> XbarArraySteadyState:
         """Settle the 1T1R array to DC under an analog WL drive.
 
@@ -346,8 +341,9 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
                 snapshotted once and broadcasts onto every chunk grid.
             sl_driver: SL boundary clamp (structural ``ClampDriver`` role).
             sl_v_ref__V: SL-drive reference tap, a 0-d scalar.
-            t_conduct__ns: Conduction window of one solved WL plane [ns]
-                — the time the DC-conduction energy term integrates over.
+            t_conduct__ns: Conduction window [ns] the DC-conduction energy
+                term integrates over — a scalar for a single plane or a
+                per-plane vector broadcasting against the solve leading.
 
         Returns:
             :class:`XbarArraySteadyState` carrying the per-column BL port
@@ -358,26 +354,33 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
 
         # ``v_wl`` trailing is ``[row]``; ``v_wl_grid`` adds a size-1
         # WL-fanout dim at -2 so ``v_wl``'s ``row`` aligns with ``g``'s
-        # ``row`` and the ``phys_col`` slot opens for the solver-side
+        # ``row`` and the ``col`` slot opens for the solver-side
         # broadcast against the RRAM grid.
+        # Shape: [..., row] -> [..., 1, row]
         v_wl_grid = v_wl.unsqueeze(-2)
-        g_shape = self._w_layout_shape
+        g_shape = self.weight_grid_shape
         full_shape = torch.broadcast_shapes(g_shape, v_wl_grid.shape)
-        *batch_list, phys_col_num, row_num = full_shape
+        *batch_list, col_num, row_num = full_shape
         leading = tuple(batch_list)
-        cell_trailing = (phys_col_num, row_num)
-        col_trailing = (phys_col_num,)
+        cell_trailing = (col_num, row_num)
+        col_trailing = (col_num,)
+
+        # Per-plane conduction window: a scalar passes through unchanged; a
+        # vector broadcasts to the full leading for lockstep chunk-select.
+        t_conduct_t = torch.as_tensor(t_conduct__ns, dtype=v_wl.dtype, device=v_wl.device)
+        t_conduct_full = t_conduct_t.broadcast_to(leading) if t_conduct_t.ndim else t_conduct_t
 
         # --- Classify leading positions (for the serial latency count) ---
 
         a_positions, _b_positions = classify_leading_positions(
             x_shape=tuple(v_wl_grid.shape),
-            g_shape=tuple(g_shape),
+            g_shape=g_shape,
             leading_rank=len(leading),
         )
 
         # Broadcast the WL drive to the full leading so the solver sees
         # ``(*leading, 1, row)``.
+        # Shape: [..., 1, row] -> [*leading, 1, row]
         v_wl_full = v_wl_grid.expand(*leading, 1, row_num)
 
         # --- Per-chunk loop: sample → solve → energy ---
@@ -393,7 +396,9 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
             device=v_wl.device,
         ):
             mc = spec.multi_coords
-            v_wl_chunk = v_wl_full[mc] if mc else v_wl_full  # (chunk_size, 1, row)
+            # Shape: [chunk, 1, row]
+            v_wl_chunk = v_wl_full[mc] if mc else v_wl_full
+            t_conduct_chunk = t_conduct_full[mc] if (mc and t_conduct_full.ndim) else t_conduct_full
             cell_snap = self.cell.snapshot(
                 control=v_wl_chunk,
                 shape=(*leading, *cell_trailing),
@@ -419,7 +424,7 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
                 self._compute_array_energy__fJ(
                     solver_dcop=solver_dcop_chunk,
                     cell_snap=cell_snap,
-                    t_conduct__ns=t_conduct__ns,
+                    t_conduct__ns=t_conduct_chunk,
                 )
             )
             i_bl_port_chunks.append(solver_dcop_chunk.i_bl_driver)
@@ -428,8 +433,11 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
 
         # --- Reassemble outputs ---
 
+        # Shape: [*leading, col_num]
         i_bl_port__uA = reassemble_chunks(i_bl_port_chunks, global_indices, leading, col_trailing)
+        # Shape: [*leading, col_num]
         v_bl_clamp__V = reassemble_chunks(v_bl_clamp_chunks, global_indices, leading, col_trailing)
+        # Shape: [*leading]
         array_energy__fJ = reassemble_chunks(chunk_energies, global_indices, leading, ())
 
         # --- Emit one energy + one latency event for this VMM ---
@@ -456,7 +464,7 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
         *,
         solver_dcop: SolverDcop[XbarCell1t1rDcop],
         cell_snap: XbarCell1t1rSnap,
-        t_conduct__ns: float,
+        t_conduct__ns: float | Tensor,
     ) -> Tensor:
         """Per-VMM array-internal energy. Shape: [...batch...].
 
@@ -473,7 +481,9 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
                 per-column port currents.
             cell_snap: Per-solve cell snap bundling the device
                 snaps and the WL control drive ``[..., 1, row_num]``.
-            t_conduct__ns: Conduction window of one solved WL plane [ns].
+            t_conduct__ns: Conduction window [ns] — a scalar for one solved
+                WL plane or a per-plane vector broadcasting against the
+                array-power leading; multiplies the DC-conduction term.
         """
 
         v_bl__V = solver_dcop.v_bl_node
@@ -487,22 +497,22 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
         # the macro bills the (V_DD - V_BL) clamp segment, the array
         # bills the whole sub-branch below it (V_BL -> GND: wires,
         # cells, and the SL-driver sink segment) as V_BL * I_BL.
-        # Shape: [..., phys_col_num] -> [...]
+        # Shape: [..., col_num] -> [...]
         array_power__uW = (v_bl_clamp__V * solver_dcop.i_bl_driver).sum(dim=-1)
         e_dc_cond__fJ = array_power__uW * t_conduct__ns
 
         # --- Capacitive cycling ---
 
-        # Shape: [..., phys_col_num] -> [..., phys_col_num, row_num]
+        # Shape: [..., col_num] -> [..., col_num, row_num]
         v_bl_left__V = torch.cat((v_bl_clamp__V.unsqueeze(-1), v_bl__V[..., :-1]), dim=-1)
-        # Shape: [..., phys_col_num] -> [..., phys_col_num, row_num]
+        # Shape: [..., col_num] -> [..., col_num, row_num]
         v_sl_left__V = torch.cat((v_sl_drive__V.unsqueeze(-1), v_sl__V[..., :-1]), dim=-1)
 
-        # Shape: [..., phys_col_num, row_num] -> [...]
+        # Shape: [..., col_num, row_num] -> [...]
         bl_seg_q__V2 = (v_bl_left__V.square() + v_bl_left__V * v_bl__V + v_bl__V.square()) / 3.0
         e_bl_wire_cap__fJ = (self.bl_segment_c__fF * bl_seg_q__V2).sum(dim=(-2, -1))
 
-        # Shape: [..., phys_col_num, row_num] -> [...]
+        # Shape: [..., col_num, row_num] -> [...]
         sl_seg_q__V2 = (v_sl_left__V.square() + v_sl_left__V * v_sl__V + v_sl__V.square()) / 3.0
         e_sl_wire_cap__fJ = (self.sl_segment_c__fF * sl_seg_q__V2).sum(dim=(-2, -1))
 
@@ -513,7 +523,7 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
 
         # --- Per-cell node-capacitance switching energy ---
 
-        # Shape: [..., phys_col_num, row_num] -> [...]
+        # Shape: [..., col_num, row_num] -> [...]
         e_cell__fJ = self.cell.dynamic_energy(v_bl__V, v_sl__V, solver_dcop.cell, cell_snap).sum(dim=(-2, -1))
 
         return e_dc_cond__fJ + e_bl_wire_cap__fJ + e_sl_wire_cap__fJ + e_wl_wire_cap__fJ + e_cell__fJ

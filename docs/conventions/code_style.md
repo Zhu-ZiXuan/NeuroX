@@ -81,6 +81,17 @@ Use `@property` only for a value fixed by construction, computed with at most a 
 
 Anything that touches a runtime tensor, performs real computation, or has a side effect is a method, as is anything that depends on call arguments, runtime mode, or mutation.
 
+## Subclass vs configuration
+
+A class family splits along structural diversity, not parameter diversity.
+
+- **Topology delta earns a subclass.** A member that conducts, bills, or is shaped differently from the base — an extra stage, a branch the base does not draw or account — is a subclass. It flips whatever reporting flag it needs on, adds its own config fields and PPA seat, and implements the base's overridable hook.
+- **Coefficient delta stays a config field.** The same topology with different ratios, ranges, or window values is a config field on the shared base, never a subclass. Implementation diversity that a config can hold is coefficient diversity.
+- **A base hook is the escape hatch.** The base carries an overridable hook that returns the neutral value and leaves the base a non-reporter, so a coefficient-only member reuses the base unchanged while a structural subclass overrides the hook and turns its flag on.
+- **A block that only occupies area is a seat, not a subclass.** Two degeneracies collapse below a subclass. Pure linear current combining — scaling, summing, or differencing branch currents — is Kirchhoff's current law, so it is tensor arithmetic in the composing module, not a class at all. A real block whose only footprint is static area and leakage plus a data-independent per-op energy is a static seat: a shared unmodeled-PPA block plus a per-op constant billed by the composite, not a subclass of its own. This seat is a no-noise expedient — introducing a stateful non-ideality (an offset that must be sampled and held, a mismatch drawn per instance) makes the block stateful again and restores it to a class.
+
+Test: if two members differ only in numbers a config can carry, they are one class; if one conducts, bills, or is shaped differently, they are two.
+
 ## Control flow
 
 Do not branch on tensor values. A data-dependent branch forces a graph break under the caller's `torch.compile`; express the choice with tensor operations such as masking, `torch.where`, or indexing. When a value-dependent branch is unavoidable, explain the reason in an inline comment.

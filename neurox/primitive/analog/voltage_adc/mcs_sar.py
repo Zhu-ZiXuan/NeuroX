@@ -10,7 +10,6 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor
 
-from neurox.primitive.analog.adc_common import AdcOperationPoint
 from neurox.primitive.nonideality import (
     apply_gaussian,
     apply_lsb_jitter,
@@ -18,12 +17,12 @@ from neurox.primitive.nonideality import (
 )
 from neurox.primitive.physical_constant import K_BOLTZMANN__J_per_K
 
-from .base import VoltageAdc, VoltageAdcConfig, VoltageAdcPolicy
+from .base import DifferentialVoltageAdc, DifferentialVoltageAdcConfig, DifferentialVoltageAdcPolicy
 
 
 @dataclass(frozen=True)
-class McsSarVoltageAdcConfig(VoltageAdcConfig):
-    """Immutable design-parameter config for :class:`McsSarVoltageAdc`.
+class McsSarDifferentialVoltageAdcConfig(DifferentialVoltageAdcConfig):
+    """Immutable design-parameter config for :class:`McsSarDifferentialVoltageAdc`.
 
     Attributes:
         max_bits: Physical bit width; active array carries
@@ -96,8 +95,8 @@ class McsSarVoltageAdcConfig(VoltageAdcConfig):
 
 
 @dataclass(frozen=True)
-class McsSarVoltageAdcPolicy(VoltageAdcPolicy):
-    """Per-source toggles selecting which McsSarVoltageAdc nonidealities are active.
+class McsSarDifferentialVoltageAdcPolicy(DifferentialVoltageAdcPolicy):
+    """Per-source toggles selecting which McsSarDifferentialVoltageAdc nonidealities are active.
 
     Attributes:
         cap_mismatch: Apply ``cap_mismatch_sigma_relative`` at fabricate time.
@@ -112,8 +111,10 @@ class McsSarVoltageAdcPolicy(VoltageAdcPolicy):
     sampling_thermal_noise: bool
 
 
-@VoltageAdc.register_key(McsSarVoltageAdcConfig)
-class McsSarVoltageAdc(VoltageAdc):
+@DifferentialVoltageAdc.register_key(McsSarDifferentialVoltageAdcConfig)
+class McsSarDifferentialVoltageAdc(
+    DifferentialVoltageAdc[McsSarDifferentialVoltageAdcConfig, McsSarDifferentialVoltageAdcPolicy]
+):
     """V_cm-based (MCS) differential SAR voltage ADC.
 
     Args:
@@ -124,8 +125,6 @@ class McsSarVoltageAdc(VoltageAdc):
         T__K: Operating temperature.
     """
 
-    config: McsSarVoltageAdcConfig
-    policy: McsSarVoltageAdcPolicy
     nominal_c__fF: Tensor
     nominal_comparator_offset__V: Tensor
     c_p__fF: Tensor
@@ -135,8 +134,8 @@ class McsSarVoltageAdc(VoltageAdc):
     def __init__(
         self,
         *,
-        config: McsSarVoltageAdcConfig,
-        policy: McsSarVoltageAdcPolicy,
+        config: McsSarDifferentialVoltageAdcConfig,
+        policy: McsSarDifferentialVoltageAdcPolicy,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -149,7 +148,7 @@ class McsSarVoltageAdc(VoltageAdc):
             T__K=T__K,
         )
         if not (T__K > 0.0):
-            raise ValueError(f"McsSarVoltageAdc T__K ({T__K}) must be > 0")
+            raise ValueError(f"McsSarDifferentialVoltageAdc T__K ({T__K}) must be > 0")
 
         self._area_per_inst__um2 = config.area_per_inst__um2
         self._leakage_per_inst__uW = config.leakage_per_inst__uW
@@ -190,13 +189,13 @@ class McsSarVoltageAdc(VoltageAdc):
 
         # Precompute per-resolution Python int tables so the runtime path
         # ``convert(...)`` never evaluates ``1 << bits`` against the
-        # SymInt that dynamo derives from ``adc_operation_point.adc_bits``
+        # SymInt that dynamo derives from ``bits``
         # (dynamo's SymInt lshift lowering currently mishandles it).
-        # ``unsigned_max_table[b] = 2**b - 1`` clamps offset-binary code
-        # range; ``zero_offset_table[b] = 2**(b-1)`` is the offset-binary
-        # → two's-complement bias subtracted in ``return code - offset``
-        # (semantically, an MSB flip; subtraction is the implementation
-        # that preserves the int32 storage representation of negatives).
+        # ``unsigned_max_table[b] = 2**b - 1`` clamps the offset-binary code
+        # range; ``zero_offset_table[b] = 2**(b-1)`` is the raw code that
+        # represents analog zero, exposed via :meth:`zero_offset` for the
+        # consumer to subtract affinely (the ADC returns the raw code and
+        # does NOT fold the offset in).
         self._unsigned_max_table: tuple[int, ...] = tuple(
             ((1 << b) - 1) if b >= 1 else 0 for b in range(config.max_bits + 1)
         )
@@ -206,21 +205,24 @@ class McsSarVoltageAdc(VoltageAdc):
 
     # --- runtime-mode introspection ---
 
-    def signed_range(self, adc_bits: int) -> tuple[int, int]:
-        """Canonical SAR signed-bit endpoints at ``adc_bits``.
+    def unsigned_range(self, bits: int) -> tuple[int, int]:
+        """Raw offset-binary code endpoints at ``bits`` — ``(0, 2 ** bits - 1)``.
 
-        The CDAC's code count is ``2 ** adc_bits`` by construction, so
-        the realisable signed range is exactly
-        ``(-2 ** (adc_bits - 1), 2 ** (adc_bits - 1) - 1)``.
+        The CDAC's code count is ``2 ** bits`` by construction.
         """
-        if not (1 <= adc_bits <= self.max_bits):
-            raise ValueError(f"adc_bits {adc_bits} outside [1, {self.max_bits}]")
-        half = 1 << (adc_bits - 1)
-        return -half, half - 1
+        if not (1 <= bits <= self.max_bits):
+            raise ValueError(f"bits {bits} outside [1, {self.max_bits}]")
+        return 0, self._unsigned_max_table[bits]
+
+    def zero_offset(self, bits: int) -> int:
+        """Offset-binary zero code at ``bits`` — ``2 ** (bits - 1)``."""
+        if not (1 <= bits <= self.max_bits):
+            raise ValueError(f"bits {bits} outside [1, {self.max_bits}]")
+        return self._zero_offset_table[bits]
 
     @property
     def max_bits(self) -> int:
-        """Physical CDAC bit width — the maximum ``adc_bits`` value."""
+        """Physical CDAC bit width — the maximum ``bits`` value."""
         return self.config.max_bits
 
     # --- fabricate (static non-idealities) ---
@@ -259,33 +261,26 @@ class McsSarVoltageAdc(VoltageAdc):
         v_pos__V: Tensor,
         v_neg__V: Tensor,
         *,
-        v_refs__V: Tensor,
-        adc_operation_point: AdcOperationPoint,
+        v_ref__V: Tensor,
+        bits: int,
     ) -> Tensor:
         """V_cm-based (MCS) differential SAR conversion.
 
         Args:
             v_pos__V: Positive-side input voltage.
             v_neg__V: Negative-side input voltage, same shape.
-            v_refs__V: All injected reference taps, shape
-                ``(*inst, num_refs)``; ``adc_operation_point.adc_mode``
-                selects the active V_ref tap.
-            adc_operation_point: Runtime operating point. ``adc_operation_point.adc_mode`` selects V_ref;
-                ``adc_operation_point.adc_bits`` sets active resolution.
+            v_ref__V: The owner-preselected single reference tap, shape
+                ``(*inst,)``. The ADC is mode-blind.
+            bits: Active resolution [bits].
 
         Returns:
-            Signed code tensor in ``[-2 ** (bits - 1), 2 ** (bits - 1) - 1]``
-            where ``bits = adc_operation_point.adc_bits`` — the offset-binary
-            SAR code re-biased to two's complement (see :meth:`signed_range`).
+            Raw offset-binary code tensor in ``[0, 2 ** bits - 1]``
+            (see :meth:`unsigned_range`). The zero point
+            (:meth:`zero_offset`) is subtracted consumer-side, not here.
         """
-        self._validate_runtime_args(adc_operation_point)
-        mode = adc_operation_point.adc_mode
-        if not (0 <= mode < v_refs__V.shape[-1]):
-            raise ValueError(f"mode {mode} outside [0, {v_refs__V.shape[-1]})")
-        bits = adc_operation_point.adc_bits
+        self._validate_runtime_args(bits)
 
         config = self.config
-        v_ref__V = v_refs__V[..., mode]
         v_cm__V = 0.5 * v_ref__V
 
         c_p__fF = self.c_p__fF
@@ -376,7 +371,7 @@ class McsSarVoltageAdc(VoltageAdc):
             unsigned_max=self._unsigned_max_table[bits],
             enabled=self.training,
         )
-        # McsSarVoltageAdc: code carries no extra parallel trailing beyond
+        # McsSarDifferentialVoltageAdc: code carries no extra parallel trailing beyond
         # inst_shape; serial count via the position-invariant numel
         # rule. Per-op latency is parametric in the runtime bit width:
         # one sample cycle + `bits` SAR comparisons → (bits + 1) clocks.
@@ -389,8 +384,8 @@ class McsSarVoltageAdc(VoltageAdc):
         )
         self._log_dynamic_energy(e_dynamic__fJ)
         self._log_latency(latency__ns)
-        # Offset-binary → two's-complement bias (semantically: MSB flip).
-        return code - self._zero_offset_table[bits]
+        # Raw offset-binary code; the zero point is subtracted consumer-side.
+        return code
 
     def _compare(self, v_pos__V: Tensor, v_neg__V: Tensor) -> Tensor:
         """Strobe the differential comparator.
@@ -414,14 +409,8 @@ class McsSarVoltageAdc(VoltageAdc):
 
     # --- shared helpers ---
 
-    def _validate_runtime_args(self, adc_operation_point: AdcOperationPoint) -> None:
-        """Validate per-call ``adc_operation_point``.
-
-        The ``adc_mode`` bound depends on the injected ``v_refs__V`` tap
-        count, so it is checked in :meth:`convert`; only the bit-width
-        bound is config-knowable here.
-        """
+    def _validate_runtime_args(self, bits: int) -> None:
+        """Validate the per-call bit width against the config bound."""
         config = self.config
-        bits = adc_operation_point.adc_bits
         if not (1 <= bits <= config.max_bits):
             raise ValueError(f"bits {bits} outside [1, {config.max_bits}]")

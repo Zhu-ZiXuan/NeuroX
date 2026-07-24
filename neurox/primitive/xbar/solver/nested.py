@@ -11,7 +11,7 @@ See also:
 from __future__ import annotations
 
 from dataclasses import dataclass, fields, is_dataclass, replace
-from typing import ClassVar, Generic, Self, TypeVar
+from typing import Any, ClassVar, Generic, Self, TypeVar
 
 import torch
 import torch.nn.functional as F
@@ -194,7 +194,7 @@ class NestedParallelRailSolver(Solver):
         sl_segment_r__MOhm: Tensor,
         bl_segment_g__uS: Tensor,
         sl_segment_g__uS: Tensor,
-        cell: XbarCell[CellSnapT, CellDCOPT],
+        cell: XbarCell[Any, Any, CellSnapT, CellDCOPT],
         cell_snap: CellSnapT,
         bl_driver: ClampDriver[BLSnapT],
         bl_driver_snap: BLSnapT,
@@ -265,7 +265,7 @@ class NestedParallelRailSolver(Solver):
         sl_segment_r__MOhm: Tensor,
         bl_segment_g__uS: Tensor,
         sl_segment_g__uS: Tensor,
-        cell: XbarCell[CellSnapT, CellDCOPT],
+        cell: XbarCell[Any, Any, CellSnapT, CellDCOPT],
         cell_snap: CellSnapT,
         bl_driver: ClampDriver[BLSnapT],
         bl_driver_snap: BLSnapT,
@@ -571,7 +571,7 @@ class NestedParallelRailSolver(Solver):
         sl_segment_r__MOhm: Tensor,
         bl_segment_g__uS: Tensor,
         sl_segment_g__uS: Tensor,
-        cell: XbarCell[CellSnapT, CellDCOPT],
+        cell: XbarCell[Any, Any, CellSnapT, CellDCOPT],
         cell_snap: CellSnapT,
     ) -> SolverDcop[CellDCOPT]:
         """Run only the inner array Newton loop at FIXED clamp boundaries.
@@ -636,7 +636,7 @@ class NestedParallelRailSolver(Solver):
         sl_segment_r__MOhm: Tensor,
         bl_segment_g__uS: Tensor,
         sl_segment_g__uS: Tensor,
-        cell: XbarCell[CellSnapT, CellDCOPT],
+        cell: XbarCell[Any, Any, CellSnapT, CellDCOPT],
         cell_snap: CellSnapT,
     ) -> SolverDcop[CellDCOPT]:
         """Run the inner-only solve with the wire-ladder row axis last.

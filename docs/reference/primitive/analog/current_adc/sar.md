@@ -4,13 +4,13 @@ A triple-margin current-mode successive-approximation ADC, a member of the [curr
 
 ## Physical model
 
-Each single comparison mirrors $I_{\mathrm{in}}$ and the step's reference $I_{\mathrm{ref}}$ through input mirrors sized $n = $ `input_mirror_ratio` times the reference legs, then a deterministic pre-gain $A = $ `margin_gain` amplifies the clean current difference $I_{\mathrm{in}} - I_{\mathrm{ref}}$ before the latch resolves its sign. The input-referred SA offset is a current-domain margin perturbation added **after** the pre-gain, so its effective value at the decision is divided by $A$ — the triple-margin benefit: a raw offset $\sigma$ acts as $\sigma / A$.
+Each single comparison mirrors $I_{\mathrm{in}}$ and the step's reference $I_{\mathrm{ref}}$ into the sense amplifier, then a deterministic pre-gain $A = $ `margin_gain` amplifies the clean current difference $I_{\mathrm{in}} - I_{\mathrm{ref}}$ before the latch resolves its sign. The input-referred SA offset is a current-domain margin perturbation added **after** the pre-gain, so its effective value at the decision is divided by $A$ — the triple-margin benefit: a raw offset $\sigma$ acts as $\sigma / A$.
 
-The nominal mid-point thresholds `ref_levels__uA` are a 2-D config tuple `[mode][tap]` — one strictly increasing ladder of $2^{b}-1$ thresholds per operating mode. The per-call operating point selects the ladder row via `adc_mode` (a quasi-static selection: switching modes dissipates no per-conversion energy) and must carry `adc_bits` equal to the physical $b$. The ADC reads the selected row directly and self-holds no external reference.
+The mid-point thresholds arrive per call as `i_refs__uA`, a per-instance ladder $[*R,\ 2^{b}-1]$ whose $2^{b}-1$ taps ascend along the **last axis** while the leading $[*R]$ broadcast (right-aligned) against $I_{\mathrm{in}}$, supplied by the caller's reference block — the single ladder source — already reduced to the operating mode's row (mode is invisible to the ADC, so switching modes dissipates no per-conversion energy). The resolution $b$ arrives per call as `bits` (in $[1, b_{\max}]$). Each step gathers its tap per element along that last axis. The ADC reads the ladder directly and self-holds no reference.
 
 ## Governing equations
 
-The conversion runs a $b$-step binary search (MSB-first) over the ladder row `adc_mode` selects. At step $s$ (with $s = 0$ the MSB) the partial code resolved so far selects a mid-point reference $I_{\mathrm{ref},s}$ from that row; the bit is the sign of the pre-gained clean margin plus the held offset,
+The conversion runs a $b$-step binary search (MSB-first) over the per-call ladder. At step $s$ (with $s = 0$ the MSB) the partial code resolved so far selects a mid-point reference $I_{\mathrm{ref},s}$ from it; the bit is the sign of the pre-gained clean margin plus the held offset,
 
 $$D_s = \big[\,A\,(I_{\mathrm{in}} - I_{\mathrm{ref},s}) + \delta\,\big] > 0,$$
 
@@ -18,15 +18,15 @@ where $\delta$ is the static input-referred offset (comparator + coupling, zero 
 
 ## Numerical method
 
-The conversion performs $b$ comparisons in a method-internal Python loop; each step is a closed-form reference select and a sign decision, with no inner iteration. The sub-comparisons are not separate profiled leaves, so the whole conversion emits exactly one dynamic-energy event and one latency event.
+The conversion performs $b$ comparisons in a method-internal Python loop; each step is a closed-form per-element reference gather and a sign decision, with no inner iteration. The sub-comparisons are not separate profiled leaves, so the whole conversion emits exactly one dynamic-energy event, and one latency event when `record_latency` is set (its construction default). A host that bills the conversion latency itself constructs the ADC with `record_latency=False`, which suppresses the latency event while the dynamic-energy event is emitted unconditionally.
 
 ## Energy model
 
-Per sensing step the dynamic energy is the data-dependent regeneration the SA's sized mirror controls, plus one data-independent per-op constant,
+Per sensing step the dynamic energy is one data-independent per-op constant plus the current-domain conduction a current ADC necessarily draws while it compares — its input and the selected reference conduct across the rail for the step window — plus an overridable hook (base zero),
 
-$$E_{\mathrm{step}} = V_{\mathrm{rail,SA}} \cdot n \cdot (I_{\mathrm{in}}^{+} + I_{\mathrm{ref}}^{+}) \cdot t_{\mathrm{eff}} + E_{\mathrm{fixed}},$$
+$$E_{\mathrm{step},s} = E_{\mathrm{fixed}} + V_{\mathrm{rail}} \cdot (I_{\mathrm{in}} + I_{\mathrm{ref},s}) \cdot t_{\mathrm{cond},s} + E_{\mathrm{hook}}(I_{\mathrm{in}}, I_{\mathrm{ref},s}),$$
 
-with $n = $ `input_mirror_ratio` the regeneration legs, $I^{+}$ the non-negative-clamped currents, $V_{\mathrm{rail,SA}}$ the SA-leg overdrive, and $t_{\mathrm{eff}}$ the effective conduction time. Control-based attribution bills only the regeneration path the ADC's sized mirror controls; the unity input and reference legs are owned and billed by the upstream blocks that source them, so neither is re-billed here. The step energies are summed into one per-conversion event. Conversion latency is $\sum_s$ `step_latency__ns`.
+with $V_{\mathrm{rail}} = $ `v_rail__V` and $t_{\mathrm{cond},s} = $ `t_conduct_per_step__ns[s]` the per-step conduction window ($1\,\mathrm{V} \cdot 1\,\mathrm{uA} \cdot 1\,\mathrm{ns} = 1\,\mathrm{fJ}$). $E_{\mathrm{hook}}$ is the `_input_dynamic_energy__fJ` escape hatch for a structural subclass whose comparison conducts outside this parameterized form; the base returns zero, so an all-zero `t_conduct_per_step__ns` reduces the model to the pure fixed energy $b \cdot E_{\mathrm{fixed}}$ per element. The unity input and reference legs sourced upstream are billed there; this term is the ADC's own comparison conduction. The step energies are summed into one per-conversion event. When the latency event is emitted (see [numerical method](#numerical-method)), the conversion latency is the sum of the first $b$ `step_latency__ns` entries.
 
 ## Noise & non-idealities
 
@@ -34,7 +34,7 @@ with $n = $ `input_mirror_ratio` the regeneration legs, $I^{+}$ the non-negative
 |---|---|---|---|
 | comparator offset | static SA input-referred offset | static Gaussian current-domain margin, added after the pre-gain (effective $\sigma / A$), at fabricate | `comparator_offset_sigma__uA` |
 | coupling mismatch | residual coupling-driven offset | static Gaussian current-domain margin, added after the pre-gain (effective $\sigma / A$), at fabricate | `coupling_mismatch_sigma__uA` |
-| quantization | intrinsic binary-search resolution | deterministic threshold compare | `ref_levels__uA` |
+| quantization | intrinsic binary-search resolution | deterministic threshold compare | `i_refs__uA` (per call) |
 
 Both static offsets are sampled once at fabricate and held constant across the $b$ binary-search steps; each is zero when its policy toggle is off. The mirror-ratio mismatch (`mirror_mismatch_sigma_relative`) and reference-level tracking (`replica_threshold_variation`) are wired in the policy but not yet modelled.
 
@@ -42,14 +42,14 @@ Both static offsets are sampled once at fabricate and held constant across the $
 
 | Parameter | Meaning | Unit | Constraint | Source |
 |---|---|---|---|---|
-| `n_bits` ($b$) | output magnitude resolution | — | $> 0$ | Design |
+| `bits` ($b$) | physical (maximum) magnitude resolution; a call requests any $b \in [1, b_{\max}]$ | — | $> 0$ | Design |
 | `margin_gain` ($A$) | triple-margin pre-gain before the latch | — | $> 0$ | Design |
-| `input_mirror_ratio` ($n$) | regeneration mirror ratio vs the unity legs | — | $> 0$ | Design |
-| `ref_levels__uA` ($I_{\mathrm{ref},m,c}$) | nominal mid-point threshold ladders, `[mode][tap]`, $2^{b}-1$ per row | uA | per-row strictly increasing | Calibrated (physical data) |
-| `v_rail_sa__V` | SA-leg overdrive the regeneration current is pulled across | V | $\geq 0$ | Design |
-| `t_eff__ns` | effective conduction time the regeneration is drawn over | ns | $\geq 0$ | Design |
-| `e_fixed_per_op__fJ` | data-independent per-op energy constant | fJ | $\geq 0$ | Design |
-| `step_latency__ns` | per-step decision latency, exactly one entry per step | ns | length $= b$, $\geq 0$ | Design |
+| `e_fixed_per_op__fJ` ($E_{\mathrm{fixed}}$) | data-independent per-step energy constant | fJ | $\geq 0$ | Design |
+| `v_rail__V` ($V_{\mathrm{rail}}$) | rail the input and selected reference conduct across per step | V | $\geq 0$ | Design |
+| `t_conduct_per_step__ns` ($t_{\mathrm{cond},s}$) | per-step conduction window; all-zero ⇒ pure fixed energy | ns | length $\geq b_{\max}$, $\geq 0$ | Design |
+| `step_latency__ns` | per-step decision latency; the first $b$ entries are summed per call | ns | length $\geq b_{\max}$, $\geq 0$ | Design |
+
+The reference ladder is not a config field — it arrives per call as `i_refs__uA` ($[*R,\ 2^{b}-1]$, taps ascending along the last axis, leading axes broadcasting against $I_{\mathrm{in}}$) from the caller's reference block ([current reference](../current_reference.md)), already reduced to the operating mode's row.
 | `comparator_offset_sigma__uA` | static input-referred SA offset sigma | uA | $\geq 0$ | Measured |
 | `coupling_mismatch_sigma__uA` | residual coupling-driven offset sigma | uA | $\geq 0$ | Measured |
 | `mirror_mismatch_sigma_relative` | relative sigma on the mirror ratios | — | $\geq 0$ | Measured |
@@ -62,12 +62,13 @@ Provenance terms are defined in [module_parameter](../../../../conventions/modul
 | Symbol | Meaning | Unit | Code field |
 |---|---|---|---|
 | $I_{\mathrm{in}}$ | single-ended magnitude input current | uA | `i_in__uA` |
-| $I_{\mathrm{ref},s}$ | mid-point reference selected at step $s$ | uA | `ref_levels__uA` |
+| $I_{\mathrm{ref},s}$ | mid-point reference selected at step $s$ | uA | `i_refs__uA` (per call) |
 | $A$ | triple-margin pre-gain | — | `margin_gain` |
-| $n$ | regeneration mirror ratio | — | `input_mirror_ratio` |
+| $V_{\mathrm{rail}}$ | per-step conduction rail | V | `v_rail__V` |
+| $t_{\mathrm{cond},s}$ | per-step conduction window | ns | `t_conduct_per_step__ns` |
 | $\delta$ | static input-referred offset held across steps | uA | `comparator_offset__uA` + `coupling_offset__uA` |
 | $D_s$ | decided bit at step $s$ (MSB-first) | — | code accumulation |
-| $b$ | resolution (bits) | — | `n_bits` / `adc_bits` |
+| $b$ | resolution (bits), per call | — | `bits` |
 
 ## Assumptions, scope & validity
 
@@ -90,4 +91,4 @@ TODO: cite the triple-margin current-mode sense-amplifier SAR topology.
 
 - **Internals**: [sar internals](../../../../internals/primitive/analog/current_adc/sar.md)
 - **Validation**: TODO - validation evidence not yet written
-- **Configuration**: `SarCurrentAdcConfig`, `SarCurrentAdcPolicy` (see `api`)
+- **Configuration**: `SarSingleEndedCurrentAdcConfig`, `SarSingleEndedCurrentAdcPolicy` (see `api`)

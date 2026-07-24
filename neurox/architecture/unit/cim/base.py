@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from abc import ABC
 from dataclasses import dataclass
+from typing import Generic, TypeVar
 
 import torch
 from torch import Tensor
@@ -15,7 +16,6 @@ from torch import Tensor
 from neurox.architecture.unit.base import UnitBase
 from neurox.common import ConfigBase, ModuleBase, PolicyBase
 from neurox.common.mixin import RegistryMixin
-from neurox.primitive.analog.adc_common import AdcOperationPoint
 from neurox.primitive.macro.cim import CimMacroPolicy
 
 from .engine import CimEngine, CimEngineConfig, CimEnginePolicy
@@ -53,7 +53,17 @@ class CimUnitPolicy(PolicyBase, ABC):
     """Abstract marker base for CimUnit-family nonideality policies."""
 
 
-class CimUnit(ModuleBase[CimUnitConfig, CimUnitPolicy], RegistryMixin[type["CimUnitConfig"], "CimUnit"], UnitBase, ABC):
+ConfigT = TypeVar("ConfigT", bound=CimUnitConfig)
+PolicyT = TypeVar("PolicyT", bound=CimUnitPolicy)
+
+
+class CimUnit(
+    ModuleBase[ConfigT, PolicyT],
+    RegistryMixin[type["CimUnitConfig"], "CimUnit"],
+    UnitBase,
+    Generic[ConfigT, PolicyT],
+    ABC,
+):
     """Abstract root of the config-dispatched CimUnit family.
 
     The value-range / ADC surface and the protected lowering machinery
@@ -72,14 +82,11 @@ class CimUnit(ModuleBase[CimUnitConfig, CimUnitPolicy], RegistryMixin[type["CimU
             twin); degenerate members ignore it.
     """
 
-    config: CimUnitConfig
-    policy: CimUnitPolicy
-
     def __init__(
         self,
         *,
-        config: CimUnitConfig,
-        policy: CimUnitPolicy,
+        config: ConfigT,
+        policy: PolicyT,
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -136,14 +143,18 @@ class EngineBackedCimUnitPolicy(CimUnitPolicy, ABC):
     """Abstract policy base for engine-backed CIM units.
 
     Attributes:
-        cim_macro: Embedded xbar nonideality policy, forwarded to the
+        cim_macro_policy: Embedded xbar nonideality policy, forwarded to the
             engine's composite policy.
     """
 
-    cim_macro: CimMacroPolicy
+    cim_macro_policy: CimMacroPolicy
 
 
-class EngineBackedCimUnit(CimUnit, ABC):
+EbConfigT = TypeVar("EbConfigT", bound=EngineBackedCimUnitConfig)
+EbPolicyT = TypeVar("EbPolicyT", bound=EngineBackedCimUnitPolicy)
+
+
+class EngineBackedCimUnit(CimUnit[EbConfigT, EbPolicyT], Generic[EbConfigT, EbPolicyT], ABC):
     """Unregistered intermediate: a CIM unit delegating execution to an owned engine.
 
     Builds the :class:`CimEngine` selected by ``config.engine`` and
@@ -152,14 +163,12 @@ class EngineBackedCimUnit(CimUnit, ABC):
     """
 
     engine: CimEngine
-    config: EngineBackedCimUnitConfig
-    policy: EngineBackedCimUnitPolicy
 
     def __init__(
         self,
         *,
-        config: EngineBackedCimUnitConfig,
-        policy: EngineBackedCimUnitPolicy,
+        config: EbConfigT,
+        policy: EbPolicyT,
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -177,7 +186,7 @@ class EngineBackedCimUnit(CimUnit, ABC):
         self._leakage_per_inst__uW = config.leakage_per_inst__uW
         self.engine = CimEngine.from_config(
             config=config.engine,
-            policy=CimEnginePolicy(cim_macro=policy.cim_macro),
+            policy=CimEnginePolicy(cim_macro_policy=policy.cim_macro_policy),
             w_logical_shape=self._engine_w_logical_shape(),
             dtype=dtype,
             T__K=T__K,
@@ -206,8 +215,8 @@ class EngineBackedCimUnit(CimUnit, ABC):
     def adc_max_bits(self) -> int:
         return self.engine.adc_max_bits
 
-    def adc_rescale_factor(self, adc_operation_point: AdcOperationPoint) -> float:
-        return self.engine.adc_rescale_factor(adc_operation_point)
+    def adc_rescale_factor(self, *, adc_mode: int, adc_bits: int) -> float:
+        return self.engine.adc_rescale_factor(adc_mode=adc_mode, adc_bits=adc_bits)
 
-    def _matmul(self, input: Tensor, *, adc_operation_point: AdcOperationPoint) -> Tensor:
-        return self.engine.matmul(input, adc_operation_point=adc_operation_point)
+    def _matmul(self, input: Tensor, *, adc_mode: int, adc_bits: int) -> Tensor:
+        return self.engine.matmul(input, adc_mode=adc_mode, adc_bits=adc_bits)

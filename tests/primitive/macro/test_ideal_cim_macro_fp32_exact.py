@@ -15,7 +15,6 @@ from __future__ import annotations
 import pytest
 import torch
 
-from neurox.primitive.analog.adc_common import AdcOperationPoint
 from neurox.primitive.macro.cim.ideal import IdealCimMacro, IdealCimMacroConfig, IdealCimMacroPolicy
 
 
@@ -124,7 +123,7 @@ class TestFastPathLossless:
         assert xbar._fp32_exact is True
         _, x = _random_operands(xbar, batch=5, seed=101)
         planes = _masked_planes(x, row_num=64, max_active_rows=16)
-        y = xbar.vec_mat_mul(planes, adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=0))
+        y = xbar.vec_mat_mul(planes, adc_mode=0, adc_bits=0)
         assert y.dtype == torch.int64
         assert y.shape == (5, 4, 8)  # leading [batch, P] preserved, trailing [col_num]
         assert torch.equal(y, _plane_dot_oracle(xbar, planes))
@@ -151,7 +150,7 @@ class TestFastPathLossless:
         planes = _masked_planes(x, row_num=64, max_active_rows=16)
         oracle = _plane_dot_oracle(xbar, planes)
         xbar.to(device)
-        y = xbar.vec_mat_mul(planes.to(device), adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=0))
+        y = xbar.vec_mat_mul(planes.to(device), adc_mode=0, adc_bits=0)
         assert y.device.type == device.type
         assert torch.equal(y.cpu(), oracle)
 
@@ -178,9 +177,9 @@ class TestFastPathQuantized:
         _, x = _random_operands(xbar_fast, batch=5, seed=303)
         _random_operands(xbar_ref, batch=5, seed=303)
         planes = _masked_planes(x, row_num=64, max_active_rows=16)
-        op = AdcOperationPoint(adc_mode=0, adc_bits=4)
-        y_fast = xbar_fast.vec_mat_mul(planes, adc_operation_point=op)
-        y_ref = xbar_ref.vec_mat_mul(planes, adc_operation_point=op)
+        adc_mode, adc_bits = 0, 4
+        y_fast = xbar_fast.vec_mat_mul(planes, adc_mode=adc_mode, adc_bits=adc_bits)
+        y_ref = xbar_ref.vec_mat_mul(planes, adc_mode=adc_mode, adc_bits=adc_bits)
         assert y_fast.dtype == y_ref.dtype == torch.int16
         assert torch.equal(y_fast, y_ref)
 
@@ -188,10 +187,10 @@ class TestFastPathQuantized:
         xbar = self._quantized_xbar()
         _, x = _random_operands(xbar, batch=5, seed=404)
         planes = _masked_planes(x, row_num=64, max_active_rows=16)
-        op = AdcOperationPoint(adc_mode=0, adc_bits=4)
-        y_cpu = xbar.vec_mat_mul(planes, adc_operation_point=op)
+        adc_mode, adc_bits = 0, 4
+        y_cpu = xbar.vec_mat_mul(planes, adc_mode=adc_mode, adc_bits=adc_bits)
         xbar.to(device)
-        y_dev = xbar.vec_mat_mul(planes.to(device), adc_operation_point=op)
+        y_dev = xbar.vec_mat_mul(planes.to(device), adc_mode=adc_mode, adc_bits=adc_bits)
         assert torch.equal(y_dev.cpu(), y_cpu)
 
     def test_training_jitter_rng_stream_identical_across_paths(self) -> None:
@@ -204,11 +203,11 @@ class TestFastPathQuantized:
         _, x = _random_operands(xbar_fast, batch=5, seed=505)
         _random_operands(xbar_ref, batch=5, seed=505)
         planes = _masked_planes(x, row_num=64, max_active_rows=16)
-        op = AdcOperationPoint(adc_mode=0, adc_bits=4)
+        adc_mode, adc_bits = 0, 4
         torch.manual_seed(7)
-        y_fast = xbar_fast.vec_mat_mul(planes, adc_operation_point=op)
+        y_fast = xbar_fast.vec_mat_mul(planes, adc_mode=adc_mode, adc_bits=adc_bits)
         torch.manual_seed(7)
-        y_ref = xbar_ref.vec_mat_mul(planes, adc_operation_point=op)
+        y_ref = xbar_ref.vec_mat_mul(planes, adc_mode=adc_mode, adc_bits=adc_bits)
         assert torch.equal(y_fast, y_ref)
 
 
@@ -232,7 +231,7 @@ class TestFallbackTrigger:
         xbar.program(digits)
         # Full-row plane is conformant here: active_row_num == row_num.
         x = torch.ones(3, dtype=torch.int32)
-        y = xbar.vec_mat_mul(x, adc_operation_point=AdcOperationPoint(adc_mode=0, adc_bits=0))
+        y = xbar.vec_mat_mul(x, adc_mode=0, adc_bits=0)
         assert y.shape == (2,)  # trailing [col_num], no phase axis
         assert y[0].item() == 2**24 + 1
         assert y[1].item() == 0

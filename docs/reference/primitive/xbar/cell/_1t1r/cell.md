@@ -17,17 +17,17 @@ Shared by every 1T1R model — the four per-cell node-to-ground total capacitanc
 | `c_bl__fF` | per-cell node-to-ground total capacitance at the BL node | fF | $\ge 0$ | Process |
 | `c_x__fF` | per-cell node-to-ground total capacitance at the internal access node $V_{\mathrm{X}}$ | fF | $\ge 0$ | Process |
 | `c_sl__fF` | per-cell node-to-ground total capacitance at the SL node | fF | $\ge 0$ | Process |
-| `c_wl__fF` | per-cell node-to-ground total capacitance at the WL node | fF | $\ge 0$ | Process |
+| `c_wl__fF` | per-cell node-to-ground total capacitance at the WL NMOS gate node (the cell owns the gate cap; the WL wire charge belongs to the array) | fF | $\ge 0$ | Process |
 
 Each model adds its own parameters on its page. Provenance terms are defined in [module_parameter](../../../../../conventions/module_parameter.md). How to obtain values for a new chip: [calibration guide](../../../../../guides/calibration/README.md); file-level schema: [config reference](../../../../../api/README.md).
 
 ## Energy model
 
-The family shares one **node-capacitance dynamic energy** formula — each of the cell's four nodes carries a per-cell node-to-ground total capacitance, and every grounded cap dissipates $E = C\,V^2$ over a full charge/discharge cycle, summed at the converged operating point:
+The family shares one **node-capacitance dynamic energy** formula — the cell owns and bills the grounded-cap switching energy over all four of its nodes (BL, internal $V_{\mathrm{X}}$, SL, and the WL NMOS gate). Each node carries a per-cell node-to-ground total capacitance, and every grounded cap dissipates $E = C\,V^2$ over a full charge/discharge cycle, summed at the converged operating point:
 
 $$E = C_{\mathrm{BL}}\,V_{\mathrm{BL}}^2 + C_{\mathrm{X}}\,V_{\mathrm{X}}^2 + C_{\mathrm{SL}}\,V_{\mathrm{SL}}^2 + C_{\mathrm{WL}}\,V_{\mathrm{WL}}^2.$$
 
-Both models consume the four node caps identically; only $V_{\mathrm{X}}$ differs by how each model condenses its branch. Wire-segment and DC-conduction energy, together with silicon area and static leakage, lie outside the cell's energy model.
+Both models consume the four node caps identically; only $V_{\mathrm{X}}$ differs by how each model condenses its branch. The WL term is the NMOS gate cap the cell owns; the WL wire charge is billed by the owning array. Wire-segment and DC-conduction energy, together with silicon area and static leakage, lie outside the cell's energy model.
 
 ## Symbols
 
@@ -36,7 +36,7 @@ Both models consume the four node caps identically; only $V_{\mathrm{X}}$ differ
 | $V_{\mathrm{BL}}$ | bit-line node voltage (cell terminal) | V | `v_bl` |
 | $V_{\mathrm{SL}}$ | source-line node voltage (cell terminal) | V | `v_sl` |
 | $V_{\mathrm{X}}$ | internal access node | V | `XbarCell1t1rDcop.v_x__V` |
-| $V_{\mathrm{WL}}$ | word-line drive voltage (input) | V | `XbarCell1t1rSnap.v_wl__V` |
+| $V_{\mathrm{WL}}$ | word-line drive voltage at the NMOS gate (input) | V | `XbarCell1t1rSnap.v_wl__V` |
 | $I$ | condensed branch current (BL $\to$ SL) | uA | `XbarCellDcop.i__uA` |
 | $\partial I/\partial V_{\mathrm{BL}}$ | BL-side branch conductance ($\ge 0$) | uS | `di_dvbl__uS` |
 | $\partial I/\partial V_{\mathrm{SL}}$ | SL-side branch conductance ($\le 0$) | uS | `di_dvsl__uS` |
@@ -47,6 +47,7 @@ Both models consume the four node caps identically; only $V_{\mathrm{X}}$ differ
 - Every 1T1R cell has exactly one internal node ($V_{\mathrm{X}}$); the series stack is storage element then access device.
 - The solve is quasi-static: it finds the DC access-node operating point and does not model transient device switching within a pulse.
 - The node-capacitance energy assumes a complete $0 \to \mathrm{DC} \to 0$ charge/discharge cycle per node cap per WL pulse; every node cap is referenced to ground.
+- The WL node cap the cell bills is the access-device NMOS gate; the WL routing-wire charge is not the cell's and is billed by the owning array.
 
 TODO (domain author): the validity boundary of the lumped per-cell node-to-ground totals (coupled inter-node capacitances are not represented).
 

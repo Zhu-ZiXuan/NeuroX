@@ -1,7 +1,10 @@
 """Row activation geometry on the CimMacro base.
 
-- ``CimMacroConfig`` geometry guards for ``active_row_num`` (range and
-  divisibility).
+- ``CimMacroConfig`` geometry guards for ``active_row_num`` (range only; the
+  base imposes no ``row_num % active_row_num`` divisor — a non-divisible tile
+  is valid, the engine covers every row with a short final sub-phase block, and
+  uniform row-blocking is an operator-layer contract, see
+  ``tests/architecture/unit/test_linear_cim_unit.py``).
 - ``max_active_rows``: the single sub-phase query for upper layers, reading
   ``config.active_row_num``.
 - ``_split_col_lanes``: trailing col axis -> ``(lane_num, col_per_lane)``
@@ -64,9 +67,12 @@ class TestActiveRowNumValidation:
         with pytest.raises(ValueError, match=r"active_row_num"):
             IdealCimMacroConfig(**_config_kwargs(row_num=8, active_row_num=16))
 
-    def test_non_divisor_rejected(self) -> None:
-        with pytest.raises(ValueError, match=r"active_row_num"):
-            IdealCimMacroConfig(**_config_kwargs(row_num=8, active_row_num=3))
+    def test_non_divisor_accepted(self) -> None:
+        # The base imposes no row_num % active_row_num divisor; a non-divisible
+        # tile is a valid macro (the engine tiles it with a short final block).
+        # Uniform row-blocking is enforced one layer up, at LinearCimUnit.
+        cfg = IdealCimMacroConfig(**_config_kwargs(row_num=8, active_row_num=3))
+        assert cfg.active_row_num == 3
 
     def test_full_activation_accepted(self) -> None:
         cfg = IdealCimMacroConfig(**_config_kwargs(row_num=8, active_row_num=8))

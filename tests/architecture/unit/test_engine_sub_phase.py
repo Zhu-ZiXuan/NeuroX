@@ -18,15 +18,15 @@ from neurox.architecture.unit.cim.engine import (
     IntraArraySliceCimEngine,
     IntraArraySliceCimEngineConfig,
 )
-from neurox.primitive.analog.adc_common import AdcOperationPoint
 from neurox.primitive.digital import AccumulatorConfig, ShiftAdderConfig
 from neurox.primitive.macro.cim import IdealCimMacroConfig, IdealCimMacroPolicy
 
 # All engines are built on IdealCimMacroConfig, so the embedded xbar policy is
 # the empty marker. ``adc_bits == 0`` is the lossless sentinel: no ADC
 # quantization, so engine outputs equal ``torch.matmul`` exactly.
-_ENGINE_POLICY = CimEnginePolicy(cim_macro=IdealCimMacroPolicy())
-_LOSSLESS_OP = AdcOperationPoint(adc_mode=0, adc_bits=0)
+_ENGINE_POLICY = CimEnginePolicy(cim_macro_policy=IdealCimMacroPolicy())
+_ADC_MODE = 0
+_ADC_BITS = 0
 
 
 def _ideal_xbar_config(
@@ -138,7 +138,7 @@ def _randint_in_range(value_range: tuple[int, int], shape: tuple[int, ...]) -> t
 
 def _assert_engine_matches_torch(engine: CimEngine, weight: torch.Tensor, activation: torch.Tensor) -> None:
     engine.program(weight)
-    actual = engine.matmul(activation, adc_operation_point=_LOSSLESS_OP)
+    actual = engine.matmul(activation, adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
     expected = torch.matmul(activation.to(torch.int64), weight.transpose(-1, -2).to(torch.int64))
     assert actual.shape == expected.shape
     assert torch.equal(actual.to(torch.int64), expected)
@@ -180,6 +180,19 @@ def test_unroll_sub_phase_batch_axes_stay_left_of_p() -> None:
     assert torch.equal(planes.sum(dim=1), x)
 
 
+def test_sub_phase_non_divisible_ceil_covers_all_rows() -> None:
+    """row_num=10, active_row_num=3: P = ceil(10/3) = 4 and every row lands in
+    exactly one sub-phase (the last block is the short remainder)."""
+    engine = _build_direct(w_logical_shape=(4, 10), row_num=10, active_row_num=3)
+    assert engine._sub_phase_num == 4
+    mask = engine._active_row_mask
+    assert mask.shape == (4, 10)
+    # Each of the 10 rows belongs to exactly one sub-phase — all rows covered.
+    assert torch.equal(mask.sum(dim=0), torch.ones(10, dtype=mask.dtype))
+    # The short final block owns only its single real row (row 9).
+    assert int(mask[3].sum()) == 1
+
+
 def test_degenerate_sub_phase_axis_size_one() -> None:
     """active_row_num == row_num: the P axis is still present with size 1."""
     engine = _build_direct(w_logical_shape=(4, 8), row_num=8, active_row_num=8)
@@ -191,11 +204,44 @@ def test_degenerate_sub_phase_axis_size_one() -> None:
 
 
 @pytest.mark.parametrize("build", [_build_direct, _build_inter, _build_intra])
+def test_sub_phase_count_skips_padding_only_blocks(build: Callable[..., CimEngine]) -> None:
+    """K < row_num runs only ceil(K / max_rows) sub-phases, not the full
+    ceil(row_num / max_rows): the trailing blocks would read only zero-padded
+    rows, so the engine skips them (efficiency + network-eval energy fidelity).
+
+    row_num=8, active_row_num=2, K=3: min block count = ceil(3/2) = 2, well
+    below the full ceil(8/2) = 4. Correctness is still checked against the
+    torch oracle: the skipped blocks contributed exactly 0."""
+    torch.manual_seed(3)
+    n, k, m = 4, 3, 3  # k < row_num: a single short tile, most blocks empty
+    engine = build(w_logical_shape=(n, k), row_num=8, active_row_num=2)
+    assert engine._sub_phase_num == 2  # ceil(3/2), not ceil(8/2) == 4
+    assert engine._active_row_mask.shape == (2, 8)
+    weight = _randint_in_range(engine.w_value_range, (n, k))
+    activation = _randint_in_range(engine.x_value_range, (m, k))
+    _assert_engine_matches_torch(engine, weight, activation)
+
+
+@pytest.mark.parametrize("build", [_build_direct, _build_inter, _build_intra])
 def test_engine_matmul_parity_with_sub_phases(build: Callable[..., CimEngine]) -> None:
     """Lossless multi-sub-phase matmul equals the torch.matmul oracle."""
     torch.manual_seed(7)
     n, k, m = 5, 10, 3  # k > row_num exercises Tc tiling alongside P
     engine = build(w_logical_shape=(n, k), row_num=8, active_row_num=2)
+    assert engine._sub_phase_num == 4
+    weight = _randint_in_range(engine.w_value_range, (n, k))
+    activation = _randint_in_range(engine.x_value_range, (m, k))
+    _assert_engine_matches_torch(engine, weight, activation)
+
+
+@pytest.mark.parametrize("build", [_build_direct, _build_inter, _build_intra])
+def test_engine_matmul_parity_non_divisible(build: Callable[..., CimEngine]) -> None:
+    """Non-divisible geometry still equals the torch.matmul oracle: P via ceil
+    covers every row, so k == row_num == 10 populated rows all contribute. The
+    old floor division (P = 3) would drop row 9 and mismatch."""
+    torch.manual_seed(9)
+    n, k, m = 5, 10, 3  # k == row_num: all 10 rows carry real weight
+    engine = build(w_logical_shape=(n, k), row_num=10, active_row_num=3)
     assert engine._sub_phase_num == 4
     weight = _randint_in_range(engine.w_value_range, (n, k))
     activation = _randint_in_range(engine.x_value_range, (m, k))

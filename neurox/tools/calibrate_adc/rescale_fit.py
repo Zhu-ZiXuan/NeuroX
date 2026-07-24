@@ -37,7 +37,6 @@ from pathlib import Path
 import torch
 
 from neurox.common import ConfigBase
-from neurox.primitive.analog.adc_common import AdcOperationPoint
 from neurox.primitive.macro.cim import CimMacro
 from neurox.primitive.macro.cim.ideal import IdealCimMacro
 from neurox.tools._config import add_standard_args, load_tool_config, resolve_relative_path, setup_logging
@@ -138,7 +137,6 @@ def _fit_one_mode(
 ) -> ModeFitResult:
     """Run the stimulus battery at one mode and solve the rescale."""
     gen = torch.Generator().manual_seed(stimulus.seed)
-    op = AdcOperationPoint(adc_mode=mode.adc_mode, adc_bits=adc_bits)
     code_parts: list[torch.Tensor] = []
     ideal_parts: list[torch.Tensor] = []
     for w_density in stimulus.w_densities:
@@ -146,7 +144,7 @@ def _fit_one_mode(
             w = sample_ternary_w(gen, col_num=col_num, row_num=row_num, density=w_density)
             for x_density in stimulus.x_densities:
                 x = sample_binary_x(gen, batch=stimulus.x_batch, row_num=row_num, density=x_density)
-                pair = run_paired_stimulus(physical, ideal, w=w, x=x, adc_operation_point=op)
+                pair = run_paired_stimulus(physical, ideal, w=w, x=x, adc_mode=mode.adc_mode, adc_bits=adc_bits)
                 code_parts.append(pair.code)
                 ideal_parts.append(pair.ideal_m.abs())
     code = torch.cat(code_parts)

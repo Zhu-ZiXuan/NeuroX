@@ -14,12 +14,12 @@ This tool only logs (and optionally plots) range candidates. It does not choose 
 
 ### `ProbeAdc` — the capture-only stand-in
 
-`ProbeAdc` is a tool-local subclass of `VoltageAdc` that satisfies the inlined readout chain's static `bl_adc: VoltageAdc` interface without quantising. It:
+`ProbeAdc` is a tool-local subclass of `DifferentialVoltageAdc` that satisfies the inlined readout chain's static `bl_adc: DifferentialVoltageAdc` interface without quantising. It:
 
-- inherits `VoltageAdc`, so `setattr(xbar, "bl_adc", probe)` type-checks;
-- is **not** registered with the ADC family (no `@VoltageAdc.register_key`) and so is never resolvable through `VoltageAdc.from_config` — it exists only to be installed manually by this tool;
-- copies `max_bits` / `signed_range(...)` from the replaced ADC, and never logs dynamic events, so no per-op latency or energy state lives on the probe;
-- in `convert(...)` — whose signature matches `VoltageAdc.convert`, so the inlined readout's injected `v_refs__V` reference taps land cleanly and are ignored — appends detached CPU float64 1-D copies of $V_{\mathrm{pos}}$ / $V_{\mathrm{neg}}$ to internal buffers and returns `torch.zeros_like(v_pos__V, dtype=torch.int64)`, so the downstream xbar's `vec_mat_mul` flatten chain stays valid.
+- inherits `DifferentialVoltageAdc`, so `setattr(xbar, "bl_adc", probe)` type-checks;
+- is **not** registered with the ADC family (no `@DifferentialVoltageAdc.register_key`) and so is never resolvable through `DifferentialVoltageAdc.from_config` — it exists only to be installed manually by this tool;
+- copies `max_bits` / `unsigned_range(...)` / `zero_offset(...)` from the replaced ADC, and never logs dynamic events, so no per-op latency or energy state lives on the probe;
+- in `convert(...)` — whose signature matches `DifferentialVoltageAdc.convert`, so the inlined readout's injected `v_refs__V` reference taps land cleanly and are ignored — appends detached CPU float64 1-D copies of $V_{\mathrm{pos}}$ / $V_{\mathrm{neg}}$ to internal buffers and returns `torch.zeros_like(v_pos__V, dtype=torch.int64)`, so the downstream xbar's `vec_mat_mul` flatten chain stays valid.
 
 A `ProbeHandle` stores the displaced original ADC outside the probe's module tree (in a `dataclass` field, not an `nn.Module`) so `xbar.modules()` is not polluted while the probe is installed. The handle is a context manager: `with install_probe_adc(xbar): ...` restores the original ADC on exit.
 

@@ -1,0 +1,441 @@
+"""Shared hand-built witness configs + in-code calibration for the xue2020jssc scheme tests.
+
+Every solve-bearing test builds through :func:`build_macro` from the
+hand-constructed :func:`build_config` witness — every config dataclass is built
+directly in Python with small explicit values (no disk TOML). The witness ships
+a NEAR-IDEAL analog chain so the integer MAC is analytic: a linearized 1T1R cell
+with an exact-zero HRS branch (``g_cell_on_table__uS = (0.0, g_lrs)`` and WL-off
+= 0) programmed through the composed :class:`XbarArray1t1r`, a fixed ``V_BLC``
+clamp reference, and a small positive BL/SL/WL wire resistance (a required array
+field — never assumed zero in code; the DC solver needs ``R > 0``). The wire R is
+tiny relative to the cell branch, so the array's IR drop is a fraction of a
+percent and the per-cell current is essentially ``I = g_chord * V_BLC``. Under
+this chain the ADC input current ``I_SUB`` is monotone in the signed integer MAC,
+so a mid-point ladder probed from the tile's own transfer decodes any MAC
+bit-exactly.
+
+The geometry mirrors the paper design in miniature: ``col_num = 4``
+(``mux_factor = 2`` -> ``io_num = 2``), ``row_num = active_row_num = 4`` (every
+row active, no engine masking), ``input_bit_num = 2`` (K serial WL sub-phases,
+LSB first), a 3-bit ADC magnitude. The WL DAC latency is zero and the ADC step
+latency is the honest per-step SAR sensing durations (feeding the read-chain
+window ``t_other``); the macro builds the TMCSA so it emits NO latency, staying
+the sole latency emitter, so the static-energy time base is ``t_cycle`` alone
+(S4.3 / D3). :func:`build_config` is parameterised by geometry and window knobs so
+other test files reuse it.
+
+The analog ``I_SUB(M)`` grid depends on the whole electrical config, so the
+witness ships a placeholder ladder and decode-bearing tests calibrate in-code
+through :func:`build_calibrated_macro`: probe the tile's own ``I_SUB(M)`` grid
+(:func:`probe_i_sub_grid`, captured through the ADC's own observation prober) on
+an all-``+1`` column, install the mid-point thresholds (:func:`midpoint_refs` +
+:func:`with_ref_levels`), and rebuild — a law-level calibration derived from the
+config under test, not from shipped numbers.
+"""
+
+from __future__ import annotations
+
+import dataclasses
+
+import torch
+from torch import Tensor
+
+from neurox.common.encoding import TrueFormTranscoder
+from neurox.primitive.analog import (
+    CurrentReferenceConfig,
+    CurrentReferencePolicy,
+    UnmodeledBlockConfig,
+    UnmodeledBlockPolicy,
+    VoltageDriverConfig,
+    VoltageDriverPolicy,
+)
+from neurox.primitive.analog.adc_common import AdcCalibrationRecord
+from neurox.primitive.analog.current_adc import (
+    SarSingleEndedCurrentAdcConfig,
+    SarSingleEndedCurrentAdcPolicy,
+)
+from neurox.primitive.analog.current_adc.base import SingleEndedCurrentAdcProber
+from neurox.primitive.analog.voltage_dac import GeneralVoltageDacConfig, GeneralVoltageDacPolicy
+from neurox.primitive.macro.cim import CimMacro
+from neurox.primitive.xbar.array import XbarArray1t1rConfig, XbarArray1t1rPolicy
+from neurox.primitive.xbar.cell import XbarCell1t1rLinearConfig, XbarCell1t1rLinearPolicy
+from neurox.primitive.xbar.solver import NestedParallelRailSolverConfig
+from neurox.works.macro.cim.xue2020jssc.macro import (
+    Xue2020JsscCimMacro,
+    Xue2020JsscCimMacroConfig,
+    Xue2020JsscCimMacroPolicy,
+)
+
+# --- Tiny witness geometry ---
+TINY_COL_NUM = 4
+TINY_ROW_NUM = 4
+TINY_ACTIVE_ROW_NUM = 4
+TINY_MUX_FACTOR = 2  # io_num = col_num // mux_factor = 2
+TINY_K = 2  # input_bit_num: two serial WL sub-phases, LSB first
+TINY_ADC_BITS = 3
+MAG_MAX = (1 << TINY_ADC_BITS) - 1  # 7 — the 3-bit magnitude saturation
+ADC_MODE = 0  # witness operating mode (single-mode reference)
+
+_DTYPE = torch.float64  # analytic near-ideal chain: double precision keeps the ladder crisp
+_G_LRS__uS = 100.0
+_V_BLC__V = 0.3
+# Small positive wire R (an [uncertain] physical estimate; the solver needs R > 0
+# and never assumes it in code). Tiny relative to the ~0.01 MOhm cell branch, so
+# the array IR drop is a fraction of a percent — the chain stays near-ideal.
+_WIRE_FIRST_R__MOhm = 2.0e-5  # 20 Ohm
+_WIRE_SEGMENT_R__MOhm = 5.0e-6  # 5 Ohm
+# The framework transcoder the macro's program() consumes: sign-magnitude,
+# radix 2, two magnitude digits (LSB-first) -> a 3-bit signed weight.
+TRANSCODER = TrueFormTranscoder(radix=2, digit_count=2)
+
+
+def _default_ref_levels(adc_bits: int) -> tuple[float, ...]:
+    """Placeholder strictly-increasing single-mode ladder (``2**adc_bits - 1`` taps)."""
+    return tuple(float(k) for k in range(1, 1 << adc_bits))
+
+
+def _linear_cell_config() -> XbarCell1t1rLinearConfig:
+    """Near-ideal linearized 1T1R cell: exact-zero HRS branch, LRS chord, WL-off cut off."""
+    return XbarCell1t1rLinearConfig(
+        c_bl__fF=0.2,
+        c_x__fF=0.3,
+        c_sl__fF=0.1,
+        c_wl__fF=0.2,
+        g_cell_on_table__uS=(0.0, _G_LRS__uS),  # state 0 = HRS -> exact 0, state 1 = LRS
+        g_cell_off_table__uS=(0.0, 0.0),  # WL off -> no conduction
+        vx_ratio_on_table=(0.5, 0.5),
+        vx_ratio_off_table=(0.5, 0.5),
+        v_wl_on_threshold__V=0.5,
+    )
+
+
+def _array_config() -> XbarArray1t1rConfig:
+    """1T1R pure array: linear cell + small positive wire parasitics + nested DC solver.
+
+    The wire R is a required positive field (never assumed zero in code); the near-
+    zero value keeps the array's IR drop negligible so the MAC stays near-analytic.
+    ``latency_per_op__ns = 0`` — the macro is the sole latency emitter.
+    """
+    return XbarArray1t1rConfig(
+        row_first_space__um=1.0,
+        row_cell_space__um=1.0,
+        col_first_space__um=1.0,
+        col_cell_space__um=1.0,
+        bl_first_r__MOhm=_WIRE_FIRST_R__MOhm,
+        bl_first_c__fF=0.1,
+        bl_segment_r__MOhm=_WIRE_SEGMENT_R__MOhm,
+        bl_segment_c__fF=0.1,
+        sl_first_r__MOhm=_WIRE_FIRST_R__MOhm,
+        sl_first_c__fF=0.1,
+        sl_segment_r__MOhm=_WIRE_SEGMENT_R__MOhm,
+        sl_segment_c__fF=0.1,
+        wl_first_r__MOhm=_WIRE_FIRST_R__MOhm,
+        wl_first_c__fF=0.1,
+        wl_segment_r__MOhm=_WIRE_SEGMENT_R__MOhm,
+        wl_segment_c__fF=0.1,
+        cell_config=_linear_cell_config(),
+        solver_config=NestedParallelRailSolverConfig(n_outer=3, n_inner=3),
+        latency_per_op__ns=0.0,  # macro is the sole latency emitter
+        area_per_inst__um2=0.0,
+        leakage_per_inst__uW=7.0,  # array static seat (reporter leaf)
+    )
+
+
+def build_config(
+    *,
+    col_num: int = TINY_COL_NUM,
+    row_num: int = TINY_ROW_NUM,
+    active_row_num: int | None = None,
+    mux_factor: int = TINY_MUX_FACTOR,
+    w_digit_num: int = 2,
+    w_digit_radix: int = 2,
+    input_bit_num: int = TINY_K,
+    adc_bits: int = TINY_ADC_BITS,
+    t_sample__ns: tuple[float, ...] | None = None,
+    t_settle__ns: float = 2.0,
+    t_cycle__ns: float = 50.0,
+    t_conduct_per_step__ns: tuple[float, ...] | None = None,
+    step_latency__ns: tuple[float, ...] | None = None,
+    ref_levels__uA: tuple[float, ...] | None = None,
+) -> Xue2020JsscCimMacroConfig:
+    """Hand-built near-ideal witness config, parameterised by geometry / windows.
+
+    All physical / PPA fields are explicit small round values; only the linear
+    cell / driver / array sub-configs are built in Python (no disk TOML). The
+    near-ideal chain keeps the analog MAC analytic. The threshold ladder defaults
+    to the placeholder :func:`_default_ref_levels`; decode-bearing tests calibrate
+    it in-code via :func:`build_calibrated_macro`.
+
+    Args:
+        col_num: Logical signed-weight columns.
+        row_num: Rows.
+        active_row_num: Row-block size (defaults to ``row_num`` — every row live).
+        mux_factor: Column-MUX depth; ``io_num = col_num // mux_factor``.
+        w_digit_num: Magnitude digits per weight (>= 1).
+        w_digit_radix: Positional base of the magnitude digits (>= 2).
+        input_bit_num: Activation bit width K (K serial WL sub-phases, LSB first).
+        adc_bits: TMCSA magnitude resolution; the reference carries
+            ``2**adc_bits - 1`` taps.
+        t_sample__ns: Sample windows, one per sampled bit (defaults to all-1.0,
+            length ``input_bit_num - 1``).
+        t_settle__ns: Tail settle window.
+        t_cycle__ns: Declared operating period (the static-energy time base).
+        t_conduct_per_step__ns: TMCSA per-step conduction window (defaults to
+            all-0.1, length ``adc_bits``). Energy-path only.
+        step_latency__ns: TMCSA per-step SAR sensing durations (defaults to
+            ``(1.0, 2.0, ...)``, length ``adc_bits``). Feeds the read-chain window
+            ``t_other``; the macro suppresses the ADC's own latency emission, so
+            these never add to the profiled latency (macro = sole latency emitter).
+        ref_levels__uA: Single-mode threshold ladder (defaults to the placeholder).
+    """
+    if active_row_num is None:
+        active_row_num = row_num
+    if t_sample__ns is None:
+        t_sample__ns = tuple(1.0 for _ in range(input_bit_num - 1))
+    if t_conduct_per_step__ns is None:
+        t_conduct_per_step__ns = tuple(0.1 for _ in range(adc_bits))
+    if step_latency__ns is None:
+        step_latency__ns = tuple(float(k + 1) for k in range(adc_bits))
+    if ref_levels__uA is None:
+        ref_levels__uA = _default_ref_levels(adc_bits)
+
+    return Xue2020JsscCimMacroConfig(
+        area_per_inst__um2=0.0,
+        leakage_per_inst__uW=8.0,  # macro-owned lump (DSWCT / SINWP-SC roll-up)
+        col_num=col_num,
+        row_num=row_num,
+        active_row_num=active_row_num,
+        w_digit_num=w_digit_num,
+        w_digit_radix=w_digit_radix,
+        input_bit_num=input_bit_num,
+        mux_factor=mux_factor,
+        dswct_ratio_msb=0.5,
+        sc_ratio_msb=0.5,
+        t_sample__ns=t_sample__ns,
+        t_settle__ns=t_settle__ns,
+        t_cycle__ns=t_cycle__ns,
+        v_dd__V=1.0,
+        v_bl_clamp__V=_V_BLC__V,
+        e_control_per_op__fJ=5.0,
+        e_pn_isub_per_op__fJ=1.0,
+        control_config=UnmodeledBlockConfig(area_per_inst__um2=0.0, leakage_per_inst__uW=6.0),
+        pn_isub_config=UnmodeledBlockConfig(area_per_inst__um2=0.0, leakage_per_inst__uW=3.0),
+        array_config=_array_config(),
+        wl_dac_config=GeneralVoltageDacConfig(
+            area_per_inst__um2=0.0,
+            leakage_per_inst__uW=0.0,
+            code_to_signal=(0.0, 0.9),  # 1-bit ON/OFF WL drive
+            drive_thermal__V=0.0,
+            energy_per_op__fJ=0.0,
+            latency_per_op__ns=0.0,  # WL sub-phase folds into t_cycle (macro sole latency emitter)
+        ),
+        cablc_config=VoltageDriverConfig(
+            r_out__MOhm=0.0,  # ideal flat clamp (V_BL = V_BLC at the port); static leakage seat only
+            offset_sigma__V=0.0,
+            thermal_sigma__V=0.0,
+            energy_per_op__fJ=0.0,  # CMD precharge folded into the control channel
+            area_per_inst__um2=0.0,
+            leakage_per_inst__uW=2.0,
+        ),
+        sl_driver_config=VoltageDriverConfig(
+            r_out__MOhm=0.0,  # ideal flat clamp
+            offset_sigma__V=0.0,
+            thermal_sigma__V=0.0,
+            energy_per_op__fJ=0.0,
+            area_per_inst__um2=0.0,
+            leakage_per_inst__uW=1.0,
+        ),
+        adc_config=SarSingleEndedCurrentAdcConfig(
+            bits=adc_bits,
+            margin_gain=3.0,
+            e_fixed_per_op__fJ=2.0,
+            v_rail__V=1.0,
+            t_conduct_per_step__ns=t_conduct_per_step__ns,
+            step_latency__ns=step_latency__ns,  # honest sensing; macro suppresses ADC latency emit
+            comparator_offset_sigma__uA=0.0,
+            coupling_mismatch_sigma__uA=0.0,
+            mirror_mismatch_sigma_relative=0.0,
+            area_per_inst__um2=0.0,
+            leakage_per_inst__uW=4.0,
+        ),
+        reference_config=CurrentReferenceConfig(
+            i_refs__uA=(tuple(ref_levels__uA),),  # outer tuple = mode axis (single mode)
+            tolerance_sigma_relative=0.0,
+            noise_sigma_relative=0.0,
+            area_per_inst__um2=0.0,
+            leakage_per_inst__uW=5.0,
+        ),
+        adc_calibration=(AdcCalibrationRecord(mode=0, bits=adc_bits, rescale_factor=1.0),),
+    )
+
+
+def build_all_off_policy() -> Xue2020JsscCimMacroPolicy:
+    """All-off (lossless baseline) composite policy — the scheme's only intended policy."""
+    return Xue2020JsscCimMacroPolicy(
+        array_policy=XbarArray1t1rPolicy(cell_policy=XbarCell1t1rLinearPolicy(), solve_chunk_size=0),
+        wl_dac_policy=GeneralVoltageDacPolicy(drive_thermal=False),
+        cablc_policy=VoltageDriverPolicy(offset=False, thermal=False),
+        sl_driver_policy=VoltageDriverPolicy(offset=False, thermal=False),
+        adc_policy=SarSingleEndedCurrentAdcPolicy(
+            comparator_offset=False,
+            replica_threshold_variation=False,
+            mirror_mismatch=False,
+            coupling_mismatch=False,
+        ),
+        reference_policy=CurrentReferencePolicy(tolerance=False, noise=False),
+        control_policy=UnmodeledBlockPolicy(),
+        pn_isub_policy=UnmodeledBlockPolicy(),
+    )
+
+
+def build_macro(
+    config: Xue2020JsscCimMacroConfig,
+    *,
+    device: torch.device | None = None,
+    inst_shape: tuple[int, ...] = (),
+) -> Xue2020JsscCimMacro:
+    """Build + fabricate one macro on ``device`` under the all-off policy."""
+    macro = CimMacro.from_config(
+        config=config,
+        policy=build_all_off_policy(),
+        inst_shape=inst_shape,
+        dtype=_DTYPE,
+        T__K=300.0,
+    )
+    assert isinstance(macro, Xue2020JsscCimMacro)
+    if device is not None:
+        macro.to(device)
+    macro.eval()
+    macro.fabricate()
+    return macro
+
+
+def macro_device(macro: Xue2020JsscCimMacro) -> torch.device:
+    """Device the macro lives on (first buffer of the module tree)."""
+    return next(macro.buffers()).device
+
+
+def transcoder_for(macro: Xue2020JsscCimMacro) -> TrueFormTranscoder:
+    """The sign-magnitude transcoder matching a macro's own digit geometry."""
+    return TrueFormTranscoder(radix=macro.w_digit_radix, digit_count=macro.w_digit_count)
+
+
+def encode_weights(w_signed: Tensor, *, transcoder: TrueFormTranscoder = TRANSCODER) -> Tensor:
+    """Signed logical weights ``[*, col, row]`` -> LSB-first digit layout ``[*, col, digit, row]``.
+
+    The macro's ``program()`` consumes the transcoder's sign-magnitude digits
+    with digit 0 = LSB; the digit axis is inserted immediately left of the row
+    axis to match ``_w_layout_shape = (*inst_shape, col_num, w_digit_count, row_num)``.
+    The default radix-2 two-digit transcoder matches the paper witness; pass a
+    matching transcoder for a generalized ``w_digit_num`` / ``w_digit_radix`` macro.
+    """
+    return transcoder.encode(w_signed, dim=-2)
+
+
+def with_ref_levels(config: Xue2020JsscCimMacroConfig, ref_levels__uA: tuple[float, ...]) -> Xue2020JsscCimMacroConfig:
+    """Install one single-mode ladder on the CurrentReference (the single ladder source)."""
+    return dataclasses.replace(
+        config,
+        reference_config=dataclasses.replace(config.reference_config, i_refs__uA=(tuple(ref_levels__uA),)),
+    )
+
+
+def probe_i_sub_grid(macro: Xue2020JsscCimMacro, *, m_max: int) -> list[float]:
+    """Probe the analog ``I_SUB(M)`` grid [uA] for MAC ``M = 0..m_max`` on an all-``+1`` column.
+
+    Programs logical column 0 all ``+1`` (others 0) and drives inputs whose row
+    sum equals ``M`` (greedy fill, per-row value in ``x_range``); column 0 lives
+    at mux slot 0 of IO 0, so the grid rides ``i_sub[m, 0, 0]``. The pre-ADC
+    magnitude ``I_SUB`` is captured through the ADC's own
+    :class:`SingleEndedCurrentAdcProber` (``i_in__uA`` per convert). All-off makes
+    the probe deterministic. NOTE: reprograms the macro.
+    """
+    device = macro_device(macro)
+    cfg = macro.config
+    row_num = cfg.row_num
+    x_max = (1 << cfg.input_bit_num) - 1
+
+    w_signed = torch.zeros((macro.col_num, row_num), dtype=torch.long, device=device)
+    w_signed[0, :] = 1
+    macro.program(encode_weights(w_signed, transcoder=transcoder_for(macro)))
+
+    x = torch.zeros((m_max + 1, row_num), dtype=torch.long, device=device)
+    for m in range(m_max + 1):
+        remaining = m
+        for r in range(row_num):
+            v = min(x_max, remaining)
+            x[m, r] = v
+            remaining -= v
+        assert remaining == 0, f"cannot reach MAC {m} with {row_num} rows of max {x_max}"
+
+    with SingleEndedCurrentAdcProber() as probe, torch.no_grad():
+        macro.vec_mat_mul(x, adc_mode=ADC_MODE, adc_bits=TINY_ADC_BITS)
+    # One convert per vec_mat_mul; i_in__uA is the pre-ADC magnitude I_SUB.
+    i_sub = probe.records[-1].i_in__uA  # [m_max + 1, group_size, group_num]
+    return [float(v) for v in i_sub[:, 0, 0].cpu()]
+
+
+def midpoint_refs(grid: list[float], *, adc_bits: int = TINY_ADC_BITS) -> tuple[float, ...]:
+    """The ``2**adc_bits - 1`` mid-point thresholds ``ref[k] = 0.5 * (I(k) + I(k+1))``."""
+    level_num = (1 << adc_bits) - 1
+    assert len(grid) >= level_num + 1, f"grid too short: {len(grid)} < {level_num + 1}"
+    return tuple(0.5 * (grid[k] + grid[k + 1]) for k in range(level_num))
+
+
+def build_calibrated_macro(
+    *,
+    device: torch.device | None = None,
+    inst_shape: tuple[int, ...] = (),
+    **config_kwargs: object,
+) -> Xue2020JsscCimMacro:
+    """Macro with an in-code calibrated ladder: probe the ``I_SUB(M)`` grid, install mid-points, rebuild.
+
+    A first (placeholder-ladder) build probes the analog ``I_SUB(M)`` grid on an
+    all-``+1`` column — the ladder is irrelevant before the ADC — and the rebuild
+    installs the grid's mid-points as the calibrated thresholds. Under all-off
+    the analog chain is deterministic, so the same ladder serves every instance.
+    Extra keyword arguments pass through to :func:`build_config`.
+    """
+    config = build_config(**config_kwargs)
+    adc_bits = config.adc_config.bits
+    mag_max = (1 << adc_bits) - 1
+    probe = build_macro(config, device=device)
+    grid = probe_i_sub_grid(probe, m_max=mag_max)
+    calibrated = with_ref_levels(config, midpoint_refs(grid, adc_bits=adc_bits))
+    return build_macro(calibrated, device=device, inst_shape=inst_shape)
+
+
+def ideal_mac(w_signed: Tensor, x: Tensor, *, mag_max: int = MAG_MAX) -> Tensor:
+    """CPU int64 reference: ``clamp(sum_row w * x, -mag_max, mag_max)`` per column.
+
+    Args:
+        w_signed: Signed weights ``[col, row]``.
+        x: Integer activations ``[..., row]``.
+        mag_max: Signed-magnitude clip bound.
+
+    Returns:
+        Expected signed codes ``[..., col]`` on CPU (int64).
+    """
+    w2 = w_signed.cpu().long()  # (col, row)
+    x2 = x.cpu().long()  # (..., row)
+    mac = (x2.unsqueeze(-2) * w2).sum(dim=-1)  # (..., col)
+    return mac.clamp(-mag_max, mag_max)
+
+
+def decode(
+    macro: Xue2020JsscCimMacro,
+    w_signed: Tensor,
+    x: Tensor,
+    *,
+    adc_mode: int = ADC_MODE,
+    adc_bits: int = TINY_ADC_BITS,
+) -> Tensor:
+    """Program signed weights ``[col, row]``, run one VMM on integer inputs ``x[..., row]``.
+
+    Returns the signed-magnitude codes ``[..., col]`` on CPU.
+    """
+    device = macro_device(macro)
+    macro.program(encode_weights(w_signed.to(device), transcoder=transcoder_for(macro)))
+    with torch.no_grad():
+        out = macro.vec_mat_mul(x.to(device), adc_mode=adc_mode, adc_bits=adc_bits)
+    return out.cpu()

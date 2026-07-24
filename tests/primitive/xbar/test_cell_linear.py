@@ -160,13 +160,13 @@ def test_empty_policy_deserializes(tmp_path: Path) -> None:
 
 def test_wrong_policy_type_raises() -> None:
     detail_policy = XbarCell1t1rDetailPolicy(
-        rram=RramPolicy(
+        rram_policy=RramPolicy(
             prog_gamma=False,
             stuck_at=False,
             read_telegraph=False,
             read_thermal=False,
         ),
-        nmos=MosfetPolicy(A_vt_mismatch=False, A_beta_mismatch=False),
+        nmos_policy=MosfetPolicy(A_vt_mismatch=False, A_beta_mismatch=False),
     )
     with pytest.raises(TypeError):
         XbarCell1t1rLinear(

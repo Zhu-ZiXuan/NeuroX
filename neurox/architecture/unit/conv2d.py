@@ -14,7 +14,6 @@ import torch.nn.functional as F
 from torch import Tensor
 
 from neurox.architecture.unit.base import UnitBase
-from neurox.primitive.analog.adc_common import AdcOperationPoint
 
 
 class Conv2dUnit(UnitBase, ABC):
@@ -59,7 +58,7 @@ class Conv2dUnit(UnitBase, ABC):
         raise NotImplementedError
 
     @torch.no_grad()
-    def conv2d(self, input: Tensor, *, adc_operation_point: AdcOperationPoint) -> Tensor:
+    def conv2d(self, input: Tensor, *, adc_mode: int, adc_bits: int) -> Tensor:
         """Execute one integer 2-D convolution against the programmed state.
 
         Matches ``torch.nn.functional.conv2d`` shape semantics: the
@@ -71,7 +70,8 @@ class Conv2dUnit(UnitBase, ABC):
 
         Args:
             input: Integer activation tensor with trailing ``[C_in, H, W]``.
-            adc_operation_point: Runtime ADC operating point.
+            adc_mode: Runtime ADC operating-point index.
+            adc_bits: Runtime ADC resolution.
 
         Returns:
             Integer pre-requantize output tensor with trailing
@@ -81,7 +81,7 @@ class Conv2dUnit(UnitBase, ABC):
             raise ValueError(f"conv2d() expects input with trailing [C_in, H, W]; got ndim {input.ndim}")
         out_hw = self._conv2d_out_hw(input.shape[-2], input.shape[-1])
         planes = self._conv2d_planes(input, out_hw=out_hw)
-        y = self._matmul(planes, adc_operation_point=adc_operation_point)
+        y = self._matmul(planes, adc_mode=adc_mode, adc_bits=adc_bits)
         y = self._conv2d_fold(y, out_hw=out_hw)
         int_bias = self.int_bias
         if int_bias is not None:
@@ -180,7 +180,7 @@ class IdealConv2dUnitPolicy(CimUnitPolicy):
 
 
 @CimUnit.register_key(IdealConv2dUnitConfig)
-class IdealConv2dUnit(Conv2dUnit, CimUnit):
+class IdealConv2dUnit(Conv2dUnit, CimUnit[IdealConv2dUnitConfig, IdealConv2dUnitPolicy]):
     """Degenerate ``CimUnit``: exact-integer ``F.conv2d`` reference, substrate-free.
 
     Digital im2col by integer indexing plus an int64 contraction — no xbar
@@ -202,7 +202,6 @@ class IdealConv2dUnit(Conv2dUnit, CimUnit):
         ideal_xbar: Accepted for API uniformity and ignored (no xbar tile to swap).
     """
 
-    config: IdealConv2dUnitConfig
     nominal_weight: Tensor
     weight: Tensor
 
@@ -258,9 +257,9 @@ class IdealConv2dUnit(Conv2dUnit, CimUnit):
         # ``0`` is the sentinel meaning no output quantization is applied.
         return 0
 
-    def adc_rescale_factor(self, adc_operation_point: AdcOperationPoint) -> float:
-        """Rescale factor for ``adc_operation_point``; always ``1.0`` (no ADC)."""
-        del adc_operation_point  # accepted for API uniformity
+    def adc_rescale_factor(self, *, adc_mode: int, adc_bits: int) -> float:
+        """Rescale factor for ``(adc_mode, adc_bits)``; always ``1.0`` (no ADC)."""
+        del adc_mode, adc_bits  # accepted for API uniformity
         return 1.0
 
     # --- lifecycle ---
@@ -315,9 +314,9 @@ class IdealConv2dUnit(Conv2dUnit, CimUnit):
         return patches.flatten(-3).flatten(-3, -2)
 
     @torch.no_grad()
-    def _matmul(self, planes: Tensor, *, adc_operation_point: AdcOperationPoint) -> Tensor:
-        """Lossless int64 contraction; ``adc_operation_point`` is unused (lossless reference)."""
-        del adc_operation_point  # accepted for API uniformity
+    def _matmul(self, planes: Tensor, *, adc_mode: int, adc_bits: int) -> Tensor:
+        """Lossless int64 contraction; ``adc_mode`` / ``adc_bits`` are unused (lossless reference)."""
+        del adc_mode, adc_bits  # accepted for API uniformity
         # Shape: [..., L, C_in*kh*kw] @ [C_in*kh*kw, C_out] -> [..., L, C_out]
         return planes.to(torch.int64) @ self.weight.transpose(-2, -1)
 

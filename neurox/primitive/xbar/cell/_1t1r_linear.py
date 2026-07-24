@@ -117,7 +117,7 @@ class XbarCell1t1rLinearSnap(XbarCell1t1rSnap):
 
 
 @XbarCell1t1r.register_key(XbarCell1t1rLinearConfig)
-class XbarCell1t1rLinear(XbarCell1t1r[XbarCell1t1rLinearSnap]):
+class XbarCell1t1rLinear(XbarCell1t1r[XbarCell1t1rLinearConfig, XbarCell1t1rLinearPolicy, XbarCell1t1rLinearSnap]):
     """Table-driven linearized 1T1R cell with a division-free closed form.
 
     Owns no device children. ``program`` gathers the four flat per-state
