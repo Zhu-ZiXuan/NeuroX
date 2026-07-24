@@ -1,7 +1,7 @@
 """Abstract base class for current-domain DAC models.
 
 See also:
-    docs/reference/primitive/analog/current_dac/README.md
+    docs/internals/primitive/analog/current_dac/base.md
 """
 
 from __future__ import annotations

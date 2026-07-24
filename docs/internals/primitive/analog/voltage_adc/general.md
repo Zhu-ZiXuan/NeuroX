@@ -2,15 +2,15 @@
 
 ## Design decisions
 
-- **Zero code cached at `__init__`.** The bit width is fixed by the boundary list (single-mode), so the topology-specific midpoint `self._zero_code = n_codes // 2` is a static instance attribute committed once, not a per-call computation. It is exposed (not folded into the code) through the bit-independent `zero_code` property and the `zero_offset(bits)` accessor; the consumer subtracts it.
+- **Zero code cached at `__init__`.** The bit width is fixed by the boundary list, so the topology-specific midpoint `self._zero_code = n_codes // 2` is committed once. It is exposed through `zero_code` and `zero_offset(bits)` but never folded into the raw code.
 - **No fabricated mismatch.** Both noise sources (sampling, comparator) are dynamic and applied inside `_convert_impl`; `_sample_fabricate_mismatch` is an explicit no-op and `fabricate()` only resolves the profiler-inst tally already locked at `__init__`.
-- **Reference-free `_convert_impl`, with `v_refs__V` deled for protocol symmetry.** `GeneralDifferentialVoltageAdc._convert_impl` takes the family `v_refs__V` keyword to match the ADC base signature but discards it (`del v_refs__V`), exactly as `unsigned_range` `del`s `bits` — its floor-bucketize is reference-free, so no tap participates in the conversion.
+- **Reference-free `_convert_impl`.** `GeneralDifferentialVoltageAdc._convert_impl` accepts the family `v_ref__V` keyword but discards it; its fixed boundary list fully determines the conversion.
 - **Training-mode stochastic rounding.** `_convert_impl` forwards `training=self.training` to `floor_bucketize`, so under `train()` a uniform `U[0, LSB)` dither is added before the floor (the realized code is stochastic) and under `eval()` the bucketize is the plain deterministic floor. `LSB` is `self._lsb_estimate` — the mean threshold spacing (`(boundaries[1:] - boundaries[:-1]).mean()`, or the lone value for a single-threshold list) committed at `__init__`. This realizes the family `self.training` rounding gate ([base](base.md)) through the boundary spacing.
 
 ## Contracts & invariants
 
-- **Single-mode validation.** `_convert_impl` accepts only `adc_mode == 0` and `bits` equal to the boundary-implied width; any other operating point is rejected.
-- **Clamp to the raw range.** Per the base raw-code contract ([base](base.md)), `_convert_impl` clamps to `[0, n_codes-1]` and returns the raw bucket unshifted; here the out-of-range push comes from `floor_bucketize`'s stochastic-rounding LSB jitter. The zero point is subtracted consumer-side, not here.
+- **Fixed-resolution validation.** `_convert_impl` accepts only `bits` equal to the boundary-implied width.
+- **Clamp to the raw range.** Per the base raw-code contract ([base](base.md)), `_convert_impl` clamps to `[0, n_codes-1]` and returns the raw bucket unshifted; here the out-of-range push comes from `floor_bucketize`'s stochastic-rounding LSB jitter.
 - **Monotone input transform.** `input_transform` is identity or `log2`; both are monotone, so the bucketize threshold comparison stays valid for either.
 
 ## Performance & resources
@@ -22,10 +22,11 @@ A single `floor_bucketize` per call, off the memory- and compile-critical path.
 
 ## Known limitations
 
-- `GeneralDifferentialVoltageAdc` is a placeholder behavioural ADC; its comparator model, boundary list, noise stages and input-unit handling are provisional.
+- The model is boundary-based and contains no transistor-level comparator,
+  reference-generation, or settling model.
 
 ---
 
 - **Reference**: [general](../../../../reference/primitive/analog/voltage_adc/general.md)
 - **Implementation**: `neurox/primitive/analog/voltage_adc/general.py`
-- **Tests**: TODO - name the guarding test
+- **Tests**: `tests/primitive/analog/test_adc_family.py`, `tests/primitive/analog/test_voltage_adc_probe.py`

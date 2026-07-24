@@ -1,7 +1,7 @@
 """Abstract base class for voltage-domain DAC models.
 
 See also:
-    docs/reference/primitive/analog/voltage_dac/README.md
+    docs/internals/primitive/analog/voltage_dac/base.md
 """
 
 from __future__ import annotations

@@ -67,7 +67,7 @@ In addition to the [shared family symbols](cell.md):
 
 ## Validation
 
-TODO: link the evidence in [validation/xbar](../../../../../validation/README.md) — closed-form branch checks and agreement with the extraction source at the operating point.
+TODO: add validation evidence for closed-form branch checks and agreement with the extraction source at the operating point.
 
 ## References
 

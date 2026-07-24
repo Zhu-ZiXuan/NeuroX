@@ -56,78 +56,74 @@ nav:
   - Overview: guides/README.md
   - Algorithm engineer:
     - Overview: guides/algorithm_engineer/README.md
+    - Workflow: guides/algorithm_engineer/workflow.md
   - Calibration:
     - Overview: guides/calibration/README.md
+    - Tool conventions: guides/calibration/tool_conventions.md
     - Generic ADC calibration: guides/calibration/calibrate_adc.md
-    - ADC range probing: guides/calibration/adc_range_probing.md
-    - ADC rescale: guides/calibration/adc_rescale.md
     - Solver iteration counts: guides/calibration/solver_iteration_counts.md
     - State map: guides/calibration/state_map.md
 - Reference:
   - Overview: reference/README.md
   - Nonideality: reference/primitive/nonideality.md
   - Analog:
-    - Overview: reference/primitive/analog/README.md
     - Current mux: reference/primitive/analog/current_mux.md
     - Current reference: reference/primitive/analog/current_reference.md
     - Switch cap: reference/primitive/analog/switch_cap.md
+    - Unmodeled block: reference/primitive/analog/unmodeled.md
     - Voltage driver: reference/primitive/analog/voltage_driver.md
     - Voltage mux: reference/primitive/analog/voltage_mux.md
     - Voltage reference: reference/primitive/analog/voltage_reference.md
     - Voltage ADC:
-      - Overview: reference/primitive/analog/voltage_adc/README.md
       - Family: reference/primitive/analog/voltage_adc/family.md
       - General: reference/primitive/analog/voltage_adc/general.md
       - MCS SAR: reference/primitive/analog/voltage_adc/mcs_sar.md
     - Current ADC:
-      - Overview: reference/primitive/analog/current_adc/README.md
       - Family: reference/primitive/analog/current_adc/family.md
       - SAR: reference/primitive/analog/current_adc/sar.md
     - ADC common: reference/primitive/analog/adc_common.md
     - Voltage DAC:
-      - Overview: reference/primitive/analog/voltage_dac/README.md
       - Family: reference/primitive/analog/voltage_dac/family.md
       - General: reference/primitive/analog/voltage_dac/general.md
     - Current DAC:
-      - Overview: reference/primitive/analog/current_dac/README.md
       - Family: reference/primitive/analog/current_dac/family.md
       - General: reference/primitive/analog/current_dac/general.md
   - Device:
-    - Overview: reference/primitive/device/README.md
     - MOSFET: reference/primitive/device/mosfet.md
     - RRAM: reference/primitive/device/rram.md
     - Selector: reference/primitive/device/selector.md
   - Digital:
-    - Overview: reference/primitive/digital/README.md
     - Accumulator: reference/primitive/digital/accumulator.md
     - Serial accumulator: reference/primitive/digital/serial_accumulator.md
     - Adder: reference/primitive/digital/adder.md
     - Shift adder: reference/primitive/digital/shift_adder.md
     - Subtractor: reference/primitive/digital/subtractor.md
   - Unit:
-    - Overview: reference/architecture/unit/README.md
     - Family: reference/architecture/unit/family.md
     - Conv2d: reference/architecture/unit/conv2d.md
     - CIM:
-      - Overview: reference/architecture/unit/cim/README.md
       - Engine:
-        - Overview: reference/architecture/unit/cim/engine/README.md
+        - Family: reference/architecture/unit/cim/engine/family.md
         - Direct: reference/architecture/unit/cim/engine/direct.md
         - Inter-array slice: reference/architecture/unit/cim/engine/inter_array_slice.md
         - Intra-array slice: reference/architecture/unit/cim/engine/intra_array_slice.md
   - Crossbar:
-    - Overview: reference/primitive/xbar/README.md
-    - Family: reference/primitive/macro/cim/README.md
-    - Cell: reference/primitive/xbar/cell/README.md
-    - Array: reference/primitive/xbar/array/README.md
-    - Solver: reference/primitive/xbar/solver/README.md
-    - 1T1R:
-      - Cell: reference/primitive/xbar/cell/_1t1r/cell.md
-      - Detail cell: reference/primitive/xbar/cell/_1t1r/cell_detail.md
-      - Linear cell: reference/primitive/xbar/cell/_1t1r/cell_linear.md
-      - Array: reference/primitive/xbar/array/_1t1r/array.md
+    - CIM macro:
+      - Family: reference/primitive/macro/cim/family.md
+      - Ideal: reference/primitive/macro/cim/ideal.md
+    - Cell:
+      - Family: reference/primitive/xbar/cell/family.md
+      - 1T1R family: reference/primitive/xbar/cell/_1t1r/cell.md
+      - 1T1R detail: reference/primitive/xbar/cell/_1t1r/cell_detail.md
+      - 1T1R linear: reference/primitive/xbar/cell/_1t1r/cell_linear.md
+    - Array:
+      - Family: reference/primitive/xbar/array/family.md
+      - 1T1R: reference/primitive/xbar/array/_1t1r/array.md
+    - Solver:
+      - Parallel BL/SL: reference/primitive/xbar/solver/nested.md
 - Validation:
   - Overview: validation/README.md
+  - Campaigns: validation/campaigns.md
 - API:
   - Overview: api/README.md
   - Configuration: api/configuration.md
@@ -135,7 +131,6 @@ nav:
 - Internals:
   - Overview: internals/README.md
   - Compile:
-    - Overview: internals/compile/README.md
     - Contracts: internals/compile/contracts.md
     - Scheme A regional: internals/compile/scheme_a_regional.md
     - Scheme B deobjectified: internals/compile/scheme_b_deobjectified.md
@@ -144,35 +139,29 @@ nav:
   - Physical state: internals/physical_state.md
   - Package surface: internals/package_surface.md
   - Analog:
-    - Overview: internals/primitive/analog/README.md
     - Base: internals/primitive/analog/base.md
     - Current mux: internals/primitive/analog/current_mux.md
     - Current reference: internals/primitive/analog/current_reference.md
     - Switch cap: internals/primitive/analog/switch_cap.md
+    - Unmodeled block: internals/primitive/analog/unmodeled.md
     - Voltage driver: internals/primitive/analog/voltage_driver.md
     - Voltage mux: internals/primitive/analog/voltage_mux.md
     - Voltage reference: internals/primitive/analog/voltage_reference.md
     - Voltage ADC:
-      - Overview: internals/primitive/analog/voltage_adc/README.md
       - Base: internals/primitive/analog/voltage_adc/base.md
       - General: internals/primitive/analog/voltage_adc/general.md
       - MCS SAR: internals/primitive/analog/voltage_adc/mcs_sar.md
     - Current ADC:
-      - Overview: internals/primitive/analog/current_adc/README.md
       - Base: internals/primitive/analog/current_adc/base.md
       - SAR: internals/primitive/analog/current_adc/sar.md
     - Voltage DAC:
-      - Overview: internals/primitive/analog/voltage_dac/README.md
       - Base: internals/primitive/analog/voltage_dac/base.md
       - General: internals/primitive/analog/voltage_dac/general.md
     - Current DAC:
-      - Overview: internals/primitive/analog/current_dac/README.md
       - Base: internals/primitive/analog/current_dac/base.md
       - General: internals/primitive/analog/current_dac/general.md
   - Common:
-    - Overview: internals/common/README.md
     - Encoding:
-      - Overview: internals/common/encoding/README.md
       - Encodings: internals/common/encoding/encodings.md
     - Nonideality: internals/primitive/nonideality.md
     - Physical constant: internals/primitive/physical_constant.md
@@ -180,12 +169,10 @@ nav:
     - Profiler: internals/common/profiler.md
     - Quant: internals/common/quant.md
   - Device:
-    - Overview: internals/primitive/device/README.md
     - MOSFET: internals/primitive/device/mosfet.md
     - RRAM: internals/primitive/device/rram.md
     - Selector: internals/primitive/device/selector.md
   - Digital:
-    - Overview: internals/primitive/digital/README.md
     - Base: internals/primitive/digital/base.md
     - Accumulator: internals/primitive/digital/accumulator.md
     - Serial accumulator: internals/primitive/digital/serial_accumulator.md
@@ -193,37 +180,41 @@ nav:
     - Shift adder: internals/primitive/digital/shift_adder.md
     - Subtractor: internals/primitive/digital/subtractor.md
   - Unit:
-    - Overview: internals/architecture/unit/README.md
     - Base: internals/architecture/unit/base.md
     - Linear: internals/architecture/unit/linear.md
     - Conv2d: internals/architecture/unit/conv2d.md
     - CIM:
-      - Overview: internals/architecture/unit/cim/README.md
       - Base: internals/architecture/unit/cim/base.md
       - Linear: internals/architecture/unit/cim/linear.md
       - Conv2d: internals/architecture/unit/cim/conv2d.md
       - Engine:
-        - Overview: internals/architecture/unit/cim/engine/README.md
         - Base: internals/architecture/unit/cim/engine/base.md
         - Direct: internals/architecture/unit/cim/engine/direct.md
         - Inter-array slice: internals/architecture/unit/cim/engine/inter_array_slice.md
         - Intra-array slice: internals/architecture/unit/cim/engine/intra_array_slice.md
       - Slicer:
-        - Overview: internals/architecture/unit/cim/slicer/README.md
         - Base: internals/architecture/unit/cim/slicer/base.md
+        - Direct: internals/architecture/unit/cim/slicer/direct.md
+        - Serial: internals/architecture/unit/cim/slicer/serial.md
+        - Simple: internals/architecture/unit/cim/slicer/simple.md
   - Crossbar:
-    - Overview: internals/primitive/xbar/README.md
-    - Base: internals/primitive/macro/cim/base.md
-    - Cell: internals/primitive/xbar/cell/README.md
-    - Array: internals/primitive/xbar/array/README.md
+    - CIM macro:
+      - Base: internals/primitive/macro/cim/base.md
+      - Ideal: internals/primitive/macro/cim/ideal.md
+    - Cell:
+      - Base: internals/primitive/xbar/cell/base.md
+      - 1T1R base: internals/primitive/xbar/cell/_1t1r/cell.md
+      - 1T1R detail: internals/primitive/xbar/cell/_1t1r/cell_detail.md
+      - 1T1R linear: internals/primitive/xbar/cell/_1t1r/cell_linear.md
+    - Array:
+      - Base: internals/primitive/xbar/array/base.md
+      - 1T1R: internals/primitive/xbar/array/_1t1r/array.md
     - Solver: internals/primitive/xbar/solver.md
-    - 1T1R:
-      - Cell: internals/primitive/xbar/cell/_1t1r/cell.md
-      - Detail cell: internals/primitive/xbar/cell/_1t1r/cell_detail.md
-      - Linear cell: internals/primitive/xbar/cell/_1t1r/cell_linear.md
-      - Array: internals/primitive/xbar/array/_1t1r/array.md
 - Works:
   - Overview: works/README.md
+  - Xue 2020 JSSC CIM macro:
+    - Overview: works/macro/cim/xue2020jssc/README.md
+    - Model: works/macro/cim/xue2020jssc/model.md
 - Conventions:
   - Overview: conventions/README.md
   - Organizing principles: conventions/organizing_principles.md

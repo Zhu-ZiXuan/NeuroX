@@ -3,7 +3,7 @@
 Hosts :class:`SolverConfig`, :class:`Solver`, and :class:`SolverDcop`.
 
 See also:
-    docs/reference/primitive/xbar/solver/README.md
+    docs/internals/primitive/xbar/solver.md
 """
 
 from __future__ import annotations

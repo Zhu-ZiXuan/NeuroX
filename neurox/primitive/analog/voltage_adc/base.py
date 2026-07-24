@@ -1,7 +1,7 @@
 """Abstract base class for voltage-domain ADC models.
 
 See also:
-    docs/reference/primitive/analog/voltage_adc/README.md
+    docs/internals/primitive/analog/voltage_adc/base.md
 """
 
 from __future__ import annotations

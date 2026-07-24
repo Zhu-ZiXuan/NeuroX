@@ -24,11 +24,11 @@ $$F_{\mathrm{CL,BL}} = V_{\mathrm{BL,CL}} - \operatorname{driver}_{\mathrm{BL}}\
 
 $$F_{\mathrm{CL,SL}} = V_{\mathrm{SL,CL}} - \operatorname{driver}_{\mathrm{SL}}\!\left(I_{\mathrm{SL,port}}\right) = 0, \qquad I_{\mathrm{SL,port}} = G_{\mathrm{seg},0}\,\left(V_{\mathrm{SL,CL}} - V_{\mathrm{SL},0}\right).$$
 
-The same condensed branch current leaves the BL rail ($F_{\mathrm{BL}}$ injects $I_{\mathrm{cell}}$) and enters the SL rail ($F_{\mathrm{SL}}$ draws it), so the array sees one current per cell with no internal-node residual. The cell branch $I_{\mathrm{cell}}(\cdot)$ — set by the RRAM conductance $G_{\mathrm{RRAM}}$ in series with the access NMOS — is specified in [cell](../../cell/_1t1r/cell.md); the boundary functions $\operatorname{driver}_{\mathrm{BL}}(\cdot)$, $\operatorname{driver}_{\mathrm{SL}}(\cdot)$ are the clamp-driver transfer characteristics in [reference/analog](../../../analog/README.md). The operating-point solution yields the per-column BL port current $I_{\mathrm{BL,port}}$ and BL clamp voltage $V_{\mathrm{BL,CL}}$.
+The same condensed branch current leaves the BL rail ($F_{\mathrm{BL}}$ injects $I_{\mathrm{cell}}$) and enters the SL rail ($F_{\mathrm{SL}}$ draws it), so the array sees one current per cell with no internal-node residual. The cell branch $I_{\mathrm{cell}}(\cdot)$ — set by the RRAM conductance $G_{\mathrm{RRAM}}$ in series with the access NMOS — is specified in [cell](../../cell/_1t1r/cell.md); the boundary functions $\operatorname{driver}_{\mathrm{BL}}(\cdot)$, $\operatorname{driver}_{\mathrm{SL}}(\cdot)$ follow the [voltage-driver](../../../analog/voltage_driver.md) transfer characteristic. The operating-point solution yields the per-column BL port current $I_{\mathrm{BL,port}}$ and BL clamp voltage $V_{\mathrm{BL,CL}}$.
 
 ## Numerical method
 
-The array operating point is solved by damped Newton iteration: an outer Newton on the clamp pair $(V_{\mathrm{BL,CL}}, V_{\mathrm{SL,CL}})$ wraps an inner coupled block-$2\times2$ wire Newton on $(V_{\mathrm{BL}}, V_{\mathrm{SL}})$ along the row axis, with each cell condensing its internal node at every step. The formulation, its well-posedness, and the block-tridiagonal linear algebra are specified in [solver](../../solver/README.md).
+The array operating point is solved by damped Newton iteration: an outer Newton on the clamp pair $(V_{\mathrm{BL,CL}}, V_{\mathrm{SL,CL}})$ wraps an inner coupled block-$2\times2$ wire Newton on $(V_{\mathrm{BL}}, V_{\mathrm{SL}})$ along the row axis, with each cell condensing its internal node at every step. The formulation, its well-posedness, and the block-tridiagonal linear algebra are specified in [solver](../../solver/nested.md).
 
 ## Noise & non-idealities
 
@@ -98,7 +98,7 @@ TODO (domain author): give the quantitative validity boundary — array-size ran
 
 ## Validation
 
-TODO: link the evidence in [validation/xbar](../../../../../validation/README.md) — solver fixed-point and converged-residual checks, per-cell finite-difference device-derivative checks, chunking bit-exactness, and any array-vs-SPICE comparison.
+TODO: add validation evidence for solver fixed points, converged residuals, per-cell finite-difference device derivatives, chunking bit-exactness, and array-vs-SPICE comparison.
 
 ## References
 

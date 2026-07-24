@@ -16,8 +16,8 @@
 - **Seam 3 undoes exactly the axes seam 2 introduced (LIFO axis stack).** Each layer introduces its serial axis immediately left of the inst-aligned block and undoes exactly its own axis. Caller-owned leading dims — batch, any time axis — ride through untouched: the template never reduces, reorders, or interprets a leading dim.
 - **`program` is bound to one `w_logical_shape`.** The shape is fixed at construction and `program` rejects any other; re-`program` overwrites, it does not re-shape. Each operator ABC declares its own `program(weight, bias=None)` signature and channel count for the bias.
 - **The ADC surface is published, not enforced.** `adc_mode_num` / `adc_max_bits` advertise the operating-point range; `adc_rescale_factor` raises `KeyError` for an uncalibrated point. `adc_max_bits == 0` is the "no output quantization" sentinel — not a one-level ADC. Value ranges are published capability, not a base-enforced runtime bound.
-- **`fabricate` resamples static variation tree-wide.** The no-arg `fabricate()` is part of the contract; module-tree hosts satisfy it through the `FabricateMixin` cascade.
-- **Concrete helpers assume an `nn.Module` host.** `_init_int_bias_slot` calls `register_buffer`, so a concrete host must be an `nn.Module` (every CIM unit is, via `ModuleBase`); the base itself is a mixin-style ABC, not an `nn.Module`.
+- **`fabricate` is part of the lifecycle surface.** The base requires a no-argument resampling operation but does not prescribe how a host stores or traverses fabricated state.
+- **Concrete helpers assume an `nn.Module` host.** `_init_int_bias_slot` calls `register_buffer`, so a concrete host must be an `nn.Module`; the base itself is a mixin-style ABC.
 
 ---
 

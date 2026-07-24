@@ -1,7 +1,5 @@
 # Profiler
 
-## Summary
-
 `NeuroxProfiler` (`common/profiler.py`) is the context manager that collects the PPA side channel: during its `with` block it captures the per-call dynamic energy / latency events that leaves emit, walks the module tree for the hosts that report static area / leakage, and aggregates both into a `ProfilerReport`. It is the collector half of the mechanism — the per-module emitter is the profile mixin — and how each PPA quantity is physically computed is a per-subsystem cost model.
 
 ## Design decisions
@@ -27,7 +25,7 @@
 
 - `total_dynamic_energy__fJ` / `total_latency__ns` — pre-computed scalar sums over all `EnergyEvent` / `LatencyEvent`.
 - `energy_by_type` — pre-computed grouped sum (`dict[str, float]`) keyed by the emitter's class name. It needs no root: `module_type` is intrinsic to the emitter.
-- `energy_events: list[EnergyEvent]` / `latency_events: list[LatencyEvent]` — the resolved per-call event lists, populated by finalization. Each event carries the emitting `module`, so a caller holding a module selects its events by identity without naming anything. `EnergyEvent.channel` carries the optional sub-branch label passed to `_log_dynamic_energy` (`None` for an un-channelled event); `report(model).energy_by_name` folds it into the row name as `"<module dotted name>.<channel>"`.
+- `energy_events: list[EnergyEvent]` / `latency_events: list[LatencyEvent]` — the resolved per-call event lists, populated by finalization. Each event carries the emitting `module`, permitting identity-based selection without a module name. `EnergyEvent.channel` carries the optional sub-branch label passed to `_log_dynamic_energy` (`None` for an un-channelled event); `report(model).energy_by_name` folds it into the row name as `"<module dotted name>.<channel>"`.
 - `analyze_static(model) -> StaticMetrics` — static-only staticmethod; aggregates the reporting-host walk to totals. `StaticMetrics` carries area + leakage only (`area__um2`, `leakage_power__uW`), no dynamic quantity.
 - `collect_static(model) -> list[StaticRecord]` — static-only staticmethod; the per-module records behind `analyze_static`. Each `StaticRecord` carries `qualified_name`, `module_type`, `area__um2`, `leakage_power__uW`. The walk names each host as it reaches it, so the name is resolved on the spot.
 - `report(model) -> ProfilerReport` — bundles this context's runtime events with a fresh static walk of `model`; must be called after the block exits. `ProfilerReport` exposes `total_dynamic_energy__fJ` / `total_latency__ns` over its event lists, the derived `leakage_energy__fJ`, the per-name grouped sums `energy_by_name` / `latency_by_name`, and `name_of(module)`. `analyze_model(model)` is the static-only sibling (a report with no runtime events).
@@ -47,10 +45,10 @@ Per emission: one 0-D reduction (a kernel launch, no host sync) plus a Python ap
 
 - **No tensor-return profiling path.**
 - **No CSV / JSON export, no benchmark suite.** Report consumption is in-process (`ProfilerReport`, `summary`) only.
-- **Verification covers events and gating, not sync micro-cost.** `tests/test_xbar_chunking.py` guards single-event-per-operation and chunk-invariance; `tests/test_readout_log_gating.py` guards independent energy / latency gating. The batched-sync cost claim (one host sync per quantity) is a design invariant, not a regression-tested one.
+- **Verification covers collection and representative accounting, not sync micro-cost.** `tests/common/test_profiler_naming.py` guards event collection, static collection, naming, grouping, and unrooted emitters. `tests/primitive/digital/test_serial_accumulator.py` guards representative energy and latency accounting. The batched-sync cost claim is a design invariant, not a regression-tested one.
 
 ---
 
 - **Reference**: N/A — the profiler has no physics spec; per-subsystem PPA cost models live under [reference/](../../reference/README.md)
 - **Implementation**: `neurox/common/profiler.py`
-- **Tests**: `tests/test_xbar_chunking.py`, `tests/test_readout_log_gating.py`
+- **Tests**: `tests/common/test_profiler_naming.py`, `tests/primitive/digital/test_serial_accumulator.py`

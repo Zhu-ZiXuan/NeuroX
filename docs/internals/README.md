@@ -7,16 +7,11 @@ Cross-cutting:
 - [config_and_policy](config_and_policy.md) — frozen configs, `from_config` dispatch, owner-constructs-child
 - [physical_state](physical_state.md) — physical state at nominal / actual / snap tiers, evolved by the `__init__` / `fabricate` / `program` / `snapshot` lifecycle
 - [package_surface](package_surface.md) — package imports, exports, registry import completeness, and re-export exceptions
-- [compile](compile/README.md) — where `@torch.compile` applies, the dynamo-safety contracts, and the regional-compilation scheme
+- [compile contracts](compile/contracts.md) — the dynamo-safety requirements
+- [regional compilation](compile/scheme_a_regional.md) — the active solver compilation scheme
+- [encoding](common/encoding/encodings.md) — integer and signed-digit transcoding
+- [prober](common/prober.md) — typed observation side channel
+- [profiler](common/profiler.md) — PPA event collection
+- [quantization](common/quant.md) — shared quantization kernels
 
-Shared primitives (mirrors `neurox/common/`):
-
-- [common](common/README.md) — the software primitives shared across every subsystem
-
-Per-subsystem (mirrors Reference):
-
-- [device](primitive/device/README.md)
-- [analog](primitive/analog/README.md)
-- [digital](primitive/digital/README.md)
-- [xbar](primitive/xbar/README.md)
-- [unit](architecture/unit/README.md)
+Use the site navigation to browse subsystem bases and concrete implementations.

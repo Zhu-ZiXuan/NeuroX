@@ -1,8 +1,6 @@
-"""Literature-derived schemes packaged with the core library.
+"""Literature-derived circuit schemes packaged with NeuroX.
 
-Each scheme is a self-contained composition of kernel primitives, laid out
-by circuit layer (for example :mod:`neurox.works.macro.cim`). Importing
-:mod:`neurox.works` registers every scheme class with its family registry.
+Importing this package registers all bundled schemes with their family registries.
 """
 
 from neurox.works import macro

@@ -1,7 +1,0 @@
-# Unit
-
-The unit is the simulated hardware architecture one level above a single [crossbar tile](../../primitive/xbar/README.md): the entity that carries a full quantised-integer tensor operator as an exact-integer drop-in replacement for `F.linear` or `F.conv2d`. Two orthogonal dimensions structure the layer: the **operator** dimension — which PyTorch function the unit replaces and the programming-level transforms that lower it onto a matmul-shaped substrate — and the **execution** dimension — how that matmul is placed on physical tiles, decomposed into positional slices ($S_w$, $S_a$, the precision-slicing axis), tiled across the grid ($T_r$, $T_c$, the matrix-tiling axis), and aggregated back into one integer output.
-
-- [family](family.md) — the abstract unit contract: the operator law (exact-integer replicas of `F.linear` / `F.conv2d`), the lowering template and its hook seams, the integer-bias domain, the two axes (precision slicing $S_w$/$S_a$, matrix tiling $T_r$/$T_c$) and their decompose $\leftrightarrow$ aggregate dual, and the value-domain / ADC surface every member publishes.
-- [conv2d](conv2d.md) — the conv2d operator mapping: the Toeplitz / input-stationary lowering, the window-group derivation rule, and the im2col degenerate case.
-- [cim/](cim/README.md) — the xbar-tile unit family: the config-dispatched concrete units (including the lossless ideal reference leaves) and the engine variants that realize the execution dimension.

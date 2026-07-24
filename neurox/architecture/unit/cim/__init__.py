@@ -1,8 +1,4 @@
-"""CimUnit family.
-
-See also:
-    docs/reference/architecture/unit/cim/README.md
-"""
+"""CIM-backed compute units for linear and convolution operators."""
 
 from .base import (
     CimUnit,

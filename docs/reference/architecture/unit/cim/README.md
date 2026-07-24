@@ -1,7 +1,0 @@
-# CimUnit family
-
-The unit family that organizes [crossbar tiles](../../../primitive/xbar/README.md): it decomposes each value into positional slices (the precision-slicing axis $S_w$, $S_a$) and lays them onto the physical tile grid (the matrix-tiling axis $T_r$, $T_c$), then aggregates the per-tile reads back into one integer operator by a radix-weighted shift-add. A concrete member is named by its operator × substrate composition; the execution pipeline behind it is an engine variant selected by configuration.
-
-- [engine/](engine/README.md) — the execution variants (direct, inter-array slice, intra-array slice): how the precision-slicing axis maps onto the tiling layout.
-
-The engine-backed concrete units — a linear unit and a conv2d unit — expose the [family operator contracts](../family.md) over any engine variant; the variant is chosen by the engine config nested inside the unit config (the `_neurox_class` discriminator, see the [config reference](../../../../api/README.md)). Two degenerate members — an ideal linear and an ideal conv2d reference — join the same config-dispatched family without a tile: they compute the exact integer operator with no slicing, no ADC, and no PPA, the value-domain reference any physical configuration is compared against. The abstract contract all members share — the operator law, the tiling scheme, the value domain, and the ADC surface — is in [unit/family](../family.md); the conv2d lowering is in [unit/conv2d](../conv2d.md).

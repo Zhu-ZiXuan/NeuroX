@@ -71,8 +71,28 @@ These rules hold across the templates:
 
 ## De-specific voice
 
-- A top-level or cross-cutting document speaks in general role language: it names no specific consumer, device, module, or function and parades no example drawn from one.
-- The specifics live in the module document that owns them.
+- A concrete implementation name is forbidden unless the document is strictly
+  bound to that implementation.
+- Strict binding means one of: the implementation is the document's subject; the
+  documented code imports, constructs, inherits, registers, or type-constrains
+  it; an API index inventories it; the site navigation inventories it; or an
+  executable example deliberately instantiates it.
+- A default choice, the only implementation presently available, a convenient
+  example, a comparison, or a possible future implementation is not strict
+  binding.
+- A top-level or cross-cutting document speaks in role language. It names no
+  concrete consumer, device, module, class, or function unless that symbol is
+  itself the documented public API.
+- A base document names its own base symbols but no concrete member. A family
+  science document names no member. Concrete details live in the owning module
+  or leaf document.
+- An executable example may name the implementation it constructs, but its prose
+  must present that choice as local to the example rather than as a project-wide
+  dependency.
+
+This rule keeps change propagation aligned with code dependencies. Removing one
+implementation should normally affect only its own documents, its family index,
+its API export, and its dedicated tests.
 
 ## Dependency direction
 

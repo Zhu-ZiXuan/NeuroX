@@ -46,7 +46,7 @@ TODO (domain author): the provenance and derivation of $E_{\mathrm{op}}$, $t_{\m
 | `area_per_inst__um2` | silicon area per instance | um^2 | $\geq 0$ | Design |
 | `leakage_per_inst__uW` | static leakage per instance | uW | $\geq 0$ | Design |
 
-Provenance terms: [module_parameter](../../../conventions/module_parameter.md). File-level schema: `neurox/digital/adder.py` (`AdderConfig`).
+Provenance terms: [module_parameter](../../../conventions/module_parameter.md). File-level schema: `neurox/primitive/digital/adder.py` (`AdderConfig`).
 
 ## Symbols
 
@@ -81,4 +81,4 @@ TODO (domain author): cite the adder architecture and the PPA basis.
 
 - **Internals**: [adder internals](../../../internals/primitive/digital/adder.md)
 - **Validation**: TODO - validation artefact not yet written
-- **Configuration**: `neurox/digital/adder.py` (`AdderConfig`)
+- **Configuration**: `neurox/primitive/digital/adder.py` (`AdderConfig`)

@@ -11,7 +11,7 @@
 
 ## Gotchas
 
-- **Wrap is silent.** An out-of-range sum aliases with no error or warning; a caller treating the block as saturating gets wrong results.
+- **Wrap is silent.** An out-of-range sum aliases with no error or warning; the operation is not saturating.
 
 ## Known limitations
 

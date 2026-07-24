@@ -5,7 +5,7 @@ gate/control line is a driven boundary, so the columns are independent and
 batched.
 
 See also:
-    docs/reference/primitive/xbar/solver/README.md
+    docs/reference/primitive/xbar/solver/nested.md
 """
 
 from __future__ import annotations

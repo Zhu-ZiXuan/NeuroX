@@ -2,7 +2,7 @@
 
 ## Physical model
 
-An ideal single-ended N:1 time-share current transport: the shared output lane carries one selected column current at a time, scaled by an exact matched transport gain, and the group's N columns are visited serially, one transport each. It is a pure current-transport primitive — it draws no rail energy of its own (the downstream current-domain consumer that owns the rail tallies dissipation); beyond the exact transported value the model tallies one effect, the fixed serial per-operation latency.
+An ideal single-ended N:1 time-share current transport: the shared output lane carries one selected column current at a time, scaled by an exact matched transport gain, and the group's N columns are visited serially. The model includes fixed serial per-operation latency and no rail-energy term.
 
 ## Governing equations
 

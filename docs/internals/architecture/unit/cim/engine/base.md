@@ -13,7 +13,7 @@ The `CimEngine` registry root: the config root (macro + encoding + the two accum
 - **`Sw` layout vs `Sa` schedule split.** `Sw` (per-weight slice count) is fixed at `program` time and held until the next `program`; `Sa` (per-activation slice count) is evaluated per `matmul` call and materialized by the simulator as a batched tensor axis. Fixed at different lifecycle points, the two cannot share a uniform slice-reduction helper, and the organize step lives on the W side only.
 - **The base never reads variant config fields.** Before the xbar exists, a variant reads only `col_num` / `row_num` off the base `CimMacroConfig`; everything else (`w_digit_count`, `w_digit_radix`, `x_range`, `w_digit_range`) is read off the constructed `self.xbar` via its abstract properties.
 - **`[Sa, Sw, Tc, Tr]` is the fixed leading-axis order.** Every variant's organized weight tensor places its present slice/tile axes in this canonical order ahead of the tile-owned `(data, D, row)` trailing block. A variant that does not use an axis omits it entirely rather than padding it size-1 (the `M=1` / `Sa=1` placeholders inserted for broadcast against the activation are a separate matter). Fixing the order across variants is what lets the aggregate reductions name their axes by a stable negative index.
-- **No self-compiled forward.** Each variant's `matmul` is wrapped in `@torch.no_grad()` and runs eager — the library does not self-compile the forward ([compile](../../../../compile/README.md)). The memory-sensitive cost is the tile read inside `self.xbar.vec_mat_mul`, whose heavy DC solve compiles as a separate regional leaf — see [xbar internals](../../../../primitive/xbar/README.md).
+- **No self-compiled forward.** Each variant's `matmul` is wrapped in `@torch.no_grad()` and runs eager — the library does not self-compile the forward ([compile contracts](../../../../compile/contracts.md)). The memory-sensitive cost is the tile read inside `self.xbar.vec_mat_mul`, whose heavy DC solve compiles as a separate regional leaf — see [array internals](../../../../primitive/xbar/array/_1t1r/array.md).
 
 ## Contracts & invariants
 
@@ -28,6 +28,6 @@ The `CimEngine` registry root: the config root (macro + encoding + the two accum
 
 ---
 
-- **Reference**: [engine family](../../../../../reference/architecture/unit/cim/engine/README.md)
+- **Reference**: [engine family](../../../../../reference/architecture/unit/cim/engine/family.md)
 - **Implementation**: `neurox/architecture/unit/cim/engine/base.py`
 - **Tests**: `tests/architecture/unit/test_cim_unit.py`, `tests/architecture/unit/test_engine_sub_phase.py`

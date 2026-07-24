@@ -1,5 +1,3 @@
-"""Cross-cutting mixin classes shared across NeuroX circuit modules and config dataclasses."""
-
 from .fabricate import FabricateMixin
 from .profile import ProfileMixin
 from .registry import RegistryMixin

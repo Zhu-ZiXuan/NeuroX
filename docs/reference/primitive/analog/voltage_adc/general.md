@@ -4,7 +4,7 @@ The simplest member of the [voltage ADC family](family.md): a single-mode digiti
 
 ## Physical model
 
-The model floors the differential input against a sorted list of comparator thresholds carried in the instance input unit (uA for a current-mode ADC, V for a voltage-mode one); the index of the bucket the input falls into is the raw code. A monotone input transform - the identity for a linear ADC or a base-2 logarithm (companding) for a logarithmic one - is applied before the bucketize. Two additive Gaussian noise stages perturb the signal: input-referred sampling noise before the transform and a single comparator-noise term after it. The bucketize is reference-free - it uses no reference tap.
+The model floors the differential input against a sorted list of voltage thresholds; the bucket index is the raw code. A monotone input transform - identity or base-2 logarithm - is applied before bucketization. Two additive Gaussian stages perturb the signal: input-referred sampling noise before the transform and comparator noise after it. The bucketization uses no reference tap.
 
 ## Governing equations
 
@@ -12,9 +12,9 @@ The conversion maps the raw differential input $x^{+} - x^{-}$ to a raw unsigned
 
 $$\mathrm{code} = \operatorname{clamp}\!\Big(\operatorname{bucketize}\big(g(x^{+}-x^{-}+n_s)+n_{c},\ \{B_c\}\big),\ 0,\ n_{\mathrm{codes}}-1\Big),$$
 
-where $\operatorname{bucketize}$ floors the transformed signal against the fixed thresholds $\{B_c\}$ and $n_{\mathrm{codes}}$ is the number of code buckets implied by the threshold list. In the linear case the signal and thresholds share the per-instance input unit (uA for current-mode, V for voltage-mode); in the logarithmic case $g$ floors its argument at $\epsilon = 10^{-12}$ (input unit) before the base-2 logarithm, keeping it inside the transform's domain. The raw code lies in $[0,\ n_{\mathrm{codes}}-1]$; the consumer subtracts the topology zero code $z$ (exposed as `zero_offset` / `zero_code`) to recover the signed magnitude. The underlying floor against ordered boundaries is the family floor-quantization law ([family contract](family.md#governing-laws)).
+where $\operatorname{bucketize}$ floors the transformed signal against the fixed thresholds $\{B_c\}$ and $n_{\mathrm{codes}}$ is the number of code buckets implied by the threshold list. In the linear case the signal and thresholds are in volts; in the logarithmic case $g$ floors its argument at $\epsilon = 10^{-12}$ V before the base-2 logarithm. The raw code lies in $[0,\ n_{\mathrm{codes}}-1]$ and its signed magnitude is obtained by subtracting the topology zero code $z$. The underlying floor against ordered boundaries is the [family quantization law](family.md#governing-laws).
 
-The topology is single-mode: its one operating point is $\mathrm{mode} = 0$ at the boundary-implied bit width $b$.
+The topology has one boundary-implied resolution $b$.
 
 ## Numerical method
 
@@ -54,7 +54,7 @@ Provenance terms are defined in [module_parameter](../../../../conventions/modul
 | $g$ | monotone input transform (identity or $\log_2$) | — | `input_transform` |
 | $B_c$ | comparator threshold at index $c$ (per-instance input unit) | V or uA | `boundaries` |
 | $n_{\mathrm{codes}}$ | number of code buckets | — | derived from `boundaries` |
-| $z$ | topology zero code (subtracted consumer-side) | — | `zero_code` / `zero_offset(bits)` |
+| $z$ | topology zero code | — | `zero_code` / `zero_offset(bits)` |
 | $b$ | boundary-implied resolution (bits) | — | `max_bits` |
 | $n_s, n_{c}$ | sampling / comparator noise samples (per-instance input unit) | V or uA | sampled in `convert` |
 
@@ -62,7 +62,7 @@ Provenance terms are defined in [module_parameter](../../../../conventions/modul
 
 Stated assumptions:
 
-- The bit width is fixed by the threshold list (single-mode).
+- The bit width is fixed by the threshold list.
 - The threshold list is sorted, so the bucketize order is preserved.
 
 TODO (domain author): the validity boundary of the behavioural-comparator model and the input-range limits implied by the threshold list.

@@ -6,7 +6,7 @@ autograd element-wise derivative. Every helper takes its tensors as plain
 arguments and owns no circuit topology, device handle, or solver framework.
 
 See also:
-    docs/reference/primitive/xbar/solver/README.md
+    docs/reference/primitive/xbar/solver/nested.md
 """
 
 from __future__ import annotations

@@ -40,7 +40,7 @@ A family document uses the sections below in order. The document file is `family
 
 ## Filling each section
 
-- Lead paragraph (optional): what the family is and the shared science it factors out, as science; keep it only when it synthesizes more than the title states, and never hard-link a concrete member, because the README owns which concretes exist. Do not add a `## Summary` heading.
+- Lead paragraph (optional): what the family is and the shared science it factors out, as science; keep it only when it synthesizes more than the title states, and never hard-link a concrete member. Do not add a `## Summary` heading.
 - `Shared conventions` (required): the family-wide science every member obeys — polarity, signed-code convention, floor and quantization semantics — stated as science, not as a software contract or a does-not-own boundary.
 - `Governing laws` (on-demand): the laws shared across the family, such as a common rescale relation, at coarse math; omit the section when there are none.
 - `Symbols` (on-demand): the shared four-column table (Symbol, Meaning, Unit, Code field) members reference instead of repeating, with meanings from [notation_conventions](../conventions/notation_conventions.md); omit when the family shares no symbols.
@@ -56,6 +56,10 @@ The footer is traceability: Internals points to the base document that owns the 
 ### Stay at the family layer
 
 A family document states shared science, never a software contract and never one member's specifics. An interface obligation, an ownership boundary, or a single topology's transfer characteristic belongs in the base document or that member's document.
+
+Do not name a concrete member anywhere in the body, including as an example,
+counterexample, current default, or deferred alternative. The site navigation
+is the sole member inventory.
 
 **Bad:** "The member does not source or store its reference taps; the owning module injects them each call."
 

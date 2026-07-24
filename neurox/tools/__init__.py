@@ -1,1 +1,1 @@
-"""User-facing command-line utilities for NeuroX."""
+"""Command-line calibration utilities for NeuroX models."""

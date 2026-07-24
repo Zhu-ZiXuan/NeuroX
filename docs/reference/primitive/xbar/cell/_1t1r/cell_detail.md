@@ -4,7 +4,7 @@ The Detail 1T1R cell realizes the [1T1R family topology](cell.md) with nonlinear
 
 ## Physical model
 
-The RRAM conducts between the bit line $V_{\mathrm{BL}}$ and $V_{\mathrm{X}}$; the access NMOS conducts between $V_{\mathrm{X}}$ and the source line $V_{\mathrm{SL}}$, gated by the word-line voltage $V_{\mathrm{WL}}$. The EKV access-NMOS model is source/drain symmetric, so source and drain labels are a naming convention: the SL-side terminal ($V_{\mathrm{SL}}$) is taken as the source and the internal BL-side terminal ($V_{\mathrm{X}}$) as the drain, with no effect on the device current. The word-line drive and the device read state are inputs fixed per call. The RRAM and NMOS device transfer functions $I_{\mathrm{R}}(\cdot)$ and $I_{\mathrm{N}}(\cdot)$ are specified in [reference/device](../../../device/README.md).
+The RRAM conducts between the bit line $V_{\mathrm{BL}}$ and $V_{\mathrm{X}}$; the access NMOS conducts between $V_{\mathrm{X}}$ and the source line $V_{\mathrm{SL}}$, gated by the word-line voltage $V_{\mathrm{WL}}$. The EKV access-NMOS model is source/drain symmetric, so source and drain labels are a naming convention: the SL-side terminal ($V_{\mathrm{SL}}$) is taken as the source and the internal BL-side terminal ($V_{\mathrm{X}}$) as the drain, with no effect on the device current. The word-line drive and the device read state are inputs fixed per call. The device transfer functions are specified in [RRAM](../../../device/rram.md) and [MOSFET](../../../device/mosfet.md).
 
 ## Governing equations
 
@@ -26,7 +26,7 @@ The internal KCL $F_{\mathrm{X}}(V_{\mathrm{X}}) = 0$ is strictly monotone in $V
 
 ## Noise & non-idealities
 
-The cell introduces no static mismatch of its own; non-idealities enter through its two devices: RRAM conductance non-idealities (programming variation, drift, telegraph, thermal read noise) and access-NMOS threshold / transconductance mismatch — see [reference/device](../../../device/README.md). The read state is fixed per call, so the device noise is sampled once per call and the condensation is deterministic given that state.
+The cell introduces no static mismatch of its own; non-idealities enter through its two devices: [RRAM](../../../device/rram.md) conductance non-idealities and access-[MOSFET](../../../device/mosfet.md) threshold / transconductance mismatch. The read state is fixed per call, so the device noise is sampled once per call and the condensation is deterministic given that state.
 
 ## Parameters
 
@@ -68,7 +68,7 @@ In addition to the [shared family symbols](cell.md):
 
 ## Validation
 
-TODO: link the evidence in [validation/xbar](../../../../../validation/README.md) — cell branch-current and signed-conductance checks, internal-KCL residual, and finite-difference device-derivative checks.
+TODO: add validation evidence for branch-current and signed-conductance checks, internal-KCL residuals, and finite-difference device derivatives.
 
 ## References
 

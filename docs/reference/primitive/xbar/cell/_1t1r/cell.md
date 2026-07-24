@@ -1,6 +1,6 @@
 # 1T1R cell
 
-The 1T1R cell family places one programmable storage element in series with one access device, $\mathrm{BL} - \mathrm{storage} - V_{\mathrm{X}} - \mathrm{access} - \mathrm{SL}$, with the access device gated by the word line. At a terminal pair $(V_{\mathrm{BL}}, V_{\mathrm{SL}})$ and word-line drive $V_{\mathrm{WL}}$ every 1T1R cell condenses its internal access node $V_{\mathrm{X}}$ and presents a single two-terminal branch — one branch current and two signed terminal conductances — following the [cell family](../README.md) conventions. Two branch models realize this topology: a detailed model that solves the nonlinear device stack, and a linearized model that replaces the stack with calibrated per-state conductance tables. This page states what they share; each model's branch physics is on its own page.
+The 1T1R cell family places one programmable storage element in series with one access device, $\mathrm{BL} - \mathrm{storage} - V_{\mathrm{X}} - \mathrm{access} - \mathrm{SL}$, with the access device gated by the word line. At a terminal pair $(V_{\mathrm{BL}}, V_{\mathrm{SL}})$ and word-line drive $V_{\mathrm{WL}}$ every 1T1R cell condenses its internal access node $V_{\mathrm{X}}$ and presents a single two-terminal branch — one branch current and two signed terminal conductances — following the [cell family](../family.md) conventions. Two branch models realize this topology: a detailed model that solves the nonlinear device stack, and a linearized model that replaces the stack with calibrated per-state conductance tables. This page states what they share; each model's branch physics is on its own page.
 
 ## Physical model
 
@@ -53,7 +53,7 @@ TODO (domain author): the validity boundary of the lumped per-cell node-to-groun
 
 ## Validation
 
-TODO: link the evidence in [validation/xbar](../../../../../validation/README.md) — family-level branch-current and signed-conductance checks.
+TODO: add validation evidence for family-level branch-current and signed-conductance checks.
 
 ## References
 

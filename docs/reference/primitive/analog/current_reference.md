@@ -2,7 +2,7 @@
 
 ## Physical model
 
-A multi-output current reference holding a bank of per-mode tap rows (`[mode][tap]`): one strictly increasing row of nominal reference currents per operating mode, with a quasi-statically selected mode row — the consumer holds one row across conversions, so mode switching dissipates no per-conversion energy. The bank is per-instance: every fabricated instance carries its own initial-accuracy spread, so the read path returns the full `[*inst, mode, tap]` bank; a consumer indexes its mode row and passes the resulting per-instance ladder `[*inst, tap]` downstream unchanged, each instance keeping its own tap realization with no collapse across instances. The bias-generation topology is not modelled — the bias power that generates the reference currents is a static, always-on draw, not derived from the tap values, so there is no data-dependent dissipation and the entire hardware cost is static (bias power plus silicon area). Two departures from the nominal taps are modelled: a per-instance initial-accuracy spread (process variation plus trim residual) fixed at fabrication, and a per-read noise (thermal / flicker). Both are relative to the nominal tap, so a single sigma applies uniformly across taps of differing magnitude.
+A multi-output current reference holds one strictly increasing row of nominal taps per operating mode. Each fabricated instance carries its own initial-accuracy spread. The bias-generation topology is not modelled: its power is represented as a static, always-on draw independent of tap values. Two departures from nominal are modelled: per-instance initial accuracy fixed at fabrication and per-read thermal/flicker noise. Both are relative to the nominal tap.
 
 ## Governing equations
 

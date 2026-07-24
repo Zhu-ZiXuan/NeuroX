@@ -25,5 +25,5 @@
 ---
 
 - **Reference**: [subtractor](../../../reference/primitive/digital/subtractor.md)
-- **Implementation**: `neurox/digital/subtractor.py`
+- **Implementation**: `neurox/primitive/digital/subtractor.py`
 - **Tests**: TODO — no dedicated digital test module yet

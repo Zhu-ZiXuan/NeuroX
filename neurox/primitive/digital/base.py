@@ -1,7 +1,7 @@
 """Shared base for digital, integer-exact circuit modules.
 
 See also:
-    docs/reference/primitive/digital/README.md
+    docs/internals/primitive/digital/base.md
 """
 
 from __future__ import annotations

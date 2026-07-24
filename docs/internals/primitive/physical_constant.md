@@ -1,7 +1,5 @@
 # Physical constants
 
-## Summary
-
 `neurox/primitive/physical_constant.py` holds the canonical SI physical constants — `ELEM_CHARGE__C`, `K_BOLTZMANN__J_per_K`, `EPS_0__F_per_m` — together with the standard reference temperature `T_ROOM__K` and the derived scalar helper `thermal_voltage__V`.
 
 ## Design decisions

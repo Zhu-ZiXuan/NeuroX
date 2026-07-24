@@ -17,6 +17,6 @@ The engine-backed CIM unit exposing the linear operator: `LinearUnit` × `Engine
 
 ---
 
-- **Reference**: [unit family](../../../../reference/architecture/unit/family.md), [engine family](../../../../reference/architecture/unit/cim/engine/README.md)
+- **Reference**: [unit family](../../../../reference/architecture/unit/family.md), [engine family](../../../../reference/architecture/unit/cim/engine/family.md)
 - **Implementation**: `neurox/architecture/unit/cim/linear.py`
 - **Tests**: `tests/architecture/unit/test_linear_cim_unit.py`

@@ -1,4 +1,4 @@
-"""Compute-unit layer: operator ABCs, ideal reference units, and the CIM unit family."""
+"""User-facing compute units that implement neural-network operators."""
 
 from neurox.architecture.unit.base import UnitBase
 from neurox.architecture.unit.conv2d import (

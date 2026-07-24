@@ -1,5 +1,3 @@
-"""Topology-agnostic SL/BL IR-drop DC solver: framework, nested impl, and numerical helpers."""
-
 from .base import Solver, SolverConfig, SolverDcop
 from .chunking import (
     ChunkSpec,

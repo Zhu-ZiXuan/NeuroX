@@ -1,7 +1,7 @@
 """Abstract crossbar pure-array primitive.
 
 See also:
-    docs/reference/primitive/xbar/array/README.md
+    docs/internals/primitive/xbar/array/base.md
 """
 
 from __future__ import annotations

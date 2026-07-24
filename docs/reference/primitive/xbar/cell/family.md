@@ -1,4 +1,4 @@
-# Xbar cell abstract layer
+# Xbar cell family
 
 Every crossbar cell — whatever internal device topology it holds — is a two-terminal element bridging one bit-line node and one source-line node. It presents a single condensed branch current with two signed terminal conductances; the internal device topology is solved inside the cell and never exposed at its terminals. A concrete cell realizes this model for one device topology; the array-level wire ladder, boundaries, and array energy are outside the cell.
 
@@ -34,7 +34,7 @@ These definite signs are a family-wide invariant of the branch: raising the bit-
 
 ## Noise & non-idealities
 
-The cell itself owns no static mismatch. Non-idealities enter through the cell's device children, sampled once per read into the snap so the condensation is deterministic given that snap. The concrete device-noise sources are declared by each topology and specified in [reference/device](../../device/README.md).
+The cell itself owns no static mismatch. Non-idealities enter through the cell's device children, sampled once per read into the snap so the condensation is deterministic given that snap. Each topology specifies its concrete device-noise sources in its own document.
 
 ## Energy model
 
@@ -51,7 +51,7 @@ TODO (domain author): the conditions under which a candidate cell topology can b
 
 ## Validation
 
-TODO: link [validation/xbar](../../../../validation/README.md) — the family-level checks any concrete cell must pass (branch-current and signed-conductance sign checks, internal-KCL residual, finite-difference device-derivative checks).
+TODO: add family-level validation evidence for branch-current and signed-conductance signs, internal-KCL residuals, and finite-difference device derivatives.
 
 ## References
 
@@ -59,6 +59,6 @@ TODO.
 
 ---
 
-- **Internals**: [cell internals](../../../../internals/primitive/xbar/cell/README.md)
+- **Internals**: [cell base](../../../../internals/primitive/xbar/cell/base.md)
 - **Validation**: TODO — `validation/xbar` (not yet written)
 - **Configuration**: [config reference](../../../../api/README.md)

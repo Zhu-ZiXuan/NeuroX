@@ -1,9 +1,3 @@
-"""Differential voltage-domain ADC family — abstract base plus concrete implementations.
-
-See also:
-    docs/reference/primitive/analog/voltage_adc/README.md
-"""
-
 from .base import (
     DifferentialVoltageAdc,
     DifferentialVoltageAdcConfig,

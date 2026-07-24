@@ -1,7 +1,7 @@
 """Pluggable crossbar-cell abstraction.
 
 See also:
-    docs/reference/primitive/xbar/cell/README.md
+    docs/internals/primitive/xbar/cell/base.md
 """
 
 from __future__ import annotations

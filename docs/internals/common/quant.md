@@ -1,8 +1,6 @@
 # Quantization primitives
 
-## Summary
-
-`neurox/common/quant.py` is the shared quantization toolbox — stochastic-rounding integer conversion, fixed-point scale decomposition, min/max observers, and straight-through fake-quantize. Two of its symbols are stateful: the observers hold EMA buffers; the rest is stateless math. The module names no consumer — each pipeline composes these into its own calibration / training / inference flow. The module docstring lists the surface.
+`neurox/common/quant.py` is the shared quantization toolbox: stochastic-rounding integer conversion, fixed-point scale decomposition, min/max observers, and straight-through fake-quantize. The observers hold EMA buffers; the remaining operations are stateless.
 
 ## Design decisions
 
@@ -17,7 +15,7 @@
 ## Contracts & invariants
 
 - **Eval is bit-exact; train is unbiased.** With `training=False` every stochastic kernel reduces to a plain floor / shift / bucketize with no random draw, so repeated calls on identical input return identical output. With `training=True` the sample mean of the output converges to the un-floored quotient or code.
-- **Kernels never clamp.** Because jitter is added before the floor, a value near the top boundary can emit a code one above the nominal maximum; a caller that needs a bounded code clamps the result itself.
+- **Kernels never clamp.** Because jitter is added before the floor, a value near the top boundary can emit a code one above the nominal maximum. Output bounds are not part of these kernel contracts.
 - **The scalar-versus-tensor `rshift` branch resolves at trace time.** `stochastic_floor_div` keys the branch on the Python type of `rshift`, fixed at trace time rather than on a tensor value, so it stays [dynamo-safe](../compile/contracts.md); the random draws are traceable.
 
 ## Gotchas
@@ -29,4 +27,4 @@
 
 - **Reference**: N/A — software utility.
 - **Implementation**: `neurox/common/quant.py`
-- **Tests**: `tests/test_stochastic_rounding.py` (stochastic-rounding kernels); TODO — no dedicated observer, fake-quant, or fixed-point tests.
+- **Tests**: `tests/common/test_stochastic_rounding.py` (stochastic-rounding kernels); TODO — no dedicated observer, fake-quant, or fixed-point tests.

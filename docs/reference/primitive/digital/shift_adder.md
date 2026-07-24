@@ -85,4 +85,4 @@ TODO (domain author): cite the shift-and-add recombination architecture and the 
 
 - **Internals**: [shift_adder internals](../../../internals/primitive/digital/shift_adder.md)
 - **Validation**: TODO - validation artefact not yet written
-- **Configuration**: `neurox/digital/shift_adder.py` (`ShiftAdderConfig`)
+- **Configuration**: `neurox/primitive/digital/shift_adder.py` (`ShiftAdderConfig`)

@@ -34,14 +34,14 @@ def solve_nested_chunk(
     bl_segment_g__uS: Tensor,
     sl_segment_g__uS: Tensor,
     cell_snap: XbarCellSnap,
-    bl_driver_snap: VoltageDriverSnap,
-    sl_driver_snap: VoltageDriverSnap,
+    bl_driver_snap: ClampSnap,
+    sl_driver_snap: ClampSnap,
     params: NestedParallelRailSolverCompileParams,
 ) -> tuple[Tensor, ...]:
     ...
 ```
 
-The sketch flattens the per-call actors (the cell, the two clamp drivers) down to their snaps for the functionalization step: the cell condenses its own RRAM / NMOS device branch into `cell_snap` (the free function never sees raw `rram_snap` / `nmos_snap`), and each clamp driver's fabricated state arrives as its own driver snap. The device behaviour and the clamp solves are recovered by calling each actor's stateless solve helper on the matching snap, exactly as `NestedParallelRailSolver.solve_dc` does today. `NestedParallelRailSolver.solve_dc` then becomes the adapter that only: reads its scalar config off `self`, takes the cell, the two clamp drivers, and their snaps from the call, calls the free function, and reassembles the returned tuple into `SolverDcop`. If the snap dataclasses themselves cause recompiles, the next step is to expand them into plain `Tensor` arguments so the signature is fully tensor-and-scalar.
+The sketch flattens the per-call actors (the cell and two clamp drivers) down to their snaps for the functionalization step. Each actor's behaviour is recovered through its stateless solve helper on the matching snap, exactly as `NestedParallelRailSolver.solve_dc` does today. `NestedParallelRailSolver.solve_dc` then becomes the adapter that reads scalar config, calls the free function, and reassembles the returned tuple into `SolverDcop`. If the snap dataclasses themselves cause recompiles, the next step is to expand them into plain `Tensor` arguments so the signature is fully tensor-and-scalar.
 
 ## Trade-offs
 

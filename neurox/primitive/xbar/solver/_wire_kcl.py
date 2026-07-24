@@ -6,7 +6,7 @@ per-segment conductance-to-left / conductance-to-right mapping, and the KCL
 sign convention ``r = i_inject + Δv_left · g_left + Δv_right · g_right``.
 
 See also:
-    docs/reference/primitive/xbar/solver/README.md
+    docs/reference/primitive/xbar/solver/nested.md
 """
 
 from __future__ import annotations

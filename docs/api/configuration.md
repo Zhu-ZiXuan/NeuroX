@@ -31,7 +31,7 @@ A file's root must be a table of named sections, and the section tree mirrors th
 
 A key that matches no field of the target class fails the load. So does a value whose type does not match the field's declared type: a `bool` is not an `int`, and a quoted number is not a number. The one accepted widening is an `int` for a `float` field, so `g_min__uS = 10` and `g_min__uS = 10.0` both load.
 
-Each field's meaning, unit, and Source are documented in the matching subsystem's Reference Parameters section — e.g. the `[cim_macro.array_config]` fields in [reference/primitive/xbar/array/_1t1r/array](../reference/primitive/xbar/array/_1t1r/array.md), and the driver / inline-readout fields (WL DAC, BL/SL clamp drivers, boundary reference, signal / ref switch-cap, voltage mux, ADC, ADC-ladder reference) under your scheme cim_macro and the [analog leaves](../reference/primitive/analog/README.md). The Source taxonomy (Measured / Process / Design / Calibrated / ...) is defined in [module_parameter](../conventions/module_parameter.md). The runnable end-to-end usage is in the [algorithm-engineer guide](../guides/algorithm_engineer/README.md).
+Each field's meaning, unit, and Source are documented in the matching subsystem's Reference Parameters section — e.g. the `[cim_macro.array_config]` fields in [reference/primitive/xbar/array/_1t1r/array](../reference/primitive/xbar/array/_1t1r/array.md), with driver and readout fields under the Analog group in [Reference](../reference/README.md). The Source taxonomy (Measured / Process / Design / Calibrated / ...) is defined in [module_parameter](../conventions/module_parameter.md). The runnable end-to-end usage is in the [algorithm-engineer workflow](../guides/algorithm_engineer/workflow.md).
 
 ## TOML
 

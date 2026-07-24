@@ -19,7 +19,7 @@ State is one threshold buffer at `inst_shape` plus its scalar nominal. `sample_v
 
 ## Gotchas
 
-- **The selector publishes a threshold, not a conduction current.** Its only read surface, `sample_vth_like`, returns a threshold-voltage tensor; a consumer that needs switching behavior must build it on the threshold map. Do not treat the selector as a current source.
+- **The selector publishes a threshold, not a conduction current.** Its only read surface, `sample_vth_like`, returns a threshold-voltage tensor. The model defines no switching law or current equation.
 
 ## Known limitations
 

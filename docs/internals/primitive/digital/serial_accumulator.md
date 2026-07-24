@@ -12,7 +12,7 @@
 
 ## Gotchas
 
-- **Wrap is silent.** An out-of-range sum aliases with no error or warning; a caller treating the block as saturating gets wrong results.
+- **Wrap is silent.** An out-of-range sum aliases with no error or warning; the operation is not saturating.
 - **Do not use for parallel adder trees.** A reduction realized as a parallel tree carries the accumulator's per-output billing; this block would over-bill it by the reduced-axis extent.
 
 ---

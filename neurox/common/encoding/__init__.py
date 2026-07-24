@@ -1,9 +1,3 @@
-"""Signed-digit transcoders: integer ↔ digit-list conversion.
-
-See also:
-    docs/internals/common/encoding/README.md
-"""
-
 from .base import Encoding, Transcoder
 from .canonical import CanonicalTranscoder
 from .complement import ComplementTranscoder

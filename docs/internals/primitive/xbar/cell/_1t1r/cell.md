@@ -1,6 +1,6 @@
 # 1T1R cell base
 
-`XbarCell1t1r` (`neurox/primitive/xbar/cell/_1t1r.py`) is the abstract intermediate base of the 1T1R cell models; the shared family and container contracts live at [xbar cell base](../README.md). It owns the substrate every 1T1R model shares — the four per-cell node-to-ground capacitances and the grounded-cap energy formula — while the branch physics (`snapshot` / `program` / `solve_branch` / `solve_dc`) stays abstract for the leaves.
+`XbarCell1t1r` (`neurox/primitive/xbar/cell/_1t1r.py`) is the abstract intermediate base of the 1T1R cell models; the shared family and container contracts live at [xbar cell base](../base.md). It owns the substrate every 1T1R model shares — the four per-cell node-to-ground capacitances and the grounded-cap energy formula — while the branch physics (`snapshot` / `program` / `solve_branch` / `solve_dc`) stays abstract for the leaves.
 
 ## Design decisions
 

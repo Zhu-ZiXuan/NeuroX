@@ -12,13 +12,13 @@
 - **`T__K` is captured but unused.** Construction accepts the operating temperature for parity with the shared analog leaf contract ([base](base.md)); this model never reads it.
 - **Buffer lifecycle.** `nominal_v_refs__V` (shape `(num_refs,)`, design intent) → `v_refs__V` (shape `(*inst_shape, num_refs)`, post-fabricate actual). Before any `fabricate()` the actual buffer is the broadcast nominal; `fabricate()` resamples the tolerance (or restores the broadcast nominal when `tolerance` is off). Both buffers are non-persistent.
 - **`num_refs` is a property** = `len(config.v_refs__V)` — an init-determined constant. It is the source-side interface for how many taps exist.
-- **Read path is `v_ref__V(snap)`.** The encapsulated accessor returns the full `(*inst_shape, num_refs)` tap tensor from the snap (never the buffer), so the per-call `noise` is always included; a consumer then selects a tap by index and broadcasts it.
+- **Read path is `v_ref__V(snap)`.** The accessor returns the full `(*inst_shape, num_refs)` tap tensor from the snap rather than the buffer, so the per-call noise is always included.
 - **Config validation.** `validate_taps` requires `>= 1` tap, each `>= 0` (ordering is not enforced); `validate_noise` requires both sigmas `>= 0`.
 
 ## Gotchas
 
 - **Tolerance is fixed by `fabricate()`, not by construction.** A freshly constructed reference returns the exact nominal taps even with the `tolerance` policy on; call `fabricate()` to draw the per-die spread.
-- **`noise` off still clones.** `snapshot` returns a fresh tensor either way, so a consumer never aliases the internal buffer.
+- **`noise` off still clones.** `snapshot` returns a fresh tensor either way.
 
 ---
 

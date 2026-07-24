@@ -1,7 +1,7 @@
 """Tile-level ideal crossbar with adc_bits-driven output quantization.
 
 See also:
-    docs/reference/primitive/macro/cim/README.md
+    docs/internals/primitive/macro/cim/ideal.md
 """
 
 from __future__ import annotations

@@ -1,6 +1,6 @@
 # MCS SAR voltage ADC
 
-A $V_{\mathrm{cm}}$-based (Merged Capacitor Switching, MCS) differential SAR ADC. Each conversion digitizes the differential legs $V^{+}, V^{-}$ against a mode-selected reference $V_{\mathrm{ref}}$ at a runtime resolution $b \leq b_{\max}$, returning a raw offset-binary code; the MSB is resolved by a free top-plate comparison and each remaining bit by a merged-capacitor charge-redistribution step. Sign and zero-point recovery are consumer-side.
+A $V_{\mathrm{cm}}$-based (Merged Capacitor Switching, MCS) differential SAR ADC. Each conversion digitizes the differential legs $V^{+}, V^{-}$ against a selected reference $V_{\mathrm{ref}}$ at resolution $b \leq b_{\max}$, returning a raw offset-binary code; the MSB is resolved by a free top-plate comparison and each remaining bit by a merged-capacitor charge-redistribution step.
 
 ## Physical model
 
@@ -20,7 +20,7 @@ Each SAR cycle perturbs the differential top-plate voltage by the merged-capacit
 
 $$\Delta V_{\mathrm{top},k} = \pm\, (V_{\mathrm{ref}} - V_{\mathrm{cm}})\,\frac{C_k}{C_{\mathrm{total}}} \;\xrightarrow{V_{\mathrm{cm}} = V_{\mathrm{ref}}/2}\; \pm\, V_{\mathrm{cm}}\,\frac{C_k}{C_{\mathrm{total}}} = \pm\, \frac{V_{\mathrm{ref}}}{2}\,\frac{C_k}{C_{\mathrm{total}}},$$
 
-where $C_k$ is the capacitance of the cap switched on cycle $k$, carrying the static per-cap Pelgrom mismatch (independent legs), and $C_{\mathrm{total}}$ the array total. The $V_{\mathrm{cm}}$ form is an identity valid only because $V_{\mathrm{ref}} - V_{\mathrm{cm}} = V_{\mathrm{cm}}$ at the design point; the bottom-plate swing is $V_{\mathrm{ref}}/2$ (half $V_{\mathrm{ref}}$). The MSB is the sign of the free differential comparison; each subsequent bit is the sign of the running differential after the cycle's step, accumulated into the offset-binary code. That raw code, in $[0,\ 2^{b}-1]$, is returned directly, following the [family](family.md#raw-code-range-and-consumer-side-recovery) raw-code convention. The consumer subtracts the zero code $2^{\,b-1}$ (exposed as `zero_offset(b)`) to reach the signed range $[-2^{\,b-1},\ 2^{\,b-1}-1]$. The zero code $2^{\,b-1}$ is the bucket midpoint of the symmetric differential design, where $V^{+} - V^{-} = 0$ sits centred between the rail-symmetric extremes $\pm V_{\mathrm{ref}}$, justifying the symmetric zero point.
+where $C_k$ is the capacitance switched on cycle $k$ and $C_{\mathrm{total}}$ is the array total. The $V_{\mathrm{cm}}$ form requires $V_{\mathrm{ref}} - V_{\mathrm{cm}} = V_{\mathrm{cm}}$, so the bottom-plate swing is $V_{\mathrm{ref}}/2$. The MSB is the sign of the free differential comparison; each subsequent bit is the sign after the cycle's charge-redistribution step. The resulting raw code lies in $[0,2^b-1]$. Subtracting the symmetric zero code $2^{b-1}$ gives $[-2^{b-1},2^{b-1}-1]$.
 
 ## Numerical method
 
@@ -117,7 +117,7 @@ The reference voltage is not a parameter of this ADC — it is one of the refere
 |---|---|---|---|
 | $V^{+}, V^{-}$ | differential input legs | V | `v_pos__V`, `v_neg__V` |
 | $V_{\mathrm{cm}}$ | common-mode third reference, $V_{\mathrm{ref}}/2$ | V | derived |
-| $V_{\mathrm{ref}}$ | reference voltage | V | `v_refs__V[..., mode]` |
+| $V_{\mathrm{ref}}$ | reference voltage | V | `v_ref__V` |
 | $V_{\mathrm{in}}$ | sampled input on a leg | V | sampled in `convert` |
 | $C_k$ | capacitance of cap $k$ (mismatched after fabricate) | fF | `c_p__fF`, `c_n__fF` |
 | $C_{\mathrm{total}}$ | total array capacitance, $2^{\,b_{\max}-1}C_{\mathrm{unit}}$ | fF | derived |

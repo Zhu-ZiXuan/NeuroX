@@ -81,4 +81,4 @@ TODO (domain author): cite the subtractor architecture and the PPA basis.
 
 - **Internals**: [subtractor internals](../../../internals/primitive/digital/subtractor.md)
 - **Validation**: TODO — validation artefact not yet written
-- **Configuration**: `neurox/digital/subtractor.py` (`SubtractorConfig`)
+- **Configuration**: `neurox/primitive/digital/subtractor.py` (`SubtractorConfig`)

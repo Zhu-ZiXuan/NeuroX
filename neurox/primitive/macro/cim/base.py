@@ -1,7 +1,7 @@
 """Abstract physical-crossbar primitive.
 
 See also:
-    docs/reference/primitive/macro/cim/README.md
+    docs/internals/primitive/macro/cim/base.md
 """
 
 from __future__ import annotations

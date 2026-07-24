@@ -1,5 +1,3 @@
-"""Serialization machinery: the single import boundary consumers touch."""
-
 from neurox.common.serialize.build import (
     T,
     dataclass_from_dict,

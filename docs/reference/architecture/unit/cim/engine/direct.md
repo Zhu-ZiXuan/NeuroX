@@ -16,7 +16,7 @@ as a sum over the contraction-tile grid: the engine serializes each tile read in
 
 ## Noise & non-idealities
 
-N/A at the variant level — the variant adds no non-ideality. ADC quantization and analog non-idealities enter through the constituent tile reads, specified in [CimMacro base](../../../../primitive/macro/cim/README.md); the cross-tile accumulation is exact integer arithmetic.
+N/A at the variant level — the variant adds no non-ideality. ADC quantization and analog non-idealities enter through the constituent tile reads, specified by the [CIM macro family](../../../../primitive/macro/cim/family.md); the cross-tile accumulation is exact integer arithmetic.
 
 ## Parameters
 

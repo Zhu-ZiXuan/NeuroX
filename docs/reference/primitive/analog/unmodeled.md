@@ -2,7 +2,7 @@
 
 ## Physical model
 
-A real circuit block whose internal transfer is out of modelling scope, kept on the ledger only as static PPA. It reserves the block's silicon area and its whole standing bias power (a static, always-on draw, not derived from any signal) so the block's cost is not silently dropped, while its functional behaviour — the data-in/data-out transfer — is deliberately not modelled. Typical uses: control logic, a fixed bias network, or any peripheral whose transfer does not affect the modelled signal path but whose power must still be counted. Any per-op dynamic energy the block draws is not billed here; a composing macro that knows the block's activity bills it through a profiler channel keyed to the block's role.
+A real circuit block whose internal transfer is out of modelling scope, represented only by static PPA. It reserves silicon area and standing bias power while deliberately omitting the data transfer and per-operation dynamic energy.
 
 ## Governing equations
 
@@ -39,7 +39,7 @@ Provenance terms are defined in [module_parameter](../../../conventions/module_p
 
 ## Assumptions, scope & validity
 
-The block's leakage is a constant static draw, independent of the signal. It has no functional method and no state, so it never appears in the modelled signal path. It is a profile target: its static PPA is visible to the profiler's static walk and scales by instance count. When the block does draw data-dependent dynamic energy, that energy is the composing macro's responsibility to bill under a named channel — this block never emits a dynamic event itself.
+The block's leakage is a constant static draw independent of the signal. It has no functional transfer or dynamic-energy model.
 
 ## Validation
 

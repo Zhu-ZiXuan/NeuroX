@@ -1,7 +1,7 @@
 """Abstract base for the CimEngine family.
 
 See also:
-    docs/reference/architecture/unit/cim/engine/README.md
+    docs/internals/architecture/unit/cim/engine/base.md
 """
 
 from __future__ import annotations

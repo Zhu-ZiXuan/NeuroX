@@ -1,7 +1,7 @@
 """Abstract base class for single-ended current-domain ADC models.
 
 See also:
-    docs/reference/primitive/analog/current_adc/README.md
+    docs/internals/primitive/analog/current_adc/base.md
 """
 
 from __future__ import annotations

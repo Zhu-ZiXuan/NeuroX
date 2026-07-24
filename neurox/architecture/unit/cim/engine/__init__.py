@@ -1,9 +1,3 @@
-"""CimEngine family: execution pipelines behind engine-backed CIM units.
-
-See also:
-    docs/reference/architecture/unit/cim/engine/README.md
-"""
-
 from .base import CimEngine, CimEngineConfig, CimEnginePolicy
 from .direct import DirectCimEngine, DirectCimEngineConfig
 from .inter_array_slice import InterArraySliceCimEngine, InterArraySliceCimEngineConfig

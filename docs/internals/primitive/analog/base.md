@@ -1,6 +1,6 @@
 # Analog base
 
-`AnalogBase` is the root every analog circuit block inherits. The family shares only a config / policy type pair and a construction convention; each block's value path, parameters, and static-PPA declaration are its own. The concrete members are indexed in the [README](README.md).
+`AnalogBase` is the root every analog circuit block inherits. The family shares only a config / policy type pair and a construction convention; each block's value path, parameters, and static-PPA declaration are its own.
 
 ## Design decisions
 
@@ -13,6 +13,6 @@
 
 ---
 
-- **Reference**: N/A — software base; per-leaf area / leakage numbers are specified under [reference](../../../reference/primitive/analog/README.md)
+- **Reference**: N/A — each analog leaf has its own physical specification
 - **Implementation**: `neurox/primitive/analog/base.py`
 - **Tests**: TODO — covered indirectly via the profiler's static collection

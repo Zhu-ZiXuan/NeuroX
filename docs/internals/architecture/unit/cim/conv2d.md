@@ -24,6 +24,6 @@ The engine-backed CIM unit exposing the conv2d operator through the Toeplitz / i
 
 ---
 
-- **Reference**: [conv2d mapping](../../../../reference/architecture/unit/conv2d.md), [engine family](../../../../reference/architecture/unit/cim/engine/README.md)
+- **Reference**: [conv2d mapping](../../../../reference/architecture/unit/conv2d.md), [engine family](../../../../reference/architecture/unit/cim/engine/family.md)
 - **Implementation**: `neurox/architecture/unit/cim/conv2d.py`
 - **Tests**: `tests/architecture/unit/test_conv2d_cim_unit.py`

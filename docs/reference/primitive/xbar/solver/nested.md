@@ -30,7 +30,7 @@ The clamp-driver transfer (one BL driver and one SL driver per column boundary):
 
 - **Monotone scalar transfer.** Each driver maps its boundary port current to a clamp voltage with a strict, definite-sign response: the BL clamp driver strictly monotone in $I_{\mathrm{BL,port}}$, the SL driver strictly monotone in $I_{\mathrm{SL,port}}$.
 
-The formulation holds for any parallel-rail topology whose site condenses to one signed branch and whose boundaries present a monotone scalar transfer. The per-cell condensation and its monotonicity are specified in [cell](../cell/README.md); the clamp-driver transfer functions in [reference/analog](../../analog/README.md).
+The formulation holds for any parallel-rail topology whose site condenses to one signed branch and whose boundaries present a monotone scalar transfer. The per-cell condensation and its monotonicity are specified in [cell](../cell/family.md); the clamp-driver transfer function in [voltage driver](../../analog/voltage_driver.md).
 
 ## Newton linearization
 
@@ -80,7 +80,7 @@ The formulation carries IR drop through the per-segment interconnect resistances
 
 ## Symbols
 
-Shared electrical symbols are pinned in [notation_conventions](../../../../conventions/notation_conventions.md); the per-call cell branch quantities are defined in [cell](../cell/README.md).
+Shared electrical symbols are pinned in [notation_conventions](../../../../conventions/notation_conventions.md); the per-call cell branch quantities are defined in [cell](../cell/family.md).
 
 | Symbol | Meaning | Unit | Code field |
 |---|---|---|---|
@@ -96,7 +96,7 @@ Shared electrical symbols are pinned in [notation_conventions](../../../../conve
 
 ## Validation
 
-TODO: link [validation/xbar](../../../../validation/README.md) — solver fixed-point and converged-residual checks, and per-cell finite-difference device-derivative checks.
+TODO: add validation evidence for solver fixed points, converged residuals, and per-cell finite-difference device derivatives.
 
 ## References
 

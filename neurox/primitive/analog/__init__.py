@@ -1,9 +1,3 @@
-"""NeuroX analog primitives.
-
-See also:
-    docs/reference/primitive/analog/README.md
-"""
-
 from .current_mux import CurrentMux, CurrentMuxConfig, CurrentMuxPolicy
 from .current_reference import (
     CurrentReference,

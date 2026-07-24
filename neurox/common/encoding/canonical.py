@@ -1,7 +1,7 @@
 """Canonical (non-adjacent-form) signed-digit transcoder.
 
 See also:
-    docs/internals/common/encoding/README.md
+    docs/internals/common/encoding/encodings.md
 """
 
 from __future__ import annotations

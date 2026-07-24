@@ -1,4 +1,4 @@
-"""Top-level NeuroX API."""
+"""Public API for constructing and running NeuroX compute units."""
 
 from neurox.architecture.unit import (
     Conv2dUnit,

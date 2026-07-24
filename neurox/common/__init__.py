@@ -1,9 +1,3 @@
-"""NeuroX common utilities.
-
-See also:
-    docs/internals/common/README.md
-"""
-
 from .base import ConfigBase, ModuleBase, PolicyBase
 from .quant import (
     floor_bucketize,

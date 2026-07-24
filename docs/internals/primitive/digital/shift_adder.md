@@ -5,7 +5,7 @@
 ## Design decisions
 
 - **Behavioural, not gate-level.** The block models the radix-fold function and a flat per-op cost, not a shift-and-add netlist, because the digital periphery is not the fidelity-critical path.
-- **Radix and partial sum are call arguments, not config.** The radix `scale`, the digit axis `dim`, and the optional partial sum `init_val` are passed per call rather than fixed in the config, so one instance serves any radix or chaining pattern the consumer drives. Only the cost terms and the register width are construction-time constants.
+- **Radix and partial sum are call arguments, not config.** The radix `scale`, the digit axis `dim`, and the optional partial sum `init_val` are passed per call rather than fixed in the config. Only the cost terms and the register width are construction-time constants.
 - **Partial sum added after the wrap, not before.** `init_val` is summed onto the wrapped radix-fold result, so a running accumulator can carry a total past the per-call register range. Folding it in before the wrap would clip the running total to one call's register and break chaining; this ordering is correctness-relevant.
 
 ## Contracts & invariants
@@ -20,7 +20,7 @@
 
 ## Gotchas
 
-- **Post-wrap partial-sum semantics.** Because `init_val` is added after the wrap, the final output is not itself confined to the register range; a consumer reading `bit_width` as a hard output bound will be wrong when a partial sum is supplied.
+- **Post-wrap partial-sum semantics.** Because `init_val` is added after the wrap, the final output is not confined to the register range when a partial sum is supplied.
 - **The radix-fold sum wraps silently** before the partial-sum add; an overflow inside one call aliases with no error.
 
 ## Known limitations
@@ -30,5 +30,5 @@
 ---
 
 - **Reference**: [shift_adder](../../../reference/primitive/digital/shift_adder.md)
-- **Implementation**: `neurox/digital/shift_adder.py`
+- **Implementation**: `neurox/primitive/digital/shift_adder.py`
 - **Tests**: TODO - no dedicated digital test module yet

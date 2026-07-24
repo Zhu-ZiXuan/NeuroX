@@ -12,11 +12,11 @@ The recombination is a positional double shift-add. With per-slice weight radix 
 
 $$Y_{m,n} = \sum_{t=0}^{T_c-1} \sum_{w=0}^{S_w-1} R_w^{\,w} \left( \sum_{a=0}^{S_a-1} R_a^{\,a}\, P_{m,n}^{(a,w,t)} \right).$$
 
-Each partial read $P_{m,n}^{(a,w,t)}$ is itself the sub-phase accumulation of the tile's per-plane codes ([engine family](README.md)). The reduction order is fixed: the sub-phase accumulate folds first, then the activation-slice shift-add (intra-cycle, serial), then the stride-$S_w$ weight-slice shift-add within the tile's column output (intra-tile), then the plain contraction-tile accumulation over $T_c$, leaving the per-output-tile results to concatenate and trim to $N$.
+Each partial read $P_{m,n}^{(a,w,t)}$ is itself the sub-phase accumulation of the tile's per-plane codes ([engine family](family.md)). The reduction order is fixed: the sub-phase accumulate folds first, then the activation-slice shift-add (intra-cycle, serial), then the stride-$S_w$ weight-slice shift-add within the tile's column output (intra-tile), then the plain contraction-tile accumulation over $T_c$, leaving the per-output-tile results to concatenate and trim to $N$.
 
 ## Noise & non-idealities
 
-N/A at the variant level. ADC quantization and analog non-idealities enter through the tile reads, specified in [CimMacro base](../../../../primitive/macro/cim/README.md); the stride-$S_w$ shift-add, the activation-slice shift-add, and the contraction accumulation are exact integer arithmetic.
+N/A at the variant level. ADC quantization and analog non-idealities enter through the tile reads, specified by the [CIM macro family](../../../../primitive/macro/cim/family.md); the stride-$S_w$ shift-add, the activation-slice shift-add, and the contraction accumulation are exact integer arithmetic.
 
 ## Parameters
 
@@ -58,7 +58,7 @@ TODO (domain author): the exact slicer value range per encoding and the saturati
 
 ## Validation
 
-TODO: link [validation/macro](../../../../../validation/README.md) — agreement against the ideal twin and the stride-$S_w$ shift-add reconstruction.
+TODO: add validation evidence for agreement against the ideal twin and the stride-$S_w$ shift-add reconstruction.
 
 ## References
 

@@ -19,5 +19,5 @@
 ---
 
 - **Reference**: [adder](../../../reference/primitive/digital/adder.md)
-- **Implementation**: `neurox/digital/adder.py`
+- **Implementation**: `neurox/primitive/digital/adder.py`
 - **Tests**: TODO - no dedicated digital test module yet

@@ -1,7 +1,7 @@
 """Abstract bases for the CimUnit family.
 
 See also:
-    docs/reference/architecture/unit/cim/README.md
+    docs/internals/architecture/unit/cim/base.md
 """
 
 from __future__ import annotations

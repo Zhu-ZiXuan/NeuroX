@@ -24,7 +24,7 @@ A unit is value-domain only: it accepts integer weights and activations within i
 
 Two orthogonal axes place the matmul on physical tiles: a matrix-**tiling** axis ($T_r$, $T_c$) that splits any matmul too large for one tile, and a precision-**slicing** axis ($S_w$, $S_a$; specific to compute-in-memory) that decomposes a high-precision value into tile-carriable pieces. Matrix tiling is application-neutral — it applies to any matmul and adds no value decomposition. The slice counts $S_w$, $S_a$ are config-given, not inferred; the degenerate $S_w = S_a = 1$ performs no slicing.
 
-Precision slicing is LSB-first. A **value** — role-neutral: a weight on the weight side, an activation on the input side — whose range exceeds what one tile cell can carry is decomposed into positional **slices**, each a fixed-capacity piece of $D$ **digits** (the integer symbol one xbar cell carries at digit radix $r$). The per-slice positional weight is the **slice radix** $R = r^{D}$, and the LSB-first slice weights are $(1, R, R^{2}, \dots)$. The per-slice value range follows from the digit count $D$ and the digit radix $r$ published by the [physical-tile contract](../../primitive/macro/cim/README.md), the authority for the digit/slice interface.
+Precision slicing is LSB-first. A **value** — role-neutral: a weight on the weight side, an activation on the input side — whose range exceeds what one tile cell can carry is decomposed into positional **slices**, each a fixed-capacity piece of $D$ **digits** (the integer symbol one xbar cell carries at digit radix $r$). The per-slice positional weight is the **slice radix** $R = r^{D}$, and the LSB-first slice weights are $(1, R, R^{2}, \dots)$. The per-slice value range follows from the digit count $D$ and the digit radix $r$ published by the [physical-tile contract](../../primitive/macro/cim/family.md), the authority for the digit/slice interface.
 
 Decompose and aggregate are inverse operations: slicing a value into positional slices and the radix-weighted shift-add that recombines the per-tile partial reads are dual.
 
@@ -48,11 +48,11 @@ the aggregation primitive that folds the slice axis with the positional weights 
 
 $$M_{\mathrm{ideal}} \approx \mathrm{code}\cdot s.$$
 
-A unit exposes a discrete set of operating points and a maximum resolution across them, both inherited from the tiles it aggregates; the rescale convention and its calibration are the [physical-tile contract](../../primitive/macro/cim/README.md#output-rescale). A degenerate member performing an exact integer computation carries no output quantization: it exposes a single operating point with unit rescale, $s = 1$.
+A unit exposes a discrete set of operating points and a maximum resolution across them, both inherited from the tiles it aggregates; the rescale convention and its calibration are the [physical-tile contract](../../primitive/macro/cim/family.md#governing-laws). A degenerate member performing an exact integer computation carries no output quantization: it exposes a single operating point with unit rescale, $s = 1$.
 
 ## Noise & non-idealities
 
-A unit adds no non-ideality of its own: the lowering, slicing, and aggregation arithmetic is exact by construction. Every deviation from the exact integer result enters through the tiles it aggregates — their analog non-idealities and ADC quantization — specified in the [physical-tile contract](../../primitive/macro/cim/README.md) and the topology families beneath it.
+A unit adds no non-ideality of its own: the lowering, slicing, and aggregation arithmetic is exact by construction. Every deviation from the exact integer result enters through the tiles it aggregates — their analog non-idealities and ADC quantization — specified in the [physical-tile contract](../../primitive/macro/cim/family.md) and the topology families beneath it.
 
 ## Symbols
 

@@ -6,7 +6,7 @@ A triple-margin current-mode successive-approximation ADC, a member of the [curr
 
 Each single comparison mirrors $I_{\mathrm{in}}$ and the step's reference $I_{\mathrm{ref}}$ into the sense amplifier, then a deterministic pre-gain $A = $ `margin_gain` amplifies the clean current difference $I_{\mathrm{in}} - I_{\mathrm{ref}}$ before the latch resolves its sign. The input-referred SA offset is a current-domain margin perturbation added **after** the pre-gain, so its effective value at the decision is divided by $A$ — the triple-margin benefit: a raw offset $\sigma$ acts as $\sigma / A$.
 
-The mid-point thresholds arrive per call as `i_refs__uA`, a per-instance ladder $[*R,\ 2^{b}-1]$ whose $2^{b}-1$ taps ascend along the **last axis** while the leading $[*R]$ broadcast (right-aligned) against $I_{\mathrm{in}}$, supplied by the caller's reference block — the single ladder source — already reduced to the operating mode's row (mode is invisible to the ADC, so switching modes dissipates no per-conversion energy). The resolution $b$ arrives per call as `bits` (in $[1, b_{\max}]$). Each step gathers its tap per element along that last axis. The ADC reads the ladder directly and self-holds no reference.
+The mid-point thresholds are a runtime ladder $[*R,\ 2^{b}-1]$ whose taps ascend along the last axis and whose leading $[*R]$ dimensions broadcast right-aligned against $I_{\mathrm{in}}$. The resolution $b$ lies in $[1,b_{\max}]$. Each step gathers one tap per element.
 
 ## Governing equations
 
@@ -18,15 +18,15 @@ where $\delta$ is the static input-referred offset (comparator + coupling, zero 
 
 ## Numerical method
 
-The conversion performs $b$ comparisons in a method-internal Python loop; each step is a closed-form per-element reference gather and a sign decision, with no inner iteration. The sub-comparisons are not separate profiled leaves, so the whole conversion emits exactly one dynamic-energy event, and one latency event when `record_latency` is set (its construction default). A host that bills the conversion latency itself constructs the ADC with `record_latency=False`, which suppresses the latency event while the dynamic-energy event is emitted unconditionally.
+The conversion performs $b$ sequential comparisons. Each step is a closed-form per-element reference selection and sign decision, with no inner iteration. The conversion latency is the sum of the first $b$ per-step latency terms.
 
 ## Energy model
 
-Per sensing step the dynamic energy is one data-independent per-op constant plus the current-domain conduction a current ADC necessarily draws while it compares — its input and the selected reference conduct across the rail for the step window — plus an overridable hook (base zero),
+Per sensing step the dynamic energy is one data-independent per-op constant plus the current-domain conduction drawn while the input and selected reference conduct across the rail,
 
-$$E_{\mathrm{step},s} = E_{\mathrm{fixed}} + V_{\mathrm{rail}} \cdot (I_{\mathrm{in}} + I_{\mathrm{ref},s}) \cdot t_{\mathrm{cond},s} + E_{\mathrm{hook}}(I_{\mathrm{in}}, I_{\mathrm{ref},s}),$$
+$$E_{\mathrm{step},s} = E_{\mathrm{fixed}} + V_{\mathrm{rail}} \cdot (I_{\mathrm{in}} + I_{\mathrm{ref},s}) \cdot t_{\mathrm{cond},s},$$
 
-with $V_{\mathrm{rail}} = $ `v_rail__V` and $t_{\mathrm{cond},s} = $ `t_conduct_per_step__ns[s]` the per-step conduction window ($1\,\mathrm{V} \cdot 1\,\mathrm{uA} \cdot 1\,\mathrm{ns} = 1\,\mathrm{fJ}$). $E_{\mathrm{hook}}$ is the `_input_dynamic_energy__fJ` escape hatch for a structural subclass whose comparison conducts outside this parameterized form; the base returns zero, so an all-zero `t_conduct_per_step__ns` reduces the model to the pure fixed energy $b \cdot E_{\mathrm{fixed}}$ per element. The unity input and reference legs sourced upstream are billed there; this term is the ADC's own comparison conduction. The step energies are summed into one per-conversion event. When the latency event is emitted (see [numerical method](#numerical-method)), the conversion latency is the sum of the first $b$ `step_latency__ns` entries.
+with $V_{\mathrm{rail}} = $ `v_rail__V` and $t_{\mathrm{cond},s} = $ `t_conduct_per_step__ns[s]` the per-step conduction window ($1\,\mathrm{V} \cdot 1\,\mathrm{uA} \cdot 1\,\mathrm{ns} = 1\,\mathrm{fJ}$). An all-zero `t_conduct_per_step__ns` reduces the model to the pure fixed energy $b \cdot E_{\mathrm{fixed}}$ per element. Source-generation energy for the input and reference currents is outside this model.
 
 ## Noise & non-idealities
 
@@ -48,8 +48,6 @@ Both static offsets are sampled once at fabricate and held constant across the $
 | `v_rail__V` ($V_{\mathrm{rail}}$) | rail the input and selected reference conduct across per step | V | $\geq 0$ | Design |
 | `t_conduct_per_step__ns` ($t_{\mathrm{cond},s}$) | per-step conduction window; all-zero ⇒ pure fixed energy | ns | length $\geq b_{\max}$, $\geq 0$ | Design |
 | `step_latency__ns` | per-step decision latency; the first $b$ entries are summed per call | ns | length $\geq b_{\max}$, $\geq 0$ | Design |
-
-The reference ladder is not a config field — it arrives per call as `i_refs__uA` ($[*R,\ 2^{b}-1]$, taps ascending along the last axis, leading axes broadcasting against $I_{\mathrm{in}}$) from the caller's reference block ([current reference](../current_reference.md)), already reduced to the operating mode's row.
 | `comparator_offset_sigma__uA` | static input-referred SA offset sigma | uA | $\geq 0$ | Measured |
 | `coupling_mismatch_sigma__uA` | residual coupling-driven offset sigma | uA | $\geq 0$ | Measured |
 | `mirror_mismatch_sigma_relative` | relative sigma on the mirror ratios | — | $\geq 0$ | Measured |
@@ -74,7 +72,7 @@ Provenance terms are defined in [module_parameter](../../../../conventions/modul
 
 Stated assumptions:
 
-- The input is a single-ended non-negative magnitude; the sign is reattached by the caller.
+- The input is a single-ended non-negative magnitude.
 - The single SA is time-shared across a set of columns; its fabricated `inst_shape` is the real shared sense-lane count, so functional codes are per-column while `inst_shape` sets only the PPA multiplicity and the serial-latency time-multiplex factor.
 
 TODO (domain author): the validity boundary of the triple-margin decision model and the input-range limits implied by the reference-level list.

@@ -29,4 +29,4 @@ State is two per-cell buffers at `inst_shape` plus their scalar nominals. The so
 
 - **Reference**: [mosfet](../../../reference/primitive/device/mosfet.md)
 - **Implementation**: `neurox/primitive/device/mosfet.py`
-- **Tests**: `tests/test_mosfet.py`
+- **Tests**: `tests/primitive/device/test_mosfet.py`

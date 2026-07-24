@@ -1,5 +1,3 @@
-"""Crossbar cell family: shared ABC, abstract 1T1R base, and its two leaves."""
-
 from ._1t1r import (
     XbarCell1t1r,
     XbarCell1t1rConfig,

@@ -4,7 +4,7 @@
 
 A base document describes the abstract root a polymorphic family inherits — the shared contract, never any one implementation. It speaks in family-level role language and names no concrete subclass.
 
-The same template covers a family base and the root base every electrical-circuit module inherits. Which concrete members a family has belongs in the family README, not here.
+The same template covers a family base and the root base every electrical-circuit module inherits. Which concrete members a family has belongs in the site navigation, not here.
 
 ## Document template
 
@@ -28,7 +28,7 @@ Only `Contracts & invariants` is required; an optional lead paragraph under the 
 
 ## Filling each section
 
-- Lead paragraph [optional]: the family's role and the boundary of what the base does not own, in role language; keep it only when it synthesizes more than the H1, route the reader to the README for the concrete members, and never hard-link a concrete subclass. Do not add a `## Summary` heading.
+- Lead paragraph [optional]: the family's role and the boundary of what the base does not own, in role language; keep it only when it synthesizes more than the H1, and never hard-link a concrete subclass. Do not add a `## Summary` heading.
 - `Design decisions` [on demand, usually present]: the family-level software rationale, told as *why it is so* rather than restated from the class statement — config-type dispatch, an empty-marker `Config` / `Policy`, the membership calls (whether the base itself inherits the root base, and which responsibilities are deliberately left outside it), and the generic or type-parameterized surface.
 - `Contracts & invariants` [required]: the payload. State the family-wide guarantee no single symbol carries — what every subclass's implementation must satisfy beyond its signature, and the output, range, and ownership invariants the base holds across the family. Cite a per-symbol contract at its docstring instead of re-listing it. Role language only; no concrete-subclass link.
 
@@ -44,7 +44,12 @@ A base document specifies software structure, and that structure is its proper s
 
 ### No downward links
 
-A concrete subclass depends on its base, so the base is the lower module and its subclasses are the upper consumers. It must not name or link a concrete subclass in `Summary` or `Contracts & invariants` — pointing a base at its subclass reverses the dependency direction. Route the reader to the family README for the member list, and phrase every obligation as a role the subclass fills, not as a named implementation.
+A concrete subclass depends on its base, so the base is the lower module and its subclasses are the upper consumers. It must not name or link a concrete subclass in `Summary` or `Contracts & invariants` — pointing a base at its subclass reverses the dependency direction. The site navigation owns the member list; phrase every obligation as a role the subclass fills, not as a named implementation.
+
+This prohibition covers the whole document, including examples, gotchas, and
+performance notes. "The current implementation", "for example", and a
+hypothetical future member are not exceptions. Put member-specific constructor
+arguments, shapes, algorithms, and failure modes in that member's leaf document.
 
 ### Contracts & invariants
 

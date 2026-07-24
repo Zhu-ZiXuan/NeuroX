@@ -4,11 +4,11 @@ Every concrete current ADC digitizes a single-ended magnitude current into an un
 
 ## Shared conventions
 
-A current ADC digitizes a single-ended, non-negative magnitude current $I_{\mathrm{in}}$ [uA] into one **unsigned** integer code. The input is a magnitude only — the sign is handled outside the ADC by the caller, which combines it with the magnitude code downstream. The converter commits to the current domain: the input, every reference level, and every noise term are expressed in microamperes.
+A current ADC digitizes a single-ended, non-negative magnitude current $I_{\mathrm{in}}$ [uA] into one **unsigned** integer code. The converter commits to the current domain: the input, every reference level, and every noise term are expressed in microamperes.
 
-The reference ladder is **not** owned by the ADC, and neither is the operating mode. A **1-D** ladder $I_{\mathrm{ref}}$ [`i_refs__uA`, shape $[2^{b}-1]$, taps ascending] arrives per call, already reduced to the mode's row by the caller's reference block — the single ladder source. Mode is invisible to the ADC. Because the ladder is a per-call input, a single-ended and a (deferred) differential current ADC are **parallel classes** reading the same injected taps, never one wrapping the other.
+A **1-D** ascending ladder $I_{\mathrm{ref}}$ of shape $[2^{b}-1]$ is a runtime input. The resolution $b$ and the selected ladder fully determine one conversion; an operating-mode identity is not part of the transfer relation.
 
-The resolution $b$ (bits) arrives per call as `bits` and sets the number of code levels; the maximum resolution $b_{\max}$ is a fixed characteristic of each ADC.
+The resolution $b$ sets the number of code levels; the maximum resolution $b_{\max}$ is fixed for a given ADC.
 
 ## Governing laws
 
@@ -16,7 +16,7 @@ The family quantization is a **monotone** mapping of the magnitude input against
 
 $$\mathrm{code} \in [0,\ 2^{b}-1],$$
 
-the count of reference levels the input exceeds. Because the input is a non-negative magnitude, there is no zero-code shift: the raw unsigned code is the direct output, and the sign (offset binary, sign-magnitude, or none) is reattached by the caller.
+the count of reference levels the input exceeds. Because the input is a non-negative magnitude, there is no zero-code shift: the raw unsigned code is the direct output.
 
 ## Noise & non-idealities
 
@@ -33,7 +33,7 @@ Quantization against the reference levels is intrinsic to every member; all furt
 
 ## Assumptions, scope & validity
 
-Stated assumption: the input is a genuinely single-ended non-negative magnitude, so the unsigned-code convention is well-defined and the sign lives with the caller.
+Stated assumption: the input is a genuinely single-ended non-negative magnitude, so the unsigned-code convention is well-defined.
 
 TODO (domain author): the value-range and operating-envelope limits across which the unsigned-code contract holds.
 
@@ -44,4 +44,4 @@ TODO.
 ---
 
 - **Internals**: [current ADC base internals](../../../../internals/primitive/analog/current_adc/base.md)
-- **Configuration**: `SingleEndedCurrentAdcConfig`; the shared `AdcCalibrationRecord` from `adc_common` is a macro/unit-layer rescale record (see `api`)
+- **Configuration**: `SingleEndedCurrentAdcConfig` (see `api`)
