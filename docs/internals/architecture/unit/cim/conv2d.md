@@ -5,8 +5,12 @@ The engine-backed CIM unit exposing the conv2d operator through the Toeplitz / i
 ## Design decisions
 
 - **Toeplitz weight, strip activation — not digital im2col.** `_weight_to_matrix` unrolls the 4-D kernel into a sparse `(N', K') = (W_g*C_out, C_in*kh*W_strip)` Toeplitz matrix at program time; `_conv2d_planes` gathers `W_strip`-wide input strips (a light gather, not a full im2col). The Toeplitz zeros do the window selecting — there are no per-window row masks anywhere. im2col is the `W_g = 1` degenerate case of the same code path.
-- **`W_g` is derived at construction, never a config field.** Before the engine build (the engine is constructed on the `(N', K')` shape via `_engine_w_logical_shape`), the constructor reads `row_num` / `col_num` off `config.engine.cim_macro_config` and derives `_kw_eff`, `_w_g`, `_w_strip`, `_k_prime`, `_n_prime` as plain int attrs: the maximal `W_g` with `K' <= row_num` and `W_g*C_out <= col_num`, floored at 1.
-- **The engine stays conv-ignorant.** The Toeplitz matrix is handed to `engine.program` as an ordinary logical weight, so generic slicing/tiling composes without modification — in the floored case the engine splits `K'`/`N'` across tiles as usual. Sub-phase chunking is the engine's generic mechanism; the conv unit contains no chunking logic and models no sample-and-hold (every sub-phase is independently driven).
+- **`W_g` is derived at construction, never a config field.** The constructor
+  uses the engine config's `input_num` / `output_num` capacities and
+  chooses the largest group satisfying `K' <= input_num` and
+  `W_g*C_out <= output_num`, floored at one.
+- **The engine stays convolution-ignorant.** Generic logical tiling, slicing,
+  and input-phase masking compose with the Toeplitz matrix unchanged.
 - **Conv serial axes ride as anonymous batch.** `_conv2d_planes` keeps `[H_out, T_seg]` as the conv-introduced serial axes (`T_seg = ceil(W_out / W_g)`), entering `engine.matmul` as leading batch over `[M=T_seg, K']`; `_conv2d_fold` undoes exactly them — unflatten `N' -> (W_g, C_out)` per the column law, assemble `(H_out, T_seg*W_g)`, trim to `W_out`, arrange to trailing `[C_out, H_out, W_out]`. The trim runs before the template's bias add, so the bias lands exactly once per real output element.
 - **Two zero-representability guards at construction.** The Toeplitz zeros are stored weight values, so `0 ∈ engine.w_value_range` is required unconditionally. Zero activations come from padding, strip right-fill, and last-segment surplus windows, so `padding != (0, 0)` or `W_g > 1` requires `0 ∈ engine.x_value_range`.
 - **Geometry is config, kernel size is shape.** `Conv2dCimUnitConfig` adds the required `stride` / `padding` / `dilation` pairs (validated positive / non-negative); the kernel extent comes from the 4-D `w_logical_shape`, never a duplicate config field.

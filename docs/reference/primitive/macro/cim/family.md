@@ -4,23 +4,34 @@
 
 A CIM macro carries two primitive operations:
 
-- **Program** writes an integer digit tensor whose digits combine positionally
-  with radix $r$.
-- **VMM read** drives one WL plane and returns one integer code per column at a
+- **Program** writes a logical integer weight matrix.
+- **VMM read** accepts one logical input vector and returns one code per output at a
   selected ADC operating point.
 
-A row shares one input and a column aggregates one output. The value domain is
-fixed by the input grid $\mathcal{X}$, digit count $D$, and digit radix $r$.
-The corresponding slice radix is $R=r^D$.
+For $N$ inputs and $M$ outputs, `program` accepts
+`[*inst_shape, N, M]`, `vec_mat_mul` accepts `[..., N]`, and the result has
+shape `[..., M]`. The logical interface does not expose whether inputs or
+weights are internally split into digits, how those digits map to physical
+rows or columns, or how partial analog results are combined.
 
-One conversion activates at most $A$ rows. All other word lines remain at their
-off level. The active-row limit sets the maximum plane-dot magnitude and
-therefore the ADC calibration range.
+The owner supplies `input_num` and `output_num` when constructing a macro.
+Physical implementations immediately map those values to their own geometry,
+typically `row_num` and `col_num`, while the ideal implementation retains the
+logical names. The abstract family does not publish geometry properties; upper
+layers retain the logical capacities they supplied.
+
+One conversion selects at most $A$ input positions. The caller forces all
+unselected positions to zero; a selected position still counts against the
+limit when its data value is zero. The selection limit sets the maximum
+conversion dot-product magnitude and therefore the ADC calibration range.
+
+`x_value_range` and `w_value_range` expose the inclusive envelopes accepted by
+the logical ports. A concrete encoding may leave holes inside an envelope.
 
 ## Governing laws
 
-A read returns one signed code per column per WL plane. The rescale factor $s$
-maps that code to an ideal integer plane dot $M_p$:
+A read returns one code per output. The rescale factor $s$ maps that code to an
+ideal integer conversion result $M_p$:
 
 $$M_p \approx \mathrm{code}\cdot s.$$
 
@@ -32,23 +43,21 @@ obtains it from calibration.
 | Symbol | Meaning | Unit | Code field |
 |---|---|---|---|
 | $\mathcal{X}$ | integer input grid | — | `x_value_range` |
-| $D$ | digits per programmed value | — | `w_digit_count` |
-| $r$ | digit radix | — | `w_digit_radix` |
-| $R$ | slice radix, $r^D$ | — | — |
+| $\mathcal{W}$ | integer weight grid envelope | — | `w_value_range` |
 | $M_p$ | ideal integer dot product of one WL plane | — | — |
 | $s$ | output rescale factor | — | `adc_rescale_factor` |
 | $b$ | ADC resolution | — | `adc_bits` |
-| $N_{\mathrm{row}}$ | row count | — | `row_num` |
-| $N_{\mathrm{col}}$ | column count | — | `col_num` |
-| $A$ | maximum active rows per conversion | — | `active_row_num` |
+| $N$ | logical input count supplied at construction | — | `input_num` |
+| $M$ | logical output count supplied at construction | — | `output_num` |
+| $A$ | maximum selected inputs per conversion | — | `max_active_num` |
 
 ## Assumptions, scope & validity
 
-The programmed digits and input values lie inside their published integer
-ranges, and every read plane contains at most $A$ active rows.
+Programmed weights and input values conform to the concrete macro's logical
+encoding, and every conversion selects at most $A$ input positions.
 
-TODO (domain author): state the saturation boundary of the digit decomposition
-and the calibrated validity range of the output-rescale relation.
+TODO (domain author): state the calibrated validity range of the output-rescale
+relation.
 
 ---
 

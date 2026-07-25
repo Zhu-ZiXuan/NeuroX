@@ -12,7 +12,7 @@ from torch import Tensor
 
 
 class Slicer(ABC):
-    """Decompose integers into trailing ``[slice_num, digit_count]`` axes."""
+    """Decompose integers into a trailing ``[slice_num]`` axis."""
 
     @property
     @abstractmethod
@@ -34,5 +34,5 @@ class Slicer(ABC):
 
     @abstractmethod
     def slice(self, x: Tensor) -> Tensor:
-        """Decompose ``x`` into trailing-2 ``[slice_num, digit_count]`` digit slots."""
+        """Decompose ``x`` into trailing ``[slice_num]`` values."""
         raise NotImplementedError

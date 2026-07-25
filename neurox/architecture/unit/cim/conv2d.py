@@ -109,14 +109,14 @@ class Conv2dCimUnit(Conv2dUnit, EngineBackedCimUnit[Conv2dCimUnitConfig, Conv2dC
         kw: int,
     ) -> None:
         """Derive the matrix geometry passed to the execution engine."""
-        row_num = config.engine.cim_macro_config.row_num
-        col_num = config.engine.cim_macro_config.col_num
+        input_num = config.engine.input_num
+        output_num = config.engine.output_num
         s_w = config.stride[1]
         d_w = config.dilation[1]
         self._kw_eff = (kw - 1) * d_w + 1
-        # Choose the largest window group that fits both array dimensions.
-        g_k = 1 + (row_num // (c_in * kh) - self._kw_eff) // s_w
-        g_n = col_num // c_out
+        # Choose the largest window group that fits both logical macro ports.
+        g_k = 1 + (input_num // (c_in * kh) - self._kw_eff) // s_w
+        g_n = output_num // c_out
         self._w_g = max(1, min(g_k, g_n))
         self._w_strip = self._kw_eff + (self._w_g - 1) * s_w
         self._k_prime = c_in * kh * self._w_strip

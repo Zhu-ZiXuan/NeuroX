@@ -22,10 +22,8 @@
 
 [cim_macro]
 
-# --- Geometry (mirrors ../params.toml; spec S1: one 256x512 sub-array) ---
-col_num = 128                     # [sourced] 128 signed weights / sub-array
-row_num = 256                     # [sourced] 256 rows / sub-array
-active_row_num = 9                # [sourced] row-block size activated per conversion
+# --- Activation limit (geometry is supplied to the macro constructor) ---
+max_active_num = 9               # [sourced] input positions selected per conversion
 
 
 # ===========================================================================

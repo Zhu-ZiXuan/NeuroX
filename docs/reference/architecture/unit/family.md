@@ -24,7 +24,12 @@ A unit is value-domain only: it accepts integer weights and activations within i
 
 Two orthogonal axes place the matmul on physical tiles: a matrix-**tiling** axis ($T_r$, $T_c$) that splits any matmul too large for one tile, and a precision-**slicing** axis ($S_w$, $S_a$; specific to compute-in-memory) that decomposes a high-precision value into tile-carriable pieces. Matrix tiling is application-neutral — it applies to any matmul and adds no value decomposition. The slice counts $S_w$, $S_a$ are config-given, not inferred; the degenerate $S_w = S_a = 1$ performs no slicing.
 
-Precision slicing is LSB-first. A **value** — role-neutral: a weight on the weight side, an activation on the input side — whose range exceeds what one tile cell can carry is decomposed into positional **slices**, each a fixed-capacity piece of $D$ **digits** (the integer symbol one xbar cell carries at digit radix $r$). The per-slice positional weight is the **slice radix** $R = r^{D}$, and the LSB-first slice weights are $(1, R, R^{2}, \dots)$. The per-slice value range follows from the digit count $D$ and the digit radix $r$ published by the [physical-tile contract](../../primitive/macro/cim/family.md), the authority for the digit/slice interface.
+Precision slicing is LSB-first. A value whose range exceeds one macro's
+`w_value_range` or `x_value_range` is decomposed into positional slices, and
+every slice is itself a complete logical value accepted by one macro call.
+The unit never observes how the macro encodes that value internally. The
+per-slice positional weight is the slice radix $R$, and the LSB-first slice
+weights are $(1, R, R^{2}, \dots)$.
 
 Decompose and aggregate are inverse operations: slicing a value into positional slices and the radix-weighted shift-add that recombines the per-tile partial reads are dual.
 
@@ -36,7 +41,11 @@ $$\mathbf{Y} = \mathbf{X}\,\mathbf{W}^{\!\top}, \qquad Y_{m,n} = \sum_{k} X_{m,k
 
 returned as a pre-requantize integer tensor. This integer $\mathbf{Y}$ is the pre-ADC ideal the decomposition reconstructs exactly; the realized result carries only the per-tile ADC quantization of each constituent read.
 
-**Matrix tiling.** A weight matrix wider or taller than one tile is split into a grid of tiles: $T_r = \lceil N / N_{\mathrm{col}} \rceil$ along the output axis (rows of the transposed weight) and $T_c = \lceil K / N_{\mathrm{row}} \rceil$ along the contraction axis. The reads on the $T_c$ contraction tiles are summed back into one dot product by plain integer accumulation.
+**Matrix tiling.** A weight matrix wider or taller than one macro is split into
+a grid: $T_r = \lceil N / N_{\mathrm{out}} \rceil$ along the output axis and
+$T_c = \lceil K / N_{\mathrm{in}} \rceil$ along the contraction axis, where
+`output_num` and `input_num` are the macro's logical port capacities. The reads
+on the $T_c$ contraction tiles are summed by plain integer accumulation.
 
 **Slice recombination.** A value recombines from its slices $m_i$ by the radix-weighted shift-add
 
@@ -65,9 +74,8 @@ A unit adds no non-ideality of its own: the lowering, slicing, and aggregation a
 | $b$ | integer bias vector (length $N$ or $C_{\mathrm{out}}$) | — | `int_bias` |
 | $S_w, S_a$ | weight-, activation-slice counts (precision-slicing axis) | — | `w_slice_num`, `x_slice_num` |
 | $T_r, T_c$ | output-, contraction-axis tile counts (matrix-tiling axis) | — | — |
-| $D$ | digits per slice (from the tile) | — | `w_digit_count` |
-| $r$ | digit radix (from the tile) | — | `w_digit_radix` |
-| $R$ | slice radix, $R = r^{D}$ | — | `slice_radix` |
+| $N_{\mathrm{in}}, N_{\mathrm{out}}$ | macro logical input / output capacity | — | `input_num`, `output_num` |
+| $R$ | positional radix between adjacent slices | — | `slice_radix` |
 | $m_i$ | value carried by slice $i$ | — | — |
 | $s$ | output rescale factor | — | `adc_rescale_factor` |
 | $M_{\mathrm{ideal}}$ | ideal integer dot product | — | — |
@@ -80,7 +88,9 @@ Stated assumptions:
 - The contracts are defined for integer weights and activations within the value ranges the unit accepts.
 - The decomposition is value-domain exact: the only deviation from the exact integer result is the analog non-ideality of the constituent tile reads, not the lowering, slicing, or aggregation arithmetic.
 
-TODO (domain author): state the validity boundary of the slice-and-shift-add decomposition — the exact per-slice value range per encoding, the saturation of the positional recombination $M = \sum_i m_i R^i$, the largest dot-product magnitude representable before the ADC code clamps, and any regime where the value-domain-exact assumption breaks.
+TODO (domain author): state the validity boundary of the slice-and-shift-add
+decomposition, the largest dot-product magnitude before ADC clipping, and any
+regime where the value-domain-exact assumption breaks.
 
 ## References
 

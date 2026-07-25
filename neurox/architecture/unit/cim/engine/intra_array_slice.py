@@ -13,6 +13,7 @@ import torch.nn.functional as F
 from torch import Tensor
 
 from neurox.architecture.unit.cim.slicer import SerialSlicer, SimpleSlicer
+from neurox.common.encoding import Encoding
 from neurox.primitive.digital import (
     Accumulator,
     DigitalPolicy,
@@ -30,12 +31,14 @@ class IntraArraySliceCimEngineConfig(CimEngineConfig):
     Attributes:
         w_slice_num: Per-weight Sw slice count.
         x_slice_num: Per-activation Sa slice count.
+        w_encoding: Positional encoding across macro-level weight slices.
         sa_shift_adder_config: Sa-axis intra-xbar shift-adder config.
         sw_shift_adder_config: Sw-axis intra-xbar shift-adder config.
     """
 
     w_slice_num: int
     x_slice_num: int
+    w_encoding: Encoding
 
     sa_shift_adder_config: ShiftAdderConfig
     sw_shift_adder_config: ShiftAdderConfig
@@ -57,9 +60,9 @@ class IntraArraySliceCimEnginePolicy(CimEnginePolicy):
 class IntraArraySliceCimEngine(CimEngine[IntraArraySliceCimEngineConfig, IntraArraySliceCimEnginePolicy]):
     """CIM engine that gathers all slices of one logical weight in one macro.
 
-    A logical weight's ``Sw`` slices sit in adjacent columns of the same macro.
-    Per-macro effective capacity is ``(col_num // Sw) * Sw`` cells; the
-    remaining ``col_num - (col_num // Sw) * Sw`` cells per macro are idle.
+    A logical weight's ``Sw`` slices occupy adjacent output ports of the same
+    macro. Per-macro effective capacity is
+    ``(output_num // Sw) * Sw`` ports; the remainder is idle.
     """
 
     def __init__(
@@ -80,19 +83,20 @@ class IntraArraySliceCimEngine(CimEngine[IntraArraySliceCimEngineConfig, IntraAr
             T__K=T__K,
             ideal_macro=ideal_macro,
         )
-        cim_macro_config = config.cim_macro_config
-        col_num = cim_macro_config.col_num
-        row_num = cim_macro_config.row_num
-        if config.w_slice_num > col_num:
-            raise ValueError(f"require: w_slice_num ({config.w_slice_num}) <= cim_macro.col_num ({col_num})")
-        self._weights_per_macro = col_num // config.w_slice_num
+        input_num = config.input_num
+        output_num = config.output_num
+        if config.w_slice_num > output_num:
+            raise ValueError(
+                f"require: w_slice_num ({config.w_slice_num}) <= output_num ({output_num})"
+            )
+        self._weights_per_macro = output_num // config.w_slice_num
         self._used_data_num = self._weights_per_macro * config.w_slice_num
-        self._idle_per_macro = col_num - self._used_data_num
+        self._idle_per_macro = output_num - self._used_data_num
 
         *w_batch, n_logical, k_logical = w_logical_shape
         weights_per_macro = self._weights_per_macro
         tr = (n_logical + weights_per_macro - 1) // weights_per_macro
-        tc = (k_logical + row_num - 1) // row_num
+        tc = (k_logical + input_num - 1) // input_num
 
         self._init_engine_backend(
             inst_shape=(*w_batch, 1, 1, tc, tr),
@@ -110,8 +114,7 @@ class IntraArraySliceCimEngine(CimEngine[IntraArraySliceCimEngineConfig, IntraAr
         x_lo, x_hi = cim_macro.x_value_range
         self._w_slicer = SimpleSlicer(
             slice_num=config.w_slice_num,
-            digit_count=cim_macro.w_digit_count,
-            digit_radix=cim_macro.w_digit_radix,
+            slice_value_range=cim_macro.w_value_range,
             encoding=config.w_encoding,
         )
         self._x_slicer = SerialSlicer(
@@ -155,10 +158,10 @@ class IntraArraySliceCimEngine(CimEngine[IntraArraySliceCimEngineConfig, IntraAr
 
         Returns:
             Tensor of shape
-            ``[..., M=1, Sa=1, Tc, Tr, data_num, D, row_num]``.
-            The trailing ``col_num - (col_num // Sw) * Sw`` cells per macro are zero-padded.
+            ``[..., M=1, Sa=1, Tc, Tr, input_num, output_num]``.
+            The unused output ports are zero-padded.
         """
-        row_num = self.cim_macro.row_num
+        input_num = self.config.input_num
         weights_per_macro = self._weights_per_macro
         idle = self._idle_per_macro
 
@@ -167,33 +170,33 @@ class IntraArraySliceCimEngine(CimEngine[IntraArraySliceCimEngineConfig, IntraAr
         n_padded = ((n_logical + weights_per_macro - 1) // weights_per_macro) * weights_per_macro
         tr = n_padded // weights_per_macro
 
-        # Shape: [..., N, K] -> [..., N, K, Sw, D]
+        # Shape: [..., N, K] -> [..., N, K, Sw]
         sliced = self._w_slicer.slice(weight)
 
-        # Shape: [..., N, K, Sw, D] -> [..., n_padded, K, Sw, D]
+        # Shape: [..., N, K, Sw] -> [..., n_padded, K, Sw]
         n_pad = n_padded - n_logical
         if n_pad > 0:
-            sliced = F.pad(sliced, (0, 0, 0, 0, 0, 0, 0, n_pad))
+            sliced = F.pad(sliced, (0, 0, 0, 0, 0, n_pad))
 
-        # Shape: [..., n_padded, K, Sw, D] -> [..., Tr, weights_per_macro, K, Sw, D]
-        unflat = sliced.unflatten(-4, (tr, weights_per_macro))
+        # Shape: [..., n_padded, K, Sw] -> [..., Tr, weights_per_macro, K, Sw]
+        unflat = sliced.unflatten(-3, (tr, weights_per_macro))
 
-        # Shape: [..., Tr, weights_per_macro, K, Sw, D] -> [..., Tr, weights_per_macro, Tc, row_num, Sw, D]
-        tiled = _chunk_pad_along(unflat, axis=-3, chunk_size=row_num, pad_value=0)
+        # Shape: [..., Tr, weights_per_macro, K, Sw] -> [..., Tr, weights_per_macro, Tc, input_num, Sw]
+        tiled = _chunk_pad_along(unflat, axis=-2, chunk_size=input_num, pad_value=0)
 
-        # Shape: [..., Tr, weights_per_macro, Tc, row_num, Sw, D] -> [..., Tc, Tr, weights_per_macro, Sw, D, row_num]
-        b = tiled.ndim - 6
-        perm = [*range(b), b + 2, b + 0, b + 1, b + 4, b + 5, b + 3]
+        # Shape: [..., Tr, weights_per_macro, Tc, input_num, Sw] -> [..., Tc, Tr, input_num, weights_per_macro, Sw]
+        b = tiled.ndim - 5
+        perm = [*range(b), b + 2, b + 0, b + 3, b + 1, b + 4]
         arranged = tiled.permute(perm)
 
-        # Shape: [..., Tc, Tr, weights_per_macro, Sw, D, row_num] -> [..., Tc, Tr, weights_per_macro*Sw, D, row_num]
-        merged = arranged.flatten(start_dim=b + 2, end_dim=b + 3)
+        # Shape: [..., Tc, Tr, input_num, weights_per_macro, Sw] -> [..., Tc, Tr, input_num, weights_per_macro*Sw]
+        merged = arranged.flatten(start_dim=b + 3, end_dim=b + 4)
 
-        # Shape: [..., Tc, Tr, weights_per_macro*Sw, D, row_num] -> [..., Tc, Tr, data_num, D, row_num]
+        # Shape: [..., Tc, Tr, input_num, weights_per_macro*Sw] -> [..., Tc, Tr, input_num, output_num]
         if idle > 0:
-            merged = F.pad(merged, (0, 0, 0, 0, 0, idle))
+            merged = F.pad(merged, (0, idle))
 
-        # Shape: [..., Tc, Tr, data_num, D, row_num] -> [..., M=1, Sa=1, Tc, Tr, data_num, D, row_num]
+        # Shape: [..., Tc, Tr, input_num, output_num] -> [..., M=1, Sa=1, Tc, Tr, input_num, output_num]
         return merged.unsqueeze(b).unsqueeze(b)
 
     def _organize_x(self, x: Tensor) -> Tensor:
@@ -203,20 +206,18 @@ class IntraArraySliceCimEngine(CimEngine[IntraArraySliceCimEngineConfig, IntraAr
             x: Integer activation tensor of shape ``[..., M, K]``.
 
         Returns:
-            Tensor of shape ``[..., M, Sa, Tc, Tr=1, row_num]``.
+            Tensor of shape ``[..., M, Sa, Tc, Tr=1, input_num]``.
         """
-        # Shape: [..., M, K] -> [..., M, K, Sa, digit_count=1]
+        # Shape: [..., M, K] -> [..., M, K, Sa]
         sliced = self._x_slicer.slice(x)
 
-        # Shape: [..., M, K, Sa, digit_count=1] -> [..., M, Tc, row_num, Sa, digit_count=1]
-        tiled = _chunk_pad_along(sliced, axis=-3, chunk_size=self.cim_macro.row_num, pad_value=0)
+        # Shape: [..., M, K, Sa] -> [..., M, Tc, input_num, Sa]
+        tiled = _chunk_pad_along(sliced, axis=-2, chunk_size=self.config.input_num, pad_value=0)
 
-        # Shape: [..., M, Tc, row_num, Sa, digit_count=1] -> [..., M, Tc, row_num, Sa]
-        squeezed = tiled.squeeze(-1)
-        # Shape: [..., M, Tc, row_num, Sa] -> [..., M, Sa, Tc, row_num]
-        b = squeezed.ndim - 4
-        permuted = squeezed.permute([*range(b), b + 0, b + 3, b + 1, b + 2])
-        # Shape: [..., M, Sa, Tc, row_num] -> [..., M, Sa, Tc, Tr=1, row_num]
+        # Shape: [..., M, Tc, input_num, Sa] -> [..., M, Sa, Tc, input_num]
+        b = tiled.ndim - 4
+        permuted = tiled.permute([*range(b), b + 0, b + 3, b + 1, b + 2])
+        # Shape: [..., M, Sa, Tc, input_num] -> [..., M, Sa, Tc, Tr=1, input_num]
         return permuted.unsqueeze(b + 3)
 
     @torch.no_grad()
@@ -226,17 +227,17 @@ class IntraArraySliceCimEngine(CimEngine[IntraArraySliceCimEngineConfig, IntraAr
         used = self._used_data_num
         sw = self.config.w_slice_num
 
-        # Shape: [..., M, K] -> [..., M, Sa, Tc, Tr=1, row_num]
+        # Shape: [..., M, K] -> [..., M, Sa, Tc, Tr=1, input_num]
         x = self._organize_x(input)
 
-        # Shape: [..., M, Sa, Tc, Tr, row_num] -> [..., P, M, Sa, Tc, Tr, row_num]
-        planes = self._unroll_sub_phase(x)
+        # Shape: [..., M, Sa, Tc, Tr, input_num] -> [..., P, M, Sa, Tc, Tr, input_num]
+        phases = self._unroll_input_phase(x)
         # Weight-batch axes are materialized by broadcast against the instance grid.
-        # Shape: [..., P, M, Sa, Tc, Tr, row_num] -> [..., P, *w_batch, M, Sa, Tc, Tr, data_num]
-        y = self.cim_macro.vec_mat_mul(planes, adc_mode=adc_mode, adc_bits=adc_bits).to(torch.int64)
-        # Shape: [..., P, *w_batch, M, Sa, Tc, Tr, data_num] -> [..., *w_batch, M, Sa, Tc, Tr, data_num]
-        y = self.phase_accumulator.accumulate(y, dim=self._sub_phase_dim)
-        # Shape: [..., M, Sa, Tc, Tr, data_num=col_num] -> [..., M, Sa, Tc, Tr, weights_per_macro*Sw]
+        # Shape: [..., P, M, Sa, Tc, Tr, input_num] -> [..., P, *w_batch, M, Sa, Tc, Tr, output_num]
+        y = self.cim_macro.vec_mat_mul(phases, adc_mode=adc_mode, adc_bits=adc_bits).to(torch.int64)
+        # Shape: [..., P, *w_batch, M, Sa, Tc, Tr, output_num] -> [..., *w_batch, M, Sa, Tc, Tr, output_num]
+        y = self.phase_accumulator.accumulate(y, dim=self._input_phase_dim)
+        # Shape: [..., M, Sa, Tc, Tr, output_num] -> [..., M, Sa, Tc, Tr, weights_per_macro*Sw]
         y = y[..., :used]
         # Shape: [..., M, Sa, Tc, Tr, weights_per_macro*Sw] -> [..., M, Sa, Tc, Tr, weights_per_macro, Sw_real]
         y = y.unflatten(-1, (weights_per_macro, sw))

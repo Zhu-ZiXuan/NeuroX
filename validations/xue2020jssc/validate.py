@@ -64,7 +64,6 @@ from pathlib import Path
 
 import torch
 
-from neurox.common.encoding import TrueFormTranscoder
 from neurox.common.profiler import NeuroxProfiler, ProfilerReport
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
 from neurox.works.macro.cim.xue2020jssc import Xue2020JsscCimMacro
@@ -107,9 +106,10 @@ _STATIC_NAMES: dict[str, tuple[str, ...]] = {
 
 # The framework transcoder program() consumes: sign-magnitude, radix 2, two
 # magnitude digits (LSB-first) -> a 3-bit signed weight.
-_TRANSCODER = TrueFormTranscoder(radix=2, digit_count=2)
 _ADC_MODE = 0
 _ADC_BITS = 3
+_ROW_NUM = 256
+_COL_NUM = 128
 
 _FJ_PER_PJ = 1000.0
 
@@ -123,7 +123,15 @@ def build_macro(params_path: Path, policy_path: Path, *, device: torch.device) -
     """Build + fabricate the sub-array at ``inst_shape=()``, float32, eval mode."""
     config = CimMacroConfig.from_file(params_path, section="cim_macro")
     policy = CimMacroPolicy.from_file(policy_path, section="policy")
-    macro = CimMacro.from_config(config=config, policy=policy, inst_shape=(), dtype=torch.float32, T__K=300.0)
+    macro = CimMacro.from_config(
+        config=config,
+        policy=policy,
+        input_num=_ROW_NUM,
+        output_num=_COL_NUM,
+        inst_shape=(),
+        dtype=torch.float32,
+        T__K=300.0,
+    )
     assert isinstance(macro, Xue2020JsscCimMacro)
     macro.to(device)
     macro.eval()
@@ -131,14 +139,27 @@ def build_macro(params_path: Path, policy_path: Path, *, device: torch.device) -
     return macro
 
 
-def _draw_weight(gen: torch.Generator, *, col_num: int, row_num: int, lo: int, hi: int) -> torch.Tensor:
-    """Value-uniform signed weights ``[col, row]`` in ``[lo, hi]`` -> LSB-first digit layout."""
-    w_signed = torch.randint(lo, hi + 1, (col_num, row_num), generator=gen, dtype=torch.long, device=gen.device)
-    return _TRANSCODER.encode(w_signed, dim=-2)
+def _draw_weight(gen: torch.Generator, *, input_num: int, output_num: int, lo: int, hi: int) -> torch.Tensor:
+    """Value-uniform logical weights ``[input_num, output_num]``."""
+    return torch.randint(
+        lo,
+        hi + 1,
+        (input_num, output_num),
+        generator=gen,
+        dtype=torch.long,
+        device=gen.device,
+    )
 
 
 def _draw_input(
-    gen: torch.Generator, *, batch: int, row_num: int, active_row_num: int, lo: int, hi: int, p_zero: float
+    gen: torch.Generator,
+    *,
+    batch: int,
+    input_num: int,
+    max_active_num: int,
+    lo: int,
+    hi: int,
+    p_zero: float,
 ) -> torch.Tensor:
     """Value-uniform inputs ``[batch, row]`` in ``[lo, hi]`` with an EXTRA Bernoulli zeroing at ``p_zero``.
 
@@ -147,11 +168,11 @@ def _draw_input(
     ``P(x=0) = f0 + (1 - f0) * p_zero`` for the base rate ``f0 = 1/(hi-lo+1)``, NOT
     ``p_zero`` itself. Inactive rows (``>= active_row_num``) are forced to zero.
     """
-    x = torch.randint(lo, hi + 1, (batch, row_num), generator=gen, dtype=torch.long, device=gen.device)
+    x = torch.randint(lo, hi + 1, (batch, input_num), generator=gen, dtype=torch.long, device=gen.device)
     if p_zero > 0.0:
-        drop = torch.rand((batch, row_num), generator=gen, device=gen.device) < p_zero
+        drop = torch.rand((batch, input_num), generator=gen, device=gen.device) < p_zero
         x = torch.where(drop, torch.zeros_like(x), x)
-    x[:, active_row_num:] = 0
+    x[:, max_active_num:] = 0
     return x
 
 
@@ -244,12 +265,20 @@ def measure(
     n_samples = 0
     with NeuroxProfiler() as prof, torch.no_grad():
         for _ in range(n_w):
-            macro.program(_draw_weight(gen, col_num=macro.col_num, row_num=cfg.row_num, lo=w_lo, hi=w_hi))
+            macro.program(
+                _draw_weight(
+                    gen,
+                    input_num=macro.row_num,
+                    output_num=macro.col_num,
+                    lo=w_lo,
+                    hi=w_hi,
+                )
+            )
             x = _draw_input(
                 gen,
                 batch=batch,
-                row_num=cfg.row_num,
-                active_row_num=cfg.active_row_num,
+                input_num=macro.row_num,
+                max_active_num=cfg.max_active_num,
                 lo=x_lo,
                 hi=x_hi,
                 p_zero=p_zero,

@@ -68,6 +68,8 @@ def test_params_config_parses_and_builds() -> None:
     macro = CimMacro.from_config(
         config=config,
         policy=policy,
+        input_num=256,
+        output_num=128,
         inst_shape=(),
         dtype=torch.float32,
         T__K=300.0,

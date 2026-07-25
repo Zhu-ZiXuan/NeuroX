@@ -1,8 +1,8 @@
 """Eager integer-MAC transfer test for the xue2020jssc SINWP 1T1R CIM sub-array.
 
 Verifies the calibrated read chain decodes the signed integer MAC exactly on the
-hand-built near-ideal witness macro (``_utils.build_config``: ``col_num = 4`` ->
-``io_num = 2`` at ``mux_factor = 2``, ``row_num = active_row_num = 4``,
+hand-built near-ideal witness macro (``_utils.build_config``: ``output_num = 4`` ->
+``io_num = 2`` at ``mux_factor = 2``, ``input_num = max_active_num = 4``,
 ``input_bit_num = 2``, 3-bit ADC). The macro consumes K-bit integer activations
 directly (it runs the K serial WL sub-phases internally, LSB first) and returns
 signed-magnitude codes; the reference is the CPU int64 unit-role MAC
@@ -39,10 +39,9 @@ from neurox.works.macro.cim.xue2020jssc import Xue2020JsscCimMacro
 from ._utils import (
     MAG_MAX,
     TINY_ADC_BITS,
-    TINY_COL_NUM,
+    TINY_INPUT_NUM,
     TINY_K,
-    TINY_ROW_NUM,
-    TRANSCODER,
+    TINY_OUTPUT_NUM,
     build_calibrated_macro,
     decode,
     ideal_mac,
@@ -92,12 +91,12 @@ def test_grid_monotone_and_thresholds_consistent(device: torch.device) -> None:
 def test_single_row_input_sweep_monotone(device: torch.device) -> None:
     """A single ``+1`` row swept over inputs ``0..2**K - 1`` decodes strictly monotone == x."""
     macro = build_calibrated_macro(device=device)
-    w = torch.zeros((TINY_COL_NUM, TINY_ROW_NUM), dtype=torch.long)
-    w[0, 0] = 1  # one active weight on column 0, row 0
+    w = torch.zeros((TINY_INPUT_NUM, TINY_OUTPUT_NUM), dtype=torch.long)
+    w[0, 0] = 1
 
     codes: list[int] = []
     for v in range(1 << TINY_K):
-        x = torch.zeros((TINY_ROW_NUM,), dtype=torch.long)
+        x = torch.zeros((TINY_INPUT_NUM,), dtype=torch.long)
         x[0] = v
         out = _assert_decode_matches_ideal(macro, w, x)
         codes.append(int(out[0]))
@@ -108,15 +107,14 @@ def test_single_row_input_sweep_monotone(device: torch.device) -> None:
 def test_saturation_clips_at_magnitude_max(device: torch.device) -> None:
     """Beyond ``+-(2**adc_bits - 1)`` the signed-magnitude code saturates, both signs."""
     macro = build_calibrated_macro(device=device)
-    x_full = torch.full((TINY_ROW_NUM,), (1 << TINY_K) - 1, dtype=torch.long)  # x = 3 everywhere
+    x_full = torch.full((TINY_INPUT_NUM,), (1 << TINY_K) - 1, dtype=torch.long)
 
-    # All +3 weights, x = 3 -> true MAC 4*3*3 = 36, clips at +7.
-    w_pos = torch.full((TINY_COL_NUM, TINY_ROW_NUM), 3, dtype=torch.long)
+    w_pos = torch.full((TINY_INPUT_NUM, TINY_OUTPUT_NUM), 3, dtype=torch.long)
     out_pos = _assert_decode_matches_ideal(macro, w_pos, x_full)
     assert bool((out_pos == MAG_MAX).all()), out_pos.tolist()
 
     # All -3 weights -> clips at -7.
-    w_neg = torch.full((TINY_COL_NUM, TINY_ROW_NUM), -3, dtype=torch.long)
+    w_neg = torch.full((TINY_INPUT_NUM, TINY_OUTPUT_NUM), -3, dtype=torch.long)
     out_neg = _assert_decode_matches_ideal(macro, w_neg, x_full)
     assert bool((out_neg == -MAG_MAX).all()), out_neg.tolist()
 
@@ -124,16 +122,16 @@ def test_saturation_clips_at_magnitude_max(device: torch.device) -> None:
 def test_full_column_input_sweep_saturates_monotone(device: torch.device) -> None:
     """A full ``+1`` column swept over uniform inputs decodes non-decreasing into saturation."""
     macro = build_calibrated_macro(device=device)
-    w = torch.zeros((TINY_COL_NUM, TINY_ROW_NUM), dtype=torch.long)
-    w[0, :] = 1  # every row of column 0 active
+    w = torch.zeros((TINY_INPUT_NUM, TINY_OUTPUT_NUM), dtype=torch.long)
+    w[:, 0] = 1
 
     summed: list[int] = []
     for v in range(1 << TINY_K):
-        x = torch.full((TINY_ROW_NUM,), v, dtype=torch.long)  # uniform input -> MAC = row_num * v
+        x = torch.full((TINY_INPUT_NUM,), v, dtype=torch.long)
         out = _assert_decode_matches_ideal(macro, w, x)
         summed.append(int(out[0]))
     assert summed == sorted(summed), f"non-monotone sweep: {summed}"
-    assert summed[-1] == MAG_MAX  # row_num * (2**K - 1) = 12 clips at 7
+    assert summed[-1] == MAG_MAX
 
 
 # ---------------------------------------------------------------------------
@@ -147,14 +145,17 @@ def test_zero_weight_and_zero_input_decode_zero(device: torch.device) -> None:
 
     # No active weight, non-zero input: both polarity legs carry only the
     # exact-zero HRS branch, so I_SUB sits below the first threshold.
-    w_zero = torch.zeros((TINY_COL_NUM, TINY_ROW_NUM), dtype=torch.long)
+    w_zero = torch.zeros((TINY_INPUT_NUM, TINY_OUTPUT_NUM), dtype=torch.long)
     x_some = torch.tensor([1, 2, 3, 1], dtype=torch.long)
     out = _assert_decode_matches_ideal(macro, w_zero, x_some)
     assert int(out.abs().sum()) == 0
 
     # Active weight, zero input: no word line on, no MAC in any column.
-    w_some = torch.tensor([[1, 1, -1, 0], [-2, 1, 0, 0], [3, -1, 0, 0], [0, 0, 0, 0]], dtype=torch.long)
-    out = _assert_decode_matches_ideal(macro, w_some, torch.zeros((TINY_ROW_NUM,), dtype=torch.long))
+    w_some = torch.tensor(
+        [[1, 1, -1, 0], [-2, 1, 0, 0], [3, -1, 0, 0], [0, 0, 0, 0]],
+        dtype=torch.long,
+    ).transpose(-1, -2)
+    out = _assert_decode_matches_ideal(macro, w_some, torch.zeros((TINY_INPUT_NUM,), dtype=torch.long))
     assert int(out.abs().sum()) == 0
 
 
@@ -169,7 +170,7 @@ def test_mixed_sign_columns(device: torch.device) -> None:
             [0, 0, 0, 0],  # MAC = 0
         ],
         dtype=torch.long,
-    )
+    ).transpose(-1, -2)
     x = torch.tensor([1, 2, 1, 0], dtype=torch.long)
     out = _assert_decode_matches_ideal(macro, w, x)
     assert out.tolist() == [2, 0, 1, 0]
@@ -179,10 +180,10 @@ def test_random_batch_bit_exact(device: torch.device) -> None:
     """Random signed weights x a random input batch decode the clamped ideal MAC bit-exactly."""
     macro = build_calibrated_macro(device=device)
     torch.manual_seed(7)
-    w = torch.randint(-3, 4, (TINY_COL_NUM, TINY_ROW_NUM), dtype=torch.long)
-    x = torch.randint(0, 1 << TINY_K, (6, TINY_ROW_NUM), dtype=torch.long)  # batch (6,)
+    w = torch.randint(-3, 4, (TINY_INPUT_NUM, TINY_OUTPUT_NUM), dtype=torch.long)
+    x = torch.randint(0, 1 << TINY_K, (6, TINY_INPUT_NUM), dtype=torch.long)
     out = _assert_decode_matches_ideal(macro, w, x)
-    assert tuple(out.shape) == (6, TINY_COL_NUM)
+    assert tuple(out.shape) == (6, TINY_OUTPUT_NUM)
 
 
 # ---------------------------------------------------------------------------
@@ -199,14 +200,13 @@ def test_w_digit_num_1_ternary_transfer(device: torch.device) -> None:
     transcoder from the macro's own geometry.
     """
     macro = build_calibrated_macro(device=device, w_digit_num=1)
-    assert macro.w_digit_count == 1
-    assert macro.w_digit_value_range == (-1, 1)
+    assert macro.w_value_range == (-1, 1)
 
     torch.manual_seed(11)
-    w = torch.randint(-1, 2, (TINY_COL_NUM, TINY_ROW_NUM), dtype=torch.long)  # ternary
-    x = torch.randint(0, 1 << TINY_K, (5, TINY_ROW_NUM), dtype=torch.long)  # batch (5,)
+    w = torch.randint(-1, 2, (TINY_INPUT_NUM, TINY_OUTPUT_NUM), dtype=torch.long)
+    x = torch.randint(0, 1 << TINY_K, (5, TINY_INPUT_NUM), dtype=torch.long)
     out = _assert_decode_matches_ideal(macro, w, x)
-    assert tuple(out.shape) == (5, TINY_COL_NUM)
+    assert tuple(out.shape) == (5, TINY_OUTPUT_NUM)
     # Both signs are exercised somewhere in the random draw.
     assert int(out.min()) < 0 and int(out.max()) > 0
 
@@ -226,11 +226,6 @@ def test_asymmetric_weight_regression_lsb_first(device: torch.device) -> None:
     match is the LSB-first guard.
     """
     macro = build_calibrated_macro(device=device)
-    # Digit layout must be LSB-first (digit 0 = LSB) so MSB carries 2x place value.
-    d1 = TRANSCODER.encode(torch.tensor(1, dtype=torch.long), dim=-1).tolist()  # value 1 -> [1, 0]
-    d2 = TRANSCODER.encode(torch.tensor(2, dtype=torch.long), dim=-1).tolist()  # value 2 -> [0, 1]
-    assert d1 == [1, 0] and d2 == [0, 1], (d1, d2)
-
     x = torch.tensor([1, 2, 2, 2], dtype=torch.long)  # per-row inputs
     w = torch.tensor(
         [
@@ -240,7 +235,7 @@ def test_asymmetric_weight_regression_lsb_first(device: torch.device) -> None:
             [1, -1, 2, 3],  # MAC = 1*1 - 1*2 + 2*2 + 3*2 = 9 -> clips at 7
         ],
         dtype=torch.long,
-    )
+    ).transpose(-1, -2)
     out = _assert_decode_matches_ideal(macro, w, x)
     # Cross-check the hand-computed ideal (with the clip) explicitly.
     assert out.tolist() == [1, -1, 6, 7]
@@ -260,7 +255,7 @@ def test_lsb_first_place_value_single_row(device: torch.device) -> None:
         if m > (1 << macro.config.w_digit_num) - 1:
             break  # weight magnitude bounded by the 2-digit radix-2 envelope (max 3)
         for sign in (+1, -1):
-            w = torch.zeros((TINY_COL_NUM, TINY_ROW_NUM), dtype=torch.long)
+            w = torch.zeros((TINY_INPUT_NUM, TINY_OUTPUT_NUM), dtype=torch.long)
             w[0, 0] = sign * m
             out = _assert_decode_matches_ideal(macro, w, x)
             assert int(out[0]) == sign * m, f"weight {sign * m} decoded {int(out[0])}"

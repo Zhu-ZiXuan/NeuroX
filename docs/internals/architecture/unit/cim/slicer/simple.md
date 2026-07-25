@@ -2,25 +2,24 @@
 
 ## Design decisions
 
-- **Encode once, group once.** `SimpleSlicer` encodes a value into one digit
-  string of length `slice_num * digit_count`, then unflattens that string into
-  the trailing `[slice_num, digit_count]` lattice. It does not run one
-  transcoder per slice.
-- **Encoding selects the complete-value range.** The owned transcoder determines
-  `value_range`; the slicer only exposes it and groups the digits.
+- **One slice is one macro-level logical value.** `slice_value_range` describes
+  what one macro can accept. The slicer infers the positional radix compatible
+  with that carrier range and emits one value per slice.
+- **Macro-internal encoding remains hidden.** The slicer never reads or emits
+  the macro's physical digit representation.
 
 ## Contracts & invariants
 
-- For digit radix $r$ and $D$ digits per slice, `slice_radix` is $r^D$ and
-  `slice_weights` is the least-significant-first positional sequence over that
-  radix.
-- `slice(x)` returns shape `x.shape + (slice_num, digit_count)`.
+- `slice_weights` is the least-significant-first sequence over `slice_radix`.
+- `slice(x)` returns shape `x.shape + (slice_num,)`.
+- Symmetric carrier ranges `[-(R-1), R-1]` imply slice radix $R$. Unsigned
+  `[0, R-1]` carriers use true-form encoding and publish `[0, R^S-1]`.
 - The value range is a caller contract; this member does not clamp or reject an
   out-of-range input.
 
 ## Performance & resources
 
-The value path performs one transcoder pass followed by one `unflatten`.
+The value path performs one transcoder pass.
 
 ---
 

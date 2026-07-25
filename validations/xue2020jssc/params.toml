@@ -40,15 +40,13 @@
 [cim_macro]
 _neurox_class = "Xue2020JsscCimMacroConfig"
 
-# --- Tile size (spec S1: one 256x512 sub-array) ---
-# phys_col_num = col_num * w_digit_num * 2 = 128 * 2 * 2 = 512 physical columns
-# (a P/N cell per magnitude digit); io_num = col_num // mux_factor = 4 CIM-IOs.
-col_num = 128                     # [sourced] 128 signed weights / sub-array
-row_num = 256                     # [sourced] 256 rows / sub-array
+# --- Activation limit (spec S1: one 256-input x 128-output macro) ---
+# The owner supplies input_num=256 and output_num=128 at construction. Internally,
+# row_num=256 and col_num=128, yielding 512 physical columns and 4 CIM-IOs.
 # [sourced] 3x3-kernel row-block size activated per conversion; the engine (not
 # the macro) serializes across row blocks. Instantaneous conducting rows are
 # data-driven (WL on iff that input bit = 1).
-active_row_num = 9
+max_active_num = 9
 
 # --- Weight / input geometry (fixed by the DSWCT MSB/LSB two-leg structure) ---
 w_digit_num = 2                   # [sourced] 2 magnitude digits (MSB/LSB two-mirror)

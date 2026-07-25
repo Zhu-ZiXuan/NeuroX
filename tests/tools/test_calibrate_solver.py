@@ -240,4 +240,4 @@ class TestShippedRunConfig:
         cfg = CalibrateSolverNestedConfig.from_file(_SHIPPED_RUN_TOML)
         config_paths, _policy_path = resolve_macro_files(cfg.macro, base=_SHIPPED_RUN_TOML)
         macro_dict = load_macro_config_dict(config_paths, config_section=cfg.macro.config_section)
-        assert cfg.workload.active_rows == macro_dict["active_row_num"]
+        assert cfg.workload.active_rows == macro_dict["max_active_num"]

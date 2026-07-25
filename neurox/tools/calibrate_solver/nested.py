@@ -238,13 +238,21 @@ def main(argv: list[str] | None = None) -> int:
     base_macro_dict = load_macro_config_dict(config_paths, config_section=cfg.macro.config_section)
     policy = CimMacroPolicy.from_file(policy_path, section=cfg.macro.policy_section)
     base_config = CimMacroConfig.from_dict(base_macro_dict)
-    sampling_host = build_calibration_macro(base_config, policy, device=device, inst_shape=inst_shape, dtype=dtype)
+    sampling_host = build_calibration_macro(
+        base_config,
+        policy,
+        input_num=cfg.macro.input_num,
+        output_num=cfg.macro.output_num,
+        device=device,
+        inst_shape=inst_shape,
+        dtype=dtype,
+    )
 
     active_rows = cfg.workload.active_rows
-    if not (1 <= active_rows <= sampling_host.row_num):
+    if not (1 <= active_rows <= cfg.macro.input_num):
         raise SystemExit(
             f"[workload].active_rows ({active_rows}) must satisfy 1 <= active_rows <= row_num "
-            f"({sampling_host.row_num})."
+            f"({cfg.macro.input_num})."
         )
 
     distribution_path = resolve_relative_path(cfg.workload.distribution, args.config)
@@ -258,7 +266,7 @@ def main(argv: list[str] | None = None) -> int:
         cfg.workload.input_samples_per_weight,
         cfg.workload.batch_w,
         active_rows,
-        sampling_host.row_num,
+        cfg.macro.input_num,
     )
     log.info(
         "criteria: ratio_threshold=%.3f, reltol=%.1e, outer_margin=%d, inner_margin=%d",
@@ -274,6 +282,8 @@ def main(argv: list[str] | None = None) -> int:
         solver_section=cfg.macro.solver_section,
         policy=policy,
         sampling_host=sampling_host,
+        input_num=cfg.macro.input_num,
+        output_num=cfg.macro.output_num,
         inst_shape=inst_shape,
         dtype=dtype,
         active_rows=active_rows,

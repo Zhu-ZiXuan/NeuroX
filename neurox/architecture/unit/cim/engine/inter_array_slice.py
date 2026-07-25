@@ -12,6 +12,7 @@ import torch
 from torch import Tensor
 
 from neurox.architecture.unit.cim.slicer import SerialSlicer, SimpleSlicer
+from neurox.common.encoding import Encoding
 from neurox.primitive.digital import (
     Accumulator,
     DigitalPolicy,
@@ -29,12 +30,14 @@ class InterArraySliceCimEngineConfig(CimEngineConfig):
     Attributes:
         w_slice_num: Per-weight Sw slice count.
         x_slice_num: Per-activation Sa slice count.
+        w_encoding: Positional encoding across macro-level weight slices.
         sa_shift_adder_config: Sa-axis intra-xbar shift-adder config.
         sw_shift_adder_config: Sw-axis cross-xbar shift-adder config.
     """
 
     w_slice_num: int
     x_slice_num: int
+    w_encoding: Encoding
 
     sa_shift_adder_config: ShiftAdderConfig
     sw_shift_adder_config: ShiftAdderConfig
@@ -77,13 +80,12 @@ class InterArraySliceCimEngine(CimEngine[InterArraySliceCimEngineConfig, InterAr
             T__K=T__K,
             ideal_macro=ideal_macro,
         )
-        cim_macro_config = config.cim_macro_config
-        col_num = cim_macro_config.col_num
-        row_num = cim_macro_config.row_num
+        input_num = config.input_num
+        output_num = config.output_num
 
         *w_batch, n_logical, k_logical = w_logical_shape
-        tr = (n_logical + col_num - 1) // col_num
-        tc = (k_logical + row_num - 1) // row_num
+        tr = (n_logical + output_num - 1) // output_num
+        tc = (k_logical + input_num - 1) // input_num
         sw = config.w_slice_num
 
         self._init_engine_backend(
@@ -102,8 +104,7 @@ class InterArraySliceCimEngine(CimEngine[InterArraySliceCimEngineConfig, InterAr
         x_lo, x_hi = cim_macro.x_value_range
         self._w_slicer = SimpleSlicer(
             slice_num=config.w_slice_num,
-            digit_count=cim_macro.w_digit_count,
-            digit_radix=cim_macro.w_digit_radix,
+            slice_value_range=cim_macro.w_value_range,
             encoding=config.w_encoding,
         )
         self._x_slicer = SerialSlicer(
@@ -146,25 +147,25 @@ class InterArraySliceCimEngine(CimEngine[InterArraySliceCimEngineConfig, InterAr
 
         Returns:
             Tensor of shape
-            ``[..., M=1, Sa=1, Sw, Tc, Tr, data_num, D, row_num]``.
+            ``[..., M=1, Sa=1, Sw, Tc, Tr, input_num, output_num]``.
         """
-        col_num = self.cim_macro.col_num
-        row_num = self.cim_macro.row_num
+        input_num = self.config.input_num
+        output_num = self.config.output_num
 
-        # Shape: [..., N, K] -> [..., N, K, Sw, D]
+        # Shape: [..., N, K] -> [..., N, K, Sw]
         sliced = self._w_slicer.slice(weight)
 
-        # Shape: [..., N, K, Sw, D] -> [..., Tr, data_num, K, Sw, D]
-        tiled = _chunk_pad_along(sliced, axis=-4, chunk_size=col_num, pad_value=0)
-        # Shape: [..., Tr, data_num, K, Sw, D] -> [..., Tr, data_num, Tc, row_num, Sw, D]
-        tiled = _chunk_pad_along(tiled, axis=-3, chunk_size=row_num, pad_value=0)
+        # Shape: [..., N, K, Sw] -> [..., Tr, output_num, K, Sw]
+        tiled = _chunk_pad_along(sliced, axis=-3, chunk_size=output_num, pad_value=0)
+        # Shape: [..., Tr, output_num, K, Sw] -> [..., Tr, output_num, Tc, input_num, Sw]
+        tiled = _chunk_pad_along(tiled, axis=-2, chunk_size=input_num, pad_value=0)
 
-        # Shape: [..., Tr, data_num, Tc, row_num, Sw, D] -> [..., Sw, Tc, Tr, data_num, D, row_num]
-        b = tiled.ndim - 6
-        perm = [*range(b), b + 4, b + 2, b + 0, b + 1, b + 5, b + 3]
+        # Shape: [..., Tr, output_num, Tc, input_num, Sw] -> [..., Sw, Tc, Tr, input_num, output_num]
+        b = tiled.ndim - 5
+        perm = [*range(b), b + 4, b + 2, b + 0, b + 3, b + 1]
         arranged = tiled.permute(perm)
 
-        # Shape: [..., Sw, Tc, Tr, data_num, D, row_num] -> [..., M=1, Sa=1, Sw, Tc, Tr, data_num, D, row_num]
+        # Shape: [..., Sw, Tc, Tr, input_num, output_num] -> [..., M=1, Sa=1, Sw, Tc, Tr, input_num, output_num]
         return arranged.unsqueeze(b).unsqueeze(b)
 
     def _organize_x(self, x: Tensor) -> Tensor:
@@ -174,41 +175,39 @@ class InterArraySliceCimEngine(CimEngine[InterArraySliceCimEngineConfig, InterAr
             x: Integer activation tensor of shape ``[..., M, K]``.
 
         Returns:
-            Tensor of shape ``[..., M, Sa, Sw=1, Tc, Tr=1, row_num]``.
+            Tensor of shape ``[..., M, Sa, Sw=1, Tc, Tr=1, input_num]``.
         """
-        # Shape: [..., M, K] -> [..., M, K, Sa, digit_count=1]
+        # Shape: [..., M, K] -> [..., M, K, Sa]
         sliced = self._x_slicer.slice(x)
 
-        # Shape: [..., M, K, Sa, digit_count=1] -> [..., M, Tc, row_num, Sa, digit_count=1]
-        tiled = _chunk_pad_along(sliced, axis=-3, chunk_size=self.cim_macro.row_num, pad_value=0)
+        # Shape: [..., M, K, Sa] -> [..., M, Tc, input_num, Sa]
+        tiled = _chunk_pad_along(sliced, axis=-2, chunk_size=self.config.input_num, pad_value=0)
 
-        # Shape: [..., M, Tc, row_num, Sa, digit_count=1] -> [..., M, Tc, row_num, Sa]
-        squeezed = tiled.squeeze(-1)
-        # Shape: [..., M, Tc, row_num, Sa] -> [..., M, Sa, Tc, row_num]
-        b = squeezed.ndim - 4
-        permuted = squeezed.permute([*range(b), b + 0, b + 3, b + 1, b + 2])
-        # Shape: [..., M, Sa, Tc, row_num] -> [..., M, Sa, Sw=1, Tc, Tr=1, row_num]
+        # Shape: [..., M, Tc, input_num, Sa] -> [..., M, Sa, Tc, input_num]
+        b = tiled.ndim - 4
+        permuted = tiled.permute([*range(b), b + 0, b + 3, b + 1, b + 2])
+        # Shape: [..., M, Sa, Tc, input_num] -> [..., M, Sa, Sw=1, Tc, Tr=1, input_num]
         return permuted.unsqueeze(b + 2).unsqueeze(b + 4)
 
     @torch.no_grad()
     def matmul(self, input: Tensor, *, adc_mode: int, adc_bits: int) -> Tensor:
         n_logical = self._n_logical
 
-        # Shape: [..., M, K] -> [..., M, Sa, Sw=1, Tc, Tr=1, row_num]
+        # Shape: [..., M, K] -> [..., M, Sa, Sw=1, Tc, Tr=1, input_num]
         x = self._organize_x(input)
 
-        # Shape: [..., M, Sa, Sw, Tc, Tr, row_num] -> [..., P, M, Sa, Sw, Tc, Tr, row_num]
-        planes = self._unroll_sub_phase(x)
+        # Shape: [..., M, Sa, Sw, Tc, Tr, input_num] -> [..., P, M, Sa, Sw, Tc, Tr, input_num]
+        phases = self._unroll_input_phase(x)
         # Weight-batch axes are materialized by broadcast against the instance grid.
-        # Shape: [..., P, M, Sa, Sw, Tc, Tr, row_num] -> [..., P, *w_batch, M, Sa, Sw, Tc, Tr, data_num]
-        y = self.cim_macro.vec_mat_mul(planes, adc_mode=adc_mode, adc_bits=adc_bits).to(torch.int64)
-        # Shape: [..., P, *w_batch, M, Sa, Sw, Tc, Tr, data_num] -> [..., *w_batch, M, Sa, Sw, Tc, Tr, data_num]
-        y = self.phase_accumulator.accumulate(y, dim=self._sub_phase_dim)
-        # Shape: [..., M, Sa, Sw, Tc, Tr, data_num] -> [..., M, Sw, Tc, Tr, data_num]
+        # Shape: [..., P, M, Sa, Sw, Tc, Tr, input_num] -> [..., P, *w_batch, M, Sa, Sw, Tc, Tr, output_num]
+        y = self.cim_macro.vec_mat_mul(phases, adc_mode=adc_mode, adc_bits=adc_bits).to(torch.int64)
+        # Shape: [..., P, *w_batch, M, Sa, Sw, Tc, Tr, output_num] -> [..., *w_batch, M, Sa, Sw, Tc, Tr, output_num]
+        y = self.phase_accumulator.accumulate(y, dim=self._input_phase_dim)
+        # Shape: [..., M, Sa, Sw, Tc, Tr, output_num] -> [..., M, Sw, Tc, Tr, output_num]
         y = self.sa_shift_adder.shift_add(y, dim=-5, init_val=None)
-        # Shape: [..., M, Sw, Tc, Tr, data_num] -> [..., M, Tc, Tr, data_num]
+        # Shape: [..., M, Sw, Tc, Tr, output_num] -> [..., M, Tc, Tr, output_num]
         y = self.sw_shift_adder.shift_add(y, dim=-4, init_val=None)
-        # Shape: [..., M, Tc, Tr, data_num] -> [..., M, Tr, data_num]
+        # Shape: [..., M, Tc, Tr, output_num] -> [..., M, Tr, output_num]
         y = self.col_accumulator.accumulate(y, dim=-3)
-        # Shape: [..., M, Tr, data_num] -> [..., M, N]
+        # Shape: [..., M, Tr, output_num] -> [..., M, N]
         return y.flatten(start_dim=-2)[..., :n_logical]

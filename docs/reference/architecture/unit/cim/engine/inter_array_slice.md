@@ -12,7 +12,9 @@ The weight slicing is positional with per-slice radix $R_w$ and the activation s
 
 $$Y_{m,n} = \sum_{t=0}^{T_c-1} \sum_{w=0}^{S_w-1} R_w^{\,w} \left( \sum_{a=0}^{S_a-1} R_a^{\,a}\, P_{m,n}^{(a,w,t)} \right).$$
 
-Each partial read $P_{m,n}^{(a,w,t)}$ is itself the sub-phase accumulation of the tile's per-plane codes ([engine family](family.md)). The reduction order is fixed: the sub-phase accumulate folds first, then the activation-slice shift-add (intra-cycle, serial), then the weight-slice shift-add (cross-plane, weighted sum), then the plain contraction-tile accumulation, leaving the per-output-tile results to concatenate and trim to $N$.
+Each partial read $P_{m,n}^{(a,w,t)}$ is the input-phase accumulation
+of one macro's codes. The reduction order is fixed: input phases,
+activation slices, weight slices, then contraction tiles.
 
 ## Numerical method
 
@@ -30,7 +32,7 @@ N/A at the variant level. ADC quantization and analog non-idealities enter throu
 | `w_slice_num` ($S_w$) | per-weight slice count | — | ≥ 1 | Design |
 | `x_slice_num` ($S_a$) | per-activation slice count | — | ≥ 1 | Design |
 | `w_encoding` | weight encoding (integer-to-digit-string codec; signed-digit only for canonical) | — | — | Design |
-| `phase_accumulator_config` | sub-phase-axis per-tile-port accumulator | — | — | Design |
+| `phase_accumulator_config` | input-phase accumulator per macro output | — | — | Design |
 | `col_accumulator_config` | contraction-tile ($T_c$) accumulator | — | — | Design |
 | `sa_shift_adder_config` | activation-slice ($S_a$) shift-adder | — | — | Design |
 | `sw_shift_adder_config` | weight-slice ($S_w$) cross-plane shift-adder | — | — | Design |

@@ -1,7 +1,7 @@
 """Xue2020 JSSC SINWP 1T1R CIM sub-array — single-file current-mode readout.
 
-Models ONE 256x512 sub-array of the 1-Mb macro of Xue et al. (JSSC 2020). Each of
-the ``col_num`` logical signed weights is a sign-magnitude value (sign +
+Models ONE 256x512 sub-array of the 1-Mb macro of Xue et al. (JSSC 2020). Each
+logical signed weight is a sign-magnitude value (sign +
 ``w_digit_num`` magnitude digits, radix ``w_digit_radix``) carried by
 ``w_digit_num * 2`` physical cells — a P (PWG) and an N (NWG) cell per digit. A
 positive weight programs the PWG digit cells to the magnitude state and the NWG
@@ -43,7 +43,7 @@ input-radix combine, and the PN-ISUB subtraction are pure macro tensor operation
 (:meth:`vec_mat_mul`) — linear current combining is KCL, not a circuit block. No
 mismatch or noise is modeled anywhere.
 
-Geometry is fully DERIVED: the config never stores a physical column count —
+Geometry is fully DERIVED: the config never stores a physical cell-column count —
 ``phys_col_num = col_num * w_digit_num * 2`` and ``io_num = col_num //
 mux_factor``. The DSWCT mirror ratios and the SINWP-SC combine ratios are derived
 DOWNWARD from the two MSB anchors ``dswct_ratio_msb`` and ``sc_ratio_msb``; for
@@ -78,6 +78,7 @@ from __future__ import annotations
 import torch
 from torch import Tensor
 
+from neurox.common.encoding import TrueFormTranscoder
 from neurox.primitive.analog import (
     Iref,
     IrefConfig,
@@ -96,7 +97,11 @@ from neurox.primitive.analog.current_adc import (
     SarIadcPolicy,
 )
 from neurox.primitive.analog.voltage_dac import Vdac, VdacConfig, VdacPolicy
-from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
+from neurox.primitive.macro.cim import (
+    CimMacro,
+    CimMacroConfig,
+    CimMacroPolicy,
+)
 from neurox.primitive.xbar.array import XbarArray1t1r, XbarArray1t1rConfig, XbarArray1t1rPolicy
 
 # ---------------------------------------------------------------------------
@@ -115,16 +120,13 @@ _V_SL_DRIVE__V = 0.0  # SL grounded (paper topology: BL -> RRAM -> SL(GND))
 class Xue2020JsscCimMacroConfig(CimMacroConfig):
     """Configuration for the xue2020jssc SINWP 1T1R CIM sub-array.
 
-    Every physical / PPA field is required — values live in the TOML, never as a
-    code default. The physical column count is NEVER stored: it is derived
-    (:attr:`phys_col_num`) from ``col_num`` and the weight structure. The DSWCT /
-    SINWP-SC ratios are DERIVED from the two MSB anchor fields. The cell, the wire
-    parasitics, and the DC solver live inside :attr:`array_config`.
+    Every physical / PPA field is required; values live in the TOML, never as a
+    code default. The DSWCT / SINWP-SC ratios are derived from the two MSB
+    anchor fields. The cell, wire parasitics, and DC solver live inside
+    :attr:`array_config`.
 
     Attributes:
-        col_num: Number of logical signed-weight columns (paper 128).
-        row_num: Number of rows (paper 256).
-        active_row_num: Row-block size activated per conversion (paper 9); the
+        max_active_num: Input-block size selected per conversion (paper 9); the
             engine, not the macro, serializes across row blocks.
         w_digit_num: Magnitude digits per weight (paper 2); ``>= 1``. A single
             digit (``1``) is one P/N pair with no cross-digit combine.
@@ -236,20 +238,6 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
     # --- ADC calibration ---
     adc_calibration: tuple[AdcCalibrationRecord, ...]
 
-    # -----------------------------------------------------------------
-    # Derived geometry / ratios / windows (never stored)
-    # -----------------------------------------------------------------
-
-    @property
-    def io_num(self) -> int:
-        """Number of CIM-IO sense lanes — ``col_num // mux_factor``."""
-        return self.col_num // self.mux_factor
-
-    @property
-    def phys_col_num(self) -> int:
-        """Physical column count — ``col_num * w_digit_num * 2`` (P/N per digit)."""
-        return self.col_num * self.w_digit_num * _POLARITY_NUM
-
     @property
     def digit_ratios(self) -> tuple[float, ...]:
         """Per-digit DSWCT mirror ratios (LSB-first): ``r_d = dswct_ratio_msb * radix**(d - (D-1))``."""
@@ -318,12 +306,6 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
 
         self._require_pos(self.input_bit_num, "input_bit_num")
         self._require_pos(self.mux_factor, "mux_factor")
-        # The IO regrouping is a reshape, so it needs exact blocking.
-        if self.col_num % self.mux_factor != 0:
-            raise ValueError(
-                f"require: col_num ({self.col_num}) % mux_factor ({self.mux_factor}) == 0 — "
-                "the CIM-IO regrouping is an exact reshape"
-            )
 
         # --- Analog transfer and timing ---
 
@@ -452,8 +434,17 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
     to the polarity matching the sign, and :meth:`vec_mat_mul` drives the array
     solve once (broadcast over the K WL sub-phases), then the DSWCT / SINWP-SC /
     PN-ISUB / TMCSA readout as vectorized tensor operations billed inline at each
-    production site, assembling the signed-magnitude codes with primitive trailing
+    production site, assembling signed-magnitude codes with primitive trailing
     ``[col_num]``.
+
+    Args:
+        config: Macro configuration.
+        policy: Macro nonideality policy.
+        input_num: Logical input length, bound to ``row_num`` during construction.
+        output_num: Logical output length, bound to ``col_num`` during construction.
+        inst_shape: Per-instance multiplicity prefix.
+        dtype: Tensor dtype for internal buffers.
+        T__K: Operating temperature.
     """
 
     # --- Immutable model buffers ---
@@ -466,18 +457,49 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
     _x_bit_ratios: Tensor
     _t_cycle__ns: Tensor
 
+    # --- Internal value encoders ---
+
+    _w_transcoder: TrueFormTranscoder
+    _x_transcoder: TrueFormTranscoder
+
     def __init__(
         self,
         *,
         config: Xue2020JsscCimMacroConfig,
         policy: Xue2020JsscCimMacroPolicy,
+        input_num: int,
+        output_num: int,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
     ) -> None:
-        super().__init__(config=config, policy=policy, inst_shape=inst_shape, dtype=dtype, T__K=T__K)
+        super().__init__(
+            config=config,
+            policy=policy,
+            input_num=input_num,
+            output_num=output_num,
+            inst_shape=inst_shape,
+            dtype=dtype,
+            T__K=T__K,
+        )
+        self.row_num = input_num
+        self.col_num = output_num
+        if self.col_num % config.mux_factor != 0:
+            raise ValueError(
+                f"require: col_num ({self.col_num}) % mux_factor ({config.mux_factor}) == 0 "
+                "(the CIM-IO regrouping is an exact reshape)"
+            )
+        if config.max_active_num > self.row_num:
+            raise ValueError(
+                f"require: max_active_num ({config.max_active_num}) <= row_num ({self.row_num})"
+            )
         self._area_per_inst__um2 = config.area_per_inst__um2
         self._leakage_per_inst__uW = config.leakage_per_inst__uW
+        self._w_transcoder = TrueFormTranscoder(
+            radix=config.w_digit_radix,
+            digit_count=config.w_digit_num,
+        )
+        self._x_transcoder = TrueFormTranscoder(radix=2, digit_count=config.input_bit_num)
         self._init_children(dtype=dtype, T__K=T__K)
         self._register_model_buffers(dtype=dtype)
         self._rescale_lut = {(e.mode, e.bits): e.rescale_factor for e in config.adc_calibration}
@@ -486,7 +508,8 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         """Construct the array, readout chain, and static PPA seats."""
         config = self.config
         policy = self.policy
-        gn = config.io_num
+        gn = self.col_num // config.mux_factor
+        phys_col_num = self.col_num * config.w_digit_num * _POLARITY_NUM
 
         # --- Programmable weights + wire + solver: the 1T1R pure array ---
 
@@ -499,8 +522,8 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
             config=config.array_config,
             policy=policy.array_policy,
             inst_shape=self.inst_shape,
-            col_num=config.phys_col_num,
-            row_num=config.row_num,
+            col_num=phys_col_num,
+            row_num=self.row_num,
             dtype=dtype,
             T__K=T__K,
         )
@@ -510,7 +533,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         self.wl_dac = Vdac.from_config(
             config=config.wl_dac_config,
             policy=policy.wl_dac_policy,
-            inst_shape=(*self.inst_shape, config.row_num),
+            inst_shape=(*self.inst_shape, self.row_num),
             dtype=dtype,
             T__K=T__K,
         )
@@ -608,20 +631,9 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         return (0, (1 << self.config.input_bit_num) - 1)
 
     @property
-    def w_digit_count(self) -> int:
-        """Magnitude digits per weight."""
-        return self.config.w_digit_num
-
-    @property
-    def w_digit_radix(self) -> int:
-        """Positional base of the digit combination."""
-        return self.config.w_digit_radix
-
-    @property
-    def w_digit_value_range(self) -> tuple[int, int]:
-        """Inclusive signed per-digit range — sign-magnitude, ``(-(radix-1), radix-1)``."""
-        mag = self.config.w_digit_radix - 1
-        return (-mag, mag)
+    def w_value_range(self) -> tuple[int, int]:
+        """Inclusive logical sign-magnitude weight range."""
+        return self._w_transcoder.value_range
 
     @property
     def adc_mode_num(self) -> int:
@@ -649,20 +661,29 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
     # -----------------------------------------------------------------
 
     def program(self, w: Tensor) -> None:
-        """Write the grouped array cells from one sign-magnitude digit tensor (LSB-first).
+        """Encode logical weights and write the grouped array cells.
 
-        Maps each logical weight's magnitude digits to its P/N cells: digit value
+        The internal true-form transcoder emits magnitude digits LSB-first.
+        Each digit maps to its P/N cells: digit value
         ``+m`` writes the PWG cell to magnitude state ``m`` and the NWG cell to
-        HRS (state 0); ``-m`` does the reverse; ``0`` leaves both at HRS. The
-        framework transcoder supplies ``w`` LSB-first (digit 0 = LSB), matching the
-        DSWCT/regroup digit order. The grouped cells are folded into the array's
-        flat ``[phys_col, row]`` layout.
+        HRS (state 0); ``-m`` does the reverse; ``0`` leaves both at HRS.
+        The grouped cells are folded into the array's flat
+        ``[phys_col, physical_row]`` layout.
 
         Args:
-            w: Sign-magnitude digit tensor whose shape matches
-                ``self.w_layout_shape = (*inst_shape, col_num, w_digit_count,
-                row_num)``. Entries must lie in :attr:`w_digit_value_range`.
+            w: Logical weight tensor whose shape matches
+                ``(*inst_shape, row_num, col_num)``.
+                Entries must lie in :attr:`w_value_range`.
         """
+        expected_shape = (*self.inst_shape, self.row_num, self.col_num)
+        if tuple(w.shape) != expected_shape:
+            raise ValueError(f"program() expects w.shape {expected_shape}; got {tuple(w.shape)}")
+
+        # Shape: [*, row, col] -> [*, row, col, w_digit_num]
+        w = self._w_transcoder.encode(w, dim=-1)
+        # Shape: [*, row, col, w_digit_num] -> [*, col, w_digit_num, row]
+        w = w.movedim(-3, -1)
+
         # The magnitude routes to the state index (0 -> HRS, m -> the m-th
         # conductance state); the cell's table lookup is the sole digit-range
         # guard (an out-of-range state index crashes there, radix-irrelevant).
@@ -676,7 +697,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         w_pol = torch.stack((pwg, nwg), dim=-3)
         # col = io * mux_factor + slot
         # Shape: [*, col, P/N, digit, row] -> [*, io, slot, P/N, digit, row]
-        w_grouped = w_pol.unflatten(-4, (config.io_num, config.mux_factor))
+        w_grouped = w_pol.unflatten(-4, (self.col_num // config.mux_factor, config.mux_factor))
         # grouped cell layout [group_size, group_num, P/N, digit, row]
         # Shape: [*, io, slot, P/N, digit, row] -> [*, slot, io, P/N, digit, row]
         w_state_idx = w_grouped.transpose(-5, -4).contiguous()
@@ -702,10 +723,10 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         BL/SL ladder.
 
         Args:
-            x: Activation tensor with primitive trailing ``[row_num]``; entries in
-                :attr:`x_value_range`. Rows outside the caller's active window (at most
-                :attr:`max_active_num` live rows per sub-phase) must arrive
-                zeroed. Every leading axis is anonymous broadcast batch.
+            x: Activation tensor with primitive trailing ``[row_num]``;
+                entries in :attr:`x_value_range`. Positions outside the
+                caller-selected set must be zero. Every leading axis is
+                anonymous broadcast batch.
             adc_mode: ADC operating-point index selecting the shared reference
                 mode row; valid values are ``[0, adc_mode_num)``.
             adc_bits: ADC resolution [bits] the TMCSA quantizes at.
@@ -718,7 +739,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         n_x_bits = config.input_bit_num
         v_dd = config.v_dd__V
         gs = config.mux_factor  # column-MUX slot count per IO (group_size)
-        gn = config.io_num  # CIM-IO sense-lane count (group_num)
+        gn = self.col_num // config.mux_factor  # CIM-IO sense-lane count (group_num)
         wd = config.w_digit_num
         x_long = x.long()  # dtype guard for >> and the bit-expand
 
@@ -726,9 +747,8 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
 
         # The x-bit axis lands at -2 so it becomes the last leading axis of the
         # solve, folding into the array's broadcast leading.
-        x_bit_index = torch.arange(n_x_bits, device=x.device).view(n_x_bits, 1)
         # Shape: [*B, row] -> [*B, x_bits, row]
-        planes = (x_long.unsqueeze(-2) >> x_bit_index) & 1
+        planes = self._x_transcoder.encode(x_long, dim=-2)
         v_wl = self.wl_dac.convert(planes)
 
         # --- Step 2: Solve the array once (cells + wire IR drop) -> I_DL ---
@@ -842,4 +862,5 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
 
         # col = io * mux_factor + slot = gn * group_size + gs
         # Shape: [*B, gs, gn] -> [*B, col_num]
-        return signed.transpose(-2, -1).flatten(-2)
+        result: Tensor = signed.transpose(-2, -1).flatten(-2)
+        return result

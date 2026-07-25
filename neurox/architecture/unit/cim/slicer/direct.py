@@ -12,7 +12,7 @@ from .base import Slicer
 
 
 class DirectSlicer(Slicer):
-    """Append one slice axis and one digit axis.
+    """Append one size-one slice axis.
 
     Args:
         value_range: Inclusive integer range represented by the direct path.
@@ -38,14 +38,13 @@ class DirectSlicer(Slicer):
         return (1,)
 
     def slice(self, x: Tensor) -> Tensor:
-        """Append the two structural trailing axes.
+        """Append the structural slice axis.
 
         Args:
             x: Integer tensor.
 
         Returns:
-            ``x`` with two size-1 trailing axes: shape
-            ``[..., slice_num=1, digit_count=1]``, same dtype and values.
+            ``x`` with shape ``[..., slice_num=1]``.
         """
-        # Shape: [...] -> [..., slice_num=1, digit_count=1]
-        return x.unsqueeze(-1).unsqueeze(-1)
+        # Shape: [...] -> [..., slice_num=1]
+        return x.unsqueeze(-1)

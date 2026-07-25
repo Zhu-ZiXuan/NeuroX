@@ -54,6 +54,8 @@ class MacroSection:
     """``[macro]`` section: which tile to build + where its solver table lives.
 
     Attributes:
+        input_num: Logical input-vector length passed to the macro constructor.
+        output_num: Logical output-vector length passed to the macro constructor.
         config_files: Macro config TOML paths in descending merge priority
             (first-wins deep merge, e.g. a geometry overlay on top of the
             scheme default), relative to the tool TOML.
@@ -69,6 +71,8 @@ class MacroSection:
             resolve to a nested-solver config raises.
     """
 
+    input_num: int
+    output_num: int
     config_files: tuple[Path, ...]
     config_section: str
     policy_file: Path
@@ -76,6 +80,10 @@ class MacroSection:
     solver_section: str
 
     def __post_init__(self) -> None:
+        if self.input_num < 1:
+            raise ValueError(f"require: [macro].input_num ({self.input_num}) >= 1")
+        if self.output_num < 1:
+            raise ValueError(f"require: [macro].output_num ({self.output_num}) >= 1")
         if not self.config_files:
             raise ValueError("require: [macro].config_files non-empty")
         if not self.solver_section:
@@ -110,6 +118,8 @@ def _fabricated_macro(
     config: CimMacroConfig,
     policy: CimMacroPolicy,
     *,
+    input_num: int,
+    output_num: int,
     device: torch.device,
     inst_shape: tuple[int, ...],
     dtype: torch.dtype,
@@ -118,6 +128,8 @@ def _fabricated_macro(
     macro = CimMacro.from_config(
         config=config,
         policy=policy,
+        input_num=input_num,
+        output_num=output_num,
         inst_shape=inst_shape,
         dtype=dtype,
         T__K=T_ROOM__K,
@@ -132,12 +144,22 @@ def build_calibration_macro(
     config: CimMacroConfig,
     policy: CimMacroPolicy,
     *,
+    input_num: int,
+    output_num: int,
     device: torch.device,
     inst_shape: tuple[int, ...],
     dtype: torch.dtype,
 ) -> CimMacro:
     """Build the reference tile (geometry query + workload sampling host)."""
-    return _fabricated_macro(config, policy, device=device, inst_shape=inst_shape, dtype=dtype)
+    return _fabricated_macro(
+        config,
+        policy,
+        input_num=input_num,
+        output_num=output_num,
+        device=device,
+        inst_shape=inst_shape,
+        dtype=dtype,
+    )
 
 
 def resolve_solver_table(root: dict[str, Any], solver_section: str) -> dict[str, Any]:
@@ -189,6 +211,8 @@ def build_candidate_macro(
     solver_section: str,
     overrides: dict[str, int],
     policy: CimMacroPolicy,
+    input_num: int,
+    output_num: int,
     device: torch.device,
     inst_shape: tuple[int, ...],
     dtype: torch.dtype,
@@ -205,7 +229,15 @@ def build_candidate_macro(
     table = resolve_solver_table(patched, solver_section)
     table.update(overrides)
     config = CimMacroConfig.from_dict(patched)
-    return _fabricated_macro(config, policy, device=device, inst_shape=inst_shape, dtype=dtype)
+    return _fabricated_macro(
+        config,
+        policy,
+        input_num=input_num,
+        output_num=output_num,
+        device=device,
+        inst_shape=inst_shape,
+        dtype=dtype,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -365,6 +397,7 @@ def _drive_candidate(
     macro: CimMacro,
     workload: list[tuple[Tensor, Tensor]],
     *,
+    input_num: int,
     active_rows: int,
     device: torch.device,
 ) -> _DriveResult:
@@ -384,7 +417,7 @@ def _drive_candidate(
     cell_residual__uA = 0.0
     for w, x in workload:
         macro.program(w.to(device))
-        planes = unroll_sub_phase(x.to(device), row_num=macro.row_num, active_rows=active_rows, inst_rank=inst_rank)
+        planes = unroll_sub_phase(x.to(device), row_num=input_num, active_rows=active_rows, inst_rank=inst_rank)
         with SolverProber() as sp, XbarCell1t1rDetailProber() as cp, torch.no_grad():
             macro.vec_mat_mul(planes, adc_mode=0, adc_bits=macro.adc_max_bits)
         batch_solver = sp.records
@@ -418,6 +451,8 @@ class SolverSweepContext:
     solver_section: str
     policy: CimMacroPolicy
     sampling_host: CimMacro
+    input_num: int
+    output_num: int
     inst_shape: tuple[int, ...]
     dtype: torch.dtype
     active_rows: int
@@ -475,11 +510,19 @@ def aggregate_solver_sweep(
     workload: list[tuple[Tensor, Tensor]] = [
         (w, x)
         for w in sample_w(
-            distribution, host, n=context.n_weight, batch_w=context.batch_w, device=device, generator=generator
+            distribution,
+            host,
+            input_num=context.input_num,
+            output_num=context.output_num,
+            n=context.n_weight,
+            batch_w=context.batch_w,
+            device=device,
+            generator=generator,
         )
         for x in sample_x_batches(
             distribution,
             host,
+            input_num=context.input_num,
             n_total=context.n_input_per_weight,
             batch_size=context.n_input_per_weight,
             device=device,
@@ -499,11 +542,19 @@ def aggregate_solver_sweep(
             solver_section=context.solver_section,
             overrides={**fixed_overrides, swept_key: value},
             policy=context.policy,
+            input_num=context.input_num,
+            output_num=context.output_num,
             device=device,
             inst_shape=context.inst_shape,
             dtype=context.dtype,
         )
-        drive = _drive_candidate(macro, workload, active_rows=context.active_rows, device=device)
+        drive = _drive_candidate(
+            macro,
+            workload,
+            input_num=context.input_num,
+            active_rows=context.active_rows,
+            device=device,
+        )
         records = drive.solver_records
 
         residual = solver_residual_max(records)

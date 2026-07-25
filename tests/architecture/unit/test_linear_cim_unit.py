@@ -15,7 +15,6 @@ from neurox.architecture.unit.cim import (
     LinearCimUnitPolicy,
 )
 from neurox.architecture.unit.cim.engine import CimEngine, DirectCimEngineConfig, DirectCimEnginePolicy
-from neurox.common.encoding import Encoding
 from neurox.common.profiler import NeuroxProfiler
 from neurox.primitive.digital import AccumulatorConfig, SerialAccumulator
 from neurox.primitive.macro.cim import IdealCimMacroConfig, IdealCimMacroPolicy
@@ -33,24 +32,16 @@ _ADC_BITS = 0
 
 def _ideal_macro_config(
     *,
-    col_num: int = 16,
-    row_num: int = 16,
-    active_row_num: int | None = None,
+    max_active_num: int | None = None,
     x_value_range: tuple[int, int] = (0, 1),
-    w_digit_count: int = 1,
-    w_digit_radix: int = 4,
-    w_digit_value_range: tuple[int, int] = (-3, 3),
+    w_value_range: tuple[int, int] = (-3, 3),
 ) -> IdealCimMacroConfig:
     return IdealCimMacroConfig(
-        col_num=col_num,
-        row_num=row_num,
-        active_row_num=row_num if active_row_num is None else active_row_num,
+        max_active_num=16 if max_active_num is None else max_active_num,
         leakage_per_inst__uW=0.0,
         area_per_inst__um2=0.0,
         x_value_range=x_value_range,
-        w_digit_count=w_digit_count,
-        w_digit_radix=w_digit_radix,
-        w_digit_value_range=w_digit_value_range,
+        w_value_range=w_value_range,
         adc_mode_num=1,
         adc_max_bits=0,
     )
@@ -76,8 +67,9 @@ def _unit_config(
         area_per_inst__um2=area_per_inst__um2,
         leakage_per_inst__uW=0.0,
         engine=DirectCimEngineConfig(
+            input_num=16,
+            output_num=16,
             cim_macro_config=_ideal_macro_config() if cim_macro_config is None else cim_macro_config,
-            w_encoding=Encoding.TRUE_FORM,
             phase_accumulator_config=_accumulator_config(energy_per_op__fJ=phase_energy_per_op__fJ),
             col_accumulator_config=_accumulator_config(),
         ),
@@ -172,11 +164,11 @@ def test_linear_lowering_matches_int64_cpu_oracle() -> None:
     assert torch.equal(actual.to(torch.int64), expected)
 
 
-def test_linear_multi_sub_phase_lossless_matches_oracle() -> None:
-    """P = 4: lossless per-sub-phase partials still reduce to the exact product."""
+def test_linear_multi_phase_lossless_matches_oracle() -> None:
+    """P = 4: lossless per-phase partials still reduce to the exact product."""
     torch.manual_seed(400)
     n, k = 13, 20
-    config = _unit_config(cim_macro_config=_ideal_macro_config(active_row_num=4))
+    config = _unit_config(cim_macro_config=_ideal_macro_config(max_active_num=4))
     unit = _build_unit(config, w_logical_shape=(n, k))
     weight = _random_weight(unit, (n, k))
     x = _random_binary((8, k))
@@ -292,18 +284,18 @@ def test_linear_program_rejects_wrong_shape_bias() -> None:
         unit.program(weight, torch.zeros(n + 1, dtype=torch.int32))
 
 
-# --- P > 1 sub-phase accounting ---
+# --- P > 1 input-phase accounting ---
 
 
-def test_linear_phase_accounting_scales_with_sub_phase_num() -> None:
+def test_linear_phase_accounting_scales_with_input_phase_num() -> None:
     """The phase accumulator is a ``SerialAccumulator`` billed per arriving
-    per-sub-phase code: P=2 logs exactly twice the accumulate energy of P=1."""
+    per-phase code: P=2 logs exactly twice the accumulate energy of P=1."""
     torch.manual_seed(700)
     n, k, m = 8, 16, 5
     energies: dict[int, float] = {}
-    for active_row_num in (16, 8):  # P = 1, P = 2
+    for max_active_num in (16, 8):  # P = 1, P = 2
         config = _unit_config(
-            cim_macro_config=_ideal_macro_config(active_row_num=active_row_num),
+            cim_macro_config=_ideal_macro_config(max_active_num=max_active_num),
             phase_energy_per_op__fJ=1.0,
         )
         unit = _build_unit(config, w_logical_shape=(n, k))
@@ -311,7 +303,7 @@ def test_linear_phase_accounting_scales_with_sub_phase_num() -> None:
         unit.program(_random_weight(unit, (n, k)))
         with NeuroxProfiler() as p:
             unit.linear(_random_binary((m, k)), adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
-        energies[unit.engine._sub_phase_num] = sum(
+        energies[unit.engine._input_phase_num] = sum(
             e.dynamic_energy__fJ for e in p.energy_events if e.module is unit.engine.phase_accumulator
         )
     assert energies[1] > 0.0
@@ -326,22 +318,17 @@ def test_linear_config_rejects_negative_ppa() -> None:
         _unit_config(area_per_inst__um2=-1.0)
 
 
-def test_linear_config_rejects_non_divisor_row_blocking() -> None:
-    # The base macro accepts a non-divisible geometry (16 % 6 != 0); the linear
-    # operator reads every row, so LinearCimUnitConfig is where the uniform
-    # row-blocking divisor is enforced.
-    assert _ideal_macro_config(row_num=16, active_row_num=6).active_row_num == 6
-    with pytest.raises(ValueError, match=r"active_row_num"):
-        _unit_config(cim_macro_config=_ideal_macro_config(row_num=16, active_row_num=6))
+def test_linear_config_rejects_non_divisor_input_blocking() -> None:
+    config = _unit_config(cim_macro_config=_ideal_macro_config(max_active_num=6))
+    with pytest.raises(ValueError, match=r"max_active_num"):
+        _build_unit(config, w_logical_shape=(13, 20))
 
 
 def test_direct_engine_leaves_numeric_path_selection_to_macro() -> None:
     config = _unit_config(
         cim_macro_config=_ideal_macro_config(
-            row_num=4224,
-            w_digit_count=3,
-            w_digit_radix=16,
-            w_digit_value_range=(-15, 15),
+            max_active_num=16,
+            w_value_range=(-4095, 4095),
         )
     )
     unit = _build_unit(config, w_logical_shape=(13, 20))

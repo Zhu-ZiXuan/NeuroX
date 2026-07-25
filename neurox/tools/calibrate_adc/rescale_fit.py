@@ -144,7 +144,15 @@ def _fit_one_mode(
             w = sample_ternary_w(gen, col_num=col_num, row_num=row_num, density=w_density)
             for x_density in stimulus.x_densities:
                 x = sample_binary_x(gen, batch=stimulus.x_batch, row_num=row_num, density=x_density)
-                pair = run_paired_stimulus(physical, ideal, w=w, x=x, adc_mode=mode.adc_mode, adc_bits=adc_bits)
+                pair = run_paired_stimulus(
+                    physical,
+                    ideal,
+                    w=w,
+                    x=x,
+                    input_num=row_num,
+                    adc_mode=mode.adc_mode,
+                    adc_bits=adc_bits,
+                )
                 code_parts.append(pair.code)
                 ideal_parts.append(pair.ideal_m.abs())
     code = torch.cat(code_parts)
@@ -287,8 +295,8 @@ def main(argv: list[str] | None = None) -> int:
             mode=mode,
             adc_bits=adc_bits,
             stimulus=cfg.stimulus,
-            row_num=physical.row_num,
-            col_num=physical.col_num,
+            row_num=cfg.macro.input_num,
+            col_num=cfg.macro.output_num,
         )
         results.append(result)
         logger.info(

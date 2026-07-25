@@ -1,6 +1,7 @@
 # InterArraySliceCimEngine
 
-The cross-plane `Sw` variant. It owns a tile, a `SimpleSlicer` (weights), a `SerialSlicer` (activations), and four reducers — two `Accumulator`s (sub-phase, `Tc`) plus two `ShiftAdder`s (`Sa`, `Sw`).
+The cross-plane `Sw` variant owns a macro, weight and activation slicers, and
+four reducers for input phase, `Sa`, `Sw`, and `Tc`.
 
 ## Design decisions
 
@@ -9,8 +10,11 @@ The cross-plane `Sw` variant. It owns a tile, a `SimpleSlicer` (weights), a `Ser
 
 ## Contracts & invariants
 
-- **Organized W shape** is `[..., M=1, Sa=1, Sw, Tc, Tr, data_num, D, row_num]` (all four leading slice/tile axes present); **organized X shape** is `[..., M, Sa, Sw=1, Tc, Tr=1, row_num]`. The `Sw=1` / `Tr=1` placeholders on X broadcast against the W tensor's real `Sw` / `Tr`.
-- **Aggregate axis indices** (post-VMM, shape `[..., P, *w_batch~, M, Sa, Sw, Tc, Tr, data_num]` after `_unroll_sub_phase` and the tile read): int64 upcast, sub-phase accumulate at `dim=_sub_phase_dim = -(b+7)` (b = len(w_batch); the `phase_accumulator`, inst shape `(w_parallel, Sw, Tc, Tr)` — per tile output port across the batched `Sw` planes) → `[..., M, Sa, Sw, Tc, Tr, data_num]`, `Sa` shift-add at `dim=-5`, `Sw` shift-add at `dim=-4`, `Tc` accumulate at `dim=-3`, then flatten `(Tr, data_num)` and trim to `N`. These indices are valid only because the `[Sa, Sw, Tc, Tr]` order is fixed.
+- **Organized W shape** is
+  `[..., M=1, Sa=1, Sw, Tc, Tr, input_num, output_num]`; **organized X
+  shape** is `[..., M, Sa, Sw=1, Tc, Tr=1, input_num]`.
+- **Aggregate order** is input phase, `Sa`, `Sw`, `Tc`, then flatten
+  `(Tr, output_num)` and trim.
 - **Reducer radices.** The `Sa` shift-add takes `x_slicer.slice_radix`, the `Sw` shift-add `w_slicer.slice_radix`; the pairing is load-bearing — swapping the two breaks the recombination.
 
 ## Performance & resources

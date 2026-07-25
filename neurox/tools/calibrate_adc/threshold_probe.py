@@ -185,8 +185,8 @@ def _build_battery(
     """
     stim = cfg.stimulus
     gen = torch.Generator().manual_seed(stim.seed)
-    row_num = physical.row_num
-    col_num = physical.col_num
+    row_num = cfg.macro.input_num
+    col_num = cfg.macro.output_num
     active_row_num = physical.max_active_num
 
     full_drive = torch.ones((1, row_num), dtype=torch.long)
@@ -251,7 +251,13 @@ def _probe_grid(
     i_parts: list[torch.Tensor] = []
     for name, w, x in battery_slice:
         pair = run_paired_stimulus(
-            physical, ideal, w=w, x=x, adc_mode=cfg.probe.adc_mode, adc_bits=physical.adc_max_bits
+            physical,
+            ideal,
+            w=w,
+            x=x,
+            input_num=cfg.macro.input_num,
+            adc_mode=cfg.probe.adc_mode,
+            adc_bits=physical.adc_max_bits,
         )
         m_parts.append(pair.ideal_m.abs())
         i_parts.append(pair.i_in__uA)

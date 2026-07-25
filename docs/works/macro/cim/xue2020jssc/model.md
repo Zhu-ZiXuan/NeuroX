@@ -1,6 +1,6 @@
 # Xue 2020 JSSC CIM macro
 
-`Xue2020JsscCimMacro` models one 256x512 sub-array of the 1-Mb embedded ReRAM CIM macro of Xue et al. (IEEE JSSC 2020). Each of the `col_num` logical signed weights is a sign-magnitude value (a sign plus `w_digit_num` radix-`w_digit_radix` magnitude digits) carried by `w_digit_num * 2` physical cells — a P (PWG) and an N (NWG) cell per digit. A `input_bit_num`-bit (K-bit) activation drives K serial single-bit WL sub-phases, LSB first. The scheme is a single self-contained macro: it composes the shared kernel `XbarArray1t1r` (a linearized 1T1R cell grid plus BL/SL wire parasitics and the DC solver) and runs the whole current-mode readout inline as vectorized tensor operations in `vec_mat_mul`. There is no scheme-local circuit class — every paper block is either a shared kernel primitive, a static-PPA seat, or a macro tensor operation.
+`Xue2020JsscCimMacro` models one 256x512 sub-array of the 1-Mb embedded ReRAM CIM macro of Xue et al. (IEEE JSSC 2020). The constructor binds its logical `input_num` and `output_num` arguments to internal `row_num` and `col_num`; `program` consequently accepts a logical signed weight matrix `[row_num, col_num]`. Internally, each weight is encoded as a sign plus `w_digit_num` radix-`w_digit_radix` magnitude digits and carried by `w_digit_num * 2` physical cells — a P (PWG) and an N (NWG) cell per digit. An `input_bit_num`-bit (K-bit) activation drives K serial single-bit WL sub-phases, LSB first. The scheme is a single self-contained macro: it composes the shared kernel `XbarArray1t1r` (a linearized 1T1R cell grid plus BL/SL wire parasitics and the DC solver) and runs the whole current-mode readout inline as vectorized tensor operations in `vec_mat_mul`.
 
 ## Generalization
 
@@ -55,7 +55,7 @@ The column-MUX is a pure reshape (the mux slot rides the grouped axis), valid be
 
 ## Transfer
 
-The DSWCT mirror ratios `r_d = dswct_ratio_msb * w_digit_radix**(d - (D-1))` (LSB-first `d`) and the SINWP-SC leg ratios `s_k = sc_ratio_msb * 2**(k - (K-1))` (LSB-first `k`) are derived DOWNWARD from the two MSB anchors, so the composite BL-to-`I_SUB` coefficient `r_d * s_k` over (digit, bit) is `(1/16, 1/8, 1/8, 1/4)` for the paper design (D=2, K=2). The physical column count is derived, never stored: `phys_col_num = col_num * w_digit_num * 2`, `io_num = col_num // mux_factor`. `program` takes a sign-magnitude digit tensor supplied LSB-first (digit 0 = LSB) by the framework transcoder; a positive weight writes the magnitude into the PWG cells and leaves the NWG cells at HRS, a negative weight does the reverse. Codes are signed-magnitude `(1 - 2*sign) * magnitude`; the sign and offset live in the macro, not inside the ADC.
+The DSWCT mirror ratios `r_d = dswct_ratio_msb * w_digit_radix**(d - (D-1))` (LSB-first `d`) and the SINWP-SC leg ratios `s_k = sc_ratio_msb * 2**(k - (K-1))` (LSB-first `k`) are derived DOWNWARD from the two MSB anchors, so the composite BL-to-`I_SUB` coefficient `r_d * s_k` over (digit, bit) is `(1/16, 1/8, 1/8, 1/4)` for the paper design (D=2, K=2). The physical cell-column count is derived, never stored: `phys_col_num = col_num * w_digit_num * 2`, `io_num = col_num // mux_factor`. `program` accepts the logical matrix and invokes the macro-owned true-form transcoder. A positive digit writes its magnitude into the PWG cell and leaves the NWG cell at HRS; a negative digit does the reverse. Codes are signed-magnitude `(1 - 2*sign) * magnitude`; the sign and offset live in the macro, not inside the ADC.
 
 ## Energy basis and windows
 
@@ -71,7 +71,7 @@ The whole input branch `V_DD * I_DL` is billed by the macro on the `cablc` chann
 
 ### Per-access normalization
 
-The paper's 20 MHz power measurement counts access cycles: one access is one column-MUX slot conversion set (the `io_num` = 4 CIM-IOs conducting in parallel), and a full `vec_mat_mul` over all `col_num` logical columns is `mux_factor` serial accesses. The per-sub-array budget 5.13 mW / 8 / 20 MHz is **32.06 pJ per access**, the hard validation target.
+The paper's 20 MHz power measurement counts access cycles: one access is one column-MUX slot conversion set (the `io_num` = 4 CIM-IOs conducting in parallel), and a full `vec_mat_mul` over all `col_num` outputs is `mux_factor` serial accesses. The per-sub-array budget 5.13 mW / 8 / 20 MHz is **32.06 pJ per access**, the hard validation target.
 
 ## What the paper leaves underdetermined
 

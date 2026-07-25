@@ -2,13 +2,13 @@
 
 Builds the folded :class:`Xue2020JsscCimMacro` (kernel pure array + inline
 current-mode readout chain) from the hand-built near-ideal witness config with
-its ladder calibrated in-code (``_utils.build_calibrated_macro``: ``col_num = 4``
--> ``io_num = 2`` at ``mux_factor = 2``, ``row_num = active_row_num = 4``,
+its ladder calibrated in-code (``_utils.build_calibrated_macro``: ``output_num = 4``
+-> ``io_num = 2`` at ``mux_factor = 2``, ``input_num = max_active_num = 4``,
 ``input_bit_num = 2``, 3-bit ADC), programs a mixed-sign weight, and runs one
 ``vec_mat_mul`` on an integer activation batch. Asserts:
 
   * the output is an integer signed-magnitude code tensor with the caller's
-    leading order preserved and primitive trailing ``[col_num]``, every value in
+    leading order preserved and primitive trailing ``[output_num]``, every value in
     ``[-MAG_MAX, MAG_MAX]``, and bit-exactly the clamped ideal integer MAC,
   * a :class:`NeuroxProfiler` report is coherent: the five macro-billed channels
     and the self-billing array + TMCSA module rows carry positive dynamic energy,
@@ -19,7 +19,7 @@ its ladder calibrated in-code (``_utils.build_calibrated_macro``: ``col_num = 4`
     numel(i_sub) // (inst_count x n_io) = mux_factor x batch``,
   * every leading axis is anonymous broadcast batch: reshaping the batch dims is
     transparent (a multi-axis batch equals the flattened batch reshaped, a
-    no-batch input yields ``[col_num]``, and a size-1 leading axis broadcasts).
+    no-batch input yields ``[output_num]``, and a size-1 leading axis broadcasts).
 
 Runs eagerly (dynamo disabled) so the ``@torch.compile`` solver leaf is not
 unrolled.
@@ -39,14 +39,13 @@ from ._utils import (
     ADC_MODE,
     MAG_MAX,
     TINY_ADC_BITS,
-    TINY_COL_NUM,
+    TINY_INPUT_NUM,
     TINY_K,
-    TINY_ROW_NUM,
+    TINY_OUTPUT_NUM,
     Xue2020JsscCimMacroConfig,
     build_calibrated_macro,
     build_config,
     build_macro,
-    encode_weights,
     ideal_mac,
 )
 
@@ -71,14 +70,14 @@ def _mixed_sign_weight() -> torch.Tensor:
             [0, 0, 0, 0],  # MAC = 0
         ],
         dtype=torch.long,
-    )
+    ).transpose(-1, -2)
 
 
 def test_xbar_end_to_end_and_profiler(device: torch.device) -> None:
     """Full VMM: shape / range / bit-exact decode, profiler coherence, latency law."""
     macro = build_calibrated_macro(device=device)
     w = _mixed_sign_weight()
-    macro.program(encode_weights(w.to(device)))
+    macro.program(w.to(device))
 
     x = torch.tensor([[1, 2, 1, 0], [3, 3, 1, 0], [0, 1, 2, 3]], dtype=torch.long)  # batch (3,)
     with NeuroxProfiler() as prof, torch.no_grad():
@@ -86,9 +85,9 @@ def test_xbar_end_to_end_and_profiler(device: torch.device) -> None:
     report = prof.report(macro)
     out = out.cpu()
 
-    # --- 1. Integer signed-magnitude codes: leading [batch] preserved, trailing [col_num] ---
+    # --- 1. Integer signed-magnitude codes and shape ---
     assert out.dtype in (torch.int64, torch.long)
-    assert tuple(out.shape) == (x.shape[0], TINY_COL_NUM)
+    assert tuple(out.shape) == (x.shape[0], TINY_OUTPUT_NUM)
     assert int(out.min()) >= -MAG_MAX and int(out.max()) <= MAG_MAX
 
     # --- 2. Bit-exact decode of the clamped ideal integer MAC; both signs exercised ---
@@ -152,7 +151,7 @@ def test_adc_step_latency_does_not_double_count(device: torch.device) -> None:
 
     def total_latency(cfg: Xue2020JsscCimMacroConfig) -> float:
         macro = build_macro(cfg, device=device)
-        macro.program(encode_weights(w.to(device)))
+        macro.program(w.to(device))
         with NeuroxProfiler() as prof, torch.no_grad():
             macro.vec_mat_mul(x.to(device), adc_mode=ADC_MODE, adc_bits=TINY_ADC_BITS)
         return prof.total_latency__ns
@@ -167,29 +166,29 @@ def test_anonymous_leading_axes_broadcast(device: torch.device) -> None:
     """Every leading axis is anonymous broadcast batch: reshaping batch dims is transparent."""
     macro = build_calibrated_macro(device=device)
     w = _mixed_sign_weight()
-    macro.program(encode_weights(w.to(device)))
+    macro.program(w.to(device))
 
     torch.manual_seed(3)
-    x_flat = torch.randint(0, 1 << TINY_K, (6, TINY_ROW_NUM), dtype=torch.long)  # batch (6,)
+    x_flat = torch.randint(0, 1 << TINY_K, (6, TINY_INPUT_NUM), dtype=torch.long)
     with torch.no_grad():
         out_flat = macro.vec_mat_mul(x_flat.to(device), adc_mode=ADC_MODE, adc_bits=TINY_ADC_BITS).cpu()
-    assert tuple(out_flat.shape) == (6, TINY_COL_NUM)
+    assert tuple(out_flat.shape) == (6, TINY_OUTPUT_NUM)
 
     # A multi-axis batch decodes each sample identically to the flattened batch.
-    x_multi = x_flat.reshape(2, 3, TINY_ROW_NUM)
+    x_multi = x_flat.reshape(2, 3, TINY_INPUT_NUM)
     with torch.no_grad():
         out_multi = macro.vec_mat_mul(x_multi.to(device), adc_mode=ADC_MODE, adc_bits=TINY_ADC_BITS).cpu()
-    assert tuple(out_multi.shape) == (2, 3, TINY_COL_NUM)
-    assert torch.equal(out_multi, out_flat.reshape(2, 3, TINY_COL_NUM))
+    assert tuple(out_multi.shape) == (2, 3, TINY_OUTPUT_NUM)
+    assert torch.equal(out_multi, out_flat.reshape(2, 3, TINY_OUTPUT_NUM))
 
-    # A no-batch input yields the primitive trailing [col_num] alone.
+    # A no-batch input yields the primitive trailing output axis alone.
     with torch.no_grad():
         out_scalar = macro.vec_mat_mul(x_flat[0].to(device), adc_mode=ADC_MODE, adc_bits=TINY_ADC_BITS).cpu()
-    assert tuple(out_scalar.shape) == (TINY_COL_NUM,)
+    assert tuple(out_scalar.shape) == (TINY_OUTPUT_NUM,)
     assert torch.equal(out_scalar, out_flat[0])
 
     # A size-1 leading axis broadcasts to the same single-sample decode.
     with torch.no_grad():
         out_unit = macro.vec_mat_mul(x_flat[:1].to(device), adc_mode=ADC_MODE, adc_bits=TINY_ADC_BITS).cpu()
-    assert tuple(out_unit.shape) == (1, TINY_COL_NUM)
+    assert tuple(out_unit.shape) == (1, TINY_OUTPUT_NUM)
     assert torch.equal(out_unit, out_flat[:1])

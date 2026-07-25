@@ -8,7 +8,7 @@ each WL plane and optionally quantizes that plane independently.
 
 ## Governing equations
 
-For a plane containing at most $A$ active rows,
+For a conversion containing at most $A$ selected inputs,
 
 $$M_{\max}=A\max|v|\max|x|.$$
 
@@ -31,9 +31,8 @@ The lossless operating point bypasses this quantizer and returns $M_p$.
 
 ## Numerical method
 
-Digits are combined with the LSB-first weights
-$(1,r,\ldots,r^{D-1})$ before contraction over the full row extent. Zeroed
-rows contribute nothing. Training mode replaces deterministic floor with
+The logical matrix is contracted directly with the input vector. Zeroed
+positions contribute nothing. Training mode replaces deterministic floor with
 unbiased stochastic floor in code space.
 
 ## Symbols
@@ -47,8 +46,8 @@ The [family symbols](family.md#symbols) apply, with:
 
 ## Assumptions, scope & validity
 
-The fp32 contraction is exact only when the configured plane-dot bound is below
-$2^{24}$ and inputs obey the configured ranges and active-row limit. The int64
+The fp32 contraction is exact only when the configured dot bound is below
+$2^{24}$ and operands obey the configured ranges and selection limit. The int64
 path has no fp32 exactness assumption.
 
 ---

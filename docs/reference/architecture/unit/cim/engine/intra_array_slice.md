@@ -4,7 +4,11 @@ A sliced integer matmul that packs all $S_w$ slices of one weight into adjacent 
 
 ## Physical model
 
-A weight value is sliced into $S_w$ slices and an input value into $S_a$ per-cycle slices. The $S_w$ axis is folded *into* the tile's value (column) axis: one tile holds $\lfloor N_{\mathrm{col}} / S_w \rfloor$ whole weights, each weight's $S_w$ slices occupying adjacent columns. The used capacity is $\lfloor N_{\mathrm{col}}/S_w\rfloor \cdot S_w$ columns; the remaining $N_{\mathrm{col}} - \lfloor N_{\mathrm{col}}/S_w\rfloor\cdot S_w$ columns of each tile are idle. No weight straddles two tiles, so the output axis tiles as $T_r = \lceil N / \lfloor N_{\mathrm{col}}/S_w\rfloor\rceil$. There is no separate $S_w$ plane axis — the slices live in the column axis.
+A weight value is sliced into $S_w$ macro-carriable values and an input into
+$S_a$ per-cycle slices. The $S_w$ axis is folded into the macro's logical
+output axis: one macro holds
+$\lfloor N_{\mathrm{out}}/S_w\rfloor$ complete weights, with adjacent output
+ports carrying their slices. Unused output ports are zero-padded.
 
 ## Governing equations
 
@@ -12,7 +16,8 @@ The recombination is a positional double shift-add. With per-slice weight radix 
 
 $$Y_{m,n} = \sum_{t=0}^{T_c-1} \sum_{w=0}^{S_w-1} R_w^{\,w} \left( \sum_{a=0}^{S_a-1} R_a^{\,a}\, P_{m,n}^{(a,w,t)} \right).$$
 
-Each partial read $P_{m,n}^{(a,w,t)}$ is itself the sub-phase accumulation of the tile's per-plane codes ([engine family](family.md)). The reduction order is fixed: the sub-phase accumulate folds first, then the activation-slice shift-add (intra-cycle, serial), then the stride-$S_w$ weight-slice shift-add within the tile's column output (intra-tile), then the plain contraction-tile accumulation over $T_c$, leaving the per-output-tile results to concatenate and trim to $N$.
+Each partial read is first accumulated across input phases, then across
+activation slices, adjacent weight-slice output ports, and contraction tiles.
 
 ## Noise & non-idealities
 
@@ -23,10 +28,10 @@ N/A at the variant level. ADC quantization and analog non-idealities enter throu
 | Parameter | Meaning | Unit | Constraint | Source |
 |---|---|---|---|---|
 | `cim_macro_config` | owned physical-tile configuration | — | — | Design |
-| `w_slice_num` ($S_w$) | per-weight slice count | — | $1 \le S_w \le N_{\mathrm{col}}$ | Design |
+| `w_slice_num` ($S_w$) | per-weight slice count | — | $1 \le S_w \le N_{\mathrm{out}}$ | Design |
 | `x_slice_num` ($S_a$) | per-activation slice count | — | $S_a \ge 1$ | Design |
 | `w_encoding` | weight encoding (integer-to-digit-string codec; signed-digit only for canonical) | — | — | Design |
-| `phase_accumulator_config` | sub-phase-axis per-tile-port accumulator | — | — | Design |
+| `phase_accumulator_config` | input-phase accumulator per macro output | — | — | Design |
 | `col_accumulator_config` | contraction-tile ($T_c$) accumulator | — | — | Design |
 | `sa_shift_adder_config` | activation-slice ($S_a$) shift-adder | — | — | Design |
 | `sw_shift_adder_config` | weight-slice ($S_w$) intra-tile shift-adder | — | — | Design |
@@ -41,8 +46,8 @@ Activations are unsigned true-form by definition (no activation encoding). Prove
 | $S_a$ | per-activation slice count | — | `x_slice_num` |
 | $R_w$ | per-slice weight radix | — | `w_slicer.slice_radix` |
 | $R_a$ | per-cycle activation radix | — | `x_slicer.slice_radix` |
-| $N_{\mathrm{col}}$ | tile column count | — | `cim_macro.col_num` |
-| $\lfloor N_{\mathrm{col}}/S_w\rfloor$ | per-tile weight capacity | — | structure count |
+| $N_{\mathrm{out}}$ | macro logical output capacity | — | `output_num` |
+| $\lfloor N_{\mathrm{out}}/S_w\rfloor$ | per-macro weight capacity | — | structure count |
 | $T_c$ | contraction-axis tile count | — | structure count |
 | $T_r$ | output-axis tile count | — | structure count |
 
@@ -50,7 +55,7 @@ The logical dims, value-domain symbols, and the ADC surface are in [unit/family]
 
 ## Assumptions, scope & validity
 
-- The slice count must not exceed the tile's column count ($S_w \le N_{\mathrm{col}}$); otherwise the per-tile weight capacity is zero and the variant is invalid.
+- The slice count must not exceed the macro output capacity.
 - Weight and input values must fit the slicers' value ranges; the variant does not enforce the range.
 - The variant trades column-capacity utilization (the idle columns) for fewer tile reads: the tile grid carries no $S_w$ plane multiplicity.
 

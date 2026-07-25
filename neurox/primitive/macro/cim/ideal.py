@@ -19,18 +19,14 @@ class IdealCimMacroConfig(CimMacroConfig):
 
     Attributes:
         x_value_range: Inclusive single-cycle integer input range.
-        w_digit_count: Digits per ``w``.
-        w_digit_radix: In-tile positional radix.
-        w_digit_value_range: Inclusive integer range a single digit can carry.
+        w_value_range: Inclusive integer weight range.
         adc_mode_num: Number of supported ADC operating points.
         adc_max_bits: Maximum supported ``adc_bits`` value; ``0`` is the
             lossless-sentinel bit width.
     """
 
     x_value_range: tuple[int, int]
-    w_digit_count: int
-    w_digit_radix: int
-    w_digit_value_range: tuple[int, int]
+    w_value_range: tuple[int, int]
     adc_mode_num: int
     adc_max_bits: int
 
@@ -41,9 +37,8 @@ class IdealCimMacroConfig(CimMacroConfig):
 
         if self.x_value_range == (0, 0):
             raise ValueError("require: x_value_range cannot be (0, 0) — collapses rescale math")
-        if self.w_digit_value_range == (0, 0):
-            raise ValueError("require: w_digit_value_range cannot be (0, 0) — collapses rescale math")
-
+        if self.w_value_range == (0, 0):
+            raise ValueError("require: w_value_range cannot be (0, 0) — collapses rescale math")
         # --- ADC ---
 
         if not (self.adc_mode_num >= 1):
@@ -63,21 +58,24 @@ class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
     Args:
         config: Concrete configuration dataclass.
         policy: Empty :class:`IdealCimMacroPolicy` marker.
-        inst_shape: Per-instance multiplicity prefix; trailing
-            ``(col_num, w_digit_count, row_num)`` is derived from config.
+        input_num: Logical input-vector length.
+        output_num: Logical output-vector length.
+        inst_shape: Per-instance multiplicity prefix.
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature.
     """
 
-    # --- Immutable model buffers ---
+    # --- Programmed state ---
 
-    _digit_weights: Tensor
+    _w: Tensor
 
     def __init__(
         self,
         *,
         config: IdealCimMacroConfig,
         policy: IdealCimMacroPolicy,
+        input_num: int,
+        output_num: int,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -85,30 +83,26 @@ class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
         super().__init__(
             config=config,
             policy=policy,
+            input_num=input_num,
+            output_num=output_num,
             inst_shape=inst_shape,
             dtype=dtype,
             T__K=T__K,
         )
+        if config.max_active_num > input_num:
+            raise ValueError(
+                f"require: max_active_num ({config.max_active_num}) <= input_num ({input_num})"
+            )
+        self.input_num = input_num
+        self.output_num = output_num
         self._area_per_inst__um2 = 0.0
         self._leakage_per_inst__uW = 0.0
-        if config.w_digit_count <= 0:
-            raise ValueError(f"require: w_digit_count ({config.w_digit_count}) > 0")
-        if config.w_digit_radix <= 1:
-            raise ValueError(f"require: w_digit_radix ({config.w_digit_radix}) > 1")
 
-        digit_weights = torch.tensor(
-            [config.w_digit_radix**k for k in range(config.w_digit_count)],
-            dtype=torch.int32,
-        )
-        self.register_buffer("_digit_weights", digit_weights, persistent=False)
-
-        d_lo, d_hi = config.w_digit_value_range
-        max_digit_abs = max(abs(d_lo), abs(d_hi))
-        max_w_logical_abs = max_digit_abs * int(digit_weights.sum().item())
+        w_lo, w_hi = config.w_value_range
+        max_w_abs = max(abs(w_lo), abs(w_hi))
         x_lo, x_hi = config.x_value_range
         max_x_abs = max(abs(x_lo), abs(x_hi))
-        # One conversion covers at most ``max_active_num`` nonzero rows.
-        self._max_plane_dot_abs = config.active_row_num * max_w_logical_abs * max_x_abs
+        self._max_plane_dot_abs = config.max_active_num * max_w_abs * max_x_abs
         # Integers below 2^24 are exactly representable by IEEE fp32.
         self._fp32_exact = self._max_plane_dot_abs < 2**24
 
@@ -126,16 +120,8 @@ class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
         return self.config.x_value_range
 
     @property
-    def w_digit_count(self) -> int:
-        return self.config.w_digit_count
-
-    @property
-    def w_digit_radix(self) -> int:
-        return self.config.w_digit_radix
-
-    @property
-    def w_digit_value_range(self) -> tuple[int, int]:
-        return self.config.w_digit_value_range
+    def w_value_range(self) -> tuple[int, int]:
+        return self.config.w_value_range
 
     @property
     def adc_mode_num(self) -> int:
@@ -154,22 +140,23 @@ class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
         return self._rescale_by_bits[adc_bits]
 
     def program(self, w: Tensor) -> None:
-        if tuple(w.shape) != self.w_layout_shape:
-            raise ValueError(f"program() expects w.shape {self.w_layout_shape}; got {tuple(w.shape)}")
-        self._digits = w.detach().clone()
+        expected_shape = (*self.inst_shape, self.input_num, self.output_num)
+        if tuple(w.shape) != expected_shape:
+            raise ValueError(f"program() expects w.shape {expected_shape}; got {tuple(w.shape)}")
+        self._w = w.detach().clone()
 
     def vec_mat_mul(self, x: Tensor, *, adc_mode: int, adc_bits: int) -> Tensor:
         """Ideal per-plane VMM with adc_bits-driven output quantization.
 
         Args:
-            x: WL plane tensor with primitive trailing ``[row_num]``;
-                at most :attr:`max_active_num` rows may be nonzero.
+            x: Logical input tensor with primitive trailing ``[input_num]``;
+                at most :attr:`max_active_num` positions may be selected.
             adc_mode: Accepted and ignored.
             adc_bits: ADC resolution [bits]. Zero returns lossless dots.
 
         Returns:
             Signed ADC-code tensor with the leading order preserved and
-            primitive trailing ``[col_num]``. When ``adc_bits > 0`` each
+            primitive trailing ``[output_num]``. When ``adc_bits > 0`` each
             code is clamped to
             ``[-2^(adc_bits-1), 2^(adc_bits-1) - 1]``; when
             ``adc_bits == 0`` the lossless integer plane dots are
@@ -177,23 +164,17 @@ class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
         """
         del adc_mode
 
-        digits = self._digits.to(torch.int64)
-
-        # Shape: [w_digit_count] -> [1, ..., w_digit_count, 1]
-        digit_weights = self._digit_weights.to(torch.int64).view(*([1] * (digits.ndim - 2)), -1, 1)
-
-        # Shape: [..., col_num, w_digit_count, row_num] -> [..., col_num, row_num]
-        w = (digits * digit_weights).sum(dim=-2)
+        w = self._w.to(torch.int64)
 
         if self._fp32_exact:
-            # Shape: [..., col_num, row_num] x [..., row_num] -> [..., col_num]
-            plane_dot = torch.einsum("...cr,...r->...c", w.to(torch.float32), x.to(torch.float32)).to(torch.int64)
+            # Shape: [..., input_num, output_num] x [..., input_num] -> [..., output_num]
+            plane_dot = torch.einsum("...io,...i->...o", w.to(torch.float32), x.to(torch.float32)).to(torch.int64)
         else:
-            # Shape: [..., row_num] -> [..., 1, row_num]
-            x = x.to(torch.int64).unsqueeze(-2)
+            # Shape: [..., input_num] -> [..., input_num, 1]
+            x = x.to(torch.int64).unsqueeze(-1)
             full_shape = torch.broadcast_shapes(w.shape, x.shape)
-            # Shape: [..., col_num, row_num] -> [..., col_num]
-            plane_dot = (w.expand(full_shape) * x.expand(full_shape)).sum(dim=-1)
+            # Shape: [..., input_num, output_num] -> [..., output_num]
+            plane_dot = (w.expand(full_shape) * x.expand(full_shape)).sum(dim=-2)
 
         if adc_bits == 0:
             return plane_dot

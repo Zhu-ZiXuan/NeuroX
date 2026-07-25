@@ -14,7 +14,6 @@ import torch.nn.functional as F
 from torch import Tensor
 
 from neurox.common import ConfigBase, ModuleBase, PolicyBase
-from neurox.common.encoding import Encoding
 from neurox.common.mixin import RegistryMixin
 from neurox.primitive.digital import AccumulatorConfig
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
@@ -49,20 +48,24 @@ class CimEngineConfig(ConfigBase, ABC):
     """Abstract config root for the :class:`CimEngine` registry.
 
     Attributes:
+        input_num: Logical input ports provided by each CIM macro instance.
+        output_num: Logical output ports provided by each CIM macro instance.
         cim_macro_config: CIM macro configuration.
-        w_encoding: Signed-digit encoding for the weight transcoder / slicer.
-        phase_accumulator_config: Sub-phase-axis per-tile-port accumulator config.
+        phase_accumulator_config: Input-phase-axis per-macro-port accumulator config.
         col_accumulator_config: Tc-axis cross-tile accumulator config.
     """
 
+    input_num: int
+    output_num: int
     cim_macro_config: CimMacroConfig
-    w_encoding: Encoding
 
     phase_accumulator_config: AccumulatorConfig
     col_accumulator_config: AccumulatorConfig
 
     def validate(self) -> None:
         """Validate the engine configuration."""
+        self._require_pos(self.input_num, "input_num")
+        self._require_pos(self.output_num, "output_num")
 
 
 class CimEnginePolicy(PolicyBase, ABC):
@@ -100,7 +103,7 @@ class CimEngine(
 
     # --- Immutable execution buffers ---
 
-    _active_row_mask: Tensor
+    _active_input_mask: Tensor
 
     # --- Subclass contracts ---
 
@@ -159,13 +162,13 @@ class CimEngine(
         w_parallel_size: int,
         row_tile_num: int,
     ) -> None:
-        """Initialize the CIM macro, tiling metadata, and row phases.
+        """Initialize the CIM macro, tiling metadata, and input phases.
 
         Args:
             inst_shape: Per-instance multiplicity prefix for the CIM macro.
             n_logical: Logical output width ``N`` before tile padding.
             k_logical: Logical contraction width ``K`` before tile padding;
-                fixes how many sub-phases carry real (non-padding) rows.
+                fixes how many input phases carry real, non-padding values.
             w_parallel_size: Parallel weight-instance count (``prod(w_batch)``).
             row_tile_num: Output tile count ``Tr``.
         """
@@ -174,13 +177,16 @@ class CimEngine(
         self._w_parallel_size = w_parallel_size
         self._row_tile_num = row_tile_num
         self._cim_macro_inst_rank = len(inst_shape)
-        self._sub_phase_dim = -(len(inst_shape) + 2)
-        row_num = self.cim_macro.row_num
-        max_rows = self.cim_macro.max_active_num
-        # Omit row phases containing only tile padding.
-        real_row_extent = min(k_logical, row_num)
-        self._sub_phase_num = -(-real_row_extent // max_rows)
-        self._register_row_phase_buffers(row_num=row_num, max_rows=max_rows)
+        self._input_phase_dim = -(len(inst_shape) + 2)
+        input_num = self.config.input_num
+        max_active_num = self.cim_macro.max_active_num
+        # Omit input phases containing only tile padding.
+        real_input_extent = min(k_logical, input_num)
+        self._input_phase_num = -(-real_input_extent // max_active_num)
+        self._register_input_phase_buffer(
+            input_num=input_num,
+            max_active_num=max_active_num,
+        )
 
     def _init_cim_macro_child(self, *, inst_shape: tuple[int, ...]) -> None:
         """Construct the physical or ideal CIM macro child."""
@@ -190,21 +196,21 @@ class CimEngine(
             inst_shape=inst_shape,
         )
 
-    def _register_row_phase_buffers(self, *, row_num: int, max_rows: int) -> None:
-        """Register the fixed active-row mask for every sub-phase."""
-        # Shape: [P, row_num]
+    def _register_input_phase_buffer(self, *, input_num: int, max_active_num: int) -> None:
+        """Register the selected-input mask for every execution phase."""
+        # Shape: [P, input_num]
         self.register_buffer(
-            "_active_row_mask",
-            torch.arange(row_num) // max_rows == torch.arange(self._sub_phase_num).unsqueeze(-1),
+            "_active_input_mask",
+            torch.arange(input_num) // max_active_num == torch.arange(self._input_phase_num).unsqueeze(-1),
             persistent=False,
         )
 
-    def _unroll_sub_phase(self, x: Tensor) -> Tensor:
-        """Insert the row-phase axis and mask inactive rows."""
+    def _unroll_input_phase(self, x: Tensor) -> Tensor:
+        """Insert the execution-phase axis and mask unselected inputs."""
         inst_rank = self._cim_macro_inst_rank
-        # Shape: [P, row_num] -> [P, 1*inst_rank, row_num]
-        mask = self._active_row_mask.reshape(-1, *(1,) * inst_rank, self.cim_macro.row_num)
-        # Shape: [..., *span, row_num] -> [..., P, *span, row_num]
+        # Shape: [P, input_num] -> [P, 1*inst_rank, input_num]
+        mask = self._active_input_mask.reshape(-1, *(1,) * inst_rank, self.config.input_num)
+        # Shape: [..., *span, input_num] -> [..., P, *span, input_num]
         return torch.where(mask, x.unsqueeze(max(-(inst_rank + 2), -(x.ndim + 1))), x.new_zeros(()))
 
     @property
@@ -214,6 +220,18 @@ class CimEngine(
     @property
     def x_value_range(self) -> tuple[int, int]:
         return self._x_value_range
+
+    @property
+    def input_num(self) -> int:
+        return self.config.input_num
+
+    @property
+    def output_num(self) -> int:
+        return self.config.output_num
+
+    @property
+    def max_active_num(self) -> int:
+        return self.cim_macro.max_active_num
 
     @property
     def adc_mode_num(self) -> int:
@@ -264,7 +282,7 @@ class CimEngine(
     def extra_repr(self) -> str:
         return (
             f"cim_macro={type(self.cim_macro).__name__}, "
-            f"row_num={self.cim_macro.row_num}, col_num={self.cim_macro.col_num}, "
+            f"input_num={self.config.input_num}, output_num={self.config.output_num}, "
             f"w_value_range={self.w_value_range}, x_value_range={self.x_value_range}"
         )
 
@@ -290,6 +308,8 @@ class CimEngine(
         cim_macro = CimMacro.from_config(
             config=cim_macro_config,
             policy=cim_macro_policy,
+            input_num=self.config.input_num,
+            output_num=self.config.output_num,
             inst_shape=inst_shape,
             dtype=self._macro_dtype,
             T__K=self._macro_T__K,

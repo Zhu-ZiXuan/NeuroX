@@ -61,6 +61,8 @@ class MacroSection:
     """``[macro]`` section: which tile to build, by file reference.
 
     Attributes:
+        input_num: Logical input-vector length passed to the macro constructor.
+        output_num: Logical output-vector length passed to the macro constructor.
         config_files: Macro config TOML paths in descending merge priority
             (first-wins deep merge, e.g. a geometry overlay on top of the
             scheme default), relative to the tool TOML.
@@ -71,12 +73,18 @@ class MacroSection:
         policy_section: Section name inside ``policy_file``.
     """
 
+    input_num: int
+    output_num: int
     config_files: tuple[Path, ...]
     config_section: str
     policy_file: Path
     policy_section: str
 
     def __post_init__(self) -> None:
+        if self.input_num < 1:
+            raise ValueError(f"require: [macro].input_num ({self.input_num}) >= 1")
+        if self.output_num < 1:
+            raise ValueError(f"require: [macro].output_num ({self.output_num}) >= 1")
         if not self.config_files:
             raise ValueError("require: [macro].config_files non-empty")
 
@@ -102,6 +110,8 @@ def build_physical_macro(section: MacroSection, *, base: Path, device: torch.dev
     macro = CimMacro.from_config(
         config=config,
         policy=policy,
+        input_num=section.input_num,
+        output_num=section.output_num,
         inst_shape=(),
         # The library-wide forward dtype; calibration statistics are
         # accumulated in float64 downstream of the probe.
@@ -323,6 +333,7 @@ def run_paired_stimulus(
     *,
     w: Tensor,
     x: Tensor,
+    input_num: int,
     adc_mode: int,
     adc_bits: int,
 ) -> PairedConversion:
@@ -345,6 +356,7 @@ def run_paired_stimulus(
         w: Digit tensor matching the macro weight layout.
         x: Activation tensor with trailing ``[row_num]``; the testbench
             performs the sub-phase expansion internally.
+        input_num: Logical input-vector length.
         adc_mode: Operating mode of the physical run.
         adc_bits: ADC resolution of the physical run.
 
@@ -368,7 +380,7 @@ def run_paired_stimulus(
     # Shape: [..., row_num] -> [..., P, *(1,) * inst_rank, row_num]
     x = _unroll_sub_phase(
         x,
-        row_num=physical.row_num,
+        row_num=input_num,
         max_active_num=physical.max_active_num,
         inst_rank=len(physical.inst_shape),
     )

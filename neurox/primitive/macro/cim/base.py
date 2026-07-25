@@ -7,7 +7,6 @@ See also:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import fields
 from typing import TYPE_CHECKING, Generic, TypeVar
 
 import torch
@@ -21,35 +20,23 @@ if TYPE_CHECKING:
 
 
 class CimMacroConfig(ConfigBase, ABC):
-    """Geometry and PPA shared by every CIM macro.
+    """PPA and activation limit shared by every CIM macro.
 
     Attributes:
         area_per_inst__um2: Silicon area per fabricated instance.
         leakage_per_inst__uW: Static leakage per instance.
-        col_num: Number of columns per tile (cells aggregating to
-            one output).
-        row_num: Number of rows per tile (cells sharing one input).
-        active_row_num: Maximum rows simultaneously activated per
-            conversion; sets the per-conversion analog dot-product
-            dynamic range and therefore the ADC calibration.
+        max_active_num: Maximum number of input positions selected by one
+            conversion. Positions outside the selected set are forced to zero.
     """
 
     area_per_inst__um2: float
     leakage_per_inst__uW: float
-    col_num: int
-    row_num: int
-    active_row_num: int
+    max_active_num: int
 
     def validate(self) -> None:
-        # --- Geometry ---
+        # --- Activation limit ---
 
-        # Physical array solvers require at least two nodes per wire.
-        if not (self.col_num > 1):
-            raise ValueError(f"require: col_num ({self.col_num}) > 1")
-        if not (self.row_num > 1):
-            raise ValueError(f"require: row_num ({self.row_num}) > 1")
-        if not (1 <= self.active_row_num <= self.row_num):
-            raise ValueError(f"require: 1 <= active_row_num ({self.active_row_num}) <= row_num ({self.row_num})")
+        self._require_pos(self.max_active_num, "max_active_num")
 
         # --- PPA ---
 
@@ -76,8 +63,9 @@ class CimMacro(
     Args:
         config: Concrete configuration dataclass.
         policy: Composite nonideality policy.
-        inst_shape: Per-instance multiplicity prefix; trailing
-            ``(col_num, w_digit_count, row_num)`` is derived from config.
+        input_num: Logical input-vector length selected by the owner.
+        output_num: Logical output-vector length selected by the owner.
+        inst_shape: Per-instance multiplicity prefix.
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature.
     """
@@ -87,26 +75,25 @@ class CimMacro(
         *,
         config: ConfigT,
         policy: PolicyT,
+        input_num: int,
+        output_num: int,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
+        if input_num < 1:
+            raise ValueError(f"require: input_num ({input_num}) >= 1")
+        if output_num < 1:
+            raise ValueError(f"require: output_num ({output_num}) >= 1")
+        self._logical_shape = (input_num, output_num)
         self._T__K = T__K
         self._dtype = dtype
 
-        self.col_num = config.col_num
-        self.row_num = config.row_num
-
     @property
     def max_active_num(self) -> int:
-        """Maximum simultaneously active word lines per conversion."""
-        return self.config.active_row_num
-
-    @property
-    def w_layout_shape(self) -> tuple[int, ...]:
-        """Full digit-tensor shape ``(*inst_shape, col_num, w_digit_count, row_num)``."""
-        return (*self.inst_shape, self.col_num, self.w_digit_count, self.row_num)
+        """Maximum number of input positions selected by one conversion."""
+        return self.config.max_active_num
 
     @classmethod
     def from_config(
@@ -114,6 +101,8 @@ class CimMacro(
         *,
         config: CimMacroConfig,
         policy: CimMacroPolicy,
+        input_num: int,
+        output_num: int,
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
@@ -123,6 +112,8 @@ class CimMacro(
         Args:
             config: Concrete configuration dataclass.
             policy: Composite nonideality policy.
+            input_num: Logical input-vector length selected by the owner.
+            output_num: Logical output-vector length selected by the owner.
             inst_shape: Per-instance multiplicity prefix.
             dtype: Tensor dtype for internal buffers.
             T__K: Operating temperature.
@@ -134,6 +125,8 @@ class CimMacro(
         return impl(
             config=config,
             policy=policy,
+            input_num=input_num,
+            output_num=output_num,
             inst_shape=inst_shape,
             dtype=dtype,
             T__K=T__K,
@@ -161,23 +154,8 @@ class CimMacro(
 
     @property
     @abstractmethod
-    def w_digit_count(self) -> int:
-        """Number of digits per ``w`` inside this tile."""
-        raise NotImplementedError
-
-    @property
-    @abstractmethod
-    def w_digit_radix(self) -> int:
-        """Positional base ``r`` of the in-tile digit combination."""
-        raise NotImplementedError
-
-    @property
-    @abstractmethod
-    def w_digit_value_range(self) -> tuple[int, int]:
-        """Inclusive integer range a single digit cell can carry physically.
-
-        Set by the array structure and the per-cell device-state count.
-        """
+    def w_value_range(self) -> tuple[int, int]:
+        """Inclusive integer weight range the macro can program directly."""
         raise NotImplementedError
 
     @property
@@ -205,12 +183,12 @@ class CimMacro(
 
     @abstractmethod
     def program(self, w: Tensor) -> None:
-        """Program the macro from an array-native digit tensor.
+        """Program the macro from a logical weight matrix.
 
         Args:
-            w: Integer digit tensor whose shape matches
-                ``self.w_layout_shape = (*inst_shape, col_num, w_digit_count, row_num)``.
-                Entries must lie in :attr:`w_digit_value_range`.
+            w: Integer weight tensor whose shape matches
+                the logical matrix geometry supplied at construction.
+                Entries must lie in :attr:`w_value_range`.
         """
         raise NotImplementedError
 
@@ -219,9 +197,10 @@ class CimMacro(
         """Run one conversion per word-line plane.
 
         Args:
-            x: WL plane tensor with primitive trailing ``[row_num]``;
+            x: Logical input tensor with primitive trailing ``[input_num]``;
                 leading axes are broadcast batch dimensions. At most
-                :attr:`max_active_num` rows may be nonzero per plane.
+                :attr:`max_active_num` positions may be selected per
+                conversion; unselected positions must be zero.
                 Entries must lie in :attr:`x_value_range`.
             adc_mode: ADC operating-point index selecting the reference
                 row / tap set; valid values are ``[0, adc_mode_num)``.
@@ -229,32 +208,29 @@ class CimMacro(
 
         Returns:
             ADC-code tensor with the same leading dimensions and trailing
-            ``[col_num]``.
+            ``[output_num]``.
         """
         raise NotImplementedError
 
     def to_ideal(self) -> IdealCimMacro:
-        """Return the lossless ideal twin of this tile.
-
-        The twin inherits this tile's per-instance multiplicity and ADC
-        operating-point metadata.
-        """
-        # Resolve lazily to avoid the module import cycle.
+        """Return a lossless ideal twin with the same logical interface."""
         from .ideal import IdealCimMacro, IdealCimMacroConfig, IdealCimMacroPolicy
 
-        base_kwargs = {f.name: getattr(self.config, f.name) for f in fields(CimMacroConfig)}
+        input_num, output_num = self._logical_shape
         ideal_config = IdealCimMacroConfig(
-            **base_kwargs,
+            area_per_inst__um2=self.config.area_per_inst__um2,
+            leakage_per_inst__uW=self.config.leakage_per_inst__uW,
+            max_active_num=self.config.max_active_num,
             x_value_range=self.x_value_range,
-            w_digit_count=self.w_digit_count,
-            w_digit_radix=self.w_digit_radix,
-            w_digit_value_range=self.w_digit_value_range,
+            w_value_range=self.w_value_range,
             adc_mode_num=self.adc_mode_num,
             adc_max_bits=self.adc_max_bits,
         )
         return IdealCimMacro(
             config=ideal_config,
             policy=IdealCimMacroPolicy(),
+            input_num=input_num,
+            output_num=output_num,
             inst_shape=self.inst_shape,
             dtype=self._dtype,
             T__K=self._T__K,

@@ -36,7 +36,6 @@ from neurox.architecture.unit.cim.engine import (
     IntraArraySliceCimEnginePolicy,
 )
 from neurox.architecture.unit.cim.engine.base import _chunk_pad_along
-from neurox.common.encoding import Encoding
 from neurox.common.profiler import NeuroxProfiler
 from neurox.primitive.digital import AccumulatorConfig, SerialAccumulator, ShiftAdderConfig
 from neurox.primitive.macro.cim import IdealCimMacroConfig, IdealCimMacroPolicy
@@ -55,25 +54,17 @@ _TEST_ADC_MODE = 0
 
 def _ideal_macro_config(
     *,
-    col_num: int = 16,
-    row_num: int = 16,
-    active_row_num: int | None = None,
+    max_active_num: int | None = None,
     x_value_range: tuple[int, int] = (0, 1),
-    w_digit_count: int = 1,
-    w_digit_radix: int = 4,
-    w_digit_value_range: tuple[int, int] = (-3, 3),
+    w_value_range: tuple[int, int] = (-3, 3),
     adc_max_bits: int = _TEST_ADC_BITS,
 ) -> IdealCimMacroConfig:
     return IdealCimMacroConfig(
-        col_num=col_num,
-        row_num=row_num,
-        active_row_num=row_num if active_row_num is None else active_row_num,
+        max_active_num=16 if max_active_num is None else max_active_num,
         leakage_per_inst__uW=0.0,
         area_per_inst__um2=0.0,
         x_value_range=x_value_range,
-        w_digit_count=w_digit_count,
-        w_digit_radix=w_digit_radix,
-        w_digit_value_range=w_digit_value_range,
+        w_value_range=w_value_range,
         adc_mode_num=1,
         adc_max_bits=adc_max_bits,
     )
@@ -122,14 +113,17 @@ def _linear_unit_policy(config: LinearCimUnitConfig) -> LinearCimUnitPolicy:
 def _direct_engine_config(
     *,
     x_value_range: tuple[int, int] = (0, 1),
-    w_digit_count: int = 1,
-    active_row_num: int | None = None,
+    w_value_range: tuple[int, int] = (-3, 3),
+    max_active_num: int | None = None,
 ) -> DirectCimEngineConfig:
     return DirectCimEngineConfig(
+        input_num=16,
+        output_num=16,
         cim_macro_config=_ideal_macro_config(
-            x_value_range=x_value_range, w_digit_count=w_digit_count, active_row_num=active_row_num
+            x_value_range=x_value_range,
+            w_value_range=w_value_range,
+            max_active_num=max_active_num,
         ),
-        w_encoding=Encoding.TRUE_FORM,
         col_accumulator_config=_accumulator_config(),
         phase_accumulator_config=_accumulator_config(),
     )
@@ -138,11 +132,15 @@ def _direct_engine_config(
 def _direct_config(
     *,
     x_value_range: tuple[int, int] = (0, 1),
-    w_digit_count: int = 1,
-    active_row_num: int | None = None,
+    w_value_range: tuple[int, int] = (-3, 3),
+    max_active_num: int | None = None,
 ) -> LinearCimUnitConfig:
     return _wrap_unit(
-        _direct_engine_config(x_value_range=x_value_range, w_digit_count=w_digit_count, active_row_num=active_row_num)
+        _direct_engine_config(
+            x_value_range=x_value_range,
+            w_value_range=w_value_range,
+            max_active_num=max_active_num,
+        )
     )
 
 
@@ -164,12 +162,16 @@ def _slice_config(
     w_slice_num: int,
     x_slice_num: int,
     x_value_range: tuple[int, int] = (0, 1),
-    w_digit_count: int = 1,
-    active_row_num: int | None = None,
+    w_value_range: tuple[int, int] = (-3, 3),
+    max_active_num: int | None = None,
 ) -> dict[str, Any]:
     return {
+        "input_num": 16,
+        "output_num": 16,
         "cim_macro_config": _ideal_macro_config(
-            x_value_range=x_value_range, w_digit_count=w_digit_count, active_row_num=active_row_num
+            x_value_range=x_value_range,
+            w_value_range=w_value_range,
+            max_active_num=max_active_num,
         ),
         "w_slice_num": w_slice_num,
         "x_slice_num": x_slice_num,
@@ -316,28 +318,22 @@ def test_direct_engine_unit_matches_torch_matmul_for_shape_cases(n: int, k: int,
     _assert_unit_matches_torch(unit, weight, activation)
 
 
-def test_direct_engine_unit_handles_multi_digit_xbar_words() -> None:
+def test_direct_engine_unit_handles_wide_macro_weight_range() -> None:
     torch.manual_seed(1)
     n, k, m = 13, 20, 8
-    unit = _build_linear(_direct_config(w_digit_count=2), w_logical_shape=(n, k))
+    unit = _build_linear(_direct_config(w_value_range=(-15, 15)), w_logical_shape=(n, k))
     weight = torch.randint(-15, 16, (n, k), dtype=torch.int32)
     activation = torch.randint(0, 2, (m, k), dtype=torch.int32)
     _assert_unit_matches_torch(unit, weight, activation)
 
 
-def test_direct_engine_lsb_first_place_values_on_asymmetric_weights() -> None:
-    """LSB-first regression on the asymmetric set ``{1, 2, -1, -2}``.
-
-    With ``radix=2, digit_count=2`` the weight value ``1`` encodes to digits
-    ``[1, 0]`` and ``2`` to ``[0, 1]`` (digit index 0 = LSB = radix⁰). A reversed
-    digit convention would swap their place-values and mis-map ``1 ↔ 2``.
-    Programming this asymmetric set and matching ``torch.matmul`` pins the
-    LSB-first place-value wiring through the transcoder → macro path.
-    """
+def test_direct_engine_passes_logical_weights_to_macro() -> None:
+    """Direct mapping preserves asymmetric logical weight values."""
     config = _wrap_unit(
         DirectCimEngineConfig(
-            cim_macro_config=_ideal_macro_config(w_digit_count=2, w_digit_radix=2, w_digit_value_range=(-1, 1)),
-            w_encoding=Encoding.TRUE_FORM,
+            input_num=16,
+            output_num=16,
+            cim_macro_config=_ideal_macro_config(w_value_range=(-3, 3)),
             col_accumulator_config=_accumulator_config(),
             phase_accumulator_config=_accumulator_config(),
         )
@@ -367,25 +363,25 @@ def test_intra_array_slice_engine_unit_matches_torch_matmul_for_shape_cases(n: i
 
 
 @pytest.mark.parametrize(
-    ("w_slice_num", "x_slice_num", "w_digit_count", "x_value_range"),
+    ("w_slice_num", "x_slice_num", "macro_w_value_range", "x_value_range"),
     [
-        (1, 1, 2, (0, 1)),
-        (2, 3, 2, (0, 1)),
-        (3, 2, 2, (0, 3)),
+        (1, 1, (-15, 15), (0, 1)),
+        (2, 3, (-15, 15), (0, 1)),
+        (3, 2, (-3, 3), (0, 3)),
     ],
 )
-def test_inter_array_slice_engine_unit_matches_torch_for_slice_digit_cases(
+def test_inter_array_slice_engine_unit_matches_torch_for_slice_range_cases(
     w_slice_num: int,
     x_slice_num: int,
-    w_digit_count: int,
+    macro_w_value_range: tuple[int, int],
     x_value_range: tuple[int, int],
 ) -> None:
-    torch.manual_seed(4000 + w_slice_num * 100 + x_slice_num * 10 + w_digit_count)
+    torch.manual_seed(4000 + w_slice_num * 100 + x_slice_num * 10 + macro_w_value_range[1])
     n, k, m = 17, 19, 5
     config = _inter_config(
         w_slice_num=w_slice_num,
         x_slice_num=x_slice_num,
-        w_digit_count=w_digit_count,
+        w_value_range=macro_w_value_range,
         x_value_range=x_value_range,
     )
     unit = _build_linear(config, w_logical_shape=(n, k))
@@ -395,25 +391,25 @@ def test_inter_array_slice_engine_unit_matches_torch_for_slice_digit_cases(
 
 
 @pytest.mark.parametrize(
-    ("w_slice_num", "x_slice_num", "w_digit_count", "x_value_range"),
+    ("w_slice_num", "x_slice_num", "macro_w_value_range", "x_value_range"),
     [
-        (1, 1, 2, (0, 1)),
-        (2, 3, 2, (0, 1)),
-        (3, 2, 2, (0, 3)),
+        (1, 1, (-15, 15), (0, 1)),
+        (2, 3, (-15, 15), (0, 1)),
+        (3, 2, (-3, 3), (0, 3)),
     ],
 )
-def test_intra_array_slice_engine_unit_matches_torch_for_slice_digit_cases(
+def test_intra_array_slice_engine_unit_matches_torch_for_slice_range_cases(
     w_slice_num: int,
     x_slice_num: int,
-    w_digit_count: int,
+    macro_w_value_range: tuple[int, int],
     x_value_range: tuple[int, int],
 ) -> None:
-    torch.manual_seed(5000 + w_slice_num * 100 + x_slice_num * 10 + w_digit_count)
+    torch.manual_seed(5000 + w_slice_num * 100 + x_slice_num * 10 + macro_w_value_range[1])
     n, k, m = 17, 19, 5
     config = _intra_config(
         w_slice_num=w_slice_num,
         x_slice_num=x_slice_num,
-        w_digit_count=w_digit_count,
+        w_value_range=macro_w_value_range,
         x_value_range=x_value_range,
     )
     unit = _build_linear(config, w_logical_shape=(n, k))
@@ -510,17 +506,16 @@ def test_unit_supports_weight_and_activation_batch_prefixes(
 @pytest.mark.parametrize(
     ("macro_kind", "config"),
     [
-        ("direct", _direct_config(active_row_num=4)),
-        ("inter", _inter_config(w_slice_num=3, x_slice_num=4, active_row_num=4)),
-        ("intra", _intra_config(w_slice_num=3, x_slice_num=4, active_row_num=4)),
+        ("direct", _direct_config(max_active_num=4)),
+        ("inter", _inter_config(w_slice_num=3, x_slice_num=4, max_active_num=4)),
+        ("intra", _intra_config(w_slice_num=3, x_slice_num=4, max_active_num=4)),
     ],
 )
-def test_multi_sub_phase_lossless_unit_matches_torch_matmul(
+def test_multi_input_phase_lossless_unit_matches_torch_matmul(
     macro_kind: str,
     config: LinearCimUnitConfig,
 ) -> None:
-    """P=4 with the lossless adc_bits=0 sentinel: the phase accumulator sums
-    exact per-sub-phase partials, so the unit still matches ``torch.matmul``."""
+    """P=4 lossless input phases still match ``torch.matmul``."""
     torch.manual_seed(8000)
     n, k, m = 13, 20, 8
     unit = _build_unit_for_kind(macro_kind, config, w_logical_shape=(n, k))
@@ -529,18 +524,18 @@ def test_multi_sub_phase_lossless_unit_matches_torch_matmul(
     _assert_unit_matches_torch(unit, weight, activation)
 
 
-def test_direct_engine_unit_multi_sub_phase_quantized_end_to_end() -> None:
-    """P=2 with adc_bits>0: the unit output equals per-sub-phase quantized
-    codes accumulated over the sub-phase axis, then the Tc/col pipeline."""
+def test_direct_engine_unit_multi_input_phase_quantized_end_to_end() -> None:
+    """P=2 output equals per-phase quantized codes accumulated over P."""
     torch.manual_seed(8100)
     n, k, m = 8, 16, 5
     adc_bits = 6
-    active_row_num = 8
-    sub_phase_num = 2
+    max_active_num = 8
+    input_phase_num = 2
     config = _wrap_unit(
         DirectCimEngineConfig(
-            cim_macro_config=_ideal_macro_config(active_row_num=active_row_num, adc_max_bits=adc_bits),
-            w_encoding=Encoding.TRUE_FORM,
+            input_num=16,
+            output_num=16,
+            cim_macro_config=_ideal_macro_config(max_active_num=max_active_num, adc_max_bits=adc_bits),
             col_accumulator_config=_accumulator_config(),
             phase_accumulator_config=_accumulator_config(),
         )
@@ -551,13 +546,13 @@ def test_direct_engine_unit_multi_sub_phase_quantized_end_to_end() -> None:
     unit.program(weight)
     actual = unit.linear(activation, adc_mode=0, adc_bits=adc_bits)
 
-    # Reference: per-sub-phase partial dots, quantized per plane against the
-    # per-conversion range, then accumulated over the sub-phase axis
+    # Reference: per-phase partial dots quantized against the conversion range
+    # and then accumulated over the input-phase axis
     # (Tc = Tr = 1).
     half_range = (1 << (adc_bits - 1)) - 1
-    rescale = (active_row_num * 3 * 1) / half_range  # active_row_num · max|w| · max|x|
-    xp = activation.to(torch.int64).unflatten(-1, (sub_phase_num, active_row_num))
-    wp = weight.to(torch.int64).unflatten(-1, (sub_phase_num, active_row_num))
+    rescale = (max_active_num * 3 * 1) / half_range
+    xp = activation.to(torch.int64).unflatten(-1, (input_phase_num, max_active_num))
+    wp = weight.to(torch.int64).unflatten(-1, (input_phase_num, max_active_num))
     plane_dot = torch.einsum("mpa,npa->mpn", xp, wp)
     bound = 1 << (adc_bits - 1)
     codes = torch.floor(plane_dot.to(torch.float32) * (1.0 / rescale)).to(torch.int64).clamp(-bound, bound - 1)
@@ -566,25 +561,26 @@ def test_direct_engine_unit_multi_sub_phase_quantized_end_to_end() -> None:
     assert actual.shape == (m, n)
     assert torch.equal(actual.to(torch.int64), expected)
     # Quantize-then-accumulate must differ from accumulate-then-quantize on
-    # this random draw — otherwise the case does not pin the sub-phase
+    # this random draw — otherwise the case does not pin the input-phase
     # semantics.
     whole_dot = activation.to(torch.int64) @ weight.to(torch.int64).transpose(-1, -2)
     whole_code = torch.floor(whole_dot.to(torch.float32) * (1.0 / rescale)).to(torch.int64).clamp(-bound, bound - 1)
     assert not torch.equal(expected, whole_code)
 
 
-def test_phase_accumulator_energy_scales_with_sub_phase_num() -> None:
+def test_phase_accumulator_energy_scales_with_input_phase_num() -> None:
     """The phase accumulator is a ``SerialAccumulator`` billed per arriving
-    per-sub-phase code, so at fixed geometry its accumulate energy scales
-    with the sub-phase count: P=2 logs exactly twice the energy of P=1."""
+    per-phase code, so at fixed geometry its accumulate energy scales
+    with the input-phase count: P=2 logs exactly twice the energy of P=1."""
     torch.manual_seed(8200)
     n, k, m = 8, 16, 5
     energies: dict[int, float] = {}
-    for active_row_num in (16, 8):  # P = 1, P = 2
+    for max_active_num in (16, 8):  # P = 1, P = 2
         config = _wrap_unit(
             DirectCimEngineConfig(
-                cim_macro_config=_ideal_macro_config(active_row_num=active_row_num),
-                w_encoding=Encoding.TRUE_FORM,
+                input_num=16,
+                output_num=16,
+                cim_macro_config=_ideal_macro_config(max_active_num=max_active_num),
                 col_accumulator_config=_accumulator_config(),
                 phase_accumulator_config=AccumulatorConfig(
                     bit_width=32,
@@ -602,7 +598,7 @@ def test_phase_accumulator_energy_scales_with_sub_phase_num() -> None:
         unit.program(weight)
         with NeuroxProfiler() as p:
             unit.linear(activation, adc_mode=_TEST_ADC_MODE, adc_bits=_TEST_ADC_BITS)
-        energies[unit.engine._sub_phase_num] = sum(
+        energies[unit.engine._input_phase_num] = sum(
             e.dynamic_energy__fJ for e in p.energy_events if e.module is unit.engine.phase_accumulator
         )
     assert energies[1] > 0.0
@@ -623,7 +619,7 @@ def test_ideal_unit_public_properties() -> None:
 
 def test_direct_engine_unit_public_properties() -> None:
     unit = _build_linear(
-        _direct_config(x_value_range=(0, 3), w_digit_count=2),
+        _direct_config(x_value_range=(0, 3), w_value_range=(-15, 15)),
         w_logical_shape=(13, 20),
     )
     assert unit.w_value_range == (-15, 15)
@@ -636,7 +632,12 @@ def test_direct_engine_unit_public_properties() -> None:
 
 
 def test_inter_array_slice_engine_unit_public_properties() -> None:
-    config = _inter_config(w_slice_num=3, x_slice_num=2, x_value_range=(0, 3), w_digit_count=2)
+    config = _inter_config(
+        w_slice_num=3,
+        x_slice_num=2,
+        x_value_range=(0, 3),
+        w_value_range=(-15, 15),
+    )
     unit = _build_linear(config, w_logical_shape=(13, 20))
     assert unit.w_value_range == (-4095, 4095)
     assert unit.x_value_range == (0, 15)
@@ -645,7 +646,12 @@ def test_inter_array_slice_engine_unit_public_properties() -> None:
 
 
 def test_intra_array_slice_engine_unit_public_properties() -> None:
-    config = _intra_config(w_slice_num=3, x_slice_num=2, x_value_range=(0, 3), w_digit_count=2)
+    config = _intra_config(
+        w_slice_num=3,
+        x_slice_num=2,
+        x_value_range=(0, 3),
+        w_value_range=(-15, 15),
+    )
     unit = _build_linear(config, w_logical_shape=(13, 20))
     assert unit.w_value_range == (-4095, 4095)
     assert unit.x_value_range == (0, 15)
@@ -727,21 +733,18 @@ def test_unit_config_nested_engine_deserialization() -> None:
         "leakage_per_inst__uW": 0.0,
         "engine": {
             "_neurox_class": "DirectCimEngineConfig",
+            "input_num": 16,
+            "output_num": 16,
             "cim_macro_config": {
                 "_neurox_class": "IdealCimMacroConfig",
-                "col_num": 16,
-                "row_num": 16,
-                "active_row_num": 16,
+                "max_active_num": 16,
                 "leakage_per_inst__uW": 0.0,
                 "area_per_inst__um2": 0.0,
                 "x_value_range": [0, 1],
-                "w_digit_count": 1,
-                "w_digit_radix": 4,
-                "w_digit_value_range": [-3, 3],
+                "w_value_range": [-3, 3],
                 "adc_mode_num": 1,
                 "adc_max_bits": 0,
             },
-            "w_encoding": "true_form",
             "phase_accumulator_config": {"bit_width": 32, **_zero_ppa()},
             "col_accumulator_config": {"bit_width": 32, **_zero_ppa()},
         },

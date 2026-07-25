@@ -16,6 +16,8 @@
 #       --config validations/xue2020jssc/tools/calibrate_solver.toml --device cpu
 
 [macro]
+input_num = 256
+output_num = 128
 config_files = ["../params.toml"]            # the shipped Linear-cell macro (the config the scheme actually runs)
 config_section = "cim_macro"
 policy_file = "../policy.toml"                # all-off (loaded only by an actual sweep, not the tests)

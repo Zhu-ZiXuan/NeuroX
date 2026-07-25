@@ -1,9 +1,9 @@
 """IdealCimMacro per-plane quantization semantics.
 
-One ``vec_mat_mul`` call is one independent ADC conversion per column per
+One ``vec_mat_mul`` call is one independent ADC conversion per output per
 WL plane, quantized against the per-conversion range
 (``_max_plane_dot_abs``); the output keeps the leading order with primitive
-trailing ``[col_num]`` and the macro performs no accumulation. The caller
+trailing ``[output_num]`` and the macro performs no accumulation. The caller
 presents each sub-phase as its own zero-masked plane (engine mask formula),
 which preserves quantize-then-accumulate semantics:
 ``sum(Q(plane_dot)) != Q(sum(plane_dot))`` in general.
@@ -16,29 +16,27 @@ import torch
 from neurox.primitive.macro.cim.ideal import IdealCimMacro, IdealCimMacroConfig, IdealCimMacroPolicy
 
 
-def _make_xbar(
+def _make_macro(
     *,
-    row_num: int,
-    active_row_num: int,
-    col_num: int,
+    input_num: int,
+    max_active_num: int,
+    output_num: int,
     adc_max_bits: int,
 ) -> IdealCimMacro:
     config = IdealCimMacroConfig(
-        col_num=col_num,
-        row_num=row_num,
-        active_row_num=active_row_num,
+        max_active_num=max_active_num,
         area_per_inst__um2=0.0,
         leakage_per_inst__uW=0.0,
         x_value_range=(0, 1),
-        w_digit_count=1,
-        w_digit_radix=2,
-        w_digit_value_range=(-3, 3),
+        w_value_range=(-3, 3),
         adc_mode_num=1,
         adc_max_bits=adc_max_bits,
     )
     xbar = IdealCimMacro(
         config=config,
         policy=IdealCimMacroPolicy(),
+        input_num=input_num,
+        output_num=output_num,
         inst_shape=(),
         dtype=torch.float32,
         T__K=300.0,
@@ -47,55 +45,53 @@ def _make_xbar(
     return xbar
 
 
-def _program_cols(xbar: IdealCimMacro, cols: list[list[int]]) -> None:
-    """Program single-digit column weights ``cols[c][r]``."""
-    w = torch.tensor(cols, dtype=torch.int32).unsqueeze(-2)  # [col, D=1, row]
-    xbar.program(w)
+def _program_outputs(macro: IdealCimMacro, outputs: list[list[int]]) -> None:
+    """Program output-major fixture values through the logical matrix API."""
+    # Shape: [output_num, input_num] -> [input_num, output_num]
+    w = torch.tensor(outputs, dtype=torch.int32).transpose(-1, -2)
+    macro.program(w)
 
 
-def _masked_planes(x: torch.Tensor, *, row_num: int, max_active_num: int) -> torch.Tensor:
+def _masked_planes(x: torch.Tensor, *, input_num: int, max_active_num: int) -> torch.Tensor:
     """Zero-masked WL planes via the engine mask formula.
 
-    Shape: [..., row_num] -> [..., P, row_num]; plane ``p`` keeps exactly
-    rows ``[p*max_active_num, (p+1)*max_active_num)``, zeros elsewhere.
+    Shape: [..., input_num] -> [..., P, input_num].
     """
-    p_num = row_num // max_active_num
-    mask = torch.arange(row_num) // max_active_num == torch.arange(p_num).unsqueeze(-1)
-    # Shape: [..., row_num] -> [..., P, row_num]
+    p_num = input_num // max_active_num
+    mask = torch.arange(input_num) // max_active_num == torch.arange(p_num).unsqueeze(-1)
+    # Shape: [..., input_num] -> [..., P, input_num]
     return torch.where(mask, x.unsqueeze(-2), x.new_zeros(()))
 
 
 class TestPerPlaneClampVsWholeSum:
     """A=2, R=4: one plane saturates positive, the other negative."""
 
-    def _saturating_xbar(self) -> IdealCimMacro:
-        xbar = _make_xbar(row_num=4, active_row_num=2, col_num=2, adc_max_bits=3)
-        # col 0: plane 0 dot = +6 (positive per-conversion extreme), plane 1 = -6.
-        # col 1: odd plane dots (+3 / -3) expose the floor asymmetry.
-        _program_cols(xbar, [[3, 3, -3, -3], [3, 0, -3, 0]])
-        return xbar
+    def _saturating_macro(self) -> IdealCimMacro:
+        macro = _make_macro(input_num=4, max_active_num=2, output_num=2, adc_max_bits=3)
+        _program_outputs(macro, [[3, 3, -3, -3], [3, 0, -3, 0]])
+        return macro
 
     def test_per_plane_codes_hit_conversion_extremes(self) -> None:
-        xbar = self._saturating_xbar()
-        planes = _masked_planes(torch.ones(4, dtype=torch.int32), row_num=4, max_active_num=2)
-        y = xbar.vec_mat_mul(planes, adc_mode=0, adc_bits=3)
+        macro = self._saturating_macro()
+        planes = _masked_planes(torch.ones(4, dtype=torch.int32), input_num=4, max_active_num=2)
+        y = macro.vec_mat_mul(planes, adc_mode=0, adc_bits=3)
         assert y.dtype == torch.int16
-        assert y.shape == (2, 2)  # leading [P] preserved, trailing [col_num]
+        assert y.shape == (2, 2)
         # scale = ((1<<2)-1) / (A·max|w|·max|x|) = 3/6: codes floor(dot·0.5).
         expected = torch.tensor([[3, 1], [-3, -2]], dtype=torch.int16)
         assert torch.equal(y, expected)
 
     def test_plane_code_sum_differs_from_whole_sum_quantization(self) -> None:
         """``sum(Q(plane_dot))`` != ``Q(sum(plane_dot))`` at the same scale."""
-        xbar = self._saturating_xbar()
-        planes = _masked_planes(torch.ones(4, dtype=torch.int32), row_num=4, max_active_num=2)
-        y = xbar.vec_mat_mul(planes, adc_mode=0, adc_bits=3)
+        macro = self._saturating_macro()
+        planes = _masked_planes(torch.ones(4, dtype=torch.int32), input_num=4, max_active_num=2)
+        y = macro.vec_mat_mul(planes, adc_mode=0, adc_bits=3)
         # Shape: [P, col] -> [col]   caller-side digital accumulation
         plane_code_sum = y.to(torch.int64).sum(dim=0)
         # Whole dots are 0 for both cols; quantizing the whole sum at the
         # per-conversion scale yields 0 — but col 1's per-plane codes sum to -1.
         whole_dot = torch.tensor([0, 0], dtype=torch.int64)
-        rescale = xbar.adc_rescale_factor(adc_mode=0, adc_bits=3)
+        rescale = macro.adc_rescale_factor(adc_mode=0, adc_bits=3)
         whole_code = torch.floor(whole_dot.to(torch.float32) * (1.0 / rescale)).to(torch.int64)
         assert torch.equal(plane_code_sum, torch.tensor([0, -1], dtype=torch.int64))
         assert not torch.equal(plane_code_sum, whole_code)
@@ -106,14 +102,14 @@ class TestLosslessSentinel:
 
     def test_plane_dots_exact_and_sum_to_full_dot(self) -> None:
         torch.manual_seed(11)
-        xbar = _make_xbar(row_num=4, active_row_num=2, col_num=2, adc_max_bits=0)
+        macro = _make_macro(input_num=4, max_active_num=2, output_num=2, adc_max_bits=0)
         w = torch.randint(-3, 4, (2, 4), dtype=torch.int32)
-        _program_cols(xbar, w.tolist())
+        _program_outputs(macro, w.tolist())
         x = torch.randint(0, 2, (3, 4), dtype=torch.int32)
-        planes = _masked_planes(x, row_num=4, max_active_num=2)
-        y = xbar.vec_mat_mul(planes, adc_mode=0, adc_bits=0)
+        planes = _masked_planes(x, input_num=4, max_active_num=2)
+        y = macro.vec_mat_mul(planes, adc_mode=0, adc_bits=0)
         assert y.dtype == torch.int64
-        assert y.shape == (3, 2, 2)  # leading [batch, P] preserved, trailing [col_num]
+        assert y.shape == (3, 2, 2)
         w64 = w.to(torch.int64)
         x64 = x.to(torch.int64)
         for p in range(2):
@@ -125,18 +121,18 @@ class TestLosslessSentinel:
 
 
 class TestFullActivationParity:
-    """``active_row_num == row_num``: a full-row plane is conformant and the
+    """``max_active_num == input_num``: a full input is conformant and the
     macro adds no axis of its own."""
 
     def test_full_row_plane_matches_whole_sum_quantization(self) -> None:
         torch.manual_seed(13)
-        xbar = _make_xbar(row_num=4, active_row_num=4, col_num=2, adc_max_bits=3)
+        macro = _make_macro(input_num=4, max_active_num=4, output_num=2, adc_max_bits=3)
         w = torch.randint(-3, 4, (2, 4), dtype=torch.int32)
-        _program_cols(xbar, w.tolist())
+        _program_outputs(macro, w.tolist())
         x = torch.randint(0, 2, (5, 4), dtype=torch.int32)
-        y = xbar.vec_mat_mul(x, adc_mode=0, adc_bits=3)
+        y = macro.vec_mat_mul(x, adc_mode=0, adc_bits=3)
         assert y.shape == (5, 2)  # no phase axis: leading order preserved
         whole_dot = x.to(torch.int64) @ w.to(torch.int64).transpose(-1, -2)
-        rescale = xbar._max_plane_dot_abs / ((1 << 2) - 1)
+        rescale = macro._max_plane_dot_abs / ((1 << 2) - 1)
         expected = torch.floor(whole_dot.to(torch.float32) * (1.0 / rescale)).to(torch.int64).clamp(-4, 3)
         assert torch.equal(y.to(torch.int64), expected)

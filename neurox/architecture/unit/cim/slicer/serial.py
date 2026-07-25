@@ -14,7 +14,7 @@ from .base import Slicer
 
 
 class SerialSlicer(Slicer):
-    """Radix-``r`` serial decomposition with one digit per slice.
+    """Radix-``r`` serial decomposition.
 
     Args:
         slice_num: Number of per-cycle digits (shape shorthand ``Sa``).
@@ -46,6 +46,4 @@ class SerialSlicer(Slicer):
 
     def slice(self, x: Tensor) -> Tensor:
         # Shape: [...] -> [..., slice_num]
-        encoded = self._transcoder.encode(x, dim=-1)
-        # Shape: [..., slice_num] -> [..., slice_num, digit_count=1]
-        return encoded.unsqueeze(-1)
+        return self._transcoder.encode(x, dim=-1)

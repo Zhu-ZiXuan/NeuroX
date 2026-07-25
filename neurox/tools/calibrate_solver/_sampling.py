@@ -1,8 +1,7 @@
 """Synthetic-workload sampling backend for the solver calibration tools.
 
-Scheme-agnostic: every helper reads only the :class:`CimMacro` base surface
-(``w_digit_value_range`` / ``x_value_range`` / ``col_num`` / ``w_digit_count`` /
-``row_num``), so any registered macro works as the sampling host.
+Scheme-agnostic: value ranges come from the :class:`CimMacro` base surface,
+while logical dimensions are explicit tool inputs.
 """
 
 from __future__ import annotations
@@ -62,7 +61,7 @@ def load_distribution(path: Path | None, xbar: CimMacro) -> Distribution:
 
     Args:
         path: TOML path or ``None``.
-        xbar: Built xbar — supplies ``w_digit_value_range`` / ``x_value_range`` for
+        xbar: Built macro supplying ``w_value_range`` / ``x_value_range`` for
             value-set validation.
 
     Returns:
@@ -88,7 +87,7 @@ def load_distribution(path: Path | None, xbar: CimMacro) -> Distribution:
         raise ValueError(
             f"distribution TOML at {path}: unknown top-level key(s) {unknown}; only '[w]' and '[x]' are recognised"
         )
-    w_values, w_probs = _load_axis(raw, "w", xbar.w_digit_value_range)
+    w_values, w_probs = _load_axis(raw, "w", xbar.w_value_range)
     x_values, x_probs = _load_axis(raw, "x", xbar.x_value_range)
     return Distribution(
         w_values=w_values,
@@ -148,14 +147,16 @@ def _load_axis(
 
 def sample_w(
     distribution: Distribution,
-    xbar: CimMacro,
+    macro: CimMacro,
     *,
+    input_num: int,
+    output_num: int,
     n: int,
     batch_w: int = 1,
     device: torch.device,
     generator: torch.Generator | None = None,
 ) -> Iterator[Tensor]:
-    """Yield ``n // batch_w`` batches of independent xbar-native digit tensors.
+    """Yield ``n // batch_w`` batches of logical weight matrices.
 
     ``n`` **must** be a multiple of ``batch_w`` — every yielded tensor
     carries a fixed leading ``(batch_w,)`` axis to match the xbar's
@@ -164,10 +165,9 @@ def sample_w(
     to the next multiple of ``batch_w`` at the call site if you need
     "at least N" coverage.
 
-    With ``batch_w == 1`` (default), each yielded tensor matches
-    :attr:`w_layout_shape` for an ``inst_shape=()`` xbar, i.e.
-    ``(col_num, w_digit_count, row_num)``. With ``batch_w > 1``, each
-    yield is ``(batch_w, col_num, w_digit_count, row_num)``.
+    With ``batch_w == 1`` (default), each yielded tensor has shape
+    ``(input_num, output_num)``. With ``batch_w > 1``, each yield has
+    shape ``(batch_w, input_num, output_num)``.
     """
     if batch_w <= 0:
         raise ValueError(f"batch_w ({batch_w}) must be > 0")
@@ -177,12 +177,12 @@ def sample_w(
             "partial final batches would break the xbar's fixed inst_shape contract"
         )
     leading = () if batch_w == 1 else (batch_w,)
-    shape_per = (*leading, xbar.col_num, xbar.w_digit_count, xbar.row_num)
+    shape_per = (*leading, input_num, output_num)
     n_per = math.prod(shape_per)
     num_yields = n // batch_w
     for _ in range(num_yields):
         if distribution.w_values is None:
-            lo, hi = xbar.w_digit_value_range
+            lo, hi = macro.w_value_range
             yield torch.randint(
                 lo,
                 hi + 1,
@@ -201,8 +201,9 @@ def sample_w(
 
 def sample_x_batches(
     distribution: Distribution,
-    xbar: CimMacro,
+    macro: CimMacro,
     *,
+    input_num: int,
     n_total: int,
     batch_size: int,
     device: torch.device,
@@ -217,16 +218,15 @@ def sample_x_batches(
         raise ValueError(f"batch_size ({batch_size}) must be > 0")
     if n_total < 0:
         raise ValueError(f"n_total ({n_total}) must be >= 0")
-    row_num = xbar.row_num
     remaining = n_total
     while remaining > 0:
         cur = min(batch_size, remaining)
         if distribution.x_values is None:
-            lo, hi = xbar.x_value_range
+            lo, hi = macro.x_value_range
             x = torch.randint(
                 lo,
                 hi + 1,
-                (cur, row_num),
+                (cur, input_num),
                 device=device,
                 dtype=torch.int64,
                 generator=generator,
@@ -237,11 +237,11 @@ def sample_x_batches(
             values = distribution.x_values.to(device)
             idx = torch.multinomial(
                 probs,
-                num_samples=cur * row_num,
+                num_samples=cur * input_num,
                 replacement=True,
                 generator=generator,
             )
-            x = values[idx].view(cur, row_num).to(torch.int64)
+            x = values[idx].view(cur, input_num).to(torch.int64)
         yield x
         remaining -= cur
 

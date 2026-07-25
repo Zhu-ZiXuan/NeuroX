@@ -4,7 +4,11 @@ The no-slice corner of the precision-slicing axis: one weight slice and one acti
 
 ## Physical model
 
-The variant places every weight on the tile array unsliced: each weight occupies one column, and the $K$ contraction inputs occupy the rows. A weight matrix wider than one tile's column count or deeper than its row count is tiled into a grid of tiles — $T_r = \lceil N / N_{\mathrm{col}}\rceil$ tiles along the output axis and $T_c = \lceil K / N_{\mathrm{row}}\rceil$ tiles along the contraction axis. Each tile holds at most $N_{\mathrm{col}}$ whole weights; the trailing columns of the last output tile and the trailing rows of the last contraction tile are zero-padded. There is no slice axis on either the weight or the activation side, so no positional shift-add recombination is required.
+The variant places each logical weight directly on one macro input/output
+coordinate. A larger matrix is tiled as
+$T_r=\lceil N/N_{\mathrm{out}}\rceil$ by
+$T_c=\lceil K/N_{\mathrm{in}}\rceil$. The final tiles are zero-padded. There is
+no precision-slice axis and no shift-add.
 
 ## Governing equations
 
@@ -12,7 +16,11 @@ The variant realizes the exact integer dot product
 
 $$Y_{m,n} = \sum_{k} X_{m,k}\,W_{n,k}$$
 
-as a sum over the contraction-tile grid: the engine serializes each tile read into zero-masked WL planes over its sub-phase axis, the tile digitizes each plane independently, the per-plane codes accumulate over the sub-phase axis, and the partials accumulate (a plain integer sum, no positional weighting) across the $T_c$ tiles to form the full contraction. The output-tile grid carries disjoint columns of $\mathbf{W}^{\!\top}$, so the per-tile results concatenate along the output axis and are trimmed to $N$. The weight enters the tile as a string of $D$ digits in radix $r$ produced by the codec; the tile's primitive read folds the digit axis with the radix-weighted vector, so the digit decomposition is transparent at this level.
+as a sum over the contraction-tile grid. The engine creates zero-masked input
+phases, the macro converts each phase independently, the phase accumulator
+combines those codes, and a plain sum across $T_c$ completes the contraction.
+Output tiles concatenate and trim to $N$. `program` passes logical values
+directly to the macro; any physical digit encoding is macro-internal.
 
 ## Noise & non-idealities
 
@@ -23,8 +31,7 @@ N/A at the variant level — the variant adds no non-ideality. ADC quantization 
 | Parameter | Meaning | Unit | Constraint | Source |
 |---|---|---|---|---|
 | `cim_macro_config` | owned physical-tile configuration | — | — | Design |
-| `w_encoding` | weight encoding (integer-to-digit-string; signed-digit only for canonical) | — | — | Design |
-| `phase_accumulator_config` | sub-phase-axis per-tile-port accumulator | — | — | Design |
+| `phase_accumulator_config` | input-phase accumulator per macro output | — | — | Design |
 | `col_accumulator_config` | contraction-tile ($T_c$) accumulator | — | — | Design |
 
 Activations are unsigned true-form by definition, so the variant carries no activation encoding. Provenance terms: [module_parameter](../../../../../conventions/module_parameter.md); file-level schema: [config reference](../../../../../api/README.md).
@@ -33,18 +40,17 @@ Activations are unsigned true-form by definition, so the variant carries no acti
 
 | Symbol | Meaning | Unit | Code field |
 |---|---|---|---|
-| $N_{\mathrm{row}}$ | tile row count | — | `cim_macro.row_num` |
-| $N_{\mathrm{col}}$ | tile column count | — | `cim_macro.col_num` |
+| $N_{\mathrm{in}}$ | macro logical input capacity | — | `input_num` |
+| $N_{\mathrm{out}}$ | macro logical output capacity | — | `output_num` |
 | $T_r$ | output-axis tile count | — | structure count |
 | $T_c$ | contraction-axis tile count | — | structure count |
-| $D$ | digits per slice (digit count) | — | `cim_macro.w_digit_count` |
-| $r$ | digit radix | — | `cim_macro.w_digit_radix` |
 
 The logical dims ($N$, $K$, $M$), the value-domain symbols, and the ADC surface are in [unit/family](../../family.md#symbols).
 
 ## Assumptions, scope & validity
 
-- Weight values must fit the codec's value range (encoding-dependent, e.g. true-form $\pm(r^{D}-1)$), and input values must fit the tile's input grid. These owner-side contracts are published as value ranges but are not enforced by elementwise runtime scans.
+- Weight and input values must fit the macro's published logical ranges. These
+  owner-side contracts are not enforced by elementwise runtime scans.
 - The variant applies only when the quantization grid fits one tile's value range; for $S_w > 1$ or $S_a > 1$ use inter_array_slice or intra_array_slice.
 
 TODO (domain author): the exact value-range bound per encoding and the saturation behaviour at the tile boundary.

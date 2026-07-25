@@ -13,14 +13,16 @@
   signed symmetric denominator is zero.
 - **Bound-selected arithmetic path.** A plane-dot bound below $2^{24}$ selects
   fp32 `einsum`; the bound guarantees exact integer representation for
-  range-conformant inputs with at most `active_row_num` live rows. Larger
+  range-conformant operands with at most `max_active_num` selected inputs. Larger
   bounds use an int64 multiply-reduce path.
 
 ## Contracts & invariants
 
-- `program` stores one integer digit tensor matching `w_layout_shape` as ordinary `_digits` state. The input already carries the intended device; module migration must precede programming.
+- `program` clones one logical integer matrix with shape
+  `(*inst_shape, input_num, output_num)` into `_w`. The input already carries
+  the intended device; module migration must precede programming.
 - `vec_mat_mul` preserves leading-axis order and returns trailing
-  `[col_num]`.
+  `[output_num]`.
 - Training mode uses stochastic floor quantization; evaluation mode uses
   deterministic floor quantization. Both clamp to the signed code range.
 - The policy is empty and static PPA is zero.

@@ -9,7 +9,6 @@ import torch.nn.functional as F
 from neurox.architecture.unit.cim import Conv2dCimUnit, Conv2dCimUnitConfig, Conv2dCimUnitPolicy
 from neurox.architecture.unit.cim.engine import CimEngine, DirectCimEngineConfig, DirectCimEnginePolicy
 from neurox.architecture.unit.ideal import IdealConv2dUnit, IdealConv2dUnitConfig, IdealConv2dUnitPolicy
-from neurox.common.encoding import Encoding
 from neurox.primitive.digital import AccumulatorConfig
 from neurox.primitive.macro.cim import IdealCimMacroConfig, IdealCimMacroPolicy
 
@@ -25,21 +24,15 @@ _ADC_BITS = 0
 
 def _ideal_macro_config(
     *,
-    row_num: int = 16,
-    col_num: int = 16,
-    active_row_num: int | None = None,
+    max_active_num: int | None = None,
     x_value_range: tuple[int, int] = (0, 3),
 ) -> IdealCimMacroConfig:
     return IdealCimMacroConfig(
-        col_num=col_num,
-        row_num=row_num,
-        active_row_num=row_num if active_row_num is None else active_row_num,
+        max_active_num=16 if max_active_num is None else max_active_num,
         leakage_per_inst__uW=0.0,
         area_per_inst__um2=0.0,
         x_value_range=x_value_range,
-        w_digit_count=1,
-        w_digit_radix=4,
-        w_digit_value_range=(-3, 3),
+        w_value_range=(-3, 3),
         adc_mode_num=1,
         adc_max_bits=0,
     )
@@ -59,7 +52,7 @@ def _unit_config(
     *,
     row_num: int = 16,
     col_num: int = 16,
-    active_row_num: int | None = None,
+    max_active_num: int | None = None,
     stride: tuple[int, int] = (1, 1),
     padding: tuple[int, int] = (0, 0),
     dilation: tuple[int, int] = (1, 1),
@@ -69,10 +62,12 @@ def _unit_config(
         area_per_inst__um2=0.0,
         leakage_per_inst__uW=0.0,
         engine=DirectCimEngineConfig(
+            input_num=row_num,
+            output_num=col_num,
             cim_macro_config=_ideal_macro_config(
-                row_num=row_num, col_num=col_num, active_row_num=active_row_num, x_value_range=x_value_range
+                max_active_num=row_num if max_active_num is None else max_active_num,
+                x_value_range=x_value_range,
             ),
-            w_encoding=Encoding.TRUE_FORM,
             phase_accumulator_config=_accumulator_config(),
             col_accumulator_config=_accumulator_config(),
         ),
@@ -454,21 +449,21 @@ def test_toeplitz_requires_w_range_covering_zero(monkeypatch: pytest.MonkeyPatch
 # --- 6. Engine-tiling composition ---
 
 
-def test_conv2d_accepts_non_divisor_row_blocking_and_stays_exact() -> None:
+def test_conv2d_accepts_non_divisor_input_blocking_and_stays_exact() -> None:
     # 16 % 6 != 0: the base macro accepts it and Conv2dCimUnitConfig adds no
-    # divisor guard (the operator tolerates unused rows). The engine must tile
-    # the 16 rows into P = ceil(16/6) = 3 sub-phases (short final block of 4
-    # rows) covering every row, so the Toeplitz path still matches the ideal
-    # conv2d oracle bit-exactly. Under the old floor division (P = 2) rows
+    # divisor guard (the operator tolerates unused inputs). The engine must split
+    # the 16 inputs into P = ceil(16/6) = 3 phases (short final block of 4),
+    # so the Toeplitz path still matches the ideal conv2d oracle bit-exactly.
+    # Under the old floor division (P = 2), inputs
     # 12..15 would be dropped and the result would be wrong.
     torch.manual_seed(700)
     c_out, c_in, kh, kw = 2, 1, 2, 2
     w_shape = (c_out, c_in, kh, kw)
     unit = _build_unit(
-        _unit_config(row_num=16, col_num=16, active_row_num=6),
+        _unit_config(row_num=16, col_num=16, max_active_num=6),
         w_logical_shape=w_shape,
     )
-    assert unit.engine._sub_phase_num == 3
+    assert unit.engine._input_phase_num == 3
     ideal = _build_ideal_unit(w_logical_shape=w_shape)
     weight = _random_weight(unit, w_shape)
     x = _random_activation(unit, (1, 5, 8))

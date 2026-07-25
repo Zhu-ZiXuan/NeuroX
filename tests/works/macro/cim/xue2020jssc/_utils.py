@@ -14,9 +14,9 @@ this chain the ADC input current ``I_SUB`` is monotone in the signed integer MAC
 so a mid-point ladder probed from the tile's own transfer decodes any MAC
 bit-exactly.
 
-The geometry mirrors the paper design in miniature: ``col_num = 4``
-(``mux_factor = 2`` -> ``io_num = 2``), ``row_num = active_row_num = 4`` (every
-row active, no engine masking), ``input_bit_num = 2`` (K serial WL sub-phases,
+The geometry mirrors the paper design in miniature: ``output_num = 4``
+(``mux_factor = 2`` -> ``io_num = 2``), ``input_num = max_active_num = 4``,
+``input_bit_num = 2`` (K serial WL sub-phases,
 LSB first), a 3-bit ADC magnitude. The WL DAC latency is zero and the ADC step
 latency is the honest per-step SAR sensing durations (feeding the read-chain
 window ``t_other``); the macro builds the TMCSA so it emits NO latency, staying
@@ -41,7 +41,6 @@ from typing import TypedDict, Unpack
 import torch
 from torch import Tensor
 
-from neurox.common.encoding import TrueFormTranscoder
 from neurox.primitive.analog import (
     IrefConfig,
     IrefPolicy,
@@ -68,10 +67,10 @@ from neurox.works.macro.cim.xue2020jssc import (
 )
 
 # --- Tiny witness geometry ---
-TINY_COL_NUM = 4
-TINY_ROW_NUM = 4
-TINY_ACTIVE_ROW_NUM = 4
-TINY_MUX_FACTOR = 2  # io_num = col_num // mux_factor = 2
+TINY_OUTPUT_NUM = 4
+TINY_INPUT_NUM = 4
+TINY_MAX_ACTIVE_SIZE = 4
+TINY_MUX_FACTOR = 2  # io_num = output_num // mux_factor = 2
 TINY_K = 2  # input_bit_num: two serial WL sub-phases, LSB first
 TINY_ADC_BITS = 3
 MAG_MAX = (1 << TINY_ADC_BITS) - 1  # 7 — the 3-bit magnitude saturation
@@ -85,15 +84,8 @@ _V_BLC__V = 0.3
 # the array IR drop is a fraction of a percent — the chain stays near-ideal.
 _WIRE_FIRST_R__MOhm = 2.0e-5  # 20 Ohm
 _WIRE_SEGMENT_R__MOhm = 5.0e-6  # 5 Ohm
-# The framework transcoder the macro's program() consumes: sign-magnitude,
-# radix 2, two magnitude digits (LSB-first) -> a 3-bit signed weight.
-TRANSCODER = TrueFormTranscoder(radix=2, digit_count=2)
-
-
 class _BuildConfigKwargs(TypedDict, total=False):
-    col_num: int
-    row_num: int
-    active_row_num: int | None
+    max_active_num: int
     mux_factor: int
     w_digit_num: int
     w_digit_radix: int
@@ -161,9 +153,7 @@ def _array_config() -> XbarArray1t1rConfig:
 
 def build_config(
     *,
-    col_num: int = TINY_COL_NUM,
-    row_num: int = TINY_ROW_NUM,
-    active_row_num: int | None = None,
+    max_active_num: int = TINY_INPUT_NUM,
     mux_factor: int = TINY_MUX_FACTOR,
     w_digit_num: int = 2,
     w_digit_radix: int = 2,
@@ -185,10 +175,8 @@ def build_config(
     it in-code via :func:`build_calibrated_macro`.
 
     Args:
-        col_num: Logical signed-weight columns.
-        row_num: Rows.
-        active_row_num: Row-block size (defaults to ``row_num`` — every row live).
-        mux_factor: Column-MUX depth; ``io_num = col_num // mux_factor``.
+        max_active_num: Per-conversion selection limit.
+        mux_factor: Column-MUX depth; ``io_num = output_num // mux_factor``.
         w_digit_num: Magnitude digits per weight (>= 1).
         w_digit_radix: Positional base of the magnitude digits (>= 2).
         input_bit_num: Activation bit width K (K serial WL sub-phases, LSB first).
@@ -206,8 +194,6 @@ def build_config(
             these never add to the profiled latency (macro = sole latency emitter).
         ref_levels__uA: Single-mode threshold ladder (defaults to the placeholder).
     """
-    if active_row_num is None:
-        active_row_num = row_num
     if t_sample__ns is None:
         t_sample__ns = tuple(1.0 for _ in range(input_bit_num - 1))
     if t_conduct_per_step__ns is None:
@@ -220,9 +206,7 @@ def build_config(
     return Xue2020JsscCimMacroConfig(
         area_per_inst__um2=0.0,
         leakage_per_inst__uW=8.0,  # macro-owned lump (DSWCT / SINWP-SC roll-up)
-        col_num=col_num,
-        row_num=row_num,
-        active_row_num=active_row_num,
+        max_active_num=max_active_num,
         w_digit_num=w_digit_num,
         w_digit_radix=w_digit_radix,
         input_bit_num=input_bit_num,
@@ -306,6 +290,8 @@ def build_all_off_policy() -> Xue2020JsscCimMacroPolicy:
 def build_macro(
     config: Xue2020JsscCimMacroConfig,
     *,
+    input_num: int = TINY_INPUT_NUM,
+    output_num: int = TINY_OUTPUT_NUM,
     device: torch.device | None = None,
     inst_shape: tuple[int, ...] = (),
 ) -> Xue2020JsscCimMacro:
@@ -313,6 +299,8 @@ def build_macro(
     macro = CimMacro.from_config(
         config=config,
         policy=build_all_off_policy(),
+        input_num=input_num,
+        output_num=output_num,
         inst_shape=inst_shape,
         dtype=_DTYPE,
         T__K=300.0,
@@ -328,23 +316,6 @@ def build_macro(
 def macro_device(macro: Xue2020JsscCimMacro) -> torch.device:
     """Device the macro lives on (first buffer of the module tree)."""
     return next(macro.buffers()).device
-
-
-def transcoder_for(macro: Xue2020JsscCimMacro) -> TrueFormTranscoder:
-    """The sign-magnitude transcoder matching a macro's own digit geometry."""
-    return TrueFormTranscoder(radix=macro.w_digit_radix, digit_count=macro.w_digit_count)
-
-
-def encode_weights(w_signed: Tensor, *, transcoder: TrueFormTranscoder = TRANSCODER) -> Tensor:
-    """Signed logical weights ``[*, col, row]`` -> LSB-first digit layout ``[*, col, digit, row]``.
-
-    The macro's ``program()`` consumes the transcoder's sign-magnitude digits
-    with digit 0 = LSB; the digit axis is inserted immediately left of the row
-    axis to match ``w_layout_shape = (*inst_shape, col_num, w_digit_count, row_num)``.
-    The default radix-2 two-digit transcoder matches the paper witness; pass a
-    matching transcoder for a generalized ``w_digit_num`` / ``w_digit_radix`` macro.
-    """
-    return transcoder.encode(w_signed, dim=-2)
 
 
 def with_ref_levels(config: Xue2020JsscCimMacroConfig, ref_levels__uA: tuple[float, ...]) -> Xue2020JsscCimMacroConfig:
@@ -367,12 +338,12 @@ def probe_i_sub_grid(macro: Xue2020JsscCimMacro, *, m_max: int) -> list[float]:
     """
     device = macro_device(macro)
     cfg = macro.config
-    row_num = cfg.row_num
+    row_num = macro.row_num
     x_max = (1 << cfg.input_bit_num) - 1
 
-    w_signed = torch.zeros((macro.col_num, row_num), dtype=torch.long, device=device)
-    w_signed[0, :] = 1
-    macro.program(encode_weights(w_signed, transcoder=transcoder_for(macro)))
+    w_signed = torch.zeros((*macro.inst_shape, macro.row_num, macro.col_num), dtype=torch.long, device=device)
+    w_signed[:, 0] = 1
+    macro.program(w_signed)
 
     x = torch.zeros((m_max + 1, row_num), dtype=torch.long, device=device)
     for m in range(m_max + 1):
@@ -421,19 +392,19 @@ def build_calibrated_macro(
 
 
 def ideal_mac(w_signed: Tensor, x: Tensor, *, mag_max: int = MAG_MAX) -> Tensor:
-    """CPU int64 reference: ``clamp(sum_row w * x, -mag_max, mag_max)`` per column.
+    """CPU int64 reference for the logical VMM.
 
     Args:
-        w_signed: Signed weights ``[col, row]``.
-        x: Integer activations ``[..., row]``.
+        w_signed: Signed weights ``[input_num, output_num]``.
+        x: Integer activations ``[..., input_num]``.
         mag_max: Signed-magnitude clip bound.
 
     Returns:
-        Expected signed codes ``[..., col]`` on CPU (int64).
+        Expected signed codes ``[..., output_num]`` on CPU.
     """
-    w2 = w_signed.cpu().long()  # (col, row)
-    x2 = x.cpu().long()  # (..., row)
-    mac = (x2.unsqueeze(-2) * w2).sum(dim=-1)  # (..., col)
+    w2 = w_signed.cpu().long()
+    x2 = x.cpu().long()
+    mac = x2 @ w2
     return mac.clamp(-mag_max, mag_max)
 
 
@@ -445,12 +416,12 @@ def decode(
     adc_mode: int = ADC_MODE,
     adc_bits: int = TINY_ADC_BITS,
 ) -> Tensor:
-    """Program signed weights ``[col, row]``, run one VMM on integer inputs ``x[..., row]``.
+    """Program logical weights and run one VMM.
 
-    Returns the signed-magnitude codes ``[..., col]`` on CPU.
+    Returns the signed-magnitude codes ``[..., output_num]`` on CPU.
     """
     device = macro_device(macro)
-    macro.program(encode_weights(w_signed.to(device), transcoder=transcoder_for(macro)))
+    macro.program(w_signed.to(device))
     with torch.no_grad():
         out = macro.vec_mat_mul(x.to(device), adc_mode=adc_mode, adc_bits=adc_bits)
     return out.cpu()

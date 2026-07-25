@@ -38,7 +38,6 @@ from pathlib import Path
 
 import torch
 
-from neurox.common.encoding import TrueFormTranscoder
 from neurox.primitive.analog.current_adc.base import IadcProber
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
 from neurox.works.macro.cim.xue2020jssc import Xue2020JsscCimMacro
@@ -48,7 +47,6 @@ _VAL_DIR = _HERE.parents[1]
 sys.path.insert(0, str(_VAL_DIR))
 import validate as V  # noqa: E402  the sibling measurement engine (single source of the reduction)
 
-_TRANSCODER = TrueFormTranscoder(radix=2, digit_count=2)
 _ADC_MODE = 0
 _ADC_BITS = 3
 
@@ -73,22 +71,22 @@ def unit_isub_staircase(macro: Xue2020JsscCimMacro) -> tuple[list[float], list[f
     cfg = macro.config
     dev = next(macro.buffers()).device
     k_num = cfg.input_bit_num
-    row, act = cfg.row_num, cfg.active_row_num
+    row_num, active_size = macro.row_num, cfg.max_active_num
     x_max = (1 << k_num) - 1
     m_max = (1 << cfg.adc_config.bits) - 1
 
-    w = torch.zeros((macro.col_num, row), dtype=torch.long, device=dev)
-    w[0, :] = 1
-    macro.program(_TRANSCODER.encode(w, dim=-2))
+    w = torch.zeros((*macro.inst_shape, macro.row_num, macro.col_num), dtype=torch.long, device=dev)
+    w[:, 0] = 1
+    macro.program(w)
 
-    x = torch.zeros((m_max + 1, row), dtype=torch.long, device=dev)
+    x = torch.zeros((m_max + 1, row_num), dtype=torch.long, device=dev)
     for m in range(m_max + 1):
         rem = m
-        for r in range(act):
+        for r in range(active_size):
             v = min(x_max, rem)
             x[m, r] = v
             rem -= v
-        assert rem == 0, f"cannot reach MAC value {m} with {act} live rows of max {x_max}"
+        assert rem == 0, f"cannot reach MAC value {m} with {active_size} selected inputs of max {x_max}"
 
     # Drive the full macro (array IR-drop solve + readout chain) once and capture
     # the pre-ADC magnitude current through the ADC's own observation prober. One
@@ -107,15 +105,17 @@ def verify_ladder(macro: Xue2020JsscCimMacro, mids: list[float]) -> tuple[bool, 
     cfg = macro.config
     dev = next(macro.buffers()).device
     m_max = (1 << cfg.adc_config.bits) - 1
-    row, act, x_max = cfg.row_num, cfg.active_row_num, (1 << cfg.input_bit_num) - 1
+    row_num = macro.row_num
+    active_size = cfg.max_active_num
+    x_max = (1 << cfg.input_bit_num) - 1
 
-    w = torch.zeros((macro.col_num, row), dtype=torch.long, device=dev)
-    w[0, :] = 1
-    macro.program(_TRANSCODER.encode(w, dim=-2))
-    x = torch.zeros((m_max + 1, row), dtype=torch.long, device=dev)
+    w = torch.zeros((*macro.inst_shape, macro.row_num, macro.col_num), dtype=torch.long, device=dev)
+    w[:, 0] = 1
+    macro.program(w)
+    x = torch.zeros((m_max + 1, row_num), dtype=torch.long, device=dev)
     for m in range(m_max + 1):
         rem = m
-        for r in range(act):
+        for r in range(active_size):
             v = min(x_max, rem)
             x[m, r] = v
             rem -= v
@@ -172,7 +172,15 @@ def lock_p_zero(
 
 
 def _rebuild(cfg: CimMacroConfig, policy: CimMacroPolicy, device: torch.device) -> Xue2020JsscCimMacro:
-    macro = CimMacro.from_config(config=cfg, policy=policy, inst_shape=(), dtype=torch.float32, T__K=300.0)
+    macro = CimMacro.from_config(
+        config=cfg,
+        policy=policy,
+        input_num=256,
+        output_num=128,
+        inst_shape=(),
+        dtype=torch.float32,
+        T__K=300.0,
+    )
     assert isinstance(macro, Xue2020JsscCimMacro)
     macro.to(device)
     macro.eval()
@@ -237,7 +245,10 @@ def main() -> None:
     macro0 = _rebuild(base_cfg, policy, device)
     grid, mids = unit_isub_staircase(macro0)
     monotonic = all(grid[i] < grid[i + 1] for i in range(len(grid) - 1))
-    emit(f"Unit i_sub staircase I(MAC=0..{len(grid) - 1}) [uA] over {base_cfg.active_row_num} live rows:")
+    emit(
+        f"Unit i_sub staircase I(MAC=0..{len(grid) - 1}) [uA] "
+        f"over {base_cfg.max_active_num} selected inputs:"
+    )
     emit("")
     emit("    " + ", ".join(f"{g:.4f}" for g in grid))
     emit("")

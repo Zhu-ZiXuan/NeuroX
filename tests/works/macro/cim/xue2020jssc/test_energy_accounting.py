@@ -56,13 +56,12 @@ from neurox.common.profiler import NeuroxProfiler, ProfilerReport
 from ._utils import (
     ADC_MODE,
     TINY_ADC_BITS,
-    TINY_COL_NUM,
-    TINY_ROW_NUM,
+    TINY_INPUT_NUM,
+    TINY_OUTPUT_NUM,
     Xue2020JsscCimMacro,
     Xue2020JsscCimMacroConfig,
     build_config,
     build_macro,
-    encode_weights,
 )
 
 
@@ -87,14 +86,14 @@ def _eager() -> Iterator[None]:
 # ---------------------------------------------------------------------------
 
 
-def _w_full(col: int = TINY_COL_NUM, row: int = TINY_ROW_NUM) -> Tensor:
+def _w_full(input_num: int = TINY_INPUT_NUM, output_num: int = TINY_OUTPUT_NUM) -> Tensor:
     """All-``+1`` weights so every physical column / IO / mux slot conducts."""
-    return torch.ones((col, row), dtype=torch.long)
+    return torch.ones((input_num, output_num), dtype=torch.long)
 
 
-def _x_full(k: int, row: int = TINY_ROW_NUM) -> Tensor:
+def _x_full(k: int, input_num: int = TINY_INPUT_NUM) -> Tensor:
     """Full-scale K-bit input (every input bit set on every row) — all sub-phase legs conduct."""
-    return torch.full((row,), (1 << k) - 1, dtype=torch.long)
+    return torch.full((input_num,), (1 << k) - 1, dtype=torch.long)
 
 
 def _run(
@@ -108,7 +107,7 @@ def _run(
 ) -> tuple[NeuroxProfiler, ProfilerReport]:
     """Build + fabricate a fresh macro, program ``w``, profile one VMM on ``x``."""
     macro = build_macro(config, device=device)
-    macro.program(encode_weights(w.to(device)))
+    macro.program(w.to(device))
     with NeuroxProfiler() as prof, torch.no_grad():
         macro.vec_mat_mul(x.to(device), adc_mode=adc_mode, adc_bits=adc_bits)
     return prof, prof.report(macro)
@@ -293,7 +292,7 @@ def test_input_branch_billed_whole_by_cablc_array_bills_caps_only(device: torch.
 
     def run(config: Xue2020JsscCimMacroConfig) -> tuple[float, float, float]:
         macro = build_macro(config, device=device)
-        macro.program(encode_weights(w.to(device)))
+        macro.program(w.to(device))
         with NeuroxProfiler() as prof, torch.no_grad():
             macro.vec_mat_mul(x.to(device), adc_mode=ADC_MODE, adc_bits=TINY_ADC_BITS)
         report = prof.report(macro)
@@ -461,8 +460,8 @@ def test_read_channel_per_bit_window_is_diagonal_not_suffix(device: torch.device
     breaks. The SINWP-SC channel is the positive control: its held bit-0 leg DOES
     ride the later windows.
     """
-    w = _w_full(row=TINY_ROW_NUM)
-    x = torch.ones(TINY_ROW_NUM, dtype=torch.long)  # bit 0 set, bits 1..K-1 zero
+    w = _w_full(input_num=TINY_INPUT_NUM)
+    x = torch.ones(TINY_INPUT_NUM, dtype=torch.long)  # bit 0 set, bits 1..K-1 zero
 
     def read(t_sample: tuple[float, ...], t_settle: float) -> dict[str, float]:
         return _channel_energies(
@@ -537,7 +536,7 @@ def test_adc_energy_is_pure_fixed_when_t_conduct_zero(device: torch.device) -> N
     adc_bits = cfg.adc_config.bits
     e_fixed = cfg.adc_config.e_fixed_per_op__fJ
     # One converted element per (mux slot, io lane): i_sub is [gs, gn] with no batch axis.
-    count = cfg.mux_factor * cfg.io_num
+    count = cfg.mux_factor * (TINY_OUTPUT_NUM // cfg.mux_factor)
     assert e_tmcsa == pytest.approx(adc_bits * e_fixed * count)
 
 

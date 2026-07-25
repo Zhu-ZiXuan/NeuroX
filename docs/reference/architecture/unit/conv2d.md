@@ -24,7 +24,7 @@ $$K' = C_{\mathrm{in}}\, k_h\, W_{\mathrm{strip}}, \qquad N' = W_g\, C_{\mathrm{
 
 **Window-group rule.** $W_g$ is a mapping policy derived from the substrate geometry, never a configuration field: the maximal $W_g$ satisfying both
 
-$$K' \le N_{\mathrm{row}} \qquad \text{and} \qquad W_g\, C_{\mathrm{out}} \le N_{\mathrm{col}},$$
+$$K' \le N_{\mathrm{in}} \qquad \text{and} \qquad W_g\, C_{\mathrm{out}} \le N_{\mathrm{out}},$$
 
 floored at $W_g = 1$. At the floor even the single-window strip may exceed one tile; the generic engine tiling then splits $K'$/$N'$ as usual.
 
@@ -40,7 +40,9 @@ of the $(N', K')$ matrix; all other entries are 0. The zeros — dilation gaps a
 
 **Degenerate case.** $W_g = 1$ gives $W_{\mathrm{strip}} = k_w^{\mathrm{eff}}$, $K' = C_{\mathrm{in}} k_h k_w^{\mathrm{eff}}$, $N' = C_{\mathrm{out}}$: one window per plane — the im2col lowering as a special case of the Toeplitz structure (with dilation gaps still resolved by the matrix zeros).
 
-**Drive semantics.** Every substrate sub-phase is independently driven — the mapping models no sample-and-hold of a shared strip drive. Sub-phase serialization and chunking are the substrate's generic mechanism; the conv2d mapping contains no chunking logic of its own.
+**Drive semantics.** Every substrate input phase is independently driven. Phase
+serialization is the substrate's generic mechanism; the conv2d mapping contains
+no phase-splitting logic of its own.
 
 ## Noise & non-idealities
 
@@ -58,7 +60,7 @@ The mapping adds no non-ideality of its own: gather, placement, fold, trim, and 
 | $W_{\mathrm{strip}}$ | input columns per strip | — | derived at construction |
 | $K', N'$ | lowered contraction / output dims | — | engine logical shape |
 | $T_{\mathrm{seg}}$ | strip segments per output row | — | — |
-| $N_{\mathrm{row}}, N_{\mathrm{col}}$ | tile row / column count | — | `cim_macro.row_num`, `cim_macro.col_num` |
+| $N_{\mathrm{in}}, N_{\mathrm{out}}$ | macro logical input / output capacity | — | `engine.input_num`, `engine.output_num` |
 | $b$ | integer bias vector (length $C_{\mathrm{out}}$) | — | `int_bias` |
 
 The value-domain and ADC-surface symbols are in [family](family.md#symbols).

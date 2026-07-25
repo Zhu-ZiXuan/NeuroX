@@ -20,13 +20,6 @@ class LinearCimUnitConfig(EngineBackedCimUnitConfig):
     def validate(self) -> None:
         super().validate()
 
-        macro = self.engine.cim_macro_config
-        if macro.row_num % macro.active_row_num != 0:
-            raise ValueError(
-                f"require: row_num ({macro.row_num}) % active_row_num ({macro.active_row_num}) == 0 "
-                "(the linear operator reads every row; uniform row-blocking)"
-            )
-
 
 class LinearCimUnitPolicy(EngineBackedCimUnitPolicy):
     """Composite policy for :class:`LinearCimUnit`; no fields beyond the inherited set."""
@@ -54,6 +47,12 @@ class LinearCimUnit(LinearUnit, EngineBackedCimUnit[LinearCimUnitConfig, LinearC
             T__K=T__K,
             ideal_macro=ideal_macro,
         )
+        if self.engine.input_num % self.engine.max_active_num != 0:
+            raise ValueError(
+                f"require: input_num ({self.engine.input_num}) % max_active_num "
+                f"({self.engine.max_active_num}) == 0 "
+                "(the linear operator reads every input position; uniform phase blocking)"
+            )
 
     def program(self, weight: Tensor, bias: Tensor | None = None) -> None:
         if weight.dtype.is_floating_point or weight.dtype.is_complex or weight.dtype == torch.bool:
