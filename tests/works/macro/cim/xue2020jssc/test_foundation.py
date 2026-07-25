@@ -289,5 +289,5 @@ def test_non_divisible_active_row_num_accepted() -> None:
 
     # A tiny non-divisible geometry also builds a live macro (5 % 3 != 0).
     macro = build_macro(build_config(row_num=5, active_row_num=3, col_num=4))
-    assert macro.max_active_rows == 3
+    assert macro.max_active_num == 3
     assert isinstance(macro, Xue2020JsscCimMacro)

@@ -107,7 +107,7 @@ class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
         max_w_logical_abs = max_digit_abs * int(digit_weights.sum().item())
         x_lo, x_hi = config.x_value_range
         max_x_abs = max(abs(x_lo), abs(x_hi))
-        # One conversion covers at most ``max_active_rows`` nonzero rows.
+        # One conversion covers at most ``max_active_num`` nonzero rows.
         self._max_plane_dot_abs = config.active_row_num * max_w_logical_abs * max_x_abs
         # Integers below 2^24 are exactly representable by IEEE fp32.
         self._fp32_exact = self._max_plane_dot_abs < 2**24
@@ -163,7 +163,7 @@ class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
 
         Args:
             x: WL plane tensor with primitive trailing ``[row_num]``;
-                at most :attr:`max_active_rows` rows may be nonzero.
+                at most :attr:`max_active_num` rows may be nonzero.
             adc_mode: Accepted and ignored.
             adc_bits: ADC resolution [bits]. Zero returns lossless dots.
 

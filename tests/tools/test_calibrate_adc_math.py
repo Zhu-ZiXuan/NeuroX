@@ -355,7 +355,7 @@ class TestStimulusCeilBlocking:
     def test_unroll_mirror_covers_every_row_exactly_once(self) -> None:
         """Ceil sub-phase count: each real row is live in exactly one plane."""
         x = torch.ones((2, self._ROW), dtype=torch.long)
-        planes = _unroll_sub_phase(x, row_num=self._ROW, max_active_rows=self._ACTIVE, inst_rank=0)
+        planes = _unroll_sub_phase(x, row_num=self._ROW, max_active_num=self._ACTIVE, inst_rank=0)
         p_num = -(-self._ROW // self._ACTIVE)  # ceil(256 / 9) == 29
         assert tuple(planes.shape) == (2, p_num, self._ROW)
         # Sum over the P axis: every (batch, row) is active in exactly one plane.
@@ -363,7 +363,7 @@ class TestStimulusCeilBlocking:
 
     def test_unroll_mirror_divisible_equals_exact_quotient(self) -> None:
         x = torch.ones((12,), dtype=torch.long)  # trailing row_num == 12
-        planes = _unroll_sub_phase(x, row_num=12, max_active_rows=4, inst_rank=0)
+        planes = _unroll_sub_phase(x, row_num=12, max_active_num=4, inst_rank=0)
         assert planes.shape[-2] == 3  # 12 / 4 exact
         assert torch.equal(planes.sum(dim=-2), x)
 

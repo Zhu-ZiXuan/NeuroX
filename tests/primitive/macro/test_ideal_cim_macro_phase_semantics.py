@@ -53,14 +53,14 @@ def _program_cols(xbar: IdealCimMacro, cols: list[list[int]]) -> None:
     xbar.program(w)
 
 
-def _masked_planes(x: torch.Tensor, *, row_num: int, max_active_rows: int) -> torch.Tensor:
+def _masked_planes(x: torch.Tensor, *, row_num: int, max_active_num: int) -> torch.Tensor:
     """Zero-masked WL planes via the engine mask formula.
 
     Shape: [..., row_num] -> [..., P, row_num]; plane ``p`` keeps exactly
-    rows ``[p*max_active_rows, (p+1)*max_active_rows)``, zeros elsewhere.
+    rows ``[p*max_active_num, (p+1)*max_active_num)``, zeros elsewhere.
     """
-    p_num = row_num // max_active_rows
-    mask = torch.arange(row_num) // max_active_rows == torch.arange(p_num).unsqueeze(-1)
+    p_num = row_num // max_active_num
+    mask = torch.arange(row_num) // max_active_num == torch.arange(p_num).unsqueeze(-1)
     # Shape: [..., row_num] -> [..., P, row_num]
     return torch.where(mask, x.unsqueeze(-2), x.new_zeros(()))
 
@@ -77,7 +77,7 @@ class TestPerPlaneClampVsWholeSum:
 
     def test_per_plane_codes_hit_conversion_extremes(self) -> None:
         xbar = self._saturating_xbar()
-        planes = _masked_planes(torch.ones(4, dtype=torch.int32), row_num=4, max_active_rows=2)
+        planes = _masked_planes(torch.ones(4, dtype=torch.int32), row_num=4, max_active_num=2)
         y = xbar.vec_mat_mul(planes, adc_mode=0, adc_bits=3)
         assert y.dtype == torch.int16
         assert y.shape == (2, 2)  # leading [P] preserved, trailing [col_num]
@@ -88,7 +88,7 @@ class TestPerPlaneClampVsWholeSum:
     def test_plane_code_sum_differs_from_whole_sum_quantization(self) -> None:
         """``sum(Q(plane_dot))`` != ``Q(sum(plane_dot))`` at the same scale."""
         xbar = self._saturating_xbar()
-        planes = _masked_planes(torch.ones(4, dtype=torch.int32), row_num=4, max_active_rows=2)
+        planes = _masked_planes(torch.ones(4, dtype=torch.int32), row_num=4, max_active_num=2)
         y = xbar.vec_mat_mul(planes, adc_mode=0, adc_bits=3)
         # Shape: [P, col] -> [col]   caller-side digital accumulation
         plane_code_sum = y.to(torch.int64).sum(dim=0)
@@ -110,7 +110,7 @@ class TestLosslessSentinel:
         w = torch.randint(-3, 4, (2, 4), dtype=torch.int32)
         _program_cols(xbar, w.tolist())
         x = torch.randint(0, 2, (3, 4), dtype=torch.int32)
-        planes = _masked_planes(x, row_num=4, max_active_rows=2)
+        planes = _masked_planes(x, row_num=4, max_active_num=2)
         y = xbar.vec_mat_mul(planes, adc_mode=0, adc_bits=0)
         assert y.dtype == torch.int64
         assert y.shape == (3, 2, 2)  # leading [batch, P] preserved, trailing [col_num]

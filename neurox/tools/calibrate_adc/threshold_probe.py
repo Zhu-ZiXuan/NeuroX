@@ -187,7 +187,7 @@ def _build_battery(
     gen = torch.Generator().manual_seed(stim.seed)
     row_num = physical.row_num
     col_num = physical.col_num
-    active_row_num = physical.max_active_rows
+    active_row_num = physical.max_active_num
 
     full_drive = torch.ones((1, row_num), dtype=torch.long)
 

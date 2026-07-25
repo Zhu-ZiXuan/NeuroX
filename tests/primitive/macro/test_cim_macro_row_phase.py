@@ -5,7 +5,7 @@
   is valid, the engine covers every row with a short final sub-phase block, and
   uniform row-blocking is an operator-layer contract, see
   ``tests/architecture/unit/test_linear_cim_unit.py``).
-- ``max_active_rows``: the single sub-phase query for upper layers, reading
+- ``max_active_num``: the single sub-phase query for upper layers, reading
   ``config.active_row_num``.
 - ``_split_col_lanes``: trailing col axis -> ``(lane_num, col_per_lane)``
   with ``lane = col // col_per_lane``; exact divisibility required.
@@ -94,11 +94,11 @@ class TestActiveRowNumValidation:
         cfg = IdealCimMacroConfig(**_config_kwargs(row_num=8, active_row_num=8))
         assert cfg.active_row_num == 8
 
-    def test_max_active_rows_property(self) -> None:
+    def test_max_active_num_property(self) -> None:
         xbar = _make_xbar(row_num=8, active_row_num=2)
-        assert xbar.max_active_rows == 2
+        assert xbar.max_active_num == 2
         full = _make_xbar(row_num=8, active_row_num=8)
-        assert full.max_active_rows == 8
+        assert full.max_active_num == 8
 
 
 # ---------------------------------------------------------------------------

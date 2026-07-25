@@ -99,7 +99,7 @@ class CimMacro(
         self.row_num = config.row_num
 
     @property
-    def max_active_rows(self) -> int:
+    def max_active_num(self) -> int:
         """Maximum simultaneously active word lines per conversion."""
         return self.config.active_row_num
 
@@ -221,7 +221,7 @@ class CimMacro(
         Args:
             x: WL plane tensor with primitive trailing ``[row_num]``;
                 leading axes are broadcast batch dimensions. At most
-                :attr:`max_active_rows` rows may be nonzero per plane.
+                :attr:`max_active_num` rows may be nonzero per plane.
                 Entries must lie in :attr:`x_value_range`.
             adc_mode: ADC operating-point index selecting the reference
                 row / tap set; valid values are ``[0, adc_mode_num)``.

@@ -223,7 +223,7 @@ def unroll_sub_phase(x: Tensor, *, row_num: int, active_rows: int, inst_rank: in
     conversion drives at most ``active_rows`` live rows — the per-conversion
     drive context the ``vec_mat_mul`` contract requires. Parameterized by
     ``active_rows`` (the calibration knob) rather than the macro's
-    ``max_active_rows``.
+    ``max_active_num``.
 
     Args:
         x: Dense WL plane tensor with trailing ``[row_num]`` and anonymous

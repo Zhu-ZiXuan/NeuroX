@@ -263,23 +263,23 @@ def sample_binary_x(gen: torch.Generator, *, batch: int, row_num: int, density: 
 # ---------------------------------------------------------------------------
 
 
-def _unroll_sub_phase(x: Tensor, *, row_num: int, max_active_rows: int, inst_rank: int) -> Tensor:
+def _unroll_sub_phase(x: Tensor, *, row_num: int, max_active_num: int, inst_rank: int) -> Tensor:
     """Expand WL planes over the macro's hardware sub-phase axis.
 
     Local mirror of the runtime engine-layer serialization: the sub-phase
-    axis ``P = ceil(row_num / max_active_rows)`` is inserted immediately LEFT
+    axis ``P = ceil(row_num / max_active_num)`` is inserted immediately LEFT
     of the macro's inst-alignment span (``inst_rank`` size-1 slots), and
     rows outside a plane's active window are zeroed (WL off), so every
-    conversion drives at most ``max_active_rows`` live rows — the
+    conversion drives at most ``max_active_num`` live rows — the
     per-conversion drive context the ``vec_mat_mul`` contract requires.
 
     Args:
         x: WL plane tensor with trailing ``[row_num]``.
-        row_num: Macro row count. When ``max_active_rows`` does not divide it
+        row_num: Macro row count. When ``max_active_num`` does not divide it
             the final sub-phase reads the short remainder block (mirrors the
             engine's ceil sub-phase count).
-        max_active_rows: Maximum simultaneously active word lines per
-            conversion (``CimMacro.max_active_rows``).
+        max_active_num: Maximum simultaneously active word lines per
+            conversion (``CimMacro.max_active_num``).
         inst_rank: Rank of the macro's fabricated ``inst_shape``.
 
     Returns:
@@ -287,11 +287,11 @@ def _unroll_sub_phase(x: Tensor, *, row_num: int, max_active_rows: int, inst_ran
         dtype and device follow ``x``.
     """
     # Static row -> sub-phase ownership; phase p owns rows
-    # [p * max_active_rows, (p + 1) * max_active_rows). Ceil so every real row
+    # [p * max_active_num, (p + 1) * max_active_num). Ceil so every real row
     # lands in exactly one sub-phase; the short final block leaves its own rows
     # the only ones live in that plane. Shape: [P, row_num]
-    mask = torch.arange(row_num, device=x.device) // max_active_rows == torch.arange(
-        -(-row_num // max_active_rows), device=x.device
+    mask = torch.arange(row_num, device=x.device) // max_active_num == torch.arange(
+        -(-row_num // max_active_num), device=x.device
     ).unsqueeze(-1)
     # Shape: [P, row_num] -> [P, *(1,) * inst_rank, row_num]
     mask = mask.reshape(-1, *(1,) * inst_rank, row_num)
@@ -363,13 +363,13 @@ def run_paired_stimulus(
     physical.program(w)
     ideal.program(w)
     # Runtime-parity drive: serialize each requested plane over the
-    # sub-phase axis so both tiles convert at most ``max_active_rows``
+    # sub-phase axis so both tiles convert at most ``max_active_num``
     # live rows per plane, exactly as the engine layer drives the macro.
     # Shape: [..., row_num] -> [..., P, *(1,) * inst_rank, row_num]
     x = _unroll_sub_phase(
         x,
         row_num=physical.row_num,
-        max_active_rows=physical.max_active_rows,
+        max_active_num=physical.max_active_num,
         inst_rank=len(physical.inst_shape),
     )
     with IadcProber() as prober, torch.no_grad():

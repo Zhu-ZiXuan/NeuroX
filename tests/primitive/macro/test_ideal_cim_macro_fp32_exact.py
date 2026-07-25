@@ -5,7 +5,7 @@ The plane dot computation switches to fp32 einsum when
 accumulates exactly in IEEE fp32) and stays on the int64 elementwise path
 otherwise. Both paths must be bit-identical, on CPU and GPU, for the
 lossless sentinel and the quantized per-plane path alike. Planes arrive
-pre-masked from the caller (at most ``max_active_rows`` live rows each);
+pre-masked from the caller (at most ``max_active_num`` live rows each);
 the macro output keeps the leading order with primitive trailing
 ``[col_num]``.
 """
@@ -76,14 +76,14 @@ def _random_operands(
     return digits, x
 
 
-def _masked_planes(x: torch.Tensor, *, row_num: int, max_active_rows: int) -> torch.Tensor:
+def _masked_planes(x: torch.Tensor, *, row_num: int, max_active_num: int) -> torch.Tensor:
     """Pre-masked WL planes via the engine mask formula.
 
     Shape: [..., row_num] -> [..., P, row_num]; plane ``p`` keeps exactly
-    rows ``[p*max_active_rows, (p+1)*max_active_rows)``, zeros elsewhere.
+    rows ``[p*max_active_num, (p+1)*max_active_num)``, zeros elsewhere.
     """
-    p_num = row_num // max_active_rows
-    mask = torch.arange(row_num) // max_active_rows == torch.arange(p_num).unsqueeze(-1)
+    p_num = row_num // max_active_num
+    mask = torch.arange(row_num) // max_active_num == torch.arange(p_num).unsqueeze(-1)
     # Shape: [..., row_num] -> [..., P, row_num]
     return torch.where(mask, x.unsqueeze(-2), x.new_zeros(()))
 
@@ -130,7 +130,7 @@ class TestFastPathLossless:
         )
         assert xbar._fp32_exact is True
         _, x = _random_operands(xbar, batch=5, seed=101, device=torch.device("cpu"))
-        planes = _masked_planes(x, row_num=64, max_active_rows=16)
+        planes = _masked_planes(x, row_num=64, max_active_num=16)
         y = xbar.vec_mat_mul(planes, adc_mode=0, adc_bits=0)
         assert y.dtype == torch.int64
         assert y.shape == (5, 4, 8)  # leading [batch, P] preserved, trailing [col_num]
@@ -158,7 +158,7 @@ class TestFastPathLossless:
         )
         xbar.to(device)
         _, x = _random_operands(xbar, batch=5, seed=202, device=device)
-        planes = _masked_planes(x, row_num=64, max_active_rows=16)
+        planes = _masked_planes(x, row_num=64, max_active_num=16)
         oracle = _plane_dot_oracle(xbar, planes)
         y = xbar.vec_mat_mul(planes.to(device), adc_mode=0, adc_bits=0)
         assert y.device.type == device.type
@@ -186,7 +186,7 @@ class TestFastPathQuantized:
         xbar_ref._fp32_exact = False  # force the int64 elementwise path
         _, x = _random_operands(xbar_fast, batch=5, seed=303, device=torch.device("cpu"))
         _random_operands(xbar_ref, batch=5, seed=303, device=torch.device("cpu"))
-        planes = _masked_planes(x, row_num=64, max_active_rows=16)
+        planes = _masked_planes(x, row_num=64, max_active_num=16)
         adc_mode, adc_bits = 0, 4
         y_fast = xbar_fast.vec_mat_mul(planes, adc_mode=adc_mode, adc_bits=adc_bits)
         y_ref = xbar_ref.vec_mat_mul(planes, adc_mode=adc_mode, adc_bits=adc_bits)
@@ -196,7 +196,7 @@ class TestFastPathQuantized:
     def test_codes_gpu_match_cpu_oracle(self, device: torch.device) -> None:
         xbar = self._quantized_xbar()
         digits, x = _random_operands(xbar, batch=5, seed=404, device=torch.device("cpu"))
-        planes = _masked_planes(x, row_num=64, max_active_rows=16)
+        planes = _masked_planes(x, row_num=64, max_active_num=16)
         adc_mode, adc_bits = 0, 4
         y_cpu = xbar.vec_mat_mul(planes, adc_mode=adc_mode, adc_bits=adc_bits)
         xbar.to(device)
@@ -213,7 +213,7 @@ class TestFastPathQuantized:
         xbar_ref.train()
         _, x = _random_operands(xbar_fast, batch=5, seed=505, device=torch.device("cpu"))
         _random_operands(xbar_ref, batch=5, seed=505, device=torch.device("cpu"))
-        planes = _masked_planes(x, row_num=64, max_active_rows=16)
+        planes = _masked_planes(x, row_num=64, max_active_num=16)
         adc_mode, adc_bits = 0, 4
         torch.manual_seed(7)
         y_fast = xbar_fast.vec_mat_mul(planes, adc_mode=adc_mode, adc_bits=adc_bits)

@@ -64,7 +64,7 @@ class _WorkloadCfg:
             weight-program axis, bound to equal ``[batch_w]``.
         active_rows: Simultaneously active word lines per serialized
             sub-phase plane; ``1 <= active_rows <= row_num``. Set to the
-            macro's ``max_active_rows`` for the production-faithful operating
+            macro's ``max_active_num`` for the production-faithful operating
             point, or to ``row_num`` for the conservative single-plane
             envelope; any in-range value is legal — the choice belongs to the
             user and is NEVER defaulted in code.

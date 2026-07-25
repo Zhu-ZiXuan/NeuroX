@@ -704,7 +704,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         Args:
             x: Activation tensor with primitive trailing ``[row_num]``; entries in
                 :attr:`x_value_range`. Rows outside the caller's active window (at most
-                :attr:`max_active_rows` live rows per sub-phase) must arrive
+                :attr:`max_active_num` live rows per sub-phase) must arrive
                 zeroed. Every leading axis is anonymous broadcast batch.
             adc_mode: ADC operating-point index selecting the shared reference
                 mode row; valid values are ``[0, adc_mode_num)``.

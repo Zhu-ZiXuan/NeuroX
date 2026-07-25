@@ -235,8 +235,8 @@ class TestShippedRunConfig:
         table = resolve_solver_table(macro_dict, cfg.macro.solver_section)
         assert {"n_outer", "n_inner"} <= set(table)
 
-    def test_active_rows_matches_max_active_rows(self) -> None:
-        """active_rows is the production-faithful max_active_rows (= active_row_num)."""
+    def test_active_rows_matches_max_active_num(self) -> None:
+        """active_rows is the production-faithful max_active_num (= active_row_num)."""
         cfg = CalibrateSolverNestedConfig.from_file(_SHIPPED_RUN_TOML)
         config_paths, _policy_path = resolve_macro_files(cfg.macro, base=_SHIPPED_RUN_TOML)
         macro_dict = load_macro_config_dict(config_paths, config_section=cfg.macro.config_section)

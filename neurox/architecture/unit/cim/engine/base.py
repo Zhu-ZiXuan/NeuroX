@@ -176,7 +176,7 @@ class CimEngine(
         self._cim_macro_inst_rank = len(inst_shape)
         self._sub_phase_dim = -(len(inst_shape) + 2)
         row_num = self.cim_macro.row_num
-        max_rows = self.cim_macro.max_active_rows
+        max_rows = self.cim_macro.max_active_num
         # Omit row phases containing only tile padding.
         real_row_extent = min(k_logical, row_num)
         self._sub_phase_num = -(-real_row_extent // max_rows)
