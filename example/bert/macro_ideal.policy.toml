@@ -7,7 +7,13 @@
 _neurox_class = "LinearCimUnitPolicy"
 
 [policy.engine]
-_neurox_class = "InterArraySliceCimEnginePolicy"
-
 [policy.engine.cim_macro_policy]
 _neurox_class = "IdealCimMacroPolicy"
+
+[policy.engine.placement]
+
+[policy.engine.weight_slice]
+_neurox_class = "InterWeightSliceStagePolicy"
+
+[policy.engine.x_slice]
+_neurox_class = "SerialXSliceStagePolicy"

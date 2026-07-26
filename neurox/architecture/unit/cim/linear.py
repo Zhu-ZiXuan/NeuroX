@@ -47,12 +47,6 @@ class LinearCimUnit(LinearUnit, EngineBackedCimUnit[LinearCimUnitConfig, LinearC
             T__K=T__K,
             ideal_macro=ideal_macro,
         )
-        if self.engine.input_num % self.engine.max_active_num != 0:
-            raise ValueError(
-                f"require: input_num ({self.engine.input_num}) % max_active_num "
-                f"({self.engine.max_active_num}) == 0 "
-                "(the linear operator reads every input position; uniform phase blocking)"
-            )
 
     def program(self, weight: Tensor, bias: Tensor | None = None) -> None:
         if weight.dtype.is_floating_point or weight.dtype.is_complex or weight.dtype == torch.bool:

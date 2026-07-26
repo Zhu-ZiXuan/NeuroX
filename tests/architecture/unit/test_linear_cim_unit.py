@@ -14,13 +14,27 @@ from neurox.architecture.unit.cim import (
     LinearCimUnitConfig,
     LinearCimUnitPolicy,
 )
-from neurox.architecture.unit.cim.engine import CimEngine, DirectCimEngineConfig, DirectCimEnginePolicy
+from neurox.architecture.unit.cim.engine import (
+    CimEngineConfig,
+    CimEnginePolicy,
+    DirectWeightSliceStageConfig,
+    DirectWeightSliceStagePolicy,
+    DirectXSliceStageConfig,
+    DirectXSliceStagePolicy,
+    PlacementStageConfig,
+    PlacementStagePolicy,
+)
 from neurox.common.profiler import NeuroxProfiler
 from neurox.primitive.digital import AccumulatorConfig, SerialAccumulator
 from neurox.primitive.macro.cim import IdealCimMacroConfig, IdealCimMacroPolicy
 
 _UNIT_POLICY = LinearCimUnitPolicy(
-    engine=DirectCimEnginePolicy(cim_macro_policy=IdealCimMacroPolicy()),
+    engine=CimEnginePolicy(
+        cim_macro_policy=IdealCimMacroPolicy(),
+        placement=PlacementStagePolicy(),
+        weight_slice=DirectWeightSliceStagePolicy(),
+        x_slice=DirectXSliceStagePolicy(),
+    ),
 )
 
 # ``adc_bits == 0`` is the IdealCimMacro lossless sentinel: per-plane codes
@@ -66,12 +80,16 @@ def _unit_config(
     return LinearCimUnitConfig(
         area_per_inst__um2=area_per_inst__um2,
         leakage_per_inst__uW=0.0,
-        engine=DirectCimEngineConfig(
+        engine=CimEngineConfig(
             input_num=16,
             output_num=16,
             cim_macro_config=_ideal_macro_config() if cim_macro_config is None else cim_macro_config,
-            phase_accumulator_config=_accumulator_config(energy_per_op__fJ=phase_energy_per_op__fJ),
-            col_accumulator_config=_accumulator_config(),
+            placement=PlacementStageConfig(
+                phase_accumulator_config=_accumulator_config(energy_per_op__fJ=phase_energy_per_op__fJ),
+                contraction_accumulator_config=_accumulator_config(),
+            ),
+            weight_slice=DirectWeightSliceStageConfig(),
+            x_slice=DirectXSliceStageConfig(),
         ),
     )
 
@@ -299,12 +317,12 @@ def test_linear_phase_accounting_scales_with_input_phase_num() -> None:
             phase_energy_per_op__fJ=1.0,
         )
         unit = _build_unit(config, w_logical_shape=(n, k))
-        assert isinstance(unit.engine.phase_accumulator, SerialAccumulator)
+        assert isinstance(unit.engine.placement.phase_accumulator, SerialAccumulator)
         unit.program(_random_weight(unit, (n, k)))
         with NeuroxProfiler() as p:
             unit.linear(_random_binary((m, k)), adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
-        energies[unit.engine._input_phase_num] = sum(
-            e.dynamic_energy__fJ for e in p.energy_events if e.module is unit.engine.phase_accumulator
+        energies[unit.engine.placement._input_phase_num] = sum(
+            e.dynamic_energy__fJ for e in p.energy_events if e.module is unit.engine.placement.phase_accumulator
         )
     assert energies[1] > 0.0
     assert energies[2] == pytest.approx(2.0 * energies[1])
@@ -318,10 +336,14 @@ def test_linear_config_rejects_negative_ppa() -> None:
         _unit_config(area_per_inst__um2=-1.0)
 
 
-def test_linear_config_rejects_non_divisor_input_blocking() -> None:
+def test_linear_accepts_non_divisor_input_blocking() -> None:
     config = _unit_config(cim_macro_config=_ideal_macro_config(max_active_num=6))
-    with pytest.raises(ValueError, match=r"max_active_num"):
-        _build_unit(config, w_logical_shape=(13, 20))
+    unit = _build_unit(config, w_logical_shape=(13, 20))
+    weight = _random_weight(unit, (13, 20))
+    x = _random_binary((5, 20))
+    unit.program(weight)
+    actual = unit.linear(x, adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
+    assert torch.equal(actual.to(torch.int64), _cpu_int64_linear_oracle(x, weight))
 
 
 def test_direct_engine_leaves_numeric_path_selection_to_macro() -> None:
@@ -352,12 +374,12 @@ def test_linear_registered_for_from_config_dispatch() -> None:
     assert isinstance(unit, LinearCimUnit)
 
 
-# --- abstract unit / engine bases ---
+# --- abstract unit bases ---
 
 
 @pytest.mark.parametrize(
     "abstract_cls",
-    [UnitBase, LinearUnit, Conv2dUnit, CimUnit, CimEngine],
+    [UnitBase, LinearUnit, Conv2dUnit, CimUnit],
 )
 def test_abstract_bases_reject_instantiation(abstract_cls: type) -> None:
     assert inspect.isabstract(abstract_cls)

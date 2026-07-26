@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 import torch
 
@@ -25,18 +23,33 @@ from neurox.architecture.unit.cim.engine import (
     CimEngine,
     CimEngineConfig,
     CimEnginePolicy,
-    DirectCimEngine,
-    DirectCimEngineConfig,
-    DirectCimEnginePolicy,
-    InterArraySliceCimEngine,
-    InterArraySliceCimEngineConfig,
-    InterArraySliceCimEnginePolicy,
-    IntraArraySliceCimEngine,
-    IntraArraySliceCimEngineConfig,
-    IntraArraySliceCimEnginePolicy,
+    DirectWeightSliceStage,
+    DirectWeightSliceStageConfig,
+    DirectWeightSliceStagePolicy,
+    DirectXSliceStage,
+    DirectXSliceStageConfig,
+    DirectXSliceStagePolicy,
+    InterWeightSliceStage,
+    InterWeightSliceStageConfig,
+    InterWeightSliceStagePolicy,
+    IntraWeightSliceStage,
+    IntraWeightSliceStageConfig,
+    IntraWeightSliceStagePolicy,
+    PlacementStageConfig,
+    PlacementStagePolicy,
+    SerialXSliceStage,
+    SerialXSliceStageConfig,
+    SerialXSliceStagePolicy,
+    WeightSliceStage,
+    WeightSliceStageConfig,
+    WeightSliceStagePolicy,
+    XSliceStage,
+    XSliceStagePolicy,
 )
-from neurox.architecture.unit.cim.engine.base import _chunk_pad_along
+from neurox.architecture.unit.cim.engine.placement import _chunk_pad_along
+from neurox.common.encoding import Encoding
 from neurox.common.profiler import NeuroxProfiler
+from neurox.common.serialize import ConfigDict
 from neurox.primitive.digital import AccumulatorConfig, SerialAccumulator, ShiftAdderConfig
 from neurox.primitive.macro.cim import IdealCimMacroConfig, IdealCimMacroPolicy
 
@@ -87,9 +100,7 @@ def _shift_adder_config() -> ShiftAdderConfig:
     return ShiftAdderConfig(bit_width=32, **_zero_ppa())
 
 
-def _wrap_unit(
-    engine_config: DirectCimEngineConfig | InterArraySliceCimEngineConfig | IntraArraySliceCimEngineConfig,
-) -> LinearCimUnitConfig:
+def _wrap_unit(engine_config: CimEngineConfig) -> LinearCimUnitConfig:
     return LinearCimUnitConfig(
         area_per_inst__um2=0.0,
         leakage_per_inst__uW=0.0,
@@ -98,12 +109,22 @@ def _wrap_unit(
 
 
 def _engine_policy(config: CimEngineConfig) -> CimEnginePolicy:
-    policies: dict[type[CimEngineConfig], type[CimEnginePolicy]] = {
-        DirectCimEngineConfig: DirectCimEnginePolicy,
-        InterArraySliceCimEngineConfig: InterArraySliceCimEnginePolicy,
-        IntraArraySliceCimEngineConfig: IntraArraySliceCimEnginePolicy,
+    weight_slice_policies: dict[type[WeightSliceStageConfig], WeightSliceStagePolicy] = {
+        DirectWeightSliceStageConfig: DirectWeightSliceStagePolicy(),
+        InterWeightSliceStageConfig: InterWeightSliceStagePolicy(),
+        IntraWeightSliceStageConfig: IntraWeightSliceStagePolicy(),
     }
-    return policies[type(config)](cim_macro_policy=_IDEAL_MACRO_POLICY)
+    x_slice_policy: XSliceStagePolicy
+    if isinstance(config.x_slice, DirectXSliceStageConfig):
+        x_slice_policy = DirectXSliceStagePolicy()
+    else:
+        x_slice_policy = SerialXSliceStagePolicy()
+    return CimEnginePolicy(
+        cim_macro_policy=_IDEAL_MACRO_POLICY,
+        placement=PlacementStagePolicy(),
+        weight_slice=weight_slice_policies[type(config.weight_slice)],
+        x_slice=x_slice_policy,
+    )
 
 
 def _linear_unit_policy(config: LinearCimUnitConfig) -> LinearCimUnitPolicy:
@@ -115,17 +136,26 @@ def _direct_engine_config(
     x_value_range: tuple[int, int] = (0, 1),
     w_value_range: tuple[int, int] = (-3, 3),
     max_active_num: int | None = None,
-) -> DirectCimEngineConfig:
-    return DirectCimEngineConfig(
+    adc_max_bits: int = _TEST_ADC_BITS,
+    phase_accumulator_config: AccumulatorConfig | None = None,
+) -> CimEngineConfig:
+    return CimEngineConfig(
         input_num=16,
         output_num=16,
         cim_macro_config=_ideal_macro_config(
             x_value_range=x_value_range,
             w_value_range=w_value_range,
             max_active_num=max_active_num,
+            adc_max_bits=adc_max_bits,
         ),
-        col_accumulator_config=_accumulator_config(),
-        phase_accumulator_config=_accumulator_config(),
+        placement=PlacementStageConfig(
+            phase_accumulator_config=(
+                _accumulator_config() if phase_accumulator_config is None else phase_accumulator_config
+            ),
+            contraction_accumulator_config=_accumulator_config(),
+        ),
+        weight_slice=DirectWeightSliceStageConfig(),
+        x_slice=DirectXSliceStageConfig(),
     )
 
 
@@ -157,38 +187,77 @@ def _ideal_unit_config(
     )
 
 
-def _slice_config(
+def _sliced_engine_config(
+    *,
+    w_slice_num: int,
+    x_slice_num: int,
+    weight_slice_type: type[InterWeightSliceStageConfig] | type[IntraWeightSliceStageConfig],
+    x_value_range: tuple[int, int] = (0, 1),
+    w_value_range: tuple[int, int] = (-3, 3),
+    max_active_num: int | None = None,
+) -> CimEngineConfig:
+    return CimEngineConfig(
+        input_num=16,
+        output_num=16,
+        cim_macro_config=_ideal_macro_config(
+            x_value_range=x_value_range,
+            w_value_range=w_value_range,
+            max_active_num=max_active_num,
+        ),
+        placement=PlacementStageConfig(
+            phase_accumulator_config=_accumulator_config(),
+            contraction_accumulator_config=_accumulator_config(),
+        ),
+        weight_slice=weight_slice_type(
+            w_slice_num=w_slice_num,
+            w_encoding=Encoding.TRUE_FORM,
+            shift_adder_config=_shift_adder_config(),
+        ),
+        x_slice=SerialXSliceStageConfig(
+            x_slice_num=x_slice_num,
+            shift_adder_config=_shift_adder_config(),
+        ),
+    )
+
+
+def _inter_config(
     *,
     w_slice_num: int,
     x_slice_num: int,
     x_value_range: tuple[int, int] = (0, 1),
     w_value_range: tuple[int, int] = (-3, 3),
     max_active_num: int | None = None,
-) -> dict[str, Any]:
-    return {
-        "input_num": 16,
-        "output_num": 16,
-        "cim_macro_config": _ideal_macro_config(
+) -> LinearCimUnitConfig:
+    return _wrap_unit(
+        _sliced_engine_config(
+            w_slice_num=w_slice_num,
+            x_slice_num=x_slice_num,
+            weight_slice_type=InterWeightSliceStageConfig,
             x_value_range=x_value_range,
             w_value_range=w_value_range,
             max_active_num=max_active_num,
-        ),
-        "w_slice_num": w_slice_num,
-        "x_slice_num": x_slice_num,
-        "w_encoding": "true_form",
-        "col_accumulator_config": _accumulator_config(),
-        "phase_accumulator_config": _accumulator_config(),
-        "sa_shift_adder_config": _shift_adder_config(),
-        "sw_shift_adder_config": _shift_adder_config(),
-    }
+        )
+    )
 
 
-def _inter_config(**kwargs: Any) -> LinearCimUnitConfig:
-    return _wrap_unit(InterArraySliceCimEngineConfig(**_slice_config(**kwargs)))
-
-
-def _intra_config(**kwargs: Any) -> LinearCimUnitConfig:
-    return _wrap_unit(IntraArraySliceCimEngineConfig(**_slice_config(**kwargs)))
+def _intra_config(
+    *,
+    w_slice_num: int,
+    x_slice_num: int,
+    x_value_range: tuple[int, int] = (0, 1),
+    w_value_range: tuple[int, int] = (-3, 3),
+    max_active_num: int | None = None,
+) -> LinearCimUnitConfig:
+    return _wrap_unit(
+        _sliced_engine_config(
+            w_slice_num=w_slice_num,
+            x_slice_num=x_slice_num,
+            weight_slice_type=IntraWeightSliceStageConfig,
+            x_value_range=x_value_range,
+            w_value_range=w_value_range,
+            max_active_num=max_active_num,
+        )
+    )
 
 
 def _build_ideal(
@@ -329,15 +398,7 @@ def test_direct_engine_unit_handles_wide_macro_weight_range() -> None:
 
 def test_direct_engine_passes_logical_weights_to_macro() -> None:
     """Direct mapping preserves asymmetric logical weight values."""
-    config = _wrap_unit(
-        DirectCimEngineConfig(
-            input_num=16,
-            output_num=16,
-            cim_macro_config=_ideal_macro_config(w_value_range=(-3, 3)),
-            col_accumulator_config=_accumulator_config(),
-            phase_accumulator_config=_accumulator_config(),
-        )
-    )
+    config = _wrap_unit(_direct_engine_config(w_value_range=(-3, 3)))
     unit = _build_linear(config, w_logical_shape=(2, 2))
     weight = torch.tensor([[1, 2], [-1, -2]], dtype=torch.int32)
     activation = torch.tensor([[1, 1]], dtype=torch.int32)
@@ -532,12 +593,9 @@ def test_direct_engine_unit_multi_input_phase_quantized_end_to_end() -> None:
     max_active_num = 8
     input_phase_num = 2
     config = _wrap_unit(
-        DirectCimEngineConfig(
-            input_num=16,
-            output_num=16,
-            cim_macro_config=_ideal_macro_config(max_active_num=max_active_num, adc_max_bits=adc_bits),
-            col_accumulator_config=_accumulator_config(),
-            phase_accumulator_config=_accumulator_config(),
+        _direct_engine_config(
+            max_active_num=max_active_num,
+            adc_max_bits=adc_bits,
         )
     )
     unit = _build_linear(config, w_logical_shape=(n, k))  # .eval() → deterministic floor
@@ -548,7 +606,7 @@ def test_direct_engine_unit_multi_input_phase_quantized_end_to_end() -> None:
 
     # Reference: per-phase partial dots quantized against the conversion range
     # and then accumulated over the input-phase axis
-    # (Tc = Tr = 1).
+    # (Tc = G = D = 1).
     half_range = (1 << (adc_bits - 1)) - 1
     rescale = (max_active_num * 3 * 1) / half_range
     xp = activation.to(torch.int64).unflatten(-1, (input_phase_num, max_active_num))
@@ -577,11 +635,8 @@ def test_phase_accumulator_energy_scales_with_input_phase_num() -> None:
     energies: dict[int, float] = {}
     for max_active_num in (16, 8):  # P = 1, P = 2
         config = _wrap_unit(
-            DirectCimEngineConfig(
-                input_num=16,
-                output_num=16,
-                cim_macro_config=_ideal_macro_config(max_active_num=max_active_num),
-                col_accumulator_config=_accumulator_config(),
+            _direct_engine_config(
+                max_active_num=max_active_num,
                 phase_accumulator_config=AccumulatorConfig(
                     bit_width=32,
                     energy_per_op__fJ=1.0,
@@ -592,14 +647,14 @@ def test_phase_accumulator_energy_scales_with_input_phase_num() -> None:
             )
         )
         unit = _build_linear(config, w_logical_shape=(n, k))
-        assert isinstance(unit.engine.phase_accumulator, SerialAccumulator)
+        assert isinstance(unit.engine.placement.phase_accumulator, SerialAccumulator)
         weight = _randint_in_range(unit.w_value_range, (n, k))
         activation = _randint_in_range(unit.x_value_range, (m, k))
         unit.program(weight)
         with NeuroxProfiler() as p:
             unit.linear(activation, adc_mode=_TEST_ADC_MODE, adc_bits=_TEST_ADC_BITS)
-        energies[unit.engine._input_phase_num] = sum(
-            e.dynamic_energy__fJ for e in p.energy_events if e.module is unit.engine.phase_accumulator
+        energies[unit.engine.placement._input_phase_num] = sum(
+            e.dynamic_energy__fJ for e in p.energy_events if e.module is unit.engine.placement.phase_accumulator
         )
     assert energies[1] > 0.0
     assert energies[2] == pytest.approx(2.0 * energies[1])
@@ -702,16 +757,33 @@ def test_unit_from_config_rejects_mismatched_policy_type() -> None:
 
 
 @pytest.mark.parametrize(
-    ("engine_config", "expected_type"),
+    ("engine_config", "expected_weight_stage", "expected_x_stage"),
     [
-        (_direct_engine_config(), DirectCimEngine),
-        (InterArraySliceCimEngineConfig(**_slice_config(w_slice_num=2, x_slice_num=3)), InterArraySliceCimEngine),
-        (IntraArraySliceCimEngineConfig(**_slice_config(w_slice_num=2, x_slice_num=3)), IntraArraySliceCimEngine),
+        (_direct_engine_config(), DirectWeightSliceStage, DirectXSliceStage),
+        (
+            _sliced_engine_config(
+                w_slice_num=2,
+                x_slice_num=3,
+                weight_slice_type=InterWeightSliceStageConfig,
+            ),
+            InterWeightSliceStage,
+            SerialXSliceStage,
+        ),
+        (
+            _sliced_engine_config(
+                w_slice_num=2,
+                x_slice_num=3,
+                weight_slice_type=IntraWeightSliceStageConfig,
+            ),
+            IntraWeightSliceStage,
+            SerialXSliceStage,
+        ),
     ],
 )
-def test_engine_from_config_dispatches_to_registered_variant(
-    engine_config: DirectCimEngineConfig | InterArraySliceCimEngineConfig | IntraArraySliceCimEngineConfig,
-    expected_type: type[CimEngine],
+def test_engine_from_config_dispatches_composed_stages(
+    engine_config: CimEngineConfig,
+    expected_weight_stage: type[WeightSliceStage],
+    expected_x_stage: type[XSliceStage],
 ) -> None:
     engine = CimEngine.from_config(
         config=engine_config,
@@ -721,18 +793,19 @@ def test_engine_from_config_dispatches_to_registered_variant(
         T__K=300.0,
         ideal_macro=False,
     )
-    assert isinstance(engine, expected_type)
+    assert type(engine) is CimEngine
+    assert isinstance(engine.weight_slice, expected_weight_stage)
+    assert isinstance(engine.x_slice, expected_x_stage)
 
 
 def test_unit_config_nested_engine_deserialization() -> None:
     """Receiver-bounded deserialization resolves the unit, engine, and macro
     leaves from their ``_neurox_class`` discriminators."""
-    payload = {
+    payload: ConfigDict = {
         "_neurox_class": "LinearCimUnitConfig",
         "area_per_inst__um2": 0.0,
         "leakage_per_inst__uW": 0.0,
         "engine": {
-            "_neurox_class": "DirectCimEngineConfig",
             "input_num": 16,
             "output_num": 16,
             "cim_macro_config": {
@@ -745,27 +818,45 @@ def test_unit_config_nested_engine_deserialization() -> None:
                 "adc_mode_num": 1,
                 "adc_max_bits": 0,
             },
-            "phase_accumulator_config": {"bit_width": 32, **_zero_ppa()},
-            "col_accumulator_config": {"bit_width": 32, **_zero_ppa()},
+            "placement": {
+                "phase_accumulator_config": {"bit_width": 32, **_zero_ppa()},
+                "contraction_accumulator_config": {"bit_width": 32, **_zero_ppa()},
+            },
+            "weight_slice": {
+                "_neurox_class": "DirectWeightSliceStageConfig",
+            },
+            "x_slice": {
+                "_neurox_class": "DirectXSliceStageConfig",
+            },
         },
     }
     config = CimUnitConfig.from_dict(payload)
     assert type(config) is LinearCimUnitConfig
-    assert type(config.engine) is DirectCimEngineConfig
+    assert type(config.engine) is CimEngineConfig
     assert type(config.engine.cim_macro_config) is IdealCimMacroConfig
+    assert type(config.engine.weight_slice) is DirectWeightSliceStageConfig
+    assert type(config.engine.x_slice) is DirectXSliceStageConfig
 
 
 def test_unit_policy_nested_engine_deserialization() -> None:
-    payload = {
+    payload: ConfigDict = {
         "_neurox_class": "LinearCimUnitPolicy",
         "engine": {
-            "_neurox_class": "DirectCimEnginePolicy",
             "cim_macro_policy": {
                 "_neurox_class": "IdealCimMacroPolicy",
+            },
+            "placement": {},
+            "weight_slice": {
+                "_neurox_class": "DirectWeightSliceStagePolicy",
+            },
+            "x_slice": {
+                "_neurox_class": "DirectXSliceStagePolicy",
             },
         },
     }
     policy = CimUnitPolicy.from_dict(payload)
     assert type(policy) is LinearCimUnitPolicy
-    assert type(policy.engine) is DirectCimEnginePolicy
+    assert type(policy.engine) is CimEnginePolicy
     assert type(policy.engine.cim_macro_policy) is IdealCimMacroPolicy
+    assert type(policy.engine.weight_slice) is DirectWeightSliceStagePolicy
+    assert type(policy.engine.x_slice) is DirectXSliceStagePolicy

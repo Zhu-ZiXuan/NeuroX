@@ -1,4 +1,4 @@
-"""Abstract base for the CimEngine family.
+"""Composable execution engine for CIM matrix multiplication.
 
 See also:
     docs/internals/architecture/unit/cim/engine/base.md
@@ -6,61 +6,38 @@ See also:
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
-from typing import ClassVar, Generic, TypeVar
+import math
+from typing import ClassVar
 
 import torch
-import torch.nn.functional as F
 from torch import Tensor
 
 from neurox.common import ConfigBase, ModuleBase, PolicyBase
-from neurox.common.mixin import RegistryMixin
-from neurox.primitive.digital import AccumulatorConfig
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
 
-
-def _chunk_pad_along(
-    t: Tensor,
-    *,
-    axis: int,
-    chunk_size: int,
-    pad_value: int,
-) -> Tensor:
-    """Right-pad and split one tensor axis into equal chunks."""
-    if chunk_size < 1:
-        raise ValueError(f"require: chunk_size ({chunk_size}) >= 1")
-    if axis < 0:
-        axis += t.ndim
-    if not (0 <= axis < t.ndim):
-        raise ValueError(f"require: 0 <= axis ({axis}) < ndim ({t.ndim})")
-    n = t.size(axis)
-    num_chunks = (n + chunk_size - 1) // chunk_size
-    pad_amount = num_chunks * chunk_size - n
-    if pad_amount > 0:
-        # F.pad indexes from the last dim; pad axis only on the high side.
-        pad_spec = [0, 0] * (t.ndim - axis - 1) + [0, pad_amount]
-        t = F.pad(t, pad_spec, value=pad_value)
-    chunks: Tensor = t.unflatten(axis, (num_chunks, chunk_size))
-    return chunks
+from .placement import PlacementPlan, PlacementStage, PlacementStageConfig, PlacementStagePolicy
+from .weight_slice import WeightSliceStage, WeightSliceStageConfig, WeightSliceStagePolicy
+from .x_slice import XSliceStage, XSliceStageConfig, XSliceStagePolicy
 
 
-class CimEngineConfig(ConfigBase, ABC):
-    """Abstract config root for the :class:`CimEngine` registry.
+class CimEngineConfig(ConfigBase):
+    """Configuration for :class:`CimEngine`.
 
     Attributes:
-        input_num: Logical input ports provided by each CIM macro instance.
-        output_num: Logical output ports provided by each CIM macro instance.
+        input_num: Logical input ports of each CIM macro.
+        output_num: Logical output ports of each CIM macro.
         cim_macro_config: CIM macro configuration.
-        phase_accumulator_config: Input-phase-axis per-macro-port accumulator config.
-        col_accumulator_config: Tc-axis cross-tile accumulator config.
+        placement: Geometric placement and scheduling configuration.
+        weight_slice: Weight-slice layout configuration.
+        x_slice: Input-slice serialization configuration.
     """
 
     input_num: int
     output_num: int
     cim_macro_config: CimMacroConfig
-
-    phase_accumulator_config: AccumulatorConfig
-    col_accumulator_config: AccumulatorConfig
+    placement: PlacementStageConfig
+    weight_slice: WeightSliceStageConfig
+    x_slice: XSliceStageConfig
 
     def validate(self) -> None:
         """Validate the engine configuration."""
@@ -68,65 +45,126 @@ class CimEngineConfig(ConfigBase, ABC):
         self._require_pos(self.output_num, "output_num")
 
 
-class CimEnginePolicy(PolicyBase, ABC):
-    """Abstract nonideality-policy root for the CIM-engine family.
+class CimEnginePolicy(PolicyBase):
+    """Policy for :class:`CimEngine`.
 
     Attributes:
-        cim_macro_policy: Embedded CIM-macro nonideality policy.
+        cim_macro_policy: Embedded CIM-macro policy.
+        placement: Geometric placement and scheduling policy.
+        weight_slice: Weight-slice layout policy.
+        x_slice: Input-slice serialization policy.
     """
 
     cim_macro_policy: CimMacroPolicy
+    placement: PlacementStagePolicy
+    weight_slice: WeightSliceStagePolicy
+    x_slice: XSliceStagePolicy
 
 
-ConfigT = TypeVar("ConfigT", bound=CimEngineConfig)
-PolicyT = TypeVar("PolicyT", bound=CimEnginePolicy)
-
-
-class CimEngine(
-    ModuleBase[ConfigT, PolicyT],
-    RegistryMixin["CimEngineConfig", "CimEnginePolicy", "CimEngine"],
-    Generic[ConfigT, PolicyT],
-    ABC,
-):
-    """Base for slicing, tiling, macro execution, and digital aggregation.
+class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
+    """Map one logical matrix multiplication onto CIM macros.
 
     Args:
-        config: Concrete configuration dataclass.
-        policy: Composite nonideality policy.
-        w_logical_shape: Logical weight shape ``(*prefix, N, K)`` bound to ``program(...)``.
-        dtype: Tensor dtype for internal buffers.
+        config: Engine configuration.
+        policy: Composite engine policy.
+        w_logical_shape: Weight shape ``(*prefix, N, K)`` bound to
+            :meth:`program`.
+        dtype: Tensor dtype used by the CIM macro.
         T__K: Operating temperature.
-        ideal_macro: Swap the physical macro for its ideal twin.
+        ideal_macro: Whether to replace the configured macro with its ideal
+            counterpart.
     """
 
     is_profile_target: ClassVar[bool] = False
 
-    # --- Immutable execution buffers ---
-
-    _active_input_mask: Tensor
-
-    # --- Subclass contracts ---
-
-    _w_value_range: tuple[int, int]
-    _x_value_range: tuple[int, int]
-
     def __init__(
         self,
         *,
-        config: ConfigT,
-        policy: PolicyT,
+        config: CimEngineConfig,
+        policy: CimEnginePolicy,
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
         ideal_macro: bool,
     ) -> None:
-        ModuleBase.__init__(self, config=config, policy=policy, inst_shape=())
+        super().__init__(config=config, policy=policy, inst_shape=())
         if len(w_logical_shape) < 2:
             raise ValueError(f"w_logical_shape must have at least 2 trailing dims (N, K); got {w_logical_shape}")
         self._w_logical_shape = tuple(w_logical_shape)
-        self._macro_dtype = dtype
-        self._macro_T__K = T__K
-        self._ideal_macro = ideal_macro
+
+        *w_batch, n_logical, k_logical = w_logical_shape
+        block_output_num, macro_plane_num = config.weight_slice.layout_geometry(output_num=config.output_num)
+        plan = PlacementPlan.build(
+            n_logical=n_logical,
+            k_logical=k_logical,
+            input_num=config.input_num,
+            block_output_num=block_output_num,
+        )
+        self._init_execution_children(
+            plan=plan,
+            w_batch=tuple(w_batch),
+            macro_plane_num=macro_plane_num,
+            dtype=dtype,
+            T__K=T__K,
+            ideal_macro=ideal_macro,
+        )
+
+    def _init_execution_children(
+        self,
+        *,
+        plan: PlacementPlan,
+        w_batch: tuple[int, ...],
+        macro_plane_num: int,
+        dtype: torch.dtype,
+        T__K: float,
+        ideal_macro: bool,
+    ) -> None:
+        """Construct the macro and the three paired execution stages."""
+        w_parallel_size = math.prod(w_batch)
+        macro_inst_shape = (
+            *w_batch,
+            1,
+            1,
+            macro_plane_num,
+            plan.input_tile_num,
+            plan.macro_group_num,
+        )
+        self.cim_macro = self._build_cim_macro(
+            cim_macro_config=self.config.cim_macro_config,
+            cim_macro_policy=self.policy.cim_macro_policy,
+            input_num=self.config.input_num,
+            output_num=self.config.output_num,
+            inst_shape=macro_inst_shape,
+            dtype=dtype,
+            T__K=T__K,
+            ideal_macro=ideal_macro,
+        )
+        self.placement = PlacementStage(
+            config=self.config.placement,
+            policy=self.policy.placement,
+            plan=plan,
+            input_num=self.config.input_num,
+            max_active_num=self.cim_macro.max_active_num,
+            w_batch_rank=len(w_batch),
+            w_parallel_size=w_parallel_size,
+            macro_plane_num=macro_plane_num,
+            macro_inst_rank=len(macro_inst_shape),
+        )
+        self.weight_slice = WeightSliceStage.from_config(
+            config=self.config.weight_slice,
+            policy=self.policy.weight_slice,
+            macro_w_value_range=self.cim_macro.w_value_range,
+            output_num=self.config.output_num,
+            w_parallel_size=w_parallel_size,
+            macro_group_num=plan.macro_group_num,
+        )
+        self.x_slice = XSliceStage.from_config(
+            config=self.config.x_slice,
+            policy=self.policy.x_slice,
+            macro_x_value_range=self.cim_macro.x_value_range,
+            w_parallel_size=w_parallel_size,
+            macro_group_num=plan.macro_group_num,
+        )
 
     @classmethod
     def from_config(
@@ -139,9 +177,8 @@ class CimEngine(
         T__K: float,
         ideal_macro: bool,
     ) -> CimEngine:
-        """Build the concrete impl registered for the config-policy pair."""
-        impl = cls._lookup_neurox_module(config=config, policy=policy)
-        return impl(
+        """Build an engine from its complete configuration and policy."""
+        return cls(
             config=config,
             policy=policy,
             w_logical_shape=w_logical_shape,
@@ -153,73 +190,13 @@ class CimEngine(
     def _sample_fabricate_mismatch(self) -> None:
         pass
 
-    def _init_engine_backend(
-        self,
-        *,
-        inst_shape: tuple[int, ...],
-        n_logical: int,
-        k_logical: int,
-        w_parallel_size: int,
-        row_tile_num: int,
-    ) -> None:
-        """Initialize the CIM macro, tiling metadata, and input phases.
-
-        Args:
-            inst_shape: Per-instance multiplicity prefix for the CIM macro.
-            n_logical: Logical output width ``N`` before tile padding.
-            k_logical: Logical contraction width ``K`` before tile padding;
-                fixes how many input phases carry real, non-padding values.
-            w_parallel_size: Parallel weight-instance count (``prod(w_batch)``).
-            row_tile_num: Output tile count ``Tr``.
-        """
-        self._init_cim_macro_child(inst_shape=inst_shape)
-        self._n_logical = n_logical
-        self._w_parallel_size = w_parallel_size
-        self._row_tile_num = row_tile_num
-        self._cim_macro_inst_rank = len(inst_shape)
-        self._input_phase_dim = -(len(inst_shape) + 2)
-        input_num = self.config.input_num
-        max_active_num = self.cim_macro.max_active_num
-        # Omit input phases containing only tile padding.
-        real_input_extent = min(k_logical, input_num)
-        self._input_phase_num = -(-real_input_extent // max_active_num)
-        self._register_input_phase_buffer(
-            input_num=input_num,
-            max_active_num=max_active_num,
-        )
-
-    def _init_cim_macro_child(self, *, inst_shape: tuple[int, ...]) -> None:
-        """Construct the physical or ideal CIM macro child."""
-        self.cim_macro = self._build_cim_macro(
-            cim_macro_config=self.config.cim_macro_config,
-            cim_macro_policy=self.policy.cim_macro_policy,
-            inst_shape=inst_shape,
-        )
-
-    def _register_input_phase_buffer(self, *, input_num: int, max_active_num: int) -> None:
-        """Register the selected-input mask for every execution phase."""
-        # Shape: [P, input_num]
-        self.register_buffer(
-            "_active_input_mask",
-            torch.arange(input_num) // max_active_num == torch.arange(self._input_phase_num).unsqueeze(-1),
-            persistent=False,
-        )
-
-    def _unroll_input_phase(self, x: Tensor) -> Tensor:
-        """Insert the execution-phase axis and mask unselected inputs."""
-        inst_rank = self._cim_macro_inst_rank
-        # Shape: [P, input_num] -> [P, 1*inst_rank, input_num]
-        mask = self._active_input_mask.reshape(-1, *(1,) * inst_rank, self.config.input_num)
-        # Shape: [..., *span, input_num] -> [..., P, *span, input_num]
-        return torch.where(mask, x.unsqueeze(max(-(inst_rank + 2), -(x.ndim + 1))), x.new_zeros(()))
-
     @property
     def w_value_range(self) -> tuple[int, int]:
-        return self._w_value_range
+        return self.weight_slice.value_range
 
     @property
     def x_value_range(self) -> tuple[int, int]:
-        return self._x_value_range
+        return self.x_slice.value_range
 
     @property
     def input_num(self) -> int:
@@ -242,42 +219,65 @@ class CimEngine(
         return self.cim_macro.adc_max_bits
 
     def adc_rescale_factor(self, *, adc_mode: int, adc_bits: int) -> float:
+        """Return the macro ADC rescale factor for one operating mode."""
         return self.cim_macro.adc_rescale_factor(adc_mode=adc_mode, adc_bits=adc_bits)
 
+    def _organize_w(self, weight: Tensor) -> Tensor:
+        """Map logical weights into the programmed CIM-macro layout."""
+        # Shape: [..., N, K] -> [..., N, K, Sw]
+        sliced = self.weight_slice.slice(weight)
+        # Shape: [..., N, K, Sw] -> [..., D, G, Q, Tc, L, Sw]
+        partitioned = self.placement.partition_weight(sliced)
+        # Shape: [..., D, G, Q, Tc, L, Sw] -> [..., Sw, Tc, G, D, L, output_num]
+        arranged = self.weight_slice.arrange_weight(partitioned)
+        # Shape: [..., Sw, Tc, G, D, L, output_num] -> [..., M=1, Sa=1, Sw, Tc, G, input_num, output_num]
+        return self.placement.pack_weight(arranged)
+
+    def _organize_x(self, input: Tensor) -> Tensor:
+        """Map logical inputs into the CIM-macro execution layout."""
+        # Shape: [..., M, K] -> [..., M, K, Sa]
+        sliced = self.x_slice.slice(input)
+        # Shape: [..., M, K, Sa] -> [..., M, Sa, Sw=1, Tc, G=1, L]
+        return self.placement.organize_x(sliced)
+
     def program(self, weight: Tensor) -> None:
-        """Write the macro's static weight state from one logical weight tensor.
+        """Program one integer logical weight tensor.
 
         Args:
-            weight: Integer weight tensor whose shape matches
-                ``self._w_logical_shape``.
+            weight: Weight tensor matching the shape bound at construction.
         """
         if tuple(weight.shape) != self._w_logical_shape:
             raise ValueError(f"program() expects weight.shape {self._w_logical_shape}; got {tuple(weight.shape)}")
         self.cim_macro.program(self._organize_w(weight))
 
-    @abstractmethod
-    def _organize_w(self, weight: Tensor) -> Tensor:
-        """Map a logical weight tensor ``[..., N, K]`` into macro-native layout."""
-        raise NotImplementedError
-
-    @abstractmethod
-    def _organize_x(self, x: Tensor) -> Tensor:
-        """Map a logical activation tensor ``[..., M, K]`` into macro-native layout."""
-        raise NotImplementedError
-
-    @abstractmethod
+    @torch.no_grad()
     def matmul(self, input: Tensor, *, adc_mode: int, adc_bits: int) -> Tensor:
-        """Execute one integer matrix multiply against the programmed weight state.
+        """Multiply logical inputs by the programmed weight.
 
         Args:
-            input: Integer activation tensor. Shape: ``[..., M, K]``.
+            input: Integer activation tensor of shape ``[..., M, K]``.
             adc_mode: Runtime ADC operating-point index.
             adc_bits: Runtime ADC resolution.
 
         Returns:
-            Integer pre-requantize output tensor. Shape: ``[..., M, N]``.
+            Integer tensor of shape ``[..., M, N]``.
         """
-        raise NotImplementedError
+        # Shape: [..., M, K] -> [..., M, Sa, Sw=1, Tc, G=1, L]
+        organized = self._organize_x(input)
+        # Shape: [..., M, Sa, Sw, Tc, G, L] -> [..., D, P, *w_batch, M, Sa, Sw, Tc, G, input_num]
+        code = self.placement.unroll_input_schedule(organized)
+        # Shape: [..., D, P, *w_batch, M, Sa, Sw, Tc, G, input_num] -> [..., D, P, *w_batch, M, Sa, Sw, Tc, G, output_num]
+        code = self.cim_macro.vec_mat_mul(code, adc_mode=adc_mode, adc_bits=adc_bits).to(torch.int64)
+        # Shape: [..., D, P, *w_batch, M, Sa, Sw, Tc, G, output_num] -> [..., D, *w_batch, M, Sa, Sw, Tc, G, output_num]
+        code = self.placement.accumulate_phases(code)
+        # Shape: [..., D, *w_batch, M, Sa, Sw, Tc, G, output_num] -> [..., D, *w_batch, M, Sa, Sw, G, output_num]
+        code = self.placement.accumulate_contraction_tiles(code)
+        # Shape: [..., D, *w_batch, M, Sa, Sw, G, output_num] -> [..., D, *w_batch, M, Sa, G, Q]
+        code = self.weight_slice.aggregate(code)
+        # Shape: [..., D, *w_batch, M, Sa, G, Q] -> [..., D, *w_batch, M, G, Q]
+        code = self.x_slice.aggregate(code)
+        # Shape: [..., D, *w_batch, M, G, Q] -> [..., *w_batch, M, N]
+        return self.placement.restore_output(code)
 
     def extra_repr(self) -> str:
         return (
@@ -286,32 +286,26 @@ class CimEngine(
             f"w_value_range={self.w_value_range}, x_value_range={self.x_value_range}"
         )
 
+    @staticmethod
     def _build_cim_macro(
-        self,
         *,
         cim_macro_config: CimMacroConfig,
         cim_macro_policy: CimMacroPolicy,
+        input_num: int,
+        output_num: int,
         inst_shape: tuple[int, ...],
+        dtype: torch.dtype,
+        T__K: float,
+        ideal_macro: bool,
     ) -> CimMacro:
-        """Construct a CIM macro at the requested instance multiplicity.
-
-        Args:
-            cim_macro_config: CIM macro configuration.
-            cim_macro_policy: CIM macro nonideality policy.
-                If ``ideal_macro`` is true the policy is discarded in favor
-                of an empty :class:`IdealCimMacroPolicy`.
-            inst_shape: Per-instance multiplicity prefix.
-
-        Returns:
-            The CIM macro, physical or ideal according to ``ideal_macro``.
-        """
+        """Construct the configured physical or ideal CIM macro."""
         cim_macro = CimMacro.from_config(
             config=cim_macro_config,
             policy=cim_macro_policy,
-            input_num=self.config.input_num,
-            output_num=self.config.output_num,
+            input_num=input_num,
+            output_num=output_num,
             inst_shape=inst_shape,
-            dtype=self._macro_dtype,
-            T__K=self._macro_T__K,
+            dtype=dtype,
+            T__K=T__K,
         )
-        return cim_macro.to_ideal() if self._ideal_macro else cim_macro
+        return cim_macro.to_ideal() if ideal_macro else cim_macro

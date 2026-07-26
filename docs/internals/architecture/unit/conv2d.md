@@ -19,7 +19,7 @@
 
 ## Gotchas
 
-- **Reference only.** The ideal conv leaf is a value-domain baseline with zero unit-local PPA — never an energy baseline or a production accuracy result. The Toeplitz lowering of the physical conv unit is a different mapping entirely; this leaf is the oracle it is validated against.
+- **Reference only.** The ideal conv leaf is a value-domain baseline with zero unit-local PPA — never an energy baseline or a production accuracy result. It is the bit-exact oracle for the engine-backed lowering.
 
 ---
 

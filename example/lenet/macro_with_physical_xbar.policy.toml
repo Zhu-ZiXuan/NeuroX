@@ -9,6 +9,17 @@
 [policy]
 _neurox_use = "../../works/offset_1t1r/presets/policy/all_off.toml:cim_unit"
 
+[policy.engine]
+_neurox_class = "CimEnginePolicy"
+
+[policy.engine.placement]
+
+[policy.engine.weight_slice]
+_neurox_class = "InterWeightSliceStagePolicy"
+
+[policy.engine.x_slice]
+_neurox_class = "SerialXSliceStagePolicy"
+
 [policy.engine.cim_macro_policy.array]
 # Max instances solved per chunk = per-chunk peak-memory budget. Sized for the
 # COMPILED solve, whose block-Thomas forward/backward sweep keeps its

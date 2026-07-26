@@ -104,9 +104,9 @@ nav:
     - CIM:
       - Engine:
         - Family: reference/architecture/unit/cim/engine/family.md
-        - Direct: reference/architecture/unit/cim/engine/direct.md
-        - Inter-array slice: reference/architecture/unit/cim/engine/inter_array_slice.md
-        - Intra-array slice: reference/architecture/unit/cim/engine/intra_array_slice.md
+        - Placement: reference/architecture/unit/cim/engine/placement.md
+        - Weight slicing: reference/architecture/unit/cim/engine/weight_slice.md
+        - Input slicing: reference/architecture/unit/cim/engine/x_slice.md
   - Crossbar:
     - CIM macro:
       - Family: reference/primitive/macro/cim/family.md
@@ -189,9 +189,9 @@ nav:
       - Conv2d: internals/architecture/unit/cim/conv2d.md
       - Engine:
         - Base: internals/architecture/unit/cim/engine/base.md
-        - Direct: internals/architecture/unit/cim/engine/direct.md
-        - Inter-array slice: internals/architecture/unit/cim/engine/inter_array_slice.md
-        - Intra-array slice: internals/architecture/unit/cim/engine/intra_array_slice.md
+        - Placement: internals/architecture/unit/cim/engine/placement.md
+        - Weight slicing: internals/architecture/unit/cim/engine/weight_slice.md
+        - Input slicing: internals/architecture/unit/cim/engine/x_slice.md
       - Slicer:
         - Base: internals/architecture/unit/cim/slicer/base.md
         - Direct: internals/architecture/unit/cim/slicer/direct.md

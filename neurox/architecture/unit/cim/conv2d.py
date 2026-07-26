@@ -1,4 +1,4 @@
-"""Conv2dCimUnit — engine-backed ``F.conv2d`` replacement with a Toeplitz weight mapping.
+"""Conv2dCimUnit — engine-backed ``F.conv2d`` replacement.
 
 See also:
     docs/internals/architecture/unit/cim/conv2d.md
@@ -50,7 +50,7 @@ class Conv2dCimUnitPolicy(EngineBackedCimUnitPolicy):
 
 @CimUnit.register_neurox_module(config_type=Conv2dCimUnitConfig, policy_type=Conv2dCimUnitPolicy)
 class Conv2dCimUnit(Conv2dUnit, EngineBackedCimUnit[Conv2dCimUnitConfig, Conv2dCimUnitPolicy]):
-    """CIM-backed convolution using a Toeplitz input-stationary mapping."""
+    """CIM-backed convolution using one programmed kernel matrix."""
 
     def __init__(
         self,
@@ -64,14 +64,7 @@ class Conv2dCimUnit(Conv2dUnit, EngineBackedCimUnit[Conv2dCimUnitConfig, Conv2dC
     ) -> None:
         if len(w_logical_shape) != 4:
             raise ValueError(f"w_logical_shape must be (C_out, C_in, kh, kw); got {w_logical_shape}")
-        c_out, c_in, kh, kw = w_logical_shape
-        self._init_toeplitz_geometry(
-            config=config,
-            c_out=c_out,
-            c_in=c_in,
-            kh=kh,
-            kw=kw,
-        )
+        _c_out, _c_in, kh, kw = w_logical_shape
         super().__init__(
             config=config,
             policy=policy,
@@ -86,65 +79,22 @@ class Conv2dCimUnit(Conv2dUnit, EngineBackedCimUnit[Conv2dCimUnitConfig, Conv2dC
             padding=config.padding,
             dilation=config.dilation,
         )
-        w_lo, w_hi = self.engine.w_value_range
-        if not (w_lo <= 0 <= w_hi):
-            raise ValueError(
-                f"require: w_value_range ({(w_lo, w_hi)}) covers 0 — the Toeplitz matrix stores structural zeros"
-            )
-        if config.padding != (0, 0) or self._w_g > 1:
+        if config.padding != (0, 0):
             x_lo, x_hi = self.engine.x_value_range
             if not (x_lo <= 0 <= x_hi):
                 raise ValueError(
-                    f"require: x_value_range ({(x_lo, x_hi)}) covers 0 — zero-padding, strip "
-                    "right-padding, and last-segment surplus windows inject x = 0 activations"
+                    f"require: x_value_range ({(x_lo, x_hi)}) covers 0 — convolution padding injects x = 0"
                 )
 
-    def _init_toeplitz_geometry(
-        self,
-        *,
-        config: Conv2dCimUnitConfig,
-        c_out: int,
-        c_in: int,
-        kh: int,
-        kw: int,
-    ) -> None:
-        """Derive the matrix geometry passed to the execution engine."""
-        input_num = config.engine.input_num
-        output_num = config.engine.output_num
-        s_w = config.stride[1]
-        d_w = config.dilation[1]
-        self._kw_eff = (kw - 1) * d_w + 1
-        # Choose the largest window group that fits both logical macro ports.
-        g_k = 1 + (input_num // (c_in * kh) - self._kw_eff) // s_w
-        g_n = output_num // c_out
-        self._w_g = max(1, min(g_k, g_n))
-        self._w_strip = self._kw_eff + (self._w_g - 1) * s_w
-        self._k_prime = c_in * kh * self._w_strip
-        self._n_prime = self._w_g * c_out
-
     def _engine_w_logical_shape(self) -> tuple[int, ...]:
-        """Toeplitz matrix shape ``(N', K')`` handed to the engine."""
-        return (self._n_prime, self._k_prime)
+        """Flattened kernel-matrix shape ``(C_out, C_in*kh*kw)``."""
+        c_out, c_in, kh, kw = self._w_logical_shape
+        return (c_out, c_in * kh * kw)
 
     def _weight_to_matrix(self, weight: Tensor) -> Tensor:
-        """Build the Toeplitz weight matrix with shape ``[N', K']``."""
-        c_out, c_in, kh, kw = weight.shape
-        w_g, w_strip = self._w_g, self._w_strip
-        s_w = self._conv2d_stride[1]
-        d_w = self._conv2d_dilation[1]
-        device = weight.device
-        g = torch.arange(w_g, device=device).view(-1, 1, 1, 1, 1)
-        n = torch.arange(c_out, device=device).view(1, -1, 1, 1, 1)
-        ci = torch.arange(c_in, device=device).view(1, 1, -1, 1, 1)
-        i = torch.arange(kh, device=device).view(1, 1, 1, -1, 1)
-        j = torch.arange(kw, device=device).view(1, 1, 1, 1, -1)
-        # Shape: [W_g, C_out, C_in, kh, kw]
-        c_idx = (g * c_out + n).expand(w_g, c_out, c_in, kh, kw)
-        r_idx = ((ci * kh + i) * w_strip + g * s_w + j * d_w).expand(w_g, c_out, c_in, kh, kw)
-        matrix = weight.new_zeros(w_g * c_out, c_in * kh * w_strip)
-        # Shape: [C_out, C_in, kh, kw] -> [W_g, C_out, C_in, kh, kw] -> [N_prime, K_prime]
-        matrix[c_idx.flatten(), r_idx.flatten()] = weight.unsqueeze(0).expand(w_g, -1, -1, -1, -1).flatten()
-        return matrix
+        """Flatten one copy of every output-channel kernel to ``[C_out, K]``."""
+        # Shape: [C_out, C_in, kh, kw] -> [C_out, K]
+        return weight.flatten(start_dim=1)
 
     def program(self, weight: Tensor, bias: Tensor | None = None) -> None:
         if tuple(weight.shape) != self._w_logical_shape:
@@ -155,49 +105,43 @@ class Conv2dCimUnit(Conv2dUnit, EngineBackedCimUnit[Conv2dCimUnitConfig, Conv2dC
         self._program_int_bias(bias, channels=self._w_logical_shape[0])
 
     def _conv2d_planes(self, input: Tensor, *, out_hw: tuple[int, int]) -> Tensor:
-        """Gather input strips with shape ``[..., H_out, T_seg, K']``."""
+        """Gather convolution windows with shape ``[..., M, K]``."""
         h_out, w_out = out_hw
-        kh = self._conv2d_kernel_size[0]
+        kh, kw = self._conv2d_kernel_size
         s_h, s_w = self._conv2d_stride
         p_h, p_w = self._conv2d_padding
-        d_h = self._conv2d_dilation[0]
-        w_g, w_strip = self._w_g, self._w_strip
-        t_seg = -(-w_out // w_g)
-        h_in, w_in = input.shape[-2:]
-        # Cover the final strip's surplus windows with zero padding.
-        pad_bottom = max(0, (h_out - 1) * s_h + (kh - 1) * d_h + 1 - p_h - h_in)
-        pad_right = max(0, (t_seg - 1) * w_g * s_w + w_strip - p_w - w_in)
+        d_h, d_w = self._conv2d_dilation
         x = input
-        if p_h or p_w or pad_bottom or pad_right:
+        if p_h or p_w:
             # Shape: [..., C_in, H, W] -> [..., C_in, Hp, Wp]
-            x = F.pad(x, (p_w, pad_right, p_h, pad_bottom))
+            x = F.pad(x, (p_w, p_w, p_h, p_h))
         device = x.device
+
         # Shape: [H_out, kh]
         h_idx = (torch.arange(h_out, device=device) * s_h).view(-1, 1) + (torch.arange(kh, device=device) * d_h).view(
             1, -1
         )
-        # Shape: [T_seg, W_strip]
-        w_idx = (torch.arange(t_seg, device=device) * (w_g * s_w)).view(-1, 1) + torch.arange(
-            w_strip, device=device
-        ).view(1, -1)
+        # Shape: [W_out, kw]
+        w_idx = (torch.arange(w_out, device=device) * s_w).view(-1, 1) + (torch.arange(kw, device=device) * d_w).view(
+            1, -1
+        )
         # Shape: [..., C_in, Hp, Wp] -> [..., C_in, H_out, kh, Wp]
         x = x[..., h_idx, :]
-        # Shape: [..., C_in, H_out, kh, Wp] -> [..., C_in, H_out, kh, T_seg, W_strip]
+        # Shape: [..., C_in, H_out, kh, Wp] -> [..., C_in, H_out, kh, W_out, kw]
         x = x[..., w_idx]
-        # Shape: [..., C_in, H_out, kh, T_seg, W_strip] -> [..., H_out, T_seg, C_in, kh, W_strip]
+        # Shape: [..., C_in, H_out, kh, W_out, kw] -> [..., H_out, W_out, C_in, kh, kw]
         b = x.ndim - 5
         x = x.permute(*range(b), b + 1, b + 3, b + 0, b + 2, b + 4)
-        # Shape: [..., H_out, T_seg, C_in, kh, W_strip] -> [..., H_out, T_seg, K']
-        return x.flatten(-3)
+        # Shape: [..., H_out, W_out, C_in, kh, kw] -> [..., H_out, W_out, K]
+        x = x.flatten(start_dim=-3)
+        # Shape: [..., H_out, W_out, K] -> [..., M, K]
+        return x.flatten(start_dim=-3, end_dim=-2)
 
     def _conv2d_fold(self, output: Tensor, *, out_hw: tuple[int, int]) -> Tensor:
-        """Fold serial axes to ``[..., C_out, H_out, W_out]``."""
-        _h_out, w_out = out_hw
-        # Shape: [..., H_out, T_seg, W_g*C_out] -> [..., H_out, T_seg, W_g, C_out]
-        y = output.unflatten(-1, (self._w_g, self._w_logical_shape[0]))
-        # Shape: [..., H_out, T_seg, W_g, C_out] -> [..., H_out, T_seg*W_g, C_out]
-        y = y.flatten(-3, -2)
-        # Shape: [..., H_out, T_seg*W_g, C_out] -> [..., H_out, W_out, C_out]
-        y = y[..., :w_out, :]
+        """Restore serial windows to ``[..., C_out, H_out, W_out]``."""
+        h_out, w_out = out_hw
+        # Shape: [..., M, C_out] -> [..., H_out, W_out, C_out]
+        y = output.unflatten(-2, (h_out, w_out))
         # Shape: [..., H_out, W_out, C_out] -> [..., C_out, H_out, W_out]
-        return y.movedim(-1, -3)
+        folded: Tensor = y.movedim(-1, -3)
+        return folded

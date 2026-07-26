@@ -1,52 +1,77 @@
-# CimEngine base
+# CimEngine
 
-`CimEngine` is the registry root for logical slicing, tiling, macro execution,
-and digital aggregation. The base owns macro construction, input-phase masking,
-value-range and ADC delegation, the shared `program` skeleton, and
-`_chunk_pad_along`. Each variant owns its organize/aggregate pair.
+`CimEngine` composes three independently configurable stages around one
+`CimMacro`: geometric placement, weight-slice layout, and input-slice
+serialization. The engine itself owns only lifecycle orchestration, the macro
+child, value-range delegation, and the fixed execution order.
 
 ## Design decisions
 
-- **Registry dispatch keyed on config and policy types.** A variant declares `@CimEngine.register_neurox_module(config_type=..., policy_type=...)`; `from_config` passes both objects to `_lookup_neurox_module`, and `RegistryMixin` constructs the internal type-pair key. The two concrete types must identify one registered pair.
-- **A `ModuleBase` container, not a plain `nn.Module`.** The fabricate cascade recurses only into `FabricateMixin` children, so the engine must be one for `fabricate()` on the unit to reach the cim_macro. It is a container: `is_profile_target = False` (no own PPA — its children self-report), `_sample_fabricate_mismatch` is a pass, and `inst_shape = ()`.
-- **The engine owns input-phase serialization.** The macro publishes
-  `max_active_num`; the engine expands every logical input into
-  `P = ceil(input_num / max_active_num)` zero-masked phases and sums exactly
-  that phase axis after conversion.
-- **Backend construction is shared; execution remains variant-specific.**
-  `_init_engine_backend` constructs the macro, stores tiling metadata, omits
-  phases containing only contraction-axis padding, and registers the static
-  `[P, input_num]` mask.
-- **Value ranges are leaf-sourced, base-published.** The concrete `w_value_range` / `x_value_range` properties read the protected `_w_value_range` / `_x_value_range` attrs each leaf ctor sets once after building its transcoder/slicers (the sources differ per leaf); the ADC surface delegates to `self.cim_macro` directly.
-- **`Sw` layout vs `Sa` schedule split.** `Sw` (per-weight slice count) is fixed at `program` time and held until the next `program`; `Sa` (per-activation slice count) is evaluated per `matmul` call and materialized by the simulator as a batched tensor axis. Fixed at different lifecycle points, the two cannot share a uniform slice-reduction helper, and the organize step lives on the W side only.
-- **Only logical macro interfaces cross the layer boundary.** `CimEngineConfig`
-  owns `input_num` and `output_num`; variants use them for tiling and pass them
-  to the macro constructor. They read only value ranges, activation limits, and
-  ADC metadata back from the constructed macro. No engine reads physical rows,
-  columns, or digit geometry.
-- **`[Sa, Sw, Tc, Tr]` is the fixed leading-axis order.** Every variant's organized weight tensor places its present slice/tile axes in this canonical order ahead of the tile-owned `(data, D, row)` trailing block. A variant that does not use an axis omits it entirely rather than padding it size-1 (the `M=1` / `Sa=1` placeholders inserted for broadcast against the activation are a separate matter). Fixing the order across variants is what lets the aggregate reductions name their axes by a stable negative index.
-- **No self-compiled forward.** Each variant's `matmul` is wrapped in `@torch.no_grad()` and runs eager — the library does not self-compile the forward ([compile contracts](../../../../compile/contracts.md)). The memory-sensitive cost is the tile read inside `self.cim_macro.vec_mat_mul`, whose heavy DC solve compiles as a separate regional leaf — see [array internals](../../../../primitive/xbar/array/_1t1r/array.md).
+- **One engine, composed stages.** Direct, inter-plane, and intra-port weight
+  layouts are not engine subclasses. `CimEngineConfig` contains
+  `placement`, `weight_slice`, and `x_slice`; only the latter two use registry
+  dispatch because they have alternative implementations.
+- **Mapping and aggregation remain paired.** A stage that introduces an axis
+  also owns the digital module that removes it. This prevents a mapping
+  strategy from being combined with an incompatible aggregation path and
+  keeps the digital PPA model attached to the operation it represents.
+- **The macro boundary remains logical.** The engine supplies `input_num` and
+  `output_num` when constructing the macro and reads only its public value
+  ranges, activation limit, and ADC metadata. It does not inspect rows,
+  columns, cell digits, or readout topology.
+- **Canonical macro instance layout.** Every configuration uses
+  `[*w_batch, M=1, Sa=1, Sw, Tc, G]`. Direct and intra-port weight layouts keep
+  a structural `Sw=1` axis. Fixed size-one axes make all stage combinations
+  follow one execution graph.
+- **Containers do not report duplicate PPA.** The engine and all three stages
+  set `is_profile_target = False`; their macro and digital children report
+  physical PPA.
+- **No engine registry.** `CimEngine.from_config` constructs `CimEngine`
+  directly. Polymorphism is limited to the two stage roots where behavior
+  actually varies.
 
-## Contracts & invariants
+## Program path
 
-- **Uniform construction.** `from_config` builds every registered variant through one call shape (`config`, `policy`, `w_logical_shape`, `dtype`, `T__K`, `ideal_macro`); narrowing or reordering the constructor arguments breaks dispatch.
-- **`_unroll_input_phase` inserts P immediately left of the instance-aligned
-  block.** It maps trailing `[input_num]` to
-  `[..., P, *span, input_num]`; the axis is retained when its size is one.
-- **`matmul` owns phase and tile accumulation.** The macro returns trailing
-  `[output_num]`; `phase_accumulator` reduces `_input_phase_dim` before the
-  variant-specific slice reductions and the `Tc` accumulator.
-- **The `program` skeleton is shared; `_organize_w` is the variant hook.** `program` shape-gates against the bound `w_logical_shape` and hands `_organize_w(weight)` to `cim_macro.program`; only the organize bodies are leaf-specific.
-- **`_build_cim_macro` honours `ideal_macro`.** When enabled, the helper applies
-  `.to_ideal()` after constructing the configured macro with the final
-  instance multiplicity.
-- **`_chunk_pad_along` is the one shared geometric primitive.** It right-pads an axis to a multiple of `chunk_size` then unflattens it into `(num_chunks, chunk_size)`, inserting the chunk axis immediately after. `pad_value` has no default. Every variant's tiling step funnels through it so the pad/unflatten convention is identical across variants.
-- **The `[Sa, Sw, Tc, Tr]` order is load-bearing for the aggregate.** The aggregate reductions address their axes by negative index against the fixed leading-axis order; a variant that reorders or inserts an axis, or assumes an omitted axis is present, silently reduces the wrong dimension, so each variant's aggregate index set is variant-specific.
-- **Fabrication cascades through children.** The engine registers no physical
-  state of its own.
+`program(weight)` checks the shape bound at construction and executes:
+
+1. `weight_slice.slice`: append logical `Sw`.
+2. `placement.partition_weight`: form `[D,G,Q,Tc,L,Sw]`.
+3. `weight_slice.arrange_weight`: map `Sw` to macro planes or output ports.
+4. `placement.pack_weight`: merge the `D` slots into the macro input axis.
+5. `cim_macro.program`: store the final macro-native tensor.
+
+The resulting tensor always has
+`[..., M=1, Sa=1, Sw, Tc, G, input_num, output_num]`.
+
+## Matmul path
+
+`matmul(input)` executes:
+
+1. `x_slice.slice`: append logical `Sa`.
+2. `placement.organize_x`: form `[M,Sa,Sw=1,Tc,G=1,L]`.
+3. `placement.unroll_input_schedule`: insert serial `[D,P]`.
+4. `cim_macro.vec_mat_mul`: produce one code per macro read and convert it to
+   `int64` at the analog-to-digital boundary.
+5. Aggregate in the fixed order `P -> Tc -> Sw -> Sa`.
+6. `placement.restore_output`: reorder `(D,G,Q)`, flatten, and trim to `N`.
+
+`Tc` is reduced before either precision axis. Consequently the contraction
+accumulator's instance multiplicity includes the physical `Sw` macro planes
+for inter-plane layouts, matching the tensor on which it operates.
+
+## Contracts
+
+- A mapping stage must preserve all axes it does not own.
+- `D` identifies different logical output blocks and is never reduced.
+- `P` and `Tc` are ordinary sums; `Sw` and `Sa` are radix-weighted sums.
+- All absent axes remain explicit with extent one.
+- The engine converts macro output codes to `int64`; digital modules do not
+  perform dtype conversion.
+- `ideal_macro=True` constructs the configured macro first and then calls
+  `to_ideal()` without changing placement or aggregation.
 
 ---
 
 - **Reference**: [engine family](../../../../../reference/architecture/unit/cim/engine/family.md)
 - **Implementation**: `neurox/architecture/unit/cim/engine/base.py`
-- **Tests**: `tests/architecture/unit/test_cim_unit.py`, `tests/architecture/unit/test_engine_input_phase.py`
+- **Tests**: `tests/architecture/unit/test_cim_unit.py`, `tests/architecture/unit/test_engine_input_packing.py`

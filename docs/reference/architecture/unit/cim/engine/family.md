@@ -1,57 +1,94 @@
-# CimEngine family
+# CIM engine
 
-The execution dimension of the CIM unit: an engine is the workload-agnostic slicing / tiling / macro-cycle / aggregation pipeline that places one integer matmul on [CIM macros](../../../../primitive/macro/cim/family.md) and recombines the per-macro reads. The engine variants differ only in how the precision-slicing axis maps onto the tiling layout; the operator a unit exposes ([family operator law](../../family.md)) is orthogonal.
+`CimEngine` places one logical integer matrix multiplication on
+[CIM macros](../../../../primitive/macro/cim/family.md). It is a composition
+of three mappings, each paired with the digital aggregation that reverses it:
 
-- [direct](direct.md) — the no-slice corner $S_w = S_a = 1$: values map straight onto one tile's native value range.
-- [inter_array_slice](inter_array_slice.md) — weight slices distributed across separate tile planes, recombined by cross-plane shift-add.
-- [intra_array_slice](intra_array_slice.md) — weight slices gathered into adjacent columns of one tile, recombined by intra-tile shift-add.
+- [placement](placement.md): geometric tiling, short-vector packing,
+  `max_active_num` scheduling, and `P/Tc` accumulation;
+- [weight slicing](weight_slice.md): direct, inter-plane, or intra-port `Sw`
+  layout and weight shift-add;
+- [input slicing](x_slice.md): direct or serial `Sa` execution and input
+  shift-add.
 
-The variant is selected by the concrete engine config nested inside the unit config (the `_neurox_class` discriminator); see the [config reference](../../../../../api/README.md).
+These choices are nested stage configurations, not separate engine classes.
 
 ## Governing laws
 
-**Pipeline.** Every engine realizes the exact integer dot product
+For logical weight `W[N,K]` and input `X[M,K]`, the engine reconstructs
 
-$$Y_{m,n} = \sum_{k} X_{m,k}\,W_{n,k}$$
+$$Y_{m,n}=\sum_{k=0}^{K-1}X_{m,k}W_{n,k}.$$
 
-through the same stages: decompose values into positional slices (where present), tile the matmul across the physical grid ($T_r$, $T_c$), drive the per-tile macro reads, and aggregate — shift-add over the slice axes, plain accumulation over the contraction tiles, concatenate and trim to $N$ over the output tiles. Decompose and aggregate are inverse operations, per the [family contract](../../family.md).
+Each constituent macro read may include its own analog behavior and ADC
+quantization; all engine-side mappings and digital reductions are integer
+operations.
 
-**Input-phase generation.** The engine owns serialization required by
-`max_active_num`. For a macro with $N_{\mathrm{in}}$ logical inputs and at
-most $A$ selected positions per conversion, it expands each input into
-$P=\lceil N_{\mathrm{in}}/A\rceil$ zero-masked phases. The phase axis is always
-present and is inserted immediately left of the macro instance-aligned block.
-The macro converts every phase independently and returns trailing
-$[N_{\mathrm{out}}]$ codes.
+Let `I=input_num`, `Q` be the logical output width selected by the weight
+layout, and `A=max_active_num`. Placement derives
 
-**Two-stage digital accumulation.** The engine first reduces its input-phase
-axis at each macro output port, then reduces the $T_c$ contraction-tile axis.
-The two axes use distinct digital modules and are accounted separately.
+$$
+L=\min(K,I),\quad
+T_c=\left\lceil\frac{K}{L}\right\rceil,\quad
+B=\left\lceil\frac{N}{Q}\right\rceil,\quad
+C=\left\lfloor\frac{I}{L}\right\rfloor,
+$$
 
-**Axis layout.** Every variant's organized weight tensor places its present slice/tile axes in the canonical $[S_a, S_w, T_c, T_r]$ order ahead of the tile-owned trailing block; a variant that does not use an axis omits it entirely. The fixed order is what lets the aggregate reductions name their axes by a stable negative index.
+$$
+G=\left\lceil\frac{B}{C}\right\rceil,\quad
+D=\left\lceil\frac{B}{G}\right\rceil,\quad
+P=\left\lceil\frac{L}{A}\right\rceil.
+$$
 
-## Noise & non-idealities
+Logical output block `b=dG+g` occupies input slot
+`[dL,(d+1)L)` of macro group `g`. Missing final blocks and unused input/output
+positions are programmed to zero but remain in the uniform schedule.
 
-An engine adds no non-ideality of its own: the slicing and aggregation arithmetic is exact integer arithmetic. Every deviation enters through the tile reads — analog non-idealities and ADC quantization — specified by the [CIM macro family](../../../../primitive/macro/cim/family.md).
+## Execution order
+
+The macro instance axes use canonical order `[Sa,Sw,Tc,G]`; `D` and `P` are
+runtime schedule axes. After each macro read, the engine aggregates
+
+$$P\rightarrow T_c\rightarrow S_w\rightarrow S_a,$$
+
+then reorders `(D,G,Q)`, flattens it in logical block order, and trims to `N`.
+`D` is not a partial-sum axis and is never reduced.
+
+## Configuration
+
+| Field | Meaning |
+|---|---|
+| `input_num` | logical input ports of one macro |
+| `output_num` | logical output ports of one macro |
+| `cim_macro_config` | owned macro configuration |
+| `placement` | placement and `P/Tc` accumulator configuration |
+| `weight_slice` | weight layout and optional `Sw` shift-adder configuration |
+| `x_slice` | input serialization and optional `Sa` shift-adder configuration |
+
+The policy has the same four owned-child fields. The engine's public
+`w_value_range` and `x_value_range` come from the two slice stages; ADC
+metadata and `max_active_num` delegate to the constructed macro.
 
 ## Symbols
 
-| Symbol | Meaning | Unit | Code field |
-|---|---|---|---|
-| $S_w, S_a$ | weight-, activation-slice counts | — | `w_slice_num`, `x_slice_num` |
-| $T_r, T_c$ | output-, contraction-axis tile counts | — | structure count |
-| $N_{\mathrm{in}}, N_{\mathrm{out}}$ | macro logical input / output capacity | — | `input_num`, `output_num` |
-| $A$ | maximum selected inputs per conversion | — | `cim_macro.max_active_num` |
-| $P$ | input phases per macro read, $P = \lceil N_{\mathrm{in}}/A\rceil$ | — | `_input_phase_num` |
+| Symbol | Meaning | Code |
+|---|---|---|
+| $S_w,S_a$ | weight and input slice counts | stage configuration |
+| $I$ | macro logical input capacity | `input_num` |
+| $A$ | maximum selected inputs per read | `cim_macro.max_active_num` |
+| $L,Q$ | logical block input/output widths | `placement.plan` |
+| $T_c$ | contraction-tile count | `placement.plan.input_tile_num` |
+| $B,C$ | output-block count and per-macro capacity | `placement.plan` |
+| $G,D$ | macro groups and block steps | `placement.plan` |
+| $P$ | selected-input phases | `placement._input_phase_num` |
 
-The logical dims, value-domain symbols, and the ADC surface are in [unit/family](../../family.md#symbols).
+## Validation
 
-## References
-
-TODO.
+Bit-exact stage combinations, non-divisible dimensions, coprime dimensions,
+weight batches, short-vector packing, and input phases are covered by
+`tests/architecture/unit/test_cim_unit.py` and
+`tests/architecture/unit/test_engine_input_packing.py`.
 
 ---
 
-- **Internals**: [engine base](../../../../../internals/architecture/unit/cim/engine/base.md)
-- **Validation**: TODO — `validation/macro` (not yet written)
+- **Internals**: [engine internals](../../../../../internals/architecture/unit/cim/engine/base.md)
 - **Configuration**: [config reference](../../../../../api/README.md)
