@@ -29,6 +29,8 @@ from neurox.architecture.unit.cim.engine import (
     DirectXSliceStage,
     DirectXSliceStageConfig,
     DirectXSliceStagePolicy,
+    InputActivationStageConfig,
+    InputActivationStagePolicy,
     InterWeightSliceStage,
     InterWeightSliceStageConfig,
     InterWeightSliceStagePolicy,
@@ -122,6 +124,7 @@ def _engine_policy(config: CimEngineConfig) -> CimEnginePolicy:
     return CimEnginePolicy(
         cim_macro_policy=_IDEAL_MACRO_POLICY,
         placement=PlacementStagePolicy(),
+        input_activation=InputActivationStagePolicy(),
         weight_slice=weight_slice_policies[type(config.weight_slice)],
         x_slice=x_slice_policy,
     )
@@ -149,10 +152,12 @@ def _direct_engine_config(
             adc_max_bits=adc_max_bits,
         ),
         placement=PlacementStageConfig(
+            contraction_accumulator_config=_accumulator_config(),
+        ),
+        input_activation=InputActivationStageConfig(
             phase_accumulator_config=(
                 _accumulator_config() if phase_accumulator_config is None else phase_accumulator_config
             ),
-            contraction_accumulator_config=_accumulator_config(),
         ),
         weight_slice=DirectWeightSliceStageConfig(),
         x_slice=DirectXSliceStageConfig(),
@@ -205,8 +210,10 @@ def _sliced_engine_config(
             max_active_num=max_active_num,
         ),
         placement=PlacementStageConfig(
-            phase_accumulator_config=_accumulator_config(),
             contraction_accumulator_config=_accumulator_config(),
+        ),
+        input_activation=InputActivationStageConfig(
+            phase_accumulator_config=_accumulator_config(),
         ),
         weight_slice=weight_slice_type(
             w_slice_num=w_slice_num,
@@ -647,14 +654,14 @@ def test_phase_accumulator_energy_scales_with_input_phase_num() -> None:
             )
         )
         unit = _build_linear(config, w_logical_shape=(n, k))
-        assert isinstance(unit.engine.placement.phase_accumulator, SerialAccumulator)
+        assert isinstance(unit.engine.input_activation.phase_accumulator, SerialAccumulator)
         weight = _randint_in_range(unit.w_value_range, (n, k))
         activation = _randint_in_range(unit.x_value_range, (m, k))
         unit.program(weight)
         with NeuroxProfiler() as p:
             unit.linear(activation, adc_mode=_TEST_ADC_MODE, adc_bits=_TEST_ADC_BITS)
-        energies[unit.engine.placement._input_phase_num] = sum(
-            e.dynamic_energy__fJ for e in p.energy_events if e.module is unit.engine.placement.phase_accumulator
+        energies[unit.engine.input_activation._input_phase_num] = sum(
+            e.dynamic_energy__fJ for e in p.energy_events if e.module is unit.engine.input_activation.phase_accumulator
         )
     assert energies[1] > 0.0
     assert energies[2] == pytest.approx(2.0 * energies[1])
@@ -819,8 +826,10 @@ def test_unit_config_nested_engine_deserialization() -> None:
                 "adc_max_bits": 0,
             },
             "placement": {
-                "phase_accumulator_config": {"bit_width": 32, **_zero_ppa()},
                 "contraction_accumulator_config": {"bit_width": 32, **_zero_ppa()},
+            },
+            "input_activation": {
+                "phase_accumulator_config": {"bit_width": 32, **_zero_ppa()},
             },
             "weight_slice": {
                 "_neurox_class": "DirectWeightSliceStageConfig",
@@ -834,6 +843,7 @@ def test_unit_config_nested_engine_deserialization() -> None:
     assert type(config) is LinearCimUnitConfig
     assert type(config.engine) is CimEngineConfig
     assert type(config.engine.cim_macro_config) is IdealCimMacroConfig
+    assert type(config.engine.input_activation) is InputActivationStageConfig
     assert type(config.engine.weight_slice) is DirectWeightSliceStageConfig
     assert type(config.engine.x_slice) is DirectXSliceStageConfig
 
@@ -846,6 +856,7 @@ def test_unit_policy_nested_engine_deserialization() -> None:
                 "_neurox_class": "IdealCimMacroPolicy",
             },
             "placement": {},
+            "input_activation": {},
             "weight_slice": {
                 "_neurox_class": "DirectWeightSliceStagePolicy",
             },
@@ -858,5 +869,6 @@ def test_unit_policy_nested_engine_deserialization() -> None:
     assert type(policy) is LinearCimUnitPolicy
     assert type(policy.engine) is CimEnginePolicy
     assert type(policy.engine.cim_macro_policy) is IdealCimMacroPolicy
+    assert type(policy.engine.input_activation) is InputActivationStagePolicy
     assert type(policy.engine.weight_slice) is DirectWeightSliceStagePolicy
     assert type(policy.engine.x_slice) is DirectXSliceStagePolicy

@@ -2,10 +2,12 @@
 
 `CimEngine` places one logical integer matrix multiplication on
 [CIM macros](../../../../primitive/macro/cim/family.md). It is a composition
-of three mappings, each paired with the digital aggregation that reverses it:
+of four mappings, each paired with any digital aggregation that reverses it:
 
 - [placement](placement.md): geometric tiling, short-vector packing,
-  `max_active_num` scheduling, and `P/Tc` accumulation;
+  block routing, and `Tc` accumulation;
+- [input activation](input_activation.md): `max_active_num` grouping and `P`
+  accumulation;
 - [weight slicing](weight_slice.md): direct, inter-plane, or intra-port `Sw`
   layout and weight shift-add;
 - [input slicing](x_slice.md): direct or serial `Sa` execution and input
@@ -60,11 +62,12 @@ then reorders `(D,G,Q)`, flattens it in logical block order, and trims to `N`.
 | `input_num` | logical input ports of one macro |
 | `output_num` | logical output ports of one macro |
 | `cim_macro_config` | owned macro configuration |
-| `placement` | placement and `P/Tc` accumulator configuration |
+| `placement` | geometric placement and `Tc` accumulator configuration |
+| `input_activation` | selected-input grouping and `P` accumulator configuration |
 | `weight_slice` | weight layout and optional `Sw` shift-adder configuration |
 | `x_slice` | input serialization and optional `Sa` shift-adder configuration |
 
-The policy has the same four owned-child fields. The engine's public
+The policy has the same five owned-child fields. The engine's public
 `w_value_range` and `x_value_range` come from the two slice stages; ADC
 metadata and `max_active_num` delegate to the constructed macro.
 
@@ -76,10 +79,10 @@ metadata and `max_active_num` delegate to the constructed macro.
 | $I$ | macro logical input capacity | `input_num` |
 | $A$ | maximum selected inputs per read | `cim_macro.max_active_num` |
 | $L,Q$ | logical block input/output widths | `placement.plan` |
-| $T_c$ | contraction-tile count | `placement.plan.input_tile_num` |
+| $T_c$ | contraction-tile count | `placement.plan.contraction_partition_num` |
 | $B,C$ | output-block count and per-macro capacity | `placement.plan` |
-| $G,D$ | macro groups and block steps | `placement.plan` |
-| $P$ | selected-input phases | `placement._input_phase_num` |
+| $G,D$ | macro groups and block steps | `placement.plan.block_group_num`, `placement.plan.block_slot_num` |
+| $P$ | selected-input phases | `input_activation._input_phase_num` |
 
 ## Validation
 

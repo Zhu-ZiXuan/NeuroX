@@ -1,16 +1,17 @@
 # CimEngine
 
-`CimEngine` composes three independently configurable stages around one
-`CimMacro`: geometric placement, weight-slice layout, and input-slice
-serialization. The engine itself owns only lifecycle orchestration, the macro
-child, value-range delegation, and the fixed execution order.
+`CimEngine` composes four independently configurable stages around one
+`CimMacro`: geometric placement, selected-input activation, weight-slice
+layout, and input-slice serialization. The engine itself owns lifecycle
+orchestration, the macro child, value-range delegation, and execution order.
 
 ## Design decisions
 
 - **One engine, composed stages.** Direct, inter-plane, and intra-port weight
   layouts are not engine subclasses. `CimEngineConfig` contains
-  `placement`, `weight_slice`, and `x_slice`; only the latter two use registry
-  dispatch because they have alternative implementations.
+  `placement`, `input_activation`, `weight_slice`, and `x_slice`; only the
+  latter two use registry dispatch because they have alternative
+  implementations.
 - **Mapping and aggregation remain paired.** A stage that introduces an axis
   also owns the digital module that removes it. This prevents a mapping
   strategy from being combined with an incompatible aggregation path and
@@ -23,7 +24,7 @@ child, value-range delegation, and the fixed execution order.
   `[*w_batch, M=1, Sa=1, Sw, Tc, G]`. Direct and intra-port weight layouts keep
   a structural `Sw=1` axis. Fixed size-one axes make all stage combinations
   follow one execution graph.
-- **Containers do not report duplicate PPA.** The engine and all three stages
+- **Containers do not report duplicate PPA.** The engine and all four stages
   set `is_profile_target = False`; their macro and digital children report
   physical PPA.
 - **No engine registry.** `CimEngine.from_config` constructs `CimEngine`
@@ -49,11 +50,14 @@ The resulting tensor always has
 
 1. `x_slice.slice`: append logical `Sa`.
 2. `placement.organize_x`: form `[M,Sa,Sw=1,Tc,G=1,L]`.
-3. `placement.unroll_input_schedule`: insert serial `[D,P]`.
-4. `cim_macro.vec_mat_mul`: produce one code per macro read and convert it to
+3. `input_activation.unroll_input_phases`: insert `P` and mask each local
+   input group.
+4. `placement.unroll_block_steps`: insert `D` and route each local block into
+   its geometric slot.
+5. `cim_macro.vec_mat_mul`: produce one code per macro read and convert it to
    `int64` at the analog-to-digital boundary.
-5. Aggregate in the fixed order `P -> Tc -> Sw -> Sa`.
-6. `placement.restore_output`: reorder `(D,G,Q)`, flatten, and trim to `N`.
+6. Aggregate in the fixed order `P -> Tc -> Sw -> Sa`.
+7. `placement.restore_output`: reorder `(D,G,Q)`, flatten, and trim to `N`.
 
 `Tc` is reduced before either precision axis. Consequently the contraction
 accumulator's instance multiplicity includes the physical `Sw` macro planes

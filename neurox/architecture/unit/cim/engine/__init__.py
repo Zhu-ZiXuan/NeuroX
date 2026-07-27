@@ -1,10 +1,10 @@
 from .base import CimEngine, CimEngineConfig, CimEnginePolicy
-from .placement import (
-    PlacementPlan,
-    PlacementStage,
-    PlacementStageConfig,
-    PlacementStagePolicy,
+from .input_activation import (
+    InputActivationStage,
+    InputActivationStageConfig,
+    InputActivationStagePolicy,
 )
+from .placement import PlacementStage, PlacementStageConfig, PlacementStagePolicy
 from .weight_slice import (
     DirectWeightSliceStage,
     DirectWeightSliceStageConfig,
@@ -47,7 +47,9 @@ __all__ = [
     "IntraWeightSliceStage",
     "IntraWeightSliceStageConfig",
     "IntraWeightSliceStagePolicy",
-    "PlacementPlan",
+    "InputActivationStage",
+    "InputActivationStageConfig",
+    "InputActivationStagePolicy",
     "PlacementStage",
     "PlacementStageConfig",
     "PlacementStagePolicy",

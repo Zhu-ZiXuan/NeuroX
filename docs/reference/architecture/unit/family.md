@@ -27,9 +27,10 @@ realized by inserting a size-1 plane axis, running the substrate matmul, removin
 
 A unit is value-domain only: it accepts integer weights and activations within its published value ranges and returns an integer, pre-requantize result. Requantization back to the activation grid lies outside its scope; the only bias it adds is the integer bias of the operator law above.
 
-Two orthogonal mechanisms map the matmul onto physical macros. Geometric
-placement partitions $K$ into contraction blocks and assigns logical output
-blocks to macro groups and serial block steps. Precision slicing
+Two orthogonal mechanisms map the matmul onto an execution substrate.
+Geometric placement partitions the contraction dimension and assigns logical
+output blocks to balanced block groups and input-axis block slots. A concrete
+unit decides how those groups and slots are realized. Precision slicing
 ($S_w,S_a$; specific to compute-in-memory) decomposes a high-precision value
 into macro-carriable pieces. Geometric placement is application-neutral and
 does not decompose values. Slice counts are config-given; the degenerate
@@ -54,15 +55,13 @@ $$\mathbf{Y} = \mathbf{X}\,\mathbf{W}^{\!\top}, \qquad Y_{m,n} = \sum_{k} X_{m,k
 
 returned as a pre-requantize integer tensor. This integer $\mathbf{Y}$ is the pre-ADC ideal the decomposition reconstructs exactly; the realized result carries only the ADC quantization and analog behavior of each constituent macro read.
 
-**Matrix placement.** Let a logical weight block contain $L$ input values and
-$Q$ output values. The engine partitions $K$ into
-$T_c=\lceil K/L\rceil$ contraction blocks and $N$ into
-$B=\lceil N/Q\rceil$ output blocks. If several $L$-wide blocks fit the macro
-input capacity, they occupy disjoint input slots and are selected in different
-block steps. The blocks are balanced over the minimum number of physical macro
-groups. Reads over $T_c$ are accumulated; different output-block steps remain
-separate and are restored to logical output order. The exact placement
-equations are defined by the [CIM engine family](cim/engine/family.md).
+**Matrix placement.** A logical matrix is divided into contraction partitions
+and output blocks. If several contraction-width blocks fit the tile input
+capacity, they occupy disjoint block slots. Output blocks are balanced over
+the minimum number of block groups; the unit consuming the placement decides
+how groups and slots map onto its resources and calls. Results belonging to
+different contraction partitions are accumulated, while different output
+blocks are restored to logical output order.
 
 **Slice recombination.** A value recombines from its slices $m_i$ by the radix-weighted shift-add
 
@@ -99,10 +98,6 @@ families beneath it.
 | $N, K, M$ | output, contraction, and activation-row dims | — | `w_logical_shape`, input shape |
 | $b$ | integer bias vector (length $N$ or $C_{\mathrm{out}}$) | — | `int_bias` |
 | $S_w, S_a$ | weight-, activation-slice counts (precision-slicing axis) | — | `w_slice_num`, `x_slice_num` |
-| $L,Q$ | input and output size of one logical weight block | — | engine-specific |
-| $T_c$ | contraction-block count | — | `placement.plan.input_tile_num` |
-| $B$ | logical output-block count | — | `placement.plan.output_block_num` |
-| $G,D$ | physical macro groups and serial block steps | — | `placement.plan.macro_group_num`, `placement.plan.block_step_num` |
 | $N_{\mathrm{in}}, N_{\mathrm{out}}$ | macro logical input / output capacity | — | `input_num`, `output_num` |
 | $R$ | positional radix between adjacent slices | — | `slice_radix` |
 | $m_i$ | value carried by slice $i$ | — | — |

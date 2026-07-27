@@ -12,10 +12,20 @@ from .ideal import (
     IdealLinearUnitPolicy,
 )
 from .linear import LinearUnit
+from .matmul_mapping import (
+    BlockSlotRouting,
+    InputActivationPlan,
+    MatmulPlacementPlan,
+    make_activation_group_mask,
+    make_block_slot_routing,
+    make_input_activation_plan,
+    make_matmul_placement_plan,
+)
 
 __all__ = [
     "cim",
     "ideal",
+    "BlockSlotRouting",
     "Conv2dUnit",
     "IdealConv2dUnit",
     "IdealConv2dUnitConfig",
@@ -23,6 +33,12 @@ __all__ = [
     "IdealLinearUnit",
     "IdealLinearUnitConfig",
     "IdealLinearUnitPolicy",
+    "InputActivationPlan",
     "LinearUnit",
+    "MatmulPlacementPlan",
     "UnitBase",
+    "make_activation_group_mask",
+    "make_block_slot_routing",
+    "make_input_activation_plan",
+    "make_matmul_placement_plan",
 ]

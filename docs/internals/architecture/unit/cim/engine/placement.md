@@ -1,41 +1,37 @@
 # PlacementStage
 
-`PlacementStage` owns workload geometry, balanced short-vector packing, the
-runtime input mask, and the digital reductions for the two geometric
-partial-sum axes `P` and `Tc`.
+`PlacementStage` adapts generic matrix-multiplication geometry to CIM macro
+axes and owns the digital reduction for contraction partitions `Tc`.
 
 ## Planning
 
-`PlacementPlan.build` derives immutable runtime geometry from logical
-`[N,K]`, macro `input_num`, and the weight-layout block width `Q`:
+`make_matmul_placement_plan` derives immutable runtime geometry from logical
+`[N,K]`, macro `input_num`, and the weight-layout block width `Q`. The generic
+plan fields map to CIM terms as follows:
 
-- `L = min(K, input_num)`
-- `Tc = ceil(K / L)`
-- `B = ceil(N / Q)`
-- `C = floor(input_num / L)`
-- `G = ceil(B / C)`
-- `D = ceil(B / G)`
+- `contraction_block_size` becomes `L`;
+- `contraction_partition_num` becomes macro axis `Tc`;
+- `block_group_num` becomes macro axis `G`;
+- `block_slot_num` becomes runtime axis `D`.
 
 Logical block `b = dG + g` occupies input slot
 `[dL,(d+1)L)` in macro group `g`. This minimizes `G` before balancing the
 blocks over `D` uniform steps; missing final blocks are zero-programmed.
 
-## Scheduling
+## Block routing
 
-For macro limit `A = max_active_num`, the stage derives
-`P = ceil(L / A)`. `_input_source_index[D,input_num]` routes each local input
-vector into its block slot, while `_active_input_mask[D,P,input_num]` leaves
-at most `A` positions selected in each phase. Both tensors are non-persistent
-buffers because they must follow module device moves but can be reconstructed.
+`make_block_slot_routing` produces generic gather indices and slot masks,
+which the stage registers as `_input_source_index[D,input_num]` and
+`_block_slot_mask[D,input_num]`. Both are non-persistent buffers because they
+must follow module device moves but can be reconstructed.
 
-`unroll_input_schedule` inserts `[D,P]` immediately before the
-instance-aligned block. Caller-owned leading axes stay left of `D`; missing
-weight-batch axes are inserted as size-one broadcast axes.
+`unroll_block_steps` accepts input that already carries `P`, inserts `D`, and
+routes every local block into its assigned macro-input slot. Caller-owned
+leading axes stay left of `D`; missing weight-batch axes are inserted as
+size-one broadcast axes.
 
 ## Digital ownership
 
-- `phase_accumulator` reduces `P` and has physical multiplicity
-  `(w_parallel, Sw, Tc, G)`.
 - `contraction_accumulator` reduces `Tc` and has physical multiplicity
   `(w_parallel, Sw, G)`.
 
@@ -47,6 +43,8 @@ layouts and equals `w_slice_num` for inter-plane layout.
 - `partition_weight` returns `[...,D,G,Q,Tc,L,Sw]`.
 - `pack_weight` accepts `[...,Sw,Tc,G,D,L,output_num]`.
 - `organize_x` returns `[...,M,Sa,Sw=1,Tc,G=1,L]`.
+- `unroll_block_steps` accepts `[...,*span,P,L]` and returns
+  `[...,D,P,*span,input_num]`.
 - `restore_output` accepts `[...,D,*w_batch,M,G,Q]`, restores logical block
   order, and trims only the output padding.
 
@@ -54,4 +52,4 @@ layouts and equals `w_slice_num` for inter-plane layout.
 
 - **Reference**: [placement](../../../../../reference/architecture/unit/cim/engine/placement.md)
 - **Implementation**: `neurox/architecture/unit/cim/engine/placement.py`
-- **Tests**: `tests/architecture/unit/test_engine_input_packing.py`
+- **Tests**: `tests/architecture/unit/test_matmul_mapping.py`, `tests/architecture/unit/test_engine_input_packing.py`

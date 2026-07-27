@@ -21,6 +21,8 @@ from neurox.architecture.unit.cim.engine import (
     DirectWeightSliceStagePolicy,
     DirectXSliceStageConfig,
     DirectXSliceStagePolicy,
+    InputActivationStageConfig,
+    InputActivationStagePolicy,
     PlacementStageConfig,
     PlacementStagePolicy,
 )
@@ -32,6 +34,7 @@ _UNIT_POLICY = LinearCimUnitPolicy(
     engine=CimEnginePolicy(
         cim_macro_policy=IdealCimMacroPolicy(),
         placement=PlacementStagePolicy(),
+        input_activation=InputActivationStagePolicy(),
         weight_slice=DirectWeightSliceStagePolicy(),
         x_slice=DirectXSliceStagePolicy(),
     ),
@@ -85,8 +88,10 @@ def _unit_config(
             output_num=16,
             cim_macro_config=_ideal_macro_config() if cim_macro_config is None else cim_macro_config,
             placement=PlacementStageConfig(
-                phase_accumulator_config=_accumulator_config(energy_per_op__fJ=phase_energy_per_op__fJ),
                 contraction_accumulator_config=_accumulator_config(),
+            ),
+            input_activation=InputActivationStageConfig(
+                phase_accumulator_config=_accumulator_config(energy_per_op__fJ=phase_energy_per_op__fJ),
             ),
             weight_slice=DirectWeightSliceStageConfig(),
             x_slice=DirectXSliceStageConfig(),
@@ -317,12 +322,12 @@ def test_linear_phase_accounting_scales_with_input_phase_num() -> None:
             phase_energy_per_op__fJ=1.0,
         )
         unit = _build_unit(config, w_logical_shape=(n, k))
-        assert isinstance(unit.engine.placement.phase_accumulator, SerialAccumulator)
+        assert isinstance(unit.engine.input_activation.phase_accumulator, SerialAccumulator)
         unit.program(_random_weight(unit, (n, k)))
         with NeuroxProfiler() as p:
             unit.linear(_random_binary((m, k)), adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
-        energies[unit.engine.placement._input_phase_num] = sum(
-            e.dynamic_energy__fJ for e in p.energy_events if e.module is unit.engine.placement.phase_accumulator
+        energies[unit.engine.input_activation._input_phase_num] = sum(
+            e.dynamic_energy__fJ for e in p.energy_events if e.module is unit.engine.input_activation.phase_accumulator
         )
     assert energies[1] > 0.0
     assert energies[2] == pytest.approx(2.0 * energies[1])

@@ -16,6 +16,8 @@ from neurox.architecture.unit.cim.engine import (
     DirectWeightSliceStagePolicy,
     DirectXSliceStageConfig,
     DirectXSliceStagePolicy,
+    InputActivationStageConfig,
+    InputActivationStagePolicy,
     InterWeightSliceStageConfig,
     InterWeightSliceStagePolicy,
     IntraWeightSliceStageConfig,
@@ -84,8 +86,13 @@ def _engine_kwargs(w_logical_shape: tuple[int, ...], policy: CimEnginePolicy) ->
 
 def _placement_config() -> PlacementStageConfig:
     return PlacementStageConfig(
-        phase_accumulator_config=_accumulator_config(),
         contraction_accumulator_config=_accumulator_config(),
+    )
+
+
+def _input_activation_config() -> InputActivationStageConfig:
+    return InputActivationStageConfig(
+        phase_accumulator_config=_accumulator_config(),
     )
 
 
@@ -97,6 +104,7 @@ def _engine_policy(
     return CimEnginePolicy(
         cim_macro_policy=_IDEAL_MACRO_POLICY,
         placement=PlacementStagePolicy(),
+        input_activation=InputActivationStagePolicy(),
         weight_slice=weight_slice,
         x_slice=x_slice,
     )
@@ -113,6 +121,7 @@ def _build_direct(
         output_num=8,
         cim_macro_config=_ideal_macro_config(max_active_num=max_active_num),
         placement=_placement_config(),
+        input_activation=_input_activation_config(),
         weight_slice=DirectWeightSliceStageConfig(),
         x_slice=DirectXSliceStageConfig(),
     )
@@ -141,6 +150,7 @@ def _sliced_engine_config(
         output_num=8,
         cim_macro_config=_ideal_macro_config(max_active_num=max_active_num),
         placement=_placement_config(),
+        input_activation=_input_activation_config(),
         weight_slice=weight_slice,
         x_slice=SerialXSliceStageConfig(
             x_slice_num=2,
@@ -262,6 +272,7 @@ def test_weight_and_input_slice_stages_compose_independently(
         output_num=8,
         cim_macro_config=_ideal_macro_config(max_active_num=3),
         placement=_placement_config(),
+        input_activation=_input_activation_config(),
         weight_slice=weight_slice,
         x_slice=x_slice,
     )
@@ -284,28 +295,34 @@ def test_inter_plane_contraction_accumulator_tracks_physical_weight_planes() -> 
     assert engine.placement.contraction_accumulator.inst_shape == (
         1,
         2,
-        plan.macro_group_num,
+        plan.block_group_num,
     )
 
 
-def test_input_schedule_mask_content() -> None:
-    """One block step and four phases partition all eight local inputs."""
+def test_block_slot_and_activation_masks_are_independent() -> None:
+    """One block slot and four phases independently cover local inputs."""
     engine = _build_direct(w_logical_shape=(4, 8), input_num=8, max_active_num=2)
-    assert engine.placement.plan.block_step_num == 1
-    assert engine.placement._input_phase_num == 4
-    mask = engine.placement._active_input_mask
-    assert mask.shape == (1, 4, 8)
+    assert engine.placement.plan.block_slot_num == 1
+    assert engine.input_activation._input_phase_num == 4
+
+    activation_mask = engine.input_activation._active_input_mask
+    assert activation_mask.shape == (4, 8)
     rows = torch.arange(8)
     phases = torch.arange(4).unsqueeze(-1)
-    assert torch.equal(mask[0], rows // 2 == phases)
+    assert torch.equal(activation_mask, rows // 2 == phases)
+
+    slot_mask = engine.placement._block_slot_mask
+    assert slot_mask.shape == (1, 8)
+    assert torch.all(slot_mask)
 
 
-def test_unroll_input_schedule_layout() -> None:
+def test_input_activation_and_block_routing_layout() -> None:
     """D and P land left of the instance-aligned block and partition inputs."""
     engine = _build_direct(w_logical_shape=(4, 8), input_num=8, max_active_num=2)
-    p = engine.placement._input_phase_num
+    p = engine.input_activation._input_phase_num
     x = engine._organize_x(torch.arange(1, 17, dtype=torch.int64).reshape(2, 8))
-    planes = engine.placement.unroll_input_schedule(x)
+    phased = engine.input_activation.unroll_input_phases(x)
+    planes = engine.placement.unroll_block_steps(phased)
     assert planes.shape == (1, p, 2, 1, 1, 1, 1, 8)
     # Masks partition the row axis: summing P restores the full plane.
     assert torch.equal(planes[0].sum(dim=0), x)
@@ -313,15 +330,16 @@ def test_unroll_input_schedule_layout() -> None:
     for phase in range(p):
         assert torch.equal(
             planes[0, phase],
-            torch.where(engine.placement._active_input_mask[0, phase], x, torch.zeros_like(x)),
+            torch.where(engine.input_activation._active_input_mask[phase], x, torch.zeros_like(x)),
         )
 
 
-def test_unroll_input_schedule_batch_axes_stay_left_of_d_and_p() -> None:
+def test_split_input_stages_keep_batch_axes_left_of_d_and_p() -> None:
     """Unaligned caller batch axes remain left of the execution schedule."""
     engine = _build_direct(w_logical_shape=(4, 8), input_num=8, max_active_num=2)
     x = engine._organize_x(torch.randint(0, 2, (3, 2, 8), dtype=torch.int64))
-    planes = engine.placement.unroll_input_schedule(x)
+    phased = engine.input_activation.unroll_input_phases(x)
+    planes = engine.placement.unroll_block_steps(phased)
     assert planes.shape == (3, 1, 4, 2, 1, 1, 1, 1, 8)
     assert torch.equal(planes[:, 0].sum(dim=1), x)
 
@@ -329,21 +347,22 @@ def test_unroll_input_schedule_batch_axes_stay_left_of_d_and_p() -> None:
 def test_input_phase_non_divisible_ceil_covers_all_inputs() -> None:
     """input_num=10 and max_active_num=3 cover all inputs in four phases."""
     engine = _build_direct(w_logical_shape=(4, 10), input_num=10, max_active_num=3)
-    assert engine.placement._input_phase_num == 4
-    mask = engine.placement._active_input_mask
-    assert mask.shape == (1, 4, 10)
+    assert engine.input_activation._input_phase_num == 4
+    mask = engine.input_activation._active_input_mask
+    assert mask.shape == (4, 10)
     # Each input belongs to exactly one phase.
-    assert torch.equal(mask[0].sum(dim=0), torch.ones(10, dtype=mask.dtype))
+    assert torch.equal(mask.sum(dim=0), torch.ones(10, dtype=mask.dtype))
     # The short final block owns only its single real row (row 9).
-    assert int(mask[0, 3].sum()) == 1
+    assert int(mask[3].sum()) == 1
 
 
 def test_degenerate_input_phase_axis_size_one() -> None:
     """max_active_num == input_num retains a size-one phase axis."""
     engine = _build_direct(w_logical_shape=(4, 8), input_num=8, max_active_num=8)
-    assert engine.placement._input_phase_num == 1
+    assert engine.input_activation._input_phase_num == 1
     x = engine._organize_x(torch.randint(0, 2, (2, 8), dtype=torch.int64))
-    planes = engine.placement.unroll_input_schedule(x)
+    phased = engine.input_activation.unroll_input_phases(x)
+    planes = engine.placement.unroll_block_steps(phased)
     assert planes.shape == (1, 1, 2, 1, 1, 1, 1, 8)
     assert torch.equal(planes[0, 0], x)
 
@@ -358,8 +377,8 @@ def test_input_phase_count_skips_padding_only_blocks(build: Callable[..., CimEng
     torch.manual_seed(3)
     n, k, m = 4, 3, 3  # k < input_num: one short block leaves input positions unused
     engine = build(w_logical_shape=(n, k), input_num=8, max_active_num=2)
-    assert engine.placement._input_phase_num == 2
-    assert engine.placement._active_input_mask.shape == (1, 2, 8)
+    assert engine.input_activation._input_phase_num == 2
+    assert engine.input_activation._active_input_mask.shape == (2, 3)
     weight = _randint_in_range(engine.w_value_range, (n, k))
     activation = _randint_in_range(engine.x_value_range, (m, k))
     _assert_engine_matches_torch(engine, weight, activation)
@@ -371,7 +390,7 @@ def test_engine_matmul_parity_with_input_phases(build: Callable[..., CimEngine])
     torch.manual_seed(7)
     n, k, m = 5, 10, 3  # k > input_num exercises Tc tiling alongside P
     engine = build(w_logical_shape=(n, k), input_num=8, max_active_num=2)
-    assert engine.placement._input_phase_num == 4
+    assert engine.input_activation._input_phase_num == 4
     weight = _randint_in_range(engine.w_value_range, (n, k))
     activation = _randint_in_range(engine.x_value_range, (m, k))
     _assert_engine_matches_torch(engine, weight, activation)
@@ -385,7 +404,7 @@ def test_engine_matmul_parity_non_divisible(build: Callable[..., CimEngine]) -> 
     torch.manual_seed(9)
     n, k, m = 5, 10, 3  # k == input_num: all 10 positions carry real weight
     engine = build(w_logical_shape=(n, k), input_num=10, max_active_num=3)
-    assert engine.placement._input_phase_num == 4
+    assert engine.input_activation._input_phase_num == 4
     weight = _randint_in_range(engine.w_value_range, (n, k))
     activation = _randint_in_range(engine.x_value_range, (m, k))
     _assert_engine_matches_torch(engine, weight, activation)
@@ -415,8 +434,8 @@ def test_balanced_block_packing_matches_torch(build: Callable[..., CimEngine]) -
     torch.manual_seed(13)
     n, k, m = 40, 3, 5
     engine = build(w_logical_shape=(n, k), input_num=8, max_active_num=2)
-    assert engine.placement.plan.block_capacity == 2
-    assert engine.placement.plan.block_step_num == 2
+    assert engine.placement.plan.block_group_capacity == 2
+    assert engine.placement.plan.block_slot_num == 2
     weight = _randint_in_range(engine.w_value_range, (n, k))
     activation = _randint_in_range(engine.x_value_range, (m, k))
     _assert_engine_matches_torch(engine, weight, activation)
@@ -426,9 +445,9 @@ def test_direct_block_placement_is_balanced_and_zero_padded() -> None:
     """B=5 and C=2 use G=3 macros with a 2+2+1 balanced assignment."""
     engine = _build_direct(w_logical_shape=(40, 3), input_num=8, max_active_num=2)
     assert engine.placement.plan.output_block_num == 5
-    assert engine.placement.plan.block_capacity == 2
-    assert engine.placement.plan.macro_group_num == 3
-    assert engine.placement.plan.block_step_num == 2
+    assert engine.placement.plan.block_group_capacity == 2
+    assert engine.placement.plan.block_group_num == 3
+    assert engine.placement.plan.block_slot_num == 2
 
     weight = torch.arange(1, 121, dtype=torch.int32).reshape(40, 3)
     engine.program(weight)
@@ -452,7 +471,8 @@ def test_direct_block_placement_is_balanced_and_zero_padded() -> None:
 def test_block_schedule_routes_input_to_each_slot() -> None:
     engine = _build_direct(w_logical_shape=(40, 3), input_num=8, max_active_num=2)
     x = engine._organize_x(torch.tensor([[2, 3, 5]], dtype=torch.int32))
-    routed = engine.placement.unroll_input_schedule(x)
+    phased = engine.input_activation.unroll_input_phases(x)
+    routed = engine.placement.unroll_block_steps(phased)
     assert routed.shape == (2, 2, 1, 1, 1, 1, 1, 8)
 
     # Phase reduction restores x in each block slot.
@@ -468,6 +488,7 @@ def test_large_balanced_case_uses_seventeen_plus_sixteen() -> None:
             output_num=1,
             cim_macro_config=_ideal_macro_config(max_active_num=1),
             placement=_placement_config(),
+            input_activation=_input_activation_config(),
             weight_slice=DirectWeightSliceStageConfig(),
             x_slice=DirectXSliceStageConfig(),
         ),
@@ -480,7 +501,7 @@ def test_large_balanced_case_uses_seventeen_plus_sixteen() -> None:
         T__K=300.0,
         ideal_macro=False,
     )
-    assert engine.placement.plan.block_capacity == 32
-    assert engine.placement.plan.macro_group_num == 2
-    assert engine.placement.plan.block_step_num == 17
+    assert engine.placement.plan.block_group_capacity == 32
+    assert engine.placement.plan.block_group_num == 2
+    assert engine.placement.plan.block_slot_num == 17
     assert engine.cim_macro.inst_shape == (1, 1, 1, 1, 2)

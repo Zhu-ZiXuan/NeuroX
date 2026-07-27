@@ -12,10 +12,16 @@ from typing import ClassVar
 import torch
 from torch import Tensor
 
+from neurox.architecture.unit.matmul_mapping import MatmulPlacementPlan, make_matmul_placement_plan
 from neurox.common import ConfigBase, ModuleBase, PolicyBase
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
 
-from .placement import PlacementPlan, PlacementStage, PlacementStageConfig, PlacementStagePolicy
+from .input_activation import (
+    InputActivationStage,
+    InputActivationStageConfig,
+    InputActivationStagePolicy,
+)
+from .placement import PlacementStage, PlacementStageConfig, PlacementStagePolicy
 from .weight_slice import WeightSliceStage, WeightSliceStageConfig, WeightSliceStagePolicy
 from .x_slice import XSliceStage, XSliceStageConfig, XSliceStagePolicy
 
@@ -27,7 +33,8 @@ class CimEngineConfig(ConfigBase):
         input_num: Logical input ports of each CIM macro.
         output_num: Logical output ports of each CIM macro.
         cim_macro_config: CIM macro configuration.
-        placement: Geometric placement and scheduling configuration.
+        placement: Geometric placement configuration.
+        input_activation: Max-active input scheduling configuration.
         weight_slice: Weight-slice layout configuration.
         x_slice: Input-slice serialization configuration.
     """
@@ -36,6 +43,7 @@ class CimEngineConfig(ConfigBase):
     output_num: int
     cim_macro_config: CimMacroConfig
     placement: PlacementStageConfig
+    input_activation: InputActivationStageConfig
     weight_slice: WeightSliceStageConfig
     x_slice: XSliceStageConfig
 
@@ -50,13 +58,15 @@ class CimEnginePolicy(PolicyBase):
 
     Attributes:
         cim_macro_policy: Embedded CIM-macro policy.
-        placement: Geometric placement and scheduling policy.
+        placement: Geometric placement policy.
+        input_activation: Max-active input scheduling policy.
         weight_slice: Weight-slice layout policy.
         x_slice: Input-slice serialization policy.
     """
 
     cim_macro_policy: CimMacroPolicy
     placement: PlacementStagePolicy
+    input_activation: InputActivationStagePolicy
     weight_slice: WeightSliceStagePolicy
     x_slice: XSliceStagePolicy
 
@@ -94,11 +104,11 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
 
         *w_batch, n_logical, k_logical = w_logical_shape
         block_output_num, macro_plane_num = config.weight_slice.layout_geometry(output_num=config.output_num)
-        plan = PlacementPlan.build(
-            n_logical=n_logical,
-            k_logical=k_logical,
-            input_num=config.input_num,
-            block_output_num=block_output_num,
+        plan = make_matmul_placement_plan(
+            logical_output_num=n_logical,
+            logical_contraction_num=k_logical,
+            tile_input_capacity=config.input_num,
+            output_block_size=block_output_num,
         )
         self._init_execution_children(
             plan=plan,
@@ -112,22 +122,24 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
     def _init_execution_children(
         self,
         *,
-        plan: PlacementPlan,
+        plan: MatmulPlacementPlan,
         w_batch: tuple[int, ...],
         macro_plane_num: int,
         dtype: torch.dtype,
         T__K: float,
         ideal_macro: bool,
     ) -> None:
-        """Construct the macro and the three paired execution stages."""
+        """Construct the macro and the four paired execution stages."""
         w_parallel_size = math.prod(w_batch)
+        input_tile_num = plan.contraction_partition_num
+        macro_group_num = plan.block_group_num
         macro_inst_shape = (
             *w_batch,
             1,
             1,
             macro_plane_num,
-            plan.input_tile_num,
-            plan.macro_group_num,
+            input_tile_num,
+            macro_group_num,
         )
         self.cim_macro = self._build_cim_macro(
             cim_macro_config=self.config.cim_macro_config,
@@ -144,10 +156,20 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
             policy=self.policy.placement,
             plan=plan,
             input_num=self.config.input_num,
-            max_active_num=self.cim_macro.max_active_num,
             w_batch_rank=len(w_batch),
             w_parallel_size=w_parallel_size,
             macro_plane_num=macro_plane_num,
+            macro_inst_rank=len(macro_inst_shape),
+        )
+        self.input_activation = InputActivationStage(
+            config=self.config.input_activation,
+            policy=self.policy.input_activation,
+            input_block_size=plan.contraction_block_size,
+            max_active_num=self.cim_macro.max_active_num,
+            w_parallel_size=w_parallel_size,
+            macro_plane_num=macro_plane_num,
+            input_tile_num=input_tile_num,
+            macro_group_num=macro_group_num,
             macro_inst_rank=len(macro_inst_shape),
         )
         self.weight_slice = WeightSliceStage.from_config(
@@ -156,14 +178,14 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
             macro_w_value_range=self.cim_macro.w_value_range,
             output_num=self.config.output_num,
             w_parallel_size=w_parallel_size,
-            macro_group_num=plan.macro_group_num,
+            macro_group_num=macro_group_num,
         )
         self.x_slice = XSliceStage.from_config(
             config=self.config.x_slice,
             policy=self.policy.x_slice,
             macro_x_value_range=self.cim_macro.x_value_range,
             w_parallel_size=w_parallel_size,
-            macro_group_num=plan.macro_group_num,
+            macro_group_num=macro_group_num,
         )
 
     @classmethod
@@ -264,12 +286,14 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
         """
         # Shape: [..., M, K] -> [..., M, Sa, Sw=1, Tc, G=1, L]
         organized = self._organize_x(input)
-        # Shape: [..., M, Sa, Sw, Tc, G, L] -> [..., D, P, *w_batch, M, Sa, Sw, Tc, G, input_num]
-        code = self.placement.unroll_input_schedule(organized)
+        # Shape: [..., M, Sa, Sw, Tc, G, L] -> [..., M, Sa, Sw, Tc, G, P, L]
+        phased = self.input_activation.unroll_input_phases(organized)
+        # Shape: [..., M, Sa, Sw, Tc, G, P, L] -> [..., D, P, *w_batch, M, Sa, Sw, Tc, G, input_num]
+        code = self.placement.unroll_block_steps(phased)
         # Shape: [..., D, P, *w_batch, M, Sa, Sw, Tc, G, input_num] -> [..., D, P, *w_batch, M, Sa, Sw, Tc, G, output_num]
         code = self.cim_macro.vec_mat_mul(code, adc_mode=adc_mode, adc_bits=adc_bits).to(torch.int64)
         # Shape: [..., D, P, *w_batch, M, Sa, Sw, Tc, G, output_num] -> [..., D, *w_batch, M, Sa, Sw, Tc, G, output_num]
-        code = self.placement.accumulate_phases(code)
+        code = self.input_activation.accumulate_phases(code)
         # Shape: [..., D, *w_batch, M, Sa, Sw, Tc, G, output_num] -> [..., D, *w_batch, M, Sa, Sw, G, output_num]
         code = self.placement.accumulate_contraction_tiles(code)
         # Shape: [..., D, *w_batch, M, Sa, Sw, G, output_num] -> [..., D, *w_batch, M, Sa, G, Q]

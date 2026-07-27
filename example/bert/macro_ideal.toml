@@ -78,7 +78,7 @@ adc_mode_num = 1
 adc_max_bits = 8
 
 
-[cim_unit.engine.placement.phase_accumulator_config]
+[cim_unit.engine.input_activation.phase_accumulator_config]
 bit_width = 32
 area_per_inst__um2 = 60.0
 leakage_per_inst__uW = 1.0

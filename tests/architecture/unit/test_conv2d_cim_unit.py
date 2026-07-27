@@ -14,6 +14,8 @@ from neurox.architecture.unit.cim.engine import (
     DirectWeightSliceStagePolicy,
     DirectXSliceStageConfig,
     DirectXSliceStagePolicy,
+    InputActivationStageConfig,
+    InputActivationStagePolicy,
     PlacementStageConfig,
     PlacementStagePolicy,
 )
@@ -25,6 +27,7 @@ _UNIT_POLICY = Conv2dCimUnitPolicy(
     engine=CimEnginePolicy(
         cim_macro_policy=IdealCimMacroPolicy(),
         placement=PlacementStagePolicy(),
+        input_activation=InputActivationStagePolicy(),
         weight_slice=DirectWeightSliceStagePolicy(),
         x_slice=DirectXSliceStagePolicy(),
     ),
@@ -80,8 +83,10 @@ def _unit_config(
                 x_value_range=x_value_range,
             ),
             placement=PlacementStageConfig(
-                phase_accumulator_config=_accumulator_config(),
                 contraction_accumulator_config=_accumulator_config(),
+            ),
+            input_activation=InputActivationStageConfig(
+                phase_accumulator_config=_accumulator_config(),
             ),
             weight_slice=DirectWeightSliceStageConfig(),
             x_slice=DirectXSliceStageConfig(),
@@ -348,9 +353,9 @@ def test_conv2d_balances_input_axis_blocks() -> None:
     )
     engine = unit.engine
     assert engine.placement.plan.output_block_num == 5
-    assert engine.placement.plan.block_capacity == 4
-    assert engine.placement.plan.macro_group_num == 2
-    assert engine.placement.plan.block_step_num == 3
+    assert engine.placement.plan.block_group_capacity == 4
+    assert engine.placement.plan.block_group_num == 2
+    assert engine.placement.plan.block_slot_num == 3
     assert engine.cim_macro.inst_shape == (1, 1, 1, 1, 2)
 
 
@@ -365,10 +370,10 @@ def test_conv2d_combines_block_steps_and_input_phases() -> None:
         x_shape=(1, 7, 8),
         seed=620,
     )
-    assert unit.engine.placement.plan.block_capacity == 3
-    assert unit.engine.placement.plan.macro_group_num == 2
-    assert unit.engine.placement.plan.block_step_num == 3
-    assert unit.engine.placement._input_phase_num == 4
+    assert unit.engine.placement.plan.block_group_capacity == 3
+    assert unit.engine.placement.plan.block_group_num == 2
+    assert unit.engine.placement.plan.block_slot_num == 3
+    assert unit.engine.input_activation._input_phase_num == 4
 
 
 # --- Rejections ---
