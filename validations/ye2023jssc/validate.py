@@ -26,19 +26,29 @@ measured setup, each naming the one conduction branch the evaluation instrument
 feeds, which therefore appears in no measured power pin. ``results.md`` records
 the run outcome and what the two readings mean.
 
+The workload statistics come from a CROSSED ensemble: each round draws a fresh
+ensemble of ``n_w`` weight matrices onto one macro built at ``inst_shape=(n_w,)``
+and a fresh batch of ``n_x`` input vectors, and reads every ``(input, weight)``
+pair in one call. The five gates keep running on a separate scalar macro.
+
 Run:
     make validate_ye2023jssc
 
 The three TOML artifacts are FIXED files beside this script; only the run knobs
-(device, seed, draw counts) are CLI-settable, by invoking the script directly:
+(device, seed, draw counts, solver chunk) are CLI-settable, by invoking the
+script directly:
 
-    TORCH_COMPILE_DISABLE=1 uv run python validations/ye2023jssc/validate.py --device cpu --n 64
+    TORCH_COMPILE_DISABLE=1 uv run python validations/ye2023jssc/validate.py \
+        --device cuda --n-w 64 --n-x 256 --repeat 8 --solve-chunk 4096
 """
 
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import logging
+import math
+import statistics
 import textwrap
 import tomllib
 from dataclasses import dataclass
@@ -49,7 +59,7 @@ from torch import Tensor
 
 from neurox.common.profiler import NeuroxProfiler
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
-from neurox.works.macro.cim.ye2023jssc import Ye2023JsscCimMacro
+from neurox.works.macro.cim.ye2023jssc import Ye2023JsscCimMacro, Ye2023JsscCimMacroPolicy
 
 _LOG = logging.getLogger(__name__)
 
@@ -113,12 +123,15 @@ _CHANNELS: tuple[tuple[str, str], ...] = (
     ("sl_driver", "ideal SL ground clamp; no billed branch"),
 )
 
-_ADC_MODE = 0
+_QUANTIZATION_MODE = 0
 _ADC_BITS = 4
 _ROW_NUM = 32
 _COL_NUM = 64
 _FJ_PER_PJ = 1000.0
 _OPS_PER_MAC = 2  # one multiply + one accumulate
+# Random-workload sample count of the golden-transfer gate, decoupled from the
+# measurement draw counts: the gate checks a transfer, not a power statistic.
+_GOLDEN_SAMPLE_NUM = 64
 
 
 # ---------------------------------------------------------------------------
@@ -126,17 +139,40 @@ _OPS_PER_MAC = 2  # one multiply + one accumulate
 # ---------------------------------------------------------------------------
 
 
-def build_macro(params_path: Path, policy_path: Path, *, device: torch.device) -> Ye2023JsscCimMacro:
-    """Build + fabricate the macro at ``inst_shape=()``, float64, eval mode."""
+def build_macro(
+    params_path: Path,
+    policy_path: Path,
+    *,
+    device: torch.device,
+    inst_shape: tuple[int, ...] = (),
+    solve_chunk_size: int,
+) -> Ye2023JsscCimMacro:
+    """Build + fabricate the macro on ``device``, float32, eval mode.
+
+    Args:
+        params_path: Fixed ``params.toml``.
+        policy_path: Fixed ``policy.toml``.
+        device: Device the macro lives on.
+        inst_shape: Instance prefix — ``()`` for the gate macro, ``(n_w,)`` for
+            the measurement ensemble of parallel dies.
+        solve_chunk_size: Array solve chunk, a MACHINE knob overriding the
+            policy file's field: it splits the broadcast leading to bound peak
+            memory and changes no modelled quantity.
+    """
     config = CimMacroConfig.from_file(params_path, section="cim_macro")
     policy = CimMacroPolicy.from_file(policy_path, section="policy")
+    assert isinstance(policy, Ye2023JsscCimMacroPolicy)
+    policy = dataclasses.replace(
+        policy,
+        array_policy=dataclasses.replace(policy.array_policy, solve_chunk_size=solve_chunk_size),
+    )
     macro = CimMacro.from_config(
         config=config,
         policy=policy,
         input_num=_ROW_NUM,
         output_num=_COL_NUM,
-        inst_shape=(),
-        dtype=torch.float64,
+        inst_shape=inst_shape,
+        dtype=torch.float32,
         T__K=300.0,
     )
     assert isinstance(macro, Ye2023JsscCimMacro)
@@ -159,9 +195,13 @@ def _draw_weight(
     return torch.where(zero, torch.zeros_like(nonzero), nonzero)
 
 
-def _draw_input(gen: torch.Generator, *, batch: int, input_num: int, p_zero: float) -> Tensor:
-    """Random 1-bit input vectors with ``P(x = 0) = p_zero``."""
-    keep = torch.rand((batch, input_num), generator=gen, device=gen.device) >= p_zero
+def _draw_input(gen: torch.Generator, *, shape: tuple[int, ...], p_zero: float) -> Tensor:
+    """Random 1-bit input vectors of ``shape`` with ``P(x = 0) = p_zero``.
+
+    The uniforms are drawn once and THRESHOLDED, so two sparsity points sharing a
+    generator state see the same underlying draw (common random numbers).
+    """
+    keep = torch.rand(shape, generator=gen, device=gen.device) >= p_zero
     return keep.long()
 
 
@@ -172,6 +212,10 @@ def _draw_input(gen: torch.Generator, *, batch: int, input_num: int, p_zero: flo
 
 def _golden_transfer(macro: Ye2023JsscCimMacro, w: Tensor, x: Tensor) -> tuple[Tensor, Tensor]:
     """Closed-form ``(code, distance to the nearest ladder tap)`` from the config tables.
+
+    The oracle evaluates in float64 whatever the macro's dtype is: the reference
+    stays more precise than the device under test, so the tap distance it reports
+    is the exact one and bounds the macro's own rounding.
 
     Args:
         macro: Macro whose config tables define the transfer.
@@ -209,27 +253,71 @@ def _golden_transfer(macro: Ye2023JsscCimMacro, w: Tensor, x: Tensor) -> tuple[T
 
 @dataclass(frozen=True)
 class PointMeasurement:
-    """Raw profiler reduction at one input-sparsity point."""
+    """Profiler reduction of the crossed ensemble workload at one sparsity point.
+
+    Three quantities normalize differently, because the ``die_num`` instances are
+    PARALLEL dies of one die-level model:
+
+      * dynamic energy is the ensemble sum and divides by ``accesses``, the
+        ensemble's output-access count, giving per-access energy of ONE die;
+      * static leakage is per-die: the profiled ensemble leakage is exactly
+        ``die_num`` x the per-instance leakage, so it is divided here already;
+      * latency does not scale with ``die_num`` — the profiled wall time covers
+        ``accesses / die_num`` serial accesses, which is what ``t_cycle__ns``
+        divides by.
+
+    Attributes:
+        p_zero_input: Input-sparsity point.
+        die_num: Parallel instances (weight draws) per round.
+        repeat: Rounds, each a fresh weight ensemble and a fresh input batch.
+        dynamic__fJ: Per profiler row, the ENSEMBLE dynamic energy of the point.
+        static__uW: Per profiler row, the PER-DIE static leakage power.
+        total_dynamic__fJ: Ensemble dynamic energy of the point.
+        total_static__uW: Per-die static leakage power.
+        total_latency__ns: Profiled latency — the per-die serial access time.
+        accesses: Output accesses read, ``repeat * n_x * die_num * col_num``.
+        round_total__uW: Per-round model total power, one entry per round.
+    """
 
     p_zero_input: float
+    die_num: int
+    repeat: int
     dynamic__fJ: dict[str, float]
     static__uW: dict[str, float]
     total_dynamic__fJ: float
     total_static__uW: float
     total_latency__ns: float
     accesses: int
+    round_total__uW: tuple[float, ...] = ()
 
     @property
     def t_cycle__ns(self) -> float:
-        return self.total_latency__ns / self.accesses
+        """Latency per output access [ns]; the parallel dies share their accesses."""
+        return self.total_latency__ns * self.die_num / self.accesses
+
+    def power__uW(self, dynamic__fJ: float) -> float:
+        """Per-die power [uW] of a dynamic-energy row: its per-access energy over one cycle."""
+        return dynamic__fJ / self.accesses / self.t_cycle__ns
 
     @property
     def total__uW(self) -> float:
-        return self.total_dynamic__fJ / self.total_latency__ns + self.total_static__uW
+        return self.power__uW(self.total_dynamic__fJ) + self.total_static__uW
 
     @property
     def per_output__pJ(self) -> float:
         return self.total__uW * self.t_cycle__ns / _FJ_PER_PJ
+
+    @property
+    def round_mean__uW(self) -> float:
+        """Mean model total power [uW] over the rounds (draw-to-draw centre)."""
+        return statistics.fmean(self.round_total__uW)
+
+    @property
+    def round_stderr__uW(self) -> float:
+        """Standard error [uW] of the round means: ``std / sqrt(repeat)``."""
+        if len(self.round_total__uW) < 2:
+            return 0.0
+        return statistics.stdev(self.round_total__uW) / math.sqrt(len(self.round_total__uW))
 
     @property
     def ef__tops_w(self) -> float:
@@ -256,49 +344,91 @@ class BlockPower:
         return self.total__uW / self.target__uW if self.target__uW else float("inf")
 
 
+def _pool_rounds(rounds: list[PointMeasurement]) -> PointMeasurement:
+    """Fold per-round reductions into one point; statics are round-invariant."""
+    first = rounds[0]
+    dynamic__fJ: dict[str, float] = {}
+    for r in rounds:
+        for name, e in r.dynamic__fJ.items():
+            dynamic__fJ[name] = dynamic__fJ.get(name, 0.0) + e
+    return PointMeasurement(
+        p_zero_input=first.p_zero_input,
+        die_num=first.die_num,
+        repeat=len(rounds),
+        dynamic__fJ=dynamic__fJ,
+        static__uW=first.static__uW,
+        total_dynamic__fJ=sum(r.total_dynamic__fJ for r in rounds),
+        total_static__uW=first.total_static__uW,
+        total_latency__ns=sum(r.total_latency__ns for r in rounds),
+        accesses=sum(r.accesses for r in rounds),
+        round_total__uW=tuple(r.total__uW for r in rounds),
+    )
+
+
 def measure(
     macro: Ye2023JsscCimMacro,
     *,
     p_zero_input: float,
     p_zero_weight: float,
-    n: int,
+    n_x: int,
+    repeat: int,
     seed: int,
-    batch: int,
 ) -> PointMeasurement:
-    """Profile ``n`` random inputs at one sparsity point and reduce to raw rows.
+    """Profile a crossed weight-ensemble x input-batch workload at one sparsity point.
 
-    Programs ONE random weight matrix, then drives ``ceil(n / batch)`` VMMs of a
-    fresh ``batch`` of random 1-bit inputs inside a single profiler context.
+    Each of the ``repeat`` rounds draws a FRESH weight ensemble of ``die_num =
+    macro.inst_count`` matrices and a FRESH batch of ``n_x`` input vectors, then
+    reads every ``(input, weight)`` pair in ONE call: the inputs enter with a
+    size-1 instance slot ``[n_x, 1, row_num]`` and broadcast over the dies, so
+    the codes come back ``[n_x, die_num, col_num]``. Every round is profiled on
+    its own, which is what exposes the draw-to-draw spread.
+
+    The generator is created fresh from ``seed`` and the draw order (weights,
+    then inputs, per round, at shapes that do not depend on the sparsity point)
+    is fixed. Two sparsity points measured under the same seed therefore replay
+    the SAME weight sequence and THRESHOLD the same input uniforms — common
+    random numbers, so their difference carries no draw noise.
+
+    Args:
+        macro: Ensemble macro, built at ``inst_shape=(die_num,)``.
+        p_zero_input: Probability an input bit is 0.
+        p_zero_weight: Probability a weight VALUE is 0.
+        n_x: Input vectors per round.
+        repeat: Rounds.
+        seed: Generator seed; pass the same value at every sparsity point.
     """
     device = next(macro.buffers()).device
     gen = torch.Generator(device=device).manual_seed(seed)
+    die_num = macro.inst_count
 
-    n_batches = max(1, -(-n // batch))
-    n_samples = 0
-    with NeuroxProfiler() as prof, torch.no_grad():
-        macro.program(
-            _draw_weight(
+    rounds: list[PointMeasurement] = []
+    with torch.no_grad():
+        for _ in range(repeat):
+            w = _draw_weight(
                 gen,
-                w_shape=(macro.row_num, macro.col_num),
+                w_shape=(*macro.inst_shape, macro.row_num, macro.col_num),
                 w_max=macro.w_value_range[1],
                 p_zero=p_zero_weight,
             )
-        )
-        for _ in range(n_batches):
-            x = _draw_input(gen, batch=batch, input_num=macro.row_num, p_zero=p_zero_input)
-            macro.vec_mat_mul(x, adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
-            n_samples += batch
-    report = prof.report(macro)
-
-    return PointMeasurement(
-        p_zero_input=p_zero_input,
-        dynamic__fJ=dict(report.energy_by_name),
-        static__uW={r.qualified_name: r.leakage_power__uW for r in report.static_records},
-        total_dynamic__fJ=report.total_dynamic_energy__fJ,
-        total_static__uW=report.static.leakage_power__uW,
-        total_latency__ns=report.total_latency__ns,
-        accesses=n_samples * macro.col_num,
-    )
+            x = _draw_input(gen, shape=(n_x, *(1,) * len(macro.inst_shape), macro.row_num), p_zero=p_zero_input)
+            with NeuroxProfiler() as prof:
+                macro.program(w)
+                macro.vec_mat_mul(x, quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
+            report = prof.report(macro)
+            rounds.append(
+                PointMeasurement(
+                    p_zero_input=p_zero_input,
+                    die_num=die_num,
+                    repeat=1,
+                    dynamic__fJ=dict(report.energy_by_name),
+                    static__uW={r.qualified_name: r.leakage_power__uW / die_num for r in report.static_records},
+                    total_dynamic__fJ=report.total_dynamic_energy__fJ,
+                    total_static__uW=report.static.leakage_power__uW / die_num,
+                    total_latency__ns=report.total_latency__ns,
+                    accesses=n_x * die_num * macro.col_num,
+                )
+            )
+    return _pool_rounds(rounds)
 
 
 @dataclass(frozen=True)
@@ -358,7 +488,7 @@ def pool(m: PointMeasurement, anchors: dict, *, caliber: str) -> CaliberPooling:
     shares = anchors["reference"]["shares"]["p875" if idx == 0 else "p50"]
 
     def group__uW(name: str) -> float:
-        return sum(m.dynamic__fJ.get(k, 0.0) for k in mapping[name]) / m.total_latency__ns
+        return m.power__uW(sum(m.dynamic__fJ.get(k, 0.0) for k in mapping[name]))
 
     blocks = tuple(
         BlockPower(
@@ -421,7 +551,7 @@ def _asymmetric_value_codes(macro: Ye2023JsscCimMacro) -> tuple[list[int], list[
     x = torch.ones((1, macro.row_num), dtype=torch.long, device=device)
     with torch.no_grad():
         macro.program(w)
-        code = macro.vec_mat_mul(x, adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
+        code = macro.vec_mat_mul(x, quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
     expected, _ = _golden_transfer(macro, w, x)
     return code.long().flatten().tolist(), expected.flatten().tolist()
 
@@ -431,17 +561,27 @@ def gate_golden_transfer(macro: Ye2023JsscCimMacro, *, n: int, seed: int) -> Gat
 
     Random samples whose compensated current lands on a decision tap are excluded:
     on those the floor is decided by floating-point rounding, not by the transfer.
+
+    Args:
+        macro: Scalar (single-die) macro under test.
+        n: Random input vectors to check; a transfer check, so it is fixed at
+            ``_GOLDEN_SAMPLE_NUM`` rather than tied to the measurement counts.
+        seed: Generator seed.
     """
     device = next(macro.buffers()).device
     gen = torch.Generator(device=device).manual_seed(seed)
     w = _draw_weight(gen, w_shape=(macro.row_num, macro.col_num), w_max=macro.w_value_range[1], p_zero=0.5)
-    x = _draw_input(gen, batch=n, input_num=macro.row_num, p_zero=0.5)
+    x = _draw_input(gen, shape=(n, macro.row_num), p_zero=0.5)
     with torch.no_grad():
         macro.program(w)
-        code = macro.vec_mat_mul(x, adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
+        code = macro.vec_mat_mul(x, quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
     expected, tap_distance__uA = _golden_transfer(macro, w, x)
 
-    decidable = tap_distance__uA > 1e-9
+    # Tap-boundary band [uA]. The macro solves in float32, whose resolution near
+    # the ~100 uA full scale is ~1e-5 uA, and the end-to-end solve accumulates a
+    # few tens of that; 1e-3 sits ~100x above the accumulated noise while cutting
+    # only ~3e-4 of uniformly placed samples (a 2 x 1e-3 uA band per 7 uA bin).
+    decidable = tap_distance__uA > 1e-3
     mismatch = int(((code.long() != expected) & decidable).sum())
     checked = int(decidable.sum())
 
@@ -558,7 +698,7 @@ def gate_zero_input(macro: Ye2023JsscCimMacro, *, seed: int) -> GateResult:
     x = torch.zeros((1, macro.row_num), dtype=torch.long, device=device)
     with torch.no_grad():
         macro.program(w)
-        code = macro.vec_mat_mul(x, adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
+        code = macro.vec_mat_mul(x, quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
     nonzero = int((code != 0).sum())
     return GateResult(
         name="zero input -> code 0",
@@ -574,10 +714,13 @@ def gate_t_ac(macro: Ye2023JsscCimMacro, anchors: dict, measurements: list[Point
     failures: list[str] = []
     if abs(derived__ns - ref__ns) > 1e-9:
         failures.append(f"derived T_AC {derived__ns:.4f} ns vs {ref__ns:.4f} ns")
+    # The profiled cycle divides a float32 latency SUM, so it carries relative
+    # rounding of order 1e-7 that the exact derived window above does not; 1e-3 ns
+    # is far below any modelled phase and far above that noise.
     failures.extend(
         f"p_zero {m.p_zero_input:.3f}: profiled {m.t_cycle__ns:.4f} ns per access"
         for m in measurements
-        if abs(m.t_cycle__ns - ref__ns) > 1e-9
+        if abs(m.t_cycle__ns - ref__ns) > 1e-3
     )
     return GateResult(
         name="derived T_AC = 66 ns",
@@ -592,8 +735,8 @@ def gate_t_ac(macro: Ye2023JsscCimMacro, anchors: dict, measurements: list[Point
 
 
 def _channel__uW(m: PointMeasurement, name: str) -> float:
-    """Dynamic power [uW] of one profiler row at one sparsity point."""
-    return m.dynamic__fJ.get(name, 0.0) / m.total_latency__ns
+    """Per-die dynamic power [uW] of one profiler row at one sparsity point."""
+    return m.power__uW(m.dynamic__fJ.get(name, 0.0))
 
 
 def _fmt_channels(measurements: list[PointMeasurement]) -> str:
@@ -739,9 +882,11 @@ def _fmt_point(m: PointMeasurement, anchors: dict) -> str:
 
     lines = [
         f"### input sparsity p_zero = {m.p_zero_input:.3f} — {label}",
-        f"    accesses {m.accesses}, T_AC {m.t_cycle__ns:.2f} ns",
+        f"    accesses {m.accesses} ({m.repeat} rounds x {m.die_num} dies), T_AC {m.t_cycle__ns:.2f} ns",
         f"    full model, every branch billed: {m.total__uW:.3f} uW, {m.per_output__pJ:.3f} pJ/out "
         f"(anchor {per_access_anchor__pJ:.2f}), EF {m.ef__tops_w:.2f} TOPS/W (paper headline {ef_anchor:.2f})",
+        f"    draw spread over {m.repeat} rounds: model total {m.round_mean__uW:.3f} +- "
+        f"{m.round_stderr__uW:.3f} uW (std/sqrt(rounds))",
         "",
         _fmt_caliber(m, anchors, caliber="Y"),
         "",
@@ -774,9 +919,16 @@ def _resolve_device(name: str | None) -> torch.device:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--n", type=int, default=64, help="Number of random input vectors per sparsity point.")
+    ap.add_argument("--n-w", type=int, default=64, help="Weight draws per round: the die-ensemble width.")
+    ap.add_argument("--n-x", type=int, default=256, help="Input vectors per round.")
+    ap.add_argument("--repeat", type=int, default=8, help="Rounds; each redraws the weights AND the inputs.")
+    ap.add_argument(
+        "--solve-chunk",
+        type=int,
+        default=4096,
+        help="Array solve chunk (machine knob): leading instances solved per block; 0 solves all at once.",
+    )
     ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument("--batch", type=int, default=8, help="Input batch per VMM (compute knob).")
     ap.add_argument("--device", type=str, default=None, help="cpu / cuda[:idx]; default cuda if available else cpu.")
     args = ap.parse_args()
 
@@ -787,25 +939,42 @@ def main() -> None:
     p_zero_weight = anchors["data"]["p_zero_weight"]
 
     device = _resolve_device(args.device)
-    macro = build_macro(_PARAMS_PATH, _POLICY_PATH, device=device)
+    # The gates read ONE die; the measurement reads an ensemble of them.
+    macro = build_macro(_PARAMS_PATH, _POLICY_PATH, device=device, solve_chunk_size=args.solve_chunk)
+    ensemble = build_macro(
+        _PARAMS_PATH,
+        _POLICY_PATH,
+        device=device,
+        inst_shape=(args.n_w,),
+        solve_chunk_size=args.solve_chunk,
+    )
 
-    _LOG.info("# ye2023jssc validation  [device %s, N %d, seed %d]\n", device, args.n, args.seed)
+    _LOG.info(
+        "# ye2023jssc validation  [device %s, n_w %d, n_x %d, repeat %d, solve-chunk %d, seed %d]\n",
+        device,
+        args.n_w,
+        args.n_x,
+        args.repeat,
+        args.solve_chunk,
+        args.seed,
+    )
 
+    # One seed for BOTH points: common random numbers across the sparsity sweep.
     measurements = [
         measure(
-            macro,
+            ensemble,
             p_zero_input=float(p_zero),
             p_zero_weight=p_zero_weight,
-            n=args.n,
-            seed=args.seed + i,
-            batch=args.batch,
+            n_x=args.n_x,
+            repeat=args.repeat,
+            seed=args.seed,
         )
-        for i, p_zero in enumerate(anchors["data"]["p_zero_input"])
+        for p_zero in anchors["data"]["p_zero_input"]
     ]
 
     _LOG.info("## Hard gates\n")
     gates = [
-        gate_golden_transfer(macro, n=args.batch, seed=args.seed + 101),
+        gate_golden_transfer(macro, n=_GOLDEN_SAMPLE_NUM, seed=args.seed + 101),
         gate_i_tbl_table(macro, anchors),
         gate_rscsa_energy(macro, anchors, measurements),
         gate_zero_input(macro, seed=args.seed + 102),

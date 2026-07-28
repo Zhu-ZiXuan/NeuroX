@@ -38,14 +38,17 @@ area_per_inst__um2 = 0.0
 leakage_per_inst__uW = 0.0
 
 
-# --- ADC ``(mode, bits) -> rescale_factor`` lookup (single nominal OP) ---
+# --- Quantization operating points (single nominal mode) ---
 # The RS-CSA is a 4-bit uniform current quantizer; the rescale maps its integer
-# code back to the ideal MAC magnitude. Single mode (mode = 0, bits = 4).
-[[cim_macro.adc_calibration]]
-mode = 0
-bits = 4
-# [derived] i_lsb = 7 uA against 0.5 uA per unit MAC -> code = floor(MAC / 14).
-rescale_factor = 14.0
+# code onto the ideal macro's code at the same bit width.
+# [derived] i_lsb = 7 uA against 0.5 uA per unit MAC -> a code carries 14 MAC
+# units, so the 16-code window spans [0, 223]. The unsigned readout rises with
+# the MAC itself, so its input code axis IS that window, and one code carries
+# exactly the window step the ideal macro resolves at 4 bits -> no rescale.
+[[cim_macro.modes]]
+quantization_input_range = [0, 223]
+adc_input_code_range = [0, 223]
+max_bits_rescale_factor = 1.0
 
 
 # --- WH-2T1R array (works-local) -- chunk-fused step1 divider solve + step2 I_T2 sum ---
@@ -176,8 +179,8 @@ t4_intrinsic__ns = 1.0            # [measured p7 Fig.18] PH4 start -> COUT[3] va
 # [calibrated] mirror_scale and e_fixed_per_op__fJ solve ONE shared constraint
 # pair (the Fig.19 per-conversion energy anchor and the Fig.11(b) code-spread
 # window); bounds, solved values and residuals live in results.md.
-mirror_scale = 0.1452             # [calibrated] comparator-side mirror scale: the fraction of the compared branch current the comparator draws over a phase
-e_fixed_per_op__fJ = 393.3        # [calibrated] 4 standby REF branches + bias + comparator + leakage-compensation branch
+mirror_scale = 0.1446             # [calibrated] comparator-side mirror scale: the fraction of the compared branch current the comparator draws over a phase
+e_fixed_per_op__fJ = 392.5        # [calibrated] 4 standby REF branches + bias + comparator + leakage-compensation branch
 
 
 # --- BL driver -- ideal Thevenin VoltageDriver (r_out = 0), the array bl_driver ---

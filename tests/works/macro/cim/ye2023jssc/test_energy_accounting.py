@@ -56,8 +56,8 @@ from neurox.common.profiler import NeuroxProfiler, ProfilerReport
 from neurox.works.macro.cim.ye2023jssc.array import Ye2023Jssc2t1rArrayConfig
 
 from ._utils import (
-    ADC_MODE,
     DTYPE,
+    QUANTIZATION_MODE,
     TINY_ADC_BITS,
     TINY_INPUT_NUM,
     TINY_OUTPUT_NUM,
@@ -103,7 +103,7 @@ def _run(
     macro = build_macro(config, input_num=w.shape[-2], output_num=w.shape[-1], device=device)
     macro.program(w.to(device))
     with NeuroxProfiler() as prof, torch.no_grad():
-        macro.vec_mat_mul(x.to(device), adc_mode=ADC_MODE, adc_bits=adc_bits)
+        macro.vec_mat_mul(x.to(device), quantization_mode=QUANTIZATION_MODE, adc_bits=adc_bits)
     return macro, prof, prof.report(macro)
 
 

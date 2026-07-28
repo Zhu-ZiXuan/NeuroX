@@ -37,8 +37,7 @@ from neurox.primitive.analog import (
     VoltageDriverConfig,
     VoltageDriverPolicy,
 )
-from neurox.primitive.analog.adc_common import AdcCalibrationRecord
-from neurox.primitive.macro.cim import CimMacro
+from neurox.primitive.macro.cim import CimMacro, CimMacroMode
 from neurox.primitive.xbar.solver import NestedParallelRailSolverConfig
 from neurox.works.macro.cim.ye2023jssc import (
     Ye2023JsscCimMacro,
@@ -56,7 +55,7 @@ TINY_WEIGHT_RADIX = (1, 2, 4)  # three binary WEIGHT planes, LSB-first (digit 0 
 TINY_REDUNDANT_RADIX = (4,)  # the SUBA4 non-weight plane
 TINY_PLANE_NUM = len(TINY_WEIGHT_RADIX) + len(TINY_REDUNDANT_RADIX)
 TINY_ADC_BITS = 4
-ADC_MODE = 0
+QUANTIZATION_MODE = 0
 W_MAX = sum(TINY_WEIGHT_RADIX)  # 7 — the three-plane unsigned weight envelope
 MAG_MAX = (1 << TINY_ADC_BITS) - 1  # 15 — the 4-bit code saturation
 
@@ -209,7 +208,15 @@ def build_config(
         v_dd_core__V=V_DD_CORE__V,
         e_mux_driver_per_op__fJ=E_MUX_DRIVER__fJ,
         e_timing_ctrl_per_op__fJ=E_TIMING_CTRL__fJ,
-        adc_calibration=(AdcCalibrationRecord(mode=ADC_MODE, bits=adc_bits, rescale_factor=1.0),),
+        # One code carries one MAC unit, so the window holds the 2**adc_bits
+        # codes the readout resolves and the rescale factor is the identity.
+        modes=(
+            CimMacroMode(
+                quantization_input_range=(0, (1 << adc_bits) - 1),
+                adc_input_code_range=(0, (1 << adc_bits) - 1),
+                max_bits_rescale_factor=1.0,
+            ),
+        ),
     )
 
 
@@ -287,7 +294,7 @@ def decode(
     w_val: Tensor,
     x: Tensor,
     *,
-    adc_mode: int = ADC_MODE,
+    quantization_mode: int = QUANTIZATION_MODE,
     adc_bits: int = TINY_ADC_BITS,
 ) -> Tensor:
     """Program logical unsigned weights and run one VMM.
@@ -297,5 +304,5 @@ def decode(
     device = macro_device(macro)
     macro.program(w_val.to(device))
     with torch.no_grad():
-        out = macro.vec_mat_mul(x.to(device), adc_mode=adc_mode, adc_bits=adc_bits)
+        out = macro.vec_mat_mul(x.to(device), quantization_mode=quantization_mode, adc_bits=adc_bits)
     return out.cpu()

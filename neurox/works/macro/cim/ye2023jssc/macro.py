@@ -22,20 +22,18 @@ from neurox.primitive.analog import (
     VoltageDriverConfig,
     VoltageDriverPolicy,
 )
-from neurox.primitive.analog.adc_common import AdcCalibrationRecord
 from neurox.primitive.macro.cim import (
     CimMacro,
     CimMacroConfig,
+    CimMacroMode,
     CimMacroPolicy,
+    decimate_references,
+    map_zero_point_input_code,
 )
 
 from .array import Ye2023Jssc2t1rArray, Ye2023Jssc2t1rArrayConfig, Ye2023Jssc2t1rArrayPolicy
 from .cell import Ye2023Jssc2t1rCellConfig
 from .rscsa import RsCsaIadc, RsCsaIadcConfig, RsCsaIadcPolicy
-
-# --- The design runs one ADC operating mode ---
-_ADC_MODE_NUM = 1
-
 
 # ---------------------------------------------------------------------------
 # Config
@@ -49,8 +47,8 @@ class Ye2023JsscCimMacroConfig(CimMacroConfig):
         max_active_num: Simultaneously selected inputs; must equal ``row_num``.
         array_config: Nested WH-2T1R array config.
         adc_config: RS-CSA current-ADC config; its ``bits`` is the macro's
-            ``adc_max_bits`` and the only resolution ``vec_mat_mul`` accepts,
-            and its phase durations set :attr:`~Ye2023JsscCimMacro.t_ac__ns`.
+            ``adc_max_bits`` and its phase durations set
+            :attr:`~Ye2023JsscCimMacro.t_ac__ns`.
         bl_driver_config: Per-column BL input clamp (Thevenin VoltageDriver).
         sl_driver_config: SL grounded clamp (VoltageDriver).
         mux_driver_config: Static-PPA seat for the Mux & Driver block.
@@ -63,10 +61,11 @@ class Ye2023JsscCimMacroConfig(CimMacroConfig):
         v_dd_core__V: Core supply rail [V]; must equal ``adc_config.v_rail__V``.
         e_mux_driver_per_op__fJ: Mux & Driver energy [fJ] per output access.
         e_timing_ctrl_per_op__fJ: Timing & Ctrl energy [fJ] per output access.
-        adc_calibration: ``(adc_mode, adc_bits) -> rescale_factor`` records
-            carrying a code back to the ideal MAC magnitude
-            (``M_ideal ~= code * rescale_factor``); one per mode, all at
-            ``adc_config.bits``, every factor > 0.
+        modes: Quantization operating points, one per ``quantization_mode``
+            index; at least one. Each carries the canonical MAC-unit window the
+            mode converts, the ADC input code range its converter
+            discriminates, and the rescale factor of a code at
+            ``adc_config.bits``.
     """
 
     # --- Device-bearing sub-blocks ---
@@ -90,8 +89,8 @@ class Ye2023JsscCimMacroConfig(CimMacroConfig):
     e_mux_driver_per_op__fJ: float
     e_timing_ctrl_per_op__fJ: float
 
-    # --- ADC calibration ---
-    adc_calibration: tuple[AdcCalibrationRecord, ...]
+    # --- Quantization operating points ---
+    modes: tuple[CimMacroMode, ...]
 
     @property
     def w_digit_num(self) -> int:
@@ -139,34 +138,10 @@ class Ye2023JsscCimMacroConfig(CimMacroConfig):
         self._require_non_neg(self.e_mux_driver_per_op__fJ, "e_mux_driver_per_op__fJ")
         self._require_non_neg(self.e_timing_ctrl_per_op__fJ, "e_timing_ctrl_per_op__fJ")
 
-        # --- ADC calibration ---
+        # --- Quantization modes ---
 
-        if len(self.adc_calibration) == 0:
-            raise ValueError("require: adc_calibration must contain at least one entry")
-        adc_bits = self.adc_config.bits
-        seen: set[tuple[int, int]] = set()
-        for entry in self.adc_calibration:
-            key = (entry.mode, entry.bits)
-            if key in seen:
-                raise ValueError(f"adc_calibration has duplicate (adc_mode, adc_bits)={key}")
-            seen.add(key)
-            if not (entry.rescale_factor > 0.0):
-                raise ValueError(
-                    f"require: rescale_factor ({entry.rescale_factor}) > 0 for "
-                    f"(adc_mode={entry.mode}, adc_bits={entry.bits})"
-                )
-            if entry.bits != adc_bits:
-                raise ValueError(
-                    f"require: adc_calibration entry adc_bits ({entry.bits}) == adc_config.bits ({adc_bits})"
-                )
-            if not (0 <= entry.mode < _ADC_MODE_NUM):
-                raise ValueError(f"require: adc_calibration entry adc_mode ({entry.mode}) in [0, {_ADC_MODE_NUM})")
-        calibrated_modes = {entry.mode for entry in self.adc_calibration}
-        missing = sorted(set(range(_ADC_MODE_NUM)) - calibrated_modes)
-        if missing:
-            raise ValueError(
-                f"require: adc_calibration covers every adc_mode in [0, {_ADC_MODE_NUM}); missing {missing}"
-            )
+        if len(self.modes) == 0:
+            raise ValueError("require: modes must declare at least one quantization operating point")
 
 
 # ---------------------------------------------------------------------------
@@ -257,7 +232,6 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
         self._leakage_per_inst__uW = config.leakage_per_inst__uW
         self._init_children(dtype=dtype, T__K=T__K)
         self._register_model_buffers(dtype=dtype)
-        self._rescale_lut = {(e.mode, e.bits): e.rescale_factor for e in config.adc_calibration}
 
         # Total capacitance one BL column drives: its wire segments plus, at every
         # physical row, the cell BL node and the cell X node.
@@ -347,13 +321,16 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
         self.register_buffer("_v_wl_onehot__V", wl_onehot, persistent=False)
         self.register_buffer("_sl_v_ref__V", torch.tensor(config.v_sl__V, dtype=dtype), persistent=False)
 
-        # Ascending decision ladder c * i_lsb for c = 1 .. 2**bits - 1 at the
-        # RS-CSA's single physical resolution. Shape: [2**bits - 1]
+        # Per-mode reference bank at the RS-CSA's max-bits resolution: row
+        # ``quantization_mode`` is the ascending decision ladder c * i_lsb for
+        # c = 1 .. 2**bits - 1. The readout has ONE physical current step, so
+        # every mode shares it. Shape: [mode_num, 2**bits - 1]
         adc_config = config.adc_config
         n_tap = (1 << adc_config.bits) - 1
+        ladder = torch.arange(1, n_tap + 1, dtype=dtype) * adc_config.i_lsb__uA
         self.register_buffer(
             "_i_ref_ladder__uA",
-            torch.arange(1, n_tap + 1, dtype=dtype) * adc_config.i_lsb__uA,
+            ladder.expand(len(config.modes), n_tap).contiguous(),
             persistent=False,
         )
 
@@ -380,14 +357,47 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
         return (0, sum(self.config.array_config.weight_radix))
 
     @property
-    def adc_mode_num(self) -> int:
-        """Number of ADC operating modes."""
-        return _ADC_MODE_NUM
+    def quantization_input_ranges(self) -> tuple[tuple[int, int], ...]:
+        """Canonical conversion window per mode, in MAC units."""
+        return tuple(mode.quantization_input_range for mode in self.config.modes)
 
     @property
     def adc_max_bits(self) -> int:
         """Maximum ADC resolution [bits] — the RS-CSA's ``bits``."""
         return self.config.adc_config.bits
+
+    def _max_bits_rescale_factor(self, quantization_mode: int) -> float:
+        """Return the configured rescale factor of one mode at :attr:`adc_max_bits`.
+
+        Args:
+            quantization_mode: Mode index in ``[0, len(config.modes))``.
+        """
+        return self.config.modes[self._check_mode(quantization_mode)].max_bits_rescale_factor
+
+    def map_quantization_input_code(self, code: Tensor, *, quantization_mode: int) -> tuple[Tensor, tuple[int, int]]:
+        """Map exact MAC-unit codes onto the readout's input grid.
+
+        The row current the RS-CSA discriminates rises with the unsigned MAC
+        from the mode's window bottom, so the grid is the zero-point one; it is
+        the identity for an unsigned window.
+
+        Args:
+            code: Exact integer plane dots.
+            quantization_mode: Mode index in ``[0, len(config.modes))``.
+
+        Returns:
+            The offset codes and the mode's declared ADC input code range.
+        """
+        mode = self.config.modes[self._check_mode(quantization_mode)]
+        mapped, _ = map_zero_point_input_code(code, code_range=mode.quantization_input_range)
+        return mapped, mode.adc_input_code_range
+
+    def _check_mode(self, quantization_mode: int) -> int:
+        """Return ``quantization_mode`` after bounding it against the declared modes."""
+        mode_num = len(self.config.modes)
+        if not (0 <= quantization_mode < mode_num):
+            raise ValueError(f"require: quantization_mode ({quantization_mode}) in [0, {mode_num})")
+        return quantization_mode
 
     # -----------------------------------------------------------------
     # Timing
@@ -401,16 +411,6 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
         event.
         """
         return self.rscsa.t_conversion__ns
-
-    def adc_rescale_factor(self, *, adc_mode: int, adc_bits: int) -> float:
-        """Rescale factor for ``(adc_mode, adc_bits)``; raises ``KeyError`` if uncalibrated."""
-        try:
-            return self._rescale_lut[(adc_mode, adc_bits)]
-        except KeyError:
-            available = sorted(self._rescale_lut)
-            raise KeyError(
-                f"(adc_mode={adc_mode}, adc_bits={adc_bits}) not in adc_calibration; available: {available}"
-            ) from None
 
     # -----------------------------------------------------------------
     # Lifecycle
@@ -442,26 +442,31 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
         w_state_idx = torch.cat((w_state_idx, redundant), dim=-2).contiguous()
         self.array.program(w_state_idx)
 
-    def vec_mat_mul(self, x: Tensor, *, adc_mode: int, adc_bits: int) -> Tensor:
+    def vec_mat_mul(self, x: Tensor, *, quantization_mode: int, adc_bits: int | None) -> Tensor:
         """Run one broadcast array solve over the output-serial word lines + RS-CSA.
 
         Args:
-            x: 1-bit activation tensor with primitive trailing ``[row_num]``;
-                entries in :attr:`x_value_range`. Leading axes are anonymous batch.
-            adc_mode: ADC operating mode; must be in ``[0, adc_mode_num)``.
-            adc_bits: RS-CSA resolution [bits]; must be :attr:`adc_max_bits`.
+            x: 1-bit activation tensor with primitive trailing ``[row_num]`` and
+                leading ``(*batch, *inst_shape)``; entries in
+                :attr:`x_value_range`. The instance axes must be present when
+                ``inst_shape`` is non-empty, and a size-1 instance axis shares one
+                input vector across the whole die ensemble.
+            quantization_mode: Mode index in ``[0, len(config.modes))``; selects
+                the reference bank row.
+            adc_bits: RS-CSA resolution [bits] in ``[1, adc_max_bits]``. Below
+                the maximum the mode's ladder is decimated, which drops the
+                code's low bits; the readout has no lossless oracle, so ``None``
+                is rejected.
 
         Returns:
-            Unsigned RS-CSA code tensor with the same leading order and primitive
-            trailing ``[col_num]``.
+            Unsigned RS-CSA code tensor with leading ``(*batch, *inst_shape)`` and
+            primitive trailing ``[col_num]``.
         """
-        if not (0 <= adc_mode < _ADC_MODE_NUM):
-            raise ValueError(f"require: adc_mode ({adc_mode}) in [0, {_ADC_MODE_NUM}) (single-mode design)")
-        if adc_bits != self.adc_max_bits:
-            raise ValueError(
-                f"require: adc_bits ({adc_bits}) == adc_max_bits ({self.adc_max_bits}) "
-                f"(the RS-CSA runs one fixed phase set)"
-            )
+        self._check_mode(quantization_mode)
+        if adc_bits is None:
+            raise ValueError("require: adc_bits is an int — the physical readout has no lossless oracle")
+        if not (1 <= adc_bits <= self.adc_max_bits):
+            raise ValueError(f"require: adc_bits ({adc_bits}) in [1, adc_max_bits ({self.adc_max_bits})]")
         config = self.config
         n_weight_plane = config.w_digit_num
         n_redundant_plane = len(config.array_config.redundant_radix)
@@ -469,6 +474,13 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
         v_dd_core = config.v_dd_core__V
         record = self._is_dynamic_energy_profile_active()
         x_long = x.long()
+
+        n_inst = len(self.inst_shape)
+        if x_long.ndim - 1 < n_inst:
+            raise ValueError(
+                f"vec_mat_mul() expects x leading (*batch, *inst_shape) with inst_shape {self.inst_shape}; "
+                f"got x.shape {tuple(x.shape)}"
+            )
 
         # --- Step 1: per-column BL input voltages, tiled plane-major ---
 
@@ -489,12 +501,20 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
 
         # --- Step 2: stack the output-serial one-hot word lines on the leading ---
 
-        # [*B, out, array_row]: output o activates array row o at V_WL_sel.
-        v_wl = self._v_wl_onehot__V.expand(*leading, self.col_num, self.col_num)
-        # [*B, out, phys_col]: the same per-column inputs for every output.
-        bl_v_ref = v_bl.unsqueeze(-2).expand(*leading, self.col_num, x_tiled.shape[-1])
+        # The array carries its instance prefix on the LAST leading axes, so the
+        # output-serial axis is inserted BEFORE the instance axes x's leading ends
+        # with: the solve leading is (*batch, out, *inst).
+        batch = leading[: len(leading) - n_inst]
+        inst_slots = leading[len(leading) - n_inst :]
+        solve_leading = (*batch, self.col_num, *inst_slots)
+        # [*batch, out, *inst, array_row]: output o activates array row o at V_WL_sel.
+        v_wl = self._v_wl_onehot__V.view(self.col_num, *(1,) * n_inst, self.col_num).expand(
+            *solve_leading, self.col_num
+        )
+        # [*batch, out, *inst, phys_col]: the same per-column inputs for every output.
+        bl_v_ref = v_bl.unsqueeze(-(n_inst + 2)).expand(*solve_leading, x_tiled.shape[-1])
 
-        # --- Step 3: one broadcast solve; leading becomes (*B, out) ---
+        # --- Step 3: one broadcast solve; leading becomes (*batch, out, *inst) ---
 
         steady = self.array.solve(
             v_wl,
@@ -503,32 +523,42 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
             sl_driver=self.sl_driver,
             sl_v_ref__V=self._sl_v_ref__V,
         )
-        i_bl_port = steady.i_bl_port__uA  # [*B, out, phys_col]
-        i_tbl = steady.i_tbl__uA  # [*B, out], RAW (includes the IN=0 floor)
+        i_bl_port = steady.i_bl_port__uA  # [*batch, out, *inst, phys_col]
+        i_tbl = steady.i_tbl__uA  # [*batch, out, *inst], RAW (includes the IN=0 floor)
 
         # --- Step 4: conduction branches + per-vector BL charge (macro-billed) ---
 
         if record:
             t_ac__ns = self.t_ac__ns
             # BL input branch, PER ACCESS.
-            # [*B, out, phys_col] -> [*B]
-            e_bl_cond = (config.v_bl_in1__V * i_bl_port).sum(dim=(-2, -1)) * t_ac__ns
+            # [*batch, out, *inst, phys_col] -> [*batch]
+            e_bl_cond = (config.v_bl_in1__V * i_bl_port).sum(dim=tuple(range(-(n_inst + 2), 0))) * t_ac__ns
             self._record_dynamic_energy(e_bl_cond, channel="bl_cond")
             # DL branch, PER ACCESS: the RAW row current, before the readout's
             # compensation subtraction, on the core rail.
-            # [*B, out] -> [*B]
-            e_dl_cond = (v_dd_core * i_tbl).sum(dim=-1) * t_ac__ns
+            # [*batch, out, *inst] -> [*batch]
+            e_dl_cond = (v_dd_core * i_tbl).sum(dim=tuple(range(-(n_inst + 1), 0))) * t_ac__ns
             self._record_dynamic_energy(e_dl_cond, channel="dl_cond")
             # BL column charge, PER VECTOR (full-cycle convention): one charge
-            # event per input-high column per call, not per access.
-            # [*B, phys_col] -> [*B]
+            # event per input-high column per call, not per access. Every die
+            # charges its own columns, so a shared (size-1) input vector still
+            # bills once per instance.
+            # [*batch, *inst, phys_col] -> [*batch, *inst]
             high_col_count = (x_tiled > 0).sum(dim=-1).to(i_tbl.dtype)
             e_bl_cap = (config.v_bl_in1__V**2 * self._c_bl_column__fF) * high_col_count
-            self._record_dynamic_energy(e_bl_cap, channel="bl_cap")
+            self._record_dynamic_energy(
+                e_bl_cap.expand(torch.broadcast_shapes(e_bl_cap.shape, self.inst_shape)),
+                channel="bl_cap",
+            )
 
-        # --- Step 5: RS-CSA quantize against the uniform i_lsb ladder ---
+        # --- Step 5: RS-CSA quantize against the mode's uniform i_lsb ladder ---
 
-        code = self.rscsa.convert(i_tbl, self._i_ref_ladder__uA, bits=adc_bits)  # [*B, out]
+        i_refs__uA = decimate_references(
+            self._i_ref_ladder__uA[quantization_mode],
+            adc_max_bits=self.adc_max_bits,
+            adc_bits=adc_bits,
+        )
+        code = self.rscsa.convert(i_tbl, i_refs__uA, bits=adc_bits)  # [*batch, out, *inst]
 
         # --- Step 6: flat peripheral energy (per output access) + latency ---
 
@@ -539,9 +569,11 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
             self._record_dynamic_energy(e_ctrl, channel="timing_ctrl")
 
         # The single time-shared RS-CSA serializes every output over the leading;
-        # each round takes one access window.
+        # each round takes one access window. The instances are parallel dies, so
+        # their accesses share rounds instead of adding them.
         parallel_instance_count = self.inst_count
         serial_round_count = (code.numel() + parallel_instance_count - 1) // parallel_instance_count
         self._record_latency(self.t_ac__ns * serial_round_count)
 
-        return code
+        # [*batch, out, *inst] -> [*batch, *inst, out]
+        return code.movedim(-(n_inst + 1), -1)

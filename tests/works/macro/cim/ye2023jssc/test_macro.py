@@ -8,14 +8,18 @@ Covers the whole macro contract on the hand-built analytic witness
   * the logical geometry and the value-domain surface: the weight envelope spans
     the WEIGHT planes only while the PHYSICAL grid also carries the redundant
     (SUBA4) plane,
-  * the readout runs ONE operating point: any ``adc_mode`` but 0 and any
-    ``adc_bits`` but the RS-CSA's physical resolution are rejected,
+  * the quantization surface: the declared mode is the only index accepted, the
+    rescale factor doubles per dropped bit, and the mapped input codes are the
+    identity of an unsigned window,
+  * the bit width decimates ONE reference ladder: the code at ``b`` bits equals
+    the max-bits code right-shifted by the bit deficit, and only ``adc_bits`` in
+    ``[1, adc_max_bits]`` is accepted (the readout has no lossless oracle),
   * the PH0 compensation is DERIVED from the model's own all-off floor —
     ``floor * row_num * sum(weight_radix + redundant_radix)``, the redundant
     plane included — so a zero-input access lands on code 0 exactly,
-  * ``to_ideal()`` at ``adc_bits = 0`` equals the in-code UNSIGNED integer MAC
-    oracle (property self-consistency: the geometric radix ladder matches the
-    scheme's ``weight_radix``),
+  * ``to_ideal()`` publishes the macro's own windows and, driven losslessly,
+    equals the UNSIGNED integer MAC oracle (property self-consistency: the
+    geometric radix ladder matches the scheme's ``weight_radix``),
   * end-to-end: known weights + 1-bit inputs -> codes trailing ``[output_num]``,
     monotone in the true MAC, and a mid-range input decoding to the MAC,
   * the LSB-first asymmetric-weight regression: the ``m = 1`` plane and the
@@ -25,7 +29,11 @@ Covers the whole macro contract on the hand-built analytic witness
     sigma, no scheme policy carries a toggle, and decoding is bit-identical in
     ``train()`` mode,
   * the Fig.19 energy blocks appear under their exact channel / module names and
-    the macro emits latency exactly once.
+    the macro emits latency exactly once,
+  * the die ensemble (``inst_shape=(die_num,)``) crossed with an input batch: one
+    call over ``x [n_x, 1, row]`` reads every (input, weight) pair bit-exactly as
+    the single-die macro does, bills the SUM of those dies' energy per channel,
+    and takes the latency of ``n_x`` accesses only — the dies run in PARALLEL.
 
 Runs eagerly (dynamo disabled) so the ``@torch.compile`` solver leaf is not
 unrolled.
@@ -34,6 +42,7 @@ unrolled.
 from __future__ import annotations
 
 import dataclasses
+import itertools
 from collections.abc import Iterator
 
 import pytest
@@ -41,14 +50,14 @@ import torch
 import torch._dynamo
 
 from neurox.common import PolicyBase
-from neurox.common.profiler import NeuroxProfiler
+from neurox.common.profiler import NeuroxProfiler, ProfilerReport
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig
 from neurox.works.macro.cim.ye2023jssc.array import Ye2023Jssc2t1rArrayConfig
 from neurox.works.macro.cim.ye2023jssc.cell import Ye2023Jssc2t1rCellConfig
 from neurox.works.macro.cim.ye2023jssc.rscsa import RsCsaIadcConfig
 
 from ._utils import (
-    ADC_MODE,
+    QUANTIZATION_MODE,
     TINY_ADC_BITS,
     TINY_INPUT_NUM,
     TINY_OUTPUT_NUM,
@@ -118,11 +127,9 @@ def test_geometry_and_properties(device: torch.device) -> None:
     # not part of the encodable range.
     assert macro.w_value_range == (0, W_MAX)
     assert macro.config.w_digit_num == len(TINY_WEIGHT_RADIX)
-    assert macro.adc_mode_num == 1
     assert macro.adc_max_bits == TINY_ADC_BITS
-    assert macro.adc_rescale_factor(adc_mode=ADC_MODE, adc_bits=TINY_ADC_BITS) == 1.0
-    with pytest.raises(KeyError):
-        macro.adc_rescale_factor(adc_mode=0, adc_bits=1)
+    # The witness declares the single mode its config carries.
+    assert len(macro.quantization_input_ranges) == len(macro.config.modes) == 1
 
 
 def test_physical_grid_includes_the_redundant_plane(device: torch.device) -> None:
@@ -133,17 +140,85 @@ def test_physical_grid_includes_the_redundant_plane(device: torch.device) -> Non
     assert len(TINY_REDUNDANT_RADIX) > 0
 
 
-def test_single_operating_point_is_enforced(device: torch.device) -> None:
-    """Any ``adc_mode`` but 0, or any ``adc_bits`` but the physical one, is rejected."""
+def test_only_declared_modes_and_converting_bit_widths_are_accepted(device: torch.device) -> None:
+    """An undeclared mode, the lossless sentinel, and out-of-range bits are rejected."""
     macro = build_macro(build_config(), device=device)
     w = torch.zeros((TINY_INPUT_NUM, TINY_OUTPUT_NUM), dtype=torch.long, device=device)
     macro.program(w)
     x = torch.ones(TINY_INPUT_NUM, dtype=torch.long, device=device)
 
+    mode_num = len(macro.quantization_input_ranges)
     with pytest.raises(ValueError):
-        macro.vec_mat_mul(x, adc_mode=1, adc_bits=TINY_ADC_BITS)
+        macro.vec_mat_mul(x, quantization_mode=mode_num, adc_bits=TINY_ADC_BITS)
     with pytest.raises(ValueError):
-        macro.vec_mat_mul(x, adc_mode=ADC_MODE, adc_bits=TINY_ADC_BITS - 1)
+        macro.vec_mat_mul(x, quantization_mode=-1, adc_bits=TINY_ADC_BITS)
+    # The physical readout converts; it has no lossless oracle.
+    with pytest.raises(ValueError):
+        macro.vec_mat_mul(x, quantization_mode=QUANTIZATION_MODE, adc_bits=None)
+    with pytest.raises(ValueError):
+        macro.vec_mat_mul(x, quantization_mode=QUANTIZATION_MODE, adc_bits=0)
+    with pytest.raises(ValueError):
+        macro.vec_mat_mul(x, quantization_mode=QUANTIZATION_MODE, adc_bits=TINY_ADC_BITS + 1)
+
+
+# ---------------------------------------------------------------------------
+# Quantization surface: windows, rescale chain, input-code map
+# ---------------------------------------------------------------------------
+
+
+def test_published_windows_are_the_configured_ones(device: torch.device) -> None:
+    """``quantization_input_ranges`` republishes the config's mode windows in order."""
+    macro = build_macro(build_config(), device=device)
+    assert macro.quantization_input_ranges == tuple(m.quantization_input_range for m in macro.config.modes)
+
+
+def test_rescale_factor_doubles_per_dropped_bit(device: torch.device) -> None:
+    """``r_b = r_B * 2**(B - b)``: one code carries twice as much per bit dropped."""
+    macro = build_macro(build_config(), device=device)
+    factors = [
+        macro.rescale_factor(quantization_mode=QUANTIZATION_MODE, adc_bits=b) for b in range(1, TINY_ADC_BITS + 1)
+    ]
+    for coarse, fine in itertools.pairwise(factors):
+        assert coarse == pytest.approx(2.0 * fine)
+    # The witness ladder steps one MAC unit per code, so max bits is the identity.
+    assert factors[-1] == pytest.approx(macro.config.modes[QUANTIZATION_MODE].max_bits_rescale_factor)
+    with pytest.raises(ValueError):
+        macro.rescale_factor(quantization_mode=QUANTIZATION_MODE, adc_bits=TINY_ADC_BITS + 1)
+
+
+def test_quantization_input_code_map_is_the_unsigned_identity(device: torch.device) -> None:
+    """The scheme is unsigned: the zero-point map moves no code.
+
+    The published range is the mode's declared ``adc_input_code_range`` — the
+    calibration artifact itself, never a value recomputed from the window.
+    """
+    macro = build_macro(build_config(), device=device)
+    lower, upper = macro.quantization_input_ranges[QUANTIZATION_MODE]
+    assert lower == 0  # the scheme converts unsigned MACs only
+    code = torch.arange(lower, upper + 1, device=device)
+    mapped, code_range = macro.map_quantization_input_code(code, quantization_mode=QUANTIZATION_MODE)
+    assert torch.equal(mapped, code)
+    assert code_range == macro.config.modes[QUANTIZATION_MODE].adc_input_code_range
+
+
+def test_lowered_bits_decimate_the_shared_ladder(device: torch.device) -> None:
+    """The code at ``b`` bits is the max-bits code right-shifted by the bit deficit.
+
+    All bit widths read the ONE max-bits reference ladder, so lowering the width
+    drops the code's low bits instead of re-scaling the transfer.
+    """
+    macro = build_macro(build_config(), device=device)
+    # Column j holds weight j % (W_MAX + 1) on every input, so one access with
+    # both inputs high sweeps MACs across the whole 4-bit code range.
+    values = torch.arange(TINY_OUTPUT_NUM, device=device) % (W_MAX + 1)
+    w = values.expand(TINY_INPUT_NUM, TINY_OUTPUT_NUM).contiguous().long()
+    x = torch.ones(TINY_INPUT_NUM, dtype=torch.long, device=device)
+
+    full = decode(macro, w, x, adc_bits=TINY_ADC_BITS).long()
+    assert int(full.max()) > 1, f"the witness sweep must exercise the ladder: {full.tolist()}"
+    for bits in range(1, TINY_ADC_BITS + 1):
+        lowered = decode(macro, w, x, adc_bits=bits).long()
+        assert torch.equal(lowered, full >> (TINY_ADC_BITS - bits)), f"bits {bits}: {lowered.tolist()}"
 
 
 # ---------------------------------------------------------------------------
@@ -170,12 +245,12 @@ def test_zero_input_decodes_code_zero(device: torch.device) -> None:
 
 
 # ---------------------------------------------------------------------------
-# to_ideal at adc_bits = 0 == UNSIGNED integer MAC oracle
+# to_ideal: the twin inherits the published surface
 # ---------------------------------------------------------------------------
 
 
-def test_to_ideal_bits0_matches_unsigned_oracle(device: torch.device) -> None:
-    """``to_ideal().vec_mat_mul(adc_bits=0)`` equals the UNSIGNED integer MAC.
+def test_to_ideal_lossless_matches_unsigned_oracle(device: torch.device) -> None:
+    """``to_ideal().vec_mat_mul(adc_bits=None)`` equals the UNSIGNED integer MAC.
 
     Validates that ``to_ideal`` preserves the logical weight contract.
     """
@@ -190,9 +265,21 @@ def test_to_ideal_bits0_matches_unsigned_oracle(device: torch.device) -> None:
     x = torch.tensor([[1, 1], [1, 0], [0, 1], [0, 0]], dtype=torch.long, device=device)  # batch (4,)
 
     ideal.program(w_val)
-    got = ideal.vec_mat_mul(x, adc_mode=ADC_MODE, adc_bits=0).cpu()
+    got = ideal.vec_mat_mul(x, quantization_mode=QUANTIZATION_MODE, adc_bits=None).cpu()
     expected = ideal_mac(w_val, x, clamp=False)
     assert torch.equal(got.long(), expected)
+
+
+def test_to_ideal_twin_inherits_the_published_quantization_surface(device: torch.device) -> None:
+    """The twin quantizes the macro's own windows at the macro's own max bits."""
+    macro = build_macro(build_config(), device=device)
+    ideal = macro.to_ideal()
+    assert ideal.quantization_input_ranges == macro.quantization_input_ranges
+    assert ideal.adc_max_bits == macro.adc_max_bits
+    assert ideal.x_value_range == macro.x_value_range
+    assert ideal.w_value_range == macro.w_value_range
+    # The ideal codes are the rescale reference, so the twin's factor is the identity.
+    assert ideal.rescale_factor(quantization_mode=QUANTIZATION_MODE, adc_bits=TINY_ADC_BITS) == 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -322,7 +409,7 @@ def test_energy_channels_and_single_latency(device: torch.device) -> None:
 
     macro.program(w_val)
     with NeuroxProfiler() as prof, torch.no_grad():
-        macro.vec_mat_mul(x, adc_mode=ADC_MODE, adc_bits=TINY_ADC_BITS)
+        macro.vec_mat_mul(x, quantization_mode=QUANTIZATION_MODE, adc_bits=TINY_ADC_BITS)
     report = prof.report(macro)
     by_name = report.energy_by_name
 
@@ -335,6 +422,77 @@ def test_energy_channels_and_single_latency(device: torch.device) -> None:
     # The macro is the sole latency emitter: exactly one latency event.
     assert len(prof.latency_events) == 1, f"expected one latency event, got {len(prof.latency_events)}"
     assert prof.total_latency__ns > 0.0
+
+
+# ---------------------------------------------------------------------------
+# Die ensemble crossed with an input batch
+# ---------------------------------------------------------------------------
+
+# Two dies holding DIFFERENT weights, three input vectors; every MAC stays inside
+# the 4-bit code range, so the laws read codes, not saturation.
+_DIE_NUM = 2
+_CROSS_BATCH = 3
+_CROSS_W = (((1, 2, 3, 0), (7, 0, 4, 1)), ((0, 7, 1, 5), (2, 3, 0, 6)))  # [die, in, out]
+_CROSS_X = (((1, 1),), ((1, 0),), ((0, 1),))  # [batch, 1, in] — the 1 broadcasts over the dies
+
+
+def _crossed_run(
+    device: torch.device,
+) -> tuple[Ye2023JsscCimMacro, torch.Tensor, torch.Tensor, ProfilerReport, ProfilerReport]:
+    """Run one crossed ensemble call and the ``die_num * batch`` single-die runs it stands for.
+
+    Returns:
+        The ensemble macro, its codes, the single-die reference codes, and the
+        two profiler reports (crossed call, then the reference runs).
+    """
+    config = build_config()
+    ensemble = build_macro(config, device=device, inst_shape=(_DIE_NUM,))
+    scalar = build_macro(config, device=device)
+    w = torch.tensor(_CROSS_W, dtype=torch.long, device=device)
+    x = torch.tensor(_CROSS_X, dtype=torch.long, device=device)
+
+    with NeuroxProfiler() as prof_cross, torch.no_grad():
+        ensemble.program(w)
+        code_cross = ensemble.vec_mat_mul(x, quantization_mode=QUANTIZATION_MODE, adc_bits=TINY_ADC_BITS)
+    report_cross = prof_cross.report(ensemble)
+
+    code_ref = torch.empty_like(code_cross)
+    with NeuroxProfiler() as prof_ref, torch.no_grad():
+        for die in range(_DIE_NUM):
+            scalar.program(w[die])
+            for batch in range(_CROSS_BATCH):
+                code_ref[batch, die] = scalar.vec_mat_mul(
+                    x[batch, 0], quantization_mode=QUANTIZATION_MODE, adc_bits=TINY_ADC_BITS
+                )
+    return ensemble, code_cross, code_ref, report_cross, prof_ref.report(scalar)
+
+
+def test_crossed_ensemble_codes_equal_the_single_die_codes(device: torch.device) -> None:
+    """One crossed call returns ``[n_x, die_num, out]`` codes, bit-exact per (input, weight) pair."""
+    _macro, code_cross, code_ref, _rc, _rr = _crossed_run(device)
+    assert code_cross.shape == (_CROSS_BATCH, _DIE_NUM, TINY_OUTPUT_NUM)
+    # The dies hold different weights, so the law is not vacuous.
+    assert not torch.equal(code_cross[:, 0], code_cross[:, 1])
+    assert torch.equal(code_cross.long(), code_ref.long())
+
+
+def test_crossed_ensemble_bills_the_sum_of_its_dies(device: torch.device) -> None:
+    """Every dynamic channel of the crossed call equals the sum over the single-die runs."""
+    _macro, _cc, _cr, report_cross, report_ref = _crossed_run(device)
+    cross__fJ, ref__fJ = report_cross.energy_by_name, report_ref.energy_by_name
+    assert set(cross__fJ) == set(ref__fJ)
+    for name, e__fJ in ref__fJ.items():
+        assert cross__fJ[name] == pytest.approx(e__fJ, rel=1e-9), f"channel {name!r} does not bill per die"
+    assert report_cross.total_dynamic_energy__fJ == pytest.approx(report_ref.total_dynamic_energy__fJ, rel=1e-9)
+
+
+def test_crossed_ensemble_latency_does_not_scale_with_the_dies(device: torch.device) -> None:
+    """The dies are PARALLEL: latency counts ``n_x * out`` accesses, not ``die_num`` times that."""
+    macro, _cc, _cr, report_cross, report_ref = _crossed_run(device)
+    t_ac__ns = float(macro.t_ac__ns)
+    assert report_cross.total_latency__ns == pytest.approx(t_ac__ns * _CROSS_BATCH * TINY_OUTPUT_NUM)
+    # Running the same work one die at a time serializes it instead.
+    assert report_ref.total_latency__ns == pytest.approx(_DIE_NUM * report_cross.total_latency__ns)
 
 
 def test_static_report_seats(device: torch.device) -> None:

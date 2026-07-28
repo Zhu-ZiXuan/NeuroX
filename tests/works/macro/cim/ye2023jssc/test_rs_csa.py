@@ -12,8 +12,9 @@ shapes; eager, dynamo disabled):
     conversion by the same current, and an input at or below it reads code 0,
   * the compare phases are a uniform quantizer over the owner-supplied ladder:
     ``code == floor((i_in - i_ph0)+ / i_lsb)`` clamped to the 4-bit ceiling,
-  * the readout runs ONE fixed phase set: any ``bits`` but ``config.bits``, or a
-    ladder of the wrong length, is rejected,
+  * the readout runs ONE fixed phase set, so ``config.bits`` bounds the width a
+    conversion may request and a ladder of the wrong length is rejected; below
+    that width a DECIMATED ladder drops the code's low bits,
   * energy is ``E_fixed + E_code`` with
     ``E_code = sum_i mirror_scale * v_rail * min(residue_i, ref_radix[i]*i_lsb) * t_phase[i+1]``
     over the cumulative-subtraction residue (the latched REFS branches are
@@ -31,6 +32,7 @@ import torch
 import torch._dynamo
 
 from neurox.common.profiler import NeuroxProfiler
+from neurox.primitive.macro.cim import decimate_references
 from neurox.works.macro.cim.ye2023jssc.rscsa import (
     RsCsaIadc,
     RsCsaIadcConfig,
@@ -165,16 +167,35 @@ def test_ph0_static_operand_independent() -> None:
     assert torch.equal(diff, torch.full_like(diff, 2))
 
 
-def test_one_fixed_phase_set() -> None:
-    """A resolution other than the physical one, or a mis-sized ladder, is rejected."""
+def test_bits_bounded_by_the_physical_resolution() -> None:
+    """A resolution above the physical one, or a mis-sized ladder, is rejected."""
     adc = _build_adc()
     i_in = torch.tensor([3.0], dtype=_DTYPE)
     with pytest.raises(ValueError):
-        adc.convert(i_in, _taps()[: (1 << (_BITS - 1)) - 1], bits=_BITS - 1)
+        adc.convert(i_in, _taps(), bits=_BITS + 1)
+    with pytest.raises(ValueError):
+        adc.convert(i_in, _taps(), bits=0)
     with pytest.raises(ValueError):
         adc.convert(i_in, _taps()[:-1], bits=_BITS)
     with pytest.raises(ValueError):
-        adc.unsigned_range(_BITS - 1)
+        adc.unsigned_range(_BITS + 1)
+
+
+def test_decimated_ladder_drops_the_code_low_bits() -> None:
+    """At ``bits < config.bits`` a decimated ladder yields the max-bits code shifted right.
+
+    The analog machine is one operating point: the owner decimates the shared
+    ladder, so the conversion widens its bin instead of moving its transfer.
+    """
+    adc = _build_adc()
+    i_in = torch.linspace(0.0, 10.0, 64, dtype=_DTYPE)
+    full = adc.convert(i_in, _taps(), bits=_BITS).to(torch.long)
+    for bits in range(1, _BITS + 1):
+        refs = decimate_references(_taps(), adc_max_bits=_BITS, adc_bits=bits)
+        assert refs.shape[-1] == (1 << bits) - 1
+        code = adc.convert(i_in, refs, bits=bits).to(torch.long)
+        assert adc.unsigned_range(bits) == (0, (1 << bits) - 1)
+        assert torch.equal(code, full >> (_BITS - bits)), f"bits {bits}: {code.tolist()}"
 
 
 def test_deterministic_in_training_mode() -> None:

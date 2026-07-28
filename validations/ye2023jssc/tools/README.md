@@ -40,8 +40,10 @@ tool does not apply. Its values come DIRECTLY from the paper:
 ## ADC
 
 `i_lsb__uA = 7.0` (the Fig.11(a) annotation): 224 max MAC units x 0.5 uA per unit
-MAC = 112 uA full scale over `2**4 = 16` codes, i.e. 14 MAC units per code
-(`rescale_factor = 14.0`). The owner builds the decision ladder as
+MAC = 112 uA full scale over `2**4 = 16` codes, i.e. 14 MAC units per code —
+which is exactly the step the ideal macro resolves over the same `[0, 223]`
+window at 4 bits, so `max_bits_rescale_factor = 1.0` (the rescale currency is
+the ideal code, not the MAC unit). The owner builds the decision ladder as
 `arange(1, 16) * i_lsb` (top decision tap 105 uA); `ref_radix = [8, 4, 2, 1]`
 sizes the per-phase reference branches inside the RS-CSA. There is no ADC
 calibration run — `i_lsb` follows from the paper's annotated operating point,

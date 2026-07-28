@@ -1,6 +1,6 @@
 # Ye 2023 JSSC WH-2T1R CIM macro
 
-`Ye2023JsscCimMacro` models one compute-in-memory macro of the 28-nm RRAM CIM chip of Ye et al. (IEEE JSSC 2023), built on the Weighted Hybrid 2T1R (WH-2T1R) cell array and the Reference-Subtracting Current Sense Amplifier (RS-CSA). The constructor binds `input_num` and `output_num` to internal `row_num` and `col_num`; the interface is then `program(w[row_num, col_num])` followed by `vec_mat_mul(x[..., row_num], *, adc_mode, adc_bits) -> codes[..., col_num]`. Logical unsigned weights are encoded internally into the configured binary weighted planes. The scheme composes the WH-2T1R lookup cell (`Ye2023Jssc2t1rCell`), the dedicated array (`Ye2023Jssc2t1rArray`) that solves over it, and the RS-CSA readout (`RsCsaIadc`) plus per-column BL/SL clamps and two flat peripheral seats.
+`Ye2023JsscCimMacro` models one compute-in-memory macro of the 28-nm RRAM CIM chip of Ye et al. (IEEE JSSC 2023), built on the Weighted Hybrid 2T1R (WH-2T1R) cell array and the Reference-Subtracting Current Sense Amplifier (RS-CSA). The constructor binds `input_num` and `output_num` to internal `row_num` and `col_num`; the interface is then `program(w[row_num, col_num])` followed by `vec_mat_mul(x[..., row_num], *, quantization_mode, adc_bits) -> codes[..., col_num]`. Logical unsigned weights are encoded internally into the configured binary weighted planes. The scheme composes the WH-2T1R lookup cell (`Ye2023Jssc2t1rCell`), the dedicated array (`Ye2023Jssc2t1rArray`) that solves over it, and the RS-CSA readout (`RsCsaIadc`) plus per-column BL/SL clamps and two flat peripheral seats.
 
 The macro config carries no geometry: the logical dimensions arrive as constructor arguments.
 
@@ -36,7 +36,7 @@ The Reference-Subtracting CSA (`RsCsaIadc`) is a current-domain successive-appro
 
 **PH0 is DERIVED, not configured.** The macro computes it from the array's own tables as `i_t2_table__uA[0][state] * row_num * sum(weight_radix + redundant_radix)` — every physical column of a row carries the off-cell floor, weighted by its plane's place value. A zero-MAC access therefore lands on code 0 by construction, and the redundant plane's floor cancels exactly. Config validation requires the `IN=0` floor row to be state-independent, since the derivation reads a single entry. PH0 compensation is static by design: no replica, dummy, or tracking circuit exists in the paper, so a small activity-dependent over-subtraction remains as a model PREDICTION, not an error.
 
-**The design runs ONE operating mode.** `adc_mode` must be 0 and `adc_bits` must equal the readout's physical `bits`; both are validated explicitly and any other request raises.
+**The design ships ONE quantization mode.** `config.modes` declares it — the canonical MAC-unit window the readout covers, the input code range it discriminates, and the rescale factor of a code at the readout's `bits` — and `quantization_mode` indexes that list. Every mode shares the one physical current step, so the `[mode, tap]` reference bank repeats the same max-bits ladder per row; a request below `adc_max_bits` decimates that ladder to `2**adc_bits - 1` taps, which is exactly running the SAR's leading compare phases. The macro has no lossless oracle: `adc_bits = None` raises, and the exact-integer twin comes from `to_ideal()`.
 
 **Timing.** `t_phase__ns` carries PH0 (the leakage-compensation phase) followed by one compare phase per bit, MSB-first, at their physical durations. The conversion closes when the last comparator output latches, `t4_intrinsic__ns` into the last compare phase, so the access window is DERIVED:
 
@@ -116,7 +116,7 @@ Bounds, solved values, residuals, and the saturation status of the C_WL knob liv
 ## Scope
 
 - **Macro-only, UNSIGNED.** The macro owns unsigned logical-to-plane encoding. Signed-weight representation above this unsigned logical domain remains a unit concern.
-- **Single precision, single ADC mode.** No memory (read/write) mode; the write path costs no energy and no time. The ADC mode axis has one entry.
+- **Single precision, single quantization mode.** No memory (read/write) mode; the write path costs no energy and no time. The quantization mode axis has one entry.
 - **RSM mapping unused.** The SUBA4 slice is physically present and contributes its radix-weighted leakage, but the redundant-slice mapping algorithm itself is not modeled.
 - **No mismatch, noise, or jitter of any kind.** No scheme module declares a sigma or a stochastic source; the sanctioned `all_off` policy is the only intended policy, and every intrinsic circuit non-linearity (the divider, the per-state `I_T2`, the floor-bucketize, the PH0 subtraction) is still computed. `all_off` is the noiseless, mismatch-free reference, not an idealized or zeroed model.
 - **No network-accuracy target.** Network-level accuracy is out of macro scope.

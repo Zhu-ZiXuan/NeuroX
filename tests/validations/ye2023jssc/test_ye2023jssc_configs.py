@@ -83,10 +83,8 @@ _BANNED_KEYS = (
 # The sanctioned provenance vocabulary; its legend lives in docs/validation/campaigns.md.
 _TAG_PATTERN = re.compile(r"\[(measured|derived|transcribed|assumed|bound-derived|calibrated)\b[^\]]*\]")
 
-# Keys that name no physical quantity: a registry dispatch key and the two
-# ``(mode, bits)`` selectors of the ADC calibration entry.
+# The one key that names no physical quantity: the registry dispatch key.
 _UNTAGGED_KEYS = frozenset({"_neurox_class"})
-_UNTAGGED_ENTRIES = frozenset({("cim_macro.adc_calibration", "mode"), ("cim_macro.adc_calibration", "bits")})
 
 # The sanctioned free-parameter set: three solved numbers + two transcribed seats.
 _CALIBRATED_KEYS = ("c_wl__fF", "mirror_scale", "e_fixed_per_op__fJ")
@@ -283,7 +281,20 @@ def test_readout_is_one_4bit_point_with_a_66ns_derived_window() -> None:
     assert adc_config.bits == 4
     assert len(adc_config.ref_radix) == 4
     assert len(adc_config.t_phase__ns) == adc_config.bits + 1  # PH0 + one compare phase per bit
-    assert {(entry.mode, entry.bits) for entry in config.adc_calibration} == {(0, 4)}
+    # One declared quantization mode. Its window is the readout's own full
+    # scale: 2**bits codes, each worth the MAC units one current lsb resolves.
+    assert len(config.modes) == 1
+    mode = config.modes[0]
+    lower, upper = mode.quantization_input_range
+    assert lower == 0  # the scheme converts unsigned MACs only
+    mac_per_lsb = adc_config.i_lsb__uA / config.cell_config.i_t2_table__uA[1][1]
+    assert upper - lower + 1 == pytest.approx((1 << adc_config.bits) * mac_per_lsb)
+    # The window step IS the physical code step, so a code already is an ideal
+    # macro code: the rescale is the identity, in ideal codes, not MAC units.
+    assert mode.max_bits_rescale_factor == pytest.approx(1.0)
+    # The unsigned readout rises with the MAC itself, so the input code axis it
+    # discriminates on is the window.
+    assert mode.adc_input_code_range == mode.quantization_input_range
 
     t_ac__ns = sum(adc_config.t_phase__ns[:-1]) + adc_config.t4_intrinsic__ns
     assert t_ac__ns == pytest.approx(_T_AC__ns)
@@ -362,9 +373,5 @@ def test_params_free_parameter_set_is_the_sanctioned_five() -> None:
     transcribed = [(section, key) for section, key, tags in entries if "transcribed" in tags]
     assert transcribed == list(_TRANSCRIBED_ENTRIES), f"the transcribed set drifted: {transcribed}"
 
-    untagged = [
-        (section, key)
-        for section, key, tags in entries
-        if not tags and key not in _UNTAGGED_KEYS and (section, key) not in _UNTAGGED_ENTRIES
-    ]
+    untagged = [(section, key) for section, key, tags in entries if not tags and key not in _UNTAGGED_KEYS]
     assert untagged == [], f"params.toml values without a provenance tag: {untagged}"

@@ -20,9 +20,10 @@ class RsCsaIadcConfig(IadcConfig):
     """Physical knobs for the Reference-Subtracting CSA readout.
 
     Attributes:
-        bits: Physical resolution [bits]; every conversion runs at this width.
+        bits: Physical resolution [bits]; the phase set always runs at this
+            width, and it is the finest resolution a conversion may request.
         i_lsb__uA: Quantizer LSB current [uA] — one code step of the
-            owner-supplied decision ladder.
+            owner-supplied max-bits decision ladder.
         ref_radix: The ``bits`` reference weights, MSB..LSB, strictly descending
             positive ints (e.g. ``(8, 4, 2, 1)``); compare phase ``i`` sizes its
             reference current as ``ref_radix[i] * i_lsb__uA``.
@@ -142,7 +143,7 @@ class RsCsaIadc(Iadc[RsCsaIadcConfig, RsCsaIadcPolicy]):
 
     @property
     def max_bits(self) -> int:
-        """Physical resolution — the only ``bits`` a call may request."""
+        """Physical resolution — the largest ``bits`` a call may request."""
         return self.config.bits
 
     @property
@@ -156,10 +157,18 @@ class RsCsaIadc(Iadc[RsCsaIadcConfig, RsCsaIadcPolicy]):
         return self._t_conversion__ns
 
     def unsigned_range(self, bits: int) -> tuple[int, int]:
-        """Unsigned code endpoints at the physical resolution — ``(0, 2 ** bits - 1)``."""
-        if bits != self.config.bits:
-            raise ValueError(f"require: bits ({bits}) == config.bits ({self.config.bits})")
+        """Unsigned code endpoints at ``bits`` — ``(0, 2 ** bits - 1)``."""
+        self._check_bits(bits)
         return 0, (1 << bits) - 1
+
+    def _check_bits(self, bits: int) -> None:
+        """Require a resolution the physical phase set resolves.
+
+        Raises:
+            ValueError: ``bits`` is outside ``[1, config.bits]``.
+        """
+        if not (1 <= bits <= self.config.bits):
+            raise ValueError(f"require: bits ({bits}) in [1, config.bits ({self.config.bits})]")
 
     def _convert_impl(
         self,
@@ -170,21 +179,25 @@ class RsCsaIadc(Iadc[RsCsaIadcConfig, RsCsaIadcPolicy]):
     ) -> Tensor:
         """Digitise a magnitude current: subtract the static offset, then quantize.
 
+        The analog machine is one fixed operating point: it runs its whole phase
+        set and window whatever ``bits`` is asked for. A resolution below
+        ``config.bits`` is realized by the owner decimating the decision ladder,
+        which widens the bin to ``2 ** (config.bits - bits)`` current steps and
+        drops the code's low bits.
+
         Args:
             i_in__uA: Non-negative magnitude current [uA]. Shape: arbitrary.
             i_refs__uA: Ascending decision ladder, ``[*R, 2 ** bits - 1]`` taps
-                (``c * i_lsb`` for ``c = 1 .. 2 ** bits - 1``); ``[*R]``
+                spaced by ``2 ** (config.bits - bits) * i_lsb``; ``[*R]``
                 right-broadcasts against ``i_in__uA``.
-            bits: Conversion resolution [bits]; the readout runs one fixed phase
-                set, so it must equal ``config.bits``.
+            bits: Conversion resolution [bits] in ``[1, config.bits]``.
 
         Returns:
             Unsigned integer code [int16] in ``[0, 2 ** bits - 1]``, shaped
             like ``i_in__uA``.
         """
         config = self.config
-        if bits != config.bits:
-            raise ValueError(f"require: bits ({bits}) == config.bits ({config.bits}); the phase set is fixed")
+        self._check_bits(bits)
         n_taps = int(i_refs__uA.shape[-1])
         if n_taps != (1 << bits) - 1:
             raise ValueError(f"require: i_refs__uA n_taps ({n_taps}) == 2**bits - 1 ({(1 << bits) - 1})")
@@ -200,7 +213,7 @@ class RsCsaIadc(Iadc[RsCsaIadcConfig, RsCsaIadcPolicy]):
             i_refs__uA,
             out_dtype=torch.int16,
             training=False,
-            lsb=config.i_lsb__uA,
+            lsb=config.i_lsb__uA * (1 << (config.bits - bits)),
         )
         max_code = (1 << bits) - 1
         code = code.clamp(min=0, max=max_code)
