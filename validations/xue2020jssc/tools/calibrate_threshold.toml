@@ -1,8 +1,9 @@
 # Run-config for neurox.tools.calibrate_adc.threshold_probe on the xue2020jssc macro.
 #
 # Stage 1 of the ADC pipeline: probe the analog I_SUB band the TMCSA sees at every
-# integer per-conversion MAC magnitude |M| in [0, m_max] and place the mid-point
-# threshold ladder (one i_refs__uA reference-config row per adc_mode).
+# ADC input code (the per-conversion MAC magnitude |M|) the mode's window reaches
+# and place the mid-point threshold ladder (one i_refs__uA reference-config row
+# per quantization mode).
 #
 # Divisibility: the generic threshold_probe stimulus battery (grid_block_w /
 # sample_capped_block_w / saturating_w) and its sub-phase unrolling (_unroll_sub_phase)
@@ -36,7 +37,7 @@ policy_file = "../policy.toml"
 policy_section = "policy"
 
 [probe]
-adc_mode = 0                      # single mode; the captured analog input is mode-independent
+quantization_mode = 0             # single mode; the captured analog input is mode-independent
 
 [stimulus]
 seed = 0

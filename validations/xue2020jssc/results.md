@@ -1,12 +1,12 @@
 # xue2020jssc validation -- total energy per access
 
-Energy-basis profiler run for `params.toml` + `policy.toml`. N = 102400 draws (3276800 accesses), seed 0, run p_zero = 0.353 (marginal P(x=0) = 0.515); anchors-declared workload p_zero = 0.35. Accumulated over 10 chunks (relative std of the chunk totals = 0.13 %).
+Energy-basis profiler run for `params.toml` + `policy.toml` on cuda:1. n_w = 64 weight draws x n_x = 256 inputs x 8 rounds = 131072 draws (4194304 accesses), seed 0, run p_zero = 0.348 (marginal P(x=0) = 0.511); anchors-declared workload p_zero = 0.35. Pooled over 8 rounds (relative std of the round totals = 0.22 %).
 
 ## Hard gate -- total energy per access
 
-Target 32.06 pJ/access (= 5.13 mW / 8 / 20 MHz); +-5%. At this run's p_zero = 0.353 (marginal P(x=0) = 0.515): result **32.063 pJ/access = 1.000x** +- 0.13 % (chunk-total relative std over 10 chunks) (err +0.0%), within +-5%: yes.
+Target 32.06 pJ/access (= 5.13 mW / 8 / 20 MHz); +-5%. At this run's p_zero = 0.348 (marginal P(x=0) = 0.511): result **32.127 pJ/access = 1.002x** +- 0.22 % (round-total relative std over 8 rounds) (err +0.2%), within +-5%: yes.
 
-The anchors-declared workload sparsity is p_zero = 0.35 (marginal P(x=0) ~= 0.515), motivated INDEPENDENTLY by typical ~50%-zero post-ReLU CNN activations -- NOT tuned to pass.
+The anchors-declared workload sparsity is p_zero = 0.35 (marginal P(x=0) ~= 0.511), motivated INDEPENDENTLY by typical ~50%-zero post-ReLU CNN activations -- NOT tuned to pass.
 
 ## Energy breakdown (informational -- NOT gated)
 
@@ -14,14 +14,14 @@ The anchors-declared workload sparsity is p_zero = 0.35 (marginal P(x=0) ~= 0.51
 |---|--:|--:|--:|--:|--:|:--|
 | control |    9.362 |   9.362 |  0.000 |    9.362 |  1.00x | adopted |
 | reference |    7.599 |   0.000 |  7.599 |    7.598 |  1.00x | adopted |
-| cablc+dswct |    8.466 |   8.466 |  0.000 |    8.464 |  1.00x | physics pair |
-| sinwp_sc+pn_isub |    3.653 |   3.653 |  0.000 |    3.655 |  1.00x | physics pair |
-| tmcsa |    2.983 |   2.983 |  0.000 |    2.982 |  1.00x | physics |
-| cablc |    6.228 |   6.228 |  0.000 |     -    |   -    | pair member |
-| dswct |    2.238 |   2.238 |  0.000 |     -    |   -    | pair member |
-| sinwp_sc |    1.709 |   1.709 |  0.000 |     -    |   -    | pair member |
-| pn_isub |    1.944 |   1.944 |  0.000 |     -    |   -    | pair member |
-| **TOTAL (gated)** | **  32.063** |  24.464 |  7.599 | **  32.060** | **1.000x** | PASS (+-5%, err +0.0%) |
+| cablc+dswct |    8.510 |   8.510 |  0.000 |    8.464 |  1.01x | physics pair |
+| sinwp_sc+pn_isub |    3.671 |   3.671 |  0.000 |    3.655 |  1.00x | physics pair |
+| tmcsa |    2.985 |   2.985 |  0.000 |    2.982 |  1.00x | physics |
+| cablc |    6.258 |   6.258 |  0.000 |     -    |   -    | pair member |
+| dswct |    2.251 |   2.251 |  0.000 |     -    |   -    | pair member |
+| sinwp_sc |    1.718 |   1.718 |  0.000 |     -    |   -    | pair member |
+| pn_isub |    1.954 |   1.954 |  0.000 |     -    |   -    | pair member |
+| **TOTAL (gated)** | **  32.127** |  24.528 |  7.599 | **  32.060** | **1.002x** | PASS (+-5%, err +0.2%) |
 
 The read-path slices are pure physics (g_map, V_BLC, conduction windows -- all declared); control + reference are the two ADOPTED Fig.18 seats. Paired-slice caliber: the paper splits one series input branch at node V_CMD (drain of the DSWCT current-mirror input, Fig.9(a)) between DSWCT and CABLC, and one series sink branch between SINWP-SC (its sink transistors) and PN-ISUB (switches + comparator + isub); the internal node voltages are unpublished, so only the pair sums (cablc+dswct vs 26.4 %, sinwp_sc+pn_isub vs 11.4 %) are well-defined targets -- the member rows are informational. Differences from Fig.18 x 32.06 pJ are reported, not gated.
 

@@ -1,19 +1,20 @@
-# ADC mode set for the xue2020jssc sub-array -- the single source consumed by
-# calibrate_adc.threshold_probe (grid top per mode) and calibrate_adc.rescale_fit
-# (mode list + per-mode fit window). This scheme has ONE ADC operating mode
-# (reference_config.mode_num = 1): a 3-bit unsigned-magnitude TMCSA whose signed
-# MAC magnitude the sign bit recovers outside the ADC.
+# Quantization mode set for the xue2020jssc sub-array -- the single source
+# consumed by calibrate_adc.threshold_probe (window per mode) and
+# calibrate_adc.rescale_fit (mode list + per-mode fit window). This scheme has ONE
+# mode (reference_config.mode_num = 1): a 3-bit unsigned-magnitude TMCSA whose
+# signed MAC the sign bit recovers outside the ADC.
 #
-# range = 7.0: the 3-bit magnitude ADC represents |code| in [0, 7], so the mode's
-# grid top m_max = ceil(range) = 7 -> threshold_probe places exactly
-# 2**n_bits - 1 = 7 mid-point taps (matching reference_config.tap_num). A single
-# placeholder layer maps onto the mode (a full deployment mode set is a
-# consumer-side mode_derive artifact; this scheme calibrates its lone mode).
+# quantization_input_range = [-8, 7]: the canonical mid-zero window holding the
+# attainable signed output +-7 (the -8 level is a phantom the sign-magnitude
+# encoding never emits). The converter discriminates the magnitude, whose grid
+# tops out at 7, so threshold_probe places exactly 2**n_bits - 1 = 7 mid-point
+# taps (matching reference_config.tap_num). A single placeholder layer maps onto
+# the mode (a full deployment mode set is a consumer-side mode_derive artifact;
+# this scheme calibrates its lone mode).
 
 [[modes]]
-adc_mode = 0
-signed = true                     # the MAC is signed; the ADC digitizes its magnitude
-range = 7.0                       # 3-bit magnitude full scale -> m_max = 7 = tap count
+quantization_mode = 0
+quantization_input_range = [-8, 7]
 layer_num = 1
 
 [layers]

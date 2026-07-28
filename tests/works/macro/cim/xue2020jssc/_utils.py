@@ -50,14 +50,13 @@ from neurox.primitive.analog import (
     VrefConfig,
     VrefPolicy,
 )
-from neurox.primitive.analog.adc_common import AdcCalibrationRecord
 from neurox.primitive.analog.current_adc import (
     SarIadcConfig,
     SarIadcPolicy,
 )
 from neurox.primitive.analog.current_adc.base import IadcProber
 from neurox.primitive.analog.voltage_dac import GeneralVdacConfig, GeneralVdacPolicy
-from neurox.primitive.macro.cim import CimMacro
+from neurox.primitive.macro.cim import CimMacro, CimMacroMode
 from neurox.primitive.xbar.array import XbarArray1t1rConfig, XbarArray1t1rPolicy
 from neurox.primitive.xbar.cell import XbarCell1t1rLinearConfig, XbarCell1t1rLinearPolicy
 from neurox.primitive.xbar.solver import NestedParallelRailSolverConfig
@@ -83,7 +82,7 @@ TINY_MUX_FACTOR = 2  # io_num = output_num // mux_factor = 2
 TINY_K = 2  # input_bit_num: two serial WL sub-phases, LSB first
 TINY_ADC_BITS = 3
 MAG_MAX = (1 << TINY_ADC_BITS) - 1  # 7 — the 3-bit magnitude saturation
-ADC_MODE = 0  # witness operating mode (single-mode reference)
+QUANTIZATION_MODE = 0  # witness operating mode (single-mode reference)
 
 _DTYPE = torch.float64  # analytic near-ideal chain: double precision keeps the ladder crisp
 _G_LRS__uS = 100.0
@@ -113,6 +112,22 @@ class _BuildConfigKwargs(TypedDict, total=False):
 def _default_ref_levels(adc_bits: int) -> tuple[float, ...]:
     """Placeholder strictly-increasing single-mode ladder (``2**adc_bits - 1`` taps)."""
     return tuple(float(k) for k in range(1, 1 << adc_bits))
+
+
+def _default_mode(adc_bits: int) -> CimMacroMode:
+    """The witness's single quantization mode at ``adc_bits`` magnitude resolution.
+
+    The sign-magnitude readout attains ``+-(2**adc_bits - 1)``, so the canonical
+    mid-zero window holding it is ``[-2**adc_bits, 2**adc_bits - 1]`` (its bottom
+    level is the phantom the encoding never emits) and the converter's own input
+    code grid is the magnitude range ``[0, 2**adc_bits - 1]``. The mid-point
+    ladder makes the code the MAC magnitude itself, so the rescale factor is 1.
+    """
+    return CimMacroMode(
+        quantization_input_range=(-(1 << adc_bits), (1 << adc_bits) - 1),
+        adc_input_code_range=(0, (1 << adc_bits) - 1),
+        max_bits_rescale_factor=1.0,
+    )
 
 
 def _linear_cell_config() -> XbarCell1t1rLinearConfig:
@@ -295,7 +310,7 @@ def build_config(
             area_per_inst__um2=0.0,
             leakage_per_inst__uW=5.0,
         ),
-        adc_calibration=(AdcCalibrationRecord(mode=0, bits=adc_bits, rescale_factor=1.0),),
+        modes=(_default_mode(adc_bits),),
     )
 
 
@@ -388,7 +403,7 @@ def probe_i_sub_grid(macro: Xue2020JsscCimMacro, *, m_max: int) -> list[float]:
         assert remaining == 0, f"cannot reach MAC {m} with {row_num} rows of max {x_max}"
 
     with IadcProber() as probe, torch.no_grad():
-        macro.vec_mat_mul(x, adc_mode=ADC_MODE, adc_bits=TINY_ADC_BITS)
+        macro.vec_mat_mul(x, quantization_mode=QUANTIZATION_MODE, adc_bits=TINY_ADC_BITS)
     # One convert per vec_mat_mul; i_in__uA is the pre-ADC magnitude I_SUB.
     i_sub = probe.records[-1].i_in__uA  # [m_max + 1, group_size, group_num]
     return [float(v) for v in i_sub[:, 0, 0].cpu()]
@@ -446,7 +461,7 @@ def decode(
     w_signed: Tensor,
     x: Tensor,
     *,
-    adc_mode: int = ADC_MODE,
+    quantization_mode: int = QUANTIZATION_MODE,
     adc_bits: int = TINY_ADC_BITS,
 ) -> Tensor:
     """Program logical weights and run one VMM.
@@ -456,5 +471,5 @@ def decode(
     device = macro_device(macro)
     macro.program(w_signed.to(device))
     with torch.no_grad():
-        out = macro.vec_mat_mul(x.to(device), adc_mode=adc_mode, adc_bits=adc_bits)
+        out = macro.vec_mat_mul(x.to(device), quantization_mode=quantization_mode, adc_bits=adc_bits)
     return out.cpu()

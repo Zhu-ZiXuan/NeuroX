@@ -20,8 +20,10 @@ TMCSA module policies.
 And against the VALIDATION CONTRACT the campaign encodes:
 
   * the harness is SELF-CONTAINED — it resolves the three TOML artifacts as fixed
-    files beside itself and exposes only run knobs on the CLI, so no config or
-    workload value can be injected at the command line,
+    files beside itself and exposes only the round-sampling run knobs on the CLI
+    (``--n-w`` / ``--n-x`` / ``--repeat`` / ``--solve-chunk`` / ``--seed`` /
+    ``--device``), so no config or workload value can be injected at the command
+    line,
   * every provenance tag in ``params.toml`` / ``anchors.toml`` comes from the
     authoritative legend in ``docs/validation/campaigns.md``,
   * the paired-slice aggregation law holds on a hand-built witness.
@@ -66,10 +68,26 @@ _TAG_PATTERN = re.compile(r"\[(measured|derived|transcribed|assumed|bound-derive
 # The retired scheme-local vocabulary; no shipped artifact may still speak it.
 _LEGACY_TAG_PATTERN = re.compile(r"\[(sourced|declared|adopted|uncertain)\b[^\]]*\]")
 
+# The round-sampling run knobs: how many weight programs and input vectors a
+# round draws, how many rounds pool, the array solve chunk, the seed, the device.
+_REQUIRED_CLI_OPTIONS = ("--n-w", "--n-x", "--repeat", "--solve-chunk", "--seed", "--device")
+
 # CLI options the self-contained harness must NOT expose: a config artifact or a
 # declared workload value injected at the command line would leave the campaign
-# reading something other than the shipped design point.
-_BANNED_CLI_OPTIONS = ("--params", "--policy", "--anchors", "--report", "--p-zero")
+# reading something other than the shipped design point, and the retired sampling
+# knobs (``--n`` / ``--batch`` / ``--chunk-size``) and the retired ``--sweep``
+# must not come back alongside the round knobs.
+_BANNED_CLI_OPTIONS = (
+    "--params",
+    "--policy",
+    "--anchors",
+    "--report",
+    "--p-zero",
+    "--n",
+    "--batch",
+    "--chunk-size",
+    "--sweep",
+)
 
 
 @pytest.fixture(autouse=True)
@@ -111,6 +129,14 @@ def test_params_config_parses_and_builds() -> None:
         )
     # Control caliber law: pure per-op (100 % dynamic) — the static seat is zero.
     assert config.control_config.leakage_per_inst__uW == 0.0
+    # One declared quantization mode per threshold ladder row; each window is
+    # canonical (CimMacroMode validates that on construction) and the shipped
+    # sign-magnitude readout declares a mid-zero window.
+    assert len(config.modes) == config.reference_config.mode_num
+    for mode in config.modes:
+        lower, upper = mode.quantization_input_range
+        assert lower == -upper - 1
+        assert mode.max_bits_rescale_factor > 0.0
     # The CABLC reference is the macro's own dedicated single-tap source.
     assert isinstance(config.cablc_vref_config, VrefConfig)
     assert len(config.cablc_vref_config.v_refs__V) == 1
@@ -210,8 +236,10 @@ def test_validate_harness_is_self_contained() -> None:
     """The three TOML artifacts are FIXED files beside the script; the CLI carries run knobs only.
 
     The harness resolves ``params.toml`` / ``policy.toml`` / ``anchors.toml``
-    relative to itself, so a campaign run always reads the shipped design point,
-    and it emits everything through ``logging`` — no bare ``print``.
+    relative to itself, so a campaign run always reads the shipped design point;
+    its whole CLI surface is the round-sampling run knobs, so neither a config
+    artifact nor the declared workload ``p_zero`` can be injected at the command
+    line; and it emits everything through ``logging`` — no bare ``print``.
     """
     validate = _load_validate_module()
 
@@ -224,6 +252,8 @@ def test_validate_harness_is_self_contained() -> None:
         assert constant.is_file()
 
     source = (_VALIDATIONS_DIR / "validate.py").read_text()
+    for option in _REQUIRED_CLI_OPTIONS:
+        assert f'"{option}"' in source, f"validate.py no longer exposes the run knob {option}"
     for option in _BANNED_CLI_OPTIONS:
         assert f'"{option}"' not in source, f"validate.py still injects {option} on the command line"
     assert "print(" not in source, "validate.py must report through logging, not print"

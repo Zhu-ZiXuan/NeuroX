@@ -14,10 +14,14 @@ config (``_utils.build_config``):
   * the derived DSWCT / SINWP-SC ratio anchors and the conduction-window laws
     (``t_other``, ``window_array``, ``window_sc``) as laws — checked over two
     distinct window parameterisations,
-  * the logical value-domain contract and ADC mode / bit surface,
+  * the logical value-domain contract and the quantization surface: the
+    published windows, the mode-index guard, the ``r_b = r_B * 2**(B - b)``
+    rescale law with its lossless-oracle sentinel, the magnitude input-code
+    map, and the one-bit-wider ideal twin,
   * config validation rejects the exact-reshape ``output_num % mux_factor``
-    violation, a ``w_digit_radix < 2`` weight structure, and a ``t_sample__ns``
-    length that is not ``input_bit_num - 1``,
+    violation, a ``w_digit_radix < 2`` weight structure, a ``t_sample__ns``
+    length that is not ``input_bit_num - 1``, and a mode count that does not
+    match the reference ladder rows,
   * the GENERALIZED weight / input geometry — no fixed ``w_digit_num`` or
     ``w_digit_radix`` is imposed: ``w_digit_num = 1`` (a single P/N digit,
     ratios degenerate to the MSB anchor), ``w_digit_num = 3``, and
@@ -184,11 +188,76 @@ def test_value_domain_contract() -> None:
     assert macro.x_value_range == (0, (1 << config.input_bit_num) - 1) == (0, 3)
     assert macro.w_value_range == (-3, 3)
     assert macro.adc_max_bits == config.adc_config.bits == TINY_ADC_BITS
-    assert macro.adc_mode_num == config.reference_config.mode_num == 1
-    for mode in range(config.reference_config.mode_num):
-        assert macro.adc_rescale_factor(adc_mode=mode, adc_bits=config.adc_config.bits) > 0.0
-    with pytest.raises(KeyError, match="adc_calibration"):
-        macro.adc_rescale_factor(adc_mode=config.reference_config.mode_num, adc_bits=config.adc_config.bits)
+    # One published window per declared mode; the mode count IS the ladder-row count.
+    assert macro.quantization_input_ranges == tuple(m.quantization_input_range for m in config.modes)
+    assert len(macro.quantization_input_ranges) == config.reference_config.mode_num == 1
+
+
+def test_quantization_mode_out_of_range_rejected() -> None:
+    """Every mode-indexed entry point rejects an index outside the declared modes."""
+    macro = build_macro(build_config())
+    beyond = len(macro.quantization_input_ranges)
+    with pytest.raises(ValueError, match="quantization_mode"):
+        macro.rescale_factor(quantization_mode=beyond, adc_bits=macro.adc_max_bits)
+    with pytest.raises(ValueError, match="quantization_mode"):
+        macro.map_quantization_input_code(torch.zeros(2, dtype=torch.long), quantization_mode=beyond)
+
+
+def test_rescale_factor_bit_width_law() -> None:
+    """``r_b = r_B * 2**(B - b)``: dropping a bit doubles what one code carries."""
+    macro = build_macro(build_config())
+    max_bits = macro.adc_max_bits
+    r_max = macro.rescale_factor(quantization_mode=0, adc_bits=max_bits)
+    assert r_max > 0.0
+    for bits in range(1, max_bits):
+        assert macro.rescale_factor(quantization_mode=0, adc_bits=bits) == pytest.approx(
+            r_max * 2.0 ** (max_bits - bits)
+        )
+    # The lossless oracle sits outside the chain, and a converting width beyond
+    # the physical resolution has no meaning.
+    assert macro.rescale_factor(quantization_mode=0, adc_bits=None) == 1.0
+    with pytest.raises(ValueError, match="adc_bits"):
+        macro.rescale_factor(quantization_mode=0, adc_bits=max_bits + 1)
+
+
+def test_quantization_input_code_map_is_magnitude() -> None:
+    """The sign-magnitude readout discriminates ``|code|`` over its ladder span."""
+    config = build_config()
+    macro = build_macro(config)
+    code = torch.tensor([-5, -1, 0, 3], dtype=torch.long)
+    mapped, code_range = macro.map_quantization_input_code(code, quantization_mode=0)
+    assert torch.equal(mapped, code.abs())
+    # Circuit knowledge, declared by config: the taps span the magnitudes the
+    # TMCSA resolves, not the window's own span — the sign never enters the
+    # converter, so a mid-zero window is twice as wide as the code axis.
+    window_lower, window_upper = config.modes[0].quantization_input_range
+    assert code_range == config.modes[0].adc_input_code_range
+    assert code_range != (0, window_upper - window_lower)
+
+
+def test_ideal_twin_is_one_bit_wider() -> None:
+    """The sign-magnitude twin publishes ``adc_max_bits + 1`` signed bits, same windows.
+
+    A sign plus B magnitude bits spans a signed code range a zero-point
+    quantizer only reaches at B + 1 bits; the twin inherits every other domain.
+    """
+    config = build_config()
+    macro = build_macro(config)
+    twin = macro.to_ideal()
+    assert twin.adc_max_bits == macro.adc_max_bits + 1
+    assert twin.quantization_input_ranges == macro.quantization_input_ranges
+    assert twin.x_value_range == macro.x_value_range
+    assert twin.w_value_range == macro.w_value_range
+    assert twin.max_active_num == macro.max_active_num
+    # The twin is the rescale reference: its own codes need no correction.
+    assert twin.rescale_factor(quantization_mode=0, adc_bits=twin.adc_max_bits) == 1.0
+
+
+def test_validate_rejects_mode_count_mismatch() -> None:
+    """A mode is one threshold ladder row: ``len(modes) == reference_config.mode_num``."""
+    config = build_config()
+    with pytest.raises(ValueError, match="len\\(modes\\)"):
+        dataclasses.replace(config, modes=(*config.modes, *config.modes))
 
 
 # ---------------------------------------------------------------------------

@@ -89,15 +89,18 @@ area_per_inst__um2 = 0.0
 leakage_per_inst__uW = 0.0
 
 
-# --- ADC ``(mode, bits) -> rescale_factor`` lookup (macro-level) ---
-# The TMCSA is a 3-bit unsigned-magnitude quantizer; the rescale maps its integer
-# code back to the ideal MAC magnitude. Single nominal operating point (mode=0,
-# bits=3; reference mode_num = 1). [assumed] 1.0 -- the mid-point thresholds
-# are sized so the code IS the integer MAC magnitude.
-[[cim_macro.adc_calibration]]
-mode = 0
-bits = 3
-rescale_factor = 1.0
+# --- Quantization modes (macro-level; one entry per reference ladder row) ---
+# The TMCSA is a 3-bit unsigned-magnitude quantizer behind a sign bit, so the
+# attainable signed output is +-7 and the canonical mid-zero window that holds it
+# is [-8, 7] (the -8 level is a phantom the sign-magnitude encoding never emits).
+# The converter itself discriminates magnitudes over its seven taps, so the ADC
+# input code range is [0, 7]. Single operating point (reference mode_num = 1).
+# [assumed] rescale 1.0 -- the mid-point thresholds are sized so the code IS the
+# integer MAC magnitude, i.e. the macro's code already is the ideal macro's code.
+[[cim_macro.modes]]
+quantization_input_range = [-8, 7]
+adc_input_code_range = [0, 7]
+max_bits_rescale_factor = 1.0
 
 
 # ===========================================================================
@@ -130,29 +133,29 @@ col_cell_space__um = 0.040
 # Ohm = 2.0e-5 MOhm, cell-to-cell R = 5 Ohm = 5.0e-6 MOhm. The solver computes the
 # position-dependent IR drop; the Linear cell + wire R is a linear system (fast,
 # near-exact).
-# [calibrated] Wire caps (dynamic-energy only), solved at the S1 N=8192
-# conduction-row basis under the cablc+dswct pair caliber. The declared
-# per-segment relative structure is kept; one uniform scale x0.71949 (shared with
-# the cell node caps below) seats the array cap row at the whole pair-1 residual
-# 0.2601 pJ/access (26.4 % share minus the .cablc + dswct conduction; the dswct
-# c_load and any CMD per-op stay 0). Plausible at 55 nm: 0.1439 fF over the ~1 um
-# lead-in and 5.756 aF per 0.04 um cell pitch are both ~0.14 fF/um, inside the
-# 0.05-0.3 fF/um mid-metal band.
+# [calibrated] Wire caps (dynamic-energy only), solved at the round basis
+# (n_w 32 weight draws x n_x 256 inputs x 4 rounds, seed 0) under the
+# cablc+dswct pair caliber. The declared per-segment relative structure is kept;
+# one uniform scale x0.69561 (shared with the cell node caps below) seats the
+# array cap row at the whole pair-1 residual 0.2514 pJ/access (26.4 % share minus
+# the .cablc + dswct conduction; the dswct c_load and any CMD per-op stay 0).
+# Plausible at 55 nm: 0.1391 fF over the ~1 um lead-in and 5.565 aF per 0.04 um
+# cell pitch are both ~0.14 fF/um, inside the 0.05-0.3 fF/um mid-metal band.
 bl_first_r__MOhm = 2.0e-5
-bl_first_c__fF = 0.143898
+bl_first_c__fF = 0.1391216
 bl_segment_r__MOhm = 5.0e-6
-bl_segment_c__fF = 0.00575592
+bl_segment_c__fF = 0.0055648638
 sl_first_r__MOhm = 2.0e-5
-sl_first_c__fF = 0.143898
+sl_first_c__fF = 0.1391216
 sl_segment_r__MOhm = 5.0e-6
-sl_segment_c__fF = 0.00575592
+sl_segment_c__fF = 0.0055648638
 # WL is gate-only (carries no DC current); R is nominal (positive) and only its
 # cap cycles. [assumed] R same-class estimate; caps under the same
-# [calibrated] x0.71949 campaign scale.
+# [calibrated] x0.69561 campaign scale.
 wl_first_r__MOhm = 2.0e-5
-wl_first_c__fF = 0.143898
+wl_first_c__fF = 0.1391216
 wl_segment_r__MOhm = 5.0e-6
-wl_segment_c__fF = 0.00575592
+wl_segment_c__fF = 0.0055648638
 
 
 # ---------------------------------------------------------------------------
@@ -164,15 +167,16 @@ wl_segment_c__fF = 0.00575592
 _neurox_class = "XbarCell1t1rLinearConfig"
 
 # --- Per-cell node-to-ground capacitances [fF] ---
-# [calibrated] Solved at the S1 N=8192 conduction-row basis under the cablc+dswct
-# pair caliber: the declared per-node relative structure is kept, and the same
-# uniform x0.71949 scale as the wire caps seats the array cap row at the pair-1
-# residual. Plausible at 55 nm: 0.07-0.22 fF junction / RRAM-electrode / gate node
-# caps (the gate at the low edge, a near-minimum access device).
-c_bl__fF = 0.143898
-c_x__fF = 0.215847
-c_sl__fF = 0.071949
-c_wl__fF = 0.143898
+# [calibrated] Solved at the round basis (n_w 32 x n_x 256 x 4 rounds, seed 0)
+# under the cablc+dswct pair caliber: the declared per-node relative structure is
+# kept, and the same uniform x0.69561 scale as the wire caps seats the array cap
+# row at the pair-1 residual. Plausible at 55 nm: 0.07-0.21 fF junction /
+# RRAM-electrode / gate node caps (the gate at the low edge, a near-minimum
+# access device).
+c_bl__fF = 0.1391216
+c_x__fF = 0.20868239
+c_sl__fF = 0.069560798
+c_wl__fF = 0.1391216
 
 # --- Chord conductance tables [uS], indexed by weight-state (0 = HRS, 1 = LRS) ---
 # WL off cuts the access transistor -> only the tiny off-branch leakage conducts;
@@ -329,17 +333,18 @@ coupling_mismatch_sigma__uA = 0.0
 # i_ref_path[s]) over t_ph3[s], plus e_fixed per step. The per-step reference
 # path is recovered from the final code through the structural tap LUT.
 [cim_macro.tmcsa_config]
-# [calibrated] Solved against the tmcsa 9.3 % slice = 2.9818 pJ/access at the S1
-# N=8192 conduction-row basis, jointly with e_fixed_per_op below. The Fig.10(b)
-# as-drawn PH2:PH3 ratio 92:158 is kept (PH2 < PH3; the paper gives no numeric
-# phase data); both windows scale x1.54371 above the as-drawn widths (~0.278 /
-# ~0.463 of the sourced steps 3.16, 3.07, 3.11), so PH2+PH3 occupy 74.1 % of each
-# step and PH1/PH4 the rest (per step t_ph2 + t_ph3 <= step_latency holds).
-# TENSION vs the as-drawn 48 % occupancy: with e_fixed at its ~150 fJ/step
-# plausibility ceiling the slice cannot close at the as-drawn widths (that would
-# need e_fixed = 185 fJ); the window widening is the residual compromise.
-t_ph2_per_step__ns = [0.878372, 0.853672, 0.864478]
-t_ph3_per_step__ns = [1.463438, 1.421758, 1.440282]
+# [calibrated] Solved against the tmcsa 9.3 % slice = 2.9816 pJ/access at the
+# round basis (n_w 32 x n_x 256 x 4 rounds, seed 0), jointly with e_fixed_per_op
+# below. The Fig.10(b) as-drawn PH2:PH3 ratio 92:158 is kept (PH2 < PH3; the
+# paper gives no numeric phase data); both windows scale x1.54401 above the
+# as-drawn widths (~0.278 / ~0.463 of the sourced steps 3.16, 3.07, 3.11), so
+# PH2+PH3 occupy 74.1 % of each step and PH1/PH4 the rest (per step t_ph2 + t_ph3
+# <= step_latency holds). TENSION vs the as-drawn 48 % occupancy: with e_fixed at
+# its ~150 fJ/step plausibility ceiling the slice cannot close at the as-drawn
+# widths (that would need e_fixed = 185 fJ); the window widening is the residual
+# compromise.
+t_ph2_per_step__ns = [0.878232, 0.853219, 0.864336]
+t_ph3_per_step__ns = [1.463719, 1.422031, 1.440559]
 # [calibrated] Same joint fit: data-independent per conversion-STEP constant
 # (each step's PH4 latch + coupling-cap events; the PH1 bias conduction folded
 # here), seated at the top of its plausibility band (latch + coupling caps +
@@ -411,14 +416,14 @@ c_load__fF = 0.0
 # Self-bills its held/live leg conduction (suffix-sum window) on its own module
 # row; the bit ratios derive from sc_ratio_msb above.
 [cim_macro.sinwp_sc_config]
-# [calibrated] Sample-and-hold cap per combine leg, solved at the S1 N=8192
-# conduction-row basis under the sinwp_sc+pn_isub pair caliber. The pair-2
-# residual 0.2498 pJ/access (11.4 % share minus the leg + 3-branch conduction)
-# minus the kept 5 fJ comparator per-op (0.020 pJ/access) seats the cap term:
-# 16 c_hold*v_dd^2 events per access (x_bits x slot x IO x P/N) -> c_hold =
-# 14.3614 fF. Plausible at 55 nm: inside the 10-100 fF S/H band; kT/C ~ 0.54 mV
-# rms at 300 K.
-c_hold__fF = 14.3614
+# [calibrated] Sample-and-hold cap per combine leg, solved at the round basis
+# (n_w 32 x n_x 256 x 4 rounds, seed 0) under the sinwp_sc+pn_isub pair caliber.
+# The pair-2 residual 0.2300 pJ/access (11.4 % share minus the leg + 3-branch
+# conduction, the kept 5 fJ comparator per-op staying inside the measured PN-ISUB
+# row) seats the cap term: 16 c_hold*v_dd^2 events per access (x_bits x IO x P/N)
+# -> c_hold = 14.3768 fF. Plausible at 55 nm: inside the 10-100 fF S/H band;
+# kT/C ~ 0.54 mV rms at 300 K.
+c_hold__fF = 14.3768
 area_per_inst__um2 = 0.0
 # [assumed] Read-path static seat = 0: declared small/zero, not solved.
 leakage_per_inst__uW = 0.0

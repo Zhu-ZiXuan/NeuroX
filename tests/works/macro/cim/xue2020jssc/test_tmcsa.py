@@ -1,10 +1,11 @@
 """Laws for the scheme-local TMCSA phase-resolved conversion-billing module.
 
-Hand-built tiny witness, eager, CPU. Four laws:
+Hand-built tiny witness, eager, CPU. Five laws:
 
   * SHAPE LAW: ``inst_count`` derives from the ``(gn,)`` fabrication shape and
-    the static PPA seats scale with it; ``bits`` derives from the phase-window
-    list length; forward is billing-only (returns ``None``, value untouched).
+    the static PPA seats scale with it; ``max_bits`` derives from the
+    phase-window list length; forward is billing-only (returns ``None``, value
+    untouched).
   * LUT CONSISTENCY LAW (mandatory): the structural code -> reference-tap LUT
     equals the kernel SarIadc's ACTUAL ``_select_ref`` binary-search sequence,
     replayed step by step for EVERY final unsigned code under an all-off
@@ -16,9 +17,13 @@ Hand-built tiny witness, eager, CPU. Four laws:
     + 2 * (i_sub + i_ref_path[s]) * t_ph3[s]) + e_fixed * bits`` per
     converted element, with ``i_ref_path[s]`` looked up from the final code —
     and no latency event is emitted (the macro is the sole emitter).
+  * LOWERED-BIT LAW: a ``b``-bit conversion decimates the max-bits ladder, so
+    it bills the LEADING ``b`` phase windows at the up-shifted code — checked
+    against the max-bits call with the trailing windows zeroed, not against a
+    restated formula.
   * GUARDS: mismatched phase-window list lengths and negative entries are
-    rejected at config time; a code/input shape mismatch and a wrong ladder
-    tap count are rejected at call time.
+    rejected at config time; a code/input shape mismatch, a wrong ladder tap
+    count, and a ``bits`` outside ``[1, max_bits]`` are rejected at call time.
 """
 
 from __future__ import annotations
@@ -113,7 +118,7 @@ def test_shape_law() -> None:
     module = _build()
     assert module.inst_shape == (_GN,)
     assert module.inst_count == _GN
-    assert module.bits == _BITS
+    assert module.max_bits == _BITS
     assert module.area__um2 == pytest.approx(_AREA_PER_INST__um2 * _GN)
     assert module.leakage__uW == pytest.approx(_LEAKAGE_PER_INST__uW * _GN)
 
@@ -124,7 +129,7 @@ def test_forward_is_billing_only() -> None:
     i_sub = torch.tensor([[[1.5, 2.5], [0.5, 6.5]]], dtype=_DTYPE)  # [1, serial, gn]
     code = torch.tensor([[[1, 2], [0, 6]]], dtype=torch.long)
     refs = torch.tensor(_LADDER, dtype=_DTYPE)
-    assert module(i_sub, code, refs) is None
+    assert module(i_sub, code, refs, bits=_BITS) is None
 
 
 # ---------------------------------------------------------------------------
@@ -190,7 +195,7 @@ def test_phase_billing_law_hand_computed() -> None:
     refs = torch.tensor(_LADDER, dtype=_DTYPE)
 
     with NeuroxProfiler() as prof, torch.no_grad():
-        module(i_sub, code, refs)
+        module(i_sub, code, refs, bits=_BITS)
 
     expected = 0.0
     for i_val, c_val in zip(i_sub.flatten().tolist(), code.flatten().tolist(), strict=True):
@@ -209,12 +214,66 @@ def test_phase_billing_law_hand_computed() -> None:
     assert report.energy_by_name == {"": pytest.approx(expected, rel=1e-12)}
 
 
+def _bill(module: Tmcsa, i_sub: torch.Tensor, code: torch.Tensor, refs: torch.Tensor, *, bits: int) -> float:
+    """Total dynamic energy [fJ] one billing call records."""
+    with NeuroxProfiler() as prof, torch.no_grad():
+        module(i_sub, code, refs, bits=bits)
+    return float(prof.total_dynamic_energy__fJ)
+
+
+def test_lowered_bits_bills_the_leading_steps_at_the_up_shifted_code() -> None:
+    """A ``b``-bit conversion bills the FIRST ``b`` steps at the code it decimates from.
+
+    Bits ``b`` keeps every ``2**(B-b)``-th tap of the max-bits ladder, so its
+    search replays the leading ``b`` steps of the max-bits search and lands on
+    the max-bits code shifted down by ``B - b``. Cross-checked against the
+    max-bits call itself rather than a restated formula: run the up-shifted code
+    at max bits with the trailing phase windows zeroed — that isolates the same
+    leading steps — and discount the ``e_fixed`` of the steps a ``b``-bit
+    conversion never runs.
+    """
+    bits = _BITS - 1
+    shift = _BITS - bits
+    i_sub = torch.tensor([[[1.5, 2.5], [0.5, 6.5]]], dtype=_DTYPE)  # [1, serial, gn]
+    code = torch.tensor([[[0, 1], [2, 3]]], dtype=torch.long)  # b-bit codes
+    refs = torch.tensor(_LADDER, dtype=_DTYPE)  # always the FULL max-bits ladder
+
+    lowered = _bill(_build(), i_sub, code, refs, bits=bits)
+
+    leading_only = Tmcsa(
+        config=_config(
+            t_ph2__ns=_T_PH2__NS[:bits] + (0.0,) * shift,
+            t_ph3__ns=_T_PH3__NS[:bits] + (0.0,) * shift,
+        ),
+        policy=TmcsaPolicy(),
+        inst_shape=(_GN,),
+        v_dd__V=_V_DD__V,
+        dtype=_DTYPE,
+    )
+    leading_only.eval()
+    leading_only.fabricate()
+    full_width = _bill(leading_only, i_sub, code << shift, refs, bits=_BITS)
+
+    assert lowered == pytest.approx(full_width - _E_FIXED__fJ * shift * i_sub.numel(), rel=1e-12)
+
+
+def test_forward_rejects_bits_outside_the_phase_windows() -> None:
+    """``bits`` is the width actually converted: it must lie in ``[1, max_bits]``."""
+    module = _build()
+    i_sub = torch.tensor([[[1.5, 2.5], [0.5, 6.5]]], dtype=_DTYPE)
+    code = torch.tensor([[[1, 2], [0, 6]]], dtype=torch.long)
+    refs = torch.tensor(_LADDER, dtype=_DTYPE)
+    for bad in (0, _BITS + 1):
+        with pytest.raises(ValueError, match="bits"):
+            module(i_sub, code, refs, bits=bad)
+
+
 def test_billing_outside_profiler_is_silent() -> None:
     """forward outside a profiler records nothing and raises nothing."""
     module = _build()
     i_sub = torch.tensor([[[1.5, 2.5], [0.5, 6.5]]], dtype=_DTYPE)
     code = torch.tensor([[[1, 2], [0, 6]]], dtype=torch.long)
-    module(i_sub, code, torch.tensor(_LADDER, dtype=_DTYPE))
+    module(i_sub, code, torch.tensor(_LADDER, dtype=_DTYPE), bits=_BITS)
 
 
 # ---------------------------------------------------------------------------
@@ -239,6 +298,6 @@ def test_forward_rejects_shape_and_tap_mismatches() -> None:
     code = torch.tensor([[[1, 2], [0, 6]]], dtype=torch.long)
     refs = torch.tensor(_LADDER, dtype=_DTYPE)
     with pytest.raises(ValueError, match=r"code\.shape"):
-        module(i_sub, code[..., :1], refs)
+        module(i_sub, code[..., :1], refs, bits=_BITS)
     with pytest.raises(ValueError, match="n_taps"):
-        module(i_sub, code, refs[:-1])
+        module(i_sub, code, refs[:-1], bits=_BITS)

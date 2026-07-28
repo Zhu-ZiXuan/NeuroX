@@ -17,6 +17,8 @@ See also:
 
 from __future__ import annotations
 
+import dataclasses
+
 import torch
 from torch import Tensor
 
@@ -35,7 +37,6 @@ from neurox.primitive.analog import (
     VrefConfig,
     VrefPolicy,
 )
-from neurox.primitive.analog.adc_common import AdcCalibrationRecord
 from neurox.primitive.analog.current_adc import (
     SarIadc,
     SarIadcConfig,
@@ -45,7 +46,11 @@ from neurox.primitive.analog.voltage_dac import Vdac, VdacConfig, VdacPolicy
 from neurox.primitive.macro.cim import (
     CimMacro,
     CimMacroConfig,
+    CimMacroMode,
     CimMacroPolicy,
+    IdealCimMacro,
+    decimate_references,
+    map_magnitude_input_code,
 )
 from neurox.primitive.xbar.array import XbarArray1t1rConfig, XbarArray1t1rPolicy
 
@@ -151,11 +156,15 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
             are inert here). Its ``step_latency__ns`` stays the physical sensing
             duration and feeds the read-chain window :attr:`t_other__ns`.
         reference_config: Shared static Iref — the ``[mode, tap]`` threshold
-            bank; the macro selects one mode row and passes the per-instance
-            ladder straight to the ADC. ``tap_num == 2**adc_config.bits - 1``.
-        adc_calibration: Externally-calibrated ``(adc_mode, adc_bits) ->
-            rescale_factor`` records; ``M_ideal ~= code * rescale_factor`` applied
-            by the unit layer.
+            bank; the macro selects one mode row, decimates it to the requested
+            bit width, and passes the per-instance ladder straight to the ADC.
+            ``tap_num == 2**adc_config.bits - 1``.
+        modes: One :class:`CimMacroMode` per quantization mode, indexed by
+            ``quantization_mode``: the canonical MAC-unit conversion window, the
+            ADC input code range the magnitude converter discriminates, and the
+            calibrated rescale factor at ``adc_config.bits``. The count must
+            match ``reference_config.mode_num`` — one threshold ladder row per
+            mode.
     """
 
     # --- Weight / input geometry ---
@@ -197,8 +206,8 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
     adc_config: SarIadcConfig
     reference_config: IrefConfig
 
-    # --- ADC calibration ---
-    adc_calibration: tuple[AdcCalibrationRecord, ...]
+    # --- Quantization modes ---
+    modes: tuple[CimMacroMode, ...]
 
     @property
     def digit_ratios(self) -> tuple[float, ...]:
@@ -324,10 +333,11 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
                     f"adc_config.step_latency__ns[{s}] ({step}) — PH1/PH4 occupy the rest of the step"
                 )
 
-        # --- ADC reference and calibration ---
+        # --- ADC reference and quantization modes ---
 
         # The TMCSA reads its ladder from the shared Iref, so the tap
-        # count must match the binary-search depth exactly.
+        # count must match the binary-search depth exactly. Lower bit widths
+        # decimate this one max-bits ladder; they need no taps of their own.
         want_taps = (1 << self.adc_config.bits) - 1
         if self.reference_config.tap_num != want_taps:
             raise ValueError(
@@ -335,36 +345,14 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
                 f"2**adc_config.bits - 1 ({want_taps})"
             )
 
-        if len(self.adc_calibration) == 0:
-            raise ValueError("require: adc_calibration must contain at least one entry")
-        adc_max_bits = self.adc_config.bits
+        # Each CimMacroMode validates its own canonical window and positive
+        # rescale factor on construction; the macro pins the mode count against
+        # the reference bank, since a mode IS one ladder row.
         mode_num = self.reference_config.mode_num
-        seen: set[tuple[int, int]] = set()
-        for entry in self.adc_calibration:
-            key = (entry.mode, entry.bits)
-            if key in seen:
-                raise ValueError(f"adc_calibration has duplicate (adc_mode, adc_bits)={key}")
-            seen.add(key)
-            if not (entry.rescale_factor > 0.0):
-                raise ValueError(
-                    f"require: rescale_factor ({entry.rescale_factor}) > 0 for "
-                    f"(adc_mode={entry.mode}, adc_bits={entry.bits})"
-                )
-            if entry.bits != adc_max_bits:
-                raise ValueError(
-                    f"require: adc_calibration entry adc_bits ({entry.bits}) == "
-                    f"adc_config.bits ({adc_max_bits}); got (adc_mode={entry.mode}, adc_bits={entry.bits})"
-                )
-            if not (0 <= entry.mode < mode_num):
-                raise ValueError(
-                    f"require: adc_calibration entry adc_mode ({entry.mode}) in "
-                    f"[0, reference_config.mode_num ({mode_num}))"
-                )
-        calibrated_modes = {entry.mode for entry in self.adc_calibration}
-        missing = sorted(set(range(mode_num)) - calibrated_modes)
-        if missing:
+        if len(self.modes) != mode_num:
             raise ValueError(
-                f"require: adc_calibration covers every adc_mode in [0, {mode_num}); missing modes {missing}"
+                f"require: len(modes) ({len(self.modes)}) == reference_config.mode_num ({mode_num}) "
+                "— one declared quantization mode per threshold ladder row"
             )
 
 
@@ -487,7 +475,6 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         self._x_transcoder = TrueFormTranscoder(radix=2, digit_count=config.input_bit_num)
         self._init_children(dtype=dtype, T__K=T__K)
         self._register_model_buffers(dtype=dtype)
-        self._rescale_lut = {(e.mode, e.bits): e.rescale_factor for e in config.adc_calibration}
 
     def _init_children(self, *, dtype: torch.dtype, T__K: float) -> None:
         """Construct the array, readout chain, and static PPA seats."""
@@ -653,25 +640,73 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         return self._w_transcoder.value_range
 
     @property
-    def adc_mode_num(self) -> int:
-        """Number of ADC operating modes — the shared reference's ladder-row count."""
-        return self.config.reference_config.mode_num
+    def quantization_input_ranges(self) -> tuple[tuple[int, int], ...]:
+        """Canonical MAC-unit conversion window per declared quantization mode."""
+        return tuple(mode.quantization_input_range for mode in self.config.modes)
 
     @property
     def adc_max_bits(self) -> int:
         """Maximum ADC magnitude resolution [bits] — the TMCSA's ``bits``."""
         return self.config.adc_config.bits
 
-    def adc_rescale_factor(self, *, adc_mode: int, adc_bits: int) -> float:
-        """Rescale factor for ``(adc_mode, adc_bits)``; raises ``KeyError`` if uncalibrated."""
-        try:
-            return self._rescale_lut[(adc_mode, adc_bits)]
-        except KeyError:
-            available = sorted(self._rescale_lut)
-            raise KeyError(
-                f"(adc_mode={adc_mode}, adc_bits={adc_bits}) not in adc_calibration; "
-                f"available (adc_mode, adc_bits): {available}"
-            ) from None
+    def _mode(self, quantization_mode: int) -> CimMacroMode:
+        """Return one declared quantization mode.
+
+        Args:
+            quantization_mode: Mode index in ``[0, len(config.modes))``.
+
+        Raises:
+            ValueError: The index is outside the declared modes.
+        """
+        modes = self.config.modes
+        if not (0 <= quantization_mode < len(modes)):
+            raise ValueError(f"require: quantization_mode ({quantization_mode}) in [0, {len(modes)})")
+        return modes[quantization_mode]
+
+    def _max_bits_rescale_factor(self, quantization_mode: int) -> float:
+        """Return the calibrated rescale factor of one mode at :attr:`adc_max_bits`."""
+        return self._mode(quantization_mode).max_bits_rescale_factor
+
+    def map_quantization_input_code(self, code: Tensor, *, quantization_mode: int) -> tuple[Tensor, tuple[int, int]]:
+        """Map exact MAC-unit codes onto the sign-magnitude ADC input grid.
+
+        The PN-ISUB hands the TMCSA a single-ended magnitude, so the converter
+        discriminates ``|code|``. Its grid is the ladder itself, whose span the
+        config declares as the mode's ``adc_input_code_range`` — circuit
+        knowledge that does not follow the window width: a window whose top
+        magnitude exceeds the ladder simply saturates.
+
+        Args:
+            code: Exact integer plane dots.
+            quantization_mode: Mode index in ``[0, len(quantization_input_ranges))``.
+
+        Returns:
+            The magnitudes and the mode's declared ADC input code range.
+        """
+        mode = self._mode(quantization_mode)
+        magnitude, _ = map_magnitude_input_code(code, code_range=mode.quantization_input_range)
+        return magnitude, mode.adc_input_code_range
+
+    def to_ideal(self) -> IdealCimMacro:
+        """Return an ideal twin one bit wider than the TMCSA.
+
+        The readout resolves a sign plus ``adc_max_bits`` magnitude bits, a
+        signed span the zero-point twin only reaches at ``adc_max_bits + 1``
+        bits. The twin is unfaithful by design at the endpoints — it holds one
+        phantom bottom level and a single zero where the sign-magnitude
+        encoding wastes two — so it is a reference, never a bit-exact model.
+        """
+        twin = super().to_ideal()
+        config = dataclasses.replace(twin.config, adc_max_bits=self.adc_max_bits + 1)
+        return IdealCimMacro(
+            config=config,
+            policy=twin.policy,
+            input_num=self.row_num,
+            output_num=self.col_num,
+            inst_shape=self.inst_shape,
+            dtype=self._dtype,
+            T__K=self._T__K,
+        )
 
     # -----------------------------------------------------------------
     # Lifecycle
@@ -722,7 +757,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         w_flat = w_state_idx.flatten(-5, -2)
         self.array.program(w_flat)
 
-    def vec_mat_mul(self, x: Tensor, *, adc_mode: int, adc_bits: int) -> Tensor:
+    def vec_mat_mul(self, x: Tensor, *, quantization_mode: int, adc_bits: int | None) -> Tensor:
         """Run the array solve + readout chain over the K WL sub-phases.
 
         The K activation bits are bit-expanded into K WL planes (LSB first) and
@@ -735,14 +770,25 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
                 entries in :attr:`x_value_range`. Positions outside the
                 caller-selected set must be zero. Every leading axis is
                 anonymous broadcast batch.
-            adc_mode: ADC operating-point index selecting the shared reference
-                mode row; valid values are ``[0, adc_mode_num)``.
-            adc_bits: ADC resolution [bits] the TMCSA quantizes at.
+            quantization_mode: Mode index in
+                ``[0, len(quantization_input_ranges))``; selects the shared
+                reference's ladder row.
+            adc_bits: ADC resolution [bits] in ``[1, adc_max_bits]``. The
+                ladder decimates to that width, so the TMCSA runs the first
+                ``adc_bits`` steps of its max-bits binary search.
 
         Returns:
             Signed-magnitude raw-code tensor with the same leading order and
             primitive trailing ``[col_num]``.
+
+        Raises:
+            ValueError: ``quantization_mode`` is outside the declared modes, or
+                ``adc_bits`` is ``None`` (a physical converter has no lossless
+                oracle — build :meth:`to_ideal` for that).
         """
+        if adc_bits is None:
+            raise ValueError("require: adc_bits is an int — the lossless oracle lives on the to_ideal() twin")
+        self._mode(quantization_mode)
         config = self.config
         v_dd = config.v_dd__V
         gn = self.col_num // config.mux_factor  # CIM-IO sense-lane count (group_num)
@@ -813,12 +859,21 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         )
         adc_i_refs__uA = ref_snap.i_refs__uA
         # Shape: [*inst, mode, tap] -> [*inst, tap]
-        adc_refs_mode__uA = adc_i_refs__uA[..., adc_mode, :]
+        adc_refs_mode__uA = adc_i_refs__uA[..., quantization_mode, :]
+        # Every bit width rides the one max-bits ladder: bits b keeps every
+        # 2**(B-b)-th tap (the identity view at b == B).
+        # Shape: [*inst, tap] -> [*inst, 2**adc_bits - 1]
+        adc_refs_bits__uA = decimate_references(
+            adc_refs_mode__uA,
+            adc_max_bits=self.adc_max_bits,
+            adc_bits=adc_bits,
+        )
         # Shape: [*B, gs, gn]
-        code = self.adc.convert(i_sub, adc_refs_mode__uA, bits=adc_bits)
+        code = self.adc.convert(i_sub, adc_refs_bits__uA, bits=adc_bits)
         # The kernel ADC is energy-silent; the billing module recovers the
-        # per-step reference path from the raw unsigned codes.
-        self.tmcsa(i_sub, code, adc_refs_mode__uA)
+        # per-step reference path from the raw unsigned codes over the full
+        # ladder (a lowered bit width replays the leading steps of it).
+        self.tmcsa(i_sub, code, adc_refs_mode__uA, bits=adc_bits)
         signed = (1 - 2 * sign.long()) * code
 
         # --- Step 7: Control energy + the sole latency event ---

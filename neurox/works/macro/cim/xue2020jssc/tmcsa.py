@@ -102,7 +102,7 @@ class Tmcsa(ModuleBase[TmcsaConfig, TmcsaPolicy]):
         self._v_dd__V = v_dd__V
         self.register_buffer("_t_ph2__ns", torch.tensor(config.t_ph2_per_step__ns, dtype=dtype), persistent=False)
         self.register_buffer("_t_ph3__ns", torch.tensor(config.t_ph3_per_step__ns, dtype=dtype), persistent=False)
-        self.register_buffer("_ref_tap_lut", self._build_ref_tap_lut(self.bits), persistent=False)
+        self.register_buffer("_ref_tap_lut", self._build_ref_tap_lut(self.max_bits), persistent=False)
 
     @staticmethod
     def _build_ref_tap_lut(bits: int) -> Tensor:
@@ -125,11 +125,11 @@ class Tmcsa(ModuleBase[TmcsaConfig, TmcsaPolicy]):
         pass
 
     @property
-    def bits(self) -> int:
-        """Conversion step count B — the phase-window list length."""
+    def max_bits(self) -> int:
+        """Maximum conversion step count B — the phase-window list length."""
         return len(self.config.t_ph2_per_step__ns)
 
-    def forward(self, i_sub__uA: Tensor, code: Tensor, adc_refs_mode__uA: Tensor) -> None:
+    def forward(self, i_sub__uA: Tensor, code: Tensor, adc_refs_mode__uA: Tensor, *, bits: int) -> None:
         """Bill the phase-resolved conversion energy of one completed conversion.
 
         Args:
@@ -137,10 +137,20 @@ class Tmcsa(ModuleBase[TmcsaConfig, TmcsaPolicy]):
                 TMCSA sinks), shape ``[..., serial, gn]``.
             code: Raw unsigned codes the kernel SarIadc returned for
                 ``i_sub__uA``, same shape (long).
-            adc_refs_mode__uA: Per-instance reference ladder of the selected
-                mode, ``[*R, 2**bits - 1]`` taps ascending on the last axis,
-                ``[*R]`` right-broadcasting against ``i_sub__uA`` — passed per
-                call (the LUT is structural, the refs are runtime).
+            adc_refs_mode__uA: Per-instance MAX-BITS reference ladder of the
+                selected mode, ``[*R, 2**max_bits - 1]`` taps ascending on the
+                last axis, ``[*R]`` right-broadcasting against ``i_sub__uA`` —
+                passed per call (the LUT is structural, the refs are runtime).
+            bits: Resolution this conversion ran at, in ``[1, max_bits]``. A
+                ``b``-bit conversion decimates the ladder, which replays the
+                FIRST ``b`` steps of the max-bits search and lands on the
+                max-bits code right-shifted by ``max_bits - b``; the billing
+                therefore takes the leading ``b`` phase windows and looks the
+                reference path up at the re-shifted code.
+
+        Raises:
+            ValueError: A shape or tap-count mismatch, or ``bits`` outside
+                ``[1, max_bits]``.
         """
         if i_sub__uA.ndim < 1 or (self.inst_shape and i_sub__uA.shape[-1] != self.inst_shape[-1]):
             raise ValueError(
@@ -151,10 +161,13 @@ class Tmcsa(ModuleBase[TmcsaConfig, TmcsaPolicy]):
             raise ValueError(
                 f"forward() expects code.shape == i_sub__uA.shape ({tuple(i_sub__uA.shape)}); got {tuple(code.shape)}"
             )
+        max_bits = self.max_bits
+        if not (1 <= bits <= max_bits):
+            raise ValueError(f"require: bits ({bits}) in [1, max_bits ({max_bits})]")
         n_taps = int(adc_refs_mode__uA.shape[-1])
-        want_taps = (1 << self.bits) - 1
+        want_taps = (1 << max_bits) - 1
         if n_taps != want_taps:
-            raise ValueError(f"forward() expects adc_refs_mode__uA n_taps ({n_taps}) == 2**bits - 1 ({want_taps})")
+            raise ValueError(f"forward() expects adc_refs_mode__uA n_taps ({n_taps}) == 2**max_bits - 1 ({want_taps})")
 
         if not self._is_dynamic_energy_profile_active():
             return
@@ -162,9 +175,10 @@ class Tmcsa(ModuleBase[TmcsaConfig, TmcsaPolicy]):
         # Shape: [*R, n_taps] -> [..., serial, gn, n_taps]
         ref_b = torch.broadcast_to(adc_refs_mode__uA, (*i_sub__uA.shape, n_taps))
         # The per-step selected reference-path current, recovered from the
-        # final code through the structural LUT.
+        # final code through the structural LUT: the code re-enters the
+        # max-bits ladder shifted back up, the leading steps are the ones run.
         # Shape: [..., serial, gn, bits]
-        i_ref_path__uA = torch.gather(ref_b, -1, self._ref_tap_lut[code.long()])
+        i_ref_path__uA = torch.gather(ref_b, -1, self._ref_tap_lut[:, :bits][code.long() << (max_bits - bits)])
 
         # Branch-tensor law: materialize BOTH phase branch currents per step.
         # Shape: [..., serial, gn, bits]
@@ -173,7 +187,7 @@ class Tmcsa(ModuleBase[TmcsaConfig, TmcsaPolicy]):
         i_ph3__uA = 2.0 * i_common__uA  # PH3: internal only; the 2x splits into two 1x sinks
         # Shape: [..., serial, gn, bits] -> [..., serial, gn]
         e__fJ = (
-            self._v_dd__V * (i_ph2__uA * self._t_ph2__ns + i_ph3__uA * self._t_ph3__ns).sum(dim=-1)
-            + self.config.e_fixed_per_op__fJ * self.bits
+            self._v_dd__V * (i_ph2__uA * self._t_ph2__ns[:bits] + i_ph3__uA * self._t_ph3__ns[:bits]).sum(dim=-1)
+            + self.config.e_fixed_per_op__fJ * bits
         )
         self._record_dynamic_energy(e__fJ)

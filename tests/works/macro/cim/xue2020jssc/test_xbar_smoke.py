@@ -37,8 +37,8 @@ import torch._dynamo
 from neurox.common.profiler import NeuroxProfiler
 
 from ._utils import (
-    ADC_MODE,
     MAG_MAX,
+    QUANTIZATION_MODE,
     TINY_ADC_BITS,
     TINY_INPUT_NUM,
     TINY_K,
@@ -84,7 +84,7 @@ def test_xbar_end_to_end_and_profiler(device: torch.device) -> None:
 
     x = torch.tensor([[1, 2, 1, 0], [3, 3, 1, 0], [0, 1, 2, 3]], dtype=torch.long)  # batch (3,)
     with NeuroxProfiler() as prof, torch.no_grad():
-        out = macro.vec_mat_mul(x.to(device), adc_mode=ADC_MODE, adc_bits=TINY_ADC_BITS)
+        out = macro.vec_mat_mul(x.to(device), quantization_mode=QUANTIZATION_MODE, adc_bits=TINY_ADC_BITS)
     report = prof.report(macro)
     out = out.cpu()
 
@@ -157,7 +157,7 @@ def test_adc_step_latency_does_not_double_count(device: torch.device) -> None:
         macro = build_macro(cfg, device=device)
         macro.program(w.to(device))
         with NeuroxProfiler() as prof, torch.no_grad():
-            macro.vec_mat_mul(x.to(device), adc_mode=ADC_MODE, adc_bits=TINY_ADC_BITS)
+            macro.vec_mat_mul(x.to(device), quantization_mode=QUANTIZATION_MODE, adc_bits=TINY_ADC_BITS)
         return prof.total_latency__ns
 
     lat_zero = total_latency(zero)
@@ -175,24 +175,32 @@ def test_anonymous_leading_axes_broadcast(device: torch.device) -> None:
     torch.manual_seed(3)
     x_flat = torch.randint(0, 1 << TINY_K, (6, TINY_INPUT_NUM), dtype=torch.long)
     with torch.no_grad():
-        out_flat = macro.vec_mat_mul(x_flat.to(device), adc_mode=ADC_MODE, adc_bits=TINY_ADC_BITS).cpu()
+        out_flat = macro.vec_mat_mul(
+            x_flat.to(device), quantization_mode=QUANTIZATION_MODE, adc_bits=TINY_ADC_BITS
+        ).cpu()
     assert tuple(out_flat.shape) == (6, TINY_OUTPUT_NUM)
 
     # A multi-axis batch decodes each sample identically to the flattened batch.
     x_multi = x_flat.reshape(2, 3, TINY_INPUT_NUM)
     with torch.no_grad():
-        out_multi = macro.vec_mat_mul(x_multi.to(device), adc_mode=ADC_MODE, adc_bits=TINY_ADC_BITS).cpu()
+        out_multi = macro.vec_mat_mul(
+            x_multi.to(device), quantization_mode=QUANTIZATION_MODE, adc_bits=TINY_ADC_BITS
+        ).cpu()
     assert tuple(out_multi.shape) == (2, 3, TINY_OUTPUT_NUM)
     assert torch.equal(out_multi, out_flat.reshape(2, 3, TINY_OUTPUT_NUM))
 
     # A no-batch input yields the primitive trailing output axis alone.
     with torch.no_grad():
-        out_scalar = macro.vec_mat_mul(x_flat[0].to(device), adc_mode=ADC_MODE, adc_bits=TINY_ADC_BITS).cpu()
+        out_scalar = macro.vec_mat_mul(
+            x_flat[0].to(device), quantization_mode=QUANTIZATION_MODE, adc_bits=TINY_ADC_BITS
+        ).cpu()
     assert tuple(out_scalar.shape) == (TINY_OUTPUT_NUM,)
     assert torch.equal(out_scalar, out_flat[0])
 
     # A size-1 leading axis broadcasts to the same single-sample decode.
     with torch.no_grad():
-        out_unit = macro.vec_mat_mul(x_flat[:1].to(device), adc_mode=ADC_MODE, adc_bits=TINY_ADC_BITS).cpu()
+        out_unit = macro.vec_mat_mul(
+            x_flat[:1].to(device), quantization_mode=QUANTIZATION_MODE, adc_bits=TINY_ADC_BITS
+        ).cpu()
     assert tuple(out_unit.shape) == (1, TINY_OUTPUT_NUM)
     assert torch.equal(out_unit, out_flat[:1])

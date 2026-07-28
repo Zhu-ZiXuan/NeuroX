@@ -6,7 +6,8 @@ Paper-design config, all-off policy, and calibration anchors for the
 citable design point the scheme is validated against; `validate.py` measures the
 total energy per access against the 32.06 pJ/access target in `anchors.toml`, and
 `tools/calibrate.py` re-derives the geometry-dependent seats (the ADC reference
-ladder and the adopted peripheral seats) for `[calibrated]` write-back.
+ladder, the capacitive remainders, the TMCSA windows and the adopted peripheral
+seats) for `[calibrated]` write-back.
 
 ## Run
 
@@ -16,12 +17,15 @@ The three TOML artifacts are FIXED files beside `validate.py`; the workload
 `p_zero` comes from `anchors.toml`, never from the command line. Only run knobs
 are CLI-settable, by invoking the script directly:
 
-    TORCH_COMPILE_DISABLE=1 uv run python validations/xue2020jssc/validate.py --device cpu --n 32
+    TORCH_COMPILE_DISABLE=1 uv run python validations/xue2020jssc/validate.py \
+        --device auto --n-w 64 --n-x 256 --repeat 8 --solve-chunk 4096
 
-`--n` (draws) / `--seed` / `--batch` / `--chunk-size` (large-N chunking) /
-`--device` (`cpu`, `cuda[:idx]`, or `auto` for a free GPU) / `--sweep` (add the
-`p_zero` sensitivity sweep + bracket). The harness logs its report; `results.md`
-records the campaign run, whose header states its own draw count and seed.
+`--n-w` (weight programs per round) / `--n-x` (input vectors per weight draw) /
+`--repeat` (rounds, each redrawing both) / `--solve-chunk` (array solve chunk, a
+machine knob; `0` solves all at once) / `--seed` / `--device` (`cpu`,
+`cuda[:idx]`, or `auto` for a free GPU). The harness logs its report;
+`results.md` records the campaign run, whose header states its own draw counts,
+seed, and device.
 
 ## Files
 
@@ -37,11 +41,10 @@ records the campaign run, whose header states its own draw count and seed.
 - `anchors.toml` — the 5.13 mW hard target, Fig.18 shares, dyn/static
   conventions, data conventions, known-unknowns.
 - `validate.py` — the profiler-driven gate driver (build → draw → energy per
-  access → single hard-gate total + informational paired-slice breakdown +
-  optional `p_zero` sweep).
-- `tools/` — the calibration helpers: `calibrate.py` (ladder re-derivation +
-  adopted-seat print) and `calibrate_cell.toml` + `params_detail.toml` (the
-  Detail-cell chord source).
+  access → single hard-gate total + informational paired-slice breakdown).
+- `tools/` — the calibration helpers: `calibrate.py` (the three-stage campaign:
+  currents → capacitances → constants) and `calibrate_cell.toml` +
+  `params_detail.toml` (the Detail-cell chord source).
 - `results.md` — the validation report `validate.py` renders; `calibration.md` —
   the calibration-run report `tools/calibrate.py` writes.
 
@@ -175,36 +178,55 @@ paired-slice residuals inside declared plausibility bounds (see `params.toml`).
 read path conducts its Fig.18 read-path share (47.1% × 32.06 = 15.10 pJ/access),
 NOT solved against the total.
 
-Calibration (`tools/calibrate_cell`, `tools/calibrate_solver`, `tools/calibrate.py`;
-`[calibrated]` write-back):
+Calibration. Two offline extractors seat the device-level inputs, then
+`tools/calibrate.py` runs the campaign in the fixed stage order CURRENTS →
+CAPACITANCES → CONSTANTS and prints the `[calibrated]` write-back (it mutates no
+config file; `calibration.md` is the report of the run whose settings its own
+header states).
 
-0. **Cell chord** — `calibrate_cell` extracts the Linear chord
-   (`g_cell_on/off_table`, `vx_ratio`) from the Detail cell at V_BLC = 0.29 V into
-   `array_config.cell_config` (g_LRS ≈ 94.6 uS, g_HRS ≈ 5.0 uS; the LRS chord sags
-   ~5.4% from the access-NMOS series drop).
-1. **Solver** — `calibrate_solver` picks the array DC-solver iteration counts
-   (`array_config.solver_config`) by step-ratio plateau on the real wire-R IR-drop
-   solve: `n_outer` = 4, `n_inner` = 3.
-2. **Ladder re-derivation** — `calibrate.py` probes the unit i_sub staircase (single
-   +1 weight, MAC 0..7 over the 9 live rows) and sets `reference_config.i_refs__uA`
-   to the adjacent-midpoint taps at this geometry; the ladder TRACKS the calibrated
-   chord and verifies code == MAC magnitude (bit-exact staircase).
-3. **Adopted seats** — Control / Reference leakage + `e_control_per_op` from the
-   Fig.18 shares (declared, not fitted).
-4. **p_zero lock** — `calibrate.py` locks `p_zero` where the read path conducts its
-   15.10 pJ/access Fig.18 share: `p_zero` = 0.353 (marginal P(x=0) ≈ 0.515).
-5. **Cap + per-op remainders** — with conduction FROZEN from a large-N S1
-   conduction-row basis, the paired-slice residuals seat the capacitive / per-op
-   constants inside declared plausibility bounds: the array wire + cell caps by
-   one uniform scale (cablc+dswct pair residual), the SINWP-SC `c_hold`
-   (sinwp_sc+pn_isub pair residual minus the kept comparator per-op), and the
-   TMCSA `t_ph2`/`t_ph3` + `e_fixed_per_op` joint fit (the 9.3% slice; the
-   as-drawn PH2:PH3 ratio kept).
+- **Cell chord** — `neurox.tools.calibrate_cell` extracts the Linear chord
+  (`g_cell_on/off_table`, `vx_ratio`) from the Detail cell of
+  `tools/params_detail.toml` at V_BLC = 0.29 V into `array_config.cell_config`
+  (g_LRS ≈ 94.6 uS, g_HRS ≈ 5.0 uS; the LRS chord sags ~5.4% from the access-NMOS
+  series drop).
+- **Solver** — `calibrate_solver` picks the array DC-solver iteration counts
+  (`array_config.solver_config`) by step-ratio plateau on the real wire-R IR-drop
+  solve: `n_outer` = 4, `n_inner` = 3.
 
-Headline: measured in `results.md` (campaign runs at the LOCKED `p_zero` = 0.353;
-marginal P(x=0) ≈ 0.515, independently consistent with typical ~50%-zero post-ReLU
+1. **Currents** — the whole read path's absolute current scale rides on the chord,
+   so it is fixed first: `calibrate.py` probes the unit i_sub staircase (single +1
+   weight, MAC 0..7 over the 9 live rows) through the full array IR-drop solve and
+   sets `reference_config.i_refs__uA` to the adjacent-midpoint taps at this
+   geometry, verifying the staircase is monotonic and code == MAC magnitude.
+2. **Capacitances** — with conduction FROZEN by stage 1, the two paired-slice
+   residuals seat the capacitive remainders inside declared plausibility bounds:
+   the array wire + cell caps by ONE uniform scale on the `params_detail.toml`
+   structure (cablc+dswct residual), and the SINWP-SC `c_hold`
+   (sinwp_sc+pn_isub residual minus the kept comparator per-op). The cap scale is
+   the ill-conditioned seat — the array cap row is a few percent of its pair, so
+   it amplifies a relative conduction error by `conduction / residual` — so the
+   stage splits its rounds into independent blocks (`--pair-blocks`) whose
+   solved-seat spread is reported as the seat's 1σ. The basis (`--pair-repeat`,
+   default `--repeat`) stays the campaign's standard one: the seat carries under
+   a percent of the total, so its tolerance is accepted, not bought down.
+3. **Constants** — the TMCSA 9.3% slice seats `e_fixed_per_op__fJ`, PINNED at its
+   ~150 fJ/step plausibility ceiling, plus ONE scale on the as-drawn Fig.10(b)
+   PH2/PH3 step occupancy which carries the residual; the two ADOPTED peripheral
+   seats (`e_control_per_op__fJ`, Control / Reference leakage) come straight from
+   the Fig.18 shares, declared and never fitted.
+
+Every stage PROVES its own per-access normalization. A profiled energy total
+covers EVERY leading dimension of the drive, so a per-access row is that total
+over `accesses = n_w · n_x · mux_factor`, and a per-op seat is divided further by
+its own event count per access; each stage re-measures with `n_w` doubled and,
+separately, with `n_x` doubled — the per-access rows must hold, the raw totals
+must double. The campaign then LOCKS `p_zero` where the read path conducts its
+15.10 pJ/access Fig.18 share and closes with the resulting total + breakdown.
+
+Headline: measured in `results.md` (campaign runs at the LOCKED `p_zero` = 0.3485;
+marginal P(x=0) ≈ 0.511, independently consistent with typical ~50%-zero post-ReLU
 CNN activations). By construction of the calibration above, the two pair slices
-and the tmcsa slice close on their Fig.18 shares at the S1 row basis; the hard
+and the tmcsa slice close on their Fig.18 shares at the calibration basis; the hard
 gate stays the TOTAL only. The four pair-member rows (cablc, dswct, sinwp_sc,
 pn_isub) remain informational with no per-member target (unpublished internal node
 voltages); differences are reported, not gated.

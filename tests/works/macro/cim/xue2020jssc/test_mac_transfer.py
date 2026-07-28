@@ -11,10 +11,12 @@ signed-magnitude codes; the reference is the CPU int64 unit-role MAC
 consistency, a strictly monotone single-row input sweep over ``0..2**K - 1``,
 saturation clipping at ``+-(2**adc_bits - 1)``, zero-weight / zero-input decode,
 mixed-sign columns, a random-batch bit-exactness gate, a generalized
-``w_digit_num = 1`` (ternary weight) transfer check, and — the LSB-first guard
-— a TrueFormTranscoder-driven asymmetric-weight regression plus a focused
+``w_digit_num = 1`` (ternary weight) transfer check, — the LSB-first guard —
+a TrueFormTranscoder-driven asymmetric-weight regression plus a focused
 single-row place-value check that a reversed-but-consistent digit convention
-would fail.
+would fail, and the decimated-ladder bit-width laws (the raw code at ``b`` bits
+is the max-bits code right-shifted, sign recovery is bits-independent, and the
+lossless oracle belongs to the ideal twin alone).
 
 The analog ``I_SUB(M)`` grid is config-dependent, so the ladder is calibrated
 in-code from the macro's own transfer (``_utils.build_calibrated_macro``: probe
@@ -259,3 +261,53 @@ def test_lsb_first_place_value_single_row(device: torch.device) -> None:
             w[0, 0] = sign * m
             out = _assert_decode_matches_ideal(macro, w, x)
             assert int(out[0]) == sign * m, f"weight {sign * m} decoded {int(out[0])}"
+
+
+# ---------------------------------------------------------------------------
+# Decimated-ladder bit-width laws
+# ---------------------------------------------------------------------------
+
+
+def test_decimated_ladder_raw_code_law(device: torch.device) -> None:
+    """Lowering the bit width right-shifts the code: ``|code_b| == |code_B| >> (B - b)``.
+
+    Every bit width rides the ONE max-bits threshold ladder; bits ``b`` keeps
+    every ``2**(B-b)``-th tap, so the deterministic SAR counts exactly the taps
+    that survive and lands on the max-bits code right-shifted by ``B - b``. The
+    sign is recovered by the PN-ISUB, outside the converter, so it rides along
+    unchanged and the whole signed output is ``sign * (|code_B| >> (B - b))``.
+    """
+    macro = build_calibrated_macro(device=device)
+    max_bits = macro.adc_max_bits
+    gen = torch.Generator().manual_seed(0)
+    w = torch.randint(-3, 4, (TINY_INPUT_NUM, TINY_OUTPUT_NUM), generator=gen, dtype=torch.long)
+    x = torch.randint(0, 1 << TINY_K, (16, TINY_INPUT_NUM), generator=gen, dtype=torch.long)
+
+    full = decode(macro, w, x, adc_bits=max_bits)
+    for bits in range(1, max_bits + 1):
+        lowered = decode(macro, w, x, adc_bits=bits)
+        expected = torch.sign(full) * (full.abs() >> (max_bits - bits))
+        assert torch.equal(lowered, expected), (
+            f"bits {bits}: {lowered.tolist()} != right-shifted max-bits codes {expected.tolist()}"
+        )
+
+
+def test_sign_recovery_independent_of_bits(device: torch.device) -> None:
+    """A saturating column of either sign tops out at ``+-(2**b - 1)`` for every ``b``."""
+    macro = build_calibrated_macro(device=device)
+    x = torch.full((TINY_INPUT_NUM,), (1 << TINY_K) - 1, dtype=torch.long)
+    w = torch.zeros((TINY_INPUT_NUM, TINY_OUTPUT_NUM), dtype=torch.long)
+    w[:, 0] = 3  # saturating positive column
+    w[:, 1] = -3  # saturating negative column
+    for bits in range(1, macro.adc_max_bits + 1):
+        out = decode(macro, w, x, adc_bits=bits)
+        assert int(out[0]) == (1 << bits) - 1
+        assert int(out[1]) == -((1 << bits) - 1)
+
+
+def test_lossless_oracle_is_ideal_only(device: torch.device) -> None:
+    """A physical converter has no lossless mode; the twin carries it instead."""
+    macro = build_calibrated_macro(device=device)
+    x = torch.zeros((TINY_INPUT_NUM,), dtype=torch.long)
+    with pytest.raises(ValueError, match="adc_bits"):
+        macro.vec_mat_mul(x.to(device), quantization_mode=0, adc_bits=None)

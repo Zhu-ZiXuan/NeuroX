@@ -59,7 +59,7 @@ from torch import Tensor
 from neurox.common.profiler import NeuroxProfiler, ProfilerReport
 
 from ._utils import (
-    ADC_MODE,
+    QUANTIZATION_MODE,
     TINY_ADC_BITS,
     TINY_INPUT_NUM,
     TINY_OUTPUT_NUM,
@@ -121,14 +121,14 @@ def _run(
     x: Tensor,
     *,
     device: torch.device,
-    adc_mode: int = ADC_MODE,
+    quantization_mode: int = QUANTIZATION_MODE,
     adc_bits: int = TINY_ADC_BITS,
 ) -> tuple[NeuroxProfiler, ProfilerReport]:
     """Build + fabricate a fresh macro, program ``w``, profile one VMM on ``x``."""
     macro = build_macro(config, device=device)
     macro.program(w.to(device))
     with NeuroxProfiler() as prof, torch.no_grad():
-        macro.vec_mat_mul(x.to(device), adc_mode=adc_mode, adc_bits=adc_bits)
+        macro.vec_mat_mul(x.to(device), quantization_mode=quantization_mode, adc_bits=adc_bits)
     return prof, prof.report(macro)
 
 
@@ -337,7 +337,7 @@ def test_input_branch_billed_whole_by_cablc_array_bills_caps_only(device: torch.
         macro = build_macro(config, device=device)
         macro.program(w.to(device))
         with NeuroxProfiler() as prof, torch.no_grad():
-            macro.vec_mat_mul(x.to(device), adc_mode=ADC_MODE, adc_bits=TINY_ADC_BITS)
+            macro.vec_mat_mul(x.to(device), quantization_mode=QUANTIZATION_MODE, adc_bits=TINY_ADC_BITS)
         report = prof.report(macro)
         cablc = report.energy_by_name.get(".cablc", 0.0)
         array = report.energy_by_name.get("array", 0.0)
