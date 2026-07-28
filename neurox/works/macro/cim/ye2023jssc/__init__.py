@@ -1,0 +1,18 @@
+"""Ye 2023 JSSC WH-2T1R RRAM CIM macro scheme.
+
+Importing the package registers every component with its family registry, so
+``from_config`` dispatches to them.
+"""
+
+from . import array, cell, macro, rscsa
+from .macro import Ye2023JsscCimMacro, Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPolicy
+
+__all__ = [
+    "Ye2023JsscCimMacro",
+    "Ye2023JsscCimMacroConfig",
+    "Ye2023JsscCimMacroPolicy",
+    "array",
+    "cell",
+    "macro",
+    "rscsa",
+]

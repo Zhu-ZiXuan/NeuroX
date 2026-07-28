@@ -1,0 +1,31 @@
+# Run-config for neurox.tools.calibrate_solver.nested on the ye2023jssc step1 solver.
+# What it pins and how to run it: see README.md.
+
+[macro]
+input_num = 32
+output_num = 64
+config_files = ["../params.toml"]             # the shipped WH-2T1R macro (the config the scheme runs)
+config_section = "cim_macro"
+policy_file = "../policy.toml"                 # all-off (noiseless, mismatch-free reference)
+policy_section = "policy"
+solver_section = "array_config.solver_config"  # dotted path to the NestedParallelRailSolverConfig table
+
+[workload]
+inst_shape = [4]                  # bound to [batch_w]; the parallel weight-program axis
+active_rows = 32                  # == row_num (input-parallel faithful point; 1 <= active_rows <= 32)
+weight_samples = 4
+input_samples_per_weight = 8
+batch_w = 4
+
+[sweep]
+outer_candidates = [1, 2, 3, 4, 5, 6]
+inner_candidates = [1, 2, 3, 4]
+inner_ref = 4                     # generous n_inner while sweeping n_outer (stage A)
+ratio_threshold = 0.5
+reltol = 1e-2
+outer_margin = 1                  # +1 on n_outer
+inner_margin = 0                  # n_inner taken at its plateau
+
+[runtime]
+dtype = "float32"
+seed = 0

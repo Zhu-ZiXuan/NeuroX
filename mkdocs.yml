@@ -218,6 +218,9 @@ nav:
   - Xue 2020 JSSC CIM macro:
     - Overview: works/macro/cim/xue2020jssc/README.md
     - Model: works/macro/cim/xue2020jssc/model.md
+  - Ye 2023 JSSC CIM macro:
+    - Overview: works/macro/cim/ye2023jssc/README.md
+    - Model: works/macro/cim/ye2023jssc/model.md
 - Conventions:
   - Overview: conventions/README.md
   - Organizing principles: conventions/organizing_principles.md

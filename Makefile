@@ -212,6 +212,13 @@ eval-spikformer: ## Evaluate a NeuroX-flat Spikformer-256 checkpoint on CIFAR-10
 		$(if $(MAX_SAMPLES),--max-samples $(MAX_SAMPLES))
 
 
+# --- Validation campaigns ---
+
+.PHONY: validate_ye2023jssc
+validate_ye2023jssc: ## Run the ye2023jssc WH-2T1R CIM macro validation campaign
+	TORCH_COMPILE_DISABLE=1 uv run python validations/ye2023jssc/validate.py
+
+
 # --- Documentation ---
 
 .PHONY: docs-serve

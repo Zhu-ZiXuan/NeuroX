@@ -19,6 +19,21 @@ Four conventions govern every campaign:
 - **Assumed distributions are declared and swept, never fitted.** An input-statistics assumption the paper does not pin down — an activation sparsity `p_zero`, for instance — is a declared value plus a sensitivity sweep across its plausible range; the headline claim is that the total brackets the target across that range. Such a knob is never tuned to land the gate.
 - **Misses are documented, never tuned away.** A gate miss is recorded in `results.md` with its diagnosis and the contingency step taken, following the campaign's declared contingency order. A seat is never silently adjusted to pass, and a suspicious deviation — a clean factor-of-two or factor-of-four — is called out as a suspected unstated model term before any knob is moved.
 
+### Provenance tags
+
+Every key of `params.toml` and `anchors.toml` that names a physical quantity carries a provenance tag, stated in its own inline comment or in the comment block directly above it, so a reader can separate what the paper reports from what the model assumes or solves. Keys that name no physical quantity are exempt: registry dispatch keys (`_neurox_class`) and pure selectors (a lookup entry's `(mode, bits)`). This table is the authoritative legend:
+
+| Tag | Meaning |
+|---|---|
+| `[measured pN]` | read off a paper figure or table on page N |
+| `[derived]` | computed from tagged values by the stated arithmetic |
+| `[transcribed]` | a measured paper block power adopted verbatim as a constant |
+| `[assumed]` | a prior or campaign convention, not paper-sourced |
+| `[bound-derived]` | set so the model saturates a measured inequality |
+| `[calibrated]` | solved against a stated validation constraint |
+
+These value-level campaign tags are distinct from the module-parameter **Source** classes of [module parameter](../conventions/module_parameter.md), which classify a parameter of a documented model rather than a value of a shipped config artifact.
+
 ## TODO
 
 Per-subsystem validation notes cross-linked from each Reference document's *Validation* section, solver verification (converged-residual, per-cell finite-difference device-derivative, and chunking bit-exactness checks), and cross-tool / cross-simulator comparison.
