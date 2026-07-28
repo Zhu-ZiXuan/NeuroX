@@ -16,8 +16,7 @@ bit-exactly.
 
 The geometry mirrors the paper design in miniature: ``output_num = 4``
 (``mux_factor = 2`` -> ``io_num = 2``), ``input_num = max_active_num = 4``,
-``input_bit_num = 2`` (K serial WL sub-phases,
-LSB first), a 3-bit ADC magnitude. The WL DAC latency is zero and the ADC step
+``input_bit_num = 2`` (K serial WL sub-phases, LSB first), a 3-bit ADC magnitude. The WL DAC latency is zero and the ADC step
 latency is the honest per-step SAR sensing durations (feeding the read-chain
 window ``t_other``); the macro builds the TMCSA so it emits NO latency, staying
 the sole latency emitter, so the static-energy time base is ``t_cycle`` alone.
@@ -48,6 +47,8 @@ from neurox.primitive.analog import (
     UnmodeledBlockPolicy,
     VoltageDriverConfig,
     VoltageDriverPolicy,
+    VrefConfig,
+    VrefPolicy,
 )
 from neurox.primitive.analog.adc_common import AdcCalibrationRecord
 from neurox.primitive.analog.current_adc import (
@@ -61,6 +62,14 @@ from neurox.primitive.xbar.array import XbarArray1t1rConfig, XbarArray1t1rPolicy
 from neurox.primitive.xbar.cell import XbarCell1t1rLinearConfig, XbarCell1t1rLinearPolicy
 from neurox.primitive.xbar.solver import NestedParallelRailSolverConfig
 from neurox.works.macro.cim.xue2020jssc import (
+    DswctConfig,
+    DswctPolicy,
+    PnIsubConfig,
+    PnIsubPolicy,
+    SinwpScConfig,
+    SinwpScPolicy,
+    TmcsaConfig,
+    TmcsaPolicy,
     Xue2020JsscCimMacro,
     Xue2020JsscCimMacroConfig,
     Xue2020JsscCimMacroPolicy,
@@ -84,6 +93,8 @@ _V_BLC__V = 0.3
 # the array IR drop is a fraction of a percent — the chain stays near-ideal.
 _WIRE_FIRST_R__MOhm = 2.0e-5  # 20 Ohm
 _WIRE_SEGMENT_R__MOhm = 5.0e-6  # 5 Ohm
+
+
 class _BuildConfigKwargs(TypedDict, total=False):
     max_active_num: int
     mux_factor: int
@@ -205,7 +216,7 @@ def build_config(
 
     return Xue2020JsscCimMacroConfig(
         area_per_inst__um2=0.0,
-        leakage_per_inst__uW=8.0,  # macro-owned lump (DSWCT / SINWP-SC roll-up)
+        leakage_per_inst__uW=8.0,  # macro-owned lump (un-attributed remainder)
         max_active_num=max_active_num,
         w_digit_num=w_digit_num,
         w_digit_radix=w_digit_radix,
@@ -217,11 +228,22 @@ def build_config(
         t_settle__ns=t_settle__ns,
         t_cycle__ns=t_cycle__ns,
         v_dd__V=1.0,
-        v_bl_clamp__V=_V_BLC__V,
         e_control_per_op__fJ=5.0,
-        e_pn_isub_per_op__fJ=1.0,
         control_config=UnmodeledBlockConfig(area_per_inst__um2=0.0, leakage_per_inst__uW=6.0),
-        pn_isub_config=UnmodeledBlockConfig(area_per_inst__um2=0.0, leakage_per_inst__uW=3.0),
+        dswct_config=DswctConfig(area_per_inst__um2=0.0, leakage_per_inst__uW=0.0, c_load__fF=0.0),
+        sinwp_sc_config=SinwpScConfig(c_hold__fF=0.0, area_per_inst__um2=0.0, leakage_per_inst__uW=0.0),
+        pn_isub_config=PnIsubConfig(e_per_op__fJ=1.0, area_per_inst__um2=0.0, leakage_per_inst__uW=3.0),
+        # PH2/PH3 phase windows derived from the honest step latencies so every
+        # parameterisation fits t_ph2 + t_ph3 <= step_latency per step; e_fixed
+        # deliberately differs from the inert kernel adc_config constant so a
+        # billing-duty regression is caught.
+        tmcsa_config=TmcsaConfig(
+            t_ph2_per_step__ns=tuple(0.2 * t for t in step_latency__ns),
+            t_ph3_per_step__ns=tuple(0.3 * t for t in step_latency__ns),
+            e_fixed_per_op__fJ=1.5,
+            area_per_inst__um2=0.0,
+            leakage_per_inst__uW=2.5,
+        ),
         array_config=_array_config(),
         wl_dac_config=GeneralVdacConfig(
             area_per_inst__um2=0.0,
@@ -239,8 +261,15 @@ def build_config(
             area_per_inst__um2=0.0,
             leakage_per_inst__uW=2.0,
         ),
+        cablc_vref_config=VrefConfig(  # dedicated single-tap V_BLC clamp reference source
+            v_refs__V=(_V_BLC__V,),
+            tolerance_sigma_relative=0.0,
+            noise_sigma_relative=0.0,
+            area_per_inst__um2=0.0,
+            leakage_per_inst__uW=0.0,
+        ),
         sl_driver_config=VoltageDriverConfig(
-            r_out__MOhm=0.0,  # ideal flat clamp
+            r_out__MOhm=0.0,  # ideal flat clamp; the SL reference is a plain 0 V tensor (ground tie)
             offset_sigma__V=0.0,
             thermal_sigma__V=0.0,
             energy_per_op__fJ=0.0,
@@ -276,6 +305,7 @@ def build_all_off_policy() -> Xue2020JsscCimMacroPolicy:
         array_policy=XbarArray1t1rPolicy(cell_policy=XbarCell1t1rLinearPolicy(), solve_chunk_size=0),
         wl_dac_policy=GeneralVdacPolicy(drive_thermal=False),
         cablc_policy=VoltageDriverPolicy(offset=False, thermal=False),
+        cablc_vref_policy=VrefPolicy(tolerance=False, noise=False),
         sl_driver_policy=VoltageDriverPolicy(offset=False, thermal=False),
         adc_policy=SarIadcPolicy(
             comparator_offset=False,
@@ -283,7 +313,10 @@ def build_all_off_policy() -> Xue2020JsscCimMacroPolicy:
         ),
         reference_policy=IrefPolicy(tolerance=False, noise=False),
         control_policy=UnmodeledBlockPolicy(),
-        pn_isub_policy=UnmodeledBlockPolicy(),
+        dswct_policy=DswctPolicy(),
+        sinwp_sc_policy=SinwpScPolicy(),
+        pn_isub_policy=PnIsubPolicy(),
+        tmcsa_policy=TmcsaPolicy(),
     )
 
 

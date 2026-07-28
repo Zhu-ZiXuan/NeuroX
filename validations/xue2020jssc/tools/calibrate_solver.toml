@@ -1,6 +1,6 @@
 # Run-config for neurox.tools.calibrate_solver.nested on the xue2020jssc array solver.
 #
-# GENUINE (spec S13): the runtime macro (../params.toml) composes XbarArray1t1r with a
+# GENUINE: the runtime macro (../params.toml) composes XbarArray1t1r with a
 # NestedParallelRailSolver over a positive wire ladder (BL/SL first 20 Ohm, segment 5 Ohm),
 # so the solver iteration counts (n_outer, n_inner) are really used -- the wire IR drop
 # couples BL/SL and the DC solve is non-trivial. This run-config targets the Detail SOURCE

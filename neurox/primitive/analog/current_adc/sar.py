@@ -122,6 +122,9 @@ class SarIadc(Iadc[SarIadcConfig, SarIadcPolicy]):
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature.
         enable_latency_record: Whether conversions emit latency events.
+        enable_energy_record: Whether conversions emit dynamic-energy events.
+            An owner that bills the conversion energy itself passes ``False``;
+            the value conversion is unaffected either way.
     """
 
     # --- Immutable PPA buffers ---
@@ -142,6 +145,7 @@ class SarIadc(Iadc[SarIadcConfig, SarIadcPolicy]):
         dtype: torch.dtype,
         T__K: float,
         enable_latency_record: bool = True,
+        enable_energy_record: bool = True,
     ) -> None:
         super().__init__(
             config=config,
@@ -151,6 +155,7 @@ class SarIadc(Iadc[SarIadcConfig, SarIadcPolicy]):
             T__K=T__K,
             enable_latency_record=enable_latency_record,
         )
+        self.enable_energy_record = enable_energy_record
         self._area_per_inst__um2 = config.area_per_inst__um2
         self._leakage_per_inst__uW = config.leakage_per_inst__uW
         self.register_buffer(
@@ -236,7 +241,8 @@ class SarIadc(Iadc[SarIadcConfig, SarIadcPolicy]):
         t_conduct = self.config.t_conduct_per_step__ns
 
         code = torch.zeros_like(i_in__uA, dtype=torch.long)
-        e_dyn__fJ = torch.zeros_like(i_in__uA) if self._is_dynamic_energy_profile_active() else None
+        record_energy = self.enable_energy_record and self._is_dynamic_energy_profile_active()
+        e_dyn__fJ = torch.zeros_like(i_in__uA) if record_energy else None
 
         # The fabricated lane offset remains fixed throughout the binary search.
         lane = self._col_to_lane(i_in__uA.shape[-1], i_in__uA.device)

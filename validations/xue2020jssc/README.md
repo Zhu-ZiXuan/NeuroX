@@ -8,21 +8,42 @@ total energy per access against the 32.06 pJ/access target in `anchors.toml`, an
 `tools/calibrate.py` re-derives the geometry-dependent seats (the ADC reference
 ladder and the adopted peripheral seats) for `[calibrated]` write-back.
 
+## Run
+
+    make validate_xue2020jssc
+
+The three TOML artifacts are FIXED files beside `validate.py`; the workload
+`p_zero` comes from `anchors.toml`, never from the command line. Only run knobs
+are CLI-settable, by invoking the script directly:
+
+    TORCH_COMPILE_DISABLE=1 uv run python validations/xue2020jssc/validate.py --device cpu --n 32
+
+`--n` (draws) / `--seed` / `--batch` / `--chunk-size` (large-N chunking) /
+`--device` (`cpu`, `cuda[:idx]`, or `auto` for a free GPU) / `--sweep` (add the
+`p_zero` sensitivity sweep + bracket). The harness logs its report; `results.md`
+records the campaign run, whose header states its own draw count and seed.
+
 ## Files
 
 - `params.toml` — the paper design: 256×512 sub-array, 32:1 column MUX (4
   CIM-IOs), 9-row (3×3-kernel) block, MSB ratio anchors `dswct_ratio_msb` 0.5 /
-  `sc_ratio_msb` 0.5, K=2 input, 3-bit ADC, V_DD 1.0 V, V_BLC 0.29 V. Seat values
-  are `[calibrated]` (the cell chord, solver n_outer/n_inner, ADC ladder),
-  `[adopted]` (control / reference), or `[declared]` / `[uncertain]` (spec S8).
+  `sc_ratio_msb` 0.5, K=2 input, 3-bit ADC, V_DD 1.0 V, V_BLC 0.29 V. Every value
+  carries a provenance tag from the legend in
+  [campaigns.md](../../docs/validation/campaigns.md): `[measured pN]` (paper
+  page), `[derived]`, `[transcribed]` (the two Fig.18 peripheral seats),
+  `[assumed]`, or `[calibrated]` (the cell chord, solver n_outer/n_inner, ADC
+  ladder, and the energy-campaign caps + per-op constants).
 - `policy.toml` — the all-off (lossless) policy; every nonideality toggle false.
 - `anchors.toml` — the 5.13 mW hard target, Fig.18 shares, dyn/static
   conventions, data conventions, known-unknowns.
 - `validate.py` — the profiler-driven gate driver (build → draw → energy per
-  access → single hard-gate total + informational per-slice breakdown + `p_zero`
-  sweep). `tools/` — the calibration helpers (`calibrate.py` ladder re-derivation
-  + adopted-seat print; `calibrate_cell.toml` + `params_detail.toml` the Detail-cell
-  chord source). `results.md` — the validation report.
+  access → single hard-gate total + informational paired-slice breakdown +
+  optional `p_zero` sweep).
+- `tools/` — the calibration helpers: `calibrate.py` (ladder re-derivation +
+  adopted-seat print) and `calibrate_cell.toml` + `params_detail.toml` (the
+  Detail-cell chord source).
+- `results.md` — the validation report `validate.py` renders; `calibration.md` —
+  the calibration-run report `tools/calibrate.py` writes.
 
 ## Geometry
 
@@ -58,24 +79,40 @@ sample window (bit 0) and the tail. `t_other = t_settle + Σ(ADC step_latency)`.
 
 ## Energy channels → Fig.18 slice mapping
 
-The macro bills each rail-to-GND branch under a named profiler channel; the
-static seats appear in the static PPA report. Per-slice power at 20 MHz maps to
-the Fig.18 breakdown as (S6 slice ownership, the paper's own practice):
+Each rail-to-GND branch is billed at its production site — the macro on its two
+named channels (`cablc`, `control`), the readout modules (DSWCT, SINWP-SC,
+PN-ISUB), the array (caps), and the TMCSA phase-billing module on their own
+module rows; the kernel `SarIadc` is an energy-silent value converter
+(`enable_energy_record=false`). The static seats appear in the static PPA
+report. Per-slice power at 20 MHz maps to the Fig.18 breakdown as follows,
+each slice owned the way the paper's own breakdown draws it:
 
 | Fig.18 slice | Share | Our composition | Billing |
 |---|---|---|---|
-| Control | 29.2% | `control` channel + `control_config` leakage | 90% dyn `e_control_per_op` / 10% static |
+| Control | 29.2% | `control` channel (`control_config` static seat zero) | 100% dyn `e_control_per_op` (pure per-op) |
 | Reference | 23.7% | `reference_config` leakage | 100% static |
 | CABLC | 14.9% | `cablc` channel (whole input branch V_DD·I_DL; array caps row folds in) + `cablc_config` leakage | dyn conduction + small/zero static |
-| DSWCT | 11.5% | `dswct` channel (+ macro-lump silicon) | dynamic |
-| SINWP-SC | 8.0% | `sinwp_sc` channel (+ macro-lump silicon) | dynamic |
-| PN-ISUB | 3.4% | `pn_isub` channel (3-branch conduction + `e_pn_isub_per_op`) + `pn_isub_config` leakage | dyn conduction + small/zero static |
-| TMCSA | 9.3% | `tmcsa` (ADC) module: `e_fixed` per step + per-step conduction (self-billed) | dynamic (static seat declared 0) |
+| DSWCT | 11.5% | `dswct` module row (self-billed rail conduction) + `dswct_config` seats | dyn conduction + small/zero static |
+| SINWP-SC | 8.0% | `sinwp_sc` module row (self-billed held/live legs) + `sinwp_sc_config` seats | dyn conduction + small/zero static |
+| PN-ISUB | 3.4% | `pn_isub` module row (3-branch conduction + `e_per_op`) + `pn_isub_config` leakage | dyn conduction + small/zero static |
+| TMCSA | 9.3% | `tmcsa` phase-billing module row (per-step PH2/PH3 branch conduction + `e_fixed` per step) + `tmcsa_config` / `adc_config` static seats | dynamic (static seats declared 0) |
 
-The DSWCT mirrors and the SINWP-SC combiner are non-reporters: their silicon
-rolls into the macro lump and their power is billed dynamically via the `dswct`
-/ `sinwp_sc` channels. The CMD precharge is folded into `e_control_per_op` — no
-CMD capacitance is modeled anywhere.
+The DSWCT mirrors, the SINWP-SC combiner, the PN-ISUB subtractor, and the TMCSA
+phase biller are scheme-local reporter modules: each self-bills its rail
+conduction on its own profiler row and carries its own (shipped-zero or small)
+static seat. The CMD precharge is folded into `e_control_per_op` — no CMD
+capacitance is modeled anywhere.
+
+### Comparison caliber (paired slices)
+
+The paper splits ONE series input branch at node V_CMD (the drain of the DSWCT
+current-mirror input) between the DSWCT and CABLC slices, and one series sink
+branch between SINWP-SC (its sink transistors) and PN-ISUB (switches +
+comparator + isub); the internal node voltages are not published, so only the
+pair sums are well-defined targets. `validate.py` compares `cablc+dswct`
+against 14.9 + 11.5 = 26.4% and `sinwp_sc+pn_isub` against 8.0 + 3.4 = 11.4%,
+with `control` / `reference` / `tmcsa` as singles; the four member rows are
+reported informationally with no per-member target.
 
 ### Cycle normalization (per-access basis)
 
@@ -90,20 +127,29 @@ DSWCT, SINWP-SC, PN-ISUB, TMCSA, and Control alike) is aggregated by the profile
 over one whole VMM, so its per-access energy is the per-VMM total divided by
 `mux_factor`. Static leakage is a continuous power and is **never** divided, and
 the config seats are the true per-event physical values (Control billed once per
-access → `e_control_per_op`; ADC `e_fixed` per conversion step), not pre-divided.
-`validate.py` applies this normalization.
+access → `e_control_per_op`; TMCSA `tmcsa_config.e_fixed_per_op__fJ` per
+conversion step), not pre-divided. `validate.py` applies this normalization.
 
 ## Conventions
 
 - Adopted seats (declared to reproduce a Fig.18 share, NOT fitted to the total):
-  Control 29.2% (90% dynamic `e_control_per_op` / 10% static leakage), Reference
-  23.7% (100% static leakage).
+  Control 29.2% (pure per-op: 100% dynamic `e_control_per_op`, zero static),
+  Reference 23.7% (100% static leakage).
 - Read path (cablc, dswct, sinwp_sc, pn_isub, tmcsa): pure physics; its static
   seats are declared small/zero and NEVER reverse-solved to fill the total.
 - Data: weights value-uniform in [−3, 3], inputs value-uniform in [0, 3] with an
   extra Bernoulli zeroing at `p_zero` (a declared ReLU-sparsity workload assumption).
 - Gate: the SINGLE hard gate is total energy per access within ±5% of 32.06
-  pJ/access. The per-slice breakdown is informational — no soft gates.
+  pJ/access. The paired-slice breakdown is informational — no soft gates.
+
+## Contradiction table
+
+The honest-findings register of the pair-caliber energy campaign — open tensions
+the fit could not fully resolve, reported rather than hidden.
+
+| Slice | Open finding |
+|---|---|
+| TMCSA | The residual budget (74% of its Fig.18 9.3% slice) cannot be absorbed with both the Fig.10(b) as-drawn PH2:PH3 phase occupancy and the `e_fixed_per_op` plausibility ceiling holding at once. The shipped compromise pins `e_fixed_per_op` at its ceiling and widens the phase windows ×1.544 above the as-drawn widths (PH2+PH3 occupancy 74%, vs the as-drawn share). Implication: either the 3×/2× phase-branch conduction model under-counts TMCSA conduction, or the paper's TMCSA Fig.18 slice includes circuitry outside the phase model. See `params.toml` `[cim_macro.tmcsa_config]` for the fitted values and full provenance comment. |
 
 ## What is intentionally not modeled
 
@@ -116,16 +162,18 @@ the control channel), and a differential ADC (the TMCSA is single-ended).
 directly (the paper 9-row block live) over N random draws per the `anchors.toml`
 data conventions, and reduces the profiler to the ENERGY PER ACCESS:
 static/access = `leakage_power · t_cycle` (50 ns), dynamic/access = per-VMM
-dynamic / `mux_factor` (spec S4.3 / S8). The single hard gate is the total against
-32.06 pJ/access ±5%.
+dynamic / `mux_factor`. The single hard gate is the total against 32.06 pJ/access
+±5%.
 
-Non-circular rigor (spec S8): only Control (29.2%) and Reference (23.7%) are
-`[adopted]` seats (Fig.18 shares, for the two peripherals not modeled from
-physics); the whole read path is pure physics with declared structural constants
-(g_map, V_BLC, conduction windows) and static seats declared small/zero, never
-reverse-solved. `p_zero` is LOCKED to the read-path physics (spec S13) — the value
-at which the pure-physics read path conducts its Fig.18 read-path share (47.1% ×
-32.06 = 15.10 pJ/access), NOT solved against the total.
+Non-circular rigor: only Control (29.2%) and Reference (23.7%) are `[transcribed]`
+seats (Fig.18 shares, for the two peripherals not modeled from physics); the
+read-path conduction is pure physics with declared structural constants (g_map,
+V_BLC, conduction windows) and static seats declared small/zero, never
+reverse-solved; the capacitive / per-op remainders are `[calibrated]` to the
+paired-slice residuals inside declared plausibility bounds (see `params.toml`).
+`p_zero` is LOCKED to the read-path physics — the value at which the pure-physics
+read path conducts its Fig.18 read-path share (47.1% × 32.06 = 15.10 pJ/access),
+NOT solved against the total.
 
 Calibration (`tools/calibrate_cell`, `tools/calibrate_solver`, `tools/calibrate.py`;
 `[calibrated]` write-back):
@@ -145,15 +193,18 @@ Calibration (`tools/calibrate_cell`, `tools/calibrate_solver`, `tools/calibrate.
    Fig.18 shares (declared, not fitted).
 4. **p_zero lock** — `calibrate.py` locks `p_zero` where the read path conducts its
    15.10 pJ/access Fig.18 share: `p_zero` = 0.353 (marginal P(x=0) ≈ 0.515).
+5. **Cap + per-op remainders** — with conduction FROZEN from a large-N S1
+   conduction-row basis, the paired-slice residuals seat the capacitive / per-op
+   constants inside declared plausibility bounds: the array wire + cell caps by
+   one uniform scale (cablc+dswct pair residual), the SINWP-SC `c_hold`
+   (sinwp_sc+pn_isub pair residual minus the kept comparator per-op), and the
+   TMCSA `t_ph2`/`t_ph3` + `e_fixed_per_op` joint fit (the 9.3% slice; the
+   as-drawn PH2:PH3 ratio kept).
 
-Headline (see `results.md`): at the LOCKED `p_zero` = 0.353 (marginal P(x=0) ≈ 0.515,
-independently consistent with typical ~50%-zero post-ReLU CNN activations) the total
-is **32.30 pJ/access = 1.007× ± 0.29%** (10-chunk relative std over N = 102 400 draws),
-within the ±5% hard gate — a consequence of the read-path lock plus the two adopted
-seats, not a fitted single point.
-
-Per-block breakdown (informational, at the locked `p_zero`): CABLC 1.32× its Fig.18
-share; DSWCT 0.61× (the underdetermined V_CMD / digit-mirror split); TMCSA 0.26× (the
-declared ADC `e_fixed`, not reverse-solved to its Fig.18 budget); SINWP-SC 1.59× and
-PN-ISUB 1.78× over (convention / internal-node-voltage differences — the paper defines
-no per-block boundaries or internal node voltages). Differences are reported, not gated.
+Headline: measured in `results.md` (campaign runs at the LOCKED `p_zero` = 0.353;
+marginal P(x=0) ≈ 0.515, independently consistent with typical ~50%-zero post-ReLU
+CNN activations). By construction of the calibration above, the two pair slices
+and the tmcsa slice close on their Fig.18 shares at the S1 row basis; the hard
+gate stays the TOTAL only. The four pair-member rows (cablc, dswct, sinwp_sc,
+pn_isub) remain informational with no per-member target (unpublished internal node
+voltages); differences are reported, not gated.

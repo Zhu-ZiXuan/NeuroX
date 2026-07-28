@@ -12,7 +12,7 @@
 #     table at solver_section = "array_config.solver_config".
 #
 # The RUNTIME macro composes an XbarArray1t1r with a DC solver and the same wire
-# ladder (spec S13), so the array-solver calibration is GENUINE: this Detail array
+# ladder, so the array-solver calibration is GENUINE: this Detail array
 # mirrors ../params.toml's wire geometry (BL/SL first 20 Ohm, segment 5 Ohm) so the
 # calibrate_solver-picked (n_outer, n_inner) transfer to the runtime array. It is
 # also a config-complete xbar the shipped run-config resolves against (reactivating
@@ -23,7 +23,7 @@
 [cim_macro]
 
 # --- Activation limit (geometry is supplied to the macro constructor) ---
-max_active_num = 9               # [sourced] input positions selected per conversion
+max_active_num = 9               # [measured p206] input positions selected per conversion
 
 
 # ===========================================================================
@@ -41,8 +41,8 @@ col_first_space__um = 1.000
 col_cell_space__um = 0.040
 
 # --- BL / SL / WL wire segments ---
-# [uncertain] The paper gives NO wire R/C. Mirrors ../params.toml (user-set
-# 2026-07-23): BL/SL first-segment R = 20 Ohm = 2.0e-5 MOhm, cell-to-cell R = 5 Ohm
+# [assumed] The paper gives NO wire R/C. Mirrors ../params.toml: BL/SL
+# first-segment R = 20 Ohm = 2.0e-5 MOhm, cell-to-cell R = 5 Ohm
 # = 5.0e-6 MOhm, small per-segment caps. Matching the runtime array is what makes
 # the calibrate_solver (n_outer, n_inner) transfer valid.
 bl_first_r__MOhm = 2.0e-5
@@ -73,22 +73,24 @@ c_sl__fF = 0.1
 c_wl__fF = 0.2
 
 # --- RRAM design window + state map ---
-# [sourced] SLC 1T1R, R-ratio-20 locked design: g_lrs ~ 100 uS (R_LRS ~ 10 kOhm)
-# => g_hrs ~ 5 uS. State 0 = HRS, 1 = LRS. The absolute g scale is a declared
-# value (only the 10-50 R-ratio is paper-sourced). g_min = 5 uS via the rram
-# override below (the shared preset floor is 10 uS).
+# [assumed] SLC 1T1R at the campaign's R-ratio-20 design point: g_lrs ~ 100 uS
+# (R_LRS ~ 10 kOhm) => g_hrs ~ 5 uS. State 0 = HRS, 1 = LRS. The paper gives
+# neither an absolute g scale nor the fabricated device's R-ratio -- Fig.17 (p210)
+# only sweeps read yield over R-ratio 10, 15, 20, 30, 40, 50 -- so both are
+# campaign assumptions. g_min = 5 uS via the rram override below (the shared preset
+# floor is 10 uS).
 rram_g_max__uS = 100.0
 state_to_g_map__uS = [5.0, 100.0]
 
 # --- Per-cell access-node Newton count ---
-# [calibrated] calibrate_cell 2026-07-22: 9 Newton steps for the Detail access-node
+# [calibrated] calibrate_cell: 9 Newton steps for the Detail access-node
 # solve to converge the chord extraction at V_BLC = 0.29 V.
 newton_iter_num = 9
 
 
 [cim_macro.array_config.cell_config.rram_config]
 _neurox_use_preset = "process/rram:default"
-# [derived] Per-paper override of the preset g_min floor (10 uS) so the locked
+# [derived] Per-paper override of the preset g_min floor (10 uS) so the
 # R-ratio-20 HRS (5 uS) is programmable + un-clamped. Inline keys win; the shared
 # preset is NOT modified.
 g_min__uS = 5.0

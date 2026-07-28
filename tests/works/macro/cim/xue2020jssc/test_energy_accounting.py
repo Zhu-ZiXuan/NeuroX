@@ -7,17 +7,18 @@ chain produces, and the assertions constrain how the billed energy MOVES.
 
 Coverage:
 
-  * the five macro-billed channels ``cablc`` / ``dswct`` / ``sinwp_sc`` /
-    ``pn_isub`` / ``control`` appear under their exact dotted names (the macro
-    root is named ``""`` so a channelled row reads ``".<channel>"``), and the
-    self-billing dynamic module rows are the array ``array`` and the TMCSA
-    ``tmcsa``,
+  * the two macro-billed channels ``cablc`` / ``control`` appear under their
+    exact dotted names (the macro root is named ``""`` so a channelled row reads
+    ``".<channel>"``), and the self-billing dynamic module rows are the array
+    ``array``, the readout modules ``dswct`` / ``sinwp_sc`` / ``pn_isub``, and
+    the TMCSA ``tmcsa``; no dotted macro channel carries a readout module,
   * the static report seats the reporter leaves (control / adc_current_reference /
-    cablc / sl_driver / pn_isub / tmcsa / array + the macro root),
+    cablc / sl_driver / dswct / sinwp_sc / pn_isub / tmcsa / array + the macro
+    root),
   * **the static-energy time base is ``t_cycle`` (50 ns), NOT the conduction
     windows**: doubling ``t_cycle`` doubles the leakage (static) energy while the
     dynamic energy is unchanged; doubling a conduction window (``t_settle``)
-    scales the read channels but leaves the static energy — and the
+    scales the read rows but leaves the static energy — and the
     window-invariant control channel — untouched,
   * the input branch conduction is billed WHOLE by the macro on the ``cablc``
     channel (``V_DD * I_DL`` over the per-bit window — the macro owns the
@@ -27,14 +28,18 @@ Coverage:
     oracle), and array + channel cover the whole branch plus the caps with no
     double-bill,
   * the control channel fires once per access (``mux_factor`` mux steps x batch),
-  * each read channel is LINEAR in every window knob (``t_sample[k]``,
+  * each read row is LINEAR in every window knob (``t_sample[k]``,
     ``t_settle``), the SC held-leg SUFFIX-SUM law (window
     ``sum_{j>=k} t_sample[j] + t_other``) holds while cablc / dswct use the
     per-bit DIAGONAL window, and the live (K-1) bit conducts in ``t_other``
     regardless of the sampling windows,
-  * the TMCSA reduces to the pure fixed-energy model ``adc_bits x e_fixed`` per
-    converted element when ``t_conduct_per_step`` is all-zero, and its energy
-    grows with ``v_rail`` and ``t_conduct`` once nonzero.
+  * the ``tmcsa`` row is the scheme PHASE-BILLING module: it reduces to the
+    pure fixed-energy model ``adc_bits x tmcsa e_fixed`` per converted element
+    when both phase windows are all-zero, grows with ``t_ph2`` / ``t_ph3``
+    once nonzero, and the kernel ADC is energy-SILENT
+    (``enable_energy_record=False``): no ``adc`` dynamic row exists and the
+    kernel conduction knobs (``v_rail``, ``t_conduct``, kernel ``e_fixed``)
+    move nothing.
 
 Runs eagerly (dynamo disabled) so the ``@torch.compile`` solver leaf is not
 unrolled.
@@ -68,10 +73,24 @@ from ._utils import (
 class _AdcConfigUpdates(TypedDict, total=False):
     t_conduct_per_step__ns: tuple[float, ...]
     v_rail__V: float
+    e_fixed_per_op__fJ: float
 
 
-_CHANNELS = ("cablc", "dswct", "sinwp_sc", "pn_isub", "control")
-_READ_CHANNELS = ("cablc", "dswct", "sinwp_sc")  # window-dependent conduction channels
+class _TmcsaConfigUpdates(TypedDict, total=False):
+    t_ph2_per_step__ns: tuple[float, ...]
+    t_ph3_per_step__ns: tuple[float, ...]
+
+
+# Billed rows by slice name -> profiler energy-row key: the macro bills the two
+# dotted channels; the readout modules self-bill on their own module rows.
+_ROW_KEYS = {
+    "cablc": ".cablc",  # macro channel
+    "dswct": "dswct",  # module row
+    "sinwp_sc": "sinwp_sc",  # module row
+    "pn_isub": "pn_isub",  # module row
+    "control": ".control",  # macro channel
+}
+_READ_ROWS = ("cablc", "dswct", "sinwp_sc")  # window-dependent conduction rows
 
 
 @pytest.fixture(autouse=True)
@@ -114,9 +133,9 @@ def _run(
 
 
 def _channels(report: ProfilerReport) -> dict[str, float]:
-    """Per-channel dynamic energy [fJ] keyed by bare channel name (root macro => ``".<ch>"``)."""
+    """Per-row dynamic energy [fJ] keyed by slice name (macro channels dotted, module rows bare)."""
     by_name = report.energy_by_name
-    return {ch: by_name.get(f".{ch}", 0.0) for ch in _CHANNELS}
+    return {name: by_name.get(key, 0.0) for name, key in _ROW_KEYS.items()}
 
 
 def _channel_energies(
@@ -131,14 +150,32 @@ def _with_adc(
     *,
     t_conduct: tuple[float, ...] | None = None,
     v_rail: float | None = None,
+    e_fixed: float | None = None,
 ) -> Xue2020JsscCimMacroConfig:
-    """Replace only the TMCSA conduction knobs (energy-path only; windows untouched)."""
+    """Replace only the KERNEL ADC conduction knobs (inert in this scheme — the deadness oracle)."""
     kw: _AdcConfigUpdates = {}
     if t_conduct is not None:
         kw["t_conduct_per_step__ns"] = t_conduct
     if v_rail is not None:
         kw["v_rail__V"] = v_rail
+    if e_fixed is not None:
+        kw["e_fixed_per_op__fJ"] = e_fixed
     return dataclasses.replace(config, adc_config=dataclasses.replace(config.adc_config, **kw))
+
+
+def _with_tmcsa(
+    config: Xue2020JsscCimMacroConfig,
+    *,
+    t_ph2: tuple[float, ...] | None = None,
+    t_ph3: tuple[float, ...] | None = None,
+) -> Xue2020JsscCimMacroConfig:
+    """Replace only the TMCSA phase windows (energy-path only; value windows untouched)."""
+    kw: _TmcsaConfigUpdates = {}
+    if t_ph2 is not None:
+        kw["t_ph2_per_step__ns"] = t_ph2
+    if t_ph3 is not None:
+        kw["t_ph3_per_step__ns"] = t_ph3
+    return dataclasses.replace(config, tmcsa_config=dataclasses.replace(config.tmcsa_config, **kw))
 
 
 def _whole_input_branch(macro: Xue2020JsscCimMacro, x: Tensor) -> float:
@@ -152,15 +189,12 @@ def _whole_input_branch(macro: Xue2020JsscCimMacro, x: Tensor) -> float:
         whole = sum_k  V_DD * I_DL * window_array[k]
 
     where ``I_DL`` is the per-column BL port current the solver returns and the
-    conduction window ``t`` is the macro's, applied here post-solve. The array no
-    longer carries any conduction term, so there is no clamp / cell split to
-    reconstruct. The re-solve runs OUTSIDE any profiler so it logs nothing of its own.
+    conduction window ``t`` is the macro's, applied here post-solve. The array
+    carries no conduction term, so there is no clamp / cell split to reconstruct.
+    The re-solve runs OUTSIDE any profiler so it logs nothing of its own.
     """
     cfg = macro.config
-    device = x.device
     v_dd = cfg.v_dd__V
-    bl_v_ref = torch.tensor(cfg.v_bl_clamp__V, dtype=torch.float64, device=device)
-    sl_v_ref = torch.tensor(0.0, dtype=torch.float64, device=device)
     x_long = x.long()
     window = cfg.window_array__ns
 
@@ -171,12 +205,12 @@ def _whole_input_branch(macro: Xue2020JsscCimMacro, x: Tensor) -> float:
         steady = macro.array.solve_array(
             v_wl,
             bl_driver=macro.cablc,
-            bl_v_ref__V=bl_v_ref,
+            bl_v_ref__V=macro.cablc_vref.snapshot().v_refs__V[0],
             sl_driver=macro.sl_driver,
-            sl_v_ref__V=sl_v_ref,
+            sl_v_ref__V=torch.zeros((), dtype=v_wl.dtype, device=v_wl.device),
         )
-        i_bl = steady.i_bl_port__uA  # [*batch, phys_col]
-        whole += float(((v_dd * i_bl).sum(dim=-1) * window[k]).sum())
+        i_bl = steady.i_bl_port__uA  # [*batch, serial, gn, P/N, wd]
+        whole += float(((v_dd * i_bl).sum(dim=(-4, -3, -2, -1)) * window[k]).sum())
     return whole
 
 
@@ -185,29 +219,33 @@ def _whole_input_branch(macro: Xue2020JsscCimMacro, x: Tensor) -> float:
 # ---------------------------------------------------------------------------
 
 
-def test_channels_present_with_exact_dotted_names(device: torch.device) -> None:
-    """The five macro-billed channels appear as ``".cablc/.dswct/.sinwp_sc/.pn_isub/.control"``."""
+def test_billed_rows_present_with_exact_names(device: torch.device) -> None:
+    """The two macro channels and the three readout module rows appear under their exact keys."""
     x = torch.tensor([[1, 2, 1, 0], [3, 3, 1, 0]], dtype=torch.long)  # batch (2,)
     _prof, report = _run(build_config(), _w_full(), x, device=device)
     by_name = report.energy_by_name
-    for ch in _CHANNELS:
-        key = f".{ch}"
-        assert key in by_name, f"missing channel {key}; have {sorted(by_name)}"
+    for name, key in _ROW_KEYS.items():
+        assert key in by_name, f"missing {name} row {key!r}; have {sorted(by_name)}"
         assert by_name[key] > 0.0, f"non-positive {key}: {by_name[key]}"
+    # The readout modules self-bill: no macro channel carries their energy.
+    for stale in (".dswct", ".sinwp_sc", ".pn_isub"):
+        assert stale not in by_name, f"stale macro channel {stale}: {sorted(by_name)}"
 
 
-def test_array_and_adc_self_bill_dynamic_rows(device: torch.device) -> None:
-    """The array and TMCSA self-bill; macro-owned branches appear only as channels."""
+def test_module_rows_self_bill_dynamic(device: torch.device) -> None:
+    """Array, TMCSA, and the readout modules self-bill; only cablc/control stay macro channels."""
     x = torch.tensor([[1, 2, 1, 0], [3, 3, 1, 0]], dtype=torch.long)
     _prof, report = _run(build_config(), _w_full(), x, device=device)
     by_name = report.energy_by_name
-    # The array bills its capacitive cycling (caps only); the TMCSA bills sensing.
-    assert by_name.get("array", 0.0) > 0.0, f"missing/empty array row; have {sorted(by_name)}"
-    assert by_name.get("tmcsa", 0.0) > 0.0, f"missing/empty tmcsa row; have {sorted(by_name)}"
-    # The whole input branch and PN-ISUB are macro channels rather than
-    # self-billed module rows.
-    for absent in ("cell", "pn_isub"):
-        assert absent not in by_name, f"unexpected self-billing module row {absent}: {sorted(by_name)}"
+    # The array bills its capacitive cycling (caps only); the TMCSA module
+    # bills the conversion phases; the readout modules bill their rail
+    # branches.
+    for row in ("array", "tmcsa", "dswct", "sinwp_sc", "pn_isub"):
+        assert by_name.get(row, 0.0) > 0.0, f"missing/empty {row} row; have {sorted(by_name)}"
+    # The cell is a non-reporter (the array logs its caps), and the kernel ADC
+    # is energy-SILENT (enable_energy_record=False): no adc dynamic row.
+    for silent in ("cell", "adc"):
+        assert silent not in by_name, f"unexpected self-billing module row {silent}: {sorted(by_name)}"
 
 
 # ---------------------------------------------------------------------------
@@ -219,13 +257,18 @@ def test_static_report_seats_reporters_only(device: torch.device) -> None:
     """The static walk contains every configured PPA-reporting module."""
     macro = build_macro(build_config(), device=device)
     static = {r.qualified_name: r.leakage_power__uW for r in NeuroxProfiler.collect_static(macro)}
-    # Seats: the macro root (named ""), control (UnmodeledBlock),
-    # adc_current_reference, the clamp drivers, the PN-ISUB static seat
-    # (UnmodeledBlock), the ADC, and the array (cell grid + wire infrastructure
-    # PPA).
-    for seat in ("", "control", "adc_current_reference", "cablc", "sl_driver", "pn_isub", "tmcsa", "array"):
+    # Seats with nonzero witness leakage: the macro root (named ""), control
+    # (UnmodeledBlock), adc_current_reference, the clamp drivers, the PN-ISUB
+    # module, the kernel ADC (adc), the TMCSA billing module (tmcsa), and the
+    # array (cell grid + wire infrastructure PPA).
+    for seat in ("", "control", "adc_current_reference", "cablc", "sl_driver", "pn_isub", "tmcsa", "adc", "array"):
         assert seat in static, f"missing static seat {seat!r}; have {sorted(static)}"
         assert static[seat] > 0.0, f"non-positive leakage seat {seat!r}: {static[seat]}"
+    # The DSWCT / SINWP-SC modules are reporter leaves too; the witness ships
+    # their leakage seats at 0.0, so they appear with exactly zero leakage.
+    for seat in ("dswct", "sinwp_sc"):
+        assert seat in static, f"missing static seat {seat!r}; have {sorted(static)}"
+        assert static[seat] == 0.0, f"witness ships zero leakage for {seat!r}: {static[seat]}"
 
 
 # ---------------------------------------------------------------------------
@@ -264,7 +307,7 @@ def test_static_energy_scales_with_t_cycle_not_conduction_windows(device: torch.
     ch_base = _channels(report_base)
     ch_win = _channels(report_win)
     assert ch_win["control"] == pytest.approx(ch_base["control"])
-    for ch in _READ_CHANNELS:
+    for ch in _READ_ROWS:
         assert ch_win[ch] > ch_base[ch], f"read channel {ch} did not grow with t_settle"
 
 
@@ -350,12 +393,12 @@ def test_control_channel_count_mux_times_batch(device: torch.device) -> None:
 
 
 # ---------------------------------------------------------------------------
-# PN-ISUB channel: t_other conduction + per-op comparator decision
+# PN-ISUB module row: t_other conduction + per-op comparator decision
 # ---------------------------------------------------------------------------
 
 
-def test_pn_isub_channel_present_and_uses_t_other(device: torch.device) -> None:
-    """The ``pn_isub`` channel bills the three branches over ``t_other`` + the per-op decision.
+def test_pn_isub_row_present_and_uses_t_other(device: torch.device) -> None:
+    """The ``pn_isub`` module row bills the three branches over ``t_other`` + the per-op decision.
 
     It rides ``t_other`` (via ``t_settle``), so it grows with ``t_settle`` but is
     invariant to the sampled-bit windows ``t_sample`` (the PN-ISUB conducts only
@@ -391,7 +434,7 @@ def test_read_channels_linear_in_t_sample(device: torch.device) -> None:
         )
         for ts in (2.0, 4.0, 6.0)  # equal spacing dt = 2
     ]
-    for ch in _READ_CHANNELS:
+    for ch in _READ_ROWS:
         v = [e[ch] for e in energies]
         assert v[0] < v[1] < v[2], f"{ch} not increasing in t_sample[0]: {v}"
         # Equal spacing in the knob => equal spacing in energy (linear).
@@ -414,7 +457,7 @@ def test_read_channels_linear_in_t_settle(device: torch.device) -> None:
         )
         for ts in (1.0, 3.0, 5.0)  # equal spacing dt = 2
     ]
-    for ch in _READ_CHANNELS:
+    for ch in _READ_ROWS:
         v = [e[ch] for e in energies]
         assert v[0] < v[1] < v[2], f"{ch} not increasing in t_settle: {v}"
         assert (v[1] - v[0]) == pytest.approx(v[2] - v[1], rel=1e-9, abs=1e-9), f"{ch} non-linear: {v}"
@@ -521,40 +564,59 @@ def test_live_bit_conducts_in_t_other_independent_of_sampling(device: torch.devi
 
 
 # ---------------------------------------------------------------------------
-# TMCSA (ADC) energy: fixed model + conduction growth
+# TMCSA phase billing: fixed model + phase-window growth + kernel ADC silence
 # ---------------------------------------------------------------------------
 
 
-def test_adc_energy_is_pure_fixed_when_t_conduct_zero(device: torch.device) -> None:
-    """All-zero ``t_conduct_per_step`` reduces the TMCSA to ``adc_bits * e_fixed`` per converted element."""
-    cfg = _with_adc(build_config(), t_conduct=(0.0, 0.0, 0.0))
+def test_tmcsa_is_pure_fixed_when_phase_windows_zero(device: torch.device) -> None:
+    """All-zero PH2/PH3 windows reduce the ``tmcsa`` row to ``adc_bits * e_fixed`` per converted element.
+
+    The fixed constant is the TMCSA MODULE's ``e_fixed_per_op__fJ`` — the
+    kernel ``adc_config`` constant is deliberately a DIFFERENT witness value,
+    so a billing-duty regression (the kernel ADC billing again) is caught.
+    """
+    base = build_config()
+    cfg = _with_tmcsa(base, t_ph2=(0.0, 0.0, 0.0), t_ph3=(0.0, 0.0, 0.0))
+    assert cfg.tmcsa_config.e_fixed_per_op__fJ != cfg.adc_config.e_fixed_per_op__fJ
     w = _w_full()
     x = torch.tensor([1, 2, 3, 1], dtype=torch.long)  # single access (no batch axis)
     _prof, report = _run(cfg, w, x, device=device)
     e_tmcsa = report.energy_by_name["tmcsa"]
 
     adc_bits = cfg.adc_config.bits
-    e_fixed = cfg.adc_config.e_fixed_per_op__fJ
+    e_fixed = cfg.tmcsa_config.e_fixed_per_op__fJ
     # One converted element per (mux slot, io lane): i_sub is [gs, gn] with no batch axis.
     count = cfg.mux_factor * (TINY_OUTPUT_NUM // cfg.mux_factor)
     assert e_tmcsa == pytest.approx(adc_bits * e_fixed * count)
 
 
-def test_adc_energy_grows_with_v_rail_and_t_conduct(device: torch.device) -> None:
-    """With nonzero conduction the TMCSA energy exceeds the fixed model and grows with ``v_rail`` / ``t_conduct``."""
+def test_tmcsa_grows_with_phase_windows_kernel_knobs_dead(device: torch.device) -> None:
+    """The ``tmcsa`` row grows with ``t_ph2`` / ``t_ph3``; the kernel ADC knobs move NOTHING.
+
+    The kernel SarIadc is built with ``enable_energy_record=False``: scaling
+    its ``v_rail`` / ``t_conduct`` / ``e_fixed`` leaves the whole profile
+    bit-identical (the deadness oracle), and no ``adc`` dynamic row exists.
+    """
     w = _w_full()
     x = torch.tensor([1, 2, 3, 1], dtype=torch.long)
-    base = build_config()  # t_conduct (0.1, 0.1, 0.1), v_rail 1.0
+    base = build_config()  # witness phases: t_ph2 = 0.2 * step, t_ph3 = 0.3 * step
 
     def tmcsa(cfg: Xue2020JsscCimMacroConfig) -> float:
         _prof, report = _run(cfg, w, x, device=device)
+        assert "adc" not in report.energy_by_name, "kernel ADC must be energy-silent"
         return report.energy_by_name["tmcsa"]
 
-    e_fixed_only = tmcsa(_with_adc(base, t_conduct=(0.0, 0.0, 0.0)))
-    e_cond = tmcsa(base)
-    e_more_conduct = tmcsa(_with_adc(base, t_conduct=(0.2, 0.2, 0.2)))
-    e_more_vrail = tmcsa(_with_adc(base, v_rail=2.0))
+    base_t_ph2 = base.tmcsa_config.t_ph2_per_step__ns
+    base_t_ph3 = base.tmcsa_config.t_ph3_per_step__ns
+    e_fixed_only = tmcsa(_with_tmcsa(base, t_ph2=(0.0, 0.0, 0.0), t_ph3=(0.0, 0.0, 0.0)))
+    e_base = tmcsa(base)
+    e_more_ph2 = tmcsa(_with_tmcsa(base, t_ph2=tuple(2.0 * t for t in base_t_ph2)))
+    e_more_ph3 = tmcsa(_with_tmcsa(base, t_ph3=tuple(2.0 * t for t in base_t_ph3)))
 
-    assert e_cond > e_fixed_only, "conduction term must add on top of the fixed model"
-    assert e_more_conduct > e_cond, "energy must grow with t_conduct"
-    assert e_more_vrail > e_cond, "energy must grow with v_rail"
+    assert e_base > e_fixed_only, "phase conduction must add on top of the fixed model"
+    assert e_more_ph2 > e_base, "energy must grow with t_ph2"
+    assert e_more_ph3 > e_base, "energy must grow with t_ph3"
+
+    # Kernel-knob deadness: scaling the kernel conduction knobs changes nothing.
+    e_kernel_scaled = tmcsa(_with_adc(base, t_conduct=(9.0, 9.0, 9.0), v_rail=5.0, e_fixed=123.0))
+    assert e_kernel_scaled == pytest.approx(e_base), "kernel ADC energy knobs must be dead in this scheme"

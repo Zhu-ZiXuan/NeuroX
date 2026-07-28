@@ -4,11 +4,11 @@
 # |M_ideal| ~= code * rescale_factor per ADC mode, emitting the
 # [[cim_macro.adc_calibration]] fragment.
 #
-# Divisibility blocker REMOVED (spec S12): like its Stage-1 partner
-# (calibrate_threshold.toml), rescale_fit builds the lossless to_ideal() twin and drives
-# paired stimulus through the generic row-block serialization, which now CEIL-divides +
-# masks (a short final block covers rows 252..255) instead of requiring
-# row_num % active_row_num == 0. For this single-mode design the ladder is sized so the ADC
+# Divisibility: like its Stage-1 partner (calibrate_threshold.toml), rescale_fit builds
+# the lossless to_ideal() twin and drives paired stimulus through the generic row-block
+# serialization, which CEIL-divides + masks (a short final block covers rows 252..255)
+# rather than requiring row_num % active_row_num == 0.
+# For this single-mode design the ladder is sized so the ADC
 # code IS the integer MAC magnitude, so the fitted consumer rescale_factor is ~1.0
 # (params.toml [[cim_macro.adc_calibration]]).
 #

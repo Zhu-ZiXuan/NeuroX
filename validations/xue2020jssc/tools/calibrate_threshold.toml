@@ -4,11 +4,11 @@
 # integer per-conversion MAC magnitude |M| in [0, m_max] and place the mid-point
 # threshold ladder (one i_refs__uA reference-config row per adc_mode).
 #
-# Divisibility blocker REMOVED (spec S12): the generic threshold_probe stimulus battery
-# (grid_block_w / sample_capped_block_w / saturating_w) and its sub-phase unrolling
-# (_unroll_sub_phase) now CEIL-divide row_num by active_row_num and mask, so the paper
-# 256/9 geometry is covered by a short final block (rows 252..255) -- mirroring the engine's
-# ceil sub-phase count. No row_num % active_row_num requirement remains.
+# Divisibility: the generic threshold_probe stimulus battery (grid_block_w /
+# sample_capped_block_w / saturating_w) and its sub-phase unrolling (_unroll_sub_phase)
+# CEIL-divide row_num by active_row_num and mask, so the paper 256/9 geometry is covered
+# by a short final block (rows 252..255) -- mirroring the engine's ceil sub-phase count.
+# There is no row_num % active_row_num requirement.
 #
 # NOT YET a drop-in replacement for the scheme-local calibrate.py at THIS config: the
 # generic testbench drives the macro with a single-digit ternary weight tensor

@@ -22,6 +22,7 @@ from neurox.primitive.digital import (
     ShiftAdderConfig,
     SubtractorConfig,
 )
+from neurox.primitive.xbar.array import XbarArray1t1rConfig, XbarArray1t1rPolicy
 
 _SHARED_CONFIG_POLICY_TYPES: dict[str, tuple[type[ConfigBase], type[PolicyBase]]] = {
     "neurox.primitive.device.mosfet.Nmos": (MosfetConfig, MosfetPolicy),
@@ -31,6 +32,7 @@ _SHARED_CONFIG_POLICY_TYPES: dict[str, tuple[type[ConfigBase], type[PolicyBase]]
     "neurox.primitive.digital.serial_accumulator.SerialAccumulator": (AccumulatorConfig, DigitalPolicy),
     "neurox.primitive.digital.shift_adder.ShiftAdder": (ShiftAdderConfig, DigitalPolicy),
     "neurox.primitive.digital.subtractor.Subtractor": (SubtractorConfig, DigitalPolicy),
+    "neurox.works.macro.cim.xue2020jssc.array.SerialColumnXbarArray": (XbarArray1t1rConfig, XbarArray1t1rPolicy),
 }
 
 

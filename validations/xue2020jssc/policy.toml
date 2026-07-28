@@ -1,10 +1,10 @@
-# Nonideality-free ("all-off") policy for the xue2020jssc SINWP 1T1R CIM sub-array
-# (spec v2 redesign schema).
+# Nonideality-free ("all-off") policy for the xue2020jssc SINWP 1T1R CIM sub-array.
 #
 # One child policy per owned ModuleBase block: the 1T1R pure array (linearized
-# cell + solver chunk knob), the WL DAC, the CABLC / SL clamp seats, the TMCSA SAR
-# current ADC, the shared static Iref, and the control / PN-ISUB static
-# seats. This scheme models no mismatch or noise, so every per-source toggle is
+# cell + solver chunk knob), the WL DAC, the CABLC / SL clamp seats, the CABLC
+# reference source, the kernel SAR current ADC, the shared static Iref, the
+# control static seat, and the source-free DSWCT / SINWP-SC / PN-ISUB / TMCSA
+# modules. This scheme models no mismatch or noise, so every per-source toggle is
 # false -- the lossless baseline and the only intended policy.
 #
 # Pull with:
@@ -38,13 +38,19 @@ offset = false
 thermal = false
 
 
+# --- CABLC reference source (dedicated single-tap Vref) ---
+[policy.cablc_vref_policy]
+tolerance = false
+noise = false
+
+
 # --- SL ideal-clamp seat ---
 [policy.sl_driver_policy]
 offset = false
 thermal = false
 
 
-# --- TMCSA SAR current-mode quantizer ---
+# --- Kernel SAR current-mode quantizer (value converter) ---
 [policy.adc_policy]
 comparator_offset = false
 coupling_mismatch = false
@@ -60,5 +66,17 @@ noise = false
 [policy.control_policy]
 
 
-# --- PN-ISUB static seat (UnmodeledBlock; source-free marker) ---
+# --- DSWCT place-value mirror bank (source-free module policy) ---
+[policy.dswct_policy]
+
+
+# --- SINWP-SC sample-and-hold combine (source-free module policy) ---
+[policy.sinwp_sc_policy]
+
+
+# --- PN-ISUB P/N subtractor (source-free module policy) ---
 [policy.pn_isub_policy]
+
+
+# --- TMCSA phase-resolved conversion billing (source-free module policy) ---
+[policy.tmcsa_policy]

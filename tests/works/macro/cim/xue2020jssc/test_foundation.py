@@ -18,9 +18,9 @@ config (``_utils.build_config``):
   * config validation rejects the exact-reshape ``output_num % mux_factor``
     violation, a ``w_digit_radix < 2`` weight structure, and a ``t_sample__ns``
     length that is not ``input_bit_num - 1``,
-  * the GENERALIZED weight / input geometry — the fixed ``w_digit_num == 2`` /
-    ``w_digit_radix == 2`` guards are GONE: ``w_digit_num = 1`` (a single P/N
-    digit, ratios degenerate to the MSB anchor), ``w_digit_num = 3``, and
+  * the GENERALIZED weight / input geometry — no fixed ``w_digit_num`` or
+    ``w_digit_radix`` is imposed: ``w_digit_num = 1`` (a single P/N digit,
+    ratios degenerate to the MSB anchor), ``w_digit_num = 3``, and
     ``input_bit_num = 1`` all validate and derive the right geometry / windows,
   * a ``max_active_num`` that does not divide ``input_num``.
 
@@ -272,7 +272,7 @@ def test_input_bit_num_one_accepted() -> None:
 
 def test_non_divisible_max_active_num_accepted() -> None:
     """The paper 256-input / 9-position geometry validates."""
-    assert 256 % 9 != 0  # not a divisor — the base rule would reject this
+    assert 256 % 9 != 0  # max_active_num need not divide input_num
     config = dataclasses.replace(build_config(), max_active_num=9)
     macro = build_macro(config, input_num=256)
     assert config.max_active_num == 9

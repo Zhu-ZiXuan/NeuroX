@@ -1,7 +1,7 @@
 """Eager end-to-end smoke test for the xue2020jssc SINWP 1T1R CIM sub-array.
 
-Builds the folded :class:`Xue2020JsscCimMacro` (kernel pure array + inline
-current-mode readout chain) from the hand-built near-ideal witness config with
+Builds the folded :class:`Xue2020JsscCimMacro` (kernel pure array + composed
+current-mode readout modules) from the hand-built near-ideal witness config with
 its ladder calibrated in-code (``_utils.build_calibrated_macro``: ``output_num = 4``
 -> ``io_num = 2`` at ``mux_factor = 2``, ``input_num = max_active_num = 4``,
 ``input_bit_num = 2``, 3-bit ADC), programs a mixed-sign weight, and runs one
@@ -10,9 +10,10 @@ its ladder calibrated in-code (``_utils.build_calibrated_macro``: ``output_num =
   * the output is an integer signed-magnitude code tensor with the caller's
     leading order preserved and primitive trailing ``[output_num]``, every value in
     ``[-MAG_MAX, MAG_MAX]``, and bit-exactly the clamped ideal integer MAC,
-  * a :class:`NeuroxProfiler` report is coherent: the five macro-billed channels
-    and the self-billing array + TMCSA module rows carry positive dynamic energy,
-    the totals are positive, and the leakage energy reconciles as
+  * a :class:`NeuroxProfiler` report is coherent: the two macro-billed channels
+    (``cablc`` / ``control``) and the self-billing array + DSWCT / SINWP-SC /
+    PN-ISUB + TMCSA module rows carry positive dynamic energy, the totals are
+    positive, and the leakage energy reconciles as
     ``static.leakage_power__uW x total_latency__ns``,
   * the macro-root latency obeys ``t_cycle * serial_op_count`` (the static-energy
     time base; the macro is the sole latency emitter) with ``serial_op_count =
@@ -49,8 +50,10 @@ from ._utils import (
     ideal_mac,
 )
 
-_CHANNEL_KEYS = (".cablc", ".dswct", ".sinwp_sc", ".pn_isub", ".control")
-_MODULE_ROWS = ("array", "tmcsa")  # the array and ADC self-bill dynamic energy
+_CHANNEL_KEYS = (".cablc", ".control")
+# The array, readout modules, and TMCSA billing module self-bill dynamic
+# energy; the kernel ADC (``adc``) is energy-silent.
+_MODULE_ROWS = ("array", "dswct", "sinwp_sc", "pn_isub", "tmcsa")
 
 
 @pytest.fixture(autouse=True)
@@ -104,10 +107,11 @@ def test_xbar_end_to_end_and_profiler(device: torch.device) -> None:
         assert mod in by_name, f"missing module row {mod}; have {sorted(by_name)}"
         assert by_name[mod] > 0.0
     # The array self-bills its capacitive row and the macro bills the whole input
-    # branch under ``.cablc``. The cell and PN-ISUB seat emit no separate dynamic
-    # row.
-    for absent in ("cell", "pn_isub"):
-        assert absent not in by_name, f"unexpected self-billing module row {absent}: {sorted(by_name)}"
+    # branch under ``.cablc``. The cell emits no dynamic row (the array logs its
+    # caps), the kernel ADC is energy-silent (the ``tmcsa`` module row bills the
+    # conversion), and the readout modules bill on module rows, not macro channels.
+    for absent in ("cell", "adc", ".dswct", ".sinwp_sc", ".pn_isub"):
+        assert absent not in by_name, f"unexpected energy row {absent}: {sorted(by_name)}"
 
     assert prof.total_dynamic_energy__fJ > 0.0
     assert prof.total_latency__ns > 0.0
@@ -124,10 +128,10 @@ def test_xbar_end_to_end_and_profiler(device: torch.device) -> None:
     macro_latency = report.latency_by_name.get("", 0.0)  # the macro root is named ""
     assert macro_latency == pytest.approx(expected_latency)
     # The macro is the sole non-zero latency emitter: the WL DAC has zero latency
-    # and the macro builds the TMCSA with a zeroed step_latency (its honest sensing
-    # durations feed t_other, not the profiled latency), so the total latency
-    # equals the macro-root latency — the nonzero ADC step_latency never
-    # double-counts against t_cycle.
+    # and the macro builds the kernel ADC with ``enable_latency_record=False``
+    # (its honest sensing durations feed t_other, not the profiled latency), so
+    # the total latency equals the macro-root latency — the nonzero ADC
+    # step_latency never double-counts against t_cycle.
     assert prof.total_latency__ns == pytest.approx(macro_latency)
 
 

@@ -18,10 +18,11 @@ class AdcCalibrationRecord(ValidateMixin):
     Attributes:
         mode: Operating-point index.
         bits: Active bit width.
-        rescale_factor: Affine-recovery multiplier for raw codes:
-            ``M_ideal ≈ (code − zero) · rescale_factor``, where ``zero`` is
-            the ADC's zero-point offset. This record stores only the linear
-            coefficient.
+        rescale_factor: Linear-recovery multiplier for the macro's output
+            codes: ``M_ideal ≈ code · rescale_factor``; the quantize inverse
+            is ``code = floor(M_ideal / rescale_factor)``. The ADC primitive
+            emits raw unsigned codes; the owning macro restores sign per its
+            own scheme before this recovery applies.
     """
 
     mode: int

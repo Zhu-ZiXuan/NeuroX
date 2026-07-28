@@ -1,36 +1,39 @@
-"""Calibration-campaign orchestrator for the xue2020jssc CIM sub-array (spec S8/S13).
+"""Calibration-campaign orchestrator for the xue2020jssc CIM sub-array.
 
 Re-derives the geometry-dependent DECLARED values and reports the energy-basis
-result, then PRINTS the values for the operator to write back into ``params.toml``
+result, then REPORTS the values for the operator to write back into ``params.toml``
 (it never mutates the file; it fabricates nothing). Non-circular by construction:
 the two peripheral seats are ADOPTED from Fig.18 shares (a declared adoption), the
 whole read path stays pure physics (array IR-drop solve + declared windows), and
 ``p_zero`` is LOCKED to the read-path physics -- never solved against the total.
 
-Campaign (spec S13):
+Campaign:
   a. Re-derive the reference ladder at THIS geometry -- DRIVE THE MACRO DIRECTLY
      (a single ``+1`` weight, MAC value 0..2**adc_bits-1 over the live rows) and
      capture the pre-ADC ``i_sub`` staircase through the ADC's own observation
      prober (no manual value-path replay, no to_ideal); set ``i_refs`` to the
      adjacent midpoints and verify the ladder makes the ADC code equal the MAC.
   b. Declare the ADOPTED peripheral seats from the Fig.18 shares (control 29.2 %
-     with a 90/10 dyn/static split, reference 23.7 % as 100 % static).
+     as a pure per-op constant, reference 23.7 % as 100 % static).
   c. LOCK ``p_zero`` where the pure-physics read path conducts its Fig.18 read-path
      share (47.1 % x 32.06 = 15.10 pJ/access) -- locked to the READ PATH, NOT to
      the total. With the adopted seats at their Fig.18 shares the total then falls
      out near 32.06 pJ/access (aim to HIT, slightly over OK); this is a consequence,
      not a fit.
-  d. Report the informational breakdown at the LOCKED p_zero and print the
+  d. Report the informational breakdown at the LOCKED p_zero and emit the
      ``[calibrated]`` ladder + adopted-seat block + locked p_zero for write-back.
 
 Run:
-    python validations/xue2020jssc/tools/calibrate.py --n 1000 --device cpu
+    TORCH_COMPILE_DISABLE=1 uv run python validations/xue2020jssc/tools/calibrate.py --n 1000 --device cpu
+
+The report is logged as it is built and written to ``--report``.
 """
 
 from __future__ import annotations
 
 import argparse
 import dataclasses
+import logging
 import sys
 import tomllib
 from itertools import pairwise
@@ -42,8 +45,9 @@ from neurox.primitive.analog.current_adc.base import IadcProber
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
 from neurox.works.macro.cim.xue2020jssc import Xue2020JsscCimMacro
 
-_HERE = Path(__file__).resolve()
-_VAL_DIR = _HERE.parents[1]
+_LOG = logging.getLogger(__name__)
+
+_VAL_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_VAL_DIR))
 import validate as V  # noqa: E402  the sibling measurement engine (single source of the reduction)
 
@@ -207,6 +211,8 @@ def main() -> None:
     ap.add_argument("--report", type=Path, default=_VAL_DIR / "calibration.md")
     args = ap.parse_args()
 
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+
     device = V._resolve_device(args.device)
     with args.anchors.open("rb") as fh:
         anchors = tomllib.load(fh)
@@ -225,13 +231,13 @@ def main() -> None:
     log: list[str] = []
 
     def emit(line: str = "") -> None:
-        print(line)
+        _LOG.info("%s", line)
         log.append(line)
 
     emit("# xue2020jssc calibration campaign")
     emit()
     emit(
-        f"Energy-basis (spec S8/S13) calibration of the geometry-dependent DECLARED values in `params.toml` "
+        f"Energy-basis calibration of the geometry-dependent DECLARED values in `params.toml` "
         f"against the `anchors.toml` target. Device {device}, float32, `.eval()`, all-off policy. "
         f"N = {args.n} draws/point, seed {args.seed}. Non-circular: control + reference ADOPTED from Fig.18, "
         f"the read path is pure physics (array IR-drop solve), and p_zero is LOCKED to the read-path share "
@@ -282,7 +288,7 @@ def main() -> None:
     )
     emit(
         f"- Control {shares['control']}% -> {control_uW:.4f} uW = {control_energy_fJ:.4f} fJ/access; "
-        f"90/10 split: `e_control_per_op__fJ = {e_control_fJ:.4f}`, "
+        f"pure per-op caliber (100% dynamic, 0% static): `e_control_per_op__fJ = {e_control_fJ:.4f}`, "
         f"`control_config.leakage_per_inst__uW = {control_leak_uW:.4f}`."
     )
     emit(
@@ -292,8 +298,11 @@ def main() -> None:
     emit()
     emit(
         "Read-path seats stay pure physics: cablc / sl / adc / pn_isub static seats declared small/zero "
-        "(NOT solved); adc.e_fixed_per_op__fJ, g_map, V_BL_CLAMP, wire R, and the conduction windows are "
-        "declared, reported informationally in step d, never reverse-solved to fill the total."
+        "(NOT solved); g_map, V_BL_CLAMP, wire R, and the conduction windows stay declared structural "
+        "constants; the capacitive / per-op remainders (array caps, SINWP-SC `c_hold`, TMCSA phase widths "
+        "+ `e_fixed_per_op`) are the pair-caliber energy campaign's domain (their fitted values live in "
+        "`params.toml` under each block's `[calibrated]` comment; the measured per-slice breakdown is in "
+        "`results.md`), never reverse-solved to fill the total."
     )
     emit()
 
@@ -358,19 +367,19 @@ def main() -> None:
     emit("Values to write back into params.toml / anchors.toml (print only; nothing is mutated):")
     emit("")
     emit(f"- `reference_config.i_refs__uA = [[{', '.join(f'{v:.6f}' for v in mids)}]]`  # calibrated ladder")
-    emit(f"- `e_control_per_op__fJ = {e_control_fJ:.4f}`  # adopted (control 90% dynamic)")
-    emit(f"- `control_config.leakage_per_inst__uW = {control_leak_uW:.4f}`  # adopted (control 10% static)")
+    emit(f"- `e_control_per_op__fJ = {e_control_fJ:.4f}`  # adopted (control 100% dynamic, pure per-op)")
+    emit(f"- `control_config.leakage_per_inst__uW = {control_leak_uW:.4f}`  # adopted (control 0% static)")
     emit(f"- `reference_config.leakage_per_inst__uW = {reference_leak_uW:.5f}`  # adopted (reference 100% static)")
     emit(f"- `anchors.toml [data].p_zero = {locked_p:.4f}`  # LOCKED to the read-path share (15.10 pJ), NOT the total")
     emit()
     emit(
-        "Read-path physical declarations (adc.e_fixed_per_op__fJ, g_map, V_BL_CLAMP, wire R, windows) are left "
-        "as declared; the informational breakdown documents where each read-path slice lands vs its Fig.18 share."
+        "Read-path physical declarations (g_map, V_BL_CLAMP, wire R, windows) are left as declared; the "
+        "informational breakdown documents where each read-path slice lands vs its Fig.18 share."
     )
     emit()
 
     args.report.write_text("\n".join(log) + "\n")
-    print(f"\n[wrote report -> {args.report}]")
+    _LOG.info("\n[wrote report -> %s]", args.report)
 
 
 if __name__ == "__main__":
