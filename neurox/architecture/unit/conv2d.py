@@ -43,13 +43,14 @@ class Conv2dUnit(UnitBase, ABC):
         raise NotImplementedError
 
     @torch.no_grad()
-    def conv2d(self, input: Tensor, *, adc_mode: int, adc_bits: int) -> Tensor:
+    def conv2d(self, input: Tensor, *, quantization_mode: int, adc_bits: int | None) -> Tensor:
         """Execute one integer 2-D convolution against the programmed state.
 
         Args:
             input: Integer activation tensor with trailing ``[C_in, H, W]``.
-            adc_mode: Runtime ADC operating-point index.
-            adc_bits: Runtime ADC resolution.
+            quantization_mode: Runtime quantization-mode index.
+            adc_bits: Runtime ADC resolution, or ``None`` for the lossless
+                oracle.
 
         Returns:
             Integer pre-requantize output tensor with trailing
@@ -59,7 +60,7 @@ class Conv2dUnit(UnitBase, ABC):
             raise ValueError(f"conv2d() expects input with trailing [C_in, H, W]; got ndim {input.ndim}")
         out_hw = self._conv2d_out_hw(input.shape[-2], input.shape[-1])
         planes = self._conv2d_planes(input, out_hw=out_hw)
-        y = self._matmul(planes, adc_mode=adc_mode, adc_bits=adc_bits)
+        y = self._matmul(planes, quantization_mode=quantization_mode, adc_bits=adc_bits)
         y = self._conv2d_fold(y, out_hw=out_hw)
         int_bias = self._int_bias
         if int_bias is not None:

@@ -64,19 +64,26 @@ python -m example.bert.evaluate \
   2-state × 4-digit activation ⇒ [0, 15]).  The output grid defaults
   to signed 8-bit (`y_qmin=-128`, `y_qmax=127`) so BERT's post-layer
   activation range survives requantization.
-- **Hardware is TOML-driven**: every circuit parameter — ADC
-  resolution (`[bl_adc].boundaries`), RRAM states, switch, wires,
-  digital datapath, tile geometry, rescale factor — is read from
-  `example/bert/macro.toml` (which pulls the 1T1R xbar reference from
-  `example/config/1t1r_28nm.toml` via `_neurox_use`). To
-  change the ADC resolution, edit the `[bl_adc].boundaries` list and
-  add a matching `[[cim_macro.adc_calibration]]` record accordingly; the CLI
-  has no hardware knobs.
-- **ADC resolution and depth**: the bundled 16-level (4-bit) ADC
-  collapses BERT-small's signal to chance accuracy — 26 linear
-  layers compound per-tile quantization noise past the signal floor.
-  For deep transformer stacks, configure a finer ADC (e.g. 193-level
-  lossless) in the TOML before running HAT / eval.
+- **Hardware is TOML-driven**: every circuit parameter — RRAM states,
+  switch, wires, digital datapath, tile geometry, output quantization —
+  comes from the config TOML, and every nonideality switch from the
+  paired `*.policy.toml`; the CLI has no hardware knobs.
+  `example/bert/macro_ideal.toml` and its policy instantiate an ideal
+  xbar directly and load as they stand.  `example/bert/macro.toml` and
+  its policy instead pull the xbar in through `_neurox_use`; the fragment
+  they name is not in the tree, so that pair — the CLI default — stops at
+  config load.
+- **Output quantization**: the ideal config declares the converter
+  resolution (`adc_max_bits`) plus one canonical inclusive window
+  `[lower, upper]`, in MAC units, per quantization mode
+  (`quantization_input_ranges`). A call picks a mode and a bit width
+  (`quantization_mode`, `adc_bits`); `adc_bits = None` is the lossless
+  oracle, and `rescale_factor` states an output code in ideal-macro
+  codes.
+- **ADC resolution and depth**: per-tile output quantization compounds
+  across BERT-small's 26 linear layers, so a coarse converter drives the
+  stack to chance accuracy. For deep transformer stacks raise
+  `adc_max_bits` before running HAT / eval.
 - **Knowledge distillation**: a frozen float teacher supervises the
   HAT student via soft-label KL (temperature `T=2.0`) plus pooled
   `[CLS]` MSE.  Combined with a high-resolution ADC, one epoch lands
@@ -88,7 +95,8 @@ python -m example.bert.evaluate \
   start with small batch size (16) and few epochs (1-3).
 - **Sequence length**: SST-2 sentences are short (median ≈ 11 tokens);
   `--max-length 128` is comfortable but you can drop to 64 for speed.
-- **TOML consistency between HAT and eval**: train and evaluate with
-  the same `example/bert/macro.toml` so the saved
-  `(multiplier, rshift, bias_int)` buffers align with the evaluator's
-  rescale factor.
+- **TOML consistency between HAT and eval**: train and evaluate with the
+  same config pair so the saved `(multiplier, rshift, bias_int)` buffers
+  align with the evaluator's MAC units per output code — `rescale_factor`
+  times the ideal window step `W / 2**adc_bits`, which
+  `example/bert/quant.py` folds in as `mac_per_code`.

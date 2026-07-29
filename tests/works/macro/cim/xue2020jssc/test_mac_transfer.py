@@ -14,8 +14,8 @@ mixed-sign columns, a random-batch bit-exactness gate, a generalized
 ``w_digit_num = 1`` (ternary weight) transfer check, — the LSB-first guard —
 a TrueFormTranscoder-driven asymmetric-weight regression plus a focused
 single-row place-value check that a reversed-but-consistent digit convention
-would fail, and the decimated-ladder bit-width laws (the raw code at ``b`` bits
-is the max-bits code right-shifted, sign recovery is bits-independent, and the
+would fail, and the shared-ladder bit-width laws (the raw code at ``b`` bits is
+the max-bits code right-shifted, sign recovery is bits-independent, and the
 lossless oracle belongs to the ideal twin alone).
 
 The analog ``I_SUB(M)`` grid is config-dependent, so the ladder is calibrated
@@ -264,18 +264,19 @@ def test_lsb_first_place_value_single_row(device: torch.device) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Decimated-ladder bit-width laws
+# Shared-ladder bit-width laws
 # ---------------------------------------------------------------------------
 
 
-def test_decimated_ladder_raw_code_law(device: torch.device) -> None:
+def test_shared_ladder_raw_code_law(device: torch.device) -> None:
     """Lowering the bit width right-shifts the code: ``|code_b| == |code_B| >> (B - b)``.
 
-    Every bit width rides the ONE max-bits threshold ladder; bits ``b`` keeps
-    every ``2**(B-b)``-th tap, so the deterministic SAR counts exactly the taps
-    that survive and lands on the max-bits code right-shifted by ``B - b``. The
-    sign is recovered by the PN-ISUB, outside the converter, so it rides along
-    unchanged and the whole signed output is ``sign * (|code_B| >> (B - b))``.
+    Every bit width rides the ONE max-bits threshold ladder, which the macro
+    always hands over whole; the deterministic SAR truncates its own search
+    after ``b`` levels and lands on the max-bits code right-shifted by
+    ``B - b``. The sign is recovered by the PN-ISUB, outside the converter, so
+    it rides along unchanged and the whole signed output is
+    ``sign * (|code_B| >> (B - b))``.
     """
     macro = build_calibrated_macro(device=device)
     max_bits = macro.adc_max_bits

@@ -61,9 +61,9 @@ def to_quant(
     """In-place: swap every ``nn.Linear`` for :class:`QuantLinear` bound to a macro.
 
     ``mode_picker``: int constant or callable ``qualified_name → mode``.
-    Default 0 routes every layer through ADC mode 0. BERT-small linears
-    fully fill 64-row xbar tiles so a single mode is reasonable; refine
-    per layer by passing a custom picker if eval shows over-rescale.
+    Default 0 routes every layer through quantization mode 0. BERT-small
+    linears fully fill 64-row xbar tiles so a single mode is reasonable;
+    refine per layer by passing a custom picker if eval shows over-rescale.
     """
     pick = mode_picker if callable(mode_picker) else (lambda _name: mode_picker)
 
@@ -76,7 +76,7 @@ def to_quant(
         return QuantLinear.from_state(
             macro=macro,
             state=layer_state[qualified],
-            adc_mode=pick(qualified),
+            quantization_mode=pick(qualified),
         ).to(original.weight.device)
 
     return _replace_linear(model, build)

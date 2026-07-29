@@ -39,8 +39,9 @@ def build_macro_factory(
 
     The circuit design lives in ``config_path`` (section ``[cim_unit]``); the
     nonideality switches live in ``policy_path`` (section ``[policy]``).
-    ``ideal_macro=True`` swaps the physical macro for its ideal twin (only
-    meaningful when the config carries a physical macro).
+    ``ideal_macro=True`` swaps the configured macro for its ideal twin via
+    ``to_ideal()`` — the faithful reference of a physical macro, and the macro
+    itself when the config already carries an ideal one.
     """
 
     def factory(*, w_logical_shape: tuple[int, ...]) -> LinearUnit:

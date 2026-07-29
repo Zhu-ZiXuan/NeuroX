@@ -49,7 +49,6 @@ from neurox.primitive.macro.cim import (
     CimMacroMode,
     CimMacroPolicy,
     IdealCimMacro,
-    decimate_references,
     map_magnitude_input_code,
 )
 from neurox.primitive.xbar.array import XbarArray1t1rConfig, XbarArray1t1rPolicy
@@ -156,8 +155,8 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
             are inert here). Its ``step_latency__ns`` stays the physical sensing
             duration and feeds the read-chain window :attr:`t_other__ns`.
         reference_config: Shared static Iref — the ``[mode, tap]`` threshold
-            bank; the macro selects one mode row, decimates it to the requested
-            bit width, and passes the per-instance ladder straight to the ADC.
+            bank; the macro selects one mode row and passes that per-instance
+            ladder straight to the ADC, which handles bit width internally.
             ``tap_num == 2**adc_config.bits - 1``.
         modes: One :class:`CimMacroMode` per quantization mode, indexed by
             ``quantization_mode``: the canonical MAC-unit conversion window, the
@@ -337,7 +336,7 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
 
         # The TMCSA reads its ladder from the shared Iref, so the tap
         # count must match the binary-search depth exactly. Lower bit widths
-        # decimate this one max-bits ladder; they need no taps of their own.
+        # ride this one max-bits ladder; they need no taps of their own.
         want_taps = (1 << self.adc_config.bits) - 1
         if self.reference_config.tap_num != want_taps:
             raise ValueError(
@@ -773,9 +772,9 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
             quantization_mode: Mode index in
                 ``[0, len(quantization_input_ranges))``; selects the shared
                 reference's ladder row.
-            adc_bits: ADC resolution [bits] in ``[1, adc_max_bits]``. The
-                ladder decimates to that width, so the TMCSA runs the first
-                ``adc_bits`` steps of its max-bits binary search.
+            adc_bits: ADC resolution [bits] in ``[1, adc_max_bits]``. The full
+                ladder is always wired; the TMCSA realizes the width by running
+                only the first ``adc_bits`` steps of its max-bits binary search.
 
         Returns:
             Signed-magnitude raw-code tensor with the same leading order and
@@ -860,16 +859,10 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         adc_i_refs__uA = ref_snap.i_refs__uA
         # Shape: [*inst, mode, tap] -> [*inst, tap]
         adc_refs_mode__uA = adc_i_refs__uA[..., quantization_mode, :]
-        # Every bit width rides the one max-bits ladder: bits b keeps every
-        # 2**(B-b)-th tap (the identity view at b == B).
-        # Shape: [*inst, tap] -> [*inst, 2**adc_bits - 1]
-        adc_refs_bits__uA = decimate_references(
-            adc_refs_mode__uA,
-            adc_max_bits=self.adc_max_bits,
-            adc_bits=adc_bits,
-        )
+        # Every bit width rides this one max-bits ladder — the ADC truncates
+        # its own binary search, the macro never subsets the taps.
         # Shape: [*B, gs, gn]
-        code = self.adc.convert(i_sub, adc_refs_bits__uA, bits=adc_bits)
+        code = self.adc.convert(i_sub, adc_refs_mode__uA, bits=adc_bits)
         # The kernel ADC is energy-silent; the billing module recovers the
         # per-step reference path from the raw unsigned codes over the full
         # ladder (a lowered bit width replays the leading steps of it).

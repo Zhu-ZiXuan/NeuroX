@@ -7,7 +7,7 @@
 - **Conv overrides the template with geometry-parameterized seams.** `Conv2dUnit.conv2d` is the concrete template: `_conv2d_out_hw` → `_conv2d_planes` (conv seam 2) → `_matmul` → `_conv2d_fold` (conv seam 3) → the per-channel bias add. The fold needs the per-call `(H_out, W_out)`, so `out_hw` is passed explicitly through both conv seams — no per-call state is ever stashed on `self`.
 - **Geometry storage is one shared init helper.** `_init_conv2d_operator` stores kernel size, stride, padding, and dilation on protected attrs and initializes the `_int_bias` slot; a concrete host calls it once in its constructor. `_conv2d_out_hw` computes the output map from these attrs and raises on a non-positive extent.
 - **The interface does not import implementations.** The operator ABC is independent of `CimUnit`; the ideal leaf depends on both interfaces from `architecture/unit/ideal/conv2d.py`. It takes stride, padding, and dilation from its config while the kernel extent comes from the 4-D `w_logical_shape`.
-- **The ideal conv reference is int64-only.** `_conv2d_planes` is a digital im2col by precomputed integer index grids and advanced indexing, not `F.unfold` (whose kernels are float-oriented): dtype-agnostic data movement, exact for any integer dtype. `_matmul` contracts in int64 with no fp32 fast path; `adc_mode, adc_bits` are accepted and unused (lossless reference). `_weight_to_matrix` flattens the kernel to `[C_out, C_in*kh*kw]` at program time; `_conv2d_fold` transposes and unflattens `L` back to `(H_out, W_out)`.
+- **The ideal conv reference is int64-only.** `_conv2d_planes` is a digital im2col by precomputed integer index grids and advanced indexing, not `F.unfold` (whose kernels are float-oriented): dtype-agnostic data movement, exact for any integer dtype. `_matmul` contracts in int64 with no fp32 fast path; `quantization_mode, adc_bits` are accepted and unused (lossless reference). `_weight_to_matrix` flattens the kernel to `[C_out, C_in*kh*kw]` at program time; `_conv2d_fold` transposes and unflattens `L` back to `(H_out, W_out)`.
 
 ## Contracts & invariants
 
@@ -15,7 +15,7 @@
 - **Conv seams undo exactly their own axes.** `_conv2d_planes` introduces the plane axes its host lowers with; `_conv2d_fold` removes exactly those axes (LIFO axis-stack discipline, [UnitBase](base.md)).
 - **`IdealConv2dUnit.program` gates shape.** Any shape other than the 4-D `w_logical_shape` raises `ValueError`; the ideal reference does not enforce the CIM-backed integer boundary. The `(C_out,)` bias goes through `_program_int_bias`.
 - **Zero-padding needs a representable zero.** A host configured with non-zero padding must require its `x_value_range` to cover 0 — zero-padding injects `x = 0` activations. (The ideal leaf computes in int64 regardless; its config ranges are reported surface.)
-- **Sentinel ADC surface.** `adc_mode_num == 1`, `adc_max_bits == 0`, `adc_rescale_factor == 1.0` — same lossless sentinel as [IdealLinearUnit](linear.md).
+- **Sentinel quantization surface.** `adc_max_bits is None` and `rescale_factor == 1.0` — same lossless sentinel as [IdealLinearUnit](linear.md).
 
 ## Gotchas
 

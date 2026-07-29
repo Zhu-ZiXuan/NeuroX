@@ -1,18 +1,22 @@
 """Unit tests for the pure logic in :mod:`neurox.tools.calibrate_adc`.
 
-Covers :mod:`._math`, the :mod:`._modes` file formats, and the
-:mod:`.mode_derive` derivation. Synthetic-data tests only — no macro
-building, no probed runs.
+Covers :mod:`._math`, the :mod:`._modes` file formats, the
+:mod:`.mode_derive` derivation, and the emitted config fragments.
+Synthetic-data tests only — no macro building, no probed runs.
 """
 
 from __future__ import annotations
 
+import tomllib
+from dataclasses import fields
 from pathlib import Path
 
 import pytest
 import torch
 
+from neurox.primitive.macro.cim import CimMacroMode
 from neurox.tools.calibrate_adc._math import (
+    RescaleFit,
     band_stats,
     cluster_values,
     filter_fit_samples,
@@ -24,6 +28,7 @@ from neurox.tools.calibrate_adc._modes import (
     AdcMode,
     LayerRange,
     ModeSet,
+    canonical_window,
     dump_mode_set,
     load_layer_ranges,
     load_mode_set,
@@ -35,6 +40,7 @@ from neurox.tools.calibrate_adc._testbench import (
     saturating_w,
 )
 from neurox.tools.calibrate_adc.mode_derive import derive_modes
+from neurox.tools.calibrate_adc.rescale_fit import ModeFitResult, _fragment_lines
 
 
 class TestFitRescaleThroughOrigin:
@@ -81,42 +87,50 @@ class TestFitRescaleThroughOrigin:
 
 
 class TestBandStats:
-    def test_groups_by_magnitude(self) -> None:
-        magnitude = torch.tensor([0, 0, 1, 1, 2, 2])
+    def test_groups_by_input_code(self) -> None:
+        input_code = torch.tensor([0, 0, 1, 1, 2, 2])
         analog = torch.tensor([0.0, 0.1, 1.0, 1.2, 2.0, 2.5])
-        bands = band_stats(magnitude, analog, m_max=2)
-        assert [b.magnitude for b in bands] == [0, 1, 2]
+        bands = band_stats(input_code, analog, adc_input_code_range=(0, 2))
+        assert [b.input_code for b in bands] == [0, 1, 2]
         assert bands[1].lo == pytest.approx(1.0)
         assert bands[1].hi == pytest.approx(1.2)
         assert bands[1].mean == pytest.approx(1.1)
         assert bands[1].count == 2
 
-    def test_overflow_folds_into_top_band(self) -> None:
-        """|M| > m_max clips to the top code, so it bounds the top band."""
-        magnitude = torch.tensor([0, 1, 2, 9])
-        analog = torch.tensor([0.0, 1.0, 2.0, 9.0])
-        bands = band_stats(magnitude, analog, m_max=2)
-        assert bands[2].hi == pytest.approx(9.0)
-        assert bands[2].count == 2
+    def test_out_of_range_pairs_masked(self) -> None:
+        """A code the converter resolves no tap for bounds no band."""
+        input_code = torch.tensor([0, 1, 2, 9, -1])
+        analog = torch.tensor([0.0, 1.0, 2.0, 9.0, -9.0])
+        bands = band_stats(input_code, analog, adc_input_code_range=(0, 2))
+        assert [b.input_code for b in bands] == [0, 1, 2]
+        assert bands[2].hi == pytest.approx(2.0)
+        assert sum(b.count for b in bands) == 3
+
+    def test_grid_follows_the_range_bounds(self) -> None:
+        """Bands cover exactly the inclusive range, one per code."""
+        input_code = torch.arange(1, 4)
+        analog = torch.tensor([1.0, 2.0, 3.0])
+        bands = band_stats(input_code, analog, adc_input_code_range=(1, 3))
+        assert [b.input_code for b in bands] == [1, 2, 3]
 
     def test_coverage_gap_raises(self) -> None:
-        magnitude = torch.tensor([0, 2])
+        input_code = torch.tensor([0, 2])
         analog = torch.tensor([0.0, 2.0])
         with pytest.raises(ValueError, match=r"coverage gap.*\[1\]"):
-            band_stats(magnitude, analog, m_max=2)
+            band_stats(input_code, analog, adc_input_code_range=(0, 2))
 
-    def test_negative_magnitude_raises(self) -> None:
-        with pytest.raises(ValueError, match="non-negative"):
-            band_stats(torch.tensor([-1, 0]), torch.tensor([0.0, 1.0]), m_max=1)
+    def test_degenerate_range_raises(self) -> None:
+        with pytest.raises(ValueError, match="upper"):
+            band_stats(torch.tensor([0, 1]), torch.tensor([0.0, 1.0]), adc_input_code_range=(1, 1))
 
 
 class TestPlaceThresholds:
     @staticmethod
-    def _bands(magnitude_num: int, *, gap: float = 0.5, width: float = 0.4) -> list:
-        """Clean synthetic bands: band k spans [k, k + width], separation gap-ish."""
-        magnitude = torch.arange(magnitude_num).repeat_interleave(2)
-        analog = torch.cat([torch.tensor([float(k), float(k) + width]) for k in range(magnitude_num)])
-        return list(band_stats(magnitude, analog, m_max=magnitude_num - 1))
+    def _bands(code_num: int, *, width: float = 0.4) -> list:
+        """Clean synthetic bands: band k spans [k, k + width]."""
+        input_code = torch.arange(code_num).repeat_interleave(2)
+        analog = torch.cat([torch.tensor([float(k), float(k) + width]) for k in range(code_num)])
+        return list(band_stats(input_code, analog, adc_input_code_range=(0, code_num - 1)))
 
     def test_midpoint_placement(self) -> None:
         bands = self._bands(4, width=0.4)
@@ -129,16 +143,16 @@ class TestPlaceThresholds:
 
     def test_overlapping_bands_report_negative_margin(self) -> None:
         """Overlap is reported, not raised — the margin report is the gate."""
-        magnitude = torch.tensor([0, 0, 1, 1])
+        input_code = torch.tensor([0, 0, 1, 1])
         analog = torch.tensor([0.0, 1.0, 0.8, 1.5])  # band 1 starts below band 0's hi
-        placement = place_thresholds(band_stats(magnitude, analog, m_max=1))
+        placement = place_thresholds(band_stats(input_code, analog, adc_input_code_range=(0, 1)))
         assert placement.min_margin == pytest.approx(-0.2)
         assert placement.min_margin_boundary == 0
 
     def test_non_monotone_means_flagged(self) -> None:
-        magnitude = torch.tensor([0, 1, 2])
+        input_code = torch.tensor([0, 1, 2])
         analog = torch.tensor([2.0, 1.0, 3.0])  # mean(1) < mean(0)
-        placement = place_thresholds(band_stats(magnitude, analog, m_max=2))
+        placement = place_thresholds(band_stats(input_code, analog, adc_input_code_range=(0, 2)))
         assert placement.monotone is False
 
     def test_single_band_raises(self) -> None:
@@ -208,25 +222,25 @@ class TestFilterFitSamples:
     def test_both_filters_and_counts(self) -> None:
         """Range and saturation drops apply jointly; counts report per cause."""
         code = torch.tensor([1, 7, 3, 7, 2], dtype=torch.int64)
-        ideal_abs = torch.tensor([1, 9, 10, 12, 2], dtype=torch.int64)
-        sel = filter_fit_samples(code, ideal_abs, range_limit=9.5, top_code=7)
+        adc_input_code = torch.tensor([1, 9, 10, 12, 2], dtype=torch.int64)
+        sel = filter_fit_samples(code, adc_input_code, adc_input_code_range=(0, 9), top_code=7)
         # idx 1: saturated only; idx 2: out of range only; idx 3: both.
         assert sel.keep.tolist() == [True, False, False, False, True]
         assert sel.range_dropped_num == 2
         assert sel.saturated_num == 2
 
-    def test_range_boundary_inclusive(self) -> None:
-        """|ideal| == range stays in the design domain."""
-        code = torch.tensor([1, 2], dtype=torch.int64)
-        ideal_abs = torch.tensor([4, 5], dtype=torch.int64)
-        sel = filter_fit_samples(code, ideal_abs, range_limit=4.0, top_code=7)
-        assert sel.keep.tolist() == [True, False]
+    def test_range_bounds_inclusive(self) -> None:
+        """Both endpoints of the input code range stay in the design domain."""
+        code = torch.tensor([1, 2, 3], dtype=torch.int64)
+        adc_input_code = torch.tensor([0, 4, 5], dtype=torch.int64)
+        sel = filter_fit_samples(code, adc_input_code, adc_input_code_range=(0, 4), top_code=7)
+        assert sel.keep.tolist() == [True, True, False]
         assert sel.range_dropped_num == 1
         assert sel.saturated_num == 0
 
     def test_count_mismatch_raises(self) -> None:
         with pytest.raises(ValueError, match="numel"):
-            filter_fit_samples(torch.ones(3), torch.ones(4), range_limit=1.0, top_code=3)
+            filter_fit_samples(torch.ones(3), torch.ones(4), adc_input_code_range=(0, 1), top_code=3)
 
 
 class TestLayerRangeMapping:
@@ -239,33 +253,58 @@ class TestLayerRangeMapping:
     def test_parse(self, tmp_path: Path) -> None:
         path = self._write(
             tmp_path,
-            '"enc.0.q" = { range = 12.5, signed = true }\n"enc.0.ffn" = { range = 31.0, signed = false }\n',
+            '"enc.0.q" = { range = [-12.5, 12.5] }\n"enc.0.ffn" = { range = [0.0, 31.0] }\n',
         )
         mapping = load_layer_ranges(path)
         assert mapping == {
-            "enc.0.q": LayerRange(range=12.5, signed=True),
-            "enc.0.ffn": LayerRange(range=31.0, signed=False),
+            "enc.0.q": LayerRange(range=(-12.5, 12.5)),
+            "enc.0.ffn": LayerRange(range=(0.0, 31.0)),
         }
+        assert mapping["enc.0.q"].signed is True
+        assert mapping["enc.0.ffn"].signed is False
 
     def test_empty_raises(self, tmp_path: Path) -> None:
         with pytest.raises(ValueError, match="at least one layer"):
             load_layer_ranges(self._write(tmp_path, ""))
 
-    def test_non_positive_range_raises(self, tmp_path: Path) -> None:
-        with pytest.raises(ValueError, match="finite and > 0"):
-            load_layer_ranges(self._write(tmp_path, '"a" = { range = 0.0, signed = true }\n'))
+    def test_non_positive_upper_raises(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match=r"hi \(0.0\) > 0"):
+            load_layer_ranges(self._write(tmp_path, '"a" = { range = [-1.0, 0.0] }\n'))
+
+    def test_inverted_range_raises(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match=r"lo .* <= hi"):
+            load_layer_ranges(self._write(tmp_path, '"a" = { range = [4.0, 1.0] }\n'))
 
     def test_non_finite_range_raises(self, tmp_path: Path) -> None:
-        with pytest.raises(ValueError, match="finite and > 0"):
-            load_layer_ranges(self._write(tmp_path, '"a" = { range = inf, signed = true }\n'))
+        with pytest.raises(ValueError, match="finite"):
+            load_layer_ranges(self._write(tmp_path, '"a" = { range = [0.0, inf] }\n'))
 
-    def test_non_bool_signed_raises(self, tmp_path: Path) -> None:
-        with pytest.raises(ValueError, match="signed must be a bool"):
-            load_layer_ranges(self._write(tmp_path, '"a" = { range = 1.0, signed = 1 }\n'))
+    def test_scalar_range_raises(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="2-element array"):
+            load_layer_ranges(self._write(tmp_path, '"a" = { range = 1.0 }\n'))
 
     def test_unknown_key_raises(self, tmp_path: Path) -> None:
         with pytest.raises(ValueError, match="exactly"):
-            load_layer_ranges(self._write(tmp_path, '"a" = { range = 1.0, signed = true, extra = 1 }\n'))
+            load_layer_ranges(self._write(tmp_path, '"a" = { range = [0.0, 1.0], signed = true }\n'))
+
+
+class TestCanonicalWindow:
+    def test_non_negative_range_maps_unsigned(self) -> None:
+        assert canonical_window(LayerRange(range=(0.0, 12.2))) == (0, 13)
+
+    def test_signed_range_maps_mid_zero(self) -> None:
+        """A mid-zero window is asymmetric, so its top drives the size."""
+        assert canonical_window(LayerRange(range=(-12.5, 12.5))) == (-14, 13)
+        assert canonical_window(LayerRange(range=(-8.0, 7.0))) == (-8, 7)
+
+    def test_negative_side_can_size_the_window(self) -> None:
+        window = canonical_window(LayerRange(range=(-20.0, 1.0)))
+        assert window == (-20, 19)
+
+    def test_window_covers_the_range(self) -> None:
+        for lo, hi in ((-12.5, 12.5), (-20.0, 1.0), (0.0, 7.5), (-0.5, 0.5)):
+            lower, upper = canonical_window(LayerRange(range=(lo, hi)))
+            assert lower <= lo and upper >= hi
 
 
 class TestModeSet:
@@ -273,8 +312,8 @@ class TestModeSet:
     def _mode_set() -> ModeSet:
         return ModeSet(
             modes=(
-                AdcMode(adc_mode=0, signed=False, range=31.0, layer_num=1),
-                AdcMode(adc_mode=1, signed=True, range=12.5, layer_num=2),
+                AdcMode(quantization_mode=0, quantization_input_range=(0, 31), layer_num=1),
+                AdcMode(quantization_mode=1, quantization_input_range=(-13, 12), layer_num=2),
             ),
             layers={"enc.0.ffn": 0, "enc.0.q": 1, "enc.0.k": 1},
         )
@@ -286,26 +325,39 @@ class TestModeSet:
         path.write_text(dump_mode_set(original))
         assert load_mode_set(path) == original
 
-    def test_non_contiguous_adc_mode_raises(self) -> None:
+    def test_non_canonical_window_raises(self) -> None:
+        """The mode set carries canonical windows only — no symmetric shape."""
+        with pytest.raises(ValueError, match="canonical"):
+            AdcMode(quantization_mode=0, quantization_input_range=(-8, 8), layer_num=1)
+
+    def test_non_contiguous_mode_raises(self) -> None:
         with pytest.raises(ValueError, match="contiguous"):
             ModeSet(
-                modes=(AdcMode(adc_mode=1, signed=True, range=1.0, layer_num=1),),
+                modes=(AdcMode(quantization_mode=1, quantization_input_range=(0, 1), layer_num=1),),
                 layers={"a": 1},
             )
 
     def test_unknown_layer_mode_raises(self) -> None:
-        with pytest.raises(ValueError, match="unknown adc_mode"):
+        with pytest.raises(ValueError, match="unknown quantization_mode"):
             ModeSet(
-                modes=(AdcMode(adc_mode=0, signed=True, range=1.0, layer_num=1),),
+                modes=(AdcMode(quantization_mode=0, quantization_input_range=(0, 1), layer_num=1),),
                 layers={"a": 0, "b": 3},
             )
 
     def test_layer_num_mismatch_raises(self) -> None:
         with pytest.raises(ValueError, match="layer_num"):
             ModeSet(
-                modes=(AdcMode(adc_mode=0, signed=True, range=1.0, layer_num=2),),
+                modes=(AdcMode(quantization_mode=0, quantization_input_range=(0, 1), layer_num=2),),
                 layers={"a": 0},
             )
+
+    def test_load_rejects_scalar_window(self, tmp_path: Path) -> None:
+        path = tmp_path / "modes.toml"
+        path.write_text(
+            '[[modes]]\nquantization_mode = 0\nquantization_input_range = 7\nlayer_num = 1\n\n[layers]\n"a" = 0\n'
+        )
+        with pytest.raises(ValueError, match="2-element array"):
+            load_mode_set(path)
 
     def test_load_rejects_extra_top_level_key(self, tmp_path: Path) -> None:
         path = tmp_path / "modes.toml"
@@ -372,35 +424,95 @@ class TestDeriveModes:
     def test_unsigned_first_global_mode_enumeration(self) -> None:
         """Unsigned group enumerates first; clusters ascend within a group."""
         layer_ranges = {
-            "a.signed.small": LayerRange(range=1.0, signed=True),
-            "b.signed.large": LayerRange(range=8.0, signed=True),
-            "c.unsigned.only": LayerRange(range=4.0, signed=False),
+            "a.signed.small": LayerRange(range=(-1.0, 1.0)),
+            "b.signed.large": LayerRange(range=(-8.0, 8.0)),
+            "c.unsigned.only": LayerRange(range=(0.0, 4.0)),
         }
         modes, layer_to_mode = derive_modes(layer_ranges, rel_tol=0.05, max_modes_per_group=4)
-        assert [(m.adc_mode, m.signed) for m in modes] == [(0, False), (1, True), (2, True)]
+        assert [(m.quantization_mode, m.signed) for m in modes] == [(0, False), (1, True), (2, True)]
         assert layer_to_mode == {"c.unsigned.only": 0, "a.signed.small": 1, "b.signed.large": 2}
-        assert modes[0].cluster.representative == pytest.approx(4.0)
-        assert modes[2].cluster.representative == pytest.approx(8.0)
+        assert modes[0].quantization_input_range == (0, 4)
+        assert modes[1].quantization_input_range == (-2, 1)
+        assert modes[2].quantization_input_range == (-9, 8)
+
+    def test_mode_window_covers_every_member(self) -> None:
+        """A cluster's window covers each member layer's design range."""
+        layer_ranges = {
+            "s1": LayerRange(range=(-4.0, 3.0)),
+            "s2": LayerRange(range=(-4.2, 3.5)),
+            "s3": LayerRange(range=(-3.0, 2.0)),
+        }
+        modes, layer_to_mode = derive_modes(layer_ranges, rel_tol=0.5, max_modes_per_group=1)
+        assert len(modes) == 1
+        lower, upper = modes[0].quantization_input_range
+        for name, spec in layer_ranges.items():
+            assert layer_to_mode[name] == 0
+            assert lower <= spec.range[0] and upper >= spec.range[1]
 
     def test_single_group_input(self) -> None:
-        """An empty sign group contributes no mode; enumeration stays dense."""
+        """An empty shape group contributes no mode; enumeration stays dense."""
         layer_ranges = {
-            "x": LayerRange(range=2.0, signed=True),
-            "y": LayerRange(range=2.1, signed=True),
+            "x": LayerRange(range=(-2.0, 2.0)),
+            "y": LayerRange(range=(-2.1, 2.1)),
         }
-        modes, layer_to_mode = derive_modes(layer_ranges, rel_tol=0.1, max_modes_per_group=4)
-        assert [(m.adc_mode, m.signed) for m in modes] == [(0, True)]
+        modes, layer_to_mode = derive_modes(layer_ranges, rel_tol=0.3, max_modes_per_group=4)
+        assert [(m.quantization_mode, m.signed) for m in modes] == [(0, True)]
         assert layer_to_mode == {"x": 0, "y": 0}
 
     def test_deterministic_under_input_order(self) -> None:
         """The derivation is invariant to the mapping's insertion order."""
         forward = {
-            "u1": LayerRange(range=3.0, signed=False),
-            "s1": LayerRange(range=1.0, signed=True),
-            "u2": LayerRange(range=9.0, signed=False),
-            "s2": LayerRange(range=1.05, signed=True),
+            "u1": LayerRange(range=(0.0, 3.0)),
+            "s1": LayerRange(range=(-1.0, 1.0)),
+            "u2": LayerRange(range=(0.0, 9.0)),
+            "s2": LayerRange(range=(-1.05, 1.05)),
         }
         backward = dict(reversed(forward.items()))
         assert derive_modes(forward, rel_tol=0.05, max_modes_per_group=4) == derive_modes(
             backward, rel_tol=0.05, max_modes_per_group=4
         )
+
+
+class TestRescaleFragment:
+    """The emitted fragment must paste verbatim into a macro config."""
+
+    @staticmethod
+    def _result(quantization_mode: int, *, rescale_factor: float) -> ModeFitResult:
+        return ModeFitResult(
+            quantization_mode=quantization_mode,
+            adc_bits=3,
+            quantization_input_range=(-8, 7),
+            adc_input_code_range=(0, 7),
+            fit=RescaleFit(
+                rescale_factor=rescale_factor,
+                sample_num=4,
+                r2=1.0,
+                rmse=0.0,
+                max_abs_residual=0.0,
+            ),
+            total_num=4,
+            range_dropped_num=0,
+            saturated_num=0,
+            code=torch.arange(4),
+            ideal_code=torch.arange(4, dtype=torch.float64),
+        )
+
+    def test_fragment_matches_the_mode_config_schema(self) -> None:
+        """Every emitted table builds a CimMacroMode: same keys, no extras."""
+        text = "\n".join(_fragment_lines([self._result(0, rescale_factor=1.25)]))
+        tables = tomllib.loads(text)["modes"]
+        assert len(tables) == 1
+        assert set(tables[0]) == {f.name for f in fields(CimMacroMode)}
+        mode = CimMacroMode(
+            quantization_input_range=tuple(tables[0]["quantization_input_range"]),
+            adc_input_code_range=tuple(tables[0]["adc_input_code_range"]),
+            max_bits_rescale_factor=tables[0]["max_bits_rescale_factor"],
+        )
+        assert mode.quantization_input_range == (-8, 7)
+        assert mode.max_bits_rescale_factor == pytest.approx(1.25)
+
+    def test_tables_emit_in_mode_order(self) -> None:
+        """Table position is the mode index, so the order must be sorted."""
+        results = [self._result(1, rescale_factor=2.0), self._result(0, rescale_factor=1.0)]
+        tables = tomllib.loads("\n".join(_fragment_lines(results)))["modes"]
+        assert [t["max_bits_rescale_factor"] for t in tables] == pytest.approx([1.0, 2.0])

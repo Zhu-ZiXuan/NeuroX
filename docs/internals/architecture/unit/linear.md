@@ -7,7 +7,7 @@
 - **Linear is the generic-seam operator.** `LinearUnit` overrides seams 2 and 3 only: `_activation_to_planes` inserts the size-1 `M` axis (`[..., K] -> [..., 1, K]`), `_undo_aggregation` removes it. `linear()` runs the inherited `_lower_matmul` template and adds the programmed integer bias in the int64 accumulation domain; `program(weight, bias=None)` stays abstract (the host owns the substrate write).
 - **The interface does not import implementations.** The operator ABC is independent of `CimUnit`; the ideal leaf depends on both interfaces from `architecture/unit/ideal/linear.py`. Package initialization imports concrete leaves to establish registry membership without a deferred module-tail import.
 - **Registry membership without a tile.** `IdealLinearUnit` registers its `(IdealLinearUnitConfig, IdealLinearUnitPolicy)` pair, so `CimUnitConfig.from_file` + `CimUnit.from_config` dispatch to it exactly like any engine-backed member; it owns no engine and no `xbar`, and `dtype` / `T__K` / `ideal_macro` are accepted for uniformity and ignored.
-- **Sentinel ADC surface.** `adc_mode_num == 1`, `adc_max_bits == 0`, `adc_rescale_factor == 1.0`. The `0` bit count is the "no output quantization" sentinel ([UnitBase](base.md)).
+- **Sentinel quantization surface.** `adc_max_bits is None` — the "no output quantization" sentinel ([UnitBase](base.md)) — and `rescale_factor` is `1.0` for any argument pair.
 - **Weight is program-produced state.** Construction allocates no nominal or placeholder weight. `program` stores the caller's tensor as an ordinary attribute, so execution requires programming and device migration must precede it.
 
 ## Contracts & invariants

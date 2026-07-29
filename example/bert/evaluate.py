@@ -43,8 +43,8 @@ def main() -> None:
         "--cim_macro",
         choices=("physical", "ideal"),
         default="physical",
-        help="'ideal' replaces the physical tile with its lossless to_ideal() twin "
-        "(faithful reference); 'physical' runs the real array.",
+        help="'ideal' swaps the configured tile for its to_ideal() twin, the faithful reference "
+        "of a physical macro; 'physical' runs the macro as configured.",
     )
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--max-length", type=int, default=128)
@@ -70,8 +70,8 @@ def main() -> None:
     )
     model = create_bert_small(num_labels=2, cache_dir=str(args.dataset_dir))
     model = model.to(device)
-    # mode 4 (v_ref = 0.05 V) matches the v_diff p99 ≈ 0.025 V.
-    n_replaced = to_quant(model, ckpt["layers"], macro_factory, mode_picker=4)
+    # The shipped ideal config declares a single conversion window: mode 0.
+    n_replaced = to_quant(model, ckpt["layers"], macro_factory, mode_picker=0)
     print(
         f"Quant-replaced {n_replaced} Linear layers; config={args.config} policy={args.policy} (cim_macro={args.cim_macro})"
     )

@@ -81,7 +81,6 @@ nav:
     - Single-ended current ADC:
       - Family: reference/primitive/analog/current_adc/family.md
       - SAR: reference/primitive/analog/current_adc/sar.md
-    - ADC common: reference/primitive/analog/adc_common.md
     - Voltage DAC:
       - Family: reference/primitive/analog/voltage_dac/family.md
       - General: reference/primitive/analog/voltage_dac/general.md

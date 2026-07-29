@@ -93,15 +93,11 @@ class IdealConv2dUnit(Conv2dUnit, CimUnit[IdealConv2dUnitConfig, IdealConv2dUnit
         return self.config.x_value_range
 
     @property
-    def adc_mode_num(self) -> int:
-        return 1
+    def adc_max_bits(self) -> int | None:
+        return None
 
-    @property
-    def adc_max_bits(self) -> int:
-        return 0
-
-    def adc_rescale_factor(self, *, adc_mode: int, adc_bits: int) -> float:
-        del adc_mode, adc_bits
+    def rescale_factor(self, *, quantization_mode: int, adc_bits: int | None) -> float:
+        del quantization_mode, adc_bits
         return 1.0
 
     def _weight_to_matrix(self, weight: Tensor) -> Tensor:
@@ -142,8 +138,8 @@ class IdealConv2dUnit(Conv2dUnit, CimUnit[IdealConv2dUnitConfig, IdealConv2dUnit
         return patches.flatten(-3).flatten(-3, -2)
 
     @torch.no_grad()
-    def _matmul(self, planes: Tensor, *, adc_mode: int, adc_bits: int) -> Tensor:
-        del adc_mode, adc_bits
+    def _matmul(self, planes: Tensor, *, quantization_mode: int, adc_bits: int | None) -> Tensor:
+        del quantization_mode, adc_bits
         # Shape: [..., L, C_in*kh*kw] @ [C_in*kh*kw, C_out] -> [..., L, C_out]
         return planes.to(torch.int64) @ self._weight.transpose(-2, -1)
 

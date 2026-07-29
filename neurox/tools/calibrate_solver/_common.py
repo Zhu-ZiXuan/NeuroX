@@ -419,7 +419,7 @@ def _drive_candidate(
         macro.program(w.to(device))
         planes = unroll_sub_phase(x.to(device), row_num=input_num, active_rows=active_rows, inst_rank=inst_rank)
         with SolverProber() as sp, XbarCell1t1rDetailProber() as cp, torch.no_grad():
-            macro.vec_mat_mul(planes, adc_mode=0, adc_bits=macro.adc_max_bits)
+            macro.vec_mat_mul(planes, quantization_mode=0, adc_bits=macro.adc_max_bits)
         batch_solver = sp.records
         batch_cell = cp.records
         if batch_cell and len(batch_cell) != len(batch_solver):

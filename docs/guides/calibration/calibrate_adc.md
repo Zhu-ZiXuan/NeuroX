@@ -4,41 +4,43 @@ Goal: calibrate the ADC operating points of any registered CIM macro without sch
 
 All three follow the [tool conventions](tool_conventions.md) (`--config`, `--device`, `--plot-dir`, `--log-level`), and additionally take `--log-dir` (per-run log file, default `log/calibration/`) with figures defaulting to `log/calibration/figures/`.
 
-## `calibrate_adc.rescale_fit` — per-(mode, bits) rescale
+## `calibrate_adc.rescale_fit` — per-mode rescale
 
-Fits the scalar `rescale_factor` of the consumer model $|M_{\mathrm{ideal}}| \approx \mathrm{code} \cdot \mathrm{rescale\_factor}$ per ADC operating mode:
+Fits the per-mode `max_bits_rescale_factor`, the coefficient $s$ of the rescale currency $\mathrm{code}_{\mathrm{ideal}} \approx s \cdot \mathrm{code}$:
 
 1. Build the physical tile from the tool TOML's `[macro]` file references (all-off policy) and its lossless `to_ideal()` twin.
-2. For each `[stimulus]` combo, program the same random ternary weights into both tiles and drive the same random binary WL batches; the physical VMM runs at the mode under fit, the ideal at the lossless `adc_bits = 0` sentinel.
+2. For each `[stimulus]` combo, program the same random ternary weights into both tiles and drive the same random binary WL batches; the physical VMM runs at the mode under fit, the ideal at the lossless `adc_bits = None` oracle.
 3. Pair the physical tile's `current_adc.convert` probe observations against the ideal tile's `vec_mat_mul` return values, positionally and element-wise (the macro layout contract preserves logical-column order through its readout reshapes).
-4. Per mode, keep only the samples inside the mode's fit window: drop pairs with $|M_{\mathrm{ideal}}| > \mathrm{range}$ on the ideal axis and drop top-code-saturated pairs (both dropped counts are logged), then solve the zero-through-origin least squares in float64.
+4. Per mode, map the ideal dots onto the macro's own ADC input code axis through `map_quantization_input_code`, keep only the samples inside the mode's inclusive input code range, drop top-code-saturated pairs (both dropped counts are logged), then solve the zero-through-origin least squares in float64.
 
-The mode set comes from the [mode-set TOML](#calibrate_adcmode_derive-mode-set-from-per-layer-ranges) the run config points at — each `[[modes]]` record supplies the mode's `range` for the ideal-axis filter. Output: an `[[adc_calibration]]` TOML fragment (one record per (mode, bits), pasted nested under the macro section) plus a per-mode fit plot (code vs ideal + fitted line).
+The fit target is the twin's real-valued ideal code scale — the unquantized position a dot occupies on the ideal macro's code grid — so the fitted slope is exactly the rescale currency. It is fitted at the macro's `adc_max_bits` only; every lower width follows the family bit-width law and needs no fit of its own.
+
+The mode set comes from the [mode-set TOML](#calibrate_adcmode_derive-mode-set-from-per-layer-ranges) the run config points at, and its mode count is checked against the macro's published windows. Output: a `[[modes]]` TOML fragment (one table per mode, carrying the canonical window, the ADC input code range, and the fitted factor; pasted nested under the macro section) plus a per-mode fit plot (code vs ideal code + fitted line).
 
 `--modes m[,m...]` narrows a run to a subset of the mode set: each mode re-runs the full stimulus battery, so per-mode runs bound single-command runtime; the emitted fragments concatenate.
 
 ## `calibrate_adc.threshold_probe` — analog grid sweep + threshold placement
 
-Probes the analog band the ADC input sees at every integer per-conversion MAC magnitude and places the mid-point threshold ladder:
+Probes the analog band the ADC input sees at every integer ADC input code and places the mid-point threshold ladder:
 
 1. Build the same physical/ideal pair.
 2. Run the controlled-stimulus battery: a deterministic single-cell-LSB count grid realizing every $|M| \in [0, m_{\max}]$ under full WL drive (walked over column-offset patterns on narrow tiles; `grid_col_stride` dilutes the programmed columns on wide tiles), count-capped random single-sign block patterns crossed with random drive densities (`full_drive_caps` selects which caps also run a full-drive exact-count element), and optional dense saturating columns. The battery must stay inside the workload envelope the macro's DC solve converges on — the dilution/full-drive knobs exist because a fully-dense full-drive extreme outside a tile's convergent envelope would contaminate the observed bands with a KCL-violating iteration fixed point (verify the envelope with the solver-iteration sweep before enabling the extremes).
-3. Pair each conversion's captured analog input (the physical tile's `current_adc.convert` probe observation) with its realized ideal $|M|$ (the ideal tile's `vec_mat_mul` return value); pool into per-$|M|$ bands $[\mathrm{lo}(k), \mathrm{hi}(k)]$ (magnitudes above the top code fold into the top band).
-4. Per mode in the mode set (each mode's grid top $m_{\max} = \lceil \mathrm{range} \rceil$ comes from its `[[modes]]` record), place $t_k = \tfrac{1}{2}(\mathrm{hi}(k) + \mathrm{lo}(k+1))$ and report the band margins $\mathrm{lo}(k+1) - \mathrm{hi}(k)$ — the minimum margin is the headline; a negative margin means adjacent bands overlap and the placement is invalid at that boundary. A pooled linear $I(M)$ fit and a strict band-mean monotonicity check accompany the report.
+3. Pair each conversion's captured analog input (the physical tile's `current_adc.convert` probe observation) with its realized ideal MAC (the ideal tile's `vec_mat_mul` return value) mapped onto the macro's ADC input code axis through `map_quantization_input_code`; pool into per-code bands $[\mathrm{lo}(k), \mathrm{hi}(k)]$. A pair whose input code falls outside the mode's range is masked out of both streams — the converter resolves no tap there, so folding it into the top band would bias that band.
+4. Per mode in the mode set (the macro publishes each mode's inclusive ADC input code range, and the ladder covers exactly that grid), place $t_k = \tfrac{1}{2}(\mathrm{hi}(k) + \mathrm{lo}(k+1))$ and report the band margins $\mathrm{lo}(k+1) - \mathrm{hi}(k)$ — the minimum margin is the headline; a negative margin means adjacent bands overlap and the placement is invalid at that boundary. A pooled linear fit of the analog input against the input code and a strict band-mean monotonicity check accompany the report.
 
-Output: a single `i_refs__uA` reference-config row fragment (row index = `adc_mode`) — the reference block is the single ladder source the ADC reads per call — plus figures (grid curve with bands and thresholds per mode; per-mode margin bars).
+Output: a single `i_refs__uA` reference-config row fragment (row index = `quantization_mode`) — the reference block is the single ladder source the ADC reads per call, at the macro's maximum resolution, and every lower width runs against that same full ladder — plus figures (grid curve with bands and thresholds per mode; per-mode margin bars).
 
 Capture staging bounds single-command runtime on large batteries: the element list is deterministic for a given config, so `--element-range a:b` probes a contiguous slice, `--capture-out part.pt` saves that slice's pooled streams and defers placement, and a final run merges every `--capture-in` part ahead of its own slice before placing the ladder (the log records the merged provenance).
 
 ## `calibrate_adc.mode_derive` — mode set from per-layer ranges
 
-Derives the ADC operating-mode set for a deployment from a neutral per-layer range TOML: one entry per layer, `"layer.name" = { range = <float>, signed = <bool> }`. Extracting the ranges from a training checkpoint is a consumer-side step; the tool reads only this mapping.
+Derives the quantization mode set for a deployment from a neutral per-layer range TOML: one entry per layer, `"layer.name" = { range = [lo, hi] }`, the layer's inclusive design range in MAC units. Extracting the ranges from a training checkpoint is a consumer-side step; the tool reads only this mapping.
 
-1. Split the layers into signed / unsigned groups by their `signed` flag.
-2. Cluster the range values within each group (deterministic 1-D relative-gap agglomeration, capped per group); enumerate the clusters as global modes.
-3. Emit the mode-set TOML: `[[modes]]` records (`adc_mode`, `signed`, `range`, `layer_num`) plus a `[layers]` `layer -> adc_mode` map.
+1. Map every layer onto the canonical integer window covering its range: a non-negative range onto the unsigned window, a range reaching below zero onto the smallest mid-zero window whose inclusive bounds cover both sides.
+2. Partition the layers by window shape (unsigned / mid-zero) and cluster the window extents within each group (deterministic 1-D relative-gap agglomeration, capped per group); each cluster's window is its largest member's, so it covers every member. Enumerate the clusters as global modes, unsigned group first, ascending by extent within a group.
+3. Emit the mode-set TOML: `[[modes]]` records (`quantization_mode`, `quantization_input_range`, `layer_num`) plus a `[layers]` `layer -> quantization_mode` map.
 
-The mode-set TOML is the single source consumed downstream — `threshold_probe` reads each mode's grid top from it and `rescale_fit` reads its mode list and per-mode fit windows from it. A cluster plot accompanies the output. CPU-only; the tool opts out of `--device`.
+The mode-set TOML is the single source consumed downstream — both `threshold_probe` and `rescale_fit` read their mode list from it. A cluster plot accompanies the output. CPU-only; the tool opts out of `--device`.
 
 ## Run configs
 

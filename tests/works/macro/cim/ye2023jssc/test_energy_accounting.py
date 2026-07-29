@@ -22,6 +22,11 @@ Coverage:
   * the window is derived and shared: stretching the RS-CSA phase set stretches
     both conduction channels by the same factor and leaves every capacitive row
     untouched,
+  * the window is the EXECUTED one: lowering ``adc_bits`` drops compare phases,
+    so both conduction channels, the latency, and the readout's zero-residue
+    baseline scale by the executed-window ratio while the capacitive rows and
+    the per-op control lumps do not move; at ``adc_bits == adc_max_bits`` every
+    value is the nominal one,
   * caps are split three ways: the array bills only per-access WL-side terms
     (invariant to the SL and BL capacitances), while the macro's per-vector
     ``.bl_cap`` is the BL-column charge ``V_BL^2 * C_col`` per input-high
@@ -282,6 +287,56 @@ def test_conduction_rides_the_derived_window(device: torch.device) -> None:
     for row in (_ARRAY_CAPS, ".bl_cap"):
         assert b0[row] > 0.0
         assert b1[row] == pytest.approx(b0[row]), f"{row} moved with the access window"
+
+
+def test_conduction_and_latency_follow_the_executed_window(device: torch.device) -> None:
+    """Lowering ``adc_bits`` shortens the window every conduction branch rides.
+
+    The readout runs PH0 plus one compare phase per requested bit, so both
+    conduction channels and the access latency scale by the executed-window
+    ratio, while the capacitive rows and the per-op control lumps stay put. At
+    the maximum resolution the ratio is the identity and the billed values are
+    the nominal ones.
+    """
+    cfg = build_config()
+    w = torch.full((TINY_INPUT_NUM, TINY_OUTPUT_NUM), W_MAX, dtype=torch.long, device=device)
+    x = torch.ones(TINY_INPUT_NUM, dtype=torch.long, device=device)
+
+    macro, prof_full, rep_full = _run(cfg, w, x, device=device, adc_bits=TINY_ADC_BITS)
+    full__fJ = rep_full.energy_by_name
+    # The full-resolution run bills the NOMINAL window the macro publishes.
+    assert prof_full.total_latency__ns == pytest.approx(float(macro.t_ac__ns) * TINY_OUTPUT_NUM)
+
+    for bits in range(1, TINY_ADC_BITS + 1):
+        macro_b, prof_b, rep_b = _run(cfg, w, x, device=device, adc_bits=bits)
+        by_name = rep_b.energy_by_name
+        ratio = float(macro_b.rscsa.t_conversion__ns(bits)) / float(macro_b.t_ac__ns)
+        assert ratio <= 1.0 and (ratio < 1.0) == (bits < TINY_ADC_BITS), f"window ratio {ratio} at bits={bits}"
+        for channel in (".bl_cond", ".dl_cond"):
+            assert by_name[channel] == pytest.approx(ratio * full__fJ[channel]), f"{channel} at bits={bits}"
+        assert prof_b.total_latency__ns == pytest.approx(ratio * prof_full.total_latency__ns)
+        # Window-invariant rows: the caps ride no window, the control lumps are
+        # per-op constants.
+        for row in (_ARRAY_CAPS, ".bl_cap", ".mux_driver", ".timing_ctrl"):
+            assert by_name[row] == pytest.approx(full__fJ[row]), f"{row} moved with the executed window"
+
+
+def test_rscsa_zero_residue_row_is_the_prorated_baseline(device: torch.device) -> None:
+    """At zero MAC the readout bills the code-independent baseline, prorated by the window.
+
+    A zero-input access lands exactly on the derived PH0 compensation, so every
+    compare phase weighs a zero residue and the conversion energy isolates the
+    apportioned ``E_fixed``.
+    """
+    cfg = build_config()
+    w = torch.full((TINY_INPUT_NUM, TINY_OUTPUT_NUM), W_MAX, dtype=torch.long, device=device)
+    x = torch.zeros(TINY_INPUT_NUM, dtype=torch.long, device=device)
+
+    for bits in range(1, TINY_ADC_BITS + 1):
+        macro, _prof, report = _run(cfg, w, x, device=device, adc_bits=bits)
+        ratio = float(macro.rscsa.t_conversion__ns(bits)) / float(macro.t_ac__ns)
+        expected__fJ = TINY_OUTPUT_NUM * cfg.adc_config.e_fixed_per_op__fJ * ratio
+        assert report.energy_by_name[_RSCSA] == pytest.approx(expected__fJ), f"bits={bits}"
 
 
 # ---------------------------------------------------------------------------

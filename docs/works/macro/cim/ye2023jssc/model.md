@@ -36,19 +36,19 @@ The Reference-Subtracting CSA (`RsCsaIadc`) is a current-domain successive-appro
 
 **PH0 is DERIVED, not configured.** The macro computes it from the array's own tables as `i_t2_table__uA[0][state] * row_num * sum(weight_radix + redundant_radix)` — every physical column of a row carries the off-cell floor, weighted by its plane's place value. A zero-MAC access therefore lands on code 0 by construction, and the redundant plane's floor cancels exactly. Config validation requires the `IN=0` floor row to be state-independent, since the derivation reads a single entry. PH0 compensation is static by design: no replica, dummy, or tracking circuit exists in the paper, so a small activity-dependent over-subtraction remains as a model PREDICTION, not an error.
 
-**The design ships ONE quantization mode.** `config.modes` declares it — the canonical MAC-unit window the readout covers, the input code range it discriminates, and the rescale factor of a code at the readout's `bits` — and `quantization_mode` indexes that list. Every mode shares the one physical current step, so the `[mode, tap]` reference bank repeats the same max-bits ladder per row; a request below `adc_max_bits` decimates that ladder to `2**adc_bits - 1` taps, which is exactly running the SAR's leading compare phases. The macro has no lossless oracle: `adc_bits = None` raises, and the exact-integer twin comes from `to_ideal()`.
+**The design ships ONE quantization mode.** `config.modes` declares it — the canonical MAC-unit window the readout covers, the input code range it discriminates, and the rescale factor of a code at the readout's `bits` — and `quantization_mode` indexes that list. Every mode shares the one physical current step, so the `[mode, tap]` reference bank repeats the same max-bits ladder per row; the macro always hands the readout the full row, and a request below `adc_max_bits` is realized inside the readout, which converts at full resolution and then drops the code's unresolved low bits — the same code the truncated compare-phase sequence resolves. The macro has no lossless oracle: `adc_bits = None` raises, and the exact-integer twin comes from `to_ideal()`.
 
-**Timing.** `t_phase__ns` carries PH0 (the leakage-compensation phase) followed by one compare phase per bit, MSB-first, at their physical durations. The conversion closes when the last comparator output latches, `t4_intrinsic__ns` into the last compare phase, so the access window is DERIVED:
+**Timing.** `t_phase__ns` carries PH0 (the settling / leakage-compensation phase) followed by one compare phase per bit, MSB-first, at their physical durations. ONE BIT resolves per compare phase, so a conversion at `b` bits runs PH0 and the first `b` compare phases and closes when that last EXECUTED comparator output latches, `t4_intrinsic__ns` into its phase. The access window is DERIVED per resolution:
 
-$$T_{\mathrm{AC}} = t_{\mathrm{PH0}} + \sum_{i=1}^{b-1} t_{\mathrm{phase},i} + t_{4}$$
+$$T_{\mathrm{AC}}(b) = t_{\mathrm{PH0}} + \sum_{i=1}^{b-1} t_{\mathrm{phase},i} + t_{4}$$
 
-which at the paper's 4-bit phase set is `PH0 + PH1 + PH2 + PH3 + t4`. The SAR always runs every phase — `T_AC` is code-independent, with no early termination and no pipelining.
+At `b = 1` that is PH0 plus the latch delay alone; at `b = adc_max_bits` the readout runs its whole phase set, and that maximum-resolution window is the NOMINAL access window the macro publishes as `t_ac__ns`. Within one resolution the window is code-independent: there is no data-dependent early termination and no pipelining.
 
-**Energy.** `E = E_fixed + E_code`. `E_fixed` is the dominant, code-independent per-conversion baseline: the standby reference branches, the bias network, the comparator, and the leakage-compensation branch. `E_code` sums over the compare phases; phase `i` weighs the SAR residue `I_COMP` against `I_REF = ref_radix[i] * i_lsb__uA`, and the comparator input mirror draws a fraction `k` (`mirror_scale`) of the compared branch current from `v_rail__V` for that phase:
+**Energy.** `E = E_fixed(b) + E_code(b)`, both following the EXECUTED phases. `E_fixed` is the dominant, code-independent per-conversion baseline — the standby reference branches, the bias network, the comparator, and the leakage-compensation branch — held for as long as the conversion occupies the readout, so it is apportioned by the executed-window ratio `T_AC(b) / T_AC(B)` with `B = adc_max_bits`. `E_code` sums over the executed compare phases; phase `i` weighs the SAR residue `I_COMP` against `I_REF = ref_radix[i] * i_lsb__uA`, and the comparator input mirror draws a fraction `k` (`mirror_scale`) of the compared branch current from `v_rail__V` for that phase:
 
-$$E_{\mathrm{code}} = k \cdot V_{\mathrm{rail}} \sum_{i} t_{\mathrm{phase},i} \cdot \min(I_{\mathrm{COMP},i}, I_{\mathrm{REF},i})$$
+$$E_{\mathrm{code}}(b) = k \cdot V_{\mathrm{rail}} \sum_{i=1}^{b} t_{\mathrm{phase},i} \cdot \min(I_{\mathrm{COMP},i}, I_{\mathrm{REF},i})$$
 
-The residue drops by the reference only where the bit resolves 1. The latched reference-subtraction branches are NOT billed on top: REFS sources exactly the current the mirror-input branch stops drawing, so the swap is rail-energy-neutral. The last compare phase's energy is billed over its full nominal duration even though the access window closes at the latch — the compared branch conducts until the phase-boundary reset.
+The residue drops by the reference only where the bit resolves 1, and the recursion truncates with the executed phases — the unresolved low bits are exactly the ones no phase compares. The latched reference-subtraction branches are NOT billed on top: REFS sources exactly the current the mirror-input branch stops drawing, so the swap is rail-energy-neutral. The last executed compare phase's energy is billed over its full nominal duration even though the access window closes at the latch — the compared branch conducts until the phase-boundary reset.
 
 ## Dataflow
 
@@ -59,7 +59,7 @@ The residue drops by the reference only where the bit resolves 1. The latched re
 3. **One broadcast solve** through the WH-2T1R array; the leading becomes `(*B, out)`. Returns the per-column BL port current, the BL clamp voltage, and the raw per-output summed T2 current.
 4. **Conduction + BL charge** (macro-billed) — see the energy model below.
 5. **RS-CSA quantize** the raw TBL current against the uniform ladder into the unsigned code.
-6. **Latency**: the sole event `T_AC * serial`, where `serial` is the output-serial round count over the single time-shared readout.
+6. **Latency**: the sole event `T_AC(b) * serial`, where `serial` is the output-serial round count over the single time-shared readout and `b` is the call's `adc_bits`.
 
 ## Transfer
 
@@ -73,10 +73,10 @@ The second term is the complementary leakage: the raised inputs present $R A$ pl
 
 The energy atom is one rail-to-GND branch `E = V * I(uA) * t(ns) = fJ`. Branches are billed independently and never double-counted: the array bills CAPS only, and the macro bills every conduction branch plus the per-vector BL-column charge.
 
-**Two conduction channels, both over the whole access window.** The design holds its DC biases for the entire access — the paper's phase diagram shows no sample-and-hold in the CIM path — so both branches conduct for `T_AC`:
+**Two conduction channels, both over the whole access window.** The design holds its DC biases for the entire access — the paper's phase diagram shows no sample-and-hold in the CIM path — so both branches conduct for the EXECUTED window `T_AC(b)` of the call's `adc_bits`, which shortens with the compare phases the readout skips:
 
-- `bl_cond` = `v_bl_in1__V * I_BL * T_AC`, summed over columns and outputs — the clamped input rail sourcing every column's divider.
-- `dl_cond` = `v_dd_core__V * I_TBL_raw * T_AC`, summed over outputs — the RAW row current entering the RS-CSA, leakage floor included, before the PH0 subtraction, riding the core rail.
+- `bl_cond` = `v_bl_in1__V * I_BL * T_AC(b)`, summed over columns and outputs — the clamped input rail sourcing every column's divider.
+- `dl_cond` = `v_dd_core__V * I_TBL_raw * T_AC(b)`, summed over outputs — the RAW row current entering the RS-CSA, leakage floor included, before the PH0 subtraction, riding the core rail.
 
 **A three-part capacitance scan model.** The BL levels are held across the whole row scan, which is the semantics of one `vec_mat_mul`, while the word line toggles once per output access. The three parts split by who owns the toggling node:
 
@@ -86,9 +86,9 @@ The energy atom is one rail-to-GND branch `E = V * I(uA) * t(ns) = fJ`. Branches
 
 The SL rail is grounded, so it carries no capacitive term and no conduction branch. The TBL / DL node capacitance is unmodeled: the readout clamp holds that node at a DC level for the whole access, so its switching share is negligible.
 
-**Flat peripheral seats.** Mux & Driver and Timing & Mode Ctrl are `UnmodeledBlock` static-PPA seats. Their measured block powers are flat across the published operating points, so they are billed as pure static leakage; the macro's `mux_driver` / `timing_ctrl` dynamic channels exist for a design point that needs a per-op share and are zero at the paper's.
+**Flat peripheral seats.** Mux & Driver and Timing & Mode Ctrl are `UnmodeledBlock` static-PPA seats. Their measured block powers are flat across the published operating points, so they are billed as pure static leakage; the macro's `mux_driver` / `timing_ctrl` dynamic channels exist for a design point that needs a per-op share and are zero at the paper's. Those channels are per-op lumps, not timed branches, so they do not follow the access window.
 
-**Latency.** The macro is the SOLE emitter (the array and RS-CSA are built with `enable_latency_record = False`): one event `T_AC * serial` per call, so the profiler's `leakage_energy = leakage_power * total_latency` covers the whole period without any child double-counting.
+**Latency.** The macro is the SOLE emitter (the array and RS-CSA are built with `enable_latency_record = False`): one event `T_AC(b) * serial` per call, so the profiler's `leakage_energy = leakage_power * total_latency` covers the whole period without any child double-counting.
 
 ## Paper circuit to modeling map
 

@@ -318,7 +318,7 @@ class PairedConversion:
             :class:`IadcProber`), CPU float64, 1-D.
         code: ADC output code per element (physical run), CPU int64, 1-D.
         ideal_m: Lossless integer per-phase dot per element (ideal run's
-            ``vec_mat_mul`` return at the ``adc_bits = 0`` sentinel), CPU
+            ``vec_mat_mul`` return at the ``adc_bits = None`` oracle), CPU
             int64, 1-D, signed.
     """
 
@@ -334,7 +334,7 @@ def run_paired_stimulus(
     w: Tensor,
     x: Tensor,
     input_num: int,
-    adc_mode: int,
+    quantization_mode: int,
     adc_bits: int,
 ) -> PairedConversion:
     """Program + run one stimulus through both tiles, pairing their views.
@@ -343,12 +343,12 @@ def run_paired_stimulus(
     shares no state) and driven with the same sub-phase-expanded WL
     planes (:func:`_unroll_sub_phase`, so calibration converts under the
     per-sub-phase masked drive the runtime applies and the streams stay
-    element-aligned). The physical VMM runs at ``(adc_mode, adc_bits)``
-    under a :class:`IadcProber` capturing the convert observations;
-    the ideal VMM runs at the lossless ``adc_bits = 0`` sentinel and its
-    integer-dot RETURN value is the ideal view (the ideal tile emits no
-    probe). The physical observations and the ideal returns are paired
-    positionally.
+    element-aligned). The physical VMM runs at
+    ``(quantization_mode, adc_bits)`` under a :class:`IadcProber` capturing
+    the convert observations; the ideal VMM runs at the lossless
+    ``adc_bits = None`` oracle and its integer-dot RETURN value is the
+    ideal view (the ideal tile emits no probe). The physical observations
+    and the ideal returns are paired positionally.
 
     Args:
         physical: Fabricated physical tile.
@@ -357,7 +357,7 @@ def run_paired_stimulus(
         x: Activation tensor with trailing ``[row_num]``; the testbench
             performs the sub-phase expansion internally.
         input_num: Logical input-vector length.
-        adc_mode: Operating mode of the physical run.
+        quantization_mode: Quantization mode of the physical run.
         adc_bits: ADC resolution of the physical run.
 
     Returns:
@@ -385,10 +385,10 @@ def run_paired_stimulus(
         inst_rank=len(physical.inst_shape),
     )
     with IadcProber() as prober, torch.no_grad():
-        physical.vec_mat_mul(x, adc_mode=adc_mode, adc_bits=adc_bits)
+        physical.vec_mat_mul(x, quantization_mode=quantization_mode, adc_bits=adc_bits)
         # The ideal twin is reachable data: its return is the lossless view,
         # positionally paired with the physical convert observations.
-        ideal_dots: list[Tensor] = [ideal.vec_mat_mul(x, adc_mode=adc_mode, adc_bits=0)]
+        ideal_dots: list[Tensor] = [ideal.vec_mat_mul(x, quantization_mode=quantization_mode, adc_bits=None)]
 
     convert_observations = prober.records
     if not convert_observations:

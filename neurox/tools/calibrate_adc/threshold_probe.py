@@ -6,26 +6,27 @@ CLI: ``python -m neurox.tools.calibrate_adc.threshold_probe --config <run.toml>
 [--capture-out <part.pt>] [--capture-in <part.pt>[,<part.pt>...]]``
 
 Controlled-stimulus grid sweep: a deterministic count-grid battery (every
-per-(column, phase)-block magnitude ``0 .. m_max`` realized by
-single-cell-LSB patterns under full WL drive), count-capped random
-single-sign block patterns, dense saturating columns, and random WL drive
-densities. Each battery element runs through the physical tile and its
-lossless twin; the physical tile's ``current_adc.convert`` captured analog
-inputs pair with the ideal twin's ``vec_mat_mul`` integer dots, giving the
-observed analog band per ``|M|``. The modes come
-from the mode-set TOML named by the run config (``modes_file``, see
-:mod:`._modes`); per mode the ladder top is ``m_max = ceil(range)`` (the
-ladder must cover the mode's design range). Per mode the tool places the
-mid-point threshold ladder
-``t[k] = (hi(k) + lo(k+1)) / 2``, reports the band margins (headline: the
-minimum), and emits a single ``i_refs__uA`` reference-config row fragment
-(the reference block is the single ladder source) plus figures (grid curve
-with bands + thresholds, per-mode margin bars).
+per-(column, phase)-block magnitude realized by single-cell-LSB patterns
+under full WL drive), count-capped random single-sign block patterns,
+dense saturating columns, and random WL drive densities. Each battery
+element runs through the physical tile and its lossless twin; the physical
+tile's ``current_adc.convert`` captured analog inputs pair with the ideal
+twin's ``vec_mat_mul`` integer dots mapped through
+:meth:`~neurox.primitive.macro.cim.CimMacro.map_quantization_input_code`,
+giving the observed analog band per ADC input code. The modes come from
+the mode-set TOML named by the run config (``modes_file``, see
+:mod:`._modes`); the macro publishes each mode's inclusive ADC input code
+range, and the ladder covers exactly that grid. Per mode the tool places
+the mid-point threshold ladder ``t[k] = (hi(k) + lo(k+1)) / 2``, reports
+the band margins (headline: the minimum), and emits a single
+``i_refs__uA`` reference-config row fragment (the reference block is the
+single ladder source) plus figures (grid curve with bands + thresholds,
+per-mode margin bars).
 
 Capture staging bounds single-command runtime on large batteries: the
 battery element list is deterministic for a given config, so
 ``--element-range a:b`` probes a contiguous slice and ``--capture-out``
-saves that slice's pooled ``(|M|, i_in__uA)`` streams (skipping
+saves that slice's pooled ``(input_code, i_in__uA)`` streams (skipping
 placement). A later run merges every ``--capture-in`` part ahead of its
 own probed slice and places the ladder over the union; the log records
 the merged provenance.
@@ -38,7 +39,6 @@ from __future__ import annotations
 
 import argparse
 import logging
-import math
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -50,7 +50,7 @@ from neurox.primitive.macro.cim.ideal import IdealCimMacro
 from neurox.tools._config import add_standard_args, load_tool_config, resolve_relative_path, setup_logging
 
 from ._math import (
-    MagnitudeBand,
+    InputCodeBand,
     ThresholdPlacement,
     band_stats,
     fit_linear,
@@ -139,13 +139,15 @@ class _ProbeCfg:
     """``[probe]`` section: capture operating point.
 
     Attributes:
-        adc_mode: Mode passed to the physical run while capturing. The
-            captured analog input is mode-independent (mode selection is
-            quasi-static reference switching downstream of the probe
-            point), so one capture serves every ``[[modes]]`` placement.
+        quantization_mode: Mode passed to the physical run while
+            capturing, and the mode whose input-code map the pooled stream
+            carries. The captured analog input is mode-independent (mode
+            selection is quasi-static reference switching downstream of
+            the probe point), so one capture serves every ``[[modes]]``
+            placement.
     """
 
-    adc_mode: int
+    quantization_mode: int
 
 
 class ThresholdProbeToolConfig(ConfigBase):
@@ -157,8 +159,8 @@ class ThresholdProbeToolConfig(ConfigBase):
         stimulus: The probing battery.
         modes_file: Mode-set TOML (see
             :func:`~neurox.tools.calibrate_adc._modes.load_mode_set`),
-            relative to the tool TOML; one ladder is placed per mode with
-            ``m_max = ceil(range)``.
+            relative to the tool TOML; one ladder is placed per mode over
+            the macro's published ADC input code range.
     """
 
     macro: MacroSection
@@ -170,6 +172,14 @@ class ThresholdProbeToolConfig(ConfigBase):
 # --- probing ----------------------------------------------------------------
 
 
+def _mode_input_code_range(macro: CimMacro, quantization_mode: int) -> tuple[int, int]:
+    """Return the inclusive ADC input code grid the macro resolves in a mode."""
+    _, code_range = macro.map_quantization_input_code(
+        torch.zeros((), dtype=torch.int64), quantization_mode=quantization_mode
+    )
+    return code_range
+
+
 def _build_battery(
     physical: CimMacro,
     *,
@@ -178,8 +188,8 @@ def _build_battery(
 ) -> list[tuple[str, torch.Tensor, torch.Tensor]]:
     """Materialize the deterministic battery element list ``(name, w, x)``.
 
-    The list is a pure function of the config, the mode set's largest
-    ``m_max`` (``grid_top``), and the tile geometry (the random elements
+    The list is a pure function of the config, the largest input code any
+    mode resolves (``grid_top``), and the tile geometry (the random elements
     draw from a seeded generator in enumeration order), so every
     ``--element-range`` slice of the same inputs sees the same elements.
     """
@@ -237,7 +247,12 @@ def _probe_grid(
     grid_top: int,
     element_range: tuple[int, int | None],
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Run the battery slice; return pooled ``(|M|, i_in__uA)`` CPU streams."""
+    """Run the battery slice; return pooled ``(input_code, i_in__uA)`` CPU streams.
+
+    The ideal dots are mapped onto the macro's ADC input code axis at the
+    ``[probe]`` mode — the axis its converter discriminates on, and the
+    axis every mode's band grid indexes.
+    """
     batteries = _build_battery(physical, cfg=cfg, grid_top=grid_top)
     start, stop = element_range
     battery_slice = batteries[start:stop]
@@ -256,10 +271,13 @@ def _probe_grid(
             w=w,
             x=x,
             input_num=cfg.macro.input_num,
-            adc_mode=cfg.probe.adc_mode,
+            quantization_mode=cfg.probe.quantization_mode,
             adc_bits=physical.adc_max_bits,
         )
-        m_parts.append(pair.ideal_m.abs())
+        input_code, _ = physical.map_quantization_input_code(
+            pair.ideal_m, quantization_mode=cfg.probe.quantization_mode
+        )
+        m_parts.append(input_code)
         i_parts.append(pair.i_in__uA)
         logger.info("battery %-14s -> %d conversion samples", name, pair.i_in__uA.numel())
     if not m_parts:
@@ -274,39 +292,39 @@ def _probe_grid(
 class ModePlacement:
     """Placement + diagnostics for one ``[[modes]]`` entry."""
 
-    adc_mode: int
-    m_max: int
-    bands: tuple[MagnitudeBand, ...]
+    quantization_mode: int
+    adc_input_code_range: tuple[int, int]
+    bands: tuple[InputCodeBand, ...]
     placement: ThresholdPlacement
 
 
 def _fragment_lines(placements: list[ModePlacement]) -> list[str]:
-    """The threshold-ladder fragment (mode rows, ascending ``adc_mode``).
+    """The threshold-ladder fragment (mode rows, ascending mode index).
 
     One fragment for the reference block — the single ladder source. The ADC
     reads its references per call from the reference block, so the placed 2-D
     ``[mode][tap]`` bank is pasted into ``reference_config.i_refs__uA`` only
-    (row index = ``adc_mode``).
+    (row index = ``quantization_mode``).
     """
     rows = [
         "[" + ", ".join(f"{t:.6f}" for t in p.placement.thresholds) + "]"
-        for p in sorted(placements, key=lambda p: p.adc_mode)
+        for p in sorted(placements, key=lambda p: p.quantization_mode)
     ]
     body = ",\n    ".join(rows)
     return [
         "# threshold ladders probed by neurox.tools.calibrate_adc.threshold_probe;",
-        "# paste the 2-D bank into reference_config.i_refs__uA (row index = adc_mode)",
+        "# paste the 2-D bank into reference_config.i_refs__uA (row index = quantization_mode)",
         "# — the reference block is the single ladder source the ADC reads per call.",
         "i_refs__uA = [\n    " + body + ",\n]",
     ]
 
 
 def _log_mode(p: ModePlacement) -> None:
-    logger.info("mode %d (m_max %d):", p.adc_mode, p.m_max)
+    logger.info("mode %d (input codes %d .. %d):", p.quantization_mode, *p.adc_input_code_range)
     for band in p.bands:
         logger.info(
-            "  |M| = %2d: %f .. %f  (mean %f, n = %d)",
-            band.magnitude,
+            "  code = %2d: %f .. %f  (mean %f, n = %d)",
+            band.input_code,
             band.lo,
             band.hi,
             band.mean,
@@ -324,13 +342,13 @@ def _log_mode(p: ModePlacement) -> None:
 
 
 def _plot_grid_curve(p: ModePlacement, output_path: Path) -> None:
-    """One PNG per mode: band envelope + means vs |M| with the placed thresholds."""
+    """One PNG per mode: band envelope + means vs input code with the thresholds."""
     import matplotlib as mpl
 
     mpl.use("Agg")
     import matplotlib.pyplot as plt
 
-    mags = [b.magnitude for b in p.bands]
+    mags = [b.input_code for b in p.bands]
     los = [b.lo for b in p.bands]
     his = [b.hi for b in p.bands]
     means = [b.mean for b in p.bands]
@@ -338,16 +356,16 @@ def _plot_grid_curve(p: ModePlacement, output_path: Path) -> None:
     fig, ax = plt.subplots(figsize=(8, 5))
     ax.fill_between(mags, los, his, color="tab:blue", alpha=0.25, label="observed band (lo .. hi)")
     ax.plot(mags, means, color="tab:blue", linewidth=2.0, marker="o", markersize=4, label="band mean")
-    for k, t in enumerate(p.placement.thresholds):
+    for k, t in zip(mags, p.placement.thresholds, strict=False):
         ax.hlines(t, k, k + 1, color="tab:orange", linewidth=1.4)
     # Legend proxy for the threshold segments.
     ax.plot([], [], color="tab:orange", linewidth=1.4, label="placed threshold")
     # Unit-glyph LOCAL EXCEPTION to the global units-ASCII convention:
     # matplotlib strings spell units as unicode glyphs (µA) per
     # scientific-figure convention; math variables stay LaTeX.
-    ax.set_xlabel(r"per-phase $|M|$")
+    ax.set_xlabel("ADC input code")
     ax.set_ylabel(r"$I_{\mathrm{in}}$ [µA]")
-    ax.set_title(f"I(M) grid — mode {p.adc_mode} (min margin {p.placement.min_margin:+.4f} µA)")
+    ax.set_title(f"I(M) grid — mode {p.quantization_mode} (min margin {p.placement.min_margin:+.4f} µA)")
     ax.grid(True, alpha=0.3)
     ax.legend(loc="upper left", framealpha=0.85)
     fig.tight_layout()
@@ -367,10 +385,10 @@ def _plot_margins(placements: list[ModePlacement], output_path: Path) -> None:
     mode_num = len(placements)
     width = 0.8 / mode_num
     cmap = plt.get_cmap("viridis")
-    for i, p in enumerate(sorted(placements, key=lambda p: p.adc_mode)):
+    for i, p in enumerate(sorted(placements, key=lambda p: p.quantization_mode)):
         xs = [k + (i - (mode_num - 1) / 2) * width for k in range(len(p.placement.margins))]
         color = cmap(i / max(mode_num - 1, 1))
-        ax.bar(xs, p.placement.margins, width=width, color=color, label=f"mode {p.adc_mode}")
+        ax.bar(xs, p.placement.margins, width=width, color=color, label=f"mode {p.quantization_mode}")
     ax.axhline(0.0, color="grey", linewidth=0.8)
     ax.set_xlabel("code boundary k (band k vs k+1)")
     # Unit-glyph LOCAL EXCEPTION (µA), as on the grid-curve plot.
@@ -412,7 +430,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--capture-out",
         type=Path,
         default=None,
-        help="Save this run's pooled (|M|, i_in__uA) streams to a .pt part file and skip placement",
+        help="Save this run's pooled (input_code, i_in__uA) streams to a .pt part file and skip placement",
     )
     parser.add_argument(
         "--capture-in",
@@ -447,24 +465,30 @@ def main(argv: list[str] | None = None) -> int:
     modes_path = resolve_relative_path(cfg.modes_file, args.config)
     assert modes_path is not None
     mode_set = load_mode_set(modes_path)
-    # The ladder top magnitude must cover the mode's design range.
-    mode_m_max = [(m.adc_mode, math.ceil(m.range)) for m in mode_set.modes]
-    logger.info(
-        "mode set %s: %s",
-        modes_path,
-        ", ".join(f"mode {a} m_max {mm}" for a, mm in mode_m_max),
-    )
     physical = build_physical_macro(cfg.macro, base=args.config, device=device)
     ideal = build_ideal_twin(physical, device=device)
 
-    grid_top = max(mm for _, mm in mode_m_max)
-    magnitude, i_in = _probe_grid(
+    mode_num = len(physical.quantization_input_ranges)
+    for mode in mode_set.modes:
+        if not (0 <= mode.quantization_mode < mode_num):
+            raise SystemExit(f"mode-set quantization_mode {mode.quantization_mode} outside [0, {mode_num})")
+    # The ladder covers exactly the ADC input codes the macro discriminates
+    # in that mode — the grid its published map returns.
+    mode_grids = [(m.quantization_mode, _mode_input_code_range(physical, m.quantization_mode)) for m in mode_set.modes]
+    logger.info(
+        "mode set %s: %s",
+        modes_path,
+        ", ".join(f"mode {mode} input codes {lo} .. {hi}" for mode, (lo, hi) in mode_grids),
+    )
+
+    grid_top = max(hi for _, (_, hi) in mode_grids)
+    input_code, i_in = _probe_grid(
         physical, ideal, cfg=cfg, grid_top=grid_top, element_range=_parse_element_range(args.element_range)
     )
 
     if args.capture_out is not None:
         args.capture_out.parent.mkdir(parents=True, exist_ok=True)
-        torch.save({"magnitude": magnitude, "i_in__uA": i_in}, args.capture_out)
+        torch.save({"input_code": input_code, "i_in__uA": i_in}, args.capture_out)
         logger.info("wrote capture part (%d samples) to %s — placement deferred", i_in.numel(), args.capture_out)
         return 0
 
@@ -473,15 +497,15 @@ def main(argv: list[str] | None = None) -> int:
         i_parts = []
         for part in args.capture_in.split(","):
             payload = torch.load(Path(part), map_location="cpu", weights_only=True)
-            m_parts.append(payload["magnitude"])
+            m_parts.append(payload["input_code"])
             i_parts.append(payload["i_in__uA"])
             logger.info("merged capture part %s (%d samples)", part, payload["i_in__uA"].numel())
-        magnitude = torch.cat([*m_parts, magnitude])
+        input_code = torch.cat([*m_parts, input_code])
         i_in = torch.cat([*i_parts, i_in])
     logger.info("pooled %d conversion samples", i_in.numel())
 
     # Grid-curve linearity diagnostic over the pooled samples.
-    line = fit_linear(magnitude.to(torch.float64), i_in)
+    line = fit_linear(input_code.to(torch.float64), i_in)
     logger.info(
         "pooled I(M) line fit: slope = %.6f uA/LSB  intercept = %.6f uA  R^2 = %.6f",
         line.slope,
@@ -490,17 +514,24 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     placements: list[ModePlacement] = []
-    for adc_mode, m_max in mode_m_max:
-        bands = band_stats(magnitude, i_in, m_max=m_max)
+    for quantization_mode, code_range in mode_grids:
+        bands = band_stats(input_code, i_in, adc_input_code_range=code_range)
         placement = place_thresholds(bands)
-        placements.append(ModePlacement(adc_mode=adc_mode, m_max=m_max, bands=bands, placement=placement))
+        placements.append(
+            ModePlacement(
+                quantization_mode=quantization_mode,
+                adc_input_code_range=code_range,
+                bands=bands,
+                placement=placement,
+            )
+        )
         _log_mode(placements[-1])
 
     worst = min(placements, key=lambda p: p.placement.min_margin)
     logger.info(
         "headline: minimum band margin %+f uA (mode %d, boundary %d/%d); monotone all modes = %s",
         worst.placement.min_margin,
-        worst.adc_mode,
+        worst.quantization_mode,
         worst.placement.min_margin_boundary,
         worst.placement.min_margin_boundary + 1,
         all(p.placement.monotone for p in placements),
@@ -516,7 +547,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.plot_dir is not None:
         args.plot_dir.mkdir(parents=True, exist_ok=True)
         for p in placements:
-            _plot_grid_curve(p, args.plot_dir / f"threshold_grid_mode{p.adc_mode}.png")
+            _plot_grid_curve(p, args.plot_dir / f"threshold_grid_mode{p.quantization_mode}.png")
         _plot_margins(placements, args.plot_dir / "threshold_margins.png")
     return 0
 

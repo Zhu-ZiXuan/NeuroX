@@ -175,17 +175,13 @@ class EngineBackedCimUnit(CimUnit[EbConfigT, EbPolicyT], Generic[EbConfigT, EbPo
         return self.engine.x_value_range
 
     @property
-    def adc_mode_num(self) -> int:
-        return self.engine.adc_mode_num
-
-    @property
     def adc_max_bits(self) -> int:
         return self.engine.adc_max_bits
 
-    def adc_rescale_factor(self, *, adc_mode: int, adc_bits: int) -> float:
-        return self.engine.adc_rescale_factor(adc_mode=adc_mode, adc_bits=adc_bits)
+    def rescale_factor(self, *, quantization_mode: int, adc_bits: int | None) -> float:
+        return self.engine.rescale_factor(quantization_mode=quantization_mode, adc_bits=adc_bits)
 
-    def _matmul(self, input: Tensor, *, adc_mode: int, adc_bits: int) -> Tensor:
+    def _matmul(self, input: Tensor, *, quantization_mode: int, adc_bits: int | None) -> Tensor:
         if input.dtype.is_floating_point or input.dtype.is_complex or input.dtype == torch.bool:
             raise TypeError(f"CIM execution requires an integer input tensor; got dtype {input.dtype}")
-        return self.engine.matmul(input, adc_mode=adc_mode, adc_bits=adc_bits)
+        return self.engine.matmul(input, quantization_mode=quantization_mode, adc_bits=adc_bits)

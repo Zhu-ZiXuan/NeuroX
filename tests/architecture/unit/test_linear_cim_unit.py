@@ -40,11 +40,11 @@ _UNIT_POLICY = LinearCimUnitPolicy(
     ),
 )
 
-# ``adc_bits == 0`` is the IdealCimMacro lossless sentinel: per-plane codes
-# are the exact integer partial dots, so the whole unit pipeline must match
-# an int64 CPU matmul oracle bit-exactly.
-_ADC_MODE = 0
-_ADC_BITS = 0
+# ``adc_bits is None`` selects the IdealCimMacro lossless oracle: per-plane
+# codes are the exact integer partial dots, so the whole unit pipeline must
+# match an int64 CPU matmul oracle bit-exactly.
+_QUANTIZATION_MODE = 0
+_ADC_BITS: int | None = None
 
 
 def _ideal_macro_config(
@@ -59,8 +59,10 @@ def _ideal_macro_config(
         area_per_inst__um2=0.0,
         x_value_range=x_value_range,
         w_value_range=w_value_range,
-        adc_mode_num=1,
-        adc_max_bits=0,
+        # Only the lossless oracle is exercised here; the declared window and
+        # width just have to be legal.
+        quantization_input_ranges=((-256, 255),),
+        adc_max_bits=8,
     )
 
 
@@ -151,7 +153,7 @@ def test_linear_matches_int64_cpu_oracle_on_cpu(n: int, k: int, batch: tuple[int
     weight = _random_weight(unit, (n, k))
     x = _random_binary((*batch, k))
     unit.program(weight)
-    actual = unit.linear(x, adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
+    actual = unit.linear(x, quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
     expected = _cpu_int64_linear_oracle(x, weight)
     assert actual.shape == (*batch, n)
     assert torch.equal(actual.to(torch.int64), expected)
@@ -167,7 +169,7 @@ def test_linear_matches_int64_cpu_oracle_on_device(
     x = _random_binary((*batch, k))
     unit.to(device)
     unit.program(weight.to(device))
-    actual = unit.linear(x.to(device), adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
+    actual = unit.linear(x.to(device), quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
     assert actual.device.type == device.type
     expected = _cpu_int64_linear_oracle(x, weight)
     assert torch.equal(actual.cpu().to(torch.int64), expected)
@@ -182,7 +184,7 @@ def test_linear_lowering_matches_int64_cpu_oracle() -> None:
     weight = _random_weight(unit, (n, k))
     x = _random_binary((m, k))
     unit.program(weight)
-    actual = unit._lower_matmul(x, adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
+    actual = unit._lower_matmul(x, quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
     expected = torch.matmul(x.to(torch.int64), weight.to(torch.int64).transpose(-1, -2))
     assert torch.equal(actual.to(torch.int64), expected)
 
@@ -196,7 +198,7 @@ def test_linear_multi_phase_lossless_matches_oracle() -> None:
     weight = _random_weight(unit, (n, k))
     x = _random_binary((8, k))
     unit.program(weight)
-    actual = unit.linear(x, adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
+    actual = unit.linear(x, quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
     assert torch.equal(actual.to(torch.int64), _cpu_int64_linear_oracle(x, weight))
 
 
@@ -207,7 +209,7 @@ def test_linear_accepts_single_vector_input() -> None:
     weight = _random_weight(unit, (n, k))
     x = _random_binary((k,))
     unit.program(weight)
-    actual = unit.linear(x, adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
+    actual = unit.linear(x, quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
     assert actual.shape == (n,)
     assert torch.equal(actual.to(torch.int64), _cpu_int64_linear_oracle(x, weight))
 
@@ -224,9 +226,9 @@ def test_linear_leading_time_axis_transparency() -> None:
     weight = _random_weight(unit, (n, k))
     x = _random_binary((t, b, k))
     unit.program(weight)
-    batched = unit.linear(x, adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
+    batched = unit.linear(x, quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
     per_plane = torch.stack(
-        [unit.linear(x[i], adc_mode=_ADC_MODE, adc_bits=_ADC_BITS) for i in range(t)],
+        [unit.linear(x[i], quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS) for i in range(t)],
         dim=0,
     )
     assert batched.shape == (t, b, n)
@@ -245,7 +247,7 @@ def test_linear_program_with_integer_bias_adds_exactly() -> None:
     bias = torch.randint(-7, 8, (n,), dtype=torch.int32)
     x = _random_binary((m, k))
     unit.program(weight, bias)
-    actual = unit.linear(x, adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
+    actual = unit.linear(x, quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
     expected = _cpu_int64_linear_oracle(x, weight) + bias.to(torch.int64)
     assert torch.equal(actual.to(torch.int64), expected)
 
@@ -258,7 +260,7 @@ def test_linear_reprogram_without_bias_clears_slot() -> None:
     x = _random_binary((m, k))
     unit.program(weight, torch.randint(-7, 8, (n,), dtype=torch.int32))
     unit.program(weight)
-    actual = unit.linear(x, adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
+    actual = unit.linear(x, quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
     assert torch.equal(actual.to(torch.int64), _cpu_int64_linear_oracle(x, weight))
 
 
@@ -271,7 +273,7 @@ def test_linear_lowering_never_includes_bias() -> None:
     weight = _random_weight(unit, (n, k))
     x = _random_binary((m, k))
     unit.program(weight, torch.randint(-7, 8, (n,), dtype=torch.int32))
-    actual = unit._lower_matmul(x, adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
+    actual = unit._lower_matmul(x, quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
     expected = torch.matmul(x.to(torch.int64), weight.to(torch.int64).transpose(-1, -2))
     assert torch.equal(actual.to(torch.int64), expected)
 
@@ -296,7 +298,7 @@ def test_linear_cim_rejects_float_input() -> None:
     unit = _build_unit(_unit_config(), w_logical_shape=(n, k))
     unit.program(_random_weight(unit, (n, k)))
     with pytest.raises(TypeError, match="integer input tensor"):
-        unit.linear(torch.zeros((2, k), dtype=torch.float32), adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
+        unit.linear(torch.zeros((2, k), dtype=torch.float32), quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
 
 
 def test_linear_program_rejects_wrong_shape_bias() -> None:
@@ -325,7 +327,7 @@ def test_linear_phase_accounting_scales_with_input_phase_num() -> None:
         assert isinstance(unit.engine.input_activation.phase_accumulator, SerialAccumulator)
         unit.program(_random_weight(unit, (n, k)))
         with NeuroxProfiler() as p:
-            unit.linear(_random_binary((m, k)), adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
+            unit.linear(_random_binary((m, k)), quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
         energies[unit.engine.input_activation._input_phase_num] = sum(
             e.dynamic_energy__fJ for e in p.energy_events if e.module is unit.engine.input_activation.phase_accumulator
         )
@@ -347,7 +349,7 @@ def test_linear_accepts_non_divisor_input_blocking() -> None:
     weight = _random_weight(unit, (13, 20))
     x = _random_binary((5, 20))
     unit.program(weight)
-    actual = unit.linear(x, adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
+    actual = unit.linear(x, quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
     assert torch.equal(actual.to(torch.int64), _cpu_int64_linear_oracle(x, weight))
 
 

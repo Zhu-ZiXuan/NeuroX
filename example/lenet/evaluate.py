@@ -3,7 +3,7 @@
 Loads a flat per-layer QAT checkpoint, builds :class:`QuantLeNet5` with
 the chosen macro flavour (``ideal_xbar_macro.toml`` /
 ``macro_with_ideal_xbar.toml`` / ``macro_with_physical_xbar.toml``), and
-runs MNIST val. Each layer's per-layer ADC mode is hard-wired in
+runs MNIST val. Each layer's quantization mode is hard-wired in
 ``model_quant._LAYER_MODE`` — edit that mapping to retarget modes.
 """
 
@@ -43,8 +43,8 @@ def main() -> None:
         "--cim_macro",
         choices=("physical", "ideal"),
         default="physical",
-        help="Tile implementation. 'ideal' swaps physical for lossless twin; only meaningful "
-        "when the chosen config carries a physical cim_macro.",
+        help="Tile implementation. 'ideal' swaps the configured tile for its to_ideal() twin, "
+        "the faithful reference of a physical macro; 'physical' runs the macro as configured.",
     )
     parser.add_argument("--device", type=str, default="cuda:0")
     parser.add_argument("--batch-size", type=int, default=128)

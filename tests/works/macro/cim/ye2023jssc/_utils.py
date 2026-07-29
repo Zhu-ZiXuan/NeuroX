@@ -22,8 +22,8 @@ and driven input-0), 4-bit RS-CSA. The array is TRANSPOSED (physical rows = 4
 outputs, physical columns = ``input_num * 4 planes = 8``).
 
 The witness phase set is deliberately NOT the paper's, so any test reading the
-access window pins the DERIVATION ``T_AC = sum(t_phase[:-1]) + t4_intrinsic``
-rather than a shipped number.
+access window pins the DERIVATION ``T_AC(b) = sum(t_phase[:b]) + t4_intrinsic``
+over the EXECUTED phases rather than a shipped number.
 """
 
 from __future__ import annotations
@@ -76,7 +76,7 @@ V_TBL__V = 0.1
 # --- RS-CSA timing / energy (witness values, NOT the paper's) ---
 T_PHASE__ns = (1.0, 2.0, 4.0, 8.0, 16.0)  # PH0 + one compare phase per bit, MSB-first
 T4_INTRINSIC__ns = 0.5
-T_AC__ns = sum(T_PHASE__ns[:-1]) + T4_INTRINSIC__ns  # 15.5 — the derived access window
+T_AC__ns = sum(T_PHASE__ns[:-1]) + T4_INTRINSIC__ns  # the derived window at the FULL phase set
 REF_RADIX = (8, 4, 2, 1)
 MIRROR_SCALE = 0.25
 E_FIXED__fJ = 2.0

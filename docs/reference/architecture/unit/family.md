@@ -69,16 +69,17 @@ $$M = \sum_{i} m_i\, R^{i},$$
 
 the aggregation primitive that folds the slice axis with the positional weights $(1, R, R^2, \dots)$, specified in [digital/shift_adder](../../primitive/digital/shift_adder.md).
 
-**Output rescale.** For any ADC operating point a unit publishes a recovery-side rescale factor $s$ relating the integer dot product to the digitized code,
+**Output rescale.** For any quantization operating point a unit publishes a recovery-side rescale factor $s$ relating the ideal code to the digitized code,
 
-$$M_{\mathrm{ideal}} \approx \mathrm{code}\cdot s.$$
+$$\mathrm{code}_{\mathrm{ideal}} \approx \mathrm{code}\cdot s.$$
 
 A unit exposes a discrete set of operating points and a maximum resolution
 across them, both inherited from the macros it aggregates; the rescale
 convention and its calibration are the
 [CIM-macro contract](../../primitive/macro/cim/family.md#governing-laws). A
 degenerate member performing an exact integer computation carries no output
-quantization: it exposes a single operating point with unit rescale, $s=1$.
+quantization at all: it publishes no maximum resolution, accepts the lossless
+read, and has unit rescale, $s=1$.
 
 ## Noise & non-idealities
 
@@ -101,8 +102,8 @@ families beneath it.
 | $N_{\mathrm{in}}, N_{\mathrm{out}}$ | macro logical input / output capacity | — | `input_num`, `output_num` |
 | $R$ | positional radix between adjacent slices | — | `slice_radix` |
 | $m_i$ | value carried by slice $i$ | — | — |
-| $s$ | output rescale factor | — | `adc_rescale_factor` |
-| $M_{\mathrm{ideal}}$ | ideal integer dot product | — | — |
+| $s$ | output rescale factor | — | `rescale_factor` |
+| $\mathrm{code}_{\mathrm{ideal}}$ | ideal-macro output code | — | — |
 
 ## Assumptions, scope & validity
 

@@ -1,20 +1,22 @@
-"""CLI: derive the ADC mode set from a per-layer range mapping file.
+"""CLI: derive the quantization mode set from a per-layer range mapping file.
 
 CLI: ``python -m neurox.tools.calibrate_adc.mode_derive --config <run.toml>
 [--output <modes.toml>] [--plot-dir <dir>] [--log-dir <dir>]
 [--log-level INFO]``
 
 Reads the layer-range mapping TOML named by the run config (per-layer
-design range + signedness; see :mod:`._modes` — producing that file, e.g.
+inclusive design range; see :mod:`._modes` — producing that file, e.g.
 from a training checkpoint's learned range params, is a consumer-side
-step), partitions the layers by their ``signed`` flag, clusters the range
-values within each sign group (deterministic 1-D relative-gap
-agglomeration), and enumerates the resulting clusters as the ADC
-operating-mode set. Group enumeration order is fixed: unsigned group
-first, then signed; within a group, clusters ascend by representative
-range. The mode-set TOML (mode tables + ``layer -> adc_mode`` mapping) is
-always logged; ``--output`` writes it via :mod:`._modes`, and a cluster
-plot goes to ``--plot-dir``.
+step), maps every layer onto the canonical window covering its range,
+partitions the layers by window shape (unsigned / mid-zero), clusters the
+window extents within each group (deterministic 1-D relative-gap
+agglomeration), and enumerates the resulting clusters as the quantization
+mode set. Group enumeration order is fixed: unsigned group first, then
+mid-zero; within a group, clusters ascend by representative extent, and
+the cluster's window is its largest member's — the one covering every
+member. The mode-set TOML (mode tables + ``layer -> quantization_mode``
+mapping) is always logged; ``--output`` writes it via :mod:`._modes`, and
+a cluster plot goes to ``--plot-dir``.
 
 CPU-only by design: the derivation touches a handful of scalars, so the
 tool opts out of ``--device``.
@@ -34,7 +36,7 @@ from neurox.common import ConfigBase
 from neurox.tools._config import add_standard_args, load_tool_config, resolve_relative_path, setup_logging
 
 from ._math import ValueCluster, cluster_values
-from ._modes import AdcMode, LayerRange, ModeSet, dump_mode_set, load_layer_ranges
+from ._modes import AdcMode, LayerRange, ModeSet, canonical_window, dump_mode_set, load_layer_ranges
 from ._testbench import add_file_logging
 
 logger = logging.getLogger(__name__)
@@ -45,7 +47,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class _ClusterCfg:
-    """``[cluster]`` section: knobs of the per-sign-group 1-D clustering."""
+    """``[cluster]`` section: knobs of the per-shape-group 1-D clustering."""
 
     rel_tol: float
     max_modes_per_group: int
@@ -58,7 +60,7 @@ class ModeDeriveToolConfig(ConfigBase):
         mapping_file: Layer-range mapping TOML (see
             :func:`~neurox.tools.calibrate_adc._modes.load_layer_ranges`),
             relative to the tool TOML.
-        cluster: Clustering knobs, applied per sign group.
+        cluster: Clustering knobs, applied per window-shape group.
     """
 
     mapping_file: Path
@@ -70,11 +72,39 @@ class ModeDeriveToolConfig(ConfigBase):
 
 @dataclass(frozen=True)
 class DerivedMode:
-    """One derived ADC operating mode (a cluster within a sign group)."""
+    """One derived quantization mode (a cluster within a window-shape group).
 
-    adc_mode: int
-    signed: bool
+    Attributes:
+        quantization_mode: Enumeration index of the mode.
+        quantization_input_range: The cluster's canonical window — the
+            largest member's, which covers every member.
+        cluster: The clustered window extents backing the mode.
+    """
+
+    quantization_mode: int
+    quantization_input_range: tuple[int, int]
     cluster: ValueCluster
+
+    @property
+    def signed(self) -> bool:
+        """Whether the mode's window is mid-zero rather than unsigned."""
+        return self.quantization_input_range[0] < 0
+
+
+def _window_extent(window: tuple[int, int]) -> int:
+    """Return the extent scalar ordering the windows of one shape group.
+
+    Unsigned ``[0, upper]`` has extent ``upper``, mid-zero ``[-m, m - 1]``
+    extent ``m``. A larger extent covers a smaller one of the same shape,
+    so a cluster sized from its largest member covers the whole cluster.
+    """
+    lower, upper = window
+    return upper if lower == 0 else -lower
+
+
+def _window_from_extent(extent: int, *, signed: bool) -> tuple[int, int]:
+    """Invert :func:`_window_extent` for one shape group."""
+    return (-extent, extent - 1) if signed else (0, extent)
 
 
 def derive_modes(
@@ -83,31 +113,40 @@ def derive_modes(
     rel_tol: float,
     max_modes_per_group: int,
 ) -> tuple[list[DerivedMode], dict[str, int]]:
-    """Sign-group split, per-group clustering, and global mode enumeration.
+    """Shape-group split, per-group clustering, and global mode enumeration.
 
-    Deterministic: layers partition by their ``signed`` flag; the groups
-    enumerate in the fixed order unsigned first then signed; within a
-    group, members sort by layer name before clustering and the clusters
-    ascend by representative (largest member). ``adc_mode`` indices run
-    over that enumeration. An empty sign group contributes no mode.
+    Deterministic: every layer maps onto the canonical window covering its
+    design range and the layers partition by that window's shape; the
+    groups enumerate in the fixed order unsigned first then mid-zero;
+    within a group, members sort by layer name before clustering and the
+    clusters ascend by representative extent (largest member).
+    ``quantization_mode`` indices run over that enumeration. An empty
+    group contributes no mode.
 
     Returns:
         ``(modes, layer_to_mode)`` — every input layer mapped.
     """
+    windows = {name: canonical_window(spec) for name, spec in layer_ranges.items()}
     modes: list[DerivedMode] = []
     layer_to_mode: dict[str, int] = {}
     for signed in (False, True):
-        members = sorted(n for n, spec in layer_ranges.items() if spec.signed == signed)
+        members = sorted(n for n, window in windows.items() if (window[0] < 0) == signed)
         if not members:
-            logger.info("no %s layers; the group contributes no mode", "signed" if signed else "unsigned")
+            logger.info("no %s layers; the group contributes no mode", "mid-zero" if signed else "unsigned")
             continue
-        values = [layer_ranges[n].range for n in members]
-        clusters = cluster_values(values, rel_tol=rel_tol, max_cluster_num=max_modes_per_group)
+        extents = [float(_window_extent(windows[n])) for n in members]
+        clusters = cluster_values(extents, rel_tol=rel_tol, max_cluster_num=max_modes_per_group)
         for cluster in clusters:
-            adc_mode = len(modes)
-            modes.append(DerivedMode(adc_mode=adc_mode, signed=signed, cluster=cluster))
+            quantization_mode = len(modes)
+            modes.append(
+                DerivedMode(
+                    quantization_mode=quantization_mode,
+                    quantization_input_range=_window_from_extent(int(cluster.representative), signed=signed),
+                    cluster=cluster,
+                )
+            )
             for idx in cluster.member_idx:
-                layer_to_mode[members[idx]] = adc_mode
+                layer_to_mode[members[idx]] = quantization_mode
     return modes, layer_to_mode
 
 
@@ -116,9 +155,8 @@ def _build_mode_set(modes: list[DerivedMode], layer_to_mode: dict[str, int]) -> 
     return ModeSet(
         modes=tuple(
             AdcMode(
-                adc_mode=m.adc_mode,
-                signed=m.signed,
-                range=m.cluster.representative,
+                quantization_mode=m.quantization_mode,
+                quantization_input_range=m.quantization_input_range,
                 layer_num=len(m.cluster.member_idx),
             )
             for m in modes
@@ -136,7 +174,7 @@ def _plot_clusters(
     layer_ranges: dict[str, LayerRange],
     output_path: Path,
 ) -> None:
-    """One PNG: per-layer range values colored by assigned mode."""
+    """One PNG: per-layer design ranges + mode windows, colored by mode."""
     import matplotlib as mpl
 
     mpl.use("Agg")
@@ -144,26 +182,29 @@ def _plot_clusters(
 
     names = sorted(layer_ranges)
     cmap = plt.get_cmap("viridis")
-    mode_color = {m.adc_mode: cmap(m.adc_mode / max(len(modes) - 1, 1)) for m in modes}
+    mode_color = {m.quantization_mode: cmap(m.quantization_mode / max(len(modes) - 1, 1)) for m in modes}
 
     fig, ax = plt.subplots(figsize=(10, 5.5))
     for m in modes:
-        xs = [i for i, n in enumerate(names) if layer_to_mode[n] == m.adc_mode]
-        ys = [layer_ranges[names[i]].range for i in xs]
-        sign_tag = "signed" if m.signed else "unsigned"
-        marker = "o" if m.signed else "s"
+        xs = [i for i, n in enumerate(names) if layer_to_mode[n] == m.quantization_mode]
+        los = [layer_ranges[names[i]].range[0] for i in xs]
+        his = [layer_ranges[names[i]].range[1] for i in xs]
+        lower, upper = m.quantization_input_range
+        shape_tag = "mid-zero" if m.signed else "unsigned"
+        ax.vlines(xs, los, his, color=mode_color[m.quantization_mode], linewidth=2.0)
         ax.scatter(
             xs,
-            ys,
+            his,
             s=26,
-            color=mode_color[m.adc_mode],
-            marker=marker,
-            label=f"mode {m.adc_mode} ({sign_tag}, range {m.cluster.representative:g})",
+            color=mode_color[m.quantization_mode],
+            marker="o" if m.signed else "s",
+            label=f"mode {m.quantization_mode} ({shape_tag}, window [{lower}, {upper}])",
         )
-        ax.axhline(m.cluster.representative, color=mode_color[m.adc_mode], linestyle=":", linewidth=0.9)
+        for bound in (lower, upper):
+            ax.axhline(bound, color=mode_color[m.quantization_mode], linestyle=":", linewidth=0.9)
     ax.set_xlabel("layer index (sorted by name)")
-    ax.set_ylabel("layer range")
-    ax.set_title("Per-layer ADC range by derived mode")
+    ax.set_ylabel("layer design range")
+    ax.set_title("Per-layer design range by derived quantization mode")
     ax.grid(True, alpha=0.3)
     ax.legend(fontsize=8, loc="best", framealpha=0.85)
     fig.tight_layout()
@@ -176,7 +217,9 @@ def _plot_clusters(
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Derive the ADC mode set from a layer-range mapping (config-driven)")
+    parser = argparse.ArgumentParser(
+        description="Derive the quantization mode set from a layer-range mapping (config-driven)"
+    )
     add_standard_args(parser, device=False, output_file=True)
     parser.add_argument(
         "--plot-dir",
@@ -212,10 +255,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     for m in modes:
         logger.info(
-            "mode %d: signed=%-5s range %g (members %d, span %g .. %g)",
-            m.adc_mode,
-            m.signed,
-            m.cluster.representative,
+            "mode %d: window [%d, %d] (members %d, extent span %g .. %g)",
+            m.quantization_mode,
+            *m.quantization_input_range,
             len(m.cluster.member_idx),
             m.cluster.lo,
             m.cluster.hi,

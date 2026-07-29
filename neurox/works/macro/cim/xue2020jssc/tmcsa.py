@@ -142,11 +142,11 @@ class Tmcsa(ModuleBase[TmcsaConfig, TmcsaPolicy]):
                 last axis, ``[*R]`` right-broadcasting against ``i_sub__uA`` —
                 passed per call (the LUT is structural, the refs are runtime).
             bits: Resolution this conversion ran at, in ``[1, max_bits]``. A
-                ``b``-bit conversion decimates the ladder, which replays the
-                FIRST ``b`` steps of the max-bits search and lands on the
-                max-bits code right-shifted by ``max_bits - b``; the billing
-                therefore takes the leading ``b`` phase windows and looks the
-                reference path up at the re-shifted code.
+                ``b``-bit conversion truncates the max-bits binary search after
+                its FIRST ``b`` steps and lands on the max-bits code
+                right-shifted by ``max_bits - b``; the billing therefore takes
+                the leading ``b`` phase windows and looks the reference path up
+                at the re-shifted code.
 
         Raises:
             ValueError: A shape or tap-count mismatch, or ``bits`` outside

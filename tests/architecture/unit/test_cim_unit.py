@@ -60,11 +60,16 @@ from neurox.primitive.macro.cim import IdealCimMacroConfig, IdealCimMacroPolicy
 _IDEAL_MACRO_POLICY = IdealCimMacroPolicy()
 _IDEAL_UNIT_POLICY = IdealLinearUnitPolicy()
 
-# Test-only sentinel: ``adc_bits == 0`` instructs IdealCimMacro to skip ADC
-# quantization and the signed clamp, so unit outputs equal ``torch.matmul``
-# exactly — the same behaviour ``IdealLinearUnit`` provides natively.
-_TEST_ADC_BITS = 0
-_TEST_ADC_MODE = 0
+# ``adc_bits is None`` is the lossless oracle: IdealCimMacro skips the windowed
+# conversion, so unit outputs equal ``torch.matmul`` exactly — the same
+# behaviour ``IdealLinearUnit`` provides natively. It is a runtime value; the
+# declared width ``adc_max_bits`` must stay >= 1.
+_TEST_ADC_BITS: int | None = None
+_TEST_QUANTIZATION_MODE = 0
+_TEST_ADC_MAX_BITS = 8
+# Wide enough for every dot these fixtures reach (max_active_num <= 16,
+# |w| <= 3, |x| <= 3), so a window never clips a lossless comparison.
+_TEST_QUANTIZATION_INPUT_RANGES: tuple[tuple[int, int], ...] = ((-256, 255),)
 
 
 def _ideal_macro_config(
@@ -72,7 +77,8 @@ def _ideal_macro_config(
     max_active_num: int | None = None,
     x_value_range: tuple[int, int] = (0, 1),
     w_value_range: tuple[int, int] = (-3, 3),
-    adc_max_bits: int = _TEST_ADC_BITS,
+    quantization_input_ranges: tuple[tuple[int, int], ...] = _TEST_QUANTIZATION_INPUT_RANGES,
+    adc_max_bits: int = _TEST_ADC_MAX_BITS,
 ) -> IdealCimMacroConfig:
     return IdealCimMacroConfig(
         max_active_num=16 if max_active_num is None else max_active_num,
@@ -80,7 +86,7 @@ def _ideal_macro_config(
         area_per_inst__um2=0.0,
         x_value_range=x_value_range,
         w_value_range=w_value_range,
-        adc_mode_num=1,
+        quantization_input_ranges=quantization_input_ranges,
         adc_max_bits=adc_max_bits,
     )
 
@@ -139,7 +145,8 @@ def _direct_engine_config(
     x_value_range: tuple[int, int] = (0, 1),
     w_value_range: tuple[int, int] = (-3, 3),
     max_active_num: int | None = None,
-    adc_max_bits: int = _TEST_ADC_BITS,
+    quantization_input_ranges: tuple[tuple[int, int], ...] = _TEST_QUANTIZATION_INPUT_RANGES,
+    adc_max_bits: int = _TEST_ADC_MAX_BITS,
     phase_accumulator_config: AccumulatorConfig | None = None,
 ) -> CimEngineConfig:
     return CimEngineConfig(
@@ -149,6 +156,7 @@ def _direct_engine_config(
             x_value_range=x_value_range,
             w_value_range=w_value_range,
             max_active_num=max_active_num,
+            quantization_input_ranges=quantization_input_ranges,
             adc_max_bits=adc_max_bits,
         ),
         placement=PlacementStageConfig(
@@ -304,7 +312,7 @@ def _build_linear(
 
 def _assert_unit_matches_torch(unit: LinearUnit, weight: torch.Tensor, activation: torch.Tensor) -> torch.Tensor:
     unit.program(weight)
-    actual = unit.linear(activation, adc_mode=_TEST_ADC_MODE, adc_bits=_TEST_ADC_BITS)
+    actual = unit.linear(activation, quantization_mode=_TEST_QUANTIZATION_MODE, adc_bits=_TEST_ADC_BITS)
     # F.linear-form oracle: activation [..., K] against weight [*prefix, N, K];
     # the weight prefix broadcasts right-aligned over the activation batch dims.
     # Shape: [..., K] -> [..., 1, K] @ [*prefix, K, N] -> [..., 1, N] -> [..., N]
@@ -497,8 +505,8 @@ def test_direct_and_inter_slice_one_agree() -> None:
     direct.program(weight)
     inter.program(weight)
     assert torch.equal(
-        direct.linear(activation, adc_mode=_TEST_ADC_MODE, adc_bits=_TEST_ADC_BITS),
-        inter.linear(activation, adc_mode=_TEST_ADC_MODE, adc_bits=_TEST_ADC_BITS),
+        direct.linear(activation, quantization_mode=_TEST_QUANTIZATION_MODE, adc_bits=_TEST_ADC_BITS),
+        inter.linear(activation, quantization_mode=_TEST_QUANTIZATION_MODE, adc_bits=_TEST_ADC_BITS),
     )
 
 
@@ -513,8 +521,8 @@ def test_inter_and_intra_slice_engines_agree() -> None:
     inter.program(weight)
     intra.program(weight)
     assert torch.equal(
-        inter.linear(activation, adc_mode=_TEST_ADC_MODE, adc_bits=_TEST_ADC_BITS),
-        intra.linear(activation, adc_mode=_TEST_ADC_MODE, adc_bits=_TEST_ADC_BITS),
+        inter.linear(activation, quantization_mode=_TEST_QUANTIZATION_MODE, adc_bits=_TEST_ADC_BITS),
+        intra.linear(activation, quantization_mode=_TEST_QUANTIZATION_MODE, adc_bits=_TEST_ADC_BITS),
     )
 
 
@@ -599,9 +607,13 @@ def test_direct_engine_unit_multi_input_phase_quantized_end_to_end() -> None:
     adc_bits = 6
     max_active_num = 8
     input_phase_num = 2
+    # lsb = 128 / 2^6 = 2 MAC units, so the per-plane floor is lossy and
+    # quantize-then-accumulate cannot coincide with the whole-dot reading.
+    window = (-64, 63)
     config = _wrap_unit(
         _direct_engine_config(
             max_active_num=max_active_num,
+            quantization_input_ranges=(window,),
             adc_max_bits=adc_bits,
         )
     )
@@ -609,19 +621,21 @@ def test_direct_engine_unit_multi_input_phase_quantized_end_to_end() -> None:
     weight = _randint_in_range(unit.w_value_range, (n, k))
     activation = _randint_in_range(unit.x_value_range, (m, k))
     unit.program(weight)
-    actual = unit.linear(activation, adc_mode=0, adc_bits=adc_bits)
+    actual = unit.linear(activation, quantization_mode=0, adc_bits=adc_bits)
 
-    # Reference: per-phase partial dots quantized against the conversion range
-    # and then accumulated over the input-phase axis
-    # (Tc = G = D = 1).
-    half_range = (1 << (adc_bits - 1)) - 1
-    rescale = (max_active_num * 3 * 1) / half_range
+    # Reference: per-phase partial dots read through the window and then
+    # accumulated over the input-phase axis (Tc = G = D = 1).
+    def _convert(dot: torch.Tensor) -> torch.Tensor:
+        lower, upper = window
+        level_num = 1 << adc_bits
+        width = upper - lower + 1
+        code_u = torch.div((dot - lower) * level_num, width, rounding_mode="floor").clamp(0, level_num - 1)
+        return code_u - (level_num >> 1)
+
     xp = activation.to(torch.int64).unflatten(-1, (input_phase_num, max_active_num))
     wp = weight.to(torch.int64).unflatten(-1, (input_phase_num, max_active_num))
     plane_dot = torch.einsum("mpa,npa->mpn", xp, wp)
-    bound = 1 << (adc_bits - 1)
-    codes = torch.floor(plane_dot.to(torch.float32) * (1.0 / rescale)).to(torch.int64).clamp(-bound, bound - 1)
-    expected = codes.sum(dim=-2)  # [m, n]
+    expected = _convert(plane_dot).sum(dim=-2)  # [m, n]
 
     assert actual.shape == (m, n)
     assert torch.equal(actual.to(torch.int64), expected)
@@ -629,8 +643,7 @@ def test_direct_engine_unit_multi_input_phase_quantized_end_to_end() -> None:
     # this random draw — otherwise the case does not pin the input-phase
     # semantics.
     whole_dot = activation.to(torch.int64) @ weight.to(torch.int64).transpose(-1, -2)
-    whole_code = torch.floor(whole_dot.to(torch.float32) * (1.0 / rescale)).to(torch.int64).clamp(-bound, bound - 1)
-    assert not torch.equal(expected, whole_code)
+    assert not torch.equal(expected, _convert(whole_dot))
 
 
 def test_phase_accumulator_energy_scales_with_input_phase_num() -> None:
@@ -659,7 +672,7 @@ def test_phase_accumulator_energy_scales_with_input_phase_num() -> None:
         activation = _randint_in_range(unit.x_value_range, (m, k))
         unit.program(weight)
         with NeuroxProfiler() as p:
-            unit.linear(activation, adc_mode=_TEST_ADC_MODE, adc_bits=_TEST_ADC_BITS)
+            unit.linear(activation, quantization_mode=_TEST_QUANTIZATION_MODE, adc_bits=_TEST_ADC_BITS)
         energies[unit.engine.input_activation._input_phase_num] = sum(
             e.dynamic_energy__fJ for e in p.energy_events if e.module is unit.engine.input_activation.phase_accumulator
         )
@@ -674,9 +687,9 @@ def test_ideal_unit_public_properties() -> None:
     )
     assert unit.w_value_range == (-11, 13)
     assert unit.x_value_range == (-5, 7)
-    assert unit.adc_mode_num == 1
-    assert unit.adc_max_bits == 0
-    assert unit.adc_rescale_factor(adc_mode=0, adc_bits=0) == 1.0
+    # An ideal unit never quantizes its output: no ADC width, identity rescale.
+    assert unit.adc_max_bits is None
+    assert unit.rescale_factor(quantization_mode=0, adc_bits=None) == 1.0
 
 
 def test_direct_engine_unit_public_properties() -> None:
@@ -686,11 +699,9 @@ def test_direct_engine_unit_public_properties() -> None:
     )
     assert unit.w_value_range == (-15, 15)
     assert unit.x_value_range == (0, 3)
-    assert unit.adc_mode_num == 1
-    assert unit.adc_max_bits == _TEST_ADC_BITS
-    # Ideal-backed units derive rescale from bit width alone: bits == 0
-    # (the full-precision sentinel) → identity rescale of 1.0.
-    assert unit.adc_rescale_factor(adc_mode=_TEST_ADC_MODE, adc_bits=_TEST_ADC_BITS) == 1.0
+    assert unit.adc_max_bits == _TEST_ADC_MAX_BITS
+    # The lossless oracle carries MAC units directly → rescale 1.0.
+    assert unit.rescale_factor(quantization_mode=_TEST_QUANTIZATION_MODE, adc_bits=_TEST_ADC_BITS) == 1.0
 
 
 def test_inter_array_slice_engine_unit_public_properties() -> None:
@@ -703,8 +714,8 @@ def test_inter_array_slice_engine_unit_public_properties() -> None:
     unit = _build_linear(config, w_logical_shape=(13, 20))
     assert unit.w_value_range == (-4095, 4095)
     assert unit.x_value_range == (0, 15)
-    # Ideal-backed → bits == 0 → identity rescale.
-    assert unit.adc_rescale_factor(adc_mode=_TEST_ADC_MODE, adc_bits=_TEST_ADC_BITS) == 1.0
+    # Ideal-backed, lossless oracle → identity rescale.
+    assert unit.rescale_factor(quantization_mode=_TEST_QUANTIZATION_MODE, adc_bits=_TEST_ADC_BITS) == 1.0
 
 
 def test_intra_array_slice_engine_unit_public_properties() -> None:
@@ -717,8 +728,8 @@ def test_intra_array_slice_engine_unit_public_properties() -> None:
     unit = _build_linear(config, w_logical_shape=(13, 20))
     assert unit.w_value_range == (-4095, 4095)
     assert unit.x_value_range == (0, 15)
-    # Ideal-backed → bits == 0 → identity rescale.
-    assert unit.adc_rescale_factor(adc_mode=_TEST_ADC_MODE, adc_bits=_TEST_ADC_BITS) == 1.0
+    # Ideal-backed, lossless oracle → identity rescale.
+    assert unit.rescale_factor(quantization_mode=_TEST_QUANTIZATION_MODE, adc_bits=_TEST_ADC_BITS) == 1.0
 
 
 @pytest.mark.parametrize(
@@ -822,8 +833,8 @@ def test_unit_config_nested_engine_deserialization() -> None:
                 "area_per_inst__um2": 0.0,
                 "x_value_range": [0, 1],
                 "w_value_range": [-3, 3],
-                "adc_mode_num": 1,
-                "adc_max_bits": 0,
+                "quantization_input_ranges": [[-256, 255]],
+                "adc_max_bits": 8,
             },
             "placement": {
                 "contraction_accumulator_config": {"bit_width": 32, **_zero_ppa()},

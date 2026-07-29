@@ -1,29 +1,30 @@
 """Single-ended current ADC: per-instance references + bits + B-form energy.
 
-``SarIadc.convert(i_in__uA, i_refs__uA, *, bits)`` takes the reference
-ladder per call as a ``[*R, n_ref]`` tensor of ``2 ** bits - 1`` ascending taps
-on the **last** axis (the caller has already selected the operating mode's row —
+``SarIadc.convert(i_in__uA, i_refs__uA, *, bits)`` takes the reference ladder
+per call as a ``[*R, n_ref]`` tensor of ``2 ** max_bits - 1`` ascending taps on
+the **last** axis (the caller has already selected the operating mode's row —
 mode is invisible to the ADC); the ``[*R]`` leading broadcasts right-aligned
-against ``i_in__uA``, so each ADC instance may carry its own ladder. The
-resolution ``bits`` is passed directly. These tests pin:
+against ``i_in__uA``, so each ADC instance may carry its own ladder. Bit width
+is ADC-internal: the FULL ladder is always wired and a ``bits``-bit conversion
+truncates the max-bits binary search after ``bits`` levels. These tests pin:
 
-- per-call reference validation: a wrong ``n_taps`` (``!= 2 ** bits - 1`` on the
-  last axis) is rejected at convert time (any leading rank is now accepted);
+- per-call reference validation: the last axis must carry ``2 ** max_bits - 1``
+  taps whatever ``bits`` is requested (any leading rank is accepted);
 - per-instance broadcast: distinct ladders across the leading digitize their own
   inputs;
-- ``bits`` validation: a request outside ``[1, config.bits]`` is rejected;
+- ``bits`` validation: a request outside ``[1, max_bits]`` is rejected;
 - config-time energy-knob validation: negative rail / window and a window /
   step-latency list shorter than ``bits``;
 - conversion correctness: unit-step ladder codes = the count of taps the input
-  exceeds; a call at a lower ``bits`` (< the physical max) digitizes at that
-  resolution;
+  exceeds; the truncated search starts at the max-bits mid tap and its code at
+  ``b`` is the max-bits code right-shifted by ``max_bits - b``;
 - B-form energy: fixed-only when the window (or rail) is zero — which also pins
   the base ``_compute_input_dynamic_energy__fJ`` hook at zero — and linear in both
-  ``v_rail__V`` and ``t_conduct_per_step__ns``; latency sums only the first
-  ``bits`` step windows; ``enable_latency_record=False`` suppresses the latency
-  event while keeping the dynamic-energy event, and its mirror
-  ``enable_energy_record=False`` suppresses the dynamic-energy event while
-  keeping latency and the exact codes;
+  ``v_rail__V`` and ``t_conduct_per_step__ns``; energy and latency count the
+  EXECUTED steps, so both scale with ``bits`` over the same full ladder;
+  ``enable_latency_record=False`` suppresses the latency event while keeping the
+  dynamic-energy event, and its mirror ``enable_energy_record=False`` suppresses
+  the dynamic-energy event while keeping latency and the exact codes;
 - ``Iadc.convert`` template method: probe-off equivalence with
   ``_convert_impl`` and :class:`IadcProber` capture of input,
   code, and resolution.
@@ -44,8 +45,6 @@ from neurox.primitive.analog.current_adc import (
 
 # A 3-bit ladder (7 taps) with unit steps: code = count of taps the input exceeds.
 _LADDER_A = (1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0)
-# A 2-bit ladder (3 taps) for the reduced-resolution call.
-_LADDER_2B = (1.0, 2.0, 3.0)
 
 
 def _config(
@@ -125,20 +124,27 @@ def test_config_rejects_bad_energy_knobs() -> None:
     assert _config(t_conduct_per_step__ns=(0.1, 0.1, 0.1, 0.1), step_latency__ns=(3.0, 3.0, 3.0, 3.0)).bits == 3
 
 
-def test_convert_rejects_wrong_tap_count(device: torch.device) -> None:
-    """A wrong last-axis tap count is rejected at convert time (any leading rank is fine)."""
-    adc = _build(_config(), device)
+def test_convert_requires_the_full_ladder_at_every_bits(device: torch.device) -> None:
+    """The tap count is the ADC's OWN capability, not the requested resolution."""
+    adc = _build(_config(adc_bits=3), device)
     i_in = torch.tensor([1.5], dtype=torch.float64, device=device)
-    # Wrong n_taps: bits = 3 requires exactly 2**3 - 1 = 7 taps on the last axis.
-    with pytest.raises(ValueError, match="n_taps"):
-        adc.convert(i_in, _refs(_LADDER_A[:6], device), bits=3)
+    for adc_bits in (1, 2, 3):
+        # Short ladder: max_bits = 3 requires exactly 2**3 - 1 = 7 taps.
+        with pytest.raises(ValueError, match="n_taps"):
+            adc.convert(i_in, _refs(_LADDER_A[:6], device), bits=adc_bits)
+        # The full ladder is accepted at every width.
+        adc.convert(i_in, _refs(_LADDER_A, device), bits=adc_bits)
+    # A ladder sized for the REQUESTED width is rejected below the maximum.
+    for adc_bits in (1, 2):
+        with pytest.raises(ValueError, match="n_taps"):
+            adc.convert(i_in, _refs(_LADDER_A[: (1 << adc_bits) - 1], device), bits=adc_bits)
 
 
 def test_convert_rejects_bad_bits(device: torch.device) -> None:
-    """``bits`` outside ``[1, config.bits]`` is rejected."""
+    """``bits`` outside ``[1, max_bits]`` is rejected."""
     adc = _build(_config(adc_bits=3), device)
     i_in = torch.tensor([1.5], dtype=torch.float64, device=device)
-    for adc_bits in (0, 4):
+    for adc_bits in (0, -1, 4):
         with pytest.raises(ValueError, match="bits"):
             adc.convert(i_in, _refs(_LADDER_A, device), bits=adc_bits)
 
@@ -172,15 +178,44 @@ def test_per_instance_ladders_broadcast(device: torch.device) -> None:
     assert torch.equal(code, torch.tensor([4, 2], device=device))
 
 
-def test_lower_bits_digitizes_at_that_resolution(device: torch.device) -> None:
-    """A call at bits < config.bits runs a shorter search over a 3-tap ladder."""
+@pytest.mark.parametrize("max_bits", [1, 2, 4])
+def test_lowered_bits_equal_the_max_bits_code_shifted(device: torch.device, max_bits: int) -> None:
+    """Equivalence law: ``convert(bits=b) == convert(bits=B) >> (B - b)``.
+
+    The whole ladder is wired at every width; a ``b``-bit conversion is the
+    first ``b`` levels of the max-bits search tree, so it resolves exactly the
+    max-bits code's leading ``b`` bits. Edge widths ``b = 1`` and ``b = B`` are
+    covered by the sweep.
+    """
+    steps = (0.0,) * max_bits
+    adc = _build(
+        _config(adc_bits=max_bits, t_conduct_per_step__ns=steps, step_latency__ns=steps),
+        device,
+    )
+    ladder = tuple(float(k + 1) for k in range((1 << max_bits) - 1))
+    refs = _refs(ladder, device)
+    # Sweep every bin, both saturation tails, and every exact tap value (threshold ties).
+    i_in = torch.arange(-0.5, (1 << max_bits) + 0.5, 0.25, dtype=torch.float64, device=device)
+
+    full = adc.convert(i_in, refs, bits=max_bits)
+    assert int(full.max()) == (1 << max_bits) - 1
+    for adc_bits in range(1, max_bits + 1):
+        code = adc.convert(i_in, refs, bits=adc_bits)
+        assert adc.unsigned_range(adc_bits) == (0, (1 << adc_bits) - 1)
+        assert torch.equal(code, full >> (max_bits - adc_bits))
+
+
+def test_first_compare_is_the_max_bits_mid_tap(device: torch.device) -> None:
+    """A 1-bit conversion splits at the FULL ladder's midpoint, not at its own.
+
+    With ``max_bits = 3`` the single decision sits at tap ``2**2 - 1`` (value
+    4.0 on the unit ladder), so the code flips there and nowhere else.
+    """
     adc = _build(_config(adc_bits=3), device)
-    refs = _refs(_LADDER_2B, device)  # 2**2 - 1 = 3 taps
-    i_in = torch.tensor([0.5, 1.5, 2.5, 3.5], dtype=torch.float64, device=device)
-    code = adc.convert(i_in, refs, bits=2)
-    # Unit-step 3-tap ladder → code = count of taps exceeded, capped at 2**2 - 1 = 3.
-    assert torch.equal(code, torch.tensor([0, 1, 2, 3], device=device))
-    assert adc.unsigned_range(2) == (0, 3)
+    refs = _refs(_LADDER_A, device)
+    i_in = torch.tensor([0.5, 3.5, 4.5, 7.5], dtype=torch.float64, device=device)
+    code = adc.convert(i_in, refs, bits=1)
+    assert torch.equal(code, torch.tensor([0, 0, 1, 1], device=device))
 
 
 # ---------------------------------------------------------------------------
@@ -228,18 +263,34 @@ def test_energy_linear_in_window_and_rail(device: torch.device) -> None:
     assert (e_2v - e_floor) == pytest.approx(2.0 * conduction)  # linear in the rail
 
 
-def test_latency_sums_only_the_requested_step_windows(device: torch.device) -> None:
-    """Latency at ``bits`` sums the first ``bits`` ``step_latency__ns`` entries."""
+def test_latency_sums_only_the_executed_step_windows(device: torch.device) -> None:
+    """Latency at ``bits`` sums the first ``bits`` ``step_latency__ns`` entries.
+
+    The ladder is the same full one at both widths — only the executed step
+    count differs.
+    """
     adc = _build(_config(adc_bits=3, step_latency__ns=(3.0, 5.0, 7.0)), device)
     i_in = torch.tensor([1.5], dtype=torch.float64, device=device)
+    refs = _refs(_LADDER_A, device)
 
     with NeuroxProfiler() as p3:
-        adc.convert(i_in, _refs(_LADDER_A, device), bits=3)
+        adc.convert(i_in, refs, bits=3)
     with NeuroxProfiler() as p2:
-        adc.convert(i_in, _refs(_LADDER_2B, device), bits=2)
+        adc.convert(i_in, refs, bits=2)
 
     assert p3.total_latency__ns == pytest.approx(3.0 + 5.0 + 7.0)
     assert p2.total_latency__ns == pytest.approx(3.0 + 5.0)
+
+
+def test_energy_counts_only_the_executed_steps(device: torch.device) -> None:
+    """Fixed energy at ``bits`` is ``bits * e_fixed`` over the same full ladder."""
+    adc = _build(_config(adc_bits=3, v_rail__V=1.0, e_fixed_per_op__fJ=7.0), device)
+    refs = _refs(_LADDER_A, device)
+    i_in = torch.tensor([0.5, 4.5], dtype=torch.float64, device=device)
+
+    for adc_bits in (1, 2, 3):
+        energy = _convert_energy(adc, i_in, refs, adc_bits=adc_bits)
+        assert energy == pytest.approx(i_in.numel() * adc_bits * 7.0)
 
 
 def test_enable_latency_record_false_suppresses_only_latency(device: torch.device) -> None:

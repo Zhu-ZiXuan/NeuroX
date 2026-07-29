@@ -1,20 +1,22 @@
 # Triple-margin current SAR ADC
 
-A triple-margin current-mode successive-approximation ADC, a member of the [single-ended current ADC family](family.md). A single current-mode sense amplifier (SA) is time-multiplexed over $b$ sequential comparisons — a binary search across $2^{b}-1$ nominal mid-point reference levels — producing a $b$-bit unsigned magnitude code from a single-ended magnitude current $I_{\mathrm{in}}$.
+A triple-margin current-mode successive-approximation ADC, a member of the [single-ended current ADC family](family.md). A single current-mode sense amplifier (SA) is time-multiplexed over $b$ sequential comparisons — a binary search across the $2^{b_{\max}}-1$ nominal mid-point reference levels — producing a $b$-bit unsigned magnitude code from a single-ended magnitude current $I_{\mathrm{in}}$.
 
 ## Physical model
 
 Each single comparison mirrors $I_{\mathrm{in}}$ and the step's reference $I_{\mathrm{ref}}$ into the sense amplifier, then a deterministic pre-gain $A = $ `margin_gain` amplifies the clean current difference $I_{\mathrm{in}} - I_{\mathrm{ref}}$ before the latch resolves its sign. The input-referred SA offset is a current-domain margin perturbation added **after** the pre-gain, so its effective value at the decision is divided by $A$ — the triple-margin benefit: a raw offset $\sigma$ acts as $\sigma / A$.
 
-The mid-point thresholds are a runtime ladder $[*R,\ 2^{b}-1]$ whose taps ascend along the last axis and whose leading $[*R]$ dimensions broadcast right-aligned against $I_{\mathrm{in}}$. The resolution $b$ lies in $[1,b_{\max}]$. Each step gathers one tap per element.
+The mid-point thresholds are a runtime ladder $[*R,\ 2^{b_{\max}}-1]$ whose taps ascend along the last axis and whose leading $[*R]$ dimensions broadcast right-aligned against $I_{\mathrm{in}}$. The ladder is the converter's full tap set at every resolution; the resolution $b$ lies in $[1,b_{\max}]$. Each step gathers one tap per element.
 
 ## Governing equations
 
-The conversion runs a $b$-step binary search (MSB-first) over the per-call ladder. At step $s$ (with $s = 0$ the MSB) the partial code resolved so far selects a mid-point reference $I_{\mathrm{ref},s}$ from it; the bit is the sign of the pre-gained clean margin plus the held offset,
+The conversion runs a **truncated** binary search (MSB-first): the tree is always the $b_{\max}$-level one over the full ladder, and a $b$-bit conversion executes its first $b$ levels. At step $s$ (with $s = 0$ the MSB) the partial code resolved so far selects a mid-point reference $I_{\mathrm{ref},s}$ from it; the bit is the sign of the pre-gained clean margin plus the held offset,
 
 $$D_s = \big[\,A\,(I_{\mathrm{in}} - I_{\mathrm{ref},s}) + \delta\,\big] > 0,$$
 
-where $\delta$ is the static input-referred offset (comparator + coupling, zero when their policy toggles are off), held constant across all $b$ steps. The reference index tested at step $s$ is $\mathrm{prefix}\cdot 2^{\,b-s} + 2^{\,b-s-1} - 1$, where $\mathrm{prefix}$ is the high $s$ resolved bits — step 0 selects the central threshold and each later step bisects the surviving sub-interval. The output is the accumulated unsigned code in $[0,\ 2^{b}-1]$.
+where $\delta$ is the static input-referred offset (comparator + coupling, zero when their policy toggles are off), held constant across all $b$ steps. The reference index tested at step $s$ is $\mathrm{prefix}\cdot 2^{\,b_{\max}-s} + 2^{\,b_{\max}-s-1} - 1$, where $\mathrm{prefix}$ is the high $s$ resolved bits — step 0 selects the ladder's central threshold $2^{\,b_{\max}-1}-1$ whatever $b$ is, and each later step bisects the surviving sub-interval. The executed levels are the leading bits of the $b_{\max}$-bit code, so the output is that code right-shifted,
+
+$$\mathrm{code}_{b} = \big\lfloor \mathrm{code}_{b_{\max}} / 2^{\,b_{\max}-b} \big\rfloor \in [0,\ 2^{b}-1].$$
 
 ## Numerical method
 

@@ -58,19 +58,19 @@ class UnitBase(ABC):
 
     @property
     @abstractmethod
-    def adc_mode_num(self) -> int:
-        """Number of supported ADC operating points; valid ``adc_mode`` values are ``[0, adc_mode_num)``."""
-        raise NotImplementedError
-
-    @property
-    @abstractmethod
-    def adc_max_bits(self) -> int:
-        """Maximum supported ``adc_bits`` value."""
+    def adc_max_bits(self) -> int | None:
+        """Maximum supported ``adc_bits`` value; ``None`` when the unit never quantizes its output."""
         raise NotImplementedError
 
     @abstractmethod
-    def adc_rescale_factor(self, *, adc_mode: int, adc_bits: int) -> float:
-        """Return the calibrated rescale factor for an ADC operating point."""
+    def rescale_factor(self, *, quantization_mode: int, adc_bits: int | None) -> float:
+        """Return the unit's output code expressed in ideal-macro codes.
+
+        Args:
+            quantization_mode: Runtime quantization-mode index.
+            adc_bits: Runtime ADC resolution, or ``None`` for the lossless
+                oracle.
+        """
         raise NotImplementedError
 
     @abstractmethod
@@ -79,13 +79,14 @@ class UnitBase(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def _matmul(self, input: Tensor, *, adc_mode: int, adc_bits: int) -> Tensor:
+    def _matmul(self, input: Tensor, *, quantization_mode: int, adc_bits: int | None) -> Tensor:
         """Multiply integer input planes by the programmed weight.
 
         Args:
             input: Integer activation planes. Shape: ``[..., M, K]``.
-            adc_mode: Runtime ADC operating-point index.
-            adc_bits: Runtime ADC resolution.
+            quantization_mode: Runtime quantization-mode index.
+            adc_bits: Runtime ADC resolution, or ``None`` for the lossless
+                oracle.
 
         Returns:
             Integer pre-requantize output tensor. Shape: ``[..., M, N]``;
@@ -105,10 +106,10 @@ class UnitBase(ABC):
         """Convert matmul output back to the operator output layout."""
         return output
 
-    def _lower_matmul(self, input: Tensor, *, adc_mode: int, adc_bits: int) -> Tensor:
+    def _lower_matmul(self, input: Tensor, *, quantization_mode: int, adc_bits: int | None) -> Tensor:
         """Apply activation lowering, matrix multiplication, and output folding."""
         planes = self._activation_to_planes(input)
-        y = self._matmul(planes, adc_mode=adc_mode, adc_bits=adc_bits)
+        y = self._matmul(planes, quantization_mode=quantization_mode, adc_bits=adc_bits)
         return self._undo_aggregation(y)
 
     def _program_int_bias(self, bias: Tensor | None, *, channels: int) -> None:

@@ -48,7 +48,7 @@ The examples default to GPU. Pass `--device cpu` explicitly when GPU is unavaila
 
 Each macro is built from two separate TOML files; the full schema and the `_neurox_*` directives are in [API: configuration](../../api/configuration.md).
 
-- **`--config`** — the immutable circuit design. Both examples consume a bundled 1T1R 28nm preset, shipped with its scheme and referenced from `macro_with_physical_xbar.toml` via `_neurox_use`. To target a different chip, follow the same `[cim_macro]` / `[cim_macro.array_config]` schema (the driver and readout blocks are inline `[cim_macro.*]` sections above the array). The ADC `rescale_factor` table must be calibrated for the chip's `(adc_mode, adc_bits)` grid — see the [calibration guide](../calibration/README.md).
+- **`--config`** — the immutable circuit design. Both examples consume a bundled 1T1R 28nm preset, shipped with its scheme and referenced from `macro_with_physical_xbar.toml` via `_neurox_use`. To target a different chip, follow the same `[cim_macro]` / `[cim_macro.array_config]` schema (the driver and readout blocks are inline `[cim_macro.*]` sections above the array). Each quantization mode the chip declares carries its own calibrated rescale factor — see the [calibration guide](../calibration/README.md). That factor states an output code in ideal-macro codes; turning codes into MAC units is the model's own job and multiplies in the mode's window step, which is what `example/*/quant.py` folds into its per-channel scales.
 - **`--policy`** — the mutable nonideality switches. The example policy files reference the all-off preset shipped with the scheme via `_neurox_use`, so every nonideality (device mismatch, thermal noise, programming noise, ADC offsets, ...) is off by default. To enable one, override the matching switch inline:
 
   ```toml
@@ -63,4 +63,4 @@ Each macro is built from two separate TOML files; the full schema and the `_neur
 - [API: configuration](../../api/configuration.md) — the `--config` / `--policy` TOML schema and presets.
 - [Reference: unit family](../../reference/architecture/unit/family.md) — the operator and placement contracts.
 - [Reference: xbar solver](../../reference/primitive/xbar/solver/nested.md) — the topology-agnostic physical-array solve: the single nested formulation over the pluggable cell and clamp drivers.
-- [Calibration guide](../calibration/README.md) — calibrating the ADC `rescale_factor` table for a new chip.
+- [Calibration guide](../calibration/README.md) — calibrating the per-mode ADC `rescale_factor` for a new chip.

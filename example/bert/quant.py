@@ -15,6 +15,7 @@ import torch.nn.functional as F
 from torch import Tensor
 
 from neurox.architecture.unit import LinearUnit
+from neurox.architecture.unit.cim import EngineBackedCimUnit
 from neurox.common.quant import (
     PerChannelSymmObserver,
     PerTensorObserver,
@@ -81,8 +82,30 @@ class QATLinear(nn.Linear):
 # ---------------------------------------------------------------------------
 
 
-def _default_op(macro: LinearUnit, adc_mode: int | None) -> tuple[int, int]:
-    return (0 if adc_mode is None else adc_mode, macro.adc_max_bits)
+def _default_op(macro: LinearUnit, quantization_mode: int | None) -> tuple[int, int | None]:
+    """Resolve the operating point: mode 0 by default, macro's max bits.
+
+    A unit without output quantization publishes ``adc_max_bits is None``;
+    the resolved ``adc_bits`` is then ``None``, the lossless oracle, whose
+    rescale factor is ``1.0``.
+    """
+    return (0 if quantization_mode is None else quantization_mode, macro.adc_max_bits)
+
+
+def _mac_per_code(macro: LinearUnit, *, quantization_mode: int, adc_bits: int | None) -> float:
+    """Return the MAC units one output code carries at this operating point.
+
+    The simulator exports codes plus ``rescale_factor``, which states a code
+    in ideal-macro codes; turning those into MAC units is the algorithm's own
+    job and takes the ideal twin's window step ``W / 2**B``. A unit that never
+    quantizes its output returns exact dots, so one code is one MAC unit.
+    """
+    factor = macro.rescale_factor(quantization_mode=quantization_mode, adc_bits=adc_bits)
+    if adc_bits is None or not isinstance(macro, EngineBackedCimUnit):
+        return factor
+    twin = macro.engine.cim_macro.to_ideal()
+    lower, upper = twin.quantization_input_ranges[quantization_mode]
+    return factor * (upper - lower + 1) / float(1 << twin.adc_max_bits)
 
 
 @dataclass
@@ -90,7 +113,7 @@ class _FoldedScales:
     mult: Tensor
     rshift: Tensor
     bias_int: Tensor
-    r_adc: float
+    mac_per_code: float
 
 
 def _fold_for_macro(
@@ -101,9 +124,9 @@ def _fold_for_macro(
     zp_x: Tensor,
     s_w: Tensor,
     s_y: Tensor,
-    r_adc: float,
+    mac_per_code: float,
 ) -> _FoldedScales:
-    """Fold ``r_ADC`` into ``(mult, rshift, bias_int)``."""
+    """Fold the macro's MAC-units-per-code into ``(mult, rshift, bias_int)``."""
     w_sum = weight_int.to(torch.int64).sum(dim=tuple(range(1, weight_int.ndim)))
     sx = s_x.to(torch.float64)
     zp = zp_x.to(torch.float64)
@@ -114,12 +137,17 @@ def _fold_for_macro(
         if bias_float is not None
         else torch.zeros(weight_int.shape[0], dtype=torch.float64)
     )
-    folded = torch.round((bias_ideal - zp * w_sum.to(torch.float64)) / r_adc)
+    folded = torch.round((bias_ideal - zp * w_sum.to(torch.float64)) / mac_per_code)
     int32 = torch.iinfo(torch.int32)
     bias_int = folded.clamp(min=int32.min, max=int32.max).to(torch.int32)
-    combined = (sx * sw * r_adc / sy).to(torch.float32)
+    combined = (sx * sw * mac_per_code / sy).to(torch.float32)
     mult, rshift = derive_multiplier_and_shift_tensor(combined)
-    return _FoldedScales(mult=mult.to(torch.int32), rshift=rshift.to(torch.int32), bias_int=bias_int, r_adc=r_adc)
+    return _FoldedScales(
+        mult=mult.to(torch.int32),
+        rshift=rshift.to(torch.int32),
+        bias_int=bias_int,
+        mac_per_code=mac_per_code,
+    )
 
 
 def _quantize_input(x: Tensor, s_x: Tensor, zp_x: Tensor) -> Tensor:
@@ -156,14 +184,13 @@ class QuantLinear(nn.Module):
         zp_y: Tensor,
         in_features: int,
         out_features: int,
-        adc_mode: int | None = None,
+        quantization_mode: int | None = None,
     ) -> None:
         super().__init__()
         self.macro = macro
         self.in_features = in_features
         self.out_features = out_features
-        self.adc_mode, self.adc_bits = _default_op(macro, adc_mode)
-        r_adc = macro.adc_rescale_factor(adc_mode=self.adc_mode, adc_bits=self.adc_bits)
+        self.quantization_mode, self.adc_bits = _default_op(macro, quantization_mode)
         folded = _fold_for_macro(
             weight_int=weight_int,
             bias_float=bias_float,
@@ -171,7 +198,7 @@ class QuantLinear(nn.Module):
             zp_x=zp_x,
             s_w=s_w,
             s_y=s_y,
-            r_adc=r_adc,
+            mac_per_code=_mac_per_code(macro, quantization_mode=self.quantization_mode, adc_bits=self.adc_bits),
         )
         self.register_buffer("weight_int", weight_int.to(torch.int8))
         self.register_buffer("bias_int", folded.bias_int)
@@ -188,7 +215,11 @@ class QuantLinear(nn.Module):
     def forward(self, x: Tensor) -> Tensor:
         # Shape: [..., K] -> [..., 1, K]; linear passes leading dims through.
         x_int = _quantize_input(x, self.s_x, self.zp_x).unsqueeze(-2)
-        code = self.macro.linear(x_int, adc_mode=self.adc_mode, adc_bits=self.adc_bits).to(torch.int32).squeeze(-2)
+        code = (
+            self.macro.linear(x_int, quantization_mode=self.quantization_mode, adc_bits=self.adc_bits)
+            .to(torch.int32)
+            .squeeze(-2)
+        )
         y = (code + self.bias_int) * self.mult
         y = stochastic_floor_div(y, self.rshift, training=False)
         y = (y + self.zp_y.to(torch.int32)).clamp(Y_QMIN, Y_QMAX)
@@ -200,7 +231,7 @@ class QuantLinear(nn.Module):
         *,
         macro: LinearUnit,
         state: dict[str, Any],
-        adc_mode: int | None = None,
+        quantization_mode: int | None = None,
     ) -> Self:
         return cls(
             macro=macro,
@@ -213,7 +244,7 @@ class QuantLinear(nn.Module):
             zp_y=state["zp_y"],
             in_features=int(state["in_features"]),
             out_features=int(state["out_features"]),
-            adc_mode=adc_mode,
+            quantization_mode=quantization_mode,
         )
 
 

@@ -1,4 +1,4 @@
-"""CLI: LS-fit the per-(mode, bits) ADC rescale of a CIM macro via dual probed runs.
+"""CLI: LS-fit the per-mode rescale factor of a CIM macro via dual probed runs.
 
 CLI: ``python -m neurox.tools.calibrate_adc.rescale_fit --config <run.toml>
 [--device cuda:N] [--output <fragment.toml>] [--plot-dir <dir>]
@@ -10,18 +10,24 @@ subset of that set (each mode re-runs the full stimulus battery, so a
 per-mode run bounds single-command runtime; the emitted fragments
 concatenate).
 
-For each requested ``adc_mode`` the tool programs random ternary weight
-patterns into the physical tile and its lossless
+For each requested ``quantization_mode`` the tool programs random ternary
+weight patterns into the physical tile and its lossless
 :meth:`~neurox.primitive.macro.cim.CimMacro.to_ideal` twin, drives random
 binary WL batches through both, pairs the physical tile's
 ``current_adc.convert`` observations with the ideal twin's ``vec_mat_mul``
-return element for element, drops pairs outside the
-mode's design range on the ideal axis (``|M_ideal| > range``) and
-top-code-saturated pairs (both drop counts logged per mode), and solves
-the zero-through-origin least squares
-``|M_ideal| ~= rescale_factor * code``. Output is an ``[[adc_calibration]]``
-TOML fragment (one record per (mode, bits)) plus a per-mode fit plot
-(code vs ideal + fitted line).
+return element for element, maps the ideal dots onto the macro's ADC input
+code axis
+(:meth:`~neurox.primitive.macro.cim.CimMacro.map_quantization_input_code`),
+drops pairs outside that mode's input code range and top-code-saturated
+pairs (both drop counts logged per mode), and solves the
+zero-through-origin least squares ``ideal_code ~= rescale_factor * code``.
+The fit target is the twin's real-valued code scale ``M * 2^B / W``
+(``W`` the mode's window width, ``B`` the twin's ``adc_max_bits``), so the
+fitted slope is exactly the rescale currency: the macro's code expressed
+in ideal-macro codes. The fit runs at the macro's ``adc_max_bits`` only —
+lower bit widths follow the base-class law ``r_b = r_B * 2^(B - b)``.
+Output is a ``[[modes]]`` macro-config fragment (one table per mode) plus
+a per-mode fit plot (code vs ideal code + fitted line).
 
 See also:
     docs/guides/calibration/calibrate_adc.md
@@ -115,14 +121,16 @@ class RescaleFitToolConfig(ConfigBase):
 class ModeFitResult:
     """Fit + diagnostics for one operating mode."""
 
-    adc_mode: int
+    quantization_mode: int
     adc_bits: int
+    quantization_input_range: tuple[int, int]
+    adc_input_code_range: tuple[int, int]
     fit: RescaleFit
     total_num: int
     range_dropped_num: int
     saturated_num: int
     code: torch.Tensor
-    ideal_abs: torch.Tensor
+    ideal_code: torch.Tensor
 
 
 def _fit_one_mode(
@@ -135,7 +143,20 @@ def _fit_one_mode(
     row_num: int,
     col_num: int,
 ) -> ModeFitResult:
-    """Run the stimulus battery at one mode and solve the rescale."""
+    """Run the stimulus battery at one mode and solve the rescale.
+
+    The fit target is the ideal twin's real-valued code scale
+    ``input_code * 2^B / W``: the unquantized code the twin's window would
+    read, so the slope is the physical code expressed in ideal codes.
+    """
+    quantization_mode = mode.quantization_mode
+    window = ideal.quantization_input_ranges[quantization_mode]
+    width = window[1] - window[0] + 1
+    ideal_code_scale = float(1 << ideal.adc_max_bits) / width
+    _, code_range = physical.map_quantization_input_code(
+        torch.zeros((), dtype=torch.int64), quantization_mode=quantization_mode
+    )
+
     gen = torch.Generator().manual_seed(stimulus.seed)
     code_parts: list[torch.Tensor] = []
     ideal_parts: list[torch.Tensor] = []
@@ -150,27 +171,37 @@ def _fit_one_mode(
                     w=w,
                     x=x,
                     input_num=row_num,
-                    adc_mode=mode.adc_mode,
+                    quantization_mode=quantization_mode,
                     adc_bits=adc_bits,
                 )
+                input_code, _ = physical.map_quantization_input_code(pair.ideal_m, quantization_mode=quantization_mode)
                 code_parts.append(pair.code)
-                ideal_parts.append(pair.ideal_m.abs())
+                ideal_parts.append(input_code)
     code = torch.cat(code_parts)
-    ideal_abs = torch.cat(ideal_parts)
-    # Ideal-axis design-domain filter (the mode only serves |M| inside its
-    # range) AND top-code-saturation filter (no linear-region information).
-    selection = filter_fit_samples(code, ideal_abs, range_limit=mode.range, top_code=(1 << adc_bits) - 1)
+    adc_input_code = torch.cat(ideal_parts)
+    # Ideal-axis design-domain filter (the mode only serves input codes its
+    # converter resolves) AND top-code-saturation filter (no linear-region
+    # information).
+    selection = filter_fit_samples(
+        code,
+        adc_input_code,
+        adc_input_code_range=code_range,
+        top_code=(1 << adc_bits) - 1,
+    )
     keep = selection.keep
-    fit = fit_rescale_through_origin(code[keep], ideal_abs[keep])
+    ideal_code = adc_input_code.to(torch.float64) * ideal_code_scale
+    fit = fit_rescale_through_origin(code[keep], ideal_code[keep])
     return ModeFitResult(
-        adc_mode=mode.adc_mode,
+        quantization_mode=quantization_mode,
         adc_bits=adc_bits,
+        quantization_input_range=window,
+        adc_input_code_range=code_range,
         fit=fit,
         total_num=int(code.numel()),
         range_dropped_num=selection.range_dropped_num,
         saturated_num=selection.saturated_num,
         code=code[keep],
-        ideal_abs=ideal_abs[keep],
+        ideal_code=ideal_code[keep],
     )
 
 
@@ -178,24 +209,33 @@ def _fit_one_mode(
 
 
 def _fragment_lines(results: list[ModeFitResult]) -> list[str]:
-    """The ``[[adc_calibration]]`` TOML fragment (nest under the macro section)."""
+    """The ``[[modes]]`` macro-config TOML fragment (nest under the macro section).
+
+    One table per mode, in mode order — the config reads the mode index
+    from the table position, so a partial run's tables paste into the
+    matching slots.
+    """
     lines = [
-        "# adc_calibration fragment fitted by neurox.tools.calibrate_adc.rescale_fit;",
+        "# modes fragment fitted by neurox.tools.calibrate_adc.rescale_fit",
+        f"# at adc_bits = {results[0].adc_bits if results else 0} (the macro's adc_max_bits);",
         "# nest each table under the macro config section when pasting",
-        "# (e.g. [[cim_macro.adc_calibration]]).",
+        "# (e.g. [[cim_macro.modes]]), keeping the mode order.",
     ]
-    for r in results:
+    for r in sorted(results, key=lambda r: r.quantization_mode):
+        lower, upper = r.quantization_input_range
+        code_lower, code_upper = r.adc_input_code_range
         lines += [
-            "[[adc_calibration]]",
-            f"adc_mode = {r.adc_mode}",
-            f"adc_bits = {r.adc_bits}",
-            f"rescale_factor = {r.fit.rescale_factor:.6f}",
+            f"# quantization_mode = {r.quantization_mode}",
+            "[[modes]]",
+            f"quantization_input_range = [{lower}, {upper}]",
+            f"adc_input_code_range = [{code_lower}, {code_upper}]",
+            f"max_bits_rescale_factor = {r.fit.rescale_factor:.6f}",
         ]
     return lines
 
 
 def _plot_mode_fit(result: ModeFitResult, output_path: Path) -> None:
-    """One PNG: probed (code, |M_ideal|) scatter + the fitted line."""
+    """One PNG: probed (code, ideal code) scatter + the fitted line."""
     import matplotlib as mpl
 
     mpl.use("Agg")
@@ -204,7 +244,7 @@ def _plot_mode_fit(result: ModeFitResult, output_path: Path) -> None:
     fig, ax = plt.subplots(figsize=(7, 5))
     ax.scatter(
         result.code.numpy(),
-        result.ideal_abs.numpy(),
+        result.ideal_code.numpy(),
         s=12,
         alpha=0.35,
         color="tab:blue",
@@ -220,9 +260,9 @@ def _plot_mode_fit(result: ModeFitResult, output_path: Path) -> None:
         linewidth=2.0,
         label=f"fit: rescale = {result.fit.rescale_factor:.4f}  ($R^2$ = {result.fit.r2:.4f})",
     )
-    ax.set_xlabel("ADC code")
-    ax.set_ylabel(r"$|M_{\mathrm{ideal}}|$")
-    ax.set_title(f"ADC rescale fit — mode {result.adc_mode}, {result.adc_bits} bits")
+    ax.set_xlabel("macro output code")
+    ax.set_ylabel("ideal macro code")
+    ax.set_title(f"Rescale fit — mode {result.quantization_mode}, {result.adc_bits} bits")
     ax.grid(True, alpha=0.3)
     ax.legend(loc="upper left", framealpha=0.85)
     fig.tight_layout()
@@ -253,7 +293,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--modes",
         type=str,
         default=None,
-        help="Comma-separated adc_mode subset of the mode set to fit in this run",
+        help="Comma-separated quantization_mode subset of the mode set to fit in this run",
     )
     return parser
 
@@ -274,18 +314,26 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.modes is not None:
         selected = tuple(int(value) for value in args.modes.split(","))
-        known = {mode.adc_mode for mode in mode_set.modes}
+        known = {mode.quantization_mode for mode in mode_set.modes}
         for mode_idx in selected:
             if mode_idx not in known:
                 raise SystemExit(f"--modes entry {mode_idx} not in the mode set {sorted(known)} ({modes_path})")
-        modes = tuple(mode for mode in mode_set.modes if mode.adc_mode in selected)
+        modes = tuple(mode for mode in mode_set.modes if mode.quantization_mode in selected)
     else:
         modes = mode_set.modes
+    # The fit runs at the macro's max bits; every lower bit width follows
+    # the base-class rescale law from the fitted max-bits factor.
     adc_bits = physical.adc_max_bits
+    mode_num = len(physical.quantization_input_ranges)
     for mode in modes:
-        if not (0 <= mode.adc_mode < physical.adc_mode_num):
-            raise SystemExit(f"mode-set adc_mode {mode.adc_mode} outside [0, adc_mode_num ({physical.adc_mode_num}))")
-    logger.info("fitting modes %s at adc_bits = %d on %s", [mode.adc_mode for mode in modes], adc_bits, device)
+        if not (0 <= mode.quantization_mode < mode_num):
+            raise SystemExit(f"mode-set quantization_mode {mode.quantization_mode} outside [0, {mode_num})")
+    logger.info(
+        "fitting modes %s at adc_bits = %d on %s",
+        [mode.quantization_mode for mode in modes],
+        adc_bits,
+        device,
+    )
 
     results: list[ModeFitResult] = []
     for mode in modes:
@@ -300,16 +348,16 @@ def main(argv: list[str] | None = None) -> int:
         )
         results.append(result)
         logger.info(
-            "mode %d: rescale_factor = %.6f  R^2 = %.6f  rmse = %.4f  max|res| = %.4f  "
-            "samples = %d of %d (out-of-range |M| > %g excluded %d, top-code-saturated excluded %d)",
-            mode.adc_mode,
+            "mode %d: max_bits_rescale_factor = %.6f  R^2 = %.6f  rmse = %.4f  max|res| = %.4f  "
+            "samples = %d of %d (input code outside [%d, %d] excluded %d, top-code-saturated excluded %d)",
+            mode.quantization_mode,
             result.fit.rescale_factor,
             result.fit.r2,
             result.fit.rmse,
             result.fit.max_abs_residual,
             result.fit.sample_num,
             result.total_num,
-            mode.range,
+            *result.adc_input_code_range,
             result.range_dropped_num,
             result.saturated_num,
         )
@@ -324,7 +372,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.plot_dir is not None:
         args.plot_dir.mkdir(parents=True, exist_ok=True)
         for result in results:
-            _plot_mode_fit(result, args.plot_dir / f"rescale_fit_mode{result.adc_mode}.png")
+            _plot_mode_fit(result, args.plot_dir / f"rescale_fit_mode{result.quantization_mode}.png")
     return 0
 
 

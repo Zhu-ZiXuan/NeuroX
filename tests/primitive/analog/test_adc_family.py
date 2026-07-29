@@ -1,21 +1,17 @@
 """Tests for the ADC family.
 
-Covers the shared :class:`AdcMode` invariants and the two concrete
-implementations (:class:`GeneralDiffVadc`, :class:`McsSarDiffVadc`) under the
-**raw-code output convention**: every ADC's ``convert`` returns raw
-unsigned codes in ``[0, 2**bits - 1]``; the zero point (``zero_offset`` /
-``zero_code``) is subtracted consumer-side, not inside the ADC.
-
+Covers the two concrete implementations (:class:`GeneralDiffVadc`,
+:class:`McsSarDiffVadc`) under the **raw-code output convention**: every
+ADC's ``convert`` returns raw unsigned codes in ``[0, 2**bits - 1]``; the
+zero point (``zero_offset`` / ``zero_code``) is subtracted consumer-side,
+not inside the ADC.
 """
 
 from __future__ import annotations
 
-import math
-
 import pytest
 import torch
 
-from neurox.primitive.analog.adc_common import AdcMode
 from neurox.primitive.analog.diff_voltage_adc import (
     GeneralDiffVadc,
     GeneralDiffVadcConfig,
@@ -48,32 +44,6 @@ def _ref_taps(taps: tuple[float, ...]) -> torch.Tensor:
     )
     ref.fabricate()
     return ref.snapshot().v_refs__V
-
-
-# ---------------------------------------------------------------------------
-# AdcMode invariants
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "adc_bits,n_states",
-    [(8, 256), (8, 193), (6, 64), (4, 16)],
-)
-def test_adc_mode_validation(adc_bits: int, n_states: int) -> None:
-    mode = AdcMode(bits=adc_bits, n_states=n_states, max_signal=1.2)
-    assert mode.code_num == 1 << adc_bits
-    assert math.isclose(mode.lsb, 1.2 / mode.code_num)
-
-
-def test_adc_mode_rejects_invalid_combos() -> None:
-    with pytest.raises(ValueError):
-        AdcMode(bits=0, n_states=2, max_signal=1.0)
-    with pytest.raises(ValueError):
-        AdcMode(bits=4, n_states=1, max_signal=1.0)
-    with pytest.raises(ValueError):
-        AdcMode(bits=4, n_states=32, max_signal=1.0)
-    with pytest.raises(ValueError):
-        AdcMode(bits=4, n_states=4, max_signal=0.0)
 
 
 # ---------------------------------------------------------------------------

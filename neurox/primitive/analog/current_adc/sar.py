@@ -177,8 +177,7 @@ class SarIadc(Iadc[SarIadcConfig, SarIadcPolicy]):
 
     def unsigned_range(self, bits: int) -> tuple[int, int]:
         """Unsigned magnitude code endpoints at ``bits`` — ``(0, 2 ** bits - 1)``."""
-        if not (1 <= bits <= self.max_bits):
-            raise ValueError(f"bits {bits} outside [1, {self.max_bits}]")
+        self._check_bits(bits)
         return 0, (1 << bits) - 1
 
     def _sample_fabricate_mismatch(self) -> None:
@@ -214,24 +213,28 @@ class SarIadc(Iadc[SarIadcConfig, SarIadcPolicy]):
         *,
         bits: int,
     ) -> Tensor:
-        """Quantize ``i_in`` with a ``bits``-step binary search.
+        """Quantize ``i_in`` with a ``bits``-step TRUNCATED binary search.
+
+        The search tree is always the max-bits one over the full ladder: the
+        first compare sits at tap ``2 ** (max_bits - 1) - 1`` regardless of
+        ``bits``, and a ``bits``-bit conversion simply stops after the first
+        ``bits`` levels. Those levels resolve the max-bits code's leading
+        ``bits`` bits, so the returned code is the max-bits code right-shifted
+        by ``max_bits - bits``. Energy and latency follow the executed steps.
 
         Args:
             i_in__uA: Unsigned magnitude current. Shape: ``[..., n_col]``.
             i_refs__uA: Per-instance reference ladder, ``[*R, n_ref]`` with
-                ``n_ref = 2 ** bits - 1`` taps ascending on the last axis and
-                ``[*R]`` broadcasting right-aligned against ``i_in__uA``.
-            bits: Conversion resolution [bits], in ``[1, config.bits]``.
+                ``n_ref = 2 ** max_bits - 1`` taps ascending on the last axis
+                and ``[*R]`` broadcasting right-aligned against ``i_in__uA``.
+            bits: Conversion resolution [bits], in ``[1, max_bits]``.
 
         Returns:
             Unsigned magnitude code [long] in ``[0, 2 ** bits - 1]``,
             shape ``[..., n_col]``.
         """
-        if not (1 <= bits <= self.config.bits):
-            raise ValueError(f"require: bits ({bits}) in [1, config.bits ({self.config.bits})]")
+        max_bits = self.max_bits
         n_taps = int(i_refs__uA.shape[-1])
-        if n_taps != (1 << bits) - 1:
-            raise ValueError(f"require: i_refs__uA n_taps ({n_taps}) == 2**bits - 1 ({(1 << bits) - 1})")
         # Shape: [*R, n_ref] -> [..., n_col, n_ref]
         ref_b = torch.broadcast_to(i_refs__uA, (*i_in__uA.shape, n_taps))
 
@@ -250,11 +253,11 @@ class SarIadc(Iadc[SarIadcConfig, SarIadcPolicy]):
         offset__uA = (self._comparator_offset__uA + self._coupling_offset__uA).index_select(-1, lane)
 
         for step in range(bits):
-            i_ref__uA = self._select_ref(ref_b, code, step, bits)
+            i_ref__uA = self._select_ref(ref_b, code, step, max_bits)
 
             clean_margin__uA = i_in__uA - i_ref__uA
             bit = (margin_gain * clean_margin__uA + offset__uA) > 0.0
-            code = self._set_bit(code, step, bit, bits)
+            code = self._set_bit(code, step, bit, max_bits)
 
             if e_dyn__fJ is not None:
                 # V * uA * ns = fJ.
@@ -271,7 +274,9 @@ class SarIadc(Iadc[SarIadcConfig, SarIadcPolicy]):
             latency__ns = self._step_latency__ns[:bits].sum() * self._count_serial_rounds(i_in__uA.numel())
             self._record_latency(latency__ns)
 
-        return code
+        # The executed levels sit at the TOP of the max-bits code; the
+        # unresolved trailing levels are dropped.
+        return code >> (max_bits - bits)
 
     def _compute_input_dynamic_energy__fJ(self, i_in__uA: Tensor, i_ref__uA: Tensor) -> Tensor:
         """Return additional per-step conduction energy.
@@ -285,28 +290,28 @@ class SarIadc(Iadc[SarIadcConfig, SarIadcPolicy]):
         """
         return torch.zeros_like(i_in__uA)
 
-    def _select_ref(self, ref_b: Tensor, code: Tensor, step: int, bits: int) -> Tensor:
+    def _select_ref(self, ref_b: Tensor, code: Tensor, step: int, max_bits: int) -> Tensor:
         """Mid-point reference [uA] for ``step``, data-dependent on resolved bits.
 
         Args:
             ref_b: Per-instance threshold ladder broadcast to ``[..., n_col,
-                2 ** bits - 1]`` (taps on the last axis).
-            code: Partial magnitude code with the high ``step`` bits set.
-                Shape: ``[..., n_col]``.
-            step: Zero-based binary-search step (``0`` is the MSB).
-            bits: Conversion resolution [bits] for this call.
+                2 ** max_bits - 1]`` (taps on the last axis).
+            code: Partial magnitude code in max-bits numbering, with the high
+                ``step`` bits set. Shape: ``[..., n_col]``.
+            step: Zero-based search level (``0`` is the max-bits MSB).
+            max_bits: Bit width the full ladder resolves.
 
         Returns:
             Selected reference current [uA] broadcast to ``code``'s shape.
         """
-        # Threshold index: prefix * 2^(bits-step) + 2^(bits-step-1) - 1.
-        shift = bits - step
+        # Threshold index: prefix * 2^(max_bits-step) + 2^(max_bits-step-1) - 1.
+        shift = max_bits - step
         prefix = code >> shift
         idx = (prefix << shift) + (1 << (shift - 1)) - 1
         # Shape: [..., n_col, n_ref] -> [..., n_col]
         return torch.gather(ref_b, -1, idx.unsqueeze(-1)).squeeze(-1)
 
-    def _set_bit(self, code: Tensor, step: int, bit: Tensor, bits: int) -> Tensor:
-        """Write the ``step``-th magnitude bit (MSB-first) into ``code``."""
-        bit_pos = bits - 1 - step
+    def _set_bit(self, code: Tensor, step: int, bit: Tensor, max_bits: int) -> Tensor:
+        """Write the ``step``-th search level (MSB-first) into the max-bits ``code``."""
+        bit_pos = max_bits - 1 - step
         return code | (bit.long() << bit_pos)

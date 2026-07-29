@@ -32,8 +32,8 @@ _UNIT_POLICY = Conv2dCimUnitPolicy(
         x_slice=DirectXSliceStagePolicy(),
     ),
 )
-_ADC_MODE = 0
-_ADC_BITS = 0
+_QUANTIZATION_MODE = 0
+_ADC_BITS: int | None = None
 
 
 def _ideal_macro_config(
@@ -47,8 +47,10 @@ def _ideal_macro_config(
         area_per_inst__um2=0.0,
         x_value_range=x_value_range,
         w_value_range=(-3, 3),
-        adc_mode_num=1,
-        adc_max_bits=0,
+        # Only the lossless oracle is exercised here; the declared window and
+        # width just have to be legal.
+        quantization_input_ranges=((-256, 255),),
+        adc_max_bits=8,
     )
 
 
@@ -218,8 +220,8 @@ def _assert_matches_ideal(
     x = _random_activation(unit, x_shape)
     unit.program(weight, bias)
     ideal.program(weight, bias)
-    actual = unit.conv2d(x, adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
-    expected = ideal.conv2d(x, adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
+    actual = unit.conv2d(x, quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
+    expected = ideal.conv2d(x, quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
     assert actual.shape == expected.shape
     assert torch.equal(actual.to(torch.int64), expected.to(torch.int64))
     return unit
@@ -256,7 +258,7 @@ def test_ideal_conv2d_exact(
     weight = _random_weight(unit, (c_out, c_in, kh, kw))
     x = _random_activation(unit, (2, c_in, h, w))
     unit.program(weight)
-    actual = unit.conv2d(x, adc_mode=_ADC_MODE, adc_bits=_ADC_BITS)
+    actual = unit.conv2d(x, quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
     expected = _conv2d_int64_oracle(x, weight, stride=stride, padding=padding, dilation=dilation)
     assert actual.shape == expected.shape
     assert torch.equal(actual.to(torch.int64), expected)

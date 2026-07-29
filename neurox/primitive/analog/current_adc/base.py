@@ -149,6 +149,36 @@ class Iadc(
         """Physical bit width — the maximum ``bits`` a ``convert`` call may request."""
         raise NotImplementedError
 
+    def _check_bits(self, bits: int) -> None:
+        """Require a resolution this converter's own bit width supports.
+
+        Args:
+            bits: Requested conversion resolution [bits].
+
+        Raises:
+            ValueError: ``bits`` is outside ``[1, max_bits]``.
+        """
+        if not (1 <= bits <= self.max_bits):
+            raise ValueError(f"require: bits ({bits}) in [1, max_bits ({self.max_bits})]")
+
+    def _check_refs(self, i_refs__uA: Tensor) -> None:
+        """Require the full max-bits reference ladder.
+
+        The ladder is a physical wiring property of the converter, so it never
+        shrinks with the requested resolution: every call carries all
+        ``2 ** max_bits - 1`` taps.
+
+        Args:
+            i_refs__uA: Reference ladder with the taps on the last axis.
+
+        Raises:
+            ValueError: The trailing tap count is not ``2 ** max_bits - 1``.
+        """
+        tap_num = (1 << self.max_bits) - 1
+        n_taps = int(i_refs__uA.shape[-1])
+        if n_taps != tap_num:
+            raise ValueError(f"require: i_refs__uA n_taps ({n_taps}) == 2**max_bits - 1 ({tap_num})")
+
     def convert(
         self,
         i_in__uA: Tensor,
@@ -158,19 +188,30 @@ class Iadc(
     ) -> Tensor:
         """Digitise a single-ended magnitude current into an unsigned integer code.
 
+        Bit width is ADC-internal: the full ladder stays wired whatever
+        resolution is asked for, and the converter realizes ``bits`` by running
+        fewer decision cycles over it.
+
         Args:
             i_in__uA: Non-negative magnitude current. Shape: arbitrary.
             i_refs__uA: Reference ladder, shape ``[*R, n_ref]`` with
-                ``n_ref = 2 ** bits - 1`` taps ascending along the last axis;
-                ``[*R]`` right-broadcasts against ``i_in__uA``.
-            bits: Conversion resolution [bits]; drives the binary-search step
-                count and must satisfy ``i_refs__uA.shape[-1] == 2 ** bits - 1``.
+                ``n_ref = 2 ** max_bits - 1`` taps ascending along the last
+                axis; ``[*R]`` right-broadcasts against ``i_in__uA``.
+            bits: Conversion resolution [bits] in ``[1, max_bits]``.
 
         Returns:
             Unsigned integer code tensor, same shape as ``i_in__uA``, in the
-            range reported by :meth:`unsigned_range` for ``bits``. Dynamic
-            energy and latency are emitted through the profiler side channel.
+            range reported by :meth:`unsigned_range` for ``bits``. For a
+            deterministic converter the code at ``bits`` is the code at
+            ``max_bits`` right-shifted by ``max_bits - bits``. Dynamic energy
+            and latency are emitted through the profiler side channel.
+
+        Raises:
+            ValueError: ``bits`` is outside ``[1, max_bits]``, or the ladder
+                does not carry ``2 ** max_bits - 1`` taps.
         """
+        self._check_bits(bits)
+        self._check_refs(i_refs__uA)
         code = self._convert_impl(i_in__uA, i_refs__uA, bits=bits)
         if IadcProber.active():
             IadcProber.submit(

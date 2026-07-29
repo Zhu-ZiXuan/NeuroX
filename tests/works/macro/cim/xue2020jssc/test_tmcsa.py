@@ -17,10 +17,10 @@ Hand-built tiny witness, eager, CPU. Five laws:
     + 2 * (i_sub + i_ref_path[s]) * t_ph3[s]) + e_fixed * bits`` per
     converted element, with ``i_ref_path[s]`` looked up from the final code —
     and no latency event is emitted (the macro is the sole emitter).
-  * LOWERED-BIT LAW: a ``b``-bit conversion decimates the max-bits ladder, so
-    it bills the LEADING ``b`` phase windows at the up-shifted code — checked
-    against the max-bits call with the trailing windows zeroed, not against a
-    restated formula.
+  * LOWERED-BIT LAW: a ``b``-bit conversion truncates the max-bits search after
+    ``b`` levels, so it bills the LEADING ``b`` phase windows at the up-shifted
+    code — checked against the max-bits call with the trailing windows zeroed,
+    not against a restated formula.
   * GUARDS: mismatched phase-window list lengths and negative entries are
     rejected at config time; a code/input shape mismatch, a wrong ladder tap
     count, and a ``bits`` outside ``[1, max_bits]`` are rejected at call time.
@@ -146,15 +146,15 @@ def _replay_select_ref_sequence(adc: SarIadc, i_in: torch.Tensor, refs: torch.Te
     the clean threshold ``i_in > i_ref``. The unit-step ladder makes the
     selected tap index recoverable from the reference value (value - 1).
     """
-    bits = adc.max_bits
+    max_bits = adc.max_bits
     ref_b = torch.broadcast_to(refs, (*i_in.shape, refs.shape[-1]))
     code = torch.zeros_like(i_in, dtype=torch.long)
     taps: list[int] = []
-    for step in range(bits):
-        i_ref = adc._select_ref(ref_b, code, step, bits)
+    for step in range(max_bits):
+        i_ref = adc._select_ref(ref_b, code, step, max_bits)
         taps.append(round(float(i_ref)) - 1)
         bit = (i_in - i_ref) > 0.0
-        code = adc._set_bit(code, step, bit, bits)
+        code = adc._set_bit(code, step, bit, max_bits)
     return taps, int(code)
 
 
@@ -222,11 +222,11 @@ def _bill(module: Tmcsa, i_sub: torch.Tensor, code: torch.Tensor, refs: torch.Te
 
 
 def test_lowered_bits_bills_the_leading_steps_at_the_up_shifted_code() -> None:
-    """A ``b``-bit conversion bills the FIRST ``b`` steps at the code it decimates from.
+    """A ``b``-bit conversion bills the FIRST ``b`` steps at the up-shifted code.
 
-    Bits ``b`` keeps every ``2**(B-b)``-th tap of the max-bits ladder, so its
-    search replays the leading ``b`` steps of the max-bits search and lands on
-    the max-bits code shifted down by ``B - b``. Cross-checked against the
+    Bits ``b`` truncates the max-bits search after ``b`` levels over the same
+    full ladder, so it runs the leading ``b`` steps of the max-bits search and
+    lands on the max-bits code shifted down by ``B - b``. Cross-checked against the
     max-bits call itself rather than a restated formula: run the up-shifted code
     at max bits with the trailing phase windows zeroed — that isolates the same
     leading steps — and discount the ``e_fixed`` of the steps a ``b``-bit

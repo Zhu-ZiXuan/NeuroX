@@ -27,7 +27,6 @@ from neurox.primitive.macro.cim import (
     CimMacroConfig,
     CimMacroMode,
     CimMacroPolicy,
-    decimate_references,
     map_zero_point_input_code,
 )
 
@@ -47,8 +46,8 @@ class Ye2023JsscCimMacroConfig(CimMacroConfig):
         max_active_num: Simultaneously selected inputs; must equal ``row_num``.
         array_config: Nested WH-2T1R array config.
         adc_config: RS-CSA current-ADC config; its ``bits`` is the macro's
-            ``adc_max_bits`` and its phase durations set
-            :attr:`~Ye2023JsscCimMacro.t_ac__ns`.
+            ``adc_max_bits`` and its phase durations set the access window every
+            conduction branch rides.
         bl_driver_config: Per-column BL input clamp (Thevenin VoltageDriver).
         sl_driver_config: SL grounded clamp (VoltageDriver).
         mux_driver_config: Static-PPA seat for the Mux & Driver block.
@@ -405,12 +404,14 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
 
     @property
     def t_ac__ns(self) -> Tensor:
-        """Access window T_AC [ns] (0-d) — the RS-CSA conversion window.
+        """Nominal access window T_AC [ns] (0-d) at :attr:`adc_max_bits`.
 
-        This one window times every conduction branch and the per-access latency
-        event.
+        The RS-CSA runs the compensation phase plus one compare phase per
+        requested bit, so the window an access actually holds is the executed one
+        of its ``adc_bits``; this property reports the operating point where the
+        readout runs its whole phase set.
         """
-        return self.rscsa.t_conversion__ns
+        return self.rscsa.t_conversion__ns(self.adc_max_bits)
 
     # -----------------------------------------------------------------
     # Lifecycle
@@ -453,10 +454,11 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
                 input vector across the whole die ensemble.
             quantization_mode: Mode index in ``[0, len(config.modes))``; selects
                 the reference bank row.
-            adc_bits: RS-CSA resolution [bits] in ``[1, adc_max_bits]``. Below
-                the maximum the mode's ladder is decimated, which drops the
-                code's low bits; the readout has no lossless oracle, so ``None``
-                is rejected.
+            adc_bits: RS-CSA resolution [bits] in ``[1, adc_max_bits]``. The
+                full ladder is always wired; below the maximum the readout drops
+                the code's low bits internally and runs fewer compare phases, so
+                the access window shortens with it. The readout has no lossless
+                oracle, so ``None`` is rejected.
 
         Returns:
             Unsigned RS-CSA code tensor with leading ``(*batch, *inst_shape)`` and
@@ -474,6 +476,10 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
         v_dd_core = config.v_dd_core__V
         record = self._is_dynamic_energy_profile_active()
         x_long = x.long()
+        # The EXECUTED access window: the readout holds its DC biases for the
+        # phases this resolution runs, so every conduction branch and the
+        # per-access latency ride it.
+        t_ac__ns = self.rscsa.t_conversion__ns(adc_bits)
 
         n_inst = len(self.inst_shape)
         if x_long.ndim - 1 < n_inst:
@@ -529,7 +535,6 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
         # --- Step 4: conduction branches + per-vector BL charge (macro-billed) ---
 
         if record:
-            t_ac__ns = self.t_ac__ns
             # BL input branch, PER ACCESS.
             # [*batch, out, *inst, phys_col] -> [*batch]
             e_bl_cond = (config.v_bl_in1__V * i_bl_port).sum(dim=tuple(range(-(n_inst + 2), 0))) * t_ac__ns
@@ -553,11 +558,9 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
 
         # --- Step 5: RS-CSA quantize against the mode's uniform i_lsb ladder ---
 
-        i_refs__uA = decimate_references(
-            self._i_ref_ladder__uA[quantization_mode],
-            adc_max_bits=self.adc_max_bits,
-            adc_bits=adc_bits,
-        )
+        # The full max-bits ladder always goes to the readout; the RS-CSA
+        # handles the requested bit width internally.
+        i_refs__uA = self._i_ref_ladder__uA[quantization_mode]
         code = self.rscsa.convert(i_tbl, i_refs__uA, bits=adc_bits)  # [*batch, out, *inst]
 
         # --- Step 6: flat peripheral energy (per output access) + latency ---
@@ -573,7 +576,7 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
         # their accesses share rounds instead of adding them.
         parallel_instance_count = self.inst_count
         serial_round_count = (code.numel() + parallel_instance_count - 1) // parallel_instance_count
-        self._record_latency(self.t_ac__ns * serial_round_count)
+        self._record_latency(t_ac__ns * serial_round_count)
 
         # [*batch, out, *inst] -> [*batch, *inst, out]
         return code.movedim(-(n_inst + 1), -1)

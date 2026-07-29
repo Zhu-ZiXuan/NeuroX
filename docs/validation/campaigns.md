@@ -21,7 +21,7 @@ Four conventions govern every campaign:
 
 ### Provenance tags
 
-Every key of `params.toml` and `anchors.toml` that names a physical quantity carries a provenance tag, stated in its own inline comment or in the comment block directly above it, so a reader can separate what the paper reports from what the model assumes or solves. Keys that name no physical quantity are exempt: registry dispatch keys (`_neurox_class`) and pure selectors (a lookup entry's `(mode, bits)`). This table is the authoritative legend:
+Every key of `params.toml` and `anchors.toml` that names a physical quantity carries a provenance tag, stated in its own inline comment or in the comment block directly above it, so a reader can separate what the paper reports from what the model assumes or solves. Keys that name no physical quantity are exempt: registry dispatch keys (`_neurox_class`) and pure selectors. This table is the authoritative legend:
 
 | Tag | Meaning |
 |---|---|

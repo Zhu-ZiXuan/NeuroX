@@ -23,7 +23,7 @@ class _IdealCimMacroKwargs(TypedDict):
     leakage_per_inst__uW: float
     x_value_range: tuple[int, int]
     w_value_range: tuple[int, int]
-    adc_mode_num: int
+    quantization_input_ranges: tuple[tuple[int, int], ...]
     adc_max_bits: int
 
 
@@ -34,7 +34,7 @@ def _config_kwargs(*, max_active_num: int) -> _IdealCimMacroKwargs:
         "leakage_per_inst__uW": 0.0,
         "x_value_range": (0, 1),
         "w_value_range": (0, 1),
-        "adc_mode_num": 1,
+        "quantization_input_ranges": ((-8, 7),),
         "adc_max_bits": 8,
     }
 

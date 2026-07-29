@@ -79,67 +79,78 @@ def fit_rescale_through_origin(code: Tensor, ideal: Tensor) -> RescaleFit:
 
 
 # ---------------------------------------------------------------------------
-# Magnitude-band statistics + threshold placement
+# Input-code band statistics + threshold placement
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
-class MagnitudeBand:
-    """Observed analog band at one integer magnitude.
+class InputCodeBand:
+    """Observed analog band at one integer ADC input code.
 
     Attributes:
-        magnitude: Integer per-phase MAC magnitude ``|M|`` of the band.
-        lo: Minimum analog input observed at this magnitude.
-        hi: Maximum analog input observed at this magnitude.
-        mean: Mean analog input observed at this magnitude.
+        input_code: Integer ADC input code of the band — the mapped
+            quantization input the converter discriminates on.
+        lo: Minimum analog input observed at this code.
+        hi: Maximum analog input observed at this code.
+        mean: Mean analog input observed at this code.
         count: Number of samples in the band.
     """
 
-    magnitude: int
+    input_code: int
     lo: float
     hi: float
     mean: float
     count: int
 
 
-def band_stats(magnitude: Tensor, analog: Tensor, *, m_max: int) -> tuple[MagnitudeBand, ...]:
-    """Group analog samples by integer magnitude into per-``|M|`` bands.
+def band_stats(
+    input_code: Tensor,
+    analog: Tensor,
+    *,
+    adc_input_code_range: tuple[int, int],
+) -> tuple[InputCodeBand, ...]:
+    """Group analog samples by integer input code into per-code bands.
 
-    Magnitudes above ``m_max`` fold into the top band (the quantizer clips
-    them to the top code, so their analog values legitimately bound the top
-    band from above).
+    Pairs whose input code falls outside ``adc_input_code_range`` are
+    masked out of both streams: the converter resolves no tap there, so
+    their analog values bound no band of this grid.
 
     Args:
-        magnitude: Integer ``|M|`` per sample (any shape; flattened).
+        input_code: Integer ADC input code per sample (any shape;
+            flattened).
         analog: Analog input per sample, same element count.
-        m_max: Top code of the grid; bands cover ``0 .. m_max``.
+        adc_input_code_range: Inclusive grid bounds ``(lower, upper)``;
+            bands cover ``lower .. upper``.
 
     Returns:
-        One :class:`MagnitudeBand` per magnitude ``0 .. m_max``, ascending.
+        One :class:`InputCodeBand` per code in the range, ascending.
 
     Raises:
-        ValueError: On element-count mismatch, a negative magnitude, or a
-            magnitude in ``0 .. m_max`` with no samples (coverage gap).
+        ValueError: On element-count mismatch, a degenerate or negative
+            range, or an in-range code with no samples (coverage gap).
     """
-    m = magnitude.detach().flatten().to(torch.int64)
+    m = input_code.detach().flatten().to(torch.int64)
     a = analog.detach().flatten().to(torch.float64)
     if m.numel() != a.numel():
-        raise ValueError(f"require: magnitude numel ({m.numel()}) == analog numel ({a.numel()})")
-    if m.numel() > 0 and int(m.min()) < 0:
-        raise ValueError(f"require: magnitudes non-negative; got min {int(m.min())}")
-    if m_max < 1:
-        raise ValueError(f"require: m_max ({m_max}) >= 1")
-    m = m.clamp_max(m_max)
-    bands: list[MagnitudeBand] = []
+        raise ValueError(f"require: input_code numel ({m.numel()}) == analog numel ({a.numel()})")
+    lower, upper = adc_input_code_range
+    if lower < 0:
+        raise ValueError(f"require: adc_input_code_range lower ({lower}) >= 0")
+    if upper <= lower:
+        raise ValueError(f"require: adc_input_code_range upper ({upper}) > lower ({lower})")
+    keep = (m >= lower) & (m <= upper)
+    m = m[keep]
+    a = a[keep]
+    bands: list[InputCodeBand] = []
     missing: list[int] = []
-    for k in range(m_max + 1):
+    for k in range(lower, upper + 1):
         sel = a[m == k]
         if sel.numel() == 0:
             missing.append(k)
             continue
         bands.append(
-            MagnitudeBand(
-                magnitude=k,
+            InputCodeBand(
+                input_code=k,
                 lo=float(sel.min()),
                 hi=float(sel.max()),
                 mean=float(sel.mean()),
@@ -147,7 +158,7 @@ def band_stats(magnitude: Tensor, analog: Tensor, *, m_max: int) -> tuple[Magnit
             )
         )
     if missing:
-        raise ValueError(f"band coverage gap: no samples observed at |M| in {missing} (grid top m_max={m_max})")
+        raise ValueError(f"band coverage gap: no samples observed at input code {missing} (grid {lower} .. {upper})")
     return tuple(bands)
 
 
@@ -156,8 +167,8 @@ class ThresholdPlacement:
     """Mid-point threshold ladder + band-margin diagnostics for one mode.
 
     Attributes:
-        thresholds: ``m_max`` code-boundary thresholds,
-            ``t[k] = (hi(k) + lo(k+1)) / 2`` for ``k = 0 .. m_max - 1``.
+        thresholds: One code-boundary threshold per adjacent band pair,
+            ``t[k] = (hi(k) + lo(k+1)) / 2``.
         margins: Per-boundary band separation ``lo(k+1) - hi(k)``; a
             negative entry means the adjacent bands overlap.
         min_margin: Smallest margin (the report headline).
@@ -174,8 +185,8 @@ class ThresholdPlacement:
     monotone: bool
 
 
-def place_thresholds(bands: Sequence[MagnitudeBand]) -> ThresholdPlacement:
-    """Place mid-point thresholds between adjacent magnitude bands.
+def place_thresholds(bands: Sequence[InputCodeBand]) -> ThresholdPlacement:
+    """Place mid-point thresholds between adjacent input-code bands.
 
     Never raises on overlap or non-monotonicity — the placement carries
     the diagnostics (``margins`` / ``monotone``) so the caller can report
@@ -339,8 +350,9 @@ class FitSampleFilter:
 
     Attributes:
         keep: Boolean mask over the flattened input pairs.
-        range_dropped_num: Pairs with ``ideal_abs > range_limit`` (outside
-            the mode's design domain on the ideal axis).
+        range_dropped_num: Pairs whose ADC input code falls outside
+            ``adc_input_code_range`` (outside the mode's design domain on
+            the ideal axis).
         saturated_num: Pairs with ``code >= top_code`` (top-code-saturated;
             no linear-region information). The two causes may overlap.
     """
@@ -350,25 +362,35 @@ class FitSampleFilter:
     saturated_num: int
 
 
-def filter_fit_samples(code: Tensor, ideal_abs: Tensor, *, range_limit: float, top_code: int) -> FitSampleFilter:
+def filter_fit_samples(
+    code: Tensor,
+    adc_input_code: Tensor,
+    *,
+    adc_input_code_range: tuple[int, int],
+    top_code: int,
+) -> FitSampleFilter:
     """Select the calibration pairs entering a mode's rescale fit.
 
-    A pair survives iff ``ideal_abs <= range_limit`` AND ``code < top_code``.
+    A pair survives iff its ADC input code lies inside the inclusive
+    ``adc_input_code_range`` AND ``code < top_code``.
 
     Args:
         code: ADC code per pair (any shape; flattened).
-        ideal_abs: Ideal integer magnitude per pair, same element count.
-        range_limit: The mode's design range (ideal-axis domain bound).
+        adc_input_code: Ideal-side ADC input code per pair (the exact MAC
+            dot mapped onto the macro's converter axis), same element
+            count.
+        adc_input_code_range: The mode's inclusive input-code domain.
         top_code: The quantizer's top code at the fitted bit width.
 
     Raises:
         ValueError: On element-count mismatch.
     """
     c = code.detach().flatten()
-    m = ideal_abs.detach().flatten()
+    m = adc_input_code.detach().flatten()
     if c.numel() != m.numel():
-        raise ValueError(f"require: code numel ({c.numel()}) == ideal_abs numel ({m.numel()})")
-    in_range = m.to(torch.float64) <= range_limit
+        raise ValueError(f"require: code numel ({c.numel()}) == adc_input_code numel ({m.numel()})")
+    lower, upper = adc_input_code_range
+    in_range = (m >= lower) & (m <= upper)
     unsaturated = c < top_code
     return FitSampleFilter(
         keep=in_range & unsaturated,
