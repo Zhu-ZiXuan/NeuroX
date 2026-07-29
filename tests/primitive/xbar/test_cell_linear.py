@@ -171,7 +171,7 @@ def test_wrong_policy_type_raises() -> None:
     )
     with pytest.raises(
         TypeError,
-        match=r"no XbarCell1t1r impl registered for key \(XbarCell1t1rLinearConfig, XbarCell1t1rDetailPolicy\)",
+        match=r"no XbarCell1t1r module registered for config XbarCell1t1rLinearConfig and policy XbarCell1t1rDetailPolicy",
     ):
         XbarCell1t1r.from_config(
             config=_hand_built_config(),

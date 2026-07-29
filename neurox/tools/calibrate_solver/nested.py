@@ -251,8 +251,7 @@ def main(argv: list[str] | None = None) -> int:
     active_rows = cfg.workload.active_rows
     if not (1 <= active_rows <= cfg.macro.input_num):
         raise SystemExit(
-            f"[workload].active_rows ({active_rows}) must satisfy 1 <= active_rows <= row_num "
-            f"({cfg.macro.input_num})."
+            f"[workload].active_rows ({active_rows}) must satisfy 1 <= active_rows <= row_num ({cfg.macro.input_num})."
         )
 
     distribution_path = resolve_relative_path(cfg.workload.distribution, args.config)

@@ -14,6 +14,8 @@ _neurox_class = "CimEnginePolicy"
 
 [policy.engine.placement]
 
+[policy.engine.input_activation]
+
 [policy.engine.weight_slice]
 _neurox_class = "InterWeightSliceStagePolicy"
 
