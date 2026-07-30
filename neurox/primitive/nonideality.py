@@ -77,6 +77,27 @@ def apply_gaussian(x: Tensor, sigma: float | Tensor, *, enabled: bool) -> Tensor
     return x + torch.randn_like(x) * sigma
 
 
+def apply_relative_gaussian(x: Tensor, sigma_relative: float, *, enabled: bool) -> Tensor:
+    """Apply multiplicative Gaussian noise proportional to the signal.
+
+    The multiplicative form keeps an exact zero exact, so a zero-valued
+    reference tap stays at zero under any ``sigma_relative``.
+
+    Args:
+        x: Input tensor.
+        sigma_relative: Relative standard deviation [dimensionless].
+        enabled: Master toggle. ``False`` returns ``x`` unchanged, leaving
+            a broadcast view unmaterialized.
+
+    Returns:
+        Noisy tensor.
+        Shape: ``[...]``.
+    """
+    if not enabled:
+        return x
+    return x * (1.0 + torch.randn_like(x) * sigma_relative)
+
+
 class StateDependentGaussianConfig(ConfigBase):
     """State-dependent Gaussian noise config.
 

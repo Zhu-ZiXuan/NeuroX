@@ -9,8 +9,9 @@ exact:
   * the macro DERIVES the PH0 compensation as ``FLOOR * row_num * sum(radix)``
     over the weight AND redundant planes, so it cancels every non-LRS
     contribution exactly;
-  * ``i_lsb = I_UNIT - FLOOR`` is the resulting per-MAC-unit current step, so the
-    RS-CSA code equals the UNSIGNED MAC bit-exactly (rescale factor 1.0).
+  * the injected reference current ``I_REF = I_UNIT - FLOOR`` is the resulting
+    per-MAC-unit current step, so the RS-CSA code equals the UNSIGNED MAC
+    bit-exactly (rescale factor 1.0).
 
 Every current is a dyadic fraction, so the whole chain is exact in float64 and a
 MAC landing on a decision boundary is unambiguous.
@@ -32,6 +33,8 @@ import torch
 from torch import Tensor
 
 from neurox.primitive.analog import (
+    IrefConfig,
+    IrefPolicy,
     UnmodeledBlockConfig,
     UnmodeledBlockPolicy,
     VoltageDriverConfig,
@@ -62,7 +65,7 @@ MAG_MAX = (1 << TINY_ADC_BITS) - 1  # 15 — the 4-bit code saturation
 # --- Analytic current chain (dyadic: exact in float64) ---
 FLOOR__uA = 0.125  # IN = 0 off-cell floor AND the (IN = 1, HRS) weight leakage
 I_UNIT__uA = 0.5  # (IN = 1, LRS) T2 compute current
-I_LSB__uA = I_UNIT__uA - FLOOR__uA  # 0.375 — one MAC unit after the PH0 subtraction
+I_REF__uA = I_UNIT__uA - FLOOR__uA  # 0.375 — the injected reference = one MAC unit after PH0
 
 # --- Biases ---
 V_WL_SEL__V = 0.6
@@ -77,7 +80,6 @@ V_TBL__V = 0.1
 T_PHASE__ns = (1.0, 2.0, 4.0, 8.0, 16.0)  # PH0 + one compare phase per bit, MSB-first
 T4_INTRINSIC__ns = 0.5
 T_AC__ns = sum(T_PHASE__ns[:-1]) + T4_INTRINSIC__ns  # the derived window at the FULL phase set
-REF_RADIX = (8, 4, 2, 1)
 MIRROR_SCALE = 0.25
 E_FIXED__fJ = 2.0
 
@@ -156,11 +158,9 @@ def array_config() -> Ye2023Jssc2t1rArrayConfig:
 
 
 def adc_config(*, adc_bits: int = TINY_ADC_BITS) -> RsCsaIadcConfig:
-    """RS-CSA witness: uniform ``i_lsb`` ladder + physical phase set."""
+    """RS-CSA witness: binary compare-phase weights + physical phase set."""
     return RsCsaIadcConfig(
         bits=adc_bits,
-        i_lsb__uA=I_LSB__uA,  # LSB = one MAC unit -> code == MAC
-        ref_radix=REF_RADIX,
         v_rail__V=V_DD_CORE__V,
         t_phase__ns=T_PHASE__ns,
         t4_intrinsic__ns=T4_INTRINSIC__ns,
@@ -168,6 +168,21 @@ def adc_config(*, adc_bits: int = TINY_ADC_BITS) -> RsCsaIadcConfig:
         e_fixed_per_op__fJ=E_FIXED__fJ,
         area_per_inst__um2=0.0,
         leakage_per_inst__uW=4.0,
+    )
+
+
+def reference_config() -> IrefConfig:
+    """The readout's single reference current — one tap, one row per mode.
+
+    The reference IS the code step here (``I_REF = I_UNIT - FLOOR``), so the
+    RS-CSA code equals the unsigned MAC.
+    """
+    return IrefConfig(
+        i_refs__uA=((I_REF__uA,),),  # outer tuple = mode axis (single mode)
+        tolerance_sigma_relative=0.0,
+        noise_sigma_relative=0.0,
+        area_per_inst__um2=0.0,
+        leakage_per_inst__uW=0.0,
     )
 
 
@@ -183,6 +198,7 @@ def build_config(
         max_active_num=max_active_num,
         array_config=array_config(),
         adc_config=adc_config(adc_bits=adc_bits),
+        reference_config=reference_config(),
         bl_driver_config=VoltageDriverConfig(
             r_out__MOhm=0.0,
             offset_sigma__V=0.0,
@@ -228,6 +244,7 @@ def build_all_off_policy() -> Ye2023JsscCimMacroPolicy:
             solve_chunk_size=0,
         ),
         adc_policy=RsCsaIadcPolicy(),
+        reference_policy=IrefPolicy(tolerance=False, noise=False),
         bl_driver_policy=VoltageDriverPolicy(offset=False, thermal=False),
         sl_driver_policy=VoltageDriverPolicy(offset=False, thermal=False),
         mux_driver_policy=UnmodeledBlockPolicy(),

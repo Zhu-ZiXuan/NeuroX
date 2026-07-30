@@ -3,16 +3,19 @@
 ``Iref`` is a behavioural reference source: it carries static
 PPA (area + leakage) and hands out the actual tap values through a snap,
 but performs no computation and emits no dynamic energy or latency. It
-holds a 2-D ``[mode][tap]`` bank of strictly increasing equal-length rows
-whose mode selection is quasi-static. These tests pin, all with the policy
-all-off:
+holds a 2-D ``[mode][tap]`` bank of equal-length non-negative modes whose
+mode selection is quasi-static. These tests pin, unless a test says
+otherwise with the policy all-off:
 
-- 2-D validation on the bank: strictly increasing rows, equal row
-  lengths, and non-negative taps;
+- 2-D validation on the bank: equal tap lengths and non-negative taps,
+  while ordering within a mode is deliberately NOT enforced — what a mode
+  means is the consumer's knowledge;
 - ``mode_num`` / ``tap_num`` report the bank geometry;
-- ``snapshot`` is deterministic and matches the nominal taps, broadcast
-  to ``(*inst_shape, mode_num, tap_num)``;
-- the snapshot returns every tap without exposing stored state;
+- ``snapshot(mode=..., shape=...)`` returns exactly the requested shape,
+  with the mode axis resolved away by the source;
+- with noise off the snap is exactly the fabricated nominal, draws no
+  randomness, and does not drift between calls;
+- a zero tap stays exactly zero under relative noise;
 - static PPA equals ``per_inst * inst_count`` and is visible to the
   profiler's static walk, while ``fabricate`` + ``snapshot`` emit zero
   energy / latency events;
@@ -36,7 +39,9 @@ from neurox.primitive.analog.current_reference import (
 )
 
 _TAPS = ((1.0, 5.0, 20.0), (2.0, 6.0, 25.0))
-_BANK_SHAPE = (2, 3)
+_MODE_NUM = 2
+_TAP_NUM = 3
+_DTYPE = torch.float64
 
 
 def _config(**overrides: Any) -> IrefConfig:
@@ -55,12 +60,14 @@ def _make(
     inst_shape: tuple[int, ...] = (),
     area: float = 0.0,
     leakage: float = 0.0,
+    config: IrefConfig | None = None,
+    policy: IrefPolicy | None = None,
 ) -> Iref:
     ref = Iref(
-        config=_config(area_per_inst__um2=area, leakage_per_inst__uW=leakage),
-        policy=IrefPolicy(tolerance=False, noise=False),
+        config=config if config is not None else _config(area_per_inst__um2=area, leakage_per_inst__uW=leakage),
+        policy=policy if policy is not None else IrefPolicy(tolerance=False, noise=False),
         inst_shape=inst_shape,
-        dtype=torch.float64,
+        dtype=_DTYPE,
         T__K=300.0,
     )
     ref.fabricate()
@@ -70,7 +77,7 @@ def _make(
 def test_validation_rejects_bad_config() -> None:
     """Empty taps and negative sigmas/PPA are rejected."""
     for override in (
-        {"i_refs__uA": ()},  # empty tap list
+        {"i_refs__uA": ()},  # empty bank
         {"tolerance_sigma_relative": -1e-3},
         {"noise_sigma_relative": -1e-3},
         {"area_per_inst__um2": -1.0},
@@ -81,48 +88,94 @@ def test_validation_rejects_bad_config() -> None:
 
 
 def test_bank_2d_validation() -> None:
-    """The bank enforces strictly increasing, equal-length, non-negative rows."""
+    """The bank enforces equal-length non-negative modes — and nothing about order."""
     for bad in (
-        ((0.6, -1.0),),  # negative tap (also non-increasing)
-        ((2.0, 1.0, 3.0),),  # non-increasing row
-        ((1.0, 1.0),),  # not strictly increasing
-        ((1.0, 2.0), (1.0, 2.0, 3.0)),  # unequal row lengths
-        ((),),  # empty row
+        ((0.6, -1.0),),  # negative tap
+        ((1.0, 2.0), (1.0, 2.0, 3.0)),  # unequal tap lengths
+        ((),),  # empty mode
     ):
         with pytest.raises(ValueError):
             _config(i_refs__uA=bad)
-    # A 0 first tap denotes a ground/rail reference and is accepted.
+    # Ordering is the CONSUMER's law, not the source's: a decision ladder
+    # must ascend, a bank of bias taps need not.
+    _config(i_refs__uA=((2.0, 1.0, 3.0),))
+    _config(i_refs__uA=((1.0, 1.0),))
+    # A 0 tap denotes a ground/rail reference and is accepted.
     _config(i_refs__uA=((0.0, 0.6),))
 
 
 def test_mode_tap_counts() -> None:
     """``mode_num`` / ``tap_num`` report the bank geometry on config and module."""
     ref = _make()
-    assert ref.config.mode_num == 2
-    assert ref.config.tap_num == 3
-    assert ref.mode_num == 2
-    assert ref.tap_num == 3
+    assert ref.config.mode_num == _MODE_NUM
+    assert ref.config.tap_num == _TAP_NUM
+    assert ref.mode_num == _MODE_NUM
+    assert ref.tap_num == _TAP_NUM
 
 
-def test_all_off_snapshot_matches_nominal() -> None:
-    """All-off ``snapshot`` is the deterministic nominal bank."""
+def test_snapshot_shape_is_exactly_the_requested_shape() -> None:
+    """The caller names the full output shape; the source honours it verbatim."""
     ref = _make()
-    nominal = torch.tensor(_TAPS, dtype=torch.float64)
-
-    snap_a = ref.snapshot()
-    snap_b = ref.snapshot()
-    assert snap_a.i_refs__uA.shape == _BANK_SHAPE
-    torch.testing.assert_close(snap_a.i_refs__uA, nominal)
-    torch.testing.assert_close(snap_b.i_refs__uA, nominal)
+    for shape in ((_TAP_NUM,), (4, _TAP_NUM), (2, 3, _TAP_NUM), (1, 1, 1, _TAP_NUM)):
+        assert ref.snapshot(mode=0, shape=shape).i_refs__uA.shape == shape
 
 
-def test_inst_shape_broadcasts_taps() -> None:
-    """A non-scalar ``inst_shape`` yields ``(*inst_shape, mode_num, tap_num)`` taps."""
+def test_snapshot_shape_must_end_in_tap_num() -> None:
+    """A trailing axis that is not the tap axis is a caller error, not a silent reshape."""
+    ref = _make()
+    with pytest.raises(RuntimeError):
+        ref.snapshot(mode=0, shape=(_TAP_NUM + 1,))
+
+
+def test_snapshot_resolves_the_mode_axis() -> None:
+    """Selecting mode ``m`` returns that mode's taps, with no mode axis left."""
+    ref = _make()
+    for mode, taps in enumerate(_TAPS):
+        out = ref.snapshot(mode=mode, shape=(2, _TAP_NUM)).i_refs__uA
+        assert out.shape == (2, _TAP_NUM)
+        assert torch.equal(out, torch.tensor(taps, dtype=_DTYPE).expand(2, _TAP_NUM))
+
+
+def test_all_off_snapshot_is_exactly_nominal_and_draws_nothing() -> None:
+    """With noise off the snap is bit-exact nominal, repeatable, and consumes no RNG."""
+    ref = _make()
+    nominal = torch.tensor(_TAPS[1], dtype=_DTYPE)
+
+    rng_state = torch.random.get_rng_state()
+    snap_a = ref.snapshot(mode=1, shape=(_TAP_NUM,))
+    snap_b = ref.snapshot(mode=1, shape=(_TAP_NUM,))
+    assert torch.equal(torch.random.get_rng_state(), rng_state)
+    assert torch.equal(snap_a.i_refs__uA, nominal)
+    assert torch.equal(snap_b.i_refs__uA, nominal)
+
+
+def test_inst_shape_prefixes_the_requested_shape() -> None:
+    """The fabricated per-instance taps right-align under the requested shape."""
     ref = _make(inst_shape=(1, 2))
-    out = ref.snapshot().i_refs__uA
-    nominal = torch.tensor(_TAPS, dtype=torch.float64)
-    assert out.shape == (1, 2, *_BANK_SHAPE)
-    torch.testing.assert_close(out, nominal.expand(1, 2, *_BANK_SHAPE))
+    nominal = torch.tensor(_TAPS[0], dtype=_DTYPE)
+
+    out = ref.snapshot(mode=0, shape=(1, 2, _TAP_NUM)).i_refs__uA
+    assert out.shape == (1, 2, _TAP_NUM)
+    assert torch.equal(out, nominal.expand(1, 2, _TAP_NUM))
+
+    # A wider call grid prepends leading axes onto the same instance taps.
+    wide = ref.snapshot(mode=0, shape=(4, 1, 2, _TAP_NUM)).i_refs__uA
+    assert wide.shape == (4, 1, 2, _TAP_NUM)
+    assert torch.equal(wide, nominal.expand(4, 1, 2, _TAP_NUM))
+
+
+def test_zero_tap_stays_exactly_zero_under_relative_noise() -> None:
+    """Relative noise is multiplicative, so an exact zero tap survives both draws."""
+    ref = _make(
+        config=_config(
+            i_refs__uA=((0.0, 4.0),),
+            tolerance_sigma_relative=0.1,
+            noise_sigma_relative=0.1,
+        ),
+        policy=IrefPolicy(tolerance=True, noise=True),
+    )
+    out = ref.snapshot(mode=0, shape=(8, 2)).i_refs__uA
+    assert torch.equal(out[..., 0], torch.zeros(8, dtype=_DTYPE))
 
 
 def test_static_ppa_and_no_dynamic_events() -> None:
@@ -139,7 +192,7 @@ def test_static_ppa_and_no_dynamic_events() -> None:
 
     with NeuroxProfiler() as p:
         ref.fabricate()
-        ref.snapshot()
+        ref.snapshot(mode=0, shape=(2, _TAP_NUM))
     assert p.energy_events == []
     assert p.latency_events == []
 

@@ -22,17 +22,19 @@ from neurox.primitive.analog.base import AnalogBase, AnalogConfig, AnalogPolicy
 class DiffVadcObservation:
     """One :meth:`DiffVadc.convert` call, captured for calibration/diagnostics.
 
+    The record covers the conversion event alone — the signal path, the
+    output code, and the active bit width. References are calibrated
+    constants rather than measured quantities, so they stay out of it.
+
     Attributes:
         v_pos__V: The call's positive-side input voltage.
         v_neg__V: The call's negative-side input voltage.
-        v_ref__V: The call's reference voltage.
         code: The call's raw unsigned integer code.
         bits: Active bit width (plain ``int``, not a tensor).
     """
 
     v_pos__V: Tensor
     v_neg__V: Tensor
-    v_ref__V: Tensor
     code: Tensor
     bits: int
 
@@ -41,7 +43,6 @@ class DiffVadcObservation:
             self,
             v_pos__V=self.v_pos__V.detach(),
             v_neg__V=self.v_neg__V.detach(),
-            v_ref__V=self.v_ref__V.detach(),
             code=self.code.detach(),
         )
 
@@ -91,6 +92,11 @@ class DiffVadc(
     ABC,
 ):
     """Base class for differential voltage-domain ADC implementations.
+
+    A converter owns its transfer structure and never its reference values:
+    every ``convert`` call carries the taps in. How many taps a call needs
+    is the concrete converter's own circuit property, so the base validates
+    no tap count.
 
     Args:
         config: Concrete configuration dataclass.
@@ -154,7 +160,7 @@ class DiffVadc(
         v_pos__V: Tensor,
         v_neg__V: Tensor,
         *,
-        v_ref__V: Tensor,
+        v_refs__V: Tensor,
         bits: int,
     ) -> Tensor:
         """Digitise a differential analog voltage into a raw unsigned code.
@@ -165,7 +171,10 @@ class DiffVadc(
             v_neg__V: Negative-side analog input voltage, at the same
                 shape as ``v_pos__V``.
                 Shape: ``[...]``.
-            v_ref__V: Reference voltage, broadcastable to the input shape.
+            v_refs__V: Injected reference taps, with the taps on the last
+                axis. The tap count ``n_ref`` is the concrete converter's
+                circuit property, not a base-level contract.
+                Shape: ``[..., n_ref]``.
             bits: Active conversion resolution [bits].
 
         Returns:
@@ -179,7 +188,7 @@ class DiffVadc(
         code = self._convert_impl(
             v_pos__V,
             v_neg__V,
-            v_ref__V=v_ref__V,
+            v_refs__V=v_refs__V,
             bits=bits,
         )
         if DiffVadcProber.active():
@@ -187,7 +196,6 @@ class DiffVadc(
                 DiffVadcObservation(
                     v_pos__V=v_pos__V,
                     v_neg__V=v_neg__V,
-                    v_ref__V=v_ref__V,
                     code=code,
                     bits=bits,
                 ),
@@ -200,7 +208,7 @@ class DiffVadc(
         v_pos__V: Tensor,
         v_neg__V: Tensor,
         *,
-        v_ref__V: Tensor,
+        v_refs__V: Tensor,
         bits: int,
     ) -> Tensor:
         """Convert inputs according to the :meth:`convert` contract."""

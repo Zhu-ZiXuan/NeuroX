@@ -9,6 +9,8 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor
 
+from neurox.primitive.nonideality import apply_relative_gaussian
+
 from .base import AnalogBase, AnalogConfig, AnalogPolicy
 
 
@@ -16,9 +18,12 @@ class VrefConfig(AnalogConfig):
     """Immutable configuration for :class:`Vref`.
 
     Attributes:
-        v_refs__V: Nominal reference-voltage taps. Values are unordered
-            and non-negative. A zero tap remains exact under relative
-            noise.
+        v_refs__V: Nominal reference-voltage taps, 2-D ``[mode][tap]``.
+            Modes have equal length and non-negative values; ordering
+            within a mode is not enforced, because what a mode means is
+            the consumer's knowledge. A single-tap single-mode bank is
+            the degenerate ``[[v]]``. A zero tap remains exact under
+            relative noise.
         tolerance_sigma_relative: Relative per-instance initial-accuracy
             σ [dimensionless], applied multiplicatively at fabricate
             time; ``0`` leaves the exact nominal taps.
@@ -31,18 +36,36 @@ class VrefConfig(AnalogConfig):
             generates the references.
     """
 
-    v_refs__V: tuple[float, ...]
+    v_refs__V: tuple[tuple[float, ...], ...]
     tolerance_sigma_relative: float
     noise_sigma_relative: float
     area_per_inst__um2: float
     leakage_per_inst__uW: float
 
+    @property
+    def mode_num(self) -> int:
+        """Number of quasi-statically selectable tap modes."""
+        return len(self.v_refs__V)
+
+    @property
+    def tap_num(self) -> int:
+        """Number of taps per mode."""
+        return len(self.v_refs__V[0])
+
     def validate(self) -> None:
+
         # --- Reference bank ---
 
         self._require_min_length(self.v_refs__V, 1, "v_refs__V")
-        for i, v in enumerate(self.v_refs__V):
-            self._require_non_neg(v, f"v_refs__V[{i}]")
+        tap_num = self.tap_num
+        for mode, taps in enumerate(self.v_refs__V):
+            self._require_min_length(taps, 1, f"v_refs__V[{mode}]")
+            if len(taps) != tap_num:
+                raise ValueError(
+                    f"require: equal tap lengths in v_refs__V; mode {mode} has {len(taps)} tap(s), mode 0 has {tap_num}"
+                )
+            for tap, value in enumerate(taps):
+                self._require_non_neg(value, f"v_refs__V[{mode}][{tap}]")
 
         # --- Noise and PPA ---
 
@@ -71,8 +94,10 @@ class VrefSnap:
     """One sampled reference snap.
 
     Attributes:
-        v_refs__V: Actual reference-voltage taps, post
-            tolerance + noise, shape ``(*inst_shape, ref_num)``.
+        v_refs__V: Actual reference-voltage taps of the selected mode,
+            post tolerance + noise, at the requested call shape. The mode
+            axis is resolved away by :meth:`Vref.snapshot`.
+            Shape: ``[..., tap_num]``.
     """
 
     v_refs__V: Tensor
@@ -126,23 +151,46 @@ class Vref(AnalogBase[VrefConfig, VrefPolicy]):
         )
 
     @property
-    def ref_num(self) -> int:
-        """Number of reference taps sourced by this module."""
-        return len(self.config.v_refs__V)
+    def mode_num(self) -> int:
+        """Number of quasi-statically selectable tap modes."""
+        return self.config.mode_num
+
+    @property
+    def tap_num(self) -> int:
+        """Number of taps per mode."""
+        return self.config.tap_num
 
     def _sample_fabricate_mismatch(self) -> None:
-        base = self._nominal_v_refs__V.expand(*self.inst_shape, self.ref_num)
-        if self.policy.tolerance:
-            self._v_refs__V = base * (1.0 + torch.randn_like(base) * self.config.tolerance_sigma_relative)
-        else:
-            self._v_refs__V = base.clone()
+        v_refs__V = self._nominal_v_refs__V.clone().expand(*self.inst_shape, self.mode_num, self.tap_num)
+        self._v_refs__V = apply_relative_gaussian(
+            v_refs__V,
+            self.config.tolerance_sigma_relative,
+            enabled=self.policy.tolerance,
+        )
 
-    def snapshot(self) -> VrefSnap:
-        """Sample reference taps with per-call noise.
+    def snapshot(self, *, mode: int, shape: tuple[int, ...]) -> VrefSnap:
+        """Select one mode and sample it with per-call noise.
+
+        The mode selects the taps here rather than in the caller, so the
+        bank layout stays private. The static mismatch drawn at fabricate
+        time spans ``inst_shape`` alone, while this per-call noise spans
+        the full ``shape``: the fabricated taps are one physical source,
+        but every position of a call is a distinct instant or a distinct
+        point along the distribution net, each carrying its own draw.
+
+        Args:
+            mode: Mode index into the ``[mode][tap]`` bank. Range checking
+                belongs to the consumer that owns the mode set.
+            shape: Full output shape, ending in ``tap_num``.
 
         Returns:
             Per-call snap carrying the actual reference-voltage taps.
         """
-        v = self._v_refs__V
-        v = v * (1.0 + torch.randn_like(v) * self.config.noise_sigma_relative) if self.policy.noise else v.clone()
-        return VrefSnap(v_refs__V=v)
+        # Shape: [*inst_shape, mode_num, tap_num] -> [..., *inst_shape, tap_num]
+        v_refs__V = self._v_refs__V[..., mode, :].expand(shape)
+        v_refs__V = apply_relative_gaussian(
+            v_refs__V,
+            self.config.noise_sigma_relative,
+            enabled=self.policy.noise,
+        )
+        return VrefSnap(v_refs__V=v_refs__V)

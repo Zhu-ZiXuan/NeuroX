@@ -279,16 +279,22 @@ def test_readout_is_one_4bit_point_with_a_66ns_derived_window() -> None:
     config = _load_config()
     adc_config = config.adc_config
     assert adc_config.bits == 4
-    assert len(adc_config.ref_radix) == 4
     assert len(adc_config.t_phase__ns) == adc_config.bits + 1  # PH0 + one compare phase per bit
+    # The readout takes ONE reference current and weighs it by its own
+    # compare-phase place values, so the source is single-tap with one row per
+    # declared mode.
+    reference_config = config.reference_config
+    assert reference_config.tap_num == 1
     # One declared quantization mode. Its window is the readout's own full
-    # scale: 2**bits codes, each worth the MAC units one current lsb resolves.
-    assert len(config.modes) == 1
+    # scale: 2**bits codes, each worth the MAC units one current step resolves.
+    assert len(config.modes) == reference_config.mode_num == 1
     mode = config.modes[0]
     lower, upper = mode.quantization_input_range
     assert lower == 0  # the scheme converts unsigned MACs only
-    mac_per_lsb = adc_config.i_lsb__uA / config.cell_config.i_t2_table__uA[1][1]
-    assert upper - lower + 1 == pytest.approx((1 << adc_config.bits) * mac_per_lsb)
+    # The code step IS the reference current: the ladder is c * i_ref.
+    i_ref__uA = reference_config.i_refs__uA[0][0]
+    mac_per_code = i_ref__uA / config.cell_config.i_t2_table__uA[1][1]
+    assert upper - lower + 1 == pytest.approx((1 << adc_config.bits) * mac_per_code)
     # The window step IS the physical code step, so a code already is an ideal
     # macro code: the rescale is the identity, in ideal codes, not MAC units.
     assert mode.max_bits_rescale_factor == pytest.approx(1.0)

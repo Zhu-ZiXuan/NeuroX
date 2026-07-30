@@ -82,6 +82,13 @@ class Iadc(
 ):
     """Base class for single-ended current ADCs with injected references.
 
+    The base owns the ``bits`` contract and nothing else about the call:
+    ``bits`` is base semantics because :meth:`unsigned_range` is declared
+    here. How many reference taps a conversion consumes is the concrete
+    converter's own circuit property, so it is neither declared nor
+    validated at this level; a ladder the leaf cannot use fails inside
+    that leaf.
+
     Args:
         config: Concrete configuration dataclass.
         policy: Per-source nonideality flags.
@@ -161,24 +168,6 @@ class Iadc(
         if not (1 <= bits <= self.max_bits):
             raise ValueError(f"require: bits ({bits}) in [1, max_bits ({self.max_bits})]")
 
-    def _check_refs(self, i_refs__uA: Tensor) -> None:
-        """Require the full max-bits reference ladder.
-
-        The ladder is a physical wiring property of the converter, so it never
-        shrinks with the requested resolution: every call carries all
-        ``2 ** max_bits - 1`` taps.
-
-        Args:
-            i_refs__uA: Reference ladder with the taps on the last axis.
-
-        Raises:
-            ValueError: The trailing tap count is not ``2 ** max_bits - 1``.
-        """
-        tap_num = (1 << self.max_bits) - 1
-        n_taps = int(i_refs__uA.shape[-1])
-        if n_taps != tap_num:
-            raise ValueError(f"require: i_refs__uA n_taps ({n_taps}) == 2**max_bits - 1 ({tap_num})")
-
     def convert(
         self,
         i_in__uA: Tensor,
@@ -188,16 +177,18 @@ class Iadc(
     ) -> Tensor:
         """Digitise a single-ended magnitude current into an unsigned integer code.
 
-        Bit width is ADC-internal: the full ladder stays wired whatever
-        resolution is asked for, and the converter realizes ``bits`` by running
-        fewer decision cycles over it.
+        Bit width is ADC-internal: the injected ladder states the converter's
+        own wiring and does not follow the requested resolution, which the
+        converter realizes by running fewer decision cycles over it.
 
         Args:
             i_in__uA: Non-negative magnitude current.
                 Shape: ``[...]``.
-            i_refs__uA: Reference ladder, shape ``[*R, n_ref]`` with
-                ``n_ref = 2 ** max_bits - 1`` taps ascending along the last
-                axis; ``[*R]`` right-broadcasts against ``i_in__uA``.
+            i_refs__uA: Reference ladder with the taps on the last axis and the
+                leading dims right-broadcasting against ``i_in__uA``. The tap
+                count ``n_ref`` is the concrete converter's circuit property,
+                not a base-level contract.
+                Shape: ``[..., n_ref]``.
             bits: Conversion resolution [bits] in ``[1, max_bits]``.
 
         Returns:
@@ -209,11 +200,9 @@ class Iadc(
             Shape: ``[...]``.
 
         Raises:
-            ValueError: ``bits`` is outside ``[1, max_bits]``, or the ladder
-                does not carry ``2 ** max_bits - 1`` taps.
+            ValueError: ``bits`` is outside ``[1, max_bits]``.
         """
         self._check_bits(bits)
-        self._check_refs(i_refs__uA)
         code = self._convert_impl(i_in__uA, i_refs__uA, bits=bits)
         if IadcProber.active():
             IadcProber.submit(

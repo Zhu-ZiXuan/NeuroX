@@ -21,9 +21,9 @@ class GeneralDiffVadcConfig(DiffVadcConfig):
     """Immutable configuration for :class:`GeneralDiffVadc`.
 
     Attributes:
-        boundaries: Sorted comparator thresholds in input units
-            (excluding the implicit ±inf outer bounds). ``N`` thresholds
-            define ``N + 1`` output codes ``[0, N]``.
+        code_num: Number of output codes ``[0, code_num - 1]``, i.e. one
+            more than the comparator count. The comparators are the
+            structure; their threshold voltages are injected per call.
         sampling_noise__V: Input-referred Gaussian sampling-stage
             noise σ.
         comparator_noise__V: Comparator (thermal/decision) noise σ
@@ -33,7 +33,7 @@ class GeneralDiffVadcConfig(DiffVadcConfig):
             the runtime serial-op count at logging time.
     """
 
-    boundaries: tuple[float, ...]
+    code_num: int
     sampling_noise__V: float
     comparator_noise__V: float
     energy_per_op__fJ: float
@@ -44,8 +44,7 @@ class GeneralDiffVadcConfig(DiffVadcConfig):
 
         # --- Transfer ---
 
-        self._require_min_length(self.boundaries, 1, "boundaries")
-        self._require_increasing(self.boundaries, "boundaries")
+        self._require_ge(self.code_num, "code_num", 2)
 
         # --- Noise and PPA ---
 
@@ -74,6 +73,11 @@ class GeneralDiffVadcPolicy(DiffVadcPolicy):
 class GeneralDiffVadc(DiffVadc[GeneralDiffVadcConfig, GeneralDiffVadcPolicy]):
     """Boundary-bucketized voltage ADC with sampling and comparator noise.
 
+    A flat comparator bank: ``code_num - 1`` comparators, whose thresholds
+    arrive per call as the injected ``v_refs__V`` ladder. The ladder is 1-D
+    and ascending, because the bucketize runs one shared bank over the whole
+    input.
+
     Args:
         config: Concrete configuration dataclass.
         policy: Per-source nonideality flags.
@@ -81,10 +85,6 @@ class GeneralDiffVadc(DiffVadc[GeneralDiffVadcConfig, GeneralDiffVadcPolicy]):
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature.
     """
-
-    # === Functional buffers ===
-
-    _boundaries: Tensor  # Shape: [code_num - 1]
 
     # === Circuit constant buffers ===
 
@@ -107,23 +107,17 @@ class GeneralDiffVadc(DiffVadc[GeneralDiffVadcConfig, GeneralDiffVadcPolicy]):
             T__K=T__K,
         )
 
-        boundaries_t = torch.tensor(config.boundaries, dtype=dtype)
-        self.register_buffer("_boundaries", boundaries_t, persistent=False)
         self.register_buffer(
             "_latency_per_op__ns",
             torch.tensor(config.latency_per_op__ns, dtype=dtype),
             persistent=False,
         )
 
-        code_num = boundaries_t.numel() + 1
+        code_num = config.code_num
         self._bits = max(math.ceil(math.log2(code_num)), 1)
         self._code_num = code_num
+        self._tap_num = code_num - 1
         self._zero_code = code_num // 2
-
-        if boundaries_t.numel() >= 2:
-            self._lsb_estimate = float((boundaries_t[1:] - boundaries_t[:-1]).mean().item())
-        else:
-            self._lsb_estimate = float(boundaries_t.item())
 
     @property
     def _area_per_inst__um2(self) -> float:
@@ -138,7 +132,7 @@ class GeneralDiffVadc(DiffVadc[GeneralDiffVadcConfig, GeneralDiffVadcPolicy]):
 
     @property
     def max_bits(self) -> int:
-        """Boundary-implied bit width."""
+        """Code-count-implied bit width."""
         return self._bits
 
     @property
@@ -165,7 +159,7 @@ class GeneralDiffVadc(DiffVadc[GeneralDiffVadcConfig, GeneralDiffVadcPolicy]):
         v_pos__V: Tensor,
         v_neg__V: Tensor,
         *,
-        v_ref__V: Tensor,
+        v_refs__V: Tensor,
         bits: int,
     ) -> Tensor:
         """Quantise a differential analog voltage to a raw code (floor-bucketize).
@@ -175,8 +169,11 @@ class GeneralDiffVadc(DiffVadc[GeneralDiffVadcConfig, GeneralDiffVadcPolicy]):
                 Shape: ``[...]``.
             v_neg__V: Negative-side analog input voltage, at the same shape.
                 Shape: ``[...]``.
-            v_ref__V: Accepted and ignored because the boundaries are fixed.
-            bits: Active resolution [bits]; must equal the boundary-implied
+            v_refs__V: Injected comparator thresholds in input units — one
+                ascending ladder of ``code_num - 1`` taps, shared by every
+                input position.
+                Shape: ``[code_num - 1]``.
+            bits: Active resolution [bits]; must equal the code-count-implied
                 bit width.
 
         Returns:
@@ -184,8 +181,7 @@ class GeneralDiffVadc(DiffVadc[GeneralDiffVadcConfig, GeneralDiffVadcPolicy]):
             ``[0, code_num - 1]``, at the same shape as ``v_pos__V``.
             Shape: ``[...]``.
         """
-        del v_ref__V
-        self._validate_runtime_args(bits)
+        self._validate_runtime_args(v_refs__V, bits)
         signal = apply_gaussian(
             v_pos__V - v_neg__V,
             self.config.sampling_noise__V,
@@ -200,10 +196,10 @@ class GeneralDiffVadc(DiffVadc[GeneralDiffVadcConfig, GeneralDiffVadcPolicy]):
 
         code = floor_bucketize(
             signal,
-            self._boundaries,
+            v_refs__V,
             out_dtype=torch.int16,
             training=self.training,
-            lsb=self._lsb_estimate,
+            lsb=self._lsb__V(v_refs__V),
         )
 
         serial_round_count = self._count_serial_rounds(code.numel())
@@ -215,6 +211,26 @@ class GeneralDiffVadc(DiffVadc[GeneralDiffVadcConfig, GeneralDiffVadcPolicy]):
         # Stochastic jitter may cross either outer bucket boundary.
         return code.clamp(min=0, max=self._code_num - 1)
 
-    def _validate_runtime_args(self, bits: int) -> None:
+    def _lsb__V(self, v_refs__V: Tensor) -> Tensor:
+        """Mean tap spacing [V], the bin width the stochastic jitter is sized by.
+
+        Args:
+            v_refs__V: Injected threshold ladder.
+                Shape: ``[code_num - 1]``.
+
+        Returns:
+            Bin width; the sole tap itself when the bank holds one.
+            Shape: ``[]``.
+        """
+        if self._tap_num == 1:
+            return v_refs__V[0]
+        return (v_refs__V[1:] - v_refs__V[:-1]).mean()
+
+    def _validate_runtime_args(self, v_refs__V: Tensor, bits: int) -> None:
         if bits != self._bits:
             raise ValueError(f"GeneralDiffVadc: bits ({bits}) must equal self._bits ({self._bits})")
+        if v_refs__V.ndim != 1:
+            raise ValueError(f"require: v_refs__V is a 1-D ladder (ndim {v_refs__V.ndim})")
+        tap_num = int(v_refs__V.shape[0])
+        if tap_num != self._tap_num:
+            raise ValueError(f"require: v_refs__V tap_num ({tap_num}) == code_num - 1 ({self._tap_num})")

@@ -466,12 +466,14 @@ def test_rscsa_energy_flat_when_e_fixed_dominant(device: torch.device) -> None:
     All four outputs carry the SAME code, so the row is
     ``output_num * (E_fixed + E_code(code))``: a zero residue costs exactly
     ``E_fixed``, every code stays inside the all-reference envelope
-    ``sum_i k * v_rail * t_phase_i * I_REF_i``, and the sweep spread measures the
-    data-dependent share alone.
+    ``sum_p k * v_rail * t_phase_p * I_REF_p``, and the sweep spread measures the
+    data-dependent share alone. The per-phase reference is the ONE injected
+    current at that phase's binary place value, ``2**(bits - p) * i_ref``.
     """
     base = build_config()
     adc = dataclasses.replace(base.adc_config, e_fixed_per_op__fJ=1.0e4)
     cfg = dataclasses.replace(base, adc_config=adc)
+    i_ref__uA = cfg.reference_config.i_refs__uA[QUANTIZATION_MODE][0]
 
     def rscsa_energy(w_in0: int, w_in1: int) -> float:
         w = torch.zeros((TINY_INPUT_NUM, TINY_OUTPUT_NUM), dtype=torch.long, device=device)
@@ -484,8 +486,8 @@ def test_rscsa_energy_flat_when_e_fixed_dominant(device: torch.device) -> None:
     energies = [rscsa_energy(0, 0), rscsa_energy(7, 0), rscsa_energy(7, 7)]
     floor__fJ = TINY_OUTPUT_NUM * adc.e_fixed_per_op__fJ
     envelope__fJ = floor__fJ + TINY_OUTPUT_NUM * sum(
-        adc.mirror_scale * adc.v_rail__V * adc.t_phase__ns[phase] * radix * adc.i_lsb__uA
-        for phase, radix in enumerate(adc.ref_radix, start=1)
+        adc.mirror_scale * adc.v_rail__V * adc.t_phase__ns[phase] * (1 << (adc.bits - phase)) * i_ref__uA
+        for phase in range(1, adc.bits + 1)
     )
     # A zero-MAC conversion leaves no residue to compare: E_fixed alone.
     assert energies[0] == pytest.approx(floor__fJ)

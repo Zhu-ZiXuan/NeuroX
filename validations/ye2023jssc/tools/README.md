@@ -2,8 +2,8 @@
 
 Calibration run-configs for the Ye2023 JSSC WH-2T1R CIM macro. The only run that
 applies to this scheme is the step1 solver iteration-count calibration; the cell
-lookup is filled directly from the paper and the ADC LSB comes from the paper's
-annotated full-scale operating point.
+lookup is filled directly from the paper and the ADC reference current comes from
+the paper's annotated full-scale operating point.
 
 ## Solver (`calibrate_solver.toml`)
 
@@ -39,12 +39,12 @@ tool does not apply. Its values come DIRECTLY from the paper:
 
 ## ADC
 
-`i_lsb__uA = 7.0` (the Fig.11(a) annotation): 224 max MAC units x 0.5 uA per unit
-MAC = 112 uA full scale over `2**4 = 16` codes, i.e. 14 MAC units per code —
-which is exactly the step the ideal macro resolves over the same `[0, 223]`
-window at 4 bits, so `max_bits_rescale_factor = 1.0` (the rescale currency is
-the ideal code, not the MAC unit). The owner builds the decision ladder as
-`arange(1, 16) * i_lsb` (top decision tap 105 uA); `ref_radix = [8, 4, 2, 1]`
-sizes the per-phase reference branches inside the RS-CSA. There is no ADC
-calibration run — `i_lsb` follows from the paper's annotated operating point,
-not from a fit.
+`reference_config.i_refs__uA = [[7.0]]` (the Fig.11(a) I_LSB annotation): 224 max
+MAC units x 0.5 uA per unit MAC = 112 uA full scale over `2**4 = 16` codes, i.e.
+14 MAC units per code — which is exactly the step the ideal macro resolves over
+the same `[0, 223]` window at 4 bits, so `max_bits_rescale_factor = 1.0` (the
+rescale currency is the ideal code, not the MAC unit). That single reference is
+the readout's whole reference input: the RS-CSA weighs it by `2**(bits - p)` in
+compare phase `p`, which spans the decision ladder `c * 7.0 uA` for
+`c = 1 .. 15` (top decision tap 105 uA). There is no ADC calibration run — the
+reference follows from the paper's annotated operating point, not from a fit.

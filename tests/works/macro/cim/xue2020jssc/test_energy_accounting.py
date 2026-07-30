@@ -198,18 +198,25 @@ def _whole_input_branch(macro: Xue2020JsscCimMacro, x: Tensor) -> float:
     x_long = x.long()
     window = cfg.window_array__ns
 
+    gn = macro.col_num // cfg.mux_factor
+    lane_shape = (gn, 2, cfg.w_digit_num)
+
     whole = 0.0
     for k in range(cfg.input_bit_num):
         # Shape: [..., row]
         plane = (x_long >> k) & 1
         # Shape: [..., row]
         v_wl = macro.wl_dac.convert(plane)
+        # The array takes both references at the full per-call shape, exactly
+        # as vec_mat_mul builds them.
+        leading = torch.broadcast_shapes((*macro.inst_shape, cfg.mux_factor), (*v_wl.shape[:-1], 1))
+        ref_shape = (*leading, *lane_shape)
         steady = macro.array.solve_array(
             v_wl,
             bl_driver=macro.cablc,
-            bl_v_ref__V=macro.cablc_vref.snapshot().v_refs__V[0],
+            bl_v_ref__V=macro.cablc_vref.snapshot(mode=0, shape=(*ref_shape, 1)).v_refs__V[..., 0],
             sl_driver=macro.sl_driver,
-            sl_v_ref__V=torch.zeros((), dtype=v_wl.dtype, device=v_wl.device),
+            sl_v_ref__V=torch.zeros((), dtype=v_wl.dtype, device=v_wl.device).expand(ref_shape),
         )
         # Shape: [..., serial, gn, polarity, wd]
         i_bl = steady.i_bl_port__uA

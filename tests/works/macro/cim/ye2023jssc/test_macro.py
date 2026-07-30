@@ -11,7 +11,7 @@ Covers the whole macro contract on the hand-built analytic witness
   * the quantization surface: the declared mode is the only index accepted, the
     rescale factor doubles per dropped bit, and the mapped input codes are the
     identity of an unsigned window,
-  * every bit width rides ONE full reference ladder: the code at ``b`` bits
+  * every bit width rides the ONE injected reference: the code at ``b`` bits
     equals the max-bits code right-shifted by the bit deficit, and only
     ``adc_bits`` in ``[1, adc_max_bits]`` is accepted (the readout has no
     lossless oracle),
@@ -205,8 +205,9 @@ def test_quantization_input_code_map_is_the_unsigned_identity(device: torch.devi
 def test_lowered_bits_ride_the_shared_ladder(device: torch.device) -> None:
     """The code at ``b`` bits is the max-bits code right-shifted by the bit deficit.
 
-    All bit widths read the ONE max-bits reference ladder in full, so lowering
-    the width drops the code's low bits instead of re-scaling the transfer.
+    All bit widths ride the ONE injected reference current, from which the
+    readout derives its whole max-bits ladder, so lowering the width drops the
+    code's low bits instead of re-scaling the transfer.
     """
     macro = build_macro(build_config(), device=device)
     # Column j holds weight j % (W_MAX + 1) on every input, so one access with

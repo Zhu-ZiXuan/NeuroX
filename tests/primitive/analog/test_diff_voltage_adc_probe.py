@@ -3,7 +3,9 @@
 ``DiffVadc.convert`` delegates to ``_convert_impl`` and emits the
 call on :class:`DiffVadcProber`. Without an active prober the
 template must be bit-identical to the leaf conversion body; with one, the
-record must carry the call's inputs, code, selected reference tap, and bits.
+record must carry the conversion event alone — the call's inputs, code and
+bits. The injected reference is a calibrated constant, not a measured
+quantity, so it is not recorded.
 """
 
 from __future__ import annotations
@@ -17,12 +19,13 @@ from neurox.primitive.analog.diff_voltage_adc import (
     GeneralDiffVadcPolicy,
 )
 
+# 4-bit: 15 comparator thresholds -> 16 codes -> raw range [0, 15]
+_CODE_NUM = 16
+
 
 def _build_general_adc(device: torch.device) -> GeneralDiffVadc:
-    # 4-bit: 15 boundaries -> 16 codes -> raw range [0, 15]
-    boundaries = tuple((k - 7.5) * 0.1 for k in range(15))
     config = GeneralDiffVadcConfig(
-        boundaries=boundaries,
+        code_num=_CODE_NUM,
         sampling_noise__V=0.0,
         comparator_noise__V=0.0,
         energy_per_op__fJ=0.0,
@@ -42,9 +45,9 @@ def _build_general_adc(device: torch.device) -> GeneralDiffVadc:
     return adc
 
 
-# GeneralDiffVadc is reference-free; a preselected dummy tap satisfies the signature.
-def _dummy_vref(device: torch.device) -> torch.Tensor:
-    return torch.zeros((), dtype=torch.float64, device=device)
+def _taps(device: torch.device) -> torch.Tensor:
+    """The injected comparator ladder, owner-built and passed in per call."""
+    return torch.tensor([(k - 7.5) * 0.1 for k in range(_CODE_NUM - 1)], dtype=torch.float64, device=device)
 
 
 def _inputs(device: torch.device) -> tuple[torch.Tensor, torch.Tensor]:
@@ -55,11 +58,11 @@ def _inputs(device: torch.device) -> tuple[torch.Tensor, torch.Tensor]:
 def test_probe_preserves_output_and_captures_call(device: torch.device) -> None:
     adc = _build_general_adc(device)
     v_pos, v_neg = _inputs(device)
-    v_ref = _dummy_vref(device)
+    v_refs = _taps(device)
 
-    expected = adc.convert(v_pos, v_neg, v_ref__V=v_ref, bits=4)
+    expected = adc.convert(v_pos, v_neg, v_refs__V=v_refs, bits=4)
     with DiffVadcProber() as prober:
-        out = adc.convert(v_pos, v_neg, v_ref__V=v_ref, bits=4)
+        out = adc.convert(v_pos, v_neg, v_refs__V=v_refs, bits=4)
 
     assert torch.equal(out, expected)
     records = prober.records
@@ -67,9 +70,11 @@ def test_probe_preserves_output_and_captures_call(device: torch.device) -> None:
     observation = records[0]
     assert torch.equal(observation.v_pos__V, v_pos)
     assert torch.equal(observation.v_neg__V, v_neg)
-    assert torch.equal(observation.v_ref__V, v_ref)
     assert torch.equal(observation.code, out)
     assert observation.bits == 4
+    # A reference is calibrated design data, not part of the conversion event.
+    assert not hasattr(observation, "v_ref__V")
+    assert not hasattr(observation, "v_refs__V")
 
 
 def test_no_record_without_prober(device: torch.device) -> None:
@@ -78,5 +83,5 @@ def test_no_record_without_prober(device: torch.device) -> None:
 
     with DiffVadcProber() as outer:
         pass  # closed before the call: nothing may be recorded
-    adc.convert(v_pos, v_neg, v_ref__V=_dummy_vref(device), bits=4)
+    adc.convert(v_pos, v_neg, v_refs__V=_taps(device), bits=4)
     assert outer.records == []

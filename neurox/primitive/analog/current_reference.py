@@ -9,6 +9,8 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor
 
+from neurox.primitive.nonideality import apply_relative_gaussian
+
 from .base import AnalogBase, AnalogConfig, AnalogPolicy
 
 
@@ -17,8 +19,11 @@ class IrefConfig(AnalogConfig):
 
     Attributes:
         i_refs__uA: Nominal reference-current taps, 2-D ``[mode][tap]``.
-            Rows have equal length and strictly increasing non-negative
-            values. A zero tap remains exact under relative noise.
+            Modes have equal length and non-negative values; ordering
+            within a mode is not enforced, because what a mode means is
+            the consumer's knowledge — a decision ladder must ascend, a
+            bank of bias taps need not. A zero tap remains exact under
+            relative noise.
         tolerance_sigma_relative: Relative per-instance initial-accuracy
             σ [dimensionless], applied multiplicatively at fabricate
             time; ``0`` leaves the exact nominal taps.
@@ -39,28 +44,28 @@ class IrefConfig(AnalogConfig):
 
     @property
     def mode_num(self) -> int:
-        """Number of quasi-statically selectable tap rows."""
+        """Number of quasi-statically selectable tap modes."""
         return len(self.i_refs__uA)
 
     @property
     def tap_num(self) -> int:
-        """Number of taps per mode row (equal across rows)."""
+        """Number of taps per mode."""
         return len(self.i_refs__uA[0])
 
     def validate(self) -> None:
+
         # --- Reference bank ---
 
         self._require_min_length(self.i_refs__uA, 1, "i_refs__uA")
-        tap_num = len(self.i_refs__uA[0])
-        for m, row in enumerate(self.i_refs__uA):
-            self._require_min_length(row, 1, f"i_refs__uA[{m}]")
-            if len(row) != tap_num:
+        tap_num = self.tap_num
+        for mode, taps in enumerate(self.i_refs__uA):
+            self._require_min_length(taps, 1, f"i_refs__uA[{mode}]")
+            if len(taps) != tap_num:
                 raise ValueError(
-                    f"require: equal row lengths in i_refs__uA; row {m} has {len(row)} tap(s), row 0 has {tap_num}"
+                    f"require: equal tap lengths in i_refs__uA; mode {mode} has {len(taps)} tap(s), mode 0 has {tap_num}"
                 )
-            self._require_increasing(row, f"i_refs__uA[{m}]")
-            for t, v in enumerate(row):
-                self._require_non_neg(v, f"i_refs__uA[{m}][{t}]")
+            for tap, value in enumerate(taps):
+                self._require_non_neg(value, f"i_refs__uA[{mode}][{tap}]")
 
         # --- Noise and PPA ---
 
@@ -89,8 +94,10 @@ class IrefSnap:
     """One sampled reference snap.
 
     Attributes:
-        i_refs__uA: Actual reference-current taps, post
-            tolerance + noise, shape ``(*inst_shape, mode_num, tap_num)``.
+        i_refs__uA: Actual reference-current taps of the selected mode,
+            post tolerance + noise, at the requested call shape. The mode
+            axis is resolved away by :meth:`Iref.snapshot`.
+            Shape: ``[..., tap_num]``.
     """
 
     i_refs__uA: Tensor
@@ -145,36 +152,46 @@ class Iref(AnalogBase[IrefConfig, IrefPolicy]):
 
     @property
     def mode_num(self) -> int:
-        """Number of quasi-statically selectable tap rows."""
+        """Number of quasi-statically selectable tap modes."""
         return self.config.mode_num
 
     @property
     def tap_num(self) -> int:
-        """Number of taps per mode row."""
+        """Number of taps per mode."""
         return self.config.tap_num
 
     def _sample_fabricate_mismatch(self) -> None:
-        base = self._nominal_i_refs__uA.expand(*self.inst_shape, self.mode_num, self.tap_num)
-        if self.policy.tolerance:
-            self._i_refs__uA = base * (1.0 + torch.randn_like(base) * self.config.tolerance_sigma_relative)
-        else:
-            self._i_refs__uA = base.clone()
+        i_refs__uA = self._nominal_i_refs__uA.clone().expand(*self.inst_shape, self.mode_num, self.tap_num)
+        self._i_refs__uA = apply_relative_gaussian(
+            i_refs__uA,
+            self.config.tolerance_sigma_relative,
+            enabled=self.policy.tolerance,
+        )
 
-    def snapshot(self, *, shape: tuple[int, ...] = ()) -> IrefSnap:
-        """Sample reference taps with per-call noise.
+    def snapshot(self, *, mode: int, shape: tuple[int, ...]) -> IrefSnap:
+        """Select one mode and sample it with per-call noise.
+
+        The mode selects the taps here rather than in the caller, so the
+        bank layout stays private and no operating-mode identity travels
+        further downstream. The static mismatch drawn at fabricate time
+        spans ``inst_shape`` alone, while this per-call noise spans the
+        full ``shape``: the fabricated taps are one physical source, but
+        every position of a call is a distinct instant or a distinct
+        mirrored branch, each carrying its own draw.
 
         Args:
-            shape: Output shape ending in ``(mode_num, tap_num)``.
-                An empty tuple preserves the fabricated shape.
+            mode: Mode index into the ``[mode][tap]`` bank. Range checking
+                belongs to the consumer that owns the mode set.
+            shape: Full output shape, ending in ``tap_num``.
 
         Returns:
             Per-call snap carrying the actual reference-current taps.
         """
-        base = self._i_refs__uA
-        view = base.expand(shape) if shape else base
-        view = (
-            view * (1.0 + torch.randn_like(view) * self.config.noise_sigma_relative)
-            if self.policy.noise
-            else view.clone()
+        # Shape: [*inst_shape, mode_num, tap_num] -> [..., *inst_shape, tap_num]
+        i_refs__uA = self._i_refs__uA[..., mode, :].expand(shape)
+        i_refs__uA = apply_relative_gaussian(
+            i_refs__uA,
+            self.config.noise_sigma_relative,
+            enabled=self.policy.noise,
         )
-        return IrefSnap(i_refs__uA=view)
+        return IrefSnap(i_refs__uA=i_refs__uA)

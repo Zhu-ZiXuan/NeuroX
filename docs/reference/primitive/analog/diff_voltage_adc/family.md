@@ -5,9 +5,16 @@ Every member digitizes a differential voltage into a raw unsigned integer code.
 ## Shared conventions
 
 An ADC digitizes a positive leg $V^{+}$ against a negative leg $V^{-}$. Both
-legs, every noise term, and the code boundaries are expressed in volts. An
-externally supplied reference sets the full-scale range, and the resolution $b$
-sets the number of code levels within it.
+legs, every noise term, and the code boundaries are expressed in volts. The
+reference values $V_{\mathrm{ref}}$ are supplied per call along a trailing tap
+axis and set the full-scale range; the resolution $b$ sets the number of code
+levels within it. No member holds its own references, and no operating-mode
+identity reaches a converter: the owner names a mode to its reference source and
+receives the matching taps already selected.
+
+How many reference values one conversion takes is the member's circuit property,
+not a family law. A topology that takes one full-scale reference and divides it
+internally receives one tap; a comparator bank receives its whole threshold set.
 
 ## Governing laws
 
@@ -50,6 +57,8 @@ topology-specific.
 | Symbol | Meaning | Unit | Code field |
 |---|---|---|---|
 | $V^{+},V^{-}$ | differential input legs | V | `v_pos__V`, `v_neg__V` |
+| $V_{\mathrm{ref}}$ | per-call injected reference taps, $[\ldots,\ n_{\mathrm{ref}}]$ with the taps last | V | `v_refs__V` |
+| $n_{\mathrm{ref}}$ | reference count the member's circuit takes | — | member-defined |
 | $b$ | ADC resolution | — | `bits` |
 | $\mathrm{FSR}$ | full-scale input range | V | derived |
 | $\mathrm{LSB}$ | uniform code step | V | derived |

@@ -8,10 +8,8 @@ against ``i_in__uA``, so each ADC instance may carry its own ladder. Bit width
 is ADC-internal: the FULL ladder is always wired and a ``bits``-bit conversion
 truncates the max-bits binary search after ``bits`` levels. These tests pin:
 
-- per-call reference validation: the last axis must carry ``2 ** max_bits - 1``
-  taps whatever ``bits`` is requested (any leading rank is accepted);
 - per-instance broadcast: distinct ladders across the leading digitize their own
-  inputs;
+  inputs (any leading rank is accepted);
 - ``bits`` validation: a request outside ``[1, max_bits]`` is rejected;
 - config-time energy-knob validation: negative rail / window and a window /
   step-latency list shorter than ``bits``;
@@ -122,22 +120,6 @@ def test_config_rejects_bad_energy_knobs() -> None:
             _config(**bad)
     # Lists longer than bits are tolerated (only the first bits are drawn).
     assert _config(t_conduct_per_step__ns=(0.1, 0.1, 0.1, 0.1), step_latency__ns=(3.0, 3.0, 3.0, 3.0)).bits == 3
-
-
-def test_convert_requires_the_full_ladder_at_every_bits(device: torch.device) -> None:
-    """The tap count is the ADC's OWN capability, not the requested resolution."""
-    adc = _build(_config(adc_bits=3), device)
-    i_in = torch.tensor([1.5], dtype=torch.float64, device=device)
-    for adc_bits in (1, 2, 3):
-        # Short ladder: max_bits = 3 requires exactly 2**3 - 1 = 7 taps.
-        with pytest.raises(ValueError, match="n_taps"):
-            adc.convert(i_in, _refs(_LADDER_A[:6], device), bits=adc_bits)
-        # The full ladder is accepted at every width.
-        adc.convert(i_in, _refs(_LADDER_A, device), bits=adc_bits)
-    # A ladder sized for the REQUESTED width is rejected below the maximum.
-    for adc_bits in (1, 2):
-        with pytest.raises(ValueError, match="n_taps"):
-            adc.convert(i_in, _refs(_LADDER_A[: (1 << adc_bits) - 1], device), bits=adc_bits)
 
 
 def test_convert_rejects_bad_bits(device: torch.device) -> None:

@@ -95,6 +95,10 @@ class McsSarDiffVadcPolicy(DiffVadcPolicy):
 class McsSarDiffVadc(DiffVadc[McsSarDiffVadcConfig, McsSarDiffVadcPolicy]):
     """V_cm-based (MCS) differential SAR voltage ADC.
 
+    The CDAC swings against one full-scale reference, so this converter's
+    injected bank is single-tap: the sole tap sets ``V_cm = V_ref / 2`` and
+    the per-step switching energy.
+
     Args:
         config: Concrete configuration dataclass.
         policy: Per-source nonideality enable flags.
@@ -224,22 +228,33 @@ class McsSarDiffVadc(DiffVadc[McsSarDiffVadcConfig, McsSarDiffVadcPolicy]):
         v_pos__V: Tensor,
         v_neg__V: Tensor,
         *,
-        v_ref__V: Tensor,
+        v_refs__V: Tensor,
         bits: int,
     ) -> Tensor:
         """V_cm-based (MCS) differential SAR conversion.
 
         Args:
-            v_pos__V: Positive-side input voltage.
-            v_neg__V: Negative-side input voltage, same shape.
-            v_ref__V: Reference voltage, broadcastable to the input shape.
+            v_pos__V: Positive-side input voltage — one physical converter
+                per instance, so the instance block is last and nothing trails
+                it.
+                Shape: ``[*caller_leading, *middle, *inst_shape]``.
+            v_neg__V: Negative-side input voltage, at the same shape.
+                Shape: ``[*caller_leading, *middle, *inst_shape]``.
+            v_refs__V: Injected reference taps; the CDAC swings against one
+                full-scale reference, so the single tap is read off the last
+                axis and the leading dims broadcast against the inputs.
+                Shape: ``[..., 1]``.
             bits: Active resolution [bits].
 
         Returns:
-            Raw offset-binary code tensor in ``[0, 2 ** bits - 1]``.
+            Raw offset-binary code tensor valued in ``[0, 2 ** bits - 1]``, at
+            the same shape as ``v_pos__V``.
+            Shape: ``[*caller_leading, *middle, *inst_shape]``.
         """
-        self._validate_runtime_args(bits)
+        self._validate_runtime_args(v_refs__V, bits)
 
+        # Shape: [..., 1] -> [...]
+        v_ref__V = v_refs__V[..., 0]
         v_cm__V = 0.5 * v_ref__V
 
         c_p__fF = self._c_p__fF
@@ -356,6 +371,10 @@ class McsSarDiffVadc(DiffVadc[McsSarDiffVadcConfig, McsSarDiffVadcPolicy]):
         )
         return v_diff__V > self._comparator_offset__V
 
-    def _validate_runtime_args(self, bits: int) -> None:
+    def _validate_runtime_args(self, v_refs__V: Tensor, bits: int) -> None:
         if not (1 <= bits <= self.config.max_bits):
             raise ValueError(f"bits {bits} outside [1, {self.config.max_bits}]")
+        # One full-scale reference feeds the CDAC, so the bank is single-tap.
+        tap_num = int(v_refs__V.shape[-1]) if v_refs__V.ndim else 0
+        if tap_num != 1:
+            raise ValueError(f"require: v_refs__V tap_num ({tap_num}) == 1")

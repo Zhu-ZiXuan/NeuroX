@@ -109,7 +109,7 @@ TODO (domain author): citations for the MCS switching-energy and Pelgrom models.
 | `e_constant_per_bit__fJ` | per-bit constant energy overhead | fJ | $\geq 0$ | Design |
 | leakage / area | static PPA / spec fields | uW, um^2 | $\geq 0$ | Design |
 
-The reference voltage is not a parameter of this ADC — it is one of the reference taps supplied per conversion (see [family](family.md)). A conversion spans $b+1$ clock periods (one sample cycle plus $b$ comparison cycles), so its latency is $(b+1)\cdot$ `clk_period__ns`. Provenance terms are defined in [module_parameter](../../../../conventions/module_parameter.md).
+The reference voltage is not a parameter of this ADC — it is supplied per conversion (see [family](family.md)). This topology divides one full-scale reference internally, so its reference count is one: the injected bank carries a single tap. A conversion spans $b+1$ clock periods (one sample cycle plus $b$ comparison cycles), so its latency is $(b+1)\cdot$ `clk_period__ns`. Provenance terms are defined in [module_parameter](../../../../conventions/module_parameter.md).
 
 ## Symbols
 
@@ -117,7 +117,7 @@ The reference voltage is not a parameter of this ADC — it is one of the refere
 |---|---|---|---|
 | $V^{+}, V^{-}$ | differential input legs | V | `v_pos__V`, `v_neg__V` |
 | $V_{\mathrm{cm}}$ | common-mode third reference, $V_{\mathrm{ref}}/2$ | V | derived |
-| $V_{\mathrm{ref}}$ | reference voltage | V | `v_ref__V` |
+| $V_{\mathrm{ref}}$ | reference voltage, the bank's sole injected tap | V | `v_refs__V[..., 0]` |
 | $V_{\mathrm{in}}$ | sampled input on a leg | V | sampled in `convert` |
 | $C_k$ | capacitance of cap $k$ (mismatched after fabricate) | fF | `c_p__fF`, `c_n__fF` |
 | $C_{\mathrm{total}}$ | total array capacitance, $2^{\,b_{\max}-1}C_{\mathrm{unit}}$ | fF | derived |

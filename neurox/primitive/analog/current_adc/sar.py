@@ -115,6 +115,11 @@ class SarIadcPolicy(IadcPolicy):
 class SarIadc(Iadc[SarIadcConfig, SarIadcPolicy]):
     """Triple-margin current ADC using a binary search over injected references.
 
+    The search tree is wired for ``config.bits``, so this converter reads
+    exactly ``2 ** bits - 1`` ascending taps off the injected ladder's last
+    axis. That count is this circuit's own property: a shorter ladder is not
+    rejected up front, it fails in the tap gather.
+
     Args:
         config: Concrete configuration dataclass.
         policy: Per-source nonideality flags.

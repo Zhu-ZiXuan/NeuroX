@@ -6,7 +6,7 @@ A triple-margin current-mode successive-approximation ADC, a member of the [sing
 
 Each single comparison mirrors $I_{\mathrm{in}}$ and the step's reference $I_{\mathrm{ref}}$ into the sense amplifier, then a deterministic pre-gain $A = $ `margin_gain` amplifies the clean current difference $I_{\mathrm{in}} - I_{\mathrm{ref}}$ before the latch resolves its sign. The input-referred SA offset is a current-domain margin perturbation added **after** the pre-gain, so its effective value at the decision is divided by $A$ — the triple-margin benefit: a raw offset $\sigma$ acts as $\sigma / A$.
 
-The mid-point thresholds are a runtime ladder $[*R,\ 2^{b_{\max}}-1]$ whose taps ascend along the last axis and whose leading $[*R]$ dimensions broadcast right-aligned against $I_{\mathrm{in}}$. The ladder is the converter's full tap set at every resolution; the resolution $b$ lies in $[1,b_{\max}]$. Each step gathers one tap per element.
+The mid-point thresholds are a runtime ladder $[\ldots,\ 2^{b_{\max}}-1]$ whose taps ascend along the last axis and whose leading dimensions broadcast right-aligned against $I_{\mathrm{in}}$. This topology compares against one wired threshold per binary-search node, so its reference count is $2^{b_{\max}}-1$ — a property of this circuit, not of the [family](family.md). The ladder is that full tap set at every resolution; the resolution $b$ lies in $[1,b_{\max}]$. Each step gathers one tap per element.
 
 ## Governing equations
 

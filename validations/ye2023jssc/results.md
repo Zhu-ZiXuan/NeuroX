@@ -199,12 +199,12 @@ output column, so re-driving the BL column at every access would scale the row b
 per vector): 1.92 uW at the 50% point (+1.89 uW, +3.5% on the caliber-Y array pin) and 0.51 uW at 87.5%. The
 dual-caliber conclusion is unchanged either way.
 
-**`i_lsb__uA` is an operating point the paper does not pin for the measured run.** The 7.0 uA value is
-`[derived]`: Fig.11(a) annotates I_LSB = 7 uA, and it closes against 224 max MAC units x 0.5 uA per unit =
-112 uA full scale over 16 codes. The instrument setting used for the Fig.19 power measurement is unreported.
-I_LSB scales the whole code ladder, so it moves both the transfer (which MAC magnitude reads which code) and
-the RS-CSA residue integrals that set `E_code`; the conduction channels, which dominate the array pin, do not
-depend on it.
+**The readout reference current is an operating point the paper does not pin for the measured run.** The
+`reference_config.i_refs__uA = [[7.0]]` value is `[derived]`: Fig.11(a) annotates I_LSB = 7 uA, and it closes
+against 224 max MAC units x 0.5 uA per unit = 112 uA full scale over 16 codes. The instrument setting used for
+the Fig.19 power measurement is unreported. The RS-CSA scales that one current into its whole decision ladder,
+so it moves both the transfer (which MAC magnitude reads which code) and the residue integrals that set
+`E_code`; the conduction channels, which dominate the array pin, do not depend on it.
 
 **Weight sparsity is read at VALUE level.** The draw is `P(w = 0) = 0.5`, otherwise uniform over [1, 7] —
 mean weight 2.0. Drawing each of the three binary planes independently at the same probability would instead

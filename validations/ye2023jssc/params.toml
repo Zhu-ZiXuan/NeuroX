@@ -41,7 +41,7 @@ leakage_per_inst__uW = 0.0
 # --- Quantization operating points (single nominal mode) ---
 # The RS-CSA is a 4-bit uniform current quantizer; the rescale maps its integer
 # code onto the ideal macro's code at the same bit width.
-# [derived] i_lsb = 7 uA against 0.5 uA per unit MAC -> a code carries 14 MAC
+# [derived] I_LSB = 7 uA against 0.5 uA per unit MAC -> a code carries 14 MAC
 # units, so the 16-code window spans [0, 223]. The unsigned readout rises with
 # the MAC itself, so its input code axis IS that window, and one code carries
 # exactly the window step the ideal macro resolves at 4 bits -> no rescale.
@@ -161,14 +161,7 @@ n_inner = 3
 area_per_inst__um2 = 0.0
 leakage_per_inst__uW = 0.0
 
-bits = 4                          # [measured p6 Table II] 4bO
-# [derived] simulation-consistent operating point: Fig.11(a) annotates I_LSB = 7 uA
-# and the measured-run instrument setting is unreported. Closes as
-# 224 max MAC units * 0.5 uA per unit = 112 uA full scale over 2**4 = 16 codes
-# -> 7 uA per code (top decision tap 15 * 7 = 105 uA). The 14 in rescale_factor
-# is a separate quantity: MAC units per code.
-i_lsb__uA = 7.0
-ref_radix = [8, 4, 2, 1]          # [derived] binary reference weights, MSB..LSB
+bits = 4                          # [measured p6 Table II] 4bO; also fixes the compare-phase weights 8/4/2/1
 # [measured p6 Table II] the same core supply as `v_dd_core__V` (the macro config
 # cross-checks them); Fig.12 shows the comparator input mirror conducting from it,
 # not from the 0.1 V data line.
@@ -181,6 +174,27 @@ t4_intrinsic__ns = 1.0            # [measured p7 Fig.18] PH4 start -> COUT[3] va
 # window); bounds, solved values and residuals live in results.md.
 mirror_scale = 0.1446             # [calibrated] comparator-side mirror scale: the fraction of the compared branch current the comparator draws over a phase
 e_fixed_per_op__fJ = 392.5        # [calibrated] 4 standby REF branches + bias + comparator + leakage-compensation branch
+
+
+# --- RS-CSA reference source (Iref) -- the ONE current the compare phases scale ---
+# The readout takes a single reference current and weighs it by 2**(bits - p) in
+# compare phase p, so the bank is single-tap; one row per quantization mode (this
+# design point declares one), and the macro names the mode the source returns.
+[cim_macro.reference_config]
+# [derived] Structural zeros: the source is a bias branch of the readout, which
+# self-bills it inside E_fixed, and Fig.19 itemises no reference block of its own;
+# this scheme models no mismatch and no noise.
+tolerance_sigma_relative = 0.0
+noise_sigma_relative = 0.0
+area_per_inst__um2 = 0.0
+leakage_per_inst__uW = 0.0
+
+# [derived] simulation-consistent operating point: Fig.11(a) annotates I_LSB = 7 uA
+# and the measured-run instrument setting is unreported. Closes as
+# 224 max MAC units * 0.5 uA per unit = 112 uA full scale over 2**4 = 16 codes
+# -> 7 uA per code (top decision tap 15 * 7 = 105 uA). The 14 in rescale_factor
+# is a separate quantity: MAC units per code.
+i_refs__uA = [[7.0]]
 
 
 # --- BL driver -- ideal Thevenin VoltageDriver (r_out = 0), the array bl_driver ---

@@ -1,20 +1,29 @@
-"""Vref: flat multi-tap source and the PPA-only contract.
+"""Vref: 2-D mode/tap bank and the PPA-only contract.
 
 ``Vref`` is a behavioural reference source: it carries static
 PPA (area + leakage) and hands out the actual tap values through a snap,
 but performs no computation and emits no dynamic energy or latency. It
-holds a flat unordered tap tuple. These tests pin, all with the policy
-all-off:
+holds a 2-D ``[mode][tap]`` bank of equal-length non-negative modes whose
+mode selection is quasi-static; a single reference node is the degenerate
+``[[v]]`` bank. These tests pin, unless a test says otherwise with the
+policy all-off:
 
-- config validation (empty / negative taps, negative sigmas / PPA);
-- ``snapshot`` is deterministic and matches the nominal taps, broadcast
-  to ``(*inst_shape, tap_num)``;
-- the ``v_ref__V`` accessor returns every tap from a snap (the
-  encapsulated read path consumers use instead of the buffer);
+- 2-D validation on the bank: equal tap lengths and non-negative taps,
+  while ordering within a mode is deliberately NOT enforced — what a mode
+  means is the consumer's knowledge;
+- ``mode_num`` / ``tap_num`` report the bank geometry;
+- ``snapshot(mode=..., shape=...)`` returns exactly the requested shape,
+  with the mode axis resolved away by the source;
+- with noise off the snap is exactly the fabricated nominal, draws no
+  randomness, and does not drift between calls;
+- a zero tap stays exactly zero under relative noise;
+- the degenerate single-mode single-tap bank broadcasts onto a clamp
+  bank's full call shape;
 - static PPA equals ``per_inst * inst_count`` and is visible to the
   profiler's static walk, while ``fabricate`` + ``snapshot`` emit zero
   energy / latency events;
-- a TOML array loads straight into the tuple field.
+- a nested TOML array loads straight into the bank field; a flat TOML
+  array (wrong shape for the tap bank) is rejected.
 """
 
 from __future__ import annotations
@@ -32,7 +41,10 @@ from neurox.primitive.analog.voltage_reference import (
     VrefPolicy,
 )
 
-_TAPS = (0.6, 1.2, 0.3)
+_TAPS = ((0.6, 1.2, 0.3), (0.5, 1.0, 0.2))
+_MODE_NUM = 2
+_TAP_NUM = 3
+_DTYPE = torch.float64
 
 
 def _config(**overrides: Any) -> VrefConfig:
@@ -51,12 +63,14 @@ def _make(
     inst_shape: tuple[int, ...] = (),
     area: float = 0.0,
     leakage: float = 0.0,
+    config: VrefConfig | None = None,
+    policy: VrefPolicy | None = None,
 ) -> Vref:
     ref = Vref(
-        config=_config(area_per_inst__um2=area, leakage_per_inst__uW=leakage),
-        policy=VrefPolicy(tolerance=False, noise=False),
+        config=config if config is not None else _config(area_per_inst__um2=area, leakage_per_inst__uW=leakage),
+        policy=policy if policy is not None else VrefPolicy(tolerance=False, noise=False),
         inst_shape=inst_shape,
-        dtype=torch.float64,
+        dtype=_DTYPE,
         T__K=300.0,
     )
     ref.fabricate()
@@ -64,10 +78,9 @@ def _make(
 
 
 def test_validation_rejects_bad_config() -> None:
-    """Empty taps, negative taps, and negative sigmas/PPA are rejected."""
+    """Empty taps and negative sigmas/PPA are rejected."""
     for override in (
-        {"v_refs__V": ()},  # empty tap list
-        {"v_refs__V": (0.6, -1.0)},  # negative tap
+        {"v_refs__V": ()},  # empty bank
         {"tolerance_sigma_relative": -1e-3},
         {"noise_sigma_relative": -1e-3},
         {"area_per_inst__um2": -1.0},
@@ -75,29 +88,109 @@ def test_validation_rejects_bad_config() -> None:
     ):
         with pytest.raises(ValueError):
             _config(**override)
-    # Taps stay a flat unordered tuple; a 0 tap (ground rail) is accepted.
-    _config(v_refs__V=(0.6, 0.0))
 
 
-def test_all_off_snapshot_matches_nominal() -> None:
-    """All-off ``snapshot`` is the deterministic nominal taps."""
+def test_bank_2d_validation() -> None:
+    """The bank enforces equal-length non-negative modes — and nothing about order."""
+    for bad in (
+        ((0.6, -1.0),),  # negative tap
+        ((0.6, 1.2), (0.6, 1.2, 1.8)),  # unequal tap lengths
+        ((),),  # empty mode
+    ):
+        with pytest.raises(ValueError):
+            _config(v_refs__V=bad)
+    # Ordering is the CONSUMER's law, not the source's: a decision ladder
+    # must ascend, a bank of clamp taps need not.
+    _config(v_refs__V=((1.2, 0.6, 1.8),))
+    _config(v_refs__V=((0.6, 0.6),))
+    # A 0 tap denotes a ground/rail reference and is accepted.
+    _config(v_refs__V=((0.6, 0.0),))
+
+
+def test_mode_tap_counts() -> None:
+    """``mode_num`` / ``tap_num`` report the bank geometry on config and module."""
     ref = _make()
-    nominal = torch.tensor(_TAPS, dtype=torch.float64)
-
-    snap_a = ref.snapshot()
-    snap_b = ref.snapshot()
-    assert snap_a.v_refs__V.shape == (len(_TAPS),)
-    torch.testing.assert_close(snap_a.v_refs__V, nominal)
-    torch.testing.assert_close(snap_b.v_refs__V, nominal)
+    assert ref.config.mode_num == _MODE_NUM
+    assert ref.config.tap_num == _TAP_NUM
+    assert ref.mode_num == _MODE_NUM
+    assert ref.tap_num == _TAP_NUM
 
 
-def test_inst_shape_broadcasts_taps() -> None:
-    """A non-scalar ``inst_shape`` yields ``(*inst_shape, tap_num)`` taps."""
+def test_snapshot_shape_is_exactly_the_requested_shape() -> None:
+    """The caller names the full output shape; the source honours it verbatim."""
+    ref = _make()
+    for shape in ((_TAP_NUM,), (4, _TAP_NUM), (2, 3, _TAP_NUM), (1, 1, 1, _TAP_NUM)):
+        assert ref.snapshot(mode=0, shape=shape).v_refs__V.shape == shape
+
+
+def test_snapshot_shape_must_end_in_tap_num() -> None:
+    """A trailing axis that is not the tap axis is a caller error, not a silent reshape."""
+    ref = _make()
+    with pytest.raises(RuntimeError):
+        ref.snapshot(mode=0, shape=(_TAP_NUM + 1,))
+
+
+def test_snapshot_resolves_the_mode_axis() -> None:
+    """Selecting mode ``m`` returns that mode's taps, with no mode axis left."""
+    ref = _make()
+    for mode, taps in enumerate(_TAPS):
+        out = ref.snapshot(mode=mode, shape=(2, _TAP_NUM)).v_refs__V
+        assert out.shape == (2, _TAP_NUM)
+        assert torch.equal(out, torch.tensor(taps, dtype=_DTYPE).expand(2, _TAP_NUM))
+
+
+def test_all_off_snapshot_is_exactly_nominal_and_draws_nothing() -> None:
+    """With noise off the snap is bit-exact nominal, repeatable, and consumes no RNG."""
+    ref = _make()
+    nominal = torch.tensor(_TAPS[1], dtype=_DTYPE)
+
+    rng_state = torch.random.get_rng_state()
+    snap_a = ref.snapshot(mode=1, shape=(_TAP_NUM,))
+    snap_b = ref.snapshot(mode=1, shape=(_TAP_NUM,))
+    assert torch.equal(torch.random.get_rng_state(), rng_state)
+    assert torch.equal(snap_a.v_refs__V, nominal)
+    assert torch.equal(snap_b.v_refs__V, nominal)
+
+
+def test_inst_shape_prefixes_the_requested_shape() -> None:
+    """The fabricated per-instance taps right-align under the requested shape."""
     ref = _make(inst_shape=(1, 2))
-    out = ref.snapshot().v_refs__V
-    nominal = torch.tensor(_TAPS, dtype=torch.float64)
-    assert out.shape == (1, 2, len(_TAPS))
-    torch.testing.assert_close(out, nominal.expand(1, 2, len(_TAPS)))
+    nominal = torch.tensor(_TAPS[0], dtype=_DTYPE)
+
+    out = ref.snapshot(mode=0, shape=(1, 2, _TAP_NUM)).v_refs__V
+    assert out.shape == (1, 2, _TAP_NUM)
+    assert torch.equal(out, nominal.expand(1, 2, _TAP_NUM))
+
+    # A wider call grid prepends leading axes onto the same instance taps.
+    wide = ref.snapshot(mode=0, shape=(4, 1, 2, _TAP_NUM)).v_refs__V
+    assert wide.shape == (4, 1, 2, _TAP_NUM)
+    assert torch.equal(wide, nominal.expand(4, 1, 2, _TAP_NUM))
+
+
+def test_single_tap_bank_fills_a_clamp_call_shape() -> None:
+    """The degenerate ``[[v]]`` bank sources one node over a whole clamp bank."""
+    v_clamp__V = 0.29
+    ref = _make(config=_config(v_refs__V=((v_clamp__V,),)))
+    assert ref.mode_num == 1
+    assert ref.tap_num == 1
+
+    out = ref.snapshot(mode=0, shape=(2, 5, 1)).v_refs__V
+    assert out.shape == (2, 5, 1)
+    assert torch.equal(out, torch.full((2, 5, 1), v_clamp__V, dtype=_DTYPE))
+
+
+def test_zero_tap_stays_exactly_zero_under_relative_noise() -> None:
+    """Relative noise is multiplicative, so an exact zero tap survives both draws."""
+    ref = _make(
+        config=_config(
+            v_refs__V=((0.0, 0.4),),
+            tolerance_sigma_relative=0.1,
+            noise_sigma_relative=0.1,
+        ),
+        policy=VrefPolicy(tolerance=True, noise=True),
+    )
+    out = ref.snapshot(mode=0, shape=(8, 2)).v_refs__V
+    assert torch.equal(out[..., 0], torch.zeros(8, dtype=_DTYPE))
 
 
 def test_static_ppa_and_no_dynamic_events() -> None:
@@ -114,16 +207,16 @@ def test_static_ppa_and_no_dynamic_events() -> None:
 
     with NeuroxProfiler() as p:
         ref.fabricate()
-        ref.snapshot()
+        ref.snapshot(mode=0, shape=(2, _TAP_NUM))
     assert p.energy_events == []
     assert p.latency_events == []
 
 
-def test_toml_array_loads_as_tuple(tmp_path: Path) -> None:
-    """A TOML array loads straight into the flat tuple field."""
+def test_toml_nested_array_loads_as_tuple(tmp_path: Path) -> None:
+    """A nested TOML array loads straight into the 2-D bank field."""
     toml = (
         "[ref]\n"
-        "v_refs__V = [0.6, 1.2, 0.3]\n"
+        "v_refs__V = [[0.6, 1.2, 0.3], [0.5, 1.0, 0.2]]\n"
         "tolerance_sigma_relative = 0.01\n"
         "noise_sigma_relative = 0.002\n"
         "area_per_inst__um2 = 1.0\n"
@@ -135,3 +228,19 @@ def test_toml_array_loads_as_tuple(tmp_path: Path) -> None:
     config = VrefConfig.from_file(path, section="ref")
     assert isinstance(config.v_refs__V, tuple)
     assert config.v_refs__V == _TAPS
+
+
+def test_toml_flat_array_rejected(tmp_path: Path) -> None:
+    """A flat TOML array (wrong shape for the tap bank) does not deserialize into the 2-D bank field."""
+    toml = (
+        "[ref]\n"
+        "v_refs__V = [0.6, 1.2, 0.3]\n"
+        "tolerance_sigma_relative = 0.0\n"
+        "noise_sigma_relative = 0.0\n"
+        "area_per_inst__um2 = 0.0\n"
+        "leakage_per_inst__uW = 0.0\n"
+    )
+    path = tmp_path / "ref.toml"
+    path.write_text(toml, encoding="utf-8")
+    with pytest.raises(TypeError):
+        VrefConfig.from_file(path, section="ref")

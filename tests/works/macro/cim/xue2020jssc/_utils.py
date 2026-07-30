@@ -276,8 +276,8 @@ def build_config(
             area_per_inst__um2=0.0,
             leakage_per_inst__uW=2.0,
         ),
-        cablc_vref_config=VrefConfig(  # dedicated single-tap V_BLC clamp reference source
-            v_refs__V=(_V_BLC__V,),
+        cablc_vref_config=VrefConfig(  # dedicated V_BLC clamp source: one mode row, one tap
+            v_refs__V=((_V_BLC__V,),),
             tolerance_sigma_relative=0.0,
             noise_sigma_relative=0.0,
             area_per_inst__um2=0.0,

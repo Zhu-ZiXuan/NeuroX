@@ -130,11 +130,13 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
             VoltageDriver, ``r_out__MOhm = 0`` ideal source — the wire IR drop is
             the array's, not the clamp's; ``energy_per_op__fJ = 0``). Its
             reference is injected per call from :attr:`cablc_vref_config`.
-        cablc_vref_config: Dedicated CABLC reference source — a single-tap
-            :class:`~neurox.primitive.analog.Vref` whose sole tap is the BL clamp
-            reference, read per solve and fed to the array's ``bl_driver`` as its
-            Thevenin reference; the per-cell ``V_BL`` droops below it by the wire
-            IR drop the solver computes. The tap must be in ``[0, v_dd__V]``.
+        cablc_vref_config: Dedicated CABLC reference source — a
+            :class:`~neurox.primitive.analog.Vref` holding the degenerate
+            ``[[v]]`` bank (one mode row, one tap) whose sole tap is the BL clamp
+            reference, sampled per solve at the array's full call shape and fed
+            to the array's ``bl_driver`` as its Thevenin reference; the per-cell
+            ``V_BL`` droops below it by the wire IR drop the solver computes. The
+            tap must be in ``[0, v_dd__V]``.
         sl_driver_config: SL ideal-clamp seat = the array's ``sl_driver``
             (VoltageDriver, ``r_out__MOhm = 0``). The SL is a direct ground tie,
             so its reference is a plain 0 V tensor, not a reference source.
@@ -145,10 +147,12 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
             the :attr:`tmcsa_config` module instead, so the kernel energy knobs
             are inert here). Its ``step_latency__ns`` stays the physical sensing
             duration and feeds the read-chain window :attr:`t_other__ns`.
-        reference_config: Shared static Iref — the ``[mode, tap]`` threshold
-            bank; the macro selects one mode row and passes that per-instance
-            ladder straight to the ADC, which handles bit width internally.
-            ``tap_num == 2**adc_config.bits - 1``.
+        reference_config: Static Iref — the ``[mode][tap]`` threshold bank; the
+            macro NAMES the mode and the source returns that row as the ladder
+            the ADC reads, which handles bit width internally.
+            ``tap_num == 2**adc_config.bits - 1``, and every row ascends
+            strictly (the macro checks it, since the ladder ordering is the
+            TMCSA's knowledge, not the source's).
         modes: One :class:`CimMacroMode` per quantization mode, indexed by
             ``quantization_mode``: the canonical MAC-unit conversion window, the
             ADC input code range the magnitude converter discriminates, and the
@@ -296,17 +300,25 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
         self._require_non_neg(self.e_control_per_op__fJ, "e_control_per_op__fJ")
 
         self._require_non_neg(self.v_dd__V, "v_dd__V")
-        # The CABLC consumes exactly one reference tap; the clamp reference is
-        # a BL node between the SL ground and the V_DD supply, so it must not
-        # exceed the rail.
-        if len(self.cablc_vref_config.v_refs__V) != 1:
+        # The CABLC consumes exactly one reference tap and holds it across every
+        # mode, so its dedicated source is the degenerate single-row single-tap
+        # bank. The clamp reference is a BL node between the SL ground and the
+        # V_DD supply, so it must not exceed the rail.
+        if self.cablc_vref_config.mode_num != 1:
             raise ValueError(
-                f"require: len(cablc_vref_config.v_refs__V) ({len(self.cablc_vref_config.v_refs__V)}) == 1 "
+                f"require: cablc_vref_config.mode_num ({self.cablc_vref_config.mode_num}) == 1 "
+                "— the CABLC clamp reference does not follow the quantization mode"
+            )
+        if self.cablc_vref_config.tap_num != 1:
+            raise ValueError(
+                f"require: cablc_vref_config.tap_num ({self.cablc_vref_config.tap_num}) == 1 "
                 "— the CABLC clamp consumes a single reference tap"
             )
-        v_bl_clamp__V = self.cablc_vref_config.v_refs__V[0]
+        v_bl_clamp__V = self.cablc_vref_config.v_refs__V[0][0]
         if not (v_bl_clamp__V <= self.v_dd__V):
-            raise ValueError(f"require: cablc_vref_config.v_refs__V[0] ({v_bl_clamp__V}) <= v_dd__V ({self.v_dd__V})")
+            raise ValueError(
+                f"require: cablc_vref_config.v_refs__V[0][0] ({v_bl_clamp__V}) <= v_dd__V ({self.v_dd__V})"
+            )
 
         # --- TMCSA phase windows against the ADC step timing ---
 
@@ -339,6 +351,12 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
                 f"require: reference_config.tap_num ({self.reference_config.tap_num}) == "
                 f"2**adc_config.bits - 1 ({want_taps})"
             )
+
+        # What a reference row MEANS is the consumer's knowledge, so the source
+        # does not order its taps: the TMCSA reads each row as a binary-search
+        # decision ladder, and only a strictly ascending ladder decodes.
+        for m, row in enumerate(self.reference_config.i_refs__uA):
+            self._require_increasing(row, f"reference_config.i_refs__uA[{m}]")
 
         # Each CimMacroMode validates its own canonical window and positive
         # rescale factor on construction; the macro pins the mode count against
@@ -500,12 +518,13 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
 
         # --- CABLC reference source (dedicated single-tap Vref) ---
 
-        # One reference node feeds the whole CABLC clamp bank, so its tap is 0-d
-        # and broadcasts onto every per-call solve shape.
+        # One reference-generation circuit per fabricated sub-array copy feeds
+        # that copy's whole CABLC clamp bank, so the source carries the
+        # fabrication prefix and nothing else.
         self.cablc_vref = Vref(
             config=config.cablc_vref_config,
             policy=policy.cablc_vref_policy,
-            inst_shape=(),
+            inst_shape=self.inst_shape,
             dtype=dtype,
             T__K=T__K,
         )
@@ -760,8 +779,8 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
                 axis is anonymous broadcast batch.
                 Shape: ``[..., row_num]``.
             quantization_mode: Mode index in
-                ``[0, len(quantization_input_ranges))``; selects the shared
-                reference's ladder row.
+                ``[0, len(quantization_input_ranges))``; names the row the
+                threshold source returns as the ADC's ladder.
             adc_bits: ADC resolution [bits] in ``[1, adc_max_bits]``. The full
                 ladder is always wired; the TMCSA realizes the width by running
                 only the first ``adc_bits`` steps of its max-bits binary search.
@@ -793,15 +812,25 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
 
         # --- 2: Solve the array once (cells + wire IR drop) -> I_DL ---
 
+        # The boundary references arrive fully shaped, so the macro reproduces
+        # the array's own broadcast leading: the seat grid contributes
+        # (*inst_shape, serial) and the WL drive its own leading with the serial slot
+        # axis open. The clamp trailing is the (gn, polarity, w_digit) lane grid.
+        lane_shape = (gn, _POLARITY_NUM, config.w_digit_num)
+        leading = torch.broadcast_shapes((*self.inst_shape, config.mux_factor), (*v_wl.shape[:-1], 1))
+        ref_shape = (*leading, *lane_shape)
+
         # One DC solve for all K WL planes: the x-bit and serial slot axes both
         # ride the solve leading, and the steady currents are window-independent
         # (each plane's conduction window applies post-solve).
         steady = self.array.solve_array(
             v_wl,
             bl_driver=self.cablc,
-            bl_v_ref__V=self.cablc_vref.snapshot().v_refs__V[0],
+            # The single-tap bank samples at the clamp shape plus its own tap
+            # axis, which the clamp then consumes away.
+            bl_v_ref__V=self.cablc_vref.snapshot(mode=0, shape=(*ref_shape, 1)).v_refs__V[..., 0],
             sl_driver=self.sl_driver,
-            sl_v_ref__V=self._sl_v_ref__V,
+            sl_v_ref__V=self._sl_v_ref__V.expand(ref_shape),
         )
         # Shape: [..., x_bits, gs, gn, polarity, wd]
         i_dl = steady.i_bl_port__uA
@@ -837,18 +866,15 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
 
         # --- 6: TMCSA quantize against the per-instance reference ladder ---
 
-        # The caller-selected mode row goes straight to the ADC as the
-        # per-instance ladder [*inst, tap] — no collapse to 1-D.
-        ref_snap = self.adc_current_reference.snapshot(
-            shape=(
-                *self.inst_shape,
-                self.adc_current_reference.mode_num,
-                self.adc_current_reference.tap_num,
-            ),
-        )
-        adc_i_refs__uA = ref_snap.i_refs__uA
-        # Shape: [*inst, mode, tap] -> [*inst, tap]
-        adc_refs_mode__uA = adc_i_refs__uA[..., quantization_mode, :]
+        # The macro only NAMES the mode; the source selects the row and returns
+        # the ladder at the full conversion shape. Everything outside the
+        # fabricated inst_shape is time-serial on one physical ladder, so the
+        # read noise belongs per converted instant, not once per instance.
+        # Shape: [..., gs, gn, tap]
+        adc_refs_mode__uA = self.adc_current_reference.snapshot(
+            mode=quantization_mode,
+            shape=(*i_sub.shape, self.adc_current_reference.tap_num),
+        ).i_refs__uA
         # Every bit width rides this one max-bits ladder — the ADC truncates
         # its own binary search, the macro never subsets the taps.
         # Shape: [..., gs, gn]

@@ -617,7 +617,7 @@ def main() -> None:
     assert isinstance(wl_dac, GeneralVdacConfig)
     emit(
         f"Operating point of the linearized cell chord in force (extracted by `neurox.tools.calibrate_cell` "
-        f"from `tools/params_detail.toml` at V_BL = V_BLC = {cfg.cablc_vref_config.v_refs__V[0]} V, V_SL = 0 V, "
+        f"from `tools/params_detail.toml` at V_BL = V_BLC = {cfg.cablc_vref_config.v_refs__V[0][0]} V, V_SL = 0 V, "
         f"WL off/on 0.0 / {wl_dac.code_to_signal[-1]} V): g_cell_on = "
         f"{list(cell.g_cell_on_table__uS)} uS, g_cell_off = {list(cell.g_cell_off_table__uS)} uS, vx_ratio_on = "
         f"{list(cell.vx_ratio_on_table)}. The absolute current scale of every read-path row rides on it, so it "

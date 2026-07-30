@@ -15,6 +15,9 @@ import torch
 from torch import Tensor
 
 from neurox.primitive.analog import (
+    Iref,
+    IrefConfig,
+    IrefPolicy,
     UnmodeledBlock,
     UnmodeledBlockConfig,
     UnmodeledBlockPolicy,
@@ -44,6 +47,12 @@ class Ye2023JsscCimMacroConfig(CimMacroConfig):
         adc_config: RS-CSA current-ADC config; its ``bits`` is the macro's
             ``adc_max_bits`` and its phase durations set the access window every
             conduction branch rides.
+        reference_config: Dedicated RS-CSA reference source — an
+            :class:`~neurox.primitive.analog.Iref` holding the ``[mode][tap]``
+            bank the readout's single reference input reads. The RS-CSA scales
+            that one current by its own compare-phase weights, so the bank is
+            single-tap (``tap_num == 1``) and carries one row per declared mode:
+            the macro NAMES the mode and the source returns the row.
         bl_driver_config: Per-column BL input clamp (Thevenin VoltageDriver).
         sl_driver_config: SL grounded clamp (VoltageDriver).
         mux_driver_config: Static-PPA seat for the Mux & Driver block.
@@ -67,6 +76,7 @@ class Ye2023JsscCimMacroConfig(CimMacroConfig):
 
     array_config: Ye2023Jssc2t1rArrayConfig
     adc_config: RsCsaIadcConfig
+    reference_config: IrefConfig
     bl_driver_config: VoltageDriverConfig
     sl_driver_config: VoltageDriverConfig
 
@@ -134,10 +144,26 @@ class Ye2023JsscCimMacroConfig(CimMacroConfig):
         self._require_non_neg(self.e_mux_driver_per_op__fJ, "e_mux_driver_per_op__fJ")
         self._require_non_neg(self.e_timing_ctrl_per_op__fJ, "e_timing_ctrl_per_op__fJ")
 
+        # --- Readout reference ---
+
+        # The RS-CSA takes ONE reference current and derives its whole ladder
+        # from it, so the source is single-tap; the row set is the mode set,
+        # because the macro names a mode and the source returns that row.
+        if self.reference_config.tap_num != 1:
+            raise ValueError(
+                f"require: reference_config.tap_num ({self.reference_config.tap_num}) == 1 "
+                "— the RS-CSA takes a single reference current"
+            )
+
         # --- Quantization modes ---
 
         if len(self.modes) == 0:
             raise ValueError("require: modes must declare at least one quantization operating point")
+        if len(self.modes) != self.reference_config.mode_num:
+            raise ValueError(
+                f"require: len(modes) ({len(self.modes)}) == reference_config.mode_num "
+                f"({self.reference_config.mode_num}) — one reference row per quantization mode"
+            )
 
 
 class Ye2023JsscCimMacroPolicy(CimMacroPolicy):
@@ -146,6 +172,7 @@ class Ye2023JsscCimMacroPolicy(CimMacroPolicy):
     Attributes:
         array_policy: WH-2T1R array policy (cell policy + solver chunk knob).
         adc_policy: RS-CSA current-ADC policy.
+        reference_policy: RS-CSA reference-source policy.
         bl_driver_policy: BL clamp policy.
         sl_driver_policy: SL clamp policy.
         mux_driver_policy: Mux & Driver static-seat policy.
@@ -154,6 +181,7 @@ class Ye2023JsscCimMacroPolicy(CimMacroPolicy):
 
     array_policy: Ye2023Jssc2t1rArrayPolicy
     adc_policy: RsCsaIadcPolicy
+    reference_policy: IrefPolicy
     bl_driver_policy: VoltageDriverPolicy
     sl_driver_policy: VoltageDriverPolicy
     mux_driver_policy: UnmodeledBlockPolicy
@@ -167,9 +195,10 @@ class Ye2023JsscCimMacroPolicy(CimMacroPolicy):
 class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPolicy]):
     """Ye2023 JSSC WH-2T1R CIM macro: transposed 2T1R array + time-shared RS-CSA.
 
-    Owns the dedicated WH-2T1R array, the per-column BL clamp and the SL clamp,
-    one RS-CSA, and two static-PPA peripheral seats. It derives the readout's
-    static compensation current from the array's own tables at construction.
+    Owns the dedicated WH-2T1R array, the per-column BL and SL clamps, one
+    RS-CSA with its reference source, and two static-PPA peripheral seats. It
+    derives the readout's static compensation current from the array's own tables
+    at construction.
 
     Args:
         config: Macro configuration.
@@ -184,7 +213,6 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
     # === Functional buffers ===
 
     _w_encode_lut: Tensor  # Shape: [w_value_num, w_digit_num]
-    _i_ref_ladder__uA: Tensor  # Shape: [mode_num, 2**max_bits - 1]
 
     # === Circuit constant buffers ===
 
@@ -291,6 +319,18 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
             enable_latency_record=False,  # macro owns latency
         )
 
+        # --- The readout's single reference current source ---
+
+        # One reference-generation circuit per fabricated die, feeding that die's
+        # RS-CSA alone; the readout scales it into its own decision ladder.
+        self.rscsa_reference = Iref(
+            config=config.reference_config,
+            policy=policy.reference_policy,
+            inst_shape=self.inst_shape,
+            dtype=dtype,
+            T__K=T__K,
+        )
+
         # --- Flat peripheral seats (static PPA; dynamic billed by the macro) ---
 
         self.mux_driver = UnmodeledBlock(
@@ -309,24 +349,11 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
         )
 
     def _register_model_buffers(self, *, dtype: torch.dtype) -> None:
-        """Register the one-hot WL grid, the SL drive, and the RS-CSA ladder."""
+        """Register the one-hot WL grid, the SL drive, and the weight-encode LUT."""
         config = self.config
         wl_onehot = config.v_wl_sel__V * torch.eye(self.col_num, dtype=dtype)
         self.register_buffer("_v_wl_onehot__V", wl_onehot, persistent=False)
         self.register_buffer("_sl_v_ref__V", torch.tensor(config.v_sl__V, dtype=dtype), persistent=False)
-
-        # Per-mode reference bank at the RS-CSA's max-bits resolution: row
-        # ``quantization_mode`` is the ascending decision ladder c * i_lsb for
-        # c = 1 .. 2**bits - 1. The readout has ONE physical current step, so
-        # every mode shares it. Shape: [mode_num, 2**bits - 1]
-        adc_config = config.adc_config
-        n_tap = (1 << adc_config.bits) - 1
-        ladder = torch.arange(1, n_tap + 1, dtype=dtype) * adc_config.i_lsb__uA
-        self.register_buffer(
-            "_i_ref_ladder__uA",
-            ladder.expand(len(config.modes), n_tap).contiguous(),
-            persistent=False,
-        )
 
         digit_num = config.w_digit_num
         patterns = torch.arange(1 << digit_num, dtype=torch.long)
@@ -446,10 +473,10 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
                 and a size-1 instance axis shares one input vector across the
                 whole die ensemble.
                 Shape: ``[..., *inst_shape, row_num]``.
-            quantization_mode: Mode index in ``[0, len(config.modes))``; selects
-                the reference bank row.
+            quantization_mode: Mode index in ``[0, len(config.modes))``; names
+                the reference row the source selects.
             adc_bits: RS-CSA resolution [bits] in ``[1, adc_max_bits]``. The
-                full ladder is always wired; below the maximum the readout drops
+                whole ladder is always wired; below the maximum the readout drops
                 the code's low bits internally and runs fewer compare phases, so
                 the access window shortens with it. The readout has no lossless
                 oracle, so ``None`` is rejected.
@@ -555,12 +582,20 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
                 channel="bl_cap",
             )
 
-        # --- 5: RS-CSA quantize against the mode's uniform i_lsb ladder ---
+        # --- 5: RS-CSA quantize against its single reference current ---
 
-        # The full max-bits ladder always goes to the readout; the RS-CSA
-        # handles the requested bit width internally.
-        i_refs__uA = self._i_ref_ladder__uA[quantization_mode]
-        code = self.rscsa.convert(i_tbl, i_refs__uA, bits=adc_bits)  # [*batch, out, *inst]
+        # The macro only NAMES the mode; the source returns that row at the full
+        # conversion shape. One physical source feeds every conversion serialized
+        # on it, so the per-call draw belongs per converted instant.
+        # Shape: [..., out, *inst_shape, 1]
+        i_refs__uA = self.rscsa_reference.snapshot(
+            mode=quantization_mode,
+            shape=(*i_tbl.shape, self.rscsa_reference.tap_num),
+        ).i_refs__uA
+        # The readout scales that one reference into its own ladder and handles
+        # the requested bit width internally.
+        # Shape: [..., out, *inst_shape]
+        code = self.rscsa.convert(i_tbl, i_refs__uA, bits=adc_bits)
 
         # --- 6: flat peripheral energy (per output access) + latency ---
 

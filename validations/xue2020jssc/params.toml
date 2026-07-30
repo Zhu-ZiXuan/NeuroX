@@ -266,8 +266,9 @@ leakage_per_inst__uW = 0.0
 [cim_macro.cablc_vref_config]
 # [measured p210 Fig.14] BL clamp reference tap ~0.29 V, read off the target-V_BLC
 # line and therefore a known-unknown at graph precision. The per-cell V_BL droops
-# below it by the wire IR drop the solver computes.
-v_refs__V = [0.29]
+# below it by the wire IR drop the solver computes. The bank is 2-D [mode][tap];
+# this clamp is the degenerate one-row one-tap case.
+v_refs__V = [[0.29]]
 tolerance_sigma_relative = 0.0
 noise_sigma_relative = 0.0
 area_per_inst__um2 = 0.0

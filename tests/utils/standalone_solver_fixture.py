@@ -4,7 +4,7 @@ Builds a fully hand-written, fully linear tiny tile: an
 :class:`XbarCell1t1rLinear` cell grid (table-driven chord conductance,
 empty policy), two IDEAL :class:`VoltageDriver` rail clamps
 (``r_out = 0``, so ``solve_clamp`` returns the reference voltage
-exactly), and a hand-built two-tap :class:`Vref`. Every
+exactly), and one dedicated single-tap :class:`Vref` per clamp. Every
 config value is an explicit in-code witness; no config file is read and
 no nonideality toggle is enabled, so the assembled system is an exactly
 linear resistor network with Dirichlet rail boundaries — a dense KCL
@@ -66,7 +66,7 @@ BL_SEGMENT_R__MOhm = 1e-4
 SL_FIRST_R__MOhm = 4e-4
 SL_SEGMENT_R__MOhm = 2e-4
 
-# Rail reference taps [V]: tap 0 = BL clamp, tap 1 = SL drive.
+# Rail reference taps [V], one dedicated source per clamp driver.
 BL_V_REF__V = 0.3
 SL_V_REF__V = 0.1
 
@@ -93,6 +93,23 @@ def _ideal_driver_config() -> VoltageDriverConfig:
         energy_per_op__fJ=0.0,
         area_per_inst__um2=0.0,
         leakage_per_inst__uW=0.0,
+    )
+
+
+def _single_tap_vref(v_ref__V: float, *, dtype: torch.dtype) -> Vref:
+    """Build one dedicated reference source: the degenerate ``[[v]]`` bank."""
+    return Vref(
+        config=VrefConfig(
+            v_refs__V=((v_ref__V,),),
+            tolerance_sigma_relative=0.0,
+            noise_sigma_relative=0.0,
+            area_per_inst__um2=0.0,
+            leakage_per_inst__uW=0.0,
+        ),
+        policy=VrefPolicy(tolerance=False, noise=False),
+        inst_shape=(),
+        dtype=dtype,
+        T__K=300.0,
     )
 
 
@@ -205,21 +222,10 @@ def build_solver_harness(
         dtype=dtype,
         T__K=300.0,
     )
-    clamp_ref = Vref(
-        config=VrefConfig(
-            v_refs__V=(BL_V_REF__V, SL_V_REF__V),
-            tolerance_sigma_relative=0.0,
-            noise_sigma_relative=0.0,
-            area_per_inst__um2=0.0,
-            leakage_per_inst__uW=0.0,
-        ),
-        policy=VrefPolicy(tolerance=False, noise=False),
-        inst_shape=(),
-        dtype=dtype,
-        T__K=300.0,
-    )
+    bl_ref = _single_tap_vref(BL_V_REF__V, dtype=dtype)
+    sl_ref = _single_tap_vref(SL_V_REF__V, dtype=dtype)
 
-    for m in (cell, bl_driver, sl_driver, clamp_ref):
+    for m in (cell, bl_driver, sl_driver, bl_ref, sl_ref):
         m.to(device)
         m.eval()
         m.fabricate()
@@ -240,13 +246,16 @@ def build_solver_harness(
 
     v_wl_drive = torch.full((X_BATCH, *grid_shape), v_wl_drive__V, device=device, dtype=dtype)
 
-    # --- Clamp-reference snapshot (once) + boundary-driver snaps ---
+    # --- Clamp-reference snapshots + boundary-driver snaps ---
 
-    clamp_taps = clamp_ref.snapshot().v_refs__V
-    bl_v_ref = clamp_taps[0]
-    sl_v_ref = clamp_taps[1]
-    bl_drv_snap = bl_driver.snapshot(v_ref__V=bl_v_ref, shape=(X_BATCH, COL_NUM), multi_coords=None)
-    sl_drv_snap = sl_driver.snapshot(v_ref__V=sl_v_ref, shape=(X_BATCH, COL_NUM), multi_coords=None)
+    # Shape: [X_BATCH, COL_NUM, tap=1] -> [X_BATCH, COL_NUM]
+    bl_ref_full = bl_ref.snapshot(mode=0, shape=(X_BATCH, COL_NUM, 1)).v_refs__V.squeeze(-1)
+    sl_ref_full = sl_ref.snapshot(mode=0, shape=(X_BATCH, COL_NUM, 1)).v_refs__V.squeeze(-1)
+    bl_drv_snap = bl_driver.snapshot(v_ref__V=bl_ref_full, shape=(X_BATCH, COL_NUM), multi_coords=None)
+    sl_drv_snap = sl_driver.snapshot(v_ref__V=sl_ref_full, shape=(X_BATCH, COL_NUM), multi_coords=None)
+
+    # Shape: [X_BATCH, COL_NUM] -> []
+    bl_v_ref, sl_v_ref = bl_ref_full[0, 0], sl_ref_full[0, 0]
 
     # --- Solver (stateless: cell + drivers supplied per call) ---
 

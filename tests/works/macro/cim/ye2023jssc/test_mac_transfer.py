@@ -2,7 +2,7 @@
 
 The analytic witness (``_utils.build_config``) pairs an input-1 HRS leakage equal
 to the input-0 floor with a derived PH0 compensation, so the RS-CSA sees exactly
-``(I_unit - floor) * MAC`` and its ``i_lsb`` is that same step: the code equals
+``(I_unit - floor) * MAC`` and its injected reference is that same step: the code equals
 the UNSIGNED integer MAC bit-exactly (``clamp(sum_in w * x, 0, 2**adc_bits - 1)``)
 even though every physical column — the redundant SUBA4 plane included — carries
 a nonzero leakage floor. This file adds the transfer breadth the per-module smoke

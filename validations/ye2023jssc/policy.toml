@@ -23,6 +23,12 @@ _neurox_class = "Ye2023Jssc2t1rCellPolicy"
 [policy.adc_policy]
 
 
+# --- RS-CSA reference current source (Iref) ---
+[policy.reference_policy]
+tolerance = false
+noise = false
+
+
 # --- BL ideal-clamp seat (Thevenin VoltageDriver) ---
 [policy.bl_driver_policy]
 offset = false

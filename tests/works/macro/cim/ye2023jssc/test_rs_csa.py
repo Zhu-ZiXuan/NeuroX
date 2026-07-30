@@ -2,8 +2,9 @@
 
 The Reference-Subtracting CSA is a UNIFORM current quantizer with an
 OWNER-INJECTED static PH0 compensation, a DERIVED per-resolution conversion
-window, and a per-compare-phase SAR energy. Laws only (hand-written witness
-config; tiny shapes; eager, dynamo disabled):
+window, and a per-compare-phase SAR energy. It takes ONE reference current and
+scales it by its own compare-phase weights, so the decision ladder is internal.
+Laws only (hand-written witness config; tiny shapes; eager, dynamo disabled):
 
   * the conversion window is DERIVED, not configured, and follows the EXECUTED
     phases: ``t_conversion(b) == sum(t_phase[:b]) + t4_intrinsic`` — PH0, the
@@ -12,13 +13,16 @@ config; tiny shapes; eager, dynamo disabled):
     nominal ``sum(t_phase[:-1]) + t4_intrinsic`` at full resolution,
   * PH0 is a construction-time constant (no config field): it shifts every
     conversion by the same current, and an input at or below it reads code 0,
-  * the compare phases are a uniform quantizer over the owner-supplied ladder:
-    ``code == floor((i_in - i_ph0)+ / i_lsb)`` clamped to the 4-bit ceiling,
-  * ``config.bits`` bounds the width a conversion may request and any ladder but
-    the full ``2**bits - 1`` one is rejected; bit width is handled INSIDE the
-    converter, which converts at full resolution and drops the code's low bits,
+  * the compare phases are a uniform quantizer whose step IS the injected
+    reference: ``code == floor((i_in - i_ph0)+ / i_ref)`` clamped to the 4-bit
+    ceiling,
+  * the reference input is SINGLE-tap — the converter's own circuit fact, stated
+    here and nowhere above it, so a deeper tap axis is rejected,
+  * ``config.bits`` bounds the width a conversion may request; bit width is
+    handled INSIDE the converter, which converts at full resolution and drops
+    the code's low bits,
   * energy is ``E_fixed(b) + E_code(b)`` over the EXECUTED phases, with
-    ``E_code = sum_{i<=b} mirror_scale * v_rail * min(residue_i, ref_radix[i]*i_lsb) * t_phase[i+1]``
+    ``E_code = sum_{p<=b} mirror_scale * v_rail * min(residue_p, 2**(B-p)*i_ref) * t_phase[p]``
     over the cumulative-subtraction residue (the latched REFS branches are
     rail-energy-neutral and are NOT billed) and the code-independent baseline
     prorated by the executed-window ratio, ``E_fixed(b) = E_fixed * T_AC(b) /
@@ -46,9 +50,8 @@ from neurox.works.macro.cim.ye2023jssc.rscsa import (
 )
 
 _BITS = 4
-_I_LSB__uA = 0.5
-_REF_RADIX = (8, 4, 2, 1)
-_I_PH0__uA = 1.0  # = 2 * i_lsb -> a clean 2-code static shift
+_I_REF__uA = 0.5  # the ONE injected reference; the code step is this current
+_I_PH0__uA = 1.0  # = 2 * i_ref -> a clean 2-code static shift
 _V_RAIL__V = 0.8
 _T_PHASE__ns = (1.0, 2.0, 4.0, 8.0, 16.0)  # PH0 + one compare phase per bit
 _T4_INTRINSIC__ns = 0.5
@@ -69,8 +72,6 @@ def _build_config() -> RsCsaIadcConfig:
         area_per_inst__um2=10.0,
         leakage_per_inst__uW=0.1,
         bits=_BITS,
-        i_lsb__uA=_I_LSB__uA,
-        ref_radix=_REF_RADIX,
         v_rail__V=_V_RAIL__V,
         t_phase__ns=_T_PHASE__ns,
         t4_intrinsic__ns=_T4_INTRINSIC__ns,
@@ -94,9 +95,9 @@ def _build_adc(*, i_ph0_comp__uA: float = _I_PH0__uA) -> RsCsaIadc:
     return adc
 
 
-def _taps() -> torch.Tensor:
-    """The 15-tap ascending ladder ``c * i_lsb`` for ``c = 1 .. 15``."""
-    return _I_LSB__uA * torch.arange(1, (1 << _BITS), dtype=_DTYPE)
+def _ref() -> torch.Tensor:
+    """The ONE reference current the compare phases scale, on its own tap axis."""
+    return torch.tensor([_I_REF__uA], dtype=_DTYPE)
 
 
 def _window_oracle__ns(bits: int) -> float:
@@ -107,14 +108,14 @@ def _window_oracle__ns(bits: int) -> float:
 def _convert_energy(adc: RsCsaIadc, i_in: torch.Tensor, *, bits: int = _BITS) -> float:
     """Total dynamic energy [fJ] of one convert under a fresh profiler."""
     with NeuroxProfiler() as prof:
-        adc.convert(i_in, _taps(), bits=bits)
+        adc.convert(i_in, _ref(), bits=bits)
     return prof.total_dynamic_energy__fJ
 
 
 def _convert_latency(adc: RsCsaIadc, i_in: torch.Tensor, *, bits: int = _BITS) -> float:
     """Total latency [ns] of one convert under a fresh profiler."""
     with NeuroxProfiler() as prof:
-        adc.convert(i_in, _taps(), bits=bits)
+        adc.convert(i_in, _ref(), bits=bits)
     return prof.total_latency__ns
 
 
@@ -122,11 +123,12 @@ def _energy_oracle(i_in__uA: float, *, bits: int = _BITS, i_ph0__uA: float = _I_
     """Independent per-conversion energy: prorated E_fixed + the EXECUTED compare phases."""
     residue = max(i_in__uA - i_ph0__uA, 0.0)
     energy = _E_FIXED__fJ * _window_oracle__ns(bits) / _window_oracle__ns(_BITS)
-    for phase, radix in enumerate(_REF_RADIX[:bits], start=1):
-        i_ref = radix * _I_LSB__uA
-        energy += _MIRROR_SCALE * _V_RAIL__V * _T_PHASE__ns[phase] * min(residue, i_ref)
-        if residue >= i_ref:
-            residue -= i_ref
+    for phase in range(1, bits + 1):
+        # Phase p resolves bit B - p, so it compares against that place value.
+        i_phase_ref = (1 << (_BITS - phase)) * _I_REF__uA
+        energy += _MIRROR_SCALE * _V_RAIL__V * _T_PHASE__ns[phase] * min(residue, i_phase_ref)
+        if residue >= i_phase_ref:
+            residue -= i_phase_ref
     return energy
 
 
@@ -175,73 +177,87 @@ def test_conversion_window_rejects_unsupported_bits() -> None:
 def test_uniform_quantize_matches_floor() -> None:
     adc = _build_adc()
     i_in = torch.tensor([1.6, 2.4, 3.0, 5.2, 7.0, 9.9], dtype=_DTYPE)
-    code = adc.convert(i_in, _taps(), bits=_BITS)
+    code = adc.convert(i_in, _ref(), bits=_BITS)
     i_comp = (i_in - _I_PH0__uA).clamp(min=0.0)
-    expected = torch.floor(i_comp / _I_LSB__uA).clamp(0, (1 << _BITS) - 1).to(code.dtype)
+    expected = torch.floor(i_comp / _I_REF__uA).clamp(0, (1 << _BITS) - 1).to(code.dtype)
     assert torch.equal(code, expected)
 
 
 def test_monotone_non_decreasing() -> None:
     adc = _build_adc()
     i_in = torch.linspace(0.0, 10.0, 40, dtype=_DTYPE)
-    code = adc.convert(i_in, _taps(), bits=_BITS)
+    code = adc.convert(i_in, _ref(), bits=_BITS)
     assert bool((code[1:] >= code[:-1]).all())
 
 
 def test_at_or_below_ph0_is_zero() -> None:
     adc = _build_adc()
     i_in = torch.tensor([0.0, 0.3, _I_PH0__uA], dtype=_DTYPE)  # all <= i_ph0
-    code = adc.convert(i_in, _taps(), bits=_BITS)
+    code = adc.convert(i_in, _ref(), bits=_BITS)
     assert torch.equal(code, torch.zeros_like(code))
 
 
 def test_ph0_static_operand_independent() -> None:
     adc = _build_adc()
-    # i_ph0 = 2 * i_lsb -> convert(i + i_ph0) exceeds convert(i) by a fixed
+    # i_ph0 = 2 * i_ref -> convert(i + i_ph0) exceeds convert(i) by a fixed
     # 2 codes for every i whose compensated current stays in range.
     i_vals = torch.tensor([1.5, 2.0, 3.0, 4.0], dtype=_DTYPE)
-    base = adc.convert(i_vals, _taps(), bits=_BITS)
-    shifted = adc.convert(i_vals + _I_PH0__uA, _taps(), bits=_BITS)
+    base = adc.convert(i_vals, _ref(), bits=_BITS)
+    shifted = adc.convert(i_vals + _I_PH0__uA, _ref(), bits=_BITS)
     diff = (shifted - base).to(torch.long)
     assert torch.equal(diff, torch.full_like(diff, 2))
 
 
 def test_bits_bounded_by_the_physical_resolution() -> None:
-    """A resolution above the physical one, or a mis-sized ladder, is rejected."""
+    """A resolution outside the physical one is rejected."""
     adc = _build_adc()
     i_in = torch.tensor([3.0], dtype=_DTYPE)
     with pytest.raises(ValueError):
-        adc.convert(i_in, _taps(), bits=_BITS + 1)
+        adc.convert(i_in, _ref(), bits=_BITS + 1)
     with pytest.raises(ValueError):
-        adc.convert(i_in, _taps(), bits=0)
-    with pytest.raises(ValueError):
-        adc.convert(i_in, _taps()[:-1], bits=_BITS)
+        adc.convert(i_in, _ref(), bits=0)
     with pytest.raises(ValueError):
         adc.unsigned_range(_BITS + 1)
 
 
-def test_full_ladder_required_at_every_bits() -> None:
-    """The tap count states the READOUT's own width, never the requested one."""
+def test_single_reference_input_at_every_bits() -> None:
+    """The converter takes ONE reference current, whatever resolution is requested.
+
+    The tap count is this circuit's own fact — it derives the whole ladder from
+    that one current — so a multi-tap bank is rejected at every ``bits``.
+    """
     adc = _build_adc()
     i_in = torch.tensor([3.0], dtype=_DTYPE)
-    for bits in range(1, _BITS):
+    ladder = _I_REF__uA * torch.arange(1, (1 << _BITS), dtype=_DTYPE)
+    for bits in range(1, _BITS + 1):
         with pytest.raises(ValueError, match="n_taps"):
-            adc.convert(i_in, _taps()[: (1 << bits) - 1], bits=bits)
-        adc.convert(i_in, _taps(), bits=bits)
+            adc.convert(i_in, ladder, bits=bits)
+        adc.convert(i_in, _ref(), bits=bits)
+
+
+def test_per_instance_reference_broadcasts_over_the_input() -> None:
+    """The reference is per-instance: each position quantizes on its own step."""
+    adc = _build_adc()
+    i_in = torch.tensor([3.0, 3.0], dtype=_DTYPE)
+    refs = torch.tensor([[_I_REF__uA], [2.0 * _I_REF__uA]], dtype=_DTYPE)
+    code = adc.convert(i_in, refs, bits=_BITS)
+    i_comp = (i_in - _I_PH0__uA).clamp(min=0.0)
+    expected = torch.floor(i_comp / refs.squeeze(-1)).clamp(0, (1 << _BITS) - 1).to(code.dtype)
+    assert torch.equal(code, expected)
 
 
 def test_lowered_bits_drop_the_code_low_bits() -> None:
     """Equivalence law: ``convert(bits=b) == convert(bits=B) >> (B - b)``.
 
-    The full ladder stays wired at every width, so a lowered resolution widens
-    the bin instead of moving the transfer. ``b = 1`` and ``b = B`` are both
-    covered.
+    The whole ladder stays wired at every width — it is derived from the one
+    reference, not from the requested resolution — so a lowered width widens the
+    bin instead of moving the transfer. ``b = 1`` and ``b = B`` are both covered.
     """
     adc = _build_adc()
     i_in = torch.linspace(0.0, 10.0, 64, dtype=_DTYPE)
-    full = adc.convert(i_in, _taps(), bits=_BITS)
+    full = adc.convert(i_in, _ref(), bits=_BITS)
     for bits in range(1, _BITS + 1):
-        code = adc.convert(i_in, _taps(), bits=bits)
+        code = adc.convert(i_in, _ref(), bits=bits)
         assert code.dtype == full.dtype
         assert adc.unsigned_range(bits) == (0, (1 << bits) - 1)
         assert int(code.max()) <= (1 << bits) - 1
@@ -252,10 +268,10 @@ def test_deterministic_in_training_mode() -> None:
     """No jitter is wired: ``train()`` converts exactly like ``eval()``."""
     adc = _build_adc()
     i_in = torch.linspace(0.0, 9.0, 32, dtype=_DTYPE)
-    eval_code = adc.convert(i_in, _taps(), bits=_BITS)
+    eval_code = adc.convert(i_in, _ref(), bits=_BITS)
     adc.train()
-    assert torch.equal(adc.convert(i_in, _taps(), bits=_BITS), eval_code)
-    assert torch.equal(adc.convert(i_in, _taps(), bits=_BITS), eval_code)
+    assert torch.equal(adc.convert(i_in, _ref(), bits=_BITS), eval_code)
+    assert torch.equal(adc.convert(i_in, _ref(), bits=_BITS), eval_code)
 
 
 # --- Energy laws ---

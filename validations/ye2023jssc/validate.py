@@ -232,17 +232,23 @@ def _golden_transfer(macro: Ye2023JsscCimMacro, w: Tensor, x: Tensor) -> tuple[T
     i_floor__uA = table[0][0]
     i_hrs__uA, i_lrs__uA = table[1][0], table[1][1]
     radix_sum = float(sum(config.array_config.weight_radix))
-    i_lsb__uA = config.adc_config.i_lsb__uA
+    # The readout is SPECIFIED as a uniform quantizer whose step is the reference
+    # current it is handed, so the closed form divides by that current. Reading
+    # the operating point (like the cell tables above) is not reading the
+    # implementation: the macro reaches its code through the physical solve, the
+    # per-plane radix sum, the PH0 subtraction, and the RS-CSA's own
+    # compare-phase ladder, none of which appears here.
+    i_ref__uA = config.reference_config.i_refs__uA[_QUANTIZATION_MODE][0]
 
     x_f = x.to(torch.float64)
     mac = x_f @ w.to(torch.float64)  # [..., col]
     active = x_f.sum(dim=-1, keepdim=True)  # [..., 1]
     i_comp__uA = (i_lrs__uA - i_floor__uA) * mac + (i_hrs__uA - i_floor__uA) * (radix_sum * active - mac)
 
-    quotient = i_comp__uA / i_lsb__uA
+    quotient = i_comp__uA / i_ref__uA
     code = quotient.floor().clamp(min=0.0, max=float((1 << config.adc_config.bits) - 1)).long()
     frac = quotient - quotient.floor()
-    tap_distance__uA = torch.minimum(frac, 1.0 - frac) * i_lsb__uA
+    tap_distance__uA = torch.minimum(frac, 1.0 - frac) * i_ref__uA
     return code, tap_distance__uA
 
 
@@ -640,20 +646,21 @@ def gate_i_tbl_table(macro: Ye2023JsscCimMacro, anchors: dict) -> GateResult:
 
 def _rscsa_energy_by_code(macro: Ye2023JsscCimMacro) -> dict[int, float]:
     """Per-conversion RS-CSA energy [fJ] for every non-zero code, mid-bin driven."""
-    ref = next(macro.buffers())
-    device, dtype = ref.device, ref.dtype
-    i_lsb__uA = macro.config.adc_config.i_lsb__uA
-    n_tap = (1 << _ADC_BITS) - 1
-    ladder = torch.arange(1, n_tap + 1, dtype=dtype, device=device) * i_lsb__uA
+    buf = next(macro.buffers())
+    device, dtype = buf.device, buf.dtype
+    i_ref__uA = macro.config.reference_config.i_refs__uA[_QUANTIZATION_MODE][0]
+    # The readout takes the ONE reference current on a ``[1]`` tap axis and
+    # derives its whole decision ladder from it; the code step is that current.
+    i_refs__uA = torch.tensor([i_ref__uA], dtype=dtype, device=device)
     out: dict[int, float] = {}
     for code in range(1, 1 << _ADC_BITS):
         i_in__uA = torch.tensor(
-            [macro.rscsa.i_ph0_comp__uA + (code + 0.5) * i_lsb__uA],
-            dtype=ladder.dtype,
+            [macro.rscsa.i_ph0_comp__uA + (code + 0.5) * i_ref__uA],
+            dtype=dtype,
             device=device,
         )
         with NeuroxProfiler() as prof, torch.no_grad():
-            macro.rscsa.convert(i_in__uA, ladder, bits=_ADC_BITS)
+            macro.rscsa.convert(i_in__uA, i_refs__uA, bits=_ADC_BITS)
         out[code] = prof.report(macro.rscsa).total_dynamic_energy__fJ
     return out
 

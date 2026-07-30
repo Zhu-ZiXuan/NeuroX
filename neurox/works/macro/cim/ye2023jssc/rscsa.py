@@ -1,7 +1,8 @@
 """Reference-Subtracting Current Sense Amplifier (RS-CSA) readout.
 
-A current-domain SAR ADC that quantizes uniformly over an owner-supplied
-decision ladder after subtracting a static compensation current.
+A current-domain SAR ADC that takes ONE owner-supplied reference current, scales
+it internally by its compare phases' binary weights, and quantizes uniformly over
+the resulting decision ladder after subtracting a static compensation current.
 
 See also:
     docs/works/macro/cim/ye2023jssc/model.md
@@ -12,7 +13,6 @@ from __future__ import annotations
 import torch
 from torch import Tensor
 
-from neurox.common.quant import floor_bucketize
 from neurox.primitive.analog.current_adc.base import Iadc, IadcConfig, IadcPolicy
 
 
@@ -21,12 +21,12 @@ class RsCsaIadcConfig(IadcConfig):
 
     Attributes:
         bits: Physical resolution [bits] — the phase set holds one compare phase
-            per bit, and it is the finest resolution a conversion may request.
-        i_lsb__uA: Quantizer LSB current [uA] — one code step of the
-            owner-supplied max-bits decision ladder.
-        ref_radix: The ``bits`` reference weights, MSB..LSB, strictly descending
-            positive ints (e.g. ``(8, 4, 2, 1)``); compare phase ``i`` sizes its
-            reference current as ``ref_radix[i] * i_lsb__uA``.
+            per bit, and it is the finest resolution a conversion may request. It
+            also fixes the compare phases' binary reference weights: phase ``p``
+            (1-based, MSB-first) weighs ``2 ** (bits - p)``, so the reachable
+            decision ladder is the uniform ``c * I_ref`` set for
+            ``c = 1 .. 2 ** bits - 1``. The quantizer is uniform over a binary
+            code space, so no other radix is representable.
         v_rail__V: Supply rail the comparator input mirror conducts across.
         t_phase__ns: Phase durations [ns], ``bits + 1`` entries: the
             compensation phase first, then one compare phase per bit, MSB-first.
@@ -44,8 +44,6 @@ class RsCsaIadcConfig(IadcConfig):
     """
 
     bits: int
-    i_lsb__uA: float
-    ref_radix: tuple[int, ...]
     v_rail__V: float
     t_phase__ns: tuple[float, ...]
     t4_intrinsic__ns: float
@@ -58,12 +56,6 @@ class RsCsaIadcConfig(IadcConfig):
         # --- Quantizer ---
 
         self._require_pos(self.bits, "bits")
-        self._require_pos(self.i_lsb__uA, "i_lsb__uA")
-        if len(self.ref_radix) != self.bits:
-            raise ValueError(f"require: len(ref_radix) ({len(self.ref_radix)}) == bits ({self.bits})")
-        self._require_decreasing(self.ref_radix, "ref_radix")
-        for r in self.ref_radix:
-            self._require_pos(r, "ref_radix")
 
         # --- Timing ---
 
@@ -98,6 +90,10 @@ class RsCsaIadcPolicy(IadcPolicy):
 class RsCsaIadc(Iadc[RsCsaIadcConfig, RsCsaIadcPolicy]):
     """Reference-Subtracting CSA: uniform current quantizer with a static offset.
 
+    The circuit takes ONE reference current and scales it by its compare phases'
+    binary weights, so a call injects a single reference tap and the ladder is
+    built here; nothing outside the converter states its tap count.
+
     The converter runs the compensation phase plus ONE compare phase per
     requested bit, so its window, its per-phase energy, and its latency all
     follow the EXECUTED phases; only the code-independent baseline energy is
@@ -116,6 +112,10 @@ class RsCsaIadc(Iadc[RsCsaIadcConfig, RsCsaIadcPolicy]):
             subtracts once per conversion; non-negative.
         enable_latency_record: Whether conversions emit latency events.
     """
+
+    # === Functional buffers ===
+
+    _ladder_weights: Tensor  # Shape: [2**max_bits - 1]
 
     # === Circuit constant buffers ===
 
@@ -155,6 +155,13 @@ class RsCsaIadc(Iadc[RsCsaIadcConfig, RsCsaIadcPolicy]):
         )
         # The code-independent baseline is prorated by the executed-window ratio.
         self._e_fixed_scale = tuple(t / window__ns[-1] for t in window__ns)
+        # The compare phases weigh the ONE injected reference by 2**(bits - p),
+        # so together they resolve every tap of the uniform ladder below.
+        self.register_buffer(
+            "_ladder_weights",
+            torch.arange(1, 1 << config.bits, dtype=dtype),
+            persistent=False,
+        )
 
     @property
     def _area_per_inst__um2(self) -> float:
@@ -207,7 +214,7 @@ class RsCsaIadc(Iadc[RsCsaIadcConfig, RsCsaIadcPolicy]):
     ) -> Tensor:
         """Digitise a magnitude current: subtract the static offset, then quantize.
 
-        The full ladder stays wired at every resolution, so a request below
+        The whole ladder stays wired at every resolution, so a request below
         ``max_bits`` widens the effective bin to ``2 ** (max_bits - bits)``
         current steps without moving the transfer: the code is taken at full
         resolution and its unresolved low bits are dropped, which is exactly what
@@ -219,53 +226,75 @@ class RsCsaIadc(Iadc[RsCsaIadcConfig, RsCsaIadcPolicy]):
         :meth:`t_conversion__ns` reports for ``bits``.
 
         Args:
-            i_in__uA: Non-negative magnitude current [uA]. Shape: arbitrary.
-            i_refs__uA: Ascending decision ladder, ``[*R, 2 ** max_bits - 1]``
-                taps spaced by ``i_lsb``; ``[*R]`` right-broadcasts against
-                ``i_in__uA``.
+            i_in__uA: Non-negative magnitude current [uA]. The conversions
+                serialized on one converter are the middle axes, and the instance
+                axes are the last ones, since the energy is billed at this
+                layout.
+                Shape: ``[*caller_leading, *middle, *inst_shape]``.
+            i_refs__uA: The ONE reference current [uA] the compare phases scale,
+                with its leading dims right-broadcasting against ``i_in__uA``. It
+                is this circuit's single reference input, so a deeper tap axis is
+                rejected.
+                Shape: ``[..., 1]``.
             bits: Conversion resolution [bits] in ``[1, max_bits]``.
 
         Returns:
-            Unsigned integer code [int16] in ``[0, 2 ** bits - 1]``, shaped
-            like ``i_in__uA``.
+            Unsigned integer code [int16] in ``[0, 2 ** bits - 1]``, one code per
+            ``i_in__uA`` element.
+            Shape: ``[*caller_leading, *middle, *inst_shape]``.
+
+        Raises:
+            ValueError: ``i_refs__uA`` carries more than one tap.
         """
         config = self.config
         max_bits = self.max_bits
+
+        # --- The single reference input this converter's circuit takes ---
+
+        n_taps = int(i_refs__uA.shape[-1])
+        if n_taps != 1:
+            raise ValueError(
+                f"require: i_refs__uA n_taps ({n_taps}) == 1 — the RS-CSA takes ONE reference current "
+                "and scales it by its own compare-phase weights"
+            )
+        # Shape: [..., 1] -> [...]
+        i_ref__uA = i_refs__uA[..., 0]
 
         # --- PH0: static leakage compensation (operand-independent) ---
 
         i_comp__uA = (i_in__uA - self._i_ph0_comp__uA).clamp(min=0.0)
 
-        # --- Compare phases: UNIFORM quantize over the owner-supplied ladder ---
+        # --- Compare phases: UNIFORM quantize over the self-scaled ladder ---
 
-        code = floor_bucketize(
-            i_comp__uA,
-            i_refs__uA,
-            out_dtype=torch.int16,
-            training=False,
-            lsb=config.i_lsb__uA,
-        )
-        code = code.clamp(min=0, max=(1 << max_bits) - 1)
+        # The binary phase weights span the uniform tap set ``c * I_ref``, so the
+        # full-resolution code is the number of taps the compensated current
+        # clears; a current sitting exactly on a tap clears it. The ladder length
+        # bounds the code by 2**max_bits - 1, so no clamp is needed.
+        # Shape: [..., 1] * [2**max_bits - 1] -> [..., 2**max_bits - 1]
+        ladder__uA = i_refs__uA * self._ladder_weights
+        code = (i_comp__uA.unsqueeze(-1) >= ladder__uA).sum(dim=-1).to(torch.int16)
 
         # --- DATA-DEPENDENT energy: E_fixed + E_code, over the EXECUTED phases ---
 
         if self._is_dynamic_energy_profile_active():
             # The baseline holds for the executed window alone.
             e__fJ = torch.full_like(i_in__uA, config.e_fixed_per_op__fJ * self._e_fixed_scale[bits - 1])
-            # Compare phase i draws min(residue, reference) scaled by
+            # Compare phase p draws min(residue, reference) scaled by
             # `mirror_scale` across the rail for that phase's whole duration.
             # Only the first `bits` phases run; the residue recursion truncates
             # with them.
             i_residue__uA = i_comp__uA
-            for phase, radix in enumerate(config.ref_radix[:bits], start=1):
-                i_ref__uA = radix * config.i_lsb__uA
+            for phase in range(1, bits + 1):
+                # Phase p resolves bit max_bits - p, so it weighs the residue
+                # against that bit's place value on the ONE reference.
+                i_phase_ref__uA = (1 << (max_bits - phase)) * i_ref__uA
                 e__fJ = e__fJ + (config.mirror_scale * config.v_rail__V * config.t_phase__ns[phase]) * (
-                    i_residue__uA.clamp(max=i_ref__uA)
+                    i_residue__uA.clamp(max=i_phase_ref__uA)
                 )
                 # Cumulative subtraction: the residue drops only where the bit resolves 1.
                 i_residue__uA = torch.where(
-                    i_residue__uA >= i_ref__uA,
-                    i_residue__uA - i_ref__uA,
+                    i_residue__uA >= i_phase_ref__uA,
+                    i_residue__uA - i_phase_ref__uA,
                     i_residue__uA,
                 )
             self._record_dynamic_energy(e__fJ)

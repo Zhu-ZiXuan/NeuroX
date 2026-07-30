@@ -33,9 +33,12 @@ the only shapes placing the zero point on a bin edge at every resolution, so
 the zero code follows from the shape rather than from a separate
 calibration. Each mode
 declares one window; every resolution the mode supports reads the same window
-and the same maximum-resolution reference ladder in full, because resolution is
-realized inside the converter, so lowering $b$ never changes sign recovery or
-zero-point semantics.
+and the same references in full, because resolution is realized inside the
+converter, so lowering $b$ never changes sign recovery or zero-point semantics.
+
+A mode is a name the macro passes to its reference source, which returns that
+mode's reference values. The converter itself is mode-blind: it receives an
+analog input, the references, and a resolution, and never a mode identity.
 
 `x_value_range` and `w_value_range` expose the inclusive envelopes accepted by
 the logical ports. A concrete encoding may leave holes inside an envelope.

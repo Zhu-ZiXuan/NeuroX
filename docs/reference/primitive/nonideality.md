@@ -22,6 +22,16 @@ Orthogonal to that static or dynamic origin, the spread $\sigma$ of a source is 
 - **State-independent** — $\sigma$ is a fixed constant and the same distribution is sampled at every element. Used where the magnitude does not track the signal (e.g. comparator thermal noise, stuck-at faults).
 - **State-dependent** — $\sigma$ is derived per element from the operating state, either the signal itself or an auxiliary state variable. Used where the magnitude tracks the conductance state (e.g. programming variability) or scales with the device area (e.g. Pelgrom mismatch, $kT/C$ sampling, both shrinking as $1/\sqrt{\mathrm{area}}$).
 
+## Additive and multiplicative perturbation
+
+Independently of both classifications, a draw either adds to the nominal quantity or scales it,
+
+$$x = x^{\mathrm{nom}} + \varepsilon, \qquad x = x^{\mathrm{nom}} (1 + \eta),$$
+
+with $\varepsilon$ and $\eta$ zero-mean, so both forms leave the mean at $x^{\mathrm{nom}}$. The additive form suits a quantity whose spread is set by the surrounding circuit rather than by the value itself — an input-referred comparator offset, a $kT/C$ sampling fluctuation — and its $\sigma$ carries the unit of $x$. The multiplicative (relative) form suits a quantity whose spread tracks its own magnitude, such as a reference tap or a mirror ratio: one dimensionless $\sigma$ then covers values of differing magnitude, where the additive form would need one $\sigma$ per value. The multiplicative form also has an exact fixed point at zero — a nominal $0$ stays exactly $0$ under any relative $\sigma$ — which is what keeps a ground or rail reference tap stable and exact under noise.
+
+A disabled source is the exact identity, not a draw with $\sigma = 0$: the nominal quantity passes through unperturbed and unchanged, so switching every source off reproduces the ideal model exactly.
+
 ## Pelgrom area-scaled mismatch
 
 The two-term Pelgrom law for the spread of a parameter difference $\Delta P$ between two matched devices is
@@ -57,6 +67,8 @@ TODO (domain author): the concrete parameterisation of the long-range gradient t
 | Symbol | Meaning | Unit | Code field |
 |---|---|---|---|
 | $\sigma$ | distribution spread (standard deviation) of a source | varies | — |
+| $\varepsilon$ | additive perturbation of a nominal quantity | same as the quantity | — |
+| $\eta$ | relative (multiplicative) perturbation of a nominal quantity | — | — |
 | $\Delta P$ | parameter difference between two matched devices | varies | — |
 | $A_P$ | Pelgrom local-area mismatch coefficient | param × um | — |
 | $W, L$ | device gate width and length | um | — |
