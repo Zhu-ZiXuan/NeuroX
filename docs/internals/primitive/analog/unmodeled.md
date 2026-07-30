@@ -3,7 +3,7 @@
 ## Design decisions
 
 - **Static PPA seat only.** The block exposes no functional method — no `convert` / `transport` / `add`, no forward. It exists solely to carry `area__um2` and `leakage__uW` into the profiler's static walk. `_sample_fabricate_mismatch` is an explicit no-op: it owns no static mismatch state.
-- **Reporter, not a roller-up.** Unlike the embedded non-reporter primitives, this block IS a profile target (`is_profile_target` left true): it sets the bare `_area_per_inst__um2` / `_leakage_per_inst__uW` in `__init__` from config, so its seat is reported directly ([base](base.md)).
+- **Reporter, not a roller-up.** Unlike the embedded non-reporter primitives, this block IS a profile target (`is_profile_target` left true): it implements the per-instance PPA properties from config, so its seat is reported directly ([base](base.md)).
 - **No dynamic event.** The block never calls `_record_dynamic_energy`; its model covers static PPA only.
 - **Empty policy.** No error sources; the `Policy` is an empty marker.
 

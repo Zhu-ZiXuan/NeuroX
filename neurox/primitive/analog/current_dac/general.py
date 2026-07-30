@@ -65,10 +65,13 @@ class GeneralIdac(Idac[GeneralIdacConfig, GeneralIdacPolicy]):
         T__K: Operating temperature.
     """
 
-    # --- Immutable model buffers ---
+    # === Functional buffers ===
 
-    _code_to_signal: Tensor
-    _latency_per_op__ns: Tensor
+    _code_to_signal: Tensor  # Shape: [code_num]
+
+    # === Circuit constant buffers ===
+
+    _latency_per_op__ns: Tensor  # Shape: []
 
     def __init__(
         self,
@@ -87,15 +90,20 @@ class GeneralIdac(Idac[GeneralIdacConfig, GeneralIdacPolicy]):
             T__K=T__K,
         )
 
-        self._area_per_inst__um2 = config.area_per_inst__um2
-        self._leakage_per_inst__uW = config.leakage_per_inst__uW
-
         self.register_buffer("_code_to_signal", torch.tensor(config.code_to_signal, dtype=dtype), persistent=False)
         self.register_buffer(
             "_latency_per_op__ns",
             torch.tensor(config.latency_per_op__ns, dtype=dtype),
             persistent=False,
         )
+
+    @property
+    def _area_per_inst__um2(self) -> float:
+        return self.config.area_per_inst__um2
+
+    @property
+    def _leakage_per_inst__uW(self) -> float:
+        return self.config.leakage_per_inst__uW
 
     def _sample_fabricate_mismatch(self) -> None:
         pass
@@ -111,7 +119,8 @@ class GeneralIdac(Idac[GeneralIdacConfig, GeneralIdacPolicy]):
             code: Integer input codes.
 
         Returns:
-            Analog output current [uA], same shape as ``code``.
+            Analog output current [uA], one value per ``code`` element.
+            Shape: ``[...]``.
         """
         signal = apply_gaussian(
             self._code_to_signal[code],

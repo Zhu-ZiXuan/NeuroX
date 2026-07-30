@@ -46,12 +46,15 @@ class ChunkSpec(NamedTuple):
     """Chunk coordinates and global indices.
 
     Attributes:
-        multi_coords: Coordinate tensor per leading dimension. Its length is
-            ``solve_size`` and may include repeated padding coordinates.
+        multi_coords: Chunk coordinates along each leading dimension, one
+            tensor per dimension, each possibly carrying repeated tail-padding
+            coordinates.
+            Shape: ``[solve_size]``.
         solve_size: Number of positions passed to the solver.
         valid_size: Number of real positions before tail padding.
         flat_global_idx: Flat indices of the valid positions in the complete
             leading shape.
+            Shape: ``[valid_size]``.
     """
 
     multi_coords: tuple[Tensor, ...]
@@ -106,19 +109,22 @@ def reassemble_chunks(
     leading: tuple[int, ...],
     trailing: tuple[int, ...],
 ) -> Tensor:
-    """Cat per-chunk outputs and scatter back to ``(*leading, *trailing)``.
+    """Cat per-chunk outputs and scatter back to the full leading shape.
 
     Args:
-        chunks: list of chunk tensors of shape ``(chunk_size, *trailing)``;
-            when ``leading == ()`` the single chunk has shape ``(*trailing,)``
-            directly (no leading axis to prepend).
-        chunk_global_indices: matching list of 1-D flat indices into the
+        chunks: list of chunk tensors, each carrying only the chunk's valid
+            positions on its leading axis; when ``leading == ()`` the single
+            chunk carries no leading axis at all.
+            Shape: ``[chunk, *trailing]``.
+        chunk_global_indices: matching list of flat indices into the
             unraveled ``leading`` for each chunk position.
+            Shape: ``[chunk]``.
         leading: full broadcast leading.
         trailing: trailing dims after leading.
 
     Returns:
-        Tensor of shape ``(*leading, *trailing)``.
+        Reassembled tensor.
+        Shape: ``[*leading, *trailing]``.
     """
     if not leading:
         return chunks[0]

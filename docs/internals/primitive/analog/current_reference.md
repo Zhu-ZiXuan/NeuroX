@@ -11,7 +11,7 @@
 
 ## Contracts & invariants
 
-- **State lifecycle.** `_nominal_i_refs__uA` is a non-persistent source buffer with shape `(mode_num, tap_num)`. `fabricate()` expands it to `(*inst_shape, mode_num, tap_num)` and assigns `_i_refs__uA` ordinary state, with tolerance applied when enabled. Snapshotting requires fabrication first.
+- **State lifecycle.** `_nominal_i_refs__uA` is a non-persistent nominal buffer with shape `(mode_num, tap_num)`. `fabricate()` expands it to `(*inst_shape, mode_num, tap_num)` and assigns `_i_refs__uA` ordinary state, with tolerance applied when enabled. Snapshotting requires fabrication first.
 - **`mode_num` / `tap_num` are properties** on config and module (`len(config.i_refs__uA)` / `len(config.i_refs__uA[0])`) and define the bank geometry.
 - **Read path is `snapshot().i_refs__uA`.** Consumers read the full `(*inst_shape, mode_num, tap_num)` tensor from the snap, so per-call noise is always included without exposing stored state.
 - **Rows are strictly increasing, equal-length, and non-negative**, validated at config time (`>= 1` mode row, equal row lengths, per-row strictly increasing, each tap `>= 0`); a `0` uA first tap is permitted. The field is always an explicit 2-D bank, including for a single mode; a flat TOML array is rejected by deserialization.

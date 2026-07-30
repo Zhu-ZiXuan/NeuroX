@@ -1,10 +1,10 @@
 """Serial-column 1T1R array core — a column-MUX-serialized cell grid and DC solve.
 
 The ``col_num`` physical columns partition into ``serial`` MUX slots of
-``gn * 2 * w_digit`` driver lanes each, seated by the macro-supplied slot map.
+``gn * polarity * w_digit`` driver lanes each, seated by the macro-supplied slot map.
 One broadcast DC solve settles every physical column exactly once, the serial
 axis riding the leading batch (``solve_chunk_size`` applies), and the outputs
-stay in the ``[..., serial, gn, 2, w_digit]`` (slot, driver-lane) layout.
+stay in the ``[..., serial, gn, polarity, w_digit]`` (slot, driver-lane) layout.
 
 An off column (one outside its active slot) is DEFINED as grounded, so its node
 voltages, its current, and its cap energy are identically zero and it is never
@@ -44,7 +44,7 @@ BLSnapT = TypeVar("BLSnapT", bound=ClampSnap)
 SLSnapT = TypeVar("SLSnapT", bound=ClampSnap)
 SnapT = TypeVar("SnapT", bound=ClampSnap)
 
-# Structured driver-lane trailing rank: (gn, 2, w_digit).
+# Structured driver-lane trailing rank: (gn, polarity, w_digit).
 _LANE_NDIM = 3
 
 
@@ -52,7 +52,7 @@ def _flatten_lane_snap(snap: SnapT) -> SnapT:
     """Flatten a snap's structured lane trailing into one flat column axis.
 
     The boundary drivers snapshot at their true inst trailing ``[..., serial,
-    gn, 2, w_digit]`` while the kernel solver consumes a flat column axis. Only
+    gn, polarity, w_digit]`` while the kernel solver consumes a flat column axis. Only
     fields of at least ``_LANE_NDIM`` dims carry the per-call broadcast shape;
     lower-rank constant fields (e.g. a 0-d slope) pass through untouched.
     """
@@ -70,9 +70,9 @@ class SerialColumnSteadyState:
 
     Attributes:
         i_bl_port__uA: BL port current at the converged operating point.
-            Shape: ``[..., serial, gn, 2, w_digit]``.
+            Shape: ``[..., serial, gn, polarity, w_digit]``.
         v_bl_clamp__V: BL clamp voltage at the converged operating point.
-            Shape: ``[..., serial, gn, 2, w_digit]``.
+            Shape: ``[..., serial, gn, polarity, w_digit]``.
     """
 
     i_bl_port__uA: Tensor
@@ -88,23 +88,27 @@ class SerialColumnXbarArray(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]
         inst_shape: Per-instance replication shape.
         row_num: Number of array rows.
         col_num: Number of PHYSICAL columns; must equal ``slot_map.numel()``.
-        slot_map: Bijection ``(slot, gn, 2, w_digit) -> physical column
-            index`` as a 4-D integer tensor — the macro-computed placement of
+        slot_map: Integer bijection from a (slot, gn, polarity, w_digit) seat
+            to its physical column index — the macro-computed placement of
             every physical column into its (slot, driver-lane) seat.
+            Shape: ``[serial, gn, polarity, w_digit]``.
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature.
     """
 
-    # --- Immutable model buffers ---
+    # === Functional buffers ===
 
-    _slot_map: Tensor
-    _bl_segment_r__MOhm: Tensor
-    _sl_segment_r__MOhm: Tensor
-    _bl_segment_g__uS: Tensor
-    _sl_segment_g__uS: Tensor
-    _bl_segment_c__fF: Tensor
-    _sl_segment_c__fF: Tensor
-    _latency_per_op__ns: Tensor
+    _slot_map: Tensor  # Shape: [serial, gn, polarity, w_digit]
+
+    # === Circuit constant buffers ===
+
+    _bl_segment_r__MOhm: Tensor  # Shape: [row_num]
+    _sl_segment_r__MOhm: Tensor  # Shape: [row_num]
+    _bl_segment_g__uS: Tensor  # Shape: [row_num]
+    _sl_segment_g__uS: Tensor  # Shape: [row_num]
+    _bl_segment_c__fF: Tensor  # Shape: [row_num]
+    _sl_segment_c__fF: Tensor  # Shape: [row_num]
+    _latency_per_op__ns: Tensor  # Shape: []
 
     def __init__(
         self,
@@ -131,8 +135,6 @@ class SerialColumnXbarArray(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]
             raise ValueError("require: slot_map is a bijection onto [0, col_num)")
 
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
-        self._area_per_inst__um2 = config.area_per_inst__um2
-        self._leakage_per_inst__uW = config.leakage_per_inst__uW
         self._row_num = row_num
         self._col_num = col_num
         self._serial_num = int(slot_map.shape[0])
@@ -148,6 +150,14 @@ class SerialColumnXbarArray(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]
         # WL wire cap seen by one held row across the FULL physical column
         # span — the per-plane billing coefficient, independent of `serial`.
         self._c_wl_wire_per_row__fF = config.wl_first_c__fF + (col_num - 1) * config.wl_segment_c__fF
+
+    @property
+    def _area_per_inst__um2(self) -> float:
+        return self.config.area_per_inst__um2
+
+    @property
+    def _leakage_per_inst__uW(self) -> float:
+        return self.config.leakage_per_inst__uW
 
     def _init_children(self, *, dtype: torch.dtype, T__K: float) -> None:
         """Construct the cell model (in seat order) and numerical solver."""
@@ -202,13 +212,29 @@ class SerialColumnXbarArray(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]
 
     @property
     def weight_grid_shape(self) -> tuple[int, ...]:
-        """Shape of the PHYSICAL program layout: ``(*inst, col_num, row_num)``."""
+        """Shape of the PHYSICAL program layout: ``(*inst_shape, col_num, row_num)``."""
         return (*self.inst_shape, self._col_num, self._row_num)
 
     @property
     def _cell_grid_shape(self) -> tuple[int, ...]:
-        """Seat-order cell grid: ``(*inst, serial, gn * 2 * w_digit, row)``."""
+        """Seat-order cell grid: ``(*inst_shape, serial, gn * polarity * w_digit, row)``."""
         return (*self.inst_shape, self._serial_num, self._active_col_num, self._row_num)
+
+    def _seat_weight(self, w_state_idx: Tensor) -> Tensor:
+        """Reorder physical columns into the seat-order cell grid.
+
+        Args:
+            w_state_idx: State-index tensor at ``self.weight_grid_shape``.
+                Shape: ``[*inst_shape, col_num, row_num]``.
+
+        Returns:
+            State indices at ``self._cell_grid_shape``.
+            Shape: ``[*inst_shape, serial, act, row_num]``.
+        """
+        # Shape: [*inst_shape, col_num, row] -> [*inst_shape, serial * act, row]
+        w_seated = w_state_idx.index_select(-2, self._slot_map.reshape(-1))
+        # Shape: [*inst_shape, serial * act, row] -> [*inst_shape, serial, act, row]
+        return w_seated.unflatten(-2, (self._serial_num, self._active_col_num))
 
     def program(self, w_state_idx: Tensor) -> None:
         """Write the cells from one PHYSICAL-layout state-index tensor.
@@ -217,18 +243,15 @@ class SerialColumnXbarArray(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]
         the cell grid holds the seated order the solve consumes directly.
 
         Args:
-            w_state_idx: State-index tensor in ``[0, w_state_num - 1]``,
-                shape must match ``self.weight_grid_shape =
-                (*inst, col_num, row_num)``.
+            w_state_idx: State-index tensor in ``[0, w_state_num - 1]``, whose
+                shape must match ``self.weight_grid_shape``.
+                Shape: ``[*inst_shape, col_num, row_num]``.
         """
         if tuple(w_state_idx.shape) != self.weight_grid_shape:
             raise ValueError(
                 f"program() expects w_state_idx.shape {self.weight_grid_shape}; got {tuple(w_state_idx.shape)}"
             )
-        # Shape: [*inst, col_num, row] -> [*inst, serial * act, row] (seat order)
-        w_seated = w_state_idx.index_select(-2, self._slot_map.reshape(-1))
-        # Shape: [*inst, serial * act, row] -> [*inst, serial, act, row]
-        self.cell.program(w_seated.unflatten(-2, (self._serial_num, self._active_col_num)))
+        self.cell.program(self._seat_weight(w_state_idx))
 
     @torch.compiler.disable(
         recursive=False,
@@ -248,11 +271,12 @@ class SerialColumnXbarArray(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]
         The serial slot axis rides the leading batch: one broadcast solve
         settles each physical column exactly once, in its (slot, lane) seat.
         The drivers snapshot at their true inst trailing
-        ``[..., serial, gn, 2, w_digit]``.
+        ``[..., serial, gn, polarity, w_digit]``.
 
         Args:
-            v_wl: Analog WL drive [V], shape ``[..., row_num]`` — one plane,
-                held across all serial slots.
+            v_wl: Analog WL drive [V] — one plane, held across all serial
+                slots.
+                Shape: ``[..., row_num]``.
             bl_driver: BL boundary clamp (structural ``ClampDriver`` role).
             bl_v_ref__V: BL-clamp reference voltage.
             sl_driver: SL boundary clamp (structural ``ClampDriver`` role).
@@ -261,12 +285,12 @@ class SerialColumnXbarArray(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]
         Returns:
             :class:`SerialColumnSteadyState` carrying the per-lane BL port
             current [uA] and BL clamp voltage [V] at full leading, both in
-            the ``[..., serial, gn, 2, w_digit]`` layout.
+            the ``[..., serial, gn, polarity, w_digit]`` layout.
         """
 
         # --- 1: infer the broadcast-leading shape (serial rides the leading) ---
 
-        # Shape: [..., row] -> [..., 1, 1, row] (serial and column slots)
+        # Shape: [..., row] -> [..., serial=1, act=1, row]
         v_wl_grid = v_wl.unsqueeze(-2).unsqueeze(-2)
         g_shape = self._cell_grid_shape
         full_shape = torch.broadcast_shapes(g_shape, v_wl_grid.shape)
@@ -308,7 +332,7 @@ class SerialColumnXbarArray(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]
                 multi_coords=mc,
                 t_elapsed=0.0,
             )
-            # Drivers snapshot at true inst trailing [..., serial, gn, 2,
+            # Drivers snapshot at true inst trailing [..., serial, gn, polarity,
             # w_digit] (serial = leading[-1]); the solver consumes the flat
             # column axis.
             bl_snap = _flatten_lane_snap(
@@ -395,8 +419,8 @@ class SerialColumnXbarArray(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]
                 WL control drive ``[..., 1, row_num]``.
 
         Returns:
-            Cap energy [fJ], shape ``[...]`` (per leading entry, serial
-            included).
+            Cap energy [fJ], one entry per leading position, serial included.
+            Shape: ``[...]``.
         """
 
         v_bl__V = solver_dcop.v_bl_node

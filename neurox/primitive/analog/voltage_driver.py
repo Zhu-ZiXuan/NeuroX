@@ -41,6 +41,7 @@ class VoltageDriverConfig(AnalogConfig):
     leakage_per_inst__uW: float
 
     def validate(self) -> None:
+
         # --- Source and noise ---
 
         self._require_non_neg(self.r_out__MOhm, "r_out__MOhm")
@@ -96,13 +97,17 @@ class VoltageDriver(AnalogBase[VoltageDriverConfig, VoltageDriverPolicy]):
         T__K: Operating temperature.
     """
 
-    # --- Immutable model buffers ---
+    # === Circuit constant buffers ===
 
-    _frozen_r_out__MOhm: Tensor
+    _frozen_r_out__MOhm: Tensor  # Shape: []
 
-    # --- Fabrication source buffers ---
+    # === Nominal buffers ===
 
-    _nominal_offset__V: Tensor
+    _nominal_offset__V: Tensor  # Shape: []
+
+    # === Fabricated state ===
+
+    _offset__V: Tensor  # Shape: [*inst_shape]
 
     def __init__(
         self,
@@ -115,15 +120,20 @@ class VoltageDriver(AnalogBase[VoltageDriverConfig, VoltageDriverPolicy]):
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
 
-        self._area_per_inst__um2 = config.area_per_inst__um2
-        self._leakage_per_inst__uW = config.leakage_per_inst__uW
-
         self.register_buffer(
             "_frozen_r_out__MOhm",
             torch.tensor(config.r_out__MOhm, dtype=dtype),
             persistent=False,
         )
         self._register_fabrication_buffers(dtype=dtype)
+
+    @property
+    def _area_per_inst__um2(self) -> float:
+        return self.config.area_per_inst__um2
+
+    @property
+    def _leakage_per_inst__uW(self) -> float:
+        return self.config.leakage_per_inst__uW
 
     def _register_fabrication_buffers(self, *, dtype: torch.dtype) -> None:
         """Register immutable tensors used as fabrication sources."""

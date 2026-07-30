@@ -289,7 +289,7 @@ def test_to_ideal_twin_inherits_the_published_quantization_surface(device: torch
 
 
 def test_end_to_end_shape_and_mac(device: torch.device) -> None:
-    """Codes trail ``[output_num]`` and equal the unsigned MAC."""
+    """Codes equal the unsigned MAC."""
     macro = build_macro(build_config(), device=device)
     w_val = torch.tensor(
         [[0, 1], [1, 1], [2, 3], [7, 0]],
@@ -469,7 +469,7 @@ def _crossed_run(
 
 
 def test_crossed_ensemble_codes_equal_the_single_die_codes(device: torch.device) -> None:
-    """One crossed call returns ``[n_x, die_num, out]`` codes, bit-exact per (input, weight) pair."""
+    """One crossed call returns codes bit-exact per (input, weight) pair."""
     _macro, code_cross, code_ref, _rc, _rr = _crossed_run(device)
     assert code_cross.shape == (_CROSS_BATCH, _DIE_NUM, TINY_OUTPUT_NUM)
     # The dies hold different weights, so the law is not vacuous.

@@ -2,7 +2,7 @@
 
 Energy-basis re-derivation of the geometry-dependent `[calibrated]` values of `params.toml` against the `anchors.toml` target, in the fixed stage order CURRENTS -> CAPACITANCES -> CONSTANTS. Device cuda:1, float32, `.eval()`, all-off policy, solve chunk 4096. Stage measurements: n_w = 32 weight draws x n_x = 256 inputs x 4 rounds, seed 0, at the declared workload p_zero = 0.353; the stage-2 pair solve pools 4 rounds split into 4 statistically independent blocks x 1 rounds, whose spread MEASURES the ill-conditioned cap seat. Non-circular: control + reference are ADOPTED from Fig.18, the read path is pure physics (array IR-drop solve), and p_zero is LOCKED to the read-path share, never solved against the total.
 
-Per-access basis: one access = one MUX-slot conversion set, so a run of n_w x n_x x rounds input draws reads `accesses = n_w * n_x * mux_factor` (32) output accesses and EVERY profiled energy total is divided by that leading count. A per-op seat is divided further by its own event count per access: 16 SINWP-SC hold-cap events (x_bits x IO x P/N) and 12 TMCSA step charges (IO x steps). Each stage proves its own normalization by an n_w / n_x doubling check.
+Per-access basis: one access = one MUX-slot conversion set, so a run of n_w x n_x x rounds input draws reads `accesses = n_w * n_x * mux_factor` (32) output accesses and EVERY profiled energy total is divided by that leading count. A per-op seat is divided further by its own event count per access: 16 SINWP-SC hold-cap events (x_bits x IO x polarity) and 12 TMCSA step charges (IO x steps). Each stage proves its own normalization by an n_w / n_x doubling check.
 
 ## Stage 1 -- currents
 

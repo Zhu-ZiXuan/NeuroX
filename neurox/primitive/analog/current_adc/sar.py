@@ -127,14 +127,19 @@ class SarIadc(Iadc[SarIadcConfig, SarIadcPolicy]):
             the value conversion is unaffected either way.
     """
 
-    # --- Immutable PPA buffers ---
+    # === Circuit constant buffers ===
 
-    _step_latency__ns: Tensor
+    _step_latency__ns: Tensor  # Shape: [step_num]
 
-    # --- Fabrication source buffers ---
+    # === Nominal buffers ===
 
-    _nominal_comparator_offset__uA: Tensor
-    _nominal_coupling_offset__uA: Tensor
+    _nominal_comparator_offset__uA: Tensor  # Shape: []
+    _nominal_coupling_offset__uA: Tensor  # Shape: []
+
+    # === Fabricated state ===
+
+    _comparator_offset__uA: Tensor  # Shape: [*inst_shape]
+    _coupling_offset__uA: Tensor  # Shape: [*inst_shape]
 
     def __init__(
         self,
@@ -156,14 +161,20 @@ class SarIadc(Iadc[SarIadcConfig, SarIadcPolicy]):
             enable_latency_record=enable_latency_record,
         )
         self.enable_energy_record = enable_energy_record
-        self._area_per_inst__um2 = config.area_per_inst__um2
-        self._leakage_per_inst__uW = config.leakage_per_inst__uW
         self.register_buffer(
             "_step_latency__ns",
             torch.tensor(config.step_latency__ns, dtype=dtype),
             persistent=False,
         )
         self._register_fabrication_buffers(dtype=dtype)
+
+    @property
+    def _area_per_inst__um2(self) -> float:
+        return self.config.area_per_inst__um2
+
+    @property
+    def _leakage_per_inst__uW(self) -> float:
+        return self.config.leakage_per_inst__uW
 
     def _register_fabrication_buffers(self, *, dtype: torch.dtype) -> None:
         """Register immutable tensors used as fabrication sources."""
@@ -223,19 +234,23 @@ class SarIadc(Iadc[SarIadcConfig, SarIadcPolicy]):
         by ``max_bits - bits``. Energy and latency follow the executed steps.
 
         Args:
-            i_in__uA: Unsigned magnitude current. Shape: ``[..., n_col]``.
-            i_refs__uA: Per-instance reference ladder, ``[*R, n_ref]`` with
-                ``n_ref = 2 ** max_bits - 1`` taps ascending on the last axis
-                and ``[*R]`` broadcasting right-aligned against ``i_in__uA``.
+            i_in__uA: Unsigned magnitude current.
+                Shape: ``[..., n_col]``.
+            i_refs__uA: Per-instance reference ladder with the taps on the last
+                axis and the leading dims broadcasting right-aligned against
+                ``i_in__uA``. The gather indexes taps in max-bits numbering, so
+                this converter takes ``n_ref = 2 ** max_bits - 1`` ascending
+                taps.
+                Shape: ``[..., n_ref]``.
             bits: Conversion resolution [bits], in ``[1, max_bits]``.
 
         Returns:
-            Unsigned magnitude code [long] in ``[0, 2 ** bits - 1]``,
-            shape ``[..., n_col]``.
+            Unsigned magnitude code [long] in ``[0, 2 ** bits - 1]``.
+            Shape: ``[..., n_col]``.
         """
         max_bits = self.max_bits
         n_taps = int(i_refs__uA.shape[-1])
-        # Shape: [*R, n_ref] -> [..., n_col, n_ref]
+        # Shape: [..., n_ref] -> [..., n_col, n_ref]
         ref_b = torch.broadcast_to(i_refs__uA, (*i_in__uA.shape, n_taps))
 
         margin_gain = self.config.margin_gain
@@ -249,7 +264,7 @@ class SarIadc(Iadc[SarIadcConfig, SarIadcPolicy]):
 
         # The fabricated lane offset remains fixed throughout the binary search.
         lane = self._col_to_lane(i_in__uA.shape[-1], i_in__uA.device)
-        # Shape: [*prefix, n_lane] -> [*prefix, n_col]
+        # Shape: [..., n_lane] -> [..., n_col]
         offset__uA = (self._comparator_offset__uA + self._coupling_offset__uA).index_select(-1, lane)
 
         for step in range(bits):
@@ -286,7 +301,8 @@ class SarIadc(Iadc[SarIadcConfig, SarIadcPolicy]):
             i_ref__uA: Selected reference current.
 
         Returns:
-            Additional energy [fJ], shaped like ``i_in__uA``.
+            Additional energy [fJ], one value per ``i_in__uA`` element.
+            Shape: ``[..., n_col]``.
         """
         return torch.zeros_like(i_in__uA)
 
@@ -294,15 +310,18 @@ class SarIadc(Iadc[SarIadcConfig, SarIadcPolicy]):
         """Mid-point reference [uA] for ``step``, data-dependent on resolved bits.
 
         Args:
-            ref_b: Per-instance threshold ladder broadcast to ``[..., n_col,
-                2 ** max_bits - 1]`` (taps on the last axis).
+            ref_b: Per-instance threshold ladder with the taps on the last
+                axis, already broadcast against the input.
+                Shape: ``[..., n_col, n_ref]``.
             code: Partial magnitude code in max-bits numbering, with the high
-                ``step`` bits set. Shape: ``[..., n_col]``.
+                ``step`` bits set.
+                Shape: ``[..., n_col]``.
             step: Zero-based search level (``0`` is the max-bits MSB).
             max_bits: Bit width the full ladder resolves.
 
         Returns:
-            Selected reference current [uA] broadcast to ``code``'s shape.
+            Selected reference current [uA], one tap per ``code`` element.
+            Shape: ``[..., n_col]``.
         """
         # Threshold index: prefix * 2^(max_bits-step) + 2^(max_bits-step-1) - 1.
         shift = max_bits - step

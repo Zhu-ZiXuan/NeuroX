@@ -34,6 +34,7 @@ class SwitchCapConfig(AnalogConfig):
     leakage_per_inst__uW: float
 
     def validate(self) -> None:
+
         # --- Capacitance and mismatch ---
 
         self._require_pos(self.c_unit__fF, "c_unit__fF")
@@ -71,13 +72,17 @@ class SwitchCap(AnalogBase[SwitchCapConfig, SwitchCapPolicy]):
         cap_weights: Per-cap multipliers on ``config.c_unit__fF``.
     """
 
-    # --- Immutable PPA buffers ---
+    # === Circuit constant buffers ===
 
-    _latency_per_op__ns: Tensor
+    _latency_per_op__ns: Tensor  # Shape: []
 
-    # --- Fabrication source buffers ---
+    # === Nominal buffers ===
 
-    _nominal_c__fF: Tensor
+    _nominal_c__fF: Tensor  # Shape: [cap_num]
+
+    # === Fabricated state ===
+
+    _c__fF: Tensor  # Shape: [*inst_shape, cap_num]
 
     def __init__(
         self,
@@ -98,8 +103,6 @@ class SwitchCap(AnalogBase[SwitchCapConfig, SwitchCapPolicy]):
             if not (w > 0.0):
                 raise ValueError(f"require: cap_weights[{k}] ({w}) > 0")
 
-        self._area_per_inst__um2 = config.area_per_inst__um2
-        self._leakage_per_inst__uW = config.leakage_per_inst__uW
         self._T__K = T__K
         self._cap_num = len(cap_weights)
         self.register_buffer(
@@ -108,6 +111,14 @@ class SwitchCap(AnalogBase[SwitchCapConfig, SwitchCapPolicy]):
             persistent=False,
         )
         self._register_fabrication_buffers(dtype=dtype, cap_weights=cap_weights)
+
+    @property
+    def _area_per_inst__um2(self) -> float:
+        return self.config.area_per_inst__um2
+
+    @property
+    def _leakage_per_inst__uW(self) -> float:
+        return self.config.leakage_per_inst__uW
 
     def _register_fabrication_buffers(
         self,
@@ -136,11 +147,12 @@ class SwitchCap(AnalogBase[SwitchCapConfig, SwitchCapPolicy]):
         """Sample per-cap voltages and run passive charge-sharing.
 
         Args:
-            v_in__V: Per-cap sampled voltages,
-                shape ``(*batch, *bank_shape, cap_num)``.
+            v_in__V: Per-cap sampled voltages.
+                Shape: ``[..., *inst_shape, cap_num]``.
 
         Returns:
-            Node voltage with shape ``(*batch, *bank_shape)``.
+            Node voltage.
+            Shape: ``[..., *inst_shape]``.
         """
         c__fF = self._c__fF
         # kT/C settling noise: kt__fJ = k_B·T·1e15 so kt/c lands in V^2.

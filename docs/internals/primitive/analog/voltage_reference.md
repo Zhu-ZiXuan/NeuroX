@@ -9,7 +9,7 @@
 
 ## Contracts & invariants
 
-- **State lifecycle.** `_nominal_v_refs__V` is a non-persistent source buffer with shape `(ref_num,)`. `fabricate()` expands it to `(*inst_shape, ref_num)` and assigns `_v_refs__V` ordinary state, with tolerance applied when enabled. Snapshotting requires fabrication first.
+- **State lifecycle.** `_nominal_v_refs__V` is a non-persistent nominal buffer with shape `(ref_num,)`. `fabricate()` expands it to `(*inst_shape, ref_num)` and assigns `_v_refs__V` ordinary state, with tolerance applied when enabled. Snapshotting requires fabrication first.
 - **`ref_num` is a property** = `len(config.v_refs__V)` — an init-determined constant. It is the source-side interface for how many taps exist.
 - **Read path is `snapshot().v_refs__V`.** Consumers read the full `(*inst_shape, ref_num)` tap tensor from the snap, so per-call noise is always included without exposing stored state.
 - **Config validation.** `validate()` requires at least one non-negative tap (ordering is not enforced), non-negative noise sigmas, and non-negative static PPA values.

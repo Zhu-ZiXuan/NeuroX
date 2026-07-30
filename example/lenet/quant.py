@@ -255,7 +255,7 @@ def _unfold_conv_input(
     stride: tuple[int, int],
     padding: tuple[int, int],
 ) -> tuple[Tensor, tuple[int, ...], int, int]:
-    """Unfold (N, C, H, W) → (N, OH*OW, C*kH*kW) for matmul-style conv.
+    """Unfold the conv input into matmul-style row blocks.
 
     Returns the reshaped block tensor plus ``(batch_shape, out_h, out_w)``
     needed by :func:`_fold_conv_output`.
@@ -269,15 +269,17 @@ def _unfold_conv_input(
     _n, _c, h, w = x.shape
     out_h = (h + 2 * ph - kh) // sh + 1
     out_w = (w + 2 * pw - kw) // sw + 1
-    cols = F.unfold(x, kernel_size=(kh, kw), padding=(ph, pw), stride=(sh, sw))  # (N, C*kH*kW, OH*OW)
-    cols = cols.transpose(1, 2)  # (N, OH*OW, C*kH*kW)
+    # Shape: [N, C, H, W] -> [N, C*kH*kW, OH*OW]
+    cols = F.unfold(x, kernel_size=(kh, kw), padding=(ph, pw), stride=(sh, sw))
+    # Shape: [N, C*kH*kW, OH*OW] -> [N, OH*OW, C*kH*kW]
+    cols = cols.transpose(1, 2)
     return cols, batch_shape, out_h, out_w
 
 
 def _fold_conv_output(y: Tensor, out_channels: int, batch_shape: tuple[int, ...], out_h: int, out_w: int) -> Tensor:
     """Reverse of :func:`_unfold_conv_input` for the per-row matmul output."""
-    # y: (N, OH*OW, out_channels) → (N, out_channels, OH, OW)
     n = y.shape[0]
+    # Shape: [N, OH*OW, out_channels] -> [N, out_channels, OH, OW]
     y = y.transpose(1, 2).reshape(n, out_channels, out_h, out_w)
     if batch_shape:
         y = y.reshape(*batch_shape, out_channels, out_h, out_w)
@@ -345,7 +347,8 @@ class QuantConv2d(nn.Module):
         self.register_buffer("zp_x", zp_x.to(torch.int32).reshape(()))
         self.register_buffer("s_y", s_y.to(torch.float32).reshape(()))
         self.register_buffer("zp_y", zp_y.to(torch.int32).reshape(()))
-        # Reshape to the macro's logical weight shape (out_channels, C*kH*kW).
+        # Reshape to the macro's logical weight shape.
+        # Shape: [out_channels, C, kH, kW] -> [out_channels, C*kH*kW]
         w_for_macro = weight_int.reshape(out_channels, in_channels * kernel_size[0] * kernel_size[1])
         macro.fabricate()
         macro.program(w_for_macro.to(torch.int32))
@@ -353,12 +356,14 @@ class QuantConv2d(nn.Module):
     @torch.no_grad()
     def forward(self, x: Tensor) -> Tensor:
         cols, batch_shape, out_h, out_w = _unfold_conv_input(x, self.kernel_size, self.stride, self.padding)
-        # cols: (N, OH*OW, K). Per-row linear through macro.
+        # Per-row linear through the macro.
+        # Shape: [N, OH*OW, K]
         x_int = _quantize_input(cols, self.s_x, self.zp_x)
         code = self.macro.linear(x_int, quantization_mode=self.quantization_mode, adc_bits=self.adc_bits).to(
             torch.int32
         )
-        # code: (N, OH*OW, out_channels). Apply per-out-channel mult/rshift.
+        # Apply the per-out-channel mult / rshift.
+        # Shape: [N, OH*OW, out_channels]
         y = (code + self.bias_int.view(1, 1, -1)) * self.mult.view(1, 1, -1)
         y = stochastic_floor_div(y, self.rshift.view(1, 1, -1), training=False)
         y = (y + self.zp_y.to(torch.int32)).clamp(Y_QMIN, Y_QMAX)
@@ -445,8 +450,9 @@ class QuantLinear(nn.Module):
 
     @torch.no_grad()
     def forward(self, x: Tensor) -> Tensor:
-        # Shape: [..., K] -> [..., 1, K]; linear passes leading dims through.
-        x_int = _quantize_input(x, self.s_x, self.zp_x).unsqueeze(-2)  # (..., 1, K)
+        # Linear passes the leading dims through.
+        # Shape: [..., K] -> [..., 1, K]
+        x_int = _quantize_input(x, self.s_x, self.zp_x).unsqueeze(-2)
         code = (
             self.macro.linear(x_int, quantization_mode=self.quantization_mode, adc_bits=self.adc_bits)
             .to(torch.int32)

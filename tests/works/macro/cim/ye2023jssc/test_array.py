@@ -215,12 +215,19 @@ def _expected_i_tbl(state: torch.Tensor, input_bits: tuple[int, ...]) -> torch.T
         dtype=_DTYPE,
     )
     radix = torch.tensor(_ALL_RADIX, dtype=_DTYPE).repeat_interleave(_INPUT_NUM)  # [1,1,2,2,3,3,5,5]
-    input_high = _bl_v_ref(input_bits) > _V_BL_THRESHOLD__V  # [col]
-    i_t2_in1 = table[1][state]  # [col, row]
-    i_t2_in0 = table[0][state]  # [col, row]
-    sel = torch.where(input_high.unsqueeze(-1), i_t2_in1, i_t2_in0)  # [col, row]
-    scaled = sel * radix.unsqueeze(-1)  # [col, row]
-    return scaled.sum(dim=0)  # [row] = per output
+    # Shape: [col]
+    input_high = _bl_v_ref(input_bits) > _V_BL_THRESHOLD__V
+    # Shape: [col, row]
+    i_t2_in1 = table[1][state]
+    # Shape: [col, row]
+    i_t2_in0 = table[0][state]
+    # Shape: [col, row]
+    sel = torch.where(input_high.unsqueeze(-1), i_t2_in1, i_t2_in0)
+    # Shape: [col, row]
+    scaled = sel * radix.unsqueeze(-1)
+    # One entry per output.
+    # Shape: [col, row] -> [row]
+    return scaled.sum(dim=0)
 
 
 def test_i_tbl_matches_lookup_sum_law() -> None:

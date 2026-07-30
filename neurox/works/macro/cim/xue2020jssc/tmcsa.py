@@ -74,16 +74,19 @@ class Tmcsa(ModuleBase[TmcsaConfig, TmcsaPolicy]):
         config: Immutable physical configuration (phase windows + per-step
             constant + static PPA seat).
         policy: Source-free runtime policy.
-        inst_shape: Fabrication shape ``(*inst, gn)``.
+        inst_shape: Fabrication shape ``(*inst_shape, gn)``.
         v_dd__V: Supply-rail voltage [V] the phase branches conduct across.
         dtype: Tensor dtype for the phase-window buffers.
     """
 
-    # --- Immutable model buffers ---
+    # === Functional buffers ===
 
-    _t_ph2__ns: Tensor
-    _t_ph3__ns: Tensor
-    _ref_tap_lut: Tensor
+    _ref_tap_lut: Tensor  # Shape: [2**max_bits, max_bits]
+
+    # === Circuit constant buffers ===
+
+    _t_ph2__ns: Tensor  # Shape: [max_bits]
+    _t_ph3__ns: Tensor  # Shape: [max_bits]
 
     def __init__(
         self,
@@ -97,16 +100,22 @@ class Tmcsa(ModuleBase[TmcsaConfig, TmcsaPolicy]):
         if not (v_dd__V >= 0.0):
             raise ValueError(f"require: v_dd__V ({v_dd__V}) >= 0")
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
-        self._area_per_inst__um2 = config.area_per_inst__um2
-        self._leakage_per_inst__uW = config.leakage_per_inst__uW
         self._v_dd__V = v_dd__V
         self.register_buffer("_t_ph2__ns", torch.tensor(config.t_ph2_per_step__ns, dtype=dtype), persistent=False)
         self.register_buffer("_t_ph3__ns", torch.tensor(config.t_ph3_per_step__ns, dtype=dtype), persistent=False)
         self.register_buffer("_ref_tap_lut", self._build_ref_tap_lut(self.max_bits), persistent=False)
 
+    @property
+    def _area_per_inst__um2(self) -> float:
+        return self.config.area_per_inst__um2
+
+    @property
+    def _leakage_per_inst__uW(self) -> float:
+        return self.config.leakage_per_inst__uW
+
     @staticmethod
     def _build_ref_tap_lut(bits: int) -> Tensor:
-        """Structural ``[2**bits, bits]`` code -> per-step reference-tap index LUT.
+        """Structural code -> per-step reference-tap index LUT.
 
         The SAR binary-search tap sequence is a bijection of the final unsigned
         code: at step ``s`` (1-based) only the top ``s - 1`` final bits are
@@ -134,13 +143,16 @@ class Tmcsa(ModuleBase[TmcsaConfig, TmcsaPolicy]):
 
         Args:
             i_sub__uA: Converted magnitude current (the ISUB output copy the
-                TMCSA sinks), shape ``[..., serial, gn]``.
-            code: Raw unsigned codes the kernel SarIadc returned for
-                ``i_sub__uA``, same shape (long).
+                TMCSA sinks).
+                Shape: ``[..., serial, gn]``.
+            code: Raw unsigned codes (long) the kernel SarIadc returned for
+                ``i_sub__uA``.
+                Shape: ``[..., serial, gn]``.
             adc_refs_mode__uA: Per-instance MAX-BITS reference ladder of the
-                selected mode, ``[*R, 2**max_bits - 1]`` taps ascending on the
-                last axis, ``[*R]`` right-broadcasting against ``i_sub__uA`` —
-                passed per call (the LUT is structural, the refs are runtime).
+                selected mode, taps ascending on the last axis, its leading
+                dims right-broadcasting against ``i_sub__uA`` — passed per call
+                (the LUT is structural, the refs are runtime).
+                Shape: ``[..., 2**max_bits - 1]``.
             bits: Resolution this conversion ran at, in ``[1, max_bits]``. A
                 ``b``-bit conversion truncates the max-bits binary search after
                 its FIRST ``b`` steps and lands on the max-bits code
@@ -172,7 +184,7 @@ class Tmcsa(ModuleBase[TmcsaConfig, TmcsaPolicy]):
         if not self._is_dynamic_energy_profile_active():
             return
 
-        # Shape: [*R, n_taps] -> [..., serial, gn, n_taps]
+        # Shape: [..., n_taps] -> [..., serial, gn, n_taps]
         ref_b = torch.broadcast_to(adc_refs_mode__uA, (*i_sub__uA.shape, n_taps))
         # The per-step selected reference-path current, recovered from the
         # final code through the structural LUT: the code re-enters the

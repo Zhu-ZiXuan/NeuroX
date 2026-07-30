@@ -313,9 +313,9 @@ def _build_linear(
 def _assert_unit_matches_torch(unit: LinearUnit, weight: torch.Tensor, activation: torch.Tensor) -> torch.Tensor:
     unit.program(weight)
     actual = unit.linear(activation, quantization_mode=_TEST_QUANTIZATION_MODE, adc_bits=_TEST_ADC_BITS)
-    # F.linear-form oracle: activation [..., K] against weight [*prefix, N, K];
+    # F.linear-form oracle: activation [..., K] against weight [..., N, K];
     # the weight prefix broadcasts right-aligned over the activation batch dims.
-    # Shape: [..., K] -> [..., 1, K] @ [*prefix, K, N] -> [..., 1, N] -> [..., N]
+    # Shape: [..., K] -> [..., N]
     expected = torch.matmul(activation.to(torch.int64).unsqueeze(-2), weight.transpose(-1, -2).to(torch.int64)).squeeze(
         -2
     )
@@ -635,7 +635,8 @@ def test_direct_engine_unit_multi_input_phase_quantized_end_to_end() -> None:
     xp = activation.to(torch.int64).unflatten(-1, (input_phase_num, max_active_num))
     wp = weight.to(torch.int64).unflatten(-1, (input_phase_num, max_active_num))
     plane_dot = torch.einsum("mpa,npa->mpn", xp, wp)
-    expected = _convert(plane_dot).sum(dim=-2)  # [m, n]
+    # Shape: [m, input_phase_num, n] -> [m, n]
+    expected = _convert(plane_dot).sum(dim=-2)
 
     assert actual.shape == (m, n)
     assert torch.equal(actual.to(torch.int64), expected)

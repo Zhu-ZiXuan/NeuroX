@@ -77,7 +77,7 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
     Args:
         config: Engine configuration.
         policy: Composite engine policy.
-        w_logical_shape: Weight shape ``(*prefix, N, K)`` bound to
+        w_logical_shape: Weight shape ``(..., N, K)`` bound to
             :meth:`program`.
         dtype: Tensor dtype used by the CIM macro.
         T__K: Operating temperature.
@@ -263,6 +263,7 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
 
         Args:
             weight: Weight tensor matching the shape bound at construction.
+                Shape: ``[..., N, K]``.
         """
         if tuple(weight.shape) != self._w_logical_shape:
             raise ValueError(f"program() expects weight.shape {self._w_logical_shape}; got {tuple(weight.shape)}")
@@ -273,13 +274,15 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
         """Multiply logical inputs by the programmed weight.
 
         Args:
-            input: Integer activation tensor of shape ``[..., M, K]``.
+            input: Integer activation tensor.
+                Shape: ``[..., M, K]``.
             quantization_mode: Runtime quantization-mode index.
             adc_bits: Runtime ADC resolution, or ``None`` for the lossless
                 oracle.
 
         Returns:
-            Integer tensor of shape ``[..., M, N]``.
+            Integer tensor.
+            Shape: ``[..., M, N]``.
         """
         # Shape: [..., M, K] -> [..., M, Sa, Sw=1, Tc, G=1, L]
         organized = self._organize_x(input)

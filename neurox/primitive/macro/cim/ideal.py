@@ -92,9 +92,9 @@ class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
         T__K: Operating temperature.
     """
 
-    # --- Programmed state ---
+    # === Programmed state ===
 
-    _w: Tensor
+    _w: Tensor  # Shape: [*inst_shape, input_num, output_num]
 
     def __init__(
         self,
@@ -120,8 +120,6 @@ class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
             raise ValueError(f"require: max_active_num ({config.max_active_num}) <= input_num ({input_num})")
         self.input_num = input_num
         self.output_num = output_num
-        self._area_per_inst__um2 = 0.0
-        self._leakage_per_inst__uW = 0.0
 
         w_lo, w_hi = config.w_value_range
         max_w_abs = max(abs(w_lo), abs(w_hi))
@@ -130,6 +128,14 @@ class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
         self._max_plane_dot_abs = config.max_active_num * max_w_abs * max_x_abs
         # Integers below 2^24 are exactly representable by IEEE fp32.
         self._fp32_exact = self._max_plane_dot_abs < 2**24
+
+    @property
+    def _area_per_inst__um2(self) -> float:
+        return 0.0
+
+    @property
+    def _leakage_per_inst__uW(self) -> float:
+        return 0.0
 
     @property
     def x_value_range(self) -> tuple[int, int]:
@@ -187,20 +193,22 @@ class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
         """Ideal per-plane VMM followed by one windowed conversion.
 
         Args:
-            x: Logical input tensor with primitive trailing ``[input_num]``;
-                at most :attr:`max_active_num` positions may be selected.
+            x: Logical input tensor; at most :attr:`max_active_num` positions
+                may be selected.
+                Shape: ``[..., input_num]``.
             quantization_mode: Window index in
                 ``[0, len(quantization_input_ranges))``.
             adc_bits: Conversion resolution [bits] in ``[1, adc_max_bits]``,
                 or ``None`` for the lossless oracle.
 
         Returns:
-            Signed ``int64`` code tensor with the leading order preserved
-            and primitive trailing ``[output_num]``. The lossless oracle
+            Signed ``int64`` code tensor whose leading axes broadcast the
+            input's against :attr:`inst_shape`. The lossless oracle
             returns the exact integer plane dots unmodified. Otherwise a
             mid-zero window yields codes in ``[-2^(b-1), 2^(b-1) - 1]`` and
             an unsigned window codes in ``[0, 2^b - 1]``: dots below the
             window clip to the bottom code, dots above it to the top one.
+            Shape: ``[..., output_num]``.
 
         Raises:
             ValueError: ``quantization_mode`` is outside the declared modes,
@@ -212,7 +220,7 @@ class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
         w = self._w.to(torch.int64)
 
         if self._fp32_exact:
-            # Shape: [..., input_num, output_num] x [..., input_num] -> [..., output_num]
+            # Shape: [..., input_num] @ [..., input_num, output_num] -> [..., output_num]
             plane_dot = torch.einsum("...io,...i->...o", w.to(torch.float32), x.to(torch.float32)).to(torch.int64)
         else:
             # Shape: [..., input_num] -> [..., input_num, 1]
@@ -258,12 +266,14 @@ class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
 
         Args:
             plane_dot: Exact integer plane dots.
+                Shape: ``[..., output_num]``.
             lower: Window minimum, inclusive, in MAC units.
             upper: Window maximum, inclusive, in MAC units.
             adc_bits: ADC resolution [bits], at least ``1``.
 
         Returns:
-            Signed ``int64`` code tensor shaped like ``plane_dot``.
+            Signed ``int64`` code tensor, one code per plane dot.
+            Shape: ``[..., output_num]``.
         """
         level_num = 1 << adc_bits
         width = upper - lower + 1

@@ -12,7 +12,7 @@ from torch import Tensor
 
 
 class Slicer(ABC):
-    """Decompose integers into a trailing ``[slice_num]`` axis."""
+    """Decompose integers into a trailing slice axis."""
 
     @property
     @abstractmethod
@@ -34,5 +34,10 @@ class Slicer(ABC):
 
     @abstractmethod
     def slice(self, x: Tensor) -> Tensor:
-        """Decompose ``x`` into trailing ``[slice_num]`` values."""
+        """Decompose ``x`` into trailing positional slice values.
+
+        Returns:
+            Positional slice values.
+            Shape: ``[..., slice_num]``.
+        """
         raise NotImplementedError

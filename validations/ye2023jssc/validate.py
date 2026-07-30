@@ -220,10 +220,10 @@ def _golden_transfer(macro: Ye2023JsscCimMacro, w: Tensor, x: Tensor) -> tuple[T
     Args:
         macro: Macro whose config tables define the transfer.
         w: Logical weight tensor ``[row_num, col_num]``.
-        x: 1-bit input tensor ``[*B, row_num]``.
+        x: 1-bit input tensor ``[..., row_num]``.
 
     Returns:
-        The expected unsigned code ``[*B, col_num]`` and the distance [uA] from
+        The expected unsigned code ``[..., col_num]`` and the distance [uA] from
         the compensated current to the nearest decision tap, which is zero when
         the sample sits exactly on a tap.
     """
@@ -235,8 +235,8 @@ def _golden_transfer(macro: Ye2023JsscCimMacro, w: Tensor, x: Tensor) -> tuple[T
     i_lsb__uA = config.adc_config.i_lsb__uA
 
     x_f = x.to(torch.float64)
-    mac = x_f @ w.to(torch.float64)  # [*B, col]
-    active = x_f.sum(dim=-1, keepdim=True)  # [*B, 1]
+    mac = x_f @ w.to(torch.float64)  # [..., col]
+    active = x_f.sum(dim=-1, keepdim=True)  # [..., 1]
     i_comp__uA = (i_lrs__uA - i_floor__uA) * mac + (i_hrs__uA - i_floor__uA) * (radix_sum * active - mac)
 
     quotient = i_comp__uA / i_lsb__uA

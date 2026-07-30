@@ -275,13 +275,16 @@ def ideal_mac(w_val: Tensor, x: Tensor, *, clamp: bool = True, mag_max: int = MA
     """CPU int64 unsigned VMM reference.
 
     Args:
-        w_val: Unsigned logical weights ``[input_num, output_num]``.
-        x: 1-bit activations ``[..., input_num]``.
+        w_val: Unsigned logical weights.
+            Shape: ``[input_num, output_num]``.
+        x: 1-bit activations.
+            Shape: ``[..., input_num]``.
         clamp: Clamp to ``[0, mag_max]`` (the RS-CSA code saturation).
         mag_max: Upper code bound.
 
     Returns:
-        Expected MAC / code ``[..., out]`` on CPU (int64).
+        Expected MAC / code on CPU (int64).
+        Shape: ``[..., out]``.
     """
     w2 = w_val.cpu().long()
     x2 = x.cpu().long()
@@ -299,7 +302,7 @@ def decode(
 ) -> Tensor:
     """Program logical unsigned weights and run one VMM.
 
-    Returns the unsigned codes ``[..., out]`` on CPU.
+    Returns the unsigned codes on CPU.
     """
     device = macro_device(macro)
     macro.program(w_val.to(device))

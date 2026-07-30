@@ -1,4 +1,8 @@
-"""Ideal conv2d compute unit."""
+"""Ideal conv2d compute unit.
+
+See also:
+    docs/internals/architecture/unit/conv2d.md
+"""
 
 from __future__ import annotations
 
@@ -55,6 +59,10 @@ class IdealConv2dUnit(Conv2dUnit, CimUnit[IdealConv2dUnitConfig, IdealConv2dUnit
         ideal_macro: Accepted without changing this already ideal unit.
     """
 
+    # === Programmed state ===
+
+    _weight: Tensor  # Shape: [C_out, C_in*kh*kw]
+
     def __init__(
         self,
         *,
@@ -75,14 +83,20 @@ class IdealConv2dUnit(Conv2dUnit, CimUnit[IdealConv2dUnitConfig, IdealConv2dUnit
         )
         if len(self._w_logical_shape) != 4:
             raise ValueError(f"w_logical_shape must be (C_out, C_in, kh, kw); got {w_logical_shape}")
-        self._area_per_inst__um2 = config.area_per_inst__um2
-        self._leakage_per_inst__uW = config.leakage_per_inst__uW
         self._init_conv2d_operator(
             kernel_size=(self._w_logical_shape[-2], self._w_logical_shape[-1]),
             stride=config.stride,
             padding=config.padding,
             dilation=config.dilation,
         )
+
+    @property
+    def _area_per_inst__um2(self) -> float:
+        return self.config.area_per_inst__um2
+
+    @property
+    def _leakage_per_inst__uW(self) -> float:
+        return self.config.leakage_per_inst__uW
 
     @property
     def w_value_range(self) -> tuple[int, int]:

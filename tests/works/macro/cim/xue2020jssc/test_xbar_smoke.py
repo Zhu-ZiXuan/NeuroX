@@ -8,8 +8,8 @@ its ladder calibrated in-code (``_utils.build_calibrated_macro``: ``output_num =
 ``vec_mat_mul`` on an integer activation batch. Asserts:
 
   * the output is an integer signed-magnitude code tensor with the caller's
-    leading order preserved and primitive trailing ``[output_num]``, every value in
-    ``[-MAG_MAX, MAG_MAX]``, and bit-exactly the clamped ideal integer MAC,
+    leading order preserved, every value in ``[-MAG_MAX, MAG_MAX]``, and
+    bit-exactly the clamped ideal integer MAC;
   * a :class:`NeuroxProfiler` report is coherent: the two macro-billed channels
     (``cablc`` / ``control``) and the self-billing array + DSWCT / SINWP-SC /
     PN-ISUB + TMCSA module rows carry positive dynamic energy, the totals are

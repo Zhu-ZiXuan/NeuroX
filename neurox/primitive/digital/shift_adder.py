@@ -50,9 +50,9 @@ class ShiftAdder(DigitalBase[ShiftAdderConfig]):
         digit_count: Number of positional digits reduced per operation.
     """
 
-    # --- Immutable model buffers ---
+    # === Functional buffers ===
 
-    _scales: Tensor
+    _scales: Tensor  # Shape: [digit_count]
 
     def __init__(
         self,
@@ -64,8 +64,6 @@ class ShiftAdder(DigitalBase[ShiftAdderConfig]):
         digit_count: int,
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
-        self._area_per_inst__um2 = config.area_per_inst__um2
-        self._leakage_per_inst__uW = config.leakage_per_inst__uW
         self._register_latency_buffer(config.latency_per_op__ns)
         if scale < 2:
             raise ValueError(f"require: scale ({scale}) >= 2")
@@ -77,11 +75,20 @@ class ShiftAdder(DigitalBase[ShiftAdderConfig]):
             persistent=False,
         )
 
+    @property
+    def _area_per_inst__um2(self) -> float:
+        return self.config.area_per_inst__um2
+
+    @property
+    def _leakage_per_inst__uW(self) -> float:
+        return self.config.leakage_per_inst__uW
+
     def shift_add(self, x: Tensor, dim: int, init_val: Tensor | None) -> Tensor:
         """Compute the radix-weighted digit sum and wrap to ``bit_width`` bits.
 
         Args:
-            x: Integer digit tensor; size of ``dim`` is the digit count.
+            x: Integer digit tensor.
+                Shape: ``[..., digit_count, ...]``.
             dim: Axis indexing the digit positions.
             init_val: Optional partial-sum tensor added after the modular wrap,
                 broadcastable to the output shape.

@@ -17,7 +17,7 @@ from neurox.primitive.xbar.solver._linalg import solve_tridiagonal
 
 
 def _build_dense(sub: torch.Tensor, diag: torch.Tensor, sup: torch.Tensor, dim: int) -> torch.Tensor:
-    """Build the dense ``[..., N, N]`` tridiagonal matrix from the three diagonals.
+    """Build the dense tridiagonal matrix from the three diagonals.
 
     ``sub[..., 0]`` and ``sup[..., -1]`` are solver placeholders; we drop
     them here so the dense reference matches the *actual* linear system
@@ -40,7 +40,7 @@ def _random_diag_dominant(
     """Make a random diagonally-dominant tridiagonal system of length ``N`` along ``dim``.
 
     The boundary entries ``sub[..., 0, ...]`` and ``sup[..., N-1, ...]`` are
-    filled with deliberately-noisy placeholder values (+/- large magnitude)
+    filled with deliberately-noisy placeholder values (± large magnitude)
     so that any bug that lets them leak through PCR will be flagged.
     """
     full_shape = list(shape)
@@ -81,7 +81,7 @@ def test_pcr_matches_dense_solve(
 
 @pytest.mark.parametrize("dim", [-1, -2])
 def test_pcr_matches_dense_solve_on_production_shapes(dim: int, device: torch.device) -> None:
-    """Mirrors the production shape: ``[batch=8, col=64, row=64]`` along either wire axis."""
+    """Mirrors the production layout along either wire axis."""
     N = 64
     batch = (8,)
     sub, diag, sup, rhs = _random_diag_dominant((*batch, 64), N=N, dim=dim, dtype=torch.float32, device=device)

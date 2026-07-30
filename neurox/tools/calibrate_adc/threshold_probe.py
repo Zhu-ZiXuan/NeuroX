@@ -302,9 +302,9 @@ def _fragment_lines(placements: list[ModePlacement]) -> list[str]:
     """The threshold-ladder fragment (mode rows, ascending mode index).
 
     One fragment for the reference block — the single ladder source. The ADC
-    reads its references per call from the reference block, so the placed 2-D
-    ``[mode][tap]`` bank is pasted into ``reference_config.i_refs__uA`` only
-    (row index = ``quantization_mode``).
+    reads its references per call from the reference block, so the placed
+    threshold bank is pasted into ``reference_config.i_refs__uA`` only (row
+    index = ``quantization_mode``).
     """
     rows = [
         "[" + ", ".join(f"{t:.6f}" for t in p.placement.thresholds) + "]"

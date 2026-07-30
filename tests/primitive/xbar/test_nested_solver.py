@@ -58,8 +58,8 @@ def _dense_kcl_solution(harness: SolverHarness) -> tuple[Tensor, Tensor, Tensor,
     ideal drivers pin the rail boundaries at the reference taps
     (Dirichlet). Unknowns per column are ``[v_bl(0..R-1), v_sl(0..R-1)]``.
 
-    Returns ``(v_bl_node, v_sl_node, i_bl_driver, i_sl_driver)`` with
-    grid shapes ``(col, row)`` and per-column shapes ``(col,)``.
+    Returns ``(v_bl_node, v_sl_node, i_bl_driver, i_sl_driver)``: the two node
+    grids followed by the two per-column driver currents.
     """
     cfg = harness.cell_config
     idx = harness.w_state_idx
@@ -71,7 +71,8 @@ def _dense_kcl_solution(harness: SolverHarness) -> tuple[Tensor, Tensor, Tensor,
     g_on = torch.tensor(cfg.g_cell_on_table__uS, device=device, dtype=dtype)[idx]
     g_off = torch.tensor(cfg.g_cell_off_table__uS, device=device, dtype=dtype)[idx]
     on = harness.v_wl_drive__V[0] > cfg.v_wl_on_threshold__V
-    g_cell = torch.where(on, g_on, g_off)  # (col, row)
+    # Shape: [col, row]
+    g_cell = torch.where(on, g_on, g_off)
 
     g_bl = harness.bl_segment_g__uS
     g_sl = harness.sl_segment_g__uS

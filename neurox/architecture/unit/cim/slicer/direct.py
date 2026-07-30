@@ -44,7 +44,8 @@ class DirectSlicer(Slicer):
             x: Integer tensor.
 
         Returns:
-            ``x`` with shape ``[..., slice_num=1]``.
+            ``x`` with one appended slice axis.
+            Shape: ``[..., slice_num=1]``.
         """
         # Shape: [...] -> [..., slice_num=1]
         return x.unsqueeze(-1)

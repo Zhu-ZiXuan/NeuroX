@@ -61,10 +61,10 @@ class BlockSlotRouting:
     """Input routing for geometric block slots.
 
     Attributes:
-        gather_index: Local input indices with shape
-            ``[block_slot, tile_input]``.
-        slot_mask: Tile input positions belonging to each block slot, with
-            shape ``[block_slot, tile_input]``.
+        gather_index: Local input indices.
+            Shape: ``[block_slot, tile_input]``.
+        slot_mask: Tile input positions belonging to each block slot.
+            Shape: ``[block_slot, tile_input]``.
     """
 
     gather_index: Tensor
@@ -163,7 +163,8 @@ def make_activation_group_mask(*, activation: InputActivationPlan) -> Tensor:
         activation: Local activation partition for one input block.
 
     Returns:
-        Boolean mask with shape ``[activation_group, block_input]``.
+        Boolean mask over the local input positions of one activation group.
+        Shape: ``[activation_group, block_input]``.
     """
     input_positions = torch.arange(activation.input_block_size)
     # Shape: [activation_group] -> [activation_group, 1]

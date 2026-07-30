@@ -213,7 +213,8 @@ class QuantLinear(nn.Module):
 
     @torch.no_grad()
     def forward(self, x: Tensor) -> Tensor:
-        # Shape: [..., K] -> [..., 1, K]; linear passes leading dims through.
+        # Linear passes the leading dims through.
+        # Shape: [..., K] -> [..., 1, K]
         x_int = _quantize_input(x, self.s_x, self.zp_x).unsqueeze(-2)
         code = (
             self.macro.linear(x_int, quantization_mode=self.quantization_mode, adc_bits=self.adc_bits)

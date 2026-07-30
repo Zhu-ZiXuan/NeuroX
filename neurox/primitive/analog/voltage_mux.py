@@ -39,6 +39,7 @@ class VmuxConfig(AnalogConfig):
     leakage_per_inst__uW: float
 
     def validate(self) -> None:
+
         # --- Gain and noise ---
 
         self._require_pos(self.mux_ratio, "mux_ratio")
@@ -77,13 +78,17 @@ class Vmux(AnalogBase[VmuxConfig, VmuxPolicy]):
         T__K: Operating temperature.
     """
 
-    # --- Immutable PPA buffers ---
+    # === Circuit constant buffers ===
 
-    _latency_per_op__ns: Tensor
+    _latency_per_op__ns: Tensor  # Shape: []
 
-    # --- Fabrication source buffers ---
+    # === Nominal buffers ===
 
-    _nominal_eps_g: Tensor
+    _nominal_eps_g: Tensor  # Shape: []
+
+    # === Fabricated state ===
+
+    _eps_g: Tensor  # Shape: [*inst_shape]
 
     def __init__(
         self,
@@ -95,8 +100,6 @@ class Vmux(AnalogBase[VmuxConfig, VmuxPolicy]):
         T__K: float,
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
-        self._area_per_inst__um2 = config.area_per_inst__um2
-        self._leakage_per_inst__uW = config.leakage_per_inst__uW
         self._sigma_eps_g = config.mux_gain_mismatch_sigma_relative
         self.register_buffer(
             "_latency_per_op__ns",
@@ -104,6 +107,14 @@ class Vmux(AnalogBase[VmuxConfig, VmuxPolicy]):
             persistent=False,
         )
         self._register_fabrication_buffers(dtype=dtype)
+
+    @property
+    def _area_per_inst__um2(self) -> float:
+        return self.config.area_per_inst__um2
+
+    @property
+    def _leakage_per_inst__uW(self) -> float:
+        return self.config.leakage_per_inst__uW
 
     def _register_fabrication_buffers(self, *, dtype: torch.dtype) -> None:
         """Register immutable tensors used as fabrication sources."""
@@ -123,12 +134,15 @@ class Vmux(AnalogBase[VmuxConfig, VmuxPolicy]):
         """Transport voltages already scheduled across mux accesses and lanes.
 
         Args:
-            v__V: Single-ended input voltages. Shape:
-                ``[..., access_num, lane_num]``, where ``access_num`` equals
-                ``mux_ratio``.
+            v__V: Single-ended input voltages, where ``access_num`` equals
+                ``mux_ratio`` and ``lane_num`` is the last extent of
+                ``inst_shape``. Any outer instance axes broadcast to the left of
+                the access axis.
+                Shape: ``[..., access_num, lane_num]``.
 
         Returns:
-            Transported voltages with the same shape as ``v__V``.
+            Transported voltages, at the same shape as ``v__V``.
+            Shape: ``[..., access_num, lane_num]``.
         """
         lane_num = self.inst_shape[-1] if self.inst_shape else 1
         expected_trailing = (self.config.mux_ratio, lane_num)
@@ -138,7 +152,7 @@ class Vmux(AnalogBase[VmuxConfig, VmuxPolicy]):
                 f"got {tuple(v__V.shape[-2:])}"
             )
 
-        # Shape: [*inst_shape] -> [*inst_prefix, access=1, lane_num]
+        # Shape: [*inst_shape] -> [..., access=1, lane_num]
         eps_g = self._eps_g.reshape(*self.inst_shape[:-1], 1, lane_num)
         gain = self.config.mux_gain * (1 + eps_g)
         v_muxed__V = gain * v__V

@@ -45,9 +45,11 @@ def fit_rescale_through_origin(code: Tensor, ideal: Tensor) -> RescaleFit:
     """LS-fit the zero-through-origin rescale ``ideal ~= r * code``.
 
     Args:
-        code: ADC code samples (any shape; flattened). Must not be all
+        code: ADC code samples, flattened internally. Must not be all
             zero — a zero design matrix has no slope.
+            Shape: ``[...]``.
         ideal: Ideal-value samples, same element count as ``code``.
+            Shape: ``[...]``.
 
     Returns:
         The fitted :class:`RescaleFit` (float64 accumulation).
@@ -116,9 +118,11 @@ def band_stats(
     their analog values bound no band of this grid.
 
     Args:
-        input_code: Integer ADC input code per sample (any shape;
-            flattened).
+        input_code: Integer ADC input code per sample, flattened
+            internally.
+            Shape: ``[...]``.
         analog: Analog input per sample, same element count.
+            Shape: ``[...]``.
         adc_input_code_range: Inclusive grid bounds ``(lower, upper)``;
             bands cover ``lower .. upper``.
 
@@ -230,8 +234,10 @@ def fit_linear(x: Tensor, y: Tensor) -> LinearFit:
     """OLS line fit (float64) — the grid-curve ``I(M)`` diagnostic.
 
     Args:
-        x: Abscissa samples (any shape; flattened), at least 2 distinct.
+        x: Abscissa samples, flattened internally; at least 2 distinct.
+            Shape: ``[...]``.
         y: Ordinate samples, same element count.
+            Shape: ``[...]``.
     """
     xf = x.detach().flatten().to(torch.float64)
     yf = y.detach().flatten().to(torch.float64)
@@ -348,8 +354,11 @@ def cluster_values(
 class FitSampleFilter:
     """Keep mask + per-cause drop counts for one mode's calibration pairs.
 
+    ``sample_num`` is the flattened input pairs' common element count.
+
     Attributes:
         keep: Boolean mask over the flattened input pairs.
+            Shape: ``[sample_num]``.
         range_dropped_num: Pairs whose ADC input code falls outside
             ``adc_input_code_range`` (outside the mode's design domain on
             the ideal axis).
@@ -375,10 +384,12 @@ def filter_fit_samples(
     ``adc_input_code_range`` AND ``code < top_code``.
 
     Args:
-        code: ADC code per pair (any shape; flattened).
+        code: ADC code per pair, flattened internally.
+            Shape: ``[...]``.
         adc_input_code: Ideal-side ADC input code per pair (the exact MAC
             dot mapped onto the macro's converter axis), same element
             count.
+            Shape: ``[...]``.
         adc_input_code_range: The mode's inclusive input-code domain.
         top_code: The quantizer's top code at the fitted bit width.
 

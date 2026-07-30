@@ -80,7 +80,7 @@ class ModuleBase(FabricateMixin, nn.Module, ProfileMixin, Generic[ConfigT, Polic
     Subclass requirements:
         - Implement ``_sample_fabricate_mismatch`` for local static state; a
           container with no local mismatch implements an explicit no-op.
-        - A profile target must initialize ``_area_per_inst__um2`` and
+        - A profile target implements ``_area_per_inst__um2`` and
           ``_leakage_per_inst__uW``. A module whose PPA is owned elsewhere sets
           ``is_profile_target = False``.
 

@@ -1,9 +1,9 @@
 """Single-ended current ADC: per-instance references + bits + B-form energy.
 
 ``SarIadc.convert(i_in__uA, i_refs__uA, *, bits)`` takes the reference ladder
-per call as a ``[*R, n_ref]`` tensor of ``2 ** max_bits - 1`` ascending taps on
+per call as a ``[..., n_ref]`` tensor of ``2 ** max_bits - 1`` ascending taps on
 the **last** axis (the caller has already selected the operating mode's row —
-mode is invisible to the ADC); the ``[*R]`` leading broadcasts right-aligned
+mode is invisible to the ADC); the leading dims broadcast right-aligned
 against ``i_in__uA``, so each ADC instance may carry its own ladder. Bit width
 is ADC-internal: the FULL ladder is always wired and a ``bits``-bit conversion
 truncates the max-bits binary search after ``bits`` levels. These tests pin:
@@ -164,7 +164,7 @@ def test_unit_ladder_code_counts_exceeded_taps(device: torch.device) -> None:
 
 
 def test_per_instance_ladders_broadcast(device: torch.device) -> None:
-    """Distinct ladders across the leading digitize their own inputs (``[*R, n_ref]``)."""
+    """Distinct ladders across the leading digitize their own inputs."""
     adc = _build(_config(), device)
     # Two instances, each with its own 7-tap ladder on the last axis.
     refs = torch.tensor(

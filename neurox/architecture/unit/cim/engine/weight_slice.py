@@ -100,7 +100,12 @@ class WeightSliceStage(
 
     @abstractmethod
     def arrange_weight(self, weight: Tensor) -> Tensor:
-        """Map canonical geometric blocks into ``[Sw,Tc,G,D,L,output_num]``."""
+        """Map canonical geometric blocks into the macro-facing weight layout.
+
+        Returns:
+            Weight codes in macro-facing order.
+            Shape: ``[..., Sw, Tc, G, D, L, output_num]``.
+        """
         raise NotImplementedError
 
     @abstractmethod

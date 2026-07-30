@@ -5,7 +5,7 @@
 ## Design decisions
 
 - **Empty markers `AnalogConfig` / `AnalogPolicy`.** The family shares no field across its leaves, so each carries its own `*Config` / `*Policy` subclass; the markers exist only to give the family a named config / policy base type.
-- **Per-instance PPA data is declared where it is carried.** The `AnalogConfig` marker declares no PPA field, so the `area_per_inst__um2` / `leakage_per_inst__uW` pair sits on a standalone block's own config, or once on a polymorphic family's config base for every member. Whether a block carries the pair at all is its own accounting call rather than a family property: a block whose silicon an owning circuit already budgets declares neither field and sets `is_profile_target` false, which excludes it from the profiler's static walk and forbids it from emitting a dynamic event of its own.
+- **Per-instance PPA data is declared where it is carried.** The `AnalogConfig` marker declares no PPA field, so the `area_per_inst__um2` / `leakage_per_inst__uW` pair sits on a standalone block's own config, or once on a polymorphic family's config base for every member. Whether a block carries the pair at all is its own accounting call rather than a family property: a block whose silicon an owning circuit already budgets declares neither field and stays a non-reporter, so the profiler's static walk skips it and it emits no dynamic event of its own.
 
 ## Contracts & invariants
 

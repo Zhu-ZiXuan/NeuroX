@@ -19,10 +19,16 @@ class _Leaf(nn.Module, ProfileMixin):
 
     def __init__(self, *, energy__fJ: float = 0.0, latency__ns: float = 0.0) -> None:
         nn.Module.__init__(self)
-        self._area_per_inst__um2 = 2.0
-        self._leakage_per_inst__uW = 0.5
         self._energy__fJ = energy__fJ
         self._latency__ns = latency__ns
+
+    @property
+    def _area_per_inst__um2(self) -> float:
+        return 2.0
+
+    @property
+    def _leakage_per_inst__uW(self) -> float:
+        return 0.5
 
     @property
     def inst_count(self) -> int:

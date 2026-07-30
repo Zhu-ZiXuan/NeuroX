@@ -99,8 +99,9 @@ def floor_bucketize(
 
     Args:
         signal: Float input.
-        boundaries: Sorted ascending threshold tensor of shape
-            ``[code_num - 1]``. Code edges: ``B_c = c · LSB``.
+        boundaries: Sorted ascending threshold tensor; code edges are
+            ``B_c = c · LSB``.
+            Shape: ``[code_num - 1]``.
         out_dtype: Target integer dtype.
         training: ``module.training`` flag.
         lsb: Bin width used to size the stochastic jitter.
@@ -123,11 +124,13 @@ def derive_multiplier_and_shift_tensor(
     """Batched fixed-point decomposition for per-channel scale tensors.
 
     Args:
-        scale_tensor: 1-D float tensor of per-channel scale factors.
+        scale_tensor: Float tensor of per-channel scale factors.
+            Shape: ``[num_channels]``.
         mult_bits: Multiplier precision (default 8).
 
     Returns:
-        ``(multiplier, rshift)`` int32 tensors, both shape-matching ``scale_tensor``.
+        ``(multiplier, rshift)`` int32 tensors.
+        Shape: ``[num_channels]``.
     """
     mult_max = (1 << mult_bits) - 1
     significand, exponent = torch.frexp(scale_tensor)
@@ -140,7 +143,7 @@ def derive_multiplier_and_shift_tensor(
 class PerTensorObserver(nn.Module):
     """Per-tensor asymmetric affine min/max observer with EMA tracking.
 
-    The ``frozen`` 0-d bool buffer pins ``(min, max)`` after calibration
+    The ``frozen`` bool buffer pins ``(min, max)`` after calibration
     so the stats survive subsequent ``model.train()`` calls.
 
     Args:
@@ -149,11 +152,11 @@ class PerTensorObserver(nn.Module):
         momentum: EMA weight on the newest batch.
     """
 
-    # --- Observer state buffers ---
+    # === Runtime buffers ===
 
-    min_val: Tensor
-    max_val: Tensor
-    frozen: Tensor
+    min_val: Tensor  # Shape: []
+    max_val: Tensor  # Shape: []
+    frozen: Tensor  # Shape: []
 
     def __init__(self, qmin: int, qmax: int, momentum: float = 0.1) -> None:
         super().__init__()
@@ -210,10 +213,10 @@ class PerChannelSymmObserver(nn.Module):
         momentum: EMA weight on the newest batch.
     """
 
-    # --- Observer state buffers ---
+    # === Runtime buffers ===
 
-    abs_max: Tensor
-    frozen: Tensor
+    abs_max: Tensor  # Shape: [num_channels]
+    frozen: Tensor  # Shape: []
 
     def __init__(self, num_channels: int, qmax: int, momentum: float = 0.1) -> None:
         super().__init__()
@@ -257,8 +260,10 @@ def fake_quant_ste(x: Tensor, scale: Tensor, zero_point: Tensor, qmin: int, qmax
 
     Args:
         x: Float input tensor.
-        scale: Per-tensor scale (float32 scalar).
-        zero_point: Per-tensor zero-point (int32 scalar).
+        scale: Per-tensor float32 scale.
+            Shape: ``[]``.
+        zero_point: Per-tensor int32 zero-point.
+            Shape: ``[]``.
         qmin: Integer grid minimum (inclusive).
         qmax: Integer grid maximum (inclusive).
     """
@@ -271,8 +276,10 @@ def fake_quant_symm_per_channel_ste(weight: Tensor, scale: Tensor, qmax: int) ->
     """Differentiable symmetric per-output-channel fake-quantize.
 
     Args:
-        weight: Float weight tensor, output-channel axis is ``0``.
-        scale: Per-channel scale, shape ``[C_out]``.
+        weight: Float weight tensor; axis 0 is the output channel.
+            Shape: ``[num_channels, ...]``.
+        scale: Per-channel scale.
+            Shape: ``[num_channels]``.
         qmax: Symmetric grid half-width — values clamp into ``[-qmax, +qmax]``.
     """
     shape = [scale.shape[0]] + [1] * (weight.ndim - 1)

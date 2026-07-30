@@ -100,6 +100,18 @@ class DiffVadc(
         T__K: Operating temperature.
     """
 
+    def __init__(
+        self,
+        *,
+        config: ConfigT,
+        policy: PolicyT,
+        inst_shape: tuple[int, ...],
+        dtype: torch.dtype,
+        T__K: float,
+    ) -> None:
+        del dtype, T__K
+        super().__init__(config=config, policy=policy, inst_shape=inst_shape)
+
     @classmethod
     def from_config(
         cls,
@@ -131,18 +143,6 @@ class DiffVadc(
             T__K=T__K,
         )
 
-    def __init__(
-        self,
-        *,
-        config: ConfigT,
-        policy: PolicyT,
-        inst_shape: tuple[int, ...],
-        dtype: torch.dtype,
-        T__K: float,
-    ) -> None:
-        del dtype, T__K
-        super().__init__(config=config, policy=policy, inst_shape=inst_shape)
-
     @property
     @abstractmethod
     def max_bits(self) -> int:
@@ -160,18 +160,21 @@ class DiffVadc(
         """Digitise a differential analog voltage into a raw unsigned code.
 
         Args:
-            v_pos__V: Positive-side analog input voltage. Shape arbitrary.
-            v_neg__V: Negative-side analog input voltage. Same
+            v_pos__V: Positive-side analog input voltage.
+                Shape: ``[...]``.
+            v_neg__V: Negative-side analog input voltage, at the same
                 shape as ``v_pos__V``.
+                Shape: ``[...]``.
             v_ref__V: Reference voltage, broadcastable to the input shape.
             bits: Active conversion resolution [bits].
 
         Returns:
-            Raw unsigned integer code tensor, same shape as ``v_pos__V``,
-            in the range reported by :meth:`unsigned_range` for
+            Raw unsigned integer code tensor, at the same shape as
+            ``v_pos__V``, in the range reported by :meth:`unsigned_range` for
             ``bits``. For offset-binary codes, recover the signed value as
             ``M_ideal ≈ (code − zero_offset(bits)) · rescale_factor``
             with a positive ``rescale_factor``.
+            Shape: ``[...]``.
         """
         code = self._convert_impl(
             v_pos__V,

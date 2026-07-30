@@ -153,9 +153,9 @@ class XbarArraySteadyState:
 
     Attributes:
         i_bl_port__uA: BL port current at the converged operating point.
-            Shape: ``[..., num_col]``.
-        v_bl_clamp__V: BL clamp voltage at the converged operating point,
-            shape ``[..., num_col]``.
+            Shape: ``[..., col_num]``.
+        v_bl_clamp__V: BL clamp voltage at the converged operating point.
+            Shape: ``[..., col_num]``.
     """
 
     i_bl_port__uA: Tensor
@@ -175,15 +175,15 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
         T__K: Operating temperature.
     """
 
-    # --- Immutable model buffers ---
+    # === Circuit constant buffers ===
 
-    _bl_segment_r__MOhm: Tensor
-    _sl_segment_r__MOhm: Tensor
-    _bl_segment_g__uS: Tensor
-    _sl_segment_g__uS: Tensor
-    _bl_segment_c__fF: Tensor
-    _sl_segment_c__fF: Tensor
-    _latency_per_op__ns: Tensor
+    _bl_segment_r__MOhm: Tensor  # Shape: [row_num]
+    _sl_segment_r__MOhm: Tensor  # Shape: [row_num]
+    _bl_segment_g__uS: Tensor  # Shape: [row_num]
+    _sl_segment_g__uS: Tensor  # Shape: [row_num]
+    _bl_segment_c__fF: Tensor  # Shape: [row_num]
+    _sl_segment_c__fF: Tensor  # Shape: [row_num]
+    _latency_per_op__ns: Tensor  # Shape: []
 
     def __init__(
         self,
@@ -202,8 +202,6 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
             raise ValueError(f"require: row_num ({row_num}) > 1")
 
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
-        self._area_per_inst__um2 = config.area_per_inst__um2
-        self._leakage_per_inst__uW = config.leakage_per_inst__uW
         self._row_num = row_num
         self._col_num = col_num
 
@@ -211,6 +209,14 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
         self._register_model_buffers(dtype=dtype)
 
         self._c_wl_wire_per_row__fF = config.wl_first_c__fF + (col_num - 1) * config.wl_segment_c__fF
+
+    @property
+    def _area_per_inst__um2(self) -> float:
+        return self.config.area_per_inst__um2
+
+    @property
+    def _leakage_per_inst__uW(self) -> float:
+        return self.config.leakage_per_inst__uW
 
     def _init_children(self, *, dtype: torch.dtype, T__K: float) -> None:
         """Construct the cell model and numerical solver."""
@@ -262,16 +268,16 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
 
     @property
     def weight_grid_shape(self) -> tuple[int, ...]:
-        """Shape of the weight grid (per-cell state array): ``(*inst, col, row)``."""
+        """Shape of the weight grid (per-cell state array): ``(*inst_shape, col, row)``."""
         return (*self.inst_shape, self._col_num, self._row_num)
 
     def program(self, w_state_idx: Tensor) -> None:
         """Write the cells from one state-index tensor.
 
         Args:
-            w_state_idx: State-index tensor in ``[0, w_state_num - 1]``,
-                shape must match ``self.weight_grid_shape =
-                (*inst, col_num, row_num)``.
+            w_state_idx: State-index tensor in ``[0, w_state_num - 1]`` at
+                ``self.weight_grid_shape``.
+                Shape: ``[*inst_shape, col_num, row_num]``.
         """
         if tuple(w_state_idx.shape) != self.weight_grid_shape:
             raise ValueError(
@@ -295,7 +301,8 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
         """Settle the 1T1R array to DC under an analog WL drive.
 
         Args:
-            v_wl: Analog WL drive [V], shape ``[..., row_num]``.
+            v_wl: Analog WL drive [V].
+                Shape: ``[..., row_num]``.
             bl_driver: BL boundary clamp (structural ``ClampDriver`` role).
             bl_v_ref__V: BL-clamp reference voltage.
             sl_driver: SL boundary clamp (structural ``ClampDriver`` role).
@@ -411,7 +418,8 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
                 snaps and the WL control drive ``[..., 1, row_num]``.
 
         Returns:
-            Array energy [fJ], shape ``[...]``.
+            Array energy [fJ].
+            Shape: ``[...]``.
         """
 
         v_bl__V = solver_dcop.v_bl_node

@@ -103,14 +103,20 @@ class McsSarDiffVadc(DiffVadc[McsSarDiffVadcConfig, McsSarDiffVadcPolicy]):
         T__K: Operating temperature.
     """
 
-    # --- Immutable PPA buffers ---
+    # === Circuit constant buffers ===
 
-    _clk_period__ns: Tensor
+    _clk_period__ns: Tensor  # Shape: []
 
-    # --- Fabrication source buffers ---
+    # === Nominal buffers ===
 
-    _nominal_c__fF: Tensor
-    _nominal_comparator_offset__V: Tensor
+    _nominal_c__fF: Tensor  # Shape: [cap_num]
+    _nominal_comparator_offset__V: Tensor  # Shape: []
+
+    # === Fabricated state ===
+
+    _c_p__fF: Tensor  # Shape: [*inst_shape, cap_num]
+    _c_n__fF: Tensor  # Shape: [*inst_shape, cap_num]
+    _comparator_offset__V: Tensor  # Shape: [*inst_shape]
 
     def __init__(
         self,
@@ -131,8 +137,6 @@ class McsSarDiffVadc(DiffVadc[McsSarDiffVadcConfig, McsSarDiffVadcPolicy]):
         if not (T__K > 0.0):
             raise ValueError(f"McsSarDiffVadc T__K ({T__K}) must be > 0")
 
-        self._area_per_inst__um2 = config.area_per_inst__um2
-        self._leakage_per_inst__uW = config.leakage_per_inst__uW
         self._T__K = T__K
 
         self._comparator_noise_sigma__V = config.comparator_thermal_noise_sigma__V * math.sqrt(T__K / 300.0)
@@ -148,6 +152,14 @@ class McsSarDiffVadc(DiffVadc[McsSarDiffVadcConfig, McsSarDiffVadcPolicy]):
         # Precompute integer tables to avoid symbolic left shifts at runtime.
         self._unsigned_max_table = tuple(((1 << b) - 1) if b >= 1 else 0 for b in range(config.max_bits + 1))
         self._zero_offset_table = tuple((1 << (b - 1)) if b >= 1 else 0 for b in range(config.max_bits + 1))
+
+    @property
+    def _area_per_inst__um2(self) -> float:
+        return self.config.area_per_inst__um2
+
+    @property
+    def _leakage_per_inst__uW(self) -> float:
+        return self.config.leakage_per_inst__uW
 
     def _register_fabrication_buffers(self, *, dtype: torch.dtype) -> None:
         """Register immutable tensors used as fabrication sources."""

@@ -145,10 +145,14 @@ def build_ideal_twin(macro: CimMacro, *, device: torch.device) -> IdealCimMacro:
 
 
 def sample_ternary_w(gen: torch.Generator, *, col_num: int, row_num: int, density: float) -> Tensor:
-    """Random ternary digit tensor ``(col_num, 1, row_num)`` at ``density``.
+    """Random ternary digit tensor at ``density``.
 
     Each cell is non-zero with probability ``density``; non-zero cells are
     ``+1`` or ``-1`` with equal probability.
+
+    Returns:
+        Digit tensor.
+        Shape: ``[col_num, 1, row_num]``.
     """
     active = torch.rand((col_num, 1, row_num), generator=gen) < density
     sign = torch.where(torch.rand((col_num, 1, row_num), generator=gen) < 0.5, -1, 1)
@@ -173,7 +177,8 @@ def sample_capped_block_w(
     truncated), mirroring the engine's partial last sub-phase.
 
     Returns:
-        Digit tensor ``(col_num, 1, row_num)``.
+        Digit tensor.
+        Shape: ``[col_num, 1, row_num]``.
     """
     if not (0 <= cap <= active_row_num):
         raise ValueError(f"require: 0 <= cap ({cap}) <= active_row_num ({active_row_num})")
@@ -217,7 +222,8 @@ def grid_block_w(
     mirroring the engine's partial last sub-phase.
 
     Returns:
-        Digit tensor ``(col_num, 1, row_num)``.
+        Digit tensor.
+        Shape: ``[col_num, 1, row_num]``.
     """
     if not (1 <= m_max <= active_row_num):
         raise ValueError(f"require: 1 <= m_max ({m_max}) <= active_row_num ({active_row_num})")
@@ -227,12 +233,14 @@ def grid_block_w(
     # is dropped after the reshape (short final block == the engine's partial
     # last sub-phase). When active_row_num divides row_num this is exact.
     phase_num = -(-row_num // active_row_num)
+    # Shape: [col_num]
     col = torch.arange(col_num)
-    programmed = col % col_stride == 0  # (col,)
-    grid_idx = col // col_stride  # (col,)
-    counts = torch.where(programmed, (grid_idx + offset) % (m_max + 1), torch.zeros_like(grid_idx))  # (col,)
-    signs = torch.where(grid_idx % 2 == 0, 1, -1)  # (col,)
-    pos = torch.arange(active_row_num)  # (active_row,)
+    programmed = col % col_stride == 0
+    grid_idx = col // col_stride
+    counts = torch.where(programmed, (grid_idx + offset) % (m_max + 1), torch.zeros_like(grid_idx))
+    signs = torch.where(grid_idx % 2 == 0, 1, -1)
+    # Shape: [active_row_num]
+    pos = torch.arange(active_row_num)
     w_block = torch.where(
         pos.view(1, 1, -1) < counts.view(-1, 1, 1),
         signs.view(-1, 1, 1),
@@ -255,7 +263,8 @@ def saturating_w(*, col_num: int, row_num: int, active_row_num: int) -> Tensor:
     # last sub-phase). When active_row_num divides row_num this is exact.
     phase_num = -(-row_num // active_row_num)
     kind = torch.arange(col_num) % 3
-    phase_sign = torch.where(torch.arange(phase_num) % 2 == 0, 1, -1)  # (phase,)
+    # Shape: [phase_num]
+    phase_sign = torch.where(torch.arange(phase_num) % 2 == 0, 1, -1)
     w_block = torch.empty((col_num, phase_num, active_row_num), dtype=torch.long)
     w_block[kind == 0] = 1
     w_block[kind == 1] = -1
@@ -264,7 +273,12 @@ def saturating_w(*, col_num: int, row_num: int, active_row_num: int) -> Tensor:
 
 
 def sample_binary_x(gen: torch.Generator, *, batch: int, row_num: int, density: float) -> Tensor:
-    """Random binary WL drive plane batch ``(batch, row_num)`` at ``density``."""
+    """Random binary WL drive plane batch at ``density``.
+
+    Returns:
+        Drive plane tensor.
+        Shape: ``[batch, row_num]``.
+    """
     return (torch.rand((batch, row_num), generator=gen) < density).to(torch.long)
 
 
@@ -284,7 +298,8 @@ def _unroll_sub_phase(x: Tensor, *, row_num: int, max_active_num: int, inst_rank
     per-conversion drive context the ``vec_mat_mul`` contract requires.
 
     Args:
-        x: WL plane tensor with trailing ``[row_num]``.
+        x: WL plane tensor.
+            Shape: ``[..., row_num]``.
         row_num: Macro row count. When ``max_active_num`` does not divide it
             the final sub-phase reads the short remainder block (mirrors the
             engine's ceil sub-phase count).
@@ -293,19 +308,21 @@ def _unroll_sub_phase(x: Tensor, *, row_num: int, max_active_num: int, inst_rank
         inst_rank: Rank of the macro's fabricated ``inst_shape``.
 
     Returns:
-        Masked plane tensor trailing ``[P, *(1,) * inst_rank, row_num]``;
-        dtype and device follow ``x``.
+        Masked plane tensor; dtype and device follow ``x``.
+        Shape: ``[..., P, *inst_shape=1, row_num]``.
     """
     # Static row -> sub-phase ownership; phase p owns rows
     # [p * max_active_num, (p + 1) * max_active_num). Ceil so every real row
     # lands in exactly one sub-phase; the short final block leaves its own rows
-    # the only ones live in that plane. Shape: [P, row_num]
+    # the only ones live in that plane.
+    # Shape: [P, row_num]
     mask = torch.arange(row_num, device=x.device) // max_active_num == torch.arange(
         -(-row_num // max_active_num), device=x.device
     ).unsqueeze(-1)
-    # Shape: [P, row_num] -> [P, *(1,) * inst_rank, row_num]
+    # Shape: [P, row_num] -> [P, *inst_shape=1, row_num]
     mask = mask.reshape(-1, *(1,) * inst_rank, row_num)
-    # Shape: [..., *span, row_num] -> [..., P, *span, row_num]; zero-fill = WL off
+    # Zero-fill = WL off.
+    # Shape: [..., row_num] -> [..., P, *inst_shape=1, row_num]
     return torch.where(mask, x.unsqueeze(max(-(inst_rank + 2), -(x.ndim + 1))), x.new_zeros(()))
 
 
@@ -313,13 +330,18 @@ def _unroll_sub_phase(x: Tensor, *, row_num: int, max_active_num: int, inst_rank
 class PairedConversion:
     """Flattened, order-aligned calibration streams for one stimulus.
 
+    ``sample_num`` is the streams' common conversion-element count.
+
     Attributes:
         i_in__uA: Analog ADC input per conversion element (physical run,
-            :class:`IadcProber`), CPU float64, 1-D.
-        code: ADC output code per element (physical run), CPU int64, 1-D.
+            :class:`IadcProber`), CPU float64.
+            Shape: ``[sample_num]``.
+        code: ADC output code per element (physical run), CPU int64.
+            Shape: ``[sample_num]``.
         ideal_m: Lossless integer per-phase dot per element (ideal run's
             ``vec_mat_mul`` return at the ``adc_bits = None`` oracle), CPU
-            int64, 1-D, signed.
+            int64, signed.
+            Shape: ``[sample_num]``.
     """
 
     i_in__uA: Tensor
@@ -353,9 +375,11 @@ def run_paired_stimulus(
     Args:
         physical: Fabricated physical tile.
         ideal: Its lossless twin.
-        w: Digit tensor matching the macro weight layout.
-        x: Activation tensor with trailing ``[row_num]``; the testbench
-            performs the sub-phase expansion internally.
+        w: Integer weight tensor programmed into both tiles.
+            Shape: ``[*inst_shape, input_num, output_num]``.
+        x: Activation tensor; the testbench performs the sub-phase
+            expansion internally.
+            Shape: ``[..., input_num]``.
         input_num: Logical input-vector length.
         quantization_mode: Quantization mode of the physical run.
         adc_bits: ADC resolution of the physical run.
@@ -377,7 +401,7 @@ def run_paired_stimulus(
     # Runtime-parity drive: serialize each requested plane over the
     # sub-phase axis so both tiles convert at most ``max_active_num``
     # live rows per plane, exactly as the engine layer drives the macro.
-    # Shape: [..., row_num] -> [..., P, *(1,) * inst_rank, row_num]
+    # Shape: [..., input_num] -> [..., P, *inst_shape=1, input_num]
     x = _unroll_sub_phase(
         x,
         row_num=input_num,

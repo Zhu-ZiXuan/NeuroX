@@ -45,9 +45,13 @@ class Selector(ModuleBase[SelectorConfig, SelectorPolicy]):
 
     is_profile_target: ClassVar[bool] = False
 
-    # --- Fabrication source buffers ---
+    # === Nominal buffers ===
 
-    _nominal_vth__V: Tensor
+    _nominal_vth__V: Tensor  # Shape: []
+
+    # === Fabricated state ===
+
+    _vth__V: Tensor  # Shape: [*inst_shape]
 
     def __init__(
         self,
@@ -84,6 +88,7 @@ class Selector(ModuleBase[SelectorConfig, SelectorPolicy]):
                 tensor (typically the cell-voltage tensor).
 
         Returns:
-            Threshold voltage tensor [V]. Shape: ``reference.shape``.
+            Threshold voltage tensor [V].
+            Shape: ``[...]``.
         """
         return torch.broadcast_to(self._vth__V, reference.shape)

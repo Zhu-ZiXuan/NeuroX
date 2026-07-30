@@ -143,7 +143,7 @@ def _serial_array(slot_map: Tensor, *, config: XbarArray1t1rConfig | None = None
 
 
 def _physical_states(col_num: int) -> Tensor:
-    """Deterministic mixed 0/1 physical state grid ``[col_num, row]``."""
+    """Deterministic mixed 0/1 physical state grid."""
     gen = torch.Generator().manual_seed(7)
     return torch.randint(0, 2, (col_num, _ROW_NUM), generator=gen, dtype=torch.long)
 
@@ -160,7 +160,8 @@ def _plane() -> Tensor:
 
 def test_off_column_equivalence_law() -> None:
     """Padded full-width solve == active-only solve elementwise; off columns identically zero."""
-    slot_map = torch.arange(4).reshape(2, 1, 2, 1)  # serial=2, lanes (gn=1, P/N=2, wd=1)
+    # Shape: [serial, gn, polarity, w_digit]
+    slot_map = torch.arange(4).reshape(2, 1, 2, 1)
     serial, act = 2, 2
     states = _physical_states(4)
     plane = _plane()

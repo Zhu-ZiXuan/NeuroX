@@ -159,15 +159,16 @@ def sample_w(
     """Yield ``n // batch_w`` batches of logical weight matrices.
 
     ``n`` **must** be a multiple of ``batch_w`` — every yielded tensor
-    carries a fixed leading ``(batch_w,)`` axis to match the xbar's
+    carries a fixed leading ``batch_w`` axis to match the xbar's
     ``inst_shape=(batch_w,)`` contract, so a partial final batch would
     immediately fail ``xbar.program(w)``'s shape check. Round ``n`` up
     to the next multiple of ``batch_w`` at the call site if you need
     "at least N" coverage.
 
-    With ``batch_w == 1`` (default), each yielded tensor has shape
-    ``(input_num, output_num)``. With ``batch_w > 1``, each yield has
-    shape ``(batch_w, input_num, output_num)``.
+    Yields:
+        The leading axis is present only when ``batch_w > 1``; with
+        ``batch_w == 1`` (default) each yielded tensor drops it.
+        Shape: ``[batch_w, input_num, output_num]``.
     """
     if batch_w <= 0:
         raise ValueError(f"batch_w ({batch_w}) must be > 0")
@@ -211,8 +212,10 @@ def sample_x_batches(
 ) -> Iterator[Tensor]:
     """Yield input batches summing to ``n_total`` vectors.
 
-    Each batch has shape ``(min(batch_size, remaining), row_num)``,
-    int64, on ``device``.
+    Yields:
+        Each batch is int64 on ``device``; its leading axis is ``batch_size``
+        except on the last batch, which carries whatever remains of ``n_total``.
+        Shape: ``[batch_size, input_num]``.
     """
     if batch_size <= 0:
         raise ValueError(f"batch_size ({batch_size}) must be > 0")

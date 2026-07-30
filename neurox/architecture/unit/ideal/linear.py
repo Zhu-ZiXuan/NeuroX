@@ -1,4 +1,8 @@
-"""Ideal linear compute unit."""
+"""Ideal linear compute unit.
+
+See also:
+    docs/internals/architecture/unit/linear.md
+"""
 
 from __future__ import annotations
 
@@ -32,11 +36,15 @@ class IdealLinearUnit(LinearUnit, CimUnit[IdealLinearUnitConfig, IdealLinearUnit
     Args:
         config: Concrete configuration dataclass.
         policy: Runtime policy.
-        w_logical_shape: Logical weight shape ``(*prefix, N, K)`` bound to ``program(...)``.
+        w_logical_shape: Logical weight shape ``(..., N, K)`` bound to ``program(...)``.
         dtype: Requested tensor dtype; it does not affect exact integer execution.
         T__K: Operating temperature.
         ideal_macro: Accepted without changing this already ideal unit.
     """
+
+    # === Programmed state ===
+
+    _weight: Tensor  # Shape: [..., N, K]
 
     def __init__(
         self,
@@ -56,8 +64,6 @@ class IdealLinearUnit(LinearUnit, CimUnit[IdealLinearUnitConfig, IdealLinearUnit
             T__K=T__K,
             ideal_macro=ideal_macro,
         )
-        self._area_per_inst__um2 = config.area_per_inst__um2
-        self._leakage_per_inst__uW = config.leakage_per_inst__uW
 
         # CUDA lacks integer matmul. This bound identifies contractions that
         # IEEE fp32 evaluates exactly while TF32 remains disabled.
@@ -65,6 +71,14 @@ class IdealLinearUnit(LinearUnit, CimUnit[IdealLinearUnitConfig, IdealLinearUnit
         w_lo, w_hi = config.w_value_range
         max_dot_abs = self._w_logical_shape[-1] * max(abs(x_lo), abs(x_hi)) * max(abs(w_lo), abs(w_hi))
         self._fp32_exact = max_dot_abs < 2**24
+
+    @property
+    def _area_per_inst__um2(self) -> float:
+        return self.config.area_per_inst__um2
+
+    @property
+    def _leakage_per_inst__uW(self) -> float:
+        return self.config.leakage_per_inst__uW
 
     @property
     def w_value_range(self) -> tuple[int, int]:
@@ -93,8 +107,8 @@ class IdealLinearUnit(LinearUnit, CimUnit[IdealLinearUnitConfig, IdealLinearUnit
         del quantization_mode, adc_bits
         weight = self._weight
         if self._fp32_exact:
-            # Shape: [..., M, K] @ [*prefix, K, N] -> [..., M, N]
+            # Shape: [..., M, K] @ [..., K, N] -> [..., M, N]
             out = torch.matmul(input.to(torch.float32), weight.to(torch.float32).transpose(-2, -1))
             return out.to(torch.int64)
-        # Shape: [..., M, K] @ [*prefix, K, N] -> [..., M, N]
+        # Shape: [..., M, K] @ [..., K, N] -> [..., M, N]
         return torch.matmul(input.to(torch.int64), weight.to(torch.int64).transpose(-2, -1))

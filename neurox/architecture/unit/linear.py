@@ -22,10 +22,11 @@ class LinearUnit(UnitBase, ABC):
         """Write the unit's static weight state and optional integer bias.
 
         Args:
-            weight: Integer weight tensor of shape ``(*prefix, N, K)``.
-            bias: Optional integer bias tensor of shape ``(N,)``, added in
-                the int64 accumulation domain by :meth:`linear`; ``None``
-                clears any programmed bias.
+            weight: Integer weight tensor.
+                Shape: ``[..., N, K]``.
+            bias: Optional integer bias tensor, added in the int64 accumulation
+                domain by :meth:`linear`; ``None`` clears any programmed bias.
+                Shape: ``[N]``.
         """
         raise NotImplementedError
 
@@ -42,14 +43,15 @@ class LinearUnit(UnitBase, ABC):
         """Execute one integer linear operator against the programmed state.
 
         Args:
-            input: Integer activation tensor with trailing ``[K]``.
+            input: Integer activation tensor.
+                Shape: ``[..., K]``.
             quantization_mode: Runtime quantization-mode index.
             adc_bits: Runtime ADC resolution, or ``None`` for the lossless
                 oracle.
 
         Returns:
-            Integer pre-requantize output tensor with trailing ``[N]``;
-            leading dims mirror ``input``.
+            Integer pre-requantize output tensor; leading dims mirror ``input``.
+            Shape: ``[..., N]``.
         """
         y = self._lower_matmul(input, quantization_mode=quantization_mode, adc_bits=adc_bits)
         int_bias = self._int_bias

@@ -89,11 +89,13 @@ class Ye2023Jssc2t1rSteadyState:
 
     Attributes:
         i_bl_port__uA: BL port (driver-boundary) current [uA] at the converged
-            operating point. Shape: ``[..., num_col]``.
+            operating point.
+            Shape: ``[..., num_col]``.
         v_bl_clamp__V: BL clamp voltage [V] at the converged operating point.
             Shape: ``[..., num_col]``.
         i_tbl__uA: Summed T2 compute current [uA] per leading instance, already
-            reduced over columns and rows. Shape: ``[...]``.
+            reduced over columns and rows.
+            Shape: ``[...]``.
     """
 
     i_bl_port__uA: Tensor
@@ -117,16 +119,17 @@ class Ye2023Jssc2t1rArray(XbarArray[Ye2023Jssc2t1rArrayConfig, Ye2023Jssc2t1rArr
         enable_latency_record: Whether ``solve`` emits a latency event.
     """
 
-    # --- Immutable model buffers ---
+    # === Functional buffers ===
 
-    _bl_segment_r__MOhm: Tensor
-    _sl_segment_r__MOhm: Tensor
-    _bl_segment_g__uS: Tensor
-    _sl_segment_g__uS: Tensor
-    _radix_per_col__unit: Tensor
-    _latency_per_op__ns: Tensor
+    _radix_per_col__unit: Tensor  # Shape: [col_num]
 
-    cell: Ye2023Jssc2t1rCell
+    # === Circuit constant buffers ===
+
+    _bl_segment_r__MOhm: Tensor  # Shape: [row_num]
+    _sl_segment_r__MOhm: Tensor  # Shape: [row_num]
+    _bl_segment_g__uS: Tensor  # Shape: [row_num]
+    _sl_segment_g__uS: Tensor  # Shape: [row_num]
+    _latency_per_op__ns: Tensor  # Shape: []
 
     def __init__(
         self,
@@ -156,8 +159,6 @@ class Ye2023Jssc2t1rArray(XbarArray[Ye2023Jssc2t1rArrayConfig, Ye2023Jssc2t1rArr
             inst_shape=inst_shape,
             enable_latency_record=enable_latency_record,
         )
-        self._area_per_inst__um2 = config.area_per_inst__um2
-        self._leakage_per_inst__uW = config.leakage_per_inst__uW
         self._row_num = row_num
         self._col_num = col_num
         self._v_bl_in_threshold__V = config.v_bl_in_threshold__V
@@ -169,6 +170,14 @@ class Ye2023Jssc2t1rArray(XbarArray[Ye2023Jssc2t1rArrayConfig, Ye2023Jssc2t1rArr
         self._register_model_buffers(dtype=dtype)
 
         self._c_wl_wire_per_row__fF = config.wl_first_c__fF + (col_num - 1) * config.wl_segment_c__fF
+
+    @property
+    def _area_per_inst__um2(self) -> float:
+        return self.config.area_per_inst__um2
+
+    @property
+    def _leakage_per_inst__uW(self) -> float:
+        return self.config.leakage_per_inst__uW
 
     def _init_children(self, *, dtype: torch.dtype, T__K: float) -> None:
         """Construct the WH-2T1R lookup cell and the nested DC solver."""
@@ -211,10 +220,6 @@ class Ye2023Jssc2t1rArray(XbarArray[Ye2023Jssc2t1rArrayConfig, Ye2023Jssc2t1rArr
             persistent=False,
         )
 
-    # -----------------------------------------------------------------
-    # Geometry / lifecycle
-    # -----------------------------------------------------------------
-
     @property
     def w_state_num(self) -> int:
         """Number of programmable states exposed by each cell."""
@@ -222,15 +227,16 @@ class Ye2023Jssc2t1rArray(XbarArray[Ye2023Jssc2t1rArrayConfig, Ye2023Jssc2t1rArr
 
     @property
     def weight_grid_shape(self) -> tuple[int, ...]:
-        """Shape of the weight grid: ``(*inst, col, row)``."""
+        """Shape of the weight grid: ``(*inst_shape, col, row)``."""
         return (*self.inst_shape, self._col_num, self._row_num)
 
     def program(self, w_state_idx: Tensor) -> None:
         """Write the cells from one state-index tensor.
 
         Args:
-            w_state_idx: State-index tensor in ``[0, w_state_num - 1]``, shape
-                must match ``self.weight_grid_shape = (*inst, col_num, row_num)``.
+            w_state_idx: State-index tensor in ``[0, w_state_num - 1]``; must
+                match ``self.weight_grid_shape``.
+                Shape: ``[*inst_shape, col_num, row_num]``.
         """
         if tuple(w_state_idx.shape) != self.weight_grid_shape:
             raise ValueError(
@@ -253,10 +259,6 @@ class Ye2023Jssc2t1rArray(XbarArray[Ye2023Jssc2t1rArrayConfig, Ye2023Jssc2t1rArr
         """Not supported; use :meth:`solve`, which returns the T2-current-bearing state."""
         raise NotImplementedError("Ye2023Jssc2t1rArray uses solve(), which returns Ye2023Jssc2t1rSteadyState")
 
-    # -----------------------------------------------------------------
-    # Solve
-    # -----------------------------------------------------------------
-
     @torch.compiler.disable(
         recursive=False,
         reason="eager chunk loop; the fixed-shape per-chunk solver body is compiled separately",
@@ -277,11 +279,11 @@ class Ye2023Jssc2t1rArray(XbarArray[Ye2023Jssc2t1rArrayConfig, Ye2023Jssc2t1rArr
         released with its chunk.
 
         Args:
-            v_wl: Analog WL drive [V], shape ``[..leading.., row_num]``; a row
+            v_wl: Analog WL drive [V], shape ``[..., row_num]``; a row
                 counts as selected above the cell's WL-on threshold.
             bl_driver: BL boundary clamp (structural ``ClampDriver`` role).
             bl_v_ref__V: PER-COLUMN BL input voltages [V], broadcastable to
-                ``[..leading.., num_col]``, laid out plane-major over
+                ``[..., num_col]``, laid out plane-major over
                 ``weight_radix`` then ``redundant_radix``.
             sl_driver: SL boundary clamp (structural ``ClampDriver`` role).
             sl_v_ref__V: SL drive reference [V] (0-d scalar).
@@ -293,9 +295,9 @@ class Ye2023Jssc2t1rArray(XbarArray[Ye2023Jssc2t1rArrayConfig, Ye2023Jssc2t1rArr
 
         # --- 1: infer the broadcast-leading shape ---
 
-        # Shape: [..leading.., row] -> [..leading.., 1, row]
+        # Shape: [..., row] -> [..., 1, row]
         v_wl_grid = v_wl.unsqueeze(-2)
-        # Shape: [..leading.., num_col] -> [..leading.., num_col, 1]
+        # Shape: [..., num_col] -> [..., num_col, 1]
         bl_ref_grid = bl_v_ref__V.unsqueeze(-1) if bl_v_ref__V.ndim else bl_v_ref__V
         g_shape = self.weight_grid_shape
         full_shape = torch.broadcast_shapes(g_shape, tuple(v_wl_grid.shape), tuple(bl_ref_grid.shape))

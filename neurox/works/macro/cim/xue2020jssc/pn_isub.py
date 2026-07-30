@@ -1,4 +1,4 @@
-"""PN-ISUB P/N subtractor — one current subtractor + sign comparator per CIM-IO.
+"""PN-ISUB polarity subtractor — one current subtractor + sign comparator per CIM-IO.
 
 The SINWP-SC combined PWG / NWG lane currents subtract into a single-ended
 magnitude ``I_SUB = |I_P - I_N|`` plus a sign decision (``N > P``), recovering
@@ -43,7 +43,7 @@ class PnIsubPolicy(PolicyBase):
 
 
 class PnIsub(ModuleBase[PnIsubConfig, PnIsubPolicy]):
-    """PN-ISUB subtractor bank: P/N subtraction, sign decision, magnitude out.
+    """PN-ISUB subtractor bank: polarity subtraction, sign decision, magnitude out.
 
     One instance per CIM-IO. Leading dims of the forward tensors are anonymous
     broadcast batch (the serial slot axis rides them).
@@ -51,7 +51,7 @@ class PnIsub(ModuleBase[PnIsubConfig, PnIsubPolicy]):
     Args:
         config: Immutable physical configuration.
         policy: Source-free runtime policy.
-        inst_shape: Fabrication shape ``(*inst, gn)``.
+        inst_shape: Fabrication shape ``(*inst_shape, gn)``.
         v_dd__V: Supply-rail voltage [V] the three replica legs conduct across.
     """
 
@@ -66,26 +66,34 @@ class PnIsub(ModuleBase[PnIsubConfig, PnIsubPolicy]):
         if not (v_dd__V >= 0.0):
             raise ValueError(f"require: v_dd__V ({v_dd__V}) >= 0")
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
-        self._area_per_inst__um2 = config.area_per_inst__um2
-        self._leakage_per_inst__uW = config.leakage_per_inst__uW
         self._v_dd__V = v_dd__V
+
+    @property
+    def _area_per_inst__um2(self) -> float:
+        return self.config.area_per_inst__um2
+
+    @property
+    def _leakage_per_inst__uW(self) -> float:
+        return self.config.leakage_per_inst__uW
 
     def _sample_fabricate_mismatch(self) -> None:
         pass
 
     def forward(self, i_p__uA: Tensor, i_n__uA: Tensor, *, window__ns: float) -> tuple[Tensor, Tensor]:
-        """Subtract the P/N lane currents into magnitude + sign.
+        """Subtract the polarity lane currents into magnitude + sign.
 
         Args:
-            i_p__uA: Combined PWG lane current, shape ``[..., serial, gn]``.
-            i_n__uA: Combined NWG lane current, same shape.
+            i_p__uA: Combined PWG lane current.
+                Shape: ``[..., serial, gn]``.
+            i_n__uA: Combined NWG lane current.
+                Shape: ``[..., serial, gn]``.
             window__ns: Conduction window of the three rail branches
                 (macro-injected: the tail window ``t_other``).
 
         Returns:
             ``(i_sub_abs__uA, sign)`` — the single-ended magnitude
-            ``|I_P - I_N|`` and the boolean sign (``True`` iff ``I_N >
-            I_P``), both shaped ``[..., serial, gn]``.
+            ``|I_P - I_N|`` and the boolean sign (``True`` iff ``I_N > I_P``).
+            Shape: ``[..., serial, gn]``.
         """
         i_sub_abs__uA = (i_p__uA - i_n__uA).abs()
         sign = i_n__uA > i_p__uA

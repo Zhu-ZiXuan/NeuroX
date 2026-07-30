@@ -2,7 +2,7 @@
 # ONE 256x512 sub-array of the 1-Mb macro. Spec:
 # docs/works/macro/cim/xue2020jssc/model.md; measured outcomes: results.md.
 #
-# 3-bit sign-magnitude weights (sign + 2 radix-2 magnitude digits) on P/N cell
+# 3-bit sign-magnitude weights (sign + 2 radix-2 magnitude digits) on polarity cell
 # pairs, 2-bit input (K=2, two serial single-bit WL sub-phases LSB first), 3-bit
 # unsigned-magnitude ADC output.
 #
@@ -243,7 +243,7 @@ leakage_per_inst__uW = 0.0
 # ===========================================================================
 [cim_macro.cablc_config]
 # Column-MUX time-shared: fabricated at inst_shape (n_io, 2, 2) = 16 devices per
-# sub-array (4 per CIM-IO: P/N x MSB/LSB). Ideal source (r_out = 0): the wire IR
+# sub-array (4 per CIM-IO: polarity x MSB/LSB). Ideal source (r_out = 0): the wire IR
 # drop lives in the ARRAY, not the clamp. The whole input-branch conduction
 # V_DD*I_DL is billed by the macro cablc channel, so energy_per_op MUST be 0
 # (the CMD precharge is under the control channel).
@@ -396,7 +396,7 @@ leakage_per_inst__uW = 0.0
 
 
 # ===========================================================================
-# DSWCT -- digit-weighted current-mirror bank module (one bank per (IO, P/N))
+# DSWCT -- digit-weighted current-mirror bank module (one bank per (IO, polarity))
 # ===========================================================================
 # Self-bills its rail conduction V_DD * |I_WDL| * window on its own module row;
 # the digit ratios derive from dswct_ratio_msb above.
@@ -411,7 +411,7 @@ c_load__fF = 0.0
 
 
 # ===========================================================================
-# SINWP-SC -- sample-and-hold combine module (one unit per (IO, P/N) lane)
+# SINWP-SC -- sample-and-hold combine module (one unit per (IO, polarity) lane)
 # ===========================================================================
 # Self-bills its held/live leg conduction (suffix-sum window) on its own module
 # row; the bit ratios derive from sc_ratio_msb above.
@@ -420,7 +420,7 @@ c_load__fF = 0.0
 # (n_w 32 x n_x 256 x 4 rounds, seed 0) under the sinwp_sc+pn_isub pair caliber.
 # The pair-2 residual 0.2300 pJ/access (11.4 % share minus the leg + 3-branch
 # conduction, the kept 5 fJ comparator per-op staying inside the measured PN-ISUB
-# row) seats the cap term: 16 c_hold*v_dd^2 events per access (x_bits x IO x P/N)
+# row) seats the cap term: 16 c_hold*v_dd^2 events per access (x_bits x IO x polarity)
 # -> c_hold = 14.3768 fF. Plausible at 55 nm: inside the 10-100 fF S/H band;
 # kT/C ~ 0.54 mV rms at 300 K.
 c_hold__fF = 14.3768
@@ -430,7 +430,7 @@ leakage_per_inst__uW = 0.0
 
 
 # ===========================================================================
-# PN-ISUB -- P/N subtractor module (bias/icm rails + sign comparator)
+# PN-ISUB -- polarity subtractor module (bias/icm rails + sign comparator)
 # ===========================================================================
 # Self-bills its 3-branch conduction over t_other plus the per-decision
 # comparator energy on its own module row.

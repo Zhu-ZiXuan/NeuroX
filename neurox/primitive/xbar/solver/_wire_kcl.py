@@ -22,14 +22,18 @@ def col_wire_kcl_residual(
     The wire runs along ``dim=-1`` and its driver is at index 0.
 
     Args:
-        v_node: Wire node voltages [V]. Shape
-            ``[..., col_num, row_num]``.
-        v_drive: Drive voltage [V]. Shape ``[..., col_num, 1]``.
-        segment_g: Per-segment conductance [uS]. Shape ``(row_num,)``.
+        v_node: Wire node voltages [V].
+            Shape: ``[..., col_num, row_num]``.
+        v_drive: Drive voltage [V].
+            Shape: ``[..., col_num, 1]``.
+        segment_g: Per-segment conductance [uS].
+            Shape: ``[row_num]``.
         i_inject: Cell current drawn at each node [uA].
+            Shape: ``[..., col_num, row_num]``.
 
     Returns:
-        KCL residual tensor [uA], same shape as ``v_node``.
+        KCL residual tensor [uA].
+        Shape: ``[..., col_num, row_num]``.
     """
     dim = -1
     num_row = v_node.shape[dim]
@@ -64,14 +68,18 @@ def row_wire_kcl_residual(
     Same structure as :func:`col_wire_kcl_residual` along ``dim=-2``.
 
     Args:
-        v_node: Wire node voltages [V]. Shape
-            ``[..., col_num, row_num]``.
-        v_drive: Drive voltage [V]. Shape ``[..., 1, row_num]``.
-        segment_g: Per-segment conductance [uS]. Shape ``(col_num,)``.
+        v_node: Wire node voltages [V].
+            Shape: ``[..., col_num, row_num]``.
+        v_drive: Drive voltage [V].
+            Shape: ``[..., 1, row_num]``.
+        segment_g: Per-segment conductance [uS].
+            Shape: ``[col_num]``.
         i_inject: Cell current drawn at each node [uA].
+            Shape: ``[..., col_num, row_num]``.
 
     Returns:
-        KCL residual tensor [uA], same shape as ``v_node``.
+        KCL residual tensor [uA].
+        Shape: ``[..., col_num, row_num]``.
     """
     dim = -2
     num_col = v_node.shape[dim]
@@ -100,14 +108,17 @@ def col_driver_current(
     """Net current from a column-oriented-wire driver into the wire [uA].
 
     Args:
-        v_node: Wire node voltages [V]. Shape
-            ``[..., col_num, row_num]``.
-        v_drive: Drive voltage [V]. Shape ``[..., col_num, 1]``.
+        v_node: Wire node voltages [V].
+            Shape: ``[..., col_num, row_num]``.
+        v_drive: Drive voltage [V].
+            Shape: ``[..., col_num, 1]``.
         segment_g: Per-segment conductance [uS] — only
             ``segment_g[0]`` is read.
+            Shape: ``[row_num]``.
 
     Returns:
-        Drive current [uA]. Shape ``[..., col_num]``.
+        Drive current [uA].
+        Shape: ``[..., col_num]``.
     """
     dim = -1
     # Shape: [..., col_num, 1] -> [..., col_num]
@@ -122,14 +133,17 @@ def row_driver_current(
     """Net current from a row-oriented-wire driver into the wire [uA].
 
     Args:
-        v_node: Wire node voltages [V]. Shape
-            ``[..., col_num, row_num]``.
-        v_drive: Drive voltage [V]. Shape ``[..., 1, row_num]``.
+        v_node: Wire node voltages [V].
+            Shape: ``[..., col_num, row_num]``.
+        v_drive: Drive voltage [V].
+            Shape: ``[..., 1, row_num]``.
         segment_g: Per-segment conductance [uS] — only
             ``segment_g[0]`` is read.
+            Shape: ``[col_num]``.
 
     Returns:
-        Drive current [uA]. Shape ``[..., row_num]``.
+        Drive current [uA].
+        Shape: ``[..., row_num]``.
     """
     dim = -2
     # Shape: [..., 1, row_num] -> [..., row_num]

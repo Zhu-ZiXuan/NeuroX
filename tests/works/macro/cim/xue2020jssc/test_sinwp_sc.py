@@ -55,7 +55,7 @@ def _build_sinwp_sc(*, c_hold__fF: float = _C_HOLD__fF) -> SinwpSc:
 
 
 def _witness_currents() -> torch.Tensor:
-    """Mixed-sign lane currents [uA], batch 1, shape [1, x_bits, serial, gn, 2]."""
+    """Mixed-sign lane currents [uA] at batch 1."""
     torch.manual_seed(0)
     return torch.randn(1, _X_BITS, _SERIAL, _GN, _POLARITY_NUM, dtype=_DTYPE)
 
@@ -103,10 +103,12 @@ def test_leg_billing_law() -> None:
     # i_leg[k] = s_k * i[k], not the interface currents.
     ratios = torch.tensor(_BIT_RATIOS, dtype=_DTYPE).view(_X_BITS, 1, 1, 1)
     i_leg = i__uA * ratios
-    # Shape: [1, x_bits, serial, gn, 2] -> [1, x_bits] (SIGNED leg sum)
+    # The SIGNED leg sum.
+    # Shape: [1, x_bits, serial, gn, 2] -> [1, x_bits]
     i_leg_per_bit = i_leg.sum(dim=(-3, -2, -1))
-    # Shape: [1, x_bits] -> [1] -> scalar (batch 1)
-    e_conduction = float((_V_DD__V * (i_leg_per_bit * window).sum(dim=-1)).sum())
+    # Shape: [1, x_bits] -> []
+    e_conduction__fJ = (_V_DD__V * (i_leg_per_bit * window).sum(dim=-1)).sum()
+    e_conduction = float(e_conduction__fJ)
     e_cap = _C_HOLD__fF * _V_DD__V**2 * (_X_BITS * _SERIAL * _GN * _POLARITY_NUM)
     assert prof.total_dynamic_energy__fJ == pytest.approx(e_conduction + e_cap)
     assert prof.total_latency__ns == 0.0
@@ -114,7 +116,9 @@ def test_leg_billing_law() -> None:
     # The interface-current bill (the pre-fix scaling placement) is a
     # DIFFERENT number on this witness — the law discriminates.
     i_iface_per_bit = i__uA.sum(dim=(-3, -2, -1))
-    e_iface = float((_V_DD__V * (i_iface_per_bit * window).sum(dim=-1)).sum())
+    # Shape: [1, x_bits] -> []
+    e_iface__fJ = (_V_DD__V * (i_iface_per_bit * window).sum(dim=-1)).sum()
+    e_iface = float(e_iface__fJ)
     assert e_iface != pytest.approx(e_conduction)
 
 

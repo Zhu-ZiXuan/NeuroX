@@ -6,8 +6,7 @@ accumulates exactly in IEEE fp32) and stays on the int64 elementwise path
 otherwise. Both paths must be bit-identical, on CPU and GPU, for the
 lossless oracle and the quantized per-plane path alike. Planes arrive
 pre-masked from the caller (at most ``max_active_num`` selected positions each);
-the macro output keeps the leading order with primitive trailing
-``[output_num]``.
+the macro output keeps the leading order.
 """
 
 from __future__ import annotations
@@ -74,10 +73,7 @@ def _random_operands(
 
 
 def _masked_planes(x: torch.Tensor, *, input_num: int, max_active_num: int) -> torch.Tensor:
-    """Pre-masked WL planes via the engine mask formula.
-
-    Shape: [..., input_num] -> [..., P, input_num].
-    """
+    """Pre-masked WL planes via the engine mask formula."""
     p_num = input_num // max_active_num
     mask = torch.arange(input_num) // max_active_num == torch.arange(p_num).unsqueeze(-1)
     # Shape: [..., input_num] -> [..., P, input_num]

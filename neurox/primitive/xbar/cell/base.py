@@ -43,7 +43,8 @@ class XbarCellDcop:
             the wire Jacobian needs (non-negative).
             Shape: ``[..., col, row]``.
         di_dvsl__uS: ``∂I/∂V_SL``, the SL-side branch conductance
-            (non-positive). Shape: ``[..., col, row]``.
+            (non-positive).
+            Shape: ``[..., col, row]``.
     """
 
     i__uA: Tensor
@@ -67,7 +68,7 @@ class XbarCell(
     Args:
         config: Concrete configuration dataclass.
         policy: Composite per-device nonideality policy.
-        inst_shape: Per-instance shape ``(*prefix, col, row)``.
+        inst_shape: Per-instance shape ``(..., col, row)``.
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature.
     """
@@ -104,7 +105,7 @@ class XbarCell(
             control: Per-cell control-line drive [V] (the gate / select
                 voltage of the cell's access device). Shape broadcasts to
                 ``[..., col, row]``.
-            shape: Per-call broadcast shape ``(*leading, col, row)`` the
+            shape: Per-call broadcast shape ``(..., col, row)`` the
                 owned device snaps fill their tensor fields at.
             multi_coords: Advanced-index tuple selecting a chunk's
                 positions from the broadcast view, forwarded to the device
@@ -122,7 +123,8 @@ class XbarCell(
         """Program the cell's storage device from a state-index tensor.
 
         Args:
-            w_state_idx: State-index tensor at ``self.inst_shape``.
+            w_state_idx: State-index tensor.
+                Shape: ``[*inst_shape]``.
         """
         raise NotImplementedError
 
@@ -136,15 +138,17 @@ class XbarCell(
         """Solve the condensed branch current and terminal conductances.
 
         Args:
-            v_bl: Bit-line node voltage [V]. Shape: ``[..., col, row]``.
-            v_sl: Source-line node voltage [V]. Shape: ``[..., col, row]``.
+            v_bl: Bit-line node voltage [V].
+                Shape: ``[..., col, row]``.
+            v_sl: Source-line node voltage [V].
+                Shape: ``[..., col, row]``.
             snap: Per-call snap from :meth:`snapshot`.
 
         Returns:
             ``(i__uA, di_dvbl__uS, di_dvsl__uS)`` — branch current [uA]
             (positive BL → SL), ``∂I/∂V_BL`` [uS] (non-negative), and
-            ``∂I/∂V_SL`` [uS] (non-positive). Each shape
-            ``[..., col, row]``.
+            ``∂I/∂V_SL`` [uS] (non-positive), all three at one shape.
+            Shape: ``[..., col, row]``.
         """
         raise NotImplementedError
 
@@ -158,8 +162,10 @@ class XbarCell(
         """Full branch DC working point, including internal-node state.
 
         Args:
-            v_bl: Bit-line node voltage [V]. Shape: ``[..., col, row]``.
-            v_sl: Source-line node voltage [V]. Shape: ``[..., col, row]``.
+            v_bl: Bit-line node voltage [V].
+                Shape: ``[..., col, row]``.
+            v_sl: Source-line node voltage [V].
+                Shape: ``[..., col, row]``.
             snap: Per-call snap from :meth:`snapshot`.
 
         Returns:
@@ -181,13 +187,16 @@ class XbarCell(
         Excludes wire-segment capacitances.
 
         Args:
-            v_bl: Bit-line node voltage [V]. Shape: ``[..., col, row]``.
-            v_sl: Source-line node voltage [V]. Shape: ``[..., col, row]``.
+            v_bl: Bit-line node voltage [V].
+                Shape: ``[..., col, row]``.
+            v_sl: Source-line node voltage [V].
+                Shape: ``[..., col, row]``.
             dcop: Converged DCOP from :meth:`solve_dc`, carrying any
                 internal-node voltages the cap formulas need.
             snap: Per-call snap from :meth:`snapshot`.
 
         Returns:
-            Per-cell switching energy [fJ]. Shape: ``[..., col, row]``.
+            Per-cell switching energy [fJ].
+            Shape: ``[..., col, row]``.
         """
         raise NotImplementedError

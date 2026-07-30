@@ -52,6 +52,7 @@ class RramConfig(ConfigBase):
     stuck_at: StuckAtFaultConfig
 
     def validate(self) -> None:
+
         # --- Conductance and I-V ---
 
         self._require_non_neg(self.g_min__uS, "g_min__uS")
@@ -119,6 +120,10 @@ class Rram(ModuleBase[RramConfig, RramPolicy]):
     """
 
     is_profile_target: ClassVar[bool] = False
+
+    # === Programmed state ===
+
+    _g__uS: Tensor  # Shape: [*inst_shape]
 
     def __init__(
         self,
@@ -196,7 +201,8 @@ class Rram(ModuleBase[RramConfig, RramPolicy]):
         """Evaluate current and differential conductance.
 
         Args:
-            v__V: Device voltage. Shape: arbitrary.
+            v__V: Device voltage.
+                Shape: ``[...]``.
             snap: Conductance snap from :meth:`snapshot`.
 
         Returns:

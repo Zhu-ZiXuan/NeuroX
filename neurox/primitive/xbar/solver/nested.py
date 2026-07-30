@@ -112,9 +112,8 @@ class NestedParallelRailSolverConfig(SolverConfig):
 class NestedParallelRailSolver(Solver):
     """Block Gauss-Seidel + implicit-Newton DC solver for a parallel BL/SL tile.
 
-    The cell grid uses ``[..., num_col, num_row]``: the last axis is the
-    wire-ladder / IR-drop direction and the second-to-last axis indexes the
-    independent columns.
+    Every cell-grid tensor runs the wire ladder / IR-drop direction along the
+    last axis and indexes the independent columns along the second-to-last.
 
     Args:
         config: Fixed nested-solver iteration counts.
@@ -143,15 +142,19 @@ class NestedParallelRailSolver(Solver):
         """Solve the fabricated tile for one cell snap.
 
         Args:
-            bl_segment_r__MOhm: 1-D BL segment resistances; index 0
+            bl_segment_r__MOhm: BL segment resistances; index 0
                 is driver-to-first.
-            sl_segment_r__MOhm: 1-D SL segment resistances; index 0
+                Shape: ``[num_row]``.
+            sl_segment_r__MOhm: SL segment resistances; index 0
                 is driver-to-first.
+                Shape: ``[num_row]``.
             bl_segment_g__uS: BL segment conductances.
+                Shape: ``[num_row]``.
             sl_segment_g__uS: SL segment conductances.
+                Shape: ``[num_row]``.
             cell: Condensed cell branch model.
             cell_snap: Per-solve cell snap bundling the device snaps and the
-                per-cell control-line (WL) drive.
+                per-row control-line (WL) drive.
             bl_driver: BL clamp driver.
             bl_driver_snap: Per-solve BL driver snap.
             sl_driver: SL clamp driver.
@@ -447,14 +450,18 @@ class NestedParallelRailSolver(Solver):
         """Run only the inner array Newton loop at FIXED clamp boundaries.
 
         Args:
-            v_bl_clamp__V: BL clamp voltage held fixed throughout the
-                solve. Shape: ``[..., num_col]``.
-            v_sl_drive__V: SL drive voltage held fixed. Shape:
-                ``[..., num_col]``.
+            v_bl_clamp__V: BL clamp voltage held fixed throughout the solve.
+                Shape: ``[..., num_col]``.
+            v_sl_drive__V: SL drive voltage held fixed.
+                Shape: ``[..., num_col]``.
             bl_segment_r__MOhm: BL segment resistances.
+                Shape: ``[num_row]``.
             sl_segment_r__MOhm: SL segment resistances.
+                Shape: ``[num_row]``.
             bl_segment_g__uS: BL segment conductances.
+                Shape: ``[num_row]``.
             sl_segment_g__uS: SL segment conductances.
+                Shape: ``[num_row]``.
             cell: Condensed cell branch model.
             cell_snap: Per-solve cell snapshot.
 
@@ -615,20 +622,28 @@ class NestedParallelRailSolver(Solver):
         """Coupled BL/SL wire Newton step at frozen V_clamp / V_SL_drive.
 
         Args:
-            v_bl_node: BL node voltages [V], shape
-                ``[..., num_col, num_row]``.
-            f_bl_kcl: BL KCL residuals [uA], same shape as ``v_bl_node``.
-            f_sl_kcl: SL KCL residuals [uA], same shape as ``v_bl_node``.
+            v_bl_node: BL node voltages [V].
+                Shape: ``[..., num_col, num_row]``.
+            f_bl_kcl: BL KCL residuals [uA].
+                Shape: ``[..., num_col, num_row]``.
+            f_sl_kcl: SL KCL residuals [uA].
+                Shape: ``[..., num_col, num_row]``.
             g_cell_bl_eff: BL-side cell derivatives [uS].
+                Shape: ``[..., num_col, num_row]``.
             g_cell_sl_eff: Negated SL-side cell derivatives [uS].
-            bl_wire_diag_tmpl: BL wire diagonal, shape ``[num_row]``.
-            sl_wire_diag_tmpl: SL wire diagonal, shape ``[num_row]``.
-            bl_wire_offdiag: BL wire off-diagonal, shape ``[num_row - 1]``.
-            sl_wire_offdiag: SL wire off-diagonal, shape ``[num_row - 1]``.
+                Shape: ``[..., num_col, num_row]``.
+            bl_wire_diag_tmpl: BL wire diagonal.
+                Shape: ``[num_row]``.
+            sl_wire_diag_tmpl: SL wire diagonal.
+                Shape: ``[num_row]``.
+            bl_wire_offdiag: BL wire off-diagonal.
+                Shape: ``[num_row - 1]``.
+            sl_wire_offdiag: SL wire off-diagonal.
+                Shape: ``[num_row - 1]``.
 
         Returns:
-            BL and SL Newton voltage steps [V], each shaped like
-            ``v_bl_node``.
+            BL and SL Newton voltage steps [V], one tensor each.
+            Shape: ``[..., num_col, num_row]``.
         """
         num_axis = v_bl_node.shape[-1]
         shape_broadcast = [1] * v_bl_node.ndim
@@ -649,12 +664,12 @@ class NestedParallelRailSolver(Solver):
 
         # Off-diagonal blocks (BL-BL and SL-SL wire only).
         # sub_k[0] is unused; sup_k[N-1] is unused — pad with zeros.
-        # Shape: [num_row]
+        # Shape: [num_row - 1] -> [..., num_row]
         sub_bl_pad = F.pad(bl_wire_offdiag, (1, 0)).view(shape_broadcast)
         sub_sl_pad = F.pad(sl_wire_offdiag, (1, 0)).view(shape_broadcast)
         sup_bl_pad = F.pad(bl_wire_offdiag, (0, 1)).view(shape_broadcast)
         sup_sl_pad = F.pad(sl_wire_offdiag, (0, 1)).view(shape_broadcast)
-        # Broadcast to [..., num_col, num_row]
+        # Shape: [..., num_row] -> [..., num_col, num_row]
         sub_bl_full = sub_bl_pad.expand_as(v_bl_node)
         sub_sl_full = sub_sl_pad.expand_as(v_bl_node)
         sup_bl_full = sup_bl_pad.expand_as(v_bl_node)
@@ -673,8 +688,8 @@ class NestedParallelRailSolver(Solver):
         # Shape: [..., num_col, num_row, 2]
         rhs = torch.stack([-f_bl_kcl, -f_sl_kcl], dim=-1)
 
-        # Solve. Block tensors take last 3 dims [..., num_row, 2, 2];
-        # rhs takes last 2 dims [..., num_row, 2]. The column dim sits in the
+        # Solve. The block solver claims the row axis as its N axis and the
+        # per-node rail pair as its B block, so the column dim sits in its
         # leading batch.
         delta = solve_block_tridiagonal(sub_blocks, diag_blocks, sup_blocks, rhs)
         # Unpack into (dv_bl, dv_sl).
@@ -695,20 +710,28 @@ class NestedParallelRailSolver(Solver):
         """Compute the 2×2 ``K_inner = ∂V_array[0] / ∂V_clamp`` per column.
 
         Args:
-            v_bl_node: BL node voltages [V], shape
-                ``[..., num_col, num_row]``.
+            v_bl_node: BL node voltages [V].
+                Shape: ``[..., num_col, num_row]``.
             g_cell_bl_eff: BL-side cell derivatives [uS].
+                Shape: ``[..., num_col, num_row]``.
             g_cell_sl_eff: Negated SL-side cell derivatives [uS].
-            bl_wire_diag_tmpl: BL wire diagonal, shape ``[num_row]``.
-            sl_wire_diag_tmpl: SL wire diagonal, shape ``[num_row]``.
-            bl_wire_offdiag: BL wire off-diagonal, shape ``[num_row - 1]``.
-            sl_wire_offdiag: SL wire off-diagonal, shape ``[num_row - 1]``.
+                Shape: ``[..., num_col, num_row]``.
+            bl_wire_diag_tmpl: BL wire diagonal.
+                Shape: ``[num_row]``.
+            sl_wire_diag_tmpl: SL wire diagonal.
+                Shape: ``[num_row]``.
+            bl_wire_offdiag: BL wire off-diagonal.
+                Shape: ``[num_row - 1]``.
+            sl_wire_offdiag: SL wire off-diagonal.
+                Shape: ``[num_row - 1]``.
             bl_driver_segment_g__uS: First BL segment conductance.
+                Shape: ``[]``.
             sl_driver_segment_g__uS: First SL segment conductance.
+                Shape: ``[]``.
 
         Returns:
-            Clamp-to-port-node sensitivity, shape
-            ``[..., num_col, 2, 2]``.
+            Clamp-to-port-node sensitivity.
+            Shape: ``[..., num_col, 2, 2]``.
         """
         num_row = v_bl_node.shape[-1]
         shape_broadcast = [1] * v_bl_node.ndim

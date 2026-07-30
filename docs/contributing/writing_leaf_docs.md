@@ -8,7 +8,7 @@ A leaf document holds:
 
 - design decisions
 - its differences from the base contract, and its own cross-file contracts, ownership, and lifecycle rules
-- shape / dtype / buffer and compile invariants
+- shape / dtype / state and compile invariants
 - complexity, memory model, and performance trade-offs
 - gotchas and known limitations
 
@@ -58,7 +58,7 @@ A leaf document specifies software — decisions, contracts, and trade-offs — 
 
 ### Contracts & invariants
 
-State call conventions, ownership, shape / dtype / buffer contracts, lifecycle rules, and compile constraints that hold across files.
+State call conventions, ownership, shape / dtype / state contracts, lifecycle rules, and compile constraints that hold across files.
 
 ### Public contracts
 

@@ -16,15 +16,16 @@ def _validate_int_bias(bias: Tensor, *, channels: int) -> Tensor:
     """Validate an integer per-channel bias vector and return it as int64.
 
     Args:
-        bias: Integer bias tensor of shape ``(channels,)``.
+        bias: Integer bias tensor.
+            Shape: ``[channels]``.
         channels: Expected number of output channels.
 
     Returns:
         ``bias`` cast to ``torch.int64`` (the accumulation domain).
 
     Raises:
-        ValueError: ``bias`` has a non-integer dtype or a shape other than
-            ``(channels,)``.
+        ValueError: ``bias`` has a non-integer dtype, or a shape other than
+            the per-channel vector stated above.
     """
     if bias.dtype.is_floating_point or bias.dtype.is_complex or bias.dtype == torch.bool:
         raise ValueError(f"require: integer bias dtype; got {bias.dtype}")
@@ -40,9 +41,9 @@ class UnitBase(ABC):
     accumulated in the ``torch.int64`` output domain.
     """
 
-    # --- Programmed state ---
+    # === Programmed state ===
 
-    _int_bias: Tensor | None = None
+    _int_bias: Tensor | None = None  # Shape: [channels]
 
     @property
     @abstractmethod
@@ -83,19 +84,25 @@ class UnitBase(ABC):
         """Multiply integer input planes by the programmed weight.
 
         Args:
-            input: Integer activation planes. Shape: ``[..., M, K]``.
+            input: Integer activation planes.
+                Shape: ``[..., M, K]``.
             quantization_mode: Runtime quantization-mode index.
             adc_bits: Runtime ADC resolution, or ``None`` for the lossless
                 oracle.
 
         Returns:
-            Integer pre-requantize output tensor. Shape: ``[..., M, N]``;
-            leading order preserved.
+            Integer pre-requantize output tensor; leading order preserved.
+            Shape: ``[..., M, N]``.
         """
         raise NotImplementedError
 
     def _weight_to_matrix(self, weight: Tensor) -> Tensor:
-        """Convert an operator weight to a matrix with shape ``[N, K]``."""
+        """Convert an operator weight to a matmul weight matrix.
+
+        Returns:
+            Weight matrix in the matmul contraction layout.
+            Shape: ``[..., N, K]``.
+        """
         return weight
 
     def _activation_to_planes(self, input: Tensor) -> Tensor:

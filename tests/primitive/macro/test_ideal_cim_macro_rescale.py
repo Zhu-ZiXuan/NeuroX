@@ -69,7 +69,6 @@ def _dot_macro(*, quantization_input_ranges: tuple[tuple[int, int], ...], adc_ma
 
 
 def _codes(macro: IdealCimMacro, dots: list[int], *, quantization_mode: int, adc_bits: int | None) -> list[int]:
-    # Shape: [n] -> [n, input_num=1] -> [n, output_num=1] -> [n]
     x = torch.tensor(dots, dtype=torch.int64).unsqueeze(-1)
     y = macro.vec_mat_mul(x, quantization_mode=quantization_mode, adc_bits=adc_bits)
     assert y.dtype == torch.int64
@@ -324,8 +323,7 @@ class TestInputCodeMap:
 
 
 class TestPlaneOutput:
-    """``vec_mat_mul`` maps trailing ``[input_num]`` to ``[output_num]`` and keeps
-    every leading axis anonymous — the caller owns any phase axis."""
+    """``vec_mat_mul`` keeps every leading axis anonymous — the caller owns any phase axis."""
 
     @staticmethod
     def _programmed_macro(*, max_active_num: int | None) -> tuple[IdealCimMacro, torch.Tensor]:

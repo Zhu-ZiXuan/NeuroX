@@ -63,12 +63,13 @@ class Imux(AnalogBase[ImuxConfig, ImuxPolicy]):
         """Transport currents already scheduled across mux accesses and lanes.
 
         Args:
-            i__uA: Single-ended input currents. Shape:
-                ``[..., access_num, lane_num]``, where ``access_num`` equals
+            i__uA: Single-ended input currents, where ``access_num`` equals
                 ``mux_ratio``.
+                Shape: ``[..., access_num, lane_num]``.
 
         Returns:
-            Gained currents with the same shape as ``i__uA``.
+            Gained currents, one value per ``i__uA`` element.
+            Shape: ``[..., access_num, lane_num]``.
         """
         lane_num = self.inst_shape[-1] if self.inst_shape else 1
         expected_trailing = (self.config.mux_ratio, lane_num)

@@ -126,7 +126,8 @@ def test_shape_law() -> None:
 def test_forward_is_billing_only() -> None:
     """forward returns None (the value conversion lives in the kernel ADC)."""
     module = _build()
-    i_sub = torch.tensor([[[1.5, 2.5], [0.5, 6.5]]], dtype=_DTYPE)  # [1, serial, gn]
+    # Shape: [1, serial, gn]
+    i_sub = torch.tensor([[[1.5, 2.5], [0.5, 6.5]]], dtype=_DTYPE)
     code = torch.tensor([[[1, 2], [0, 6]]], dtype=torch.long)
     refs = torch.tensor(_LADDER, dtype=_DTYPE)
     assert module(i_sub, code, refs, bits=_BITS) is None
@@ -190,7 +191,8 @@ def test_lut_closed_form_anchor() -> None:
 def test_phase_billing_law_hand_computed() -> None:
     """Recorded energy == the hand-computed PH2/PH3 per-step formula; no latency."""
     module = _build()
-    i_sub = torch.tensor([[[1.5, 2.5], [0.5, 6.5]]], dtype=_DTYPE)  # [1, serial, gn]
+    # Shape: [1, serial, gn]
+    i_sub = torch.tensor([[[1.5, 2.5], [0.5, 6.5]]], dtype=_DTYPE)
     code = torch.tensor([[[1, 2], [0, 6]]], dtype=torch.long)
     refs = torch.tensor(_LADDER, dtype=_DTYPE)
 
@@ -234,7 +236,8 @@ def test_lowered_bits_bills_the_leading_steps_at_the_up_shifted_code() -> None:
     """
     bits = _BITS - 1
     shift = _BITS - bits
-    i_sub = torch.tensor([[[1.5, 2.5], [0.5, 6.5]]], dtype=_DTYPE)  # [1, serial, gn]
+    # Shape: [1, serial, gn]
+    i_sub = torch.tensor([[[1.5, 2.5], [0.5, 6.5]]], dtype=_DTYPE)
     code = torch.tensor([[[0, 1], [2, 3]]], dtype=torch.long)  # b-bit codes
     refs = torch.tensor(_LADDER, dtype=_DTYPE)  # always the FULL max-bits ladder
 

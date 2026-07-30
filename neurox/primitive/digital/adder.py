@@ -55,9 +55,15 @@ class Adder(DigitalBase[AdderConfig]):
         inst_shape: tuple[int, ...],
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
-        self._area_per_inst__um2 = config.area_per_inst__um2
-        self._leakage_per_inst__uW = config.leakage_per_inst__uW
         self._register_latency_buffer(config.latency_per_op__ns)
+
+    @property
+    def _area_per_inst__um2(self) -> float:
+        return self.config.area_per_inst__um2
+
+    @property
+    def _leakage_per_inst__uW(self) -> float:
+        return self.config.leakage_per_inst__uW
 
     def add(self, a: Tensor, b: Tensor) -> Tensor:
         """Add ``a`` and ``b`` element-wise.

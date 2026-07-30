@@ -4,8 +4,8 @@ Plain ``nn.Module``; the PT2E quantization flow
 (``torchao.quantization.pt2e``) operates on the exported FX graph.
 
 Input spec:
-    Shape: ``[N, 1, 28, 28]`` (standard MNIST).  The first conv uses
-    ``padding=2`` to recover the classic LeNet-5 32×32 input feature map.
+    Standard MNIST; the first conv uses ``padding=2`` to recover the classic
+    LeNet-5 32×32 input feature map.
 """
 
 import torch.nn as nn

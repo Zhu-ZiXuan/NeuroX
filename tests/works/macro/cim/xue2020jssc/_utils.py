@@ -405,7 +405,8 @@ def probe_i_sub_grid(macro: Xue2020JsscCimMacro, *, m_max: int) -> list[float]:
     with IadcProber() as probe, torch.no_grad():
         macro.vec_mat_mul(x, quantization_mode=QUANTIZATION_MODE, adc_bits=TINY_ADC_BITS)
     # One convert per vec_mat_mul; i_in__uA is the pre-ADC magnitude I_SUB.
-    i_sub = probe.records[-1].i_in__uA  # [m_max + 1, group_size, group_num]
+    # Shape: [m_max + 1, group_size, group_num]
+    i_sub = probe.records[-1].i_in__uA
     return [float(v) for v in i_sub[:, 0, 0].cpu()]
 
 
@@ -443,12 +444,15 @@ def ideal_mac(w_signed: Tensor, x: Tensor, *, mag_max: int = MAG_MAX) -> Tensor:
     """CPU int64 reference for the logical VMM.
 
     Args:
-        w_signed: Signed weights ``[input_num, output_num]``.
-        x: Integer activations ``[..., input_num]``.
+        w_signed: Signed weights.
+            Shape: ``[input_num, output_num]``.
+        x: Integer activations.
+            Shape: ``[..., input_num]``.
         mag_max: Signed-magnitude clip bound.
 
     Returns:
-        Expected signed codes ``[..., output_num]`` on CPU.
+        Expected signed codes on CPU.
+        Shape: ``[..., output_num]``.
     """
     w2 = w_signed.cpu().long()
     x2 = x.cpu().long()
@@ -466,7 +470,7 @@ def decode(
 ) -> Tensor:
     """Program logical weights and run one VMM.
 
-    Returns the signed-magnitude codes ``[..., output_num]`` on CPU.
+    Returns the signed-magnitude codes on CPU.
     """
     device = macro_device(macro)
     macro.program(w_signed.to(device))

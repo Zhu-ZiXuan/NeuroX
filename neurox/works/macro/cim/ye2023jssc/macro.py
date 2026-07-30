@@ -34,10 +34,6 @@ from .array import Ye2023Jssc2t1rArray, Ye2023Jssc2t1rArrayConfig, Ye2023Jssc2t1
 from .cell import Ye2023Jssc2t1rCellConfig
 from .rscsa import RsCsaIadc, RsCsaIadcConfig, RsCsaIadcPolicy
 
-# ---------------------------------------------------------------------------
-# Config
-# ---------------------------------------------------------------------------
-
 
 class Ye2023JsscCimMacroConfig(CimMacroConfig):
     """Configuration for the Ye2023 JSSC WH-2T1R CIM macro.
@@ -67,28 +63,33 @@ class Ye2023JsscCimMacroConfig(CimMacroConfig):
             ``adc_config.bits``.
     """
 
-    # --- Device-bearing sub-blocks ---
+    # === Device-bearing sub-blocks ===
+
     array_config: Ye2023Jssc2t1rArrayConfig
     adc_config: RsCsaIadcConfig
     bl_driver_config: VoltageDriverConfig
     sl_driver_config: VoltageDriverConfig
 
-    # --- Flat peripheral seats (static PPA only) ---
+    # === Flat peripheral seats (static PPA only) ===
+
     mux_driver_config: UnmodeledBlockConfig
     timing_ctrl_config: UnmodeledBlockConfig
 
-    # --- Biases ---
+    # === Biases ===
+
     v_wl_sel__V: float
     v_bl_in1__V: float
     v_tbl__V: float
     v_sl__V: float
     v_dd_core__V: float
 
-    # --- Flat peripheral per-op energies ---
+    # === Flat peripheral per-op energies ===
+
     e_mux_driver_per_op__fJ: float
     e_timing_ctrl_per_op__fJ: float
 
-    # --- Quantization operating points ---
+    # === Quantization operating points ===
+
     modes: tuple[CimMacroMode, ...]
 
     @property
@@ -105,10 +106,6 @@ class Ye2023JsscCimMacroConfig(CimMacroConfig):
                 f"require: array_config.cell_config a Ye2023Jssc2t1rCellConfig; got {type(cell_config).__name__}"
             )
         return cell_config
-
-    # -----------------------------------------------------------------
-    # Validation
-    # -----------------------------------------------------------------
 
     def validate(self) -> None:
         super().validate()
@@ -143,11 +140,6 @@ class Ye2023JsscCimMacroConfig(CimMacroConfig):
             raise ValueError("require: modes must declare at least one quantization operating point")
 
 
-# ---------------------------------------------------------------------------
-# Policy
-# ---------------------------------------------------------------------------
-
-
 class Ye2023JsscCimMacroPolicy(CimMacroPolicy):
     """Composite nonideality policy for :class:`Ye2023JsscCimMacro`.
 
@@ -166,11 +158,6 @@ class Ye2023JsscCimMacroPolicy(CimMacroPolicy):
     sl_driver_policy: VoltageDriverPolicy
     mux_driver_policy: UnmodeledBlockPolicy
     timing_ctrl_policy: UnmodeledBlockPolicy
-
-
-# ---------------------------------------------------------------------------
-# Macro
-# ---------------------------------------------------------------------------
 
 
 @CimMacro.register_neurox_module(
@@ -194,12 +181,15 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
         T__K: Operating temperature.
     """
 
-    # --- Immutable model buffers ---
+    # === Functional buffers ===
 
-    _v_wl_onehot__V: Tensor
-    _sl_v_ref__V: Tensor
-    _i_ref_ladder__uA: Tensor
-    _w_encode_lut: Tensor
+    _w_encode_lut: Tensor  # Shape: [w_value_num, w_digit_num]
+    _i_ref_ladder__uA: Tensor  # Shape: [mode_num, 2**max_bits - 1]
+
+    # === Circuit constant buffers ===
+
+    _v_wl_onehot__V: Tensor  # Shape: [col_num, col_num]
+    _sl_v_ref__V: Tensor  # Shape: []
 
     def __init__(
         self,
@@ -227,8 +217,6 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
             raise ValueError(
                 f"require: max_active_num ({config.max_active_num}) == row_num ({self.row_num}) (input-parallel design)"
             )
-        self._area_per_inst__um2 = config.area_per_inst__um2
-        self._leakage_per_inst__uW = config.leakage_per_inst__uW
         self._init_children(dtype=dtype, T__K=T__K)
         self._register_model_buffers(dtype=dtype)
 
@@ -241,6 +229,14 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
             + (self.col_num - 1) * array_config.bl_segment_c__fF
             + self.col_num * (cell_config.c_bl__fF + cell_config.c_x__fF)
         )
+
+    @property
+    def _area_per_inst__um2(self) -> float:
+        return self.config.area_per_inst__um2
+
+    @property
+    def _leakage_per_inst__uW(self) -> float:
+        return self.config.leakage_per_inst__uW
 
     def _init_children(self, *, dtype: torch.dtype, T__K: float) -> None:
         """Construct the array, readout, clamps, and flat peripheral seats."""
@@ -315,7 +311,6 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
     def _register_model_buffers(self, *, dtype: torch.dtype) -> None:
         """Register the one-hot WL grid, the SL drive, and the RS-CSA ladder."""
         config = self.config
-        # Shape: [col_num, col_num]
         wl_onehot = config.v_wl_sel__V * torch.eye(self.col_num, dtype=dtype)
         self.register_buffer("_v_wl_onehot__V", wl_onehot, persistent=False)
         self.register_buffer("_sl_v_ref__V", torch.tensor(config.v_sl__V, dtype=dtype), persistent=False)
@@ -340,10 +335,6 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
         encode_lut = torch.zeros((sum(config.array_config.weight_radix) + 1, digit_num), dtype=torch.long)
         encode_lut[values] = digits
         self.register_buffer("_w_encode_lut", encode_lut, persistent=False)
-
-    # -----------------------------------------------------------------
-    # Value-domain semantics
-    # -----------------------------------------------------------------
 
     @property
     def x_value_range(self) -> tuple[int, int]:
@@ -398,10 +389,6 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
             raise ValueError(f"require: quantization_mode ({quantization_mode}) in [0, {mode_num})")
         return quantization_mode
 
-    # -----------------------------------------------------------------
-    # Timing
-    # -----------------------------------------------------------------
-
     @property
     def t_ac__ns(self) -> Tensor:
         """Nominal access window T_AC [ns] (0-d) at :attr:`adc_max_bits`.
@@ -413,45 +400,52 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
         """
         return self.rscsa.t_conversion__ns(self.adc_max_bits)
 
-    # -----------------------------------------------------------------
-    # Lifecycle
-    # -----------------------------------------------------------------
+    def _organize_w(self, w: Tensor) -> Tensor:
+        """Map logical weights into the array's physical-column plane layout.
+
+        Args:
+            w: Logical weight tensor.
+                Shape: ``[*inst_shape, row_num, col_num]``.
+
+        Returns:
+            State indices.
+            Shape: ``[*inst_shape, phys_col_num, col_num]``.
+        """
+        # Shape: [..., row, col] -> [..., row, col, w_digit_num]
+        digits = self._w_encode_lut[w.long()]
+        # Shape: [..., row, col, w_digit_num] -> [..., w_digit_num, row, col]
+        digits = digits.movedim(-1, -3)
+        # Shape: [..., w_digit_num, row, col] -> [..., w_digit_num * row, col]
+        w_state_idx = digits.flatten(-3, -2)
+        # Redundant (non-weight) planes are programmed all-HRS (state 0).
+        n_redundant_col = len(self.config.array_config.redundant_radix) * self.row_num
+        redundant = w_state_idx.new_zeros((*w_state_idx.shape[:-2], n_redundant_col, w_state_idx.shape[-1]))
+        # phys_col_num = (w_digit_num + redundant_plane_num) * row.
+        # Shape: [..., w_digit_num * row, col] -> [..., phys_col_num, col]
+        return torch.cat((w_state_idx, redundant), dim=-2).contiguous()
 
     def program(self, w: Tensor) -> None:
         """Encode logical weights and fold the planes into the physical grid.
 
         Args:
-            w: Logical weight tensor with shape
-                ``(*inst_shape, row_num, col_num)``; every entry must be
-                representable by a binary selection over
-                ``array_config.weight_radix``.
+            w: Logical weight tensor; every entry must be representable by a
+                binary selection over ``array_config.weight_radix``.
+                Shape: ``[*inst_shape, row_num, col_num]``.
         """
         expected_shape = (*self.inst_shape, self.row_num, self.col_num)
         if tuple(w.shape) != expected_shape:
             raise ValueError(f"program() expects w.shape {expected_shape}; got {tuple(w.shape)}")
-
-        # Shape: [*, row, col] -> [*, row, col, w_digit_num]
-        digits = self._w_encode_lut[w.long()]
-        # Shape: [*, row, col, w_digit_num] -> [*, w_digit_num, row, col]
-        digits = digits.movedim(-1, -3)
-        # Shape: [*, w_digit_num, row, col] -> [*, w_digit_num * row, col]
-        w_state_idx = digits.flatten(-3, -2)
-        # Redundant (non-weight) planes are programmed all-HRS (state 0).
-        n_redundant_col = len(self.config.array_config.redundant_radix) * self.row_num
-        redundant = w_state_idx.new_zeros((*w_state_idx.shape[:-2], n_redundant_col, w_state_idx.shape[-1]))
-        # Shape: [*, w_digit_num * row + redundant * row, col] = [*, phys_col_num, col]
-        w_state_idx = torch.cat((w_state_idx, redundant), dim=-2).contiguous()
-        self.array.program(w_state_idx)
+        self.array.program(self._organize_w(w))
 
     def vec_mat_mul(self, x: Tensor, *, quantization_mode: int, adc_bits: int | None) -> Tensor:
         """Run one broadcast array solve over the output-serial word lines + RS-CSA.
 
         Args:
-            x: 1-bit activation tensor with primitive trailing ``[row_num]`` and
-                leading ``(*batch, *inst_shape)``; entries in
-                :attr:`x_value_range`. The instance axes must be present when
-                ``inst_shape`` is non-empty, and a size-1 instance axis shares one
-                input vector across the whole die ensemble.
+            x: 1-bit activation tensor; entries in :attr:`x_value_range`. The
+                instance axes must be present when ``inst_shape`` is non-empty,
+                and a size-1 instance axis shares one input vector across the
+                whole die ensemble.
+                Shape: ``[..., *inst_shape, row_num]``.
             quantization_mode: Mode index in ``[0, len(config.modes))``; selects
                 the reference bank row.
             adc_bits: RS-CSA resolution [bits] in ``[1, adc_max_bits]``. The
@@ -461,8 +455,8 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
                 oracle, so ``None`` is rejected.
 
         Returns:
-            Unsigned RS-CSA code tensor with leading ``(*batch, *inst_shape)`` and
-            primitive trailing ``[col_num]``.
+            Unsigned RS-CSA code tensor.
+            Shape: ``[..., *inst_shape, col_num]``.
         """
         self._check_mode(quantization_mode)
         if adc_bits is None:
@@ -484,16 +478,16 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
         n_inst = len(self.inst_shape)
         if x_long.ndim - 1 < n_inst:
             raise ValueError(
-                f"vec_mat_mul() expects x leading (*batch, *inst_shape) with inst_shape {self.inst_shape}; "
+                f"vec_mat_mul() expects x leading (..., *inst_shape) with inst_shape {self.inst_shape}; "
                 f"got x.shape {tuple(x.shape)}"
             )
 
-        # --- Step 1: per-column BL input voltages, tiled plane-major ---
+        # --- 1: per-column BL input voltages, tiled plane-major ---
 
-        # [*B, row] -> [*B, weight_plane, row] -> [*B, weight_plane * row]; the
-        # first row_num carry plane 0, matching the array's plane-major radix
+        # The first row_num carry plane 0, matching the array's plane-major radix
         # layout. The redundant planes are forced input-0.
         leading = x_long.shape[:-1]
+        # Shape: [..., row] -> [..., weight_plane * row]
         x_weight = (
             x_long.unsqueeze(-2).expand(*leading, n_weight_plane, row_num).reshape(*leading, n_weight_plane * row_num)
         )
@@ -505,22 +499,24 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
             self._v_wl_onehot__V.new_tensor(0.0),
         )
 
-        # --- Step 2: stack the output-serial one-hot word lines on the leading ---
+        # --- 2: stack the output-serial one-hot word lines on the leading ---
 
         # The array carries its instance prefix on the LAST leading axes, so the
         # output-serial axis is inserted BEFORE the instance axes x's leading ends
-        # with: the solve leading is (*batch, out, *inst).
+        # with: the solve leading is (..., out, *inst_shape).
         batch = leading[: len(leading) - n_inst]
         inst_slots = leading[len(leading) - n_inst :]
         solve_leading = (*batch, self.col_num, *inst_slots)
-        # [*batch, out, *inst, array_row]: output o activates array row o at V_WL_sel.
+        # Output o activates array row o at V_WL_sel.
+        # Shape: [..., out, *inst_shape, array_row]
         v_wl = self._v_wl_onehot__V.view(self.col_num, *(1,) * n_inst, self.col_num).expand(
             *solve_leading, self.col_num
         )
-        # [*batch, out, *inst, phys_col]: the same per-column inputs for every output.
+        # The same per-column inputs for every output.
+        # Shape: [..., out, *inst_shape, phys_col]
         bl_v_ref = v_bl.unsqueeze(-(n_inst + 2)).expand(*solve_leading, x_tiled.shape[-1])
 
-        # --- Step 3: one broadcast solve; leading becomes (*batch, out, *inst) ---
+        # --- 3: one broadcast solve; leading becomes (..., out, *inst_shape) ---
 
         steady = self.array.solve(
             v_wl,
@@ -529,10 +525,13 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
             sl_driver=self.sl_driver,
             sl_v_ref__V=self._sl_v_ref__V,
         )
-        i_bl_port = steady.i_bl_port__uA  # [*batch, out, *inst, phys_col]
-        i_tbl = steady.i_tbl__uA  # [*batch, out, *inst], RAW (includes the IN=0 floor)
+        # Shape: [..., out, *inst_shape, phys_col]
+        i_bl_port = steady.i_bl_port__uA
+        # The RAW row current, including the IN=0 floor.
+        # Shape: [..., out, *inst_shape]
+        i_tbl = steady.i_tbl__uA
 
-        # --- Step 4: conduction branches + per-vector BL charge (macro-billed) ---
+        # --- 4: conduction branches + per-vector BL charge (macro-billed) ---
 
         if record:
             # BL input branch, PER ACCESS.
@@ -556,14 +555,14 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
                 channel="bl_cap",
             )
 
-        # --- Step 5: RS-CSA quantize against the mode's uniform i_lsb ladder ---
+        # --- 5: RS-CSA quantize against the mode's uniform i_lsb ladder ---
 
         # The full max-bits ladder always goes to the readout; the RS-CSA
         # handles the requested bit width internally.
         i_refs__uA = self._i_ref_ladder__uA[quantization_mode]
         code = self.rscsa.convert(i_tbl, i_refs__uA, bits=adc_bits)  # [*batch, out, *inst]
 
-        # --- Step 6: flat peripheral energy (per output access) + latency ---
+        # --- 6: flat peripheral energy (per output access) + latency ---
 
         if record:
             e_mux = i_tbl.new_full(i_tbl.shape, config.e_mux_driver_per_op__fJ)
@@ -578,5 +577,5 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
         serial_round_count = (code.numel() + parallel_instance_count - 1) // parallel_instance_count
         self._record_latency(t_ac__ns * serial_round_count)
 
-        # [*batch, out, *inst] -> [*batch, *inst, out]
+        # Shape: [..., out, *inst_shape] -> [..., *inst_shape, out]
         return code.movedim(-(n_inst + 1), -1)

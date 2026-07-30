@@ -55,7 +55,7 @@ class CimUnit(
     Args:
         config: Concrete configuration dataclass.
         policy: Composite nonideality policy.
-        w_logical_shape: Logical weight shape ``(*prefix, N, K)`` bound to ``program(...)``.
+        w_logical_shape: Logical weight shape ``(..., N, K)`` bound to ``program(...)``.
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature.
         ideal_macro: Whether to replace the configured CIM macro with its ideal model.
@@ -147,9 +147,15 @@ class EngineBackedCimUnit(CimUnit[EbConfigT, EbPolicyT], Generic[EbConfigT, EbPo
             T__K=T__K,
             ideal_macro=ideal_macro,
         )
-        self._area_per_inst__um2 = config.area_per_inst__um2
-        self._leakage_per_inst__uW = config.leakage_per_inst__uW
         self._init_engine_child(dtype=dtype, T__K=T__K, ideal_macro=ideal_macro)
+
+    @property
+    def _area_per_inst__um2(self) -> float:
+        return self.config.area_per_inst__um2
+
+    @property
+    def _leakage_per_inst__uW(self) -> float:
+        return self.config.leakage_per_inst__uW
 
     def _init_engine_child(self, *, dtype: torch.dtype, T__K: float, ideal_macro: bool) -> None:
         """Construct the configured execution engine."""

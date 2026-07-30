@@ -57,7 +57,7 @@ def _build(*, gn: int) -> PnIsub:
 
 
 def _lane_currents(gn: int) -> tuple[torch.Tensor, torch.Tensor]:
-    """Asymmetric [batch=1, serial, gn] P/N currents covering P>N, N>P, and a tie."""
+    """Asymmetric polarity currents covering P>N, N>P, and a tie."""
     i_p = torch.tensor([[[6.0, 1.5], [2.0, 4.0]]], dtype=_DTYPE)
     i_n = torch.tensor([[[2.5, 5.0], [2.0, 0.5]]], dtype=_DTYPE)
     assert i_p.shape == (1, _MUX_FACTOR, gn)

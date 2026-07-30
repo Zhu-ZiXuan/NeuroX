@@ -56,6 +56,18 @@ class Vdac(
         T__K: Operating temperature.
     """
 
+    def __init__(
+        self,
+        *,
+        config: ConfigT,
+        policy: PolicyT,
+        inst_shape: tuple[int, ...],
+        dtype: torch.dtype,
+        T__K: float,
+    ) -> None:
+        del dtype, T__K
+        super().__init__(config=config, policy=policy, inst_shape=inst_shape)
+
     @classmethod
     def from_config(
         cls,
@@ -87,18 +99,6 @@ class Vdac(
             T__K=T__K,
         )
 
-    def __init__(
-        self,
-        *,
-        config: ConfigT,
-        policy: PolicyT,
-        inst_shape: tuple[int, ...],
-        dtype: torch.dtype,
-        T__K: float,
-    ) -> None:
-        del dtype, T__K
-        super().__init__(config=config, policy=policy, inst_shape=inst_shape)
-
     @property
     @abstractmethod
     def code_max(self) -> int:
@@ -110,10 +110,12 @@ class Vdac(
         """Convert integer digital codes to analog output voltages.
 
         Args:
-            code: Integer input codes in ``[0, code_max]``. Shape: arbitrary.
+            code: Integer input codes in ``[0, code_max]``.
+                Shape: ``[...]``.
 
         Returns:
-            Analog output voltage [V], same shape as ``code``. Dynamic energy
-            and latency are emitted through the profiler side channel.
+            Analog output voltage [V], at the same shape as ``code``. Dynamic
+            energy and latency are emitted through the profiler side channel.
+            Shape: ``[...]``.
         """
         raise NotImplementedError

@@ -64,10 +64,10 @@ class PlacementStage(ModuleBase[PlacementStageConfig, PlacementStagePolicy]):
 
     is_profile_target: ClassVar[bool] = False
 
-    # --- Immutable execution buffers ---
+    # === Functional buffers ===
 
-    _block_slot_mask: Tensor
-    _input_source_index: Tensor
+    _block_slot_mask: Tensor  # Shape: [D, input_num]
+    _input_source_index: Tensor  # Shape: [D, input_num]
 
     def __init__(
         self,
@@ -148,7 +148,7 @@ class PlacementStage(ModuleBase[PlacementStageConfig, PlacementStagePolicy]):
         )
 
     def pack_weight(self, weight: Tensor) -> Tensor:
-        """Pack canonical ``[D,L]`` slots into the macro input axis."""
+        """Pack canonical ``[D, L]`` slots into the macro input axis."""
         # Shape: [..., Sw, Tc, G, D, L, output_num] -> [..., Sw, Tc, G, D*L, output_num]
         packed = weight.flatten(start_dim=-3, end_dim=-2)
         # Shape: [..., Sw, Tc, G, D*L, output_num] -> [..., Sw, Tc, G, input_num, output_num]
@@ -181,23 +181,23 @@ class PlacementStage(ModuleBase[PlacementStageConfig, PlacementStagePolicy]):
         execution_index = max(0, x_prefix_rank - self._w_batch_rank)
         missing_w_batch_rank = max(0, self._w_batch_rank - x_prefix_rank)
         if missing_w_batch_rank:
-            # Shape: [*caller, *inst, P, L] -> [*caller, *missing_w_batch=1, *inst, P, L]
+            # Shape: [..., M, Sa, Sw, Tc, G, P, L] -> [*w_batch, M, Sa, Sw, Tc, G, P, L]
             x = x.reshape(
                 *x.shape[:execution_index],
                 *(1,) * missing_w_batch_rank,
                 *x.shape[execution_index:],
             )
 
-        # Shape: [..., *span, P, L] -> [..., *span, P, D, input_num]
+        # Shape: [..., *inst_shape, P, L] -> [..., *inst_shape, P, D, input_num]
         routed = x[..., self._input_source_index]
-        # Shape: [..., *span, P, D, input_num] -> [..., D, *span, P, input_num]
+        # Shape: [..., *inst_shape, P, D, input_num] -> [..., D, *inst_shape, P, input_num]
         routed = routed.movedim(-2, execution_index)
-        # Shape: [..., D, *span, P, input_num] -> [..., D, P, *span, input_num]
+        # Shape: [..., D, *inst_shape, P, input_num] -> [..., D, P, *inst_shape, input_num]
         routed = routed.movedim(-2, execution_index + 1)
 
         plan = self.plan
         block_step_num = plan.block_slot_num
-        # Shape: [D, input_num] -> [*caller=1, D, P=1, *inst=1, input_num]
+        # Shape: [D, input_num] -> [*caller_leading=1, D, P=1, *inst_shape=1, input_num]
         mask = self._block_slot_mask.reshape(
             *(1,) * execution_index,
             block_step_num,
@@ -205,7 +205,7 @@ class PlacementStage(ModuleBase[PlacementStageConfig, PlacementStagePolicy]):
             *(1,) * self._macro_inst_rank,
             self._input_num,
         )
-        # Shape: [..., D, P, *span, input_num]
+        # Shape: [..., D, P, *inst_shape, input_num]
         return torch.where(mask, routed, routed.new_zeros(()))
 
     def accumulate_contraction_tiles(self, code: Tensor) -> Tensor:
@@ -213,7 +213,7 @@ class PlacementStage(ModuleBase[PlacementStageConfig, PlacementStagePolicy]):
         return self.contraction_accumulator.accumulate(code, dim=-3)
 
     def restore_output(self, code: Tensor) -> Tensor:
-        """Restore balanced ``[D,G,Q]`` blocks to logical output order."""
+        """Restore balanced ``[D, G, Q]`` blocks to logical output order."""
         # Shape: [..., D, *w_batch, M, G, Q] -> [..., *w_batch, M, D, G, Q]
         code = code.movedim(-(self._w_batch_rank + 4), -3)
         # Shape: [..., *w_batch, M, D, G, Q] -> [..., *w_batch, M, N]

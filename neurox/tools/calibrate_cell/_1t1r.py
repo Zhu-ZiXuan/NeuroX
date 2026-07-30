@@ -151,11 +151,12 @@ def build_operating_grid(
       * the word line off and on,
       * every programmed RRAM state in ``state_to_g_map__uS``.
 
-    Returns ``(v_bl, v_sl, v_wl, state_idx)``, each a 1-D tensor of the
-    same length ``n_terminal**2 * 2 * n_states``. ``state_idx`` is a
-    ``long`` tensor of the programmed-state index at each point; the
-    caller programs the cell per distinct state and selects the matching
-    points.
+    Returns:
+        ``(v_bl, v_sl, v_wl, state_idx)``, each a flat per-point
+        tensor. ``state_idx`` is a ``long`` tensor of the programmed-state
+        index at each point; the caller programs the cell per distinct state
+        and selects the matching points.
+        Shape: ``[n_terminal**2 * 2 * w_state_num]``.
     """
     v_axis = torch.linspace(
         grid.v_terminal_min__V,
@@ -168,7 +169,8 @@ def build_operating_grid(
     n_states = len(cell_config.state_to_g_map__uS)
     state_axis = torch.arange(n_states, dtype=torch.long, device=device)
 
-    # Cartesian product over (v_bl, v_sl, v_wl, state) flattened to 1-D.
+    # Cartesian product over (v_bl, v_sl, v_wl, state), then flattened.
+    # Shape: [n_terminal, n_terminal, 2, w_state_num] -> [n_terminal**2 * 2 * w_state_num]
     grids = torch.meshgrid(v_axis, v_axis, v_wl_axis, state_axis.to(dtype), indexing="ij")
     v_bl = grids[0].reshape(-1)
     v_sl = grids[1].reshape(-1)

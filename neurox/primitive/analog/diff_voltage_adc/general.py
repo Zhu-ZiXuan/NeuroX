@@ -82,10 +82,13 @@ class GeneralDiffVadc(DiffVadc[GeneralDiffVadcConfig, GeneralDiffVadcPolicy]):
         T__K: Operating temperature.
     """
 
-    # --- Immutable model buffers ---
+    # === Functional buffers ===
 
-    _boundaries: Tensor
-    _latency_per_op__ns: Tensor
+    _boundaries: Tensor  # Shape: [code_num - 1]
+
+    # === Circuit constant buffers ===
+
+    _latency_per_op__ns: Tensor  # Shape: []
 
     def __init__(
         self,
@@ -103,8 +106,6 @@ class GeneralDiffVadc(DiffVadc[GeneralDiffVadcConfig, GeneralDiffVadcPolicy]):
             dtype=dtype,
             T__K=T__K,
         )
-        self._area_per_inst__um2 = config.area_per_inst__um2
-        self._leakage_per_inst__uW = config.leakage_per_inst__uW
 
         boundaries_t = torch.tensor(config.boundaries, dtype=dtype)
         self.register_buffer("_boundaries", boundaries_t, persistent=False)
@@ -123,6 +124,14 @@ class GeneralDiffVadc(DiffVadc[GeneralDiffVadcConfig, GeneralDiffVadcPolicy]):
             self._lsb_estimate = float((boundaries_t[1:] - boundaries_t[:-1]).mean().item())
         else:
             self._lsb_estimate = float(boundaries_t.item())
+
+    @property
+    def _area_per_inst__um2(self) -> float:
+        return self.config.area_per_inst__um2
+
+    @property
+    def _leakage_per_inst__uW(self) -> float:
+        return self.config.leakage_per_inst__uW
 
     def _sample_fabricate_mismatch(self) -> None:
         pass
@@ -163,14 +172,17 @@ class GeneralDiffVadc(DiffVadc[GeneralDiffVadcConfig, GeneralDiffVadcPolicy]):
 
         Args:
             v_pos__V: Positive-side analog input voltage.
-            v_neg__V: Negative-side analog input voltage, same shape.
+                Shape: ``[...]``.
+            v_neg__V: Negative-side analog input voltage, at the same shape.
+                Shape: ``[...]``.
             v_ref__V: Accepted and ignored because the boundaries are fixed.
             bits: Active resolution [bits]; must equal the boundary-implied
                 bit width.
 
         Returns:
-            Raw unsigned ``int16`` bucket-index code tensor in
-            ``[0, code_num - 1]``, shaped like ``v_pos__V``.
+            Raw unsigned ``int16`` bucket-index code tensor valued in
+            ``[0, code_num - 1]``, at the same shape as ``v_pos__V``.
+            Shape: ``[...]``.
         """
         del v_ref__V
         self._validate_runtime_args(bits)

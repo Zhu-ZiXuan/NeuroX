@@ -25,10 +25,11 @@ class Conv2dUnit(UnitBase, ABC):
         """Write the unit's static weight state and optional integer bias.
 
         Args:
-            weight: Integer weight tensor of shape ``[C_out, C_in, kh, kw]``.
-            bias: Optional integer bias tensor of shape ``(C_out,)``, added
-                in the int64 accumulation domain by :meth:`conv2d`;
-                ``None`` clears any programmed bias.
+            weight: Integer weight tensor.
+                Shape: ``[C_out, C_in, kh, kw]``.
+            bias: Optional integer bias tensor, added in the int64 accumulation
+                domain by :meth:`conv2d`; ``None`` clears any programmed bias.
+                Shape: ``[C_out]``.
         """
         raise NotImplementedError
 
@@ -39,7 +40,12 @@ class Conv2dUnit(UnitBase, ABC):
 
     @abstractmethod
     def _conv2d_fold(self, output: Tensor, *, out_hw: tuple[int, int]) -> Tensor:
-        """Fold matmul output to ``[..., C_out, H_out, W_out]``."""
+        """Fold matmul output back to the convolution output layout.
+
+        Returns:
+            Integer convolution output planes.
+            Shape: ``[..., C_out, H_out, W_out]``.
+        """
         raise NotImplementedError
 
     @torch.no_grad()
@@ -47,14 +53,15 @@ class Conv2dUnit(UnitBase, ABC):
         """Execute one integer 2-D convolution against the programmed state.
 
         Args:
-            input: Integer activation tensor with trailing ``[C_in, H, W]``.
+            input: Integer activation tensor.
+                Shape: ``[..., C_in, H, W]``.
             quantization_mode: Runtime quantization-mode index.
             adc_bits: Runtime ADC resolution, or ``None`` for the lossless
                 oracle.
 
         Returns:
-            Integer pre-requantize output tensor with trailing
-            ``[C_out, H_out, W_out]``; leading dims mirror ``input``.
+            Integer pre-requantize output tensor; leading dims mirror ``input``.
+            Shape: ``[..., C_out, H_out, W_out]``.
         """
         if input.ndim < 3:
             raise ValueError(f"conv2d() expects input with trailing [C_in, H, W]; got ndim {input.ndim}")

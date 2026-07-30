@@ -128,6 +128,7 @@ class CimMacroConfig(ConfigBase, ABC):
     max_active_num: int
 
     def validate(self) -> None:
+
         # --- Activation limit ---
 
         self._require_pos(self.max_active_num, "max_active_num")
@@ -231,9 +232,19 @@ class CimMacro(
 
     @staticmethod
     def _split_col_lanes(t: Tensor, *, col_per_lane: int) -> Tensor:
-        """Split the trailing column axis into ``(lane_num, col_per_lane)``.
+        """Split the trailing column axis into a lane grid.
 
         Requires exact divisibility.
+
+        Args:
+            t: Tensor whose trailing axis enumerates columns.
+                Shape: ``[..., lane_num * col_per_lane]``.
+            col_per_lane: Columns sharing one lane.
+
+        Returns:
+            The same values regrouped, lane axis ahead of the in-lane
+            position.
+            Shape: ``[..., lane_num, col_per_lane]``.
         """
         if t.shape[-1] % col_per_lane != 0:
             raise ValueError(f"require: trailing col axis ({t.shape[-1]}) % col_per_lane ({col_per_lane}) == 0")
@@ -301,9 +312,10 @@ class CimMacro(
         """Program the macro from a logical weight matrix.
 
         Args:
-            w: Integer weight tensor whose shape matches
-                the logical matrix geometry supplied at construction.
-                Entries must lie in :attr:`w_value_range`.
+            w: Integer weight tensor matching the logical matrix geometry
+                supplied at construction. Entries must lie in
+                :attr:`w_value_range`.
+                Shape: ``[*inst_shape, input_num, output_num]``.
         """
         raise NotImplementedError
 
@@ -312,11 +324,11 @@ class CimMacro(
         """Run one conversion per word-line plane.
 
         Args:
-            x: Logical input tensor with primitive trailing ``[input_num]``;
-                leading axes are broadcast batch dimensions. At most
-                :attr:`max_active_num` positions may be selected per
-                conversion; unselected positions must be zero.
+            x: Logical input tensor; leading axes are broadcast batch
+                dimensions. At most :attr:`max_active_num` positions may be
+                selected per conversion; unselected positions must be zero.
                 Entries must lie in :attr:`x_value_range`.
+                Shape: ``[..., input_num]``.
             quantization_mode: Mode index in
                 ``[0, len(quantization_input_ranges))``; selects the
                 conversion window and its reference taps.
@@ -324,8 +336,9 @@ class CimMacro(
                 or ``None`` for the lossless oracle.
 
         Returns:
-            Output-code tensor with the same leading dimensions and trailing
-            ``[output_num]``.
+            Output-code tensor whose leading axes broadcast the input's
+            against :attr:`inst_shape`.
+            Shape: ``[..., output_num]``.
         """
         raise NotImplementedError
 

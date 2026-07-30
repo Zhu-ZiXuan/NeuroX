@@ -264,7 +264,7 @@ def unit_isub_staircase(macro: Xue2020JsscCimMacro, *, leading_repeat: int = 1) 
         x = x.unsqueeze(0).expand(leading_repeat, *x.shape).contiguous()
     with IadcProber() as probe, torch.no_grad():
         macro.vec_mat_mul(x.float(), quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
-    # Shape: [*leading, m, group_size, group_num]
+    # Shape: [..., m, group_size, group_num]
     i_sub = probe.records[-1].i_in__uA
     while i_sub.ndim > 3:
         i_sub = i_sub[0]
@@ -601,7 +601,7 @@ def main() -> None:
         f"draws reads `accesses = n_w * n_x * mux_factor` ({cfg.mux_factor}) output accesses and EVERY profiled "
         f"energy total is divided by that leading count. A per-op seat is divided further by its own event "
         f"count per access: {cap_events_per_access(cfg, col_num=V._COL_NUM)} SINWP-SC hold-cap events "
-        f"(x_bits x IO x P/N) and {tmcsa_steps_per_access(cfg, col_num=V._COL_NUM)} TMCSA step charges "
+        f"(x_bits x IO x polarity) and {tmcsa_steps_per_access(cfg, col_num=V._COL_NUM)} TMCSA step charges "
         f"(IO x steps). Each stage proves its own normalization by an n_w / n_x doubling check."
     )
     emit()

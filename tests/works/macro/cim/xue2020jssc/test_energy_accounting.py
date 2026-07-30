@@ -200,8 +200,10 @@ def _whole_input_branch(macro: Xue2020JsscCimMacro, x: Tensor) -> float:
 
     whole = 0.0
     for k in range(cfg.input_bit_num):
-        plane = (x_long >> k) & 1  # [*batch, row]
-        v_wl = macro.wl_dac.convert(plane)  # [*batch, row]
+        # Shape: [..., row]
+        plane = (x_long >> k) & 1
+        # Shape: [..., row]
+        v_wl = macro.wl_dac.convert(plane)
         steady = macro.array.solve_array(
             v_wl,
             bl_driver=macro.cablc,
@@ -209,8 +211,11 @@ def _whole_input_branch(macro: Xue2020JsscCimMacro, x: Tensor) -> float:
             sl_driver=macro.sl_driver,
             sl_v_ref__V=torch.zeros((), dtype=v_wl.dtype, device=v_wl.device),
         )
-        i_bl = steady.i_bl_port__uA  # [*batch, serial, gn, P/N, wd]
-        whole += float(((v_dd * i_bl).sum(dim=(-4, -3, -2, -1)) * window[k]).sum())
+        # Shape: [..., serial, gn, polarity, wd]
+        i_bl = steady.i_bl_port__uA
+        # Shape: [..., serial, gn, polarity, wd] -> []
+        step_energy = ((v_dd * i_bl).sum(dim=(-4, -3, -2, -1)) * window[k]).sum()
+        whole += float(step_energy)
     return whole
 
 

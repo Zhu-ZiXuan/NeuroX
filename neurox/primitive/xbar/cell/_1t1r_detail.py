@@ -153,14 +153,14 @@ class XbarCell1t1rDetail(XbarCell1t1r[XbarCell1t1rDetailConfig, XbarCell1t1rDeta
     Args:
         config: Detailed 1T1R configuration.
         policy: Detailed 1T1R nonideality policy.
-        inst_shape: Per-instance shape ``(*prefix, col, row)``.
+        inst_shape: Per-instance shape ``(..., col, row)``.
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature.
     """
 
-    # --- Immutable model buffers ---
+    # === Functional buffers ===
 
-    _state_to_g_map__uS: Tensor
+    _state_to_g_map__uS: Tensor  # Shape: [w_state_num]
 
     def __init__(
         self,
@@ -178,7 +178,6 @@ class XbarCell1t1rDetail(XbarCell1t1r[XbarCell1t1rDetailConfig, XbarCell1t1rDeta
             torch.tensor(config.state_to_g_map__uS, dtype=dtype),
             persistent=False,
         )
-        self.w_state_num = len(config.state_to_g_map__uS)
         self._newton_iter_num = config.newton_iter_num
 
         self._init_children(dtype=dtype, T__K=T__K)
@@ -205,6 +204,10 @@ class XbarCell1t1rDetail(XbarCell1t1r[XbarCell1t1rDetailConfig, XbarCell1t1rDeta
             L__um=config.access_nmos_L__um,
         )
 
+    @property
+    def w_state_num(self) -> int:
+        return len(self.config.state_to_g_map__uS)
+
     def snapshot(
         self,
         *,
@@ -218,7 +221,7 @@ class XbarCell1t1rDetail(XbarCell1t1r[XbarCell1t1rDetailConfig, XbarCell1t1rDeta
         Args:
             control: Word-line drive voltage [V] at the NMOS gate;
                 broadcasts to ``[..., col, row]``.
-            shape: Per-call broadcast shape ``(*leading, col, row)`` the
+            shape: Per-call broadcast shape ``(..., col, row)`` the
                 RRAM / NMOS snaps fill their tensor fields at.
             multi_coords: Advanced-index tuple selecting a chunk's
                 positions from the broadcast view; forwarded to the RRAM /
@@ -238,8 +241,8 @@ class XbarCell1t1rDetail(XbarCell1t1r[XbarCell1t1rDetailConfig, XbarCell1t1rDeta
         """Program the RRAM cells from one state-index tensor.
 
         Args:
-            w_state_idx: State-index tensor in ``[0, w_state_num - 1]`` at
-                ``self.inst_shape``.
+            w_state_idx: State-index tensor in ``[0, w_state_num - 1]``.
+                Shape: ``[*inst_shape]``.
         """
         target_g__uS = self._state_to_g_map__uS[w_state_idx.long()]
         self.rram.program(target_g__uS, t_elapsed=0.0)

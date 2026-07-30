@@ -51,7 +51,7 @@ class XbarArray(ModuleBase[ConfigT, PolicyT], ABC):
     @property
     @abstractmethod
     def weight_grid_shape(self) -> tuple[int, ...]:
-        """Shape of the conductance grid ``(*inst, col, row)``."""
+        """Shape of the conductance grid ``(*inst_shape, col, row)``."""
         raise NotImplementedError
 
     @abstractmethod
@@ -59,8 +59,8 @@ class XbarArray(ModuleBase[ConfigT, PolicyT], ABC):
         """Write the cells from one state-index tensor.
 
         Args:
-            w_state_idx: State-index tensor whose shape matches the array's
-                own ``(*inst, col_num, row_num)`` layout.
+            w_state_idx: State-index tensor at the array's own weight-grid layout.
+                Shape: ``[*inst_shape, col_num, row_num]``.
         """
         raise NotImplementedError
 
@@ -77,7 +77,8 @@ class XbarArray(ModuleBase[ConfigT, PolicyT], ABC):
         """Settle the array to DC under an analog WL drive.
 
         Args:
-            v_wl: Analog WL drive [V]. Shape: ``[..., row_num]``.
+            v_wl: Analog WL drive [V].
+                Shape: ``[..., row_num]``.
             bl_driver: BL boundary clamp (structural ``ClampDriver`` role).
             bl_v_ref__V: BL-clamp reference tap, a 0-d scalar.
             sl_driver: SL boundary clamp (structural ``ClampDriver`` role).

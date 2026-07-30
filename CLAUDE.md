@@ -1,9 +1,10 @@
-Follow the best practice of key library.
-Use new feature and new API.
-Never provide compatibility to older versions.
+Follow the best practice of key libraries.
+Use new features and new APIs.
+No compatibility to older versions.
 Assume `torch.compile` is applied to caller of functions for performance optimization.
 No need to clean all ruff or mypy error or warning, treat them as helper.
-Check for available CUDA devices (both memory and utility) before running any scripts on GPU.
+Never use `# noqa:` or `# type:` comments to skip errors or warnings.
+Check for available CUDA devices (both memory and utility) before running each task on GPU.
 Update the docs when finish a task.
 Always use English in code and doc, be concise and precise.
 Never add unnecessary newlines in docs.

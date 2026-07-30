@@ -35,9 +35,9 @@ class InputActivationStage(ModuleBase[InputActivationStageConfig, InputActivatio
 
     is_profile_target: ClassVar[bool] = False
 
-    # --- Immutable execution buffers ---
+    # === Functional buffers ===
 
-    _active_input_mask: Tensor
+    _active_input_mask: Tensor  # Shape: [P, L]
 
     def __init__(
         self,
@@ -80,13 +80,13 @@ class InputActivationStage(ModuleBase[InputActivationStageConfig, InputActivatio
 
     def unroll_input_phases(self, x: Tensor) -> Tensor:
         """Split one local input block into CIM input phases."""
-        # Shape: [P, L] -> [*prefix=1, P, L]
+        # Shape: [P, L] -> [..., P, L]
         mask = self._active_input_mask.reshape(
             *(1,) * (x.ndim - 1),
             self._input_phase_num,
             x.shape[-1],
         )
-        # Shape: [..., L] -> [..., P=1, L] -> [..., P, L]
+        # Shape: [..., L] -> [..., P, L]
         return torch.where(mask, x.unsqueeze(-2), x.new_zeros(()))
 
     def accumulate_phases(self, code: Tensor) -> Tensor:

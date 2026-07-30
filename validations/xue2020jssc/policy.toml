@@ -74,7 +74,7 @@ noise = false
 [policy.sinwp_sc_policy]
 
 
-# --- PN-ISUB P/N subtractor (source-free module policy) ---
+# --- PN-ISUB polarity subtractor (source-free module policy) ---
 [policy.pn_isub_policy]
 
 

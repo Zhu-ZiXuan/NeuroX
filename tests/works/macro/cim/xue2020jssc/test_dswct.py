@@ -32,7 +32,7 @@ from neurox.works.macro.cim.xue2020jssc.dswct import Dswct, DswctConfig, DswctPo
 
 # --- Tiny witness geometry ---
 _GN = 2  # CIM-IO count
-_POL = 2  # P/N polarity pair
+_POL = 2  # polarity pair
 _W_DIGIT = 2  # place-value legs per bank
 _SERIAL = 3  # column-MUX slots
 _DTYPE = torch.float64
@@ -68,7 +68,7 @@ def _build_dswct(
 
 
 def _i_dl(*leading: int) -> Tensor:
-    """Seeded signed witness currents ``[*leading, serial, gn, 2, w_digit]``."""
+    """Seeded signed witness currents."""
     gen = torch.Generator().manual_seed(0)
     return torch.randn((*leading, _SERIAL, _GN, _POL, _W_DIGIT), dtype=_DTYPE, generator=gen)
 

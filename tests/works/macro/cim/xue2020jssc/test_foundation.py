@@ -23,7 +23,7 @@ config (``_utils.build_config``):
     length that is not ``input_bit_num - 1``, and a mode count that does not
     match the reference ladder rows,
   * the GENERALIZED weight / input geometry — no fixed ``w_digit_num`` or
-    ``w_digit_radix`` is imposed: ``w_digit_num = 1`` (a single P/N digit,
+    ``w_digit_radix`` is imposed: ``w_digit_num = 1`` (a single polarity digit,
     ratios degenerate to the MSB anchor), ``w_digit_num = 3``, and
     ``input_bit_num = 1`` all validate and derive the right geometry / windows,
   * a ``max_active_num`` that does not divide ``input_num``.
@@ -272,7 +272,7 @@ def test_validate_rejects_bad_mux_blocking() -> None:
 
 
 def test_validate_rejects_sub_binary_radix() -> None:
-    """A sign-magnitude digit needs at least the ``{0, 1}`` a P/N pair encodes: ``w_digit_radix >= 2``."""
+    """A sign-magnitude digit needs at least the ``{0, 1}`` a polarity pair encodes: ``w_digit_radix >= 2``."""
     config = build_config()
     with pytest.raises(ValueError, match=r"w_digit_radix \(1\) >= 2"):
         dataclasses.replace(config, w_digit_radix=1)
@@ -295,7 +295,7 @@ def test_generalized_w_digit_num_accepted() -> None:
     """One and three magnitude digits both validate and build.
 
     The DSWCT digit sum is a plain ``.sum(-1)`` that degenerates to identity at a
-    single digit, so a general ``w_digit_num`` needs no special case. A single P/N
+    single digit, so a general ``w_digit_num`` needs no special case. A single polarity
     digit (``w_digit_num = 1``, weights in ``{-1, 0, 1}``) and three digits both
     construct without raising and expose the right per-weight geometry.
     """

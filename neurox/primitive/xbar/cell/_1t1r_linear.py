@@ -86,11 +86,14 @@ class XbarCell1t1rLinearSnap(XbarCell1t1rSnap):
     """Per-call snap of a linearized 1T1R cell's programmed state.
 
     Attributes:
-        g_cell_on__uS: Branch chord conductance at WL on. Shape:
-            ``[..., col, row]`` (chunk-sliced).
-        g_cell_off__uS: Branch chord conductance at WL off. Same shape.
-        vx_ratio_on: BL-side drop fraction at WL on. Same shape.
-        vx_ratio_off: BL-side drop fraction at WL off. Same shape.
+        g_cell_on__uS: Branch chord conductance at WL on, chunk-sliced.
+            Shape: ``[..., col, row]``.
+        g_cell_off__uS: Branch chord conductance at WL off, chunk-sliced.
+            Shape: ``[..., col, row]``.
+        vx_ratio_on: BL-side drop fraction at WL on, chunk-sliced.
+            Shape: ``[..., col, row]``.
+        vx_ratio_off: BL-side drop fraction at WL off, chunk-sliced.
+            Shape: ``[..., col, row]``.
     """
 
     g_cell_on__uS: Tensor
@@ -109,17 +112,24 @@ class XbarCell1t1rLinear(XbarCell1t1r[XbarCell1t1rLinearConfig, XbarCell1t1rLine
     Args:
         config: Linearized 1T1R configuration.
         policy: Linearized 1T1R policy.
-        inst_shape: Per-instance shape ``(*prefix, col, row)``.
+        inst_shape: Per-instance shape ``(..., col, row)``.
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature.
     """
 
-    # --- Immutable model buffers ---
+    # === Functional buffers ===
 
-    _g_cell_off_table__uS: Tensor
-    _g_cell_on_table__uS: Tensor
-    _vx_ratio_off_table: Tensor
-    _vx_ratio_on_table: Tensor
+    _g_cell_off_table__uS: Tensor  # Shape: [w_state_num]
+    _g_cell_on_table__uS: Tensor  # Shape: [w_state_num]
+    _vx_ratio_off_table: Tensor  # Shape: [w_state_num]
+    _vx_ratio_on_table: Tensor  # Shape: [w_state_num]
+
+    # === Programmed state ===
+
+    _g_cell_off__uS: Tensor  # Shape: [*inst_shape]
+    _g_cell_on__uS: Tensor  # Shape: [*inst_shape]
+    _vx_ratio_off: Tensor  # Shape: [*inst_shape]
+    _vx_ratio_on: Tensor  # Shape: [*inst_shape]
 
     def __init__(
         self,
@@ -153,16 +163,18 @@ class XbarCell1t1rLinear(XbarCell1t1r[XbarCell1t1rLinearConfig, XbarCell1t1rLine
             persistent=False,
         )
 
-        self.w_state_num = len(config.g_cell_off_table__uS)
-
         self._v_wl_on_threshold__V = config.v_wl_on_threshold__V
+
+    @property
+    def w_state_num(self) -> int:
+        return len(self.config.g_cell_off_table__uS)
 
     def program(self, w_state_idx: Tensor) -> None:
         """Program per-cell branch parameters from state indices.
 
         Args:
-            w_state_idx: State-index tensor in ``[0, w_state_num - 1]`` at
-                ``self.inst_shape``.
+            w_state_idx: State-index tensor in ``[0, w_state_num - 1]``.
+                Shape: ``[*inst_shape]``.
         """
         if tuple(w_state_idx.shape) != self.inst_shape:
             raise ValueError(f"program() expects w_state_idx.shape {self.inst_shape}; got {tuple(w_state_idx.shape)}")
@@ -187,7 +199,7 @@ class XbarCell1t1rLinear(XbarCell1t1r[XbarCell1t1rLinearConfig, XbarCell1t1rLine
         Args:
             control: Word-line drive voltage [V]; broadcasts to
                 ``[..., col, row]``.
-            shape: Per-call broadcast shape ``(*leading, col, row)`` the
+            shape: Per-call broadcast shape ``(..., col, row)`` the
                 branch-parameter fields fill.
             multi_coords: Advanced-index tuple selecting a chunk's
                 positions from the broadcast view; ``None`` returns the

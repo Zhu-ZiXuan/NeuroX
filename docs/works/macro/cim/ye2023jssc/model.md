@@ -54,9 +54,9 @@ The residue drops by the reference only where the bit resolves 1, and the recurs
 
 `vec_mat_mul` runs the whole readout as one broadcast tensor pipeline over the outputs, with no Python output-loop:
 
-1. **Tile the inputs plane-major** into the physical BL columns (`[*B, in] -> [*B, plane, in] -> [*B, phys_col]`) and map each column to its BL voltage (`v_bl_in1__V` if IN=1, else 0). The redundant planes are forced to input-0.
+1. **Tile the inputs plane-major** into the physical BL columns (`[..., row_num] -> [..., plane, row_num] -> [..., phys_col]`) and map each column to its BL voltage (`v_bl_in1__V` if IN=1, else 0). The redundant planes are forced to input-0.
 2. **Stack the output-serial one-hot word lines** on the leading: output `o` activates array row `o` at `v_wl_sel__V`; the same per-column inputs broadcast to every output.
-3. **One broadcast solve** through the WH-2T1R array; the leading becomes `(*B, out)`. Returns the per-column BL port current, the BL clamp voltage, and the raw per-output summed T2 current.
+3. **One broadcast solve** through the WH-2T1R array; the leading becomes `(..., out, *inst_shape)`. Returns the per-column BL port current, the BL clamp voltage, and the raw per-output summed T2 current.
 4. **Conduction + BL charge** (macro-billed) — see the energy model below.
 5. **RS-CSA quantize** the raw TBL current against the uniform ladder into the unsigned code.
 6. **Latency**: the sole event `T_AC(b) * serial`, where `serial` is the output-serial round count over the single time-shared readout and `b` is the call's `adc_bits`.

@@ -117,10 +117,9 @@ class RsCsaIadc(Iadc[RsCsaIadcConfig, RsCsaIadcPolicy]):
         enable_latency_record: Whether conversions emit latency events.
     """
 
-    # --- Immutable model buffers ---
+    # === Circuit constant buffers ===
 
-    # [bits]: the executed conversion window, entry ``b - 1`` for ``b`` bits.
-    _t_conversion__ns: Tensor
+    _t_conversion__ns: Tensor  # Shape: [max_bits]
 
     def __init__(
         self,
@@ -143,8 +142,6 @@ class RsCsaIadc(Iadc[RsCsaIadcConfig, RsCsaIadcPolicy]):
         )
         if not (i_ph0_comp__uA >= 0.0):
             raise ValueError(f"require: i_ph0_comp__uA ({i_ph0_comp__uA}) >= 0")
-        self._area_per_inst__um2 = config.area_per_inst__um2
-        self._leakage_per_inst__uW = config.leakage_per_inst__uW
         self._i_ph0_comp__uA = i_ph0_comp__uA
         # A conversion at ``b`` bits runs the compensation phase and the first
         # ``b`` compare phases; the window ends at the last EXECUTED compare
@@ -158,6 +155,14 @@ class RsCsaIadc(Iadc[RsCsaIadcConfig, RsCsaIadcPolicy]):
         )
         # The code-independent baseline is prorated by the executed-window ratio.
         self._e_fixed_scale = tuple(t / window__ns[-1] for t in window__ns)
+
+    @property
+    def _area_per_inst__um2(self) -> float:
+        return self.config.area_per_inst__um2
+
+    @property
+    def _leakage_per_inst__uW(self) -> float:
+        return self.config.leakage_per_inst__uW
 
     def _sample_fabricate_mismatch(self) -> None:
         """No local static state — the RS-CSA model is deterministic."""

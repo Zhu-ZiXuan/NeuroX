@@ -15,14 +15,11 @@ class ProfileMixin:
     Host requirements:
         - Also inherit :class:`torch.nn.Module`.
         - Expose ``inst_count``.
-        - A profile target must initialize
-          ``_area_per_inst__um2`` and ``_leakage_per_inst__uW`` before static
-          metrics are read.
+        - A reporting module implements ``_area_per_inst__um2`` and
+          ``_leakage_per_inst__uW``; a module whose silicon is counted at its
+          owner implements neither.
         - A non-target must not emit profile events.
     """
-
-    _area_per_inst__um2: float
-    _leakage_per_inst__uW: float
 
     is_profile_target: ClassVar[bool] = True
 
@@ -33,6 +30,14 @@ class ProfileMixin:
 
     @property
     def inst_count(self) -> int:
+        raise NotImplementedError
+
+    @property
+    def _area_per_inst__um2(self) -> float:
+        raise NotImplementedError
+
+    @property
+    def _leakage_per_inst__uW(self) -> float:
         raise NotImplementedError
 
     @property

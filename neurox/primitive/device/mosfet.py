@@ -53,6 +53,7 @@ class MosfetConfig(ConfigBase):
     A_beta_relative__um: float
 
     def validate(self) -> None:
+
         # --- Process ---
 
         self._require_pos(self.T_nom__K, "T_nom__K")
@@ -125,15 +126,15 @@ class Mosfet(ModuleBase[MosfetConfig, MosfetPolicy], ABC):
 
     is_profile_target: ClassVar[bool] = False
 
-    # --- Fabrication source buffers ---
+    # === Nominal buffers ===
 
-    _nominal_beta__uA_per_V2: Tensor
-    _nominal_vth__V: Tensor
+    _nominal_beta__uA_per_V2: Tensor  # Shape: []
+    _nominal_vth__V: Tensor  # Shape: []
 
-    @property
-    @abstractmethod
-    def polarity(self) -> int:
-        """Channel polarity sign: ``+1`` (n-channel) or ``-1`` (p-channel)."""
+    # === Fabricated state ===
+
+    _beta__uA_per_V2: Tensor  # Shape: [*inst_shape]
+    _vth__V: Tensor  # Shape: [*inst_shape]
 
     def __init__(
         self,
@@ -178,6 +179,12 @@ class Mosfet(ModuleBase[MosfetConfig, MosfetPolicy], ABC):
         nominal_isqrt_area__per_um = 1.0 / math.sqrt(W__um * L__um)
         self._sigma_vth__V = config.A_vt__mV_um * 1e-3 * nominal_isqrt_area__per_um
         self._sigma_beta__uA_per_V2 = nominal_beta__uA_per_V2 * config.A_beta_relative__um * nominal_isqrt_area__per_um
+
+    @property
+    @abstractmethod
+    def polarity(self) -> int:
+        """Channel polarity sign: ``+1`` (n-channel) or ``-1`` (p-channel)."""
+        raise NotImplementedError
 
     def _register_fabrication_buffers(
         self,

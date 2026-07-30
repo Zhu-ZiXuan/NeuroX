@@ -6,7 +6,7 @@ See also:
 
 from __future__ import annotations
 
-from abc import ABC
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Generic, TypeVar
 
@@ -62,8 +62,9 @@ class XbarCell1t1rSnap(XbarCellSnap):
     """Per-call snap base of a 1T1R cell's fabricated state.
 
     Attributes:
-        v_wl__V: Word-line drive voltage at the NMOS gate. Broadcasts
-            to ``[..., col, row]``.
+        v_wl__V: Word-line drive voltage at the NMOS gate; broadcasts
+            against the per-cell grid.
+            Shape: ``[..., col, row]``.
     """
 
     v_wl__V: Tensor
@@ -97,17 +98,10 @@ class XbarCell1t1r(
     Args:
         config: Concrete 1T1R cell configuration.
         policy: Composite per-device nonideality policy.
-        inst_shape: Per-instance shape ``(*prefix, col, row)``.
+        inst_shape: Per-instance shape ``(..., col, row)``.
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature.
-
-    Attributes:
-        w_state_num: Number of programmable weight states.
     """
-
-    # --- Subclass contract ---
-
-    w_state_num: int
 
     def __init__(
         self,
@@ -119,6 +113,12 @@ class XbarCell1t1r(
         T__K: float,
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=inst_shape, dtype=dtype, T__K=T__K)
+
+    @property
+    @abstractmethod
+    def w_state_num(self) -> int:
+        """Number of programmable weight states."""
+        raise NotImplementedError
 
     @classmethod
     def from_config(
@@ -135,7 +135,7 @@ class XbarCell1t1r(
         Args:
             config: Concrete 1T1R cell configuration.
             policy: Composite per-device nonideality policy.
-            inst_shape: Per-instance shape ``(*prefix, col, row)``.
+            inst_shape: Per-instance shape ``(..., col, row)``.
             dtype: Tensor dtype for internal buffers.
             T__K: Operating temperature.
 
@@ -164,13 +164,16 @@ class XbarCell1t1r(
         0 → DC → 0 cycle.
 
         Args:
-            v_bl: Bit-line node voltage [V]. Shape: ``[..., col, row]``.
-            v_sl: Source-line node voltage [V]. Shape: ``[..., col, row]``.
+            v_bl: Bit-line node voltage [V].
+                Shape: ``[..., col, row]``.
+            v_sl: Source-line node voltage [V].
+                Shape: ``[..., col, row]``.
             dcop: Converged DCOP carrying ``v_x__V``.
             snap: Per-call snap from :meth:`snapshot`.
 
         Returns:
-            Per-cell switching energy [fJ]. Shape: ``[..., col, row]``.
+            Per-cell switching energy [fJ].
+            Shape: ``[..., col, row]``.
         """
         config = self.config
         e_bl__fJ = config.c_bl__fF * v_bl.square()

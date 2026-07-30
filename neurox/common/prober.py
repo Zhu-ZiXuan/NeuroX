@@ -33,14 +33,14 @@ class Prober(Generic[PayloadT], ABC):
             ...
     """
 
+    def __init__(self) -> None:
+        self.records: list[PayloadT] = []
+
     @classmethod
     @abstractmethod
     def _stack(cls) -> list[Prober[PayloadT]]:
         """Return the concrete observation link's active-prober stack."""
         raise NotImplementedError
-
-    def __init__(self) -> None:
-        self.records: list[PayloadT] = []
 
     def __enter__(self) -> Self:
         type(self)._stack().append(self)

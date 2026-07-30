@@ -59,16 +59,7 @@ from .pn_isub import PnIsub, PnIsubConfig, PnIsubPolicy
 from .sinwp_sc import SinwpSc, SinwpScConfig, SinwpScPolicy
 from .tmcsa import Tmcsa, TmcsaConfig, TmcsaPolicy
 
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-
 _POLARITY_NUM = 2  # PWG, NWG per weight digit
-
-
-# ---------------------------------------------------------------------------
-# Config
-# ---------------------------------------------------------------------------
 
 
 class Xue2020JsscCimMacroConfig(CimMacroConfig):
@@ -83,7 +74,7 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
         max_active_num: Input-block size selected per conversion; the engine,
             not the macro, serializes across row blocks.
         w_digit_num: Magnitude digits per weight; ``>= 1``. A single digit is
-            one P/N pair with no cross-digit combine.
+            one polarity pair with no cross-digit combine.
         w_digit_radix: Positional base of the magnitude digits; ``>= 2``.
             ``> 2`` needs a radix-level conductance table in the cell config.
         input_bit_num: Activation bit width K; ``>= 1``. K serial single-bit WL
@@ -166,37 +157,45 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
             mode.
     """
 
-    # --- Weight / input geometry ---
+    # === Weight / input geometry ===
+
     w_digit_num: int
     w_digit_radix: int
     input_bit_num: int
     mux_factor: int
 
-    # --- Ratio anchors (DSWCT / SINWP-SC ratios derived DOWNWARD from these) ---
+    # === Ratio anchors (DSWCT / SINWP-SC ratios derived DOWNWARD from these) ===
+
     dswct_ratio_msb: float
     sc_ratio_msb: float
 
-    # --- Conduction windows (dynamic-energy only) + static time base ---
+    # === Conduction windows (dynamic-energy only) + static time base ===
+
     t_sample__ns: tuple[float, ...]
     t_settle__ns: float
     t_cycle__ns: float
 
-    # --- Supply voltage ---
+    # === Supply voltage ===
+
     v_dd__V: float
 
-    # --- Per-op dynamic constants ---
+    # === Per-op dynamic constants ===
+
     e_control_per_op__fJ: float
 
-    # --- Static-PPA seat (control) ---
+    # === Static-PPA seat (control) ===
+
     control_config: UnmodeledBlockConfig
 
-    # --- Scheme-local readout modules ---
+    # === Scheme-local readout modules ===
+
     dswct_config: DswctConfig
     sinwp_sc_config: SinwpScConfig
     pn_isub_config: PnIsubConfig
     tmcsa_config: TmcsaConfig
 
-    # --- Device-bearing sub-blocks (full nested configs) ---
+    # === Device-bearing sub-blocks (full nested configs) ===
+
     array_config: XbarArray1t1rConfig
     wl_dac_config: VdacConfig
     cablc_config: VoltageDriverConfig
@@ -205,7 +204,8 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
     adc_config: SarIadcConfig
     reference_config: IrefConfig
 
-    # --- Quantization modes ---
+    # === Quantization modes ===
+
     modes: tuple[CimMacroMode, ...]
 
     @property
@@ -258,17 +258,13 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
         """Total conduction span ``sum(t_sample) + t_other``; must fit in ``t_cycle``."""
         return sum(self.t_sample__ns) + self.t_other__ns
 
-    # -----------------------------------------------------------------
-    # Validation
-    # -----------------------------------------------------------------
-
     def validate(self) -> None:
         super().validate()
 
         # --- Data geometry ---
 
         # General sign-magnitude weight: >= 1 magnitude digit, radix >= 2 so a
-        # digit carries at least the {0, 1} magnitude the P/N pair encodes.
+        # digit carries at least the {0, 1} magnitude the polarity pair encodes.
         self._require_pos(self.w_digit_num, "w_digit_num")
         if not (self.w_digit_radix >= 2):
             raise ValueError(f"require: w_digit_radix ({self.w_digit_radix}) >= 2")
@@ -355,11 +351,6 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
             )
 
 
-# ---------------------------------------------------------------------------
-# Policy
-# ---------------------------------------------------------------------------
-
-
 class Xue2020JsscCimMacroPolicy(CimMacroPolicy):
     """Composite nonideality policy for :class:`Xue2020JsscCimMacro`.
 
@@ -396,11 +387,6 @@ class Xue2020JsscCimMacroPolicy(CimMacroPolicy):
     tmcsa_policy: TmcsaPolicy
 
 
-# ---------------------------------------------------------------------------
-# Macro
-# ---------------------------------------------------------------------------
-
-
 @CimMacro.register_neurox_module(
     config_type=Xue2020JsscCimMacroConfig,
     policy_type=Xue2020JsscCimMacroPolicy,
@@ -412,7 +398,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
     macro-owned WL DAC, the CABLC / SL clamp seats, the DSWCT / SINWP-SC /
     PN-ISUB readout modules, the TMCSA and its shared reference, and the control
     static seat. Each logical weight occupies ``w_digit_num * 2`` grouped cells,
-    a P/N pair per digit.
+    a polarity pair per digit.
 
     Args:
         config: Macro configuration.
@@ -424,17 +410,12 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         T__K: Operating temperature.
     """
 
-    # --- Immutable model buffers ---
+    # === Circuit constant buffers ===
 
-    _sl_v_ref__V: Tensor
-    _window_array__ns: Tensor
-    _window_sc__ns: Tensor
-    _t_cycle__ns: Tensor
-
-    # --- Internal value encoders ---
-
-    _w_transcoder: TrueFormTranscoder
-    _x_transcoder: TrueFormTranscoder
+    _sl_v_ref__V: Tensor  # Shape: []
+    _window_array__ns: Tensor  # Shape: [x_bits]
+    _window_sc__ns: Tensor  # Shape: [x_bits]
+    _t_cycle__ns: Tensor  # Shape: []
 
     def __init__(
         self,
@@ -465,8 +446,6 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
             )
         if config.max_active_num > self.row_num:
             raise ValueError(f"require: max_active_num ({config.max_active_num}) <= row_num ({self.row_num})")
-        self._area_per_inst__um2 = config.area_per_inst__um2
-        self._leakage_per_inst__uW = config.leakage_per_inst__uW
         self._w_transcoder = TrueFormTranscoder(
             radix=config.w_digit_radix,
             digit_count=config.w_digit_num,
@@ -474,6 +453,14 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         self._x_transcoder = TrueFormTranscoder(radix=2, digit_count=config.input_bit_num)
         self._init_children(dtype=dtype, T__K=T__K)
         self._register_model_buffers(dtype=dtype)
+
+    @property
+    def _area_per_inst__um2(self) -> float:
+        return self.config.area_per_inst__um2
+
+    @property
+    def _leakage_per_inst__uW(self) -> float:
+        return self.config.leakage_per_inst__uW
 
     def _init_children(self, *, dtype: torch.dtype, T__K: float) -> None:
         """Construct the array, readout chain, and static PPA seats."""
@@ -484,8 +471,8 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
 
         # --- Programmable weights + wire + solver: the serial-column array ---
 
-        # Column-MUX placement: phys_col = ((slot * gn + io) * 2 + pol) *
-        # w_digit + digit, the bijection (slot, io, P/N, digit) -> physical
+        # Column-MUX placement: phys_col = ((slot * gn + io) * polarity + pol) *
+        # w_digit + digit, the bijection (slot, io, polarity, digit) -> physical
         # column the array seats its cells by.
         slot_map = torch.arange(phys_col_num, dtype=torch.long).reshape(
             config.mux_factor, gn, _POLARITY_NUM, config.w_digit_num
@@ -525,7 +512,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
 
         # --- Clamp seats = the array's boundary drivers (ideal r_out = 0) ---
 
-        # The CABLC is column-MUX time-shared: one physical clamp per (IO, P/N,
+        # The CABLC is column-MUX time-shared: one physical clamp per (IO, polarity,
         # digit), so the fabricated inst_shape is the real device count for PPA
         # while the solver snapshots it per physical column at the injected
         # v_ref. The SL drive is one per-group active clamp forced to 0 V.
@@ -624,10 +611,6 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         self.register_buffer("_window_sc__ns", torch.tensor(config.window_sc__ns, dtype=dtype), persistent=False)
         self.register_buffer("_t_cycle__ns", torch.tensor(config.t_cycle__ns, dtype=dtype), persistent=False)
 
-    # -----------------------------------------------------------------
-    # Value-domain semantics
-    # -----------------------------------------------------------------
-
     @property
     def x_value_range(self) -> tuple[int, int]:
         """Inclusive K-bit activation range — the macro decomposes it into WL sub-phases internally."""
@@ -707,32 +690,20 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
             T__K=self._T__K,
         )
 
-    # -----------------------------------------------------------------
-    # Lifecycle
-    # -----------------------------------------------------------------
-
-    def program(self, w: Tensor) -> None:
-        """Encode logical weights and write the grouped array cells.
-
-        The internal true-form transcoder emits magnitude digits LSB-first.
-        Each digit maps to its P/N cells: digit value
-        ``+m`` writes the PWG cell to magnitude state ``m`` and the NWG cell to
-        HRS (state 0); ``-m`` does the reverse; ``0`` leaves both at HRS.
-        The grouped cells are folded into the array's flat
-        ``[phys_col, physical_row]`` layout.
+    def _organize_w(self, w: Tensor) -> Tensor:
+        """Map logical weights into the array's flat physical-column layout.
 
         Args:
-            w: Logical weight tensor whose shape matches
-                ``(*inst_shape, row_num, col_num)``.
-                Entries must lie in :attr:`w_value_range`.
-        """
-        expected_shape = (*self.inst_shape, self.row_num, self.col_num)
-        if tuple(w.shape) != expected_shape:
-            raise ValueError(f"program() expects w.shape {expected_shape}; got {tuple(w.shape)}")
+            w: Logical weight tensor.
+                Shape: ``[*inst_shape, row_num, col_num]``.
 
-        # Shape: [*, row, col] -> [*, row, col, w_digit_num]
+        Returns:
+            State indices in the array's flat physical-column layout.
+            Shape: ``[*inst_shape, phys_col_num, row_num]``.
+        """
+        # Shape: [*inst_shape, row, col] -> [*inst_shape, row, col, w_digit_num]
         w = self._w_transcoder.encode(w, dim=-1)
-        # Shape: [*, row, col, w_digit_num] -> [*, col, w_digit_num, row]
+        # Shape: [*inst_shape, row, col, w_digit_num] -> [*inst_shape, col, w_digit_num, row]
         w = w.movedim(-3, -1)
 
         # The magnitude routes to the state index (0 -> HRS, m -> the m-th
@@ -744,17 +715,36 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         pwg = torch.where(is_neg, torch.zeros_like(mag), mag)
         nwg = torch.where(is_neg, mag, torch.zeros_like(mag))
 
-        # Shape: [*, col, digit, row] -> [*, col, P/N, digit, row]
+        # Shape: [*inst_shape, col, digit, row] -> [*inst_shape, col, polarity, digit, row]
         w_pol = torch.stack((pwg, nwg), dim=-3)
         # col = io * mux_factor + slot
-        # Shape: [*, col, P/N, digit, row] -> [*, io, slot, P/N, digit, row]
+        # Shape: [*inst_shape, col, polarity, digit, row] -> [*inst_shape, io, slot, polarity, digit, row]
         w_grouped = w_pol.unflatten(-4, (self.col_num // config.mux_factor, config.mux_factor))
-        # Shape: [*, io, slot, P/N, digit, row] -> [*, slot, io, P/N, digit, row]
+        # Shape: [*inst_shape, io, slot, polarity, digit, row] -> [*inst_shape, slot, io, polarity, digit, row]
         w_state_idx = w_grouped.transpose(-5, -4).contiguous()
-        # phys_col enumerates (slot, io, P/N, digit) in that order.
-        # Shape: [*, slot, io, P/N, digit, row] -> [*, phys_col, row]
-        w_flat = w_state_idx.flatten(-5, -2)
-        self.array.program(w_flat)
+        # phys_col enumerates (slot, io, polarity, digit) in that order.
+        # Shape: [*inst_shape, slot, io, polarity, digit, row] -> [*inst_shape, phys_col, row]
+        return w_state_idx.flatten(-5, -2)
+
+    def program(self, w: Tensor) -> None:
+        """Encode logical weights and write the grouped array cells.
+
+        The internal true-form transcoder emits magnitude digits LSB-first.
+        Each digit maps to its polarity cells: digit value
+        ``+m`` writes the PWG cell to magnitude state ``m`` and the NWG cell to
+        HRS (state 0); ``-m`` does the reverse; ``0`` leaves both at HRS.
+        The grouped cells are folded into the array's flat
+        ``[phys_col, physical_row]`` layout.
+
+        Args:
+            w: Logical weight tensor; entries must lie in
+                :attr:`w_value_range`.
+                Shape: ``[*inst_shape, row_num, col_num]``.
+        """
+        expected_shape = (*self.inst_shape, self.row_num, self.col_num)
+        if tuple(w.shape) != expected_shape:
+            raise ValueError(f"program() expects w.shape {expected_shape}; got {tuple(w.shape)}")
+        self.array.program(self._organize_w(w))
 
     def vec_mat_mul(self, x: Tensor, *, quantization_mode: int, adc_bits: int | None) -> Tensor:
         """Run the array solve + readout chain over the K WL sub-phases.
@@ -765,10 +755,10 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         final code assembly maps that layout back to the logical column order.
 
         Args:
-            x: Activation tensor with primitive trailing ``[row_num]``;
-                entries in :attr:`x_value_range`. Positions outside the
-                caller-selected set must be zero. Every leading axis is
-                anonymous broadcast batch.
+            x: Activation tensor; entries in :attr:`x_value_range`. Positions
+                outside the caller-selected set must be zero. Every leading
+                axis is anonymous broadcast batch.
+                Shape: ``[..., row_num]``.
             quantization_mode: Mode index in
                 ``[0, len(quantization_input_ranges))``; selects the shared
                 reference's ladder row.
@@ -777,8 +767,8 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
                 only the first ``adc_bits`` steps of its max-bits binary search.
 
         Returns:
-            Signed-magnitude raw-code tensor with the same leading order and
-            primitive trailing ``[col_num]``.
+            Signed-magnitude raw-code tensor with the same leading order.
+            Shape: ``[..., col_num]``.
 
         Raises:
             ValueError: ``quantization_mode`` is outside the declared modes, or
@@ -793,15 +783,15 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         gn = self.col_num // config.mux_factor  # CIM-IO sense-lane count (group_num)
         x_long = x.long()  # dtype guard for >> and the bit-expand
 
-        # --- Step 1: Bit-expand x into K WL planes (LSB first) + WL DAC ---
+        # --- 1: Bit-expand x into K WL planes (LSB first) + WL DAC ---
 
         # The x-bit axis lands at -2 so it becomes the last leading axis of the
         # solve, folding into the array's broadcast leading.
-        # Shape: [*B, row] -> [*B, x_bits, row]
+        # Shape: [..., row] -> [..., x_bits, row]
         planes = self._x_transcoder.encode(x_long, dim=-2)
         v_wl = self.wl_dac.convert(planes)
 
-        # --- Step 2: Solve the array once (cells + wire IR drop) -> I_DL ---
+        # --- 2: Solve the array once (cells + wire IR drop) -> I_DL ---
 
         # One DC solve for all K WL planes: the x-bit and serial slot axes both
         # ride the solve leading, and the steady currents are window-independent
@@ -813,7 +803,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
             sl_driver=self.sl_driver,
             sl_v_ref__V=self._sl_v_ref__V,
         )
-        # Shape: [*B, x_bits, gs, gn, P/N, wd]
+        # Shape: [..., x_bits, gs, gn, polarity, wd]
         i_dl = steady.i_bl_port__uA
 
         # The whole input branch V_DD * I_DL is the macro's to bill, since the
@@ -821,31 +811,31 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         # capacitive cycling.
         record_dynamic_energy = self._is_dynamic_energy_profile_active()
         if record_dynamic_energy:
-            # Shape: [*B, x_bits, gs, gn, P/N, wd] -> [*B, x_bits]
+            # Shape: [..., x_bits, gs, gn, polarity, wd] -> [..., x_bits]
             read_power = (v_dd * i_dl).sum(dim=(-4, -3, -2, -1))
-            # Shape: [*B, x_bits] -> [*B]
+            # Shape: [..., x_bits] -> [...]
             e_cablc = (read_power * self._window_array__ns).sum(dim=-1)
             self._record_dynamic_energy(e_cablc, channel="cablc")
 
-        # --- Step 3: DSWCT place-value weighting -> I_WDL (self-billing) ---
+        # --- 3: DSWCT place-value weighting -> I_WDL (self-billing) ---
 
         # The per-bit DIAGONAL window rides the x-bit leading axis.
-        # Shape: [*B, x_bits, gs, gn, P/N, wd] -> [*B, x_bits, gs, gn, P/N]
+        # Shape: [..., x_bits, gs, gn, polarity, wd] -> [..., x_bits, gs, gn, polarity]
         i_wdl = self.dswct(i_dl, window__ns=self._window_array__ns)
 
-        # --- Step 4: SINWP-SC temporal input-radix combine -> I_DL_PN (self-billing) ---
+        # --- 4: SINWP-SC temporal input-radix combine -> I_DL_PN (self-billing) ---
 
         # The held-leg suffix-sum window is injected per bit.
-        # Shape: [*B, x_bits, gs, gn, P/N] -> [*B, gs, gn, P/N]
+        # Shape: [..., x_bits, gs, gn, polarity] -> [..., gs, gn, polarity]
         i_dl_pn = self.sinwp_sc(i_wdl, window_per_bit__ns=self._window_sc__ns)
 
-        # --- Step 5: PN-ISUB single-ended magnitude + sign (self-billing) ---
+        # --- 5: PN-ISUB single-ended magnitude + sign (self-billing) ---
 
         # The three rail branches conduct in the tail window t_other.
-        # Shape: [*B, gs, gn, P/N] -> [*B, gs, gn]
+        # Shape: [..., gs, gn, polarity] -> [..., gs, gn]
         i_sub, sign = self.pn_isub(i_dl_pn[..., 0], i_dl_pn[..., 1], window__ns=config.t_other__ns)
 
-        # --- Step 6: TMCSA quantize against the per-instance reference ladder ---
+        # --- 6: TMCSA quantize against the per-instance reference ladder ---
 
         # The caller-selected mode row goes straight to the ADC as the
         # per-instance ladder [*inst, tap] — no collapse to 1-D.
@@ -861,7 +851,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         adc_refs_mode__uA = adc_i_refs__uA[..., quantization_mode, :]
         # Every bit width rides this one max-bits ladder — the ADC truncates
         # its own binary search, the macro never subsets the taps.
-        # Shape: [*B, gs, gn]
+        # Shape: [..., gs, gn]
         code = self.adc.convert(i_sub, adc_refs_mode__uA, bits=adc_bits)
         # The kernel ADC is energy-silent; the billing module recovers the
         # per-step reference path from the raw unsigned codes over the full
@@ -869,7 +859,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         self.tmcsa(i_sub, code, adc_refs_mode__uA, bits=adc_bits)
         signed = (1 - 2 * sign.long()) * code
 
-        # --- Step 7: Control energy + the sole latency event ---
+        # --- 7: Control energy + the sole latency event ---
 
         # The control fires once per conversion cycle, shared across the CIM-IOs,
         # so it bills over the [*B, gs] leading. The latency is one operating
@@ -884,6 +874,6 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         self._record_latency(latency__ns)
 
         # col = io * mux_factor + slot
-        # Shape: [*B, gs, gn] -> [*B, col_num]
+        # Shape: [..., gs, gn] -> [..., col_num]
         result: Tensor = signed.transpose(-2, -1).flatten(-2)
         return result

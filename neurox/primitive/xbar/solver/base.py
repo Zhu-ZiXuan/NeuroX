@@ -35,14 +35,20 @@ class SolverDcop(Generic[CellDCOPT]):
     """Complete steady-state solution of one DC solve.
 
     Attributes:
-        i_bl_driver: BL driver current [uA]. Shape: ``[..., num_col]``.
-        i_sl_driver: SL driver current [uA]. Shape: ``[..., num_col]``.
-        v_bl_node: BL node voltages [V]. Shape: ``[..., num_col, num_row]``.
-        v_sl_node: SL node voltages [V]. Shape: ``[..., num_col, num_row]``.
+        i_bl_driver: BL driver current [uA].
+            Shape: ``[..., num_col]``.
+        i_sl_driver: SL driver current [uA].
+            Shape: ``[..., num_col]``.
+        v_bl_node: BL node voltages [V].
+            Shape: ``[..., num_col, num_row]``.
+        v_sl_node: SL node voltages [V].
+            Shape: ``[..., num_col, num_row]``.
         cell: Condensed cell DC working point at the converged node
             voltages, including the internal node voltage.
-        v_bl_clamp: BL clamp voltages [V]. Shape: ``[..., num_col]``.
-        v_sl_drive: SL drive voltages [V]. Shape: ``[..., num_col]``.
+        v_bl_clamp: BL clamp voltages [V].
+            Shape: ``[..., num_col]``.
+        v_sl_drive: SL drive voltages [V].
+            Shape: ``[..., num_col]``.
     """
 
     i_bl_driver: Tensor
@@ -83,17 +89,21 @@ class Solver(ABC):
         """Solve the fabricated tile for one cell snap.
 
         Args:
-            bl_segment_r__MOhm: 1-D BL segment resistances; index 0 is
+            bl_segment_r__MOhm: BL segment resistances; index 0 is
                 driver-to-first.
-            sl_segment_r__MOhm: 1-D SL segment resistances; index 0 is
+                Shape: ``[num_row]``.
+            sl_segment_r__MOhm: SL segment resistances; index 0 is
                 driver-to-first.
+                Shape: ``[num_row]``.
             bl_segment_g__uS: BL segment conductances, reciprocal of
                 ``bl_segment_r__MOhm``.
+                Shape: ``[num_row]``.
             sl_segment_g__uS: SL segment conductances, reciprocal of
                 ``sl_segment_r__MOhm``.
+                Shape: ``[num_row]``.
             cell: Condensed cell branch model.
             cell_snap: Per-solve cell snap bundling the device snaps and the
-                per-cell control-line (WL) drive.
+                per-row control-line (WL) drive.
             bl_driver: BL clamp driver.
             bl_driver_snap: Per-solve BL driver snap.
             sl_driver: SL clamp driver.
@@ -102,3 +112,4 @@ class Solver(ABC):
         Returns:
             Complete steady-state solution for the current VMM.
         """
+        raise NotImplementedError

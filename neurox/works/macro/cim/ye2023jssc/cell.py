@@ -65,10 +65,11 @@ class Ye2023Jssc2t1rCellSnap(XbarCell1t1rLinearSnap):
 
     Attributes:
         i_t2_in0__uA: Unit-scale (m = 1) T2 current [uA] at input bit 0,
-            pre-selected for the programmed state. Shape: ``[..., col, row]``
-            (chunk-sliced).
-        i_t2_in1__uA: Unit-scale (m = 1) T2 current [uA] at input bit 1. Same
-            shape.
+            pre-selected for the programmed state, chunk-sliced.
+            Shape: ``[..., col, row]``.
+        i_t2_in1__uA: Unit-scale (m = 1) T2 current [uA] at input bit 1,
+            pre-selected for the programmed state, chunk-sliced.
+            Shape: ``[..., col, row]``.
     """
 
     i_t2_in0__uA: Tensor
@@ -88,14 +89,19 @@ class Ye2023Jssc2t1rCell(XbarCell1t1rLinear):
     Args:
         config: WH-2T1R cell configuration.
         policy: WH-2T1R cell policy.
-        inst_shape: Per-instance shape ``(*prefix, col, row)``.
+        inst_shape: Per-instance shape ``(..., col, row)``.
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature.
     """
 
-    # --- Immutable model buffers ---
+    # === Functional buffers ===
 
-    _i_t2_table__uA: Tensor
+    _i_t2_table__uA: Tensor  # Shape: [2, w_state_num]
+
+    # === Programmed state ===
+
+    _i_t2_in0__uA: Tensor  # Shape: [*inst_shape]
+    _i_t2_in1__uA: Tensor  # Shape: [*inst_shape]
 
     def __init__(
         self,
@@ -118,8 +124,8 @@ class Ye2023Jssc2t1rCell(XbarCell1t1rLinear):
         """Program the divider and pre-select the per-state I_T2.
 
         Args:
-            w_state_idx: State-index tensor in ``[0, w_state_num - 1]`` at
-                ``self.inst_shape``.
+            w_state_idx: State-index tensor in ``[0, w_state_num - 1]``.
+                Shape: ``[*inst_shape]``.
         """
         super().program(w_state_idx)
         idx = w_state_idx.long()
@@ -137,9 +143,9 @@ class Ye2023Jssc2t1rCell(XbarCell1t1rLinear):
         """Bundle the divider snap with the pre-selected per-state I_T2.
 
         Args:
-            control: Word-line drive voltage [V]; broadcasts to
-                ``[..., col, row]``.
-            shape: Per-call broadcast shape ``(*leading, col, row)`` the
+            control: Word-line drive voltage [V].
+                Shape: ``[..., row]``.
+            shape: Per-call broadcast shape ``(..., col, row)`` the
                 per-cell fields fill.
             multi_coords: Advanced-index tuple selecting a chunk's
                 positions from the broadcast view; ``None`` returns the
@@ -179,7 +185,8 @@ class Ye2023Jssc2t1rCell(XbarCell1t1rLinear):
         gated on the WL-on threshold.
 
         Args:
-            v_bl: Bit-line node voltage [V]. Shape: ``[..., col, row]``.
+            v_bl: Bit-line node voltage [V].
+                Shape: ``[..., col, row]``.
             v_sl: Source-line node voltage [V]; unused.
             dcop: Converged DCOP; unused — the dip is closed-form in
                 ``vx_ratio_on``.
@@ -187,7 +194,8 @@ class Ye2023Jssc2t1rCell(XbarCell1t1rLinear):
                 per-state divider ratios.
 
         Returns:
-            Per-cell per-access switching energy [fJ]. Shape: ``[..., col, row]``.
+            Per-cell per-access switching energy [fJ].
+            Shape: ``[..., col, row]``.
         """
         del v_sl, dcop
         assert isinstance(snap, XbarCell1t1rLinearSnap)
@@ -207,6 +215,7 @@ class Ye2023Jssc2t1rCell(XbarCell1t1rLinear):
             snap: Per-call snap from :meth:`snapshot`.
 
         Returns:
-            Unit-scale T2 current [uA]. Shape: ``[..., col, row]``.
+            Unit-scale T2 current [uA].
+            Shape: ``[..., col, row]``.
         """
         return torch.where(input_high, snap.i_t2_in1__uA, snap.i_t2_in0__uA)

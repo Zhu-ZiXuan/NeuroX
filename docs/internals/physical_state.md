@@ -1,23 +1,24 @@
 # Physical state
 
-Physical modules distinguish immutable tensor sources from lifecycle-produced state. Nominal fabrication sources and fixed model tables are buffers so construction-time `dtype` and a pre-materialization `to(device)` determine where later work runs. Fabricated and programmed values are ordinary tensor attributes created by their lifecycle methods. Per-call snaps remain local values.
+Physical modules distinguish registered buffers from lifecycle-produced state. Nominal, functional, and circuit constant tensors are buffers so construction-time `dtype` and a pre-materialization `to(device)` determine where later work runs. Fabricated and programmed values are ordinary tensor attributes created by their lifecycle methods. Per-call snaps remain local values.
 
-Module-owned nominal, fabricated, programmed, and fixed-model tensors are
-implementation state. Consumers read them through the relevant `*Snap` or
-`*Dcop` value object, or through a purpose-specific method/property when the
-value is part of the module contract. Registered child `nn.Module` attributes
-remain structural names because PyTorch uses them in the module tree.
+Module-owned nominal, functional, circuit constant, fabricated, and programmed
+tensors are implementation state. Consumers read them through the relevant
+`*Snap` or `*Dcop` value object, or through a purpose-specific method/property
+when the value is part of the module contract. Registered child `nn.Module`
+attributes remain structural names because PyTorch uses them in the module tree.
 
 ## State categories
 
-- **Fabrication source** — an immutable `nominal_*` buffer used by `fabricate()`. A scalar physical baseline is normally 0-D; a genuinely multi-valued baseline, such as a reference ladder or capacitor bank, remains a compact vector or table.
-- **Fixed model tensor** — an immutable buffer used directly by the model, such as a transfer LUT, state map, row mask, or wire-parameter vector. It is not part of the nominal/actual/snap progression.
-- **Fabricated state** — an ordinary tensor attribute created or replaced by `fabricate()`. It contains static per-instance mismatch around a nominal source and normally has `inst_shape`.
+- **Functional buffer** — a registered buffer the forward math reads directly, such as a transfer LUT, state map, index or mapping mask, or bias constant.
+- **Circuit constant buffer** — a registered buffer holding electrical and timing constants, such as a wire-parameter profile or a frozen output resistance.
+- **Nominal buffer** — a registered `nominal_*` buffer `fabricate()` consumes. A scalar physical baseline is normally 0-D; a genuinely multi-valued baseline, such as a reference ladder or capacitor bank, remains a compact vector or table.
+- **Fabricated state** — an ordinary tensor attribute created or replaced by `fabricate()`. It contains static per-instance mismatch around a nominal buffer and normally has `inst_shape`.
 - **Programmed state** — an ordinary tensor attribute created or replaced by `program(...)`. It contains the value written by the caller after mapping and programming effects.
+- **Runtime buffer** — a registered buffer the forward mutates in place. Observer state and similar PyTorch-managed statistics are buffers because their lifecycle is training or calibration rather than physical fabrication or programming.
 - **Snap** — a fresh local tensor or frozen dataclass created for one call. It adds dynamic noise to fabricated or programmed state and is never stored on the module.
-- **Learned runtime statistics** — observer state and similar PyTorch-managed statistics remain buffers because their lifecycle is training/calibration rather than physical fabrication or programming.
 
-A leaf uses only the categories it needs. A programmable leaf may have no nominal source, while a deterministic LUT leaf may have no fabricated state.
+Functional, circuit constant, and runtime buffers stand outside the nominal/actual/snap progression. A leaf uses only the categories it needs. A programmable leaf may have no nominal buffer, while a deterministic LUT leaf may have no fabricated state.
 
 ## Lifecycle
 
@@ -31,13 +32,13 @@ construct -> to(device) -> fabricate -> program -> execute
 
 ### Construction
 
-`__init__` binds config, policy, instance shape, immutable model metadata, child modules, and immutable buffers. It does not allocate instance-shaped placeholders for future fabricated or programmed state. Consequently, a stateful run path has no defined pre-fabrication or pre-program behavior.
+`__init__` binds config, policy, instance shape, compact scalar metadata, child modules, and registered buffers. It does not allocate instance-shaped placeholders for future fabricated or programmed state. Consequently, a stateful run path has no defined pre-fabrication or pre-program behavior.
 
-Nominal sources are registered directly at their intended dtype. Code must not recover a source's dtype or device from an unrelated runtime tensor, and must not recreate a fixed source from Python data inside `fabricate`, `program`, or the execution path.
+Nominal buffers are registered directly at their intended dtype. Code must not recover a buffer's dtype or device from an unrelated runtime tensor, and must not recreate a fixed buffer from Python data inside `fabricate`, `program`, or the execution path.
 
 ### Device migration
 
-Call `to(device)` after construction and before materializing physical state. PyTorch migrates parameters and registered buffers, which moves every nominal source and fixed model tensor. Later lifecycle methods derive their tensors from those migrated sources or accept an already placed programming input.
+Call `to(device)` after construction and before materializing physical state. PyTorch migrates parameters and registered buffers, which moves every nominal, functional, and circuit constant buffer. Later lifecycle methods derive their tensors from those migrated buffers or accept an already placed programming input.
 
 Fabricated and programmed states are ordinary attributes, so a later `to(device)` does not migrate them. Code relying on migration after state materialization is unsupported. If migration is unavoidable, move the module and then rerun `fabricate()` and `program(...)` before execution.
 
@@ -57,7 +58,7 @@ Programming is dispatched by the owner rather than cascaded uniformly because ea
 
 ## Persistence and ownership
 
-Nominal and fixed model buffers are normally `persistent=False`; they are reproducible from config and construction arguments. Fabricated and programmed ordinary attributes are absent from `state_dict` by construction. The persisted upper-layer weight remains the source of truth, and loading a checkpoint must be followed by the normal fabrication/programming lifecycle.
+Nominal, functional, and circuit constant buffers are normally `persistent=False`; they are reproducible from config and construction arguments. Fabricated and programmed ordinary attributes are absent from `state_dict` by construction. The persisted upper-layer weight remains the source of truth, and loading a checkpoint must be followed by the normal fabrication/programming lifecycle.
 
 Physical state lives only on its owning module. A parent delegates to a child or consumes the child's public snap; it does not mirror the child's state.
 

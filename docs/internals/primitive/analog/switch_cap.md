@@ -8,7 +8,7 @@
 
 ## Contracts & invariants
 
-- **`cap_weights: tuple[float, ...]`**, length `_cap_num`, all positive; tensor construction happens once inside `__init__` as the nominal source buffer `_nominal_c__fF = c_unit__fF * cap_weights`.
+- **`cap_weights: tuple[float, ...]`**, length `_cap_num`, all positive; tensor construction happens once inside `__init__` as the nominal buffer `_nominal_c__fF = c_unit__fF * cap_weights`.
 - **Fabricate creates ordinary state.** `_sample_fabricate_mismatch` clone-expands `_nominal_c__fF` to `(*inst_shape, _cap_num)`, applies Pelgrom-scaled static mismatch (gated by `policy.cap_mismatch`), and assigns `_c__fF` state. The mismatch draw carries a lower floor of `0.1 * c_unit__fF` clamped onto each sampled cap, so a Gaussian tail cannot drive a sampled capacitance non-positive; the per-cap kT/C sigma and the charge-share denominator both require it positive.
 - **Two policy switches.** `cap_mismatch` (static, at fabricate) and `sampling_thermal_noise` (dynamic kT/C, at sample) are independent.
 - **Per-call PPA tally.** `sample_and_accumulate` always emits latency and, when a profiler is active, computes and emits dynamic energy. The energy is the sampled-charge term (its equation is the Reference energy model), taken on the clean sampled `v_in__V`, not the kT/C-perturbed `v_hold__V`, and reduced only over the physical cap axis. The remaining per-output energy tensor is reduced only by the profiler. Latency is `latency_per_op__ns * ceil(v_out.numel() / inst_count)`; because `cap_num` is already summed out of `v_out__V`, the cap axis never inflates the work count.

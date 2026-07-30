@@ -258,8 +258,9 @@ def unroll_sub_phase(x: Tensor, *, row_num: int, active_rows: int, inst_rank: in
     ``max_active_num``.
 
     Args:
-        x: Dense WL plane tensor with trailing ``[row_num]`` and anonymous
-            leading batch (no inst slots).
+        x: Dense WL plane tensor with an anonymous leading batch (no inst
+            slots).
+            Shape: ``[..., row_num]``.
         row_num: Macro row count.
         active_rows: Simultaneously active word lines per plane; ``1 <=
             active_rows <= row_num``. Any in-range value is legal — the plane
@@ -267,21 +268,23 @@ def unroll_sub_phase(x: Tensor, *, row_num: int, active_rows: int, inst_rank: in
         inst_rank: Rank of the macro's fabricated ``inst_shape``.
 
     Returns:
-        Masked plane tensor trailing ``[P, *(1,) * inst_rank, row_num]``;
-        dtype and device follow ``x``.
+        Masked plane tensor; dtype and device follow ``x``.
+        Shape: ``[..., P, *inst_shape=1, row_num]``.
     """
     n_planes = -(-row_num // active_rows)
     # Static row -> sub-phase ownership; plane p owns rows
-    # [p * active_rows, (p + 1) * active_rows). Shape: [P, row_num]
+    # [p * active_rows, (p + 1) * active_rows).
+    # Shape: [row_num] -> [P, row_num]
     plane_of_row = torch.arange(row_num, device=x.device) // active_rows
     mask = plane_of_row == torch.arange(n_planes, device=x.device).unsqueeze(-1)
-    # Shape: [P, row_num] -> [P, *(1,) * inst_rank, row_num]
+    # Shape: [P, row_num] -> [P, *inst_shape=1, row_num]
     mask = mask.reshape(n_planes, *(1,) * inst_rank, row_num)
     # Insert the P slot + inst-span size-1 slots just left of the row axis so
-    # x broadcasts against the mask. Shape: [*batch, row] ->
-    # [*batch, 1, *(1,) * inst_rank, row].
+    # x broadcasts against the mask.
+    # Shape: [..., row_num] -> [..., P=1, *inst_shape=1, row_num]
     x_expanded = x.reshape(*x.shape[:-1], 1, *(1,) * inst_rank, x.shape[-1])
-    # Shape: [*batch, P, *(1,) * inst_rank, row]; zero-fill = WL off.
+    # Zero-fill = WL off.
+    # Shape: [..., P, *inst_shape=1, row_num]
     return torch.where(mask, x_expanded, x.new_zeros(()))
 
 

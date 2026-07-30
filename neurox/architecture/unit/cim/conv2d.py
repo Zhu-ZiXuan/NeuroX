@@ -92,7 +92,12 @@ class Conv2dCimUnit(Conv2dUnit, EngineBackedCimUnit[Conv2dCimUnitConfig, Conv2dC
         return (c_out, c_in * kh * kw)
 
     def _weight_to_matrix(self, weight: Tensor) -> Tensor:
-        """Flatten one copy of every output-channel kernel to ``[C_out, K]``."""
+        """Flatten one copy of every output-channel kernel.
+
+        Returns:
+            Programmed kernel matrix.
+            Shape: ``[C_out, K]``.
+        """
         # Shape: [C_out, C_in, kh, kw] -> [C_out, K]
         return weight.flatten(start_dim=1)
 
@@ -105,7 +110,12 @@ class Conv2dCimUnit(Conv2dUnit, EngineBackedCimUnit[Conv2dCimUnitConfig, Conv2dC
         self._program_int_bias(bias, channels=self._w_logical_shape[0])
 
     def _conv2d_planes(self, input: Tensor, *, out_hw: tuple[int, int]) -> Tensor:
-        """Gather convolution windows with shape ``[..., M, K]``."""
+        """Gather convolution windows.
+
+        Returns:
+            Matmul-shaped input planes.
+            Shape: ``[..., M, K]``.
+        """
         h_out, w_out = out_hw
         kh, kw = self._conv2d_kernel_size
         s_h, s_w = self._conv2d_stride
@@ -138,7 +148,12 @@ class Conv2dCimUnit(Conv2dUnit, EngineBackedCimUnit[Conv2dCimUnitConfig, Conv2dC
         return x.flatten(start_dim=-3, end_dim=-2)
 
     def _conv2d_fold(self, output: Tensor, *, out_hw: tuple[int, int]) -> Tensor:
-        """Restore serial windows to ``[..., C_out, H_out, W_out]``."""
+        """Restore serial windows to the convolution output layout.
+
+        Returns:
+            Folded output map.
+            Shape: ``[..., C_out, H_out, W_out]``.
+        """
         h_out, w_out = out_hw
         # Shape: [..., M, C_out] -> [..., H_out, W_out, C_out]
         y = output.unflatten(-2, (h_out, w_out))

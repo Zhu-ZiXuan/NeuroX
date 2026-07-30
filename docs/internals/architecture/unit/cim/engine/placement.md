@@ -43,8 +43,8 @@ layouts and equals `w_slice_num` for inter-plane layout.
 - `partition_weight` returns `[...,D,G,Q,Tc,L,Sw]`.
 - `pack_weight` accepts `[...,Sw,Tc,G,D,L,output_num]`.
 - `organize_x` returns `[...,M,Sa,Sw=1,Tc,G=1,L]`.
-- `unroll_block_steps` accepts `[...,*span,P,L]` and returns
-  `[...,D,P,*span,input_num]`.
+- `unroll_block_steps` accepts `[...,*inst_shape,P,L]` and returns
+  `[...,D,P,*inst_shape,input_num]`.
 - `restore_output` accepts `[...,D,*w_batch,M,G,Q]`, restores logical block
   order, and trims only the output padding.
 

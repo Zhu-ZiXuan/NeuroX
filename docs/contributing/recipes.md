@@ -8,7 +8,7 @@ Every core change starts here:
 
 1. Identify the task shape below and the owning base class, mixin, shared subsystem, or package surface.
 2. Update or create the [Reference](../reference/README.md) spec first when the physical, mathematical, numerical, or public semantic contract changes.
-3. Update or create the [Internals](../internals/README.md) document when implementation design, lifecycle, shape / dtype / buffer contracts, ownership, performance, compile behavior, or package surface changes. Update a base or mixin class docstring only when its direct subclass or host requirements change.
+3. Update or create the [Internals](../internals/README.md) document when implementation design, lifecycle, shape / dtype / state contracts, ownership, performance, compile behavior, or package surface changes. Update a base or mixin class docstring only when its direct subclass or host requirements change.
 4. Apply content-placement, dependency, and single-source rules through [organizing_principles](../conventions/organizing_principles.md), code rules through [code_style](../conventions/code_style.md), and documentation text and format rules through [prose_style](../conventions/prose_style.md) and [markdown_style](../conventions/markdown_style.md).
 5. Implement through the relevant base-class or mixin contract. Do not re-state that contract in the leaf implementation.
 6. Update package exports and public API documentation when the import surface changes; follow [package_surface](../internals/package_surface.md).
@@ -24,7 +24,7 @@ Applies to foundational electrical models such as devices and other primitive I/
 Use the common checklist, then:
 
 - Define `*Config` and `*Policy` as undecorated descendants of their family roots, retaining an explicit empty class when one has no fields; the common bases supply their frozen, keyword-only dataclass representation. Declare no per-instance area / leakage fields, as the owner budgets them.
-- Implement the primitive as a `ModuleBase` leaf that overrides `is_profile_target: ClassVar[bool] = False`, so the profiler's static walk skips it, its area and leakage are counted once at the owner, and it must emit no dynamic event of its own.
+- Implement the primitive as a `ModuleBase` leaf that stays a non-reporter: its area and leakage are counted once at the owner, and it emits no dynamic event of its own. Declare the profile-target class variable as [code_style](../conventions/code_style.md) prescribes.
 - Follow the physical-state and lifecycle contracts in [physical_state](../internals/physical_state.md).
 - Provide `snapshot` and / or `solve_dc` only when the primitive owns that runtime concept.
 - Export the public class and role dataclasses from the owning package.
@@ -37,7 +37,7 @@ Applies to analog and digital leaf circuits that own their own silicon and emit 
 Use the common checklist, then:
 
 - Define `*Config` (extending the subsystem config base — e.g. `AnalogConfig` plus its own `area_per_inst__um2` / `leakage_per_inst__uW`, or `DigitalConfig`) and its `*Policy` without repeated dataclass decorators, plus their `validate()` checks.
-- Use the `ModuleBase` construction contract and the `ProfileMixin` emitter contract: set the bare per-instance PPA data (`_area_per_inst__um2` / `_leakage_per_inst__uW`) in `__init__`, which `area__um2` / `leakage__uW` scale by `inst_count`.
+- Use the `ModuleBase` construction contract and the `ProfileMixin` emitter contract: implement the per-instance PPA properties the mixin requires, which `area__um2` / `leakage__uW` scale by `inst_count`.
 - Implement the family or leaf primary method defined by its base class.
 - Emit dynamic energy and latency only for quantities this leaf owns.
 - Keep fixed latency in config; derive parametric latency inside the primary method when required.

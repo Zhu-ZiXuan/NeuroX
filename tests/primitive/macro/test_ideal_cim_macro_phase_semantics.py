@@ -2,10 +2,10 @@
 
 One ``vec_mat_mul`` call is one independent ADC conversion per output per
 WL plane, read through the ``quantization_mode`` window; the output keeps the
-leading order with primitive trailing ``[output_num]`` and the macro performs no
-accumulation. The caller presents each sub-phase as its own zero-masked plane
-(engine mask formula), which preserves quantize-then-accumulate semantics:
-``sum(Q(plane_dot)) != Q(sum(plane_dot))`` in general.
+leading order and the macro performs no accumulation. The caller presents each
+sub-phase as its own zero-masked plane (engine mask formula), which preserves
+quantize-then-accumulate semantics: ``sum(Q(plane_dot)) != Q(sum(plane_dot))``
+in general.
 """
 
 from __future__ import annotations
@@ -53,10 +53,7 @@ def _program_outputs(macro: IdealCimMacro, outputs: list[list[int]]) -> None:
 
 
 def _masked_planes(x: torch.Tensor, *, input_num: int, max_active_num: int) -> torch.Tensor:
-    """Zero-masked WL planes via the engine mask formula.
-
-    Shape: [..., input_num] -> [..., P, input_num].
-    """
+    """Zero-masked WL planes via the engine mask formula."""
     p_num = input_num // max_active_num
     mask = torch.arange(input_num) // max_active_num == torch.arange(p_num).unsqueeze(-1)
     # Shape: [..., input_num] -> [..., P, input_num]
@@ -113,7 +110,8 @@ class TestPerPlaneClampVsWholeSum:
         macro = self._saturating_macro()
         planes = _masked_planes(torch.ones(4, dtype=torch.int32), input_num=4, max_active_num=2)
         y = macro.vec_mat_mul(planes, quantization_mode=0, adc_bits=self._BITS)
-        # Shape: [P, col] -> [col]   caller-side digital accumulation
+        # Caller-side digital accumulation.
+        # Shape: [P, col] -> [col]
         plane_code_sum = y.sum(dim=0)
         # Whole dots are 0 for both cols, so the whole-sum conversion is the
         # window zero code 0 — but col 0's per-plane codes clip asymmetrically.
@@ -148,7 +146,8 @@ class TestLosslessOracle:
             rows = slice(p * 2, (p + 1) * 2)
             expected_p = x64[:, rows] @ w64[:, rows].transpose(-1, -2)
             assert torch.equal(y[:, p, :], expected_p)
-        # Shape: [batch, P, col] -> [batch, col]   sum over P = full-row dot
+        # Sum over P is the full-row dot.
+        # Shape: [..., P, col] -> [..., col]
         assert torch.equal(y.sum(dim=-2), x64 @ w64.transpose(-1, -2))
 
 

@@ -107,9 +107,13 @@ class Iref(AnalogBase[IrefConfig, IrefPolicy]):
         T__K: Operating temperature.
     """
 
-    # --- Fabrication source buffers ---
+    # === Nominal buffers ===
 
-    _nominal_i_refs__uA: Tensor
+    _nominal_i_refs__uA: Tensor  # Shape: [mode_num, tap_num]
+
+    # === Fabricated state ===
+
+    _i_refs__uA: Tensor  # Shape: [*inst_shape, mode_num, tap_num]
 
     def __init__(
         self,
@@ -121,9 +125,15 @@ class Iref(AnalogBase[IrefConfig, IrefPolicy]):
         T__K: float,
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
-        self._area_per_inst__um2 = config.area_per_inst__um2
-        self._leakage_per_inst__uW = config.leakage_per_inst__uW
         self._register_fabrication_buffers(dtype=dtype)
+
+    @property
+    def _area_per_inst__um2(self) -> float:
+        return self.config.area_per_inst__um2
+
+    @property
+    def _leakage_per_inst__uW(self) -> float:
+        return self.config.leakage_per_inst__uW
 
     def _register_fabrication_buffers(self, *, dtype: torch.dtype) -> None:
         """Register immutable tensors used as fabrication sources."""

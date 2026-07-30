@@ -18,7 +18,7 @@
 
 ## Performance & resources
 
-State is two ordinary per-cell fabricated tensors at `inst_shape` plus two scalar nominal source buffers. The solve is allocation-light: softplus / sigmoid on the two overdrives, no iteration. The smoothing scale and sigmas are scalars, so they do not scale with `inst_shape`.
+State is two ordinary per-cell fabricated tensors at `inst_shape` plus two scalar nominal buffers. The solve is allocation-light: softplus / sigmoid on the two overdrives, no iteration. The smoothing scale and sigmas are scalars, so they do not scale with `inst_shape`.
 
 ## Gotchas
 

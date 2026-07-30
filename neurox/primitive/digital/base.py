@@ -41,9 +41,9 @@ DigitalConfigT = TypeVar("DigitalConfigT", bound="DigitalConfig")
 class DigitalBase(ModuleBase[DigitalConfigT, DigitalPolicy], Generic[DigitalConfigT], ABC):
     """Base for digital, integer-exact circuit blocks."""
 
-    # --- Immutable PPA buffers ---
+    # === Circuit constant buffers ===
 
-    _latency_per_op__ns: Tensor
+    _latency_per_op__ns: Tensor  # Shape: []
 
     def _register_latency_buffer(self, latency_per_op__ns: float) -> None:
         """Register the fixed per-operation latency source."""

@@ -39,14 +39,16 @@ def apply_stuck_at_fault(
     """Replace cells with stuck-at-min / stuck-at-max values.
 
     Args:
-        x: Input conductance. Shape: arbitrary.
+        x: Input conductance.
+            Shape: ``[...]``.
         config: Stuck-at fault probabilities.
         min_val: Stuck-at-min replacement value.
         max_val: Stuck-at-max replacement value.
         enabled: Master toggle. ``False`` returns ``x`` unchanged.
 
     Returns:
-        Conductance with stuck-at faults applied. Shape: same as ``x``.
+        Conductance with stuck-at faults applied.
+        Shape: ``[...]``.
     """
     if not enabled:
         return x
@@ -67,7 +69,8 @@ def apply_gaussian(x: Tensor, sigma: float | Tensor, *, enabled: bool) -> Tensor
         enabled: Master toggle. ``False`` returns ``x`` unchanged.
 
     Returns:
-        Noisy tensor. Shape: same as ``x``.
+        Noisy tensor.
+        Shape: ``[...]``.
     """
     if not enabled:
         return x
@@ -99,12 +102,14 @@ def apply_state_dependent_gaussian(
     """Apply Gaussian noise whose σ scales with the magnitude of ``x``.
 
     Args:
-        x: Input conductance. Shape: arbitrary.
+        x: Input conductance.
+            Shape: ``[...]``.
         config: Slope and intercept of the per-element σ.
         enabled: Master toggle. ``False`` returns ``x`` unchanged.
 
     Returns:
-        Noisy tensor. Shape: same as ``x``.
+        Noisy tensor.
+        Shape: ``[...]``.
     """
     if not enabled:
         return x
@@ -129,12 +134,14 @@ def apply_lognormal(x: Tensor, config: LognormalConfig, *, enabled: bool) -> Ten
     """Apply multiplicative log-normal noise.
 
     Args:
-        x: Input conductance. Shape: arbitrary.
+        x: Input conductance.
+            Shape: ``[...]``.
         config: Log-normal σ.
         enabled: Master toggle. ``False`` returns ``x`` unchanged.
 
     Returns:
-        Noisy tensor. Shape: same as ``x``.
+        Noisy tensor.
+        Shape: ``[...]``.
     """
     if not enabled:
         return x
@@ -172,12 +179,14 @@ def apply_state_dependent_lognormal(
     """Apply log-normal noise whose σ depends on normalised state.
 
     Args:
-        x: Input conductance. Shape: arbitrary.
+        x: Input conductance.
+            Shape: ``[...]``.
         config: State-dependent σ config.
         enabled: Master toggle. ``False`` returns ``x`` unchanged.
 
     Returns:
-        Noisy tensor. Shape: same as ``x``.
+        Noisy tensor.
+        Shape: ``[...]``.
     """
     if not enabled:
         return x
@@ -206,12 +215,14 @@ def apply_gamma_noise(x: Tensor, config: GammaConfig, *, enabled: bool) -> Tenso
     """Apply multiplicative Gamma noise normalised to unit mean.
 
     Args:
-        x: Input tensor. Shape: arbitrary.
+        x: Input tensor.
+            Shape: ``[...]``.
         config: Constant Gamma config.
         enabled: Master toggle. ``False`` returns ``x`` unchanged.
 
     Returns:
-        Noisy tensor. Shape: same as ``x``.
+        Noisy tensor.
+        Shape: ``[...]``.
     """
     if not enabled:
         return x
@@ -258,12 +269,14 @@ def apply_state_dependent_gamma(
     for the sampling and casts the result back at the end.
 
     Args:
-        x: Input conductance. Shape: arbitrary.
+        x: Input conductance.
+            Shape: ``[...]``.
         config: State-dependent Gamma config.
         enabled: Master toggle. ``False`` returns ``x`` unchanged.
 
     Returns:
-        Noisy tensor. Shape: same as ``x``.
+        Noisy tensor.
+        Shape: ``[...]``.
     """
     if not enabled:
         return x
@@ -315,12 +328,14 @@ def apply_telegraph_noise(x: Tensor, config: TelegraphConfig, *, enabled: bool) 
     """Apply random telegraph noise.
 
     Args:
-        x: Input conductance. Shape: arbitrary.
+        x: Input conductance.
+            Shape: ``[...]``.
         config: Random telegraph noise config.
         enabled: Master toggle. ``False`` returns ``x`` unchanged.
 
     Returns:
-        Noisy tensor. Shape: same as ``x``.
+        Noisy tensor.
+        Shape: ``[...]``.
     """
     if not enabled:
         return x
@@ -350,7 +365,8 @@ def apply_pelgrom_mismatch(
         enabled: Master toggle. ``False`` returns ``ideal`` unchanged.
 
     Returns:
-        Tensor with the same shape / dtype / device as ``ideal``.
+        Tensor with the same dtype / device as ``ideal``.
+        Shape: ``[...]``.
     """
     if not enabled:
         return ideal

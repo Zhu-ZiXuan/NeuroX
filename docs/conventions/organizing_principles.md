@@ -10,10 +10,10 @@ Documentation is carried in two media: markdown files and in-code text (docstrin
 | `docs/internals/**.md` | Engineer-voice Python system design; decisions, trade-offs, and cross-file contracts not readable from code |
 | `docs/contributing/**.md` | How to write documentation and code |
 | `docs/conventions/**.md` | The standards every document and source file follows, plus the symbols, terms, and parameter sources shared across subsystems |
-| docstring | Caller-facing API semantics of the symbol |
+| docstring | Caller-facing API semantics of the symbol, including the field shapes of a public payload |
 | inline comment | Local implementation intent |
-| shape annotation | Semantic tensor-shape transitions at the point of code; its format is in [code_style](code_style.md) |
-| step comment | Procedural phase boundaries aligned to a numbered procedure in Reference or Internals; its format is in [code_style](code_style.md) |
+| shape annotation | The terminal shape a class-header declaration carries, and semantic tensor-shape transitions at the point of code; its format is in [code_style](code_style.md) |
+| banner comment | Declaration and field grouping at class scope, and procedural phase boundaries in a method body, aligned to a numbered procedure in Reference or Internals where one exists; its format is in [code_style](code_style.md) |
 
 When a statement could fit two carriers: survives a code rewrite → Reference; describes the program → Internals; caller-facing → docstring; local intent → comment. A runtime variable is program state, not an invariant characteristic; it belongs to Internals. Reference states the characteristics themselves, as fact.
 

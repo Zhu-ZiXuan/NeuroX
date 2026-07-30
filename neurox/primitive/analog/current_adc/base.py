@@ -91,6 +91,24 @@ class Iadc(
         enable_latency_record: Whether conversions emit latency events.
     """
 
+    def __init__(
+        self,
+        *,
+        config: ConfigT,
+        policy: PolicyT,
+        inst_shape: tuple[int, ...],
+        dtype: torch.dtype,
+        T__K: float,
+        enable_latency_record: bool = True,
+    ) -> None:
+        del dtype, T__K
+        super().__init__(
+            config=config,
+            policy=policy,
+            inst_shape=inst_shape,
+            enable_latency_record=enable_latency_record,
+        )
+
     @classmethod
     def from_config(
         cls,
@@ -122,24 +140,6 @@ class Iadc(
             inst_shape=inst_shape,
             dtype=dtype,
             T__K=T__K,
-            enable_latency_record=enable_latency_record,
-        )
-
-    def __init__(
-        self,
-        *,
-        config: ConfigT,
-        policy: PolicyT,
-        inst_shape: tuple[int, ...],
-        dtype: torch.dtype,
-        T__K: float,
-        enable_latency_record: bool = True,
-    ) -> None:
-        del dtype, T__K
-        super().__init__(
-            config=config,
-            policy=policy,
-            inst_shape=inst_shape,
             enable_latency_record=enable_latency_record,
         )
 
@@ -193,18 +193,20 @@ class Iadc(
         fewer decision cycles over it.
 
         Args:
-            i_in__uA: Non-negative magnitude current. Shape: arbitrary.
+            i_in__uA: Non-negative magnitude current.
+                Shape: ``[...]``.
             i_refs__uA: Reference ladder, shape ``[*R, n_ref]`` with
                 ``n_ref = 2 ** max_bits - 1`` taps ascending along the last
                 axis; ``[*R]`` right-broadcasts against ``i_in__uA``.
             bits: Conversion resolution [bits] in ``[1, max_bits]``.
 
         Returns:
-            Unsigned integer code tensor, same shape as ``i_in__uA``, in the
-            range reported by :meth:`unsigned_range` for ``bits``. For a
+            Unsigned integer code tensor, one code per ``i_in__uA`` element, in
+            the range reported by :meth:`unsigned_range` for ``bits``. For a
             deterministic converter the code at ``bits`` is the code at
             ``max_bits`` right-shifted by ``max_bits - bits``. Dynamic energy
             and latency are emitted through the profiler side channel.
+            Shape: ``[...]``.
 
         Raises:
             ValueError: ``bits`` is outside ``[1, max_bits]``, or the ladder

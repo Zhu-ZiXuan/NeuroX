@@ -56,9 +56,15 @@ class Accumulator(DigitalBase[AccumulatorConfig]):
         inst_shape: tuple[int, ...],
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
-        self._area_per_inst__um2 = config.area_per_inst__um2
-        self._leakage_per_inst__uW = config.leakage_per_inst__uW
         self._register_latency_buffer(config.latency_per_op__ns)
+
+    @property
+    def _area_per_inst__um2(self) -> float:
+        return self.config.area_per_inst__um2
+
+    @property
+    def _leakage_per_inst__uW(self) -> float:
+        return self.config.leakage_per_inst__uW
 
     def accumulate(self, x: Tensor, dim: int) -> Tensor:
         """Sum ``x`` along ``dim`` and wrap into the signed ``bit_width`` range.

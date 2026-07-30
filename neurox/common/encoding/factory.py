@@ -1,4 +1,8 @@
-"""Construct transcoders from closed encoding identifiers."""
+"""Construct transcoders from closed encoding identifiers.
+
+See also:
+    docs/internals/common/encoding/encodings.md
+"""
 
 from __future__ import annotations
 
