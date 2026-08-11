@@ -4,8 +4,6 @@ See also:
     docs/reference/primitive/analog/current_reference.md
 """
 
-from dataclasses import dataclass
-
 import torch
 from torch import Tensor
 
@@ -23,13 +21,10 @@ class IrefConfig(AnalogConfig):
             within a mode is not enforced, because what a mode means is
             the consumer's knowledge — a decision ladder must ascend, a
             bank of bias taps need not. A zero tap remains exact under
-            relative noise.
+            relative tolerance.
         tolerance_sigma_relative: Relative per-instance initial-accuracy
             σ [dimensionless], applied multiplicatively at fabricate
             time; ``0`` leaves the exact nominal taps.
-        noise_sigma_relative: Relative per-call noise σ
-            [dimensionless], applied multiplicatively at snapshot time;
-            ``0`` leaves the taps noise-free.
         area_per_inst__um2: Silicon area per fabricated instance.
         leakage_per_inst__uW: Static leakage per instance; carries
             all static power, including the always-on bias network that
@@ -38,7 +33,6 @@ class IrefConfig(AnalogConfig):
 
     i_refs__uA: tuple[tuple[float, ...], ...]
     tolerance_sigma_relative: float
-    noise_sigma_relative: float
     area_per_inst__um2: float
     leakage_per_inst__uW: float
 
@@ -67,44 +61,32 @@ class IrefConfig(AnalogConfig):
             for tap, value in enumerate(taps):
                 self._require_non_neg(value, f"i_refs__uA[{mode}][{tap}]")
 
-        # --- Noise and PPA ---
+        # --- Tolerance and PPA ---
 
         self._require_non_neg(self.tolerance_sigma_relative, "tolerance_sigma_relative")
-        self._require_non_neg(self.noise_sigma_relative, "noise_sigma_relative")
         self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
 
 
 class IrefPolicy(AnalogPolicy):
-    """Per-source toggles selecting which Iref nonidealities are active.
+    """Per-source toggle selecting whether the Iref tolerance is active.
 
     Attributes:
         tolerance: Apply the per-instance initial-accuracy spread
             ``tolerance_sigma_relative`` at fabricate time.
-        noise: Apply the per-call noise ``noise_sigma_relative`` at
-            snapshot time.
     """
 
     tolerance: bool
-    noise: bool
-
-
-@dataclass(frozen=True)
-class IrefSnap:
-    """One sampled reference snap.
-
-    Attributes:
-        i_refs__uA: Actual reference-current taps of the selected mode,
-            post tolerance + noise, at the requested call shape. The mode
-            axis is resolved away by :meth:`Iref.snapshot`.
-            Shape: ``[..., tap_num]``.
-    """
-
-    i_refs__uA: Tensor
 
 
 class Iref(AnalogBase[IrefConfig, IrefPolicy]):
-    """Multi-output current reference with static tolerance and runtime noise.
+    """Fabricate-only multi-output current reference with static tolerance.
+
+    A pure identity source: one static ``[mode][tap]`` bank per physical
+    instance, sampled once at fabricate time and read back through
+    :attr:`i_out__uA`. No forward path and no per-call noise — dynamic
+    per-access variation is a consuming driver's own law, not this
+    source's; the source's identity is shared and never resampled.
 
     Args:
         config: Concrete configuration dataclass.
@@ -168,30 +150,14 @@ class Iref(AnalogBase[IrefConfig, IrefPolicy]):
             enabled=self.policy.tolerance,
         )
 
-    def snapshot(self, *, mode: int, shape: tuple[int, ...]) -> IrefSnap:
-        """Select one mode and sample it with per-call noise.
+    @property
+    def i_out__uA(self) -> Tensor:
+        """Fabricated reference-current bank, post static tolerance.
 
-        The mode selects the taps here rather than in the caller, so the
-        bank layout stays private and no operating-mode identity travels
-        further downstream. The static mismatch drawn at fabricate time
-        spans ``inst_shape`` alone, while this per-call noise spans the
-        full ``shape``: the fabricated taps are one physical source, but
-        every position of a call is a distinct instant or a distinct
-        mirrored branch, each carrying its own draw.
-
-        Args:
-            mode: Mode index into the ``[mode][tap]`` bank. Range checking
-                belongs to the consumer that owns the mode set.
-            shape: Full output shape, ending in ``tap_num``.
-
-        Returns:
-            Per-call snap carrying the actual reference-current taps.
+        Read-only view over the fabricated buffer: one physical identity per
+        instance. A consumer selects its mode and broadcasts the result onto
+        its own call shape by view; that broadcast, and any per-access
+        dynamic noise on top of it, is the consuming driver's concern.
+        Shape: ``[*inst_shape, mode_num, tap_num]``.
         """
-        # Shape: [*inst_shape, mode_num, tap_num] -> [..., *inst_shape, tap_num]
-        i_refs__uA = self._i_refs__uA[..., mode, :].expand(shape)
-        i_refs__uA = apply_relative_gaussian(
-            i_refs__uA,
-            self.config.noise_sigma_relative,
-            enabled=self.policy.noise,
-        )
-        return IrefSnap(i_refs__uA=i_refs__uA)
+        return self._i_refs__uA

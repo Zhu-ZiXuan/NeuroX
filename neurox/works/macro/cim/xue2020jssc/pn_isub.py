@@ -98,6 +98,10 @@ class PnIsub(ModuleBase[PnIsubConfig, PnIsubPolicy]):
         i_sub_abs__uA = (i_p__uA - i_n__uA).abs()
         sign = i_n__uA > i_p__uA
         if self._is_dynamic_energy_profile_active():
+            # The three rail branches over the injected window plus the comparator
+            # decision constant, per (slot, IO) entry. The collector sums the slot
+            # and CIM-IO axes past the caller's leading dims.
+            # Shape: [..., serial, gn]
             e__fJ = self._v_dd__V * window__ns * (i_p__uA + i_n__uA + i_sub_abs__uA) + self.config.e_per_op__fJ
             self._record_dynamic_energy(e__fJ)
         return i_sub_abs__uA, sign

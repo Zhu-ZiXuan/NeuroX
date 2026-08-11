@@ -75,10 +75,8 @@ class Solver(ABC):
     def solve_dc(
         self,
         *,
-        bl_segment_r__MOhm: Tensor,
-        sl_segment_r__MOhm: Tensor,
-        bl_segment_g__uS: Tensor,
-        sl_segment_g__uS: Tensor,
+        bl_segment_r__MOhm: float,
+        sl_segment_r__MOhm: float,
         cell: XbarCell[Any, Any, CellSnapT, CellDCOPT],
         cell_snap: CellSnapT,
         bl_driver: ClampDriver[BLSnapT],
@@ -88,22 +86,15 @@ class Solver(ABC):
     ) -> SolverDcop[CellDCOPT]:
         """Solve the fabricated tile for one cell snap.
 
+        The rail lattice is uniform: one link resistance describes a whole
+        rail, the driver's own link to the node at index 0 included.
+
         Args:
-            bl_segment_r__MOhm: BL segment resistances; index 0 is
-                driver-to-first.
-                Shape: ``[num_row]``.
-            sl_segment_r__MOhm: SL segment resistances; index 0 is
-                driver-to-first.
-                Shape: ``[num_row]``.
-            bl_segment_g__uS: BL segment conductances, reciprocal of
-                ``bl_segment_r__MOhm``.
-                Shape: ``[num_row]``.
-            sl_segment_g__uS: SL segment conductances, reciprocal of
-                ``sl_segment_r__MOhm``.
-                Shape: ``[num_row]``.
+            bl_segment_r__MOhm: BL rail resistance of one lattice link.
+            sl_segment_r__MOhm: SL rail resistance of one lattice link.
             cell: Condensed cell branch model.
             cell_snap: Per-solve cell snap bundling the device snaps and the
-                per-row control-line (WL) drive.
+                per-cell word-line drive at ``[..., col, row]``.
             bl_driver: BL clamp driver.
             bl_driver_snap: Per-solve BL driver snap.
             sl_driver: SL clamp driver.

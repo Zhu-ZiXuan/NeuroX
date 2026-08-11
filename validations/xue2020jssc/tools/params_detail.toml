@@ -13,7 +13,7 @@
 #
 # The RUNTIME macro composes an XbarArray1t1r with a DC solver and the same wire
 # ladder, so the array-solver calibration is GENUINE: this Detail array
-# mirrors ../params.toml's wire geometry (BL/SL first 20 Ohm, segment 5 Ohm) so the
+# mirrors ../params.toml's wire geometry (BL/SL segment 5 Ohm) so the
 # calibrate_solver-picked (n_outer, n_inner) transfer to the runtime array. It is
 # also a config-complete xbar the shipped run-config resolves against (reactivating
 # tests/tools/test_calibrate_solver.py::TestShippedRunConfig). The section
@@ -30,33 +30,25 @@ max_active_num = 9               # [measured p206] input positions selected per 
 # Array (kernel XbarArray1t1r) -- IR-drop 1T1R pure array: cells + wire + solver
 # ===========================================================================
 [cim_macro.array_config]
-area_per_inst__um2 = 0.0          # [derived] un-extracted
-leakage_per_inst__uW = 1.0        # [derived] small array+wire static placeholder
-latency_per_op__ns = 1.0          # [derived] per-VMM core latency placeholder
 
 # --- Layout pitch --- [derived] 28nm-class pitch placeholders
-row_first_space__um = 1.000
 row_cell_space__um = 0.040
-col_first_space__um = 1.000
 col_cell_space__um = 0.040
 
-# --- BL / SL / WL wire segments ---
-# [assumed] The paper gives NO wire R/C. Mirrors ../params.toml: BL/SL
-# first-segment R = 20 Ohm = 2.0e-5 MOhm, cell-to-cell R = 5 Ohm
-# = 5.0e-6 MOhm, small per-segment caps. Matching the runtime array is what makes
-# the calibrate_solver (n_outer, n_inner) transfer valid.
-bl_first_r__MOhm = 2.0e-5
-bl_first_c__fF = 0.200
+# --- BL / SL wire segment resistance ---
+# [assumed] The paper gives NO wire R. Mirrors ../params.toml: cell-to-cell
+# R = 5 Ohm = 5.0e-6 MOhm. Matching the runtime array is what makes the
+# calibrate_solver (n_outer, n_inner) transfer valid.
 bl_segment_r__MOhm = 5.0e-6
-bl_segment_c__fF = 0.008
-sl_first_r__MOhm = 2.0e-5
-sl_first_c__fF = 0.200
 sl_segment_r__MOhm = 5.0e-6
-sl_segment_c__fF = 0.008
-wl_first_r__MOhm = 2.0e-5
-wl_first_c__fF = 0.200
-wl_segment_r__MOhm = 5.0e-6
-wl_segment_c__fF = 0.008
+
+# --- Per-node capacitance --- [derived] cell junction + one wire segment
+# per line (un-extracted small placeholders); x_node is the internal
+# access-node junction alone (no wire segment).
+bl_node_c__fF = 0.208
+x_node_c__fF = 0.3
+sl_node_c__fF = 0.108
+wl_node_c__fF = 0.208
 
 
 [cim_macro.array_config.cell_config]
@@ -65,12 +57,6 @@ _neurox_class = "XbarCell1t1rDetailConfig"
 # --- Access-NMOS sizing --- [derived] 28nm-class placeholders
 access_nmos_W__um = 0.150
 access_nmos_L__um = 0.028
-
-# --- Per-cell node-to-ground capacitances [fF] --- [derived] un-extracted
-c_bl__fF = 0.2
-c_x__fF = 0.3
-c_sl__fF = 0.1
-c_wl__fF = 0.2
 
 # --- RRAM design window + state map ---
 # [assumed] SLC 1T1R at the campaign's R-ratio-20 design point: g_lrs ~ 100 uS

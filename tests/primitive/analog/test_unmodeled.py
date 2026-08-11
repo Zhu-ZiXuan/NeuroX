@@ -62,12 +62,11 @@ def test_static_ppa_scales_and_is_visible() -> None:
 
 
 def test_fabricate_emits_no_events() -> None:
-    """The block has no functional path; fabricate emits neither energy nor latency."""
+    """The block has no functional path; fabricate emits no energy event."""
     block = _make(inst_shape=(2,))
     with NeuroxProfiler() as p:
         block.fabricate()
     assert p.energy_events == []
-    assert p.latency_events == []
 
 
 def test_toml_loads(tmp_path: Path) -> None:

@@ -4,7 +4,7 @@
 
 - **Per-resolution constant tables dodge a dynamo `1 << SymInt` miscompile.** `bits` is a per-call runtime parameter, so the unsigned clamp bound `2**bits - 1` and the zero offset `2**(bits-1)` vary per conversion. Evaluating `1 << bits` inside `_convert_impl` would emit a `1 << <SymInt>` op that dynamo's lshift lowering currently mishandles, so `__init__` precomputes both as plain-`int` tuples (`_unsigned_max_table`, `_zero_offset_table`) that `_convert_impl` and the `unsigned_range` / `zero_offset` accessors index by the runtime `bits`.
 - **One instance covers the full resolution envelope.** The per-call `bits` value selects the active SAR depth; the reference is injected as `v_refs__V`.
-- **No `latency_per_op__ns` field.** Per-op latency `(bits + 1) * clk_period__ns` is derived in `_convert_impl` from the runtime op point and emitted through the profiler latency side channel — the SAR latency depends on the runtime depth, so a static config field would be wrong.
+- **No `latency_per_op__ns` field.** `latency__ns(*, bits)` derives `(bits + 1) * clk_period__ns` from the executed resolution — the SAR cycle count depends on the requested depth, so a static config field would be wrong.
 - **Comparator-noise sigma temperature-scaled at `__init__`.** `_comparator_noise_sigma__V` is scaled once at construction, not resampled at fabricate, because `T__K` is bound at construction; Reference gives the `sqrt(T)` law.
 - **Independent positive / negative CDAC legs.** Cap-mismatch is drawn independently for the two legs (`_c_p__fF`, `_c_n__fF`); a shared draw would understate the differential error.
 
@@ -14,6 +14,7 @@
 - **Raw offset-binary code returned, zero point exposed not folded.** `_convert_impl` returns the raw offset-binary SAR code in `[0, 2**bits - 1]`; `_zero_offset_table[bits]` is exposed through `zero_offset(bits)` and never subtracted inside the ADC. No standalone unsigned clamp runs — the SAR loop leaves `code` in range by construction, and `apply_lsb_jitter` re-clamps after its `+1` overflow.
 - **Single-tap reference bank.** The CDAC swings against one full-scale reference and divides it internally, so this circuit takes exactly one tap: `_validate_runtime_args` requires `v_refs__V` trailing extent `1` — the leaf stating its own circuit fact, since the base validates no tap count — and `_convert_impl` reads `v_ref__V = v_refs__V[..., 0]`. The remaining leading dims broadcast against the inputs.
 - **Per-call operating point.** `v_ref__V` broadcasts through the tensor-valued `v_cm`, step-table, and energy math; `bits <= max_bits` sets the active depth. No mode index enters the ADC — the owner names the mode to its reference source, which returns the tap.
+- **The energy payload carries its instance block last, undeclared.** The bit axis is folded by the two per-bit sums before emission, the serialized conversions are middle axes, and the per-cap CDAC arrays force this converter's `inst_shape` into the payload's tail, giving `[*caller_leading, *middle, *inst_shape]`; the profiler sums everything past the caller's own leading dims, middle and instance axes alike, with nothing declared at the emission site.
 
 ## Performance & resources
 

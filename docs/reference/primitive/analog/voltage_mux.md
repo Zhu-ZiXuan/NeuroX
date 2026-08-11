@@ -8,8 +8,9 @@ reaches each physical lane during each access. The mux preserves that layout.
 
 Each fabricated lane has a static fractional gain error. Each access also sees
 additive voltage noise. The mux records one dynamic-energy item per transported
-voltage and derives latency from the number of accesses divided by the number of
-fabricated lanes.
+voltage, and its duration is one transport window per access of the $N{:}1$
+ratio — the $N$ inputs of a lane reach it one at a time, while the lanes
+themselves are parallel.
 
 ## Governing equations
 
@@ -47,7 +48,6 @@ the value tensor's shape.
 | `mux_gain_mismatch_sigma_relative` | per-instance fractional gain-mismatch sigma | $\geq 0$ | Measured |
 | `mux_noise_sigma__V` | additive transport-noise sigma | $\geq 0$ | Measured |
 | `energy_per_access__fJ` | dynamic energy per transported voltage | $\geq 0$ | Design |
-| `latency_per_op__ns` | latency per serial transport round | $\geq 0$ | Design |
 | `area_per_inst__um2` | silicon area per physical lane | $\geq 0$ | Design |
 | `leakage_per_inst__uW` | leakage per physical lane | $\geq 0$ | Design |
 

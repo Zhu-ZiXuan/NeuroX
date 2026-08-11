@@ -95,7 +95,6 @@ class Iadc(
         inst_shape: Per-instance fabrication shape.
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature.
-        enable_latency_record: Whether conversions emit latency events.
     """
 
     def __init__(
@@ -106,15 +105,9 @@ class Iadc(
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
-        enable_latency_record: bool = True,
     ) -> None:
         del dtype, T__K
-        super().__init__(
-            config=config,
-            policy=policy,
-            inst_shape=inst_shape,
-            enable_latency_record=enable_latency_record,
-        )
+        super().__init__(config=config, policy=policy, inst_shape=inst_shape)
 
     @classmethod
     def from_config(
@@ -125,7 +118,6 @@ class Iadc(
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
-        enable_latency_record: bool = True,
     ) -> Iadc:
         """Build the implementation registered for the config-policy pair.
 
@@ -135,7 +127,6 @@ class Iadc(
             inst_shape: Per-instance fabrication shape.
             dtype: Tensor dtype for internal buffers.
             T__K: Operating temperature.
-            enable_latency_record: Whether conversions emit latency events.
 
         Returns:
             Registered current-ADC implementation.
@@ -147,7 +138,6 @@ class Iadc(
             inst_shape=inst_shape,
             dtype=dtype,
             T__K=T__K,
-            enable_latency_record=enable_latency_record,
         )
 
     @property
@@ -167,6 +157,24 @@ class Iadc(
         """
         if not (1 <= bits <= self.max_bits):
             raise ValueError(f"require: bits ({bits}) in [1, max_bits ({self.max_bits})]")
+
+    @abstractmethod
+    def latency__ns(self, *, bits: int) -> float:
+        """Duration of one :meth:`convert` call at ``bits`` [ns].
+
+        A conversion is the only thing a current ADC spends time on, and how
+        long it lasts follows from the resolution the call executes, so the
+        executed bit count is the whole question. The formula is the concrete
+        converter's own — a flat comparison window, a sum over search steps —
+        so the base declares no default.
+
+        Args:
+            bits: Conversion resolution [bits] in ``[1, max_bits]``.
+
+        Returns:
+            Duration of one conversion at ``bits``.
+        """
+        raise NotImplementedError
 
     def convert(
         self,
@@ -196,7 +204,7 @@ class Iadc(
             the range reported by :meth:`unsigned_range` for ``bits``. For a
             deterministic converter the code at ``bits`` is the code at
             ``max_bits`` right-shifted by ``max_bits - bits``. Dynamic energy
-            and latency are emitted through the profiler side channel.
+            is emitted through the profiler side channel.
             Shape: ``[...]``.
 
         Raises:

@@ -6,20 +6,23 @@ directly in Python with small explicit values (no disk TOML). The witness ships
 a NEAR-IDEAL analog chain so the integer MAC is analytic: a linearized 1T1R cell
 with an exact-zero HRS branch (``g_cell_on_table__uS = (0.0, g_lrs)`` and WL-off
 = 0) programmed through the composed :class:`XbarArray1t1r`, a fixed ``V_BLC``
-clamp reference, and a small positive BL/SL/WL wire resistance (a required array
-field — never assumed zero in code; the DC solver needs ``R > 0``). The wire R is
+clamp reference, and a small positive BL/SL wire resistance (a required array
+field — never assumed zero in code; the DC solver needs ``R > 0``). The word line
+is gate-only: it carries no DC current, so it has capacitance fields but no
+resistance. The wire R is
 tiny relative to the cell branch, so the array's IR drop is a fraction of a
-percent and the per-cell current is essentially ``I = g_chord * V_BLC``. Under
+percent and the per-cell current is essentially ``I = g_chord * V_BLC``. The WL
+driver rail ``v_dd_wl__V`` is deliberately distinct from the read rail
+``v_dd__V`` so a swapped rail shows up in the array's capacitive billing. Under
 this chain the ADC input current ``I_SUB`` is monotone in the signed integer MAC,
 so a mid-point ladder probed from the tile's own transfer decodes any MAC
 bit-exactly.
 
 The geometry mirrors the paper design in miniature: ``output_num = 4``
 (``mux_factor = 2`` -> ``io_num = 2``), ``input_num = max_active_num = 4``,
-``input_bit_num = 2`` (K serial WL sub-phases, LSB first), a 3-bit ADC magnitude. The WL DAC latency is zero and the ADC step
-latency is the honest per-step SAR sensing durations (feeding the read-chain
-window ``t_other``); the macro builds the TMCSA so it emits NO latency, staying
-the sole latency emitter, so the static-energy time base is ``t_cycle`` alone.
+``input_bit_num = 2`` (K serial WL sub-phases, LSB first), a 3-bit ADC magnitude.
+The ADC step latency is the honest per-step SAR sensing durations (feeding the
+read-chain window ``t_other``); the static-energy time base is ``t_cycle`` alone.
 :func:`build_config` is parameterised by geometry and window knobs so other test
 files reuse it.
 
@@ -90,7 +93,6 @@ _V_BLC__V = 0.3
 # Small positive wire R (an [uncertain] physical estimate; the solver needs R > 0
 # and never assumes it in code). Tiny relative to the ~0.01 MOhm cell branch, so
 # the array IR drop is a fraction of a percent — the chain stays near-ideal.
-_WIRE_FIRST_R__MOhm = 2.0e-5  # 20 Ohm
 _WIRE_SEGMENT_R__MOhm = 5.0e-6  # 5 Ohm
 
 
@@ -133,10 +135,6 @@ def _default_mode(adc_bits: int) -> CimMacroMode:
 def _linear_cell_config() -> XbarCell1t1rLinearConfig:
     """Near-ideal linearized 1T1R cell: exact-zero HRS branch, LRS chord, WL-off cut off."""
     return XbarCell1t1rLinearConfig(
-        c_bl__fF=0.2,
-        c_x__fF=0.3,
-        c_sl__fF=0.1,
-        c_wl__fF=0.2,
         g_cell_on_table__uS=(0.0, _G_LRS__uS),  # state 0 = HRS -> exact 0, state 1 = LRS
         g_cell_off_table__uS=(0.0, 0.0),  # WL off -> no conduction
         vx_ratio_on_table=(0.5, 0.5),
@@ -150,30 +148,20 @@ def _array_config() -> XbarArray1t1rConfig:
 
     The wire R is a required positive field (never assumed zero in code); the near-
     zero value keeps the array's IR drop negligible so the MAC stays near-analytic.
-    ``latency_per_op__ns = 0`` — the macro is the sole latency emitter.
+    The four per-node caps are distinct positive placeholders (a test law: only
+    distinctness and positivity are asserted, never a specific value).
     """
     return XbarArray1t1rConfig(
-        row_first_space__um=1.0,
         row_cell_space__um=1.0,
-        col_first_space__um=1.0,
         col_cell_space__um=1.0,
-        bl_first_r__MOhm=_WIRE_FIRST_R__MOhm,
-        bl_first_c__fF=0.1,
         bl_segment_r__MOhm=_WIRE_SEGMENT_R__MOhm,
-        bl_segment_c__fF=0.1,
-        sl_first_r__MOhm=_WIRE_FIRST_R__MOhm,
-        sl_first_c__fF=0.1,
         sl_segment_r__MOhm=_WIRE_SEGMENT_R__MOhm,
-        sl_segment_c__fF=0.1,
-        wl_first_r__MOhm=_WIRE_FIRST_R__MOhm,
-        wl_first_c__fF=0.1,
-        wl_segment_r__MOhm=_WIRE_SEGMENT_R__MOhm,
-        wl_segment_c__fF=0.1,
+        bl_node_c__fF=0.11,
+        x_node_c__fF=0.13,
+        sl_node_c__fF=0.17,
+        wl_node_c__fF=0.19,
         cell_config=_linear_cell_config(),
         solver_config=NestedParallelRailSolverConfig(n_outer=3, n_inner=3),
-        latency_per_op__ns=0.0,  # macro is the sole latency emitter
-        area_per_inst__um2=0.0,
-        leakage_per_inst__uW=7.0,  # array static seat (reporter leaf)
     )
 
 
@@ -216,8 +204,7 @@ def build_config(
             all-0.1, length ``adc_bits``). Energy-path only.
         step_latency__ns: TMCSA per-step SAR sensing durations (defaults to
             ``(1.0, 2.0, ...)``, length ``adc_bits``). Feeds the read-chain window
-            ``t_other``; the macro suppresses the ADC's own latency emission, so
-            these never add to the profiled latency (macro = sole latency emitter).
+            ``t_other``, which sits inside the macro's own access window.
         ref_levels__uA: Single-mode threshold ladder (defaults to the placeholder).
     """
     if t_sample__ns is None:
@@ -243,6 +230,9 @@ def build_config(
         t_settle__ns=t_settle__ns,
         t_cycle__ns=t_cycle__ns,
         v_dd__V=1.0,
+        # Deliberately distinct from v_dd__V: the WL rail and the read rail are
+        # separate variables, so a swapped rail moves the array's cap energy.
+        v_dd_wl__V=0.9,
         e_control_per_op__fJ=5.0,
         control_config=UnmodeledBlockConfig(area_per_inst__um2=0.0, leakage_per_inst__uW=6.0),
         dswct_config=DswctConfig(area_per_inst__um2=0.0, leakage_per_inst__uW=0.0, c_load__fF=0.0),
@@ -265,8 +255,7 @@ def build_config(
             leakage_per_inst__uW=0.0,
             code_to_signal=(0.0, 0.9),  # 1-bit ON/OFF WL drive
             drive_thermal__V=0.0,
-            energy_per_op__fJ=0.0,
-            latency_per_op__ns=0.0,  # WL sub-phase folds into t_cycle (macro sole latency emitter)
+            code_to_per_op_energy__fJ=(0.0, 0.0),
         ),
         cablc_config=VoltageDriverConfig(
             r_out__MOhm=0.0,  # ideal flat clamp (V_BL = V_BLC at the port); static leakage seat only
@@ -279,7 +268,6 @@ def build_config(
         cablc_vref_config=VrefConfig(  # dedicated V_BLC clamp source: one mode row, one tap
             v_refs__V=((_V_BLC__V,),),
             tolerance_sigma_relative=0.0,
-            noise_sigma_relative=0.0,
             area_per_inst__um2=0.0,
             leakage_per_inst__uW=0.0,
         ),
@@ -297,7 +285,7 @@ def build_config(
             e_fixed_per_op__fJ=2.0,
             v_rail__V=1.0,
             t_conduct_per_step__ns=t_conduct_per_step__ns,
-            step_latency__ns=step_latency__ns,  # honest sensing; macro suppresses ADC latency emit
+            step_latency__ns=step_latency__ns,  # honest sensing; feeds the macro's t_other
             comparator_offset_sigma__uA=0.0,
             coupling_mismatch_sigma__uA=0.0,
             area_per_inst__um2=0.0,
@@ -306,7 +294,6 @@ def build_config(
         reference_config=IrefConfig(
             i_refs__uA=(tuple(ref_levels__uA),),  # outer tuple = mode axis (single mode)
             tolerance_sigma_relative=0.0,
-            noise_sigma_relative=0.0,
             area_per_inst__um2=0.0,
             leakage_per_inst__uW=5.0,
         ),
@@ -320,13 +307,13 @@ def build_all_off_policy() -> Xue2020JsscCimMacroPolicy:
         array_policy=XbarArray1t1rPolicy(cell_policy=XbarCell1t1rLinearPolicy(), solve_chunk_size=0),
         wl_dac_policy=GeneralVdacPolicy(drive_thermal=False),
         cablc_policy=VoltageDriverPolicy(offset=False, thermal=False),
-        cablc_vref_policy=VrefPolicy(tolerance=False, noise=False),
+        cablc_vref_policy=VrefPolicy(tolerance=False),
         sl_driver_policy=VoltageDriverPolicy(offset=False, thermal=False),
         adc_policy=SarIadcPolicy(
             comparator_offset=False,
             coupling_mismatch=False,
         ),
-        reference_policy=IrefPolicy(tolerance=False, noise=False),
+        reference_policy=IrefPolicy(tolerance=False),
         control_policy=UnmodeledBlockPolicy(),
         dswct_policy=DswctPolicy(),
         sinwp_sc_policy=SinwpScPolicy(),

@@ -21,7 +21,9 @@
 
 [gate]
 # [measured p7 Fig.18] Gate 5. Access window PH0 + PH1 + PH2 + PH3 + t4,
-# code-independent; the readout DERIVES it and the profiler integrates it.
+# code-independent; the readout DERIVES it, the macro's conduction atoms
+# integrate it, and the macro reports it as the per-access latency. The leakage
+# basis is the separate [conventions].leakage_window__ns declaration.
 t_ac__ns = 66.0
 
 # --- Gate 2: Fig.16(b) per-plane cell currents ---
@@ -33,8 +35,8 @@ lrs_mean__uA = [0.50, 1.00, 1.99]
 lrs_tolerance_relative = 0.02
 # [measured p7 Fig.16(b)] Per-plane I_TBL,Mean(HRS) stays under 30 nA, flat across
 # every T2 slice multiplier. The gate reads it as a bound on the RAW plane current
-# `m * i_t2[IN=1][HRS]`, the tighter of the two readings; the looser one is the
-# plane's excess over the input-0 leakage floor.
+# `m * i_t2[drive][HRS]`, the tighter of the two readings; the looser one is the
+# plane's excess over the V_X = 0 leakage floor.
 hrs_bound__uA = 0.030
 
 # --- Gate 3: RS-CSA per-conversion energy (also the calibration constraint pair) ---
@@ -96,3 +98,11 @@ out_bit = 4                       # [measured p6 Table II] 4bO (RS-CSA resolutio
 [conventions]
 rsm = false                       # [assumed] RSM mapping unused; the SUBA4 slice is physically present
 v_dd__V = 0.8                     # [measured p6 Table II] core supply
+# [assumed] ENERGY basis: the duty period one access's static power integrates
+# over, and the period its dynamic energy is averaged into a power over. The paper
+# publishes no clock, so its steady-state power figures are read as back-to-back
+# accesses at the shipped 1bIN-3bW-4bO point, which puts the duty cycle on the
+# measured 66 ns T_AC. DECLARED here, never derived from the latency the macro
+# reports: the access time follows the converter resolution a call asks for, this
+# window does not.
+leakage_window__ns = 66.0

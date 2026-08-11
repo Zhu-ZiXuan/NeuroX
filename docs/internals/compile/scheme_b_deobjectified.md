@@ -31,8 +31,8 @@ class NestedParallelRailSolverCompileParams:
 @torch.compile(dynamic=False)
 def solve_nested_chunk(
     *,
-    bl_segment_g__uS: Tensor,
-    sl_segment_g__uS: Tensor,
+    bl_segment_r__MOhm: float,
+    sl_segment_r__MOhm: float,
     cell_snap: XbarCellSnap,
     bl_driver_snap: ClampSnap,
     sl_driver_snap: ClampSnap,

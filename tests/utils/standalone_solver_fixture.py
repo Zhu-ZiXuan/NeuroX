@@ -12,10 +12,10 @@ oracle can reproduce the solver's DCOP to round-off.
 
 Public surface: :func:`build_solver_harness` returns a frozen
 ``SolverHarness`` carrying the constructed solver, the programmed cell,
-the two ideal clamp drivers with their snaps, the wire R/G tensors, the
-WL drive, and the oracle inputs (the cell config, the programmed state
-indices, and the resolved rail reference taps). Tests call
-``harness.solver.solve_dc(**harness.solver_kwargs(), ...)``; the
+the two ideal clamp drivers with their snaps, the two rail link
+resistances, the WL drive, and the oracle inputs (the cell config, the
+programmed state indices, and the resolved rail reference taps). Tests
+call ``harness.solver.solve_dc(**harness.solver_kwargs(), ...)``; the
 per-call cell snap is rebuilt by :meth:`SolverHarness.cell_snapshot`.
 """
 
@@ -57,14 +57,12 @@ VX_RATIO_OFF_TABLE = (0.5, 0.5)
 VX_RATIO_ON_TABLE = (0.4, 0.6)
 V_WL_ON_THRESHOLD__V = 0.5
 
-C_NODE__fF = 0.1
-
-# Wire segment resistances [MOhm]; index 0 is driver-to-first. BL and SL
-# values differ so a rail swap cannot cancel.
-BL_FIRST_R__MOhm = 2e-4
-BL_SEGMENT_R__MOhm = 1e-4
-SL_FIRST_R__MOhm = 4e-4
-SL_SEGMENT_R__MOhm = 2e-4
+# Resistance of one rail link [MOhm] — the lattice is uniform, the clamp
+# driver's own link to node 0 included. BL and SL values differ so a rail
+# swap cannot cancel; both are large enough against the cell chords above
+# that the IR drop along the ladder stays plainly visible.
+BL_SEGMENT_R__MOhm = 2e-4
+SL_SEGMENT_R__MOhm = 4e-4
 
 # Rail reference taps [V], one dedicated source per clamp driver.
 BL_V_REF__V = 0.3
@@ -73,10 +71,6 @@ SL_V_REF__V = 0.1
 
 def _linear_cell_config() -> XbarCell1t1rLinearConfig:
     return XbarCell1t1rLinearConfig(
-        c_bl__fF=C_NODE__fF,
-        c_x__fF=C_NODE__fF,
-        c_sl__fF=C_NODE__fF,
-        c_wl__fF=C_NODE__fF,
         g_cell_off_table__uS=G_CELL_OFF_TABLE__uS,
         g_cell_on_table__uS=G_CELL_ON_TABLE__uS,
         vx_ratio_off_table=VX_RATIO_OFF_TABLE,
@@ -102,11 +96,10 @@ def _single_tap_vref(v_ref__V: float, *, dtype: torch.dtype) -> Vref:
         config=VrefConfig(
             v_refs__V=((v_ref__V,),),
             tolerance_sigma_relative=0.0,
-            noise_sigma_relative=0.0,
             area_per_inst__um2=0.0,
             leakage_per_inst__uW=0.0,
         ),
-        policy=VrefPolicy(tolerance=False, noise=False),
+        policy=VrefPolicy(tolerance=False),
         inst_shape=(),
         dtype=dtype,
         T__K=300.0,
@@ -130,20 +123,22 @@ class SolverHarness:
     sl_driver: VoltageDriver
     bl_driver_snap: VoltageDriverSnap
     sl_driver_snap: VoltageDriverSnap
-    bl_segment_r__MOhm: Tensor
-    sl_segment_r__MOhm: Tensor
-    bl_segment_g__uS: Tensor
-    sl_segment_g__uS: Tensor
+    bl_segment_r__MOhm: float
+    sl_segment_r__MOhm: float
     v_wl_drive__V: Tensor
     bl_v_ref__V: Tensor
     sl_v_ref__V: Tensor
 
     def cell_snapshot(self) -> XbarCell1t1rLinearSnap:
-        """Build the per-call cell snap at the harness WL drive."""
+        """Build the per-call cell snap at the harness WL drive.
+
+        The cell takes its own gate voltage per cell, so the per-row drive is
+        expanded onto the cell grid exactly as an owning array does.
+        """
+        shape = (*self.v_wl_drive__V.shape[:-1], *self.cell.inst_shape)
         return self.cell.snapshot(
-            control=self.v_wl_drive__V,
-            shape=tuple(self.v_wl_drive__V.shape),
-            multi_coords=None,
+            control=self.v_wl_drive__V.unsqueeze(-2).expand(shape),
+            shape=shape,
             t_elapsed=0.0,
         )
 
@@ -156,8 +151,6 @@ class SolverHarness:
         return {
             "bl_segment_r__MOhm": self.bl_segment_r__MOhm,
             "sl_segment_r__MOhm": self.sl_segment_r__MOhm,
-            "bl_segment_g__uS": self.bl_segment_g__uS,
-            "sl_segment_g__uS": self.sl_segment_g__uS,
             "cell": self.cell,
             "cell_snap": self.cell_snapshot(),
             "bl_driver": self.bl_driver,
@@ -167,20 +160,18 @@ class SolverHarness:
         }
 
 
-def _wire_seg_tensor(first: float, segment: float, row_num: int, device: torch.device, dtype: torch.dtype) -> Tensor:
-    return torch.tensor([first] + [segment] * (row_num - 1), device=device, dtype=dtype)
-
-
 def build_solver_harness(
     *,
     solver_config: NestedParallelRailSolverConfig,
     device: torch.device,
     dtype: torch.dtype = torch.float64,
     v_wl_drive__V: float = 0.9,
+    col_num: int = COL_NUM,
+    row_num: int = ROW_NUM,
 ) -> SolverHarness:
     """Construct the standalone linear solver harness.
 
-    The cell grid is ``(COL_NUM, ROW_NUM)`` with a leading x-batch of
+    The cell grid is ``(col_num, row_num)`` with a leading x-batch of
     ``X_BATCH``; the programmed state indices alternate over the two
     table states so both table entries are exercised. Both rail clamps
     are ideal ``VoltageDriver`` instances (``r_out = 0``) whose snaps
@@ -193,9 +184,13 @@ def build_solver_harness(
         dtype: Float dtype for device buffers.
         v_wl_drive__V: Uniform WL drive voltage for the harness call
             (default above the on-threshold: every access device on).
+        col_num: Number of independent columns; a degenerate ``1`` is a
+            legitimate tile.
+        row_num: Number of wire-ladder nodes per column; a degenerate
+            ``1`` is a legitimate tile.
     """
     cell_config = _linear_cell_config()
-    grid_shape = (COL_NUM, ROW_NUM)
+    grid_shape = (col_num, row_num)
 
     # --- Cell + ideal boundary drivers (all policies empty / all-off) ---
 
@@ -211,14 +206,14 @@ def build_solver_harness(
     bl_driver = VoltageDriver(
         config=driver_config,
         policy=driver_policy,
-        inst_shape=(COL_NUM,),
+        inst_shape=(col_num,),
         dtype=dtype,
         T__K=300.0,
     )
     sl_driver = VoltageDriver(
         config=driver_config,
         policy=driver_policy,
-        inst_shape=(COL_NUM,),
+        inst_shape=(col_num,),
         dtype=dtype,
         T__K=300.0,
     )
@@ -232,29 +227,31 @@ def build_solver_harness(
 
     # --- Cell programming: alternate the two table states over the grid ---
 
-    w_state_idx = (torch.arange(COL_NUM * ROW_NUM, device=device) % 2).reshape(grid_shape)
+    w_state_idx = (torch.arange(col_num * row_num, device=device) % 2).reshape(grid_shape)
     cell.program(w_state_idx)
 
-    # --- Wire R / G tensors ---
+    # --- v_wl_drive — uniform per-row WL control for the cell snap ---
 
-    bl_seg_r = _wire_seg_tensor(BL_FIRST_R__MOhm, BL_SEGMENT_R__MOhm, ROW_NUM, device, dtype)
-    sl_seg_r = _wire_seg_tensor(SL_FIRST_R__MOhm, SL_SEGMENT_R__MOhm, ROW_NUM, device, dtype)
-    bl_seg_g = 1.0 / bl_seg_r
-    sl_seg_g = 1.0 / sl_seg_r
+    v_wl_drive = torch.full((X_BATCH, row_num), v_wl_drive__V, device=device, dtype=dtype)
 
-    # --- v_wl_drive — uniform per-cell WL control for the cell snap ---
+    # --- Clamp references (one dedicated source per clamp) + boundary-driver snaps ---
 
-    v_wl_drive = torch.full((X_BATCH, *grid_shape), v_wl_drive__V, device=device, dtype=dtype)
+    # Each source is fabricate-only: its bank is read (mode 0, its sole
+    # mode) and broadcast by view onto the full clamp-bank grid, then handed
+    # to the driver's own `snapshot`, which expands it onto `shape` again
+    # and draws whatever per-position dynamic noise its (here all-off)
+    # policy would enable.
+    # Shape: [X_BATCH, col_num, tap=1] -> [X_BATCH, col_num]
+    bl_ref_full = bl_ref.v_out__V[..., 0, :].expand(X_BATCH, col_num, 1).squeeze(-1)
+    sl_ref_full = sl_ref.v_out__V[..., 0, :].expand(X_BATCH, col_num, 1).squeeze(-1)
+    bl_drv_snap = bl_driver.snapshot(v_ref__V=bl_ref_full, shape=bl_ref_full.shape)
+    sl_drv_snap = sl_driver.snapshot(v_ref__V=sl_ref_full, shape=sl_ref_full.shape)
 
-    # --- Clamp-reference snapshots + boundary-driver snaps ---
+    # --- Scalar rail-reference taps for the dense oracle ---
 
-    # Shape: [X_BATCH, COL_NUM, tap=1] -> [X_BATCH, COL_NUM]
-    bl_ref_full = bl_ref.snapshot(mode=0, shape=(X_BATCH, COL_NUM, 1)).v_refs__V.squeeze(-1)
-    sl_ref_full = sl_ref.snapshot(mode=0, shape=(X_BATCH, COL_NUM, 1)).v_refs__V.squeeze(-1)
-    bl_drv_snap = bl_driver.snapshot(v_ref__V=bl_ref_full, shape=(X_BATCH, COL_NUM), multi_coords=None)
-    sl_drv_snap = sl_driver.snapshot(v_ref__V=sl_ref_full, shape=(X_BATCH, COL_NUM), multi_coords=None)
-
-    # Shape: [X_BATCH, COL_NUM] -> []
+    # The tap is uniform over the clamp bank: the dense oracle takes it
+    # as one scalar Dirichlet boundary value.
+    # Shape: [X_BATCH, col_num] -> []
     bl_v_ref, sl_v_ref = bl_ref_full[0, 0], sl_ref_full[0, 0]
 
     # --- Solver (stateless: cell + drivers supplied per call) ---
@@ -270,10 +267,8 @@ def build_solver_harness(
         sl_driver=sl_driver,
         bl_driver_snap=bl_drv_snap,
         sl_driver_snap=sl_drv_snap,
-        bl_segment_r__MOhm=bl_seg_r,
-        sl_segment_r__MOhm=sl_seg_r,
-        bl_segment_g__uS=bl_seg_g,
-        sl_segment_g__uS=sl_seg_g,
+        bl_segment_r__MOhm=BL_SEGMENT_R__MOhm,
+        sl_segment_r__MOhm=SL_SEGMENT_R__MOhm,
         v_wl_drive__V=v_wl_drive,
         bl_v_ref__V=bl_v_ref,
         sl_v_ref__V=sl_v_ref,

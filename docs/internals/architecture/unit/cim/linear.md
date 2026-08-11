@@ -5,6 +5,7 @@ The engine-backed CIM unit exposing the linear operator: `LinearUnit` × `Engine
 ## Design decisions
 
 - **Operator by inheritance, substrate by delegation.** `linear` is the concrete `LinearUnit` template (size-1 `M` plane axis over the engine-delegated `_matmul`, plus the int64 bias add); the unit adds only the `program(weight, bias=None)` mapping — the weight through the `_weight_to_matrix` seam (identity for linear) to `engine.program`, the bias to `_program_int_bias` with `channels = N`.
+- **`M` is a structural constant here.** `latency__ns(input_shape, *, adc_bits)` hands the engine `output_plane_num = 1`, mirroring the size-1 unsqueeze `_activation_to_planes` performs, and reads nothing out of `input_shape`: a linear operator lowers to one plane whatever it is handed, so no output-size arithmetic is duplicated.
 - **No fields beyond the inherited set.** `LinearCimUnitConfig` / `LinearCimUnitPolicy` add nothing; the engine variant is the nested config's choice.
 - **Uniform input blocking is enforced here, not by the macro base.**
   `LinearCimUnitConfig.validate()` requires

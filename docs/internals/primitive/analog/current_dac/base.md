@@ -11,7 +11,7 @@ The root of the current DAC family: `Idac` provides the shared construction and 
 ## Contracts & invariants
 
 - **Uniform construction.** `from_config` builds every registered impl through one call shape, so each concrete current DAC must accept the base's construction arguments unchanged — narrowing or reordering them breaks dispatch. The shared shape is why the base accepts `dtype` / `T__K` it never uses; the subclass captures them.
-- **Required subclass surface.** `convert(code)` (code → single-ended drive current) and the `code_max` property (the inclusive maximum valid code). Per-op latency is leaf-defined (fixed-latency impls carry `latency_per_op__ns` on their own config).
+- **Required subclass surface.** `convert(code)` (code → single-ended drive current) and the `code_max` property (the inclusive maximum valid code). A DAC reports no duration: it settles inside a window the owner that schedules the conversions already spans, and that owner times it.
 - **No default fabricate step.** `FabricateMixin` provides the auto-cascade `fabricate()` but declares `_sample_fabricate_mismatch` abstract (no default); each concrete current DAC implements its own — an explicit no-op when it introduces no static per-output mismatch, or a real sampling step otherwise.
 
 ---

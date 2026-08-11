@@ -137,6 +137,15 @@ class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
     def _leakage_per_inst__uW(self) -> float:
         return 0.0
 
+    def latency__ns(self, *, adc_bits: int | None) -> float:
+        """Zero — an arithmetic oracle has no circuit to take time.
+
+        The input and output ports are all parallel and nothing is fabricated,
+        which is why its area and leakage are identically zero too.
+        """
+        del adc_bits
+        return 0.0
+
     @property
     def x_value_range(self) -> tuple[int, int]:
         return self.config.x_value_range

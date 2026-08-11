@@ -15,6 +15,10 @@ Covers:
   * inner-only entry point: ``solve_array_fixed_clamp`` is a direct
     solve for the linear network (the coupled block-2x2 wire Newton's
     Jacobian is exact, so one full step lands on the solution).
+  * open-end law: each rail is a uniform ladder that stops at the last
+    row, so that node balances on one rail link where an interior node
+    balances on two — pinned on a five-row tile and, in closed form, on
+    a one-row one.
 """
 
 from __future__ import annotations
@@ -33,7 +37,7 @@ from neurox.primitive.xbar.solver import (
     SolverObservation,
     SolverProber,
 )
-from tests.utils.standalone_solver_fixture import SolverHarness, build_solver_harness
+from tests.utils.standalone_solver_fixture import COL_NUM, ROW_NUM, SolverHarness, build_solver_harness
 
 
 @pytest.fixture(autouse=True)
@@ -51,9 +55,10 @@ def _dense_kcl_solution(harness: SolverHarness) -> tuple[Tensor, Tensor, Tensor,
     """Solve the harness network as one dense KCL system per column.
 
     Assembly derives from the solver's own KCL convention
-    (``_wire_kcl.col_wire_kcl_residual``): at wire node ``k`` the
-    residual is ``i_inject + (v[k] - v[k-1]) g[k] + (v[k] - v[k+1])
-    g[k+1]`` with the driver at ``v[-1]``; the linear cell injects
+    (``_wire_kcl.col_wire_kcl_residual``): the ladder is uniform, so at
+    wire node ``k`` the residual is ``i_inject + (v[k] - v[k-1]) g +
+    (v[k] - v[k+1]) g`` with the driver at ``v[-1]`` and the second term
+    absent at the open end ``k = R-1``; the linear cell injects
     ``i = g_cell (v_bl - v_sl)`` drained from BL and pushed into SL; the
     ideal drivers pin the rail boundaries at the reference taps
     (Dirichlet). Unknowns per column are ``[v_bl(0..R-1), v_sl(0..R-1)]``.
@@ -74,8 +79,8 @@ def _dense_kcl_solution(harness: SolverHarness) -> tuple[Tensor, Tensor, Tensor,
     # Shape: [col, row]
     g_cell = torch.where(on, g_on, g_off)
 
-    g_bl = harness.bl_segment_g__uS
-    g_sl = harness.sl_segment_g__uS
+    g_bl = 1.0 / harness.bl_segment_r__MOhm
+    g_sl = 1.0 / harness.sl_segment_r__MOhm
     v_bl_ref = harness.bl_v_ref__V.to(device=device, dtype=dtype)
     v_sl_ref = harness.sl_v_ref__V.to(device=device, dtype=dtype)
 
@@ -84,30 +89,30 @@ def _dense_kcl_solution(harness: SolverHarness) -> tuple[Tensor, Tensor, Tensor,
     lhs = torch.zeros(col_num, 2 * n, 2 * n, device=device, dtype=dtype)
     rhs = torch.zeros(col_num, 2 * n, device=device, dtype=dtype)
     for k in range(n):
-        g_right_bl = g_bl[k + 1] if k + 1 < n else torch.zeros((), device=device, dtype=dtype)
-        g_right_sl = g_sl[k + 1] if k + 1 < n else torch.zeros((), device=device, dtype=dtype)
+        # The open end at k = R-1 has no link onward, every other node has one.
+        g_right = 0.0 if k + 1 == n else 1.0
         # BL node k: +i_cell drained.
-        lhs[:, k, k] = g_bl[k] + g_right_bl + g_cell[:, k]
+        lhs[:, k, k] = g_bl * (1.0 + g_right) + g_cell[:, k]
         lhs[:, k, n + k] = -g_cell[:, k]
         if k > 0:
-            lhs[:, k, k - 1] = -g_bl[k]
+            lhs[:, k, k - 1] = -g_bl
         if k + 1 < n:
-            lhs[:, k, k + 1] = -g_bl[k + 1]
+            lhs[:, k, k + 1] = -g_bl
         # SL node k: -i_cell injected.
-        lhs[:, n + k, n + k] = g_sl[k] + g_right_sl + g_cell[:, k]
+        lhs[:, n + k, n + k] = g_sl * (1.0 + g_right) + g_cell[:, k]
         lhs[:, n + k, k] = -g_cell[:, k]
         if k > 0:
-            lhs[:, n + k, n + k - 1] = -g_sl[k]
+            lhs[:, n + k, n + k - 1] = -g_sl
         if k + 1 < n:
-            lhs[:, n + k, n + k + 1] = -g_sl[k + 1]
-    rhs[:, 0] = g_bl[0] * v_bl_ref
-    rhs[:, n] = g_sl[0] * v_sl_ref
+            lhs[:, n + k, n + k + 1] = -g_sl
+    rhs[:, 0] = g_bl * v_bl_ref
+    rhs[:, n] = g_sl * v_sl_ref
 
     x = torch.linalg.solve(lhs, rhs)
     v_bl_node = x[:, :n]
     v_sl_node = x[:, n:]
-    i_bl_driver = (v_bl_ref - v_bl_node[:, 0]) * g_bl[0]
-    i_sl_driver = (v_sl_ref - v_sl_node[:, 0]) * g_sl[0]
+    i_bl_driver = (v_bl_ref - v_bl_node[:, 0]) * g_bl
+    i_sl_driver = (v_sl_ref - v_sl_node[:, 0]) * g_sl
     return v_bl_node, v_sl_node, i_bl_driver, i_sl_driver
 
 
@@ -125,6 +130,36 @@ def test_dcop_matches_dense_kcl_oracle(device: torch.device) -> None:
     torch.testing.assert_close(dcop.v_bl_clamp, harness.bl_v_ref__V.expand_as(dcop.v_bl_clamp), **tol)
     torch.testing.assert_close(dcop.v_sl_drive, harness.sl_v_ref__V.expand_as(dcop.v_sl_drive), **tol)
     # Node-voltage profiles and driver currents (batch dim is 1).
+    torch.testing.assert_close(dcop.v_bl_node[0], v_bl_exp, **tol)
+    torch.testing.assert_close(dcop.v_sl_node[0], v_sl_exp, **tol)
+    torch.testing.assert_close(dcop.i_bl_driver[0], i_bl_exp, **tol)
+    torch.testing.assert_close(dcop.i_sl_driver[0], i_sl_exp, **tol)
+
+
+@pytest.mark.parametrize(
+    ("col_num", "row_num"),
+    [(1, ROW_NUM), (COL_NUM, 1), (1, 1)],
+    ids=["single_column", "single_row", "single_cell"],
+)
+def test_a_degenerate_axis_is_well_defined(device: torch.device, col_num: int, row_num: int) -> None:
+    """A tile of one column, one row, or one cell solves like any other.
+
+    Neither axis carries a lower bound: a single column is one independent
+    ladder, a single row is a ladder of one node, and the dense KCL oracle
+    settles both alike, so the solve must reproduce it rather than refuse
+    the shape.
+    """
+    harness = build_solver_harness(
+        solver_config=NestedParallelRailSolverConfig(n_outer=3, n_inner=3),
+        device=device,
+        col_num=col_num,
+        row_num=row_num,
+    )
+    dcop = harness.solver.solve_dc(**harness.solver_kwargs())
+    v_bl_exp, v_sl_exp, i_bl_exp, i_sl_exp = _dense_kcl_solution(harness)
+
+    tol = {"rtol": 0.0, "atol": 1e-9}
+    assert dcop.v_bl_node.shape[-2:] == (col_num, row_num)
     torch.testing.assert_close(dcop.v_bl_node[0], v_bl_exp, **tol)
     torch.testing.assert_close(dcop.v_sl_node[0], v_sl_exp, **tol)
     torch.testing.assert_close(dcop.i_bl_driver[0], i_bl_exp, **tol)
@@ -210,7 +245,8 @@ def test_inner_direct_solve_exactness(device: torch.device) -> None:
     solver = harness.solver
     assert isinstance(solver, NestedParallelRailSolver)
     v_wl = harness.v_wl_drive__V
-    *batch, col_num, _row = v_wl.shape
+    *batch, _row = v_wl.shape
+    col_num = harness.w_state_idx.shape[-2]
     dtype = v_wl.dtype
     v_bl_clamp = harness.bl_v_ref__V.to(device=device, dtype=dtype).expand(*batch, col_num)
     v_sl_drive = harness.sl_v_ref__V.to(device=device, dtype=dtype).expand(*batch, col_num)
@@ -220,8 +256,6 @@ def test_inner_direct_solve_exactness(device: torch.device) -> None:
             v_sl_drive__V=v_sl_drive,
             bl_segment_r__MOhm=harness.bl_segment_r__MOhm,
             sl_segment_r__MOhm=harness.sl_segment_r__MOhm,
-            bl_segment_g__uS=harness.bl_segment_g__uS,
-            sl_segment_g__uS=harness.sl_segment_g__uS,
             cell=harness.cell,
             cell_snap=harness.cell_snapshot(),
         )
@@ -238,3 +272,71 @@ def test_inner_direct_solve_exactness(device: torch.device) -> None:
     tol = {"rtol": 0.0, "atol": 1e-9}
     torch.testing.assert_close(dcop.v_bl_node[0], v_bl_exp, **tol)
     torch.testing.assert_close(dcop.v_sl_node[0], v_sl_exp, **tol)
+
+
+def test_the_far_node_is_the_ladder_open_end(device: torch.device) -> None:
+    """OPEN-END LAW: the last row balances on one rail link, interiors on two.
+
+    A rail is a uniform ladder that simply stops at the last row — that node
+    has the link back towards the driver and nothing onward, while every
+    interior node has both. The residual the solver drives to zero and the
+    Jacobian it drives it with must agree on that, so the converged profile
+    closes the one-link balance at the far node and refuses it one row in.
+    """
+    harness = build_solver_harness(
+        solver_config=NestedParallelRailSolverConfig(n_outer=3, n_inner=3),
+        device=device,
+        row_num=5,
+    )
+    dcop = harness.solver.solve_dc(**harness.solver_kwargs())
+    g_bl = 1.0 / harness.bl_segment_r__MOhm
+    v_bl = dcop.v_bl_node
+    # Shape: [..., col_num, row_num]
+    i_cell = dcop.cell.i__uA
+
+    # The far node: its cell current returns through the single link back.
+    open_end__uA = i_cell[..., -1] + (v_bl[..., -1] - v_bl[..., -2]) * g_bl
+    assert open_end__uA.abs().max().item() < 1e-9
+
+    # One row in: the same one-link balance is off by the onward link's own
+    # current, and only counting both links closes it.
+    onward__uA = (v_bl[..., -2] - v_bl[..., -1]) * g_bl
+    interior_one_link__uA = i_cell[..., -2] + (v_bl[..., -2] - v_bl[..., -3]) * g_bl
+    assert interior_one_link__uA.abs().min().item() > 1e-3
+    assert (interior_one_link__uA + onward__uA).abs().max().item() < 1e-9
+
+
+def test_a_single_row_tile_matches_the_one_link_closed_form(device: torch.device) -> None:
+    """A one-row tile is one node per rail, reached through exactly one link.
+
+    Nothing is left to iterate: each rail is the reference tap in series with
+    a single link, so the cell branch sees ``dV / (1 + g_cell (r_BL + r_SL))``
+    and the whole DCOP follows in closed form. It is the sharpest statement of
+    the open-end rule — a node counted as interior would carry twice the rail
+    conductance and land somewhere else entirely.
+    """
+    harness = build_solver_harness(
+        solver_config=NestedParallelRailSolverConfig(n_outer=3, n_inner=3),
+        device=device,
+        row_num=1,
+    )
+    dcop = harness.solver.solve_dc(**harness.solver_kwargs())
+
+    dtype = harness.v_wl_drive__V.dtype
+    cfg = harness.cell_config
+    # Every access device is on at the harness WL drive.
+    # Shape: [col_num, row_num=1]
+    g_cell = torch.tensor(cfg.g_cell_on_table__uS, device=device, dtype=dtype)[harness.w_state_idx]
+    r_bl = harness.bl_segment_r__MOhm
+    r_sl = harness.sl_segment_r__MOhm
+
+    dv = harness.bl_v_ref__V - harness.sl_v_ref__V
+    i_expected = g_cell * dv / (1.0 + g_cell * (r_bl + r_sl))
+    v_bl_expected = harness.bl_v_ref__V - i_expected * r_bl
+    v_sl_expected = harness.sl_v_ref__V + i_expected * r_sl
+
+    tol = {"rtol": 0.0, "atol": 1e-12}
+    torch.testing.assert_close(dcop.v_bl_node[0], v_bl_expected, **tol)
+    torch.testing.assert_close(dcop.v_sl_node[0], v_sl_expected, **tol)
+    torch.testing.assert_close(dcop.i_bl_driver[0], i_expected.squeeze(-1), **tol)
+    torch.testing.assert_close(dcop.i_sl_driver[0], -i_expected.squeeze(-1), **tol)

@@ -10,7 +10,7 @@ import pytest
 import torch
 
 from neurox.common.mixin import ProfileMixin
-from neurox.common.profiler import NeuroxProfiler
+from neurox.common.profiler import EnergyEvent, NeuroxProfiler
 from neurox.primitive.analog.current_mux import (
     Imux,
     ImuxConfig,
@@ -18,9 +18,13 @@ from neurox.primitive.analog.current_mux import (
 )
 
 
-def _energy_total(events: list, module: ProfileMixin) -> float:
-    """Sum the logged dynamic energy [fJ] of the events ``module`` emitted."""
-    return sum(e.dynamic_energy__fJ for e in events if e.module is module)
+def _energy_total(events: list[EnergyEvent], module: ProfileMixin) -> float:
+    """Sum the logged dynamic energy [fJ] of the events ``module`` emitted.
+
+    An event payload is a per-unit-operation tensor, so each one totals to its
+    own scalar before the events are summed.
+    """
+    return sum((float(e.dynamic_energy__fJ.sum()) for e in events if e.module is module), 0.0)
 
 
 @pytest.mark.parametrize("mux_gain", [1.0, 2.0])
@@ -44,7 +48,6 @@ def test_transport_preserves_access_lane_layout(mux_gain: float) -> None:
     torch.testing.assert_close(out, mux_gain * i__uA)
 
     assert _energy_total(p.energy_events, mux) == 0.0
-    assert p.latency_events == []
 
 
 @pytest.mark.parametrize("shape", [(3, 2), (4, 3), (8,)])

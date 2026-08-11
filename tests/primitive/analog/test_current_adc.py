@@ -18,11 +18,10 @@ truncates the max-bits binary search after ``bits`` levels. These tests pin:
   ``b`` is the max-bits code right-shifted by ``max_bits - b``;
 - B-form energy: fixed-only when the window (or rail) is zero — which also pins
   the base ``_compute_input_dynamic_energy__fJ`` hook at zero — and linear in both
-  ``v_rail__V`` and ``t_conduct_per_step__ns``; energy and latency count the
-  EXECUTED steps, so both scale with ``bits`` over the same full ladder;
-  ``enable_latency_record=False`` suppresses the latency event while keeping the
-  dynamic-energy event, and its mirror ``enable_energy_record=False`` suppresses
-  the dynamic-energy event while keeping latency and the exact codes;
+  ``v_rail__V`` and ``t_conduct_per_step__ns``; energy and the reported window
+  count the EXECUTED steps, so both scale with ``bits`` over the same full
+  ladder; ``enable_energy_record=False`` suppresses the dynamic-energy event
+  while keeping the exact codes;
 - ``Iadc.convert`` template method: probe-off equivalence with
   ``_convert_impl`` and :class:`IadcProber` capture of input,
   code, and resolution.
@@ -71,7 +70,6 @@ def _build(
     config: SarIadcConfig,
     device: torch.device,
     *,
-    enable_latency_record: bool = True,
     enable_energy_record: bool = True,
 ) -> SarIadc:
     adc = SarIadc(
@@ -83,7 +81,6 @@ def _build(
         inst_shape=(1,),
         dtype=torch.float64,
         T__K=300.0,
-        enable_latency_record=enable_latency_record,
         enable_energy_record=enable_energy_record,
     )
     adc.to(device)
@@ -109,17 +106,20 @@ def _convert_energy(adc: SarIadc, i_in: torch.Tensor, refs: torch.Tensor, adc_bi
 
 
 def test_config_rejects_bad_energy_knobs() -> None:
-    """Negative rail / window entry and too-short window / latency lists are rejected."""
+    """Negative rail / window entry and mis-sized window / latency lists are rejected."""
     for bad in (
         {"v_rail__V": -0.1},
         {"t_conduct_per_step__ns": (0.1, -0.1, 0.1)},
         {"t_conduct_per_step__ns": (0.1, 0.1)},  # shorter than bits (3)
         {"step_latency__ns": (3.0, 3.0)},  # shorter than bits (3)
+        # A step the search never runs still sums into the owner's sensing
+        # duration, so the latency list carries no spare entry.
+        {"step_latency__ns": (3.0, 3.0, 3.0, 3.0)},  # longer than bits (3)
     ):
         with pytest.raises(ValueError):
             _config(**bad)
-    # Lists longer than bits are tolerated (only the first bits are drawn).
-    assert _config(t_conduct_per_step__ns=(0.1, 0.1, 0.1, 0.1), step_latency__ns=(3.0, 3.0, 3.0, 3.0)).bits == 3
+    # The conduction list is drawn per executed step, so a longer one is tolerated.
+    assert _config(t_conduct_per_step__ns=(0.1, 0.1, 0.1, 0.1)).bits == 3
 
 
 def test_convert_rejects_bad_bits(device: torch.device) -> None:
@@ -245,23 +245,21 @@ def test_energy_linear_in_window_and_rail(device: torch.device) -> None:
     assert (e_2v - e_floor) == pytest.approx(2.0 * conduction)  # linear in the rail
 
 
-def test_latency_sums_only_the_executed_step_windows(device: torch.device) -> None:
-    """Latency at ``bits`` sums the first ``bits`` ``step_latency__ns`` entries.
+def test_reported_latency_sums_the_executed_step_windows(device: torch.device) -> None:
+    """``latency__ns`` answers for the search-step axis this converter owns.
 
-    The ladder is the same full one at both widths — only the executed step
-    count differs.
+    One conversion is one binary search: the executed steps run in sequence and
+    may differ in duration, and the executed bit count is the whole question.
     """
     adc = _build(_config(adc_bits=3, step_latency__ns=(3.0, 5.0, 7.0)), device)
-    i_in = torch.tensor([1.5], dtype=torch.float64, device=device)
-    refs = _refs(_LADDER_A, device)
 
-    with NeuroxProfiler() as p3:
-        adc.convert(i_in, refs, bits=3)
-    with NeuroxProfiler() as p2:
-        adc.convert(i_in, refs, bits=2)
-
-    assert p3.total_latency__ns == pytest.approx(3.0 + 5.0 + 7.0)
-    assert p2.total_latency__ns == pytest.approx(3.0 + 5.0)
+    assert adc.latency__ns(bits=3) == pytest.approx(3.0 + 5.0 + 7.0)
+    assert adc.latency__ns(bits=2) == pytest.approx(3.0 + 5.0)
+    assert adc.latency__ns(bits=1) == pytest.approx(3.0)
+    # No window outside the physical resolution.
+    for bits in (0, 4):
+        with pytest.raises(ValueError):
+            adc.latency__ns(bits=bits)
 
 
 def test_energy_counts_only_the_executed_steps(device: torch.device) -> None:
@@ -275,26 +273,11 @@ def test_energy_counts_only_the_executed_steps(device: torch.device) -> None:
         assert energy == pytest.approx(i_in.numel() * adc_bits * 7.0)
 
 
-def test_enable_latency_record_false_suppresses_only_latency(device: torch.device) -> None:
-    """``enable_latency_record=False`` drops the latency event but keeps the dynamic-energy event."""
-    config = _config(adc_bits=3, step_latency__ns=(3.0, 5.0, 7.0), e_fixed_per_op__fJ=7.0)
-    adc = _build(config, device, enable_latency_record=False)
-    i_in = torch.tensor([0.5, 4.5, 35.0], dtype=torch.float64, device=device)
-
-    with NeuroxProfiler() as p:
-        adc.convert(i_in, _refs(_LADDER_A, device), bits=3)
-
-    assert p.total_latency__ns == pytest.approx(0.0)
-    # Dynamic energy is unconditional (zero window ⇒ pure fixed floor).
-    assert p.total_dynamic_energy__fJ == pytest.approx(i_in.numel() * 3 * 7.0)
-
-
 def test_enable_energy_record_false_suppresses_only_energy(device: torch.device) -> None:
-    """``enable_energy_record=False`` drops the dynamic-energy event but keeps latency and codes.
+    """``enable_energy_record=False`` drops the dynamic-energy event but keeps the codes.
 
-    The composition-boundary switch mirrors ``enable_latency_record``: an owner
-    that bills conversion energy itself builds the ADC energy-silent, and the
-    value conversion is untouched.
+    An owner that bills conversion energy itself builds the ADC energy-silent,
+    and the value conversion is untouched.
     """
     config = _config(
         adc_bits=3,
@@ -314,9 +297,8 @@ def test_enable_energy_record_false_suppresses_only_energy(device: torch.device)
     with NeuroxProfiler() as p_silent:
         code_silent = silent.convert(i_in, refs, bits=3)
 
-    # Value conversion untouched; latency event kept; NO energy event at all.
+    # Value conversion untouched; NO energy event at all.
     assert torch.equal(code_silent, code_rec)
-    assert p_silent.total_latency__ns == pytest.approx(p_rec.total_latency__ns)
     assert p_rec.total_dynamic_energy__fJ > 0.0
     assert p_silent.total_dynamic_energy__fJ == pytest.approx(0.0)
     assert len(p_silent.energy_events) == 0

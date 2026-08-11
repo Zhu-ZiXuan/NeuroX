@@ -1,8 +1,14 @@
 """CPU-only eager tests for the ye2023jssc dedicated WH-2T1R array.
 
+The array is the kernel 1T1R array plus ONE extension — the transpose-bitline
+lookup sum — so these laws split the same way: the lookup and the steady-state
+shape are the scheme's, the capacitive billing is the kernel's
+``BL_IN_WL_SCAN`` law and is only checked here for the two facts this scheme
+fixes (the mode, and the hold that the mode amortizes over).
+
 Laws (config = arbitrary hand-written witness, not the assertion target):
 
-  * ``solve`` produces one summed T2 compute current per output row; each
+  * ``solve_array`` produces one summed T2 compute current per output row; each
     ``i_tbl[o]`` equals the place-value-weighted lookup SUM over the active
     row's cells, computed independently from the witness table — with the
     REDUNDANT plane's place values appended after the weight planes, so the
@@ -10,16 +16,19 @@ Laws (config = arbitrary hand-written witness, not the assertion target):
   * place value is analog: flipping a cell in the m = 2 plane shifts ``i_tbl`` by
     ~2x the shift of the same flip in the m = 1 plane, and the redundant plane
     carries its own configured place value,
-  * step2 gates on the CONFIGURED WL threshold: a drive below it selects no row
-    and ``i_tbl`` collapses to zero,
-  * the returned steady state carries ``i_bl_port__uA`` / ``v_bl_clamp__V`` /
-    ``i_tbl__uA`` and NO ``v_x`` (chunk-fusion keeps V_X per chunk),
-  * under a profiler the array bills its PER-ACCESS capacitance as a single
-    un-channelled event — the WL wire segments of the selected row plus the cell
-    terms, and nothing else: no conduction (invariant to any window), no SL
-    trapezoid, no BL wire / BL node charge (invariant to ``c_sl__fF``,
-    ``c_bl__fF`` and the BL wire caps). At zero input it collapses to the exact
-    closed-form WL-only value.
+  * step2 gates on the CONFIGURED WL threshold read off the per-cell gate drive:
+    a drive below it selects no row and ``i_tbl`` collapses to zero,
+  * a driven cell's operating point follows its solved ``V_X``: a column held at
+    0 V sits on the floor entry, a column driven above it on the drive entry,
+  * the returned steady state extends the kernel one with ``i_tbl__uA`` and
+    carries NO ``v_x`` (the internal node feeds nothing downstream),
+  * under a profiler the array bills its capacitance as a single un-channelled
+    event following the held-BL scan law: with every column input-low there is
+    no hold to establish and the bill collapses to the closed-form WL node
+    terms, while a held input pattern is established exactly ONCE per full row
+    scan — every per-node total (BL, X, SL, WL) moves the bill,
+  * chunk size is a memory knob — the port state, the lookup sum and the billed
+    energy are bit-identical across chunk sizes, the un-chunked solve included.
 
 Runs eagerly (dynamo disabled) so the compiled solver leaf is not unrolled; tiny
 CPU shapes, float64.
@@ -65,26 +74,27 @@ _ROW_NUM = 4  # 4 output rows
 # --- WH-2T1R cell witness currents (arbitrary; laws asserted, not these) ---
 _HRS = 0
 _LRS = 1
-_FLOOR__uA = 0.01  # IN=0 off-cell floor, state-independent
-_LEAK_IN1__uA = 0.02  # (HRS, IN=1) weight leakage
-_UNIT_IN1__uA = 0.5  # (LRS, IN=1) unit-scale on-current
+_FLOOR__uA = 0.01  # V_X = 0 off-cell floor, state-independent
+_LEAK_DRIVE__uA = 0.02  # (HRS, drive point) weight leakage
+_UNIT_DRIVE__uA = 0.5  # (LRS, drive point) unit-scale on-current
 
 _V_WL_SEL__V = 0.6
 _V_WL_ON_THRESHOLD__V = 0.3
 _V_BL_IN1__V = 0.3
-_V_BL_THRESHOLD__V = 0.15
 
-_C_WL__fF = 1.0
-_C_X__fF = 1.0
-_C_BL__fF = 1.0
-_C_SL__fF = 1.0
-_WL_FIRST_C__fF = 0.4
-_WL_SEGMENT_C__fF = 0.1
-_BL_FIRST_C__fF = 0.4
-_BL_SEGMENT_C__fF = 0.1
+# --- Driver rails (separate variables; the WL driver is 1-bit, so its rail is
+# its own ON level, which makes the WL terms hand-computable) ---
+_V_DD_WL__V = _V_WL_SEL__V
+_V_DD_BL__V = 0.8
+
+# Per-node capacitance totals [fF]: each cell node's junction plus that node's
+# share of the line it hangs on.
+_WL_NODE_C__fF = 1.1
+_X_NODE_C__fF = 1.0
+_BL_NODE_C__fF = 1.1
+_SL_NODE_C__fF = 1.1
 
 # Tiny positive wire R (solver needs R > 0); small so the chain stays near-ideal.
-_WIRE_FIRST_R__MOhm = 2.0e-5
 _WIRE_SEGMENT_R__MOhm = 5.0e-6
 
 
@@ -97,50 +107,34 @@ def _eager() -> Iterator[None]:
 
 def _cell_config() -> Ye2023Jssc2t1rCellConfig:
     return Ye2023Jssc2t1rCellConfig(
-        c_bl__fF=_C_BL__fF,
-        c_x__fF=_C_X__fF,
-        c_sl__fF=_C_SL__fF,
-        c_wl__fF=_C_WL__fF,
         g_cell_off_table__uS=(1.0, 5.0),
         g_cell_on_table__uS=(2.0, 10.0),
         vx_ratio_off_table=(0.3, 0.4),
         vx_ratio_on_table=(0.5, 0.6),
         v_wl_on_threshold__V=_V_WL_ON_THRESHOLD__V,
-        # i_t2_table__uA[input_bit][state]; state axis = (HRS, LRS).
+        # i_t2_table__uA[operating_point][state]; state axis = (HRS, LRS).
         i_t2_table__uA=(
-            (_FLOOR__uA, _FLOOR__uA),  # IN=0: state-independent floor
-            (_LEAK_IN1__uA, _UNIT_IN1__uA),  # IN=1: HRS leak vs LRS unit current
+            (_FLOOR__uA, _FLOOR__uA),  # V_X = 0: state-independent floor
+            (_LEAK_DRIVE__uA, _UNIT_DRIVE__uA),  # V_X > 0: HRS leak vs LRS unit current
         ),
     )
 
 
 def _array_config() -> Ye2023Jssc2t1rArrayConfig:
     return Ye2023Jssc2t1rArrayConfig(
-        row_first_space__um=1.0,
         row_cell_space__um=1.0,
-        col_first_space__um=1.0,
         col_cell_space__um=1.0,
-        bl_first_r__MOhm=_WIRE_FIRST_R__MOhm,
-        bl_first_c__fF=_BL_FIRST_C__fF,
         bl_segment_r__MOhm=_WIRE_SEGMENT_R__MOhm,
-        bl_segment_c__fF=_BL_SEGMENT_C__fF,
-        sl_first_r__MOhm=_WIRE_FIRST_R__MOhm,
-        sl_first_c__fF=0.4,
         sl_segment_r__MOhm=_WIRE_SEGMENT_R__MOhm,
-        sl_segment_c__fF=0.1,
-        wl_first_r__MOhm=_WIRE_FIRST_R__MOhm,
-        wl_first_c__fF=_WL_FIRST_C__fF,
-        wl_segment_r__MOhm=_WIRE_SEGMENT_R__MOhm,
-        wl_segment_c__fF=_WL_SEGMENT_C__fF,
+        bl_node_c__fF=_BL_NODE_C__fF,
+        x_node_c__fF=_X_NODE_C__fF,
+        sl_node_c__fF=_SL_NODE_C__fF,
+        wl_node_c__fF=_WL_NODE_C__fF,
         cell_config=_cell_config(),
         solver_config=NestedParallelRailSolverConfig(n_outer=2, n_inner=1),
-        latency_per_op__ns=1.0,
-        area_per_inst__um2=0.0,
-        leakage_per_inst__uW=1.0,
         weight_radix=_WEIGHT_RADIX,
         redundant_radix=_REDUNDANT_RADIX,
         v_bl_in1__V=_V_BL_IN1__V,
-        v_bl_in_threshold__V=_V_BL_THRESHOLD__V,
     )
 
 
@@ -164,20 +158,17 @@ def _ideal_clamp() -> VoltageDriver:
     return clamp
 
 
-def _build_array(
-    config: Ye2023Jssc2t1rArrayConfig | None = None,
-    *,
-    enable_latency_record: bool = True,
-) -> Ye2023Jssc2t1rArray:
+def _build_array(config: Ye2023Jssc2t1rArrayConfig | None = None, *, chunk_size: int = 0) -> Ye2023Jssc2t1rArray:
     array = Ye2023Jssc2t1rArray(
         config=config if config is not None else _array_config(),
-        policy=Ye2023Jssc2t1rArrayPolicy(cell_policy=Ye2023Jssc2t1rCellPolicy(), solve_chunk_size=0),
+        policy=Ye2023Jssc2t1rArrayPolicy(cell_policy=Ye2023Jssc2t1rCellPolicy(), solve_chunk_size=chunk_size),
         inst_shape=(),
         row_num=_ROW_NUM,
         col_num=_COL_NUM,
+        v_dd_wl__V=_V_DD_WL__V,
+        v_dd_bl__V=_V_DD_BL__V,
         dtype=_DTYPE,
         T__K=300.0,
-        enable_latency_record=enable_latency_record,
     )
     array.eval()
     array.fabricate()
@@ -185,7 +176,11 @@ def _build_array(
 
 
 def _one_hot_wl(v_wl_sel__V: float = _V_WL_SEL__V) -> torch.Tensor:
-    """One-hot WL per output stacked onto the leading: ``v_wl_sel * eye(row_num)``."""
+    """One-hot WL per output stacked onto the leading: ``v_wl_sel * eye(row_num)``.
+
+    The stack IS one full row scan — ``row_num`` accesses under one held BL
+    pattern — which is the contract the mode's amortization rests on.
+    """
     return v_wl_sel__V * torch.eye(_ROW_NUM, dtype=_DTYPE)
 
 
@@ -196,33 +191,47 @@ def _bl_v_ref(input_bits: tuple[int, ...]) -> torch.Tensor:
 
 
 def _solve(array: Ye2023Jssc2t1rArray, v_wl: torch.Tensor, bl_v_ref: torch.Tensor) -> Ye2023Jssc2t1rSteadyState:
+    """Snapshot both boundary clamps at the call's event shape and solve.
+
+    The caller owns the event structure, so the snaps are taken here and the
+    word-line drive is handed over as the full cell grid (one value per gate,
+    a stride-0 expand of the per-row drive across the columns).
+    """
     clamp = _ideal_clamp()
-    steady = array.solve(
-        v_wl,
+    leading = tuple(torch.broadcast_shapes(v_wl.shape[:-1], bl_v_ref.shape[:-1]))
+    event_shape = (*leading, _COL_NUM)
+    # Shape: [..., row] -> [..., col, row]
+    v_wl_grid = v_wl.unsqueeze(-2).expand(*leading, _COL_NUM, _ROW_NUM)
+    bl_snap = clamp.snapshot(v_ref__V=bl_v_ref.expand(event_shape), shape=event_shape)
+    sl_snap = clamp.snapshot(v_ref__V=torch.zeros((), dtype=_DTYPE).expand(event_shape), shape=event_shape)
+    steady = array.solve_array(
+        v_wl_grid,
         bl_driver=clamp,
-        bl_v_ref__V=bl_v_ref,
+        bl_driver_snap=bl_snap,
         sl_driver=clamp,
-        sl_v_ref__V=torch.tensor(0.0, dtype=_DTYPE),
+        sl_driver_snap=sl_snap,
     )
     assert isinstance(steady, Ye2023Jssc2t1rSteadyState)
     return steady
 
 
 def _expected_i_tbl(state: torch.Tensor, input_bits: tuple[int, ...]) -> torch.Tensor:
-    """Independent oracle: per output o, sum_col radix[col] * lookup(input_high[col], state[col,o])."""
+    """Independent oracle: per output o, sum_col radix[col] * i_t2(point[col], state[col,o])."""
     table = torch.tensor(
-        ((_FLOOR__uA, _FLOOR__uA), (_LEAK_IN1__uA, _UNIT_IN1__uA)),
+        ((_FLOOR__uA, _FLOOR__uA), (_LEAK_DRIVE__uA, _UNIT_DRIVE__uA)),
         dtype=_DTYPE,
     )
     radix = torch.tensor(_ALL_RADIX, dtype=_DTYPE).repeat_interleave(_INPUT_NUM)  # [1,1,2,2,3,3,5,5]
+    # A column driven above 0 V puts its selected cell on the drive point; a
+    # column held at 0 V leaves it on the floor.
     # Shape: [col]
-    input_high = _bl_v_ref(input_bits) > _V_BL_THRESHOLD__V
+    driven = _bl_v_ref(input_bits) > 0.0
     # Shape: [col, row]
-    i_t2_in1 = table[1][state]
+    i_t2_drive = table[1][state]
     # Shape: [col, row]
-    i_t2_in0 = table[0][state]
+    i_t2_floor = table[0][state]
     # Shape: [col, row]
-    sel = torch.where(input_high.unsqueeze(-1), i_t2_in1, i_t2_in0)
+    sel = torch.where(driven.unsqueeze(-1), i_t2_drive, i_t2_floor)
     # Shape: [col, row]
     scaled = sel * radix.unsqueeze(-1)
     # One entry per output.
@@ -283,7 +292,7 @@ def test_place_value_is_analog_over_weight_and_redundant_planes() -> None:
 
 
 def test_input_bit_flip_raises_current() -> None:
-    """Flipping an input bit low -> high raises i_tbl (floor -> on-current)."""
+    """Driving a column's BL up moves its selected cells off the floor point onto the drive one."""
     v_wl = _one_hot_wl()
     state = torch.ones((_COL_NUM, _ROW_NUM), dtype=torch.long)  # all LRS
 
@@ -306,20 +315,21 @@ def test_step2_gates_on_configured_wl_threshold() -> None:
 
 
 def test_steady_state_fields() -> None:
-    """The returned dataclass carries the three named fields and NO v_x."""
+    """The returned dataclass extends the kernel state with the lookup sum, and NO v_x."""
     array = _build_array()
     array.program(torch.zeros((_COL_NUM, _ROW_NUM), dtype=torch.long))
     steady = _solve(array, _one_hot_wl(), _bl_v_ref((1, 0)))
 
-    assert tuple(steady.i_bl_port__uA.shape) == (_ROW_NUM, _COL_NUM)
-    assert tuple(steady.v_bl_clamp__V.shape) == (_ROW_NUM, _COL_NUM)
+    # Both boundaries are reported so the caller can bill each of its own clamps.
+    for port in (steady.i_bl_port__uA, steady.v_bl_clamp__V, steady.i_sl_port__uA, steady.v_sl_drive__V):
+        assert tuple(port.shape) == (_ROW_NUM, _COL_NUM)
     assert tuple(steady.i_tbl__uA.shape) == (_ROW_NUM,)
     assert not hasattr(steady, "v_x")
     assert not hasattr(steady, "v_x__V")
 
 
 # ---------------------------------------------------------------------------
-# Per-access capacitance billing
+# Capacitive billing — the kernel's held-BL scan law
 # ---------------------------------------------------------------------------
 
 
@@ -329,6 +339,7 @@ def _profiled_energy(
     input_bits: tuple[int, ...],
     state: torch.Tensor,
 ) -> float:
+    """Bill one FULL row scan: ``row_num`` one-hot accesses under one held BL pattern."""
     array = _build_array(config)
     array.program(state)
     with NeuroxProfiler() as prof, torch.no_grad():
@@ -336,7 +347,7 @@ def _profiled_energy(
     return prof.report(array).energy_by_name.get("", 0.0)
 
 
-def test_profiler_bills_per_access_caps_as_one_event() -> None:
+def test_profiler_bills_caps_as_one_event() -> None:
     """The array bills nonzero capacitive energy as one un-channelled event; no conduction."""
     array = _build_array()
     array.program(torch.ones((_COL_NUM, _ROW_NUM), dtype=torch.long))
@@ -356,39 +367,101 @@ def test_profiler_bills_per_access_caps_as_one_event() -> None:
 
 
 def test_zero_input_caps_are_the_closed_form_wl_terms() -> None:
-    """With every column input-low the array bills exactly the per-row WL wire + gate load."""
+    """With every column input-low there is no hold, so only the WL side is billed.
+
+    Both boundaries rest at 0 V and settle to 0 V, so every conduction-path
+    displacement and the whole precharge vanish and the supply-draw law leaves
+    the WL node total of every cell, at ``V_DD_WL * C * |V_WL|`` per driven gate.
+    """
     config = _array_config()
     state = torch.ones((_COL_NUM, _ROW_NUM), dtype=torch.long)
     got = _profiled_energy(config, input_bits=(0, 0), state=state)
 
-    c_wl_wire__fF = _WL_FIRST_C__fF + (_COL_NUM - 1) * _WL_SEGMENT_C__fF
-    per_access__fJ = (c_wl_wire__fF + _COL_NUM * _C_WL__fF) * _V_WL_SEL__V**2
+    per_access__fJ = _COL_NUM * _WL_NODE_C__fF * _V_DD_WL__V * _V_WL_SEL__V
     assert got == pytest.approx(_ROW_NUM * per_access__fJ)
 
-    # Driving inputs high adds the selected row's X dip-recharge on top.
+    # Holding an input pattern adds the conduction-path terms on top.
     assert _profiled_energy(config, input_bits=(1, 1), state=state) > got
 
 
-def test_array_caps_ignore_sl_and_bl_capacitance() -> None:
-    """No SL trapezoid and no BL charge in the array: only the WL side and the cell terms."""
+def test_every_node_capacitance_moves_the_array_bill() -> None:
+    """The array owns its whole node set: each per-node total moves its bill.
+
+    The BL and X nodes move through the level the input is held at, the SL node
+    through the IR-drop displacement off its grounded rest, the WL node through
+    the gate drive.
+    """
     base = _array_config()
     state = torch.ones((_COL_NUM, _ROW_NUM), dtype=torch.long)
     got = _profiled_energy(base, input_bits=(1, 0), state=state)
 
-    heavy_sl_cell = dataclasses.replace(_cell_config(), c_sl__fF=10.0 * _C_SL__fF)
-    heavy_bl_cell = dataclasses.replace(_cell_config(), c_bl__fF=10.0 * _C_BL__fF)
-    variants = {
-        "cell c_sl__fF": dataclasses.replace(base, cell_config=heavy_sl_cell),
-        "cell c_bl__fF": dataclasses.replace(base, cell_config=heavy_bl_cell),
-        "wire sl caps": dataclasses.replace(base, sl_first_c__fF=4.0, sl_segment_c__fF=1.0),
-        "wire bl caps": dataclasses.replace(base, bl_first_c__fF=4.0, bl_segment_c__fF=1.0),
-    }
-    for label, config in variants.items():
-        moved = _profiled_energy(config, input_bits=(1, 0), state=state)
-        assert moved == pytest.approx(got), f"array caps moved with {label}"
+    for field in ("bl_node_c__fF", "x_node_c__fF", "sl_node_c__fF", "wl_node_c__fF"):
+        heavier = dataclasses.replace(base, **{field: 10.0})
+        assert _profiled_energy(heavier, input_bits=(1, 0), state=state) > got, f"array caps blind to {field}"
 
-    # The WL side and the cell X dip DO move it (the terms the array actually owns).
-    wl_heavy = dataclasses.replace(base, wl_first_c__fF=4.0, wl_segment_c__fF=1.0)
-    assert _profiled_energy(wl_heavy, input_bits=(1, 0), state=state) > got
-    x_heavy = dataclasses.replace(base, cell_config=dataclasses.replace(_cell_config(), c_x__fF=10.0 * _C_X__fF))
-    assert _profiled_energy(x_heavy, input_bits=(1, 0), state=state) > got
+
+def test_the_held_input_is_established_once_per_row_scan() -> None:
+    """One hold covers one full row scan, so its establishment is billed ONCE, not per access.
+
+    Each BL node is charged from ground to the held level exactly once per scan,
+    so the scan's sensitivity to ``bl_node_c__fF`` is ONE array's worth of that
+    charge — ``row_num`` times smaller than an unamortized per-access bill. The
+    residual is the per-solve displacement off the held level, which is the wire
+    IR drop alone.
+    """
+    base = _array_config()
+    delta__fF = 3.0
+    heavy = dataclasses.replace(base, bl_node_c__fF=_BL_NODE_C__fF + delta__fF)
+    state = torch.ones((_COL_NUM, _ROW_NUM), dtype=torch.long)
+    input_bits = (1, 1)  # every physical column held at V_BL_in1
+
+    moved = _profiled_energy(heavy, input_bits=input_bits, state=state) - _profiled_energy(
+        base, input_bits=input_bits, state=state
+    )
+    one_scan__fJ = _V_DD_BL__V * delta__fF * _COL_NUM * _ROW_NUM * _V_BL_IN1__V
+    assert moved == pytest.approx(one_scan__fJ, rel=1e-2)
+    # An unamortized hold would cost row_num of those.
+    assert moved < 0.5 * _ROW_NUM * one_scan__fJ
+
+
+# ---------------------------------------------------------------------------
+# Chunked solving
+# ---------------------------------------------------------------------------
+
+_CHUNK_LEADING = 7  # coprime with every chunk size below, so tails are padded
+
+
+def _chunk_drive() -> tuple[torch.Tensor, torch.Tensor]:
+    """A leading of independent (one-hot WL, per-column BL input) pairs."""
+    row_pick = torch.arange(_CHUNK_LEADING) % _ROW_NUM
+    # Shape: [leading, row]
+    v_wl = _one_hot_wl()[row_pick]
+    # Shape: [leading, col]
+    bl_v_ref = torch.stack([_bl_v_ref((i % 2, (i // 2) % 2)) for i in range(_CHUNK_LEADING)])
+    return v_wl, bl_v_ref
+
+
+def test_chunk_size_moves_neither_the_lookup_sum_nor_the_energy(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Chunk size is a memory knob: every chunking of one call agrees bit for bit."""
+    v_wl, bl_v_ref = _chunk_drive()
+    state = (torch.arange(_COL_NUM * _ROW_NUM) % 2).reshape(_COL_NUM, _ROW_NUM)
+    folded: dict[int, tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]] = {}
+
+    for chunk_size in (0, 2, 3, 5, 100):
+        array = _build_array(chunk_size=chunk_size)
+        array.program(state)
+        billed: list[torch.Tensor] = []
+        monkeypatch.setattr(array, "_record_dynamic_energy", billed.append)
+        with NeuroxProfiler(), torch.no_grad():
+            steady = _solve(array, v_wl, bl_v_ref)
+        [energy__fJ] = billed
+        folded[chunk_size] = (steady.i_bl_port__uA, steady.v_bl_clamp__V, steady.i_tbl__uA, energy__fJ)
+
+    # Both foldings are billed once, at the full leading, after the fold.
+    assert folded[0][2].shape == (_CHUNK_LEADING,)
+    assert folded[0][3].shape == (_CHUNK_LEADING,)
+    # `0` is the un-chunked solve: one measurement over the whole leading.
+    whole = folded[0]
+    for chunk_size, measured in folded.items():
+        for field, (got, want) in enumerate(zip(measured, whole, strict=True)):
+            assert torch.equal(got, want), (chunk_size, field)

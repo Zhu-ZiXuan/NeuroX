@@ -41,11 +41,11 @@ def test_rram_drift_is_controlled_by_policy() -> None:
 
     drift_off = _rram(drift=False)
     drift_off.program(target, elapsed)
-    actual_off = drift_off.snapshot(shape=(), multi_coords=None).g__uS
+    actual_off = drift_off.snapshot(shape=()).g__uS
 
     drift_on = _rram(drift=True)
     drift_on.program(target, elapsed)
-    actual_on = drift_on.snapshot(shape=(), multi_coords=None).g__uS
+    actual_on = drift_on.snapshot(shape=()).g__uS
 
     config = drift_on.config
     expected_on = target * (elapsed / config.drift_t0) ** (-config.drift_decay_rate)

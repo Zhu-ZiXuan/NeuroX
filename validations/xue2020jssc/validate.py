@@ -7,17 +7,14 @@ data conventions, and reduces the profiler to the ENERGY PER ACCESS. The one HAR
 GATE is the total energy per access against the paper's 32.06 pJ/access (= 5.13 mW
 / 8 sub-arrays / 20 MHz) within +-5% at the declared ``p_zero``.
 
-Energy-basis reduction. The macro is the sole latency emitter and logs ``latency =
-t_cycle * serial`` (serial = ``mux_factor``) once per VMM, so over a run of
-``n_samples`` inputs the profiler's ``total_latency = t_cycle * mux_factor *
-n_samples`` and ``leakage_energy = leakage_power * total_latency``. With
-``accesses = n_samples * mux_factor`` (one VMM over all ``col_num`` logical
-columns is ``mux_factor`` serial accesses):
-  - static energy per access = ``leakage_energy / accesses`` = ``leakage_power *
-    t_cycle`` (the 50 ns period; independent of the draw count and ``mux_factor``);
+Energy-basis reduction. With ``accesses = n_samples * mux_factor`` (one VMM over
+all ``col_num`` logical columns is ``mux_factor`` serial accesses):
+  - static energy per access = ``leakage_power * leakage_window__ns`` (the
+    declared integration window; independent of the draw count and ``mux_factor``);
   - dynamic energy per access = ``total_dynamic_energy / accesses`` = per-VMM
     dynamic / ``mux_factor``.
 The total energy per access is their sum. 1 uA * 1 V * 1 ns = 1 fJ; 1 pJ = 1000 fJ.
+The macro's access time is reported beside them and integrates nothing.
 
 NON-CIRCULAR rigor: the ONLY seats declared to reproduce a Fig.18 share are
 Control (29.2 %) + Reference (23.7 %) -- ADOPTED, because those two peripherals
@@ -48,7 +45,10 @@ and, per program, ``--n-x`` input vectors, and each profiled in its OWN context;
 the per-access energies accumulate as an access-weighted mean and the report adds
 the round-total relative std. Peak profiler memory stays that of one round.
 ``--solve-chunk`` bounds the array solve leading (a MACHINE knob; ``0`` solves all
-at once). ``--device auto`` picks a free GPU via ``nvidia-smi`` (else CPU serial).
+at once); its default is sized against the PRE-FLATTENING leading, which still
+carried the 32-slot column-MUX axis, so it needs retuning for the flattened
+shapes together with the policy's own ``solve_chunk_size``. ``--device auto``
+picks a free GPU via ``nvidia-smi`` (else CPU serial).
 
 Per-block breakdown (INFORMATIONAL, not gated): each Fig.18 slice is reported in
 pJ/access next to its ``share * 32.06 pJ`` reference; differences are labelled as
@@ -198,6 +198,24 @@ def build_macro(
     return macro
 
 
+def leakage_window__ns(macro: Xue2020JsscCimMacro) -> float:
+    """Duration one access's static power integrates over [ns].
+
+    The measurement period ``t_cycle__ns`` = 1 / 20 MHz, the rate the paper's
+    5.13 mW power figure was taken at. That period is a DUTY-CYCLE property of
+    the measured setup, a distinct quantity from the ACCESS TIME the macro's
+    ``latency__ns`` reports (the span one read chain settles over, the executed
+    sensing included): a macro clocked at 20 MHz leaks for the whole period however
+    small a fraction of it the read occupies. Which of the two a GENERAL
+    workload should integrate over is an OPEN modelling choice — a duty-cycled
+    deployment takes the period, a back-to-back one the access time. It is
+    fixed here to the period, the basis the paper's figure was measured on, and
+    it is declared here rather than derived so the choice cannot be made
+    implicitly by whichever duration a consumer happens to reach for.
+    """
+    return macro.config.t_cycle__ns
+
+
 def _draw_weight(gen: torch.Generator, *, input_num: int, output_num: int, lo: int, hi: int) -> torch.Tensor:
     """Value-uniform logical weights ``[input_num, output_num]``."""
     return torch.randint(
@@ -293,6 +311,10 @@ class Measurement:
         static__pJ: Static (leakage) share of the total.
         slices: The informational Fig.18 slice breakdown.
         unmapped_static__pJ: Static residual belonging to no slice.
+        access_latency__ns: The macro's modelled access time, per output
+            access. Reported beside the energies; the static term integrates
+            over :func:`leakage_window__ns`, never over this.
+        window__ns: The declared leakage integration window.
         n_w: Weight programs drawn per round.
         n_x: Input vectors drawn per weight program.
         accesses: Output accesses read over every pooled round.
@@ -311,6 +333,8 @@ class Measurement:
     static__pJ: float
     slices: tuple[SliceEnergy, ...]
     unmapped_static__pJ: float
+    access_latency__ns: float
+    window__ns: float
     n_w: int
     n_x: int
     accesses: int
@@ -330,15 +354,18 @@ class Measurement:
 
 
 def _per_access(
-    report: ProfilerReport, *, accesses: int, t_cycle__ns: float
+    report: ProfilerReport, dynamic_by_name__fJ: dict[str, float], *, accesses: int, window__ns: float
 ) -> tuple[dict[str, float], dict[str, float]]:
     """Return ``(dynamic_by_name, static_by_name)`` energy PER ACCESS [pJ].
 
-    Dynamic: each profiler energy row divided by ``accesses``. Static: each block's
-    ``leakage_power * t_cycle`` (the per-access integral of its leakage).
+    Dynamic: each accumulated energy row divided by ``accesses``. Static: each
+    block's ``leakage_power * window`` (the per-access integral of its leakage),
+    which is fabrication-fixed and therefore read from any round's report. This
+    is the SOLE static-energy derivation: the reported total is the sum of these
+    rows, so the breakdown and the gated total cannot drift apart.
     """
-    dyn = {k: v / accesses / _FJ_PER_PJ for k, v in report.energy_by_name.items()}
-    stat = {r.qualified_name: r.leakage_power__uW * t_cycle__ns / _FJ_PER_PJ for r in report.static_records}
+    dyn = {k: v / accesses / _FJ_PER_PJ for k, v in dynamic_by_name__fJ.items()}
+    stat = {r.qualified_name: r.leakage_power__uW * window__ns / _FJ_PER_PJ for r in report.static_records}
     return dyn, stat
 
 
@@ -354,11 +381,18 @@ def measure(
     """Profile ONE round of ``n`` random draws and reduce to the energy per access.
 
     Draws ``n_w = ceil(n / batch)`` random weight matrices, each programmed and then
-    driven by a fresh ``batch`` of random inputs, accumulates every profiler event
-    in one context, and reduces to the total / dynamic / static energy per access
-    plus the informational Fig.18 slice breakdown. In the round vocabulary the two
-    counts are ``n_w`` weight draws and ``n_x = batch`` input vectors per weight
-    draw, so the round reads ``n_w * n_x`` (input, weight) pairs.
+    driven by a fresh ``batch`` of random inputs, and reduces to the total / dynamic
+    / static energy per access plus the informational Fig.18 slice breakdown. In the
+    round vocabulary the two counts are ``n_w`` weight draws and ``n_x = batch``
+    input vectors per weight draw, so the round reads ``n_w * n_x`` (input, weight)
+    pairs.
+
+    Each weight draw is profiled in its OWN context at ``leading_rank=1``: the
+    caller's ``batch`` axis indexes independent unit operations, so each energy
+    event resolves to ``[batch]`` and the dynamic energy rows are accumulated
+    across the draws by hand. The two sides normalize differently: dynamic
+    energy divides by the full ``accesses`` count, while static energy is the
+    fabrication-fixed ``leakage_power * window`` of ONE access.
     """
     cfg = macro.config
     device = next(macro.buffers()).device
@@ -371,20 +405,25 @@ def measure(
     shares = anchors["fig18_shares"]
 
     mux = cfg.mux_factor
-    t_cycle = cfg.t_cycle__ns
+    window__ns = leakage_window__ns(macro)
+    # One VMM serializes the `mux` column-MUX slots, so the duration the macro
+    # reports divided by `mux` is the access time. Config-fixed, hence identical
+    # for every draw.
+    access_latency__ns = macro.latency__ns(adc_bits=_ADC_BITS) / mux
 
     n_w = max(1, -(-n // batch))  # ceil
     n_samples = 0
-    with NeuroxProfiler() as prof, torch.no_grad():
+    dyn_by_name__fJ: dict[str, float] = {}
+    total_dynamic__fJ = 0.0
+    report = ProfilerReport()
+    with torch.no_grad():
         for _ in range(n_w):
-            macro.program(
-                _draw_weight(
-                    gen,
-                    input_num=macro.row_num,
-                    output_num=macro.col_num,
-                    lo=w_lo,
-                    hi=w_hi,
-                )
+            w = _draw_weight(
+                gen,
+                input_num=macro.row_num,
+                output_num=macro.col_num,
+                lo=w_lo,
+                hi=w_hi,
             )
             x = _draw_input(
                 gen,
@@ -395,16 +434,24 @@ def measure(
                 hi=x_hi,
                 p_zero=p_zero,
             )
-            macro.vec_mat_mul(x, quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
+            # leading_rank=1: the `batch` axis indexes independent unit
+            # operations, so each energy event resolves to [batch], one element
+            # per input vector.
+            with NeuroxProfiler(leading_rank=1) as prof:
+                macro.program(w)
+                macro.vec_mat_mul(x, quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
+            report = prof.report(macro)
+            for name, e__fJ in report.energy_by_name.items():
+                dyn_by_name__fJ[name] = dyn_by_name__fJ.get(name, 0.0) + e__fJ
+            total_dynamic__fJ += report.total_dynamic_energy__fJ
             n_samples += batch
-    report = prof.report(macro)
     accesses = n_samples * mux
 
-    total__pJ = (report.total_dynamic_energy__fJ + report.leakage_energy__fJ) / accesses / _FJ_PER_PJ
-    dynamic__pJ = report.total_dynamic_energy__fJ / accesses / _FJ_PER_PJ
-    static__pJ = report.leakage_energy__fJ / accesses / _FJ_PER_PJ
-
-    dyn, stat = _per_access(report, accesses=accesses, t_cycle__ns=t_cycle)
+    dyn, stat = _per_access(report, dyn_by_name__fJ, accesses=accesses, window__ns=window__ns)
+    # The one static-energy derivation, shared by the total and the breakdown.
+    static__pJ = sum(stat.values())
+    dynamic__pJ = total_dynamic__fJ / accesses / _FJ_PER_PJ
+    total__pJ = dynamic__pJ + static__pJ
     # Pair MEMBERS carry no per-member target (paired-slice caliber); the pair
     # rows derived by ``paired_slices`` carry the summed-share targets.
     slices = tuple(
@@ -425,6 +472,8 @@ def measure(
         static__pJ=static__pJ,
         slices=slices,
         unmapped_static__pJ=unmapped_static,
+        access_latency__ns=access_latency__ns,
+        window__ns=window__ns,
         n_w=n_w,
         n_x=batch,
         accesses=accesses,
@@ -477,6 +526,8 @@ def _pool_rounds(rounds: list[Measurement], *, p_zero: float, seed: int) -> Meas
         static__pJ=wmean(lambda r: r.static__pJ),
         slices=slices,
         unmapped_static__pJ=wmean(lambda r: r.unmapped_static__pJ),
+        access_latency__ns=first.access_latency__ns,
+        window__ns=first.window__ns,
         n_w=first.n_w,
         n_x=first.n_x,
         accesses=total_accesses,
@@ -649,8 +700,10 @@ def render_report(m: Measurement, anchors: dict, *, device: torch.device) -> str
         f"with an extra Bernoulli zeroing at p_zero (declared workload assumption); rows >= active_row_num zeroed."
     )
     lines.append(
-        "- Energy basis: static/access = leakage_power * t_cycle (50 ns); dynamic/access = per-VMM dynamic / "
-        "mux_factor; total/access = their sum."
+        f"- Energy basis: static/access = leakage_power * leakage window ({m.window__ns:.1f} ns = the 20 MHz "
+        f"measurement period, a duty-cycle property); dynamic/access = per-VMM dynamic / mux_factor; total/access "
+        f"= their sum. The macro's access time ({m.access_latency__ns:.2f} ns) is the separate duration one read "
+        f"chain settles over and integrates nothing."
     )
     lines.append("")
     return "\n".join(lines)

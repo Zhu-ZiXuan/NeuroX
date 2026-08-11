@@ -1,10 +1,6 @@
 from .base import Solver, SolverConfig, SolverDcop
-from .chunking import (
-    ChunkSpec,
-    classify_leading_positions,
-    iter_chunks,
-    reassemble_chunks,
-)
+from .chunked import ChunkedSolver
+from .chunking import ChunkSpec, MeasureFold, iter_chunks, slice_snap, slice_tensor
 from .clamp import ClampDriver
 from .nested import (
     NestedParallelRailSolver,
@@ -15,7 +11,9 @@ from .nested import (
 
 __all__ = [
     "ChunkSpec",
+    "ChunkedSolver",
     "ClampDriver",
+    "MeasureFold",
     "NestedParallelRailSolver",
     "NestedParallelRailSolverConfig",
     "Solver",
@@ -23,7 +21,7 @@ __all__ = [
     "SolverDcop",
     "SolverObservation",
     "SolverProber",
-    "classify_leading_positions",
     "iter_chunks",
-    "reassemble_chunks",
+    "slice_snap",
+    "slice_tensor",
 ]

@@ -4,8 +4,6 @@ See also:
     docs/reference/primitive/analog/voltage_reference.md
 """
 
-from dataclasses import dataclass
-
 import torch
 from torch import Tensor
 
@@ -23,13 +21,10 @@ class VrefConfig(AnalogConfig):
             within a mode is not enforced, because what a mode means is
             the consumer's knowledge. A single-tap single-mode bank is
             the degenerate ``[[v]]``. A zero tap remains exact under
-            relative noise.
+            relative tolerance.
         tolerance_sigma_relative: Relative per-instance initial-accuracy
             σ [dimensionless], applied multiplicatively at fabricate
             time; ``0`` leaves the exact nominal taps.
-        noise_sigma_relative: Relative per-call noise σ
-            [dimensionless], applied multiplicatively at snapshot time;
-            ``0`` leaves the taps noise-free.
         area_per_inst__um2: Silicon area per fabricated instance.
         leakage_per_inst__uW: Static leakage per instance; carries
             all static power, including the always-on bias network that
@@ -38,7 +33,6 @@ class VrefConfig(AnalogConfig):
 
     v_refs__V: tuple[tuple[float, ...], ...]
     tolerance_sigma_relative: float
-    noise_sigma_relative: float
     area_per_inst__um2: float
     leakage_per_inst__uW: float
 
@@ -67,44 +61,32 @@ class VrefConfig(AnalogConfig):
             for tap, value in enumerate(taps):
                 self._require_non_neg(value, f"v_refs__V[{mode}][{tap}]")
 
-        # --- Noise and PPA ---
+        # --- Tolerance and PPA ---
 
         self._require_non_neg(self.tolerance_sigma_relative, "tolerance_sigma_relative")
-        self._require_non_neg(self.noise_sigma_relative, "noise_sigma_relative")
         self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
 
 
 class VrefPolicy(AnalogPolicy):
-    """Per-source toggles selecting which Vref nonidealities are active.
+    """Per-source toggle selecting whether the Vref tolerance is active.
 
     Attributes:
         tolerance: Apply the per-instance initial-accuracy spread
             ``tolerance_sigma_relative`` at fabricate time.
-        noise: Apply the per-call noise ``noise_sigma_relative`` at
-            snapshot time.
     """
 
     tolerance: bool
-    noise: bool
-
-
-@dataclass(frozen=True)
-class VrefSnap:
-    """One sampled reference snap.
-
-    Attributes:
-        v_refs__V: Actual reference-voltage taps of the selected mode,
-            post tolerance + noise, at the requested call shape. The mode
-            axis is resolved away by :meth:`Vref.snapshot`.
-            Shape: ``[..., tap_num]``.
-    """
-
-    v_refs__V: Tensor
 
 
 class Vref(AnalogBase[VrefConfig, VrefPolicy]):
-    """Multi-output voltage reference with static tolerance and runtime noise.
+    """Fabricate-only multi-output voltage reference with static tolerance.
+
+    A pure identity source: one static ``[mode][tap]`` bank per physical
+    instance, sampled once at fabricate time and read back through
+    :attr:`v_out__V`. No forward path and no per-call noise — dynamic
+    per-access variation is a consuming driver's own law, not this
+    source's; the source's identity is shared and never resampled.
 
     Args:
         config: Concrete configuration dataclass.
@@ -168,29 +150,14 @@ class Vref(AnalogBase[VrefConfig, VrefPolicy]):
             enabled=self.policy.tolerance,
         )
 
-    def snapshot(self, *, mode: int, shape: tuple[int, ...]) -> VrefSnap:
-        """Select one mode and sample it with per-call noise.
+    @property
+    def v_out__V(self) -> Tensor:
+        """Fabricated reference-voltage bank, post static tolerance.
 
-        The mode selects the taps here rather than in the caller, so the
-        bank layout stays private. The static mismatch drawn at fabricate
-        time spans ``inst_shape`` alone, while this per-call noise spans
-        the full ``shape``: the fabricated taps are one physical source,
-        but every position of a call is a distinct instant or a distinct
-        point along the distribution net, each carrying its own draw.
-
-        Args:
-            mode: Mode index into the ``[mode][tap]`` bank. Range checking
-                belongs to the consumer that owns the mode set.
-            shape: Full output shape, ending in ``tap_num``.
-
-        Returns:
-            Per-call snap carrying the actual reference-voltage taps.
+        Read-only view over the fabricated buffer: one physical identity per
+        instance. A consumer selects its mode and broadcasts the result onto
+        its own call shape by view; that broadcast, and any per-access
+        dynamic noise on top of it, is the consuming driver's concern.
+        Shape: ``[*inst_shape, mode_num, tap_num]``.
         """
-        # Shape: [*inst_shape, mode_num, tap_num] -> [..., *inst_shape, tap_num]
-        v_refs__V = self._v_refs__V[..., mode, :].expand(shape)
-        v_refs__V = apply_relative_gaussian(
-            v_refs__V,
-            self.config.noise_sigma_relative,
-            enabled=self.policy.noise,
-        )
-        return VrefSnap(v_refs__V=v_refs__V)
+        return self._v_refs__V

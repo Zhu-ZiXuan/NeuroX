@@ -155,6 +155,25 @@ class DiffVadc(
         """Physical bit width — the maximum ``bits`` value."""
         raise NotImplementedError
 
+    @abstractmethod
+    def latency__ns(self, *, bits: int) -> float:
+        """Duration of one :meth:`convert` call at ``bits`` [ns].
+
+        A conversion is the only thing a differential voltage ADC spends time
+        on, and how long it lasts follows from the resolution the call
+        executes, so the executed bit count is the whole question. The formula
+        is the concrete converter's own — a flat comparison window, a cycle
+        count that grows with the resolution — so the base declares no
+        default.
+
+        Args:
+            bits: Active conversion resolution [bits].
+
+        Returns:
+            Duration of one conversion at ``bits``.
+        """
+        raise NotImplementedError
+
     def convert(
         self,
         v_pos__V: Tensor,

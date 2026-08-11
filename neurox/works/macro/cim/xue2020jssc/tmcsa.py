@@ -6,8 +6,7 @@ energy-silent; this reporter leaf bills the conversion energy from ``(i_sub,
 raw unsigned codes, reference ladder)`` after ``convert`` returns, resolving
 each binary-search step into the paper's PH2/PH3 conduction phases. The
 per-step reference path is recovered from the final code through a structural
-tap LUT built at init; the ladder itself is passed per call. This module emits
-no latency event (the macro is the sole latency emitter).
+tap LUT built at init; the ladder itself is passed per call.
 
 See also:
     docs/works/macro/cim/xue2020jssc/model.md
@@ -202,4 +201,6 @@ class Tmcsa(ModuleBase[TmcsaConfig, TmcsaPolicy]):
             self._v_dd__V * (i_ph2__uA * self._t_ph2__ns[:bits] + i_ph3__uA * self._t_ph3__ns[:bits]).sum(dim=-1)
             + self.config.e_fixed_per_op__fJ * bits
         )
+        # The SAR step axis is already summed above; the collector sums the slot
+        # and CIM-IO axes past the caller's leading dims.
         self._record_dynamic_energy(e__fJ)

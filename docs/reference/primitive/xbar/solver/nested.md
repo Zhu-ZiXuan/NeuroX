@@ -9,7 +9,7 @@ The formulation is specialised to a **parallel BL/SL** array — the BL rail and
 1. **Exactly two array rails.** Each site couples a BL node and an SL node; the coupled wire Newton is therefore a block-$2\times2$ per node.
 2. **One signed two-terminal branch.** The two rails couple only through a single signed cell branch current; the cell self-condenses any internal node, so the array carries no per-cell internal unknown.
 3. **The control line is a driven boundary.** The gate/control line (the word line) is an externally driven boundary, not a solved mesh node. Hence the columns and their driver pairs are mutually independent.
-4. **Each rail is a 1-D series ladder.** IR drop accumulates along the row axis of each rail, giving the (block-)tridiagonal structure the Thomas sweep exploits.
+4. **Each rail is a uniform 1-D series ladder.** IR drop accumulates along the row axis of each rail, giving the (block-)tridiagonal structure the Thomas sweep exploits, and one link resistance describes the whole rail — the boundary-to-node-0 link included, so node 0 is not distinguished and the only distinguished node is the open far end.
 
 The orthogonal case (BL $\perp$ SL forming a 2-D mesh, where the two rails are *not* parallel and a line is a solved node) violates assumption 3 and is out of scope here.
 
@@ -46,7 +46,7 @@ The inner solve is a coupled block-$2\times2$ wire Newton on $(V_{\mathrm{BL}}, 
 
 $$J^{\mathrm{diag}}_k = \begin{bmatrix} d^{\mathrm{BL}}_k + g_{\mathrm{BL,eff},k} & -\,g_{\mathrm{SL,eff},k} \\ -\,g_{\mathrm{BL,eff},k} & d^{\mathrm{SL}}_k + g_{\mathrm{SL,eff},k} \end{bmatrix},$$
 
-where $d^{\mathrm{BL}}_k$, $d^{\mathrm{SL}}_k$ are the BL / SL wire-ladder diagonal entries at node $k$ and the cross terms are $\partial F_{\mathrm{BL}}/\partial V_{\mathrm{SL}} = -g_{\mathrm{SL,eff}}$ and $\partial F_{\mathrm{SL}}/\partial V_{\mathrm{BL}} = -g_{\mathrm{BL,eff}}$. The sub- and super-diagonal blocks are diagonal $2\times2$, carrying the negated intra-rail wire off-diagonals on their respective rails: BL and SL are independent ladders with no cross-rail wire coupling. For an SL-grounded chip $g_{\mathrm{SL,eff}}$ and the SL wire's contribution to the BL drop are tiny, so the coupling reduces numerically to near-independent BL / SL solves; a variable-SL chip retains the full linearization through the same block.
+where $d^{\mathrm{BL}}_k$, $d^{\mathrm{SL}}_k$ are the BL / SL wire-ladder diagonal entries at node $k$ and the cross terms are $\partial F_{\mathrm{BL}}/\partial V_{\mathrm{SL}} = -g_{\mathrm{SL,eff}}$ and $\partial F_{\mathrm{SL}}/\partial V_{\mathrm{BL}} = -g_{\mathrm{BL,eff}}$. A node's wire diagonal is the sum of the links attached to it, so on the uniform ladder $d^{\mathrm{BL}}_k = 2\,G^{\mathrm{BL}}_{\mathrm{seg}}$ everywhere but the open far end, which has no onward link and carries $G^{\mathrm{BL}}_{\mathrm{seg}}$ (likewise SL). The sub- and super-diagonal blocks are diagonal $2\times2$, carrying the negated intra-rail wire off-diagonals on their respective rails: BL and SL are independent ladders with no cross-rail wire coupling. Uniformity makes that block one constant, $\operatorname{diag}(-G^{\mathrm{BL}}_{\mathrm{seg}}, -G^{\mathrm{SL}}_{\mathrm{seg}})$, shared by every row. For an SL-grounded chip $g_{\mathrm{SL,eff}}$ and the SL wire's contribution to the BL drop are tiny, so the coupling reduces numerically to near-independent BL / SL solves; a variable-SL chip retains the full linearization through the same block.
 
 ### Inner-to-clamp sensitivity
 
@@ -54,19 +54,19 @@ The outer Newton needs the response of the port-adjacent node voltages ($k = 0$)
 
 $$K \equiv \frac{\partial V_{\mathrm{node},0}}{\partial V_{\mathrm{clamp}}} = \begin{bmatrix} \partial V_{\mathrm{BL},0}/\partial V_{\mathrm{BL,CL}} & \partial V_{\mathrm{BL},0}/\partial V_{\mathrm{SL,CL}} \\ \partial V_{\mathrm{SL},0}/\partial V_{\mathrm{BL,CL}} & \partial V_{\mathrm{SL},0}/\partial V_{\mathrm{SL,CL}} \end{bmatrix}.$$
 
-At the inner-converged state, differentiating the inner system with respect to a clamp perturbation gives $J_{\mathrm{inner}}\,\mathbf{u} = \mathbf{b}$. A unit $V_{\mathrm{BL,CL}}$ perturbation forces only the BL residual at node 0, so $\mathbf{b} = G^{\mathrm{BL}}_{\mathrm{seg},0}\,\mathbf{e}_0^{\mathrm{BL}}$ with $\mathbf{e}_0^{\mathrm{BL}}$ the node-0 BL basis vector; analogously for $V_{\mathrm{SL,CL}}$. The two columns of $K$ are the node-0 rows of the two basis solves,
+At the inner-converged state, differentiating the inner system with respect to a clamp perturbation gives $J_{\mathrm{inner}}\,\mathbf{u} = \mathbf{b}$. A unit $V_{\mathrm{BL,CL}}$ perturbation forces only the BL residual at node 0, so $\mathbf{b} = G^{\mathrm{BL}}_{\mathrm{seg}}\,\mathbf{e}_0^{\mathrm{BL}}$ with $\mathbf{e}_0^{\mathrm{BL}}$ the node-0 BL basis vector; analogously for $V_{\mathrm{SL,CL}}$. The two columns of $K$ are the node-0 rows of the two basis solves,
 
-$$K_{:,0} = G^{\mathrm{BL}}_{\mathrm{seg},0}\,\big(J_{\mathrm{inner}}^{-1}\,\mathbf{e}_0^{\mathrm{BL}}\big)_{0,:}, \qquad K_{:,1} = G^{\mathrm{SL}}_{\mathrm{seg},0}\,\big(J_{\mathrm{inner}}^{-1}\,\mathbf{e}_0^{\mathrm{SL}}\big)_{0,:},$$
+$$K_{:,0} = G^{\mathrm{BL}}_{\mathrm{seg}}\,\big(J_{\mathrm{inner}}^{-1}\,\mathbf{e}_0^{\mathrm{BL}}\big)_{0,:}, \qquad K_{:,1} = G^{\mathrm{SL}}_{\mathrm{seg}}\,\big(J_{\mathrm{inner}}^{-1}\,\mathbf{e}_0^{\mathrm{SL}}\big)_{0,:},$$
 
-where $G^{\mathrm{BL}}_{\mathrm{seg},0}$, $G^{\mathrm{SL}}_{\mathrm{seg},0}$ are the driver-to-first BL / SL segment conductances. The two basis solves are mathematically independent, each a block-tridiagonal solve against the same coupled $J_{\mathrm{inner}}$.
+where $G^{\mathrm{BL}}_{\mathrm{seg}}$, $G^{\mathrm{SL}}_{\mathrm{seg}}$ are the BL / SL link conductances, the driver-to-node-0 link being one link like any other. The two basis solves are mathematically independent, each a block-tridiagonal solve against the same coupled $J_{\mathrm{inner}}$.
 
 ### Outer clamp Newton
 
-The outer step is a per-column $2\times2$ Newton on the clamp pair with residual $F_{\mathrm{outer}}(V_{\mathrm{clamp}}) = V_{\mathrm{target}}(V_{\mathrm{clamp}}) - V_{\mathrm{clamp}}$, where each clamp driver maps its first-segment port current to a target clamp voltage,
+The outer step is a per-column $2\times2$ Newton on the clamp pair with residual $F_{\mathrm{outer}}(V_{\mathrm{clamp}}) = V_{\mathrm{target}}(V_{\mathrm{clamp}}) - V_{\mathrm{clamp}}$, where each clamp driver maps the port current through its boundary link to a target clamp voltage,
 
-$$V_{\mathrm{BL,target}} = \operatorname{driver}_{\mathrm{BL}}\!\big(G^{\mathrm{BL}}_{\mathrm{seg},0}\,(V_{\mathrm{BL,CL}} - V_{\mathrm{BL},0}(V_{\mathrm{clamp}}))\big), \qquad V_{\mathrm{SL,target}} = \operatorname{driver}_{\mathrm{SL}}\!\big(G^{\mathrm{SL}}_{\mathrm{seg},0}\,(V_{\mathrm{SL,CL}} - V_{\mathrm{SL},0}(V_{\mathrm{clamp}}))\big).$$
+$$V_{\mathrm{BL,target}} = \operatorname{driver}_{\mathrm{BL}}\!\big(G^{\mathrm{BL}}_{\mathrm{seg}}\,(V_{\mathrm{BL,CL}} - V_{\mathrm{BL},0}(V_{\mathrm{clamp}}))\big), \qquad V_{\mathrm{SL,target}} = \operatorname{driver}_{\mathrm{SL}}\!\big(G^{\mathrm{SL}}_{\mathrm{seg}}\,(V_{\mathrm{SL,CL}} - V_{\mathrm{SL},0}(V_{\mathrm{clamp}}))\big).$$
 
-Writing $g_{\mathrm{BL}} \equiv G^{\mathrm{BL}}_{\mathrm{seg},0}$ and the driver small-signal slope $r_{\mathrm{BL}} \equiv \partial V_{\mathrm{BL,target}}/\partial I_{\mathrm{BL,port}}$ (likewise for SL), $\partial V_{\mathrm{target}}/\partial V_{\mathrm{clamp}}$ expands as the driver slope times the port-current sensitivity, with $K$ carrying the node-0 response,
+Writing $g_{\mathrm{BL}} \equiv G^{\mathrm{BL}}_{\mathrm{seg}}$ and the driver small-signal slope $r_{\mathrm{BL}} \equiv \partial V_{\mathrm{BL,target}}/\partial I_{\mathrm{BL,port}}$ (likewise for SL), $\partial V_{\mathrm{target}}/\partial V_{\mathrm{clamp}}$ expands as the driver slope times the port-current sensitivity, with $K$ carrying the node-0 response,
 
 $$\frac{\partial F_{\mathrm{outer}}}{\partial V_{\mathrm{clamp}}} = \begin{bmatrix} r_{\mathrm{BL}}\,g_{\mathrm{BL}}\,(1 - K_{00}) - 1 & -\,r_{\mathrm{BL}}\,g_{\mathrm{BL}}\,K_{01} \\ -\,r_{\mathrm{SL}}\,g_{\mathrm{SL}}\,K_{10} & r_{\mathrm{SL}}\,g_{\mathrm{SL}}\,(1 - K_{11}) - 1 \end{bmatrix}.$$
 
@@ -76,7 +76,7 @@ Each outer step solves $\dfrac{\partial F_{\mathrm{outer}}}{\partial V_{\mathrm{
 
 The monotonicity directions follow from the cell's signed-conductance contract and the wire-ladder structure. The cell branch current is increasing in $V_{\mathrm{BL}}$ and decreasing in $V_{\mathrm{SL}}$ ($\partial I_{\mathrm{cell}}/\partial V_{\mathrm{BL}} \ge 0$, $\partial I_{\mathrm{cell}}/\partial V_{\mathrm{SL}} \le 0$), so the inner coupled wire system is a block-$2\times2$ tridiagonal M-matrix-flavour system with a unique fixed point at any frozen clamp pair. Because the cell branch currents are monotone in the node voltages, the boundary port currents $I_{\mathrm{BL,port}}$, $I_{\mathrm{SL,port}}$ are themselves monotone in the clamp voltages, so each boundary clamp-driver response is strictly monotone in a definite direction: raising $V_{\mathrm{BL,CL}}$ increases the cell read current and hence the BL port current it must absorb, while raising $V_{\mathrm{SL,CL}}$ lowers the cell drive and hence the SL port current. The outer map on $(V_{\mathrm{BL,CL}}, V_{\mathrm{SL,CL}})$ composes the strictly monotone driver responses (the BL clamp driver strictly monotone in $I_{\mathrm{BL,port}}$, the SL driver strictly monotone in $I_{\mathrm{SL,port}}$) with the strictly monotone array response, giving a unique fixed point; the damped $2\times2$ Newton converges quadratically near it. Rail pseudo-equilibria are excluded, because the outer Newton is a well-conditioned per-column $2\times2$ problem away from the rails; a rail is reached only when the port current is genuinely outside the driver's reachable range, where the rail is the correct physics.
 
-The formulation carries IR drop through the per-segment interconnect resistances of the wire ladder: node voltages along the row axis differ from the clamp voltage by the resistive drop the segment currents develop, and these drops enter the wire-ladder KCL residuals directly, for any per-segment interconnect-resistance profile along the row axis.
+The formulation carries IR drop through the interconnect resistance of the wire ladder: node voltages along the row axis differ from the clamp voltage by the resistive drop the link currents develop, and these drops enter the wire-ladder KCL residuals directly. One resistance per rail sets every drop, so the accumulated drop at a node is that resistance times the running sum of the currents the links below it carry.
 
 ## Symbols
 
@@ -93,6 +93,7 @@ Shared electrical symbols are pinned in [notation_conventions](../../../../conve
 | $\partial I_{\mathrm{cell}}/\partial V_{\mathrm{SL}}$ | SL-side branch conductance ($\le 0$) | uS | `cell.solve_branch` |
 | $I_{\mathrm{BL,port}}$ | BL boundary port current | uA | derived from node voltages |
 | $I_{\mathrm{SL,port}}$ | SL boundary port current | uA | derived from node voltages |
+| $G^{\mathrm{BL}}_{\mathrm{seg}}, G^{\mathrm{SL}}_{\mathrm{seg}}$ | BL / SL rail link conductance | uS | reciprocal of `bl_segment_r__MOhm`, `sl_segment_r__MOhm` |
 
 ## Validation
 

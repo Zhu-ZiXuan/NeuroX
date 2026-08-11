@@ -13,5 +13,6 @@ Cross-cutting:
 - [prober](common/prober.md) — typed observation side channel
 - [profiler](common/profiler.md) — PPA event collection
 - [quantization](common/quant.md) — shared quantization kernels
+- [tensor groups](common/tensor_group.md) — dataclass-of-tensors traversal and shape surface
 
 Use the site navigation to browse subsystem bases and concrete implementations.

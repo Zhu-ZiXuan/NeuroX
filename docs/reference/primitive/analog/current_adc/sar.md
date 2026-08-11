@@ -49,7 +49,7 @@ Both static offsets are sampled once at fabricate and held constant across the $
 | `e_fixed_per_op__fJ` ($E_{\mathrm{fixed}}$) | data-independent per-step energy constant | fJ | $\geq 0$ | Design |
 | `v_rail__V` ($V_{\mathrm{rail}}$) | rail the input and selected reference conduct across per step | V | $\geq 0$ | Design |
 | `t_conduct_per_step__ns` ($t_{\mathrm{cond},s}$) | per-step conduction window; all-zero ⇒ pure fixed energy | ns | length $\geq b_{\max}$, $\geq 0$ | Design |
-| `step_latency__ns` | per-step decision latency; the first $b$ entries are summed per call | ns | length $\geq b_{\max}$, $\geq 0$ | Design |
+| `step_latency__ns` | per-step decision latency; the first $b$ entries are summed per call | ns | length $= b_{\max}$, $\geq 0$ | Design |
 | `comparator_offset_sigma__uA` | static input-referred SA offset sigma | uA | $\geq 0$ | Measured |
 | `coupling_mismatch_sigma__uA` | residual coupling-driven offset sigma | uA | $\geq 0$ | Measured |
 | leakage / area | static PPA / spec fields | uW, um^2 | $\geq 0$ | Design |
@@ -74,7 +74,7 @@ Provenance terms are defined in [module_parameter](../../../../conventions/modul
 Stated assumptions:
 
 - The input is a single-ended non-negative magnitude.
-- The single SA is time-shared across a set of columns; its fabricated `inst_shape` is the real shared sense-lane count, so functional codes are per-column while `inst_shape` sets only the PPA multiplicity and the serial-latency time-multiplex factor.
+- The single SA is time-shared across a set of columns; its fabricated `inst_shape` is the real shared sense-lane count, so functional codes are per-column while `inst_shape` sets only the PPA multiplicity.
 
 TODO (domain author): the validity boundary of the triple-margin decision model and the input-range limits implied by the reference-level list.
 

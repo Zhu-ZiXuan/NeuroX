@@ -28,7 +28,7 @@ from torch import Tensor
 from neurox.primitive.analog.current_adc import IadcProber
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
 from neurox.primitive.macro.cim.ideal import IdealCimMacro
-from neurox.primitive.physical_constant import T_ROOM__K
+from neurox.primitive.physics import T_ROOM__K
 from neurox.tools._config import resolve_relative_path
 
 logger = logging.getLogger(__name__)

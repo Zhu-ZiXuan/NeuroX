@@ -144,17 +144,16 @@ def _mode_ref__V(mode: int) -> torch.Tensor:
         config=VrefConfig(
             v_refs__V=tuple((v,) for v in _MCS_MODE_REFS__V),
             tolerance_sigma_relative=0.0,
-            noise_sigma_relative=0.0,
             area_per_inst__um2=0.0,
             leakage_per_inst__uW=0.0,
         ),
-        policy=VrefPolicy(tolerance=False, noise=False),
+        policy=VrefPolicy(tolerance=False),
         inst_shape=(),
         dtype=_DTYPE,
         T__K=300.0,
     )
     ref.fabricate()
-    return ref.snapshot(mode=mode, shape=(ref.tap_num,)).v_refs__V
+    return ref.v_out__V[mode, :]
 
 
 def _build_mcs_sar_adc(max_bits: int = 4) -> McsSarDiffVadc:

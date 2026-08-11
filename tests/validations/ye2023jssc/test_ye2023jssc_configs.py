@@ -12,14 +12,17 @@ to describe (laws, not tuned magnitudes):
 
   * the physical grid is 64 rows (logical outputs) x 128 columns = 32 inputs x
     (3 weight planes + 1 redundant SUBA4 plane),
-  * the T2 table's input-0 floor is state-independent and the derived PH0
-    compensation — ``floor * 32 * sum(radix)`` over 352 place-value units —
-    reproduces the paper's ~1 uA row leakage, so a zero-MAC access reads code 0,
-  * the input-1 HRS entry saturates the measured 30 nA bound at the largest
+  * the T2 table's floor row (the ``V_X = 0`` operating point) is
+    state-independent and the seated PH0 compensation ``i_ph0_comp__uA`` equals
+    that floor over the 352 place-value units of one row, which reproduces the
+    paper's ~1 uA row leakage, so a zero-MAC access reads code 0,
+  * the drive-point HRS entry saturates the measured 30 nA bound at the largest
     place value in the radix path,
   * the readout is the paper's single 4-bit operating point and its DERIVED
     access window is 66 ns,
-  * the selected word line clears the step-2 WL threshold,
+  * the selected word line clears the step-2 WL threshold, and the IN = 0 BL
+    code drives EXACTLY 0 V — the validity contract the ``V_X = 0`` floor
+    classification rests on,
   * no mismatch / noise / jitter field is declared anywhere in either artifact.
 
 And against the VALIDATION CONTRACT the two TOML artifacts encode:
@@ -28,9 +31,9 @@ And against the VALIDATION CONTRACT the two TOML artifacts encode:
     caliber-independent — no Fig.19 power number appears among them,
   * the ``[reference]`` table holds the Fig.19 picture that is reported but not
     gated (two totals, both per-pin share breakdowns, the headline efficiency),
-  * the free-parameter set in ``params.toml`` is exactly three ``[calibrated]``
-    fields (the C_WL knob, the RS-CSA mirror scale, its fixed per-op energy) plus
-    the two ``[transcribed]`` peripheral seats.
+  * the free-parameter set in ``params.toml`` is exactly two ``[calibrated]``
+    fields (the RS-CSA mirror scale and its fixed per-op energy) plus the two
+    ``[transcribed]`` peripheral seats.
 """
 
 from __future__ import annotations
@@ -47,6 +50,7 @@ import torch._dynamo
 
 from neurox.common import PolicyBase
 from neurox.common.serialize import dict_from_file
+from neurox.primitive.analog.voltage_dac import GeneralVdacConfig
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
 from neurox.works.macro.cim.ye2023jssc import (
     Ye2023JsscCimMacro,
@@ -86,8 +90,8 @@ _TAG_PATTERN = re.compile(r"\[(measured|derived|transcribed|assumed|bound-derive
 # The one key that names no physical quantity: the registry dispatch key.
 _UNTAGGED_KEYS = frozenset({"_neurox_class"})
 
-# The sanctioned free-parameter set: three solved numbers + two transcribed seats.
-_CALIBRATED_KEYS = ("c_wl__fF", "mirror_scale", "e_fixed_per_op__fJ")
+# The sanctioned free-parameter set: two solved numbers + two transcribed seats.
+_CALIBRATED_KEYS = ("mirror_scale", "e_fixed_per_op__fJ")
 _TRANSCRIBED_ENTRIES = (
     ("cim_macro.mux_driver_config", "leakage_per_inst__uW"),
     ("cim_macro.timing_ctrl_config", "leakage_per_inst__uW"),
@@ -252,30 +256,43 @@ def test_physical_grid_is_64_rows_by_128_columns() -> None:
 
 
 def test_leakage_floor_reproduces_the_row_leakage_and_the_hrs_bound() -> None:
-    """The floor entry is state-independent; PH0 == floor * 352 units ~= the 1 uA row leakage."""
+    """The floor entry is state-independent and covers 352 place-value units ~= 1 uA."""
     config = _load_config()
     array_config = config.array_config
     i_t2_table = config.cell_config.i_t2_table__uA
 
     floor_row = i_t2_table[0]
-    assert len(set(floor_row)) == 1, f"input-0 floor is state-dependent: {floor_row}"
+    assert len(set(floor_row)) == 1, f"the V_X = 0 floor is state-dependent: {floor_row}"
 
     radix_unit_num = _INPUT_NUM * sum((*array_config.weight_radix, *array_config.redundant_radix))
     assert radix_unit_num == 352
     assert floor_row[0] * radix_unit_num == pytest.approx(_I_ROW_LEAK__uA, rel=1e-3)
 
-    # The input-1 HRS entry keeps the radix multiplier and saturates the 30 nA bound
-    # at the largest place value on the radix path.
+    # The drive-point HRS entry keeps the radix multiplier and saturates the 30 nA
+    # bound at the largest place value on the radix path.
     m_max = max((*array_config.weight_radix, *array_config.redundant_radix))
-    i_hrs_in1__uA = i_t2_table[1][0]
-    assert i_hrs_in1__uA * m_max == pytest.approx(_I_HRS_BOUND__uA)
-    assert i_hrs_in1__uA * m_max <= _I_HRS_BOUND__uA + 1e-12
+    i_hrs_drive__uA = i_t2_table[1][0]
+    assert i_hrs_drive__uA * m_max == pytest.approx(_I_HRS_BOUND__uA)
+    assert i_hrs_drive__uA * m_max <= _I_HRS_BOUND__uA + 1e-12
     # The LRS on-current dominates the leakage by orders of magnitude.
-    assert i_t2_table[1][1] > 10.0 * i_hrs_in1__uA
+    assert i_t2_table[1][1] > 10.0 * i_hrs_drive__uA
+
+
+def test_seated_ph0_is_the_all_off_row_leakage() -> None:
+    """``i_ph0_comp__uA`` is a shipped macro seat that cancels the all-off row exactly."""
+    config = _load_config()
+    array_config = config.array_config
+
+    radix_unit_num = _INPUT_NUM * sum((*array_config.weight_radix, *array_config.redundant_radix))
+    floor__uA = config.cell_config.i_t2_table__uA[0][0]
+    # The seat IS the array's own all-off row current, so a zero-MAC access
+    # subtracts to exactly zero residue and reads code 0.
+    assert config.i_ph0_comp__uA == pytest.approx(floor__uA * radix_unit_num, rel=1e-12)
+    assert config.i_ph0_comp__uA == pytest.approx(_I_ROW_LEAK__uA, rel=1e-3)
 
 
 def test_readout_is_one_4bit_point_with_a_66ns_derived_window() -> None:
-    """Single 4-bit mode; ``T_AC = sum(t_phase[:-1]) + t4_intrinsic`` = 66 ns."""
+    """Single 4-bit mode; ``T_AC = sum(t_phase[:-1]) + t_intrinsic[-1]`` = 66 ns."""
     config = _load_config()
     adc_config = config.adc_config
     assert adc_config.bits == 4
@@ -302,19 +319,34 @@ def test_readout_is_one_4bit_point_with_a_66ns_derived_window() -> None:
     # discriminates on is the window.
     assert mode.adc_input_code_range == mode.quantization_input_range
 
-    t_ac__ns = sum(adc_config.t_phase__ns[:-1]) + adc_config.t4_intrinsic__ns
+    # One latch delay per compare phase, each inside the phase it closes.
+    assert len(adc_config.t_intrinsic__ns) == adc_config.bits
+    for phase, t in enumerate(adc_config.t_intrinsic__ns):
+        assert 0.0 < t < adc_config.t_phase__ns[phase + 1]
+    t_ac__ns = sum(adc_config.t_phase__ns[:-1]) + adc_config.t_intrinsic__ns[-1]
     assert t_ac__ns == pytest.approx(_T_AC__ns)
-    # The window closes at the last comparator latch, inside the last compare phase.
-    assert 0.0 < adc_config.t4_intrinsic__ns < adc_config.t_phase__ns[-1]
 
 
 def test_selected_word_line_clears_the_step2_threshold() -> None:
-    """``v_wl_sel__V`` turns the access device on; the BL input level brackets its threshold."""
+    """The selected WL code turns the access device on; the IN = 0 BL code is exactly 0 V."""
     config = _load_config()
     cell_config = config.cell_config
-    assert config.v_wl_sel__V > cell_config.v_wl_on_threshold__V
-    assert 0.0 < config.array_config.v_bl_in_threshold__V < config.v_bl_in1__V
-    assert config.v_bl_in1__V == config.array_config.v_bl_in1__V
+    wl_dac_config = config.wl_dac_config
+    bl_dac_config = config.bl_dac_config
+    assert isinstance(wl_dac_config, GeneralVdacConfig)
+    assert isinstance(bl_dac_config, GeneralVdacConfig)
+
+    # The two drives are 1-bit: one deselected / IN = 0 code and one driven code.
+    assert len(wl_dac_config.code_to_signal) == len(bl_dac_config.code_to_signal) == 2
+    assert wl_dac_config.code_to_signal[1] > cell_config.v_wl_on_threshold__V
+    assert wl_dac_config.code_to_signal[0] <= cell_config.v_wl_on_threshold__V
+    # The cell classifies its operating point on V_X = 0, so the IN = 0 code must
+    # drive EXACTLY 0 V against a grounded SL: any other level would settle the
+    # branch above the floor point.
+    assert bl_dac_config.code_to_signal[0] == 0.0
+    assert config.v_sl__V == 0.0
+    assert bl_dac_config.code_to_signal[1] > 0.0
+    assert bl_dac_config.code_to_signal[1] == config.array_config.v_bl_in1__V
 
 
 # ---------------------------------------------------------------------------
@@ -369,8 +401,8 @@ def test_every_anchor_value_carries_a_provenance_tag() -> None:
     assert untagged == [], f"anchors.toml values without a provenance tag: {untagged}"
 
 
-def test_params_free_parameter_set_is_the_sanctioned_five() -> None:
-    """Exactly three ``[calibrated]`` fields plus the two ``[transcribed]`` seats are free."""
+def test_params_free_parameter_set_is_the_sanctioned_four() -> None:
+    """Exactly two ``[calibrated]`` fields plus the two ``[transcribed]`` seats are free."""
     entries = _tagged_entries(_VALIDATIONS_DIR / "params.toml")
 
     calibrated = [key for _, key, tags in entries if "calibrated" in tags]

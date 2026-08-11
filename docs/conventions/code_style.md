@@ -128,6 +128,28 @@ The `Shape: ` label is written in two forms: the in-code `# Shape:` comment, fix
 - A name resolves against the reader the shape addresses. An in-code annotation addresses someone standing inside the body, so every name in scope there resolves. A docstring addresses the caller, which resolves only a public attribute or property, a public config field name, and an axis name the documentation defines; a body-local name in a docstring shape is a defect.
 - An annotation that carries more than one arrow without meeting the longer-chain test above signals a statement doing more than one thing, and that statement is split. In particular, a tensor-to-Python-scalar conversion — a `float`, `int`, or `bool` cast, `.item()`, `.tolist()` — that wraps a multi-step tensor transform takes its own line: compute the tensor on one line, annotated with a single arrow where the rules above call for one, then convert on the following line. A conversion whose tensor side is a single step, such as a cast around one reduction, is the ordinary idiom and is never split.
 
+## Profile payload axes
+
+Every dynamic-energy payload handed to the profiler carries one repo-wide axis layout, `[*caller_leading, ...]`, under one reduction rule: keep the caller's leading dims, sum every axis past them.
+
+- **Caller leading** — the measuring caller's own batch or time prefix, one position per independent unit operation. Only the caller knows its rank, so the caller declares that rank to the profiler once and every payload keeps the block: an event element is the cost of one unit operation, never a figure already collapsed across the caller's batch.
+- **Everything after it** — the emitter's own internal structure: a serialized round, a digit, a phase, an output slot, a fabrication instance. All of it is summed, with no distinction drawn between one kind of axis and another, so an emitter declares nothing about its own axes. It lays the caller's block out first and puts its own axes after it, in whatever order its math produces.
+
+The asymmetry is deliberate. The caller is the only party that can know its own rank, while a declaration from the emitter would be unverifiable: folding a fabrication axis and folding a work axis are both plain summation, so no test, gate, or calibration could separate a right declaration from a wrong one.
+
+What the emitter owes instead is a two-clause contract on the payload it hands over:
+
+1. **It carries the caller's leading dims.** Never pre-reduce them, and never emit at a rank below the declared one. An emitter that works in chunks therefore bills from reassembled full-shape state, because a chunk axis has ravelled the caller's block into one axis that cannot express the layout.
+2. **It carries them at their true extents.** A size-one stand-in for a real caller extent is a contract violation, not a broadcast request: nothing expands it, so the event is summed as the single unit operation it claims to be and under-counts that emitter by the caller batch's product.
+
+An emission site's shape annotation spells the layout out as written above. The caller block is a named group under the `*` prefix, because a downstream contract slices the payload by that rank; everything after it is `...`, because nothing depends on where its internal boundaries fall. §Shape annotations gives the general test both choices follow from.
+
+One further rule follows from the layout. Constant-per-element billing builds the payload as a 0-dim tensor holding the per-op constant, expanded onto the billed layout: the expanded view holds no storage and the collector's reduction over its stride-0 axes builds only the caller block, so never materialize a full constant payload. The constant fixes the energy dtype, since the billed layout is typically an integer code or a reduced-precision signal.
+
+That summation is also the layout's price: the collector holds no per-instance resolution, and no way of shaping a payload gives it one.
+
+The collector-side contract and its report surface are in [profiler](../internals/common/profiler.md).
+
 ## Type annotations
 
 - Annotate every parameter and the return type in a function or method signature. §Class state declarations fixes the type an attribute declaration carries.

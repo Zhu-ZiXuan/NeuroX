@@ -30,10 +30,6 @@ _V_WL_ON_THRESHOLD__V = 0.45
 
 def _hand_built_config() -> XbarCell1t1rLinearConfig:
     return XbarCell1t1rLinearConfig(
-        c_bl__fF=0.2,
-        c_x__fF=0.3,
-        c_sl__fF=0.1,
-        c_wl__fF=0.2,
         g_cell_off_table__uS=_G_CELL_OFF_TABLE__uS,
         g_cell_on_table__uS=_G_CELL_ON_TABLE__uS,
         vx_ratio_off_table=_VX_RATIO_OFF_TABLE,
@@ -72,8 +68,10 @@ def test_solve_branch_matches_table_conductance() -> None:
     w_state = torch.tensor([[0, 1], [1, 0]], dtype=torch.long)
     cell.program(w_state)
 
-    v_wl = torch.tensor([[0.0, 0.9], [0.9, 0.0]], dtype=torch.float64)
-    snap = cell.snapshot(control=v_wl, shape=(2, 2), multi_coords=None, t_elapsed=0.0)
+    # A word line runs along a row and is shared by every column, so the array
+    # gates every cell of a row at the same voltage on the per-cell grid.
+    v_wl = torch.tensor([0.0, 0.9], dtype=torch.float64).expand(2, 2)
+    snap = cell.snapshot(control=v_wl, shape=(2, 2), t_elapsed=0.0)
 
     g_cell_off = torch.tensor(_G_CELL_OFF_TABLE__uS, dtype=torch.float64)[w_state]
     g_cell_on = torch.tensor(_G_CELL_ON_TABLE__uS, dtype=torch.float64)[w_state]
@@ -98,7 +96,7 @@ def test_wl_threshold_switches_off_at_and_below() -> None:
     i_levels = []
     for v_wl__V in (_V_WL_ON_THRESHOLD__V, _V_WL_ON_THRESHOLD__V + 0.01):
         v_wl = torch.full((1, 1), v_wl__V, dtype=torch.float64)
-        snap = cell.snapshot(control=v_wl, shape=(1, 1), multi_coords=None, t_elapsed=0.0)
+        snap = cell.snapshot(control=v_wl, shape=(1, 1), t_elapsed=0.0)
         i_levels.append(float(cell.solve_branch(v_bl, v_sl, snap)[0]))
     i_at_threshold, i_above = i_levels
 
@@ -113,7 +111,7 @@ def test_solve_dc_vx_multiplication_form() -> None:
     v_bl = torch.full((1, 1), 0.3, dtype=torch.float64)
     v_sl = torch.zeros((1, 1), dtype=torch.float64)
     v_wl = torch.full((1, 1), 0.9, dtype=torch.float64)
-    snap = cell.snapshot(control=v_wl, shape=(1, 1), multi_coords=None, t_elapsed=0.0)
+    snap = cell.snapshot(control=v_wl, shape=(1, 1), t_elapsed=0.0)
 
     dcop = cell.solve_dc(v_bl, v_sl, snap)
 

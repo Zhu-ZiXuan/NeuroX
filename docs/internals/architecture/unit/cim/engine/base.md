@@ -26,7 +26,23 @@ orchestration, the macro child, value-range delegation, and execution order.
   follow one execution graph.
 - **Containers do not report duplicate PPA.** The engine and all four stages
   set `is_profile_target = False`; their macro and digital children report
-  physical PPA.
+  physical PPA. A stage is a mapping construct holding no circuit, so it has
+  no area, no leakage and no duration — the three PPA quantities agree on it.
+- **The engine times the schedule; the stages only declare its axes.** Every
+  serial axis below the unit is engine-inserted: `M` from its caller, `Sa` from
+  `x_slice.slice_num`, `D` from `placement.block_step_num`, `P` from
+  `input_activation.input_phase_num`. One macro access serves each
+  `(M,Sa,D,P)` point, so `latency__ns` multiplies the macro rather than summing
+  it, and `Sw`, `Tc`, `G` and `*w_batch` never multiply anything because they
+  are parallel silicon. The digital blocks own no axis of the schedule either,
+  so the engine reads each embedded block's `latency_per_op__ns` through its
+  stage and supplies the counts itself — it introduced those axes, so it is
+  the layer that multiplies them: the ports one operation covers
+  (`output_num` for the two accumulators, `weight_slice.aggregated_output_num`
+  for the two reconstructions) and how often that operation happens. The phase accumulator folds successive
+  arrivals into one register, so it runs once per macro access; the adder-tree
+  and positional-sum reductions close their whole axis in one window, so they
+  run once per step that axis completes on.
 - **No engine registry.** `CimEngine.from_config` constructs `CimEngine`
   directly. Polymorphism is limited to the two stage roots where behavior
   actually varies.
@@ -78,4 +94,4 @@ for inter-plane layouts, matching the tensor on which it operates.
 
 - **Reference**: [engine family](../../../../../reference/architecture/unit/cim/engine/family.md)
 - **Implementation**: `neurox/architecture/unit/cim/engine/base.py`
-- **Tests**: `tests/architecture/unit/test_cim_unit.py`, `tests/architecture/unit/test_engine_input_packing.py`
+- **Tests**: `tests/architecture/unit/test_cim_unit.py`, `tests/architecture/unit/test_engine_input_packing.py`, `tests/architecture/unit/test_engine_latency.py`

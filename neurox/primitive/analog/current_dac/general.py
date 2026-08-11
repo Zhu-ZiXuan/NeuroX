@@ -25,14 +25,11 @@ class GeneralIdacConfig(IdacConfig):
         drive_thermal__uA: Signal-independent Gaussian output-noise σ added to
             each output sample after LUT lookup.
         energy_per_op__fJ: Dynamic energy per conversion operation.
-        latency_per_op__ns: Per-conversion latency; multiplied by
-            the runtime serial-op count at logging time.
     """
 
     code_to_signal: tuple[float, ...]
     drive_thermal__uA: float
     energy_per_op__fJ: float
-    latency_per_op__ns: float
 
     def validate(self) -> None:
         super().validate()
@@ -40,7 +37,6 @@ class GeneralIdacConfig(IdacConfig):
         self._require_min_length(self.code_to_signal, 1, "code_to_signal")
         self._require_non_neg(self.drive_thermal__uA, "drive_thermal__uA")
         self._require_non_neg(self.energy_per_op__fJ, "energy_per_op__fJ")
-        self._require_non_neg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
 class GeneralIdacPolicy(IdacPolicy):
@@ -69,10 +65,6 @@ class GeneralIdac(Idac[GeneralIdacConfig, GeneralIdacPolicy]):
 
     _code_to_signal: Tensor  # Shape: [code_num]
 
-    # === Circuit constant buffers ===
-
-    _latency_per_op__ns: Tensor  # Shape: []
-
     def __init__(
         self,
         *,
@@ -91,11 +83,6 @@ class GeneralIdac(Idac[GeneralIdacConfig, GeneralIdacPolicy]):
         )
 
         self.register_buffer("_code_to_signal", torch.tensor(config.code_to_signal, dtype=dtype), persistent=False)
-        self.register_buffer(
-            "_latency_per_op__ns",
-            torch.tensor(config.latency_per_op__ns, dtype=dtype),
-            persistent=False,
-        )
 
     @property
     def _area_per_inst__um2(self) -> float:
@@ -128,10 +115,9 @@ class GeneralIdac(Idac[GeneralIdacConfig, GeneralIdacPolicy]):
             enabled=self.policy.drive_thermal,
         )
 
-        serial_round_count = self._count_serial_rounds(signal.numel())
-        latency__ns = self._latency_per_op__ns * serial_round_count
         if self._is_dynamic_energy_profile_active():
-            self._record_dynamic_energy(torch.full_like(signal, self.config.energy_per_op__fJ, dtype=torch.float32))
-        self._record_latency(latency__ns)
+            # Shape: [] -> [*signal.shape]
+            e_op__fJ = torch.full((), self.config.energy_per_op__fJ, dtype=torch.float32, device=signal.device)
+            self._record_dynamic_energy(e_op__fJ.expand(signal.shape))
 
         return signal

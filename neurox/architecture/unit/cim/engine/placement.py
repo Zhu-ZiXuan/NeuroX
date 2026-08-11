@@ -96,6 +96,11 @@ class PlacementStage(ModuleBase[PlacementStageConfig, PlacementStagePolicy]):
     def _sample_fabricate_mismatch(self) -> None:
         pass
 
+    @property
+    def block_step_num(self) -> int:
+        """Sequential CIM block steps one call unrolls — the D axis."""
+        return self.plan.block_slot_num
+
     def _register_block_slot_routing_buffers(self) -> None:
         """Register routing metadata for every CIM block step."""
         routing = make_block_slot_routing(placement=self.plan)

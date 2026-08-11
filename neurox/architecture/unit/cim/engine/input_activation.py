@@ -78,6 +78,11 @@ class InputActivationStage(ModuleBase[InputActivationStageConfig, InputActivatio
     def _sample_fabricate_mismatch(self) -> None:
         pass
 
+    @property
+    def input_phase_num(self) -> int:
+        """Successive activations one input block is driven as — the P axis."""
+        return self._input_phase_num
+
     def unroll_input_phases(self, x: Tensor) -> Tensor:
         """Split one local input block into CIM input phases."""
         # Shape: [P, L] -> [..., P, L]

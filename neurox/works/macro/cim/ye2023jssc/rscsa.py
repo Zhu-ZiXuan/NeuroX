@@ -32,9 +32,11 @@ class RsCsaIadcConfig(IadcConfig):
             compensation phase first, then one compare phase per bit, MSB-first.
             A conversion at ``b`` bits runs the compensation phase and the first
             ``b`` compare phases.
-        t4_intrinsic__ns: Delay [ns] from the LAST EXECUTED compare phase's start
-            to that phase's comparator output latching; it fits inside every
-            compare phase, so it lies in ``[0, min(t_phase__ns[1:])]``.
+        t_intrinsic__ns: Delay [ns] from a compare phase's start to that phase's
+            comparator output latching, one entry per compare phase (``bits``
+            entries, MSB-first). Entry ``p`` closes compare phase ``p + 1`` of
+            :attr:`t_phase__ns` and fits inside it, so it lies in
+            ``[0, t_phase__ns[p + 1]]``.
         mirror_scale: Dimensionless comparator-side mirror scale — the fraction
             of the compared branch current the comparator input mirror draws
             from ``v_rail__V`` during a compare phase.
@@ -46,7 +48,7 @@ class RsCsaIadcConfig(IadcConfig):
     bits: int
     v_rail__V: float
     t_phase__ns: tuple[float, ...]
-    t4_intrinsic__ns: float
+    t_intrinsic__ns: tuple[float, ...]
     mirror_scale: float
     e_fixed_per_op__fJ: float
 
@@ -66,15 +68,20 @@ class RsCsaIadcConfig(IadcConfig):
             )
         for t in self.t_phase__ns:
             self._require_non_neg(t, "t_phase__ns")
-        # The latch offset closes WHICHEVER compare phase runs last, so it must
-        # fit inside the shortest of them.
-        t_compare_min = min(self.t_phase__ns[1:])
-        if not (0.0 <= self.t4_intrinsic__ns <= t_compare_min):
+        if len(self.t_intrinsic__ns) != self.bits:
             raise ValueError(
-                f"require: t4_intrinsic__ns ({self.t4_intrinsic__ns}) in [0, shortest compare phase ({t_compare_min})]"
+                f"require: len(t_intrinsic__ns) ({len(self.t_intrinsic__ns)}) == bits ({self.bits}) "
+                f"(one latch delay per compare phase)"
             )
-        if not (sum(self.t_phase__ns[:-1]) + self.t4_intrinsic__ns > 0.0):
-            raise ValueError("require: the full-resolution conversion window (t_phase + t4_intrinsic) > 0")
+        # A latch offset closes the compare phase it belongs to, so it must fit
+        # inside THAT phase.
+        for p, t in enumerate(self.t_intrinsic__ns):
+            if not (0.0 <= t <= self.t_phase__ns[p + 1]):
+                raise ValueError(
+                    f"require: t_intrinsic__ns[{p}] ({t}) in [0, its compare phase ({self.t_phase__ns[p + 1]})]"
+                )
+        if not (sum(self.t_phase__ns[:-1]) + self.t_intrinsic__ns[-1] > 0.0):
+            raise ValueError("require: the full-resolution conversion window (t_phase + t_intrinsic) > 0")
 
         # --- Energy ---
 
@@ -110,7 +117,6 @@ class RsCsaIadc(Iadc[RsCsaIadcConfig, RsCsaIadcPolicy]):
         T__K: Operating temperature.
         i_ph0_comp__uA: Static PH0 compensation current [uA] the readout
             subtracts once per conversion; non-negative.
-        enable_latency_record: Whether conversions emit latency events.
     """
 
     # === Functional buffers ===
@@ -130,7 +136,6 @@ class RsCsaIadc(Iadc[RsCsaIadcConfig, RsCsaIadcPolicy]):
         dtype: torch.dtype,
         T__K: float,
         i_ph0_comp__uA: float,
-        enable_latency_record: bool = True,
     ) -> None:
         super().__init__(
             config=config,
@@ -138,7 +143,6 @@ class RsCsaIadc(Iadc[RsCsaIadcConfig, RsCsaIadcPolicy]):
             inst_shape=inst_shape,
             dtype=dtype,
             T__K=T__K,
-            enable_latency_record=enable_latency_record,
         )
         if not (i_ph0_comp__uA >= 0.0):
             raise ValueError(f"require: i_ph0_comp__uA ({i_ph0_comp__uA}) >= 0")
@@ -147,14 +151,16 @@ class RsCsaIadc(Iadc[RsCsaIadcConfig, RsCsaIadcPolicy]):
         # ``b`` compare phases; the window ends at the last EXECUTED compare
         # phase's comparator latch, which cuts that phase short of its nominal
         # boundary.
-        window__ns = [sum(config.t_phase__ns[:b]) + config.t4_intrinsic__ns for b in range(1, config.bits + 1)]
+        self._window__ns = tuple(
+            sum(config.t_phase__ns[:b]) + config.t_intrinsic__ns[b - 1] for b in range(1, config.bits + 1)
+        )
         self.register_buffer(
             "_t_conversion__ns",
-            torch.tensor(window__ns, dtype=dtype),
+            torch.tensor(self._window__ns, dtype=dtype),
             persistent=False,
         )
         # The code-independent baseline is prorated by the executed-window ratio.
-        self._e_fixed_scale = tuple(t / window__ns[-1] for t in window__ns)
+        self._e_fixed_scale = tuple(t / self._window__ns[-1] for t in self._window__ns)
         # The compare phases weigh the ONE injected reference by 2**(bits - p),
         # so together they resolve every tap of the uniform ladder below.
         self.register_buffer(
@@ -171,6 +177,16 @@ class RsCsaIadc(Iadc[RsCsaIadcConfig, RsCsaIadcPolicy]):
     def _leakage_per_inst__uW(self) -> float:
         return self.config.leakage_per_inst__uW
 
+    def latency__ns(self, *, bits: int) -> float:
+        """One conversion — the executed window over the phase axis it owns.
+
+        The compensation phase and one compare phase per requested bit run
+        sequentially inside the one converter, closing at that last phase's
+        comparator latch.
+        """
+        self._check_bits(bits)
+        return self._window__ns[bits - 1]
+
     def _sample_fabricate_mismatch(self) -> None:
         """No local static state — the RS-CSA model is deterministic."""
 
@@ -185,7 +201,7 @@ class RsCsaIadc(Iadc[RsCsaIadcConfig, RsCsaIadcPolicy]):
         return self._i_ph0_comp__uA
 
     def t_conversion__ns(self, bits: int) -> Tensor:
-        """Return the executed conversion window [ns] (0-d) of a ``bits`` conversion.
+        """Return the executed conversion window [ns] of a ``bits`` conversion.
 
         The window spans the compensation phase, the first ``bits - 1`` compare
         phases in full, and the last executed compare phase up to its comparator
@@ -193,6 +209,10 @@ class RsCsaIadc(Iadc[RsCsaIadcConfig, RsCsaIadcPolicy]):
 
         Args:
             bits: Conversion resolution [bits] in ``[1, max_bits]``.
+
+        Returns:
+            Executed conversion window [ns].
+            Shape: ``[]``.
 
         Raises:
             ValueError: ``bits`` is outside ``[1, max_bits]``.
@@ -298,11 +318,6 @@ class RsCsaIadc(Iadc[RsCsaIadcConfig, RsCsaIadcPolicy]):
                     i_residue__uA,
                 )
             self._record_dynamic_energy(e__fJ)
-
-        # --- EXECUTED conversion window ---
-
-        if self.enable_latency_record:
-            self._record_latency(self._t_conversion__ns[bits - 1] * self._count_serial_rounds(i_in__uA.numel()))
 
         # Bit width is internal: the full-resolution code drops its unresolved
         # low bits. The shift keeps the int16 code dtype.

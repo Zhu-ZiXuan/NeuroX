@@ -15,7 +15,8 @@ Covers the whole macro contract on the hand-built analytic witness
     equals the max-bits code right-shifted by the bit deficit, and only
     ``adc_bits`` in ``[1, adc_max_bits]`` is accepted (the readout has no
     lossless oracle),
-  * the PH0 compensation is DERIVED from the model's own all-off floor —
+  * the PH0 compensation is a REQUIRED macro config field the readout is handed
+    verbatim; the witness seats it at the model's own all-off floor —
     ``floor * row_num * sum(weight_radix + redundant_radix)``, the redundant
     plane included — so a zero-input access lands on code 0 exactly,
   * ``to_ideal()`` publishes the macro's own windows and, driven losslessly,
@@ -29,12 +30,10 @@ Covers the whole macro contract on the hand-built analytic witness
   * the scheme models no mismatch / noise / jitter: no scheme config declares a
     sigma, no scheme policy carries a toggle, and decoding is bit-identical in
     ``train()`` mode,
-  * the Fig.19 energy blocks appear under their exact channel / module names and
-    the macro emits latency exactly once,
+  * the Fig.19 energy blocks appear under their exact channel / module names,
   * the die ensemble (``inst_shape=(die_num,)``) crossed with an input batch: one
     call over ``x [n_x, 1, row]`` reads every (input, weight) pair bit-exactly as
-    the single-die macro does, bills the SUM of those dies' energy per channel,
-    and takes the latency of ``n_x`` accesses only — the dies run in PARALLEL.
+    the single-die macro does and bills the SUM of those dies' energy per channel.
 
 Runs eagerly (dynamo disabled) so the ``@torch.compile`` solver leaf is not
 unrolled.
@@ -66,6 +65,7 @@ from ._utils import (
     TINY_REDUNDANT_RADIX,
     TINY_WEIGHT_RADIX,
     W_MAX,
+    FLOOR__uA,
     Ye2023JsscCimMacro,
     Ye2023JsscCimMacroConfig,
     build_all_off_policy,
@@ -224,18 +224,30 @@ def test_lowered_bits_ride_the_shared_ladder(device: torch.device) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Derived PH0 compensation
+# Seated PH0 compensation
 # ---------------------------------------------------------------------------
 
 
-def test_ph0_is_derived_from_the_all_off_floor(device: torch.device) -> None:
-    """PH0 == ``floor * row_num * sum(weight_radix + redundant_radix)`` — no config field."""
-    macro = build_macro(build_config(), device=device)
-    assert macro.rscsa.i_ph0_comp__uA == pytest.approx(expected_ph0__uA())
-    # The redundant plane is part of the sum: dropping it would shrink PH0.
-    weight_only = macro.config.cell_config.i_t2_table__uA[0][0] * TINY_INPUT_NUM * sum(TINY_WEIGHT_RADIX)
-    assert macro.rscsa.i_ph0_comp__uA > weight_only
+def test_ph0_is_the_configured_seat(device: torch.device) -> None:
+    """The macro hands the readout its own ``i_ph0_comp__uA`` field, unmodified."""
+    config = build_config()
+    macro = build_macro(config, device=device)
+    assert macro.rscsa.i_ph0_comp__uA == config.i_ph0_comp__uA
+    # The witness seats the all-off row floor, redundant plane included: dropping
+    # that plane would shrink the seat.
+    assert config.i_ph0_comp__uA == pytest.approx(expected_ph0__uA())
+    weight_only = FLOOR__uA * TINY_INPUT_NUM * sum(TINY_WEIGHT_RADIX)
+    assert config.i_ph0_comp__uA > weight_only
+    # The compensation is the MACRO's seat; the readout config declares no field.
     assert not any("ph0" in field.name.lower() for field in dataclasses.fields(macro.config.adc_config))
+
+
+def test_ph0_seat_is_required_and_non_negative() -> None:
+    """``i_ph0_comp__uA`` is a required physical field, rejected when negative."""
+    config = build_config()
+    assert "i_ph0_comp__uA" in {field.name for field in dataclasses.fields(config)}
+    with pytest.raises(ValueError):
+        dataclasses.replace(config, i_ph0_comp__uA=-1.0)
 
 
 def test_zero_input_decodes_code_zero(device: torch.device) -> None:
@@ -399,12 +411,12 @@ def test_decode_is_deterministic_in_training_mode(device: torch.device) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Energy blocks + single latency
+# Energy blocks
 # ---------------------------------------------------------------------------
 
 
-def test_energy_channels_and_single_latency(device: torch.device) -> None:
-    """Every Fig.19 block appears under its exact name, all positive; latency once."""
+def test_energy_channels(device: torch.device) -> None:
+    """Every Fig.19 block appears under its exact name, all positive."""
     macro = build_macro(build_config(), device=device)
     w_val = torch.full((TINY_INPUT_NUM, TINY_OUTPUT_NUM), W_MAX, dtype=torch.long, device=device)
     x = torch.ones(TINY_INPUT_NUM, dtype=torch.long, device=device)
@@ -415,15 +427,12 @@ def test_energy_channels_and_single_latency(device: torch.device) -> None:
     report = prof.report(macro)
     by_name = report.energy_by_name
 
-    # Array block: self-billed per-access caps ("array") + the macro-billed
-    # conduction / per-vector-cap channels; then the readout and the flat seats.
-    for key in ("array", ".bl_cond", ".dl_cond", ".bl_cap", "rscsa", ".mux_driver", ".timing_ctrl"):
+    # Array block: self-billed per-access caps ("array") + the two converter
+    # banks' own drive rows + the macro-billed conduction channels; then the
+    # readout and the flat seats.
+    for key in ("array", "wl_dac", "bl_dac", ".bl_cond", ".dl_cond", "rscsa", ".mux_driver", ".timing_ctrl"):
         assert key in by_name, f"missing energy block {key!r}; have {sorted(by_name)}"
         assert by_name[key] > 0.0, f"non-positive energy block {key!r}: {by_name[key]}"
-
-    # The macro is the sole latency emitter: exactly one latency event.
-    assert len(prof.latency_events) == 1, f"expected one latency event, got {len(prof.latency_events)}"
-    assert prof.total_latency__ns > 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -488,19 +497,14 @@ def test_crossed_ensemble_bills_the_sum_of_its_dies(device: torch.device) -> Non
     assert report_cross.total_dynamic_energy__fJ == pytest.approx(report_ref.total_dynamic_energy__fJ, rel=1e-9)
 
 
-def test_crossed_ensemble_latency_does_not_scale_with_the_dies(device: torch.device) -> None:
-    """The dies are PARALLEL: latency counts ``n_x * out`` accesses, not ``die_num`` times that."""
-    macro, _cc, _cr, report_cross, report_ref = _crossed_run(device)
-    t_ac__ns = float(macro.t_ac__ns)
-    assert report_cross.total_latency__ns == pytest.approx(t_ac__ns * _CROSS_BATCH * TINY_OUTPUT_NUM)
-    # Running the same work one die at a time serializes it instead.
-    assert report_ref.total_latency__ns == pytest.approx(_DIE_NUM * report_cross.total_latency__ns)
-
-
 def test_static_report_seats(device: torch.device) -> None:
     """The static walk seats every configured PPA reporter (macro root + children)."""
     macro = build_macro(build_config(), device=device)
     static = {r.qualified_name: r.leakage_power__uW for r in NeuroxProfiler.collect_static(macro)}
-    for seat in ("", "array", "rscsa", "bl_driver", "sl_driver", "mux_driver", "timing_ctrl"):
+    # Every owned block is seated, converter banks and array included.
+    for seat in ("", "array", "wl_dac", "bl_dac", "rscsa", "bl_driver", "sl_driver", "mux_driver", "timing_ctrl"):
         assert seat in static, f"missing static seat {seat!r}; have {sorted(static)}"
+    # The array's lattice rests at zero cell bias and holds no static conduction
+    # path, so it seats area without leakage; the configured leakers do leak.
+    for seat in ("", "rscsa", "bl_driver", "sl_driver", "mux_driver", "timing_ctrl"):
         assert static[seat] > 0.0, f"non-positive leakage seat {seat!r}: {static[seat]}"

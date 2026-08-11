@@ -8,7 +8,7 @@ import torch
 from torch import Tensor
 
 from neurox.primitive.nonideality import apply_gaussian, apply_pelgrom_mismatch
-from neurox.primitive.physical_constant import K_BOLTZMANN__J_per_K
+from neurox.primitive.physics import K_BOLTZMANN__J_per_K
 
 from .base import AnalogBase, AnalogConfig, AnalogPolicy
 
@@ -20,8 +20,6 @@ class SwitchCapConfig(AnalogConfig):
         c_unit__fF: Unit capacitance.
         cap_mismatch_sigma_relative: Per-unit-cap Pelgrom relative σ.
         energy_per_sample_overhead__fJ: Per-bank switching overhead.
-        latency_per_op__ns: Per-sample-and-accumulate latency;
-            multiplied by the runtime serial-op count at logging time.
         area_per_inst__um2: Silicon area per fabricated instance.
         leakage_per_inst__uW: Static leakage per instance.
     """
@@ -29,7 +27,6 @@ class SwitchCapConfig(AnalogConfig):
     c_unit__fF: float
     cap_mismatch_sigma_relative: float
     energy_per_sample_overhead__fJ: float
-    latency_per_op__ns: float
     area_per_inst__um2: float
     leakage_per_inst__uW: float
 
@@ -45,7 +42,6 @@ class SwitchCapConfig(AnalogConfig):
         self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
         self._require_non_neg(self.energy_per_sample_overhead__fJ, "energy_per_sample_overhead__fJ")
-        self._require_non_neg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
 class SwitchCapPolicy(AnalogPolicy):
@@ -71,10 +67,6 @@ class SwitchCap(AnalogBase[SwitchCapConfig, SwitchCapPolicy]):
         T__K: Operating temperature.
         cap_weights: Per-cap multipliers on ``config.c_unit__fF``.
     """
-
-    # === Circuit constant buffers ===
-
-    _latency_per_op__ns: Tensor  # Shape: []
 
     # === Nominal buffers ===
 
@@ -105,11 +97,6 @@ class SwitchCap(AnalogBase[SwitchCapConfig, SwitchCapPolicy]):
 
         self._T__K = T__K
         self._cap_num = len(cap_weights)
-        self.register_buffer(
-            "_latency_per_op__ns",
-            torch.tensor(config.latency_per_op__ns, dtype=dtype),
-            persistent=False,
-        )
         self._register_fabrication_buffers(dtype=dtype, cap_weights=cap_weights)
 
     @property
@@ -164,10 +151,11 @@ class SwitchCap(AnalogBase[SwitchCapConfig, SwitchCapPolicy]):
         c_total__fF = c__fF.sum(dim=-1)
         v_out__V = torch.sum(c__fF * v_hold__V, dim=-1) / c_total__fF
 
-        serial_round_count = self._count_serial_rounds(v_out__V.numel())
-        latency__ns = self._latency_per_op__ns * serial_round_count
         if self._is_dynamic_energy_profile_active():
+            # Shape: [..., *inst_shape, cap_num] -> [..., *inst_shape]
             e_caps__fJ = 0.5 * torch.sum(c__fF * v_in__V * v_in__V, dim=-1)
+            # The cap axis is already summed by the line above; the collector
+            # sums the bank's remaining work and instance axes past the caller's
+            # leading dims.
             self._record_dynamic_energy(e_caps__fJ + self.config.energy_per_sample_overhead__fJ)
-        self._record_latency(latency__ns)
         return v_out__V

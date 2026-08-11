@@ -45,7 +45,7 @@ Cap mismatch is static — a fixed offset frozen at fabrication; kT/C noise is d
 | `cap_mismatch_sigma_relative` ($\sigma_u$) | per-unit-cell relative mismatch sigma (Pelgrom) | — | $\geq 0$ | Measured |
 | `cap_weights` ($a_k$) | per-cap weight on $C_{\mathrm{unit}}$, length $N$ | — | $> 0$ | Design |
 | `energy_per_sample_overhead__fJ` ($E_{\mathrm{overhead}}$) | per-sample energy overhead, independent of the sampled voltages | fJ | $\geq 0$ | Design |
-| leakage / area / latency | static PPA / spec fields | uW, um^2, ns | $\geq 0$ | Design |
+| leakage / area | static PPA / spec fields | uW, um^2 | $\geq 0$ | Design |
 
 Provenance terms are defined in [module_parameter](../../../conventions/module_parameter.md).
 

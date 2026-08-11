@@ -18,7 +18,7 @@ replay and no ``to_ideal``.
 
 Stage 2 -- CAPACITANCES. With conduction frozen by stage 1, the two paired-slice
 residuals seat the capacitive remainders: the whole ``cablc+dswct`` residual
-seats on the array wire + cell node caps through ONE uniform scale (the declared
+seats on the array's four per-node caps through ONE uniform scale (the declared
 per-node relative structure of ``tools/params_detail.toml`` is kept), and the
 ``sinwp_sc+pn_isub`` residual -- the kept comparator per-op included in the
 measured row -- seats the SINWP-SC ``c_hold``. The cap scale is the
@@ -96,15 +96,7 @@ _FJ_PER_PJ = 1000.0
 # Declared cap STRUCTURE source: the campaign scales this relative structure by
 # one uniform factor, never the individual nodes.
 _DETAIL_PATH = _VAL_DIR / "tools" / "params_detail.toml"
-_WIRE_CAP_FIELDS = (
-    "bl_first_c__fF",
-    "bl_segment_c__fF",
-    "sl_first_c__fF",
-    "sl_segment_c__fF",
-    "wl_first_c__fF",
-    "wl_segment_c__fF",
-)
-_CELL_CAP_FIELDS = ("c_bl__fF", "c_x__fF", "c_sl__fF", "c_wl__fF")
+_NODE_CAP_FIELDS = ("bl_node_c__fF", "x_node_c__fF", "sl_node_c__fF", "wl_node_c__fF")
 
 # [measured p208 Fig.10(b)] As-drawn PH2 / PH3 occupancy of one conversion step,
 # read off the timing diagram: PH2 18 %, PH3 30 % (48 % of the step; PH1/PH4 the
@@ -178,13 +170,9 @@ def rebuild(cfg: CimMacroConfig, policy: CimMacroPolicy, device: torch.device) -
 
 
 def scale_caps(cfg: Xue2020JsscCimMacroConfig, factor: float) -> Xue2020JsscCimMacroConfig:
-    """Scale every array wire and cell node capacitance by ONE uniform factor."""
-    array = cfg.array_config
-    cell = array.cell_config
+    """Scale every array per-node capacitance by ONE uniform factor."""
     array = dataclasses.replace(
-        array,
-        **{name: getattr(array, name) * factor for name in _WIRE_CAP_FIELDS},
-        cell_config=dataclasses.replace(cell, **{name: getattr(cell, name) * factor for name in _CELL_CAP_FIELDS}),
+        cfg.array_config, **{name: getattr(cfg.array_config, name) * factor for name in _NODE_CAP_FIELDS}
     )
     return dataclasses.replace(cfg, array_config=array)
 
@@ -207,9 +195,7 @@ def declared_cap_structure() -> dict[str, float]:
     """The declared per-node cap structure the campaign scale multiplies (params_detail.toml)."""
     with _DETAIL_PATH.open("rb") as fh:
         detail = tomllib.load(fh)["cim_macro"]["array_config"]
-    base = {name: float(detail[name]) for name in _WIRE_CAP_FIELDS}
-    base.update({name: float(detail["cell_config"][name]) for name in _CELL_CAP_FIELDS})
-    return base
+    return {name: float(detail[name]) for name in _NODE_CAP_FIELDS}
 
 
 # ---------------------------------------------------------------------------
@@ -601,7 +587,7 @@ def main() -> None:
         f"draws reads `accesses = n_w * n_x * mux_factor` ({cfg.mux_factor}) output accesses and EVERY profiled "
         f"energy total is divided by that leading count. A per-op seat is divided further by its own event "
         f"count per access: {cap_events_per_access(cfg, col_num=V._COL_NUM)} SINWP-SC hold-cap events "
-        f"(x_bits x IO x polarity) and {tmcsa_steps_per_access(cfg, col_num=V._COL_NUM)} TMCSA step charges "
+        f"(x_bits x IO x P/N) and {tmcsa_steps_per_access(cfg, col_num=V._COL_NUM)} TMCSA step charges "
         f"(IO x steps). Each stage proves its own normalization by an n_w / n_x doubling check."
     )
     emit()
@@ -663,9 +649,8 @@ def main() -> None:
     emit()
     cap_events = cap_events_per_access(cfg, col_num=V._COL_NUM)
     base_caps = declared_cap_structure()
-    shipped_caps = {name: getattr(cfg.array_config, name) for name in _WIRE_CAP_FIELDS}
-    shipped_caps.update({name: getattr(cfg.array_config.cell_config, name) for name in _CELL_CAP_FIELDS})
-    scale_in = shipped_caps["bl_first_c__fF"] / base_caps["bl_first_c__fF"]
+    shipped_caps = {name: getattr(cfg.array_config, name) for name in _NODE_CAP_FIELDS}
+    scale_in = shipped_caps["bl_node_c__fF"] / base_caps["bl_node_c__fF"]
     scale_spread = max(abs(shipped_caps[name] / base_caps[name] / scale_in - 1.0) for name in base_caps)
     c_hold_in = cfg.sinwp_sc_config.c_hold__fF
 
@@ -963,13 +948,8 @@ def main() -> None:
     emit("## Values to write back into params.toml (print only; nothing is mutated)")
     emit()
     emit(f"- `reference_config.i_refs__uA = [[{', '.join(f'{v:.6f}' for v in mids)}]]`  # stage 1, calibrated ladder")
-    for name in _WIRE_CAP_FIELDS:
+    for name in _NODE_CAP_FIELDS:
         emit(f"- `array_config.{name} = {getattr(cfg.array_config, name):.8g}`  # stage 2, cap scale x{cap_scale:.5f}")
-    for name in _CELL_CAP_FIELDS:
-        emit(
-            f"- `array_config.cell_config.{name} = {getattr(cfg.array_config.cell_config, name):.8g}`"
-            f"  # stage 2, cap scale x{cap_scale:.5f}"
-        )
     emit(f"- `sinwp_sc_config.c_hold__fF = {c_hold:.4f}`  # stage 2, pair-2 residual over {cap_events} events/access")
     emit(
         f"- `tmcsa_config.t_ph2_per_step__ns = {[round(t, 6) for t in cfg.tmcsa_config.t_ph2_per_step__ns]}`"

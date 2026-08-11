@@ -9,6 +9,7 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor
 
+from neurox.common.mixin import TensorGroupMixin
 from neurox.primitive.nonideality import apply_gaussian
 
 from .base import AnalogBase, AnalogConfig, AnalogPolicy
@@ -69,25 +70,36 @@ class VoltageDriverPolicy(AnalogPolicy):
 
 
 @dataclass(frozen=True)
-class VoltageDriverSnap:
+class VoltageDriverSnap(TensorGroupMixin):
     """One sampled clamp snap.
 
     Attributes:
-        v_ref__V: Reference clamp voltage, post offset + thermal,
-            broadcast to the per-call shape.
-        r_out__MOhm: Series output resistance — a 0-d frozen
-            constant slope.
+        v_ref__V: NOMINAL reference clamp voltage, broadcast to the
+            per-call shape — the ideal value, carrying no offset or
+            thermal draw.
+            Shape: ``[..., *inst_shape]``.
+        v_perturb__V: Driver-owned perturbation on top of the nominal
+            reference — the static per-instance offset plus the per-call
+            thermal draw, whichever the policy enables; exactly zero
+            under an all-off policy. :meth:`solve_clamp` folds it in.
+            Shape: ``[..., *inst_shape]``.
+        r_out__MOhm: Series output resistance — a frozen constant slope,
+            broadcast to the same shape.
+            Shape: ``[..., *inst_shape]``.
     """
 
     v_ref__V: Tensor
+    v_perturb__V: Tensor
     r_out__MOhm: Tensor
 
 
 class VoltageDriver(AnalogBase[VoltageDriverConfig, VoltageDriverPolicy]):
     """Generic Thevenin voltage-source clamp driver.
 
-    The clamp follows ``v_clamp = v_ref - i_port * r_out``. A zero output
-    resistance represents an ideal voltage source.
+    The clamp follows ``v_clamp = v_ref + v_perturb - i_port * r_out``,
+    where ``v_perturb`` is this driver's own offset / thermal perturbation
+    on top of the nominal reference it is handed. A zero output resistance
+    represents an ideal voltage source.
 
     Args:
         config: Concrete configuration dataclass.
@@ -155,32 +167,75 @@ class VoltageDriver(AnalogBase[VoltageDriverConfig, VoltageDriverPolicy]):
         *,
         v_ref__V: Tensor,
         shape: tuple[int, ...],
-        multi_coords: tuple[Tensor, ...] | None,
     ) -> VoltageDriverSnap:
-        """Sample the driver state and runtime noise over ``shape``.
+        """Sample the driver's static state and per-call noise at ``shape``.
+
+        The reference and the fabricated static buffer both expand onto
+        ``shape``, and the thermal draw takes a fresh sample per position of
+        it. The returned snap's ``v_ref__V`` stays the NOMINAL reference —
+        every perturbation (the static per-instance offset, the per-call
+        thermal draw) accumulates instead in ``v_perturb__V``, which
+        :meth:`solve_clamp` folds in; an all-off policy leaves it exactly
+        zero, so the clamp reduces to the nominal reference bit-exactly.
+
+        Sampling only. The drive is billed by :meth:`drive`, at the
+        converged port state a snapshot cannot see.
 
         Args:
-            v_ref__V: Injected reference / zero-current clamp voltage
-                — the Thevenin open-circuit voltage. A scalar or
-                instance-shaped tensor that broadcasts onto ``shape``.
-            shape: Per-call broadcast shape; the snap fills tensor
-                fields at this shape.
-            multi_coords: Advanced-index tuple selecting a chunk's
-                positions from the broadcast view; ``None`` returns the
-                full view.
+            v_ref__V: Injected reference / zero-current clamp voltage —
+                the Thevenin open-circuit voltage, broadcastable to
+                ``shape``.
+            shape: Full per-call shape to expand the reference and the
+                fabricated offset onto and to draw the thermal noise at.
+                Shape: ``[..., *inst_shape]``.
 
         Returns:
             Per-call snap of the fabricated state.
         """
-        v_view = v_ref__V.expand(shape) if shape else v_ref__V
-        v = (v_view if multi_coords is None else v_view[multi_coords]).clone()
-        if self.policy.offset:
-            offset_view = self._offset__V.expand(shape) if shape else self._offset__V
-            v = v + (offset_view if multi_coords is None else offset_view[multi_coords])
-        v = apply_gaussian(v, self.config.thermal_sigma__V, enabled=self.policy.thermal)
-        if self._is_dynamic_energy_profile_active():
-            self._record_dynamic_energy(torch.full_like(v, self.config.energy_per_op__fJ, dtype=torch.float32))
-        return VoltageDriverSnap(v_ref__V=v, r_out__MOhm=self._frozen_r_out__MOhm)
+        v_ref__V = v_ref__V.expand(shape)
+        v_perturb__V = self._offset__V.expand(shape) if self.policy.offset else self._nominal_offset__V.expand(shape)
+        v_perturb__V = apply_gaussian(v_perturb__V, self.config.thermal_sigma__V, enabled=self.policy.thermal)
+        # The slope is one number for every position, and the expand is the
+        # stride-0 view that says so without storing it.
+        # Shape: [] -> [..., *inst_shape]
+        return VoltageDriverSnap(
+            v_ref__V=v_ref__V,
+            v_perturb__V=v_perturb__V,
+            r_out__MOhm=self._frozen_r_out__MOhm.expand(shape),
+        )
+
+    def drive(self, i_port__uA: Tensor, v_clamp__V: Tensor) -> Tensor:
+        """Deliver the clamp at the converged port state and bill the drive.
+
+        The port state is the settled pair ``(i_port__uA, v_clamp__V)``: the
+        Thevenin drop ``i_port * r_out`` is already inside the clamp node, so
+        the delivered voltage is that node itself and no snap is needed —
+        every snap-borne quantity has been folded into the solved clamp,
+        including the offset and thermal draw the snap carried.
+
+        Call once per access, on the port state at the caller's full leading:
+        the drive is billed per driven position, and only that layout states
+        which positions those are.
+
+        Args:
+            i_port__uA: Converged port current [uA] — one instance per column,
+                so the column axis is last.
+                Shape: ``[*caller_leading, ...]``.
+            v_clamp__V: Converged clamp voltage [V] at the same layout.
+                Shape: ``[*caller_leading, ...]``.
+
+        Returns:
+            Delivered clamp voltage [V] — the terminal voltage this driver
+            holds at ``i_port__uA``.
+            Shape: ``[*caller_leading, ...]``.
+        """
+        # A flat per-port-op lump: the expanded constant holds no storage, so no
+        # payload is materialized, and the energy dtype comes from the constant
+        # rather than from the port current.
+        # Shape: [] -> [*i_port__uA.shape]
+        e_op__fJ = torch.full((), self.config.energy_per_op__fJ, dtype=torch.float32, device=i_port__uA.device)
+        self._record_dynamic_energy(e_op__fJ.expand(i_port__uA.shape))
+        return v_clamp__V
 
     def solve_clamp(
         self,
@@ -199,10 +254,10 @@ class VoltageDriver(AnalogBase[VoltageDriverConfig, VoltageDriverPolicy]):
 
         Returns:
             Tuple ``(v_clamp__V, dVclamp_dI__MOhm)``, where
-            ``v_clamp__V = snap.v_ref__V - i_port__uA * snap.r_out__MOhm``
-            and ``dVclamp_dI__MOhm = snap.r_out__MOhm`` broadcast to
-            ``i_port__uA``.
+            ``v_clamp__V = snap.v_ref__V + snap.v_perturb__V -
+            i_port__uA * snap.r_out__MOhm`` and ``dVclamp_dI__MOhm =
+            snap.r_out__MOhm`` broadcast to ``i_port__uA``.
         """
-        v_clamp__V = snap.v_ref__V - i_port__uA * snap.r_out__MOhm
+        v_clamp__V = snap.v_ref__V + snap.v_perturb__V - i_port__uA * snap.r_out__MOhm
         dVclamp_dI__MOhm = snap.r_out__MOhm.expand_as(i_port__uA)
         return v_clamp__V, dVclamp_dI__MOhm

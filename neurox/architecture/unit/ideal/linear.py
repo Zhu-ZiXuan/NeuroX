@@ -96,6 +96,16 @@ class IdealLinearUnit(LinearUnit, CimUnit[IdealLinearUnitConfig, IdealLinearUnit
         del quantization_mode, adc_bits
         return 1.0
 
+    def latency__ns(self, input_shape: tuple[int, ...], *, adc_bits: int | None) -> float:
+        """Zero — an exact integer matmul, with no circuit under it to take time.
+
+        The unit holds neither a macro nor an engine schedule, so there is no
+        time axis anywhere below it and the operand layout says nothing about
+        a duration.
+        """
+        del input_shape, adc_bits
+        return 0.0
+
     def program(self, weight: Tensor, bias: Tensor | None = None) -> None:
         if tuple(weight.shape) != self._w_logical_shape:
             raise ValueError(f"program() expects weight.shape {self._w_logical_shape}; got {tuple(weight.shape)}")

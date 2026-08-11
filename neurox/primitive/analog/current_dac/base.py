@@ -115,7 +115,7 @@ class Idac(
 
         Returns:
             Analog output current [uA], one value per ``code`` element. Dynamic
-            energy and latency are emitted through the profiler side channel.
+            energy is emitted through the profiler side channel.
             Shape: ``[...]``.
         """
         raise NotImplementedError

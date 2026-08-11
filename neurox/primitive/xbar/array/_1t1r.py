@@ -4,13 +4,15 @@ See also:
     docs/reference/primitive/xbar/array/_1t1r/array.md
 """
 
-import math
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import TypeVar
 
 import torch
 from torch import Tensor
 
+from neurox.common import ConfigBase, ModuleBase, PolicyBase
+from neurox.primitive.physics import e_cap_excursion__fJ
 from neurox.primitive.xbar.cell import (
     XbarCell1t1r,
     XbarCell1t1rConfig,
@@ -19,124 +21,116 @@ from neurox.primitive.xbar.cell import (
     XbarCell1t1rSnap,
 )
 from neurox.primitive.xbar.solver import (
+    ChunkedSolver,
     ClampDriver,
     NestedParallelRailSolver,
     NestedParallelRailSolverConfig,
     SolverDcop,
-    classify_leading_positions,
-    iter_chunks,
-    reassemble_chunks,
 )
 from neurox.primitive.xbar.solver.clamp import ClampSnap
-
-from .base import XbarArray, XbarArrayConfig, XbarArrayPolicy
 
 BLSnapT = TypeVar("BLSnapT", bound=ClampSnap)
 SLSnapT = TypeVar("SLSnapT", bound=ClampSnap)
 
 
-class XbarArray1t1rConfig(XbarArrayConfig):
-    """Shape-independent physical knobs for a 1T1R pure-array core.
+class XbarArray1t1rOperationMode(StrEnum):
+    """Scan organization the array's per-solve capacitive billing follows.
+
+    The mode selects energy evaluation ONLY. Solving and programming are
+    organization-blind: the same node network and the same physical state
+    grid serve either scan, and nothing outside the energy path reads this.
 
     Attributes:
-        row_first_space__um: Row pitch from the driver to the first cell.
+        WL_IN_BL_SCAN: The word lines carry the held input and the bit-line
+            boundary is scanned. Every node returns to ground between
+            solves, so a solve is a full excursion and there is no rest
+            level to establish.
+        BL_IN_WL_SCAN: The bit-line boundary carries the held input and the
+            word lines are scanned. The conduction path rests at the held
+            level across one full row scan, so a solve is the excursion
+            away from that rest level and the hold's own establishment is
+            amortized over the scan.
+    """
+
+    WL_IN_BL_SCAN = "wl_in_bl_scan"
+    BL_IN_WL_SCAN = "bl_in_wl_scan"
+
+
+class XbarArray1t1rConfig(ConfigBase):
+    """Shape-independent physical knobs for a 1T1R pure-array core.
+
+    The tile is a uniform lattice of identical cell seats: one row pitch,
+    one column pitch, one resistance per rail link, and one capacitance per
+    node of each line. Whatever lead-in a boundary driver needs to reach its
+    first seat is that driver's business, not the lattice's.
+
+    Attributes:
         row_cell_space__um: Row pitch between adjacent cells.
-        col_first_space__um: Column pitch from the driver to the first cell.
         col_cell_space__um: Column pitch between adjacent cells.
-        bl_first_r__MOhm: BL driver-to-first-cell segment resistance.
-        bl_first_c__fF: BL driver-to-first-cell segment capacitance.
         bl_segment_r__MOhm: BL cell-to-cell segment resistance.
-        bl_segment_c__fF: BL cell-to-cell segment capacitance.
-        sl_first_r__MOhm: SL driver-to-first-cell segment resistance.
-        sl_first_c__fF: SL driver-to-first-cell segment capacitance.
         sl_segment_r__MOhm: SL cell-to-cell segment resistance.
-        sl_segment_c__fF: SL cell-to-cell segment capacitance.
-        wl_first_r__MOhm: WL driver-to-first-cell segment resistance.
-        wl_first_c__fF: WL driver-to-first-cell segment capacitance.
-        wl_segment_r__MOhm: WL cell-to-cell segment resistance.
-        wl_segment_c__fF: WL cell-to-cell segment capacitance.
+        bl_node_c__fF: Total node-to-ground capacitance seen at each cell's
+            BL node — the cell junction plus that node's share of the bit
+            line, one layout-extracted per-node quantity.
+        x_node_c__fF: Total node-to-ground capacitance at each cell's
+            internal access node X.
+        sl_node_c__fF: Total node-to-ground capacitance at each cell's SL
+            node — the cell junction plus that node's share of the source
+            line.
+        wl_node_c__fF: Total node-to-ground capacitance at each cell's WL
+            node — the access-device gate load plus that node's share of the
+            word line.
         cell_config: 1T1R cell configuration. Concrete subclass of
             :class:`XbarCell1t1rConfig` selects the cell model.
         solver_config: Nested parallel-rail solver numerical parameters.
-        area_per_inst__um2: Cell-grid and wire area per instance [um²].
-        leakage_per_inst__uW: Cell-grid and wire leakage per instance.
-        latency_per_op__ns: Array-side per-VMM latency that the
-            profiler attributes the dynamic-energy event to.
     """
 
-    row_first_space__um: float
     row_cell_space__um: float
-    col_first_space__um: float
     col_cell_space__um: float
 
-    bl_first_r__MOhm: float
-    bl_first_c__fF: float
     bl_segment_r__MOhm: float
-    bl_segment_c__fF: float
-
-    sl_first_r__MOhm: float
-    sl_first_c__fF: float
     sl_segment_r__MOhm: float
-    sl_segment_c__fF: float
 
-    wl_first_r__MOhm: float
-    wl_first_c__fF: float
-    wl_segment_r__MOhm: float
-    wl_segment_c__fF: float
+    bl_node_c__fF: float
+    x_node_c__fF: float
+    sl_node_c__fF: float
+    wl_node_c__fF: float
 
     cell_config: XbarCell1t1rConfig
     solver_config: NestedParallelRailSolverConfig
-
-    latency_per_op__ns: float
 
     def validate(self) -> None:
         super().validate()
 
         # --- Layout pitch ---
 
-        for field in (
-            "row_first_space__um",
-            "row_cell_space__um",
-            "col_first_space__um",
-            "col_cell_space__um",
-        ):
+        for field in ("row_cell_space__um", "col_cell_space__um"):
             self._require_pos(getattr(self, field), field)
 
-        # --- Wire segments ---
+        # --- Rail links ---
 
-        for field in (
-            "bl_first_r__MOhm",
-            "bl_first_c__fF",
-            "bl_segment_r__MOhm",
-            "bl_segment_c__fF",
-            "sl_first_r__MOhm",
-            "sl_first_c__fF",
-            "sl_segment_r__MOhm",
-            "sl_segment_c__fF",
-            "wl_first_r__MOhm",
-            "wl_first_c__fF",
-            "wl_segment_r__MOhm",
-            "wl_segment_c__fF",
-        ):
+        for field in ("bl_segment_r__MOhm", "sl_segment_r__MOhm"):
             self._require_pos(getattr(self, field), field)
 
-        # --- PPA ---
+        # --- Node capacitance ---
 
-        self._require_non_neg(self.latency_per_op__ns, "latency_per_op__ns")
+        for field in ("bl_node_c__fF", "x_node_c__fF", "sl_node_c__fF", "wl_node_c__fF"):
+            self._require_non_neg(getattr(self, field), field)
 
 
-class XbarArray1t1rPolicy(XbarArrayPolicy):
+class XbarArray1t1rPolicy(PolicyBase):
     """Composite nonideality policy for a 1T1R pure-array core.
 
     Attributes:
         cell_policy: 1T1R cell nonideality policy; concrete subclass matches
             the configured cell model.
-        solve_chunk_size: Maximum number of broadcast-leading instances
-            ``solve_array`` solves per chunk — the per-chunk peak-memory
-            budget. ``0`` runs the whole leading in one block; any
-            positive value forces the memory-bounded chunked path,
-            splitting the leading into contiguous slices of at most this
-            many instances. Runtime knob, not a chip-preset constant.
+        solve_chunk_size: Maximum number of broadcast-leading instances the
+            solver settles per chunk — the per-chunk memory budget, since
+            the sliced snaps, the solver's own transient state, and that
+            chunk's measurement all scale with it and nothing grid-shaped
+            outlives the chunk. ``0`` runs the whole leading in one block;
+            any positive value splits it into contiguous slices of at most
+            this many instances. Runtime knob, not a chip-preset constant.
     """
 
     cell_policy: XbarCell1t1rPolicy
@@ -148,21 +142,60 @@ class XbarArray1t1rPolicy(XbarArrayPolicy):
 
 
 @dataclass(frozen=True)
-class XbarArraySteadyState:
+class XbarArray1t1rSteadyState:
     """Reassembled steady-state array output.
+
+    Both boundaries are reported because both conduct: the caller that
+    injected the two clamps is what bills them, and it bills each at the
+    converged state of its own rail.
 
     Attributes:
         i_bl_port__uA: BL port current at the converged operating point.
             Shape: ``[..., col_num]``.
         v_bl_clamp__V: BL clamp voltage at the converged operating point.
             Shape: ``[..., col_num]``.
+        i_sl_port__uA: SL port current at the converged operating point.
+            Shape: ``[..., col_num]``.
+        v_sl_drive__V: SL drive voltage at the converged operating point.
+            Shape: ``[..., col_num]``.
     """
 
     i_bl_port__uA: Tensor
     v_bl_clamp__V: Tensor
+    i_sl_port__uA: Tensor
+    v_sl_drive__V: Tensor
 
 
-class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
+@dataclass(frozen=True)
+class XbarArray1t1rChunkMeasure:
+    """What survives one solved chunk of this array.
+
+    A scheme array whose measurement carries more than the two boundaries
+    extends this record and reassembles it in
+    :meth:`XbarArray1t1r._assemble_steady_state`.
+
+    Attributes:
+        i_bl_port__uA: BL port current at the converged operating point.
+            Shape: ``[..., col_num]``.
+        v_bl_clamp__V: BL clamp voltage at the converged operating point.
+            Shape: ``[..., col_num]``.
+        i_sl_port__uA: SL port current at the converged operating point.
+            Shape: ``[..., col_num]``.
+        v_sl_drive__V: SL drive voltage at the converged operating point.
+            Shape: ``[..., col_num]``.
+        energy__fJ: Array capacitive energy, absent when no profiler asks
+            for dynamic energy.
+            Shape: ``[...]``.
+    """
+
+    i_bl_port__uA: Tensor
+    v_bl_clamp__V: Tensor
+    i_sl_port__uA: Tensor
+    v_sl_drive__V: Tensor
+    energy__fJ: Tensor | None
+
+
+class XbarArray1t1r(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
     """Shape-independent 1T1R array with wire parasitics and a DC solver.
 
     Args:
@@ -171,19 +204,14 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
         inst_shape: Per-instance replication shape.
         row_num: Number of array rows.
         col_num: Number of array columns.
+        operation_mode: Scan organization the capacitive billing follows.
+        v_dd_wl__V: Word-line driver rail — the supply behind the WL node
+            capacitance.
+        v_dd_bl__V: Bit-line driver rail — the supply behind the BL, access
+            and SL node capacitance.
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature.
     """
-
-    # === Circuit constant buffers ===
-
-    _bl_segment_r__MOhm: Tensor  # Shape: [row_num]
-    _sl_segment_r__MOhm: Tensor  # Shape: [row_num]
-    _bl_segment_g__uS: Tensor  # Shape: [row_num]
-    _sl_segment_g__uS: Tensor  # Shape: [row_num]
-    _bl_segment_c__fF: Tensor  # Shape: [row_num]
-    _sl_segment_c__fF: Tensor  # Shape: [row_num]
-    _latency_per_op__ns: Tensor  # Shape: []
 
     def __init__(
         self,
@@ -193,33 +221,38 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
         inst_shape: tuple[int, ...],
         row_num: int,
         col_num: int,
+        operation_mode: XbarArray1t1rOperationMode,
+        v_dd_wl__V: float,
+        v_dd_bl__V: float,
         dtype: torch.dtype,
         T__K: float,
     ) -> None:
-        if not (col_num > 1):
-            raise ValueError(f"require: col_num ({col_num}) > 1")
-        if not (row_num > 1):
-            raise ValueError(f"require: row_num ({row_num}) > 1")
-
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
         self._row_num = row_num
         self._col_num = col_num
+        self._operation_mode = operation_mode
+        self._v_dd_wl__V = v_dd_wl__V
+        self._v_dd_bl__V = v_dd_bl__V
 
         self._init_children(dtype=dtype, T__K=T__K)
-        self._register_model_buffers(dtype=dtype)
-
-        self._c_wl_wire_per_row__fF = config.wl_first_c__fF + (col_num - 1) * config.wl_segment_c__fF
 
     @property
     def _area_per_inst__um2(self) -> float:
-        return self.config.area_per_inst__um2
+        config = self.config
+        return self._row_num * config.row_cell_space__um * self._col_num * config.col_cell_space__um
 
     @property
     def _leakage_per_inst__uW(self) -> float:
-        return self.config.leakage_per_inst__uW
+        # Both organizations rest at zero cell bias, so the tile holds no
+        # static conduction path; conduction under drive is the DC solve's,
+        # billed by the macro.
+        return 0.0
+
+    def _sample_fabricate_mismatch(self) -> None:
+        """No local static state; the cell fabricates via the traversal."""
 
     def _init_children(self, *, dtype: torch.dtype, T__K: float) -> None:
-        """Construct the cell model and numerical solver."""
+        """Construct the cell model and the chunked numerical solver."""
         self.cell = XbarCell1t1r.from_config(
             config=self.config.cell_config,
             policy=self.policy.cell_policy,
@@ -227,38 +260,9 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
             dtype=dtype,
             T__K=T__K,
         )
-        self._solver = NestedParallelRailSolver(config=self.config.solver_config)
-
-    def _register_model_buffers(self, *, dtype: torch.dtype) -> None:
-        """Register fixed wire and PPA tensors."""
-        config = self.config
-        # Segment index zero connects the driver to the first cell.
-        bl_segment_r__MOhm = torch.tensor(
-            [config.bl_first_r__MOhm] + [config.bl_segment_r__MOhm] * (self._row_num - 1),
-            dtype=dtype,
-        )
-        sl_segment_r__MOhm = torch.tensor(
-            [config.sl_first_r__MOhm] + [config.sl_segment_r__MOhm] * (self._row_num - 1),
-            dtype=dtype,
-        )
-        bl_segment_c__fF = torch.tensor(
-            [config.bl_first_c__fF] + [config.bl_segment_c__fF] * (self._row_num - 1),
-            dtype=dtype,
-        )
-        sl_segment_c__fF = torch.tensor(
-            [config.sl_first_c__fF] + [config.sl_segment_c__fF] * (self._row_num - 1),
-            dtype=dtype,
-        )
-        self.register_buffer("_bl_segment_r__MOhm", bl_segment_r__MOhm, persistent=False)
-        self.register_buffer("_sl_segment_r__MOhm", sl_segment_r__MOhm, persistent=False)
-        self.register_buffer("_bl_segment_g__uS", 1.0 / bl_segment_r__MOhm, persistent=False)
-        self.register_buffer("_sl_segment_g__uS", 1.0 / sl_segment_r__MOhm, persistent=False)
-        self.register_buffer("_bl_segment_c__fF", bl_segment_c__fF, persistent=False)
-        self.register_buffer("_sl_segment_c__fF", sl_segment_c__fF, persistent=False)
-        self.register_buffer(
-            "_latency_per_op__ns",
-            torch.tensor(config.latency_per_op__ns, dtype=dtype),
-            persistent=False,
+        self._solver: ChunkedSolver[XbarArray1t1rChunkMeasure] = ChunkedSolver(
+            NestedParallelRailSolver(config=self.config.solver_config),
+            chunk_size=self.policy.solve_chunk_size,
         )
 
     @property
@@ -274,6 +278,10 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
     def program(self, w_state_idx: Tensor) -> None:
         """Write the cells from one state-index tensor.
 
+        The index grid is PHYSICAL: entry ``(col, row)`` is the state of the
+        cell at that intersection. Any placement of digits, polarities, or
+        serial slots onto physical columns belongs to the caller.
+
         Args:
             w_state_idx: State-index tensor in ``[0, w_state_num - 1]`` at
                 ``self.weight_grid_shape``.
@@ -285,169 +293,267 @@ class XbarArray1t1r(XbarArray[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
             )
         self.cell.program(w_state_idx)
 
-    @torch.compiler.disable(
-        recursive=False,
-        reason="eager chunk loop; the fixed-shape per-chunk solver body is compiled separately",
-    )
     def solve_array(
         self,
         v_wl: Tensor,
         *,
         bl_driver: ClampDriver[BLSnapT],
-        bl_v_ref__V: Tensor,
+        bl_driver_snap: BLSnapT,
         sl_driver: ClampDriver[SLSnapT],
-        sl_v_ref__V: Tensor,
-    ) -> XbarArraySteadyState:
+        sl_driver_snap: SLSnapT,
+    ) -> XbarArray1t1rSteadyState:
         """Settle the 1T1R array to DC under an analog WL drive.
 
+        The leading axes end with this array's instance axes — they come from
+        broadcasting against the weight grid ``(*inst_shape, col, row)`` — so a
+        caller's own batch axes stay in front of them. Both payloads are laid out
+        that way: the array's cap energy at
+        ``[*caller_leading, *middle, *inst_shape]`` and each boundary's port state at
+        ``[..., col_num]``, the column axis being the per-column clamp's instance
+        axis.
+
+        Boundary state arrives ready: each clamp snap was taken by the caller
+        that owns the event structure, so the array normalizes no shape and
+        samples no boundary of its own. The word-line drive is a full cell
+        grid for the same reason — one value per gate is what the cell reads,
+        and a caller that drives one line per row states that by expanding a
+        row vector, which also declares its correlation structure.
+
+        The array bills its own capacitance and nothing else. It calls no clamp
+        forward: it hands each clamp to the solver, reads the converged rail
+        state back, and returns it for the caller to bill its own boundaries on.
+
         Args:
-            v_wl: Analog WL drive [V].
-                Shape: ``[..., row_num]``.
+            v_wl: Analog WL drive [V], one value per cell gate.
+                Shape: ``[..., col_num, row_num]``.
             bl_driver: BL boundary clamp (structural ``ClampDriver`` role).
-            bl_v_ref__V: BL-clamp reference voltage.
+            bl_driver_snap: Per-solve BL clamp snap at the full per-call
+                shape; its ``v_ref__V`` is also the ideal BL rest level.
             sl_driver: SL boundary clamp (structural ``ClampDriver`` role).
-            sl_v_ref__V: SL-drive reference voltage.
+            sl_driver_snap: Per-solve SL clamp snap at the full per-call
+                shape; its ``v_ref__V`` is also the ideal SL rest level.
 
         Returns:
-            :class:`XbarArraySteadyState` carrying the per-column BL port
-            current [uA] and BL clamp voltage [V], both at full leading.
+            :class:`XbarArray1t1rSteadyState` carrying both boundaries' per-column
+            port current [uA] and clamp voltage [V], all at full leading.
         """
 
-        # --- 1: infer the broadcast-leading shape ---
+        # --- 1: read the call's broadcast leading ---
 
-        # Shape: [..., row] -> [..., 1, row]
-        v_wl_grid = v_wl.unsqueeze(-2)
-        g_shape = self.weight_grid_shape
-        full_shape = torch.broadcast_shapes(g_shape, v_wl_grid.shape)
-        *batch_list, col_num, row_num = full_shape
-        leading = tuple(batch_list)
-        cell_trailing = (col_num, row_num)
-        col_trailing = (col_num,)
+        col_num, row_num = self._col_num, self._row_num
+        leading = tuple(torch.broadcast_shapes(self.weight_grid_shape[:-2], v_wl.shape[:-2]))
 
-        # --- 2: classify serial and parallel leading positions ---
+        # --- 2: snapshot the cell and fold the solve chunk by chunk ---
 
-        a_positions, _b_positions = classify_leading_positions(
-            x_shape=tuple(v_wl_grid.shape),
-            g_shape=g_shape,
-            leading_rank=len(leading),
+        # A cell's control is the voltage at its own gate, so the drive
+        # travels to the cell exactly as it arrives, on the cell grid.
+        cell_snap = self.cell.snapshot(
+            control=v_wl,
+            shape=(*leading, col_num, row_num),
+            t_elapsed=0.0,
         )
 
-        # Shape: [..., 1, row] -> [*leading, 1, row]
-        v_wl_full = v_wl_grid.expand(*leading, 1, row_num)
-
-        # --- 3: solve and measure each chunk ---
-
-        i_bl_port_chunks: list[Tensor] = []
-        v_bl_clamp_chunks: list[Tensor] = []
-        chunk_energies: list[Tensor] = []
-        global_indices: list[Tensor] = []
-        record_dynamic_energy = self._is_dynamic_energy_profile_active()
-
-        for spec in iter_chunks(
+        measured = self._solver.solve_dc(
             leading=leading,
-            chunk_size=self.policy.solve_chunk_size,
-            device=v_wl.device,
-        ):
-            mc = spec.multi_coords
-            # Shape: [chunk, 1, row]
-            v_wl_chunk = v_wl_full[mc] if mc else v_wl_full
-            cell_snap = self.cell.snapshot(
-                control=v_wl_chunk,
-                shape=(*leading, *cell_trailing),
-                multi_coords=mc,
-                t_elapsed=0.0,
-            )
-            bl_snap = bl_driver.snapshot(v_ref__V=bl_v_ref__V, shape=(*leading, *col_trailing), multi_coords=mc)
-            sl_snap = sl_driver.snapshot(v_ref__V=sl_v_ref__V, shape=(*leading, *col_trailing), multi_coords=mc)
+            bl_segment_r__MOhm=self.config.bl_segment_r__MOhm,
+            sl_segment_r__MOhm=self.config.sl_segment_r__MOhm,
+            cell=self.cell,
+            cell_snap=cell_snap,
+            bl_driver=bl_driver,
+            bl_driver_snap=bl_driver_snap,
+            sl_driver=sl_driver,
+            sl_driver_snap=sl_driver_snap,
+            measure=self._measure_chunk,
+        )
 
-            solver_dcop_chunk = self._solver.solve_dc(
-                bl_segment_r__MOhm=self._bl_segment_r__MOhm,
-                sl_segment_r__MOhm=self._sl_segment_r__MOhm,
-                bl_segment_g__uS=self._bl_segment_g__uS,
-                sl_segment_g__uS=self._sl_segment_g__uS,
-                cell=self.cell,
-                cell_snap=cell_snap,
-                bl_driver=bl_driver,
-                bl_driver_snap=bl_snap,
-                sl_driver=sl_driver,
-                sl_driver_snap=sl_snap,
-            )
-            if record_dynamic_energy:
-                chunk_energy__fJ = self._compute_array_energy__fJ(
-                    solver_dcop=solver_dcop_chunk,
-                    cell_snap=cell_snap,
-                )
-                chunk_energies.append(chunk_energy__fJ[: spec.valid_size] if leading else chunk_energy__fJ)
-            i_bl_port_chunks.append(
-                solver_dcop_chunk.i_bl_driver[: spec.valid_size] if leading else solver_dcop_chunk.i_bl_driver
-            )
-            v_bl_clamp_chunks.append(
-                solver_dcop_chunk.v_bl_clamp[: spec.valid_size] if leading else solver_dcop_chunk.v_bl_clamp
-            )
-            global_indices.append(spec.flat_global_idx)
+        # --- 3: record aggregate energy ---
 
-        # --- 4: reassemble the leading dimensions ---
-
-        # Shape: [*leading, col_num]
-        i_bl_port__uA = reassemble_chunks(i_bl_port_chunks, global_indices, leading, col_trailing)
-        # Shape: [*leading, col_num]
-        v_bl_clamp__V = reassemble_chunks(v_bl_clamp_chunks, global_indices, leading, col_trailing)
-        # --- 5: record aggregate energy and latency ---
-
-        serial_round_count = math.prod(leading[p] for p in a_positions) if a_positions else 1
-        latency__ns = self._latency_per_op__ns * serial_round_count
-        if record_dynamic_energy:
+        if measured.energy__fJ is not None:
+            # The payload keeps the caller's leading dims; the collector sums the
+            # array's own work and instance axes past them. The CELL's finer
+            # instance axes (column, row) are already folded by the mode's
+            # energy function: the cell is not a profile target and this array
+            # logs on its behalf.
             # Shape: [*leading]
-            array_energy__fJ = reassemble_chunks(chunk_energies, global_indices, leading, ())
-            self._record_dynamic_energy(array_energy__fJ)
-        self._record_latency(latency__ns)
-        return XbarArraySteadyState(i_bl_port__uA=i_bl_port__uA, v_bl_clamp__V=v_bl_clamp__V)
+            self._record_dynamic_energy(measured.energy__fJ)
+        return self._assemble_steady_state(measured)
 
-    def _compute_array_energy__fJ(
+    def _assemble_steady_state(self, measured: XbarArray1t1rChunkMeasure) -> XbarArray1t1rSteadyState:
+        """Reassemble the folded measurement into this array's steady state.
+
+        The extension point of the measurement pair: a scheme array that
+        measures more than the two boundaries overrides :meth:`_measure_chunk`
+        with a record of its own and this method to carry it out.
+
+        Args:
+            measured: Folded measurement at the call's full leading.
+
+        Returns:
+            The steady state the caller reads the boundaries off.
+        """
+        return XbarArray1t1rSteadyState(
+            i_bl_port__uA=measured.i_bl_port__uA,
+            v_bl_clamp__V=measured.v_bl_clamp__V,
+            i_sl_port__uA=measured.i_sl_port__uA,
+            v_sl_drive__V=measured.v_sl_drive__V,
+        )
+
+    def _measure_chunk(
+        self,
+        *,
+        dcop: SolverDcop[XbarCell1t1rDcop],
+        cell_snap: XbarCell1t1rSnap,
+        bl_driver_snap: ClampSnap,
+        sl_driver_snap: ClampSnap,
+        **_other_operands: object,
+    ) -> XbarArray1t1rChunkMeasure:
+        """Fold one solved chunk down to the state that outlives it.
+
+        Args:
+            dcop: This chunk's converged solver DCOP.
+            cell_snap: This chunk's slice of the per-solve cell snap.
+            bl_driver_snap: This chunk's slice of the BL clamp snap.
+            sl_driver_snap: This chunk's slice of the SL clamp snap.
+            _other_operands: The remaining sliced snaps and tensors, which
+                this array's own measurement does not read.
+
+        Returns:
+            :class:`XbarArray1t1rChunkMeasure` carrying both port states and, while a
+            profiler asks for it, the chunk's array energy.
+        """
+        energy__fJ = None
+        if self._is_dynamic_energy_profile_active():
+            # Shape: [chunk, col_num, row_num] -> [chunk]
+            if self._operation_mode is XbarArray1t1rOperationMode.WL_IN_BL_SCAN:
+                energy__fJ = self._energy_wl_in_bl_scan__fJ(solver_dcop=dcop, cell_snap=cell_snap)
+            else:
+                energy__fJ = self._energy_bl_in_wl_scan__fJ(
+                    solver_dcop=dcop,
+                    cell_snap=cell_snap,
+                    bl_driver_snap=bl_driver_snap,
+                    sl_driver_snap=sl_driver_snap,
+                )
+        return XbarArray1t1rChunkMeasure(
+            i_bl_port__uA=dcop.i_bl_driver,
+            v_bl_clamp__V=dcop.v_bl_clamp,
+            i_sl_port__uA=dcop.i_sl_driver,
+            v_sl_drive__V=dcop.v_sl_drive,
+            energy__fJ=energy__fJ,
+        )
+
+    def _energy_wl_in_bl_scan__fJ(
         self,
         *,
         solver_dcop: SolverDcop[XbarCell1t1rDcop],
         cell_snap: XbarCell1t1rSnap,
     ) -> Tensor:
-        """Compute array capacitive energy for one VMM.
+        """Cap energy of one solve under a scanned bit-line boundary.
+
+        Nothing is held between solves: the rest state is the declared flat
+        profile at ground — both rails, both word lines, and every cell node
+        including the internal access node, which parks at its own bit-line
+        level. One solve is therefore one complete excursion of every cap in
+        the tile and there is no hold to establish.
+
+        The ledger below is the whole account of that solve: the four node
+        totals of every cell, each at the level its own node reaches. The
+        wire is inside those totals — every stretch of line belongs to the
+        node it hangs on.
 
         Args:
-            solver_dcop: Inner array solver's converged DCOP, carrying the
-                BL / SL node voltages and the condensed cell DCOP.
-            cell_snap: Per-solve cell snap bundling the device
-                snaps and the WL control drive ``[..., 1, row_num]``.
+            solver_dcop: Converged DCOP of this chunk.
+            cell_snap: This chunk's cell snap, carrying the WL drive.
 
         Returns:
             Array energy [fJ].
             Shape: ``[...]``.
         """
+        config = self.config
 
+        # The conduction-path nodes ride the BL driver's rail and the gate
+        # rides the word-line driver's.
+        # Shape: [..., col_num, row_num] -> [...]
+        return (
+            e_cap_excursion__fJ(self._v_dd_bl__V, config.bl_node_c__fF, solver_dcop.v_bl_node)
+            + e_cap_excursion__fJ(self._v_dd_bl__V, config.x_node_c__fF, solver_dcop.cell.v_x__V)
+            + e_cap_excursion__fJ(self._v_dd_bl__V, config.sl_node_c__fF, solver_dcop.v_sl_node)
+            + e_cap_excursion__fJ(self._v_dd_wl__V, config.wl_node_c__fF, cell_snap.v_wl__V)
+        ).sum(dim=(-2, -1))
+
+    def _energy_bl_in_wl_scan__fJ(
+        self,
+        *,
+        solver_dcop: SolverDcop[XbarCell1t1rDcop],
+        cell_snap: XbarCell1t1rSnap,
+        bl_driver_snap: ClampSnap,
+        sl_driver_snap: ClampSnap,
+    ) -> Tensor:
+        """Cap energy of one solve under a held bit-line boundary.
+
+        The conduction path is parked at its ideal held level and the word
+        lines are scanned over it, so a solve bills only the displacement
+        away from that rest level, and establishing the hold is billed on top
+        of it.
+
+        The rest state is DECLARED, never solved: both rails park at the ideal
+        levels their boundaries state, the word lines at ground, and each
+        cell's internal access node at its own bit-line level. That last one
+        is the family topology read at rest — the storage element sits on the
+        bit-line side and an off access device is orders of magnitude less
+        conductive, so the off divider parks the node on the bit line.
+
+        The ledger below is the whole account of that solve: the four node
+        totals of every cell, each against its own rest level, and the rest
+        state's own establishment. The wire is inside those totals — every
+        stretch of line belongs to the node it hangs on. This mode's contract
+        is that one hold covers exactly one full row scan, so that
+        establishment is spread evenly over ``row_num`` solves; a scheme whose
+        hold spans a different number of accesses overrides the measurement
+        rather than this function.
+
+        Args:
+            solver_dcop: Converged DCOP of this chunk.
+            cell_snap: This chunk's cell snap, carrying the WL drive.
+            bl_driver_snap: This chunk's BL clamp snap.
+            sl_driver_snap: This chunk's SL clamp snap.
+
+        Returns:
+            Array energy [fJ].
+            Shape: ``[...]``.
+        """
+        config = self.config
         v_bl__V = solver_dcop.v_bl_node
         v_sl__V = solver_dcop.v_sl_node
-        v_bl_clamp__V = solver_dcop.v_bl_clamp
-        v_sl_drive__V = solver_dcop.v_sl_drive
+        # Shape: [..., col_num] -> [..., col_num, 1]
+        v_bl_rest__V = bl_driver_snap.v_ref__V.unsqueeze(-1)
+        # Shape: [..., col_num] -> [..., col_num, 1]
+        v_sl_rest__V = sl_driver_snap.v_ref__V.unsqueeze(-1)
 
-        # --- 1: compute wire-capacitance energy ---
-
-        # Shape: [..., col_num] -> [..., col_num, row_num]
-        v_bl_left__V = torch.cat((v_bl_clamp__V.unsqueeze(-1), v_bl__V[..., :-1]), dim=-1)
-        # Shape: [..., col_num] -> [..., col_num, row_num]
-        v_sl_left__V = torch.cat((v_sl_drive__V.unsqueeze(-1), v_sl__V[..., :-1]), dim=-1)
+        # --- 1: bill every node's displacement away from its rest level ---
 
         # Shape: [..., col_num, row_num] -> [...]
-        bl_seg_q__V2 = (v_bl_left__V.square() + v_bl_left__V * v_bl__V + v_bl__V.square()) / 3.0
-        e_bl_wire_cap__fJ = (self._bl_segment_c__fF * bl_seg_q__V2).sum(dim=(-2, -1))
+        e_node__fJ = (
+            e_cap_excursion__fJ(self._v_dd_bl__V, config.bl_node_c__fF, v_bl__V - v_bl_rest__V)
+            + e_cap_excursion__fJ(self._v_dd_bl__V, config.x_node_c__fF, solver_dcop.cell.v_x__V - v_bl_rest__V)
+            + e_cap_excursion__fJ(self._v_dd_bl__V, config.sl_node_c__fF, v_sl__V - v_sl_rest__V)
+            + e_cap_excursion__fJ(self._v_dd_wl__V, config.wl_node_c__fF, cell_snap.v_wl__V)
+        ).sum(dim=(-2, -1))
 
+        # --- 2: bill establishing the rest state, amortized over its scan ---
+
+        # The other leg of the same excursion, from ground up to the rest
+        # profile. The word line rests at ground, so it carries no term here.
+        # Every cell of a column rests at that column's declared levels, so
+        # the per-cell bills are laid out on the grid before the fold.
+        # Shape: [..., col_num, 1] -> [..., col_num, row_num]
+        v_bl_rest_cell__V = v_bl_rest__V.expand_as(v_bl__V)
+        # Shape: [..., col_num, 1] -> [..., col_num, row_num]
+        v_sl_rest_cell__V = v_sl_rest__V.expand_as(v_sl__V)
         # Shape: [..., col_num, row_num] -> [...]
-        sl_seg_q__V2 = (v_sl_left__V.square() + v_sl_left__V * v_sl__V + v_sl__V.square()) / 3.0
-        e_sl_wire_cap__fJ = (self._sl_segment_c__fF * sl_seg_q__V2).sum(dim=(-2, -1))
+        e_rest__fJ = (
+            e_cap_excursion__fJ(self._v_dd_bl__V, config.bl_node_c__fF, v_bl_rest_cell__V)
+            + e_cap_excursion__fJ(self._v_dd_bl__V, config.x_node_c__fF, v_bl_rest_cell__V)
+            + e_cap_excursion__fJ(self._v_dd_bl__V, config.sl_node_c__fF, v_sl_rest_cell__V)
+        ).sum(dim=(-2, -1))
 
-        # Shape: [..., 1, row_num] -> [...]
-        e_wl_wire_cap__fJ = (self._c_wl_wire_per_row__fF * cell_snap.v_wl__V.square()).sum(dim=(-2, -1))
-
-        # --- 2: compute cell-capacitance energy ---
-
-        # Shape: [..., col_num, row_num] -> [...]
-        e_cell__fJ = self.cell.compute_dynamic_energy(v_bl__V, v_sl__V, solver_dcop.cell, cell_snap).sum(dim=(-2, -1))
-
-        return e_bl_wire_cap__fJ + e_sl_wire_cap__fJ + e_wl_wire_cap__fJ + e_cell__fJ
+        return e_node__fJ + e_rest__fJ / self._row_num

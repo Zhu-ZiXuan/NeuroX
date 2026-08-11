@@ -8,6 +8,7 @@
 - **The interface does not import implementations.** The operator ABC is independent of `CimUnit`; the ideal leaf depends on both interfaces from `architecture/unit/ideal/linear.py`. Package initialization imports concrete leaves to establish registry membership without a deferred module-tail import.
 - **Registry membership without a tile.** `IdealLinearUnit` registers its `(IdealLinearUnitConfig, IdealLinearUnitPolicy)` pair, so `CimUnitConfig.from_file` + `CimUnit.from_config` dispatch to it exactly like any engine-backed member; it owns no engine and no `xbar`, and `dtype` / `T__K` / `ideal_macro` are accepted for uniformity and ignored.
 - **Sentinel quantization surface.** `adc_max_bits is None` — the "no output quantization" sentinel ([UnitBase](base.md)) — and `rescale_factor` is `1.0` for any argument pair.
+- **No substrate, hence zero duration.** `latency__ns(input_shape, *, adc_bits)` returns `0.0`: the reference holds neither macro nor engine schedule, so no time axis exists below it and the operand layout says nothing about a duration.
 - **Weight is program-produced state.** Construction allocates no nominal or placeholder weight. `program` stores the caller's tensor as an ordinary attribute, so execution requires programming and device migration must precede it.
 
 ## Contracts & invariants

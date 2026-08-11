@@ -39,8 +39,8 @@ Use the common checklist, then:
 - Define `*Config` (extending the subsystem config base — e.g. `AnalogConfig` plus its own `area_per_inst__um2` / `leakage_per_inst__uW`, or `DigitalConfig`) and its `*Policy` without repeated dataclass decorators, plus their `validate()` checks.
 - Use the `ModuleBase` construction contract and the `ProfileMixin` emitter contract: implement the per-instance PPA properties the mixin requires, which `area__um2` / `leakage__uW` scale by `inst_count`.
 - Implement the family or leaf primary method defined by its base class.
-- Emit dynamic energy and latency only for quantities this leaf owns.
-- Keep fixed latency in config; derive parametric latency inside the primary method when required.
+- Emit dynamic energy only for quantities this leaf owns, as a tensor at the billed layout; the profiler owns the reduction.
+- Report a duration only where the family base declares `latency__ns`, deriving it from the arguments that base takes plus this leaf's own config. A leaf that introduces no time axis of its own declares no such method: it keeps its per-op window as a config field, and the caller that inserted the axes multiplies it.
 - Test shape contract, dtype behavior, PPA emissions, and edge cases for the primary method.
 
 ## Add a registry family

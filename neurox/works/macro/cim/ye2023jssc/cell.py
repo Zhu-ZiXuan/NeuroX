@@ -19,7 +19,6 @@ from neurox.primitive.xbar.cell import (
     XbarCell1t1rLinearConfig,
     XbarCell1t1rLinearPolicy,
     XbarCell1t1rLinearSnap,
-    XbarCell1t1rSnap,
 )
 
 
@@ -28,10 +27,13 @@ class Ye2023Jssc2t1rCellConfig(XbarCell1t1rLinearConfig):
 
     Attributes:
         i_t2_table__uA: Unit-scale (m = 1) T2 compute current [uA] indexed
-            ``[input_bit][weight_state]``: ``input_bit`` in ``{0, 1}`` and a
-            state axis of length ``w_state_num`` (state 0 = HRS, 1 = LRS).
-            Row ``[1]`` holds the state-dependent on-currents and row ``[0]``
-            the off-cell floor at input 0. All entries finite and >= 0.
+            ``[operating_point][weight_state]``: the T2 current is
+            ``I_T2 = f(V_X)`` sampled at two calibration operating points —
+            index 0 the floor at ``V_X = 0`` and index 1 the drive point at
+            ``V_X > 0`` — over a state axis of length ``w_state_num``
+            (state 0 = HRS, 1 = LRS). Row ``[1]`` holds the state-dependent
+            drive currents and row ``[0]`` the off-cell floor. All entries
+            finite and >= 0.
     """
 
     i_t2_table__uA: tuple[tuple[float, ...], ...]
@@ -41,17 +43,17 @@ class Ye2023Jssc2t1rCellConfig(XbarCell1t1rLinearConfig):
 
         w_state_num = len(self.g_cell_off_table__uS)
         if len(self.i_t2_table__uA) != 2:
-            raise ValueError(f"require: len(i_t2_table__uA) ({len(self.i_t2_table__uA)}) == 2 (input bit 0 / 1)")
-        for input_bit, row in enumerate(self.i_t2_table__uA):
+            raise ValueError(
+                f"require: len(i_t2_table__uA) ({len(self.i_t2_table__uA)}) == 2 (floor / drive operating point)"
+            )
+        for point, row in enumerate(self.i_t2_table__uA):
             if len(row) != w_state_num:
-                raise ValueError(
-                    f"require: len(i_t2_table__uA[{input_bit}]) ({len(row)}) == w_state_num ({w_state_num})"
-                )
+                raise ValueError(f"require: len(i_t2_table__uA[{point}]) ({len(row)}) == w_state_num ({w_state_num})")
             for state_idx, entry in enumerate(row):
                 if not (math.isfinite(entry) and entry >= 0):
                     raise ValueError(
                         f"require: every i_t2_table__uA entry finite and >= 0; "
-                        f"got {entry} at (input {input_bit}, state {state_idx})"
+                        f"got {entry} at (operating point {point}, state {state_idx})"
                     )
 
 
@@ -64,16 +66,18 @@ class Ye2023Jssc2t1rCellSnap(XbarCell1t1rLinearSnap):
     """Per-call snap of a WH-2T1R cell's programmed state.
 
     Attributes:
-        i_t2_in0__uA: Unit-scale (m = 1) T2 current [uA] at input bit 0,
-            pre-selected for the programmed state, chunk-sliced.
+        i_t2_floor__uA: Unit-scale (m = 1) T2 current [uA] at the floor
+            operating point (``V_X = 0``), pre-selected for the programmed
+            state.
             Shape: ``[..., col, row]``.
-        i_t2_in1__uA: Unit-scale (m = 1) T2 current [uA] at input bit 1,
-            pre-selected for the programmed state, chunk-sliced.
+        i_t2_drive__uA: Unit-scale (m = 1) T2 current [uA] at the drive
+            operating point (``V_X > 0``), pre-selected for the programmed
+            state.
             Shape: ``[..., col, row]``.
     """
 
-    i_t2_in0__uA: Tensor
-    i_t2_in1__uA: Tensor
+    i_t2_floor__uA: Tensor
+    i_t2_drive__uA: Tensor
 
 
 @XbarCell1t1r.register_neurox_module(
@@ -84,7 +88,7 @@ class Ye2023Jssc2t1rCell(XbarCell1t1rLinear):
     """WH-2T1R lookup cell: linear 1T1R divider plus a per-state I_T2 table.
 
     The T2 compute current is selected at :meth:`program` time and read back by
-    :meth:`lookup_i_t2` at unit slice scale.
+    :meth:`i_t2__uA` at unit slice scale.
 
     Args:
         config: WH-2T1R cell configuration.
@@ -100,8 +104,8 @@ class Ye2023Jssc2t1rCell(XbarCell1t1rLinear):
 
     # === Programmed state ===
 
-    _i_t2_in0__uA: Tensor  # Shape: [*inst_shape]
-    _i_t2_in1__uA: Tensor  # Shape: [*inst_shape]
+    _i_t2_floor__uA: Tensor  # Shape: [*inst_shape]
+    _i_t2_drive__uA: Tensor  # Shape: [*inst_shape]
 
     def __init__(
         self,
@@ -129,27 +133,23 @@ class Ye2023Jssc2t1rCell(XbarCell1t1rLinear):
         """
         super().program(w_state_idx)
         idx = w_state_idx.long()
-        self._i_t2_in0__uA = self._i_t2_table__uA[0][idx]
-        self._i_t2_in1__uA = self._i_t2_table__uA[1][idx]
+        self._i_t2_floor__uA = self._i_t2_table__uA[0][idx]
+        self._i_t2_drive__uA = self._i_t2_table__uA[1][idx]
 
     def snapshot(
         self,
         *,
         control: Tensor,
         shape: tuple[int, ...],
-        multi_coords: tuple[Tensor, ...] | None,
         t_elapsed: float,
     ) -> Ye2023Jssc2t1rCellSnap:
         """Bundle the divider snap with the pre-selected per-state I_T2.
 
         Args:
-            control: Word-line drive voltage [V].
-                Shape: ``[..., row]``.
+            control: Per-cell word-line drive voltage [V].
+                Shape: ``[..., col, row]``.
             shape: Per-call broadcast shape ``(..., col, row)`` the
                 per-cell fields fill.
-            multi_coords: Advanced-index tuple selecting a chunk's
-                positions from the broadcast view; ``None`` returns the
-                full view.
             t_elapsed: Time elapsed since programming [s]; unused — the
                 lookup model holds no time-dependent read state.
 
@@ -159,8 +159,7 @@ class Ye2023Jssc2t1rCell(XbarCell1t1rLinear):
         del t_elapsed
 
         def view(buf: Tensor) -> Tensor:
-            expanded = buf.expand(shape) if shape else buf
-            return expanded if multi_coords is None else expanded[multi_coords]
+            return buf.expand(shape) if shape else buf
 
         return Ye2023Jssc2t1rCellSnap(
             v_wl__V=control,
@@ -168,54 +167,34 @@ class Ye2023Jssc2t1rCell(XbarCell1t1rLinear):
             g_cell_off__uS=view(self._g_cell_off__uS),
             vx_ratio_on=view(self._vx_ratio_on),
             vx_ratio_off=view(self._vx_ratio_off),
-            i_t2_in0__uA=view(self._i_t2_in0__uA),
-            i_t2_in1__uA=view(self._i_t2_in1__uA),
+            i_t2_floor__uA=view(self._i_t2_floor__uA),
+            i_t2_drive__uA=view(self._i_t2_drive__uA),
         )
 
-    def compute_dynamic_energy(
-        self,
-        v_bl: Tensor,
-        v_sl: Tensor,
-        dcop: XbarCell1t1rDcop,
-        snap: XbarCell1t1rSnap,
-    ) -> Tensor:
-        """Per-cell PER-ACCESS capacitance switching energy [fJ].
-
-        Sums the WL gate load of a driven row and the X-node dip-recharge, both
-        gated on the WL-on threshold.
-
-        Args:
-            v_bl: Bit-line node voltage [V].
-                Shape: ``[..., col, row]``.
-            v_sl: Source-line node voltage [V]; unused.
-            dcop: Converged DCOP; unused — the dip is closed-form in
-                ``vx_ratio_on``.
-            snap: Per-call snap from :meth:`snapshot`, carrying the preset
-                per-state divider ratios.
-
-        Returns:
-            Per-cell per-access switching energy [fJ].
-            Shape: ``[..., col, row]``.
-        """
-        del v_sl, dcop
-        assert isinstance(snap, XbarCell1t1rLinearSnap)
-        config = self.config
-        wl_on = snap.v_wl__V > self._v_wl_on_threshold__V
-        e_wl__fJ = config.c_wl__fF * snap.v_wl__V.square()
-        e_x_dip__fJ = config.c_x__fF * v_bl.square() * snap.vx_ratio_on * wl_on
-        return e_wl__fJ + e_x_dip__fJ
-
-    def lookup_i_t2(self, input_high: Tensor, snap: Ye2023Jssc2t1rCellSnap) -> Tensor:
+    def i_t2__uA(self, dcop: XbarCell1t1rDcop, snap: Ye2023Jssc2t1rCellSnap) -> Tensor:
         """Unit-scale (m = 1) per-cell T2 compute current [uA].
 
+        Two independent branches decide the current:
+
+        (a) Is this cell's row pair driven? The scheme drives a selected row's
+            word line and transpose bit line TOGETHER and holds both lines of
+            every other row at ground, so an unselected cell's T2 drain is
+            undriven and its TBL contribution is exactly zero. The observable
+            is the cell's own WL terminal against its calibration threshold.
+        (b) Which calibration operating point the steady state sits at. The T2
+            current is ``I_T2 = f(V_X)`` sampled at two points: ``V_X = 0`` is
+            the floor point and ``V_X > 0`` the drive point. The ``0`` is the
+            table's own definition anchor, not a tunable.
+
         Args:
-            input_high: Per-cell input bit; ``True`` selects the input-1 current
-                and ``False`` the input-0 floor. Broadcasts to
-                ``snap.i_t2_in1__uA`` shape.
+            dcop: Converged branch working point of this cell, whose ``v_x__V``
+                places the steady state on one of the two calibration points.
+                Shape: ``[..., col, row]``.
             snap: Per-call snap from :meth:`snapshot`.
 
         Returns:
             Unit-scale T2 current [uA].
             Shape: ``[..., col, row]``.
         """
-        return torch.where(input_high, snap.i_t2_in1__uA, snap.i_t2_in0__uA)
+        on = snap.v_wl__V > self._v_wl_on_threshold__V
+        return torch.where(on, torch.where(dcop.v_x__V > 0.0, snap.i_t2_drive__uA, snap.i_t2_floor__uA), 0.0)

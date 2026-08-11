@@ -1,4 +1,4 @@
-"""Structural interface for boundary clamp drivers.
+"""The rail boundary clamp of one DC solve: the driver role and its snapshot.
 
 See also:
     docs/internals/primitive/xbar/solver.md
@@ -15,43 +15,31 @@ class ClampSnap(Protocol):
     """Required clamp-snapshot interface.
 
     Attributes:
-        v_ref__V: Reference or zero-current clamp voltage.
+        v_ref__V: NOMINAL reference or zero-current clamp voltage — the
+            ideal value, carrying no driver-owned perturbation. A concrete
+            snap keeps any offset / noise draw in its own dedicated
+            field(s), folded in by that driver's own ``solve_clamp``.
     """
 
     @property
     def v_ref__V(self) -> Tensor: ...
 
 
-SnapT = TypeVar("SnapT", bound=ClampSnap)
+SnapT = TypeVar("SnapT", bound=ClampSnap, contravariant=True)
 
 
 class ClampDriver(Protocol[SnapT]):
-    """Structural contract any boundary clamp circuit satisfies."""
+    """What a boundary clamp exposes to one DC solve.
 
-    def snapshot(
-        self,
-        *,
-        v_ref__V: Tensor,
-        shape: tuple[int, ...],
-        multi_coords: tuple[Tensor, ...] | None,
-    ) -> SnapT:
-        """Sample one per-call runtime snap over ``shape``.
-
-        Args:
-            v_ref__V: Injected reference / zero-current clamp voltage;
-                the source-agnostic tap value carried into the snap, which
-                the driver may perturb with its per-call nonidealities.
-            shape: Per-call broadcast shape; the snap fills tensor fields
-                at this shape.
-            multi_coords: Advanced-index tuple selecting a chunk's
-                positions from the broadcast view; ``None`` returns the
-                full view.
-
-        Returns:
-            Per-call snap of the fabricated state, carrying the reference
-            ``v_ref__V``.
-        """
-        ...
+    A solve needs exactly one thing from a rail boundary: a transfer law it
+    can evaluate at the port current inside its Newton loop, against a snap
+    already sampled by the caller. That is the whole structural role, so any
+    clamp circuit — a driver, a switched capacitor, a diode-connected load,
+    a transimpedance amplifier held in clamp — satisfies it. Sampling the
+    per-call snap and delivering the clamp at the converged state are each a
+    concrete circuit's own method, named and shaped by that circuit and
+    called by the owner that built it.
+    """
 
     def solve_clamp(
         self,
@@ -64,7 +52,8 @@ class ClampDriver(Protocol[SnapT]):
 
         Args:
             i_port__uA: Port-output current.
-            snap: Per-call snap from :meth:`snapshot`.
+            snap: Per-call snap, sampled by the concrete driver's own
+                snapshot method.
             v_clamp_init__V: Optional warm-start hint.
 
         Returns:

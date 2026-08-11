@@ -3,8 +3,7 @@
 The K per-input-bit DSWCT output currents are weighted by the LSB-first
 input-radix combine ratios ``s_k`` and summed over the bit axis into the
 per-lane pre-subtraction current ``I_DL_PN``. A reporter leaf: it self-bills
-its held/live mirror-leg conduction and hold-cap cycling, and emits no latency
-event (the macro is the sole latency emitter).
+its held/live mirror-leg conduction and hold-cap cycling.
 
 See also:
     docs/works/macro/cim/xue2020jssc/model.md
@@ -12,8 +11,7 @@ See also:
 
 from __future__ import annotations
 
-import math
-
+import torch
 from torch import Tensor
 
 from neurox.common import ConfigBase, ModuleBase, PolicyBase
@@ -144,21 +142,23 @@ class SinwpSc(ModuleBase[SinwpScConfig, SinwpScPolicy]):
         i_leg__uA = i__uA * bit_ratios
 
         if self._is_dynamic_energy_profile_active():
-            # Rail conduction: signed per-bit LEG-current sum (not |I|) over
-            # the suffix-sum hold window.
-            # Shape: [..., x_bits, serial, gn, polarity] -> [..., x_bits]
-            i_leg_per_bit = i_leg__uA.sum(dim=(-3, -2, -1))
-            # Shape: [..., x_bits] -> [...]
-            e_conduction = self._v_dd__V * (i_leg_per_bit * window_per_bit__ns).sum(dim=-1)
+            # Neither branch reduces its own axes: the collector sums the bit,
+            # slot and (gn, polarity) lane axes past the caller's leading dims.
+            # Rail conduction: signed per-bit LEG current (not |I|) over the
+            # suffix-sum hold window.
+            # Shape: [x_bits] -> [x_bits, serial=1, gn=1, polarity=1]
+            window_view__ns = window_per_bit__ns.view(n_bits, 1, 1, 1)
+            # Shape: [..., x_bits, serial, gn, polarity]
+            e_conduction = (self._v_dd__V * window_view__ns) * i_leg__uA
             self._record_dynamic_energy(e_conduction)
-            # Hold-cap cycling: one c_hold * v_dd**2 event per (slot x bit)
-            # per (IO, polarity) lane.
-            event_count = math.prod(i__uA.shape[-4:-2]) * math.prod(self.inst_shape[-2:])
-            e_cap = i__uA.new_full(
-                i__uA.shape[:-4],
-                self.config.c_hold__fF * self._v_dd__V**2 * event_count,
+            # Hold-cap cycling: one c_hold * v_dd**2 event per (slot x bit) per
+            # (IO, polarity) lane — a constant, so the expanded view holds no
+            # storage and only the caller's leading dims are materialized.
+            # Shape: [] -> [..., x_bits, serial, gn, polarity]
+            e_hold__fJ = torch.full(
+                (), self.config.c_hold__fF * self._v_dd__V**2, dtype=torch.float32, device=i__uA.device
             )
-            self._record_dynamic_energy(e_cap)
+            self._record_dynamic_energy(e_hold__fJ.expand(i__uA.shape))
 
         # Temporal weighted sum over bits (input radix), LSB first — the sum
         # of the SAME materialized legs the billing consumed.

@@ -14,6 +14,7 @@ import torch
 from torch import Tensor
 
 from neurox.common import ConfigBase, ModuleBase, PolicyBase
+from neurox.common.mixin import TensorGroupMixin
 
 
 class XbarCellConfig(ConfigBase, ABC):
@@ -28,7 +29,7 @@ class XbarCellPolicy(PolicyBase, ABC):
 
 
 @dataclass(frozen=True)
-class XbarCellSnap:
+class XbarCellSnap(TensorGroupMixin):
     """Base class for per-call cell snapshots."""
 
 
@@ -65,6 +66,12 @@ class XbarCell(
 ):
     """Condensed two-terminal crossbar-cell interface.
 
+    The contract is ``snapshot`` / ``program`` / ``solve_branch`` / ``solve_dc``:
+    the cell states what its branch does and accounts for nothing. Capacitive
+    billing belongs to the owning array, which reads the cell's constitutive
+    capacitances from its config and its node voltages off the returned DCOP
+    and snap.
+
     Args:
         config: Concrete configuration dataclass.
         policy: Composite per-device nonideality policy.
@@ -96,20 +103,17 @@ class XbarCell(
         *,
         control: Tensor,
         shape: tuple[int, ...],
-        multi_coords: tuple[Tensor, ...] | None,
         t_elapsed: float,
     ) -> SnapT:
         """Sample one per-call snap of the cell's fabricated state.
 
         Args:
             control: Per-cell control-line drive [V] (the gate / select
-                voltage of the cell's access device). Shape broadcasts to
-                ``[..., col, row]``.
+                voltage of each cell's own access device), laid out on the
+                cell grid by the producing array.
+                Shape: ``[..., col, row]``.
             shape: Per-call broadcast shape ``(..., col, row)`` the
                 owned device snaps fill their tensor fields at.
-            multi_coords: Advanced-index tuple selecting a chunk's
-                positions from the broadcast view, forwarded to the device
-                snaps; ``None`` returns the full view.
             t_elapsed: Time elapsed since programming [s], for any
                 time-dependent device read state.
 
@@ -171,32 +175,5 @@ class XbarCell(
         Returns:
             Concrete :class:`XbarCellDcop` subclass with the branch
             working point and internal-node voltages.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def compute_dynamic_energy(
-        self,
-        v_bl: Tensor,
-        v_sl: Tensor,
-        dcop: DCOPT,
-        snap: SnapT,
-    ) -> Tensor:
-        """Per-cell capacitance switching energy [fJ].
-
-        Excludes wire-segment capacitances.
-
-        Args:
-            v_bl: Bit-line node voltage [V].
-                Shape: ``[..., col, row]``.
-            v_sl: Source-line node voltage [V].
-                Shape: ``[..., col, row]``.
-            dcop: Converged DCOP from :meth:`solve_dc`, carrying any
-                internal-node voltages the cap formulas need.
-            snap: Per-call snap from :meth:`snapshot`.
-
-        Returns:
-            Per-cell switching energy [fJ].
-            Shape: ``[..., col, row]``.
         """
         raise NotImplementedError

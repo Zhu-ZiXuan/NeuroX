@@ -34,10 +34,9 @@ class SarIadcConfig(IadcConfig):
             and only the first ``bits`` entries are drawn). All-zero reduces to
             the pure fixed-energy model.
         step_latency__ns: Per-step decision latency, one entry per
-            binary-search step (length ``>= bits``; a longer list is
-            tolerated and only the first requested-resolution entries are
-            summed). The conversion latency is the sum of the first ``bits``
-            (the requested resolution) entries.
+            binary-search step (exactly ``bits`` entries — the search tree has
+            no step beyond the physical resolution). The conversion latency is
+            the sum of the first entries the requested resolution executes.
         comparator_offset_sigma__uA: Input-referred SA offset sigma — a
             current-domain margin perturbation added to the clean ``i_in - i_ref``
             after the ``margin_gain`` pre-gain (effective ``sigma / margin_gain``).
@@ -81,8 +80,11 @@ class SarIadcConfig(IadcConfig):
         for t in self.t_conduct_per_step__ns:
             self._require_non_neg(t, "t_conduct_per_step__ns")
 
-        if len(self.step_latency__ns) < self.bits:
-            raise ValueError(f"require: len(step_latency__ns) ({len(self.step_latency__ns)}) >= bits ({self.bits})")
+        # Exactly one entry per search step: an owner reads the whole tuple as
+        # the full-resolution sensing duration, so a trailing entry the search
+        # never executes would inflate every window derived from it.
+        if len(self.step_latency__ns) != self.bits:
+            raise ValueError(f"require: len(step_latency__ns) ({len(self.step_latency__ns)}) == bits ({self.bits})")
         for latency in self.step_latency__ns:
             self._require_non_neg(latency, "step_latency__ns")
 
@@ -126,15 +128,10 @@ class SarIadc(Iadc[SarIadcConfig, SarIadcPolicy]):
         inst_shape: Fabricated shared-sense-lane shape.
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature.
-        enable_latency_record: Whether conversions emit latency events.
         enable_energy_record: Whether conversions emit dynamic-energy events.
             An owner that bills the conversion energy itself passes ``False``;
             the value conversion is unaffected either way.
     """
-
-    # === Circuit constant buffers ===
-
-    _step_latency__ns: Tensor  # Shape: [step_num]
 
     # === Nominal buffers ===
 
@@ -154,7 +151,6 @@ class SarIadc(Iadc[SarIadcConfig, SarIadcPolicy]):
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
-        enable_latency_record: bool = True,
         enable_energy_record: bool = True,
     ) -> None:
         super().__init__(
@@ -163,14 +159,8 @@ class SarIadc(Iadc[SarIadcConfig, SarIadcPolicy]):
             inst_shape=inst_shape,
             dtype=dtype,
             T__K=T__K,
-            enable_latency_record=enable_latency_record,
         )
         self.enable_energy_record = enable_energy_record
-        self.register_buffer(
-            "_step_latency__ns",
-            torch.tensor(config.step_latency__ns, dtype=dtype),
-            persistent=False,
-        )
         self._register_fabrication_buffers(dtype=dtype)
 
     @property
@@ -180,6 +170,16 @@ class SarIadc(Iadc[SarIadcConfig, SarIadcPolicy]):
     @property
     def _leakage_per_inst__uW(self) -> float:
         return self.config.leakage_per_inst__uW
+
+    def latency__ns(self, *, bits: int) -> float:
+        """One conversion — the decision latencies of the executed search steps.
+
+        The binary-search steps run sequentially inside the one sense lane, and
+        a call at ``bits`` executes the first ``bits`` of them, so the steps may
+        differ in duration without the total ceasing to be their sum.
+        """
+        self._check_bits(bits)
+        return sum(self.config.step_latency__ns[:bits])
 
     def _register_fabrication_buffers(self, *, dtype: torch.dtype) -> None:
         """Register immutable tensors used as fabrication sources."""
@@ -236,7 +236,7 @@ class SarIadc(Iadc[SarIadcConfig, SarIadcPolicy]):
         ``bits``, and a ``bits``-bit conversion simply stops after the first
         ``bits`` levels. Those levels resolve the max-bits code's leading
         ``bits`` bits, so the returned code is the max-bits code right-shifted
-        by ``max_bits - bits``. Energy and latency follow the executed steps.
+        by ``max_bits - bits``. Energy follows the executed steps.
 
         Args:
             i_in__uA: Unsigned magnitude current.
@@ -290,9 +290,6 @@ class SarIadc(Iadc[SarIadcConfig, SarIadcPolicy]):
 
         if e_dyn__fJ is not None:
             self._record_dynamic_energy(e_dyn__fJ)
-        if self.enable_latency_record:
-            latency__ns = self._step_latency__ns[:bits].sum() * self._count_serial_rounds(i_in__uA.numel())
-            self._record_latency(latency__ns)
 
         # The executed levels sit at the TOP of the max-bits code; the
         # unresolved trailing levels are dropped.

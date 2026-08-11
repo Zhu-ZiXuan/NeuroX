@@ -4,23 +4,29 @@ The two array rails (BL, SL) run side by side along the row axis; the
 gate/control line is a driven boundary, so the columns are independent and
 batched.
 
+Each rail is a UNIFORM ladder — one link resistance joins every pair of
+adjacent nodes and the same link joins the clamp driver to the node at index
+0 — so a whole rail enters the solve as one scalar. The single distinguished
+node is the ladder's open end at the last row, which has no link onward.
+
 See also:
     docs/reference/primitive/xbar/solver/nested.md
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, fields, is_dataclass, replace
+from dataclasses import dataclass, is_dataclass, replace
 from typing import Any, ClassVar, Generic, Self, TypeVar
 
 import torch
 import torch.nn.functional as F
 from torch import Tensor
 
+from neurox.common.mixin import walk_tensor_fields
 from neurox.common.prober import Prober
 from neurox.primitive.xbar.cell import XbarCell, XbarCellDcop, XbarCellSnap
 
-from ._linalg import block_solve, solve_block_tridiagonal
+from ._linalg import block_solve, solve_block_tridiagonal_2x2_uniform
 from ._wire_kcl import col_driver_current, col_wire_kcl_residual
 from .base import Solver, SolverConfig, SolverDcop
 from .clamp import ClampDriver, ClampSnap
@@ -32,13 +38,77 @@ SLSnapT = TypeVar("SLSnapT", bound=ClampSnap)
 
 
 def _detach_dataclass_tensors(obj: object) -> object:
-    """Detach every tensor in a nested dataclass."""
+    """Detach every tensor of a dataclass, or a bare tensor root."""
     if isinstance(obj, Tensor):
         return obj.detach()
     if is_dataclass(obj) and not isinstance(obj, type):
-        changes = {f.name: _detach_dataclass_tensors(getattr(obj, f.name)) for f in fields(obj)}
-        return replace(obj, **changes)
+        return walk_tensor_fields(obj, lambda t: t.detach())
     return obj
+
+
+def _ladder_self_g(g_cell_eff: Tensor, segment_g__uS: float) -> Tensor:
+    """Self-conductance of every node of one uniform wire ladder.
+
+    A node's own conductance is its cell branch plus every rail link attached
+    to it. An interior node has two — the one back towards the driver and the
+    one onward — while the last row is the ladder's open end and has only the
+    first. Row 0 is NOT distinguished: its driver-side link is one standard
+    lattice pitch like any other.
+
+    Args:
+        g_cell_eff: Per-node cell branch derivative [uS].
+            Shape: ``[..., num_col, num_row]``.
+        segment_g__uS: Rail conductance of one lattice link.
+
+    Returns:
+        Per-node self-conductance [uS].
+        Shape: ``[..., num_col, num_row]``.
+    """
+    # Shape: [..., num_col, num_row]
+    return torch.cat(
+        (g_cell_eff[..., :-1] + 2.0 * segment_g__uS, g_cell_eff[..., -1:] + segment_g__uS),
+        dim=-1,
+    )
+
+
+def _wire_diag_blocks(
+    g_cell_bl_eff: Tensor,
+    g_cell_sl_eff: Tensor,
+    bl_segment_g__uS: float,
+    sl_segment_g__uS: float,
+) -> Tensor:
+    """Per-row 2×2 diagonal blocks of the coupled BL/SL wire Jacobian.
+
+    The rail entries are each ladder's per-node self-conductance; the cross
+    entries are the cell branch alone, which is what couples the two rails at
+    a node. The off-diagonal blocks of the same Jacobian are not built here —
+    they are the constant ``diag(-g_BL, -g_SL)`` the block solver takes as a
+    pair of scalars.
+
+    Args:
+        g_cell_bl_eff: BL-side cell derivatives [uS].
+            Shape: ``[..., num_col, num_row]``.
+        g_cell_sl_eff: Negated SL-side cell derivatives [uS].
+            Shape: ``[..., num_col, num_row]``.
+        bl_segment_g__uS: BL rail conductance of one lattice link.
+        sl_segment_g__uS: SL rail conductance of one lattice link.
+
+    Returns:
+        Diagonal blocks, rail-major within each block.
+        Shape: ``[..., num_col, num_row, 2, 2]``.
+    """
+    # Shape: [..., num_col, num_row]
+    bl_diag_node = _ladder_self_g(g_cell_bl_eff, bl_segment_g__uS)
+    sl_diag_node = _ladder_self_g(g_cell_sl_eff, sl_segment_g__uS)
+    # ∂F_BL/∂V_SL on the top row, ∂F_SL/∂V_BL on the bottom.
+    # Shape: [..., num_col, num_row, 2, 2]
+    return torch.stack(
+        (
+            torch.stack((bl_diag_node, -g_cell_sl_eff), dim=-1),
+            torch.stack((-g_cell_bl_eff, sl_diag_node), dim=-1),
+        ),
+        dim=-2,
+    )
 
 
 @dataclass(frozen=True)
@@ -128,10 +198,8 @@ class NestedParallelRailSolver(Solver):
     def solve_dc(
         self,
         *,
-        bl_segment_r__MOhm: Tensor,
-        sl_segment_r__MOhm: Tensor,
-        bl_segment_g__uS: Tensor,
-        sl_segment_g__uS: Tensor,
+        bl_segment_r__MOhm: float,
+        sl_segment_r__MOhm: float,
         cell: XbarCell[Any, Any, CellSnapT, CellDCOPT],
         cell_snap: CellSnapT,
         bl_driver: ClampDriver[BLSnapT],
@@ -142,19 +210,11 @@ class NestedParallelRailSolver(Solver):
         """Solve the fabricated tile for one cell snap.
 
         Args:
-            bl_segment_r__MOhm: BL segment resistances; index 0
-                is driver-to-first.
-                Shape: ``[num_row]``.
-            sl_segment_r__MOhm: SL segment resistances; index 0
-                is driver-to-first.
-                Shape: ``[num_row]``.
-            bl_segment_g__uS: BL segment conductances.
-                Shape: ``[num_row]``.
-            sl_segment_g__uS: SL segment conductances.
-                Shape: ``[num_row]``.
+            bl_segment_r__MOhm: BL rail resistance of one lattice link.
+            sl_segment_r__MOhm: SL rail resistance of one lattice link.
             cell: Condensed cell branch model.
             cell_snap: Per-solve cell snap bundling the device snaps and the
-                per-row control-line (WL) drive.
+                per-cell word-line drive at ``[..., col, row]``.
             bl_driver: BL clamp driver.
             bl_driver_snap: Per-solve BL driver snap.
             sl_driver: SL clamp driver.
@@ -166,8 +226,6 @@ class NestedParallelRailSolver(Solver):
         dcop = self._solve_dc_compiled(
             bl_segment_r__MOhm=bl_segment_r__MOhm,
             sl_segment_r__MOhm=sl_segment_r__MOhm,
-            bl_segment_g__uS=bl_segment_g__uS,
-            sl_segment_g__uS=sl_segment_g__uS,
             cell=cell,
             cell_snap=cell_snap,
             bl_driver=bl_driver,
@@ -178,8 +236,8 @@ class NestedParallelRailSolver(Solver):
         if SolverProber.active():
             observation = self._converged_observation(
                 dcop=dcop,
-                bl_segment_g__uS=bl_segment_g__uS,
-                sl_segment_g__uS=sl_segment_g__uS,
+                bl_segment_g__uS=1.0 / bl_segment_r__MOhm,
+                sl_segment_g__uS=1.0 / sl_segment_r__MOhm,
                 bl_driver=bl_driver,
                 bl_driver_snap=bl_driver_snap,
                 sl_driver=sl_driver,
@@ -192,10 +250,8 @@ class NestedParallelRailSolver(Solver):
     def _solve_dc_compiled(
         self,
         *,
-        bl_segment_r__MOhm: Tensor,
-        sl_segment_r__MOhm: Tensor,
-        bl_segment_g__uS: Tensor,
-        sl_segment_g__uS: Tensor,
+        bl_segment_r__MOhm: float,
+        sl_segment_r__MOhm: float,
         cell: XbarCell[Any, Any, CellSnapT, CellDCOPT],
         cell_snap: CellSnapT,
         bl_driver: ClampDriver[BLSnapT],
@@ -205,20 +261,11 @@ class NestedParallelRailSolver(Solver):
     ) -> SolverDcop[CellDCOPT]:
         """Run the fixed-shape nested solve."""
 
-        # --- 1: build wire-Jacobian templates ---
+        # --- 1: read the lattice link as a conductance ---
 
-        # Shape: [num_row]
-        bl_wire_diag_tmpl = bl_segment_g__uS + F.pad(bl_segment_g__uS[1:], (0, 1))
-        # Shape: [num_row]
-        sl_wire_diag_tmpl = sl_segment_g__uS + F.pad(sl_segment_g__uS[1:], (0, 1))
-        # Shape: [num_row-1]
-        bl_wire_offdiag = -bl_segment_g__uS[1:]
-        # Shape: [num_row-1]
-        sl_wire_offdiag = -sl_segment_g__uS[1:]
-        # Shape: []
-        bl_driver_segment_g = bl_segment_g__uS[0]
-        # Shape: []
-        sl_driver_segment_g = sl_segment_g__uS[0]
+        # One uS is exactly one reciprocal MOhm, so no unit factor enters.
+        bl_g__uS = 1.0 / bl_segment_r__MOhm
+        sl_g__uS = 1.0 / sl_segment_r__MOhm
 
         # --- 2: initialize the cell at the reference clamps ---
 
@@ -226,11 +273,6 @@ class NestedParallelRailSolver(Solver):
         v_sl_seed = sl_driver_snap.v_ref__V
         # Shape: [..., num_col, num_row]
         i_cell, _g_bl_init, _g_sl_init = cell.solve_branch(v_bl_seed.unsqueeze(-1), v_sl_seed.unsqueeze(-1), cell_snap)
-        *_batch, num_col, num_row = i_cell.shape
-        if not (num_col > 1):
-            raise ValueError(f"require: num_col ({num_col}) > 1")
-        if not (num_row > 1):
-            raise ValueError(f"require: num_row ({num_row}) > 1")
 
         # --- 3: initialize the clamp voltages ---
 
@@ -244,15 +286,19 @@ class NestedParallelRailSolver(Solver):
 
         # --- 4: initialize wire nodes with first-order IR drop ---
 
+        # The grid lift of the clamp boundaries is carried through the outer
+        # loop and refreshed on every clamp update.
+        # Shape: [..., num_col] -> [..., num_col, 1]
+        v_bl_clamp_grid__V = v_bl_clamp__V.unsqueeze(-1)
+        v_sl_drive_grid__V = v_sl_drive__V.unsqueeze(-1)
+
         # Shape: [..., num_col, num_row]
         v_bl_node, v_sl_node = self._wire_ir_drop_seed(
             i_cell,
-            v_bl_clamp__V,
-            v_sl_drive__V,
+            v_bl_clamp_grid__V,
+            v_sl_drive_grid__V,
             bl_segment_r__MOhm,
             sl_segment_r__MOhm,
-            i_cell.ndim,
-            num_row,
         )
 
         # --- 5: refresh the cell at the wire-node seed ---
@@ -272,21 +318,17 @@ class NestedParallelRailSolver(Solver):
             g_cell_sl_eff = -di_dvsl
             # Shape: [..., num_col, 2, 2]
             k_inner_2x2 = self._compute_k_inner_coupled_2x2(
-                v_bl_node,
                 g_cell_bl_eff,
                 g_cell_sl_eff,
-                bl_wire_diag_tmpl,
-                sl_wire_diag_tmpl,
-                bl_wire_offdiag,
-                sl_wire_offdiag,
-                bl_driver_segment_g,
-                sl_driver_segment_g,
+                bl_g__uS,
+                sl_g__uS,
             )
 
-            # First-segment port current and BL / SL clamp-driver targets.
+            # Port current through the driver's own link, and the BL / SL
+            # clamp-driver targets it implies.
             # Shape: [..., num_col]
-            i_bl_port__uA = (v_bl_clamp__V - v_bl_node.select(-1, 0)) * bl_driver_segment_g
-            i_sl_port__uA = (v_sl_drive__V - v_sl_node.select(-1, 0)) * sl_driver_segment_g
+            i_bl_port__uA = (v_bl_clamp__V - v_bl_node.select(-1, 0)) * bl_g__uS
+            i_sl_port__uA = (v_sl_drive__V - v_sl_node.select(-1, 0)) * sl_g__uS
             v_bl_target__V, r_bl_driver__MOhm = bl_driver.solve_clamp(
                 i_bl_port__uA,
                 bl_driver_snap,
@@ -299,14 +341,14 @@ class NestedParallelRailSolver(Solver):
             )
 
             # Outer Newton on F_outer(V_clamp) = V_target(V_clamp) - V_clamp:
-            # each clamp driver maps its first-segment port current to a
-            # target clamp, and the 2×2 dF/dV_clamp couples the driver slope,
+            # each clamp driver maps the port current through its own link to
+            # a target clamp, and the 2×2 dF/dV_clamp couples the driver slope,
             # the port-current sensitivity, and K_inner's V_node[0] response.
             # Shape: [..., num_col]
             f_bl_outer = v_bl_target__V - v_bl_clamp__V
             f_sl_outer = v_sl_target__V - v_sl_drive__V
-            rg_bl = r_bl_driver__MOhm * bl_driver_segment_g
-            rg_sl = r_sl_driver__MOhm * sl_driver_segment_g
+            rg_bl = r_bl_driver__MOhm * bl_g__uS
+            rg_sl = r_sl_driver__MOhm * sl_g__uS
             k00 = k_inner_2x2[..., 0, 0]
             k01 = k_inner_2x2[..., 0, 1]
             k10 = k_inner_2x2[..., 1, 0]
@@ -341,18 +383,15 @@ class NestedParallelRailSolver(Solver):
                 g_cell_bl_eff = di_dvbl
                 g_cell_sl_eff = -di_dvsl
                 # Shape: [..., num_col, num_row]
-                f_bl_kcl = col_wire_kcl_residual(v_bl_node, v_bl_clamp_grid__V, bl_segment_g__uS, i_cell)
-                f_sl_kcl = col_wire_kcl_residual(v_sl_node, v_sl_drive_grid__V, sl_segment_g__uS, -i_cell)
+                f_bl_kcl = col_wire_kcl_residual(v_bl_node, v_bl_clamp_grid__V, bl_g__uS, i_cell)
+                f_sl_kcl = col_wire_kcl_residual(v_sl_node, v_sl_drive_grid__V, sl_g__uS, -i_cell)
                 dv_bl_node, dv_sl_node = self._wire_newton_coupled_block2x2(
-                    v_bl_node,
                     f_bl_kcl,
                     f_sl_kcl,
                     g_cell_bl_eff,
                     g_cell_sl_eff,
-                    bl_wire_diag_tmpl,
-                    sl_wire_diag_tmpl,
-                    bl_wire_offdiag,
-                    sl_wire_offdiag,
+                    bl_g__uS,
+                    sl_g__uS,
                 )
                 dv_bl_node = dv_bl_node.clamp(min=-max_inner_step__V, max=max_inner_step__V)
                 dv_sl_node = dv_sl_node.clamp(min=-max_inner_step__V, max=max_inner_step__V)
@@ -363,12 +402,8 @@ class NestedParallelRailSolver(Solver):
 
         cell_dcop = cell.solve_dc(v_bl_node, v_sl_node, cell_snap)
 
-        # Shape: [..., num_col] -> [..., num_col, 1]
-        v_bl_clamp_grid__V = v_bl_clamp__V.unsqueeze(-1)
-        # Shape: [..., num_col] -> [..., num_col, 1]
-        v_sl_drive_grid__V = v_sl_drive__V.unsqueeze(-1)
-        i_bl_driver = col_driver_current(v_bl_node, v_bl_clamp_grid__V, bl_segment_g__uS)
-        i_sl_driver = col_driver_current(v_sl_node, v_sl_drive_grid__V, sl_segment_g__uS)
+        i_bl_driver = col_driver_current(v_bl_node, v_bl_clamp_grid__V, bl_g__uS)
+        i_sl_driver = col_driver_current(v_sl_node, v_sl_drive_grid__V, sl_g__uS)
 
         return SolverDcop(
             i_bl_driver=i_bl_driver,
@@ -384,8 +419,8 @@ class NestedParallelRailSolver(Solver):
         self,
         *,
         dcop: SolverDcop[CellDCOPT],
-        bl_segment_g__uS: Tensor,
-        sl_segment_g__uS: Tensor,
+        bl_segment_g__uS: float,
+        sl_segment_g__uS: float,
         bl_driver: ClampDriver[BLSnapT],
         bl_driver_snap: BLSnapT,
         sl_driver: ClampDriver[SLSnapT],
@@ -396,10 +431,8 @@ class NestedParallelRailSolver(Solver):
 
         # Clamp residual: |driver(I_port) - V_clamp| at the converged
         # operating point. Zero at the outer Newton fixed point.
-        bl_driver_segment_g = bl_segment_g__uS[0]
-        sl_driver_segment_g = sl_segment_g__uS[0]
-        i_bl_port_final = (dcop.v_bl_clamp - dcop.v_bl_node.select(-1, 0)) * bl_driver_segment_g
-        i_sl_port_final = (dcop.v_sl_drive - dcop.v_sl_node.select(-1, 0)) * sl_driver_segment_g
+        i_bl_port_final = (dcop.v_bl_clamp - dcop.v_bl_node.select(-1, 0)) * bl_segment_g__uS
+        i_sl_port_final = (dcop.v_sl_drive - dcop.v_sl_node.select(-1, 0)) * sl_segment_g__uS
         v_bl_target_final, _ = bl_driver.solve_clamp(
             i_bl_port_final,
             bl_driver_snap,
@@ -421,8 +454,8 @@ class NestedParallelRailSolver(Solver):
     @staticmethod
     def _compute_wire_residuals(
         dcop: SolverDcop[CellDCOPT],
-        bl_segment_g__uS: Tensor,
-        sl_segment_g__uS: Tensor,
+        bl_segment_g__uS: float,
+        sl_segment_g__uS: float,
     ) -> tuple[Tensor, Tensor]:
         """Absolute BL / SL wire KCL residuals at the converged DCOP.
 
@@ -440,10 +473,8 @@ class NestedParallelRailSolver(Solver):
         *,
         v_bl_clamp__V: Tensor,
         v_sl_drive__V: Tensor,
-        bl_segment_r__MOhm: Tensor,
-        sl_segment_r__MOhm: Tensor,
-        bl_segment_g__uS: Tensor,
-        sl_segment_g__uS: Tensor,
+        bl_segment_r__MOhm: float,
+        sl_segment_r__MOhm: float,
         cell: XbarCell[Any, Any, CellSnapT, CellDCOPT],
         cell_snap: CellSnapT,
     ) -> SolverDcop[CellDCOPT]:
@@ -454,14 +485,8 @@ class NestedParallelRailSolver(Solver):
                 Shape: ``[..., num_col]``.
             v_sl_drive__V: SL drive voltage held fixed.
                 Shape: ``[..., num_col]``.
-            bl_segment_r__MOhm: BL segment resistances.
-                Shape: ``[num_row]``.
-            sl_segment_r__MOhm: SL segment resistances.
-                Shape: ``[num_row]``.
-            bl_segment_g__uS: BL segment conductances.
-                Shape: ``[num_row]``.
-            sl_segment_g__uS: SL segment conductances.
-                Shape: ``[num_row]``.
+            bl_segment_r__MOhm: BL rail resistance of one lattice link.
+            sl_segment_r__MOhm: SL rail resistance of one lattice link.
             cell: Condensed cell branch model.
             cell_snap: Per-solve cell snapshot.
 
@@ -473,13 +498,15 @@ class NestedParallelRailSolver(Solver):
             v_sl_drive__V=v_sl_drive__V,
             bl_segment_r__MOhm=bl_segment_r__MOhm,
             sl_segment_r__MOhm=sl_segment_r__MOhm,
-            bl_segment_g__uS=bl_segment_g__uS,
-            sl_segment_g__uS=sl_segment_g__uS,
             cell=cell,
             cell_snap=cell_snap,
         )
         if SolverProber.active():
-            wire_bl_res, wire_sl_res = self._compute_wire_residuals(dcop, bl_segment_g__uS, sl_segment_g__uS)
+            wire_bl_res, wire_sl_res = self._compute_wire_residuals(
+                dcop,
+                1.0 / bl_segment_r__MOhm,
+                1.0 / sl_segment_r__MOhm,
+            )
             clamp_zero = torch.zeros_like(dcop.v_bl_clamp)
             SolverProber.submit(
                 SolverObservation(
@@ -497,35 +524,28 @@ class NestedParallelRailSolver(Solver):
         *,
         v_bl_clamp__V: Tensor,
         v_sl_drive__V: Tensor,
-        bl_segment_r__MOhm: Tensor,
-        sl_segment_r__MOhm: Tensor,
-        bl_segment_g__uS: Tensor,
-        sl_segment_g__uS: Tensor,
+        bl_segment_r__MOhm: float,
+        sl_segment_r__MOhm: float,
         cell: XbarCell[Any, Any, CellSnapT, CellDCOPT],
         cell_snap: CellSnapT,
     ) -> SolverDcop[CellDCOPT]:
         """Run the fixed-clamp inner solve."""
-        bl_wire_diag_tmpl = bl_segment_g__uS + F.pad(bl_segment_g__uS[1:], (0, 1))
-        bl_wire_offdiag = -bl_segment_g__uS[1:]
-        sl_wire_diag_tmpl = sl_segment_g__uS + F.pad(sl_segment_g__uS[1:], (0, 1))
-        sl_wire_offdiag = -sl_segment_g__uS[1:]
+        bl_g__uS = 1.0 / bl_segment_r__MOhm
+        sl_g__uS = 1.0 / sl_segment_r__MOhm
 
         # Shape: [..., num_col] -> [..., num_col, 1]
         v_bl_clamp_grid__V = v_bl_clamp__V.unsqueeze(-1)
         # Shape: [..., num_col] -> [..., num_col, 1]
         v_sl_drive_grid__V = v_sl_drive__V.unsqueeze(-1)
         i_seed, _g_bl_init, _g_sl_init = cell.solve_branch(v_bl_clamp_grid__V, v_sl_drive_grid__V, cell_snap)
-        num_row = i_seed.shape[-1]
 
         # IR-drop wire seed: BL propagates ``+i``, SL propagates ``-i``.
         v_bl_node, v_sl_node = self._wire_ir_drop_seed(
             i_seed,
-            v_bl_clamp__V,
-            v_sl_drive__V,
+            v_bl_clamp_grid__V,
+            v_sl_drive_grid__V,
             bl_segment_r__MOhm,
             sl_segment_r__MOhm,
-            i_seed.ndim,
-            num_row,
         )
 
         max_inner_step__V = self._MAX_INNER_STEP__V
@@ -534,18 +554,15 @@ class NestedParallelRailSolver(Solver):
             g_cell_bl_eff = di_dvbl
             g_cell_sl_eff = -di_dvsl
             # BL wire KCL uses ``+i``; SL wire KCL uses ``-i``.
-            f_bl_kcl = col_wire_kcl_residual(v_bl_node, v_bl_clamp_grid__V, bl_segment_g__uS, i_cell)
-            f_sl_kcl = col_wire_kcl_residual(v_sl_node, v_sl_drive_grid__V, sl_segment_g__uS, -i_cell)
+            f_bl_kcl = col_wire_kcl_residual(v_bl_node, v_bl_clamp_grid__V, bl_g__uS, i_cell)
+            f_sl_kcl = col_wire_kcl_residual(v_sl_node, v_sl_drive_grid__V, sl_g__uS, -i_cell)
             dv_bl_node, dv_sl_node = self._wire_newton_coupled_block2x2(
-                v_bl_node,
                 f_bl_kcl,
                 f_sl_kcl,
                 g_cell_bl_eff,
                 g_cell_sl_eff,
-                bl_wire_diag_tmpl,
-                sl_wire_diag_tmpl,
-                bl_wire_offdiag,
-                sl_wire_offdiag,
+                bl_g__uS,
+                sl_g__uS,
             )
             dv_bl_node = dv_bl_node.clamp(min=-max_inner_step__V, max=max_inner_step__V)
             dv_sl_node = dv_sl_node.clamp(min=-max_inner_step__V, max=max_inner_step__V)
@@ -554,8 +571,8 @@ class NestedParallelRailSolver(Solver):
 
         cell_dcop = cell.solve_dc(v_bl_node, v_sl_node, cell_snap)
 
-        i_bl_driver = col_driver_current(v_bl_node, v_bl_clamp_grid__V, bl_segment_g__uS)
-        i_sl_driver = col_driver_current(v_sl_node, v_sl_drive_grid__V, sl_segment_g__uS)
+        i_bl_driver = col_driver_current(v_bl_node, v_bl_clamp_grid__V, bl_g__uS)
+        i_sl_driver = col_driver_current(v_sl_node, v_sl_drive_grid__V, sl_g__uS)
 
         return SolverDcop(
             i_bl_driver=i_bl_driver,
@@ -570,60 +587,54 @@ class NestedParallelRailSolver(Solver):
     @staticmethod
     def _wire_ir_drop_seed(
         i_cell: Tensor,
-        v_bl_clamp__V: Tensor,
-        v_sl_drive__V: Tensor,
-        bl_segment_r__MOhm: Tensor,
-        sl_segment_r__MOhm: Tensor,
-        ndim: int,
-        num_row: int,
+        v_bl_clamp_grid__V: Tensor,
+        v_sl_drive_grid__V: Tensor,
+        bl_segment_r__MOhm: float,
+        sl_segment_r__MOhm: float,
     ) -> tuple[Tensor, Tensor]:
         """First-order IR-drop seed for the wire ladders.
 
+        Every link carries the same resistance, so the drop accumulated down
+        a ladder is that one resistance times the running sum of the currents
+        its links carry. The two rails share that running sum: BL drains the
+        cell current and SL injects the very same current back.
+
         Args:
             i_cell: Signed cell branch currents [uA].
-            v_bl_clamp__V: BL clamp voltages.
-            v_sl_drive__V: SL drive voltages.
-            bl_segment_r__MOhm: BL segment resistances.
-            sl_segment_r__MOhm: SL segment resistances.
-            ndim: Rank of the cell-current tensor.
-            num_row: Number of wire nodes per column.
+                Shape: ``[..., num_col, num_row]``.
+            v_bl_clamp_grid__V: BL clamp voltages on the cell grid.
+                Shape: ``[..., num_col, 1]``.
+            v_sl_drive_grid__V: SL drive voltages on the cell grid.
+                Shape: ``[..., num_col, 1]``.
+            bl_segment_r__MOhm: BL rail resistance of one lattice link.
+            sl_segment_r__MOhm: SL rail resistance of one lattice link.
 
         Returns:
             Initial BL and SL node voltages [V].
+            Shape: ``[..., num_col, num_row]``.
         """
-        shape_broadcast = [1] * ndim
-        shape_broadcast[-1] = num_row
-        bl_segment_r_b = bl_segment_r__MOhm.view(shape_broadcast)
-        sl_segment_r_b = sl_segment_r__MOhm.view(shape_broadcast)
-
-        v_bl_clamp_grid = v_bl_clamp__V.unsqueeze(-1)
-        v_sl_drive_grid = v_sl_drive__V.unsqueeze(-1)
-
-        i_bl_down = torch.flip(torch.cumsum(torch.flip(i_cell, [-1]), -1), [-1])
-        v_bl_node = v_bl_clamp_grid - torch.cumsum(i_bl_down * bl_segment_r_b, dim=-1)
-
-        i_sl_inject = -i_cell
-        i_sl_down = torch.flip(torch.cumsum(torch.flip(i_sl_inject, [-1]), -1), [-1])
-        v_sl_node = v_sl_drive_grid - torch.cumsum(i_sl_down * sl_segment_r_b, dim=-1)
-        return v_bl_node, v_sl_node
+        # Current in the link that feeds node k: everything drawn at k and beyond.
+        # Shape: [..., num_col, num_row]
+        i_link = torch.flip(torch.cumsum(torch.flip(i_cell, [-1]), -1), [-1])
+        # Shape: [..., num_col, num_row]
+        i_cumulative = torch.cumsum(i_link, dim=-1)
+        return (
+            v_bl_clamp_grid__V - bl_segment_r__MOhm * i_cumulative,
+            v_sl_drive_grid__V + sl_segment_r__MOhm * i_cumulative,
+        )
 
     @staticmethod
     def _wire_newton_coupled_block2x2(
-        v_bl_node: Tensor,
         f_bl_kcl: Tensor,
         f_sl_kcl: Tensor,
         g_cell_bl_eff: Tensor,
         g_cell_sl_eff: Tensor,
-        bl_wire_diag_tmpl: Tensor,
-        sl_wire_diag_tmpl: Tensor,
-        bl_wire_offdiag: Tensor,
-        sl_wire_offdiag: Tensor,
+        bl_segment_g__uS: float,
+        sl_segment_g__uS: float,
     ) -> tuple[Tensor, Tensor]:
         """Coupled BL/SL wire Newton step at frozen V_clamp / V_SL_drive.
 
         Args:
-            v_bl_node: BL node voltages [V].
-                Shape: ``[..., num_col, num_row]``.
             f_bl_kcl: BL KCL residuals [uA].
                 Shape: ``[..., num_col, num_row]``.
             f_sl_kcl: SL KCL residuals [uA].
@@ -632,177 +643,85 @@ class NestedParallelRailSolver(Solver):
                 Shape: ``[..., num_col, num_row]``.
             g_cell_sl_eff: Negated SL-side cell derivatives [uS].
                 Shape: ``[..., num_col, num_row]``.
-            bl_wire_diag_tmpl: BL wire diagonal.
-                Shape: ``[num_row]``.
-            sl_wire_diag_tmpl: SL wire diagonal.
-                Shape: ``[num_row]``.
-            bl_wire_offdiag: BL wire off-diagonal.
-                Shape: ``[num_row - 1]``.
-            sl_wire_offdiag: SL wire off-diagonal.
-                Shape: ``[num_row - 1]``.
+            bl_segment_g__uS: BL rail conductance of one lattice link.
+            sl_segment_g__uS: SL rail conductance of one lattice link.
 
         Returns:
             BL and SL Newton voltage steps [V], one tensor each.
             Shape: ``[..., num_col, num_row]``.
         """
-        num_axis = v_bl_node.shape[-1]
-        shape_broadcast = [1] * v_bl_node.ndim
-        shape_broadcast[-1] = num_axis
-
-        # Per-row diagonal entries.
-        # Shape: [..., num_col, num_row]
-        bl_diag_node = bl_wire_diag_tmpl.view(shape_broadcast) + g_cell_bl_eff
-        sl_diag_node = sl_wire_diag_tmpl.view(shape_broadcast) + g_cell_sl_eff
-        cross_to_bl_from_sl = -g_cell_sl_eff  # ∂F_BL/∂V_SL
-        cross_to_sl_from_bl = -g_cell_bl_eff  # ∂F_SL/∂V_BL
-
-        # Assemble per-row 2×2 diagonal block.
         # Shape: [..., num_col, num_row, 2, 2]
-        diag_row_top = torch.stack([bl_diag_node, cross_to_bl_from_sl], dim=-1)
-        diag_row_bot = torch.stack([cross_to_sl_from_bl, sl_diag_node], dim=-1)
-        diag_blocks = torch.stack([diag_row_top, diag_row_bot], dim=-2)
-
-        # Off-diagonal blocks (BL-BL and SL-SL wire only).
-        # sub_k[0] is unused; sup_k[N-1] is unused — pad with zeros.
-        # Shape: [num_row - 1] -> [..., num_row]
-        sub_bl_pad = F.pad(bl_wire_offdiag, (1, 0)).view(shape_broadcast)
-        sub_sl_pad = F.pad(sl_wire_offdiag, (1, 0)).view(shape_broadcast)
-        sup_bl_pad = F.pad(bl_wire_offdiag, (0, 1)).view(shape_broadcast)
-        sup_sl_pad = F.pad(sl_wire_offdiag, (0, 1)).view(shape_broadcast)
-        # Shape: [..., num_row] -> [..., num_col, num_row]
-        sub_bl_full = sub_bl_pad.expand_as(v_bl_node)
-        sub_sl_full = sub_sl_pad.expand_as(v_bl_node)
-        sup_bl_full = sup_bl_pad.expand_as(v_bl_node)
-        sup_sl_full = sup_sl_pad.expand_as(v_bl_node)
-        zero_full = torch.zeros_like(sub_bl_full)
-        # 2×2 diagonal blocks: diag(-bl_offdiag, -sl_offdiag)
-        # Shape: [..., num_col, num_row, 2, 2]
-        sub_row_top = torch.stack([sub_bl_full, zero_full], dim=-1)
-        sub_row_bot = torch.stack([zero_full, sub_sl_full], dim=-1)
-        sub_blocks = torch.stack([sub_row_top, sub_row_bot], dim=-2)
-        sup_row_top = torch.stack([sup_bl_full, zero_full], dim=-1)
-        sup_row_bot = torch.stack([zero_full, sup_sl_full], dim=-1)
-        sup_blocks = torch.stack([sup_row_top, sup_row_bot], dim=-2)
-
+        diag_blocks = _wire_diag_blocks(g_cell_bl_eff, g_cell_sl_eff, bl_segment_g__uS, sl_segment_g__uS)
         # RHS = [-F_BL, -F_SL] stacked.
         # Shape: [..., num_col, num_row, 2]
-        rhs = torch.stack([-f_bl_kcl, -f_sl_kcl], dim=-1)
+        rhs = torch.stack((-f_bl_kcl, -f_sl_kcl), dim=-1)
 
-        # Solve. The block solver claims the row axis as its N axis and the
-        # per-node rail pair as its B block, so the column dim sits in its
-        # leading batch.
-        delta = solve_block_tridiagonal(sub_blocks, diag_blocks, sup_blocks, rhs)
+        # The block solver claims the row axis as its N axis and the per-node
+        # rail pair as its 2x2 block, so the column dim sits in its leading
+        # batch. Neighbouring rows couple through their shared rail link
+        # alone, which is the constant off-block it takes as two scalars.
+        # Shape: [..., num_col, num_row, 2]
+        delta = solve_block_tridiagonal_2x2_uniform(
+            diag_blocks,
+            rhs,
+            off_block=(-bl_segment_g__uS, -sl_segment_g__uS),
+        )
         # Unpack into (dv_bl, dv_sl).
         return delta[..., 0], delta[..., 1]
 
     @staticmethod
     def _compute_k_inner_coupled_2x2(
-        v_bl_node: Tensor,
         g_cell_bl_eff: Tensor,
         g_cell_sl_eff: Tensor,
-        bl_wire_diag_tmpl: Tensor,
-        sl_wire_diag_tmpl: Tensor,
-        bl_wire_offdiag: Tensor,
-        sl_wire_offdiag: Tensor,
-        bl_driver_segment_g__uS: Tensor,
-        sl_driver_segment_g__uS: Tensor,
+        bl_segment_g__uS: float,
+        sl_segment_g__uS: float,
     ) -> Tensor:
-        """Compute the 2×2 ``K_inner = ∂V_array[0] / ∂V_clamp`` per column.
+        """Compute the 2x2 ``K_inner = dV_array[0] / dV_clamp`` per column.
+
+        A clamp reaches the array through its own rail link alone, so its
+        forcing is that link's conductance at row 0 and nothing anywhere else.
+        The frozen array is linear in that forcing, so each solve runs on the
+        bare row-0 unit vector and the link conductance scales the extracted
+        row-0 response — a per-column 2-vector — instead of a grid-sized
+        right-hand side.
 
         Args:
-            v_bl_node: BL node voltages [V].
-                Shape: ``[..., num_col, num_row]``.
             g_cell_bl_eff: BL-side cell derivatives [uS].
                 Shape: ``[..., num_col, num_row]``.
             g_cell_sl_eff: Negated SL-side cell derivatives [uS].
                 Shape: ``[..., num_col, num_row]``.
-            bl_wire_diag_tmpl: BL wire diagonal.
-                Shape: ``[num_row]``.
-            sl_wire_diag_tmpl: SL wire diagonal.
-                Shape: ``[num_row]``.
-            bl_wire_offdiag: BL wire off-diagonal.
-                Shape: ``[num_row - 1]``.
-            sl_wire_offdiag: SL wire off-diagonal.
-                Shape: ``[num_row - 1]``.
-            bl_driver_segment_g__uS: First BL segment conductance.
-                Shape: ``[]``.
-            sl_driver_segment_g__uS: First SL segment conductance.
-                Shape: ``[]``.
+            bl_segment_g__uS: BL rail conductance of one lattice link.
+            sl_segment_g__uS: SL rail conductance of one lattice link.
 
         Returns:
             Clamp-to-port-node sensitivity.
             Shape: ``[..., num_col, 2, 2]``.
         """
-        num_row = v_bl_node.shape[-1]
-        shape_broadcast = [1] * v_bl_node.ndim
-        shape_broadcast[-1] = num_row
-
-        # --- 1: build the block-2x2 inner Jacobian ---
-
-        bl_diag_node = bl_wire_diag_tmpl.view(shape_broadcast) + g_cell_bl_eff
-        sl_diag_node = sl_wire_diag_tmpl.view(shape_broadcast) + g_cell_sl_eff
-        cross_to_bl_from_sl = -g_cell_sl_eff  # ∂F_BL/∂V_SL
-        cross_to_sl_from_bl = -g_cell_bl_eff  # ∂F_SL/∂V_BL
         # Shape: [..., num_col, num_row, 2, 2]
-        diag_blocks = torch.stack(
-            [
-                torch.stack([bl_diag_node, cross_to_bl_from_sl], dim=-1),
-                torch.stack([cross_to_sl_from_bl, sl_diag_node], dim=-1),
-            ],
-            dim=-2,
-        )
+        diag_blocks = _wire_diag_blocks(g_cell_bl_eff, g_cell_sl_eff, bl_segment_g__uS, sl_segment_g__uS)
+        off_block = (-bl_segment_g__uS, -sl_segment_g__uS)
 
-        sub_bl_pad = F.pad(bl_wire_offdiag, (1, 0)).view(shape_broadcast)
-        sub_sl_pad = F.pad(sl_wire_offdiag, (1, 0)).view(shape_broadcast)
-        sup_bl_pad = F.pad(bl_wire_offdiag, (0, 1)).view(shape_broadcast)
-        sup_sl_pad = F.pad(sl_wire_offdiag, (0, 1)).view(shape_broadcast)
-        sub_bl_full = sub_bl_pad.expand_as(v_bl_node)
-        sub_sl_full = sub_sl_pad.expand_as(v_bl_node)
-        sup_bl_full = sup_bl_pad.expand_as(v_bl_node)
-        sup_sl_full = sup_sl_pad.expand_as(v_bl_node)
-        zero_full = torch.zeros_like(sub_bl_full)
-        sub_blocks = torch.stack(
-            [
-                torch.stack([sub_bl_full, zero_full], dim=-1),
-                torch.stack([zero_full, sub_sl_full], dim=-1),
-            ],
-            dim=-2,
-        )
-        sup_blocks = torch.stack(
-            [
-                torch.stack([sup_bl_full, zero_full], dim=-1),
-                torch.stack([zero_full, sup_sl_full], dim=-1),
-            ],
-            dim=-2,
-        )
-
-        # --- 2: build boundary-forcing basis vectors ---
-
-        # BL-clamp forcing is nonzero only at the first BL wire node.
-        zeros_node = torch.zeros_like(v_bl_node)
-        # Per-row BL-only basis: g_BL_seg[0] at row 0, 0 elsewhere.
-        g_bl_at_row0_per_row = F.pad(
-            bl_driver_segment_g__uS.expand(*v_bl_node.shape[:-1], 1),
-            (0, num_row - 1),
-        )
-        g_sl_at_row0_per_row = F.pad(
-            sl_driver_segment_g__uS.expand(*v_bl_node.shape[:-1], 1),
-            (0, num_row - 1),
-        )
-        # Shape: [..., num_col, num_row] -> [..., num_col, num_row, 2]
-        rhs_bl_basis = torch.stack([g_bl_at_row0_per_row, zeros_node], dim=-1)
-        # Shape: [..., num_col, num_row] -> [..., num_col, num_row, 2]
-        rhs_sl_basis = torch.stack([zeros_node, g_sl_at_row0_per_row], dim=-1)
-
-        # --- 3: solve and extract row-zero responses ---
+        # Unit forcing at row 0, one rail at a time.
+        # Shape: [..., num_col, num_row]
+        zeros_node = torch.zeros_like(g_cell_bl_eff)
+        unit_row0 = F.pad(torch.ones_like(g_cell_bl_eff[..., :1]), (0, g_cell_bl_eff.shape[-1] - 1))
 
         # Shape: [..., num_col, num_row, 2]
-        u_bl = solve_block_tridiagonal(sub_blocks, diag_blocks, sup_blocks, rhs_bl_basis)
-        u_sl = solve_block_tridiagonal(sub_blocks, diag_blocks, sup_blocks, rhs_sl_basis)
+        u_bl = solve_block_tridiagonal_2x2_uniform(
+            diag_blocks,
+            torch.stack((unit_row0, zeros_node), dim=-1),
+            off_block=off_block,
+        )
+        u_sl = solve_block_tridiagonal_2x2_uniform(
+            diag_blocks,
+            torch.stack((zeros_node, unit_row0), dim=-1),
+            off_block=off_block,
+        )
 
-        # K[:, 0] from BL-basis solve at row 0; K[:, 1] from SL-basis solve at row 0.
+        # K[:, 0] is the BL-forced row-0 response, K[:, 1] the SL-forced one,
+        # each carrying the conductance of the link that forced it.
         # Shape: [..., num_col, 2]
-        k_col_bl = u_bl.select(-2, 0)
-        k_col_sl = u_sl.select(-2, 0)
+        k_col_bl = u_bl.select(-2, 0) * bl_segment_g__uS
+        k_col_sl = u_sl.select(-2, 0) * sl_segment_g__uS
         # Stack into [..., num_col, 2, 2] with K[:, j] as columns.
-        return torch.stack([k_col_bl, k_col_sl], dim=-1)
+        return torch.stack((k_col_bl, k_col_sl), dim=-1)

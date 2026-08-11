@@ -16,7 +16,12 @@ from neurox.common.mixin import FabricateMixin
 from neurox.primitive.device import MosfetConfig, MosfetPolicy, RramConfig, RramPolicy
 from neurox.primitive.device.mosfet import Nmos
 from neurox.primitive.device.rram import Rram
-from neurox.primitive.xbar.array import XbarArray1t1r, XbarArray1t1rConfig, XbarArray1t1rPolicy
+from neurox.primitive.xbar.array import (
+    XbarArray1t1r,
+    XbarArray1t1rConfig,
+    XbarArray1t1rOperationMode,
+    XbarArray1t1rPolicy,
+)
 from neurox.primitive.xbar.cell import XbarCell1t1rDetail, XbarCell1t1rDetailConfig, XbarCell1t1rDetailPolicy
 from neurox.primitive.xbar.solver import NestedParallelRailSolverConfig
 
@@ -26,10 +31,6 @@ def _array_config() -> XbarArray1t1rConfig:
     the library presets (the sanctioned device exception)."""
     rram_config = RramConfig.from_preset("process/rram:default")
     cell_config = XbarCell1t1rDetailConfig(
-        c_bl__fF=0.1,
-        c_x__fF=0.1,
-        c_sl__fF=0.1,
-        c_wl__fF=0.1,
         rram_config=rram_config,
         nmos_config=MosfetConfig.from_preset("process/mos:nmos_28_rvt"),
         state_to_g_map__uS=(rram_config.g_min__uS, 100.0),
@@ -39,27 +40,16 @@ def _array_config() -> XbarArray1t1rConfig:
         newton_iter_num=2,
     )
     return XbarArray1t1rConfig(
-        row_first_space__um=1.0,
         row_cell_space__um=1.0,
-        col_first_space__um=1.0,
         col_cell_space__um=1.0,
-        bl_first_r__MOhm=2e-4,
-        bl_first_c__fF=0.1,
         bl_segment_r__MOhm=1e-4,
-        bl_segment_c__fF=0.1,
-        sl_first_r__MOhm=2e-4,
-        sl_first_c__fF=0.1,
         sl_segment_r__MOhm=1e-4,
-        sl_segment_c__fF=0.1,
-        wl_first_r__MOhm=2e-4,
-        wl_first_c__fF=0.1,
-        wl_segment_r__MOhm=1e-4,
-        wl_segment_c__fF=0.1,
+        bl_node_c__fF=0.1,
+        x_node_c__fF=0.1,
+        sl_node_c__fF=0.1,
+        wl_node_c__fF=0.1,
         cell_config=cell_config,
         solver_config=NestedParallelRailSolverConfig(n_outer=1, n_inner=1),
-        latency_per_op__ns=1.0,
-        area_per_inst__um2=0.0,
-        leakage_per_inst__uW=0.0,
     )
 
 
@@ -72,6 +62,9 @@ def _build_array(*, device: torch.device) -> XbarArray1t1r:
         inst_shape=(),
         row_num=2,
         col_num=2,
+        operation_mode=XbarArray1t1rOperationMode.WL_IN_BL_SCAN,
+        v_dd_wl__V=1.0,
+        v_dd_bl__V=1.0,
         dtype=torch.float64,
         T__K=300.0,
     )

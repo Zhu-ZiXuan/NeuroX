@@ -15,8 +15,7 @@ Hand-built tiny witness, eager, CPU. Five laws:
     the hand-computed per-step formula on a tiny witness —
     ``sum_s v_dd * (3 * (i_sub + i_ref_path[s]) * t_ph2[s]
     + 2 * (i_sub + i_ref_path[s]) * t_ph3[s]) + e_fixed * bits`` per
-    converted element, with ``i_ref_path[s]`` looked up from the final code —
-    and no latency event is emitted (the macro is the sole emitter).
+    converted element, with ``i_ref_path[s]`` looked up from the final code.
   * LOWERED-BIT LAW: a ``b``-bit conversion truncates the max-bits search after
     ``b`` levels, so it bills the LEADING ``b`` phase windows at the up-shifted
     code — checked against the max-bits call with the trailing windows zeroed,
@@ -101,7 +100,6 @@ def _build_kernel_adc() -> SarIadc:
         inst_shape=(1,),
         dtype=_DTYPE,
         T__K=300.0,
-        enable_latency_record=False,
     )
     adc.eval()
     adc.fabricate()
@@ -189,7 +187,7 @@ def test_lut_closed_form_anchor() -> None:
 
 
 def test_phase_billing_law_hand_computed() -> None:
-    """Recorded energy == the hand-computed PH2/PH3 per-step formula; no latency."""
+    """Recorded energy == the hand-computed PH2/PH3 per-step formula."""
     module = _build()
     # Shape: [1, serial, gn]
     i_sub = torch.tensor([[[1.5, 2.5], [0.5, 6.5]]], dtype=_DTYPE)
@@ -208,7 +206,6 @@ def test_phase_billing_law_hand_computed() -> None:
             expected += _V_DD__V * (i_ph2 * _T_PH2__NS[s] + i_ph3 * _T_PH3__NS[s]) + _E_FIXED__fJ
 
     assert prof.total_dynamic_energy__fJ == pytest.approx(expected, rel=1e-12)
-    assert prof.total_latency__ns == 0.0
     # One un-channelled event per forward — the module's own profiler row.
     assert len(prof.energy_events) == 1
     assert prof.energy_events[0].channel is None

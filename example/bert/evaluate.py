@@ -9,16 +9,45 @@ from pathlib import Path
 
 import torch
 import torch._dynamo
+import torch.nn as nn
 from torch.utils.data import DataLoader
 
 from example.bert.data import create_sst2_dataloader
 from example.bert.macro_factory import build_macro_factory
 from example.bert.model_float import create_bert_small
 from example.bert.model_quant import to_quant
+from example.bert.quant import QuantLinear
 from example.bert.train_quant import QAT_SCHEMA
-from neurox.common.profiler import NeuroxProfiler
+from neurox.architecture.unit.cim.base import CimUnit
+from neurox.architecture.unit.cim.engine.base import CimEngine
+from neurox.common.profiler import NeuroxProfiler, neurox_roots
+from neurox.primitive.macro.cim.base import CimMacro
 
 CONFIG_DIR = Path(__file__).parent
+
+
+def latency_per_token__ns(model: nn.Module) -> float:
+    """Modelled duration of one token's pass through every macro-backed layer [ns].
+
+    Each layer times the unit it drives at the operating point it resolved,
+    over one input vector of the contraction width its programmed weight fixes.
+    A linear operator lowers to a single output plane, so the sample and token
+    axes a layer receives are parallel and never enter the duration; one token
+    therefore costs one call per layer.
+    """
+    total__ns = 0.0
+    for layer in model.modules():
+        if not isinstance(layer, QuantLinear):
+            continue
+        for root in neurox_roots(layer):
+            # Narrowing by type is a temporary stand-in for a proper latency
+            # interface: only these three families declare `latency__ns`, and
+            # no interface spans them yet.
+            if not isinstance(root, (CimUnit, CimEngine, CimMacro)):
+                continue
+            # Shape: [K], the fan-in one output channel contracts over.
+            total__ns += root.latency__ns((layer.in_features,), adc_bits=layer.adc_bits)
+    return total__ns
 
 
 def main() -> None:
@@ -86,8 +115,11 @@ def main() -> None:
     cuda = device.type == "cuda"
     if cuda:
         torch.cuda.reset_peak_memory_stats(device)
+    dynamic_energy__fJ = 0.0
+    energy_by_type__fJ: dict[str, float] = {}
+    token_num = 0
     t0 = time.time()
-    with NeuroxProfiler() as profiler, torch.no_grad():
+    with torch.no_grad():
         for input_ids, attn, ttids, labels in loader:
             if args.max_samples is not None and total >= args.max_samples:
                 break
@@ -98,16 +130,26 @@ def main() -> None:
             if cuda:
                 torch.cuda.synchronize(device)
             tb = time.time()
-            logits = model(input_ids=input_ids, attention_mask=attn, token_type_ids=ttids).logits
+            # A unit operation is one token, so the caller leading is [B, T].
+            with NeuroxProfiler(leading_rank=2) as profiler:
+                logits = model(input_ids=input_ids, attention_mask=attn, token_type_ids=ttids).logits
             if cuda:
                 torch.cuda.synchronize(device)
             batch_times.append(time.time() - tb)
             correct += logits.argmax(1).eq(labels).sum().item()
             total += labels.size(0)
+            token_num += input_ids.shape[0] * input_ids.shape[1]
+            dynamic_energy__fJ += profiler.total_dynamic_energy__fJ
+            for name, e__fJ in profiler.energy_by_type.items():
+                energy_by_type__fJ[name] = energy_by_type__fJ.get(name, 0.0) + e__fJ
     elapsed = time.time() - t0
     acc = correct / total if total else 0.0
     static = NeuroxProfiler.analyze_static(model)
-    leakage_energy__fJ = static.leakage_power__uW * profiler.total_latency__ns
+    # Leakage power and the access time are two independent figures. Static
+    # energy is leakage times the duty-cycle period a deployment holds the macro
+    # for, which is a property of that deployment rather than of the access time
+    # below, so the two are reported separately.
+    latency__ns = latency_per_token__ns(model)
     print(f"samples:                  {total}")
     print(f"top1_accuracy:            {acc:.4f}")
     print(f"wall_time_s:              {elapsed:.2f}")
@@ -121,14 +163,13 @@ def main() -> None:
     print(f"dynamo_unique_graphs:     {torch._dynamo.utils.counters['stats'].get('unique_graphs', 0)}")
     print(f"area_total_um2:           {static.area__um2:.4f}")
     print(f"leakage_power_total_uW:   {static.leakage_power__uW:.4f}")
-    print(f"dynamic_energy_total_fJ:  {profiler.total_dynamic_energy__fJ:.4f}")
-    print(f"modeled_latency_total_ns: {profiler.total_latency__ns:.4f}")
-    print(f"leakage_energy_total_fJ:  {leakage_energy__fJ:.4f}")
-    by_type = profiler.energy_by_type
-    if by_type:
+    print(f"tokens:                   {token_num}")
+    print(f"dynamic_energy_total_fJ:  {dynamic_energy__fJ:.4f}")
+    print(f"modeled_latency_per_token_ns: {latency__ns:.4f}")
+    if energy_by_type__fJ:
         print("dynamic_energy_by_type_fJ:")
-        for k in sorted(by_type, key=lambda n: -by_type[n]):
-            v = by_type[k]
+        for k in sorted(energy_by_type__fJ, key=lambda n: -energy_by_type__fJ[n]):
+            v = energy_by_type__fJ[k]
             if v > 0:
                 print(f"  {k:<28s} {v:.4f}")
 

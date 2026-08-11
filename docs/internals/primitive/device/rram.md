@@ -11,19 +11,19 @@
 ## Contracts & invariants
 
 - **`program(...)` creates ordinary tensor state.** Construction allocates no conductance placeholder. The target already carries the intended device and dtype; programming applies the configured effects and assigns `_g__uS`. A later `to(device)` does not migrate this state, so move first and program afterward.
-- **`snapshot(shape, multi_coords)` is the only read path into programmed state.** It expands `_g__uS` to the per-call broadcast `shape`, optionally advanced-indexes a chunk via `multi_coords`, applies the read-time noise stack, and re-clamps. `multi_coords=None` returns the full broadcast view. The returned snapshot contains the read state; it does not register or duplicate device buffers.
+- **`snapshot(shape)` is the only read path into programmed state.** It expands `_g__uS` to the per-call broadcast `shape`, applies the read-time noise stack, and re-clamps. The returned snapshot contains the read state; it does not register or duplicate device buffers.
 - **`solve_dc(v, snap)` is stateless in the device.** It reads conductance only from the passed `RramSnap`, never from `self._g__uS`, so a chunk's snap and its solve stay paired.
 - **No static fabricate mismatch.** `Rram` joins the fabricate cascade but declares an explicit no-op `_sample_fabricate_mismatch` — RRAM variation enters through `program(...)` (state-dependent Gamma, stuck-at), not through `fabricate()`.
 
 ## Performance & resources
 
-The state is one ordinary conductance tensor at the programmed broadcast shape. The read snap allocates noise draws at the per-call `shape` (or the indexed chunk); the chunked-solve `multi_coords` path sizes that allocation per chunk rather than over the full leading batch.
+The state is one ordinary conductance tensor at the programmed broadcast shape. The read snap allocates its noise draws at the per-call `shape`, once per call.
 
 ## Gotchas
 
 - **Drift is program-time state evolution.** The power-law drift gain is applied only when the `drift` policy is enabled, `drift_decay_rate > 0`, and `t_elapsed > drift_t0`; disabling the policy preserves the programmed conductance regardless of elapsed time.
 - **`alpha == 0` is a distinct branch.** The linear I-V path returns `g.expand_as(i)` for the differential conductance; do not assume the `sinh`/`cosh` form is always taken. The branch is on the config value, so it is compile-time-constant per instance.
-- **Read noise is reseeded every snapshot.** Two snaps of the same programmed state differ under a noise-on policy; chunked reads are therefore not bit-identical to a single-block read with noise on.
+- **Read noise is reseeded every `snapshot()` call, not every chunk.** Two independent `snapshot()` calls of the same programmed state differ under a noise-on policy. A chunked solve draws no second `snapshot()`: the cell snapshots once at the full per-call shape and the chunking layer only slices the result, so the read stays bit-identical across `solve_chunk_size` values.
 
 ## Known limitations
 

@@ -213,19 +213,15 @@ class XbarCell1t1rDetail(XbarCell1t1r[XbarCell1t1rDetailConfig, XbarCell1t1rDeta
         *,
         control: Tensor,
         shape: tuple[int, ...],
-        multi_coords: tuple[Tensor, ...] | None,
         t_elapsed: float,
     ) -> XbarCell1t1rDetailSnap:
         """Bundle RRAM / NMOS device snaps with the WL control drive.
 
         Args:
-            control: Word-line drive voltage [V] at the NMOS gate;
-                broadcasts to ``[..., col, row]``.
+            control: Per-cell word-line drive voltage [V] at the NMOS gate.
+                Shape: ``[..., col, row]``.
             shape: Per-call broadcast shape ``(..., col, row)`` the
                 RRAM / NMOS snaps fill their tensor fields at.
-            multi_coords: Advanced-index tuple selecting a chunk's
-                positions from the broadcast view; forwarded to the RRAM /
-                NMOS snaps. ``None`` returns the full view.
             t_elapsed: Time elapsed since programming [s]; reserved for
                 time-dependent device read state.
 
@@ -233,8 +229,8 @@ class XbarCell1t1rDetail(XbarCell1t1r[XbarCell1t1rDetailConfig, XbarCell1t1rDeta
             Per-call detailed 1T1R cell snap.
         """
         del t_elapsed
-        rram_snap = self.rram.snapshot(shape=shape, multi_coords=multi_coords)
-        nmos_snap = self.nmos.snapshot(shape=shape, multi_coords=multi_coords)
+        rram_snap = self.rram.snapshot(shape=shape)
+        nmos_snap = self.nmos.snapshot(shape=shape)
         return XbarCell1t1rDetailSnap(rram=rram_snap, nmos=nmos_snap, v_wl__V=control)
 
     def program(self, w_state_idx: Tensor) -> None:

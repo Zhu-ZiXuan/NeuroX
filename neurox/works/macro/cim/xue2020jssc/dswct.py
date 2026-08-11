@@ -48,7 +48,7 @@ class Dswct(ModuleBase[DswctConfig, DswctPolicy]):
         config: DSWCT configuration.
         policy: Source-free DSWCT policy.
         inst_shape: Fabrication shape ``(*inst_shape, gn, polarity)`` — one bank
-            (CIM-IO, polarity); the trailing axis is the polarity pair.
+            per (CIM-IO, polarity); the trailing axis is the polarity pair.
         digit_ratios: LSB-first per-digit mirror ratios, in the module's
             working dtype.
             Shape: ``[w_digit]``.
@@ -124,14 +124,17 @@ class Dswct(ModuleBase[DswctConfig, DswctPolicy]):
         # LSB-first per-digit mirror ratios.
         i_wdl__uA = i_dl__uA * self._digit_ratios
         if self._is_dynamic_energy_profile_active():
+            # The digit legs are internal structure of ONE bank, so they fold
+            # here; the collector sums the (gn, polarity) bank axes and the slot
+            # axis past the caller's leading dims.
+            # Shape: [...] -> [..., serial=1, gn=1, polarity=1]
+            window_view__ns = window__ns[..., None, None, None] if isinstance(window__ns, Tensor) else window__ns
             # Rail: V_DD * |I_WDL| * window over every (slot, lane, digit) leg.
-            # Shape: [..., serial, gn, polarity, w_digit] -> [...]
-            i_wdl_total__uA = i_wdl__uA.abs().sum(dim=(-4, -3, -2, -1))
-            e__fJ = self._v_dd__V * i_wdl_total__uA * window__ns
-            # Cap: c_load * V_DD**2 once per (slot x plane) per bank; each
-            # leading element is one plane, its trailing holds slot x bank.
-            serial_num, gn, pol = i_dl__uA.shape[-4:-1]
-            e__fJ = e__fJ + self.config.c_load__fF * self._v_dd__V**2 * (serial_num * gn * pol)
+            # Shape: [..., serial, gn, polarity, w_digit] -> [..., serial, gn, polarity]
+            i_wdl_bank__uA = i_wdl__uA.abs().sum(dim=-1)
+            # Cap: c_load * V_DD**2 once per (slot x plane) per bank — one event
+            # per payload entry, since a bank IS one (gn, polarity) instance.
+            e__fJ = self._v_dd__V * window_view__ns * i_wdl_bank__uA + self.config.c_load__fF * self._v_dd__V**2
             self._record_dynamic_energy(e__fJ)
         # Shape: [..., serial, gn, polarity, w_digit] -> [..., serial, gn, polarity]
         return i_wdl__uA.sum(dim=-1)

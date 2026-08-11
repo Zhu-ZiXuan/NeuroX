@@ -207,17 +207,17 @@ def _solve_grid_for_candidate(
             continue
         # Program the whole cell to this RRAM state, then evaluate the
         # subset of grid points that use it. The cell's ``inst_shape`` is
-        # ``(1,)``; we drive a ``(n_pts, 1)`` view so the cell's snapshot /
-        # solve broadcast over the ``col``/``row`` trailing pair.
+        # ``(1,)``; the grid points ride a LEADING axis and the ``col``/``row``
+        # trailing pair stays singleton, so every point is its own single cell.
         cell.program(torch.full((1,), s, dtype=torch.long, device=v_bl.device))
         n_pts = int(mask.sum())
-        shape = (n_pts, 1)
-        v_wl_pts = v_wl[mask].reshape(n_pts, 1)
-        snap = cell.snapshot(control=v_wl_pts, shape=shape, multi_coords=None, t_elapsed=0.0)
+        shape = (n_pts, 1, 1)
+        v_wl_pts = v_wl[mask].reshape(n_pts, 1, 1)
+        snap = cell.snapshot(control=v_wl_pts, shape=shape, t_elapsed=0.0)
         with XbarCell1t1rDetailProber() as cp:
             dcop = cell.solve_dc(
-                v_bl[mask].reshape(n_pts, 1),
-                v_sl[mask].reshape(n_pts, 1),
+                v_bl[mask].reshape(n_pts, 1, 1),
+                v_sl[mask].reshape(n_pts, 1, 1),
                 snap,
             )
         records = cp.records
@@ -343,9 +343,8 @@ def extract_linear_cell_config(
     so the linear branch reproduces the Detail branch current and access
     node at the operating point. The fixed read span in both denominators
     keeps cut-off branches well-conditioned: their chord conductance is the
-    honest (possibly zero) leakage value. The four shared node-to-ground
-    capacitances copy verbatim from ``cell_config``; the WL on/off
-    threshold is the midpoint of the two WL levels.
+    honest (possibly zero) leakage value. The WL on/off threshold is the
+    midpoint of the two WL levels.
 
     Args:
         cell_config: Detail cell fragment under calibration.
@@ -378,7 +377,7 @@ def extract_linear_cell_config(
             ("on", v_wl_on__V, g_cell_on, vx_ratio_on),
         ):
             v_wl = torch.full((1, 1), v_wl__V, dtype=dtype, device=device)
-            snap = cell.snapshot(control=v_wl, shape=(1, 1), multi_coords=None, t_elapsed=0.0)
+            snap = cell.snapshot(control=v_wl, shape=(1, 1), t_elapsed=0.0)
             dcop = cell.solve_dc(v_bl, v_sl, snap)
             g_cell__uS, vx_ratio = _chord_params(
                 float(dcop.i__uA),
@@ -391,10 +390,6 @@ def extract_linear_cell_config(
             vx_table.append(vx_ratio)
 
     return XbarCell1t1rLinearConfig(
-        c_bl__fF=cell_config.c_bl__fF,
-        c_x__fF=cell_config.c_x__fF,
-        c_sl__fF=cell_config.c_sl__fF,
-        c_wl__fF=cell_config.c_wl__fF,
         g_cell_off_table__uS=tuple(g_cell_off),
         g_cell_on_table__uS=tuple(g_cell_on),
         vx_ratio_off_table=tuple(vx_ratio_off),

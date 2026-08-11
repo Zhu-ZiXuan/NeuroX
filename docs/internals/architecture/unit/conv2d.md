@@ -16,6 +16,7 @@
 - **`IdealConv2dUnit.program` gates shape.** Any shape other than the 4-D `w_logical_shape` raises `ValueError`; the ideal reference does not enforce the CIM-backed integer boundary. The `(C_out,)` bias goes through `_program_int_bias`.
 - **Zero-padding needs a representable zero.** A host configured with non-zero padding must require its `x_value_range` to cover 0 — zero-padding injects `x = 0` activations. (The ideal leaf computes in int64 regardless; its config ranges are reported surface.)
 - **Sentinel quantization surface.** `adc_max_bits is None` and `rescale_factor == 1.0` — same lossless sentinel as [IdealLinearUnit](linear.md).
+- **No substrate, hence zero duration.** `latency__ns(input_shape, *, adc_bits)` returns `0.0` and reads no window count out of the shape: the reference holds neither macro nor engine schedule, so no time axis exists below it.
 
 ## Gotchas
 

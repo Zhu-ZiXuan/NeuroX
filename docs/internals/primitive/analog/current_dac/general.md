@@ -8,7 +8,8 @@
 ## Contracts & invariants
 
 - **Construction.** `__init__` follows the [current DAC base](base.md) keyword signature and registers `_code_to_signal` as a non-persistent buffer at the constructor `dtype`.
-- **`convert` side effects.** Beyond returning the sampled current, `convert` emits per-call dynamic energy and latency through the profiler side channel; the drive-thermal noise is gated by `policy.drive_thermal`.
+- **`convert` side effects.** Beyond returning the sampled current, `convert` emits per-call dynamic energy through the profiler side channel; the drive-thermal noise is gated by `policy.drive_thermal`.
+- **A flat per-conversion lump, no instance axis.** The energy is constant per converted element, so the emission expands a 0-dim constant onto the signal's layout, a view with no storage. `inst_shape` never reaches the forward path — it sizes the static PPA and no per-instance buffer multiplies the signal — so the payload has no instance axis to sum.
 
 ## Gotchas
 

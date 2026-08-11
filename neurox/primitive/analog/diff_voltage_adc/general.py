@@ -29,8 +29,7 @@ class GeneralDiffVadcConfig(DiffVadcConfig):
         comparator_noise__V: Comparator (thermal/decision) noise σ
             on the signal.
         energy_per_op__fJ: Dynamic energy per conversion.
-        latency_per_op__ns: Per-conversion latency; multiplied by
-            the runtime serial-op count at logging time.
+        latency_per_op__ns: Decision window of one conversion.
     """
 
     code_num: int
@@ -86,10 +85,6 @@ class GeneralDiffVadc(DiffVadc[GeneralDiffVadcConfig, GeneralDiffVadcPolicy]):
         T__K: Operating temperature.
     """
 
-    # === Circuit constant buffers ===
-
-    _latency_per_op__ns: Tensor  # Shape: []
-
     def __init__(
         self,
         *,
@@ -107,12 +102,6 @@ class GeneralDiffVadc(DiffVadc[GeneralDiffVadcConfig, GeneralDiffVadcPolicy]):
             T__K=T__K,
         )
 
-        self.register_buffer(
-            "_latency_per_op__ns",
-            torch.tensor(config.latency_per_op__ns, dtype=dtype),
-            persistent=False,
-        )
-
         code_num = config.code_num
         self._bits = max(math.ceil(math.log2(code_num)), 1)
         self._code_num = code_num
@@ -126,6 +115,15 @@ class GeneralDiffVadc(DiffVadc[GeneralDiffVadcConfig, GeneralDiffVadcPolicy]):
     @property
     def _leakage_per_inst__uW(self) -> float:
         return self.config.leakage_per_inst__uW
+
+    def latency__ns(self, *, bits: int) -> float:
+        """One conversion — the flat comparison window.
+
+        The comparator bank fires every ladder tap at once, so the converter
+        owns no time axis and the resolution does not lengthen the window.
+        """
+        del bits
+        return self.config.latency_per_op__ns
 
     def _sample_fabricate_mismatch(self) -> None:
         pass
@@ -202,11 +200,11 @@ class GeneralDiffVadc(DiffVadc[GeneralDiffVadcConfig, GeneralDiffVadcPolicy]):
             lsb=self._lsb__V(v_refs__V),
         )
 
-        serial_round_count = self._count_serial_rounds(code.numel())
-        latency__ns = self._latency_per_op__ns * serial_round_count
         if self._is_dynamic_energy_profile_active():
-            self._record_dynamic_energy(torch.full_like(code, self.config.energy_per_op__fJ, dtype=torch.float32))
-        self._record_latency(latency__ns)
+            # Shape: [] -> [*code.shape]
+            e_op__fJ = torch.full((), self.config.energy_per_op__fJ, dtype=torch.float32, device=code.device)
+            e_op__fJ = e_op__fJ.expand(code.shape)
+            self._record_dynamic_energy(e_op__fJ)
 
         # Stochastic jitter may cross either outer bucket boundary.
         return code.clamp(min=0, max=self._code_num - 1)

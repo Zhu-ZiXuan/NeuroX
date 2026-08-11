@@ -4,7 +4,6 @@ from .current_reference import (
     Iref,
     IrefConfig,
     IrefPolicy,
-    IrefSnap,
 )
 from .switch_cap import SwitchCap, SwitchCapConfig, SwitchCapPolicy
 from .unmodeled import UnmodeledBlock, UnmodeledBlockConfig, UnmodeledBlockPolicy
@@ -19,7 +18,6 @@ from .voltage_reference import (
     Vref,
     VrefConfig,
     VrefPolicy,
-    VrefSnap,
 )
 
 __all__ = [
@@ -33,7 +31,6 @@ __all__ = [
     "Iref",
     "IrefConfig",
     "IrefPolicy",
-    "IrefSnap",
     "SwitchCap",
     "SwitchCapConfig",
     "SwitchCapPolicy",
@@ -50,5 +47,4 @@ __all__ = [
     "Vref",
     "VrefConfig",
     "VrefPolicy",
-    "VrefSnap",
 ]

@@ -33,7 +33,6 @@ TODO (domain author): physical derivation and citation for the drive-thermal sig
 | `code_to_signal` ($L$) | LUT entry per integer code | uA | — | Design |
 | `drive_thermal__uA` ($\sigma_{\mathrm{drive}}$) | additive output-noise standard deviation | uA | $\geq 0$ | Measured |
 | `energy_per_op__fJ` | per-conversion dynamic energy | fJ | $\geq 0$ | Design |
-| `latency_per_op__ns` | per-conversion latency | ns | $\geq 0$ | Design |
 | leakage / area | static PPA / spec fields | uW, um^2 | $\geq 0$ | Design |
 
 Provenance terms are defined in [module_parameter](../../../../conventions/module_parameter.md).

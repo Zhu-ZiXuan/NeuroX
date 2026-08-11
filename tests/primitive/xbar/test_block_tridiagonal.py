@@ -1,6 +1,7 @@
-"""Unit tests for :func:`neurox.primitive.xbar.solver._linalg.solve_block_tridiagonal`.
+"""Unit tests for the block-tridiagonal solvers in
+:mod:`neurox.primitive.xbar.solver._linalg`.
 
-Covers:
+Covers, for the general :func:`solve_block_tridiagonal`:
   * ``block_size = 1`` reduces to the existing scalar Thomas solver
     (`solve_tridiagonal`) bit-exact.
   * ``block_size ∈ {2, 3}`` matches a dense reference solve via
@@ -9,6 +10,13 @@ Covers:
   * Numerically stable on diagonally-dominant (M-matrix-flavour) systems
     that mirror the wire-Newton + boundary block structure used by the
     nested solver.
+
+And, for the specialized :func:`solve_block_tridiagonal_2x2_uniform`:
+  * EQUIVALENCE LAW: it solves the very system the general kernel solves
+    when handed that system's constant off-block materialized.
+  * NO-BOUNDARY LAW: a constant off-block needs no boundary slots, so the
+    answer cannot depend on what the general kernel would have found in
+    the two unused ones.
 """
 
 from __future__ import annotations
@@ -16,7 +24,11 @@ from __future__ import annotations
 import pytest
 import torch
 
-from neurox.primitive.xbar.solver._linalg import solve_block_tridiagonal, solve_tridiagonal
+from neurox.primitive.xbar.solver._linalg import (
+    solve_block_tridiagonal,
+    solve_block_tridiagonal_2x2_uniform,
+    solve_tridiagonal,
+)
 
 
 def _dense_from_blocks(sub: torch.Tensor, diag: torch.Tensor, sup: torch.Tensor) -> torch.Tensor:
@@ -88,6 +100,8 @@ def test_block_solve_matches_dense(b: int, n: int, device: torch.device) -> None
         x_dense = torch.linalg.solve(a_dense, rhs.reshape(-1)).reshape(n, b)
     x_block = solve_block_tridiagonal(sub, diag, sup, rhs)
 
+    # The N axis survives however short it is, N = 1 included.
+    assert x_block.shape == (n, b)
     rel_err = (x_dense - x_block).abs().max() / (x_dense.abs().max() + 1e-12)
     assert rel_err < 1e-10, f"B={b} N={n}: rel error {rel_err.item():.2e}"
 
@@ -142,7 +156,7 @@ def test_m_matrix_block_2x2_mirrors_nested_wire_jacobian(device: torch.device) -
     """
     n = 16
     b = 2
-    wire_g = 5.0e3  # ~ our chip's bl_segment_g[1:] scale (uS)
+    wire_g = 5.0e3  # ~ a chip's per-link rail conductance scale (uS)
     a = 100.0  # ∂I_cell/∂V_BL ≈ g_R · g_ND / D
     b_cross = -50.0  # ∂I_cell/∂V_SL (negative)
 
@@ -169,3 +183,50 @@ def test_m_matrix_block_2x2_mirrors_nested_wire_jacobian(device: torch.device) -
 
     rel_err = (x_dense - x_block).abs().max() / (x_dense.abs().max() + 1e-12)
     assert rel_err < 1e-10, f"M-matrix-like 2×2 block: rel err {rel_err.item():.2e}"
+
+
+def _uniform_case(n: int, *, device: torch.device, seed: int) -> tuple[torch.Tensor, torch.Tensor, tuple[float, float]]:
+    """A batched wire-Newton-flavoured system with one constant off-block."""
+    off = (-4.0e3, -7.0e3)
+    g = torch.Generator(device=device).manual_seed(seed)
+    diag = torch.randn(2, 5, n, 2, 2, dtype=torch.float64, generator=g, device=device) * 50.0
+    diag = diag + torch.eye(2, dtype=torch.float64, device=device) * 2.0 * 8.0e3
+    rhs = torch.randn(2, 5, n, 2, dtype=torch.float64, generator=g, device=device)
+    return diag, rhs, off
+
+
+@pytest.mark.parametrize("n", [1, 2, 3, 9])
+def test_uniform_off_block_matches_the_general_kernel(n: int, device: torch.device) -> None:
+    """Same system, same answer: the specialization only skips work."""
+    diag, rhs, off = _uniform_case(n, device=device, seed=n * 17 + 3)
+    off_blocks = torch.diag(torch.tensor(off, dtype=torch.float64, device=device)).expand_as(diag)
+
+    expected = solve_block_tridiagonal(off_blocks, diag, off_blocks, rhs)
+    got = solve_block_tridiagonal_2x2_uniform(diag, rhs, off_block=off)
+
+    # The N axis survives however short it is, N = 1 included.
+    assert got.shape == (2, 5, n, 2)
+    rel_err = (got - expected).abs().max() / expected.abs().max()
+    assert rel_err < 1e-10, f"N={n}: rel error {rel_err.item():.2e}"
+
+
+def test_uniform_off_block_has_no_boundary_slots(device: torch.device) -> None:
+    """One constant off-block means no boundary entry exists to get wrong.
+
+    The general kernel keeps a sub-block at row 0 and a super-block at the
+    last row that the recurrence never reads. Feeding it nonsense there and
+    still landing on the specialization's answer is what says the scalar
+    form carries no hidden boundary convention.
+    """
+    diag, rhs, off = _uniform_case(7, device=device, seed=404)
+    off_blocks = torch.diag(torch.tensor(off, dtype=torch.float64, device=device)).expand_as(diag)
+    sub = off_blocks.clone()
+    sub[..., 0, :, :] = 1.0e6
+    sup = off_blocks.clone()
+    sup[..., -1, :, :] = -2.0e6
+
+    expected = solve_block_tridiagonal(sub, diag, sup, rhs)
+    got = solve_block_tridiagonal_2x2_uniform(diag, rhs, off_block=off)
+
+    rel_err = (got - expected).abs().max() / expected.abs().max()
+    assert rel_err < 1e-10, f"rel error {rel_err.item():.2e}"

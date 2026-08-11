@@ -115,7 +115,7 @@ class Vdac(
 
         Returns:
             Analog output voltage [V], at the same shape as ``code``. Dynamic
-            energy and latency are emitted through the profiler side channel.
+            energy is emitted through the profiler side channel.
             Shape: ``[...]``.
         """
         raise NotImplementedError

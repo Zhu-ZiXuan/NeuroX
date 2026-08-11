@@ -1,4 +1,3 @@
-from .array import SerialColumnSteadyState, SerialColumnXbarArray
 from .dswct import Dswct, DswctConfig, DswctPolicy
 from .macro import (
     Xue2020JsscCimMacro,
@@ -16,8 +15,6 @@ __all__ = [
     "PnIsub",
     "PnIsubConfig",
     "PnIsubPolicy",
-    "SerialColumnSteadyState",
-    "SerialColumnXbarArray",
     "SinwpSc",
     "SinwpScConfig",
     "SinwpScPolicy",

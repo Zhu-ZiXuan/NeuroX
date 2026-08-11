@@ -6,9 +6,7 @@ The 1T1R array joins a grid of [cell](../../cell/_1t1r/cell.md) sites with resis
 
 A cell at column $c$, row $k$ presents a two-terminal branch between its bit-line node $V_{\mathrm{BL},k}$ and source-line node $V_{\mathrm{SL},k}$, gated by the word-line voltage $V_{\mathrm{WL},k}$. The branch current and its two signed terminal conductances come from the [cell](../../cell/_1t1r/cell.md), which condenses its own internal node; the array model treats each cell as that condensed element and does not see the internal node. Two boundary clamp drivers close the circuit: the BL clamp voltage $V_{\mathrm{BL,CL}}$ held by the BL clamp driver absorbing the column's BL port current, and the SL clamp voltage $V_{\mathrm{SL,CL}}$ from the SL driver. The word line is an input: $V_{\mathrm{WL},k}$ is the analog word-line drive.
 
-Each column's BL/SL rails are RC ladders along the row axis, described per segment by a first driver-to-cell segment and repeated cell-to-cell segments. The word line is the driven boundary, carries no DC conduction path, and is treated as a single lumped capacitance across the columns. The WL lumped capacitance is the first driver-to-cell segment plus the repeated cell-to-cell segments across the physical columns,
-
-$$C_{\mathrm{WL,row}} = C_{\mathrm{WL,first}} + (N_{\mathrm{col}} - 1)\,C_{\mathrm{WL,seg}}.$$
+The array is a uniform lattice of identical cell seats: one row pitch, one column pitch, one link resistance per rail between adjacent seats, and one node-to-ground capacitance per node of each line. Each column's BL/SL rails are resistive ladders along the row axis whose element zero — the link from the boundary to the first seat — spans one standard pitch like every other element; whatever lead-in a boundary driver needs to reach that first seat is a parasitic of the driver, not of the lattice. The word line is the driven boundary and carries no DC conduction path; it enters the array as the gate drive at each seat's WL node. Every stretch of line belongs to the node it hangs on, so a node's capacitance is one total — the cell junction at that node plus that node's share of its line — and there is no separate wire inventory beside it.
 
 ## Governing equations
 
@@ -20,9 +18,11 @@ $$F_{\mathrm{SL},k} = \operatorname{wire}_{\mathrm{SL},k}\!\left(V_{\mathrm{SL}}
 
 and the two boundary constraints pinning the clamp voltages to the clamp drivers' transfer functions at the port current,
 
-$$F_{\mathrm{CL,BL}} = V_{\mathrm{BL,CL}} - \operatorname{driver}_{\mathrm{BL}}\!\left(I_{\mathrm{BL,port}}\right) = 0, \qquad I_{\mathrm{BL,port}} = G_{\mathrm{seg},0}\,\left(V_{\mathrm{BL,CL}} - V_{\mathrm{BL},0}\right),$$
+$$F_{\mathrm{CL,BL}} = V_{\mathrm{BL,CL}} - \operatorname{driver}_{\mathrm{BL}}\!\left(I_{\mathrm{BL,port}}\right) = 0, \qquad I_{\mathrm{BL,port}} = G_{\mathrm{seg}}\,\left(V_{\mathrm{BL,CL}} - V_{\mathrm{BL},0}\right),$$
 
-$$F_{\mathrm{CL,SL}} = V_{\mathrm{SL,CL}} - \operatorname{driver}_{\mathrm{SL}}\!\left(I_{\mathrm{SL,port}}\right) = 0, \qquad I_{\mathrm{SL,port}} = G_{\mathrm{seg},0}\,\left(V_{\mathrm{SL,CL}} - V_{\mathrm{SL},0}\right).$$
+$$F_{\mathrm{CL,SL}} = V_{\mathrm{SL,CL}} - \operatorname{driver}_{\mathrm{SL}}\!\left(I_{\mathrm{SL,port}}\right) = 0, \qquad I_{\mathrm{SL,port}} = G_{\mathrm{seg}}\,\left(V_{\mathrm{SL,CL}} - V_{\mathrm{SL},0}\right),$$
+
+the boundary link being one standard pitch of the same ladder.
 
 The same condensed branch current leaves the BL rail ($F_{\mathrm{BL}}$ injects $I_{\mathrm{cell}}$) and enters the SL rail ($F_{\mathrm{SL}}$ draws it), so the array sees one current per cell with no internal-node residual. The cell branch $I_{\mathrm{cell}}(\cdot)$ — set by the RRAM conductance $G_{\mathrm{RRAM}}$ in series with the access NMOS — is specified in [cell](../../cell/_1t1r/cell.md); the boundary functions $\operatorname{driver}_{\mathrm{BL}}(\cdot)$, $\operatorname{driver}_{\mathrm{SL}}(\cdot)$ follow the [voltage-driver](../../../analog/voltage_driver.md) transfer characteristic. The operating-point solution yields the per-column BL port current $I_{\mathrm{BL,port}}$ and BL clamp voltage $V_{\mathrm{BL,CL}}$.
 
@@ -38,55 +38,65 @@ TODO: once the device/analog Reference documents exist, state exactly which sour
 
 ## Parameters
 
-The array's own parameters are the interconnect ladder and the solver iteration counts. The cell sub-module's parameters (state map, RRAM window, access-NMOS sizing / parasitic caps, per-cell Newton count) live in the cell config table `[cim_macro.array_config.cell_config]`, specified in [cell](../../cell/_1t1r/cell.md).
+The array's own parameters are the uniform seat — its two pitches, its two rail links, and its four node capacitances — plus the solver iteration counts. Row and column counts are geometry the composing macro states at construction, not config fields, and the two supply potentials the capacitive terms are billed against belong to the boundary drivers, so they too are declared once by the macro and passed in. The cell sub-module's parameters (state map, RRAM window, access-NMOS sizing, per-cell Newton count) live in the cell config table `[cim_macro.array_config.cell_config]`, specified in [cell](../../cell/_1t1r/cell.md).
 
 | Parameter | Meaning | Unit | Constraint | Source |
 |---|---|---|---|---|
 | `cell_config` | 1T1R cell sub-module config (devices, sizing, state map, `newton_iter_num`) | — | — | see [cell](../../cell/_1t1r/cell.md) |
-| BL/SL/WL `first_*` / `segment_*` R, C | array interconnect ladders | MOhm, fF | $> 0$ | Extracted |
+| `row_cell_space__um`, `col_cell_space__um` | row / column pitch between adjacent cell seats | um | $> 0$ | Extracted |
+| `bl_segment_r__MOhm`, `sl_segment_r__MOhm` | bit-line / source-line cell-to-cell link resistance | MOhm | $> 0$ | Extracted |
+| `bl_node_c__fF` | total node-to-ground capacitance at each seat's BL node — the cell junction plus that node's share of the bit line | fF | $\ge 0$ | Extracted (per-node total from layout extraction) |
+| `x_node_c__fF` | total node-to-ground capacitance at each seat's internal access node $V_{\mathrm{X}}$ | fF | $\ge 0$ | Extracted (per-node total from layout extraction) |
+| `sl_node_c__fF` | total node-to-ground capacitance at each seat's SL node — the cell junction plus that node's share of the source line | fF | $\ge 0$ | Extracted (per-node total from layout extraction) |
+| `wl_node_c__fF` | total node-to-ground capacitance at each seat's WL node — the access-device gate load plus that node's share of the word line | fF | $\ge 0$ | Extracted (per-node total from layout extraction) |
 | solver iteration counts | numerical settling | — | integer $\ge 1$ | Calibrated (numerical convergence) |
 
 Provenance terms are defined in [module_parameter](../../../../../conventions/module_parameter.md). How to obtain values for a new chip: [calibration guide](../../../../../guides/calibration/README.md); file-level schema: [config reference](../../../../../api/README.md). The cell's cross-field validation constraints (conductance map vs RRAM window vs device floor) are stated in [cell detail](../../cell/_1t1r/cell_detail.md).
 
 ## Energy model
 
-Per VMM the array dissipates wire-capacitor, control-line, and per-cell node-capacitance energy — all capacitive. The **node-capacitance** term — the cell's four grounded node-to-ground capacitances — is a per-cell contribution ([cell](../../cell/_1t1r/cell.md)) summed over the array; the wire-capacitor and control-line terms are array-level. The model assumes a full $0 \to \mathrm{DC} \to 0$ charge cycle per capacitor per settled plane; a grounded cap dissipates $E = C\,V_{\mathrm{final}}^2$ (no extra factor of two). The array-level terms are the BL/SL wire caps and the WL-line cap; the BL/SL wire-cap energy uses a per-segment linear-voltage profile,
+Per access the array dissipates the capacitive energy of its nodes and nothing else, all of it following the supply-draw law $E = V_{\mathrm{rail}} C \lvert\Delta V\rvert$ of [capacitive energy](../../../physics.md), in one account per access. The ledger is **per node**: each of the four nodes of every seat is billed once, at its own total capacitance and its own displacement, one charging leg per excursion. Because every stretch of line is already inside the total of the node it hangs on, no wire term sits beside the node terms and nothing is billed twice. The conduction-path nodes (BL, the internal access node, SL) ride the bit-line boundary's supply $V_{\mathrm{DD,BL}}$ and the WL node its own supply $V_{\mathrm{DD,WL}}$:
 
-$$E_{\mathrm{wire}} = C\,\frac{V_L^2 + V_L V_R + V_R^2}{3},$$
+$$E = \sum_{c,k} \Big[ V_{\mathrm{DD,BL}}\left(C_{\mathrm{BL}}\lvert V_{\mathrm{BL},k} - V_{\mathrm{BL}}^{\mathrm{rest}}\rvert + C_{\mathrm{X}}\lvert V_{\mathrm{X},k} - V_{\mathrm{BL}}^{\mathrm{rest}}\rvert + C_{\mathrm{SL}}\lvert V_{\mathrm{SL},k} - V_{\mathrm{SL}}^{\mathrm{rest}}\rvert\right) + V_{\mathrm{DD,WL}}\,C_{\mathrm{WL}}\lvert V_{\mathrm{WL},k}\rvert \Big],$$
 
-where $V_L, V_R$ are the segment-endpoint voltages. The read-current DC conduction ($V \cdot I \cdot t$) is not part of the array's energy model: the array settles one batched leading with no notion of which position is a serial time step, so it cannot apply the per-event conduction-time weight. That energy carries a per-input-bit duration and is billed by the consuming layer that owns the conduction-time axis (the macro).
+each term the displacement between the node's rest level and the level this access settles to, the word line resting at ground in either scan organization.
+
+Which rest level applies is set by the scan organization. When nothing is held between accesses every node rests at ground and an access is one complete excursion. When the bit-line boundary holds the input across a row scan, the two rails rest at their ideal boundary levels, an access bills only the displacement away from them, and establishing that hold from ground is spread evenly over the $N_{\mathrm{row}}$ accesses of the scan it covers. The rest state is declared at the boundaries either way, the cells' internal access nodes included: each rests at its own bit-line level, its access device being off and far less conductive there than the storage element on the bit-line side of it.
+
+The read-current DC conduction ($V \cdot I \cdot t$) is not part of the array's energy model: the array settles one batched leading with no notion of which position is a serial time step, so it cannot apply the per-event conduction-time weight. That energy carries a per-input-bit duration and is billed by the consuming layer that owns the conduction-time axis (the macro).
+
+The static PPA of the tile follows from the same lattice. Its silicon area is the pitch lattice, $N_{\mathrm{row}} N_{\mathrm{col}}$ seats at one row pitch by one column pitch, and its static leakage is zero: under either scan organization the rest state puts every cell at zero bias, so the tile holds no standing conduction path, and the conduction that flows under drive is the operating point's, billed with its window by the macro.
 
 ## Symbols
 
 | Symbol | Meaning | Unit | Code field |
 |---|---|---|---|
-| $V_{\mathrm{BL},k}$ | BL wire node voltage at row $k$ | V | `v_bl_node` |
-| $V_{\mathrm{SL},k}$ | SL wire node voltage | V | `v_sl_node` |
+| $V_{\mathrm{BL},k}$ | BL node voltage at row $k$ | V | `v_bl_node` |
+| $V_{\mathrm{SL},k}$ | SL node voltage | V | `v_sl_node` |
+| $V_{\mathrm{X},k}$ | internal access-node voltage of the seat at row $k$ | V | `cell.v_x__V` |
 | $V_{\mathrm{WL},k}$ | WL analog drive voltage (input) | V | `v_wl` |
 | $V_{\mathrm{BL,CL}}$ | BL clamp voltage | V | `v_bl_clamp` |
 | $V_{\mathrm{SL,CL}}$ | SL clamp voltage | V | `v_sl_drive` |
-| $V_L, V_R$ | wire-segment endpoint voltages | V | adjacent node voltages |
-| $V_{\mathrm{final}}$ | grounded cap node voltage | V | solver node voltages |
+| $V_{\mathrm{BL}}^{\mathrm{rest}}, V_{\mathrm{SL}}^{\mathrm{rest}}$ | ideal levels the two rails sit at between accesses | V | boundary reference levels |
+| $V_{\mathrm{DD,BL}}, V_{\mathrm{DD,WL}}$ | conduction-path and control-path supply potentials | V | `v_dd_bl__V`, `v_dd_wl__V` |
 | $I_{\mathrm{cell},k}$ | condensed cell branch current (BL $\to$ SL) | uA | `cell.solve_branch` |
-| $I_{\mathrm{BL,port}}, I_{\mathrm{SL,port}}$ | first-segment boundary port currents | uA | derived from node voltages |
-| $G_{\mathrm{seg}}$ | wire segment conductance | uS | `_bl_segment_g__uS`, `_sl_segment_g__uS` |
-| $G_{\mathrm{seg},0}$ | first wire-segment conductance | uS | `_bl_segment_g__uS[0]`, `_sl_segment_g__uS[0]` |
+| $I_{\mathrm{BL,port}}, I_{\mathrm{SL,port}}$ | boundary-link port currents | uA | derived from node voltages |
+| $G_{\mathrm{seg}}$ | rail link conductance | uS | reciprocal of `bl_segment_r__MOhm`, `sl_segment_r__MOhm` |
 | $G_{\mathrm{RRAM}}$ | RRAM conductance | uS | `cell_config.state_to_g_map__uS` |
 | $G_{\mathrm{RRAM,max}}$ | max programmable RRAM conductance | uS | `cell_config.rram_g_max__uS` |
 | $G_{\mathrm{min}}$ | RRAM device conductance floor | uS | `cell_config.rram_config.g_min__uS` |
-| $R_{\mathrm{seg}}$ | wire segment resistance | MOhm | `*_segment_r__MOhm` |
-| $C$ | parasitic capacitance | fF | wire / cell node-cap fields |
-| $E_{\mathrm{wire}}$ | per-VMM wire-segment capacitive energy | fJ | `array_energy__fJ` |
-| $C_{\mathrm{WL,row}}$ | WL lumped capacitance per row | fF | `c_wl_wire_per_row__fF` |
-| $C_{\mathrm{WL,first}}, C_{\mathrm{WL,seg}}$ | WL first / cell-to-cell segment cap | fF | `wl_first_c__fF`, `wl_segment_c__fF` |
-| $N_{\mathrm{row}}$ | number of rows along each BL/SL wire ladder | — | `row_num` |
+| $R_{\mathrm{seg}}$ | rail link resistance | MOhm | `bl_segment_r__MOhm`, `sl_segment_r__MOhm` |
+| $C_{\mathrm{BL}}, C_{\mathrm{X}}, C_{\mathrm{SL}}, C_{\mathrm{WL}}$ | per-node total capacitance at each seat | fF | `bl_node_c__fF`, `x_node_c__fF`, `sl_node_c__fF`, `wl_node_c__fF` |
+| $E$ | per-access capacitive energy of the whole grid | fJ | array energy payload |
+| $N_{\mathrm{row}}$ | number of rows along each BL/SL rail ladder | — | `row_num` |
 | $N_{\mathrm{col}}$ | number of physical columns | — | `col_num` |
 
 ## Assumptions, scope & validity
 
-- Interconnect is a lumped per-segment R/C ladder, not a distributed line.
-- The WL line carries no DC conduction path and is a single lumped capacitance, uniform across the columns.
-- The energy model assumes a complete $0 \to \mathrm{DC} \to 0$ charge/discharge cycle per parasitic cap per settled plane.
+- Interconnect is lumped, not distributed: a per-link resistance ladder along each rail, and one node-to-ground capacitance total per node, into which that node's share of its line is folded.
+- The lattice is uniform: one pitch per axis and one link resistance per rail, the boundary link included, so a driver's own lead-in is outside the array.
+- The WL line carries no DC conduction path and enters only as the gate drive at each seat's WL node.
+- Every parasitic capacitance is referenced to ground and completes its excursion within the access, so the displacement alone sets its cost; coupling capacitance between two signal nodes is not represented.
 - The solve is quasi-static: it finds the DC operating point and does not model transient device switching within a pulse.
 
 TODO (domain author): give the quantitative validity boundary — array-size range over which the lumped-segment approximation holds, the temperature treatment, neglected frequency-dependent / transient effects, and regimes where the model should not be trusted.

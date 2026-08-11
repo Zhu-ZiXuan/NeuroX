@@ -31,6 +31,7 @@ from neurox.architecture.unit.cim.engine import (
     XSliceStagePolicy,
 )
 from neurox.common.encoding import Encoding
+from neurox.common.profiler import NeuroxProfiler
 from neurox.primitive.digital import AccumulatorConfig, ShiftAdderConfig
 from neurox.primitive.macro.cim import IdealCimMacroConfig, IdealCimMacroPolicy
 
@@ -507,3 +508,108 @@ def test_large_balanced_case_uses_seventeen_plus_sixteen() -> None:
     assert engine.placement.plan.block_group_num == 2
     assert engine.placement.plan.block_slot_num == 17
     assert engine.cim_macro.inst_shape == (1, 1, 1, 1, 2)
+
+
+# --- Weight batch versus leading-resolved profiling ---
+
+_WEIGHT_BATCH_SHAPE = (2, 40, 3)  # (w_batch, N, K)
+_ACTIVATION_BATCH = (3, 1)  # a caller batch of 3 plus the size-1 weight-batch slot
+_CALLER_BATCH = _ACTIVATION_BATCH[:1]  # the prefix that stays left of D and P
+_M = 3
+
+
+def _phased(engine: CimEngine, activation: torch.Tensor) -> torch.Tensor:
+    """Run the two stages that precede ``unroll_block_steps``."""
+    return engine.input_activation.unroll_input_phases(engine._organize_x(activation))
+
+
+def _batched_engine_and_activation() -> tuple[CimEngine, torch.Tensor]:
+    """Build a weight-batched engine and a caller-batched activation for it."""
+    torch.manual_seed(11)
+    engine = _build_direct(w_logical_shape=_WEIGHT_BATCH_SHAPE, input_num=8, max_active_num=2)
+    engine.program(_randint_in_range(engine.w_value_range, _WEIGHT_BATCH_SHAPE))
+    activation = _randint_in_range(engine.x_value_range, (*_ACTIVATION_BATCH, _M, _WEIGHT_BATCH_SHAPE[-1]))
+    return engine, activation
+
+
+def test_weight_batch_without_profiler_keeps_split_leading_layout() -> None:
+    """Outside a profiler a weight batch still runs, D and P splitting the caller dims."""
+    engine, activation = _batched_engine_and_activation()
+    routed = engine.placement.unroll_block_steps(_phased(engine, activation))
+    d = engine.placement.plan.block_slot_num
+    p = engine.input_activation._input_phase_num
+    # The caller prefix (3, 1) is split by the inserted pair.
+    # Shape: [3, D, P, 1, ...]
+    assert routed.shape[:4] == (_ACTIVATION_BATCH[0], d, p, _ACTIVATION_BATCH[1])
+
+
+def test_weight_batch_leaves_the_declared_caller_axis_leftmost() -> None:
+    """A caller may declare every leading dim that stays left of D and P.
+
+    With ``leading_rank=1`` the profiler's leftmost-1-dim slice reads exactly
+    the caller axis of ``[3, D, P, w_batch=1, ...]``, so a weight-batched engine
+    stays profilable per caller unit operation.
+    """
+    engine, activation = _batched_engine_and_activation()
+    with NeuroxProfiler(leading_rank=len(_CALLER_BATCH)):
+        routed = engine.placement.unroll_block_steps(_phased(engine, activation))
+    d = engine.placement.plan.block_slot_num
+    p = engine.input_activation._input_phase_num
+    assert routed.shape[:4] == (_CALLER_BATCH[0], d, p, _ACTIVATION_BATCH[1])
+
+
+def test_weight_batch_energy_is_billed_against_the_caller_axis() -> None:
+    """Under ``leading_rank=1`` each billed element is one caller unit operation.
+
+    A payload laid out over the routed tensor is reduced by the profiler onto its
+    leftmost dim. That dim must index the caller: element ``i`` has to carry
+    exactly the work of running caller ``i`` on its own, which a mis-billing that
+    read D as the caller axis could not reproduce.
+    """
+    engine, activation = _batched_engine_and_activation()
+    stage = engine.placement
+    # PlacementStage is not itself a profile target, so the stage's own
+    # accumulator stands in as the emitting host for the routed payload.
+    emitter = stage.contraction_accumulator
+    with NeuroxProfiler(leading_rank=len(_CALLER_BATCH)) as profiler:
+        routed = stage.unroll_block_steps(_phased(engine, activation))
+        emitter._record_dynamic_energy(routed.to(torch.float64))
+    (event,) = profiler.energy_events
+    billed = event.dynamic_energy__fJ
+    assert billed.shape == _CALLER_BATCH
+
+    alone = torch.stack(
+        [
+            stage.unroll_block_steps(_phased(engine, activation[i : i + 1])).to(torch.float64).sum()
+            for i in range(_CALLER_BATCH[0])
+        ]
+    )
+    assert torch.equal(billed, alone)
+    # Not a degenerate comparison: the caller elements do measurably different work.
+    assert len(set(alone.tolist())) == _CALLER_BATCH[0]
+
+
+def test_weight_batch_runs_under_a_rank_zero_profiler() -> None:
+    """A profiler with no caller leading dims imposes no layout: everything is summed."""
+    engine, activation = _batched_engine_and_activation()
+    with NeuroxProfiler() as profiler:
+        actual = engine.matmul(activation, quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
+    assert actual.shape == (*_ACTIVATION_BATCH[:-1], _WEIGHT_BATCH_SHAPE[0], _M, _WEIGHT_BATCH_SHAPE[1])
+    assert profiler.leading_rank == 0
+
+
+def test_unbatched_weight_keeps_the_whole_caller_prefix_leftmost() -> None:
+    """Without a weight batch every declared caller dim stays left of D and P."""
+    torch.manual_seed(11)
+    n, k = 40, 3
+    engine = _build_direct(w_logical_shape=(n, k), input_num=8, max_active_num=2)
+    engine.program(_randint_in_range(engine.w_value_range, (n, k)))
+    activation = _randint_in_range(engine.x_value_range, (*_ACTIVATION_BATCH, _M, k))
+    phased = _phased(engine, activation)
+    with NeuroxProfiler(leading_rank=len(_ACTIVATION_BATCH)):
+        routed = engine.placement.unroll_block_steps(phased)
+    d = engine.placement.plan.block_slot_num
+    p = engine.input_activation._input_phase_num
+    # The caller prefix stays the leftmost contiguous block.
+    # Shape: [3, 1, D, P, ...]
+    assert routed.shape[:4] == (*_ACTIVATION_BATCH, d, p)

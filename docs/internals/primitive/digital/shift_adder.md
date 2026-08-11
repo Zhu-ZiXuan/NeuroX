@@ -10,7 +10,7 @@
 
 ## Contracts & invariants
 
-- **`shift_add(x, dim, init_val)` reduces exactly the `dim` axis.** The fixed radix weights are an int64 functional buffer, so they follow module device migration and are not reconstructed in the execution path. The reduced axis is gone from the output.
+- **`shift_add(x, dim, init_val)` reduces exactly the `dim` axis.** The fixed radix weights are an int64 functional buffer, so they follow module device migration and are not reconstructed in the execution path. The reduced axis is gone from the output but stays in the bill, which is read off `x` before the reduce.
 - **`init_val` must broadcast to the reduced output shape** (post-reduction, digit axis removed), not to the input shape.
 - **No per-call sampling state.** The shift-adder holds no fabricated mismatch, so the base fabricate no-op ([base](base.md)) applies unchanged.
 
@@ -25,10 +25,10 @@
 
 ## Known limitations
 
-- The flat per-op latency does not grow with the digit count $D$; if a hardware mapping serializes the shift-add across digits, the model under-counts latency. No dedicated unit test for the function or the PPA accounting exists; coverage is only indirect.
+- The digit axis is modelled as space: the $D$ legs are weighted and summed in one pass, so the per-op window is flat in $D$ while the energy scales with it. A mapping that serializes the legs is the scheduling caller's time axis, and that caller counts it.
 
 ---
 
 - **Reference**: [shift_adder](../../../reference/primitive/digital/shift_adder.md)
 - **Implementation**: `neurox/primitive/digital/shift_adder.py`
-- **Tests**: TODO - no dedicated digital test module yet
+- **Tests**: `tests/primitive/digital/test_shift_adder.py`

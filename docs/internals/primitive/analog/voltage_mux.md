@@ -10,8 +10,17 @@
 - **Static mismatch vs dynamic noise.** `_sample_fabricate_mismatch` samples
   one fractional gain error per physical instance. `transport` applies
   additive voltage noise independently on every access.
-- **Per-call PPA tally.** Dynamic energy follows the time-expanded output.
-  Latency is `latency_per_op * ceil(work_item_count / inst_count)`.
+- **Per-call PPA tally.** Dynamic energy is a flat per-access lump over the
+  time-expanded output, emitted as a 0-dim constant expanded onto that layout,
+  a view with no storage, so nothing is materialized. The mux reports no
+  duration: the N inputs of a lane reach it one at a time on a schedule the
+  owner runs, and the owner times it.
+- **No instance axis is declared; access and lane fold together.** `lane_num`
+  is the last `inst_shape` extent and `access_num == mux_ratio` sits to its
+  left. The collector keeps only the caller's own leading dims and
+  sums every axis past them — access, lane, and any outer instance axes alike
+  — into the flat per-access constant, with nothing declared at the emission
+  site.
 
 ## Contracts & invariants
 

@@ -16,9 +16,9 @@ class ShiftAdderConfig(DigitalConfig):
     Attributes:
         bit_width: Signed output bit width; result wraps modulo ``2^bit_width``
             into ``[-2^(bw-1), 2^(bw-1) - 1]``.
-        energy_per_op__fJ: Dynamic energy consumed per output element.
-        latency_per_op__ns: Per-output-element latency; multiplied
-            by the runtime serial-op count at logging time.
+        energy_per_op__fJ: Dynamic energy consumed per operand element folded
+            into the sum — one digit leg of one output.
+        latency_per_op__ns: Positional-sum window of one shift-add.
     """
 
     bit_width: int
@@ -64,7 +64,6 @@ class ShiftAdder(DigitalBase[ShiftAdderConfig]):
         digit_count: int,
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
-        self._register_latency_buffer(config.latency_per_op__ns)
         if scale < 2:
             raise ValueError(f"require: scale ({scale}) >= 2")
         if digit_count < 1:
@@ -85,6 +84,12 @@ class ShiftAdder(DigitalBase[ShiftAdderConfig]):
 
     def shift_add(self, x: Tensor, dim: int, init_val: Tensor | None) -> Tensor:
         """Compute the radix-weighted digit sum and wrap to ``bit_width`` bits.
+
+        Dynamic energy is billed against the pre-reduction operand ``x``: one
+        shift-and-add cell is evaluated per digit leg folded in, so the
+        switching count follows the digit extent, which the result no longer
+        carries. ``init_val`` preloads the destination register and adds no
+        evaluation of its own.
 
         Args:
             x: Integer digit tensor.
@@ -107,9 +112,15 @@ class ShiftAdder(DigitalBase[ShiftAdderConfig]):
         if init_val is not None:
             y = y + init_val
 
-        serial_round_count = self._count_serial_rounds(y.numel())
-        latency__ns = self._latency_per_op__ns * serial_round_count
         if self._is_dynamic_energy_profile_active():
-            self._record_dynamic_energy(torch.full_like(y, self.config.energy_per_op__fJ, dtype=torch.float32))
-        self._record_latency(latency__ns)
+            # The engine positions this block's own inst_shape space axes
+            # inside x, split from the batch by the reduced digit axis and any
+            # further engine axes rather than held as one leading block;
+            # billing the full pre-reduction operand covers them along with
+            # the rest. A flat per-op lump: the expanded constant holds no
+            # storage, and the energy dtype is the constant's rather than the
+            # integer operand's.
+            # Shape: [] -> [*x.shape]
+            e_op__fJ = torch.full((), self.config.energy_per_op__fJ, dtype=torch.float32, device=x.device)
+            self._record_dynamic_energy(e_op__fJ.expand(x.shape))
         return y

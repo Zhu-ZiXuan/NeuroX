@@ -12,6 +12,13 @@ matmul and delegates physical placement to the configured engine.
 - **Windows are runtime work.** `_conv2d_planes` gathers every convolution
   window as one row of `[..., M, K]`. The `M=H_out*W_out` axis rides through
   `engine.matmul` as runtime serial work against the same programmed matrix.
+- **`M` is computed at the unit boundary.** `latency__ns(input_shape, *,
+  adc_bits)` derives `(H_out, W_out)` with the same `_conv2d_out_hw` the
+  forward calls, and hands the engine `output_plane_num = H_out * W_out`. The unit is
+  the one place the duration line reads a shape, so the convolution
+  output-size arithmetic exists once and nothing below the unit sees a layout.
+  No config field declares an input resolution: a resolution is the caller's,
+  not the circuit's.
 - **The engine owns physical mapping.** Input-axis block packing, contraction
   tiling, activation phases, precision slicing, macro execution, and output
   block restoration are engine concerns. The conv2d unit neither reads macro

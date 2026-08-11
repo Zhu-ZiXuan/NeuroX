@@ -88,7 +88,6 @@ class ModuleBase(FabricateMixin, nn.Module, ProfileMixin, Generic[ConfigT, Polic
         config: Immutable physical configuration.
         policy: Immutable runtime policy.
         inst_shape: Multiplicity of parallel physical instances.
-        enable_latency_record: Whether this module emits latency events.
     """
 
     def __init__(
@@ -97,7 +96,6 @@ class ModuleBase(FabricateMixin, nn.Module, ProfileMixin, Generic[ConfigT, Polic
         config: ConfigT,
         policy: PolicyT,
         inst_shape: tuple[int, ...],
-        enable_latency_record: bool = True,
     ) -> None:
         nn.Module.__init__(self)
         if any(size <= 0 for size in inst_shape):
@@ -106,7 +104,6 @@ class ModuleBase(FabricateMixin, nn.Module, ProfileMixin, Generic[ConfigT, Polic
         self.__policy = policy
         self.__inst_shape = inst_shape
         self.__inst_count = math.prod(inst_shape)
-        self.enable_latency_record = enable_latency_record
 
     @property
     @final
@@ -127,8 +124,3 @@ class ModuleBase(FabricateMixin, nn.Module, ProfileMixin, Generic[ConfigT, Polic
     @final
     def inst_count(self) -> int:
         return self.__inst_count
-
-    @final
-    def _count_serial_rounds(self, work_item_count: int) -> int:
-        """Return balanced serial rounds across the physical instances."""
-        return (work_item_count + self.__inst_count - 1) // self.__inst_count

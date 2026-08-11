@@ -308,6 +308,26 @@ class CimMacro(
         raise NotImplementedError
 
     @abstractmethod
+    def latency__ns(self, *, adc_bits: int | None) -> float:
+        """Duration of one :meth:`vec_mat_mul` call [ns].
+
+        A macro's access time is fixed by its own schedule — the word-line
+        sub-phases, column-MUX slots or output positions its config states —
+        except for the readout, which runs as long as the requested resolution
+        takes and is therefore asked for its own executed window. ``adc_bits``
+        is consequently the one thing a caller must supply. Every other child
+        settles inside a window the macro already owns and is never summed in.
+
+        Args:
+            adc_bits: Conversion resolution [bits] in ``[1, adc_max_bits]``,
+                or ``None`` for the lossless oracle.
+
+        Returns:
+            Duration of one conversion per word-line plane.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
     def program(self, w: Tensor) -> None:
         """Program the macro from a logical weight matrix.
 

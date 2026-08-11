@@ -3,7 +3,7 @@
 ## Design decisions
 
 - **Not polymorphic.** One concrete ideal mux, constructed directly rather than dispatched through a registry. It has no error sources, so its `Policy` is an empty marker.
-- **Ideal, lossless value path — no emission.** The value path applies only the matched gain and preserves the caller-provided `(..., access_num, lane_num)` layout. `transport` self-logs neither rail energy nor latency.
+- **Ideal, lossless value path — no emission.** The value path applies only the matched gain and preserves the caller-provided `(..., access_num, lane_num)` layout. `transport` self-logs no rail energy, and the mux reports no duration: the accesses ride the window of the owner that schedules them, where the mux's silicon is counted too.
 - **Connectivity belongs to the owner.** The owner maps source signals onto accesses and lanes before calling `transport`; the mux neither groups nor permutes axes.
 - **The trailing axes distinguish serial and parallel work.** `access_num` is the number of sequential mux accesses and must equal `mux_ratio`; `lane_num` is the number of parallel output lanes and must match the final `inst_shape` extent.
 

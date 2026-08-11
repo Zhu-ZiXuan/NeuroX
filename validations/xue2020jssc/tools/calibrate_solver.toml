@@ -1,14 +1,16 @@
 # Run-config for neurox.tools.calibrate_solver.nested on the xue2020jssc array solver.
 #
-# GENUINE: the runtime macro (../params.toml) composes XbarArray1t1r with a
-# NestedParallelRailSolver over a positive wire ladder (BL/SL first 20 Ohm, segment 5 Ohm),
-# so the solver iteration counts (n_outer, n_inner) are really used -- the wire IR drop
-# couples BL/SL and the DC solve is non-trivial. This run-config targets the Detail SOURCE
-# model (params_detail.toml), a config-complete xbar whose wire ladder MIRRORS the runtime
-# array, so the calibrated (n_outer, n_inner) transfer to ../params.toml. It also:
+# GENUINE: the runtime macro (../params.toml) composes the kernel XbarArray1t1r directly --
+# no scheme-local array class -- in wl_in_bl_scan over the full physical column grid, one
+# solve per plane, with a NestedParallelRailSolver over a positive wire ladder (BL/SL first
+# 20 Ohm, segment 5 Ohm). The solver iteration counts (n_outer, n_inner) are therefore really
+# used: the wire IR drop couples BL/SL and the DC solve is non-trivial. This run-config
+# targets the Detail SOURCE model (params_detail.toml), a config-complete xbar whose wire
+# ladder MIRRORS the runtime array, so the calibrated (n_outer, n_inner) transfer to
+# ../params.toml. It also:
 #   - reactivates tests/tools/test_calibrate_solver.py::TestShippedRunConfig (the three
 #     shipped-config tests: schema parse, solver_section resolution in the macro dict,
-#     active_rows == active_row_num);
+#     active_rows == max_active_num);
 #   - documents the solver knobs for the physical Detail model calibrate_cell extracts from.
 #
 # Run (on the Detail source model):
@@ -26,7 +28,7 @@ solver_section = "array_config.solver_config" # dotted path to the NestedParalle
 
 [workload]
 inst_shape = [4]                  # bound to [batch_w]; the parallel weight-program axis
-active_rows = 9                   # == params_detail active_row_num (production-faithful row block)
+active_rows = 9                   # == the macro's max_active_num (production-faithful row block)
 weight_samples = 4
 input_samples_per_weight = 8
 batch_w = 4

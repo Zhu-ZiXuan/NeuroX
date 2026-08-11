@@ -9,6 +9,17 @@ total energy per access against the 32.06 pJ/access target in `anchors.toml`, an
 ladder, the capacitive remainders, the TMCSA windows and the adopted peripheral
 seats) for `[calibrated]` write-back.
 
+> **PENDING RECALIBRATION.** The macro now composes the kernel `XbarArray1t1r`
+> (one solve per WL plane over every physical column; the column MUX is a macro
+> axis) and bills capacitance by the supply-draw law `E = V_rail * C * |dv|`
+> across two declared rails, `v_dd__V` and the new `v_dd_wl__V`. Every
+> cap-bearing `[calibrated]` seat in `params.toml`, and hence the numbers in
+> `results.md` and `calibration.md`, was fitted to the replaced full-cycle
+> `C*V^2` form, so the gate is expected to run RED until the recalibration
+> campaign re-derives them. The current path is unchanged and bit-exact, so the
+> ADC ladder and the cell chord stand. `solve_chunk_size` (and `validate.py`'s
+> `--solve-chunk` default) also need retuning for the flattened solve shapes.
+
 ## Run
 
     make validate_xue2020jssc
@@ -165,8 +176,10 @@ the control channel), and a differential ADC (the TMCSA is single-ended).
 directly (the paper 9-row block live) over N random draws per the `anchors.toml`
 data conventions, and reduces the profiler to the ENERGY PER ACCESS:
 static/access = `leakage_power · t_cycle` (50 ns), dynamic/access = per-VMM
-dynamic / `mux_factor`. The single hard gate is the total against 32.06 pJ/access
-±5%.
+dynamic / `mux_factor`. The leakage window is the 20 MHz measurement period — a
+duty-cycle property declared in `validate.py`, distinct from the 14.6 ns access
+time the macro's `latency__ns` reports and never derived from it. The single hard
+gate is the total against 32.06 pJ/access ±5%.
 
 Non-circular rigor: only Control (29.2%) and Reference (23.7%) are `[transcribed]`
 seats (Fig.18 shares, for the two peripherals not modeled from physics); the

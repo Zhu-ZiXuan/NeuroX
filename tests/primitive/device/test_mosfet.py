@@ -63,7 +63,7 @@ def test_nmos_enhancement_conducts_and_partial_signs() -> None:
     """Enhancement NMOS (vth0 > 0): forward bias conducts, ids rises with Vg, partial signs hold."""
     k = 3
     dev = _make(Nmos, vth0__V=0.4, inst_shape=(k,))
-    snap = dev.snapshot(shape=(k,), multi_coords=None)
+    snap = dev.snapshot(shape=(k,))
     vg = torch.linspace(0.5, 1.0, k, dtype=torch.float64)
     vd = torch.full((k,), 0.6, dtype=torch.float64)
     vs = torch.full((k,), 0.1, dtype=torch.float64)
@@ -82,7 +82,7 @@ def test_pmos_enhancement_conducts_negative() -> None:
     k = 3
     v_dd = 0.9
     dev = _make(Pmos, vth0__V=-0.4, inst_shape=(k,))
-    snap = dev.snapshot(shape=(k,), multi_coords=None)
+    snap = dev.snapshot(shape=(k,))
     # Gate swept low -> high; source held high (v_dd), drain low (0).
     vg = torch.linspace(0.0, 0.5, k, dtype=torch.float64)
     vs = torch.full((k,), v_dd, dtype=torch.float64)
@@ -102,7 +102,7 @@ def test_pmos_enhancement_conducts_negative() -> None:
 def test_depletion_nmos_conducts_at_zero_gate() -> None:
     """Depletion NMOS (vth0 < 0) is accepted by config and conducts at Vg = 0 with vd > vs."""
     dev = _make(Nmos, vth0__V=-0.4, inst_shape=(1,))
-    snap = dev.snapshot(shape=(1,), multi_coords=None)
+    snap = dev.snapshot(shape=(1,))
     dc = dev.solve_dc(
         vg__V=torch.zeros(1, dtype=torch.float64),
         vd__V=torch.full((1,), 0.5, dtype=torch.float64),
@@ -129,7 +129,7 @@ def test_partials_match_finite_difference(
     """Central differences of ids w.r.t. each terminal match the analytic partials."""
     k = len(vg)
     dev = _make(cls, vth0__V=vth0, inst_shape=(k,))
-    snap = dev.snapshot(shape=(k,), multi_coords=None)
+    snap = dev.snapshot(shape=(k,))
     g = torch.tensor(vg, dtype=torch.float64)
     d = torch.tensor(vd, dtype=torch.float64)
     s = torch.tensor(vs, dtype=torch.float64)
@@ -159,9 +159,9 @@ def test_all_off_snapshot_deterministic() -> None:
         A_vt__mV_um=1.0,
         A_beta_relative__um=0.1,
     )
-    snap1 = dev.snapshot(shape=(k,), multi_coords=None)
+    snap1 = dev.snapshot(shape=(k,))
     dev.fabricate()
-    snap2 = dev.snapshot(shape=(k,), multi_coords=None)
+    snap2 = dev.snapshot(shape=(k,))
     # No mismatch applied -> every cell is uniform and refabrication is identical.
     assert torch.all(snap1.beta__uA_per_V2 == snap1.beta__uA_per_V2[0])
     assert torch.all(snap1.vth__V == snap1.vth__V[0])

@@ -119,6 +119,68 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
             ideal_macro=ideal_macro,
         )
 
+    def latency__ns(self, *, output_plane_num: int, adc_bits: int | None) -> float:
+        """Time one logical matrix multiplication — the schedule it unrolls.
+
+        Every serial axis below the unit is the engine's: the output planes
+        ``M`` its caller states, the input slices ``Sa``, the CIM block slots
+        ``D`` and the input phases ``P``. One macro access serves each
+        ``(M, Sa, D, P)`` point, so the engine multiplies the macro rather than
+        summing it. The weight slices, contraction partitions, block groups and
+        weight-batch copies are all parallel silicon and never multiply.
+
+        The digital blocks hold no output-port axis of their own, so each runs
+        once per output element the operation it closes delivers: the macro's
+        ``output_num`` ports for the two accumulators, the ports one Sw
+        aggregation leaves for the two reconstructions. How often that
+        operation happens follows from how each block consumes its reduced
+        axis. The phase accumulator folds successive arrivals into one
+        register, so it runs once per macro access; the adder-tree and
+        positional-sum reductions close their whole axis in a single window,
+        so they run once per step the axis completes on. The stages carry no
+        latency of their own — this engine reads each embedded digital block's
+        ``latency_per_op__ns`` directly, a layout with no arithmetic block
+        (``shift_adder is None``) contributing zero.
+
+        Args:
+            output_plane_num: Output planes ``M`` one call unrolls — the only
+                extent of the schedule the placement plan does not fix.
+                Unrelated to ``macro_plane_num``, the Sw weight-slice planes
+                one macro instance holds.
+            adc_bits: Conversion resolution [bits] the macro accesses run at,
+                or ``None`` for the lossless oracle.
+
+        Returns:
+            Duration of one logical matrix multiplication [ns].
+        """
+        slice_num = self.x_slice.slice_num
+        block_step_num = self.placement.block_step_num
+        phase_num = self.input_activation.input_phase_num
+        port_num = self.config.output_num
+        aggregated_port_num = self.weight_slice.aggregated_output_num
+
+        phase_accumulate__ns = self.input_activation.phase_accumulator.config.latency_per_op__ns
+        contraction_accumulate__ns = self.placement.contraction_accumulator.config.latency_per_op__ns
+        w_slice_recombine__ns = (
+            self.weight_slice.shift_adder.config.latency_per_op__ns
+            if self.weight_slice.shift_adder is not None
+            else 0.0
+        )
+        x_slice_recombine__ns = (
+            self.x_slice.shift_adder.config.latency_per_op__ns if self.x_slice.shift_adder is not None else 0.0
+        )
+
+        # One block step retires when its phases have been accumulated.
+        step_num = output_plane_num * slice_num * block_step_num
+        access_num = step_num * phase_num
+        total__ns = access_num * self.cim_macro.latency__ns(adc_bits=adc_bits)
+        total__ns += access_num * port_num * phase_accumulate__ns
+        total__ns += step_num * port_num * contraction_accumulate__ns
+        total__ns += step_num * aggregated_port_num * w_slice_recombine__ns
+        # The input slices are reconstructed once every slice has arrived.
+        total__ns += output_plane_num * block_step_num * aggregated_port_num * x_slice_recombine__ns
+        return total__ns
+
     def _init_execution_children(
         self,
         *,

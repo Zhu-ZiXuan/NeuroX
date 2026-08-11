@@ -1,5 +1,7 @@
 # xue2020jssc validation -- total energy per access
 
+> **PENDING RECALIBRATION.** Every number below predates the xbar-array unification: the scheme-local serial-column array is gone, the macro now runs one kernel `XbarArray1t1r` solve per WL plane over all physical columns, and the capacitive billing moved from the full-cycle `C*V^2` form to the supply-draw law `E = V_rail * C * |dv|` on two declared rails (`v_dd__V`, the new `v_dd_wl__V`). The array/cell capacitance is now stated as one per-node total per line (`bl_node_c__fF`, `x_node_c__fF`, `sl_node_c__fF`, `wl_node_c__fF`), and the boundary driver reaches the first cell across one standard cell pitch. The cap-bearing `[calibrated]` seats in `params.toml` were fitted to the replaced form, so this gate is expected to run RED until the recalibration campaign re-derives them. Codes and currents are unaffected -- the flattening is bit-exact (see the twin test) -- so only the energy rows move.
+
 Energy-basis profiler run for `params.toml` + `policy.toml` on cuda:1. n_w = 64 weight draws x n_x = 256 inputs x 8 rounds = 131072 draws (4194304 accesses), seed 0, run p_zero = 0.348 (marginal P(x=0) = 0.511); anchors-declared workload p_zero = 0.35. Pooled over 8 rounds (relative std of the round totals = 0.22 %).
 
 ## Hard gate -- total energy per access

@@ -11,6 +11,7 @@ import torch
 from torch import Tensor
 
 from neurox.common import ConfigBase, ModuleBase, PolicyBase
+from neurox.common.mixin import TensorGroupMixin
 from neurox.primitive.nonideality import (
     StateDependentGammaConfig,
     StuckAtFaultConfig,
@@ -97,7 +98,7 @@ class RramDcop:
 
 
 @dataclass(frozen=True)
-class RramSnap:
+class RramSnap(TensorGroupMixin):
     """Per-call read conductance snap.
 
     Attributes:
@@ -176,22 +177,17 @@ class Rram(ModuleBase[RramConfig, RramPolicy]):
         self,
         *,
         shape: tuple[int, ...],
-        multi_coords: tuple[Tensor, ...] | None,
     ) -> RramSnap:
         """Sample one per-call runtime snap over ``shape``.
 
         Args:
             shape: Per-call broadcast shape; the snap fills tensor
                 fields at this shape.
-            multi_coords: Advanced-index tuple selecting a chunk's
-                positions from the broadcast view; ``None`` returns the
-                full view.
 
         Returns:
             Per-call snap of the fabricated state.
         """
-        g_view = self._g__uS.expand(shape) if shape else self._g__uS
-        g = g_view if multi_coords is None else g_view[multi_coords]
+        g = self._g__uS.expand(shape) if shape else self._g__uS
         g = apply_telegraph_noise(g, self.config.read_telegraph, enabled=self.policy.read_telegraph)
         g = apply_gaussian(g, self.config.read_thermal__uS, enabled=self.policy.read_thermal)
         g = g.clamp(self._g_min__uS, self._g_max__uS)

@@ -5,8 +5,8 @@
 # (XbarCell1t1rLinearConfig: per-(state, WL-level) chord conductance + BL-side
 # drop fraction) at the nominal read OP. The two emitted TOML fragments (--output-dir):
 #   - cell_detail_newton_iter_num.toml : the margined newton_iter_num;
-#   - cell_linear.toml          : the Linear chord tables + node caps + WL threshold
-#                                 EXTRACTED from the Detail source.
+#   - cell_linear.toml          : the Linear chord tables + WL threshold EXTRACTED
+#                                 from the Detail source.
 #
 # WRITTEN BACK into params.toml [cim_macro.array_config.cell_config] (tagged [calibrated]):
 # the runtime macro composes XbarArray1t1r with the Linear cell + a positive wire R, so the

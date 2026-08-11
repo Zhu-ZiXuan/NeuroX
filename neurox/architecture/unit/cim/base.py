@@ -6,7 +6,7 @@ See also:
 
 from __future__ import annotations
 
-from abc import ABC
+from abc import ABC, abstractmethod
 from typing import Generic, TypeVar
 
 import torch
@@ -97,6 +97,28 @@ class CimUnit(
             T__K=T__K,
             ideal_macro=ideal_macro,
         )
+
+    @abstractmethod
+    def latency__ns(self, input_shape: tuple[int, ...], *, adc_bits: int | None) -> float:
+        """Duration of one operator call [ns].
+
+        The unit is the boundary where a runtime shape enters the timing line:
+        every extent below it is fixed by the placement plan, and the one that
+        is not — a convolution's output-position count ``M = H_out * W_out`` —
+        follows from the input resolution alone. A unit that lowers to a
+        single plane reads nothing out of the shape. Below the unit the mode
+        knob travels on, since the readout runs as long as its resolution
+        takes.
+
+        Args:
+            input_shape: Layout of the operand the unit's operator receives.
+            adc_bits: Conversion resolution [bits], or ``None`` for the
+                lossless oracle.
+
+        Returns:
+            Duration of one call through this unit.
+        """
+        raise NotImplementedError
 
     def _sample_fabricate_mismatch(self) -> None:
         pass

@@ -38,10 +38,6 @@ _RUN_TOML = f"""\
 _neurox_class = "XbarCell1t1rDetailConfig"
 access_nmos_W__um = 0.2
 access_nmos_L__um = 0.1
-c_bl__fF = 0.1
-c_x__fF = 0.2
-c_sl__fF = 0.1
-c_wl__fF = 0.1
 rram_g_max__uS = 100.0
 state_to_g_map__uS = [10.0, 100.0]
 newton_iter_num = 4
@@ -101,10 +97,6 @@ def test_fragment_fields_copied_from_detail(
     linear_config: XbarCell1t1rLinearConfig,
 ) -> None:
     n_states = len(detail_config.state_to_g_map__uS)
-    assert linear_config.c_bl__fF == detail_config.c_bl__fF
-    assert linear_config.c_x__fF == detail_config.c_x__fF
-    assert linear_config.c_sl__fF == detail_config.c_sl__fF
-    assert linear_config.c_wl__fF == detail_config.c_wl__fF
     assert linear_config.v_wl_on_threshold__V == pytest.approx((_V_WL_OFF__V + _V_WL_ON__V) / 2.0)
     for table in (linear_config.g_cell_off_table__uS, linear_config.g_cell_on_table__uS):
         assert len(table) == n_states
@@ -169,7 +161,7 @@ def test_divider_reproduces_detail_at_op(
         cell.program(torch.full((1,), s, dtype=torch.long))
         for v_wl__V, g_table, vx_table in levels:
             v_wl = torch.full((1, 1), v_wl__V, dtype=torch.float64)
-            snap = cell.snapshot(control=v_wl, shape=(1, 1), multi_coords=None, t_elapsed=0.0)
+            snap = cell.snapshot(control=v_wl, shape=(1, 1), t_elapsed=0.0)
             dcop = cell.solve_dc(v_bl, v_sl, snap)
 
             g_cell__uS = g_table[s]

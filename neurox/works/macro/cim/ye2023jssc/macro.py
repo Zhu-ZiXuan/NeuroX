@@ -2,8 +2,7 @@
 
 Exposes an unsigned logical VMM over ``row_num`` inputs and ``col_num`` outputs
 on a transposed, digit-folded physical array read by one time-shared RS-CSA.
-The macro is the scheme's sole latency emitter and bills every energy branch its
-children do not.
+The macro bills every energy branch its children do not.
 
 See also:
     docs/works/macro/cim/ye2023jssc/model.md
@@ -25,6 +24,7 @@ from neurox.primitive.analog import (
     VoltageDriverConfig,
     VoltageDriverPolicy,
 )
+from neurox.primitive.analog.voltage_dac import Vdac, VdacConfig, VdacPolicy
 from neurox.primitive.macro.cim import (
     CimMacro,
     CimMacroConfig,
@@ -52,17 +52,39 @@ class Ye2023JsscCimMacroConfig(CimMacroConfig):
             bank the readout's single reference input reads. The RS-CSA scales
             that one current by its own compare-phase weights, so the bank is
             single-tap (``tap_num == 1``) and carries one row per declared mode:
-            the macro NAMES the mode and the source returns the row.
+            the macro NAMES the mode and reads that row from the source's
+            fabricated bank.
+        wl_dac_config: Word-line 1-bit ON/OFF DAC config; one converter seat per
+            word line, whose ``code_to_signal`` states the selected and
+            deselected WL levels and whose per-code energy is the drive event a
+            scanned row costs.
+        bl_dac_config: BL input 1-bit DAC config; one converter seat per physical
+            column, whose ``code_to_signal`` states the IN = 1 and IN = 0 input
+            levels and whose per-code energy is the drive event one held input
+            vector costs.
         bl_driver_config: Per-column BL input clamp (Thevenin VoltageDriver).
-        sl_driver_config: SL grounded clamp (VoltageDriver).
+        sl_driver_config: Per-column SL grounded clamp (VoltageDriver).
         mux_driver_config: Static-PPA seat for the Mux & Driver block.
         timing_ctrl_config: Static-PPA seat for the Timing & Mode Ctrl block.
-        v_wl_sel__V: Selected word-line drive [V]; > 0.
-        v_bl_in1__V: BL voltage for input bit 1 [V]; > 0 and equal to
-            ``array_config.v_bl_in1__V``.
+        i_ph0_comp__uA: PH0 compensation current [uA] the readout subtracts once
+            per conversion — a calibration product, measured as the array's
+            all-off row leakage; non-negative.
         v_tbl__V: Transpose-bitline clamp voltage [V]; an operating-point datum.
         v_sl__V: Source-line drive [V].
         v_dd_core__V: Core supply rail [V]; must equal ``adc_config.v_rail__V``.
+            The readout's own rail: the DL conduction branch is billed across
+            it. It is NOT a driver rail — the two below are.
+        v_dd_bl__V: Bit-line driver rail [V], handed to the array as the supply
+            behind every conduction-path node it bills (BL, X, SL) and carrying
+            the macro's own BL input conduction branch. A separate variable from
+            :attr:`v_dd_core__V` even when numerically equal: what a charge is
+            drawn FROM is the driver's supply, not the block the current ends
+            up in.
+        v_dd_wl__V: Word-line driver rail [V] handed to the array — the supply
+            behind every WL node it bills. Separate
+            from :attr:`v_dd_bl__V` by the same rule: the word line is its own
+            supply domain, driven rail-to-rail while the read path hangs off
+            the bit-line side.
         e_mux_driver_per_op__fJ: Mux & Driver energy [fJ] per output access.
         e_timing_ctrl_per_op__fJ: Timing & Ctrl energy [fJ] per output access.
         modes: Quantization operating points, one per ``quantization_mode``
@@ -77,6 +99,8 @@ class Ye2023JsscCimMacroConfig(CimMacroConfig):
     array_config: Ye2023Jssc2t1rArrayConfig
     adc_config: RsCsaIadcConfig
     reference_config: IrefConfig
+    wl_dac_config: VdacConfig
+    bl_dac_config: VdacConfig
     bl_driver_config: VoltageDriverConfig
     sl_driver_config: VoltageDriverConfig
 
@@ -85,13 +109,20 @@ class Ye2023JsscCimMacroConfig(CimMacroConfig):
     mux_driver_config: UnmodeledBlockConfig
     timing_ctrl_config: UnmodeledBlockConfig
 
+    # === Readout calibration ===
+
+    i_ph0_comp__uA: float
+
     # === Biases ===
 
-    v_wl_sel__V: float
-    v_bl_in1__V: float
     v_tbl__V: float
     v_sl__V: float
+
+    # === Supply rails (separate variables even when numerically equal) ===
+
     v_dd_core__V: float
+    v_dd_bl__V: float
+    v_dd_wl__V: float
 
     # === Flat peripheral per-op energies ===
 
@@ -122,25 +153,16 @@ class Ye2023JsscCimMacroConfig(CimMacroConfig):
 
         # --- Cross-block bias consistency ---
 
-        if not (self.v_bl_in1__V == self.array_config.v_bl_in1__V):
-            raise ValueError(
-                f"require: v_bl_in1__V ({self.v_bl_in1__V}) == array_config.v_bl_in1__V "
-                f"({self.array_config.v_bl_in1__V})"
-            )
         if not (self.adc_config.v_rail__V == self.v_dd_core__V):
             raise ValueError(
                 f"require: adc_config.v_rail__V ({self.adc_config.v_rail__V}) == v_dd_core__V ({self.v_dd_core__V})"
             )
-        # The derived compensation current reads ONE input-0 floor entry, so
-        # that floor must not depend on the programmed state.
-        i_floor_row__uA = self.cell_config.i_t2_table__uA[0]
-        if len(set(i_floor_row__uA)) != 1:
-            raise ValueError(f"require: i_t2_table__uA[0] (input-0 floor) state-independent; got {i_floor_row__uA}")
-        self._require_pos(self.v_wl_sel__V, "v_wl_sel__V")
-        self._require_pos(self.v_bl_in1__V, "v_bl_in1__V")
+        self._require_non_neg(self.i_ph0_comp__uA, "i_ph0_comp__uA")
         self._require_non_neg(self.v_tbl__V, "v_tbl__V")
         self._require_non_neg(self.v_sl__V, "v_sl__V")
         self._require_non_neg(self.v_dd_core__V, "v_dd_core__V")
+        self._require_non_neg(self.v_dd_bl__V, "v_dd_bl__V")
+        self._require_non_neg(self.v_dd_wl__V, "v_dd_wl__V")
         self._require_non_neg(self.e_mux_driver_per_op__fJ, "e_mux_driver_per_op__fJ")
         self._require_non_neg(self.e_timing_ctrl_per_op__fJ, "e_timing_ctrl_per_op__fJ")
 
@@ -173,6 +195,8 @@ class Ye2023JsscCimMacroPolicy(CimMacroPolicy):
         array_policy: WH-2T1R array policy (cell policy + solver chunk knob).
         adc_policy: RS-CSA current-ADC policy.
         reference_policy: RS-CSA reference-source policy.
+        wl_dac_policy: Word-line DAC policy.
+        bl_dac_policy: BL input DAC policy.
         bl_driver_policy: BL clamp policy.
         sl_driver_policy: SL clamp policy.
         mux_driver_policy: Mux & Driver static-seat policy.
@@ -182,6 +206,8 @@ class Ye2023JsscCimMacroPolicy(CimMacroPolicy):
     array_policy: Ye2023Jssc2t1rArrayPolicy
     adc_policy: RsCsaIadcPolicy
     reference_policy: IrefPolicy
+    wl_dac_policy: VdacPolicy
+    bl_dac_policy: VdacPolicy
     bl_driver_policy: VoltageDriverPolicy
     sl_driver_policy: VoltageDriverPolicy
     mux_driver_policy: UnmodeledBlockPolicy
@@ -195,10 +221,10 @@ class Ye2023JsscCimMacroPolicy(CimMacroPolicy):
 class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPolicy]):
     """Ye2023 JSSC WH-2T1R CIM macro: transposed 2T1R array + time-shared RS-CSA.
 
-    Owns the dedicated WH-2T1R array, the per-column BL and SL clamps, one
-    RS-CSA with its reference source, and two static-PPA peripheral seats. It
-    derives the readout's static compensation current from the array's own tables
-    at construction.
+    Owns the dedicated WH-2T1R array, the word-line and BL input converter
+    banks, the per-column BL and SL clamps, one RS-CSA with its reference
+    source, and two static-PPA peripheral seats. It hands the readout its
+    configured static compensation current at construction.
 
     Args:
         config: Macro configuration.
@@ -216,7 +242,7 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
 
     # === Circuit constant buffers ===
 
-    _v_wl_onehot__V: Tensor  # Shape: [col_num, col_num]
+    _wl_onehot_code: Tensor  # Shape: [col_num, col_num]
     _sl_v_ref__V: Tensor  # Shape: []
 
     def __init__(
@@ -248,16 +274,6 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
         self._init_children(dtype=dtype, T__K=T__K)
         self._register_model_buffers(dtype=dtype)
 
-        # Total capacitance one BL column drives: its wire segments plus, at every
-        # physical row, the cell BL node and the cell X node.
-        array_config = config.array_config
-        cell_config = array_config.cell_config
-        self._c_bl_column__fF = (
-            array_config.bl_first_c__fF
-            + (self.col_num - 1) * array_config.bl_segment_c__fF
-            + self.col_num * (cell_config.c_bl__fF + cell_config.c_x__fF)
-        )
-
     @property
     def _area_per_inst__um2(self) -> float:
         return self.config.area_per_inst__um2
@@ -265,6 +281,22 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
     @property
     def _leakage_per_inst__uW(self) -> float:
         return self.config.leakage_per_inst__uW
+
+    def latency__ns(self, *, adc_bits: int | None) -> float:
+        """One VMM — one RS-CSA access window per logical output.
+
+        The single readout is time-shared, so ``col_num`` outputs run
+        sequentially on it; the activation is 1-bit, so no input-bit axis
+        multiplies them. One access is the readout's executed conversion
+        window, which already spans the array solve the phases run over, so
+        the macro multiplies its converter instead of summing its children.
+
+        Raises:
+            ValueError: ``adc_bits`` is ``None``.
+        """
+        if adc_bits is None:
+            raise ValueError("require: adc_bits is an int — the physical readout has no lossless oracle")
+        return self.col_num * self.rscsa.latency__ns(bits=adc_bits)
 
     def _init_children(self, *, dtype: torch.dtype, T__K: float) -> None:
         """Construct the array, readout, clamps, and flat peripheral seats."""
@@ -275,19 +307,49 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
 
         # --- Dedicated WH-2T1R array (TRANSPOSED: rows = outputs, cols = in x plane) ---
 
+        # The BL boundary holds the input pattern while the word lines are
+        # scanned, which the array fixes for itself. The two rails are declared
+        # once at this macro's top level and cascade into the array's capacitive
+        # billing from here.
         self.array = Ye2023Jssc2t1rArray(
             config=config.array_config,
             policy=policy.array_policy,
             inst_shape=self.inst_shape,
             row_num=self.col_num,  # physical rows = logical outputs
             col_num=phys_col_num,  # physical cols = row_num * (weight planes + redundant planes)
+            v_dd_wl__V=config.v_dd_wl__V,
+            v_dd_bl__V=config.v_dd_bl__V,
             dtype=dtype,
             T__K=T__K,
-            enable_latency_record=False,  # macro owns latency
+        )
+
+        # --- Input converters (the two 1-bit drives the array is scanned with) ---
+
+        # One WL converter per word line: a line spans its whole row, so the seat
+        # count is the row count and a scan drives every seat once per access.
+        self.wl_dac = Vdac.from_config(
+            config=config.wl_dac_config,
+            policy=policy.wl_dac_policy,
+            inst_shape=(*self.inst_shape, self.col_num),
+            dtype=dtype,
+            T__K=T__K,
+        )
+        # One BL converter per physical column, on the same column grid the
+        # boundary clamps sit on.
+        self.bl_dac = Vdac.from_config(
+            config=config.bl_dac_config,
+            policy=policy.bl_dac_policy,
+            inst_shape=(*self.inst_shape, phys_col_num),
+            dtype=dtype,
+            T__K=T__K,
         )
 
         # --- Boundary clamps (ideal r_out = 0 sources; wire IR drop is the array's) ---
 
+        # BOTH rails hold one clamp per physical column, each biased from its own
+        # per-column reference, so the instance grid of either clamp is the
+        # column grid. The macro hands them to the solve and drives them itself
+        # at the converged port state.
         self.bl_driver = VoltageDriver(
             config=config.bl_driver_config,
             policy=policy.bl_driver_policy,
@@ -298,25 +360,22 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
         self.sl_driver = VoltageDriver(
             config=config.sl_driver_config,
             policy=policy.sl_driver_policy,
-            inst_shape=self.inst_shape,
+            inst_shape=(*self.inst_shape, phys_col_num),
             dtype=dtype,
             T__K=T__K,
         )
 
         # --- Single time-shared RS-CSA (the outputs ride the convert leading) ---
 
-        # The compensation current is the array's all-off row current: the
-        # off-cell floor over every place value one row sums.
-        all_radix = (*config.array_config.weight_radix, *config.array_config.redundant_radix)
-        i_ph0_comp__uA = config.cell_config.i_t2_table__uA[0][0] * self.row_num * sum(all_radix)
+        # The compensation current is a calibrated seat: the array's measured
+        # all-off row current, which this macro only hands over.
         self.rscsa = RsCsaIadc(
             config=config.adc_config,
             policy=policy.adc_policy,
             inst_shape=self.inst_shape,
             dtype=dtype,
             T__K=T__K,
-            i_ph0_comp__uA=i_ph0_comp__uA,
-            enable_latency_record=False,  # macro owns latency
+            i_ph0_comp__uA=config.i_ph0_comp__uA,
         )
 
         # --- The readout's single reference current source ---
@@ -349,10 +408,11 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
         )
 
     def _register_model_buffers(self, *, dtype: torch.dtype) -> None:
-        """Register the one-hot WL grid, the SL drive, and the weight-encode LUT."""
+        """Register the one-hot WL code grid, the SL drive, and the weight-encode LUT."""
         config = self.config
-        wl_onehot = config.v_wl_sel__V * torch.eye(self.col_num, dtype=dtype)
-        self.register_buffer("_v_wl_onehot__V", wl_onehot, persistent=False)
+        # The scan pattern is DIGITAL: output o raises word line o and holds every
+        # other line at its off code, and the WL converter turns that into levels.
+        self.register_buffer("_wl_onehot_code", torch.eye(self.col_num, dtype=torch.long), persistent=False)
         self.register_buffer("_sl_v_ref__V", torch.tensor(config.v_sl__V, dtype=dtype), persistent=False)
 
         digit_num = config.w_digit_num
@@ -418,7 +478,7 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
 
     @property
     def t_ac__ns(self) -> Tensor:
-        """Nominal access window T_AC [ns] (0-d) at :attr:`adc_max_bits`.
+        """Nominal access window T_AC [ns] at :attr:`adc_max_bits`.
 
         The RS-CSA runs the compensation phase plus one compare phase per
         requested bit, so the window an access actually holds is the executed one
@@ -514,43 +574,70 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
         # The first row_num carry plane 0, matching the array's plane-major radix
         # layout. The redundant planes are forced input-0.
         leading = x_long.shape[:-1]
+        # The array carries its instance prefix on the LAST leading axes, so the
+        # ensemble width is resolved HERE: a size-1 instance slot shares one input
+        # vector across the die ensemble, while every die still drives its own
+        # columns and the solve still runs one instance per fabricated die.
+        batch = leading[: len(leading) - n_inst]
+        inst = tuple(torch.broadcast_shapes(self.inst_shape, leading[len(leading) - n_inst :]))
         # Shape: [..., row] -> [..., weight_plane * row]
         x_weight = (
             x_long.unsqueeze(-2).expand(*leading, n_weight_plane, row_num).reshape(*leading, n_weight_plane * row_num)
         )
         x_redundant = x_weight.new_zeros((*leading, n_redundant_plane * row_num))
         x_tiled = torch.cat((x_weight, x_redundant), dim=-1)
-        v_bl = torch.where(
-            x_tiled > 0,
-            self._v_wl_onehot__V.new_tensor(config.v_bl_in1__V),
-            self._v_wl_onehot__V.new_tensor(0.0),
-        )
+        phys_col_num = x_tiled.shape[-1]
+        # The BL converter states the two input levels and bills its own drive:
+        # ONE event per vector per column, since the level is held across the
+        # whole row scan, and an input-0 column bills that code's own entry. The
+        # codes arrive at the bank's own (*inst_shape, phys_col) seat layout, so a
+        # shared input vector still pays once per die.
+        # Shape: [..., *inst_shape, phys_col]
+        v_bl = self.bl_dac.convert((x_tiled > 0).long().expand(*batch, *inst, phys_col_num))
 
         # --- 2: stack the output-serial one-hot word lines on the leading ---
 
-        # The array carries its instance prefix on the LAST leading axes, so the
-        # output-serial axis is inserted BEFORE the instance axes x's leading ends
-        # with: the solve leading is (..., out, *inst_shape).
-        batch = leading[: len(leading) - n_inst]
-        inst_slots = leading[len(leading) - n_inst :]
-        solve_leading = (*batch, self.col_num, *inst_slots)
-        # Output o activates array row o at V_WL_sel.
-        # Shape: [..., out, *inst_shape, array_row]
-        v_wl = self._v_wl_onehot__V.view(self.col_num, *(1,) * n_inst, self.col_num).expand(
+        # The output-serial axis is inserted BEFORE the instance axes x's leading
+        # ends with: the solve leading is (..., out, *inst_shape). The array
+        # itself normalizes no shape.
+        solve_leading = (*batch, self.col_num, *inst)
+        # Output o raises word line o. The converter bank holds one seat per word
+        # line, so its own instance block is the LINE axis and the scan sits ahead
+        # of it, exactly where a right-aligned bank expects a time axis: the codes
+        # arrive at the seat layout and the bank bills one drive event per line
+        # per access, on every die and for every input vector.
+        # Shape: [out, array_row] -> [..., out, *inst_shape, array_row]
+        wl_code = self._wl_onehot_code.view(self.col_num, *(1,) * n_inst, self.col_num).expand(
             *solve_leading, self.col_num
         )
+        v_wl_lines = self.wl_dac.convert(wl_code)
+        # The array reads one value per cell GATE, and one word line spans every
+        # column of its row, which the stride-0 expand over the column axis
+        # states — it is also this macro's declaration that a scanned row carries
+        # no per-column structure.
+        # Shape: [..., out, *inst_shape, phys_col, array_row]
+        v_wl = v_wl_lines.unsqueeze(-2).expand(*solve_leading, phys_col_num, self.col_num)
         # The same per-column inputs for every output.
         # Shape: [..., out, *inst_shape, phys_col]
-        bl_v_ref = v_bl.unsqueeze(-(n_inst + 2)).expand(*solve_leading, x_tiled.shape[-1])
+        bl_v_ref = v_bl.unsqueeze(-(n_inst + 2)).expand(*solve_leading, phys_col_num)
 
         # --- 3: one broadcast solve; leading becomes (..., out, *inst_shape) ---
 
-        steady = self.array.solve(
+        # The macro owns the event structure, so the macro snapshots: one draw
+        # per (output access, instance, column), the output axis sitting ahead
+        # of each clamp bank's own (*inst_shape, phys_col) block, which is where
+        # a right-aligned bank expects a time axis. Both snaps arrive at the
+        # canonical [..., col] shape, so the array normalizes nothing.
+        # Shape: [..., out, *inst_shape, phys_col]
+        event_shape = (*solve_leading, phys_col_num)
+        bl_snap = self.bl_driver.snapshot(v_ref__V=bl_v_ref, shape=event_shape)
+        sl_snap = self.sl_driver.snapshot(v_ref__V=self._sl_v_ref__V.expand(event_shape), shape=event_shape)
+        steady = self.array.solve_array(
             v_wl,
             bl_driver=self.bl_driver,
-            bl_v_ref__V=bl_v_ref,
+            bl_driver_snap=bl_snap,
             sl_driver=self.sl_driver,
-            sl_v_ref__V=self._sl_v_ref__V,
+            sl_driver_snap=sl_snap,
         )
         # Shape: [..., out, *inst_shape, phys_col]
         i_bl_port = steady.i_bl_port__uA
@@ -558,59 +645,63 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
         # Shape: [..., out, *inst_shape]
         i_tbl = steady.i_tbl__uA
 
-        # --- 4: conduction branches + per-vector BL charge (macro-billed) ---
+        # Deliver both boundary clamps at the converged port state: each is one
+        # instance per physical column, so the column axis IS its instance axis,
+        # and the array's layout already seats the clamp instance block last.
+        # Both conduct, so both are driven. The drive is billed per driven
+        # position, which is why it happens here, on the layout the solve
+        # returned and BEFORE the output axis moves past the instance axes.
+        # Shape: [..., out, *inst_shape, phys_col]
+        self.bl_driver.drive(i_bl_port, steady.v_bl_clamp__V)
+        self.sl_driver.drive(steady.i_sl_port__uA, steady.v_sl_drive__V)
 
+        # --- 4: conduction branches (macro-billed) ---
+
+        # Every payload below keeps the caller's leading dims and lets the
+        # collector sum the macro's own output, instance and column axes past
+        # them. No channel pre-reduces the caller block. The array's node ledger
+        # is the sole account of the capacitance inside it, this column's own
+        # included, so no capacitive channel is billed here.
         if record:
-            # BL input branch, PER ACCESS.
-            # [*batch, out, *inst, phys_col] -> [*batch]
-            e_bl_cond = (config.v_bl_in1__V * i_bl_port).sum(dim=tuple(range(-(n_inst + 2), 0))) * t_ac__ns
+            # BL input branch, PER ACCESS, on the BL driver's SUPPLY: a branch
+            # bill states what rail the charge leaves, never the level the node
+            # it feeds sits at. An input-0 column carries no port current and
+            # self-zeroes.
+            # Shape: [..., out, *inst_shape, phys_col]
+            e_bl_cond = (config.v_dd_bl__V * i_bl_port) * t_ac__ns
             self._record_dynamic_energy(e_bl_cond, channel="bl_cond")
             # DL branch, PER ACCESS: the RAW row current, before the readout's
             # compensation subtraction, on the core rail.
-            # [*batch, out, *inst] -> [*batch]
-            e_dl_cond = (v_dd_core * i_tbl).sum(dim=tuple(range(-(n_inst + 1), 0))) * t_ac__ns
+            # Shape: [..., out, *inst_shape]
+            e_dl_cond = (v_dd_core * i_tbl) * t_ac__ns
             self._record_dynamic_energy(e_dl_cond, channel="dl_cond")
-            # BL column charge, PER VECTOR (full-cycle convention): one charge
-            # event per input-high column per call, not per access. Every die
-            # charges its own columns, so a shared (size-1) input vector still
-            # bills once per instance.
-            # [*batch, *inst, phys_col] -> [*batch, *inst]
-            high_col_count = (x_tiled > 0).sum(dim=-1).to(i_tbl.dtype)
-            e_bl_cap = (config.v_bl_in1__V**2 * self._c_bl_column__fF) * high_col_count
-            self._record_dynamic_energy(
-                e_bl_cap.expand(torch.broadcast_shapes(e_bl_cap.shape, self.inst_shape)),
-                channel="bl_cap",
-            )
 
         # --- 5: RS-CSA quantize against its single reference current ---
 
-        # The macro only NAMES the mode; the source returns that row at the full
-        # conversion shape. One physical source feeds every conversion serialized
-        # on it, so the per-call draw belongs per converted instant.
+        # The macro only NAMES the mode; the fabricated bank is a single static
+        # identity per instance (fabricate-only, no per-call noise of its own),
+        # broadcast by view to the full conversion shape — every conversion
+        # serialized on this one physical source reads the same row.
         # Shape: [..., out, *inst_shape, 1]
-        i_refs__uA = self.rscsa_reference.snapshot(
-            mode=quantization_mode,
-            shape=(*i_tbl.shape, self.rscsa_reference.tap_num),
-        ).i_refs__uA
+        i_refs__uA = self.rscsa_reference.i_out__uA[..., quantization_mode, :].expand(
+            *i_tbl.shape, self.rscsa_reference.tap_num
+        )
         # The readout scales that one reference into its own ladder and handles
         # the requested bit width internally.
         # Shape: [..., out, *inst_shape]
         code = self.rscsa.convert(i_tbl, i_refs__uA, bits=adc_bits)
 
-        # --- 6: flat peripheral energy (per output access) + latency ---
+        # --- 6: flat peripheral energy (per output access) ---
 
-        if record:
-            e_mux = i_tbl.new_full(i_tbl.shape, config.e_mux_driver_per_op__fJ)
-            self._record_dynamic_energy(e_mux, channel="mux_driver")
-            e_ctrl = i_tbl.new_full(i_tbl.shape, config.e_timing_ctrl_per_op__fJ)
-            self._record_dynamic_energy(e_ctrl, channel="timing_ctrl")
-
-        # The single time-shared RS-CSA serializes every output over the leading;
-        # each round takes one access window. The instances are parallel dies, so
-        # their accesses share rounds instead of adding them.
-        parallel_instance_count = self.inst_count
-        serial_round_count = (code.numel() + parallel_instance_count - 1) // parallel_instance_count
-        self._record_latency(t_ac__ns * serial_round_count)
+        # A flat per-op lump over the accesses `code` carries — a constant, so the
+        # expanded view holds no storage and no payload is materialized, and the
+        # energy dtype is the constant's rather than the integer code's; outside
+        # a profiler the call is already a no-op, hence no `record` guard.
+        # Shape: [] -> [..., out, *inst_shape]
+        e_mux__fJ = torch.full((), config.e_mux_driver_per_op__fJ, dtype=torch.float32, device=code.device)
+        e_timing__fJ = torch.full((), config.e_timing_ctrl_per_op__fJ, dtype=torch.float32, device=code.device)
+        self._record_dynamic_energy(e_mux__fJ.expand(code.shape), channel="mux_driver")
+        self._record_dynamic_energy(e_timing__fJ.expand(code.shape), channel="timing_ctrl")
 
         # Shape: [..., out, *inst_shape] -> [..., *inst_shape, out]
         return code.movedim(-(n_inst + 1), -1)

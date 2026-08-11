@@ -1,10 +1,17 @@
-from ._1t1r import XbarArray1t1r, XbarArray1t1rConfig, XbarArray1t1rPolicy, XbarArraySteadyState
-from .base import XbarArray
+from ._1t1r import (
+    XbarArray1t1r,
+    XbarArray1t1rChunkMeasure,
+    XbarArray1t1rConfig,
+    XbarArray1t1rOperationMode,
+    XbarArray1t1rPolicy,
+    XbarArray1t1rSteadyState,
+)
 
 __all__ = [
-    "XbarArray",
     "XbarArray1t1r",
+    "XbarArray1t1rChunkMeasure",
     "XbarArray1t1rConfig",
+    "XbarArray1t1rOperationMode",
     "XbarArray1t1rPolicy",
-    "XbarArraySteadyState",
+    "XbarArray1t1rSteadyState",
 ]

@@ -26,11 +26,11 @@ from .architecture.unit.cim import (
 from .common.mixin import ProfileMixin
 from .common.profiler import (
     EnergyEvent,
-    LatencyEvent,
     NeuroxProfiler,
     ProfilerReport,
     StaticMetrics,
     StaticRecord,
+    neurox_roots,
 )
 from .primitive.macro.cim import (
     CimMacro,
@@ -47,12 +47,12 @@ __all__ = [
     "primitive",
     "works",
     "EnergyEvent",
-    "LatencyEvent",
     "NeuroxProfiler",
     "ProfileMixin",
     "ProfilerReport",
     "StaticMetrics",
     "StaticRecord",
+    "neurox_roots",
     "CimMacro",
     "CimMacroConfig",
     "CimMacroPolicy",

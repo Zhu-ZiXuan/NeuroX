@@ -30,7 +30,7 @@ Granularity is the main design choice:
 - **C1 — wrap `solve_array`.** Hides the solver chunk loop; readout stays on the traceable path; output is the clamp-voltage tensor. Cleanest output shape, but `solve_array`'s profiler emit and energy bookkeeping are side effects that a (functional) op must not hold internally.
 - **C2 — wrap `vec_mat_mul`.** Hides core and readout together; output is the ADC-code tensor the macro wants. Larger black box, so the macro can fuse no readout math, and the ADC operating point / rescale enter the op.
 
-Because the op must be functional, it requires scheme B first: all state arrives as tensor arguments, a Python wrapper extracts those tensors from the xbar/core objects, and the op body only computes. Profiler events are emitted **outside** the op (or the op returns energy/latency tensors recorded by an eager wrapper) — Python list mutation must never sit inside a `fullgraph` target.
+Because the op must be functional, it requires scheme B first: all state arrives as tensor arguments, a Python wrapper extracts those tensors from the xbar/core objects, and the op body only computes. Profiler events are emitted **outside** the op (or the op returns energy tensors recorded by an eager wrapper) — Python list mutation must never sit inside a `fullgraph` target.
 
 ## Trade-offs
 
@@ -47,7 +47,7 @@ The op runs its body as-is, with no Inductor optimization across its boundary (i
 - **State and side effects.** A custom op is meant to be a functional tensor op. Closing over Python objects yields an unstable graph cache, a fake kernel that cannot express the real state, and possibly a `fullgraph` that appears to succeed while its caching/reuse is unsound. All state must be tensor arguments; side effects must be outside.
 - **Autograd.** Without registered autograd, any training/gradient path through the op errors; the physical read must then be inference-only (`no_grad`) or carry an explicitly designed surrogate backward. This must be documented at the op, or users hit a no-autograd error mid-training.
 - **Fake-kernel correctness.** A wrong shape/dtype/device in the fake kernel mis-informs the compiler; registration sanity (`opcheck`) does not check the numerical body.
-- **Profiler semantics.** Moving energy/latency emission outside the op, or threading it through return tensors, changes how the profiler observes the read — the boundary must be designed so per-VMM accounting stays correct.
+- **Profiler semantics.** Moving energy emission outside the op, or threading it through return tensors, changes how the profiler observes the read — the boundary must be designed so per-VMM accounting stays correct.
 
 ## Open questions
 

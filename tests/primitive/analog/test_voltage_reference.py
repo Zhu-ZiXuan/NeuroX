@@ -1,27 +1,28 @@
-"""Vref: 2-D mode/tap bank and the PPA-only contract.
+"""Vref: 2-D mode/tap bank and the fabricate-only PPA contract.
 
-``Vref`` is a behavioural reference source: it carries static
-PPA (area + leakage) and hands out the actual tap values through a snap,
-but performs no computation and emits no dynamic energy or latency. It
-holds a 2-D ``[mode][tap]`` bank of equal-length non-negative modes whose
-mode selection is quasi-static; a single reference node is the degenerate
-``[[v]]`` bank. These tests pin, unless a test says otherwise with the
-policy all-off:
+``Vref`` is a behavioural reference source: it carries static PPA
+(area + leakage) and a fabricated ``[mode][tap]`` bank read back through
+:attr:`Vref.v_out__V`, but performs no computation, samples no per-call
+noise, and emits no dynamic energy or latency. Static tolerance is its only
+nonideality, drawn once at fabricate time. Mode selection and broadcasting
+onto a caller's own shape are the consumer's job, done by plain indexing and
+a view. These tests pin, unless a test says otherwise with the policy
+all-off:
 
 - 2-D validation on the bank: equal tap lengths and non-negative taps,
   while ordering within a mode is deliberately NOT enforced — what a mode
   means is the consumer's knowledge;
 - ``mode_num`` / ``tap_num`` report the bank geometry;
-- ``snapshot(mode=..., shape=...)`` returns exactly the requested shape,
-  with the mode axis resolved away by the source;
-- with noise off the snap is exactly the fabricated nominal, draws no
-  randomness, and does not drift between calls;
-- a zero tap stays exactly zero under relative noise;
-- the degenerate single-mode single-tap bank broadcasts onto a clamp
-  bank's full call shape;
+- ``v_out__V`` exposes the fabricated bank verbatim at
+  ``[*inst_shape, mode_num, tap_num]``, with the mode axis intact for the
+  consumer to index;
+- with tolerance off ``v_out__V`` is exactly the nominal bank, is stable
+  across repeated reads, and draws no randomness outside ``fabricate()``;
+- a zero tap stays exactly zero under relative tolerance;
+- the degenerate single-mode single-tap bank broadcasts (by view) onto a
+  clamp bank's full call shape;
 - static PPA equals ``per_inst * inst_count`` and is visible to the
-  profiler's static walk, while ``fabricate`` + ``snapshot`` emit zero
-  energy / latency events;
+  profiler's static walk, while ``fabricate`` emits zero energy events;
 - a nested TOML array loads straight into the bank field; a flat TOML
   array (wrong shape for the tap bank) is rejected.
 """
@@ -51,7 +52,6 @@ def _config(**overrides: Any) -> VrefConfig:
     base = {
         "v_refs__V": _TAPS,
         "tolerance_sigma_relative": 0.0,
-        "noise_sigma_relative": 0.0,
         "area_per_inst__um2": 0.0,
         "leakage_per_inst__uW": 0.0,
     }
@@ -68,7 +68,7 @@ def _make(
 ) -> Vref:
     ref = Vref(
         config=config if config is not None else _config(area_per_inst__um2=area, leakage_per_inst__uW=leakage),
-        policy=policy if policy is not None else VrefPolicy(tolerance=False, noise=False),
+        policy=policy if policy is not None else VrefPolicy(tolerance=False),
         inst_shape=inst_shape,
         dtype=_DTYPE,
         T__K=300.0,
@@ -82,7 +82,6 @@ def test_validation_rejects_bad_config() -> None:
     for override in (
         {"v_refs__V": ()},  # empty bank
         {"tolerance_sigma_relative": -1e-3},
-        {"noise_sigma_relative": -1e-3},
         {"area_per_inst__um2": -1.0},
         {"leakage_per_inst__uW": -1.0},
     ):
@@ -116,85 +115,72 @@ def test_mode_tap_counts() -> None:
     assert ref.tap_num == _TAP_NUM
 
 
-def test_snapshot_shape_is_exactly_the_requested_shape() -> None:
-    """The caller names the full output shape; the source honours it verbatim."""
+def test_v_out_exposes_the_fabricated_bank_verbatim() -> None:
+    """``v_out__V`` is the whole ``[mode][tap]`` bank, mode axis intact."""
     ref = _make()
-    for shape in ((_TAP_NUM,), (4, _TAP_NUM), (2, 3, _TAP_NUM), (1, 1, 1, _TAP_NUM)):
-        assert ref.snapshot(mode=0, shape=shape).v_refs__V.shape == shape
+    out = ref.v_out__V
+    assert out.shape == (_MODE_NUM, _TAP_NUM)
+    assert torch.equal(out, torch.tensor(_TAPS, dtype=_DTYPE))
 
 
-def test_snapshot_shape_must_end_in_tap_num() -> None:
-    """A trailing axis that is not the tap axis is a caller error, not a silent reshape."""
-    ref = _make()
-    with pytest.raises(RuntimeError):
-        ref.snapshot(mode=0, shape=(_TAP_NUM + 1,))
-
-
-def test_snapshot_resolves_the_mode_axis() -> None:
-    """Selecting mode ``m`` returns that mode's taps, with no mode axis left."""
+def test_indexing_a_mode_returns_that_mode_s_taps() -> None:
+    """Indexing the mode axis is the consumer's own selection, with no source involvement."""
     ref = _make()
     for mode, taps in enumerate(_TAPS):
-        out = ref.snapshot(mode=mode, shape=(2, _TAP_NUM)).v_refs__V
-        assert out.shape == (2, _TAP_NUM)
-        assert torch.equal(out, torch.tensor(taps, dtype=_DTYPE).expand(2, _TAP_NUM))
+        out = ref.v_out__V[..., mode, :]
+        assert torch.equal(out, torch.tensor(taps, dtype=_DTYPE))
 
 
-def test_all_off_snapshot_is_exactly_nominal_and_draws_nothing() -> None:
-    """With noise off the snap is bit-exact nominal, repeatable, and consumes no RNG."""
+def test_all_off_v_out_is_exactly_nominal_and_draws_nothing_between_reads() -> None:
+    """With tolerance off ``v_out__V`` is bit-exact nominal, repeatable, and consumes no RNG."""
     ref = _make()
-    nominal = torch.tensor(_TAPS[1], dtype=_DTYPE)
+    nominal = torch.tensor(_TAPS, dtype=_DTYPE)
 
     rng_state = torch.random.get_rng_state()
-    snap_a = ref.snapshot(mode=1, shape=(_TAP_NUM,))
-    snap_b = ref.snapshot(mode=1, shape=(_TAP_NUM,))
+    out_a = ref.v_out__V
+    out_b = ref.v_out__V
     assert torch.equal(torch.random.get_rng_state(), rng_state)
-    assert torch.equal(snap_a.v_refs__V, nominal)
-    assert torch.equal(snap_b.v_refs__V, nominal)
+    assert torch.equal(out_a, nominal)
+    assert torch.equal(out_b, nominal)
 
 
-def test_inst_shape_prefixes_the_requested_shape() -> None:
-    """The fabricated per-instance taps right-align under the requested shape."""
+def test_inst_shape_prefixes_the_bank() -> None:
+    """The fabricated bank carries ``inst_shape`` as a leading prefix."""
     ref = _make(inst_shape=(1, 2))
-    nominal = torch.tensor(_TAPS[0], dtype=_DTYPE)
+    nominal = torch.tensor(_TAPS, dtype=_DTYPE)
 
-    out = ref.snapshot(mode=0, shape=(1, 2, _TAP_NUM)).v_refs__V
-    assert out.shape == (1, 2, _TAP_NUM)
-    assert torch.equal(out, nominal.expand(1, 2, _TAP_NUM))
-
-    # A wider call grid prepends leading axes onto the same instance taps.
-    wide = ref.snapshot(mode=0, shape=(4, 1, 2, _TAP_NUM)).v_refs__V
-    assert wide.shape == (4, 1, 2, _TAP_NUM)
-    assert torch.equal(wide, nominal.expand(4, 1, 2, _TAP_NUM))
+    out = ref.v_out__V
+    assert out.shape == (1, 2, _MODE_NUM, _TAP_NUM)
+    assert torch.equal(out, nominal.expand(1, 2, _MODE_NUM, _TAP_NUM))
 
 
-def test_single_tap_bank_fills_a_clamp_call_shape() -> None:
-    """The degenerate ``[[v]]`` bank sources one node over a whole clamp bank."""
+def test_single_tap_bank_broadcasts_onto_a_clamp_call_shape() -> None:
+    """The degenerate ``[[v]]`` bank sources one node over a whole clamp bank, by view."""
     v_clamp__V = 0.29
     ref = _make(config=_config(v_refs__V=((v_clamp__V,),)))
     assert ref.mode_num == 1
     assert ref.tap_num == 1
 
-    out = ref.snapshot(mode=0, shape=(2, 5, 1)).v_refs__V
+    out = ref.v_out__V[..., 0, :].expand(2, 5, 1)
     assert out.shape == (2, 5, 1)
     assert torch.equal(out, torch.full((2, 5, 1), v_clamp__V, dtype=_DTYPE))
 
 
-def test_zero_tap_stays_exactly_zero_under_relative_noise() -> None:
-    """Relative noise is multiplicative, so an exact zero tap survives both draws."""
+def test_zero_tap_stays_exactly_zero_under_relative_tolerance() -> None:
+    """Relative tolerance is multiplicative, so an exact zero tap survives the draw."""
     ref = _make(
         config=_config(
             v_refs__V=((0.0, 0.4),),
             tolerance_sigma_relative=0.1,
-            noise_sigma_relative=0.1,
         ),
-        policy=VrefPolicy(tolerance=True, noise=True),
+        policy=VrefPolicy(tolerance=True),
     )
-    out = ref.snapshot(mode=0, shape=(8, 2)).v_refs__V
-    assert torch.equal(out[..., 0], torch.zeros(8, dtype=_DTYPE))
+    out = ref.v_out__V
+    assert torch.equal(out[..., 0], torch.zeros_like(out[..., 0]))
 
 
 def test_static_ppa_and_no_dynamic_events() -> None:
-    """Static PPA scales by ``inst_count``; fabricate/snapshot emit no events."""
+    """Static PPA scales by ``inst_count``; fabricate emits no dynamic energy events."""
     ref = _make(inst_shape=(2,), area=2.0, leakage=0.5)
 
     assert ref.area__um2 == pytest.approx(2.0 * 2)
@@ -207,9 +193,7 @@ def test_static_ppa_and_no_dynamic_events() -> None:
 
     with NeuroxProfiler() as p:
         ref.fabricate()
-        ref.snapshot(mode=0, shape=(2, _TAP_NUM))
     assert p.energy_events == []
-    assert p.latency_events == []
 
 
 def test_toml_nested_array_loads_as_tuple(tmp_path: Path) -> None:
@@ -218,7 +202,6 @@ def test_toml_nested_array_loads_as_tuple(tmp_path: Path) -> None:
         "[ref]\n"
         "v_refs__V = [[0.6, 1.2, 0.3], [0.5, 1.0, 0.2]]\n"
         "tolerance_sigma_relative = 0.01\n"
-        "noise_sigma_relative = 0.002\n"
         "area_per_inst__um2 = 1.0\n"
         "leakage_per_inst__uW = 0.5\n"
     )
@@ -236,7 +219,6 @@ def test_toml_flat_array_rejected(tmp_path: Path) -> None:
         "[ref]\n"
         "v_refs__V = [0.6, 1.2, 0.3]\n"
         "tolerance_sigma_relative = 0.0\n"
-        "noise_sigma_relative = 0.0\n"
         "area_per_inst__um2 = 0.0\n"
         "leakage_per_inst__uW = 0.0\n"
     )

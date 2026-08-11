@@ -14,8 +14,9 @@ import torch.nn.functional as F
 from torch import Tensor
 
 from neurox.common import ConfigBase, ModuleBase, PolicyBase
+from neurox.common.mixin import TensorGroupMixin
 from neurox.primitive.nonideality import apply_gaussian
-from neurox.primitive.physical_constant import thermal_voltage__V
+from neurox.primitive.physics import thermal_voltage__V
 
 
 class MosfetConfig(ConfigBase):
@@ -99,7 +100,7 @@ class MosfetDcop:
 
 
 @dataclass(frozen=True)
-class MosfetSnap:
+class MosfetSnap(TensorGroupMixin):
     """Per-call MOSFET state snap.
 
     Attributes:
@@ -221,28 +222,19 @@ class Mosfet(ModuleBase[MosfetConfig, MosfetPolicy], ABC):
         self,
         *,
         shape: tuple[int, ...],
-        multi_coords: tuple[Tensor, ...] | None,
     ) -> MosfetSnap:
         """Sample one per-call runtime snap over ``shape``.
 
         Args:
             shape: Per-call broadcast shape; the snap fills tensor
                 fields at this shape.
-            multi_coords: Advanced-index tuple selecting a chunk's
-                positions from the broadcast view; ``None`` returns the
-                full view.
 
         Returns:
             Per-call snap of the fabricated state.
         """
         vth_view = self._vth__V.expand(shape) if shape else self._vth__V
         beta_view = self._beta__uA_per_V2.expand(shape) if shape else self._beta__uA_per_V2
-        if multi_coords is None:
-            return MosfetSnap(vth__V=vth_view, beta__uA_per_V2=beta_view)
-        return MosfetSnap(
-            vth__V=vth_view[multi_coords],
-            beta__uA_per_V2=beta_view[multi_coords],
-        )
+        return MosfetSnap(vth__V=vth_view, beta__uA_per_V2=beta_view)
 
     def solve_dc(
         self,

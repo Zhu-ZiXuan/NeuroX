@@ -46,7 +46,7 @@ Provenance terms are defined in [module_parameter](../../../../../conventions/mo
 
 ## Energy model
 
-The Linear cell uses the shared family node-capacitance energy formula (the four grounded node caps of the family parameters) with $V_{\mathrm{X}}$ from the drop fraction.
+The Linear cell contributes the shared family node levels, with $V_{\mathrm{X}}$ taken from the drop fraction; the node capacitances and the account they feed belong to the array holding the grid.
 
 ## Symbols
 
@@ -61,6 +61,7 @@ In addition to the [shared family symbols](cell.md):
 ## Assumptions, scope & validity
 
 - The linearization is exact only at the extraction operating point: away from it the real stack is nonlinear while this branch is linear, so the model error grows with the terminal-voltage deviation from $(V_{\mathrm{BL}}^{\mathrm{op}}, V_{\mathrm{SL}}^{\mathrm{op}})$. It suits read-out schemes that clamp the array near one operating point.
+- The four tables and the threshold are products of one calibration run against a fixed word-line drive alphabet, and they are valid only while the deployed drive alphabet equals that calibration alphabet; the consistency is maintained by the calibration procedure, not enforced in code.
 - The word line is an ideal threshold switch: partial WL drives snap to off or on; sub-threshold access-device behaviour between the levels is not represented.
 - The model is deterministic; it cannot represent per-call stochastic nonidealities (telegraph, thermal read noise, mismatch draws).
 - The signed-conductance family invariant holds by construction ($\pm g_{\mathrm{cell}}$ with $g_{\mathrm{cell}} \ge 0$).

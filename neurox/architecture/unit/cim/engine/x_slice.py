@@ -39,6 +39,11 @@ class XSliceStage(
 
     is_profile_target: ClassVar[bool] = False
 
+    #: Sa-axis reconstruction block, or ``None`` for a layout with no
+    #: arithmetic between the macro and the logical input (the single
+    #: structural cycle already is the result).
+    shift_adder: ShiftAdder | None
+
     def __init__(
         self,
         *,
@@ -50,6 +55,7 @@ class XSliceStage(
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=())
         self._slicer = self._build_slicer(macro_x_value_range)
+        self.shift_adder = None
 
     @classmethod
     def from_config(
@@ -83,6 +89,12 @@ class XSliceStage(
     def value_range(self) -> tuple[int, int]:
         return self._slicer.value_range
 
+    @property
+    @abstractmethod
+    def slice_num(self) -> int:
+        """Successive input cycles one logical input is serialized into — the Sa axis."""
+        raise NotImplementedError
+
     def slice(self, x: Tensor) -> Tensor:
         """Append the Sa axis to a logical input tensor."""
         return self._slicer.slice(x)
@@ -110,6 +122,10 @@ class DirectXSliceStage(XSliceStage[DirectXSliceStageConfig, DirectXSliceStagePo
 
     def _build_slicer(self, macro_x_value_range: tuple[int, int]) -> Slicer:
         return DirectSlicer(value_range=macro_x_value_range)
+
+    @property
+    def slice_num(self) -> int:
+        return 1
 
     def aggregate(self, code: Tensor) -> Tensor:
         # Shape: [..., M, Sa=1, G, Q] -> [..., M, G, Q]
@@ -165,6 +181,10 @@ class SerialXSliceStage(XSliceStage[SerialXSliceStageConfig, SerialXSliceStagePo
             scale=self._slicer.slice_radix,
             digit_count=config.x_slice_num,
         )
+
+    @property
+    def slice_num(self) -> int:
+        return self.config.x_slice_num
 
     def _build_slicer(self, macro_x_value_range: tuple[int, int]) -> Slicer:
         lo, hi = macro_x_value_range

@@ -12,6 +12,8 @@ $$V_{\mathrm{out}} = L[\,\mathrm{code}\,] + n,\qquad n \sim \mathcal{N}(0,\ \sig
 
 with $L$ the code-to-voltage LUT and $n$ the per-conversion drive-thermal sample. The nominal LUT read returns $L[\mathrm{code}]$ exactly.
 
+The dynamic energy of one conversion follows the same lookup: converting one element to code $c$ draws $E[c]$, a table parallel to $L$ that states each level's own drive event. A level that costs nothing carries $E[c] = 0$, which is a stated cost and not a missing one.
+
 ## Numerical method
 
 N/A — direct table lookup, no iteration.
@@ -32,8 +34,7 @@ TODO (domain author): physical derivation and citation for the drive-thermal sig
 |---|---|---|---|---|
 | `code_to_signal` ($L$) | LUT entry per integer code | V | — | Design |
 | `drive_thermal__V` ($\sigma_{\mathrm{drive}}$) | additive drive-thermal noise standard deviation | V | $\geq 0$ | Measured |
-| `energy_per_op__fJ` | per-conversion dynamic energy | fJ | $\geq 0$ | Design |
-| `latency_per_op__ns` | per-conversion latency | ns | $\geq 0$ | Design |
+| `code_to_per_op_energy__fJ` ($E$) | dynamic energy of converting one element, per integer code — one entry per entry of $L$ | fJ | same length as `code_to_signal`; entries finite, $\geq 0$ (zero is a legitimate cost for a level whose drive event is free) | Design |
 | leakage / area | static PPA / spec fields | uW, um^2 | $\geq 0$ | Design |
 
 Provenance terms are defined in [module_parameter](../../../../conventions/module_parameter.md).
@@ -43,6 +44,7 @@ Provenance terms are defined in [module_parameter](../../../../conventions/modul
 | Symbol | Meaning | Unit | Code field |
 |---|---|---|---|
 | $L$ | code-to-signal LUT | V | `code_to_signal` |
+| $E$ | per-code per-op energy LUT | fJ | `code_to_per_op_energy__fJ` |
 | $V_{\mathrm{out}}$ | output drive voltage | V | `convert` output |
 | $n$ | drive-thermal noise sample | V | sampled in `convert` |
 | $\sigma_{\mathrm{drive}}$ | drive-thermal noise standard deviation | V | `drive_thermal__V` |

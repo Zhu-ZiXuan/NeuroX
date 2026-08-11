@@ -11,9 +11,8 @@ Hand-built tiny witness, eager, CPU. Three laws:
     (the mirror legs carry the ``s_k``-scaled copies, NOT the raw interface
     current — non-unity ratios make an interface-current bill fail) and the
     SIGNED per-leg sum (a mixed-sign witness pins the no-``|I|`` semantics) —
-    plus the ``c_hold * v_dd**2`` per-(slot x bit) per-instance cap event; no
-    latency event (the macro is the sole emitter). The value output is the sum
-    of the SAME legs the billing consumed.
+    plus the ``c_hold * v_dd**2`` per-(slot x bit) per-instance cap event. The
+    value output is the sum of the SAME legs the billing consumed.
 """
 
 from __future__ import annotations
@@ -83,7 +82,7 @@ def test_value_law() -> None:
 
 
 def test_leg_billing_law() -> None:
-    """Recorded energy == materialized-leg formula (signed leg sum) + cap events; no latency.
+    """Recorded energy == materialized-leg formula (signed leg sum) + cap events.
 
     The bit ratios are non-unity (0.25, 0.5), so a bill of the raw interface
     currents (the pre-fix bug: ``v_dd * sum_lanes(i[k]) * window[k]``) differs
@@ -111,7 +110,6 @@ def test_leg_billing_law() -> None:
     e_conduction = float(e_conduction__fJ)
     e_cap = _C_HOLD__fF * _V_DD__V**2 * (_X_BITS * _SERIAL * _GN * _POLARITY_NUM)
     assert prof.total_dynamic_energy__fJ == pytest.approx(e_conduction + e_cap)
-    assert prof.total_latency__ns == 0.0
 
     # The interface-current bill (the pre-fix scaling placement) is a
     # DIFFERENT number on this witness — the law discriminates.

@@ -12,15 +12,15 @@ its ladder calibrated in-code (``_utils.build_calibrated_macro``: ``output_num =
     bit-exactly the clamped ideal integer MAC;
   * a :class:`NeuroxProfiler` report is coherent: the two macro-billed channels
     (``cablc`` / ``control``) and the self-billing array + DSWCT / SINWP-SC /
-    PN-ISUB + TMCSA module rows carry positive dynamic energy, the totals are
-    positive, and the leakage energy reconciles as
-    ``static.leakage_power__uW x total_latency__ns``,
-  * the macro-root latency obeys ``t_cycle * serial_op_count`` (the static-energy
-    time base; the macro is the sole latency emitter) with ``serial_op_count =
-    numel(i_sub) // (inst_count x n_io) = mux_factor x batch``,
-  * every leading axis is anonymous broadcast batch: reshaping the batch dims is
-    transparent (a multi-axis batch equals the flattened batch reshaped, a
-    no-batch input yields ``[output_num]``, and a size-1 leading axis broadcasts).
+    PN-ISUB + TMCSA module rows carry positive dynamic energy, and the totals
+    are positive,
+  * the macro's reported window is ``conduction_span x mux_factor`` — the access
+    time of every column-MUX slot it serializes,
+  * at ``inst_shape = ()`` every leading axis is anonymous broadcast batch:
+    reshaping the batch dims is transparent (a multi-axis batch equals the
+    flattened batch reshaped, a no-batch input yields ``[output_num]``, and a
+    size-1 leading axis broadcasts). The instance-axis contract at a non-empty
+    ``inst_shape`` lives in ``test_instance_axes``.
 
 Runs eagerly (dynamo disabled) so the ``@torch.compile`` solver leaf is not
 unrolled.
@@ -43,10 +43,7 @@ from ._utils import (
     TINY_INPUT_NUM,
     TINY_K,
     TINY_OUTPUT_NUM,
-    Xue2020JsscCimMacroConfig,
     build_calibrated_macro,
-    build_config,
-    build_macro,
     ideal_mac,
 )
 
@@ -114,60 +111,25 @@ def test_xbar_end_to_end_and_profiler(device: torch.device) -> None:
         assert absent not in by_name, f"unexpected energy row {absent}: {sorted(by_name)}"
 
     assert prof.total_dynamic_energy__fJ > 0.0
-    assert prof.total_latency__ns > 0.0
-
-    # --- 3b. Leakage reconciliation: static power x total latency ---
     assert report.static.leakage_power__uW > 0.0
-    assert report.leakage_energy__fJ == pytest.approx(report.static.leakage_power__uW * prof.total_latency__ns)
 
-    # --- 4. Latency law: t_cycle * serial_op_count (macro sole latency emitter) ---
-    # i_sub is [batch, group_size, n_io]; serial = numel // (inst_count x n_io) = mux_factor x batch.
+    # --- 4. Latency law: the access time of every column-MUX slot ---
+    # The macro owns the WL sub-phases and the live-bit settle; the sensing tail
+    # belongs to the converter that owns the search-step axis. mux_factor is the
+    # macro's only time axis.
     cfg = macro.config
-    serial_op_count = cfg.mux_factor * x.shape[0]
-    expected_latency = cfg.t_cycle__ns * serial_op_count
-    macro_latency = report.latency_by_name.get("", 0.0)  # the macro root is named ""
-    assert macro_latency == pytest.approx(expected_latency)
-    # The macro is the sole non-zero latency emitter: the WL DAC has zero latency
-    # and the macro builds the kernel ADC with ``enable_latency_record=False``
-    # (its honest sensing durations feed t_other, not the profiled latency), so
-    # the total latency equals the macro-root latency — the nonzero ADC
-    # step_latency never double-counts against t_cycle.
-    assert prof.total_latency__ns == pytest.approx(macro_latency)
-
-
-def test_adc_step_latency_does_not_double_count(device: torch.device) -> None:
-    """Nonzero ADC ``step_latency__ns`` widens ``t_other`` but never the profiled latency.
-
-    The honest per-step SAR sensing durations feed the read-chain window
-    ``t_other`` (and the ADC's own sensing-conduction energy), but the macro builds
-    the TMCSA to emit NO latency and is the sole latency emitter. So two configs
-    differing ONLY in ``step_latency__ns`` share the same ``t_cycle * serial`` total
-    latency while their ``t_other`` differs — the sensing never double-counts
-    against ``t_cycle``.
-    """
-    zero = build_config(step_latency__ns=(0.0, 0.0, 0.0))
-    sensing = build_config(step_latency__ns=(3.16, 3.07, 3.11))
-    assert sensing.t_other__ns > zero.t_other__ns  # sensing widens the read window
-    assert zero.t_cycle__ns == sensing.t_cycle__ns
-
-    w = _mixed_sign_weight()
-    x = torch.tensor([[1, 2, 1, 0], [3, 3, 1, 0]], dtype=torch.long)  # batch (2,)
-
-    def total_latency(cfg: Xue2020JsscCimMacroConfig) -> float:
-        macro = build_macro(cfg, device=device)
-        macro.program(w.to(device))
-        with NeuroxProfiler() as prof, torch.no_grad():
-            macro.vec_mat_mul(x.to(device), quantization_mode=QUANTIZATION_MODE, adc_bits=TINY_ADC_BITS)
-        return prof.total_latency__ns
-
-    lat_zero = total_latency(zero)
-    lat_sensing = total_latency(sensing)
-    assert lat_sensing == pytest.approx(lat_zero)  # step_latency does not leak into latency
-    assert lat_sensing == pytest.approx(zero.t_cycle__ns * zero.mux_factor * x.shape[0])
+    chain__ns = sum(cfg.t_sample__ns) + cfg.t_settle__ns
+    for bits in range(1, TINY_ADC_BITS + 1):
+        expected__ns = (chain__ns + macro.adc.latency__ns(bits=bits)) * cfg.mux_factor
+        assert macro.latency__ns(adc_bits=bits) == pytest.approx(expected__ns)
+    # A lowered resolution shortens the access by exactly the steps it drops.
+    assert macro.latency__ns(adc_bits=TINY_ADC_BITS - 1) < macro.latency__ns(adc_bits=TINY_ADC_BITS)
+    # At full resolution the access is the whole conduction span.
+    assert macro.latency__ns(adc_bits=TINY_ADC_BITS) == pytest.approx(cfg.conduction_span__ns * cfg.mux_factor)
 
 
 def test_anonymous_leading_axes_broadcast(device: torch.device) -> None:
-    """Every leading axis is anonymous broadcast batch: reshaping batch dims is transparent."""
+    """At ``inst_shape = ()`` every leading axis is anonymous broadcast batch: reshaping is transparent."""
     macro = build_calibrated_macro(device=device)
     w = _mixed_sign_weight()
     macro.program(w.to(device))

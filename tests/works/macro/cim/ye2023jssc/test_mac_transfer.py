@@ -1,7 +1,7 @@
 """Eager integer-MAC transfer breadth for the ye2023jssc WH-2T1R CIM macro.
 
-The analytic witness (``_utils.build_config``) pairs an input-1 HRS leakage equal
-to the input-0 floor with a derived PH0 compensation, so the RS-CSA sees exactly
+The analytic witness (``_utils.build_config``) pairs a drive-point HRS leakage equal
+to the V_X = 0 floor with a seated PH0 compensation, so the RS-CSA sees exactly
 ``(I_unit - floor) * MAC`` and its injected reference is that same step: the code equals
 the UNSIGNED integer MAC bit-exactly (``clamp(sum_in w * x, 0, 2**adc_bits - 1)``)
 even though every physical column — the redundant SUBA4 plane included — carries
@@ -95,8 +95,8 @@ def test_zero_weight_and_zero_input_decode_zero(device: torch.device) -> None:
     """Zero weight (any input) and zero input (any weight) both decode all-zero."""
     macro = build_macro(build_config(), device=device)
 
-    # No active weight, non-zero input: every weight cell is HRS, so the input-1
-    # leakage matches the floor the derived PH0 removes.
+    # No active weight, non-zero input: every weight cell is HRS, so the drive-point
+    # leakage matches the floor the seated PH0 removes.
     w_zero = torch.zeros((TINY_INPUT_NUM, TINY_OUTPUT_NUM), dtype=torch.long, device=device)
     out = _assert_decode_matches_ideal(macro, w_zero, torch.tensor([1, 1], dtype=torch.long, device=device))
     assert int(out.abs().sum()) == 0

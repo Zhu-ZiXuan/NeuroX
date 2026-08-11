@@ -1,10 +1,10 @@
 # Xbar array family
 
-A crossbar pure array is the shared physical body of one compute-in-memory tile: a grid of [cell](../cell/family.md) sites bridged by resistive-capacitive interconnect, driven at the word lines and clamped at the bit-line and source-line boundaries. It owns only the cell grid, the wire parasitics, and the DC solver; the boundary blocks (word-line drive, bit-line clamp, source-line drive, boundary voltage reference) are peers under the scheme macro, injected into an array solve rather than owned. An array solve takes the analog word-line drive and the two boundary clamp references, settles the array to a DC operating point under the interconnect parasitics, and yields the per-column boundary port current and clamp voltage the macro readout consumes. This layer is agnostic to the cell's internal device topology; a concrete array realizes it for one array geometry.
+A crossbar pure array is the shared physical body of one compute-in-memory tile: a grid of [cell](../cell/family.md) sites bridged by resistive-capacitive interconnect, driven at the word lines and clamped at the bit-line and source-line boundaries. It owns only the cell grid, the interconnect parasitics, and the DC solver; the boundary blocks (word-line drive, bit-line clamp, source-line drive, boundary voltage reference) are peers under the scheme macro, injected into an array solve rather than owned. An array solve takes the analog word-line drive and the two boundary clamp references, settles the array to a DC operating point under the interconnect parasitics, and yields the per-column boundary port current and clamp voltage the macro readout consumes. This layer is agnostic to the cell's internal device topology; a concrete array realizes it for one array geometry.
 
 ## Physical model
 
-The array holds one cell at each column $c$ and row $k$. Every cell is a two-terminal branch between its bit-line node $V_{\mathrm{BL},k}$ and source-line node $V_{\mathrm{SL},k}$, gated by the word-line voltage $V_{\mathrm{WL},k}$; the branch current and its two signed terminal conductances come from the [cell](../cell/family.md), which condenses its own internal node so the array treats each site as a single condensed element and never sees the internal node. Each column's bit line and source line are resistive-capacitive ladders along the row axis; IR drop develops along their resistive interconnect segments. The word line is the driven boundary, carries no DC conduction path, and enters the array only as the input drive $V_{\mathrm{WL},k}$ plus a lumped line capacitance.
+The array holds one cell at each column $c$ and row $k$. Every cell is a two-terminal branch between its bit-line node $V_{\mathrm{BL},k}$ and source-line node $V_{\mathrm{SL},k}$, gated by the word-line voltage $V_{\mathrm{WL},k}$; the branch current and its two signed terminal conductances come from the [cell](../cell/family.md), which condenses its own internal node so the array treats each site as a single condensed element and never sees the internal node. Each column's bit line and source line are resistive ladders along the row axis, one link per seat-to-seat step; IR drop develops along those links. Capacitance is lumped per node rather than per link: each node of a seat carries one total, its own junction plus that node's share of the line it hangs on. The word line is the driven boundary, carries no DC conduction path, and enters the array as the input drive $V_{\mathrm{WL},k}$ at each seat's word-line node.
 
 Two boundary clamp drivers close the circuit at each column: the bit-line clamp holds $V_{\mathrm{BL,CL}}$ while absorbing the column's bit-line port current, and the source-line driver holds $V_{\mathrm{SL,CL}}$. Both are peer blocks — the array does not own their transfer characteristics or their reference taps, but receives them per solve and pins its boundary voltages to them.
 
@@ -24,17 +24,18 @@ TODO: once the device / analog Reference documents settle, state exactly which s
 
 ## Energy model
 
-Per VMM the array dissipates wire-capacitor, control-line, and per-cell node-capacitance energy — all capacitive. The node-capacitance term — each cell's per-node grounded capacitances — is a per-cell contribution ([cell](../cell/family.md)) summed over the array; the wire-capacitor and control-line terms are array-level. The read-current DC conduction carries a per-event conduction-time weight and is billed by the consuming layer that owns the conduction-time axis, not by the array, which settles one batched leading axis-agnostically. The array is a full electrical circuit and aggregates the device children's silicon area and static leakage at the array level (the cells contribute only per-read node-capacitance switching energy). The injected boundary blocks self-account their own drive / reference / readout energy.
+Per access the array dissipates the capacitive energy of its own nodes, billed by the supply-draw law in [capacitive energy](../../physics.md) in one array-level account. The ledger is per node: every node of every cell site carries one grounded total — the site's junction at that node plus that node's share of the line it hangs on — and is billed at its own displacement, so no separate wire term sits beside it. The array owns those totals; what the [cell](../cell/family.md) supplies is the converged level at each node. The conduction-path nodes ride the bit-line boundary's supply and the control node its own. The read-current DC conduction carries a per-event conduction-time weight and is billed by the consuming layer that owns the conduction-time axis, not by the array, which settles one batched leading axis-agnostically. The array is a full electrical circuit and aggregates the device children's silicon area and static leakage at the array level. The injected boundary blocks self-account their own drive / reference / readout energy.
 
 ## Parameters
 
-The array's own parameters are the interconnect ladder, the word-line pulse, and the solver iteration counts; the cell sub-module's parameters (state map, device window, sizing, per-cell Newton count) live in the cell config sub-tree, specified in [cell](../cell/family.md).
+The array's own parameters are the repeated cell seat — its layout pitch, its rail link resistance, and one capacitance total per node — plus the solver iteration counts; the array owns no time axis, so the conduction window belongs to the composing macro. The cell sub-module's parameters (state map, device window, sizing, per-cell Newton count) live in the cell config sub-tree, specified in [cell](../cell/family.md).
 
 | Parameter | Meaning | Unit | Constraint | Source |
 |---|---|---|---|---|
 | cell sub-module config | cell devices, sizing, state map, per-cell Newton count | — | — | see [cell](../cell/family.md) |
-| bit-line / source-line / word-line ladder R, C | array interconnect ladders | MOhm, fF | $> 0$ | Extracted |
-| word-line pulse length | access duration (drives wire-RC charging energy) | ns | $> 0$ | Design |
+| cell-seat pitch | layout spacing between adjacent cell seats along each axis | um | $> 0$ | Extracted |
+| bit-line / source-line link resistance | seat-to-seat rail interconnect | MOhm | $> 0$ | Extracted |
+| per-node capacitance total | node-to-ground total at each node of a seat, the junction plus that node's share of its line | fF | $\ge 0$ | Extracted |
 | solver iteration counts | numerical settling | — | integer $\ge 1$ | Calibrated (numerical convergence) |
 
 Provenance terms are defined in [module_parameter](../../../../conventions/module_parameter.md). How to obtain values for a new chip: [calibration guide](../../../../guides/calibration/README.md); file-level schema: [config reference](../../../../api/README.md).
@@ -43,25 +44,25 @@ Provenance terms are defined in [module_parameter](../../../../conventions/modul
 
 | Symbol | Meaning | Unit | Code field |
 |---|---|---|---|
-| $V_{\mathrm{BL},k}$ | bit-line wire node voltage at row $k$ | V | `v_bl_node` |
-| $V_{\mathrm{SL},k}$ | source-line wire node voltage | V | `v_sl_node` |
+| $V_{\mathrm{BL},k}$ | bit-line node voltage at row $k$ | V | `v_bl_node` |
+| $V_{\mathrm{SL},k}$ | source-line node voltage | V | `v_sl_node` |
 | $V_{\mathrm{WL},k}$ | word-line analog drive voltage (input) | V | `v_wl` |
 | $V_{\mathrm{BL,CL}}$ | bit-line clamp voltage | V | `v_bl_clamp` |
 | $V_{\mathrm{SL,CL}}$ | source-line clamp voltage | V | `v_sl_drive` |
 | $I_{\mathrm{cell},k}$ | condensed cell branch current (BL $\to$ SL) | uA | `cell.solve_branch` |
 | $I_{\mathrm{BL,port}}, I_{\mathrm{SL,port}}$ | boundary port currents | uA | derived from node voltages |
-| $N_{\mathrm{row}}$ | number of rows along each BL/SL wire ladder | — | `row_num` |
+| $N_{\mathrm{row}}$ | number of rows along each BL/SL rail ladder | — | `row_num` |
 | $N_{\mathrm{col}}$ | number of physical columns | — | `col_num` |
 
 ## Assumptions, scope & validity
 
 - The array is topology-agnostic in the cell: it sees each site only as one condensed two-terminal branch and holds no internal cell node.
-- Each column's BL/SL rails are lumped per-segment R/C ladders along the row axis, not distributed lines.
-- The word line is the driven boundary, carries no DC conduction path, and enters as the input drive plus a lumped line capacitance.
+- Each column's BL/SL rails are lumped per-link resistive ladders along the row axis, not distributed lines, and every line capacitance is folded into the node it hangs on.
+- The word line is the driven boundary, carries no DC conduction path, and enters as the input drive at each seat's word-line node.
 - The boundary blocks (drive, clamp, reference, readout) are peers injected per solve, not owned by the array.
 - The solve is quasi-static: it finds the DC operating point and does not model transient device switching within a pulse.
 
-TODO (domain author): the array-geometry and array-size range over which the lumped-segment abstraction holds, and regimes where a concrete array should not be trusted.
+TODO (domain author): the array-geometry and array-size range over which the lumped per-link / per-node abstraction holds, and regimes where a concrete array should not be trusted.
 
 ## Validation
 
@@ -73,6 +74,5 @@ TODO: cite the wire-ladder formulation and the Tellegen energy-accounting basis.
 
 ---
 
-- **Internals**: [array base](../../../../internals/primitive/xbar/array/base.md)
-- **Concrete array**: [1T1R core array](_1t1r/array.md)
+- **Internals**: [1T1R array](../../../../internals/primitive/xbar/array/_1t1r/array.md)
 - **Configuration**: [config reference](../../../../api/README.md)

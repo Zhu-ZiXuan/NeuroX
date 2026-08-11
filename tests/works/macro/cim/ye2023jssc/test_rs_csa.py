@@ -7,10 +7,10 @@ scales it by its own compare-phase weights, so the decision ladder is internal.
 Laws only (hand-written witness config; tiny shapes; eager, dynamo disabled):
 
   * the conversion window is DERIVED, not configured, and follows the EXECUTED
-    phases: ``t_conversion(b) == sum(t_phase[:b]) + t4_intrinsic`` — PH0, the
+    phases: ``t_conversion(b) == sum(t_phase[:b]) + t_intrinsic[b-1]`` — PH0, the
     first ``b - 1`` compare phases in full, and the last executed compare phase
-    up to its comparator latch; it grows strictly with ``b`` and closes at the
-    nominal ``sum(t_phase[:-1]) + t4_intrinsic`` at full resolution,
+    up to ITS OWN comparator latch; it grows strictly with ``b`` and closes at
+    the nominal ``sum(t_phase[:-1]) + t_intrinsic[-1]`` at full resolution,
   * PH0 is a construction-time constant (no config field): it shifts every
     conversion by the same current, and an input at or below it reads code 0,
   * the compare phases are a uniform quantizer whose step IS the injected
@@ -28,7 +28,8 @@ Laws only (hand-written witness config; tiny shapes; eager, dynamo disabled):
     prorated by the executed-window ratio, ``E_fixed(b) = E_fixed * T_AC(b) /
     T_AC(B)``: a zero-residue conversion costs the prorated baseline alone, so
     its energy ratio between two resolutions IS the window ratio,
-  * latency is the executed window per serial round,
+  * latency is the executed window — reported by ``latency__ns`` for the phase
+    axis this converter owns,
   * conversion is deterministic — no jitter is wired, so ``train()`` and
     ``eval()`` return the same codes.
 """
@@ -54,7 +55,7 @@ _I_REF__uA = 0.5  # the ONE injected reference; the code step is this current
 _I_PH0__uA = 1.0  # = 2 * i_ref -> a clean 2-code static shift
 _V_RAIL__V = 0.8
 _T_PHASE__ns = (1.0, 2.0, 4.0, 8.0, 16.0)  # PH0 + one compare phase per bit
-_T4_INTRINSIC__ns = 0.5
+_T_INTRINSIC__ns = (0.5, 0.25, 0.75, 0.5)  # one latch delay per compare phase, deliberately unequal
 _MIRROR_SCALE = 0.25
 _E_FIXED__fJ = 100.0
 _DTYPE = torch.float64
@@ -67,14 +68,14 @@ def _eager() -> Iterator[None]:
         yield
 
 
-def _build_config() -> RsCsaIadcConfig:
+def _build_config(*, t_intrinsic__ns: tuple[float, ...] = _T_INTRINSIC__ns) -> RsCsaIadcConfig:
     return RsCsaIadcConfig(
         area_per_inst__um2=10.0,
         leakage_per_inst__uW=0.1,
         bits=_BITS,
         v_rail__V=_V_RAIL__V,
         t_phase__ns=_T_PHASE__ns,
-        t4_intrinsic__ns=_T4_INTRINSIC__ns,
+        t_intrinsic__ns=t_intrinsic__ns,
         mirror_scale=_MIRROR_SCALE,
         e_fixed_per_op__fJ=_E_FIXED__fJ,
     )
@@ -102,7 +103,7 @@ def _ref() -> torch.Tensor:
 
 def _window_oracle__ns(bits: int) -> float:
     """Independent executed window: PH0 + the executed compare phases, cut at the latch."""
-    return sum(_T_PHASE__ns[:bits]) + _T4_INTRINSIC__ns
+    return sum(_T_PHASE__ns[:bits]) + _T_INTRINSIC__ns[bits - 1]
 
 
 def _convert_energy(adc: RsCsaIadc, i_in: torch.Tensor, *, bits: int = _BITS) -> float:
@@ -110,13 +111,6 @@ def _convert_energy(adc: RsCsaIadc, i_in: torch.Tensor, *, bits: int = _BITS) ->
     with NeuroxProfiler() as prof:
         adc.convert(i_in, _ref(), bits=bits)
     return prof.total_dynamic_energy__fJ
-
-
-def _convert_latency(adc: RsCsaIadc, i_in: torch.Tensor, *, bits: int = _BITS) -> float:
-    """Total latency [ns] of one convert under a fresh profiler."""
-    with NeuroxProfiler() as prof:
-        adc.convert(i_in, _ref(), bits=bits)
-    return prof.total_latency__ns
 
 
 def _energy_oracle(i_in__uA: float, *, bits: int = _BITS, i_ph0__uA: float = _I_PH0__uA) -> float:
@@ -143,24 +137,26 @@ def test_surface_and_injected_ph0() -> None:
 
 
 def test_conversion_window_is_derived_from_the_executed_phase_set() -> None:
-    """``T_AC(b) = PH0 + the first b-1 compare phases + the last executed phase's latch delay``."""
+    """``T_AC(b) = PH0 + the first b-1 compare phases + the last executed phase's OWN latch delay``."""
     adc = _build_adc()
     for bits in range(1, _BITS + 1):
         assert float(adc.t_conversion__ns(bits)) == pytest.approx(_window_oracle__ns(bits))
-    # One bit runs PH0 and the latch delay alone.
-    assert float(adc.t_conversion__ns(1)) == pytest.approx(_T_PHASE__ns[0] + _T4_INTRINSIC__ns)
+    # One bit runs PH0 and the FIRST compare phase's latch delay alone — the
+    # phase that actually runs, not the one that would close a full conversion.
+    assert float(adc.t_conversion__ns(1)) == pytest.approx(_T_PHASE__ns[0] + _T_INTRINSIC__ns[0])
     # At full resolution it is strictly shorter than the nominal phase sum: the
     # access closes at the latch, inside the last compare phase.
     assert float(adc.t_conversion__ns(_BITS)) < sum(_T_PHASE__ns)
 
 
 def test_conversion_window_grows_strictly_with_bits() -> None:
-    """Each extra bit adds one whole compare phase to the executed window."""
+    """Each extra bit adds one whole compare phase, and moves the latch to that phase's."""
     adc = _build_adc()
     windows = [float(adc.t_conversion__ns(bits)) for bits in range(1, _BITS + 1)]
     assert all(lo < hi for lo, hi in itertools.pairwise(windows)), windows
     for bits in range(2, _BITS + 1):
-        assert windows[bits - 1] - windows[bits - 2] == pytest.approx(_T_PHASE__ns[bits - 1])
+        grown = _T_PHASE__ns[bits - 1] + _T_INTRINSIC__ns[bits - 1] - _T_INTRINSIC__ns[bits - 2]
+        assert windows[bits - 1] - windows[bits - 2] == pytest.approx(grown)
 
 
 def test_conversion_window_rejects_unsupported_bits() -> None:
@@ -169,6 +165,20 @@ def test_conversion_window_rejects_unsupported_bits() -> None:
     for bits in (0, _BITS + 1):
         with pytest.raises(ValueError):
             adc.t_conversion__ns(bits)
+
+
+def test_latch_delay_is_one_per_compare_phase_and_fits_inside_it() -> None:
+    """Each compare phase closes on its OWN latch, so the delay set is per phase."""
+    with pytest.raises(ValueError, match="t_intrinsic__ns"):
+        _build_config(t_intrinsic__ns=_T_INTRINSIC__ns[:-1])  # one short of the phase count
+    # A delay longer than the phase it closes would run past the phase boundary.
+    overrun = (*_T_INTRINSIC__ns[:-1], _T_PHASE__ns[-1] + 1.0)
+    with pytest.raises(ValueError, match="t_intrinsic__ns"):
+        _build_config(t_intrinsic__ns=overrun)
+    # A delay that overruns a SHORTER earlier phase is caught at that phase.
+    early_overrun = (_T_PHASE__ns[1] + 1.0, *_T_INTRINSIC__ns[1:])
+    with pytest.raises(ValueError, match=r"t_intrinsic__ns\[0\]"):
+        _build_config(t_intrinsic__ns=early_overrun)
 
 
 # --- Quantizer laws ---
@@ -322,12 +332,16 @@ def test_energy_grows_strictly_with_bits() -> None:
 # --- Latency law ---
 
 
-def test_latency_is_the_executed_window_per_serial_round() -> None:
-    """One conversion bills its executed window; a batch serializes over the rounds."""
+def test_reported_latency_is_the_executed_window() -> None:
+    """``latency__ns`` answers for the phase axis this converter owns — one conversion."""
     adc = _build_adc()
     for bits in range(1, _BITS + 1):
-        got = _convert_latency(adc, torch.tensor([3.0], dtype=_DTYPE), bits=bits)
-        assert got == pytest.approx(_window_oracle__ns(bits))
-    round_num = 5
-    batched = _convert_latency(adc, torch.full((round_num,), 3.0, dtype=_DTYPE), bits=_BITS)
-    assert batched == pytest.approx(round_num * _window_oracle__ns(_BITS))
+        assert adc.latency__ns(bits=bits) == pytest.approx(_window_oracle__ns(bits))
+
+
+def test_reported_latency_rejects_a_resolution_the_phase_set_cannot_run() -> None:
+    """No window outside the physical resolution."""
+    adc = _build_adc()
+    for bits in (0, _BITS + 1):
+        with pytest.raises(ValueError):
+            adc.latency__ns(bits=bits)

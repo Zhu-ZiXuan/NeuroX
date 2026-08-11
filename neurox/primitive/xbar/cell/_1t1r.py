@@ -1,4 +1,4 @@
-"""Abstract 1T1R crossbar cell — shared config, result types, and energy model.
+"""Abstract 1T1R crossbar cell — shared config and result types.
 
 See also:
     docs/reference/primitive/xbar/cell/_1t1r/cell.md
@@ -25,32 +25,12 @@ from .base import (
 
 
 class XbarCell1t1rConfig(XbarCellConfig, ABC):
-    """Node-to-ground capacitance knobs shared by every 1T1R cell model.
+    """Config base of the 1T1R cell family.
 
-    Node-centric per-cell totals: each field is the total capacitance to
-    ground seen at one of the cell's four nodes.
-
-    Attributes:
-        c_bl__fF: Per-cell node-to-ground total capacitance at the BL
-            node.
-        c_x__fF: Per-cell node-to-ground total capacitance at the
-            internal access node X.
-        c_sl__fF: Per-cell node-to-ground total capacitance at the SL
-            node.
-        c_wl__fF: Per-cell node-to-ground total capacitance at the WL
-            node (NMOS gate load).
+    The family shares no config field: a 1T1R model states its own branch
+    knobs and nothing else. The class is the registry and dispatch anchor
+    every concrete 1T1R configuration derives from.
     """
-
-    c_bl__fF: float
-    c_x__fF: float
-    c_sl__fF: float
-    c_wl__fF: float
-
-    def validate(self) -> None:
-        self._require_non_neg(self.c_bl__fF, "c_bl__fF")
-        self._require_non_neg(self.c_x__fF, "c_x__fF")
-        self._require_non_neg(self.c_sl__fF, "c_sl__fF")
-        self._require_non_neg(self.c_wl__fF, "c_wl__fF")
 
 
 class XbarCell1t1rPolicy(XbarCellPolicy, ABC):
@@ -62,8 +42,10 @@ class XbarCell1t1rSnap(XbarCellSnap):
     """Per-call snap base of a 1T1R cell's fabricated state.
 
     Attributes:
-        v_wl__V: Word-line drive voltage at the NMOS gate; broadcasts
-            against the per-cell grid.
+        v_wl__V: Word-line drive voltage at each cell's own NMOS gate. The
+            field states the cell's control terminal, whatever wiring put
+            the voltage there, so the producing array lays it out on the
+            cell grid rather than asserting one value per row.
             Shape: ``[..., col, row]``.
     """
 
@@ -150,35 +132,3 @@ class XbarCell1t1r(
             dtype=dtype,
             T__K=T__K,
         )
-
-    def compute_dynamic_energy(
-        self,
-        v_bl: Tensor,
-        v_sl: Tensor,
-        dcop: XbarCell1t1rDcop,
-        snap: XbarCell1t1rSnap,
-    ) -> Tensor:
-        """Per-cell node-capacitance switching energy [fJ].
-
-        Uses grounded ``C·V²`` terms for BL, X, SL, and WL under a full
-        0 → DC → 0 cycle.
-
-        Args:
-            v_bl: Bit-line node voltage [V].
-                Shape: ``[..., col, row]``.
-            v_sl: Source-line node voltage [V].
-                Shape: ``[..., col, row]``.
-            dcop: Converged DCOP carrying ``v_x__V``.
-            snap: Per-call snap from :meth:`snapshot`.
-
-        Returns:
-            Per-cell switching energy [fJ].
-            Shape: ``[..., col, row]``.
-        """
-        config = self.config
-        e_bl__fJ = config.c_bl__fF * v_bl.square()
-        e_x__fJ = config.c_x__fF * dcop.v_x__V.square()
-        e_sl__fJ = config.c_sl__fF * v_sl.square()
-        e_wl__fJ = config.c_wl__fF * snap.v_wl__V.square()
-
-        return e_bl__fJ + e_x__fJ + e_sl__fJ + e_wl__fJ

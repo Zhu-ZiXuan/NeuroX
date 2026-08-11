@@ -46,6 +46,11 @@ class WeightSliceStage(
 
     is_profile_target: ClassVar[bool] = False
 
+    #: Sw-axis reconstruction block, or ``None`` for a layout with no
+    #: arithmetic between the macro and the logical output (the single
+    #: structural plane already is the result).
+    shift_adder: ShiftAdder | None
+
     def __init__(
         self,
         *,
@@ -59,6 +64,7 @@ class WeightSliceStage(
         super().__init__(config=config, policy=policy, inst_shape=())
         self._output_num = output_num
         self._slicer = self._build_slicer(macro_w_value_range)
+        self.shift_adder = None
 
     @classmethod
     def from_config(
@@ -93,6 +99,11 @@ class WeightSliceStage(
     @property
     def value_range(self) -> tuple[int, int]:
         return self._slicer.value_range
+
+    @property
+    def aggregated_output_num(self) -> int:
+        """Output elements one Sw reconstruction leaves per macro group."""
+        return self._output_num
 
     def slice(self, weight: Tensor) -> Tensor:
         """Append the logical Sw axis to a weight tensor."""
@@ -279,6 +290,11 @@ class IntraWeightSliceStage(WeightSliceStage[IntraWeightSliceStageConfig, IntraW
             scale=self._slicer.slice_radix,
             digit_count=config.w_slice_num,
         )
+
+    @property
+    def aggregated_output_num(self) -> int:
+        """Logical weights one macro's ports hold — ``output_num // w_slice_num``."""
+        return self._weights_per_macro
 
     def _build_slicer(self, macro_w_value_range: tuple[int, int]) -> Slicer:
         return SimpleSlicer(

@@ -62,6 +62,8 @@ def test_pcr_matches_dense_lu(b: int, n: int, device: torch.device) -> None:
         a_dense = _dense_from_blocks(sub, diag, sup)
         x_ref = torch.linalg.solve(a_dense, rhs.reshape(-1)).reshape(n, b)
 
+    # The N axis survives however short it is, N = 1 included.
+    assert x_pcr.shape == (n, b)
     rel_err = (x_ref - x_pcr).abs().max() / (x_ref.abs().max() + 1e-12)
     assert rel_err < 1e-10, f"B={b} N={n}: rel err {rel_err.item():.2e}"
 

@@ -10,24 +10,15 @@ The cell presents a **two-terminal branch**: $V_{\mathrm{X}}$ is condensed away 
 
 ## Parameters
 
-Shared by every 1T1R model — the four per-cell node-to-ground total capacitances:
-
-| Parameter | Meaning | Unit | Constraint | Source |
-|---|---|---|---|---|
-| `c_bl__fF` | per-cell node-to-ground total capacitance at the BL node | fF | $\ge 0$ | Process |
-| `c_x__fF` | per-cell node-to-ground total capacitance at the internal access node $V_{\mathrm{X}}$ | fF | $\ge 0$ | Process |
-| `c_sl__fF` | per-cell node-to-ground total capacitance at the SL node | fF | $\ge 0$ | Process |
-| `c_wl__fF` | per-cell node-to-ground total capacitance at the WL NMOS gate node (the cell owns the gate cap; the WL wire charge belongs to the array) | fF | $\ge 0$ | Process |
-
-Each model adds its own parameters on its page. Provenance terms are defined in [module_parameter](../../../../../conventions/module_parameter.md). How to obtain values for a new chip: [calibration guide](../../../../../guides/calibration/README.md); file-level schema: [config reference](../../../../../api/README.md).
+The family shares no parameter: the topology fixes the series stack and each model states its own branch parameters on its own page. The capacitances of the four nodes a 1T1R site presents are parameters of the array holding the grid, since each is a total over the site's junction and that node's share of the line it hangs on. Provenance terms are defined in [module_parameter](../../../../../conventions/module_parameter.md). How to obtain values for a new chip: [calibration guide](../../../../../guides/calibration/README.md); file-level schema: [config reference](../../../../../api/README.md).
 
 ## Energy model
 
-The family shares one **node-capacitance dynamic energy** formula — the cell owns and bills the grounded-cap switching energy over all four of its nodes (BL, internal $V_{\mathrm{X}}$, SL, and the WL NMOS gate). Each node carries a per-cell node-to-ground total capacitance, and every grounded cap dissipates $E = C\,V^2$ over a full charge/discharge cycle, summed at the converged operating point:
+A 1T1R site presents four nodes — BL, the internal $V_{\mathrm{X}}$, SL, and the word-line gate — and what the family contributes to the capacitive account is the level of each: the two terminal voltages, the condensed $V_{\mathrm{X}}$, and the word-line drive. The capacitances they are billed against, the supplies they are charged to, and the ledger itself belong to the array holding the grid, under the supply-draw law of [capacitive energy](../../../physics.md).
 
-$$E = C_{\mathrm{BL}}\,V_{\mathrm{BL}}^2 + C_{\mathrm{X}}\,V_{\mathrm{X}}^2 + C_{\mathrm{SL}}\,V_{\mathrm{SL}}^2 + C_{\mathrm{WL}}\,V_{\mathrm{WL}}^2.$$
+The rest levels the excursions are measured from are declared at the boundary. The gate rests at ground in either scan organization, so its excursion is the drive itself; the terminal rest levels are the ideal boundary levels; and the internal node rests at the bit-line one, because between accesses the access device is off and orders of magnitude less conductive than the storage element on the bit-line side of it, so the off divider leaves $V_{\mathrm{X}}$ at $V_{\mathrm{BL}}^{\mathrm{rest}}$.
 
-Both models consume the four node caps identically; only $V_{\mathrm{X}}$ differs by how each model condenses its branch. The WL term is the NMOS gate cap the cell owns; the WL wire charge is billed by the owning array. Wire-segment and DC-conduction energy, together with silicon area and static leakage, lie outside the cell's energy model.
+Both models supply the four levels identically; only $V_{\mathrm{X}}$ differs by how each condenses its branch. The cell carries no PPA of its own — no node capacitance, no silicon area, no static leakage — and DC-conduction energy lies outside the capacitive account entirely.
 
 ## Symbols
 
@@ -40,16 +31,13 @@ Both models consume the four node caps identically; only $V_{\mathrm{X}}$ differ
 | $I$ | condensed branch current (BL $\to$ SL) | uA | `XbarCellDcop.i__uA` |
 | $\partial I/\partial V_{\mathrm{BL}}$ | BL-side branch conductance ($\ge 0$) | uS | `di_dvbl__uS` |
 | $\partial I/\partial V_{\mathrm{SL}}$ | SL-side branch conductance ($\le 0$) | uS | `di_dvsl__uS` |
-| $C_{\mathrm{BL}}, C_{\mathrm{X}}, C_{\mathrm{SL}}, C_{\mathrm{WL}}$ | per-cell node-to-ground total capacitances | fF | `c_bl__fF`, `c_x__fF`, `c_sl__fF`, `c_wl__fF` |
+| $V_{\mathrm{BL}}^{\mathrm{rest}}, V_{\mathrm{SL}}^{\mathrm{rest}}$ | ideal terminal levels between accesses, the internal node resting at the bit-line one | V | boundary reference levels |
 
 ## Assumptions, scope & validity
 
 - Every 1T1R cell has exactly one internal node ($V_{\mathrm{X}}$); the series stack is storage element then access device.
 - The solve is quasi-static: it finds the DC access-node operating point and does not model transient device switching within a pulse.
-- The node-capacitance energy assumes a complete $0 \to \mathrm{DC} \to 0$ charge/discharge cycle per node cap per WL pulse; every node cap is referenced to ground.
-- The WL node cap the cell bills is the access-device NMOS gate; the WL routing-wire charge is not the cell's and is billed by the owning array.
-
-TODO (domain author): the validity boundary of the lumped per-cell node-to-ground totals (coupled inter-node capacitances are not represented).
+- The word-line drive is exogenous: it is the gate voltage of this cell's own access device, whatever wiring delivered it there.
 
 ## Validation
 

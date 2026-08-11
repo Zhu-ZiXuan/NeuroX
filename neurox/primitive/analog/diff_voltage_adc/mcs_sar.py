@@ -14,7 +14,7 @@ from neurox.primitive.nonideality import (
     apply_lsb_jitter,
     apply_pelgrom_mismatch,
 )
-from neurox.primitive.physical_constant import K_BOLTZMANN__J_per_K
+from neurox.primitive.physics import K_BOLTZMANN__J_per_K
 
 from .base import DiffVadc, DiffVadcConfig, DiffVadcPolicy
 
@@ -107,10 +107,6 @@ class McsSarDiffVadc(DiffVadc[McsSarDiffVadcConfig, McsSarDiffVadcPolicy]):
         T__K: Operating temperature.
     """
 
-    # === Circuit constant buffers ===
-
-    _clk_period__ns: Tensor  # Shape: []
-
     # === Nominal buffers ===
 
     _nominal_c__fF: Tensor  # Shape: [cap_num]
@@ -146,11 +142,6 @@ class McsSarDiffVadc(DiffVadc[McsSarDiffVadcConfig, McsSarDiffVadcPolicy]):
         self._comparator_noise_sigma__V = config.comparator_thermal_noise_sigma__V * math.sqrt(T__K / 300.0)
 
         self._cap_num = config.max_bits
-        self.register_buffer(
-            "_clk_period__ns",
-            torch.tensor(config.clk_period__ns, dtype=dtype),
-            persistent=False,
-        )
         self._register_fabrication_buffers(dtype=dtype)
 
         # Precompute integer tables to avoid symbolic left shifts at runtime.
@@ -164,6 +155,16 @@ class McsSarDiffVadc(DiffVadc[McsSarDiffVadcConfig, McsSarDiffVadcPolicy]):
     @property
     def _leakage_per_inst__uW(self) -> float:
         return self.config.leakage_per_inst__uW
+
+    def latency__ns(self, *, bits: int) -> float:
+        """One conversion — the sample cycle plus one comparator cycle per bit.
+
+        The SAR cycles run sequentially inside the one converter, all on the
+        comparator clock, so the window is ``(bits + 1) * clk_period``.
+        """
+        if not (1 <= bits <= self.max_bits):
+            raise ValueError(f"bits {bits} outside [1, {self.max_bits}]")
+        return self.config.clk_period__ns * (bits + 1)
 
     def _register_fabrication_buffers(self, *, dtype: torch.dtype) -> None:
         """Register immutable tensors used as fabrication sources."""
@@ -345,10 +346,6 @@ class McsSarDiffVadc(DiffVadc[McsSarDiffVadcConfig, McsSarDiffVadcPolicy]):
             unsigned_max=self._unsigned_max_table[bits],
             enabled=self.training,
         )
-        # One sample cycle plus ``bits`` SAR comparisons.
-        serial_round_count = self._count_serial_rounds(code.numel())
-        latency__ns = self._clk_period__ns * (bits + 1) * serial_round_count
-        self._record_latency(latency__ns)
         return code
 
     def _compare(self, v_pos__V: Tensor, v_neg__V: Tensor) -> Tensor:

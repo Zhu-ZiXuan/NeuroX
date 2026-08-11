@@ -46,7 +46,7 @@ Provenance terms are defined in [module_parameter](../../../../../conventions/mo
 
 ## Energy model
 
-The Detail cell uses the shared family node-capacitance energy formula (the four grounded node caps of the family parameters) with $V_{\mathrm{X}}$ from its per-cell Newton condensation.
+The Detail cell contributes the shared family node levels, with $V_{\mathrm{X}}$ from its per-cell Newton condensation; the node capacitances and the account they feed belong to the array holding the grid.
 
 ## Symbols
 

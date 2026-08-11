@@ -2,19 +2,21 @@
 
 Laws (config = arbitrary hand-written witness, not the assertion target):
 
-  * ``lookup_i_t2`` selects the programmed-state IN=1 current when the input
-    bit is high and the state-independent IN=0 floor when it is low; a
-    LRS-programmed cell sources more IN=1 current than a HRS one, and the
-    IN=0 floor is the same across states,
+  * ``i_t2__uA`` branches on TWO independent facts — is this cell's row pair
+    driven (its own WL against the configured threshold), and which calibration
+    operating point its solved ``V_X`` sits at (``V_X = 0`` floor, ``V_X > 0``
+    drive);
+  * a WL at or below the threshold sources EXACTLY zero whatever the branch
+    solved to, ``V_X > 0`` included — the unselected row is pinned, so its T2
+    drain is undriven;
+  * a driven cell classifies on the operating point alone: ``V_X = 0`` reads the
+    floor entry of the programmed state, ``V_X > 0`` the drive entry, and an LRS
+    cell drives more than an HRS one;
   * step1 is delegated verbatim to the linear base — ``solve_dc`` returns an
     :class:`XbarCell1t1rDcop` whose ``i__uA == g_cell * (v_bl - v_sl)`` and
     ``v_x__V == v_bl - vx_ratio * (v_bl - v_sl)`` exactly,
-  * ``compute_dynamic_energy`` is the PER-ACCESS pair only: the WL gate load on
-    every cell plus the selected row's closed-form X dip-recharge
-    ``c_x * v_bl^2 * vx_ratio_on``. It ignores the SL node and the BL node
-    capacitance entirely (both are the macro's per-vector concern), so it is
-    invariant to ``c_sl__fF`` / ``c_bl__fF`` and collapses to the WL term where
-    the WL is off or the column is driven input-low,
+  * the cell adds NO energy model of its own: the capacitive law is the kernel
+    1T1R cell's supply-draw one, pinned where it lives,
   * the ``(config, policy)`` pair dispatches through the ``XbarCell1t1r``
     registry to :class:`Ye2023Jssc2t1rCell`.
 
@@ -23,7 +25,6 @@ Runs eagerly (dynamo disabled) so nothing is unrolled; tiny CPU shapes.
 
 from __future__ import annotations
 
-import dataclasses
 from collections.abc import Iterator
 
 import pytest
@@ -44,14 +45,10 @@ _HRS = 0
 _LRS = 1
 
 # Witness table values (arbitrary; the tests assert laws, not these numbers).
-_FLOOR__uA = 0.02  # IN=0 off-cell floor, state-independent
-_LEAK_IN1__uA = 0.03  # (HRS, IN=1) weight leakage
-_UNIT_IN1__uA = 0.5  # (LRS, IN=1) unit-scale on-current I_unit
+_FLOOR__uA = 0.02  # V_X = 0 off-cell floor, state-independent
+_LEAK_DRIVE__uA = 0.03  # (HRS, drive point) weight leakage
+_UNIT_DRIVE__uA = 0.5  # (LRS, drive point) unit-scale on-current I_unit
 
-_C_WL__fF = 1.5
-_C_X__fF = 0.7
-_C_BL__fF = 2.0
-_C_SL__fF = 3.0
 _VX_RATIO_ON = (0.5, 0.6)
 _V_WL_ON_THRESHOLD__V = 0.3
 _V_WL_SEL__V = 0.6
@@ -70,19 +67,15 @@ def _eager() -> Iterator[None]:
 def _build_config() -> Ye2023Jssc2t1rCellConfig:
     """A tiny two-state (HRS/LRS) witness config."""
     return Ye2023Jssc2t1rCellConfig(
-        c_bl__fF=_C_BL__fF,
-        c_x__fF=_C_X__fF,
-        c_sl__fF=_C_SL__fF,
-        c_wl__fF=_C_WL__fF,
         g_cell_off_table__uS=(1.0, 5.0),
         g_cell_on_table__uS=(2.0, 10.0),
         vx_ratio_off_table=(0.3, 0.4),
         vx_ratio_on_table=_VX_RATIO_ON,
         v_wl_on_threshold__V=_V_WL_ON_THRESHOLD__V,
-        # i_t2_table__uA[input_bit][state]; state axis = (HRS, LRS).
+        # i_t2_table__uA[operating_point][state]; state axis = (HRS, LRS).
         i_t2_table__uA=(
-            (_FLOOR__uA, _FLOOR__uA),  # IN=0: state-independent floor
-            (_LEAK_IN1__uA, _UNIT_IN1__uA),  # IN=1: HRS leak vs LRS unit current
+            (_FLOOR__uA, _FLOOR__uA),  # V_X = 0: state-independent floor
+            (_LEAK_DRIVE__uA, _UNIT_DRIVE__uA),  # V_X > 0: HRS leak vs LRS unit current
         ),
     )
 
@@ -100,10 +93,10 @@ def _build_cell(config: Ye2023Jssc2t1rCellConfig, inst_shape: tuple[int, ...]) -
 
 
 def _snapshot(cell: Ye2023Jssc2t1rCell, v_wl: Tensor) -> Ye2023Jssc2t1rCellSnap:
+    """Snapshot at a per-row WL drive expanded onto the cell grid, as an array does."""
     return cell.snapshot(
-        control=v_wl,
-        shape=tuple(v_wl.shape),
-        multi_coords=None,
+        control=v_wl.unsqueeze(-2).expand(cell.inst_shape),
+        shape=cell.inst_shape,
         t_elapsed=0.0,
     )
 
@@ -118,6 +111,19 @@ def _programmed_cell(
     return cell
 
 
+def _solved(
+    cell: Ye2023Jssc2t1rCell,
+    snap: Ye2023Jssc2t1rCellSnap,
+    *,
+    v_bl__V: float,
+    inst_shape: tuple[int, ...],
+) -> XbarCell1t1rDcop:
+    """Settle the branch at a hand-written drive level against a grounded SL."""
+    v_bl = torch.full(inst_shape, v_bl__V, dtype=_DTYPE)
+    v_sl = torch.zeros(inst_shape, dtype=_DTYPE)
+    return cell.solve_dc(v_bl, v_sl, snap)
+
+
 def test_registry_dispatch() -> None:
     """The (config, policy) pair selects the WH-2T1R lookup cell."""
     cell = _build_cell(_build_config(), (2, 3))
@@ -125,33 +131,69 @@ def test_registry_dispatch() -> None:
     assert cell.w_state_num == 2
 
 
-def test_lookup_i_t2_selects_state_and_input() -> None:
-    """IN=1 returns the programmed-state current; IN=0 returns the floor."""
+def test_i_t2_selects_state_and_operating_point() -> None:
+    """A driven cell reads the drive entry above V_X = 0 and the floor entry at it."""
     inst_shape = (2, 3)
     cell = _build_cell(_build_config(), inst_shape)
     # A mixed HRS/LRS state pattern over (col, row).
     state = torch.tensor([[_HRS, _LRS, _HRS], [_LRS, _HRS, _LRS]])
     cell.program(state)
-    snap = _snapshot(cell, torch.full(inst_shape, _V_WL_SEL__V, dtype=_DTYPE))
+    snap = _snapshot(cell, torch.full((inst_shape[1],), _V_WL_SEL__V, dtype=_DTYPE))
 
     lrs = state == _LRS
     hrs = state == _HRS
 
-    # IN=1 -> the programmed-state IN=1 lookup (unit scale, m = 1).
-    i_high = cell.lookup_i_t2(torch.ones(inst_shape, dtype=torch.bool), snap)
-    assert torch.equal(i_high, snap.i_t2_in1__uA)
-    # LRS cell delivers strictly more IN=1 current than HRS.
-    assert i_high[lrs].min() > i_high[hrs].max()
+    # A driven BL puts every branch at V_X > 0 -> the programmed state's drive entry.
+    driven = _solved(cell, snap, v_bl__V=_V_BL_IN1__V, inst_shape=inst_shape)
+    assert bool((driven.v_x__V > 0.0).all())
+    i_drive = cell.i_t2__uA(driven, snap)
+    assert torch.equal(i_drive, snap.i_t2_drive__uA)
+    # An LRS cell delivers strictly more drive current than an HRS one.
+    assert i_drive[lrs].min() > i_drive[hrs].max()
 
-    # IN=0 -> the off-cell floor, identical across states.
-    i_low = cell.lookup_i_t2(torch.zeros(inst_shape, dtype=torch.bool), snap)
-    assert torch.equal(i_low, snap.i_t2_in0__uA)
-    assert i_low.min() == i_low.max()  # floor is state-independent
+    # Both boundaries grounded -> V_X = 0 -> the floor, identical across states.
+    floored = _solved(cell, snap, v_bl__V=0.0, inst_shape=inst_shape)
+    assert torch.equal(floored.v_x__V, torch.zeros_like(floored.v_x__V))
+    i_floor = cell.i_t2__uA(floored, snap)
+    assert torch.equal(i_floor, snap.i_t2_floor__uA)
+    assert i_floor.min() == i_floor.max()  # the floor is state-independent
 
-    # Per-cell mixed input: high where LRS, low where HRS.
-    i_mixed = cell.lookup_i_t2(lrs, snap)
-    assert torch.equal(i_mixed[lrs], snap.i_t2_in1__uA[lrs])
-    assert torch.equal(i_mixed[hrs], snap.i_t2_in0__uA[hrs])
+    # Per-cell mixed drive: the classification is per cell, not per call.
+    v_bl = torch.where(lrs, torch.tensor(_V_BL_IN1__V, dtype=_DTYPE), torch.zeros((), dtype=_DTYPE))
+    mixed = cell.solve_dc(v_bl, torch.zeros(inst_shape, dtype=_DTYPE), snap)
+    i_mixed = cell.i_t2__uA(mixed, snap)
+    assert torch.equal(i_mixed[lrs], snap.i_t2_drive__uA[lrs])
+    assert torch.equal(i_mixed[hrs], snap.i_t2_floor__uA[hrs])
+
+
+def test_undriven_row_sources_exactly_zero() -> None:
+    """A WL at or below the threshold contributes nothing, V_X > 0 included.
+
+    An unselected row has WL and TBL both held at ground, so its cells' T2
+    drains are undriven whatever the divider settled to on the BL side.
+    """
+    inst_shape = (2, 3)
+    cell = _programmed_cell(_build_config(), inst_shape, torch.tensor([[_HRS, _LRS, _HRS], [_LRS, _HRS, _LRS]]))
+
+    for v_wl__V in (0.0, _V_WL_ON_THRESHOLD__V):  # off, and exactly AT the threshold
+        snap = _snapshot(cell, torch.full((inst_shape[1],), v_wl__V, dtype=_DTYPE))
+        for v_bl__V in (0.0, _V_BL_IN1__V):
+            dcop = _solved(cell, snap, v_bl__V=v_bl__V, inst_shape=inst_shape)
+            i_t2 = cell.i_t2__uA(dcop, snap)
+            assert torch.equal(i_t2, torch.zeros_like(i_t2)), (v_wl__V, v_bl__V)
+    # The pinned case is not vacuous: a driven BL does leave V_X above zero.
+    snap_off = _snapshot(cell, torch.zeros(inst_shape[1], dtype=_DTYPE))
+    pinned = _solved(cell, snap_off, v_bl__V=_V_BL_IN1__V, inst_shape=inst_shape)
+    assert bool((pinned.v_x__V > 0.0).all())
+
+
+def test_i_t2_keeps_the_snap_dtype() -> None:
+    """The zero branch is a weak scalar: the result keeps the cell's dtype."""
+    inst_shape = (2, 3)
+    cell = _programmed_cell(_build_config(), inst_shape, torch.zeros(inst_shape, dtype=torch.long))
+    snap = _snapshot(cell, torch.full((inst_shape[1],), _V_WL_SEL__V, dtype=_DTYPE))
+    dcop = _solved(cell, snap, v_bl__V=_V_BL_IN1__V, inst_shape=inst_shape)
+    assert cell.i_t2__uA(dcop, snap).dtype == _DTYPE
 
 
 def test_step1_delegation_unchanged() -> None:
@@ -161,7 +203,7 @@ def test_step1_delegation_unchanged() -> None:
     state = torch.tensor([[_HRS, _LRS, _HRS], [_LRS, _HRS, _LRS]])
     cell = _programmed_cell(config, inst_shape, state)
 
-    v_wl = torch.full(inst_shape, _V_WL_SEL__V, dtype=_DTYPE)  # above threshold -> on params
+    v_wl = torch.full((inst_shape[1],), _V_WL_SEL__V, dtype=_DTYPE)  # above threshold -> on params
     snap = _snapshot(cell, v_wl)
     v_bl = torch.full(inst_shape, _V_BL_IN1__V, dtype=_DTYPE)
     v_sl = torch.zeros(inst_shape, dtype=_DTYPE)
@@ -177,59 +219,3 @@ def test_step1_delegation_unchanged() -> None:
     assert torch.equal(dcop.v_x__V, v_bl - vx_ratio * dv)
     assert torch.equal(dcop.di_dvbl__uS, g_cell)
     assert torch.equal(dcop.di_dvsl__uS, -g_cell)
-
-
-# ---------------------------------------------------------------------------
-# Per-access capacitance: WL gate + selected-row X dip-recharge only
-# ---------------------------------------------------------------------------
-
-
-def _cell_energy(config: Ye2023Jssc2t1rCellConfig, *, v_wl: Tensor, v_bl: Tensor, state: Tensor) -> Tensor:
-    inst_shape = tuple(state.shape)
-    cell = _programmed_cell(config, inst_shape, state)
-    snap = _snapshot(cell, v_wl.expand(inst_shape))
-    v_sl = torch.zeros(inst_shape, dtype=_DTYPE)
-    dcop = cell.solve_dc(v_bl, v_sl, snap)
-    return cell.compute_dynamic_energy(v_bl, v_sl, dcop, snap)
-
-
-def test_per_access_energy_is_wl_gate_plus_x_dip() -> None:
-    """Per-cell per-access energy == ``c_wl*V_WL^2 + c_x*V_BL^2*vx_ratio_on`` (WL on only)."""
-    config = _build_config()
-    state = torch.tensor([[_HRS, _LRS], [_LRS, _HRS]])
-    inst_shape = tuple(state.shape)
-    # Row 0 selected (WL high), row 1 unselected; column 0 input-high, column 1 low.
-    v_wl = torch.tensor([[_V_WL_SEL__V, 0.0]], dtype=_DTYPE).expand(inst_shape)
-    v_bl = torch.tensor([[_V_BL_IN1__V], [0.0]], dtype=_DTYPE).expand(inst_shape)
-
-    got = _cell_energy(config, v_wl=v_wl, v_bl=v_bl, state=state)
-
-    vx_ratio_on = torch.tensor(_VX_RATIO_ON, dtype=_DTYPE)[state]
-    wl_on = v_wl > _V_WL_ON_THRESHOLD__V
-    expected = _C_WL__fF * v_wl.square() + _C_X__fF * v_bl.square() * vx_ratio_on * wl_on
-    assert torch.equal(got, expected)
-
-    # Unselected row: the WL gate term alone (no dip -> the X node never moves).
-    assert torch.equal(got[:, 1], _C_WL__fF * v_wl[:, 1].square())
-    # Input-low column of the SELECTED row: also the WL term alone (V_BL = 0).
-    assert float(got[1, 0]) == pytest.approx(_C_WL__fF * _V_WL_SEL__V**2)
-    # Input-high column of the selected row carries the dip on top.
-    assert float(got[0, 0]) > float(got[1, 0])
-
-
-def test_per_access_energy_ignores_sl_and_bl_node_caps() -> None:
-    """The per-access term reads neither ``c_sl__fF`` nor ``c_bl__fF``."""
-    base = _build_config()
-    state = torch.tensor([[_HRS, _LRS], [_LRS, _HRS]])
-    inst_shape = tuple(state.shape)
-    v_wl = torch.full((1, inst_shape[1]), _V_WL_SEL__V, dtype=_DTYPE).expand(inst_shape)
-    v_bl = torch.full(inst_shape, _V_BL_IN1__V, dtype=_DTYPE)
-
-    got = _cell_energy(base, v_wl=v_wl, v_bl=v_bl, state=state)
-    variants = {
-        "c_sl__fF": dataclasses.replace(base, c_sl__fF=10.0 * _C_SL__fF),
-        "c_bl__fF": dataclasses.replace(base, c_bl__fF=10.0 * _C_BL__fF),
-    }
-    for field, config in variants.items():
-        moved = _cell_energy(config, v_wl=v_wl, v_bl=v_bl, state=state)
-        assert torch.equal(moved, got), f"per-access energy moved with {field}"

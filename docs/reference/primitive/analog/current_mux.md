@@ -10,7 +10,7 @@ For an input with shape $[\ldots,A,L]$, where $A$ is the number of serial access
 
 $$I_{\mathrm{out}}[\ldots,a,l] = g\,I_{\mathrm{in}}[\ldots,a,l].$$
 
-The output has the same shape. Axis $a$ indexes time-serial accesses and axis $l$ indexes spatially parallel lanes. The primitive emits no energy or latency; the consuming readout owns those costs.
+The output has the same shape. Axis $a$ indexes time-serial accesses and axis $l$ indexes spatially parallel lanes. The primitive emits no energy and reports a zero window; the consuming readout owns those costs.
 
 ## Numerical method
 
@@ -48,7 +48,7 @@ TODO - link validation evidence once written.
 
 ## References
 
-TODO: cite the time-share current transport and the serial-latency model.
+TODO: cite the time-share current transport model.
 
 ---
 

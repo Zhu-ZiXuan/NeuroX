@@ -86,13 +86,13 @@ class XbarCell1t1rLinearSnap(XbarCell1t1rSnap):
     """Per-call snap of a linearized 1T1R cell's programmed state.
 
     Attributes:
-        g_cell_on__uS: Branch chord conductance at WL on, chunk-sliced.
+        g_cell_on__uS: Branch chord conductance at WL on.
             Shape: ``[..., col, row]``.
-        g_cell_off__uS: Branch chord conductance at WL off, chunk-sliced.
+        g_cell_off__uS: Branch chord conductance at WL off.
             Shape: ``[..., col, row]``.
-        vx_ratio_on: BL-side drop fraction at WL on, chunk-sliced.
+        vx_ratio_on: BL-side drop fraction at WL on.
             Shape: ``[..., col, row]``.
-        vx_ratio_off: BL-side drop fraction at WL off, chunk-sliced.
+        vx_ratio_off: BL-side drop fraction at WL off.
             Shape: ``[..., col, row]``.
     """
 
@@ -191,19 +191,15 @@ class XbarCell1t1rLinear(XbarCell1t1r[XbarCell1t1rLinearConfig, XbarCell1t1rLine
         *,
         control: Tensor,
         shape: tuple[int, ...],
-        multi_coords: tuple[Tensor, ...] | None,
         t_elapsed: float,
     ) -> XbarCell1t1rLinearSnap:
         """Bundle the programmed branch parameters with the WL control drive.
 
         Args:
-            control: Word-line drive voltage [V]; broadcasts to
-                ``[..., col, row]``.
+            control: Per-cell word-line drive voltage [V].
+                Shape: ``[..., col, row]``.
             shape: Per-call broadcast shape ``(..., col, row)`` the
                 branch-parameter fields fill.
-            multi_coords: Advanced-index tuple selecting a chunk's
-                positions from the broadcast view; ``None`` returns the
-                full view.
             t_elapsed: Time elapsed since programming [s]; unused — the
                 linear model holds no time-dependent read state.
 
@@ -213,8 +209,7 @@ class XbarCell1t1rLinear(XbarCell1t1r[XbarCell1t1rLinearConfig, XbarCell1t1rLine
         del t_elapsed
 
         def view(buf: Tensor) -> Tensor:
-            expanded = buf.expand(shape) if shape else buf
-            return expanded if multi_coords is None else expanded[multi_coords]
+            return buf.expand(shape) if shape else buf
 
         return XbarCell1t1rLinearSnap(
             v_wl__V=control,

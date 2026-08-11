@@ -32,7 +32,7 @@ from torch import Tensor
 
 from neurox.common.serialize import load_config_dict
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
-from neurox.primitive.physical_constant import T_ROOM__K
+from neurox.primitive.physics import T_ROOM__K
 from neurox.primitive.xbar.cell import XbarCell1t1rDcop, XbarCell1t1rDetailProber
 from neurox.primitive.xbar.solver import (
     NestedParallelRailSolverConfig,

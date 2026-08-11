@@ -2,7 +2,7 @@
 
 ## Contracts & invariants
 
-- **`accumulate(x, dim)` reduces exactly one axis**, so `numel(y)` already excludes the reduced extent and the serial-op divisor is the bare `inst_count`.
+- **`accumulate(x, dim)` reduces exactly one axis**, and the billed tensor is the pre-reduction operand, so the reduced extent stays inside the energy element count.
 - **Stateless, single-call reduction.** One `accumulate` reduces the whole axis in a single batched reduce; the block carries no running total or register state across calls, despite the name.
 
 ## Performance & resources
@@ -15,10 +15,10 @@
 
 ## Known limitations
 
-- No standalone accumulator test module exists; the modular-wrap function and the per-output billing are covered directly by the billing-contrast tests in `tests/primitive/digital/test_serial_accumulator.py`.
+- No standalone accumulator test module exists; the modular-wrap function and the per-operand billing are covered directly by the tests in `tests/primitive/digital/test_serial_accumulator.py`, which exercise both accumulators against the shared law.
 
 ---
 
 - **Reference**: [accumulator](../../../reference/primitive/digital/accumulator.md)
 - **Implementation**: `neurox/primitive/digital/accumulator.py`
-- **Tests**: `tests/primitive/digital/test_serial_accumulator.py` (billing contrast)
+- **Tests**: `tests/primitive/digital/test_serial_accumulator.py` (shared billing law)

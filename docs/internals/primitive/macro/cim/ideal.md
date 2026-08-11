@@ -66,7 +66,9 @@
   sign-magnitude encoding has no bottom level and a double zero; that gap is
   part of the physical-vs-ideal difference, so a twin comparison is never
   bit-exact at a finite bit width.
-- The policy is empty and static PPA is zero.
+- The policy is empty, and static PPA and duration are alike zero: an
+  arithmetic oracle fabricates no silicon and has no circuit to take time, so
+  `latency__ns` returns `0.0` at every resolution.
 
 ## Performance & resources
 

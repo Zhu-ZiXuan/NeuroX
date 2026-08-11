@@ -6,6 +6,8 @@ See also:
 
 from __future__ import annotations
 
+import math
+
 import torch
 from torch import Tensor
 
@@ -24,26 +26,31 @@ class GeneralVdacConfig(VdacConfig):
             codes.
         drive_thermal__V: Gaussian thermal noise σ added to each
             output sample after LUT lookup.
-        energy_per_op__fJ: Dynamic energy per output charge/discharge
-            cycle (full interface-cap C*V^2); logged only for elements
-            whose nominal output is nonzero — a 0 V output delivers no
-            charge and logs zero.
-        latency_per_op__ns: Per-conversion latency; multiplied by
-            the runtime serial-op count at logging time.
+        code_to_per_op_energy__fJ: Per-op dynamic energy of converting ONE
+            element, indexed by that element's code — parallel to
+            ``code_to_signal``, so each level states what driving it costs.
+            Same length as ``code_to_signal``; every entry finite and >= 0.
     """
 
     code_to_signal: tuple[float, ...]
     drive_thermal__V: float
-    energy_per_op__fJ: float
-    latency_per_op__ns: float
+    code_to_per_op_energy__fJ: tuple[float, ...]
 
     def validate(self) -> None:
         super().validate()
 
         self._require_min_length(self.code_to_signal, 1, "code_to_signal")
         self._require_non_neg(self.drive_thermal__V, "drive_thermal__V")
-        self._require_non_neg(self.energy_per_op__fJ, "energy_per_op__fJ")
-        self._require_non_neg(self.latency_per_op__ns, "latency_per_op__ns")
+        if len(self.code_to_per_op_energy__fJ) != len(self.code_to_signal):
+            raise ValueError(
+                f"require: len(code_to_per_op_energy__fJ) ({len(self.code_to_per_op_energy__fJ)}) "
+                f"== len(code_to_signal) ({len(self.code_to_signal)})"
+            )
+        for code, e_op__fJ in enumerate(self.code_to_per_op_energy__fJ):
+            if not (math.isfinite(e_op__fJ) and e_op__fJ >= 0.0):
+                raise ValueError(
+                    f"require: every code_to_per_op_energy__fJ entry finite and >= 0; got {e_op__fJ} at code {code}"
+                )
 
 
 class GeneralVdacPolicy(VdacPolicy):
@@ -71,10 +78,7 @@ class GeneralVdac(Vdac[GeneralVdacConfig, GeneralVdacPolicy]):
     # === Functional buffers ===
 
     _code_to_signal: Tensor  # Shape: [code_num]
-
-    # === Circuit constant buffers ===
-
-    _latency_per_op__ns: Tensor  # Shape: []
+    _code_to_per_op_energy__fJ: Tensor  # Shape: [code_num]
 
     def __init__(
         self,
@@ -95,8 +99,8 @@ class GeneralVdac(Vdac[GeneralVdacConfig, GeneralVdacPolicy]):
 
         self.register_buffer("_code_to_signal", torch.tensor(config.code_to_signal, dtype=dtype), persistent=False)
         self.register_buffer(
-            "_latency_per_op__ns",
-            torch.tensor(config.latency_per_op__ns, dtype=dtype),
+            "_code_to_per_op_energy__fJ",
+            torch.tensor(config.code_to_per_op_energy__fJ, dtype=dtype),
             persistent=False,
         )
 
@@ -133,10 +137,10 @@ class GeneralVdac(Vdac[GeneralVdacConfig, GeneralVdacPolicy]):
             enabled=self.policy.drive_thermal,
         )
 
-        serial_round_count = self._count_serial_rounds(signal.numel())
-        latency__ns = self._latency_per_op__ns * serial_round_count
         if self._is_dynamic_energy_profile_active():
-            self._record_dynamic_energy(torch.full_like(signal, self.config.energy_per_op__fJ, dtype=torch.float32))
-        self._record_latency(latency__ns)
+            # Each element costs what its own level costs, so the energy LUT
+            # is gathered exactly as the signal LUT is.
+            # Shape: [*code.shape]
+            self._record_dynamic_energy(self._code_to_per_op_energy__fJ[code])
 
         return signal

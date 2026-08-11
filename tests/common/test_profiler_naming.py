@@ -17,10 +17,9 @@ from neurox.common.profiler import NeuroxProfiler
 class _Leaf(nn.Module, ProfileMixin):
     """Minimal emitting host: same base order as ``ModuleBase``."""
 
-    def __init__(self, *, energy__fJ: float = 0.0, latency__ns: float = 0.0) -> None:
+    def __init__(self, *, energy__fJ: float = 0.0) -> None:
         nn.Module.__init__(self)
         self._energy__fJ = energy__fJ
-        self._latency__ns = latency__ns
 
     @property
     def _area_per_inst__um2(self) -> float:
@@ -37,8 +36,6 @@ class _Leaf(nn.Module, ProfileMixin):
     def run(self, *, channel: str | None = None) -> None:
         if self._energy__fJ:
             self._record_dynamic_energy(torch.tensor(self._energy__fJ), channel=channel)
-        if self._latency__ns:
-            self._record_latency(torch.tensor(self._latency__ns))
 
 
 class _Owner(nn.Module):
@@ -80,14 +77,13 @@ def test_emitter_outside_the_reported_root_is_labelled_unrooted() -> None:
 
 def test_unrooted_event_still_counts_toward_the_total() -> None:
     """Grouping never loses an event: the per-name sum is the total."""
-    inside, outside = _Leaf(energy__fJ=4.0, latency__ns=1.0), _Leaf(energy__fJ=7.0, latency__ns=2.0)
+    inside, outside = _Leaf(energy__fJ=4.0), _Leaf(energy__fJ=7.0)
     owner = _Owner(inside)
     with NeuroxProfiler() as p:
         inside.run()
         outside.run()
     report = p.report(owner)
     assert sum(report.energy_by_name.values()) == p.total_dynamic_energy__fJ == 11.0
-    assert sum(report.latency_by_name.values()) == p.total_latency__ns == 3.0
 
 
 def test_name_follows_a_post_construction_swap() -> None:
@@ -108,7 +104,7 @@ def test_events_carry_the_emitter_so_identity_needs_no_name() -> None:
     with NeuroxProfiler() as p:
         a.run()
         b.run()
-    assert [e.dynamic_energy__fJ for e in p.energy_events if e.module is b] == [7.0]
+    assert [float(e.dynamic_energy__fJ.sum()) for e in p.energy_events if e.module is b] == [7.0]
 
 
 def test_static_record_name_comes_from_the_walk() -> None:

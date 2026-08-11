@@ -86,6 +86,23 @@ class Conv2dCimUnit(Conv2dUnit, EngineBackedCimUnit[Conv2dCimUnitConfig, Conv2dC
                     f"require: x_value_range ({(x_lo, x_hi)}) covers 0 — convolution padding injects x = 0"
                 )
 
+    def latency__ns(self, input_shape: tuple[int, ...], *, adc_bits: int | None) -> float:
+        """Time the matmul this convolution lowers to.
+
+        The unit introduces no time axis of its own; it restates the call in
+        the engine's terms. ``M = H_out * W_out`` is the one extent no config
+        fixes, and it comes from :meth:`_conv2d_out_hw`, the same helper the
+        forward gathers windows with.
+
+        Raises:
+            ValueError: ``input_shape`` has no ``[C_in, H, W]`` trailing triple.
+        """
+        if len(input_shape) < 3:
+            raise ValueError(f"latency__ns() expects input_shape with trailing [C_in, H, W]; got {input_shape}")
+        h, w = input_shape[-2:]
+        h_out, w_out = self._conv2d_out_hw(h, w)
+        return self.engine.latency__ns(output_plane_num=h_out * w_out, adc_bits=adc_bits)
+
     def _engine_w_logical_shape(self) -> tuple[int, ...]:
         """Flattened kernel-matrix shape ``(C_out, C_in*kh*kw)``."""
         c_out, c_in, kh, kw = self._w_logical_shape

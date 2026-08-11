@@ -38,7 +38,7 @@ The cell itself owns no static mismatch. Non-idealities enter through the cell's
 
 ## Energy model
 
-The cell contributes the **per-cell node-capacitance dynamic energy** — the per-read charge/discharge energy of its per-cell node-to-ground capacitances, summed at the converged operating point (the terminal voltages and the condensed internal-node voltages). It excludes the wire-segment and DC-conduction energy, which lie outside the cell. The cell carries no other PPA: its device children's silicon area and leakage roll up at the array level, not through the cell. The concrete node-capacitance inventory is topology-specific.
+What a cell contributes to the energy account is **levels**: the converged voltages its own condensation reports at the nodes of its site — the two terminals and every internal node — against the rest levels the boundary declares. The per-cell node-to-ground capacitances those levels are billed against are parameters of the array holding the cell grid, and the account itself is kept there too, under the law in [capacitive energy](../../physics.md), because the rails a draw is charged to and the grid each node's share of line follows are the array's. DC-conduction energy lies outside that account. The cell carries no PPA of its own: neither node capacitance, nor the silicon area and leakage of its device children, which roll up at the array level. Which nodes a site presents is topology-specific.
 
 ## Assumptions, scope & validity
 

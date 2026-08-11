@@ -19,7 +19,13 @@ The hard gates:
    ``e_fixed_per_op__fJ`` are solved against exactly this constraint pair;
 4. *zero input* — an all-zero input vector converts to code 0 on every output;
 5. *derived T_AC* — the readout's derived access window equals the measured
-   value and is the per-access latency the profiler integrates.
+   value and is the per-access latency the macro reports.
+
+Energy basis: a dynamic row's power is its per-access energy averaged over the
+declared leakage window, a seat's power is its fabricated leakage, and the energy
+per output is their sum over that same window. The window is DECLARED in
+``anchors.toml`` (:func:`leakage_window__ns`), never derived from the access time
+the macro reports.
 
 The report reads one run under two calibers — mounting hypotheses for the
 measured setup, each naming the one conduction branch the evaluation instrument
@@ -76,24 +82,24 @@ _BLOCKS = ("Array", "RS-CSA", "Mux&Driver", "Timing&Ctrl")
 _OFF_PIN = "off-pin"
 _CALIBERS: dict[str, dict[str, tuple[str, ...]]] = {
     "Y": {
-        "Array": ("array", ".bl_cond", ".bl_cap", "bl_driver", "sl_driver"),
+        "Array": ("array", "wl_dac", "bl_dac", ".bl_cond", "bl_driver", "sl_driver"),
         "RS-CSA": ("rscsa",),
         "Mux&Driver": (".mux_driver",),
         "Timing&Ctrl": (".timing_ctrl",),
         _OFF_PIN: (".dl_cond",),
     },
     "X": {
-        "Array": ("array", ".dl_cond", "sl_driver"),
+        "Array": ("array", "wl_dac", ".dl_cond", "sl_driver"),
         "RS-CSA": ("rscsa",),
         "Mux&Driver": (".mux_driver",),
         "Timing&Ctrl": (".timing_ctrl",),
-        _OFF_PIN: (".bl_cond", ".bl_cap", "bl_driver"),
+        _OFF_PIN: ("bl_dac", ".bl_cond", "bl_driver"),
     },
 }
 # What each caliber assumes about the measured mounting, printed with its table.
 _CALIBER_MOUNT: dict[str, str] = {
     "Y": "TBL clamp-driven from outside, so the 0.8 V row branch is instrument-fed",
-    "X": "BL inputs driven off-chip by the board DAC array (Fig.15), so the 0.3 V input branch is instrument-fed",
+    "X": "BL inputs driven off-chip by the board DAC array (Fig.15), so the BL input branch is instrument-fed",
 }
 _STATIC_NAMES: dict[str, tuple[str, ...]] = {
     "Array": ("array",),
@@ -112,10 +118,11 @@ _ANCHOR_KEY: dict[str, str] = {
 # The last four are structurally zero and are listed rather than dropped, so a row
 # that starts drawing energy cannot slip past the caliber pooling unnoticed.
 _CHANNELS: tuple[tuple[str, str], ...] = (
-    ("array", "array + cell, PER ACCESS: WL wire + WL gate caps, selected-cell X dip"),
-    (".bl_cond", "macro, PER ACCESS: 0.3 V input-branch conduction over T_AC"),
-    (".bl_cap", "macro, PER VECTOR: BL-column charge (levels held across the row scan)"),
-    (".dl_cond", "macro, PER ACCESS: 0.8 V row branch (raw I_TBL) over T_AC"),
+    ("array", "array, PER ACCESS: every cell node's displacement off its rest level + the amortized hold"),
+    ("wl_dac", "WL converter, PER ACCESS: one drive event per word line"),
+    ("bl_dac", "BL converter, PER VECTOR: one drive event per column (levels held across the row scan)"),
+    (".bl_cond", "macro, PER ACCESS: BL-rail input-branch conduction over T_AC"),
+    (".dl_cond", "macro, PER ACCESS: core-rail row branch (raw I_TBL) over T_AC"),
     ("rscsa", "RS-CSA, PER CONVERSION: E_fixed + per-phase E_code"),
     (".mux_driver", "macro seat, no per-op dynamic share"),
     (".timing_ctrl", "macro seat, no per-op dynamic share"),
@@ -182,6 +189,25 @@ def build_macro(
     return macro
 
 
+def leakage_window__ns(anchors: dict) -> float:
+    """Duration one access's static power integrates over [ns].
+
+    The paper publishes no clock, so its steady-state power figures are read as
+    back-to-back accesses at the shipped 1bIN-3bW-4bO point, which puts the duty
+    cycle on the measured 66 ns T_AC. That window is a DUTY-CYCLE property of the
+    measured setup, a distinct quantity from the ACCESS TIME the macro's
+    ``latency__ns`` reports (the span one conversion holds, which shortens with
+    the compare phases the requested resolution skips): a macro that idles
+    between accesses leaks for the whole period however short its conversion is.
+    Which of the two a GENERAL workload should integrate over is an OPEN
+    modelling choice — a duty-cycled deployment takes the period, a back-to-back
+    one the access time. It is declared in ``anchors.toml`` rather than derived
+    so the choice cannot be made implicitly by whichever duration a consumer
+    happens to reach for.
+    """
+    return float(anchors["conventions"]["leakage_window__ns"])
+
+
 def _draw_weight(
     gen: torch.Generator,
     *,
@@ -215,7 +241,9 @@ def _golden_transfer(macro: Ye2023JsscCimMacro, w: Tensor, x: Tensor) -> tuple[T
 
     The oracle evaluates in float64 whatever the macro's dtype is: the reference
     stays more precise than the device under test, so the tap distance it reports
-    is the exact one and bounds the macro's own rounding.
+    is the exact one and bounds the macro's own rounding. It builds the RAW row
+    current from the two T2 operating points and subtracts the configured PH0
+    seat, so a re-anchored seat moves the reference with the hardware.
 
     Args:
         macro: Macro whose config tables define the transfer.
@@ -231,7 +259,8 @@ def _golden_transfer(macro: Ye2023JsscCimMacro, w: Tensor, x: Tensor) -> tuple[T
     table = config.cell_config.i_t2_table__uA
     i_floor__uA = table[0][0]
     i_hrs__uA, i_lrs__uA = table[1][0], table[1][1]
-    radix_sum = float(sum(config.array_config.weight_radix))
+    weight_radix_sum = float(sum(config.array_config.weight_radix))
+    plane_radix_sum = weight_radix_sum + float(sum(config.array_config.redundant_radix))
     # The readout is SPECIFIED as a uniform quantizer whose step is the reference
     # current it is handed, so the closed form divides by that current. Reading
     # the operating point (like the cell tables above) is not reading the
@@ -243,7 +272,16 @@ def _golden_transfer(macro: Ye2023JsscCimMacro, w: Tensor, x: Tensor) -> tuple[T
     x_f = x.to(torch.float64)
     mac = x_f @ w.to(torch.float64)  # [..., col]
     active = x_f.sum(dim=-1, keepdim=True)  # [..., 1]
-    i_comp__uA = (i_lrs__uA - i_floor__uA) * mac + (i_hrs__uA - i_floor__uA) * (radix_sum * active - mac)
+    # RAW row current, in place-value units: a driven weight cell reads its state's
+    # drive entry, every other cell (a held column, and the all-HRS redundant
+    # plane) the V_X = 0 floor. The compensation the readout subtracts is the
+    # configured seat, NOT an assumed exact cancellation of that floor.
+    i_row__uA = (
+        i_lrs__uA * mac
+        + i_hrs__uA * (weight_radix_sum * active - mac)
+        + i_floor__uA * (plane_radix_sum * float(macro.row_num) - weight_radix_sum * active)
+    )
+    i_comp__uA = i_row__uA - config.i_ph0_comp__uA
 
     quotient = i_comp__uA / i_ref__uA
     code = quotient.floor().clamp(min=0.0, max=float((1 << config.adc_config.bits) - 1)).long()
@@ -268,9 +306,10 @@ class PointMeasurement:
         ensemble's output-access count, giving per-access energy of ONE die;
       * static leakage is per-die: the profiled ensemble leakage is exactly
         ``die_num`` x the per-instance leakage, so it is divided here already;
-      * latency does not scale with ``die_num`` — the profiled wall time covers
-        ``accesses / die_num`` serial accesses, which is what ``t_cycle__ns``
-        divides by.
+      * latency does not scale with ``die_num`` — the modelled duration covers
+        ``accesses / die_num`` serial accesses, which is what
+        :attr:`access_latency__ns` divides by. The reduction integrates NO energy
+        over it: both power views ride the declared ``window__ns`` instead.
 
     Attributes:
         p_zero_input: Input-sparsity point.
@@ -280,7 +319,11 @@ class PointMeasurement:
         static__uW: Per profiler row, the PER-DIE static leakage power.
         total_dynamic__fJ: Ensemble dynamic energy of the point.
         total_static__uW: Per-die static leakage power.
-        total_latency__ns: Profiled latency — the per-die serial access time.
+        window__ns: Declared leakage integration window (see
+            :func:`leakage_window__ns`) — the duty period both power views use.
+        total_latency__ns: Modelled duration of the workload on ONE die: the
+            ``n_x`` VMMs the round drives, each serializing ``col_num`` output
+            accesses on the single time-shared readout.
         accesses: Output accesses read, ``repeat * n_x * die_num * col_num``.
         round_total__uW: Per-round model total power, one entry per round.
     """
@@ -292,18 +335,25 @@ class PointMeasurement:
     static__uW: dict[str, float]
     total_dynamic__fJ: float
     total_static__uW: float
+    window__ns: float
     total_latency__ns: float
     accesses: int
     round_total__uW: tuple[float, ...] = ()
 
     @property
-    def t_cycle__ns(self) -> float:
-        """Latency per output access [ns]; the parallel dies share their accesses."""
+    def access_latency__ns(self) -> float:
+        """Modelled latency per output access [ns]; the parallel dies share their accesses.
+
+        Reported beside the energies and gated against the measured T_AC. The
+        reduction integrates no energy over it — the macro's own conduction atoms
+        integrate the access window internally, and this harness only normalizes
+        their result over :attr:`window__ns`.
+        """
         return self.total_latency__ns * self.die_num / self.accesses
 
     def power__uW(self, dynamic__fJ: float) -> float:
-        """Per-die power [uW] of a dynamic-energy row: its per-access energy over one cycle."""
-        return dynamic__fJ / self.accesses / self.t_cycle__ns
+        """Per-die power [uW] of a dynamic-energy row: its per-access energy over the leakage window."""
+        return dynamic__fJ / self.accesses / self.window__ns
 
     @property
     def total__uW(self) -> float:
@@ -311,7 +361,7 @@ class PointMeasurement:
 
     @property
     def per_output__pJ(self) -> float:
-        return self.total__uW * self.t_cycle__ns / _FJ_PER_PJ
+        return self.total__uW * self.window__ns / _FJ_PER_PJ
 
     @property
     def round_mean__uW(self) -> float:
@@ -365,6 +415,7 @@ def _pool_rounds(rounds: list[PointMeasurement]) -> PointMeasurement:
         static__uW=first.static__uW,
         total_dynamic__fJ=sum(r.total_dynamic__fJ for r in rounds),
         total_static__uW=first.total_static__uW,
+        window__ns=first.window__ns,
         total_latency__ns=sum(r.total_latency__ns for r in rounds),
         accesses=sum(r.accesses for r in rounds),
         round_total__uW=tuple(r.total__uW for r in rounds),
@@ -379,6 +430,7 @@ def measure(
     n_x: int,
     repeat: int,
     seed: int,
+    window__ns: float,
 ) -> PointMeasurement:
     """Profile a crossed weight-ensemble x input-batch workload at one sparsity point.
 
@@ -387,7 +439,15 @@ def measure(
     reads every ``(input, weight)`` pair in ONE call: the inputs enter with a
     size-1 instance slot ``[n_x, 1, row_num]`` and broadcast over the dies, so
     the codes come back ``[n_x, die_num, col_num]``. Every round is profiled on
-    its own, which is what exposes the draw-to-draw spread.
+    its own, which is what exposes the draw-to-draw spread. The profiler runs
+    ``leading_rank=1``, so each energy event resolves to ``[n_x]`` — one element
+    per input vector, with the parallel dies folded into it. The three
+    normalizations below are unaffected: they are derived from ``accesses`` and
+    ``die_num``, never from an event tensor's shape. The scalar views this
+    function reads (``energy_by_name``, ``total_dynamic_energy__fJ``) reduce
+    those events to floats. The duration comes from the macro's own circuit
+    model instead, which no measurement can move, and the duty period the powers
+    ride comes from ``window__ns``, which the model cannot move either.
 
     The generator is created fresh from ``seed`` and the draw order (weights,
     then inputs, per round, at shapes that do not depend on the sparsity point)
@@ -402,6 +462,8 @@ def measure(
         n_x: Input vectors per round.
         repeat: Rounds.
         seed: Generator seed; pass the same value at every sparsity point.
+        window__ns: Declared leakage integration window (see
+            :func:`leakage_window__ns`).
     """
     device = next(macro.buffers()).device
     gen = torch.Generator(device=device).manual_seed(seed)
@@ -417,10 +479,20 @@ def measure(
                 p_zero=p_zero_weight,
             )
             x = _draw_input(gen, shape=(n_x, *(1,) * len(macro.inst_shape), macro.row_num), p_zero=p_zero_input)
-            with NeuroxProfiler() as prof:
+            # leading_rank=1 matches x's own caller leading: `x`'s instance slot
+            # is a broadcast placeholder, not a caller dim, so the macro's own
+            # leading (its `batch`, see vec_mat_mul step 2) is (n_x,) alone.
+            # Every energy event therefore resolves to [n_x], one element per
+            # input vector, with the die ensemble folded into each element.
+            # `program` emits zero profiling events (AST-verified), so sharing
+            # the context with it is safe.
+            with NeuroxProfiler(leading_rank=1) as prof:
                 macro.program(w)
                 macro.vec_mat_mul(x, quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
             report = prof.report(macro)
+            # One VMM is the macro's reported duration; a die runs the round's
+            # `n_x` of them back to back on its single readout, while the dies
+            # run in parallel and add nothing.
             rounds.append(
                 PointMeasurement(
                     p_zero_input=p_zero_input,
@@ -430,7 +502,8 @@ def measure(
                     static__uW={r.qualified_name: r.leakage_power__uW / die_num for r in report.static_records},
                     total_dynamic__fJ=report.total_dynamic_energy__fJ,
                     total_static__uW=report.static.leakage_power__uW / die_num,
-                    total_latency__ns=report.total_latency__ns,
+                    window__ns=window__ns,
+                    total_latency__ns=n_x * macro.latency__ns(adc_bits=_ADC_BITS),
                     accesses=n_x * die_num * macro.col_num,
                 )
             )
@@ -447,7 +520,8 @@ class CaliberPooling:
         off_pin__uW: Power [uW] of the instrument-fed branch, on no pin.
         model_total__uW: Total macro power [uW], every branch billed.
         target_total__uW: Measured total macro power [uW] at this point.
-        t_cycle__ns: Latency per output access [ns].
+        window__ns: Declared leakage integration window [ns] the per-output
+            energy integrates over.
     """
 
     caliber: str
@@ -455,7 +529,7 @@ class CaliberPooling:
     off_pin__uW: float
     model_total__uW: float
     target_total__uW: float
-    t_cycle__ns: float
+    window__ns: float
 
     @property
     def array(self) -> BlockPower:
@@ -472,7 +546,7 @@ class CaliberPooling:
 
     @property
     def on_chip_per_output__pJ(self) -> float:
-        return self.on_chip__uW * self.t_cycle__ns / _FJ_PER_PJ
+        return self.on_chip__uW * self.window__ns / _FJ_PER_PJ
 
     @property
     def on_chip_ef__tops_w(self) -> float:
@@ -520,7 +594,7 @@ def pool(m: PointMeasurement, anchors: dict, *, caliber: str) -> CaliberPooling:
         off_pin__uW=group__uW(_OFF_PIN),
         model_total__uW=m.total__uW,
         target_total__uW=target_total,
-        t_cycle__ns=m.t_cycle__ns,
+        window__ns=m.window__ns,
     )
 
 
@@ -659,6 +733,10 @@ def _rscsa_energy_by_code(macro: Ye2023JsscCimMacro) -> dict[int, float]:
             dtype=dtype,
             device=device,
         )
+        # No leading_rank here: `i_in__uA` is one conversion, not a caller
+        # batch, so there is no caller-leading axis to preserve. The default
+        # leading_rank=0 already collapses this single event to the scalar
+        # `total_dynamic_energy__fJ` this helper reads.
         with NeuroxProfiler() as prof, torch.no_grad():
             macro.rscsa.convert(i_in__uA, i_refs__uA, bits=_ADC_BITS)
         out[code] = prof.report(macro.rscsa).total_dynamic_energy__fJ
@@ -710,29 +788,29 @@ def gate_zero_input(macro: Ye2023JsscCimMacro, *, seed: int) -> GateResult:
     return GateResult(
         name="zero input -> code 0",
         passed=nonzero == 0,
-        detail=f"{macro.col_num - nonzero}/{macro.col_num} outputs read code 0 (derived PH0 cancels the row floor)",
+        detail=f"{macro.col_num - nonzero}/{macro.col_num} outputs read code 0 (the seated PH0 cancels the row floor)",
     )
 
 
 def gate_t_ac(macro: Ye2023JsscCimMacro, anchors: dict, measurements: list[PointMeasurement]) -> GateResult:
-    """The derived access window equals the anchor and is the profiled per-access latency."""
+    """The derived access window equals the anchor and is the reported per-access latency."""
     ref__ns = anchors["gate"]["t_ac__ns"]
     derived__ns = float(macro.t_ac__ns)
     failures: list[str] = []
     if abs(derived__ns - ref__ns) > 1e-9:
         failures.append(f"derived T_AC {derived__ns:.4f} ns vs {ref__ns:.4f} ns")
-    # The profiled cycle divides a float32 latency SUM, so it carries relative
-    # rounding of order 1e-7 that the exact derived window above does not; 1e-3 ns
-    # is far below any modelled phase and far above that noise.
+    # The reported cycle divides a round-summed duration by the access count, so
+    # it carries the accumulated rounding of that sum; 1e-3 ns is far below any
+    # modelled phase and far above that noise.
     failures.extend(
-        f"p_zero {m.p_zero_input:.3f}: profiled {m.t_cycle__ns:.4f} ns per access"
+        f"p_zero {m.p_zero_input:.3f}: reported {m.access_latency__ns:.4f} ns per access"
         for m in measurements
-        if abs(m.t_cycle__ns - ref__ns) > 1e-3
+        if abs(m.access_latency__ns - ref__ns) > 1e-3
     )
     return GateResult(
         name="derived T_AC = 66 ns",
         passed=not failures,
-        detail="; ".join(failures) or f"PH0 + PH1..PH3 + t4 = {derived__ns:.1f} ns, profiled per access identically",
+        detail="; ".join(failures) or f"PH0 + PH1..PH3 + t4 = {derived__ns:.1f} ns, reported per access identically",
     )
 
 
@@ -791,10 +869,10 @@ def _all_hrs_floor__uW(macro: Ye2023JsscCimMacro, p_zero_input: float) -> float:
     """Lower bound [uW] on input-branch conduction power: every weight cell at HRS."""
     config = macro.config
     g_hrs__uS = config.cell_config.g_cell_on_table__uS[0]
-    v_bl__V = config.v_bl_in1__V
+    v_bl__V = config.array_config.v_bl_in1__V
     active = macro.row_num * (1.0 - p_zero_input)
     plane_num = len(config.array_config.weight_radix)
-    return v_bl__V * (g_hrs__uS * v_bl__V) * active * plane_num
+    return config.v_dd_bl__V * (g_hrs__uS * v_bl__V) * active * plane_num
 
 
 def _fmt_finding(macro: Ye2023JsscCimMacro, measurements: list[PointMeasurement], anchors: dict) -> str:
@@ -889,7 +967,8 @@ def _fmt_point(m: PointMeasurement, anchors: dict) -> str:
 
     lines = [
         f"### input sparsity p_zero = {m.p_zero_input:.3f} — {label}",
-        f"    accesses {m.accesses} ({m.repeat} rounds x {m.die_num} dies), T_AC {m.t_cycle__ns:.2f} ns",
+        f"    accesses {m.accesses} ({m.repeat} rounds x {m.die_num} dies), T_AC {m.access_latency__ns:.2f} ns, "
+        f"leakage window {m.window__ns:.2f} ns (declared duty period the powers average over)",
         f"    full model, every branch billed: {m.total__uW:.3f} uW, {m.per_output__pJ:.3f} pJ/out "
         f"(anchor {per_access_anchor__pJ:.2f}), EF {m.ef__tops_w:.2f} TOPS/W (paper headline {ef_anchor:.2f})",
         f"    draw spread over {m.repeat} rounds: model total {m.round_mean__uW:.3f} +- "
@@ -975,6 +1054,7 @@ def main() -> None:
             n_x=args.n_x,
             repeat=args.repeat,
             seed=args.seed,
+            window__ns=leakage_window__ns(anchors),
         )
         for p_zero in anchors["data"]["p_zero_input"]
     ]

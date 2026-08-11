@@ -15,7 +15,6 @@ def test_transport_preserves_access_lane_layout_and_accounts_output() -> None:
             mux_gain_mismatch_sigma_relative=0.0,
             mux_noise_sigma__V=0.0,
             energy_per_access__fJ=3.0,
-            latency_per_op__ns=5.0,
             area_per_inst__um2=0.0,
             leakage_per_inst__uW=0.0,
         ),
@@ -36,7 +35,6 @@ def test_transport_preserves_access_lane_layout_and_accounts_output() -> None:
     assert actual__V.shape == v__V.shape
     torch.testing.assert_close(actual__V, 2.0 * v__V)
     assert profiler.total_dynamic_energy__fJ == 48.0
-    assert profiler.total_latency__ns == 40.0
 
 
 @pytest.mark.parametrize("shape", [(3, 2), (4, 3), (8,)])
@@ -48,7 +46,6 @@ def test_transport_requires_access_lane_layout(shape: tuple[int, ...]) -> None:
             mux_gain_mismatch_sigma_relative=0.0,
             mux_noise_sigma__V=0.0,
             energy_per_access__fJ=0.0,
-            latency_per_op__ns=0.0,
             area_per_inst__um2=0.0,
             leakage_per_inst__uW=0.0,
         ),

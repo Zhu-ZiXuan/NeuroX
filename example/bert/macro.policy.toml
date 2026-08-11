@@ -24,8 +24,8 @@ _neurox_class = "SerialXSliceStagePolicy"
 
 [policy.engine.cim_macro_policy.array]
 # Max instances solved per chunk = per-chunk peak-memory budget. Sized for the
-# COMPILED solve, whose PCR intermediates are co-resident (no per-step release),
-# so the budget is smaller than an eager run would need. One value gives a
-# uniform chunk shape across layers -> one dynamic=False solve compile
-# signature. See docs/internals/compile/scheme-a-regional.md.
+# COMPILED solve, whose graph intermediates are co-allocated rather than freed
+# step by step, so the budget is smaller than an eager run would need. One value
+# gives a uniform chunk shape across layers -> one dynamic=False solve compile
+# signature. See docs/internals/compile/scheme_a_regional.md.
 solve_chunk_size = 16384

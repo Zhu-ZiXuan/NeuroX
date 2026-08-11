@@ -15,11 +15,10 @@ Coverage:
   * the static report seats the reporter leaves (control / adc_current_reference /
     cablc / sl_driver / dswct / sinwp_sc / pn_isub / tmcsa / array + the macro
     root),
-  * **the static-energy time base is ``t_cycle`` (50 ns), NOT the conduction
-    windows**: doubling ``t_cycle`` doubles the leakage (static) energy while the
-    dynamic energy is unchanged; doubling a conduction window (``t_settle``)
-    scales the read rows but leaves the static energy — and the
-    window-invariant control channel — untouched,
+  * **dynamic energy rides the conduction windows, NOT ``t_cycle``**: doubling
+    ``t_cycle`` (the leakage integration window) leaves the dynamic energy
+    unchanged, while doubling a conduction window (``t_settle``) scales the read
+    rows and leaves the window-invariant control channel untouched,
   * the input branch conduction is billed WHOLE by the macro on the ``cablc``
     channel (``V_DD * I_DL`` over the per-bit window — the macro owns the
     conduction window), while the array module row bills ONLY its wire / node
@@ -27,6 +26,10 @@ Coverage:
     exactly, the array row is strictly positive yet window-invariant (the cap
     oracle), and array + channel cover the whole branch plus the caps with no
     double-bill,
+  * the array's capacitive row rides BOTH declared supply rails independently
+    (``v_dd_wl__V`` behind the WL wire / gate caps, ``v_dd__V`` behind the
+    BL / SL wire and cell conduction-path nodes), so neither collapses into the
+    other,
   * the control channel fires once per access (``mux_factor`` mux steps x batch),
   * each read row is LINEAR in every window knob (``t_sample[k]``,
     ``t_settle``), the SC held-leg SUFFIX-SUM law (window
@@ -192,14 +195,17 @@ def _whole_input_branch(macro: Xue2020JsscCimMacro, x: Tensor) -> float:
     conduction window ``t`` is the macro's, applied here post-solve. The array
     carries no conduction term, so there is no clamp / cell split to reconstruct.
     The re-solve runs OUTSIDE any profiler so it logs nothing of its own.
+
+    Written for the ``inst_shape = ()`` macros this file builds: the clamp
+    reference is expanded right-aligned onto the flat column axis, which a
+    fabrication prefix would mis-seat.
     """
     cfg = macro.config
     v_dd = cfg.v_dd__V
     x_long = x.long()
     window = cfg.window_array__ns
 
-    gn = macro.col_num // cfg.mux_factor
-    lane_shape = (gn, 2, cfg.w_digit_num)
+    phys_col_num = macro.array.weight_grid_shape[-2]
 
     whole = 0.0
     for k in range(cfg.input_bit_num):
@@ -207,21 +213,26 @@ def _whole_input_branch(macro: Xue2020JsscCimMacro, x: Tensor) -> float:
         plane = (x_long >> k) & 1
         # Shape: [..., row]
         v_wl = macro.wl_dac.convert(plane)
-        # The array takes both references at the full per-call shape, exactly
-        # as vec_mat_mul builds them.
-        leading = torch.broadcast_shapes((*macro.inst_shape, cfg.mux_factor), (*v_wl.shape[:-1], 1))
-        ref_shape = (*leading, *lane_shape)
+        # The array takes a full-grid WL drive and both boundary snaps ready
+        # made, exactly as vec_mat_mul builds them: one solve over every
+        # physical column, the MUX slot living outside the array.
+        leading = tuple(torch.broadcast_shapes(macro.inst_shape, v_wl.shape[:-1]))
+        # Shape: [..., row] -> [*leading, phys_col, row]
+        v_wl_grid = v_wl.unsqueeze(-2).expand(*leading, phys_col_num, macro.row_num)
+        ref_shape = (*leading, phys_col_num)
+        v_blc = macro.cablc_vref.v_out__V[..., 0, 0]
         steady = macro.array.solve_array(
-            v_wl,
+            v_wl_grid,
             bl_driver=macro.cablc,
-            bl_v_ref__V=macro.cablc_vref.snapshot(mode=0, shape=(*ref_shape, 1)).v_refs__V[..., 0],
+            bl_driver_snap=macro.cablc.snapshot(v_ref__V=v_blc.expand(ref_shape), shape=ref_shape),
             sl_driver=macro.sl_driver,
-            sl_v_ref__V=torch.zeros((), dtype=v_wl.dtype, device=v_wl.device).expand(ref_shape),
+            sl_driver_snap=macro.sl_driver.snapshot(
+                v_ref__V=torch.zeros((), dtype=v_wl.dtype, device=v_wl.device).expand(ref_shape),
+                shape=ref_shape,
+            ),
         )
-        # Shape: [..., serial, gn, polarity, wd]
-        i_bl = steady.i_bl_port__uA
-        # Shape: [..., serial, gn, polarity, wd] -> []
-        step_energy = ((v_dd * i_bl).sum(dim=(-4, -3, -2, -1)) * window[k]).sum()
+        # Shape: [..., phys_col] -> []
+        step_energy = ((v_dd * steady.i_bl_port__uA).sum(dim=-1) * window[k]).sum()
         whole += float(step_energy)
     return whole
 
@@ -271,49 +282,44 @@ def test_static_report_seats_reporters_only(device: torch.device) -> None:
     static = {r.qualified_name: r.leakage_power__uW for r in NeuroxProfiler.collect_static(macro)}
     # Seats with nonzero witness leakage: the macro root (named ""), control
     # (UnmodeledBlock), adc_current_reference, the clamp drivers, the PN-ISUB
-    # module, the kernel ADC (adc), the TMCSA billing module (tmcsa), and the
-    # array (cell grid + wire infrastructure PPA).
-    for seat in ("", "control", "adc_current_reference", "cablc", "sl_driver", "pn_isub", "tmcsa", "adc", "array"):
+    # module, the kernel ADC (adc), and the TMCSA billing module (tmcsa).
+    for seat in ("", "control", "adc_current_reference", "cablc", "sl_driver", "pn_isub", "tmcsa", "adc"):
         assert seat in static, f"missing static seat {seat!r}; have {sorted(static)}"
         assert static[seat] > 0.0, f"non-positive leakage seat {seat!r}: {static[seat]}"
     # The DSWCT / SINWP-SC modules are reporter leaves too; the witness ships
-    # their leakage seats at 0.0, so they appear with exactly zero leakage.
-    for seat in ("dswct", "sinwp_sc"):
+    # their leakage seats at 0.0, so they appear with exactly zero leakage. The
+    # array itself holds no static conduction path (both scan organizations rest
+    # at zero cell bias), so its leakage seat is architecturally zero.
+    for seat in ("dswct", "sinwp_sc", "array"):
         assert seat in static, f"missing static seat {seat!r}; have {sorted(static)}"
         assert static[seat] == 0.0, f"witness ships zero leakage for {seat!r}: {static[seat]}"
 
 
 # ---------------------------------------------------------------------------
-# Static-energy time base = t_cycle, NOT the conduction windows (CRITICAL)
+# Dynamic energy rides the conduction windows, NOT t_cycle (CRITICAL)
 # ---------------------------------------------------------------------------
 
 
-def test_static_energy_scales_with_t_cycle_not_conduction_windows(device: torch.device) -> None:
-    """Leakage (static) energy tracks ``t_cycle`` alone; the conduction windows drive only dynamic.
+def test_dynamic_energy_scales_with_conduction_windows_not_t_cycle(device: torch.device) -> None:
+    """Every dynamic channel bills over the conduction windows, never ``t_cycle``.
 
-    ``leakage_energy = leakage_power x total_latency`` and the macro is the sole
-    latency emitter (``total_latency = t_cycle x serial``). So doubling
-    ``t_cycle`` doubles the static energy while every dynamic channel — which
-    bills over the conduction windows, never ``t_cycle`` — is unchanged; and
-    doubling a conduction window (``t_settle``) leaves the static energy (and the
-    window-invariant control channel) untouched while the read channels grow.
+    ``t_cycle`` is the leakage integration window, so doubling it leaves every
+    dynamic channel unchanged; doubling a conduction window (``t_settle``) grows
+    the read channels while the window-invariant control channel stands still.
     """
     w, x = _w_full(), _x_full(2)
     base_cfg = build_config(t_sample__ns=(1.0,), t_settle__ns=2.0, t_cycle__ns=50.0)
 
     prof_base, report_base = _run(base_cfg, w, x, device=device)
-    static_base = report_base.leakage_energy__fJ
     dyn_base = prof_base.total_dynamic_energy__fJ
-    assert static_base > 0.0 and dyn_base > 0.0
+    assert dyn_base > 0.0
 
-    # --- Double t_cycle: static energy doubles, dynamic unchanged ---
-    prof_2t, report_2t = _run(dataclasses.replace(base_cfg, t_cycle__ns=100.0), w, x, device=device)
-    assert report_2t.leakage_energy__fJ == pytest.approx(2.0 * static_base)
+    # --- Double t_cycle: dynamic unchanged ---
+    prof_2t, _report_2t = _run(dataclasses.replace(base_cfg, t_cycle__ns=100.0), w, x, device=device)
     assert prof_2t.total_dynamic_energy__fJ == pytest.approx(dyn_base)
 
-    # --- Double a conduction window (t_settle -> t_other): static unchanged, read channels grow ---
+    # --- Double a conduction window (t_settle -> t_other): the read channels grow ---
     prof_win, report_win = _run(dataclasses.replace(base_cfg, t_settle__ns=4.0), w, x, device=device)
-    assert report_win.leakage_energy__fJ == pytest.approx(static_base)  # static invariant to windows
     assert prof_win.total_dynamic_energy__fJ > dyn_base  # dynamic grows with the window
     # The control channel is window-invariant; the read channels moved.
     ch_base = _channels(report_base)
@@ -380,6 +386,35 @@ def test_input_branch_billed_whole_by_cablc_array_bills_caps_only(device: torch.
     )
     assert cablc_wide == pytest.approx(whole_wide), f"cablc {cablc_wide} != reconstructed whole branch {whole_wide}"
     assert cablc_wide > cablc, f"cablc must grow with the conduction window {cablc} -> {cablc_wide}"
+
+
+# ---------------------------------------------------------------------------
+# Two rails: the WL rail and the read rail are separate variables
+# ---------------------------------------------------------------------------
+
+
+def test_array_cap_row_rides_both_rails_separately(device: torch.device) -> None:
+    """The array cap row moves with EACH rail on its own — neither stands in for the other.
+
+    The capacitive law is a supply draw ``V_rail * C * |dv|``, and the two
+    supplies are distinct domains: ``v_dd_wl__V`` is behind the WL wire ladder
+    and the per-cell gate cap, ``v_dd__V`` behind the BL / SL wire and the cell's
+    conduction-path nodes. Raising either alone must raise the array row; a
+    single collapsed rail would make one of the two moves inert.
+    """
+    base = build_config()
+    w, x = _w_full(), _x_full(2)
+
+    def array_row(config: Xue2020JsscCimMacroConfig) -> float:
+        _prof, report = _run(config, w, x, device=device)
+        return report.energy_by_name["array"]
+
+    e_base = array_row(base)
+    e_wl = array_row(dataclasses.replace(base, v_dd_wl__V=2.0 * base.v_dd_wl__V))
+    e_bl = array_row(dataclasses.replace(base, v_dd__V=2.0 * base.v_dd__V))
+    assert e_base > 0.0
+    assert e_wl > e_base, "the array row must ride the WL driver rail (WL wire + gate caps)"
+    assert e_bl > e_base, "the array row must ride the read rail (BL / SL wire + cell nodes)"
 
 
 # ---------------------------------------------------------------------------

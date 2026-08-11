@@ -114,6 +114,16 @@ class IdealConv2dUnit(Conv2dUnit, CimUnit[IdealConv2dUnitConfig, IdealConv2dUnit
         del quantization_mode, adc_bits
         return 1.0
 
+    def latency__ns(self, input_shape: tuple[int, ...], *, adc_bits: int | None) -> float:
+        """Zero — an exact integer matmul, with no circuit under it to take time.
+
+        The unit holds neither a macro nor an engine schedule, so there is no
+        time axis anywhere below it: the output positions the input resolution
+        implies are all evaluated at once.
+        """
+        del input_shape, adc_bits
+        return 0.0
+
     def _weight_to_matrix(self, weight: Tensor) -> Tensor:
         # Shape: [C_out, C_in, kh, kw] -> [C_out, C_in*kh*kw]
         return weight.flatten(start_dim=1).to(torch.int64)

@@ -1,5 +1,20 @@
 # ye2023jssc validation results
 
+> **PENDING RECAL — every number on this page is STALE.** The array's capacitive
+> ledger is one total per cell NODE and the WL / BL drives ride their own
+> converter seats, so the `array` row (and with it the array pin, the C_WL solve
+> and its saturation claim, and the whole per-block power table) no longer
+> describes what the code bills; the per-vector `.bl_cap` channel is retired, the
+> BL conduction branch bills across the BL driver rail, and two converter rows
+> (`wl_dac`, `bl_dac`) join the report. The gates run RED until the
+> recalibration campaign re-solves the free set; this page is kept as the record
+> of the PREVIOUS model, not as a current result. The free set is now four
+> numbers — the two RS-CSA knobs and the two transcribed seat powers; the C_WL
+> knob rides the array's WL node total and the per-code converter energies are
+> unsolved zeros. The transfer, `i_tbl` and code gates are
+> untouched — the solve and the lookup are bit-identical by construction — but
+> they have not been re-run either.
+
 Outcome of `make validate_ye2023jssc`, whose defaults are the record run: `--device cuda --n-w 64 --n-x 256
 --repeat 8 --solve-chunk 4096 --seed 0`. Each of the 8 rounds programs a FRESH 64-die weight ensemble onto one
 macro built at `inst_shape=(64,)` and drives 256 fresh input vectors through ONE broadcast `vec_mat_mul`, so a
@@ -76,24 +91,27 @@ the rest of the freedom on symmetric flatness.
 | golden transfer + asymmetric-value regression | 4096 / 4096 codes equal the closed-form transfer built from the config's own tables (0 tap-boundary samples excluded); the deterministic value sweep 0..7 reads codes [0, 2, 4, 6, 9, 11, 13, 15] |
 | I_TBL table + 30 nA bound | radix-scaled LRS currents 0.50 / 1.00 / 2.00 uA vs the measured 0.50 / 1.00 / 1.99 uA; worst-plane HRS 30.0 nA at the 30 nA bound |
 | RS-CSA 470 fJ flat + code spread (calibration consistency) | per-conversion 429.1 fJ (87.5%) and 508.1 fJ (50%) vs the 470 fJ anchor; per-code spread 1.319x inside [1.3, 1.8] |
-| zero input -> code 0 | 64 / 64 outputs read code 0 — the derived PH0 cancels the row leakage floor exactly |
-| derived T_AC = 66 ns | PH0 + PH1 + PH2 + PH3 + t4 = 66.0 ns, identical to the profiled per-access latency |
+| zero input -> code 0 | 64 / 64 outputs read code 0 — the seated PH0 cancels the row leakage floor exactly |
+| derived T_AC = 66 ns | PH0 + PH1 + PH2 + PH3 + t4 = 66.0 ns, identical to the modelled per-access latency |
 
 The golden-transfer gate is the load-bearing one: it validates the whole functional path — encode LUT, plane
-fold, plane-major radix place values, the input-0 redundant plane, the derived PH0, and the uniform quantizer
-— against a closed form derived only from the config's own numbers. Its asymmetric-value half pins the
+fold, plane-major radix place values, the floor-driven redundant plane, the seated PH0, and the uniform
+quantizer — against a closed form derived only from the config's own numbers. Its asymmetric-value half pins the
 LSB-first digit order specifically: each value 0..7 is stored on one column and read under an all-ones input,
 so a reversed (MSB-first) digit order lands the same value on different T2 slice multipliers and the codes
 stop matching. The I_TBL table gate is therefore transitively a model gate, not just a config check. The
 30 nA bound admits two readings and the gate takes the tighter one — the RAW per-plane current
-`m * i_t2[IN=1][HRS]`, which the model saturates exactly; read instead as the plane's excess over the input-0
-leakage floor, the model sits at 18.6 nA, 11.4 nA under the bound.
+`m * i_t2[drive][HRS]`, which the model saturates exactly; read instead as the plane's excess over the
+V_X = 0 leakage floor, the model sits at 18.6 nA, 11.4 nA under the bound.
 
 ## Energy channels
 
-The model bills five non-zero dynamic rows plus two static seats, all in `E = V * I * t` branch atoms over
-the derived 66 ns access window. Powers are quoted PER DIE: the ensemble's static leakage is divided by `n_w`,
-and the profiled latency is the per-die serial access time, the dies being parallel.
+The model bills five non-zero dynamic rows plus two static seats, the dynamic conduction rows as `E = V * I *
+t` branch atoms over the derived 66 ns access window. A row's power below is its per-access energy averaged
+over the DECLARED 66 ns leakage window (`anchors.toml`), the duty period the harness holds apart from the
+access time; the two seats are leakage powers already. Powers are quoted PER DIE: the ensemble's static
+leakage is divided by `n_w`, and the modelled latency is the per-die serial access time, the dies being
+parallel.
 
 | Channel | Owner / rate | 87.5% uW | 50% uW |
 |---|---|--:|--:|

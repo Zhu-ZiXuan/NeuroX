@@ -25,10 +25,6 @@ from neurox.primitive.xbar.cell import (
 def _build_cell(inst_shape: tuple[int, ...]) -> XbarCell1t1rDetail:
     rram_config = RramConfig.from_preset("process/rram:default")
     config = XbarCell1t1rDetailConfig(
-        c_bl__fF=0.1,
-        c_x__fF=0.1,
-        c_sl__fF=0.1,
-        c_wl__fF=0.1,
         rram_config=rram_config,
         nmos_config=MosfetConfig.from_preset("process/mos:nmos_28_rvt"),
         state_to_g_map__uS=(rram_config.g_min__uS, 100.0),
@@ -71,7 +67,7 @@ def _grids() -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
 def test_solve_dc_emits_one_residual_record() -> None:
     cell = _build_cell((2, 2))
     v_bl, v_sl, v_wl = _grids()
-    snap = cell.snapshot(control=v_wl, shape=(2, 2), multi_coords=None, t_elapsed=0.0)
+    snap = cell.snapshot(control=v_wl, shape=(2, 2), t_elapsed=0.0)
 
     with XbarCell1t1rDetailProber() as prober:
         cell.solve_dc(v_bl, v_sl, snap)
@@ -88,7 +84,7 @@ def test_solve_branch_emits_nothing() -> None:
     """Only ``solve_dc`` emits; the lean hot path stays off the side channel."""
     cell = _build_cell((2, 2))
     v_bl, v_sl, v_wl = _grids()
-    snap = cell.snapshot(control=v_wl, shape=(2, 2), multi_coords=None, t_elapsed=0.0)
+    snap = cell.snapshot(control=v_wl, shape=(2, 2), t_elapsed=0.0)
 
     with XbarCell1t1rDetailProber() as prober:
         cell.solve_branch(v_bl, v_sl, snap)
@@ -99,5 +95,5 @@ def test_solve_dc_without_prober_is_silent() -> None:
     """The emit hook is a no-op when no prober is active (no error)."""
     cell = _build_cell((2, 2))
     v_bl, v_sl, v_wl = _grids()
-    snap = cell.snapshot(control=v_wl, shape=(2, 2), multi_coords=None, t_elapsed=0.0)
+    snap = cell.snapshot(control=v_wl, shape=(2, 2), t_elapsed=0.0)
     cell.solve_dc(v_bl, v_sl, snap)

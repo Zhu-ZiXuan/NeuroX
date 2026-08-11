@@ -1,11 +1,10 @@
-"""SerialAccumulator billing: per-input energy quanta, per-input serial latency.
+"""Accumulator billing: one energy quantum per operand element folded in.
 
-The reduce function (modular-wrap sum) is identical to :class:`Accumulator`;
-only the billing law differs — the reduced axis is a time-serial operand
-stream, so dynamic energy carries one quantum per INPUT element and the
-serial-op count divides the input-element count across instances, where the
-plain accumulator bills both against the output-element count.
-Events are captured under :class:`NeuroxProfiler`.
+:class:`SerialAccumulator` and :class:`Accumulator` share the reduce function
+(modular-wrap sum) and the billing law — dynamic energy counts the adder
+evaluations, one per operand element, so the reduced extent stays visible in
+the energy whichever way the fold is realized. Energy events are captured
+under :class:`NeuroxProfiler`.
 """
 
 from __future__ import annotations
@@ -14,7 +13,7 @@ import pytest
 import torch
 
 from neurox.common.mixin import ProfileMixin
-from neurox.common.profiler import EnergyEvent, LatencyEvent, NeuroxProfiler
+from neurox.common.profiler import EnergyEvent, NeuroxProfiler
 from neurox.primitive.digital import (
     Accumulator,
     AccumulatorConfig,
@@ -45,13 +44,12 @@ def _build_plain(inst_shape: tuple[int, ...]) -> Accumulator:
 
 
 def _energy_total(events: list[EnergyEvent], module: ProfileMixin) -> float:
-    """Sum the logged dynamic energy [fJ] of the events ``module`` emitted."""
-    return sum(e.dynamic_energy__fJ for e in events if e.module is module)
+    """Sum the logged dynamic energy [fJ] of the events ``module`` emitted.
 
-
-def _latency_total(events: list[LatencyEvent], module: ProfileMixin) -> float:
-    """Sum the logged latency [ns] of the events ``module`` emitted."""
-    return sum(e.latency__ns for e in events if e.module is module)
+    An event payload is a per-unit-operation tensor, so each one totals to its
+    own scalar before the events are summed.
+    """
+    return sum((float(e.dynamic_energy__fJ.sum()) for e in events if e.module is module), 0.0)
 
 
 def test_serial_accumulator_reduce_matches_plain_accumulator() -> None:
@@ -70,19 +68,23 @@ def test_serial_accumulator_wraps_modulo_bit_width() -> None:
     assert acc.accumulate(x, dim=0).item() == -2
 
 
-def test_serial_accumulator_bills_energy_per_input_element() -> None:
+def test_accumulate_bills_energy_per_operand_element() -> None:
     """Energy quanta count equals ``numel(input)``, reduced axis included."""
     torch.manual_seed(12)
     x = torch.randint(-3, 4, (2, 4, 5), dtype=torch.int64)
-    acc = _build_serial((2, 5))
+    serial = _build_serial((2, 5))
+    plain = _build_plain((2, 5))
     with NeuroxProfiler() as p:
-        acc.accumulate(x, dim=-2)
-    assert _energy_total(p.energy_events, acc) == pytest.approx(_E_OP__FJ * x.numel())
+        serial.accumulate(x, dim=-2)
+        plain.accumulate(x, dim=-2)
+    expected = _E_OP__FJ * x.numel()
+    assert _energy_total(p.energy_events, serial) == pytest.approx(expected)
+    assert _energy_total(p.energy_events, plain) == pytest.approx(expected)
 
 
-def test_serial_accumulator_energy_scales_with_reduced_axis_extent() -> None:
+def test_accumulate_energy_scales_with_reduced_axis_extent() -> None:
     """At fixed output shape a 4x longer reduced axis costs 4x the accumulate
-    energy; the plain ``Accumulator``'s per-output billing is invariant."""
+    energy, on the serial register and on the adder tree alike."""
     out_inst = (2, 5)
     serial = _build_serial(out_inst)
     plain = _build_plain(out_inst)
@@ -98,22 +100,4 @@ def test_serial_accumulator_energy_scales_with_reduced_axis_extent() -> None:
         )
     assert energies[1][0] > 0.0
     assert energies[4][0] == pytest.approx(4.0 * energies[1][0])
-    assert energies[4][1] == pytest.approx(energies[1][1])
-
-
-def test_serial_accumulator_latency_counts_serial_inputs_per_instance() -> None:
-    """Latency = ``latency_per_op * ceil(numel(input) / inst_count)``."""
-    x = torch.ones((2, 4, 5), dtype=torch.int64)  # 40 inputs
-    acc = _build_serial((2, 5))  # inst_count 10 -> 4 serial ops
-    with NeuroxProfiler() as p:
-        acc.accumulate(x, dim=-2)
-    assert _latency_total(p.latency_events, acc) == pytest.approx(_T_OP__NS * 4)
-
-
-def test_serial_accumulator_latency_ceils_partial_instance_load() -> None:
-    """A non-divisible input count rounds the serial-op count up."""
-    x = torch.ones((3, 2, 5), dtype=torch.int64)  # 30 inputs
-    acc = _build_serial((4,))  # inst_count 4 -> ceil(30 / 4) = 8
-    with NeuroxProfiler() as p:
-        acc.accumulate(x, dim=-2)
-    assert _latency_total(p.latency_events, acc) == pytest.approx(_T_OP__NS * 8)
+    assert energies[4][1] == pytest.approx(4.0 * energies[1][1])

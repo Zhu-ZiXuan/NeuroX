@@ -12,6 +12,12 @@ from torch import Tensor
 class ProfileMixin:
     """Add static PPA properties and profile-event hooks to an ``nn.Module``.
 
+    Energy payloads follow the profiler's single reduction rule — sum every axis
+    past the caller's leading dims, keep the caller's leading dims; see
+    :class:`neurox.common.profiler.NeuroxProfiler`. An emitter declares nothing
+    about its own axes: it lays the caller's leading dims out first and puts its
+    internal work axes after them.
+
     Host requirements:
         - Also inherit :class:`torch.nn.Module`.
         - Expose ``inst_count``.
@@ -67,8 +73,19 @@ class ProfileMixin:
     def _record_dynamic_energy(self, dynamic_energy__fJ: Tensor, *, channel: str | None = None) -> None:
         """Record one dynamic-energy event to the active profiler (no-op outside one).
 
+        Everything past the caller's leading dims is summed, so the payload's
+        own work axes need no declaration. The payload MUST carry the caller's
+        leading dims at their true extents; a size-1 stand-in is a contract
+        violation, not a broadcast request.
+
+        The energy tensor is the emitter's to build. A flat per-op lump is a
+        0-dim constant expanded onto the billed layout: the expanded view holds
+        no storage and the profiler's reduction over its stride-0 axes
+        allocates only ``[*caller_leading]``, so nothing is materialized.
+
         Args:
-            dynamic_energy__fJ: Per-op switching energy tensor.
+            dynamic_energy__fJ: Per-op dynamic energy [fJ].
+                Shape: ``[*caller_leading, ...]``.
             channel: Optional energy-branch label.
         """
         if not self.is_profile_target:
@@ -79,19 +96,3 @@ class ProfileMixin:
         if profiler is None:
             return
         profiler._record_dynamic_energy(module=self, dynamic_energy__fJ=dynamic_energy__fJ, channel=channel)
-
-    @torch.compiler.disable
-    def _record_latency(self, latency__ns: Tensor) -> None:
-        """Record one latency event to the active profiler (no-op outside one).
-
-        Args:
-            latency__ns: Per-op latency contribution tensor.
-        """
-        if not self.is_profile_target:
-            raise RuntimeError(f"{type(self).__name__} is not a profile target but emitted a latency event")
-        from neurox.common.profiler import NeuroxProfiler
-
-        profiler = NeuroxProfiler.get_current()
-        if profiler is None:
-            return
-        profiler._record_latency(module=self, latency__ns=latency__ns)

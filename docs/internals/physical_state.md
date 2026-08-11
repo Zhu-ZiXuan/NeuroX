@@ -56,6 +56,37 @@ Programming is dispatched by the owner rather than cascaded uniformly because ea
 
 `snapshot(...)` derives one call-local view from fabricated or programmed state, optionally expands it to the call shape, and samples dynamic noise. A snap is not cached, registered, or persisted.
 
+## Sampling axes
+
+Fabrication and snapshotting expand over different axis sets, and that difference is what keeps a static deviation static:
+
+- `fabricate()` expands over **space** — the instance axes alone. One draw per physical instance, held until the next call.
+- `snapshot(...)` expands over **space and time** — the instance axes plus every access position the call covers. One fresh dynamic draw per access position, so the count of time positions is the count of accesses.
+
+Circuit time and space axes are orthogonal to the serial and parallel axes of programming and of chunking. A chunk axis is a memory tiling of positions that already exist, so it neither adds an access nor takes a draw.
+
+### Snap shapes
+
+A snap's shape is `inst_shape`-compatible: axes are added around `inst_shape`, never resized. Time axes sit in the leading don't-care region and their positions are right-anchored, shape growth being prepend-only; a time axis that will later merge with axes to its right sits immediately left of them.
+
+An inserted time axis lives only between the snapshot statement and the fold statement that merges it away. Every function boundary therefore carries the canonical `[..., *trailing]` shape, and no signature anywhere gains an argument for an axis that exists across two statements.
+
+### Who takes the snapshot
+
+The owner of the event structure does. How many accesses one call covers, and which axes are correlated across them, is knowledge that lives with the module that schedules the accesses — a composing macro — and nowhere below it. So a macro expands its references to the event shape, snapshots the blocks it owns, folds the inserted axis if there is one, and passes finished snaps down.
+
+A consumer that receives a snap therefore performs no boundary-shape normalization. Widening a narrow reference on arrival would silently assert the correlated reading — one draw shared across positions that are physically distinct — for every caller that had not thought about it, which is precisely the decision the caller is supposed to make explicitly.
+
+### Sources versus drivers
+
+Static shared identity belongs to the source, and dynamic per-access noise belongs to the consuming driver. A reference source is consequently fabricate-only: one bank per physical instance, sampled once, fanned out to its consumers by views and never resampled, exposed through a read-only accessor rather than a `snapshot`. A driver is what knows what an access is, so a driver is where the per-access draw happens.
+
+### Known limitation
+
+The right-anchoring rule is stated for a fold target in the trailing region. Where the axes a time axis will merge with are a suffix of the module's own `inst_shape`, "immediately left of the axes it merges with" places the time axis inside that prefix, which is not a position the `inst_shape`-compatibility rule admits. Under structurally zero static state — a nominal 0-dim buffer with its policy switch off — both placements give identical numbers, so the arrangement is inert; a module carrying both a fabrication prefix and a live static draw would mis-seat or raise.
+
+TODO (mismatch modeling): resolve the placement for a suffix fold target once noise and mismatch modeling is frozen.
+
 ## Persistence and ownership
 
 Nominal, functional, and circuit constant buffers are normally `persistent=False`; they are reproducible from config and construction arguments. Fabricated and programmed ordinary attributes are absent from `state_dict` by construction. The persisted upper-layer weight remains the source of truth, and loading a checkpoint must be followed by the normal fabrication/programming lifecycle.

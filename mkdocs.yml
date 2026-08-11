@@ -66,6 +66,7 @@ nav:
 - Reference:
   - Overview: reference/README.md
   - Nonideality: reference/primitive/nonideality.md
+  - Physics: reference/primitive/physics.md
   - Analog:
     - Current mux: reference/primitive/analog/current_mux.md
     - Current reference: reference/primitive/analog/current_reference.md
@@ -164,10 +165,11 @@ nav:
     - Encoding:
       - Encodings: internals/common/encoding/encodings.md
     - Nonideality: internals/primitive/nonideality.md
-    - Physical constant: internals/primitive/physical_constant.md
+    - Physics: internals/primitive/physics.md
     - Prober: internals/common/prober.md
     - Profiler: internals/common/profiler.md
     - Quant: internals/common/quant.md
+    - Tensor groups: internals/common/tensor_group.md
   - Device:
     - MOSFET: internals/primitive/device/mosfet.md
     - RRAM: internals/primitive/device/rram.md
@@ -209,8 +211,8 @@ nav:
       - 1T1R detail: internals/primitive/xbar/cell/_1t1r/cell_detail.md
       - 1T1R linear: internals/primitive/xbar/cell/_1t1r/cell_linear.md
     - Array:
-      - Base: internals/primitive/xbar/array/base.md
       - 1T1R: internals/primitive/xbar/array/_1t1r/array.md
+    - Scan organizations: internals/primitive/xbar/scan_organization.md
     - Solver: internals/primitive/xbar/solver.md
 - Works:
   - Overview: works/README.md

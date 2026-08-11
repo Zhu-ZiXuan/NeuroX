@@ -2,9 +2,9 @@
 
 ## Contracts & invariants
 
-- **`accumulate(x, dim)` reduces exactly one time-serial axis** with the same modular-wrap function as the accumulator; only the billing differs — one energy quantum per input element and a serial-round count of `ceil(numel(x) / inst_count)`, where the accumulator bills against the output-element count. The full per-input energy tensor is created only while a profiler is active.
-- **Stateless, single-call reduction.** The serial-register semantics live only in the accounting; the reduce itself is one batched kernel with no cross-call state.
-- **Config is `AccumulatorConfig`, reused unchanged.** The subclass adds no fields; the per-op terms are re-read as per-input-element quantities.
+- **`accumulate(x, dim)` reduces exactly one time-serial axis**, inherited verbatim from the accumulator — same modular wrap, same per-operand billing off `x` before the reduce. The subclass overrides nothing; it records at the construction site that the reduced axis is realized as successive arrivals on one register, which is why the caller multiplies the per-op window by the arrival count in its own latency.
+- **Stateless, single-call reduction.** The serial-register semantics live only in the caller's schedule; the reduce itself is one batched kernel with no cross-call state.
+- **Config is `AccumulatorConfig`, reused unchanged.** The subclass adds no fields and re-reads no term.
 
 ## Performance & resources
 
@@ -13,7 +13,7 @@
 ## Gotchas
 
 - **Wrap is silent.** An out-of-range sum aliases with no error or warning; the operation is not saturating.
-- **Do not use for parallel adder trees.** A reduction realized as a parallel tree carries the accumulator's per-output billing; this block would over-bill it by the reduced-axis extent.
+- **The class carries no behavioural delta.** Energy, latency and function are the accumulator's; the name records the realization for the reader and nothing more, so swapping it for its base changes no reported number.
 
 ---
 

@@ -16,8 +16,7 @@ class AdderConfig(DigitalConfig):
     Attributes:
         bit_width: Nominal output bit width (informational; no wrap is applied).
         energy_per_op__fJ: Dynamic energy consumed per output element.
-        latency_per_op__ns: Per-element latency; multiplied by the
-            runtime serial-op count at logging time.
+        latency_per_op__ns: Combinational window of one add.
     """
 
     bit_width: int
@@ -55,7 +54,6 @@ class Adder(DigitalBase[AdderConfig]):
         inst_shape: tuple[int, ...],
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
-        self._register_latency_buffer(config.latency_per_op__ns)
 
     @property
     def _area_per_inst__um2(self) -> float:
@@ -76,9 +74,13 @@ class Adder(DigitalBase[AdderConfig]):
             ``y = a + b``.
         """
         y = a + b
-        serial_round_count = self._count_serial_rounds(y.numel())
-        latency__ns = self._latency_per_op__ns * serial_round_count
         if self._is_dynamic_energy_profile_active():
-            self._record_dynamic_energy(torch.full_like(y, self.config.energy_per_op__fJ, dtype=torch.float32))
-        self._record_latency(latency__ns)
+            # Adder has no caller anywhere in the execution path, so no caller
+            # ever positions a space axis of this block's own inst_shape inside
+            # y; inst_shape only sizes the area/leakage totals. A flat per-op
+            # lump: the expanded constant holds no storage, and the energy dtype
+            # is the constant's rather than the integer operand's.
+            # Shape: [] -> [*y.shape]
+            e_op__fJ = torch.full((), self.config.energy_per_op__fJ, dtype=torch.float32, device=y.device)
+            self._record_dynamic_energy(e_op__fJ.expand(y.shape))
         return y

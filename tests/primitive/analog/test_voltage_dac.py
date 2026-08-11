@@ -1,0 +1,62 @@
+"""Per-code dynamic-energy law of :class:`GeneralVdac`.
+
+The energy table is parallel to the voltage table: converting one element
+costs what that element's own code costs, so a batch of mixed codes bills the
+per-code count times the per-code entry, and a level whose entry is zero
+bills nothing at all.
+"""
+
+from __future__ import annotations
+
+import pytest
+import torch
+
+from neurox.common.mixin import ProfileMixin
+from neurox.common.profiler import EnergyEvent, NeuroxProfiler
+from neurox.primitive.analog.voltage_dac import GeneralVdac, GeneralVdacConfig, GeneralVdacPolicy
+
+_CODE_TO_SIGNAL__V = (0.0, 0.9)
+_E_CODE_0__fJ = 3.5
+_E_CODE_1__fJ = 8.25
+
+
+def _build(code_to_per_op_energy__fJ: tuple[float, ...]) -> GeneralVdac:
+    """Noise-free two-code DAC carrying the given per-code energy table."""
+    dac = GeneralVdac(
+        config=GeneralVdacConfig(
+            code_to_signal=_CODE_TO_SIGNAL__V,
+            drive_thermal__V=0.0,
+            code_to_per_op_energy__fJ=code_to_per_op_energy__fJ,
+            area_per_inst__um2=0.0,
+            leakage_per_inst__uW=0.0,
+        ),
+        policy=GeneralVdacPolicy(drive_thermal=False),
+        inst_shape=(),
+        dtype=torch.float64,
+        T__K=300.0,
+    )
+    dac.eval()
+    dac.fabricate()
+    return dac
+
+
+def _energy_total(events: list[EnergyEvent], module: ProfileMixin) -> float:
+    """Sum the logged dynamic energy [fJ] of the events ``module`` emitted."""
+    return sum((float(e.dynamic_energy__fJ.sum()) for e in events if e.module is module), 0.0)
+
+
+def test_conversion_bills_each_element_at_its_own_code() -> None:
+    """A mixed batch costs ``count0 * e0 + count1 * e1``; a zero entry costs nothing."""
+    code = torch.tensor([[0, 1, 1], [1, 0, 1]], dtype=torch.int64)
+    count_1 = int(code.sum())
+    count_0 = code.numel() - count_1
+
+    dac = _build((_E_CODE_0__fJ, _E_CODE_1__fJ))
+    with NeuroxProfiler() as p:
+        dac.convert(code)
+    assert _energy_total(p.energy_events, dac) == pytest.approx(count_0 * _E_CODE_0__fJ + count_1 * _E_CODE_1__fJ)
+
+    free_zero = _build((0.0, _E_CODE_1__fJ))
+    with NeuroxProfiler() as p_free:
+        free_zero.convert(code)
+    assert _energy_total(p_free.energy_events, free_zero) == pytest.approx(count_1 * _E_CODE_1__fJ)

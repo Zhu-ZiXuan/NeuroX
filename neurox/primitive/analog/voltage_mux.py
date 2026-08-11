@@ -18,8 +18,6 @@ class VmuxConfig(AnalogConfig):
     Attributes:
         mux_ratio: N in the N:1 ratio of inputs to each output lane.
         energy_per_access__fJ: Per-access dynamic energy.
-        latency_per_op__ns: Per-transport latency; multiplied by
-            the runtime serial-op count at logging time.
         mux_gain: Scalar transport gain.
         mux_gain_mismatch_sigma_relative: Per-instance fractional gain
             mismatch standard deviation; flat (not area-scaled).
@@ -34,7 +32,6 @@ class VmuxConfig(AnalogConfig):
     mux_gain_mismatch_sigma_relative: float
     mux_noise_sigma__V: float
     energy_per_access__fJ: float
-    latency_per_op__ns: float
     area_per_inst__um2: float
     leakage_per_inst__uW: float
 
@@ -52,7 +49,6 @@ class VmuxConfig(AnalogConfig):
         self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
         self._require_non_neg(self.leakage_per_inst__uW, "leakage_per_inst__uW")
         self._require_non_neg(self.energy_per_access__fJ, "energy_per_access__fJ")
-        self._require_non_neg(self.latency_per_op__ns, "latency_per_op__ns")
 
 
 class VmuxPolicy(AnalogPolicy):
@@ -78,10 +74,6 @@ class Vmux(AnalogBase[VmuxConfig, VmuxPolicy]):
         T__K: Operating temperature.
     """
 
-    # === Circuit constant buffers ===
-
-    _latency_per_op__ns: Tensor  # Shape: []
-
     # === Nominal buffers ===
 
     _nominal_eps_g: Tensor  # Shape: []
@@ -101,11 +93,6 @@ class Vmux(AnalogBase[VmuxConfig, VmuxPolicy]):
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
         self._sigma_eps_g = config.mux_gain_mismatch_sigma_relative
-        self.register_buffer(
-            "_latency_per_op__ns",
-            torch.tensor(config.latency_per_op__ns, dtype=dtype),
-            persistent=False,
-        )
         self._register_fabrication_buffers(dtype=dtype)
 
     @property
@@ -162,9 +149,10 @@ class Vmux(AnalogBase[VmuxConfig, VmuxPolicy]):
             enabled=self.policy.mux_noise,
         )
 
-        serial_round_count = self._count_serial_rounds(v_muxed__V.numel())
-        latency__ns = self._latency_per_op__ns * serial_round_count
         if self._is_dynamic_energy_profile_active():
-            self._record_dynamic_energy(torch.full_like(v_muxed__V, self.config.energy_per_access__fJ))
-        self._record_latency(latency__ns)
+            # Shape: [] -> [*v_muxed__V.shape]
+            e_access__fJ = torch.full(
+                (), self.config.energy_per_access__fJ, dtype=torch.float32, device=v_muxed__V.device
+            )
+            self._record_dynamic_energy(e_access__fJ.expand(v_muxed__V.shape))
         return v_muxed__V
