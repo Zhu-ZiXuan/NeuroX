@@ -133,7 +133,7 @@ class Dswct(ModuleBase[DswctConfig, DswctPolicy]):
             # Shape: [..., serial, gn, polarity, w_digit] -> [..., serial, gn, polarity]
             i_wdl_bank__uA = i_wdl__uA.abs().sum(dim=-1)
             # Cap: c_load * V_DD**2 once per (slot x plane) per bank — one event
-            # per payload entry, since a bank IS one (gn, polarity) instance.
+            # per energy-tensor entry, since a bank IS one (gn, polarity) instance.
             e__fJ = self._v_dd__V * window_view__ns * i_wdl_bank__uA + self.config.c_load__fF * self._v_dd__V**2
             self._record_dynamic_energy(e__fJ)
         # Shape: [..., serial, gn, polarity, w_digit] -> [..., serial, gn, polarity]

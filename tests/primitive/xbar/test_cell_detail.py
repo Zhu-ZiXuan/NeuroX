@@ -3,9 +3,9 @@
 The detailed 1T1R cell condenses its access node with a per-cell Newton and
 emits the access-node KCL residual to :class:`XbarCell1t1rDetailProber` once per
 ``solve_dc`` call. These tests pin the emitter contract (laws, not numbers):
-one record per ``solve_dc`` call, the payload's ``cell__uA`` is the
-non-negative ``|I_NMOS - I_RRAM|`` over the branch grid, and the
-lean ``solve_branch`` hot path emits nothing.
+one record per ``solve_dc`` call, the record names the emitting cell and its
+``cell__uA`` is the non-negative ``|I_NMOS - I_RRAM|`` over the branch grid,
+and the lean ``solve_branch`` hot path emits nothing.
 """
 
 from __future__ import annotations

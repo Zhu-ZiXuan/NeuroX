@@ -27,8 +27,7 @@ from neurox.primitive.xbar.array import (
     XbarArray1t1rSteadyState,
 )
 from neurox.primitive.xbar.cell import XbarCell1t1rDcop, XbarCell1t1rSnap
-from neurox.primitive.xbar.solver import ClampDriver, SolverDcop
-from neurox.primitive.xbar.solver.clamp import ClampSnap
+from neurox.primitive.xbar.solver import ClampDriver, ClampSnap, SolverDcop
 
 # Import triggers the cell's registry registration so ``from_config`` dispatches.
 from .cell import Ye2023Jssc2t1rCell, Ye2023Jssc2t1rCellConfig, Ye2023Jssc2t1rCellSnap

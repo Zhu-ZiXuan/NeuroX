@@ -89,4 +89,4 @@ Every deviation from the eager default lives here; module docs only point back:
 ## See also
 
 - [contracts](contracts.md), [scheme B](scheme_b_deobjectified.md), [scheme C](scheme_c_custom_op.md)
-- Implementation: `neurox/architecture/unit/cim/*.py`, `neurox/primitive/xbar/array/_1t1r.py`, `neurox/primitive/xbar/solver/*.py`, `neurox/common/mixin/profile.py`
+- Implementation: `neurox/architecture/unit/cim/*.py`, `neurox/primitive/xbar/array/_1t1r.py`, `neurox/primitive/xbar/solver/*.py`, `neurox/common/profile_mixin.py`

@@ -10,7 +10,7 @@
 
 ## Contracts & invariants
 
-- **Returned current is the RRAM leg.** `solve_branch` and `solve_dc` report the RRAM current `i_r` as the condensed branch current `i__uA`. `XbarCell1t1rDetailProber(Prober[XbarCell1t1rDetailObservation])` is colocated with `XbarCell1t1rDetail`. When the prober is active, each `solve_dc` call computes `|i_n - i_r|` at its final $V_{\mathrm{X}}$ and submits one `XbarCell1t1rDetailObservation`; otherwise neither the absolute residual nor the payload is built.
+- **Returned current is the RRAM leg.** `solve_branch` and `solve_dc` report the RRAM current `i_r` as the condensed branch current `i__uA`. `XbarCell1t1rDetailProber(RecorderBase[XbarCell1t1rDetailRecord])` is colocated with `XbarCell1t1rDetail`. When a prober is active, each `solve_dc` call computes `|i_n - i_r|` at its final $V_{\mathrm{X}}$ and submits one `XbarCell1t1rDetailRecord`; otherwise neither the absolute residual nor the record is built.
 - **`program` writes only the storage device.** It maps a state-index tensor through `_state_to_g_map__uS` and programs the RRAM; the NMOS is not programmed. The state-index shape must match the cell's `inst_shape`.
 
 ## Performance & resources
@@ -23,7 +23,7 @@ The cell's per-call working set is the device snaps plus a handful of node-volta
 
 ## Known limitations
 
-- **Cell-internal convergence is verified through residuals, not a closed-form root.** The per-cell KCL residual carried by `XbarCell1t1rDetailObservation` is the standing check that the fixed `newton_iter_num` condenses $V_{\mathrm{X}}$ to the numerical floor; there is no separate analytic-root cross-check. The device-derivative signs are checked directly — the test asserts the returned conductances are non-negative / non-positive (footer's Tests).
+- **Cell-internal convergence is verified through residuals, not a closed-form root.** The per-cell KCL residual carried by `XbarCell1t1rDetailRecord` is the standing check that the fixed `newton_iter_num` condenses $V_{\mathrm{X}}$ to the numerical floor; there is no separate analytic-root cross-check. The device-derivative signs are checked directly — the test asserts the returned conductances are non-negative / non-positive (footer's Tests).
 
 ---
 

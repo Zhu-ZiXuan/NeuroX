@@ -4,15 +4,18 @@ from __future__ import annotations
 
 import math
 from abc import ABC
-from dataclasses import dataclass
+from dataclasses import Field, dataclass, field
 from typing import Generic, TypeVar, dataclass_transform, final
 
 import torch.nn as nn
 
-from .mixin import FabricateMixin, ProfileMixin, SerializeMixin, ValidateMixin
+from .fabricate_mixin import FabricateMixin
+from .profile_mixin import ProfileMixin
+from .serialize_mixin import SerializeMixin
+from .validate_mixin import ValidateMixin
 
 
-@dataclass_transform(frozen_default=True, kw_only_default=True)
+@dataclass_transform(frozen_default=True, kw_only_default=True, field_specifiers=(field, Field))
 @dataclass(frozen=True, kw_only=True)
 class ConfigBase(SerializeMixin, ValidateMixin, ABC):
     """Base for immutable module configurations.
@@ -41,7 +44,7 @@ class ConfigBase(SerializeMixin, ValidateMixin, ABC):
         """Validate this configuration."""
 
 
-@dataclass_transform(frozen_default=True, kw_only_default=True)
+@dataclass_transform(frozen_default=True, kw_only_default=True, field_specifiers=(field, Field))
 @dataclass(frozen=True, kw_only=True)
 class PolicyBase(SerializeMixin, ValidateMixin, ABC):
     """Base for immutable module runtime policies.
@@ -70,8 +73,15 @@ class PolicyBase(SerializeMixin, ValidateMixin, ABC):
         """Validate this runtime policy."""
 
 
-ConfigT = TypeVar("ConfigT", bound=ConfigBase)
-PolicyT = TypeVar("PolicyT", bound=PolicyBase)
+# ConfigT and PolicyT are covariant across every module family: a config or policy is
+# produced (read-only properties, injected once at construction) and never consumed by an
+# instance method. Variance constraint, for this pair and its family-level counterparts:
+# instance methods must never take ConfigT or PolicyT as a parameter and must take the
+# abstract base instead (``__init__`` is exempt). mypy's variance check is shallow —
+# ``type[T]`` and ``list[T]`` parameter positions go unflagged — so the constraint is
+# partly documentation-enforced.
+ConfigT = TypeVar("ConfigT", bound=ConfigBase, covariant=True)
+PolicyT = TypeVar("PolicyT", bound=PolicyBase, covariant=True)
 
 
 class ModuleBase(FabricateMixin, nn.Module, ProfileMixin, Generic[ConfigT, PolicyT], ABC):

@@ -25,10 +25,9 @@ from pathlib import Path
 import torch
 from torch import Tensor
 
+from neurox.primitive import T_ROOM__K
 from neurox.primitive.analog.current_adc import IadcProber
-from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
-from neurox.primitive.macro.cim.ideal import IdealCimMacro
-from neurox.primitive.physics import T_ROOM__K
+from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy, IdealCimMacro
 from neurox.tools._config import resolve_relative_path
 
 logger = logging.getLogger(__name__)
@@ -89,7 +88,9 @@ class MacroSection:
             raise ValueError("require: [macro].config_files non-empty")
 
 
-def build_physical_macro(section: MacroSection, *, base: Path, device: torch.device) -> CimMacro:
+def build_physical_macro(
+    section: MacroSection, *, base: Path, device: torch.device
+) -> CimMacro[CimMacroConfig, CimMacroPolicy]:
     """Build, fabricate, and eval-freeze the physical tile named by ``section``.
 
     Args:
@@ -132,7 +133,7 @@ def build_physical_macro(section: MacroSection, *, base: Path, device: torch.dev
     return macro
 
 
-def build_ideal_twin(macro: CimMacro, *, device: torch.device) -> IdealCimMacro:
+def build_ideal_twin(macro: CimMacro[CimMacroConfig, CimMacroPolicy], *, device: torch.device) -> IdealCimMacro:
     """Build the lossless ideal twin (weights are programmed separately)."""
     ideal = macro.to_ideal().to(device)
     ideal.eval()
@@ -350,7 +351,7 @@ class PairedConversion:
 
 
 def run_paired_stimulus(
-    physical: CimMacro,
+    physical: CimMacro[CimMacroConfig, CimMacroPolicy],
     ideal: IdealCimMacro,
     *,
     w: Tensor,
@@ -367,9 +368,9 @@ def run_paired_stimulus(
     per-sub-phase masked drive the runtime applies and the streams stay
     element-aligned). The physical VMM runs at
     ``(quantization_mode, adc_bits)`` under a :class:`IadcProber` capturing
-    the convert observations; the ideal VMM runs at the lossless
+    the convert records; the ideal VMM runs at the lossless
     ``adc_bits = None`` oracle and its integer-dot RETURN value is the
-    ideal view (the ideal tile emits no probe). The physical observations
+    ideal view (the ideal tile emits no probe). The physical records
     and the ideal returns are paired positionally.
 
     Args:
@@ -388,7 +389,7 @@ def run_paired_stimulus(
         The flattened order-aligned streams (see :class:`PairedConversion`).
 
     Raises:
-        ValueError: If the physical macro emitted no convert observation, if
+        ValueError: If the physical macro emitted no convert record, if
             the physical and ideal streams disagree in count, or if a paired
             physical / ideal entry disagrees in element count (a macro that
             breaks the column-order-preserving layout contract).
@@ -411,23 +412,21 @@ def run_paired_stimulus(
     with IadcProber() as prober, torch.no_grad():
         physical.vec_mat_mul(x, quantization_mode=quantization_mode, adc_bits=adc_bits)
         # The ideal twin is reachable data: its return is the lossless view,
-        # positionally paired with the physical convert observations.
+        # positionally paired with the physical convert records.
         ideal_dots: list[Tensor] = [ideal.vec_mat_mul(x, quantization_mode=quantization_mode, adc_bits=None)]
 
-    convert_observations = prober.records
-    if not convert_observations:
+    convert_records = prober.records
+    if not convert_records:
         raise ValueError("no paired conversions recorded — the physical macro emitted no current_adc.convert events")
-    if len(convert_observations) != len(ideal_dots):
-        raise ValueError(
-            f"paired stream counts differ (convert {len(convert_observations)} vs ideal {len(ideal_dots)})"
-        )
+    if len(convert_records) != len(ideal_dots):
+        raise ValueError(f"paired stream counts differ (convert {len(convert_records)} vs ideal {len(ideal_dots)})")
 
     i_in_parts: list[Tensor] = []
     code_parts: list[Tensor] = []
     ideal_parts: list[Tensor] = []
-    for observation, ideal_dot in zip(convert_observations, ideal_dots, strict=True):
-        i_in = observation.i_in__uA.flatten().to("cpu", torch.float64)
-        code = observation.code.flatten().to("cpu", torch.int64)
+    for record, ideal_dot in zip(convert_records, ideal_dots, strict=True):
+        i_in = record.i_in__uA.flatten().to("cpu", torch.float64)
+        code = record.code.flatten().to("cpu", torch.int64)
         ideal_m = ideal_dot.flatten().to("cpu", torch.int64)
         if i_in.numel() != ideal_m.numel():
             raise ValueError(

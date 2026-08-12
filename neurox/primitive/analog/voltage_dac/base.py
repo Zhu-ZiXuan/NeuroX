@@ -12,7 +12,7 @@ from typing import Generic, TypeVar
 import torch
 from torch import Tensor
 
-from neurox.common.mixin import RegistryMixin
+from neurox.common import RegistryMixin
 from neurox.primitive.analog.base import AnalogBase, AnalogConfig, AnalogPolicy
 
 
@@ -36,13 +36,13 @@ class VdacPolicy(AnalogPolicy, ABC):
     """Abstract marker base for voltage-DAC-family nonideality policies."""
 
 
-ConfigT = TypeVar("ConfigT", bound=VdacConfig)
-PolicyT = TypeVar("PolicyT", bound=VdacPolicy)
+ConfigT = TypeVar("ConfigT", bound=VdacConfig, covariant=True)
+PolicyT = TypeVar("PolicyT", bound=VdacPolicy, covariant=True)
 
 
 class Vdac(
     AnalogBase[ConfigT, PolicyT],
-    RegistryMixin["VdacConfig", "VdacPolicy", "Vdac"],
+    RegistryMixin["VdacConfig", "VdacPolicy", "Vdac[VdacConfig, VdacPolicy]"],
     Generic[ConfigT, PolicyT],
     ABC,
 ):
@@ -77,7 +77,7 @@ class Vdac(
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
-    ) -> Vdac:
+    ) -> Vdac[VdacConfig, VdacPolicy]:
         """Build the implementation registered for the config-policy pair.
 
         Args:

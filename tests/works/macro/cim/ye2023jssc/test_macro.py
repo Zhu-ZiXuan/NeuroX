@@ -49,8 +49,8 @@ import pytest
 import torch
 import torch._dynamo
 
+from neurox import Profiler, Reporter, stamp_names
 from neurox.common import PolicyBase
-from neurox.common.profiler import NeuroxProfiler, ProfilerReport
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig
 from neurox.works.macro.cim.ye2023jssc.array import Ye2023Jssc2t1rArrayConfig
 from neurox.works.macro.cim.ye2023jssc.cell import Ye2023Jssc2t1rCellConfig
@@ -422,10 +422,10 @@ def test_energy_channels(device: torch.device) -> None:
     x = torch.ones(TINY_INPUT_NUM, dtype=torch.long, device=device)
 
     macro.program(w_val)
-    with NeuroxProfiler() as prof, torch.no_grad():
+    stamp_names(macro)
+    with Profiler() as prof, torch.no_grad():
         macro.vec_mat_mul(x, quantization_mode=QUANTIZATION_MODE, adc_bits=TINY_ADC_BITS)
-    report = prof.report(macro)
-    by_name = report.energy_by_name
+    by_name = Reporter(macro).by_name(prof)
 
     # Array block: self-billed per-access caps ("array") + the two converter
     # banks' own drive rows + the macro-billed conduction channels; then the
@@ -449,33 +449,34 @@ _CROSS_X = (((1, 1),), ((1, 0),), ((0, 1),))  # [batch, 1, in] — the 1 broadca
 
 def _crossed_run(
     device: torch.device,
-) -> tuple[Ye2023JsscCimMacro, torch.Tensor, torch.Tensor, ProfilerReport, ProfilerReport]:
+) -> tuple[Ye2023JsscCimMacro, torch.Tensor, torch.Tensor, tuple[Profiler, Reporter], tuple[Profiler, Reporter]]:
     """Run one crossed ensemble call and the ``die_num * batch`` single-die runs it stands for.
 
     Returns:
         The ensemble macro, its codes, the single-die reference codes, and the
-        two profiler reports (crossed call, then the reference runs).
+        two profiler / reporter pairs (crossed call, then the reference runs).
     """
     config = build_config()
     ensemble = build_macro(config, device=device, inst_shape=(_DIE_NUM,))
     scalar = build_macro(config, device=device)
     w = torch.tensor(_CROSS_W, dtype=torch.long, device=device)
     x = torch.tensor(_CROSS_X, dtype=torch.long, device=device)
+    stamp_names(ensemble)
+    stamp_names(scalar)
 
-    with NeuroxProfiler() as prof_cross, torch.no_grad():
+    with Profiler() as prof_cross, torch.no_grad():
         ensemble.program(w)
         code_cross = ensemble.vec_mat_mul(x, quantization_mode=QUANTIZATION_MODE, adc_bits=TINY_ADC_BITS)
-    report_cross = prof_cross.report(ensemble)
 
     code_ref = torch.empty_like(code_cross)
-    with NeuroxProfiler() as prof_ref, torch.no_grad():
+    with Profiler() as prof_ref, torch.no_grad():
         for die in range(_DIE_NUM):
             scalar.program(w[die])
             for batch in range(_CROSS_BATCH):
                 code_ref[batch, die] = scalar.vec_mat_mul(
                     x[batch, 0], quantization_mode=QUANTIZATION_MODE, adc_bits=TINY_ADC_BITS
                 )
-    return ensemble, code_cross, code_ref, report_cross, prof_ref.report(scalar)
+    return ensemble, code_cross, code_ref, (prof_cross, Reporter(ensemble)), (prof_ref, Reporter(scalar))
 
 
 def test_crossed_ensemble_codes_equal_the_single_die_codes(device: torch.device) -> None:
@@ -489,18 +490,21 @@ def test_crossed_ensemble_codes_equal_the_single_die_codes(device: torch.device)
 
 def test_crossed_ensemble_bills_the_sum_of_its_dies(device: torch.device) -> None:
     """Every dynamic channel of the crossed call equals the sum over the single-die runs."""
-    _macro, _cc, _cr, report_cross, report_ref = _crossed_run(device)
-    cross__fJ, ref__fJ = report_cross.energy_by_name, report_ref.energy_by_name
+    _macro, _cc, _cr, (prof_cross, rep_cross), (prof_ref, rep_ref) = _crossed_run(device)
+    cross__fJ, ref__fJ = rep_cross.by_name(prof_cross), rep_ref.by_name(prof_ref)
     assert set(cross__fJ) == set(ref__fJ)
     for name, e__fJ in ref__fJ.items():
         assert cross__fJ[name] == pytest.approx(e__fJ, rel=1e-9), f"channel {name!r} does not bill per die"
-    assert report_cross.total_dynamic_energy__fJ == pytest.approx(report_ref.total_dynamic_energy__fJ, rel=1e-9)
+    assert rep_cross.total_dynamic_energy__fJ(prof_cross) == pytest.approx(
+        rep_ref.total_dynamic_energy__fJ(prof_ref), rel=1e-9
+    )
 
 
 def test_static_report_seats(device: torch.device) -> None:
     """The static walk seats every configured PPA reporter (macro root + children)."""
     macro = build_macro(build_config(), device=device)
-    static = {r.qualified_name: r.leakage_power__uW for r in NeuroxProfiler.collect_static(macro)}
+    stamp_names(macro)
+    static = {e.qualified_name: e.leakage__uW for e in Reporter(macro).static_entries}
     # Every owned block is seated, converter banks and array included.
     for seat in ("", "array", "wl_dac", "bl_dac", "rscsa", "bl_driver", "sl_driver", "mux_driver", "timing_ctrl"):
         assert seat in static, f"missing static seat {seat!r}; have {sorted(static)}"

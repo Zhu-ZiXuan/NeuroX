@@ -20,7 +20,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from neurox.common.profiler import NeuroxProfiler
+from neurox import Profiler, Reporter, stamp_names
 from neurox.works.macro.cim.xue2020jssc.sinwp_sc import SinwpSc, SinwpScConfig, SinwpScPolicy
 
 _DTYPE = torch.float64
@@ -50,6 +50,7 @@ def _build_sinwp_sc(*, c_hold__fF: float = _C_HOLD__fF) -> SinwpSc:
         v_dd__V=_V_DD__V,
     )
     module.fabricate()
+    stamp_names(module)  # the standalone module is its own root, named ""
     return module
 
 
@@ -95,7 +96,7 @@ def test_leg_billing_law() -> None:
     assert (i__uA < 0).any() and (i__uA > 0).any()
     window = torch.tensor(_WINDOW__NS, dtype=_DTYPE)
 
-    with NeuroxProfiler() as prof, torch.no_grad():
+    with Profiler() as prof, torch.no_grad():
         module(i__uA, window_per_bit__ns=window)
 
     # Branch-tensor law: the billed branches are the materialized legs
@@ -109,7 +110,7 @@ def test_leg_billing_law() -> None:
     e_conduction__fJ = (_V_DD__V * (i_leg_per_bit * window).sum(dim=-1)).sum()
     e_conduction = float(e_conduction__fJ)
     e_cap = _C_HOLD__fF * _V_DD__V**2 * (_X_BITS * _SERIAL * _GN * _POLARITY_NUM)
-    assert prof.total_dynamic_energy__fJ == pytest.approx(e_conduction + e_cap)
+    assert Reporter(module).total_dynamic_energy__fJ(prof) == pytest.approx(e_conduction + e_cap)
 
     # The interface-current bill (the pre-fix scaling placement) is a
     # DIFFERENT number on this witness — the law discriminates.

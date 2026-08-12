@@ -59,7 +59,7 @@ import torch
 import torch._dynamo
 from torch import Tensor
 
-from neurox.common.profiler import NeuroxProfiler, ProfilerReport
+from neurox import Profiler, Reporter
 
 from ._utils import (
     QUANTIZATION_MODE,
@@ -126,26 +126,25 @@ def _run(
     device: torch.device,
     quantization_mode: int = QUANTIZATION_MODE,
     adc_bits: int = TINY_ADC_BITS,
-) -> tuple[NeuroxProfiler, ProfilerReport]:
+) -> tuple[Profiler, Reporter]:
     """Build + fabricate a fresh macro, program ``w``, profile one VMM on ``x``."""
     macro = build_macro(config, device=device)
     macro.program(w.to(device))
-    with NeuroxProfiler() as prof, torch.no_grad():
+    with Profiler() as prof, torch.no_grad():
         macro.vec_mat_mul(x.to(device), quantization_mode=quantization_mode, adc_bits=adc_bits)
-    return prof, prof.report(macro)
+    return prof, Reporter(macro)
 
 
-def _channels(report: ProfilerReport) -> dict[str, float]:
+def _channels(by_name: dict[str, float]) -> dict[str, float]:
     """Per-row dynamic energy [fJ] keyed by slice name (macro channels dotted, module rows bare)."""
-    by_name = report.energy_by_name
     return {name: by_name.get(key, 0.0) for name, key in _ROW_KEYS.items()}
 
 
 def _channel_energies(
     config: Xue2020JsscCimMacroConfig, w: Tensor, x: Tensor, *, device: torch.device
 ) -> dict[str, float]:
-    _prof, report = _run(config, w, x, device=device)
-    return _channels(report)
+    prof, reporter = _run(config, w, x, device=device)
+    return _channels(reporter.by_name(prof))
 
 
 def _with_adc(
@@ -245,8 +244,8 @@ def _whole_input_branch(macro: Xue2020JsscCimMacro, x: Tensor) -> float:
 def test_billed_rows_present_with_exact_names(device: torch.device) -> None:
     """The two macro channels and the three readout module rows appear under their exact keys."""
     x = torch.tensor([[1, 2, 1, 0], [3, 3, 1, 0]], dtype=torch.long)  # batch (2,)
-    _prof, report = _run(build_config(), _w_full(), x, device=device)
-    by_name = report.energy_by_name
+    prof, reporter = _run(build_config(), _w_full(), x, device=device)
+    by_name = reporter.by_name(prof)
     for name, key in _ROW_KEYS.items():
         assert key in by_name, f"missing {name} row {key!r}; have {sorted(by_name)}"
         assert by_name[key] > 0.0, f"non-positive {key}: {by_name[key]}"
@@ -258,8 +257,8 @@ def test_billed_rows_present_with_exact_names(device: torch.device) -> None:
 def test_module_rows_self_bill_dynamic(device: torch.device) -> None:
     """Array, TMCSA, and the readout modules self-bill; only cablc/control stay macro channels."""
     x = torch.tensor([[1, 2, 1, 0], [3, 3, 1, 0]], dtype=torch.long)
-    _prof, report = _run(build_config(), _w_full(), x, device=device)
-    by_name = report.energy_by_name
+    prof, reporter = _run(build_config(), _w_full(), x, device=device)
+    by_name = reporter.by_name(prof)
     # The array bills its capacitive cycling (caps only); the TMCSA module
     # bills the conversion phases; the readout modules bill their rail
     # branches.
@@ -279,7 +278,7 @@ def test_module_rows_self_bill_dynamic(device: torch.device) -> None:
 def test_static_report_seats_reporters_only(device: torch.device) -> None:
     """The static walk contains every configured PPA-reporting module."""
     macro = build_macro(build_config(), device=device)
-    static = {r.qualified_name: r.leakage_power__uW for r in NeuroxProfiler.collect_static(macro)}
+    static = {e.qualified_name: e.leakage__uW for e in Reporter(macro).static_entries}
     # Seats with nonzero witness leakage: the macro root (named ""), control
     # (UnmodeledBlock), adc_current_reference, the clamp drivers, the PN-ISUB
     # module, the kernel ADC (adc), and the TMCSA billing module (tmcsa).
@@ -310,20 +309,20 @@ def test_dynamic_energy_scales_with_conduction_windows_not_t_cycle(device: torch
     w, x = _w_full(), _x_full(2)
     base_cfg = build_config(t_sample__ns=(1.0,), t_settle__ns=2.0, t_cycle__ns=50.0)
 
-    prof_base, report_base = _run(base_cfg, w, x, device=device)
-    dyn_base = prof_base.total_dynamic_energy__fJ
+    prof_base, rep_base = _run(base_cfg, w, x, device=device)
+    dyn_base = rep_base.total_dynamic_energy__fJ(prof_base)
     assert dyn_base > 0.0
 
     # --- Double t_cycle: dynamic unchanged ---
-    prof_2t, _report_2t = _run(dataclasses.replace(base_cfg, t_cycle__ns=100.0), w, x, device=device)
-    assert prof_2t.total_dynamic_energy__fJ == pytest.approx(dyn_base)
+    prof_2t, rep_2t = _run(dataclasses.replace(base_cfg, t_cycle__ns=100.0), w, x, device=device)
+    assert rep_2t.total_dynamic_energy__fJ(prof_2t) == pytest.approx(dyn_base)
 
     # --- Double a conduction window (t_settle -> t_other): the read channels grow ---
-    prof_win, report_win = _run(dataclasses.replace(base_cfg, t_settle__ns=4.0), w, x, device=device)
-    assert prof_win.total_dynamic_energy__fJ > dyn_base  # dynamic grows with the window
+    prof_win, rep_win = _run(dataclasses.replace(base_cfg, t_settle__ns=4.0), w, x, device=device)
+    assert rep_win.total_dynamic_energy__fJ(prof_win) > dyn_base  # dynamic grows with the window
     # The control channel is window-invariant; the read channels moved.
-    ch_base = _channels(report_base)
-    ch_win = _channels(report_win)
+    ch_base = _channels(rep_base.by_name(prof_base))
+    ch_win = _channels(rep_win.by_name(prof_win))
     assert ch_win["control"] == pytest.approx(ch_base["control"])
     for ch in _READ_ROWS:
         assert ch_win[ch] > ch_base[ch], f"read channel {ch} did not grow with t_settle"
@@ -354,13 +353,13 @@ def test_input_branch_billed_whole_by_cablc_array_bills_caps_only(device: torch.
     def run(config: Xue2020JsscCimMacroConfig) -> tuple[float, float, float]:
         macro = build_macro(config, device=device)
         macro.program(w.to(device))
-        with NeuroxProfiler() as prof, torch.no_grad():
+        with Profiler() as prof, torch.no_grad():
             macro.vec_mat_mul(x.to(device), quantization_mode=QUANTIZATION_MODE, adc_bits=TINY_ADC_BITS)
-        report = prof.report(macro)
-        cablc = report.energy_by_name.get(".cablc", 0.0)
-        array = report.energy_by_name.get("array", 0.0)
+        by_name = Reporter(macro).by_name(prof)
+        cablc = by_name.get(".cablc", 0.0)
+        array = by_name.get("array", 0.0)
         # No cell row double-bills the branch (the cell is a non-reporter).
-        assert "cell" not in report.energy_by_name
+        assert "cell" not in by_name
         whole = _whole_input_branch(macro, x.to(device))
         return cablc, array, whole
 
@@ -406,8 +405,8 @@ def test_array_cap_row_rides_both_rails_separately(device: torch.device) -> None
     w, x = _w_full(), _x_full(2)
 
     def array_row(config: Xue2020JsscCimMacroConfig) -> float:
-        _prof, report = _run(config, w, x, device=device)
-        return report.energy_by_name["array"]
+        prof, reporter = _run(config, w, x, device=device)
+        return reporter.by_name(prof)["array"]
 
     e_base = array_row(base)
     e_wl = array_row(dataclasses.replace(base, v_dd_wl__V=2.0 * base.v_dd_wl__V))
@@ -627,8 +626,8 @@ def test_tmcsa_is_pure_fixed_when_phase_windows_zero(device: torch.device) -> No
     assert cfg.tmcsa_config.e_fixed_per_op__fJ != cfg.adc_config.e_fixed_per_op__fJ
     w = _w_full()
     x = torch.tensor([1, 2, 3, 1], dtype=torch.long)  # single access (no batch axis)
-    _prof, report = _run(cfg, w, x, device=device)
-    e_tmcsa = report.energy_by_name["tmcsa"]
+    prof, reporter = _run(cfg, w, x, device=device)
+    e_tmcsa = reporter.by_name(prof)["tmcsa"]
 
     adc_bits = cfg.adc_config.bits
     e_fixed = cfg.tmcsa_config.e_fixed_per_op__fJ
@@ -649,9 +648,10 @@ def test_tmcsa_grows_with_phase_windows_kernel_knobs_dead(device: torch.device) 
     base = build_config()  # witness phases: t_ph2 = 0.2 * step, t_ph3 = 0.3 * step
 
     def tmcsa(cfg: Xue2020JsscCimMacroConfig) -> float:
-        _prof, report = _run(cfg, w, x, device=device)
-        assert "adc" not in report.energy_by_name, "kernel ADC must be energy-silent"
-        return report.energy_by_name["tmcsa"]
+        prof, reporter = _run(cfg, w, x, device=device)
+        by_name = reporter.by_name(prof)
+        assert "adc" not in by_name, "kernel ADC must be energy-silent"
+        return by_name["tmcsa"]
 
     base_t_ph2 = base.tmcsa_config.t_ph2_per_step__ns
     base_t_ph3 = base.tmcsa_config.t_ph3_per_step__ns

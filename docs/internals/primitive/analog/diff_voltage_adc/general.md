@@ -18,7 +18,7 @@
 A single `floor_bucketize` per call, off the memory- and compile-critical path.
 
 - **Per-convert energy self-log.** After the bucketize, `_convert_impl` attributes its own runtime energy through one profiler side-channel emit without changing the returned code. The energy is a flat per-conversion lump, so the emission expands a 0-dim constant onto the code's layout: the expanded view holds no storage, nothing is materialized, and the energy dtype comes from the constant rather than from the integer code.
-- **No instance axis reaches the payload.** `inst_shape` never enters this forward path — it only sizes the static PPA via `inst_count` — and the comparator ladder is one shared 1-D bank with no per-instance buffer touching the signal, so the emission has no instance axis to fold.
+- **No instance axis reaches the energy tensor.** `inst_shape` never enters this forward path — it only sizes the static PPA via `inst_count` — and the comparator ladder is one shared 1-D bank with no per-instance buffer touching the signal, so the emission has no instance axis to fold.
 
 ## Known limitations
 

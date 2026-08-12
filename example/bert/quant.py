@@ -16,13 +16,13 @@ from torch import Tensor
 
 from neurox.architecture.unit import LinearUnit
 from neurox.architecture.unit.cim import EngineBackedCimUnit
+from neurox.common import stochastic_floor_div
 from neurox.common.quant import (
     PerChannelSymmObserver,
     PerTensorObserver,
     derive_multiplier_and_shift_tensor,
     fake_quant_ste,
     fake_quant_symm_per_channel_ste,
-    stochastic_floor_div,
 )
 
 X_QMIN = 0

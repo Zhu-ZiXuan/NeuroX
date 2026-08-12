@@ -4,7 +4,7 @@ Feeding the same batch twice — ``torch.cat([x, x])`` — must double the dynam
 energy. Identical data makes that an exact factor rather than an approximate
 one, so the assertions carry no tolerance.
 
-The defect this names is a caller-block size-1 stand-in in an energy payload,
+The defect this names is a caller-block size-1 stand-in in a billed energy,
 which under-counts that emitter by the batch product. A size-1 on a non-caller
 axis stays invisible: nothing distinguishes it from a genuine extent of one.
 
@@ -20,6 +20,7 @@ from __future__ import annotations
 import torch
 from torch import Tensor
 
+from neurox import Profiler, Reporter, stamp_names
 from neurox.architecture.unit.cim import LinearCimUnit, LinearCimUnitConfig, LinearCimUnitPolicy
 from neurox.architecture.unit.cim.engine import (
     CimEngineConfig,
@@ -34,7 +35,6 @@ from neurox.architecture.unit.cim.engine import (
     SerialXSliceStagePolicy,
 )
 from neurox.common.encoding import Encoding
-from neurox.common.profiler import NeuroxProfiler
 from neurox.primitive.digital import AccumulatorConfig, ShiftAdderConfig
 from neurox.primitive.macro.cim import IdealCimMacroConfig, IdealCimMacroPolicy
 
@@ -83,7 +83,7 @@ def _shift_adder_config(energy_per_op__fJ: float) -> ShiftAdderConfig:
 
 
 def _build_unit(device: torch.device) -> LinearCimUnit:
-    """Build the hand-configured unit on ``device``, in eval mode."""
+    """Build the hand-configured unit on ``device``, named and in eval mode."""
     config = LinearCimUnitConfig(
         area_per_inst__um2=0.0,
         leakage_per_inst__uW=0.0,
@@ -135,6 +135,7 @@ def _build_unit(device: torch.device) -> LinearCimUnit:
     )
     unit.eval()
     unit.to(device)
+    stamp_names(unit)  # the assembled tree names its emitters, once, before any run
     return unit
 
 
@@ -153,8 +154,8 @@ def _random_input(unit: LinearCimUnit, device: torch.device) -> Tensor:
     return torch.randint(lo, hi + 1, (_BATCH_NUM, _LOGICAL_IN_NUM), dtype=torch.int32, device=device)
 
 
-def _measure(unit: LinearCimUnit, x: Tensor, *, leading_rank: int = 0) -> NeuroxProfiler:
-    with NeuroxProfiler(leading_rank=leading_rank) as profiler:
+def _measure(unit: LinearCimUnit, x: Tensor, *, leading_rank: int = 0) -> Profiler:
+    with Profiler(leading_rank=leading_rank) as profiler:
         unit.linear(x, quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
     return profiler
 
@@ -166,8 +167,9 @@ def test_the_repeated_batch_doubles_the_total_dynamic_energy(device: torch.devic
     """The headline invariant: twice the operations, twice the energy, exactly."""
     unit = _programmed_unit(seed=800, device=device)
     x = _random_input(unit, device)
-    single = _measure(unit, x).total_dynamic_energy__fJ
-    double = _measure(unit, torch.cat([x, x])).total_dynamic_energy__fJ
+    reporter = Reporter(unit)
+    single = reporter.total_dynamic_energy__fJ(_measure(unit, x))
+    double = reporter.total_dynamic_energy__fJ(_measure(unit, torch.cat([x, x])))
     assert single > 0.0
     assert double == 2.0 * single
 
@@ -176,8 +178,9 @@ def test_every_emitter_doubles_with_the_batch(device: torch.device) -> None:
     """Per-emitter, so a row that fails to scale names the block that billed it."""
     unit = _programmed_unit(seed=810, device=device)
     x = _random_input(unit, device)
-    single = _measure(unit, x).report(unit).energy_by_name
-    double = _measure(unit, torch.cat([x, x])).report(unit).energy_by_name
+    reporter = Reporter(unit)
+    single = reporter.by_name(_measure(unit, x))
+    double = reporter.by_name(_measure(unit, torch.cat([x, x])))
     assert len(single) == _EMITTER_NUM
     assert min(single.values()) > 0.0
     assert double == {name: 2.0 * energy for name, energy in single.items()}
@@ -191,10 +194,10 @@ def test_the_repeated_batch_repeats_the_per_operation_rows(device: torch.device)
     """
     unit = _programmed_unit(seed=820, device=device)
     x = _random_input(unit, device)
-    single = _measure(unit, x, leading_rank=1).energy_events
-    double = _measure(unit, torch.cat([x, x]), leading_rank=1).energy_events
+    single = _measure(unit, x, leading_rank=1).records
+    double = _measure(unit, torch.cat([x, x]), leading_rank=1).records
     assert len(single) == len(double) == _EMITTER_NUM
     for one, two in zip(single, double, strict=True):
-        assert one.module is two.module
+        assert one.qualified_name == two.qualified_name
         assert one.dynamic_energy__fJ.shape == (_BATCH_NUM,)
         torch.testing.assert_close(two.dynamic_energy__fJ, torch.cat([one.dynamic_energy__fJ] * 2), rtol=0, atol=0)

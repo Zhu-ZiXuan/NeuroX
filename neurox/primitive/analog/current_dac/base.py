@@ -12,7 +12,7 @@ from typing import Generic, TypeVar
 import torch
 from torch import Tensor
 
-from neurox.common.mixin import RegistryMixin
+from neurox.common import RegistryMixin
 from neurox.primitive.analog.base import AnalogBase, AnalogConfig, AnalogPolicy
 
 
@@ -36,13 +36,13 @@ class IdacPolicy(AnalogPolicy, ABC):
     """Abstract marker base for current-DAC-family nonideality policies."""
 
 
-ConfigT = TypeVar("ConfigT", bound=IdacConfig)
-PolicyT = TypeVar("PolicyT", bound=IdacPolicy)
+ConfigT = TypeVar("ConfigT", bound=IdacConfig, covariant=True)
+PolicyT = TypeVar("PolicyT", bound=IdacPolicy, covariant=True)
 
 
 class Idac(
     AnalogBase[ConfigT, PolicyT],
-    RegistryMixin["IdacConfig", "IdacPolicy", "Idac"],
+    RegistryMixin["IdacConfig", "IdacPolicy", "Idac[IdacConfig, IdacPolicy]"],
     Generic[ConfigT, PolicyT],
     ABC,
 ):
@@ -77,7 +77,7 @@ class Idac(
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
-    ) -> Idac:
+    ) -> Idac[IdacConfig, IdacPolicy]:
         """Build the implementation registered for the config-policy pair.
 
         Args:

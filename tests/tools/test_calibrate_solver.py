@@ -3,7 +3,7 @@
 Synthetic-data tests only — no end-to-end macro sweep (that is exercised by
 the real calibration runs). Covers the engine sub-phase unroll mirror, the
 config-space solver-table patch, the record aggregation laws over directly
-constructed payloads, and the shipped run-TOML schema.
+constructed records, and the shipped run-TOML schema.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ import pytest
 import torch
 
 from neurox.primitive.xbar.cell import XbarCell1t1rDcop
-from neurox.primitive.xbar.solver import SolverDcop, SolverObservation
+from neurox.primitive.xbar.solver import SolverDcop, SolverRecord
 from neurox.tools.calibrate_solver._common import (
     load_macro_config_dict,
     resolve_macro_files,
@@ -144,12 +144,12 @@ class TestResolveSolverTableLaw:
 
 
 # ---------------------------------------------------------------------------
-# (c) record alignment / aggregation law (synthetic payloads, no macro)
+# (c) record alignment / aggregation law (synthetic records, no macro)
 # ---------------------------------------------------------------------------
 
 
-def _observation(*, v_bl_node: float, v_x: float, wire_bl: float, clamp_bl: float) -> SolverObservation:
-    """One synthetic SolverObservation with scalar-broadcast tensor fields."""
+def _record(*, v_bl_node: float, v_x: float, wire_bl: float, clamp_bl: float) -> SolverRecord:
+    """One synthetic SolverRecord with scalar-broadcast tensor fields."""
     ones = torch.ones((2, 3))
     cell = XbarCell1t1rDcop(
         i__uA=ones * 7.0,
@@ -166,7 +166,8 @@ def _observation(*, v_bl_node: float, v_x: float, wire_bl: float, clamp_bl: floa
         v_bl_clamp=torch.ones((2,)) * 0.3,
         v_sl_drive=torch.zeros((2,)),
     )
-    return SolverObservation(
+    return SolverRecord(
+        emitter="synthetic",
         dcop=dcop,
         wire_bl__uA=ones * wire_bl,
         wire_sl__uA=ones * 0.0,
@@ -178,12 +179,12 @@ def _observation(*, v_bl_node: float, v_x: float, wire_bl: float, clamp_bl: floa
 class TestRecordAggregationLaw:
     def test_step_delta_is_max_abs_field_difference(self) -> None:
         prev = [
-            _observation(v_bl_node=0.0, v_x=0.0, wire_bl=0.0, clamp_bl=0.0),
-            _observation(v_bl_node=1.0, v_x=1.0, wire_bl=0.0, clamp_bl=0.0),
+            _record(v_bl_node=0.0, v_x=0.0, wire_bl=0.0, clamp_bl=0.0),
+            _record(v_bl_node=1.0, v_x=1.0, wire_bl=0.0, clamp_bl=0.0),
         ]
         curr = [
-            _observation(v_bl_node=0.5, v_x=0.2, wire_bl=0.0, clamp_bl=0.0),
-            _observation(v_bl_node=1.0, v_x=3.0, wire_bl=0.0, clamp_bl=0.0),
+            _record(v_bl_node=0.5, v_x=0.2, wire_bl=0.0, clamp_bl=0.0),
+            _record(v_bl_node=1.0, v_x=3.0, wire_bl=0.0, clamp_bl=0.0),
         ]
         step = step_delta_over_streams(prev, curr)
         # v_bl_node: max(|0.5-0|, |1-1|) = 0.5
@@ -194,19 +195,19 @@ class TestRecordAggregationLaw:
         assert step["v_sl_node"] == pytest.approx(0.0)
 
     def test_identical_streams_give_zero_step(self) -> None:
-        stream = [_observation(v_bl_node=1.0, v_x=1.0, wire_bl=0.0, clamp_bl=0.0)]
+        stream = [_record(v_bl_node=1.0, v_x=1.0, wire_bl=0.0, clamp_bl=0.0)]
         step = step_delta_over_streams(stream, [copy.copy(stream[0])])
         assert max(step.values()) == 0.0
 
     def test_misaligned_streams_raise(self) -> None:
-        one = [_observation(v_bl_node=1.0, v_x=1.0, wire_bl=0.0, clamp_bl=0.0)]
+        one = [_record(v_bl_node=1.0, v_x=1.0, wire_bl=0.0, clamp_bl=0.0)]
         with pytest.raises(ValueError, match="misaligned"):
             step_delta_over_streams(one, one + one)
 
     def test_residual_max_is_per_field_max_abs(self) -> None:
         records = [
-            _observation(v_bl_node=0.0, v_x=0.0, wire_bl=2.0, clamp_bl=0.1),
-            _observation(v_bl_node=0.0, v_x=0.0, wire_bl=5.0, clamp_bl=0.05),
+            _record(v_bl_node=0.0, v_x=0.0, wire_bl=2.0, clamp_bl=0.1),
+            _record(v_bl_node=0.0, v_x=0.0, wire_bl=5.0, clamp_bl=0.05),
         ]
         residual = solver_residual_max(records)
         assert residual["wire_bl__uA"] == pytest.approx(5.0)

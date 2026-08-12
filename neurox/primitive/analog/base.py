@@ -20,8 +20,8 @@ class AnalogPolicy(PolicyBase, ABC):
     """Root policy for analog primitives — empty marker."""
 
 
-ConfigT = TypeVar("ConfigT", bound=AnalogConfig)
-PolicyT = TypeVar("PolicyT", bound=AnalogPolicy)
+ConfigT = TypeVar("ConfigT", bound=AnalogConfig, covariant=True)
+PolicyT = TypeVar("PolicyT", bound=AnalogPolicy, covariant=True)
 
 
 class AnalogBase(ModuleBase[ConfigT, PolicyT], ABC):

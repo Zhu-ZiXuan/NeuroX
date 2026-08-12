@@ -3,17 +3,19 @@
 :class:`SerialAccumulator` and :class:`Accumulator` share the reduce function
 (modular-wrap sum) and the billing law — dynamic energy counts the adder
 evaluations, one per operand element, so the reduced extent stays visible in
-the energy whichever way the fold is realized. Energy events are captured
-under :class:`NeuroxProfiler`.
+the energy whichever way the fold is realized. Energy records are captured
+under :class:`Profiler`.
 """
 
 from __future__ import annotations
 
 import pytest
 import torch
+import torch.nn as nn
 
-from neurox.common.mixin import ProfileMixin
-from neurox.common.profiler import EnergyEvent, NeuroxProfiler
+from neurox import Profiler, stamp_names
+from neurox.common import EnergyRecord
+from neurox.common.profile_mixin import ProfileMixin
 from neurox.primitive.digital import (
     Accumulator,
     AccumulatorConfig,
@@ -36,20 +38,39 @@ def _config(bit_width: int = 32) -> AccumulatorConfig:
 
 
 def _build_serial(inst_shape: tuple[int, ...], *, bit_width: int = 32) -> SerialAccumulator:
-    return SerialAccumulator(config=_config(bit_width), policy=DigitalPolicy(), inst_shape=inst_shape)
+    serial = SerialAccumulator(config=_config(bit_width), policy=DigitalPolicy(), inst_shape=inst_shape)
+    stamp_names(serial)
+    return serial
 
 
 def _build_plain(inst_shape: tuple[int, ...]) -> Accumulator:
-    return Accumulator(config=_config(), policy=DigitalPolicy(), inst_shape=inst_shape)
+    plain = Accumulator(config=_config(), policy=DigitalPolicy(), inst_shape=inst_shape)
+    stamp_names(plain)
+    return plain
 
 
-def _energy_total(events: list[EnergyEvent], module: ProfileMixin) -> float:
-    """Sum the logged dynamic energy [fJ] of the events ``module`` emitted.
+def _build_pair(inst_shape: tuple[int, ...]) -> tuple[SerialAccumulator, Accumulator]:
+    """Bind both accumulators in one tree, so one walk names their rows apart."""
+    serial, plain = _build_serial(inst_shape), _build_plain(inst_shape)
+    pair = nn.Module()
+    pair.serial = serial
+    pair.plain = plain
+    stamp_names(pair)
+    return serial, plain
 
-    An event payload is a per-unit-operation tensor, so each one totals to its
-    own scalar before the events are summed.
+
+def _energy_total(records: list[EnergyRecord], module: ProfileMixin) -> float:
+    """Sum the logged dynamic energy [fJ] of the records ``module`` emitted.
+
+    A record's energy is a per-unit-operation tensor, so each one totals to its
+    own scalar before the records are summed. A record carries the name its tree
+    stamped, so telling ``serial`` and ``plain`` apart is a matter of binding
+    them in one tree that names them both.
     """
-    return sum((float(e.dynamic_energy__fJ.sum()) for e in events if e.module is module), 0.0)
+    return sum(
+        (float(r.dynamic_energy__fJ.sum()) for r in records if r.qualified_name == module.qualified_name),
+        0.0,
+    )
 
 
 def test_serial_accumulator_reduce_matches_plain_accumulator() -> None:
@@ -72,31 +93,29 @@ def test_accumulate_bills_energy_per_operand_element() -> None:
     """Energy quanta count equals ``numel(input)``, reduced axis included."""
     torch.manual_seed(12)
     x = torch.randint(-3, 4, (2, 4, 5), dtype=torch.int64)
-    serial = _build_serial((2, 5))
-    plain = _build_plain((2, 5))
-    with NeuroxProfiler() as p:
+    serial, plain = _build_pair((2, 5))
+    with Profiler() as p:
         serial.accumulate(x, dim=-2)
         plain.accumulate(x, dim=-2)
     expected = _E_OP__FJ * x.numel()
-    assert _energy_total(p.energy_events, serial) == pytest.approx(expected)
-    assert _energy_total(p.energy_events, plain) == pytest.approx(expected)
+    assert _energy_total(p.records, serial) == pytest.approx(expected)
+    assert _energy_total(p.records, plain) == pytest.approx(expected)
 
 
 def test_accumulate_energy_scales_with_reduced_axis_extent() -> None:
     """At fixed output shape a 4x longer reduced axis costs 4x the accumulate
     energy, on the serial register and on the adder tree alike."""
     out_inst = (2, 5)
-    serial = _build_serial(out_inst)
-    plain = _build_plain(out_inst)
+    serial, plain = _build_pair(out_inst)
     energies: dict[int, tuple[float, float]] = {}
     for reduce_extent in (1, 4):
         x = torch.ones((2, reduce_extent, 5), dtype=torch.int64)
-        with NeuroxProfiler() as p:
+        with Profiler() as p:
             serial.accumulate(x, dim=-2)
             plain.accumulate(x, dim=-2)
         energies[reduce_extent] = (
-            _energy_total(p.energy_events, serial),
-            _energy_total(p.energy_events, plain),
+            _energy_total(p.records, serial),
+            _energy_total(p.records, plain),
         )
     assert energies[1][0] > 0.0
     assert energies[4][0] == pytest.approx(4.0 * energies[1][0])

@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from neurox.architecture.unit.matmul_mapping import (
+from neurox.architecture.unit import (
     make_activation_group_mask,
     make_block_slot_routing,
     make_input_activation_plan,

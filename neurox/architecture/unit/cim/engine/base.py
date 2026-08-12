@@ -383,7 +383,7 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
         dtype: torch.dtype,
         T__K: float,
         ideal_macro: bool,
-    ) -> CimMacro:
+    ) -> CimMacro[CimMacroConfig, CimMacroPolicy]:
         """Construct the configured physical or ideal CIM macro."""
         cim_macro = CimMacro.from_config(
             config=cim_macro_config,

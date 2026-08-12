@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Generic, TypeVar
+from typing import Generic, TypeVar
 
-if TYPE_CHECKING:
-    from neurox.common.base import ConfigBase, ModuleBase, PolicyBase
+from .module import ConfigBase, ModuleBase, PolicyBase
 
-ConfigT = TypeVar("ConfigT", bound="ConfigBase")
-PolicyT = TypeVar("PolicyT", bound="PolicyBase")
-ModuleT = TypeVar("ModuleT", bound="ModuleBase")
+ConfigT = TypeVar("ConfigT", bound=ConfigBase)
+PolicyT = TypeVar("PolicyT", bound=PolicyBase)
+ModuleT = TypeVar("ModuleT", bound=ModuleBase[ConfigBase, PolicyBase])
 
 
 class RegistryMixin(Generic[ConfigT, PolicyT, ModuleT]):

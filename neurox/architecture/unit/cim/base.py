@@ -13,8 +13,7 @@ import torch
 from torch import Tensor
 
 from neurox.architecture.unit.base import UnitBase
-from neurox.common import ConfigBase, ModuleBase, PolicyBase
-from neurox.common.mixin import RegistryMixin
+from neurox.common import ConfigBase, ModuleBase, PolicyBase, RegistryMixin
 
 from .engine import CimEngine, CimEngineConfig, CimEnginePolicy
 
@@ -39,13 +38,13 @@ class CimUnitPolicy(PolicyBase, ABC):
     """Abstract marker base for CimUnit-family nonideality policies."""
 
 
-ConfigT = TypeVar("ConfigT", bound=CimUnitConfig)
-PolicyT = TypeVar("PolicyT", bound=CimUnitPolicy)
+ConfigT = TypeVar("ConfigT", bound=CimUnitConfig, covariant=True)
+PolicyT = TypeVar("PolicyT", bound=CimUnitPolicy, covariant=True)
 
 
 class CimUnit(
     ModuleBase[ConfigT, PolicyT],
-    RegistryMixin["CimUnitConfig", "CimUnitPolicy", "CimUnit"],
+    RegistryMixin["CimUnitConfig", "CimUnitPolicy", "CimUnit[CimUnitConfig, CimUnitPolicy]"],
     UnitBase,
     Generic[ConfigT, PolicyT],
     ABC,
@@ -86,7 +85,7 @@ class CimUnit(
         dtype: torch.dtype,
         T__K: float,
         ideal_macro: bool,
-    ) -> CimUnit:
+    ) -> CimUnit[CimUnitConfig, CimUnitPolicy]:
         """Build the concrete impl registered for the config-policy pair."""
         impl = cls._lookup_neurox_module(config=config, policy=policy)
         return impl(

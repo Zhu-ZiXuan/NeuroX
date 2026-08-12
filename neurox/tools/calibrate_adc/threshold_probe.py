@@ -45,8 +45,7 @@ from pathlib import Path
 import torch
 
 from neurox.common import ConfigBase
-from neurox.primitive.macro.cim import CimMacro
-from neurox.primitive.macro.cim.ideal import IdealCimMacro
+from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy, IdealCimMacro
 from neurox.tools._config import add_standard_args, load_tool_config, resolve_relative_path, setup_logging
 
 from ._math import (
@@ -172,7 +171,7 @@ class ThresholdProbeToolConfig(ConfigBase):
 # --- probing ----------------------------------------------------------------
 
 
-def _mode_input_code_range(macro: CimMacro, quantization_mode: int) -> tuple[int, int]:
+def _mode_input_code_range(macro: CimMacro[CimMacroConfig, CimMacroPolicy], quantization_mode: int) -> tuple[int, int]:
     """Return the inclusive ADC input code grid the macro resolves in a mode."""
     _, code_range = macro.map_quantization_input_code(
         torch.zeros((), dtype=torch.int64), quantization_mode=quantization_mode
@@ -181,7 +180,7 @@ def _mode_input_code_range(macro: CimMacro, quantization_mode: int) -> tuple[int
 
 
 def _build_battery(
-    physical: CimMacro,
+    physical: CimMacro[CimMacroConfig, CimMacroPolicy],
     *,
     cfg: ThresholdProbeToolConfig,
     grid_top: int,
@@ -240,7 +239,7 @@ def _build_battery(
 
 
 def _probe_grid(
-    physical: CimMacro,
+    physical: CimMacro[CimMacroConfig, CimMacroPolicy],
     ideal: IdealCimMacro,
     *,
     cfg: ThresholdProbeToolConfig,
@@ -496,10 +495,10 @@ def main(argv: list[str] | None = None) -> int:
         m_parts = []
         i_parts = []
         for part in args.capture_in.split(","):
-            payload = torch.load(Path(part), map_location="cpu", weights_only=True)
-            m_parts.append(payload["input_code"])
-            i_parts.append(payload["i_in__uA"])
-            logger.info("merged capture part %s (%d samples)", part, payload["i_in__uA"].numel())
+            capture = torch.load(Path(part), map_location="cpu", weights_only=True)
+            m_parts.append(capture["input_code"])
+            i_parts.append(capture["i_in__uA"])
+            logger.info("merged capture part %s (%d samples)", part, capture["i_in__uA"].numel())
         input_code = torch.cat([*m_parts, input_code])
         i_in = torch.cat([*i_parts, i_in])
     logger.info("pooled %d conversion samples", i_in.numel())

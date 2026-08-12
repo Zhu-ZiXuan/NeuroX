@@ -14,11 +14,11 @@ from collections.abc import Callable
 
 import torch.nn as nn
 
-from neurox.architecture.unit import LinearUnit
+from neurox.architecture.unit.cim import CimUnit, CimUnitConfig, CimUnitPolicy
 
 from .quant import QATLinear, QuantLinear
 
-MacroFactory = Callable[..., LinearUnit]
+MacroFactory = Callable[..., CimUnit[CimUnitConfig, CimUnitPolicy]]
 ModePicker = Callable[[str], int]
 
 

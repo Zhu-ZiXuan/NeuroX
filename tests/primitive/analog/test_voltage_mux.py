@@ -3,7 +3,7 @@
 import pytest
 import torch
 
-from neurox.common.profiler import NeuroxProfiler
+from neurox import Profiler, Reporter, stamp_names
 from neurox.primitive.analog import Vmux, VmuxConfig, VmuxPolicy
 
 
@@ -27,14 +27,15 @@ def test_transport_preserves_access_lane_layout_and_accounts_output() -> None:
         T__K=300.0,
     )
     mux.fabricate()
+    stamp_names(mux)
     v__V = torch.arange(16, dtype=torch.float64).reshape(2, 4, 2)
 
-    with NeuroxProfiler() as profiler:
+    with Profiler() as profiler:
         actual__V = mux.transport(v__V)
 
     assert actual__V.shape == v__V.shape
     torch.testing.assert_close(actual__V, 2.0 * v__V)
-    assert profiler.total_dynamic_energy__fJ == 48.0
+    assert Reporter(mux).total_dynamic_energy__fJ(profiler) == 48.0
 
 
 @pytest.mark.parametrize("shape", [(3, 2), (4, 3), (8,)])

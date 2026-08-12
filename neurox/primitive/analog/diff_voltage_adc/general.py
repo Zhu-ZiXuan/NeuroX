@@ -11,7 +11,7 @@ import math
 import torch
 from torch import Tensor
 
-from neurox.common.quant import floor_bucketize
+from neurox.common import floor_bucketize
 from neurox.primitive.nonideality import apply_gaussian
 
 from .base import DiffVadc, DiffVadcConfig, DiffVadcPolicy

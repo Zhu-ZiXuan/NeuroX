@@ -82,7 +82,8 @@ from pathlib import Path
 
 import torch
 
-from neurox.common.profiler import NeuroxProfiler, ProfilerReport
+from neurox import Profiler, Reporter, stamp_names
+from neurox.common import StaticEntry
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
 from neurox.works.macro.cim.xue2020jssc import Xue2020JsscCimMacro, Xue2020JsscCimMacroPolicy
 
@@ -166,6 +167,10 @@ def build_macro(
 ) -> Xue2020JsscCimMacro:
     """Build + fabricate the sub-array at ``inst_shape=()``, float32, eval mode.
 
+    A module never knows its own name, so the assembled tree is stamped here:
+    every energy record carries the name this walk hands out, and the reporter
+    resolves its rows against the same tree.
+
     Args:
         params_path: Fixed ``params.toml``.
         policy_path: Fixed ``policy.toml``.
@@ -195,6 +200,7 @@ def build_macro(
     macro.to(device)
     macro.eval()
     macro.fabricate()
+    stamp_names(macro)
     return macro
 
 
@@ -354,23 +360,29 @@ class Measurement:
 
 
 def _per_access(
-    report: ProfilerReport, dynamic_by_name__fJ: dict[str, float], *, accesses: int, window__ns: float
+    static_entries: tuple[StaticEntry, ...],
+    dynamic_by_name__fJ: dict[str, float],
+    *,
+    accesses: int,
+    window__ns: float,
 ) -> tuple[dict[str, float], dict[str, float]]:
     """Return ``(dynamic_by_name, static_by_name)`` energy PER ACCESS [pJ].
 
     Dynamic: each accumulated energy row divided by ``accesses``. Static: each
     block's ``leakage_power * window`` (the per-access integral of its leakage),
-    which is fabrication-fixed and therefore read from any round's report. This
-    is the SOLE static-energy derivation: the reported total is the sum of these
-    rows, so the breakdown and the gated total cannot drift apart.
+    which is fabrication-fixed and therefore read from the reporter's static
+    rows, independently of any round. This is the SOLE static-energy derivation:
+    the reported total is the sum of these rows, so the breakdown and the gated
+    total cannot drift apart.
     """
     dyn = {k: v / accesses / _FJ_PER_PJ for k, v in dynamic_by_name__fJ.items()}
-    stat = {r.qualified_name: r.leakage_power__uW * window__ns / _FJ_PER_PJ for r in report.static_records}
+    stat = {e.qualified_name: e.leakage__uW * window__ns / _FJ_PER_PJ for e in static_entries}
     return dyn, stat
 
 
 def measure(
     macro: Xue2020JsscCimMacro,
+    reporter: Reporter,
     anchors: dict,
     *,
     n: int,
@@ -390,9 +402,11 @@ def measure(
     Each weight draw is profiled in its OWN context at ``leading_rank=1``: the
     caller's ``batch`` axis indexes independent unit operations, so each energy
     event resolves to ``[batch]`` and the dynamic energy rows are accumulated
-    across the draws by hand. The two sides normalize differently: dynamic
-    energy divides by the full ``accesses`` count, while static energy is the
-    fabrication-fixed ``leakage_power * window`` of ONE access.
+    across the draws by hand. ``reporter`` is the one bound to ``macro``: it
+    names every context's rows and carries the static rows. The two sides
+    normalize differently: dynamic energy divides by the full ``accesses``
+    count, while static energy is the fabrication-fixed ``leakage_power *
+    window`` of ONE access.
     """
     cfg = macro.config
     device = next(macro.buffers()).device
@@ -415,7 +429,6 @@ def measure(
     n_samples = 0
     dyn_by_name__fJ: dict[str, float] = {}
     total_dynamic__fJ = 0.0
-    report = ProfilerReport()
     with torch.no_grad():
         for _ in range(n_w):
             w = _draw_weight(
@@ -436,18 +449,18 @@ def measure(
             )
             # leading_rank=1: the `batch` axis indexes independent unit
             # operations, so each energy event resolves to [batch], one element
-            # per input vector.
-            with NeuroxProfiler(leading_rank=1) as prof:
+            # per input vector. device=None leaves the records where they were
+            # recorded: the reporter reduces a whole book in one transfer.
+            with Profiler(leading_rank=1, device=None) as prof:
                 macro.program(w)
                 macro.vec_mat_mul(x, quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
-            report = prof.report(macro)
-            for name, e__fJ in report.energy_by_name.items():
+            for name, e__fJ in reporter.by_name(prof).items():
                 dyn_by_name__fJ[name] = dyn_by_name__fJ.get(name, 0.0) + e__fJ
-            total_dynamic__fJ += report.total_dynamic_energy__fJ
+            total_dynamic__fJ += reporter.total_dynamic_energy__fJ(prof)
             n_samples += batch
     accesses = n_samples * mux
 
-    dyn, stat = _per_access(report, dyn_by_name__fJ, accesses=accesses, window__ns=window__ns)
+    dyn, stat = _per_access(reporter.static_entries, dyn_by_name__fJ, accesses=accesses, window__ns=window__ns)
     # The one static-energy derivation, shared by the total and the breakdown.
     static__pJ = sum(stat.values())
     dynamic__pJ = total_dynamic__fJ / accesses / _FJ_PER_PJ
@@ -555,8 +568,16 @@ def measure_rounds(
     independent draws) and is profiled in its own context, so the peak
     event/tensor footprint stays that of ONE round however many rounds run, and
     the round-to-round spread of the total is the reported uncertainty.
+
+    The reporter binds ``macro`` once, BEFORE any round runs: that walk is where
+    a missing or stale name stamp is caught, and one binding then names the rows
+    of every round and supplies the fabrication-fixed static rows.
     """
-    rounds = [measure(macro, anchors, n=n_w * n_x, p_zero=p_zero, seed=seed + idx, batch=n_x) for idx in range(repeat)]
+    reporter = Reporter(macro)
+    rounds = [
+        measure(macro, reporter, anchors, n=n_w * n_x, p_zero=p_zero, seed=seed + idx, batch=n_x)
+        for idx in range(repeat)
+    ]
     return _pool_rounds(rounds, p_zero=p_zero, seed=seed)
 
 

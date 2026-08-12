@@ -45,18 +45,14 @@ from neurox.common.serialize import dict_from_file
 from neurox.primitive.analog import VrefConfig, VrefPolicy
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
 from neurox.works.macro.cim.xue2020jssc import (
-    DswctConfig,
-    DswctPolicy,
-    PnIsubConfig,
-    PnIsubPolicy,
-    SinwpScConfig,
-    SinwpScPolicy,
-    TmcsaConfig,
-    TmcsaPolicy,
     Xue2020JsscCimMacro,
     Xue2020JsscCimMacroConfig,
     Xue2020JsscCimMacroPolicy,
 )
+from neurox.works.macro.cim.xue2020jssc.dswct import DswctConfig, DswctPolicy
+from neurox.works.macro.cim.xue2020jssc.pn_isub import PnIsubConfig, PnIsubPolicy
+from neurox.works.macro.cim.xue2020jssc.sinwp_sc import SinwpScConfig, SinwpScPolicy
+from neurox.works.macro.cim.xue2020jssc.tmcsa import TmcsaConfig, TmcsaPolicy
 
 # tests/validations/xue2020jssc/test_configs.py -> repo root is 3 parents up.
 _VALIDATIONS_DIR = Path(__file__).resolve().parents[3] / "validations" / "xue2020jssc"

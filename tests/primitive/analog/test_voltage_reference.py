@@ -22,7 +22,7 @@ all-off:
 - the degenerate single-mode single-tap bank broadcasts (by view) onto a
   clamp bank's full call shape;
 - static PPA equals ``per_inst * inst_count`` and is visible to the
-  profiler's static walk, while ``fabricate`` emits zero energy events;
+  reporter's static walk, while ``fabricate`` emits zero energy records;
 - a nested TOML array loads straight into the bank field; a flat TOML
   array (wrong shape for the tap bank) is rejected.
 """
@@ -35,12 +35,8 @@ from typing import Any
 import pytest
 import torch
 
-from neurox.common.profiler import NeuroxProfiler
-from neurox.primitive.analog.voltage_reference import (
-    Vref,
-    VrefConfig,
-    VrefPolicy,
-)
+from neurox import Profiler, Reporter, stamp_names
+from neurox.primitive.analog import Vref, VrefConfig, VrefPolicy
 
 _TAPS = ((0.6, 1.2, 0.3), (0.5, 1.0, 0.2))
 _MODE_NUM = 2
@@ -182,18 +178,19 @@ def test_zero_tap_stays_exactly_zero_under_relative_tolerance() -> None:
 def test_static_ppa_and_no_dynamic_events() -> None:
     """Static PPA scales by ``inst_count``; fabricate emits no dynamic energy events."""
     ref = _make(inst_shape=(2,), area=2.0, leakage=0.5)
+    stamp_names(ref)
 
     assert ref.area__um2 == pytest.approx(2.0 * 2)
     assert ref.leakage__uW == pytest.approx(0.5 * 2)
 
-    records = NeuroxProfiler.collect_static(ref)
-    assert len(records) == 1
-    assert records[0].area__um2 == pytest.approx(2.0 * 2)
-    assert records[0].leakage_power__uW == pytest.approx(0.5 * 2)
+    entries = Reporter(ref).static_entries
+    assert len(entries) == 1
+    assert entries[0].area__um2 == pytest.approx(2.0 * 2)
+    assert entries[0].leakage__uW == pytest.approx(0.5 * 2)
 
-    with NeuroxProfiler() as p:
+    with Profiler() as p:
         ref.fabricate()
-    assert p.energy_events == []
+    assert p.records == []
 
 
 def test_toml_nested_array_loads_as_tuple(tmp_path: Path) -> None:

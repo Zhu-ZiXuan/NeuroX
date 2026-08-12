@@ -15,7 +15,7 @@
 - **Leaf construction takes `config` / `policy`.** A leaf's `__init__` forwards `config=..., policy=..., name=..., inst_shape=...` to `DigitalBase` (i.e. `ModuleBase`); the leaf config extends `DigitalConfig` (the inherited PPA fields first, then its own arithmetic / energy / latency fields) and `policy` is the empty `DigitalPolicy`.
 - **`fabricate()` is a family-wide pass-through.** The base no-op resamples nothing and no digital leaf adds fabricated mismatch, so `fabricate()` introduces no per-instance variation on any leaf.
 - **Dynamic energy is one profiler emission per call** (`_record_dynamic_energy`): the per-op quantum is flat per billed element — the family rule above fixes which tensor's layout that is — so the emission expands a 0-dim constant onto that layout, a view with no storage, and nothing is materialized. The module reduces nothing itself; the profiler owns that aggregation.
-- **A digital leaf's `inst_shape` never reaches the datapath.** It sizes the static PPA totals only; no buffer shaped by it touches the billed tensor, so the payload has no instance axis to fold.
+- **A digital leaf's `inst_shape` never reaches the datapath.** It sizes the static PPA totals only; no buffer shaped by it touches the billed tensor, so the energy tensor has no instance axis to fold.
 - **A digital leaf owns no time axis, so it reports no duration.** The elementwise or reduced axes it works over belong to its caller, so no leaf carries a `latency__ns` method: `latency_per_op__ns` stays a config field — a circuit property of the block — and the caller that inserted the axes reads that constant and multiplies it by the round count only the caller knows.
 
 ---

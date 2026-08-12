@@ -72,6 +72,7 @@ from pathlib import Path
 
 import torch
 
+from neurox import stamp_names
 from neurox.primitive.analog.current_adc.base import IadcProber
 from neurox.primitive.analog.voltage_dac import GeneralVdacConfig
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
@@ -152,7 +153,11 @@ def tmcsa_steps_per_access(cfg: Xue2020JsscCimMacroConfig, *, col_num: int) -> i
 
 
 def rebuild(cfg: CimMacroConfig, policy: CimMacroPolicy, device: torch.device) -> Xue2020JsscCimMacro:
-    """Build + fabricate the sub-array at ``inst_shape=()``, float32, eval mode."""
+    """Build + fabricate the sub-array at ``inst_shape=()``, float32, eval mode.
+
+    The freshly assembled tree is stamped, so the round engine can bind a
+    reporter to it and name the rows every energy record carries.
+    """
     macro = CimMacro.from_config(
         config=cfg,
         policy=policy,
@@ -166,6 +171,7 @@ def rebuild(cfg: CimMacroConfig, policy: CimMacroPolicy, device: torch.device) -
     macro.to(device)
     macro.eval()
     macro.fabricate()
+    stamp_names(macro)
     return macro
 
 

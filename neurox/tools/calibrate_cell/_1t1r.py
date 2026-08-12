@@ -214,7 +214,10 @@ def _solve_grid_for_candidate(
         shape = (n_pts, 1, 1)
         v_wl_pts = v_wl[mask].reshape(n_pts, 1, 1)
         snap = cell.snapshot(control=v_wl_pts, shape=shape, t_elapsed=0.0)
-        with XbarCell1t1rDetailProber() as cp:
+        # device=None: the record is scattered straight into cell_residual
+        # (on `device`, possibly CUDA) below — a default cpu finalize would
+        # break that assignment on a device mismatch.
+        with XbarCell1t1rDetailProber(device=None) as cp:
             dcop = cell.solve_dc(
                 v_bl[mask].reshape(n_pts, 1, 1),
                 v_sl[mask].reshape(n_pts, 1, 1),

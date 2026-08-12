@@ -1,8 +1,8 @@
 """ShiftAdder: radix fold, modular wrap, and per-digit-leg billing.
 
 Dynamic energy counts the shift-and-add evaluations, one per digit leg folded
-in, so the digit extent stays visible in the energy. Energy events are captured
-under :class:`NeuroxProfiler`.
+in, so the digit extent stays visible in the energy. Energy records are captured
+under :class:`Profiler`.
 """
 
 from __future__ import annotations
@@ -10,8 +10,9 @@ from __future__ import annotations
 import pytest
 import torch
 
-from neurox.common.mixin import ProfileMixin
-from neurox.common.profiler import EnergyEvent, NeuroxProfiler
+from neurox import Profiler, stamp_names
+from neurox.common import EnergyRecord
+from neurox.common.profile_mixin import ProfileMixin
 from neurox.primitive.digital import DigitalPolicy, ShiftAdder, ShiftAdderConfig
 
 _E_OP__FJ = 2.5
@@ -35,18 +36,23 @@ def _build(
     digit_count: int,
     bit_width: int = 32,
 ) -> ShiftAdder:
-    return ShiftAdder(
+    unit = ShiftAdder(
         config=_config(bit_width),
         policy=DigitalPolicy(),
         inst_shape=inst_shape,
         scale=scale,
         digit_count=digit_count,
     )
+    stamp_names(unit)
+    return unit
 
 
-def _energy_total(events: list[EnergyEvent], module: ProfileMixin) -> float:
-    """Sum the logged dynamic energy [fJ] of the events ``module`` emitted."""
-    return sum((float(e.dynamic_energy__fJ.sum()) for e in events if e.module is module), 0.0)
+def _energy_total(records: list[EnergyRecord], module: ProfileMixin) -> float:
+    """Sum the logged dynamic energy [fJ] of the records ``module`` emitted."""
+    return sum(
+        (float(r.dynamic_energy__fJ.sum()) for r in records if r.qualified_name == module.qualified_name),
+        0.0,
+    )
 
 
 def test_shift_add_folds_the_digit_axis_by_positional_weight() -> None:
@@ -70,9 +76,9 @@ def test_shift_add_bills_energy_per_digit_leg() -> None:
     torch.manual_seed(21)
     unit = _build((2, 5), scale=2, digit_count=4)
     x = torch.randint(0, 2, (2, 4, 5), dtype=torch.int64)
-    with NeuroxProfiler() as p:
+    with Profiler() as p:
         unit.shift_add(x, dim=-2, init_val=None)
-    assert _energy_total(p.energy_events, unit) == pytest.approx(_E_OP__FJ * x.numel())
+    assert _energy_total(p.records, unit) == pytest.approx(_E_OP__FJ * x.numel())
 
 
 def test_shift_add_energy_scales_with_the_digit_count() -> None:
@@ -81,9 +87,9 @@ def test_shift_add_energy_scales_with_the_digit_count() -> None:
     for digit_count in (1, 4):
         unit = _build((2, 5), scale=2, digit_count=digit_count)
         x = torch.ones((2, digit_count, 5), dtype=torch.int64)
-        with NeuroxProfiler() as p:
+        with Profiler() as p:
             unit.shift_add(x, dim=-2, init_val=None)
-        energies[digit_count] = _energy_total(p.energy_events, unit)
+        energies[digit_count] = _energy_total(p.records, unit)
     assert energies[1] > 0.0
     assert energies[4] == pytest.approx(4.0 * energies[1])
 
@@ -93,8 +99,8 @@ def test_shift_add_partial_sum_preload_is_free() -> None:
     unit = _build((2, 5), scale=2, digit_count=4)
     x = torch.ones((2, 4, 5), dtype=torch.int64)
     init_val = torch.ones((2, 5), dtype=torch.int64)
-    with NeuroxProfiler() as p:
+    with Profiler() as p:
         unit.shift_add(x, dim=-2, init_val=None)
         unit.shift_add(x, dim=-2, init_val=init_val)
-    (bare, preloaded) = (float(e.dynamic_energy__fJ.sum()) for e in p.energy_events)
+    (bare, preloaded) = (float(e.dynamic_energy__fJ.sum()) for e in p.records)
     assert preloaded == pytest.approx(bare)

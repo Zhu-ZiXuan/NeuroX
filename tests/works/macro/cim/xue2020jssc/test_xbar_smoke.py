@@ -10,7 +10,7 @@ its ladder calibrated in-code (``_utils.build_calibrated_macro``: ``output_num =
   * the output is an integer signed-magnitude code tensor with the caller's
     leading order preserved, every value in ``[-MAG_MAX, MAG_MAX]``, and
     bit-exactly the clamped ideal integer MAC;
-  * a :class:`NeuroxProfiler` report is coherent: the two macro-billed channels
+  * a :class:`Reporter` report is coherent: the two macro-billed channels
     (``cablc`` / ``control``) and the self-billing array + DSWCT / SINWP-SC /
     PN-ISUB + TMCSA module rows carry positive dynamic energy, and the totals
     are positive,
@@ -34,7 +34,7 @@ import pytest
 import torch
 import torch._dynamo
 
-from neurox.common.profiler import NeuroxProfiler
+from neurox import Profiler, Reporter
 
 from ._utils import (
     MAG_MAX,
@@ -80,9 +80,9 @@ def test_xbar_end_to_end_and_profiler(device: torch.device) -> None:
     macro.program(w.to(device))
 
     x = torch.tensor([[1, 2, 1, 0], [3, 3, 1, 0], [0, 1, 2, 3]], dtype=torch.long)  # batch (3,)
-    with NeuroxProfiler() as prof, torch.no_grad():
+    with Profiler() as prof, torch.no_grad():
         out = macro.vec_mat_mul(x.to(device), quantization_mode=QUANTIZATION_MODE, adc_bits=TINY_ADC_BITS)
-    report = prof.report(macro)
+    reporter = Reporter(macro)
     out = out.cpu()
 
     # --- 1. Integer signed-magnitude codes and shape ---
@@ -95,8 +95,8 @@ def test_xbar_end_to_end_and_profiler(device: torch.device) -> None:
     assert torch.equal(out, expected), f"MAC decode mismatch:\n{out.tolist()}\nvs\n{expected.tolist()}"
     assert int(out.min()) < 0 and int(out.max()) > 0
 
-    # --- 3. Profiler report sanity: channels + module rows positive ---
-    by_name = report.energy_by_name
+    # --- 3. Report sanity: channels + module rows positive ---
+    by_name = reporter.by_name(prof)
     for key in _CHANNEL_KEYS:
         assert key in by_name, f"missing channel {key}; have {sorted(by_name)}"
         assert by_name[key] > 0.0
@@ -110,8 +110,8 @@ def test_xbar_end_to_end_and_profiler(device: torch.device) -> None:
     for absent in ("cell", "adc", ".dswct", ".sinwp_sc", ".pn_isub"):
         assert absent not in by_name, f"unexpected energy row {absent}: {sorted(by_name)}"
 
-    assert prof.total_dynamic_energy__fJ > 0.0
-    assert report.static.leakage_power__uW > 0.0
+    assert reporter.total_dynamic_energy__fJ(prof) > 0.0
+    assert reporter.static.leakage__uW > 0.0
 
     # --- 4. Latency law: the access time of every column-MUX slot ---
     # The macro owns the WL sub-phases and the live-bit settle; the sensing tail

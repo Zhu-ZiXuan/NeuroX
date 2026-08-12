@@ -12,6 +12,7 @@ from __future__ import annotations
 import pytest
 import torch
 
+from neurox import Profiler, stamp_names
 from neurox.architecture.unit.cim import (
     Conv2dCimUnit,
     Conv2dCimUnitConfig,
@@ -43,7 +44,6 @@ from neurox.architecture.unit.cim.engine import (
     XSliceStagePolicy,
 )
 from neurox.common.encoding import Encoding
-from neurox.common.profiler import NeuroxProfiler
 from neurox.primitive.digital import AccumulatorConfig, ShiftAdderConfig
 from neurox.primitive.macro.cim import IdealCimMacroConfig, IdealCimMacroPolicy
 
@@ -418,11 +418,17 @@ def test_phase_accumulator_rounds_match_the_measured_forward(device: torch.devic
     x = torch.randint(0, 2, (batch_num, _W_SHAPE[1]), dtype=torch.int32)
     unit.to(device)
     unit.program(weight.to(device))
+    stamp_names(unit)
+    accumulator_name = accumulator.qualified_name
 
-    with NeuroxProfiler(leading_rank=1) as profiler:
+    with Profiler(leading_rank=1) as profiler:
         unit.linear(x.to(device), quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
     folded_operand_num = (
-        sum(float(event.dynamic_energy__fJ.sum()) for event in profiler.energy_events if event.module is accumulator)
+        sum(
+            float(record.dynamic_energy__fJ.sum())
+            for record in profiler.records
+            if record.qualified_name == accumulator_name
+        )
         / phase_energy__fJ
     )
     round_num = folded_operand_num / (batch_num * accumulator.inst_count)

@@ -9,7 +9,7 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor
 
-from neurox.common.mixin import TensorGroupMixin
+from neurox.common import TensorGroupMixin
 from neurox.primitive.nonideality import apply_gaussian
 
 from .base import AnalogBase, AnalogConfig, AnalogPolicy
@@ -230,7 +230,7 @@ class VoltageDriver(AnalogBase[VoltageDriverConfig, VoltageDriverPolicy]):
             Shape: ``[*caller_leading, ...]``.
         """
         # A flat per-port-op lump: the expanded constant holds no storage, so no
-        # payload is materialized, and the energy dtype comes from the constant
+        # energy tensor is materialized, and the energy dtype comes from the constant
         # rather than from the port current.
         # Shape: [] -> [*i_port__uA.shape]
         e_op__fJ = torch.full((), self.config.energy_per_op__fJ, dtype=torch.float32, device=i_port__uA.device)

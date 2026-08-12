@@ -16,7 +16,7 @@ import torch
 from torch import Tensor
 
 from neurox.common.serialize import dict_from_file
-from neurox.primitive.macro.cim import CimMacro
+from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
 
 
 @dataclass(frozen=True)
@@ -43,7 +43,7 @@ class Distribution:
     source: str
 
 
-def load_distribution(path: Path | None, xbar: CimMacro) -> Distribution:
+def load_distribution(path: Path | None, xbar: CimMacro[CimMacroConfig, CimMacroPolicy]) -> Distribution:
     """Load a synthetic-workload distribution TOML.
 
     ``None`` means fully uniform; a present file may omit ``[w]`` or
@@ -147,7 +147,7 @@ def _load_axis(
 
 def sample_w(
     distribution: Distribution,
-    macro: CimMacro,
+    macro: CimMacro[CimMacroConfig, CimMacroPolicy],
     *,
     input_num: int,
     output_num: int,
@@ -202,7 +202,7 @@ def sample_w(
 
 def sample_x_batches(
     distribution: Distribution,
-    macro: CimMacro,
+    macro: CimMacro[CimMacroConfig, CimMacroPolicy],
     *,
     input_num: int,
     n_total: int,

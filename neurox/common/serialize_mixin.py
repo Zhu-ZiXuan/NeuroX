@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Self
 
-from neurox.common.serialize import (
+from .serialize import (
     ConfigDict,
     ConfigValue,
     dataclass_from_dict,

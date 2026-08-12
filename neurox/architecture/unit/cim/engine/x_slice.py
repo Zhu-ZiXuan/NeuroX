@@ -12,8 +12,7 @@ from typing import ClassVar, Generic, TypeVar
 from torch import Tensor
 
 from neurox.architecture.unit.cim.slicer import DirectSlicer, SerialSlicer, Slicer
-from neurox.common import ConfigBase, ModuleBase, PolicyBase
-from neurox.common.mixin import RegistryMixin
+from neurox.common import ConfigBase, ModuleBase, PolicyBase, RegistryMixin
 from neurox.primitive.digital import DigitalPolicy, ShiftAdder, ShiftAdderConfig
 
 
@@ -25,13 +24,13 @@ class XSliceStagePolicy(PolicyBase, ABC):
     """Abstract policy root for input-slice serialization."""
 
 
-ConfigT = TypeVar("ConfigT", bound=XSliceStageConfig)
-PolicyT = TypeVar("PolicyT", bound=XSliceStagePolicy)
+ConfigT = TypeVar("ConfigT", bound=XSliceStageConfig, covariant=True)
+PolicyT = TypeVar("PolicyT", bound=XSliceStagePolicy, covariant=True)
 
 
 class XSliceStage(
     ModuleBase[ConfigT, PolicyT],
-    RegistryMixin["XSliceStageConfig", "XSliceStagePolicy", "XSliceStage"],
+    RegistryMixin["XSliceStageConfig", "XSliceStagePolicy", "XSliceStage[XSliceStageConfig, XSliceStagePolicy]"],
     Generic[ConfigT, PolicyT],
     ABC,
 ):
@@ -66,7 +65,7 @@ class XSliceStage(
         macro_x_value_range: tuple[int, int],
         w_parallel_size: int,
         macro_group_num: int,
-    ) -> XSliceStage:
+    ) -> XSliceStage[XSliceStageConfig, XSliceStagePolicy]:
         """Build the input-slice stage selected by config and policy types."""
         impl = cls._lookup_neurox_module(config=config, policy=policy)
         return impl(
@@ -157,6 +156,10 @@ class SerialXSliceStagePolicy(XSliceStagePolicy):
 )
 class SerialXSliceStage(XSliceStage[SerialXSliceStageConfig, SerialXSliceStagePolicy]):
     """Serialize logical inputs into radix-weighted Macro input cycles."""
+
+    #: Serialization always spans several Sa cycles, so this layout always
+    #: holds the reconstruction block the base leaves optional.
+    shift_adder: ShiftAdder
 
     def __init__(
         self,

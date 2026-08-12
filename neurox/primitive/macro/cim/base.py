@@ -13,8 +13,7 @@ from typing import TYPE_CHECKING, Generic, TypeVar
 import torch
 from torch import Tensor
 
-from neurox.common import ConfigBase, ModuleBase, PolicyBase
-from neurox.common.mixin import RegistryMixin, ValidateMixin
+from neurox.common import ConfigBase, ModuleBase, PolicyBase, RegistryMixin, ValidateMixin
 
 if TYPE_CHECKING:
     from .ideal import IdealCimMacro
@@ -143,13 +142,13 @@ class CimMacroPolicy(PolicyBase, ABC):
     """Abstract marker base for CimMacro-family nonideality policies."""
 
 
-ConfigT = TypeVar("ConfigT", bound=CimMacroConfig)
-PolicyT = TypeVar("PolicyT", bound=CimMacroPolicy)
+ConfigT = TypeVar("ConfigT", bound=CimMacroConfig, covariant=True)
+PolicyT = TypeVar("PolicyT", bound=CimMacroPolicy, covariant=True)
 
 
 class CimMacro(
     ModuleBase[ConfigT, PolicyT],
-    RegistryMixin["CimMacroConfig", "CimMacroPolicy", "CimMacro"],
+    RegistryMixin["CimMacroConfig", "CimMacroPolicy", "CimMacro[CimMacroConfig, CimMacroPolicy]"],
     Generic[ConfigT, PolicyT],
     ABC,
 ):
@@ -201,7 +200,7 @@ class CimMacro(
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
-    ) -> CimMacro:
+    ) -> CimMacro[CimMacroConfig, CimMacroPolicy]:
         """Build the implementation registered for the config-policy pair.
 
         Args:

@@ -5,12 +5,8 @@ from __future__ import annotations
 import pytest
 import torch
 
-from neurox.architecture.unit import (
-    IdealLinearUnit,
-    IdealLinearUnitConfig,
-    IdealLinearUnitPolicy,
-    LinearUnit,
-)
+from neurox import Profiler, stamp_names
+from neurox.architecture.unit import LinearUnit
 from neurox.architecture.unit.cim import (
     CimUnit,
     CimUnitConfig,
@@ -49,8 +45,8 @@ from neurox.architecture.unit.cim.engine import (
     XSliceStagePolicy,
 )
 from neurox.architecture.unit.cim.engine.placement import _chunk_pad_along
+from neurox.architecture.unit.ideal import IdealLinearUnit, IdealLinearUnitConfig, IdealLinearUnitPolicy
 from neurox.common.encoding import Encoding
-from neurox.common.profiler import NeuroxProfiler
 from neurox.common.serialize import ConfigDict
 from neurox.primitive.digital import AccumulatorConfig, SerialAccumulator, ShiftAdderConfig
 from neurox.primitive.macro.cim import IdealCimMacroConfig, IdealCimMacroPolicy
@@ -672,10 +668,12 @@ def test_phase_accumulator_energy_scales_with_input_phase_num() -> None:
         weight = _randint_in_range(unit.w_value_range, (n, k))
         activation = _randint_in_range(unit.x_value_range, (m, k))
         unit.program(weight)
-        with NeuroxProfiler() as p:
+        stamp_names(unit)
+        accumulator_name = unit.engine.input_activation.phase_accumulator.qualified_name
+        with Profiler() as profiler:
             unit.linear(activation, quantization_mode=_TEST_QUANTIZATION_MODE, adc_bits=_TEST_ADC_BITS)
         energies[unit.engine.input_activation._input_phase_num] = sum(
-            e.dynamic_energy__fJ for e in p.energy_events if e.module is unit.engine.input_activation.phase_accumulator
+            record.dynamic_energy__fJ for record in profiler.records if record.qualified_name == accumulator_name
         )
     assert energies[1] > 0.0
     assert energies[2] == pytest.approx(2.0 * energies[1])
@@ -820,7 +818,7 @@ def test_engine_from_config_dispatches_composed_stages(
 def test_unit_config_nested_engine_deserialization() -> None:
     """Receiver-bounded deserialization resolves the unit, engine, and macro
     leaves from their ``_neurox_class`` discriminators."""
-    payload: ConfigDict = {
+    config_dict: ConfigDict = {
         "_neurox_class": "LinearCimUnitConfig",
         "area_per_inst__um2": 0.0,
         "leakage_per_inst__uW": 0.0,
@@ -851,7 +849,7 @@ def test_unit_config_nested_engine_deserialization() -> None:
             },
         },
     }
-    config = CimUnitConfig.from_dict(payload)
+    config = CimUnitConfig.from_dict(config_dict)
     assert type(config) is LinearCimUnitConfig
     assert type(config.engine) is CimEngineConfig
     assert type(config.engine.cim_macro_config) is IdealCimMacroConfig
@@ -861,7 +859,7 @@ def test_unit_config_nested_engine_deserialization() -> None:
 
 
 def test_unit_policy_nested_engine_deserialization() -> None:
-    payload: ConfigDict = {
+    config_dict: ConfigDict = {
         "_neurox_class": "LinearCimUnitPolicy",
         "engine": {
             "cim_macro_policy": {
@@ -877,7 +875,7 @@ def test_unit_policy_nested_engine_deserialization() -> None:
             },
         },
     }
-    policy = CimUnitPolicy.from_dict(payload)
+    policy = CimUnitPolicy.from_dict(config_dict)
     assert type(policy) is LinearCimUnitPolicy
     assert type(policy.engine) is CimEnginePolicy
     assert type(policy.engine.cim_macro_policy) is IdealCimMacroPolicy

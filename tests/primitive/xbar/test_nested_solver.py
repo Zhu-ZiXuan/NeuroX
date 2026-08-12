@@ -9,7 +9,7 @@ KCL conductance system with Dirichlet boundaries at the reference taps.
 Covers:
   * dense-oracle correctness: node voltages and driver currents match a
     ``torch.linalg.solve`` float64 assembly of the same network.
-  * wire-residual decay: the :class:`SolverObservation` submitted to
+  * wire-residual decay: the :class:`SolverRecord` submitted to
     :class:`SolverProber` carries BL / SL wire KCL residuals at fp64
     round-off, alongside the converged DCOP.
   * inner-only entry point: ``solve_array_fixed_clamp`` is a direct
@@ -34,8 +34,8 @@ from neurox.primitive.xbar.cell import XbarCellDcop
 from neurox.primitive.xbar.solver import (
     NestedParallelRailSolver,
     NestedParallelRailSolverConfig,
-    SolverObservation,
     SolverProber,
+    SolverRecord,
 )
 from tests.utils.standalone_solver_fixture import COL_NUM, ROW_NUM, SolverHarness, build_solver_harness
 
@@ -166,31 +166,31 @@ def test_a_degenerate_axis_is_well_defined(device: torch.device, col_num: int, r
     torch.testing.assert_close(dcop.i_sl_driver[0], i_sl_exp, **tol)
 
 
-def _assert_fully_detached(observation: SolverObservation[XbarCellDcop]) -> None:
-    """Every tensor on the observation — including inside its DCOP — is detached."""
+def _assert_fully_detached(record: SolverRecord[XbarCellDcop]) -> None:
+    """Every tensor on the record — including inside its DCOP — is detached."""
     for tensor in (
-        observation.wire_bl__uA,
-        observation.wire_sl__uA,
-        observation.clamp_bl__V,
-        observation.clamp_sl__V,
-        observation.dcop.i_bl_driver,
-        observation.dcop.i_sl_driver,
-        observation.dcop.v_bl_node,
-        observation.dcop.v_sl_node,
-        observation.dcop.v_bl_clamp,
-        observation.dcop.v_sl_drive,
-        observation.dcop.cell.i__uA,
-        observation.dcop.cell.di_dvbl__uS,
-        observation.dcop.cell.di_dvsl__uS,
+        record.wire_bl__uA,
+        record.wire_sl__uA,
+        record.clamp_bl__V,
+        record.clamp_sl__V,
+        record.dcop.i_bl_driver,
+        record.dcop.i_sl_driver,
+        record.dcop.v_bl_node,
+        record.dcop.v_sl_node,
+        record.dcop.v_bl_clamp,
+        record.dcop.v_sl_drive,
+        record.dcop.cell.i__uA,
+        record.dcop.cell.di_dvbl__uS,
+        record.dcop.cell.di_dvsl__uS,
     ):
         assert tensor.grad_fn is None
         assert tensor.requires_grad is False
 
 
-def test_observation_carries_dcop_and_residuals(device: torch.device) -> None:
-    """A probed solve emits one detached observation: DCOP + wire residuals.
+def test_record_carries_dcop_and_residuals(device: torch.device) -> None:
+    """A probed solve emits one detached record: DCOP + wire residuals.
 
-    Nested solver drives both wire KCL residuals to fp64 noise; the payload
+    Nested solver drives both wire KCL residuals to fp64 noise; the record
     also carries the converged DCOP (finite tensors, expected leading shape),
     all tensors fully detached including inside ``dcop`` and ``dcop.cell``.
     """
@@ -201,29 +201,38 @@ def test_observation_carries_dcop_and_residuals(device: torch.device) -> None:
     with SolverProber() as prober:
         dcop = harness.solver.solve_dc(**harness.solver_kwargs())
     records = prober.records
-    # One public solve_dc invocation emits exactly one observation record.
+    # One public solve_dc invocation emits exactly one record.
     assert len(records) == 1
-    observation = records[0]
+    record = records[0]
+    # A solver is no module, so the record names its own solve entry point.
+    assert record.emitter == "NestedParallelRailSolver.solve_dc"
 
-    assert observation.wire_bl__uA.max().item() < 1e-9
-    assert observation.wire_sl__uA.max().item() < 1e-9
+    assert record.wire_bl__uA.max().item() < 1e-9
+    assert record.wire_sl__uA.max().item() < 1e-9
 
-    # The observation carries the converged DCOP with the same leading shape.
-    assert observation.dcop.v_bl_node.shape == dcop.v_bl_node.shape
-    assert torch.isfinite(observation.dcop.v_bl_node).all()
-    assert torch.isfinite(observation.dcop.cell.i__uA).all()
-    _assert_fully_detached(observation)
+    # The record carries the converged DCOP with the same leading shape.
+    assert record.dcop.v_bl_node.shape == dcop.v_bl_node.shape
+    assert torch.isfinite(record.dcop.v_bl_node).all()
+    assert torch.isfinite(record.dcop.cell.i__uA).all()
+    _assert_fully_detached(record)
 
 
 def test_solve_output_bit_identical_probed_vs_unprobed(device: torch.device) -> None:
-    """The demand gate never perturbs the solve: DCOP is bit-identical."""
+    """The demand gate never perturbs the solve: DCOP is bit-identical.
+
+    The probed run is held to having actually emitted, so the law cannot pass
+    by the emit path having gone quiet; and the record's own detach must copy
+    rather than reach back into the solution it was built from, which the
+    equality on the returned DCOP catches.
+    """
     harness = build_solver_harness(
         solver_config=NestedParallelRailSolverConfig(n_outer=3, n_inner=3),
         device=device,
     )
     unprobed = harness.solver.solve_dc(**harness.solver_kwargs())
-    with SolverProber():
+    with SolverProber() as prober:
         probed = harness.solver.solve_dc(**harness.solver_kwargs())
+    assert len(prober.records) == 1
     for field in ("v_bl_node", "v_sl_node", "v_bl_clamp", "v_sl_drive", "i_bl_driver", "i_sl_driver"):
         assert torch.equal(getattr(unprobed, field), getattr(probed, field))
     assert torch.equal(unprobed.cell.i__uA, probed.cell.i__uA)
@@ -261,12 +270,13 @@ def test_inner_direct_solve_exactness(device: torch.device) -> None:
         )
     records = prober.records
     assert len(records) == 1
-    observation = records[0]
-    assert observation.wire_bl__uA.max().item() < 1e-9
-    assert observation.wire_sl__uA.max().item() < 1e-9
+    record = records[0]
+    assert record.emitter == "NestedParallelRailSolver.solve_array_fixed_clamp"
+    assert record.wire_bl__uA.max().item() < 1e-9
+    assert record.wire_sl__uA.max().item() < 1e-9
     # Pinned clamps → clamp residual identically zero.
-    assert torch.equal(observation.clamp_bl__V, torch.zeros_like(observation.clamp_bl__V))
-    assert torch.equal(observation.clamp_sl__V, torch.zeros_like(observation.clamp_sl__V))
+    assert torch.equal(record.clamp_bl__V, torch.zeros_like(record.clamp_bl__V))
+    assert torch.equal(record.clamp_sl__V, torch.zeros_like(record.clamp_sl__V))
 
     v_bl_exp, v_sl_exp, _i_bl_exp, _i_sl_exp = _dense_kcl_solution(harness)
     tol = {"rtol": 0.0, "atol": 1e-9}

@@ -30,7 +30,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from neurox.common.profiler import NeuroxProfiler
+from neurox import Profiler, Reporter, stamp_names
 from neurox.primitive.analog.current_adc import SarIadc, SarIadcConfig, SarIadcPolicy
 from neurox.works.macro.cim.xue2020jssc.tmcsa import Tmcsa, TmcsaConfig, TmcsaPolicy
 
@@ -78,6 +78,7 @@ def _build(*, gn: int = _GN) -> Tmcsa:
     )
     module.eval()
     module.fabricate()
+    stamp_names(module)  # the standalone module is its own root, named ""
     return module
 
 
@@ -194,7 +195,7 @@ def test_phase_billing_law_hand_computed() -> None:
     code = torch.tensor([[[1, 2], [0, 6]]], dtype=torch.long)
     refs = torch.tensor(_LADDER, dtype=_DTYPE)
 
-    with NeuroxProfiler() as prof, torch.no_grad():
+    with Profiler() as prof, torch.no_grad():
         module(i_sub, code, refs, bits=_BITS)
 
     expected = 0.0
@@ -205,19 +206,19 @@ def test_phase_billing_law_hand_computed() -> None:
             i_ph3 = 2.0 * (i_val + i_ref)  # PH3: internal only; 2x splits into two 1x sinks
             expected += _V_DD__V * (i_ph2 * _T_PH2__NS[s] + i_ph3 * _T_PH3__NS[s]) + _E_FIXED__fJ
 
-    assert prof.total_dynamic_energy__fJ == pytest.approx(expected, rel=1e-12)
-    # One un-channelled event per forward — the module's own profiler row.
-    assert len(prof.energy_events) == 1
-    assert prof.energy_events[0].channel is None
-    report = prof.report(module)
-    assert report.energy_by_name == {"": pytest.approx(expected, rel=1e-12)}
+    reporter = Reporter(module)
+    assert reporter.total_dynamic_energy__fJ(prof) == pytest.approx(expected, rel=1e-12)
+    # One un-channelled record per forward — the module's own report row.
+    assert len(prof.records) == 1
+    assert prof.records[0].channel is None
+    assert reporter.by_name(prof) == {"": pytest.approx(expected, rel=1e-12)}
 
 
 def _bill(module: Tmcsa, i_sub: torch.Tensor, code: torch.Tensor, refs: torch.Tensor, *, bits: int) -> float:
     """Total dynamic energy [fJ] one billing call records."""
-    with NeuroxProfiler() as prof, torch.no_grad():
+    with Profiler() as prof, torch.no_grad():
         module(i_sub, code, refs, bits=bits)
-    return float(prof.total_dynamic_energy__fJ)
+    return Reporter(module).total_dynamic_energy__fJ(prof)
 
 
 def test_lowered_bits_bills_the_leading_steps_at_the_up_shifted_code() -> None:
@@ -252,6 +253,7 @@ def test_lowered_bits_bills_the_leading_steps_at_the_up_shifted_code() -> None:
     )
     leading_only.eval()
     leading_only.fabricate()
+    stamp_names(leading_only)
     full_width = _bill(leading_only, i_sub, code << shift, refs, bits=_BITS)
 
     assert lowered == pytest.approx(full_width - _E_FIXED__fJ * shift * i_sub.numel(), rel=1e-12)

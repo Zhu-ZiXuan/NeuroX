@@ -87,7 +87,7 @@ The static PPA of the tile follows from the same lattice. Its silicon area is th
 | $G_{\mathrm{min}}$ | RRAM device conductance floor | uS | `cell_config.rram_config.g_min__uS` |
 | $R_{\mathrm{seg}}$ | rail link resistance | MOhm | `bl_segment_r__MOhm`, `sl_segment_r__MOhm` |
 | $C_{\mathrm{BL}}, C_{\mathrm{X}}, C_{\mathrm{SL}}, C_{\mathrm{WL}}$ | per-node total capacitance at each seat | fF | `bl_node_c__fF`, `x_node_c__fF`, `sl_node_c__fF`, `wl_node_c__fF` |
-| $E$ | per-access capacitive energy of the whole grid | fJ | array energy payload |
+| $E$ | per-access capacitive energy of the whole grid | fJ | array energy tensor |
 | $N_{\mathrm{row}}$ | number of rows along each BL/SL rail ladder | — | `row_num` |
 | $N_{\mathrm{col}}$ | number of physical columns | — | `col_num` |
 

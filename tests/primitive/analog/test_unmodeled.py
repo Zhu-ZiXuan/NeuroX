@@ -1,9 +1,9 @@
 """UnmodeledBlock: a static-PPA-only seat for a functionally unmodeled block.
 
-The block carries area + leakage as a profiler-visible static seat and does
+The block carries area + leakage as a reporter-visible static seat and does
 nothing else — no functional method, no dynamic energy, no latency. Config
 validation rejects negative PPA fields. Its static PPA scales by ``inst_count``
-and is visible to the profiler's static walk; ``fabricate`` emits no events.
+and is visible to the reporter's static walk; ``fabricate`` emits no records.
 """
 
 from __future__ import annotations
@@ -14,12 +14,8 @@ from typing import Any
 import pytest
 import torch
 
-from neurox.common.profiler import NeuroxProfiler
-from neurox.primitive.analog.unmodeled import (
-    UnmodeledBlock,
-    UnmodeledBlockConfig,
-    UnmodeledBlockPolicy,
-)
+from neurox import Profiler, Reporter, stamp_names
+from neurox.primitive.analog import UnmodeledBlock, UnmodeledBlockConfig, UnmodeledBlockPolicy
 
 
 def _config(**overrides: Any) -> UnmodeledBlockConfig:
@@ -51,22 +47,23 @@ def test_validation_rejects_negative_ppa() -> None:
 def test_static_ppa_scales_and_is_visible() -> None:
     """Static PPA scales by ``inst_count`` and appears in the profiler's static walk."""
     block = _make(area=4.0, leakage=0.5, inst_shape=(2,))
+    stamp_names(block)
     assert block.is_profile_target
     assert block.area__um2 == pytest.approx(4.0 * 2)
     assert block.leakage__uW == pytest.approx(0.5 * 2)
 
-    records = NeuroxProfiler.collect_static(block)
-    assert len(records) == 1
-    assert records[0].area__um2 == pytest.approx(4.0 * 2)
-    assert records[0].leakage_power__uW == pytest.approx(0.5 * 2)
+    entries = Reporter(block).static_entries
+    assert len(entries) == 1
+    assert entries[0].area__um2 == pytest.approx(4.0 * 2)
+    assert entries[0].leakage__uW == pytest.approx(0.5 * 2)
 
 
 def test_fabricate_emits_no_events() -> None:
-    """The block has no functional path; fabricate emits no energy event."""
+    """The block has no functional path; fabricate emits no energy record."""
     block = _make(inst_shape=(2,))
-    with NeuroxProfiler() as p:
+    with Profiler() as p:
         block.fabricate()
-    assert p.energy_events == []
+    assert p.records == []
 
 
 def test_toml_loads(tmp_path: Path) -> None:

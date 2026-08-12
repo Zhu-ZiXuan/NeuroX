@@ -53,7 +53,7 @@ import torch
 import torch._dynamo
 from torch import Tensor
 
-from neurox.common.profiler import NeuroxProfiler
+from neurox import Profiler, Reporter
 from neurox.primitive.xbar.cell import XbarCell1t1rLinear, XbarCellDcop
 from neurox.primitive.xbar.solver import SolverDcop, SolverProber
 
@@ -128,7 +128,9 @@ def _twin_pair(
 
 def _solve_dcop(macro: Xue2020JsscCimMacro, x: Tensor) -> SolverDcop[XbarCellDcop]:
     """Run one VMM and return the converged solver DCOP it produced."""
-    with SolverProber() as probe, torch.no_grad():
+    # device=None: the returned DCOP is indexed with the macro's own slot map,
+    # which lives on the tested device; a default cpu finalize would split them.
+    with SolverProber(device=None) as probe, torch.no_grad():
         macro.vec_mat_mul(x, quantization_mode=QUANTIZATION_MODE, adc_bits=TINY_ADC_BITS)
     assert len(probe.records) == 1, f"expected one unchunked solve, got {len(probe.records)}"
     return probe.records[-1].dcop
@@ -333,9 +335,9 @@ def test_array_cap_energy_independent_of_mux_factor(device: torch.device) -> Non
     def array_row(mux_factor: int) -> float:
         macro = build_macro(build_config(mux_factor=mux_factor), device=device)
         macro.program(w.to(device))
-        with NeuroxProfiler() as prof, torch.no_grad():
+        with Profiler() as prof, torch.no_grad():
             macro.vec_mat_mul(x, quantization_mode=QUANTIZATION_MODE, adc_bits=TINY_ADC_BITS)
-        return prof.report(macro).energy_by_name["array"]
+        return Reporter(macro).by_name(prof)["array"]
 
     # Same 16 physical columns, factored into 2 slots of 8 lanes vs 4 of 4.
     e_mux2 = array_row(2)

@@ -169,6 +169,8 @@ nav:
     - Prober: internals/common/prober.md
     - Profiler: internals/common/profiler.md
     - Quant: internals/common/quant.md
+    - Recorder: internals/common/recorder.md
+    - Reporter: internals/common/reporter.md
     - Tensor groups: internals/common/tensor_group.md
   - Device:
     - MOSFET: internals/primitive/device/mosfet.md

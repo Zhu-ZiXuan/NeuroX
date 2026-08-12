@@ -9,7 +9,7 @@ from __future__ import annotations
 import torch
 from torch import Tensor
 
-from neurox.architecture.unit.cim.base import CimUnit, CimUnitConfig, CimUnitPolicy
+from neurox.architecture.unit.cim import CimUnit, CimUnitConfig, CimUnitPolicy
 from neurox.architecture.unit.linear import LinearUnit
 
 

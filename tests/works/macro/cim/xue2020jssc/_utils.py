@@ -29,7 +29,7 @@ files reuse it.
 The analog ``I_SUB(M)`` grid depends on the whole electrical config, so the
 witness ships a placeholder ladder and decode-bearing tests calibrate in-code
 through :func:`build_calibrated_macro`: probe the tile's own ``I_SUB(M)`` grid
-(:func:`probe_i_sub_grid`, captured through the ADC's own observation prober) on
+(:func:`probe_i_sub_grid`, captured through the ADC's own record prober) on
 an all-``+1`` column, install the mid-point thresholds (:func:`midpoint_refs` +
 :func:`with_ref_levels`), and rebuild — a law-level calibration derived from the
 config under test, not from shipped numbers.
@@ -43,6 +43,7 @@ from typing import TypedDict, Unpack
 import torch
 from torch import Tensor
 
+from neurox import stamp_names
 from neurox.primitive.analog import (
     IrefConfig,
     IrefPolicy,
@@ -54,28 +55,24 @@ from neurox.primitive.analog import (
     VrefPolicy,
 )
 from neurox.primitive.analog.current_adc import (
+    IadcProber,
     SarIadcConfig,
     SarIadcPolicy,
 )
-from neurox.primitive.analog.current_adc.base import IadcProber
 from neurox.primitive.analog.voltage_dac import GeneralVdacConfig, GeneralVdacPolicy
 from neurox.primitive.macro.cim import CimMacro, CimMacroMode
 from neurox.primitive.xbar.array import XbarArray1t1rConfig, XbarArray1t1rPolicy
 from neurox.primitive.xbar.cell import XbarCell1t1rLinearConfig, XbarCell1t1rLinearPolicy
 from neurox.primitive.xbar.solver import NestedParallelRailSolverConfig
 from neurox.works.macro.cim.xue2020jssc import (
-    DswctConfig,
-    DswctPolicy,
-    PnIsubConfig,
-    PnIsubPolicy,
-    SinwpScConfig,
-    SinwpScPolicy,
-    TmcsaConfig,
-    TmcsaPolicy,
     Xue2020JsscCimMacro,
     Xue2020JsscCimMacroConfig,
     Xue2020JsscCimMacroPolicy,
 )
+from neurox.works.macro.cim.xue2020jssc.dswct import DswctConfig, DswctPolicy
+from neurox.works.macro.cim.xue2020jssc.pn_isub import PnIsubConfig, PnIsubPolicy
+from neurox.works.macro.cim.xue2020jssc.sinwp_sc import SinwpScConfig, SinwpScPolicy
+from neurox.works.macro.cim.xue2020jssc.tmcsa import TmcsaConfig, TmcsaPolicy
 
 # --- Tiny witness geometry ---
 TINY_OUTPUT_NUM = 4
@@ -330,7 +327,11 @@ def build_macro(
     device: torch.device | None = None,
     inst_shape: tuple[int, ...] = (),
 ) -> Xue2020JsscCimMacro:
-    """Build + fabricate one macro on ``device`` under the all-off policy."""
+    """Build + fabricate one macro on ``device`` under the all-off policy.
+
+    The macro is name-stamped once assembled, so every profiled run built here
+    emits records a :class:`neurox.common.reporter.Reporter` can name.
+    """
     macro = CimMacro.from_config(
         config=config,
         policy=build_all_off_policy(),
@@ -345,6 +346,7 @@ def build_macro(
         macro.to(device)
     macro.eval()
     macro.fabricate()
+    stamp_names(macro)
     return macro
 
 

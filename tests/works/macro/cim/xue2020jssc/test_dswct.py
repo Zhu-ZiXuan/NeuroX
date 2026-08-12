@@ -27,7 +27,7 @@ import pytest
 import torch
 from torch import Tensor
 
-from neurox.common.profiler import NeuroxProfiler
+from neurox import Profiler, Reporter, stamp_names
 from neurox.works.macro.cim.xue2020jssc.dswct import Dswct, DswctConfig, DswctPolicy
 
 # --- Tiny witness geometry ---
@@ -64,6 +64,7 @@ def _build_dswct(
     )
     dswct.eval()
     dswct.fabricate()
+    stamp_names(dswct)  # the standalone module is its own root, named ""
     return dswct
 
 
@@ -124,14 +125,14 @@ def test_forward_equals_inline_computation() -> None:
 
 
 def test_forward_outside_profiler_emits_nothing_and_matches() -> None:
-    """No active profiler: forward still runs and a later profiled run sees only its own events."""
+    """No active profiler: forward still runs and a later profiled run sees only its own records."""
     dswct = _build_dswct()
     i_dl = _i_dl()
     out_plain = dswct(i_dl, window__ns=2.0)
-    with NeuroxProfiler() as prof:
+    with Profiler() as prof:
         out_profiled = dswct(i_dl, window__ns=2.0)
     assert torch.equal(out_plain, out_profiled)
-    assert len(prof.energy_events) == 1
+    assert len(prof.records) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -144,11 +145,11 @@ def test_rail_billing_is_v_dd_abs_i_wdl_window() -> None:
     dswct = _build_dswct()
     i_dl = _i_dl(2)  # signed entries: the |I| convention is load-bearing
     window__ns = 4.0
-    with NeuroxProfiler() as prof:
+    with Profiler() as prof:
         dswct(i_dl, window__ns=window__ns)
     ratios = torch.tensor(_DIGIT_RATIOS, dtype=_DTYPE)
     expect__fJ = float(_V_DD__V * (i_dl * ratios).abs().sum() * window__ns)
-    assert prof.total_dynamic_energy__fJ == pytest.approx(expect__fJ, rel=1e-12)
+    assert Reporter(dswct).total_dynamic_energy__fJ(prof) == pytest.approx(expect__fJ, rel=1e-12)
 
 
 def test_per_bit_diagonal_window_rides_the_leading_batch() -> None:
@@ -157,12 +158,12 @@ def test_per_bit_diagonal_window_rides_the_leading_batch() -> None:
     x_bits = 2
     i_dl = _i_dl(x_bits)  # leading = the WL bit-plane axis
     window__ns = torch.tensor((2.0, 5.0), dtype=_DTYPE)
-    with NeuroxProfiler() as prof:
+    with Profiler() as prof:
         dswct(i_dl, window__ns=window__ns)
     ratios = torch.tensor(_DIGIT_RATIOS, dtype=_DTYPE)
     per_plane = (i_dl * ratios).abs().sum(dim=(-4, -3, -2, -1))
     expect__fJ = float(_V_DD__V * (per_plane * window__ns).sum())
-    assert prof.total_dynamic_energy__fJ == pytest.approx(expect__fJ, rel=1e-12)
+    assert Reporter(dswct).total_dynamic_energy__fJ(prof) == pytest.approx(expect__fJ, rel=1e-12)
 
 
 def test_cap_event_per_slot_plane_bank() -> None:
@@ -172,23 +173,24 @@ def test_cap_event_per_slot_plane_bank() -> None:
     plane_num = 2
     i_dl = _i_dl(plane_num)
     window__ns = 4.0
-    with NeuroxProfiler() as prof:
+    with Profiler() as prof:
         dswct(i_dl, window__ns=window__ns)
     ratios = torch.tensor(_DIGIT_RATIOS, dtype=_DTYPE)
     rail__fJ = float(_V_DD__V * (i_dl * ratios).abs().sum() * window__ns)
     cap__fJ = c_load__fF * _V_DD__V**2 * (plane_num * _SERIAL * _GN * _POL)
-    assert prof.total_dynamic_energy__fJ == pytest.approx(rail__fJ + cap__fJ, rel=1e-12)
+    assert Reporter(dswct).total_dynamic_energy__fJ(prof) == pytest.approx(rail__fJ + cap__fJ, rel=1e-12)
 
 
 def test_zero_c_load_bills_rail_only() -> None:
     """The shipped c_load = 0.0 leaves the billed energy exactly the rail term."""
     i_dl = _i_dl(2)
     window__ns = 3.0
-    with NeuroxProfiler() as prof_zero:
-        _build_dswct(c_load__fF=0.0)(i_dl, window__ns=window__ns)
+    dswct = _build_dswct(c_load__fF=0.0)
+    with Profiler() as prof_zero:
+        dswct(i_dl, window__ns=window__ns)
     ratios = torch.tensor(_DIGIT_RATIOS, dtype=_DTYPE)
     expect__fJ = float(_V_DD__V * (i_dl * ratios).abs().sum() * window__ns)
-    assert prof_zero.total_dynamic_energy__fJ == pytest.approx(expect__fJ, rel=1e-12)
+    assert Reporter(dswct).total_dynamic_energy__fJ(prof_zero) == pytest.approx(expect__fJ, rel=1e-12)
 
 
 # ---------------------------------------------------------------------------

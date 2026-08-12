@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import torch
 
-from neurox.primitive.macro.cim.ideal import IdealCimMacro, IdealCimMacroConfig, IdealCimMacroPolicy
+from neurox.primitive.macro.cim import IdealCimMacro, IdealCimMacroConfig, IdealCimMacroPolicy
 
 
 def _make_macro(

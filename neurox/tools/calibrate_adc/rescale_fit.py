@@ -14,7 +14,7 @@ For each requested ``quantization_mode`` the tool programs random ternary
 weight patterns into the physical tile and its lossless
 :meth:`~neurox.primitive.macro.cim.CimMacro.to_ideal` twin, drives random
 binary WL batches through both, pairs the physical tile's
-``current_adc.convert`` observations with the ideal twin's ``vec_mat_mul``
+``current_adc.convert`` records with the ideal twin's ``vec_mat_mul``
 return element for element, maps the ideal dots onto the macro's ADC input
 code axis
 (:meth:`~neurox.primitive.macro.cim.CimMacro.map_quantization_input_code`),
@@ -43,8 +43,7 @@ from pathlib import Path
 import torch
 
 from neurox.common import ConfigBase
-from neurox.primitive.macro.cim import CimMacro
-from neurox.primitive.macro.cim.ideal import IdealCimMacro
+from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy, IdealCimMacro
 from neurox.tools._config import add_standard_args, load_tool_config, resolve_relative_path, setup_logging
 
 from ._math import RescaleFit, filter_fit_samples, fit_rescale_through_origin
@@ -134,7 +133,7 @@ class ModeFitResult:
 
 
 def _fit_one_mode(
-    physical: CimMacro,
+    physical: CimMacro[CimMacroConfig, CimMacroPolicy],
     ideal: IdealCimMacro,
     *,
     mode: AdcMode,

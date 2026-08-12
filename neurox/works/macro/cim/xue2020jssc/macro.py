@@ -748,7 +748,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
             config.mux_factor, gn, _POLARITY_NUM, config.w_digit_num
         )
         # The inverse permutation: the seat a physical column sits in. A gather
-        # by this index is what turns a seat-ordered payload into a physical one,
+        # by this index is what turns a seat-ordered tensor into a physical one,
         # so both directions are a single index_select over a stored bijection.
         seat_of_phys = torch.argsort(slot_map.reshape(-1))
         self.register_buffer("_slot_map", slot_map, persistent=False)
@@ -850,7 +850,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
             dim: Negative index of the seat block's first axis.
 
         Returns:
-            The same payload on the physical column axis, at ``dim + 3``.
+            The same tensor on the physical column axis, at ``dim + 3``.
             Shape: ``[..., phys_col, ...]``.
         """
         return x.flatten(dim, dim + 3).index_select(dim + 3, self._seat_of_phys)
@@ -868,7 +868,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
             dim: Negative index of that axis.
 
         Returns:
-            The same payload on the seat block, opening at ``dim``.
+            The same tensor on the seat block, opening at ``dim``.
             Shape: ``[..., sweep, gn, polarity, w_digit, ...]``.
         """
         seated: Tensor = x.index_select(dim, self._slot_map.reshape(-1)).unflatten(dim, tuple(self._slot_map.shape))
@@ -977,7 +977,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
 
         # The instance axes are DECLARED leading, not anonymous batch: the cell
         # grid, both reference banks and the ADC comparators each hold per-copy
-        # state, so the payload has to name a position for them.
+        # state, so the input layout has to name a position for them.
         inst_num = len(self.inst_shape)
         if x_long.ndim - 1 < inst_num:
             raise ValueError(
@@ -1069,7 +1069,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         # layout: the lane trailing (gn, polarity, w_digit) is each clamp bank's
         # instance block, and a per-op lump is seated by POSITION, so the drives
         # are billed here, ahead of every axis move below. The drive is
-        # layout-blind (a flat per-op lump over the payload), so a fabrication
+        # layout-blind (a flat per-op lump over the driven tensor), so a fabrication
         # prefix ahead of the sweep axis does not disturb it.
         # Shape: [..., x_bits, *inst_shape, gs, gn, polarity, wd]
         self.cablc.drive(i_bl_seat, v_bl_seat)
@@ -1166,7 +1166,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         accesses = signed[..., 0]
         # The control fires once per conversion cycle, shared across the CIM-IOs —
         # a flat per-op lump, so the expanded constant holds no storage and no
-        # payload is materialized; the energy dtype is the constant's rather
+        # energy tensor is materialized; the energy dtype is the constant's rather
         # than the integer code's. Outside a profiler the call is already a
         # no-op, hence no activity guard.
         # Shape: [] -> [..., *inst_shape, gs]

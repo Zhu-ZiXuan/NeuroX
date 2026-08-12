@@ -27,7 +27,7 @@ A docstring or comment carries raw whitelisted unicode, no LaTeX, and no hosted 
 
 - Use Google-style docstrings.
 - Write for the caller of the symbol: public semantics, and tensor shapes when shape is part of the public contract. A pure elementwise API may omit shape or state the same-shape rule once.
-- A docstring `Shape:` line is written only as the separate final line of an entry inside an `Attributes:`, `Args:`, `Parameters:`, `Returns:`, or `Yields:` section, and only where that entry describes an actual tensor, an optional tensor, or a container whose elements are tensors. Its form is ````Shape: ``[*inst_shape, item_num]``.```` — a reStructuredText inline literal closed by a period, occupying its own line. Whether a public tensor payload that crosses a module boundary states shapes at all is its own call; when it does, it uses this form.
+- A docstring `Shape:` line is written only as the separate final line of an entry inside an `Attributes:`, `Args:`, `Parameters:`, `Returns:`, or `Yields:` section, and only where that entry describes an actual tensor, an optional tensor, or a container whose elements are tensors. Its form is ````Shape: ``[*inst_shape, item_num]``.```` — a reStructuredText inline literal closed by a period, occupying its own line. Whether a public tensor container that crosses a module boundary states shapes at all is its own call; when it does, it uses this form.
 - No other position carries the line: never trailing a free prose paragraph, never at the end of a module-level docstring, never inside a `Raises:`, `Note:`, `Example:`, or `See Also:` section, and never on an entry whose type is not a tensor.
 - Write the complete callable interface on the abstract method, mixin method, or Protocol method. An unchanged override inherits it instead of copying it; document only the difference when an override changes contract, shape, side effects, units, or errors.
 - A base or mixin class docstring contains only a short responsibility statement and requirements imposed on subclasses or hosts. General guidance, design rationale, lifecycle, ownership, and implementation details belong in the relevant Conventions or Internals document.
@@ -71,7 +71,7 @@ The class header is the object's state manifest, written for the human reader; a
 - Exactly three kinds are declared: buffers registered in `__init__`, tensors produced by `fabricate()`, and tensors produced by `program(...)`.
 - A child object or submodule is not declared: it has one visible assignment in `__init__`, and the module tree already exposes it. Compact scalar metadata bound in `__init__` is not declared either.
 - An attribute a base class requires of its subclass is declared as an abstract property on the base, per §Property vs method.
-- A config, policy, or Protocol field, or a field of a public tensor payload that crosses a module boundary, stays explicit, because its declaration defines that data structure; it is not a state declaration, so the grouping, typing, and shape rules below do not apply to it.
+- A config, policy, or Protocol field, or a field of a public tensor container that crosses a module boundary, stays explicit, because its declaration defines that data structure; it is not a state declaration, so the grouping, typing, and shape rules below do not apply to it.
 - Register each buffer with an explicit literal name; never hide buffer creation behind a loop or `setattr`.
 - Only a registered buffer is called a buffer; what `fabricate()` or `program(...)` produces is state.
 
@@ -102,7 +102,7 @@ Group declarations by lifecycle phase, under these names and in this order, omit
 
 ## Shape annotations
 
-The `Shape: ` label is written in two forms: the in-code `# Shape:` comment, fixed here, and the final line of a docstring field entry, fixed in §Docstrings. Both fill their comment or their docstring line entirely and use the same grammar inside the brackets; only the rendering differs, and the in-code form carries no terminating period. A shape annotation is the in-code form; the shape a docstring states is not one. A public tensor payload that crosses a module boundary states its shape in the docstring, where visibility is widest, and private state states it in code. The public shape contract itself is stated by the owning Reference or Internals document or by the public docstring.
+The `Shape: ` label is written in two forms: the in-code `# Shape:` comment, fixed here, and the final line of a docstring field entry, fixed in §Docstrings. Both fill their comment or their docstring line entirely and use the same grammar inside the brackets; only the rendering differs, and the in-code form carries no terminating period. A shape annotation is the in-code form; the shape a docstring states is not one. A public tensor container that crosses a module boundary states its shape in the docstring, where visibility is widest, and private state states it in code. The public shape contract itself is stated by the owning Reference or Internals document or by the public docstring.
 
 - Do not hide a caller-visible shape contract in an inline comment.
 - On a class-header declaration the annotation trails the declaration and states the attribute's terminal shape:
@@ -128,27 +128,29 @@ The `Shape: ` label is written in two forms: the in-code `# Shape:` comment, fix
 - A name resolves against the reader the shape addresses. An in-code annotation addresses someone standing inside the body, so every name in scope there resolves. A docstring addresses the caller, which resolves only a public attribute or property, a public config field name, and an axis name the documentation defines; a body-local name in a docstring shape is a defect.
 - An annotation that carries more than one arrow without meeting the longer-chain test above signals a statement doing more than one thing, and that statement is split. In particular, a tensor-to-Python-scalar conversion — a `float`, `int`, or `bool` cast, `.item()`, `.tolist()` — that wraps a multi-step tensor transform takes its own line: compute the tensor on one line, annotated with a single arrow where the rules above call for one, then convert on the following line. A conversion whose tensor side is a single step, such as a cast around one reduction, is the ordinary idiom and is never split.
 
-## Profile payload axes
+## Dynamic-energy axes
 
-Every dynamic-energy payload handed to the profiler carries one repo-wide axis layout, `[*caller_leading, ...]`, under one reduction rule: keep the caller's leading dims, sum every axis past them.
+Every energy tensor handed to the profiler carries one repo-wide axis layout, `[*caller_leading, ...]`, under one reduction rule: keep the caller's leading dims, sum every axis past them.
 
-- **Caller leading** — the measuring caller's own batch or time prefix, one position per independent unit operation. Only the caller knows its rank, so the caller declares that rank to the profiler once and every payload keeps the block: an event element is the cost of one unit operation, never a figure already collapsed across the caller's batch.
+- **Caller leading** — the measuring caller's own batch or time prefix, one position per independent unit operation. Only the caller knows its rank, so the caller declares that rank to the profiler once and every energy tensor keeps the block: an event element is the cost of one unit operation, never a figure already collapsed across the caller's batch.
 - **Everything after it** — the emitter's own internal structure: a serialized round, a digit, a phase, an output slot, a fabrication instance. All of it is summed, with no distinction drawn between one kind of axis and another, so an emitter declares nothing about its own axes. It lays the caller's block out first and puts its own axes after it, in whatever order its math produces.
 
 The asymmetry is deliberate. The caller is the only party that can know its own rank, while a declaration from the emitter would be unverifiable: folding a fabrication axis and folding a work axis are both plain summation, so no test, gate, or calibration could separate a right declaration from a wrong one.
 
-What the emitter owes instead is a two-clause contract on the payload it hands over:
+What the emitter owes instead is a two-clause contract on the energy tensor it hands over:
 
 1. **It carries the caller's leading dims.** Never pre-reduce them, and never emit at a rank below the declared one. An emitter that works in chunks therefore bills from reassembled full-shape state, because a chunk axis has ravelled the caller's block into one axis that cannot express the layout.
 2. **It carries them at their true extents.** A size-one stand-in for a real caller extent is a contract violation, not a broadcast request: nothing expands it, so the event is summed as the single unit operation it claims to be and under-counts that emitter by the caller batch's product.
 
-An emission site's shape annotation spells the layout out as written above. The caller block is a named group under the `*` prefix, because a downstream contract slices the payload by that rank; everything after it is `...`, because nothing depends on where its internal boundaries fall. §Shape annotations gives the general test both choices follow from.
+Billing work runs under no-grad. An emitter builds its energy tensor inside `torch.no_grad()` or an equivalent guard, so no billing arithmetic ever enters the autograd graph: the side channel measures the forward, it does not participate in it. The detach the side channel applies on submission is a backstop against a missed guard, not the mechanism.
 
-One further rule follows from the layout. Constant-per-element billing builds the payload as a 0-dim tensor holding the per-op constant, expanded onto the billed layout: the expanded view holds no storage and the collector's reduction over its stride-0 axes builds only the caller block, so never materialize a full constant payload. The constant fixes the energy dtype, since the billed layout is typically an integer code or a reduced-precision signal.
+An emission site's shape annotation spells the layout out as written above. The caller block is a named group under the `*` prefix, because a downstream contract slices the energy tensor by that rank; everything after it is `...`, because nothing depends on where its internal boundaries fall. §Shape annotations gives the general test both choices follow from.
 
-That summation is also the layout's price: the collector holds no per-instance resolution, and no way of shaping a payload gives it one.
+One further rule follows from the layout. Constant-per-element billing builds the energy tensor as a 0-dim tensor holding the per-op constant, expanded onto the billed layout: the expanded view holds no storage and the collector's reduction over its stride-0 axes builds only the caller block, so never materialize a full constant energy tensor. The constant fixes the energy dtype, since the billed layout is typically an integer code or a reduced-precision signal.
 
-The collector-side contract and its report surface are in [profiler](../internals/common/profiler.md).
+That summation is also the layout's price: the collector holds no per-instance resolution, and no way of shaping an energy tensor gives it one.
+
+The collector-side contract is in [profiler](../internals/common/profiler.md); the report surface is in [reporter](../internals/common/reporter.md).
 
 ## Type annotations
 

@@ -12,10 +12,8 @@ from collections.abc import Callable, Iterator
 import pytest
 import torch
 
-from neurox.common.mixin import FabricateMixin
-from neurox.primitive.device import MosfetConfig, MosfetPolicy, RramConfig, RramPolicy
-from neurox.primitive.device.mosfet import Nmos
-from neurox.primitive.device.rram import Rram
+from neurox.common.fabricate_mixin import FabricateMixin
+from neurox.primitive.device import MosfetConfig, MosfetPolicy, Nmos, Rram, RramConfig, RramPolicy
 from neurox.primitive.xbar.array import (
     XbarArray1t1r,
     XbarArray1t1rConfig,

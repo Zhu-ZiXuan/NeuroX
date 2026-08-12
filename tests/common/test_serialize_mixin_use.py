@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from neurox.common.mixin import SerializeMixin
+from neurox.common import SerializeMixin
 from neurox.common.serialize import dict_from_file
 
 

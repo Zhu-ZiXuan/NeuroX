@@ -13,8 +13,7 @@ from typing import TypedDict
 import pytest
 import torch
 
-from neurox.primitive.macro.cim import CimMacro
-from neurox.primitive.macro.cim.ideal import IdealCimMacro, IdealCimMacroConfig, IdealCimMacroPolicy
+from neurox.primitive.macro.cim import CimMacro, IdealCimMacro, IdealCimMacroConfig, IdealCimMacroPolicy
 
 
 class _IdealCimMacroKwargs(TypedDict):

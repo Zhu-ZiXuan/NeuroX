@@ -12,7 +12,7 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor
 
-from neurox.common.mixin import TensorGroupMixin, walk_tensor_fields
+from neurox.common import TensorGroupMixin, walk_tensor_fields
 
 
 @dataclass(frozen=True)

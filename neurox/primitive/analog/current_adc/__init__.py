@@ -1,9 +1,9 @@
 from .base import (
     Iadc,
     IadcConfig,
-    IadcObservation,
     IadcPolicy,
     IadcProber,
+    IadcRecord,
 )
 from .sar import SarIadc, SarIadcConfig, SarIadcPolicy
 
@@ -13,7 +13,7 @@ __all__ = [
     "SarIadcPolicy",
     "Iadc",
     "IadcConfig",
-    "IadcObservation",
     "IadcPolicy",
     "IadcProber",
+    "IadcRecord",
 ]

@@ -12,9 +12,8 @@ from pathlib import Path
 
 import torch
 
-from neurox.architecture.unit import LinearUnit
 from neurox.architecture.unit.cim import CimUnit, CimUnitConfig, CimUnitPolicy
-from neurox.primitive.physical_constant import T_ROOM__K
+from neurox.primitive import T_ROOM__K
 
 _CIRCUIT_DTYPE = torch.float32
 
@@ -34,7 +33,7 @@ def build_macro_factory(
     policy_path: Path,
     *,
     ideal_macro: bool,
-) -> Callable[..., LinearUnit]:
+) -> Callable[..., CimUnit[CimUnitConfig, CimUnitPolicy]]:
     """Return ``(w_logical_shape) → macro`` for the given config + policy TOMLs.
 
     The circuit design lives in ``config_path`` (section ``[cim_unit]``); the
@@ -44,7 +43,7 @@ def build_macro_factory(
     itself when the config already carries an ideal one.
     """
 
-    def factory(*, w_logical_shape: tuple[int, ...]) -> LinearUnit:
+    def factory(*, w_logical_shape: tuple[int, ...]) -> CimUnit[CimUnitConfig, CimUnitPolicy]:
         return CimUnit.from_config(
             config=read_macro_config(config_path),
             policy=read_macro_policy(policy_path),

@@ -8,12 +8,12 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Generic, TypeVar
+from typing import Any, Generic, TypeVar
 
 import torch
 from torch import Tensor
 
-from neurox.common.mixin import RegistryMixin
+from neurox.common import RegistryMixin
 
 from .base import (
     XbarCell,
@@ -65,13 +65,17 @@ class XbarCell1t1rDcop(XbarCellDcop):
 
 
 CellSnapT = TypeVar("CellSnapT", bound=XbarCell1t1rSnap)
-ConfigT = TypeVar("ConfigT", bound=XbarCell1t1rConfig)
-PolicyT = TypeVar("PolicyT", bound=XbarCell1t1rPolicy)
+ConfigT = TypeVar("ConfigT", bound=XbarCell1t1rConfig, covariant=True)
+PolicyT = TypeVar("PolicyT", bound=XbarCell1t1rPolicy, covariant=True)
 
 
 class XbarCell1t1r(
     XbarCell[ConfigT, PolicyT, CellSnapT, XbarCell1t1rDcop],
-    RegistryMixin[XbarCell1t1rConfig, XbarCell1t1rPolicy, "XbarCell1t1r"],
+    RegistryMixin[
+        XbarCell1t1rConfig,
+        XbarCell1t1rPolicy,
+        "XbarCell1t1r[XbarCell1t1rConfig, XbarCell1t1rPolicy, Any]",
+    ],
     Generic[ConfigT, PolicyT, CellSnapT],
     ABC,
 ):
@@ -111,7 +115,7 @@ class XbarCell1t1r(
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
-    ) -> XbarCell1t1r:
+    ) -> XbarCell1t1r[XbarCell1t1rConfig, XbarCell1t1rPolicy, Any]:
         """Build the 1T1R cell registered for the config-policy pair.
 
         Args:

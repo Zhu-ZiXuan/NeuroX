@@ -1,26 +1,17 @@
-from .dswct import Dswct, DswctConfig, DswctPolicy
+"""Xue 2020 JSSC RRAM CIM macro scheme.
+
+Importing the package registers the macro with the CIM-macro family registry,
+so ``from_config`` dispatches to it; the scheme's sub-blocks are owner-built
+concrete classes with no registry entries.
+"""
+
 from .macro import (
     Xue2020JsscCimMacro,
     Xue2020JsscCimMacroConfig,
     Xue2020JsscCimMacroPolicy,
 )
-from .pn_isub import PnIsub, PnIsubConfig, PnIsubPolicy
-from .sinwp_sc import SinwpSc, SinwpScConfig, SinwpScPolicy
-from .tmcsa import Tmcsa, TmcsaConfig, TmcsaPolicy
 
 __all__ = [
-    "Dswct",
-    "DswctConfig",
-    "DswctPolicy",
-    "PnIsub",
-    "PnIsubConfig",
-    "PnIsubPolicy",
-    "SinwpSc",
-    "SinwpScConfig",
-    "SinwpScPolicy",
-    "Tmcsa",
-    "TmcsaConfig",
-    "TmcsaPolicy",
     "Xue2020JsscCimMacro",
     "Xue2020JsscCimMacroConfig",
     "Xue2020JsscCimMacroPolicy",

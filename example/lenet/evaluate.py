@@ -24,10 +24,11 @@ from example.lenet.macro_factory import build_macro_factory
 from example.lenet.model_quant import QuantLeNet5
 from example.lenet.quant import QuantConv2d, QuantLinear
 from example.lenet.train_quant import QAT_SCHEMA
-from neurox.architecture.unit.cim.base import CimUnit
-from neurox.architecture.unit.cim.engine.base import CimEngine
-from neurox.common.profiler import ModuleBase, NeuroxProfiler, neurox_roots
-from neurox.primitive.macro.cim.base import CimMacro
+from neurox import Reporter, stamp_names
+from neurox.architecture.unit.cim import CimUnit
+from neurox.architecture.unit.cim.engine import CimEngine
+from neurox.common import ModuleBase, Profiler, neurox_roots
+from neurox.primitive.macro.cim import CimMacro
 
 CONFIG_DIR = Path(__file__).parent
 
@@ -161,12 +162,17 @@ def main() -> None:
         ideal_macro=(args.cim_macro == "ideal"),
     )
     model = QuantLeNet5(macro_factory, ckpt["layers"]).to(device).eval()
+    # A module never knows its own name: the assembled tree hands it one, and a
+    # record carries that name. Bind the reporter before the run, so a missing
+    # or stale stamp is caught here rather than at the first reported row.
+    stamp_names(model)
+    reporter = Reporter(model)
 
     loader: DataLoader = create_mnist_dataloader(args.dataset_dir, args.batch_size, device, split="val")
     correct = 0
     total = 0
     dynamic_energy__fJ = 0.0
-    energy_by_type__fJ: dict[str, float] = {}
+    energy_by_name__fJ: dict[str, float] = {}
     root_shapes, restore_root_entries = capture_root_input_shapes(model)
     t0 = time.time()
     with torch.no_grad():
@@ -175,19 +181,23 @@ def main() -> None:
                 break
             images = images.to(device, non_blocking=True)
             targets = targets.to(device, non_blocking=True)
-            # A unit operation is one image, so the caller leading is [B].
-            with NeuroxProfiler(leading_rank=1) as profiler:
+            # A unit operation is one image, so the caller leading is [B]. The
+            # records stay where they were recorded: the reporter reduces a
+            # whole book in one transfer, so parking them on the host first
+            # would cost one sync per record instead.
+            with Profiler(leading_rank=1, device=None) as profiler:
                 logits = model(images)
             correct += logits.argmax(1).eq(targets).sum().item()
             total += targets.size(0)
-            dynamic_energy__fJ += profiler.total_dynamic_energy__fJ
-            for name, e__fJ in profiler.energy_by_type.items():
-                energy_by_type__fJ[name] = energy_by_type__fJ.get(name, 0.0) + e__fJ
+            batch_by_name__fJ = reporter.by_name(profiler)
+            dynamic_energy__fJ += sum(batch_by_name__fJ.values())
+            for name, e__fJ in batch_by_name__fJ.items():
+                energy_by_name__fJ[name] = energy_by_name__fJ.get(name, 0.0) + e__fJ
     for restore in restore_root_entries:
         restore()
     elapsed = time.time() - t0
     acc = correct / total if total else 0.0
-    static = NeuroxProfiler.analyze_static(model)
+    static = reporter.static
     # Leakage power and the access time are two independent figures. Static
     # energy is leakage times the duty-cycle period a deployment holds the macro
     # for, which is a property of that deployment rather than of the access time
@@ -200,15 +210,16 @@ def main() -> None:
     print(f"wall_time_s:              {elapsed:.2f}")
     print(f"time_per_sample_s:        {elapsed / max(total, 1):.4f}")
     print(f"area_total_um2:           {static.area__um2:.4f}")
-    print(f"leakage_power_total_uW:   {static.leakage_power__uW:.4f}")
+    print(f"leakage_power_total_uW:   {static.leakage__uW:.4f}")
     print(f"dynamic_energy_total_fJ:  {dynamic_energy__fJ:.4f}")
     print(f"modeled_latency_per_sample_ns: {latency__ns:.4f}")
-    if energy_by_type__fJ:
-        print("dynamic_energy_by_type_fJ:")
-        for k in sorted(energy_by_type__fJ, key=lambda n: -energy_by_type__fJ[n]):
-            v = energy_by_type__fJ[k]
-            if v > 0:
-                print(f"  {k:<28s} {v:.4f}")
+    if energy_by_name__fJ:
+        print("dynamic_energy_by_name_fJ:")
+        width = max(len(name) for name in energy_by_name__fJ)
+        for name in sorted(energy_by_name__fJ, key=lambda n: -energy_by_name__fJ[n]):
+            e__fJ = energy_by_name__fJ[name]
+            if e__fJ > 0:
+                print(f"  {name:<{width}s} {e__fJ:.4f}")
 
 
 if __name__ == "__main__":

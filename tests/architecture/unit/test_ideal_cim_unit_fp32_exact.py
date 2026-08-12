@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from neurox.architecture.unit import IdealLinearUnit, IdealLinearUnitConfig, IdealLinearUnitPolicy
+from neurox.architecture.unit.ideal import IdealLinearUnit, IdealLinearUnitConfig, IdealLinearUnitPolicy
 
 _QUANTIZATION_MODE = 0
 _ADC_BITS: int | None = None

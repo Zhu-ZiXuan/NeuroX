@@ -13,8 +13,7 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor
 
-from neurox.common import ConfigBase, ModuleBase, PolicyBase
-from neurox.common.mixin import TensorGroupMixin
+from neurox.common import ConfigBase, ModuleBase, PolicyBase, TensorGroupMixin
 from neurox.primitive.nonideality import apply_gaussian
 from neurox.primitive.physics import thermal_voltage__V
 

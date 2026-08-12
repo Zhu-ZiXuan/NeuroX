@@ -19,7 +19,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from neurox.common.profiler import NeuroxProfiler
+from neurox import Profiler, Reporter, stamp_names
 from neurox.works.macro.cim.xue2020jssc.pn_isub import PnIsub, PnIsubConfig, PnIsubPolicy
 
 _DTYPE = torch.float64
@@ -53,6 +53,7 @@ def _build(*, gn: int) -> PnIsub:
     )
     module.eval()
     module.fabricate()
+    stamp_names(module)  # the standalone module is its own root, named ""
     return module
 
 
@@ -99,7 +100,7 @@ def test_forward_equals_inline_subtraction() -> None:
     assert not bool(sign[0, 1, 0])
 
     # Billing-independent values: identical under an active profiler.
-    with NeuroxProfiler(), torch.no_grad():
+    with Profiler(), torch.no_grad():
         i_sub_abs_prof, sign_prof = module(i_p, i_n, window__ns=_WINDOW__ns)
     assert torch.equal(i_sub_abs_prof, i_sub_abs)
     assert torch.equal(sign_prof, sign)
@@ -116,7 +117,7 @@ def test_dynamic_energy_equals_rail_branches_plus_per_op() -> None:
     module = _build(gn=gn)
     i_p, i_n = _lane_currents(gn)
 
-    with NeuroxProfiler() as prof, torch.no_grad():
+    with Profiler() as prof, torch.no_grad():
         module(i_p, i_n, window__ns=_WINDOW__ns)
 
     i_sub_abs = (i_p - i_n).abs()
@@ -124,9 +125,9 @@ def test_dynamic_energy_equals_rail_branches_plus_per_op() -> None:
     entry_count = i_p.numel()  # once per output-code sign decision: per (slot, IO) entry
     expected__fJ = conduction__fJ + _E_PER_OP__fJ * entry_count
 
-    assert prof.total_dynamic_energy__fJ == pytest.approx(expected__fJ, rel=1e-12)
-    # One un-channelled event per forward — the module's own profiler row.
-    assert len(prof.energy_events) == 1
-    assert prof.energy_events[0].channel is None
-    report = prof.report(module)
-    assert report.energy_by_name == {"": pytest.approx(expected__fJ, rel=1e-12)}
+    reporter = Reporter(module)
+    assert reporter.total_dynamic_energy__fJ(prof) == pytest.approx(expected__fJ, rel=1e-12)
+    # One un-channelled record per forward — the module's own report row.
+    assert len(prof.records) == 1
+    assert prof.records[0].channel is None
+    assert reporter.by_name(prof) == {"": pytest.approx(expected__fJ, rel=1e-12)}

@@ -14,7 +14,7 @@ from typing import Any, Generic, TypeVar
 import torch
 from torch import Tensor
 
-from neurox.common.mixin import walk_tensor_fields
+from neurox.common import walk_tensor_fields
 
 from .base import Solver
 from .chunking import MeasureFold, iter_chunks, slice_snap, slice_tensor

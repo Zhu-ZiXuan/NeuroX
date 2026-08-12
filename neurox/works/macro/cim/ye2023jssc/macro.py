@@ -657,7 +657,7 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
 
         # --- 4: conduction branches (macro-billed) ---
 
-        # Every payload below keeps the caller's leading dims and lets the
+        # Every energy tensor below keeps the caller's leading dims and lets the
         # collector sum the macro's own output, instance and column axes past
         # them. No channel pre-reduces the caller block. The array's node ledger
         # is the sole account of the capacitance inside it, this column's own
@@ -694,7 +694,7 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
         # --- 6: flat peripheral energy (per output access) ---
 
         # A flat per-op lump over the accesses `code` carries — a constant, so the
-        # expanded view holds no storage and no payload is materialized, and the
+        # expanded view holds no storage and no energy tensor is materialized, and the
         # energy dtype is the constant's rather than the integer code's; outside
         # a profiler the call is already a no-op, hence no `record` guard.
         # Shape: [] -> [..., out, *inst_shape]

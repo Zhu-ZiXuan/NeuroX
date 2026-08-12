@@ -63,7 +63,7 @@ from pathlib import Path
 import torch
 from torch import Tensor
 
-from neurox.common.profiler import NeuroxProfiler
+from neurox import Profiler, Reporter, stamp_names
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
 from neurox.works.macro.cim.ye2023jssc import Ye2023JsscCimMacro, Ye2023JsscCimMacroPolicy
 
@@ -154,7 +154,11 @@ def build_macro(
     inst_shape: tuple[int, ...] = (),
     solve_chunk_size: int,
 ) -> Ye2023JsscCimMacro:
-    """Build + fabricate the macro on ``device``, float32, eval mode.
+    """Build + fabricate + name the macro on ``device``, float32, eval mode.
+
+    The tree is stamped here, once the assembly is complete: an emitted record
+    carries the name its tree gave it, so every reporter this harness builds
+    resolves its rows against the macro returned from here.
 
     Args:
         params_path: Fixed ``params.toml``.
@@ -186,6 +190,7 @@ def build_macro(
     macro.to(device)
     macro.eval()
     macro.fabricate()
+    stamp_names(macro)
     return macro
 
 
@@ -440,12 +445,12 @@ def measure(
     size-1 instance slot ``[n_x, 1, row_num]`` and broadcast over the dies, so
     the codes come back ``[n_x, die_num, col_num]``. Every round is profiled on
     its own, which is what exposes the draw-to-draw spread. The profiler runs
-    ``leading_rank=1``, so each energy event resolves to ``[n_x]`` — one element
+    ``leading_rank=1``, so each energy record resolves to ``[n_x]`` — one element
     per input vector, with the parallel dies folded into it. The three
     normalizations below are unaffected: they are derived from ``accesses`` and
-    ``die_num``, never from an event tensor's shape. The scalar views this
-    function reads (``energy_by_name``, ``total_dynamic_energy__fJ``) reduce
-    those events to floats. The duration comes from the macro's own circuit
+    ``die_num``, never from a record tensor's shape. The scalar views this
+    function reads (``Reporter.by_name``, ``Reporter.total_dynamic_energy__fJ``)
+    reduce those records to floats. The duration comes from the macro's own circuit
     model instead, which no measurement can move, and the duty period the powers
     ride comes from ``window__ns``, which the model cannot move either.
 
@@ -468,6 +473,9 @@ def measure(
     device = next(macro.buffers()).device
     gen = torch.Generator(device=device).manual_seed(seed)
     die_num = macro.inst_count
+    # One reporter for the whole macro serves every round: it binds the tree, not
+    # a measurement, and its walk is where a missing name stamp would be caught.
+    reporter = Reporter(macro)
 
     rounds: list[PointMeasurement] = []
     with torch.no_grad():
@@ -482,14 +490,14 @@ def measure(
             # leading_rank=1 matches x's own caller leading: `x`'s instance slot
             # is a broadcast placeholder, not a caller dim, so the macro's own
             # leading (its `batch`, see vec_mat_mul step 2) is (n_x,) alone.
-            # Every energy event therefore resolves to [n_x], one element per
+            # Every energy record therefore resolves to [n_x], one element per
             # input vector, with the die ensemble folded into each element.
-            # `program` emits zero profiling events (AST-verified), so sharing
-            # the context with it is safe.
-            with NeuroxProfiler(leading_rank=1) as prof:
+            # `program` emits zero profiling records (AST-verified), so sharing
+            # the context with it is safe. `device=None` parks the records where
+            # they were emitted, so the workload costs no per-round transfer.
+            with Profiler(leading_rank=1, device=None) as prof:
                 macro.program(w)
                 macro.vec_mat_mul(x, quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
-            report = prof.report(macro)
             # One VMM is the macro's reported duration; a die runs the round's
             # `n_x` of them back to back on its single readout, while the dies
             # run in parallel and add nothing.
@@ -498,10 +506,10 @@ def measure(
                     p_zero_input=p_zero_input,
                     die_num=die_num,
                     repeat=1,
-                    dynamic__fJ=dict(report.energy_by_name),
-                    static__uW={r.qualified_name: r.leakage_power__uW / die_num for r in report.static_records},
-                    total_dynamic__fJ=report.total_dynamic_energy__fJ,
-                    total_static__uW=report.static.leakage_power__uW / die_num,
+                    dynamic__fJ=reporter.by_name(prof),
+                    static__uW={e.qualified_name: e.leakage__uW / die_num for e in reporter.static_entries},
+                    total_dynamic__fJ=reporter.total_dynamic_energy__fJ(prof),
+                    total_static__uW=reporter.static.leakage__uW / die_num,
                     window__ns=window__ns,
                     total_latency__ns=n_x * macro.latency__ns(adc_bits=_ADC_BITS),
                     accesses=n_x * die_num * macro.col_num,
@@ -726,6 +734,10 @@ def _rscsa_energy_by_code(macro: Ye2023JsscCimMacro) -> dict[int, float]:
     # The readout takes the ONE reference current on a ``[1]`` tap axis and
     # derives its whole decision ladder from it; the code step is that current.
     i_refs__uA = torch.tensor([i_ref__uA], dtype=dtype, device=device)
+    # The readout is driven directly, but its energy is read as the macro's own
+    # `rscsa` row: a record carries the name the macro gave its emitter, so the
+    # reporter binds the whole macro and the row is selected by name.
+    reporter = Reporter(macro)
     out: dict[int, float] = {}
     for code in range(1, 1 << _ADC_BITS):
         i_in__uA = torch.tensor(
@@ -735,11 +747,11 @@ def _rscsa_energy_by_code(macro: Ye2023JsscCimMacro) -> dict[int, float]:
         )
         # No leading_rank here: `i_in__uA` is one conversion, not a caller
         # batch, so there is no caller-leading axis to preserve. The default
-        # leading_rank=0 already collapses this single event to the scalar
-        # `total_dynamic_energy__fJ` this helper reads.
-        with NeuroxProfiler() as prof, torch.no_grad():
+        # leading_rank=0 already collapses this single record to the scalar
+        # this helper reads.
+        with Profiler(device=None) as prof, torch.no_grad():
             macro.rscsa.convert(i_in__uA, i_refs__uA, bits=_ADC_BITS)
-        out[code] = prof.report(macro.rscsa).total_dynamic_energy__fJ
+        out[code] = reporter.by_name(prof)["rscsa"]
     return out
 
 

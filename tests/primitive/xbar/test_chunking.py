@@ -30,7 +30,7 @@ import torch
 import torch._dynamo
 from torch import Tensor
 
-from neurox.common.profiler import NeuroxProfiler
+from neurox import Profiler, stamp_names
 from neurox.primitive.analog import VoltageDriver, VoltageDriverConfig, VoltageDriverPolicy
 from neurox.primitive.xbar.array import (
     XbarArray1t1r,
@@ -449,6 +449,7 @@ def _array(*, row_num: int, chunk_size: int) -> XbarArray1t1r:
     array.fabricate()
     # Alternate the two table states so both entries are exercised.
     array.program((torch.arange(_ARRAY_COL * row_num) % 2).reshape(_ARRAY_COL, row_num))
+    stamp_names(array)
     return array
 
 
@@ -470,6 +471,7 @@ def _ideal_driver() -> VoltageDriver:
     )
     driver.eval()
     driver.fabricate()
+    stamp_names(driver)
     return driver
 
 
@@ -564,7 +566,7 @@ def _retained_bytes(*, row_num: int) -> int:
     with (
         torch._dynamo.config.patch(disable=True),
         _chunk_boundary_bytes() as samples,
-        NeuroxProfiler(leading_rank=1),
+        Profiler(leading_rank=1),
     ):
         _solve_array(array, v_wl)
     return max(samples) - samples[0]
@@ -579,7 +581,7 @@ def test_chunk_size_moves_neither_the_port_state_nor_the_energy(monkeypatch: pyt
         array = _array(row_num=_VALUE_ROW, chunk_size=chunk_size)
         billed: list[Tensor] = []
         monkeypatch.setattr(array, "_record_dynamic_energy", billed.append)
-        with NeuroxProfiler(leading_rank=1):
+        with Profiler(leading_rank=1):
             state = _solve_array(array, v_wl)
         [energy__fJ] = billed
         folded[chunk_size] = (state.i_bl_port__uA, state.v_bl_clamp__V, energy__fJ)

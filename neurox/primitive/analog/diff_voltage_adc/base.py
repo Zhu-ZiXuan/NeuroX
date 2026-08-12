@@ -7,24 +7,22 @@ See also:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, replace
-from typing import ClassVar, Generic, Self, TypeVar
+from typing import Generic, TypeVar
 
 import torch
 from torch import Tensor
 
-from neurox.common.mixin import RegistryMixin
-from neurox.common.prober import Prober
+from neurox.common import RecordBase, RecorderBase, RegistryMixin
 from neurox.primitive.analog.base import AnalogBase, AnalogConfig, AnalogPolicy
 
 
-@dataclass(frozen=True)
-class DiffVadcObservation:
+class DiffVadcRecord(RecordBase):
     """One :meth:`DiffVadc.convert` call, captured for calibration/diagnostics.
 
     The record covers the conversion event alone — the signal path, the
     output code, and the active bit width. References are calibrated
-    constants rather than measured quantities, so they stay out of it.
+    constants rather than measured quantities, so they stay out of it, and
+    which instance converted is the collecting caller's own knowledge.
 
     Attributes:
         v_pos__V: The call's positive-side input voltage.
@@ -38,23 +36,9 @@ class DiffVadcObservation:
     code: Tensor
     bits: int
 
-    def detach(self) -> Self:
-        return replace(
-            self,
-            v_pos__V=self.v_pos__V.detach(),
-            v_neg__V=self.v_neg__V.detach(),
-            code=self.code.detach(),
-        )
 
-
-class DiffVadcProber(Prober[DiffVadcObservation]):
-    """Capture differential-voltage ADC conversion observations."""
-
-    _active_stack: ClassVar[list[Prober[DiffVadcObservation]]] = []
-
-    @classmethod
-    def _stack(cls) -> list[Prober[DiffVadcObservation]]:
-        return cls._active_stack
+class DiffVadcProber(RecorderBase[DiffVadcRecord]):
+    """Capture differential-voltage ADC conversion records."""
 
 
 class DiffVadcConfig(AnalogConfig, ABC):
@@ -77,8 +61,8 @@ class DiffVadcPolicy(AnalogPolicy, ABC):
     """Abstract marker base for differential-voltage-ADC nonideality policies."""
 
 
-ConfigT = TypeVar("ConfigT", bound=DiffVadcConfig)
-PolicyT = TypeVar("PolicyT", bound=DiffVadcPolicy)
+ConfigT = TypeVar("ConfigT", bound=DiffVadcConfig, covariant=True)
+PolicyT = TypeVar("PolicyT", bound=DiffVadcPolicy, covariant=True)
 
 
 class DiffVadc(
@@ -86,7 +70,7 @@ class DiffVadc(
     RegistryMixin[
         "DiffVadcConfig",
         "DiffVadcPolicy",
-        "DiffVadc",
+        "DiffVadc[DiffVadcConfig, DiffVadcPolicy]",
     ],
     Generic[ConfigT, PolicyT],
     ABC,
@@ -127,7 +111,7 @@ class DiffVadc(
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
-    ) -> DiffVadc:
+    ) -> DiffVadc[DiffVadcConfig, DiffVadcPolicy]:
         """Build the implementation registered for the config-policy pair.
 
         Args:
@@ -212,7 +196,7 @@ class DiffVadc(
         )
         if DiffVadcProber.active():
             DiffVadcProber.submit(
-                DiffVadcObservation(
+                DiffVadcRecord(
                     v_pos__V=v_pos__V,
                     v_neg__V=v_neg__V,
                     code=code,

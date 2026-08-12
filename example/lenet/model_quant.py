@@ -21,11 +21,11 @@ from collections.abc import Callable
 import torch.nn as nn
 from torch import Tensor
 
-from neurox.architecture.unit import LinearUnit
+from neurox.architecture.unit.cim import CimUnit, CimUnitConfig, CimUnitPolicy
 
 from .quant import QATConv2d, QATLinear, QuantConv2d, QuantLinear
 
-MacroFactory = Callable[..., LinearUnit]
+MacroFactory = Callable[..., CimUnit[CimUnitConfig, CimUnitPolicy]]
 
 # Per-layer quantization-mode pick. An index selects one conversion window
 # from the macro's ``quantization_input_ranges``; the shipped ideal configs
@@ -77,12 +77,14 @@ class QATLeNet5(nn.Module):
 # ---------------------------------------------------------------------------
 
 
-def _conv_macro(factory: MacroFactory, out_channels: int, in_channels: int, kernel_size: int) -> LinearUnit:
+def _conv_macro(
+    factory: MacroFactory, out_channels: int, in_channels: int, kernel_size: int
+) -> CimUnit[CimUnitConfig, CimUnitPolicy]:
     """Build a macro shaped for this conv layer's unfolded matmul."""
     return factory(w_logical_shape=(out_channels, in_channels * kernel_size * kernel_size))
 
 
-def _linear_macro(factory: MacroFactory, out_features: int, in_features: int) -> LinearUnit:
+def _linear_macro(factory: MacroFactory, out_features: int, in_features: int) -> CimUnit[CimUnitConfig, CimUnitPolicy]:
     return factory(w_logical_shape=(out_features, in_features))
 
 

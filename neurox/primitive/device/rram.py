@@ -10,8 +10,7 @@ from typing import ClassVar
 import torch
 from torch import Tensor
 
-from neurox.common import ConfigBase, ModuleBase, PolicyBase
-from neurox.common.mixin import TensorGroupMixin
+from neurox.common import ConfigBase, ModuleBase, PolicyBase, TensorGroupMixin
 from neurox.primitive.nonideality import (
     StateDependentGammaConfig,
     StuckAtFaultConfig,

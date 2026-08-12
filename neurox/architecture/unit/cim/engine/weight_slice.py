@@ -13,9 +13,8 @@ import torch.nn.functional as F
 from torch import Tensor
 
 from neurox.architecture.unit.cim.slicer import DirectSlicer, SimpleSlicer, Slicer
-from neurox.common import ConfigBase, ModuleBase, PolicyBase
+from neurox.common import ConfigBase, ModuleBase, PolicyBase, RegistryMixin
 from neurox.common.encoding import Encoding
-from neurox.common.mixin import RegistryMixin
 from neurox.primitive.digital import DigitalPolicy, ShiftAdder, ShiftAdderConfig
 
 
@@ -32,13 +31,17 @@ class WeightSliceStagePolicy(PolicyBase, ABC):
     """Abstract policy root for weight-slice layouts."""
 
 
-ConfigT = TypeVar("ConfigT", bound=WeightSliceStageConfig)
-PolicyT = TypeVar("PolicyT", bound=WeightSliceStagePolicy)
+ConfigT = TypeVar("ConfigT", bound=WeightSliceStageConfig, covariant=True)
+PolicyT = TypeVar("PolicyT", bound=WeightSliceStagePolicy, covariant=True)
 
 
 class WeightSliceStage(
     ModuleBase[ConfigT, PolicyT],
-    RegistryMixin["WeightSliceStageConfig", "WeightSliceStagePolicy", "WeightSliceStage"],
+    RegistryMixin[
+        "WeightSliceStageConfig",
+        "WeightSliceStagePolicy",
+        "WeightSliceStage[WeightSliceStageConfig, WeightSliceStagePolicy]",
+    ],
     Generic[ConfigT, PolicyT],
     ABC,
 ):
@@ -76,7 +79,7 @@ class WeightSliceStage(
         output_num: int,
         w_parallel_size: int,
         macro_group_num: int,
-    ) -> WeightSliceStage:
+    ) -> WeightSliceStage[WeightSliceStageConfig, WeightSliceStagePolicy]:
         """Build the weight-slice layout selected by config and policy types."""
         impl = cls._lookup_neurox_module(config=config, policy=policy)
         return impl(
@@ -187,6 +190,10 @@ class InterWeightSliceStagePolicy(WeightSliceStagePolicy):
 class InterWeightSliceStage(WeightSliceStage[InterWeightSliceStageConfig, InterWeightSliceStagePolicy]):
     """Place Sw slices on separate Macro planes."""
 
+    #: Sliced weights always need Sw reconstruction, so this layout always
+    #: holds the block the base leaves optional.
+    shift_adder: ShiftAdder
+
     def __init__(
         self,
         *,
@@ -262,6 +269,10 @@ class IntraWeightSliceStagePolicy(WeightSliceStagePolicy):
 )
 class IntraWeightSliceStage(WeightSliceStage[IntraWeightSliceStageConfig, IntraWeightSliceStagePolicy]):
     """Place Sw slices on adjacent output ports of one Macro."""
+
+    #: Sliced weights always need Sw reconstruction, so this layout always
+    #: holds the block the base leaves optional.
+    shift_adder: ShiftAdder
 
     def __init__(
         self,

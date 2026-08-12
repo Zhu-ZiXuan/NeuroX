@@ -9,22 +9,22 @@ from __future__ import annotations
 import pytest
 import torch
 
-from neurox.common.mixin import ProfileMixin
-from neurox.common.profiler import EnergyEvent, NeuroxProfiler
-from neurox.primitive.analog.current_mux import (
-    Imux,
-    ImuxConfig,
-    ImuxPolicy,
-)
+from neurox import Profiler, stamp_names
+from neurox.common import EnergyRecord
+from neurox.common.profile_mixin import ProfileMixin
+from neurox.primitive.analog import Imux, ImuxConfig, ImuxPolicy
 
 
-def _energy_total(events: list[EnergyEvent], module: ProfileMixin) -> float:
-    """Sum the logged dynamic energy [fJ] of the events ``module`` emitted.
+def _energy_total(records: list[EnergyRecord], module: ProfileMixin) -> float:
+    """Sum the logged dynamic energy [fJ] of the records ``module`` emitted.
 
-    An event payload is a per-unit-operation tensor, so each one totals to its
-    own scalar before the events are summed.
+    A record's tensor is a per-unit-operation layout, so each one totals to its
+    own scalar before the records are summed.
     """
-    return sum((float(e.dynamic_energy__fJ.sum()) for e in events if e.module is module), 0.0)
+    return sum(
+        (float(r.dynamic_energy__fJ.sum()) for r in records if r.qualified_name == module.qualified_name),
+        0.0,
+    )
 
 
 @pytest.mark.parametrize("mux_gain", [1.0, 2.0])
@@ -40,14 +40,15 @@ def test_transport_preserves_access_lane_layout(mux_gain: float) -> None:
         T__K=300.0,
     )
     mux.eval()
+    stamp_names(mux)
 
     i__uA = torch.arange(16, dtype=torch.float64).reshape(2, 4, 2)
-    with NeuroxProfiler() as p:
+    with Profiler() as p:
         out = mux.transport(i__uA)
     assert out.shape == i__uA.shape
     torch.testing.assert_close(out, mux_gain * i__uA)
 
-    assert _energy_total(p.energy_events, mux) == 0.0
+    assert _energy_total(p.records, mux) == 0.0
 
 
 @pytest.mark.parametrize("shape", [(3, 2), (4, 3), (8,)])

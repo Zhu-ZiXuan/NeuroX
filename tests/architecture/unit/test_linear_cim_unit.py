@@ -7,6 +7,7 @@ import inspect
 import pytest
 import torch
 
+from neurox import Profiler, stamp_names
 from neurox.architecture.unit import Conv2dUnit, LinearUnit, UnitBase
 from neurox.architecture.unit.cim import (
     CimUnit,
@@ -26,7 +27,6 @@ from neurox.architecture.unit.cim.engine import (
     PlacementStageConfig,
     PlacementStagePolicy,
 )
-from neurox.common.profiler import NeuroxProfiler
 from neurox.primitive.digital import AccumulatorConfig, SerialAccumulator
 from neurox.primitive.macro.cim import IdealCimMacroConfig, IdealCimMacroPolicy
 
@@ -326,10 +326,12 @@ def test_linear_phase_accounting_scales_with_input_phase_num() -> None:
         unit = _build_unit(config, w_logical_shape=(n, k))
         assert isinstance(unit.engine.input_activation.phase_accumulator, SerialAccumulator)
         unit.program(_random_weight(unit, (n, k)))
-        with NeuroxProfiler() as p:
+        stamp_names(unit)
+        accumulator_name = unit.engine.input_activation.phase_accumulator.qualified_name
+        with Profiler() as p:
             unit.linear(_random_binary((m, k)), quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
         energies[unit.engine.input_activation._input_phase_num] = sum(
-            e.dynamic_energy__fJ for e in p.energy_events if e.module is unit.engine.input_activation.phase_accumulator
+            r.dynamic_energy__fJ for r in p.records if r.qualified_name == accumulator_name
         )
     assert energies[1] > 0.0
     assert energies[2] == pytest.approx(2.0 * energies[1])

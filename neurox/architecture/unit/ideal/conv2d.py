@@ -10,7 +10,7 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor
 
-from neurox.architecture.unit.cim.base import CimUnit, CimUnitConfig, CimUnitPolicy
+from neurox.architecture.unit.cim import CimUnit, CimUnitConfig, CimUnitPolicy
 from neurox.architecture.unit.conv2d import Conv2dUnit
 
 

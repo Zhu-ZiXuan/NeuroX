@@ -6,13 +6,12 @@ See also:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
-from typing import ClassVar, Self
+from dataclasses import dataclass
 
 import torch
 from torch import Tensor
 
-from neurox.common.prober import Prober
+from neurox.common import RecordBase, RecorderBase
 from neurox.primitive.device import (
     MosfetConfig,
     MosfetPolicy,
@@ -33,9 +32,11 @@ from ._1t1r import (
 )
 
 
-@dataclass(frozen=True)
-class XbarCell1t1rDetailObservation:
+class XbarCell1t1rDetailRecord(RecordBase):
     """Per-cell access-node KCL residual of a detailed 1T1R branch solve.
+
+    The record covers the residual alone: which cell solved is the collecting
+    caller's own knowledge, not something the record carries.
 
     Attributes:
         cell__uA: ``|I_NMOS - I_RRAM|`` per cell at the condensed ``V_X``.
@@ -44,18 +45,9 @@ class XbarCell1t1rDetailObservation:
 
     cell__uA: Tensor
 
-    def detach(self) -> Self:
-        return replace(self, cell__uA=self.cell__uA.detach())
 
-
-class XbarCell1t1rDetailProber(Prober[XbarCell1t1rDetailObservation]):
+class XbarCell1t1rDetailProber(RecorderBase[XbarCell1t1rDetailRecord]):
     """Capture detailed-cell access-node KCL residuals."""
-
-    _active_stack: ClassVar[list[Prober[XbarCell1t1rDetailObservation]]] = []
-
-    @classmethod
-    def _stack(cls) -> list[Prober[XbarCell1t1rDetailObservation]]:
-        return cls._active_stack
 
 
 class XbarCell1t1rDetailConfig(XbarCell1t1rConfig):
@@ -317,7 +309,7 @@ class XbarCell1t1rDetail(XbarCell1t1r[XbarCell1t1rDetailConfig, XbarCell1t1rDeta
         """Return the branch working point including condensed ``V_X``."""
         i_r, i_n, di_dvbl__uS, di_dvsl__uS, v_x = self._solve_vx(v_bl, v_sl, snap)
         if XbarCell1t1rDetailProber.active():
-            XbarCell1t1rDetailProber.submit(XbarCell1t1rDetailObservation(cell__uA=(i_n - i_r).abs()))
+            XbarCell1t1rDetailProber.submit(XbarCell1t1rDetailRecord(cell__uA=(i_n - i_r).abs()))
         return XbarCell1t1rDcop(
             i__uA=i_r,
             di_dvbl__uS=di_dvbl__uS,

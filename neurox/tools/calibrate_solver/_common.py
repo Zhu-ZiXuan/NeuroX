@@ -7,7 +7,7 @@ fragments pulled in via ``_neurox_use``) built through
 :meth:`~neurox.primitive.macro.cim.CimMacro.from_config`, exactly the way
 :mod:`neurox.tools.calibrate_adc` builds its tile. The tool binds only to its
 calibration target — the nested parallel-rail solver family and the 1T1R
-cell-family observation it consumes — plus the abstract
+cell-family record it consumes — plus the abstract
 :class:`~neurox.primitive.macro.cim.CimMacro` surface; it never reaches through
 a concrete host topology.
 
@@ -31,13 +31,13 @@ import torch
 from torch import Tensor
 
 from neurox.common.serialize import load_config_dict
+from neurox.primitive import T_ROOM__K
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
-from neurox.primitive.physics import T_ROOM__K
 from neurox.primitive.xbar.cell import XbarCell1t1rDcop, XbarCell1t1rDetailProber
 from neurox.primitive.xbar.solver import (
     NestedParallelRailSolverConfig,
-    SolverObservation,
     SolverProber,
+    SolverRecord,
 )
 from neurox.tools._config import resolve_relative_path
 from neurox.tools._plateau import CandidateRow, WorkloadScale
@@ -123,7 +123,7 @@ def _fabricated_macro(
     device: torch.device,
     inst_shape: tuple[int, ...],
     dtype: torch.dtype,
-) -> CimMacro:
+) -> CimMacro[CimMacroConfig, CimMacroPolicy]:
     """Build, move, eval-freeze, and fabricate a macro through the registry."""
     macro = CimMacro.from_config(
         config=config,
@@ -149,7 +149,7 @@ def build_calibration_macro(
     device: torch.device,
     inst_shape: tuple[int, ...],
     dtype: torch.dtype,
-) -> CimMacro:
+) -> CimMacro[CimMacroConfig, CimMacroPolicy]:
     """Build the reference tile (geometry query + workload sampling host)."""
     return _fabricated_macro(
         config,
@@ -216,7 +216,7 @@ def build_candidate_macro(
     device: torch.device,
     inst_shape: tuple[int, ...],
     dtype: torch.dtype,
-) -> CimMacro:
+) -> CimMacro[CimMacroConfig, CimMacroPolicy]:
     """Build a fresh macro with ``overrides`` applied to its solver table.
 
     Deep-copies ``base_macro_dict`` (leaving the caller's shared dict
@@ -315,29 +315,29 @@ _SOLVER_RESIDUAL_FIELDS: tuple[str, ...] = (
     "clamp_bl__V",
     "clamp_sl__V",
 )
-"""SolverObservation fields tracked for the residual safety guard."""
+"""SolverRecord fields tracked for the residual safety guard."""
 
 _CELL_RESIDUAL_KEY = "cell__uA"
 """Residual key for the per-cell internal-KCL mismatch (``XbarCell1t1rDetailProber``)."""
 
 
-def solver_step_fields(observation: SolverObservation[Any]) -> dict[str, Tensor]:
-    """Extract the step-delta unknown tensors from one solver observation.
+def solver_step_fields(record: SolverRecord[Any]) -> dict[str, Tensor]:
+    """Extract the step-delta unknown tensors from one solver record.
 
     The four solver-owned wire / clamp unknowns are always present; the cell
     access-node ``v_x__V`` is added only when the cell DCOP is an
     :class:`XbarCell1t1rDcop` (the down-drill the calibration target sanctions).
     """
-    fields = {name: getattr(observation.dcop, name) for name in _SOLVER_UNKNOWN_FIELDS}
-    cell_dcop = observation.dcop.cell
+    fields = {name: getattr(record.dcop, name) for name in _SOLVER_UNKNOWN_FIELDS}
+    cell_dcop = record.dcop.cell
     if isinstance(cell_dcop, XbarCell1t1rDcop):
         fields[_CELL_STEP_KEY] = cell_dcop.v_x__V
     return fields
 
 
 def step_delta_over_streams(
-    prev: list[SolverObservation[Any]],
-    curr: list[SolverObservation[Any]],
+    prev: list[SolverRecord[Any]],
+    curr: list[SolverRecord[Any]],
 ) -> dict[str, float]:
     """Per-unknown-class ``max |u_curr - u_prev|`` over two 1:1-aligned streams.
 
@@ -352,9 +352,9 @@ def step_delta_over_streams(
     # Seed every tracked class at zero so an unchanged field reports 0.0 (a
     # genuine plateau) rather than dropping out of the max.
     step: dict[str, float] = dict.fromkeys(solver_step_fields(curr[0]), 0.0)
-    for prev_obs, curr_obs in zip(prev, curr, strict=True):
-        prev_fields = solver_step_fields(prev_obs)
-        curr_fields = solver_step_fields(curr_obs)
+    for prev_record, curr_record in zip(prev, curr, strict=True):
+        prev_fields = solver_step_fields(prev_record)
+        curr_fields = solver_step_fields(curr_record)
         for name, curr_val in curr_fields.items():
             delta = float((curr_val - prev_fields[name]).abs().max().item())
             if delta > step[name]:
@@ -362,12 +362,12 @@ def step_delta_over_streams(
     return step
 
 
-def solver_residual_max(records: list[SolverObservation[Any]]) -> dict[str, float]:
-    """Per-class ``max |residual|`` over a solver observation stream."""
+def solver_residual_max(records: list[SolverRecord[Any]]) -> dict[str, float]:
+    """Per-class ``max |residual|`` over a solver record stream."""
     residual: dict[str, float] = dict.fromkeys(_SOLVER_RESIDUAL_FIELDS, 0.0)
-    for observation in records:
+    for record in records:
         for name in _SOLVER_RESIDUAL_FIELDS:
-            val = float(getattr(observation, name).abs().max().item())
+            val = float(getattr(record, name).abs().max().item())
             if val > residual[name]:
                 residual[name] = val
     return residual
@@ -391,13 +391,13 @@ class _DriveResult:
             when no cell records were emitted).
     """
 
-    solver_records: list[SolverObservation[Any]]
+    solver_records: list[SolverRecord[Any]]
     cell_count: int
     cell_residual__uA: float
 
 
 def _drive_candidate(
-    macro: CimMacro,
+    macro: CimMacro[CimMacroConfig, CimMacroPolicy],
     workload: list[tuple[Tensor, Tensor]],
     *,
     input_num: int,
@@ -408,20 +408,24 @@ def _drive_candidate(
 
     Each ``(w, x)`` is programmed once, serialized into row planes, and driven
     through the macro's public ``vec_mat_mul`` under probers capturing the
-    solver / cell observation links. The returned ADC codes are DISCARDED —
+    solver / cell record links. The returned ADC codes are DISCARDED —
     the calibration data rides :class:`SolverProber` upstream of ADC
     conversion, so code clipping at a conservative operating point is
     irrelevant. One drive yields ``n_planes x n_chunks`` solver records (array
     chunking runs inside the real forward path).
     """
     inst_rank = len(macro.inst_shape)
-    solver_records: list[SolverObservation[Any]] = []
+    solver_records: list[SolverRecord[Any]] = []
     cell_count = 0
     cell_residual__uA = 0.0
     for w, x in workload:
         macro.program(w.to(device))
         planes = unroll_sub_phase(x.to(device), row_num=input_num, active_rows=active_rows, inst_rank=inst_rank)
-        with SolverProber() as sp, XbarCell1t1rDetailProber() as cp, torch.no_grad():
+        # device=None: every reduction below and in the plateau / residual
+        # passes is device-agnostic, so the whole converged DCOP stays where it
+        # was solved instead of paying one host transfer per drive and pooling
+        # a hot loop's records in host memory.
+        with SolverProber(device=None) as sp, XbarCell1t1rDetailProber(device=None) as cp, torch.no_grad():
             macro.vec_mat_mul(planes, quantization_mode=0, adc_bits=macro.adc_max_bits)
         batch_solver = sp.records
         batch_cell = cp.records
@@ -432,8 +436,8 @@ def _drive_candidate(
             )
         solver_records.extend(batch_solver)
         cell_count += len(batch_cell)
-        for cell_observation in batch_cell:
-            val = float(cell_observation.cell__uA.abs().max().item())
+        for cell_record in batch_cell:
+            val = float(cell_record.cell__uA.abs().max().item())
             if val > cell_residual__uA:
                 cell_residual__uA = val
     return _DriveResult(solver_records=solver_records, cell_count=cell_count, cell_residual__uA=cell_residual__uA)
@@ -453,7 +457,7 @@ class SolverSweepContext:
     base_macro_dict: dict[str, Any]
     solver_section: str
     policy: CimMacroPolicy
-    sampling_host: CimMacro
+    sampling_host: CimMacro[CimMacroConfig, CimMacroPolicy]
     input_num: int
     output_num: int
     inst_shape: tuple[int, ...]
@@ -483,7 +487,7 @@ def aggregate_solver_sweep(
 
       * patch ``{**fixed_overrides, swept_key: value}`` onto the macro's
         nested-solver table and build a fresh tile;
-      * drive the workload and pool the solver / cell observation records;
+      * drive the workload and pool the solver / cell records;
       * accumulate per-candidate ``max |residual|`` over the pooled stream;
       * accumulate per-candidate ``max |u_n - u_{n-1}|`` (step delta) against
         the predecessor candidate on the 1:1-aligned record streams.
@@ -538,7 +542,7 @@ def aggregate_solver_sweep(
     i_cell_typ__uA = 0.0
     v_node_typ__V = 0.0
 
-    prev_records: list[SolverObservation[Any]] | None = None
+    prev_records: list[SolverRecord[Any]] | None = None
     for ci, value in enumerate(candidates):
         macro = build_candidate_macro(
             context.base_macro_dict,
@@ -572,11 +576,11 @@ def aggregate_solver_sweep(
         prev_records = records
 
         if ci == n_candidates - 1:
-            for observation in records:
-                val_i = float(observation.dcop.cell.i__uA.abs().max().item())
+            for record in records:
+                val_i = float(record.dcop.cell.i__uA.abs().max().item())
                 if val_i > i_cell_typ__uA:
                     i_cell_typ__uA = val_i
-                val_v = float(observation.dcop.v_bl_node.abs().max().item())
+                val_v = float(record.dcop.v_bl_node.abs().max().item())
                 if val_v > v_node_typ__V:
                     v_node_typ__V = val_v
 

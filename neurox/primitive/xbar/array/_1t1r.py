@@ -23,11 +23,11 @@ from neurox.primitive.xbar.cell import (
 from neurox.primitive.xbar.solver import (
     ChunkedSolver,
     ClampDriver,
+    ClampSnap,
     NestedParallelRailSolver,
     NestedParallelRailSolverConfig,
     SolverDcop,
 )
-from neurox.primitive.xbar.solver.clamp import ClampSnap
 
 BLSnapT = TypeVar("BLSnapT", bound=ClampSnap)
 SLSnapT = TypeVar("SLSnapT", bound=ClampSnap)
@@ -306,7 +306,7 @@ class XbarArray1t1r(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
 
         The leading axes end with this array's instance axes — they come from
         broadcasting against the weight grid ``(*inst_shape, col, row)`` — so a
-        caller's own batch axes stay in front of them. Both payloads are laid out
+        caller's own batch axes stay in front of them. Both outputs are laid out
         that way: the array's cap energy at
         ``[*caller_leading, *middle, *inst_shape]`` and each boundary's port state at
         ``[..., col_num]``, the column axis being the per-column clamp's instance
@@ -369,7 +369,7 @@ class XbarArray1t1r(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
         # --- 3: record aggregate energy ---
 
         if measured.energy__fJ is not None:
-            # The payload keeps the caller's leading dims; the collector sums the
+            # The energy tensor keeps the caller's leading dims; the collector sums the
             # array's own work and instance axes past them. The CELL's finer
             # instance axes (column, row) are already folded by the mode's
             # energy function: the cell is not a profile target and this array

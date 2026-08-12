@@ -38,7 +38,7 @@ caller-owned leading axis does stay left of `D`; with one, the caller prefix is
 split and `D` sits inside it.
 
 That split bounds the reporting resolution: the profiler reads the leftmost
-`leading_rank` dims of an energy payload as the caller block, so a weight-batched
+`leading_rank` dims of an energy tensor as the caller block, so a weight-batched
 engine resolves per caller unit operation only up to `execution_index`, and a
 measurement declaring more attributes `D` to a caller axis. Totals are unaffected
 either way — every axis past the prefix is summed regardless — so this is a

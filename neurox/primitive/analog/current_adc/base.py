@@ -7,20 +7,20 @@ See also:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, replace
-from typing import ClassVar, Generic, Self, TypeVar
+from typing import Generic, TypeVar
 
 import torch
 from torch import Tensor
 
-from neurox.common.mixin import RegistryMixin
-from neurox.common.prober import Prober
+from neurox.common import RecordBase, RecorderBase, RegistryMixin
 from neurox.primitive.analog.base import AnalogBase, AnalogConfig, AnalogPolicy
 
 
-@dataclass(frozen=True)
-class IadcObservation:
+class IadcRecord(RecordBase):
     """One :meth:`Iadc.convert` call, captured for calibration/diagnostics.
+
+    The record covers the conversion event alone: which instance converted is
+    the collecting caller's own knowledge, not something the record carries.
 
     Attributes:
         i_in__uA: The call's input magnitude current.
@@ -32,18 +32,9 @@ class IadcObservation:
     code: Tensor
     bits: int
 
-    def detach(self) -> Self:
-        return replace(self, i_in__uA=self.i_in__uA.detach(), code=self.code.detach())
 
-
-class IadcProber(Prober[IadcObservation]):
-    """Capture current-ADC conversion observations."""
-
-    _active_stack: ClassVar[list[Prober[IadcObservation]]] = []
-
-    @classmethod
-    def _stack(cls) -> list[Prober[IadcObservation]]:
-        return cls._active_stack
+class IadcProber(RecorderBase[IadcRecord]):
+    """Capture current-ADC conversion records."""
 
 
 class IadcConfig(AnalogConfig, ABC):
@@ -66,8 +57,8 @@ class IadcPolicy(AnalogPolicy, ABC):
     """Abstract marker base for single-ended-current-ADC-family nonideality policies."""
 
 
-ConfigT = TypeVar("ConfigT", bound=IadcConfig)
-PolicyT = TypeVar("PolicyT", bound=IadcPolicy)
+ConfigT = TypeVar("ConfigT", bound=IadcConfig, covariant=True)
+PolicyT = TypeVar("PolicyT", bound=IadcPolicy, covariant=True)
 
 
 class Iadc(
@@ -75,7 +66,7 @@ class Iadc(
     RegistryMixin[
         "IadcConfig",
         "IadcPolicy",
-        "Iadc",
+        "Iadc[IadcConfig, IadcPolicy]",
     ],
     Generic[ConfigT, PolicyT],
     ABC,
@@ -118,7 +109,7 @@ class Iadc(
         inst_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,
-    ) -> Iadc:
+    ) -> Iadc[IadcConfig, IadcPolicy]:
         """Build the implementation registered for the config-policy pair.
 
         Args:
@@ -214,7 +205,7 @@ class Iadc(
         code = self._convert_impl(i_in__uA, i_refs__uA, bits=bits)
         if IadcProber.active():
             IadcProber.submit(
-                IadcObservation(
+                IadcRecord(
                     i_in__uA=i_in__uA,
                     code=code,
                     bits=bits,

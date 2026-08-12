@@ -12,8 +12,9 @@ import pytest
 import torch.nn as nn
 
 import neurox
-from neurox.common import ConfigBase, ModuleBase, PolicyBase
-from neurox.common.mixin import FabricateMixin, ProfileMixin, RegistryMixin
+from neurox.common import ConfigBase, ModuleBase, PolicyBase, RegistryMixin
+from neurox.common.fabricate_mixin import FabricateMixin
+from neurox.common.profile_mixin import ProfileMixin
 from neurox.primitive.device import MosfetConfig, MosfetPolicy
 from neurox.primitive.digital import (
     AccumulatorConfig,

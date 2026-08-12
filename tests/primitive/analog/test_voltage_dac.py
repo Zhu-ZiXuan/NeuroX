@@ -11,8 +11,9 @@ from __future__ import annotations
 import pytest
 import torch
 
-from neurox.common.mixin import ProfileMixin
-from neurox.common.profiler import EnergyEvent, NeuroxProfiler
+from neurox import Profiler, stamp_names
+from neurox.common import EnergyRecord
+from neurox.common.profile_mixin import ProfileMixin
 from neurox.primitive.analog.voltage_dac import GeneralVdac, GeneralVdacConfig, GeneralVdacPolicy
 
 _CODE_TO_SIGNAL__V = (0.0, 0.9)
@@ -37,12 +38,16 @@ def _build(code_to_per_op_energy__fJ: tuple[float, ...]) -> GeneralVdac:
     )
     dac.eval()
     dac.fabricate()
+    stamp_names(dac)
     return dac
 
 
-def _energy_total(events: list[EnergyEvent], module: ProfileMixin) -> float:
-    """Sum the logged dynamic energy [fJ] of the events ``module`` emitted."""
-    return sum((float(e.dynamic_energy__fJ.sum()) for e in events if e.module is module), 0.0)
+def _energy_total(records: list[EnergyRecord], module: ProfileMixin) -> float:
+    """Sum the logged dynamic energy [fJ] of the records ``module`` emitted."""
+    return sum(
+        (float(r.dynamic_energy__fJ.sum()) for r in records if r.qualified_name == module.qualified_name),
+        0.0,
+    )
 
 
 def test_conversion_bills_each_element_at_its_own_code() -> None:
@@ -52,11 +57,11 @@ def test_conversion_bills_each_element_at_its_own_code() -> None:
     count_0 = code.numel() - count_1
 
     dac = _build((_E_CODE_0__fJ, _E_CODE_1__fJ))
-    with NeuroxProfiler() as p:
+    with Profiler() as p:
         dac.convert(code)
-    assert _energy_total(p.energy_events, dac) == pytest.approx(count_0 * _E_CODE_0__fJ + count_1 * _E_CODE_1__fJ)
+    assert _energy_total(p.records, dac) == pytest.approx(count_0 * _E_CODE_0__fJ + count_1 * _E_CODE_1__fJ)
 
     free_zero = _build((0.0, _E_CODE_1__fJ))
-    with NeuroxProfiler() as p_free:
+    with Profiler() as p_free:
         free_zero.convert(code)
-    assert _energy_total(p_free.energy_events, free_zero) == pytest.approx(count_1 * _E_CODE_1__fJ)
+    assert _energy_total(p_free.records, free_zero) == pytest.approx(count_1 * _E_CODE_1__fJ)

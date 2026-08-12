@@ -13,8 +13,7 @@ from typing import ClassVar, Generic, TypeVar
 import torch
 from torch import Tensor
 
-from neurox.common import ConfigBase, ModuleBase, PolicyBase
-from neurox.common.mixin import TensorGroupMixin
+from neurox.common import ConfigBase, ModuleBase, PolicyBase, TensorGroupMixin
 
 
 class XbarCellConfig(ConfigBase, ABC):
@@ -55,8 +54,8 @@ class XbarCellDcop:
 
 SnapT = TypeVar("SnapT", bound=XbarCellSnap)
 DCOPT = TypeVar("DCOPT", bound=XbarCellDcop)
-ConfigT = TypeVar("ConfigT", bound=XbarCellConfig)
-PolicyT = TypeVar("PolicyT", bound=XbarCellPolicy)
+ConfigT = TypeVar("ConfigT", bound=XbarCellConfig, covariant=True)
+PolicyT = TypeVar("PolicyT", bound=XbarCellPolicy, covariant=True)
 
 
 class XbarCell(

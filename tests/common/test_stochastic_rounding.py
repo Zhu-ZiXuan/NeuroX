@@ -18,7 +18,7 @@ import math
 
 import torch
 
-from neurox.common.quant import (
+from neurox.common import (
     floor_bucketize,
     stochastic_floor_div,
     stochastic_floor_to_int,

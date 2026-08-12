@@ -44,8 +44,8 @@ Coverage:
     energy the per-conversion energy is code-independent to within a few percent,
   * latency is ``T_AC`` over the macro's own output axis, invariant to a caller
     batch,
-  * static leakage reconciles: ``static.leakage_power__uW`` is the sum over the
-    ``collect_static`` seats, and a batch does not move it.
+  * static leakage reconciles: ``static.leakage__uW`` is the sum over the
+    reporter's static entries, and a batch does not move it.
 
 Runs eagerly (dynamo disabled) so the ``@torch.compile`` solver leaf is not
 unrolled.
@@ -62,7 +62,7 @@ import torch
 import torch._dynamo
 from torch import Tensor
 
-from neurox.common.profiler import NeuroxProfiler, ProfilerReport
+from neurox import Profiler, Reporter, stamp_names
 from neurox.primitive.analog.voltage_dac import GeneralVdacConfig
 from neurox.works.macro.cim.ye2023jssc.array import Ye2023Jssc2t1rArrayConfig
 
@@ -83,7 +83,7 @@ from ._utils import (
     expected_ph0__uA,
 )
 
-# The Fig.19 blocks as they surface in ``energy_by_name`` (macro root == "").
+# The Fig.19 blocks as they surface in the reporter's row names (macro root == "").
 _ARRAY_CAPS = "array"
 _WL_DAC = "wl_dac"
 _BL_DAC = "bl_dac"
@@ -120,13 +120,14 @@ def _run(
     *,
     device: torch.device,
     adc_bits: int = TINY_ADC_BITS,
-) -> tuple[Ye2023JsscCimMacro, NeuroxProfiler, ProfilerReport]:
+) -> tuple[Ye2023JsscCimMacro, Profiler, Reporter]:
     """Build + fabricate a fresh macro, program ``w``, profile one VMM on ``x``."""
     macro = build_macro(config, input_num=w.shape[-2], output_num=w.shape[-1], device=device)
+    stamp_names(macro)
     macro.program(w.to(device))
-    with NeuroxProfiler() as prof, torch.no_grad():
+    with Profiler() as prof, torch.no_grad():
         macro.vec_mat_mul(x.to(device), quantization_mode=QUANTIZATION_MODE, adc_bits=adc_bits)
-    return macro, prof, prof.report(macro)
+    return macro, prof, Reporter(macro)
 
 
 def _dac_levels(config: Ye2023JsscCimMacroConfig) -> tuple[tuple[float, ...], tuple[float, ...]]:
@@ -266,39 +267,40 @@ def test_fig19_channels_present_and_self_billed(device: torch.device) -> None:
     """Every block appears under its exact name, positive, billed by the right module."""
     w = torch.full((TINY_INPUT_NUM, TINY_OUTPUT_NUM), W_MAX, dtype=torch.long, device=device)
     x = torch.ones(TINY_INPUT_NUM, dtype=torch.long, device=device)
-    macro, _prof, report = _run(build_config(), w, x, device=device)
-    by_name = report.energy_by_name
+    macro, prof, reporter = _run(build_config(), w, x, device=device)
+    by_name = reporter.by_name(prof)
 
     for key in _FIG19_KEYS:
         assert key in by_name, f"missing energy block {key!r}; have {sorted(by_name)}"
         assert by_name[key] > 0.0, f"non-positive energy block {key!r}: {by_name[key]}"
 
-    # The array self-bills its per-access caps as ONE un-channelled event.
-    array_events = [e for e in report.energy_events if e.module is macro.array]
-    assert len(array_events) == 1, f"array must bill once; got {len(array_events)}"
-    assert array_events[0].channel is None and array_events[0].dynamic_energy__fJ > 0.0
+    # The array self-bills its per-access caps as ONE un-channelled record.
+    array_records = [r for r in prof.records if r.qualified_name == macro.array.qualified_name]
+    assert len(array_records) == 1, f"array must bill once; got {len(array_records)}"
+    assert array_records[0].channel is None and array_records[0].dynamic_energy__fJ > 0.0
 
-    # The RS-CSA self-bills its conversion energy as ONE un-channelled event.
-    rscsa_events = [e for e in report.energy_events if e.module is macro.rscsa]
-    assert len(rscsa_events) == 1, f"rscsa must bill once; got {len(rscsa_events)}"
-    assert rscsa_events[0].channel is None and rscsa_events[0].dynamic_energy__fJ > 0.0
+    # The RS-CSA self-bills its conversion energy as ONE un-channelled record.
+    rscsa_records = [r for r in prof.records if r.qualified_name == macro.rscsa.qualified_name]
+    assert len(rscsa_records) == 1, f"rscsa must bill once; got {len(rscsa_records)}"
+    assert rscsa_records[0].channel is None and rscsa_records[0].dynamic_energy__fJ > 0.0
 
-    # Each converter bank self-bills its drive as ONE un-channelled event.
+    # Each converter bank self-bills its drive as ONE un-channelled record.
     for bank in (macro.wl_dac, macro.bl_dac):
-        dac_events = [e for e in report.energy_events if e.module is bank]
-        assert len(dac_events) == 1, f"{type(bank).__name__} must bill once; got {len(dac_events)}"
-        assert dac_events[0].channel is None and dac_events[0].dynamic_energy__fJ > 0.0
+        dac_records = [r for r in prof.records if r.qualified_name == bank.qualified_name]
+        assert len(dac_records) == 1, f"{type(bank).__name__} must bill once; got {len(dac_records)}"
+        assert dac_records[0].channel is None and dac_records[0].dynamic_energy__fJ > 0.0
 
-    # The four channels are the MACRO ROOT's own events (branch-ownership law).
-    macro_channels = {e.channel for e in report.energy_events if e.module is macro}
+    # The four channels are the MACRO ROOT's own records (branch-ownership law).
+    macro_channels = {r.channel for r in prof.records if r.qualified_name == macro.qualified_name}
     assert macro_channels == set(_MACRO_CHANNELS), macro_channels
 
     # The cell is a non-reporter: it never self-bills a row.
     assert "cell" not in by_name, f"unexpected self-billing cell row: {sorted(by_name)}"
 
     # The rows partition the total: nothing is billed outside them.
-    assert sum(by_name.values()) == pytest.approx(report.total_dynamic_energy__fJ)
-    assert sum(by_name[key] for key in _FIG19_KEYS) == pytest.approx(report.total_dynamic_energy__fJ)
+    total__fJ = reporter.total_dynamic_energy__fJ(prof)
+    assert sum(by_name.values()) == pytest.approx(total__fJ)
+    assert sum(by_name[key] for key in _FIG19_KEYS) == pytest.approx(total__fJ)
 
 
 # ---------------------------------------------------------------------------
@@ -310,8 +312,8 @@ def test_conduction_channels_reconcile_with_resolve(device: torch.device) -> Non
     """``.bl_cond`` / ``.dl_cond`` match an independent re-solve over the derived window, EXACTLY."""
     w = torch.full((TINY_INPUT_NUM, TINY_OUTPUT_NUM), W_MAX, dtype=torch.long, device=device)
     x = torch.tensor([[1, 1], [1, 0], [0, 1]], dtype=torch.long, device=device)  # batch (3,)
-    macro, _prof, report = _run(build_config(), w, x, device=device)
-    by_name = report.energy_by_name
+    macro, prof, reporter = _run(build_config(), w, x, device=device)
+    by_name = reporter.by_name(prof)
 
     bl_cond, dl_cond = _conduction_oracle(macro, x.to(device))
     assert bl_cond > 0.0, f"witness draws no BL branch current: {bl_cond}"
@@ -326,9 +328,9 @@ def test_conduction_rides_the_derived_window(device: torch.device) -> None:
     x = torch.ones(TINY_INPUT_NUM, dtype=torch.long, device=device)
 
     base_cfg = build_config()
-    macro, _p0, rep_base = _run(base_cfg, w, x, device=device)
-    _m1, _p1, rep_wide = _run(_stretched_window(base_cfg, 2.0), w, x, device=device)
-    b0, b1 = rep_base.energy_by_name, rep_wide.energy_by_name
+    macro, p0, rep_base = _run(base_cfg, w, x, device=device)
+    _m1, p1, rep_wide = _run(_stretched_window(base_cfg, 2.0), w, x, device=device)
+    b0, b1 = rep_base.by_name(p0), rep_wide.by_name(p1)
 
     assert float(macro.t_ac__ns) == pytest.approx(
         sum(base_cfg.adc_config.t_phase__ns[:-1]) + base_cfg.adc_config.t_intrinsic__ns[-1]
@@ -355,15 +357,15 @@ def test_conduction_and_latency_follow_the_executed_window(device: torch.device)
     w = torch.full((TINY_INPUT_NUM, TINY_OUTPUT_NUM), W_MAX, dtype=torch.long, device=device)
     x = torch.ones(TINY_INPUT_NUM, dtype=torch.long, device=device)
 
-    macro, _prof_full, rep_full = _run(cfg, w, x, device=device, adc_bits=TINY_ADC_BITS)
-    full__fJ = rep_full.energy_by_name
+    macro, prof_full, rep_full = _run(cfg, w, x, device=device, adc_bits=TINY_ADC_BITS)
+    full__fJ = rep_full.by_name(prof_full)
     # The full-resolution run reports the NOMINAL window the macro publishes.
     full_latency__ns = macro.latency__ns(adc_bits=TINY_ADC_BITS)
     assert full_latency__ns == pytest.approx(float(macro.t_ac__ns) * TINY_OUTPUT_NUM)
 
     for bits in range(1, TINY_ADC_BITS + 1):
-        macro_b, _prof_b, rep_b = _run(cfg, w, x, device=device, adc_bits=bits)
-        by_name = rep_b.energy_by_name
+        macro_b, prof_b, rep_b = _run(cfg, w, x, device=device, adc_bits=bits)
+        by_name = rep_b.by_name(prof_b)
         ratio = float(macro_b.rscsa.t_conversion__ns(bits)) / float(macro_b.t_ac__ns)
         assert ratio <= 1.0 and (ratio < 1.0) == (bits < TINY_ADC_BITS), f"window ratio {ratio} at bits={bits}"
         for channel in (".bl_cond", ".dl_cond"):
@@ -387,10 +389,10 @@ def test_rscsa_zero_residue_row_is_the_prorated_baseline(device: torch.device) -
     x = torch.zeros(TINY_INPUT_NUM, dtype=torch.long, device=device)
 
     for bits in range(1, TINY_ADC_BITS + 1):
-        macro, _prof, report = _run(cfg, w, x, device=device, adc_bits=bits)
+        macro, prof, reporter = _run(cfg, w, x, device=device, adc_bits=bits)
         ratio = float(macro.rscsa.t_conversion__ns(bits)) / float(macro.t_ac__ns)
         expected__fJ = TINY_OUTPUT_NUM * cfg.adc_config.e_fixed_per_op__fJ * ratio
-        assert report.energy_by_name[_RSCSA] == pytest.approx(expected__fJ), f"bits={bits}"
+        assert reporter.by_name(prof)[_RSCSA] == pytest.approx(expected__fJ), f"bits={bits}"
 
 
 # ---------------------------------------------------------------------------
@@ -402,8 +404,8 @@ def test_bl_dac_bills_one_drive_event_per_column_per_vector(device: torch.device
     """``bl_dac`` == the per-code table summed over every column of every input vector."""
     w = torch.full((TINY_INPUT_NUM, TINY_OUTPUT_NUM), W_MAX, dtype=torch.long, device=device)
     x = torch.tensor([[1, 1], [1, 0]], dtype=torch.long, device=device)  # batch (2,)
-    macro, _prof, report = _run(build_config(), w, x, device=device)
-    assert report.energy_by_name[_BL_DAC] == pytest.approx(_bl_dac_oracle__fJ(macro, x.to(device)))
+    macro, prof, reporter = _run(build_config(), w, x, device=device)
+    assert reporter.by_name(prof)[_BL_DAC] == pytest.approx(_bl_dac_oracle__fJ(macro, x.to(device)))
 
 
 def test_bl_dac_tracks_the_active_input_count_by_its_own_code_step(device: torch.device) -> None:
@@ -419,8 +421,8 @@ def test_bl_dac_tracks_the_active_input_count_by_its_own_code_step(device: torch
     def bl_dac(active: int) -> float:
         x = torch.zeros(input_num, dtype=torch.long, device=device)
         x[:active] = 1
-        _m, _p, report = _run(cfg, w, x, device=device)
-        return report.energy_by_name[_BL_DAC]
+        _m, prof, reporter = _run(cfg, w, x, device=device)
+        return reporter.by_name(prof)[_BL_DAC]
 
     samples = [bl_dac(k) for k in range(input_num + 1)]
     # An idle column is still driven: the code-0 entry is what it pays.
@@ -434,8 +436,8 @@ def test_wl_dac_bills_one_drive_event_per_line_per_access(device: torch.device) 
     """``wl_dac`` == one selected code plus ``col_num - 1`` deselected ones, per access."""
     w = torch.full((TINY_INPUT_NUM, TINY_OUTPUT_NUM), W_MAX, dtype=torch.long, device=device)
     x = torch.ones(TINY_INPUT_NUM, dtype=torch.long, device=device)
-    macro, _prof, report = _run(build_config(), w, x, device=device)
-    assert report.energy_by_name[_WL_DAC] == pytest.approx(_wl_dac_oracle__fJ(macro))
+    macro, prof, reporter = _run(build_config(), w, x, device=device)
+    assert reporter.by_name(prof)[_WL_DAC] == pytest.approx(_wl_dac_oracle__fJ(macro))
 
 
 def test_array_owns_every_node_capacitance(device: torch.device) -> None:
@@ -450,16 +452,16 @@ def test_array_owns_every_node_capacitance(device: torch.device) -> None:
     base = build_config()
     w = torch.full((TINY_INPUT_NUM, TINY_OUTPUT_NUM), W_MAX, dtype=torch.long, device=device)
     x = torch.ones(TINY_INPUT_NUM, dtype=torch.long, device=device)
-    _m, _p, rep_base = _run(base, w, x, device=device)
-    b0 = rep_base.energy_by_name
+    _m, p_base, rep_base = _run(base, w, x, device=device)
+    b0 = rep_base.by_name(p_base)
 
     def with_array(array_config: Ye2023Jssc2t1rArrayConfig) -> Ye2023JsscCimMacroConfig:
         return dataclasses.replace(base, array_config=array_config)
 
     for field in ("bl_node_c__fF", "x_node_c__fF", "sl_node_c__fF", "wl_node_c__fF"):
         heavier = with_array(dataclasses.replace(base.array_config, **{field: 10.0}))
-        _m, _p, rep = _run(heavier, w, x, device=device)
-        by_name = rep.energy_by_name
+        _m, prof, rep = _run(heavier, w, x, device=device)
+        by_name = rep.by_name(prof)
         assert by_name[_ARRAY_CAPS] > b0[_ARRAY_CAPS], f"array blind to {field}"
         for row in (_WL_DAC, _BL_DAC, ".bl_cond", ".dl_cond"):
             assert by_name[row] == pytest.approx(b0[row]), f"{row} follows {field}"
@@ -497,8 +499,8 @@ def test_zero_input_bills_only_the_leakage_floor(device: torch.device) -> None:
     """At zero input the DL branch bills the seated PH0 current per output; BL conducts nothing."""
     w = torch.full((TINY_INPUT_NUM, TINY_OUTPUT_NUM), W_MAX, dtype=torch.long, device=device)
     x = torch.zeros(TINY_INPUT_NUM, dtype=torch.long, device=device)
-    macro, _prof, report = _run(build_config(), w, x, device=device)
-    by_name = report.energy_by_name
+    macro, prof, reporter = _run(build_config(), w, x, device=device)
+    by_name = reporter.by_name(prof)
 
     t_ac__ns = float(macro.t_ac__ns)
     expected_dl = macro.config.v_dd_core__V * expected_ph0__uA() * TINY_OUTPUT_NUM * t_ac__ns
@@ -522,8 +524,8 @@ def test_conduction_grows_with_active_inputs(device: torch.device) -> None:
     def channels(active: int) -> tuple[float, float]:
         x = torch.zeros(input_num, dtype=torch.long, device=device)
         x[:active] = 1
-        _m, _p, report = _run(cfg, w, x, device=device)
-        by = report.energy_by_name
+        _m, prof, reporter = _run(cfg, w, x, device=device)
+        by = reporter.by_name(prof)
         return by.get(".bl_cond", 0.0), by.get(".dl_cond", 0.0)
 
     samples = [channels(k) for k in range(input_num + 1)]
@@ -561,8 +563,8 @@ def test_rscsa_energy_flat_when_e_fixed_dominant(device: torch.device) -> None:
         w = torch.zeros((TINY_INPUT_NUM, TINY_OUTPUT_NUM), dtype=torch.long, device=device)
         w[0, :] = w_in0
         w[1, :] = w_in1
-        _m, _p, report = _run(cfg, w, torch.ones(TINY_INPUT_NUM, dtype=torch.long, device=device), device=device)
-        return report.energy_by_name[_RSCSA]
+        _m, prof, reporter = _run(cfg, w, torch.ones(TINY_INPUT_NUM, dtype=torch.long, device=device), device=device)
+        return reporter.by_name(prof)[_RSCSA]
 
     # Codes 0 (no residue), 7 (mid bits), 14 (MSB latched) — spanning the ladder.
     energies = [rscsa_energy(0, 0), rscsa_energy(7, 0), rscsa_energy(7, 7)]
@@ -595,17 +597,17 @@ def test_latency_is_t_ac_over_the_output_axis(device: torch.device) -> None:
 
 
 # ---------------------------------------------------------------------------
-# (g) Static leakage reconciles via collect_static
+# (g) Static leakage reconciles via the reporter's static entries
 # ---------------------------------------------------------------------------
 
 
-def test_static_leakage_reconciles_via_collect_static(device: torch.device) -> None:
-    """``static.leakage_power__uW == sum(collect_static leakage)``, batch-invariant."""
+def test_static_leakage_reconciles_via_static_entries(device: torch.device) -> None:
+    """``static.leakage__uW == sum(static entry leakage)``, batch-invariant."""
     cfg = build_config()
     w = torch.full((TINY_INPUT_NUM, TINY_OUTPUT_NUM), W_MAX, dtype=torch.long, device=device)
 
-    macro, _prof, report = _run(cfg, w, torch.ones(TINY_INPUT_NUM, dtype=torch.long, device=device), device=device)
-    seats = {r.qualified_name: r.leakage_power__uW for r in NeuroxProfiler.collect_static(macro)}
+    _macro, _prof, reporter = _run(cfg, w, torch.ones(TINY_INPUT_NUM, dtype=torch.long, device=device), device=device)
+    seats = {e.qualified_name: e.leakage__uW for e in reporter.static_entries}
     # The array's lattice rests at zero cell bias and holds no static conduction
     # path, so it seats area without leakage; every other seat leaks.
     assert "array" in seats
@@ -613,16 +615,16 @@ def test_static_leakage_reconciles_via_collect_static(device: torch.device) -> N
         assert seats.get(seat, 0.0) > 0.0, f"missing/empty static seat {seat!r}; have {sorted(seats)}"
 
     total_leakage = sum(seats.values())
-    assert report.static.leakage_power__uW == pytest.approx(total_leakage)
+    assert reporter.static.leakage__uW == pytest.approx(total_leakage)
 
     # Leakage POWER is fabrication-fixed: a batch does not move it.
-    _m, _prof_b, report_b = _run(
+    _m, _prof_b, reporter_b = _run(
         cfg,
         w,
         torch.ones((3, TINY_INPUT_NUM), dtype=torch.long, device=device),
         device=device,
     )
-    assert report_b.static.leakage_power__uW == pytest.approx(total_leakage)
+    assert reporter_b.static.leakage__uW == pytest.approx(total_leakage)
 
 
 def test_bl_conduction_rides_the_bl_driver_rail(device: torch.device) -> None:
@@ -635,7 +637,8 @@ def test_bl_conduction_rides_the_bl_driver_rail(device: torch.device) -> None:
     base = build_config()
     w = torch.full((TINY_INPUT_NUM, TINY_OUTPUT_NUM), W_MAX, dtype=torch.long, device=device)
     x = torch.ones(TINY_INPUT_NUM, dtype=torch.long, device=device)
-    _m, _p, rep_base = _run(base, w, x, device=device)
+    _m, p_base, rep_base = _run(base, w, x, device=device)
+    base__fJ = rep_base.by_name(p_base)
 
     # Raising the core rail leaves the BL branch untouched and scales DL. The
     # readout mirror rides the same rail, so both move together.
@@ -644,14 +647,16 @@ def test_bl_conduction_rides_the_bl_driver_rail(device: torch.device) -> None:
         v_dd_core__V=2.0 * base.v_dd_core__V,
         adc_config=dataclasses.replace(base.adc_config, v_rail__V=2.0 * base.adc_config.v_rail__V),
     )
-    _m, _p, rep_hot = _run(hot_core, w, x, device=device)
-    assert rep_hot.energy_by_name[".bl_cond"] == pytest.approx(rep_base.energy_by_name[".bl_cond"])
-    assert rep_hot.energy_by_name[".dl_cond"] == pytest.approx(2.0 * rep_base.energy_by_name[".dl_cond"])
+    _m, p_hot, rep_hot = _run(hot_core, w, x, device=device)
+    hot__fJ = rep_hot.by_name(p_hot)
+    assert hot__fJ[".bl_cond"] == pytest.approx(base__fJ[".bl_cond"])
+    assert hot__fJ[".dl_cond"] == pytest.approx(2.0 * base__fJ[".dl_cond"])
 
     # Raising the BL driver rail scales the BL branch by that factor and leaves
     # the DL branch alone. The BL node levels are the converter's, so the solved
     # port current does not move with the rail.
     hot_bl = dataclasses.replace(base, v_dd_bl__V=2.0 * base.v_dd_bl__V)
-    _m, _p, rep_bl = _run(hot_bl, w, x, device=device)
-    assert rep_bl.energy_by_name[".bl_cond"] == pytest.approx(2.0 * rep_base.energy_by_name[".bl_cond"])
-    assert rep_bl.energy_by_name[".dl_cond"] == pytest.approx(rep_base.energy_by_name[".dl_cond"])
+    _m, p_bl, rep_bl = _run(hot_bl, w, x, device=device)
+    bl__fJ = rep_bl.by_name(p_bl)
+    assert bl__fJ[".bl_cond"] == pytest.approx(2.0 * base__fJ[".bl_cond"])
+    assert bl__fJ[".dl_cond"] == pytest.approx(base__fJ[".dl_cond"])

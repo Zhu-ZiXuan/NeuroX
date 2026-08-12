@@ -61,20 +61,22 @@ def test_probe_preserves_output_and_captures_call(device: torch.device) -> None:
     v_refs = _taps(device)
 
     expected = adc.convert(v_pos, v_neg, v_refs__V=v_refs, bits=4)
-    with DiffVadcProber() as prober:
+    # device=None: the record is compared against the call's own tensors, which
+    # live on the tested device; a default cpu finalize would park it elsewhere.
+    with DiffVadcProber(device=None) as prober:
         out = adc.convert(v_pos, v_neg, v_refs__V=v_refs, bits=4)
 
     assert torch.equal(out, expected)
     records = prober.records
     assert len(records) == 1
-    observation = records[0]
-    assert torch.equal(observation.v_pos__V, v_pos)
-    assert torch.equal(observation.v_neg__V, v_neg)
-    assert torch.equal(observation.code, out)
-    assert observation.bits == 4
+    record = records[0]
+    assert torch.equal(record.v_pos__V, v_pos)
+    assert torch.equal(record.v_neg__V, v_neg)
+    assert torch.equal(record.code, out)
+    assert record.bits == 4
     # A reference is calibrated design data, not part of the conversion event.
-    assert not hasattr(observation, "v_ref__V")
-    assert not hasattr(observation, "v_refs__V")
+    assert not hasattr(record, "v_ref__V")
+    assert not hasattr(record, "v_refs__V")
 
 
 def test_no_record_without_prober(device: torch.device) -> None:

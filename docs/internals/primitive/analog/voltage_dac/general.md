@@ -9,7 +9,7 @@
 
 - **Construction.** `__init__` follows the [voltage DAC base](base.md) keyword signature and registers both lookups as non-persistent buffers: `_code_to_signal` at the constructor `dtype`, `_code_to_per_op_energy__fJ` at the energy dtype, which is the accounting domain's rather than the signal's.
 - **`convert` side effects.** Beyond returning the sampled voltage, `convert` emits per-call dynamic energy through the profiler side channel; the drive-thermal noise is gated by `policy.drive_thermal`.
-- **The energy payload is gathered, not expanded.** Each element costs what its own code costs, so the emission is the energy LUT indexed by the same code tensor the signal LUT was — one value per converted element, at the code's own layout. `inst_shape` never reaches the forward path: it sizes the static PPA and no per-instance buffer multiplies the signal, so the payload has no instance axis to sum.
+- **The energy tensor is gathered, not expanded.** Each element costs what its own code costs, so the emission is the energy LUT indexed by the same code tensor the signal LUT was — one value per converted element, at the code's own layout. `inst_shape` never reaches the forward path: it sizes the static PPA and no per-instance buffer multiplies the signal, so the energy tensor has no instance axis to sum.
 
 ## Gotchas
 

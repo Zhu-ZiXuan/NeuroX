@@ -38,7 +38,7 @@ import torch
 import torch._dynamo
 from torch import Tensor
 
-from neurox.common.profiler import NeuroxProfiler
+from neurox import Profiler
 from neurox.primitive.analog import VoltageDriver, VoltageDriverConfig, VoltageDriverPolicy
 from neurox.primitive.xbar.array import (
     XbarArray1t1r,
@@ -210,7 +210,7 @@ def _solve(
     sl_ref = torch.full((_COL_NUM,), sl_ref__V, dtype=_DTYPE)
     billed: list[Tensor] = []
     monkeypatch.setattr(array, "_record_dynamic_energy", billed.append)
-    with NeuroxProfiler(), torch.no_grad():
+    with Profiler(), torch.no_grad():
         steady = array.solve_array(
             v_wl,
             bl_driver=bl_driver,

@@ -32,7 +32,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from neurox.common.profiler import NeuroxProfiler
+from neurox import Profiler, Reporter, stamp_names
 from neurox.primitive.analog.current_adc import (
     IadcProber,
     SarIadc,
@@ -95,9 +95,10 @@ def _refs(taps: tuple[float, ...], device: torch.device) -> torch.Tensor:
 
 
 def _convert_energy(adc: SarIadc, i_in: torch.Tensor, refs: torch.Tensor, adc_bits: int) -> float:
-    with NeuroxProfiler() as profiler:
+    stamp_names(adc)
+    with Profiler() as profiler:
         adc.convert(i_in, refs, bits=adc_bits)
-    return profiler.total_dynamic_energy__fJ
+    return Reporter(adc).total_dynamic_energy__fJ(profiler)
 
 
 # ---------------------------------------------------------------------------
@@ -291,17 +292,19 @@ def test_enable_energy_record_false_suppresses_only_energy(device: torch.device)
 
     recording = _build(config, device)
     silent = _build(config, device, enable_energy_record=False)
+    stamp_names(recording)
+    stamp_names(silent)
 
-    with NeuroxProfiler() as p_rec:
+    with Profiler() as p_rec:
         code_rec = recording.convert(i_in, refs, bits=3)
-    with NeuroxProfiler() as p_silent:
+    with Profiler() as p_silent:
         code_silent = silent.convert(i_in, refs, bits=3)
 
-    # Value conversion untouched; NO energy event at all.
+    # Value conversion untouched; NO energy record at all.
     assert torch.equal(code_silent, code_rec)
-    assert p_rec.total_dynamic_energy__fJ > 0.0
-    assert p_silent.total_dynamic_energy__fJ == pytest.approx(0.0)
-    assert len(p_silent.energy_events) == 0
+    assert Reporter(recording).total_dynamic_energy__fJ(p_rec) > 0.0
+    assert Reporter(silent).total_dynamic_energy__fJ(p_silent) == pytest.approx(0.0)
+    assert len(p_silent.records) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -316,13 +319,15 @@ def test_probe_preserves_output_and_captures_call(device: torch.device) -> None:
     i_in = torch.tensor([0.5, 4.5, 35.0], dtype=torch.float64, device=device)
 
     expected = adc.convert(i_in, refs, bits=3)
-    with IadcProber() as prober:
+    # device=None: the record is compared against the call's own tensors, which
+    # live on the tested device; a default cpu finalize would park it elsewhere.
+    with IadcProber(device=None) as prober:
         code = adc.convert(i_in, refs, bits=3)
 
     assert torch.equal(code, expected)
     records = prober.records
     assert len(records) == 1
-    observation = records[0]
-    assert torch.equal(observation.i_in__uA, i_in)
-    assert torch.equal(observation.code, code)
-    assert observation.bits == 3
+    record = records[0]
+    assert torch.equal(record.i_in__uA, i_in)
+    assert torch.equal(record.code, code)
+    assert record.bits == 3

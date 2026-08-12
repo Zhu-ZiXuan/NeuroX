@@ -43,7 +43,7 @@ import pytest
 import torch
 import torch._dynamo
 
-from neurox.common.profiler import NeuroxProfiler
+from neurox import Profiler, Reporter, stamp_names
 from neurox.works.macro.cim.ye2023jssc.rscsa import (
     RsCsaIadc,
     RsCsaIadcConfig,
@@ -93,6 +93,7 @@ def _build_adc(*, i_ph0_comp__uA: float = _I_PH0__uA) -> RsCsaIadc:
     )
     adc.eval()
     adc.fabricate()
+    stamp_names(adc)  # the standalone converter is its own root, named ""
     return adc
 
 
@@ -108,9 +109,9 @@ def _window_oracle__ns(bits: int) -> float:
 
 def _convert_energy(adc: RsCsaIadc, i_in: torch.Tensor, *, bits: int = _BITS) -> float:
     """Total dynamic energy [fJ] of one convert under a fresh profiler."""
-    with NeuroxProfiler() as prof:
+    with Profiler() as prof:
         adc.convert(i_in, _ref(), bits=bits)
-    return prof.total_dynamic_energy__fJ
+    return Reporter(adc).total_dynamic_energy__fJ(prof)
 
 
 def _energy_oracle(i_in__uA: float, *, bits: int = _BITS, i_ph0__uA: float = _I_PH0__uA) -> float:

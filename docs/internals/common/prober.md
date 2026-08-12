@@ -1,47 +1,35 @@
 # Prober
 
-`neurox/common/prober.py` is pure mechanism: a `SupportsDetach` payload protocol plus an abstract `Prober(Generic[PayloadT])` base requiring each subclass to provide its own typed LIFO active stack, context-manager scoping, a `.records` list, and two classmethods — `active()` (demand predicate) and `submit(payload)` (single central detach, shared across every active prober of that subclass). The mechanism carries no channels, no allowlists, and no per-module wiring.
+A prober is a [recorder](recorder.md) family that captures one emission link whole, for calibration and diagnostics rather than for accounting. The common layer holds no prober class and knows no link: a link is one emission contract plus one record type, and both are declared beside the code that emits them.
 
 ## Design decisions
 
-- **One concrete `Prober` subclass per observation link.** A link consists of one emission contract and one payload type. Each subclass is the sole capture channel for its link; there is no shared catch-all prober.
-- **Link definitions are colocated.** A concrete prober, its payload, and its emitter belong in the same module. The common mechanism therefore knows neither the available links nor their payload fields.
-- **Each link subclass explicitly owns one typed active stack.** The generic base cannot type a class variable in terms of `Self` or `PayloadT`, so each concrete link declares `_active_stack: ClassVar[list[Prober[ConcretePayload]]]` and returns it through the abstract `_stack()` classmethod. A stack receives only submissions made through its own subclass.
-- **Emitters require no inheritance or registration.** An emission checks the concrete prober's `active()` predicate before calculating diagnostics or constructing a payload, then calls `submit(...)`. The guard keeps inactive observation work out of the numerical path.
-- **Probers stack; a session nests inside a narrower capture.** Activation is a class-level LIFO stack per subclass, so an outer session-scoped prober keeps recording while an inner one captures a narrow window, and an emission reaches every active prober of the emitted link's subclass.
-- **Records are stored full, detached, on the recording device.** A probe's value is the payload's tensors themselves, so `submit` detaches once — never reducing, syncing, or copying to host — and shares the same frozen object across every active prober of the subclass; a probing run holds every submitted payload alive until the prober is dropped.
-- **No emitting module or name is stored.** A record is the payload alone.
-- **The abstract base is not instantiable.** `_stack()` is the required abstract classmethod, so a link that does not provide typed storage cannot be instantiated. Calling `active()` or `submit()` on the abstract base reaches `_stack()`'s `NotImplementedError` rather than a fabricated fallback stack.
+- **One prober family per link, colocated with it.** A link's record, its prober, and its emitter live in the same module, so adding one is two class declarations beside the emitting code and nothing else — no registry, no allowlist, no per-module wiring, and no shared catch-all prober that would have to know every field any link might carry. Each family is the sole capture channel for its own link, and a submission never reaches another family's book.
+- **An emitter needs no inheritance and no registration.** The emission site reads its link's demand gate before it computes any diagnostic or builds any record, then submits. Nothing about the emitter changes when nobody is collecting: the returned numerical result is identical probed or unprobed, because everything the gate guards is diagnostic-only.
+- **A record is captured whole, on the device it was computed on.** A probe's value is the tensors themselves — residuals, inputs, decided codes — so nothing is reduced, summed, or synced to the host on the way in. A consumer fitting a model over a large book keeps it where it was computed and reduces on its own terms.
+- **A record identifies the event, not the emitter.** Which instance produced it is the collecting caller's own knowledge: a calibration drive knows what it drove, and the alternative — carrying a module reference — would keep the whole tree alive behind every captured tensor. Where the emitter is not a module at all, the record carries the fixed name of the entry point that emitted it.
+- **A calibrated constant is not a measurement.** A record carries what the call measured or decided; a value the emitter was configured with stays out of it, because it is already readable from the config that supplied it.
 
 ## Contracts & invariants
 
-- **Submission count is link-defined.** The common mechanism records every `submit(...)` call exactly once in each active prober of that subclass. The module defining a link owns the meaning and frequency of those submissions.
-- **LIFO discipline.** `__exit__` pops its own frame and raises if the stack top is not `self`; `with`-block usage guarantees this. The stack is class-level and process-wide, not thread-scoped.
-
-### Public API
-
-- `SupportsDetach` — the payload `Protocol`: `detach(self) -> Self`.
-- `Prober[PayloadT]` — generic abstract base; a link subclass binds `PayloadT` to its own observation type.
-- `SomeLinkProber._stack()` — returns that link's explicitly declared typed active stack.
-- `with SomeLinkProber() as prober:` — enters the link's active stack; `prober.records` accumulates for the block's duration.
-- `SomeLinkProber.active()` — `@torch.compiler.disable`; `True` iff some prober of that subclass is currently active. The guard an emitter checks before building and submitting a payload.
-- `SomeLinkProber.submit(payload)` — `@torch.compiler.disable`; no-op on an empty stack, else detaches `payload` once and appends the same object to every active prober's `.records`.
+- **The demand gate is what keeps diagnostics out of the numerical path.** An emission site computes its diagnostic only inside the gate, so an unprobed run pays nothing but the gate read itself.
+- **Submission count is the link's own contract.** The module defining a link owns what one submission means and how often it happens; the mechanism records each of them once. A consumer that pairs two streams positionally depends on that frequency, so a link states it where it is declared.
 
 ## Performance & resources
 
-With no active prober, `active()` returns `False` and the guarded diagnostic computation and payload construction never run. `@torch.compiler.disable` keeps the guard outside an enclosing compiled graph. Per emission with $k$ active probers of the link's subclass, the mechanism performs one `detach()` and $k$ Python appends; no device sync occurs. Memory grows linearly with admitted records.
+With no prober active, the gated diagnostic computation and the record construction never run, and the gate read is a graph break rather than device work. Per capture the mechanism performs one `detach` and one append, with no device sync. Memory grows linearly with the book, at the full size of the captured tensors.
 
 ## Gotchas
 
-- **Do not probe an unbounded run.** Records are full payloads; a long capture accumulates them all. Scope the `with` block to the stimulus batch being fitted.
-- **A prober sees only its subclass's link.** Different concrete prober subclasses have independent stacks even when their contexts overlap.
+- **Do not probe an unbounded run.** Records are whole tensors and nothing prunes the book; scope the context to the stimulus being fitted.
+- **A prober sees only its own link.** Overlapping contexts of different families capture independently, so a consumer pairing two streams pairs them itself.
 
 ## Known limitations
 
-- **No persistence.** Records live in process memory only; a calibration tool serializes what it needs.
+- **No persistence.** A book lives in process memory only; a calibration tool serializes whatever it needs from it.
 
 ---
 
-- **Reference**: N/A — software observation mechanism
-- **Implementation**: `neurox/common/prober.py`
-- **Tests**: `tests/common/test_prober.py`
+- **Reference**: N/A — software diagnostic mechanism
+- **Implementation**: `neurox/common/recorder.py`, plus each link's own module
+- **Tests**: `tests/common/test_recorder.py`

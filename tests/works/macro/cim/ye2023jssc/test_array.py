@@ -43,12 +43,8 @@ import pytest
 import torch
 import torch._dynamo
 
-from neurox.common.profiler import NeuroxProfiler
-from neurox.primitive.analog.voltage_driver import (
-    VoltageDriver,
-    VoltageDriverConfig,
-    VoltageDriverPolicy,
-)
+from neurox import Profiler, Reporter, stamp_names
+from neurox.primitive.analog import VoltageDriver, VoltageDriverConfig, VoltageDriverPolicy
 from neurox.primitive.xbar.solver import NestedParallelRailSolverConfig
 from neurox.works.macro.cim.ye2023jssc.array import (
     Ye2023Jssc2t1rArray,
@@ -172,6 +168,7 @@ def _build_array(config: Ye2023Jssc2t1rArrayConfig | None = None, *, chunk_size:
     )
     array.eval()
     array.fabricate()
+    stamp_names(array)  # the standalone array is its own root, named ""
     return array
 
 
@@ -342,28 +339,27 @@ def _profiled_energy(
     """Bill one FULL row scan: ``row_num`` one-hot accesses under one held BL pattern."""
     array = _build_array(config)
     array.program(state)
-    with NeuroxProfiler() as prof, torch.no_grad():
+    with Profiler() as prof, torch.no_grad():
         _solve(array, _one_hot_wl(), _bl_v_ref(input_bits))
-    return prof.report(array).energy_by_name.get("", 0.0)
+    return Reporter(array).by_name(prof).get("", 0.0)
 
 
-def test_profiler_bills_caps_as_one_event() -> None:
-    """The array bills nonzero capacitive energy as one un-channelled event; no conduction."""
+def test_profiler_bills_caps_as_one_record() -> None:
+    """The array bills nonzero capacitive energy as one un-channelled record; no conduction."""
     array = _build_array()
     array.program(torch.ones((_COL_NUM, _ROW_NUM), dtype=torch.long))
 
-    with NeuroxProfiler() as prof, torch.no_grad():
+    with Profiler() as prof, torch.no_grad():
         _solve(array, _one_hot_wl(), _bl_v_ref((1, 0)))
-    report = prof.report(array)
 
-    # The array is the profiled root -> named "".
-    assert report.energy_by_name.get("", 0.0) > 0.0
+    # The array is the reported root -> named "".
+    assert Reporter(array).by_name(prof).get("", 0.0) > 0.0
 
-    # Exactly one energy event from the array, un-channelled (caps only).
-    array_events = [e for e in report.energy_events if e.module is array]
-    assert len(array_events) == 1
-    assert array_events[0].channel is None
-    assert array_events[0].dynamic_energy__fJ > 0.0
+    # Exactly one energy record from the array, un-channelled (caps only).
+    array_records = [r for r in prof.records if r.qualified_name == array.qualified_name]
+    assert len(array_records) == 1
+    assert array_records[0].channel is None
+    assert array_records[0].dynamic_energy__fJ > 0.0
 
 
 def test_zero_input_caps_are_the_closed_form_wl_terms() -> None:
@@ -452,7 +448,7 @@ def test_chunk_size_moves_neither_the_lookup_sum_nor_the_energy(monkeypatch: pyt
         array.program(state)
         billed: list[torch.Tensor] = []
         monkeypatch.setattr(array, "_record_dynamic_energy", billed.append)
-        with NeuroxProfiler(), torch.no_grad():
+        with Profiler(), torch.no_grad():
             steady = _solve(array, v_wl, bl_v_ref)
         [energy__fJ] = billed
         folded[chunk_size] = (steady.i_bl_port__uA, steady.v_bl_clamp__V, steady.i_tbl__uA, energy__fJ)

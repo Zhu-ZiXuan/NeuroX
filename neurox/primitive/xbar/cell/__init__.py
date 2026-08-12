@@ -8,9 +8,9 @@ from ._1t1r import (
 from ._1t1r_detail import (
     XbarCell1t1rDetail,
     XbarCell1t1rDetailConfig,
-    XbarCell1t1rDetailObservation,
     XbarCell1t1rDetailPolicy,
     XbarCell1t1rDetailProber,
+    XbarCell1t1rDetailRecord,
     XbarCell1t1rDetailSnap,
 )
 from ._1t1r_linear import (
@@ -34,9 +34,9 @@ __all__ = [
     "XbarCell1t1rDcop",
     "XbarCell1t1rDetail",
     "XbarCell1t1rDetailConfig",
-    "XbarCell1t1rDetailObservation",
     "XbarCell1t1rDetailPolicy",
     "XbarCell1t1rDetailProber",
+    "XbarCell1t1rDetailRecord",
     "XbarCell1t1rDetailSnap",
     "XbarCell1t1rLinear",
     "XbarCell1t1rLinearConfig",

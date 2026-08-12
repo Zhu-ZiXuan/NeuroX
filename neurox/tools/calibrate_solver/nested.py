@@ -10,7 +10,7 @@ Two-axis sweep using **step-ratio plateau detection** (primary) +
            -> pick the smallest ``n_inner`` at the step plateau.
 
 Host-agnostic: the tool binds only to its calibration target (the nested
-solver family + the 1T1R cell observation it consumes) and the abstract
+solver family + the 1T1R cell record it consumes) and the abstract
 :class:`~neurox.primitive.macro.cim.CimMacro` surface. Each candidate is a
 FRESH macro rebuilt from the macro config file with the swept iteration count
 patched onto the nested-solver table located by ``[macro].solver_section``; the

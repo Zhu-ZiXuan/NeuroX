@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 import torch
 
+from neurox import Profiler, stamp_names
 from neurox.architecture.unit.cim.engine import (
     CimEngine,
     CimEngineConfig,
@@ -31,7 +32,6 @@ from neurox.architecture.unit.cim.engine import (
     XSliceStagePolicy,
 )
 from neurox.common.encoding import Encoding
-from neurox.common.profiler import NeuroxProfiler
 from neurox.primitive.digital import AccumulatorConfig, ShiftAdderConfig
 from neurox.primitive.macro.cim import IdealCimMacroConfig, IdealCimMacroPolicy
 
@@ -551,7 +551,7 @@ def test_weight_batch_leaves_the_declared_caller_axis_leftmost() -> None:
     stays profilable per caller unit operation.
     """
     engine, activation = _batched_engine_and_activation()
-    with NeuroxProfiler(leading_rank=len(_CALLER_BATCH)):
+    with Profiler(leading_rank=len(_CALLER_BATCH)):
         routed = engine.placement.unroll_block_steps(_phased(engine, activation))
     d = engine.placement.plan.block_slot_num
     p = engine.input_activation._input_phase_num
@@ -561,21 +561,22 @@ def test_weight_batch_leaves_the_declared_caller_axis_leftmost() -> None:
 def test_weight_batch_energy_is_billed_against_the_caller_axis() -> None:
     """Under ``leading_rank=1`` each billed element is one caller unit operation.
 
-    A payload laid out over the routed tensor is reduced by the profiler onto its
-    leftmost dim. That dim must index the caller: element ``i`` has to carry
-    exactly the work of running caller ``i`` on its own, which a mis-billing that
-    read D as the caller axis could not reproduce.
+    An energy tensor laid out over the routed tensor is reduced by the profiler
+    onto its leftmost dim. That dim must index the caller: element ``i`` has to
+    carry exactly the work of running caller ``i`` on its own, which a
+    mis-billing that read D as the caller axis could not reproduce.
     """
     engine, activation = _batched_engine_and_activation()
+    stamp_names(engine)
     stage = engine.placement
     # PlacementStage is not itself a profile target, so the stage's own
-    # accumulator stands in as the emitting host for the routed payload.
+    # accumulator stands in as the emitting host for the routed tensor.
     emitter = stage.contraction_accumulator
-    with NeuroxProfiler(leading_rank=len(_CALLER_BATCH)) as profiler:
+    with Profiler(leading_rank=len(_CALLER_BATCH)) as profiler:
         routed = stage.unroll_block_steps(_phased(engine, activation))
         emitter._record_dynamic_energy(routed.to(torch.float64))
-    (event,) = profiler.energy_events
-    billed = event.dynamic_energy__fJ
+    (record,) = profiler.records
+    billed = record.dynamic_energy__fJ
     assert billed.shape == _CALLER_BATCH
 
     alone = torch.stack(
@@ -592,7 +593,8 @@ def test_weight_batch_energy_is_billed_against_the_caller_axis() -> None:
 def test_weight_batch_runs_under_a_rank_zero_profiler() -> None:
     """A profiler with no caller leading dims imposes no layout: everything is summed."""
     engine, activation = _batched_engine_and_activation()
-    with NeuroxProfiler() as profiler:
+    stamp_names(engine)
+    with Profiler() as profiler:
         actual = engine.matmul(activation, quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
     assert actual.shape == (*_ACTIVATION_BATCH[:-1], _WEIGHT_BATCH_SHAPE[0], _M, _WEIGHT_BATCH_SHAPE[1])
     assert profiler.leading_rank == 0
@@ -606,7 +608,7 @@ def test_unbatched_weight_keeps_the_whole_caller_prefix_leftmost() -> None:
     engine.program(_randint_in_range(engine.w_value_range, (n, k)))
     activation = _randint_in_range(engine.x_value_range, (*_ACTIVATION_BATCH, _M, k))
     phased = _phased(engine, activation)
-    with NeuroxProfiler(leading_rank=len(_ACTIVATION_BATCH)):
+    with Profiler(leading_rank=len(_ACTIVATION_BATCH)):
         routed = engine.placement.unroll_block_steps(phased)
     d = engine.placement.plan.block_slot_num
     p = engine.input_activation._input_phase_num

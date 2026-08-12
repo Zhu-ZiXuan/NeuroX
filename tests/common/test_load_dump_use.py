@@ -8,9 +8,7 @@ from typing import TypeVar
 
 import pytest
 
-from neurox.common.serialize import compose, dict_from_file
-from neurox.common.serialize.build import dataclass_from_dict
-from neurox.common.serialize.compose import load_config_dict, resolve_uses
+from neurox.common.serialize import compose, dataclass_from_dict, dict_from_file, load_config_dict, resolve_uses
 
 T = TypeVar("T")
 

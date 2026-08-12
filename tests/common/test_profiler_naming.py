@@ -1,7 +1,9 @@
-"""Tests that every profiled name is derived from the reported root's traversal.
+"""Tests that a record carries the name its tree stamped, and never a module.
 
-A module never knows its own name, so an event carries its emitter and the
-report resolves the name against the root it is handed.
+A module never knows its own name, so a walk of the assembled model stamps one
+onto it and the ledger stores that string. Identity in the book is therefore
+plain text: which tree answered is settled once, before the measurement, and a
+record outlives the module it names without holding it.
 """
 
 from __future__ import annotations
@@ -10,8 +12,8 @@ import pytest
 import torch
 import torch.nn as nn
 
-from neurox.common.mixin import ProfileMixin
-from neurox.common.profiler import NeuroxProfiler
+from neurox import Profiler, Reporter, stamp_names
+from neurox.common.profile_mixin import ProfileMixin
 
 
 class _Leaf(nn.Module, ProfileMixin):
@@ -39,125 +41,85 @@ class _Leaf(nn.Module, ProfileMixin):
 
 
 class _Owner(nn.Module):
+    """A plain container binding one emitting child under a role name."""
+
     def __init__(self, leaf: _Leaf) -> None:
         super().__init__()
         self.leaf = leaf
 
 
-def test_child_is_named_by_the_tree() -> None:
-    """The name is the attribute path the root's traversal composes."""
-    owner = _Owner(_Leaf(energy__fJ=4.0))
-    with NeuroxProfiler() as p:
-        owner.leaf.run()
-    assert p.report(owner).energy_by_name == {"leaf": 4.0}
-
-
-def test_reported_root_is_named_empty_string() -> None:
-    """``named_modules`` names a root ``""``; the root's own events key on it.
-
-    The empty name is falsy but valid — it is not the unrooted case.
-    """
+def test_a_record_carries_the_stamped_name() -> None:
+    """Row identity is one string, so the ledger holds nothing of the model itself."""
     leaf = _Leaf(energy__fJ=4.0)
-    with NeuroxProfiler() as p:
+    stamp_names(_Owner(leaf))
+    with Profiler() as profiler:
         leaf.run()
-    by_name = p.report(leaf).energy_by_name
-    assert by_name == {"": 4.0}
+    (record,) = profiler.records
+    assert record.qualified_name == "leaf"
 
 
-def test_emitter_outside_the_reported_root_is_labelled_unrooted() -> None:
-    """An event the root cannot name stays visible under an ``<unrooted>`` label."""
-    inside, outside = _Leaf(energy__fJ=4.0), _Leaf(energy__fJ=7.0)
-    owner = _Owner(inside)
-    with NeuroxProfiler() as p:
-        inside.run()
-        outside.run()
-    by_name = p.report(owner).energy_by_name
-    assert by_name == {"leaf": 4.0, "<unrooted>._Leaf": 7.0}
-
-
-def test_unrooted_event_still_counts_toward_the_total() -> None:
-    """Grouping never loses an event: the per-name sum is the total."""
-    inside, outside = _Leaf(energy__fJ=4.0), _Leaf(energy__fJ=7.0)
-    owner = _Owner(inside)
-    with NeuroxProfiler() as p:
-        inside.run()
-        outside.run()
-    report = p.report(owner)
-    assert sum(report.energy_by_name.values()) == p.total_dynamic_energy__fJ == 11.0
-
-
-def test_name_follows_a_post_construction_swap() -> None:
-    """A replaced child takes the role name of where it lands, not where it was built."""
-    owner = _Owner(_Leaf())
-    probe = _Leaf(energy__fJ=9.0)
-    owner.leaf = probe  # the probe-install shape: swap after the tree exists
-    with NeuroxProfiler() as p:
-        probe.run()
-    assert p.report(owner).energy_by_name == {"leaf": 9.0}
-
-
-def test_events_carry_the_emitter_so_identity_needs_no_name() -> None:
-    """A caller holding a module selects its events without naming anything."""
+def test_one_emitters_records_are_selected_by_its_name_alone() -> None:
+    """A caller reads a row out of the book without holding the module that billed it."""
     a, b = _Leaf(energy__fJ=4.0), _Leaf(energy__fJ=7.0)
     owner = _Owner(a)
     owner.other = b
-    with NeuroxProfiler() as p:
+    stamp_names(owner)
+    with Profiler() as profiler:
         a.run()
         b.run()
-    assert [float(e.dynamic_energy__fJ.sum()) for e in p.energy_events if e.module is b] == [7.0]
+    energies = [float(r.dynamic_energy__fJ.sum()) for r in profiler.records if r.qualified_name == "other"]
+    assert energies == [7.0]
 
 
-def test_static_record_name_comes_from_the_walk() -> None:
-    """The static walk names each host as it reaches it."""
+def test_an_unstamped_emitter_fails_in_its_own_frame() -> None:
+    """The name is demanded where it is missing, not at the far end of a report."""
+    leaf = _Leaf(energy__fJ=4.0)
+    with Profiler(), pytest.raises(RuntimeError, match="carries no name stamp"):
+        leaf.run()
+
+
+def test_an_unstamped_emitter_is_free_to_run_unprofiled() -> None:
+    """Naming buys energy collection; a model that collects nothing owes nothing."""
+    _Leaf(energy__fJ=4.0).run()  # must not raise
+
+
+def test_a_name_follows_a_post_construction_swap() -> None:
+    """A replaced child takes the role name of where it lands, once the tree names it again."""
     owner = _Owner(_Leaf())
-    records = NeuroxProfiler.collect_static(owner)
-    assert [r.qualified_name for r in records] == ["leaf"]
-    assert records[0].module_type == "_Leaf"
+    probe = _Leaf(energy__fJ=9.0)
+    owner.leaf = probe  # the probe-install shape: swap after the tree exists
+    stamp_names(owner)
+    with Profiler() as profiler:
+        probe.run()
+    assert Reporter(owner).by_name(profiler) == {"leaf": 9.0}
 
 
-def test_channelled_energy_groups_under_module_dot_channel() -> None:
-    """A channelled event's report row reads ``<module dotted name>.<channel>``."""
-    owner = _Owner(_Leaf(energy__fJ=4.0))
-    with NeuroxProfiler() as p:
-        owner.leaf.run(channel="cablc")
-    assert p.report(owner).energy_by_name == {"leaf.cablc": 4.0}
+def test_a_stamp_is_read_at_emission_not_at_report_time() -> None:
+    """The record froze the name the model carried then; a later walk cannot rewrite it."""
+    leaf = _Leaf(energy__fJ=4.0)
+    owner = _Owner(leaf)
+    stamp_names(owner)
+    reporter = Reporter(owner)  # the canonical order: bind the reporter before the run
+    with Profiler() as profiler:
+        leaf.run()
+    stamp_names(leaf)  # the same module, renamed by a walk of its own
+    assert profiler.records[0].qualified_name == "leaf"
+    assert reporter.by_name(profiler) == {"leaf": 4.0}
 
 
-def test_distinct_channels_on_the_same_module_stay_separate_rows() -> None:
-    """One emitter billing multiple branches per op keeps each channel its own row."""
-    owner = _Owner(_Leaf(energy__fJ=4.0))
-    with NeuroxProfiler() as p:
-        owner.leaf.run(channel="cablc")
-        owner.leaf.run(channel="dswct")
-        owner.leaf.run()  # un-channelled event on the same emitter
-    by_name = p.report(owner).energy_by_name
-    assert by_name == {"leaf.cablc": 4.0, "leaf.dswct": 4.0, "leaf": 4.0}
-    assert sum(by_name.values()) == p.total_dynamic_energy__fJ == 12.0
+def test_a_channel_is_stored_verbatim_and_named_only_at_report_time() -> None:
+    """The emitter states which branch it billed; composing the row name is not its job."""
+    leaf = _Leaf(energy__fJ=4.0)
+    owner = _Owner(leaf)
+    stamp_names(owner)
+    with Profiler() as profiler:
+        leaf.run(channel="cablc")
+        leaf.run(channel=None)
+    assert [r.channel for r in profiler.records] == ["cablc", None]
+    assert Reporter(owner).by_name(profiler) == {"leaf.cablc": 4.0, "leaf": 4.0}
 
 
-def test_unrooted_channelled_event_keeps_the_channel_suffix() -> None:
-    """An unrooted emitter's channel still appends onto the ``<unrooted>`` label."""
-    outside = _Leaf(energy__fJ=7.0)
-    owner = _Owner(_Leaf())
-    with NeuroxProfiler() as p:
-        outside.run(channel="dswct")
-    assert p.report(owner).energy_by_name == {"<unrooted>._Leaf.dswct": 7.0}
-
-
-def test_default_channel_is_none_and_matches_unchannelled_behavior() -> None:
-    """``channel=None`` (the default) is byte-identical to the un-channelled call."""
-    owner = _Owner(_Leaf(energy__fJ=4.0))
-    with NeuroxProfiler() as p:
-        owner.leaf.run(channel=None)
-    report = p.report(owner)
-    assert report.energy_by_name == {"leaf": 4.0}
-    assert report.energy_events[0].channel is None
-
-
-def test_profiler_rejects_nested_active_contexts() -> None:
-    with (
-        NeuroxProfiler(),
-        pytest.raises(RuntimeError, match="only one NeuroxProfiler"),
-        NeuroxProfiler(),
-    ):
+def test_the_ledger_rejects_a_second_active_profiler() -> None:
+    """The profiler is one recorder family: two open ledgers would split the book."""
+    with Profiler(), pytest.raises(RuntimeError, match="only one Profiler"), Profiler():
         pass

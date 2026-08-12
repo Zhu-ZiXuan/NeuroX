@@ -13,7 +13,7 @@ from __future__ import annotations
 import torch
 from torch import Tensor
 
-from neurox.primitive.analog.current_adc.base import Iadc, IadcConfig, IadcPolicy
+from neurox.primitive.analog.current_adc import Iadc, IadcConfig, IadcPolicy
 
 
 class RsCsaIadcConfig(IadcConfig):

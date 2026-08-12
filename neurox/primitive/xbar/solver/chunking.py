@@ -13,7 +13,7 @@ from typing import Generic, NamedTuple, TypeVar
 import torch
 from torch import Tensor
 
-from neurox.common.mixin import walk_tensor_fields
+from neurox.common import walk_tensor_fields
 
 SnapT = TypeVar("SnapT")
 MeasureT = TypeVar("MeasureT")

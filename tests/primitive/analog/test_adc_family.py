@@ -14,6 +14,7 @@ from __future__ import annotations
 import pytest
 import torch
 
+from neurox.primitive.analog import Vref, VrefConfig, VrefPolicy
 from neurox.primitive.analog.diff_voltage_adc import (
     GeneralDiffVadc,
     GeneralDiffVadcConfig,
@@ -21,11 +22,6 @@ from neurox.primitive.analog.diff_voltage_adc import (
     McsSarDiffVadc,
     McsSarDiffVadcConfig,
     McsSarDiffVadcPolicy,
-)
-from neurox.primitive.analog.voltage_reference import (
-    Vref,
-    VrefConfig,
-    VrefPolicy,
 )
 
 _DTYPE = torch.float64

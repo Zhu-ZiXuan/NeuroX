@@ -36,7 +36,7 @@ import torch
 import torch._dynamo
 from torch import Tensor
 
-from neurox.common.profiler import NeuroxProfiler
+from neurox import Profiler, Reporter
 
 from ._utils import (
     QUANTIZATION_MODE,
@@ -182,17 +182,17 @@ def test_dynamic_energy_is_additive_over_the_ensemble(device: torch.device) -> N
     macro, w = _programmed(device, inst_shape)
     x = _die_inputs((), inst_shape)
 
-    with NeuroxProfiler() as prof, torch.no_grad():
+    with Profiler() as prof, torch.no_grad():
         macro.vec_mat_mul(x.to(device), quantization_mode=QUANTIZATION_MODE, adc_bits=TINY_ADC_BITS)
-    ensemble__fJ = prof.total_dynamic_energy__fJ
+    ensemble__fJ = Reporter(macro).total_dynamic_energy__fJ(prof)
 
     separate__fJ = 0.0
     for die in range(inst_shape[0]):
         one = build_calibrated_macro(device=device)
         one.program(w[die].to(device))
-        with NeuroxProfiler() as prof_one, torch.no_grad():
+        with Profiler() as prof_one, torch.no_grad():
             one.vec_mat_mul(x[die].to(device), quantization_mode=QUANTIZATION_MODE, adc_bits=TINY_ADC_BITS)
-        separate__fJ += prof_one.total_dynamic_energy__fJ
+        separate__fJ += Reporter(one).total_dynamic_energy__fJ(prof_one)
 
     assert ensemble__fJ == pytest.approx(separate__fJ)
     assert separate__fJ > 0.0

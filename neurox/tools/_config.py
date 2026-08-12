@@ -7,7 +7,7 @@ import logging
 from pathlib import Path
 from typing import TypeVar
 
-from neurox.common.mixin import SerializeMixin
+from neurox.common import SerializeMixin
 
 from ._logging import config_tool_logging
 

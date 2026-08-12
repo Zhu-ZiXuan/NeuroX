@@ -15,15 +15,13 @@ See also:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, is_dataclass, replace
-from typing import Any, ClassVar, Generic, Self, TypeVar
+from typing import Any, Generic, TypeVar
 
 import torch
 import torch.nn.functional as F
 from torch import Tensor
 
-from neurox.common.mixin import walk_tensor_fields
-from neurox.common.prober import Prober
+from neurox.common import RecordBase, RecorderBase
 from neurox.primitive.xbar.cell import XbarCell, XbarCellDcop, XbarCellSnap
 
 from ._linalg import block_solve, solve_block_tridiagonal_2x2_uniform
@@ -35,15 +33,6 @@ CellSnapT = TypeVar("CellSnapT", bound=XbarCellSnap)
 CellDCOPT = TypeVar("CellDCOPT", bound=XbarCellDcop)
 BLSnapT = TypeVar("BLSnapT", bound=ClampSnap)
 SLSnapT = TypeVar("SLSnapT", bound=ClampSnap)
-
-
-def _detach_dataclass_tensors(obj: object) -> object:
-    """Detach every tensor of a dataclass, or a bare tensor root."""
-    if isinstance(obj, Tensor):
-        return obj.detach()
-    if is_dataclass(obj) and not isinstance(obj, type):
-        return walk_tensor_fields(obj, lambda t: t.detach())
-    return obj
 
 
 def _ladder_self_g(g_cell_eff: Tensor, segment_g__uS: float) -> Tensor:
@@ -111,13 +100,17 @@ def _wire_diag_blocks(
     )
 
 
-@dataclass(frozen=True)
-class SolverObservation(Generic[CellDCOPT]):
+class SolverRecord(RecordBase, Generic[CellDCOPT]):
     """Converged operating point plus KCL residuals from one DC solve.
 
+    A solver is a plain numerical object rather than a module, so the emitter
+    identity is the solve entry point's own name instead of a module reference.
+
     Attributes:
-        dcop: The converged :class:`SolverDcop`; its cell working point is
-            carried opaquely as-is.
+        emitter: Fixed name of the solve entry point that emitted the record.
+        dcop: The converged :class:`SolverDcop`. It is a dataclass, so the
+            record's field walk reaches its tensors — the nested cell working
+            point included — without either side declaring anything.
         wire_bl__uA: BL wire KCL residual per node.
             Shape: ``[..., num_col, num_row]``.
         wire_sl__uA: SL wire KCL residual per node.
@@ -128,34 +121,16 @@ class SolverObservation(Generic[CellDCOPT]):
             Shape: ``[..., num_col]``.
     """
 
+    emitter: str
     dcop: SolverDcop[CellDCOPT]
     wire_bl__uA: Tensor
     wire_sl__uA: Tensor
     clamp_bl__V: Tensor
     clamp_sl__V: Tensor
 
-    def detach(self) -> Self:
-        """Return an equivalent observation with detached tensors."""
-        detached_dcop = _detach_dataclass_tensors(self.dcop)
-        assert isinstance(detached_dcop, SolverDcop)
-        return replace(
-            self,
-            dcop=detached_dcop,
-            wire_bl__uA=self.wire_bl__uA.detach(),
-            wire_sl__uA=self.wire_sl__uA.detach(),
-            clamp_bl__V=self.clamp_bl__V.detach(),
-            clamp_sl__V=self.clamp_sl__V.detach(),
-        )
 
-
-class SolverProber(Prober[SolverObservation[XbarCellDcop]]):
+class SolverProber(RecorderBase[SolverRecord[XbarCellDcop]]):
     """Capture converged solver states and residuals."""
-
-    _active_stack: ClassVar[list[Prober[SolverObservation[XbarCellDcop]]]] = []
-
-    @classmethod
-    def _stack(cls) -> list[Prober[SolverObservation[XbarCellDcop]]]:
-        return cls._active_stack
 
 
 class NestedParallelRailSolverConfig(SolverConfig):
@@ -234,7 +209,7 @@ class NestedParallelRailSolver(Solver):
             sl_driver_snap=sl_driver_snap,
         )
         if SolverProber.active():
-            observation = self._converged_observation(
+            record = self._converged_record(
                 dcop=dcop,
                 bl_segment_g__uS=1.0 / bl_segment_r__MOhm,
                 sl_segment_g__uS=1.0 / sl_segment_r__MOhm,
@@ -243,7 +218,7 @@ class NestedParallelRailSolver(Solver):
                 sl_driver=sl_driver,
                 sl_driver_snap=sl_driver_snap,
             )
-            SolverProber.submit(observation)
+            SolverProber.submit(record)
         return dcop
 
     @torch.compile(dynamic=False)
@@ -415,7 +390,7 @@ class NestedParallelRailSolver(Solver):
             v_sl_drive=v_sl_drive__V,
         )
 
-    def _converged_observation(
+    def _converged_record(
         self,
         *,
         dcop: SolverDcop[CellDCOPT],
@@ -425,8 +400,8 @@ class NestedParallelRailSolver(Solver):
         bl_driver_snap: BLSnapT,
         sl_driver: ClampDriver[SLSnapT],
         sl_driver_snap: SLSnapT,
-    ) -> SolverObservation[CellDCOPT]:
-        """Compute wire and clamp residuals at a converged point."""
+    ) -> SolverRecord[CellDCOPT]:
+        """Build the :meth:`solve_dc` record: residuals at a converged point."""
         wire_bl_res, wire_sl_res = self._compute_wire_residuals(dcop, bl_segment_g__uS, sl_segment_g__uS)
 
         # Clamp residual: |driver(I_port) - V_clamp| at the converged
@@ -443,7 +418,8 @@ class NestedParallelRailSolver(Solver):
             sl_driver_snap,
             v_clamp_init__V=dcop.v_sl_drive,
         )
-        return SolverObservation(
+        return SolverRecord(
+            emitter="NestedParallelRailSolver.solve_dc",
             dcop=dcop,
             wire_bl__uA=wire_bl_res,
             wire_sl__uA=wire_sl_res,
@@ -509,7 +485,8 @@ class NestedParallelRailSolver(Solver):
             )
             clamp_zero = torch.zeros_like(dcop.v_bl_clamp)
             SolverProber.submit(
-                SolverObservation(
+                SolverRecord(
+                    emitter="NestedParallelRailSolver.solve_array_fixed_clamp",
                     dcop=dcop,
                     wire_bl__uA=wire_bl_res,
                     wire_sl__uA=wire_sl_res,
