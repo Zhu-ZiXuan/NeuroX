@@ -1,8 +1,4 @@
-"""True-form signed-digit transcoder.
-
-See also:
-    docs/internals/common/encoding/encodings.md
-"""
+"""True-form signed-digit transcoder."""
 
 from __future__ import annotations
 
@@ -16,8 +12,8 @@ class TrueFormTranscoder(Transcoder):
     """Sign-magnitude signed-digit encoding.
 
     All non-zero digits share the input sign; magnitude is an ordinary
-    base-``r`` decomposition. Representable range is the symmetric
-    envelope ``[-(r^D - 1), r^D - 1]``.
+    base-``r`` decomposition, ``d_i = sign(x)·(floor(|x| / r^i) mod r)``.
+    Representable range is the symmetric envelope ``[-(r^D - 1), r^D - 1]``.
     """
 
     def encode(self, x: Tensor, *, dim: int = -1) -> Tensor:

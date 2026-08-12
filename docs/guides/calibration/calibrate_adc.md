@@ -48,4 +48,4 @@ A scheme keeps its run configs beside its params (e.g. `calibrate_rescale.toml` 
 
 ---
 
-- See also: [rescale convention](../../reference/primitive/macro/cim/family.md#governing-laws), [prober internals](../../internals/common/prober.md)
+- See also: [rescale convention](../../reference/primitive/macro/cim/family.md#governing-laws)

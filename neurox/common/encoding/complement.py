@@ -1,8 +1,4 @@
-"""Radix-complement signed-digit transcoder.
-
-See also:
-    docs/internals/common/encoding/encodings.md
-"""
+"""Radix-complement signed-digit transcoder."""
 
 from __future__ import annotations
 
@@ -34,7 +30,7 @@ class ComplementTranscoder(Transcoder):
 
     @property
     def value_range(self) -> tuple[int, int]:
-        """Asymmetric envelope."""
+        """Asymmetric envelope ``[-floor(r/2)·r^(D - 1), ceil(r/2)·r^(D - 1) - 1]``."""
         r = self._radix
         top = r ** (self._digit_count - 1)
         lo = -(r // 2) * top

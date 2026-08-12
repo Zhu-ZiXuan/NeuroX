@@ -1,8 +1,4 @@
-"""Side-channel dynamic-energy profiler for NeuroX circuit-level simulation.
-
-See also:
-    docs/internals/common/profiler.md
-"""
+"""Side-channel dynamic-energy profiler for NeuroX circuit-level simulation."""
 
 import torch
 from torch import Tensor

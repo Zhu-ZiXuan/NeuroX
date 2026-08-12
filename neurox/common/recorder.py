@@ -8,6 +8,11 @@ slot and submitting to it both stay out of the caller's graph under
 site's demand gate and its submission are graph breaks by design. Collection is
 assumed single-threaded: the slot is not thread-local, and two threads
 recording at once would share one book.
+
+Collection is a pure side channel across every family: a run computes the same
+numbers whether or not a recorder is active. An emit site builds what it submits
+only behind its family's active gate, so an uncollected run pays the gate read
+and nothing beyond it.
 """
 
 from __future__ import annotations
@@ -128,7 +133,9 @@ class RecorderBase(Generic[RecordT], ABC):
     Attributes:
         records: Records collected so far, in submission order. Re-entering one
             instance accumulates into the same list; a fresh book is a fresh
-            instance.
+            instance. Records are kept whole and nothing prunes the list, so
+            memory grows with what is captured: scope the collection context to
+            the run being measured.
     """
 
     _family_root: ClassVar[type[RecorderBase[Any]] | None] = None

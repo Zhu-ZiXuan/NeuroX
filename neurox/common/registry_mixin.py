@@ -13,7 +13,21 @@ ModuleT = TypeVar("ModuleT", bound=ModuleBase[ConfigBase, PolicyBase])
 
 
 class RegistryMixin(Generic[ConfigT, PolicyT, ModuleT]):
-    """Dispatch a module family from concrete config and policy types."""
+    """Dispatch a module family from concrete config and policy types.
+
+    The class that first mixes this in owns one registry table keyed by
+    ``(config type, policy type)``; every class below it in the family shares
+    that same table, so one pair selects one implementation family-wide.
+
+    Host requirements:
+        - Mix in on the family base class, parameterized with the family's
+          abstract config, policy, and module types.
+        - Decorate each concrete implementation with
+          :meth:`register_neurox_module` for the pair it serves.
+        - Expose a public classmethod that builds the implementation
+          :meth:`_lookup_neurox_module` returns, since callers of the family
+          never reach the registry themselves.
+    """
 
     _module_registry: dict[tuple[type[ConfigT], type[PolicyT]], type[ModuleT]]
 
@@ -31,7 +45,21 @@ class RegistryMixin(Generic[ConfigT, PolicyT, ModuleT]):
         config_type: type[ConfigT],
         policy_type: type[PolicyT],
     ) -> Callable[[type[ModuleT]], type[ModuleT]]:
-        """Register one concrete config-policy pair for a module class."""
+        """Bind one concrete config-policy pair to a module class.
+
+        Args:
+            config_type: Concrete configuration type selecting the class.
+            policy_type: Concrete policy type selecting the class.
+
+        Returns:
+            Class decorator recording the binding and returning the decorated
+            class unchanged. Re-decorating the same class with the same pair is
+            idempotent.
+
+        Raises:
+            TypeError: Raised by the returned decorator when the pair already
+                selects a different module class; rebinding is rejected.
+        """
         key = (config_type, policy_type)
         registry = cls._module_registry
 
@@ -49,7 +77,19 @@ class RegistryMixin(Generic[ConfigT, PolicyT, ModuleT]):
 
     @classmethod
     def _lookup_neurox_module(cls, *, config: ConfigT, policy: PolicyT) -> type[ModuleT]:
-        """Return the module class selected by concrete config and policy types."""
+        """Return the module class selected by concrete config and policy types.
+
+        Args:
+            config: Configuration instance; only its type selects the class.
+            policy: Policy instance; only its type selects the class.
+
+        Returns:
+            Module class registered for the pair.
+
+        Raises:
+            TypeError: No module is registered for the pair; the message lists
+                the pairs the family knows.
+        """
         key = (type(config), type(policy))
         module_type = cls._module_registry.get(key)
         if module_type is None:

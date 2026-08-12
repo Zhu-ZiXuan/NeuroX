@@ -1,8 +1,4 @@
-"""Shared per-tensor-field dataclass traversal.
-
-See also:
-    docs/internals/common/tensor_group.md
-"""
+"""Shared per-tensor-field dataclass traversal."""
 
 from __future__ import annotations
 

@@ -1,8 +1,4 @@
-"""The ``TensorGroupMixin`` per-tensor-field shape-operation surface.
-
-See also:
-    docs/internals/common/tensor_group.md
-"""
+"""The ``TensorGroupMixin`` per-tensor-field shape-operation surface."""
 
 from __future__ import annotations
 

@@ -1,8 +1,4 @@
-"""Canonical (non-adjacent-form) signed-digit transcoder.
-
-See also:
-    docs/internals/common/encoding/encodings.md
-"""
+"""Canonical (non-adjacent-form) signed-digit transcoder."""
 
 from __future__ import annotations
 
@@ -37,6 +33,6 @@ class CanonicalTranscoder(Transcoder):
 
     @property
     def value_range(self) -> tuple[int, int]:
-        """Symmetric envelope ``[-M, M]``."""
+        """Symmetric envelope ``[-M, M]``, ``M = Σ_j (r - 1)·r^(D - 1 - 2j)`` over ``j in {0, ..., ceil(D/2) - 1}``."""
         max_abs = sum((self._radix - 1) * (self._radix**power) for power in range(self._digit_count - 1, -1, -2))
         return -max_abs, max_abs

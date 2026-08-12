@@ -1,11 +1,6 @@
 from . import encoding, serialize
 from .module import ConfigBase, ModuleBase, PolicyBase
 from .profiler import EnergyRecord, Profiler
-from .quant import (
-    floor_bucketize,
-    stochastic_floor_div,
-    stochastic_floor_to_int,
-)
 from .recorder import RecordBase, RecorderBase
 from .registry_mixin import RegistryMixin
 from .reporter import DynamicEntry, Reporter, StaticEntry, StaticMetrics
@@ -36,7 +31,4 @@ __all__ = [
     "neurox_roots",
     "stamp_names",
     "walk_tensor_fields",
-    "floor_bucketize",
-    "stochastic_floor_div",
-    "stochastic_floor_to_int",
 ]

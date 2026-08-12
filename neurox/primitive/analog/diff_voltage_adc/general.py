@@ -11,7 +11,6 @@ import math
 import torch
 from torch import Tensor
 
-from neurox.common import floor_bucketize
 from neurox.primitive.nonideality import apply_gaussian
 
 from .base import DiffVadc, DiffVadcConfig, DiffVadcPolicy
@@ -192,13 +191,12 @@ class GeneralDiffVadc(DiffVadc[GeneralDiffVadcConfig, GeneralDiffVadcPolicy]):
             enabled=self.policy.comparator_noise,
         )
 
-        code = floor_bucketize(
-            signal,
-            v_refs__V,
-            out_dtype=torch.int16,
-            training=self.training,
-            lsb=self._lsb__V(v_refs__V),
-        )
+        if self.training:
+            jitter = torch.rand(signal.shape, device=signal.device, dtype=signal.dtype) * self._lsb__V(v_refs__V)
+            signal = signal + jitter
+        # ``right=True`` gives floor semantics: signal at an exact
+        # boundary lands in the upper bin (code = C when signal == C·LSB).
+        code = torch.bucketize(signal, v_refs__V, right=True, out_int32=True).to(torch.int16)
 
         if self._is_dynamic_energy_profile_active():
             # Shape: [] -> [*code.shape]

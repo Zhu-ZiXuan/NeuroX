@@ -30,7 +30,7 @@ A docstring or comment carries raw whitelisted unicode, no LaTeX, and no hosted 
 - A docstring `Shape:` line is written only as the separate final line of an entry inside an `Attributes:`, `Args:`, `Parameters:`, `Returns:`, or `Yields:` section, and only where that entry describes an actual tensor, an optional tensor, or a container whose elements are tensors. Its form is ````Shape: ``[*inst_shape, item_num]``.```` — a reStructuredText inline literal closed by a period, occupying its own line. Whether a public tensor container that crosses a module boundary states shapes at all is its own call; when it does, it uses this form.
 - No other position carries the line: never trailing a free prose paragraph, never at the end of a module-level docstring, never inside a `Raises:`, `Note:`, `Example:`, or `See Also:` section, and never on an entry whose type is not a tensor.
 - Write the complete callable interface on the abstract method, mixin method, or Protocol method. An unchanged override inherits it instead of copying it; document only the difference when an override changes contract, shape, side effects, units, or errors.
-- A base or mixin class docstring contains only a short responsibility statement and requirements imposed on subclasses or hosts. General guidance, design rationale, lifecycle, ownership, and implementation details belong in the relevant Conventions or Internals document.
+- A base or mixin class docstring contains only a short responsibility statement and requirements imposed on subclasses or hosts. General guidance, design rationale, lifecycle, ownership, and implementation details belong in the relevant Conventions or Internals document. The common infrastructure roots and mixins are the one exception: their class docstring, beside the enforcing code, owns the complete extension contract, per [organizing_principles](organizing_principles.md).
 - An interface docstring states what the method does, not a directive to whoever implements it — "a subclass must implement this" stops holding once one has. The obligation to implement belongs in the class docstring, the not-yet-implemented fact in `raise NotImplementedError`, and the rationale in Internals.
 - A lifecycle magic method (`__post_init__`, `__init_subclass__`) carries no docstring — a caller never invokes it directly, so the docstring would go unread. State the behavior it drives in the class docstring instead.
 - A regular implementation module's docstring states the file's responsibility. When a matching Reference or Internals document exists, it must include a `See also:` entry pointing to that document.
@@ -150,7 +150,7 @@ One further rule follows from the layout. Constant-per-element billing builds th
 
 That summation is also the layout's price: the collector holds no per-instance resolution, and no way of shaping an energy tensor gives it one.
 
-The collector-side contract is in [profiler](../internals/common/profiler.md); the report surface is in [reporter](../internals/common/reporter.md).
+The collector-side contract and the report surface it feeds are specified in Internals.
 
 ## Type annotations
 

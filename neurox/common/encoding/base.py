@@ -1,8 +1,4 @@
-"""Transcoder ABC and encoding identifiers.
-
-See also:
-    docs/internals/common/encoding/encodings.md
-"""
+"""Transcoder ABC and encoding identifiers."""
 
 from __future__ import annotations
 
@@ -23,9 +19,20 @@ class Encoding(StrEnum):
 class Transcoder(ABC):
     """Fixed-length positional signed-digit transcoder.
 
+    ``encode`` and ``decode`` are mutual inverses inside ``value_range``:
+    ``decode(encode(x))`` equals ``x`` exactly for every ``x`` in that band.
+    Outside it the encoded value wraps silently and no error is raised.
+
+    Subclass requirements:
+        - Implement ``encode`` and ``value_range``; ``decode`` is the shared
+          positional reduction and serves every encoding unchanged.
+
     Args:
-        radix: Positional base ``r`` of the digit representation.
-        digit_count: Number of digits produced by ``encode``.
+        radix: Positional base ``r`` of the digit representation, ``r >= 2``.
+        digit_count: Number of digits ``D`` produced by ``encode``, ``D >= 1``.
+
+    Raises:
+        ValueError: ``radix < 2`` or ``digit_count < 1``.
     """
 
     def __init__(self, *, radix: int, digit_count: int) -> None:
@@ -62,6 +69,11 @@ class Transcoder(ABC):
 
     def decode(self, digits: Tensor, *, dim: int = -1) -> Tensor:
         """Reduce a digit tensor back to integers via positional weights.
+
+        Every encoding shares the reduction ``M = Σ_i d_i·r^i`` for
+        ``i in {0, ..., D - 1}``, with ``d_0`` the least-significant digit.
+        Horner evaluation keeps the arithmetic exact integer, free of
+        floating-point error.
 
         Args:
             digits: Digit tensor produced by ``encode``.

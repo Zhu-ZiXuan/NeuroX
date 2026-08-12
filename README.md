@@ -14,7 +14,7 @@ The core library's public surface stops at `neurox.architecture`. Above that lin
 - `neurox/primitive/xbar/` — `cell/` (abstract `XbarCell` + the `_1t1r` concrete cell), `array/` (abstract `XbarArray` + the `_1t1r` concrete array with its DC solver), and `solver/` (the shared block-tridiagonal DC solver).
 - `neurox/primitive/macro/cim/` — abstract `CimMacro`, `IdealCimMacro` reference twin; concrete tiles (e.g. the offset-coded 1T1R tile) live in `works/`.
 - `neurox/architecture/unit/` — `UnitBase`/`LinearUnit`/`Conv2dUnit` operator bases with their ideal reference leaves, plus `cim/` (`CimUnit` family with `from_config` factory — the public entry point) and its `engine/` execution pipelines and `slicer/` value-domain slicing primitives.
-- `neurox/common/` — `ProfileMixin`/`FabricateMixin`/`RegistryMixin`/`ValidateMixin`, encoding transcoders, `load_dump`, the profiler side-channel, quant primitives.
+- `neurox/common/` — `ProfileMixin`/`FabricateMixin`/`RegistryMixin`/`ValidateMixin`, encoding transcoders, config serialization, the profiler side-channel, the recorder/reporter tree.
 - `neurox/tools/` — offline calibration / analysis CLIs for cell state maps, ADCs, and solvers.
 - `example/` — runnable LeNet and BERT pipelines (float train, HAT, evaluation) showing how a user assembles the above into a training/inference flow.
 
