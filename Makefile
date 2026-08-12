@@ -5,15 +5,7 @@
 PYTHON ?= python
 
 
-PROJ_ROOT := $(shell pwd)
-PROJ_NAME := neurox
-
-
 .DEFAULT_GOAL := help
-
-
-# include containers/container.mk
-include temp/run_container.mk
 
 
 # --- develop ---
@@ -135,82 +127,6 @@ eval-bert: ## Evaluate a BERT-small QAT checkpoint on SST-2
 		--checkpoint $(EVAL_CKPT) --config $(CONFIG) --policy $(POLICY) \
 		--device $(DEVICE) --cim_macro $(CIM_MACRO) \
 		--batch-size $(BATCH_SIZE) --max-length $(MAX_LENGTH) \
-		$(if $(MAX_SAMPLES),--max-samples $(MAX_SAMPLES))
-
-# SpikingVGG-5 on CIFAR-10
-train-spikingvgg hat-spikingvgg eval-spikingvgg: DATASET_DIR ?= dataset/cifar10
-train-spikingvgg hat-spikingvgg eval-spikingvgg: RAW_CKPT    ?= weight/spikingvgg_float.pth
-train-spikingvgg hat-spikingvgg eval-spikingvgg: HAT_CKPT    ?= weight/spikingvgg_hat.pth
-train-spikingvgg hat-spikingvgg eval-spikingvgg: BATCH_SIZE  ?= 64
-train-spikingvgg hat-spikingvgg eval-spikingvgg: TIME_STEP   ?= 4
-train-spikingvgg:                                EPOCHS      ?= 60
-train-spikingvgg:                                LR          ?= 1e-3
-hat-spikingvgg:                                  EPOCHS      ?= 5
-hat-spikingvgg:                                  LR          ?= 1e-5
-hat-spikingvgg:                                  CAL_BATCHES ?= 8
-hat-spikingvgg:                                  KD_ALPHA    ?= 0.3
-hat-spikingvgg:                                  KD_TEMP     ?= 4.0
-hat-spikingvgg:                                  CIM_MACRO        ?= ideal
-eval-spikingvgg:                                 CIM_MACRO        ?= physical
-
-.PHONY: train-spikingvgg
-train-spikingvgg: ## Float-train SpikingVGG-5 on CIFAR-10
-	$(PYTHON) -m example.spikingvgg.train --dataset-dir $(DATASET_DIR) --checkpoint $(RAW_CKPT) \
-		--device $(DEVICE) --batch-size $(BATCH_SIZE) --epochs $(EPOCHS) --lr $(LR) \
-		--time-step $(TIME_STEP)
-
-.PHONY: hat-spikingvgg
-hat-spikingvgg: ## Hardware-aware QAT for SpikingVGG-5 (macro-in-the-loop, KD)
-	$(PYTHON) -m example.spikingvgg.hat_qat --dataset-dir $(DATASET_DIR) \
-		--float-checkpoint $(RAW_CKPT) --checkpoint $(HAT_CKPT) \
-		--device $(DEVICE) --cim_macro $(CIM_MACRO) \
-		--batch-size $(BATCH_SIZE) --epochs $(EPOCHS) --lr $(LR) \
-		--time-step $(TIME_STEP) --calibration-batches $(CAL_BATCHES) \
-		--kd-alpha $(KD_ALPHA) --kd-temperature $(KD_TEMP)
-
-.PHONY: eval-spikingvgg
-eval-spikingvgg: ## Evaluate a NeuroX-flat SpikingVGG-5 checkpoint on CIFAR-10
-	$(PYTHON) -m example.spikingvgg.evaluate --dataset-dir $(DATASET_DIR) \
-		--checkpoint $(HAT_CKPT) --device $(DEVICE) --cim_macro $(CIM_MACRO) \
-		--batch-size $(BATCH_SIZE) --time-step $(TIME_STEP) \
-		$(if $(MAX_SAMPLES),--max-samples $(MAX_SAMPLES))
-
-# Spikformer-256 on CIFAR-10
-train-spikformer hat-spikformer eval-spikformer: DATASET_DIR ?= dataset/cifar10
-train-spikformer hat-spikformer eval-spikformer: RAW_CKPT    ?= weight/spikformer_float.pth
-train-spikformer hat-spikformer eval-spikformer: HAT_CKPT    ?= weight/spikformer_hat.pth
-train-spikformer hat-spikformer eval-spikformer: BATCH_SIZE  ?= 64
-train-spikformer hat-spikformer eval-spikformer: TIME_STEP   ?= 4
-train-spikformer:                                EPOCHS      ?= 80
-train-spikformer:                                LR          ?= 5e-4
-hat-spikformer:                                  EPOCHS      ?= 5
-hat-spikformer:                                  LR          ?= 1e-5
-hat-spikformer:                                  CAL_BATCHES ?= 16
-hat-spikformer:                                  KD_ALPHA    ?= 0.3
-hat-spikformer:                                  KD_TEMP     ?= 4.0
-hat-spikformer:                                  CIM_MACRO        ?= ideal
-eval-spikformer:                                 CIM_MACRO        ?= physical
-
-.PHONY: train-spikformer
-train-spikformer: ## Float-train Spikformer-256 on CIFAR-10
-	$(PYTHON) -m example.spikformer.train --dataset-dir $(DATASET_DIR) --checkpoint $(RAW_CKPT) \
-		--device $(DEVICE) --batch-size $(BATCH_SIZE) --epochs $(EPOCHS) --lr $(LR) \
-		--time-step $(TIME_STEP)
-
-.PHONY: hat-spikformer
-hat-spikformer: ## Hardware-aware QAT for Spikformer-256 (macro-in-the-loop, KD)
-	$(PYTHON) -m example.spikformer.hat_qat --dataset-dir $(DATASET_DIR) \
-		--float-checkpoint $(RAW_CKPT) --checkpoint $(HAT_CKPT) \
-		--device $(DEVICE) --cim_macro $(CIM_MACRO) \
-		--batch-size $(BATCH_SIZE) --epochs $(EPOCHS) --lr $(LR) \
-		--time-step $(TIME_STEP) --calibration-batches $(CAL_BATCHES) \
-		--kd-alpha $(KD_ALPHA) --kd-temperature $(KD_TEMP)
-
-.PHONY: eval-spikformer
-eval-spikformer: ## Evaluate a NeuroX-flat Spikformer-256 checkpoint on CIFAR-10
-	$(PYTHON) -m example.spikformer.evaluate --dataset-dir $(DATASET_DIR) \
-		--checkpoint $(HAT_CKPT) --device $(DEVICE) --cim_macro $(CIM_MACRO) \
-		--batch-size $(BATCH_SIZE) --time-step $(TIME_STEP) \
 		$(if $(MAX_SAMPLES),--max-samples $(MAX_SAMPLES))
 
 

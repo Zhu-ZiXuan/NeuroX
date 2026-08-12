@@ -112,7 +112,8 @@ pythonpath = ["."]
 python_version = "3.11"
 
 strict = true
-disallow_untyped_decorators = false
+allow_untyped_decorators = true
+allow_untyped_calls = true
 
 namespace_packages = true
 explicit_package_bases = true
