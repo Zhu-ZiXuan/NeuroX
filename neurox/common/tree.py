@@ -36,7 +36,7 @@ def stamp_names(model: nn.Module) -> None:
                 "one physical instance holds one location, so bind a separate instance per site"
             )
         stamped[module] = name
-        module._stamp(name)
+        module.qualified_name = name
 
 
 def neurox_roots(model: nn.Module) -> list[ModuleBase[ConfigBase, PolicyBase]]:

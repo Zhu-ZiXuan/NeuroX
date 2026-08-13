@@ -37,7 +37,7 @@ class FabricateMixin(ABC):
 
     def _fabricable_children(self) -> Iterator[FabricateMixin]:
         """Iterate direct fabricable children."""
-        assert isinstance(self, nn.Module)
+        assert isinstance(self, nn.Module)  # noqa: S101
         for child in self.children():
             yield from self._walk_standard_container(child)
 

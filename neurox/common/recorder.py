@@ -143,9 +143,9 @@ class RecorderBase(Generic[RecordT], ABC):
 
     def __enter__(self) -> Self:
         root = self._root()
-        if root._active_recorder is not None:
+        if root._active_recorder is not None:  # noqa: SLF001
             raise RuntimeError(f"only one {root.__name__} may be active at a time")
-        root._active_recorder = self
+        root._active_recorder = self  # noqa: SLF001
         return self
 
     def __exit__(
@@ -154,7 +154,7 @@ class RecorderBase(Generic[RecordT], ABC):
         exc_val: BaseException | None,
         exc_tb: TracebackType | None,
     ) -> None:
-        self._root()._active_recorder = None
+        self._root()._active_recorder = None  # noqa: SLF001
         if exc_type is None:
             self._finalize()
 
@@ -181,7 +181,7 @@ class RecorderBase(Generic[RecordT], ABC):
         constant, so a region first compiled outside any context would stay
         pinned to "inactive" and silently collect nothing ever after.
         """
-        return cls._root()._active_recorder
+        return cls._root()._active_recorder  # noqa: SLF001
 
     @classmethod
     @torch.compiler.disable
@@ -211,7 +211,7 @@ class RecorderBase(Generic[RecordT], ABC):
         recorder = cls.current()
         if recorder is None:
             return
-        recorder.__records.append(record.detach())
+        recorder.__records.append(record.detach())  # noqa: SLF001
 
     def _finalize(self) -> None:
         """Park every collected record on this recorder's device.

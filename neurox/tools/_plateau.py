@@ -3,7 +3,7 @@
 Both criteria are chip-parameter-free:
 
   * The primary convergence criterion is the ratio of consecutive solver
-    step sizes `|u_n − u_{n-1}|`. Once the ratio crosses `ratio_threshold`
+    step sizes `|u_n - u_{n-1}|`. Once the ratio crosses `ratio_threshold`
     the solver has stopped making meaningful progress — further iterations
     only oscillate within fp round-off.
 
@@ -31,7 +31,7 @@ class CandidateRow:
     """Logical iteration count of the candidate, e.g. a local nonlinear
     solve's `newton_iter_num` or the axis currently swept in a nested solve."""
     step_max__V: float | None
-    """`max |u_n − u_{n-1}|` across every unknown class and every (batch, col,
+    """`max |u_n - u_{n-1}|` across every unknown class and every (batch, col,
     row) — the primary convergence indicator. `None` for the leading
     candidate, which has no previous iterate."""
     step_per_class__V: dict[str, float]

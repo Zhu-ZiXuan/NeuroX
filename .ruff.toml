@@ -1,0 +1,171 @@
+line-length = 120
+indent-width = 4
+namespace-packages = ["tests"]
+
+[format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "lf"
+
+[lint]
+select = [
+    "ANN", # flake8-annotations
+    "S", # flake8-bandit
+    "BLE", # flake8-blind-except
+    "B", # flake8-bugbear
+    "A", # flake8-builtins
+    "C4", # flake8-comprehensions
+    "DTZ", # flake8-datetimez
+    "T10", # flake8-debugger
+    "EXE", # flake8-executable
+    "ISC", # flake8-implicit-str-concat
+    "ICN", # flake8-import-conventions
+    "LOG", # flake8-logging
+    "G", # flake8-logging-format
+    "INP", # flake8-no-pep420
+    "PIE", # flake8-pie
+    "T20", # flake8-print
+    "PT", # flake8-pytest-style
+    "RSE", # flake8-raise
+    "RET", # flake8-return
+    "SLF", # flake8-self
+    "SIM", # flake8-simplify
+    "TID", # flake8-tidy-imports
+    "PTH", # flake8-use-pathlib
+
+    "I", # isort
+    "N", # pep8-naming
+    "PERF", # Perflint
+    "E", # pycodestyle errors
+    "W", # pycodestyle warnings
+    "D", # pydocstyle
+    "F", # Pyflakes
+    "PGH", # pygrep-hooks
+    "PLE", # Pylint errors
+    "UP", # pyupgrade
+    "RUF", # Ruff-specific rules
+    "TRY", # tryceratops
+]
+ignore = [
+    "D206", # Docstring should be indented with spaces, not tabs
+    "D300", # Use triple double quotes `"""`
+    "W191", # Indentation contains tabs
+
+    "TRY003", # Avoid specifying long messages outside the exception class
+    "RUF022", # `__all__` is not sorted
+    "N812", # Lowercase name imported as non-lowercase name
+
+    "D102", # Missing docstring in public method
+    "D103", # Missing docstring in public function
+    "D104", # Missing docstring in public package
+    "D105", # Missing docstring in magic method
+    "D107", # Missing docstring in `__init__`
+]
+allowed-confusables = [
+    "×", # Multiplication sign
+    "·", # Middle dot
+    "±", # Plus-minus sign
+    "≈", # Almost equal to
+    "≤", # Less-than or equal to
+    "≥", # Greater-than or equal to
+    "≠", # Not equal to
+
+    "α", # Greek small letter alpha
+    "β", # Greek small letter beta
+    "γ", # Greek small letter gamma
+    "δ", # Greek small letter delta
+    "ε", # Greek small letter epsilon
+    "ζ", # Greek small letter zeta
+    "η", # Greek small letter eta
+    "θ", # Greek small letter theta
+    "ι", # Greek small letter iota
+    "κ", # Greek small letter kappa
+    "λ", # Greek small letter lambda
+    "μ", # Greek small letter mu
+    "ν", # Greek small letter nu
+    "ξ", # Greek small letter xi
+    "ο", # Greek small letter omicron
+    "π", # Greek small letter pi
+    "ρ", # Greek small letter rho
+    "σ", # Greek small letter sigma
+    "τ", # Greek small letter tau
+    "υ", # Greek small letter upsilon
+    "φ", # Greek small letter phi
+    "χ", # Greek small letter chi
+    "ψ", # Greek small letter psi
+    "ω", # Greek small letter omega
+
+    "Γ", # Greek capital letter gamma
+    "Δ", # Greek capital letter delta
+    "Θ", # Greek capital letter theta
+    "Λ", # Greek capital letter lambda
+    "Ξ", # Greek capital letter xi
+    "Π", # Greek capital letter pi
+    "Σ", # Greek capital letter sigma
+    "Φ", # Greek capital letter phi
+    "Ψ", # Greek capital letter psi
+    "Ω", # Greek capital letter omega
+
+    "⁰", # Superscript number 0
+    "¹", # Superscript number 1
+    "²", # Superscript number 2
+    "³", # Superscript number 3
+    "⁴", # Superscript number 4
+    "⁵", # Superscript number 5
+    "⁶", # Superscript number 6
+    "⁷", # Superscript number 7
+    "⁸", # Superscript number 8
+    "⁹", # Superscript number 9
+    "⁺", # Superscript plus sign
+    "⁻", # Superscript minus sign
+    "ⁿ", # Superscript Latin small letter n
+
+    "∂", # Partial differential
+]
+
+[lint.flake8-builtins]
+ignorelist = ["input"]
+
+[lint.flake8-implicit-str-concat]
+allow-multiline = true
+
+[lint.flake8-import-conventions.extend-aliases]
+"torch.nn" = "nn"
+"torch.nn.functional" = "F"
+
+[lint.pep8-naming]
+extend-ignore-names = [
+    "*__V", # Volt
+    "*__uA", # Microampere
+    "*__uS", # Micro-Siemens
+    "*__MOhm", # MegaOhm
+    "*__fF", # Femto-Farad
+    "*__ns", # Nano-Second
+    "*__fJ", # Femto-Joule
+    "*__uW", # Micro-Watt
+    "*__K", # Kelvin
+    "*__um", # Micro-Metre
+    "*__per_V", # Per volt
+    "*__cm2_per_V_s", # Square centi-metre per volt-second
+    "*__uA_per_V2", # Microampere per square volt
+    "*__fF_per_um2", # Femto-Farad per square micro-metre
+]
+
+[lint.pydocstyle]
+convention = "google"
+
+[lint.per-file-ignores]
+"tests/**/*.py" = [
+    "ANN", # flake8-annotations
+    "D", # pydocstyle
+
+    "RET504", # Unnecessary assignment before `return` statement
+    "S101", # Use of `assert` detected
+    "S108", # Probable insecure usage of temporary file or directory
+    "SLF001", # Private member accessed
+    "T201", # `print` found
+]
+"example/**/*.py" = [
+    "RET504", # Unnecessary assignment before `return` statement
+]

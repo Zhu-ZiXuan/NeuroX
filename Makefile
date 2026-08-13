@@ -11,17 +11,15 @@ PYTHON ?= python
 # --- develop ---
 
 RUFF_TARGET_DIR := neurox example tests
-RUFF_UNSAFE_FIX_RULES := ANN201,ANN204,B007,C408,D212,D400,D403,E731,I001,PERF102,RUF005,RUF046,RUF059,SIM108,SIM118,TID252,UP007
 
 .PHONY: format
 format: ## Run `ruff` formatter with auto fix
 	uv run ruff format $(RUFF_TARGET_DIR)
 	uv run ruff check --fix-only $(RUFF_TARGET_DIR)
-	uv run ruff check --fix-only $(RUFF_TARGET_DIR) --unsafe-fixes --select $(RUFF_UNSAFE_FIX_RULES)
 
 .PHONY: lint
-lint: format ## Run `ruff` linter
-	uv run ruff check $(RUFF_TARGET_DIR) --ignore RUF001,RUF002,RUF003 2>&1 | tee ruff_report.log
+lint: ## Run `ruff` linter
+	uv run ruff check $(RUFF_TARGET_DIR) 2>&1 | tee ruff_report.log
 
 MYPY_TARGET_DIR := neurox
 

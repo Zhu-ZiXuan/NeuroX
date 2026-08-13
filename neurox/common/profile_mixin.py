@@ -41,6 +41,9 @@ class ProfileMixin:
     def qualified_name(self) -> str:
         """Hierarchical name the module's tree stamped onto it.
 
+        A module never names itself: assignment is the tree walk's move
+        (`stamp_names`), and stamping again overwrites.
+
         Raises:
             RuntimeError: No tree has stamped this module yet.
         """
@@ -52,8 +55,8 @@ class ProfileMixin:
                 "call neurox.common.tree.stamp_names(model) once the model is assembled"
             ) from None
 
-    def _stamp(self, name: str) -> None:
-        """Record the hierarchical name a tree walk gave this module."""
+    @qualified_name.setter
+    def qualified_name(self, name: str) -> None:
         self.__qualified_name = name
 
     @property
