@@ -119,13 +119,13 @@ nav:
       - Array:
         - Family: reference/primitive/xbar/array/family.md
         - 1T1R:
-          - Array: reference/primitive/xbar/array/_1t1r/array.md
+          - Array: reference/primitive/xbar/array/1t1r.md
       - Cell:
         - Family: reference/primitive/xbar/cell/family.md
         - 1T1R:
-          - Family: reference/primitive/xbar/cell/_1t1r/cell.md
-          - Detail: reference/primitive/xbar/cell/_1t1r/cell_detail.md
-          - Linear: reference/primitive/xbar/cell/_1t1r/cell_linear.md
+          - Family: reference/primitive/xbar/cell/1t1r.md
+          - Detail: reference/primitive/xbar/cell/1t1r_detail.md
+          - Linear: reference/primitive/xbar/cell/1t1r_linear.md
       - Solver:
         - Parallel BL/SL: reference/primitive/xbar/solver/nested.md
 - Validation:
@@ -135,6 +135,7 @@ nav:
   - Overview: api/README.md
   - Configuration: api/configuration.md
   - Python: api/python.md
+  - Common: api/common.md
 - Internals:
   - Overview: internals/README.md
   - Architecture:
@@ -209,15 +210,20 @@ nav:
     - Xbar:
       - Array:
         - 1T1R:
-          - Array: internals/primitive/xbar/array/_1t1r/array.md
+          - Array: internals/primitive/xbar/array/1t1r.md
       - Cell:
         - Base: internals/primitive/xbar/cell/base.md
         - 1T1R:
-          - Base: internals/primitive/xbar/cell/_1t1r/cell.md
-          - Detail: internals/primitive/xbar/cell/_1t1r/cell_detail.md
-          - Linear: internals/primitive/xbar/cell/_1t1r/cell_linear.md
+          - Base: internals/primitive/xbar/cell/1t1r.md
+          - Detail: internals/primitive/xbar/cell/1t1r_detail.md
+          - Linear: internals/primitive/xbar/cell/1t1r_linear.md
       - Scan organizations: internals/primitive/xbar/scan_organization.md
-      - Solver: internals/primitive/xbar/solver.md
+      - Solver:
+        - Base: internals/primitive/xbar/solver/base.md
+        - Parallel BL/SL: internals/primitive/xbar/solver/nested.md
+        - Clamp driver: internals/primitive/xbar/solver/clamp.md
+        - Chunked solver: internals/primitive/xbar/solver/chunked.md
+        - Chunking: internals/primitive/xbar/solver/chunking.md
 - Works:
   - Overview: works/README.md
   - Macro:

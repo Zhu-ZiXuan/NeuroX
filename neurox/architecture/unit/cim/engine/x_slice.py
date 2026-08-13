@@ -1,6 +1,7 @@
 """Input-slice serialization and inverse digital aggregation for CIM engines.
 
 See also:
+    docs/reference/architecture/unit/cim/engine/x_slice.md
     docs/internals/architecture/unit/cim/engine/x_slice.md
 """
 
@@ -38,10 +39,8 @@ class XSliceStage(
 
     is_profile_target: ClassVar[bool] = False
 
-    #: Sa-axis reconstruction block, or ``None`` for a layout with no
-    #: arithmetic between the macro and the logical input (the single
-    #: structural cycle already is the result).
     shift_adder: ShiftAdder | None
+    """Sa-axis reconstruction block; `None` where the single structural cycle already is the result."""
 
     def __init__(
         self,
@@ -105,11 +104,11 @@ class XSliceStage(
 
 
 class DirectXSliceStageConfig(XSliceStageConfig):
-    """Configuration for :class:`DirectXSliceStage`."""
+    """Configuration for `DirectXSliceStage`."""
 
 
 class DirectXSliceStagePolicy(XSliceStagePolicy):
-    """Policy for :class:`DirectXSliceStage`."""
+    """Policy for `DirectXSliceStage`."""
 
 
 @XSliceStage.register_neurox_module(
@@ -132,22 +131,19 @@ class DirectXSliceStage(XSliceStage[DirectXSliceStageConfig, DirectXSliceStagePo
 
 
 class SerialXSliceStageConfig(XSliceStageConfig):
-    """Configuration for :class:`SerialXSliceStage`.
-
-    Attributes:
-        x_slice_num: Number of serial input slices.
-        shift_adder_config: Sa-axis shift-adder configuration.
-    """
+    """Configuration for `SerialXSliceStage`."""
 
     x_slice_num: int
+    """Serial cycles one logical input is split into — the Sa axis."""
     shift_adder_config: ShiftAdderConfig
+    """Shift-adder recombining the Sa axis."""
 
     def validate(self) -> None:
         self._require_pos(self.x_slice_num, "x_slice_num")
 
 
 class SerialXSliceStagePolicy(XSliceStagePolicy):
-    """Policy for :class:`SerialXSliceStage`."""
+    """Policy for `SerialXSliceStage`."""
 
 
 @XSliceStage.register_neurox_module(
@@ -157,9 +153,8 @@ class SerialXSliceStagePolicy(XSliceStagePolicy):
 class SerialXSliceStage(XSliceStage[SerialXSliceStageConfig, SerialXSliceStagePolicy]):
     """Serialize logical inputs into radix-weighted Macro input cycles."""
 
-    #: Serialization always spans several Sa cycles, so this layout always
-    #: holds the reconstruction block the base leaves optional.
     shift_adder: ShiftAdder
+    """Sa-axis reconstruction block, always present in this layout."""
 
     def __init__(
         self,

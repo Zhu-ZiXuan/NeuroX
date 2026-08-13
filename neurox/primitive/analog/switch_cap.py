@@ -2,6 +2,7 @@
 
 See also:
     docs/reference/primitive/analog/switch_cap.md
+    docs/internals/primitive/analog/switch_cap.md
 """
 
 import torch
@@ -14,19 +15,14 @@ from .base import AnalogBase, AnalogConfig, AnalogPolicy
 
 
 class SwitchCapConfig(AnalogConfig):
-    """Immutable physical configuration for :class:`SwitchCap`.
-
-    Attributes:
-        c_unit__fF: Unit capacitance.
-        cap_mismatch_sigma_relative: Per-unit-cap Pelgrom relative σ.
-        energy_per_sample_overhead__fJ: Per-bank switching overhead.
-        area_per_inst__um2: Silicon area per fabricated instance.
-        leakage_per_inst__uW: Static leakage per instance.
-    """
+    """Immutable physical configuration for `SwitchCap`."""
 
     c_unit__fF: float
+    """Capacitance of the weight-1 cap the bank's weights multiply."""
     cap_mismatch_sigma_relative: float
+    """Per-unit-cap Pelgrom relative σ."""
     energy_per_sample_overhead__fJ: float
+    """Switching overhead billed once per whole-bank sample."""
     area_per_inst__um2: float
     leakage_per_inst__uW: float
 
@@ -45,15 +41,12 @@ class SwitchCapConfig(AnalogConfig):
 
 
 class SwitchCapPolicy(AnalogPolicy):
-    """Per-source toggles selecting which SwitchCap nonidealities are active.
-
-    Attributes:
-        cap_mismatch: Apply ``cap_mismatch_sigma_relative`` at fabricate time.
-        sampling_thermal_noise: Apply kT/C settling noise at sample time.
-    """
+    """Per-source toggles selecting which SwitchCap nonidealities are active."""
 
     cap_mismatch: bool
+    """Apply `cap_mismatch_sigma_relative` at fabricate time."""
     sampling_thermal_noise: bool
+    """Apply kT/C settling noise at sample time."""
 
 
 class SwitchCap(AnalogBase[SwitchCapConfig, SwitchCapPolicy]):
@@ -65,7 +58,8 @@ class SwitchCap(AnalogBase[SwitchCapConfig, SwitchCapPolicy]):
         inst_shape: Per-instance fabrication shape.
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature.
-        cap_weights: Per-cap multipliers on ``config.c_unit__fF``.
+        cap_weights: Per-cap multipliers on `config.c_unit__fF`; the length
+            fixes the bank's cap count.
     """
 
     # === Nominal buffers ===
@@ -135,11 +129,11 @@ class SwitchCap(AnalogBase[SwitchCapConfig, SwitchCapPolicy]):
 
         Args:
             v_in__V: Per-cap sampled voltages.
-                Shape: ``[..., *inst_shape, cap_num]``.
+                Shape: `[..., *inst_shape, cap_num]`.
 
         Returns:
-            Node voltage.
-            Shape: ``[..., *inst_shape]``.
+            Charge-weighted mean the shared node settles to.
+            Shape: `[..., *inst_shape]`.
         """
         c__fF = self._c__fF
         # kT/C settling noise: kt__fJ = k_B·T·1e15 so kt/c lands in V^2.

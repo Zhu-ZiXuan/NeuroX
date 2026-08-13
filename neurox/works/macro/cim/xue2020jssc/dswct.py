@@ -1,10 +1,10 @@
 """DSWCT place-value weighting stage — one digit-weighted current-mirror bank.
 
-The bank mirrors each of its ``w_digit`` per-digit BL leg currents at the
-LSB-first place-value ratio and sums the weighted legs into the output current
-``I_WDL``. The ``w_digit`` legs are internal structure of one bank, not
-instances, so the fabricated ``inst_shape`` trailing is ``(gn, polarity)``. A reporter
-leaf: it self-bills its rail conduction and cap events at the production site.
+The bank mirrors each of its `w_digit` per-digit BL leg currents at the LSB-first
+place-value ratio and sums the weighted legs into the output current `I_WDL`. The
+`w_digit` legs are internal structure of one bank, not instances, so the fabricated
+`inst_shape` trailing is `(gn, polarity)`. A reporter leaf: it self-bills its rail
+conduction and cap events at the production site.
 
 See also:
     docs/works/macro/cim/xue2020jssc/model.md
@@ -18,18 +18,12 @@ from neurox.common import ConfigBase, ModuleBase, PolicyBase
 
 
 class DswctConfig(ConfigBase):
-    """Immutable configuration for :class:`Dswct`.
-
-    Attributes:
-        area_per_inst__um2: Silicon area per mirror bank.
-        leakage_per_inst__uW: Static leakage per mirror bank.
-        c_load__fF: Output-leg load capacitance switched once per (mux slot x
-            WL bit plane) per bank; each event costs ``c_load * V_DD**2``.
-    """
+    """Physical knobs and static PPA seat of one DSWCT mirror bank."""
 
     area_per_inst__um2: float
     leakage_per_inst__uW: float
     c_load__fF: float
+    """Output-leg load capacitance, switched once per bank per (mux slot, WL bit plane)."""
 
     def validate(self) -> None:
         self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")
@@ -45,14 +39,13 @@ class Dswct(ModuleBase[DswctConfig, DswctPolicy]):
     """Digit-weighted current-mirror bank: place-value combine of the BL leg currents.
 
     Args:
-        config: DSWCT configuration.
-        policy: Source-free DSWCT policy.
-        inst_shape: Fabrication shape ``(*inst_shape, gn, polarity)`` — one bank
-            per (CIM-IO, polarity); the trailing axis is the polarity pair.
-        digit_ratios: LSB-first per-digit mirror ratios, in the module's
-            working dtype.
-            Shape: ``[w_digit]``.
-        v_dd__V: Supply-rail voltage [V] every weighted leg conducts across.
+        config: Physical knobs and static PPA seat of one bank.
+        policy: Nonideality toggles; this scheme declares none.
+        inst_shape: Fabrication shape `(*inst_shape, gn, polarity)` — one bank per
+            (CIM-IO, polarity).
+        digit_ratios: LSB-first per-digit mirror ratios, in the module's working dtype.
+            Shape: `[w_digit]`.
+        v_dd__V: Supply rail every weighted leg conducts across.
     """
 
     # === Functional buffers ===
@@ -99,18 +92,17 @@ class Dswct(ModuleBase[DswctConfig, DswctPolicy]):
         each leading element is one plane's conduction.
 
         Args:
-            i_dl__uA: Per-lane BL port current [uA]; every leading axis is
-                anonymous broadcast batch.
-                Shape: ``[..., serial, gn, polarity, w_digit]``.
-            window__ns: Conduction window [ns] of this call's plane(s); a
-                scalar, or a tensor broadcasting against the leading batch —
-                the axes in front of the ``(serial, gn, polarity, w_digit)``
-                trailing.
-                Shape: ``[...]``.
+            i_dl__uA: Per-lane BL port current; every leading axis is anonymous
+                broadcast batch.
+                Shape: `[..., serial, gn, polarity, w_digit]`.
+            window__ns: Conduction window of this call's plane(s); a scalar, or a
+                tensor broadcasting against the leading batch — the axes in front of
+                the `(serial, gn, polarity, w_digit)` trailing.
+                Shape: `[...]`.
 
         Returns:
-            Digit-combined output current ``I_WDL`` [uA].
-            Shape: ``[..., serial, gn, polarity]``.
+            Digit-combined output current `I_WDL`.
+            Shape: `[..., serial, gn, polarity]`.
         """
         if i_dl__uA.ndim < 4:
             raise ValueError(f"forward() expects [..., serial, gn, 2, w_digit]; got shape {tuple(i_dl__uA.shape)}")

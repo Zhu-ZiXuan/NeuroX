@@ -17,24 +17,25 @@ from neurox.primitive.analog.base import AnalogBase, AnalogConfig, AnalogPolicy
 
 
 class DiffVadcRecord(RecordBase):
-    """One :meth:`DiffVadc.convert` call, captured for calibration/diagnostics.
+    """One `DiffVadc.convert` call, captured for calibration/diagnostics.
 
-    The record covers the conversion event alone — the signal path, the
-    output code, and the active bit width. References are calibrated
-    constants rather than measured quantities, so they stay out of it, and
-    which instance converted is the collecting caller's own knowledge.
-
-    Attributes:
-        v_pos__V: The call's positive-side input voltage.
-        v_neg__V: The call's negative-side input voltage.
-        code: The call's raw unsigned integer code.
-        bits: Active bit width (plain ``int``, not a tensor).
+    The record covers the conversion event alone — the signal path, the output
+    code, and the active bit width. References are calibrated constants rather
+    than measured quantities, so they stay out of it, and which instance
+    converted is the collecting caller's own knowledge.
     """
 
     v_pos__V: Tensor
+    """Positive-side input voltage the call was handed.
+    Shape: `[...]`."""
     v_neg__V: Tensor
+    """Negative-side input voltage the call was handed.
+    Shape: `[...]`."""
     code: Tensor
+    """Raw unsigned integer code the call returned.
+    Shape: `[...]`."""
     bits: int
+    """Resolution the conversion executed."""
 
 
 class DiffVadcProber(RecorderBase[DiffVadcRecord]):
@@ -42,12 +43,7 @@ class DiffVadcProber(RecorderBase[DiffVadcRecord]):
 
 
 class DiffVadcConfig(AnalogConfig, ABC):
-    """Base config for differential voltage-domain ADC implementations.
-
-    Attributes:
-        area_per_inst__um2: Silicon area per fabricated instance.
-        leakage_per_inst__uW: Static leakage per instance.
-    """
+    """Base config for differential voltage-domain ADC implementations."""
 
     area_per_inst__um2: float
     leakage_per_inst__uW: float
@@ -78,9 +74,9 @@ class DiffVadc(
     """Base class for differential voltage-domain ADC implementations.
 
     A converter owns its transfer structure and never its reference values:
-    every ``convert`` call carries the taps in. How many taps a call needs
-    is the concrete converter's own circuit property, so the base validates
-    no tap count.
+    every `convert` call carries the taps in. How many taps a call needs is the
+    concrete converter's own circuit property, so the base validates no tap
+    count.
 
     Args:
         config: Concrete configuration dataclass.
@@ -136,25 +132,18 @@ class DiffVadc(
     @property
     @abstractmethod
     def max_bits(self) -> int:
-        """Physical bit width — the maximum ``bits`` value."""
+        """Physical bit width — the maximum `bits` value."""
         raise NotImplementedError
 
     @abstractmethod
     def latency__ns(self, *, bits: int) -> float:
-        """Duration of one :meth:`convert` call at ``bits`` [ns].
-
-        A conversion is the only thing a differential voltage ADC spends time
-        on, and how long it lasts follows from the resolution the call
-        executes, so the executed bit count is the whole question. The formula
-        is the concrete converter's own — a flat comparison window, a cycle
-        count that grows with the resolution — so the base declares no
-        default.
+        """Duration of one `convert` call at `bits` [ns].
 
         Args:
             bits: Active conversion resolution [bits].
 
         Returns:
-            Duration of one conversion at ``bits``.
+            Duration of one conversion at `bits`.
         """
         raise NotImplementedError
 
@@ -170,23 +159,23 @@ class DiffVadc(
 
         Args:
             v_pos__V: Positive-side analog input voltage.
-                Shape: ``[...]``.
-            v_neg__V: Negative-side analog input voltage, at the same
-                shape as ``v_pos__V``.
-                Shape: ``[...]``.
-            v_refs__V: Injected reference taps, with the taps on the last
-                axis. The tap count ``n_ref`` is the concrete converter's
-                circuit property, not a base-level contract.
-                Shape: ``[..., n_ref]``.
+                Shape: `[...]`.
+            v_neg__V: Negative-side analog input voltage, at the same shape as
+                `v_pos__V`.
+                Shape: `[...]`.
+            v_refs__V: Injected reference taps, with the taps on the last axis.
+                The tap count `n_ref` is the concrete converter's circuit
+                property, not a base-level contract.
+                Shape: `[..., n_ref]`.
             bits: Active conversion resolution [bits].
 
         Returns:
-            Raw unsigned integer code tensor, at the same shape as
-            ``v_pos__V``, in the range reported by :meth:`unsigned_range` for
-            ``bits``. For offset-binary codes, recover the signed value as
-            ``M_ideal ≈ (code − zero_offset(bits)) · rescale_factor``
-            with a positive ``rescale_factor``.
-            Shape: ``[...]``.
+            Raw unsigned integer code tensor, one code per `v_pos__V` element,
+            in the range `unsigned_range` reports for `bits`. For offset-binary
+            codes, recover the signed value as
+            `(code - zero_offset(bits)) · rescale_factor` with a positive
+            `rescale_factor`.
+            Shape: `[...]`.
         """
         code = self._convert_impl(
             v_pos__V,
@@ -214,28 +203,27 @@ class DiffVadc(
         v_refs__V: Tensor,
         bits: int,
     ) -> Tensor:
-        """Convert inputs according to the :meth:`convert` contract."""
+        """Convert inputs according to the `convert` contract."""
         raise NotImplementedError
 
     @abstractmethod
     def unsigned_range(self, bits: int) -> tuple[int, int]:
-        """Return ``(min_code, max_code)`` the ADC can emit at ``bits``.
+        """Return `(min_code, max_code)` the ADC can emit at `bits`.
 
-        The code is raw (unsigned / offset-binary), so ``min_code`` is
-        ``0``. For ADCs whose code count matches ``2 ** bits`` exactly
-        this is ``(0, 2 ** bits - 1)``; for ADCs whose code count is
-        **not** a power of two the upper bound reflects the actual
-        realisable code count.
+        The code is raw (unsigned / offset-binary), so `min_code` is 0. For
+        ADCs whose code count matches `2 ** bits` exactly this is
+        `(0, 2 ** bits - 1)`; for ADCs whose code count is not a power of two
+        the upper bound reflects the actual realisable code count.
         """
         raise NotImplementedError
 
     @abstractmethod
     def zero_offset(self, bits: int) -> int:
-        """Return the raw code representing analog zero at ``bits``.
+        """Return the raw code representing analog zero at `bits`.
 
         Subtract this offset before scaling:
-        ``M_ideal ≈ (code − zero_offset(bits)) · rescale_factor``. Sign
-        and offset are not folded into the emitted code. For a symmetric
-        power-of-two design this is ``2 ** (bits - 1)``.
+        `(code - zero_offset(bits)) · rescale_factor`. Sign and offset are not
+        folded into the emitted code. For a symmetric power-of-two design this
+        is `2 ** (bits - 1)`.
         """
         raise NotImplementedError

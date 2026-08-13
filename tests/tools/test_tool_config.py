@@ -1,4 +1,4 @@
-"""Tests for the shared tool CLI helper :mod:`neurox.tools._config`."""
+"""Tests for the shared tool CLI helper `neurox.tools._config`."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from neurox.tools._config import add_standard_args, resolve_relative_path, setup
 
 class TestAddStandardArgs:
     def test_device_default_is_cpu(self) -> None:
-        """Omitting ``--device`` must resolve to a concrete CPU device."""
+        """Omitting `--device` must resolve to a concrete CPU device."""
         parser = argparse.ArgumentParser()
         add_standard_args(parser)
         args = parser.parse_args(["--config", "/tmp/x.toml"])
@@ -27,7 +27,7 @@ class TestAddStandardArgs:
         assert args.device == "cuda:0"
 
     def test_device_can_be_suppressed(self) -> None:
-        """``device=False`` removes ``--device`` for CPU-only tools."""
+        """`device=False` removes `--device` for CPU-only tools."""
         parser = argparse.ArgumentParser()
         add_standard_args(parser, device=False)
         args = parser.parse_args(["--config", "/tmp/x.toml"])

@@ -28,20 +28,21 @@ def create_mnist_dataloader(
     download: bool = True,
     indices: Sequence[int] | None = None,
 ) -> DataLoader:
-    """Create a MNIST dataloader rooted at ``dataset_dir``.
+    """Create a MNIST dataloader rooted at `dataset_dir`.
 
     Args:
-        dataset_dir: Root directory under which ``MNIST/raw/`` lives (or
-            will be downloaded to when ``download=True``).
-        device: Runtime device (used only for ``pin_memory``).
-        split: ``"train"`` for the training split; anything else selects
-            the test split used as validation.
-        download: If ``True`` and the dataset is not found under
-            ``dataset_dir``, torchvision downloads it on first use.
-        indices: Optional subset indices for sharded evaluation.
+        dataset_dir: Root directory holding `MNIST/raw/`, or the directory the
+            corpus is downloaded into.
+        batch_size: Samples per batch; the trailing batch may be short.
+        device: Runtime device, consulted only to decide `pin_memory`.
+        split: `"train"` selects the training split, anything else the test
+            split, which serves as validation here.
+        shuffle: Reshuffles the split on every epoch.
+        download: Fetches the corpus on first use when it is absent.
+        indices: Subset indices for sharded evaluation.
 
     Returns:
-        DataLoader over the requested MNIST split.
+        DataLoader yielding `(images, targets)` pairs.
     """
     dataset = datasets.MNIST(
         root=str(dataset_dir),

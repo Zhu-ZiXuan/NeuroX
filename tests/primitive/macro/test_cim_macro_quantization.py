@@ -1,11 +1,11 @@
 """Quantization surface of the CimMacro base.
 
-- ``validate_quantization_input_range``: only the two canonical window
-  shapes (unsigned ``[0, U]``, mid-zero ``[-m, m - 1]``) are legal.
-- ``map_magnitude_input_code`` / ``map_zero_point_input_code``: the two ADC
+- `validate_quantization_input_range`: only the two canonical window
+  shapes (unsigned `[0, U]`, mid-zero `[-m, m - 1]`) are legal.
+- `map_magnitude_input_code` / `map_zero_point_input_code`: the two ADC
   input-code grids a macro can discriminate on, each with its inclusive range.
-- ``CimMacroMode``: the per-mode metadata record of a physical macro.
-- concrete ``rescale_factor`` / ``to_ideal``: the uniform bit-width law and
+- `CimMacroMode`: the per-mode metadata record of a physical macro.
+- concrete `rescale_factor` / `to_ideal`: the uniform bit-width law and
   the ideal twin built from the published windows.
 """
 
@@ -43,7 +43,7 @@ class TestQuantizationInputRangeValidator:
             validate_quantization_input_range(window)
 
     def test_symmetric_window_rejected(self) -> None:
-        """``[-n, n]`` holds an odd level count: zero sits inside a bin."""
+        """`[-n, n]` holds an odd level count: zero sits inside a bin."""
         with pytest.raises(ValueError, match=r"quantization_input_range"):
             validate_quantization_input_range((-32, 32))
 
@@ -53,7 +53,7 @@ class TestQuantizationInputRangeValidator:
 
     @pytest.mark.parametrize("window", _CANONICAL)
     def test_zero_lands_on_a_bin_edge_at_every_width(self, window: tuple[int, int]) -> None:
-        """The shape rule is exactly ``-lower / W`` in ``{0, 1/2}``."""
+        """The shape rule is exactly `-lower / W` in `{0, 1/2}`."""
         lower, upper = window
         width = upper - lower + 1
         assert -lower * 2 % width == 0
@@ -150,12 +150,7 @@ class TestCimMacroMode:
 
 
 class _StubMacroConfig(CimMacroConfig):
-    """Hand-written config of the stub member.
-
-    Attributes:
-        modes: One metadata record per quantization mode.
-        adc_max_bits: Converter bit width of the stub.
-    """
+    """Hand-written config of the stub member."""
 
     modes: tuple[CimMacroMode, ...]
     adc_max_bits: int
@@ -240,7 +235,7 @@ _TWO_MODES = (
 
 
 class TestRescaleFactorLaw:
-    """``r_b = r_B * 2^(B - b)`` for every macro, mode by mode."""
+    """`r_b = r_B * 2^(B - b)` for every macro, mode by mode."""
 
     def test_max_bits_returns_the_hook_value(self) -> None:
         macro = _stub_macro(modes=_TWO_MODES, adc_max_bits=4)

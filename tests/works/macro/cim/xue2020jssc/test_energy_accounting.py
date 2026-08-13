@@ -1,50 +1,50 @@
 """Eager energy-accounting laws for the xue2020jssc SINWP 1T1R CIM macro.
 
 Pins the branch-ownership and channel-billing contract on the hand-built near-ideal witness macro
-(``_utils.build_config``). Every check is a LAW read off the profiler report, not
+(`_utils.build_config`). Every check is a LAW read off the profiler report, not
 a magic number: the coefficients are whatever the deterministic all-off analog
 chain produces, and the assertions constrain how the billed energy MOVES.
 
 Coverage:
 
-  * the two macro-billed channels ``cablc`` / ``control`` appear under their
-    exact dotted names (the macro root is named ``""`` so a channelled row reads
-    ``".<channel>"``), and the self-billing dynamic module rows are the array
-    ``array``, the readout modules ``dswct`` / ``sinwp_sc`` / ``pn_isub``, and
-    the TMCSA ``tmcsa``; no dotted macro channel carries a readout module,
+  * the two macro-billed channels `cablc` / `control` appear under their
+    exact dotted names (the macro root is named `""` so a channelled row reads
+    `".<channel>"`), and the self-billing dynamic module rows are the array
+    `array`, the readout modules `dswct` / `sinwp_sc` / `pn_isub`, and
+    the TMCSA `tmcsa`; no dotted macro channel carries a readout module,
   * the static report seats the reporter leaves (control / adc_current_reference /
     cablc / sl_driver / dswct / sinwp_sc / pn_isub / tmcsa / array + the macro
     root),
-  * **dynamic energy rides the conduction windows, NOT ``t_cycle``**: doubling
-    ``t_cycle`` (the leakage integration window) leaves the dynamic energy
-    unchanged, while doubling a conduction window (``t_settle``) scales the read
+  * **dynamic energy rides the conduction windows, NOT `t_cycle`**: doubling
+    `t_cycle` (the leakage integration window) leaves the dynamic energy
+    unchanged, while doubling a conduction window (`t_settle`) scales the read
     rows and leaves the window-invariant control channel untouched,
-  * the input branch conduction is billed WHOLE by the macro on the ``cablc``
-    channel (``V_DD * I_DL`` over the per-bit window — the macro owns the
+  * the input branch conduction is billed WHOLE by the macro on the `cablc`
+    channel (`V_DD * I_DL` over the per-bit window — the macro owns the
     conduction window), while the array module row bills ONLY its wire / node
     capacitive cycling: the channel matches the reconstructed whole branch
     exactly, the array row is strictly positive yet window-invariant (the cap
     oracle), and array + channel cover the whole branch plus the caps with no
     double-bill,
   * the array's capacitive row rides BOTH declared supply rails independently
-    (``v_dd_wl__V`` behind the WL wire / gate caps, ``v_dd__V`` behind the
+    (`v_dd_wl__V` behind the WL wire / gate caps, `v_dd__V` behind the
     BL / SL wire and cell conduction-path nodes), so neither collapses into the
     other,
-  * the control channel fires once per access (``mux_factor`` mux steps x batch),
-  * each read row is LINEAR in every window knob (``t_sample[k]``,
-    ``t_settle``), the SC held-leg SUFFIX-SUM law (window
-    ``sum_{j>=k} t_sample[j] + t_other``) holds while cablc / dswct use the
-    per-bit DIAGONAL window, and the live (K-1) bit conducts in ``t_other``
+  * the control channel fires once per access (`mux_factor` mux steps x batch),
+  * each read row is LINEAR in every window knob (`t_sample[k]`,
+    `t_settle`), the SC held-leg SUFFIX-SUM law (window
+    `sum_{j>=k} t_sample[j] + t_other`) holds while cablc / dswct use the
+    per-bit DIAGONAL window, and the live (K-1) bit conducts in `t_other`
     regardless of the sampling windows,
-  * the ``tmcsa`` row is the scheme PHASE-BILLING module: it reduces to the
-    pure fixed-energy model ``adc_bits x tmcsa e_fixed`` per converted element
-    when both phase windows are all-zero, grows with ``t_ph2`` / ``t_ph3``
+  * the `tmcsa` row is the scheme PHASE-BILLING module: it reduces to the
+    pure fixed-energy model `adc_bits x tmcsa e_fixed` per converted element
+    when both phase windows are all-zero, grows with `t_ph2` / `t_ph3`
     once nonzero, and the kernel ADC is energy-SILENT
-    (``enable_energy_record=False``): no ``adc`` dynamic row exists and the
-    kernel conduction knobs (``v_rail``, ``t_conduct``, kernel ``e_fixed``)
+    (`enable_energy_record=False`): no `adc` dynamic row exists and the
+    kernel conduction knobs (`v_rail`, `t_conduct`, kernel `e_fixed`)
     move nothing.
 
-Runs eagerly (dynamo disabled) so the ``@torch.compile`` solver leaf is not
+Runs eagerly (dynamo disabled) so the `@torch.compile` solver leaf is not
 unrolled.
 """
 
@@ -98,7 +98,7 @@ _READ_ROWS = ("cablc", "dswct", "sinwp_sc")  # window-dependent conduction rows
 
 @pytest.fixture(autouse=True)
 def _eager() -> Iterator[None]:
-    """Run eagerly — the solver leaf is ``@torch.compile``; do not unroll it."""
+    """Run eagerly — the solver leaf is `@torch.compile`; do not unroll it."""
     with torch._dynamo.config.patch(disable=True):
         yield
 
@@ -109,7 +109,7 @@ def _eager() -> Iterator[None]:
 
 
 def _w_full(input_num: int = TINY_INPUT_NUM, output_num: int = TINY_OUTPUT_NUM) -> Tensor:
-    """All-``+1`` weights so every physical column / IO / mux slot conducts."""
+    """All-`+1` weights so every physical column / IO / mux slot conducts."""
     return torch.ones((input_num, output_num), dtype=torch.long)
 
 
@@ -127,7 +127,7 @@ def _run(
     quantization_mode: int = QUANTIZATION_MODE,
     adc_bits: int = TINY_ADC_BITS,
 ) -> tuple[Profiler, Reporter]:
-    """Build + fabricate a fresh macro, program ``w``, profile one VMM on ``x``."""
+    """Build + fabricate a fresh macro, program `w`, profile one VMM on `x`."""
     macro = build_macro(config, device=device)
     macro.program(w.to(device))
     with Profiler() as prof, torch.no_grad():
@@ -184,18 +184,18 @@ def _whole_input_branch(macro: Xue2020JsscCimMacro, x: Tensor) -> float:
     """Reconstruct the WHOLE input-branch read energy from a re-solve, batch-summed [fJ].
 
     Re-runs the array DC solve (cells + wire IR drop) per WL plane against the same
-    ``window_array`` windows :meth:`vec_mat_mul` uses, matching it bit-for-bit
+    `window_array` windows `vec_mat_mul` uses, matching it bit-for-bit
     (deterministic under all-off + eval), and returns the whole input branch the
-    macro bills on the ``cablc`` channel::
+    macro bills on the `cablc` channel::
 
         whole = sum_k  V_DD * I_DL * window_array[k]
 
-    where ``I_DL`` is the per-column BL port current the solver returns and the
-    conduction window ``t`` is the macro's, applied here post-solve. The array
+    where `I_DL` is the per-column BL port current the solver returns and the
+    conduction window `t` is the macro's, applied here post-solve. The array
     carries no conduction term, so there is no clamp / cell split to reconstruct.
     The re-solve runs OUTSIDE any profiler so it logs nothing of its own.
 
-    Written for the ``inst_shape = ()`` macros this file builds: the clamp
+    Written for the `inst_shape = ()` macros this file builds: the clamp
     reference is expanded right-aligned onto the flat column axis, which a
     fabrication prefix would mis-seat.
     """
@@ -300,10 +300,10 @@ def test_static_report_seats_reporters_only(device: torch.device) -> None:
 
 
 def test_dynamic_energy_scales_with_conduction_windows_not_t_cycle(device: torch.device) -> None:
-    """Every dynamic channel bills over the conduction windows, never ``t_cycle``.
+    """Every dynamic channel bills over the conduction windows, never `t_cycle`.
 
-    ``t_cycle`` is the leakage integration window, so doubling it leaves every
-    dynamic channel unchanged; doubling a conduction window (``t_settle``) grows
+    `t_cycle` is the leakage integration window, so doubling it leaves every
+    dynamic channel unchanged; doubling a conduction window (`t_settle`) grows
     the read channels while the window-invariant control channel stands still.
     """
     w, x = _w_full(), _x_full(2)
@@ -334,17 +334,17 @@ def test_dynamic_energy_scales_with_conduction_windows_not_t_cycle(device: torch
 
 
 def test_input_branch_billed_whole_by_cablc_array_bills_caps_only(device: torch.device) -> None:
-    """The macro bills the whole input branch on ``.cablc``; the array bills caps only.
+    """The macro bills the whole input branch on `.cablc`; the array bills caps only.
 
-    The ``.cablc`` channel bills the whole input branch ``V_DD * I_DL`` over the
+    The `.cablc` channel bills the whole input branch `V_DD * I_DL` over the
     per-bit conduction window (the macro owns the window); the array module row
     bills ONLY its wire / node capacitive cycling — no conduction. Reconciled
-    against a re-solve: ``.cablc`` matches the reconstructed WHOLE branch EXACTLY
-    (a clamp-side-only ``(V_DD - V_BL)`` bill would fall strictly below it), the
+    against a re-solve: `.cablc` matches the reconstructed WHOLE branch EXACTLY
+    (a clamp-side-only `(V_DD - V_BL)` bill would fall strictly below it), the
     array row is strictly positive (caps) yet window-INVARIANT — the cap oracle: a
     conduction term would move it with the window and double-count the branch — and
-    ``array + cablc`` covers the whole branch plus the caps with no double-bill.
-    This is the ``cablc`` validation slice (array + channel).
+    `array + cablc` covers the whole branch plus the caps with no double-bill.
+    This is the `cablc` validation slice (array + channel).
     """
     cfg = build_config()
     w = _w_full()
@@ -395,9 +395,9 @@ def test_input_branch_billed_whole_by_cablc_array_bills_caps_only(device: torch.
 def test_array_cap_row_rides_both_rails_separately(device: torch.device) -> None:
     """The array cap row moves with EACH rail on its own — neither stands in for the other.
 
-    The capacitive law is a supply draw ``V_rail * C * |dv|``, and the two
-    supplies are distinct domains: ``v_dd_wl__V`` is behind the WL wire ladder
-    and the per-cell gate cap, ``v_dd__V`` behind the BL / SL wire and the cell's
+    The capacitive law is a supply draw `V_rail * C * |dv|`, and the two
+    supplies are distinct domains: `v_dd_wl__V` is behind the WL wire ladder
+    and the per-cell gate cap, `v_dd__V` behind the BL / SL wire and the cell's
     conduction-path nodes. Raising either alone must raise the array row; a
     single collapsed rail would make one of the two moves inert.
     """
@@ -422,7 +422,7 @@ def test_array_cap_row_rides_both_rails_separately(device: torch.device) -> None
 
 
 def test_control_channel_count_mux_times_batch(device: torch.device) -> None:
-    """Control fires once per access: energy == ``e_control_per_op * mux_factor * batch`` (n_io-independent)."""
+    """Control fires once per access: energy == `e_control_per_op * mux_factor * batch` (n_io-independent)."""
     cfg = build_config()  # K=2, mux_factor=2
     e_per_op = cfg.e_control_per_op__fJ
     mux = cfg.mux_factor
@@ -444,10 +444,10 @@ def test_control_channel_count_mux_times_batch(device: torch.device) -> None:
 
 
 def test_pn_isub_row_present_and_uses_t_other(device: torch.device) -> None:
-    """The ``pn_isub`` module row bills the three branches over ``t_other`` + the per-op decision.
+    """The `pn_isub` module row bills the three branches over `t_other` + the per-op decision.
 
-    It rides ``t_other`` (via ``t_settle``), so it grows with ``t_settle`` but is
-    invariant to the sampled-bit windows ``t_sample`` (the PN-ISUB conducts only
+    It rides `t_other` (via `t_settle`), so it grows with `t_settle` but is
+    invariant to the sampled-bit windows `t_sample` (the PN-ISUB conducts only
     in the live/tail window).
     """
     w, x = _w_full(), _x_full(3)
@@ -469,7 +469,7 @@ def test_pn_isub_row_present_and_uses_t_other(device: torch.device) -> None:
 
 
 def test_read_channels_linear_in_t_sample(device: torch.device) -> None:
-    """Each read channel is linear (collinear over 3 equally-spaced values) in ``t_sample[0]``; control invariant."""
+    """Each read channel is linear (collinear over 3 equally-spaced values) in `t_sample[0]`; control invariant."""
     w, x = _w_full(), _x_full(3)
     energies = [
         _channel_energies(
@@ -492,7 +492,7 @@ def test_read_channels_linear_in_t_sample(device: torch.device) -> None:
 
 
 def test_read_channels_linear_in_t_settle(device: torch.device) -> None:
-    """Each read channel is linear in ``t_settle`` (via ``t_other``); control invariant."""
+    """Each read channel is linear in `t_settle` (via `t_other`); control invariant."""
     w, x = _w_full(), _x_full(3)
     energies = [
         _channel_energies(
@@ -514,12 +514,12 @@ def test_read_channels_linear_in_t_settle(device: torch.device) -> None:
 
 
 def test_sc_held_leg_suffix_sum_law(device: torch.device) -> None:
-    """The SINWP-SC held-leg window ``sum_{j>=k} t_sample[j] + t_other`` accumulates: later windows touch more legs.
+    """The SINWP-SC held-leg window `sum_{j>=k} t_sample[j] + t_other` accumulates: later windows touch more legs.
 
-    With ``window_sc[k] = sum_{j>=k} t_sample[j] + t_other`` (K=3): ``t_sample[0]``
-    rides only held leg 0, ``t_sample[1]`` rides legs 0 and 1, and ``t_other``
-    (via ``t_settle``) rides all three. So the SC sensitivity strictly grows
-    ``d/dt_sample[0] < d/dt_sample[1] < d/dt_settle`` (each step adds one more
+    With `window_sc[k] = sum_{j>=k} t_sample[j] + t_other` (K=3): `t_sample[0]`
+    rides only held leg 0, `t_sample[1]` rides legs 0 and 1, and `t_other`
+    (via `t_settle`) rides all three. So the SC sensitivity strictly grows
+    `d/dt_sample[0] < d/dt_sample[1] < d/dt_settle` (each step adds one more
     non-negative held-leg current) — the suffix-sum signature.
     """
     w, x = _w_full(), _x_full(3)
@@ -537,15 +537,15 @@ def test_sc_held_leg_suffix_sum_law(device: torch.device) -> None:
 
 
 def test_read_channel_per_bit_window_is_diagonal_not_suffix(device: torch.device) -> None:
-    """cablc / dswct use PER-BIT windows: an isolated bit rides only its own ``t_sample`` — not the held suffix.
+    """cablc / dswct use PER-BIT windows: an isolated bit rides only its own `t_sample` — not the held suffix.
 
-    The array/CABLC/DSWCT conduction is billed per input bit with ``window_array``
-    (sampled bit ``k`` -> ``t_sample[k]``; live bit -> ``t_other``), unlike the
-    SINWP-SC held legs whose window is the suffix sum ``sum_{j>=k} t_sample[j] +
-    t_other``. Here only input bit 0 conducts (``x == 1``): its per-bit window is
-    ``t_sample[0]`` alone, so the cablc/dswct channels MOVE with ``t_sample[0]``
-    yet are INVARIANT to ``t_sample[1]`` and ``t_settle`` — a diagonal signature
-    the suffix-held window (bit 0 riding ``t_sample[1]`` and ``t_other`` too)
+    The array/CABLC/DSWCT conduction is billed per input bit with `window_array`
+    (sampled bit `k` -> `t_sample[k]`; live bit -> `t_other`), unlike the
+    SINWP-SC held legs whose window is the suffix sum `sum_{j>=k} t_sample[j] +
+    t_other`. Here only input bit 0 conducts (`x == 1`): its per-bit window is
+    `t_sample[0]` alone, so the cablc/dswct channels MOVE with `t_sample[0]`
+    yet are INVARIANT to `t_sample[1]` and `t_settle` — a diagonal signature
+    the suffix-held window (bit 0 riding `t_sample[1]` and `t_other` too)
     breaks. The SINWP-SC channel is the positive control: its held bit-0 leg DOES
     ride the later windows.
     """
@@ -578,10 +578,10 @@ def test_read_channel_per_bit_window_is_diagonal_not_suffix(device: torch.device
 
 
 def test_live_bit_conducts_in_t_other_independent_of_sampling(device: torch.device) -> None:
-    """The live (K-1) bit has no sample phase — its conduction window is ``t_other`` regardless of ``t_sample``.
+    """The live (K-1) bit has no sample phase — its conduction window is `t_other` regardless of `t_sample`.
 
-    Config-level: the last entry of both window vectors equals ``t_other``. The
-    array/CABLC legs are independent per bit, so the ``t_settle`` sensitivity of a
+    Config-level: the last entry of both window vectors equals `t_other`. The
+    array/CABLC legs are independent per bit, so the `t_settle` sensitivity of a
     read channel is exactly the live-bit leg — and, because that leg's current is
     a DC solve of the live plane (window-independent), the slope is INVARIANT to
     the sampled-bit windows.
@@ -615,10 +615,10 @@ def test_live_bit_conducts_in_t_other_independent_of_sampling(device: torch.devi
 
 
 def test_tmcsa_is_pure_fixed_when_phase_windows_zero(device: torch.device) -> None:
-    """All-zero PH2/PH3 windows reduce the ``tmcsa`` row to ``adc_bits * e_fixed`` per converted element.
+    """All-zero PH2/PH3 windows reduce the `tmcsa` row to `adc_bits * e_fixed` per converted element.
 
-    The fixed constant is the TMCSA MODULE's ``e_fixed_per_op__fJ`` — the
-    kernel ``adc_config`` constant is deliberately a DIFFERENT witness value,
+    The fixed constant is the TMCSA MODULE's `e_fixed_per_op__fJ` — the
+    kernel `adc_config` constant is deliberately a DIFFERENT witness value,
     so a billing-duty regression (the kernel ADC billing again) is caught.
     """
     base = build_config()
@@ -637,11 +637,11 @@ def test_tmcsa_is_pure_fixed_when_phase_windows_zero(device: torch.device) -> No
 
 
 def test_tmcsa_grows_with_phase_windows_kernel_knobs_dead(device: torch.device) -> None:
-    """The ``tmcsa`` row grows with ``t_ph2`` / ``t_ph3``; the kernel ADC knobs move NOTHING.
+    """The `tmcsa` row grows with `t_ph2` / `t_ph3`; the kernel ADC knobs move NOTHING.
 
-    The kernel SarIadc is built with ``enable_energy_record=False``: scaling
-    its ``v_rail`` / ``t_conduct`` / ``e_fixed`` leaves the whole profile
-    bit-identical (the deadness oracle), and no ``adc`` dynamic row exists.
+    The kernel SarIadc is built with `enable_energy_record=False`: scaling
+    its `v_rail` / `t_conduct` / `e_fixed` leaves the whole profile
+    bit-identical (the deadness oracle), and no `adc` dynamic row exists.
     """
     w = _w_full()
     x = torch.tensor([1, 2, 3, 1], dtype=torch.long)

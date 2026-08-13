@@ -1,4 +1,4 @@
-"""Tests for the ``_neurox_use`` / ``_neurox_use_preset`` directives."""
+"""Tests for the `_neurox_use` / `_neurox_use_preset` directives."""
 
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ def dataclass_from_file(
     *files: Path,
     section: str | None = None,
 ) -> T:
-    """Load-resolve-merge-coerce a config file into ``cls`` (white-box test helper)."""
+    """Load-resolve-merge-coerce a config file into `cls`."""
     return dataclass_from_dict(cls, load_config_dict(*files, section=section))
 
 
@@ -189,7 +189,7 @@ def test_dict_from_file_keeps_raw_use(config_dir: Path) -> None:
 
 @pytest.fixture
 def presets_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Override ``_presets_root()`` to a hermetic tmp directory for the test."""
+    """Override `_presets_root()` to a hermetic tmp directory."""
     root = tmp_path / "presets"
     root.mkdir()
     monkeypatch.setattr(compose, "_presets_root", lambda: root)
@@ -344,7 +344,6 @@ def test_unknown_key_rejected_in_nested(config_dir: Path) -> None:
 
 
 def test_tuple_length_strict_too_few(config_dir: Path) -> None:
-    """Fixed-length tuples must error on element-count mismatch."""
     _write(
         config_dir / "main.toml",
         "[outer]\nrng = [1]\n",

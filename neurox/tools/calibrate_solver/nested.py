@@ -1,25 +1,24 @@
-"""Calibrate :class:`NestedParallelRailSolver`'s ``(n_outer, n_inner)`` pair.
+"""Calibrate the nested parallel-rail solver's `(n_outer, n_inner)` pair.
 
-Two-axis sweep using **step-ratio plateau detection** (primary) +
-**relative residual guard** (sanity), staged:
+Two-axis sweep on primary step-ratio plateau detection plus a sanity relative
+residual guard, staged:
 
-  Stage A: fix ``n_inner = n_inner_ref`` (generous), sweep ``n_outer``
-           -> pick the smallest ``n_outer`` at the step plateau.
+  Stage A: fix `n_inner` at a generous reference, sweep `n_outer`
+           -> pick the smallest `n_outer` at the step plateau.
 
-  Stage B: fix ``n_outer = pick_outer``, sweep ``n_inner``
-           -> pick the smallest ``n_inner`` at the step plateau.
+  Stage B: fix `n_outer` at the Stage A pick, sweep `n_inner`
+           -> pick the smallest `n_inner` at the step plateau.
 
-Host-agnostic: the tool binds only to its calibration target (the nested
-solver family + the 1T1R cell record it consumes) and the abstract
-:class:`~neurox.primitive.macro.cim.CimMacro` surface. Each candidate is a
-FRESH macro rebuilt from the macro config file with the swept iteration count
-patched onto the nested-solver table located by ``[macro].solver_section``; the
-workload rides the public ``vec_mat_mul`` over serialized row planes and the
-calibration data is captured by the solver / cell probers upstream of
-the ADC. Both criteria are chip-parameter-free; see
-:mod:`neurox.tools._plateau`.
+Host-agnostic: the tool binds only to its calibration target — the nested
+solver family and the 1T1R cell record it consumes — and the abstract
+`CimMacro` surface. Each candidate is a fresh macro rebuilt from the macro
+config file with the swept iteration count patched onto the nested-solver table
+located by `[macro].solver_section`; the workload rides the public
+`vec_mat_mul` over serialized row planes and the calibration data is captured
+by the solver / cell probers upstream of the ADC. Both criteria are
+chip-parameter-free.
 
-CLI: ``python -m neurox.tools.calibrate_solver.nested --help``
+CLI: `python -m neurox.tools.calibrate_solver.nested --help`
 """
 
 from __future__ import annotations
@@ -57,52 +56,54 @@ from ._common import (
 
 @dataclass(frozen=True)
 class _WorkloadCfg:
-    """``[workload]`` section: sampling sweep dimensions + row-block serialization.
-
-    Attributes:
-        inst_shape: Fabricated per-instance shape; the rank-1 parallel
-            weight-program axis, bound to equal ``[batch_w]``.
-        active_rows: Simultaneously active word lines per serialized
-            sub-phase plane; ``1 <= active_rows <= row_num``. Set to the
-            macro's ``max_active_num`` for the production-faithful operating
-            point, or to ``row_num`` for the conservative single-plane
-            envelope; any in-range value is legal — the choice belongs to the
-            user and is NEVER defaulted in code.
-        weight_samples: Number of distinct programmed weights to sweep.
-        input_samples_per_weight: Input vectors per weight (per VMM batch).
-        batch_w: Weight-axis chunk size for the sampler.
-        distribution: Optional synthetic-workload distribution TOML; absent
-            means uniform sampling.
-    """
+    """`[workload]` section: sampling sweep dimensions + row-block serialization."""
 
     inst_shape: list[int]
+    """Fabricated per-instance shape — the rank-1 parallel weight-program axis,
+    bound to equal `[batch_w]`."""
     active_rows: int
+    """Simultaneously active word lines per serialized sub-phase plane,
+    `1 <= active_rows <= row_num`. The macro's `max_active_num` gives the
+    production-faithful operating point and `row_num` the conservative
+    single-plane envelope; any in-range value is legal, and the choice is never
+    defaulted in code."""
     weight_samples: int
+    """Distinct programmed weights to sweep."""
     input_samples_per_weight: int
+    """Input vectors per weight, driven as one VMM batch."""
     batch_w: int
+    """Weight-axis chunk size for the sampler."""
     distribution: Path | None = None
+    """Synthetic-workload distribution TOML; absent means uniform sampling."""
 
 
 @dataclass(frozen=True)
 class _SweepCfg:
-    """``[sweep]`` section: 2-axis candidate iteration counts + criteria."""
+    """`[sweep]` section: 2-axis candidate iteration counts + criteria."""
 
     outer_candidates: list[int]
+    """Outer iteration counts swept in Stage A, ascending."""
     inner_candidates: list[int]
+    """Inner iteration counts swept in Stage B, ascending; the first entry is
+    also the Stage B fallback when no plateau is detected."""
     inner_ref: int
+    """Generous inner count pinned throughout Stage A."""
     ratio_threshold: float
+    """Step-ratio plateau threshold."""
     reltol: float
+    """Relative residual-guard tolerance."""
     outer_margin: int
+    """Added to the Stage A pick to form the recommended count."""
     inner_margin: int
+    """Added to the Stage B pick to form the recommended count."""
 
 
 @dataclass(frozen=True)
 class _RuntimeCfg:
-    """``[runtime]`` section: dtype + RNG seed.
+    """`[runtime]` section: dtype + RNG seed.
 
-    Array solve chunking is NOT a tool knob — it rides the macro policy
-    (``all_off`` preset) verbatim, so the real chunked forward path is
-    exercised.
+    Array solve chunking is no tool knob — it rides the macro policy verbatim,
+    so the real chunked forward path is exercised.
     """
 
     dtype: str
@@ -110,12 +111,12 @@ class _RuntimeCfg:
 
 
 class CalibrateSolverNestedConfig(ConfigBase):
-    """Top-level config for :mod:`neurox.tools.calibrate_solver.nested`.
+    """Top-level config for `neurox.tools.calibrate_solver.nested`.
 
-    ``[macro]`` is abstract-typed: the referenced config / policy files select
-    the concrete scheme classes via ``_neurox_class`` (usually by
-    ``_neurox_use``-ing a scheme's chip params + all-off policy preset), and
-    ``solver_section`` locates the nested-solver table the sweep patches.
+    `[macro]` is abstract-typed: the referenced config / policy files select
+    the concrete scheme classes via `_neurox_class`, usually by
+    `_neurox_use`-ing a scheme's chip params and all-off policy preset, and
+    `solver_section` locates the nested-solver table the sweep patches.
     """
 
     macro: MacroSection

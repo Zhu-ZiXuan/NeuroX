@@ -1,12 +1,12 @@
 """Tests for the ADC family.
 
-Covers the two concrete implementations (:class:`GeneralDiffVadc`,
-:class:`McsSarDiffVadc`) under the **raw-code output convention**: every
-ADC's ``convert`` returns raw unsigned codes in ``[0, 2**bits - 1]``; the
-zero point (``zero_offset`` / ``zero_code``) is subtracted consumer-side,
+Covers the two concrete implementations (`GeneralDiffVadc`,
+`McsSarDiffVadc`) under the **raw-code output convention**: every
+ADC's `convert` returns raw unsigned codes in `[0, 2**bits - 1]`; the
+zero point (`zero_offset` / `zero_code`) is subtracted consumer-side,
 not inside the ADC. Both converters take their reference taps per call —
 neither holds a reference value of its own — and each states its own tap
-count, since the base validates only ``bits``.
+count, since the base validates only `bits`.
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ def _general_taps(*, scale: float = 1.0) -> torch.Tensor:
     """Ascending differential threshold ladder, symmetric around 0.
 
     The taps are differential comparison thresholds, so they run negative
-    and no single-ended :class:`Vref` can source them; the owner builds the
+    and no single-ended `Vref` can source them; the owner builds the
     ladder and injects it per call.
     """
     return torch.tensor([(k - 7.5) * 0.1 * scale for k in range(_GENERAL_CODE_NUM - 1)], dtype=_DTYPE)
@@ -263,7 +263,7 @@ class TestConvertCallValidation:
             adc.convert(v, v, v_refs__V=torch.tensor([0.8, 0.4], dtype=_DTYPE), bits=4)
 
     def test_general_rejects_a_ladder_of_the_wrong_length(self) -> None:
-        """``code_num`` comparators need exactly ``code_num - 1`` thresholds."""
+        """`code_num` comparators need exactly `code_num - 1` thresholds."""
         adc = _build_general_adc()
 
         v = torch.zeros(1, dtype=_DTYPE)

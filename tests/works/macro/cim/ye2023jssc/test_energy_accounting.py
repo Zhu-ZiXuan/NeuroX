@@ -1,31 +1,31 @@
 """Eager energy-accounting laws for the ye2023jssc WH-2T1R CIM macro.
 
 Pins the Fig.19 branch-ownership and channel-billing contract on the hand-built
-analytic witness (``_utils.build_config``). Every check is a LAW read off the
+analytic witness (`_utils.build_config`). Every check is a LAW read off the
 profiler report: the coefficients are whatever the deterministic all-off analog
 chain produces, and the assertions constrain how the billed energy MOVES.
 
 Coverage:
 
   * the Fig.19 blocks appear under their exact channel / module names — the
-    per-access array caps row ``array``, the two converter rows ``wl_dac`` /
-    ``bl_dac``, the macro-owned ``.bl_cond`` / ``.dl_cond`` conduction channels,
-    the RS-CSA row ``rscsa``, and the two flat peripheral channels
-    ``.mux_driver`` / ``.timing_ctrl`` — all positive, each billed by the RIGHT
+    per-access array caps row `array`, the two converter rows `wl_dac` /
+    `bl_dac`, the macro-owned `.bl_cond` / `.dl_cond` conduction channels,
+    the RS-CSA row `rscsa`, and the two flat peripheral channels
+    `.mux_driver` / `.timing_ctrl` — all positive, each billed by the RIGHT
     module (array / converters / RS-CSA self-bill un-channelled; the four
-    channels are the macro root's own events; no ``cell`` self-bill row leaks
+    channels are the macro root's own events; no `cell` self-bill row leaks
     through), and they ADD UP to the report's total dynamic energy,
   * branch ownership: both conduction channels reconcile EXACTLY against an
-    independent re-solve oracle over ONE window — ``.bl_cond == V_DD_bl *
-    sum(I_BL_port) * T_AC`` and ``.dl_cond == V_DD_core * sum(I_TBL_raw) * T_AC``
+    independent re-solve oracle over ONE window — `.bl_cond == V_DD_bl *
+    sum(I_BL_port) * T_AC` and `.dl_cond == V_DD_core * sum(I_TBL_raw) * T_AC`
     with the RAW row current (leakage floor included, before PH0),
   * the window is derived and shared: stretching the RS-CSA phase set stretches
     both conduction channels by the same factor and leaves every capacitive row
     untouched,
-  * the window is the EXECUTED one: lowering ``adc_bits`` drops compare phases,
+  * the window is the EXECUTED one: lowering `adc_bits` drops compare phases,
     so both conduction channels, the latency, and the readout's zero-residue
     baseline scale by the executed-window ratio while the capacitive rows and
-    the per-op control lumps do not move; at ``adc_bits == adc_max_bits`` every
+    the per-op control lumps do not move; at `adc_bits == adc_max_bits` every
     value is the nominal one,
   * caps are the ARRAY's alone: it bills every per-node total inside itself under
     the kernel's held-BL scan law (WL node off the gate drive, BL and X nodes off
@@ -40,14 +40,14 @@ Coverage:
     PH0 current on every output, the BL conduction vanishes, the BL converter
     still bills its code-0 entry per column, and the array collapses to its
     closed-form WL-only value,
-  * the RS-CSA is E_fixed-dominant: when ``e_fixed`` dwarfs the per-code SAR
+  * the RS-CSA is E_fixed-dominant: when `e_fixed` dwarfs the per-code SAR
     energy the per-conversion energy is code-independent to within a few percent,
-  * latency is ``T_AC`` over the macro's own output axis, invariant to a caller
+  * latency is `T_AC` over the macro's own output axis, invariant to a caller
     batch,
-  * static leakage reconciles: ``static.leakage__uW`` is the sum over the
+  * static leakage reconciles: `static.leakage__uW` is the sum over the
     reporter's static entries, and a batch does not move it.
 
-Runs eagerly (dynamo disabled) so the ``@torch.compile`` solver leaf is not
+Runs eagerly (dynamo disabled) so the `@torch.compile` solver leaf is not
 unrolled.
 """
 
@@ -103,7 +103,7 @@ _FIG19_KEYS = (
 
 @pytest.fixture(autouse=True)
 def _eager() -> Iterator[None]:
-    """Run eagerly — the solver leaf is ``@torch.compile``; do not unroll it."""
+    """Run eagerly — the solver leaf is `@torch.compile`; do not unroll it."""
     with torch._dynamo.config.patch(disable=True):
         yield
 
@@ -121,7 +121,7 @@ def _run(
     device: torch.device,
     adc_bits: int = TINY_ADC_BITS,
 ) -> tuple[Ye2023JsscCimMacro, Profiler, Reporter]:
-    """Build + fabricate a fresh macro, program ``w``, profile one VMM on ``x``."""
+    """Build + fabricate a fresh macro, program `w`, profile one VMM on `x`."""
     macro = build_macro(config, input_num=w.shape[-2], output_num=w.shape[-1], device=device)
     stamp_names(macro)
     macro.program(w.to(device))
@@ -131,7 +131,7 @@ def _run(
 
 
 def _dac_levels(config: Ye2023JsscCimMacroConfig) -> tuple[tuple[float, ...], tuple[float, ...]]:
-    """The ``(wl, bl)`` code-to-level tables the two converter banks drive from."""
+    """The `(wl, bl)` code-to-level tables the two converter banks drive from."""
     wl_dac_config = config.wl_dac_config
     bl_dac_config = config.bl_dac_config
     assert isinstance(wl_dac_config, GeneralVdacConfig)
@@ -140,7 +140,7 @@ def _dac_levels(config: Ye2023JsscCimMacroConfig) -> tuple[tuple[float, ...], tu
 
 
 def _drive(macro: Ye2023JsscCimMacro, x: Tensor) -> tuple[Tensor, Tensor, Tensor]:
-    """Rebuild the exact drive ``vec_mat_mul`` constructs, from the config alone.
+    """Rebuild the exact drive `vec_mat_mul` constructs, from the config alone.
 
     Returns the full-grid word-line drive (one value per cell gate, one-hot over
     the array rows and flat across the columns), the per-column BL reference
@@ -180,7 +180,7 @@ def _drive(macro: Ye2023JsscCimMacro, x: Tensor) -> tuple[Tensor, Tensor, Tensor
 
 
 def _conduction_oracle(macro: Ye2023JsscCimMacro, x: Tensor) -> tuple[float, float]:
-    """Independent ``(.bl_cond, .dl_cond)`` [fJ] from a re-solve over the derived window.
+    """Independent `(.bl_cond, .dl_cond)` [fJ] from a re-solve over the derived window.
 
     Re-runs the array DC solve OUTSIDE any profiler (so it logs nothing of its
     own) and applies the ONE access window every conduction branch rides. Each
@@ -209,9 +209,9 @@ def _conduction_oracle(macro: Ye2023JsscCimMacro, x: Tensor) -> tuple[float, flo
 
 
 def _wl_dac_oracle__fJ(macro: Ye2023JsscCimMacro) -> float:
-    """Independent ``wl_dac`` [fJ]: one drive event per word line per output access.
+    """Independent `wl_dac` [fJ]: one drive event per word line per output access.
 
-    Every access raises ONE line and holds the other ``col_num - 1`` at their
+    Every access raises ONE line and holds the other `col_num - 1` at their
     deselected code, and each code pays its own table entry.
     """
     output_num = macro.col_num
@@ -220,7 +220,7 @@ def _wl_dac_oracle__fJ(macro: Ye2023JsscCimMacro) -> float:
 
 
 def _bl_dac_oracle__fJ(macro: Ye2023JsscCimMacro, x: Tensor) -> float:
-    """Independent ``bl_dac`` [fJ]: one drive event per physical column per input vector."""
+    """Independent `bl_dac` [fJ]: one drive event per physical column per input vector."""
     _v_wl, _bl_v_ref, x_tiled = _drive(macro, x)
     high = float((x_tiled > 0).sum())
     low = float(x_tiled.numel()) - high
@@ -232,7 +232,7 @@ def _array_wl_only__fJ(macro: Ye2023JsscCimMacro) -> float:
 
     A zero-input access holds nothing, so both rails rest at and settle to 0 V
     and the supply-draw law leaves each cell's WL node total (gate load plus that
-    node's line share), ``V_DD_WL * C * |V_WL_sel|`` per driven gate.
+    node's line share), `V_DD_WL * C * |V_WL_sel|` per driven gate.
     """
     cfg = macro.config
     phys_col_num = macro.array.weight_grid_shape[-2]
@@ -254,7 +254,7 @@ def _stretched_window(config: Ye2023JsscCimMacroConfig, factor: float) -> Ye2023
 
 
 def _wide_input_config(input_num: int) -> Ye2023JsscCimMacroConfig:
-    """The witness widened to ``input_num`` logical inputs."""
+    """The witness widened to `input_num` logical inputs."""
     return dataclasses.replace(build_config(), max_active_num=input_num)
 
 
@@ -309,7 +309,7 @@ def test_fig19_channels_present_and_self_billed(device: torch.device) -> None:
 
 
 def test_conduction_channels_reconcile_with_resolve(device: torch.device) -> None:
-    """``.bl_cond`` / ``.dl_cond`` match an independent re-solve over the derived window, EXACTLY."""
+    """`.bl_cond` / `.dl_cond` match an independent re-solve over the derived window, EXACTLY."""
     w = torch.full((TINY_INPUT_NUM, TINY_OUTPUT_NUM), W_MAX, dtype=torch.long, device=device)
     x = torch.tensor([[1, 1], [1, 0], [0, 1]], dtype=torch.long, device=device)  # batch (3,)
     macro, prof, reporter = _run(build_config(), w, x, device=device)
@@ -345,7 +345,7 @@ def test_conduction_rides_the_derived_window(device: torch.device) -> None:
 
 
 def test_conduction_and_latency_follow_the_executed_window(device: torch.device) -> None:
-    """Lowering ``adc_bits`` shortens the window every conduction branch rides.
+    """Lowering `adc_bits` shortens the window every conduction branch rides.
 
     The readout runs PH0 plus one compare phase per requested bit, so both
     conduction channels and the access latency scale by the executed-window
@@ -382,7 +382,7 @@ def test_rscsa_zero_residue_row_is_the_prorated_baseline(device: torch.device) -
 
     A zero-input access lands exactly on the seated PH0 compensation, so every
     compare phase weighs a zero residue and the conversion energy isolates the
-    apportioned ``E_fixed``.
+    apportioned `E_fixed`.
     """
     cfg = build_config()
     w = torch.full((TINY_INPUT_NUM, TINY_OUTPUT_NUM), W_MAX, dtype=torch.long, device=device)
@@ -401,7 +401,7 @@ def test_rscsa_zero_residue_row_is_the_prorated_baseline(device: torch.device) -
 
 
 def test_bl_dac_bills_one_drive_event_per_column_per_vector(device: torch.device) -> None:
-    """``bl_dac`` == the per-code table summed over every column of every input vector."""
+    """`bl_dac` == the per-code table summed over every column of every input vector."""
     w = torch.full((TINY_INPUT_NUM, TINY_OUTPUT_NUM), W_MAX, dtype=torch.long, device=device)
     x = torch.tensor([[1, 1], [1, 0]], dtype=torch.long, device=device)  # batch (2,)
     macro, prof, reporter = _run(build_config(), w, x, device=device)
@@ -433,7 +433,7 @@ def test_bl_dac_tracks_the_active_input_count_by_its_own_code_step(device: torch
 
 
 def test_wl_dac_bills_one_drive_event_per_line_per_access(device: torch.device) -> None:
-    """``wl_dac`` == one selected code plus ``col_num - 1`` deselected ones, per access."""
+    """`wl_dac` == one selected code plus `col_num - 1` deselected ones, per access."""
     w = torch.full((TINY_INPUT_NUM, TINY_OUTPUT_NUM), W_MAX, dtype=torch.long, device=device)
     x = torch.ones(TINY_INPUT_NUM, dtype=torch.long, device=device)
     macro, prof, reporter = _run(build_config(), w, x, device=device)
@@ -441,7 +441,7 @@ def test_wl_dac_bills_one_drive_event_per_line_per_access(device: torch.device) 
 
 
 def test_array_owns_every_node_capacitance(device: torch.device) -> None:
-    """Every per-node total moves the ``array`` row, and moves nothing else.
+    """Every per-node total moves the `array` row, and moves nothing else.
 
     Under the kernel's held-BL scan law the array bills its whole node set — the
     WL node off the gate drive, the BL and X nodes off the level they rest at,
@@ -470,8 +470,8 @@ def test_array_owns_every_node_capacitance(device: torch.device) -> None:
 def test_one_hold_covers_exactly_one_row_scan(device: torch.device) -> None:
     """The mode contract the array's precharge amortization rests on.
 
-    ``BL_IN_WL_SCAN`` bills one hold establishment per ``row_num`` solves. This
-    macro satisfies that exactly: one ``vec_mat_mul`` drives ONE BL input
+    `BL_IN_WL_SCAN` bills one hold establishment per `row_num` solves. This
+    macro satisfies that exactly: one `vec_mat_mul` drives ONE BL input
     pattern and scans every array row once, because the output axis it
     serializes over IS the array's row axis.
     """
@@ -545,14 +545,14 @@ def test_conduction_grows_with_active_inputs(device: torch.device) -> None:
 
 
 def test_rscsa_energy_flat_when_e_fixed_dominant(device: torch.device) -> None:
-    """With ``e_fixed`` dominant the RS-CSA per-conversion energy is ~code-independent.
+    """With `e_fixed` dominant the RS-CSA per-conversion energy is ~code-independent.
 
     All four outputs carry the SAME code, so the row is
-    ``output_num * (E_fixed + E_code(code))``: a zero residue costs exactly
-    ``E_fixed``, every code stays inside the all-reference envelope
-    ``sum_p k * v_rail * t_phase_p * I_REF_p``, and the sweep spread measures the
+    `output_num * (E_fixed + E_code(code))`: a zero residue costs exactly
+    `E_fixed`, every code stays inside the all-reference envelope
+    `sum_p k * v_rail * t_phase_p * I_REF_p`, and the sweep spread measures the
     data-dependent share alone. The per-phase reference is the ONE injected
-    current at that phase's binary place value, ``2**(bits - p) * i_ref``.
+    current at that phase's binary place value, `2**(bits - p) * i_ref`.
     """
     base = build_config()
     adc = dataclasses.replace(base.adc_config, e_fixed_per_op__fJ=1.0e4)
@@ -587,7 +587,7 @@ def test_rscsa_energy_flat_when_e_fixed_dominant(device: torch.device) -> None:
 
 
 def test_latency_is_t_ac_over_the_output_axis(device: torch.device) -> None:
-    """``T_AC`` per logical output — the one time axis the macro owns."""
+    """`T_AC` per logical output — the one time axis the macro owns."""
     cfg = build_config()
     w = torch.full((TINY_INPUT_NUM, TINY_OUTPUT_NUM), W_MAX, dtype=torch.long, device=device)
 
@@ -602,7 +602,7 @@ def test_latency_is_t_ac_over_the_output_axis(device: torch.device) -> None:
 
 
 def test_static_leakage_reconciles_via_static_entries(device: torch.device) -> None:
-    """``static.leakage__uW == sum(static entry leakage)``, batch-invariant."""
+    """`static.leakage__uW == sum(static entry leakage)`, batch-invariant."""
     cfg = build_config()
     w = torch.full((TINY_INPUT_NUM, TINY_OUTPUT_NUM), W_MAX, dtype=torch.long, device=device)
 
@@ -628,7 +628,7 @@ def test_static_leakage_reconciles_via_static_entries(device: torch.device) -> N
 
 
 def test_bl_conduction_rides_the_bl_driver_rail(device: torch.device) -> None:
-    """``.bl_cond`` is billed across ``v_dd_bl__V``, not the core rail.
+    """`.bl_cond` is billed across `v_dd_bl__V`, not the core rail.
 
     A branch bill states which supply the charge leaves. The two rails are
     separate variables even when numerically equal, so moving one must move its

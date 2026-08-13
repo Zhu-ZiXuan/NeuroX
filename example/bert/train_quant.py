@@ -4,7 +4,7 @@
 2. In-place swap every nn.Linear for QATLinear (observers attached).
 3. Calibrate observers on N batches, freeze.
 4. Fine-tune with optional KD from frozen float teacher (CE + KL on logits).
-5. Save per-layer flat state dict consumed by ``evaluate.py``.
+5. Save per-layer flat state dict consumed by `evaluate.py`.
 """
 
 # ruff: noqa: T201

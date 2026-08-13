@@ -1,10 +1,10 @@
 """IdealCimMacro per-plane quantization semantics.
 
-One ``vec_mat_mul`` call is one independent ADC conversion per output per
-WL plane, read through the ``quantization_mode`` window; the output keeps the
+One `vec_mat_mul` call is one independent ADC conversion per output per
+WL plane, read through the `quantization_mode` window; the output keeps the
 leading order and the macro performs no accumulation. The caller presents each
 sub-phase as its own zero-masked plane (engine mask formula), which preserves
-quantize-then-accumulate semantics: ``sum(Q(plane_dot)) != Q(sum(plane_dot))``
+quantize-then-accumulate semantics: `sum(Q(plane_dot)) != Q(sum(plane_dot))`
 in general.
 """
 
@@ -63,9 +63,9 @@ def _masked_planes(x: torch.Tensor, *, input_num: int, max_active_num: int) -> t
 def _signed_law(dot: torch.Tensor, *, window: tuple[int, int], adc_bits: int) -> torch.Tensor:
     """Float restatement of the signed window law, independent of the impl.
 
-    ``code = clamp(floor(dot / lsb), -z, 2^bits - 1 - z)`` with
-    ``lsb = W / 2^bits`` over the ``W = upper - lower + 1`` targets of the
-    inclusive window, and computed zero code ``z``.
+    `code = clamp(floor(dot / lsb), -z, 2^bits - 1 - z)` with
+    `lsb = W / 2^bits` over the `W = upper - lower + 1` targets of the
+    inclusive window, and computed zero code `z`.
     """
     lower, upper = window
     level_num = 1 << adc_bits
@@ -106,7 +106,7 @@ class TestPerPlaneClampVsWholeSum:
         assert y[1, 0].item() == -4  # negative rail
 
     def test_plane_code_sum_differs_from_whole_sum_quantization(self) -> None:
-        """``sum(Q(plane_dot))`` != ``Q(sum(plane_dot))`` in the same window."""
+        """`sum(Q(plane_dot))` != `Q(sum(plane_dot))` in the same window."""
         macro = self._saturating_macro()
         planes = _masked_planes(torch.ones(4, dtype=torch.int32), input_num=4, max_active_num=2)
         y = macro.vec_mat_mul(planes, quantization_mode=0, adc_bits=self._BITS)
@@ -122,7 +122,7 @@ class TestPerPlaneClampVsWholeSum:
 
 
 class TestLosslessOracle:
-    """``adc_bits is None`` returns exact int64 plane dots."""
+    """`adc_bits is None` returns exact int64 plane dots."""
 
     def test_plane_dots_exact_and_sum_to_full_dot(self) -> None:
         torch.manual_seed(11)
@@ -152,7 +152,7 @@ class TestLosslessOracle:
 
 
 class TestFullActivationParity:
-    """``max_active_num == input_num``: a full input is conformant and the
+    """`max_active_num == input_num`: a full input is conformant and the
     macro adds no axis of its own."""
 
     def test_full_row_plane_matches_whole_sum_quantization(self) -> None:

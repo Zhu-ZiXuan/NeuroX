@@ -1,9 +1,9 @@
 """Floating-point fine-tuning of BERT-small on SST-2.
 
-Loads the HuggingFace-pretrained BERT-small encoder + a randomly-
-initialised classification head, fine-tunes on the SST-2 training split
-with AdamW + linear warmup / cosine decay, keeps the best-validation
-checkpoint, and writes its ``state_dict`` to ``--checkpoint``.
+Loads the HuggingFace-pretrained BERT-small encoder plus a randomly
+initialised classification head, fine-tunes on the SST-2 training split with
+AdamW and cosine decay, keeps the best-validation checkpoint, and writes its
+`state_dict` to `--checkpoint`.
 """
 
 # ruff: noqa: T201
@@ -22,7 +22,7 @@ from example.bert.model_float import create_bert_small
 
 
 def _validate(model: nn.Module, loader: DataLoader, device: torch.device) -> float:
-    """Top-1 accuracy of ``model`` on ``loader`` (eval mode)."""
+    """Top-1 accuracy of `model` on `loader`, in eval mode."""
     model.eval()
     correct = 0
     total = 0

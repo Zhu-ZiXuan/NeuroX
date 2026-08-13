@@ -1,9 +1,4 @@
-"""Tests for the ``TensorGroupMixin`` per-tensor-field shape-operation surface.
-
-Every method round-trips through a snap holding one nested dataclass field
-(``device``), which is how nested recursion is pinned in each case; a
-dedicated absent-optional-field snap pins the skip-``None`` rule.
-"""
+"""Tests for the `TensorGroupMixin` per-tensor-field shape-operation surface: nested recursion, the skip-`None` rule, and subtype preservation."""
 
 from __future__ import annotations
 

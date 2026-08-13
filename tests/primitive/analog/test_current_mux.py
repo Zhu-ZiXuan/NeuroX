@@ -16,7 +16,7 @@ from neurox.primitive.analog import Imux, ImuxConfig, ImuxPolicy
 
 
 def _energy_total(records: list[EnergyRecord], module: ProfileMixin) -> float:
-    """Sum the logged dynamic energy [fJ] of the records ``module`` emitted.
+    """Sum the logged dynamic energy [fJ] of the records `module` emitted.
 
     A record's tensor is a per-unit-operation layout, so each one totals to its
     own scalar before the records are summed.

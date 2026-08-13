@@ -1,10 +1,4 @@
-"""Tests that a record carries the name its tree stamped, and never a module.
-
-A module never knows its own name, so a walk of the assembled model stamps one
-onto it and the ledger stores that string. Identity in the book is therefore
-plain text: which tree answered is settled once, before the measurement, and a
-record outlives the module it names without holding it.
-"""
+"""A record carries the name its tree stamped, read at emission, and never the module itself."""
 
 from __future__ import annotations
 
@@ -17,7 +11,7 @@ from neurox.common.profile_mixin import ProfileMixin
 
 
 class _Leaf(nn.Module, ProfileMixin):
-    """Minimal emitting host: same base order as ``ModuleBase``."""
+    """Minimal emitting host: same base order as `ModuleBase`."""
 
     def __init__(self, *, energy__fJ: float = 0.0) -> None:
         nn.Module.__init__(self)
@@ -49,7 +43,6 @@ class _Owner(nn.Module):
 
 
 def test_a_record_carries_the_stamped_name() -> None:
-    """Row identity is one string, so the ledger holds nothing of the model itself."""
     leaf = _Leaf(energy__fJ=4.0)
     stamp_names(_Owner(leaf))
     with Profiler() as profiler:
@@ -59,7 +52,6 @@ def test_a_record_carries_the_stamped_name() -> None:
 
 
 def test_one_emitters_records_are_selected_by_its_name_alone() -> None:
-    """A caller reads a row out of the book without holding the module that billed it."""
     a, b = _Leaf(energy__fJ=4.0), _Leaf(energy__fJ=7.0)
     owner = _Owner(a)
     owner.other = b
@@ -72,19 +64,17 @@ def test_one_emitters_records_are_selected_by_its_name_alone() -> None:
 
 
 def test_an_unstamped_emitter_fails_in_its_own_frame() -> None:
-    """The name is demanded where it is missing, not at the far end of a report."""
     leaf = _Leaf(energy__fJ=4.0)
     with Profiler(), pytest.raises(RuntimeError, match="carries no name stamp"):
         leaf.run()
 
 
 def test_an_unstamped_emitter_is_free_to_run_unprofiled() -> None:
-    """Naming buys energy collection; a model that collects nothing owes nothing."""
     _Leaf(energy__fJ=4.0).run()  # must not raise
 
 
 def test_a_name_follows_a_post_construction_swap() -> None:
-    """A replaced child takes the role name of where it lands, once the tree names it again."""
+    """A replaced child takes the role name of where it lands, once the tree is walked again."""
     owner = _Owner(_Leaf())
     probe = _Leaf(energy__fJ=9.0)
     owner.leaf = probe  # the probe-install shape: swap after the tree exists
@@ -95,7 +85,7 @@ def test_a_name_follows_a_post_construction_swap() -> None:
 
 
 def test_a_stamp_is_read_at_emission_not_at_report_time() -> None:
-    """The record froze the name the model carried then; a later walk cannot rewrite it."""
+    """A later walk renaming the module cannot rewrite what the record already froze."""
     leaf = _Leaf(energy__fJ=4.0)
     owner = _Owner(leaf)
     stamp_names(owner)
@@ -108,7 +98,6 @@ def test_a_stamp_is_read_at_emission_not_at_report_time() -> None:
 
 
 def test_a_channel_is_stored_verbatim_and_named_only_at_report_time() -> None:
-    """The emitter states which branch it billed; composing the row name is not its job."""
     leaf = _Leaf(energy__fJ=4.0)
     owner = _Owner(leaf)
     stamp_names(owner)
@@ -120,6 +109,5 @@ def test_a_channel_is_stored_verbatim_and_named_only_at_report_time() -> None:
 
 
 def test_the_ledger_rejects_a_second_active_profiler() -> None:
-    """The profiler is one recorder family: two open ledgers would split the book."""
     with Profiler(), pytest.raises(RuntimeError, match="only one Profiler"), Profiler():
         pass

@@ -1,7 +1,7 @@
 """Voltage-ADC family template method: probe-off equivalence + probe capture.
 
-``DiffVadc.convert`` delegates to ``_convert_impl`` and emits the
-call on :class:`DiffVadcProber`. Without an active prober the
+`DiffVadc.convert` delegates to `_convert_impl` and emits the
+call on `DiffVadcProber`. Without an active prober the
 template must be bit-identical to the leaf conversion body; with one, the
 record must carry the conversion event alone — the call's inputs, code and
 bits. The injected reference is a calibrated constant, not a measured
@@ -86,4 +86,4 @@ def test_no_record_without_prober(device: torch.device) -> None:
     with DiffVadcProber() as outer:
         pass  # closed before the call: nothing may be recorded
     adc.convert(v_pos, v_neg, v_refs__V=_taps(device), bits=4)
-    assert outer.records == []
+    assert outer.records == ()

@@ -1,17 +1,17 @@
 """Shared step-ratio plateau detection + workload-relative residual guard.
 
-The framework here is **chip-parameter-free** by design:
+Both criteria are chip-parameter-free:
 
-  * Convergence criterion (primary) is the ratio of consecutive solver step
-    sizes ``|u_n − u_{n-1}|``. When the ratio crosses ``ratio_threshold``
-    (default 0.5) the solver has stopped making meaningful progress —
-    further iterations only oscillate within fp round-off.
+  * The primary convergence criterion is the ratio of consecutive solver
+    step sizes `|u_n − u_{n-1}|`. Once the ratio crosses `ratio_threshold`
+    the solver has stopped making meaningful progress — further iterations
+    only oscillate within fp round-off.
 
-  * Residual guard (sanity) is purely relative — ``|F(u_n)|.max <
-    reltol × signal_scale`` where ``signal_scale`` is derived from the
-    workload itself (``max |I_cell|`` for current residuals,
-    ``max |V_node|`` for voltage residuals). Never compared to an
-    absolute target tied to a specific chip's electrical envelope.
+  * The sanity residual guard is purely relative — `|F(u_n)|.max <
+    reltol × signal_scale` with `signal_scale` derived from the workload
+    itself (`max |I_cell|` for current residuals, `max |V_node|` for
+    voltage residuals), never from an absolute target tied to a specific
+    chip's electrical envelope.
 """
 
 from __future__ import annotations
@@ -25,46 +25,38 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class CandidateRow:
-    """Per-candidate aggregate stats over the full workload.
-
-    Attributes:
-        iter_count: Logical iteration count of this candidate (e.g.
-            ``newton_iter_num`` for a local nonlinear solve or ``n_outer`` for
-            the current axis being swept in a nested solve).
-        step_max__V: ``max |u_n − u_{n-1}|`` across all 5 (or fewer)
-            unknown classes and all (batch, col, row). The primary
-            convergence indicator. ``None`` for the first candidate
-            (no previous iterate to subtract from).
-        step_per_class__V: Per-unknown-class breakdown of
-            ``step_max__V`` (debugging). Keys depend on solver family.
-        residual_max: Mapping ``residual_name → max(|residual|)`` over
-            the workload. Units are baked into the name (e.g.
-            ``"cell__uA"``).
-    """
+    """Per-candidate aggregate stats over the full workload."""
 
     iter_count: int
+    """Logical iteration count of the candidate, e.g. a local nonlinear
+    solve's `newton_iter_num` or the axis currently swept in a nested solve."""
     step_max__V: float | None
+    """`max |u_n − u_{n-1}|` across every unknown class and every (batch, col,
+    row) — the primary convergence indicator. `None` for the leading
+    candidate, which has no previous iterate."""
     step_per_class__V: dict[str, float]
+    """Per-unknown-class breakdown of `step_max__V`; the keys depend on the
+    solver family."""
     residual_max: dict[str, float]
+    """`residual name → max(|residual|)` over the workload, the unit baked
+    into the key (e.g. `cell__uA`)."""
 
 
 @dataclass(frozen=True)
 class WorkloadScale:
     """Signal scales derived from the workload itself.
 
-    Used as denominators for the relative residual guard so the guard
-    threshold (e.g. 1e-3) carries the same chip-independent meaning
-    across solvers and workloads.
-
-    Attributes:
-        i_cell_typ__uA: ``max |I_cell|`` over the full workload. Used
-            as denominator for cell + wire current residuals.
-        v_node_typ__V: ``max |V_BL_node|`` over the full workload.
-            Used as denominator for clamp voltage residuals.
+    They are the denominators of the relative residual guard, so the guard
+    threshold carries the same chip-independent meaning across solvers and
+    workloads.
     """
 
     i_cell_typ__uA: float
+    """`max |I_cell|` over the full workload — the denominator of the cell
+    and wire current residuals."""
     v_node_typ__V: float
+    """`max |V_BL_node|` over the full workload — the denominator of the
+    clamp voltage residuals."""
 
 
 @dataclass(frozen=True)
@@ -72,11 +64,11 @@ class PickResult:
     """Outcome of running plateau detection + residual guard on a sweep."""
 
     iter_count: int | None
-    """The smallest candidate at the plateau; ``None`` if not reached."""
+    """The smallest candidate at the plateau; `None` if it was not reached."""
     reason: str
     """Human-readable explanation of the pick or the rejection."""
     residual_guard_ratios: dict[str, float]
-    """Per-residual-class ratio ``residual / scale`` at the picked candidate."""
+    """Per-residual-class ratio `residual / scale` at the picked candidate."""
 
 
 # ---------------------------------------------------------------------------
@@ -89,31 +81,30 @@ def pick_iter_by_step_ratio(
     *,
     ratio_threshold: float = 0.5,
 ) -> int | None:
-    """Find the smallest iter_count at the plateau of the step sequence.
+    """Find the smallest iteration count at the plateau of the step sequence.
 
-    The step sequence is ``step_max__V`` over the candidates. Quadratic
-    Newton convergence gives geometrically-decreasing steps; when the
-    ratio ``step_n / step_{n-1}`` crosses ``ratio_threshold`` (default
-    0.5 — "step from n-1 to n did not shrink to less than half of the
-    previous step"), the solver has hit its numerical floor and the last
-    candidate with meaningful progress is ``n-1``.
-
-    Returns the ``iter_count`` of that candidate, or ``None`` if the
-    plateau was not reached within the candidate range.
+    The step sequence is `step_max__V` over the candidates. Quadratic Newton
+    convergence gives geometrically-decreasing steps; once the ratio
+    `step_n / step_{n-1}` crosses `ratio_threshold` the solver has hit its
+    numerical floor and the last candidate with meaningful progress is `n-1`.
 
     Args:
-        rows: Sweep results ordered by ascending iter_count. The first
-            row's ``step_max__V`` is ``None`` (no predecessor).
-        ratio_threshold: Plateau threshold; smaller values are more
-            permissive (declare plateau sooner), larger values are
-            stricter (require steeper drop to keep iterating).
+        rows: Sweep results ordered by ascending iteration count; the leading
+            row carries no step.
+        ratio_threshold: Plateau threshold; a smaller value declares the
+            plateau sooner, a larger one demands a steeper drop to keep
+            iterating.
+
+    Returns:
+        The picked candidate's `iter_count`, or `None` when the plateau was
+        not reached within the candidate range.
     """
     if len(rows) < 3:
         return None
 
     # First check: is the entire observed sequence already on the plateau?
     # Happens when the solver converges within the very first candidate (e.g.
-    # ``n_inner = 1`` for a tightly-conditioned chip) — every observable step
+    # `n_inner = 1` for a tightly-conditioned chip) — every observable step
     # is already fp-floor noise of similar magnitude.
     valid_steps = [r.step_max__V for r in rows if r.step_max__V is not None]
     if len(valid_steps) >= 2:
@@ -161,26 +152,21 @@ def check_residual_relative_guard(
 ) -> tuple[bool, dict[str, float]]:
     """Verify residuals are tiny relative to workload-derived signal scales.
 
-    A residual passes the guard iff
-    ``residual / scale < reltol``. Both the residuals and the scale come
-    from the same workload sweep, so the threshold (default ``1e-2``
-    = 1%) is chip-independent.
-
-    The guard is a sanity check that rejects a plateau pick if the
-    residuals there are still large relative to the workload's signal
-    scale. The primary convergence indicator is the step-ratio plateau,
-    not residuals; this guard only flags candidates that converged in
-    step but failed to meet a meaningful residual budget.
+    A residual passes the guard iff `residual / scale < reltol`. Both the
+    residuals and the scale come from the same workload sweep, so the
+    threshold is chip-independent. The guard is a sanity check on a plateau
+    pick: it flags a candidate that converged in step yet failed to meet a
+    meaningful residual budget. A residual class the scale table does not
+    cover is skipped.
 
     Args:
-        row: Candidate's residual stats.
+        row: The candidate's residual stats.
         scale: Workload-derived signal scales.
-        reltol: Relative tolerance. Default ``1e-2`` = 1%.
+        reltol: Relative tolerance, as a fraction of the signal scale.
 
     Returns:
-        ``(passed, ratios)``: ``passed`` is ``False`` iff any residual
-        exceeds the guard; ``ratios`` maps each residual key to its
-        ``residual / scale`` value.
+        `(passed, ratios)` — `passed` is `False` iff any residual exceeds
+        the guard; `ratios` maps each residual key to its `residual / scale`.
     """
     ratios: dict[str, float] = {}
     passed = True

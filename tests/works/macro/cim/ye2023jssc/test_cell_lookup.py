@@ -2,23 +2,23 @@
 
 Laws (config = arbitrary hand-written witness, not the assertion target):
 
-  * ``i_t2__uA`` branches on TWO independent facts — is this cell's row pair
+  * `i_t2__uA` branches on TWO independent facts — is this cell's row pair
     driven (its own WL against the configured threshold), and which calibration
-    operating point its solved ``V_X`` sits at (``V_X = 0`` floor, ``V_X > 0``
+    operating point its solved `V_X` sits at (`V_X = 0` floor, `V_X > 0`
     drive);
   * a WL at or below the threshold sources EXACTLY zero whatever the branch
-    solved to, ``V_X > 0`` included — the unselected row is pinned, so its T2
+    solved to, `V_X > 0` included — the unselected row is pinned, so its T2
     drain is undriven;
-  * a driven cell classifies on the operating point alone: ``V_X = 0`` reads the
-    floor entry of the programmed state, ``V_X > 0`` the drive entry, and an LRS
+  * a driven cell classifies on the operating point alone: `V_X = 0` reads the
+    floor entry of the programmed state, `V_X > 0` the drive entry, and an LRS
     cell drives more than an HRS one;
-  * step1 is delegated verbatim to the linear base — ``solve_dc`` returns an
-    :class:`XbarCell1t1rDcop` whose ``i__uA == g_cell * (v_bl - v_sl)`` and
-    ``v_x__V == v_bl - vx_ratio * (v_bl - v_sl)`` exactly,
+  * step1 is delegated verbatim to the linear base — `solve_dc` returns an
+    `XbarCell1t1rDcop` whose `i__uA == g_cell * (v_bl - v_sl)` and
+    `v_x__V == v_bl - vx_ratio * (v_bl - v_sl)` exactly,
   * the cell adds NO energy model of its own: the capacitive law is the kernel
     1T1R cell's supply-draw one, pinned where it lives,
-  * the ``(config, policy)`` pair dispatches through the ``XbarCell1t1r``
-    registry to :class:`Ye2023Jssc2t1rCell`.
+  * the `(config, policy)` pair dispatches through the `XbarCell1t1r`
+    registry to `Ye2023Jssc2t1rCell`.
 
 Runs eagerly (dynamo disabled) so nothing is unrolled; tiny CPU shapes.
 """

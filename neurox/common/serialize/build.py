@@ -47,7 +47,7 @@ def _dataclass_field_names(cls: type[object]) -> set[str]:
 
 
 def _recursive_dataclass_descendants(base: type[object]) -> list[str]:
-    """List every dataclass descendant of ``base`` by ``__name__``."""
+    """List every dataclass descendant of one base by `__name__`."""
     out: list[str] = []
     for sub in base.__subclasses__():
         if _is_dataclass_type(sub):
@@ -57,7 +57,7 @@ def _recursive_dataclass_descendants(base: type[object]) -> list[str]:
 
 
 def _resolve_concrete_dataclass(base: type[T], type_name: str) -> type[T]:
-    """Find ``type_name`` among ``base`` and its recursive dataclass subclasses.
+    """Find one named class among a base and its recursive dataclass subclasses.
 
     Raises:
         TypeError: No candidate has the given name.
@@ -79,7 +79,7 @@ def _resolve_concrete_dataclass(base: type[T], type_name: str) -> type[T]:
 
 
 def _build_value(value: ConfigValue, tp: object, *, path: str) -> object:
-    """Coerce ``value`` recursively into the annotated type ``tp``."""
+    """Coerce one value recursively into an annotated type."""
     origin = get_origin(tp)
     args = get_args(tp)
 
@@ -174,7 +174,7 @@ def _build_value(value: ConfigValue, tp: object, *, path: str) -> object:
 
 
 def _coerce_primitive(value: ConfigValue, tp: _PrimitiveType) -> bool | int | float | str:
-    """Validate a primitive value against ``tp`` without silent coercion."""
+    """Validate a primitive value against its declared type, without silent coercion."""
     if tp is bool:
         if isinstance(value, bool):
             return value
@@ -199,31 +199,29 @@ def _coerce_primitive(value: ConfigValue, tp: _PrimitiveType) -> bool | int | fl
 def dataclass_from_dict(cls: type[T], data: Mapping[str, ConfigValue]) -> T:
     """Build a dataclass instance from a mapping.
 
-    Nested dataclass and ``Enum`` fields are resolved recursively.
-    A top-level ``_neurox_class`` discriminator dispatches to the named
-    subclass of ``cls``; it resolves only within ``cls`` and its subclasses, so
-    the receiver bounds what the data can construct. The abstract-base
-    rejection applies wherever such a base appears: as ``cls`` itself, as the
-    class a discriminator names, or as a base-typed nested field.
+    Nested dataclass and `Enum` fields are resolved recursively. A top-level
+    `_neurox_class` discriminator dispatches to the named subclass of `cls`; it
+    resolves only within `cls` and its subclasses, so the receiver bounds what
+    the data can construct. The abstract-base rejection applies wherever such a
+    base appears: as `cls` itself, as the class a discriminator names, or as a
+    base-typed nested field.
 
     Args:
         cls: Target frozen dataclass type.
         data: Source mapping.
 
     Returns:
-        Instance of ``cls`` (or its named subclass).
+        Instance of `cls`, or of its named subclass.
 
     Raises:
-        TypeError: ``cls`` is not a dataclass, ``data`` names a
-            ``_neurox_class`` that is neither ``cls`` nor a subclass of it,
-            ``data`` carries a key that matches no field of the resolved
-            class, a value does not match its field's declared primitive type
-            (only an ``int`` widens to a ``float``), or the resolved class is
-            an abstract config base (declares ``ABC`` as a direct base or has
-            unimplemented abstract methods) rather than a concrete class. A
-            concrete class stays buildable even when subclasses of it exist
-            elsewhere — abstractness is the class's own declared signal, never
-            a side effect of what other packages import.
+        TypeError: `cls` is not a dataclass, `data` names a `_neurox_class` that
+            is neither `cls` nor a subclass of it, `data` carries a key that
+            matches no field of the resolved class, a value does not match its
+            field's declared primitive type (only an `int` widens to a `float`),
+            or the resolved class is an abstract config base (declares `ABC` as
+            a direct base or has unimplemented abstract methods) rather than a
+            concrete class. A concrete class stays buildable even when
+            subclasses of it exist elsewhere.
     """
     return _dataclass_from_config_dict(cls, normalize_config_dict(data))
 
@@ -262,7 +260,7 @@ def _dataclass_from_config_dict(cls: type[T], data: ConfigDict) -> T:
 
 
 def _is_polymorphic_dataclass(tp: type[_DataclassInstance]) -> bool:
-    """``True`` iff ``tp`` participates in a polymorphic family."""
+    """Return whether a dataclass type participates in a polymorphic family."""
     if any(_is_dataclass_type(base) and base is not tp for base in tp.__mro__):
         return True
     return any(_is_dataclass_type(sub) for sub in tp.__subclasses__())

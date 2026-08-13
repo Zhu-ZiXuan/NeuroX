@@ -20,9 +20,9 @@ def dict_from_toml(file: Path) -> ConfigDict:
 def dict_to_toml(data: Mapping[str, ConfigValue], file: Path) -> None:
     """Write a mapping to a TOML file.
 
-    TOML has no null literal, so a ``None`` value is dropped from a mapping and
-    its key is absent from the file. A ``None`` inside a list is not dropped and
-    raises ``TypeError``.
+    TOML has no null literal, so a `None` value is dropped from a mapping and
+    its key is absent from the file. A `None` inside a list is not dropped and
+    raises `TypeError`.
     """
     normalized = normalize_config_dict(data)
     with file.open(mode="wb") as f:
@@ -30,12 +30,12 @@ def dict_to_toml(data: Mapping[str, ConfigValue], file: Path) -> None:
 
 
 def _strip_none_dict(data: ConfigDict) -> ConfigDict:
-    """Recursively drop ``None`` values from a configuration mapping."""
+    """Recursively drop `None` values from a configuration mapping."""
     return {key: _strip_none_value(value) for key, value in data.items() if value is not None}
 
 
 def _strip_none_value(data: ConfigValue) -> ConfigValue:
-    """Recursively drop ``None`` values from mappings."""
+    """Recursively drop `None` values from any mapping one value holds."""
     if isinstance(data, dict):
         return _strip_none_dict(data)
     if isinstance(data, list):

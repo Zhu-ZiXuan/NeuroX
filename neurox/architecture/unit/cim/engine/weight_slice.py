@@ -1,6 +1,7 @@
 """Weight-slice layout and inverse digital aggregation for CIM engines.
 
 See also:
+    docs/reference/architecture/unit/cim/engine/weight_slice.md
     docs/internals/architecture/unit/cim/engine/weight_slice.md
 """
 
@@ -23,7 +24,7 @@ class WeightSliceStageConfig(ConfigBase, ABC):
 
     @abstractmethod
     def layout_geometry(self, *, output_num: int) -> tuple[int, int]:
-        """Return ``(logical outputs per block, physical macro planes)``."""
+        """Return `(logical outputs per block, physical macro planes)`."""
         raise NotImplementedError
 
 
@@ -49,10 +50,8 @@ class WeightSliceStage(
 
     is_profile_target: ClassVar[bool] = False
 
-    #: Sw-axis reconstruction block, or ``None`` for a layout with no
-    #: arithmetic between the macro and the logical output (the single
-    #: structural plane already is the result).
     shift_adder: ShiftAdder | None
+    """Sw-axis reconstruction block; `None` where the single structural plane already is the result."""
 
     def __init__(
         self,
@@ -118,7 +117,7 @@ class WeightSliceStage(
 
         Returns:
             Weight codes in macro-facing order.
-            Shape: ``[..., Sw, Tc, G, D, L, output_num]``.
+            Shape: `[..., Sw, Tc, G, D, L, output_num]`.
         """
         raise NotImplementedError
 
@@ -129,14 +128,14 @@ class WeightSliceStage(
 
 
 class DirectWeightSliceStageConfig(WeightSliceStageConfig):
-    """Configuration for :class:`DirectWeightSliceStage`."""
+    """Configuration for `DirectWeightSliceStage`."""
 
     def layout_geometry(self, *, output_num: int) -> tuple[int, int]:
         return output_num, 1
 
 
 class DirectWeightSliceStagePolicy(WeightSliceStagePolicy):
-    """Policy for :class:`DirectWeightSliceStage`."""
+    """Policy for `DirectWeightSliceStage`."""
 
 
 @WeightSliceStage.register_neurox_module(
@@ -160,17 +159,14 @@ class DirectWeightSliceStage(WeightSliceStage[DirectWeightSliceStageConfig, Dire
 
 
 class InterWeightSliceStageConfig(WeightSliceStageConfig):
-    """Configuration for :class:`InterWeightSliceStage`.
-
-    Attributes:
-        w_slice_num: Number of Macro-level weight slices.
-        w_encoding: Positional encoding across weight slices.
-        shift_adder_config: Sw-axis shift-adder configuration.
-    """
+    """Configuration for `InterWeightSliceStage`."""
 
     w_slice_num: int
+    """Macro-level slices one logical weight is split into — the Sw axis."""
     w_encoding: Encoding
+    """Positional encoding recombining the slices."""
     shift_adder_config: ShiftAdderConfig
+    """Shift-adder recombining the Sw axis."""
 
     def validate(self) -> None:
         self._require_pos(self.w_slice_num, "w_slice_num")
@@ -180,7 +176,7 @@ class InterWeightSliceStageConfig(WeightSliceStageConfig):
 
 
 class InterWeightSliceStagePolicy(WeightSliceStagePolicy):
-    """Policy for :class:`InterWeightSliceStage`."""
+    """Policy for `InterWeightSliceStage`."""
 
 
 @WeightSliceStage.register_neurox_module(
@@ -190,9 +186,8 @@ class InterWeightSliceStagePolicy(WeightSliceStagePolicy):
 class InterWeightSliceStage(WeightSliceStage[InterWeightSliceStageConfig, InterWeightSliceStagePolicy]):
     """Place Sw slices on separate Macro planes."""
 
-    #: Sliced weights always need Sw reconstruction, so this layout always
-    #: holds the block the base leaves optional.
     shift_adder: ShiftAdder
+    """Sw-axis reconstruction block, always present in this layout."""
 
     def __init__(
         self,
@@ -238,17 +233,14 @@ class InterWeightSliceStage(WeightSliceStage[InterWeightSliceStageConfig, InterW
 
 
 class IntraWeightSliceStageConfig(WeightSliceStageConfig):
-    """Configuration for :class:`IntraWeightSliceStage`.
-
-    Attributes:
-        w_slice_num: Number of Macro-level weight slices.
-        w_encoding: Positional encoding across weight slices.
-        shift_adder_config: Sw-axis shift-adder configuration.
-    """
+    """Configuration for `IntraWeightSliceStage`."""
 
     w_slice_num: int
+    """Macro-level slices one logical weight is split into — the Sw axis."""
     w_encoding: Encoding
+    """Positional encoding recombining the slices."""
     shift_adder_config: ShiftAdderConfig
+    """Shift-adder recombining the Sw axis."""
 
     def validate(self) -> None:
         self._require_pos(self.w_slice_num, "w_slice_num")
@@ -260,7 +252,7 @@ class IntraWeightSliceStageConfig(WeightSliceStageConfig):
 
 
 class IntraWeightSliceStagePolicy(WeightSliceStagePolicy):
-    """Policy for :class:`IntraWeightSliceStage`."""
+    """Policy for `IntraWeightSliceStage`."""
 
 
 @WeightSliceStage.register_neurox_module(
@@ -270,9 +262,8 @@ class IntraWeightSliceStagePolicy(WeightSliceStagePolicy):
 class IntraWeightSliceStage(WeightSliceStage[IntraWeightSliceStageConfig, IntraWeightSliceStagePolicy]):
     """Place Sw slices on adjacent output ports of one Macro."""
 
-    #: Sliced weights always need Sw reconstruction, so this layout always
-    #: holds the block the base leaves optional.
     shift_adder: ShiftAdder
+    """Sw-axis reconstruction block, always present in this layout."""
 
     def __init__(
         self,
@@ -304,7 +295,7 @@ class IntraWeightSliceStage(WeightSliceStage[IntraWeightSliceStageConfig, IntraW
 
     @property
     def aggregated_output_num(self) -> int:
-        """Logical weights one macro's ports hold — ``output_num // w_slice_num``."""
+        """Logical weights one macro's ports hold — `output_num // w_slice_num`."""
         return self._weights_per_macro
 
     def _build_slicer(self, macro_w_value_range: tuple[int, int]) -> Slicer:

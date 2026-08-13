@@ -1,19 +1,19 @@
 """CPU-only law tests for the scheme-local DSWCT place-value combiner.
 
-Covers :class:`neurox.works.macro.cim.xue2020jssc.dswct.Dswct` standalone on a
+Covers `neurox.works.macro.cim.xue2020jssc.dswct.Dswct` standalone on a
 tiny hand-built witness config (no macro, no solve):
 
-  * shape law — ``inst_count`` derives from the ``(gn, 2)`` fabrication shape
+  * shape law — `inst_count` derives from the `(gn, 2)` fabrication shape
     (one bank per (IO, polarity)) and the static area / leakage seats scale
-    with it; the forward output drops exactly the ``w_digit`` axis,
+    with it; the forward output drops exactly the `w_digit` axis,
   * value law — the forward output equals the same computation done inline:
-    LSB-first digit-ratio weighting then sum over ``w_digit``; no profiler
+    LSB-first digit-ratio weighting then sum over `w_digit`; no profiler
     required and no events emitted outside one,
   * billing law — the recorded dynamic energy equals the hand-computed formula
-    on a tiny witness: rail ``V_DD * |I_WDL leg| * window`` summed over every
+    on a tiny witness: rail `V_DD * |I_WDL leg| * window` summed over every
     (plane, slot, lane, digit) leg — the per-bit DIAGONAL window rides the
-    leading batch — plus the ``c_load * V_DD**2`` cap event per (slot x plane)
-    per bank; negative leg currents bill by ``|I|``,
+    leading batch — plus the `c_load * V_DD**2` cap event per (slot x plane)
+    per bank; negative leg currents bill by `|I|`,
   * construction / call guards — a polarity axis that is not 2, a non-1-D
     ratio buffer, and a trailing shape mismatch all raise.
 
@@ -97,7 +97,7 @@ def test_inst_count_and_static_seats_derive_from_config() -> None:
 
 
 def test_forward_drops_exactly_the_digit_axis() -> None:
-    """Output shape is the input shape with the trailing ``w_digit`` axis reduced."""
+    """Output shape is the input shape with the trailing `w_digit` axis reduced."""
     dswct = _build_dswct()
     for leading in ((), (4,), (2, 3)):
         i_dl = _i_dl(*leading)

@@ -14,34 +14,27 @@ from .profiler import EnergyRecord, Profiler
 
 @dataclass(frozen=True)
 class StaticEntry:
-    """One static row: a profile target's fabrication-time metrics.
-
-    Attributes:
-        qualified_name: Hierarchical name, as the bound model names the module.
-        area__um2: Module-local total area = ``area_per_inst * inst_count``.
-        leakage__uW: Module-local leakage power total.
-    """
+    """One static row: a profile target's fabrication-time metrics."""
 
     qualified_name: str
+    """Hierarchical name, as the bound model names the module."""
     area__um2: float
+    """Module-local total, per-instance area scaled by `inst_count`."""
     leakage__uW: float
+    """Module-local total, per-instance leakage scaled by `inst_count`."""
 
 
 @dataclass(frozen=True)
 class DynamicEntry:
-    """One dynamic row: the energy every record sharing a path adds up to.
-
-    Attributes:
-        path: Hierarchical name segments, a virtual channel included as its own
-            trailing segment. The bound model itself is named by the empty
-            string, so it has no segments of its own and its virtual children
-            read with a leading empty one.
-        dynamic_energy__fJ: Energy summed over the merged records and over every
-            unit operation each of them holds.
-    """
+    """One dynamic row: the energy every record sharing a path adds up to."""
 
     path: tuple[str, ...]
+    """Hierarchical name segments, a virtual channel included as its own trailing
+    segment. The bound model itself is named by the empty string, so it has no
+    segments of its own and its virtual children read with a leading empty one."""
     dynamic_energy__fJ: float
+    """Energy summed over the merged records and over every unit operation each
+    of them holds."""
 
     @property
     def qualified_name(self) -> str:
@@ -51,37 +44,31 @@ class DynamicEntry:
 
 @dataclass(frozen=True)
 class StaticMetrics:
-    """Static hardware totals over one model.
-
-    Attributes:
-        area__um2: Area summed across every profile target.
-        leakage__uW: Leakage power summed across every profile target.
-    """
+    """Static hardware totals over one model."""
 
     area__um2: float
+    """Area summed across every profile target."""
     leakage__uW: float
+    """Leakage power summed across every profile target."""
 
 
 class Reporter:
     """Turn one model's modules and one profiler's records into report rows.
 
-    A record carries the name its emitter was stamped with, so the reporter
-    binds one model at construction and walks it once: to collect the static
-    rows, and to check that every profile-capable module it holds is stamped
-    with the name this very walk gives it. The walk keeps every duplicate path,
-    exactly as the stamping walk does, so an instance bound at a second location
-    is met under a name its stamp cannot match. Building the reporter before the
-    measurement is therefore the canonical order — the walk is where a missing
-    or stale stamp is caught, well before any record is read. Static rows follow
-    from the walk alone; the dynamic views take the profiler holding the records
-    as an argument, so one reporter serves any number of measurements of the
-    same model.
+    The reporter binds one model at construction and walks it once: to collect
+    the static rows, and to check that every profile-capable module it holds is
+    stamped with the name this very walk gives it. Building the reporter before
+    the measurement is therefore the canonical order — the walk is where a
+    missing or stale stamp is caught, well before any record is read. Static
+    rows follow from the walk alone; the dynamic views take the profiler holding
+    the records as an argument, so one reporter serves any number of
+    measurements of the same model.
 
     Args:
         model: The tree every reported name is resolved against.
 
     Raises:
-        ValueError: A profile-capable module of ``model`` carries no name stamp,
+        ValueError: A profile-capable module of `model` carries no name stamp,
             carries one from another tree, or is bound at a second location.
     """
 
@@ -140,8 +127,8 @@ class Reporter:
             One row per distinct path, ordered by descending energy.
 
         Raises:
-            ValueError: A record cannot be named against the bound model; see
-                :meth:`by_name`.
+            ValueError: A record names a module the bound model does not hold,
+                or its channel is not one legal virtual segment.
         """
         records = profiler.records
         energies = self._scalars__fJ(records)
@@ -156,7 +143,7 @@ class Reporter:
     def by_name(self, profiler: Profiler) -> dict[str, float]:
         """Group the profiler's dynamic energy by qualified row name [fJ].
 
-        A channelled record groups under ``"<module dotted name>.<channel>"``
+        A channelled record groups under `"<module dotted name>.<channel>"`
         instead of the bare module name, so a composite's distinct billed
         branches appear as separate rows.
 
@@ -181,14 +168,10 @@ class Reporter:
     def by_group(self, profiler: Profiler, groups: Mapping[str, str]) -> dict[str, float]:
         """Group the profiler's dynamic energy by a caller-supplied label [fJ].
 
-        The grouping is stated over row names — the very vocabulary
-        :meth:`by_name` returns, virtual channel rows included — so a caller
-        folds any set of rows into one figure without the reporter guessing
-        what belongs together. Every measured row must be mapped: a row the
-        grouping does not cover is an omission the reporter refuses to hide.
-        A mapped row that no record used contributes nothing and is not
-        reported, so one grouping policy may cover more rows than a given
-        measurement exercises.
+        The grouping is stated over row names — the very vocabulary `by_name`
+        returns, virtual channel rows included. A mapped row that no record used
+        contributes nothing and is not reported, so one grouping policy may
+        cover more rows than a given measurement exercises.
 
         Args:
             profiler: The ledger holding the records to report.
@@ -198,8 +181,9 @@ class Reporter:
             Label to its energy total, in first-contribution order.
 
         Raises:
-            ValueError: A measured row is absent from ``groups``, or a record
-                cannot be named against the bound model; see :meth:`by_name`.
+            ValueError: A measured row is absent from `groups`, a record names a
+                module the bound model does not hold, or a channel is not one
+                legal virtual segment.
         """
         records = profiler.records
         by_group: dict[str, float] = {}
@@ -221,7 +205,7 @@ class Reporter:
             profiler: The ledger holding the records to report.
 
         Returns:
-            The measurement's whole dynamic energy [fJ].
+            The measurement's whole dynamic energy.
         """
         return sum(self._scalars__fJ(profiler.records), 0.0)
 
@@ -233,8 +217,8 @@ class Reporter:
         alone.
 
         Args:
-            profiler: The ledger holding the records to report, or ``None`` for
-                a static-only dump.
+            profiler: The ledger holding the records to report, or `None` for a
+                static-only dump.
 
         Returns:
             Aligned plain-text tables, one blank line between them.
@@ -260,15 +244,11 @@ class Reporter:
     def _scalars__fJ(records: Sequence[EnergyRecord]) -> list[float]:
         """Total each record's energy tensor to a host float in one device sync.
 
-        A record keeps its per-unit-operation layout on the device it was parked
-        on; every scalar view reduces through here, so one aggregation call
-        costs one host transfer however many records it covers.
-
         Args:
             records: Records to reduce.
 
         Returns:
-            One total per record, positionally aligned with ``records``.
+            One total per record, positionally aligned with `records`.
         """
         if not records:
             return []
@@ -279,20 +259,10 @@ class Reporter:
 
         A channel is a virtual submodule: a branch its parent bills without a
         module instance of its own. Its row name is the emitter's name with the
-        channel appended — ``f"{module_name}.{channel}"`` — and it must be able
-        to be one segment: no dot inside it, no name a real child of the bound
+        channel appended — `f"{module_name}.{channel}"` — and it must be able to
+        be one segment: no dot inside it, no name a real child of the bound
         model already holds. The bound model's own name is empty, so its virtual
-        children carry a leading empty segment (``".cablc"``), which is what
-        marks a branch the model bills itself apart from a top-level child of
-        the same name.
-
-        The record's own name is checked against the walk as a backstop: the
-        stamp gate at construction covers every module the model holds now, and
-        this catches a name no longer among them — a record from a differently
-        shaped tree, or from a module the model has been rewired to drop.
-
-        Args:
-            record: The record to name.
+        children carry a leading empty segment (`".cablc"`).
 
         Returns:
             The row's name segments; empty for the bound model's own
@@ -326,7 +296,7 @@ def _aligned_table(header: Sequence[str], rows: Sequence[Sequence[str]], *, text
     Args:
         header: Column titles.
         rows: Pre-formatted cells, one sequence per row, each as long as
-            ``header``.
+            `header`.
         text_columns: Number of leading columns to left-align; the rest are
             right-aligned as numbers.
 

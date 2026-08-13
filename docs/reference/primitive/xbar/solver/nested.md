@@ -105,6 +105,6 @@ TODO: cite the Newton / block-tridiagonal solution methods.
 
 ---
 
-- **Internals**: [solver internals](../../../../internals/primitive/xbar/solver.md)
+- **Internals**: [solver internals](../../../../internals/primitive/xbar/solver/nested.md)
 - **Validation**: TODO — `validation/xbar` (not yet written)
 - **Configuration**: [config reference](../../../../api/README.md) (`[cim_macro.array_config.solver_config]`)

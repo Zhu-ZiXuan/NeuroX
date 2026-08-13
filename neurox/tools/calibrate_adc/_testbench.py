@@ -1,18 +1,14 @@
 """Testbench: device under test + ideal twin, stimuli, paired responses.
 
 The testbench is registry-driven and scheme-agnostic: the tool TOML names a
-macro config/policy file pair, ``CimMacroConfig.from_file`` +
-``CimMacro.from_config`` resolve the concrete tile, and the two calibration
+macro config / policy file pair, `CimMacroConfig.from_file` and
+`CimMacro.from_config` resolve the concrete tile, and the two calibration
 views are obtained by different means. The physical tile's analog ADC input
-and code come from the
-:class:`~neurox.primitive.analog.current_adc.IadcProber`; the lossless
-integer dots come
-straight from the RETURN VALUE of the
-:meth:`~neurox.primitive.macro.cim.CimMacro.to_ideal` twin's ``vec_mat_mul``
-(the ideal tile is reachable data, so it needs no side channel). Pairing
-relies on the macro preserving logical-column order through exact reshapes
-(the CimMacro layout contract), so the flattened per-record streams align
-element for element.
+and code come from the `IadcProber`; the lossless integer dots come straight
+from the return value of the ideal twin's `vec_mat_mul` (the ideal tile is
+reachable data, so it needs no side channel). Pairing relies on the macro
+preserving logical-column order through exact reshapes, so the flattened
+per-record streams align element for element.
 """
 
 from __future__ import annotations
@@ -36,9 +32,9 @@ _LOG_FORMAT = "%(message)s"
 
 
 def add_file_logging(log_dir: Path, tool_name: str) -> Path:
-    """Attach a per-run file handler under ``log_dir`` and return its path.
+    """Attach a per-run file handler under `log_dir` and return its path.
 
-    The file mirrors the console format (plain messages) so a log line can
+    The file mirrors the console format of plain messages, so a log line can
     be pasted into a TOML unchanged.
     """
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -57,27 +53,24 @@ def add_file_logging(log_dir: Path, tool_name: str) -> Path:
 
 @dataclass(frozen=True)
 class MacroSection:
-    """``[macro]`` section: which tile to build, by file reference.
-
-    Attributes:
-        input_num: Logical input-vector length passed to the macro constructor.
-        output_num: Logical output-vector length passed to the macro constructor.
-        config_files: Macro config TOML paths in descending merge priority
-            (first-wins deep merge, e.g. a geometry overlay on top of the
-            scheme default), relative to the tool TOML.
-        config_section: Section name inside the config files holding the
-            ``_neurox_class``-tagged macro config.
-        policy_file: Nonideality policy TOML path (the all-off preset for
-            calibration), relative to the tool TOML.
-        policy_section: Section name inside ``policy_file``.
-    """
+    """`[macro]` section: which tile to build, by file reference."""
 
     input_num: int
+    """Logical input-vector length passed to the macro constructor."""
     output_num: int
+    """Logical output-vector length passed to the macro constructor."""
     config_files: tuple[Path, ...]
+    """Macro config TOML paths in descending merge priority (first-wins deep
+    merge, e.g. a geometry overlay on top of the scheme default), relative to
+    the tool TOML."""
     config_section: str
+    """Section name inside the config files holding the `_neurox_class`-tagged
+    macro config."""
     policy_file: Path
+    """Nonideality policy TOML path — the all-off preset for calibration —
+    relative to the tool TOML."""
     policy_section: str
+    """Section name inside `policy_file`."""
 
     def __post_init__(self) -> None:
         if self.input_num < 1:
@@ -91,12 +84,11 @@ class MacroSection:
 def build_physical_macro(
     section: MacroSection, *, base: Path, device: torch.device
 ) -> CimMacro[CimMacroConfig, CimMacroPolicy]:
-    """Build, fabricate, and eval-freeze the physical tile named by ``section``.
+    """Build, fabricate, and eval-freeze the physical tile named by `section`.
 
     Args:
-        section: The ``[macro]`` file references.
-        base: The tool TOML path the relative file references resolve
-            against.
+        section: The `[macro]` file references.
+        base: The tool TOML path the relative file references resolve against.
         device: Target torch device.
     """
     config_paths: list[Path] = []
@@ -146,14 +138,14 @@ def build_ideal_twin(macro: CimMacro[CimMacroConfig, CimMacroPolicy], *, device:
 
 
 def sample_ternary_w(gen: torch.Generator, *, col_num: int, row_num: int, density: float) -> Tensor:
-    """Random ternary digit tensor at ``density``.
+    """Random ternary digit tensor at `density`.
 
-    Each cell is non-zero with probability ``density``; non-zero cells are
-    ``+1`` or ``-1`` with equal probability.
+    Each cell is non-zero with probability `density`; a non-zero cell is `+1`
+    or `-1` with equal probability.
 
     Returns:
         Digit tensor.
-        Shape: ``[col_num, 1, row_num]``.
+        Shape: `[col_num, 1, row_num]`.
     """
     active = torch.rand((col_num, 1, row_num), generator=gen) < density
     sign = torch.where(torch.rand((col_num, 1, row_num), generator=gen) < 0.5, -1, 1)
@@ -170,16 +162,16 @@ def sample_capped_block_w(
 ) -> Tensor:
     """Random single-sign per-(column, phase)-block ternary weights, count-capped.
 
-    Each (column, phase) block programs ``m ~ Uniform{0 .. cap}`` cells at
-    random row positions within the block, all sharing one random sign per
-    block — so under full WL drive the block's per-phase MAC magnitude is
-    exactly ``m`` (the single-cell-LSB battery pattern). When ``active_row_num``
-    does not divide ``row_num`` the final block is short (its padded tail is
-    truncated), mirroring the engine's partial last sub-phase.
+    Each (column, phase) block programs `m ~ Uniform{0 .. cap}` cells at random
+    row positions within the block, all sharing one random sign per block, so
+    under full WL drive the block's per-phase MAC magnitude is exactly `m` —
+    the single-cell-LSB battery pattern. When `active_row_num` does not divide
+    `row_num` the final block is short, its padded tail truncated, mirroring
+    the engine's partial last sub-phase.
 
     Returns:
         Digit tensor.
-        Shape: ``[col_num, 1, row_num]``.
+        Shape: `[col_num, 1, row_num]`.
     """
     if not (0 <= cap <= active_row_num):
         raise ValueError(f"require: 0 <= cap ({cap}) <= active_row_num ({active_row_num})")
@@ -205,26 +197,25 @@ def grid_block_w(
     offset: int = 0,
     col_stride: int = 1,
 ) -> Tensor:
-    """Deterministic count-grid weights walking every ``|M|`` in ``0 .. m_max``.
+    """Deterministic count-grid weights walking every `|M|` in `0 .. m_max`.
 
-    Every ``col_stride``-th column is programmed (the others stay zero — a
+    Every `col_stride`-th column is programmed and the others stay zero — a
     loading-dilution knob keeping the total array conduction inside the
-    workload envelope the DC solve converges on); programmed column ``c``'s
-    (column, phase) blocks each program ``(c // col_stride + offset) %
-    (m_max + 1)`` leading cells, with the sign alternating across programmed
-    columns so both the P and the N polarity paths carry every magnitude.
-    Under full WL drive the per-phase MAC magnitude of programmed column
-    ``c`` is exactly ``(c // col_stride + offset) % (m_max + 1)``. One
-    pattern covers ``min(col_num // col_stride, m_max + 1)`` distinct
-    magnitudes; a caller needing full coverage runs
-    ``ceil((m_max + 1) / (col_num // col_stride))`` patterns at offsets
-    ``0, col_num // col_stride, ...``. When ``active_row_num`` does not divide
-    ``row_num`` the final block is short (its padded tail is truncated),
-    mirroring the engine's partial last sub-phase.
+    workload envelope the DC solve converges on. The (column, phase) blocks of
+    programmed column `c` each program `(c // col_stride + offset) %
+    (m_max + 1)` leading cells, with the sign alternating across programmed
+    columns so both the P and the N polarity paths carry every magnitude;
+    under full WL drive that count is exactly the column's per-phase MAC
+    magnitude. One pattern covers `min(col_num // col_stride, m_max + 1)`
+    distinct magnitudes, so full coverage takes
+    `ceil((m_max + 1) / (col_num // col_stride))` patterns at offsets
+    `0, col_num // col_stride, ...`. When `active_row_num` does not divide
+    `row_num` the final block is short, its padded tail truncated, mirroring
+    the engine's partial last sub-phase.
 
     Returns:
         Digit tensor.
-        Shape: ``[col_num, 1, row_num]``.
+        Shape: `[col_num, 1, row_num]`.
     """
     if not (1 <= m_max <= active_row_num):
         raise ValueError(f"require: 1 <= m_max ({m_max}) <= active_row_num ({active_row_num})")
@@ -251,13 +242,17 @@ def grid_block_w(
 
 
 def saturating_w(*, col_num: int, row_num: int, active_row_num: int) -> Tensor:
-    """Dense saturating columns: all ``+1`` / all ``-1`` / phase-antisymmetric.
+    """Dense saturating columns: all `+1` / all `-1` / phase-antisymmetric.
 
-    Column pattern cycles through the three saturating shapes; under full
-    drive every phase saturates the readout (clips at the top code) —
-    the loading-envelope extreme of the battery. When ``active_row_num`` does
-    not divide ``row_num`` the final block is short (its padded tail is
-    truncated), mirroring the engine's partial last sub-phase.
+    The column pattern cycles through the three saturating shapes; under full
+    drive every phase clips the readout at the top code — the loading-envelope
+    extreme of the battery. When `active_row_num` does not divide `row_num` the
+    final block is short, its padded tail truncated, mirroring the engine's
+    partial last sub-phase.
+
+    Returns:
+        Digit tensor.
+        Shape: `[col_num, 1, row_num]`.
     """
     # Ceil so a non-divisible geometry still covers every row; the padded tail
     # is dropped after the reshape (short final block == the engine's partial
@@ -274,11 +269,11 @@ def saturating_w(*, col_num: int, row_num: int, active_row_num: int) -> Tensor:
 
 
 def sample_binary_x(gen: torch.Generator, *, batch: int, row_num: int, density: float) -> Tensor:
-    """Random binary WL drive plane batch at ``density``.
+    """Random binary WL drive plane batch at `density`.
 
     Returns:
         Drive plane tensor.
-        Shape: ``[batch, row_num]``.
+        Shape: `[batch, row_num]`.
     """
     return (torch.rand((batch, row_num), generator=gen) < density).to(torch.long)
 
@@ -291,26 +286,25 @@ def sample_binary_x(gen: torch.Generator, *, batch: int, row_num: int, density: 
 def _unroll_sub_phase(x: Tensor, *, row_num: int, max_active_num: int, inst_rank: int) -> Tensor:
     """Expand WL planes over the macro's hardware sub-phase axis.
 
-    Local mirror of the runtime engine-layer serialization: the sub-phase
-    axis ``P = ceil(row_num / max_active_num)`` is inserted immediately LEFT
-    of the macro's inst-alignment span (``inst_rank`` size-1 slots), and
-    rows outside a plane's active window are zeroed (WL off), so every
-    conversion drives at most ``max_active_num`` live rows — the
-    per-conversion drive context the ``vec_mat_mul`` contract requires.
+    Local mirror of the runtime engine-layer serialization: the sub-phase axis
+    `P = ceil(row_num / max_active_num)` is inserted immediately left of the
+    macro's inst-alignment span (`inst_rank` size-1 slots), and rows outside a
+    plane's active window are zeroed (WL off), so every conversion drives at
+    most `max_active_num` live rows — the per-conversion drive context the
+    `vec_mat_mul` contract requires.
 
     Args:
         x: WL plane tensor.
-            Shape: ``[..., row_num]``.
-        row_num: Macro row count. When ``max_active_num`` does not divide it
-            the final sub-phase reads the short remainder block (mirrors the
-            engine's ceil sub-phase count).
+            Shape: `[..., row_num]`.
+        row_num: Macro row count. When `max_active_num` does not divide it the
+            final sub-phase reads the short remainder block.
         max_active_num: Maximum simultaneously active word lines per
-            conversion (``CimMacro.max_active_num``).
-        inst_rank: Rank of the macro's fabricated ``inst_shape``.
+            conversion.
+        inst_rank: Rank of the macro's fabricated `inst_shape`.
 
     Returns:
-        Masked plane tensor; dtype and device follow ``x``.
-        Shape: ``[..., P, *inst_shape=1, row_num]``.
+        Masked plane tensor; dtype and device follow `x`.
+        Shape: `[..., P, *inst_shape=1, row_num]`.
     """
     # Static row -> sub-phase ownership; phase p owns rows
     # [p * max_active_num, (p + 1) * max_active_num). Ceil so every real row
@@ -331,23 +325,20 @@ def _unroll_sub_phase(x: Tensor, *, row_num: int, max_active_num: int, inst_rank
 class PairedConversion:
     """Flattened, order-aligned calibration streams for one stimulus.
 
-    ``sample_num`` is the streams' common conversion-element count.
-
-    Attributes:
-        i_in__uA: Analog ADC input per conversion element (physical run,
-            :class:`IadcProber`), CPU float64.
-            Shape: ``[sample_num]``.
-        code: ADC output code per element (physical run), CPU int64.
-            Shape: ``[sample_num]``.
-        ideal_m: Lossless integer per-phase dot per element (ideal run's
-            ``vec_mat_mul`` return at the ``adc_bits = None`` oracle), CPU
-            int64, signed.
-            Shape: ``[sample_num]``.
+    `sample_num` is the streams' common conversion-element count.
     """
 
     i_in__uA: Tensor
+    """Analog ADC input per conversion element of the physical run, CPU
+    float64.
+    Shape: `[sample_num]`."""
     code: Tensor
+    """ADC output code per element of the physical run, CPU int64.
+    Shape: `[sample_num]`."""
     ideal_m: Tensor
+    """Lossless signed integer per-phase dot per element, from the ideal run at
+    the `adc_bits = None` oracle, CPU int64.
+    Shape: `[sample_num]`."""
 
 
 def run_paired_stimulus(
@@ -362,37 +353,34 @@ def run_paired_stimulus(
 ) -> PairedConversion:
     """Program + run one stimulus through both tiles, pairing their views.
 
-    Both tiles are programmed with the same digit tensor (the ideal twin
-    shares no state) and driven with the same sub-phase-expanded WL
-    planes (:func:`_unroll_sub_phase`, so calibration converts under the
-    per-sub-phase masked drive the runtime applies and the streams stay
-    element-aligned). The physical VMM runs at
-    ``(quantization_mode, adc_bits)`` under a :class:`IadcProber` capturing
-    the convert records; the ideal VMM runs at the lossless
-    ``adc_bits = None`` oracle and its integer-dot RETURN value is the
-    ideal view (the ideal tile emits no probe). The physical records
-    and the ideal returns are paired positionally.
+    Both tiles are programmed with the same digit tensor (the ideal twin shares
+    no state) and driven with the same sub-phase-expanded WL planes, so
+    calibration converts under the per-sub-phase masked drive the runtime
+    applies and the streams stay element-aligned. The physical VMM runs at
+    `(quantization_mode, adc_bits)` under an `IadcProber` capturing the convert
+    records; the ideal VMM runs at the lossless `adc_bits = None` oracle and
+    its integer-dot return value is the ideal view. The physical records and
+    the ideal returns are paired positionally.
 
     Args:
         physical: Fabricated physical tile.
         ideal: Its lossless twin.
         w: Integer weight tensor programmed into both tiles.
-            Shape: ``[*inst_shape, input_num, output_num]``.
-        x: Activation tensor; the testbench performs the sub-phase
-            expansion internally.
-            Shape: ``[..., input_num]``.
+            Shape: `[*inst_shape, input_num, output_num]`.
+        x: Activation tensor; the sub-phase expansion happens internally.
+            Shape: `[..., input_num]`.
         input_num: Logical input-vector length.
         quantization_mode: Quantization mode of the physical run.
         adc_bits: ADC resolution of the physical run.
 
     Returns:
-        The flattened order-aligned streams (see :class:`PairedConversion`).
+        The flattened order-aligned streams.
 
     Raises:
-        ValueError: If the physical macro emitted no convert record, if
-            the physical and ideal streams disagree in count, or if a paired
-            physical / ideal entry disagrees in element count (a macro that
-            breaks the column-order-preserving layout contract).
+        ValueError: If the physical macro emitted no convert record, if the
+            physical and ideal streams disagree in count, or if a paired
+            physical / ideal entry disagrees in element count — a macro that
+            breaks the column-order-preserving layout contract.
     """
     device = next(physical.buffers()).device
     w = w.to(device)
@@ -400,7 +388,7 @@ def run_paired_stimulus(
     physical.program(w)
     ideal.program(w)
     # Runtime-parity drive: serialize each requested plane over the
-    # sub-phase axis so both tiles convert at most ``max_active_num``
+    # sub-phase axis so both tiles convert at most `max_active_num`
     # live rows per plane, exactly as the engine layer drives the macro.
     # Shape: [..., input_num] -> [..., P, *inst_shape=1, input_num]
     x = _unroll_sub_phase(

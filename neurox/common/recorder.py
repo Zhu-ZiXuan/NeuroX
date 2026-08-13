@@ -1,18 +1,11 @@
 """Shared side-channel record collection for the profiler and the probers.
 
-A recorder family is a direct subclass of :class:`RecorderBase` together with
-everything below it. The family shares one active slot held as a plain class
-attribute, so at most one recorder of a family collects at a time. Reading the
-slot and submitting to it both stay out of the caller's graph under
-``torch.compile``: the slot is Python state a trace cannot guard on, so an emit
-site's demand gate and its submission are graph breaks by design. Collection is
-assumed single-threaded: the slot is not thread-local, and two threads
-recording at once would share one book.
-
+Each recorder family shares one active slot, held as a plain class attribute.
 Collection is a pure side channel across every family: a run computes the same
-numbers whether or not a recorder is active. An emit site builds what it submits
-only behind its family's active gate, so an uncollected run pays the gate read
-and nothing beyond it.
+numbers whether or not a recorder is active, and an emit site builds what it
+submits only behind its family's active gate, so an uncollected run pays the
+gate read and nothing beyond it. Collection is assumed single-threaded: the slot
+is not thread-local, and two threads recording at once would share one book.
 """
 
 from __future__ import annotations
@@ -21,7 +14,7 @@ from abc import ABC
 from collections.abc import Callable
 from dataclasses import Field, dataclass
 from types import TracebackType
-from typing import Any, ClassVar, Generic, Self, TypeVar, dataclass_transform
+from typing import Any, ClassVar, Generic, Self, TypeVar, dataclass_transform, final
 
 import torch
 from torch import Tensor
@@ -38,19 +31,14 @@ _DEFAULT_DEVICE = torch.device("cpu")
 class RecordBase:
     """One item a side channel collects.
 
-    A record carries no value equality: it equals only itself, so ``==`` and
-    ``hash()`` are identity throughout the hierarchy.
+    A record carries no value equality: it equals only itself, so `==` and
+    `hash()` are identity throughout the hierarchy.
 
-    Subclass requirements:
-        - Declare fields as annotated class attributes, with at most a plain
-          default; a ``dataclasses.field()`` specifier is rejected at class
-          definition.
-        - Do not apply ``@dataclass`` or define ``__init__`` or
-          ``__post_init__``; this base supplies a frozen, keyword-only
-          dataclass. :meth:`detach` and :meth:`to` rebuild the record through
-          those declared fields, recursing into nested dataclasses.
-        - Override either method only for a record whose tensors need what the
-          field walk cannot express.
+    A subclass declares its fields as annotated class attributes carrying at
+    most a plain default, and must not apply `@dataclass` or define `__init__`
+    or `__post_init__`; this base supplies a frozen, keyword-only dataclass.
+    Override `detach` or `to` only for a record whose tensors need what a walk
+    of the declared fields cannot express.
     """
 
     def __init_subclass__(cls) -> None:
@@ -70,30 +58,30 @@ class RecordBase:
         """Return this record with every tensor field detached from autograd.
 
         Returns:
-            ``self`` when no field would change, a copy otherwise.
+            `self` when no field would change, a copy otherwise.
         """
         return self._map_tensors(lambda tensor: tensor.detach() if tensor.requires_grad else tensor)
 
     def to(self, device: torch.device) -> Self:
-        """Return this record with every tensor field on ``device``.
+        """Return this record with every tensor field parked on one device.
 
         Args:
-            device: Device the record's tensors are parked on.
+            device: Destination device.
 
         Returns:
-            ``self`` when no field would change, a copy otherwise.
+            `self` when no field would change, a copy otherwise.
         """
         return self._map_tensors(lambda tensor: tensor.to(device))
 
     def _map_tensors(self, transform: Callable[[Tensor], Tensor]) -> Self:
-        """Rebuild through every tensor field, keeping ``self`` when none moves.
+        """Rebuild through every tensor field, recursing into nested dataclasses.
 
         Args:
             transform: Per-tensor-field transform, returning its argument
                 itself for a field already holding what was asked for.
 
         Returns:
-            ``self`` when every field came back unchanged, a rebuilt record
+            `self` when every field came back unchanged, a rebuilt record
             otherwise.
         """
         changed = False
@@ -114,28 +102,21 @@ RecordT = TypeVar("RecordT", bound=RecordBase)
 class RecorderBase(Generic[RecordT], ABC):
     """Collect one family's records for as long as its context is open.
 
-    Subclassing this base directly opens a family: that class owns the active
-    slot every class below it shares, so a family root and one of its own
-    subclasses are mutually exclusive collectors. An emit site reads the slot
-    through :meth:`active` or :meth:`current` and hands records to
-    :meth:`submit`; a record submitted with no active recorder is dropped.
+    Subclass this base directly to open a family, binding the family's record
+    type as `RecorderBase[SomeRecord]`; such a subclass adds no collection logic
+    of its own, since activation, accumulation, and finalization belong here. A
+    family is that direct subclass together with everything below it, sharing
+    the one active slot it owns: at most one recorder of a family collects at a
+    time, and entering a second raises `RuntimeError`. An exception frees the
+    slot but skips the parking. An emit site reads the family's slot through
+    `active` or `current` and hands records to `submit`.
 
-    Subclass requirements:
-        - Subclass this base directly to open a family, binding the family's
-          record type as ``RecorderBase[SomeRecord]``.
-        - Add no collection logic of its own: activation, accumulation, and
-          finalization belong to this base.
+    Re-entering one instance accumulates into the same book; a fresh book is a
+    fresh instance.
 
     Args:
-        device: Where a clean exit parks the collected records. ``None`` leaves
+        device: Where a clean exit parks the collected records. `None` leaves
             each record on the device it was recorded on.
-
-    Attributes:
-        records: Records collected so far, in submission order. Re-entering one
-            instance accumulates into the same list; a fresh book is a fresh
-            instance. Records are kept whole and nothing prunes the list, so
-            memory grows with what is captured: scope the collection context to
-            the run being measured.
     """
 
     _family_root: ClassVar[type[RecorderBase[Any]] | None] = None
@@ -146,13 +127,19 @@ class RecorderBase(Generic[RecordT], ABC):
     def __init__(self, *, device: torch.device | None = _DEFAULT_DEVICE) -> None:
         self._root()  # a bare RecorderBase instance owns no slot to collect into
         self._device = device
-        self.records: list[RecordT] = []
+        self.__records: list[RecordT] = []
 
     def __init_subclass__(cls) -> None:
         super().__init_subclass__()
         if RecorderBase in cls.__bases__:
             cls._family_root = cls
             cls._active_recorder = None
+
+    @property
+    @final
+    def records(self) -> tuple[RecordT, ...]:
+        """The book so far, in submission order; each access returns a snapshot."""
+        return tuple(self.__records)
 
     def __enter__(self) -> Self:
         root = self._root()
@@ -176,8 +163,8 @@ class RecorderBase(Generic[RecordT], ABC):
         """Return the family root holding this class's active slot.
 
         Raises:
-            TypeError: The class opens no family, i.e. it is
-                :class:`RecorderBase` itself.
+            TypeError: The class opens no family, i.e. it is `RecorderBase`
+                itself.
         """
         root = cls._family_root
         if root is None:
@@ -187,13 +174,12 @@ class RecorderBase(Generic[RecordT], ABC):
     @classmethod
     @torch.compiler.disable
     def current(cls) -> Self | None:
-        """Return the family's active recorder, or ``None`` outside a context.
+        """Return the family's active recorder, or `None` outside a context.
 
-        Note:
-            The read is kept out of every graph on purpose. Dynamo folds an
-            empty slot into the trace as a constant and installs no guard on
-            it, so a region first compiled outside any context would stay
-            pinned to "inactive" and silently collect nothing ever after.
+        The read is kept out of every graph on purpose: the slot is Python state
+        a trace cannot guard on. Dynamo folds an empty slot into the trace as a
+        constant, so a region first compiled outside any context would stay
+        pinned to "inactive" and silently collect nothing ever after.
         """
         return cls._root()._active_recorder
 
@@ -202,10 +188,9 @@ class RecorderBase(Generic[RecordT], ABC):
     def active(cls) -> bool:
         """Return whether the family has an active recorder.
 
-        Note:
-            Kept out of every graph for the reason :meth:`current` states: a
-            traced guard would freeze an emit site's branch at whatever the
-            slot held when the region was first compiled.
+        The read is kept out of every graph, so an emit site gating its billing
+        work on it breaks the graph there and gets the live answer on every
+        call.
         """
         return cls.current() is not None
 
@@ -215,35 +200,28 @@ class RecorderBase(Generic[RecordT], ABC):
         """Hand one record to the family's active recorder, detached.
 
         Everything the emitter computes to build the record stays in the
-        caller's graph; only the hand-over leaves it, alongside the demand
-        gate :meth:`active` reads.
+        caller's graph; only the hand-over leaves it. Under CUDA-graph capture
+        (`torch.compile(mode="reduce-overhead")`) a submitted tensor may live in
+        cudagraph-owned memory that a later replay overwrites, so an emitter
+        inside such a region clones before it submits.
 
         Args:
             record: Record to collect; dropped when no recorder is active.
-
-        Note:
-            Under CUDA-graph capture (``torch.compile(mode="reduce-overhead")``)
-            a submitted tensor may live in cudagraph-owned memory that a later
-            replay overwrites. An emitter inside such a region clones before it
-            submits.
         """
         recorder = cls.current()
         if recorder is None:
             return
-        recorder.records.append(record.detach())
+        recorder.__records.append(record.detach())
 
     def _finalize(self) -> None:
         """Park every collected record on this recorder's device.
 
-        The sweep visits the whole book on every clean exit; a record already
-        on the device is returned unchanged, so re-sweeping what an earlier
-        activation collected moves nothing, though it still costs one visit
-        per record. Each record parks itself, so a cross-device book of ``N``
-        records costs ``N`` transfers rather than one batched copy: a consumer
-        collecting a large book on an accelerator, or one that post-processes
-        records where they were recorded, passes ``device=None`` and keeps
-        them in place.
+        The sweep visits the whole book on every clean exit; a record already on
+        the device is returned unchanged, so re-sweeping what an earlier
+        activation collected moves nothing. Each record parks itself, so a
+        cross-device book of `N` records costs `N` transfers rather than one
+        batched copy.
         """
         if self._device is None:
             return
-        self.records = [record.to(self._device) for record in self.records]
+        self.__records = [record.to(self._device) for record in self.__records]

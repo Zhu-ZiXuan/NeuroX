@@ -56,10 +56,10 @@ from neurox.primitive.macro.cim import IdealCimMacroConfig, IdealCimMacroPolicy
 _IDEAL_MACRO_POLICY = IdealCimMacroPolicy()
 _IDEAL_UNIT_POLICY = IdealLinearUnitPolicy()
 
-# ``adc_bits is None`` is the lossless oracle: IdealCimMacro skips the windowed
-# conversion, so unit outputs equal ``torch.matmul`` exactly — the same
-# behaviour ``IdealLinearUnit`` provides natively. It is a runtime value; the
-# declared width ``adc_max_bits`` must stay >= 1.
+# `adc_bits is None` is the lossless oracle: IdealCimMacro skips the windowed
+# conversion, so unit outputs equal `torch.matmul` exactly — the same behaviour
+# `IdealLinearUnit` provides natively. It is a runtime value; the declared width
+# `adc_max_bits` must stay >= 1.
 _TEST_ADC_BITS: int | None = None
 _TEST_QUANTIZATION_MODE = 0
 _TEST_ADC_MAX_BITS = 8
@@ -587,7 +587,7 @@ def test_multi_input_phase_lossless_unit_matches_torch_matmul(
     macro_kind: str,
     config: LinearCimUnitConfig,
 ) -> None:
-    """P=4 lossless input phases still match ``torch.matmul``."""
+    """P=4 lossless input phases still match `torch.matmul`."""
     torch.manual_seed(8000)
     n, k, m = 13, 20, 8
     unit = _build_unit_for_kind(macro_kind, config, w_logical_shape=(n, k))
@@ -644,9 +644,7 @@ def test_direct_engine_unit_multi_input_phase_quantized_end_to_end() -> None:
 
 
 def test_phase_accumulator_energy_scales_with_input_phase_num() -> None:
-    """The phase accumulator is a ``SerialAccumulator`` billed per arriving
-    per-phase code, so at fixed geometry its accumulate energy scales
-    with the input-phase count: P=2 logs exactly twice the energy of P=1."""
+    """The phase accumulator bills one operation per arriving per-phase code: P=2 logs twice the energy of P=1."""
     torch.manual_seed(8200)
     n, k, m = 8, 16, 5
     energies: dict[int, float] = {}
@@ -816,8 +814,7 @@ def test_engine_from_config_dispatches_composed_stages(
 
 
 def test_unit_config_nested_engine_deserialization() -> None:
-    """Receiver-bounded deserialization resolves the unit, engine, and macro
-    leaves from their ``_neurox_class`` discriminators."""
+    """Receiver-bounded deserialization resolves the unit, engine, and macro leaves from `_neurox_class`."""
     config_dict: ConfigDict = {
         "_neurox_class": "LinearCimUnitConfig",
         "area_per_inst__um2": 0.0,

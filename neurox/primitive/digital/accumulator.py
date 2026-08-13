@@ -2,6 +2,7 @@
 
 See also:
     docs/reference/primitive/digital/accumulator.md
+    docs/internals/primitive/digital/accumulator.md
 """
 
 import torch
@@ -11,20 +12,16 @@ from .base import DigitalBase, DigitalConfig, DigitalPolicy
 
 
 class AccumulatorConfig(DigitalConfig):
-    """Immutable configuration for an Accumulator instance.
-
-    Attributes:
-        bit_width: Signed output bit width; result wraps modulo ``2^bit_width``
-            into ``[-2^(bw-1), 2^(bw-1) - 1]``.
-        energy_per_op__fJ: Dynamic energy consumed per operand element folded
-            into the sum.
-        latency_per_op__ns: Reduction window of one accumulate.
-    """
+    """Immutable configuration for an Accumulator instance."""
 
     bit_width: int
+    """Signed output bit width; the result wraps modulo `2^bit_width` into
+    `[-2^(bit_width-1), 2^(bit_width-1) - 1]`."""
 
     energy_per_op__fJ: float
+    """Dynamic energy per operand element folded into the sum."""
     latency_per_op__ns: float
+    """Reduction window of one accumulate."""
 
     def validate(self) -> None:
         super().validate()
@@ -43,9 +40,9 @@ class Accumulator(DigitalBase[AccumulatorConfig]):
     """Modular adder-tree that sums an integer tensor along one axis.
 
     Args:
-        config: Accumulator configuration.
-        policy: Digital execution policy.
-        inst_shape: Per-instance fabrication shape.
+        config: Arithmetic width and per-op PPA.
+        policy: Empty digital policy marker.
+        inst_shape: Per-instance fabrication multiplicity.
     """
 
     def __init__(
@@ -66,18 +63,18 @@ class Accumulator(DigitalBase[AccumulatorConfig]):
         return self.config.leakage_per_inst__uW
 
     def accumulate(self, x: Tensor, dim: int) -> Tensor:
-        """Sum ``x`` along ``dim`` and wrap into the signed ``bit_width`` range.
+        """Sum `x` along `dim` and wrap into the signed `bit_width` range.
 
-        Dynamic energy is billed against the pre-reduction operand ``x``: one
-        adder evaluation is spent per operand folded in, so the switching count
-        follows the reduced extent, which the result no longer carries.
+        Dynamic energy is billed against the pre-reduction operand: one adder
+        evaluation per operand folded in, an extent the result no longer
+        carries.
 
         Args:
             x: Integer-valued input tensor.
             dim: Axis along which to reduce.
 
         Returns:
-            Modular-wrapped sum with ``dim`` reduced.
+            Modular-wrapped sum with `dim` reduced.
         """
         bw = self.config.bit_width
         half = 1 << (bw - 1)

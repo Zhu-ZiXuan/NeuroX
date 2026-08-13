@@ -1,6 +1,6 @@
 """Laws of the supply-draw capacitive energy primitive.
 
-``e_cap_excursion__fJ`` states one rule — a rail delivers ``C * |delta_v|``
+`e_cap_excursion__fJ` states one rule — a rail delivers `C * |delta_v|`
 of charge at its own potential, once per excursion — so the tests pin the
 consequences of that rule rather than any number: the bill is blind to the
 direction of travel and to the node's absolute level, it is linear in each of
@@ -23,7 +23,7 @@ _C__fF = 1.7
 
 
 def test_bill_is_the_rail_times_the_charge_moved() -> None:
-    """``E == V_rail * C * |delta_v|`` elementwise, on an explicit witness."""
+    """`E == V_rail * C * |delta_v|` elementwise, on an explicit witness."""
     delta_v__V = torch.tensor([0.25, -0.5, 0.0], dtype=_DTYPE)
 
     got = e_cap_excursion__fJ(_V_RAIL__V, _C__fF, delta_v__V)

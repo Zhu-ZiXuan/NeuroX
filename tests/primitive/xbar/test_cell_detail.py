@@ -1,11 +1,11 @@
-"""Probe-emission checks for :class:`XbarCell1t1rDetail`.
+"""Probe-emission checks for `XbarCell1t1rDetail`.
 
 The detailed 1T1R cell condenses its access node with a per-cell Newton and
-emits the access-node KCL residual to :class:`XbarCell1t1rDetailProber` once per
-``solve_dc`` call. These tests pin the emitter contract (laws, not numbers):
-one record per ``solve_dc`` call, the record names the emitting cell and its
-``cell__uA`` is the non-negative ``|I_NMOS - I_RRAM|`` over the branch grid,
-and the lean ``solve_branch`` hot path emits nothing.
+emits the access-node KCL residual to `XbarCell1t1rDetailProber` once per
+`solve_dc` call. These tests pin the emitter contract (laws, not numbers):
+one record per `solve_dc` call, the record names the emitting cell and its
+`cell__uA` is the non-negative `|I_NMOS - I_RRAM|` over the branch grid,
+and the lean `solve_branch` hot path emits nothing.
 """
 
 from __future__ import annotations
@@ -81,14 +81,14 @@ def test_solve_dc_emits_one_residual_record() -> None:
 
 
 def test_solve_branch_emits_nothing() -> None:
-    """Only ``solve_dc`` emits; the lean hot path stays off the side channel."""
+    """Only `solve_dc` emits; the lean hot path stays off the side channel."""
     cell = _build_cell((2, 2))
     v_bl, v_sl, v_wl = _grids()
     snap = cell.snapshot(control=v_wl, shape=(2, 2), t_elapsed=0.0)
 
     with XbarCell1t1rDetailProber() as prober:
         cell.solve_branch(v_bl, v_sl, snap)
-    assert prober.records == []
+    assert prober.records == ()
 
 
 def test_solve_dc_without_prober_is_silent() -> None:

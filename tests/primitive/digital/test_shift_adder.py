@@ -2,7 +2,7 @@
 
 Dynamic energy counts the shift-and-add evaluations, one per digit leg folded
 in, so the digit extent stays visible in the energy. Energy records are captured
-under :class:`Profiler`.
+under `Profiler`.
 """
 
 from __future__ import annotations
@@ -48,7 +48,7 @@ def _build(
 
 
 def _energy_total(records: list[EnergyRecord], module: ProfileMixin) -> float:
-    """Sum the logged dynamic energy [fJ] of the records ``module`` emitted."""
+    """Sum the logged dynamic energy [fJ] of the records `module` emitted."""
     return sum(
         (float(r.dynamic_energy__fJ.sum()) for r in records if r.qualified_name == module.qualified_name),
         0.0,
@@ -63,7 +63,7 @@ def test_shift_add_folds_the_digit_axis_by_positional_weight() -> None:
 
 
 def test_shift_add_wraps_the_fold_then_adds_the_partial_sum() -> None:
-    """A 4-bit register wraps 3 + 3*2 = 9 to -7; ``init_val`` lands after it."""
+    """A 4-bit register wraps 3 + 3*2 = 9 to -7; `init_val` lands after it."""
     unit = _build((), scale=2, digit_count=2, bit_width=4)
     x = torch.tensor([3, 3], dtype=torch.int64)
     init_val = torch.tensor(10, dtype=torch.int64)
@@ -72,7 +72,7 @@ def test_shift_add_wraps_the_fold_then_adds_the_partial_sum() -> None:
 
 
 def test_shift_add_bills_energy_per_digit_leg() -> None:
-    """Energy quanta count equals ``numel(input)``, digit axis included."""
+    """Energy quanta count equals `numel(input)`, digit axis included."""
     torch.manual_seed(21)
     unit = _build((2, 5), scale=2, digit_count=4)
     x = torch.randint(0, 2, (2, 4, 5), dtype=torch.int64)
@@ -95,7 +95,7 @@ def test_shift_add_energy_scales_with_the_digit_count() -> None:
 
 
 def test_shift_add_partial_sum_preload_is_free() -> None:
-    """``init_val`` preloads the destination register, so it bills nothing."""
+    """`init_val` preloads the destination register, so it bills nothing."""
     unit = _build((2, 5), scale=2, digit_count=4)
     x = torch.ones((2, 4, 5), dtype=torch.int64)
     init_val = torch.ones((2, 5), dtype=torch.int64)

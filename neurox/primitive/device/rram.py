@@ -2,6 +2,7 @@
 
 See also:
     docs/reference/primitive/device/rram.md
+    docs/internals/primitive/device/rram.md
 """
 
 from dataclasses import dataclass
@@ -23,27 +24,21 @@ from neurox.primitive.nonideality import (
 
 
 class RramConfig(ConfigBase):
-    """Static RRAM device configuration.
-
-    Attributes:
-        g_min__uS: Minimum programmable conductance.
-        nonlinearity_alpha: Hyperbolic-sine I-V nonlinearity factor [1/V].
-        drift_decay_rate: Power-law drift exponent.
-        drift_t0: Reference drift time [s].
-        read_thermal__uS: Gaussian read-noise σ.
-        prog_gamma: Programming-variation model parameters.
-        read_telegraph: Telegraph-noise model parameters.
-        stuck_at: Stuck-at fault model parameters.
-    """
+    """Static RRAM device configuration."""
 
     g_min__uS: float
+    """Minimum programmable conductance; the maximum is supplied per instance."""
 
     nonlinearity_alpha: float
+    """Hyperbolic-sine I-V nonlinearity factor [1/V]; `0` makes the cell ohmic."""
 
     drift_decay_rate: float
+    """Power-law drift exponent."""
     drift_t0: float
+    """Reference drift time [s]; drift applies only beyond it."""
 
     read_thermal__uS: float
+    """Gaussian read-noise σ."""
 
     prog_gamma: StateDependentGammaConfig
 
@@ -66,57 +61,48 @@ class RramConfig(ConfigBase):
 
 
 class RramPolicy(PolicyBase):
-    """Per-source toggles selecting which RRAM nonidealities are active.
-
-    Attributes:
-        prog_gamma: Apply state-dependent programming Gamma at program time.
-        drift: Apply power-law conductance drift at program time.
-        stuck_at: Apply stuck-at faults at program time.
-        read_telegraph: Apply telegraph noise at snapshot time.
-        read_thermal: Apply Gaussian read noise at snapshot time.
-    """
+    """Per-source toggles selecting which RRAM nonidealities are active."""
 
     prog_gamma: bool
+    """Apply state-dependent programming Gamma at program time."""
     drift: bool
+    """Apply power-law conductance drift at program time."""
     stuck_at: bool
+    """Apply stuck-at faults at program time."""
     read_telegraph: bool
+    """Apply telegraph noise at snapshot time."""
     read_thermal: bool
+    """Apply Gaussian read noise at snapshot time."""
 
 
 @dataclass(frozen=True)
 class RramDcop:
-    """Device current and local differential conductance.
-
-    Attributes:
-        i__uA: Device current.
-        di_dv__uS: Local differential conductance.
-    """
+    """Device current and local differential conductance."""
 
     i__uA: Tensor
+    """Current through the cell at the evaluated voltage. Shape: `[...]`."""
     di_dv__uS: Tensor
+    """Slope of the I-V law at the evaluated voltage. Shape: `[...]`."""
 
 
 @dataclass(frozen=True)
 class RramSnap(TensorGroupMixin):
-    """Per-call read conductance snap.
-
-    Attributes:
-        g__uS: Sampled per-cell conductance.
-    """
+    """Per-call read conductance snap."""
 
     g__uS: Tensor
+    """Sampled per-cell conductance, read noise included. Shape: `[...]`."""
 
 
 class Rram(ModuleBase[RramConfig, RramPolicy]):
     """Stateful programmable-conductance RRAM model.
 
     Args:
-        config: Device configuration.
-        policy: Nonideality policy.
-        inst_shape: Per-instance fabrication shape.
+        config: Device parameters and nonideality model parameters.
+        policy: Per-source nonideality enable flags.
+        inst_shape: Per-instance fabrication multiplicity.
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature.
-        g_max__uS: Maximum programmable conductance.
+        g_max__uS: Maximum programmable conductance; must exceed `g_min__uS`.
     """
 
     is_profile_target: ClassVar[bool] = False
@@ -177,14 +163,13 @@ class Rram(ModuleBase[RramConfig, RramPolicy]):
         *,
         shape: tuple[int, ...],
     ) -> RramSnap:
-        """Sample one per-call runtime snap over ``shape``.
+        """Sample one per-call read conductance, applying read nonidealities.
 
         Args:
-            shape: Per-call broadcast shape; the snap fills tensor
-                fields at this shape.
+            shape: Broadcast shape the snap's tensor field is filled at.
 
         Returns:
-            Per-call snap of the fabricated state.
+            Per-call conductance snap, clamped to the programmable range.
         """
         g = self._g__uS.expand(shape) if shape else self._g__uS
         g = apply_telegraph_noise(g, self.config.read_telegraph, enabled=self.policy.read_telegraph)
@@ -197,8 +182,8 @@ class Rram(ModuleBase[RramConfig, RramPolicy]):
 
         Args:
             v__V: Device voltage.
-                Shape: ``[...]``.
-            snap: Conductance snap from :meth:`snapshot`.
+                Shape: `[...]`.
+            snap: Per-call conductance snap.
 
         Returns:
             Current and local differential conductance at the requested

@@ -1,7 +1,7 @@
-"""Numerical regression for :func:`solve_block_tridiagonal_dense`.
+"""Numerical regression for `solve_block_tridiagonal_dense`.
 
-Same accuracy bar as Thomas / PCR — assembling the dense ``NB × NB``
-matrix and feeding ``torch.linalg.solve`` is the most direct path; the
+Same accuracy bar as Thomas / PCR — assembling the dense `NB × NB`
+matrix and feeding `torch.linalg.solve` is the most direct path; the
 test pins it against the same Thomas reference + dense LU oracle the
 other solvers use.
 """

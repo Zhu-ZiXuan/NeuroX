@@ -35,17 +35,16 @@ def stochastic_floor_div(
     *,
     training: bool,
 ) -> Tensor:
-    """Compute ``numerator >> rshift`` with optional unbiased jitter.
-
-    Stochastic rounding is applied when ``training`` is ``True``.
+    """Compute `numerator >> rshift`, optionally with unbiased jitter.
 
     Args:
         numerator: Integer tensor to be shifted.
         rshift: Right-shift amount; scalar or broadcastable tensor.
-        training: Whether stochastic training behavior is enabled.
+        training: Adds uniform jitter below the shifted LSB, turning the
+            truncation into stochastic rounding.
 
     Returns:
-        Quotient tensor (same dtype as ``numerator``).
+        Quotient tensor, dtype of `numerator`.
     """
     if not training:
         return numerator >> rshift
@@ -78,14 +77,15 @@ def derive_multiplier_and_shift_tensor(
     """Batched fixed-point decomposition for per-channel scale tensors.
 
     Args:
-        scale_tensor: Float tensor of per-channel scale factors.
-            Shape: ``[num_channels]``.
-        mult_bits: Multiplier precision. 8 bits keeps ``x * mult`` in int32
-            for accumulators up to 24 bits (2²⁴ * 2⁸ = 2³²).
+        scale_tensor: Per-channel scale factors.
+            Shape: `[num_channels]`.
+        mult_bits: Multiplier precision. 8 bits keeps `x × mult` in int32 for
+            accumulators up to 24 bits (2²⁴ × 2⁸ = 2³²).
 
     Returns:
-        ``(multiplier, rshift)`` int32 tensors.
-        Shape: ``[num_channels]``.
+        `(multiplier, rshift)` int32 tensors reproducing the scale as
+        `x × multiplier >> rshift`.
+        Shape: `[num_channels]`.
     """
     mult_max = (1 << mult_bits) - 1
     significand, exponent = torch.frexp(scale_tensor)
@@ -98,8 +98,8 @@ def derive_multiplier_and_shift_tensor(
 class PerTensorObserver(nn.Module):
     """Per-tensor asymmetric affine min/max observer with EMA tracking.
 
-    The ``frozen`` bool buffer pins ``(min, max)`` after calibration
-    so the stats survive subsequent ``model.train()`` calls.
+    The `frozen` buffer pins `(min_val, max_val)` after calibration so the
+    stats survive subsequent `model.train()` calls.
 
     Args:
         qmin: Integer min of the target grid.
@@ -132,9 +132,9 @@ class PerTensorObserver(nn.Module):
 
     @torch.no_grad()
     def forward(self, x: Tensor) -> None:
-        """EMA update of ``(min_val, max_val)`` from ``x``.
+        """EMA update of `(min_val, max_val)` from `x`.
 
-        No-op when ``self.training`` is ``False`` or ``self.frozen`` is set.
+        No-op outside training mode and once frozen.
         """
         if not self.training or bool(self.frozen):
             return
@@ -148,7 +148,7 @@ class PerTensorObserver(nn.Module):
             self.max_val.lerp_(new_max, self.momentum)
 
     def qparams(self) -> tuple[Tensor, Tensor]:
-        """Return ``(scale, zero_point)`` as ``(float32, int32)`` tensors."""
+        """Return `(scale, zero_point)` as `(float32, int32)` tensors."""
         min_val = torch.minimum(self.min_val, torch.zeros_like(self.min_val))
         max_val = torch.maximum(self.max_val, torch.zeros_like(self.max_val))
         span = (max_val - min_val).clamp(min=1e-8)
@@ -160,7 +160,7 @@ class PerTensorObserver(nn.Module):
 class PerChannelSymmObserver(nn.Module):
     """Per-channel symmetric min/max observer with EMA tracking.
 
-    Symmetric grid ``[-qmax, +qmax]`` with ``zero_point = 0``.
+    Symmetric grid `[-qmax, +qmax]` with `zero_point = 0`.
 
     Args:
         num_channels: Output-channel count.
@@ -181,7 +181,7 @@ class PerChannelSymmObserver(nn.Module):
         self.register_buffer("frozen", torch.tensor(False))
 
     def freeze(self) -> None:
-        """Pin current ``abs_max`` so further forwards skip EMA updates."""
+        """Pin current `abs_max` so further forwards skip EMA updates."""
         self.frozen.fill_(True)
 
     def unfreeze(self) -> None:
@@ -190,9 +190,9 @@ class PerChannelSymmObserver(nn.Module):
 
     @torch.no_grad()
     def forward(self, weight: Tensor) -> None:
-        """EMA update of the per-channel absolute max from ``weight``.
+        """EMA update of the per-channel absolute max from `weight`.
 
-        No-op when ``self.training`` is ``False`` or ``self.frozen`` is set.
+        No-op outside training mode and once frozen.
         """
         if not self.training or bool(self.frozen):
             return
@@ -204,7 +204,7 @@ class PerChannelSymmObserver(nn.Module):
             self.abs_max.lerp_(batch_abs_max, self.momentum)
 
     def qparams(self) -> tuple[Tensor, Tensor]:
-        """Return ``(per_channel_scale, per_channel_zero_point=0)``."""
+        """Return `(per_channel_scale, per_channel_zero_point=0)`."""
         scale = (self.abs_max / self.qmax).clamp(min=1e-8)
         zp = torch.zeros_like(scale, dtype=torch.int32)
         return scale.detach().to(torch.float32), zp
@@ -216,11 +216,11 @@ def fake_quant_ste(x: Tensor, scale: Tensor, zero_point: Tensor, qmin: int, qmax
     Args:
         x: Float input tensor.
         scale: Per-tensor float32 scale.
-            Shape: ``[]``.
+            Shape: `[]`.
         zero_point: Per-tensor int32 zero-point.
-            Shape: ``[]``.
-        qmin: Integer grid minimum (inclusive).
-        qmax: Integer grid maximum (inclusive).
+            Shape: `[]`.
+        qmin: Integer grid minimum, inclusive.
+        qmax: Integer grid maximum, inclusive.
     """
     x_int = torch.clamp(torch.round(x / scale + zero_point.float()), qmin, qmax)
     x_fq = (x_int - zero_point.float()) * scale
@@ -232,10 +232,10 @@ def fake_quant_symm_per_channel_ste(weight: Tensor, scale: Tensor, qmax: int) ->
 
     Args:
         weight: Float weight tensor; axis 0 is the output channel.
-            Shape: ``[num_channels, ...]``.
+            Shape: `[num_channels, ...]`.
         scale: Per-channel scale.
-            Shape: ``[num_channels]``.
-        qmax: Symmetric grid half-width — values clamp into ``[-qmax, +qmax]``.
+            Shape: `[num_channels]`.
+        qmax: Symmetric grid half-width — values clamp into `[-qmax, +qmax]`.
     """
     shape = [scale.shape[0]] + [1] * (weight.ndim - 1)
     sw = scale.view(shape)
@@ -297,9 +297,9 @@ class QATLinear(nn.Linear):
 def _default_op(macro: LinearUnit, quantization_mode: int | None) -> tuple[int, int | None]:
     """Resolve the operating point: mode 0 by default, macro's max bits.
 
-    A unit without output quantization publishes ``adc_max_bits is None``;
-    the resolved ``adc_bits`` is then ``None``, the lossless oracle, whose
-    rescale factor is ``1.0``.
+    A unit without output quantization publishes `adc_max_bits is None`; the
+    resolved `adc_bits` is then `None`, the lossless oracle, whose rescale
+    factor is `1.0`.
     """
     return (0 if quantization_mode is None else quantization_mode, macro.adc_max_bits)
 
@@ -307,9 +307,9 @@ def _default_op(macro: LinearUnit, quantization_mode: int | None) -> tuple[int, 
 def _mac_per_code(macro: LinearUnit, *, quantization_mode: int, adc_bits: int | None) -> float:
     """Return the MAC units one output code carries at this operating point.
 
-    The simulator exports codes plus ``rescale_factor``, which states a code
-    in ideal-macro codes; turning those into MAC units is the algorithm's own
-    job and takes the ideal twin's window step ``W / 2**B``. A unit that never
+    The simulator exports codes plus `rescale_factor`, which states a code in
+    ideal-macro codes; turning those into MAC units is the algorithm's own job
+    and takes the ideal twin's window step `W / 2**B`. A unit that never
     quantizes its output returns exact dots, so one code is one MAC unit.
     """
     factor = macro.rescale_factor(quantization_mode=quantization_mode, adc_bits=adc_bits)
@@ -322,9 +322,14 @@ def _mac_per_code(macro: LinearUnit, *, quantization_mode: int, adc_bits: int | 
 
 @dataclass
 class _FoldedScales:
+    """Integer rescale terms the runtime forward applies to macro codes."""
+
     mult: Tensor
+    """Int32 multiplier of the folded scale. Shape: `[num_channels]`."""
     rshift: Tensor
+    """Right-shift paired with `mult`. Shape: `[num_channels]`."""
     bias_int: Tensor
+    """Bias plus input zero-point correction, in macro codes. Shape: `[num_channels]`."""
     mac_per_code: float
 
 
@@ -338,7 +343,7 @@ def _fold_for_macro(
     s_y: Tensor,
     mac_per_code: float,
 ) -> _FoldedScales:
-    """Fold the macro's MAC-units-per-code into ``(mult, rshift, bias_int)``."""
+    """Fold the macro's MAC-units-per-code into `(mult, rshift, bias_int)`."""
     w_sum = weight_int.to(torch.int64).sum(dim=tuple(range(1, weight_int.ndim)))
     sx = s_x.to(torch.float64)
     zp = zp_x.to(torch.float64)
@@ -467,7 +472,7 @@ class QuantLinear(nn.Module):
 
 
 def freeze_observers(model: nn.Module) -> int:
-    """Pin every QAT observer in ``model``."""
+    """Pin every QAT observer in `model` and return how many were frozen."""
     n = 0
     for m in model.modules():
         if isinstance(m, PerTensorObserver | PerChannelSymmObserver):
@@ -477,7 +482,7 @@ def freeze_observers(model: nn.Module) -> int:
 
 
 def export_qat_state(model: nn.Module) -> dict[str, dict]:
-    """Walk ``model``, collect ``{qualified_layer_name: layer_state}`` from QAT layers."""
+    """Walk `model`, collect `{qualified_layer_name: layer_state}` from QAT layers."""
     out: dict[str, dict] = {}
     for name, module in model.named_modules():
         if isinstance(module, QATLinear):

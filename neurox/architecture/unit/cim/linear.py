@@ -1,4 +1,4 @@
-"""LinearCimUnit — engine-backed ``F.linear`` replacement.
+"""LinearCimUnit — engine-backed `F.linear` replacement.
 
 See also:
     docs/internals/architecture/unit/cim/linear.md
@@ -15,14 +15,14 @@ from .base import CimUnit, EngineBackedCimUnit, EngineBackedCimUnitConfig, Engin
 
 
 class LinearCimUnitConfig(EngineBackedCimUnitConfig):
-    """Configuration for :class:`LinearCimUnit`; no fields beyond the inherited set."""
+    """Configuration for `LinearCimUnit`."""
 
     def validate(self) -> None:
         super().validate()
 
 
 class LinearCimUnitPolicy(EngineBackedCimUnitPolicy):
-    """Composite policy for :class:`LinearCimUnit`; no fields beyond the inherited set."""
+    """Composite policy for `LinearCimUnit`."""
 
 
 @CimUnit.register_neurox_module(config_type=LinearCimUnitConfig, policy_type=LinearCimUnitPolicy)

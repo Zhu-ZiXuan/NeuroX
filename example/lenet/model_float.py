@@ -1,11 +1,7 @@
 """LeNet-5 architecture for MNIST.
 
-Plain ``nn.Module``; the PT2E quantization flow
-(``torchao.quantization.pt2e``) operates on the exported FX graph.
-
-Input spec:
-    Standard MNIST; the first conv uses ``padding=2`` to recover the classic
-    LeNet-5 32×32 input feature map.
+Plain `nn.Module`, taking standard 28×28 MNIST tensors; the first conv pads by
+2 to recover the classic LeNet-5 32×32 input feature map.
 """
 
 import torch.nn as nn
@@ -13,16 +9,7 @@ from torch import Tensor
 
 
 class LeNet5(nn.Module):
-    """Classic LeNet-5 for MNIST.
-
-    Layer stack:
-        conv1 (1 -> 6, 5×5, pad 2) -> relu -> maxpool 2×2
-        conv2 (6 -> 16, 5×5)       -> relu -> maxpool 2×2
-        flatten
-        fc1 (400 -> 120) -> relu
-        fc2 (120 -> 84)  -> relu
-        fc3 (84  -> num_classes)
-    """
+    """Classic LeNet-5 for MNIST: two conv / pool stages, then three dense layers."""
 
     def __init__(self, num_classes: int = 10) -> None:
         super().__init__()

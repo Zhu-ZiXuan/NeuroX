@@ -7,31 +7,31 @@ scales it by its own compare-phase weights, so the decision ladder is internal.
 Laws only (hand-written witness config; tiny shapes; eager, dynamo disabled):
 
   * the conversion window is DERIVED, not configured, and follows the EXECUTED
-    phases: ``t_conversion(b) == sum(t_phase[:b]) + t_intrinsic[b-1]`` — PH0, the
-    first ``b - 1`` compare phases in full, and the last executed compare phase
-    up to ITS OWN comparator latch; it grows strictly with ``b`` and closes at
-    the nominal ``sum(t_phase[:-1]) + t_intrinsic[-1]`` at full resolution,
+    phases: `t_conversion(b) == sum(t_phase[:b]) + t_intrinsic[b-1]` — PH0, the
+    first `b - 1` compare phases in full, and the last executed compare phase
+    up to ITS OWN comparator latch; it grows strictly with `b` and closes at
+    the nominal `sum(t_phase[:-1]) + t_intrinsic[-1]` at full resolution,
   * PH0 is a construction-time constant (no config field): it shifts every
     conversion by the same current, and an input at or below it reads code 0,
   * the compare phases are a uniform quantizer whose step IS the injected
-    reference: ``code == floor((i_in - i_ph0)+ / i_ref)`` clamped to the 4-bit
+    reference: `code == floor((i_in - i_ph0)+ / i_ref)` clamped to the 4-bit
     ceiling,
   * the reference input is SINGLE-tap — the converter's own circuit fact, stated
     here and nowhere above it, so a deeper tap axis is rejected,
-  * ``config.bits`` bounds the width a conversion may request; bit width is
+  * `config.bits` bounds the width a conversion may request; bit width is
     handled INSIDE the converter, which converts at full resolution and drops
     the code's low bits,
-  * energy is ``E_fixed(b) + E_code(b)`` over the EXECUTED phases, with
-    ``E_code = sum_{p<=b} mirror_scale * v_rail * min(residue_p, 2**(B-p)*i_ref) * t_phase[p]``
+  * energy is `E_fixed(b) + E_code(b)` over the EXECUTED phases, with
+    `E_code = sum_{p<=b} mirror_scale * v_rail * min(residue_p, 2**(B-p)*i_ref) * t_phase[p]`
     over the cumulative-subtraction residue (the latched REFS branches are
     rail-energy-neutral and are NOT billed) and the code-independent baseline
-    prorated by the executed-window ratio, ``E_fixed(b) = E_fixed * T_AC(b) /
-    T_AC(B)``: a zero-residue conversion costs the prorated baseline alone, so
+    prorated by the executed-window ratio, `E_fixed(b) = E_fixed * T_AC(b) /
+    T_AC(B)`: a zero-residue conversion costs the prorated baseline alone, so
     its energy ratio between two resolutions IS the window ratio,
-  * latency is the executed window — reported by ``latency__ns`` for the phase
+  * latency is the executed window — reported by `latency__ns` for the phase
     axis this converter owns,
-  * conversion is deterministic — no jitter is wired, so ``train()`` and
-    ``eval()`` return the same codes.
+  * conversion is deterministic — no jitter is wired, so `train()` and
+    `eval()` return the same codes.
 """
 
 from __future__ import annotations
@@ -138,7 +138,7 @@ def test_surface_and_injected_ph0() -> None:
 
 
 def test_conversion_window_is_derived_from_the_executed_phase_set() -> None:
-    """``T_AC(b) = PH0 + the first b-1 compare phases + the last executed phase's OWN latch delay``."""
+    """`T_AC(b) = PH0 + the first b-1 compare phases + the last executed phase's OWN latch delay`."""
     adc = _build_adc()
     for bits in range(1, _BITS + 1):
         assert float(adc.t_conversion__ns(bits)) == pytest.approx(_window_oracle__ns(bits))
@@ -235,7 +235,7 @@ def test_single_reference_input_at_every_bits() -> None:
     """The converter takes ONE reference current, whatever resolution is requested.
 
     The tap count is this circuit's own fact — it derives the whole ladder from
-    that one current — so a multi-tap bank is rejected at every ``bits``.
+    that one current — so a multi-tap bank is rejected at every `bits`.
     """
     adc = _build_adc()
     i_in = torch.tensor([3.0], dtype=_DTYPE)
@@ -258,11 +258,11 @@ def test_per_instance_reference_broadcasts_over_the_input() -> None:
 
 
 def test_lowered_bits_drop_the_code_low_bits() -> None:
-    """Equivalence law: ``convert(bits=b) == convert(bits=B) >> (B - b)``.
+    """Equivalence law: `convert(bits=b) == convert(bits=B) >> (B - b)`.
 
     The whole ladder stays wired at every width — it is derived from the one
     reference, not from the requested resolution — so a lowered width widens the
-    bin instead of moving the transfer. ``b = 1`` and ``b = B`` are both covered.
+    bin instead of moving the transfer. `b = 1` and `b = B` are both covered.
     """
     adc = _build_adc()
     i_in = torch.linspace(0.0, 10.0, 64, dtype=_DTYPE)
@@ -276,7 +276,7 @@ def test_lowered_bits_drop_the_code_low_bits() -> None:
 
 
 def test_deterministic_in_training_mode() -> None:
-    """No jitter is wired: ``train()`` converts exactly like ``eval()``."""
+    """No jitter is wired: `train()` converts exactly like `eval()`."""
     adc = _build_adc()
     i_in = torch.linspace(0.0, 9.0, 32, dtype=_DTYPE)
     eval_code = adc.convert(i_in, _ref(), bits=_BITS)
@@ -289,7 +289,7 @@ def test_deterministic_in_training_mode() -> None:
 
 
 def test_energy_code_zero_is_exactly_e_fixed_at_full_resolution() -> None:
-    """At full resolution the whole baseline is billed: a zero residue costs ``E_fixed``."""
+    """At full resolution the whole baseline is billed: a zero residue costs `E_fixed`."""
     adc = _build_adc()
     e = _convert_energy(adc, torch.tensor([_I_PH0__uA], dtype=_DTYPE))  # residue 0 -> code 0
     assert e == pytest.approx(_E_FIXED__fJ)
@@ -334,7 +334,7 @@ def test_energy_grows_strictly_with_bits() -> None:
 
 
 def test_reported_latency_is_the_executed_window() -> None:
-    """``latency__ns`` answers for the phase axis this converter owns — one conversion."""
+    """`latency__ns` answers for the phase axis this converter owns — one conversion."""
     adc = _build_adc()
     for bits in range(1, _BITS + 1):
         assert adc.latency__ns(bits=bits) == pytest.approx(_window_oracle__ns(bits))

@@ -17,40 +17,28 @@ from neurox.primitive.analog.current_adc import Iadc, IadcConfig, IadcPolicy
 
 
 class RsCsaIadcConfig(IadcConfig):
-    """Physical knobs for the Reference-Subtracting CSA readout.
-
-    Attributes:
-        bits: Physical resolution [bits] — the phase set holds one compare phase
-            per bit, and it is the finest resolution a conversion may request. It
-            also fixes the compare phases' binary reference weights: phase ``p``
-            (1-based, MSB-first) weighs ``2 ** (bits - p)``, so the reachable
-            decision ladder is the uniform ``c * I_ref`` set for
-            ``c = 1 .. 2 ** bits - 1``. The quantizer is uniform over a binary
-            code space, so no other radix is representable.
-        v_rail__V: Supply rail the comparator input mirror conducts across.
-        t_phase__ns: Phase durations [ns], ``bits + 1`` entries: the
-            compensation phase first, then one compare phase per bit, MSB-first.
-            A conversion at ``b`` bits runs the compensation phase and the first
-            ``b`` compare phases.
-        t_intrinsic__ns: Delay [ns] from a compare phase's start to that phase's
-            comparator output latching, one entry per compare phase (``bits``
-            entries, MSB-first). Entry ``p`` closes compare phase ``p + 1`` of
-            :attr:`t_phase__ns` and fits inside it, so it lies in
-            ``[0, t_phase__ns[p + 1]]``.
-        mirror_scale: Dimensionless comparator-side mirror scale — the fraction
-            of the compared branch current the comparator input mirror draws
-            from ``v_rail__V`` during a compare phase.
-        e_fixed_per_op__fJ: Code-independent per-conversion baseline energy [fJ]
-            over the full-resolution window; a lowered resolution prorates it by
-            the executed-window ratio.
-    """
+    """Physical knobs for the Reference-Subtracting CSA readout."""
 
     bits: int
+    """Physical resolution — one compare phase per bit, and the finest resolution a
+    conversion may request. It also fixes the compare phases' binary reference weights:
+    phase `p` (1-based, MSB-first) weighs `2 ** (bits - p)`, so the reachable decision
+    ladder is the uniform `c * I_ref` set for `c = 1 .. 2 ** bits - 1`."""
     v_rail__V: float
+    """Supply rail the comparator input mirror conducts across."""
     t_phase__ns: tuple[float, ...]
+    """Phase durations, `bits + 1` entries: the compensation phase first, then one
+    compare phase per bit, MSB-first."""
     t_intrinsic__ns: tuple[float, ...]
+    """Delay from a compare phase's start to that phase's comparator output latching, one
+    entry per compare phase, MSB-first. Entry `p` closes compare phase `p + 1` of
+    `t_phase__ns` and fits inside it, so it lies in `[0, t_phase__ns[p + 1]]`."""
     mirror_scale: float
+    """Dimensionless comparator-side mirror scale — the fraction of the compared branch
+    current the comparator input mirror draws from the rail during a compare phase."""
     e_fixed_per_op__fJ: float
+    """Code-independent per-conversion baseline energy over the full-resolution window; a
+    lowered resolution prorates it by the executed-window ratio."""
 
     def validate(self) -> None:
         super().validate()
@@ -106,17 +94,17 @@ class RsCsaIadc(Iadc[RsCsaIadcConfig, RsCsaIadcPolicy]):
     follow the EXECUTED phases; only the code-independent baseline energy is
     apportioned, by the executed-window ratio.
 
-    ``i_ph0_comp__uA`` is supplied by the owner at construction, so this class is
-    built directly rather than through the ``Iadc`` config-policy registry.
+    `i_ph0_comp__uA` is supplied by the owner at construction, so this class is
+    built directly rather than through the `Iadc` config-policy registry.
 
     Args:
-        config: Concrete configuration dataclass.
-        policy: Per-source nonideality flags.
+        config: Quantizer resolution, phase timing and energy knobs.
+        policy: Per-source nonideality flags; this scheme declares none.
         inst_shape: Per-instance fabrication shape.
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature.
-        i_ph0_comp__uA: Static PH0 compensation current [uA] the readout
-            subtracts once per conversion; non-negative.
+        i_ph0_comp__uA: Static PH0 compensation current the readout subtracts once
+            per conversion; non-negative.
     """
 
     # === Functional buffers ===
@@ -147,10 +135,9 @@ class RsCsaIadc(Iadc[RsCsaIadcConfig, RsCsaIadcPolicy]):
         if not (i_ph0_comp__uA >= 0.0):
             raise ValueError(f"require: i_ph0_comp__uA ({i_ph0_comp__uA}) >= 0")
         self._i_ph0_comp__uA = i_ph0_comp__uA
-        # A conversion at ``b`` bits runs the compensation phase and the first
-        # ``b`` compare phases; the window ends at the last EXECUTED compare
-        # phase's comparator latch, which cuts that phase short of its nominal
-        # boundary.
+        # A conversion at `b` bits runs the compensation phase and the first `b`
+        # compare phases; the window ends at the last EXECUTED compare phase's
+        # comparator latch, which cuts that phase short of its nominal boundary.
         self._window__ns = tuple(
             sum(config.t_phase__ns[:b]) + config.t_intrinsic__ns[b - 1] for b in range(1, config.bits + 1)
         )
@@ -192,7 +179,7 @@ class RsCsaIadc(Iadc[RsCsaIadcConfig, RsCsaIadcPolicy]):
 
     @property
     def max_bits(self) -> int:
-        """Physical resolution — the largest ``bits`` a call may request."""
+        """Physical resolution — the largest `bits` a call may request."""
         return self.config.bits
 
     @property
@@ -201,27 +188,26 @@ class RsCsaIadc(Iadc[RsCsaIadcConfig, RsCsaIadcPolicy]):
         return self._i_ph0_comp__uA
 
     def t_conversion__ns(self, bits: int) -> Tensor:
-        """Return the executed conversion window [ns] of a ``bits`` conversion.
+        """Return the executed conversion window of a `bits` conversion.
 
-        The window spans the compensation phase, the first ``bits - 1`` compare
-        phases in full, and the last executed compare phase up to its comparator
-        latch.
+        The window spans the compensation phase, the first `bits - 1` compare phases
+        in full, and the last executed compare phase up to its comparator latch.
 
         Args:
-            bits: Conversion resolution [bits] in ``[1, max_bits]``.
+            bits: Conversion resolution in `[1, max_bits]`.
 
         Returns:
-            Executed conversion window [ns].
-            Shape: ``[]``.
+            Executed conversion window.
+            Shape: `[]`.
 
         Raises:
-            ValueError: ``bits`` is outside ``[1, max_bits]``.
+            ValueError: `bits` is outside `[1, max_bits]`.
         """
         self._check_bits(bits)
         return self._t_conversion__ns[bits - 1]
 
     def unsigned_range(self, bits: int) -> tuple[int, int]:
-        """Unsigned code endpoints at ``bits`` — ``(0, 2 ** bits - 1)``."""
+        """Unsigned code endpoints at `bits` — `(0, 2 ** bits - 1)`."""
         self._check_bits(bits)
         return 0, (1 << bits) - 1
 
@@ -235,36 +221,34 @@ class RsCsaIadc(Iadc[RsCsaIadcConfig, RsCsaIadcPolicy]):
         """Digitise a magnitude current: subtract the static offset, then quantize.
 
         The whole ladder stays wired at every resolution, so a request below
-        ``max_bits`` widens the effective bin to ``2 ** (max_bits - bits)``
-        current steps without moving the transfer: the code is taken at full
-        resolution and its unresolved low bits are dropped, which is exactly what
-        the first ``bits`` compare phases resolve.
+        `max_bits` widens the effective bin to `2 ** (max_bits - bits)` current steps
+        without moving the transfer: the code is taken at full resolution and its
+        unresolved low bits are dropped, which is exactly what the first `bits`
+        compare phases resolve.
 
         Energy and latency follow the EXECUTED phases: the per-phase compare term
-        sums over the first ``bits`` references, the code-independent baseline is
-        prorated by the executed-window ratio, and the window is the one
-        :meth:`t_conversion__ns` reports for ``bits``.
+        sums over the first `bits` references, the code-independent baseline is
+        prorated by the executed-window ratio, and the window is the executed one of
+        `bits`.
 
         Args:
-            i_in__uA: Non-negative magnitude current [uA]. The conversions
-                serialized on one converter are the middle axes, and the instance
-                axes are the last ones, since the energy is billed at this
-                layout.
-                Shape: ``[*caller_leading, *middle, *inst_shape]``.
-            i_refs__uA: The ONE reference current [uA] the compare phases scale,
-                with its leading dims right-broadcasting against ``i_in__uA``. It
-                is this circuit's single reference input, so a deeper tap axis is
-                rejected.
-                Shape: ``[..., 1]``.
-            bits: Conversion resolution [bits] in ``[1, max_bits]``.
+            i_in__uA: Non-negative magnitude current. The conversions serialized on
+                one converter are the middle axes, and the instance axes are the last
+                ones, since the energy is billed at this layout.
+                Shape: `[*caller_leading, *middle, *inst_shape]`.
+            i_refs__uA: The ONE reference current the compare phases scale, with its
+                leading dims right-broadcasting against `i_in__uA`. It is this
+                circuit's single reference input, so a deeper tap axis is rejected.
+                Shape: `[..., 1]`.
+            bits: Conversion resolution in `[1, max_bits]`.
 
         Returns:
-            Unsigned integer code [int16] in ``[0, 2 ** bits - 1]``, one code per
-            ``i_in__uA`` element.
-            Shape: ``[*caller_leading, *middle, *inst_shape]``.
+            Unsigned integer code [int16] in `[0, 2 ** bits - 1]`, one code per
+            `i_in__uA` element.
+            Shape: `[*caller_leading, *middle, *inst_shape]`.
 
         Raises:
-            ValueError: ``i_refs__uA`` carries more than one tap.
+            ValueError: `i_refs__uA` carries more than one tap.
         """
         config = self.config
         max_bits = self.max_bits
@@ -286,7 +270,7 @@ class RsCsaIadc(Iadc[RsCsaIadcConfig, RsCsaIadcPolicy]):
 
         # --- Compare phases: UNIFORM quantize over the self-scaled ladder ---
 
-        # The binary phase weights span the uniform tap set ``c * I_ref``, so the
+        # The binary phase weights span the uniform tap set `c * I_ref`, so the
         # full-resolution code is the number of taps the compensated current
         # clears; a current sitting exactly on a tap clears it. The ladder length
         # bounds the code by 2**max_bits - 1, so no clamp is needed.

@@ -1,7 +1,7 @@
 """SimpleSlicer — positional decomposition into macro-level slices.
 
 See also:
-    docs/reference/architecture/unit/family.md
+    docs/internals/architecture/unit/cim/slicer/simple.md
 """
 
 from __future__ import annotations

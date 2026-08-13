@@ -2,6 +2,7 @@
 
 See also:
     docs/reference/primitive/device/selector.md
+    docs/internals/primitive/device/selector.md
 """
 
 from typing import ClassVar
@@ -14,30 +15,23 @@ from neurox.primitive.nonideality import apply_gaussian
 
 
 class SelectorConfig(ConfigBase):
-    """Immutable configuration for an OTS threshold selector.
-
-    Attributes:
-        vth_nominal__V: Nominal threshold voltage ``V_th`` shared
-            across all cells before mismatch is applied.
-        vth_mismatch__V: Additive Gaussian mismatch on ``V_th``.
-    """
+    """Immutable configuration for an OTS threshold selector."""
 
     vth_nominal__V: float
+    """Threshold voltage shared across all cells before mismatch."""
 
     vth_mismatch__V: float
+    """Standard deviation of the additive Gaussian threshold mismatch."""
 
     def validate(self) -> None:
         self._require_non_neg(self.vth_mismatch__V, "vth_mismatch__V")
 
 
 class SelectorPolicy(PolicyBase):
-    """Per-source toggles selecting which selector nonidealities are active.
-
-    Attributes:
-        vth_mismatch: Apply ``vth_mismatch__V`` per cell at fabricate time.
-    """
+    """Per-source toggles selecting which selector nonidealities are active."""
 
     vth_mismatch: bool
+    """Draw a per-cell threshold offset at fabricate time."""
 
 
 class Selector(ModuleBase[SelectorConfig, SelectorPolicy]):
@@ -81,14 +75,14 @@ class Selector(ModuleBase[SelectorConfig, SelectorPolicy]):
         )
 
     def sample_vth_like(self, reference: Tensor) -> Tensor:
-        """Broadcast the fabricated threshold to ``reference``'s shape.
+        """Broadcast the fabricated threshold to the shape of `reference`.
 
         Args:
-            reference: Tensor whose shape defines the target threshold
-                tensor (typically the cell-voltage tensor).
+            reference: Tensor whose shape the threshold is broadcast to,
+                typically the cell-voltage tensor.
 
         Returns:
-            Threshold voltage tensor [V].
-            Shape: ``[...]``.
+            Per-cell threshold voltage [V].
+            Shape: `[...]`.
         """
         return torch.broadcast_to(self._vth__V, reference.shape)

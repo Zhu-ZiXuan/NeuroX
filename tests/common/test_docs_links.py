@@ -1,14 +1,9 @@
 """Static check for broken intra-repo Markdown links.
 
-Scope: relative links from any ``.md`` file under ``docs/``, the
-top-level ``README.md``, and every ``.md`` under ``example/``.
-External URLs (``http://``, ``https://``, ``mailto:``, ``ftp://``,
-``tel:``) and pure anchor fragments (``#section``) are skipped. Each
-target is resolved against the linking file's directory and asserted
-to exist on disk (file or directory).
-
-Failure mode: print every broken link with source file, line number,
-and resolved target so a single CI run lists all stale references.
+Scope: relative links from any `.md` file under `docs/` or `example/`, plus the top-level `README.md`.
+External URLs and pure anchor fragments are skipped; every other target is resolved against the linking
+file's directory and must exist on disk as a file or directory. A failing run lists every broken link
+with its source file, line number, and resolved target.
 """
 
 from __future__ import annotations
@@ -27,7 +22,7 @@ _SKIP_SCHEMES = ("http://", "https://", "mailto:", "ftp://", "tel:")
 
 
 def _iter_links(md_path: Path) -> list[tuple[int, str]]:
-    """Yield ``(line_number, target)`` for every Markdown link in ``md_path``."""
+    """Every Markdown link in `md_path`, as `(line_number, target)`."""
     out: list[tuple[int, str]] = []
     for ln, line in enumerate(md_path.read_text().splitlines(), start=1):
         out.extend((ln, match.group(1)) for match in _LINK_PATTERN.finditer(line))
@@ -43,7 +38,7 @@ def _is_skippable(target: str) -> bool:
 
 
 def _resolve_target(md_path: Path, target: str) -> Path:
-    """Resolve ``target`` against ``md_path``'s directory, stripping anchors."""
+    """Resolve `target` against `md_path`'s directory, stripping anchors."""
     target_no_anchor = target.split("#", 1)[0]
     if not target_no_anchor:
         return md_path
@@ -52,7 +47,7 @@ def _resolve_target(md_path: Path, target: str) -> Path:
 
 
 def _iter_target_files() -> list[Path]:
-    """Every ``.md`` file in scope, deduplicated and sorted."""
+    """Every `.md` file in scope, deduplicated and sorted."""
     out: set[Path] = set()
     out.update(DOCS_ROOT.rglob("*.md"))
     out.update(EXAMPLE_ROOT.rglob("*.md"))

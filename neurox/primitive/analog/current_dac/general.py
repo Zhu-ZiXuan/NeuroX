@@ -1,7 +1,8 @@
-"""General-purpose LUT current DAC — concrete :class:`Idac` implementation.
+"""General-purpose LUT current DAC — concrete `Idac` implementation.
 
 See also:
     docs/reference/primitive/analog/current_dac/general.md
+    docs/internals/primitive/analog/current_dac/general.md
 """
 
 from __future__ import annotations
@@ -15,21 +16,17 @@ from .base import Idac, IdacConfig, IdacPolicy
 
 
 class GeneralIdacConfig(IdacConfig):
-    """Immutable configuration for :class:`GeneralIdac`.
-
-    Attributes:
-        code_to_signal: Current lookup table indexed by integer code.
-            ``code_to_signal[i]`` is the nominal analog output in [uA]
-            for digital code ``i``. Length equals the number of input
-            codes.
-        drive_thermal__uA: Signal-independent Gaussian output-noise σ added to
-            each output sample after LUT lookup.
-        energy_per_op__fJ: Dynamic energy per conversion operation.
-    """
+    """Immutable configuration for `GeneralIdac`."""
 
     code_to_signal: tuple[float, ...]
+    """Current lookup table indexed by integer code: entry `i` is the nominal
+    analog output [uA] for digital code `i`, and the length fixes the code
+    count."""
     drive_thermal__uA: float
+    """Signal-independent Gaussian output-noise σ added to each output sample
+    after LUT lookup."""
     energy_per_op__fJ: float
+    """Dynamic energy of converting one element, flat across codes."""
 
     def validate(self) -> None:
         super().validate()
@@ -40,13 +37,10 @@ class GeneralIdacConfig(IdacConfig):
 
 
 class GeneralIdacPolicy(IdacPolicy):
-    """Per-source toggles selecting which GeneralIdac nonidealities are active.
-
-    Attributes:
-        drive_thermal: Apply ``drive_thermal__uA`` at convert time.
-    """
+    """Per-source toggles selecting which GeneralIdac nonidealities are active."""
 
     drive_thermal: bool
+    """Apply `drive_thermal__uA` at convert time."""
 
 
 @Idac.register_neurox_module(config_type=GeneralIdacConfig, policy_type=GeneralIdacPolicy)
@@ -103,11 +97,12 @@ class GeneralIdac(Idac[GeneralIdacConfig, GeneralIdacPolicy]):
         """Convert integer digital codes to analog output currents.
 
         Args:
-            code: Integer input codes.
+            code: Integer input codes in `[0, code_max]`.
+                Shape: `[...]`.
 
         Returns:
-            Analog output current [uA], one value per ``code`` element.
-            Shape: ``[...]``.
+            Analog output current [uA], one value per `code` element.
+            Shape: `[...]`.
         """
         signal = apply_gaussian(
             self._code_to_signal[code],

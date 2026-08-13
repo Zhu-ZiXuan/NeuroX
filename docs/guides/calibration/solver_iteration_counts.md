@@ -103,4 +103,4 @@ python -m neurox.tools.calibrate_cell._1t1r \
 
 ---
 
-- **See also**: [DC solvers internals](../../internals/primitive/xbar/solver.md), [calibration hub](./README.md)
+- **See also**: [DC solver internals](../../internals/primitive/xbar/solver/nested.md), [calibration hub](./README.md)

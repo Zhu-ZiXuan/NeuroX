@@ -2,6 +2,7 @@
 
 See also:
     docs/reference/primitive/analog/current_reference.md
+    docs/internals/primitive/analog/current_reference.md
 """
 
 import torch
@@ -13,28 +14,21 @@ from .base import AnalogBase, AnalogConfig, AnalogPolicy
 
 
 class IrefConfig(AnalogConfig):
-    """Immutable configuration for :class:`Iref`.
-
-    Attributes:
-        i_refs__uA: Nominal reference-current taps, 2-D ``[mode][tap]``.
-            Modes have equal length and non-negative values; ordering
-            within a mode is not enforced, because what a mode means is
-            the consumer's knowledge — a decision ladder must ascend, a
-            bank of bias taps need not. A zero tap remains exact under
-            relative tolerance.
-        tolerance_sigma_relative: Relative per-instance initial-accuracy
-            σ [dimensionless], applied multiplicatively at fabricate
-            time; ``0`` leaves the exact nominal taps.
-        area_per_inst__um2: Silicon area per fabricated instance.
-        leakage_per_inst__uW: Static leakage per instance; carries
-            all static power, including the always-on bias network that
-            generates the references.
-    """
+    """Immutable configuration for `Iref`."""
 
     i_refs__uA: tuple[tuple[float, ...], ...]
+    """Nominal reference-current taps, 2-D `[mode][tap]`. Modes have equal
+    length and non-negative values; ordering within a mode is not enforced,
+    because what a mode means is the consumer's knowledge — a decision ladder
+    must ascend, a bank of bias taps need not."""
     tolerance_sigma_relative: float
+    """Relative per-instance initial-accuracy σ [dimensionless], applied
+    multiplicatively at fabricate time; 0 leaves the exact nominal taps, and a
+    zero tap stays exact at any σ."""
     area_per_inst__um2: float
     leakage_per_inst__uW: float
+    """Carries all static power, including the always-on bias network that
+    generates the references."""
 
     @property
     def mode_num(self) -> int:
@@ -69,24 +63,21 @@ class IrefConfig(AnalogConfig):
 
 
 class IrefPolicy(AnalogPolicy):
-    """Per-source toggle selecting whether the Iref tolerance is active.
-
-    Attributes:
-        tolerance: Apply the per-instance initial-accuracy spread
-            ``tolerance_sigma_relative`` at fabricate time.
-    """
+    """Per-source toggle selecting whether the Iref tolerance is active."""
 
     tolerance: bool
+    """Apply the per-instance initial-accuracy spread
+    `tolerance_sigma_relative` at fabricate time."""
 
 
 class Iref(AnalogBase[IrefConfig, IrefPolicy]):
     """Fabricate-only multi-output current reference with static tolerance.
 
-    A pure identity source: one static ``[mode][tap]`` bank per physical
+    A pure identity source: one static `[mode][tap]` bank per physical
     instance, sampled once at fabricate time and read back through
-    :attr:`i_out__uA`. No forward path and no per-call noise — dynamic
-    per-access variation is a consuming driver's own law, not this
-    source's; the source's identity is shared and never resampled.
+    `i_out__uA`. No forward path and no per-call noise — dynamic per-access
+    variation is a consuming driver's own law, not this source's; the source's
+    identity is shared and never resampled.
 
     Args:
         config: Concrete configuration dataclass.
@@ -158,6 +149,6 @@ class Iref(AnalogBase[IrefConfig, IrefPolicy]):
         instance. A consumer selects its mode and broadcasts the result onto
         its own call shape by view; that broadcast, and any per-access
         dynamic noise on top of it, is the consuming driver's concern.
-        Shape: ``[*inst_shape, mode_num, tap_num]``.
+        Shape: `[*inst_shape, mode_num, tap_num]`.
         """
         return self._i_refs__uA

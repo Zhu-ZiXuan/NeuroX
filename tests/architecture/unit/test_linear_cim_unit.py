@@ -40,7 +40,7 @@ _UNIT_POLICY = LinearCimUnitPolicy(
     ),
 )
 
-# ``adc_bits is None`` selects the IdealCimMacro lossless oracle: per-plane
+# `adc_bits is None` selects the IdealCimMacro lossless oracle: per-plane
 # codes are the exact integer partial dots, so the whole unit pipeline must
 # match an int64 CPU matmul oracle bit-exactly.
 _QUANTIZATION_MODE = 0
@@ -128,7 +128,7 @@ def _random_binary(shape: tuple[int, ...]) -> torch.Tensor:
 
 
 def _cpu_int64_linear_oracle(x: torch.Tensor, weight: torch.Tensor) -> torch.Tensor:
-    """Bit-exact int64 reference on CPU: ``x @ W^T`` in F.linear shapes."""
+    """Bit-exact int64 reference on CPU: `x @ W^T` in F.linear shapes."""
     x64 = x.cpu().to(torch.int64)
     w64 = weight.cpu().to(torch.int64)
     return torch.matmul(x64.unsqueeze(-2), w64.transpose(-1, -2)).squeeze(-2)
@@ -176,8 +176,7 @@ def test_linear_matches_int64_cpu_oracle_on_device(
 
 
 def test_linear_lowering_matches_int64_cpu_oracle() -> None:
-    """The protected lowering template (seam 2 -> engine matmul -> seam 3)
-    is the bias-free integer product."""
+    """The protected lowering template is the bias-free integer product."""
     torch.manual_seed(300)
     n, k, m = 13, 20, 8
     unit = _build_unit(_unit_config(), w_logical_shape=(n, k))
@@ -218,8 +217,7 @@ def test_linear_accepts_single_vector_input() -> None:
 
 
 def test_linear_leading_time_axis_transparency() -> None:
-    """A caller-owned leading time axis is a pure broadcast dim: the batched
-    call equals the per-plane calls stacked, plane by plane."""
+    """A caller-owned leading time axis is a pure broadcast dim: the batched call equals the per-plane calls stacked."""
     torch.manual_seed(600)
     n, k, t, b = 13, 20, 16, 3
     unit = _build_unit(_unit_config(), w_logical_shape=(n, k))
@@ -265,8 +263,7 @@ def test_linear_reprogram_without_bias_clears_slot() -> None:
 
 
 def test_linear_lowering_never_includes_bias() -> None:
-    """The bias is added only by ``linear`` after the lowering template; the
-    protected lowering itself stays bias-free."""
+    """The bias is added only by `linear`, after the lowering template."""
     torch.manual_seed(670)
     n, k, m = 13, 20, 8
     unit = _build_unit(_unit_config(), w_logical_shape=(n, k))
@@ -313,8 +310,7 @@ def test_linear_program_rejects_wrong_shape_bias() -> None:
 
 
 def test_linear_phase_accounting_scales_with_input_phase_num() -> None:
-    """The phase accumulator is a ``SerialAccumulator`` billed per arriving
-    per-phase code: P=2 logs exactly twice the accumulate energy of P=1."""
+    """The phase accumulator bills one operation per arriving per-phase code: P=2 logs twice the energy of P=1."""
     torch.manual_seed(700)
     n, k, m = 8, 16, 5
     energies: dict[int, float] = {}

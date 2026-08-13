@@ -16,16 +16,16 @@ def _validate_int_bias(bias: Tensor, *, channels: int) -> Tensor:
     """Validate an integer per-channel bias vector and return it as int64.
 
     Args:
-        bias: Integer bias tensor.
-            Shape: ``[channels]``.
-        channels: Expected number of output channels.
+        bias: Bias values in any integer dtype.
+            Shape: `[channels]`.
+        channels: Output channels the vector must cover.
 
     Returns:
-        ``bias`` cast to ``torch.int64`` (the accumulation domain).
+        `bias` cast to `torch.int64`, the accumulation domain.
 
     Raises:
-        ValueError: ``bias`` has a non-integer dtype, or a shape other than
-            the per-channel vector stated above.
+        ValueError: `bias` has a non-integer dtype, or a shape other than the
+            per-channel vector stated above.
     """
     if bias.dtype.is_floating_point or bias.dtype.is_complex or bias.dtype == torch.bool:
         raise ValueError(f"require: integer bias dtype; got {bias.dtype}")
@@ -38,7 +38,7 @@ class UnitBase(ABC):
     """Base interface for programmed integer operators.
 
     Leading input dimensions pass through unchanged. Optional bias is
-    accumulated in the ``torch.int64`` output domain.
+    accumulated in the `torch.int64` output domain.
     """
 
     # === Programmed state ===
@@ -60,7 +60,7 @@ class UnitBase(ABC):
     @property
     @abstractmethod
     def adc_max_bits(self) -> int | None:
-        """Maximum supported ``adc_bits`` value; ``None`` when the unit never quantizes its output."""
+        """Maximum supported `adc_bits` value; `None` when the unit never quantizes its output."""
         raise NotImplementedError
 
     @abstractmethod
@@ -68,8 +68,8 @@ class UnitBase(ABC):
         """Return the unit's output code expressed in ideal-macro codes.
 
         Args:
-            quantization_mode: Runtime quantization-mode index.
-            adc_bits: Runtime ADC resolution, or ``None`` for the lossless
+            quantization_mode: Index selecting the runtime quantization window.
+            adc_bits: Runtime ADC resolution, or `None` for the lossless
                 oracle.
         """
         raise NotImplementedError
@@ -85,14 +85,14 @@ class UnitBase(ABC):
 
         Args:
             input: Integer activation planes.
-                Shape: ``[..., M, K]``.
-            quantization_mode: Runtime quantization-mode index.
-            adc_bits: Runtime ADC resolution, or ``None`` for the lossless
+                Shape: `[..., M, K]`.
+            quantization_mode: Index selecting the runtime quantization window.
+            adc_bits: Runtime ADC resolution, or `None` for the lossless
                 oracle.
 
         Returns:
             Integer pre-requantize output tensor; leading order preserved.
-            Shape: ``[..., M, N]``.
+            Shape: `[..., M, N]`.
         """
         raise NotImplementedError
 
@@ -101,7 +101,7 @@ class UnitBase(ABC):
 
         Returns:
             Weight matrix in the matmul contraction layout.
-            Shape: ``[..., N, K]``.
+            Shape: `[..., N, K]`.
         """
         return weight
 
@@ -114,11 +114,11 @@ class UnitBase(ABC):
         return output
 
     def _lower_matmul(self, input: Tensor, *, quantization_mode: int, adc_bits: int | None) -> Tensor:
-        """Apply activation lowering, matrix multiplication, and output folding."""
+        """Run one operator call through the unit's matmul contract."""
         planes = self._activation_to_planes(input)
         y = self._matmul(planes, quantization_mode=quantization_mode, adc_bits=adc_bits)
         return self._undo_aggregation(y)
 
     def _program_int_bias(self, bias: Tensor | None, *, channels: int) -> None:
-        """Store the validated int64 bias, or clear it with ``None``."""
+        """Store the validated int64 bias; `None` clears it."""
         self._int_bias = None if bias is None else _validate_int_bias(bias, channels=channels)

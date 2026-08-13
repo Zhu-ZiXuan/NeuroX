@@ -1,6 +1,6 @@
 # State-map calibration
 
-Goal: derive the per-state RRAM conductance ladder `state_to_g_map__uS` so that the 1T1R cell read current is *linear in the state index* under a fixed read bias. This ladder is consumed by [reference/primitive/xbar/array/_1t1r/array](../../reference/primitive/xbar/array/_1t1r/array.md) (`[cim_macro.array_config.cell_config]`). The tool is the offline single-cell CLI `<scheme>/tools/calculate_1t1r_states.py`.
+Goal: derive the per-state RRAM conductance ladder `state_to_g_map__uS` so that the 1T1R cell read current is *linear in the state index* under a fixed read bias. This ladder is consumed by [reference/primitive/xbar/array/1t1r](../../reference/primitive/xbar/array/1t1r.md) (`[cim_macro.array_config.cell_config]`). The tool is the offline single-cell CLI `<scheme>/tools/calculate_1t1r_states.py`.
 
 ## What the tool produces
 
@@ -123,7 +123,7 @@ All output goes through `logger.info(...)` in this order: load notices $\rightar
 
 ---
 
-- **See also**: [XbarArray1t1r reference](../../reference/primitive/xbar/array/_1t1r/array.md) (consumer of `state_to_g_map__uS`)
+- **See also**: [XbarArray1t1r reference](../../reference/primitive/xbar/array/1t1r.md) (consumer of `state_to_g_map__uS`)
 - [RRAM device reference](../../reference/primitive/device/rram.md)
 - [access-NMOS device reference](../../reference/primitive/device/mosfet.md)
 - [module parameter](../../conventions/module_parameter.md)

@@ -1,7 +1,7 @@
 """Dedicated WH-2T1R array — the kernel 1T1R array plus the I_T2 lookup sum.
 
-Geometry follows the solver convention ``[..., col_num, row_num]``: ``col_num``
-bit-line columns carrying the per-column BL input voltages, ``row_num`` word-line
+Geometry follows the solver convention `[..., col_num, row_num]`: `col_num`
+bit-line columns carrying the per-column BL input voltages, `row_num` word-line
 rows of which one is driven per solve. Everything below the lookup — the divider
 solve, the wire ladders, the capacitive billing — is the kernel array's; this
 extension adds the transpose-bitline (TBL) current alone.
@@ -29,7 +29,7 @@ from neurox.primitive.xbar.array import (
 from neurox.primitive.xbar.cell import XbarCell1t1rDcop, XbarCell1t1rSnap
 from neurox.primitive.xbar.solver import ClampDriver, ClampSnap, SolverDcop
 
-# Import triggers the cell's registry registration so ``from_config`` dispatches.
+# Import triggers the cell's registry registration so `from_config` dispatches.
 from .cell import Ye2023Jssc2t1rCell, Ye2023Jssc2t1rCellConfig, Ye2023Jssc2t1rCellSnap
 
 BLSnapT = TypeVar("BLSnapT", bound=ClampSnap)
@@ -37,20 +37,16 @@ SLSnapT = TypeVar("SLSnapT", bound=ClampSnap)
 
 
 class Ye2023Jssc2t1rArrayConfig(XbarArray1t1rConfig):
-    """Physical knobs for the WH-2T1R dedicated array.
-
-    Attributes:
-        weight_radix: Per-plane place values of the weight-bearing planes,
-            LSB-first (index 0 = the least significant plane). Non-empty; every
-            entry a positive int.
-        redundant_radix: Per-plane place values of the non-weight planes, laid
-            out after the weight planes. Every entry a positive int.
-        v_bl_in1__V: BL voltage driven for input bit 1; input bit 0 drives 0 V.
-    """
+    """Physical knobs for the WH-2T1R dedicated array."""
 
     weight_radix: tuple[int, ...]
+    """Per-plane place values of the weight-bearing planes, LSB-first. Non-empty; every
+    entry a positive int."""
     redundant_radix: tuple[int, ...]
+    """Per-plane place values of the non-weight planes, laid out after the weight planes.
+    Every entry a positive int."""
     v_bl_in1__V: float
+    """BL voltage driven for input bit 1; input bit 0 drives 0 V."""
 
     def validate(self) -> None:
         super().validate()
@@ -73,51 +69,45 @@ class Ye2023Jssc2t1rArrayPolicy(XbarArray1t1rPolicy):
 
 @dataclass(frozen=True)
 class Ye2023Jssc2t1rSteadyState(XbarArray1t1rSteadyState):
-    """Kernel steady state plus the summed T2 compute current.
-
-    Attributes:
-        i_tbl__uA: Summed T2 compute current [uA] per leading instance, already
-            reduced over columns and rows.
-            Shape: ``[...]``.
-    """
+    """Kernel steady state plus the summed T2 compute current."""
 
     i_tbl__uA: Tensor
+    """Summed T2 compute current per leading instance, already reduced over columns and rows.
+    Shape: `[...]`.
+    """
 
 
 @dataclass(frozen=True)
 class Ye2023Jssc2t1rChunkMeasure(XbarArray1t1rChunkMeasure):
-    """Kernel chunk measurement plus the chunk's lookup sum.
-
-    Attributes:
-        i_tbl__uA: Place-value-weighted T2 lookup sum, already reduced over
-            columns and rows.
-            Shape: ``[...]``.
-    """
+    """Kernel chunk measurement plus the chunk's lookup sum."""
 
     i_tbl__uA: Tensor
+    """Place-value-weighted T2 lookup sum, already reduced over columns and rows.
+    Shape: `[...]`.
+    """
 
 
 class Ye2023Jssc2t1rArray(XbarArray1t1r):
     """Kernel 1T1R array extended by the WH-2T1R transpose-bitline lookup sum.
 
-    The scan organization is fixed: the BL boundary holds the input pattern
-    while the word lines are scanned one row per solve, so the array is always
-    a :attr:`XbarArray1t1rOperationMode.BL_IN_WL_SCAN` one and its capacitive
-    billing is the kernel's for that mode.
+    The scan organization is fixed: the BL boundary holds the input pattern while
+    the word lines are scanned one row per solve, so the array is always a
+    `XbarArray1t1rOperationMode.BL_IN_WL_SCAN` one and its capacitive billing is
+    the kernel's for that mode.
 
-    The TBL sum is the cell's per-cell T2 current weighted by the place value
-    of its column: which rows contribute and which calibration operating point
-    each cell sits at are the CELL's own reading of its gate drive and its
-    solved ``V_X``, so this array carries no threshold of its own.
+    The TBL sum is the cell's per-cell T2 current weighted by the place value of
+    its column: which rows contribute and which calibration operating point each
+    cell sits at are the CELL's own reading of its gate drive and its solved `V_X`,
+    so this array carries no threshold of its own.
 
     Args:
-        config: WH-2T1R array configuration.
-        policy: WH-2T1R array policy.
+        config: Array knobs, including the per-plane place values.
+        policy: Cell nonideality flags plus the solver chunk knob.
         inst_shape: Per-instance replication shape (prefix only).
         row_num: Number of word-line rows.
         col_num: Number of physical BL columns; divisible by
-            ``len(weight_radix) + len(redundant_radix)``, since the place values
-            are laid out plane-major over equal column groups.
+            `len(weight_radix) + len(redundant_radix)`, since the place values are
+            laid out plane-major over equal column groups.
         v_dd_wl__V: Word-line driver rail.
         v_dd_bl__V: Bit-line driver rail.
         dtype: Tensor dtype for internal buffers.
@@ -191,17 +181,16 @@ class Ye2023Jssc2t1rArray(XbarArray1t1r):
 
         Args:
             v_wl: Analog WL drive [V], one value per cell gate.
-                Shape: ``[..., col_num, row_num]``.
-            bl_driver: BL boundary clamp (structural ``ClampDriver`` role).
-            bl_driver_snap: Per-solve BL clamp snap at the full per-call shape;
-                its ``v_ref__V`` is the ideal BL rest level, which is also the
-                per-column input level the solve drives the branches from.
-            sl_driver: SL boundary clamp (structural ``ClampDriver`` role).
+                Shape: `[..., col_num, row_num]`.
+            bl_driver: BL boundary clamp in the structural `ClampDriver` role.
+            bl_driver_snap: Per-solve BL clamp snap at the full per-call shape; its
+                `v_ref__V` is the ideal BL rest level, which is also the per-column
+                input level the solve drives the branches from.
+            sl_driver: SL boundary clamp in the structural `ClampDriver` role.
             sl_driver_snap: Per-solve SL clamp snap at the full per-call shape.
 
         Returns:
-            :class:`Ye2023Jssc2t1rSteadyState` — the kernel steady state plus
-            the summed T2 current.
+            The kernel steady state plus the summed T2 current.
         """
         steady = super().solve_array(
             v_wl,
@@ -236,18 +225,17 @@ class Ye2023Jssc2t1rArray(XbarArray1t1r):
         """Fold the kernel measurement and add this chunk's I_T2 row sum.
 
         Args:
-            dcop: This chunk's converged solver DCOP; its cell working point
-                carries the ``V_X`` the cell reads its operating point off.
-            cell_snap: This chunk's slice of the per-solve cell snap, carrying
-                the per-cell WL drive.
+            dcop: This chunk's converged solver DCOP; its cell working point carries
+                the `V_X` the cell reads its operating point off.
+            cell_snap: This chunk's slice of the per-solve cell snap, carrying the
+                per-cell WL drive.
             bl_driver_snap: This chunk's slice of the BL clamp snap.
             sl_driver_snap: This chunk's slice of the SL clamp snap.
             _other_operands: The remaining sliced snaps and tensors, which this
                 array's own measurement does not read.
 
         Returns:
-            :class:`Ye2023Jssc2t1rChunkMeasure` carrying the kernel measurement
-            and the chunk's lookup sum.
+            The kernel measurement and the chunk's lookup sum.
         """
         base = super()._measure_chunk(
             dcop=dcop,

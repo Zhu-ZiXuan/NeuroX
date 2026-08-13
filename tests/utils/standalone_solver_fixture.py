@@ -1,22 +1,22 @@
 """Standalone linear solver harness for solver-only tests.
 
 Builds a fully hand-written, fully linear tiny tile: an
-:class:`XbarCell1t1rLinear` cell grid (table-driven chord conductance,
-empty policy), two IDEAL :class:`VoltageDriver` rail clamps
-(``r_out = 0``, so ``solve_clamp`` returns the reference voltage
-exactly), and one dedicated single-tap :class:`Vref` per clamp. Every
+`XbarCell1t1rLinear` cell grid (table-driven chord conductance,
+empty policy), two IDEAL `VoltageDriver` rail clamps
+(`r_out = 0`, so `solve_clamp` returns the reference voltage
+exactly), and one dedicated single-tap `Vref` per clamp. Every
 config value is an explicit in-code witness; no config file is read and
 no nonideality toggle is enabled, so the assembled system is an exactly
 linear resistor network with Dirichlet rail boundaries — a dense KCL
 oracle can reproduce the solver's DCOP to round-off.
 
-Public surface: :func:`build_solver_harness` returns a frozen
-``SolverHarness`` carrying the constructed solver, the programmed cell,
+Public surface: `build_solver_harness` returns a frozen
+`SolverHarness` carrying the constructed solver, the programmed cell,
 the two ideal clamp drivers with their snaps, the two rail link
 resistances, the WL drive, and the oracle inputs (the cell config, the
 programmed state indices, and the resolved rail reference taps). Tests
-call ``harness.solver.solve_dc(**harness.solver_kwargs(), ...)``; the
-per-call cell snap is rebuilt by :meth:`SolverHarness.cell_snapshot`.
+call `harness.solver.solve_dc(**harness.solver_kwargs(), ...)`; the
+per-call cell snap is rebuilt by `SolverHarness.cell_snapshot`.
 """
 
 from __future__ import annotations
@@ -91,7 +91,7 @@ def _ideal_driver_config() -> VoltageDriverConfig:
 
 
 def _single_tap_vref(v_ref__V: float, *, dtype: torch.dtype) -> Vref:
-    """Build one dedicated reference source: the degenerate ``[[v]]`` bank."""
+    """Build one dedicated reference source: the degenerate `[[v]]` bank."""
     return Vref(
         config=VrefConfig(
             v_refs__V=((v_ref__V,),),
@@ -108,7 +108,7 @@ def _single_tap_vref(v_ref__V: float, *, dtype: torch.dtype) -> Vref:
 
 @dataclass(frozen=True)
 class SolverHarness:
-    """All inputs required to call :meth:`Solver.solve_dc` directly.
+    """All inputs required to call `Solver.solve_dc` directly.
 
     Also carries the dense-oracle inputs: the hand-written linear cell
     config, the programmed state-index grid, and the resolved rail
@@ -143,7 +143,7 @@ class SolverHarness:
         )
 
     def solver_kwargs(self) -> dict[str, Any]:
-        """Pack the per-call kwargs for ``solver.solve_dc(...)``.
+        """Pack the per-call kwargs for `solver.solve_dc(...)`.
 
         Includes the cell and the two clamp drivers — the stateless solver
         takes them per call.
@@ -171,23 +171,23 @@ def build_solver_harness(
 ) -> SolverHarness:
     """Construct the standalone linear solver harness.
 
-    The cell grid is ``(col_num, row_num)`` with a leading x-batch of
-    ``X_BATCH``; the programmed state indices alternate over the two
+    The cell grid is `(col_num, row_num)` with a leading x-batch of
+    `X_BATCH`; the programmed state indices alternate over the two
     table states so both table entries are exercised. Both rail clamps
-    are ideal ``VoltageDriver`` instances (``r_out = 0``) whose snaps
+    are ideal `VoltageDriver` instances (`r_out = 0`) whose snaps
     resolve the two hand-built reference taps, so the clamp boundaries
     are exact Dirichlet values and the whole system is linear.
 
     Args:
         solver_config: Nested parallel-rail solver parameters.
-        device: Torch device.
+        device: Device the harness buffers are allocated on.
         dtype: Float dtype for device buffers.
         v_wl_drive__V: Uniform WL drive voltage for the harness call
             (default above the on-threshold: every access device on).
-        col_num: Number of independent columns; a degenerate ``1`` is a
+        col_num: Number of independent columns; a degenerate `1` is a
             legitimate tile.
         row_num: Number of wire-ladder nodes per column; a degenerate
-            ``1`` is a legitimate tile.
+            `1` is a legitimate tile.
     """
     cell_config = _linear_cell_config()
     grid_shape = (col_num, row_num)

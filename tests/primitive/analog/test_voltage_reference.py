@@ -1,8 +1,8 @@
 """Vref: 2-D mode/tap bank and the fabricate-only PPA contract.
 
-``Vref`` is a behavioural reference source: it carries static PPA
-(area + leakage) and a fabricated ``[mode][tap]`` bank read back through
-:attr:`Vref.v_out__V`, but performs no computation, samples no per-call
+`Vref` is a behavioural reference source: it carries static PPA
+(area + leakage) and a fabricated `[mode][tap]` bank read back through
+`Vref.v_out__V`, but performs no computation, samples no per-call
 noise, and emits no dynamic energy or latency. Static tolerance is its only
 nonideality, drawn once at fabricate time. Mode selection and broadcasting
 onto a caller's own shape are the consumer's job, done by plain indexing and
@@ -12,17 +12,17 @@ all-off:
 - 2-D validation on the bank: equal tap lengths and non-negative taps,
   while ordering within a mode is deliberately NOT enforced — what a mode
   means is the consumer's knowledge;
-- ``mode_num`` / ``tap_num`` report the bank geometry;
-- ``v_out__V`` exposes the fabricated bank verbatim at
-  ``[*inst_shape, mode_num, tap_num]``, with the mode axis intact for the
+- `mode_num` / `tap_num` report the bank geometry;
+- `v_out__V` exposes the fabricated bank verbatim at
+  `[*inst_shape, mode_num, tap_num]`, with the mode axis intact for the
   consumer to index;
-- with tolerance off ``v_out__V`` is exactly the nominal bank, is stable
-  across repeated reads, and draws no randomness outside ``fabricate()``;
+- with tolerance off `v_out__V` is exactly the nominal bank, is stable
+  across repeated reads, and draws no randomness outside `fabricate()`;
 - a zero tap stays exactly zero under relative tolerance;
 - the degenerate single-mode single-tap bank broadcasts (by view) onto a
   clamp bank's full call shape;
-- static PPA equals ``per_inst * inst_count`` and is visible to the
-  reporter's static walk, while ``fabricate`` emits zero energy records;
+- static PPA equals `per_inst * inst_count` and is visible to the
+  reporter's static walk, while `fabricate` emits zero energy records;
 - a nested TOML array loads straight into the bank field; a flat TOML
   array (wrong shape for the tap bank) is rejected.
 """
@@ -103,7 +103,7 @@ def test_bank_2d_validation() -> None:
 
 
 def test_mode_tap_counts() -> None:
-    """``mode_num`` / ``tap_num`` report the bank geometry on config and module."""
+    """`mode_num` / `tap_num` report the bank geometry on config and module."""
     ref = _make()
     assert ref.config.mode_num == _MODE_NUM
     assert ref.config.tap_num == _TAP_NUM
@@ -112,7 +112,7 @@ def test_mode_tap_counts() -> None:
 
 
 def test_v_out_exposes_the_fabricated_bank_verbatim() -> None:
-    """``v_out__V`` is the whole ``[mode][tap]`` bank, mode axis intact."""
+    """`v_out__V` is the whole `[mode][tap]` bank, mode axis intact."""
     ref = _make()
     out = ref.v_out__V
     assert out.shape == (_MODE_NUM, _TAP_NUM)
@@ -128,7 +128,7 @@ def test_indexing_a_mode_returns_that_mode_s_taps() -> None:
 
 
 def test_all_off_v_out_is_exactly_nominal_and_draws_nothing_between_reads() -> None:
-    """With tolerance off ``v_out__V`` is bit-exact nominal, repeatable, and consumes no RNG."""
+    """With tolerance off `v_out__V` is bit-exact nominal, repeatable, and consumes no RNG."""
     ref = _make()
     nominal = torch.tensor(_TAPS, dtype=_DTYPE)
 
@@ -141,7 +141,7 @@ def test_all_off_v_out_is_exactly_nominal_and_draws_nothing_between_reads() -> N
 
 
 def test_inst_shape_prefixes_the_bank() -> None:
-    """The fabricated bank carries ``inst_shape`` as a leading prefix."""
+    """The fabricated bank carries `inst_shape` as a leading prefix."""
     ref = _make(inst_shape=(1, 2))
     nominal = torch.tensor(_TAPS, dtype=_DTYPE)
 
@@ -151,7 +151,7 @@ def test_inst_shape_prefixes_the_bank() -> None:
 
 
 def test_single_tap_bank_broadcasts_onto_a_clamp_call_shape() -> None:
-    """The degenerate ``[[v]]`` bank sources one node over a whole clamp bank, by view."""
+    """The degenerate `[[v]]` bank sources one node over a whole clamp bank, by view."""
     v_clamp__V = 0.29
     ref = _make(config=_config(v_refs__V=((v_clamp__V,),)))
     assert ref.mode_num == 1
@@ -176,7 +176,7 @@ def test_zero_tap_stays_exactly_zero_under_relative_tolerance() -> None:
 
 
 def test_static_ppa_and_no_dynamic_events() -> None:
-    """Static PPA scales by ``inst_count``; fabricate emits no dynamic energy events."""
+    """Static PPA scales by `inst_count`; fabricate emits no dynamic energy events."""
     ref = _make(inst_shape=(2,), area=2.0, leakage=0.5)
     stamp_names(ref)
 
@@ -190,7 +190,7 @@ def test_static_ppa_and_no_dynamic_events() -> None:
 
     with Profiler() as p:
         ref.fabricate()
-    assert p.records == []
+    assert p.records == ()
 
 
 def test_toml_nested_array_loads_as_tuple(tmp_path: Path) -> None:

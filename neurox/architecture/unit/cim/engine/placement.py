@@ -1,6 +1,7 @@
 """Geometric placement and scheduling for CIM-engine matrix multiplication.
 
 See also:
+    docs/reference/architecture/unit/cim/engine/placement.md
     docs/internals/architecture/unit/cim/engine/placement.md
 """
 
@@ -46,17 +47,14 @@ def _chunk_pad_along(
 
 
 class PlacementStageConfig(ConfigBase):
-    """Configuration for :class:`PlacementStage`.
-
-    Attributes:
-        contraction_accumulator_config: Tc-axis accumulator configuration.
-    """
+    """Configuration for `PlacementStage`."""
 
     contraction_accumulator_config: AccumulatorConfig
+    """Accumulator folding the Tc axis."""
 
 
 class PlacementStagePolicy(PolicyBase):
-    """Policy for :class:`PlacementStage`."""
+    """Policy for `PlacementStage`."""
 
 
 class PlacementStage(ModuleBase[PlacementStageConfig, PlacementStagePolicy]):
@@ -153,7 +151,7 @@ class PlacementStage(ModuleBase[PlacementStageConfig, PlacementStagePolicy]):
         )
 
     def pack_weight(self, weight: Tensor) -> Tensor:
-        """Pack canonical ``[D, L]`` slots into the macro input axis."""
+        """Pack canonical `[D, L]` slots into the macro input axis."""
         # Shape: [..., Sw, Tc, G, D, L, output_num] -> [..., Sw, Tc, G, D*L, output_num]
         packed = weight.flatten(start_dim=-3, end_dim=-2)
         # Shape: [..., Sw, Tc, G, D*L, output_num] -> [..., Sw, Tc, G, input_num, output_num]
@@ -218,7 +216,7 @@ class PlacementStage(ModuleBase[PlacementStageConfig, PlacementStagePolicy]):
         return self.contraction_accumulator.accumulate(code, dim=-3)
 
     def restore_output(self, code: Tensor) -> Tensor:
-        """Restore balanced ``[D, G, Q]`` blocks to logical output order."""
+        """Restore balanced `[D, G, Q]` blocks to logical output order."""
         # Shape: [..., D, *w_batch, M, G, Q] -> [..., *w_batch, M, D, G, Q]
         code = code.movedim(-(self._w_batch_rank + 4), -3)
         # Shape: [..., *w_batch, M, D, G, Q] -> [..., *w_batch, M, N]

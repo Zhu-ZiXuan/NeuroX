@@ -1,15 +1,4 @@
-"""Tests for the reporter: the one place a module or a record becomes a named row.
-
-A module never knows its own name, so the tree stamps one onto it and a record
-carries that string. The reporter binds one model, walks it once — to collect
-the static rows, and to check every profile-capable module it holds is stamped
-with the name this very walk gives it — and resolves every row against that
-walk. Static rows follow from the walk alone; a dynamic row's name is the
-emitter's stamped name, with a channel appended as the virtual submodule it
-stands for. Anything the walk cannot name is an error, never a synthesized
-label: a subtree is reported by binding a model that holds the emitters, not by
-relabeling the ones it misses.
-"""
+"""Tests for the reporter: the one place a module or a record becomes a named row of the bound model's walk."""
 
 from __future__ import annotations
 
@@ -25,7 +14,7 @@ _LEAKAGE_PER_INST__UW = 0.5
 
 
 class _Leaf(nn.Module, ProfileMixin):
-    """Minimal emitting host: same base order as ``ModuleBase``."""
+    """Minimal emitting host: same base order as `ModuleBase`."""
 
     def __init__(self, *, energy__fJ: float = 0.0, inst_count: int = 1) -> None:
         nn.Module.__init__(self)
@@ -71,7 +60,7 @@ class _Owner(nn.Module):
 
 
 class _Elsewhere(nn.Module):
-    """A second container, naming its child what no ``_Owner`` ever names one."""
+    """A second container, naming its child what no `_Owner` ever names one."""
 
     def __init__(self, leaf: nn.Module) -> None:
         super().__init__()
@@ -82,7 +71,6 @@ class _Elsewhere(nn.Module):
 
 
 def test_a_static_entry_is_named_by_the_walk() -> None:
-    """The walk names each target as it reaches it, and a row is that name plus numbers."""
     owner = _Owner(_Leaf())
     stamp_names(owner)
     (entry,) = Reporter(owner).static_entries
@@ -90,7 +78,7 @@ def test_a_static_entry_is_named_by_the_walk() -> None:
 
 
 def test_the_bound_model_is_its_own_static_row() -> None:
-    """``named_modules`` names a root ``""``; a target root holds that row."""
+    """`named_modules` names a root `""`; a target root holds that row."""
     leaf = _Leaf()
     stamp_names(leaf)
     (entry,) = Reporter(leaf).static_entries
@@ -98,7 +86,6 @@ def test_the_bound_model_is_its_own_static_row() -> None:
 
 
 def test_a_static_entry_scales_the_per_instance_metrics_by_inst_count() -> None:
-    """A row is module-local hardware: per-instance metrics times the instances."""
     owner = _Owner(_Leaf(inst_count=4))
     stamp_names(owner)
     (entry,) = Reporter(owner).static_entries
@@ -107,7 +94,6 @@ def test_a_static_entry_scales_the_per_instance_metrics_by_inst_count() -> None:
 
 
 def test_a_non_target_holds_no_static_row() -> None:
-    """A module counted at its owner is never asked for metrics it does not declare."""
     owner = _Owner(_Leaf())
     owner.shadow = _Untargeted()
     stamp_names(owner)
@@ -115,7 +101,6 @@ def test_a_non_target_holds_no_static_row() -> None:
 
 
 def test_static_entries_keep_the_models_traversal_order() -> None:
-    """Rows read in tree order, so a dump lines up with the model's own structure."""
     owner = _Owner(_Leaf())
     owner.other = _Other()
     stamp_names(owner)
@@ -123,7 +108,6 @@ def test_static_entries_keep_the_models_traversal_order() -> None:
 
 
 def test_static_totals_sum_every_targets_row() -> None:
-    """The totals view loses nothing: it is the rows added up."""
     owner = _Owner(_Leaf(inst_count=2))
     owner.other = _Other(inst_count=3)
     stamp_names(owner)
@@ -133,7 +117,6 @@ def test_static_totals_sum_every_targets_row() -> None:
 
 
 def test_the_static_side_needs_no_profiler() -> None:
-    """Fabrication-time metrics are a property of the tree, not of a measurement."""
     owner = _Owner(_Leaf())
     stamp_names(owner)
     reporter = Reporter(owner)
@@ -145,14 +128,13 @@ def test_the_static_side_needs_no_profiler() -> None:
 
 
 def test_an_unstamped_module_stops_the_reporter_at_construction() -> None:
-    """The walk is where a missing name is caught, well before any record is read."""
     with pytest.raises(ValueError, match="carries no name stamp") as error:
         Reporter(_Owner(_Leaf()))
     assert "stamp_names" in str(error.value)
 
 
 def test_a_stamp_from_another_tree_stops_the_reporter_at_construction() -> None:
-    """A stamp the current walk disagrees with is stale, and a stale name is not a name."""
+    """A stamp the current walk disagrees with is stale, and a stale name is refused."""
     leaf = _Leaf()
     stamp_names(_Owner(leaf))
     with pytest.raises(ValueError, match="stale or belongs to another tree"):
@@ -169,7 +151,6 @@ def test_restamping_against_the_reported_model_clears_the_gate() -> None:
 
 
 def test_an_instance_bound_at_a_second_location_stops_the_reporter() -> None:
-    """The walk keeps duplicate paths, so one instance holding two locations is caught here too."""
     owner = _Owner(_Leaf())
     stamp_names(owner)
     owner.alias = owner.leaf  # bound a second time, after the walk that named the model
@@ -209,7 +190,6 @@ def test_the_bound_models_own_records_key_on_the_empty_name() -> None:
 
 
 def test_a_channel_reads_as_a_virtual_submodule_of_its_emitter() -> None:
-    """A branch its parent bills without a module of its own is one more path segment."""
     leaf = _Leaf(energy__fJ=4.0)
     owner = _Owner(leaf)
     stamp_names(owner)
@@ -221,7 +201,7 @@ def test_a_channel_reads_as_a_virtual_submodule_of_its_emitter() -> None:
 
 
 def test_a_channel_on_the_bound_model_hangs_off_its_empty_name() -> None:
-    """The model is named ``""``, so what it bills itself reads under that empty segment."""
+    """The model is named `""`, so what it bills itself reads under that empty segment."""
     leaf = _Leaf(energy__fJ=4.0)
     stamp_names(leaf)
     with Profiler() as profiler:
@@ -243,7 +223,6 @@ def test_a_channel_of_the_bound_model_never_shadows_a_top_level_child() -> None:
 
 
 def test_distinct_channels_on_one_module_stay_separate_rows() -> None:
-    """One emitter billing several branches per op keeps each branch its own row."""
     leaf = _Leaf(energy__fJ=4.0)
     owner = _Owner(leaf)
     stamp_names(owner)
@@ -309,7 +288,7 @@ def test_a_dotted_channel_is_an_error() -> None:
 
 
 def test_a_channel_colliding_with_a_real_module_is_an_error() -> None:
-    """One namespace: a virtual child may not take a real child's name."""
+    """Real and virtual children share one namespace."""
     leaf = _Leaf(energy__fJ=4.0)
     leaf.sub = nn.Identity()
     owner = _Owner(leaf)
@@ -324,7 +303,6 @@ def test_a_channel_colliding_with_a_real_module_is_an_error() -> None:
 
 
 def test_records_sharing_a_row_name_add_up() -> None:
-    """Grouping is accumulation: repeated calls on one emitter are one row."""
     leaf = _Leaf(energy__fJ=4.0)
     owner = _Owner(leaf)
     stamp_names(owner)
@@ -335,7 +313,6 @@ def test_records_sharing_a_row_name_add_up() -> None:
 
 
 def test_dynamic_entries_merge_by_path_and_lead_with_the_largest() -> None:
-    """One row per path, ordered so a dump opens on what dominates the measurement."""
     small, large = _Leaf(energy__fJ=1.0), _Other(energy__fJ=5.0)
     owner = _Owner(small)
     owner.other = large
@@ -364,7 +341,6 @@ def test_by_group_folds_the_mapped_rows_into_one_figure_each() -> None:
 
 
 def test_by_group_orders_labels_by_first_contribution() -> None:
-    """A grouped dump reads in the order the measurement first reached each label."""
     leaf, other = _Leaf(energy__fJ=4.0), _Other(energy__fJ=5.0)
     owner = _Owner(leaf)
     owner.other = other
@@ -378,7 +354,6 @@ def test_by_group_orders_labels_by_first_contribution() -> None:
 
 
 def test_a_measured_row_the_grouping_misses_is_an_error() -> None:
-    """A grouping that covers part of the measurement would report a total that is not one."""
     leaf, other = _Leaf(energy__fJ=4.0), _Other(energy__fJ=5.0)
     owner = _Owner(leaf)
     owner.other = other
@@ -391,7 +366,7 @@ def test_a_measured_row_the_grouping_misses_is_an_error() -> None:
 
 
 def test_a_grouped_row_no_record_used_contributes_nothing() -> None:
-    """One grouping policy outlives one measurement: the rows it maps need not all be exercised."""
+    """One grouping outlives one measurement: the rows it maps need not all be exercised."""
     leaf = _Leaf(energy__fJ=4.0)
     owner = _Owner(leaf)
     owner.other = _Other(energy__fJ=5.0)
@@ -403,7 +378,6 @@ def test_a_grouped_row_no_record_used_contributes_nothing() -> None:
 
 
 def test_every_view_totals_the_same_measurement() -> None:
-    """No view loses or duplicates a record: they all reduce the same book."""
     leaf, other = _Leaf(energy__fJ=4.0), _Other(energy__fJ=5.0)
     owner = _Owner(leaf)
     owner.other = other
@@ -422,7 +396,7 @@ def test_every_view_totals_the_same_measurement() -> None:
 
 
 def test_a_measurement_that_recorded_nothing_totals_zero() -> None:
-    """An empty book is a valid report, not an empty stack to reduce."""
+    """An empty book is a valid report: zero total, no rows, no error."""
     owner = _Owner(_Leaf())
     stamp_names(owner)
     reporter = Reporter(owner)
@@ -454,7 +428,6 @@ def test_render_dumps_both_tables_in_canonical_units() -> None:
 
 
 def test_render_without_a_profiler_is_the_static_table_alone() -> None:
-    """Static-only inspection needs no measurement to have happened."""
     owner = _Owner(_Leaf())
     stamp_names(owner)
     text = Reporter(owner).render()

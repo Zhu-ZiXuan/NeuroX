@@ -4,9 +4,6 @@ Every wire is a UNIFORM ladder: one lattice link joins each pair of adjacent
 nodes and the same link joins the driver to the node at index 0, so a whole
 rail is described by one scalar conductance. The only distinguished node is
 the ladder's open end at the far index, which has no link onward.
-
-See also:
-    docs/reference/primitive/xbar/solver/nested.md
 """
 
 from __future__ import annotations
@@ -24,20 +21,20 @@ def col_wire_kcl_residual(
 ) -> Tensor:
     """KCL residual at every node of a column-oriented wire.
 
-    The wire runs along ``dim=-1`` and its driver hangs off index 0.
+    The wire runs along `dim=-1` and its driver hangs off index 0.
 
     Args:
         v_node: Wire node voltages [V].
-            Shape: ``[..., col_num, row_num]``.
+            Shape: `[..., col_num, row_num]`.
         v_drive: Drive voltage [V].
-            Shape: ``[..., col_num, 1]``.
+            Shape: `[..., col_num, 1]`.
         segment_g: Conductance of one lattice link [uS].
         i_inject: Cell current drawn at each node [uA].
-            Shape: ``[..., col_num, row_num]``.
+            Shape: `[..., col_num, row_num]`.
 
     Returns:
         KCL residual tensor [uA].
-        Shape: ``[..., col_num, row_num]``.
+        Shape: `[..., col_num, row_num]`.
     """
     dim = -1
     # dv_to_left[k] = v_node[k] - v_node[k-1] for k >= 1; v_node[0] - v_drive at k = 0.
@@ -61,20 +58,20 @@ def row_wire_kcl_residual(
 ) -> Tensor:
     """KCL residual at every node of a row-oriented wire.
 
-    Same structure as :func:`col_wire_kcl_residual` along ``dim=-2``.
+    Same structure as `col_wire_kcl_residual` along `dim=-2`.
 
     Args:
         v_node: Wire node voltages [V].
-            Shape: ``[..., col_num, row_num]``.
+            Shape: `[..., col_num, row_num]`.
         v_drive: Drive voltage [V].
-            Shape: ``[..., 1, row_num]``.
+            Shape: `[..., 1, row_num]`.
         segment_g: Conductance of one lattice link [uS].
         i_inject: Cell current drawn at each node [uA].
-            Shape: ``[..., col_num, row_num]``.
+            Shape: `[..., col_num, row_num]`.
 
     Returns:
         KCL residual tensor [uA].
-        Shape: ``[..., col_num, row_num]``.
+        Shape: `[..., col_num, row_num]`.
     """
     dim = -2
     # Shape: [..., wire_point, row_num]
@@ -96,15 +93,15 @@ def col_driver_current(
 
     Args:
         v_node: Wire node voltages [V].
-            Shape: ``[..., col_num, row_num]``.
+            Shape: `[..., col_num, row_num]`.
         v_drive: Drive voltage [V].
-            Shape: ``[..., col_num, 1]``.
+            Shape: `[..., col_num, 1]`.
         segment_g: Conductance of one lattice link [uS] — the driver reaches
             node 0 through exactly one of them.
 
     Returns:
         Drive current [uA].
-        Shape: ``[..., col_num]``.
+        Shape: `[..., col_num]`.
     """
     dim = -1
     # Shape: [..., col_num, 1] -> [..., col_num]
@@ -120,15 +117,15 @@ def row_driver_current(
 
     Args:
         v_node: Wire node voltages [V].
-            Shape: ``[..., col_num, row_num]``.
+            Shape: `[..., col_num, row_num]`.
         v_drive: Drive voltage [V].
-            Shape: ``[..., 1, row_num]``.
+            Shape: `[..., 1, row_num]`.
         segment_g: Conductance of one lattice link [uS] — the driver reaches
             node 0 through exactly one of them.
 
     Returns:
         Drive current [uA].
-        Shape: ``[..., row_num]``.
+        Shape: `[..., row_num]`.
     """
     dim = -2
     # Shape: [..., 1, row_num] -> [..., row_num]

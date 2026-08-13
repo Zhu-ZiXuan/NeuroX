@@ -1,41 +1,41 @@
 """Eager end-to-end laws for the ye2023jssc WH-2T1R CIM macro.
 
 Covers the whole macro contract on the hand-built analytic witness
-(``_utils.build_config``):
+(`_utils.build_config`):
 
-  * registry dispatch reaches :class:`Ye2023JsscCimMacro` and the ``to_dict`` /
-    ``from_dict`` reflection round trip re-selects the scheme config,
+  * registry dispatch reaches `Ye2023JsscCimMacro` and the `to_dict` /
+    `from_dict` reflection round trip re-selects the scheme config,
   * the logical geometry and the value-domain surface: the weight envelope spans
     the WEIGHT planes only while the PHYSICAL grid also carries the redundant
     (SUBA4) plane,
   * the quantization surface: the declared mode is the only index accepted, the
     rescale factor doubles per dropped bit, and the mapped input codes are the
     identity of an unsigned window,
-  * every bit width rides the ONE injected reference: the code at ``b`` bits
+  * every bit width rides the ONE injected reference: the code at `b` bits
     equals the max-bits code right-shifted by the bit deficit, and only
-    ``adc_bits`` in ``[1, adc_max_bits]`` is accepted (the readout has no
+    `adc_bits` in `[1, adc_max_bits]` is accepted (the readout has no
     lossless oracle),
   * the PH0 compensation is a REQUIRED macro config field the readout is handed
     verbatim; the witness seats it at the model's own all-off floor —
-    ``floor * row_num * sum(weight_radix + redundant_radix)``, the redundant
+    `floor * row_num * sum(weight_radix + redundant_radix)`, the redundant
     plane included — so a zero-input access lands on code 0 exactly,
-  * ``to_ideal()`` publishes the macro's own windows and, driven losslessly,
+  * `to_ideal()` publishes the macro's own windows and, driven losslessly,
     equals the UNSIGNED integer MAC oracle (property self-consistency: the
-    geometric radix ladder matches the scheme's ``weight_radix``),
-  * end-to-end: known weights + 1-bit inputs -> codes trailing ``[output_num]``,
+    geometric radix ladder matches the scheme's `weight_radix`),
+  * end-to-end: known weights + 1-bit inputs -> codes trailing `[output_num]`,
     monotone in the true MAC, and a mid-range input decoding to the MAC,
-  * the LSB-first asymmetric-weight regression: the ``m = 1`` plane and the
-    ``m = 4`` plane decode to DIFFERENT outputs (a reversed digit order swaps
+  * the LSB-first asymmetric-weight regression: the `m = 1` plane and the
+    `m = 4` plane decode to DIFFERENT outputs (a reversed digit order swaps
     them) — an exact expected code list,
   * the scheme models no mismatch / noise / jitter: no scheme config declares a
     sigma, no scheme policy carries a toggle, and decoding is bit-identical in
-    ``train()`` mode,
+    `train()` mode,
   * the Fig.19 energy blocks appear under their exact channel / module names,
-  * the die ensemble (``inst_shape=(die_num,)``) crossed with an input batch: one
-    call over ``x [n_x, 1, row]`` reads every (input, weight) pair bit-exactly as
+  * the die ensemble (`inst_shape=(die_num,)`) crossed with an input batch: one
+    call over `x [n_x, 1, row]` reads every (input, weight) pair bit-exactly as
     the single-die macro does and bills the SUM of those dies' energy per channel.
 
-Runs eagerly (dynamo disabled) so the ``@torch.compile`` solver leaf is not
+Runs eagerly (dynamo disabled) so the `@torch.compile` solver leaf is not
 unrolled.
 """
 
@@ -79,7 +79,7 @@ from ._utils import (
 
 @pytest.fixture(autouse=True)
 def _eager() -> Iterator[None]:
-    """Run eagerly — the solver leaf is ``@torch.compile``; do not unroll it."""
+    """Run eagerly — the solver leaf is `@torch.compile`; do not unroll it."""
     with torch._dynamo.config.patch(disable=True):
         yield
 
@@ -90,7 +90,7 @@ def _eager() -> Iterator[None]:
 
 
 def test_registry_dispatch(device: torch.device) -> None:
-    """``CimMacro.from_config`` dispatch reaches the scheme class."""
+    """`CimMacro.from_config` dispatch reaches the scheme class."""
     macro = CimMacro.from_config(
         config=build_config(),
         policy=build_all_off_policy(),
@@ -104,7 +104,7 @@ def test_registry_dispatch(device: torch.device) -> None:
 
 
 def test_dict_reflection_round_trip() -> None:
-    """``to_dict`` / ``from_dict`` re-selects the scheme config through the family tag."""
+    """`to_dict` / `from_dict` re-selects the scheme config through the family tag."""
     config = build_config()
     restored = CimMacroConfig.from_dict(config.to_dict())
     assert isinstance(restored, Ye2023JsscCimMacroConfig)
@@ -134,7 +134,7 @@ def test_geometry_and_properties(device: torch.device) -> None:
 
 
 def test_physical_grid_includes_the_redundant_plane(device: torch.device) -> None:
-    """The physical column count is ``row_num * (weight planes + redundant planes)``."""
+    """The physical column count is `row_num * (weight planes + redundant planes)`."""
     macro = build_macro(build_config(), device=device)
     phys_col_num = TINY_INPUT_NUM * TINY_PLANE_NUM
     assert macro.array.weight_grid_shape == (phys_col_num, TINY_OUTPUT_NUM)
@@ -168,13 +168,13 @@ def test_only_declared_modes_and_converting_bit_widths_are_accepted(device: torc
 
 
 def test_published_windows_are_the_configured_ones(device: torch.device) -> None:
-    """``quantization_input_ranges`` republishes the config's mode windows in order."""
+    """`quantization_input_ranges` republishes the config's mode windows in order."""
     macro = build_macro(build_config(), device=device)
     assert macro.quantization_input_ranges == tuple(m.quantization_input_range for m in macro.config.modes)
 
 
 def test_rescale_factor_doubles_per_dropped_bit(device: torch.device) -> None:
-    """``r_b = r_B * 2**(B - b)``: one code carries twice as much per bit dropped."""
+    """`r_b = r_B * 2**(B - b)`: one code carries twice as much per bit dropped."""
     macro = build_macro(build_config(), device=device)
     factors = [
         macro.rescale_factor(quantization_mode=QUANTIZATION_MODE, adc_bits=b) for b in range(1, TINY_ADC_BITS + 1)
@@ -190,7 +190,7 @@ def test_rescale_factor_doubles_per_dropped_bit(device: torch.device) -> None:
 def test_quantization_input_code_map_is_the_unsigned_identity(device: torch.device) -> None:
     """The scheme is unsigned: the zero-point map moves no code.
 
-    The published range is the mode's declared ``adc_input_code_range`` — the
+    The published range is the mode's declared `adc_input_code_range` — the
     calibration artifact itself, never a value recomputed from the window.
     """
     macro = build_macro(build_config(), device=device)
@@ -203,7 +203,7 @@ def test_quantization_input_code_map_is_the_unsigned_identity(device: torch.devi
 
 
 def test_lowered_bits_ride_the_shared_ladder(device: torch.device) -> None:
-    """The code at ``b`` bits is the max-bits code right-shifted by the bit deficit.
+    """The code at `b` bits is the max-bits code right-shifted by the bit deficit.
 
     All bit widths ride the ONE injected reference current, from which the
     readout derives its whole max-bits ladder, so lowering the width drops the
@@ -229,7 +229,7 @@ def test_lowered_bits_ride_the_shared_ladder(device: torch.device) -> None:
 
 
 def test_ph0_is_the_configured_seat(device: torch.device) -> None:
-    """The macro hands the readout its own ``i_ph0_comp__uA`` field, unmodified."""
+    """The macro hands the readout its own `i_ph0_comp__uA` field, unmodified."""
     config = build_config()
     macro = build_macro(config, device=device)
     assert macro.rscsa.i_ph0_comp__uA == config.i_ph0_comp__uA
@@ -243,7 +243,7 @@ def test_ph0_is_the_configured_seat(device: torch.device) -> None:
 
 
 def test_ph0_seat_is_required_and_non_negative() -> None:
-    """``i_ph0_comp__uA`` is a required physical field, rejected when negative."""
+    """`i_ph0_comp__uA` is a required physical field, rejected when negative."""
     config = build_config()
     assert "i_ph0_comp__uA" in {field.name for field in dataclasses.fields(config)}
     with pytest.raises(ValueError):
@@ -264,9 +264,9 @@ def test_zero_input_decodes_code_zero(device: torch.device) -> None:
 
 
 def test_to_ideal_lossless_matches_unsigned_oracle(device: torch.device) -> None:
-    """``to_ideal().vec_mat_mul(adc_bits=None)`` equals the UNSIGNED integer MAC.
+    """`to_ideal().vec_mat_mul(adc_bits=None)` equals the UNSIGNED integer MAC.
 
-    Validates that ``to_ideal`` preserves the logical weight contract.
+    Validates that `to_ideal` preserves the logical weight contract.
     """
     macro = build_macro(build_config(), device=device)
     ideal = macro.to_ideal()
@@ -346,7 +346,7 @@ def test_decode_monotone_in_mac(device: torch.device) -> None:
 
 
 def test_lsb_first_asymmetric_weight_regression(device: torch.device) -> None:
-    """The ``m = 1`` plane and the ``m = 4`` plane decode to DIFFERENT outputs.
+    """The `m = 1` plane and the `m = 4` plane decode to DIFFERENT outputs.
 
     Output 0 carries weight 1 (only the m=1 plane, digit 0) and output 1 carries
     weight 4 (only the m=4 plane, digit 2). With a single input high, output 0
@@ -396,7 +396,7 @@ def test_scheme_policies_carry_no_toggles() -> None:
 
 
 def test_decode_is_deterministic_in_training_mode(device: torch.device) -> None:
-    """No conversion jitter is wired: ``train()`` decodes exactly like ``eval()``."""
+    """No conversion jitter is wired: `train()` decodes exactly like `eval()`."""
     macro = build_macro(build_config(), device=device)
     w = torch.tensor(
         [[1, 3], [7, 0], [2, 5], [4, 4]],
@@ -450,7 +450,7 @@ _CROSS_X = (((1, 1),), ((1, 0),), ((0, 1),))  # [batch, 1, in] — the 1 broadca
 def _crossed_run(
     device: torch.device,
 ) -> tuple[Ye2023JsscCimMacro, torch.Tensor, torch.Tensor, tuple[Profiler, Reporter], tuple[Profiler, Reporter]]:
-    """Run one crossed ensemble call and the ``die_num * batch`` single-die runs it stands for.
+    """Run one crossed ensemble call and the `die_num * batch` single-die runs it stands for.
 
     Returns:
         The ensemble macro, its codes, the single-die reference codes, and the

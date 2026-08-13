@@ -1,4 +1,4 @@
-"""Auto-cascading ``fabricate()`` for static manufacturing-variation sampling."""
+"""Auto-cascading `fabricate()` for static manufacturing-variation sampling."""
 
 from __future__ import annotations
 
@@ -9,12 +9,10 @@ import torch.nn as nn
 
 
 class FabricateMixin(ABC):
-    """Add fabrication traversal to an ``nn.Module``.
+    """Add fabrication traversal to an `nn.Module`.
 
-    Host requirements:
-        - Also inherit :class:`torch.nn.Module`.
-        - Implement :meth:`_sample_fabricate_mismatch` for local static state.
-        - Register fabricable children as ``nn.Module`` children.
+    A host must also inherit `torch.nn.Module` and register its fabricable
+    children as `nn.Module` children, which is where the traversal looks.
     """
 
     def __init_subclass__(cls) -> None:

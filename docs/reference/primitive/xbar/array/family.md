@@ -74,5 +74,5 @@ TODO: cite the wire-ladder formulation and the Tellegen energy-accounting basis.
 
 ---
 
-- **Internals**: [1T1R array](../../../../internals/primitive/xbar/array/_1t1r/array.md)
+- **Internals**: [1T1R array](../../../../internals/primitive/xbar/array/1t1r.md)
 - **Configuration**: [config reference](../../../../api/README.md)

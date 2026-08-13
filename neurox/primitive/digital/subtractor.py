@@ -2,6 +2,7 @@
 
 See also:
     docs/reference/primitive/digital/subtractor.md
+    docs/internals/primitive/digital/subtractor.md
 """
 
 import torch
@@ -11,18 +12,15 @@ from .base import DigitalBase, DigitalConfig, DigitalPolicy
 
 
 class SubtractorConfig(DigitalConfig):
-    """Immutable configuration for a Subtractor instance.
-
-    Attributes:
-        bit_width: Nominal output bit width (informational; no wrap is applied).
-        energy_per_op__fJ: Dynamic energy consumed per output element.
-        latency_per_op__ns: Combinational window of one subtract.
-    """
+    """Immutable configuration for a Subtractor instance."""
 
     bit_width: int
+    """Nominal output bit width; sizes the PPA, no wrap is applied."""
 
     energy_per_op__fJ: float
+    """Dynamic energy per output element."""
     latency_per_op__ns: float
+    """Combinational window of one subtract."""
 
     def validate(self) -> None:
         super().validate()
@@ -41,9 +39,9 @@ class Subtractor(DigitalBase[SubtractorConfig]):
     """Element-wise integer subtractor without saturation or wrapping.
 
     Args:
-        config: Subtractor configuration.
-        policy: Digital execution policy.
-        inst_shape: Per-instance fabrication shape.
+        config: Arithmetic width and per-op PPA.
+        policy: Empty digital policy marker.
+        inst_shape: Per-instance fabrication multiplicity.
     """
 
     def __init__(
@@ -64,14 +62,14 @@ class Subtractor(DigitalBase[SubtractorConfig]):
         return self.config.leakage_per_inst__uW
 
     def subtract(self, a: Tensor, b: Tensor) -> Tensor:
-        """Subtract ``b`` from ``a`` element-wise.
+        """Subtract one integer tensor from another element-wise.
 
         Args:
-            a: Minuend tensor.
-            b: Subtrahend tensor (broadcast-compatible with ``a``).
+            a: Minuend.
+            b: Subtrahend, broadcastable to `a`.
 
         Returns:
-            ``y = a - b``.
+            `a - b`, unwrapped and unsaturated.
         """
         y = a - b
         if self._is_dynamic_energy_profile_active():

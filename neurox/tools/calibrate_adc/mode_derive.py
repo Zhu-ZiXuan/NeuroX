@@ -1,25 +1,21 @@
 """CLI: derive the quantization mode set from a per-layer range mapping file.
 
-CLI: ``python -m neurox.tools.calibrate_adc.mode_derive --config <run.toml>
+CLI: `python -m neurox.tools.calibrate_adc.mode_derive --config <run.toml>
 [--output <modes.toml>] [--plot-dir <dir>] [--log-dir <dir>]
-[--log-level INFO]``
+[--log-level INFO]`
 
-Reads the layer-range mapping TOML named by the run config (per-layer
-inclusive design range; see :mod:`._modes` — producing that file, e.g.
-from a training checkpoint's learned range params, is a consumer-side
-step), maps every layer onto the canonical window covering its range,
-partitions the layers by window shape (unsigned / mid-zero), clusters the
-window extents within each group (deterministic 1-D relative-gap
-agglomeration), and enumerates the resulting clusters as the quantization
-mode set. Group enumeration order is fixed: unsigned group first, then
-mid-zero; within a group, clusters ascend by representative extent, and
-the cluster's window is its largest member's — the one covering every
-member. The mode-set TOML (mode tables + ``layer -> quantization_mode``
-mapping) is always logged; ``--output`` writes it via :mod:`._modes`, and
-a cluster plot goes to ``--plot-dir``.
+Reads the layer-range mapping TOML named by the run config, maps every layer
+onto the canonical window covering its range, partitions the layers by window
+shape (unsigned / mid-zero), clusters the window extents within each group by
+deterministic 1-D relative-gap agglomeration, and enumerates the resulting
+clusters as the quantization mode set. Group enumeration order is fixed:
+unsigned group first, then mid-zero; within a group, clusters ascend by
+representative extent, and the cluster's window is its largest member's — the
+one covering every member. The mode-set TOML is always logged; `--output`
+writes it, and a cluster plot goes to `--plot-dir`.
 
-CPU-only by design: the derivation touches a handful of scalars, so the
-tool opts out of ``--device``.
+CPU-only by design: the derivation touches a handful of scalars, so the tool
+opts out of `--device`.
 
 See also:
     docs/guides/calibration/calibrate_adc.md
@@ -47,24 +43,19 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class _ClusterCfg:
-    """``[cluster]`` section: knobs of the per-shape-group 1-D clustering."""
+    """`[cluster]` section: knobs of the per-shape-group 1-D clustering."""
 
     rel_tol: float
     max_modes_per_group: int
 
 
 class ModeDeriveToolConfig(ConfigBase):
-    """Top-level config for :mod:`neurox.tools.calibrate_adc.mode_derive`.
-
-    Attributes:
-        mapping_file: Layer-range mapping TOML (see
-            :func:`~neurox.tools.calibrate_adc._modes.load_layer_ranges`),
-            relative to the tool TOML.
-        cluster: Clustering knobs, applied per window-shape group.
-    """
+    """Top-level config for `neurox.tools.calibrate_adc.mode_derive`."""
 
     mapping_file: Path
+    """Layer-range mapping TOML, relative to the tool TOML."""
     cluster: _ClusterCfg
+    """Clustering knobs, applied per window-shape group."""
 
 
 # --- derivation -------------------------------------------------------------
@@ -72,18 +63,15 @@ class ModeDeriveToolConfig(ConfigBase):
 
 @dataclass(frozen=True)
 class DerivedMode:
-    """One derived quantization mode (a cluster within a window-shape group).
-
-    Attributes:
-        quantization_mode: Enumeration index of the mode.
-        quantization_input_range: The cluster's canonical window — the
-            largest member's, which covers every member.
-        cluster: The clustered window extents backing the mode.
-    """
+    """One derived quantization mode — a cluster within a window-shape group."""
 
     quantization_mode: int
+    """Enumeration index of the mode."""
     quantization_input_range: tuple[int, int]
+    """The cluster's canonical window — the largest member's, which covers
+    every member."""
     cluster: ValueCluster
+    """The clustered window extents backing the mode."""
 
     @property
     def signed(self) -> bool:
@@ -94,16 +82,16 @@ class DerivedMode:
 def _window_extent(window: tuple[int, int]) -> int:
     """Return the extent scalar ordering the windows of one shape group.
 
-    Unsigned ``[0, upper]`` has extent ``upper``, mid-zero ``[-m, m - 1]``
-    extent ``m``. A larger extent covers a smaller one of the same shape,
-    so a cluster sized from its largest member covers the whole cluster.
+    Unsigned `[0, upper]` has extent `upper`, mid-zero `[-m, m - 1]` extent
+    `m`. A larger extent covers a smaller one of the same shape, so a cluster
+    sized from its largest member covers the whole cluster.
     """
     lower, upper = window
     return upper if lower == 0 else -lower
 
 
 def _window_from_extent(extent: int, *, signed: bool) -> tuple[int, int]:
-    """Invert :func:`_window_extent` for one shape group."""
+    """Rebuild one shape group's window from its extent scalar."""
     return (-extent, extent - 1) if signed else (0, extent)
 
 
@@ -116,15 +104,14 @@ def derive_modes(
     """Shape-group split, per-group clustering, and global mode enumeration.
 
     Deterministic: every layer maps onto the canonical window covering its
-    design range and the layers partition by that window's shape; the
-    groups enumerate in the fixed order unsigned first then mid-zero;
-    within a group, members sort by layer name before clustering and the
-    clusters ascend by representative extent (largest member).
-    ``quantization_mode`` indices run over that enumeration. An empty
-    group contributes no mode.
+    design range and the layers partition by that window's shape; the groups
+    enumerate in the fixed order unsigned first then mid-zero; within a group,
+    members sort by layer name before clustering and the clusters ascend by
+    representative extent. `quantization_mode` indices run over that
+    enumeration. An empty group contributes no mode.
 
     Returns:
-        ``(modes, layer_to_mode)`` — every input layer mapped.
+        `(modes, layer_to_mode)`, with every input layer mapped.
     """
     windows = {name: canonical_window(spec) for name, spec in layer_ranges.items()}
     modes: list[DerivedMode] = []

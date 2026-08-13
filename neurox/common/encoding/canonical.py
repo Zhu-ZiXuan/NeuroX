@@ -11,8 +11,8 @@ from .base import Transcoder
 class CanonicalTranscoder(Transcoder):
     """Non-adjacent-form-style canonical signed-digit encoding.
 
-    Each digit lies in ``{-(r-1), ..., r-1}``. At ``r = 2`` this is the
-    non-adjacent form, where no two consecutive positions are non-zero.
+    Each digit lies in `{-(r-1), ..., r-1}`. At `r = 2` this is the non-adjacent
+    form, where no two consecutive positions are non-zero.
     """
 
     def encode(self, x: Tensor, *, dim: int = -1) -> Tensor:
@@ -33,6 +33,6 @@ class CanonicalTranscoder(Transcoder):
 
     @property
     def value_range(self) -> tuple[int, int]:
-        """Symmetric envelope ``[-M, M]``, ``M = Σ_j (r - 1)·r^(D - 1 - 2j)`` over ``j in {0, ..., ceil(D/2) - 1}``."""
+        """Symmetric envelope `[-M, M]`, `M = Σ_j (r - 1)·r^(D - 1 - 2j)` over `j in {0, ..., ceil(D/2) - 1}`."""
         max_abs = sum((self._radix - 1) * (self._radix**power) for power in range(self._digit_count - 1, -1, -2))
         return -max_abs, max_abs

@@ -1,7 +1,7 @@
 """Ye 2023 JSSC WH-2T1R RRAM CIM macro composing the array, readout, and seats.
 
-Exposes an unsigned logical VMM over ``row_num`` inputs and ``col_num`` outputs
-on a transposed, digit-folded physical array read by one time-shared RS-CSA.
+Exposes an unsigned logical VMM over `row_num` inputs and `col_num` outputs on a
+transposed, digit-folded physical array read by one time-shared RS-CSA.
 The macro bills every energy branch its children do not.
 
 See also:
@@ -41,68 +41,32 @@ from .rscsa import RsCsaIadc, RsCsaIadcConfig, RsCsaIadcPolicy
 class Ye2023JsscCimMacroConfig(CimMacroConfig):
     """Configuration for the Ye2023 JSSC WH-2T1R CIM macro.
 
-    Attributes:
-        max_active_num: Simultaneously selected inputs; must equal ``row_num``.
-        array_config: Nested WH-2T1R array config.
-        adc_config: RS-CSA current-ADC config; its ``bits`` is the macro's
-            ``adc_max_bits`` and its phase durations set the access window every
-            conduction branch rides.
-        reference_config: Dedicated RS-CSA reference source — an
-            :class:`~neurox.primitive.analog.Iref` holding the ``[mode][tap]``
-            bank the readout's single reference input reads. The RS-CSA scales
-            that one current by its own compare-phase weights, so the bank is
-            single-tap (``tap_num == 1``) and carries one row per declared mode:
-            the macro NAMES the mode and reads that row from the source's
-            fabricated bank.
-        wl_dac_config: Word-line 1-bit ON/OFF DAC config; one converter seat per
-            word line, whose ``code_to_signal`` states the selected and
-            deselected WL levels and whose per-code energy is the drive event a
-            scanned row costs.
-        bl_dac_config: BL input 1-bit DAC config; one converter seat per physical
-            column, whose ``code_to_signal`` states the IN = 1 and IN = 0 input
-            levels and whose per-code energy is the drive event one held input
-            vector costs.
-        bl_driver_config: Per-column BL input clamp (Thevenin VoltageDriver).
-        sl_driver_config: Per-column SL grounded clamp (VoltageDriver).
-        mux_driver_config: Static-PPA seat for the Mux & Driver block.
-        timing_ctrl_config: Static-PPA seat for the Timing & Mode Ctrl block.
-        i_ph0_comp__uA: PH0 compensation current [uA] the readout subtracts once
-            per conversion — a calibration product, measured as the array's
-            all-off row leakage; non-negative.
-        v_tbl__V: Transpose-bitline clamp voltage [V]; an operating-point datum.
-        v_sl__V: Source-line drive [V].
-        v_dd_core__V: Core supply rail [V]; must equal ``adc_config.v_rail__V``.
-            The readout's own rail: the DL conduction branch is billed across
-            it. It is NOT a driver rail — the two below are.
-        v_dd_bl__V: Bit-line driver rail [V], handed to the array as the supply
-            behind every conduction-path node it bills (BL, X, SL) and carrying
-            the macro's own BL input conduction branch. A separate variable from
-            :attr:`v_dd_core__V` even when numerically equal: what a charge is
-            drawn FROM is the driver's supply, not the block the current ends
-            up in.
-        v_dd_wl__V: Word-line driver rail [V] handed to the array — the supply
-            behind every WL node it bills. Separate
-            from :attr:`v_dd_bl__V` by the same rule: the word line is its own
-            supply domain, driven rail-to-rail while the read path hangs off
-            the bit-line side.
-        e_mux_driver_per_op__fJ: Mux & Driver energy [fJ] per output access.
-        e_timing_ctrl_per_op__fJ: Timing & Ctrl energy [fJ] per output access.
-        modes: Quantization operating points, one per ``quantization_mode``
-            index; at least one. Each carries the canonical MAC-unit window the
-            mode converts, the ADC input code range its converter
-            discriminates, and the rescale factor of a code at
-            ``adc_config.bits``.
+    The design is input-parallel, so `max_active_num` must equal the macro's row
+    count.
     """
 
     # === Device-bearing sub-blocks ===
 
     array_config: Ye2023Jssc2t1rArrayConfig
     adc_config: RsCsaIadcConfig
+    """Its `bits` is the macro's `adc_max_bits`, and its phase durations set the access
+    window every conduction branch rides."""
     reference_config: IrefConfig
+    """Dedicated RS-CSA reference source. The readout scales one current by its own
+    compare-phase weights, so the bank is single-tap and carries one row per declared
+    mode: the macro NAMES the mode and reads that row from the fabricated bank."""
     wl_dac_config: VdacConfig
+    """One 1-bit ON/OFF converter seat per word line; its `code_to_signal` states the
+    selected and deselected WL levels and its per-code energy is the drive event a
+    scanned row costs."""
     bl_dac_config: VdacConfig
+    """One 1-bit converter seat per physical column; its `code_to_signal` states the
+    IN = 1 and IN = 0 input levels and its per-code energy is the drive event one held
+    input vector costs."""
     bl_driver_config: VoltageDriverConfig
+    """Per-column BL input clamp, a Thevenin source."""
     sl_driver_config: VoltageDriverConfig
+    """Per-column SL grounded clamp."""
 
     # === Flat peripheral seats (static PPA only) ===
 
@@ -112,30 +76,44 @@ class Ye2023JsscCimMacroConfig(CimMacroConfig):
     # === Readout calibration ===
 
     i_ph0_comp__uA: float
+    """PH0 compensation current the readout subtracts once per conversion — a calibration
+    product, measured as the array's all-off row leakage; non-negative."""
 
     # === Biases ===
 
     v_tbl__V: float
+    """Transpose-bitline clamp voltage, an operating-point datum."""
     v_sl__V: float
 
     # === Supply rails (separate variables even when numerically equal) ===
 
     v_dd_core__V: float
+    """The readout's own rail, which the DL conduction branch is billed across; it must
+    equal `adc_config.v_rail__V`. It is NOT a driver rail — the two below are."""
     v_dd_bl__V: float
+    """Handed to the array as the supply behind every conduction-path node it bills (BL,
+    X, SL), and carrying the macro's own BL input conduction branch."""
     v_dd_wl__V: float
+    """Handed to the array as the supply behind every WL node it bills; the word line is
+    its own supply domain, driven rail-to-rail while the read path hangs off the
+    bit-line side."""
 
     # === Flat peripheral per-op energies ===
 
     e_mux_driver_per_op__fJ: float
+    """Billed once per output access."""
     e_timing_ctrl_per_op__fJ: float
+    """Billed once per output access."""
 
     # === Quantization operating points ===
 
     modes: tuple[CimMacroMode, ...]
+    """Quantization operating points indexed by `quantization_mode`; at least one, and
+    one per reference row."""
 
     @property
     def w_digit_num(self) -> int:
-        """Weight bit-plane count — ``len(array_config.weight_radix)``."""
+        """Weight bit-plane count — one per weight-radix place value."""
         return len(self.array_config.weight_radix)
 
     @property
@@ -189,19 +167,7 @@ class Ye2023JsscCimMacroConfig(CimMacroConfig):
 
 
 class Ye2023JsscCimMacroPolicy(CimMacroPolicy):
-    """Composite nonideality policy for :class:`Ye2023JsscCimMacro`.
-
-    Attributes:
-        array_policy: WH-2T1R array policy (cell policy + solver chunk knob).
-        adc_policy: RS-CSA current-ADC policy.
-        reference_policy: RS-CSA reference-source policy.
-        wl_dac_policy: Word-line DAC policy.
-        bl_dac_policy: BL input DAC policy.
-        bl_driver_policy: BL clamp policy.
-        sl_driver_policy: SL clamp policy.
-        mux_driver_policy: Mux & Driver static-seat policy.
-        timing_ctrl_policy: Timing & Ctrl static-seat policy.
-    """
+    """Composite nonideality policy — one child policy per owned block."""
 
     array_policy: Ye2023Jssc2t1rArrayPolicy
     adc_policy: RsCsaIadcPolicy
@@ -227,10 +193,10 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
     configured static compensation current at construction.
 
     Args:
-        config: Macro configuration.
-        policy: Macro nonideality policy.
-        input_num: Logical input length, bound to ``row_num`` during construction.
-        output_num: Logical output length, bound to ``col_num`` during construction.
+        config: Sub-block configs, biases, rails and quantization modes.
+        policy: One nonideality policy per owned block.
+        input_num: Logical input length, bound to `row_num` during construction.
+        output_num: Logical output length, bound to `col_num` during construction.
         inst_shape: Per-instance multiplicity prefix.
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature.
@@ -285,14 +251,14 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
     def latency__ns(self, *, adc_bits: int | None) -> float:
         """One VMM — one RS-CSA access window per logical output.
 
-        The single readout is time-shared, so ``col_num`` outputs run
-        sequentially on it; the activation is 1-bit, so no input-bit axis
-        multiplies them. One access is the readout's executed conversion
-        window, which already spans the array solve the phases run over, so
-        the macro multiplies its converter instead of summing its children.
+        The single readout is time-shared, so `col_num` outputs run sequentially on
+        it; the activation is 1-bit, so no input-bit axis multiplies them. One access
+        is the readout's executed conversion window, which already spans the array
+        solve the phases run over, so the macro multiplies its converter instead of
+        summing its children.
 
         Raises:
-            ValueError: ``adc_bits`` is ``None``.
+            ValueError: `adc_bits` is `None`.
         """
         if adc_bits is None:
             raise ValueError("require: adc_bits is an int — the physical readout has no lossless oracle")
@@ -440,14 +406,14 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
 
     @property
     def adc_max_bits(self) -> int:
-        """Maximum ADC resolution [bits] — the RS-CSA's ``bits``."""
+        """Maximum ADC resolution [bits] — the RS-CSA's physical resolution."""
         return self.config.adc_config.bits
 
     def _max_bits_rescale_factor(self, quantization_mode: int) -> float:
-        """Return the configured rescale factor of one mode at :attr:`adc_max_bits`.
+        """Return the configured rescale factor of one mode at `adc_max_bits`.
 
         Args:
-            quantization_mode: Mode index in ``[0, len(config.modes))``.
+            quantization_mode: Mode index in `[0, len(config.modes))`.
         """
         return self.config.modes[self._check_mode(quantization_mode)].max_bits_rescale_factor
 
@@ -460,7 +426,7 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
 
         Args:
             code: Exact integer plane dots.
-            quantization_mode: Mode index in ``[0, len(config.modes))``.
+            quantization_mode: Mode index in `[0, len(config.modes))`.
 
         Returns:
             The offset codes and the mode's declared ADC input code range.
@@ -470,7 +436,7 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
         return mapped, mode.adc_input_code_range
 
     def _check_mode(self, quantization_mode: int) -> int:
-        """Return ``quantization_mode`` after bounding it against the declared modes."""
+        """Return `quantization_mode` after bounding it against the declared modes."""
         mode_num = len(self.config.modes)
         if not (0 <= quantization_mode < mode_num):
             raise ValueError(f"require: quantization_mode ({quantization_mode}) in [0, {mode_num})")
@@ -478,12 +444,12 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
 
     @property
     def t_ac__ns(self) -> Tensor:
-        """Nominal access window T_AC [ns] at :attr:`adc_max_bits`.
+        """Nominal access window T_AC [ns] at `adc_max_bits`.
 
-        The RS-CSA runs the compensation phase plus one compare phase per
-        requested bit, so the window an access actually holds is the executed one
-        of its ``adc_bits``; this property reports the operating point where the
-        readout runs its whole phase set.
+        The RS-CSA runs the compensation phase plus one compare phase per requested
+        bit, so the window an access actually holds is the executed one of its
+        `adc_bits`; this property reports the operating point where the readout runs
+        its whole phase set.
         """
         return self.rscsa.t_conversion__ns(self.adc_max_bits)
 
@@ -492,11 +458,11 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
 
         Args:
             w: Logical weight tensor.
-                Shape: ``[*inst_shape, row_num, col_num]``.
+                Shape: `[*inst_shape, row_num, col_num]`.
 
         Returns:
             State indices.
-            Shape: ``[*inst_shape, phys_col_num, col_num]``.
+            Shape: `[*inst_shape, phys_col_num, col_num]`.
         """
         # Shape: [..., row, col] -> [..., row, col, w_digit_num]
         digits = self._w_encode_lut[w.long()]
@@ -515,9 +481,9 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
         """Encode logical weights and fold the planes into the physical grid.
 
         Args:
-            w: Logical weight tensor; every entry must be representable by a
-                binary selection over ``array_config.weight_radix``.
-                Shape: ``[*inst_shape, row_num, col_num]``.
+            w: Logical weight tensor; every entry must be representable by a binary
+                selection over the array's weight radix.
+                Shape: `[*inst_shape, row_num, col_num]`.
         """
         expected_shape = (*self.inst_shape, self.row_num, self.col_num)
         if tuple(w.shape) != expected_shape:
@@ -528,22 +494,21 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
         """Run one broadcast array solve over the output-serial word lines + RS-CSA.
 
         Args:
-            x: 1-bit activation tensor; entries in :attr:`x_value_range`. The
-                instance axes must be present when ``inst_shape`` is non-empty,
-                and a size-1 instance axis shares one input vector across the
-                whole die ensemble.
-                Shape: ``[..., *inst_shape, row_num]``.
-            quantization_mode: Mode index in ``[0, len(config.modes))``; names
-                the reference row the source selects.
-            adc_bits: RS-CSA resolution [bits] in ``[1, adc_max_bits]``. The
-                whole ladder is always wired; below the maximum the readout drops
-                the code's low bits internally and runs fewer compare phases, so
-                the access window shortens with it. The readout has no lossless
-                oracle, so ``None`` is rejected.
+            x: 1-bit activation tensor; entries in `x_value_range`. The instance axes
+                must be present when `inst_shape` is non-empty, and a size-1 instance
+                axis shares one input vector across the whole die ensemble.
+                Shape: `[..., *inst_shape, row_num]`.
+            quantization_mode: Mode index in `[0, len(config.modes))`; names the
+                reference row the source selects.
+            adc_bits: RS-CSA resolution [bits] in `[1, adc_max_bits]`. The whole
+                ladder is always wired; below the maximum the readout drops the code's
+                low bits internally and runs fewer compare phases, so the access
+                window shortens with it. The readout has no lossless oracle, so `None`
+                is rejected.
 
         Returns:
             Unsigned RS-CSA code tensor.
-            Shape: ``[..., *inst_shape, col_num]``.
+            Shape: `[..., *inst_shape, col_num]`.
         """
         self._check_mode(quantization_mode)
         if adc_bits is None:

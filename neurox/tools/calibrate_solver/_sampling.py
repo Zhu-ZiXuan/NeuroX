@@ -1,7 +1,7 @@
 """Synthetic-workload sampling backend for the solver calibration tools.
 
-Scheme-agnostic: value ranges come from the :class:`CimMacro` base surface,
-while logical dimensions are explicit tool inputs.
+Scheme-agnostic: value ranges come from the `CimMacro` base surface, while
+logical dimensions are explicit tool inputs.
 """
 
 from __future__ import annotations
@@ -23,33 +23,31 @@ from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
 class Distribution:
     """Parsed synthetic-workload distribution.
 
-    ``None``-valued fields mean uniform sampling over the xbar's
-    legal integer range on that axis.
-
-    Attributes:
-        w_values: Allowed per-cell digit values, int64 1-D, or ``None``.
-        w_probs: Normalized probabilities matching ``w_values``,
-            float64 1-D, or ``None``.
-        x_values: Allowed per-row input codes, int64 1-D, or ``None``.
-        x_probs: Normalized probabilities matching ``x_values``,
-            float64 1-D, or ``None``.
-        source: Human-readable provenance — ``"uniform"`` or the TOML path.
+    A `None`-valued field means uniform sampling over the xbar's legal integer
+    range on that axis.
     """
 
     w_values: Tensor | None
+    """Allowed per-cell digit values, int64.
+    Shape: `[value_num]`."""
     w_probs: Tensor | None
+    """Normalized probabilities matching `w_values`, float64.
+    Shape: `[value_num]`."""
     x_values: Tensor | None
+    """Allowed per-row input codes, int64.
+    Shape: `[value_num]`."""
     x_probs: Tensor | None
+    """Normalized probabilities matching `x_values`, float64.
+    Shape: `[value_num]`."""
     source: str
+    """Human-readable provenance — `uniform` or the TOML path."""
 
 
 def load_distribution(path: Path | None, xbar: CimMacro[CimMacroConfig, CimMacroPolicy]) -> Distribution:
     """Load a synthetic-workload distribution TOML.
 
-    ``None`` means fully uniform; a present file may omit ``[w]`` or
-    ``[x]`` to keep that axis uniform.
-
-    Schema::
+    A `None` path means fully uniform; a present file may omit `[w]` or `[x]`
+    to keep that axis uniform. The schema is
 
         [w]
         values = [-1, 0, 1]
@@ -60,17 +58,17 @@ def load_distribution(path: Path | None, xbar: CimMacro[CimMacroConfig, CimMacro
         probs = [0.70, 0.20, 0.08, 0.02]
 
     Args:
-        path: TOML path or ``None``.
-        xbar: Built macro supplying ``w_value_range`` / ``x_value_range`` for
-            value-set validation.
+        path: TOML path, or `None` for uniform sampling.
+        xbar: Built macro supplying the legal value ranges the value sets are
+            validated against.
 
     Returns:
-        Validated, internally-normalised :class:`Distribution`.
+        Validated distribution with internally normalized probabilities.
 
     Raises:
-        ValueError: When a section is malformed (length mismatch,
-            negative probability, all-zero probability, value outside
-            the xbar's legal range, etc.).
+        ValueError: An unknown top-level key, or a malformed section — length
+            mismatch, negative or all-zero probability, a value outside the
+            xbar's legal range.
     """
     if path is None:
         return Distribution(
@@ -103,7 +101,10 @@ def _load_axis(
     key: str,
     legal_range: tuple[int, int],
 ) -> tuple[Tensor | None, Tensor | None]:
-    """Return ``(values_int64, normalized_probs_float64)`` or ``(None, None)``."""
+    """Parse one axis section into `(values_int64, normalized_probs_float64)`.
+
+    An absent section yields `(None, None)`.
+    """
     if key not in raw:
         return None, None
 
@@ -156,19 +157,21 @@ def sample_w(
     device: torch.device,
     generator: torch.Generator | None = None,
 ) -> Iterator[Tensor]:
-    """Yield ``n // batch_w`` batches of logical weight matrices.
+    """Yield `n // batch_w` batches of logical weight matrices.
 
-    ``n`` **must** be a multiple of ``batch_w`` — every yielded tensor
-    carries a fixed leading ``batch_w`` axis to match the xbar's
-    ``inst_shape=(batch_w,)`` contract, so a partial final batch would
-    immediately fail ``xbar.program(w)``'s shape check. Round ``n`` up
-    to the next multiple of ``batch_w`` at the call site if you need
-    "at least N" coverage.
+    `n` must be a multiple of `batch_w`: every yielded tensor carries a fixed
+    leading `batch_w` axis to match the xbar's `inst_shape=(batch_w,)`
+    contract, so a partial final batch fails the `program(w)` shape check. A
+    call site wanting "at least N" coverage rounds `n` up to the next multiple
+    of `batch_w`.
 
     Yields:
-        The leading axis is present only when ``batch_w > 1``; with
-        ``batch_w == 1`` (default) each yielded tensor drops it.
-        Shape: ``[batch_w, input_num, output_num]``.
+        Weight tensor; the leading axis is present only when `batch_w > 1`.
+        Shape: `[batch_w, input_num, output_num]`.
+
+    Raises:
+        ValueError: A non-positive `batch_w`, or an `n` that is not a multiple
+            of it.
     """
     if batch_w <= 0:
         raise ValueError(f"batch_w ({batch_w}) must be > 0")
@@ -210,12 +213,15 @@ def sample_x_batches(
     device: torch.device,
     generator: torch.Generator | None = None,
 ) -> Iterator[Tensor]:
-    """Yield input batches summing to ``n_total`` vectors.
+    """Yield input batches summing to `n_total` vectors.
 
     Yields:
-        Each batch is int64 on ``device``; its leading axis is ``batch_size``
-        except on the last batch, which carries whatever remains of ``n_total``.
-        Shape: ``[batch_size, input_num]``.
+        Int64 batch on `device`; the leading axis is `batch_size` except on the
+        last batch, which carries whatever remains of `n_total`.
+        Shape: `[batch_size, input_num]`.
+
+    Raises:
+        ValueError: A non-positive `batch_size` or a negative `n_total`.
     """
     if batch_size <= 0:
         raise ValueError(f"batch_size ({batch_size}) must be > 0")
@@ -250,7 +256,7 @@ def sample_x_batches(
 
 
 def make_generator(seed: int | None, device: torch.device) -> torch.Generator | None:
-    """Build a deterministic generator on ``device`` when ``seed`` is set."""
+    """Build a deterministic generator on `device`, or `None` for an unset seed."""
     if seed is None:
         return None
     generator = torch.Generator(device=device)

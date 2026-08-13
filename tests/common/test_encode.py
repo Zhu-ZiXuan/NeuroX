@@ -1,4 +1,4 @@
-"""Round-trip and shape-broadcast tests for ``CanonicalTranscoder``."""
+"""Round-trip and shape-broadcast tests for `CanonicalTranscoder`."""
 
 import pytest
 import torch

@@ -14,7 +14,7 @@ from .value import ConfigDict, ConfigValue
 
 
 def _deep_fill_defaults(override: ConfigDict, default: ConfigDict, strict_type: bool) -> ConfigDict:
-    """Fill missing keys in ``override`` from ``default`` recursively."""
+    """Fill missing keys in the override mapping from the default one, recursively."""
     merged = override.copy()
     for k, d_v in default.items():
         if k not in merged:
@@ -35,7 +35,7 @@ def merge_dicts(*dicts: ConfigDict, strict_type: bool = True) -> ConfigDict:
 
     Args:
         dicts: Dicts ordered by descending priority.
-        strict_type: Reject dict/non-dict conflicts when ``True``.
+        strict_type: Reject a dict / non-dict conflict instead of resolving it.
 
     Returns:
         New merged dict; inputs are not modified.
@@ -52,10 +52,10 @@ def merge_dicts(*dicts: ConfigDict, strict_type: bool = True) -> ConfigDict:
 
 
 def _lookup_section(root: ConfigDict, section: str) -> ConfigValue:
-    """Look up ``section`` in ``root``; a dotted name descends nested tables.
+    """Look up one section of a mapping; a dotted name descends nested tables.
 
-    An exact top-level key wins; otherwise the name is split on ``.`` and
-    walked table by table, so ``"a.b.c"`` reaches the ``[a.b.c]`` TOML table.
+    An exact top-level key wins; otherwise the name is split on `.` and walked
+    table by table, so `"a.b.c"` reaches the `[a.b.c]` TOML table.
 
     Raises:
         KeyError: A path segment is absent (or reached inside a non-table).
@@ -74,9 +74,9 @@ def _lookup_section(root: ConfigDict, section: str) -> ConfigValue:
 
 
 def _resolve_fragment_path(rel: str, base_dir: Path) -> Path:
-    """Resolve a ``_neurox_use`` relative path to an existing file.
+    """Resolve a `_neurox_use` relative path to an existing file.
 
-    Suffix-free paths try ``.toml`` then ``.yaml`` / ``.yml``.
+    A suffix-free path tries `.toml`, then `.yaml` / `.yml`.
     """
     candidate = base_dir / rel
     if candidate.exists():
@@ -90,7 +90,7 @@ def _resolve_fragment_path(rel: str, base_dir: Path) -> Path:
 
 
 def _parse_use_ref(ref: ConfigValue, base_dir: Path) -> tuple[Path, str]:
-    """Parse ``"<rel_path>:<section>"`` into ``(absolute_path, section_name)``."""
+    """Parse `"<rel_path>:<section>"` into `(absolute_path, section_name)`."""
     if not isinstance(ref, str):
         raise TypeError(f"{USE_DIRECTIVE} must be a string, got {type(ref).__name__}")
     if ":" not in ref:
@@ -102,7 +102,7 @@ def _parse_use_ref(ref: ConfigValue, base_dir: Path) -> tuple[Path, str]:
 
 
 def _presets_root() -> Path:
-    """Return the installed ``neurox/presets/`` path."""
+    """Return the installed `neurox/presets/` path."""
     import importlib.resources
 
     return Path(str(importlib.resources.files("neurox") / "presets"))
@@ -119,7 +119,7 @@ def _validate_preset_ref_path(rel: str) -> None:
 
 
 def _resolve_preset_fragment_path(rel: str) -> Path:
-    """Resolve a preset-relative path to an existing file under ``neurox/presets/``."""
+    """Resolve a preset-relative path to an existing file under `neurox/presets/`."""
     root = _presets_root()
     candidate = root / rel
     if candidate.is_file():
@@ -133,7 +133,7 @@ def _resolve_preset_fragment_path(rel: str) -> Path:
 
 
 def parse_preset_ref(ref: str) -> tuple[Path, str]:
-    """Parse a preset ``"<rel_path>:<section>"`` anchored at ``neurox/presets/``."""
+    """Parse a preset `"<rel_path>:<section>"` anchored at `neurox/presets/`."""
     if not isinstance(ref, str):
         raise TypeError(f"{USE_PRESET_DIRECTIVE} must be a string, got {type(ref).__name__}")
     if ":" not in ref:
@@ -275,26 +275,26 @@ def _resolve_uses_in_value(
 
 
 def resolve_uses(data: ConfigDict, base_dir: Path) -> ConfigDict:
-    """Expand every ``_neurox_use`` / ``_neurox_use_preset`` directive in ``data``.
+    """Expand every `_neurox_use` / `_neurox_use_preset` directive in a mapping.
 
-    ``_neurox_use = "<rel_path>:<section>"`` resolves the path relative to
-    ``base_dir`` (the directory of the file containing the directive) and
-    pulls the named section from that file (a dotted section name descends
-    nested tables); inline keys override the fragment. ``_neurox_use_preset`` follows the same merge semantics but
-    resolves paths from ``neurox/presets/`` and forbids ``_neurox_use``
-    inside the preset subtree.
+    `_neurox_use = "<rel_path>:<section>"` resolves the path relative to
+    `base_dir` (the directory of the file containing the directive) and pulls
+    the named section from that file (a dotted section name descends nested
+    tables); inline keys override the fragment. `_neurox_use_preset` follows the
+    same merge semantics but resolves paths from `neurox/presets/` and forbids
+    `_neurox_use` inside the preset subtree.
 
     Args:
         data: Loaded dict from a config file (TOML or YAML).
-        base_dir: Directory for resolving relative ``_neurox_use`` paths.
+        base_dir: Directory for resolving relative `_neurox_use` paths.
 
     Returns:
         New dict with every directive expanded.
 
     Raises:
         ValueError: A malformed reference, a resolution cycle, a preset path
-            that is not forward-relative, or a ``_neurox_use`` reached inside
-            a preset subtree.
+            that is not forward-relative, or a `_neurox_use` reached inside a
+            preset subtree.
         FileNotFoundError: A referenced fragment file does not exist.
         KeyError: The referenced section is absent from the target file.
         TypeError: A directive value, or the section it names, is not the
@@ -320,17 +320,17 @@ def load_config_dict(
 ) -> ConfigDict:
     """Load, resolve, merge, and pluck one or more config files into a plain dict.
 
-    Each file is parsed, its ``_neurox_use`` / ``_neurox_use_preset``
-    directives are expanded (relative to that file's own directory), then
-    ``section`` is plucked (if given). The per-file results are merged in
-    descending priority (first wins).
+    Each file is parsed, its `_neurox_use` / `_neurox_use_preset` directives are
+    expanded (relative to that file's own directory), then `section` is plucked
+    (if given). The per-file results are merged in descending priority (first
+    wins).
 
     Args:
         files: Config file paths, ordered by descending priority.
         section: Optional table name to extract from each file; a dotted
             name descends nested tables.
         encoding: YAML text encoding (ignored for TOML).
-        strict_type: Reject dict/non-dict conflicts during merge.
+        strict_type: Reject a dict / non-dict conflict during the merge.
 
     Returns:
         The merged dict, ready for coercion into a dataclass.

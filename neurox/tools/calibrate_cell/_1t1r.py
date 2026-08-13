@@ -1,12 +1,13 @@
-"""Calibrate :class:`XbarCell1t1rDetail`'s access-node condensation count and
-emit the two chip-config fragments derived from one run:
+"""Calibrate the Detail 1T1R cell's access-node condensation count.
 
-  1. the margined ``newton_iter_num`` pick for the Detail cell fragment;
-  2. a :class:`XbarCell1t1rLinearConfig` fragment whose per-(state, WL-level)
-     chord conductance and BL-side drop fraction reproduce the Detail model's
-     branch current and access node at a nominal operating point.
+One run emits two chip-config fragments:
 
-CLI: ``python -m neurox.tools.calibrate_cell._1t1r --help``
+  1. the margined `newton_iter_num` pick for the Detail cell fragment;
+  2. a linearized-cell fragment whose per-(state, WL-level) chord conductance
+     and BL-side drop fraction reproduce the Detail model's branch current and
+     access node at a nominal operating point.
+
+CLI: `python -m neurox.tools.calibrate_cell._1t1r --help`
 """
 
 from __future__ import annotations
@@ -39,55 +40,54 @@ from neurox.tools._plateau import CandidateRow, WorkloadScale, pick_with_plateau
 
 @dataclass(frozen=True)
 class _GridCfg:
-    """``[grid]`` section: terminal-voltage / word-line operating sweep.
-
-    Attributes:
-        v_terminal_min__V: Minimum bit-line / source-line node voltage
-            of the read-voltage sweep.
-        v_terminal_max__V: Maximum bit-line / source-line node voltage.
-        n_terminal: Number of points per terminal axis; the grid is the
-            full ``n_terminal x n_terminal`` ``(v_bl, v_sl)`` outer
-            product (both rails swept independently).
-        v_wl_off__V: Word-line drive for the off state (NMOS cut off).
-        v_wl_on__V: Word-line drive for the on state (NMOS conducting).
-        v_bl_op__V: Nominal bit-line operating voltage the linearized
-            cell's chord conductance and drop fraction are extracted at.
-        v_sl_op__V: Nominal source-line operating voltage for the same
-            extraction.
-    """
+    """`[grid]` section: terminal-voltage / word-line operating sweep."""
 
     v_terminal_min__V: float
+    """Minimum bit-line / source-line node voltage of the read-voltage sweep."""
     v_terminal_max__V: float
+    """Maximum bit-line / source-line node voltage."""
     n_terminal: int
+    """Points per terminal axis; the grid is the full `n_terminal x
+    n_terminal` `(v_bl, v_sl)` outer product, both rails swept
+    independently."""
     v_wl_off__V: float
+    """Word-line drive for the off state, NMOS cut off."""
     v_wl_on__V: float
+    """Word-line drive for the on state, NMOS conducting."""
     v_bl_op__V: float
+    """Nominal bit-line operating voltage the linearized cell's chord
+    conductance and drop fraction are extracted at."""
     v_sl_op__V: float
+    """Nominal source-line operating voltage for the same extraction."""
 
 
 @dataclass(frozen=True)
 class _SweepCfg:
-    """``[sweep]`` section: candidate counts + plateau / guard knobs."""
+    """`[sweep]` section: candidate counts + plateau / guard knobs."""
 
     candidates: list[int]
+    """Condensation counts swept, ascending."""
     ratio_threshold: float
+    """Step-ratio plateau threshold."""
     reltol: float
+    """Relative residual-guard tolerance."""
     margin: int
+    """Added to the plateau pick to form the recommended count."""
 
 
 @dataclass(frozen=True)
 class _RuntimeCfg:
-    """``[runtime]`` section: dtype reproducibility knob."""
+    """`[runtime]` section: dtype reproducibility knob."""
 
     dtype: str
 
 
 class CalibrateCell1t1rConfig(ConfigBase):
-    """Top-level config for :mod:`neurox.tools.calibrate_cell._1t1r`.
+    """Top-level config for `neurox.tools.calibrate_cell._1t1r`.
 
-    ``cell_config`` is the Detail cell fragment under calibration, pulled
-    from any scheme's chip params via ``_neurox_use`` (a dotted section name
-    reaches a nested ``cell_config`` table).
+    `cell_config` is the Detail cell fragment under calibration, pulled from
+    any scheme's chip params via `_neurox_use`; a dotted section name reaches
+    a nested `cell_config` table.
     """
 
     cell_config: XbarCell1t1rDetailConfig
@@ -146,17 +146,17 @@ def build_operating_grid(
 
     The grid is the outer product of:
 
-      * ``v_bl`` over the read-voltage range (``n_terminal`` points),
-      * ``v_sl`` over the same range (``n_terminal`` points),
+      * `v_bl` over the read-voltage range,
+      * `v_sl` over the same range,
       * the word line off and on,
-      * every programmed RRAM state in ``state_to_g_map__uS``.
+      * every programmed RRAM state in `state_to_g_map__uS`.
 
     Returns:
-        ``(v_bl, v_sl, v_wl, state_idx)``, each a flat per-point
-        tensor. ``state_idx`` is a ``long`` tensor of the programmed-state
-        index at each point; the caller programs the cell per distinct state
-        and selects the matching points.
-        Shape: ``[n_terminal**2 * 2 * w_state_num]``.
+        `(v_bl, v_sl, v_wl, state_idx)`, each a flat per-point tensor;
+        `state_idx` carries the programmed-state index at each point, so the
+        caller programs the cell per distinct state and selects the matching
+        points.
+        Shape: `[n_terminal^2 * 2 * w_state_num]`.
     """
     v_axis = torch.linspace(
         grid.v_terminal_min__V,
@@ -190,12 +190,12 @@ def _solve_grid_for_candidate(
 ) -> tuple[Tensor, Tensor, Tensor]:
     """Solve every grid point at one candidate cell, grouped by RRAM state.
 
-    The cell programs one RRAM conductance at a time, so the grid is
-    solved per distinct programmed state and the per-point ``V_X`` /
-    ``cell__uA`` / ``I_cell`` are scattered back into flat tensors aligned
-    with the input grid order.
+    The cell programs one RRAM conductance at a time, so the grid is solved per
+    distinct programmed state.
 
-    Returns ``(v_x, cell_residual__uA, i_cell__uA)`` over the full grid.
+    Returns:
+        `(v_x, cell_residual__uA, i_cell__uA)` scattered back into flat tensors
+        aligned with the input grid order.
     """
     v_x = torch.empty_like(v_bl)
     cell_residual = torch.empty_like(v_bl)
@@ -206,8 +206,8 @@ def _solve_grid_for_candidate(
         if not bool(mask.any()):
             continue
         # Program the whole cell to this RRAM state, then evaluate the
-        # subset of grid points that use it. The cell's ``inst_shape`` is
-        # ``(1,)``; the grid points ride a LEADING axis and the ``col``/``row``
+        # subset of grid points that use it. The cell's `inst_shape` is
+        # `(1,)`; the grid points ride a leading axis and the `col`/`row`
         # trailing pair stays singleton, so every point is its own single cell.
         cell.program(torch.full((1,), s, dtype=torch.long, device=v_bl.device))
         n_pts = int(mask.sum())
@@ -239,12 +239,12 @@ def sweep_newton_iterations(
     device: torch.device,
     dtype: torch.dtype,
 ) -> tuple[list[CandidateRow], WorkloadScale]:
-    """Run the cell at each candidate ``newton_iter_num`` and collect step + residual.
+    """Run the cell at each candidate `newton_iter_num`, collecting step + residual.
 
-    The cell has one internal unknown per grid point (``V_X``), so the
-    step-delta is a point-wise comparison reduced to its grid maximum. The
-    residual is the absolute internal-KCL mismatch ``|I_NMOS - I_RRAM|``
-    on the cell DCOP (``residuals.cell__uA``), reduced to its grid maximum.
+    The cell has one internal unknown per grid point, `V_X`, so the step delta
+    is a point-wise comparison reduced to its grid maximum. The residual is the
+    absolute internal-KCL mismatch `|I_NMOS - I_RRAM|` on the cell DCOP,
+    reduced the same way.
     """
     v_bl, v_sl, v_wl, state_idx = build_operating_grid(cell_config, grid, device=device, dtype=dtype)
     n_states = len(cell_config.state_to_g_map__uS)
@@ -291,7 +291,7 @@ def sweep_newton_iterations(
 # ---------------------------------------------------------------------------
 
 _VX_RATIO_TOL = 1e-9
-"""Tolerance for clamping fp excursions of ``vx_ratio`` just outside [0, 1]."""
+"""Tolerance for clamping fp excursions of `vx_ratio` just outside [0, 1]."""
 
 
 def _chord_params(
@@ -302,13 +302,16 @@ def _chord_params(
     v_sl_op__V: float,
     label: str,
 ) -> tuple[float, float]:
-    """``(g_cell__uS, vx_ratio)`` of one converged Detail branch at the OP.
+    """`(g_cell__uS, vx_ratio)` of one converged Detail branch at the OP.
 
-    Both quantities put the fixed read span ``v_bl_op - v_sl_op`` in the
+    Both quantities put the fixed read span `v_bl_op - v_sl_op` in the
     denominator, so a cut-off branch stays well-conditioned: its chord
-    conductance is its honest (possibly zero) leakage value. ``vx_ratio``
-    is clamped into ``[0, 1]`` only for tiny fp excursions (logged); a
-    gross excursion or a non-finite value raises.
+    conductance is its honest, possibly zero, leakage value. `vx_ratio` is
+    clamped into `[0, 1]` for tiny fp excursions only, and the clamp is logged.
+
+    Raises:
+        ValueError: A non-finite chord param, or a `vx_ratio` grossly outside
+            `[0, 1]`.
     """
     span__V = v_bl_op__V - v_sl_op__V
     g_cell__uS = i__uA / span__V
@@ -336,18 +339,13 @@ def extract_linear_cell_config(
 ) -> XbarCell1t1rLinearConfig:
     """Extract the linearized-cell config from the Detail model at one OP.
 
-    Solves the noise-off Detail cell exactly at ``(v_bl_op__V, v_sl_op__V)``
-    for every programmed state at both WL levels, and converts each converged
-    branch ``(I, V_X)`` into the divider pair
-
-    ``g_cell = I / (v_bl_op - v_sl_op)``,
-    ``vx_ratio = (v_bl_op - V_X) / (v_bl_op - v_sl_op)``,
-
-    so the linear branch reproduces the Detail branch current and access
-    node at the operating point. The fixed read span in both denominators
-    keeps cut-off branches well-conditioned: their chord conductance is the
-    honest (possibly zero) leakage value. The WL on/off threshold is the
-    midpoint of the two WL levels.
+    Solves the noise-off Detail cell exactly at `(v_bl_op__V, v_sl_op__V)` for
+    every programmed state at both WL levels, and converts each converged
+    branch `(I, V_X)` into the divider pair
+    `g_cell = I / (v_bl_op - v_sl_op)` and
+    `vx_ratio = (v_bl_op - V_X) / (v_bl_op - v_sl_op)`, so the linear branch
+    reproduces the Detail branch current and access node at the operating
+    point. The WL on/off threshold is the midpoint of the two WL levels.
 
     Args:
         cell_config: Detail cell fragment under calibration.
@@ -358,10 +356,10 @@ def extract_linear_cell_config(
         device: Torch device for the solves.
         dtype: Tensor dtype for the solves.
         newton_iter_num: Condensation count override for the extraction solves;
-            ``None`` keeps ``cell_config.newton_iter_num``.
+            `None` keeps the count of `cell_config`.
 
     Returns:
-        A validated, buildable :class:`XbarCell1t1rLinearConfig`.
+        A validated, buildable linearized-cell config.
     """
     count = cell_config.newton_iter_num if newton_iter_num is None else newton_iter_num
     cell = _build_cell(cell_config, newton_iter_num=count, device=device, dtype=dtype)
@@ -410,7 +408,7 @@ _FRAGMENT_SECTION = "cell_config"
 
 
 def newton_iter_num_fragment_text(newton_iter_num: int) -> str:
-    """The Detail ``newton_iter_num`` fragment as TOML text (header comment + table)."""
+    """The Detail `newton_iter_num` fragment as TOML text: header comment + table."""
     header = (
         "# Detail-cell newton_iter_num pick emitted by neurox.tools.calibrate_cell\n"
         "# (step-ratio plateau + margin). Merge into the scheme's Detail cell\n"
@@ -425,7 +423,7 @@ def linear_fragment_text(
     v_bl_op__V: float,
     v_sl_op__V: float,
 ) -> str:
-    """The linearized-cell fragment as TOML text (header comment + table)."""
+    """The linearized-cell fragment as TOML text: header comment + table."""
     header = (
         "# Linearized 1T1R cell fragment emitted by neurox.tools.calibrate_cell.\n"
         "# Per-state chord conductance g_cell = I / (v_bl - v_sl) and BL-side\n"

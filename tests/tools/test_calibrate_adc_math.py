@@ -1,7 +1,7 @@
-"""Unit tests for the pure logic in :mod:`neurox.tools.calibrate_adc`.
+"""Unit tests for the pure logic in `neurox.tools.calibrate_adc`.
 
-Covers :mod:`._math`, the :mod:`._modes` file formats, the
-:mod:`.mode_derive` derivation, and the emitted config fragments.
+Covers `._math`, the `._modes` file formats, the
+`.mode_derive` derivation, and the emitted config fragments.
 Synthetic-data tests only — no macro building, no probed runs.
 """
 
@@ -395,7 +395,7 @@ class TestStimulusCeilBlocking:
         assert tuple(w.shape) == (self._COL, 1, self._ROW)
 
     def test_grid_block_w_divisible_leading_count(self) -> None:
-        """At a divisible geometry every full block programs exactly ``count`` leading cells."""
+        """At a divisible geometry every full block programs exactly `count` leading cells."""
         col_num, row_num, active = 3, 12, 4  # 12 % 4 == 0, 3 phases
         w = grid_block_w(col_num=col_num, row_num=row_num, active_row_num=active, m_max=active, col_stride=1)
         blocks = w.reshape(col_num, row_num // active, active)

@@ -2,30 +2,30 @@
 
 The column MUX is a MACRO axis. The array holds every physical column and
 settles all of them in ONE solve per WL plane, while the macro keeps the
-``[..., sweep, gn, polarity, w_digit]`` seat layout its transcode, readout,
+`[..., sweep, gn, polarity, w_digit]` seat layout its transcode, readout,
 billing, and latency speak. That is only sound because the physical columns are
-independent BL/SL ladders, so serializing them into ``mux_factor`` slots and
+independent BL/SL ladders, so serializing them into `mux_factor` slots and
 solving them together must produce the SAME numbers — which is what this file
 executes rather than assumes:
 
-  * TWIN LAW (the gate): a macro at ``mux_factor = S`` and ``S`` twin macros at
-    ``mux_factor = 1``, each holding one slot's logical columns, reach the same
+  * TWIN LAW (the gate): a macro at `mux_factor = S` and `S` twin macros at
+    `mux_factor = 1`, each holding one slot's logical columns, reach the same
     converged operating point BIT-EXACTLY, column for column, on every solved
     quantity (both rail node profiles, the cell working point, both port
     states). The slot's columns are addressed through the macro's own slot map,
     so the comparison also executes the seat-to-physical scatter that
-    ``program`` performs: a misplaced digit or a mis-scattered seat moves cells
+    `program` performs: a misplaced digit or a mis-scattered seat moves cells
     between physical columns and the per-column match breaks.
   * CODE TWIN: the same commutation end to end — the big macro's logical output
-    column ``io * S + s`` equals the twin macro's column ``io``, so program,
+    column `io * S + s` equals the twin macro's column `io`, so program,
     solve, readout, and code assembly all commute with the serialization.
-  * PLACEMENT LAW: the slot map is the documented bijection ``phys_col =
-    ((slot * gn + io) * polarity + pol) * w_digit + digit``, and the two macro
-    conversions ``_seat_to_phys`` / ``_phys_to_seat`` are mutual inverses on
+  * PLACEMENT LAW: the slot map is the documented bijection `phys_col =
+    ((slot * gn + io) * polarity + pol) * w_digit + digit`, and the two macro
+    conversions `_seat_to_phys` / `_phys_to_seat` are mutual inverses on
     both the program layout (a trailing row axis) and the readout layout (a
     trailing column axis).
-  * ENCODER LAW: ``program`` writes LSB-first magnitude digits into the
-    ``(PWG, NWG)`` polarity pair at those physical columns. This one is checked
+  * ENCODER LAW: `program` writes LSB-first magnitude digits into the
+    `(PWG, NWG)` polarity pair at those physical columns. This one is checked
     against an oracle built outside the macro, because the twin comparisons
     above cannot see it: both twin sides run the SAME encoder, so any
     permutation of the encoder's own axes (digit order, polarity order) cancels
@@ -34,12 +34,12 @@ executes rather than assumes:
     at a fixed logical geometry — the WL ladder bills once per solve inside the
     kernel mode function, so no per-slot WL billing can creep back in.
   * TRUE-SHAPE LAW: the macro fabricates its cablc / sl_driver clamp banks at
-    ``(gn, 2, w_digit)`` and its dswct / sinwp_sc / pn_isub readout modules at
-    ``(gn, 2)`` / ``(gn, 2)`` / ``(gn,)``, all derived from the config (no magic
+    `(gn, 2, w_digit)` and its dswct / sinwp_sc / pn_isub readout modules at
+    `(gn, 2)` / `(gn, 2)` / `(gn,)`, all derived from the config (no magic
     numbers) and prefix-safe under a fabrication prefix, while the array seats
     every physical column.
 
-Runs eagerly (dynamo disabled) so the ``@torch.compile`` solver leaf is not
+Runs eagerly (dynamo disabled) so the `@torch.compile` solver leaf is not
 unrolled.
 """
 
@@ -79,7 +79,7 @@ _EXACT = {"rtol": 0.0, "atol": 0.0}
 
 @pytest.fixture(autouse=True)
 def _eager() -> Iterator[None]:
-    """Run eagerly — the solver leaf is ``@torch.compile``; do not unroll it."""
+    """Run eagerly — the solver leaf is `@torch.compile`; do not unroll it."""
     with torch._dynamo.config.patch(disable=True):
         yield
 
@@ -104,10 +104,10 @@ def _twin_pair(
 ) -> tuple[Xue2020JsscCimMacro, list[Xue2020JsscCimMacro], Tensor]:
     """Build the serialized macro, its per-slot twins, and the weight they share.
 
-    The twins are the same macro at ``mux_factor = 1`` over ``gn`` logical
+    The twins are the same macro at `mux_factor = 1` over `gn` logical
     columns — one column-MUX slot's worth of hardware, with no slot axis left to
-    serialize. Slot ``s`` holds the big macro's logical columns ``s::mux_factor``
-    (the placement law ``col = io * mux_factor + slot``), and both sides share
+    serialize. Slot `s` holds the big macro's logical columns `s::mux_factor`
+    (the placement law `col = io * mux_factor + slot`), and both sides share
     one calibrated ladder so the codes are comparable.
     """
     gn = output_num // mux_factor
@@ -144,10 +144,10 @@ def _solve_dcop(macro: Xue2020JsscCimMacro, x: Tensor) -> SolverDcop[XbarCellDco
 def test_serialization_commutes_with_the_flattened_solve(device: torch.device) -> None:
     """One full-array solve equals the per-slot solves, column for column, bit-exactly.
 
-    The big macro settles all ``mux_factor * gn * 2 * w_digit`` physical columns
+    The big macro settles all `mux_factor * gn * 2 * w_digit` physical columns
     in one solve; each twin settles exactly one slot's columns. Reading the big
     macro's converged state at the physical columns its own slot map assigns to
-    slot ``s`` must reproduce the twin's state exactly — on both rail node
+    slot `s` must reproduce the twin's state exactly — on both rail node
     profiles, on the cell working point, and on both port states.
     """
     mux_factor = 2
@@ -184,7 +184,7 @@ def test_serialization_commutes_with_the_flattened_solve(device: torch.device) -
 
 
 def test_vec_mat_mul_commutes_with_serialization(device: torch.device) -> None:
-    """End to end: the big macro's column ``io * S + s`` is the slot-``s`` twin's column ``io``.
+    """End to end: the big macro's column `io * S + s` is the slot-`s` twin's column `io`.
 
     Program, solve, readout chain, and code assembly all commute with the
     column-MUX serialization, so the whole pipeline is layout-independent.
@@ -210,7 +210,7 @@ def test_vec_mat_mul_commutes_with_serialization(device: torch.device) -> None:
 
 
 def test_slot_map_is_the_documented_bijection(device: torch.device) -> None:
-    """``phys_col = ((slot * gn + io) * polarity + pol) * w_digit + digit``, a bijection."""
+    """`phys_col = ((slot * gn + io) * polarity + pol) * w_digit + digit`, a bijection."""
     for w_digit_num, mux_factor in ((2, 2), (3, 2), (1, 4)):
         config = build_config(w_digit_num=w_digit_num, mux_factor=mux_factor)
         macro = build_macro(config, device=device)
@@ -228,13 +228,13 @@ def test_slot_map_is_the_documented_bijection(device: torch.device) -> None:
 def test_seat_and_phys_conversions_are_mutual_inverses(device: torch.device, shuffled: bool) -> None:
     """The two conversions round-trip on both layouts they are used at.
 
-    ``program`` converts a seat block with a trailing row axis (``dim = -5``);
-    the readout converts a trailing column axis back (``dim = -1``). Each
+    `program` converts a seat block with a trailing row axis (`dim = -5`);
+    the readout converts a trailing column axis back (`dim = -1`). Each
     direction must undo the other, or a solved column would be billed and read
     out under another column's seat.
 
     The shipped slot map enumerates the seats in physical order, which makes the
-    permutation the identity and would hide a dropped gather; the ``shuffled``
+    permutation the identity and would hide a dropped gather; the `shuffled`
     case installs a non-trivial bijection on the instance under test, so the
     inverse index is exercised as an index rather than as a no-op.
     """
@@ -265,16 +265,16 @@ def test_seat_and_phys_conversions_are_mutual_inverses(device: torch.device, shu
 
 
 def test_program_writes_lsb_first_digits_at_the_documented_columns(device: torch.device) -> None:
-    """``program`` seats LSB-first magnitude digits and the ``(PWG, NWG)`` pair as documented.
+    """`program` seats LSB-first magnitude digits and the `(PWG, NWG)` pair as documented.
 
     The twin equalities cannot pin this: both sides encode with the same
-    ``_seat_states``, so swapping the digit order (MSB-first) or the two
+    `_seat_states`, so swapping the digit order (MSB-first) or the two
     polarity cells permutes both sides identically and cancels. The oracle here
     is built from the documented bijection and the true-form digit definition
-    alone — digit ``k`` carries place value ``radix ** k``, ``+m`` writes the
-    PWG cell to state ``m`` and the NWG cell to HRS, ``-m`` the reverse — and is
+    alone — digit `k` carries place value `radix ** k`, `+m` writes the
+    PWG cell to state `m` and the NWG cell to HRS, `-m` the reverse — and is
     compared against the conductances the cells actually carry after a real
-    ``program`` call.
+    `program` call.
     """
     w_digit_num, mux_factor, radix = 2, 2, 2
     config = build_config(w_digit_num=w_digit_num, mux_factor=mux_factor, w_digit_radix=radix)
@@ -324,10 +324,10 @@ def test_array_cap_energy_independent_of_mux_factor(device: torch.device) -> Non
     """The array's cap row does not move with the column-MUX depth.
 
     At a fixed logical geometry the physical column set is the same whatever
-    ``mux_factor`` is — only the seat each column sits in changes — and the WL
+    `mux_factor` is — only the seat each column sits in changes — and the WL
     ladder bills once per solve, i.e. once per PLANE, inside the kernel mode
     function. A per-slot WL bill (the pre-flattening special case) would scale
-    the WL wire and gate terms with ``mux_factor`` and break this.
+    the WL wire and gate terms with `mux_factor` and break this.
     """
     w = _mixed_weight(TINY_INPUT_NUM, TINY_OUTPUT_NUM)
     x = torch.tensor([1, 2, 1, 3], dtype=torch.long, device=device)

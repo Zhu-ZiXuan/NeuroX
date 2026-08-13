@@ -2,7 +2,7 @@
 
 `Xue2020JsscCimMacro` models one 256x512 sub-array of the 1-Mb embedded ReRAM CIM macro of Xue et al. (IEEE JSSC 2020). The constructor binds its logical `input_num` and `output_num` arguments to internal `row_num` and `col_num`; `program` consequently accepts a logical signed weight matrix `[row_num, col_num]`. Internally, each weight is encoded as a sign plus `w_digit_num` radix-`w_digit_radix` magnitude digits and carried by `w_digit_num * 2` physical cells — a P (PWG) and an N (NWG) cell per digit. An `input_bit_num`-bit (K-bit) activation drives K serial single-bit WL sub-phases, LSB first.
 
-The scheme lives in package `neurox.works.macro.cim.xue2020jssc`: `dswct.py` / `sinwp_sc.py` / `pn_isub.py` hold the three readout reporter-leaf modules, `tmcsa.py` holds the `Tmcsa` phase-resolved conversion-billing reporter leaf, and `macro.py` holds `Xue2020JsscCimMacro` composing them, plus the kernel [`XbarArray1t1r`](../../../../internals/primitive/xbar/array/_1t1r/array.md), into the readout chain driven by `vec_mat_mul`. The array is the kernel one unmodified: this scheme owns no array class.
+The scheme lives in package `neurox.works.macro.cim.xue2020jssc`: `dswct.py` / `sinwp_sc.py` / `pn_isub.py` hold the three readout reporter-leaf modules, `tmcsa.py` holds the `Tmcsa` phase-resolved conversion-billing reporter leaf, and `macro.py` holds `Xue2020JsscCimMacro` composing them, plus the kernel [`XbarArray1t1r`](../../../../internals/primitive/xbar/array/1t1r.md), into the readout chain driven by `vec_mat_mul`. The array is the kernel one unmodified: this scheme owns no array class.
 
 ## Generalization
 

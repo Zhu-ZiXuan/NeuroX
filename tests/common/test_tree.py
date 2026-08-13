@@ -1,13 +1,4 @@
-"""Tests for what a module tree tells about the NeuroX modules it holds: names and roots.
-
-Both answers are the tree's alone. A module never knows its own name, so
-``stamp_names`` walks the assembled model once and hands every profile-capable
-module the name that walk produced — the name a record later carries. The root
-walk stops descending at the first NeuroX module, so a root covers its own
-NeuroX children instead of listing them beside it. Placement is read from the
-tree rather than declared at construction: the same module is named for where it
-is bound, and is a root or an inner node depending on where it is bound.
-"""
+"""Tests for what a module tree tells about the NeuroX modules it holds: names from `stamp_names`, and roots from the descent that stops at the first NeuroX module."""
 
 from __future__ import annotations
 
@@ -106,14 +97,13 @@ def test_a_stamp_is_the_walks_own_name() -> None:
 
 
 def test_the_stamped_model_names_itself_with_the_empty_string() -> None:
-    """``named_modules`` names a root ``""``; the stamp keeps that name as it is."""
+    """`named_modules` names a root `""`; the stamp keeps that name as it is."""
     node = _Node()
     stamp_names(node)
     assert node.qualified_name == ""
 
 
 def test_stamping_against_another_root_overwrites_the_earlier_name() -> None:
-    """A stamp holds one tree's answer, so the last walk to name a module wins."""
     node = _Node()
     stamp_names(_Owner(node))
     assert node.qualified_name == "leaf"
@@ -122,7 +112,6 @@ def test_stamping_against_another_root_overwrites_the_earlier_name() -> None:
 
 
 def test_a_restamp_renames_a_model_rewired_after_it_was_named() -> None:
-    """The probe-install shape: swap a child, walk again, and names follow the tree."""
     model = _Owner(_Node())
     stamp_names(model)
     probe = _Node()
@@ -132,7 +121,7 @@ def test_a_restamp_renames_a_model_rewired_after_it_was_named() -> None:
 
 
 def test_one_instance_at_two_locations_is_an_error() -> None:
-    """A physical module sits in one place, so a shared instance is refused, not picked from."""
+    """A physical module sits in one place, so a shared instance is refused rather than given one name."""
     shared = _Node()
 
     class _Host(nn.Module):
@@ -146,7 +135,6 @@ def test_one_instance_at_two_locations_is_an_error() -> None:
 
 
 def test_an_unstamped_module_refuses_to_name_itself() -> None:
-    """No tree has named it yet, and a module never invents a name of its own."""
     node = _Node()
     with pytest.raises(RuntimeError, match="carries no name stamp") as error:
         _ = node.qualified_name
@@ -154,5 +142,4 @@ def test_an_unstamped_module_refuses_to_name_itself() -> None:
 
 
 def test_a_plain_forward_needs_no_stamp() -> None:
-    """Naming is for collecting and reporting energy; running the model is neither."""
     _Node().run()  # must not raise

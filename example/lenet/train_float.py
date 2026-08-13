@@ -1,8 +1,7 @@
 """Floating-point training of LeNet-5 on MNIST.
 
-Trains from random init with SGD + momentum + cosine LR schedule, keeps
-the best-validation checkpoint, and writes its ``state_dict`` to
-``--checkpoint``.
+Trains from random init with SGD, momentum and a cosine LR schedule, keeps the
+best-validation checkpoint, and writes its `state_dict` to `--checkpoint`.
 """
 
 # ruff: noqa: T201
@@ -21,7 +20,7 @@ from example.lenet.model_float import LeNet5
 
 
 def _validate(model: nn.Module, loader: DataLoader, device: torch.device) -> float:
-    """Return top-1 accuracy of ``model`` on ``loader``."""
+    """Top-1 accuracy of `model` on `loader`, in eval mode."""
     model.eval()
     correct = 0
     total = 0

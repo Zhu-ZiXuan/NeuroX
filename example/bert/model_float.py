@@ -1,15 +1,11 @@
 """BERT-small architecture for SST-2 binary classification.
 
-Uses ``prajjwal1/bert-small`` (4 layers, 512 hidden, 8 heads, ~28M
-params) wrapped by HuggingFace ``BertForSequenceClassification``,
-which adds a single ``nn.Linear(hidden, num_labels)`` classifier on top
-of the ``[CLS]`` pooled output.
-
-Note on ``from_pretrained``: we use the explicit ``Bert*`` classes
-(not ``Auto*``) because some community BERT-small checkpoints ship a
-``config.json`` without the ``model_type`` key that the ``Auto*``
-loader needs to route to the right class.  ``BertForSequenceClassification``
-bypasses that lookup.
+A 4-layer, 512-hidden, 8-head encoder wrapped by HuggingFace
+`BertForSequenceClassification`, which adds a single
+`nn.Linear(hidden, num_labels)` classifier on top of the `[CLS]` pooled
+output. Loading goes through the explicit `Bert*` classes: some community
+BERT-small checkpoints ship a `config.json` without the `model_type` key the
+`Auto*` loader routes on.
 """
 
 import torch.nn as nn
@@ -27,16 +23,14 @@ def create_bert_small(
     """Build BERT-small with a sequence-classification head.
 
     Args:
-        num_labels: Number of classes for the classifier head.  Default
-            ``2`` matches SST-2 (positive / negative sentiment).
-        model_name: HuggingFace model identifier.  Default
-            ``prajjwal1/bert-small``.
-        cache_dir: Optional cache directory for the pretrained weights.
+        num_labels: Classifier width; 2 for SST-2 positive / negative.
+        model_name: HuggingFace model identifier; must match the tokenizer
+            the inputs are built with.
+        cache_dir: Cache directory for the pretrained weights.
 
     Returns:
-        A ``BertForSequenceClassification`` instance with the pretrained
-        BERT-small encoder loaded; only the classifier head is randomly
-        initialised and needs fine-tuning.
+        A `BertForSequenceClassification` with the pretrained encoder loaded
+        and a randomly initialised classifier head.
     """
     config = BertConfig.from_pretrained(model_name, num_labels=num_labels, cache_dir=cache_dir)
     return BertForSequenceClassification.from_pretrained(

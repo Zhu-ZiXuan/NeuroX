@@ -17,12 +17,7 @@ from neurox.primitive.analog.base import AnalogBase, AnalogConfig, AnalogPolicy
 
 
 class VdacConfig(AnalogConfig, ABC):
-    """Base config for voltage-domain DAC implementations.
-
-    Attributes:
-        area_per_inst__um2: Silicon area per fabricated instance.
-        leakage_per_inst__uW: Static leakage per instance.
-    """
+    """Base config for voltage-domain DAC implementations."""
 
     area_per_inst__um2: float
     leakage_per_inst__uW: float
@@ -102,7 +97,7 @@ class Vdac(
     @property
     @abstractmethod
     def code_max(self) -> int:
-        """Maximum valid input code (inclusive); valid codes lie in ``[0, code_max]``."""
+        """Largest code the converter accepts; valid codes lie in `[0, code_max]`."""
         raise NotImplementedError
 
     @abstractmethod
@@ -110,12 +105,12 @@ class Vdac(
         """Convert integer digital codes to analog output voltages.
 
         Args:
-            code: Integer input codes in ``[0, code_max]``.
-                Shape: ``[...]``.
+            code: Integer input codes in `[0, code_max]`.
+                Shape: `[...]`.
 
         Returns:
-            Analog output voltage [V], at the same shape as ``code``. Dynamic
+            Analog output voltage [V], one value per `code` element. Dynamic
             energy is emitted through the profiler side channel.
-            Shape: ``[...]``.
+            Shape: `[...]`.
         """
         raise NotImplementedError

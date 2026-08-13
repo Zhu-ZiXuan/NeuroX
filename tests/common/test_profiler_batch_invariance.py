@@ -1,19 +1,4 @@
-"""Tests that dynamic energy scales exactly with the batch a model is fed.
-
-Feeding the same batch twice — ``torch.cat([x, x])`` — must double the dynamic
-energy. Identical data makes that an exact factor rather than an approximate
-one, so the assertions carry no tolerance.
-
-The defect this names is a caller-block size-1 stand-in in a billed energy,
-which under-counts that emitter by the batch product. A size-1 on a non-caller
-axis stays invisible: nothing distinguishes it from a genuine extent of one.
-
-The model is the smallest one that puts several emitters on the path at once:
-a linear CIM unit over an ideal macro, sliced so that the placement, input
-activation, weight-slice and x-slice stages each bill a digital block. Its
-config is hand-written, with a distinct per-op energy per block so a
-mis-attributed row is visible in the per-emitter view.
-"""
+"""Dynamic energy scales exactly with the batch a model is fed: `torch.cat([x, x])` doubles every emitter's bill."""
 
 from __future__ import annotations
 
@@ -83,7 +68,7 @@ def _shift_adder_config(energy_per_op__fJ: float) -> ShiftAdderConfig:
 
 
 def _build_unit(device: torch.device) -> LinearCimUnit:
-    """Build the hand-configured unit on ``device``, named and in eval mode."""
+    """Build the hand-configured unit on `device`, named and in eval mode."""
     config = LinearCimUnitConfig(
         area_per_inst__um2=0.0,
         leakage_per_inst__uW=0.0,
@@ -164,7 +149,6 @@ def _measure(unit: LinearCimUnit, x: Tensor, *, leading_rank: int = 0) -> Profil
 
 
 def test_the_repeated_batch_doubles_the_total_dynamic_energy(device: torch.device) -> None:
-    """The headline invariant: twice the operations, twice the energy, exactly."""
     unit = _programmed_unit(seed=800, device=device)
     x = _random_input(unit, device)
     reporter = Reporter(unit)
@@ -175,7 +159,6 @@ def test_the_repeated_batch_doubles_the_total_dynamic_energy(device: torch.devic
 
 
 def test_every_emitter_doubles_with_the_batch(device: torch.device) -> None:
-    """Per-emitter, so a row that fails to scale names the block that billed it."""
     unit = _programmed_unit(seed=810, device=device)
     x = _random_input(unit, device)
     reporter = Reporter(unit)
@@ -187,11 +170,7 @@ def test_every_emitter_doubles_with_the_batch(device: torch.device) -> None:
 
 
 def test_the_repeated_batch_repeats_the_per_operation_rows(device: torch.device) -> None:
-    """At ``leading_rank=1`` the doubled run is the single run's rows twice over.
-
-    The finest form of the same statement: the second copy of the batch bills
-    what the first did, operation by operation, on every emitter.
-    """
+    """At `leading_rank=1` the doubled run is the single run's rows twice over, emitter by emitter."""
     unit = _programmed_unit(seed=820, device=device)
     x = _random_input(unit, device)
     single = _measure(unit, x, leading_rank=1).records

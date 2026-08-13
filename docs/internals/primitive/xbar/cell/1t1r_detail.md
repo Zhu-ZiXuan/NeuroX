@@ -1,12 +1,12 @@
 # 1T1R Detail cell
 
-`XbarCell1t1rDetail` (`neurox/primitive/xbar/cell/_1t1r_detail.py`) is the nonlinear-device 1T1R model: it owns the RRAM and access-NMOS device children and condenses the access node with a per-cell Newton. The shared 1T1R substrate lives at [1T1R cell base](cell.md).
+`XbarCell1t1rDetail` (`neurox/primitive/xbar/cell/_1t1r_detail.py`) is the nonlinear-device 1T1R model: it owns the RRAM and access-NMOS device children and condenses the access node with a per-cell Newton. The shared 1T1R substrate lives at [1T1R cell base](1t1r.md).
 
 ## Design decisions
 
 - **Pade current-divider seed before the Newton loop.** Seeding $V_{\mathrm{X}}$ from a first-order conductance-divider split of the BL-to-SL drop lands the iterate inside the Newton basin, so a small fixed step count converges. A cold seed would need more steps or risk a bad first step on the stiff NMOS / RRAM I-V.
 - **Fixed unrolled `newton_iter_num`, no convergence branch.** The Newton loop runs exactly `newton_iter_num` steps with no data-dependent stopping test. A runtime `while` on a tensor residual breaks `torch.compile` tracing; a fixed trip count keeps the Newton loop compile-safe. The count is calibrated, not guessed (next bullet).
-- **`newton_iter_num` is calibrated per cell type and owned by the cell config.** It is a numerical-convergence knob, not a chip-physics parameter and not a per-source nonideality toggle, so it lives on `XbarCell1t1rDetailConfig` (calibrated by step-ratio plateau via `neurox.tools.calibrate_cell`, see [calibration guide](../../../../../guides/calibration/README.md)) and never on a Policy. Each cell type calibrates its own count because the condensation it solves is its own.
+- **`newton_iter_num` is calibrated per cell type and owned by the cell config.** It is a numerical-convergence knob, not a chip-physics parameter and not a per-source nonideality toggle, so it lives on `XbarCell1t1rDetailConfig` (calibrated by step-ratio plateau via `neurox.tools.calibrate_cell`, see [calibration guide](../../../../guides/calibration/README.md)) and never on a Policy. Each cell type calibrates its own count because the condensation it solves is its own.
 
 ## Contracts & invariants
 
@@ -27,6 +27,6 @@ The cell's per-call working set is the device snaps plus a handful of node-volta
 
 ---
 
-- **Reference**: [Detail cell](../../../../../reference/primitive/xbar/cell/_1t1r/cell_detail.md)
+- **Reference**: [Detail cell](../../../../reference/primitive/xbar/cell/1t1r_detail.md)
 - **Implementation**: `neurox/primitive/xbar/cell/_1t1r_detail.py`
 - **Tests**: `tests/primitive/xbar/test_cell_detail.py`, `tests/primitive/xbar/test_nested_solver.py`, `tests/primitive/device/test_mosfet.py`

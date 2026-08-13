@@ -1,11 +1,4 @@
-"""IdealLinearUnit fp32-exact fast path, exercised via the public ``linear()``.
-
-The substrate ``_matmul`` switches to fp32 when ``K * max|x| * max|w| <
-2^24`` (every partial sum then accumulates exactly in IEEE fp32) and stays
-on the int64 matmul otherwise. The fast path is what makes the unit
-GPU-capable: CUDA has no integer-matmul kernel, so the fallback path is
-CPU-by-design.
-"""
+"""IdealLinearUnit takes an fp32-exact fast path when `K · max|x| · max|w| < 2^24`, and the int64 matmul (CPU-only) otherwise."""
 
 from __future__ import annotations
 
@@ -110,7 +103,7 @@ class TestFastPathBitExactness:
 
 
 class TestFallbackTrigger:
-    """Bound at or above ``2^24`` keeps the int64 matmul (CPU-by-design)."""
+    """Bound at or above `2^24` keeps the int64 matmul."""
 
     def test_flag_disabled_and_exact_beyond_fp32(self) -> None:
         # Bound = 3 * 2^23 * 1 >= 2^24 -> fallback to int64.

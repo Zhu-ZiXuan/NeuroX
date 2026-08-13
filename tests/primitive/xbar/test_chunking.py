@@ -11,7 +11,7 @@ the two laws the fold exists for:
   * chunk size is a memory knob — the port state and the billed energy are
     bit-identical across chunk sizes, the un-chunked solve included,
   * what survives a chunk scales with the columns, not with the cells: the
-    state retained across chunk boundaries is flat in ``row_num``.
+    state retained across chunk boundaries is flat in `row_num`.
 
 The retained state is measured on CPU by walking every Python-reachable
 tensor at each chunk boundary and summing its storage once per data pointer.
@@ -454,7 +454,7 @@ def _array(*, row_num: int, chunk_size: int) -> XbarArray1t1r:
 
 
 def _ideal_driver() -> VoltageDriver:
-    """Boundary clamp with ``r_out = 0`` and every nonideality off."""
+    """Boundary clamp with `r_out = 0` and every nonideality off."""
     driver = VoltageDriver(
         config=VoltageDriverConfig(
             r_out__MOhm=0.0,
@@ -556,8 +556,8 @@ def _retained_bytes(*, row_num: int) -> int:
     """Bytes the chunk loop carries across a boundary, over its own entry state.
 
     The solve runs eagerly. The law is about the chunk loop, which is eager
-    by construction (``ChunkedSolver.solve_dc`` is ``torch.compiler.disable``d),
-    while the tall geometry the law needs would take the ``dynamic=False``
+    by construction (`ChunkedSolver.solve_dc` is `torch.compiler.disable`d),
+    while the tall geometry the law needs would take the `dynamic=False`
     solver body minutes to unroll; a traced body also hands the probe
     storage-less tensors, which carry no bytes to count.
     """

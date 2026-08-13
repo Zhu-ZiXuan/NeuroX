@@ -1,18 +1,18 @@
-"""Unit tests for :class:`NestedParallelRailSolver`.
+"""Unit tests for `NestedParallelRailSolver`.
 
 The subject is the resistor-network IR-drop solve: the harness
-(:func:`tests.utils.standalone_solver_fixture.build_solver_harness`)
+(`tests.utils.standalone_solver_fixture.build_solver_harness`)
 builds a fully LINEAR tiny tile — table-driven linear cells and ideal
-``r_out = 0`` rail clamps — so the exact DCOP is the solution of a dense
+`r_out = 0` rail clamps — so the exact DCOP is the solution of a dense
 KCL conductance system with Dirichlet boundaries at the reference taps.
 
 Covers:
   * dense-oracle correctness: node voltages and driver currents match a
-    ``torch.linalg.solve`` float64 assembly of the same network.
-  * wire-residual decay: the :class:`SolverRecord` submitted to
-    :class:`SolverProber` carries BL / SL wire KCL residuals at fp64
+    `torch.linalg.solve` float64 assembly of the same network.
+  * wire-residual decay: the `SolverRecord` submitted to
+    `SolverProber` carries BL / SL wire KCL residuals at fp64
     round-off, alongside the converged DCOP.
-  * inner-only entry point: ``solve_array_fixed_clamp`` is a direct
+  * inner-only entry point: `solve_array_fixed_clamp` is a direct
     solve for the linear network (the coupled block-2x2 wire Newton's
     Jacobian is exact, so one full step lands on the solution).
   * open-end law: each rail is a uniform ladder that stops at the last
@@ -44,7 +44,7 @@ from tests.utils.standalone_solver_fixture import COL_NUM, ROW_NUM, SolverHarnes
 def _eager_solver() -> Iterator[None]:
     """Run the solver eagerly for these tests.
 
-    ``solve_dc`` is ``@torch.compile(dynamic=False)``; fully unrolling it
+    `solve_dc` is `@torch.compile(dynamic=False)`; fully unrolling it
     would spend minutes compiling for no benefit to what is asserted.
     """
     with torch._dynamo.config.patch(disable=True):
@@ -55,15 +55,15 @@ def _dense_kcl_solution(harness: SolverHarness) -> tuple[Tensor, Tensor, Tensor,
     """Solve the harness network as one dense KCL system per column.
 
     Assembly derives from the solver's own KCL convention
-    (``_wire_kcl.col_wire_kcl_residual``): the ladder is uniform, so at
-    wire node ``k`` the residual is ``i_inject + (v[k] - v[k-1]) g +
-    (v[k] - v[k+1]) g`` with the driver at ``v[-1]`` and the second term
-    absent at the open end ``k = R-1``; the linear cell injects
-    ``i = g_cell (v_bl - v_sl)`` drained from BL and pushed into SL; the
+    (`_wire_kcl.col_wire_kcl_residual`): the ladder is uniform, so at
+    wire node `k` the residual is `i_inject + (v[k] - v[k-1]) g +
+    (v[k] - v[k+1]) g` with the driver at `v[-1]` and the second term
+    absent at the open end `k = R-1`; the linear cell injects
+    `i = g_cell (v_bl - v_sl)` drained from BL and pushed into SL; the
     ideal drivers pin the rail boundaries at the reference taps
-    (Dirichlet). Unknowns per column are ``[v_bl(0..R-1), v_sl(0..R-1)]``.
+    (Dirichlet). Unknowns per column are `[v_bl(0..R-1), v_sl(0..R-1)]`.
 
-    Returns ``(v_bl_node, v_sl_node, i_bl_driver, i_sl_driver)``: the two node
+    Returns `(v_bl_node, v_sl_node, i_bl_driver, i_sl_driver)`: the two node
     grids followed by the two per-column driver currents.
     """
     cfg = harness.cell_config
@@ -192,7 +192,7 @@ def test_record_carries_dcop_and_residuals(device: torch.device) -> None:
 
     Nested solver drives both wire KCL residuals to fp64 noise; the record
     also carries the converged DCOP (finite tensors, expected leading shape),
-    all tensors fully detached including inside ``dcop`` and ``dcop.cell``.
+    all tensors fully detached including inside `dcop` and `dcop.cell`.
     """
     harness = build_solver_harness(
         solver_config=NestedParallelRailSolverConfig(n_outer=3, n_inner=3),
@@ -239,7 +239,7 @@ def test_solve_output_bit_identical_probed_vs_unprobed(device: torch.device) -> 
 
 
 def test_inner_direct_solve_exactness(device: torch.device) -> None:
-    """``solve_array_fixed_clamp`` solves the linear network directly.
+    """`solve_array_fixed_clamp` solves the linear network directly.
 
     With a linear cell the inner coupled block-2x2 wire Newton has an
     exact Jacobian, so it is a direct solve: the pinned-clamp solution
@@ -287,7 +287,7 @@ def test_inner_direct_solve_exactness(device: torch.device) -> None:
 def test_the_far_node_is_the_ladder_open_end(device: torch.device) -> None:
     """OPEN-END LAW: the last row balances on one rail link, interiors on two.
 
-    A rail is a uniform ladder that simply stops at the last row — that node
+    A rail is a uniform ladder that stops at the last row — that node
     has the link back towards the driver and nothing onward, while every
     interior node has both. The residual the solver drives to zero and the
     Jacobian it drives it with must agree on that, so the converged profile
@@ -320,7 +320,7 @@ def test_a_single_row_tile_matches_the_one_link_closed_form(device: torch.device
     """A one-row tile is one node per rail, reached through exactly one link.
 
     Nothing is left to iterate: each rail is the reference tap in series with
-    a single link, so the cell branch sees ``dV / (1 + g_cell (r_BL + r_SL))``
+    a single link, so the cell branch sees `dV / (1 + g_cell (r_BL + r_SL))`
     and the whole DCOP follows in closed form. It is the sharpest statement of
     the open-end rule — a node counted as interior would carry twice the rail
     conductance and land somewhere else entirely.

@@ -1,12 +1,12 @@
 """TMCSA phase-resolved conversion billing — one billing unit per CIM-IO.
 
 The VALUE conversion stays in the kernel
-:class:`~neurox.primitive.analog.current_adc.SarIadc`, which the macro builds
-energy-silent; this reporter leaf bills the conversion energy from ``(i_sub,
-raw unsigned codes, reference ladder)`` after ``convert`` returns, resolving
-each binary-search step into the paper's PH2/PH3 conduction phases. The
-per-step reference path is recovered from the final code through a structural
-tap LUT built at init; the ladder itself is passed per call.
+`neurox.primitive.analog.current_adc.SarIadc`, which the macro builds
+energy-silent; this reporter leaf bills the conversion energy from the magnitude
+current, the raw unsigned codes and the reference ladder after `convert` returns,
+resolving each binary-search step into the paper's PH2/PH3 conduction phases. The
+per-step reference path is recovered from the final code through a structural tap
+LUT built at init; the ladder itself is passed per call.
 
 See also:
     docs/works/macro/cim/xue2020jssc/model.md
@@ -21,23 +21,14 @@ from neurox.common import ConfigBase, ModuleBase, PolicyBase
 
 
 class TmcsaConfig(ConfigBase):
-    """Immutable configuration for :class:`Tmcsa`.
-
-    Attributes:
-        t_ph2_per_step__ns: PH2 conduction window per binary-search step
-            (length = the conversion bit count B).
-        t_ph3_per_step__ns: PH3 conduction window per binary-search step
-            (same length).
-        e_fixed_per_op__fJ: Data-independent per-STEP energy constant (the PH4
-            latch and coupling-cap events plus the folded-in PH1 bias), billed
-            once per step per converted element.
-        area_per_inst__um2: Silicon area per TMCSA instance.
-        leakage_per_inst__uW: Static leakage per TMCSA instance.
-    """
+    """Phase windows, per-step constant and static PPA seat of one TMCSA."""
 
     t_ph2_per_step__ns: tuple[float, ...]
+    """PH2 conduction window per binary-search step; its length is the conversion bit count B."""
     t_ph3_per_step__ns: tuple[float, ...]
+    """PH3 conduction window per binary-search step, one entry per PH2 entry."""
     e_fixed_per_op__fJ: float
+    """Data-independent per-STEP energy — the PH4 latch and coupling-cap events plus the folded-in PH1 bias."""
     area_per_inst__um2: float
     leakage_per_inst__uW: float
 
@@ -59,22 +50,21 @@ class TmcsaConfig(ConfigBase):
 
 
 class TmcsaPolicy(PolicyBase):
-    """Source-free policy for :class:`Tmcsa` — this scheme models no nonideality."""
+    """Source-free TMCSA policy — this scheme models no nonideality."""
 
 
 class Tmcsa(ModuleBase[TmcsaConfig, TmcsaPolicy]):
     """TMCSA phase-resolved conversion billing bank — one unit per CIM-IO.
 
-    Billing-only: the value conversion lives in the kernel SarIadc. Leading dims
-    of the forward tensors are anonymous broadcast batch (the serial slot axis
-    rides them).
+    Billing-only: the value conversion lives in the kernel SAR current ADC.
+    Leading dims of the forward tensors are anonymous broadcast batch (the serial
+    slot axis rides them).
 
     Args:
-        config: Immutable physical configuration (phase windows + per-step
-            constant + static PPA seat).
-        policy: Source-free runtime policy.
-        inst_shape: Fabrication shape ``(*inst_shape, gn)``.
-        v_dd__V: Supply-rail voltage [V] the phase branches conduct across.
+        config: Phase windows, per-step constant and static PPA seat.
+        policy: Nonideality toggles; this scheme declares none.
+        inst_shape: Fabrication shape `(*inst_shape, gn)` — one billing unit per CIM-IO.
+        v_dd__V: Supply rail the phase branches conduct across.
         dtype: Tensor dtype for the phase-window buffers.
     """
 
@@ -117,9 +107,9 @@ class Tmcsa(ModuleBase[TmcsaConfig, TmcsaPolicy]):
         """Structural code -> per-step reference-tap index LUT.
 
         The SAR binary-search tap sequence is a bijection of the final unsigned
-        code: at step ``s`` (1-based) only the top ``s - 1`` final bits are
-        resolved, so ``tap(s, c) = ((c >> (B-s+1)) << (B-s+1)) + 2^(B-s) - 1``
-        replays the kernel SarIadc's ``_select_ref`` sequence exactly.
+        code: at step `s` (1-based) only the top `s - 1` final bits are resolved,
+        so `tap(s, c) = ((c >> (B-s+1)) << (B-s+1)) + 2^(B-s) - 1` replays the
+        kernel converter's own tap selection exactly.
         """
         codes = torch.arange(1 << bits, dtype=torch.long)
         lut = torch.empty((1 << bits, bits), dtype=torch.long)
@@ -141,27 +131,26 @@ class Tmcsa(ModuleBase[TmcsaConfig, TmcsaPolicy]):
         """Bill the phase-resolved conversion energy of one completed conversion.
 
         Args:
-            i_sub__uA: Converted magnitude current (the ISUB output copy the
-                TMCSA sinks).
-                Shape: ``[..., serial, gn]``.
-            code: Raw unsigned codes (long) the kernel SarIadc returned for
-                ``i_sub__uA``.
-                Shape: ``[..., serial, gn]``.
+            i_sub__uA: Converted magnitude current — the ISUB output copy the
+                TMCSA sinks.
+                Shape: `[..., serial, gn]`.
+            code: Raw unsigned codes (long) the kernel converter returned for
+                `i_sub__uA`.
+                Shape: `[..., serial, gn]`.
             adc_refs_mode__uA: Per-instance MAX-BITS reference ladder of the
-                selected mode, taps ascending on the last axis, its leading
-                dims right-broadcasting against ``i_sub__uA`` — passed per call
-                (the LUT is structural, the refs are runtime).
-                Shape: ``[..., 2**max_bits - 1]``.
-            bits: Resolution this conversion ran at, in ``[1, max_bits]``. A
-                ``b``-bit conversion truncates the max-bits binary search after
-                its FIRST ``b`` steps and lands on the max-bits code
-                right-shifted by ``max_bits - b``; the billing therefore takes
-                the leading ``b`` phase windows and looks the reference path up
-                at the re-shifted code.
+                selected mode, taps ascending on the last axis, its leading dims
+                right-broadcasting against `i_sub__uA` — passed per call, since the
+                LUT is structural and the refs are runtime.
+                Shape: `[..., 2**max_bits - 1]`.
+            bits: Resolution this conversion ran at, in `[1, max_bits]`. A `b`-bit
+                conversion truncates the max-bits binary search after its FIRST `b`
+                steps and lands on the max-bits code right-shifted by
+                `max_bits - b`; the billing therefore takes the leading `b` phase
+                windows and looks the reference path up at the re-shifted code.
 
         Raises:
-            ValueError: A shape or tap-count mismatch, or ``bits`` outside
-                ``[1, max_bits]``.
+            ValueError: A shape or tap-count mismatch, or `bits` outside
+                `[1, max_bits]`.
         """
         if i_sub__uA.ndim < 1 or (self.inst_shape and i_sub__uA.shape[-1] != self.inst_shape[-1]):
             raise ValueError(

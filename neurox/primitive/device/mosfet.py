@@ -2,6 +2,7 @@
 
 See also:
     docs/reference/primitive/device/mosfet.md
+    docs/internals/primitive/device/mosfet.md
 """
 
 import math
@@ -21,36 +22,34 @@ from neurox.primitive.physics import thermal_voltage__V
 class MosfetConfig(ConfigBase):
     """Immutable PDK config for a MOSFET (polarity-agnostic).
 
-    The same field set describes n- and p-channel devices: ``mu0`` and
-    ``c_ox`` are positive magnitudes, and ``vth0`` is a signed threshold
-    whose sign is set by the device flavor (enhancement / depletion), not by
-    channel polarity.
-
-    Attributes:
-        T_nom__K: Reference temperature at which ``mu0`` and ``vth0`` are stated.
-        c_ox__fF_per_um2: Gate-oxide capacitance area density.
-        mu0__cm2_per_V_s: Low-field carrier mobility.
-        ute: Mobility temperature exponent.
-        vth0__V: Threshold voltage.
-        kt1__V: Threshold voltage temperature coefficient.
-        n_factor: Subthreshold swing coefficient.
-        A_vt__mV_um: Pelgrom V_th matching coefficient.
-        A_beta_relative__um: Pelgrom relative-β matching coefficient.
+    The same field set describes n- and p-channel devices: `mu0` and `c_ox`
+    are positive magnitudes, and `vth0` is a signed threshold whose sign is
+    set by the device flavor (enhancement / depletion), not by channel
+    polarity.
     """
 
     T_nom__K: float
+    """Reference temperature at which `mu0__cm2_per_V_s` and `vth0__V` are stated."""
     c_ox__fF_per_um2: float
+    """Gate-oxide capacitance per unit gate area."""
 
     mu0__cm2_per_V_s: float
+    """Low-field carrier mobility."""
     ute: float
+    """Mobility temperature exponent."""
 
     vth0__V: float
+    """Threshold voltage at `T_nom__K`."""
     kt1__V: float
+    """Threshold voltage temperature coefficient."""
 
     n_factor: float
+    """Subthreshold swing coefficient."""
 
     A_vt__mV_um: float
+    """Pelgrom V_th matching coefficient."""
     A_beta_relative__um: float
+    """Pelgrom relative-β matching coefficient."""
 
     def validate(self) -> None:
 
@@ -68,56 +67,47 @@ class MosfetConfig(ConfigBase):
 
 
 class MosfetPolicy(PolicyBase):
-    """Per-source toggles selecting which MOSFET nonidealities are active.
-
-    Attributes:
-        A_vt_mismatch: Apply ``A_vt`` Pelgrom V_th mismatch at fabricate time.
-        A_beta_mismatch: Apply ``A_beta_relative`` Pelgrom β mismatch at fabricate time.
-    """
+    """Per-source toggles selecting which MOSFET nonidealities are active."""
 
     A_vt_mismatch: bool
+    """Apply Pelgrom V_th mismatch at fabricate time."""
     A_beta_mismatch: bool
+    """Apply Pelgrom β mismatch at fabricate time."""
 
 
 @dataclass(frozen=True)
 class MosfetDcop:
-    """Caller-facing working-point result for one MOSFET evaluation.
-
-    Attributes:
-        ids__uA: Drain-source current — positive for drain → source
-            flow. For a p-channel device in normal conduction ``ids__uA``
-            is typically negative (real flow is source → drain).
-        did_dvg__uS: ``∂I_ds/∂V_g`` = ``gm``.
-        did_dvd__uS: ``∂I_ds/∂V_d`` (non-negative for both polarities).
-        did_dvs__uS: ``∂I_ds/∂V_s`` (non-positive for both polarities).
-    """
+    """Caller-facing working-point result for one MOSFET evaluation."""
 
     ids__uA: Tensor
+    """Drain-source current, positive for drain → source flow; a p-channel
+    device in normal conduction is typically negative. Shape: `[...]`."""
     did_dvg__uS: Tensor
+    """`∂I_ds/∂V_g`, the transconductance `gm`. Shape: `[...]`."""
     did_dvd__uS: Tensor
+    """`∂I_ds/∂V_d`, non-negative for both polarities. Shape: `[...]`."""
     did_dvs__uS: Tensor
+    """`∂I_ds/∂V_s`, non-positive for both polarities. Shape: `[...]`."""
 
 
 @dataclass(frozen=True)
 class MosfetSnap(TensorGroupMixin):
-    """Per-call MOSFET state snap.
-
-    Attributes:
-        beta__uA_per_V2: Per-cell transconductance-factor magnitude.
-        vth__V: Per-cell signed threshold voltage.
-    """
+    """Per-call MOSFET state snap."""
 
     beta__uA_per_V2: Tensor
+    """Per-cell transconductance-factor magnitude, polarity sign excluded.
+    Shape: `[...]`."""
     vth__V: Tensor
+    """Per-cell signed threshold voltage. Shape: `[...]`."""
 
 
 class Mosfet(ModuleBase[MosfetConfig, MosfetPolicy], ABC):
     """Polarity-parameterized EKV-softplus MOSFET.
 
     Args:
-        config: Concrete configuration dataclass.
+        config: PDK parameters and matching coefficients.
         policy: Per-source nonideality enable flags.
-        inst_shape: Per-instance fabrication shape.
+        inst_shape: Per-instance fabrication multiplicity.
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature.
         W__um: Channel width.
@@ -183,7 +173,7 @@ class Mosfet(ModuleBase[MosfetConfig, MosfetPolicy], ABC):
     @property
     @abstractmethod
     def polarity(self) -> int:
-        """Channel polarity sign: ``+1`` (n-channel) or ``-1`` (p-channel)."""
+        """Channel polarity sign: `+1` (n-channel) or `-1` (p-channel)."""
         raise NotImplementedError
 
     def _register_fabrication_buffers(
@@ -222,14 +212,13 @@ class Mosfet(ModuleBase[MosfetConfig, MosfetPolicy], ABC):
         *,
         shape: tuple[int, ...],
     ) -> MosfetSnap:
-        """Sample one per-call runtime snap over ``shape``.
+        """Sample one per-call runtime snap of the fabricated state.
 
         Args:
-            shape: Per-call broadcast shape; the snap fills tensor
-                fields at this shape.
+            shape: Broadcast shape the snap's tensor fields are filled at.
 
         Returns:
-            Per-call snap of the fabricated state.
+            Per-call β and V_th views.
         """
         vth_view = self._vth__V.expand(shape) if shape else self._vth__V
         beta_view = self._beta__uA_per_V2.expand(shape) if shape else self._beta__uA_per_V2
@@ -242,16 +231,16 @@ class Mosfet(ModuleBase[MosfetConfig, MosfetPolicy], ABC):
         vs__V: Tensor | float,
         snap: MosfetSnap,
     ) -> MosfetDcop:
-        """Evaluate ``I_ds`` and its three node partials at one op point.
+        """Evaluate `I_ds` and its three node partials at one op point.
 
         Args:
             vg__V: Gate voltage.
             vd__V: Drain voltage.
             vs__V: Source voltage.
-            snap: Per-call MOSFET snap carrying ``β`` and ``V_th``.
+            snap: Per-call MOSFET snap carrying β and V_th.
 
         Returns:
-            :class:`MosfetDcop`.
+            Drain-source current and its three node partials.
         """
         p = self.polarity
         beta__uA_per_V2 = snap.beta__uA_per_V2

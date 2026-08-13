@@ -2,7 +2,8 @@
 divider drop fraction, no devices.
 
 See also:
-    docs/reference/primitive/xbar/cell/_1t1r/cell_linear.md
+    docs/reference/primitive/xbar/cell/1t1r_linear.md
+    docs/internals/primitive/xbar/cell/1t1r_linear.md
 """
 
 from __future__ import annotations
@@ -23,37 +24,24 @@ from ._1t1r import (
 
 
 class XbarCell1t1rLinearConfig(XbarCell1t1rConfig):
-    """Physical knobs for the linearized (table-driven) 1T1R cell.
-
-    Attributes:
-        g_cell_off_table__uS: Per-w_state total BL-to-SL branch chord
-            conductance ``g_cell = I / (v_bl_op - v_sl_op)`` at the
-            calibration operating point with the WL off, indexed by the
-            weight-state index. The length defines the cell's
-            weight-state count (all four tables share it, >= 1); all
-            entries finite and >= 0 (zero is a cut-off branch's honest
-            leakage value — array nonsingularity is carried by the wire
-            conductances).
-        g_cell_on_table__uS: The same chord conductance with the WL on.
-            Same length and constraints as ``g_cell_off_table__uS``.
-        vx_ratio_off_table: Per-w_state dimensionless BL-side drop
-            fraction ``vx_ratio = (v_bl_op - V_X) / (v_bl_op - v_sl_op)``
-            with the WL off, i.e. ``V_X = V_BL - vx_ratio * (V_BL -
-            V_SL)`` — equivalently ``R_BL / (R_BL + R_SL)`` of the
-            branch divider. Same length as ``g_cell_off_table__uS``; all
-            entries finite and in ``[0, 1]``.
-        vx_ratio_on_table: The same drop fraction with the WL on. Same
-            length and constraints as ``vx_ratio_off_table``.
-        v_wl_on_threshold__V: Analog WL level above which the access
-            device counts as on.
-    """
+    """Physical knobs for the linearized (table-driven) 1T1R cell."""
 
     g_cell_off_table__uS: tuple[float, ...]
+    """Per-state BL-to-SL branch chord conductance `g_cell = I / (v_bl_op -
+    v_sl_op)` at the calibration operating point with the WL off, indexed by
+    weight state. Its length (>= 1) is the cell's weight-state count and all
+    four tables share it; entries finite and >= 0."""
     g_cell_on_table__uS: tuple[float, ...]
+    """The same chord conductance with the WL on."""
     vx_ratio_off_table: tuple[float, ...]
+    """Per-state dimensionless BL-side drop fraction `vx_ratio = (v_bl_op -
+    V_X) / (v_bl_op - v_sl_op)` with the WL off; entries finite and in
+    `[0, 1]`."""
     vx_ratio_on_table: tuple[float, ...]
+    """The same drop fraction with the WL on."""
 
     v_wl_on_threshold__V: float
+    """Analog WL level above which the access device counts as on."""
 
     def validate(self) -> None:
         super().validate()
@@ -83,23 +71,16 @@ class XbarCell1t1rLinearPolicy(XbarCell1t1rPolicy):
 
 @dataclass(frozen=True, kw_only=True)
 class XbarCell1t1rLinearSnap(XbarCell1t1rSnap):
-    """Per-call snap of a linearized 1T1R cell's programmed state.
-
-    Attributes:
-        g_cell_on__uS: Branch chord conductance at WL on.
-            Shape: ``[..., col, row]``.
-        g_cell_off__uS: Branch chord conductance at WL off.
-            Shape: ``[..., col, row]``.
-        vx_ratio_on: BL-side drop fraction at WL on.
-            Shape: ``[..., col, row]``.
-        vx_ratio_off: BL-side drop fraction at WL off.
-            Shape: ``[..., col, row]``.
-    """
+    """Per-call snap of a linearized 1T1R cell's programmed state."""
 
     g_cell_on__uS: Tensor
+    """Branch chord conductance with the WL on. Shape: `[..., col, row]`."""
     g_cell_off__uS: Tensor
+    """Branch chord conductance with the WL off. Shape: `[..., col, row]`."""
     vx_ratio_on: Tensor
+    """BL-side drop fraction with the WL on. Shape: `[..., col, row]`."""
     vx_ratio_off: Tensor
+    """BL-side drop fraction with the WL off. Shape: `[..., col, row]`."""
 
 
 @XbarCell1t1r.register_neurox_module(
@@ -112,7 +93,7 @@ class XbarCell1t1rLinear(XbarCell1t1r[XbarCell1t1rLinearConfig, XbarCell1t1rLine
     Args:
         config: Linearized 1T1R configuration.
         policy: Linearized 1T1R policy.
-        inst_shape: Per-instance shape ``(..., col, row)``.
+        inst_shape: Per-instance shape `(..., col, row)`.
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature.
     """
@@ -173,8 +154,8 @@ class XbarCell1t1rLinear(XbarCell1t1r[XbarCell1t1rLinearConfig, XbarCell1t1rLine
         """Program per-cell branch parameters from state indices.
 
         Args:
-            w_state_idx: State-index tensor in ``[0, w_state_num - 1]``.
-                Shape: ``[*inst_shape]``.
+            w_state_idx: State-index tensor in `[0, w_state_num - 1]`.
+                Shape: `[*inst_shape]`.
         """
         if tuple(w_state_idx.shape) != self.inst_shape:
             raise ValueError(f"program() expects w_state_idx.shape {self.inst_shape}; got {tuple(w_state_idx.shape)}")
@@ -196,12 +177,12 @@ class XbarCell1t1rLinear(XbarCell1t1r[XbarCell1t1rLinearConfig, XbarCell1t1rLine
         """Bundle the programmed branch parameters with the WL control drive.
 
         Args:
-            control: Per-cell word-line drive voltage [V].
-                Shape: ``[..., col, row]``.
-            shape: Per-call broadcast shape ``(..., col, row)`` the
+            control: Word-line drive voltage [V] at each cell's gate.
+                Shape: `[..., col, row]`.
+            shape: Per-call broadcast shape `(..., col, row)` the
                 branch-parameter fields fill.
-            t_elapsed: Time elapsed since programming [s]; unused — the
-                linear model holds no time-dependent read state.
+            t_elapsed: Time elapsed since programming [s]; unused, the linear
+                model holding no time-dependent read state.
 
         Returns:
             Per-call linearized 1T1R cell snap.
@@ -220,7 +201,7 @@ class XbarCell1t1rLinear(XbarCell1t1r[XbarCell1t1rLinearConfig, XbarCell1t1rLine
         )
 
     def _select_branch_params(self, snap: XbarCell1t1rLinearSnap) -> tuple[Tensor, Tensor]:
-        """WL-switched ``(g_cell [uS], vx_ratio)`` of the linear branch."""
+        """WL-switched `(g_cell [uS], vx_ratio)` of the linear branch."""
         on = snap.v_wl__V > self._v_wl_on_threshold__V
         g_cell = torch.where(on, snap.g_cell_on__uS, snap.g_cell_off__uS)
         vx_ratio = torch.where(on, snap.vx_ratio_on, snap.vx_ratio_off)
@@ -232,7 +213,7 @@ class XbarCell1t1rLinear(XbarCell1t1r[XbarCell1t1rLinearConfig, XbarCell1t1rLine
         v_sl: Tensor,
         snap: XbarCell1t1rLinearSnap,
     ) -> tuple[Tensor, Tensor, Tensor]:
-        """Closed-form branch solve: ``(i__uA, di_dvbl__uS, di_dvsl__uS)``."""
+        """Closed-form branch solve: `(i__uA, di_dvbl__uS, di_dvsl__uS)`."""
         g_cell, _vx_ratio = self._select_branch_params(snap)
         i__uA = g_cell * (v_bl - v_sl)
         return i__uA, g_cell, -g_cell
@@ -243,11 +224,7 @@ class XbarCell1t1rLinear(XbarCell1t1r[XbarCell1t1rLinearConfig, XbarCell1t1rLine
         v_sl: Tensor,
         snap: XbarCell1t1rLinearSnap,
     ) -> XbarCell1t1rDcop:
-        """Full branch working point including the divider ``V_X``.
-
-        The linear divider's internal KCL is exact by construction, so the
-        cell carries no residual concept.
-        """
+        """Full branch working point including the divider V_X."""
         g_cell, vx_ratio = self._select_branch_params(snap)
         dv = v_bl - v_sl
         i__uA = g_cell * dv

@@ -1,35 +1,31 @@
 """CLI: probe the analog I(M) grid of a CIM macro and place ADC thresholds.
 
-CLI: ``python -m neurox.tools.calibrate_adc.threshold_probe --config <run.toml>
+CLI: `python -m neurox.tools.calibrate_adc.threshold_probe --config <run.toml>
 [--device cuda:N] [--output <fragment.toml>] [--plot-dir <dir>]
 [--log-dir <dir>] [--log-level INFO] [--element-range a:b]
-[--capture-out <part.pt>] [--capture-in <part.pt>[,<part.pt>...]]``
+[--capture-out <part.pt>] [--capture-in <part.pt>[,<part.pt>...]]`
 
-Controlled-stimulus grid sweep: a deterministic count-grid battery (every
-per-(column, phase)-block magnitude realized by single-cell-LSB patterns
-under full WL drive), count-capped random single-sign block patterns,
-dense saturating columns, and random WL drive densities. Each battery
-element runs through the physical tile and its lossless twin; the physical
-tile's ``current_adc.convert`` captured analog inputs pair with the ideal
-twin's ``vec_mat_mul`` integer dots mapped through
-:meth:`~neurox.primitive.macro.cim.CimMacro.map_quantization_input_code`,
-giving the observed analog band per ADC input code. The modes come from
-the mode-set TOML named by the run config (``modes_file``, see
-:mod:`._modes`); the macro publishes each mode's inclusive ADC input code
-range, and the ladder covers exactly that grid. Per mode the tool places
-the mid-point threshold ladder ``t[k] = (hi(k) + lo(k+1)) / 2``, reports
-the band margins (headline: the minimum), and emits a single
-``i_refs__uA`` reference-config row fragment (the reference block is the
-single ladder source) plus figures (grid curve with bands + thresholds,
-per-mode margin bars).
+Controlled-stimulus grid sweep: a deterministic count-grid battery realizing
+every per-(column, phase)-block magnitude by single-cell-LSB patterns under
+full WL drive, count-capped random single-sign block patterns, dense
+saturating columns, and random WL drive densities. Each battery element runs
+through the physical tile and its lossless twin; the analog inputs captured
+from the physical tile's `current_adc.convert` pair with the ideal twin's
+`vec_mat_mul` integer dots mapped onto the ADC input code axis, giving the
+observed analog band per ADC input code. The modes come from the mode-set TOML
+named by the run config; the macro publishes each mode's inclusive ADC input
+code range, and the ladder covers exactly that grid. Per mode the tool places
+the mid-point threshold ladder `t[k] = (hi(k) + lo(k+1)) / 2`, reports the band
+margins with the minimum as headline, and emits a single `i_refs__uA`
+reference-config row fragment plus figures: the grid curve with bands and
+thresholds, and per-mode margin bars.
 
-Capture staging bounds single-command runtime on large batteries: the
-battery element list is deterministic for a given config, so
-``--element-range a:b`` probes a contiguous slice and ``--capture-out``
-saves that slice's pooled ``(input_code, i_in__uA)`` streams (skipping
-placement). A later run merges every ``--capture-in`` part ahead of its
-own probed slice and places the ladder over the union; the log records
-the merged provenance.
+Capture staging bounds single-command runtime on large batteries: the battery
+element list is deterministic for a given config, so `--element-range a:b`
+probes a contiguous slice and `--capture-out` saves that slice's pooled
+`(input_code, i_in__uA)` streams, skipping placement. A later run merges every
+`--capture-in` part ahead of its own probed slice and places the ladder over
+the union; the log records the merged provenance.
 
 See also:
     docs/guides/calibration/calibrate_adc.md
@@ -76,44 +72,39 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class _StimulusCfg:
-    """``[stimulus]`` section: the probing battery.
-
-    Attributes:
-        seed: RNG seed for the random battery elements.
-        lsb_caps: Per-(column, phase)-block magnitude caps of the random
-            single-sign count-capped patterns.
-        patterns_per_cap: Independent random patterns per cap.
-        x_densities: Random binary WL drive densities crossed with every
-            random pattern (the deterministic grid / saturating patterns
-            always run under full drive so their block counts are exact).
-        full_drive_caps: Subset of ``lsb_caps`` whose random patterns ALSO
-            run one full-drive element (exact block counts). On a wide
-            tile a high-cap all-column pattern under full drive can exceed
-            the solver-convergent loading envelope — list only the caps
-            that stay inside it (exact high-count coverage then comes from
-            the diluted grid).
-        x_batch: Drive vectors per (pattern, density) combo.
-        grid_col_stride: Column stride of the deterministic count grid —
-            every ``grid_col_stride``-th column is programmed, the others
-            stay zero. A loading-dilution knob: the exact-coverage grid
-            runs under full WL drive, so on a wide tile a stride > 1 keeps
-            the total array conduction inside the workload envelope the DC
-            solve converges on (the per-column count stays exact).
-        include_saturating: Add the dense +1 / -1 / phase-antisymmetric
-            saturating-column pattern to the battery. Only meaningful when
-            the tile's DC solve converges on that full-drive fully-dense
-            extreme; outside that envelope the samples are invalid and the
-            pattern must stay off.
-    """
+    """`[stimulus]` section: the probing battery."""
 
     seed: int
+    """RNG seed for the random battery elements."""
     lsb_caps: tuple[int, ...]
+    """Per-(column, phase)-block magnitude caps of the random single-sign
+    count-capped patterns."""
     patterns_per_cap: int
+    """Independent random patterns per cap."""
     x_densities: tuple[float, ...]
+    """Random binary WL drive densities crossed with every random pattern; the
+    deterministic grid and saturating patterns always run under full drive so
+    their block counts stay exact."""
     full_drive_caps: tuple[int, ...]
+    """Subset of `lsb_caps` whose random patterns also run one full-drive
+    element with exact block counts. On a wide tile a high-cap all-column
+    pattern under full drive can exceed the solver-convergent loading
+    envelope — list only the caps that stay inside it, exact high-count
+    coverage then coming from the diluted grid."""
     x_batch: int
+    """Drive vectors per (pattern, density) combination."""
     grid_col_stride: int
+    """Column stride of the deterministic count grid: every
+    `grid_col_stride`-th column is programmed and the others stay zero. A
+    loading-dilution knob — the exact-coverage grid runs under full WL drive,
+    so on a wide tile a stride > 1 keeps the total array conduction inside the
+    workload envelope the DC solve converges on, the per-column count staying
+    exact."""
     include_saturating: bool
+    """Add the dense +1 / -1 / phase-antisymmetric saturating-column pattern to
+    the battery. Meaningful only when the tile's DC solve converges on that
+    full-drive fully-dense extreme; outside that envelope the samples are
+    invalid and the pattern must stay off."""
 
     def __post_init__(self) -> None:
         if not self.lsb_caps:
@@ -135,37 +126,28 @@ class _StimulusCfg:
 
 @dataclass(frozen=True)
 class _ProbeCfg:
-    """``[probe]`` section: capture operating point.
-
-    Attributes:
-        quantization_mode: Mode passed to the physical run while
-            capturing, and the mode whose input-code map the pooled stream
-            carries. The captured analog input is mode-independent (mode
-            selection is quasi-static reference switching downstream of
-            the probe point), so one capture serves every ``[[modes]]``
-            placement.
-    """
+    """`[probe]` section: capture operating point."""
 
     quantization_mode: int
+    """Mode passed to the physical run while capturing, and the mode whose
+    input-code map the pooled stream carries. The captured analog input is
+    mode-independent — mode selection is quasi-static reference switching
+    downstream of the probe point — so one capture serves every `[[modes]]`
+    placement."""
 
 
 class ThresholdProbeToolConfig(ConfigBase):
-    """Top-level config for :mod:`neurox.tools.calibrate_adc.threshold_probe`.
-
-    Attributes:
-        macro: The tile to build.
-        probe: Capture operating point.
-        stimulus: The probing battery.
-        modes_file: Mode-set TOML (see
-            :func:`~neurox.tools.calibrate_adc._modes.load_mode_set`),
-            relative to the tool TOML; one ladder is placed per mode over
-            the macro's published ADC input code range.
-    """
+    """Top-level config for `neurox.tools.calibrate_adc.threshold_probe`."""
 
     macro: MacroSection
+    """The tile to build."""
     probe: _ProbeCfg
+    """Capture operating point."""
     stimulus: _StimulusCfg
+    """The probing battery."""
     modes_file: Path
+    """Mode-set TOML, relative to the tool TOML; one ladder is placed per mode
+    over the macro's published ADC input code range."""
 
 
 # --- probing ----------------------------------------------------------------
@@ -185,12 +167,12 @@ def _build_battery(
     cfg: ThresholdProbeToolConfig,
     grid_top: int,
 ) -> list[tuple[str, torch.Tensor, torch.Tensor]]:
-    """Materialize the deterministic battery element list ``(name, w, x)``.
+    """Materialize the deterministic battery element list `(name, w, x)`.
 
-    The list is a pure function of the config, the largest input code any
-    mode resolves (``grid_top``), and the tile geometry (the random elements
-    draw from a seeded generator in enumeration order), so every
-    ``--element-range`` slice of the same inputs sees the same elements.
+    The list is a pure function of the config, the largest input code any mode
+    resolves, and the tile geometry — the random elements draw from a seeded
+    generator in enumeration order — so every `--element-range` slice of the
+    same inputs sees the same elements.
     """
     stim = cfg.stimulus
     gen = torch.Generator().manual_seed(stim.seed)
@@ -246,11 +228,11 @@ def _probe_grid(
     grid_top: int,
     element_range: tuple[int, int | None],
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Run the battery slice; return pooled ``(input_code, i_in__uA)`` CPU streams.
+    """Run the battery slice; return pooled `(input_code, i_in__uA)` CPU streams.
 
     The ideal dots are mapped onto the macro's ADC input code axis at the
-    ``[probe]`` mode — the axis its converter discriminates on, and the
-    axis every mode's band grid indexes.
+    `[probe]` mode — the axis its converter discriminates on, and the axis
+    every mode's band grid indexes.
     """
     batteries = _build_battery(physical, cfg=cfg, grid_top=grid_top)
     start, stop = element_range
@@ -289,21 +271,21 @@ def _probe_grid(
 
 @dataclass(frozen=True)
 class ModePlacement:
-    """Placement + diagnostics for one ``[[modes]]`` entry."""
+    """Placement + diagnostics for one `[[modes]]` entry."""
 
     quantization_mode: int
     adc_input_code_range: tuple[int, int]
+    """Inclusive input-code grid the ladder covers."""
     bands: tuple[InputCodeBand, ...]
     placement: ThresholdPlacement
 
 
 def _fragment_lines(placements: list[ModePlacement]) -> list[str]:
-    """The threshold-ladder fragment (mode rows, ascending mode index).
+    """The threshold-ladder fragment, one row per mode, ascending mode index.
 
-    One fragment for the reference block — the single ladder source. The ADC
-    reads its references per call from the reference block, so the placed
-    threshold bank is pasted into ``reference_config.i_refs__uA`` only (row
-    index = ``quantization_mode``).
+    The ADC reads its references per call from the reference block, so the
+    placed threshold bank is pasted into `reference_config.i_refs__uA` only,
+    with the row index the `quantization_mode`.
     """
     rows = [
         "[" + ", ".join(f"{t:.6f}" for t in p.placement.thresholds) + "]"
@@ -341,7 +323,7 @@ def _log_mode(p: ModePlacement) -> None:
 
 
 def _plot_grid_curve(p: ModePlacement, output_path: Path) -> None:
-    """One PNG per mode: band envelope + means vs input code with the thresholds."""
+    """Write one PNG: band envelope + means vs input code with the thresholds."""
     import matplotlib as mpl
 
     mpl.use("Agg")
@@ -374,7 +356,7 @@ def _plot_grid_curve(p: ModePlacement, output_path: Path) -> None:
 
 
 def _plot_margins(placements: list[ModePlacement], output_path: Path) -> None:
-    """One PNG: per-mode band margins by code boundary (negative = overlap)."""
+    """Write one PNG: per-mode band margins by code boundary, negative = overlap."""
     import matplotlib as mpl
 
     mpl.use("Agg")
@@ -441,7 +423,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _parse_element_range(spec: str | None) -> tuple[int, int | None]:
-    """Parse ``'a:b'`` (either side optional) into a ``(start, stop)`` slice."""
+    """Parse `'a:b'`, either side optional, into a `(start, stop)` slice."""
     if spec is None:
         return (0, None)
     head, sep, tail = spec.partition(":")

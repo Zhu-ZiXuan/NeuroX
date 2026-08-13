@@ -1,4 +1,4 @@
-"""Tests for the ``SerializeMixin`` abstract-base and receiver-bounded discriminator rules."""
+"""Tests for the `SerializeMixin` abstract-base and receiver-bounded discriminator rules."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from neurox.common import SerializeMixin
 
 @dataclass(frozen=True)
 class _Fam(SerializeMixin, ABC):
-    """Abstract base (declared ``ABC`` signal) of a polymorphic family."""
+    """Abstract base (declared `ABC` signal) of a polymorphic family."""
 
 
 @dataclass(frozen=True)
@@ -42,7 +42,7 @@ class _Skin(_ConcreteRoot):
 
 @dataclass(frozen=True)
 class _Box(SerializeMixin):
-    """Container nesting a field typed as the abstract base ``_Fam``."""
+    """Container nesting a field typed as the abstract base `_Fam`."""
 
     item: _Fam
 

@@ -1,4 +1,4 @@
-"""Shared helpers for the config-driven CLI tools under :mod:`neurox.tools`."""
+"""Shared helpers for the config-driven CLI tools under `neurox.tools`."""
 
 from __future__ import annotations
 
@@ -25,16 +25,18 @@ def add_standard_args(
     output_file: bool = False,
     output_dir: bool = False,
 ) -> None:
-    """Append the standard runtime / output flags to ``parser``.
+    """Append the standard runtime / output flags to `parser`.
 
     Args:
-        parser: The argparse parser to add flags to.
-        device: Whether to add ``--device`` (default ``True``).
-        plot_dir: Add a ``--plot-dir`` flag for tools that emit multiple
-            PNGs into one directory.
-        output_file: Add a ``--output`` flag for tools that emit a TOML.
-        output_dir: Add an ``--output-dir`` flag for tools that emit
-            multiple TOML fragments into one directory.
+        parser: Receives `--config` and `--log-level` unconditionally, plus
+            whichever optional flags are requested.
+        device: Add a `--device` flag; a tool that never touches a device
+            opts out.
+        plot_dir: Add a `--plot-dir` flag for tools that emit multiple PNGs
+            into one directory.
+        output_file: Add an `--output` flag for tools that emit a TOML.
+        output_dir: Add an `--output-dir` flag for tools that emit multiple
+            TOML fragments into one directory.
     """
     parser.add_argument("--config", type=Path, required=True, help="Tool-run TOML config path")
     if device:
@@ -75,24 +77,25 @@ def add_standard_args(
 
 
 def setup_logging(level_name: str) -> None:
-    """Configure root logging based on ``--log-level``."""
+    """Configure root logging at the level named by `--log-level`."""
     config_tool_logging(level=getattr(logging, level_name.upper()))
 
 
 def load_tool_config(cls: type[_T], config_path: Path) -> _T:
-    """Parse the tool-run TOML into ``cls`` via :meth:`SerializeMixin.from_file`."""
+    """Parse the tool-run TOML at `config_path` into `cls`."""
     return cls.from_file(config_path)
 
 
 def resolve_relative_path(path: Path | str | None, base: Path) -> Path | None:
-    """Resolve a TOML-supplied path against ``base``'s directory.
+    """Resolve a TOML-supplied path against `base`'s directory.
 
-    ``None`` propagates as ``None`` so optional path fields stay
-    declarative. Absolute paths are returned unchanged.
+    `None` propagates as `None` so optional path fields stay declarative.
+    An absolute path is returned unchanged.
 
     Args:
-        path: Raw value from the TOML (may be ``None``, ``str``, or ``Path``).
-        base: The TOML file's path; paths resolve relative to ``base.parent``.
+        path: Raw value from the TOML.
+        base: The TOML file's own path; a relative `path` resolves against
+            `base.parent`.
     """
     if path is None:
         return None

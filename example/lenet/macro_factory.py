@@ -34,13 +34,13 @@ def build_macro_factory(
     *,
     ideal_macro: bool,
 ) -> Callable[..., CimUnit[CimUnitConfig, CimUnitPolicy]]:
-    """Return ``(w_logical_shape) → macro`` for the given config + policy TOMLs.
+    """Return `(w_logical_shape) → macro` for the given config + policy TOMLs.
 
-    The circuit design lives in ``config_path`` (section ``[cim_unit]``); the
-    nonideality switches live in ``policy_path`` (section ``[policy]``).
-    ``ideal_macro=True`` swaps the configured macro for its ideal twin via
-    ``to_ideal()`` — the faithful reference of a physical macro, and the macro
-    itself when the config already carries an ideal one.
+    The circuit design lives in `config_path` (section `[cim_unit]`); the
+    nonideality switches live in `policy_path` (section `[policy]`).
+    `ideal_macro=True` swaps the configured macro for its `to_ideal()` twin —
+    the faithful reference of a physical macro, and the macro itself when the
+    config already carries an ideal one.
     """
 
     def factory(*, w_logical_shape: tuple[int, ...]) -> CimUnit[CimUnitConfig, CimUnitPolicy]:

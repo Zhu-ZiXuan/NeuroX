@@ -13,15 +13,12 @@ from neurox.common import ConfigBase, ModuleBase, PolicyBase
 
 
 class DigitalConfig(ConfigBase, ABC):
-    """Static PPA fields shared by every digital, integer-exact block.
-
-    Attributes:
-        area_per_inst__um2: Silicon area per fabricated instance.
-        leakage_per_inst__uW: Static leakage per instance.
-    """
+    """Static PPA fields shared by every digital, integer-exact block."""
 
     area_per_inst__um2: float
+    """Silicon area of one fabricated instance."""
     leakage_per_inst__uW: float
+    """Static leakage power of one fabricated instance."""
 
     def validate(self) -> None:
         self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")

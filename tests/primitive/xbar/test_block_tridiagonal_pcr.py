@@ -1,8 +1,8 @@
-"""Numerical regression for :func:`solve_block_tridiagonal_pcr`.
+"""Numerical regression for `solve_block_tridiagonal_pcr`.
 
 PCR's recurrence has the same forward error as block Thomas on
 diagonally-dominant systems but is more sensitive in ill-conditioned
-corners. We pin three regimes:
+corners. Three regimes are pinned:
 
   * **vs dense LU**, fp64, across block size + N. Sets the absolute
     accuracy bar (rtol 1e-10).
@@ -10,8 +10,8 @@ corners. We pin three regimes:
     existing solver bit-for-bit modulo round-off.
   * **vs Thomas**, fp32, on the BL/SL block-2×2 structure used by the
     nested Newton solver. Lower bar (rtol 1e-4) because PCR's
-    ``O(log N)`` accumulation grows rounding error vs Thomas's
-    ``O(N)`` sweep, but the gap stays bounded.
+    `O(log N)` accumulation grows rounding error vs Thomas's
+    `O(N)` sweep, but the gap stays bounded.
 
 Also covers N=1 (degenerate), N=2 (one PCR step), and the M-matrix
 structure that mirrors the wire-Newton block-2×2 used in production.

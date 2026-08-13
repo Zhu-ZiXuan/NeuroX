@@ -1,4 +1,4 @@
-"""Per-code dynamic-energy law of :class:`GeneralVdac`.
+"""Per-code dynamic-energy law of `GeneralVdac`.
 
 The energy table is parallel to the voltage table: converting one element
 costs what that element's own code costs, so a batch of mixed codes bills the
@@ -43,7 +43,7 @@ def _build(code_to_per_op_energy__fJ: tuple[float, ...]) -> GeneralVdac:
 
 
 def _energy_total(records: list[EnergyRecord], module: ProfileMixin) -> float:
-    """Sum the logged dynamic energy [fJ] of the records ``module`` emitted."""
+    """Sum the logged dynamic energy [fJ] of the records `module` emitted."""
     return sum(
         (float(r.dynamic_energy__fJ.sum()) for r in records if r.qualified_name == module.qualified_name),
         0.0,
@@ -51,7 +51,7 @@ def _energy_total(records: list[EnergyRecord], module: ProfileMixin) -> float:
 
 
 def test_conversion_bills_each_element_at_its_own_code() -> None:
-    """A mixed batch costs ``count0 * e0 + count1 * e1``; a zero entry costs nothing."""
+    """A mixed batch costs `count0 * e0 + count1 * e1`; a zero entry costs nothing."""
     code = torch.tensor([[0, 1, 1], [1, 0, 1]], dtype=torch.int64)
     count_1 = int(code.sum())
     count_0 = code.numel() - count_1

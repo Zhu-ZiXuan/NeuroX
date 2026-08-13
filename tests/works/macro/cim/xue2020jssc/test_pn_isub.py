@@ -3,13 +3,13 @@
 Hand-built tiny witness, eager, CPU. Three laws:
 
   * SHAPE LAW: the module fabricates at the config-derived CIM-IO count
-    ``gn = output_num // mux_factor`` (no magic numbers) and its static
-    area / leakage totals scale with ``inst_count``.
-  * VALUE LAW: ``forward`` equals the inline subtraction — magnitude
-    ``|I_P - I_N|`` and sign ``I_N > I_P`` (a tie is non-negative) —
+    `gn = output_num // mux_factor` (no magic numbers) and its static
+    area / leakage totals scale with `inst_count`.
+  * VALUE LAW: `forward` equals the inline subtraction — magnitude
+    `|I_P - I_N|` and sign `I_N > I_P` (a tie is non-negative) —
     and is billing-independent (identical with and without a profiler).
   * BILLING LAW: one un-channelled dynamic event per forward whose total is
-    ``sum(V_DD * window * (I_P + I_N + I_SUB)) + e_per_op * entry_count``
+    `sum(V_DD * window * (I_P + I_N + I_SUB)) + e_per_op * entry_count`
     — the three rail branches over the injected window plus the comparator
     decision constant once per (slot, IO) entry.
 """

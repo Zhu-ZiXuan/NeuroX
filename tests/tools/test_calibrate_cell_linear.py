@@ -1,9 +1,9 @@
-"""Linear-fragment extraction sanity for :mod:`neurox.tools.calibrate_cell`.
+"""Linear-fragment extraction sanity for `neurox.tools.calibrate_cell`.
 
 Pulls a hand-written Detail cell fragment through the tool-run config path, extracts
 the divider linearization (chord conductance + BL-side drop fraction) at a
 nominal operating point, and checks that the emitted fragment deserializes
-into a buildable :class:`XbarCell1t1rLinearConfig` that reproduces the
+into a buildable `XbarCell1t1rLinearConfig` that reproduces the
 Detail branch current and access node at that operating point.
 """
 
@@ -140,7 +140,7 @@ def test_divider_reproduces_detail_at_op(
 ) -> None:
     """Chord conductance and drop fraction match the Detail solve at the OP.
 
-    ``I = g_cell * span`` and ``V_X = v_bl_op - vx_ratio * span`` reproduce
+    `I = g_cell * span` and `V_X = v_bl_op - vx_ratio * span` reproduce
     the Detail branch at both WL levels — the full-span denominators keep
     the cut-off (WL-off) level as well-conditioned as the conducting one.
     """

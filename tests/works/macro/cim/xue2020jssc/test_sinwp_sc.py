@@ -2,16 +2,16 @@
 
 Hand-built tiny witness, eager, CPU. Three laws:
 
-  * SHAPE LAW: ``inst_count`` derives from the config geometry (``gn * 2``, no
-    magic numbers) and ``forward`` reduces exactly the bit axis.
-  * VALUE LAW: ``forward`` equals the inline LSB-first ratio-weighted bit sum.
+  * SHAPE LAW: `inst_count` derives from the config geometry (`gn * 2`, no
+    magic numbers) and `forward` reduces exactly the bit axis.
+  * VALUE LAW: `forward` equals the inline LSB-first ratio-weighted bit sum.
   * LEG-BILLING LAW (branch-tensor law): the recorded dynamic energy equals
-    the materialized-leg formula — ``v_dd * sum_k (sum_lanes s_k * i[k]) *
-    window[k]`` with the per-leg currents ``i_leg[k] = bit_ratios[k] * i[k]``
-    (the mirror legs carry the ``s_k``-scaled copies, NOT the raw interface
+    the materialized-leg formula — `v_dd * sum_k (sum_lanes s_k * i[k]) *
+    window[k]` with the per-leg currents `i_leg[k] = bit_ratios[k] * i[k]`
+    (the mirror legs carry the `s_k`-scaled copies, NOT the raw interface
     current — non-unity ratios make an interface-current bill fail) and the
-    SIGNED per-leg sum (a mixed-sign witness pins the no-``|I|`` semantics) —
-    plus the ``c_hold * v_dd**2`` per-(slot x bit) per-instance cap event. The
+    SIGNED per-leg sum (a mixed-sign witness pins the no-`|I|` semantics) —
+    plus the `c_hold * v_dd**2` per-(slot x bit) per-instance cap event. The
     value output is the sum of the SAME legs the billing consumed.
 """
 
@@ -86,7 +86,7 @@ def test_leg_billing_law() -> None:
     """Recorded energy == materialized-leg formula (signed leg sum) + cap events.
 
     The bit ratios are non-unity (0.25, 0.5), so a bill of the raw interface
-    currents (the pre-fix bug: ``v_dd * sum_lanes(i[k]) * window[k]``) differs
+    currents (the pre-fix bug: `v_dd * sum_lanes(i[k]) * window[k]`) differs
     from the leg bill by more than the tolerance — the witness discriminates
     the two placements of the scaling.
     """

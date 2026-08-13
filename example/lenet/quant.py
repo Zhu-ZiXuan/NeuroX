@@ -2,24 +2,22 @@
 
 Two layer families live here:
 
-- ``QATConv2d`` / ``QATLinear`` — training-time. Plain ``nn.Conv2d`` /
-  ``nn.Linear`` subclasses with input / weight / output observers
-  attached. ``forward`` runs ``fake_quant`` on input + weight, then
-  the standard float ``F.conv2d`` / ``F.linear`` (NOT the macro);
-  output observer tracks the per-tensor y range. Backward is STE.
-- ``QuantConv2d`` / ``QuantLinear`` — inference-time. Macro-backed
-  integer matmul; the MAC units one output code carries are folded into
-  ``(mult, rshift, bias_int)`` at construction time so the runtime
-  forward is just ``quantize_input → macro.matmul → (code + bias_int)
-  · mult >> rshift + zp_y → dequantize``.
+- `QATConv2d` / `QATLinear` — training-time. `nn.Conv2d` / `nn.Linear`
+  subclasses with input / weight / output observers attached. `forward`
+  fake-quantizes input and weight, then runs the float `F.conv2d` / `F.linear`
+  rather than the macro, while the output observer tracks the per-tensor y
+  range. Backward is STE.
+- `QuantConv2d` / `QuantLinear` — inference-time. Macro-backed integer matmul;
+  the MAC units one output code carries are folded into
+  `(mult, rshift, bias_int)` at construction, so the runtime forward is
+  `quantize_input → macro.linear → (code + bias_int) · mult >> rshift + zp_y →
+  dequantize`.
 
-The bridge between training and inference is a flat per-layer state
-dict produced by ``QATLayer.export_state`` and consumed by
-``QuantLayer.__init__``.
+The bridge between training and inference is a flat per-layer state dict
+produced by `export_state` and consumed by `from_state`.
 
-NOTE on the quant grid: the constants below match what
-``macro_with_ideal_xbar.toml`` / ``macro_with_physical_xbar.toml``
-expose as ``x_value_range`` / ``w_value_range``.
+The quant-grid constants below match the `x_value_range` / `w_value_range` the
+shipped configs expose.
 """
 
 from __future__ import annotations
@@ -54,17 +52,16 @@ def stochastic_floor_div(
     *,
     training: bool,
 ) -> Tensor:
-    """Compute ``numerator >> rshift`` with optional unbiased jitter.
-
-    Stochastic rounding is applied when ``training`` is ``True``.
+    """Compute `numerator >> rshift`, optionally with unbiased jitter.
 
     Args:
         numerator: Integer tensor to be shifted.
         rshift: Right-shift amount; scalar or broadcastable tensor.
-        training: Whether stochastic training behavior is enabled.
+        training: Adds uniform jitter below the shifted LSB, turning the
+            truncation into stochastic rounding.
 
     Returns:
-        Quotient tensor (same dtype as ``numerator``).
+        Quotient tensor, dtype of `numerator`.
     """
     if not training:
         return numerator >> rshift
@@ -97,13 +94,14 @@ def derive_multiplier_and_shift_tensor(
     """Batched fixed-point decomposition for per-channel scale tensors.
 
     Args:
-        scale_tensor: Float tensor of per-channel scale factors.
-            Shape: ``[num_channels]``.
+        scale_tensor: Per-channel scale factors.
+            Shape: `[num_channels]`.
         mult_bits: Multiplier precision.
 
     Returns:
-        ``(multiplier, rshift)`` int32 tensors.
-        Shape: ``[num_channels]``.
+        `(multiplier, rshift)` int32 tensors reproducing the scale as
+        `x × multiplier >> rshift`.
+        Shape: `[num_channels]`.
     """
     mult_max = (1 << mult_bits) - 1
     significand, exponent = torch.frexp(scale_tensor)
@@ -116,8 +114,8 @@ def derive_multiplier_and_shift_tensor(
 class PerTensorObserver(nn.Module):
     """Per-tensor asymmetric affine min/max observer with EMA tracking.
 
-    The ``frozen`` bool buffer pins ``(min, max)`` after calibration
-    so the stats survive subsequent ``model.train()`` calls.
+    The `frozen` buffer pins `(min_val, max_val)` after calibration so the
+    stats survive subsequent `model.train()` calls.
 
     Args:
         qmin: Integer min of the target grid.
@@ -150,9 +148,9 @@ class PerTensorObserver(nn.Module):
 
     @torch.no_grad()
     def forward(self, x: Tensor) -> None:
-        """EMA update of ``(min_val, max_val)`` from ``x``.
+        """EMA update of `(min_val, max_val)` from `x`.
 
-        No-op when ``self.training`` is ``False`` or ``self.frozen`` is set.
+        No-op outside training mode and once frozen.
         """
         if not self.training or bool(self.frozen):
             return
@@ -166,7 +164,7 @@ class PerTensorObserver(nn.Module):
             self.max_val.lerp_(new_max, self.momentum)
 
     def qparams(self) -> tuple[Tensor, Tensor]:
-        """Return ``(scale, zero_point)`` as ``(float32, int32)`` tensors."""
+        """Return `(scale, zero_point)` as `(float32, int32)` tensors."""
         min_val = torch.minimum(self.min_val, torch.zeros_like(self.min_val))
         max_val = torch.maximum(self.max_val, torch.zeros_like(self.max_val))
         span = (max_val - min_val).clamp(min=1e-8)
@@ -178,7 +176,7 @@ class PerTensorObserver(nn.Module):
 class PerChannelSymmObserver(nn.Module):
     """Per-channel symmetric min/max observer with EMA tracking.
 
-    Symmetric grid ``[-qmax, +qmax]`` with ``zero_point = 0``.
+    Symmetric grid `[-qmax, +qmax]` with `zero_point = 0`.
 
     Args:
         num_channels: Output-channel count.
@@ -199,7 +197,7 @@ class PerChannelSymmObserver(nn.Module):
         self.register_buffer("frozen", torch.tensor(False))
 
     def freeze(self) -> None:
-        """Pin current ``abs_max`` so further forwards skip EMA updates."""
+        """Pin current `abs_max` so further forwards skip EMA updates."""
         self.frozen.fill_(True)
 
     def unfreeze(self) -> None:
@@ -208,9 +206,9 @@ class PerChannelSymmObserver(nn.Module):
 
     @torch.no_grad()
     def forward(self, weight: Tensor) -> None:
-        """EMA update of the per-channel absolute max from ``weight``.
+        """EMA update of the per-channel absolute max from `weight`.
 
-        No-op when ``self.training`` is ``False`` or ``self.frozen`` is set.
+        No-op outside training mode and once frozen.
         """
         if not self.training or bool(self.frozen):
             return
@@ -222,7 +220,7 @@ class PerChannelSymmObserver(nn.Module):
             self.abs_max.lerp_(batch_abs_max, self.momentum)
 
     def qparams(self) -> tuple[Tensor, Tensor]:
-        """Return ``(per_channel_scale, per_channel_zero_point=0)``."""
+        """Return `(per_channel_scale, per_channel_zero_point=0)`."""
         scale = (self.abs_max / self.qmax).clamp(min=1e-8)
         zp = torch.zeros_like(scale, dtype=torch.int32)
         return scale.detach().to(torch.float32), zp
@@ -234,11 +232,11 @@ def fake_quant_ste(x: Tensor, scale: Tensor, zero_point: Tensor, qmin: int, qmax
     Args:
         x: Float input tensor.
         scale: Per-tensor float32 scale.
-            Shape: ``[]``.
+            Shape: `[]`.
         zero_point: Per-tensor int32 zero-point.
-            Shape: ``[]``.
-        qmin: Integer grid minimum (inclusive).
-        qmax: Integer grid maximum (inclusive).
+            Shape: `[]`.
+        qmin: Integer grid minimum, inclusive.
+        qmax: Integer grid maximum, inclusive.
     """
     x_int = torch.clamp(torch.round(x / scale + zero_point.float()), qmin, qmax)
     x_fq = (x_int - zero_point.float()) * scale
@@ -250,10 +248,10 @@ def fake_quant_symm_per_channel_ste(weight: Tensor, scale: Tensor, qmax: int) ->
 
     Args:
         weight: Float weight tensor; axis 0 is the output channel.
-            Shape: ``[num_channels, ...]``.
+            Shape: `[num_channels, ...]`.
         scale: Per-channel scale.
-            Shape: ``[num_channels]``.
-        qmax: Symmetric grid half-width — values clamp into ``[-qmax, +qmax]``.
+            Shape: `[num_channels]`.
+        qmax: Symmetric grid half-width — values clamp into `[-qmax, +qmax]`.
     """
     shape = [scale.shape[0]] + [1] * (weight.ndim - 1)
     sw = scale.view(shape)
@@ -268,10 +266,10 @@ def fake_quant_symm_per_channel_ste(weight: Tensor, scale: Tensor, qmax: int) ->
 
 
 class QATConv2d(nn.Conv2d):
-    """Training-time fake-quantized conv2d.
+    """Training-time fake-quantized conv2d with input / weight / output observers.
 
-    Observers are nn.Module children: ``model.train()`` enables their EMA
-    update; ``freeze_observers(model)`` pins them after calibration.
+    The observers are module children: `model.train()` enables their EMA
+    update, `freeze_observers(model)` pins them after calibration.
     """
 
     def __init__(
@@ -301,7 +299,7 @@ class QATConv2d(nn.Conv2d):
 
     @torch.no_grad()
     def export_state(self) -> dict[str, Any]:
-        """Per-layer dict consumed by :meth:`QuantConv2d.from_state`."""
+        """Per-layer state dict consumed by `QuantConv2d.from_state`."""
         s_x, zp_x = self.act_observer.qparams()
         s_w, _ = self.weight_observer.qparams()
         s_y, zp_y = self.out_observer.qparams()
@@ -325,7 +323,7 @@ class QATConv2d(nn.Conv2d):
 
 
 class QATLinear(nn.Linear):
-    """Training-time fake-quantized linear. Same pattern as :class:`QATConv2d`."""
+    """Training-time fake-quantized linear with input / weight / output observers."""
 
     def __init__(self, in_features: int, out_features: int, bias: bool = True) -> None:
         super().__init__(in_features, out_features, bias=bias)
@@ -372,9 +370,9 @@ class QATLinear(nn.Linear):
 def _default_op(macro: LinearUnit, quantization_mode: int | None) -> tuple[int, int | None]:
     """Resolve the operating point: mode 0 by default, macro's max bits.
 
-    A unit without output quantization publishes ``adc_max_bits is None``;
-    the resolved ``adc_bits`` is then ``None``, the lossless oracle, whose
-    rescale factor is ``1.0``.
+    A unit without output quantization publishes `adc_max_bits is None`; the
+    resolved `adc_bits` is then `None`, the lossless oracle, whose rescale
+    factor is `1.0`.
     """
     return (0 if quantization_mode is None else quantization_mode, macro.adc_max_bits)
 
@@ -382,9 +380,9 @@ def _default_op(macro: LinearUnit, quantization_mode: int | None) -> tuple[int, 
 def _mac_per_code(macro: LinearUnit, *, quantization_mode: int, adc_bits: int | None) -> float:
     """Return the MAC units one output code carries at this operating point.
 
-    The simulator exports codes plus ``rescale_factor``, which states a code
-    in ideal-macro codes; turning those into MAC units is the algorithm's own
-    job and takes the ideal twin's window step ``W / 2**B``. A unit that never
+    The simulator exports codes plus `rescale_factor`, which states a code in
+    ideal-macro codes; turning those into MAC units is the algorithm's own job
+    and takes the ideal twin's window step `W / 2**B`. A unit that never
     quantizes its output returns exact dots, so one code is one MAC unit.
     """
     factor = macro.rescale_factor(quantization_mode=quantization_mode, adc_bits=adc_bits)
@@ -397,11 +395,14 @@ def _mac_per_code(macro: LinearUnit, *, quantization_mode: int, adc_bits: int | 
 
 @dataclass
 class _FoldedScales:
-    """Per-channel ``(mult, rshift, bias_int)`` after folding the code scale."""
+    """Integer rescale terms the runtime forward applies to macro codes."""
 
     mult: Tensor
+    """Int32 multiplier of the folded scale. Shape: `[num_channels]`."""
     rshift: Tensor
+    """Right-shift paired with `mult`. Shape: `[num_channels]`."""
     bias_int: Tensor
+    """Bias plus input zero-point correction, in macro codes. Shape: `[num_channels]`."""
     mac_per_code: float
 
 
@@ -415,13 +416,14 @@ def _fold_for_macro(
     s_y: Tensor,
     mac_per_code: float,
 ) -> _FoldedScales:
-    """Fold the macro's MAC-units-per-code into ``(mult, rshift, bias_int)``.
+    """Fold the macro's MAC-units-per-code into `(mult, rshift, bias_int)`.
 
-    Math: with ``ideal_dot ≈ code · mac_per_code`` (zero-through-origin by
-    architectural invariant), ``combined' = (s_x · s_w / s_y) · mac_per_code``,
-    and ``bias_int_folded = round((bias_fp/(s_x·s_w) - zp_x · Σ_k w_int) / mac_per_code)``,
-    the runtime expression ``((code + bias_int_folded) · mult) >> rshift + zp_y``
-    reproduces the float math ``round((s_x·s_w·ideal_dot + bias) / s_y) + zp_y``.
+    A code carries `ideal_dot ≈ code · mac_per_code`, zero through the origin
+    by architectural invariant. With `mult >> rshift` standing for
+    `(s_x · s_w / s_y) · mac_per_code` and
+    `bias_int = round((bias_fp / (s_x · s_w) - zp_x · Σ_k w_int) / mac_per_code)`,
+    the runtime `((code + bias_int) · mult) >> rshift + zp_y` reproduces the
+    float `round((s_x · s_w · ideal_dot + bias) / s_y) + zp_y`.
     """
     k_axes = tuple(range(1, weight_int.ndim))
     w_sum = weight_int.to(torch.int64).sum(dim=k_axes) if k_axes else weight_int.to(torch.int64)
@@ -438,8 +440,8 @@ def _fold_for_macro(
     bias_int = folded.clamp(min=int32.min, max=int32.max).to(torch.int32)
 
     combined = (sx * sw * mac_per_code / sy).to(torch.float32)
-    # 8 multiplier bits keep ``code * mult`` in int32 for accumulators
-    # up to 24 bits (2²⁴ * 2⁸ = 2³²).
+    # 8 multiplier bits keep `code × mult` in int32 for accumulators
+    # up to 24 bits (2²⁴ × 2⁸ = 2³²).
     mult, rshift = derive_multiplier_and_shift_tensor(combined, mult_bits=8)
     return _FoldedScales(
         mult=mult.to(torch.int32),
@@ -450,7 +452,7 @@ def _fold_for_macro(
 
 
 def _quantize_input(x: Tensor, s_x: Tensor, zp_x: Tensor) -> Tensor:
-    """Asymmetric float → int32 quantizer; clamps to ``[X_QMIN, X_QMAX]``."""
+    """Asymmetric float → int32 quantizer; clamps to `[X_QMIN, X_QMAX]`."""
     q = torch.round(x / s_x + zp_x.to(x.dtype))
     return q.clamp(X_QMIN, X_QMAX).to(torch.int32)
 
@@ -470,8 +472,10 @@ def _unfold_conv_input(
 ) -> tuple[Tensor, tuple[int, ...], int, int]:
     """Unfold the conv input into matmul-style row blocks.
 
-    Returns the reshaped block tensor plus ``(batch_shape, out_h, out_w)``
-    needed by :func:`_fold_conv_output`.
+    Returns:
+        The block tensor and the `(batch_shape, out_h, out_w)` that inverting
+        the unfold needs.
+        Shape: `[N, OH*OW, C*kH*kW]`.
     """
     batch_shape = x.shape[:-3]
     if x.ndim > 4:
@@ -490,7 +494,7 @@ def _unfold_conv_input(
 
 
 def _fold_conv_output(y: Tensor, out_channels: int, batch_shape: tuple[int, ...], out_h: int, out_w: int) -> Tensor:
-    """Reverse of :func:`_unfold_conv_input` for the per-row matmul output."""
+    """Reverse of `_unfold_conv_input` for the per-row matmul output."""
     n = y.shape[0]
     # Shape: [N, OH*OW, out_channels] -> [N, out_channels, OH, OW]
     y = y.transpose(1, 2).reshape(n, out_channels, out_h, out_w)
@@ -505,7 +509,7 @@ def _fold_conv_output(y: Tensor, out_channels: int, batch_shape: tuple[int, ...]
 class QuantConv2d(nn.Module):
     """Inference: macro-backed integer conv2d with folded rescale.
 
-    ``quantization_mode`` (default 0) is the per-layer hardware mode pick.
+    `quantization_mode` picks the conversion window; `None` resolves to mode 0.
     """
 
     weight_int: Tensor
@@ -705,7 +709,7 @@ class QuantLinear(nn.Module):
 
 
 def freeze_observers(model: nn.Module) -> int:
-    """Pin every QAT observer in ``model``. Returns the count frozen."""
+    """Pin every QAT observer in `model` and return how many were frozen."""
     n = 0
     for m in model.modules():
         if isinstance(m, PerTensorObserver | PerChannelSymmObserver):
@@ -715,7 +719,7 @@ def freeze_observers(model: nn.Module) -> int:
 
 
 def export_qat_state(model: nn.Module) -> dict[str, dict]:
-    """Walk ``model``, collect ``{layer_name: layer_state}`` from QAT layers."""
+    """Walk `model`, collect `{layer_name: layer_state}` from QAT layers."""
     out: dict[str, dict] = {}
     for name, module in model.named_modules():
         if isinstance(module, QATConv2d | QATLinear):

@@ -1,17 +1,16 @@
 """LeNet pure-QAT training. No macro in the forward.
 
-Stages:
 1. Load the pretrained float LeNet5 state_dict.
-2. Build :class:`QATLeNet5` (every weight layer becomes a fake-quant variant
-   with observers attached). Copy float weights over.
-3. Calibration: forward N batches in train mode without gradients to settle
-   the input / weight / output observers, then freeze them so subsequent
-   training steps don't move the qparams.
-4. Fine-tune with optional KD from a frozen float teacher. Forward is
-   plain ``F.linear`` / ``F.conv2d`` under fake-quant; backward is STE.
-5. Save the per-layer flat state dict (weight_int + scales + zero-points,
-   bias kept as float) under ``--checkpoint``. The schema is consumed by
-   :class:`QuantLeNet5` at deployment.
+2. Build `QATLeNet5`, every weight layer a fake-quant variant with observers
+   attached, and copy the float weights over.
+3. Calibration: forward N batches in train mode without gradients to settle the
+   input / weight / output observers, then freeze them so subsequent training
+   steps leave the qparams alone.
+4. Fine-tune with optional KD from a frozen float teacher. Forward is plain
+   `F.linear` / `F.conv2d` under fake-quant; backward is STE.
+5. Save the per-layer flat state dict (weight_int, scales, zero-points, bias
+   kept float) under `--checkpoint`, the schema `QuantLeNet5` consumes at
+   deployment.
 """
 
 # ruff: noqa: T201
@@ -43,7 +42,7 @@ QAT_SCHEMA = "lenet_qat_v1"
 
 
 def _validate(model: nn.Module, loader: DataLoader, device: torch.device) -> float:
-    """Top-1 accuracy of ``model`` on ``loader`` (eval mode)."""
+    """Top-1 accuracy of `model` on `loader`, in eval mode."""
     model.eval()
     correct = 0
     total = 0
@@ -57,7 +56,12 @@ def _validate(model: nn.Module, loader: DataLoader, device: torch.device) -> flo
 
 
 def _copy_float_weights(qat_model: QATLeNet5, float_state: dict[str, torch.Tensor]) -> None:
-    """Load float LeNet5 weights into the QAT model (matching parameter names)."""
+    """Load float LeNet5 weights into the QAT model, matching parameter names.
+
+    Raises:
+        RuntimeError: The float state misses a weight layer or carries a key
+            the QAT model does not declare.
+    """
     # QATConv2d / QATLinear are subclasses of nn.Conv2d / nn.Linear so the
     # parameter names ('weight', 'bias') align. Observer buffers are added
     # automatically and don't appear in the float state.

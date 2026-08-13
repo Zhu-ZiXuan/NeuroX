@@ -2,6 +2,7 @@
 
 See also:
     docs/reference/primitive/digital/shift_adder.md
+    docs/internals/primitive/digital/shift_adder.md
 """
 
 import torch
@@ -11,20 +12,16 @@ from .base import DigitalBase, DigitalConfig, DigitalPolicy
 
 
 class ShiftAdderConfig(DigitalConfig):
-    """Immutable configuration for a ShiftAdder instance.
-
-    Attributes:
-        bit_width: Signed output bit width; result wraps modulo ``2^bit_width``
-            into ``[-2^(bw-1), 2^(bw-1) - 1]``.
-        energy_per_op__fJ: Dynamic energy consumed per operand element folded
-            into the sum — one digit leg of one output.
-        latency_per_op__ns: Positional-sum window of one shift-add.
-    """
+    """Immutable configuration for a ShiftAdder instance."""
 
     bit_width: int
+    """Signed output bit width; the result wraps modulo `2^bit_width` into
+    `[-2^(bit_width-1), 2^(bit_width-1) - 1]`."""
 
     energy_per_op__fJ: float
+    """Dynamic energy per digit leg of one output."""
     latency_per_op__ns: float
+    """Positional-sum window of one shift-add."""
 
     def validate(self) -> None:
         super().validate()
@@ -43,10 +40,10 @@ class ShiftAdder(DigitalBase[ShiftAdderConfig]):
     """Weighted positional-sum unit for digit recombination.
 
     Args:
-        config: Shift-adder configuration.
-        policy: Digital execution policy.
-        inst_shape: Per-instance fabrication shape.
-        scale: Positional radix.
+        config: Arithmetic width and per-op PPA.
+        policy: Empty digital policy marker.
+        inst_shape: Per-instance fabrication multiplicity.
+        scale: Positional radix; at least 2.
         digit_count: Number of positional digits reduced per operation.
     """
 
@@ -83,23 +80,22 @@ class ShiftAdder(DigitalBase[ShiftAdderConfig]):
         return self.config.leakage_per_inst__uW
 
     def shift_add(self, x: Tensor, dim: int, init_val: Tensor | None) -> Tensor:
-        """Compute the radix-weighted digit sum and wrap to ``bit_width`` bits.
+        """Compute the radix-weighted digit sum and wrap to `bit_width` bits.
 
-        Dynamic energy is billed against the pre-reduction operand ``x``: one
-        shift-and-add cell is evaluated per digit leg folded in, so the
-        switching count follows the digit extent, which the result no longer
-        carries. ``init_val`` preloads the destination register and adds no
+        Dynamic energy is billed against the pre-reduction operand: one
+        shift-and-add cell per digit leg folded in, an extent the result no
+        longer carries. A preload of the destination register adds no
         evaluation of its own.
 
         Args:
             x: Integer digit tensor.
-                Shape: ``[..., digit_count, ...]``.
+                Shape: `[..., digit_count, ...]`.
             dim: Axis indexing the digit positions.
-            init_val: Optional partial-sum tensor added after the modular wrap,
+            init_val: Optional partial sum added after the modular wrap,
                 broadcastable to the output shape.
 
         Returns:
-            Recombined sum with ``dim`` reduced.
+            Recombined sum with `dim` reduced.
         """
         bw = self.config.bit_width
         half = 1 << (bw - 1)

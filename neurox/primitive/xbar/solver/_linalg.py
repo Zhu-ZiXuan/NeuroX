@@ -1,8 +1,4 @@
-"""Numerical linear-algebra helpers for crossbar IR-drop simulation.
-
-See also:
-    docs/reference/primitive/xbar/solver/nested.md
-"""
+"""Numerical linear-algebra helpers for crossbar IR-drop simulation."""
 
 from __future__ import annotations
 
@@ -18,11 +14,11 @@ def elementwise_diff(fn: Callable[..., Tensor], *, wrt: str, **kwargs: Tensor) -
     Args:
         fn: An element-wise tensor function.
         wrt: Keyword argument name to differentiate with respect to.
-        **kwargs: All keyword arguments forwarded to ``fn``.
+        **kwargs: All keyword arguments forwarded to `fn`.
 
     Returns:
-        Tensor with the same shape as ``kwargs[wrt]``; element ``k``
-        is ``∂fn[k] / ∂kwargs[wrt][k]``.
+        Tensor at the shape of `kwargs[wrt]`; element `k` is
+        ∂fn[k] / ∂kwargs[wrt][k].
     """
     with torch.enable_grad():
         x = kwargs[wrt].detach().clone().requires_grad_(True)
@@ -33,20 +29,20 @@ def elementwise_diff(fn: Callable[..., Tensor], *, wrt: str, **kwargs: Tensor) -
 
 
 def block_matmul(p: Tensor, q: Tensor) -> Tensor:
-    """Compute batched ``p @ q`` with a closed-form 2×2 path.
+    """Compute batched `p @ q` with a closed-form 2×2 path.
 
-    For ``B == 2`` the product uses elementwise multiply-adds. Other block
-    sizes use ``p @ q``.
+    For `B == 2` the product uses elementwise multiply-adds; other block sizes
+    fall back to the matmul.
 
     Args:
         p: Left block operand.
-            Shape: ``[..., B, B]``.
+            Shape: `[..., B, B]`.
         q: Right block operand.
-            Shape: ``[..., B, K]``.
+            Shape: `[..., B, K]`.
 
     Returns:
         Block product.
-        Shape: ``[..., B, K]``.
+        Shape: `[..., B, K]`.
     """
     if p.shape[-1] == 2 and p.shape[-2] == 2:
         # Shape: [..., B, K] -> [..., K]
@@ -61,20 +57,20 @@ def block_matmul(p: Tensor, q: Tensor) -> Tensor:
 
 
 def block_solve(m: Tensor, rhs: Tensor) -> Tensor:
-    """Solve batched ``m x = rhs`` with a closed-form 2×2 path.
+    """Solve batched `m x = rhs` with a closed-form 2×2 path.
 
-    For ``B == 2`` the solve uses the adjugate/determinant formula. Other
-    block sizes use ``torch.linalg.solve``.
+    For `B == 2` the solve uses the adjugate/determinant formula; other block
+    sizes fall back to `torch.linalg.solve`.
 
     Args:
         m: Block system matrix.
-            Shape: ``[..., B, B]``.
+            Shape: `[..., B, B]`.
         rhs: Right-hand-side columns.
-            Shape: ``[..., B, K]``.
+            Shape: `[..., B, K]`.
 
     Returns:
         Solution columns.
-        Shape: ``[..., B, K]``.
+        Shape: `[..., B, K]`.
     """
     if m.shape[-1] == 2 and m.shape[-2] == 2:
         # Shape: [..., B, B] -> [..., 1]
@@ -105,38 +101,30 @@ def solve_block_tridiagonal(
 ) -> Tensor:
     """Solve batched block-tridiagonal systems via the block Thomas algorithm.
 
-    Solves ``A x = rhs`` where ``A`` is block-tridiagonal with ``B × B``
-    blocks. Shape convention is fixed (no ``dim`` arg) — the N axis is
-    always third-to-last for the block tensors and second-to-last for
-    ``rhs``. Transpose at the call site if your data is laid out
-    differently.
-
-    The block at row ``k`` has:
-
-      * sub-diagonal block ``sub[..., k, :, :]`` (coupling to row ``k-1``);
-        the entry at ``k = 0`` is unused
-      * main diagonal block ``diag[..., k, :, :]``
-      * super-diagonal block ``sup[..., k, :, :]`` (coupling to row ``k+1``);
-        the entry at ``k = N-1`` is unused
+    Solves `A x = rhs` where `A` is block-tridiagonal with B × B blocks. The
+    shape convention is fixed: the N axis is third-to-last for the block
+    tensors and second-to-last for `rhs`.
 
     Args:
-        sub: Sub-diagonal blocks.
-            Shape: ``[..., N, B, B]``.
+        sub: Sub-diagonal blocks coupling row `k` to row `k-1`; the entry at
+            `k = 0` is unused.
+            Shape: `[..., N, B, B]`.
         diag: Main diagonal blocks.
-            Shape: ``[..., N, B, B]``.
-        sup: Super-diagonal blocks.
-            Shape: ``[..., N, B, B]``.
+            Shape: `[..., N, B, B]`.
+        sup: Super-diagonal blocks coupling row `k` to row `k+1`; the entry at
+            `k = N-1` is unused.
+            Shape: `[..., N, B, B]`.
         rhs: Right-hand-side vectors.
-            Shape: ``[..., N, B]``.
+            Shape: `[..., N, B]`.
 
     Returns:
         Solution tensor.
-        Shape: ``[..., N, B]``.
+        Shape: `[..., N, B]`.
     """
     n = rhs.shape[-2]
     if n == 1:
         # One block is one plain solve; the N axis of extent one stays, so
-        # the return keeps the ``[..., N, B]`` rank whatever N is.
+        # the return keeps the `[..., N, B]` rank whatever N is.
         # Shape: [..., N=1, B] -> [..., B, 1] -> [..., N=1, B]
         return block_solve(diag[..., 0, :, :], rhs[..., 0, :].unsqueeze(-1)).squeeze(-1).unsqueeze(-2)
 
@@ -174,32 +162,23 @@ def solve_block_tridiagonal_2x2_uniform(
 ) -> Tensor:
     """Solve batched 2×2 block-tridiagonal systems with ONE constant off-block.
 
-    Specialization of :func:`solve_block_tridiagonal` to the case where every
-    sub- and super-diagonal block is the same constant diagonal matrix
-    ``U = diag(off_block)``. Two structural facts collapse the block Thomas
-    recurrence to elementwise arithmetic:
-
-      * ``U M U`` is the scaling ``(U M U)[i, j] = u_i · m[i, j] · u_j``, so
-        the forward sweep needs no block product, only the four cross weights
-        ``u_i u_j``;
-      * ``U v`` is an elementwise scale of a block vector.
-
-    Each step is therefore one explicit 2×2 inverse plus multiply-adds, and
-    the caller never materializes the off-diagonal blocks at all. Boundary
-    slots need no special casing either: the recurrence reads no sub-block at
-    row 0 and no super-block at row ``N-1``.
+    Specialization of `solve_block_tridiagonal` to every sub- and
+    super-diagonal block being the same constant diagonal matrix
+    `U = diag(off_block)`, which collapses the block Thomas recurrence to one
+    explicit 2×2 inverse plus multiply-adds per step. The off-diagonal blocks
+    are never materialized and the boundary slots need no special casing.
 
     Args:
         diag: Main diagonal blocks.
-            Shape: ``[..., N, 2, 2]``.
+            Shape: `[..., N, 2, 2]`.
         rhs: Right-hand-side vectors.
-            Shape: ``[..., N, 2]``.
+            Shape: `[..., N, 2]`.
         off_block: The two diagonal entries of the shared off-block, i.e.
-            ``U = diag(off_block[0], off_block[1])``.
+            `U = diag(off_block[0], off_block[1])`.
 
     Returns:
         Solution tensor.
-        Shape: ``[..., N, 2]``.
+        Shape: `[..., N, 2]`.
     """
     u_0, u_1 = off_block
     # Cross weights of U · M · U — entry (i, j) picks up u_i · u_j.
@@ -264,24 +243,23 @@ def solve_block_tridiagonal_dense(
     sup: Tensor,
     rhs: Tensor,
 ) -> Tensor:
-    """Solve batched block-tridiagonal systems by densifying to one ``N*B`` square solve.
+    """Solve batched block-tridiagonal systems by densifying to one `N*B` square solve.
 
-    Same input/output contract as :func:`solve_block_tridiagonal`.
+    Same input/output contract as `solve_block_tridiagonal`.
 
     Args:
-        sub: Sub-diagonal blocks. ``sub[0]`` is ignored (zeroed during
-            assembly).
-            Shape: ``[..., N, B, B]``.
+        sub: Sub-diagonal blocks; `sub[0]` is zeroed during assembly.
+            Shape: `[..., N, B, B]`.
         diag: Main diagonal blocks.
-            Shape: ``[..., N, B, B]``.
-        sup: Super-diagonal blocks. ``sup[-1]`` is ignored.
-            Shape: ``[..., N, B, B]``.
+            Shape: `[..., N, B, B]`.
+        sup: Super-diagonal blocks; `sup[-1]` is zeroed during assembly.
+            Shape: `[..., N, B, B]`.
         rhs: Right-hand-side vectors.
-            Shape: ``[..., N, B]``.
+            Shape: `[..., N, B]`.
 
     Returns:
         Solution tensor.
-        Shape: ``[..., N, B]``.
+        Shape: `[..., N, B]`.
     """
     n = diag.shape[-3]
     b = diag.shape[-1]
@@ -308,7 +286,7 @@ def solve_block_tridiagonal_dense(
     sub_shift = torch.diag_embed(ones_n1, offset=-1)
     sup_shift = torch.diag_embed(ones_n1, offset=+1)
 
-    # ``(k, i)`` and ``(m, j)`` become the dense row and column indices.
+    # `(k, i)` and `(m, j)` become the dense row and column indices.
     # Shape: [..., N, B, B] -> [..., N, B, N, B] -> [..., N*B, N*B]
     diag_part = torch.einsum("...kij,km->...kimj", diag, eye_n).flatten(-4, -3).flatten(-2, -1)
     # Shape: [..., N, B, B] -> [..., N, B, N, B] -> [..., N*B, N*B]
@@ -329,12 +307,12 @@ def solve_block_tridiagonal_dense(
 def _pcr_validity_mask(n: int, stride: int, dim: int, ndim: int, device: torch.device) -> Tensor:
     """1 where the shifted position has a valid in-range neighbour, 0 at boundary.
 
-    Every axis other than ``dim`` is size 1, so the mask broadcasts against
-    tensors of the full shape, ready to multiply or select against.
+    Every axis other than `dim` is size 1, so the mask broadcasts against
+    tensors of the full shape.
 
     Returns:
         Boundary-validity mask.
-        Shape: ``[..., N, ...]``.
+        Shape: `[..., N, ...]`.
     """
     indices = torch.arange(n, device=device)
     valid = indices >= stride if stride > 0 else indices < n + stride
@@ -344,9 +322,9 @@ def _pcr_validity_mask(n: int, stride: int, dim: int, ndim: int, device: torch.d
 
 
 def _pcr_shift_zero(t: Tensor, stride: int, dim: int) -> Tensor:
-    """Shift ``t`` along ``dim`` so position k gets the value at position ``k - stride``.
+    """Shift `t` along `dim` so position k gets the value at position `k - stride`.
 
-    A ``torch.roll`` + a broadcast multiplicative mask that zeros wraparound
+    A `torch.roll` plus a broadcast multiplicative mask that zeros wraparound
     positions.
     """
     if abs(stride) >= t.shape[dim]:
@@ -357,11 +335,11 @@ def _pcr_shift_zero(t: Tensor, stride: int, dim: int) -> Tensor:
 
 
 def _pcr_shift_identity(t: Tensor, stride: int, dim: int) -> Tensor:
-    """Same as :func:`_pcr_shift_zero` but the boundary fill is the B×B identity.
+    """Same as `_pcr_shift_zero` but the boundary fill is the B×B identity.
 
     Used for the diagonal tensor: out-of-range neighbours produce
-    ``-sub · I = -sub`` which is then multiplied by the zero-padded
-    ``sub_l`` / ``rhs_l`` giving zero contribution at the boundary.
+    `-sub · I = -sub`, which the zero-padded `sub_l` / `rhs_l` then multiply
+    to zero at the boundary.
     """
     b = t.shape[-1]
     eye = torch.eye(b, dtype=t.dtype, device=t.device).expand_as(t)
@@ -380,8 +358,8 @@ def solve_block_tridiagonal_pcr(
 ) -> Tensor:
     """Solve batched block-tridiagonal systems by Parallel Cyclic Reduction.
 
-    Uses the same tensor contract as :func:`solve_block_tridiagonal`.
-    The implementation has no pivoting and is intended for diagonally-dominant systems.
+    Uses the same tensor contract as `solve_block_tridiagonal`. There is no
+    pivoting, so the system must be diagonally dominant.
     """
     n = diag.shape[-3]
     block_dim = -3
@@ -430,25 +408,24 @@ def solve_tridiagonal(
 ) -> Tensor:
     """Solve batched tridiagonal systems via the Thomas algorithm.
 
-    Solves ``A x = rhs`` along ``dim``; ``A`` is tridiagonal with
-    ``(sub, diag, sup)``. The entry of ``sub`` at index 0 and the
-    entry of ``sup`` at the last index are unused boundary slots
-    (the algorithm ignores them).
+    Solves `A x = rhs` along `dim`, `A` being tridiagonal with
+    `(sub, diag, sup)`.
 
     Args:
-        sub: Sub-diagonal coefficients.
-            Shape: ``[..., N, ...]``.
+        sub: Sub-diagonal coefficients; the entry at index 0 is unused.
+            Shape: `[..., N, ...]`.
         diag: Main diagonal coefficients.
-            Shape: ``[..., N, ...]``.
-        sup: Super-diagonal coefficients.
-            Shape: ``[..., N, ...]``.
+            Shape: `[..., N, ...]`.
+        sup: Super-diagonal coefficients; the entry at the last index is
+            unused.
+            Shape: `[..., N, ...]`.
         rhs: Right-hand-side vectors.
-            Shape: ``[..., N, ...]``.
-        dim: The dimension of length ``N``.
+            Shape: `[..., N, ...]`.
+        dim: The dimension of length N.
 
     Returns:
         Solution tensor.
-        Shape: ``[..., N, ...]``.
+        Shape: `[..., N, ...]`.
     """
     N = rhs.shape[dim]
     if N == 1:

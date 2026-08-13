@@ -1,10 +1,10 @@
 """Shipped validations-config parse + build test — the one sanctioned disk-config test.
 
-Asserts the paper-design artifacts under ``validations/ye2023jssc/`` parse, build,
-and carry the modeled design point: ``params.toml`` (section ``cim_macro``)
-registry-dispatches to :class:`Ye2023JsscCimMacroConfig` and the module builds +
-fabricates at ``inst_shape=()``, ``policy.toml`` (section ``policy``) loads with
-every nonideality toggle off, and ``anchors.toml`` parses with its two kinds of
+Asserts the paper-design artifacts under `validations/ye2023jssc/` parse, build,
+and carry the modeled design point: `params.toml` (section `cim_macro`)
+registry-dispatches to `Ye2023JsscCimMacroConfig` and the module builds +
+fabricates at `inst_shape=()`, `policy.toml` (section `policy`) loads with
+every nonideality toggle off, and `anchors.toml` parses with its two kinds of
 number kept apart. No forward pass.
 
 Beyond parsing, the shipped config is checked against the DESIGN it is supposed
@@ -12,8 +12,8 @@ to describe (laws, not tuned magnitudes):
 
   * the physical grid is 64 rows (logical outputs) x 128 columns = 32 inputs x
     (3 weight planes + 1 redundant SUBA4 plane),
-  * the T2 table's floor row (the ``V_X = 0`` operating point) is
-    state-independent and the seated PH0 compensation ``i_ph0_comp__uA`` equals
+  * the T2 table's floor row (the `V_X = 0` operating point) is
+    state-independent and the seated PH0 compensation `i_ph0_comp__uA` equals
     that floor over the 352 place-value units of one row, which reproduces the
     paper's ~1 uA row leakage, so a zero-MAC access reads code 0,
   * the drive-point HRS entry saturates the measured 30 nA bound at the largest
@@ -21,19 +21,19 @@ to describe (laws, not tuned magnitudes):
   * the readout is the paper's single 4-bit operating point and its DERIVED
     access window is 66 ns,
   * the selected word line clears the step-2 WL threshold, and the IN = 0 BL
-    code drives EXACTLY 0 V — the validity contract the ``V_X = 0`` floor
+    code drives EXACTLY 0 V — the validity contract the `V_X = 0` floor
     classification rests on,
   * no mismatch / noise / jitter field is declared anywhere in either artifact.
 
 And against the VALIDATION CONTRACT the two TOML artifacts encode:
 
-  * every anchor value carries a provenance tag, and the ``[gate]`` targets are
+  * every anchor value carries a provenance tag, and the `[gate]` targets are
     caliber-independent — no Fig.19 power number appears among them,
-  * the ``[reference]`` table holds the Fig.19 picture that is reported but not
+  * the `[reference]` table holds the Fig.19 picture that is reported but not
     gated (two totals, both per-pin share breakdowns, the headline efficiency),
-  * the free-parameter set in ``params.toml`` is exactly two ``[calibrated]``
+  * the free-parameter set in `params.toml` is exactly two `[calibrated]`
     fields (the RS-CSA mirror scale and its fixed per-op energy) plus the two
-    ``[transcribed]`` peripheral seats.
+    `[transcribed]` peripheral seats.
 """
 
 from __future__ import annotations
@@ -100,7 +100,7 @@ _TRANSCRIBED_ENTRIES = (
 
 @pytest.fixture(autouse=True)
 def _eager() -> Iterator[None]:
-    """Run eagerly — ``fabricate()`` touches the solver-owning array; do not unroll it."""
+    """Run eagerly — `fabricate()` touches the solver-owning array; do not unroll it."""
     with torch._dynamo.config.patch(disable=True):
         yield
 
@@ -152,7 +152,7 @@ def _all_keys(obj: object) -> set[str]:
 
 
 def _tagged_entries(path: Path) -> list[tuple[str, str, tuple[str, ...]]]:
-    """Every ``key = value`` line as ``(section, key, provenance tags)``.
+    """Every `key = value` line as `(section, key, provenance tags)`.
 
     A key is tagged by the tags on its own line, or else by the contiguous comment
     block directly above it (a block may govern several keys and survives a table
@@ -192,7 +192,7 @@ def _tagged_entries(path: Path) -> list[tuple[str, str, tuple[str, ...]]]:
 
 
 def test_params_config_parses_and_builds() -> None:
-    """``params.toml`` (section ``cim_macro``) registry-dispatches and fabricates."""
+    """`params.toml` (section `cim_macro`) registry-dispatches and fabricates."""
     config = _load_config()
     policy = CimMacroPolicy.from_file(_VALIDATIONS_DIR / "policy.toml", section="policy")
     assert isinstance(policy, Ye2023JsscCimMacroPolicy)
@@ -211,7 +211,7 @@ def test_params_config_parses_and_builds() -> None:
 
 
 def test_policy_every_toggle_false() -> None:
-    """``policy.toml`` loads with every nonideality toggle off (the all-off preset)."""
+    """`policy.toml` loads with every nonideality toggle off (the all-off preset)."""
     policy = CimMacroPolicy.from_file(_VALIDATIONS_DIR / "policy.toml", section="policy")
     assert isinstance(policy, Ye2023JsscCimMacroPolicy)
     _assert_all_toggles_false(policy)
@@ -279,7 +279,7 @@ def test_leakage_floor_reproduces_the_row_leakage_and_the_hrs_bound() -> None:
 
 
 def test_seated_ph0_is_the_all_off_row_leakage() -> None:
-    """``i_ph0_comp__uA`` is a shipped macro seat that cancels the all-off row exactly."""
+    """`i_ph0_comp__uA` is a shipped macro seat that cancels the all-off row exactly."""
     config = _load_config()
     array_config = config.array_config
 
@@ -292,7 +292,7 @@ def test_seated_ph0_is_the_all_off_row_leakage() -> None:
 
 
 def test_readout_is_one_4bit_point_with_a_66ns_derived_window() -> None:
-    """Single 4-bit mode; ``T_AC = sum(t_phase[:-1]) + t_intrinsic[-1]`` = 66 ns."""
+    """Single 4-bit mode; `T_AC = sum(t_phase[:-1]) + t_intrinsic[-1]` = 66 ns."""
     config = _load_config()
     adc_config = config.adc_config
     assert adc_config.bits == 4
@@ -355,7 +355,7 @@ def test_selected_word_line_clears_the_step2_threshold() -> None:
 
 
 def test_gate_targets_are_caliber_independent() -> None:
-    """``[gate]`` carries the five gates' targets and no Fig.19 power number."""
+    """`[gate]` carries the five gates' targets and no Fig.19 power number."""
     anchors: dict[str, Any] = dict_from_file(_VALIDATIONS_DIR / "anchors.toml")
     gate = anchors["gate"]
 
@@ -377,7 +377,7 @@ def test_gate_targets_are_caliber_independent() -> None:
 
 
 def test_reference_targets_hold_the_ungated_fig19_picture() -> None:
-    """``[reference]`` carries the two Fig.19 totals, both share breakdowns and the headline EF."""
+    """`[reference]` carries the two Fig.19 totals, both share breakdowns and the headline EF."""
     anchors: dict[str, Any] = dict_from_file(_VALIDATIONS_DIR / "anchors.toml")
     reference = anchors["reference"]
 
@@ -402,7 +402,7 @@ def test_every_anchor_value_carries_a_provenance_tag() -> None:
 
 
 def test_params_free_parameter_set_is_the_sanctioned_four() -> None:
-    """Exactly two ``[calibrated]`` fields plus the two ``[transcribed]`` seats are free."""
+    """Exactly two `[calibrated]` fields plus the two `[transcribed]` seats are free."""
     entries = _tagged_entries(_VALIDATIONS_DIR / "params.toml")
 
     calibrated = [key for _, key, tags in entries if "calibrated" in tags]

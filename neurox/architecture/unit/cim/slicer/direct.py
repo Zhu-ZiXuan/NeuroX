@@ -1,7 +1,7 @@
 """DirectSlicer — identity value decomposition.
 
 See also:
-    docs/reference/architecture/unit/family.md
+    docs/internals/architecture/unit/cim/slicer/direct.md
 """
 
 from __future__ import annotations
@@ -40,12 +40,9 @@ class DirectSlicer(Slicer):
     def slice(self, x: Tensor) -> Tensor:
         """Append the structural slice axis.
 
-        Args:
-            x: Integer tensor.
-
         Returns:
-            ``x`` with one appended slice axis.
-            Shape: ``[..., slice_num=1]``.
+            `x` with one appended slice axis.
+            Shape: `[..., slice_num=1]`.
         """
         # Shape: [...] -> [..., slice_num=1]
         return x.unsqueeze(-1)

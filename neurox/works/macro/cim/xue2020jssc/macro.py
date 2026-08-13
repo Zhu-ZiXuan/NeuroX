@@ -1,24 +1,23 @@
 """Xue2020 JSSC SINWP 1T1R CIM sub-array macro composing the current-mode readout chain.
 
-Exposes a signed VMM over ``row_num`` inputs and ``col_num`` outputs. Each
-logical weight is a sign-magnitude value (sign + ``w_digit_num`` digits of radix
-``w_digit_radix``) carried by ``w_digit_num * polarity`` physical cells, a P (PWG) and
-an N (NWG) cell per digit; the kernel 1T1R array, the DSWCT place-value legs,
-the SINWP-SC input-radix combine, the PN-ISUB subtraction, and the TMCSA current
-SAR ADC recover the signed magnitude.
+Exposes a signed VMM over `row_num` inputs and `col_num` outputs. Each logical
+weight is a sign-magnitude value (sign + `w_digit_num` digits of radix
+`w_digit_radix`) carried by `w_digit_num * polarity` physical cells, a P (PWG) and
+an N (NWG) cell per digit; the kernel 1T1R array, the DSWCT place-value legs, the
+SINWP-SC input-radix combine, the PN-ISUB subtraction, and the TMCSA current SAR
+ADC recover the signed magnitude.
 
 The column MUX is a MACRO axis, not an array one: the array holds every physical
 column and settles all of them in one solve per WL plane, while the macro keeps
-the ``[..., sweep, gn, polarity, w_digit]`` seat layout its transcode, readout,
+the `[..., sweep, gn, polarity, w_digit]` seat layout its transcode, readout,
 billing, and latency all speak. The two representations meet at exactly two
-conversions, :meth:`Xue2020JsscCimMacro._seat_to_phys` and
-:meth:`Xue2020JsscCimMacro._phys_to_seat`, and the slot map that defines them
-never leaves the macro.
+conversions, `_seat_to_phys` and `_phys_to_seat`, and the slot map that defines
+them never leaves the macro.
 
-The macro owns the per-call conduction windows it injects into the
-self-billing readout modules, delivers both boundary clamps at the port state
-the array solve returns, and bills the whole input branch plus the control
-per-op constant on its own two channels.
+The macro owns the per-call conduction windows it injects into the self-billing
+readout modules, delivers both boundary clamps at the port state the array solve
+returns, and bills the whole input branch plus the control per-op constant on its
+own two channels.
 
 See also:
     docs/works/macro/cim/xue2020jssc/model.md
@@ -77,16 +76,16 @@ _POLARITY_NUM = 2  # PWG, NWG per weight digit
 
 
 def _move_axis_block(x: Tensor, *, src: int, dst: int, num: int) -> Tensor:
-    """Relocate a contiguous block of ``num`` axes from ``src`` to ``dst``.
+    """Relocate a contiguous block of `num` axes from `src` to `dst`.
 
     Args:
         x: Tensor to relayout.
-        src: Absolute index of the block's first axis in ``x``.
+        src: Absolute index of the block's first axis in `x`.
         dst: Absolute index of the block's first axis in the RESULT.
         num: Number of axes in the block.
 
     Returns:
-        The relayouted tensor, materialized; ``x`` itself when the move is empty.
+        The relayouted tensor, materialized; `x` itself when the move is empty.
     """
     if num == 0 or src == dst:
         return x
@@ -104,20 +103,20 @@ def _sample_reference_bank(
 
     Both banks expand their per-instance rows RIGHT-ALIGNED onto the requested
     shape, so a request only reaches the intended rows when it ends in
-    ``(*inst_shape, tap_num)``. This macro seats the MUX slot axis between the
+    `(*inst_shape, tap_num)`. This macro seats the MUX slot axis between the
     instance block and the lane grid, so the bank is asked for the same axes with
-    the instance block pulled to the trailing position and the block is moved
-    back into its seat afterwards.
+    the instance block pulled to the trailing position and the block is moved back
+    into its seat afterwards.
 
     Args:
-        sample: Reference-bank read — the fabricated buffer indexed by mode
-            and broadcast to the requested full shape by view.
+        sample: Reference-bank read — the fabricated buffer indexed by mode and
+            broadcast to the requested full shape by view.
         shape: Target shape, ending in the bank's tap axis.
-        inst_pos: Absolute index of the instance block's first axis in ``shape``.
+        inst_pos: Absolute index of the instance block's first axis in `shape`.
         inst_num: Number of instance axes.
 
     Returns:
-        The sampled taps at ``shape``.
+        The sampled taps at `shape`.
     """
     if inst_num == 0:
         return sample(shape)
@@ -134,136 +133,60 @@ def _sample_reference_bank(
 class Xue2020JsscCimMacroConfig(CimMacroConfig):
     """Configuration for the xue2020jssc SINWP 1T1R CIM sub-array.
 
-    Every physical / PPA field is required; values live in the TOML, never as a
-    code default. The DSWCT / SINWP-SC ratios are derived from the two MSB
-    anchor fields. The cell, wire parasitics, and DC solver live inside
-    :attr:`array_config`.
-
-    Attributes:
-        max_active_num: Input-block size selected per conversion; the engine,
-            not the macro, serializes across row blocks.
-        w_digit_num: Magnitude digits per weight; ``>= 1``. A single digit is
-            one polarity pair with no cross-digit combine.
-        w_digit_radix: Positional base of the magnitude digits; ``>= 2``.
-            ``> 2`` needs a radix-level conductance table in the cell config.
-        input_bit_num: Activation bit width K; ``>= 1``. K serial single-bit WL
-            sub-phases, LSB first. ``1`` runs the live bit alone.
-        mux_factor: Logical columns per CIM-IO — the column-MUX depth.
-            ``col_num`` must divide by it; ``io_num = col_num // mux_factor``.
-            Also the serial-access count per conversion (the static-energy
-            latency multiplier).
-        dswct_ratio_msb: DSWCT MSB-leg mirror ratio anchor. The per-digit ratio
-            ``r_d = dswct_ratio_msb * w_digit_radix**(d - (D-1))`` (LSB-first d)
-            is derived DOWNWARD from it.
-        sc_ratio_msb: SINWP-SC MSB-bit combine ratio anchor. The per-input-bit
-            leg ratio ``s_k = sc_ratio_msb * 2**(k - (K-1))`` (LSB-first k) is
-            derived DOWNWARD from it; ``input_bit_num = 1`` uses the anchor
-            directly with the sample-and-hold leg off.
-        t_sample__ns: Sample sub-phase windows, one per SAMPLED input bit
-            (length ``input_bit_num - 1``; empty for K=1). Dynamic-energy only.
-            The live bit (K-1) conducts in ``t_other`` instead.
-        t_settle__ns: Tail non-sensing settle window — the live-bit settle ONLY;
-            part of ``t_other``, dynamic-energy only. The SAR sensing durations
-            enter ``t_other`` separately, from the ADC step windows.
-        t_cycle__ns: Declared operating period, the static-energy time base:
-            the leakage integration window of one access. Must be ``>=`` the sum
-            of the conduction windows.
-        v_dd__V: Supply-rail voltage every channelled branch is billed across,
-            including the whole input branch ``V_DD * I_DL`` on the ``cablc``
-            channel. It is also the BL driver rail handed to the array: the
-            conduction-path capacitance (BL / SL wire, cell BL / X / SL nodes)
-            is charged from this same supply.
-        v_dd_wl__V: Word-line driver rail — the supply behind the WL wire and
-            the per-cell gate capacitance. A separate variable from
-            :attr:`v_dd__V` even when numerically equal: the word line is its
-            own supply domain, driven rail-to-rail by the WL DAC while the read
-            path hangs off the main rail.
-        e_control_per_op__fJ: Control per-conversion dynamic energy (address
-            decode, CMD precharge, timing) billed under the ``control`` channel;
-            it includes the CMD precharge, so NO CMD capacitance is modeled.
-        control_config: Static-PPA seat for the (functionally unmodeled) control
-            block.
-        dswct_config: DSWCT place-value mirror-bank module config (cap knob +
-            static PPA seat).
-        sinwp_sc_config: SINWP-SC sample-and-hold combine module config
-            (hold-cap knob + static PPA seat).
-        pn_isub_config: PN-ISUB subtractor module config — the comparator
-            per-decision energy plus the bias/comparator static PPA seat.
-        tmcsa_config: TMCSA phase-resolved conversion-billing module config —
-            the PH2/PH3 per-step windows, the per-step fixed constant, and the
-            static PPA seat. The window lists span exactly ``adc_config.bits``
-            steps and satisfy ``t_ph2[s] + t_ph3[s] <=
-            adc_config.step_latency__ns[s]`` (PH1/PH4 occupy the rest).
-        array_config: Nested 1T1R pure-array config — the linearized cell tables
-            carrying the programmable weights, the BL / SL / WL wire parasitics
-            (one positive segment resistance per rail, which the solver
-            requires), and the DC solver knobs. The array's settling sits inside
-            this macro's access window, which the macro times itself.
-        wl_dac_config: WL 1-bit ON/OFF DAC config; the WL sub-phase likewise sits
-            inside that window.
-        cablc_config: CABLC BL-clamp seat = the array's ``bl_driver`` (Thevenin
-            VoltageDriver, ``r_out__MOhm = 0`` ideal source — the wire IR drop is
-            the array's, not the clamp's; ``energy_per_op__fJ = 0``). Its
-            reference is injected per call from :attr:`cablc_vref_config`.
-        cablc_vref_config: Dedicated CABLC reference source — a
-            :class:`~neurox.primitive.analog.Vref` holding the degenerate
-            ``[[v]]`` bank (one mode row, one tap) whose sole tap is the BL clamp
-            reference, read per solve (broadcast by view, no source noise of its
-            own) at the array's full call shape and fed to the array's
-            ``bl_driver`` as its Thevenin reference; the per-cell ``V_BL`` droops
-            below it by the wire IR drop the solver computes. The tap must be in
-            ``[0, v_dd__V]``.
-        sl_driver_config: SL ideal-clamp seat = the array's ``sl_driver``
-            (VoltageDriver, ``r_out__MOhm = 0``). The SL is a direct ground tie,
-            so its reference is a plain 0 V tensor, not a reference source.
-        adc_config: Kernel SAR current-ADC config (B-form) — the VALUE
-            converter. The macro builds it with ``enable_energy_record=False``
-            (the conversion energy is billed by the :attr:`tmcsa_config` module
-            instead, so the kernel energy knobs are inert here). Its
-            ``step_latency__ns`` stays the physical sensing duration: the
-            executed prefix is the sensing part of the access time, and the
-            whole tuple feeds the read-chain window :attr:`t_other__ns`.
-        reference_config: Static Iref — the ``[mode][tap]`` threshold bank; the
-            macro NAMES the mode and reads that row from the source's
-            fabricated bank as the ladder the ADC reads, which handles bit
-            width internally.
-            ``tap_num == 2**adc_config.bits - 1``, and every row ascends
-            strictly (the macro checks it, since the ladder ordering is the
-            TMCSA's knowledge, not the source's).
-        modes: One :class:`CimMacroMode` per quantization mode, indexed by
-            ``quantization_mode``: the canonical MAC-unit conversion window, the
-            ADC input code range the magnitude converter discriminates, and the
-            calibrated rescale factor at ``adc_config.bits``. The count must
-            match ``reference_config.mode_num`` — one threshold ladder row per
-            mode.
+    `max_active_num` is the input-block size selected per conversion; the engine,
+    not the macro, serializes across row blocks.
     """
 
     # === Weight / input geometry ===
 
     w_digit_num: int
+    """Magnitude digits per weight, >= 1. A single digit is one polarity pair with no
+    cross-digit combine."""
     w_digit_radix: int
+    """Positional base of the magnitude digits, >= 2. Above 2 needs a radix-level
+    conductance table in the cell config."""
     input_bit_num: int
+    """Activation bit width K, >= 1 — K serial single-bit WL sub-phases, LSB first."""
     mux_factor: int
+    """Logical columns per CIM-IO, the column-MUX depth: `col_num` must divide by it, and
+    it is also the serial-access count per conversion."""
 
     # === Ratio anchors (DSWCT / SINWP-SC ratios derived DOWNWARD from these) ===
 
     dswct_ratio_msb: float
+    """MSB-leg mirror ratio the per-digit DSWCT ratios are derived downward from."""
     sc_ratio_msb: float
+    """MSB-bit combine ratio the per-input-bit SINWP-SC ratios are derived downward from;
+    at K = 1 the anchor is used directly, with the sample-and-hold leg off."""
 
     # === Conduction windows (dynamic-energy only) + static time base ===
 
     t_sample__ns: tuple[float, ...]
+    """One sample sub-phase window per SAMPLED input bit, so `input_bit_num - 1` entries;
+    the live bit conducts in the tail window instead."""
     t_settle__ns: float
+    """Tail non-sensing settle window — the live-bit settle ONLY. The SAR sensing
+    durations join it from the ADC step windows."""
     t_cycle__ns: float
+    """Declared operating period, the static-energy time base: the leakage integration
+    window of one access. Must be >= the total conduction span."""
 
     # === Supply rails (separate variables even when numerically equal) ===
 
     v_dd__V: float
+    """Rail every channelled branch is billed across, including the whole input branch on
+    the `cablc` channel. It is also the BL driver rail handed to the array, so the
+    conduction-path capacitance is charged from it."""
     v_dd_wl__V: float
+    """Word-line driver rail — the supply behind the WL wire and the per-cell gate
+    capacitance, driven rail-to-rail while the read path hangs off the main rail."""
 
     # === Per-op dynamic constants ===
 
     e_control_per_op__fJ: float
+    """Control per-conversion dynamic energy (address decode, CMD precharge, timing)
+    billed on the `control` channel; it covers the CMD precharge, so no CMD capacitance
+    is modeled."""
 
     # === Static-PPA seat (control) ===
 
@@ -275,42 +198,69 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
     sinwp_sc_config: SinwpScConfig
     pn_isub_config: PnIsubConfig
     tmcsa_config: TmcsaConfig
+    """Its window lists span exactly `adc_config.bits` steps and satisfy
+    `t_ph2[s] + t_ph3[s] <= adc_config.step_latency__ns[s]`, PH1/PH4 occupying the
+    rest."""
 
     # === Device-bearing sub-blocks (full nested configs) ===
 
     array_config: XbarArray1t1rConfig
+    """The cell tables carrying the programmable weights, the BL / SL / WL wire
+    parasitics, and the DC solver knobs; the array's settling sits inside the access
+    window this macro times itself."""
     wl_dac_config: VdacConfig
+    """1-bit ON/OFF word-line drive, whose sub-phase likewise sits inside the access
+    window."""
     cablc_config: VoltageDriverConfig
+    """The array's CABLC BL clamp, an ideal source (`r_out__MOhm = 0`) since the wire IR
+    drop is the array's, not the clamp's. Its reference is injected per call from
+    `cablc_vref_config`."""
     cablc_vref_config: VrefConfig
+    """Dedicated CABLC reference source holding the degenerate one-mode single-tap bank
+    whose sole tap is the BL clamp reference, read per solve at the array's full call
+    shape; the per-cell `V_BL` droops below it by the wire IR drop the solver computes.
+    The tap must be in `[0, v_dd__V]`."""
     sl_driver_config: VoltageDriverConfig
+    """The array's SL clamp, an ideal source. The SL is a direct ground tie, so its
+    reference is a plain 0 V tensor rather than a reference source."""
     adc_config: SarIadcConfig
+    """The kernel VALUE converter, built energy-silent because `tmcsa_config` bills the
+    conversion instead. Its `step_latency__ns` stays the physical sensing duration: the
+    executed prefix is the sensing part of the access time, and the whole tuple feeds
+    the read-chain window `t_other__ns`."""
     reference_config: IrefConfig
+    """The `[mode][tap]` threshold bank the ADC reads as its ladder — the macro NAMES the
+    mode and reads that row. It holds `2**adc_config.bits - 1` taps, and every row must
+    ascend strictly, since the ladder ordering is the TMCSA's knowledge rather than the
+    source's."""
 
     # === Quantization modes ===
 
     modes: tuple[CimMacroMode, ...]
+    """One operating point per `quantization_mode` index; the count must match
+    `reference_config.mode_num`, one threshold ladder row per mode."""
 
     @property
     def digit_ratios(self) -> tuple[float, ...]:
-        """Per-digit DSWCT mirror ratios (LSB-first): ``r_d = dswct_ratio_msb * radix**(d - (D-1))``."""
+        """Per-digit DSWCT mirror ratios (LSB-first): `r_d = dswct_ratio_msb * radix**(d - (D-1))`."""
         d_top = self.w_digit_num - 1
         return tuple(self.dswct_ratio_msb * self.w_digit_radix ** (d - d_top) for d in range(self.w_digit_num))
 
     @property
     def x_bit_ratios(self) -> tuple[float, ...]:
-        """Per-input-bit SINWP-SC combine ratios (LSB-first): ``s_k = sc_ratio_msb * 2**(k - (K-1))``."""
+        """Per-input-bit SINWP-SC combine ratios (LSB-first): `s_k = sc_ratio_msb * 2**(k - (K-1))`."""
         k_top = self.input_bit_num - 1
         return tuple(self.sc_ratio_msb * 2.0 ** (k - k_top) for k in range(self.input_bit_num))
 
     @property
     def t_other__ns(self) -> float:
-        """Live/tail window — ``t_settle__ns + sum(adc_config.step_latency__ns)``.
+        """Live/tail window — `t_settle__ns + sum(adc_config.step_latency__ns)`.
 
-        The live input bit (K-1) has no sample sub-phase of its own; its
-        conduction, the SINWP-SC combine, the PN-ISUB, and the TMCSA sensing all
-        fall in this tail window. The SAR sensing durations are added here, so the
-        whole read chain conducts through sensing while ``t_settle__ns`` stays the
-        pure non-sensing settle.
+        The live input bit (K-1) has no sample sub-phase of its own; its conduction,
+        the SINWP-SC combine, the PN-ISUB, and the TMCSA sensing all fall in this tail
+        window. The SAR sensing durations are added here, so the whole read chain
+        conducts through sensing while `t_settle__ns` stays the pure non-sensing
+        settle.
         """
         return self.t_settle__ns + sum(self.adc_config.step_latency__ns)
 
@@ -318,8 +268,8 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
     def window_array__ns(self) -> tuple[float, ...]:
         """Per-input-bit input-branch (array / CABLC / DSWCT) conduction window.
 
-        Sampled bit ``k`` conducts for its sample window ``t_sample__ns[k]``; the
-        live bit (K-1) conducts for ``t_other``.
+        Sampled bit `k` conducts for its sample window `t_sample__ns[k]`; the live bit
+        (K-1) conducts for `t_other`.
         """
         k_live = self.input_bit_num - 1
         return tuple(self.t_sample__ns[k] if k < k_live else self.t_other__ns for k in range(self.input_bit_num))
@@ -328,16 +278,15 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
     def window_sc__ns(self) -> tuple[float, ...]:
         """Per-input-bit SINWP-SC leg conduction window.
 
-        A bit-``k`` leg is held from its sample sub-phase to the end, so it
-        conducts for the suffix sum of the remaining sample windows plus the tail
-        ``t_other``: ``sum(t_sample__ns[k:]) + t_other``. The live bit reduces to
-        ``t_other``.
+        A bit-`k` leg is held from its sample sub-phase to the end, so it conducts for
+        the suffix sum of the remaining sample windows plus the tail:
+        `sum(t_sample__ns[k:]) + t_other`. The live bit reduces to `t_other`.
         """
         return tuple(sum(self.t_sample__ns[k:]) + self.t_other__ns for k in range(self.input_bit_num))
 
     @property
     def conduction_span__ns(self) -> float:
-        """Total conduction span ``sum(t_sample) + t_other``; must fit in ``t_cycle``."""
+        """Total conduction span `sum(t_sample) + t_other`; must fit in `t_cycle__ns`."""
         return sum(self.t_sample__ns) + self.t_other__ns
 
     def validate(self) -> None:
@@ -449,25 +398,10 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
 
 
 class Xue2020JsscCimMacroPolicy(CimMacroPolicy):
-    """Composite nonideality policy for :class:`Xue2020JsscCimMacro`.
+    """Composite nonideality policy — one child policy per owned block.
 
-    One child policy per owned ``ModuleBase`` block. This scheme models no
-    mismatch or noise, so the sanctioned ``all_off`` preset (every child at its
-    lossless baseline) is the only intended policy.
-
-    Attributes:
-        array_policy: 1T1R pure-array policy (the cell policy + the solver chunk knob).
-        wl_dac_policy: WL DAC policy.
-        cablc_policy: CABLC BL-clamp seat policy.
-        cablc_vref_policy: CABLC reference-source policy.
-        sl_driver_policy: SL ideal-driver seat policy.
-        adc_policy: TMCSA SAR current-ADC policy.
-        reference_policy: Threshold current-reference policy.
-        control_policy: Control static-seat policy.
-        dswct_policy: DSWCT module policy (source-free).
-        sinwp_sc_policy: SINWP-SC module policy (source-free).
-        pn_isub_policy: PN-ISUB module policy (source-free).
-        tmcsa_policy: TMCSA conversion-billing module policy (source-free).
+    This scheme models no mismatch or noise, so the sanctioned `all_off` preset,
+    every child at its lossless baseline, is the only intended policy.
     """
 
     array_policy: XbarArray1t1rPolicy
@@ -491,28 +425,27 @@ class Xue2020JsscCimMacroPolicy(CimMacroPolicy):
 class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacroPolicy]):
     """Xue2020 JSSC SINWP 1T1R CIM sub-array with an inline current-mode readout chain.
 
-    Composes the kernel 1T1R array (cell grid + wire + solver) with the
-    macro-owned WL DAC, the CABLC / SL clamp seats, the DSWCT / SINWP-SC /
-    PN-ISUB readout modules, the TMCSA and its shared reference, and the control
-    static seat. Each logical weight occupies ``w_digit_num * polarity`` grouped
-    cells, a polarity pair per digit.
+    Composes the kernel 1T1R array (cell grid + wire + solver) with the macro-owned
+    WL DAC, the CABLC / SL clamp seats, the DSWCT / SINWP-SC / PN-ISUB readout
+    modules, the TMCSA and its shared reference, and the control static seat. Each
+    logical weight occupies `w_digit_num * polarity` grouped cells, a polarity pair
+    per digit.
 
     Two layouts of the same columns live here. The SEAT layout
-    ``[..., sweep, gn, polarity, w_digit]`` is the macro's own: it names the
-    column-MUX slot a column is accessed in and the driver lane it is accessed
-    through, which is what the transcode, the readout chain, the conduction
-    windows, and the latency arithmetic are all written against. The PHYSICAL
-    layout ``[..., phys_col]`` is the array's, and it is the only thing that
-    crosses into :meth:`XbarArray1t1r.program` and
-    :meth:`XbarArray1t1r.solve_array`. The slot map is the bijection between
-    them and stays here; :meth:`_seat_to_phys` and :meth:`_phys_to_seat` are the
-    only two places either layout turns into the other.
+    `[..., sweep, gn, polarity, w_digit]` is the macro's own: it names the column-MUX
+    slot a column is accessed in and the driver lane it is accessed through, which is
+    what the transcode, the readout chain, the conduction windows, and the latency
+    arithmetic are all written against. The PHYSICAL layout `[..., phys_col]` is the
+    array's, and it is the only thing that crosses into `XbarArray1t1r.program` and
+    `XbarArray1t1r.solve_array`. The slot map is the bijection between them and stays
+    here; `_seat_to_phys` and `_phys_to_seat` are the only two places either layout
+    turns into the other.
 
     Args:
-        config: Macro configuration.
-        policy: Macro nonideality policy.
-        input_num: Logical input length, bound to ``row_num`` during construction.
-        output_num: Logical output length, bound to ``col_num`` during construction.
+        config: Sub-block configs, ratio anchors, conduction windows and rails.
+        policy: One nonideality policy per owned block.
+        input_num: Logical input length, bound to `row_num` during construction.
+        output_num: Logical output length, bound to `col_num` during construction.
         inst_shape: Per-instance multiplicity prefix.
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature.
@@ -577,15 +510,15 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
     def latency__ns(self, *, adc_bits: int | None) -> float:
         """One VMM — the access time of every column-MUX slot it serializes.
 
-        A slot's access is the whole read chain settling once: the
-        ``input_bit_num`` WL sub-phases and the live-bit settle are the macro's
-        own windows, and the sensing tail is the TMCSA's, so the resolution
-        enters through the converter that owns the search-step axis rather than
-        through a constant here. ``mux_factor`` is the macro's only remaining
-        time axis: the CIM-IO lanes convert in parallel, one slot at a time.
+        A slot's access is the whole read chain settling once: the `input_bit_num` WL
+        sub-phases and the live-bit settle are the macro's own windows, and the
+        sensing tail is the TMCSA's, so the resolution enters through the converter
+        that owns the search-step axis rather than through a constant here.
+        `mux_factor` is the macro's only remaining time axis: the CIM-IO lanes convert
+        in parallel, one slot at a time.
 
         Raises:
-            ValueError: ``adc_bits`` is ``None``.
+            ValueError: `adc_bits` is `None`.
         """
         if adc_bits is None:
             raise ValueError("require: adc_bits is an int — the lossless oracle lives on the to_ideal() twin")
@@ -775,14 +708,14 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
 
     @property
     def adc_max_bits(self) -> int:
-        """Maximum ADC magnitude resolution [bits] — the TMCSA's ``bits``."""
+        """Maximum ADC magnitude resolution [bits] — the TMCSA's binary-search depth."""
         return self.config.adc_config.bits
 
     def _mode(self, quantization_mode: int) -> CimMacroMode:
         """Return one declared quantization mode.
 
         Args:
-            quantization_mode: Mode index in ``[0, len(config.modes))``.
+            quantization_mode: Mode index in `[0, len(config.modes))`.
 
         Raises:
             ValueError: The index is outside the declared modes.
@@ -793,21 +726,21 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         return modes[quantization_mode]
 
     def _max_bits_rescale_factor(self, quantization_mode: int) -> float:
-        """Return the calibrated rescale factor of one mode at :attr:`adc_max_bits`."""
+        """Return the calibrated rescale factor of one mode at `adc_max_bits`."""
         return self._mode(quantization_mode).max_bits_rescale_factor
 
     def map_quantization_input_code(self, code: Tensor, *, quantization_mode: int) -> tuple[Tensor, tuple[int, int]]:
         """Map exact MAC-unit codes onto the sign-magnitude ADC input grid.
 
         The PN-ISUB hands the TMCSA a single-ended magnitude, so the converter
-        discriminates ``|code|``. Its grid is the ladder itself, whose span the
-        config declares as the mode's ``adc_input_code_range`` — circuit
-        knowledge that does not follow the window width: a window whose top
-        magnitude exceeds the ladder simply saturates.
+        discriminates `|code|`. Its grid is the ladder itself, whose span the config
+        declares as the mode's `adc_input_code_range` — circuit knowledge that does
+        not follow the window width: a window whose top magnitude exceeds the ladder
+        simply saturates.
 
         Args:
             code: Exact integer plane dots.
-            quantization_mode: Mode index in ``[0, len(quantization_input_ranges))``.
+            quantization_mode: Mode index in `[0, len(quantization_input_ranges))`.
 
         Returns:
             The magnitudes and the mode's declared ADC input code range.
@@ -819,11 +752,11 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
     def to_ideal(self) -> IdealCimMacro:
         """Return an ideal twin one bit wider than the TMCSA.
 
-        The readout resolves a sign plus ``adc_max_bits`` magnitude bits, a
-        signed span the zero-point twin only reaches at ``adc_max_bits + 1``
-        bits. The twin is unfaithful by design at the endpoints — it holds one
-        phantom bottom level and a single zero where the sign-magnitude
-        encoding wastes two — so it is a reference, never a bit-exact model.
+        The readout resolves a sign plus `adc_max_bits` magnitude bits, a signed span
+        the zero-point twin only reaches at `adc_max_bits + 1` bits. The twin is
+        unfaithful by design at the endpoints — it holds one phantom bottom level and
+        a single zero where the sign-magnitude encoding wastes two — so it is a
+        reference, never a bit-exact model.
         """
         twin = super().to_ideal()
         config = dataclasses.replace(twin.config, adc_max_bits=self.adc_max_bits + 1)
@@ -838,38 +771,37 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         )
 
     def _seat_to_phys(self, x: Tensor, *, dim: int) -> Tensor:
-        """Fold the four seat axes starting at ``dim`` into one physical-column axis.
+        """Fold the four seat axes starting at `dim` into one physical-column axis.
 
-        The seat block ``(sweep, gn, polarity, w_digit)`` flattens in its own
+        The seat block `(sweep, gn, polarity, w_digit)` flattens in its own
         enumeration order and is then gathered by the seat each physical column
         occupies, which is exactly the inverse of the slot map.
 
         Args:
-            x: Tensor whose axes ``dim .. dim + 3`` are the seat block.
-                Shape: ``[..., sweep, gn, polarity, w_digit, ...]``.
+            x: Tensor whose axes `dim .. dim + 3` are the seat block.
+                Shape: `[..., sweep, gn, polarity, w_digit, ...]`.
             dim: Negative index of the seat block's first axis.
 
         Returns:
-            The same tensor on the physical column axis, at ``dim + 3``.
-            Shape: ``[..., phys_col, ...]``.
+            The same tensor on the physical column axis, at `dim + 3`.
+            Shape: `[..., phys_col, ...]`.
         """
         return x.flatten(dim, dim + 3).index_select(dim + 3, self._seat_of_phys)
 
     def _phys_to_seat(self, x: Tensor, *, dim: int) -> Tensor:
-        """Split the physical-column axis at ``dim`` back into the four seat axes.
+        """Split the physical-column axis at `dim` back into the four seat axes.
 
-        The mirror of :meth:`_seat_to_phys`: each seat gathers the physical
-        column the slot map assigns it, and the flat result unfolds into the
-        seat block.
+        Each seat gathers the physical column the slot map assigns it, and the flat
+        result unfolds into the seat block.
 
         Args:
-            x: Tensor whose axis ``dim`` is the physical column axis.
-                Shape: ``[..., phys_col, ...]``.
+            x: Tensor whose axis `dim` is the physical column axis.
+                Shape: `[..., phys_col, ...]`.
             dim: Negative index of that axis.
 
         Returns:
-            The same tensor on the seat block, opening at ``dim``.
-            Shape: ``[..., sweep, gn, polarity, w_digit, ...]``.
+            The same tensor on the seat block, opening at `dim`.
+            Shape: `[..., sweep, gn, polarity, w_digit, ...]`.
         """
         seated: Tensor = x.index_select(dim, self._slot_map.reshape(-1)).unflatten(dim, tuple(self._slot_map.shape))
         return seated
@@ -879,11 +811,11 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
 
         Args:
             w: Logical weight tensor.
-                Shape: ``[*inst_shape, row_num, col_num]``.
+                Shape: `[*inst_shape, row_num, col_num]`.
 
         Returns:
             State indices in the macro's own seat layout.
-            Shape: ``[*inst_shape, sweep, gn, polarity, w_digit, row_num]``.
+            Shape: `[*inst_shape, sweep, gn, polarity, w_digit, row_num]`.
         """
         # Shape: [*inst_shape, row, col] -> [*inst_shape, row, col, w_digit_num]
         w = self._w_transcoder.encode(w, dim=-1)
@@ -911,18 +843,16 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
     def program(self, w: Tensor) -> None:
         """Encode logical weights and write the array cells.
 
-        The internal true-form transcoder emits magnitude digits LSB-first.
-        Each digit maps to its polarity cells: digit value
-        ``+m`` writes the PWG cell to magnitude state ``m`` and the NWG cell to
-        HRS (state 0); ``-m`` does the reverse; ``0`` leaves both at HRS.
-        Digits land on seats, and the seats are scattered to physical columns
-        here — the array's own ``program`` is purely physical and knows nothing
-        of slots, polarities, or digit order.
+        The internal true-form transcoder emits magnitude digits LSB-first. Each digit
+        maps to its polarity cells: digit value `+m` writes the PWG cell to magnitude
+        state `m` and the NWG cell to HRS (state 0); `-m` does the reverse; `0` leaves
+        both at HRS. Digits land on seats, and the seats are scattered to physical
+        columns here — the array's own programming is purely physical and knows
+        nothing of slots, polarities, or digit order.
 
         Args:
-            w: Logical weight tensor; entries must lie in
-                :attr:`w_value_range`.
-                Shape: ``[*inst_shape, row_num, col_num]``.
+            w: Logical weight tensor; entries must lie in `w_value_range`.
+                Shape: `[*inst_shape, row_num, col_num]`.
         """
         expected_shape = (*self.inst_shape, self.row_num, self.col_num)
         if tuple(w.shape) != expected_shape:
@@ -941,31 +871,28 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         back to the logical column order.
 
         Args:
-            x: Activation tensor; entries in :attr:`x_value_range`. Positions
-                outside the caller-selected set must be zero. The instance axes
-                are DECLARED leading and must be present whenever ``inst_shape``
-                is non-empty — every fabricated copy holds its own cells,
-                reference banks and comparator offsets, so they are never
-                anonymous batch. A size-1 instance axis shares one input vector
-                across the whole die ensemble. Any axis ahead of them is
-                anonymous broadcast batch.
-                Shape: ``[..., *inst_shape, row_num]``.
-            quantization_mode: Mode index in
-                ``[0, len(quantization_input_ranges))``; names the row the
-                threshold source returns as the ADC's ladder.
-            adc_bits: ADC resolution [bits] in ``[1, adc_max_bits]``. The full
-                ladder is always wired; the TMCSA realizes the width by running
-                only the first ``adc_bits`` steps of its max-bits binary search.
+            x: Activation tensor; entries in `x_value_range`. Positions outside the
+                caller-selected set must be zero. The instance axes are DECLARED
+                leading and must be present whenever `inst_shape` is non-empty — every
+                fabricated copy holds its own cells, reference banks and comparator
+                offsets, so they are never anonymous batch. A size-1 instance axis
+                shares one input vector across the whole die ensemble. Any axis ahead
+                of them is anonymous broadcast batch.
+                Shape: `[..., *inst_shape, row_num]`.
+            quantization_mode: Mode index in `[0, len(quantization_input_ranges))`;
+                names the row the threshold source returns as the ADC's ladder.
+            adc_bits: ADC resolution [bits] in `[1, adc_max_bits]`. The full ladder is
+                always wired; the TMCSA realizes the width by running only the first
+                `adc_bits` steps of its max-bits binary search.
 
         Returns:
             Signed-magnitude raw-code tensor with the same leading order.
-            Shape: ``[..., *inst_shape, col_num]``.
+            Shape: `[..., *inst_shape, col_num]`.
 
         Raises:
-            ValueError: ``quantization_mode`` is outside the declared modes,
-                ``adc_bits`` is ``None`` (a physical converter has no lossless
-                oracle — build :meth:`to_ideal` for that), or ``x`` has no room
-                for the instance axes.
+            ValueError: `quantization_mode` is outside the declared modes, `adc_bits`
+                is `None` (a physical converter has no lossless oracle — build
+                `to_ideal` for that), or `x` has no room for the instance axes.
         """
         if adc_bits is None:
             raise ValueError("require: adc_bits is an int — the lossless oracle lives on the to_ideal() twin")

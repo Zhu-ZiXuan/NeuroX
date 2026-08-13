@@ -2,6 +2,7 @@
 
 See also:
     docs/reference/primitive/analog/diff_voltage_adc/general.md
+    docs/internals/primitive/analog/diff_voltage_adc/general.md
 """
 
 from __future__ import annotations
@@ -17,25 +18,19 @@ from .base import DiffVadc, DiffVadcConfig, DiffVadcPolicy
 
 
 class GeneralDiffVadcConfig(DiffVadcConfig):
-    """Immutable configuration for :class:`GeneralDiffVadc`.
-
-    Attributes:
-        code_num: Number of output codes ``[0, code_num - 1]``, i.e. one
-            more than the comparator count. The comparators are the
-            structure; their threshold voltages are injected per call.
-        sampling_noise__V: Input-referred Gaussian sampling-stage
-            noise σ.
-        comparator_noise__V: Comparator (thermal/decision) noise σ
-            on the signal.
-        energy_per_op__fJ: Dynamic energy per conversion.
-        latency_per_op__ns: Decision window of one conversion.
-    """
+    """Immutable configuration for `GeneralDiffVadc`."""
 
     code_num: int
+    """Number of output codes `[0, code_num - 1]`, one more than the
+    comparator count."""
     sampling_noise__V: float
+    """Input-referred Gaussian sampling-stage noise σ."""
     comparator_noise__V: float
+    """Comparator (thermal/decision) noise σ on the signal."""
     energy_per_op__fJ: float
+    """Dynamic energy of converting one element."""
     latency_per_op__ns: float
+    """Decision window of one conversion, flat across resolutions."""
 
     def validate(self) -> None:
         super().validate()
@@ -53,15 +48,12 @@ class GeneralDiffVadcConfig(DiffVadcConfig):
 
 
 class GeneralDiffVadcPolicy(DiffVadcPolicy):
-    """Per-source toggles selecting which GeneralDiffVadc nonidealities are active.
-
-    Attributes:
-        sampling_noise: Apply ``sampling_noise__V`` at convert time.
-        comparator_noise: Apply ``comparator_noise__V`` at convert time.
-    """
+    """Per-source toggles selecting which GeneralDiffVadc nonidealities are active."""
 
     sampling_noise: bool
+    """Apply `sampling_noise__V` at convert time."""
     comparator_noise: bool
+    """Apply `comparator_noise__V` at convert time."""
 
 
 @DiffVadc.register_neurox_module(
@@ -71,10 +63,9 @@ class GeneralDiffVadcPolicy(DiffVadcPolicy):
 class GeneralDiffVadc(DiffVadc[GeneralDiffVadcConfig, GeneralDiffVadcPolicy]):
     """Boundary-bucketized voltage ADC with sampling and comparator noise.
 
-    A flat comparator bank: ``code_num - 1`` comparators, whose thresholds
-    arrive per call as the injected ``v_refs__V`` ladder. The ladder is 1-D
-    and ascending, because the bucketize runs one shared bank over the whole
-    input.
+    A flat comparator bank: `code_num - 1` comparators, whose thresholds arrive
+    per call as the injected `v_refs__V` ladder. The ladder is 1-D and
+    ascending, because the bucketize runs one shared bank over the whole input.
 
     Args:
         config: Concrete configuration dataclass.
@@ -134,14 +125,14 @@ class GeneralDiffVadc(DiffVadc[GeneralDiffVadcConfig, GeneralDiffVadcPolicy]):
 
     @property
     def zero_code(self) -> int:
-        """Raw code representing analog zero — the fixed bucket midpoint ``code_num // 2``."""
+        """Raw code representing analog zero — the fixed bucket midpoint `code_num // 2`."""
         return self._zero_code
 
     def unsigned_range(self, bits: int) -> tuple[int, int]:
-        """Realisable raw code bounds at ``bits`` — ``(0, code_num - 1)``.
+        """Realisable raw code bounds at `bits` — `(0, code_num - 1)`.
 
-        The code count is fixed at construction and may not equal
-        ``2 ** bits``. ``bits`` is accepted but does not alter the range.
+        The code count is fixed at construction and may not equal `2 ** bits`;
+        `bits` is accepted but does not alter the range.
         """
         del bits
         return 0, self._code_num - 1
@@ -163,20 +154,24 @@ class GeneralDiffVadc(DiffVadc[GeneralDiffVadcConfig, GeneralDiffVadcPolicy]):
 
         Args:
             v_pos__V: Positive-side analog input voltage.
-                Shape: ``[...]``.
+                Shape: `[...]`.
             v_neg__V: Negative-side analog input voltage, at the same shape.
-                Shape: ``[...]``.
+                Shape: `[...]`.
             v_refs__V: Injected comparator thresholds in input units — one
-                ascending ladder of ``code_num - 1`` taps, shared by every
-                input position.
-                Shape: ``[code_num - 1]``.
+                ascending ladder of `code_num - 1` taps, shared by every input
+                position.
+                Shape: `[code_num - 1]`.
             bits: Active resolution [bits]; must equal the code-count-implied
                 bit width.
 
         Returns:
-            Raw unsigned ``int16`` bucket-index code tensor valued in
-            ``[0, code_num - 1]``, at the same shape as ``v_pos__V``.
-            Shape: ``[...]``.
+            Raw unsigned `int16` bucket-index code tensor valued in
+            `[0, code_num - 1]`, one code per `v_pos__V` element.
+            Shape: `[...]`.
+
+        Raises:
+            ValueError: `bits` differs from the code-count-implied bit width,
+                or `v_refs__V` is not a 1-D ladder of `code_num - 1` taps.
         """
         self._validate_runtime_args(v_refs__V, bits)
         signal = apply_gaussian(
@@ -194,7 +189,7 @@ class GeneralDiffVadc(DiffVadc[GeneralDiffVadcConfig, GeneralDiffVadcPolicy]):
         if self.training:
             jitter = torch.rand(signal.shape, device=signal.device, dtype=signal.dtype) * self._lsb__V(v_refs__V)
             signal = signal + jitter
-        # ``right=True`` gives floor semantics: signal at an exact
+        # `right=True` gives floor semantics: signal at an exact
         # boundary lands in the upper bin (code = C when signal == C·LSB).
         code = torch.bucketize(signal, v_refs__V, right=True, out_int32=True).to(torch.int16)
 
@@ -212,11 +207,11 @@ class GeneralDiffVadc(DiffVadc[GeneralDiffVadcConfig, GeneralDiffVadcPolicy]):
 
         Args:
             v_refs__V: Injected threshold ladder.
-                Shape: ``[code_num - 1]``.
+                Shape: `[code_num - 1]`.
 
         Returns:
             Bin width; the sole tap itself when the bank holds one.
-            Shape: ``[]``.
+            Shape: `[]`.
         """
         if self._tap_num == 1:
             return v_refs__V[0]

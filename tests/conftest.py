@@ -1,4 +1,4 @@
-"""Shared pytest fixtures registering the ``--device`` option and ``device`` fixture."""
+"""Shared pytest fixtures registering the `--device` option and `device` fixture."""
 
 import contextlib
 
@@ -7,7 +7,7 @@ import torch
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
-    # A sibling conftest may already have registered ``--device``; reuse it.
+    # A sibling conftest may already have registered `--device`; reuse it.
     with contextlib.suppress(ValueError):
         parser.addoption(
             "--device",

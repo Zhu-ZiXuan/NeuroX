@@ -1,10 +1,9 @@
 """Evaluate a LeNet QAT checkpoint by running through macros.
 
-Loads a flat per-layer QAT checkpoint, builds :class:`QuantLeNet5` with
-the chosen macro flavour (``ideal_xbar_macro.toml`` /
-``macro_with_ideal_xbar.toml`` / ``macro_with_physical_xbar.toml``), and
-runs MNIST val. Each layer's quantization mode is hard-wired in
-``model_quant._LAYER_MODE`` — edit that mapping to retarget modes.
+Loads a flat per-layer QAT checkpoint, builds `QuantLeNet5` with the chosen
+macro flavour (`ideal_xbar_macro.toml` / `macro_with_ideal_xbar.toml` /
+`macro_with_physical_xbar.toml`), and runs MNIST val. Each layer's quantization
+mode comes from `model_quant._LAYER_MODE`.
 """
 
 # ruff: noqa: T201
@@ -38,13 +37,13 @@ _ROOT_ENTRY_METHODS = ("linear", "conv2d")
 
 
 def _wrap_entry(root: ModuleBase, name: str, shapes: dict[ModuleBase, tuple[int, ...]]) -> Callable[[], None]:
-    """Shadow ``root``'s bound ``name`` method with a shape-capturing wrapper.
+    """Shadow `root`'s bound `name` method with a shape-capturing wrapper.
 
     The wrapper lives in the instance dict, in front of the class method.
 
     Returns:
         A callback that drops the instance attribute, so lookups reach the
-        class method again and nothing holds ``root`` past the capture.
+        class method again and nothing holds `root` past the capture.
     """
     original: Callable[..., Tensor] = getattr(root, name)
 
@@ -59,22 +58,17 @@ def _wrap_entry(root: ModuleBase, name: str, shapes: dict[ModuleBase, tuple[int,
 def capture_root_input_shapes(model: nn.Module) -> tuple[dict[ModuleBase, tuple[int, ...]], list[Callable[[], None]]]:
     """Shadow every NeuroX root's entry point to capture the shape it receives.
 
-    ``QuantLeNet5`` is a plain ``nn.Module``, so its roots — each layer's
-    ``.macro`` — are buried and each sees a different shape; this discovers
-    them generically via :func:`neurox_roots` instead of hard-coding layer
-    geometry in the script.
+    `QuantLeNet5` is a plain `nn.Module`, so its roots — each layer's `.macro` —
+    are buried and each sees a different shape; `neurox_roots` discovers them
+    without hard-coding layer geometry in the script.
 
-    ``register_forward_pre_hook`` does not apply here: a root's real entry
-    point is ``linear()`` or ``conv2d()`` (``LinearUnit`` / ``Conv2dUnit``),
-    called straight rather than through ``__call__``, so no ``forward()``
-    ever runs to hook. This shadows that entry point instead, in the same
-    pre-call spirit, and is restored once the forward pass that populates
-    the returned dict has run.
+    A root's real entry point is `linear()` or `conv2d()` (`LinearUnit` /
+    `Conv2dUnit`), called straight rather than through `__call__`, so no
+    `forward()` ever runs to hook; the capture shadows that entry point in the
+    same pre-call spirit.
 
-    This records the QUESTION, not the answer: a shape is an input and
-    cannot be computed without one, whereas latency is computable from shape
-    plus config and therefore must not be recorded — see
-    :func:`latency_per_sample__ns`.
+    Only the shape is recorded, an input that cannot be computed. Latency
+    follows from shape plus config and is derived rather than captured.
 
     Returns:
         The per-root shape dict, populated once the model's forward runs,
@@ -93,13 +87,16 @@ def capture_root_input_shapes(model: nn.Module) -> tuple[dict[ModuleBase, tuple[
 def latency_per_sample__ns(model: nn.Module, root_shapes: dict[ModuleBase, tuple[int, ...]]) -> float:
     """Modelled duration of one sample's pass through every macro-backed layer [ns].
 
-    Each layer's root times the call it actually received, using the shape
-    :func:`capture_root_input_shapes` captured — the one runtime extent
-    (``M``, a convolution unit's output-position count) that depends on the
-    input resolution and so cannot be read from config alone. ``M`` is a time
-    axis: the engine unrolls one macro-access schedule per output position, so
-    a conv layer's duration scales with its output map. Only the sample batch
-    stays outside the figure, which is one sample's pass by definition.
+    Each layer's root times the call it actually received, using the captured
+    input shape — the one runtime extent (`M`, a convolution unit's
+    output-position count) that depends on the input resolution and so cannot
+    be read from config alone. `M` is a time axis: the engine unrolls one
+    macro-access schedule per output position, so a conv layer's duration
+    scales with its output map. Only the sample batch stays outside the figure,
+    which is one sample's pass by definition.
+
+    Raises:
+        RuntimeError: A macro-backed layer has no captured input shape.
     """
     total__ns = 0.0
     for layer in model.modules():

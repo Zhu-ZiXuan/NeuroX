@@ -1,37 +1,37 @@
 """Shared hand-built witness configs + in-code calibration for the xue2020jssc scheme tests.
 
-Every solve-bearing test builds through :func:`build_macro` from the
-hand-constructed :func:`build_config` witness — every config dataclass is built
+Every solve-bearing test builds through `build_macro` from the
+hand-constructed `build_config` witness — every config dataclass is built
 directly in Python with small explicit values (no disk TOML). The witness ships
 a NEAR-IDEAL analog chain so the integer MAC is analytic: a linearized 1T1R cell
-with an exact-zero HRS branch (``g_cell_on_table__uS = (0.0, g_lrs)`` and WL-off
-= 0) programmed through the composed :class:`XbarArray1t1r`, a fixed ``V_BLC``
+with an exact-zero HRS branch (`g_cell_on_table__uS = (0.0, g_lrs)` and WL-off
+= 0) programmed through the composed `XbarArray1t1r`, a fixed `V_BLC`
 clamp reference, and a small positive BL/SL wire resistance (a required array
-field — never assumed zero in code; the DC solver needs ``R > 0``). The word line
+field — never assumed zero in code; the DC solver needs `R > 0`). The word line
 is gate-only: it carries no DC current, so it has capacitance fields but no
 resistance. The wire R is
 tiny relative to the cell branch, so the array's IR drop is a fraction of a
-percent and the per-cell current is essentially ``I = g_chord * V_BLC``. The WL
-driver rail ``v_dd_wl__V`` is deliberately distinct from the read rail
-``v_dd__V`` so a swapped rail shows up in the array's capacitive billing. Under
-this chain the ADC input current ``I_SUB`` is monotone in the signed integer MAC,
+percent and the per-cell current is `I = g_chord * V_BLC`. The WL
+driver rail `v_dd_wl__V` is deliberately distinct from the read rail
+`v_dd__V` so a swapped rail shows up in the array's capacitive billing. Under
+this chain the ADC input current `I_SUB` is monotone in the signed integer MAC,
 so a mid-point ladder probed from the tile's own transfer decodes any MAC
 bit-exactly.
 
-The geometry mirrors the paper design in miniature: ``output_num = 4``
-(``mux_factor = 2`` -> ``io_num = 2``), ``input_num = max_active_num = 4``,
-``input_bit_num = 2`` (K serial WL sub-phases, LSB first), a 3-bit ADC magnitude.
+The geometry mirrors the paper design in miniature: `output_num = 4`
+(`mux_factor = 2` -> `io_num = 2`), `input_num = max_active_num = 4`,
+`input_bit_num = 2` (K serial WL sub-phases, LSB first), a 3-bit ADC magnitude.
 The ADC step latency is the honest per-step SAR sensing durations (feeding the
-read-chain window ``t_other``); the static-energy time base is ``t_cycle`` alone.
-:func:`build_config` is parameterised by geometry and window knobs so other test
+read-chain window `t_other`); the static-energy time base is `t_cycle` alone.
+`build_config` is parameterised by geometry and window knobs so other test
 files reuse it.
 
-The analog ``I_SUB(M)`` grid depends on the whole electrical config, so the
+The analog `I_SUB(M)` grid depends on the whole electrical config, so the
 witness ships a placeholder ladder and decode-bearing tests calibrate in-code
-through :func:`build_calibrated_macro`: probe the tile's own ``I_SUB(M)`` grid
-(:func:`probe_i_sub_grid`, captured through the ADC's own record prober) on
-an all-``+1`` column, install the mid-point thresholds (:func:`midpoint_refs` +
-:func:`with_ref_levels`), and rebuild — a law-level calibration derived from the
+through `build_calibrated_macro`: probe the tile's own `I_SUB(M)` grid
+(`probe_i_sub_grid`, captured through the ADC's own record prober) on
+an all-`+1` column, install the mid-point thresholds (`midpoint_refs` +
+`with_ref_levels`), and rebuild — a law-level calibration derived from the
 config under test, not from shipped numbers.
 """
 
@@ -109,17 +109,17 @@ class _BuildConfigKwargs(TypedDict, total=False):
 
 
 def _default_ref_levels(adc_bits: int) -> tuple[float, ...]:
-    """Placeholder strictly-increasing single-mode ladder (``2**adc_bits - 1`` taps)."""
+    """Placeholder strictly-increasing single-mode ladder (`2**adc_bits - 1` taps)."""
     return tuple(float(k) for k in range(1, 1 << adc_bits))
 
 
 def _default_mode(adc_bits: int) -> CimMacroMode:
-    """The witness's single quantization mode at ``adc_bits`` magnitude resolution.
+    """The witness's single quantization mode at `adc_bits` magnitude resolution.
 
-    The sign-magnitude readout attains ``+-(2**adc_bits - 1)``, so the canonical
-    mid-zero window holding it is ``[-2**adc_bits, 2**adc_bits - 1]`` (its bottom
+    The sign-magnitude readout attains `+-(2**adc_bits - 1)`, so the canonical
+    mid-zero window holding it is `[-2**adc_bits, 2**adc_bits - 1]` (its bottom
     level is the phantom the encoding never emits) and the converter's own input
-    code grid is the magnitude range ``[0, 2**adc_bits - 1]``. The mid-point
+    code grid is the magnitude range `[0, 2**adc_bits - 1]`. The mid-point
     ladder makes the code the MAC magnitude itself, so the rescale factor is 1.
     """
     return CimMacroMode(
@@ -182,26 +182,26 @@ def build_config(
     All physical / PPA fields are explicit small round values; only the linear
     cell / driver / array sub-configs are built in Python (no disk TOML). The
     near-ideal chain keeps the analog MAC analytic. The threshold ladder defaults
-    to the placeholder :func:`_default_ref_levels`; decode-bearing tests calibrate
-    it in-code via :func:`build_calibrated_macro`.
+    to the placeholder `_default_ref_levels`; decode-bearing tests calibrate
+    it in-code via `build_calibrated_macro`.
 
     Args:
         max_active_num: Per-conversion selection limit.
-        mux_factor: Column-MUX depth; ``io_num = output_num // mux_factor``.
+        mux_factor: Column-MUX depth; `io_num = output_num // mux_factor`.
         w_digit_num: Magnitude digits per weight (>= 1).
         w_digit_radix: Positional base of the magnitude digits (>= 2).
         input_bit_num: Activation bit width K (K serial WL sub-phases, LSB first).
         adc_bits: TMCSA magnitude resolution; the reference carries
-            ``2**adc_bits - 1`` taps.
+            `2**adc_bits - 1` taps.
         t_sample__ns: Sample windows, one per sampled bit (defaults to all-1.0,
-            length ``input_bit_num - 1``).
+            length `input_bit_num - 1`).
         t_settle__ns: Tail settle window.
         t_cycle__ns: Declared operating period (the static-energy time base).
         t_conduct_per_step__ns: TMCSA per-step conduction window (defaults to
-            all-0.1, length ``adc_bits``). Energy-path only.
+            all-0.1, length `adc_bits`). Energy-path only.
         step_latency__ns: TMCSA per-step SAR sensing durations (defaults to
-            ``(1.0, 2.0, ...)``, length ``adc_bits``). Feeds the read-chain window
-            ``t_other``, which sits inside the macro's own access window.
+            `(1.0, 2.0, ...)`, length `adc_bits`). Feeds the read-chain window
+            `t_other`, which sits inside the macro's own access window.
         ref_levels__uA: Single-mode threshold ladder (defaults to the placeholder).
     """
     if t_sample__ns is None:
@@ -327,10 +327,10 @@ def build_macro(
     device: torch.device | None = None,
     inst_shape: tuple[int, ...] = (),
 ) -> Xue2020JsscCimMacro:
-    """Build + fabricate one macro on ``device`` under the all-off policy.
+    """Build + fabricate one macro on `device` under the all-off policy.
 
     The macro is name-stamped once assembled, so every profiled run built here
-    emits records a :class:`neurox.common.reporter.Reporter` can name.
+    emits records a `neurox.common.reporter.Reporter` can name.
     """
     macro = CimMacro.from_config(
         config=config,
@@ -364,13 +364,13 @@ def with_ref_levels(config: Xue2020JsscCimMacroConfig, ref_levels__uA: tuple[flo
 
 
 def probe_i_sub_grid(macro: Xue2020JsscCimMacro, *, m_max: int) -> list[float]:
-    """Probe the analog ``I_SUB(M)`` grid [uA] for MAC ``M = 0..m_max`` on an all-``+1`` column.
+    """Probe the analog `I_SUB(M)` grid [uA] for MAC `M = 0..m_max` on an all-`+1` column.
 
-    Programs logical column 0 all ``+1`` (others 0) and drives inputs whose row
-    sum equals ``M`` (greedy fill, per-row value in ``x_value_range``); column 0 lives
-    at mux slot 0 of IO 0, so the grid rides ``i_sub[m, 0, 0]``. The pre-ADC
-    magnitude ``I_SUB`` is captured through the ADC's own
-    :class:`IadcProber` (``i_in__uA`` per convert). All-off makes
+    Programs logical column 0 all `+1` (others 0) and drives inputs whose row
+    sum equals `M` (greedy fill, per-row value in `x_value_range`); column 0 lives
+    at mux slot 0 of IO 0, so the grid rides `i_sub[m, 0, 0]`. The pre-ADC
+    magnitude `I_SUB` is captured through the ADC's own
+    `IadcProber` (`i_in__uA` per convert). All-off makes
     the probe deterministic. NOTE: reprograms the macro.
     """
     device = macro_device(macro)
@@ -400,7 +400,7 @@ def probe_i_sub_grid(macro: Xue2020JsscCimMacro, *, m_max: int) -> list[float]:
 
 
 def midpoint_refs(grid: list[float], *, adc_bits: int = TINY_ADC_BITS) -> tuple[float, ...]:
-    """The ``2**adc_bits - 1`` mid-point thresholds ``ref[k] = 0.5 * (I(k) + I(k+1))``."""
+    """The `2**adc_bits - 1` mid-point thresholds `ref[k] = 0.5 * (I(k) + I(k+1))`."""
     level_num = (1 << adc_bits) - 1
     assert len(grid) >= level_num + 1, f"grid too short: {len(grid)} < {level_num + 1}"
     return tuple(0.5 * (grid[k] + grid[k + 1]) for k in range(level_num))
@@ -412,13 +412,13 @@ def build_calibrated_macro(
     inst_shape: tuple[int, ...] = (),
     **config_kwargs: Unpack[_BuildConfigKwargs],
 ) -> Xue2020JsscCimMacro:
-    """Macro with an in-code calibrated ladder: probe the ``I_SUB(M)`` grid, install mid-points, rebuild.
+    """Macro with an in-code calibrated ladder: probe the `I_SUB(M)` grid, install mid-points, rebuild.
 
-    A first (placeholder-ladder) build probes the analog ``I_SUB(M)`` grid on an
-    all-``+1`` column — the ladder is irrelevant before the ADC — and the rebuild
+    A first (placeholder-ladder) build probes the analog `I_SUB(M)` grid on an
+    all-`+1` column — the ladder is irrelevant before the ADC — and the rebuild
     installs the grid's mid-points as the calibrated thresholds. Under all-off
     the analog chain is deterministic, so the same ladder serves every instance.
-    Extra keyword arguments pass through to :func:`build_config`.
+    Extra keyword arguments pass through to `build_config`.
     """
     config = build_config(**config_kwargs)
     adc_bits = config.adc_config.bits
@@ -433,15 +433,15 @@ def ideal_mac(w_signed: Tensor, x: Tensor, *, mag_max: int = MAG_MAX) -> Tensor:
     """CPU int64 reference for the logical VMM.
 
     Args:
-        w_signed: Signed weights.
-            Shape: ``[input_num, output_num]``.
+        w_signed: Weights in the logical value domain, not digit planes.
+            Shape: `[input_num, output_num]`.
         x: Integer activations.
-            Shape: ``[..., input_num]``.
+            Shape: `[..., input_num]`.
         mag_max: Signed-magnitude clip bound.
 
     Returns:
         Expected signed codes on CPU.
-        Shape: ``[..., output_num]``.
+        Shape: `[..., output_num]`.
     """
     w2 = w_signed.cpu().long()
     x2 = x.cpu().long()

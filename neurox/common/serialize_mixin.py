@@ -1,4 +1,4 @@
-"""The ``SerializeMixin`` object-oriented surface."""
+"""The `SerializeMixin` object-oriented surface."""
 
 from __future__ import annotations
 
@@ -20,8 +20,7 @@ from .serialize import (
 class SerializeMixin:
     """Add mapping, file, and preset serialization to a dataclass.
 
-    Host requirements:
-        - Be a dataclass type.
+    The host must be a dataclass.
     """
 
     @classmethod
@@ -32,11 +31,12 @@ class SerializeMixin:
             data: Source mapping; every key must match a declared field.
 
         Returns:
-            An instance of ``cls``, or of the concrete subclass ``data`` names.
+            An instance of the receiver, or of the concrete subclass the mapping
+            names.
 
         Raises:
-            TypeError: The mapping cannot be converted to ``cls`` or one of its
-                concrete subclasses.
+            TypeError: The mapping cannot be converted to the receiver or one of
+                its concrete subclasses.
         """
         return dataclass_from_dict(cls, data)
 
@@ -44,7 +44,7 @@ class SerializeMixin:
         """Serialize to a plain nested dict.
 
         Enums serialize by value, supported containers are converted
-        recursively, and polymorphic dataclasses include ``_neurox_class``.
+        recursively, and polymorphic dataclasses include `_neurox_class`.
 
         Returns:
             Nested mapping of serializable values.
@@ -65,12 +65,13 @@ class SerializeMixin:
             files: Config file paths (TOML or YAML), ordered by descending
                 priority — the first file wins a conflict.
             section: Table to pluck from each file (a dotted name descends
-                nested tables); ``None`` takes the file root.
+                nested tables); `None` takes the file root.
             encoding: YAML text encoding; ignored for TOML.
             strict_type: Reject a dict / non-dict conflict while merging.
 
         Returns:
-            An instance of ``cls``, or of the concrete subclass the files name.
+            An instance of the receiver, or of the concrete subclass the files
+            name.
 
         Raises:
             ValueError: No file was given; at least one is required.
@@ -89,10 +90,10 @@ class SerializeMixin:
         encoding: str = "utf-8",
         strict_type: bool = True,
     ) -> Self:
-        """Build from a bundled preset referenced as ``"family/file:section"``.
+        """Build from a bundled preset referenced as `"family/file:section"`.
 
-        The path is resolved under ``neurox/presets`` and the named section is
-        loaded through :meth:`from_file`, preserving its receiver bound.
+        The path is resolved under `neurox/presets` and the named section is
+        loaded through `from_file`, preserving its receiver bound.
         """
         path, section = parse_preset_ref(ref)
         return cls.from_file(path, section=section, encoding=encoding, strict_type=strict_type)
@@ -102,12 +103,12 @@ class SerializeMixin:
 
         Args:
             file: Destination path; its suffix selects the format.
-            section: Top-level table to nest the data under; ``None`` writes it
-                at the file root.
+            section: Top-level table to nest the data under; `None` writes it at
+                the file root.
             encoding: YAML text encoding; ignored for TOML.
 
         Raises:
-            ValueError: ``file`` carries an unsupported suffix.
+            ValueError: `file` carries an unsupported suffix.
         """
         data = self.to_dict()
         dict_to_file({section: data} if section is not None else data, file, encoding=encoding)

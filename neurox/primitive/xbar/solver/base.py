@@ -1,7 +1,7 @@
 """Shared interfaces for SL/BL IR-drop DC solvers.
 
 See also:
-    docs/internals/primitive/xbar/solver.md
+    docs/internals/primitive/xbar/solver/base.md
 """
 
 from __future__ import annotations
@@ -27,37 +27,28 @@ class SolverConfig(ConfigBase, ABC):
     """Base class for fixed DC-solver parameters."""
 
     def validate(self) -> None:
-        """Hook for subclasses to enforce parameter ranges."""
+        """Validate parameter ranges; the base accepts every value."""
 
 
 @dataclass(frozen=True)
 class SolverDcop(Generic[CellDCOPT]):
-    """Complete steady-state solution of one DC solve.
-
-    Attributes:
-        i_bl_driver: BL driver current [uA].
-            Shape: ``[..., num_col]``.
-        i_sl_driver: SL driver current [uA].
-            Shape: ``[..., num_col]``.
-        v_bl_node: BL node voltages [V].
-            Shape: ``[..., num_col, num_row]``.
-        v_sl_node: SL node voltages [V].
-            Shape: ``[..., num_col, num_row]``.
-        cell: Condensed cell DC working point at the converged node
-            voltages, including the internal node voltage.
-        v_bl_clamp: BL clamp voltages [V].
-            Shape: ``[..., num_col]``.
-        v_sl_drive: SL drive voltages [V].
-            Shape: ``[..., num_col]``.
-    """
+    """Complete steady-state solution of one DC solve."""
 
     i_bl_driver: Tensor
+    """BL driver current [uA]. Shape: `[..., num_col]`."""
     i_sl_driver: Tensor
+    """SL driver current [uA]. Shape: `[..., num_col]`."""
     v_bl_node: Tensor
+    """BL node voltages [V]. Shape: `[..., num_col, num_row]`."""
     v_sl_node: Tensor
+    """SL node voltages [V]. Shape: `[..., num_col, num_row]`."""
     cell: CellDCOPT
+    """Condensed cell DC working point at the converged node voltages,
+    including the internal node voltage."""
     v_bl_clamp: Tensor
+    """BL clamp voltages [V]. Shape: `[..., num_col]`."""
     v_sl_drive: Tensor
+    """SL drive voltages [V]. Shape: `[..., num_col]`."""
 
 
 class Solver(ABC):
@@ -94,7 +85,7 @@ class Solver(ABC):
             sl_segment_r__MOhm: SL rail resistance of one lattice link.
             cell: Condensed cell branch model.
             cell_snap: Per-solve cell snap bundling the device snaps and the
-                per-cell word-line drive at ``[..., col, row]``.
+                per-cell word-line drive at `[..., col, row]`.
             bl_driver: BL clamp driver.
             bl_driver_snap: Per-solve BL driver snap.
             sl_driver: SL clamp driver.

@@ -1,8 +1,4 @@
-"""Ideal linear compute unit.
-
-See also:
-    docs/internals/architecture/unit/linear.md
-"""
+"""Ideal linear compute unit."""
 
 from __future__ import annotations
 
@@ -14,19 +10,16 @@ from neurox.architecture.unit.linear import LinearUnit
 
 
 class IdealLinearUnitConfig(CimUnitConfig):
-    """Configuration for :class:`IdealLinearUnit`.
-
-    Attributes:
-        x_value_range: Inclusive integer activation range.
-        w_value_range: Inclusive integer weight range.
-    """
+    """Configuration for `IdealLinearUnit`."""
 
     x_value_range: tuple[int, int]
+    """Inclusive integer activation range."""
     w_value_range: tuple[int, int]
+    """Inclusive integer weight range."""
 
 
 class IdealLinearUnitPolicy(CimUnitPolicy):
-    """Policy for :class:`IdealLinearUnit`."""
+    """Policy for `IdealLinearUnit`."""
 
 
 @CimUnit.register_neurox_module(config_type=IdealLinearUnitConfig, policy_type=IdealLinearUnitPolicy)
@@ -34,9 +27,9 @@ class IdealLinearUnit(LinearUnit, CimUnit[IdealLinearUnitConfig, IdealLinearUnit
     """Exact integer linear unit without output quantization.
 
     Args:
-        config: Concrete configuration dataclass.
+        config: Configuration selecting the concrete implementation.
         policy: Runtime policy.
-        w_logical_shape: Logical weight shape ``(..., N, K)`` bound to ``program(...)``.
+        w_logical_shape: Logical weight shape `(..., N, K)` bound to `program(...)`.
         dtype: Requested tensor dtype; it does not affect exact integer execution.
         T__K: Operating temperature.
         ideal_macro: Accepted without changing this already ideal unit.

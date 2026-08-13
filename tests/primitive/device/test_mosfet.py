@@ -1,10 +1,10 @@
 """Device-level tests for the polarity-parameterized MOSFET primitive.
 
 Exercises the EKV-softplus I-V law and its three node partials for both
-the :class:`Nmos` (polarity +1) and :class:`Pmos` (polarity -1)
+the `Nmos` (polarity +1) and `Pmos` (polarity -1)
 specializations, the finite-difference consistency of those partials,
 all-off determinism, and config validation. Everything runs on CPU in
-``float64`` with no ``torch.compile``.
+`float64` with no `torch.compile`.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ _BASE_CONFIG: dict[str, float] = {
 
 
 def _config(**overrides: float) -> MosfetConfig:
-    """Build a :class:`MosfetConfig` from the base field set with overrides."""
+    """Build a `MosfetConfig` from the base field set with overrides."""
     return MosfetConfig(**{**_BASE_CONFIG, **overrides})
 
 

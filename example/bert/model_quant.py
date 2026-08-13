@@ -1,11 +1,11 @@
-"""BERT-small quantization model helpers — in-place ``nn.Linear`` swap.
+"""BERT-small quantization model helpers — in-place `nn.Linear` swap.
 
-Two helpers walk the HuggingFace ``BertForSequenceClassification`` module
-tree and replace every ``nn.Linear`` (Q/K/V/output attention projections,
-FFN intermediate/output, pooler, classifier — 26 in total for BERT-small)
-with either :class:`QATLinear` (training) or :class:`QuantLinear`
-(inference). LayerNorm, GELU, embeddings, attention softmax stay in
-float — those are not in the macro's contract.
+Two helpers walk the HuggingFace `BertForSequenceClassification` module tree
+and replace every `nn.Linear` (Q/K/V/output attention projections, FFN
+intermediate/output, pooler, classifier — 26 in total for BERT-small) with
+either `QATLinear` for training or `QuantLinear` for inference. LayerNorm,
+GELU, embeddings and attention softmax stay in float, outside the macro's
+contract.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ ModePicker = Callable[[str], int]
 
 
 def _replace_linear(model: nn.Module, builder: Callable[[str, nn.Linear], nn.Module]) -> int:
-    """Walk module tree; replace every ``nn.Linear`` via ``builder``. Returns count."""
+    """Walk the module tree, replace every `nn.Linear` via `builder`, count the swaps."""
     n_replaced = 0
     for parent_name, parent in model.named_modules():
         for child_name, child in list(parent.named_children()):
@@ -35,10 +35,13 @@ def _replace_linear(model: nn.Module, builder: Callable[[str, nn.Linear], nn.Mod
 
 
 def to_qat(model: nn.Module) -> int:
-    """In-place: swap every ``nn.Linear`` in ``model`` for :class:`QATLinear`.
+    """In-place: swap every `nn.Linear` in `model` for `QATLinear`.
 
-    Float weights are carried over by re-pointing the QAT layer's
-    ``weight`` / ``bias`` Parameter objects at the original tensors.
+    The QAT layer's `weight` / `bias` Parameter objects are re-pointed at the
+    original tensors, so the float values are shared rather than copied.
+
+    Returns:
+        Number of layers replaced.
     """
 
     def build(qualified: str, original: nn.Linear) -> nn.Module:
@@ -58,12 +61,20 @@ def to_quant(
     macro_factory: MacroFactory,
     mode_picker: ModePicker | int = 0,
 ) -> int:
-    """In-place: swap every ``nn.Linear`` for :class:`QuantLinear` bound to a macro.
+    """In-place: swap every `nn.Linear` for `QuantLinear` bound to a macro.
 
-    ``mode_picker``: int constant or callable ``qualified_name → mode``.
-    Default 0 routes every layer through quantization mode 0. BERT-small
-    linears fully fill 64-row xbar tiles so a single mode is reasonable;
-    refine per layer by passing a custom picker if eval shows over-rescale.
+    Args:
+        model: Module tree whose linears are replaced.
+        layer_state: Exported QAT state keyed by qualified layer name.
+        macro_factory: Builds one unit per layer from its logical weight shape.
+        mode_picker: Quantization-mode index, or a callable
+            `qualified_name → mode` when the layers need different windows.
+
+    Returns:
+        Number of layers replaced.
+
+    Raises:
+        KeyError: A replaced layer has no entry in `layer_state`.
     """
     pick = mode_picker if callable(mode_picker) else (lambda _name: mode_picker)
 

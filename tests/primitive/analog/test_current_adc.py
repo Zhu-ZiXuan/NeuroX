@@ -1,29 +1,29 @@
 """Single-ended current ADC: per-instance references + bits + B-form energy.
 
-``SarIadc.convert(i_in__uA, i_refs__uA, *, bits)`` takes the reference ladder
-per call as a ``[..., n_ref]`` tensor of ``2 ** max_bits - 1`` ascending taps on
+`SarIadc.convert(i_in__uA, i_refs__uA, *, bits)` takes the reference ladder
+per call as a `[..., n_ref]` tensor of `2 ** max_bits - 1` ascending taps on
 the **last** axis (the caller has already selected the operating mode's row —
 mode is invisible to the ADC); the leading dims broadcast right-aligned
-against ``i_in__uA``, so each ADC instance may carry its own ladder. Bit width
-is ADC-internal: the FULL ladder is always wired and a ``bits``-bit conversion
-truncates the max-bits binary search after ``bits`` levels. These tests pin:
+against `i_in__uA`, so each ADC instance may carry its own ladder. Bit width
+is ADC-internal: the FULL ladder is always wired and a `bits`-bit conversion
+truncates the max-bits binary search after `bits` levels. These tests pin:
 
 - per-instance broadcast: distinct ladders across the leading digitize their own
   inputs (any leading rank is accepted);
-- ``bits`` validation: a request outside ``[1, max_bits]`` is rejected;
+- `bits` validation: a request outside `[1, max_bits]` is rejected;
 - config-time energy-knob validation: negative rail / window and a window /
-  step-latency list shorter than ``bits``;
+  step-latency list shorter than `bits`;
 - conversion correctness: unit-step ladder codes = the count of taps the input
   exceeds; the truncated search starts at the max-bits mid tap and its code at
-  ``b`` is the max-bits code right-shifted by ``max_bits - b``;
+  `b` is the max-bits code right-shifted by `max_bits - b`;
 - B-form energy: fixed-only when the window (or rail) is zero — which also pins
-  the base ``_compute_input_dynamic_energy__fJ`` hook at zero — and linear in both
-  ``v_rail__V`` and ``t_conduct_per_step__ns``; energy and the reported window
-  count the EXECUTED steps, so both scale with ``bits`` over the same full
-  ladder; ``enable_energy_record=False`` suppresses the dynamic-energy event
+  the base `_compute_input_dynamic_energy__fJ` hook at zero — and linear in both
+  `v_rail__V` and `t_conduct_per_step__ns`; energy and the reported window
+  count the EXECUTED steps, so both scale with `bits` over the same full
+  ladder; `enable_energy_record=False` suppresses the dynamic-energy event
   while keeping the exact codes;
-- ``Iadc.convert`` template method: probe-off equivalence with
-  ``_convert_impl`` and :class:`IadcProber` capture of input,
+- `Iadc.convert` template method: probe-off equivalence with
+  `_convert_impl` and `IadcProber` capture of input,
   code, and resolution.
 """
 
@@ -90,7 +90,7 @@ def _build(
 
 
 def _refs(taps: tuple[float, ...], device: torch.device) -> torch.Tensor:
-    """Per-call reference ladder with the ``2 ** bits - 1`` taps on the last axis."""
+    """Per-call reference ladder with the `2 ** bits - 1` taps on the last axis."""
     return torch.tensor(taps, dtype=torch.float64, device=device)
 
 
@@ -124,7 +124,7 @@ def test_config_rejects_bad_energy_knobs() -> None:
 
 
 def test_convert_rejects_bad_bits(device: torch.device) -> None:
-    """``bits`` outside ``[1, max_bits]`` is rejected."""
+    """`bits` outside `[1, max_bits]` is rejected."""
     adc = _build(_config(adc_bits=3), device)
     i_in = torch.tensor([1.5], dtype=torch.float64, device=device)
     for adc_bits in (0, -1, 4):
@@ -163,11 +163,11 @@ def test_per_instance_ladders_broadcast(device: torch.device) -> None:
 
 @pytest.mark.parametrize("max_bits", [1, 2, 4])
 def test_lowered_bits_equal_the_max_bits_code_shifted(device: torch.device, max_bits: int) -> None:
-    """Equivalence law: ``convert(bits=b) == convert(bits=B) >> (B - b)``.
+    """Equivalence law: `convert(bits=b) == convert(bits=B) >> (B - b)`.
 
-    The whole ladder is wired at every width; a ``b``-bit conversion is the
-    first ``b`` levels of the max-bits search tree, so it resolves exactly the
-    max-bits code's leading ``b`` bits. Edge widths ``b = 1`` and ``b = B`` are
+    The whole ladder is wired at every width; a `b`-bit conversion is the
+    first `b` levels of the max-bits search tree, so it resolves exactly the
+    max-bits code's leading `b` bits. Edge widths `b = 1` and `b = B` are
     covered by the sweep.
     """
     steps = (0.0,) * max_bits
@@ -191,7 +191,7 @@ def test_lowered_bits_equal_the_max_bits_code_shifted(device: torch.device, max_
 def test_first_compare_is_the_max_bits_mid_tap(device: torch.device) -> None:
     """A 1-bit conversion splits at the FULL ladder's midpoint, not at its own.
 
-    With ``max_bits = 3`` the single decision sits at tap ``2**2 - 1`` (value
+    With `max_bits = 3` the single decision sits at tap `2**2 - 1` (value
     4.0 on the unit ladder), so the code flips there and nowhere else.
     """
     adc = _build(_config(adc_bits=3), device)
@@ -207,11 +207,11 @@ def test_first_compare_is_the_max_bits_mid_tap(device: torch.device) -> None:
 
 
 def test_energy_is_fixed_only_without_conduction(device: torch.device) -> None:
-    """Zero window ⇒ pure ``bits * e_fixed`` model; the base hook adds nothing.
+    """Zero window gives the pure `bits * e_fixed` model; the base hook adds nothing.
 
-    With ``v_rail__V`` on but the window zero, the conduction term vanishes, so
-    the whole per-conversion energy is exactly ``numel * bits * e_fixed`` — a
-    surviving contribution from the ``_compute_input_dynamic_energy__fJ`` hook (base
+    With `v_rail__V` on but the window zero, the conduction term vanishes, so
+    the whole per-conversion energy is exactly `numel * bits * e_fixed` — a
+    surviving contribution from the `_compute_input_dynamic_energy__fJ` hook (base
     zero) would break this equality.
     """
     adc = _build(_config(v_rail__V=1.0, t_conduct_per_step__ns=(0.0, 0.0, 0.0), e_fixed_per_op__fJ=7.0), device)
@@ -247,7 +247,7 @@ def test_energy_linear_in_window_and_rail(device: torch.device) -> None:
 
 
 def test_reported_latency_sums_the_executed_step_windows(device: torch.device) -> None:
-    """``latency__ns`` answers for the search-step axis this converter owns.
+    """`latency__ns` answers for the search-step axis this converter owns.
 
     One conversion is one binary search: the executed steps run in sequence and
     may differ in duration, and the executed bit count is the whole question.
@@ -264,7 +264,7 @@ def test_reported_latency_sums_the_executed_step_windows(device: torch.device) -
 
 
 def test_energy_counts_only_the_executed_steps(device: torch.device) -> None:
-    """Fixed energy at ``bits`` is ``bits * e_fixed`` over the same full ladder."""
+    """Fixed energy at `bits` is `bits * e_fixed` over the same full ladder."""
     adc = _build(_config(adc_bits=3, v_rail__V=1.0, e_fixed_per_op__fJ=7.0), device)
     refs = _refs(_LADDER_A, device)
     i_in = torch.tensor([0.5, 4.5], dtype=torch.float64, device=device)
@@ -275,7 +275,7 @@ def test_energy_counts_only_the_executed_steps(device: torch.device) -> None:
 
 
 def test_enable_energy_record_false_suppresses_only_energy(device: torch.device) -> None:
-    """``enable_energy_record=False`` drops the dynamic-energy event but keeps the codes.
+    """`enable_energy_record=False` drops the dynamic-energy event but keeps the codes.
 
     An owner that bills conversion energy itself builds the ADC energy-silent,
     and the value conversion is untouched.

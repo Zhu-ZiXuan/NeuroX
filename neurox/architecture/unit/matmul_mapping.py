@@ -14,61 +14,46 @@ from torch import Tensor
 
 @dataclass(frozen=True, slots=True)
 class MatmulPlacementPlan:
-    """Geometric placement of one logical matrix multiplication.
-
-    Attributes:
-        logical_output_num: Number of logical output values.
-        logical_contraction_num: Length of the logical contraction dimension.
-        tile_input_capacity: Number of input positions in one compute tile.
-        output_block_size: Number of logical outputs in one weight block.
-        contraction_block_size: Contraction values stored by one weight block.
-        contraction_partition_num: Number of contraction partitions.
-        output_block_num: Number of logical output blocks.
-        block_group_capacity: Maximum weight blocks held by one block group.
-        block_group_num: Number of block groups receiving output blocks.
-        block_slot_num: Number of input-axis block slots used in each group.
-    """
+    """Geometric placement of one logical matrix multiplication."""
 
     logical_output_num: int
     logical_contraction_num: int
     tile_input_capacity: int
+    """Input positions one compute tile offers."""
     output_block_size: int
+    """Logical outputs carried by one weight block."""
     contraction_block_size: int
+    """Contraction values stored by one weight block."""
     contraction_partition_num: int
     output_block_num: int
     block_group_capacity: int
+    """Weight blocks one block group holds at most."""
     block_group_num: int
     block_slot_num: int
+    """Input-axis block slots used in each block group."""
 
 
 @dataclass(frozen=True, slots=True)
 class InputActivationPlan:
-    """Partition one input block into bounded activation groups.
-
-    Attributes:
-        input_block_size: Number of input values in the block.
-        active_input_limit: Maximum selected values in one activation group.
-        activation_group_num: Number of activation groups covering the block.
-    """
+    """Partition one input block into bounded activation groups."""
 
     input_block_size: int
     active_input_limit: int
+    """Selected values one activation group may hold at most."""
     activation_group_num: int
+    """Activation groups needed to cover the block."""
 
 
 @dataclass(frozen=True, slots=True)
 class BlockSlotRouting:
-    """Input routing for geometric block slots.
-
-    Attributes:
-        gather_index: Local input indices.
-            Shape: ``[block_slot, tile_input]``.
-        slot_mask: Tile input positions belonging to each block slot.
-            Shape: ``[block_slot, tile_input]``.
-    """
+    """Input routing for geometric block slots."""
 
     gather_index: Tensor
+    """Local input index each tile input position reads.
+    Shape: `[block_slot, tile_input]`."""
     slot_mask: Tensor
+    """Tile input positions belonging to each block slot.
+    Shape: `[block_slot, tile_input]`."""
 
 
 def make_matmul_placement_plan(
@@ -78,17 +63,7 @@ def make_matmul_placement_plan(
     tile_input_capacity: int,
     output_block_size: int,
 ) -> MatmulPlacementPlan:
-    """Plan geometric partitioning and input-axis weight-block packing.
-
-    Args:
-        logical_output_num: Number of logical output values.
-        logical_contraction_num: Length of the logical contraction dimension.
-        tile_input_capacity: Number of input positions in one compute tile.
-        output_block_size: Number of logical outputs in one weight block.
-
-    Returns:
-        Substrate-independent geometric placement.
-    """
+    """Plan geometric partitioning and input-axis weight-block packing."""
     contraction_block_size = min(logical_contraction_num, tile_input_capacity)
     contraction_partition_num = -(-logical_contraction_num // contraction_block_size)
     output_block_num = -(-logical_output_num // output_block_size)
@@ -114,15 +89,7 @@ def make_input_activation_plan(
     input_block_size: int,
     active_input_limit: int,
 ) -> InputActivationPlan:
-    """Partition a local input block without assuming an execution schedule.
-
-    Args:
-        input_block_size: Number of input values in the block.
-        active_input_limit: Maximum selected values in one activation group.
-
-    Returns:
-        Activation-group partition independent of geometric placement.
-    """
+    """Partition a local input block without assuming an execution schedule."""
     return InputActivationPlan(
         input_block_size=input_block_size,
         active_input_limit=active_input_limit,
@@ -134,14 +101,7 @@ def make_block_slot_routing(
     *,
     placement: MatmulPlacementPlan,
 ) -> BlockSlotRouting:
-    """Map local input indices into geometric block slots.
-
-    Args:
-        placement: Geometric placement defining block slots.
-
-    Returns:
-        Gather indices and slot membership over tile input positions.
-    """
+    """Map local input indices into geometric block slots."""
     input_positions = torch.arange(placement.tile_input_capacity)
     # Shape: [block_slot] -> [block_slot, 1]
     block_starts = torch.arange(placement.block_slot_num).unsqueeze(-1) * placement.contraction_block_size
@@ -159,12 +119,9 @@ def make_block_slot_routing(
 def make_activation_group_mask(*, activation: InputActivationPlan) -> Tensor:
     """Select local input positions belonging to each activation group.
 
-    Args:
-        activation: Local activation partition for one input block.
-
     Returns:
-        Boolean mask over the local input positions of one activation group.
-        Shape: ``[activation_group, block_input]``.
+        Boolean membership mask of one activation group.
+        Shape: `[activation_group, block_input]`.
     """
     input_positions = torch.arange(activation.input_block_size)
     # Shape: [activation_group] -> [activation_group, 1]

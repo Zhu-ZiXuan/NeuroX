@@ -1,6 +1,7 @@
 """Conv2dUnit operator interface.
 
 See also:
+    docs/reference/architecture/unit/conv2d.md
     docs/internals/architecture/unit/conv2d.md
 """
 
@@ -15,7 +16,7 @@ from .base import UnitBase
 
 
 class Conv2dUnit(UnitBase, ABC):
-    """Interface for an integer ``torch.nn.functional.conv2d`` replacement.
+    """Interface for an integer `torch.nn.functional.conv2d` replacement.
 
     Grouped convolution is not supported.
     """
@@ -25,11 +26,11 @@ class Conv2dUnit(UnitBase, ABC):
         """Write the unit's static weight state and optional integer bias.
 
         Args:
-            weight: Integer weight tensor.
-                Shape: ``[C_out, C_in, kh, kw]``.
-            bias: Optional integer bias tensor, added in the int64 accumulation
-                domain by :meth:`conv2d`; ``None`` clears any programmed bias.
-                Shape: ``[C_out]``.
+            weight: Integer weight values.
+                Shape: `[C_out, C_in, kh, kw]`.
+            bias: Per-channel integer bias added in the int64 accumulation
+                domain; `None` clears any programmed bias.
+                Shape: `[C_out]`.
         """
         raise NotImplementedError
 
@@ -44,7 +45,7 @@ class Conv2dUnit(UnitBase, ABC):
 
         Returns:
             Integer convolution output planes.
-            Shape: ``[..., C_out, H_out, W_out]``.
+            Shape: `[..., C_out, H_out, W_out]`.
         """
         raise NotImplementedError
 
@@ -53,15 +54,19 @@ class Conv2dUnit(UnitBase, ABC):
         """Execute one integer 2-D convolution against the programmed state.
 
         Args:
-            input: Integer activation tensor.
-                Shape: ``[..., C_in, H, W]``.
-            quantization_mode: Runtime quantization-mode index.
-            adc_bits: Runtime ADC resolution, or ``None`` for the lossless
+            input: Integer activation values.
+                Shape: `[..., C_in, H, W]`.
+            quantization_mode: Index selecting the runtime quantization window.
+            adc_bits: Runtime ADC resolution, or `None` for the lossless
                 oracle.
 
         Returns:
-            Integer pre-requantize output tensor; leading dims mirror ``input``.
-            Shape: ``[..., C_out, H_out, W_out]``.
+            Integer pre-requantize output tensor; leading dims mirror `input`.
+            Shape: `[..., C_out, H_out, W_out]`.
+
+        Raises:
+            ValueError: `input` has no trailing `[C_in, H, W]` triple, or the
+                configured geometry yields an empty output map.
         """
         if input.ndim < 3:
             raise ValueError(f"conv2d() expects input with trailing [C_in, H, W]; got ndim {input.ndim}")
@@ -76,7 +81,7 @@ class Conv2dUnit(UnitBase, ABC):
         return y
 
     def _conv2d_out_hw(self, h: int, w: int) -> tuple[int, int]:
-        """Output map extent ``(H_out, W_out)`` for an ``(h, w)`` input map.
+        """Output map extent `(H_out, W_out)` for an `(h, w)` input map.
 
         Raises:
             ValueError: the configured geometry yields an empty output map.
@@ -102,10 +107,10 @@ class Conv2dUnit(UnitBase, ABC):
         """Store the convolution geometry.
 
         Args:
-            kernel_size: Kernel map extent ``(kh, kw)``.
-            stride: Output step ``(s_h, s_w)``.
-            padding: Zero-pad extent ``(p_h, p_w)`` on each side.
-            dilation: Kernel tap spacing ``(d_h, d_w)``.
+            kernel_size: Kernel map extent `(kh, kw)`.
+            stride: Output step `(s_h, s_w)`.
+            padding: Zero-pad extent `(p_h, p_w)` on each side.
+            dilation: Kernel tap spacing `(d_h, d_w)`.
         """
         self._conv2d_kernel_size = (int(kernel_size[0]), int(kernel_size[1]))
         self._conv2d_stride = (int(stride[0]), int(stride[1]))

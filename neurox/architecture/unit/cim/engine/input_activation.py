@@ -1,6 +1,7 @@
 """Input-activation scheduling and aggregation for CIM engines.
 
 See also:
+    docs/reference/architecture/unit/cim/engine/input_activation.md
     docs/internals/architecture/unit/cim/engine/input_activation.md
 """
 
@@ -17,17 +18,14 @@ from neurox.primitive.digital import AccumulatorConfig, DigitalPolicy, SerialAcc
 
 
 class InputActivationStageConfig(ConfigBase):
-    """Configuration for :class:`InputActivationStage`.
-
-    Attributes:
-        phase_accumulator_config: P-axis accumulator configuration.
-    """
+    """Configuration for `InputActivationStage`."""
 
     phase_accumulator_config: AccumulatorConfig
+    """Accumulator folding the P axis."""
 
 
 class InputActivationStagePolicy(PolicyBase):
-    """Policy for :class:`InputActivationStage`."""
+    """Policy for `InputActivationStage`."""
 
 
 class InputActivationStage(ModuleBase[InputActivationStageConfig, InputActivationStagePolicy]):

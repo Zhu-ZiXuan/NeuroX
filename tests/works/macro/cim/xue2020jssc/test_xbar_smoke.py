@@ -1,28 +1,28 @@
 """Eager end-to-end smoke test for the xue2020jssc SINWP 1T1R CIM sub-array.
 
-Builds the folded :class:`Xue2020JsscCimMacro` (kernel pure array + composed
+Builds the folded `Xue2020JsscCimMacro` (kernel pure array + composed
 current-mode readout modules) from the hand-built near-ideal witness config with
-its ladder calibrated in-code (``_utils.build_calibrated_macro``: ``output_num = 4``
--> ``io_num = 2`` at ``mux_factor = 2``, ``input_num = max_active_num = 4``,
-``input_bit_num = 2``, 3-bit ADC), programs a mixed-sign weight, and runs one
-``vec_mat_mul`` on an integer activation batch. Asserts:
+its ladder calibrated in-code (`_utils.build_calibrated_macro`: `output_num = 4`
+-> `io_num = 2` at `mux_factor = 2`, `input_num = max_active_num = 4`,
+`input_bit_num = 2`, 3-bit ADC), programs a mixed-sign weight, and runs one
+`vec_mat_mul` on an integer activation batch. Asserts:
 
   * the output is an integer signed-magnitude code tensor with the caller's
-    leading order preserved, every value in ``[-MAG_MAX, MAG_MAX]``, and
+    leading order preserved, every value in `[-MAG_MAX, MAG_MAX]`, and
     bit-exactly the clamped ideal integer MAC;
-  * a :class:`Reporter` report is coherent: the two macro-billed channels
-    (``cablc`` / ``control``) and the self-billing array + DSWCT / SINWP-SC /
+  * a `Reporter` report is coherent: the two macro-billed channels
+    (`cablc` / `control`) and the self-billing array + DSWCT / SINWP-SC /
     PN-ISUB + TMCSA module rows carry positive dynamic energy, and the totals
     are positive,
-  * the macro's reported window is ``conduction_span x mux_factor`` — the access
+  * the macro's reported window is `conduction_span x mux_factor` — the access
     time of every column-MUX slot it serializes,
-  * at ``inst_shape = ()`` every leading axis is anonymous broadcast batch:
+  * at `inst_shape = ()` every leading axis is anonymous broadcast batch:
     reshaping the batch dims is transparent (a multi-axis batch equals the
-    flattened batch reshaped, a no-batch input yields ``[output_num]``, and a
+    flattened batch reshaped, a no-batch input yields `[output_num]`, and a
     size-1 leading axis broadcasts). The instance-axis contract at a non-empty
-    ``inst_shape`` lives in ``test_instance_axes``.
+    `inst_shape` lives in `test_instance_axes`.
 
-Runs eagerly (dynamo disabled) so the ``@torch.compile`` solver leaf is not
+Runs eagerly (dynamo disabled) so the `@torch.compile` solver leaf is not
 unrolled.
 """
 
@@ -49,13 +49,13 @@ from ._utils import (
 
 _CHANNEL_KEYS = (".cablc", ".control")
 # The array, readout modules, and TMCSA billing module self-bill dynamic
-# energy; the kernel ADC (``adc``) is energy-silent.
+# energy; the kernel ADC (`adc`) is energy-silent.
 _MODULE_ROWS = ("array", "dswct", "sinwp_sc", "pn_isub", "tmcsa")
 
 
 @pytest.fixture(autouse=True)
 def _eager() -> Iterator[None]:
-    """Run eagerly — the solver leaf is ``@torch.compile``; do not unroll it."""
+    """Run eagerly — the solver leaf is `@torch.compile`; do not unroll it."""
     with torch._dynamo.config.patch(disable=True):
         yield
 
@@ -104,8 +104,8 @@ def test_xbar_end_to_end_and_profiler(device: torch.device) -> None:
         assert mod in by_name, f"missing module row {mod}; have {sorted(by_name)}"
         assert by_name[mod] > 0.0
     # The array self-bills its capacitive row and the macro bills the whole input
-    # branch under ``.cablc``. The cell emits no dynamic row (the array logs its
-    # caps), the kernel ADC is energy-silent (the ``tmcsa`` module row bills the
+    # branch under `.cablc`. The cell emits no dynamic row (the array logs its
+    # caps), the kernel ADC is energy-silent (the `tmcsa` module row bills the
     # conversion), and the readout modules bill on module rows, not macro channels.
     for absent in ("cell", "adc", ".dswct", ".sinwp_sc", ".pn_isub"):
         assert absent not in by_name, f"unexpected energy row {absent}: {sorted(by_name)}"
@@ -129,7 +129,7 @@ def test_xbar_end_to_end_and_profiler(device: torch.device) -> None:
 
 
 def test_anonymous_leading_axes_broadcast(device: torch.device) -> None:
-    """At ``inst_shape = ()`` every leading axis is anonymous broadcast batch: reshaping is transparent."""
+    """At `inst_shape = ()` every leading axis is anonymous broadcast batch: reshaping is transparent."""
     macro = build_calibrated_macro(device=device)
     w = _mixed_sign_weight()
     macro.program(w.to(device))

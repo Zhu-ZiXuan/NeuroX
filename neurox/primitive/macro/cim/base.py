@@ -23,14 +23,13 @@ def validate_quantization_input_range(code_range: tuple[int, int]) -> None:
     """Require one canonical quantization window.
 
     Two window shapes are legal, and only these two put the zero point on a
-    bin edge at every bit width: unsigned ``[0, upper]`` with ``upper >= 1``,
-    and mid-zero ``[-m, m - 1]`` with ``m >= 1`` (``m`` need not be a power of
-    two). A symmetric window ``[-n, n]`` holds zero strictly inside a bin at
-    every bit width and its threshold ladders do not nest across bit widths,
-    so it is rejected rather than canonicalized.
+    bin edge at every bit width: unsigned `[0, upper]` with `upper >= 1`, and
+    mid-zero `[-m, m - 1]` with `m >= 1`. A symmetric window `[-n, n]` holds
+    zero strictly inside a bin and its threshold ladders do not nest across
+    bit widths, so it is rejected rather than canonicalized.
 
     Args:
-        code_range: Inclusive integer bounds ``(lower, upper)`` in MAC units.
+        code_range: Inclusive integer bounds `(lower, upper)` in MAC units.
 
     Raises:
         ValueError: The pair is not one of the two canonical shapes.
@@ -55,9 +54,9 @@ def map_magnitude_input_code(code: Tensor, *, code_range: tuple[int, int]) -> tu
 
     Returns:
         The magnitudes the converter discriminates, and the inclusive ADC
-        input code range ``(0, upper)`` its taps cover. A mid-zero window's
-        bottom value has magnitude ``upper + 1``, one step outside the
-        returned range: the circuit resolves no tap there.
+        input code range `(0, upper)` its taps cover. A mid-zero window's
+        bottom value has magnitude `upper + 1`, one step outside the returned
+        range: the circuit resolves no tap there.
     """
     validate_quantization_input_range(code_range)
     _, upper = code_range
@@ -72,9 +71,9 @@ def map_zero_point_input_code(code: Tensor, *, code_range: tuple[int, int]) -> t
         code_range: The mode's canonical quantization input range.
 
     Returns:
-        The offset codes ``code - lower``, and the inclusive ADC input code
-        range ``(0, upper - lower)`` they span. The map is the identity for
-        an unsigned window.
+        The offset codes `code - lower`, and the inclusive ADC input code
+        range `(0, upper - lower)` they span. The map is the identity for an
+        unsigned window.
     """
     validate_quantization_input_range(code_range)
     lower, upper = code_range
@@ -83,23 +82,16 @@ def map_zero_point_input_code(code: Tensor, *, code_range: tuple[int, int]) -> t
 
 @dataclass(frozen=True)
 class CimMacroMode(ValidateMixin):
-    """One quantization operating point of a physical CIM macro.
-
-    Attributes:
-        quantization_input_range: Canonical inclusive MAC-unit window
-            ``(lower, upper)`` the mode converts.
-        adc_input_code_range: Inclusive range of the ADC input codes the
-            mode's converter discriminates — the range
-            :meth:`CimMacro.map_quantization_input_code` publishes. A
-            calibration artifact carried by config; circuit knowledge, not a
-            restatement of the window.
-        max_bits_rescale_factor: This mode's output code at ``adc_max_bits``,
-            expressed in ideal-macro output codes.
-    """
+    """One quantization operating point of a physical CIM macro."""
 
     quantization_input_range: tuple[int, int]
+    """Canonical inclusive MAC-unit window `(lower, upper)` the mode converts."""
     adc_input_code_range: tuple[int, int]
+    """Inclusive range of the ADC input codes the mode's converter
+    discriminates — circuit knowledge calibrated per mode, not a restatement
+    of the conversion window."""
     max_bits_rescale_factor: float
+    """This mode's output code at `adc_max_bits`, in ideal-macro codes."""
 
     def __post_init__(self) -> None:
         self.validate()
@@ -113,18 +105,15 @@ class CimMacroMode(ValidateMixin):
 
 
 class CimMacroConfig(ConfigBase, ABC):
-    """PPA and activation limit shared by every CIM macro.
-
-    Attributes:
-        area_per_inst__um2: Silicon area per fabricated instance.
-        leakage_per_inst__uW: Static leakage per instance.
-        max_active_num: Maximum number of input positions selected by one
-            conversion. Positions outside the selected set are forced to zero.
-    """
+    """PPA and activation limit shared by every CIM macro."""
 
     area_per_inst__um2: float
+    """Silicon area of one fabricated instance."""
     leakage_per_inst__uW: float
+    """Static leakage power of one fabricated instance."""
     max_active_num: int
+    """Maximum number of input positions one conversion may select; positions
+    outside the selected set must be zero."""
 
     def validate(self) -> None:
 
@@ -155,8 +144,8 @@ class CimMacro(
     """Abstract base class for a CIM macro.
 
     Args:
-        config: Concrete configuration dataclass.
-        policy: Composite nonideality policy.
+        config: PPA, activation limit and scheme-specific parameters.
+        policy: Composite nonideality policy of the scheme's parts.
         input_num: Logical input-vector length selected by the owner.
         output_num: Logical output-vector length selected by the owner.
         inst_shape: Per-instance multiplicity prefix.
@@ -204,8 +193,8 @@ class CimMacro(
         """Build the implementation registered for the config-policy pair.
 
         Args:
-            config: Concrete configuration dataclass.
-            policy: Composite nonideality policy.
+            config: Config whose type selects the implementation.
+            policy: Policy whose type selects the implementation.
             input_num: Logical input-vector length selected by the owner.
             output_num: Logical output-vector length selected by the owner.
             inst_shape: Per-instance multiplicity prefix.
@@ -237,13 +226,13 @@ class CimMacro(
 
         Args:
             t: Tensor whose trailing axis enumerates columns.
-                Shape: ``[..., lane_num * col_per_lane]``.
+                Shape: `[..., lane_num · col_per_lane]`.
             col_per_lane: Columns sharing one lane.
 
         Returns:
             The same values regrouped, lane axis ahead of the in-lane
             position.
-            Shape: ``[..., lane_num, col_per_lane]``.
+            Shape: `[..., lane_num, col_per_lane]`.
         """
         if t.shape[-1] % col_per_lane != 0:
             raise ValueError(f"require: trailing col axis ({t.shape[-1]}) % col_per_lane ({col_per_lane}) == 0")
@@ -267,7 +256,7 @@ class CimMacro(
     def quantization_input_ranges(self) -> tuple[tuple[int, int], ...]:
         """Canonical conversion window per mode, in MAC units.
 
-        The tuple position is the ``quantization_mode`` index and the tuple
+        The tuple position is the `quantization_mode` index and the tuple
         length is the mode count.
         """
         raise NotImplementedError
@@ -275,16 +264,16 @@ class CimMacro(
     @property
     @abstractmethod
     def adc_max_bits(self) -> int:
-        """Maximum supported ``adc_bits`` value."""
+        """Maximum supported `adc_bits` value."""
         raise NotImplementedError
 
     @abstractmethod
     def _max_bits_rescale_factor(self, quantization_mode: int) -> float:
-        """Return the rescale factor of one mode at :attr:`adc_max_bits`.
+        """Return the rescale factor of one mode at the maximum bit width.
 
         Args:
             quantization_mode: Mode index in
-                ``[0, len(quantization_input_ranges))``.
+                `[0, len(quantization_input_ranges))`.
         """
         raise NotImplementedError
 
@@ -299,7 +288,7 @@ class CimMacro(
         Args:
             code: Exact integer plane dots — the quantizer's input codes.
             quantization_mode: Mode index in
-                ``[0, len(quantization_input_ranges))``.
+                `[0, len(quantization_input_ranges))`.
 
         Returns:
             The mapped input codes and their inclusive range.
@@ -308,18 +297,16 @@ class CimMacro(
 
     @abstractmethod
     def latency__ns(self, *, adc_bits: int | None) -> float:
-        """Duration of one :meth:`vec_mat_mul` call [ns].
+        """Duration of one `vec_mat_mul` call [ns].
 
-        A macro's access time is fixed by its own schedule — the word-line
-        sub-phases, column-MUX slots or output positions its config states —
-        except for the readout, which runs as long as the requested resolution
-        takes and is therefore asked for its own executed window. ``adc_bits``
-        is consequently the one thing a caller must supply. Every other child
-        settles inside a window the macro already owns and is never summed in.
+        A macro's access time is fixed by its own schedule except for the
+        readout, whose window follows the requested resolution; every other
+        child settles inside a window the macro already owns and is never
+        summed in.
 
         Args:
-            adc_bits: Conversion resolution [bits] in ``[1, adc_max_bits]``,
-                or ``None`` for the lossless oracle.
+            adc_bits: Conversion resolution [bits] in `[1, adc_max_bits]`,
+                or `None` for the lossless oracle.
 
         Returns:
             Duration of one conversion per word-line plane.
@@ -333,8 +320,8 @@ class CimMacro(
         Args:
             w: Integer weight tensor matching the logical matrix geometry
                 supplied at construction. Entries must lie in
-                :attr:`w_value_range`.
-                Shape: ``[*inst_shape, input_num, output_num]``.
+                `w_value_range`.
+                Shape: `[*inst_shape, input_num, output_num]`.
         """
         raise NotImplementedError
 
@@ -344,44 +331,44 @@ class CimMacro(
 
         Args:
             x: Logical input tensor; leading axes are broadcast batch
-                dimensions. At most :attr:`max_active_num` positions may be
+                dimensions. At most `max_active_num` positions may be
                 selected per conversion; unselected positions must be zero.
-                Entries must lie in :attr:`x_value_range`.
-                Shape: ``[..., input_num]``.
+                Entries must lie in `x_value_range`.
+                Shape: `[..., input_num]`.
             quantization_mode: Mode index in
-                ``[0, len(quantization_input_ranges))``; selects the
+                `[0, len(quantization_input_ranges))`; selects the
                 conversion window and its reference taps.
-            adc_bits: Conversion resolution [bits] in ``[1, adc_max_bits]``,
-                or ``None`` for the lossless oracle.
+            adc_bits: Conversion resolution [bits] in `[1, adc_max_bits]`,
+                or `None` for the lossless oracle.
 
         Returns:
             Output-code tensor whose leading axes broadcast the input's
-            against :attr:`inst_shape`.
-            Shape: ``[..., output_num]``.
+            against `inst_shape`.
+            Shape: `[..., output_num]`.
         """
         raise NotImplementedError
 
     def rescale_factor(self, *, quantization_mode: int, adc_bits: int | None) -> float:
         """Return this macro's output code expressed in ideal-macro codes.
 
-        One bit-width law holds for every macro: ``r_b = r_B * 2^(B - b)``
-        with ``B = adc_max_bits``, since dropping a bit doubles what one code
-        carries. A concrete class supplies ``r_B`` alone. Dequantization into
+        One bit-width law holds for every macro, `r_b = r_B · 2^(B - b)` with
+        `B = adc_max_bits`, since dropping a bit doubles what one code
+        carries; a concrete class supplies `r_B` alone. Dequantization into
         MAC units belongs to the algorithm side, which owns the window step.
 
         Args:
             quantization_mode: Mode index in
-                ``[0, len(quantization_input_ranges))``.
-            adc_bits: Conversion resolution [bits] in ``[1, adc_max_bits]``,
-                or ``None`` for the lossless oracle, which is outside the
+                `[0, len(quantization_input_ranges))`.
+            adc_bits: Conversion resolution [bits] in `[1, adc_max_bits]`,
+                or `None` for the lossless oracle, which is outside the
                 bit-width chain.
 
         Returns:
-            ``1.0`` for the lossless oracle; otherwise ``r_b``.
+            `1.0` for the lossless oracle; otherwise `r_b`.
 
         Raises:
-            ValueError: ``adc_bits`` is neither ``None`` nor in
-                ``[1, adc_max_bits]``.
+            ValueError: Resolution is neither `None` nor in
+                `[1, adc_max_bits]`.
         """
         if adc_bits is None:
             return 1.0
@@ -397,11 +384,11 @@ class CimMacro(
 
         The twin inherits this macro's logical geometry, instance
         multiplicity, value domains, published quantization windows and
-        ``adc_max_bits``. A macro whose encoding resolves a wider signed code
+        `adc_max_bits`. A macro whose encoding resolves a wider signed code
         range than its converter bit width overrides this to publish that
         wider width.
         """
-        # Local import — the ``ideal`` module imports from this file, so the
+        # Local import — the `ideal` module imports from this file, so the
         # symbols are only safe to resolve at call time.
         from .ideal import IdealCimMacro, IdealCimMacroConfig, IdealCimMacroPolicy
 

@@ -1,9 +1,9 @@
 """SINWP-SC input-radix combine — one switched-capacitor unit per (CIM-IO, polarity) lane.
 
 The K per-input-bit DSWCT output currents are weighted by the LSB-first
-input-radix combine ratios ``s_k`` and summed over the bit axis into the
-per-lane pre-subtraction current ``I_DL_PN``. A reporter leaf: it self-bills
-its held/live mirror-leg conduction and hold-cap cycling.
+input-radix combine ratios `s_k` and summed over the bit axis into the per-lane
+pre-subtraction current `I_DL_PN`. A reporter leaf: it self-bills its held/live
+mirror-leg conduction and hold-cap cycling.
 
 See also:
     docs/works/macro/cim/xue2020jssc/model.md
@@ -20,16 +20,10 @@ _POLARITY_NUM = 2  # P (PWG), N (NWG) lane per CIM-IO
 
 
 class SinwpScConfig(ConfigBase):
-    """Immutable configuration for :class:`SinwpSc`.
-
-    Attributes:
-        c_hold__fF: Sample-and-hold capacitance per combine leg; cycled once
-            per (slot x bit) event per instance at the supply rail.
-        area_per_inst__um2: Silicon area per fabricated instance.
-        leakage_per_inst__uW: Static leakage per instance.
-    """
+    """Physical knobs and static PPA seat of one SINWP-SC combine unit."""
 
     c_hold__fF: float
+    """Sample-and-hold capacitance per combine leg, cycled once per instance per (slot, bit) event."""
     area_per_inst__um2: float
     leakage_per_inst__uW: float
 
@@ -47,14 +41,14 @@ class SinwpSc(ModuleBase[SinwpScConfig, SinwpScPolicy]):
     """SINWP-SC switched-capacitor input-radix combine — one unit per (IO, polarity) lane.
 
     Args:
-        config: SINWP-SC configuration (cap knob + static PPA seat).
-        policy: Source-free policy.
-        inst_shape: Per-instance fabrication shape ``(*inst_shape, gn, polarity)``,
-            one combine unit per (CIM-IO, polarity) lane.
-        bit_ratios: LSB-first per-input-bit combine ratios ``s_k``, in the
-            module's working dtype.
-            Shape: ``[x_bits]``.
-        v_dd__V: Supply-rail voltage [V] every billed branch conducts across.
+        config: Physical knobs and static PPA seat of one combine unit.
+        policy: Nonideality toggles; this scheme declares none.
+        inst_shape: Fabrication shape `(*inst_shape, gn, polarity)` — one combine
+            unit per (CIM-IO, polarity) lane.
+        bit_ratios: LSB-first per-input-bit combine ratios `s_k`, in the module's
+            working dtype.
+            Shape: `[x_bits]`.
+        v_dd__V: Supply rail every billed branch conducts across.
     """
 
     # === Functional buffers ===
@@ -105,16 +99,16 @@ class SinwpSc(ModuleBase[SinwpScConfig, SinwpScPolicy]):
         """Combine the per-bit currents over the input-radix ratios.
 
         Args:
-            i__uA: Per-input-bit lane currents (bit axis at dim -4, LSB
-                first). Every leading axis is anonymous broadcast batch.
-                Shape: ``[..., x_bits, serial, gn, polarity]``.
+            i__uA: Per-input-bit lane currents, bit axis at dim -4 and LSB first.
+                Every leading axis is anonymous broadcast batch.
+                Shape: `[..., x_bits, serial, gn, polarity]`.
             window_per_bit__ns: Per-input-bit conduction window — the
                 sample-and-hold suffix-sum window the macro injects per call.
-                Shape: ``[x_bits]``.
+                Shape: `[x_bits]`.
 
         Returns:
-            Combined lane current [uA].
-            Shape: ``[..., serial, gn, polarity]``.
+            Combined lane current.
+            Shape: `[..., serial, gn, polarity]`.
         """
         n_bits = self.input_bit_num
         if i__uA.ndim < 4:

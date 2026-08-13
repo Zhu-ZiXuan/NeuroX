@@ -6,7 +6,7 @@ from typing import Any
 
 import torch
 
-# ``transformers`` and ``datasets`` are runtime dependencies of this
+# `transformers` and `datasets` are runtime dependencies of this
 # example only; install them with
 #     pip install transformers datasets
 from datasets import Dataset, load_dataset
@@ -17,11 +17,7 @@ DEFAULT_MODEL_NAME: str = "google/bert_uncased_L-4_H-512_A-8"
 
 
 def _tokenize_split(split_name: str, dataset_dir: Path, model_name: str, max_length: int) -> Dataset:
-    """Load and tokenize one SST-2 split.
-
-    The tokenized dataset is cached under ``dataset_dir`` so subsequent
-    runs avoid re-downloading and re-tokenizing.
-    """
+    """Load and tokenize one SST-2 split, cached under `dataset_dir`."""
     dataset_dir.mkdir(parents=True, exist_ok=True)
     raw = load_dataset("nyu-mll/glue", "sst2", split=split_name, cache_dir=str(dataset_dir))
     tokenizer = AutoTokenizer.from_pretrained(model_name, cache_dir=str(dataset_dir))
@@ -62,25 +58,26 @@ def create_sst2_dataloader(
     model_name: str = DEFAULT_MODEL_NAME,
     indices: Sequence[int] | None = None,
 ) -> DataLoader:
-    """Create an SST-2 dataloader rooted at ``dataset_dir``.
+    """Create an SST-2 dataloader rooted at `dataset_dir`.
 
     Args:
         dataset_dir: Cache directory for the GLUE / SST-2 corpus and the
-            tokenizer files (passed as ``cache_dir`` to HuggingFace).
-        device: Runtime device (used only for ``pin_memory``).
-        split: ``"train"`` for training; anything else (default
-            ``"validation"``) selects the validation split.  SST-2's
-            test split has no labels in GLUE — use ``"validation"`` for
-            scoring.
-        max_length: Maximum token sequence length.  128 covers the SST-2
-            distribution comfortably (median ≈ 11 tokens).
-        model_name: HuggingFace tokenizer / model identifier.  Must match
-            the model used for training so the vocabulary aligns.
-        indices: Optional subset indices for sharded evaluation.
+            tokenizer files, passed to HuggingFace as `cache_dir`.
+        batch_size: Samples per batch; the trailing batch may be short.
+        device: Runtime device, consulted only to decide `pin_memory`.
+        split: `"train"` selects the training split, anything else the
+            validation split. GLUE ships the SST-2 test split unlabelled, so
+            scoring runs on validation.
+        shuffle: Reshuffles the split on every epoch.
+        max_length: Token sequence length every sample is padded or truncated
+            to. 128 covers the SST-2 distribution (median ≈ 11 tokens).
+        model_name: HuggingFace tokenizer identifier; must match the model it
+            feeds so the vocabulary aligns.
+        indices: Subset indices for sharded evaluation.
 
     Returns:
-        DataLoader over the requested SST-2 split, yielding 4-tuples
-        ``(input_ids, attention_mask, token_type_ids, labels)``.
+        DataLoader yielding 4-tuples
+        `(input_ids, attention_mask, token_type_ids, labels)`.
     """
     split_name = "train" if split == "train" else "validation"
     dataset = _tokenize_split(split_name, dataset_dir, model_name, max_length)

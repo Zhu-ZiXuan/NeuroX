@@ -1,7 +1,7 @@
 """Slicer ABC for value-domain decomposition.
 
 See also:
-    docs/reference/architecture/unit/family.md
+    docs/internals/architecture/unit/cim/slicer/base.md
 """
 
 from __future__ import annotations
@@ -23,21 +23,21 @@ class Slicer(ABC):
     @property
     @abstractmethod
     def slice_radix(self) -> int:
-        """Return the positional radix between adjacent slices."""
+        """Positional radix between adjacent slices."""
         raise NotImplementedError
 
     @property
     @abstractmethod
     def slice_weights(self) -> tuple[int, ...]:
-        """Return the LSB-first positional weight of each slice."""
+        """LSB-first positional weight of each slice."""
         raise NotImplementedError
 
     @abstractmethod
     def slice(self, x: Tensor) -> Tensor:
-        """Decompose ``x`` into trailing positional slice values.
+        """Decompose `x` into trailing positional slice values.
 
         Returns:
             Positional slice values.
-            Shape: ``[..., slice_num]``.
+            Shape: `[..., slice_num]`.
         """
         raise NotImplementedError

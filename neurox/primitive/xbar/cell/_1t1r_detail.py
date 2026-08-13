@@ -1,7 +1,8 @@
 """Detailed 1T1R cell — nonlinear device models condensed by a per-cell Newton.
 
 See also:
-    docs/reference/primitive/xbar/cell/_1t1r/cell_detail.md
+    docs/reference/primitive/xbar/cell/1t1r_detail.md
+    docs/internals/primitive/xbar/cell/1t1r_detail.md
 """
 
 from __future__ import annotations
@@ -33,17 +34,10 @@ from ._1t1r import (
 
 
 class XbarCell1t1rDetailRecord(RecordBase):
-    """Per-cell access-node KCL residual of a detailed 1T1R branch solve.
-
-    The record covers the residual alone: which cell solved is the collecting
-    caller's own knowledge, not something the record carries.
-
-    Attributes:
-        cell__uA: ``|I_NMOS - I_RRAM|`` per cell at the condensed ``V_X``.
-            Shape: ``[..., col, row]``.
-    """
+    """Per-cell access-node KCL residual of a detailed 1T1R branch solve."""
 
     cell__uA: Tensor
+    """`|I_NMOS - I_RRAM|` per cell at the condensed V_X. Shape: `[..., col, row]`."""
 
 
 class XbarCell1t1rDetailProber(RecorderBase[XbarCell1t1rDetailRecord]):
@@ -51,32 +45,24 @@ class XbarCell1t1rDetailProber(RecorderBase[XbarCell1t1rDetailRecord]):
 
 
 class XbarCell1t1rDetailConfig(XbarCell1t1rConfig):
-    """Physical knobs for the detailed (nonlinear-device) 1T1R cell.
-
-    Attributes:
-        rram_config: RRAM storage-device configuration.
-        nmos_config: Access-NMOS configuration.
-        state_to_g_map__uS: State-index to target-conductance lookup
-            table. Strictly increasing; endpoints must lie inside
-            ``[rram_config.g_min__uS, rram_g_max__uS]``.
-        access_nmos_W__um: Access-NMOS width.
-        access_nmos_L__um: Access-NMOS length.
-        rram_g_max__uS: Maximum programmable RRAM conductance.
-        newton_iter_num: Number of unrolled per-cell Newton steps on ``V_X``
-            after the Pade current-divider seed.
-    """
+    """Physical knobs for the detailed (nonlinear-device) 1T1R cell."""
 
     rram_config: RramConfig
     nmos_config: MosfetConfig
 
     state_to_g_map__uS: tuple[float, ...]
+    """State-index to target-conductance lookup table, strictly increasing,
+    with both endpoints inside `[rram_config.g_min__uS, rram_g_max__uS]`. Its
+    length is the cell's weight-state count."""
 
     access_nmos_W__um: float
     access_nmos_L__um: float
 
     rram_g_max__uS: float
+    """Upper end of the programmable conductance window."""
 
     newton_iter_num: int
+    """Unrolled per-cell Newton steps on V_X after the Pade current-divider seed."""
 
     def validate(self) -> None:
         super().validate()
@@ -111,12 +97,7 @@ class XbarCell1t1rDetailConfig(XbarCell1t1rConfig):
 
 
 class XbarCell1t1rDetailPolicy(XbarCell1t1rPolicy):
-    """Composite nonideality policy for the detailed 1T1R cell.
-
-    Attributes:
-        rram_policy: RRAM storage-device nonideality policy.
-        nmos_policy: Access-NMOS nonideality policy.
-    """
+    """Composite nonideality policy for the detailed 1T1R cell."""
 
     rram_policy: RramPolicy
     nmos_policy: MosfetPolicy
@@ -124,12 +105,7 @@ class XbarCell1t1rDetailPolicy(XbarCell1t1rPolicy):
 
 @dataclass(frozen=True, kw_only=True)
 class XbarCell1t1rDetailSnap(XbarCell1t1rSnap):
-    """Per-call snap of a detailed 1T1R cell's fabricated state.
-
-    Attributes:
-        rram: RRAM read-conductance snap.
-        nmos: Access-NMOS parameter snap.
-    """
+    """Per-call snap of a detailed 1T1R cell's fabricated state."""
 
     rram: RramSnap
     nmos: MosfetSnap
@@ -145,7 +121,7 @@ class XbarCell1t1rDetail(XbarCell1t1r[XbarCell1t1rDetailConfig, XbarCell1t1rDeta
     Args:
         config: Detailed 1T1R configuration.
         policy: Detailed 1T1R nonideality policy.
-        inst_shape: Per-instance shape ``(..., col, row)``.
+        inst_shape: Per-instance shape `(..., col, row)`.
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature.
     """
@@ -210,10 +186,10 @@ class XbarCell1t1rDetail(XbarCell1t1r[XbarCell1t1rDetailConfig, XbarCell1t1rDeta
         """Bundle RRAM / NMOS device snaps with the WL control drive.
 
         Args:
-            control: Per-cell word-line drive voltage [V] at the NMOS gate.
-                Shape: ``[..., col, row]``.
-            shape: Per-call broadcast shape ``(..., col, row)`` the
-                RRAM / NMOS snaps fill their tensor fields at.
+            control: Word-line drive voltage [V] at each cell's NMOS gate.
+                Shape: `[..., col, row]`.
+            shape: Per-call broadcast shape `(..., col, row)` the RRAM / NMOS
+                snaps fill their tensor fields at.
             t_elapsed: Time elapsed since programming [s]; reserved for
                 time-dependent device read state.
 
@@ -229,8 +205,8 @@ class XbarCell1t1rDetail(XbarCell1t1r[XbarCell1t1rDetailConfig, XbarCell1t1rDeta
         """Program the RRAM cells from one state-index tensor.
 
         Args:
-            w_state_idx: State-index tensor in ``[0, w_state_num - 1]``.
-                Shape: ``[*inst_shape]``.
+            w_state_idx: State-index tensor in `[0, w_state_num - 1]`.
+                Shape: `[*inst_shape]`.
         """
         target_g__uS = self._state_to_g_map__uS[w_state_idx.long()]
         self.rram.program(target_g__uS, t_elapsed=0.0)
@@ -241,7 +217,7 @@ class XbarCell1t1rDetail(XbarCell1t1r[XbarCell1t1rDetailConfig, XbarCell1t1rDeta
         v_sl: Tensor,
         snap: XbarCell1t1rDetailSnap,
     ) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
-        """Condense the access node ``V_X``.
+        """Condense the access node V_X.
 
         Args:
             v_bl: Bit-line node voltage [V].
@@ -249,7 +225,7 @@ class XbarCell1t1rDetail(XbarCell1t1r[XbarCell1t1rDetailConfig, XbarCell1t1rDeta
             snap: Per-call detailed-cell snapshot.
 
         Returns:
-            Tuple ``(i_rram, i_nmos, di_dvbl, di_dvsl, v_x)``.
+            `(i_rram, i_nmos, di_dvbl, di_dvsl, v_x)`.
         """
         v_wl = snap.v_wl__V
         rram_snap = snap.rram
@@ -282,9 +258,8 @@ class XbarCell1t1rDetail(XbarCell1t1r[XbarCell1t1rDetailConfig, XbarCell1t1rDeta
         i_n = dc_nmos.ids__uA
         i_r = dc_rram.i__uA
         # Series condensation of the NMOS (V_X = drain) and RRAM
-        # conductances at the eliminated access node. ``did_dvd >= 0`` and
-        # ``di_dv >= 0`` so ``di_dvbl >= 0``; ``did_dvs <= 0`` so
-        # ``di_dvsl <= 0``.
+        # conductances at the eliminated access node. `did_dvd >= 0` and
+        # `di_dv >= 0` so `di_dvbl >= 0`; `did_dvs <= 0` so `di_dvsl <= 0`.
         denom = dc_nmos.did_dvd__uS + dc_rram.di_dv__uS
         di_dvbl__uS = dc_nmos.did_dvd__uS * dc_rram.di_dv__uS / denom
         di_dvsl__uS = dc_nmos.did_dvs__uS * dc_rram.di_dv__uS / denom
@@ -296,7 +271,7 @@ class XbarCell1t1rDetail(XbarCell1t1r[XbarCell1t1rDetailConfig, XbarCell1t1rDeta
         v_sl: Tensor,
         snap: XbarCell1t1rDetailSnap,
     ) -> tuple[Tensor, Tensor, Tensor]:
-        """Condensed branch solve: ``(i__uA, di_dvbl__uS, di_dvsl__uS)``."""
+        """Condensed branch solve: `(i__uA, di_dvbl__uS, di_dvsl__uS)`."""
         i_r, _i_n, di_dvbl__uS, di_dvsl__uS, _v_x = self._solve_vx(v_bl, v_sl, snap)
         return i_r, di_dvbl__uS, di_dvsl__uS
 
@@ -306,7 +281,7 @@ class XbarCell1t1rDetail(XbarCell1t1r[XbarCell1t1rDetailConfig, XbarCell1t1rDeta
         v_sl: Tensor,
         snap: XbarCell1t1rDetailSnap,
     ) -> XbarCell1t1rDcop:
-        """Return the branch working point including condensed ``V_X``."""
+        """Return the branch working point including the condensed V_X."""
         i_r, i_n, di_dvbl__uS, di_dvsl__uS, v_x = self._solve_vx(v_bl, v_sl, snap)
         if XbarCell1t1rDetailProber.active():
             XbarCell1t1rDetailProber.submit(XbarCell1t1rDetailRecord(cell__uA=(i_n - i_r).abs()))

@@ -1,33 +1,28 @@
 """CLI: LS-fit the per-mode rescale factor of a CIM macro via dual probed runs.
 
-CLI: ``python -m neurox.tools.calibrate_adc.rescale_fit --config <run.toml>
+CLI: `python -m neurox.tools.calibrate_adc.rescale_fit --config <run.toml>
 [--device cuda:N] [--output <fragment.toml>] [--plot-dir <dir>]
-[--log-dir <dir>] [--log-level INFO] [--modes m[,m...]]``
+[--log-dir <dir>] [--log-level INFO] [--modes m[,m...]]`
 
-The operating modes come from the mode-set TOML named by the run config
-(``modes_file``, see :mod:`._modes`); ``--modes`` narrows the run to a
-subset of that set (each mode re-runs the full stimulus battery, so a
-per-mode run bounds single-command runtime; the emitted fragments
-concatenate).
+The operating modes come from the mode-set TOML named by the run config;
+`--modes` narrows the run to a subset of that set — each mode re-runs the full
+stimulus battery, so a per-mode run bounds single-command runtime and the
+emitted fragments concatenate.
 
-For each requested ``quantization_mode`` the tool programs random ternary
-weight patterns into the physical tile and its lossless
-:meth:`~neurox.primitive.macro.cim.CimMacro.to_ideal` twin, drives random
-binary WL batches through both, pairs the physical tile's
-``current_adc.convert`` records with the ideal twin's ``vec_mat_mul``
-return element for element, maps the ideal dots onto the macro's ADC input
-code axis
-(:meth:`~neurox.primitive.macro.cim.CimMacro.map_quantization_input_code`),
-drops pairs outside that mode's input code range and top-code-saturated
-pairs (both drop counts logged per mode), and solves the
-zero-through-origin least squares ``ideal_code ~= rescale_factor * code``.
-The fit target is the twin's real-valued code scale ``M * 2^B / W``
-(``W`` the mode's window width, ``B`` the twin's ``adc_max_bits``), so the
-fitted slope is exactly the rescale currency: the macro's code expressed
-in ideal-macro codes. The fit runs at the macro's ``adc_max_bits`` only —
-lower bit widths follow the base-class law ``r_b = r_B * 2^(B - b)``.
-Output is a ``[[modes]]`` macro-config fragment (one table per mode) plus
-a per-mode fit plot (code vs ideal code + fitted line).
+For each requested `quantization_mode` the tool programs random ternary weight
+patterns into the physical tile and its lossless twin, drives random binary WL
+batches through both, pairs the physical tile's `current_adc.convert` records
+with the ideal twin's `vec_mat_mul` return element for element, maps the ideal
+dots onto the macro's ADC input code axis, drops pairs outside that mode's
+input code range and top-code-saturated pairs (both drop counts logged per
+mode), and solves the zero-through-origin least squares
+`ideal_code ~= rescale_factor * code`. The fit target is the twin's real-valued
+code scale `M * 2^B / W` (`W` the mode's window width, `B` the twin's
+`adc_max_bits`), so the fitted slope is exactly the rescale currency: the
+macro's code expressed in ideal-macro codes. The fit runs at the macro's
+`adc_max_bits` only — lower bit widths follow the base-class law
+`r_b = r_B * 2^(B - b)`. Output is a `[[modes]]` macro-config fragment, one
+table per mode, plus a per-mode fit plot of code vs ideal code.
 
 See also:
     docs/guides/calibration/calibrate_adc.md
@@ -66,24 +61,19 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class _StimulusCfg:
-    """``[stimulus]`` section: the random calibration workload.
-
-    Attributes:
-        seed: RNG seed for weights and drives.
-        w_densities: Ternary non-zero densities; one weight-pattern group
-            per density.
-        x_densities: Binary WL drive densities crossed with every weight
-            pattern.
-        patterns_per_density: Independent weight patterns per ``w_density``.
-        x_batch: Drive vectors per (pattern, x_density) combo, batched
-            into a single VMM call.
-    """
+    """`[stimulus]` section: the random calibration workload."""
 
     seed: int
+    """RNG seed for weights and drives."""
     w_densities: tuple[float, ...]
+    """Ternary non-zero densities; one weight-pattern group per density."""
     x_densities: tuple[float, ...]
+    """Binary WL drive densities crossed with every weight pattern."""
     patterns_per_density: int
+    """Independent weight patterns per entry of `w_densities`."""
     x_batch: int
+    """Drive vectors per (pattern, x density) combination, batched into a
+    single VMM call."""
 
     def __post_init__(self) -> None:
         if not self.w_densities or not self.x_densities:
@@ -97,20 +87,15 @@ class _StimulusCfg:
 
 
 class RescaleFitToolConfig(ConfigBase):
-    """Top-level config for :mod:`neurox.tools.calibrate_adc.rescale_fit`.
-
-    Attributes:
-        macro: The tile to build.
-        stimulus: The random calibration workload.
-        modes_file: Mode-set TOML (see
-            :func:`~neurox.tools.calibrate_adc._modes.load_mode_set`),
-            relative to the tool TOML; every mode is fitted unless
-            ``--modes`` selects a subset.
-    """
+    """Top-level config for `neurox.tools.calibrate_adc.rescale_fit`."""
 
     macro: MacroSection
+    """The tile to build."""
     stimulus: _StimulusCfg
+    """The random calibration workload."""
     modes_file: Path
+    """Mode-set TOML, relative to the tool TOML; every mode is fitted unless
+    `--modes` selects a subset."""
 
 
 # --- fit --------------------------------------------------------------------
@@ -118,18 +103,31 @@ class RescaleFitToolConfig(ConfigBase):
 
 @dataclass(frozen=True)
 class ModeFitResult:
-    """Fit + diagnostics for one operating mode."""
+    """Fit + diagnostics for one operating mode.
+
+    `sample_num` is the count of pairs surviving the fit filter.
+    """
 
     quantization_mode: int
     adc_bits: int
     quantization_input_range: tuple[int, int]
+    """Inclusive MAC-unit window the mode quantizes."""
     adc_input_code_range: tuple[int, int]
+    """Inclusive input-code domain the mode's converter resolves."""
     fit: RescaleFit
     total_num: int
+    """Probed pairs before filtering."""
     range_dropped_num: int
+    """Pairs dropped for falling outside `adc_input_code_range`."""
     saturated_num: int
+    """Pairs dropped as top-code-saturated; the two causes may overlap."""
     code: torch.Tensor
+    """Macro output code of the pairs entering the fit.
+    Shape: `[sample_num]`."""
     ideal_code: torch.Tensor
+    """Ideal-macro code of the same pairs, in the twin's real-valued code
+    scale.
+    Shape: `[sample_num]`."""
 
 
 def _fit_one_mode(
@@ -145,8 +143,8 @@ def _fit_one_mode(
     """Run the stimulus battery at one mode and solve the rescale.
 
     The fit target is the ideal twin's real-valued code scale
-    ``input_code * 2^B / W``: the unquantized code the twin's window would
-    read, so the slope is the physical code expressed in ideal codes.
+    `input_code * 2^B / W` — the unquantized code the twin's window would read,
+    so the slope is the physical code expressed in ideal codes.
     """
     quantization_mode = mode.quantization_mode
     window = ideal.quantization_input_ranges[quantization_mode]
@@ -208,11 +206,11 @@ def _fit_one_mode(
 
 
 def _fragment_lines(results: list[ModeFitResult]) -> list[str]:
-    """The ``[[modes]]`` macro-config TOML fragment (nest under the macro section).
+    """The `[[modes]]` macro-config TOML fragment, nested under the macro section.
 
-    One table per mode, in mode order — the config reads the mode index
-    from the table position, so a partial run's tables paste into the
-    matching slots.
+    One table per mode, in mode order — the config reads the mode index from
+    the table position, so a partial run's tables paste into the matching
+    slots.
     """
     lines = [
         "# modes fragment fitted by neurox.tools.calibrate_adc.rescale_fit",
@@ -234,7 +232,7 @@ def _fragment_lines(results: list[ModeFitResult]) -> list[str]:
 
 
 def _plot_mode_fit(result: ModeFitResult, output_path: Path) -> None:
-    """One PNG: probed (code, ideal code) scatter + the fitted line."""
+    """Write one PNG: probed (code, ideal code) scatter + the fitted line."""
     import matplotlib as mpl
 
     mpl.use("Agg")

@@ -11,9 +11,9 @@ from .base import Transcoder
 class TrueFormTranscoder(Transcoder):
     """Sign-magnitude signed-digit encoding.
 
-    All non-zero digits share the input sign; magnitude is an ordinary
-    base-``r`` decomposition, ``d_i = sign(x)·(floor(|x| / r^i) mod r)``.
-    Representable range is the symmetric envelope ``[-(r^D - 1), r^D - 1]``.
+    All non-zero digits share the input sign; magnitude is an ordinary base-`r`
+    decomposition, `d_i = sign(x)·(floor(|x| / r^i) mod r)`. Representable range
+    is the symmetric envelope `[-(r^D - 1), r^D - 1]`.
     """
 
     def encode(self, x: Tensor, *, dim: int = -1) -> Tensor:
@@ -29,6 +29,6 @@ class TrueFormTranscoder(Transcoder):
 
     @property
     def value_range(self) -> tuple[int, int]:
-        """Symmetric envelope ``[-(r^D - 1), r^D - 1]``."""
+        """Symmetric envelope `[-(r^D - 1), r^D - 1]`."""
         n_max = self._radix**self._digit_count - 1
         return -n_max, n_max

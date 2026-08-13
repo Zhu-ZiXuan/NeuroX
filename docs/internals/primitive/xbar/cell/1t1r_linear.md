@@ -1,6 +1,6 @@
 # 1T1R Linear cell
 
-`XbarCell1t1rLinear` (`neurox/primitive/xbar/cell/_1t1r_linear.py`) is the table-driven linearized 1T1R model: no device children, fixed table buffers, ordinary programmed state, and a closed-form branch. The shared 1T1R substrate lives at [1T1R cell base](cell.md).
+`XbarCell1t1rLinear` (`neurox/primitive/xbar/cell/_1t1r_linear.py`) is the table-driven linearized 1T1R model: no device children, fixed table buffers, ordinary programmed state, and a closed-form branch. The shared 1T1R substrate lives at [1T1R cell base](1t1r.md).
 
 ## Design decisions
 
@@ -25,6 +25,6 @@ The branch solve is a handful of elementwise ops on chunk-shaped tensors — no 
 
 ---
 
-- **Reference**: [Linear cell](../../../../../reference/primitive/xbar/cell/_1t1r/cell_linear.md)
+- **Reference**: [Linear cell](../../../../reference/primitive/xbar/cell/1t1r_linear.md)
 - **Implementation**: `neurox/primitive/xbar/cell/_1t1r_linear.py`
 - **Tests**: `tests/primitive/xbar/test_cell_linear.py`, `tests/tools/test_calibrate_cell_linear.py`

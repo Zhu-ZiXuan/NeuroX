@@ -1,31 +1,31 @@
 """Shipped validations-config parse + build test — the one sanctioned disk-config test.
 
-Asserts the paper-design artifacts under ``validations/xue2020jssc/`` parse and
-build: ``params.toml`` (section ``cim_macro``) registry-dispatches to
-:class:`Xue2020JsscCimMacroConfig` and the module builds + fabricates at
-``inst_shape=()``, ``policy.toml`` (section ``policy``) loads with every
-nonideality toggle off, and ``anchors.toml`` parses with the validation
+Asserts the paper-design artifacts under `validations/xue2020jssc/` parse and
+build: `params.toml` (section `cim_macro`) registry-dispatches to
+`Xue2020JsscCimMacroConfig` and the module builds + fabricates at
+`inst_shape=()`, `policy.toml` (section `policy`) loads with every
+nonideality toggle off, and `anchors.toml` parses with the validation
 convention keys the calibration and validation drivers depend on. No numeric MAC
 assertions, no forward pass.
 
 The shipped artifacts cover the complete composed schema: the macro contains an
-``XbarArray1t1r``-configured serial-column array, so the config carries a nested
-``array_config`` (linear cell, wire parasitics, and solver), uses
-``sc_ratio_msb``, the DSWCT / SINWP-SC / PN-ISUB / TMCSA module configs, and the
-dedicated single-tap ``cablc_vref_config`` reference source. The all-off policy
-nests ``array_policy: XbarArray1t1rPolicy(cell_policy=..., solve_chunk_size=0)``
-plus the ``cablc_vref_policy`` and the source-free DSWCT / SINWP-SC / PN-ISUB /
+`XbarArray1t1r`-configured serial-column array, so the config carries a nested
+`array_config` (linear cell, wire parasitics, and solver), uses
+`sc_ratio_msb`, the DSWCT / SINWP-SC / PN-ISUB / TMCSA module configs, and the
+dedicated single-tap `cablc_vref_config` reference source. The all-off policy
+nests `array_policy: XbarArray1t1rPolicy(cell_policy=..., solve_chunk_size=0)`
+plus the `cablc_vref_policy` and the source-free DSWCT / SINWP-SC / PN-ISUB /
 TMCSA module policies.
 
 And against the VALIDATION CONTRACT the campaign encodes:
 
   * the harness is SELF-CONTAINED — it resolves the three TOML artifacts as fixed
     files beside itself and exposes only the round-sampling run knobs on the CLI
-    (``--n-w`` / ``--n-x`` / ``--repeat`` / ``--solve-chunk`` / ``--seed`` /
-    ``--device``), so no config or workload value can be injected at the command
+    (`--n-w` / `--n-x` / `--repeat` / `--solve-chunk` / `--seed` /
+    `--device`), so no config or workload value can be injected at the command
     line,
-  * every provenance tag in ``params.toml`` / ``anchors.toml`` comes from the
-    authoritative legend in ``docs/validation/campaigns.md``,
+  * every provenance tag in `params.toml` / `anchors.toml` comes from the
+    authoritative legend in `docs/validation/campaigns.md`,
   * the paired-slice aggregation law holds on a hand-built witness.
 """
 
@@ -71,7 +71,7 @@ _REQUIRED_CLI_OPTIONS = ("--n-w", "--n-x", "--repeat", "--solve-chunk", "--seed"
 # CLI options the self-contained harness must NOT expose: a config artifact or a
 # declared workload value injected at the command line would leave the campaign
 # reading something other than the shipped design point, and the retired sampling
-# knobs (``--n`` / ``--batch`` / ``--chunk-size``) and the retired ``--sweep``
+# knobs (`--n` / `--batch` / `--chunk-size`) and the retired `--sweep`
 # must not come back alongside the round knobs.
 _BANNED_CLI_OPTIONS = (
     "--params",
@@ -88,7 +88,7 @@ _BANNED_CLI_OPTIONS = (
 
 @pytest.fixture(autouse=True)
 def _eager() -> Iterator[None]:
-    """Run eagerly — ``fabricate()`` touches the solver-owning array; do not unroll it."""
+    """Run eagerly — `fabricate()` touches the solver-owning array; do not unroll it."""
     with torch._dynamo.config.patch(disable=True):
         yield
 
@@ -105,7 +105,7 @@ def _assert_all_toggles_false(obj: PolicyBase, path: str = "policy") -> None:
 
 
 def test_params_config_parses_and_builds() -> None:
-    """``params.toml`` (section ``cim_macro``) registry-dispatches and fabricates."""
+    """`params.toml` (section `cim_macro`) registry-dispatches and fabricates."""
     config = CimMacroConfig.from_file(_VALIDATIONS_DIR / "params.toml", section="cim_macro")
     assert isinstance(config, Xue2020JsscCimMacroConfig)
     # The scheme-local readout modules are configured through their own nested
@@ -153,10 +153,10 @@ def test_params_config_parses_and_builds() -> None:
 
 
 def test_policy_every_toggle_false() -> None:
-    """``policy.toml`` loads with every nonideality toggle off (the all-off preset).
+    """`policy.toml` loads with every nonideality toggle off (the all-off preset).
 
     The recursive walk covers every nested child policy, including the
-    ``cablc_vref_policy`` and the source-free DSWCT / SINWP-SC / PN-ISUB /
+    `cablc_vref_policy` and the source-free DSWCT / SINWP-SC / PN-ISUB /
     TMCSA module policies asserted present here by type.
     """
     policy = CimMacroPolicy.from_file(_VALIDATIONS_DIR / "policy.toml", section="policy")
@@ -170,7 +170,7 @@ def test_policy_every_toggle_false() -> None:
 
 
 def test_anchors_parses_with_required_convention_keys() -> None:
-    """``anchors.toml`` carries the hard-gate target, Fig.18 shares, and workload convention keys."""
+    """`anchors.toml` carries the hard-gate target, Fig.18 shares, and workload convention keys."""
     anchors = dict_from_file(_VALIDATIONS_DIR / "anchors.toml")
 
     # Hard-gate target: the one gated number is derived from the sourced macro
@@ -216,7 +216,7 @@ def test_every_provenance_tag_is_from_the_authoritative_legend(name: str) -> Non
 
 
 def _load_validate_module():
-    """Load ``validations/xue2020jssc/validate.py`` as a module (it is a script, not a package)."""
+    """Load `validations/xue2020jssc/validate.py` as a module (it is a script, not a package)."""
     import importlib.util
     import sys
 
@@ -231,11 +231,11 @@ def _load_validate_module():
 def test_validate_harness_is_self_contained() -> None:
     """The three TOML artifacts are FIXED files beside the script; the CLI carries run knobs only.
 
-    The harness resolves ``params.toml`` / ``policy.toml`` / ``anchors.toml``
+    The harness resolves `params.toml` / `policy.toml` / `anchors.toml`
     relative to itself, so a campaign run always reads the shipped design point;
     its whole CLI surface is the round-sampling run knobs, so neither a config
-    artifact nor the declared workload ``p_zero`` can be injected at the command
-    line; and it emits everything through ``logging`` — no bare ``print``.
+    artifact nor the declared workload `p_zero` can be injected at the command
+    line; and it emits everything through `logging` — no bare `print`.
     """
     validate = _load_validate_module()
 
@@ -258,10 +258,10 @@ def test_validate_harness_is_self_contained() -> None:
 def test_validate_pair_slice_aggregation_law() -> None:
     """Paired-slice caliber: each pair row sums its members' energy and its members' Fig.18 shares.
 
-    On a hand-built witness slice list, ``paired_slices`` must return
-    ``cablc+dswct`` and ``sinwp_sc+pn_isub`` rows whose dynamic / static
-    energy is the member sum and whose target is ``(share_a + share_b) / 100 *
-    target_total``; member slices carry no per-member target in the measured
+    On a hand-built witness slice list, `paired_slices` must return
+    `cablc+dswct` and `sinwp_sc+pn_isub` rows whose dynamic / static
+    energy is the member sum and whose target is `(share_a + share_b) / 100 *
+    target_total`; member slices carry no per-member target in the measured
     breakdown (the pair sum is the only well-defined comparison).
     """
     validate = _load_validate_module()

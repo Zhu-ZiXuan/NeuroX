@@ -20,7 +20,7 @@ class XbarCellConfig(ConfigBase, ABC):
     """Base class for crossbar-cell configurations."""
 
     def validate(self) -> None:
-        """Hook for subclasses to enforce parameter ranges."""
+        """Validate parameter ranges; the base accepts every value."""
 
 
 class XbarCellPolicy(PolicyBase, ABC):
@@ -34,22 +34,14 @@ class XbarCellSnap(TensorGroupMixin):
 
 @dataclass(frozen=True)
 class XbarCellDcop:
-    """Condensed branch working point of one cell DC evaluation.
-
-    Attributes:
-        i__uA: Branch current, positive bit-line into source-line.
-            Shape: ``[..., col, row]``.
-        di_dvbl__uS: ``∂I/∂V_BL``, the BL-side branch conductance
-            the wire Jacobian needs (non-negative).
-            Shape: ``[..., col, row]``.
-        di_dvsl__uS: ``∂I/∂V_SL``, the SL-side branch conductance
-            (non-positive).
-            Shape: ``[..., col, row]``.
-    """
+    """Condensed branch working point of one cell DC evaluation."""
 
     i__uA: Tensor
+    """Branch current, positive bit-line into source-line. Shape: `[..., col, row]`."""
     di_dvbl__uS: Tensor
+    """BL-side branch conductance ∂I/∂V_BL, non-negative. Shape: `[..., col, row]`."""
     di_dvsl__uS: Tensor
+    """SL-side branch conductance ∂I/∂V_SL, non-positive. Shape: `[..., col, row]`."""
 
 
 SnapT = TypeVar("SnapT", bound=XbarCellSnap)
@@ -65,16 +57,14 @@ class XbarCell(
 ):
     """Condensed two-terminal crossbar-cell interface.
 
-    The contract is ``snapshot`` / ``program`` / ``solve_branch`` / ``solve_dc``:
-    the cell states what its branch does and accounts for nothing. Capacitive
-    billing belongs to the owning array, which reads the cell's constitutive
-    capacitances from its config and its node voltages off the returned DCOP
-    and snap.
+    An implementation must return the same branch triple from `solve_branch`
+    and `solve_dc` for identical inputs and snap, and must read every per-call
+    control from the snap rather than from `self`.
 
     Args:
         config: Concrete configuration dataclass.
         policy: Composite per-device nonideality policy.
-        inst_shape: Per-instance shape ``(..., col, row)``.
+        inst_shape: Per-instance shape `(..., col, row)`.
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature.
     """
@@ -107,12 +97,11 @@ class XbarCell(
         """Sample one per-call snap of the cell's fabricated state.
 
         Args:
-            control: Per-cell control-line drive [V] (the gate / select
-                voltage of each cell's own access device), laid out on the
-                cell grid by the producing array.
-                Shape: ``[..., col, row]``.
-            shape: Per-call broadcast shape ``(..., col, row)`` the
-                owned device snaps fill their tensor fields at.
+            control: Control-line drive [V] at each cell's own access-device
+                gate.
+                Shape: `[..., col, row]`.
+            shape: Per-call broadcast shape `(..., col, row)` the owned device
+                snaps fill their tensor fields at.
             t_elapsed: Time elapsed since programming [s], for any
                 time-dependent device read state.
 
@@ -127,7 +116,7 @@ class XbarCell(
 
         Args:
             w_state_idx: State-index tensor.
-                Shape: ``[*inst_shape]``.
+                Shape: `[*inst_shape]`.
         """
         raise NotImplementedError
 
@@ -142,16 +131,16 @@ class XbarCell(
 
         Args:
             v_bl: Bit-line node voltage [V].
-                Shape: ``[..., col, row]``.
+                Shape: `[..., col, row]`.
             v_sl: Source-line node voltage [V].
-                Shape: ``[..., col, row]``.
-            snap: Per-call snap from :meth:`snapshot`.
+                Shape: `[..., col, row]`.
+            snap: Per-call snap from `snapshot`.
 
         Returns:
-            ``(i__uA, di_dvbl__uS, di_dvsl__uS)`` — branch current [uA]
-            (positive BL → SL), ``∂I/∂V_BL`` [uS] (non-negative), and
-            ``∂I/∂V_SL`` [uS] (non-positive), all three at one shape.
-            Shape: ``[..., col, row]``.
+            `(i__uA, di_dvbl__uS, di_dvsl__uS)` — branch current [uA] positive
+            BL → SL, ∂I/∂V_BL [uS] non-negative, and ∂I/∂V_SL [uS]
+            non-positive, all three at one shape.
+            Shape: `[..., col, row]`.
         """
         raise NotImplementedError
 
@@ -166,13 +155,13 @@ class XbarCell(
 
         Args:
             v_bl: Bit-line node voltage [V].
-                Shape: ``[..., col, row]``.
+                Shape: `[..., col, row]`.
             v_sl: Source-line node voltage [V].
-                Shape: ``[..., col, row]``.
-            snap: Per-call snap from :meth:`snapshot`.
+                Shape: `[..., col, row]`.
+            snap: Per-call snap from `snapshot`.
 
         Returns:
-            Concrete :class:`XbarCellDcop` subclass with the branch
-            working point and internal-node voltages.
+            Concrete `XbarCellDcop` subclass with the branch working point and
+            internal-node voltages.
         """
         raise NotImplementedError

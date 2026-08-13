@@ -2,6 +2,7 @@
 
 See also:
     docs/reference/primitive/analog/current_mux.md
+    docs/internals/primitive/analog/current_mux.md
 """
 
 from typing import ClassVar
@@ -13,15 +14,12 @@ from .base import AnalogBase, AnalogConfig, AnalogPolicy
 
 
 class ImuxConfig(AnalogConfig):
-    """Immutable configuration for :class:`Imux`.
-
-    Attributes:
-        mux_ratio: N in the N:1 ratio of inputs to each output lane.
-        mux_gain: Scalar matched transport gain (copy/transport factor).
-    """
+    """Immutable configuration for `Imux`."""
 
     mux_ratio: int
+    """N in the N:1 ratio of inputs to each output lane."""
     mux_gain: float
+    """Matched transport gain shared by every lane."""
 
     def validate(self) -> None:
         self._require_pos(self.mux_ratio, "mux_ratio")
@@ -63,13 +61,16 @@ class Imux(AnalogBase[ImuxConfig, ImuxPolicy]):
         """Transport currents already scheduled across mux accesses and lanes.
 
         Args:
-            i__uA: Single-ended input currents, where ``access_num`` equals
-                ``mux_ratio``.
-                Shape: ``[..., access_num, lane_num]``.
+            i__uA: Single-ended input currents, where `access_num` equals
+                `mux_ratio`.
+                Shape: `[..., access_num, lane_num]`.
 
         Returns:
-            Gained currents, one value per ``i__uA`` element.
-            Shape: ``[..., access_num, lane_num]``.
+            Gained currents, one value per `i__uA` element.
+            Shape: `[..., access_num, lane_num]`.
+
+        Raises:
+            ValueError: The trailing axes are not `(mux_ratio, lane_num)`.
         """
         lane_num = self.inst_shape[-1] if self.inst_shape else 1
         expected_trailing = (self.config.mux_ratio, lane_num)

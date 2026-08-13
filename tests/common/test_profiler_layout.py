@@ -1,18 +1,4 @@
-"""Tests for the profiler's per-unit-operation energy layout.
-
-The recorded energy follows one rule: sum every axis past the caller's leading
-dims, keep the caller's leading dims. One record element is therefore the energy
-of one caller unit operation, and ``leading_rank=0`` collapses everything to a
-scalar -- the bit-exactness anchor every accounting test rests on.
-
-The rule is the ledger's, executed at the emitter: the emitter declares nothing
-about its own axes, and ``leading_rank`` is a property of the measurement site
-alone. There is no runtime check on it: getting it wrong never changes a total,
-only how finely the per-unit-operation view resolves.
-
-A record carries the name its tree stamped on the emitter, so each emitter here
-is named as the one-module tree it forms before it bills anything.
-"""
+"""Per-unit-operation energy layout: a record keeps the caller's leading dims and sums every axis past them."""
 
 from __future__ import annotations
 
@@ -66,7 +52,7 @@ class _Other(_Emitter):
 
 
 def _billed_energy() -> Tensor:
-    """A distinct-valued ``[2, 5, 3, 7]`` energy, so any mis-reduction shows."""
+    """A distinct-valued `[2, 5, 3, 7]` energy, so any mis-reduction shows."""
     shape = (_LEADING_NUM, _ROUND_NUM, _INST_NUM, _DETAIL_NUM)
     return torch.arange(math.prod(shape), dtype=torch.float64).reshape(shape)
 
@@ -80,7 +66,7 @@ def _total__fJ(emitter: nn.Module, profiler: Profiler) -> float:
 
 
 def test_default_profiler_reproduces_a_full_sum_exactly() -> None:
-    """``leading_rank=0`` collapses every axis: the anchor for existing accounting."""
+    """`leading_rank=0` collapses every axis."""
     x = _billed_energy()
     emitter = _Emitter()
     stamp_names(emitter)
@@ -93,7 +79,6 @@ def test_default_profiler_reproduces_a_full_sum_exactly() -> None:
 
 
 def test_leading_dims_survive_as_per_unit_operation_energy() -> None:
-    """Each kept leading element is the energy of one caller unit operation."""
     x = _billed_energy()
     emitter = _Emitter()
     stamp_names(emitter)
@@ -107,7 +92,6 @@ def test_leading_dims_survive_as_per_unit_operation_energy() -> None:
 
 @pytest.mark.parametrize("rank", [0, 1, 2, 3, 4])
 def test_every_rank_keeps_exactly_its_prefix_and_sums_the_rest(rank: int) -> None:
-    """The reduction is positional: the first ``rank`` dims survive, nothing else."""
     x = _billed_energy()
     emitter = _Emitter()
     stamp_names(emitter)
@@ -121,7 +105,6 @@ def test_every_rank_keeps_exactly_its_prefix_and_sums_the_rest(rank: int) -> Non
 
 @pytest.mark.parametrize("rank", [0, 1, 2, 3, 4])
 def test_the_total_is_invariant_across_every_leading_rank(rank: int) -> None:
-    """Keeping axes never changes the total; only which axes remain addressable."""
     x = _billed_energy()
     emitter = _Emitter()
     stamp_names(emitter)
@@ -131,7 +114,6 @@ def test_the_total_is_invariant_across_every_leading_rank(rank: int) -> None:
 
 
 def test_an_energy_of_exactly_the_leading_rank_is_kept_whole() -> None:
-    """With nothing past the caller block there is nothing to sum."""
     x = torch.arange(6, dtype=torch.float64).reshape(2, 3)
     emitter = _Emitter()
     stamp_names(emitter)
@@ -144,7 +126,6 @@ def test_an_energy_of_exactly_the_leading_rank_is_kept_whole() -> None:
 
 
 def test_perturbing_one_caller_operation_moves_only_that_operation() -> None:
-    """The per-unit-operation law: a change in operation 0 reaches row 0 and no other."""
     emitter = _Emitter()
     stamp_names(emitter)
     base = _billed_energy()
@@ -179,11 +160,6 @@ def _flat_lump__fJ(energy_per_op__fJ: float, shape: tuple[int, ...]) -> Tensor:
 
 
 def test_a_flat_lump_carries_the_constants_dtype_not_the_billed_layouts() -> None:
-    """The energy dtype is the emitter's to fix.
-
-    The billed layout is typically an integer code or a reduced-precision
-    signal, which would truncate a sub-unit per-op energy to zero.
-    """
     emitter = _Emitter()
     stamp_names(emitter)
     with Profiler() as p:
@@ -195,7 +171,6 @@ def test_a_flat_lump_carries_the_constants_dtype_not_the_billed_layouts() -> Non
 
 @pytest.mark.parametrize("rank", [0, 1, 2])
 def test_a_flat_lump_matches_the_materialized_energy(rank: int) -> None:
-    """The expanded view is an optimization: it must agree elementwise."""
     shape = (2, 3, 4, 5)
     expanded, materialized = _Emitter(), _Other()
     stamp_names(expanded)
@@ -209,7 +184,6 @@ def test_a_flat_lump_matches_the_materialized_energy(rank: int) -> None:
 
 
 def test_a_flat_lump_is_reduced_without_ever_being_materialized() -> None:
-    """Only the caller's leading dims are built, whatever the summed extents cost."""
     emitter = _Emitter()
     stamp_names(emitter)
     lump = _flat_lump__fJ(1.0, (4, 1024, 1024))
@@ -222,7 +196,6 @@ def test_a_flat_lump_is_reduced_without_ever_being_materialized() -> None:
 
 
 def test_a_per_op_constant_may_vary_over_the_caller_block() -> None:
-    """One expansion per caller operation, when the per-op energy is not flat."""
     emitter = _Emitter()
     stamp_names(emitter)
     with Profiler(leading_rank=1) as p:
@@ -234,7 +207,6 @@ def test_a_per_op_constant_may_vary_over_the_caller_block() -> None:
 
 
 def test_two_channels_on_one_module_bill_independently() -> None:
-    """A composite bills structurally different branches under distinct labels."""
     emitter = _Emitter()
     stamp_names(emitter)
     with Profiler(leading_rank=1) as p:
@@ -246,7 +218,7 @@ def test_two_channels_on_one_module_bill_independently() -> None:
 
 
 def test_branches_of_one_module_may_carry_different_work_axes() -> None:
-    """Only the caller block is shared; past it each branch has its own layout."""
+    """Only the caller block is shared; past it each branch keeps its own layout."""
     emitter = _Emitter()
     stamp_names(emitter)
     with Profiler(leading_rank=1) as p:
@@ -257,7 +229,7 @@ def test_branches_of_one_module_may_carry_different_work_axes() -> None:
 
 
 def test_two_indistinguishable_emissions_stay_two_records() -> None:
-    """A record equals only itself, so re-billing the same branch never folds the book."""
+    """A record equals only itself, so re-billing one branch never folds the book."""
     emitter = _Emitter()
     stamp_names(emitter)
     with Profiler(leading_rank=1) as p:
@@ -273,7 +245,7 @@ def test_two_indistinguishable_emissions_stay_two_records() -> None:
 
 
 def test_a_record_holds_the_laid_out_energy_after_the_ledger_closes() -> None:
-    """The fold happens at emission; the exit sweep only parks what it produced."""
+    """The fold happens at emission; the exit sweep only parks what it produced, detached and on CPU."""
     emitter = _Emitter()
     stamp_names(emitter)
     with Profiler(leading_rank=1) as p:

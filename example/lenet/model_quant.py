@@ -1,17 +1,14 @@
-"""Hand-built crossbar LeNet-5 — uses local ``quant.py`` only.
+"""Hand-built crossbar LeNet-5 — uses local `quant.py` only.
 
-Two model variants, one shared architecture:
+Two model variants share one architecture:
 
-- ``QATLeNet5``: training-time. Every ``nn.Conv2d`` / ``nn.Linear`` is a
-  local ``QATConv2d`` / ``QATLinear`` (fake-quant + observers, no macro).
-  Suitable for ``train_quant.py`` standard QAT.
-- ``QuantLeNet5``: inference-time. Every weight layer is a local
-  ``QuantConv2d`` / ``QuantLinear`` bound to a macro. Per-layer
-  quantization mode is hard-wired in :func:`_LAYER_MODE` below.
+- `QATLeNet5`: training-time. Every `nn.Conv2d` / `nn.Linear` is a local
+  `QATConv2d` / `QATLinear` — fake-quant plus observers, no macro.
+- `QuantLeNet5`: inference-time. Every weight layer is a local `QuantConv2d` /
+  `QuantLinear` bound to a macro, at the mode `_LAYER_MODE` fixes.
 
-The training → inference handoff is a flat ``{layer_name: layer_state}``
-dict produced by ``quant.export_qat_state`` and consumed by
-``QuantLeNet5.from_qat_state``.
+The training → inference handoff is a flat `{layer_name: layer_state}` dict
+produced by `quant.export_qat_state`.
 """
 
 from __future__ import annotations
@@ -28,7 +25,7 @@ from .quant import QATConv2d, QATLinear, QuantConv2d, QuantLinear
 MacroFactory = Callable[..., CimUnit[CimUnitConfig, CimUnitPolicy]]
 
 # Per-layer quantization-mode pick. An index selects one conversion window
-# from the macro's ``quantization_input_ranges``; the shipped ideal configs
+# from the macro's `quantization_input_ranges`; the shipped ideal configs
 # declare a single window, so every layer runs mode 0.
 _LAYER_MODE: dict[str, int] = {
     "conv1": 0,
@@ -91,9 +88,8 @@ def _linear_macro(factory: MacroFactory, out_features: int, in_features: int) ->
 class QuantLeNet5(nn.Module):
     """LeNet-5 with every weight layer replaced by its macro-backed Quant variant.
 
-    Built from a flat state dict (produced by :class:`QATLeNet5` via
-    ``quant.export_qat_state``) plus a macro factory. ``quantization_mode``
-    per layer comes from :data:`_LAYER_MODE`.
+    Built from a flat state dict exported by `QATLeNet5` plus a macro factory;
+    each layer's `quantization_mode` comes from `_LAYER_MODE`.
     """
 
     def __init__(

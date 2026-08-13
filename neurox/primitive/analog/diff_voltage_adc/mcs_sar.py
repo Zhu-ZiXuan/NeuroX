@@ -2,6 +2,7 @@
 
 See also:
     docs/reference/primitive/analog/diff_voltage_adc/mcs_sar.md
+    docs/internals/primitive/analog/diff_voltage_adc/mcs_sar.md
 """
 
 import math
@@ -20,35 +21,27 @@ from .base import DiffVadc, DiffVadcConfig, DiffVadcPolicy
 
 
 class McsSarDiffVadcConfig(DiffVadcConfig):
-    """Immutable design-parameter config for :class:`McsSarDiffVadc`.
-
-    Attributes:
-        max_bits: Physical bit width; active array carries
-            ``max_bits - 1`` binary-weighted caps + a dummy cap
-            (MSB-free design).
-        clk_period__ns: SAR comparator clock period; latency at
-            ``bits`` active bits is ``(bits + 1) · clk_period``.
-        c_unit__fF: CDAC unit capacitance.
-        cap_mismatch_sigma_relative: Per-unit-cap relative Pelgrom
-            σ.
-        comparator_offset_sigma__V: Static Gaussian σ on the
-            comparator threshold.
-        comparator_thermal_noise_sigma__V: Per-cycle Gaussian σ
-            for thermal comparator noise.
-        e_bootstrap__fJ: Per-conversion bootstrapped sampling-switch
-            overhead.
-        e_constant_per_bit__fJ: Per-cycle SAR strobe / logic / control
-            overhead; charged ``bits`` times per conversion.
-    """
+    """Immutable design-parameter config for `McsSarDiffVadc`."""
 
     max_bits: int
+    """Physical bit width; the active array carries `max_bits - 1`
+    binary-weighted caps plus a dummy cap (MSB-free design)."""
     clk_period__ns: float
+    """SAR comparator clock period; latency at `bits` active bits is
+    `(bits + 1) · clk_period`."""
     c_unit__fF: float
+    """CDAC unit capacitance the binary weights multiply."""
     cap_mismatch_sigma_relative: float
+    """Per-unit-cap relative Pelgrom σ."""
     comparator_offset_sigma__V: float
+    """Static Gaussian σ on the comparator threshold."""
     comparator_thermal_noise_sigma__V: float
+    """Per-cycle Gaussian σ for thermal comparator noise, quoted at 300 K."""
     e_bootstrap__fJ: float
+    """Bootstrapped sampling-switch overhead, charged once per conversion."""
     e_constant_per_bit__fJ: float
+    """Per-cycle SAR strobe / logic / control overhead; charged `bits` times
+    per conversion."""
 
     def validate(self) -> None:
         super().validate()
@@ -73,19 +66,16 @@ class McsSarDiffVadcConfig(DiffVadcConfig):
 
 
 class McsSarDiffVadcPolicy(DiffVadcPolicy):
-    """Per-source toggles selecting which McsSarDiffVadc nonidealities are active.
-
-    Attributes:
-        cap_mismatch: Apply ``cap_mismatch_sigma_relative`` at fabricate time.
-        comparator_offset: Apply ``comparator_offset_sigma__V`` at fabricate time.
-        comparator_thermal_noise: Apply ``comparator_thermal_noise_sigma__V`` per SAR cycle.
-        sampling_thermal_noise: Apply kT/C sampling thermal noise on the held top plates.
-    """
+    """Per-source toggles selecting which McsSarDiffVadc nonidealities are active."""
 
     cap_mismatch: bool
+    """Apply `cap_mismatch_sigma_relative` at fabricate time."""
     comparator_offset: bool
+    """Apply `comparator_offset_sigma__V` at fabricate time."""
     comparator_thermal_noise: bool
+    """Apply `comparator_thermal_noise_sigma__V` per SAR cycle."""
     sampling_thermal_noise: bool
+    """Apply kT/C sampling thermal noise on the held top plates."""
 
 
 @DiffVadc.register_neurox_module(
@@ -96,8 +86,8 @@ class McsSarDiffVadc(DiffVadc[McsSarDiffVadcConfig, McsSarDiffVadcPolicy]):
     """V_cm-based (MCS) differential SAR voltage ADC.
 
     The CDAC swings against one full-scale reference, so this converter's
-    injected bank is single-tap: the sole tap sets ``V_cm = V_ref / 2`` and
-    the per-step switching energy.
+    injected bank is single-tap: the sole tap sets `V_cm = V_ref / 2` and the
+    per-step switching energy.
 
     Args:
         config: Concrete configuration dataclass.
@@ -160,7 +150,10 @@ class McsSarDiffVadc(DiffVadc[McsSarDiffVadcConfig, McsSarDiffVadcPolicy]):
         """One conversion — the sample cycle plus one comparator cycle per bit.
 
         The SAR cycles run sequentially inside the one converter, all on the
-        comparator clock, so the window is ``(bits + 1) * clk_period``.
+        comparator clock, so the window is `(bits + 1) * clk_period`.
+
+        Raises:
+            ValueError: `bits` is outside `[1, max_bits]`.
         """
         if not (1 <= bits <= self.max_bits):
             raise ValueError(f"bits {bits} outside [1, {self.max_bits}]")
@@ -182,23 +175,29 @@ class McsSarDiffVadc(DiffVadc[McsSarDiffVadcConfig, McsSarDiffVadcPolicy]):
         )
 
     def unsigned_range(self, bits: int) -> tuple[int, int]:
-        """Raw offset-binary code endpoints at ``bits`` — ``(0, 2 ** bits - 1)``.
+        """Raw offset-binary code endpoints at `bits` — `(0, 2 ** bits - 1)`.
 
-        The CDAC's code count is ``2 ** bits`` by construction.
+        The CDAC's code count is `2 ** bits` by construction.
+
+        Raises:
+            ValueError: `bits` is outside `[1, max_bits]`.
         """
         if not (1 <= bits <= self.max_bits):
             raise ValueError(f"bits {bits} outside [1, {self.max_bits}]")
         return 0, self._unsigned_max_table[bits]
 
     def zero_offset(self, bits: int) -> int:
-        """Offset-binary zero code at ``bits`` — ``2 ** (bits - 1)``."""
+        """Offset-binary zero code at `bits` — `2 ** (bits - 1)`.
+
+        Raises:
+            ValueError: `bits` is outside `[1, max_bits]`.
+        """
         if not (1 <= bits <= self.max_bits):
             raise ValueError(f"bits {bits} outside [1, {self.max_bits}]")
         return self._zero_offset_table[bits]
 
     @property
     def max_bits(self) -> int:
-        """Physical CDAC bit width — the maximum ``bits`` value."""
         return self.config.max_bits
 
     def _sample_fabricate_mismatch(self) -> None:
@@ -235,22 +234,25 @@ class McsSarDiffVadc(DiffVadc[McsSarDiffVadcConfig, McsSarDiffVadcPolicy]):
         """V_cm-based (MCS) differential SAR conversion.
 
         Args:
-            v_pos__V: Positive-side input voltage — one physical converter
-                per instance, so the instance block is last and nothing trails
-                it.
-                Shape: ``[*caller_leading, *middle, *inst_shape]``.
+            v_pos__V: Positive-side input voltage — one physical converter per
+                instance, so the instance block is last and nothing trails it.
+                Shape: `[*caller_leading, *middle, *inst_shape]`.
             v_neg__V: Negative-side input voltage, at the same shape.
-                Shape: ``[*caller_leading, *middle, *inst_shape]``.
+                Shape: `[*caller_leading, *middle, *inst_shape]`.
             v_refs__V: Injected reference taps; the CDAC swings against one
                 full-scale reference, so the single tap is read off the last
                 axis and the leading dims broadcast against the inputs.
-                Shape: ``[..., 1]``.
-            bits: Active resolution [bits].
+                Shape: `[..., 1]`.
+            bits: Active resolution [bits] in `[1, max_bits]`.
 
         Returns:
-            Raw offset-binary code tensor valued in ``[0, 2 ** bits - 1]``, at
-            the same shape as ``v_pos__V``.
-            Shape: ``[*caller_leading, *middle, *inst_shape]``.
+            Raw offset-binary code tensor valued in `[0, 2 ** bits - 1]`, one
+            code per `v_pos__V` element.
+            Shape: `[*caller_leading, *middle, *inst_shape]`.
+
+        Raises:
+            ValueError: `bits` is outside `[1, max_bits]`, or `v_refs__V` does
+                not hold exactly one tap on its last axis.
         """
         self._validate_runtime_args(v_refs__V, bits)
 
@@ -351,15 +353,15 @@ class McsSarDiffVadc(DiffVadc[McsSarDiffVadcConfig, McsSarDiffVadcPolicy]):
     def _compare(self, v_pos__V: Tensor, v_neg__V: Tensor) -> Tensor:
         """Strobe the differential comparator.
 
-        Adds per-cycle thermal noise to the differential voltage and
-        compares against ``comparator_offset__V``.
+        Adds per-cycle thermal noise to the differential voltage and compares
+        against the fabricated comparator offset.
 
         Args:
             v_pos__V: Positive-side top-plate voltage.
             v_neg__V: Negative-side top-plate voltage.
 
         Returns:
-            Bool tensor; ``True`` means the positive leg won.
+            Bool tensor; `True` means the positive leg won.
         """
         v_diff__V = apply_gaussian(
             v_pos__V - v_neg__V,

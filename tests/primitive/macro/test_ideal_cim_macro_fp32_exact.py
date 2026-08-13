@@ -1,11 +1,11 @@
 """IdealCimMacro fp32-exact dot fast path.
 
 The plane dot computation switches to fp32 einsum when
-``_max_plane_dot_abs < 2^24`` (every per-cell product and partial sum then
+`_max_plane_dot_abs < 2^24` (every per-cell product and partial sum then
 accumulates exactly in IEEE fp32) and stays on the int64 elementwise path
 otherwise. Both paths must be bit-identical, on CPU and GPU, for the
 lossless oracle and the quantized per-plane path alike. Planes arrive
-pre-masked from the caller (at most ``max_active_num`` selected positions each);
+pre-masked from the caller (at most `max_active_num` selected positions each);
 the macro output keeps the leading order.
 """
 
@@ -94,7 +94,7 @@ _REPRESENTATIVE = [
 
 
 class TestFastPathLossless:
-    """``adc_bits is None``: fp32 fast path == int64 oracle, CPU and GPU."""
+    """`adc_bits is None`: fp32 fast path == int64 oracle, CPU and GPU."""
 
     @pytest.mark.parametrize(
         ("x_value_range", "w_value_range"),
@@ -147,7 +147,7 @@ class TestFastPathLossless:
 
 
 class TestFastPathQuantized:
-    """Finite ``adc_bits``: per-plane codes byte-identical to the int64 path."""
+    """Finite `adc_bits`: per-plane codes byte-identical to the int64 path."""
 
     def _quantized_macro(self) -> IdealCimMacro:
         # Per-plane dots span [-1920, 1920], inside the default window.
@@ -203,7 +203,7 @@ class TestFastPathQuantized:
 
 
 class TestFallbackTrigger:
-    """Bound at or above ``2^24`` keeps the int64 path (and stays exact)."""
+    """Bound at or above `2^24` keeps the int64 path (and stays exact)."""
 
     def test_flag_disabled_and_exact_beyond_fp32(self) -> None:
         # _max_plane_dot_abs = 3 * 2^23 * 1 >= 2^24 -> fallback.

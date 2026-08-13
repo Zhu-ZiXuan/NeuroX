@@ -3,25 +3,25 @@
 The array is the kernel 1T1R array plus ONE extension — the transpose-bitline
 lookup sum — so these laws split the same way: the lookup and the steady-state
 shape are the scheme's, the capacitive billing is the kernel's
-``BL_IN_WL_SCAN`` law and is only checked here for the two facts this scheme
+`BL_IN_WL_SCAN` law and is only checked here for the two facts this scheme
 fixes (the mode, and the hold that the mode amortizes over).
 
 Laws (config = arbitrary hand-written witness, not the assertion target):
 
-  * ``solve_array`` produces one summed T2 compute current per output row; each
-    ``i_tbl[o]`` equals the place-value-weighted lookup SUM over the active
+  * `solve_array` produces one summed T2 compute current per output row; each
+    `i_tbl[o]` equals the place-value-weighted lookup SUM over the active
     row's cells, computed independently from the witness table — with the
     REDUNDANT plane's place values appended after the weight planes, so the
-    column place-value vector spans ``weight_radix + redundant_radix``,
-  * place value is analog: flipping a cell in the m = 2 plane shifts ``i_tbl`` by
+    column place-value vector spans `weight_radix + redundant_radix`,
+  * place value is analog: flipping a cell in the m = 2 plane shifts `i_tbl` by
     ~2x the shift of the same flip in the m = 1 plane, and the redundant plane
     carries its own configured place value,
   * step2 gates on the CONFIGURED WL threshold read off the per-cell gate drive:
-    a drive below it selects no row and ``i_tbl`` collapses to zero,
-  * a driven cell's operating point follows its solved ``V_X``: a column held at
+    a drive below it selects no row and `i_tbl` collapses to zero,
+  * a driven cell's operating point follows its solved `V_X`: a column held at
     0 V sits on the floor entry, a column driven above it on the drive entry,
-  * the returned steady state extends the kernel one with ``i_tbl__uA`` and
-    carries NO ``v_x`` (the internal node feeds nothing downstream),
+  * the returned steady state extends the kernel one with `i_tbl__uA` and
+    carries NO `v_x` (the internal node feeds nothing downstream),
   * under a profiler the array bills its capacitance as a single un-channelled
     event following the held-BL scan law: with every column input-low there is
     no hold to establish and the bill collapses to the closed-form WL node
@@ -96,7 +96,7 @@ _WIRE_SEGMENT_R__MOhm = 5.0e-6
 
 @pytest.fixture(autouse=True)
 def _eager() -> Iterator[None]:
-    """Run eagerly — the solver leaf is ``@torch.compile``; do not unroll it."""
+    """Run eagerly — the solver leaf is `@torch.compile`; do not unroll it."""
     with torch._dynamo.config.patch(disable=True):
         yield
 
@@ -173,9 +173,9 @@ def _build_array(config: Ye2023Jssc2t1rArrayConfig | None = None, *, chunk_size:
 
 
 def _one_hot_wl(v_wl_sel__V: float = _V_WL_SEL__V) -> torch.Tensor:
-    """One-hot WL per output stacked onto the leading: ``v_wl_sel * eye(row_num)``.
+    """One-hot WL per output stacked onto the leading: `v_wl_sel * eye(row_num)`.
 
-    The stack IS one full row scan — ``row_num`` accesses under one held BL
+    The stack IS one full row scan — `row_num` accesses under one held BL
     pattern — which is the contract the mode's amortization rests on.
     """
     return v_wl_sel__V * torch.eye(_ROW_NUM, dtype=_DTYPE)
@@ -336,7 +336,7 @@ def _profiled_energy(
     input_bits: tuple[int, ...],
     state: torch.Tensor,
 ) -> float:
-    """Bill one FULL row scan: ``row_num`` one-hot accesses under one held BL pattern."""
+    """Bill one FULL row scan: `row_num` one-hot accesses under one held BL pattern."""
     array = _build_array(config)
     array.program(state)
     with Profiler() as prof, torch.no_grad():
@@ -367,7 +367,7 @@ def test_zero_input_caps_are_the_closed_form_wl_terms() -> None:
 
     Both boundaries rest at 0 V and settle to 0 V, so every conduction-path
     displacement and the whole precharge vanish and the supply-draw law leaves
-    the WL node total of every cell, at ``V_DD_WL * C * |V_WL|`` per driven gate.
+    the WL node total of every cell, at `V_DD_WL * C * |V_WL|` per driven gate.
     """
     config = _array_config()
     state = torch.ones((_COL_NUM, _ROW_NUM), dtype=torch.long)
@@ -400,8 +400,8 @@ def test_the_held_input_is_established_once_per_row_scan() -> None:
     """One hold covers one full row scan, so its establishment is billed ONCE, not per access.
 
     Each BL node is charged from ground to the held level exactly once per scan,
-    so the scan's sensitivity to ``bl_node_c__fF`` is ONE array's worth of that
-    charge — ``row_num`` times smaller than an unamortized per-access bill. The
+    so the scan's sensitivity to `bl_node_c__fF` is ONE array's worth of that
+    charge — `row_num` times smaller than an unamortized per-access bill. The
     residual is the per-solve displacement off the held level, which is the wire
     IR drop alone.
     """

@@ -1,11 +1,4 @@
-"""Tests for the preset-authority serialization semantics.
-
-Covers ``from_preset`` dispatch, the receiver-bounded subtype guard, the
-mutual exclusion between the ``_neurox_use`` / ``_neurox_use_preset`` directives
-and the ``_neurox_class`` discriminator, inline-table vs section-header
-equivalence, the post-split abstract-base rule, and the self-describing-leaf
-resolver path that must include the receiver class itself.
-"""
+"""Preset-authority semantics: `from_preset` dispatch, receiver-bounded resolution, and directive-versus-`_neurox_class` exclusion."""
 
 from __future__ import annotations
 
@@ -77,7 +70,7 @@ def test_use_and_class_discriminator_conflict(tmp_path: Path) -> None:
 
 @dataclass(frozen=True)
 class _RramBox(SerializeMixin):
-    """Container with a single polymorphic-slot field typed as ``RramConfig``."""
+    """Container with a single polymorphic-slot field typed as `RramConfig`."""
 
     device: RramConfig
 
@@ -108,7 +101,7 @@ def test_inline_table_matches_section_header_and_direct_preset(tmp_path: Path) -
 
 @dataclass(frozen=True)
 class _Base(SerializeMixin, ABC):
-    """Polymorphic base: abstract via the declared ``ABC`` signal."""
+    """Polymorphic base: abstract via the declared `ABC` signal."""
 
 
 @dataclass(frozen=True)

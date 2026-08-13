@@ -1,7 +1,8 @@
 """Abstract 1T1R crossbar cell — shared config and result types.
 
 See also:
-    docs/reference/primitive/xbar/cell/_1t1r/cell.md
+    docs/reference/primitive/xbar/cell/1t1r.md
+    docs/internals/primitive/xbar/cell/1t1r.md
 """
 
 from __future__ import annotations
@@ -25,12 +26,7 @@ from .base import (
 
 
 class XbarCell1t1rConfig(XbarCellConfig, ABC):
-    """Config base of the 1T1R cell family.
-
-    The family shares no config field: a 1T1R model states its own branch
-    knobs and nothing else. The class is the registry and dispatch anchor
-    every concrete 1T1R configuration derives from.
-    """
+    """Config base of the 1T1R cell family, and its registry-dispatch anchor."""
 
 
 class XbarCell1t1rPolicy(XbarCellPolicy, ABC):
@@ -39,29 +35,18 @@ class XbarCell1t1rPolicy(XbarCellPolicy, ABC):
 
 @dataclass(frozen=True, kw_only=True)
 class XbarCell1t1rSnap(XbarCellSnap):
-    """Per-call snap base of a 1T1R cell's fabricated state.
-
-    Attributes:
-        v_wl__V: Word-line drive voltage at each cell's own NMOS gate. The
-            field states the cell's control terminal, whatever wiring put
-            the voltage there, so the producing array lays it out on the
-            cell grid rather than asserting one value per row.
-            Shape: ``[..., col, row]``.
-    """
+    """Per-call snap base of a 1T1R cell's fabricated state."""
 
     v_wl__V: Tensor
+    """Word-line drive voltage at each cell's own NMOS gate. Shape: `[..., col, row]`."""
 
 
 @dataclass(frozen=True)
 class XbarCell1t1rDcop(XbarCellDcop):
-    """1T1R branch working point with the condensed access-node voltage.
-
-    Attributes:
-        v_x__V: Access-node voltage (NMOS drain / RRAM bottom).
-            Shape: ``[..., col, row]``.
-    """
+    """1T1R branch working point with the condensed access-node voltage."""
 
     v_x__V: Tensor
+    """Access-node voltage at the NMOS drain / RRAM bottom. Shape: `[..., col, row]`."""
 
 
 CellSnapT = TypeVar("CellSnapT", bound=XbarCell1t1rSnap)
@@ -84,7 +69,7 @@ class XbarCell1t1r(
     Args:
         config: Concrete 1T1R cell configuration.
         policy: Composite per-device nonideality policy.
-        inst_shape: Per-instance shape ``(..., col, row)``.
+        inst_shape: Per-instance shape `(..., col, row)`.
         dtype: Tensor dtype for internal buffers.
         T__K: Operating temperature.
     """
@@ -121,7 +106,7 @@ class XbarCell1t1r(
         Args:
             config: Concrete 1T1R cell configuration.
             policy: Composite per-device nonideality policy.
-            inst_shape: Per-instance shape ``(..., col, row)``.
+            inst_shape: Per-instance shape `(..., col, row)`.
             dtype: Tensor dtype for internal buffers.
             T__K: Operating temperature.
 

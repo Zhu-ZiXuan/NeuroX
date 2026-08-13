@@ -1,4 +1,4 @@
-"""Closed-form and registry checks for :class:`XbarCell1t1rLinear`.
+"""Closed-form and registry checks for `XbarCell1t1rLinear`.
 
 Covers registry dispatch from the config type, the WL-switched
 division-free branch math against hand-built tables, table validation

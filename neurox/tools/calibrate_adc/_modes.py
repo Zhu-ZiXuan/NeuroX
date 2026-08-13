@@ -1,33 +1,32 @@
 """File-format authority for the two calibration-exchange TOML formats.
 
-Emit, parse, and validation for both formats live only here:
+Emit, parse, and validation for both formats live only here.
 
-- **Layer-range mapping** (:func:`load_layer_ranges`) — the
-  :mod:`.mode_derive` input. Top-level quoted layer-name keys::
+The layer-range mapping is the `mode_derive` input, keyed by quoted
+top-level layer names:
 
-      "layer.name" = { range = [-12.5, 12.5] }
+    "layer.name" = { range = [-12.5, 12.5] }
 
-  ``range`` is the layer's inclusive design range ``[lo, hi]`` in MAC
-  units (finite floats, ``lo <= hi``, ``hi > 0``); ``lo < 0`` marks a
-  layer whose quantization input is signed. Producing this file (e.g.
-  extracting learned range params from a training checkpoint) is a
-  consumer-side step outside the tools.
+`range` is the layer's inclusive design range `[lo, hi]` in MAC units
+(finite floats, `lo <= hi`, `hi > 0`); `lo < 0` marks a layer whose
+quantization input is signed. Producing the file, e.g. by extracting learned
+range params from a training checkpoint, is a consumer-side step outside the
+tools.
 
-- **Mode set** (:func:`load_mode_set` / :func:`dump_mode_set`) — the
-  :mod:`.mode_derive` output and the single mode source for
-  :mod:`.threshold_probe` and :mod:`.rescale_fit`::
+The mode set is the `mode_derive` output and the single mode source for
+`threshold_probe` and `rescale_fit`:
 
-      [[modes]]
-      quantization_mode = 0
-      quantization_input_range = [-16, 15]
-      layer_num = 3
+    [[modes]]
+    quantization_mode = 0
+    quantization_input_range = [-16, 15]
+    layer_num = 3
 
-      [layers]
-      "layer.name" = 0
+    [layers]
+    "layer.name" = 0
 
-  ``[[modes]]`` tables ascend by ``quantization_mode`` (contiguous from
-  0) and carry the canonical inclusive window the mode quantizes;
-  ``[layers]`` maps every covered layer to its mode.
+The `[[modes]]` tables ascend by `quantization_mode`, contiguous from 0, and
+carry the canonical inclusive window the mode quantizes; `[layers]` maps every
+covered layer to its mode.
 """
 
 from __future__ import annotations
@@ -72,14 +71,11 @@ def _check_pair(value: object, *, where: str, key: str) -> tuple[object, object]
 
 @dataclass(frozen=True)
 class LayerRange:
-    """One layer's inclusive quantization design range.
-
-    Attributes:
-        range: Inclusive design range ``(lo, hi)`` in MAC units; finite,
-            ``lo <= hi``, ``hi > 0``.
-    """
+    """One layer's inclusive quantization design range."""
 
     range: tuple[float, float]
+    """Inclusive design range `(lo, hi)` in MAC units; finite, `lo <= hi`,
+    `hi > 0`."""
 
     def __post_init__(self) -> None:
         lo, hi = self.range
@@ -99,9 +95,9 @@ class LayerRange:
 def canonical_window(layer_range: LayerRange) -> tuple[int, int]:
     """Return the canonical integer window covering one layer's range.
 
-    A non-negative range maps to the unsigned window ``[0, ceil(hi)]``; a
-    signed range maps to the mid-zero window ``[-m, m - 1]`` with
-    ``m = max(ceil(-lo), ceil(hi) + 1)``, the smallest mid-zero window whose
+    A non-negative range maps to the unsigned window `[0, ceil(hi)]`; a signed
+    range maps to the mid-zero window `[-m, m - 1]` with
+    `m = max(ceil(-lo), ceil(hi) + 1)`, the smallest mid-zero window whose
     inclusive bounds cover both sides.
 
     Raises:
@@ -122,11 +118,11 @@ def load_layer_ranges(path: Path) -> dict[str, LayerRange]:
     """Parse and validate a layer-range mapping TOML.
 
     Returns:
-        ``layer name -> LayerRange`` for every entry, in file order.
+        `layer name -> LayerRange` for every entry, in file order.
 
     Raises:
         ValueError: On an empty mapping, a non-table entry, an unknown or
-            missing key, or an invalid ``range`` value.
+            missing key, or an invalid `range` value.
     """
     with path.open("rb") as f:
         raw = tomllib.load(f)
@@ -156,20 +152,15 @@ def load_layer_ranges(path: Path) -> dict[str, LayerRange]:
 
 @dataclass(frozen=True)
 class AdcMode:
-    """One quantization operating mode of the mode set.
-
-    Attributes:
-        quantization_mode: Operating-mode index (enumeration position,
-            from 0).
-        quantization_input_range: Canonical inclusive MAC-unit window
-            ``(lower, upper)`` the mode quantizes — it covers every member
-            layer's design range.
-        layer_num: Number of layers assigned to the mode (>= 1).
-    """
+    """One quantization operating mode of the mode set."""
 
     quantization_mode: int
+    """Operating-mode index — the enumeration position, from 0."""
     quantization_input_range: tuple[int, int]
+    """Canonical inclusive MAC-unit window `(lower, upper)` the mode
+    quantizes; it covers every member layer's design range."""
     layer_num: int
+    """Layers assigned to the mode, at least one."""
 
     def __post_init__(self) -> None:
         if self.quantization_mode < 0:
@@ -181,16 +172,13 @@ class AdcMode:
 
 @dataclass(frozen=True)
 class ModeSet:
-    """Validated mode set: the mode tables plus the layer -> mode mapping.
-
-    Attributes:
-        modes: Modes ascending by ``quantization_mode``, contiguous from 0.
-        layers: ``layer name -> quantization_mode`` for every covered
-            layer; per mode the assignment count equals its ``layer_num``.
-    """
+    """Validated mode set: the mode tables plus the layer -> mode mapping."""
 
     modes: tuple[AdcMode, ...]
+    """Modes ascending by `quantization_mode`, contiguous from 0."""
     layers: dict[str, int]
+    """`layer name -> quantization_mode` for every covered layer; per mode the
+    assignment count equals its `layer_num`."""
 
     def __post_init__(self) -> None:
         if not self.modes:
@@ -216,8 +204,8 @@ def load_mode_set(path: Path) -> ModeSet:
     """Parse and validate a mode-set TOML.
 
     Raises:
-        ValueError: On a missing / malformed ``[[modes]]`` list or
-            ``[layers]`` table, or any :class:`ModeSet` invariant violation.
+        ValueError: On a missing or malformed `[[modes]]` list or `[layers]`
+            table, or any mode-set invariant violation.
     """
     with path.open("rb") as f:
         raw = tomllib.load(f)

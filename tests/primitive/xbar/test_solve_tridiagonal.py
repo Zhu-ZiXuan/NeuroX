@@ -1,9 +1,9 @@
-"""Direct correctness tests for ``neurox.primitive.xbar.solver._linalg.solve_tridiagonal``.
+"""Direct correctness tests for `neurox.primitive.xbar.solver._linalg.solve_tridiagonal`.
 
 Verifies the Parallel Cyclic Reduction implementation against a dense
-``torch.linalg.solve`` reference across varied ``N``, dtypes, batch
-shapes, and the two wire-axes used in production (``dim=-1`` for the
-BL wire, ``dim=-2`` for the SL wire).
+`torch.linalg.solve` reference across varied `N`, dtypes, batch
+shapes, and the two wire-axes used in production (`dim=-1` for the
+BL wire, `dim=-2` for the SL wire).
 """
 
 from __future__ import annotations
@@ -19,8 +19,8 @@ from neurox.primitive.xbar.solver._linalg import solve_tridiagonal
 def _build_dense(sub: torch.Tensor, diag: torch.Tensor, sup: torch.Tensor, dim: int) -> torch.Tensor:
     """Build the dense tridiagonal matrix from the three diagonals.
 
-    ``sub[..., 0]`` and ``sup[..., -1]`` are solver placeholders; we drop
-    them here so the dense reference matches the *actual* linear system
+    `sub[..., 0]` and `sup[..., -1]` are solver placeholders, dropped
+    here so the dense reference matches the actual linear system
     (no spurious coupling to non-existent rows).
     """
     a = sub.movedim(dim, -1)
@@ -37,9 +37,9 @@ def _build_dense(sub: torch.Tensor, diag: torch.Tensor, sup: torch.Tensor, dim: 
 def _random_diag_dominant(
     shape: tuple[int, ...], N: int, dim: int, dtype: torch.dtype, device: torch.device
 ) -> tuple[torch.Tensor, ...]:
-    """Make a random diagonally-dominant tridiagonal system of length ``N`` along ``dim``.
+    """Make a random diagonally-dominant tridiagonal system of length `N` along `dim`.
 
-    The boundary entries ``sub[..., 0, ...]`` and ``sup[..., N-1, ...]`` are
+    The boundary entries `sub[..., 0, ...]` and `sup[..., N-1, ...]` are
     filled with deliberately-noisy placeholder values (± large magnitude)
     so that any bug that lets them leak through PCR will be flagged.
     """
@@ -94,7 +94,7 @@ def test_pcr_matches_dense_solve_on_production_shapes(dim: int, device: torch.de
 
 
 def test_pcr_tolerates_non_zero_boundary_placeholders(device: torch.device) -> None:
-    """``sub[..., 0]`` and ``sup[..., -1]`` must be ignored (per contract)."""
+    """`sub[..., 0]` and `sup[..., -1]` must be ignored (per contract)."""
     N = 16
     gen = torch.Generator(device=device).manual_seed(7)
     sub = torch.randn(N, generator=gen, device=device)
@@ -118,7 +118,7 @@ def test_pcr_tolerates_non_zero_boundary_placeholders(device: torch.device) -> N
 
 
 def test_pcr_pow2_and_non_pow2_sizes(device: torch.device) -> None:
-    """Regression guard: the ``while k < N`` loop must handle non-power-of-two ``N``."""
+    """Regression guard: the `while k < N` loop must handle non-power-of-two `N`."""
     for N in (7, 9, 15, 17, 33, 65):
         sub, diag, sup, rhs = _random_diag_dominant((), N=N, dim=-1, dtype=torch.float64, device=device)
         x = solve_tridiagonal(sub, diag, sup, rhs, dim=-1)
@@ -132,7 +132,7 @@ def test_pcr_pow2_and_non_pow2_sizes(device: torch.device) -> None:
 
 
 def test_pcr_preserves_dtype_and_shape(device: torch.device) -> None:
-    """Output must match ``rhs`` exactly in dtype, device, and shape."""
+    """Output must match `rhs` exactly in dtype, device, and shape."""
     shape = (2, 3, 64, 4)
     dim = -2
     sub, diag, sup, rhs = _random_diag_dominant((2, 3, 4), N=64, dim=dim, dtype=torch.float32, device=device)
@@ -145,7 +145,7 @@ def test_pcr_preserves_dtype_and_shape(device: torch.device) -> None:
 
 
 def test_pcr_n_equals_one_fast_path(device: torch.device) -> None:
-    """``N == 1`` must return ``rhs / diag`` without entering the PCR loop."""
+    """`N == 1` must return `rhs / diag` without entering the PCR loop."""
     sub = torch.tensor([9.0], device=device)
     diag = torch.tensor([2.5], device=device)
     sup = torch.tensor([-7.0], device=device)

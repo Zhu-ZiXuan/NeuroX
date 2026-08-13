@@ -1,6 +1,6 @@
 """Fabrication traversal tests for a concrete 1T1R array tree.
 
-The traversal test verifies that ``fabricate()`` reaches every fabricable node
+The traversal test verifies that `fabricate()` reaches every fabricable node
 exactly once in the documented pre-order. All policies are off; the spy counts
 sampling calls regardless of whether a perturbation is enabled.
 """
@@ -89,7 +89,7 @@ def _array_policy(*, solve_chunk_size: int) -> XbarArray1t1rPolicy:
 
 
 def _fabricable_tree(node: FabricateMixin) -> Iterator[FabricateMixin]:
-    """Yield ``node`` then every fabricable descendant in pre-order."""
+    """Yield `node` then every fabricable descendant in pre-order."""
     yield node
     for child in node._fabricable_children():
         yield from _fabricable_tree(child)
@@ -103,7 +103,7 @@ def test_xbar_array_policy_rejects_negative_chunk_size() -> None:
 def test_array_fabricate_resamples_each_node_once_preorder(
     device: torch.device, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """``fabricate()`` visits every fabricable node exactly once, pre-order."""
+    """`fabricate()` visits every fabricable node exactly once, pre-order."""
     array = _build_array(device=device)
 
     # Snapshot the true tree BEFORE patching so traversal is untouched.

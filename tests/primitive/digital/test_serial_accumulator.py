@@ -1,10 +1,10 @@
 """Accumulator billing: one energy quantum per operand element folded in.
 
-:class:`SerialAccumulator` and :class:`Accumulator` share the reduce function
+`SerialAccumulator` and `Accumulator` share the reduce function
 (modular-wrap sum) and the billing law — dynamic energy counts the adder
 evaluations, one per operand element, so the reduced extent stays visible in
 the energy whichever way the fold is realized. Energy records are captured
-under :class:`Profiler`.
+under `Profiler`.
 """
 
 from __future__ import annotations
@@ -60,11 +60,11 @@ def _build_pair(inst_shape: tuple[int, ...]) -> tuple[SerialAccumulator, Accumul
 
 
 def _energy_total(records: list[EnergyRecord], module: ProfileMixin) -> float:
-    """Sum the logged dynamic energy [fJ] of the records ``module`` emitted.
+    """Sum the logged dynamic energy [fJ] of the records `module` emitted.
 
     A record's energy is a per-unit-operation tensor, so each one totals to its
     own scalar before the records are summed. A record carries the name its tree
-    stamped, so telling ``serial`` and ``plain`` apart is a matter of binding
+    stamped, so telling `serial` and `plain` apart is a matter of binding
     them in one tree that names them both.
     """
     return sum(
@@ -74,7 +74,7 @@ def _energy_total(records: list[EnergyRecord], module: ProfileMixin) -> float:
 
 
 def test_serial_accumulator_reduce_matches_plain_accumulator() -> None:
-    """Same reduce semantics as ``Accumulator``: exact sum + modular wrap."""
+    """Same reduce semantics as `Accumulator`: exact sum + modular wrap."""
     torch.manual_seed(11)
     x = torch.randint(-100, 100, (3, 4, 5), dtype=torch.int64)
     serial = _build_serial((3, 5))
@@ -90,7 +90,7 @@ def test_serial_accumulator_wraps_modulo_bit_width() -> None:
 
 
 def test_accumulate_bills_energy_per_operand_element() -> None:
-    """Energy quanta count equals ``numel(input)``, reduced axis included."""
+    """Energy quanta count equals `numel(input)`, reduced axis included."""
     torch.manual_seed(12)
     x = torch.randint(-3, 4, (2, 4, 5), dtype=torch.int64)
     serial, plain = _build_pair((2, 5))

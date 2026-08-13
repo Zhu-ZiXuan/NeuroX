@@ -2,27 +2,27 @@
 
 Hand-built tiny witness, eager, CPU. Five laws:
 
-  * SHAPE LAW: ``inst_count`` derives from the ``(gn,)`` fabrication shape and
-    the static PPA seats scale with it; ``max_bits`` derives from the
-    phase-window list length; forward is billing-only (returns ``None``, value
+  * SHAPE LAW: `inst_count` derives from the `(gn,)` fabrication shape and
+    the static PPA seats scale with it; `max_bits` derives from the
+    phase-window list length; forward is billing-only (returns `None`, value
     untouched).
   * LUT CONSISTENCY LAW (mandatory): the structural code -> reference-tap LUT
-    equals the kernel SarIadc's ACTUAL ``_select_ref`` binary-search sequence,
+    equals the kernel SarIadc's ACTUAL `_select_ref` binary-search sequence,
     replayed step by step for EVERY final unsigned code under an all-off
-    policy with clean margins; the replayed final code and a full ``convert``
+    policy with clean margins; the replayed final code and a full `convert`
     round-trip both reconcile.
   * PHASE-BILLING LAW (branch-tensor law): the recorded dynamic energy equals
     the hand-computed per-step formula on a tiny witness —
-    ``sum_s v_dd * (3 * (i_sub + i_ref_path[s]) * t_ph2[s]
-    + 2 * (i_sub + i_ref_path[s]) * t_ph3[s]) + e_fixed * bits`` per
-    converted element, with ``i_ref_path[s]`` looked up from the final code.
-  * LOWERED-BIT LAW: a ``b``-bit conversion truncates the max-bits search after
-    ``b`` levels, so it bills the LEADING ``b`` phase windows at the up-shifted
+    `sum_s v_dd * (3 * (i_sub + i_ref_path[s]) * t_ph2[s]
+    + 2 * (i_sub + i_ref_path[s]) * t_ph3[s]) + e_fixed * bits` per
+    converted element, with `i_ref_path[s]` looked up from the final code.
+  * LOWERED-BIT LAW: a `b`-bit conversion truncates the max-bits search after
+    `b` levels, so it bills the LEADING `b` phase windows at the up-shifted
     code — checked against the max-bits call with the trailing windows zeroed,
     not against a restated formula.
   * GUARDS: mismatched phase-window list lengths and negative entries are
     rejected at config time; a code/input shape mismatch, a wrong ladder tap
-    count, and a ``bits`` outside ``[1, max_bits]`` are rejected at call time.
+    count, and a `bits` outside `[1, max_bits]` are rejected at call time.
 """
 
 from __future__ import annotations
@@ -83,7 +83,7 @@ def _build(*, gn: int = _GN) -> Tmcsa:
 
 
 def _build_kernel_adc() -> SarIadc:
-    """All-off kernel SarIadc whose ``_select_ref`` sequence the LUT must replay."""
+    """All-off kernel SarIadc whose `_select_ref` sequence the LUT must replay."""
     adc = SarIadc(
         config=SarIadcConfig(
             bits=_BITS,
@@ -140,10 +140,10 @@ def test_forward_is_billing_only() -> None:
 def _replay_select_ref_sequence(adc: SarIadc, i_in: torch.Tensor, refs: torch.Tensor) -> tuple[list[int], int]:
     """Replay the kernel binary search step by step; return (tap sequence, final code).
 
-    Mirrors ``SarIadc._convert_impl`` exactly under all-off (clean margins,
+    Mirrors `SarIadc._convert_impl` exactly under all-off (clean margins,
     zero fabricated offset): per step, the selected reference comes from the
-    kernel's own ``_select_ref`` on the PARTIAL code, and the decision bit is
-    the clean threshold ``i_in > i_ref``. The unit-step ladder makes the
+    kernel's own `_select_ref` on the PARTIAL code, and the decision bit is
+    the clean threshold `i_in > i_ref`. The unit-step ladder makes the
     selected tap index recoverable from the reference value (value - 1).
     """
     max_bits = adc.max_bits
@@ -222,14 +222,14 @@ def _bill(module: Tmcsa, i_sub: torch.Tensor, code: torch.Tensor, refs: torch.Te
 
 
 def test_lowered_bits_bills_the_leading_steps_at_the_up_shifted_code() -> None:
-    """A ``b``-bit conversion bills the FIRST ``b`` steps at the up-shifted code.
+    """A `b`-bit conversion bills the FIRST `b` steps at the up-shifted code.
 
-    Bits ``b`` truncates the max-bits search after ``b`` levels over the same
-    full ladder, so it runs the leading ``b`` steps of the max-bits search and
-    lands on the max-bits code shifted down by ``B - b``. Cross-checked against the
+    Bits `b` truncates the max-bits search after `b` levels over the same
+    full ladder, so it runs the leading `b` steps of the max-bits search and
+    lands on the max-bits code shifted down by `B - b`. Cross-checked against the
     max-bits call itself rather than a restated formula: run the up-shifted code
     at max bits with the trailing phase windows zeroed — that isolates the same
-    leading steps — and discount the ``e_fixed`` of the steps a ``b``-bit
+    leading steps — and discount the `e_fixed` of the steps a `b`-bit
     conversion never runs.
     """
     bits = _BITS - 1
@@ -260,7 +260,7 @@ def test_lowered_bits_bills_the_leading_steps_at_the_up_shifted_code() -> None:
 
 
 def test_forward_rejects_bits_outside_the_phase_windows() -> None:
-    """``bits`` is the width actually converted: it must lie in ``[1, max_bits]``."""
+    """`bits` is the width actually converted: it must lie in `[1, max_bits]`."""
     module = _build()
     i_sub = torch.tensor([[[1.5, 2.5], [0.5, 6.5]]], dtype=_DTYPE)
     code = torch.tensor([[[1, 2], [0, 6]]], dtype=torch.long)

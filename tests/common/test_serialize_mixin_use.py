@@ -1,4 +1,4 @@
-"""Tests for the ``SerializeMixin`` {dict, file} x {read, write} surface."""
+"""Tests for the `SerializeMixin` {dict, file} x {read, write} surface."""
 
 from __future__ import annotations
 

@@ -1,7 +1,7 @@
 """Chunking layer between a crossbar array and a fixed-shape DC solver.
 
 See also:
-    docs/internals/primitive/xbar/solver.md
+    docs/internals/primitive/xbar/solver/chunked.md
 """
 
 from __future__ import annotations
@@ -23,24 +23,19 @@ MeasureT = TypeVar("MeasureT")
 
 
 class ChunkedSolver(Generic[MeasureT]):
-    """Same-signature ``Solver`` wrapper that folds one leading chunk by chunk.
+    """Same-signature `Solver` wrapper that folds one leading chunk by chunk.
 
-    ``solve_dc`` is the wrapped solver's own call plus the fold, so the
-    array's call site reads as if nothing were chunked. Argument handling is
-    signature-agnostic: a snap argument is chunk-sliced, every other argument
-    (modules, protocol objects, scalar circuit constants) passes through
-    untouched. The caller states the leading it already computed to
-    normalise its own references, so no axis rank is ever inferred.
-
-    Each chunk is measured down to the small tensors that survive it and
-    those alone are reassembled, so the grid-shaped DCOP of one chunk dies
-    with that chunk and never reaches the caller.
+    Argument handling is signature-agnostic: a snap argument is chunk-sliced,
+    every other argument passes through untouched, and the caller states the
+    leading rather than any axis rank being inferred. Each chunk is measured
+    down to the small tensors that survive it and those alone are reassembled,
+    so a chunk's grid-shaped DCOP never reaches the caller.
 
     Args:
         solver: Wrapped solver, faithfully solving one fixed shape.
         chunk_size: Leading instances per chunk. A positive value pads each
             chunk to exactly this size so the compiled solver body sees a
-            single input shape; ``0`` solves the whole leading in one block.
+            single input shape; `0` solves the whole leading in one block.
     """
 
     def __init__(self, solver: Solver, *, chunk_size: int) -> None:
@@ -59,26 +54,23 @@ class ChunkedSolver(Generic[MeasureT]):
         measure_tensors: Mapping[str, Tensor] | None = None,
         **kwargs: Any,
     ) -> MeasureT:
-        """Solve the whole call by chunk and fold each chunk down to ``measure``.
+        """Solve the whole call by chunk and fold each chunk down to `measure`.
 
         Args:
             leading: Broadcast-leading shape of the call, which every snap
                 tensor field and every measure tensor carries in front of its
                 own trailing block.
-            measure: Per-chunk measurement, called with ``dcop`` (the chunk's
+            measure: Per-chunk measurement, called with `dcop` (the chunk's
                 solver return) plus every sliced snap and measure tensor under
                 its own keyword, and returning a frozen dataclass of tensors
                 that each carry the chunk axis first.
             measure_tensors: Boundary quantities the measurement reads but the
                 wrapped solver does not declare. They are sliced by the same
-                rule as a snap's fields and reach ``measure`` alone, so a
-                caller states one as the bare tensor it is rather than wrapping
-                it in a dataclass to be seen.
+                rule as a snap's fields and reach `measure` alone.
             kwargs: The wrapped solver's own keyword arguments.
 
         Returns:
-            The measurement type, its tensor fields at
-            ``[*leading, *trailing]``.
+            The measurement type, its tensor fields at `[*leading, *trailing]`.
 
         Raises:
             ValueError: The leading has an empty extent, so no chunk exists
@@ -120,7 +112,7 @@ def _is_snap(value: object) -> bool:
 
 
 def _operand_tensors(node: object) -> Iterator[Tensor]:
-    """Yield a bare tensor, or every tensor field of one snap, via :func:`walk_tensor_fields`.
+    """Yield a bare tensor, or every tensor field of one snap.
 
     Dataclass-valued fields recurse; every other field is skipped, which is
     how an absent optional field stays absent.
@@ -141,10 +133,9 @@ def _operand_tensors(node: object) -> Iterator[Tensor]:
 def _check_leading(leading: tuple[int, ...], operands: Mapping[str, object]) -> torch.device:
     """Verify every sliced operand carries the call's leading, and read the device.
 
-    The slicer takes the first ``len(leading)`` axes of a tensor to be the
+    The slicer takes the first `len(leading)` axes of a tensor to be the
     leading, so one arriving at anything narrower would have its own trailing
-    block gathered instead. This check is what makes the caller's declaration
-    safe, and it runs once per call rather than once per chunk.
+    block gathered instead.
 
     Args:
         leading: Broadcast-leading shape the caller states.
@@ -156,8 +147,8 @@ def _check_leading(leading: tuple[int, ...], operands: Mapping[str, object]) -> 
         are built on.
 
     Raises:
-        ValueError: A tensor does not carry ``leading``, or no operand
-            carries a tensor at all.
+        ValueError: A tensor does not carry `leading`, or no operand carries a
+            tensor at all.
     """
     device: torch.device | None = None
     for name, operand in operands.items():

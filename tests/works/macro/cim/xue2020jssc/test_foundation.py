@@ -1,35 +1,35 @@
 """CPU-only eager foundation test for the xue2020jssc SINWP 1T1R CIM sub-array.
 
 Covers the build / dispatch / derivation / validation foundation of
-``neurox/works/macro/cim/xue2020jssc`` on the hand-built near-ideal witness
-config (``_utils.build_config``):
+`neurox/works/macro/cim/xue2020jssc` on the hand-built near-ideal witness
+config (`_utils.build_config`):
 
-  * ``CimMacro.from_config`` registry dispatch reaches
-    :class:`Xue2020JsscCimMacro`, and the ``to_dict`` / ``from_dict`` reflection
-    round trip re-selects :class:`Xue2020JsscCimMacroConfig` through the family
+  * `CimMacro.from_config` registry dispatch reaches
+    `Xue2020JsscCimMacro`, and the `to_dict` / `from_dict` reflection
+    round trip re-selects `Xue2020JsscCimMacroConfig` through the family
     discriminator,
-  * the derived-geometry laws (never stored): ``phys_col_num = output_num *
-    w_digit_num * 2`` and ``io_num = output_num // mux_factor``, computed from the
+  * the derived-geometry laws (never stored): `phys_col_num = output_num *
+    w_digit_num * 2` and `io_num = output_num // mux_factor`, computed from the
     witness config's own values,
   * the derived DSWCT / SINWP-SC ratio anchors and the conduction-window laws
-    (``t_other``, ``window_array``, ``window_sc``) as laws — checked over two
+    (`t_other`, `window_array`, `window_sc`) as laws — checked over two
     distinct window parameterisations,
   * the logical value-domain contract and the quantization surface: the
-    published windows, the mode-index guard, the ``r_b = r_B * 2**(B - b)``
+    published windows, the mode-index guard, the `r_b = r_B * 2**(B - b)`
     rescale law with its lossless-oracle sentinel, the magnitude input-code
     map, and the one-bit-wider ideal twin,
-  * config validation rejects the exact-reshape ``output_num % mux_factor``
-    violation, a ``w_digit_radix < 2`` weight structure, a ``t_sample__ns``
-    length that is not ``input_bit_num - 1``, and a mode count that does not
+  * config validation rejects the exact-reshape `output_num % mux_factor`
+    violation, a `w_digit_radix < 2` weight structure, a `t_sample__ns`
+    length that is not `input_bit_num - 1`, and a mode count that does not
     match the reference ladder rows,
-  * the GENERALIZED weight / input geometry — no fixed ``w_digit_num`` or
-    ``w_digit_radix`` is imposed: ``w_digit_num = 1`` (a single polarity digit,
-    ratios degenerate to the MSB anchor), ``w_digit_num = 3``, and
-    ``input_bit_num = 1`` all validate and derive the right geometry / windows,
-  * a ``max_active_num`` that does not divide ``input_num``.
+  * the GENERALIZED weight / input geometry — no fixed `w_digit_num` or
+    `w_digit_radix` is imposed: `w_digit_num = 1` (a single polarity digit,
+    ratios degenerate to the MSB anchor), `w_digit_num = 3`, and
+    `input_bit_num = 1` all validate and derive the right geometry / windows,
+  * a `max_active_num` that does not divide `input_num`.
 
 Construction / validation / derivation only — no DC solve. Runs eagerly
-(dynamo disabled) so the ``@torch.compile`` solver leaf is not unrolled.
+(dynamo disabled) so the `@torch.compile` solver leaf is not unrolled.
 """
 
 from __future__ import annotations
@@ -56,7 +56,7 @@ from ._utils import (
 
 @pytest.fixture(autouse=True)
 def _eager() -> Iterator[None]:
-    """Run eagerly — the solver leaf is ``@torch.compile``; do not unroll it."""
+    """Run eagerly — the solver leaf is `@torch.compile`; do not unroll it."""
     with torch._dynamo.config.patch(disable=True):
         yield
 
@@ -67,7 +67,7 @@ def _eager() -> Iterator[None]:
 
 
 def test_registry_dispatch() -> None:
-    """``CimMacro.from_config`` dispatch reaches the scheme class."""
+    """`CimMacro.from_config` dispatch reaches the scheme class."""
     config = build_config()
     macro = CimMacro.from_config(
         config=config,
@@ -82,7 +82,7 @@ def test_registry_dispatch() -> None:
 
 
 def test_dict_reflection_round_trip() -> None:
-    """``to_dict`` / ``from_dict`` re-selects the scheme config through the family tag."""
+    """`to_dict` / `from_dict` re-selects the scheme config through the family tag."""
     config = build_config()
     restored = CimMacroConfig.from_dict(config.to_dict())
     assert isinstance(restored, Xue2020JsscCimMacroConfig)
@@ -121,8 +121,8 @@ def test_derived_ratio_anchors() -> None:
 def test_derived_ratios_degenerate_to_anchor_at_size_one() -> None:
     """A single digit / a single input bit collapses each ratio tuple to its MSB anchor.
 
-    With ``w_digit_num = 1`` the DSWCT digit sum is a single leg and the ratio is
-    the anchor alone (``r_0 = dswct_ratio_msb``); likewise ``input_bit_num = 1``
+    With `w_digit_num = 1` the DSWCT digit sum is a single leg and the ratio is
+    the anchor alone (`r_0 = dswct_ratio_msb`); likewise `input_bit_num = 1`
     reduces the SINWP-SC combine to the MSB anchor with the sample-and-hold leg
     off. This is the digit-sum / bit-sum identity that makes the compute path
     degenerate cleanly.
@@ -139,11 +139,11 @@ def test_derived_ratios_degenerate_to_anchor_at_size_one() -> None:
 
 
 def test_window_laws_default() -> None:
-    """K=2 windows: ``t_other`` = settle + sum(step latency); array / SC suffix sums.
+    """K=2 windows: `t_other` = settle + sum(step latency); array / SC suffix sums.
 
-    The witness sets a nonzero ``step_latency__ns`` (the honest per-step SAR
-    sensing durations feed ``t_other``), so ``t_other`` strictly exceeds
-    ``t_settle`` — the sensing is included in the read window while ``t_settle``
+    The witness sets a nonzero `step_latency__ns` (the honest per-step SAR
+    sensing durations feed `t_other`), so `t_other` strictly exceeds
+    `t_settle` — the sensing is included in the read window while `t_settle`
     stays the pure non-sensing settle.
     """
     config = build_config(t_sample__ns=(1.0,), t_settle__ns=2.0)
@@ -166,7 +166,7 @@ def test_window_laws_three_bit() -> None:
 
 
 def test_t_cycle_at_least_conduction_span() -> None:
-    """``t_cycle__ns`` is the static time base and must contain the whole conduction span."""
+    """`t_cycle__ns` is the static time base and must contain the whole conduction span."""
     config = build_config(input_bit_num=3, t_sample__ns=(2.0, 3.0), t_settle__ns=1.0)
     # conduction_span = sum(t_sample) + t_other.
     assert config.conduction_span__ns == sum(config.t_sample__ns) + config.t_other__ns
@@ -204,7 +204,7 @@ def test_quantization_mode_out_of_range_rejected() -> None:
 
 
 def test_rescale_factor_bit_width_law() -> None:
-    """``r_b = r_B * 2**(B - b)``: dropping a bit doubles what one code carries."""
+    """`r_b = r_B * 2**(B - b)`: dropping a bit doubles what one code carries."""
     macro = build_macro(build_config())
     max_bits = macro.adc_max_bits
     r_max = macro.rescale_factor(quantization_mode=0, adc_bits=max_bits)
@@ -221,7 +221,7 @@ def test_rescale_factor_bit_width_law() -> None:
 
 
 def test_quantization_input_code_map_is_magnitude() -> None:
-    """The sign-magnitude readout discriminates ``|code|`` over its ladder span."""
+    """The sign-magnitude readout discriminates `|code|` over its ladder span."""
     config = build_config()
     macro = build_macro(config)
     code = torch.tensor([-5, -1, 0, 3], dtype=torch.long)
@@ -236,7 +236,7 @@ def test_quantization_input_code_map_is_magnitude() -> None:
 
 
 def test_ideal_twin_is_one_bit_wider() -> None:
-    """The sign-magnitude twin publishes ``adc_max_bits + 1`` signed bits, same windows.
+    """The sign-magnitude twin publishes `adc_max_bits + 1` signed bits, same windows.
 
     A sign plus B magnitude bits spans a signed code range a zero-point
     quantizer only reaches at B + 1 bits; the twin inherits every other domain.
@@ -254,7 +254,7 @@ def test_ideal_twin_is_one_bit_wider() -> None:
 
 
 def test_validate_rejects_mode_count_mismatch() -> None:
-    """A mode is one threshold ladder row: ``len(modes) == reference_config.mode_num``."""
+    """A mode is one threshold ladder row: `len(modes) == reference_config.mode_num`."""
     config = build_config()
     with pytest.raises(ValueError, match="len\\(modes\\)"):
         dataclasses.replace(config, modes=(*config.modes, *config.modes))
@@ -266,20 +266,20 @@ def test_validate_rejects_mode_count_mismatch() -> None:
 
 
 def test_validate_rejects_bad_mux_blocking() -> None:
-    """``col_num % mux_factor != 0`` breaks the exact CIM-IO reshape."""
+    """`col_num % mux_factor != 0` breaks the exact CIM-IO reshape."""
     with pytest.raises(ValueError, match=r"col_num \(4\) % mux_factor"):
         build_macro(build_config(mux_factor=3))
 
 
 def test_validate_rejects_sub_binary_radix() -> None:
-    """A sign-magnitude digit needs at least the ``{0, 1}`` a polarity pair encodes: ``w_digit_radix >= 2``."""
+    """A sign-magnitude digit needs at least the `{0, 1}` a polarity pair encodes: `w_digit_radix >= 2`."""
     config = build_config()
     with pytest.raises(ValueError, match=r"w_digit_radix \(1\) >= 2"):
         dataclasses.replace(config, w_digit_radix=1)
 
 
 def test_validate_rejects_bad_t_sample_length() -> None:
-    """One sample window per SAMPLED bit: ``len(t_sample__ns) == input_bit_num - 1``."""
+    """One sample window per SAMPLED bit: `len(t_sample__ns) == input_bit_num - 1`."""
     config = build_config(input_bit_num=2, t_sample__ns=(1.0,))
     # K=2 wants exactly one sample window; two is rejected.
     with pytest.raises(ValueError, match="t_sample__ns"):
@@ -294,9 +294,9 @@ def test_validate_rejects_bad_t_sample_length() -> None:
 def test_generalized_w_digit_num_accepted() -> None:
     """One and three magnitude digits both validate and build.
 
-    The DSWCT digit sum is a plain ``.sum(-1)`` that degenerates to identity at a
-    single digit, so a general ``w_digit_num`` needs no special case. A single polarity
-    digit (``w_digit_num = 1``, weights in ``{-1, 0, 1}``) and three digits both
+    The DSWCT digit sum is a plain `.sum(-1)` that degenerates to identity at a
+    single digit, so a general `w_digit_num` needs no special case. A single polarity
+    digit (`w_digit_num = 1`, weights in `{-1, 0, 1}`) and three digits both
     construct without raising and expose the right per-weight geometry.
     """
     d1 = build_config(w_digit_num=1)
@@ -320,10 +320,10 @@ def test_generalized_w_digit_radix_accepted() -> None:
 
 
 def test_input_bit_num_one_accepted() -> None:
-    """A single input bit (``input_bit_num = 1``) validates: no sample window, live bit alone.
+    """A single input bit (`input_bit_num = 1`) validates: no sample window, live bit alone.
 
-    K = 1 runs the live bit alone (the sample-and-hold leg off): ``t_sample__ns``
-    is empty and both window vectors collapse to the single ``t_other`` entry.
+    K = 1 runs the live bit alone (the sample-and-hold leg off): `t_sample__ns`
+    is empty and both window vectors collapse to the single `t_other` entry.
     """
     config = build_config(input_bit_num=1, t_sample__ns=())
     assert config.input_bit_num == 1

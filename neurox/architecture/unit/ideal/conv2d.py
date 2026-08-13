@@ -1,8 +1,4 @@
-"""Ideal conv2d compute unit.
-
-See also:
-    docs/internals/architecture/unit/conv2d.md
-"""
+"""Ideal conv2d compute unit."""
 
 from __future__ import annotations
 
@@ -15,21 +11,18 @@ from neurox.architecture.unit.conv2d import Conv2dUnit
 
 
 class IdealConv2dUnitConfig(CimUnitConfig):
-    """Configuration for :class:`IdealConv2dUnit`.
-
-    Attributes:
-        x_value_range: Inclusive integer activation range.
-        w_value_range: Inclusive integer weight range.
-        stride: Output step ``(s_h, s_w)``.
-        padding: Zero-pad extent ``(p_h, p_w)`` on each side.
-        dilation: Kernel tap spacing ``(d_h, d_w)``.
-    """
+    """Configuration for `IdealConv2dUnit`."""
 
     x_value_range: tuple[int, int]
+    """Inclusive integer activation range."""
     w_value_range: tuple[int, int]
+    """Inclusive integer weight range."""
     stride: tuple[int, int]
+    """Output step `(s_h, s_w)`."""
     padding: tuple[int, int]
+    """Zero-pad extent `(p_h, p_w)` on each side."""
     dilation: tuple[int, int]
+    """Kernel tap spacing `(d_h, d_w)`."""
 
     def validate(self) -> None:
         super().validate()
@@ -43,7 +36,7 @@ class IdealConv2dUnitConfig(CimUnitConfig):
 
 
 class IdealConv2dUnitPolicy(CimUnitPolicy):
-    """Policy for :class:`IdealConv2dUnit`."""
+    """Policy for `IdealConv2dUnit`."""
 
 
 @CimUnit.register_neurox_module(config_type=IdealConv2dUnitConfig, policy_type=IdealConv2dUnitPolicy)
@@ -51,9 +44,9 @@ class IdealConv2dUnit(Conv2dUnit, CimUnit[IdealConv2dUnitConfig, IdealConv2dUnit
     """Exact integer convolution unit without output quantization.
 
     Args:
-        config: Concrete configuration dataclass.
+        config: Configuration selecting the concrete implementation.
         policy: Runtime policy.
-        w_logical_shape: Logical kernel shape ``(C_out, C_in, kh, kw)`` bound to ``program(...)``.
+        w_logical_shape: Logical kernel shape `(C_out, C_in, kh, kw)` bound to `program(...)`.
         dtype: Requested tensor dtype; it does not affect exact integer execution.
         T__K: Operating temperature.
         ideal_macro: Accepted without changing this already ideal unit.

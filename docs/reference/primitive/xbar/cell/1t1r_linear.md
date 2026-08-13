@@ -1,6 +1,6 @@
 # 1T1R Linear cell
 
-The Linear 1T1R cell realizes the [1T1R family topology](cell.md) as an operating-point linearization: the nonlinear device stack is replaced by calibrated per-state chord-conductance and drop-fraction tables, so the branch is a division-free closed form. It holds no device models; every nonideality it represents is frozen into its tables at extraction time.
+The Linear 1T1R cell realizes the [1T1R family topology](1t1r.md) as an operating-point linearization: the nonlinear device stack is replaced by calibrated per-state chord-conductance and drop-fraction tables, so the branch is a division-free closed form. It holds no device models; every nonideality it represents is frozen into its tables at extraction time.
 
 ## Physical model
 
@@ -24,7 +24,7 @@ The four tables are flat and indexed by the weight-state index: entry $s$ of `g_
 
 $$g_{\mathrm{cell}} = \frac{I}{V_{\mathrm{BL}}^{\mathrm{op}} - V_{\mathrm{SL}}^{\mathrm{op}}}, \qquad r_{\mathrm{X}} = \frac{V_{\mathrm{BL}}^{\mathrm{op}} - V_{\mathrm{X}}}{V_{\mathrm{BL}}^{\mathrm{op}} - V_{\mathrm{SL}}^{\mathrm{op}}},$$
 
-evaluated on the converged detailed branch per state and WL level, so the linear branch reproduces the detailed branch current and access node exactly at the extraction point. Both denominators are the fixed read span, so a cut-off branch stays well-conditioned: its chord conductance is its honest leakage value ($g_{\mathrm{cell}} = 0$ is legal — array nonsingularity is carried by the wire conductances). The extraction is performed by the cell-calibration tool — see the [calibration guide](../../../../../guides/calibration/solver_iteration_counts.md).
+evaluated on the converged detailed branch per state and WL level, so the linear branch reproduces the detailed branch current and access node exactly at the extraction point. Both denominators are the fixed read span, so a cut-off branch stays well-conditioned: its chord conductance is its honest leakage value ($g_{\mathrm{cell}} = 0$ is legal — array nonsingularity is carried by the wire conductances). The extraction is performed by the cell-calibration tool — see the [calibration guide](../../../../guides/calibration/solver_iteration_counts.md).
 
 ## Noise & non-idealities
 
@@ -32,7 +32,7 @@ The Linear cell is deterministic: it samples no device noise and carries no mism
 
 ## Parameters
 
-In addition to the [shared family parameters](cell.md):
+In addition to the [shared family parameters](1t1r.md):
 
 | Parameter | Meaning | Unit | Constraint | Source |
 |---|---|---|---|---|
@@ -42,7 +42,7 @@ In addition to the [shared family parameters](cell.md):
 | `vx_ratio_on_table` | per-state BL-side drop fraction at WL on | — | length = `g_cell_off_table__uS` length; entries finite, in $[0, 1]$ | Calibrated (linearization) |
 | `v_wl_on_threshold__V` | analog WL level above which the access slot is on | V | — | Calibrated (linearization) |
 
-Provenance terms are defined in [module_parameter](../../../../../conventions/module_parameter.md); how to obtain values for a new chip: [calibration guide](../../../../../guides/calibration/README.md).
+Provenance terms are defined in [module_parameter](../../../../conventions/module_parameter.md); how to obtain values for a new chip: [calibration guide](../../../../guides/calibration/README.md).
 
 ## Energy model
 
@@ -50,7 +50,7 @@ The Linear cell contributes the shared family node levels, with $V_{\mathrm{X}}$
 
 ## Symbols
 
-In addition to the [shared family symbols](cell.md):
+In addition to the [shared family symbols](1t1r.md):
 
 | Symbol | Meaning | Unit | Code field |
 |---|---|---|---|
@@ -76,6 +76,6 @@ TODO.
 
 ---
 
-- **Internals**: [Linear cell internals](../../../../../internals/primitive/xbar/cell/_1t1r/cell_linear.md)
+- **Internals**: [Linear cell internals](../../../../internals/primitive/xbar/cell/1t1r_linear.md)
 - **Validation**: TODO — `validation/xbar` (not yet written)
-- **Configuration**: [config reference](../../../../../api/README.md) (`[cim_macro.array_config.cell_config]`, `_neurox_class = "XbarCell1t1rLinearConfig"`)
+- **Configuration**: [config reference](../../../../api/README.md) (`[cim_macro.array_config.cell_config]`, `_neurox_class = "XbarCell1t1rLinearConfig"`)

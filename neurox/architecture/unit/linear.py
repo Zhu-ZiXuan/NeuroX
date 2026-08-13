@@ -15,18 +15,18 @@ from .base import UnitBase
 
 
 class LinearUnit(UnitBase, ABC):
-    """Interface for an integer ``torch.nn.functional.linear`` replacement."""
+    """Interface for an integer `torch.nn.functional.linear` replacement."""
 
     @abstractmethod
     def program(self, weight: Tensor, bias: Tensor | None = None) -> None:
         """Write the unit's static weight state and optional integer bias.
 
         Args:
-            weight: Integer weight tensor.
-                Shape: ``[..., N, K]``.
-            bias: Optional integer bias tensor, added in the int64 accumulation
-                domain by :meth:`linear`; ``None`` clears any programmed bias.
-                Shape: ``[N]``.
+            weight: Integer weight values.
+                Shape: `[..., N, K]`.
+            bias: Per-channel integer bias added in the int64 accumulation
+                domain; `None` clears any programmed bias.
+                Shape: `[N]`.
         """
         raise NotImplementedError
 
@@ -43,15 +43,15 @@ class LinearUnit(UnitBase, ABC):
         """Execute one integer linear operator against the programmed state.
 
         Args:
-            input: Integer activation tensor.
-                Shape: ``[..., K]``.
-            quantization_mode: Runtime quantization-mode index.
-            adc_bits: Runtime ADC resolution, or ``None`` for the lossless
+            input: Integer activation values.
+                Shape: `[..., K]`.
+            quantization_mode: Index selecting the runtime quantization window.
+            adc_bits: Runtime ADC resolution, or `None` for the lossless
                 oracle.
 
         Returns:
-            Integer pre-requantize output tensor; leading dims mirror ``input``.
-            Shape: ``[..., N]``.
+            Integer pre-requantize output tensor; leading dims mirror `input`.
+            Shape: `[..., N]`.
         """
         y = self._lower_matmul(input, quantization_mode=quantization_mode, adc_bits=adc_bits)
         int_bias = self._int_bias

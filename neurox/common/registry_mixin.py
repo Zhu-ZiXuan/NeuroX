@@ -16,17 +16,15 @@ class RegistryMixin(Generic[ConfigT, PolicyT, ModuleT]):
     """Dispatch a module family from concrete config and policy types.
 
     The class that first mixes this in owns one registry table keyed by
-    ``(config type, policy type)``; every class below it in the family shares
-    that same table, so one pair selects one implementation family-wide.
+    `(config type, policy type)`; every class below it in the family shares that
+    same table, so one pair selects one implementation family-wide.
 
-    Host requirements:
-        - Mix in on the family base class, parameterized with the family's
-          abstract config, policy, and module types.
-        - Decorate each concrete implementation with
-          :meth:`register_neurox_module` for the pair it serves.
-        - Expose a public classmethod that builds the implementation
-          :meth:`_lookup_neurox_module` returns, since callers of the family
-          never reach the registry themselves.
+    Mix this in on the family base class, parameterized with the family's
+    abstract config, policy, and module types, and decorate each concrete
+    implementation with `register_neurox_module` for the pair it serves. The
+    family base must expose a public classmethod that builds what
+    `_lookup_neurox_module` returns, since callers of the family never reach the
+    registry themselves.
     """
 
     _module_registry: dict[tuple[type[ConfigT], type[PolicyT]], type[ModuleT]]

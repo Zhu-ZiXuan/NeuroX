@@ -1,10 +1,10 @@
 """Eager instance-axis (die) contract for the xue2020jssc SINWP 1T1R CIM macro.
 
-``vec_mat_mul`` declares ``x`` as ``[..., *inst_shape, row_num]``: the instance
+`vec_mat_mul` declares `x` as `[..., *inst_shape, row_num]`: the instance
 axes are part of the leading, not anonymous batch, because every fabricated copy
 holds its OWN cells, reference banks and comparator offsets. This file pins that
-contract on the hand-built near-ideal witness macro (``_utils.build_config``)
-with a ladder calibrated in-code (``_utils.build_calibrated_macro``).
+contract on the hand-built near-ideal witness macro (`_utils.build_config`)
+with a ladder calibrated in-code (`_utils.build_calibrated_macro`).
 
 Coverage:
 
@@ -16,12 +16,12 @@ Coverage:
     transparent;
   * a size-1 instance axis shares one input vector across the whole ensemble,
     matching an explicitly expanded input;
-  * an ``x`` with no room for the instance axes is rejected;
+  * an `x` with no room for the instance axes is rejected;
   * the billed dynamic energy is ADDITIVE over the ensemble: a D-die call bills
     exactly the sum of D independent single-die calls.
 
 Every check is a law (bit-exactness, invariance, additivity), never a shipped
-number. Runs eagerly (dynamo disabled) so the ``@torch.compile`` solver leaf is
+number. Runs eagerly (dynamo disabled) so the `@torch.compile` solver leaf is
 not unrolled.
 """
 
@@ -52,7 +52,7 @@ from ._utils import (
 
 @pytest.fixture(autouse=True)
 def _eager() -> Iterator[None]:
-    """Run eagerly — the solver leaf is ``@torch.compile``; do not unroll it."""
+    """Run eagerly — the solver leaf is `@torch.compile`; do not unroll it."""
     with torch._dynamo.config.patch(disable=True):
         yield
 
@@ -69,7 +69,7 @@ def _per_die_weights(inst_shape: tuple[int, ...]) -> Tensor:
 
     Returns:
         Signed weights.
-        Shape: ``[*inst_shape, input_num, output_num]``.
+        Shape: `[*inst_shape, input_num, output_num]`.
     """
     base = torch.tensor(
         [
@@ -92,7 +92,7 @@ def _die_inputs(batch: tuple[int, ...], inst_shape: tuple[int, ...]) -> Tensor:
 
     Returns:
         Integer activations.
-        Shape: ``[*batch, *inst_shape, input_num]``.
+        Shape: `[*batch, *inst_shape, input_num]`.
     """
     total = math.prod(batch) * math.prod(inst_shape) * TINY_INPUT_NUM
     values = (torch.arange(total, dtype=torch.long) * 3) % (1 << TINY_K)
@@ -100,7 +100,7 @@ def _die_inputs(batch: tuple[int, ...], inst_shape: tuple[int, ...]) -> Tensor:
 
 
 def _programmed(device: torch.device, inst_shape: tuple[int, ...]) -> tuple[Xue2020JsscCimMacro, Tensor]:
-    """Calibrated macro at ``inst_shape``, programmed with the per-die weights."""
+    """Calibrated macro at `inst_shape`, programmed with the per-die weights."""
     macro = build_calibrated_macro(device=device, inst_shape=inst_shape)
     w = _per_die_weights(inst_shape)
     macro.program(w.to(device))
@@ -169,7 +169,7 @@ def test_size_one_instance_axis_shares_one_input_vector(device: torch.device) ->
 
 
 def test_missing_instance_axis_rejected(device: torch.device) -> None:
-    """An ``x`` with no room for the instance axes is rejected, not silently folded."""
+    """An `x` with no room for the instance axes is rejected, not silently folded."""
     macro, _w = _programmed(device, (2,))
     x = torch.zeros(TINY_INPUT_NUM, dtype=torch.long, device=device)
     with pytest.raises(ValueError, match="inst_shape"), torch.no_grad():

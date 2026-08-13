@@ -1,28 +1,28 @@
 """Eager integer-MAC transfer test for the xue2020jssc SINWP 1T1R CIM sub-array.
 
 Verifies the calibrated read chain decodes the signed integer MAC exactly on the
-hand-built near-ideal witness macro (``_utils.build_config``: ``output_num = 4`` ->
-``io_num = 2`` at ``mux_factor = 2``, ``input_num = max_active_num = 4``,
-``input_bit_num = 2``, 3-bit ADC). The macro consumes K-bit integer activations
+hand-built near-ideal witness macro (`_utils.build_config`: `output_num = 4` ->
+`io_num = 2` at `mux_factor = 2`, `input_num = max_active_num = 4`,
+`input_bit_num = 2`, 3-bit ADC). The macro consumes K-bit integer activations
 directly (it runs the K serial WL sub-phases internally, LSB first) and returns
 signed-magnitude codes; the reference is the CPU int64 unit-role MAC
-``clamp(sum_row w * x, -MAG_MAX, MAG_MAX)`` (``MAG_MAX = 7`` — the intended lossy
-3-bit magnitude clip). Coverage: probed ``I_SUB(M)`` grid monotonicity + ladder
-consistency, a strictly monotone single-row input sweep over ``0..2**K - 1``,
-saturation clipping at ``+-(2**adc_bits - 1)``, zero-weight / zero-input decode,
+`clamp(sum_row w * x, -MAG_MAX, MAG_MAX)` (`MAG_MAX = 7` — the intended lossy
+3-bit magnitude clip). Coverage: probed `I_SUB(M)` grid monotonicity + ladder
+consistency, a strictly monotone single-row input sweep over `0..2**K - 1`,
+saturation clipping at `+-(2**adc_bits - 1)`, zero-weight / zero-input decode,
 mixed-sign columns, a random-batch bit-exactness gate, a generalized
-``w_digit_num = 1`` (ternary weight) transfer check, — the LSB-first guard —
+`w_digit_num = 1` (ternary weight) transfer check, — the LSB-first guard —
 a TrueFormTranscoder-driven asymmetric-weight regression plus a focused
 single-row place-value check that a reversed-but-consistent digit convention
-would fail, and the shared-ladder bit-width laws (the raw code at ``b`` bits is
+would fail, and the shared-ladder bit-width laws (the raw code at `b` bits is
 the max-bits code right-shifted, sign recovery is bits-independent, and the
 lossless oracle belongs to the ideal twin alone).
 
-The analog ``I_SUB(M)`` grid is config-dependent, so the ladder is calibrated
-in-code from the macro's own transfer (``_utils.build_calibrated_macro``: probe
-the grid on an all-``+1`` column, install the mid-point thresholds, rebuild) — a
+The analog `I_SUB(M)` grid is config-dependent, so the ladder is calibrated
+in-code from the macro's own transfer (`_utils.build_calibrated_macro`: probe
+the grid on an all-`+1` column, install the mid-point thresholds, rebuild) — a
 law-level calibration derived from the config under test. Determinism comes from
-the ``all_off`` policy (every nonideality sigma disabled); the SAR quantizer is a
+the `all_off` policy (every nonideality sigma disabled); the SAR quantizer is a
 deterministic hard-threshold comparator. Runs eagerly (dynamo disabled).
 """
 
@@ -53,13 +53,13 @@ from ._utils import (
 
 @pytest.fixture(autouse=True)
 def _eager() -> Iterator[None]:
-    """Run eagerly — the solver leaf is ``@torch.compile``; do not unroll it."""
+    """Run eagerly — the solver leaf is `@torch.compile`; do not unroll it."""
     with torch._dynamo.config.patch(disable=True):
         yield
 
 
 def _assert_decode_matches_ideal(macro: Xue2020JsscCimMacro, w: Tensor, x: Tensor) -> Tensor:
-    """Decode ``(w, x)`` and assert codes == clamped ideal integer MAC; return codes."""
+    """Decode `(w, x)` and assert codes == clamped ideal integer MAC; return codes."""
     out = decode(macro, w, x)
     expected = ideal_mac(w, x)
     assert torch.equal(out, expected), f"MAC decode mismatch:\n{out.tolist()}\nvs ideal\n{expected.tolist()}"
@@ -72,7 +72,7 @@ def _assert_decode_matches_ideal(macro: Xue2020JsscCimMacro, w: Tensor, x: Tenso
 
 
 def test_grid_monotone_and_thresholds_consistent(device: torch.device) -> None:
-    """The probed ``I_SUB(M)`` grid is monotone from 0; the installed ladder decodes it."""
+    """The probed `I_SUB(M)` grid is monotone from 0; the installed ladder decodes it."""
     macro = build_calibrated_macro(device=device)
     grid = probe_i_sub_grid(macro, m_max=MAG_MAX)
     assert grid[0] == pytest.approx(0.0, abs=1e-6)  # M = 0: exact-zero HRS branch, no leakage
@@ -91,7 +91,7 @@ def test_grid_monotone_and_thresholds_consistent(device: torch.device) -> None:
 
 
 def test_single_row_input_sweep_monotone(device: torch.device) -> None:
-    """A single ``+1`` row swept over inputs ``0..2**K - 1`` decodes strictly monotone == x."""
+    """A single `+1` row swept over inputs `0..2**K - 1` decodes strictly monotone == x."""
     macro = build_calibrated_macro(device=device)
     w = torch.zeros((TINY_INPUT_NUM, TINY_OUTPUT_NUM), dtype=torch.long)
     w[0, 0] = 1
@@ -107,7 +107,7 @@ def test_single_row_input_sweep_monotone(device: torch.device) -> None:
 
 
 def test_saturation_clips_at_magnitude_max(device: torch.device) -> None:
-    """Beyond ``+-(2**adc_bits - 1)`` the signed-magnitude code saturates, both signs."""
+    """Beyond `+-(2**adc_bits - 1)` the signed-magnitude code saturates, both signs."""
     macro = build_calibrated_macro(device=device)
     x_full = torch.full((TINY_INPUT_NUM,), (1 << TINY_K) - 1, dtype=torch.long)
 
@@ -122,7 +122,7 @@ def test_saturation_clips_at_magnitude_max(device: torch.device) -> None:
 
 
 def test_full_column_input_sweep_saturates_monotone(device: torch.device) -> None:
-    """A full ``+1`` column swept over uniform inputs decodes non-decreasing into saturation."""
+    """A full `+1` column swept over uniform inputs decodes non-decreasing into saturation."""
     macro = build_calibrated_macro(device=device)
     w = torch.zeros((TINY_INPUT_NUM, TINY_OUTPUT_NUM), dtype=torch.long)
     w[:, 0] = 1
@@ -194,10 +194,10 @@ def test_random_batch_bit_exact(device: torch.device) -> None:
 
 
 def test_w_digit_num_1_ternary_transfer(device: torch.device) -> None:
-    """A single-digit (``w_digit_num = 1``, radix 2) macro decodes the ternary-weight MAC exactly.
+    """A single-digit (`w_digit_num = 1`, radix 2) macro decodes the ternary-weight MAC exactly.
 
     With one magnitude digit the DSWCT digit sum degenerates to identity, so
-    weights live in ``{-1, 0, 1}`` and the read chain still resolves the signed
+    weights live in `{-1, 0, 1}` and the read chain still resolves the signed
     integer MAC. The calibration helpers build the matching single-digit
     transcoder from the macro's own geometry.
     """
@@ -269,14 +269,14 @@ def test_lsb_first_place_value_single_row(device: torch.device) -> None:
 
 
 def test_shared_ladder_raw_code_law(device: torch.device) -> None:
-    """Lowering the bit width right-shifts the code: ``|code_b| == |code_B| >> (B - b)``.
+    """Lowering the bit width right-shifts the code: `|code_b| == |code_B| >> (B - b)`.
 
     Every bit width rides the ONE max-bits threshold ladder, which the macro
     always hands over whole; the deterministic SAR truncates its own search
-    after ``b`` levels and lands on the max-bits code right-shifted by
-    ``B - b``. The sign is recovered by the PN-ISUB, outside the converter, so
+    after `b` levels and lands on the max-bits code right-shifted by
+    `B - b`. The sign is recovered by the PN-ISUB, outside the converter, so
     it rides along unchanged and the whole signed output is
-    ``sign * (|code_B| >> (B - b))``.
+    `sign * (|code_B| >> (B - b))`.
     """
     macro = build_calibrated_macro(device=device)
     max_bits = macro.adc_max_bits
@@ -294,7 +294,7 @@ def test_shared_ladder_raw_code_law(device: torch.device) -> None:
 
 
 def test_sign_recovery_independent_of_bits(device: torch.device) -> None:
-    """A saturating column of either sign tops out at ``+-(2**b - 1)`` for every ``b``."""
+    """A saturating column of either sign tops out at `+-(2**b - 1)` for every `b`."""
     macro = build_calibrated_macro(device=device)
     x = torch.full((TINY_INPUT_NUM,), (1 << TINY_K) - 1, dtype=torch.long)
     w = torch.zeros((TINY_INPUT_NUM, TINY_OUTPUT_NUM), dtype=torch.long)

@@ -8,16 +8,16 @@ a distinct value, so a swapped term or a swapped rail moves the total.
 
 Laws pinned here:
 
-  * ``wl_in_bl_scan`` bills every node's full excursion from ground, with no
+  * `wl_in_bl_scan` bills every node's full excursion from ground, with no
     rest level and no establishment concept,
-  * ``bl_in_wl_scan`` bills only the displacement away from the ideal held
+  * `bl_in_wl_scan` bills only the displacement away from the ideal held
     boundary, plus the hold's own establishment spread over one row scan,
   * the internal access node rests at its own bit-line level, not at the
     off-state divider level its branch would settle to,
   * a tile already at its declared rest bills no displacement at all, and a
     rest state at ground costs nothing to establish — so at a grounded
     boundary the two organizations bill one and the same ledger,
-  * the amortization is exact: ``row_num`` idle scanned solves bill exactly
+  * the amortization is exact: `row_num` idle scanned solves bill exactly
     the one establishment a single grounded solve of the same rest state
     costs,
   * the mode selects the billing and nothing else — the solved port state is
@@ -25,7 +25,7 @@ Laws pinned here:
   * a node cap is billed at the displacement of its own node, not at the
     boundary level the line it hangs on is driven from.
 
-Runs eagerly (dynamo disabled) so the ``@torch.compile`` solver leaf is not
+Runs eagerly (dynamo disabled) so the `@torch.compile` solver leaf is not
 unrolled; tiny CPU shapes throughout.
 """
 
@@ -83,7 +83,7 @@ RestLevel = Callable[[int, int], float]
 
 @pytest.fixture(autouse=True)
 def _eager() -> Iterator[None]:
-    """Run eagerly — the solver leaf is ``@torch.compile``; do not unroll it."""
+    """Run eagerly — the solver leaf is `@torch.compile`; do not unroll it."""
     with torch._dynamo.config.patch(disable=True):
         yield
 
@@ -130,7 +130,7 @@ def _array_config(
 
 
 def _states() -> Tensor:
-    """Mixed programmed states over the physical ``(col, row)`` grid."""
+    """Mixed programmed states over the physical `(col, row)` grid."""
     return torch.tensor([[0, 1], [1, 0], [0, 0]], dtype=torch.long)
 
 
@@ -175,7 +175,7 @@ def _build_array(
 
 
 def _ideal_driver() -> VoltageDriver:
-    """Boundary clamp with ``r_out = 0`` and every nonideality off."""
+    """Boundary clamp with `r_out = 0` and every nonideality off."""
     driver = VoltageDriver(
         config=VoltageDriverConfig(
             r_out__MOhm=0.0,
@@ -203,7 +203,7 @@ def _solve(
     bl_ref__V: float = _BL_V_REF__V,
     sl_ref__V: float = _SL_V_REF__V,
 ) -> tuple[Tensor, Tensor]:
-    """Settle one array against two ideal clamps; return ``(billed, i_bl_port)``."""
+    """Settle one array against two ideal clamps; return `(billed, i_bl_port)`."""
     bl_driver = _ideal_driver()
     sl_driver = _ideal_driver()
     bl_ref = torch.full((_COL_NUM,), bl_ref__V, dtype=_DTYPE)
@@ -395,14 +395,14 @@ def test_a_grounded_boundary_makes_the_two_ledgers_one(monkeypatch: pytest.Monke
 
 
 def test_a_full_row_scan_bills_exactly_one_hold(monkeypatch: pytest.MonkeyPatch) -> None:
-    """``row_num`` idle scanned solves cost exactly one establishment of the rest state.
+    """`row_num` idle scanned solves cost exactly one establishment of the rest state.
 
     With every gate at 0 V and the off branch parked on the bit line, the
-    tile already sits at its rest boundary, so a ``bl_in_wl_scan`` solve
+    tile already sits at its rest boundary, so a `bl_in_wl_scan` solve
     carries no displacement at all and bills its amortized share alone; the
-    same rest state reached from ground is what a ``wl_in_bl_scan`` solve of
+    same rest state reached from ground is what a `wl_in_bl_scan` solve of
     the identical tile bills in full. The scan contract is that identity: one
-    hold covers exactly ``row_num`` accesses.
+    hold covers exactly `row_num` accesses.
     """
     idle = torch.zeros(_COL_NUM, _ROW_NUM, dtype=_DTYPE)
     held = _build_array(XbarArray1t1rOperationMode.BL_IN_WL_SCAN, vx_ratio_off_table=_VX_RATIO_OFF_AT_REST)
@@ -442,8 +442,8 @@ def test_mode_moves_the_billing_and_leaves_the_solve_alone(monkeypatch: pytest.M
 def test_the_bl_node_cap_bills_at_every_cell_node(monkeypatch: pytest.MonkeyPatch) -> None:
     """A node total hangs on its own node, so it bills that node's displacement.
 
-    Cap values do not enter the DC solve, so raising ``bl_node_c__fF`` alone
-    moves the bill by exactly ``v_dd_bl * delta_c`` times the summed node
+    Cap values do not enter the DC solve, so raising `bl_node_c__fF` alone
+    moves the bill by exactly `v_dd_bl * delta_c` times the summed node
     displacement — here the whole bit-line node grid, the scanned mode
     resting at ground. Under a conducting tile the clamp the column is driven
     from differs from every node behind it, so the slope separates the node
@@ -484,7 +484,7 @@ def test_the_sl_node_cap_bills_at_every_cell_node_too(monkeypatch: pytest.Monkey
     A BL-side probe cannot see the source line: a non-conducting witness
     holds every SL node at the drive level, and a BL-only slope cancels any
     SL term between base and raised. Under the conducting witness the SL
-    drive and the nodes behind it differ, so raising ``sl_node_c__fF`` alone
+    drive and the nodes behind it differ, so raising `sl_node_c__fF` alone
     separates the node law from a bill taken at the drive.
     """
     delta__fF = 0.5

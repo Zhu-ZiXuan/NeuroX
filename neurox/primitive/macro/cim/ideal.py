@@ -1,6 +1,7 @@
 """Tile-level ideal crossbar with window-driven output quantization.
 
 See also:
+    docs/reference/primitive/macro/cim/ideal.md
     docs/internals/primitive/macro/cim/ideal.md
 """
 
@@ -19,26 +20,19 @@ from .base import (
 
 
 class IdealCimMacroConfig(CimMacroConfig):
-    """Configuration for :class:`IdealCimMacro`.
-
-    Attributes:
-        x_value_range: Inclusive single-cycle integer input range.
-        w_value_range: Inclusive integer weight range.
-        quantization_input_ranges: One canonical inclusive conversion window
-            ``(lower, upper)`` per quantization mode, in MAC units. The tuple
-            position is the ``quantization_mode`` index and the tuple length
-            is the mode count. Canonical means unsigned ``[0, upper]`` or
-            mid-zero ``[-m, m - 1]``, the two shapes that keep the zero point
-            on a bin edge at every bit width.
-        adc_max_bits: Largest supported ``adc_bits`` value. The lossless
-            oracle ``adc_bits is None`` is outside this bound and is always
-            accepted at runtime.
-    """
+    """Configuration for `IdealCimMacro`."""
 
     x_value_range: tuple[int, int]
+    """Inclusive single-cycle integer input range; `(0, 0)` is rejected."""
     w_value_range: tuple[int, int]
+    """Inclusive integer weight range; `(0, 0)` is rejected."""
     quantization_input_ranges: tuple[tuple[int, int], ...]
+    """One canonical inclusive conversion window `(lower, upper)` per
+    quantization mode, in MAC units. The tuple position is the
+    `quantization_mode` index and the tuple length is the mode count."""
     adc_max_bits: int
+    """Largest supported `adc_bits` value. The lossless oracle `adc_bits is
+    None` lies outside this bound and is always accepted at runtime."""
 
     def validate(self) -> None:
         super().validate()
@@ -69,22 +63,16 @@ class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
     """Ideal tile VMM with per-plane, window-driven output quantization.
 
     One conversion reads the exact integer plane dot through the canonical
-    window ``[lower, upper]`` that ``quantization_mode`` selects. The window
-    holds ``W = upper - lower + 1`` quantization targets, so with
-    ``b = adc_bits`` the step is ``lsb = W / 2^b`` — a MAC-unit quantity that
-    need not be an integer, and a window with ``W > 2^b`` is a legal lossy
-    operating point. The reading is the unsigned one a physical converter
-    performs, ``code_u = clamp(floor((dot - lower) * 2^b / W), 0, 2^b - 1)``,
-    from which the macro subtracts the window zero code — ``0`` for an
-    unsigned window, ``2^(b-1)`` for a mid-zero one, always computed, never
-    configured. Signed codes therefore span ``[0, 2^b - 1]`` for an unsigned
-    window and ``[-2^(b-1), 2^(b-1) - 1]`` for a mid-zero one, and the whole
-    conversion evaluates in integers without ever forming the fractional
-    ``lsb``.
+    window `[lower, upper]` that `quantization_mode` selects, as the unsigned
+    reading `code_u = clamp(floor((dot - lower) · 2^b / W), 0, 2^b - 1)` with
+    `W = upper - lower + 1` and `b = adc_bits`, less the window zero code —
+    `0` unsigned, `2^(b-1)` mid-zero, always computed, never configured. A
+    window with `W > 2^b` is a legal lossy operating point, and the whole
+    conversion evaluates in integers without ever forming the fractional step.
 
     Args:
-        config: Concrete configuration dataclass.
-        policy: Empty :class:`IdealCimMacroPolicy` marker.
+        config: Value domains, conversion windows and bit-width bound.
+        policy: Empty policy marker.
         input_num: Logical input-vector length.
         output_num: Logical output-vector length.
         inst_shape: Per-instance multiplicity prefix.
@@ -138,11 +126,7 @@ class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
         return 0.0
 
     def latency__ns(self, *, adc_bits: int | None) -> float:
-        """Zero — an arithmetic oracle has no circuit to take time.
-
-        The input and output ports are all parallel and nothing is fabricated,
-        which is why its area and leakage are identically zero too.
-        """
+        """Zero — an arithmetic oracle has no circuit to take time."""
         del adc_bits
         return 0.0
 
@@ -167,14 +151,14 @@ class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
         return self
 
     def _max_bits_rescale_factor(self, quantization_mode: int) -> float:
-        """Return ``1.0``: the ideal macro's codes are the rescale reference.
+        """Return `1.0`: the ideal macro's codes are the rescale reference.
 
         Args:
             quantization_mode: Window index in
-                ``[0, len(quantization_input_ranges))``.
+                `[0, len(quantization_input_ranges))`.
 
         Raises:
-            ValueError: ``quantization_mode`` is outside the declared modes.
+            ValueError: The mode index is outside the declared modes.
         """
         self._window(quantization_mode)
         return 1.0
@@ -185,10 +169,10 @@ class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
         Args:
             code: Exact integer plane dots.
             quantization_mode: Window index in
-                ``[0, len(quantization_input_ranges))``.
+                `[0, len(quantization_input_ranges))`.
 
         Returns:
-            The offset codes and their inclusive range ``(0, W - 1)``.
+            The offset codes and their inclusive range `(0, W - 1)`.
         """
         return map_zero_point_input_code(code, code_range=self._window(quantization_mode))
 
@@ -202,27 +186,26 @@ class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
         """Ideal per-plane VMM followed by one windowed conversion.
 
         Args:
-            x: Logical input tensor; at most :attr:`max_active_num` positions
-                may be selected.
-                Shape: ``[..., input_num]``.
+            x: Logical input tensor; at most `max_active_num` positions may
+                be selected.
+                Shape: `[..., input_num]`.
             quantization_mode: Window index in
-                ``[0, len(quantization_input_ranges))``.
-            adc_bits: Conversion resolution [bits] in ``[1, adc_max_bits]``,
-                or ``None`` for the lossless oracle.
+                `[0, len(quantization_input_ranges))`.
+            adc_bits: Conversion resolution [bits] in `[1, adc_max_bits]`,
+                or `None` for the lossless oracle.
 
         Returns:
-            Signed ``int64`` code tensor whose leading axes broadcast the
-            input's against :attr:`inst_shape`. The lossless oracle
-            returns the exact integer plane dots unmodified. Otherwise a
-            mid-zero window yields codes in ``[-2^(b-1), 2^(b-1) - 1]`` and
-            an unsigned window codes in ``[0, 2^b - 1]``: dots below the
-            window clip to the bottom code, dots above it to the top one.
-            Shape: ``[..., output_num]``.
+            Signed `int64` code tensor whose leading axes broadcast the
+            input's against `inst_shape`. The lossless oracle returns the
+            exact integer plane dots unmodified. Otherwise a mid-zero window
+            yields codes in `[-2^(b-1), 2^(b-1) - 1]` and an unsigned window
+            codes in `[0, 2^b - 1]`: dots below the window clip to the bottom
+            code, dots above it to the top one.
+            Shape: `[..., output_num]`.
 
         Raises:
-            ValueError: ``quantization_mode`` is outside the declared modes,
-                or ``adc_bits`` is neither ``None`` nor in
-                ``[1, adc_max_bits]``.
+            ValueError: The mode index is outside the declared modes, or the
+                resolution is neither `None` nor in `[1, adc_max_bits]`.
         """
         lower, upper = self._window(quantization_mode)
 
@@ -252,7 +235,7 @@ class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
         return ranges[quantization_mode]
 
     def _check_bits(self, adc_bits: int) -> None:
-        """Require a converting bit width; ``None`` is the lossless oracle."""
+        """Require a converting bit width; `None` is the lossless oracle."""
         if not (1 <= adc_bits <= self.config.adc_max_bits):
             raise ValueError(
                 f"require: adc_bits ({adc_bits}) in [1, adc_max_bits ({self.config.adc_max_bits})] "
@@ -262,27 +245,22 @@ class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
     def _convert(self, plane_dot: Tensor, *, lower: int, upper: int, adc_bits: int) -> Tensor:
         """Convert exact plane dots into signed codes of one window.
 
-        Evaluated entirely in ``int64``: ``code_u = floor((dot - lower) * 2^b / W)``
-        with ``W = upper - lower + 1``, clamped to ``[0, 2^b - 1]``, then offset
-        by the window zero code. Floor division rounds toward negative infinity,
-        so a negative dot lands on the code below it, never on the one toward
-        zero. In training mode a uniform integer jitter in ``[0, W - 1]`` is
-        added to the numerator before the floor; this fires the floor's
-        remainder as a Bernoulli trial, so the expected code equals the
-        unrounded ``dot / lsb`` wherever the window does not clip, while
-        on-grid dots — the window zero included — keep their deterministic
-        code. Evaluation mode takes the bare floor.
+        In training mode a uniform integer jitter in `[0, W - 1]` is added
+        before the floor, firing its remainder as a Bernoulli trial: the
+        expected code equals the unrounded ratio wherever the window does not
+        clip, while on-grid dots keep their deterministic code. Evaluation
+        mode takes the bare floor, which rounds toward negative infinity.
 
         Args:
             plane_dot: Exact integer plane dots.
-                Shape: ``[..., output_num]``.
+                Shape: `[..., output_num]`.
             lower: Window minimum, inclusive, in MAC units.
             upper: Window maximum, inclusive, in MAC units.
-            adc_bits: ADC resolution [bits], at least ``1``.
+            adc_bits: ADC resolution [bits], at least `1`.
 
         Returns:
-            Signed ``int64`` code tensor, one code per plane dot.
-            Shape: ``[..., output_num]``.
+            Signed `int64` code tensor, one code per plane dot.
+            Shape: `[..., output_num]`.
         """
         level_num = 1 << adc_bits
         width = upper - lower + 1

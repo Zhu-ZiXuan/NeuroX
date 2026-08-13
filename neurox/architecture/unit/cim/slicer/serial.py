@@ -1,7 +1,7 @@
-"""SerialSlicer — true-form radix-``r`` positional decomposition.
+"""SerialSlicer — true-form radix-`r` positional decomposition.
 
 See also:
-    docs/reference/architecture/unit/family.md
+    docs/internals/architecture/unit/cim/slicer/serial.md
 """
 
 from __future__ import annotations
@@ -14,12 +14,12 @@ from .base import Slicer
 
 
 class SerialSlicer(Slicer):
-    """Radix-``r`` serial decomposition.
+    """Radix-`r` serial decomposition.
 
     Args:
-        slice_num: Number of per-cycle digits (shape shorthand ``Sa``).
-        digit_radix: Activation-cell positional radix ``r``. The implied
-            unsigned digit range is ``[0, r - 1]``.
+        slice_num: Number of per-cycle digits (shape shorthand `Sa`).
+        digit_radix: Activation-cell positional radix `r`. The implied
+            unsigned digit range is `[0, r - 1]`.
     """
 
     def __init__(self, *, slice_num: int, digit_radix: int) -> None:

@@ -1,9 +1,9 @@
 """Input activation geometry on the CimMacro base.
 
-- ``CimMacroConfig`` geometry guards for ``max_active_num``.
-- ``max_active_num`` exposes the per-conversion selection limit.
-- ``_split_col_lanes``: splits the trailing col axis into a lane grid with
-  ``lane = col // col_per_lane``; exact divisibility required.
+- `CimMacroConfig` geometry guards for `max_active_num`.
+- `max_active_num` exposes the per-conversion selection limit.
+- `_split_col_lanes`: splits the trailing col axis into a lane grid with
+  `lane = col // col_per_lane`; exact divisibility required.
 """
 
 from __future__ import annotations

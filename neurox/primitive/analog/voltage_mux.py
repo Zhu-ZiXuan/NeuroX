@@ -2,6 +2,7 @@
 
 See also:
     docs/reference/primitive/analog/voltage_mux.md
+    docs/internals/primitive/analog/voltage_mux.md
 """
 
 import torch
@@ -13,24 +14,16 @@ from .base import AnalogBase, AnalogConfig, AnalogPolicy
 
 
 class VmuxConfig(AnalogConfig):
-    """Immutable configuration for :class:`Vmux`.
-
-    Attributes:
-        mux_ratio: N in the N:1 ratio of inputs to each output lane.
-        energy_per_access__fJ: Per-access dynamic energy.
-        mux_gain: Scalar transport gain.
-        mux_gain_mismatch_sigma_relative: Per-instance fractional gain
-            mismatch standard deviation; flat (not area-scaled).
-        mux_noise_sigma__V: Additive per-access voltage noise standard
-            deviation.
-        area_per_inst__um2: Silicon area per fabricated instance.
-        leakage_per_inst__uW: Static leakage per instance.
-    """
+    """Immutable configuration for `Vmux`."""
 
     mux_ratio: int
+    """N in the N:1 ratio of inputs to each output lane."""
     mux_gain: float
+    """Nominal transport gain, before the per-instance mismatch."""
     mux_gain_mismatch_sigma_relative: float
+    """Per-instance fractional gain-mismatch σ; flat, not area-scaled."""
     mux_noise_sigma__V: float
+    """σ of the additive voltage noise drawn per access."""
     energy_per_access__fJ: float
     area_per_inst__um2: float
     leakage_per_inst__uW: float
@@ -52,15 +45,12 @@ class VmuxConfig(AnalogConfig):
 
 
 class VmuxPolicy(AnalogPolicy):
-    """Per-source toggles selecting which Vmux nonidealities are active.
-
-    Attributes:
-        mux_gain_mismatch: Apply ``mux_gain_mismatch_sigma_relative`` at fabricate time.
-        mux_noise: Apply ``mux_noise_sigma__V`` per call.
-    """
+    """Per-source toggles selecting which Vmux nonidealities are active."""
 
     mux_gain_mismatch: bool
+    """Apply `mux_gain_mismatch_sigma_relative` at fabricate time."""
     mux_noise: bool
+    """Apply `mux_noise_sigma__V` per call."""
 
 
 class Vmux(AnalogBase[VmuxConfig, VmuxPolicy]):
@@ -121,15 +111,18 @@ class Vmux(AnalogBase[VmuxConfig, VmuxPolicy]):
         """Transport voltages already scheduled across mux accesses and lanes.
 
         Args:
-            v__V: Single-ended input voltages, where ``access_num`` equals
-                ``mux_ratio`` and ``lane_num`` is the last extent of
-                ``inst_shape``. Any outer instance axes broadcast to the left of
-                the access axis.
-                Shape: ``[..., access_num, lane_num]``.
+            v__V: Single-ended input voltages, where `access_num` equals
+                `mux_ratio` and `lane_num` is the last extent of `inst_shape`.
+                Any outer instance axes broadcast to the left of the access
+                axis.
+                Shape: `[..., access_num, lane_num]`.
 
         Returns:
-            Transported voltages, at the same shape as ``v__V``.
-            Shape: ``[..., access_num, lane_num]``.
+            Transported voltages, gained and noised per element.
+            Shape: `[..., access_num, lane_num]`.
+
+        Raises:
+            ValueError: The trailing axes are not `(mux_ratio, lane_num)`.
         """
         lane_num = self.inst_shape[-1] if self.inst_shape else 1
         expected_trailing = (self.config.mux_ratio, lane_num)

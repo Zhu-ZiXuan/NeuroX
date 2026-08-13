@@ -1,4 +1,4 @@
-"""Conv2dCimUnit — engine-backed ``F.conv2d`` replacement.
+"""Conv2dCimUnit — engine-backed `F.conv2d` replacement.
 
 See also:
     docs/internals/architecture/unit/cim/conv2d.md
@@ -21,17 +21,14 @@ from .base import (
 
 
 class Conv2dCimUnitConfig(EngineBackedCimUnitConfig):
-    """Configuration for :class:`Conv2dCimUnit`.
-
-    Attributes:
-        stride: Output step ``(s_h, s_w)``.
-        padding: Zero-pad extent ``(p_h, p_w)`` on each side.
-        dilation: Kernel tap spacing ``(d_h, d_w)``.
-    """
+    """Configuration for `Conv2dCimUnit`."""
 
     stride: tuple[int, int]
+    """Output step `(s_h, s_w)`."""
     padding: tuple[int, int]
+    """Zero-pad extent `(p_h, p_w)` on each side."""
     dilation: tuple[int, int]
+    """Kernel tap spacing `(d_h, d_w)`."""
 
     def validate(self) -> None:
         super().validate()
@@ -45,7 +42,7 @@ class Conv2dCimUnitConfig(EngineBackedCimUnitConfig):
 
 
 class Conv2dCimUnitPolicy(EngineBackedCimUnitPolicy):
-    """Composite policy for :class:`Conv2dCimUnit`; no fields beyond the inherited set."""
+    """Composite policy for `Conv2dCimUnit`."""
 
 
 @CimUnit.register_neurox_module(config_type=Conv2dCimUnitConfig, policy_type=Conv2dCimUnitPolicy)
@@ -90,12 +87,12 @@ class Conv2dCimUnit(Conv2dUnit, EngineBackedCimUnit[Conv2dCimUnitConfig, Conv2dC
         """Time the matmul this convolution lowers to.
 
         The unit introduces no time axis of its own; it restates the call in
-        the engine's terms. ``M = H_out * W_out`` is the one extent no config
-        fixes, and it comes from :meth:`_conv2d_out_hw`, the same helper the
-        forward gathers windows with.
+        the engine's terms. `M = H_out * W_out` is the one extent no config
+        fixes, and it follows from the input resolution alone.
 
         Raises:
-            ValueError: ``input_shape`` has no ``[C_in, H, W]`` trailing triple.
+            ValueError: `input_shape` has no `[C_in, H, W]` trailing triple, or
+                the configured geometry yields an empty output map.
         """
         if len(input_shape) < 3:
             raise ValueError(f"latency__ns() expects input_shape with trailing [C_in, H, W]; got {input_shape}")
@@ -104,7 +101,7 @@ class Conv2dCimUnit(Conv2dUnit, EngineBackedCimUnit[Conv2dCimUnitConfig, Conv2dC
         return self.engine.latency__ns(output_plane_num=h_out * w_out, adc_bits=adc_bits)
 
     def _engine_w_logical_shape(self) -> tuple[int, ...]:
-        """Flattened kernel-matrix shape ``(C_out, C_in*kh*kw)``."""
+        """Flattened kernel-matrix shape `(C_out, C_in*kh*kw)`."""
         c_out, c_in, kh, kw = self._w_logical_shape
         return (c_out, c_in * kh * kw)
 
@@ -113,7 +110,7 @@ class Conv2dCimUnit(Conv2dUnit, EngineBackedCimUnit[Conv2dCimUnitConfig, Conv2dC
 
         Returns:
             Programmed kernel matrix.
-            Shape: ``[C_out, K]``.
+            Shape: `[C_out, K]`.
         """
         # Shape: [C_out, C_in, kh, kw] -> [C_out, K]
         return weight.flatten(start_dim=1)
@@ -131,7 +128,7 @@ class Conv2dCimUnit(Conv2dUnit, EngineBackedCimUnit[Conv2dCimUnitConfig, Conv2dC
 
         Returns:
             Matmul-shaped input planes.
-            Shape: ``[..., M, K]``.
+            Shape: `[..., M, K]`.
         """
         h_out, w_out = out_hw
         kh, kw = self._conv2d_kernel_size
@@ -169,7 +166,7 @@ class Conv2dCimUnit(Conv2dUnit, EngineBackedCimUnit[Conv2dCimUnitConfig, Conv2dC
 
         Returns:
             Folded output map.
-            Shape: ``[..., C_out, H_out, W_out]``.
+            Shape: `[..., C_out, H_out, W_out]`.
         """
         h_out, w_out = out_hw
         # Shape: [..., M, C_out] -> [..., H_out, W_out, C_out]

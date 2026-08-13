@@ -36,8 +36,8 @@ from neurox.primitive.digital import AccumulatorConfig, ShiftAdderConfig
 from neurox.primitive.macro.cim import IdealCimMacroConfig, IdealCimMacroPolicy
 
 # All engines are built on IdealCimMacroConfig, so the embedded macro policy is
-# the empty marker. ``adc_bits is None`` selects the lossless oracle: no ADC
-# quantization, so engine outputs equal ``torch.matmul`` exactly.
+# the empty marker. `adc_bits is None` selects the lossless oracle: no ADC
+# quantization, so engine outputs equal `torch.matmul` exactly.
 _IDEAL_MACRO_POLICY = IdealCimMacroPolicy()
 _QUANTIZATION_MODE = 0
 _ADC_BITS: int | None = None
@@ -338,7 +338,6 @@ def test_input_activation_and_block_routing_layout() -> None:
 
 
 def test_split_input_stages_keep_batch_axes_left_of_d_and_p() -> None:
-    """Unaligned caller batch axes remain left of the execution schedule."""
     engine = _build_direct(w_logical_shape=(4, 8), input_num=8, max_active_num=2)
     x = engine._organize_x(torch.randint(0, 2, (3, 2, 8), dtype=torch.int64))
     phased = engine.input_activation.unroll_input_phases(x)
@@ -372,11 +371,7 @@ def test_degenerate_input_phase_axis_size_one() -> None:
 
 @pytest.mark.parametrize("build", [_build_direct, _build_inter, _build_intra])
 def test_input_phase_count_skips_padding_only_blocks(build: Callable[..., CimEngine]) -> None:
-    """K < input_num omits phases containing only tile padding.
-
-    input_num=8, max_active_num=2, K=3 gives two phases, well
-    below the full ceil(8/2) = 4. Correctness is still checked against the
-    torch oracle: the skipped blocks contributed exactly 0."""
+    """K < input_num omits phases holding only tile padding: input_num=8, max_active_num=2, K=3 gives two, not ceil(8/2)=4."""
     torch.manual_seed(3)
     n, k, m = 4, 3, 3  # k < input_num: one short block leaves input positions unused
     engine = build(w_logical_shape=(n, k), input_num=8, max_active_num=2)
@@ -389,7 +384,6 @@ def test_input_phase_count_skips_padding_only_blocks(build: Callable[..., CimEng
 
 @pytest.mark.parametrize("build", [_build_direct, _build_inter, _build_intra])
 def test_engine_matmul_parity_with_input_phases(build: Callable[..., CimEngine]) -> None:
-    """Lossless multi-phase matmul equals the torch.matmul oracle."""
     torch.manual_seed(7)
     n, k, m = 5, 10, 3  # k > input_num exercises Tc tiling alongside P
     engine = build(w_logical_shape=(n, k), input_num=8, max_active_num=2)
@@ -401,9 +395,7 @@ def test_engine_matmul_parity_with_input_phases(build: Callable[..., CimEngine])
 
 @pytest.mark.parametrize("build", [_build_direct, _build_inter, _build_intra])
 def test_engine_matmul_parity_non_divisible(build: Callable[..., CimEngine]) -> None:
-    """Non-divisible geometry still equals the torch.matmul oracle: P via ceil
-    covers every input, so k == input_num == 10 populated positions all contribute. The
-    old floor division (P = 3) would drop row 9 and mismatch."""
+    """Non-divisible geometry still equals the oracle: P from a ceiling division covers every input, row 9 included."""
     torch.manual_seed(9)
     n, k, m = 5, 10, 3  # k == input_num: all 10 positions carry real weight
     engine = build(w_logical_shape=(n, k), input_num=10, max_active_num=3)
@@ -519,7 +511,7 @@ _M = 3
 
 
 def _phased(engine: CimEngine, activation: torch.Tensor) -> torch.Tensor:
-    """Run the two stages that precede ``unroll_block_steps``."""
+    """Run the two stages that precede `unroll_block_steps`."""
     return engine.input_activation.unroll_input_phases(engine._organize_x(activation))
 
 
@@ -544,12 +536,7 @@ def test_weight_batch_without_profiler_keeps_split_leading_layout() -> None:
 
 
 def test_weight_batch_leaves_the_declared_caller_axis_leftmost() -> None:
-    """A caller may declare every leading dim that stays left of D and P.
-
-    With ``leading_rank=1`` the profiler's leftmost-1-dim slice reads exactly
-    the caller axis of ``[3, D, P, w_batch=1, ...]``, so a weight-batched engine
-    stays profilable per caller unit operation.
-    """
+    """At `leading_rank=1` the leftmost dim of `[3, D, P, w_batch=1, ...]` is the caller axis."""
     engine, activation = _batched_engine_and_activation()
     with Profiler(leading_rank=len(_CALLER_BATCH)):
         routed = engine.placement.unroll_block_steps(_phased(engine, activation))
@@ -559,13 +546,7 @@ def test_weight_batch_leaves_the_declared_caller_axis_leftmost() -> None:
 
 
 def test_weight_batch_energy_is_billed_against_the_caller_axis() -> None:
-    """Under ``leading_rank=1`` each billed element is one caller unit operation.
-
-    An energy tensor laid out over the routed tensor is reduced by the profiler
-    onto its leftmost dim. That dim must index the caller: element ``i`` has to
-    carry exactly the work of running caller ``i`` on its own, which a
-    mis-billing that read D as the caller axis could not reproduce.
-    """
+    """Under `leading_rank=1` billed element `i` carries exactly the work of running caller `i` on its own."""
     engine, activation = _batched_engine_and_activation()
     stamp_names(engine)
     stage = engine.placement
@@ -601,7 +582,6 @@ def test_weight_batch_runs_under_a_rank_zero_profiler() -> None:
 
 
 def test_unbatched_weight_keeps_the_whole_caller_prefix_leftmost() -> None:
-    """Without a weight batch every declared caller dim stays left of D and P."""
     torch.manual_seed(11)
     n, k = 40, 3
     engine = _build_direct(w_logical_shape=(n, k), input_num=8, max_active_num=2)

@@ -1,21 +1,21 @@
 """Eager integer-MAC transfer breadth for the ye2023jssc WH-2T1R CIM macro.
 
-The analytic witness (``_utils.build_config``) pairs a drive-point HRS leakage equal
+The analytic witness (`_utils.build_config`) pairs a drive-point HRS leakage equal
 to the V_X = 0 floor with a seated PH0 compensation, so the RS-CSA sees exactly
-``(I_unit - floor) * MAC`` and its injected reference is that same step: the code equals
-the UNSIGNED integer MAC bit-exactly (``clamp(sum_in w * x, 0, 2**adc_bits - 1)``)
+`(I_unit - floor) * MAC` and its injected reference is that same step: the code equals
+the UNSIGNED integer MAC bit-exactly (`clamp(sum_in w * x, 0, 2**adc_bits - 1)`)
 even though every physical column — the redundant SUBA4 plane included — carries
 a nonzero leakage floor. This file adds the transfer breadth the per-module smoke
-tests and ``test_macro.py`` do not cover — random input batches, zero-weight /
+tests and `test_macro.py` do not cover — random input batches, zero-weight /
 zero-input decode, code-max saturation (a widened witness so the MAC can exceed
 the 4-bit ceiling), mixed per-row input patterns, and a per-magnitude LSB-first
 place-value sweep (a reversed digit convention would decode a weight-4 as a
 weight-1).
 
-Determinism comes from the ``all_off`` policy (every kernel nonideality off) plus
+Determinism comes from the `all_off` policy (every kernel nonideality off) plus
 a scheme that wires no stochastic source at all. Weights are UNSIGNED radix-2
-digits over ``weight_radix = (1, 2, 4)`` so a single weight lives in ``[0, 7]``.
-Runs eagerly (dynamo disabled) so the ``@torch.compile`` solver leaf is not
+digits over `weight_radix = (1, 2, 4)` so a single weight lives in `[0, 7]`.
+Runs eagerly (dynamo disabled) so the `@torch.compile` solver leaf is not
 unrolled.
 """
 
@@ -44,13 +44,13 @@ from ._utils import (
 
 @pytest.fixture(autouse=True)
 def _eager() -> Iterator[None]:
-    """Run eagerly — the solver leaf is ``@torch.compile``; do not unroll it."""
+    """Run eagerly — the solver leaf is `@torch.compile`; do not unroll it."""
     with torch._dynamo.config.patch(disable=True):
         yield
 
 
 def _assert_decode_matches_ideal(macro: Ye2023JsscCimMacro, w: Tensor, x: Tensor) -> Tensor:
-    """Decode ``(w, x)`` and assert codes == clamped UNSIGNED integer MAC; return codes."""
+    """Decode `(w, x)` and assert codes == clamped UNSIGNED integer MAC; return codes."""
     out = decode(macro, w, x)
     expected = ideal_mac(w, x)
     assert torch.equal(out.long(), expected), f"MAC decode mismatch:\n{out.tolist()}\nvs ideal\n{expected.tolist()}"
@@ -117,7 +117,7 @@ def test_zero_weight_and_zero_input_decode_zero(device: torch.device) -> None:
 
 
 def test_saturation_clips_at_code_max(device: torch.device) -> None:
-    """A MAC beyond ``2**adc_bits - 1`` saturates the unsigned code at the 4-bit ceiling.
+    """A MAC beyond `2**adc_bits - 1` saturates the unsigned code at the 4-bit ceiling.
 
     The default witness has only two inputs (max MAC 14 < 15), so this uses a
     widened witness (four inputs) whose true MAC (4 * 7 = 28) overruns the ceiling.
@@ -138,11 +138,11 @@ def test_saturation_clips_at_code_max(device: torch.device) -> None:
 
 
 def test_place_value_magnitude_sweep_lsb_first(device: torch.device) -> None:
-    """A single active row of weight ``m`` with input 1 decodes to ``m`` for every ``m`` in ``[1, 7]``.
+    """A single active row of weight `m` with input 1 decodes to `m` for every `m` in `[1, 7]`.
 
     Each magnitude exercises a distinct digit-plane combination over
-    ``weight_radix = (1, 2, 4)``; a reversed-but-consistent digit convention swaps
-    the place values (e.g. reads a weight-4, digits ``[0, 0, 1]`` LSB-first, as a
+    `weight_radix = (1, 2, 4)`; a reversed-but-consistent digit convention swaps
+    the place values (e.g. reads a weight-4, digits `[0, 0, 1]` LSB-first, as a
     weight-1), so these exact matches pin the LSB-first mapping across the ladder.
     """
     macro = build_macro(build_config(), device=device)

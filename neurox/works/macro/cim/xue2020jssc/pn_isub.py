@@ -1,10 +1,10 @@
 """PN-ISUB polarity subtractor — one current subtractor + sign comparator per CIM-IO.
 
 The SINWP-SC combined PWG / NWG lane currents subtract into a single-ended
-magnitude ``I_SUB = |I_P - I_N|`` plus a sign decision (``N > P``), recovering
-the polarity of the sign-magnitude weight encoding for the TMCSA magnitude
-quantization. A reporter leaf: it self-bills the three ISUB internal replica
-legs and the comparator decision constant.
+magnitude `I_SUB = |I_P - I_N|` plus a sign decision (`N > P`), recovering the
+polarity of the sign-magnitude weight encoding for the TMCSA magnitude
+quantization. A reporter leaf: it self-bills the three ISUB internal replica legs
+and the comparator decision constant.
 
 See also:
     docs/works/macro/cim/xue2020jssc/model.md
@@ -18,19 +18,13 @@ from neurox.common import ConfigBase, ModuleBase, PolicyBase
 
 
 class PnIsubConfig(ConfigBase):
-    """Immutable configuration for :class:`PnIsub`.
-
-    Attributes:
-        e_per_op__fJ: Data-independent comparator energy, billed once per
-            output-code sign decision — per (slot, IO) entry.
-        area_per_inst__um2: Silicon area per subtractor instance.
-        leakage_per_inst__uW: Static leakage per subtractor instance (the
-            standing bias power seat).
-    """
+    """Physical knobs and static PPA seat of one PN-ISUB subtractor."""
 
     e_per_op__fJ: float
+    """Data-independent comparator energy, billed once per sign decision — per (slot, IO) entry."""
     area_per_inst__um2: float
     leakage_per_inst__uW: float
+    """Static leakage per instance, the standing bias power seat."""
 
     def validate(self) -> None:
         self._require_non_neg(self.e_per_op__fJ, "e_per_op__fJ")
@@ -39,7 +33,7 @@ class PnIsubConfig(ConfigBase):
 
 
 class PnIsubPolicy(PolicyBase):
-    """Source-free policy for :class:`PnIsub` — this scheme models no nonideality."""
+    """Source-free PN-ISUB policy — this scheme models no nonideality."""
 
 
 class PnIsub(ModuleBase[PnIsubConfig, PnIsubPolicy]):
@@ -49,10 +43,10 @@ class PnIsub(ModuleBase[PnIsubConfig, PnIsubPolicy]):
     broadcast batch (the serial slot axis rides them).
 
     Args:
-        config: Immutable physical configuration.
-        policy: Source-free runtime policy.
-        inst_shape: Fabrication shape ``(*inst_shape, gn)``.
-        v_dd__V: Supply-rail voltage [V] the three replica legs conduct across.
+        config: Physical knobs and static PPA seat of one subtractor.
+        policy: Nonideality toggles; this scheme declares none.
+        inst_shape: Fabrication shape `(*inst_shape, gn)` — one subtractor per CIM-IO.
+        v_dd__V: Supply rail the three replica legs conduct across.
     """
 
     def __init__(
@@ -84,16 +78,16 @@ class PnIsub(ModuleBase[PnIsubConfig, PnIsubPolicy]):
 
         Args:
             i_p__uA: Combined PWG lane current.
-                Shape: ``[..., serial, gn]``.
+                Shape: `[..., serial, gn]`.
             i_n__uA: Combined NWG lane current.
-                Shape: ``[..., serial, gn]``.
-            window__ns: Conduction window of the three rail branches
-                (macro-injected: the tail window ``t_other``).
+                Shape: `[..., serial, gn]`.
+            window__ns: Conduction window of the three rail branches — the
+                macro-injected tail window `t_other`.
 
         Returns:
-            ``(i_sub_abs__uA, sign)`` — the single-ended magnitude
-            ``|I_P - I_N|`` and the boolean sign (``True`` iff ``I_N > I_P``).
-            Shape: ``[..., serial, gn]``.
+            The single-ended magnitude `|I_P - I_N|` and the boolean sign, `True`
+            where `I_N > I_P`.
+            Shape: `[..., serial, gn]`.
         """
         i_sub_abs__uA = (i_p__uA - i_n__uA).abs()
         sign = i_n__uA > i_p__uA

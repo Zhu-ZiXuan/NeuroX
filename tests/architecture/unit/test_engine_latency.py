@@ -1,11 +1,4 @@
-"""Tests for the engine-side duration formula.
-
-``CimEngine.latency__ns`` holds every count below the unit: the macro access
-schedule ``(M, Sa, D, P)`` and the round counts of the four digital blocks,
-whose own ``latency_per_op__ns`` the engine reads through its stages. The laws
-below pin which axis multiplies what — never a calibrated number — and the last
-one ties a round count to the operands a measured forward actually folds.
-"""
+"""Which axis of the macro access schedule `(M, Sa, D, P)` multiplies which digital block's window in `CimEngine.latency__ns`."""
 
 from __future__ import annotations
 
@@ -48,14 +41,14 @@ from neurox.primitive.digital import AccumulatorConfig, ShiftAdderConfig
 from neurox.primitive.macro.cim import IdealCimMacroConfig, IdealCimMacroPolicy
 
 # The ideal macro's own access time is zero, so every term the engine adds is a
-# digital one and stays separable. ``adc_bits=None`` is its lossless oracle.
+# digital one and stays separable. `adc_bits=None` is its lossless oracle.
 _ADC_BITS: int | None = None
 _QUANTIZATION_MODE = 0
 
 _INPUT_NUM = 8
 _OUTPUT_NUM = 4
 
-# Hand-derived placement of ``(N, K) = (8, 4)`` on an 8-input macro whose weight
+# Hand-derived placement of `(N, K) = (8, 4)` on an 8-input macro whose weight
 # block spans all 4 output ports: L = min(4, 8) = 4, so Tc = 1; two output
 # blocks fit one group of capacity 2, so G = 1 and D = 2.
 _W_SHAPE = (8, 4)
@@ -189,11 +182,7 @@ def _build_conv2d(engine_config: CimEngineConfig, *, w_logical_shape: tuple[int,
 
 
 def test_direct_layout_times_the_two_accumulators() -> None:
-    """D and the port count are the only multipliers a direct/direct layout has.
-
-    Neither slice stage owns a recombination block, so the whole duration is the
-    two accumulators' windows over the ports of every block step.
-    """
+    """D and the port count are the only multipliers a direct/direct layout has, neither slice stage owning a block."""
     phase__ns = 0.25
     contraction__ns = 0.5
     unit = _build_linear(
@@ -217,13 +206,7 @@ def test_direct_layout_times_the_two_accumulators() -> None:
 
 
 def test_phase_accumulator_runs_once_per_arrival() -> None:
-    """P multiplies the serial register's window and nothing else's.
-
-    The phase accumulator folds one macro result per input phase onto one
-    register, so halving ``max_active_num`` doubles its round count; the
-    contraction adder tree closes its axis in one window per block step and does
-    not move.
-    """
+    """P multiplies the serial register's window and nothing else's: the contraction tree closes its axis per block step."""
 
     def _phase_only(max_active_num: int) -> float:
         unit = _build_linear(
@@ -272,12 +255,7 @@ def test_phase_accumulator_runs_once_per_arrival() -> None:
 
 
 def test_inter_layout_recombines_once_per_step_it_closes() -> None:
-    """Every term of an inter-plane, serially sliced engine, separately weighted.
-
-    Both reconstructions are one-pass positional sums, so their own reduced axis
-    never multiplies them: the weight-slice block runs once per input slice, the
-    input-slice block once per block step.
-    """
+    """Both reconstructions are one-pass positional sums: the weight-slice block runs once per input slice, the input-slice block once per block step."""
     x_slice_num = 3
     phase__ns = 0.25
     contraction__ns = 0.5
@@ -331,11 +309,7 @@ def test_input_slice_recombination_ignores_the_slice_count() -> None:
 
 
 def test_intra_layout_recombines_over_the_ports_one_aggregation_leaves() -> None:
-    """An intra-port layout leaves ``output_num // w_slice_num`` logical outputs.
-
-    The reconstruction runs over those, not over the macro ports the
-    accumulators see.
-    """
+    """An intra-port layout leaves `output_num // w_slice_num` logical outputs, and the reconstruction runs over those, not the macro ports."""
     unit = _build_linear(
         _engine_config(
             weight_slice=IntraWeightSliceStageConfig(
@@ -359,12 +333,7 @@ def test_intra_layout_recombines_over_the_ports_one_aggregation_leaves() -> None
 
 
 def test_output_planes_multiply_the_whole_schedule() -> None:
-    """M enters at the conv unit and multiplies every engine term.
-
-    ``H_out * W_out`` comes from the same helper the forward gathers windows
-    with, and a caller batch is a separate unit operation rather than part of
-    one call's duration.
-    """
+    """M = H_out · W_out enters at the conv unit and multiplies every engine term, while a caller batch does not."""
     engine_config = _engine_config(
         weight_slice=DirectWeightSliceStageConfig(),
         x_slice=DirectXSliceStageConfig(),
@@ -385,14 +354,7 @@ def test_output_planes_multiply_the_whole_schedule() -> None:
 
 
 def test_phase_accumulator_rounds_match_the_measured_forward(device: torch.device) -> None:
-    """The engine's round count is the work the forward actually issues.
-
-    The serial accumulator bills one energy quantum per operand it folds, so
-    dividing the measured energy by the instances that fold in parallel and by
-    the caller's unit operations leaves exactly the rounds one call serializes —
-    the count the duration multiplies. This is the anti-drift law: the formula
-    and the forward must read the same extents.
-    """
+    """The round count the duration multiplies equals the operands a measured forward folds, per instance and per caller operation."""
     phase__ns = 0.75
     phase_energy__fJ = 3.0
     unit = _build_linear(

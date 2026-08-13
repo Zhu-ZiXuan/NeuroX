@@ -2,6 +2,7 @@
 
 See also:
     docs/reference/primitive/analog/unmodeled.md
+    docs/internals/primitive/analog/unmodeled.md
 """
 
 import torch
@@ -10,16 +11,11 @@ from .base import AnalogBase, AnalogConfig, AnalogPolicy
 
 
 class UnmodeledBlockConfig(AnalogConfig):
-    """Immutable configuration for :class:`UnmodeledBlock`.
-
-    Attributes:
-        area_per_inst__um2: Silicon area per fabricated instance.
-        leakage_per_inst__uW: Static leakage per instance; carries the
-            block's whole standing bias power.
-    """
+    """Immutable configuration for `UnmodeledBlock`."""
 
     area_per_inst__um2: float
     leakage_per_inst__uW: float
+    """Carries the block's whole standing bias power."""
 
     def validate(self) -> None:
         self._require_non_neg(self.area_per_inst__um2, "area_per_inst__um2")

@@ -1,7 +1,8 @@
-"""General-purpose LUT voltage DAC — concrete :class:`Vdac` implementation.
+"""General-purpose LUT voltage DAC — concrete `Vdac` implementation.
 
 See also:
     docs/reference/primitive/analog/voltage_dac/general.md
+    docs/internals/primitive/analog/voltage_dac/general.md
 """
 
 from __future__ import annotations
@@ -17,24 +18,19 @@ from .base import Vdac, VdacConfig, VdacPolicy
 
 
 class GeneralVdacConfig(VdacConfig):
-    """Immutable configuration for :class:`GeneralVdac`.
-
-    Attributes:
-        code_to_signal: Voltage lookup table indexed by integer code.
-            ``code_to_signal[i]`` is the nominal analog output in [V]
-            for digital code ``i``. Length equals the number of input
-            codes.
-        drive_thermal__V: Gaussian thermal noise σ added to each
-            output sample after LUT lookup.
-        code_to_per_op_energy__fJ: Per-op dynamic energy of converting ONE
-            element, indexed by that element's code — parallel to
-            ``code_to_signal``, so each level states what driving it costs.
-            Same length as ``code_to_signal``; every entry finite and >= 0.
-    """
+    """Immutable configuration for `GeneralVdac`."""
 
     code_to_signal: tuple[float, ...]
+    """Voltage lookup table indexed by integer code: entry `i` is the nominal
+    analog output [V] for digital code `i`, and the length fixes the code
+    count."""
     drive_thermal__V: float
+    """Gaussian thermal noise σ added to each output sample after LUT
+    lookup."""
     code_to_per_op_energy__fJ: tuple[float, ...]
+    """Dynamic energy of converting ONE element, indexed by that element's
+    code — parallel to `code_to_signal`, so each level states what driving it
+    costs. Same length as `code_to_signal`; every entry finite and >= 0."""
 
     def validate(self) -> None:
         super().validate()
@@ -54,13 +50,10 @@ class GeneralVdacConfig(VdacConfig):
 
 
 class GeneralVdacPolicy(VdacPolicy):
-    """Per-source toggles selecting which GeneralVdac nonidealities are active.
-
-    Attributes:
-        drive_thermal: Apply ``drive_thermal__V`` at convert time.
-    """
+    """Per-source toggles selecting which GeneralVdac nonidealities are active."""
 
     drive_thermal: bool
+    """Apply `drive_thermal__V` at convert time."""
 
 
 @Vdac.register_neurox_module(config_type=GeneralVdacConfig, policy_type=GeneralVdacPolicy)
@@ -123,12 +116,12 @@ class GeneralVdac(Vdac[GeneralVdacConfig, GeneralVdacPolicy]):
         """Convert integer digital codes to analog output voltages.
 
         Args:
-            code: Integer input codes.
-                Shape: ``[...]``.
+            code: Integer input codes in `[0, code_max]`.
+                Shape: `[...]`.
 
         Returns:
-            Analog output voltage [V], at the same shape as ``code``.
-            Shape: ``[...]``.
+            Analog output voltage [V], one value per `code` element.
+            Shape: `[...]`.
         """
         nominal__V = self._code_to_signal[code]
         signal = apply_gaussian(

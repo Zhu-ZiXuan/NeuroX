@@ -1,13 +1,13 @@
 """IdealCimMacro window conversion law and its rescale factor.
 
-``quantization_mode`` selects a canonical inclusive window ``[lower, upper]``
-in MAC units holding ``W = upper - lower + 1`` targets. With ``b = adc_bits``
-the step is ``lsb = W / 2^b``, the raw reading is
-``code_u = clamp(floor((dot - lower) * 2^b / W), 0, 2^b - 1)`` and the
-returned signed code subtracts the computed zero code (``0`` unsigned,
-``2^(b-1)`` mid-zero). ``rescale_factor`` states that code in ideal-macro
-codes, so it is the pure bit-width chain ``2^(B - b)`` here; the MAC-unit
-``lsb`` belongs to the algorithm side. The macro treats every leading axis as
+`quantization_mode` selects a canonical inclusive window `[lower, upper]`
+in MAC units holding `W = upper - lower + 1` targets. With `b = adc_bits`
+the step is `lsb = W / 2^b`, the raw reading is
+`code_u = clamp(floor((dot - lower) * 2^b / W), 0, 2^b - 1)` and the
+returned signed code subtracts the computed zero code (`0` unsigned,
+`2^(b-1)` mid-zero). `rescale_factor` states that code in ideal-macro
+codes, so it is the pure bit-width chain `2^(B - b)` here; the MAC-unit
+`lsb` belongs to the algorithm side. The macro treats every leading axis as
 anonymous batch.
 """
 
@@ -79,7 +79,7 @@ _WINDOWS: tuple[tuple[int, int], ...] = ((-32, 31), (-128, 127), (0, 63), (-6, 5
 
 
 class TestRescaleFactor:
-    """The ideal macro is the currency anchor: ``r_b = 2^(B - b)``."""
+    """The ideal macro is the currency anchor: `r_b = 2^(B - b)`."""
 
     @pytest.mark.parametrize("window", _WINDOWS)
     def test_max_bits_factor_is_the_identity(self, window: tuple[int, int]) -> None:
@@ -135,19 +135,19 @@ class TestOperatingPointValidation:
             _codes(self._macro(), [0], quantization_mode=quantization_mode, adc_bits=6)
 
     def test_lossless_sentinel_still_validates_mode(self) -> None:
-        """``adc_bits is None`` skips conversion but not the mode contract."""
+        """`adc_bits is None` skips conversion but not the mode contract."""
         with pytest.raises(ValueError, match=r"quantization_mode"):
             _codes(self._macro(), [0], quantization_mode=2, adc_bits=None)
 
     @pytest.mark.parametrize("adc_bits", [-1, 0, 7])
     def test_conversion_rejects_unsupported_bits(self, adc_bits: int) -> None:
-        """``0`` is an ordinary out-of-range width, not a sentinel."""
+        """`0` is an ordinary out-of-range width, not a sentinel."""
         with pytest.raises(ValueError, match=r"adc_bits"):
             _codes(self._macro(), [0], quantization_mode=0, adc_bits=adc_bits)
 
 
 class TestWindowConversionLaw:
-    """Signed codes follow ``clamp(floor((dot - lower) * 2^b / W), 0, 2^b - 1) - z``."""
+    """Signed codes follow `clamp(floor((dot - lower) * 2^b / W), 0, 2^b - 1) - z`."""
 
     @pytest.mark.parametrize("window", _WINDOWS)
     @pytest.mark.parametrize("adc_bits", [1, 2, 3, 6])
@@ -167,7 +167,7 @@ class TestWindowConversionLaw:
         macro = _dot_macro(quantization_input_ranges=((-32, 31),), adc_max_bits=6)
         # lsb = 2, zero code z = 16: codes live in [-16, 15].
         assert _codes(macro, [-32, -33, -100], quantization_mode=0, adc_bits=5) == [-16, -16, -16]
-        # ``upper`` is inclusive: the top target reads as the top code.
+        # `upper` is inclusive: the top target reads as the top code.
         assert _codes(macro, [30, 31, 32, 100], quantization_mode=0, adc_bits=5) == [15, 15, 15, 15]
         # The last in-window bucket starts one lsb below the top target.
         assert _codes(macro, [29], quantization_mode=0, adc_bits=5) == [14]
@@ -180,7 +180,7 @@ class TestWindowConversionLaw:
             assert max(codes) == (1 << (adc_bits - 1)) - 1
 
     def test_unsigned_window_codes_are_nonnegative(self) -> None:
-        """A window with ``lower == 0`` has zero code 0: no code is negative."""
+        """A window with `lower == 0` has zero code 0: no code is negative."""
         macro = _dot_macro(quantization_input_ranges=((0, 63),), adc_max_bits=6)
         # lsb = 4 at 4 bits; dots below the window clip to code 0.
         assert _codes(macro, [-10, 0, 3, 4, 63, 64, 200], quantization_mode=0, adc_bits=4) == [0, 0, 0, 1, 15, 15, 15]
@@ -193,7 +193,7 @@ class TestWindowConversionLaw:
         assert _codes(macro, dots, quantization_mode=1, adc_bits=5) == [-5, -1, 0, 1, 5]
 
     def test_lossy_window_is_a_legal_operating_point(self) -> None:
-        """``W > 2^b`` is allowed: the step is simply wider than one MAC unit."""
+        """`W > 2^b` is allowed: the step is wider than one MAC unit."""
         macro = _dot_macro(quantization_input_ranges=((0, 223),), adc_max_bits=4)
         # W = 224 targets over 16 codes: lsb = 14.
         assert _codes(macro, [0, 13, 14, 27, 28, 223, 300], quantization_mode=0, adc_bits=4) == [
@@ -207,7 +207,7 @@ class TestWindowConversionLaw:
         ]
 
     def test_code_times_lsb_recovers_the_dot_within_one_step(self) -> None:
-        """Algorithm-side dequantization: ``lsb = W / 2^b`` MAC units per code."""
+        """Algorithm-side dequantization: `lsb = W / 2^b` MAC units per code."""
         window, adc_bits = (-128, 127), 5
         macro = _dot_macro(quantization_input_ranges=(window,), adc_max_bits=6)
         lower, upper = window
@@ -272,7 +272,7 @@ class TestTrainingJitter:
 
 
 class TestConfigValidation:
-    """``quantization_input_ranges`` and ``adc_max_bits`` guards."""
+    """`quantization_input_ranges` and `adc_max_bits` guards."""
 
     def test_empty_ranges_rejected(self) -> None:
         with pytest.raises(ValueError, match=r"quantization_input_ranges"):
@@ -289,7 +289,7 @@ class TestConfigValidation:
             _make_macro(quantization_input_ranges=(window,), adc_max_bits=6)
 
     def test_unsigned_window_accepts_any_width(self) -> None:
-        """``lower == 0`` fixes the zero code at 0, so the width is free."""
+        """`lower == 0` fixes the zero code at 0, so the width is free."""
         macro = _make_macro(quantization_input_ranges=((0, 62),), adc_max_bits=6)
         assert len(macro.quantization_input_ranges) == 1
 
@@ -299,7 +299,7 @@ class TestConfigValidation:
 
 
 class TestInputCodeMap:
-    """``map_quantization_input_code`` is the window's zero-point grid."""
+    """`map_quantization_input_code` is the window's zero-point grid."""
 
     def test_mid_zero_window_offsets_to_unsigned(self) -> None:
         macro = _make_macro(quantization_input_ranges=((-8, 7),), adc_max_bits=4)
@@ -323,7 +323,7 @@ class TestInputCodeMap:
 
 
 class TestPlaneOutput:
-    """``vec_mat_mul`` keeps every leading axis anonymous — the caller owns any phase axis."""
+    """`vec_mat_mul` keeps every leading axis anonymous — the caller owns any phase axis."""
 
     @staticmethod
     def _programmed_macro(*, max_active_num: int | None) -> tuple[IdealCimMacro, torch.Tensor]:
@@ -360,7 +360,7 @@ class TestPlaneOutput:
 
 
 class TestProgramOwnership:
-    """``program`` must take ownership of the weight tensor (clone + device)."""
+    """`program` must take ownership of the weight tensor (clone + device)."""
 
     def test_program_does_not_alias_caller(self) -> None:
         macro = _make_macro(

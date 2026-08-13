@@ -1,7 +1,8 @@
 """Shape-independent pure-array core for a 1T1R crossbar tile.
 
 See also:
-    docs/reference/primitive/xbar/array/_1t1r/array.md
+    docs/reference/primitive/xbar/array/1t1r.md
+    docs/internals/primitive/xbar/array/1t1r.md
 """
 
 from dataclasses import dataclass
@@ -36,53 +37,24 @@ SLSnapT = TypeVar("SLSnapT", bound=ClampSnap)
 class XbarArray1t1rOperationMode(StrEnum):
     """Scan organization the array's per-solve capacitive billing follows.
 
-    The mode selects energy evaluation ONLY. Solving and programming are
-    organization-blind: the same node network and the same physical state
-    grid serve either scan, and nothing outside the energy path reads this.
-
-    Attributes:
-        WL_IN_BL_SCAN: The word lines carry the held input and the bit-line
-            boundary is scanned. Every node returns to ground between
-            solves, so a solve is a full excursion and there is no rest
-            level to establish.
-        BL_IN_WL_SCAN: The bit-line boundary carries the held input and the
-            word lines are scanned. The conduction path rests at the held
-            level across one full row scan, so a solve is the excursion
-            away from that rest level and the hold's own establishment is
-            amortized over the scan.
+    The mode selects energy evaluation only; solving and programming are
+    organization-blind.
     """
 
     WL_IN_BL_SCAN = "wl_in_bl_scan"
+    """Held input on the word lines, scanned bit-line boundary; every node
+    rests at ground, so one solve is a full excursion."""
     BL_IN_WL_SCAN = "bl_in_wl_scan"
+    """Held input on the bit-line boundary, scanned word lines; the conduction
+    path rests at the held level, so one solve is the excursion away from it
+    and the hold's establishment spreads over one row scan."""
 
 
 class XbarArray1t1rConfig(ConfigBase):
     """Shape-independent physical knobs for a 1T1R pure-array core.
 
-    The tile is a uniform lattice of identical cell seats: one row pitch,
-    one column pitch, one resistance per rail link, and one capacitance per
-    node of each line. Whatever lead-in a boundary driver needs to reach its
-    first seat is that driver's business, not the lattice's.
-
-    Attributes:
-        row_cell_space__um: Row pitch between adjacent cells.
-        col_cell_space__um: Column pitch between adjacent cells.
-        bl_segment_r__MOhm: BL cell-to-cell segment resistance.
-        sl_segment_r__MOhm: SL cell-to-cell segment resistance.
-        bl_node_c__fF: Total node-to-ground capacitance seen at each cell's
-            BL node — the cell junction plus that node's share of the bit
-            line, one layout-extracted per-node quantity.
-        x_node_c__fF: Total node-to-ground capacitance at each cell's
-            internal access node X.
-        sl_node_c__fF: Total node-to-ground capacitance at each cell's SL
-            node — the cell junction plus that node's share of the source
-            line.
-        wl_node_c__fF: Total node-to-ground capacitance at each cell's WL
-            node — the access-device gate load plus that node's share of the
-            word line.
-        cell_config: 1T1R cell configuration. Concrete subclass of
-            :class:`XbarCell1t1rConfig` selects the cell model.
-        solver_config: Nested parallel-rail solver numerical parameters.
+    The tile is a uniform lattice of identical cell seats: one pitch per axis,
+    one resistance per rail link, and one capacitance per node of each line.
     """
 
     row_cell_space__um: float
@@ -92,11 +64,19 @@ class XbarArray1t1rConfig(ConfigBase):
     sl_segment_r__MOhm: float
 
     bl_node_c__fF: float
+    """Total node-to-ground capacitance at each cell's BL node: the cell
+    junction plus that node's share of the bit line."""
     x_node_c__fF: float
+    """Total node-to-ground capacitance at each cell's internal access node X."""
     sl_node_c__fF: float
+    """Total node-to-ground capacitance at each cell's SL node: the cell
+    junction plus that node's share of the source line."""
     wl_node_c__fF: float
+    """Total node-to-ground capacitance at each cell's WL node: the
+    access-device gate load plus that node's share of the word line."""
 
     cell_config: XbarCell1t1rConfig
+    """Its concrete subclass selects the cell model."""
     solver_config: NestedParallelRailSolverConfig
 
     def validate(self) -> None:
@@ -119,22 +99,14 @@ class XbarArray1t1rConfig(ConfigBase):
 
 
 class XbarArray1t1rPolicy(PolicyBase):
-    """Composite nonideality policy for a 1T1R pure-array core.
-
-    Attributes:
-        cell_policy: 1T1R cell nonideality policy; concrete subclass matches
-            the configured cell model.
-        solve_chunk_size: Maximum number of broadcast-leading instances the
-            solver settles per chunk — the per-chunk memory budget, since
-            the sliced snaps, the solver's own transient state, and that
-            chunk's measurement all scale with it and nothing grid-shaped
-            outlives the chunk. ``0`` runs the whole leading in one block;
-            any positive value splits it into contiguous slices of at most
-            this many instances. Runtime knob, not a chip-preset constant.
-    """
+    """Composite nonideality policy for a 1T1R pure-array core."""
 
     cell_policy: XbarCell1t1rPolicy
+    """Its concrete subclass matches the configured cell model."""
     solve_chunk_size: int
+    """Maximum number of broadcast-leading instances the solver settles per
+    chunk, which is the per-chunk memory budget; `0` runs the whole leading in
+    one block. A runtime knob, not a chip-preset constant."""
 
     def validate(self) -> None:
         super().validate()
@@ -143,56 +115,33 @@ class XbarArray1t1rPolicy(PolicyBase):
 
 @dataclass(frozen=True)
 class XbarArray1t1rSteadyState:
-    """Reassembled steady-state array output.
-
-    Both boundaries are reported because both conduct: the caller that
-    injected the two clamps is what bills them, and it bills each at the
-    converged state of its own rail.
-
-    Attributes:
-        i_bl_port__uA: BL port current at the converged operating point.
-            Shape: ``[..., col_num]``.
-        v_bl_clamp__V: BL clamp voltage at the converged operating point.
-            Shape: ``[..., col_num]``.
-        i_sl_port__uA: SL port current at the converged operating point.
-            Shape: ``[..., col_num]``.
-        v_sl_drive__V: SL drive voltage at the converged operating point.
-            Shape: ``[..., col_num]``.
-    """
+    """Reassembled steady-state array output, one entry per conducting boundary."""
 
     i_bl_port__uA: Tensor
+    """BL port current at the converged operating point. Shape: `[..., col_num]`."""
     v_bl_clamp__V: Tensor
+    """BL clamp voltage at the converged operating point. Shape: `[..., col_num]`."""
     i_sl_port__uA: Tensor
+    """SL port current at the converged operating point. Shape: `[..., col_num]`."""
     v_sl_drive__V: Tensor
+    """SL drive voltage at the converged operating point. Shape: `[..., col_num]`."""
 
 
 @dataclass(frozen=True)
 class XbarArray1t1rChunkMeasure:
-    """What survives one solved chunk of this array.
-
-    A scheme array whose measurement carries more than the two boundaries
-    extends this record and reassembles it in
-    :meth:`XbarArray1t1r._assemble_steady_state`.
-
-    Attributes:
-        i_bl_port__uA: BL port current at the converged operating point.
-            Shape: ``[..., col_num]``.
-        v_bl_clamp__V: BL clamp voltage at the converged operating point.
-            Shape: ``[..., col_num]``.
-        i_sl_port__uA: SL port current at the converged operating point.
-            Shape: ``[..., col_num]``.
-        v_sl_drive__V: SL drive voltage at the converged operating point.
-            Shape: ``[..., col_num]``.
-        energy__fJ: Array capacitive energy, absent when no profiler asks
-            for dynamic energy.
-            Shape: ``[...]``.
-    """
+    """What survives one solved chunk of this array."""
 
     i_bl_port__uA: Tensor
+    """BL port current at the converged operating point. Shape: `[..., col_num]`."""
     v_bl_clamp__V: Tensor
+    """BL clamp voltage at the converged operating point. Shape: `[..., col_num]`."""
     i_sl_port__uA: Tensor
+    """SL port current at the converged operating point. Shape: `[..., col_num]`."""
     v_sl_drive__V: Tensor
+    """SL drive voltage at the converged operating point. Shape: `[..., col_num]`."""
     energy__fJ: Tensor | None
+    """Array capacitive energy, absent when no profiler asks for dynamic
+    energy. Shape: `[...]`."""
 
 
 class XbarArray1t1r(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
@@ -272,20 +221,20 @@ class XbarArray1t1r(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
 
     @property
     def weight_grid_shape(self) -> tuple[int, ...]:
-        """Shape of the weight grid (per-cell state array): ``(*inst_shape, col, row)``."""
+        """Shape of the weight grid (per-cell state array): `(*inst_shape, col, row)`."""
         return (*self.inst_shape, self._col_num, self._row_num)
 
     def program(self, w_state_idx: Tensor) -> None:
         """Write the cells from one state-index tensor.
 
-        The index grid is PHYSICAL: entry ``(col, row)`` is the state of the
+        The index grid is PHYSICAL: entry `(col, row)` is the state of the
         cell at that intersection. Any placement of digits, polarities, or
         serial slots onto physical columns belongs to the caller.
 
         Args:
-            w_state_idx: State-index tensor in ``[0, w_state_num - 1]`` at
-                ``self.weight_grid_shape``.
-                Shape: ``[*inst_shape, col_num, row_num]``.
+            w_state_idx: State-index tensor in `[0, w_state_num - 1]` at
+                `self.weight_grid_shape`.
+                Shape: `[*inst_shape, col_num, row_num]`.
         """
         if tuple(w_state_idx.shape) != self.weight_grid_shape:
             raise ValueError(
@@ -304,38 +253,26 @@ class XbarArray1t1r(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
     ) -> XbarArray1t1rSteadyState:
         """Settle the 1T1R array to DC under an analog WL drive.
 
-        The leading axes end with this array's instance axes — they come from
-        broadcasting against the weight grid ``(*inst_shape, col, row)`` — so a
-        caller's own batch axes stay in front of them. Both outputs are laid out
-        that way: the array's cap energy at
-        ``[*caller_leading, *middle, *inst_shape]`` and each boundary's port state at
-        ``[..., col_num]``, the column axis being the per-column clamp's instance
-        axis.
-
-        Boundary state arrives ready: each clamp snap was taken by the caller
-        that owns the event structure, so the array normalizes no shape and
-        samples no boundary of its own. The word-line drive is a full cell
-        grid for the same reason — one value per gate is what the cell reads,
-        and a caller that drives one line per row states that by expanding a
-        row vector, which also declares its correlation structure.
-
-        The array bills its own capacitance and nothing else. It calls no clamp
-        forward: it hands each clamp to the solver, reads the converged rail
-        state back, and returns it for the caller to bill its own boundaries on.
+        The call's leading is the weight-grid prefix `(*inst_shape,)`
+        broadcast against the WL drive, so a caller's own batch axes stay in
+        front of this array's instance axes. No boundary shape is normalized
+        here: the snaps arrive at the full per-call shape and the WL drive as
+        a full cell grid, a row-uniform drive being an expanded row vector.
 
         Args:
             v_wl: Analog WL drive [V], one value per cell gate.
-                Shape: ``[..., col_num, row_num]``.
-            bl_driver: BL boundary clamp (structural ``ClampDriver`` role).
+                Shape: `[..., col_num, row_num]`.
+            bl_driver: BL boundary clamp.
             bl_driver_snap: Per-solve BL clamp snap at the full per-call
-                shape; its ``v_ref__V`` is also the ideal BL rest level.
-            sl_driver: SL boundary clamp (structural ``ClampDriver`` role).
+                shape; its `v_ref__V` is also the ideal BL rest level.
+            sl_driver: SL boundary clamp.
             sl_driver_snap: Per-solve SL clamp snap at the full per-call
-                shape; its ``v_ref__V`` is also the ideal SL rest level.
+                shape; its `v_ref__V` is also the ideal SL rest level.
 
         Returns:
-            :class:`XbarArray1t1rSteadyState` carrying both boundaries' per-column
-            port current [uA] and clamp voltage [V], all at full leading.
+            Both boundaries' per-column port current [uA] and clamp voltage
+            [V] at the full leading, the column axis being each clamp's own
+            instance axis.
         """
 
         # --- 1: read the call's broadcast leading ---
@@ -369,21 +306,15 @@ class XbarArray1t1r(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
         # --- 3: record aggregate energy ---
 
         if measured.energy__fJ is not None:
-            # The energy tensor keeps the caller's leading dims; the collector sums the
-            # array's own work and instance axes past them. The CELL's finer
-            # instance axes (column, row) are already folded by the mode's
-            # energy function: the cell is not a profile target and this array
-            # logs on its behalf.
+            # The cell's finer (column, row) axes are already folded by the
+            # mode's energy function; the collector sums this array's own work
+            # and instance axes past the caller's leading dims.
             # Shape: [*leading]
             self._record_dynamic_energy(measured.energy__fJ)
         return self._assemble_steady_state(measured)
 
     def _assemble_steady_state(self, measured: XbarArray1t1rChunkMeasure) -> XbarArray1t1rSteadyState:
         """Reassemble the folded measurement into this array's steady state.
-
-        The extension point of the measurement pair: a scheme array that
-        measures more than the two boundaries overrides :meth:`_measure_chunk`
-        with a record of its own and this method to carry it out.
 
         Args:
             measured: Folded measurement at the call's full leading.
@@ -418,8 +349,8 @@ class XbarArray1t1r(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
                 this array's own measurement does not read.
 
         Returns:
-            :class:`XbarArray1t1rChunkMeasure` carrying both port states and, while a
-            profiler asks for it, the chunk's array energy.
+            Both port states and, while a profiler asks for it, the chunk's
+            array energy.
         """
         energy__fJ = None
         if self._is_dynamic_energy_profile_active():
@@ -449,16 +380,8 @@ class XbarArray1t1r(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
     ) -> Tensor:
         """Cap energy of one solve under a scanned bit-line boundary.
 
-        Nothing is held between solves: the rest state is the declared flat
-        profile at ground — both rails, both word lines, and every cell node
-        including the internal access node, which parks at its own bit-line
-        level. One solve is therefore one complete excursion of every cap in
-        the tile and there is no hold to establish.
-
-        The ledger below is the whole account of that solve: the four node
-        totals of every cell, each at the level its own node reaches. The
-        wire is inside those totals — every stretch of line belongs to the
-        node it hangs on.
+        The rest state is ground everywhere, so the bill is one full excursion
+        of the four node totals of every cell and no hold to establish.
 
         Args:
             solver_dcop: Converged DCOP of this chunk.
@@ -466,7 +389,7 @@ class XbarArray1t1r(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
 
         Returns:
             Array energy [fJ].
-            Shape: ``[...]``.
+            Shape: `[...]`.
         """
         config = self.config
 
@@ -490,26 +413,12 @@ class XbarArray1t1r(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
     ) -> Tensor:
         """Cap energy of one solve under a held bit-line boundary.
 
-        The conduction path is parked at its ideal held level and the word
-        lines are scanned over it, so a solve bills only the displacement
-        away from that rest level, and establishing the hold is billed on top
-        of it.
-
-        The rest state is DECLARED, never solved: both rails park at the ideal
+        The rest state is declared, never solved: both rails at the ideal
         levels their boundaries state, the word lines at ground, and each
-        cell's internal access node at its own bit-line level. That last one
-        is the family topology read at rest — the storage element sits on the
-        bit-line side and an off access device is orders of magnitude less
-        conductive, so the off divider parks the node on the bit line.
-
-        The ledger below is the whole account of that solve: the four node
-        totals of every cell, each against its own rest level, and the rest
-        state's own establishment. The wire is inside those totals — every
-        stretch of line belongs to the node it hangs on. This mode's contract
-        is that one hold covers exactly one full row scan, so that
-        establishment is spread evenly over ``row_num`` solves; a scheme whose
-        hold spans a different number of accesses overrides the measurement
-        rather than this function.
+        cell's internal access node at its own bit-line level. The bill is the
+        four node totals of every cell against those levels, plus the rest
+        state's own establishment spread evenly over the `row_num` solves one
+        hold covers.
 
         Args:
             solver_dcop: Converged DCOP of this chunk.
@@ -519,7 +428,7 @@ class XbarArray1t1r(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
 
         Returns:
             Array energy [fJ].
-            Shape: ``[...]``.
+            Shape: `[...]`.
         """
         config = self.config
         v_bl__V = solver_dcop.v_bl_node
@@ -542,7 +451,7 @@ class XbarArray1t1r(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
         # --- 2: bill establishing the rest state, amortized over its scan ---
 
         # The other leg of the same excursion, from ground up to the rest
-        # profile. The word line rests at ground, so it carries no term here.
+        # profile; the word line rests at ground and carries no term here.
         # Every cell of a column rests at that column's declared levels, so
         # the per-cell bills are laid out on the grid before the fold.
         # Shape: [..., col_num, 1] -> [..., col_num, row_num]

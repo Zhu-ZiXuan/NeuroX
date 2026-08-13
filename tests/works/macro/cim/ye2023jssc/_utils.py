@@ -4,27 +4,27 @@ Every config dataclass is built directly in Python with small explicit values (n
 disk TOML). The witness ships an ANALYTIC readout chain so the integer MAC is
 exact:
 
-  * the T2 lookup returns the same ``FLOOR__uA`` at the floor operating point
+  * the T2 lookup returns the same `FLOOR__uA` at the floor operating point
     (V_X = 0, i.e. an input-0 column) AND for a driven HRS cell, and
-    ``I_UNIT__uA`` for a driven LRS cell;
-  * the macro SEATS the PH0 compensation at ``FLOOR * row_num * sum(radix)``
+    `I_UNIT__uA` for a driven LRS cell;
+  * the macro SEATS the PH0 compensation at `FLOOR * row_num * sum(radix)`
     over the weight AND redundant planes, so it cancels every non-LRS
     contribution exactly;
-  * the injected reference current ``I_REF = I_UNIT - FLOOR`` is the resulting
+  * the injected reference current `I_REF = I_UNIT - FLOOR` is the resulting
     per-MAC-unit current step, so the RS-CSA code equals the UNSIGNED MAC
     bit-exactly (rescale factor 1.0).
 
 Every current is a dyadic fraction, so the whole chain is exact in float64 and a
 MAC landing on a decision boundary is unambiguous.
 
-Miniature geometry: ``output_num = 4`` logical outputs, ``input_num = 2`` logical
-1-bit inputs, ``weight_radix = (1, 2, 4)`` (three binary weight planes, LSB-first)
-plus ``redundant_radix = (4,)`` (the non-weight SUBA4 plane, programmed all-HRS
+Miniature geometry: `output_num = 4` logical outputs, `input_num = 2` logical
+1-bit inputs, `weight_radix = (1, 2, 4)` (three binary weight planes, LSB-first)
+plus `redundant_radix = (4,)` (the non-weight SUBA4 plane, programmed all-HRS
 and driven input-0), 4-bit RS-CSA. The array is TRANSPOSED (physical rows = 4
-outputs, physical columns = ``input_num * 4 planes = 8``).
+outputs, physical columns = `input_num * 4 planes = 8`).
 
 The witness phase set is deliberately NOT the paper's, so any test reading the
-access window pins the DERIVATION ``T_AC(b) = sum(t_phase[:b]) + t_intrinsic[b-1]``
+access window pins the DERIVATION `T_AC(b) = sum(t_phase[:b]) + t_intrinsic[b-1]`
 over the EXECUTED phases rather than a shipped number.
 """
 
@@ -181,7 +181,7 @@ def adc_config(*, adc_bits: int = TINY_ADC_BITS) -> RsCsaIadcConfig:
 def reference_config() -> IrefConfig:
     """The readout's single reference current — one tap, one row per mode.
 
-    The reference IS the code step here (``I_REF = I_UNIT - FLOOR``), so the
+    The reference IS the code step here (`I_REF = I_UNIT - FLOOR`), so the
     RS-CSA code equals the unsigned MAC.
     """
     return IrefConfig(
@@ -197,7 +197,7 @@ def build_config(
     max_active_num: int = TINY_INPUT_NUM,
     adc_bits: int = TINY_ADC_BITS,
 ) -> Ye2023JsscCimMacroConfig:
-    """Hand-built analytic witness config; ``code == UNSIGNED MAC`` (rescale 1.0)."""
+    """Hand-built analytic witness config; `code == UNSIGNED MAC` (rescale 1.0)."""
     return Ye2023JsscCimMacroConfig(
         area_per_inst__um2=0.0,
         leakage_per_inst__uW=8.0,
@@ -226,7 +226,7 @@ def build_config(
         mux_driver_config=UnmodeledBlockConfig(area_per_inst__um2=0.0, leakage_per_inst__uW=5.0),
         timing_ctrl_config=UnmodeledBlockConfig(area_per_inst__um2=0.0, leakage_per_inst__uW=14.0),
         # The PH0 seat is a config value: the witness writes the analytic all-off
-        # row floor of ITS OWN width, so ``code == MAC`` stays exact when a test
+        # row floor of ITS OWN width, so `code == MAC` stays exact when a test
         # widens the witness.
         i_ph0_comp__uA=expected_ph0__uA(input_num=max_active_num),
         v_tbl__V=V_TBL__V,
@@ -274,7 +274,7 @@ def build_macro(
     device: torch.device | None = None,
     inst_shape: tuple[int, ...] = (),
 ) -> Ye2023JsscCimMacro:
-    """Build + fabricate one macro on ``device`` under the all-off policy."""
+    """Build + fabricate one macro on `device` under the all-off policy."""
     macro = CimMacro.from_config(
         config=config,
         policy=build_all_off_policy(),
@@ -298,7 +298,7 @@ def macro_device(macro: Ye2023JsscCimMacro) -> torch.device:
 
 
 def expected_ph0__uA(*, input_num: int = TINY_INPUT_NUM) -> float:
-    """The seated PH0: ``FLOOR * input_num * sum(weight + redundant radix)``."""
+    """The seated PH0: `FLOOR * input_num * sum(weight + redundant radix)`."""
     return FLOOR__uA * input_num * sum((*TINY_WEIGHT_RADIX, *TINY_REDUNDANT_RADIX))
 
 
@@ -307,15 +307,15 @@ def ideal_mac(w_val: Tensor, x: Tensor, *, clamp: bool = True, mag_max: int = MA
 
     Args:
         w_val: Unsigned logical weights.
-            Shape: ``[input_num, output_num]``.
+            Shape: `[input_num, output_num]`.
         x: 1-bit activations.
-            Shape: ``[..., input_num]``.
-        clamp: Clamp to ``[0, mag_max]`` (the RS-CSA code saturation).
+            Shape: `[..., input_num]`.
+        clamp: Clamp to `[0, mag_max]` (the RS-CSA code saturation).
         mag_max: Upper code bound.
 
     Returns:
         Expected MAC / code on CPU (int64).
-        Shape: ``[..., out]``.
+        Shape: `[..., out]`.
     """
     w2 = w_val.cpu().long()
     x2 = x.cpu().long()

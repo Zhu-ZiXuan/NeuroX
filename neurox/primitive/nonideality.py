@@ -2,6 +2,7 @@
 
 See also:
     docs/reference/primitive/nonideality.md
+    docs/internals/primitive/nonideality.md
 """
 
 import torch
@@ -11,12 +12,7 @@ from neurox.common import ConfigBase
 
 
 class StuckAtFaultConfig(ConfigBase):
-    """Stuck-at fault probabilities.
-
-    Attributes:
-        p_at_min: Probability that a cell is stuck at the minimum value.
-        p_at_max: Probability that a cell is stuck at the maximum value.
-    """
+    """Stuck-at fault probabilities."""
 
     p_at_min: float
     p_at_max: float
@@ -40,15 +36,15 @@ def apply_stuck_at_fault(
 
     Args:
         x: Input conductance.
-            Shape: ``[...]``.
+            Shape: `[...]`.
         config: Stuck-at fault probabilities.
         min_val: Stuck-at-min replacement value.
         max_val: Stuck-at-max replacement value.
-        enabled: Master toggle. ``False`` returns ``x`` unchanged.
+        enabled: Master toggle; `False` returns `x` unchanged.
 
     Returns:
         Conductance with stuck-at faults applied.
-        Shape: ``[...]``.
+        Shape: `[...]`.
     """
     if not enabled:
         return x
@@ -66,11 +62,11 @@ def apply_gaussian(x: Tensor, sigma: float | Tensor, *, enabled: bool) -> Tensor
     Args:
         x: Input tensor.
         sigma: Standard deviation of the additive noise.
-        enabled: Master toggle. ``False`` returns ``x`` unchanged.
+        enabled: Master toggle; `False` returns `x` unchanged.
 
     Returns:
         Noisy tensor.
-        Shape: ``[...]``.
+        Shape: `[...]`.
     """
     if not enabled:
         return x
@@ -80,18 +76,16 @@ def apply_gaussian(x: Tensor, sigma: float | Tensor, *, enabled: bool) -> Tensor
 def apply_relative_gaussian(x: Tensor, sigma_relative: float, *, enabled: bool) -> Tensor:
     """Apply multiplicative Gaussian noise proportional to the signal.
 
-    The multiplicative form keeps an exact zero exact, so a zero-valued
-    reference tap stays at zero under any ``sigma_relative``.
+    The multiplicative form keeps an exact zero exact.
 
     Args:
         x: Input tensor.
         sigma_relative: Relative standard deviation [dimensionless].
-        enabled: Master toggle. ``False`` returns ``x`` unchanged, leaving
-            a broadcast view unmaterialized.
+        enabled: Master toggle; `False` returns `x` unchanged.
 
     Returns:
         Noisy tensor.
-        Shape: ``[...]``.
+        Shape: `[...]`.
     """
     if not enabled:
         return x
@@ -99,15 +93,12 @@ def apply_relative_gaussian(x: Tensor, sigma_relative: float, *, enabled: bool) 
 
 
 class StateDependentGaussianConfig(ConfigBase):
-    """State-dependent Gaussian noise config.
-
-    Attributes:
-        sigma_slope: Linear growth of the noise σ per unit of ``|x|``.
-        sigma_intercept: Base σ at ``|x| = 0``.
-    """
+    """State-dependent Gaussian noise config."""
 
     sigma_slope: float
+    """Linear growth of the noise σ per unit of `|x|`."""
     sigma_intercept: float
+    """Base σ at `|x| = 0`."""
 
     def validate(self) -> None:
         self._require_non_neg(self.sigma_slope, "sigma_slope")
@@ -120,17 +111,17 @@ def apply_state_dependent_gaussian(
     *,
     enabled: bool,
 ) -> Tensor:
-    """Apply Gaussian noise whose σ scales with the magnitude of ``x``.
+    """Apply Gaussian noise whose σ scales with the magnitude of `x`.
 
     Args:
         x: Input conductance.
-            Shape: ``[...]``.
+            Shape: `[...]`.
         config: Slope and intercept of the per-element σ.
-        enabled: Master toggle. ``False`` returns ``x`` unchanged.
+        enabled: Master toggle; `False` returns `x` unchanged.
 
     Returns:
         Noisy tensor.
-        Shape: ``[...]``.
+        Shape: `[...]`.
     """
     if not enabled:
         return x
@@ -139,13 +130,10 @@ def apply_state_dependent_gaussian(
 
 
 class LognormalConfig(ConfigBase):
-    """Multiplicative log-normal noise config.
-
-    Attributes:
-        sigma: Underlying normal σ.
-    """
+    """Multiplicative log-normal noise config."""
 
     sigma: float
+    """Standard deviation of the underlying normal, not of the multiplicative factor."""
 
     def validate(self) -> None:
         self._require_non_neg(self.sigma, "sigma")
@@ -156,13 +144,13 @@ def apply_lognormal(x: Tensor, config: LognormalConfig, *, enabled: bool) -> Ten
 
     Args:
         x: Input conductance.
-            Shape: ``[...]``.
+            Shape: `[...]`.
         config: Log-normal σ.
-        enabled: Master toggle. ``False`` returns ``x`` unchanged.
+        enabled: Master toggle; `False` returns `x` unchanged.
 
     Returns:
         Noisy tensor.
-        Shape: ``[...]``.
+        Shape: `[...]`.
     """
     if not enabled:
         return x
@@ -170,19 +158,16 @@ def apply_lognormal(x: Tensor, config: LognormalConfig, *, enabled: bool) -> Ten
 
 
 class StateDependentLognormalConfig(ConfigBase):
-    """State-dependent log-normal noise config.
-
-    Attributes:
-        sigma_slope: Amount the noise σ falls as the normalised state rises from 0 to 1.
-        sigma_intercept: Base σ at the min state (normalised state 0).
-        min_val: Lower bound of the state-normalisation range.
-        max_val: Upper bound of the state-normalisation range.
-    """
+    """State-dependent log-normal noise config."""
 
     sigma_slope: float
+    """Amount the noise σ falls as the normalised state rises from 0 to 1."""
     sigma_intercept: float
+    """Base σ at the min state (normalised state 0)."""
     min_val: float
+    """Lower bound of the state-normalisation range."""
     max_val: float
+    """Upper bound of the state-normalisation range."""
 
     def validate(self) -> None:
         self._require_non_neg(self.sigma_slope, "sigma_slope")
@@ -201,13 +186,13 @@ def apply_state_dependent_lognormal(
 
     Args:
         x: Input conductance.
-            Shape: ``[...]``.
+            Shape: `[...]`.
         config: State-dependent σ config.
-        enabled: Master toggle. ``False`` returns ``x`` unchanged.
+        enabled: Master toggle; `False` returns `x` unchanged.
 
     Returns:
         Noisy tensor.
-        Shape: ``[...]``.
+        Shape: `[...]`.
     """
     if not enabled:
         return x
@@ -217,12 +202,7 @@ def apply_state_dependent_lognormal(
 
 
 class GammaConfig(ConfigBase):
-    """Multiplicative Gamma noise config (constant shape and scale).
-
-    Attributes:
-        shape_k: Gamma shape parameter k.
-        scale_theta: Gamma scale parameter θ.
-    """
+    """Multiplicative Gamma noise config (constant shape and scale)."""
 
     shape_k: float
     scale_theta: float
@@ -237,13 +217,13 @@ def apply_gamma_noise(x: Tensor, config: GammaConfig, *, enabled: bool) -> Tenso
 
     Args:
         x: Input tensor.
-            Shape: ``[...]``.
+            Shape: `[...]`.
         config: Constant Gamma config.
-        enabled: Master toggle. ``False`` returns ``x`` unchanged.
+        enabled: Master toggle; `False` returns `x` unchanged.
 
     Returns:
         Noisy tensor.
-        Shape: ``[...]``.
+        Shape: `[...]`.
     """
     if not enabled:
         return x
@@ -254,21 +234,18 @@ def apply_gamma_noise(x: Tensor, config: GammaConfig, *, enabled: bool) -> Tenso
 
 
 class StateDependentGammaConfig(ConfigBase):
-    """State-dependent Gamma noise config.
-
-    Attributes:
-        k_slope: Rate at which the Gamma shape k varies with normalised state.
-        k_intercept: Gamma shape k at the min state (normalised state 0).
-        theta: Scale parameter, held constant across all states.
-        min_val: Lower bound of the state-normalisation range.
-        max_val: Upper bound of the state-normalisation range.
-    """
+    """State-dependent Gamma noise config."""
 
     k_slope: float
+    """Rate at which the Gamma shape k varies with normalised state."""
     k_intercept: float
+    """Gamma shape k at the min state (normalised state 0)."""
     theta: float
+    """Scale parameter, held constant across all states."""
     min_val: float
+    """Lower bound of the state-normalisation range."""
     max_val: float
+    """Upper bound of the state-normalisation range."""
 
     def validate(self) -> None:
         self._require_pos(self.k_intercept, "k_intercept")
@@ -285,19 +262,18 @@ def apply_state_dependent_gamma(
 ) -> Tensor:
     """Apply state-dependent Gamma noise normalised to unit mean.
 
-    PyTorch's gamma sampler requires float32 or higher; the function
-    transparently casts low-precision inputs (e.g. bfloat16) to float32
-    for the sampling and casts the result back at the end.
+    The Gamma sampler requires float32 or higher; a lower-precision input is
+    cast for sampling and cast back on return.
 
     Args:
         x: Input conductance.
-            Shape: ``[...]``.
+            Shape: `[...]`.
         config: State-dependent Gamma config.
-        enabled: Master toggle. ``False`` returns ``x`` unchanged.
+        enabled: Master toggle; `False` returns `x` unchanged.
 
     Returns:
         Noisy tensor.
-        Shape: ``[...]``.
+        Shape: `[...]`.
     """
     if not enabled:
         return x
@@ -327,17 +303,13 @@ def apply_state_dependent_gamma(
 
 
 class TelegraphConfig(ConfigBase):
-    """Random telegraph noise config.
-
-    Attributes:
-        amplitude_mean: Mean amplitude of the perturbation.
-        amplitude_std: Std of the Gaussian amplitude draw.
-        p_high_state: Probability that a cell is in the high RTN state.
-    """
+    """Random telegraph noise config."""
 
     amplitude_mean: float
     amplitude_std: float
+    """Standard deviation of the Gaussian amplitude draw."""
     p_high_state: float
+    """Probability that a cell sits in the high RTN state."""
 
     def validate(self) -> None:
         self._require_non_neg(self.amplitude_std, "amplitude_std")
@@ -350,13 +322,13 @@ def apply_telegraph_noise(x: Tensor, config: TelegraphConfig, *, enabled: bool) 
 
     Args:
         x: Input conductance.
-            Shape: ``[...]``.
+            Shape: `[...]`.
         config: Random telegraph noise config.
-        enabled: Master toggle. ``False`` returns ``x`` unchanged.
+        enabled: Master toggle; `False` returns `x` unchanged.
 
     Returns:
         Noisy tensor.
-        Shape: ``[...]``.
+        Shape: `[...]`.
     """
     if not enabled:
         return x
@@ -381,13 +353,13 @@ def apply_pelgrom_mismatch(
     Args:
         ideal: Tensor of nominal per-cell values.
         sigma_relative: Per-unit-cell relative σ.
-        unit: Single-unit-cell value in the same units as ``ideal``.
+        unit: Single-unit-cell value in the same units as `ideal`.
         floor: Optional minimum clamp applied after sampling.
-        enabled: Master toggle. ``False`` returns ``ideal`` unchanged.
+        enabled: Master toggle; `False` returns `ideal` unchanged.
 
     Returns:
-        Tensor with the same dtype / device as ``ideal``.
-        Shape: ``[...]``.
+        Tensor with the same dtype / device as `ideal`.
+        Shape: `[...]`.
     """
     if not enabled:
         return ideal
@@ -406,15 +378,15 @@ def apply_lsb_jitter(
 ) -> Tensor:
     """Add a Bernoulli(0.5) 0/+1 LSB jitter to an integer code.
 
-    Output is clamped to ``[0, unsigned_max]``.
+    Output is clamped to `[0, unsigned_max]`.
 
     Args:
         code: Integer code tensor.
         unsigned_max: Maximum emitted code.
-        enabled: Master toggle. ``False`` returns ``code`` unchanged.
+        enabled: Master toggle; `False` returns `code` unchanged.
 
     Returns:
-        Jittered code with the same dtype / device as ``code``.
+        Jittered code with the same dtype / device as `code`.
     """
     if not enabled:
         return code

@@ -1,9 +1,8 @@
 """Pure math for the generic macro-ADC calibration tools.
 
-Every function here is deterministic, tensor/scalar math with no module
-building, no file IO, and no plotting — the unit-testable core the three
-CLI entries (:mod:`.rescale_fit`, :mod:`.threshold_probe`,
-:mod:`.mode_derive`) consume.
+Every function here is deterministic tensor / scalar math with no module
+building, no file IO, and no plotting — the unit-testable core the three CLI
+entries `rescale_fit`, `threshold_probe`, and `mode_derive` consume.
 """
 
 from __future__ import annotations
@@ -22,40 +21,38 @@ from torch import Tensor
 
 @dataclass(frozen=True)
 class RescaleFit:
-    """One-parameter least-squares fit ``ideal ~= rescale_factor * code``.
-
-    Attributes:
-        rescale_factor: Fitted slope through the origin.
-        sample_num: Number of samples entering the fit (post-exclusion).
-        r2: Coefficient of determination of the through-origin model
-            against the mean-of-``ideal`` baseline; 1.0 when ``ideal`` is
-            constant and the residuals are zero.
-        rmse: Root-mean-square residual ``ideal - rescale_factor * code``.
-        max_abs_residual: Largest absolute residual.
-    """
+    """One-parameter least-squares fit `ideal ~= rescale_factor * code`."""
 
     rescale_factor: float
+    """Fitted slope through the origin."""
     sample_num: int
+    """Samples entering the fit, after exclusion."""
     r2: float
+    """Coefficient of determination of the through-origin model against the
+    mean-of-`ideal` baseline; 1.0 when `ideal` is constant and the residuals
+    are zero."""
     rmse: float
+    """Root-mean-square residual `ideal - rescale_factor * code`."""
     max_abs_residual: float
+    """Largest absolute residual."""
 
 
 def fit_rescale_through_origin(code: Tensor, ideal: Tensor) -> RescaleFit:
-    """LS-fit the zero-through-origin rescale ``ideal ~= r * code``.
+    """LS-fit the zero-through-origin rescale `ideal ~= r * code`.
 
     Args:
-        code: ADC code samples, flattened internally. Must not be all
-            zero — a zero design matrix has no slope.
-            Shape: ``[...]``.
-        ideal: Ideal-value samples, same element count as ``code``.
-            Shape: ``[...]``.
+        code: ADC code samples, flattened internally. Must not be all zero —
+            a zero design matrix has no slope.
+            Shape: `[...]`.
+        ideal: Ideal-value samples, same element count as `code`.
+            Shape: `[...]`.
 
     Returns:
-        The fitted :class:`RescaleFit` (float64 accumulation).
+        The fit, accumulated in float64.
 
     Raises:
-        ValueError: On element-count mismatch or an all-zero ``code``.
+        ValueError: On element-count mismatch, an empty input, or an all-zero
+            `code`.
     """
     c = code.detach().flatten().to(torch.float64)
     y = ideal.detach().flatten().to(torch.float64)
@@ -87,22 +84,18 @@ def fit_rescale_through_origin(code: Tensor, ideal: Tensor) -> RescaleFit:
 
 @dataclass(frozen=True)
 class InputCodeBand:
-    """Observed analog band at one integer ADC input code.
-
-    Attributes:
-        input_code: Integer ADC input code of the band — the mapped
-            quantization input the converter discriminates on.
-        lo: Minimum analog input observed at this code.
-        hi: Maximum analog input observed at this code.
-        mean: Mean analog input observed at this code.
-        count: Number of samples in the band.
-    """
+    """Observed analog band at one integer ADC input code."""
 
     input_code: int
+    """The mapped quantization input the converter discriminates on."""
     lo: float
+    """Minimum analog input observed at this code."""
     hi: float
+    """Maximum analog input observed at this code."""
     mean: float
+    """Mean analog input observed at this code."""
     count: int
+    """Samples in the band."""
 
 
 def band_stats(
@@ -113,21 +106,19 @@ def band_stats(
 ) -> tuple[InputCodeBand, ...]:
     """Group analog samples by integer input code into per-code bands.
 
-    Pairs whose input code falls outside ``adc_input_code_range`` are
-    masked out of both streams: the converter resolves no tap there, so
-    their analog values bound no band of this grid.
+    A pair whose input code falls outside `adc_input_code_range` is masked
+    out of both streams: the converter resolves no tap there, so its analog
+    value bounds no band of this grid.
 
     Args:
-        input_code: Integer ADC input code per sample, flattened
-            internally.
-            Shape: ``[...]``.
+        input_code: Integer ADC input code per sample, flattened internally.
+            Shape: `[...]`.
         analog: Analog input per sample, same element count.
-            Shape: ``[...]``.
-        adc_input_code_range: Inclusive grid bounds ``(lower, upper)``;
-            bands cover ``lower .. upper``.
+            Shape: `[...]`.
+        adc_input_code_range: Inclusive grid bounds `(lower, upper)`.
 
     Returns:
-        One :class:`InputCodeBand` per code in the range, ascending.
+        One band per code in the range, ascending.
 
     Raises:
         ValueError: On element-count mismatch, a degenerate or negative
@@ -168,37 +159,35 @@ def band_stats(
 
 @dataclass(frozen=True)
 class ThresholdPlacement:
-    """Mid-point threshold ladder + band-margin diagnostics for one mode.
-
-    Attributes:
-        thresholds: One code-boundary threshold per adjacent band pair,
-            ``t[k] = (hi(k) + lo(k+1)) / 2``.
-        margins: Per-boundary band separation ``lo(k+1) - hi(k)``; a
-            negative entry means the adjacent bands overlap.
-        min_margin: Smallest margin (the report headline).
-        min_margin_boundary: ``k`` of the smallest margin (the ``k``/``k+1``
-            boundary).
-        monotone: True iff the band means are strictly increasing AND the
-            threshold ladder is strictly increasing.
-    """
+    """Mid-point threshold ladder + band-margin diagnostics for one mode."""
 
     thresholds: tuple[float, ...]
+    """One code-boundary threshold per adjacent band pair,
+    `t[k] = (hi(k) + lo(k+1)) / 2`."""
     margins: tuple[float, ...]
+    """Per-boundary band separation `lo(k+1) - hi(k)`; a negative entry means
+    the adjacent bands overlap."""
     min_margin: float
+    """Smallest margin — the report headline."""
     min_margin_boundary: int
+    """The `k` of the smallest margin, at the `k`/`k+1` boundary."""
     monotone: bool
+    """True iff the band means are strictly increasing and so is the
+    threshold ladder."""
 
 
 def place_thresholds(bands: Sequence[InputCodeBand]) -> ThresholdPlacement:
     """Place mid-point thresholds between adjacent input-code bands.
 
-    Never raises on overlap or non-monotonicity — the placement carries
-    the diagnostics (``margins`` / ``monotone``) so the caller can report
-    a failed band separation instead of crashing mid-report.
+    Overlap and non-monotonicity never raise — the placement carries the
+    `margins` / `monotone` diagnostics so the caller can report a failed band
+    separation instead of crashing mid-report.
 
     Args:
-        bands: Ascending complete band grid from :func:`band_stats`
-            (at least two bands).
+        bands: Ascending complete band grid, at least two bands.
+
+    Raises:
+        ValueError: Fewer than two bands.
     """
     if len(bands) < 2:
         raise ValueError(f"require: at least 2 bands to place a threshold; got {len(bands)}")
@@ -223,7 +212,7 @@ def place_thresholds(bands: Sequence[InputCodeBand]) -> ThresholdPlacement:
 
 @dataclass(frozen=True)
 class LinearFit:
-    """Ordinary least-squares line ``y ~= slope * x + intercept``."""
+    """Ordinary least-squares line `y ~= slope * x + intercept`."""
 
     slope: float
     intercept: float
@@ -231,13 +220,17 @@ class LinearFit:
 
 
 def fit_linear(x: Tensor, y: Tensor) -> LinearFit:
-    """OLS line fit (float64) — the grid-curve ``I(M)`` diagnostic.
+    """OLS line fit in float64 — the grid-curve `I(M)` diagnostic.
 
     Args:
         x: Abscissa samples, flattened internally; at least 2 distinct.
-            Shape: ``[...]``.
+            Shape: `[...]`.
         y: Ordinate samples, same element count.
-            Shape: ``[...]``.
+            Shape: `[...]`.
+
+    Raises:
+        ValueError: On element-count mismatch, fewer than 2 samples, or a
+            degenerate abscissa.
     """
     xf = x.detach().flatten().to(torch.float64)
     yf = y.detach().flatten().to(torch.float64)
@@ -267,21 +260,17 @@ def fit_linear(x: Tensor, y: Tensor) -> LinearFit:
 
 @dataclass(frozen=True)
 class ValueCluster:
-    """One cluster of scalar range values.
-
-    Attributes:
-        lo: Smallest member value.
-        hi: Largest member value.
-        representative: Cluster representative — the largest member, so a
-            mode sized from it covers every member's range.
-        member_idx: Indices (into the input sequence) of the members,
-            ascending by value.
-    """
+    """One cluster of scalar range values."""
 
     lo: float
+    """Smallest member value."""
     hi: float
+    """Largest member value."""
     representative: float
+    """The largest member, so a mode sized from it covers every member's
+    range."""
     member_idx: tuple[int, ...]
+    """Member indices into the input sequence, ascending by value."""
 
 
 def cluster_values(
@@ -292,13 +281,13 @@ def cluster_values(
 ) -> tuple[ValueCluster, ...]:
     """Cluster scalars into ascending contiguous groups by relative gap.
 
-    Deterministic 1-D agglomerative clustering: sort, split wherever the
-    gap between consecutive values exceeds ``rel_tol * max|value|``, then
-    while more than ``max_cluster_num`` clusters remain merge the adjacent
-    pair with the smallest inter-cluster gap.
+    Deterministic 1-D agglomerative clustering: sort, split wherever the gap
+    between consecutive values exceeds `rel_tol * max|value|`, then while more
+    than `max_cluster_num` clusters remain merge the adjacent pair with the
+    smallest inter-cluster gap.
 
     Args:
-        values: Scalar values (e.g. learned per-layer range params).
+        values: Scalar values, e.g. learned per-layer range params.
         rel_tol: Gap threshold relative to the largest absolute value.
         max_cluster_num: Hard cap on the cluster count.
 
@@ -306,8 +295,8 @@ def cluster_values(
         Ascending clusters covering every input index exactly once.
 
     Raises:
-        ValueError: On empty input or non-positive ``rel_tol`` /
-            ``max_cluster_num``.
+        ValueError: On empty input or non-positive `rel_tol` /
+            `max_cluster_num`.
     """
     if len(values) == 0:
         raise ValueError("require: at least one value to cluster")
@@ -354,21 +343,18 @@ def cluster_values(
 class FitSampleFilter:
     """Keep mask + per-cause drop counts for one mode's calibration pairs.
 
-    ``sample_num`` is the flattened input pairs' common element count.
-
-    Attributes:
-        keep: Boolean mask over the flattened input pairs.
-            Shape: ``[sample_num]``.
-        range_dropped_num: Pairs whose ADC input code falls outside
-            ``adc_input_code_range`` (outside the mode's design domain on
-            the ideal axis).
-        saturated_num: Pairs with ``code >= top_code`` (top-code-saturated;
-            no linear-region information). The two causes may overlap.
+    `sample_num` is the flattened input pairs' common element count.
     """
 
     keep: Tensor
+    """Boolean mask over the flattened input pairs.
+    Shape: `[sample_num]`."""
     range_dropped_num: int
+    """Pairs whose ADC input code falls outside the mode's design domain on
+    the ideal axis."""
     saturated_num: int
+    """Top-code-saturated pairs, carrying no linear-region information; the
+    two drop causes may overlap."""
 
 
 def filter_fit_samples(
@@ -381,15 +367,14 @@ def filter_fit_samples(
     """Select the calibration pairs entering a mode's rescale fit.
 
     A pair survives iff its ADC input code lies inside the inclusive
-    ``adc_input_code_range`` AND ``code < top_code``.
+    `adc_input_code_range` and `code < top_code`.
 
     Args:
         code: ADC code per pair, flattened internally.
-            Shape: ``[...]``.
-        adc_input_code: Ideal-side ADC input code per pair (the exact MAC
-            dot mapped onto the macro's converter axis), same element
-            count.
-            Shape: ``[...]``.
+            Shape: `[...]`.
+        adc_input_code: Ideal-side ADC input code per pair — the exact MAC
+            dot mapped onto the macro's converter axis, same element count.
+            Shape: `[...]`.
         adc_input_code_range: The mode's inclusive input-code domain.
         top_code: The quantizer's top code at the fitted bit width.
 

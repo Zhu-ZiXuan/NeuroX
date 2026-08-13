@@ -27,20 +27,12 @@ from .x_slice import XSliceStage, XSliceStageConfig, XSliceStagePolicy
 
 
 class CimEngineConfig(ConfigBase):
-    """Configuration for :class:`CimEngine`.
-
-    Attributes:
-        input_num: Logical input ports of each CIM macro.
-        output_num: Logical output ports of each CIM macro.
-        cim_macro_config: CIM macro configuration.
-        placement: Geometric placement configuration.
-        input_activation: Max-active input scheduling configuration.
-        weight_slice: Weight-slice layout configuration.
-        x_slice: Input-slice serialization configuration.
-    """
+    """Configuration for `CimEngine`."""
 
     input_num: int
+    """Logical input ports of each CIM macro."""
     output_num: int
+    """Logical output ports of each CIM macro."""
     cim_macro_config: CimMacroConfig
     placement: PlacementStageConfig
     input_activation: InputActivationStageConfig
@@ -48,21 +40,12 @@ class CimEngineConfig(ConfigBase):
     x_slice: XSliceStageConfig
 
     def validate(self) -> None:
-        """Validate the engine configuration."""
         self._require_pos(self.input_num, "input_num")
         self._require_pos(self.output_num, "output_num")
 
 
 class CimEnginePolicy(PolicyBase):
-    """Policy for :class:`CimEngine`.
-
-    Attributes:
-        cim_macro_policy: Embedded CIM-macro policy.
-        placement: Geometric placement policy.
-        input_activation: Max-active input scheduling policy.
-        weight_slice: Weight-slice layout policy.
-        x_slice: Input-slice serialization policy.
-    """
+    """Policy for `CimEngine`."""
 
     cim_macro_policy: CimMacroPolicy
     placement: PlacementStagePolicy
@@ -77,8 +60,7 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
     Args:
         config: Engine configuration.
         policy: Composite engine policy.
-        w_logical_shape: Weight shape ``(..., N, K)`` bound to
-            :meth:`program`.
+        w_logical_shape: Weight shape `(..., N, K)` bound to `program`.
         dtype: Tensor dtype used by the CIM macro.
         T__K: Operating temperature.
         ideal_macro: Whether to replace the configured macro with its ideal
@@ -122,36 +104,33 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
     def latency__ns(self, *, output_plane_num: int, adc_bits: int | None) -> float:
         """Time one logical matrix multiplication — the schedule it unrolls.
 
-        Every serial axis below the unit is the engine's: the output planes
-        ``M`` its caller states, the input slices ``Sa``, the CIM block slots
-        ``D`` and the input phases ``P``. One macro access serves each
-        ``(M, Sa, D, P)`` point, so the engine multiplies the macro rather than
-        summing it. The weight slices, contraction partitions, block groups and
-        weight-batch copies are all parallel silicon and never multiply.
+        Every serial axis below the unit is the engine's: the output planes `M`
+        its caller states, the input slices `Sa`, the CIM block slots `D` and
+        the input phases `P`. One macro access serves each `(M, Sa, D, P)`
+        point, so the engine multiplies the macro rather than summing it. The
+        weight slices, contraction partitions, block groups and weight-batch
+        copies are all parallel silicon and never multiply.
 
         The digital blocks hold no output-port axis of their own, so each runs
         once per output element the operation it closes delivers: the macro's
-        ``output_num`` ports for the two accumulators, the ports one Sw
+        `output_num` ports for the two accumulators, the ports one Sw
         aggregation leaves for the two reconstructions. How often that
         operation happens follows from how each block consumes its reduced
         axis. The phase accumulator folds successive arrivals into one
         register, so it runs once per macro access; the adder-tree and
         positional-sum reductions close their whole axis in a single window,
-        so they run once per step the axis completes on. The stages carry no
-        latency of their own — this engine reads each embedded digital block's
-        ``latency_per_op__ns`` directly, a layout with no arithmetic block
-        (``shift_adder is None``) contributing zero.
+        so they run once per step the axis completes on.
 
         Args:
-            output_plane_num: Output planes ``M`` one call unrolls — the only
+            output_plane_num: Output planes `M` one call unrolls — the only
                 extent of the schedule the placement plan does not fix.
-                Unrelated to ``macro_plane_num``, the Sw weight-slice planes
-                one macro instance holds.
-            adc_bits: Conversion resolution [bits] the macro accesses run at,
-                or ``None`` for the lossless oracle.
+                Unrelated to `macro_plane_num`, the Sw weight-slice planes one
+                macro instance holds.
+            adc_bits: Conversion resolution the macro accesses run at, or
+                `None` for the lossless oracle.
 
         Returns:
-            Duration of one logical matrix multiplication [ns].
+            Duration of one logical matrix multiplication.
         """
         slice_num = self.x_slice.slice_num
         block_step_num = self.placement.block_step_num
@@ -325,7 +304,7 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
 
         Args:
             weight: Weight tensor matching the shape bound at construction.
-                Shape: ``[..., N, K]``.
+                Shape: `[..., N, K]`.
         """
         if tuple(weight.shape) != self._w_logical_shape:
             raise ValueError(f"program() expects weight.shape {self._w_logical_shape}; got {tuple(weight.shape)}")
@@ -336,15 +315,15 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
         """Multiply logical inputs by the programmed weight.
 
         Args:
-            input: Integer activation tensor.
-                Shape: ``[..., M, K]``.
-            quantization_mode: Runtime quantization-mode index.
-            adc_bits: Runtime ADC resolution, or ``None`` for the lossless
+            input: Integer activation values.
+                Shape: `[..., M, K]`.
+            quantization_mode: Index selecting the runtime quantization window.
+            adc_bits: Runtime ADC resolution, or `None` for the lossless
                 oracle.
 
         Returns:
-            Integer tensor.
-            Shape: ``[..., M, N]``.
+            Integer pre-requantize output tensor.
+            Shape: `[..., M, N]`.
         """
         # Shape: [..., M, K] -> [..., M, Sa, Sw=1, Tc, G=1, L]
         organized = self._organize_x(input)

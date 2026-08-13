@@ -1,17 +1,17 @@
 """Unit tests for the block-tridiagonal solvers in
-:mod:`neurox.primitive.xbar.solver._linalg`.
+`neurox.primitive.xbar.solver._linalg`.
 
-Covers, for the general :func:`solve_block_tridiagonal`:
-  * ``block_size = 1`` reduces to the existing scalar Thomas solver
+Covers, for the general `solve_block_tridiagonal`:
+  * `block_size = 1` reduces to the existing scalar Thomas solver
     (`solve_tridiagonal`) bit-exact.
-  * ``block_size ∈ {2, 3}`` matches a dense reference solve via
-    ``torch.linalg.solve`` on the equivalent dense matrix.
+  * `block_size` of 2 or 3 matches a dense reference solve via
+    `torch.linalg.solve` on the equivalent dense matrix.
   * Batch dims pass through correctly.
   * Numerically stable on diagonally-dominant (M-matrix-flavour) systems
     that mirror the wire-Newton + boundary block structure used by the
     nested solver.
 
-And, for the specialized :func:`solve_block_tridiagonal_2x2_uniform`:
+And, for the specialized `solve_block_tridiagonal_2x2_uniform`:
   * EQUIVALENCE LAW: it solves the very system the general kernel solves
     when handed that system's constant off-block materialized.
   * NO-BOUNDARY LAW: a constant off-block needs no boundary slots, so the
@@ -32,9 +32,9 @@ from neurox.primitive.xbar.solver._linalg import (
 
 
 def _dense_from_blocks(sub: torch.Tensor, diag: torch.Tensor, sup: torch.Tensor) -> torch.Tensor:
-    """Materialize the dense ``N*B × N*B`` matrix from block tridiagonal data.
+    """Materialize the dense `N*B × N*B` matrix from block tridiagonal data.
 
-    ``sub[0]`` and ``sup[-1]`` are unused placeholders by convention.
+    `sub[0]` and `sup[-1]` are unused placeholders by convention.
     """
     n, b, _ = diag.shape
     out = torch.zeros(n * b, n * b, dtype=diag.dtype, device=diag.device)
@@ -62,7 +62,7 @@ def _make_diag_dominant_blocks(
 def test_block_size_1_matches_scalar_thomas(device: torch.device) -> None:
     """B = 1 should agree with scalar Thomas to fp64 round-off.
 
-    Not bit-exact — block path goes through ``torch.linalg.solve`` (LU)
+    Not bit-exact — block path goes through `torch.linalg.solve` (LU)
     while scalar Thomas does explicit division. Same answer modulo
     accumulation order. ~1e-14 relative tolerance is appropriate.
     """
@@ -88,7 +88,7 @@ def test_block_size_1_matches_scalar_thomas(device: torch.device) -> None:
 @pytest.mark.parametrize("b", [2, 3, 4])
 @pytest.mark.parametrize("n", [1, 3, 8, 17])
 def test_block_solve_matches_dense(b: int, n: int, device: torch.device) -> None:
-    """Block Thomas matches dense ``torch.linalg.solve`` on the assembled matrix."""
+    """Block Thomas matches dense `torch.linalg.solve` on the assembled matrix."""
     sub, diag, sup = _make_diag_dominant_blocks(n, b, seed=n * 31 + b, device=device)
     g = torch.Generator(device=device).manual_seed(n * 13 + b * 7)
     rhs = torch.randn(n, b, dtype=torch.float64, generator=g, device=device)
@@ -157,8 +157,8 @@ def test_m_matrix_block_2x2_mirrors_nested_wire_jacobian(device: torch.device) -
     n = 16
     b = 2
     wire_g = 5.0e3  # ~ a chip's per-link rail conductance scale (uS)
-    a = 100.0  # ∂I_cell/∂V_BL ≈ g_R · g_ND / D
-    b_cross = -50.0  # ∂I_cell/∂V_SL (negative)
+    a = 100.0  # dI_cell/dV_BL, about g_R · g_ND / D
+    b_cross = -50.0  # dI_cell/dV_SL (negative)
 
     # Diagonal block: [[wire_diag + a, b_cross], [-a, wire_diag - b_cross]].
     diag = torch.zeros(n, b, b, dtype=torch.float64, device=device)

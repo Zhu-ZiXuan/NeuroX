@@ -2,8 +2,8 @@
 
 The block carries area + leakage as a reporter-visible static seat and does
 nothing else — no functional method, no dynamic energy, no latency. Config
-validation rejects negative PPA fields. Its static PPA scales by ``inst_count``
-and is visible to the reporter's static walk; ``fabricate`` emits no records.
+validation rejects negative PPA fields. Its static PPA scales by `inst_count`
+and is visible to the reporter's static walk; `fabricate` emits no records.
 """
 
 from __future__ import annotations
@@ -45,7 +45,7 @@ def test_validation_rejects_negative_ppa() -> None:
 
 
 def test_static_ppa_scales_and_is_visible() -> None:
-    """Static PPA scales by ``inst_count`` and appears in the profiler's static walk."""
+    """Static PPA scales by `inst_count` and appears in the profiler's static walk."""
     block = _make(area=4.0, leakage=0.5, inst_shape=(2,))
     stamp_names(block)
     assert block.is_profile_target
@@ -63,7 +63,7 @@ def test_fabricate_emits_no_events() -> None:
     block = _make(inst_shape=(2,))
     with Profiler() as p:
         block.fabricate()
-    assert p.records == []
+    assert p.records == ()
 
 
 def test_toml_loads(tmp_path: Path) -> None:
