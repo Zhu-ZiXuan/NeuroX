@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=77.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -8,16 +8,17 @@ version = "0.1.0"
 description = "A PyTorch-based neuromorphic computing simulation framework, for algorithmic accuracy with circuit-level PPA, from device physics to AI models"
 readme = "README.md"
 requires-python = ">=3.12"
-license = { text = "MIT" }
-authors = [{ name = "ZHU-ZiXuan" }]
+license = "MIT"
 dependencies = [
     "torch>=2.10",
-    "pydantic>=2.0",
     "PyYAML>=6.0",
     "tomli-w>=1.0",
 ]
 
 [project.optional-dependencies]
+calib = [
+    "matplotlib>=3.8.4",
+]
 demo = [
     "torchvision>=0.20.0",
     "torchao>=0.10.0",
@@ -30,42 +31,28 @@ dev = [
     "ruff",
     "mypy",
     "pytest",
-    "pytest-cov",
-    "pre-commit",
-    "types-PyYAML",
-]
-docs = [
     "mkdocs",
     "mkdocs-material",
     "mkdocstrings[python]",
+    "types-PyYAML",
 ]
 
-[project.urls]
-"Homepage" = "https://github.com/Zhu-ZiXuan/NeuroX"
-"Bug Tracker" = "https://github.com/Zhu-ZiXuan/NeuroX/issues"
-
 [tool.setuptools.packages.find]
-where = ["."]
-include = ["neurox*"]
+include = ["neurox", "neurox.*"]
 
 [tool.setuptools.package-data]
 "neurox.presets" = ["**/*.toml"]
-"neurox.works" = ["**/*.toml"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+testpaths = ["tests"]
+strict_config = true
+strict_markers = true
 
 [tool.mypy]
 python_version = "3.12"
-
 strict = true
 allow_untyped_decorators = true
 allow_untyped_calls = true
-
-namespace_packages = true
-explicit_package_bases = true
-ignore_missing_imports = true
 warn_unused_configs = true
-warn_no_return = true
 warn_unreachable = true
-no_implicit_optional = true
