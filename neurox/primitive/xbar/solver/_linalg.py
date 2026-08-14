@@ -32,7 +32,8 @@ def block_matmul(p: Tensor, q: Tensor) -> Tensor:
     """Compute batched `p @ q` with a closed-form 2×2 path.
 
     For `B == 2` the product uses elementwise multiply-adds; other block sizes
-    fall back to the matmul.
+    fall back to the matmul. `B` is the block dimension, `K` the number of
+    right-hand-side columns.
 
     Args:
         p: Left block operand.
@@ -60,7 +61,8 @@ def block_solve(m: Tensor, rhs: Tensor) -> Tensor:
     """Solve batched `m x = rhs` with a closed-form 2×2 path.
 
     For `B == 2` the solve uses the adjugate/determinant formula; other block
-    sizes fall back to `torch.linalg.solve`.
+    sizes fall back to `torch.linalg.solve`. `B` is the block dimension, `K`
+    the number of right-hand-side columns.
 
     Args:
         m: Block system matrix.
@@ -101,9 +103,9 @@ def solve_block_tridiagonal(
 ) -> Tensor:
     """Solve batched block-tridiagonal systems via the block Thomas algorithm.
 
-    Solves `A x = rhs` where `A` is block-tridiagonal with B × B blocks. The
-    shape convention is fixed: the N axis is third-to-last for the block
-    tensors and second-to-last for `rhs`.
+    Solves `A x = rhs` where `A` is block-tridiagonal with `N` block rows of
+    `B`×`B` blocks. The shape convention is fixed: the `N` axis is
+    third-to-last for the block tensors and second-to-last for `rhs`.
 
     Args:
         sub: Sub-diagonal blocks coupling row `k` to row `k-1`; the entry at
@@ -121,10 +123,10 @@ def solve_block_tridiagonal(
         Solution tensor.
         Shape: `[..., N, B]`.
     """
-    n = rhs.shape[-2]
-    if n == 1:
-        # One block is one plain solve; the N axis of extent one stays, so
-        # the return keeps the `[..., N, B]` rank whatever N is.
+    block_num = rhs.shape[-2]
+    if block_num == 1:
+        # One block is one plain solve; the block-row axis of extent one stays,
+        # so the return keeps the `[..., N, B]` rank whatever `block_num` is.
         # Shape: [..., N=1, B] -> [..., B, 1] -> [..., N=1, B]
         return block_solve(diag[..., 0, :, :], rhs[..., 0, :].unsqueeze(-1)).squeeze(-1).unsqueeze(-2)
 
@@ -135,7 +137,7 @@ def solve_block_tridiagonal(
     sol_0 = block_solve(m_0, torch.cat((sup[..., 0, :, :], rhs_0), dim=-1))
     c_list: list[Tensor] = [sol_0[..., :-1]]
     d_list: list[Tensor] = [sol_0[..., -1:]]
-    for k in range(1, n):
+    for k in range(1, block_num):
         sub_k = sub[..., k, :, :]
         diag_k = diag[..., k, :, :]
         sup_k = sup[..., k, :, :]
@@ -146,8 +148,8 @@ def solve_block_tridiagonal(
         d_list.append(sol_k[..., -1:])
 
     # Back substitution — build the solution list right-to-left.
-    x_list: list[Tensor] = [d_list[n - 1].squeeze(-1)]
-    for k in range(n - 2, -1, -1):
+    x_list: list[Tensor] = [d_list[block_num - 1].squeeze(-1)]
+    for k in range(block_num - 2, -1, -1):
         x_list.append((d_list[k] - block_matmul(c_list[k], x_list[-1].unsqueeze(-1))).squeeze(-1))
     x_list.reverse()
 
@@ -166,7 +168,8 @@ def solve_block_tridiagonal_2x2_uniform(
     super-diagonal block being the same constant diagonal matrix
     `U = diag(off_block)`, which collapses the block Thomas recurrence to one
     explicit 2×2 inverse plus multiply-adds per step. The off-diagonal blocks
-    are never materialized and the boundary slots need no special casing.
+    are never materialized and the boundary slots need no special casing. `N`
+    is the number of block rows, each block being 2×2.
 
     Args:
         diag: Main diagonal blocks.
@@ -188,7 +191,7 @@ def solve_block_tridiagonal_2x2_uniform(
     d_00, d_01, d_10, d_11 = diag[..., 0, 0], diag[..., 0, 1], diag[..., 1, 0], diag[..., 1, 1]
     # Shape: [..., N, 2] -> [..., N] each
     r_0, r_1 = rhs[..., 0], rhs[..., 1]
-    n = rhs.shape[-2]
+    block_num = rhs.shape[-2]
 
     # Forward sweep: keep the inverted reduced block A_k = M_k⁻¹ and the
     # reduced right-hand side e_k = A_k · (rhs_k - U · e_{k-1}).
@@ -198,7 +201,7 @@ def solve_block_tridiagonal_2x2_uniform(
     a_11_list: list[Tensor] = []
     e_0_list: list[Tensor] = []
     e_1_list: list[Tensor] = []
-    for k in range(n):
+    for k in range(block_num):
         # Shape: [..., N] -> [...]
         m_00, m_01 = d_00.select(-1, k), d_01.select(-1, k)
         m_10, m_11 = d_10.select(-1, k), d_11.select(-1, k)
@@ -221,10 +224,10 @@ def solve_block_tridiagonal_2x2_uniform(
         e_1_list.append(a_10 * b_0 + a_11 * b_1)
 
     # Back substitution: x_k = e_k - A_k · (U · x_{k+1}).
-    x_0, x_1 = e_0_list[n - 1], e_1_list[n - 1]
+    x_0, x_1 = e_0_list[block_num - 1], e_1_list[block_num - 1]
     x_0_list: list[Tensor] = [x_0]
     x_1_list: list[Tensor] = [x_1]
-    for k in range(n - 2, -1, -1):
+    for k in range(block_num - 2, -1, -1):
         s_0, s_1 = u_0 * x_0, u_1 * x_1
         x_0 = e_0_list[k] - (a_00_list[k] * s_0 + a_01_list[k] * s_1)
         x_1 = e_1_list[k] - (a_10_list[k] * s_0 + a_11_list[k] * s_1)
@@ -245,7 +248,8 @@ def solve_block_tridiagonal_dense(
 ) -> Tensor:
     """Solve batched block-tridiagonal systems by densifying to one `N*B` square solve.
 
-    Same input/output contract as `solve_block_tridiagonal`.
+    Same input/output contract as `solve_block_tridiagonal`: `N` block rows of
+    `B`×`B` blocks.
 
     Args:
         sub: Sub-diagonal blocks; `sub[0]` is zeroed during assembly.
@@ -261,14 +265,14 @@ def solve_block_tridiagonal_dense(
         Solution tensor.
         Shape: `[..., N, B]`.
     """
-    n = diag.shape[-3]
-    b = diag.shape[-1]
+    block_num = diag.shape[-3]
+    block_size = diag.shape[-1]
 
-    if n == 1:
+    if block_num == 1:
         # Shape: [..., N=1, B] -> [..., B, 1] -> [..., N=1, B]
         return torch.linalg.solve(diag[..., 0, :, :], rhs[..., 0, :].unsqueeze(-1)).squeeze(-1).unsqueeze(-2)
 
-    nb = n * b
+    flat_size = block_num * block_size
     device = diag.device
     dtype = diag.dtype
 
@@ -277,18 +281,18 @@ def solve_block_tridiagonal_dense(
     sub_clean = torch.cat([torch.zeros_like(sub[..., :1, :, :]), sub[..., 1:, :, :]], dim=-3)
     sup_clean = torch.cat([sup[..., :-1, :, :], torch.zeros_like(sup[..., -1:, :, :])], dim=-3)
 
-    # Shift matrices for block placement.
-    #   eye_n places block k on the main diagonal at (k·B, k·B).
+    # Placement matrices over the block-row index.
+    #   diag_shift places block k on the main diagonal at (k·B, k·B).
     #   sub_shift puts a 1 at (k, k-1) for k>=1 → block k lands at (k·B, (k-1)·B).
-    #   sup_shift puts a 1 at (k, k+1) for k<=n-2 → block k lands at (k·B, (k+1)·B).
-    eye_n = torch.eye(n, device=device, dtype=dtype)
-    ones_n1 = torch.ones(n - 1, device=device, dtype=dtype)
-    sub_shift = torch.diag_embed(ones_n1, offset=-1)
-    sup_shift = torch.diag_embed(ones_n1, offset=+1)
+    #   sup_shift puts a 1 at (k, k+1) for k<=N-2 → block k lands at (k·B, (k+1)·B).
+    diag_shift = torch.eye(block_num, device=device, dtype=dtype)
+    off_ones = torch.ones(block_num - 1, device=device, dtype=dtype)
+    sub_shift = torch.diag_embed(off_ones, offset=-1)
+    sup_shift = torch.diag_embed(off_ones, offset=+1)
 
     # `(k, i)` and `(m, j)` become the dense row and column indices.
     # Shape: [..., N, B, B] -> [..., N, B, N, B] -> [..., N*B, N*B]
-    diag_part = torch.einsum("...kij,km->...kimj", diag, eye_n).flatten(-4, -3).flatten(-2, -1)
+    diag_part = torch.einsum("...kij,km->...kimj", diag, diag_shift).flatten(-4, -3).flatten(-2, -1)
     # Shape: [..., N, B, B] -> [..., N, B, N, B] -> [..., N*B, N*B]
     sub_part = torch.einsum("...kij,km->...kimj", sub_clean, sub_shift).flatten(-4, -3).flatten(-2, -1)
     # Shape: [..., N, B, B] -> [..., N, B, N, B] -> [..., N*B, N*B]
@@ -297,27 +301,27 @@ def solve_block_tridiagonal_dense(
     dense_matrix = diag_part + sub_part + sup_part
 
     # Shape: [..., N, B] -> [..., N*B, 1]
-    rhs_flat = rhs.reshape(*rhs.shape[:-2], nb).unsqueeze(-1)
+    rhs_flat = rhs.reshape(*rhs.shape[:-2], flat_size).unsqueeze(-1)
     # Shape: [..., N*B, 1] -> [..., N*B]
     x_flat = torch.linalg.solve(dense_matrix, rhs_flat).squeeze(-1)
     # Shape: [..., N*B] -> [..., N, B]
     return x_flat.view(*rhs.shape)
 
 
-def _pcr_validity_mask(n: int, stride: int, dim: int, ndim: int, device: torch.device) -> Tensor:
+def _pcr_validity_mask(block_num: int, stride: int, dim: int, ndim: int, device: torch.device) -> Tensor:
     """1 where the shifted position has a valid in-range neighbour, 0 at boundary.
 
-    Every axis other than `dim` is size 1, so the mask broadcasts against
-    tensors of the full shape.
+    Every axis other than `dim` is length 1, so the mask broadcasts against
+    tensors of the full shape; `N` is the length of `dim`.
 
     Returns:
         Boundary-validity mask.
         Shape: `[..., N, ...]`.
     """
-    indices = torch.arange(n, device=device)
-    valid = indices >= stride if stride > 0 else indices < n + stride
+    indices = torch.arange(block_num, device=device)
+    valid = indices >= stride if stride > 0 else indices < block_num + stride
     shape = [1] * ndim
-    shape[dim] = n
+    shape[dim] = block_num
     return valid.view(shape)
 
 
@@ -341,8 +345,8 @@ def _pcr_shift_identity(t: Tensor, stride: int, dim: int) -> Tensor:
     `-sub · I = -sub`, which the zero-padded `sub_l` / `rhs_l` then multiply
     to zero at the boundary.
     """
-    b = t.shape[-1]
-    eye = torch.eye(b, dtype=t.dtype, device=t.device).expand_as(t)
+    block_size = t.shape[-1]
+    eye = torch.eye(block_size, dtype=t.dtype, device=t.device).expand_as(t)
     if abs(stride) >= t.shape[dim]:
         return eye
     shifted = torch.roll(t, shifts=stride, dims=dim)
@@ -358,21 +362,22 @@ def solve_block_tridiagonal_pcr(
 ) -> Tensor:
     """Solve batched block-tridiagonal systems by Parallel Cyclic Reduction.
 
-    Uses the same tensor contract as `solve_block_tridiagonal`. There is no
-    pivoting, so the system must be diagonally dominant.
+    Uses the same tensor contract as `solve_block_tridiagonal`: `N` block rows
+    of `B`×`B` blocks. There is no pivoting, so the system must be diagonally
+    dominant.
     """
-    n = diag.shape[-3]
+    block_num = diag.shape[-3]
     block_dim = -3
     vec_dim = -2
 
-    if n == 1:
+    if block_num == 1:
         # Shape: [..., N=1, B] -> [..., B, 1] -> [..., N=1, B]
         return block_solve(diag[..., 0, :, :], rhs[..., 0, :].unsqueeze(-1)).squeeze(-1).unsqueeze(-2)
 
     a, b, c, r = sub, diag, sup, rhs
 
     stride = 1
-    while stride < n:
+    while stride < block_num:
         a_l = _pcr_shift_zero(a, stride, block_dim)
         b_l = _pcr_shift_identity(b, stride, block_dim)
         c_l = _pcr_shift_zero(c, stride, block_dim)
@@ -409,7 +414,7 @@ def solve_tridiagonal(
     """Solve batched tridiagonal systems via the Thomas algorithm.
 
     Solves `A x = rhs` along `dim`, `A` being tridiagonal with
-    `(sub, diag, sup)`.
+    `(sub, diag, sup)`; `N` is the system length along `dim`.
 
     Args:
         sub: Sub-diagonal coefficients; the entry at index 0 is unused.
@@ -421,27 +426,27 @@ def solve_tridiagonal(
             Shape: `[..., N, ...]`.
         rhs: Right-hand-side vectors.
             Shape: `[..., N, ...]`.
-        dim: The dimension of length N.
+        dim: The dimension of length `N`.
 
     Returns:
         Solution tensor.
         Shape: `[..., N, ...]`.
     """
-    N = rhs.shape[dim]
-    if N == 1:
+    block_num = rhs.shape[dim]
+    if block_num == 1:
         return rhs / diag
 
     # Forward sweep.
     d_list: list[Tensor] = [diag.select(dim, 0)]
     r_list: list[Tensor] = [rhs.select(dim, 0)]
-    for i in range(1, N):
+    for i in range(1, block_num):
         w = sub.select(dim, i) / d_list[i - 1]
         d_list.append(diag.select(dim, i) - w * sup.select(dim, i - 1))
         r_list.append(rhs.select(dim, i) - w * r_list[i - 1])
 
     # Back substitution — build the solution list right-to-left.
-    x_list: list[Tensor] = [r_list[N - 1] / d_list[N - 1]]
-    for i in range(N - 2, -1, -1):
+    x_list: list[Tensor] = [r_list[block_num - 1] / d_list[block_num - 1]]
+    for i in range(block_num - 2, -1, -1):
         x_list.append((r_list[i] - sup.select(dim, i) * x_list[-1]) / d_list[i])
     x_list.reverse()
 

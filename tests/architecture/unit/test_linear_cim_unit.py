@@ -279,7 +279,7 @@ def test_linear_program_rejects_float_bias() -> None:
     n, k = 13, 20
     unit = _build_unit(_unit_config(), w_logical_shape=(n, k))
     weight = _random_weight(unit, (n, k))
-    with pytest.raises(ValueError, match="integer bias dtype"):
+    with pytest.raises(TypeError, match="integer bias dtype"):
         unit.program(weight, torch.zeros(n, dtype=torch.float32))
 
 

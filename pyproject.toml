@@ -7,7 +7,7 @@ name = "neurox"
 version = "0.1.0"
 description = "A PyTorch-based neuromorphic computing simulation framework, for algorithmic accuracy with circuit-level PPA, from device physics to AI models"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 license = { text = "MIT" }
 authors = [{ name = "ZHU-ZiXuan" }]
 dependencies = [
@@ -56,7 +56,7 @@ include = ["neurox*"]
 pythonpath = ["."]
 
 [tool.mypy]
-python_version = "3.13"
+python_version = "3.12"
 
 strict = true
 allow_untyped_decorators = true

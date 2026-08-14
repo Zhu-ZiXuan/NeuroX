@@ -280,7 +280,7 @@ class TestLayerRangeMapping:
             load_layer_ranges(self._write(tmp_path, '"a" = { range = [0.0, inf] }\n'))
 
     def test_scalar_range_raises(self, tmp_path: Path) -> None:
-        with pytest.raises(ValueError, match="2-element array"):
+        with pytest.raises(TypeError, match=r"must be an array \[lower, upper\]"):
             load_layer_ranges(self._write(tmp_path, '"a" = { range = 1.0 }\n'))
 
     def test_unknown_key_raises(self, tmp_path: Path) -> None:
@@ -304,7 +304,7 @@ class TestCanonicalWindow:
     def test_window_covers_the_range(self) -> None:
         for lo, hi in ((-12.5, 12.5), (-20.0, 1.0), (0.0, 7.5), (-0.5, 0.5)):
             lower, upper = canonical_window(LayerRange(range=(lo, hi)))
-            assert lower <= lo and upper >= hi
+            assert lower <= lo <= hi <= upper
 
 
 class TestModeSet:
@@ -356,7 +356,7 @@ class TestModeSet:
         path.write_text(
             '[[modes]]\nquantization_mode = 0\nquantization_input_range = 7\nlayer_num = 1\n\n[layers]\n"a" = 0\n'
         )
-        with pytest.raises(ValueError, match="2-element array"):
+        with pytest.raises(TypeError, match=r"must be an array \[lower, upper\]"):
             load_mode_set(path)
 
     def test_load_rejects_extra_top_level_key(self, tmp_path: Path) -> None:
@@ -447,7 +447,7 @@ class TestDeriveModes:
         lower, upper = modes[0].quantization_input_range
         for name, spec in layer_ranges.items():
             assert layer_to_mode[name] == 0
-            assert lower <= spec.range[0] and upper >= spec.range[1]
+            assert lower <= spec.range[0] <= spec.range[1] <= upper
 
     def test_single_group_input(self) -> None:
         """An empty shape group contributes no mode; enumeration stays dense."""

@@ -1,6 +1,6 @@
 """Element-wise integer adder with energy accounting.
 
-See also:
+See Also:
     docs/reference/primitive/digital/adder.md
     docs/internals/primitive/digital/adder.md
 """

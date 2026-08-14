@@ -22,7 +22,7 @@ block slots and therefore occurs before `PlacementStage.unroll_block_steps`.
 ## Digital ownership
 
 `phase_accumulator` reduces `P` after each macro read. Its physical
-multiplicity is `(w_parallel, Sw, Tc, G)`, covering every physical weight
+multiplicity is `(Sw, Tc, G)`, covering every physical weight
 plane, contraction tile, and macro group that receives an independent code.
 
 ## Contracts

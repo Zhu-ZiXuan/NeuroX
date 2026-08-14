@@ -1,6 +1,6 @@
 """Physical axioms: SI constants (CODATA 2018) and the closed-form laws over them.
 
-See also:
+See Also:
     docs/reference/primitive/physics.md
     docs/internals/primitive/physics.md
 """

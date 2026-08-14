@@ -1,4 +1,7 @@
-"""Which axis of the macro access schedule `(M, Sa, D, P)` multiplies which digital block's window in `CimEngine.latency__ns`."""
+"""Which axis of the macro access schedule `(M, Sx, D, P)` multiplies which digital block's window.
+
+In `CimEngine.latency__ns`.
+"""
 
 from __future__ import annotations
 
@@ -206,7 +209,10 @@ def test_direct_layout_times_the_two_accumulators() -> None:
 
 
 def test_phase_accumulator_runs_once_per_arrival() -> None:
-    """P multiplies the serial register's window and nothing else's: the contraction tree closes its axis per block step."""
+    """P multiplies the serial register's window and nothing else's.
+
+    The contraction tree closes its axis per block step.
+    """
 
     def _phase_only(max_active_num: int) -> float:
         unit = _build_linear(
@@ -255,7 +261,10 @@ def test_phase_accumulator_runs_once_per_arrival() -> None:
 
 
 def test_inter_layout_recombines_once_per_step_it_closes() -> None:
-    """Both reconstructions are one-pass positional sums: the weight-slice block runs once per input slice, the input-slice block once per block step."""
+    """Both reconstructions are one-pass positional sums.
+
+    The weight-slice block runs once per input slice, the input-slice block once per block step.
+    """
     x_slice_num = 3
     phase__ns = 0.25
     contraction__ns = 0.5
@@ -289,7 +298,7 @@ def test_inter_layout_recombines_once_per_step_it_closes() -> None:
 
 
 def test_input_slice_recombination_ignores_the_slice_count() -> None:
-    """Sa is the digit axis of the one pass that removes it, so it never multiplies."""
+    """Sx is the digit axis of the one pass that removes it, so it never multiplies."""
 
     def _x_recombine_only(x_slice_num: int) -> float:
         unit = _build_linear(
@@ -309,7 +318,10 @@ def test_input_slice_recombination_ignores_the_slice_count() -> None:
 
 
 def test_intra_layout_recombines_over_the_ports_one_aggregation_leaves() -> None:
-    """An intra-port layout leaves `output_num // w_slice_num` logical outputs, and the reconstruction runs over those, not the macro ports."""
+    """An intra-port layout leaves `output_num // w_slice_num` logical outputs.
+
+    The reconstruction runs over those, not the macro ports.
+    """
     unit = _build_linear(
         _engine_config(
             weight_slice=IntraWeightSliceStageConfig(
@@ -354,7 +366,10 @@ def test_output_planes_multiply_the_whole_schedule() -> None:
 
 
 def test_phase_accumulator_rounds_match_the_measured_forward(device: torch.device) -> None:
-    """The round count the duration multiplies equals the operands a measured forward folds, per instance and per caller operation."""
+    """The round count the duration multiplies equals the operands a measured forward folds.
+
+    Per instance and per caller operation.
+    """
     phase__ns = 0.75
     phase_energy__fJ = 3.0
     unit = _build_linear(

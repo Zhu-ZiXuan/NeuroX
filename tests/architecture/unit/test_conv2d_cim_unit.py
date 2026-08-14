@@ -19,6 +19,7 @@ from neurox.architecture.unit.cim.engine import (
     PlacementStageConfig,
     PlacementStagePolicy,
 )
+from neurox.architecture.unit.conv2d import Conv2dUnit
 from neurox.architecture.unit.ideal import IdealConv2dUnit, IdealConv2dUnitConfig, IdealConv2dUnitPolicy
 from neurox.primitive.digital import AccumulatorConfig
 from neurox.primitive.macro.cim import IdealCimMacroConfig, IdealCimMacroPolicy
@@ -282,16 +283,16 @@ def test_window_lowering_matches_explicit_patch_order() -> None:
         _unit_config(input_num=16, output_num=8, stride=(2, 1), padding=(1, 2), dilation=(1, 2)),
         w_logical_shape=(3, 2, 2, 3),
     )
-    x = torch.arange(2 * 5 * 7, dtype=torch.int32).reshape(2, 5, 7)
+    x = torch.arange(2 * 5 * 7, dtype=torch.int32).reshape(1, 2, 5, 7)
     out_hw = unit._conv2d_out_hw(5, 7)
     planes = unit._conv2d_planes(x, out_hw=out_hw)
-    assert planes.shape == (out_hw[0] * out_hw[1], 2 * 2 * 3)
+    assert planes.shape == (1, out_hw[0] * out_hw[1], 2 * 2 * 3)
 
     padded = F.pad(x, (2, 2, 1, 1))
     expected = [
-        padded[:, i * 2 : i * 2 + 2, j : j + 5 : 2].flatten() for i in range(out_hw[0]) for j in range(out_hw[1])
+        padded[0, :, i * 2 : i * 2 + 2, j : j + 5 : 2].flatten() for i in range(out_hw[0]) for j in range(out_hw[1])
     ]
-    assert torch.equal(planes, torch.stack(expected))
+    assert torch.equal(planes[0], torch.stack(expected))
 
 
 # --- Engine-backed exactness ---
@@ -303,7 +304,7 @@ def test_window_lowering_matches_explicit_patch_order() -> None:
         (16, 16, (2, 1, 2, 2), (1, 5, 8), (1, 1), (0, 0), (1, 1)),
         (8, 4, (5, 2, 3, 3), (2, 6, 7), (1, 1), (0, 0), (1, 1)),
         (16, 8, (3, 1, 2, 3), (1, 7, 9), (2, 1), (1, 2), (1, 2)),
-        (32, 5, (3, 2, 3, 3), (2, 3, 2, 6, 7), (1, 1), (0, 0), (1, 1)),
+        (32, 5, (3, 2, 3, 3), (6, 2, 6, 7), (1, 1), (0, 0), (1, 1)),
         (16, 4, (20, 1, 2, 2), (2, 1, 5, 6), (1, 1), (0, 0), (1, 1)),
     ],
 )
@@ -378,12 +379,50 @@ def test_conv2d_combines_block_steps_and_input_phases() -> None:
     assert unit.engine.input_activation._input_phase_num == 4
 
 
+# --- Unbatched input ---
+
+
+def _assert_unbatched_matches_batch_of_one(unit: Conv2dUnit, x: torch.Tensor) -> None:
+    """A 3-D call returns 3-D and equals the `B = 1` call bit for bit."""
+    unbatched = unit.conv2d(x, quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
+    batched = unit.conv2d(x.unsqueeze(0), quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
+    assert unbatched.ndim == 3
+    assert batched.shape == (1, *unbatched.shape)
+    assert torch.equal(unbatched.to(torch.int64), batched[0].to(torch.int64))
+
+
+def test_unbatched_input_matches_batch_of_one() -> None:
+    torch.manual_seed(630)
+    w_shape = (3, 2, 2, 3)
+    unit = _build_unit(
+        _unit_config(input_num=16, output_num=8, stride=(2, 1), padding=(1, 2), dilation=(1, 2)),
+        w_logical_shape=w_shape,
+    )
+    ideal = _build_ideal_unit(w_logical_shape=w_shape, stride=(2, 1), padding=(1, 2), dilation=(1, 2))
+    weight = _random_weight(unit, w_shape)
+    bias = torch.randint(-7, 8, (3,), dtype=torch.int32)
+    x = _random_activation(unit, (2, 7, 9))
+    units: tuple[Conv2dUnit, ...] = (unit, ideal)
+    for candidate in units:
+        candidate.program(weight, bias)
+        _assert_unbatched_matches_batch_of_one(candidate, x)
+    assert unit.latency__ns((2, 7, 9), adc_bits=_ADC_BITS) == unit.latency__ns((1, 2, 7, 9), adc_bits=_ADC_BITS)
+
+
 # --- Rejections ---
 
 
 def test_rejects_non_4d_w_logical_shape() -> None:
     with pytest.raises(ValueError, match="C_out, C_in, kh, kw"):
         _build_unit(_unit_config(), w_logical_shape=(3, 18))
+
+
+def test_rejects_input_outside_the_two_accepted_forms() -> None:
+    unit = _build_unit(_unit_config(), w_logical_shape=(2, 1, 2, 2))
+    unit.program(_random_weight(unit, (2, 1, 2, 2)))
+    x = _random_activation(unit, (2, 3, 1, 5, 6))
+    with pytest.raises(ValueError, match=r"\[C_in, H, W\] or \[B, C_in, H, W\]"):
+        unit.conv2d(x, quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
 
 
 def test_conv2d_cim_rejects_float_weight() -> None:

@@ -1,6 +1,6 @@
 """Substrate-independent planning for fixed-capacity matrix multiplication.
 
-See also:
+See Also:
     docs/internals/architecture/unit/matmul_mapping.md
 """
 

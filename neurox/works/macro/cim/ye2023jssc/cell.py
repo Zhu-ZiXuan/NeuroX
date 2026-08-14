@@ -1,13 +1,12 @@
 """WH-2T1R lookup cell — the linear 1T1R divider plus a per-state I_T2 table.
 
-See also:
+See Also:
     docs/works/macro/cim/ye2023jssc/model.md
 """
 
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
 
 import torch
 from torch import Tensor
@@ -56,7 +55,6 @@ class Ye2023Jssc2t1rCellPolicy(XbarCell1t1rLinearPolicy):
     """Empty nonideality policy for the deterministic WH-2T1R lookup cell."""
 
 
-@dataclass(frozen=True, kw_only=True)
 class Ye2023Jssc2t1rCellSnap(XbarCell1t1rLinearSnap):
     """Per-call snap of a WH-2T1R cell's programmed state."""
 

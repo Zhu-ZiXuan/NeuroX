@@ -1,6 +1,6 @@
 """Digital modular-arithmetic accumulator over an integer-tensor axis.
 
-See also:
+See Also:
     docs/reference/primitive/digital/accumulator.md
     docs/internals/primitive/digital/accumulator.md
 """

@@ -174,10 +174,11 @@ def test_anchors_parses_with_required_convention_keys() -> None:
     anchors = dict_from_file(_VALIDATIONS_DIR / "anchors.toml")
 
     # Hard-gate target: the one gated number is derived from the sourced macro
-    # power, sub-array count, and access rate (5.13 mW / 8 / 20 MHz = 32.06 pJ).
+    # power, sub-array count, and access rate (5.13 mW / 8 / 20 MHz = 32.06 pJ
+    # = 32060 fJ).
     target = anchors["target"]
-    derived_per_access__pJ = target["total_macro__mW"] * 1000.0 / target["sub_array_num"] / target["op_frequency__MHz"]
-    assert target["per_access__pJ"] == pytest.approx(derived_per_access__pJ, rel=1e-3)
+    derived_per_access__fJ = target["total_macro__mW"] * 1e6 / target["sub_array_num"] / target["op_frequency__MHz"]
+    assert target["per_access__fJ"] == pytest.approx(derived_per_access__fJ, rel=1e-3)
     assert anchors["gate"]["hard_tolerance_relative"] == pytest.approx(0.05)
 
     # Fig.18 shares: every slice present; the read-path sum reconciles.
@@ -221,7 +222,8 @@ def _load_validate_module():
     import sys
 
     spec = importlib.util.spec_from_file_location("xue2020jssc_validate", _VALIDATIONS_DIR / "validate.py")
-    assert spec is not None and spec.loader is not None
+    assert spec is not None
+    assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module  # dataclass creation resolves the defining module
     spec.loader.exec_module(module)
@@ -267,22 +269,22 @@ def test_validate_pair_slice_aggregation_law() -> None:
     validate = _load_validate_module()
 
     shares = {"cablc": 14.9, "dswct": 11.5, "sinwp_sc": 8.0, "pn_isub": 3.4}
-    target_total = 32.06
+    target_total = 32060.0
     slices = (
-        validate.SliceEnergy(name="cablc", dynamic__pJ=3.0, static__pJ=0.5, target__pJ=0.0),
-        validate.SliceEnergy(name="dswct", dynamic__pJ=2.0, static__pJ=0.25, target__pJ=0.0),
-        validate.SliceEnergy(name="sinwp_sc", dynamic__pJ=1.5, static__pJ=0.0, target__pJ=0.0),
-        validate.SliceEnergy(name="pn_isub", dynamic__pJ=0.75, static__pJ=0.125, target__pJ=0.0),
+        validate.SliceEnergy(name="cablc", dynamic__fJ=3000.0, static__fJ=500.0, target__fJ=0.0),
+        validate.SliceEnergy(name="dswct", dynamic__fJ=2000.0, static__fJ=250.0, target__fJ=0.0),
+        validate.SliceEnergy(name="sinwp_sc", dynamic__fJ=1500.0, static__fJ=0.0, target__fJ=0.0),
+        validate.SliceEnergy(name="pn_isub", dynamic__fJ=750.0, static__fJ=125.0, target__fJ=0.0),
     )
     pairs = {s.name: s for s in validate.paired_slices(slices, shares, target_total)}
     assert set(pairs) == {"cablc+dswct", "sinwp_sc+pn_isub"}
 
     cd = pairs["cablc+dswct"]
-    assert cd.dynamic__pJ == pytest.approx(3.0 + 2.0)
-    assert cd.static__pJ == pytest.approx(0.5 + 0.25)
-    assert cd.target__pJ == pytest.approx((14.9 + 11.5) / 100.0 * target_total)
+    assert cd.dynamic__fJ == pytest.approx(3000.0 + 2000.0)
+    assert cd.static__fJ == pytest.approx(500.0 + 250.0)
+    assert cd.target__fJ == pytest.approx((14.9 + 11.5) / 100.0 * target_total)
 
     sp = pairs["sinwp_sc+pn_isub"]
-    assert sp.dynamic__pJ == pytest.approx(1.5 + 0.75)
-    assert sp.static__pJ == pytest.approx(0.0 + 0.125)
-    assert sp.target__pJ == pytest.approx((8.0 + 3.4) / 100.0 * target_total)
+    assert sp.dynamic__fJ == pytest.approx(1500.0 + 750.0)
+    assert sp.static__fJ == pytest.approx(0.0 + 125.0)
+    assert sp.target__fJ == pytest.approx((8.0 + 3.4) / 100.0 * target_total)

@@ -1,6 +1,6 @@
 """Ideal current multiplexer — single-ended N:1 time-share transport block.
 
-See also:
+See Also:
     docs/reference/primitive/analog/current_mux.md
     docs/internals/primitive/analog/current_mux.md
 """

@@ -8,7 +8,7 @@ resolving each binary-search step into the paper's PH2/PH3 conduction phases. Th
 per-step reference path is recovered from the final code through a structural tap
 LUT built at init; the ladder itself is passed per call.
 
-See also:
+See Also:
     docs/works/macro/cim/xue2020jssc/model.md
 """
 

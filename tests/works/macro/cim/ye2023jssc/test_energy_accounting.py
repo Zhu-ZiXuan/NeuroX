@@ -277,18 +277,21 @@ def test_fig19_channels_present_and_self_billed(device: torch.device) -> None:
     # The array self-bills its per-access caps as ONE un-channelled record.
     array_records = [r for r in prof.records if r.qualified_name == macro.array.qualified_name]
     assert len(array_records) == 1, f"array must bill once; got {len(array_records)}"
-    assert array_records[0].channel is None and array_records[0].dynamic_energy__fJ > 0.0
+    assert array_records[0].channel is None
+    assert array_records[0].dynamic_energy__fJ > 0.0
 
     # The RS-CSA self-bills its conversion energy as ONE un-channelled record.
     rscsa_records = [r for r in prof.records if r.qualified_name == macro.rscsa.qualified_name]
     assert len(rscsa_records) == 1, f"rscsa must bill once; got {len(rscsa_records)}"
-    assert rscsa_records[0].channel is None and rscsa_records[0].dynamic_energy__fJ > 0.0
+    assert rscsa_records[0].channel is None
+    assert rscsa_records[0].dynamic_energy__fJ > 0.0
 
     # Each converter bank self-bills its drive as ONE un-channelled record.
     for bank in (macro.wl_dac, macro.bl_dac):
         dac_records = [r for r in prof.records if r.qualified_name == bank.qualified_name]
         assert len(dac_records) == 1, f"{type(bank).__name__} must bill once; got {len(dac_records)}"
-        assert dac_records[0].channel is None and dac_records[0].dynamic_energy__fJ > 0.0
+        assert dac_records[0].channel is None
+        assert dac_records[0].dynamic_energy__fJ > 0.0
 
     # The four channels are the MACRO ROOT's own records (branch-ownership law).
     macro_channels = {r.channel for r in prof.records if r.qualified_name == macro.qualified_name}
@@ -367,7 +370,8 @@ def test_conduction_and_latency_follow_the_executed_window(device: torch.device)
         macro_b, prof_b, rep_b = _run(cfg, w, x, device=device, adc_bits=bits)
         by_name = rep_b.by_name(prof_b)
         ratio = float(macro_b.rscsa.t_conversion__ns(bits)) / float(macro_b.t_ac__ns)
-        assert ratio <= 1.0 and (ratio < 1.0) == (bits < TINY_ADC_BITS), f"window ratio {ratio} at bits={bits}"
+        assert ratio <= 1.0, f"window ratio {ratio} at bits={bits}"
+        assert (ratio < 1.0) == (bits < TINY_ADC_BITS), f"window ratio {ratio} at bits={bits}"
         for channel in (".bl_cond", ".dl_cond"):
             assert by_name[channel] == pytest.approx(ratio * full__fJ[channel]), f"{channel} at bits={bits}"
         assert macro_b.latency__ns(adc_bits=bits) == pytest.approx(ratio * full_latency__ns)

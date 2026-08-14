@@ -1,6 +1,6 @@
 """SimpleSlicer — positional decomposition into macro-level slices.
 
-See also:
+See Also:
     docs/internals/architecture/unit/cim/slicer/simple.md
 """
 

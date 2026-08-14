@@ -1,6 +1,6 @@
 """Boundary-bucketize voltage ADC with optional Gaussian noise stages.
 
-See also:
+See Also:
     docs/reference/primitive/analog/diff_voltage_adc/general.md
     docs/internals/primitive/analog/diff_voltage_adc/general.md
 """

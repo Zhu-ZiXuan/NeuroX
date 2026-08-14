@@ -1,6 +1,6 @@
 """Common interface for integer compute units.
 
-See also:
+See Also:
     docs/internals/architecture/unit/base.md
 """
 
@@ -24,11 +24,12 @@ def _validate_int_bias(bias: Tensor, *, channels: int) -> Tensor:
         `bias` cast to `torch.int64`, the accumulation domain.
 
     Raises:
-        ValueError: `bias` has a non-integer dtype, or a shape other than the
-            per-channel vector stated above.
+        TypeError: `bias` has a non-integer dtype.
+        ValueError: `bias` has a shape other than the per-channel vector stated
+            above.
     """
     if bias.dtype.is_floating_point or bias.dtype.is_complex or bias.dtype == torch.bool:
-        raise ValueError(f"require: integer bias dtype; got {bias.dtype}")
+        raise TypeError(f"require: integer bias dtype; got {bias.dtype}")
     if tuple(bias.shape) != (channels,):
         raise ValueError(f"require: bias.shape ({tuple(bias.shape)}) == ({channels},)")
     return bias.to(torch.int64)
@@ -101,7 +102,7 @@ class UnitBase(ABC):
 
         Returns:
             Weight matrix in the matmul contraction layout.
-            Shape: `[..., N, K]`.
+            Shape: `[N, K]`.
         """
         return weight
 

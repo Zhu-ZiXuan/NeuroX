@@ -21,7 +21,7 @@ separate macro plane, so:
 - The macro instance count contains the `Sw` factor.
 - The stage-owned shift adder reduces `Sw` after `Tc`.
 
-Its shift-adder multiplicity is `(w_parallel,G)`; the output-port work is
+Its shift-adder multiplicity is `(G,)`; the output-port work is
 represented by runtime tensor elements.
 
 ### Intra-port
@@ -43,8 +43,8 @@ macro. Non-divisible output capacity is valid and leaves trailing ports idle.
 - `slice` always appends `Sw`, including size-one direct operation.
 - `arrange_weight` consumes the canonical placement tensor
   `[...,D,G,Q,Tc,L,Sw]`.
-- `aggregate` consumes `[...,Sa,Sw,G,output_num]` after `P` and `Tc` have
-  already been reduced and returns `[...,Sa,G,Q]`.
+- `aggregate` consumes `[...,Sx,Sw,G,output_num]` after `P` and `Tc` have
+  already been reduced and returns `[...,Sx,G,Q]`.
 - `value_range` is computed by the owned slicer from the macro-level weight
   range, slice count, radix, and encoding.
 

@@ -1,6 +1,6 @@
 """OTS threshold-selector model.
 
-See also:
+See Also:
     docs/reference/primitive/device/selector.md
     docs/internals/primitive/device/selector.md
 """

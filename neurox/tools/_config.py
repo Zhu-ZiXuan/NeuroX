@@ -5,14 +5,10 @@ from __future__ import annotations
 import argparse
 import logging
 from pathlib import Path
-from typing import TypeVar
 
 from neurox.common import SerializeMixin
 
 from ._logging import config_tool_logging
-
-_T = TypeVar("_T", bound=SerializeMixin)
-
 
 _LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 
@@ -81,15 +77,14 @@ def setup_logging(level_name: str) -> None:
     config_tool_logging(level=getattr(logging, level_name.upper()))
 
 
-def load_tool_config(cls: type[_T], config_path: Path) -> _T:
+def load_tool_config[T: SerializeMixin](cls: type[T], config_path: Path) -> T:
     """Parse the tool-run TOML at `config_path` into `cls`."""
     return cls.from_file(config_path)
 
 
-def resolve_relative_path(path: Path | str | None, base: Path) -> Path | None:
+def resolve_relative_path(path: Path | str, base: Path) -> Path:
     """Resolve a TOML-supplied path against `base`'s directory.
 
-    `None` propagates as `None` so optional path fields stay declarative.
     An absolute path is returned unchanged.
 
     Args:
@@ -97,8 +92,6 @@ def resolve_relative_path(path: Path | str | None, base: Path) -> Path | None:
         base: The TOML file's own path; a relative `path` resolves against
             `base.parent`.
     """
-    if path is None:
-        return None
     p = Path(path) if not isinstance(path, Path) else path
     if p.is_absolute():
         return p

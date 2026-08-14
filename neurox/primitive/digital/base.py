@@ -1,13 +1,12 @@
 """Shared base for digital, integer-exact circuit modules.
 
-See also:
+See Also:
     docs/internals/primitive/digital/base.md
 """
 
 from __future__ import annotations
 
 from abc import ABC
-from typing import Generic, TypeVar
 
 from neurox.common import ConfigBase, ModuleBase, PolicyBase
 
@@ -29,10 +28,7 @@ class DigitalPolicy(PolicyBase):
     """Empty policy marker — integer-exact blocks carry no nonidealities."""
 
 
-DigitalConfigT = TypeVar("DigitalConfigT", bound="DigitalConfig")
-
-
-class DigitalBase(ModuleBase[DigitalConfigT, DigitalPolicy], Generic[DigitalConfigT], ABC):
+class DigitalBase[ConfigT: DigitalConfig](ModuleBase[ConfigT, DigitalPolicy], ABC):
     """Base for digital, integer-exact circuit blocks."""
 
     def _sample_fabricate_mismatch(self) -> None:

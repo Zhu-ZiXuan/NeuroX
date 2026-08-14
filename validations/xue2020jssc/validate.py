@@ -4,8 +4,8 @@ Builds :class:`~neurox.works.macro.cim.xue2020jssc.Xue2020JsscCimMacro` from
 ``params.toml`` + ``policy.toml``, drives it DIRECTLY (rows ``0..active_row_num-1``
 live, the rest zeroed) over a round-based random workload per the ``anchors.toml``
 data conventions, and reduces the profiler to the ENERGY PER ACCESS. The one HARD
-GATE is the total energy per access against the paper's 32.06 pJ/access (= 5.13 mW
-/ 8 sub-arrays / 20 MHz) within +-5% at the declared ``p_zero``.
+GATE is the total energy per access against the paper's 32060 fJ/access (= 32.06 pJ
+= 5.13 mW / 8 sub-arrays / 20 MHz) within +-5% at the declared ``p_zero``.
 
 Energy-basis reduction. With ``accesses = n_samples * mux_factor`` (one VMM over
 all ``col_num`` logical columns is ``mux_factor`` serial accesses):
@@ -23,7 +23,7 @@ pn_isub, tmcsa) is pure physics with declared structural constants (g_map,
 V_BL_CLAMP, wire R, conduction windows); its static seats are declared small/zero
 and NEVER reverse-solved to fill the total. ``p_zero`` is LOCKED to the read-path
 physics -- the sparsity at which the pure-physics read path conducts its Fig.18
-read-path share (47.1 % x 32.06 = 15.10 pJ/access) -- and is NEVER solved against
+read-path share (47.1 % x 32060 = 15100 fJ/access) -- and is NEVER solved against
 the total. The headline is the total energy per access at that locked ``p_zero``.
 
 PAIRED-SLICE caliber for the Fig.18 comparison: the paper splits ONE series input
@@ -47,11 +47,12 @@ the round-total relative std. Peak profiler memory stays that of one round.
 ``--solve-chunk`` bounds the array solve leading (a MACHINE knob; ``0`` solves all
 at once); its default is sized against the PRE-FLATTENING leading, which still
 carried the 32-slot column-MUX axis, so it needs retuning for the flattened
-shapes together with the policy's own ``solve_chunk_size``. ``--device auto``
-picks a free GPU via ``nvidia-smi`` (else CPU serial).
+shapes together with the policy's own ``solve_chunk_size``. ``--device auto`` is
+``cuda`` when a CUDA device is visible, else CPU serial; WHICH GPU that is stays
+the operator's choice, through ``CUDA_VISIBLE_DEVICES``.
 
 Per-block breakdown (INFORMATIONAL, not gated): each Fig.18 slice is reported in
-pJ/access next to its ``share * 32.06 pJ`` reference; differences are labelled as
+fJ/access next to its ``share * 32060 fJ`` reference; differences are labelled as
 convention / node-voltage effects, not gated.
 
 Run:
@@ -74,7 +75,6 @@ import argparse
 import dataclasses
 import logging
 import statistics
-import subprocess
 import tomllib
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -85,7 +85,7 @@ import torch
 from neurox import Profiler, Reporter, stamp_names
 from neurox.common import StaticEntry
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
-from neurox.works.macro.cim.xue2020jssc import Xue2020JsscCimMacro, Xue2020JsscCimMacroPolicy
+from neurox.works.macro.cim.xue2020jssc import Xue2020JsscCimMacro
 
 _LOG = logging.getLogger(__name__)
 
@@ -147,10 +147,9 @@ _STATIC_NAMES: dict[str, tuple[str, ...]] = {
 # magnitude digits (LSB-first) -> a 3-bit signed weight.
 _QUANTIZATION_MODE = 0
 _ADC_BITS = 3
-_ROW_NUM = 256
-_COL_NUM = 128
-
-_FJ_PER_PJ = 1000.0
+# The sub-array geometry, PUBLIC: the calibration campaign builds the same macro.
+ROW_NUM = 256
+COL_NUM = 128
 
 
 # ---------------------------------------------------------------------------
@@ -182,7 +181,6 @@ def build_macro(
     """
     config = CimMacroConfig.from_file(params_path, section="cim_macro")
     policy = CimMacroPolicy.from_file(policy_path, section="policy")
-    assert isinstance(policy, Xue2020JsscCimMacroPolicy)
     policy = dataclasses.replace(
         policy,
         array_policy=dataclasses.replace(policy.array_policy, solve_chunk_size=solve_chunk_size),
@@ -190,13 +188,12 @@ def build_macro(
     macro = CimMacro.from_config(
         config=config,
         policy=policy,
-        input_num=_ROW_NUM,
-        output_num=_COL_NUM,
+        input_num=ROW_NUM,
+        output_num=COL_NUM,
         inst_shape=(),
         dtype=torch.float32,
         T__K=300.0,
     )
-    assert isinstance(macro, Xue2020JsscCimMacro)
     macro.to(device)
     macro.eval()
     macro.fabricate()
@@ -266,25 +263,25 @@ def _draw_input(
 
 @dataclass(frozen=True)
 class SliceEnergy:
-    """One Fig.18 slice: dynamic + static energy per access [pJ] vs its informational target.
+    """One Fig.18 slice: dynamic + static energy per access [fJ] vs its informational target.
 
     A pair MEMBER slice (cablc / dswct / sinwp_sc / pn_isub) carries
-    ``target__pJ = 0.0`` — under the paired-slice caliber only the pair sums
+    ``target__fJ = 0.0`` — under the paired-slice caliber only the pair sums
     have well-defined targets; members are reported informationally.
     """
 
     name: str
-    dynamic__pJ: float
-    static__pJ: float
-    target__pJ: float
+    dynamic__fJ: float
+    static__fJ: float
+    target__fJ: float
 
     @property
-    def total__pJ(self) -> float:
-        return self.dynamic__pJ + self.static__pJ
+    def total__fJ(self) -> float:
+        return self.dynamic__fJ + self.static__fJ
 
     @property
     def ratio(self) -> float:
-        return self.total__pJ / self.target__pJ if self.target__pJ else float("inf")
+        return self.total__fJ / self.target__fJ if self.target__fJ else float("inf")
 
 
 def paired_slices(slices: tuple[SliceEnergy, ...], shares: dict, target_total: float) -> tuple[SliceEnergy, ...]:
@@ -299,9 +296,9 @@ def paired_slices(slices: tuple[SliceEnergy, ...], shares: dict, target_total: f
     return tuple(
         SliceEnergy(
             name=pair,
-            dynamic__pJ=sum(by_name[m].dynamic__pJ for m in members),
-            static__pJ=sum(by_name[m].static__pJ for m in members),
-            target__pJ=sum(shares[m] for m in members) / 100.0 * target_total,
+            dynamic__fJ=sum(by_name[m].dynamic__fJ for m in members),
+            static__fJ=sum(by_name[m].static__fJ for m in members),
+            target__fJ=sum(shares[m] for m in members) / 100.0 * target_total,
         )
         for pair, members in _PAIRED_SLICES.items()
     )
@@ -312,11 +309,11 @@ class Measurement:
     """Energy-per-access measurement: the gated total plus the informational breakdown.
 
     Attributes:
-        total__pJ: The gated total energy per access.
-        dynamic__pJ: Dynamic share of the total.
-        static__pJ: Static (leakage) share of the total.
+        total__fJ: The gated total energy per access.
+        dynamic__fJ: Dynamic share of the total.
+        static__fJ: Static (leakage) share of the total.
         slices: The informational Fig.18 slice breakdown.
-        unmapped_static__pJ: Static residual belonging to no slice.
+        unmapped_static__fJ: Static residual belonging to no slice.
         access_latency__ns: The macro's modelled access time, per output
             access. Reported beside the energies; the static term integrates
             over :func:`leakage_window__ns`, never over this.
@@ -328,17 +325,17 @@ class Measurement:
         seed: Generator seed of the first round.
         repeat: Pooled rounds, each redrawing the weights AND the inputs.
         rel_std: Relative standard deviation of the round totals.
-        dyn_by_name: Every profiler dynamic-energy row in pJ PER ACCESS, keyed
+        dyn_by_name: Every profiler dynamic-energy row in fJ PER ACCESS, keyed
             by qualified name. The gate reads only the slice aggregation above;
             this raw row view is what the calibration campaign
             (``tools/calibrate.py``) reduces its per-block residuals from.
     """
 
-    total__pJ: float
-    dynamic__pJ: float
-    static__pJ: float
+    total__fJ: float
+    dynamic__fJ: float
+    static__fJ: float
     slices: tuple[SliceEnergy, ...]
-    unmapped_static__pJ: float
+    unmapped_static__fJ: float
     access_latency__ns: float
     window__ns: float
     n_w: int
@@ -366,7 +363,7 @@ def _per_access(
     accesses: int,
     window__ns: float,
 ) -> tuple[dict[str, float], dict[str, float]]:
-    """Return ``(dynamic_by_name, static_by_name)`` energy PER ACCESS [pJ].
+    """Return ``(dynamic_by_name, static_by_name)`` energy PER ACCESS [fJ].
 
     Dynamic: each accumulated energy row divided by ``accesses``. Static: each
     block's ``leakage_power * window`` (the per-access integral of its leakage),
@@ -375,8 +372,8 @@ def _per_access(
     the reported total is the sum of these rows, so the breakdown and the gated
     total cannot drift apart.
     """
-    dyn = {k: v / accesses / _FJ_PER_PJ for k, v in dynamic_by_name__fJ.items()}
-    stat = {e.qualified_name: e.leakage__uW * window__ns / _FJ_PER_PJ for e in static_entries}
+    dyn = {k: v / accesses for k, v in dynamic_by_name__fJ.items()}
+    stat = {e.qualified_name: e.leakage__uW * window__ns for e in static_entries}
     return dyn, stat
 
 
@@ -415,7 +412,7 @@ def measure(
     data = anchors["data"]
     w_lo, w_hi = data["weight_range"]
     x_lo, x_hi = data["input_range"]
-    target_total = anchors["target"]["per_access__pJ"]
+    target_total = anchors["target"]["per_access__fJ"]
     shares = anchors["fig18_shares"]
 
     mux = cfg.mux_factor
@@ -462,29 +459,29 @@ def measure(
 
     dyn, stat = _per_access(reporter.static_entries, dyn_by_name__fJ, accesses=accesses, window__ns=window__ns)
     # The one static-energy derivation, shared by the total and the breakdown.
-    static__pJ = sum(stat.values())
-    dynamic__pJ = total_dynamic__fJ / accesses / _FJ_PER_PJ
-    total__pJ = dynamic__pJ + static__pJ
+    static__fJ = sum(stat.values())
+    dynamic__fJ = total_dynamic__fJ / accesses
+    total__fJ = dynamic__fJ + static__fJ
     # Pair MEMBERS carry no per-member target (paired-slice caliber); the pair
     # rows derived by ``paired_slices`` carry the summed-share targets.
     slices = tuple(
         SliceEnergy(
             name=s,
-            dynamic__pJ=sum(dyn.get(k, 0.0) for k in _DYN_NAMES.get(s, ())),
-            static__pJ=sum(stat.get(k, 0.0) for k in _STATIC_NAMES.get(s, ())),
-            target__pJ=0.0 if s in _PAIR_MEMBERS else shares[s] / 100.0 * target_total,
+            dynamic__fJ=sum(dyn.get(k, 0.0) for k in _DYN_NAMES.get(s, ())),
+            static__fJ=sum(stat.get(k, 0.0) for k in _STATIC_NAMES.get(s, ())),
+            target__fJ=0.0 if s in _PAIR_MEMBERS else shares[s] / 100.0 * target_total,
         )
         for s in _ALL_SLICES
     )
     mapped_static = sum(stat.get(k, 0.0) for s in _ALL_SLICES for k in _STATIC_NAMES.get(s, ()))
-    unmapped_static = static__pJ - mapped_static
+    unmapped_static = static__fJ - mapped_static
 
     return Measurement(
-        total__pJ=total__pJ,
-        dynamic__pJ=dynamic__pJ,
-        static__pJ=static__pJ,
+        total__fJ=total__fJ,
+        dynamic__fJ=dynamic__fJ,
+        static__fJ=static__fJ,
         slices=slices,
-        unmapped_static__pJ=unmapped_static,
+        unmapped_static__fJ=unmapped_static,
         access_latency__ns=access_latency__ns,
         window__ns=window__ns,
         n_w=n_w,
@@ -521,24 +518,24 @@ def _pool_rounds(rounds: list[Measurement], *, p_zero: float, seed: int) -> Meas
     slices = tuple(
         SliceEnergy(
             name=name,
-            dynamic__pJ=wmean(lambda r, n=name: r.slice(n).dynamic__pJ),
-            static__pJ=wmean(lambda r, n=name: r.slice(n).static__pJ),
-            target__pJ=first.slice(name).target__pJ,
+            dynamic__fJ=wmean(lambda r, n=name: r.slice(n).dynamic__fJ),
+            static__fJ=wmean(lambda r, n=name: r.slice(n).static__fJ),
+            target__fJ=first.slice(name).target__fJ,
         )
         for name in names
     )
-    round_totals = [r.total__pJ for r in rounds]
-    mean_total = wmean(lambda r: r.total__pJ)
+    round_totals = [r.total__fJ for r in rounds]
+    mean_total = wmean(lambda r: r.total__fJ)
     rel_std = statistics.stdev(round_totals) / mean_total if len(round_totals) > 1 and mean_total else 0.0
     row_names = {name for r in rounds for name in r.dyn_by_name}
     dyn_by_name = {name: wmean(lambda r, n=name: r.dyn_by_name.get(n, 0.0)) for name in sorted(row_names)}
 
     return Measurement(
-        total__pJ=mean_total,
-        dynamic__pJ=wmean(lambda r: r.dynamic__pJ),
-        static__pJ=wmean(lambda r: r.static__pJ),
+        total__fJ=mean_total,
+        dynamic__fJ=wmean(lambda r: r.dynamic__fJ),
+        static__fJ=wmean(lambda r: r.static__fJ),
         slices=slices,
-        unmapped_static__pJ=wmean(lambda r: r.unmapped_static__pJ),
+        unmapped_static__fJ=wmean(lambda r: r.unmapped_static__fJ),
         access_latency__ns=first.access_latency__ns,
         window__ns=first.window__ns,
         n_w=first.n_w,
@@ -588,14 +585,14 @@ def measure_rounds(
 
 def gate(m: Measurement, anchors: dict) -> tuple[bool, float]:
     """Hard gate: total energy per access within +-tol of the target. Return ``(pass, rel_error)``."""
-    target = anchors["target"]["per_access__pJ"]
+    target = anchors["target"]["per_access__fJ"]
     tol = anchors["gate"]["hard_tolerance_relative"]
-    rel = (m.total__pJ - target) / target
+    rel = (m.total__fJ - target) / target
     return abs(rel) <= tol, rel
 
 
 def energy_table(m: Measurement, anchors: dict) -> str:
-    """Informational per-block breakdown (pJ/access) + the gated total row.
+    """Informational per-block breakdown (fJ/access) + the gated total row.
 
     Paired-slice caliber: the target-bearing rows are the two pair sums
     (``cablc+dswct`` vs 26.4 %, ``sinwp_sc+pn_isub`` vs 11.4 %) and the
@@ -603,37 +600,34 @@ def energy_table(m: Measurement, anchors: dict) -> str:
     kept visible without a per-member target (the paper's internal split node
     voltages are unpublished).
     """
-    target = anchors["target"]["per_access__pJ"]
+    target = anchors["target"]["per_access__fJ"]
     tol = anchors["gate"]["hard_tolerance_relative"]
     shares = anchors["fig18_shares"]
     lines: list[str] = []
-    lines.append("| Slice | Energy [pJ/acc] | dyn | static | Fig.18 x 32.06 [pJ] | pred/ref | basis |")
+    lines.append("| Slice | Energy [fJ/acc] | dyn | static | Fig.18 x 32060 [fJ] | pred/ref | basis |")
     lines.append("|---|--:|--:|--:|--:|--:|:--|")
 
     def row(s: SliceEnergy, *, basis: str) -> str:
-        target_cell = f"{s.target__pJ:8.3f}" if s.target__pJ else "    -   "
-        ratio_cell = f"{s.ratio:5.2f}x" if s.target__pJ else "  -   "
+        target_cell = f"{s.target__fJ:8.3f}" if s.target__fJ else "    -   "
+        ratio_cell = f"{s.ratio:5.2f}x" if s.target__fJ else "  -   "
         return (
-            f"| {s.name} | {s.total__pJ:8.3f} | {s.dynamic__pJ:7.3f} | {s.static__pJ:6.3f} | "
+            f"| {s.name} | {s.total__fJ:8.3f} | {s.dynamic__fJ:7.3f} | {s.static__fJ:6.3f} | "
             f"{target_cell} | {ratio_cell} | {basis} |"
         )
 
-    for name in _ADOPTED_SLICES:
-        lines.append(row(m.slice(name), basis="adopted"))
-    for pair in paired_slices(m.slices, shares, target):
-        lines.append(row(pair, basis="physics pair"))
+    lines.extend(row(m.slice(name), basis="adopted") for name in _ADOPTED_SLICES)
+    lines.extend(row(pair, basis="physics pair") for pair in paired_slices(m.slices, shares, target))
     lines.append(row(m.slice("tmcsa"), basis="physics"))
-    for name in _PAIR_MEMBERS:
-        lines.append(row(m.slice(name), basis="pair member"))
-    if abs(m.unmapped_static__pJ) > 1e-9:
+    lines.extend(row(m.slice(name), basis="pair member") for name in _PAIR_MEMBERS)
+    if abs(m.unmapped_static__fJ) > 1e-9:
         lines.append(
-            f"| (unmapped static) | {m.unmapped_static__pJ:8.3f} | {0.0:7.3f} | {m.unmapped_static__pJ:6.3f} | "
+            f"| (unmapped static) | {m.unmapped_static__fJ:8.3f} | {0.0:7.3f} | {m.unmapped_static__fJ:6.3f} | "
             f"{0.0:8.3f} |    -   | residual |"
         )
     within, rel = gate(m, anchors)
     lines.append(
-        f"| **TOTAL (gated)** | **{m.total__pJ:8.3f}** | {m.dynamic__pJ:7.3f} | {m.static__pJ:6.3f} | "
-        f"**{target:8.3f}** | **{m.total__pJ / target:5.3f}x** | {'PASS' if within else 'FAIL'} "
+        f"| **TOTAL (gated)** | **{m.total__fJ:8.3f}** | {m.dynamic__fJ:7.3f} | {m.static__fJ:6.3f} | "
+        f"**{target:8.3f}** | **{m.total__fJ / target:5.3f}x** | {'PASS' if within else 'FAIL'} "
         f"(+-{tol * 100:.0f}%, err {rel * 100:+.1f}%) |"
     )
     return "\n".join(lines)
@@ -646,7 +640,7 @@ def energy_table(m: Measurement, anchors: dict) -> str:
 
 def render_report(m: Measurement, anchors: dict, *, device: torch.device) -> str:
     """Energy-basis gate report, the text ``results.md`` records."""
-    target = anchors["target"]["per_access__pJ"]
+    target = anchors["target"]["per_access__fJ"]
     tol = anchors["gate"]["hard_tolerance_relative"]
     within, rel = gate(m, anchors)
     data = anchors["data"]
@@ -676,9 +670,9 @@ def render_report(m: Measurement, anchors: dict, *, device: torch.device) -> str
     lines.append("")
     std_note = f" +- {m.rel_std * 100:.2f} % (round-total relative std over {m.repeat} rounds)" if m.repeat > 1 else ""
     lines.append(
-        f"Target 32.06 pJ/access (= 5.13 mW / 8 / 20 MHz); +-{tol * 100:.0f}%. At this run's p_zero = "
-        f"{m.p_zero:.3f} (marginal P(x=0) = {marginal:.3f}): result **{m.total__pJ:.3f} pJ/access = "
-        f"{m.total__pJ / target:.3f}x**{std_note} (err {rel * 100:+.1f}%), within +-{tol * 100:.0f}%: "
+        f"Target 32060 fJ/access (= 32.06 pJ = 5.13 mW / 8 / 20 MHz); +-{tol * 100:.0f}%. At this run's p_zero = "
+        f"{m.p_zero:.3f} (marginal P(x=0) = {marginal:.3f}): result **{m.total__fJ:.3f} fJ/access = "
+        f"{m.total__fJ / target:.3f}x**{std_note} (err {rel * 100:+.1f}%), within +-{tol * 100:.0f}%: "
         f"{'yes' if within else 'no'}."
     )
     lines.append("")
@@ -699,13 +693,13 @@ def render_report(m: Measurement, anchors: dict, *, device: torch.device) -> str
         "and CABLC, and one series sink branch between SINWP-SC (its sink transistors) and PN-ISUB (switches "
         "+ comparator + isub); the internal node voltages are unpublished, so only the pair sums "
         "(cablc+dswct vs 26.4 %, sinwp_sc+pn_isub vs 11.4 %) are well-defined targets -- the member rows are "
-        "informational. Differences from Fig.18 x 32.06 pJ are reported, not gated."
+        "informational. Differences from Fig.18 x 32060 fJ are reported, not gated."
     )
     lines.append("")
     lines.append("## Declared conventions")
     lines.append("")
     lines.append(
-        f"- Hard gate: total energy per access within +-{tol * 100:.0f}% of {target} pJ at the declared p_zero."
+        f"- Hard gate: total energy per access within +-{tol * 100:.0f}% of {target} fJ at the declared p_zero."
     )
     lines.append(
         "- Adopted seats (declared to reproduce a Fig.18 share, not fitted to the total): "
@@ -735,47 +729,17 @@ def render_report(m: Measurement, anchors: dict, *, device: torch.device) -> str
 # ---------------------------------------------------------------------------
 
 
-def _pick_free_gpu() -> int | None:
-    """Return the index of a free CUDA GPU (lowest util, most free memory), or ``None``.
+def resolve_device(name: str) -> torch.device:
+    """Resolve a device name; ``auto`` is ``cuda`` when one is visible, else ``cpu``.
 
-    Parses ``nvidia-smi``: use a free GPU if one shows, else CPU. A GPU counts as
-    free at ``<= 10 %`` utilization; among those the one with
-    the most free memory wins. Any failure (no ``nvidia-smi``, no visible / free
-    GPU) returns ``None`` so the caller falls back to CPU serial.
+    Any other name is handed to :class:`torch.device` verbatim. This harness
+    never chooses a GPU INDEX: which card the run lands on is the operator's
+    choice, made outside the process through ``CUDA_VISIBLE_DEVICES``.
     """
-    if not torch.cuda.is_available():
-        return None
-    try:
-        out = subprocess.run(
-            ["nvidia-smi", "--query-gpu=index,utilization.gpu,memory.free", "--format=csv,noheader,nounits"],
-            capture_output=True,
-            text=True,
-            timeout=15,
-            check=True,
-        ).stdout
-    except (OSError, subprocess.SubprocessError):
-        return None
-    best: tuple[int, float] | None = None  # (index, free_mib) among <=10% util
-    for line in out.strip().splitlines():
-        try:
-            idx_s, util_s, free_s = (p.strip() for p in line.split(","))
-            idx, util, free = int(idx_s), float(util_s), float(free_s)
-        except ValueError:
-            continue
-        if util <= 10.0 and (best is None or free > best[1]):
-            best = (idx, free)
-    return best[0] if best is not None else None
-
-
-def _resolve_device(name: str) -> torch.device:
-    """Resolve a device name; ``auto`` picks a free GPU, else CPU."""
     if name == "auto":
-        idx = _pick_free_gpu()
-        dev = torch.device(f"cuda:{idx}") if idx is not None else torch.device("cpu")
-        _LOG.info("[auto device -> %s]", dev)
-        return dev
-    if name.startswith("cuda") and not torch.cuda.is_available():
-        raise SystemExit("CUDA requested but not available")
+        device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+        _LOG.info("[auto device -> %s]", device)
+        return device
     return torch.device(name)
 
 
@@ -795,7 +759,8 @@ def main() -> None:
         "--device",
         type=str,
         default="auto",
-        help="cpu, cuda[:idx], or auto (pick a free GPU via nvidia-smi else cpu); default auto.",
+        help="cpu, cuda[:idx], or auto (cuda if visible else cpu); default auto. Pick the card with "
+        "CUDA_VISIBLE_DEVICES.",
     )
     args = ap.parse_args()
 
@@ -805,7 +770,7 @@ def main() -> None:
         anchors = tomllib.load(fh)
     p_zero = float(anchors["data"]["p_zero"])
 
-    device = _resolve_device(args.device)
+    device = resolve_device(args.device)
     macro = build_macro(_PARAMS_PATH, _POLICY_PATH, device=device, solve_chunk_size=args.solve_chunk)
     m = measure_rounds(
         macro,

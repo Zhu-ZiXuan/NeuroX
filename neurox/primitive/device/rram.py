@@ -1,17 +1,16 @@
 """Programmable-conductance RRAM device model.
 
-See also:
+See Also:
     docs/reference/primitive/device/rram.md
     docs/internals/primitive/device/rram.md
 """
 
-from dataclasses import dataclass
 from typing import ClassVar
 
 import torch
 from torch import Tensor
 
-from neurox.common import ConfigBase, ModuleBase, PolicyBase, TensorGroupMixin
+from neurox.common import ConfigBase, ModuleBase, PolicyBase, TensorDataClassBase, TensorGroupMixin
 from neurox.primitive.nonideality import (
     StateDependentGammaConfig,
     StuckAtFaultConfig,
@@ -75,8 +74,7 @@ class RramPolicy(PolicyBase):
     """Apply Gaussian read noise at snapshot time."""
 
 
-@dataclass(frozen=True)
-class RramDcop:
+class RramDcop(TensorDataClassBase):
     """Device current and local differential conductance."""
 
     i__uA: Tensor
@@ -85,8 +83,7 @@ class RramDcop:
     """Slope of the I-V law at the evaluated voltage. Shape: `[...]`."""
 
 
-@dataclass(frozen=True)
-class RramSnap(TensorGroupMixin):
+class RramSnap(TensorDataClassBase, TensorGroupMixin):
     """Per-call read conductance snap."""
 
     g__uS: Tensor

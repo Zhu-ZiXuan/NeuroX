@@ -1,4 +1,7 @@
-"""Preset-authority semantics: `from_preset` dispatch, receiver-bounded resolution, and directive-versus-`_neurox_class` exclusion."""
+"""Preset-authority semantics.
+
+`from_preset` dispatch, receiver-bounded resolution, and directive-versus-`_neurox_class` exclusion.
+"""
 
 from __future__ import annotations
 
@@ -48,9 +51,8 @@ def test_use_preset_and_class_discriminator_conflict(tmp_path: Path) -> None:
         '[thing]\n_neurox_use_preset = "process/rram:default"\n_neurox_class = "RramConfig"\n',
         encoding="utf-8",
     )
-    with pytest.raises(ValueError) as exc:
+    with pytest.raises(ValueError, match="'_neurox_use_preset' table may not also declare '_neurox_class'"):
         RramConfig.from_file(file, section="thing")
-    assert "_neurox_class" in str(exc.value)
 
 
 def test_use_and_class_discriminator_conflict(tmp_path: Path) -> None:
@@ -60,9 +62,8 @@ def test_use_and_class_discriminator_conflict(tmp_path: Path) -> None:
         '[thing]\n_neurox_use = "fragment:sec"\n_neurox_class = "RramConfig"\n',
         encoding="utf-8",
     )
-    with pytest.raises(ValueError) as exc:
+    with pytest.raises(ValueError, match="'_neurox_use' table may not also declare '_neurox_class'"):
         RramConfig.from_file(file, section="thing")
-    assert "_neurox_class" in str(exc.value)
 
 
 # --- 4. inline-table idiom == section-header idiom == direct from_preset ---

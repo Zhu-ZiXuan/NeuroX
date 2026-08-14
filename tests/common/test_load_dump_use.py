@@ -4,13 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TypeVar
 
 import pytest
 
 from neurox.common.serialize import compose, dataclass_from_dict, dict_from_file, load_config_dict, resolve_uses
-
-T = TypeVar("T")
 
 
 @dataclass(frozen=True)
@@ -33,7 +30,7 @@ def _write(path: Path, body: str) -> Path:
     return path
 
 
-def dataclass_from_file(
+def dataclass_from_file[T](
     cls: type[T],
     *files: Path,
     section: str | None = None,

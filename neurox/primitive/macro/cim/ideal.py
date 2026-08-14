@@ -1,6 +1,6 @@
 """Tile-level ideal crossbar with window-driven output quantization.
 
-See also:
+See Also:
     docs/reference/primitive/macro/cim/ideal.md
     docs/internals/primitive/macro/cim/ideal.md
 """

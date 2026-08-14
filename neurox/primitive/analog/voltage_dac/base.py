@@ -1,13 +1,12 @@
 """Abstract base class for voltage-domain DAC models.
 
-See also:
+See Also:
     docs/internals/primitive/analog/voltage_dac/base.md
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Generic, TypeVar
 
 import torch
 from torch import Tensor
@@ -31,14 +30,9 @@ class VdacPolicy(AnalogPolicy, ABC):
     """Abstract marker base for voltage-DAC-family nonideality policies."""
 
 
-ConfigT = TypeVar("ConfigT", bound=VdacConfig, covariant=True)
-PolicyT = TypeVar("PolicyT", bound=VdacPolicy, covariant=True)
-
-
-class Vdac(
+class Vdac[ConfigT: VdacConfig, PolicyT: VdacPolicy](
     AnalogBase[ConfigT, PolicyT],
     RegistryMixin["VdacConfig", "VdacPolicy", "Vdac[VdacConfig, VdacPolicy]"],
-    Generic[ConfigT, PolicyT],
     ABC,
 ):
     """Base class for voltage-domain DAC implementations.

@@ -1,6 +1,6 @@
 """SerialSlicer — true-form radix-`r` positional decomposition.
 
-See also:
+See Also:
     docs/internals/architecture/unit/cim/slicer/serial.md
 """
 
@@ -17,7 +17,7 @@ class SerialSlicer(Slicer):
     """Radix-`r` serial decomposition.
 
     Args:
-        slice_num: Number of per-cycle digits (shape shorthand `Sa`).
+        slice_num: Number of per-cycle digits — the slice-count axis in shape notation.
         digit_radix: Activation-cell positional radix `r`. The implied
             unsigned digit range is `[0, r - 1]`.
     """

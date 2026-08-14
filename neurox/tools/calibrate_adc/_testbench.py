@@ -21,6 +21,7 @@ from pathlib import Path
 import torch
 from torch import Tensor
 
+from neurox.common import TensorDataClassBase
 from neurox.primitive import T_ROOM__K
 from neurox.primitive.analog.current_adc import IadcProber
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy, IdealCimMacro
@@ -91,13 +92,8 @@ def build_physical_macro(
         base: The tool TOML path the relative file references resolve against.
         device: Target torch device.
     """
-    config_paths: list[Path] = []
-    for file in section.config_files:
-        resolved = resolve_relative_path(file, base)
-        assert resolved is not None
-        config_paths.append(resolved)
+    config_paths = [resolve_relative_path(file, base) for file in section.config_files]
     policy_path = resolve_relative_path(section.policy_file, base)
-    assert policy_path is not None
     config = CimMacroConfig.from_file(*config_paths, section=section.config_section)
     policy = CimMacroPolicy.from_file(policy_path, section=section.policy_section)
     macro = CimMacro.from_config(
@@ -321,8 +317,7 @@ def _unroll_sub_phase(x: Tensor, *, row_num: int, max_active_num: int, inst_rank
     return torch.where(mask, x.unsqueeze(max(-(inst_rank + 2), -(x.ndim + 1))), x.new_zeros(()))
 
 
-@dataclass(frozen=True)
-class PairedConversion:
+class PairedConversion(TensorDataClassBase):
     """Flattened, order-aligned calibration streams for one stimulus.
 
     `sample_num` is the streams' common conversion-element count.

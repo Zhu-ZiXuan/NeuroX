@@ -43,7 +43,7 @@ from neurox.primitive.macro.cim import validate_quantization_input_range
 def _check_float(value: object, *, where: str, key: str) -> float:
     """Validate one finite float entry."""
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ValueError(f"{where}: {key} must be a number; got {value!r}")
+        raise TypeError(f"{where}: {key} must be a number; got {value!r}")
     v = float(value)
     if not math.isfinite(v):
         raise ValueError(f"{where}: require {key} finite; got {v!r}")
@@ -53,14 +53,16 @@ def _check_float(value: object, *, where: str, key: str) -> float:
 def _check_int(value: object, *, where: str, key: str) -> int:
     """Validate one integer entry (TOML booleans are not integers here)."""
     if isinstance(value, bool) or not isinstance(value, int):
-        raise ValueError(f"{where}: {key} must be an int; got {value!r}")
+        raise TypeError(f"{where}: {key} must be an int; got {value!r}")
     return value
 
 
 def _check_pair(value: object, *, where: str, key: str) -> tuple[object, object]:
     """Validate one two-element array entry."""
-    if not isinstance(value, list) or len(value) != 2:
-        raise ValueError(f"{where}: {key} must be a 2-element array [lower, upper]; got {value!r}")
+    if not isinstance(value, list):
+        raise TypeError(f"{where}: {key} must be an array [lower, upper]; got {value!r}")
+    if len(value) != 2:
+        raise ValueError(f"{where}: {key} must have exactly 2 elements; got {len(value)}")
     return value[0], value[1]
 
 
@@ -121,8 +123,10 @@ def load_layer_ranges(path: Path) -> dict[str, LayerRange]:
         `layer name -> LayerRange` for every entry, in file order.
 
     Raises:
-        ValueError: On an empty mapping, a non-table entry, an unknown or
-            missing key, or an invalid `range` value.
+        TypeError: An entry is not a table, or its `range` is not an array of
+            numbers.
+        ValueError: On an empty mapping, an unknown or missing key, or an
+            invalid `range` value.
     """
     with path.open("rb") as f:
         raw = tomllib.load(f)
@@ -132,7 +136,7 @@ def load_layer_ranges(path: Path) -> dict[str, LayerRange]:
     for name, entry in raw.items():
         where = f"{path}: layer {name!r}"
         if not isinstance(entry, dict):
-            raise ValueError(f"{where}: entry must be a table {{ range = [lo, hi] }}; got {entry!r}")
+            raise TypeError(f"{where}: entry must be a table {{ range = [lo, hi] }}; got {entry!r}")
         if set(entry) != {"range"}:
             raise ValueError(f"{where}: entry keys must be exactly {{range}}; got {sorted(entry)}")
         lo, hi = _check_pair(entry["range"], where=where, key="range")
@@ -204,20 +208,24 @@ def load_mode_set(path: Path) -> ModeSet:
     """Parse and validate a mode-set TOML.
 
     Raises:
-        ValueError: On a missing or malformed `[[modes]]` list or `[layers]`
-            table, or any mode-set invariant violation.
+        TypeError: `[[modes]]` is not an array of tables, a `[[modes]]` entry
+            or `[layers]` is not a table, or a field carries the wrong type.
+        ValueError: On a missing key, an unexpected key set, or any mode-set
+            invariant violation.
     """
     with path.open("rb") as f:
         raw = tomllib.load(f)
     if set(raw) != {"modes", "layers"}:
         raise ValueError(f"{path}: top-level keys must be exactly {{modes, layers}}; got {sorted(raw)}")
     if not isinstance(raw["modes"], list):
-        raise ValueError(f"{path}: [[modes]] must be an array of tables")
+        raise TypeError(f"{path}: [[modes]] must be an array of tables")
     modes: list[AdcMode] = []
     for i, entry in enumerate(raw["modes"]):
         where = f"{path}: [[modes]] entry {i}"
         expected = {"quantization_mode", "quantization_input_range", "layer_num"}
-        if not isinstance(entry, dict) or set(entry) != expected:
+        if not isinstance(entry, dict):
+            raise TypeError(f"{where}: entry must be a table; got {entry!r}")
+        if set(entry) != expected:
             raise ValueError(f"{where}: keys must be exactly {sorted(expected)}; got {entry!r}")
         lower, upper = _check_pair(entry["quantization_input_range"], where=where, key="quantization_input_range")
         modes.append(
@@ -232,7 +240,7 @@ def load_mode_set(path: Path) -> ModeSet:
         )
     layers_raw = raw["layers"]
     if not isinstance(layers_raw, dict):
-        raise ValueError(f"{path}: [layers] must be a table of 'layer name' -> quantization_mode")
+        raise TypeError(f"{path}: [layers] must be a table of 'layer name' -> quantization_mode")
     layers: dict[str, int] = {}
     for name, mode in layers_raw.items():
         layers[name] = _check_int(mode, where=f"{path}: [layers] {name!r}", key="quantization_mode")

@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import TypeAlias
 
-ConfigScalar: TypeAlias = None | bool | int | float | str
-ConfigValue: TypeAlias = ConfigScalar | list["ConfigValue"] | dict[str, "ConfigValue"]
-ConfigDict: TypeAlias = dict[str, ConfigValue]
+type ConfigScalar = bool | int | float | str | None
+type ConfigValue = ConfigScalar | list[ConfigValue] | dict[str, ConfigValue]
+type ConfigDict = dict[str, ConfigValue]
 
 
 def normalize_config_value(value: object, *, path: str = "<root>") -> ConfigValue:

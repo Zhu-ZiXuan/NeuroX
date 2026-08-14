@@ -58,17 +58,17 @@ def _lookup_section(root: ConfigDict, section: str) -> ConfigValue:
     table by table, so `"a.b.c"` reaches the `[a.b.c]` TOML table.
 
     Raises:
-        KeyError: A path segment is absent (or reached inside a non-table).
+        TypeError: A path segment is reached inside a non-table.
+        KeyError: A path segment is absent.
     """
     if section in root:
         return root[section]
     node: ConfigValue = root
     for part in section.split("."):
-        if not isinstance(node, dict) or part not in node:
-            raise KeyError(
-                f"section {section!r} not found: segment {part!r} missing "
-                f"(available keys: {sorted(node) if isinstance(node, dict) else '<not a table>'})"
-            )
+        if not isinstance(node, dict):
+            raise TypeError(f"section {section!r}: segment {part!r} sits inside a {type(node).__name__}, not a table")
+        if part not in node:
+            raise KeyError(f"section {section!r} not found: segment {part!r} missing (available keys: {sorted(node)})")
         node = node[part]
     return node
 
@@ -96,8 +96,10 @@ def _parse_use_ref(ref: ConfigValue, base_dir: Path) -> tuple[Path, str]:
     if ":" not in ref:
         raise ValueError(f"{USE_DIRECTIVE} reference {ref!r} missing ':' (expected '<path>:<section>')")
     rel, section = ref.split(":", 1)
-    if not rel or not section:
-        raise ValueError(f"{USE_DIRECTIVE} reference {ref!r} has empty path or section")
+    if not rel:
+        raise ValueError(f"{USE_DIRECTIVE} reference {ref!r} has an empty path")
+    if not section:
+        raise ValueError(f"{USE_DIRECTIVE} reference {ref!r} has an empty section")
     return _resolve_fragment_path(rel, base_dir), section
 
 
@@ -112,7 +114,7 @@ def _validate_preset_ref_path(rel: str) -> None:
     """Reject preset paths that are absolute or try to escape the presets root."""
     if not rel:
         raise ValueError(f"{USE_PRESET_DIRECTIVE} path is empty")
-    if rel.startswith("./") or rel.startswith("/") or rel.startswith("\\"):
+    if rel.startswith(("./", "/", "\\")):
         raise ValueError(f"{USE_PRESET_DIRECTIVE} path must not start with './' or be absolute: {rel!r}")
     if any(part == ".." for part in rel.replace("\\", "/").split("/")):
         raise ValueError(f"{USE_PRESET_DIRECTIVE} path must not contain '..' segments: {rel!r}")
@@ -139,8 +141,10 @@ def parse_preset_ref(ref: str) -> tuple[Path, str]:
     if ":" not in ref:
         raise ValueError(f"{USE_PRESET_DIRECTIVE} reference {ref!r} missing ':' (expected '<path>:<section>')")
     rel, section = ref.split(":", 1)
-    if not rel or not section:
-        raise ValueError(f"{USE_PRESET_DIRECTIVE} reference {ref!r} has empty path or section")
+    if not rel:
+        raise ValueError(f"{USE_PRESET_DIRECTIVE} reference {ref!r} has an empty path")
+    if not section:
+        raise ValueError(f"{USE_PRESET_DIRECTIVE} reference {ref!r} has an empty section")
     _validate_preset_ref_path(rel)
     return _resolve_preset_fragment_path(rel), section
 

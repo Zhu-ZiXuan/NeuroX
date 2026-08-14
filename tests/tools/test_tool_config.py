@@ -59,9 +59,6 @@ class TestSetupLogging:
 
 
 class TestResolveRelativePath:
-    def test_none_propagates(self, tmp_path: Path) -> None:
-        assert resolve_relative_path(None, tmp_path / "main.toml") is None
-
     def test_relative_resolves_against_base_parent(self, tmp_path: Path) -> None:
         base = tmp_path / "subdir" / "main.toml"
         base.parent.mkdir()

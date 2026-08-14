@@ -1,6 +1,6 @@
 """Input-activation scheduling and aggregation for CIM engines.
 
-See also:
+See Also:
     docs/reference/architecture/unit/cim/engine/input_activation.md
     docs/internals/architecture/unit/cim/engine/input_activation.md
 """
@@ -44,7 +44,6 @@ class InputActivationStage(ModuleBase[InputActivationStageConfig, InputActivatio
         policy: InputActivationStagePolicy,
         input_block_size: int,
         max_active_num: int,
-        w_parallel_size: int,
         macro_plane_num: int,
         input_tile_num: int,
         macro_group_num: int,
@@ -66,7 +65,6 @@ class InputActivationStage(ModuleBase[InputActivationStageConfig, InputActivatio
             config=config.phase_accumulator_config,
             policy=DigitalPolicy(),
             inst_shape=(
-                w_parallel_size,
                 macro_plane_num,
                 input_tile_num,
                 macro_group_num,
@@ -89,7 +87,7 @@ class InputActivationStage(ModuleBase[InputActivationStageConfig, InputActivatio
             self._input_phase_num,
             x.shape[-1],
         )
-        # Shape: [..., L] -> [..., P, L]
+        # Shape: [..., M, Sx, Sw, Tc, G, L] -> [..., M, Sx, Sw, Tc, G, P, L]
         return torch.where(mask, x.unsqueeze(-2), x.new_zeros(()))
 
     def accumulate_phases(self, code: Tensor) -> Tensor:

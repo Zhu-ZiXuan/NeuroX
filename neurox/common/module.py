@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from abc import ABC
 from dataclasses import Field, dataclass, field
-from typing import Generic, TypeVar, dataclass_transform, final
+from typing import dataclass_transform, final
 
 import torch.nn as nn
 
@@ -73,14 +73,9 @@ class PolicyBase(SerializeMixin, ValidateMixin, ABC):
 # produced (read-only properties, injected once at construction) and never consumed by an
 # instance method. Variance constraint, for this pair and its family-level counterparts:
 # instance methods must never take ConfigT or PolicyT as a parameter and must take the
-# abstract base instead (`__init__` is exempt). mypy's variance check is shallow —
-# `type[T]` and `list[T]` parameter positions go unflagged — so the constraint is
-# partly documentation-enforced.
-ConfigT = TypeVar("ConfigT", bound=ConfigBase, covariant=True)
-PolicyT = TypeVar("PolicyT", bound=PolicyBase, covariant=True)
-
-
-class ModuleBase(FabricateMixin, nn.Module, ProfileMixin, Generic[ConfigT, PolicyT], ABC):
+# abstract base instead (`__init__` is exempt). A PEP 695 type parameter declares no
+# explicit variance — the checker infers it — so the constraint is documentation-enforced.
+class ModuleBase[ConfigT: ConfigBase, PolicyT: PolicyBase](FabricateMixin, nn.Module, ProfileMixin, ABC):
     """Base for config- and policy-managed physical modules.
 
     A module whose PPA is owned elsewhere sets `is_profile_target = False`.

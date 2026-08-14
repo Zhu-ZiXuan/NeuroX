@@ -27,7 +27,7 @@ probes a contiguous slice and `--capture-out` saves that slice's pooled
 `--capture-in` part ahead of its own probed slice and places the ladder over
 the union; the log records the merged provenance.
 
-See also:
+See Also:
     docs/guides/calibration/calibrate_adc.md
 """
 
@@ -444,7 +444,6 @@ def main(argv: list[str] | None = None) -> int:
 
     cfg = load_tool_config(ThresholdProbeToolConfig, args.config)
     modes_path = resolve_relative_path(cfg.modes_file, args.config)
-    assert modes_path is not None
     mode_set = load_mode_set(modes_path)
     physical = build_physical_macro(cfg.macro, base=args.config, device=device)
     ideal = build_ideal_twin(physical, device=device)

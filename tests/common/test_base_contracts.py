@@ -5,14 +5,24 @@ from __future__ import annotations
 import importlib
 import inspect
 import pkgutil
+import typing
 from dataclasses import FrozenInstanceError, fields, is_dataclass
 from inspect import Parameter, signature
 
 import pytest
 import torch.nn as nn
+from torch import Tensor
 
 import neurox
-from neurox.common import ConfigBase, ModuleBase, PolicyBase, RegistryMixin
+from neurox.architecture.unit.matmul_mapping import BlockSlotRouting
+from neurox.common import (
+    ConfigBase,
+    ModuleBase,
+    PolicyBase,
+    RegistryMixin,
+    TensorDataClassBase,
+    TensorGroupMixin,
+)
 from neurox.common.fabricate_mixin import FabricateMixin
 from neurox.common.profile_mixin import ProfileMixin
 from neurox.primitive.device import MosfetConfig, MosfetPolicy
@@ -33,6 +43,40 @@ _SHARED_CONFIG_POLICY_TYPES: dict[str, tuple[type[ConfigBase], type[PolicyBase]]
     "neurox.primitive.digital.shift_adder.ShiftAdder": (ShiftAdderConfig, DigitalPolicy),
     "neurox.primitive.digital.subtractor.Subtractor": (SubtractorConfig, DigitalPolicy),
 }
+
+# `dataclass(slots=True)` rebuilds the class object, and rebuilding re-runs
+# `TensorDataClassBase.__init_subclass__` against a class that already carries
+# the frozen `__setattr__`, which raises. A tensor-carrying dataclass that wants
+# slots therefore keeps its own decorator and stays outside the hierarchy.
+_TENSOR_BASE_EXEMPT: frozenset[type] = frozenset({BlockSlotRouting})
+
+
+def _neurox_classes() -> set[type]:
+    """Every class neurox declares, taken from the module that declares it."""
+    modules = [importlib.import_module(info.name) for info in pkgutil.walk_packages(neurox.__path__, "neurox.")]
+    return {
+        cls
+        for module in modules
+        for cls in vars(module).values()
+        if inspect.isclass(cls) and cls.__module__ == module.__name__
+    }
+
+
+def _carries_tensor(cls: type, *, visiting: frozenset[type] = frozenset()) -> bool:
+    """Whether a dataclass declares a tensor field, directly or through a nested dataclass."""
+    if cls in visiting:
+        return False
+    hints = typing.get_type_hints(cls)
+    for field in fields(cls):
+        annotation = hints[field.name]
+        for candidate in (annotation, *typing.get_args(annotation)):
+            if not isinstance(candidate, type):
+                continue
+            if issubclass(candidate, Tensor):
+                return True
+            if is_dataclass(candidate) and _carries_tensor(candidate, visiting=visiting | {cls}):
+                return True
+    return False
 
 
 class _ParentConfig(ConfigBase):
@@ -112,16 +156,7 @@ def test_config_and_policy_subclasses_are_dataclasses() -> None:
 
 
 def test_every_module_has_config_and_policy() -> None:
-    modules = [importlib.import_module(info.name) for info in pkgutil.walk_packages(neurox.__path__, "neurox.")]
-    module_classes = {
-        cls
-        for module in modules
-        for cls in vars(module).values()
-        if inspect.isclass(cls)
-        and issubclass(cls, ModuleBase)
-        and cls is not ModuleBase
-        and cls.__module__ == module.__name__
-    }
+    module_classes = {cls for cls in _neurox_classes() if issubclass(cls, ModuleBase) and cls is not ModuleBase}
 
     for module_class in module_classes:
         qualified_name = f"{module_class.__module__}.{module_class.__name__}"
@@ -134,8 +169,10 @@ def test_every_module_has_config_and_policy() -> None:
                 getattr(module, f"{stem}Policy", None),
             ),
         )
-        assert inspect.isclass(config_class) and issubclass(config_class, ConfigBase), qualified_name
-        assert inspect.isclass(policy_class) and issubclass(policy_class, PolicyBase), qualified_name
+        assert inspect.isclass(config_class), qualified_name
+        assert issubclass(config_class, ConfigBase), qualified_name
+        assert inspect.isclass(policy_class), qualified_name
+        assert issubclass(policy_class, PolicyBase), qualified_name
 
 
 @pytest.mark.parametrize("cls", [_ParentConfig, _ChildConfig, _Policy])
@@ -181,6 +218,31 @@ def test_config_and_policy_reject_custom_init(base: type) -> None:
         class _InvalidStructuredInput(base):
             def __init__(self) -> None:
                 pass
+
+
+def test_every_tensor_carrying_dataclass_inherits_the_tensor_base() -> None:
+    for cls in _neurox_classes():
+        if not is_dataclass(cls) or issubclass(cls, ConfigBase | PolicyBase) or cls in _TENSOR_BASE_EXEMPT:
+            continue
+        if _carries_tensor(cls):
+            assert issubclass(cls, TensorDataClassBase), f"{cls.__module__}.{cls.__qualname__}"
+
+
+def test_every_tensor_group_host_inherits_the_tensor_base() -> None:
+    for cls in _neurox_classes():
+        if issubclass(cls, TensorGroupMixin) and cls is not TensorGroupMixin:
+            assert issubclass(cls, TensorDataClassBase), f"{cls.__module__}.{cls.__qualname__}"
+
+
+def test_tensor_base_descendants_are_frozen_identity_dataclasses() -> None:
+    for cls in _neurox_classes():
+        if not issubclass(cls, TensorDataClassBase):
+            continue
+        name = f"{cls.__module__}.{cls.__qualname__}"
+        params = cls.__dataclass_params__
+        assert params.frozen is True, name
+        assert params.eq is False, name
+        assert all(field.kw_only for field in fields(cls)), name
 
 
 def test_profile_mixin_rejects_non_module_subclass() -> None:

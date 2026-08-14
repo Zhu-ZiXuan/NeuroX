@@ -6,7 +6,7 @@ place-value ratio and sums the weighted legs into the output current `I_WDL`. Th
 `inst_shape` trailing is `(gn, polarity)`. A reporter leaf: it self-bills its rail
 conduction and cap events at the production site.
 
-See also:
+See Also:
     docs/works/macro/cim/xue2020jssc/model.md
 """
 

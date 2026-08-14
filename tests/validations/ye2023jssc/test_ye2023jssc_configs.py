@@ -385,8 +385,8 @@ def test_reference_targets_hold_the_ungated_fig19_picture() -> None:
     assert reference["ef_tops_w"] > 0.0
     assert len(reference["point_label"]) == len(anchors["data"]["p_zero_input"]) == 2
     # Energy per output = total power * the access window.
-    for total__uW, per_access__pJ in zip(reference["total_macro__uW"], reference["per_access__pJ"], strict=True):
-        assert per_access__pJ == pytest.approx(total__uW * _T_AC__ns * 1e-3, rel=2e-3)
+    for total__uW, per_access__fJ in zip(reference["total_macro__uW"], reference["per_access__fJ"], strict=True):
+        assert per_access__fJ == pytest.approx(total__uW * _T_AC__ns, rel=2e-3)
     # Both pin breakdowns cover the same four blocks and sum to the whole macro.
     shares = reference["shares"]
     assert set(shares) == {"p875", "p50"}

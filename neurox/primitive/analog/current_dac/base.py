@@ -1,13 +1,12 @@
 """Abstract base class for current-domain DAC models.
 
-See also:
+See Also:
     docs/internals/primitive/analog/current_dac/base.md
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Generic, TypeVar
 
 import torch
 from torch import Tensor
@@ -31,14 +30,9 @@ class IdacPolicy(AnalogPolicy, ABC):
     """Abstract marker base for current-DAC-family nonideality policies."""
 
 
-ConfigT = TypeVar("ConfigT", bound=IdacConfig, covariant=True)
-PolicyT = TypeVar("PolicyT", bound=IdacPolicy, covariant=True)
-
-
-class Idac(
+class Idac[ConfigT: IdacConfig, PolicyT: IdacPolicy](
     AnalogBase[ConfigT, PolicyT],
     RegistryMixin["IdacConfig", "IdacPolicy", "Idac[IdacConfig, IdacPolicy]"],
-    Generic[ConfigT, PolicyT],
     ABC,
 ):
     """Base class for current-domain DAC implementations.

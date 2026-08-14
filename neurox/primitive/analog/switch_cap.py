@@ -1,6 +1,6 @@
 """Switched-capacitor bank for passive charge sharing.
 
-See also:
+See Also:
     docs/reference/primitive/analog/switch_cap.md
     docs/internals/primitive/analog/switch_cap.md
 """

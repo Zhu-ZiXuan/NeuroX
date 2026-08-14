@@ -14,6 +14,7 @@
 ## Contracts & invariants
 
 - **`linear` matches `F.linear` shape semantics.** Trailing `[K]` contracts to trailing `[N]`; every leading dim (including a caller time axis) is a broadcast batch dim that rides through untouched. The substrate `_matmul` never includes the bias; only `linear` adds it.
+- **The programmed weight is exactly `(N, K)`.** Every linear leaf rejects any other `w_logical_shape` rank; `F.linear`'s 1-D dot-product form is out of scope — express it as `N = 1`.
 - **`IdealLinearUnit.program` shape-gates, then stores verbatim.** Any shape other than `w_logical_shape` raises; the weight tensor is stored unchanged (no encoding, no slicing) and the `(N,)` bias goes through `_program_int_bias`.
 - **`_matmul` is exact on both arithmetic paths.** `__init__` sizes the dot bound `K * max|x| * max|w|` from the config value ranges: below `2^24` the contraction runs as an fp32 `torch.matmul` — every product and partial sum stays exactly representable in IEEE fp32 (framework-default matmul precision, TF32 disabled) and the cast back to `int64` is lossless — which is what keeps the unit GPU-capable, since CUDA has no integer-matmul kernel. At or above the bound both operands widen to `int64` before `torch.matmul`, exact at any magnitude but CPU-by-design. Fast-path exactness assumes range-conformant operands.
 

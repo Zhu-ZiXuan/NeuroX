@@ -54,7 +54,3 @@ The op runs its body as-is, with no Inductor optimization across its boundary (i
 - Granularity: C1 (`solve_array`) vs C2 (`vec_mat_mul`).
 - Autograd policy: inference-only vs a surrogate backward owned by the operator/algorithm layer.
 - Profiler relocation design under a functional op.
-
-## See also
-
-- [scheme A](scheme_a_regional.md), [scheme B](scheme_b_deobjectified.md), [contracts](contracts.md)

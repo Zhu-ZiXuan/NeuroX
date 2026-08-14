@@ -1,4 +1,7 @@
-"""IdealLinearUnit takes an fp32-exact fast path when `K · max|x| · max|w| < 2^24`, and the int64 matmul (CPU-only) otherwise."""
+"""IdealLinearUnit takes an fp32-exact fast path when `K · max|x| · max|w| < 2^24`.
+
+The int64 matmul (CPU-only) otherwise.
+"""
 
 from __future__ import annotations
 

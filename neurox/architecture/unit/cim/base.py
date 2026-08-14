@@ -1,13 +1,12 @@
 """Abstract bases for the CimUnit family.
 
-See also:
+See Also:
     docs/internals/architecture/unit/cim/base.md
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Generic, TypeVar
 
 import torch
 from torch import Tensor
@@ -35,15 +34,10 @@ class CimUnitPolicy(PolicyBase, ABC):
     """Abstract marker base for CimUnit-family nonideality policies."""
 
 
-ConfigT = TypeVar("ConfigT", bound=CimUnitConfig, covariant=True)
-PolicyT = TypeVar("PolicyT", bound=CimUnitPolicy, covariant=True)
-
-
-class CimUnit(
+class CimUnit[ConfigT: CimUnitConfig, PolicyT: CimUnitPolicy](
     ModuleBase[ConfigT, PolicyT],
     RegistryMixin["CimUnitConfig", "CimUnitPolicy", "CimUnit[CimUnitConfig, CimUnitPolicy]"],
     UnitBase,
-    Generic[ConfigT, PolicyT],
     ABC,
 ):
     """Config-dispatched base for CIM compute units.
@@ -127,18 +121,16 @@ class EngineBackedCimUnitPolicy(CimUnitPolicy, ABC):
     """Engine policy matching `config.engine`."""
 
 
-EbConfigT = TypeVar("EbConfigT", bound=EngineBackedCimUnitConfig)
-EbPolicyT = TypeVar("EbPolicyT", bound=EngineBackedCimUnitPolicy)
-
-
-class EngineBackedCimUnit(CimUnit[EbConfigT, EbPolicyT], Generic[EbConfigT, EbPolicyT], ABC):
+class EngineBackedCimUnit[ConfigT: EngineBackedCimUnitConfig, PolicyT: EngineBackedCimUnitPolicy](
+    CimUnit[ConfigT, PolicyT], ABC
+):
     """CIM unit backed by the engine selected by `config.engine`."""
 
     def __init__(
         self,
         *,
-        config: EbConfigT,
-        policy: EbPolicyT,
+        config: ConfigT,
+        policy: PolicyT,
         w_logical_shape: tuple[int, ...],
         dtype: torch.dtype,
         T__K: float,

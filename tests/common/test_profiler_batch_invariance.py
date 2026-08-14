@@ -25,7 +25,7 @@ from neurox.primitive.macro.cim import IdealCimMacroConfig, IdealCimMacroPolicy
 
 # Logical problem, sized so every stage does real work: the contraction spans
 # two tiles (D), one tile holds two weight slices (Sw), the input is serialized
-# into two slices (Sa) and into two row phases (P).
+# into two slices (Sx) and into two row phases (P).
 _INPUT_NUM = 8  # macro input ports
 _OUTPUT_NUM = 8  # macro output ports
 _MAX_ACTIVE_NUM = 4  # rows per phase

@@ -97,7 +97,7 @@ def test_to_dict_rejects_unsupported_leaf_value() -> None:
 
 
 @pytest.mark.parametrize(
-    "body, message",
+    ("body", "message"),
     [
         ("1: value\n", "configuration mapping key must be str"),
         ("value: 2025-01-01\n", "unsupported configuration value date"),

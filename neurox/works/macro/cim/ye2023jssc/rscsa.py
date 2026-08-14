@@ -4,7 +4,7 @@ A current-domain SAR ADC that takes ONE owner-supplied reference current, scales
 it internally by its compare phases' binary weights, and quantizes uniformly over
 the resulting decision ladder after subtracting a static compensation current.
 
-See also:
+See Also:
     docs/works/macro/cim/ye2023jssc/model.md
 """
 

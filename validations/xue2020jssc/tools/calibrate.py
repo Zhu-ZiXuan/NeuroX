@@ -74,7 +74,6 @@ import torch
 
 from neurox import stamp_names
 from neurox.primitive.analog.current_adc.base import IadcProber
-from neurox.primitive.analog.voltage_dac import GeneralVdacConfig
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
 from neurox.primitive.xbar.cell import XbarCell1t1rLinearConfig
 from neurox.works.macro.cim.xue2020jssc import (
@@ -92,7 +91,6 @@ import validate as V  # noqa: E402  the sibling measurement engine (single sourc
 _QUANTIZATION_MODE = 0
 _ADC_BITS = 3
 _POLARITY_NUM = 2
-_FJ_PER_PJ = 1000.0
 
 # Declared cap STRUCTURE source: the campaign scales this relative structure by
 # one uniform factor, never the individual nodes.
@@ -161,13 +159,12 @@ def rebuild(cfg: CimMacroConfig, policy: CimMacroPolicy, device: torch.device) -
     macro = CimMacro.from_config(
         config=cfg,
         policy=policy,
-        input_num=V._ROW_NUM,
-        output_num=V._COL_NUM,
+        input_num=V.ROW_NUM,
+        output_num=V.COL_NUM,
         inst_shape=(),
         dtype=torch.float32,
         T__K=300.0,
     )
-    assert isinstance(macro, Xue2020JsscCimMacro)
     macro.to(device)
     macro.eval()
     macro.fabricate()
@@ -222,7 +219,11 @@ def _staircase_drive(macro: Xue2020JsscCimMacro) -> torch.Tensor:
             v = min(x_max, rem)
             x[m, r] = v
             rem -= v
-        assert rem == 0, f"cannot reach MAC value {m} with {cfg.max_active_num} selected inputs of max {x_max}"
+        if rem != 0:
+            raise ValueError(
+                f"MAC value {m} is out of the drivable range: {cfg.max_active_num} selected inputs of at most "
+                f"{x_max} each reach {cfg.max_active_num * x_max}"
+            )
     return x
 
 
@@ -287,7 +288,7 @@ def verify_ladder(macro: Xue2020JsscCimMacro) -> tuple[bool, list[int]]:
 class Rows:
     """One measurement reduced to the per-access rows the seat-solve consumes.
 
-    Every field is pJ PER ACCESS; ``accesses`` is the leading-dimension count the
+    Every field is fJ PER ACCESS; ``accesses`` is the leading-dimension count the
     raw profiler totals were divided by.
     """
 
@@ -296,12 +297,12 @@ class Rows:
     n_x: int
     repeat: int
     rel_std: float
-    total__pJ: float
-    row__pJ: dict[str, float]
+    total__fJ: float
+    row__fJ: dict[str, float]
 
-    def raw_total__pJ(self, key: str) -> float:
-        """Undo the per-access normalization: the raw profiled row total [pJ]."""
-        return self.row__pJ[key] * self.accesses
+    def raw_total__fJ(self, key: str) -> float:
+        """Undo the per-access normalization: the raw profiled row total [fJ]."""
+        return self.row__fJ[key] * self.accesses
 
 
 def pool_rows(blocks: list[Rows]) -> Rows:
@@ -325,8 +326,8 @@ def pool_rows(blocks: list[Rows]) -> Rows:
         n_x=blocks[0].n_x,
         repeat=sum(b.repeat for b in blocks),
         rel_std=math.sqrt(sum(w * b.rel_std**2 for w, b in zip(weights, blocks, strict=True))),
-        total__pJ=wmean(lambda b: b.total__pJ),
-        row__pJ={key: wmean(lambda b, k=key: b.row__pJ[k]) for key in _ROW_KEYS},
+        total__fJ=wmean(lambda b: b.total__fJ),
+        row__fJ={key: wmean(lambda b, k=key: b.row__fJ[k]) for key in _ROW_KEYS},
     )
 
 
@@ -353,8 +354,8 @@ def measure_rows(
         n_x=m.n_x,
         repeat=m.repeat,
         rel_std=m.rel_std,
-        total__pJ=m.total__pJ,
-        row__pJ={key: m.dyn_by_name.get(key, 0.0) for key in _ROW_KEYS},
+        total__fJ=m.total__fJ,
+        row__fJ={key: m.dyn_by_name.get(key, 0.0) for key in _ROW_KEYS},
     )
     return m, rows
 
@@ -364,19 +365,19 @@ def measure_rows(
 # ---------------------------------------------------------------------------
 
 
-def cap_scale_correction(rows: Rows, *, pair1_target__pJ: float) -> float:
+def cap_scale_correction(rows: Rows, *, pair1_target__fJ: float) -> float:
     """Factor the array cap row must scale by to close the ``cablc+dswct`` pair.
 
     The array row is capacitance ONLY (the array bills no conduction), so it is
     exactly proportional to the uniform cap scale; the pair residual left by the
     frozen conduction (``.cablc`` input branch + ``dswct`` rails) is its target.
     """
-    conduction__pJ = rows.row__pJ[_CABLC_CHANNEL] + rows.row__pJ["dswct"]
-    return (pair1_target__pJ - conduction__pJ) / rows.row__pJ[_ARRAY_ROW]
+    conduction__fJ = rows.row__fJ[_CABLC_CHANNEL] + rows.row__fJ["dswct"]
+    return (pair1_target__fJ - conduction__fJ) / rows.row__fJ[_ARRAY_ROW]
 
 
 def c_hold_solution__fF(
-    rows: Rows, *, pair2_target__pJ: float, c_hold_now__fF: float, events: int, v_dd__V: float
+    rows: Rows, *, pair2_target__fJ: float, c_hold_now__fF: float, events: int, v_dd__V: float
 ) -> float:
     """``c_hold`` closing the ``sinwp_sc+pn_isub`` pair at the measured conduction.
 
@@ -385,13 +386,13 @@ def c_hold_solution__fF(
     per-op; only the cap term moves, so the pair miss converts straight into a
     cap-value correction.
     """
-    measured__pJ = rows.row__pJ["sinwp_sc"] + rows.row__pJ["pn_isub"]
-    delta__fJ = (pair2_target__pJ - measured__pJ) * _FJ_PER_PJ
+    measured__fJ = rows.row__fJ["sinwp_sc"] + rows.row__fJ["pn_isub"]
+    delta__fJ = pair2_target__fJ - measured__fJ
     return c_hold_now__fF + delta__fJ / (events * v_dd__V**2)
 
 
 def phase_scale_solution(
-    rows: Rows, *, tmcsa_target__pJ: float, e_fixed__fJ: float, steps: int, scale_now: float
+    rows: Rows, *, tmcsa_target__fJ: float, e_fixed__fJ: float, steps: int, scale_now: float
 ) -> float:
     """Phase-window scale closing the TMCSA slice at the pinned per-step constant.
 
@@ -399,9 +400,9 @@ def phase_scale_solution(
     plus ``steps * e_fixed`` per access; the conduction part therefore scales
     with the window scale.
     """
-    fixed__pJ = steps * e_fixed__fJ / _FJ_PER_PJ
-    conduction__pJ = rows.row__pJ["tmcsa"] - fixed__pJ
-    return scale_now * (tmcsa_target__pJ - fixed__pJ) / conduction__pJ
+    fixed__fJ = steps * e_fixed__fJ
+    conduction__fJ = rows.row__fJ["tmcsa"] - fixed__fJ
+    return scale_now * (tmcsa_target__fJ - fixed__fJ) / conduction__fJ
 
 
 # ---------------------------------------------------------------------------
@@ -409,27 +410,27 @@ def phase_scale_solution(
 # ---------------------------------------------------------------------------
 
 
-def read_path_pJ(m: V.Measurement, read_path: tuple[str, ...]) -> float:
-    """Total per-access energy of the pure-physics read-path slices [pJ]."""
-    return sum(m.slice(s).total__pJ for s in read_path)
+def read_path__fJ(m: V.Measurement, read_path: tuple[str, ...]) -> float:
+    """Total per-access energy of the pure-physics read-path slices [fJ]."""
+    return sum(m.slice(s).total__fJ for s in read_path)
 
 
 def lock_p_zero(
     macro: Xue2020JsscCimMacro,
     anchors: dict,
     *,
-    target_pJ: float,
+    target__fJ: float,
     read_path: tuple[str, ...],
     n_w: int,
     n_x: int,
     seed: int,
     grid: list[float],
 ) -> tuple[float | None, list[tuple[float, float]]]:
-    """Find the ``p_zero`` where the read path conducts ``target_pJ`` per access.
+    """Find the ``p_zero`` where the read path conducts ``target__fJ`` per access.
 
     The read-path energy decreases monotonically with input sparsity, so a linear
-    scan of ``grid`` (one round per point) brackets the crossing of ``target_pJ``
-    (= 47.1 % x 32.06 pJ, the Fig.18 read-path share). Returns ``(p_star,
+    scan of ``grid`` (one round per point) brackets the crossing of ``target__fJ``
+    (= 47.1 % x 32060 fJ, the Fig.18 read-path share). Returns ``(p_star,
     points)`` with ``p_star`` the interpolated crossing (or ``None`` if the
     target is not bracketed inside the grid). ``p_star`` is locked to the READ
     PATH physics, never to the total.
@@ -437,10 +438,10 @@ def lock_p_zero(
     points: list[tuple[float, float]] = []
     for p in grid:
         m = V.measure_rounds(macro, anchors, n_w=n_w, n_x=n_x, repeat=1, p_zero=p, seed=seed)
-        points.append((p, read_path_pJ(m, read_path)))
+        points.append((p, read_path__fJ(m, read_path)))
     for (pa, ea), (pb, eb) in pairwise(points):
-        if (ea - target_pJ) * (eb - target_pJ) <= 0 and ea != eb:
-            frac = (ea - target_pJ) / (ea - eb)
+        if (ea - target__fJ) * (eb - target__fJ) <= 0 and ea != eb:
+            frac = (ea - target__fJ) / (ea - eb)
             return pa + frac * (pb - pa), points
     return None, points
 
@@ -505,20 +506,28 @@ def main() -> None:
         help="Array solve chunk (machine knob): leading instances solved per block; 0 solves all at once.",
     )
     ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument("--device", type=str, default="auto", help="cpu, cuda[:idx], or auto (free GPU via nvidia-smi).")
+    ap.add_argument(
+        "--device",
+        type=str,
+        default="auto",
+        help="cpu, cuda[:idx], or auto (cuda if visible else cpu); default auto. Pick the card with "
+        "CUDA_VISIBLE_DEVICES.",
+    )
     ap.add_argument("--lock-step", type=float, default=0.1, help="p_zero grid step for the read-path lock scan.")
     ap.add_argument("--report", type=Path, default=_VAL_DIR / "calibration.md")
     args = ap.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
-    device = V._resolve_device(args.device)
+    device = V.resolve_device(args.device)
     with args.anchors.open("rb") as fh:
         anchors = tomllib.load(fh)
     cfg = CimMacroConfig.from_file(args.params, section="cim_macro")
-    assert isinstance(cfg, Xue2020JsscCimMacroConfig)
+    if not isinstance(cfg, Xue2020JsscCimMacroConfig):
+        raise TypeError(f"params.toml must select Xue2020JsscCimMacroConfig, not {type(cfg).__name__}")
     policy = CimMacroPolicy.from_file(args.policy, section="policy")
-    assert isinstance(policy, Xue2020JsscCimMacroPolicy)
+    if not isinstance(policy, Xue2020JsscCimMacroPolicy):
+        raise TypeError(f"policy.toml must select Xue2020JsscCimMacroPolicy, not {type(policy).__name__}")
     policy = dataclasses.replace(
         policy,
         array_policy=dataclasses.replace(policy.array_policy, solve_chunk_size=args.solve_chunk),
@@ -529,20 +538,19 @@ def main() -> None:
     pair_repeat = pair_blocks * pair_rounds_per_block
 
     tgt = anchors["target"]
-    target_pJ = tgt["per_access__pJ"]
-    per_sub_uW = tgt["total_macro__mW"] * 1000.0 / tgt["sub_array_num"]
+    target__fJ = tgt["per_access__fJ"]
+    per_sub__uW = tgt["total_macro__mW"] * 1000.0 / tgt["sub_array_num"]
     shares = anchors["fig18_shares"]
     conv = anchors["conventions"]
     read_path = tuple(conv["read_path"])
-    read_path_target_pJ = shares["read_path_sum"] / 100.0 * target_pJ
+    read_path_target__fJ = shares["read_path_sum"] / 100.0 * target__fJ
     p_zero = float(anchors["data"]["p_zero"])
     t_cycle = cfg.t_cycle__ns
     v_dd = cfg.v_dd__V
-    gn = V._COL_NUM // cfg.mux_factor
 
-    pair1_target__pJ = (shares["cablc"] + shares["dswct"]) / 100.0 * target_pJ
-    pair2_target__pJ = (shares["sinwp_sc"] + shares["pn_isub"]) / 100.0 * target_pJ
-    tmcsa_target__pJ = shares["tmcsa"] / 100.0 * target_pJ
+    pair1_target__fJ = (shares["cablc"] + shares["dswct"]) / 100.0 * target__fJ
+    pair2_target__fJ = (shares["sinwp_sc"] + shares["pn_isub"]) / 100.0 * target__fJ
+    tmcsa_target__fJ = shares["tmcsa"] / 100.0 * target__fJ
 
     log: list[str] = []
 
@@ -553,13 +561,13 @@ def main() -> None:
     def row_table(points: list[tuple[str, Rows]]) -> None:
         """Emit the per-access rows + raw-total scaling of an invariance triple."""
         base = points[0][1]
-        emit("| Row [pJ/access] | " + " | ".join(label for label, _ in points) + " | max dev |")
+        emit("| Row [fJ/access] | " + " | ".join(label for label, _ in points) + " | max dev |")
         emit("|---|" + "--:|" * (len(points) + 1))
         for key in _ROW_KEYS:
-            vals = [r.row__pJ[key] for _, r in points]
+            vals = [r.row__fJ[key] for _, r in points]
             dev = max(abs(v - vals[0]) / vals[0] for v in vals[1:]) if vals[0] else 0.0
             emit(f"| `{key}` | " + " | ".join(f"{v:9.5f}" for v in vals) + f" | {dev * 100:5.3f} % |")
-        totals = [r.total__pJ for _, r in points]
+        totals = [r.total__fJ for _, r in points]
         dev_total = max(abs(v - totals[0]) / totals[0] for v in totals[1:])
         emit("| **total** | " + " | ".join(f"{v:9.5f}" for v in totals) + f" | {dev_total * 100:5.3f} % |")
         emit(
@@ -569,7 +577,7 @@ def main() -> None:
         )
         emit(
             "| raw profiled total [nJ] | "
-            + " | ".join(f"{r.total__pJ * r.accesses / 1e3:9.3f}" for _, r in points)
+            + " | ".join(f"{r.total__fJ * r.accesses / 1e6:9.3f}" for _, r in points)
             + " | (scales with the leading count) |"
         )
 
@@ -592,8 +600,8 @@ def main() -> None:
         f"Per-access basis: one access = one MUX-slot conversion set, so a run of n_w x n_x x rounds input "
         f"draws reads `accesses = n_w * n_x * mux_factor` ({cfg.mux_factor}) output accesses and EVERY profiled "
         f"energy total is divided by that leading count. A per-op seat is divided further by its own event "
-        f"count per access: {cap_events_per_access(cfg, col_num=V._COL_NUM)} SINWP-SC hold-cap events "
-        f"(x_bits x IO x P/N) and {tmcsa_steps_per_access(cfg, col_num=V._COL_NUM)} TMCSA step charges "
+        f"count per access: {cap_events_per_access(cfg, col_num=V.COL_NUM)} SINWP-SC hold-cap events "
+        f"(x_bits x IO x P/N) and {tmcsa_steps_per_access(cfg, col_num=V.COL_NUM)} TMCSA step charges "
         f"(IO x steps). Each stage proves its own normalization by an n_w / n_x doubling check."
     )
     emit()
@@ -604,9 +612,12 @@ def main() -> None:
     emit("## Stage 1 -- currents")
     emit()
     cell = cfg.array_config.cell_config
-    assert isinstance(cell, XbarCell1t1rLinearConfig)
+    if not isinstance(cell, XbarCell1t1rLinearConfig):
+        raise TypeError(
+            f"stage 1 re-derives the reference ladder on the linearized chord, so the campaign premise is a "
+            f"XbarCell1t1rLinearConfig cell family, not {type(cell).__name__}"
+        )
     wl_dac = cfg.wl_dac_config
-    assert isinstance(wl_dac, GeneralVdacConfig)
     emit(
         f"Operating point of the linearized cell chord in force (extracted by `neurox.tools.calibrate_cell` "
         f"from `tools/params_detail.toml` at V_BL = V_BLC = {cfg.cablc_vref_config.v_refs__V[0][0]} V, V_SL = 0 V, "
@@ -653,7 +664,7 @@ def main() -> None:
     # =====================================================================
     emit("## Stage 2 -- capacitances")
     emit()
-    cap_events = cap_events_per_access(cfg, col_num=V._COL_NUM)
+    cap_events = cap_events_per_access(cfg, col_num=V.COL_NUM)
     base_caps = declared_cap_structure()
     shipped_caps = {name: getattr(cfg.array_config, name) for name in _NODE_CAP_FIELDS}
     scale_in = shipped_caps["bl_node_c__fF"] / base_caps["bl_node_c__fF"]
@@ -673,10 +684,10 @@ def main() -> None:
         for idx in range(pair_blocks)
     ]
     rows2 = pool_rows(blocks2)
-    correction = cap_scale_correction(rows2, pair1_target__pJ=pair1_target__pJ)
+    correction = cap_scale_correction(rows2, pair1_target__fJ=pair1_target__fJ)
     cap_scale = scale_in * correction
     c_hold = c_hold_solution__fF(
-        rows2, pair2_target__pJ=pair2_target__pJ, c_hold_now__fF=c_hold_in, events=cap_events, v_dd__V=v_dd
+        rows2, pair2_target__fJ=pair2_target__fJ, c_hold_now__fF=c_hold_in, events=cap_events, v_dd__V=v_dd
     )
     emit(
         f"Conduction is FROZEN by stage 1; the two paired-slice residuals seat the capacitive remainders. "
@@ -686,45 +697,45 @@ def main() -> None:
         f"round-total relative std {rows2.rel_std * 100:.3f} %):"
     )
     emit("")
-    emit("| Pair | Fig.18 target [pJ/acc] | conduction (frozen) | capacitive term | measured pair | seat solved |")
+    emit("| Pair | Fig.18 target [fJ/acc] | conduction (frozen) | capacitive term | measured pair | seat solved |")
     emit("|---|--:|--:|--:|--:|:--|")
-    cond1 = rows2.row__pJ[_CABLC_CHANNEL] + rows2.row__pJ["dswct"]
-    cap1 = rows2.row__pJ[_ARRAY_ROW]
-    cap2_in__pJ = cap_events * c_hold_in * v_dd**2 / _FJ_PER_PJ
-    cond2 = rows2.row__pJ["sinwp_sc"] + rows2.row__pJ["pn_isub"] - cap2_in__pJ
+    cond1 = rows2.row__fJ[_CABLC_CHANNEL] + rows2.row__fJ["dswct"]
+    cap1 = rows2.row__fJ[_ARRAY_ROW]
+    cap2_in__fJ = cap_events * c_hold_in * v_dd**2
+    cond2 = rows2.row__fJ["sinwp_sc"] + rows2.row__fJ["pn_isub"] - cap2_in__fJ
     emit(
-        f"| cablc+dswct | {pair1_target__pJ:8.4f} | {cond1:8.4f} | {cap1:8.4f} (array row) | "
+        f"| cablc+dswct | {pair1_target__fJ:8.4f} | {cond1:8.4f} | {cap1:8.4f} (array row) | "
         f"{cond1 + cap1:8.4f} | uniform cap scale |"
     )
     emit(
-        f"| sinwp_sc+pn_isub | {pair2_target__pJ:8.4f} | {cond2:8.4f} | {cap2_in__pJ:8.4f} (hold caps) | "
-        f"{cond2 + cap2_in__pJ:8.4f} | `c_hold__fF` |"
+        f"| sinwp_sc+pn_isub | {pair2_target__fJ:8.4f} | {cond2:8.4f} | {cap2_in__fJ:8.4f} (hold caps) | "
+        f"{cond2 + cap2_in__fJ:8.4f} | `c_hold__fF` |"
     )
     emit("")
     emit(
         f"The array row bills capacitance ONLY, so it is exactly proportional to the uniform cap scale: the "
-        f"pair-1 residual {pair1_target__pJ - cond1:.4f} pJ/access asks for x{correction:.5f} on the incoming "
+        f"pair-1 residual {pair1_target__fJ - cond1:.4f} fJ/access asks for x{correction:.5f} on the incoming "
         f"row, i.e. a cumulative **cap scale x{cap_scale:.5f}** on the declared `params_detail.toml` structure. "
         f"The SINWP-SC hold caps cycle {cap_events} times per access, so the pair-2 residual "
-        f"{pair2_target__pJ - cond2:.4f} pJ/access seats **c_hold = {c_hold:.4f} fF** (the kept "
+        f"{pair2_target__fJ - cond2:.4f} fJ/access seats **c_hold = {c_hold:.4f} fF** (the kept "
         f"{cfg.pn_isub_config.e_per_op__fJ:.1f} fJ comparator per-op stays inside the measured PN-ISUB row)."
     )
     emit()
-    block_scales = [scale_in * cap_scale_correction(b, pair1_target__pJ=pair1_target__pJ) for b in blocks2]
+    block_scales = [scale_in * cap_scale_correction(b, pair1_target__fJ=pair1_target__fJ) for b in blocks2]
     block_holds = [
         c_hold_solution__fF(
-            b, pair2_target__pJ=pair2_target__pJ, c_hold_now__fF=c_hold_in, events=cap_events, v_dd__V=v_dd
+            b, pair2_target__fJ=pair2_target__fJ, c_hold_now__fF=c_hold_in, events=cap_events, v_dd__V=v_dd
         )
         for b in blocks2
     ]
-    residual1 = pair1_target__pJ - cond1
+    residual1 = pair1_target__fJ - cond1
     amplification = cond1 / residual1
     sigma_scale = relative_sigma(block_scales)
     sigma_hold = relative_sigma(block_holds)
     root_blocks = math.sqrt(pair_blocks)
     emit(
         f"CONDITIONING of the two seats, measured not asserted. The pair-1 residual is only "
-        f"{residual1 / pair1_target__pJ:.1%} of its pair, so the cap-scale seat AMPLIFIES a relative conduction "
+        f"{residual1 / pair1_target__fJ:.1%} of its pair, so the cap-scale seat AMPLIFIES a relative conduction "
         f"error by conduction/residual = x{amplification:.1f} -- it is the ill-conditioned seat of this "
         f"campaign, so its tolerance is MEASURED here rather than asserted. The {pair_blocks} blocks below are "
         f"statistically independent ({pair_rounds_per_block} rounds each, disjoint seeds), so their spread IS "
@@ -737,7 +748,7 @@ def main() -> None:
         seeds = args.seed + idx * pair_rounds_per_block
         emit(
             f"| block {idx} (seeds {seeds}..{seeds + pair_rounds_per_block - 1}) | "
-            f"{b.row__pJ[_CABLC_CHANNEL] + b.row__pJ['dswct']:8.4f} | {b.row__pJ[_ARRAY_ROW]:8.5f} | "
+            f"{b.row__fJ[_CABLC_CHANNEL] + b.row__fJ['dswct']:8.4f} | {b.row__fJ[_ARRAY_ROW]:8.5f} | "
             f"{sc:.5f} | {ch:.4f} |"
         )
     emit(
@@ -753,8 +764,8 @@ def main() -> None:
         f"% (1 sigma)** at the {pair_repeat}-round basis. c_hold is well conditioned (its cap term is a large "
         f"fraction of its pair); the cap scale is not, and its stated tolerance is part of the result. That "
         f"tolerance is ACCEPTED at this standard basis, not bought down with extra draws: the array cap row is "
-        f"{cap1 / rows2.total__pJ:.1%} of the measured total, so the seat's 1 sigma moves the headline by only "
-        f"+-{sigma_scale / root_blocks * cap1 / rows2.total__pJ * 100:.2f} %."
+        f"{cap1 / rows2.total__fJ:.1%} of the measured total, so the seat's 1 sigma moves the headline by only "
+        f"+-{sigma_scale / root_blocks * cap1 / rows2.total__fJ * 100:.2f} %."
     )
     emit()
     cfg = scale_caps(cfg, correction)
@@ -763,12 +774,12 @@ def main() -> None:
     _m2v, rows2v = measure_rows(
         macro, anchors, n_w=args.n_w, n_x=args.n_x, repeat=pair_repeat, p_zero=p_zero, seed=args.seed
     )
-    pair1_out = rows2v.row__pJ[_CABLC_CHANNEL] + rows2v.row__pJ["dswct"] + rows2v.row__pJ[_ARRAY_ROW]
-    pair2_out = rows2v.row__pJ["sinwp_sc"] + rows2v.row__pJ["pn_isub"]
+    pair1_out = rows2v.row__fJ[_CABLC_CHANNEL] + rows2v.row__fJ["dswct"] + rows2v.row__fJ[_ARRAY_ROW]
+    pair2_out = rows2v.row__fJ["sinwp_sc"] + rows2v.row__fJ["pn_isub"]
     emit(
-        f"Re-measured at the solved values: cablc+dswct = {pair1_out:.4f} pJ/access = "
-        f"{pair1_out / pair1_target__pJ:.4f}x its Fig.18 share, sinwp_sc+pn_isub = {pair2_out:.4f} pJ/access = "
-        f"{pair2_out / pair2_target__pJ:.4f}x."
+        f"Re-measured at the solved values: cablc+dswct = {pair1_out:.4f} fJ/access = "
+        f"{pair1_out / pair1_target__fJ:.4f}x its Fig.18 share, sinwp_sc+pn_isub = {pair2_out:.4f} fJ/access = "
+        f"{pair2_out / pair2_target__fJ:.4f}x."
     )
     emit()
     emit("Leading-dimension invariance (same macro, one round per point, both draw dimensions doubled in turn):")
@@ -779,9 +790,9 @@ def main() -> None:
     solved2 = [
         (
             label,
-            cap_scale_correction(r, pair1_target__pJ=pair1_target__pJ) * cap_scale,
+            cap_scale_correction(r, pair1_target__fJ=pair1_target__fJ) * cap_scale,
             c_hold_solution__fF(
-                r, pair2_target__pJ=pair2_target__pJ, c_hold_now__fF=c_hold, events=cap_events, v_dd__V=v_dd
+                r, pair2_target__fJ=pair2_target__fJ, c_hold_now__fF=c_hold, events=cap_events, v_dd__V=v_dd
             ),
         )
         for label, r in points2
@@ -804,7 +815,7 @@ def main() -> None:
     # =====================================================================
     emit("## Stage 3 -- constants")
     emit()
-    steps_per_access = tmcsa_steps_per_access(cfg, col_num=V._COL_NUM)
+    steps_per_access = tmcsa_steps_per_access(cfg, col_num=V.COL_NUM)
     cfg = set_phase_windows(cfg, 1.0)
     macro = rebuild(cfg, policy, device)
     _m3, rows3 = measure_rows(
@@ -812,12 +823,12 @@ def main() -> None:
     )
     phase_scale = phase_scale_solution(
         rows3,
-        tmcsa_target__pJ=tmcsa_target__pJ,
+        tmcsa_target__fJ=tmcsa_target__fJ,
         e_fixed__fJ=_E_FIXED_CEILING__fJ,
         steps=steps_per_access,
         scale_now=1.0,
     )
-    fixed__pJ = steps_per_access * _E_FIXED_CEILING__fJ / _FJ_PER_PJ
+    fixed__fJ = steps_per_access * _E_FIXED_CEILING__fJ
     emit(
         f"The TMCSA slice carries two unknowns against one constraint, so `e_fixed_per_op__fJ` is PINNED at its "
         f"declared plausibility ceiling {_E_FIXED_CEILING__fJ:.1f} fJ per conversion step (latch + coupling "
@@ -826,12 +837,12 @@ def main() -> None:
         f"{_PH3_AS_DRAWN_FRACTION:.0%} of each step, scale x1):"
     )
     emit("")
-    emit("| Term | [pJ/access] |")
+    emit("| Term | [fJ/access] |")
     emit("|---|--:|")
-    emit(f"| Fig.18 target ({shares['tmcsa']} %) | {tmcsa_target__pJ:8.4f} |")
-    emit(f"| per-step constant ({steps_per_access} charges x {_E_FIXED_CEILING__fJ:.1f} fJ) | {fixed__pJ:8.4f} |")
-    emit(f"| PH2/PH3 branch conduction at the as-drawn widths | {rows3.row__pJ['tmcsa'] - fixed__pJ:8.4f} |")
-    emit(f"| conduction budget left by the constant | {tmcsa_target__pJ - fixed__pJ:8.4f} |")
+    emit(f"| Fig.18 target ({shares['tmcsa']} %) | {tmcsa_target__fJ:8.4f} |")
+    emit(f"| per-step constant ({steps_per_access} charges x {_E_FIXED_CEILING__fJ:.1f} fJ) | {fixed__fJ:8.4f} |")
+    emit(f"| PH2/PH3 branch conduction at the as-drawn widths | {rows3.row__fJ['tmcsa'] - fixed__fJ:8.4f} |")
+    emit(f"| conduction budget left by the constant | {tmcsa_target__fJ - fixed__fJ:8.4f} |")
     emit("")
     cfg = set_phase_windows(cfg, phase_scale)
     occupancy = (_PH2_AS_DRAWN_FRACTION + _PH3_AS_DRAWN_FRACTION) * phase_scale
@@ -850,25 +861,25 @@ def main() -> None:
         macro, anchors, n_w=args.n_w, n_x=args.n_x, repeat=args.repeat, p_zero=p_zero, seed=args.seed
     )
     emit(
-        f"Re-measured at the solved windows: tmcsa = {rows3v.row__pJ['tmcsa']:.4f} pJ/access = "
-        f"{rows3v.row__pJ['tmcsa'] / tmcsa_target__pJ:.4f}x its Fig.18 share."
+        f"Re-measured at the solved windows: tmcsa = {rows3v.row__fJ['tmcsa']:.4f} fJ/access = "
+        f"{rows3v.row__fJ['tmcsa'] / tmcsa_target__fJ:.4f}x its Fig.18 share."
     )
     emit()
-    control_uW = shares["control"] / 100.0 * per_sub_uW
-    reference_uW = shares["reference"] / 100.0 * per_sub_uW
-    e_control_fJ = conv["control_dynamic_fraction"] * control_uW * t_cycle
-    control_leak_uW = conv["control_static_fraction"] * control_uW
-    reference_leak_uW = conv["reference_static_fraction"] * reference_uW
-    cfg = dataclasses.replace(cfg, e_control_per_op__fJ=e_control_fJ)
+    control__uW = shares["control"] / 100.0 * per_sub__uW
+    reference__uW = shares["reference"] / 100.0 * per_sub__uW
+    e_control__fJ = conv["control_dynamic_fraction"] * control__uW * t_cycle
+    control_leak__uW = conv["control_static_fraction"] * control__uW
+    reference_leak__uW = conv["reference_static_fraction"] * reference__uW
+    cfg = dataclasses.replace(cfg, e_control_per_op__fJ=e_control__fJ)
     macro = rebuild(cfg, policy, device)
     emit(
         f"ADOPTED peripheral seats (declared from the Fig.18 shares, never fitted): per-sub-array budget = "
-        f"{tgt['total_macro__mW']} mW / {tgt['sub_array_num']} = {per_sub_uW:.4f} uW = {target_pJ:.4f} pJ/access "
-        f"at {tgt['op_frequency__MHz']} MHz. Control {shares['control']} % -> {control_uW:.4f} uW = "
-        f"{e_control_fJ:.4f} fJ/access, billed as a PURE per-op constant (100 % dynamic, "
-        f"`control_config.leakage_per_inst__uW = {control_leak_uW:.4f}`). Reference {shares['reference']} % -> "
-        f"100 % static: `reference_config.leakage_per_inst__uW = {reference_leak_uW:.5f}` uW. Measured control "
-        f"row: {rows3v.row__pJ[_CONTROL_CHANNEL]:.4f} pJ/access."
+        f"{tgt['total_macro__mW']} mW / {tgt['sub_array_num']} = {per_sub__uW:.4f} uW = {target__fJ:.4f} fJ/access "
+        f"at {tgt['op_frequency__MHz']} MHz. Control {shares['control']} % -> {control__uW:.4f} uW = "
+        f"{e_control__fJ:.4f} fJ/access, billed as a PURE per-op constant (100 % dynamic, "
+        f"`control_config.leakage_per_inst__uW = {control_leak__uW:.4f}`). Reference {shares['reference']} % -> "
+        f"100 % static: `reference_config.leakage_per_inst__uW = {reference_leak__uW:.5f}` uW. Measured control "
+        f"row: {rows3v.row__fJ[_CONTROL_CHANNEL]:.4f} fJ/access."
     )
     emit()
     emit("Leading-dimension invariance (same macro, one round per point, both draw dimensions doubled in turn):")
@@ -881,12 +892,12 @@ def main() -> None:
     for label, r in points3:
         sc = phase_scale_solution(
             r,
-            tmcsa_target__pJ=tmcsa_target__pJ,
+            tmcsa_target__fJ=tmcsa_target__fJ,
             e_fixed__fJ=_E_FIXED_CEILING__fJ,
             steps=steps_per_access,
             scale_now=phase_scale,
         )
-        emit(f"| {label} | {sc:.5f} | {r.row__pJ[_CONTROL_CHANNEL] * _FJ_PER_PJ:.4f} |")
+        emit(f"| {label} | {sc:.5f} | {r.row__fJ[_CONTROL_CHANNEL]:.4f} |")
     emit("")
 
     # =====================================================================
@@ -899,7 +910,7 @@ def main() -> None:
     p_star, points = lock_p_zero(
         macro,
         anchors,
-        target_pJ=read_path_target_pJ,
+        target__fJ=read_path_target__fJ,
         read_path=read_path,
         n_w=args.n_w,
         n_x=args.n_x,
@@ -909,18 +920,18 @@ def main() -> None:
     x_lo, x_hi = anchors["data"]["input_range"]
     f0 = 1.0 / (x_hi - x_lo + 1)
     emit(
-        f"Read-path target = {shares['read_path_sum']} % x {target_pJ} = {read_path_target_pJ:.3f} pJ/access, "
+        f"Read-path target = {shares['read_path_sum']} % x {target__fJ} = {read_path_target__fJ:.3f} fJ/access, "
         f"scanned at one round per point on the calibrated macro."
     )
     emit("")
-    emit(f"| p_zero | read-path [pJ/acc] | vs {read_path_target_pJ:.2f} |")
+    emit(f"| p_zero | read-path [fJ/acc] | vs {read_path_target__fJ:.2f} |")
     emit("|--:|--:|--:|")
     for p, e in points:
-        emit(f"| {p:.2f} | {e:8.3f} | {e / read_path_target_pJ:5.3f}x |")
+        emit(f"| {p:.2f} | {e:8.3f} | {e / read_path_target__fJ:5.3f}x |")
     emit("")
     if p_star is None:
         emit(
-            f"The read path does not cross {read_path_target_pJ:.3f} pJ/access inside p_zero in "
+            f"The read path does not cross {read_path_target__fJ:.3f} fJ/access inside p_zero in "
             f"[{lock_grid[0]:.2f}, {lock_grid[-1]:.2f}] -- the lock is UNBRACKETED at this geometry (reported, "
             f"not forced). The declared p_zero = {p_zero:.3f} stands."
         )
@@ -941,8 +952,8 @@ def main() -> None:
     within, rel = V.gate(gate_m, anchors)
     tol = anchors["gate"]["hard_tolerance_relative"]
     emit(
-        f"At the declared p_zero = {p_zero:.4f}: total = {gate_m.total__pJ:.3f} pJ/access = "
-        f"{gate_m.total__pJ / target_pJ:.3f}x (err {rel * 100:+.1f}%), within +-{tol * 100:.0f}%: "
+        f"At the declared p_zero = {p_zero:.4f}: total = {gate_m.total__fJ:.3f} fJ/access = "
+        f"{gate_m.total__fJ / target__fJ:.3f}x (err {rel * 100:+.1f}%), within +-{tol * 100:.0f}%: "
         f"{'PASS' if within else 'FAIL'} (the total FALLS OUT of the read-path seats + the adopted seats; it is "
         f"never solved for)."
     )
@@ -966,10 +977,10 @@ def main() -> None:
         f"  # stage 3, as-drawn x{phase_scale:.5f}"
     )
     emit(f"- `tmcsa_config.e_fixed_per_op__fJ = {_E_FIXED_CEILING__fJ:.1f}`  # stage 3, pinned plausibility ceiling")
-    emit(f"- `e_control_per_op__fJ = {e_control_fJ:.4f}`  # stage 3, adopted (control 100 % dynamic, pure per-op)")
-    emit(f"- `control_config.leakage_per_inst__uW = {control_leak_uW:.4f}`  # stage 3, adopted (control 0 % static)")
+    emit(f"- `e_control_per_op__fJ = {e_control__fJ:.4f}`  # stage 3, adopted (control 100 % dynamic, pure per-op)")
+    emit(f"- `control_config.leakage_per_inst__uW = {control_leak__uW:.4f}`  # stage 3, adopted (control 0 % static)")
     emit(
-        f"- `reference_config.leakage_per_inst__uW = {reference_leak_uW:.5f}`  # stage 3, adopted "
+        f"- `reference_config.leakage_per_inst__uW = {reference_leak__uW:.5f}`  # stage 3, adopted "
         f"(reference 100 % static)"
     )
     emit()

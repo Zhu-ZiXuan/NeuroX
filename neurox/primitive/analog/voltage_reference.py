@@ -1,6 +1,6 @@
 """Multi-output voltage reference source — PPA + state, no compute.
 
-See also:
+See Also:
     docs/reference/primitive/analog/voltage_reference.md
     docs/internals/primitive/analog/voltage_reference.md
 """

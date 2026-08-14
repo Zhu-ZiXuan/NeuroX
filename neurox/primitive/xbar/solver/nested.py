@@ -9,14 +9,14 @@ adjacent nodes and the same link joins the clamp driver to the node at index
 0 — so a whole rail enters the solve as one scalar. The single distinguished
 node is the ladder's open end at the last row, which has no link onward.
 
-See also:
+See Also:
     docs/reference/primitive/xbar/solver/nested.md
     docs/internals/primitive/xbar/solver/nested.md
 """
 
 from __future__ import annotations
 
-from typing import Any, Generic, TypeVar
+from typing import Any
 
 import torch
 import torch.nn.functional as F
@@ -29,11 +29,6 @@ from ._linalg import block_solve, solve_block_tridiagonal_2x2_uniform
 from ._wire_kcl import col_driver_current, col_wire_kcl_residual
 from .base import Solver, SolverConfig, SolverDcop
 from .clamp import ClampDriver, ClampSnap
-
-CellSnapT = TypeVar("CellSnapT", bound=XbarCellSnap)
-CellDCOPT = TypeVar("CellDCOPT", bound=XbarCellDcop)
-BLSnapT = TypeVar("BLSnapT", bound=ClampSnap)
-SLSnapT = TypeVar("SLSnapT", bound=ClampSnap)
 
 
 def _ladder_self_g(g_cell_eff: Tensor, segment_g__uS: float) -> Tensor:
@@ -101,13 +96,13 @@ def _wire_diag_blocks(
     )
 
 
-class SolverRecord(RecordBase, Generic[CellDCOPT]):
+class SolverRecord[CellDcopT: XbarCellDcop](RecordBase):
     """Converged operating point plus KCL residuals from one DC solve."""
 
     emitter: str
     """Fixed name of the solve entry point that emitted the record, a solver
     being a plain numerical object rather than a module."""
-    dcop: SolverDcop[CellDCOPT]
+    dcop: SolverDcop[CellDcopT]
     """The converged operating point; being a dataclass, the record's field
     walk reaches its tensors, the nested cell working point included."""
     wire_bl__uA: Tensor
@@ -157,18 +152,23 @@ class NestedParallelRailSolver(Solver):
     def __init__(self, *, config: NestedParallelRailSolverConfig) -> None:
         self._config = config
 
-    def solve_dc(
+    def solve_dc[
+        CellSnapT: XbarCellSnap,
+        CellDcopT: XbarCellDcop,
+        BLSnapT: ClampSnap,
+        SLSnapT: ClampSnap,
+    ](
         self,
         *,
         bl_segment_r__MOhm: float,
         sl_segment_r__MOhm: float,
-        cell: XbarCell[Any, Any, CellSnapT, CellDCOPT],
+        cell: XbarCell[Any, Any, CellSnapT, CellDcopT],
         cell_snap: CellSnapT,
         bl_driver: ClampDriver[BLSnapT],
         bl_driver_snap: BLSnapT,
         sl_driver: ClampDriver[SLSnapT],
         sl_driver_snap: SLSnapT,
-    ) -> SolverDcop[CellDCOPT]:
+    ) -> SolverDcop[CellDcopT]:
         """Solve the fabricated tile for one cell snap.
 
         Args:
@@ -209,20 +209,24 @@ class NestedParallelRailSolver(Solver):
         return dcop
 
     @torch.compile(dynamic=False)
-    def _solve_dc_compiled(
+    def _solve_dc_compiled[
+        CellSnapT: XbarCellSnap,
+        CellDcopT: XbarCellDcop,
+        BLSnapT: ClampSnap,
+        SLSnapT: ClampSnap,
+    ](
         self,
         *,
         bl_segment_r__MOhm: float,
         sl_segment_r__MOhm: float,
-        cell: XbarCell[Any, Any, CellSnapT, CellDCOPT],
+        cell: XbarCell[Any, Any, CellSnapT, CellDcopT],
         cell_snap: CellSnapT,
         bl_driver: ClampDriver[BLSnapT],
         bl_driver_snap: BLSnapT,
         sl_driver: ClampDriver[SLSnapT],
         sl_driver_snap: SLSnapT,
-    ) -> SolverDcop[CellDCOPT]:
+    ) -> SolverDcop[CellDcopT]:
         """Run the fixed-shape nested solve."""
-
         # --- 1: read the lattice link as a conductance ---
 
         # One uS is exactly one reciprocal MOhm, so no unit factor enters.
@@ -377,17 +381,21 @@ class NestedParallelRailSolver(Solver):
             v_sl_drive=v_sl_drive__V,
         )
 
-    def _converged_record(
+    def _converged_record[
+        CellDcopT: XbarCellDcop,
+        BLSnapT: ClampSnap,
+        SLSnapT: ClampSnap,
+    ](
         self,
         *,
-        dcop: SolverDcop[CellDCOPT],
+        dcop: SolverDcop[CellDcopT],
         bl_segment_g__uS: float,
         sl_segment_g__uS: float,
         bl_driver: ClampDriver[BLSnapT],
         bl_driver_snap: BLSnapT,
         sl_driver: ClampDriver[SLSnapT],
         sl_driver_snap: SLSnapT,
-    ) -> SolverRecord[CellDCOPT]:
+    ) -> SolverRecord[CellDcopT]:
         """Build the `solve_dc` record: residuals at a converged point."""
         wire_bl_res, wire_sl_res = self._compute_wire_residuals(dcop, bl_segment_g__uS, sl_segment_g__uS)
 
@@ -415,8 +423,8 @@ class NestedParallelRailSolver(Solver):
         )
 
     @staticmethod
-    def _compute_wire_residuals(
-        dcop: SolverDcop[CellDCOPT],
+    def _compute_wire_residuals[CellDcopT: XbarCellDcop](
+        dcop: SolverDcop[CellDcopT],
         bl_segment_g__uS: float,
         sl_segment_g__uS: float,
     ) -> tuple[Tensor, Tensor]:
@@ -431,16 +439,16 @@ class NestedParallelRailSolver(Solver):
         wire_sl_res = col_wire_kcl_residual(dcop.v_sl_node, v_sl_drive_grid__V, sl_segment_g__uS, -i_cell).abs()
         return wire_bl_res, wire_sl_res
 
-    def solve_array_fixed_clamp(
+    def solve_array_fixed_clamp[CellSnapT: XbarCellSnap, CellDcopT: XbarCellDcop](
         self,
         *,
         v_bl_clamp__V: Tensor,
         v_sl_drive__V: Tensor,
         bl_segment_r__MOhm: float,
         sl_segment_r__MOhm: float,
-        cell: XbarCell[Any, Any, CellSnapT, CellDCOPT],
+        cell: XbarCell[Any, Any, CellSnapT, CellDcopT],
         cell_snap: CellSnapT,
-    ) -> SolverDcop[CellDCOPT]:
+    ) -> SolverDcop[CellDcopT]:
         """Run only the inner array Newton loop at FIXED clamp boundaries.
 
         Args:
@@ -483,16 +491,16 @@ class NestedParallelRailSolver(Solver):
             )
         return dcop
 
-    def _solve_array_fixed_clamp_impl(
+    def _solve_array_fixed_clamp_impl[CellSnapT: XbarCellSnap, CellDcopT: XbarCellDcop](
         self,
         *,
         v_bl_clamp__V: Tensor,
         v_sl_drive__V: Tensor,
         bl_segment_r__MOhm: float,
         sl_segment_r__MOhm: float,
-        cell: XbarCell[Any, Any, CellSnapT, CellDCOPT],
+        cell: XbarCell[Any, Any, CellSnapT, CellDcopT],
         cell_snap: CellSnapT,
-    ) -> SolverDcop[CellDCOPT]:
+    ) -> SolverDcop[CellDcopT]:
         """Run the fixed-clamp inner solve."""
         bl_g__uS = 1.0 / bl_segment_r__MOhm
         sl_g__uS = 1.0 / sl_segment_r__MOhm

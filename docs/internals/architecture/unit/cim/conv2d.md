@@ -10,11 +10,15 @@ matmul and delegates physical placement to the configured engine.
   `[C_out, C_in, kh, kw]` directly to `[C_out, K]`. It does not construct a
   Toeplitz matrix or replicate weights for different spatial windows.
 - **Windows are runtime work.** `_conv2d_planes` gathers every convolution
-  window as one row of `[..., M, K]`. The `M=H_out*W_out` axis rides through
+  window as one row of `[B, M, K]`. The `M=H_out*W_out` axis rides through
   `engine.matmul` as runtime serial work against the same programmed matrix.
+  The operator canonicalizes the rank before the seam is reached, so the gather
+  chain is written against a single `[B, C_in, H, W]` input.
 - **`M` is computed at the unit boundary.** `latency__ns(input_shape, *,
   adc_bits)` derives `(H_out, W_out)` with the same `_conv2d_out_hw` the
-  forward calls, and hands the engine `output_plane_num = H_out * W_out`. The unit is
+  forward calls, and hands the engine `output_plane_num = H_out * W_out`. It
+  canonicalizes a 3-D shape to `B = 1` exactly as `conv2d` does, so the
+  duration formula reads one rank. The unit is
   the one place the duration line reads a shape, so the convolution
   output-size arithmetic exists once and nothing below the unit sees a layout.
   No config field declares an input resolution: a resolution is the caller's,
@@ -32,8 +36,7 @@ matmul and delegates physical placement to the configured engine.
 
 ## Contracts & invariants
 
-- `w_logical_shape` is exactly `(C_out, C_in, kh, kw)` with no weight-batch
-  prefix.
+- `w_logical_shape` is exactly `(C_out, C_in, kh, kw)`.
 - The engine logical weight shape is
   `(C_out, C_in*kh*kw)`.
 - Weight and window flattening use the same
@@ -41,7 +44,8 @@ matmul and delegates physical placement to the configured engine.
 - `program(weight, bias=None)` programs one flattened weight matrix and the
   optional `(C_out,)` integer bias.
 - `_conv2d_fold` restores `M` directly to `(H_out,W_out)` and moves
-  `C_out` to the trailing operator channel position.
+  `C_out` to the trailing operator channel position, returning
+  `[B, C_out, H_out, W_out]`.
 
 ---
 

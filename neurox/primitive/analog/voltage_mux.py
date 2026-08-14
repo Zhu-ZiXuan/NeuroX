@@ -1,6 +1,6 @@
 """Single-ended N:1 voltage multiplexer.
 
-See also:
+See Also:
     docs/reference/primitive/analog/voltage_mux.md
     docs/internals/primitive/analog/voltage_mux.md
 """

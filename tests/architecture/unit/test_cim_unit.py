@@ -309,8 +309,7 @@ def _build_linear(
 def _assert_unit_matches_torch(unit: LinearUnit, weight: torch.Tensor, activation: torch.Tensor) -> torch.Tensor:
     unit.program(weight)
     actual = unit.linear(activation, quantization_mode=_TEST_QUANTIZATION_MODE, adc_bits=_TEST_ADC_BITS)
-    # F.linear-form oracle: activation [..., K] against weight [..., N, K];
-    # the weight prefix broadcasts right-aligned over the activation batch dims.
+    # F.linear-form oracle: activation [..., K] against weight [N, K].
     # Shape: [..., K] -> [..., N]
     expected = torch.matmul(activation.to(torch.int64).unsqueeze(-2), weight.transpose(-1, -2).to(torch.int64)).squeeze(
         -2
@@ -550,19 +549,19 @@ def test_unit_program_replaces_owned_weight_state(
 @pytest.mark.parametrize(
     ("macro_kind", "config", "weight_shape", "activation_shape"),
     [
-        ("ideal", _ideal_unit_config(), (2, 13, 20), (2, 20)),
-        ("ideal", _ideal_unit_config(), (2, 13, 20), (8, 2, 20)),
-        ("direct", _direct_config(), (2, 13, 20), (2, 20)),
-        ("direct", _direct_config(), (2, 13, 20), (8, 2, 20)),
-        ("inter", _inter_config(w_slice_num=3, x_slice_num=4), (2, 13, 20), (2, 20)),
-        ("inter", _inter_config(w_slice_num=3, x_slice_num=4), (2, 13, 20), (8, 2, 20)),
-        ("intra", _intra_config(w_slice_num=3, x_slice_num=4), (2, 13, 20), (2, 20)),
-        ("intra", _intra_config(w_slice_num=3, x_slice_num=4), (2, 13, 20), (8, 2, 20)),
-        ("inter", _inter_config(w_slice_num=2, x_slice_num=3), (2, 3, 5, 7), (4, 2, 3, 7)),
-        ("intra", _intra_config(w_slice_num=2, x_slice_num=3), (2, 3, 5, 7), (4, 2, 3, 7)),
+        ("ideal", _ideal_unit_config(), (13, 20), (2, 20)),
+        ("ideal", _ideal_unit_config(), (13, 20), (8, 2, 20)),
+        ("direct", _direct_config(), (13, 20), (2, 20)),
+        ("direct", _direct_config(), (13, 20), (8, 2, 20)),
+        ("inter", _inter_config(w_slice_num=3, x_slice_num=4), (13, 20), (2, 20)),
+        ("inter", _inter_config(w_slice_num=3, x_slice_num=4), (13, 20), (8, 2, 20)),
+        ("intra", _intra_config(w_slice_num=3, x_slice_num=4), (13, 20), (2, 20)),
+        ("intra", _intra_config(w_slice_num=3, x_slice_num=4), (13, 20), (8, 2, 20)),
+        ("inter", _inter_config(w_slice_num=2, x_slice_num=3), (5, 7), (4, 2, 3, 7)),
+        ("intra", _intra_config(w_slice_num=2, x_slice_num=3), (5, 7), (4, 2, 3, 7)),
     ],
 )
-def test_unit_supports_weight_and_activation_batch_prefixes(
+def test_unit_supports_activation_batch_prefixes(
     macro_kind: str,
     config: IdealLinearUnitConfig | LinearCimUnitConfig,
     weight_shape: tuple[int, ...],
@@ -765,6 +764,29 @@ def test_unit_from_config_rejects_mismatched_policy_type() -> None:
             config=config,
             policy=_IDEAL_UNIT_POLICY,
             w_logical_shape=(13, 20),
+            dtype=torch.float32,
+            T__K=300.0,
+            ideal_macro=False,
+        )
+
+
+def test_linear_cim_unit_rejects_non_2d_w_logical_shape() -> None:
+    with pytest.raises(ValueError, match=r"w_logical_shape must be \(N, K\)"):
+        _build_linear(_direct_config(), w_logical_shape=(2, 13, 20))
+
+
+def test_ideal_linear_unit_rejects_non_2d_w_logical_shape() -> None:
+    with pytest.raises(ValueError, match=r"w_logical_shape must be \(N, K\)"):
+        _build_ideal(_ideal_unit_config(), w_logical_shape=(2, 13, 20))
+
+
+def test_engine_rejects_non_2d_w_logical_shape() -> None:
+    engine_config = _direct_engine_config()
+    with pytest.raises(ValueError, match=r"w_logical_shape must be \(N, K\)"):
+        CimEngine.from_config(
+            config=engine_config,
+            policy=_engine_policy(engine_config),
+            w_logical_shape=(2, 13, 20),
             dtype=torch.float32,
             T__K=300.0,
             ideal_macro=False,

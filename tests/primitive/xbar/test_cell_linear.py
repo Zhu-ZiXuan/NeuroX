@@ -127,19 +127,19 @@ def test_table_validation_bounds() -> None:
     # and drop fractions at 0 / 1.
     replace(base, g_cell_off_table__uS=(0.0, 2e-4)).validate()
     replace(base, vx_ratio_off_table=(0.0, 0.5), vx_ratio_on_table=(1.0, 0.25)).validate()
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r"every g_cell_off_table__uS entry finite and >= 0; got -1\.0"):
         replace(base, g_cell_off_table__uS=(-1.0, 2e-4)).validate()
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="every g_cell_on_table__uS entry finite and >= 0; got inf"):
         replace(base, g_cell_on_table__uS=(float("inf"), 95.0)).validate()
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r"every vx_ratio_on_table entry finite and in \[0, 1\]; got 1\.5"):
         replace(base, vx_ratio_on_table=(1.5, 0.94)).validate()
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r"every vx_ratio_off_table entry finite and in \[0, 1\]; got -0\.1"):
         replace(base, vx_ratio_off_table=(-0.1, 1e-5)).validate()
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r"every vx_ratio_off_table entry finite and in \[0, 1\]; got nan"):
         replace(base, vx_ratio_off_table=(float("nan"), 1e-5)).validate()
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r"require: len\(vx_ratio_on_table\) \(1\) == len\(g_cell_off_table__uS\)"):
         replace(base, vx_ratio_on_table=(0.98,)).validate()
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r"require: len\(g_cell_off_table__uS\) \(0\) >= 1"):
         replace(
             base,
             g_cell_off_table__uS=(),
@@ -169,7 +169,8 @@ def test_wrong_policy_type_raises() -> None:
     )
     with pytest.raises(
         TypeError,
-        match=r"no XbarCell1t1r module registered for config XbarCell1t1rLinearConfig and policy XbarCell1t1rDetailPolicy",
+        match=r"no XbarCell1t1r module registered for config XbarCell1t1rLinearConfig "
+        r"and policy XbarCell1t1rDetailPolicy",
     ):
         XbarCell1t1r.from_config(
             config=_hand_built_config(),

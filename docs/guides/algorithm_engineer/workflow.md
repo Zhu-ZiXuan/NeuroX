@@ -57,10 +57,3 @@ Each macro is built from two separate TOML files; the full schema and the `_neur
   ```
 
   The solver chunking knob (`solve_chunk_size`) also lives here, under `[policy.engine.cim_macro_policy.array]`.
-
-## See also
-
-- [API: configuration](../../api/configuration.md) — the `--config` / `--policy` TOML schema and presets.
-- [Reference: unit family](../../reference/architecture/unit/family.md) — the operator and placement contracts.
-- [Reference: xbar solver](../../reference/primitive/xbar/solver/nested.md) — the topology-agnostic physical-array solve: the single nested formulation over the pluggable cell and clamp drivers.
-- [Calibration guide](../calibration/README.md) — calibrating the per-mode ADC `rescale_factor` for a new chip.

@@ -1,6 +1,6 @@
 """Digital modular-arithmetic accumulator for a time-serial operand stream.
 
-See also:
+See Also:
     docs/reference/primitive/digital/serial_accumulator.md
     docs/internals/primitive/digital/serial_accumulator.md
 """

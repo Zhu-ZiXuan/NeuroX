@@ -10,12 +10,12 @@ PYTHON ?= python
 
 # --- develop ---
 
-RUFF_TARGET_DIR := neurox example tests
+RUFF_TARGET_DIR := neurox example validations tests
 
 .PHONY: format
 format: ## Run `ruff` formatter with auto fix
 	uv run ruff format $(RUFF_TARGET_DIR)
-	uv run ruff check --fix-only $(RUFF_TARGET_DIR)
+	uv run ruff check $(RUFF_TARGET_DIR) --fix-only
 
 .PHONY: lint
 lint: ## Run `ruff` linter

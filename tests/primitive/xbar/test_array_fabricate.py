@@ -137,7 +137,8 @@ def test_array_fabricate_resamples_each_node_once_preorder(
     array.fabricate()
 
     # Exactly once per node, and no node missed.
-    assert order and len(order) == len(nodes)
+    assert order
+    assert len(order) == len(nodes)
     assert all(count == 1 for count in counts.values())
 
     # Pre-order: every parent is sampled strictly before each of its children.

@@ -17,7 +17,7 @@ writes it, and a cluster plot goes to `--plot-dir`.
 CPU-only by design: the derivation touches a handful of scalars, so the tool
 opts out of `--device`.
 
-See also:
+See Also:
     docs/guides/calibration/calibrate_adc.md
 """
 
@@ -231,7 +231,6 @@ def main(argv: list[str] | None = None) -> int:
 
     cfg = load_tool_config(ModeDeriveToolConfig, args.config)
     mapping_path = resolve_relative_path(cfg.mapping_file, args.config)
-    assert mapping_path is not None
     layer_ranges = load_layer_ranges(mapping_path)
     logger.info("read %d layer ranges from %s", len(layer_ranges), mapping_path)
 

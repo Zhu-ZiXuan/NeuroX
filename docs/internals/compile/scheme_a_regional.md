@@ -85,8 +85,3 @@ Every deviation from the eager default lives here; module docs only point back:
 
 - No `fullgraph=True` path through the macro — the eager island and profiler hooks break the graph by design; scheme C is the fullgraph route.
 - Cross-instance sharing rides on an implicit, version-dependent mechanism rather than a guaranteed shape-only cache key; scheme B is the hardening.
-
-## See also
-
-- [contracts](contracts.md), [scheme B](scheme_b_deobjectified.md), [scheme C](scheme_c_custom_op.md)
-- Implementation: `neurox/architecture/unit/cim/*.py`, `neurox/primitive/xbar/array/_1t1r.py`, `neurox/primitive/xbar/solver/*.py`, `neurox/common/profile_mixin.py`

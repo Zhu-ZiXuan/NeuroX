@@ -6,7 +6,7 @@ polarity of the sign-magnitude weight encoding for the TMCSA magnitude
 quantization. A reporter leaf: it self-bills the three ISUB internal replica legs
 and the comparator decision constant.
 
-See also:
+See Also:
     docs/works/macro/cim/xue2020jssc/model.md
 """
 

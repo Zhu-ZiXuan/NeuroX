@@ -1,4 +1,7 @@
-"""Tests for the `TensorGroupMixin` per-tensor-field shape-operation surface: nested recursion, the skip-`None` rule, and subtype preservation."""
+"""Tests for the `TensorGroupMixin` per-tensor-field shape-operation surface.
+
+Nested recursion, the skip-`None` rule, and subtype preservation.
+"""
 
 from __future__ import annotations
 

@@ -393,7 +393,12 @@ def test_fold_preserves_dataclass_replace_semantics() -> None:
 
     actual = _fold(chunks, specs, leading)
 
-    assert actual == replace(actual, label="chunked")
+    replaced = replace(actual, label="chunked")
+    assert type(replaced) is _Dcop
+    assert replaced.i_bl_driver is actual.i_bl_driver
+    assert replaced.v_bl_node is actual.v_bl_node
+    assert replaced.cell is actual.cell
+    assert replaced.label == "chunked"
     torch.testing.assert_close(actual.i_bl_driver[1], torch.ones(_COL))
 
 

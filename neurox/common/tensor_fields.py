@@ -4,17 +4,15 @@ from __future__ import annotations
 
 import dataclasses
 from collections.abc import Callable
-from typing import TYPE_CHECKING, TypeVar, cast
+from typing import TYPE_CHECKING, cast
 
 from torch import Tensor
 
 if TYPE_CHECKING:
     from _typeshed import DataclassInstance
 
-NodeT = TypeVar("NodeT")
 
-
-def walk_tensor_fields(node: NodeT, transform: Callable[[Tensor], Tensor]) -> NodeT:
+def walk_tensor_fields[NodeT](node: NodeT, transform: Callable[[Tensor], Tensor]) -> NodeT:
     """Rebuild a dataclass with one transform applied to every tensor field.
 
     The walk visits `dataclasses.fields(node)` in declaration order, passing

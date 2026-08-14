@@ -21,7 +21,7 @@ orchestration, the macro child, value-range delegation, and execution order.
   ranges, activation limit, and ADC metadata. It does not inspect rows,
   columns, cell digits, or readout topology.
 - **Canonical macro instance layout.** Every configuration uses
-  `[*w_batch, M=1, Sa=1, Sw, Tc, G]`. Direct and intra-port weight layouts keep
+  `[M=1, Sx=1, Sw, Tc, G]`. Direct and intra-port weight layouts keep
   a structural `Sw=1` axis. Fixed size-one axes make all stage combinations
   follow one execution graph.
 - **Containers do not report duplicate PPA.** The engine and all four stages
@@ -29,11 +29,11 @@ orchestration, the macro child, value-range delegation, and execution order.
   physical PPA. A stage is a mapping construct holding no circuit, so it has
   no area, no leakage and no duration — the three PPA quantities agree on it.
 - **The engine times the schedule; the stages only declare its axes.** Every
-  serial axis below the unit is engine-inserted: `M` from its caller, `Sa` from
+  serial axis below the unit is engine-inserted: `M` from its caller, `Sx` from
   `x_slice.slice_num`, `D` from `placement.block_step_num`, `P` from
   `input_activation.input_phase_num`. One macro access serves each
-  `(M,Sa,D,P)` point, so `latency__ns` multiplies the macro rather than summing
-  it, and `Sw`, `Tc`, `G` and `*w_batch` never multiply anything because they
+  `(M,Sx,D,P)` point, so `latency__ns` multiplies the macro rather than summing
+  it, and `Sw`, `Tc` and `G` never multiply anything because they
   are parallel silicon. The digital blocks own no axis of the schedule either,
   so the engine reads each embedded block's `latency_per_op__ns` through its
   stage and supplies the counts itself — it introduced those axes, so it is
@@ -58,21 +58,21 @@ orchestration, the macro child, value-range delegation, and execution order.
 5. `cim_macro.program`: store the final macro-native tensor.
 
 The resulting tensor always has
-`[..., M=1, Sa=1, Sw, Tc, G, input_num, output_num]`.
+`[..., M=1, Sx=1, Sw, Tc, G, input_num, output_num]`.
 
 ## Matmul path
 
 `matmul(input)` executes:
 
-1. `x_slice.slice`: append logical `Sa`.
-2. `placement.organize_x`: form `[M,Sa,Sw=1,Tc,G=1,L]`.
+1. `x_slice.slice`: append logical `Sx`.
+2. `placement.organize_x`: form `[M,Sx,Sw=1,Tc,G=1,L]`.
 3. `input_activation.unroll_input_phases`: insert `P` and mask each local
    input group.
 4. `placement.unroll_block_steps`: insert `D` and route each local block into
    its geometric slot.
 5. `cim_macro.vec_mat_mul`: produce one code per macro read and convert it to
    `int64` at the analog-to-digital boundary.
-6. Aggregate in the fixed order `P -> Tc -> Sw -> Sa`.
+6. Aggregate in the fixed order `P -> Tc -> Sw -> Sx`.
 7. `placement.restore_output`: reorder `(D,G,Q)`, flatten, and trim to `N`.
 
 `Tc` is reduced before either precision axis. Consequently the contraction
@@ -83,7 +83,7 @@ for inter-plane layouts, matching the tensor on which it operates.
 
 - A mapping stage must preserve all axes it does not own.
 - `D` identifies different logical output blocks and is never reduced.
-- `P` and `Tc` are ordinary sums; `Sw` and `Sa` are radix-weighted sums.
+- `P` and `Tc` are ordinary sums; `Sw` and `Sx` are radix-weighted sums.
 - All absent axes remain explicit with extent one.
 - The engine converts macro output codes to `int64`; digital modules do not
   perform dtype conversion.

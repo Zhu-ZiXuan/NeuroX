@@ -1,6 +1,6 @@
 """Conv2dCimUnit — engine-backed `F.conv2d` replacement.
 
-See also:
+See Also:
     docs/internals/architecture/unit/cim/conv2d.md
 """
 
@@ -88,15 +88,18 @@ class Conv2dCimUnit(Conv2dUnit, EngineBackedCimUnit[Conv2dCimUnitConfig, Conv2dC
 
         The unit introduces no time axis of its own; it restates the call in
         the engine's terms. `M = H_out * W_out` is the one extent no config
-        fixes, and it follows from the input resolution alone.
+        fixes, and it follows from the input resolution alone. A 3-D
+        `[C_in, H, W]` shape is read as `B = 1`, exactly as `conv2d` reads it.
 
         Raises:
-            ValueError: `input_shape` has no `[C_in, H, W]` trailing triple, or
-                the configured geometry yields an empty output map.
+            ValueError: `input_shape` is neither `[B, C_in, H, W]` nor its
+                unbatched `[C_in, H, W]` form, or the configured geometry
+                yields an empty output map.
         """
-        if len(input_shape) < 3:
-            raise ValueError(f"latency__ns() expects input_shape with trailing [C_in, H, W]; got {input_shape}")
-        h, w = input_shape[-2:]
+        if len(input_shape) not in (3, 4):
+            raise ValueError(f"latency__ns() expects input_shape [C_in, H, W] or [B, C_in, H, W]; got {input_shape}")
+        # Shape: [C_in, H, W] -> [1, C_in, H, W]
+        _b, _c_in, h, w = input_shape if len(input_shape) == 4 else (1, *input_shape)
         h_out, w_out = self._conv2d_out_hw(h, w)
         return self.engine.latency__ns(output_plane_num=h_out * w_out, adc_bits=adc_bits)
 
@@ -128,7 +131,7 @@ class Conv2dCimUnit(Conv2dUnit, EngineBackedCimUnit[Conv2dCimUnitConfig, Conv2dC
 
         Returns:
             Matmul-shaped input planes.
-            Shape: `[..., M, K]`.
+            Shape: `[B, M, K]`.
         """
         h_out, w_out = out_hw
         kh, kw = self._conv2d_kernel_size
@@ -137,7 +140,7 @@ class Conv2dCimUnit(Conv2dUnit, EngineBackedCimUnit[Conv2dCimUnitConfig, Conv2dC
         d_h, d_w = self._conv2d_dilation
         x = input
         if p_h or p_w:
-            # Shape: [..., C_in, H, W] -> [..., C_in, Hp, Wp]
+            # Shape: [B, C_in, H, W] -> [B, C_in, Hp, Wp]
             x = F.pad(x, (p_w, p_w, p_h, p_h))
         device = x.device
 
@@ -149,16 +152,15 @@ class Conv2dCimUnit(Conv2dUnit, EngineBackedCimUnit[Conv2dCimUnitConfig, Conv2dC
         w_idx = (torch.arange(w_out, device=device) * s_w).view(-1, 1) + (torch.arange(kw, device=device) * d_w).view(
             1, -1
         )
-        # Shape: [..., C_in, Hp, Wp] -> [..., C_in, H_out, kh, Wp]
+        # Shape: [B, C_in, Hp, Wp] -> [B, C_in, H_out, kh, Wp]
         x = x[..., h_idx, :]
-        # Shape: [..., C_in, H_out, kh, Wp] -> [..., C_in, H_out, kh, W_out, kw]
+        # Shape: [B, C_in, H_out, kh, Wp] -> [B, C_in, H_out, kh, W_out, kw]
         x = x[..., w_idx]
-        # Shape: [..., C_in, H_out, kh, W_out, kw] -> [..., H_out, W_out, C_in, kh, kw]
-        b = x.ndim - 5
-        x = x.permute(*range(b), b + 1, b + 3, b + 0, b + 2, b + 4)
-        # Shape: [..., H_out, W_out, C_in, kh, kw] -> [..., H_out, W_out, K]
+        # Shape: [B, C_in, H_out, kh, W_out, kw] -> [B, H_out, W_out, C_in, kh, kw]
+        x = x.permute(0, 2, 4, 1, 3, 5)
+        # Shape: [B, H_out, W_out, C_in, kh, kw] -> [B, H_out, W_out, K]
         x = x.flatten(start_dim=-3)
-        # Shape: [..., H_out, W_out, K] -> [..., M, K]
+        # Shape: [B, H_out, W_out, K] -> [B, M, K]
         return x.flatten(start_dim=-3, end_dim=-2)
 
     def _conv2d_fold(self, output: Tensor, *, out_hw: tuple[int, int]) -> Tensor:
@@ -166,11 +168,11 @@ class Conv2dCimUnit(Conv2dUnit, EngineBackedCimUnit[Conv2dCimUnitConfig, Conv2dC
 
         Returns:
             Folded output map.
-            Shape: `[..., C_out, H_out, W_out]`.
+            Shape: `[B, C_out, H_out, W_out]`.
         """
         h_out, w_out = out_hw
-        # Shape: [..., M, C_out] -> [..., H_out, W_out, C_out]
+        # Shape: [B, M, C_out] -> [B, H_out, W_out, C_out]
         y = output.unflatten(-2, (h_out, w_out))
-        # Shape: [..., H_out, W_out, C_out] -> [..., C_out, H_out, W_out]
+        # Shape: [B, H_out, W_out, C_out] -> [B, C_out, H_out, W_out]
         folded: Tensor = y.movedim(-1, -3)
         return folded

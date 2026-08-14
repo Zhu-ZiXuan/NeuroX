@@ -1,6 +1,6 @@
 """General-purpose LUT current DAC — concrete `Idac` implementation.
 
-See also:
+See Also:
     docs/reference/primitive/analog/current_dac/general.md
     docs/internals/primitive/analog/current_dac/general.md
 """

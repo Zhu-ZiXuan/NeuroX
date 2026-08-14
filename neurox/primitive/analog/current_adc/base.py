@@ -1,13 +1,12 @@
 """Abstract base class for single-ended current-domain ADC models.
 
-See also:
+See Also:
     docs/internals/primitive/analog/current_adc/base.md
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Generic, TypeVar
 
 import torch
 from torch import Tensor
@@ -52,18 +51,13 @@ class IadcPolicy(AnalogPolicy, ABC):
     """Abstract marker base for single-ended-current-ADC-family nonideality policies."""
 
 
-ConfigT = TypeVar("ConfigT", bound=IadcConfig, covariant=True)
-PolicyT = TypeVar("PolicyT", bound=IadcPolicy, covariant=True)
-
-
-class Iadc(
+class Iadc[ConfigT: IadcConfig, PolicyT: IadcPolicy](
     AnalogBase[ConfigT, PolicyT],
     RegistryMixin[
         "IadcConfig",
         "IadcPolicy",
         "Iadc[IadcConfig, IadcPolicy]",
     ],
-    Generic[ConfigT, PolicyT],
     ABC,
 ):
     """Base class for single-ended current ADCs with injected references.

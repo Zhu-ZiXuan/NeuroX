@@ -1,19 +1,18 @@
 """Pluggable crossbar-cell abstraction.
 
-See also:
+See Also:
     docs/internals/primitive/xbar/cell/base.md
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from typing import ClassVar, Generic, TypeVar
+from typing import ClassVar
 
 import torch
 from torch import Tensor
 
-from neurox.common import ConfigBase, ModuleBase, PolicyBase, TensorGroupMixin
+from neurox.common import ConfigBase, ModuleBase, PolicyBase, TensorDataClassBase, TensorGroupMixin
 
 
 class XbarCellConfig(ConfigBase, ABC):
@@ -27,13 +26,11 @@ class XbarCellPolicy(PolicyBase, ABC):
     """Base class for crossbar-cell nonideality policies."""
 
 
-@dataclass(frozen=True)
-class XbarCellSnap(TensorGroupMixin):
+class XbarCellSnap(TensorDataClassBase, TensorGroupMixin):
     """Base class for per-call cell snapshots."""
 
 
-@dataclass(frozen=True)
-class XbarCellDcop:
+class XbarCellDcop(TensorDataClassBase):
     """Condensed branch working point of one cell DC evaluation."""
 
     i__uA: Tensor
@@ -44,15 +41,8 @@ class XbarCellDcop:
     """SL-side branch conductance ∂I/∂V_SL, non-positive. Shape: `[..., col, row]`."""
 
 
-SnapT = TypeVar("SnapT", bound=XbarCellSnap)
-DCOPT = TypeVar("DCOPT", bound=XbarCellDcop)
-ConfigT = TypeVar("ConfigT", bound=XbarCellConfig, covariant=True)
-PolicyT = TypeVar("PolicyT", bound=XbarCellPolicy, covariant=True)
-
-
-class XbarCell(
+class XbarCell[ConfigT: XbarCellConfig, PolicyT: XbarCellPolicy, SnapT: XbarCellSnap, DcopT: XbarCellDcop](
     ModuleBase[ConfigT, PolicyT],
-    Generic[ConfigT, PolicyT, SnapT, DCOPT],
     ABC,
 ):
     """Condensed two-terminal crossbar-cell interface.
@@ -150,7 +140,7 @@ class XbarCell(
         v_bl: Tensor,
         v_sl: Tensor,
         snap: SnapT,
-    ) -> DCOPT:
+    ) -> DcopT:
         """Full branch DC working point, including internal-node state.
 
         Args:

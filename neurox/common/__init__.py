@@ -5,6 +5,7 @@ from .recorder import RecordBase, RecorderBase
 from .registry_mixin import RegistryMixin
 from .reporter import DynamicEntry, Reporter, StaticEntry, StaticMetrics
 from .serialize_mixin import SerializeMixin
+from .tensor_dataclass import TensorDataClassBase
 from .tensor_fields import walk_tensor_fields
 from .tensor_group_mixin import TensorGroupMixin
 from .tree import neurox_roots, stamp_names
@@ -26,6 +27,7 @@ __all__ = [
     "SerializeMixin",
     "StaticEntry",
     "StaticMetrics",
+    "TensorDataClassBase",
     "TensorGroupMixin",
     "ValidateMixin",
     "neurox_roots",

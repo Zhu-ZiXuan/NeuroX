@@ -1,6 +1,6 @@
 """Geometric placement and scheduling for CIM-engine matrix multiplication.
 
-See also:
+See Also:
     docs/reference/architecture/unit/cim/engine/placement.md
     docs/internals/architecture/unit/cim/engine/placement.md
 """
@@ -74,22 +74,16 @@ class PlacementStage(ModuleBase[PlacementStageConfig, PlacementStagePolicy]):
         policy: PlacementStagePolicy,
         plan: MatmulPlacementPlan,
         input_num: int,
-        w_batch_rank: int,
-        w_parallel_size: int,
         macro_plane_num: int,
         macro_inst_rank: int,
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=())
         self.plan = plan
         self._input_num = input_num
-        self._w_batch_rank = w_batch_rank
         self._macro_inst_rank = macro_inst_rank
 
         self._register_block_slot_routing_buffers()
-        self._init_contraction_accumulator(
-            w_parallel_size=w_parallel_size,
-            macro_plane_num=macro_plane_num,
-        )
+        self._init_contraction_accumulator(macro_plane_num=macro_plane_num)
 
     def _sample_fabricate_mismatch(self) -> None:
         pass
@@ -113,14 +107,14 @@ class PlacementStage(ModuleBase[PlacementStageConfig, PlacementStagePolicy]):
             persistent=False,
         )
 
-    def _init_contraction_accumulator(self, *, w_parallel_size: int, macro_plane_num: int) -> None:
+    def _init_contraction_accumulator(self, *, macro_plane_num: int) -> None:
         """Construct the Tc accumulator at its physical multiplicity."""
         plan = self.plan
         macro_group_num = plan.block_group_num
         self.contraction_accumulator = Accumulator(
             config=self.config.contraction_accumulator_config,
             policy=DigitalPolicy(),
-            inst_shape=(w_parallel_size, macro_plane_num, macro_group_num),
+            inst_shape=(macro_plane_num, macro_group_num),
         )
 
     def partition_weight(self, weight: Tensor) -> Tensor:
@@ -128,21 +122,21 @@ class PlacementStage(ModuleBase[PlacementStageConfig, PlacementStagePolicy]):
         plan = self.plan
         # Zero-padding after slicing is exact: an all-zero digit vector encodes
         # value 0 in every positional encoding.
-        # Shape: [..., N, K, Sw] -> [..., B, Q, K, Sw]
+        # Shape: [N, K, Sw] -> [B, Q, K, Sw]
         blocks = _chunk_pad_along(
             weight,
             axis=-3,
             chunk_size=plan.output_block_size,
             pad_value=0,
         )
-        # Shape: [..., B, Q, K, Sw] -> [..., B, Q, Tc, L, Sw]
+        # Shape: [B, Q, K, Sw] -> [B, Q, Tc, L, Sw]
         blocks = _chunk_pad_along(
             blocks,
             axis=-2,
             chunk_size=plan.contraction_block_size,
             pad_value=0,
         )
-        # Shape: [..., B, Q, Tc, L, Sw] -> [..., D, G, Q, Tc, L, Sw]
+        # Shape: [B, Q, Tc, L, Sw] -> [D, G, Q, Tc, L, Sw]
         return _chunk_pad_along(
             blocks,
             axis=-5,
@@ -152,63 +146,48 @@ class PlacementStage(ModuleBase[PlacementStageConfig, PlacementStagePolicy]):
 
     def pack_weight(self, weight: Tensor) -> Tensor:
         """Pack canonical `[D, L]` slots into the macro input axis."""
-        # Shape: [..., Sw, Tc, G, D, L, output_num] -> [..., Sw, Tc, G, D*L, output_num]
+        # Shape: [Sw, Tc, G, D, L, output_num] -> [Sw, Tc, G, D*L, output_num]
         packed = weight.flatten(start_dim=-3, end_dim=-2)
-        # Shape: [..., Sw, Tc, G, D*L, output_num] -> [..., Sw, Tc, G, input_num, output_num]
+        # Shape: [Sw, Tc, G, D*L, output_num] -> [Sw, Tc, G, input_num, output_num]
         packed = F.pad(packed, (0, 0, 0, self._input_num - packed.shape[-2]))
-        b = packed.ndim - 5
-        # Shape: [..., Sw, Tc, G, input_num, output_num] -> [..., M=1, Sa=1, Sw, Tc, G, input_num, output_num]
-        return packed.unsqueeze(b).unsqueeze(b)
+        # Shape: [Sw, Tc, G, input_num, output_num] -> [M=1, Sx=1, Sw, Tc, G, input_num, output_num]
+        return packed.unsqueeze(0).unsqueeze(0)
 
     def organize_x(self, x: Tensor) -> Tensor:
         """Partition sliced inputs into the canonical macro-aligned layout."""
         # Zero-padding after slicing is exact: an all-zero digit vector encodes
         # value 0 in every positional encoding.
-        # Shape: [..., M, K, Sa] -> [..., M, Tc, L, Sa]
+        # Shape: [..., M, K, Sx] -> [..., M, Tc, L, Sx]
         tiled = _chunk_pad_along(
             x,
             axis=-2,
             chunk_size=self.plan.contraction_block_size,
             pad_value=0,
         )
-        # Shape: [..., M, Tc, L, Sa] -> [..., M, Sa, Tc, L]
+        # Shape: [..., M, Tc, L, Sx] -> [..., M, Sx, Tc, L]
         b = tiled.ndim - 4
         tiled = tiled.permute([*range(b), b, b + 3, b + 1, b + 2])
-        # Shape: [..., M, Sa, Tc, L] -> [..., M, Sa, Sw=1, Tc, G=1, L]
+        # Shape: [..., M, Sx, Tc, L] -> [..., M, Sx, Sw=1, Tc, G=1, L]
         return tiled.unsqueeze(b + 2).unsqueeze(b + 4)
 
     def unroll_block_steps(self, x: Tensor) -> Tensor:
         """Route phased local inputs through CIM block steps."""
-        fixed_inst_rank = self._macro_inst_rank - self._w_batch_rank
-        x_prefix_rank = x.ndim - fixed_inst_rank - 2
-        execution_index = max(0, x_prefix_rank - self._w_batch_rank)
-        missing_w_batch_rank = max(0, self._w_batch_rank - x_prefix_rank)
-        if missing_w_batch_rank:
-            # Shape: [..., M, Sa, Sw, Tc, G, P, L] -> [*w_batch, M, Sa, Sw, Tc, G, P, L]
-            x = x.reshape(
-                *x.shape[:execution_index],
-                *(1,) * missing_w_batch_rank,
-                *x.shape[execution_index:],
-            )
-
-        # Shape: [..., *inst_shape, P, L] -> [..., *inst_shape, P, D, input_num]
+        inst_rank = self._macro_inst_rank
+        # Shape: [..., M, Sx, Sw, Tc, G, P, L] -> [..., M, Sx, Sw, Tc, G, P, D, input_num]
         routed = x[..., self._input_source_index]
-        # Shape: [..., *inst_shape, P, D, input_num] -> [..., D, *inst_shape, P, input_num]
-        routed = routed.movedim(-2, execution_index)
-        # Shape: [..., D, *inst_shape, P, input_num] -> [..., D, P, *inst_shape, input_num]
-        routed = routed.movedim(-2, execution_index + 1)
+        # Shape: [..., M, Sx, Sw, Tc, G, P, D, input_num] -> [..., D, M, Sx, Sw, Tc, G, P, input_num]
+        routed = routed.movedim(-2, -(inst_rank + 3))
+        # Shape: [..., D, M, Sx, Sw, Tc, G, P, input_num] -> [..., D, P, M, Sx, Sw, Tc, G, input_num]
+        routed = routed.movedim(-2, -(inst_rank + 2))
 
-        plan = self.plan
-        block_step_num = plan.block_slot_num
-        # Shape: [D, input_num] -> [*caller_leading=1, D, P=1, *inst_shape=1, input_num]
+        # Shape: [D, input_num] -> [D, P=1, *inst_shape=1, input_num]
         mask = self._block_slot_mask.reshape(
-            *(1,) * execution_index,
-            block_step_num,
+            self.plan.block_slot_num,
             1,
-            *(1,) * self._macro_inst_rank,
+            *(1,) * inst_rank,
             self._input_num,
         )
-        # Shape: [..., D, P, *inst_shape, input_num]
+        # Shape: [..., D, P, M, Sx, Sw, Tc, G, input_num]
         return torch.where(mask, routed, routed.new_zeros(()))
 
     def accumulate_contraction_tiles(self, code: Tensor) -> Tensor:
@@ -217,7 +196,7 @@ class PlacementStage(ModuleBase[PlacementStageConfig, PlacementStagePolicy]):
 
     def restore_output(self, code: Tensor) -> Tensor:
         """Restore balanced `[D, G, Q]` blocks to logical output order."""
-        # Shape: [..., D, *w_batch, M, G, Q] -> [..., *w_batch, M, D, G, Q]
-        code = code.movedim(-(self._w_batch_rank + 4), -3)
-        # Shape: [..., *w_batch, M, D, G, Q] -> [..., *w_batch, M, N]
+        # Shape: [..., D, M, G, Q] -> [..., M, D, G, Q]
+        code = code.movedim(-4, -3)
+        # Shape: [..., M, D, G, Q] -> [..., M, N]
         return code.flatten(start_dim=-3)[..., : self.plan.logical_output_num]

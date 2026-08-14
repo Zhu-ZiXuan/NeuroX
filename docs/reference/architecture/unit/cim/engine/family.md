@@ -10,7 +10,7 @@ of four mappings, each paired with any digital aggregation that reverses it:
   accumulation;
 - [weight slicing](weight_slice.md): direct, inter-plane, or intra-port `Sw`
   layout and weight shift-add;
-- [input slicing](x_slice.md): direct or serial `Sa` execution and input
+- [input slicing](x_slice.md): direct or serial `Sx` execution and input
   shift-add.
 
 These choices are nested stage configurations, not separate engine classes.
@@ -47,10 +47,10 @@ positions are programmed to zero but remain in the uniform schedule.
 
 ## Execution order
 
-The macro instance axes use canonical order `[Sa,Sw,Tc,G]`; `D` and `P` are
+The macro instance axes use canonical order `[Sx,Sw,Tc,G]`; `D` and `P` are
 runtime schedule axes. After each macro read, the engine aggregates
 
-$$P\rightarrow T_c\rightarrow S_w\rightarrow S_a,$$
+$$P\rightarrow T_c\rightarrow S_w\rightarrow S_x,$$
 
 then reorders `(D,G,Q)`, flattens it in logical block order, and trims to `N`.
 `D` is not a partial-sum axis and is never reduced.
@@ -65,7 +65,7 @@ then reorders `(D,G,Q)`, flattens it in logical block order, and trims to `N`.
 | `placement` | geometric placement and `Tc` accumulator configuration |
 | `input_activation` | selected-input grouping and `P` accumulator configuration |
 | `weight_slice` | weight layout and optional `Sw` shift-adder configuration |
-| `x_slice` | input serialization and optional `Sa` shift-adder configuration |
+| `x_slice` | input serialization and optional `Sx` shift-adder configuration |
 
 The policy has the same five owned-child fields. The engine's public
 `w_value_range` and `x_value_range` come from the two slice stages; ADC
@@ -75,7 +75,8 @@ metadata and `max_active_num` delegate to the constructed macro.
 
 | Symbol | Meaning | Code |
 |---|---|---|
-| $S_w,S_a$ | weight and input slice counts | stage configuration |
+| $M$ | activation-matrix row count | `input` row dim |
+| $S_w,S_x$ | weight and input slice counts | stage configuration |
 | $I$ | macro logical input capacity | `input_num` |
 | $A$ | maximum selected inputs per read | `cim_macro.max_active_num` |
 | $L,Q$ | logical block input/output widths | `placement.plan` |
@@ -84,10 +85,13 @@ metadata and `max_active_num` delegate to the constructed macro.
 | $G,D$ | macro groups and block steps | `placement.plan.block_group_num`, `placement.plan.block_slot_num` |
 | $P$ | selected-input phases | `input_activation._input_phase_num` |
 
+$S_x$ is a unit-layer symbol; the macro and solver layers below keep generic
+leading dims.
+
 ## Validation
 
 Bit-exact stage combinations, non-divisible dimensions, coprime dimensions,
-weight batches, short-vector packing, and input phases are covered by
+short-vector packing, and input phases are covered by
 `tests/architecture/unit/test_cim_unit.py` and
 `tests/architecture/unit/test_engine_input_packing.py`.
 

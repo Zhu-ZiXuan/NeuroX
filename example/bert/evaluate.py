@@ -103,7 +103,8 @@ def main() -> None:
     # The shipped ideal config declares a single conversion window: mode 0.
     n_replaced = to_quant(model, ckpt["layers"], macro_factory, mode_picker=0)
     print(
-        f"Quant-replaced {n_replaced} Linear layers; config={args.config} policy={args.policy} (cim_macro={args.cim_macro})"
+        f"Quant-replaced {n_replaced} Linear layers; config={args.config} policy={args.policy} "
+        f"(cim_macro={args.cim_macro})"
     )
     model.eval()
     # A module never knows its own name: the assembled tree hands it one, and a

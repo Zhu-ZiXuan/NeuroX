@@ -31,10 +31,10 @@ Two orthogonal mechanisms map the matmul onto an execution substrate.
 Geometric placement partitions the contraction dimension and assigns logical
 output blocks to balanced block groups and input-axis block slots. A concrete
 unit decides how those groups and slots are realized. Precision slicing
-($S_w,S_a$; specific to compute-in-memory) decomposes a high-precision value
+($S_w,S_x$; specific to compute-in-memory) decomposes a high-precision value
 into macro-carriable pieces. Geometric placement is application-neutral and
 does not decompose values. Slice counts are config-given; the degenerate
-$S_w=S_a=1$ performs no slicing.
+$S_w=S_x=1$ performs no slicing.
 
 Precision slicing is LSB-first. A value whose range exceeds one macro's
 `w_value_range` or `x_value_range` is decomposed into positional slices, and
@@ -98,7 +98,7 @@ families beneath it.
 | $\mathbf{Y}$ | pre-requantize integer output | — | `linear` / `conv2d` return |
 | $N, K, M$ | output, contraction, and activation-row dims | — | `w_logical_shape`, input shape |
 | $b$ | integer bias vector (length $N$ or $C_{\mathrm{out}}$) | — | `int_bias` |
-| $S_w, S_a$ | weight-, activation-slice counts (precision-slicing axis) | — | `w_slice_num`, `x_slice_num` |
+| $S_w, S_x$ | weight-, activation-slice counts (precision-slicing axis) | — | `w_slice_num`, `x_slice_num` |
 | $N_{\mathrm{in}}, N_{\mathrm{out}}$ | macro logical input / output capacity | — | `input_num`, `output_num` |
 | $R$ | positional radix between adjacent slices | — | `slice_radix` |
 | $m_i$ | value carried by slice $i$ | — | — |
@@ -112,6 +112,7 @@ Stated assumptions:
 - A unit returns a pre-requantize integer result; requantization lies outside its scope, and the only bias it adds is the integer bias of the operator law.
 - The contracts are defined for integer weights and activations within the value ranges the unit accepts.
 - The decomposition is value-domain exact: the only deviation from the exact integer result is the analog non-ideality of the constituent tile reads, not the lowering, slicing, or aggregation arithmetic.
+- The programmed weight is exactly $(N, K)$; `F.linear`'s 1-D dot-product form is out of scope — express it as $N = 1$.
 
 TODO (domain author): state the validity boundary of the slice-and-shift-add
 decomposition, the largest dot-product magnitude before ADC clipping, and any

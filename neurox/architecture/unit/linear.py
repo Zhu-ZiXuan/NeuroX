@@ -1,6 +1,6 @@
 """LinearUnit operator interface.
 
-See also:
+See Also:
     docs/internals/architecture/unit/linear.md
 """
 
@@ -23,7 +23,7 @@ class LinearUnit(UnitBase, ABC):
 
         Args:
             weight: Integer weight values.
-                Shape: `[..., N, K]`.
+                Shape: `[N, K]`.
             bias: Per-channel integer bias added in the int64 accumulation
                 domain; `None` clears any programmed bias.
                 Shape: `[N]`.
@@ -50,7 +50,8 @@ class LinearUnit(UnitBase, ABC):
                 oracle.
 
         Returns:
-            Integer pre-requantize output tensor; leading dims mirror `input`.
+            Integer pre-requantize output tensor. Leading dimensions are
+            preserved, exactly as `torch.nn.functional.linear`.
             Shape: `[..., N]`.
         """
         y = self._lower_matmul(input, quantization_mode=quantization_mode, adc_bits=adc_bits)

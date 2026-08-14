@@ -1,6 +1,6 @@
 """Triple-margin current-mode successive-approximation ADC.
 
-See also:
+See Also:
     docs/reference/primitive/analog/current_adc/sar.md
     docs/internals/primitive/analog/current_adc/sar.md
 """

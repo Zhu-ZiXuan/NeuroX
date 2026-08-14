@@ -1,7 +1,6 @@
-"""Linearized 1T1R cell — table-driven per-state chord conductance and
-divider drop fraction, no devices.
+"""Linearized 1T1R cell — table-driven per-state chord conductance and divider drop fraction, no devices.
 
-See also:
+See Also:
     docs/reference/primitive/xbar/cell/1t1r_linear.md
     docs/internals/primitive/xbar/cell/1t1r_linear.md
 """
@@ -9,7 +8,6 @@ See also:
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
 
 import torch
 from torch import Tensor
@@ -69,7 +67,6 @@ class XbarCell1t1rLinearPolicy(XbarCell1t1rPolicy):
     """Empty nonideality policy for the deterministic linear cell."""
 
 
-@dataclass(frozen=True, kw_only=True)
 class XbarCell1t1rLinearSnap(XbarCell1t1rSnap):
     """Per-call snap of a linearized 1T1R cell's programmed state."""
 

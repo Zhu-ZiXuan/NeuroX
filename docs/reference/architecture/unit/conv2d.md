@@ -6,8 +6,11 @@ runtime convolution windows form the serial input-vector axis.
 
 ## Governing laws
 
-For input with trailing $[C_{\mathrm{in}}, H, W]$, kernel $(k_h, k_w)$,
-stride $(s_h, s_w)$, padding $(p_h, p_w)$, and dilation $(d_h, d_w)$,
+The input is $[B, C_{\mathrm{in}}, H, W]$ and the output is
+$[B, C_{\mathrm{out}}, H_{\mathrm{out}}, W_{\mathrm{out}}]$. A 3-D
+$[C_{\mathrm{in}}, H, W]$ input is read as $B=1$ and returns a 3-D output,
+exactly as `F.conv2d`. For kernel $(k_h, k_w)$, stride $(s_h, s_w)$, padding
+$(p_h, p_w)$, and dilation $(d_h, d_w)$,
 
 $$H_{\mathrm{out}} =
 \left\lfloor
@@ -34,14 +37,14 @@ vector. Entry $(c_i,i,j)$ reads
 $$X\left[c_i,\ h_os_h-p_h+i d_h,\ w_os_w-p_w+j d_w\right],$$
 
 with out-of-bounds positions replaced by zero. Flattening the window in the
-same $(C_{\mathrm{in}}, k_h, k_w)$ order gives one row of the $[M,K]$ input
-matrix.
+same $(C_{\mathrm{in}}, k_h, k_w)$ order gives one row of the $[B,M,K]$ input
+matrix, per batch element.
 
 **Execution and fold.**
 
 $$Y_{\mathrm{matrix}}=X_{\mathrm{windows}}W_{\mathrm{matrix}}^\mathsf{T}$$
 
-produces $[M,C_{\mathrm{out}}]$. The window axis is restored to
+produces $[B,M,C_{\mathrm{out}}]$. The window axis is restored to
 $[H_{\mathrm{out}},W_{\mathrm{out}}]$, the output-channel axis is moved to the
 front, and the integer bias is added once per output element.
 
@@ -60,6 +63,7 @@ substrate, per the [unit family contract](family.md#noise-non-idealities).
 
 | Symbol | Meaning | Unit | Code field |
 |---|---|---|---|
+| $B$ | batch size | — | runtime input axis |
 | $C_{\mathrm{in}}, C_{\mathrm{out}}$ | input / output channels | — | `w_logical_shape` |
 | $k_h, k_w$ | kernel extent | — | `w_logical_shape` |
 | $s_h, s_w$; $p_h, p_w$; $d_h, d_w$ | stride; padding; dilation | — | `stride`, `padding`, `dilation` |
@@ -72,6 +76,9 @@ substrate, per the [unit family contract](family.md#noise-non-idealities).
 
 - Operands are integers within the published value ranges; requantization lies
   outside the unit.
+- The input is $[B, C_{\mathrm{in}}, H, W]$, or its 3-D
+  $[C_{\mathrm{in}}, H, W]$ form read as $B=1$; no other rank is accepted, and
+  the output takes the rank of the input.
 - Non-zero padding requires the activation value range to contain zero.
 - Grouped convolution is out of scope.
 

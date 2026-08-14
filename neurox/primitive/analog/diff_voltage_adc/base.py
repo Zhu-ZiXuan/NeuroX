@@ -1,13 +1,12 @@
 """Abstract base class for differential voltage-domain ADC models.
 
-See also:
+See Also:
     docs/internals/primitive/analog/diff_voltage_adc/base.md
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Generic, TypeVar
 
 import torch
 from torch import Tensor
@@ -57,18 +56,13 @@ class DiffVadcPolicy(AnalogPolicy, ABC):
     """Abstract marker base for differential-voltage-ADC nonideality policies."""
 
 
-ConfigT = TypeVar("ConfigT", bound=DiffVadcConfig, covariant=True)
-PolicyT = TypeVar("PolicyT", bound=DiffVadcPolicy, covariant=True)
-
-
-class DiffVadc(
+class DiffVadc[ConfigT: DiffVadcConfig, PolicyT: DiffVadcPolicy](
     AnalogBase[ConfigT, PolicyT],
     RegistryMixin[
         "DiffVadcConfig",
         "DiffVadcPolicy",
         "DiffVadc[DiffVadcConfig, DiffVadcPolicy]",
     ],
-    Generic[ConfigT, PolicyT],
     ABC,
 ):
     """Base class for differential voltage-domain ADC implementations.

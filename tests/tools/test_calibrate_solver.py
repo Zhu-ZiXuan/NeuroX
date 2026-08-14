@@ -115,11 +115,11 @@ class TestResolveSolverTableLaw:
         assert base == _macro_dict()
 
     def test_missing_segment_raises(self) -> None:
-        with pytest.raises(ValueError, match="segment 'nope' not found"):
+        with pytest.raises(KeyError, match="segment 'nope' not found"):
             resolve_solver_table(_macro_dict(), "array_config.nope")
 
     def test_non_table_leaf_raises(self) -> None:
-        with pytest.raises(ValueError, match="not a table"):
+        with pytest.raises(TypeError, match="not a table"):
             resolve_solver_table(_macro_dict(), "array_config.leakage_per_inst__uW")
 
     def test_wrong_discriminator_raises(self) -> None:

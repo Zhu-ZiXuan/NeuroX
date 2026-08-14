@@ -108,16 +108,17 @@ def _convert_energy(adc: SarIadc, i_in: torch.Tensor, refs: torch.Tensor, adc_bi
 
 def test_config_rejects_bad_energy_knobs() -> None:
     """Negative rail / window entry and mis-sized window / latency lists are rejected."""
-    for bad in (
-        {"v_rail__V": -0.1},
-        {"t_conduct_per_step__ns": (0.1, -0.1, 0.1)},
-        {"t_conduct_per_step__ns": (0.1, 0.1)},  # shorter than bits (3)
-        {"step_latency__ns": (3.0, 3.0)},  # shorter than bits (3)
+    for bad, match in (
+        ({"v_rail__V": -0.1}, r"require: v_rail__V \(-0\.1\) >= 0"),
+        ({"t_conduct_per_step__ns": (0.1, -0.1, 0.1)}, r"require: t_conduct_per_step__ns \(-0\.1\) >= 0"),
+        # Shorter than bits (3).
+        ({"t_conduct_per_step__ns": (0.1, 0.1)}, r"require: len\(t_conduct_per_step__ns\) \(2\) >= bits \(3\)"),
+        ({"step_latency__ns": (3.0, 3.0)}, r"require: len\(step_latency__ns\) \(2\) == bits \(3\)"),
         # A step the search never runs still sums into the owner's sensing
         # duration, so the latency list carries no spare entry.
-        {"step_latency__ns": (3.0, 3.0, 3.0, 3.0)},  # longer than bits (3)
+        ({"step_latency__ns": (3.0, 3.0, 3.0, 3.0)}, r"require: len\(step_latency__ns\) \(4\) == bits \(3\)"),
     ):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=match):
             _config(**bad)
     # The conduction list is drawn per executed step, so a longer one is tolerated.
     assert _config(t_conduct_per_step__ns=(0.1, 0.1, 0.1, 0.1)).bits == 3
@@ -259,7 +260,7 @@ def test_reported_latency_sums_the_executed_step_windows(device: torch.device) -
     assert adc.latency__ns(bits=1) == pytest.approx(3.0)
     # No window outside the physical resolution.
     for bits in (0, 4):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"require: bits \(\d+\) in \[1, max_bits \(3\)\]"):
             adc.latency__ns(bits=bits)
 
 

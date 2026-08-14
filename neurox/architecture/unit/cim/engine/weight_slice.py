@@ -1,6 +1,6 @@
 """Weight-slice layout and inverse digital aggregation for CIM engines.
 
-See also:
+See Also:
     docs/reference/architecture/unit/cim/engine/weight_slice.md
     docs/internals/architecture/unit/cim/engine/weight_slice.md
 """
@@ -8,7 +8,7 @@ See also:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import ClassVar, Generic, TypeVar
+from typing import ClassVar
 
 import torch.nn.functional as F
 from torch import Tensor
@@ -32,18 +32,13 @@ class WeightSliceStagePolicy(PolicyBase, ABC):
     """Abstract policy root for weight-slice layouts."""
 
 
-ConfigT = TypeVar("ConfigT", bound=WeightSliceStageConfig, covariant=True)
-PolicyT = TypeVar("PolicyT", bound=WeightSliceStagePolicy, covariant=True)
-
-
-class WeightSliceStage(
+class WeightSliceStage[ConfigT: WeightSliceStageConfig, PolicyT: WeightSliceStagePolicy](
     ModuleBase[ConfigT, PolicyT],
     RegistryMixin[
         "WeightSliceStageConfig",
         "WeightSliceStagePolicy",
         "WeightSliceStage[WeightSliceStageConfig, WeightSliceStagePolicy]",
     ],
-    Generic[ConfigT, PolicyT],
     ABC,
 ):
     """Pair program-time weight slicing with output-side reconstruction."""
@@ -60,7 +55,6 @@ class WeightSliceStage(
         policy: PolicyT,
         macro_w_value_range: tuple[int, int],
         output_num: int,
-        w_parallel_size: int,
         macro_group_num: int,
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=())
@@ -76,7 +70,6 @@ class WeightSliceStage(
         policy: WeightSliceStagePolicy,
         macro_w_value_range: tuple[int, int],
         output_num: int,
-        w_parallel_size: int,
         macro_group_num: int,
     ) -> WeightSliceStage[WeightSliceStageConfig, WeightSliceStagePolicy]:
         """Build the weight-slice layout selected by config and policy types."""
@@ -86,7 +79,6 @@ class WeightSliceStage(
             policy=policy,
             macro_w_value_range=macro_w_value_range,
             output_num=output_num,
-            w_parallel_size=w_parallel_size,
             macro_group_num=macro_group_num,
         )
 
@@ -117,7 +109,7 @@ class WeightSliceStage(
 
         Returns:
             Weight codes in macro-facing order.
-            Shape: `[..., Sw, Tc, G, D, L, output_num]`.
+            Shape: `[Sw, Tc, G, D, L, output_num]`.
         """
         raise NotImplementedError
 
@@ -149,12 +141,11 @@ class DirectWeightSliceStage(WeightSliceStage[DirectWeightSliceStageConfig, Dire
         return DirectSlicer(value_range=macro_w_value_range)
 
     def arrange_weight(self, weight: Tensor) -> Tensor:
-        # Shape: [..., D, G, Q, Tc, L, Sw=1] -> [..., Sw=1, Tc, G, D, L, output_num]
-        b = weight.ndim - 6
-        return weight.permute([*range(b), b + 5, b + 3, b + 1, b, b + 4, b + 2])
+        # Shape: [D, G, Q, Tc, L, Sw=1] -> [Sw=1, Tc, G, D, L, output_num]
+        return weight.permute([5, 3, 1, 0, 4, 2])
 
     def aggregate(self, code: Tensor) -> Tensor:
-        # Shape: [..., Sa, Sw=1, G, output_num] -> [..., Sa, G, output_num]
+        # Shape: [..., D, M, Sx, Sw=1, G, output_num] -> [..., D, M, Sx, G, output_num]
         return code.squeeze(-3)
 
 
@@ -196,7 +187,6 @@ class InterWeightSliceStage(WeightSliceStage[InterWeightSliceStageConfig, InterW
         policy: InterWeightSliceStagePolicy,
         macro_w_value_range: tuple[int, int],
         output_num: int,
-        w_parallel_size: int,
         macro_group_num: int,
     ) -> None:
         super().__init__(
@@ -204,13 +194,12 @@ class InterWeightSliceStage(WeightSliceStage[InterWeightSliceStageConfig, InterW
             policy=policy,
             macro_w_value_range=macro_w_value_range,
             output_num=output_num,
-            w_parallel_size=w_parallel_size,
             macro_group_num=macro_group_num,
         )
         self.shift_adder = ShiftAdder(
             config=config.shift_adder_config,
             policy=DigitalPolicy(),
-            inst_shape=(w_parallel_size, macro_group_num),
+            inst_shape=(macro_group_num,),
             scale=self._slicer.slice_radix,
             digit_count=config.w_slice_num,
         )
@@ -223,12 +212,11 @@ class InterWeightSliceStage(WeightSliceStage[InterWeightSliceStageConfig, InterW
         )
 
     def arrange_weight(self, weight: Tensor) -> Tensor:
-        # Shape: [..., D, G, Q, Tc, L, Sw] -> [..., Sw, Tc, G, D, L, output_num]
-        b = weight.ndim - 6
-        return weight.permute([*range(b), b + 5, b + 3, b + 1, b, b + 4, b + 2])
+        # Shape: [D, G, Q, Tc, L, Sw] -> [Sw, Tc, G, D, L, output_num]
+        return weight.permute([5, 3, 1, 0, 4, 2])
 
     def aggregate(self, code: Tensor) -> Tensor:
-        # Shape: [..., Sa, Sw, G, output_num] -> [..., Sa, G, output_num]
+        # Shape: [..., D, M, Sx, Sw, G, output_num] -> [..., D, M, Sx, G, output_num]
         return self.shift_adder.shift_add(code, dim=-3, init_val=None)
 
 
@@ -272,7 +260,6 @@ class IntraWeightSliceStage(WeightSliceStage[IntraWeightSliceStageConfig, IntraW
         policy: IntraWeightSliceStagePolicy,
         macro_w_value_range: tuple[int, int],
         output_num: int,
-        w_parallel_size: int,
         macro_group_num: int,
     ) -> None:
         super().__init__(
@@ -280,7 +267,6 @@ class IntraWeightSliceStage(WeightSliceStage[IntraWeightSliceStageConfig, IntraW
             policy=policy,
             macro_w_value_range=macro_w_value_range,
             output_num=output_num,
-            w_parallel_size=w_parallel_size,
             macro_group_num=macro_group_num,
         )
         self._weights_per_macro = output_num // config.w_slice_num
@@ -288,7 +274,7 @@ class IntraWeightSliceStage(WeightSliceStage[IntraWeightSliceStageConfig, IntraW
         self.shift_adder = ShiftAdder(
             config=config.shift_adder_config,
             policy=DigitalPolicy(),
-            inst_shape=(w_parallel_size, macro_group_num),
+            inst_shape=(macro_group_num,),
             scale=self._slicer.slice_radix,
             digit_count=config.w_slice_num,
         )
@@ -306,22 +292,21 @@ class IntraWeightSliceStage(WeightSliceStage[IntraWeightSliceStageConfig, IntraW
         )
 
     def arrange_weight(self, weight: Tensor) -> Tensor:
-        # Shape: [..., D, G, Q, Tc, L, Sw] -> [..., Tc, G, D, L, Q, Sw]
-        b = weight.ndim - 6
-        arranged = weight.permute([*range(b), b + 3, b + 1, b, b + 4, b + 2, b + 5])
-        # Shape: [..., Tc, G, D, L, Q, Sw] -> [..., Tc, G, D, L, Q*Sw]
+        # Shape: [D, G, Q, Tc, L, Sw] -> [Tc, G, D, L, Q, Sw]
+        arranged = weight.permute([3, 1, 0, 4, 2, 5])
+        # Shape: [Tc, G, D, L, Q, Sw] -> [Tc, G, D, L, Q*Sw]
         arranged = arranged.flatten(start_dim=-2, end_dim=-1)
-        # Shape: [..., Tc, G, D, L, Q*Sw] -> [..., Tc, G, D, L, output_num]
+        # Shape: [Tc, G, D, L, Q*Sw] -> [Tc, G, D, L, output_num]
         arranged = F.pad(arranged, (0, self._output_num - arranged.shape[-1]))
-        # Shape: [..., Tc, G, D, L, output_num] -> [..., Sw=1, Tc, G, D, L, output_num]
-        return arranged.unsqueeze(b)
+        # Shape: [Tc, G, D, L, output_num] -> [Sw=1, Tc, G, D, L, output_num]
+        return arranged.unsqueeze(0)
 
     def aggregate(self, code: Tensor) -> Tensor:
-        # Shape: [..., Sa, Sw=1, G, output_num] -> [..., Sa, G, output_num]
+        # Shape: [..., D, M, Sx, Sw=1, G, output_num] -> [..., D, M, Sx, G, output_num]
         code = code.squeeze(-3)
-        # Shape: [..., Sa, G, output_num] -> [..., Sa, G, Q*Sw]
+        # Shape: [..., D, M, Sx, G, output_num] -> [..., D, M, Sx, G, Q*Sw]
         code = code[..., : self._used_output_num]
-        # Shape: [..., Sa, G, Q*Sw] -> [..., Sa, G, Q, Sw]
+        # Shape: [..., D, M, Sx, G, Q*Sw] -> [..., D, M, Sx, G, Q, Sw]
         code = code.unflatten(-1, (self._weights_per_macro, self.config.w_slice_num))
-        # Shape: [..., Sa, G, Q, Sw] -> [..., Sa, G, Q]
+        # Shape: [..., D, M, Sx, G, Q, Sw] -> [..., D, M, Sx, G, Q]
         return self.shift_adder.shift_add(code, dim=-1, init_val=None)

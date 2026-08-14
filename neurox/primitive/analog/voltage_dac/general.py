@@ -1,6 +1,6 @@
 """General-purpose LUT voltage DAC — concrete `Vdac` implementation.
 
-See also:
+See Also:
     docs/reference/primitive/analog/voltage_dac/general.md
     docs/internals/primitive/analog/voltage_dac/general.md
 """

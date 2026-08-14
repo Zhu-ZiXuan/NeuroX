@@ -149,16 +149,16 @@ def test_only_declared_modes_and_converting_bit_widths_are_accepted(device: torc
     x = torch.ones(TINY_INPUT_NUM, dtype=torch.long, device=device)
 
     mode_num = len(macro.quantization_input_ranges)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=rf"require: quantization_mode \({mode_num}\) in \[0, {mode_num}\)"):
         macro.vec_mat_mul(x, quantization_mode=mode_num, adc_bits=TINY_ADC_BITS)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r"require: quantization_mode \(-1\) in \[0, "):
         macro.vec_mat_mul(x, quantization_mode=-1, adc_bits=TINY_ADC_BITS)
     # The physical readout converts; it has no lossless oracle.
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="require: adc_bits is an int"):
         macro.vec_mat_mul(x, quantization_mode=QUANTIZATION_MODE, adc_bits=None)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r"require: adc_bits \(0\) in \[1, adc_max_bits"):
         macro.vec_mat_mul(x, quantization_mode=QUANTIZATION_MODE, adc_bits=0)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=rf"require: adc_bits \({TINY_ADC_BITS + 1}\) in \[1, adc_max_bits"):
         macro.vec_mat_mul(x, quantization_mode=QUANTIZATION_MODE, adc_bits=TINY_ADC_BITS + 1)
 
 
@@ -183,7 +183,7 @@ def test_rescale_factor_doubles_per_dropped_bit(device: torch.device) -> None:
         assert coarse == pytest.approx(2.0 * fine)
     # The witness ladder steps one MAC unit per code, so max bits is the identity.
     assert factors[-1] == pytest.approx(macro.config.modes[QUANTIZATION_MODE].max_bits_rescale_factor)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r"require: adc_bits \(\d+\) in \[1, adc_max_bits \(\d+\)\] or None"):
         macro.rescale_factor(quantization_mode=QUANTIZATION_MODE, adc_bits=TINY_ADC_BITS + 1)
 
 
@@ -246,7 +246,7 @@ def test_ph0_seat_is_required_and_non_negative() -> None:
     """`i_ph0_comp__uA` is a required physical field, rejected when negative."""
     config = build_config()
     assert "i_ph0_comp__uA" in {field.name for field in dataclasses.fields(config)}
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r"require: i_ph0_comp__uA \(-1\.0\) >= 0"):
         dataclasses.replace(config, i_ph0_comp__uA=-1.0)
 
 
@@ -337,7 +337,8 @@ def test_decode_monotone_in_mac(device: torch.device) -> None:
     assert codes == sorted(codes), f"not monotone: {codes}"
     assert codes[0] < codes[-1], f"no dynamic range: {codes}"
     # Mid-range input decodes to the MAC.
-    assert codes[1] == 1 and codes[3] == 8
+    assert codes[1] == 1
+    assert codes[3] == 8
 
 
 # ---------------------------------------------------------------------------

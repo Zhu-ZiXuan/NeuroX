@@ -1,16 +1,14 @@
 """Generic Thevenin voltage-source clamp-driver model.
 
-See also:
+See Also:
     docs/reference/primitive/analog/voltage_driver.md
     docs/internals/primitive/analog/voltage_driver.md
 """
 
-from dataclasses import dataclass
-
 import torch
 from torch import Tensor
 
-from neurox.common import TensorGroupMixin
+from neurox.common import TensorDataClassBase, TensorGroupMixin
 from neurox.primitive.nonideality import apply_gaussian
 
 from .base import AnalogBase, AnalogConfig, AnalogPolicy
@@ -57,8 +55,7 @@ class VoltageDriverPolicy(AnalogPolicy):
     """Apply the per-solve thermal noise `thermal_sigma__V`."""
 
 
-@dataclass(frozen=True)
-class VoltageDriverSnap(TensorGroupMixin):
+class VoltageDriverSnap(TensorDataClassBase, TensorGroupMixin):
     """One sampled clamp snap."""
 
     v_ref__V: Tensor

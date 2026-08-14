@@ -1,20 +1,19 @@
 """Continuous EKV-softplus MOSFET electrical primitive.
 
-See also:
+See Also:
     docs/reference/primitive/device/mosfet.md
     docs/internals/primitive/device/mosfet.md
 """
 
 import math
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from typing import ClassVar
 
 import torch
 import torch.nn.functional as F
 from torch import Tensor
 
-from neurox.common import ConfigBase, ModuleBase, PolicyBase, TensorGroupMixin
+from neurox.common import ConfigBase, ModuleBase, PolicyBase, TensorDataClassBase, TensorGroupMixin
 from neurox.primitive.nonideality import apply_gaussian
 from neurox.primitive.physics import thermal_voltage__V
 
@@ -75,8 +74,7 @@ class MosfetPolicy(PolicyBase):
     """Apply Pelgrom β mismatch at fabricate time."""
 
 
-@dataclass(frozen=True)
-class MosfetDcop:
+class MosfetDcop(TensorDataClassBase):
     """Caller-facing working-point result for one MOSFET evaluation."""
 
     ids__uA: Tensor
@@ -90,8 +88,7 @@ class MosfetDcop:
     """`∂I_ds/∂V_s`, non-positive for both polarities. Shape: `[...]`."""
 
 
-@dataclass(frozen=True)
-class MosfetSnap(TensorGroupMixin):
+class MosfetSnap(TensorDataClassBase, TensorGroupMixin):
     """Per-call MOSFET state snap."""
 
     beta__uA_per_V2: Tensor
@@ -146,9 +143,9 @@ class Mosfet(ModuleBase[MosfetConfig, MosfetPolicy], ABC):
         if not (L__um > 0.0):
             raise ValueError(f"require: L__um ({L__um}) > 0.0")
 
-        T_ratio = T__K / config.T_nom__K
-        mu_scale = math.pow(T_ratio, -config.ute)
-        vth_shift__V = config.kt1__V * (T_ratio - 1.0)
+        temperature_ratio = T__K / config.T_nom__K
+        mu_scale = math.pow(temperature_ratio, -config.ute)
+        vth_shift__V = config.kt1__V * (temperature_ratio - 1.0)
 
         # Smoothing scale used by softplus and sigmoid.
         self._inv_smooth_scale__per_V = 1.0 / (2.0 * config.n_factor * thermal_voltage__V(T__K))

@@ -63,7 +63,3 @@ Runtime is unchanged — the arithmetic is identical, only its argument plumbing
 
 - How far to de-objectify: stop at dataclass snaps, or flatten everything to plain tensors.
 - The remainder-chunk decision (accept an extra graph vs pad-to-full-chunk) is shared with scheme A and can be settled here.
-
-## See also
-
-- [scheme A](scheme_a_regional.md), [scheme C](scheme_c_custom_op.md), [contracts](contracts.md)

@@ -8,37 +8,43 @@ from __future__ import annotations
 
 import math
 from collections.abc import Iterator
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import torch
 from torch import Tensor
 
+from neurox.common import TensorDataClassBase
 from neurox.common.serialize import dict_from_file
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
 
 
-@dataclass(frozen=True)
-class Distribution:
+class AxisDistribution(TensorDataClassBase):
+    """One axis's sampling distribution.
+
+    Values and probabilities are one object because neither is meaningful
+    alone: a sample is drawn by indexing `values` with a `probs` draw.
+    """
+
+    values: Tensor
+    """Allowed values, int64.
+    Shape: `[value_num]`."""
+    probs: Tensor
+    """Normalized probabilities matching `values`, float64.
+    Shape: `[value_num]`."""
+
+
+class Distribution(TensorDataClassBase):
     """Parsed synthetic-workload distribution.
 
-    A `None`-valued field means uniform sampling over the xbar's legal integer
+    A `None`-valued axis means uniform sampling over the xbar's legal integer
     range on that axis.
     """
 
-    w_values: Tensor | None
-    """Allowed per-cell digit values, int64.
-    Shape: `[value_num]`."""
-    w_probs: Tensor | None
-    """Normalized probabilities matching `w_values`, float64.
-    Shape: `[value_num]`."""
-    x_values: Tensor | None
-    """Allowed per-row input codes, int64.
-    Shape: `[value_num]`."""
-    x_probs: Tensor | None
-    """Normalized probabilities matching `x_values`, float64.
-    Shape: `[value_num]`."""
+    w: AxisDistribution | None
+    """Distribution over the allowed per-cell digit values."""
+    x: AxisDistribution | None
+    """Distribution over the allowed per-row input codes."""
     source: str
     """Human-readable provenance — `uniform` or the TOML path."""
 
@@ -66,18 +72,14 @@ def load_distribution(path: Path | None, xbar: CimMacro[CimMacroConfig, CimMacro
         Validated distribution with internally normalized probabilities.
 
     Raises:
-        ValueError: An unknown top-level key, or a malformed section — length
-            mismatch, negative or all-zero probability, a value outside the
-            xbar's legal range.
+        TypeError: A section is not a table, or a `values` / `probs` entry is
+            not of the required scalar type.
+        ValueError: An unknown top-level key, or a malformed section — a
+            missing or empty list, length mismatch, negative or all-zero
+            probability, a value outside the xbar's legal range.
     """
     if path is None:
-        return Distribution(
-            w_values=None,
-            w_probs=None,
-            x_values=None,
-            x_probs=None,
-            source="uniform",
-        )
+        return Distribution(w=None, x=None, source="uniform")
 
     raw = dict_from_file(path)
     unknown = sorted(k for k in raw if k not in ("w", "x"))
@@ -85,13 +87,9 @@ def load_distribution(path: Path | None, xbar: CimMacro[CimMacroConfig, CimMacro
         raise ValueError(
             f"distribution TOML at {path}: unknown top-level key(s) {unknown}; only '[w]' and '[x]' are recognised"
         )
-    w_values, w_probs = _load_axis(raw, "w", xbar.w_value_range)
-    x_values, x_probs = _load_axis(raw, "x", xbar.x_value_range)
     return Distribution(
-        w_values=w_values,
-        w_probs=w_probs,
-        x_values=x_values,
-        x_probs=x_probs,
+        w=_load_axis(raw, "w", xbar.w_value_range),
+        x=_load_axis(raw, "x", xbar.x_value_range),
         source=str(path),
     )
 
@@ -100,29 +98,33 @@ def _load_axis(
     raw: dict[str, Any],
     key: str,
     legal_range: tuple[int, int],
-) -> tuple[Tensor | None, Tensor | None]:
-    """Parse one axis section into `(values_int64, normalized_probs_float64)`.
+) -> AxisDistribution | None:
+    """Parse one axis section into an `AxisDistribution`.
 
-    An absent section yields `(None, None)`.
+    An absent section yields `None`.
     """
     if key not in raw:
-        return None, None
+        return None
 
     section = raw[key]
     if not isinstance(section, dict):
-        raise ValueError(f"distribution [{key}]: expected a TOML table, got {type(section).__name__}")
+        raise TypeError(f"distribution [{key}]: expected a TOML table, got {type(section).__name__}")
     if "values" not in section or "probs" not in section:
         raise ValueError(f"distribution [{key}]: both 'values' and 'probs' are required")
 
     values_raw = section["values"]
     probs_raw = section["probs"]
 
-    if not isinstance(values_raw, list) or not all(isinstance(v, int) and not isinstance(v, bool) for v in values_raw):
-        raise ValueError(f"distribution [{key}].values: must be a list of integers")
-    if not isinstance(probs_raw, list) or not all(
-        isinstance(p, (int, float)) and not isinstance(p, bool) for p in probs_raw
-    ):
-        raise ValueError(f"distribution [{key}].probs: must be a list of numbers")
+    if not isinstance(values_raw, list):
+        raise TypeError(f"distribution [{key}].values: must be a list, got {type(values_raw).__name__}")
+    for i, v in enumerate(values_raw):
+        if isinstance(v, bool) or not isinstance(v, int):
+            raise TypeError(f"distribution [{key}].values: entry {i} must be an integer; got {v!r}")
+    if not isinstance(probs_raw, list):
+        raise TypeError(f"distribution [{key}].probs: must be a list, got {type(probs_raw).__name__}")
+    for i, p in enumerate(probs_raw):
+        if isinstance(p, bool) or not isinstance(p, (int, float)):
+            raise TypeError(f"distribution [{key}].probs: entry {i} must be a number; got {p!r}")
 
     if len(values_raw) == 0:
         raise ValueError(f"distribution [{key}].values: must be non-empty")
@@ -141,9 +143,10 @@ def _load_axis(
         if not (lo <= v <= hi):
             raise ValueError(f"distribution [{key}].values: value {v} outside xbar legal range [{lo}, {hi}]")
 
-    values = torch.tensor(values_raw, dtype=torch.int64)
-    probs_tensor = torch.tensor([p / total for p in probs], dtype=torch.float64)
-    return values, probs_tensor
+    return AxisDistribution(
+        values=torch.tensor(values_raw, dtype=torch.int64),
+        probs=torch.tensor([p / total for p in probs], dtype=torch.float64),
+    )
 
 
 def sample_w(
@@ -185,7 +188,7 @@ def sample_w(
     n_per = math.prod(shape_per)
     num_yields = n // batch_w
     for _ in range(num_yields):
-        if distribution.w_values is None:
+        if distribution.w is None:
             lo, hi = macro.w_value_range
             yield torch.randint(
                 lo,
@@ -196,9 +199,8 @@ def sample_w(
                 generator=generator,
             )
         else:
-            assert distribution.w_probs is not None  # paired with w_values via _load_axis
-            probs = distribution.w_probs.to(device)
-            values = distribution.w_values.to(device)
+            probs = distribution.w.probs.to(device)
+            values = distribution.w.values.to(device)
             idx = torch.multinomial(probs, num_samples=n_per, replacement=True, generator=generator)
             yield values[idx].view(shape_per).to(torch.int64)
 
@@ -230,7 +232,7 @@ def sample_x_batches(
     remaining = n_total
     while remaining > 0:
         cur = min(batch_size, remaining)
-        if distribution.x_values is None:
+        if distribution.x is None:
             lo, hi = macro.x_value_range
             x = torch.randint(
                 lo,
@@ -241,9 +243,8 @@ def sample_x_batches(
                 generator=generator,
             )
         else:
-            assert distribution.x_probs is not None  # paired with x_values via _load_axis
-            probs = distribution.x_probs.to(device)
-            values = distribution.x_values.to(device)
+            probs = distribution.x.probs.to(device)
+            values = distribution.x.values.to(device)
             idx = torch.multinomial(
                 probs,
                 num_samples=cur * input_num,

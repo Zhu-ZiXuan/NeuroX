@@ -136,7 +136,7 @@ class IdealConv2dUnit(Conv2dUnit, CimUnit[IdealConv2dUnitConfig, IdealConv2dUnit
 
         x = input
         if p_h > 0 or p_w > 0:
-            # Shape: [..., C_in, H, W] -> [..., C_in, Hp, Wp]
+            # Shape: [B, C_in, H, W] -> [B, C_in, Hp, Wp]
             x = F.pad(x, (p_w, p_w, p_h, p_h))
 
         device = x.device
@@ -147,19 +147,19 @@ class IdealConv2dUnit(Conv2dUnit, CimUnit[IdealConv2dUnitConfig, IdealConv2dUnit
             torch.arange(kw, device=device) * d_w
         ).view(1, 1, 1, kw)
 
-        # Shape: [..., C_in, Hp, Wp] -> [..., C_in, H_out, W_out, kh, kw]
+        # Shape: [B, C_in, Hp, Wp] -> [B, C_in, H_out, W_out, kh, kw]
         patches = x[..., rows, cols]
-        # Shape: [..., C_in, H_out, W_out, kh, kw] -> [..., H_out, W_out, C_in, kh, kw]
+        # Shape: [B, C_in, H_out, W_out, kh, kw] -> [B, H_out, W_out, C_in, kh, kw]
         patches = patches.movedim(-5, -3)
-        # Shape: [..., H_out, W_out, C_in, kh, kw] -> [..., L, C_in*kh*kw]
+        # Shape: [B, H_out, W_out, C_in, kh, kw] -> [B, L, C_in*kh*kw]
         return patches.flatten(-3).flatten(-3, -2)
 
     @torch.no_grad()
     def _matmul(self, planes: Tensor, *, quantization_mode: int, adc_bits: int | None) -> Tensor:
         del quantization_mode, adc_bits
-        # Shape: [..., L, C_in*kh*kw] @ [C_in*kh*kw, C_out] -> [..., L, C_out]
+        # Shape: [B, L, C_in*kh*kw] @ [C_in*kh*kw, C_out] -> [B, L, C_out]
         return planes.to(torch.int64) @ self._weight.transpose(-2, -1)
 
     def _conv2d_fold(self, output: Tensor, *, out_hw: tuple[int, int]) -> Tensor:
-        # Shape: [..., L, C_out] -> [..., C_out, H_out, W_out]
+        # Shape: [B, L, C_out] -> [B, C_out, H_out, W_out]
         return output.transpose(-2, -1).unflatten(-1, out_hw)

@@ -14,6 +14,8 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor
 
+from neurox.common import TensorDataClassBase
+
 # ---------------------------------------------------------------------------
 # Zero-through-origin rescale fit
 # ---------------------------------------------------------------------------
@@ -339,8 +341,7 @@ def cluster_values(
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True)
-class FitSampleFilter:
+class FitSampleFilter(TensorDataClassBase):
     """Keep mask + per-cause drop counts for one mode's calibration pairs.
 
     `sample_num` is the flattened input pairs' common element count.

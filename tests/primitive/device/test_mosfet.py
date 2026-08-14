@@ -184,17 +184,17 @@ def test_abstract_base_cannot_instantiate() -> None:
 
 
 def test_config_rejects_nonpositive_mobility() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r"require: mu0__cm2_per_V_s \(0\.0\) > 0"):
         _config(mu0__cm2_per_V_s=0.0)
 
 
 def test_config_rejects_nonpositive_oxide_cap() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r"require: c_ox__fF_per_um2 \(0\.0\) > 0"):
         _config(c_ox__fF_per_um2=0.0)
 
 
 def test_config_rejects_subunity_n_factor() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r"require: n_factor \(1\.0\) > 1\.0"):
         _config(n_factor=1.0)
 
 

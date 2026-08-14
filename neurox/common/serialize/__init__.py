@@ -1,5 +1,4 @@
 from .build import (
-    T,
     dataclass_from_dict,
     dataclass_to_dict,
 )
@@ -16,7 +15,6 @@ from .file import (
 from .value import ConfigDict, ConfigScalar, ConfigValue
 
 __all__ = [
-    "T",
     "ConfigDict",
     "ConfigScalar",
     "ConfigValue",

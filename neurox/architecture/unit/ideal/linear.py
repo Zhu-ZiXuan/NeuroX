@@ -29,7 +29,7 @@ class IdealLinearUnit(LinearUnit, CimUnit[IdealLinearUnitConfig, IdealLinearUnit
     Args:
         config: Configuration selecting the concrete implementation.
         policy: Runtime policy.
-        w_logical_shape: Logical weight shape `(..., N, K)` bound to `program(...)`.
+        w_logical_shape: Logical weight shape `(N, K)` bound to `program(...)`.
         dtype: Requested tensor dtype; it does not affect exact integer execution.
         T__K: Operating temperature.
         ideal_macro: Accepted without changing this already ideal unit.
@@ -37,7 +37,7 @@ class IdealLinearUnit(LinearUnit, CimUnit[IdealLinearUnitConfig, IdealLinearUnit
 
     # === Programmed state ===
 
-    _weight: Tensor  # Shape: [..., N, K]
+    _weight: Tensor  # Shape: [N, K]
 
     def __init__(
         self,
@@ -57,6 +57,8 @@ class IdealLinearUnit(LinearUnit, CimUnit[IdealLinearUnitConfig, IdealLinearUnit
             T__K=T__K,
             ideal_macro=ideal_macro,
         )
+        if len(self._w_logical_shape) != 2:
+            raise ValueError(f"w_logical_shape must be (N, K); got {w_logical_shape}")
 
         # CUDA lacks integer matmul. This bound identifies contractions that
         # IEEE fp32 evaluates exactly while TF32 remains disabled.
@@ -110,8 +112,8 @@ class IdealLinearUnit(LinearUnit, CimUnit[IdealLinearUnitConfig, IdealLinearUnit
         del quantization_mode, adc_bits
         weight = self._weight
         if self._fp32_exact:
-            # Shape: [..., M, K] @ [..., K, N] -> [..., M, N]
+            # Shape: [..., M, K] @ [K, N] -> [..., M, N]
             out = torch.matmul(input.to(torch.float32), weight.to(torch.float32).transpose(-2, -1))
             return out.to(torch.int64)
-        # Shape: [..., M, K] @ [..., K, N] -> [..., M, N]
+        # Shape: [..., M, K] @ [K, N] -> [..., M, N]
         return torch.matmul(input.to(torch.int64), weight.to(torch.int64).transpose(-2, -1))

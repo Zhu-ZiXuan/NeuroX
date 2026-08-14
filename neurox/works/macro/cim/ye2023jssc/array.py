@@ -6,14 +6,11 @@ rows of which one is driven per solve. Everything below the lookup — the divid
 solve, the wire ladders, the capacitive billing — is the kernel array's; this
 extension adds the transpose-bitline (TBL) current alone.
 
-See also:
+See Also:
     docs/works/macro/cim/ye2023jssc/model.md
 """
 
 from __future__ import annotations
-
-from dataclasses import dataclass
-from typing import TypeVar
 
 import torch
 from torch import Tensor
@@ -31,9 +28,6 @@ from neurox.primitive.xbar.solver import ClampDriver, ClampSnap, SolverDcop
 
 # Import triggers the cell's registry registration so `from_config` dispatches.
 from .cell import Ye2023Jssc2t1rCell, Ye2023Jssc2t1rCellConfig, Ye2023Jssc2t1rCellSnap
-
-BLSnapT = TypeVar("BLSnapT", bound=ClampSnap)
-SLSnapT = TypeVar("SLSnapT", bound=ClampSnap)
 
 
 class Ye2023Jssc2t1rArrayConfig(XbarArray1t1rConfig):
@@ -54,10 +48,14 @@ class Ye2023Jssc2t1rArrayConfig(XbarArray1t1rConfig):
         if len(self.weight_radix) == 0:
             raise ValueError("require: weight_radix must be non-empty")
         for plane, m in enumerate(self.weight_radix):
-            if not (isinstance(m, int) and m > 0):
+            if not isinstance(m, int):
+                raise TypeError(f"weight_radix entry at plane {plane} must be an int; got {type(m).__name__}")
+            if m <= 0:
                 raise ValueError(f"require: every weight_radix entry a positive int; got {m} at plane {plane}")
         for plane, m in enumerate(self.redundant_radix):
-            if not (isinstance(m, int) and m > 0):
+            if not isinstance(m, int):
+                raise TypeError(f"redundant_radix entry at plane {plane} must be an int; got {type(m).__name__}")
+            if m <= 0:
                 raise ValueError(f"require: every redundant_radix entry a positive int; got {m} at plane {plane}")
 
         self._require_pos(self.v_bl_in1__V, "v_bl_in1__V")
@@ -67,7 +65,6 @@ class Ye2023Jssc2t1rArrayPolicy(XbarArray1t1rPolicy):
     """Nonideality policy for the WH-2T1R dedicated array; the scheme adds no fields."""
 
 
-@dataclass(frozen=True)
 class Ye2023Jssc2t1rSteadyState(XbarArray1t1rSteadyState):
     """Kernel steady state plus the summed T2 compute current."""
 
@@ -77,7 +74,6 @@ class Ye2023Jssc2t1rSteadyState(XbarArray1t1rSteadyState):
     """
 
 
-@dataclass(frozen=True)
 class Ye2023Jssc2t1rChunkMeasure(XbarArray1t1rChunkMeasure):
     """Kernel chunk measurement plus the chunk's lookup sum."""
 
@@ -164,7 +160,7 @@ class Ye2023Jssc2t1rArray(XbarArray1t1r):
             persistent=False,
         )
 
-    def solve_array(
+    def solve_array[BLSnapT: ClampSnap, SLSnapT: ClampSnap](
         self,
         v_wl: Tensor,
         *,

@@ -1,6 +1,6 @@
 """Conv2dUnit operator interface.
 
-See also:
+See Also:
     docs/reference/architecture/unit/conv2d.md
     docs/internals/architecture/unit/conv2d.md
 """
@@ -45,7 +45,7 @@ class Conv2dUnit(UnitBase, ABC):
 
         Returns:
             Integer convolution output planes.
-            Shape: `[..., C_out, H_out, W_out]`.
+            Shape: `[B, C_out, H_out, W_out]`.
         """
         raise NotImplementedError
 
@@ -53,31 +53,41 @@ class Conv2dUnit(UnitBase, ABC):
     def conv2d(self, input: Tensor, *, quantization_mode: int, adc_bits: int | None) -> Tensor:
         """Execute one integer 2-D convolution against the programmed state.
 
+        A 3-D `[C_in, H, W]` input is treated as `B = 1` and returns a 3-D
+        output, exactly as `torch.nn.functional.conv2d`.
+
         Args:
             input: Integer activation values.
-                Shape: `[..., C_in, H, W]`.
+                Shape: `[B, C_in, H, W]`.
             quantization_mode: Index selecting the runtime quantization window.
             adc_bits: Runtime ADC resolution, or `None` for the lossless
                 oracle.
 
         Returns:
-            Integer pre-requantize output tensor; leading dims mirror `input`.
-            Shape: `[..., C_out, H_out, W_out]`.
+            Integer pre-requantize output tensor.
+            Shape: `[B, C_out, H_out, W_out]`.
 
         Raises:
-            ValueError: `input` has no trailing `[C_in, H, W]` triple, or the
-                configured geometry yields an empty output map.
+            ValueError: `input` is neither `[B, C_in, H, W]` nor its unbatched
+                `[C_in, H, W]` form, or the configured geometry yields an empty
+                output map.
         """
-        if input.ndim < 3:
-            raise ValueError(f"conv2d() expects input with trailing [C_in, H, W]; got ndim {input.ndim}")
-        out_hw = self._conv2d_out_hw(input.shape[-2], input.shape[-1])
-        planes = self._conv2d_planes(input, out_hw=out_hw)
+        if input.ndim not in (3, 4):
+            raise ValueError(f"conv2d() expects input [C_in, H, W] or [B, C_in, H, W]; got ndim {input.ndim}")
+        unbatched = input.ndim == 3
+        # Shape: [C_in, H, W] -> [1, C_in, H, W]
+        x = input.unsqueeze(0) if unbatched else input
+        out_hw = self._conv2d_out_hw(x.shape[-2], x.shape[-1])
+        planes = self._conv2d_planes(x, out_hw=out_hw)
         y = self._matmul(planes, quantization_mode=quantization_mode, adc_bits=adc_bits)
         y = self._conv2d_fold(y, out_hw=out_hw)
         int_bias = self._int_bias
         if int_bias is not None:
             # Shape: [C_out] -> [C_out, 1, 1]
             y = y + int_bias.view(-1, 1, 1)
+        if unbatched:
+            # Shape: [1, C_out, H_out, W_out] -> [C_out, H_out, W_out]
+            y = y.squeeze(0)
         return y
 
     def _conv2d_out_hw(self, h: int, w: int) -> tuple[int, int]:

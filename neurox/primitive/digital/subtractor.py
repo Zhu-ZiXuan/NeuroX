@@ -1,6 +1,6 @@
 """Element-wise integer subtractor.
 
-See also:
+See Also:
     docs/reference/primitive/digital/subtractor.md
     docs/internals/primitive/digital/subtractor.md
 """

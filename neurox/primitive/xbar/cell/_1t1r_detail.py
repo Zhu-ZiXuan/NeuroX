@@ -1,13 +1,11 @@
 """Detailed 1T1R cell — nonlinear device models condensed by a per-cell Newton.
 
-See also:
+See Also:
     docs/reference/primitive/xbar/cell/1t1r_detail.md
     docs/internals/primitive/xbar/cell/1t1r_detail.md
 """
 
 from __future__ import annotations
-
-from dataclasses import dataclass
 
 import torch
 from torch import Tensor
@@ -73,7 +71,8 @@ class XbarCell1t1rDetailConfig(XbarCell1t1rConfig):
         self._require_pos(self.access_nmos_L__um, "access_nmos_L__um")
         if not (self.rram_g_max__uS > self.rram_config.g_min__uS):
             raise ValueError(
-                f"require: rram_g_max__uS ({self.rram_g_max__uS}) > rram_config.g_min__uS ({self.rram_config.g_min__uS})"
+                f"require: rram_g_max__uS ({self.rram_g_max__uS}) > "
+                f"rram_config.g_min__uS ({self.rram_config.g_min__uS})"
             )
 
         # --- State map ---
@@ -103,7 +102,6 @@ class XbarCell1t1rDetailPolicy(XbarCell1t1rPolicy):
     nmos_policy: MosfetPolicy
 
 
-@dataclass(frozen=True, kw_only=True)
 class XbarCell1t1rDetailSnap(XbarCell1t1rSnap):
     """Per-call snap of a detailed 1T1R cell's fabricated state."""
 

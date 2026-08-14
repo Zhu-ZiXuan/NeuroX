@@ -57,8 +57,9 @@ code_spread_range = [1.3, 1.8]
 # index-wise with [data].p_zero_input = [0.875, 0.50]. The per-pin split follows
 # from [reference.shares]; the array pin is share * total = 5.178 / 56.150 uW.
 total_macro__uW = [31.96, 82.94]
-# [derived] Energy per output (per row read) = total power * T_AC (66 ns).
-per_access__pJ = [2.11, 5.47]
+# [derived] Energy per output (per row read) = total power * T_AC (66 ns):
+# 2.11 pJ (= 2110 fJ) and 5.47 pJ (= 5470 fJ).
+per_access__fJ = [2110.0, 5470.0]
 # [measured p6 Table II] Headline MAC energy efficiency and per-MAC energy.
 ef_tops_w = 30.34
 e_mac__fJ = 65.9

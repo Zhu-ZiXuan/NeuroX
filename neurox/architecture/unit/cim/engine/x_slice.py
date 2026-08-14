@@ -1,6 +1,6 @@
 """Input-slice serialization and inverse digital aggregation for CIM engines.
 
-See also:
+See Also:
     docs/reference/architecture/unit/cim/engine/x_slice.md
     docs/internals/architecture/unit/cim/engine/x_slice.md
 """
@@ -8,7 +8,7 @@ See also:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import ClassVar, Generic, TypeVar
+from typing import ClassVar
 
 from torch import Tensor
 
@@ -25,22 +25,17 @@ class XSliceStagePolicy(PolicyBase, ABC):
     """Abstract policy root for input-slice serialization."""
 
 
-ConfigT = TypeVar("ConfigT", bound=XSliceStageConfig, covariant=True)
-PolicyT = TypeVar("PolicyT", bound=XSliceStagePolicy, covariant=True)
-
-
-class XSliceStage(
+class XSliceStage[ConfigT: XSliceStageConfig, PolicyT: XSliceStagePolicy](
     ModuleBase[ConfigT, PolicyT],
     RegistryMixin["XSliceStageConfig", "XSliceStagePolicy", "XSliceStage[XSliceStageConfig, XSliceStagePolicy]"],
-    Generic[ConfigT, PolicyT],
     ABC,
 ):
-    """Pair input slicing with Sa-axis digital reconstruction."""
+    """Pair input slicing with Sx-axis digital reconstruction."""
 
     is_profile_target: ClassVar[bool] = False
 
     shift_adder: ShiftAdder | None
-    """Sa-axis reconstruction block; `None` where the single structural cycle already is the result."""
+    """Sx-axis reconstruction block; `None` where the single structural cycle already is the result."""
 
     def __init__(
         self,
@@ -48,7 +43,6 @@ class XSliceStage(
         config: ConfigT,
         policy: PolicyT,
         macro_x_value_range: tuple[int, int],
-        w_parallel_size: int,
         macro_group_num: int,
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=())
@@ -62,7 +56,6 @@ class XSliceStage(
         config: XSliceStageConfig,
         policy: XSliceStagePolicy,
         macro_x_value_range: tuple[int, int],
-        w_parallel_size: int,
         macro_group_num: int,
     ) -> XSliceStage[XSliceStageConfig, XSliceStagePolicy]:
         """Build the input-slice stage selected by config and policy types."""
@@ -71,7 +64,6 @@ class XSliceStage(
             config=config,
             policy=policy,
             macro_x_value_range=macro_x_value_range,
-            w_parallel_size=w_parallel_size,
             macro_group_num=macro_group_num,
         )
 
@@ -90,16 +82,16 @@ class XSliceStage(
     @property
     @abstractmethod
     def slice_num(self) -> int:
-        """Successive input cycles one logical input is serialized into — the Sa axis."""
+        """Successive input cycles one logical input is serialized into — the Sx axis."""
         raise NotImplementedError
 
     def slice(self, x: Tensor) -> Tensor:
-        """Append the Sa axis to a logical input tensor."""
+        """Append the Sx axis to a logical input tensor."""
         return self._slicer.slice(x)
 
     @abstractmethod
     def aggregate(self, code: Tensor) -> Tensor:
-        """Reconstruct the logical input precision represented by Sa."""
+        """Reconstruct the logical input precision represented by Sx."""
         raise NotImplementedError
 
 
@@ -116,7 +108,7 @@ class DirectXSliceStagePolicy(XSliceStagePolicy):
     policy_type=DirectXSliceStagePolicy,
 )
 class DirectXSliceStage(XSliceStage[DirectXSliceStageConfig, DirectXSliceStagePolicy]):
-    """Identity input serialization with one structural Sa step."""
+    """Identity input serialization with one structural Sx step."""
 
     def _build_slicer(self, macro_x_value_range: tuple[int, int]) -> Slicer:
         return DirectSlicer(value_range=macro_x_value_range)
@@ -126,7 +118,7 @@ class DirectXSliceStage(XSliceStage[DirectXSliceStageConfig, DirectXSliceStagePo
         return 1
 
     def aggregate(self, code: Tensor) -> Tensor:
-        # Shape: [..., M, Sa=1, G, Q] -> [..., M, G, Q]
+        # Shape: [..., D, M, Sx=1, G, Q] -> [..., D, M, G, Q]
         return code.squeeze(-3)
 
 
@@ -134,9 +126,9 @@ class SerialXSliceStageConfig(XSliceStageConfig):
     """Configuration for `SerialXSliceStage`."""
 
     x_slice_num: int
-    """Serial cycles one logical input is split into — the Sa axis."""
+    """Serial cycles one logical input is split into — the Sx axis."""
     shift_adder_config: ShiftAdderConfig
-    """Shift-adder recombining the Sa axis."""
+    """Shift-adder recombining the Sx axis."""
 
     def validate(self) -> None:
         self._require_pos(self.x_slice_num, "x_slice_num")
@@ -154,7 +146,7 @@ class SerialXSliceStage(XSliceStage[SerialXSliceStageConfig, SerialXSliceStagePo
     """Serialize logical inputs into radix-weighted Macro input cycles."""
 
     shift_adder: ShiftAdder
-    """Sa-axis reconstruction block, always present in this layout."""
+    """Sx-axis reconstruction block, always present in this layout."""
 
     def __init__(
         self,
@@ -162,20 +154,18 @@ class SerialXSliceStage(XSliceStage[SerialXSliceStageConfig, SerialXSliceStagePo
         config: SerialXSliceStageConfig,
         policy: SerialXSliceStagePolicy,
         macro_x_value_range: tuple[int, int],
-        w_parallel_size: int,
         macro_group_num: int,
     ) -> None:
         super().__init__(
             config=config,
             policy=policy,
             macro_x_value_range=macro_x_value_range,
-            w_parallel_size=w_parallel_size,
             macro_group_num=macro_group_num,
         )
         self.shift_adder = ShiftAdder(
             config=config.shift_adder_config,
             policy=DigitalPolicy(),
-            inst_shape=(w_parallel_size, macro_group_num),
+            inst_shape=(macro_group_num,),
             scale=self._slicer.slice_radix,
             digit_count=config.x_slice_num,
         )
@@ -192,5 +182,5 @@ class SerialXSliceStage(XSliceStage[SerialXSliceStageConfig, SerialXSliceStagePo
         )
 
     def aggregate(self, code: Tensor) -> Tensor:
-        # Shape: [..., M, Sa, G, Q] -> [..., M, G, Q]
+        # Shape: [..., D, M, Sx, G, Q] -> [..., D, M, G, Q]
         return self.shift_adder.shift_add(code, dim=-3, init_val=None)

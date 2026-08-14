@@ -35,11 +35,11 @@ def _make(*, area: float = 4.0, leakage: float = 0.5, inst_shape: tuple[int, ...
 
 def test_validation_rejects_negative_ppa() -> None:
     """Negative area or leakage is rejected; zero is allowed."""
-    for override in (
-        {"area_per_inst__um2": -1e-3},
-        {"leakage_per_inst__uW": -1e-3},
+    for override, match in (
+        ({"area_per_inst__um2": -1e-3}, r"require: area_per_inst__um2 \(-0\.001\) >= 0"),
+        ({"leakage_per_inst__uW": -1e-3}, r"require: leakage_per_inst__uW \(-0\.001\) >= 0"),
     ):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=match):
             _config(**override)
     _config(area_per_inst__um2=0.0, leakage_per_inst__uW=0.0)
 

@@ -19,7 +19,7 @@ readout modules, delivers both boundary clamps at the port state the array solve
 returns, and bills the whole input branch plus the control per-op constant on its
 own two channels.
 
-See also:
+See Also:
     docs/works/macro/cim/xue2020jssc/model.md
 """
 

@@ -153,12 +153,12 @@ def main() -> None:
             if teacher is not None:
                 with torch.no_grad():
                     teacher_logits = teacher(images)
-                T = args.kd_temperature
+                temperature = args.kd_temperature
                 kd = F.kl_div(
-                    F.log_softmax(output / T, dim=-1),
-                    F.softmax(teacher_logits / T, dim=-1),
+                    F.log_softmax(output / temperature, dim=-1),
+                    F.softmax(teacher_logits / temperature, dim=-1),
                     reduction="batchmean",
-                ) * (T * T)
+                ) * (temperature * temperature)
                 loss = args.kd_alpha * ce + (1.0 - args.kd_alpha) * kd
             else:
                 loss = ce

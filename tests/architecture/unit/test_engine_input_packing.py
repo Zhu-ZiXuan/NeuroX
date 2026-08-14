@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 import torch
 
-from neurox import Profiler, stamp_names
+from neurox import Profiler
 from neurox.architecture.unit.cim.engine import (
     CimEngine,
     CimEngineConfig,
@@ -296,7 +296,6 @@ def test_inter_plane_contraction_accumulator_tracks_physical_weight_planes() -> 
     engine = _build_inter(w_logical_shape=(17, 19), input_num=8, max_active_num=3)
     plan = engine.placement.plan
     assert engine.placement.contraction_accumulator.inst_shape == (
-        1,
         2,
         plan.block_group_num,
     )
@@ -371,7 +370,10 @@ def test_degenerate_input_phase_axis_size_one() -> None:
 
 @pytest.mark.parametrize("build", [_build_direct, _build_inter, _build_intra])
 def test_input_phase_count_skips_padding_only_blocks(build: Callable[..., CimEngine]) -> None:
-    """K < input_num omits phases holding only tile padding: input_num=8, max_active_num=2, K=3 gives two, not ceil(8/2)=4."""
+    """K < input_num omits phases holding only tile padding.
+
+    input_num=8, max_active_num=2, K=3 gives two, not ceil(8/2)=4.
+    """
     torch.manual_seed(3)
     n, k, m = 4, 3, 3  # k < input_num: one short block leaves input positions unused
     engine = build(w_logical_shape=(n, k), input_num=8, max_active_num=2)
@@ -402,21 +404,6 @@ def test_engine_matmul_parity_non_divisible(build: Callable[..., CimEngine]) -> 
     assert engine.input_activation._input_phase_num == 4
     weight = _randint_in_range(engine.w_value_range, (n, k))
     activation = _randint_in_range(engine.x_value_range, (m, k))
-    _assert_engine_matches_torch(engine, weight, activation)
-
-
-@pytest.mark.parametrize("build", [_build_direct, _build_inter, _build_intra])
-@pytest.mark.parametrize("activation_batch", [(), (3, 1)])
-def test_engine_weight_batch_parity(
-    build: Callable[..., CimEngine],
-    activation_batch: tuple[int, ...],
-) -> None:
-    """Weight batches preserve block packing and right-aligned broadcasting."""
-    torch.manual_seed(11)
-    b, n, k, m = 2, 40, 3, 3
-    engine = build(w_logical_shape=(b, n, k), input_num=8, max_active_num=2)
-    weight = _randint_in_range(engine.w_value_range, (b, n, k))
-    activation = _randint_in_range(engine.x_value_range, (*activation_batch, m, k))
     _assert_engine_matches_torch(engine, weight, activation)
 
 
@@ -502,11 +489,9 @@ def test_large_balanced_case_uses_seventeen_plus_sixteen() -> None:
     assert engine.cim_macro.inst_shape == (1, 1, 1, 1, 2)
 
 
-# --- Weight batch versus leading-resolved profiling ---
+# --- Caller prefix under leading-resolved profiling ---
 
-_WEIGHT_BATCH_SHAPE = (2, 40, 3)  # (w_batch, N, K)
-_ACTIVATION_BATCH = (3, 1)  # a caller batch of 3 plus the size-1 weight-batch slot
-_CALLER_BATCH = _ACTIVATION_BATCH[:1]  # the prefix that stays left of D and P
+_ACTIVATION_BATCH = (3, 1)  # a two-axis caller prefix
 _M = 3
 
 
@@ -515,73 +500,7 @@ def _phased(engine: CimEngine, activation: torch.Tensor) -> torch.Tensor:
     return engine.input_activation.unroll_input_phases(engine._organize_x(activation))
 
 
-def _batched_engine_and_activation() -> tuple[CimEngine, torch.Tensor]:
-    """Build a weight-batched engine and a caller-batched activation for it."""
-    torch.manual_seed(11)
-    engine = _build_direct(w_logical_shape=_WEIGHT_BATCH_SHAPE, input_num=8, max_active_num=2)
-    engine.program(_randint_in_range(engine.w_value_range, _WEIGHT_BATCH_SHAPE))
-    activation = _randint_in_range(engine.x_value_range, (*_ACTIVATION_BATCH, _M, _WEIGHT_BATCH_SHAPE[-1]))
-    return engine, activation
-
-
-def test_weight_batch_without_profiler_keeps_split_leading_layout() -> None:
-    """Outside a profiler a weight batch still runs, D and P splitting the caller dims."""
-    engine, activation = _batched_engine_and_activation()
-    routed = engine.placement.unroll_block_steps(_phased(engine, activation))
-    d = engine.placement.plan.block_slot_num
-    p = engine.input_activation._input_phase_num
-    # The caller prefix (3, 1) is split by the inserted pair.
-    # Shape: [3, D, P, 1, ...]
-    assert routed.shape[:4] == (_ACTIVATION_BATCH[0], d, p, _ACTIVATION_BATCH[1])
-
-
-def test_weight_batch_leaves_the_declared_caller_axis_leftmost() -> None:
-    """At `leading_rank=1` the leftmost dim of `[3, D, P, w_batch=1, ...]` is the caller axis."""
-    engine, activation = _batched_engine_and_activation()
-    with Profiler(leading_rank=len(_CALLER_BATCH)):
-        routed = engine.placement.unroll_block_steps(_phased(engine, activation))
-    d = engine.placement.plan.block_slot_num
-    p = engine.input_activation._input_phase_num
-    assert routed.shape[:4] == (_CALLER_BATCH[0], d, p, _ACTIVATION_BATCH[1])
-
-
-def test_weight_batch_energy_is_billed_against_the_caller_axis() -> None:
-    """Under `leading_rank=1` billed element `i` carries exactly the work of running caller `i` on its own."""
-    engine, activation = _batched_engine_and_activation()
-    stamp_names(engine)
-    stage = engine.placement
-    # PlacementStage is not itself a profile target, so the stage's own
-    # accumulator stands in as the emitting host for the routed tensor.
-    emitter = stage.contraction_accumulator
-    with Profiler(leading_rank=len(_CALLER_BATCH)) as profiler:
-        routed = stage.unroll_block_steps(_phased(engine, activation))
-        emitter._record_dynamic_energy(routed.to(torch.float64))
-    (record,) = profiler.records
-    billed = record.dynamic_energy__fJ
-    assert billed.shape == _CALLER_BATCH
-
-    alone = torch.stack(
-        [
-            stage.unroll_block_steps(_phased(engine, activation[i : i + 1])).to(torch.float64).sum()
-            for i in range(_CALLER_BATCH[0])
-        ]
-    )
-    assert torch.equal(billed, alone)
-    # Not a degenerate comparison: the caller elements do measurably different work.
-    assert len(set(alone.tolist())) == _CALLER_BATCH[0]
-
-
-def test_weight_batch_runs_under_a_rank_zero_profiler() -> None:
-    """A profiler with no caller leading dims imposes no layout: everything is summed."""
-    engine, activation = _batched_engine_and_activation()
-    stamp_names(engine)
-    with Profiler() as profiler:
-        actual = engine.matmul(activation, quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
-    assert actual.shape == (*_ACTIVATION_BATCH[:-1], _WEIGHT_BATCH_SHAPE[0], _M, _WEIGHT_BATCH_SHAPE[1])
-    assert profiler.leading_rank == 0
-
-
-def test_unbatched_weight_keeps_the_whole_caller_prefix_leftmost() -> None:
+def test_caller_prefix_stays_leftmost() -> None:
     torch.manual_seed(11)
     n, k = 40, 3
     engine = _build_direct(w_logical_shape=(n, k), input_num=8, max_active_num=2)

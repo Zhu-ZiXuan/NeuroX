@@ -143,28 +143,40 @@ def test_simple_slicer_unsigned_macro_range(device: torch.device) -> None:
 
 
 @pytest.mark.parametrize(
-    "kwargs",
+    ("kwargs", "match"),
     [
-        {"slice_num": 0, "slice_value_range": (-3, 3), "encoding": Encoding.TRUE_FORM},
-        {"slice_num": 1, "slice_value_range": (0, 0), "encoding": Encoding.TRUE_FORM},
-        {"slice_num": 1, "slice_value_range": (-2, 3), "encoding": Encoding.TRUE_FORM},
-        {"slice_num": 1, "slice_value_range": (0, 3), "encoding": Encoding.COMPLEMENT},
+        (
+            {"slice_num": 0, "slice_value_range": (-3, 3), "encoding": Encoding.TRUE_FORM},
+            r"require: slice_num \(0\) >= 1",
+        ),
+        (
+            {"slice_num": 1, "slice_value_range": (0, 0), "encoding": Encoding.TRUE_FORM},
+            r"require: slice_value_range upper bound \(0\) >= 1",
+        ),
+        (
+            {"slice_num": 1, "slice_value_range": (-2, 3), "encoding": Encoding.TRUE_FORM},
+            r"cannot represent slice_value_range \(-2, 3\)",
+        ),
+        (
+            {"slice_num": 1, "slice_value_range": (0, 3), "encoding": Encoding.COMPLEMENT},
+            "an unsigned slice_value_range requires true-form encoding",
+        ),
     ],
 )
-def test_simple_slicer_rejects_invalid_geometry(kwargs: dict[str, Any]) -> None:
-    with pytest.raises(ValueError):
+def test_simple_slicer_rejects_invalid_geometry(kwargs: dict[str, Any], match: str) -> None:
+    with pytest.raises(ValueError, match=match):
         SimpleSlicer(**kwargs)
 
 
 @pytest.mark.parametrize(
-    "kwargs",
+    ("kwargs", "match"),
     [
-        {"slice_num": 0, "digit_radix": 2},
-        {"slice_num": 1, "digit_radix": 1},
+        ({"slice_num": 0, "digit_radix": 2}, r"require: slice_num \(0\) >= 1"),
+        ({"slice_num": 1, "digit_radix": 1}, r"require: digit_radix \(1\) >= 2"),
     ],
 )
-def test_serial_slicer_rejects_invalid_geometry(kwargs: dict[str, int]) -> None:
-    with pytest.raises(ValueError):
+def test_serial_slicer_rejects_invalid_geometry(kwargs: dict[str, int], match: str) -> None:
+    with pytest.raises(ValueError, match=match):
         SerialSlicer(**kwargs)
 
 
@@ -200,7 +212,7 @@ def test_direct_slicer_weighted_sum_reconstruction(value_range: tuple[int, int],
 
 @pytest.mark.parametrize("value_range", [(7, -8), (0, 0), (5, 5)])
 def test_direct_slicer_rejects_invalid_value_range(value_range: tuple[int, int]) -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="require: value_range lo"):
         DirectSlicer(value_range=value_range)
 
 

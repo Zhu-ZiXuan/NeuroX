@@ -65,7 +65,7 @@ from torch import Tensor
 
 from neurox import Profiler, Reporter, stamp_names
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
-from neurox.works.macro.cim.ye2023jssc import Ye2023JsscCimMacro, Ye2023JsscCimMacroPolicy
+from neurox.works.macro.cim.ye2023jssc import Ye2023JsscCimMacro
 
 _LOG = logging.getLogger(__name__)
 
@@ -134,8 +134,9 @@ _QUANTIZATION_MODE = 0
 _ADC_BITS = 4
 _ROW_NUM = 32
 _COL_NUM = 64
-_FJ_PER_PJ = 1000.0
 _OPS_PER_MAC = 2  # one multiply + one accumulate
+# Energy-efficiency unit bridge: 1 op / fJ = 1e15 ops / J = 1e3 TOPS/W.
+_TOPS_W_PER_OP_PER_FJ = 1.0e3
 # Random-workload sample count of the golden-transfer gate, decoupled from the
 # measurement draw counts: the gate checks a transfer, not a power statistic.
 _GOLDEN_SAMPLE_NUM = 64
@@ -172,7 +173,6 @@ def build_macro(
     """
     config = CimMacroConfig.from_file(params_path, section="cim_macro")
     policy = CimMacroPolicy.from_file(policy_path, section="policy")
-    assert isinstance(policy, Ye2023JsscCimMacroPolicy)
     policy = dataclasses.replace(
         policy,
         array_policy=dataclasses.replace(policy.array_policy, solve_chunk_size=solve_chunk_size),
@@ -186,7 +186,6 @@ def build_macro(
         dtype=torch.float32,
         T__K=300.0,
     )
-    assert isinstance(macro, Ye2023JsscCimMacro)
     macro.to(device)
     macro.eval()
     macro.fabricate()
@@ -365,8 +364,8 @@ class PointMeasurement:
         return self.power__uW(self.total_dynamic__fJ) + self.total_static__uW
 
     @property
-    def per_output__pJ(self) -> float:
-        return self.total__uW * self.window__ns / _FJ_PER_PJ
+    def per_output__fJ(self) -> float:
+        return self.total__uW * self.window__ns
 
     @property
     def round_mean__uW(self) -> float:
@@ -383,7 +382,7 @@ class PointMeasurement:
     @property
     def ef__tops_w(self) -> float:
         """Model MAC energy efficiency [TOPS/W] = ``2 * row_num`` ops per access."""
-        return _OPS_PER_MAC * _ROW_NUM / self.per_output__pJ
+        return _OPS_PER_MAC * _ROW_NUM * _TOPS_W_PER_OP_PER_FJ / self.per_output__fJ
 
 
 @dataclass(frozen=True)
@@ -553,13 +552,13 @@ class CaliberPooling:
         return self.on_chip__uW / self.target_total__uW
 
     @property
-    def on_chip_per_output__pJ(self) -> float:
-        return self.on_chip__uW * self.window__ns / _FJ_PER_PJ
+    def on_chip_per_output__fJ(self) -> float:
+        return self.on_chip__uW * self.window__ns
 
     @property
     def on_chip_ef__tops_w(self) -> float:
         """Energy efficiency [TOPS/W] of the on-chip power alone, ``2 * row_num`` ops per access."""
-        return _OPS_PER_MAC * _ROW_NUM / self.on_chip_per_output__pJ
+        return _OPS_PER_MAC * _ROW_NUM * _TOPS_W_PER_OP_PER_FJ / self.on_chip_per_output__fJ
 
 
 def pool(m: PointMeasurement, anchors: dict, *, caliber: str) -> CaliberPooling:
@@ -911,27 +910,34 @@ def _fmt_finding(macro: Ye2023JsscCimMacro, measurements: list[PointMeasurement]
         return f"{pins}, on-chip total {p.on_chip__uW:.2f} uW vs {p.target_total__uW:.2f} uW ({p.on_chip_ratio:.2f}x)"
 
     paragraphs = [
-        "Each measured point is FULLY consistent under exactly ONE mounting hypothesis — all four pins and the "
-        f"on-chip total at once. At {sp:.1%} input sparsity that is caliber {fit_s}: {closes(fit_s, sp)}. At "
-        f"{dp:.0%} it is caliber {fit_d}: {closes(fit_d, dp)}. Crossing the mountings closes neither point: "
-        f"caliber {fit_d} at {sp:.1%} reads the array pin {cross_s.array.ratio:.2f}x and the on-chip total "
-        f"{cross_s.on_chip_ratio:.2f}x, and caliber {fit_s} at {dp:.0%} reads {cross_d.array.ratio:.2f}x and "
-        f"{cross_d.on_chip_ratio:.2f}x. The two hypotheses are mutually exclusive, so no single mounting of the "
-        "macro accounts for both published points.",
-        f"The {sp:.1%} array anchor ({anchor__uW:.3f} uW) sits BELOW the model's all-HRS continuous-conduction "
-        f"floor ({floor__uW:.2f} uW = v_bl_in1 * g_cell_on(HRS) * v_bl_in1 over {active:.0f} mean active inputs "
-        f"x {len(macro.config.array_config.weight_radix)} weight planes) — the least current the input branch can "
-        f"draw while those inputs are raised, whatever the weights. That is what rules caliber {fit_d} out at the "
-        f"{sp:.1%} point on physics alone: a steady-state measurement of a pin carrying the input branch cannot "
-        "land under that floor, at any weight statistics and under any calibration. Physics is calibrated at the "
-        f"{dp:.0%} point (the caliber-{fit_d} array pin); the {sp:.1%} point is reported, never fitted.",
-        f"Read through caliber {fit_s}, the {sp:.1%} point draws {fit.on_chip__uW:.2f} uW on chip = "
-        f"{fit.on_chip_per_output__pJ:.3f} pJ per output, i.e. EF {fit.on_chip_ef__tops_w:.2f} TOPS/W against the "
-        f"paper's {ef_anchor:.2f} TOPS/W headline ({fit.on_chip_ef__tops_w / ef_anchor:.2f}x). Reading the headline "
-        "that way IMPLIES it excludes input-drive power, which this mounting hands to the instrument. The full "
-        f"model, which bills every branch at full rail for the whole window, reads {sparse.ef__tops_w:.2f} / "
-        f"{dense.ef__tops_w:.2f} TOPS/W at the two points; that is the physics view of the macro as a "
-        "self-contained circuit, and the number a system-level estimate should carry.",
+        (
+            "Each measured point is FULLY consistent under exactly ONE mounting hypothesis — all four pins and the "
+            f"on-chip total at once. At {sp:.1%} input sparsity that is caliber {fit_s}: {closes(fit_s, sp)}. At "
+            f"{dp:.0%} it is caliber {fit_d}: {closes(fit_d, dp)}. Crossing the mountings closes neither point: "
+            f"caliber {fit_d} at {sp:.1%} reads the array pin {cross_s.array.ratio:.2f}x and the on-chip total "
+            f"{cross_s.on_chip_ratio:.2f}x, and caliber {fit_s} at {dp:.0%} reads {cross_d.array.ratio:.2f}x and "
+            f"{cross_d.on_chip_ratio:.2f}x. The two hypotheses are mutually exclusive, so no single mounting of the "
+            "macro accounts for both published points."
+        ),
+        (
+            f"The {sp:.1%} array anchor ({anchor__uW:.3f} uW) sits BELOW the model's all-HRS continuous-conduction "
+            f"floor ({floor__uW:.2f} uW = v_bl_in1 * g_cell_on(HRS) * v_bl_in1 over {active:.0f} mean active inputs "
+            f"x {len(macro.config.array_config.weight_radix)} weight planes) — the least current the input branch "
+            f"can draw while those inputs are raised, whatever the weights. That is what rules caliber {fit_d} out "
+            f"at the {sp:.1%} point on physics alone: a steady-state measurement of a pin carrying the input branch "
+            "cannot land under that floor, at any weight statistics and under any calibration. Physics is "
+            f"calibrated at the {dp:.0%} point (the caliber-{fit_d} array pin); the {sp:.1%} point is reported, "
+            "never fitted."
+        ),
+        (
+            f"Read through caliber {fit_s}, the {sp:.1%} point draws {fit.on_chip__uW:.2f} uW on chip = "
+            f"{fit.on_chip_per_output__fJ:.3f} fJ per output, i.e. EF {fit.on_chip_ef__tops_w:.2f} TOPS/W against "
+            f"the paper's {ef_anchor:.2f} TOPS/W headline ({fit.on_chip_ef__tops_w / ef_anchor:.2f}x). Reading the "
+            "headline that way IMPLIES it excludes input-drive power, which this mounting hands to the instrument. "
+            "The full model, which bills every branch at full rail for the whole window, reads "
+            f"{sparse.ef__tops_w:.2f} / {dense.ef__tops_w:.2f} TOPS/W at the two points; that is the physics view "
+            "of the macro as a self-contained circuit, and the number a system-level estimate should carry."
+        ),
     ]
     body = "\n\n".join(textwrap.fill(p, width=100) for p in paragraphs)
     return f"### Finding: each Fig.19 point closes under one mounting, and no mounting closes both\n\n{body}"
@@ -946,8 +952,10 @@ def _fmt_caliber(m: PointMeasurement, anchors: dict, *, caliber: str) -> str:
 
     lines = [
         f"caliber {caliber} — {_CALIBER_MOUNT[caliber]}",
-        f"    array pin <- {' + '.join(mapping['Array'])} = {p.array.total__uW:.3f} uW vs "
-        f"{p.array.target__uW:.3f} uW ({p.array.ratio:.2f}x)",
+        (
+            f"    array pin <- {' + '.join(mapping['Array'])} = {p.array.total__uW:.3f} uW vs "
+            f"{p.array.target__uW:.3f} uW ({p.array.ratio:.2f}x)"
+        ),
         f"    off-pin   <- {' + '.join(mapping[_OFF_PIN])} = {p.off_pin__uW:.3f} uW, on no measured pin",
         "",
         "| Block | pred uW | dyn | static | anchor uW | share% | pred/anchor |",
@@ -960,12 +968,16 @@ def _fmt_caliber(m: PointMeasurement, anchors: dict, *, caliber: str) -> str:
     ]
     lines += [
         f"| off-pin      | {p.off_pin__uW:8.3f} | {p.off_pin__uW:7.3f} | {0.0:6.3f} {dash}",
-        f"| **ON-CHIP**  | **{p.on_chip__uW:8.3f}** | | | **{p.target_total__uW:8.3f}** | 100.0 | "
-        f"**{p.on_chip_ratio:5.3f}x** |",
+        (
+            f"| **ON-CHIP**  | **{p.on_chip__uW:8.3f}** | | | **{p.target_total__uW:8.3f}** | 100.0 | "
+            f"**{p.on_chip_ratio:5.3f}x** |"
+        ),
         f"| model total  | {p.model_total__uW:8.3f} | | {dash}",
         "",
-        f"    on-chip {p.on_chip__uW:.3f} uW -> {p.on_chip_per_output__pJ:.3f} pJ/out, "
-        f"EF {p.on_chip_ef__tops_w:.2f} TOPS/W (paper headline {ef_anchor:.2f})",
+        (
+            f"    on-chip {p.on_chip__uW:.3f} uW -> {p.on_chip_per_output__fJ:.3f} fJ/out, "
+            f"EF {p.on_chip_ef__tops_w:.2f} TOPS/W (paper headline {ef_anchor:.2f})"
+        ),
     ]
     return "\n".join(lines)
 
@@ -973,18 +985,24 @@ def _fmt_caliber(m: PointMeasurement, anchors: dict, *, caliber: str) -> str:
 def _fmt_point(m: PointMeasurement, anchors: dict) -> str:
     """Dual-caliber report for one sparsity point."""
     idx = _sparsity_index(anchors, m.p_zero_input)
-    per_access_anchor__pJ = anchors["reference"]["per_access__pJ"][idx]
+    per_access_anchor__fJ = anchors["reference"]["per_access__fJ"][idx]
     ef_anchor = anchors["reference"]["ef_tops_w"]
     label = anchors["reference"]["point_label"][idx]
 
     lines = [
         f"### input sparsity p_zero = {m.p_zero_input:.3f} — {label}",
-        f"    accesses {m.accesses} ({m.repeat} rounds x {m.die_num} dies), T_AC {m.access_latency__ns:.2f} ns, "
-        f"leakage window {m.window__ns:.2f} ns (declared duty period the powers average over)",
-        f"    full model, every branch billed: {m.total__uW:.3f} uW, {m.per_output__pJ:.3f} pJ/out "
-        f"(anchor {per_access_anchor__pJ:.2f}), EF {m.ef__tops_w:.2f} TOPS/W (paper headline {ef_anchor:.2f})",
-        f"    draw spread over {m.repeat} rounds: model total {m.round_mean__uW:.3f} +- "
-        f"{m.round_stderr__uW:.3f} uW (std/sqrt(rounds))",
+        (
+            f"    accesses {m.accesses} ({m.repeat} rounds x {m.die_num} dies), T_AC {m.access_latency__ns:.2f} ns, "
+            f"leakage window {m.window__ns:.2f} ns (declared duty period the powers average over)"
+        ),
+        (
+            f"    full model, every branch billed: {m.total__uW:.3f} uW, {m.per_output__fJ:.3f} fJ/out "
+            f"(anchor {per_access_anchor__fJ:.2f}), EF {m.ef__tops_w:.2f} TOPS/W (paper headline {ef_anchor:.2f})"
+        ),
+        (
+            f"    draw spread over {m.repeat} rounds: model total {m.round_mean__uW:.3f} +- "
+            f"{m.round_stderr__uW:.3f} uW (std/sqrt(rounds))"
+        ),
         "",
         _fmt_caliber(m, anchors, caliber="Y"),
         "",
@@ -1007,11 +1025,17 @@ def _fmt_report(macro: Ye2023JsscCimMacro, measurements: list[PointMeasurement],
 # ---------------------------------------------------------------------------
 
 
-def _resolve_device(name: str | None) -> torch.device:
-    if name is None:
-        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    if name.startswith("cuda") and not torch.cuda.is_available():
-        raise SystemExit("CUDA requested but not available")
+def _resolve_device(name: str) -> torch.device:
+    """Resolve a device name; ``auto`` is ``cuda`` when one is visible, else ``cpu``.
+
+    Any other name is handed to :class:`torch.device` verbatim. This harness
+    never chooses a GPU INDEX: which card the run lands on is the operator's
+    choice, made outside the process through ``CUDA_VISIBLE_DEVICES``.
+    """
+    if name == "auto":
+        device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+        _LOG.info("[auto device -> %s]", device)
+        return device
     return torch.device(name)
 
 
@@ -1027,7 +1051,13 @@ def main() -> None:
         help="Array solve chunk (machine knob): leading instances solved per block; 0 solves all at once.",
     )
     ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument("--device", type=str, default=None, help="cpu / cuda[:idx]; default cuda if available else cpu.")
+    ap.add_argument(
+        "--device",
+        type=str,
+        default="auto",
+        help="cpu, cuda[:idx], or auto (cuda if visible else cpu); default auto. Pick the card with "
+        "CUDA_VISIBLE_DEVICES.",
+    )
     args = ap.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(message)s")

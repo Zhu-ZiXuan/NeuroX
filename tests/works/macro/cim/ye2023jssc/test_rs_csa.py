@@ -164,7 +164,7 @@ def test_conversion_window_rejects_unsupported_bits() -> None:
     """The window is defined only for a resolution the phase set can run."""
     adc = _build_adc()
     for bits in (0, _BITS + 1):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=rf"require: bits \({bits}\) in \[1, max_bits \({_BITS}\)\]"):
             adc.t_conversion__ns(bits)
 
 
@@ -223,11 +223,11 @@ def test_bits_bounded_by_the_physical_resolution() -> None:
     """A resolution outside the physical one is rejected."""
     adc = _build_adc()
     i_in = torch.tensor([3.0], dtype=_DTYPE)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=rf"require: bits \({_BITS + 1}\) in \[1, max_bits \({_BITS}\)\]"):
         adc.convert(i_in, _ref(), bits=_BITS + 1)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=rf"require: bits \(0\) in \[1, max_bits \({_BITS}\)\]"):
         adc.convert(i_in, _ref(), bits=0)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=rf"require: bits \({_BITS + 1}\) in \[1, max_bits \({_BITS}\)\]"):
         adc.unsigned_range(_BITS + 1)
 
 
@@ -344,5 +344,5 @@ def test_reported_latency_rejects_a_resolution_the_phase_set_cannot_run() -> Non
     """No window outside the physical resolution."""
     adc = _build_adc()
     for bits in (0, _BITS + 1):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=rf"require: bits \({bits}\) in \[1, max_bits \({_BITS}\)\]"):
             adc.latency__ns(bits=bits)

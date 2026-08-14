@@ -24,7 +24,7 @@ macro's code expressed in ideal-macro codes. The fit runs at the macro's
 `r_b = r_B * 2^(B - b)`. Output is a `[[modes]]` macro-config fragment, one
 table per mode, plus a per-mode fit plot of code vs ideal code.
 
-See also:
+See Also:
     docs/guides/calibration/calibrate_adc.md
 """
 
@@ -37,7 +37,7 @@ from pathlib import Path
 
 import torch
 
-from neurox.common import ConfigBase
+from neurox.common import ConfigBase, TensorDataClassBase
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy, IdealCimMacro
 from neurox.tools._config import add_standard_args, load_tool_config, resolve_relative_path, setup_logging
 
@@ -101,8 +101,7 @@ class RescaleFitToolConfig(ConfigBase):
 # --- fit --------------------------------------------------------------------
 
 
-@dataclass(frozen=True)
-class ModeFitResult:
+class ModeFitResult(TensorDataClassBase):
     """Fit + diagnostics for one operating mode.
 
     `sample_num` is the count of pairs surviving the fit filter.
@@ -304,7 +303,6 @@ def main(argv: list[str] | None = None) -> int:
 
     cfg = load_tool_config(RescaleFitToolConfig, args.config)
     modes_path = resolve_relative_path(cfg.modes_file, args.config)
-    assert modes_path is not None
     mode_set = load_mode_set(modes_path)
     physical = build_physical_macro(cfg.macro, base=args.config, device=device)
     ideal = build_ideal_twin(physical, device=device)

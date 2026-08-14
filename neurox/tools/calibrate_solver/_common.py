@@ -1,5 +1,4 @@
-"""Host-agnostic builder + workload-streaming sweep aggregator for the solver
-calibration tools.
+"""Host-agnostic builder + workload-streaming sweep aggregator for the solver calibration tools.
 
 Registry-driven and scheme-agnostic: the tool TOML names a macro config /
 policy file pair — concrete classes selected by `_neurox_class`, scheme
@@ -86,13 +85,8 @@ class MacroSection:
 
 def resolve_macro_files(section: MacroSection, *, base: Path) -> tuple[list[Path], Path]:
     """Resolve the `[macro]` config / policy file references against `base`."""
-    config_paths: list[Path] = []
-    for file in section.config_files:
-        resolved = resolve_relative_path(file, base)
-        assert resolved is not None
-        config_paths.append(resolved)
+    config_paths = [resolve_relative_path(file, base) for file in section.config_files]
     policy_path = resolve_relative_path(section.policy_file, base)
-    assert policy_path is not None
     return config_paths, policy_path
 
 
@@ -170,20 +164,25 @@ def resolve_solver_table(root: dict[str, Any], solver_section: str) -> dict[str,
         mutates `root`.
 
     Raises:
-        ValueError: A path segment is missing or is not a table, or the table
-            carries neither the discriminator nor the swept keys.
-        TypeError: The discriminator names another class.
+        TypeError: A path segment reaches inside a non-table, the path resolves
+            to a non-table, or the discriminator names another class.
+        KeyError: A path segment is missing.
+        ValueError: The table carries neither the discriminator nor the swept
+            keys.
     """
     node: Any = root
     for part in solver_section.split("."):
-        if not isinstance(node, dict) or part not in node:
-            available = sorted(node) if isinstance(node, dict) else "<not a table>"
-            raise ValueError(
-                f"solver_section {solver_section!r}: segment {part!r} not found (available keys: {available})"
+        if not isinstance(node, dict):
+            raise TypeError(
+                f"solver_section {solver_section!r}: segment {part!r} sits inside a {type(node).__name__}, not a table"
+            )
+        if part not in node:
+            raise KeyError(
+                f"solver_section {solver_section!r}: segment {part!r} not found (available keys: {sorted(node)})"
             )
         node = node[part]
     if not isinstance(node, dict):
-        raise ValueError(f"solver_section {solver_section!r} resolves to a {type(node).__name__}, not a table")
+        raise TypeError(f"solver_section {solver_section!r} resolves to a {type(node).__name__}, not a table")
     discriminator = node.get("_neurox_class")
     if discriminator is not None:
         if discriminator != NestedParallelRailSolverConfig.__name__:

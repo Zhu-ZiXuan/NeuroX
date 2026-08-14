@@ -1,6 +1,6 @@
 """Multi-output current reference source — PPA + state, no compute.
 
-See also:
+See Also:
     docs/reference/primitive/analog/current_reference.md
     docs/internals/primitive/analog/current_reference.md
 """
@@ -50,7 +50,8 @@ class IrefConfig(AnalogConfig):
             self._require_min_length(taps, 1, f"i_refs__uA[{mode}]")
             if len(taps) != tap_num:
                 raise ValueError(
-                    f"require: equal tap lengths in i_refs__uA; mode {mode} has {len(taps)} tap(s), mode 0 has {tap_num}"
+                    f"require: equal tap lengths in i_refs__uA; mode {mode} has {len(taps)} tap(s), "
+                    f"mode 0 has {tap_num}"
                 )
             for tap, value in enumerate(taps):
                 self._require_non_neg(value, f"i_refs__uA[{mode}][{tap}]")

@@ -1,12 +1,11 @@
 """Composable execution engine for CIM matrix multiplication.
 
-See also:
+See Also:
     docs/internals/architecture/unit/cim/engine/base.md
 """
 
 from __future__ import annotations
 
-import math
 from typing import ClassVar
 
 import torch
@@ -60,7 +59,7 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
     Args:
         config: Engine configuration.
         policy: Composite engine policy.
-        w_logical_shape: Weight shape `(..., N, K)` bound to `program`.
+        w_logical_shape: Weight shape `(N, K)` bound to `program`.
         dtype: Tensor dtype used by the CIM macro.
         T__K: Operating temperature.
         ideal_macro: Whether to replace the configured macro with its ideal
@@ -80,11 +79,11 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
         ideal_macro: bool,
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=())
-        if len(w_logical_shape) < 2:
-            raise ValueError(f"w_logical_shape must have at least 2 trailing dims (N, K); got {w_logical_shape}")
+        if len(w_logical_shape) != 2:
+            raise ValueError(f"w_logical_shape must be (N, K); got {w_logical_shape}")
         self._w_logical_shape = tuple(w_logical_shape)
 
-        *w_batch, n_logical, k_logical = w_logical_shape
+        n_logical, k_logical = w_logical_shape
         block_output_num, macro_plane_num = config.weight_slice.layout_geometry(output_num=config.output_num)
         plan = make_matmul_placement_plan(
             logical_output_num=n_logical,
@@ -94,7 +93,6 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
         )
         self._init_execution_children(
             plan=plan,
-            w_batch=tuple(w_batch),
             macro_plane_num=macro_plane_num,
             dtype=dtype,
             T__K=T__K,
@@ -105,11 +103,11 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
         """Time one logical matrix multiplication — the schedule it unrolls.
 
         Every serial axis below the unit is the engine's: the output planes `M`
-        its caller states, the input slices `Sa`, the CIM block slots `D` and
-        the input phases `P`. One macro access serves each `(M, Sa, D, P)`
+        its caller states, the input slices `Sx`, the CIM block slots `D` and
+        the input phases `P`. One macro access serves each `(M, Sx, D, P)`
         point, so the engine multiplies the macro rather than summing it. The
-        weight slices, contraction partitions, block groups and weight-batch
-        copies are all parallel silicon and never multiply.
+        weight slices, contraction partitions and block groups are all parallel
+        silicon and never multiply.
 
         The digital blocks hold no output-port axis of their own, so each runs
         once per output element the operation it closes delivers: the macro's
@@ -164,18 +162,15 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
         self,
         *,
         plan: MatmulPlacementPlan,
-        w_batch: tuple[int, ...],
         macro_plane_num: int,
         dtype: torch.dtype,
         T__K: float,
         ideal_macro: bool,
     ) -> None:
         """Construct the macro and the four paired execution stages."""
-        w_parallel_size = math.prod(w_batch)
         input_tile_num = plan.contraction_partition_num
         macro_group_num = plan.block_group_num
         macro_inst_shape = (
-            *w_batch,
             1,
             1,
             macro_plane_num,
@@ -197,8 +192,6 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
             policy=self.policy.placement,
             plan=plan,
             input_num=self.config.input_num,
-            w_batch_rank=len(w_batch),
-            w_parallel_size=w_parallel_size,
             macro_plane_num=macro_plane_num,
             macro_inst_rank=len(macro_inst_shape),
         )
@@ -207,7 +200,6 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
             policy=self.policy.input_activation,
             input_block_size=plan.contraction_block_size,
             max_active_num=self.cim_macro.max_active_num,
-            w_parallel_size=w_parallel_size,
             macro_plane_num=macro_plane_num,
             input_tile_num=input_tile_num,
             macro_group_num=macro_group_num,
@@ -218,14 +210,12 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
             policy=self.policy.weight_slice,
             macro_w_value_range=self.cim_macro.w_value_range,
             output_num=self.config.output_num,
-            w_parallel_size=w_parallel_size,
             macro_group_num=macro_group_num,
         )
         self.x_slice = XSliceStage.from_config(
             config=self.config.x_slice,
             policy=self.policy.x_slice,
             macro_x_value_range=self.cim_macro.x_value_range,
-            w_parallel_size=w_parallel_size,
             macro_group_num=macro_group_num,
         )
 
@@ -283,20 +273,20 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
 
     def _organize_w(self, weight: Tensor) -> Tensor:
         """Map logical weights into the programmed CIM-macro layout."""
-        # Shape: [..., N, K] -> [..., N, K, Sw]
+        # Shape: [N, K] -> [N, K, Sw]
         sliced = self.weight_slice.slice(weight)
-        # Shape: [..., N, K, Sw] -> [..., D, G, Q, Tc, L, Sw]
+        # Shape: [N, K, Sw] -> [D, G, Q, Tc, L, Sw]
         partitioned = self.placement.partition_weight(sliced)
-        # Shape: [..., D, G, Q, Tc, L, Sw] -> [..., Sw, Tc, G, D, L, output_num]
+        # Shape: [D, G, Q, Tc, L, Sw] -> [Sw, Tc, G, D, L, output_num]
         arranged = self.weight_slice.arrange_weight(partitioned)
-        # Shape: [..., Sw, Tc, G, D, L, output_num] -> [..., M=1, Sa=1, Sw, Tc, G, input_num, output_num]
+        # Shape: [Sw, Tc, G, D, L, output_num] -> [M=1, Sx=1, Sw, Tc, G, input_num, output_num]
         return self.placement.pack_weight(arranged)
 
     def _organize_x(self, input: Tensor) -> Tensor:
         """Map logical inputs into the CIM-macro execution layout."""
-        # Shape: [..., M, K] -> [..., M, K, Sa]
+        # Shape: [..., M, K] -> [..., M, K, Sx]
         sliced = self.x_slice.slice(input)
-        # Shape: [..., M, K, Sa] -> [..., M, Sa, Sw=1, Tc, G=1, L]
+        # Shape: [..., M, K, Sx] -> [..., M, Sx, Sw=1, Tc, G=1, L]
         return self.placement.organize_x(sliced)
 
     def program(self, weight: Tensor) -> None:
@@ -304,7 +294,7 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
 
         Args:
             weight: Weight tensor matching the shape bound at construction.
-                Shape: `[..., N, K]`.
+                Shape: `[N, K]`.
         """
         if tuple(weight.shape) != self._w_logical_shape:
             raise ValueError(f"program() expects weight.shape {self._w_logical_shape}; got {tuple(weight.shape)}")
@@ -325,23 +315,23 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
             Integer pre-requantize output tensor.
             Shape: `[..., M, N]`.
         """
-        # Shape: [..., M, K] -> [..., M, Sa, Sw=1, Tc, G=1, L]
+        # Shape: [..., M, K] -> [..., M, Sx, Sw=1, Tc, G=1, L]
         organized = self._organize_x(input)
-        # Shape: [..., M, Sa, Sw, Tc, G, L] -> [..., M, Sa, Sw, Tc, G, P, L]
+        # Shape: [..., M, Sx, Sw, Tc, G, L] -> [..., M, Sx, Sw, Tc, G, P, L]
         phased = self.input_activation.unroll_input_phases(organized)
-        # Shape: [..., M, Sa, Sw, Tc, G, P, L] -> [..., D, P, *w_batch, M, Sa, Sw, Tc, G, input_num]
+        # Shape: [..., M, Sx, Sw, Tc, G, P, L] -> [..., D, P, M, Sx, Sw, Tc, G, input_num]
         code = self.placement.unroll_block_steps(phased)
-        # Shape: [..., D, P, *w_batch, M, Sa, Sw, Tc, G, input_num] -> [..., D, P, *w_batch, M, Sa, Sw, Tc, G, output_num]
+        # Shape: [..., D, P, M, Sx, Sw, Tc, G, input_num] -> [..., D, P, M, Sx, Sw, Tc, G, output_num]
         code = self.cim_macro.vec_mat_mul(code, quantization_mode=quantization_mode, adc_bits=adc_bits).to(torch.int64)
-        # Shape: [..., D, P, *w_batch, M, Sa, Sw, Tc, G, output_num] -> [..., D, *w_batch, M, Sa, Sw, Tc, G, output_num]
+        # Shape: [..., D, P, M, Sx, Sw, Tc, G, output_num] -> [..., D, M, Sx, Sw, Tc, G, output_num]
         code = self.input_activation.accumulate_phases(code)
-        # Shape: [..., D, *w_batch, M, Sa, Sw, Tc, G, output_num] -> [..., D, *w_batch, M, Sa, Sw, G, output_num]
+        # Shape: [..., D, M, Sx, Sw, Tc, G, output_num] -> [..., D, M, Sx, Sw, G, output_num]
         code = self.placement.accumulate_contraction_tiles(code)
-        # Shape: [..., D, *w_batch, M, Sa, Sw, G, output_num] -> [..., D, *w_batch, M, Sa, G, Q]
+        # Shape: [..., D, M, Sx, Sw, G, output_num] -> [..., D, M, Sx, G, Q]
         code = self.weight_slice.aggregate(code)
-        # Shape: [..., D, *w_batch, M, Sa, G, Q] -> [..., D, *w_batch, M, G, Q]
+        # Shape: [..., D, M, Sx, G, Q] -> [..., D, M, G, Q]
         code = self.x_slice.aggregate(code)
-        # Shape: [..., D, *w_batch, M, G, Q] -> [..., *w_batch, M, N]
+        # Shape: [..., D, M, G, Q] -> [..., M, N]
         return self.placement.restore_output(code)
 
     def extra_repr(self) -> str:

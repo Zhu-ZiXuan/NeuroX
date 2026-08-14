@@ -100,7 +100,3 @@ python -m neurox.tools.calibrate_cell._1t1r \
     --device cpu \
     --output-dir <output_dir>
 ```
-
----
-
-- **See also**: [DC solver internals](../../internals/primitive/xbar/solver/nested.md), [calibration hub](./README.md)

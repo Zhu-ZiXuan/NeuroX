@@ -12,13 +12,14 @@ from __future__ import annotations
 
 from abc import ABC
 from collections.abc import Callable
-from dataclasses import Field, dataclass
+from dataclasses import Field
 from types import TracebackType
-from typing import Any, ClassVar, Generic, Self, TypeVar, dataclass_transform, final
+from typing import Any, ClassVar, Self, cast, final
 
 import torch
 from torch import Tensor
 
+from .tensor_dataclass import TensorDataClassBase
 from .tensor_fields import walk_tensor_fields
 
 # Where a recorder parks its book by default. A recording device is a harness
@@ -26,9 +27,7 @@ from .tensor_fields import walk_tensor_fields
 _DEFAULT_DEVICE = torch.device("cpu")
 
 
-@dataclass_transform(eq_default=False, frozen_default=True, kw_only_default=True)
-@dataclass(eq=False, frozen=True, kw_only=True)
-class RecordBase:
+class RecordBase(TensorDataClassBase):
     """One item a side channel collects.
 
     A record carries no value equality: it equals only itself, so `==` and
@@ -36,13 +35,12 @@ class RecordBase:
 
     A subclass declares its fields as annotated class attributes carrying at
     most a plain default, and must not apply `@dataclass` or define `__init__`
-    or `__post_init__`; this base supplies a frozen, keyword-only dataclass.
-    Override `detach` or `to` only for a record whose tensors need what a walk
-    of the declared fields cannot express.
+    or `__post_init__`; `TensorDataClassBase` supplies a frozen, keyword-only
+    dataclass. Override `detach` or `to` only for a record whose tensors need
+    what a walk of the declared fields cannot express.
     """
 
     def __init_subclass__(cls) -> None:
-        super().__init_subclass__()
         if "__init__" in cls.__dict__:
             raise TypeError(f"{cls.__qualname__} must declare dataclass fields, not __init__()")
         if "__post_init__" in cls.__dict__:
@@ -52,7 +50,9 @@ class RecordBase:
                 raise TypeError(
                     f"{cls.__qualname__}.{name} is a field() specifier; a record declares plain fields only"
                 )
-        dataclass(eq=False, frozen=True, kw_only=True)(cls)
+        # After the guards: the base's decoration consumes every field()
+        # specifier a subclass declared, leaving nothing for the walk to find.
+        super().__init_subclass__()
 
     def detach(self) -> Self:
         """Return this record with every tensor field detached from autograd.
@@ -96,10 +96,7 @@ class RecordBase:
         return rebuilt if changed else self
 
 
-RecordT = TypeVar("RecordT", bound=RecordBase)
-
-
-class RecorderBase(Generic[RecordT], ABC):
+class RecorderBase[RecordT: RecordBase](ABC):
     """Collect one family's records for as long as its context is open.
 
     Subclass this base directly to open a family, binding the family's record
@@ -122,7 +119,7 @@ class RecorderBase(Generic[RecordT], ABC):
     _family_root: ClassVar[type[RecorderBase[Any]] | None] = None
     # The family root's active slot. Which record type it holds is a per-family
     # property that no annotation on the shared base can express.
-    _active_recorder: ClassVar[Any]
+    _active_recorder: ClassVar[RecorderBase[Any] | None]
 
     def __init__(self, *, device: torch.device | None = _DEFAULT_DEVICE) -> None:
         self._root()  # a bare RecorderBase instance owns no slot to collect into
@@ -181,7 +178,7 @@ class RecorderBase(Generic[RecordT], ABC):
         constant, so a region first compiled outside any context would stay
         pinned to "inactive" and silently collect nothing ever after.
         """
-        return cls._root()._active_recorder  # noqa: SLF001
+        return cast(Self, cls._root()._active_recorder)  # noqa: SLF001
 
     @classmethod
     @torch.compiler.disable

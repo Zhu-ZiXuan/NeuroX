@@ -32,11 +32,11 @@ Use a symbol only when the count enters an equation; otherwise refer to it by co
 | digit radix | $r$ | `digit_radix` | enters the radix fold (base of one cell's digit) |
 | slice radix | $R$ | `slice_radix` | enters the radix-weighted shift-add; $R = r^{D}$ (positional ratio between adjacent slices) |
 | weight-slice count | $S_w$ | `w_slice_num` | enters the precision-slicing fold (weight side) |
-| activation-slice count | $S_a$ | `x_slice_num` | enters the precision-slicing fold (input side) |
+| activation-slice count | $S_x$ | `x_slice_num` | enters the precision-slicing fold (input side) |
 | output-axis tile count | $T_r$ | — | matrix-tiling axis; rows of the transposed weight, $T_r = \lceil N / N_{\mathrm{col}} \rceil$ |
 | contraction-axis tile count | $T_c$ | — | matrix-tiling axis; $T_c = \lceil K / N_{\mathrm{row}} \rceil$ |
 
-These names pin the symbols for the three value-domain levels — digit, slice, value — whose semantics are defined in [glossary §Value domain and slicing](glossary.md#value-domain-and-slicing). Precision slicing ($S_w$, $S_a$) cuts a value into slices; matrix tiling ($T_r$, $T_c$) is the orthogonal, application-neutral axis that splits any matmul. The per-slice value range is computed from $D$ and $r$ and published by the xbar interface (the authority).
+These names pin the symbols for the three value-domain levels — digit, slice, value — whose semantics are defined in [glossary §Value domain and slicing](glossary.md#value-domain-and-slicing). Precision slicing ($S_w$, $S_x$) cuts a value into slices; matrix tiling ($T_r$, $T_c$) is the orthogonal, application-neutral axis that splits any matmul. The per-slice value range is computed from $D$ and $r$ and published by the xbar interface (the authority).
 
 The slice radix $R$ is dimensionless and lives in this value-domain table; it is distinct from the resistance $R$ (MOhm) of the electrical table — context (radix fold vs circuit equation) keeps them apart.
 
@@ -120,6 +120,10 @@ Every variable or config field carrying a physical quantity uses `<name>__<unit>
 - Unit case follows the physical standard.
 - Multiplication is implicit, joining adjacent unit tokens with `_`, e.g. `A_vt__mV_um`.
 - Division uses `_per_`, e.g. `mu0__cm2_per_V_s`.
+
+### Canonical unit per dimension
+
+Each dimension has one canonical unit, and a quantity is stored in it — never in a scaled variant — so no use site converts. Energy is fJ throughout code, config, and validation data: every energy-valued identifier and config key carries the `__fJ` suffix. A source stating a quantity in another unit is quoted in a comment only, and the code beside it carries the canonical-unit value.
 
 ## Energy accounting basis
 

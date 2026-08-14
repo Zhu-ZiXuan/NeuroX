@@ -120,11 +120,3 @@ Hard fast-fail conditions: $N < 2$, $g_{\max} \le 0$, $g_{\max} \le g_{\min}$, $
 ## Output order
 
 All output goes through `logger.info(...)` in this order: load notices $\rightarrow$ disabled-nonideality notices $\rightarrow$ bias / device summary $\rightarrow$ endpoint currents $\rightarrow$ `dI/dg @ g_max` end-slope diagnostic $\rightarrow$ target ladder $\rightarrow$ per-state derivation trace $\rightarrow$ `max_abs_current_error__uA` $\rightarrow$ the two paste-ready lines `rram_g_max__uS` and `state_to_g_map__uS`.
-
----
-
-- **See also**: [XbarArray1t1r reference](../../reference/primitive/xbar/array/1t1r.md) (consumer of `state_to_g_map__uS`)
-- [RRAM device reference](../../reference/primitive/device/rram.md)
-- [access-NMOS device reference](../../reference/primitive/device/mosfet.md)
-- [module parameter](../../conventions/module_parameter.md)
-- [calibration hub](README.md)

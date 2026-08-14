@@ -3,16 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Generic, TypeVar
 
 from .module import ConfigBase, ModuleBase, PolicyBase
 
-ConfigT = TypeVar("ConfigT", bound=ConfigBase)
-PolicyT = TypeVar("PolicyT", bound=PolicyBase)
-ModuleT = TypeVar("ModuleT", bound=ModuleBase[ConfigBase, PolicyBase])
 
-
-class RegistryMixin(Generic[ConfigT, PolicyT, ModuleT]):
+class RegistryMixin[ConfigT: ConfigBase, PolicyT: PolicyBase, ModuleT: ModuleBase[ConfigBase, PolicyBase]]:
     """Dispatch a module family from concrete config and policy types.
 
     The class that first mixes this in owns one registry table keyed by

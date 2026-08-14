@@ -167,6 +167,7 @@ The collector-side contract and the report surface it feeds are specified in Int
 ## Config and policy dataclasses
 
 - Declare config and policy descendants as ordinary classes inheriting `ConfigBase` or `PolicyBase`. The roots automatically apply `dataclass(frozen=True, kw_only=True)` to every descendant; never repeat `@dataclass` or write `__init__` on one.
+- A data class carrying tensors is no config or policy: it inherits `TensorDataClassBase`, which applies `dataclass(eq=False, frozen=True, kw_only=True)` to every descendant, and it likewise never repeats `@dataclass`. Value equality stays with the config and policy value objects, which hold no tensors; a descendant of it equals only itself.
 - Declare every field with an annotation. Follow the explicit-value and parameter-ownership rules in [config and policy](../internals/config_and_policy.md).
 - A dataclass field — however the dataclass transform is applied — an enum member, or a named-tuple field carries its documentation as a string literal immediately below the declaration, written only where the field needs more than its name and type already state.
 - A public instance attribute of a class that is not a dataclass carries its documentation the same way, by a string literal immediately below its assignment in `__init__`.
@@ -176,6 +177,14 @@ The collector-side contract and the report surface it feeds are specified in Int
 - Keep single-use validation groups inline in `validate()`. Separate substantial groups with an unnumbered method-body banner when that improves scanning; do not create `_validate_*` methods merely to move adjacent checks elsewhere.
 - Extract a validation helper only when the same check is genuinely reused or the helper implements a substantial standalone algorithm.
 - Treat freezing as shallow. Config and policy fields use immutable value types unless mutation is explicitly part of the field contract.
+
+## Guards and exceptions
+
+A guard is split by cause, and its exception class follows what the guard checks.
+
+- **One domain, one guard.** Predicates that jointly define a single valid domain for one value — finite and inside its range, or one shape contract — form one check that raises once, with a combined message stating the whole domain.
+- **Distinct causes, separate guards.** Predicates that fail for different reasons are separate checks, each raising its own precise message: a wrong type against a bad value, a container against its elements, one variable against another, an absent key against a key holding the wrong type. An element-level raise names the offending index.
+- **Class follows the check.** A wrong type raises `TypeError`; a lookup miss, an absent key or segment, raises `KeyError`; an illegal key set, a value outside its domain, or invalid content raises `ValueError`; a fatal condition in a command-line entry script raises `SystemExit`.
 
 ## Property vs method
 

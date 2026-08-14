@@ -88,12 +88,12 @@ def test_xbar_end_to_end_and_profiler(device: torch.device) -> None:
     # --- 1. Integer signed-magnitude codes and shape ---
     assert out.dtype in (torch.int64, torch.long)
     assert tuple(out.shape) == (x.shape[0], TINY_OUTPUT_NUM)
-    assert int(out.min()) >= -MAG_MAX and int(out.max()) <= MAG_MAX
+    assert -MAG_MAX <= int(out.min()) <= int(out.max()) <= MAG_MAX
 
     # --- 2. Bit-exact decode of the clamped ideal integer MAC; both signs exercised ---
     expected = ideal_mac(w, x)
     assert torch.equal(out, expected), f"MAC decode mismatch:\n{out.tolist()}\nvs\n{expected.tolist()}"
-    assert int(out.min()) < 0 and int(out.max()) > 0
+    assert int(out.min()) < 0 < int(out.max())
 
     # --- 3. Report sanity: channels + module rows positive ---
     by_name = reporter.by_name(prof)

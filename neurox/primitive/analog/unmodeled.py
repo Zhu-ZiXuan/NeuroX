@@ -1,6 +1,6 @@
 """Unmodeled circuit block — static PPA seat only, no functional model.
 
-See also:
+See Also:
     docs/reference/primitive/analog/unmodeled.md
     docs/internals/primitive/analog/unmodeled.md
 """

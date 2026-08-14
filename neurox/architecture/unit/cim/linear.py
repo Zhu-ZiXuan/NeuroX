@@ -1,6 +1,6 @@
 """LinearCimUnit — engine-backed `F.linear` replacement.
 
-See also:
+See Also:
     docs/internals/architecture/unit/cim/linear.md
 """
 
@@ -39,6 +39,8 @@ class LinearCimUnit(LinearUnit, EngineBackedCimUnit[LinearCimUnitConfig, LinearC
         T__K: float,
         ideal_macro: bool,
     ) -> None:
+        if len(w_logical_shape) != 2:
+            raise ValueError(f"w_logical_shape must be (N, K); got {w_logical_shape}")
         super().__init__(
             config=config,
             policy=policy,

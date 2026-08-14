@@ -75,24 +75,27 @@ def _make(
 
 def test_validation_rejects_bad_config() -> None:
     """Empty taps and negative sigmas/PPA are rejected."""
-    for override in (
-        {"v_refs__V": ()},  # empty bank
-        {"tolerance_sigma_relative": -1e-3},
-        {"area_per_inst__um2": -1.0},
-        {"leakage_per_inst__uW": -1.0},
+    for override, match in (
+        ({"v_refs__V": ()}, r"require: len\(v_refs__V\) \(0\) >= 1"),  # empty bank
+        ({"tolerance_sigma_relative": -1e-3}, r"require: tolerance_sigma_relative \(-0\.001\) >= 0"),
+        ({"area_per_inst__um2": -1.0}, r"require: area_per_inst__um2 \(-1\.0\) >= 0"),
+        ({"leakage_per_inst__uW": -1.0}, r"require: leakage_per_inst__uW \(-1\.0\) >= 0"),
     ):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=match):
             _config(**override)
 
 
 def test_bank_2d_validation() -> None:
     """The bank enforces equal-length non-negative modes — and nothing about order."""
-    for bad in (
-        ((0.6, -1.0),),  # negative tap
-        ((0.6, 1.2), (0.6, 1.2, 1.8)),  # unequal tap lengths
-        ((),),  # empty mode
+    for bad, match in (
+        # Negative tap.
+        (((0.6, -1.0),), r"require: v_refs__V\[0\]\[1\] \(-1\.0\) >= 0"),
+        # Unequal tap lengths.
+        (((0.6, 1.2), (0.6, 1.2, 1.8)), "require: equal tap lengths in v_refs__V"),
+        # Empty mode.
+        (((),), r"require: len\(v_refs__V\[0\]\) \(0\) >= 1"),
     ):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=match):
             _config(v_refs__V=bad)
     # Ordering is the CONSUMER's law, not the source's: a decision ladder
     # must ascend, a bank of clamp taps need not.

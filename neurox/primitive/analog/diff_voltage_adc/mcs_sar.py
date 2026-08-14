@@ -1,6 +1,6 @@
 """V_cm-based (Merged Capacitor Switching, MCS) differential SAR voltage ADC.
 
-See also:
+See Also:
     docs/reference/primitive/analog/diff_voltage_adc/mcs_sar.md
     docs/internals/primitive/analog/diff_voltage_adc/mcs_sar.md
 """
@@ -343,12 +343,11 @@ class McsSarDiffVadc(DiffVadc[McsSarDiffVadcConfig, McsSarDiffVadcPolicy]):
 
         # --- 6: apply optional stochastic LSB jitter ---
 
-        code = apply_lsb_jitter(
+        return apply_lsb_jitter(
             code,
             unsigned_max=self._unsigned_max_table[bits],
             enabled=self.training,
         )
-        return code
 
     def _compare(self, v_pos__V: Tensor, v_neg__V: Tensor) -> Tensor:
         """Strobe the differential comparator.

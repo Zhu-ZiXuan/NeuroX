@@ -4,7 +4,7 @@ Exposes an unsigned logical VMM over `row_num` inputs and `col_num` outputs on a
 transposed, digit-folded physical array read by one time-shared RS-CSA.
 The macro bills every energy branch its children do not.
 
-See also:
+See Also:
     docs/works/macro/cim/ye2023jssc/model.md
 """
 

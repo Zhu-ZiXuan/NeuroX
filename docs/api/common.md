@@ -1,6 +1,6 @@
 # Common API
 
-The `neurox.common` surface: the shared kernel that every module builds on — `ModuleBase`/`ConfigBase`/`PolicyBase`, the `RecorderBase`/`RecordBase` and `Reporter` recording infrastructure, `SerializeMixin`, `TensorGroupMixin`, `ValidateMixin`, `RegistryMixin`, and the `encoding`/`serialize` subpackages.
+The `neurox.common` surface: the shared kernel that every module builds on — `ModuleBase`/`ConfigBase`/`PolicyBase`, the `RecorderBase`/`RecordBase` and `Reporter` recording infrastructure, `SerializeMixin`, `TensorDataClassBase`, `TensorGroupMixin`, `ValidateMixin`, `RegistryMixin`, and the `encoding`/`serialize` subpackages.
 
 The reference below is generated from the in-code docstrings by `mkdocstrings`.
 

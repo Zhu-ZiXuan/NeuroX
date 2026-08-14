@@ -35,8 +35,3 @@ The rest state is declared, not solved: both functions read the two boundary lev
 The held organization carries one contract the billing depends on: **one hold covers exactly one full row scan**, so the establishment cost is divided by the row count and a complete scan bills exactly one establishment. The contract is an assertion about the schedule the owning scheme runs, not something the array can verify — the array sees one access at a time and has no view of the scan it belongs to.
 
 A scheme whose hold spans a different number of accesses does not reach for a new mode or a new divisor argument. It overrides the per-chunk measurement, which is where the billing functions are called, and states its own amortization there.
-
-## See also
-
-- [capacitive energy accounting](../../../reference/primitive/physics.md)
-- Implementation: `neurox/primitive/xbar/array/_1t1r.py`

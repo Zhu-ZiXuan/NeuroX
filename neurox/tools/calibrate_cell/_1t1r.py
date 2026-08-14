@@ -224,7 +224,6 @@ def _solve_grid_for_candidate(
                 snap,
             )
         records = cp.records
-        assert len(records) == 1
         v_x[mask] = dcop.v_x__V.reshape(n_pts)
         cell_residual[mask] = records[0].cell__uA.reshape(n_pts)
         i_cell[mask] = dcop.i__uA.reshape(n_pts)
@@ -571,7 +570,10 @@ def main(argv: list[str] | None = None) -> int:
 
 def _format_row(row: CandidateRow) -> str:
     step = f"{row.step_max__V:9.2e}" if row.step_max__V is not None else "     ---"
-    return f"newton_iter_num={row.iter_count:3d}  step_v_x={step}  residual.cell.max={row.residual_max['cell__uA']:9.2e} uA"
+    return (
+        f"newton_iter_num={row.iter_count:3d}  step_v_x={step}  "
+        f"residual.cell.max={row.residual_max['cell__uA']:9.2e} uA"
+    )
 
 
 if __name__ == "__main__":

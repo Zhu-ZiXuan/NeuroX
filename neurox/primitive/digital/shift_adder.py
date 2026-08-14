@@ -1,6 +1,6 @@
 """Shift-adder for multi-digit partial-product recombination.
 
-See also:
+See Also:
     docs/reference/primitive/digital/shift_adder.md
     docs/internals/primitive/digital/shift_adder.md
 """

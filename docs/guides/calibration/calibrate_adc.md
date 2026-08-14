@@ -15,7 +15,7 @@ Fits the per-mode `max_bits_rescale_factor`, the coefficient $s$ of the rescale 
 
 The fit target is the twin's real-valued ideal code scale — the unquantized position a dot occupies on the ideal macro's code grid — so the fitted slope is exactly the rescale currency. It is fitted at the macro's `adc_max_bits` only; every lower width follows the family bit-width law and needs no fit of its own.
 
-The mode set comes from the [mode-set TOML](#calibrate_adcmode_derive-mode-set-from-per-layer-ranges) the run config points at, and its mode count is checked against the macro's published windows. Output: a `[[modes]]` TOML fragment (one table per mode, carrying the canonical window, the ADC input code range, and the fitted factor; pasted nested under the macro section) plus a per-mode fit plot (code vs ideal code + fitted line).
+The mode set comes from the mode-set TOML the run config points at, and its mode count is checked against the macro's published windows. Output: a `[[modes]]` TOML fragment (one table per mode, carrying the canonical window, the ADC input code range, and the fitted factor; pasted nested under the macro section) plus a per-mode fit plot (code vs ideal code + fitted line).
 
 `--modes m[,m...]` narrows a run to a subset of the mode set: each mode re-runs the full stimulus battery, so per-mode runs bound single-command runtime; the emitted fragments concatenate.
 
@@ -45,7 +45,3 @@ The mode-set TOML is the single source consumed downstream — both `threshold_p
 ## Run configs
 
 A scheme keeps its run configs beside its params (e.g. `calibrate_rescale.toml` / `calibrate_threshold.toml` / `calibrate_modes.toml` in the scheme's `params/` directory). The `[macro].config_files` list merges first-wins, so a geometry overlay can precede the scheme default.
-
----
-
-- See also: [rescale convention](../../reference/primitive/macro/cim/family.md#governing-laws)

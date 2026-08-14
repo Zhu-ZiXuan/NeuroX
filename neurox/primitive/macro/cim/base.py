@@ -1,6 +1,6 @@
 """Abstract CIM-macro primitive.
 
-See also:
+See Also:
     docs/internals/primitive/macro/cim/base.md
 """
 
@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, fields
-from typing import TYPE_CHECKING, Generic, TypeVar
+from typing import TYPE_CHECKING
 
 import torch
 from torch import Tensor
@@ -131,14 +131,9 @@ class CimMacroPolicy(PolicyBase, ABC):
     """Abstract marker base for CimMacro-family nonideality policies."""
 
 
-ConfigT = TypeVar("ConfigT", bound=CimMacroConfig, covariant=True)
-PolicyT = TypeVar("PolicyT", bound=CimMacroPolicy, covariant=True)
-
-
-class CimMacro(
+class CimMacro[ConfigT: CimMacroConfig, PolicyT: CimMacroPolicy](
     ModuleBase[ConfigT, PolicyT],
     RegistryMixin["CimMacroConfig", "CimMacroPolicy", "CimMacro[CimMacroConfig, CimMacroPolicy]"],
-    Generic[ConfigT, PolicyT],
     ABC,
 ):
     """Abstract base class for a CIM macro.

@@ -93,7 +93,7 @@ def test_leg_billing_law() -> None:
     module = _build_sinwp_sc()
     i__uA = _witness_currents()
     # The witness must carry mixed signs so an |I| implementation fails.
-    assert (i__uA < 0).any() and (i__uA > 0).any()
+    assert i__uA.min() < 0 < i__uA.max()
     window = torch.tensor(_WINDOW__NS, dtype=_DTYPE)
 
     with Profiler() as prof, torch.no_grad():

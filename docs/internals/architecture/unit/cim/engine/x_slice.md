@@ -1,27 +1,26 @@
 # XSliceStage
 
-`XSliceStage` pairs call-time input decomposition with the inverse `Sa`
+`XSliceStage` pairs call-time input decomposition with the inverse `Sx`
 digital aggregation. It does not participate in geometric placement.
 
 ## Implementations
 
-`DirectXSliceStage` uses `DirectSlicer`, appends a structural `Sa=1` axis, and
+`DirectXSliceStage` uses `DirectSlicer`, appends a structural `Sx=1` axis, and
 removes that axis without a digital operation.
 
 `SerialXSliceStage` uses `SerialSlicer`. Its radix is the number of integer
 values in one macro input interval,
-`R_a = x_hi - x_lo + 1`. The stage-owned shift adder reduces `Sa` after the
-geometric and weight-slice reductions. Its physical multiplicity is
-`(w_parallel,G)`.
+`R_a = x_hi - x_lo + 1`. The stage-owned shift adder reduces `Sx` after the
+geometric and weight-slice reductions. Its physical multiplicity is `(G,)`.
 
 ## Contracts
 
-- `slice` maps `[...,M,K]` to `[...,M,K,Sa]`.
-- `aggregate` receives `[...,M,Sa,G,Q]` and returns `[...,M,G,Q]`.
+- `slice` maps `[...,M,K]` to `[...,M,K,Sx]`.
+- `aggregate` receives `[...,M,Sx,G,Q]` and returns `[...,M,G,Q]`.
 - `value_range` is sourced from the owned slicer and is the engine's published
   logical input range.
-- `Sa` is a serial time axis, never a macro instance axis. The canonical macro
-  weight layout carries `Sa=1`; runtime input broadcasting materializes the
+- `Sx` is a serial time axis, never a macro instance axis. The canonical macro
+  weight layout carries `Sx=1`; runtime input broadcasting materializes the
   serial reads.
 
 ---

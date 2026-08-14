@@ -210,7 +210,7 @@ def test_w_digit_num_1_ternary_transfer(device: torch.device) -> None:
     out = _assert_decode_matches_ideal(macro, w, x)
     assert tuple(out.shape) == (5, TINY_OUTPUT_NUM)
     # Both signs are exercised somewhere in the random draw.
-    assert int(out.min()) < 0 and int(out.max()) > 0
+    assert int(out.min()) < 0 < int(out.max())
 
 
 # ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 """Reusable analog non-ideality kernels and their config dataclasses.
 
-See also:
+See Also:
     docs/reference/primitive/nonideality.md
     docs/internals/primitive/nonideality.md
 """

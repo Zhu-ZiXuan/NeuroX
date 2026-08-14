@@ -12,7 +12,7 @@ Never add unnecessary newlines in docs.
 Read `docs/README.md` for the documentation map; the scientific spec is in `docs/reference/`, implementation internals in `docs/internals/`, and coding/doc standards in `docs/contributing/`.
 
 Key library version:
-- python 3.13+
+- python 3.12+
 - pytorch 2.10+
 
 Utility `make` targets:

@@ -1,6 +1,6 @@
 """Chunking layer between a crossbar array and a fixed-shape DC solver.
 
-See also:
+See Also:
     docs/internals/primitive/xbar/solver/chunked.md
 """
 
@@ -9,7 +9,7 @@ from __future__ import annotations
 import dataclasses
 import math
 from collections.abc import Callable, Iterator, Mapping
-from typing import Any, Generic, TypeVar
+from typing import Any
 
 import torch
 from torch import Tensor
@@ -19,10 +19,8 @@ from neurox.common import walk_tensor_fields
 from .base import Solver
 from .chunking import MeasureFold, iter_chunks, slice_snap, slice_tensor
 
-MeasureT = TypeVar("MeasureT")
 
-
-class ChunkedSolver(Generic[MeasureT]):
+class ChunkedSolver[MeasureT]:
     """Same-signature `Solver` wrapper that folds one leading chunk by chunk.
 
     Argument handling is signature-agnostic: a snap argument is chunk-sliced,

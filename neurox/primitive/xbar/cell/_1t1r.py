@@ -1,6 +1,6 @@
 """Abstract 1T1R crossbar cell — shared config and result types.
 
-See also:
+See Also:
     docs/reference/primitive/xbar/cell/1t1r.md
     docs/internals/primitive/xbar/cell/1t1r.md
 """
@@ -8,8 +8,7 @@ See also:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from typing import Any, Generic, TypeVar
+from typing import Any
 
 import torch
 from torch import Tensor
@@ -33,7 +32,6 @@ class XbarCell1t1rPolicy(XbarCellPolicy, ABC):
     """Base policy for 1T1R cell nonidealities."""
 
 
-@dataclass(frozen=True, kw_only=True)
 class XbarCell1t1rSnap(XbarCellSnap):
     """Per-call snap base of a 1T1R cell's fabricated state."""
 
@@ -41,7 +39,6 @@ class XbarCell1t1rSnap(XbarCellSnap):
     """Word-line drive voltage at each cell's own NMOS gate. Shape: `[..., col, row]`."""
 
 
-@dataclass(frozen=True)
 class XbarCell1t1rDcop(XbarCellDcop):
     """1T1R branch working point with the condensed access-node voltage."""
 
@@ -49,19 +46,13 @@ class XbarCell1t1rDcop(XbarCellDcop):
     """Access-node voltage at the NMOS drain / RRAM bottom. Shape: `[..., col, row]`."""
 
 
-CellSnapT = TypeVar("CellSnapT", bound=XbarCell1t1rSnap)
-ConfigT = TypeVar("ConfigT", bound=XbarCell1t1rConfig, covariant=True)
-PolicyT = TypeVar("PolicyT", bound=XbarCell1t1rPolicy, covariant=True)
-
-
-class XbarCell1t1r(
-    XbarCell[ConfigT, PolicyT, CellSnapT, XbarCell1t1rDcop],
+class XbarCell1t1r[ConfigT: XbarCell1t1rConfig, PolicyT: XbarCell1t1rPolicy, SnapT: XbarCell1t1rSnap](
+    XbarCell[ConfigT, PolicyT, SnapT, XbarCell1t1rDcop],
     RegistryMixin[
         XbarCell1t1rConfig,
         XbarCell1t1rPolicy,
         "XbarCell1t1r[XbarCell1t1rConfig, XbarCell1t1rPolicy, Any]",
     ],
-    Generic[ConfigT, PolicyT, CellSnapT],
     ABC,
 ):
     """Base class for condensed series access-device and storage cells.

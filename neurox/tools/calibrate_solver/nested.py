@@ -255,7 +255,8 @@ def main(argv: list[str] | None = None) -> int:
             f"[workload].active_rows ({active_rows}) must satisfy 1 <= active_rows <= row_num ({cfg.macro.input_num})."
         )
 
-    distribution_path = resolve_relative_path(cfg.workload.distribution, args.config)
+    distribution = cfg.workload.distribution
+    distribution_path = None if distribution is None else resolve_relative_path(distribution, args.config)
 
     log.info("=" * 80)
     log.info("NestedParallelRailSolver — step-ratio plateau calibration (2-axis staged)")

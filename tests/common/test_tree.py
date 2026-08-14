@@ -1,4 +1,7 @@
-"""Tests for what a module tree tells about the NeuroX modules it holds: names from `stamp_names`, and roots from the descent that stops at the first NeuroX module."""
+"""Tests for what a module tree tells about the NeuroX modules it holds.
+
+Names from `stamp_names`, and roots from the descent that stops at the first NeuroX module.
+"""
 
 from __future__ import annotations
 

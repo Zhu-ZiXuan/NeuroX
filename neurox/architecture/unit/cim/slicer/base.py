@@ -1,6 +1,6 @@
 """Slicer ABC for value-domain decomposition.
 
-See also:
+See Also:
     docs/internals/architecture/unit/cim/slicer/base.md
 """
 

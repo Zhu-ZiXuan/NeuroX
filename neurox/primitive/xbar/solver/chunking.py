@@ -1,6 +1,6 @@
 """Memory-bounded chunking helpers for broadcast-leading dimensions.
 
-See also:
+See Also:
     docs/internals/primitive/xbar/solver/chunking.md
 """
 
@@ -8,15 +8,12 @@ from __future__ import annotations
 
 import math
 from collections.abc import Iterator
-from typing import Generic, NamedTuple, TypeVar
+from typing import NamedTuple
 
 import torch
 from torch import Tensor
 
 from neurox.common import walk_tensor_fields
-
-SnapT = TypeVar("SnapT")
-MeasureT = TypeVar("MeasureT")
 
 
 class ChunkSpec(NamedTuple):
@@ -75,7 +72,7 @@ def iter_chunks(
         )
 
 
-def slice_snap(
+def slice_snap[SnapT](
     snap: SnapT,
     *,
     coords: tuple[Tensor, ...],
@@ -165,7 +162,7 @@ def slice_tensor(
     return sliced
 
 
-class MeasureFold(Generic[MeasureT]):
+class MeasureFold[MeasureT]:
     """Full-leading buffer the per-chunk measurements are written into.
 
     Allocating, writing and reading back are valid in that order alone. Every

@@ -5,7 +5,7 @@ input-radix combine ratios `s_k` and summed over the bit axis into the per-lane
 pre-subtraction current `I_DL_PN`. A reporter leaf: it self-bills its held/live
 mirror-leg conduction and hold-cap cycling.
 
-See also:
+See Also:
     docs/works/macro/cim/xue2020jssc/model.md
 """
 

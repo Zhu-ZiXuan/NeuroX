@@ -486,9 +486,8 @@ def test_read_channels_linear_in_t_sample(device: torch.device) -> None:
         # Equal spacing in the knob => equal spacing in energy (linear).
         assert (v[1] - v[0]) == pytest.approx(v[2] - v[1], rel=1e-9, abs=1e-9), f"{ch} non-linear: {v}"
     ctrl = [e["control"] for e in energies]
-    assert ctrl[0] == pytest.approx(ctrl[1]) and ctrl[1] == pytest.approx(ctrl[2]), (
-        f"control not window-invariant: {ctrl}"
-    )
+    assert ctrl[0] == pytest.approx(ctrl[1]), f"control not window-invariant: {ctrl}"
+    assert ctrl[1] == pytest.approx(ctrl[2]), f"control not window-invariant: {ctrl}"
 
 
 def test_read_channels_linear_in_t_settle(device: torch.device) -> None:
@@ -508,9 +507,8 @@ def test_read_channels_linear_in_t_settle(device: torch.device) -> None:
         assert v[0] < v[1] < v[2], f"{ch} not increasing in t_settle: {v}"
         assert (v[1] - v[0]) == pytest.approx(v[2] - v[1], rel=1e-9, abs=1e-9), f"{ch} non-linear: {v}"
     ctrl = [e["control"] for e in energies]
-    assert ctrl[0] == pytest.approx(ctrl[1]) and ctrl[1] == pytest.approx(ctrl[2]), (
-        f"control not window-invariant: {ctrl}"
-    )
+    assert ctrl[0] == pytest.approx(ctrl[1]), f"control not window-invariant: {ctrl}"
+    assert ctrl[1] == pytest.approx(ctrl[2]), f"control not window-invariant: {ctrl}"
 
 
 def test_sc_held_leg_suffix_sum_law(device: torch.device) -> None:

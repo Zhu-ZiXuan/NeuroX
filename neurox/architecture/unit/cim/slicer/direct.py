@@ -1,6 +1,6 @@
 """DirectSlicer — identity value decomposition.
 
-See also:
+See Also:
     docs/internals/architecture/unit/cim/slicer/direct.md
 """
 

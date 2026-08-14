@@ -1,18 +1,16 @@
 """Shape-independent pure-array core for a 1T1R crossbar tile.
 
-See also:
+See Also:
     docs/reference/primitive/xbar/array/1t1r.md
     docs/internals/primitive/xbar/array/1t1r.md
 """
 
-from dataclasses import dataclass
 from enum import StrEnum
-from typing import TypeVar
 
 import torch
 from torch import Tensor
 
-from neurox.common import ConfigBase, ModuleBase, PolicyBase
+from neurox.common import ConfigBase, ModuleBase, PolicyBase, TensorDataClassBase
 from neurox.primitive.physics import e_cap_excursion__fJ
 from neurox.primitive.xbar.cell import (
     XbarCell1t1r,
@@ -29,9 +27,6 @@ from neurox.primitive.xbar.solver import (
     NestedParallelRailSolverConfig,
     SolverDcop,
 )
-
-BLSnapT = TypeVar("BLSnapT", bound=ClampSnap)
-SLSnapT = TypeVar("SLSnapT", bound=ClampSnap)
 
 
 class XbarArray1t1rOperationMode(StrEnum):
@@ -113,8 +108,7 @@ class XbarArray1t1rPolicy(PolicyBase):
         self._require_non_neg(self.solve_chunk_size, "solve_chunk_size")
 
 
-@dataclass(frozen=True)
-class XbarArray1t1rSteadyState:
+class XbarArray1t1rSteadyState(TensorDataClassBase):
     """Reassembled steady-state array output, one entry per conducting boundary."""
 
     i_bl_port__uA: Tensor
@@ -127,8 +121,7 @@ class XbarArray1t1rSteadyState:
     """SL drive voltage at the converged operating point. Shape: `[..., col_num]`."""
 
 
-@dataclass(frozen=True)
-class XbarArray1t1rChunkMeasure:
+class XbarArray1t1rChunkMeasure(TensorDataClassBase):
     """What survives one solved chunk of this array."""
 
     i_bl_port__uA: Tensor
@@ -242,7 +235,7 @@ class XbarArray1t1r(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
             )
         self.cell.program(w_state_idx)
 
-    def solve_array(
+    def solve_array[BLSnapT: ClampSnap, SLSnapT: ClampSnap](
         self,
         v_wl: Tensor,
         *,
@@ -274,7 +267,6 @@ class XbarArray1t1r(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
             [V] at the full leading, the column axis being each clamp's own
             instance axis.
         """
-
         # --- 1: read the call's broadcast leading ---
 
         col_num, row_num = self._col_num, self._row_num

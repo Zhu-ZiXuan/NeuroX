@@ -10,13 +10,12 @@ from dataclasses import Field, is_dataclass
 from enum import Enum
 from pathlib import Path
 from types import NoneType, UnionType
-from typing import ClassVar, Protocol, TypeAlias, TypeGuard, TypeVar, Union, get_args, get_origin, get_type_hints
+from typing import ClassVar, Protocol, TypeGuard, Union, get_args, get_origin, get_type_hints
 
 from .keys import CLASS_DISCRIMINATOR
 from .value import ConfigDict, ConfigValue, normalize_config_dict
 
-T = TypeVar("T")
-_PrimitiveType: TypeAlias = type[bool] | type[int] | type[float] | type[str]
+type _PrimitiveType = type[bool] | type[int] | type[float] | type[str]
 
 
 class _DataclassInstance(Protocol):
@@ -56,7 +55,7 @@ def _recursive_dataclass_descendants(base: type[object]) -> list[str]:
     return out
 
 
-def _resolve_concrete_dataclass(base: type[T], type_name: str) -> type[T]:
+def _resolve_concrete_dataclass[T](base: type[T], type_name: str) -> type[T]:
     """Find one named class among a base and its recursive dataclass subclasses.
 
     Raises:
@@ -196,7 +195,7 @@ def _coerce_primitive(value: ConfigValue, tp: _PrimitiveType) -> bool | int | fl
     raise TypeError(f"unsupported primitive type {tp!r}")
 
 
-def dataclass_from_dict(cls: type[T], data: Mapping[str, ConfigValue]) -> T:
+def dataclass_from_dict[T](cls: type[T], data: Mapping[str, ConfigValue]) -> T:
     """Build a dataclass instance from a mapping.
 
     Nested dataclass and `Enum` fields are resolved recursively. A top-level
@@ -226,7 +225,7 @@ def dataclass_from_dict(cls: type[T], data: Mapping[str, ConfigValue]) -> T:
     return _dataclass_from_config_dict(cls, normalize_config_dict(data))
 
 
-def _dataclass_from_config_dict(cls: type[T], data: ConfigDict) -> T:
+def _dataclass_from_config_dict[T](cls: type[T], data: ConfigDict) -> T:
     """Build a dataclass from an already validated configuration mapping."""
     if not is_dataclass(cls):
         raise TypeError(f"{cls.__name__} is not a dataclass type")
