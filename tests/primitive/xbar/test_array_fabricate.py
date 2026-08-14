@@ -21,7 +21,7 @@ from neurox.primitive.xbar.array import (
     XbarArray1t1rPolicy,
 )
 from neurox.primitive.xbar.cell import XbarCell1t1rDetail, XbarCell1t1rDetailConfig, XbarCell1t1rDetailPolicy
-from neurox.primitive.xbar.solver import NestedParallelRailSolverConfig
+from neurox.primitive.xbar.solver import ColBlColSlSolverConfig
 
 
 def _array_config() -> XbarArray1t1rConfig:
@@ -47,7 +47,7 @@ def _array_config() -> XbarArray1t1rConfig:
         sl_node_c__fF=0.1,
         wl_node_c__fF=0.1,
         cell_config=cell_config,
-        solver_config=NestedParallelRailSolverConfig(n_outer=1, n_inner=1),
+        solver_config=ColBlColSlSolverConfig(n_outer=1, n_inner=1),
     )
 
 

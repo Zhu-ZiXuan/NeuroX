@@ -558,7 +558,7 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
         # codes arrive at the bank's own (*inst_shape, phys_col) seat layout, so a
         # shared input vector still pays once per die.
         # Shape: [..., *inst_shape, phys_col]
-        v_bl = self.bl_dac.convert((x_tiled > 0).long().expand(*batch, *inst, phys_col_num))
+        v_bl__V = self.bl_dac.convert((x_tiled > 0).long().expand(*batch, *inst, phys_col_num))
 
         # --- 2: stack the output-serial one-hot word lines on the leading ---
 
@@ -575,16 +575,16 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
         wl_code = self._wl_onehot_code.view(self.col_num, *(1,) * n_inst, self.col_num).expand(
             *solve_leading, self.col_num
         )
-        v_wl_lines = self.wl_dac.convert(wl_code)
+        v_wl_lines__V = self.wl_dac.convert(wl_code)
         # The array reads one value per cell GATE, and one word line spans every
         # column of its row, which the stride-0 expand over the column axis
         # states — it is also this macro's declaration that a scanned row carries
         # no per-column structure.
         # Shape: [..., out, *inst_shape, phys_col, array_row]
-        v_wl = v_wl_lines.unsqueeze(-2).expand(*solve_leading, phys_col_num, self.col_num)
+        v_wl__V = v_wl_lines__V.unsqueeze(-2).expand(*solve_leading, phys_col_num, self.col_num)
         # The same per-column inputs for every output.
         # Shape: [..., out, *inst_shape, phys_col]
-        bl_v_ref = v_bl.unsqueeze(-(n_inst + 2)).expand(*solve_leading, phys_col_num)
+        bl_v_ref__V = v_bl__V.unsqueeze(-(n_inst + 2)).expand(*solve_leading, phys_col_num)
 
         # --- 3: one broadcast solve; leading becomes (..., out, *inst_shape) ---
 
@@ -595,10 +595,10 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
         # canonical [..., col] shape, so the array normalizes nothing.
         # Shape: [..., out, *inst_shape, phys_col]
         event_shape = (*solve_leading, phys_col_num)
-        bl_snap = self.bl_driver.snapshot(v_ref__V=bl_v_ref, shape=event_shape)
+        bl_snap = self.bl_driver.snapshot(v_ref__V=bl_v_ref__V, shape=event_shape)
         sl_snap = self.sl_driver.snapshot(v_ref__V=self._sl_v_ref__V.expand(event_shape), shape=event_shape)
         steady = self.array.solve_array(
-            v_wl,
+            v_wl__V,
             bl_driver=self.bl_driver,
             bl_driver_snap=bl_snap,
             sl_driver=self.sl_driver,

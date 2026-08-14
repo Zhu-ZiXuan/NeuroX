@@ -446,9 +446,9 @@ def measure(
             )
             # leading_rank=1: the `batch` axis indexes independent unit
             # operations, so each energy event resolves to [batch], one element
-            # per input vector. device=None leaves the records where they were
-            # recorded: the reporter reduces a whole book in one transfer.
-            with Profiler(leading_rank=1, device=None) as prof:
+            # per input vector. The records stay where they were recorded: the
+            # reporter reduces a whole book in one transfer.
+            with Profiler(leading_rank=1) as prof:
                 macro.program(w)
                 macro.vec_mat_mul(x, quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
             for name, e__fJ in reporter.by_name(prof).items():

@@ -140,7 +140,7 @@ def test_divider_reproduces_detail_at_op(
 ) -> None:
     """Chord conductance and drop fraction match the Detail solve at the OP.
 
-    `I = g_cell * span` and `V_X = v_bl_op - vx_ratio * span` reproduce
+    `I = g_cell__uS * span` and `V_X = v_bl_op - vx_ratio * span` reproduce
     the Detail branch at both WL levels — the full-span denominators keep
     the cut-off (WL-off) level as well-conditioned as the conducting one.
     """
@@ -151,8 +151,8 @@ def test_divider_reproduces_detail_at_op(
         dtype=torch.float64,
     )
     span__V = _V_BL_OP__V - _V_SL_OP__V
-    v_bl = torch.full((1, 1), _V_BL_OP__V, dtype=torch.float64)
-    v_sl = torch.full((1, 1), _V_SL_OP__V, dtype=torch.float64)
+    v_bl__V = torch.full((1, 1), _V_BL_OP__V, dtype=torch.float64)
+    v_sl__V = torch.full((1, 1), _V_SL_OP__V, dtype=torch.float64)
     levels = (
         (_V_WL_OFF__V, linear_config.g_cell_off_table__uS, linear_config.vx_ratio_off_table),
         (_V_WL_ON__V, linear_config.g_cell_on_table__uS, linear_config.vx_ratio_on_table),
@@ -160,9 +160,9 @@ def test_divider_reproduces_detail_at_op(
     for s in range(len(detail_config.state_to_g_map__uS)):
         cell.program(torch.full((1,), s, dtype=torch.long))
         for v_wl__V, g_table, vx_table in levels:
-            v_wl = torch.full((1, 1), v_wl__V, dtype=torch.float64)
-            snap = cell.snapshot(control=v_wl, shape=(1, 1), t_elapsed=0.0)
-            dcop = cell.solve_dc(v_bl, v_sl, snap)
+            v_wl_grid__V = torch.full((1, 1), v_wl__V, dtype=torch.float64)
+            snap = cell.snapshot(control=v_wl_grid__V, shape=(1, 1), t_elapsed=0.0)
+            dcop = cell.solve_dc(v_bl__V, v_sl__V, snap)
 
             g_cell__uS = g_table[s]
             vx_ratio = vx_table[s]

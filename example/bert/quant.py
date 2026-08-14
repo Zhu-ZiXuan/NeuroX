@@ -6,7 +6,6 @@ ternary w, signed 4-bit y).
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any, Self
 
 import torch
@@ -16,6 +15,7 @@ from torch import Tensor
 
 from neurox.architecture.unit import LinearUnit
 from neurox.architecture.unit.cim import EngineBackedCimUnit
+from neurox.common import TensorDataClassBase
 
 X_QMIN = 0
 X_QMAX = 15
@@ -320,8 +320,7 @@ def _mac_per_code(macro: LinearUnit, *, quantization_mode: int, adc_bits: int | 
     return factor * (upper - lower + 1) / float(1 << twin.adc_max_bits)
 
 
-@dataclass
-class _FoldedScales:
+class _FoldedScales(TensorDataClassBase):
     """Integer rescale terms the runtime forward applies to macro codes."""
 
     mult: Tensor

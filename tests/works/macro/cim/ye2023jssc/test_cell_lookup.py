@@ -13,8 +13,8 @@ Laws (config = arbitrary hand-written witness, not the assertion target):
     floor entry of the programmed state, `V_X > 0` the drive entry, and an LRS
     cell drives more than an HRS one;
   * step1 is delegated verbatim to the linear base — `solve_dc` returns an
-    `XbarCell1t1rDcop` whose `i__uA == g_cell * (v_bl - v_sl)` and
-    `v_x__V == v_bl - vx_ratio * (v_bl - v_sl)` exactly,
+    `XbarCell1t1rDcop` whose `i__uA == g_cell__uS * (v_bl__V - v_sl__V)` and
+    `v_x__V == v_bl__V - vx_ratio * (v_bl__V - v_sl__V)` exactly,
   * the cell adds NO energy model of its own: the capacitive law is the kernel
     1T1R cell's supply-draw one, pinned where it lives,
   * the `(config, policy)` pair dispatches through the `XbarCell1t1r`
@@ -92,10 +92,10 @@ def _build_cell(config: Ye2023Jssc2t1rCellConfig, inst_shape: tuple[int, ...]) -
     return cell
 
 
-def _snapshot(cell: Ye2023Jssc2t1rCell, v_wl: Tensor) -> Ye2023Jssc2t1rCellSnap:
+def _snapshot(cell: Ye2023Jssc2t1rCell, v_wl__V: Tensor) -> Ye2023Jssc2t1rCellSnap:
     """Snapshot at a per-row WL drive expanded onto the cell grid, as an array does."""
     return cell.snapshot(
-        control=v_wl.unsqueeze(-2).expand(cell.inst_shape),
+        control=v_wl__V.unsqueeze(-2).expand(cell.inst_shape),
         shape=cell.inst_shape,
         t_elapsed=0.0,
     )
@@ -119,9 +119,9 @@ def _solved(
     inst_shape: tuple[int, ...],
 ) -> XbarCell1t1rDcop:
     """Settle the branch at a hand-written drive level against a grounded SL."""
-    v_bl = torch.full(inst_shape, v_bl__V, dtype=_DTYPE)
-    v_sl = torch.zeros(inst_shape, dtype=_DTYPE)
-    return cell.solve_dc(v_bl, v_sl, snap)
+    v_bl__V = torch.full(inst_shape, v_bl__V, dtype=_DTYPE)
+    v_sl__V = torch.zeros(inst_shape, dtype=_DTYPE)
+    return cell.solve_dc(v_bl__V, v_sl__V, snap)
 
 
 def test_registry_dispatch() -> None:
@@ -159,8 +159,8 @@ def test_i_t2_selects_state_and_operating_point() -> None:
     assert i_floor.min() == i_floor.max()  # the floor is state-independent
 
     # Per-cell mixed drive: the classification is per cell, not per call.
-    v_bl = torch.where(lrs, torch.tensor(_V_BL_IN1__V, dtype=_DTYPE), torch.zeros((), dtype=_DTYPE))
-    mixed = cell.solve_dc(v_bl, torch.zeros(inst_shape, dtype=_DTYPE), snap)
+    v_bl__V = torch.where(lrs, torch.tensor(_V_BL_IN1__V, dtype=_DTYPE), torch.zeros((), dtype=_DTYPE))
+    mixed = cell.solve_dc(v_bl__V, torch.zeros(inst_shape, dtype=_DTYPE), snap)
     i_mixed = cell.i_t2__uA(mixed, snap)
     assert torch.equal(i_mixed[lrs], snap.i_t2_drive__uA[lrs])
     assert torch.equal(i_mixed[hrs], snap.i_t2_floor__uA[hrs])
@@ -203,19 +203,19 @@ def test_step1_delegation_unchanged() -> None:
     state = torch.tensor([[_HRS, _LRS, _HRS], [_LRS, _HRS, _LRS]])
     cell = _programmed_cell(config, inst_shape, state)
 
-    v_wl = torch.full((inst_shape[1],), _V_WL_SEL__V, dtype=_DTYPE)  # above threshold -> on params
-    snap = _snapshot(cell, v_wl)
-    v_bl = torch.full(inst_shape, _V_BL_IN1__V, dtype=_DTYPE)
-    v_sl = torch.zeros(inst_shape, dtype=_DTYPE)
+    v_wl__V = torch.full((inst_shape[1],), _V_WL_SEL__V, dtype=_DTYPE)  # above threshold -> on params
+    snap = _snapshot(cell, v_wl__V)
+    v_bl__V = torch.full(inst_shape, _V_BL_IN1__V, dtype=_DTYPE)
+    v_sl__V = torch.zeros(inst_shape, dtype=_DTYPE)
 
-    dcop = cell.solve_dc(v_bl, v_sl, snap)
+    dcop = cell.solve_dc(v_bl__V, v_sl__V, snap)
     assert isinstance(dcop, XbarCell1t1rDcop)
 
-    on = v_wl > config.v_wl_on_threshold__V
-    g_cell = torch.where(on, snap.g_cell_on__uS, snap.g_cell_off__uS)
+    on = v_wl__V > config.v_wl_on_threshold__V
+    g_cell__uS = torch.where(on, snap.g_cell_on__uS, snap.g_cell_off__uS)
     vx_ratio = torch.where(on, snap.vx_ratio_on, snap.vx_ratio_off)
-    dv = v_bl - v_sl
-    assert torch.equal(dcop.i__uA, g_cell * dv)
-    assert torch.equal(dcop.v_x__V, v_bl - vx_ratio * dv)
-    assert torch.equal(dcop.di_dvbl__uS, g_cell)
-    assert torch.equal(dcop.di_dvsl__uS, -g_cell)
+    dv__V = v_bl__V - v_sl__V
+    assert torch.equal(dcop.i__uA, g_cell__uS * dv__V)
+    assert torch.equal(dcop.v_x__V, v_bl__V - vx_ratio * dv__V)
+    assert torch.equal(dcop.di_dvbl__uS, g_cell__uS)
+    assert torch.equal(dcop.di_dvsl__uS, -g_cell__uS)

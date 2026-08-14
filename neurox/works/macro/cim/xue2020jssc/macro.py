@@ -927,7 +927,7 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         # than between it and the row axis.
         # Shape: -> [..., x_bits, *inst_shape, row]
         planes = _move_axis_block(planes, src=planes.ndim - 2, dst=batch_num, num=1)
-        v_wl = self.wl_dac.convert(planes)
+        v_wl__V = self.wl_dac.convert(planes)
 
         # --- 2: Solve the array once (cells + wire IR drop) -> I_DL ---
 
@@ -976,9 +976,9 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         # it is also this macro's declaration that a plane carries no per-column
         # structure of its own.
         # Shape: [*leading, row] -> [*leading, phys_col, row]
-        v_wl_grid = v_wl.unsqueeze(-2).expand(*leading, phys_col_num, self.row_num)
+        v_wl_grid__V = v_wl__V.unsqueeze(-2).expand(*leading, phys_col_num, self.row_num)
         steady = self.array.solve_array(
-            v_wl_grid,
+            v_wl_grid__V,
             bl_driver=self.cablc,
             bl_driver_snap=bl_snap,
             sl_driver=self.sl_driver,
@@ -988,10 +988,10 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         # is when it is accessed and through which driver lane, which is what the
         # conduction windows and the per-lane readout modules are indexed by.
         # Shape: [*leading, phys_col] -> [*leading, gs, gn, polarity, wd]
-        i_bl_seat = self._phys_to_seat(steady.i_bl_port__uA, dim=-1)
-        v_bl_seat = self._phys_to_seat(steady.v_bl_clamp__V, dim=-1)
-        i_sl_seat = self._phys_to_seat(steady.i_sl_port__uA, dim=-1)
-        v_sl_seat = self._phys_to_seat(steady.v_sl_drive__V, dim=-1)
+        i_bl_seat__uA = self._phys_to_seat(steady.i_bl_port__uA, dim=-1)
+        v_bl_seat__V = self._phys_to_seat(steady.v_bl_clamp__V, dim=-1)
+        i_sl_seat__uA = self._phys_to_seat(steady.i_sl_port__uA, dim=-1)
+        v_sl_seat__V = self._phys_to_seat(steady.v_sl_drive__V, dim=-1)
         # Deliver both boundary clamps at the converged port state, on the seat
         # layout: the lane trailing (gn, polarity, w_digit) is each clamp bank's
         # instance block, and a per-op lump is seated by POSITION, so the drives
@@ -999,13 +999,13 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         # layout-blind (a flat per-op lump over the driven tensor), so a fabrication
         # prefix ahead of the sweep axis does not disturb it.
         # Shape: [..., x_bits, *inst_shape, gs, gn, polarity, wd]
-        self.cablc.drive(i_bl_seat, v_bl_seat)
-        self.sl_driver.drive(i_sl_seat, v_sl_seat)
+        self.cablc.drive(i_bl_seat__uA, v_bl_seat__V)
+        self.sl_driver.drive(i_sl_seat__uA, v_sl_seat__V)
 
         # Back to the caller's axis order: the readout chain below reads the
         # x-bit axis at a fixed depth from the trailing end.
         # Shape: -> [..., *inst_shape, x_bits, gs, gn, polarity, wd]
-        i_dl = _move_axis_block(i_bl_seat, src=batch_num, dst=batch_num + inst_num, num=1)
+        i_dl = _move_axis_block(i_bl_seat__uA, src=batch_num, dst=batch_num + inst_num, num=1)
 
         # The whole input branch V_DD * I_DL is the macro's to bill, since the
         # macro owns the per-bit conduction window; the array bills only its

@@ -3,7 +3,7 @@
 import torch
 from torch import Tensor
 
-from .recorder import _DEFAULT_DEVICE, RecordBase, RecorderBase
+from .recorder import RecordBase, RecorderBase
 
 
 class EnergyRecord(RecordBase):
@@ -38,13 +38,14 @@ class Profiler(RecorderBase[EnergyRecord]):
             leading dims its caller owns — and a reporting-resolution knob
             rather than a physical quantity: it sets how finely the
             per-unit-operation view resolves, never a total.
-        device: Where a clean exit parks the collected records.
+        sync_device: Device a clean exit parks the collected records on; `None`
+            leaves each record where it was recorded.
     """
 
-    def __init__(self, *, leading_rank: int = 0, device: torch.device | None = _DEFAULT_DEVICE) -> None:
+    def __init__(self, *, leading_rank: int = 0, sync_device: torch.device | None = None) -> None:
         if leading_rank < 0:
             raise ValueError(f"leading_rank must be non-negative; got {leading_rank}")
-        super().__init__(device=device)
+        super().__init__(sync_device=sync_device)
         self._leading_rank = leading_rank
 
     @property

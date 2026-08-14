@@ -61,9 +61,9 @@ def test_probe_preserves_output_and_captures_call(device: torch.device) -> None:
     v_refs = _taps(device)
 
     expected = adc.convert(v_pos, v_neg, v_refs__V=v_refs, bits=4)
-    # device=None: the record is compared against the call's own tensors, which
-    # live on the tested device; a default cpu finalize would park it elsewhere.
-    with DiffVadcProber(device=None) as prober:
+    # The record stays where it was recorded, which is where the call's own
+    # tensors it is compared against live.
+    with DiffVadcProber() as prober:
         out = adc.convert(v_pos, v_neg, v_refs__V=v_refs, bits=4)
 
     assert torch.equal(out, expected)

@@ -10,7 +10,7 @@ Two boundary clamp drivers close the circuit at each column: the bit-line clamp 
 
 ## Operating point
 
-An array solve is defined over one column of $N_{\mathrm{row}}$ cells with unknowns the wire-node voltages $\{V_{\mathrm{BL},k}, V_{\mathrm{SL},k}\}$ plus the two boundary clamp scalars $V_{\mathrm{BL,CL}}, V_{\mathrm{SL,CL}}$. The internal cell node is not an array unknown — each cell condenses it and reports a single branch current $I_{\mathrm{cell},k}(V_{\mathrm{BL},k}, V_{\mathrm{SL},k})$, positive from $V_{\mathrm{BL}}$ into $V_{\mathrm{SL}}$, with its two signed terminal conductances. The residuals are the per-node wire-ladder KCL on the two rails — the same condensed branch current leaves the bit-line KCL and enters the source-line KCL, so the array carries no per-cell internal residual — plus the two boundary constraints pinning the clamp voltages to the injected clamp drivers' transfer functions at the boundary port current. The solution yields the per-column bit-line port current $I_{\mathrm{BL,port}}$ and bit-line clamp voltage $V_{\mathrm{BL,CL}}$, the two quantities the macro readout consumes. The formulation, its well-posedness, and the block-tridiagonal linear algebra are specified in [solver](../solver/nested.md); the per-cell condensed branch and its signed-conductance contract in [cell](../cell/family.md); the boundary clamp-driver transfer characteristic in [voltage driver](../../analog/voltage_driver.md).
+An array solve is defined over one column of $N_{\mathrm{row}}$ cells with unknowns the wire-node voltages $\{V_{\mathrm{BL},k}, V_{\mathrm{SL},k}\}$ plus the two boundary clamp scalars $V_{\mathrm{BL,CL}}, V_{\mathrm{SL,CL}}$. The internal cell node is not an array unknown — each cell condenses it and reports a single branch current $I_{\mathrm{cell},k}(V_{\mathrm{BL},k}, V_{\mathrm{SL},k})$, positive from $V_{\mathrm{BL}}$ into $V_{\mathrm{SL}}$, with its two signed terminal conductances. The residuals are the per-node wire-ladder KCL on the two rails — the same condensed branch current leaves the bit-line KCL and enters the source-line KCL, so the array carries no per-cell internal residual — plus the two boundary constraints pinning the clamp voltages to the injected clamp drivers' transfer functions at the boundary port current. The solution yields the per-column bit-line port current $I_{\mathrm{BL,port}}$ and bit-line clamp voltage $V_{\mathrm{BL,CL}}$, the two quantities the macro readout consumes. The formulation, its well-posedness, and the block-tridiagonal linear algebra are specified in [solver](../solver/col_bl_col_sl.md); the per-cell condensed branch and its signed-conductance contract in [cell](../cell/family.md); the boundary clamp-driver transfer characteristic in [voltage driver](../../analog/voltage_driver.md).
 
 ## Programming
 
@@ -44,11 +44,11 @@ Provenance terms are defined in [module_parameter](../../../../conventions/modul
 
 | Symbol | Meaning | Unit | Code field |
 |---|---|---|---|
-| $V_{\mathrm{BL},k}$ | bit-line node voltage at row $k$ | V | `v_bl_node` |
-| $V_{\mathrm{SL},k}$ | source-line node voltage | V | `v_sl_node` |
-| $V_{\mathrm{WL},k}$ | word-line analog drive voltage (input) | V | `v_wl` |
-| $V_{\mathrm{BL,CL}}$ | bit-line clamp voltage | V | `v_bl_clamp` |
-| $V_{\mathrm{SL,CL}}$ | source-line clamp voltage | V | `v_sl_drive` |
+| $V_{\mathrm{BL},k}$ | bit-line node voltage at row $k$ | V | `v_bl_node__V` |
+| $V_{\mathrm{SL},k}$ | source-line node voltage | V | `v_sl_node__V` |
+| $V_{\mathrm{WL},k}$ | word-line analog drive voltage (input) | V | `v_wl__V` |
+| $V_{\mathrm{BL,CL}}$ | bit-line clamp voltage | V | `v_bl_clamp__V` |
+| $V_{\mathrm{SL,CL}}$ | source-line clamp voltage | V | `v_sl_drive__V` |
 | $I_{\mathrm{cell},k}$ | condensed cell branch current (BL $\to$ SL) | uA | `cell.solve_branch` |
 | $I_{\mathrm{BL,port}}, I_{\mathrm{SL,port}}$ | boundary port currents | uA | derived from node voltages |
 | $N_{\mathrm{row}}$ | number of rows along each BL/SL rail ladder | — | `row_num` |

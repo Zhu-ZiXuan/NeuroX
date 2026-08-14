@@ -53,6 +53,23 @@ class _DerivedA(_FamilyA):
     """A member below A's root, holding no slot of its own."""
 
 
+class _Tagged(_Record):
+    """A record with a plain coordinate a gate reads without touching tensors."""
+
+    tag: int
+
+
+class _TaggedOnly(RecorderBase[_Tagged]):
+    """A family whose admission rule rides a `submit` override."""
+
+    @classmethod
+    @torch.compiler.disable
+    def submit(cls, record: _Tagged) -> None:
+        if record.tag < 0:
+            return
+        cls._submit_record(record)
+
+
 # === Record declaration ===
 
 
@@ -204,11 +221,37 @@ def test_submit_stores_the_record_detached() -> None:
     torch.testing.assert_close(record.value, value.detach())
 
 
+def test_the_base_submit_keeps_every_record() -> None:
+    """Admission is opt-in: a family that overrides nothing collects the whole stream."""
+    with _FamilyA() as recorder:
+        for value in (-1.0, 0.0, 1.0):
+            _FamilyA.submit(_Record(value=torch.tensor(value)))
+    assert [record.value.item() for record in recorder.records] == [-1.0, 0.0, 1.0]
+
+
+def test_an_overriding_family_admits_through_its_own_submit() -> None:
+    """OVERRIDE LAW: the gate lives in `submit`, the bookkeeping in `_submit_record`.
+
+    An override decides what survives and hands the survivors on, so the book
+    holds its subset and holds it detached, exactly as the base would.
+    """
+    kept = _Tagged(value=torch.tensor([1.0], requires_grad=True), tag=0)
+    with _TaggedOnly() as recorder:
+        _TaggedOnly.submit(_Tagged(value=torch.tensor(2.0), tag=-1))
+        _TaggedOnly.submit(kept)
+    (record,) = recorder.records
+    assert record is not kept
+    torch.testing.assert_close(record.value, kept.value.detach())
+    assert record.value.requires_grad is False
+
+
 def test_submitting_outside_a_context_is_a_no_op() -> None:
     """An unclaimed record is dropped, not an error."""
     _FamilyA.submit(_Record(value=torch.tensor(1.0)))  # must not raise
+    _TaggedOnly.submit(_Tagged(value=torch.tensor(1.0), tag=0))  # an override drops it too
     assert _FamilyA.active() is False
     assert _FamilyA.current() is None
+    assert _TaggedOnly.active() is False
 
 
 def test_re_entry_accumulates_into_one_book() -> None:
@@ -234,7 +277,7 @@ def test_a_fresh_book_is_a_fresh_recorder() -> None:
 
 def test_a_clean_exit_parks_the_records_on_the_declared_device() -> None:
     """The recording device is the emitter's; where records rest is the recorder's."""
-    recorder = _FamilyA(device=_ELSEWHERE)
+    recorder = _FamilyA(sync_device=_ELSEWHERE)
     with recorder:
         _FamilyA.submit(_Record(value=torch.tensor(1.0)))
     (record,) = recorder.records
@@ -243,7 +286,7 @@ def test_a_clean_exit_parks_the_records_on_the_declared_device() -> None:
 
 def test_the_sweep_covers_the_whole_book_on_every_clean_exit() -> None:
     """No new-versus-old bookkeeping: an already-parked record is swept again."""
-    recorder = _FamilyA()
+    recorder = _FamilyA(sync_device=_CPU)
     first, second = _SpyRecord(value=torch.tensor(1.0), moves=[]), _SpyRecord(value=torch.tensor(2.0), moves=[])
     with recorder:
         _FamilyA.submit(first)
@@ -254,10 +297,15 @@ def test_the_sweep_covers_the_whole_book_on_every_clean_exit() -> None:
     assert second.moves == [_CPU]
 
 
-def test_device_none_leaves_every_record_where_it_was_recorded() -> None:
-    """Opting out of the sweep moves nothing, not even to a default device."""
+@pytest.mark.parametrize("kwargs", [{}, {"sync_device": None}], ids=["default", "explicit_none"])
+def test_no_sync_device_leaves_every_record_where_it_was_recorded(kwargs: dict[str, torch.device | None]) -> None:
+    """Parking is opt-in: without a `sync_device` the sweep moves nothing.
+
+    The default is that opt-out, so a recorder parks a book on one device only
+    where a caller asked for it.
+    """
     record = _SpyRecord(value=torch.tensor(1.0), moves=[])
-    with _FamilyA(device=None) as recorder:
+    with _FamilyA(**kwargs) as recorder:
         _FamilyA.submit(record)
     assert recorder.records == (record,)
     assert record.moves == []
@@ -265,7 +313,7 @@ def test_device_none_leaves_every_record_where_it_was_recorded() -> None:
 
 def test_a_raising_body_frees_the_slot_without_finalizing() -> None:
     """A failed measurement keeps its records raw: only a clean exit finalizes them."""
-    recorder = _FamilyA()
+    recorder = _FamilyA(sync_device=_ELSEWHERE)
     record = _SpyRecord(value=torch.tensor(1.0), moves=[])
     with pytest.raises(RuntimeError, match="boom"), recorder:
         _FamilyA.submit(record)
@@ -278,7 +326,16 @@ def test_a_raising_body_frees_the_slot_without_finalizing() -> None:
 # === Graph seams ===
 
 
-@pytest.mark.parametrize("seam", ["current", "active", "submit"])
+@pytest.mark.parametrize("seam", ["current", "active", "submit", "_submit_record"])
 def test_the_active_slot_is_reached_from_outside_every_graph(seam: str) -> None:
     """The slot is Python state a trace cannot guard on, so every seam touching it is a graph break."""
     assert getattr(RecorderBase, seam)._torchdynamo_disable
+
+
+def test_a_submit_override_carries_the_graph_break_too() -> None:
+    """An override reads the slot itself, so it owes the same disable as the base.
+
+    Without it dynamo traces the override and folds the empty slot in as a
+    constant, leaving the family silently collecting nothing.
+    """
+    assert _TaggedOnly.submit._torchdynamo_disable

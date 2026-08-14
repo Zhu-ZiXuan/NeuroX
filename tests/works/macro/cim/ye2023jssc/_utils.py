@@ -43,7 +43,7 @@ from neurox.primitive.analog import (
 )
 from neurox.primitive.analog.voltage_dac import GeneralVdacConfig, GeneralVdacPolicy
 from neurox.primitive.macro.cim import CimMacro, CimMacroMode
-from neurox.primitive.xbar.solver import NestedParallelRailSolverConfig
+from neurox.primitive.xbar.solver import ColBlColSlSolverConfig
 from neurox.works.macro.cim.ye2023jssc import (
     Ye2023JsscCimMacro,
     Ye2023JsscCimMacroConfig,
@@ -135,7 +135,7 @@ def array_config() -> Ye2023Jssc2t1rArrayConfig:
         sl_node_c__fF=SL_NODE_C__fF,
         wl_node_c__fF=WL_NODE_C__fF,
         cell_config=cell_config(),
-        solver_config=NestedParallelRailSolverConfig(n_outer=3, n_inner=3),
+        solver_config=ColBlColSlSolverConfig(n_outer=3, n_inner=3),
         weight_radix=TINY_WEIGHT_RADIX,
         redundant_radix=TINY_REDUNDANT_RADIX,
         v_bl_in1__V=V_BL_IN1__V,

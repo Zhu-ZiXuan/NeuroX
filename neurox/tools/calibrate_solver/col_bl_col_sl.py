@@ -18,7 +18,7 @@ located by `[macro].solver_section`; the workload rides the public
 by the solver / cell probers upstream of the ADC. Both criteria are
 chip-parameter-free.
 
-CLI: `python -m neurox.tools.calibrate_solver.nested --help`
+CLI: `python -m neurox.tools.calibrate_solver.col_bl_col_sl --help`
 """
 
 from __future__ import annotations
@@ -110,8 +110,8 @@ class _RuntimeCfg:
     seed: int
 
 
-class CalibrateSolverNestedConfig(ConfigBase):
-    """Top-level config for `neurox.tools.calibrate_solver.nested`.
+class CalibrateSolverColBlColSlConfig(ConfigBase):
+    """Top-level config for `neurox.tools.calibrate_solver.col_bl_col_sl`.
 
     `[macro]` is abstract-typed: the referenced config / policy files select
     the concrete scheme classes via `_neurox_class`, usually by
@@ -136,8 +136,8 @@ def _format_row(row: CandidateRow, label: str) -> str:
         f"{label}={row.iter_count:3d}  "
         f"step={step}  "
         f"|F|.cell={cell_str}  "
-        f"wire_bl={row.residual_max['wire_bl__uA']:9.2e}  "
-        f"clamp_bl={row.residual_max['clamp_bl__V']:9.2e}"
+        f"wire_bl={row.residual_max['f_bl_kcl__uA']:9.2e}  "
+        f"clamp_bl={row.residual_max['f_bl_clamp__V']:9.2e}"
     )
 
 
@@ -169,7 +169,7 @@ def plot_stage(
     ax_step.set_title(f"Solution step ({axis_label} sweep)")
     ax_step.grid(True, which="both", ls=":", lw=0.4)
 
-    for key, color in (("cell__uA", "C0"), ("wire_bl__uA", "C1"), ("wire_sl__uA", "C2")):
+    for key, color in (("cell__uA", "C0"), ("f_bl_kcl__uA", "C1"), ("f_sl_kcl__uA", "C2")):
         ys = [r.residual_max.get(key, 0.0) for r in rows]
         ax_curr.plot(xs_all, ys, marker=".", color=color, label=key)
     ax_curr.axhline(
@@ -186,7 +186,7 @@ def plot_stage(
     ax_curr.grid(True, which="both", ls=":", lw=0.4)
     ax_curr.legend(fontsize="x-small", loc="upper right")
 
-    for key, color in (("clamp_bl__V", "C3"), ("clamp_sl__V", "C4")):
+    for key, color in (("f_bl_clamp__V", "C3"), ("f_sl_clamp__V", "C4")):
         ys = [r.residual_max.get(key, 0.0) for r in rows]
         ax_volt.plot(xs_all, ys, marker=".", color=color, label=key)
     ax_volt.axhline(
@@ -211,13 +211,13 @@ def plot_stage(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Calibrate NestedParallelRailSolver (n_outer, n_inner) via step-ratio plateau."
+        description="Calibrate ColBlColSlSolver (n_outer, n_inner) via step-ratio plateau."
     )
     add_standard_args(parser, plot_dir=True)
     args = parser.parse_args(argv)
     setup_logging(args.log_level)
 
-    cfg = load_tool_config(CalibrateSolverNestedConfig, args.config)
+    cfg = load_tool_config(CalibrateSolverColBlColSlConfig, args.config)
     log.info("loaded config from %s", args.config)
 
     inst_shape = tuple(cfg.workload.inst_shape)
@@ -259,7 +259,7 @@ def main(argv: list[str] | None = None) -> int:
     distribution_path = None if distribution is None else resolve_relative_path(distribution, args.config)
 
     log.info("=" * 80)
-    log.info("NestedParallelRailSolver — step-ratio plateau calibration (2-axis staged)")
+    log.info("ColBlColSlSolver — step-ratio plateau calibration (2-axis staged)")
     log.info(
         "workload: inst=%s, %d weights x %d inputs (batch_w=%d), active_rows=%d of row_num=%d",
         inst_shape,
@@ -410,7 +410,7 @@ def main(argv: list[str] | None = None) -> int:
         log.info("    %-12s  %.3e  (reltol = %.1e)", k, v, cfg.sweep.reltol)
     log.info("")
     log.info("TOML fragment for the solver table at %s:", cfg.macro.solver_section)
-    log.info('    _neurox_class = "NestedParallelRailSolverConfig"')
+    log.info('    _neurox_class = "ColBlColSlSolverConfig"')
     log.info("    n_outer = %d", final_outer)
     log.info("    n_inner = %d", final_inner)
     log.info("=" * 80)

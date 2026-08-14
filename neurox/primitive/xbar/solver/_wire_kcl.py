@@ -1,9 +1,15 @@
-"""Wire-ladder KCL residuals and driver-current calculations.
+"""Wire-ladder KCL residuals, node self-conductances, and driver currents.
 
 Every wire is a UNIFORM ladder: one lattice link joins each pair of adjacent
 nodes and the same link joins the driver to the node at index 0, so a whole
 rail is described by one scalar conductance. The only distinguished node is
 the ladder's open end at the far index, which has no link onward.
+
+The wire axis is a parameter rather than a per-orientation function: `dim` is
+the NEGATIVE index of the axis the ladder runs along, which is what makes the
+trailing-pad width exact. Shapes below are written for a generic wire axis;
+the present call sites pass `dim=-1` over cell grids at `[..., col_num,
+row_num]`.
 """
 
 from __future__ import annotations
@@ -13,120 +19,104 @@ import torch.nn.functional as F
 from torch import Tensor
 
 
-def col_wire_kcl_residual(
-    v_node: Tensor,
-    v_drive: Tensor,
-    segment_g: float,
-    i_inject: Tensor,
+def f_kcl__uA(
+    v_node__V: Tensor,
+    v_drive__V: Tensor,
+    segment_g__uS: float,
+    i_inject__uA: Tensor,
+    *,
+    dim: int,
 ) -> Tensor:
-    """KCL residual at every node of a column-oriented wire.
-
-    The wire runs along `dim=-1` and its driver hangs off index 0.
+    """KCL residual at every node of one wire ladder.
 
     Args:
-        v_node: Wire node voltages [V].
-            Shape: `[..., col_num, row_num]`.
-        v_drive: Drive voltage [V].
-            Shape: `[..., col_num, 1]`.
-        segment_g: Conductance of one lattice link [uS].
-        i_inject: Cell current drawn at each node [uA].
-            Shape: `[..., col_num, row_num]`.
+        v_node__V: Wire node voltages.
+            Shape: `[..., node_num, ...]`.
+        v_drive__V: Drive voltage, of extent 1 along `dim`.
+            Shape: `[..., 1, ...]`.
+        segment_g__uS: Conductance of one lattice link.
+        i_inject__uA: Cell current drawn at each node.
+            Shape: `[..., node_num, ...]`.
+        dim: Negative index of the axis the wire runs along.
 
     Returns:
-        KCL residual tensor [uA].
-        Shape: `[..., col_num, row_num]`.
+        KCL residual tensor.
+        Shape: `[..., node_num, ...]`.
     """
-    dim = -1
-    # dv_to_left[k] = v_node[k] - v_node[k-1] for k >= 1; v_node[0] - v_drive at k = 0.
-    # Shape: [..., col_num, wire_point]
-    v_with_drive = torch.cat((v_drive, v_node), dim=dim)
-    # Shape: [..., col_num, wire_point] -> [..., col_num, row_num]
-    dv_to_left = torch.diff(v_with_drive, dim=dim)
-    # dv_to_right[k] = v_node[k] - v_node[k+1] for k <= N-2; the open end at
-    # k = N-1 has no link onward, so its difference is padded away.
-    # Shape: [..., col_num, row_num]
-    dv_to_right = F.pad(-torch.diff(v_node, dim=dim), (0, 1))
+    # `F.pad` reads its argument from the last axis backwards, two entries per
+    # axis: a negative `dim` sits behind exactly `-dim - 1` untouched axes and
+    # takes the single trailing pad itself.
+    pad = (0, 0) * (-dim - 1) + (0, 1)
+    # dv_to_left__V[k] = v_node__V[k] - v_node__V[k-1] for k >= 1;
+    # v_node__V[0] - v_drive__V at k = 0.
+    # Shape: [..., wire_point, ...]
+    v_with_drive__V = torch.cat((v_drive__V, v_node__V), dim=dim)
+    # Shape: [..., wire_point, ...] -> [..., node_num, ...]
+    dv_to_left__V = torch.diff(v_with_drive__V, dim=dim)
+    # dv_to_right__V[k] = v_node__V[k] - v_node__V[k+1] for k <= N-2; the open
+    # end at k = N-1 has no link onward, so its difference is padded away.
+    # Shape: [..., node_num, ...]
+    dv_to_right__V = F.pad(-torch.diff(v_node__V, dim=dim), pad)
 
-    return i_inject + (dv_to_left + dv_to_right) * segment_g
+    return i_inject__uA + (dv_to_left__V + dv_to_right__V) * segment_g__uS
 
 
-def row_wire_kcl_residual(
-    v_node: Tensor,
-    v_drive: Tensor,
-    segment_g: float,
-    i_inject: Tensor,
+def g_self__uS(
+    g_cell_eff__uS: Tensor,
+    segment_g__uS: float,
+    *,
+    dim: int,
 ) -> Tensor:
-    """KCL residual at every node of a row-oriented wire.
+    """Self-conductance of every node of one wire ladder.
 
-    Same structure as `col_wire_kcl_residual` along `dim=-2`.
+    A node's own conductance is its cell branch plus every rail link attached
+    to it. An interior node has two — the one back towards the driver and the
+    one onward — while the far index is the ladder's open end and has only the
+    first. Index 0 is NOT distinguished: its driver-side link is one standard
+    lattice pitch like any other.
 
     Args:
-        v_node: Wire node voltages [V].
-            Shape: `[..., col_num, row_num]`.
-        v_drive: Drive voltage [V].
-            Shape: `[..., 1, row_num]`.
-        segment_g: Conductance of one lattice link [uS].
-        i_inject: Cell current drawn at each node [uA].
-            Shape: `[..., col_num, row_num]`.
+        g_cell_eff__uS: Per-node cell branch derivative.
+            Shape: `[..., node_num, ...]`.
+        segment_g__uS: Conductance of one lattice link.
+        dim: Negative index of the axis the wire runs along.
 
     Returns:
-        KCL residual tensor [uA].
-        Shape: `[..., col_num, row_num]`.
+        Per-node self-conductance.
+        Shape: `[..., node_num, ...]`.
     """
-    dim = -2
-    # Shape: [..., wire_point, row_num]
-    v_with_drive = torch.cat((v_drive, v_node), dim=dim)
-    # Shape: [..., wire_point, row_num] -> [..., col_num, row_num]
-    dv_to_left = torch.diff(v_with_drive, dim=dim)
-    # Shape: [..., col_num, row_num]
-    dv_to_right = F.pad(-torch.diff(v_node, dim=dim), (0, 0, 0, 1))
+    node_num = g_cell_eff__uS.shape[dim]
+    # Shape: [..., node_num, ...]
+    return torch.cat(
+        (
+            torch.narrow(g_cell_eff__uS, dim, 0, node_num - 1) + 2.0 * segment_g__uS,
+            torch.narrow(g_cell_eff__uS, dim, node_num - 1, 1) + segment_g__uS,
+        ),
+        dim=dim,
+    )
 
-    return i_inject + (dv_to_left + dv_to_right) * segment_g
 
-
-def col_driver_current(
-    v_node: Tensor,
-    v_drive: Tensor,
-    segment_g: float,
+def i_drive__uA(
+    v_node__V: Tensor,
+    v_drive__V: Tensor,
+    segment_g__uS: float,
+    *,
+    dim: int,
 ) -> Tensor:
-    """Net current from a column-oriented-wire driver into the wire [uA].
+    """Net current from one wire ladder's driver into the wire.
 
     Args:
-        v_node: Wire node voltages [V].
-            Shape: `[..., col_num, row_num]`.
-        v_drive: Drive voltage [V].
-            Shape: `[..., col_num, 1]`.
-        segment_g: Conductance of one lattice link [uS] — the driver reaches
+        v_node__V: Wire node voltages.
+            Shape: `[..., node_num, ...]`.
+        v_drive__V: Drive voltage, of extent 1 along `dim`.
+            Shape: `[..., 1, ...]`.
+        segment_g__uS: Conductance of one lattice link — the driver reaches
             node 0 through exactly one of them.
+        dim: Negative index of the axis the wire runs along.
 
     Returns:
-        Drive current [uA].
-        Shape: `[..., col_num]`.
+        Drive current, the wire axis dropped.
+        Shape: `[..., ...]`.
     """
-    dim = -1
-    # Shape: [..., col_num, 1] -> [..., col_num]
-    return (v_drive.squeeze(dim) - v_node.select(dim, 0)) * segment_g
-
-
-def row_driver_current(
-    v_node: Tensor,
-    v_drive: Tensor,
-    segment_g: float,
-) -> Tensor:
-    """Net current from a row-oriented-wire driver into the wire [uA].
-
-    Args:
-        v_node: Wire node voltages [V].
-            Shape: `[..., col_num, row_num]`.
-        v_drive: Drive voltage [V].
-            Shape: `[..., 1, row_num]`.
-        segment_g: Conductance of one lattice link [uS] — the driver reaches
-            node 0 through exactly one of them.
-
-    Returns:
-        Drive current [uA].
-        Shape: `[..., row_num]`.
-    """
-    dim = -2
-    # Shape: [..., 1, row_num] -> [..., row_num]
-    return (v_drive.squeeze(dim) - v_node.select(dim, 0)) * segment_g
+    # Shape: [..., 1, ...] -> [..., ...]
+    return (v_drive__V.squeeze(dim) - v_node__V.select(dim, 0)) * segment_g__uS

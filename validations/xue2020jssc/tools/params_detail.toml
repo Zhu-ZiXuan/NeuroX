@@ -87,7 +87,7 @@ _neurox_use_preset = "process/mos:nmos_28_rvt"
 
 
 [cim_macro.array_config.solver_config]
-_neurox_class = "NestedParallelRailSolverConfig"
+_neurox_class = "ColBlColSlSolverConfig"
 # [derived] seed; calibrate_solver (tools/calibrate_solver.toml) re-picks the pair.
 n_outer = 5
 n_inner = 1

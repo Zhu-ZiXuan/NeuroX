@@ -25,15 +25,15 @@ class XbarCell1t1rLinearConfig(XbarCell1t1rConfig):
     """Physical knobs for the linearized (table-driven) 1T1R cell."""
 
     g_cell_off_table__uS: tuple[float, ...]
-    """Per-state BL-to-SL branch chord conductance `g_cell = I / (v_bl_op -
-    v_sl_op)` at the calibration operating point with the WL off, indexed by
+    """Per-state BL-to-SL branch chord conductance `g_cell__uS = I / (v_bl_op__V
+    - v_sl_op__V)` at the calibration operating point with the WL off, indexed by
     weight state. Its length (>= 1) is the cell's weight-state count and all
     four tables share it; entries finite and >= 0."""
     g_cell_on_table__uS: tuple[float, ...]
     """The same chord conductance with the WL on."""
     vx_ratio_off_table: tuple[float, ...]
-    """Per-state dimensionless BL-side drop fraction `vx_ratio = (v_bl_op -
-    V_X) / (v_bl_op - v_sl_op)` with the WL off; entries finite and in
+    """Per-state dimensionless BL-side drop fraction `vx_ratio = (v_bl_op__V -
+    V_X) / (v_bl_op__V - v_sl_op__V)` with the WL off; entries finite and in
     `[0, 1]`."""
     vx_ratio_on_table: tuple[float, ...]
     """The same drop fraction with the WL on."""
@@ -198,37 +198,37 @@ class XbarCell1t1rLinear(XbarCell1t1r[XbarCell1t1rLinearConfig, XbarCell1t1rLine
         )
 
     def _select_branch_params(self, snap: XbarCell1t1rLinearSnap) -> tuple[Tensor, Tensor]:
-        """WL-switched `(g_cell [uS], vx_ratio)` of the linear branch."""
+        """WL-switched `(g_cell__uS, vx_ratio)` of the linear branch."""
         on = snap.v_wl__V > self._v_wl_on_threshold__V
-        g_cell = torch.where(on, snap.g_cell_on__uS, snap.g_cell_off__uS)
+        g_cell__uS = torch.where(on, snap.g_cell_on__uS, snap.g_cell_off__uS)
         vx_ratio = torch.where(on, snap.vx_ratio_on, snap.vx_ratio_off)
-        return g_cell, vx_ratio
+        return g_cell__uS, vx_ratio
 
     def solve_branch(
         self,
-        v_bl: Tensor,
-        v_sl: Tensor,
+        v_bl__V: Tensor,
+        v_sl__V: Tensor,
         snap: XbarCell1t1rLinearSnap,
     ) -> tuple[Tensor, Tensor, Tensor]:
         """Closed-form branch solve: `(i__uA, di_dvbl__uS, di_dvsl__uS)`."""
-        g_cell, _vx_ratio = self._select_branch_params(snap)
-        i__uA = g_cell * (v_bl - v_sl)
-        return i__uA, g_cell, -g_cell
+        g_cell__uS, _vx_ratio = self._select_branch_params(snap)
+        i__uA = g_cell__uS * (v_bl__V - v_sl__V)
+        return i__uA, g_cell__uS, -g_cell__uS
 
     def solve_dc(
         self,
-        v_bl: Tensor,
-        v_sl: Tensor,
+        v_bl__V: Tensor,
+        v_sl__V: Tensor,
         snap: XbarCell1t1rLinearSnap,
     ) -> XbarCell1t1rDcop:
         """Full branch working point including the divider V_X."""
-        g_cell, vx_ratio = self._select_branch_params(snap)
-        dv = v_bl - v_sl
-        i__uA = g_cell * dv
-        v_x = v_bl - vx_ratio * dv
+        g_cell__uS, vx_ratio = self._select_branch_params(snap)
+        dv__V = v_bl__V - v_sl__V
+        i__uA = g_cell__uS * dv__V
+        v_x__V = v_bl__V - vx_ratio * dv__V
         return XbarCell1t1rDcop(
             i__uA=i__uA,
-            di_dvbl__uS=g_cell,
-            di_dvsl__uS=-g_cell,
-            v_x__V=v_x,
+            di_dvbl__uS=g_cell__uS,
+            di_dvsl__uS=-g_cell__uS,
+            v_x__V=v_x__V,
         )

@@ -24,7 +24,7 @@ from neurox.primitive.xbar.array import (
     XbarArray1t1rSteadyState,
 )
 from neurox.primitive.xbar.cell import XbarCell1t1rDcop, XbarCell1t1rSnap
-from neurox.primitive.xbar.solver import ClampDriver, ClampSnap, SolverDcop
+from neurox.primitive.xbar.solver import ClampDcop, ClampDriver, ClampSnap, ColBlColSlDcop
 
 # Import triggers the cell's registry registration so `from_config` dispatches.
 from .cell import Ye2023Jssc2t1rCell, Ye2023Jssc2t1rCellConfig, Ye2023Jssc2t1rCellSnap
@@ -160,13 +160,13 @@ class Ye2023Jssc2t1rArray(XbarArray1t1r):
             persistent=False,
         )
 
-    def solve_array[BLSnapT: ClampSnap, SLSnapT: ClampSnap](
+    def solve_array[BLSnapT: ClampSnap, BLDcopT: ClampDcop, SLSnapT: ClampSnap, SLDcopT: ClampDcop](
         self,
-        v_wl: Tensor,
+        v_wl__V: Tensor,
         *,
-        bl_driver: ClampDriver[BLSnapT],
+        bl_driver: ClampDriver[BLSnapT, BLDcopT],
         bl_driver_snap: BLSnapT,
-        sl_driver: ClampDriver[SLSnapT],
+        sl_driver: ClampDriver[SLSnapT, SLDcopT],
         sl_driver_snap: SLSnapT,
     ) -> Ye2023Jssc2t1rSteadyState:
         """Settle the WH-2T1R array to DC and compute the T2 lookup sum.
@@ -176,7 +176,7 @@ class Ye2023Jssc2t1rArray(XbarArray1t1r):
         grid-shaped lookup dies with its chunk and only the row sum survives.
 
         Args:
-            v_wl: Analog WL drive [V], one value per cell gate.
+            v_wl__V: Analog WL drive, one value per cell gate.
                 Shape: `[..., col_num, row_num]`.
             bl_driver: BL boundary clamp in the structural `ClampDriver` role.
             bl_driver_snap: Per-solve BL clamp snap at the full per-call shape; its
@@ -189,7 +189,7 @@ class Ye2023Jssc2t1rArray(XbarArray1t1r):
             The kernel steady state plus the summed T2 current.
         """
         steady = super().solve_array(
-            v_wl,
+            v_wl__V,
             bl_driver=bl_driver,
             bl_driver_snap=bl_driver_snap,
             sl_driver=sl_driver,
@@ -212,7 +212,7 @@ class Ye2023Jssc2t1rArray(XbarArray1t1r):
     def _measure_chunk(
         self,
         *,
-        dcop: SolverDcop[XbarCell1t1rDcop],
+        dcop: ColBlColSlDcop[XbarCell1t1rDcop],
         cell_snap: XbarCell1t1rSnap,
         bl_driver_snap: ClampSnap,
         sl_driver_snap: ClampSnap,

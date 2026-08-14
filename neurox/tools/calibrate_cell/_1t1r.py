@@ -48,7 +48,7 @@ class _GridCfg:
     """Maximum bit-line / source-line node voltage."""
     n_terminal: int
     """Points per terminal axis; the grid is the full `n_terminal x
-    n_terminal` `(v_bl, v_sl)` outer product, both rails swept
+    n_terminal` `(v_bl__V, v_sl__V)` outer product, both rails swept
     independently."""
     v_wl_off__V: float
     """Word-line drive for the off state, NMOS cut off."""
@@ -146,13 +146,13 @@ def build_operating_grid(
 
     The grid is the outer product of:
 
-      * `v_bl` over the read-voltage range,
-      * `v_sl` over the same range,
+      * `v_bl__V` over the read-voltage range,
+      * `v_sl__V` over the same range,
       * the word line off and on,
       * every programmed RRAM state in `state_to_g_map__uS`.
 
     Returns:
-        `(v_bl, v_sl, v_wl, state_idx)`, each a flat per-point tensor;
+        `(v_bl__V, v_sl__V, v_wl__V, state_idx)`, each a flat per-point tensor;
         `state_idx` carries the programmed-state index at each point, so the
         caller programs the cell per distinct state and selects the matching
         points.
@@ -169,22 +169,22 @@ def build_operating_grid(
     n_states = len(cell_config.state_to_g_map__uS)
     state_axis = torch.arange(n_states, dtype=torch.long, device=device)
 
-    # Cartesian product over (v_bl, v_sl, v_wl, state), then flattened.
+    # Cartesian product over (v_bl__V, v_sl__V, v_wl__V, state), then flattened.
     # Shape: [n_terminal, n_terminal, 2, w_state_num] -> [n_terminal**2 * 2 * w_state_num]
     grids = torch.meshgrid(v_axis, v_axis, v_wl_axis, state_axis.to(dtype), indexing="ij")
-    v_bl = grids[0].reshape(-1)
-    v_sl = grids[1].reshape(-1)
-    v_wl = grids[2].reshape(-1)
+    v_bl__V = grids[0].reshape(-1)
+    v_sl__V = grids[1].reshape(-1)
+    v_wl__V = grids[2].reshape(-1)
     state_idx = grids[3].reshape(-1).round().long()
-    return v_bl, v_sl, v_wl, state_idx
+    return v_bl__V, v_sl__V, v_wl__V, state_idx
 
 
 def _solve_grid_for_candidate(
     cell: XbarCell1t1rDetail,
     *,
-    v_bl: Tensor,
-    v_sl: Tensor,
-    v_wl: Tensor,
+    v_bl__V: Tensor,
+    v_sl__V: Tensor,
+    v_wl__V: Tensor,
     state_idx: Tensor,
     n_states: int,
 ) -> tuple[Tensor, Tensor, Tensor]:
@@ -194,12 +194,12 @@ def _solve_grid_for_candidate(
     distinct programmed state.
 
     Returns:
-        `(v_x, cell_residual__uA, i_cell__uA)` scattered back into flat tensors
+        `(v_x__V, cell_residual__uA, i_cell__uA)` scattered back into flat tensors
         aligned with the input grid order.
     """
-    v_x = torch.empty_like(v_bl)
-    cell_residual = torch.empty_like(v_bl)
-    i_cell = torch.empty_like(v_bl)
+    v_x__V = torch.empty_like(v_bl__V)
+    cell_residual__uA = torch.empty_like(v_bl__V)
+    i_cell__uA = torch.empty_like(v_bl__V)
 
     for s in range(n_states):
         mask = state_idx == s
@@ -209,25 +209,24 @@ def _solve_grid_for_candidate(
         # subset of grid points that use it. The cell's `inst_shape` is
         # `(1,)`; the grid points ride a leading axis and the `col`/`row`
         # trailing pair stays singleton, so every point is its own single cell.
-        cell.program(torch.full((1,), s, dtype=torch.long, device=v_bl.device))
+        cell.program(torch.full((1,), s, dtype=torch.long, device=v_bl__V.device))
         n_pts = int(mask.sum())
         shape = (n_pts, 1, 1)
-        v_wl_pts = v_wl[mask].reshape(n_pts, 1, 1)
-        snap = cell.snapshot(control=v_wl_pts, shape=shape, t_elapsed=0.0)
-        # device=None: the record is scattered straight into cell_residual
-        # (on `device`, possibly CUDA) below — a default cpu finalize would
-        # break that assignment on a device mismatch.
-        with XbarCell1t1rDetailProber(device=None) as cp:
+        v_wl_pts__V = v_wl__V[mask].reshape(n_pts, 1, 1)
+        snap = cell.snapshot(control=v_wl_pts__V, shape=shape, t_elapsed=0.0)
+        # The record stays where it was recorded (`device`, possibly CUDA),
+        # which is what the scatter into cell_residual__uA below assigns across.
+        with XbarCell1t1rDetailProber() as cp:
             dcop = cell.solve_dc(
-                v_bl[mask].reshape(n_pts, 1, 1),
-                v_sl[mask].reshape(n_pts, 1, 1),
+                v_bl__V[mask].reshape(n_pts, 1, 1),
+                v_sl__V[mask].reshape(n_pts, 1, 1),
                 snap,
             )
         records = cp.records
-        v_x[mask] = dcop.v_x__V.reshape(n_pts)
-        cell_residual[mask] = records[0].cell__uA.reshape(n_pts)
-        i_cell[mask] = dcop.i__uA.reshape(n_pts)
-    return v_x, cell_residual, i_cell
+        v_x__V[mask] = dcop.v_x__V.reshape(n_pts)
+        cell_residual__uA[mask] = records[0].cell__uA.reshape(n_pts)
+        i_cell__uA[mask] = dcop.i__uA.reshape(n_pts)
+    return v_x__V, cell_residual__uA, i_cell__uA
 
 
 def sweep_newton_iterations(
@@ -245,39 +244,39 @@ def sweep_newton_iterations(
     absolute internal-KCL mismatch `|I_NMOS - I_RRAM|` on the cell DCOP,
     reduced the same way.
     """
-    v_bl, v_sl, v_wl, state_idx = build_operating_grid(cell_config, grid, device=device, dtype=dtype)
+    v_bl__V, v_sl__V, v_wl__V, state_idx = build_operating_grid(cell_config, grid, device=device, dtype=dtype)
     n_states = len(cell_config.state_to_g_map__uS)
 
     rows: list[CandidateRow] = []
     i_cell_typ__uA = 0.0
-    v_x_prev: Tensor | None = None
+    v_x_prev__V: Tensor | None = None
     for newton_iter_num in candidates:
         cell = _build_cell(cell_config, newton_iter_num=newton_iter_num, device=device, dtype=dtype)
-        v_x, cell_residual, i_cell = _solve_grid_for_candidate(
+        v_x__V, cell_residual__uA, i_cell__uA = _solve_grid_for_candidate(
             cell,
-            v_bl=v_bl,
-            v_sl=v_sl,
-            v_wl=v_wl,
+            v_bl__V=v_bl__V,
+            v_sl__V=v_sl__V,
+            v_wl__V=v_wl__V,
             state_idx=state_idx,
             n_states=n_states,
         )
-        residual_max__uA = float(cell_residual.abs().max().item())
-        i_cell_typ__uA = max(i_cell_typ__uA, float(i_cell.abs().max().item()))
+        residual_max__uA = float(cell_residual__uA.abs().max().item())
+        i_cell_typ__uA = max(i_cell_typ__uA, float(i_cell__uA.abs().max().item()))
 
-        if v_x_prev is None:
+        if v_x_prev__V is None:
             step_max__V: float | None = None
         else:
-            step_max__V = float((v_x - v_x_prev).abs().max().item())
+            step_max__V = float((v_x__V - v_x_prev__V).abs().max().item())
 
         rows.append(
             CandidateRow(
                 iter_count=newton_iter_num,
                 step_max__V=step_max__V,
-                step_per_class__V={"v_x": step_max__V if step_max__V is not None else 0.0},
+                step_per_class__V={"v_x__V": step_max__V if step_max__V is not None else 0.0},
                 residual_max={"cell__uA": residual_max__uA},
             )
         )
-        v_x_prev = v_x
+        v_x_prev__V = v_x__V
 
     # The cell residual is a current; the voltage scale is unused for this
     # workload (no clamp residual). Pass a dummy to satisfy the dataclass.
@@ -316,7 +315,7 @@ def _chord_params(
     g_cell__uS = i__uA / span__V
     vx_ratio = (v_bl_op__V - v_x__V) / span__V
     if not (math.isfinite(g_cell__uS) and math.isfinite(vx_ratio)):
-        raise ValueError(f"non-finite chord params {label}: g_cell = {g_cell__uS!r} uS, vx_ratio = {vx_ratio!r}")
+        raise ValueError(f"non-finite chord params {label}: g_cell__uS = {g_cell__uS!r} uS, vx_ratio = {vx_ratio!r}")
     if not (-_VX_RATIO_TOL <= vx_ratio <= 1.0 + _VX_RATIO_TOL):
         raise ValueError(f"vx_ratio {label} grossly outside [0, 1]: {vx_ratio!r}")
     clamped = min(max(vx_ratio, 0.0), 1.0)
@@ -341,7 +340,7 @@ def extract_linear_cell_config(
     Solves the noise-off Detail cell exactly at `(v_bl_op__V, v_sl_op__V)` for
     every programmed state at both WL levels, and converts each converged
     branch `(I, V_X)` into the divider pair
-    `g_cell = I / (v_bl_op - v_sl_op)` and
+    `g_cell__uS = I / (v_bl_op - v_sl_op)` and
     `vx_ratio = (v_bl_op - V_X) / (v_bl_op - v_sl_op)`, so the linear branch
     reproduces the Detail branch current and access node at the operating
     point. The WL on/off threshold is the midpoint of the two WL levels.
@@ -363,8 +362,8 @@ def extract_linear_cell_config(
     count = cell_config.newton_iter_num if newton_iter_num is None else newton_iter_num
     cell = _build_cell(cell_config, newton_iter_num=count, device=device, dtype=dtype)
     n_states = len(cell_config.state_to_g_map__uS)
-    v_bl = torch.full((1, 1), v_bl_op__V, dtype=dtype, device=device)
-    v_sl = torch.full((1, 1), v_sl_op__V, dtype=dtype, device=device)
+    v_bl__V = torch.full((1, 1), v_bl_op__V, dtype=dtype, device=device)
+    v_sl__V = torch.full((1, 1), v_sl_op__V, dtype=dtype, device=device)
 
     g_cell_off: list[float] = []
     g_cell_on: list[float] = []
@@ -376,9 +375,9 @@ def extract_linear_cell_config(
             ("off", v_wl_off__V, g_cell_off, vx_ratio_off),
             ("on", v_wl_on__V, g_cell_on, vx_ratio_on),
         ):
-            v_wl = torch.full((1, 1), v_wl__V, dtype=dtype, device=device)
-            snap = cell.snapshot(control=v_wl, shape=(1, 1), t_elapsed=0.0)
-            dcop = cell.solve_dc(v_bl, v_sl, snap)
+            v_wl_grid__V = torch.full((1, 1), v_wl__V, dtype=dtype, device=device)
+            snap = cell.snapshot(control=v_wl_grid__V, shape=(1, 1), t_elapsed=0.0)
+            dcop = cell.solve_dc(v_bl__V, v_sl__V, snap)
             g_cell__uS, vx_ratio = _chord_params(
                 float(dcop.i__uA),
                 float(dcop.v_x__V),
@@ -425,10 +424,10 @@ def linear_fragment_text(
     """The linearized-cell fragment as TOML text: header comment + table."""
     header = (
         "# Linearized 1T1R cell fragment emitted by neurox.tools.calibrate_cell.\n"
-        "# Per-state chord conductance g_cell = I / (v_bl - v_sl) and BL-side\n"
-        "# drop fraction vx_ratio = (v_bl - V_X) / (v_bl - v_sl) of the Detail\n"
+        "# Per-state chord conductance g_cell__uS = I / (v_bl__V - v_sl__V) and BL-side\n"
+        "# drop fraction vx_ratio = (v_bl__V - V_X) / (v_bl__V - v_sl__V) of the Detail\n"
         "# cell, one flat table per WL level (off / on), at the nominal\n"
-        f"# operating point v_bl = {v_bl_op__V} V, v_sl = {v_sl_op__V} V; the WL\n"
+        f"# operating point v_bl_op__V = {v_bl_op__V}, v_sl_op__V = {v_sl_op__V}; the WL\n"
         "# threshold is the midpoint of the calibration grid's off/on WL\n"
         "# levels. Selecting it is a pure config choice: point the array's\n"
         "# cell_config table at this file, e.g.\n"
@@ -464,7 +463,7 @@ def main(argv: list[str] | None = None) -> int:
     log.info("=" * 80)
     log.info("XbarCell1t1rDetail access-node — step-ratio plateau calibration")
     log.info(
-        "grid: v_bl/v_sl in [%.3f, %.3f] V x %d^2, WL in {%.3f, %.3f} V, %d states -> %d points",
+        "grid: v_bl__V/v_sl__V in [%.3f, %.3f] x %d^2, WL in {%.3f, %.3f}, %d states -> %d points",
         cfg.grid.v_terminal_min__V,
         cfg.grid.v_terminal_max__V,
         cfg.grid.n_terminal,
@@ -533,7 +532,7 @@ def main(argv: list[str] | None = None) -> int:
         newton_iter_num=final,
     )
     log.info(
-        "Linear-cell divider tables at OP (v_bl = %.3f V, v_sl = %.3f V):",
+        "Linear-cell divider tables at OP (v_bl_op__V = %.3f, v_sl_op__V = %.3f):",
         cfg.grid.v_bl_op__V,
         cfg.grid.v_sl_op__V,
     )
@@ -546,7 +545,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     for s, (g_off, g_on, vx_off, vx_on) in enumerate(per_state):
         log.info(
-            "  state %d: g_cell(off/on) = %.6e / %.6e uS, vx_ratio(off/on) = %.9f / %.9f",
+            "  state %d: g_cell__uS(off/on) = %.6e / %.6e uS, vx_ratio(off/on) = %.9f / %.9f",
             s,
             g_off,
             g_on,

@@ -47,11 +47,14 @@ from neurox.primitive.xbar.array import (
     XbarArray1t1rPolicy,
 )
 from neurox.primitive.xbar.cell import XbarCell1t1rLinearConfig, XbarCell1t1rLinearPolicy
-from neurox.primitive.xbar.solver import NestedParallelRailSolverConfig, SolverProber
+from neurox.primitive.xbar.solver import ColBlColSlProber, ColBlColSlSolverConfig
 
 _DTYPE = torch.float64
 _COL_NUM = 3
 _ROW_NUM = 2
+
+# Outer solver steps; the terminal probe record sits at exactly this index.
+_N_OUTER = 3
 
 # Two supplies, deliberately unequal: a term billed on the wrong rail moves.
 _V_DD_WL__V = 1.1
@@ -125,7 +128,7 @@ def _array_config(
         sl_node_c__fF=sl_node_c__fF,
         wl_node_c__fF=_WL_NODE_C__fF,
         cell_config=_cell_config(g_cell_on__uS=g_cell_on__uS, vx_ratio_off_table=vx_ratio_off_table),
-        solver_config=NestedParallelRailSolverConfig(n_outer=3, n_inner=3),
+        solver_config=ColBlColSlSolverConfig(n_outer=_N_OUTER, n_inner=3),
     )
 
 
@@ -454,7 +457,9 @@ def test_the_bl_node_cap_bills_at_every_cell_node(monkeypatch: pytest.MonkeyPatc
     mode = XbarArray1t1rOperationMode.WL_IN_BL_SCAN
 
     base, _i_base = _solve(_build_array(mode, g_cell_on__uS=80.0), v_wl, monkeypatch)
-    with SolverProber() as probe:
+    # min_outer at the outer count keeps the terminal record alone, which is
+    # the only iterate carrying a DCOP.
+    with ColBlColSlProber(min_outer=_N_OUTER) as probe:
         raised, _i_raised = _solve(
             _build_array(mode, g_cell_on__uS=80.0, bl_node_c__fF=_BL_NODE_C__fF + delta__fF),
             v_wl,
@@ -463,16 +468,16 @@ def test_the_bl_node_cap_bills_at_every_cell_node(monkeypatch: pytest.MonkeyPatc
     dcop = probe.records[-1].dcop
 
     # Shape: [col_num, row_num]
-    v_node = dcop.v_bl_node
+    v_node__V = dcop.v_bl_node__V
     # Shape: [col_num]
-    v_clamp = dcop.v_bl_clamp
-    assert float((v_clamp.unsqueeze(-1) - v_node).abs().min()) > 0.0, (
+    v_clamp__V = dcop.v_bl_clamp__V
+    assert float((v_clamp__V.unsqueeze(-1) - v_node__V).abs().min()) > 0.0, (
         "witness must draw current, else node and boundary coincide"
     )
 
     slope__fJ = float(raised) - float(base)
-    at_node = _V_DD_BL__V * delta__fF * float(v_node.abs().sum())
-    at_clamp = _V_DD_BL__V * delta__fF * _ROW_NUM * float(v_clamp.abs().sum())
+    at_node = _V_DD_BL__V * delta__fF * float(v_node__V.abs().sum())
+    at_clamp = _V_DD_BL__V * delta__fF * _ROW_NUM * float(v_clamp__V.abs().sum())
 
     assert slope__fJ == pytest.approx(at_node, rel=1e-10)
     assert slope__fJ != pytest.approx(at_clamp, rel=1e-10)
@@ -492,7 +497,9 @@ def test_the_sl_node_cap_bills_at_every_cell_node_too(monkeypatch: pytest.Monkey
     mode = XbarArray1t1rOperationMode.WL_IN_BL_SCAN
 
     base, _i_base = _solve(_build_array(mode, g_cell_on__uS=80.0), v_wl, monkeypatch)
-    with SolverProber() as probe:
+    # min_outer at the outer count keeps the terminal record alone, which is
+    # the only iterate carrying a DCOP.
+    with ColBlColSlProber(min_outer=_N_OUTER) as probe:
         raised, _i_raised = _solve(
             _build_array(mode, g_cell_on__uS=80.0, sl_node_c__fF=_SL_NODE_C__fF + delta__fF),
             v_wl,
@@ -501,16 +508,16 @@ def test_the_sl_node_cap_bills_at_every_cell_node_too(monkeypatch: pytest.Monkey
     dcop = probe.records[-1].dcop
 
     # Shape: [col_num, row_num]
-    v_node = dcop.v_sl_node
+    v_node__V = dcop.v_sl_node__V
     # Shape: [col_num]
-    v_drive = dcop.v_sl_drive
-    assert float((v_drive.unsqueeze(-1) - v_node).abs().min()) > 0.0, (
+    v_drive__V = dcop.v_sl_drive__V
+    assert float((v_drive__V.unsqueeze(-1) - v_node__V).abs().min()) > 0.0, (
         "witness must draw current, else node and boundary coincide"
     )
 
     slope__fJ = float(raised) - float(base)
-    at_node = _V_DD_BL__V * delta__fF * float(v_node.abs().sum())
-    at_drive = _V_DD_BL__V * delta__fF * _ROW_NUM * float(v_drive.abs().sum())
+    at_node = _V_DD_BL__V * delta__fF * float(v_node__V.abs().sum())
+    at_drive = _V_DD_BL__V * delta__fF * _ROW_NUM * float(v_drive__V.abs().sum())
 
     assert slope__fJ == pytest.approx(at_node, rel=1e-10)
     assert slope__fJ != pytest.approx(at_drive, rel=1e-10)

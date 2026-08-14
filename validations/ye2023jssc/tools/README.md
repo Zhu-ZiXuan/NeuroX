@@ -7,13 +7,13 @@ the paper's annotated full-scale operating point.
 
 ## Solver (`calibrate_solver.toml`)
 
-Pins the NestedParallelRailSolver `(n_outer, n_inner)` for step1 (the BL/SL
+Pins the ColBlColSlSolver `(n_outer, n_inner)` for step1 (the BL/SL
 divider solve). This is a MAIN-SESSION GPU run — the solver cold-compiles per
 shape (~minutes); do not run it from a subagent. Check CUDA memory and
 utilization first, then pick a free device `cuda:N`:
 
 ```
-TORCH_COMPILE_DISABLE=1 uv run python -m neurox.tools.calibrate_solver.nested \
+TORCH_COMPILE_DISABLE=1 uv run python -m neurox.tools.calibrate_solver.col_bl_col_sl \
     --config validations/ye2023jssc/tools/calibrate_solver.toml --device cuda:N
 ```
 

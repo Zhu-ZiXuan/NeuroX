@@ -141,7 +141,7 @@ def main() -> None:
             # The records stay where they were recorded: the reporter reduces a
             # whole book in one transfer, so parking them on the host first
             # would cost one sync per record instead.
-            with Profiler(leading_rank=2, device=None) as profiler:
+            with Profiler(leading_rank=2) as profiler:
                 logits = model(input_ids=input_ids, attention_mask=attn, token_type_ids=ttids).logits
             if cuda:
                 torch.cuda.synchronize(device)

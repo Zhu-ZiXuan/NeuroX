@@ -2,30 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-
 import torch
 from torch import Tensor
-
-
-def elementwise_diff(fn: Callable[..., Tensor], *, wrt: str, **kwargs: Tensor) -> Tensor:
-    """Per-element derivative of an element-wise function via autograd.
-
-    Args:
-        fn: An element-wise tensor function.
-        wrt: Keyword argument name to differentiate with respect to.
-        **kwargs: All keyword arguments forwarded to `fn`.
-
-    Returns:
-        Tensor at the shape of `kwargs[wrt]`; element `k` is
-        ∂fn[k] / ∂kwargs[wrt][k].
-    """
-    with torch.enable_grad():
-        x = kwargs[wrt].detach().clone().requires_grad_(True)
-        kwargs[wrt] = x
-        y = fn(**kwargs)
-        (dy_dx,) = torch.autograd.grad(y.sum(), x)
-    return dy_dx
 
 
 def block_matmul(p: Tensor, q: Tensor) -> Tensor:
@@ -306,102 +284,6 @@ def solve_block_tridiagonal_dense(
     x_flat = torch.linalg.solve(dense_matrix, rhs_flat).squeeze(-1)
     # Shape: [..., N*B] -> [..., N, B]
     return x_flat.view(*rhs.shape)
-
-
-def _pcr_validity_mask(block_num: int, stride: int, dim: int, ndim: int, device: torch.device) -> Tensor:
-    """1 where the shifted position has a valid in-range neighbour, 0 at boundary.
-
-    Every axis other than `dim` is length 1, so the mask broadcasts against
-    tensors of the full shape; `N` is the length of `dim`.
-
-    Returns:
-        Boundary-validity mask.
-        Shape: `[..., N, ...]`.
-    """
-    indices = torch.arange(block_num, device=device)
-    valid = indices >= stride if stride > 0 else indices < block_num + stride
-    shape = [1] * ndim
-    shape[dim] = block_num
-    return valid.view(shape)
-
-
-def _pcr_shift_zero(t: Tensor, stride: int, dim: int) -> Tensor:
-    """Shift `t` along `dim` so position k gets the value at position `k - stride`.
-
-    A `torch.roll` plus a broadcast multiplicative mask that zeros wraparound
-    positions.
-    """
-    if abs(stride) >= t.shape[dim]:
-        return torch.zeros_like(t)
-    shifted = torch.roll(t, shifts=stride, dims=dim)
-    mask = _pcr_validity_mask(t.shape[dim], stride, dim, t.ndim, t.device)
-    return shifted * mask
-
-
-def _pcr_shift_identity(t: Tensor, stride: int, dim: int) -> Tensor:
-    """Same as `_pcr_shift_zero` but the boundary fill is the B×B identity.
-
-    Used for the diagonal tensor: out-of-range neighbours produce
-    `-sub · I = -sub`, which the zero-padded `sub_l` / `rhs_l` then multiply
-    to zero at the boundary.
-    """
-    block_size = t.shape[-1]
-    eye = torch.eye(block_size, dtype=t.dtype, device=t.device).expand_as(t)
-    if abs(stride) >= t.shape[dim]:
-        return eye
-    shifted = torch.roll(t, shifts=stride, dims=dim)
-    mask = _pcr_validity_mask(t.shape[dim], stride, dim, t.ndim, t.device)
-    return torch.where(mask, shifted, eye)
-
-
-def solve_block_tridiagonal_pcr(
-    sub: Tensor,
-    diag: Tensor,
-    sup: Tensor,
-    rhs: Tensor,
-) -> Tensor:
-    """Solve batched block-tridiagonal systems by Parallel Cyclic Reduction.
-
-    Uses the same tensor contract as `solve_block_tridiagonal`: `N` block rows
-    of `B`×`B` blocks. There is no pivoting, so the system must be diagonally
-    dominant.
-    """
-    block_num = diag.shape[-3]
-    block_dim = -3
-    vec_dim = -2
-
-    if block_num == 1:
-        # Shape: [..., N=1, B] -> [..., B, 1] -> [..., N=1, B]
-        return block_solve(diag[..., 0, :, :], rhs[..., 0, :].unsqueeze(-1)).squeeze(-1).unsqueeze(-2)
-
-    a, b, c, r = sub, diag, sup, rhs
-
-    stride = 1
-    while stride < block_num:
-        a_l = _pcr_shift_zero(a, stride, block_dim)
-        b_l = _pcr_shift_identity(b, stride, block_dim)
-        c_l = _pcr_shift_zero(c, stride, block_dim)
-        r_l = _pcr_shift_zero(r, stride, vec_dim)
-        a_r = _pcr_shift_zero(a, -stride, block_dim)
-        b_r = _pcr_shift_identity(b, -stride, block_dim)
-        c_r = _pcr_shift_zero(c, -stride, block_dim)
-        r_r = _pcr_shift_zero(r, -stride, vec_dim)
-
-        # α = -a · b_l⁻¹  via  α · b_l = -a  →  b_l.T · α.T = -a.T
-        alpha = block_solve(b_l.transpose(-1, -2), -a.transpose(-1, -2)).transpose(-1, -2)
-        beta = block_solve(b_r.transpose(-1, -2), -c.transpose(-1, -2)).transpose(-1, -2)
-
-        new_a = block_matmul(alpha, a_l)
-        new_c = block_matmul(beta, c_r)
-        new_b = b + block_matmul(alpha, c_l) + block_matmul(beta, a_r)
-        new_r = (
-            r.unsqueeze(-1) + block_matmul(alpha, r_l.unsqueeze(-1)) + block_matmul(beta, r_r.unsqueeze(-1))
-        ).squeeze(-1)
-
-        a, b, c, r = new_a, new_b, new_c, new_r
-        stride *= 2
-
-    return block_solve(b, r.unsqueeze(-1)).squeeze(-1)
 
 
 def solve_tridiagonal(

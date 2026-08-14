@@ -43,7 +43,7 @@ TODO (domain author): give each sigma's physical derivation and citation, and co
 
 | Parameter | Meaning | Unit | Constraint | Source |
 |---|---|---|---|---|
-| `r_out__MOhm` ($R_{\mathrm{out}}$) | series output resistance / constant clamp slope | MOhm | $\geq 0$ | Design |
+| `r_out__MOhm` ($R_{\mathrm{out}}$) | series output resistance, whose negative is the constant clamp slope | MOhm | $\geq 0$ | Design |
 | `offset_sigma__V` | Gaussian sigma of the systematic clamp offset | V | $\geq 0$ | Measured |
 | `thermal_sigma__V` | Gaussian sigma of the clamp thermal noise | V | $\geq 0$ | Measured |
 | `energy_per_op__fJ` ($E_{\mathrm{op}}$) | interface-node switching energy per port operation | fJ | $\geq 0$ | Design |
@@ -55,10 +55,11 @@ The reference $V_{\mathrm{ref}}$ is a supplied runtime input, not a config param
 
 | Symbol | Meaning | Unit | Code field |
 |---|---|---|---|
-| $V_{\mathrm{clamp}}$ | clamp voltage | V | `solve_clamp` return |
+| $V_{\mathrm{clamp}}$ | clamp voltage | V | `v_clamp__V` |
 | $V_{\mathrm{ref}}$ | nominal reference / zero-current clamp voltage (supplied input) | V | `v_ref__V` |
 | $V_{\mathrm{pert}}$ | clamp's own additive perturbation (offset plus thermal draw) | V | `v_perturb__V` |
 | $R_{\mathrm{out}}$ | series output resistance | MOhm | `r_out__MOhm` |
+| $\partial V_{\mathrm{clamp}}/\partial I_{\mathrm{port}}$ | small-signal clamp slope | MOhm | `dvclamp_di__MOhm` |
 | $I_{\mathrm{port}}$ | port current | uA | `i_port__uA` |
 | $E_{\mathrm{op}}$ | interface-node switching energy per port operation | fJ | `energy_per_op__fJ` |
 

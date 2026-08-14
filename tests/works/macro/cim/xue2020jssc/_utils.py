@@ -63,7 +63,7 @@ from neurox.primitive.analog.voltage_dac import GeneralVdacConfig, GeneralVdacPo
 from neurox.primitive.macro.cim import CimMacro, CimMacroMode
 from neurox.primitive.xbar.array import XbarArray1t1rConfig, XbarArray1t1rPolicy
 from neurox.primitive.xbar.cell import XbarCell1t1rLinearConfig, XbarCell1t1rLinearPolicy
-from neurox.primitive.xbar.solver import NestedParallelRailSolverConfig
+from neurox.primitive.xbar.solver import ColBlColSlSolverConfig
 from neurox.works.macro.cim.xue2020jssc import (
     Xue2020JsscCimMacro,
     Xue2020JsscCimMacroConfig,
@@ -158,7 +158,7 @@ def _array_config() -> XbarArray1t1rConfig:
         sl_node_c__fF=0.17,
         wl_node_c__fF=0.19,
         cell_config=_linear_cell_config(),
-        solver_config=NestedParallelRailSolverConfig(n_outer=3, n_inner=3),
+        solver_config=ColBlColSlSolverConfig(n_outer=3, n_inner=3),
     )
 
 

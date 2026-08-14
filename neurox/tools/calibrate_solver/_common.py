@@ -31,9 +31,9 @@ from neurox.primitive import T_ROOM__K
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
 from neurox.primitive.xbar.cell import XbarCell1t1rDcop, XbarCell1t1rDetailProber
 from neurox.primitive.xbar.solver import (
-    NestedParallelRailSolverConfig,
-    SolverProber,
-    SolverRecord,
+    ColBlColSlProber,
+    ColBlColSlRecord,
+    ColBlColSlSolverConfig,
 )
 from neurox.tools._config import resolve_relative_path
 from neurox.tools._plateau import CandidateRow, WorkloadScale
@@ -155,7 +155,7 @@ def resolve_solver_table(root: dict[str, Any], solver_section: str) -> dict[str,
 
     The dotted path is walked table by table over the already-resolved macro
     config dict, then the resolved table is checked to plausibly be a
-    `NestedParallelRailSolverConfig`: its `_neurox_class` discriminator must
+    `ColBlColSlSolverConfig`: its `_neurox_class` discriminator must
     name that class when present, and in its absence the `n_outer` / `n_inner`
     keys must be.
 
@@ -185,10 +185,10 @@ def resolve_solver_table(root: dict[str, Any], solver_section: str) -> dict[str,
         raise TypeError(f"solver_section {solver_section!r} resolves to a {type(node).__name__}, not a table")
     discriminator = node.get("_neurox_class")
     if discriminator is not None:
-        if discriminator != NestedParallelRailSolverConfig.__name__:
+        if discriminator != ColBlColSlSolverConfig.__name__:
             raise TypeError(
                 f"solver_section {solver_section!r} resolves to _neurox_class {discriminator!r}, "
-                f"not {NestedParallelRailSolverConfig.__name__}"
+                f"not {ColBlColSlSolverConfig.__name__}"
             )
     elif not all(key in node for key in ("n_outer", "n_inner")):
         raise ValueError(
@@ -282,57 +282,81 @@ def unroll_sub_phase(x: Tensor, *, row_num: int, active_rows: int, inst_rank: in
 # Step-delta / residual classes (plateau picker)
 # ---------------------------------------------------------------------------
 
-# `v_x` is the condensed access-node voltage carried on the cell DCOP
-# (`SolverDcop.cell.v_x__V`); the rest are solver-owned wire / clamp
-# unknowns read straight off the DCOP.
+# `v_x__V` is the condensed access-node voltage carried on the cell DCOP
+# (`ColBlColSlDcop.cell.v_x__V`); the rest are solver-owned wire / clamp
+# unknowns read straight off the DCOP. Every key is the field name it reads,
+# so a table row names the tensor a reader can go and look at.
 _SOLVER_UNKNOWN_FIELDS: tuple[str, ...] = (
-    "v_bl_node",
-    "v_sl_node",
-    "v_bl_clamp",
-    "v_sl_drive",
+    "v_bl_node__V",
+    "v_sl_node__V",
+    "v_bl_clamp__V",
+    "v_sl_drive__V",
 )
-"""SolverDcop-owned fields tracked for the plateau picker's step deltas."""
+"""ColBlColSlDcop-owned fields tracked for the plateau picker's step deltas."""
 
-_CELL_STEP_KEY = "v_x"
+_CELL_STEP_KEY = "v_x__V"
 """Step-delta key for the cell's condensed access-node voltage `cell.v_x__V`."""
 
-# The wire / clamp residuals ride `SolverProber`; `cell__uA` (the per-cell
-# internal-KCL residual) rides `XbarCell1t1rDetailProber` and is tracked only
-# when the built cell emits it.
-_SOLVER_RESIDUAL_FIELDS: tuple[str, ...] = (
-    "wire_bl__uA",
-    "wire_sl__uA",
-    "clamp_bl__V",
-    "clamp_sl__V",
-)
-"""SolverRecord fields tracked for the residual safety guard."""
+# The wire residuals ride the inner Newton steps of `ColBlColSlProber`'s
+# trajectory and the clamp residuals its outer clamp events; `cell__uA` (the
+# per-cell internal-KCL residual) rides `XbarCell1t1rDetailProber` and is
+# tracked only when the built cell emits it.
+_WIRE_RESIDUAL_FIELDS: tuple[str, ...] = ("f_bl_kcl__uA", "f_sl_kcl__uA")
+"""Inner-step ColBlColSlRecord fields tracked for the residual safety guard."""
+
+_CLAMP_RESIDUAL_FIELDS: tuple[str, ...] = ("f_bl_clamp__V", "f_sl_clamp__V")
+"""Outer-event ColBlColSlRecord fields tracked for the residual safety guard."""
+
+_SOLVER_RESIDUAL_FIELDS: tuple[str, ...] = (*_WIRE_RESIDUAL_FIELDS, *_CLAMP_RESIDUAL_FIELDS)
+"""Every solver residual class the guard reports, wire first."""
 
 _CELL_RESIDUAL_KEY = "cell__uA"
 """Residual key for the per-cell internal-KCL mismatch."""
 
 
-def solver_step_fields(record: SolverRecord[Any]) -> dict[str, Tensor]:
-    """Extract the step-delta unknown tensors from one solver record.
+def terminal_records(records: list[ColBlColSlRecord[Any]]) -> list[ColBlColSlRecord[Any]]:
+    """Keep the one record each solve closes with, in solve order.
+
+    A solve emits its whole iteration trajectory and then exactly one terminal
+    record carrying the converged DCOP, so selecting on that DCOP counts solves
+    rather than iterations.
+    """
+    return [record for record in records if record.dcop is not None]
+
+
+def solver_step_fields(record: ColBlColSlRecord[Any]) -> dict[str, Tensor]:
+    """Extract the step-delta unknown tensors from one terminal solver record.
 
     The four solver-owned wire / clamp unknowns are always present; the cell
     access-node `v_x__V` is added only when the cell DCOP carries one.
+
+    Raises:
+        ValueError: The record carries no DCOP, so it is an iteration record
+            rather than the terminal one a step delta compares.
     """
-    fields = {name: getattr(record.dcop, name) for name in _SOLVER_UNKNOWN_FIELDS}
-    cell_dcop = record.dcop.cell
+    dcop = record.dcop
+    if dcop is None:
+        raise ValueError(
+            f"step fields need a terminal record carrying a DCOP; "
+            f"got an iteration record at (outer={record.outer}, inner={record.inner})"
+        )
+    fields = {name: getattr(dcop, name) for name in _SOLVER_UNKNOWN_FIELDS}
+    cell_dcop = dcop.cell
     if isinstance(cell_dcop, XbarCell1t1rDcop):
         fields[_CELL_STEP_KEY] = cell_dcop.v_x__V
     return fields
 
 
 def step_delta_over_streams(
-    prev: list[SolverRecord[Any]],
-    curr: list[SolverRecord[Any]],
+    prev: list[ColBlColSlRecord[Any]],
+    curr: list[ColBlColSlRecord[Any]],
 ) -> dict[str, float]:
     """Per-unknown-class `max |u_curr - u_prev|` over two 1:1-aligned streams.
 
-    Both streams must carry the same record count, adjacent candidates driven
-    by the identical workload; each aligned pair contributes its per-field
-    max-abs difference and the per-class result is the max over pairs.
+    Both streams are terminal-record streams and must carry the same record
+    count, adjacent candidates driven by the identical workload; each aligned
+    pair contributes its per-field max-abs difference and the per-class result
+    is the max over pairs.
 
     Raises:
         ValueError: The two streams disagree in record count.
@@ -354,14 +378,42 @@ def step_delta_over_streams(
     return step
 
 
-def solver_residual_max(records: list[SolverRecord[Any]]) -> dict[str, float]:
-    """Per-class `max |residual|` over a solver record stream."""
+def solver_residual_max(records: list[ColBlColSlRecord[Any]]) -> dict[str, float]:
+    """Per-class `max |residual|` over the LAST iterate of every solve.
+
+    Convergence is a statement about where a solve stopped, so each solve
+    contributes the wire residuals of its final inner Newton step and the
+    clamp residuals of its final outer clamp event; the descent behind them is
+    the trajectory, not the verdict, and never enters the max. A solve's
+    trajectory closes at its terminal record, which is where the pending pair
+    is folded in.
+    """
     residual: dict[str, float] = dict.fromkeys(_SOLVER_RESIDUAL_FIELDS, 0.0)
-    for record in records:
-        for name in _SOLVER_RESIDUAL_FIELDS:
-            val = float(getattr(record, name).abs().max().item())
+    last_inner: ColBlColSlRecord[Any] | None = None
+    last_outer: ColBlColSlRecord[Any] | None = None
+
+    def fold(record: ColBlColSlRecord[Any] | None, names: tuple[str, ...]) -> None:
+        if record is None:
+            return
+        for name in names:
+            field = getattr(record, name)
+            val = float(field.abs().max().item())
             if val > residual[name]:
                 residual[name] = val
+
+    for record in records:
+        if record.dcop is not None:
+            fold(last_inner, _WIRE_RESIDUAL_FIELDS)
+            fold(last_outer, _CLAMP_RESIDUAL_FIELDS)
+            last_inner = None
+            last_outer = None
+        elif record.inner == 0:
+            last_outer = record
+        else:
+            last_inner = record
+    # A stream cut short of its terminal record still carries a last iterate.
+    fold(last_inner, _WIRE_RESIDUAL_FIELDS)
+    fold(last_outer, _CLAMP_RESIDUAL_FIELDS)
     return residual
 
 
@@ -374,8 +426,9 @@ def solver_residual_max(records: list[SolverRecord[Any]]) -> dict[str, float]:
 class _DriveResult:
     """Pooled records of one candidate's drive over the whole workload."""
 
-    solver_records: list[SolverRecord[Any]]
-    """Ordered solver stream, one record per plane per chunk."""
+    solver_records: list[ColBlColSlRecord[Any]]
+    """Ordered solver stream: every solve's whole iteration trajectory followed
+    by its terminal record, over every plane and chunk."""
     cell_count: int
     """Cell records emitted; `0` for a closed-form cell family that never
     emits."""
@@ -399,27 +452,34 @@ def _drive_candidate(
     / cell record links. The returned ADC codes are discarded — the calibration
     data rides the solver prober upstream of ADC conversion, so code clipping
     at a conservative operating point is irrelevant. One drive yields
-    `n_planes x n_chunks` solver records, array chunking running inside the
-    real forward path.
+    `n_planes x n_chunks` solves, each contributing its whole iteration
+    trajectory plus one terminal record, array chunking running inside the real
+    forward path.
     """
     inst_rank = len(macro.inst_shape)
-    solver_records: list[SolverRecord[Any]] = []
+    solver_records: list[ColBlColSlRecord[Any]] = []
     cell_count = 0
     cell_residual__uA = 0.0
     for w, x in workload:
         macro.program(w.to(device))
         planes = unroll_sub_phase(x.to(device), row_num=input_num, active_rows=active_rows, inst_rank=inst_rank)
-        # device=None: every reduction below and in the plateau / residual
-        # passes is device-agnostic, so the whole converged DCOP stays where it
-        # was solved instead of paying one host transfer per drive and pooling
-        # a hot loop's records in host memory.
-        with SolverProber(device=None) as sp, XbarCell1t1rDetailProber(device=None) as cp, torch.no_grad():
+        # min_outer=0: the guard reads each solve's LAST iterate, and only the
+        # whole trajectory tells the aggregator which iterate that was. The
+        # records stay where they were solved: every reduction below and in the
+        # plateau / residual passes is device-agnostic, so a hot loop pays no
+        # per-drive host transfer and pools nothing in host memory.
+        with (
+            ColBlColSlProber(min_outer=0) as sp,
+            XbarCell1t1rDetailProber() as cp,
+            torch.no_grad(),
+        ):
             macro.vec_mat_mul(planes, quantization_mode=0, adc_bits=macro.adc_max_bits)
         batch_solver = sp.records
         batch_cell = cp.records
-        if batch_cell and len(batch_cell) != len(batch_solver):
+        batch_solve_count = len(terminal_records(list(batch_solver)))
+        if batch_cell and len(batch_cell) != batch_solve_count:
             raise ValueError(
-                f"cell / solver record counts differ ({len(batch_cell)} vs {len(batch_solver)}) — "
+                f"cell / solver record counts differ ({len(batch_cell)} vs {batch_solve_count}) — "
                 "the cell must emit exactly one internal-KCL residual per solver solve"
             )
         solver_records.extend(batch_solver)
@@ -532,7 +592,7 @@ def aggregate_solver_sweep(
     i_cell_typ__uA = 0.0
     v_node_typ__V = 0.0
 
-    prev_records: list[SolverRecord[Any]] | None = None
+    prev_terminals: list[ColBlColSlRecord[Any]] | None = None
     for ci, value in enumerate(candidates):
         macro = build_candidate_macro(
             context.base_macro_dict,
@@ -553,24 +613,28 @@ def aggregate_solver_sweep(
             device=device,
         )
         records = drive.solver_records
+        terminals = terminal_records(records)
 
         residual = solver_residual_max(records)
         if drive.cell_count:
-            if drive.cell_count != len(records):
-                raise ValueError(f"cell record count ({drive.cell_count}) != solver record count ({len(records)})")
+            if drive.cell_count != len(terminals):
+                raise ValueError(f"cell record count ({drive.cell_count}) != solve count ({len(terminals)})")
             residual[_CELL_RESIDUAL_KEY] = drive.cell_residual__uA
         residual_max[ci] = residual
 
-        if prev_records is not None:
-            step_per_class[ci] = step_delta_over_streams(prev_records, records)
-        prev_records = records
+        if prev_terminals is not None:
+            step_per_class[ci] = step_delta_over_streams(prev_terminals, terminals)
+        prev_terminals = terminals
 
         if ci == n_candidates - 1:
-            for record in records:
-                val_i = float(record.dcop.cell.i__uA.abs().max().item())
+            for record in terminals:
+                dcop = record.dcop
+                if dcop is None:
+                    continue
+                val_i = float(dcop.cell.i__uA.abs().max().item())
                 if val_i > i_cell_typ__uA:
                     i_cell_typ__uA = val_i
-                val_v = float(record.dcop.v_bl_node.abs().max().item())
+                val_v = float(dcop.v_bl_node__V.abs().max().item())
                 if val_v > v_node_typ__V:
                     v_node_typ__V = val_v
 

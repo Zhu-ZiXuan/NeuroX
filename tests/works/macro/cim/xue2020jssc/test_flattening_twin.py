@@ -55,7 +55,7 @@ from torch import Tensor
 
 from neurox import Profiler, Reporter
 from neurox.primitive.xbar.cell import XbarCell1t1rLinear, XbarCellDcop
-from neurox.primitive.xbar.solver import SolverDcop, SolverProber
+from neurox.primitive.xbar.solver import ColBlColSlDcop, ColBlColSlProber
 
 from ._utils import (
     MAG_MAX,
@@ -126,14 +126,17 @@ def _twin_pair(
     return big, twins, w
 
 
-def _solve_dcop(macro: Xue2020JsscCimMacro, x: Tensor) -> SolverDcop[XbarCellDcop]:
+def _solve_dcop(macro: Xue2020JsscCimMacro, x: Tensor) -> ColBlColSlDcop[XbarCellDcop]:
     """Run one VMM and return the converged solver DCOP it produced."""
-    # device=None: the returned DCOP is indexed with the macro's own slot map,
-    # which lives on the tested device; a default cpu finalize would split them.
-    with SolverProber(device=None) as probe, torch.no_grad():
+    # The DCOP stays where it was solved, which is where the macro's own slot
+    # map that indexes it lives.
+    with ColBlColSlProber(min_outer=0) as probe, torch.no_grad():
         macro.vec_mat_mul(x, quantization_mode=QUANTIZATION_MODE, adc_bits=TINY_ADC_BITS)
-    assert len(probe.records) == 1, f"expected one unchunked solve, got {len(probe.records)}"
-    return probe.records[-1].dcop
+    # One solve closes with one terminal record; the rest of the book is its
+    # iteration trajectory.
+    dcops = [record.dcop for record in probe.records if record.dcop is not None]
+    assert len(dcops) == 1, f"expected one unchunked solve, got {len(dcops)}"
+    return dcops[0]
 
 
 # ---------------------------------------------------------------------------
@@ -161,7 +164,7 @@ def test_serialization_commutes_with_the_flattened_solve(device: torch.device) -
     for slot, twin in enumerate(twins):
         twin_dcop = _solve_dcop(twin, x)
         cols = slot_map[slot]
-        for field in ("v_bl_node", "v_sl_node"):
+        for field in ("v_bl_node__V", "v_sl_node__V"):
             # Shape: [..., act, row]
             torch.testing.assert_close(
                 getattr(big_dcop, field).index_select(-2, cols), getattr(twin_dcop, field), **_EXACT
@@ -171,7 +174,7 @@ def test_serialization_commutes_with_the_flattened_solve(device: torch.device) -
             torch.testing.assert_close(
                 getattr(big_dcop.cell, field).index_select(-2, cols), getattr(twin_dcop.cell, field), **_EXACT
             )
-        for field in ("i_bl_driver", "v_bl_clamp", "i_sl_driver", "v_sl_drive"):
+        for field in ("i_bl_driver__uA", "v_bl_clamp__V", "i_sl_driver__uA", "v_sl_drive__V"):
             # Shape: [..., act]
             torch.testing.assert_close(
                 getattr(big_dcop, field).index_select(-1, cols), getattr(twin_dcop, field), **_EXACT
@@ -179,7 +182,7 @@ def test_serialization_commutes_with_the_flattened_solve(device: torch.device) -
 
     # Vacuity guard: the columns must actually differ, otherwise any permutation
     # of them would satisfy the comparison above.
-    i_bl = big_dcop.i_bl_driver
+    i_bl = big_dcop.i_bl_driver__uA
     assert float(i_bl.max() - i_bl.min()) > 0.0, "witness columns are indistinguishable; the twin proves nothing"
 
 

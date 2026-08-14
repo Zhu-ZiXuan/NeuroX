@@ -45,7 +45,7 @@ import torch._dynamo
 
 from neurox import Profiler, Reporter, stamp_names
 from neurox.primitive.analog import VoltageDriver, VoltageDriverConfig, VoltageDriverPolicy
-from neurox.primitive.xbar.solver import NestedParallelRailSolverConfig
+from neurox.primitive.xbar.solver import ColBlColSlSolverConfig
 from neurox.works.macro.cim.ye2023jssc.array import (
     Ye2023Jssc2t1rArray,
     Ye2023Jssc2t1rArrayConfig,
@@ -127,7 +127,7 @@ def _array_config() -> Ye2023Jssc2t1rArrayConfig:
         sl_node_c__fF=_SL_NODE_C__fF,
         wl_node_c__fF=_WL_NODE_C__fF,
         cell_config=_cell_config(),
-        solver_config=NestedParallelRailSolverConfig(n_outer=2, n_inner=1),
+        solver_config=ColBlColSlSolverConfig(n_outer=2, n_inner=1),
         weight_radix=_WEIGHT_RADIX,
         redundant_radix=_REDUNDANT_RADIX,
         v_bl_in1__V=_V_BL_IN1__V,

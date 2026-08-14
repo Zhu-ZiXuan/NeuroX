@@ -113,23 +113,23 @@ class XbarCell[ConfigT: XbarCellConfig, PolicyT: XbarCellPolicy, SnapT: XbarCell
     @abstractmethod
     def solve_branch(
         self,
-        v_bl: Tensor,
-        v_sl: Tensor,
+        v_bl__V: Tensor,
+        v_sl__V: Tensor,
         snap: SnapT,
     ) -> tuple[Tensor, Tensor, Tensor]:
         """Solve the condensed branch current and terminal conductances.
 
         Args:
-            v_bl: Bit-line node voltage [V].
+            v_bl__V: Bit-line node voltage.
                 Shape: `[..., col, row]`.
-            v_sl: Source-line node voltage [V].
+            v_sl__V: Source-line node voltage.
                 Shape: `[..., col, row]`.
             snap: Per-call snap from `snapshot`.
 
         Returns:
-            `(i__uA, di_dvbl__uS, di_dvsl__uS)` — branch current [uA] positive
-            BL → SL, ∂I/∂V_BL [uS] non-negative, and ∂I/∂V_SL [uS]
-            non-positive, all three at one shape.
+            `(i__uA, di_dvbl__uS, di_dvsl__uS)` — branch current positive
+            BL → SL, ∂I/∂V_BL non-negative, and ∂I/∂V_SL non-positive, all
+            three at one shape.
             Shape: `[..., col, row]`.
         """
         raise NotImplementedError
@@ -137,16 +137,16 @@ class XbarCell[ConfigT: XbarCellConfig, PolicyT: XbarCellPolicy, SnapT: XbarCell
     @abstractmethod
     def solve_dc(
         self,
-        v_bl: Tensor,
-        v_sl: Tensor,
+        v_bl__V: Tensor,
+        v_sl__V: Tensor,
         snap: SnapT,
     ) -> DcopT:
         """Full branch DC working point, including internal-node state.
 
         Args:
-            v_bl: Bit-line node voltage [V].
+            v_bl__V: Bit-line node voltage.
                 Shape: `[..., col, row]`.
-            v_sl: Source-line node voltage [V].
+            v_sl__V: Source-line node voltage.
                 Shape: `[..., col, row]`.
             snap: Per-call snap from `snapshot`.
 

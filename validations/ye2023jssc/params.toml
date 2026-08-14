@@ -154,11 +154,11 @@ v_wl_on_threshold__V = 0.3        # [derived] midpoint of WL_sel = 0.6 V and WL_
 i_t2_table__uA = [[0.002841, 0.002841], [0.0075, 0.50]]
 
 
-# --- Array DC solver (NestedParallelRailSolver) -- outer V_clamp / inner wire Newton ---
+# --- Array DC solver (ColBlColSlSolver) -- outer V_clamp / inner wire Newton ---
 # One active row per output -> a light, near-linear solve; the nested counts are
 # still used (BL/SL wire coupling).
 [cim_macro.array_config.solver_config]
-_neurox_class = "NestedParallelRailSolverConfig"
+_neurox_class = "ColBlColSlSolverConfig"
 # [assumed] step1 iteration counts; the run config for a formal sweep is under tools/.
 n_outer = 4
 n_inner = 3

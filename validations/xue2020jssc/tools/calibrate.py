@@ -255,7 +255,9 @@ def unit_isub_staircase(macro: Xue2020JsscCimMacro, *, leading_repeat: int = 1) 
     if leading_repeat > 1:
         # Shape: [m, row] -> [leading_repeat, m, row]
         x = x.unsqueeze(0).expand(leading_repeat, *x.shape).contiguous()
-    with IadcProber() as probe, torch.no_grad():
+    # The staircase is read out on the host below, so the book parks there on
+    # exit and the drive's device holds nothing past the call.
+    with IadcProber(sync_device=torch.device("cpu")) as probe, torch.no_grad():
         macro.vec_mat_mul(x.float(), quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
     # Shape: [..., m, group_size, group_num]
     i_sub = probe.records[-1].i_in__uA

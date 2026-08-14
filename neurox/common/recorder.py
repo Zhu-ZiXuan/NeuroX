@@ -22,10 +22,6 @@ from torch import Tensor
 from .tensor_dataclass import TensorDataClassBase
 from .tensor_fields import walk_tensor_fields
 
-# Where a recorder parks its book by default. A recording device is a harness
-# knob rather than a physical quantity, so it carries a code default.
-_DEFAULT_DEVICE = torch.device("cpu")
-
 
 class RecordBase(TensorDataClassBase):
     """One item a side channel collects.
@@ -100,8 +96,9 @@ class RecorderBase[RecordT: RecordBase](ABC):
     """Collect one family's records for as long as its context is open.
 
     Subclass this base directly to open a family, binding the family's record
-    type as `RecorderBase[SomeRecord]`; such a subclass adds no collection logic
-    of its own, since activation, accumulation, and finalization belong here. A
+    type as `RecorderBase[SomeRecord]`; activation, accumulation, and
+    finalization belong here, so the only collection logic such a subclass adds
+    is a `submit` override deciding which of the family's records it keeps. A
     family is that direct subclass together with everything below it, sharing
     the one active slot it owns: at most one recorder of a family collects at a
     time, and entering a second raises `RuntimeError`. An exception frees the
@@ -112,8 +109,9 @@ class RecorderBase[RecordT: RecordBase](ABC):
     fresh instance.
 
     Args:
-        device: Where a clean exit parks the collected records. `None` leaves
-            each record on the device it was recorded on.
+        sync_device: Device a clean exit parks the collected records on. The
+            default `None` leaves each record where it was recorded, so a book
+            parks on one device only when a caller names it.
     """
 
     _family_root: ClassVar[type[RecorderBase[Any]] | None] = None
@@ -121,9 +119,9 @@ class RecorderBase[RecordT: RecordBase](ABC):
     # property that no annotation on the shared base can express.
     _active_recorder: ClassVar[RecorderBase[Any] | None]
 
-    def __init__(self, *, device: torch.device | None = _DEFAULT_DEVICE) -> None:
+    def __init__(self, *, sync_device: torch.device | None = None) -> None:
         self._root()  # a bare RecorderBase instance owns no slot to collect into
-        self._device = device
+        self._sync_device = sync_device
         self.__records: list[RecordT] = []
 
     def __init_subclass__(cls) -> None:
@@ -202,6 +200,29 @@ class RecorderBase[RecordT: RecordBase](ABC):
         cudagraph-owned memory that a later replay overwrites, so an emitter
         inside such a region clones before it submits.
 
+        A family with an admission rule OVERRIDES this method: it applies its
+        gate and hands what survives to `cls._submit_record(record)`. Such an
+        override MUST carry `@torch.compiler.disable` exactly as this base does.
+        An undisabled override is traced by dynamo, which folds the active-slot
+        read into the graph as a constant and leaves the family silently
+        collecting nothing ever after — the failure `current` documents. The
+        same decorator on `_submit_record` is defense in depth against exactly
+        that omission, never a licence to leave it off the override.
+
+        Args:
+            record: Record to collect; dropped when no recorder is active.
+        """
+        cls._submit_record(record)
+
+    @classmethod
+    @final
+    @torch.compiler.disable
+    def _submit_record(cls, record: RecordT) -> None:
+        """Append one record to the family's active recorder, detached.
+
+        This is the whole of collection's invariant machinery, so no family
+        reimplements it: an override decides admission and calls this.
+
         Args:
             record: Record to collect; dropped when no recorder is active.
         """
@@ -211,14 +232,15 @@ class RecorderBase[RecordT: RecordBase](ABC):
         recorder.__records.append(record.detach())  # noqa: SLF001
 
     def _finalize(self) -> None:
-        """Park every collected record on this recorder's device.
+        """Park every collected record on this recorder's `sync_device`.
 
-        The sweep visits the whole book on every clean exit; a record already on
-        the device is returned unchanged, so re-sweeping what an earlier
-        activation collected moves nothing. Each record parks itself, so a
-        cross-device book of `N` records costs `N` transfers rather than one
-        batched copy.
+        Without one there is nothing to park: the records stay where they were
+        recorded. With one the sweep visits the whole book on every clean exit;
+        a record already on that device is returned unchanged, so re-sweeping
+        what an earlier activation collected moves nothing. Each record parks
+        itself, so a cross-device book of `N` records costs `N` transfers rather
+        than one batched copy.
         """
-        if self._device is None:
+        if self._sync_device is None:
             return
-        self.__records = [record.to(self._device) for record in self.__records]
+        self.__records = [record.to(self._sync_device) for record in self.__records]

@@ -182,7 +182,7 @@ def main() -> None:
             # records stay where they were recorded: the reporter reduces a
             # whole book in one transfer, so parking them on the host first
             # would cost one sync per record instead.
-            with Profiler(leading_rank=1, device=None) as profiler:
+            with Profiler(leading_rank=1) as profiler:
                 logits = model(images)
             correct += logits.argmax(1).eq(targets).sum().item()
             total += targets.size(0)

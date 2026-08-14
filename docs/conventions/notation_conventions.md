@@ -114,12 +114,24 @@ Config fields are the human-interaction surface and follow established industria
 
 ### Name-suffix grammar
 
-Every variable or config field carrying a physical quantity uses `<name>__<unit>`, even when the surrounding text already states the unit; a dimensionless quantity has no suffix.
+Every identifier naming a physical quantity uses `<name>__<unit>`, even when the surrounding text already states the unit — a parameter, a dataclass or config field, and a local alike. A function or property whose return value is one physical quantity is named like the variable that would hold it, the quantity first and the unit suffix last (`a__V()`); a call returning several quantities keeps a bare name and its elements take their suffixes at the unpack (`a__V, b__uA = ab()`). A dimensionless quantity has no suffix.
 
 - Separator: a double underscore `__` joins the name to the unit.
 - Unit case follows the physical standard.
 - Multiplication is implicit, joining adjacent unit tokens with `_`, e.g. `A_vt__mV_um`.
 - Division uses `_per_`, e.g. `mu0__cm2_per_V_s`.
+
+### Derivative identifiers
+
+A quantity that is a derivative is named `d<y>_d<x>__<unit>`, all lowercase. Each of `<y>` and `<x>` is the quantity's own name with its internal underscores removed, so the run-together name leaves `_d` as the one separator in the identifier. The unit is unit(y) per unit(x), reduced through the runtime unit set above rather than written as a quotient.
+
+| Derivative | Identifier | Unit |
+|---|---|---|
+| ∂a/∂b, a in V, b in uA | `da_db__MOhm` | MOhm |
+| ∂a/∂b, a in uA, b in V | `da_db__uS` | uS |
+| ∂a_out/∂b, a_out in V, b in uA | `daout_db__MOhm` | MOhm |
+
+This is the identifier register only; a docstring or comment naming the same quantity in prose writes it as ∂a/∂b under the whitelist above, and a Markdown formula writes `\partial`.
 
 ### Canonical unit per dimension
 

@@ -492,9 +492,9 @@ def measure(
             # Every energy record therefore resolves to [n_x], one element per
             # input vector, with the die ensemble folded into each element.
             # `program` emits zero profiling records (AST-verified), so sharing
-            # the context with it is safe. `device=None` parks the records where
-            # they were emitted, so the workload costs no per-round transfer.
-            with Profiler(leading_rank=1, device=None) as prof:
+            # the context with it is safe. The records stay where they were
+            # emitted, so the workload costs no per-round transfer.
+            with Profiler(leading_rank=1) as prof:
                 macro.program(w)
                 macro.vec_mat_mul(x, quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
             # One VMM is the macro's reported duration; a die runs the round's
@@ -748,7 +748,7 @@ def _rscsa_energy_by_code(macro: Ye2023JsscCimMacro) -> dict[int, float]:
         # batch, so there is no caller-leading axis to preserve. The default
         # leading_rank=0 already collapses this single record to the scalar
         # this helper reads.
-        with Profiler(device=None) as prof, torch.no_grad():
+        with Profiler() as prof, torch.no_grad():
             macro.rscsa.convert(i_in__uA, i_refs__uA, bits=_ADC_BITS)
         out[code] = reporter.by_name(prof)["rscsa"]
     return out

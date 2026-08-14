@@ -164,8 +164,8 @@ def test_m_matrix_block_2x2_mirrors_nested_wire_jacobian(device: torch.device) -
     block_num = 16
     block_size = 2
     wire_g = 5.0e3  # ~ a chip's per-link rail conductance scale (uS)
-    a = 100.0  # dI_cell/dV_BL, about g_R · g_ND / D
-    b_cross = -50.0  # dI_cell/dV_SL (negative)
+    a = 100.0  # ∂I_cell/∂V_BL, about g_R · g_ND / D
+    b_cross = -50.0  # ∂I_cell/∂V_SL (negative)
 
     # Diagonal block: [[wire_diag + a, b_cross], [-a, wire_diag - b_cross]].
     diag = torch.zeros(block_num, block_size, block_size, dtype=torch.float64, device=device)

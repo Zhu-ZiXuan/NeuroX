@@ -18,8 +18,8 @@ class VoltageDriverConfig(AnalogConfig):
     """Immutable configuration for `VoltageDriver`."""
 
     r_out__MOhm: float
-    """Series output resistance — the constant clamp slope dVclamp/dI; 0
-    recovers the ideal voltage-source limit."""
+    """Series output resistance — its NEGATIVE is the constant clamp slope
+    ∂V_clamp/∂I; 0 recovers the ideal voltage-source limit."""
     offset_sigma__V: float
     """σ of the static systematic per-instance offset on the reference."""
     thermal_sigma__V: float
@@ -55,6 +55,19 @@ class VoltageDriverPolicy(AnalogPolicy):
     """Apply the per-solve thermal noise `thermal_sigma__V`."""
 
 
+class VoltageDriverDcop(TensorDataClassBase):
+    """Clamp state at the solved port operating point."""
+
+    v_clamp__V: Tensor
+    """Clamp voltage held at the evaluated port current.
+    Shape: `[..., *inst_shape]`."""
+    dvclamp_di__MOhm: Tensor
+    """Clamp slope against the port current — the NEGATED constant series
+    output resistance, broadcast to the port current; ≤ 0 for r_out ≥ 0, and
+    exactly 0 in the ideal-source limit.
+    Shape: `[..., *inst_shape]`."""
+
+
 class VoltageDriverSnap(TensorDataClassBase, TensorGroupMixin):
     """One sampled clamp snap."""
 
@@ -68,8 +81,8 @@ class VoltageDriverSnap(TensorDataClassBase, TensorGroupMixin):
     enables; exactly zero under an all-off policy.
     Shape: `[..., *inst_shape]`."""
     r_out__MOhm: Tensor
-    """Series output resistance — a frozen constant slope broadcast to the
-    call shape.
+    """Series output resistance — a frozen constant broadcast to the call
+    shape.
     Shape: `[..., *inst_shape]`."""
 
 
@@ -213,13 +226,13 @@ class VoltageDriver(AnalogBase[VoltageDriverConfig, VoltageDriverPolicy]):
         self._record_dynamic_energy(e_op__fJ.expand(i_port__uA.shape))
         return v_clamp__V
 
-    def solve_clamp(
+    def solve_dc(
         self,
         i_port__uA: Tensor,
         snap: VoltageDriverSnap,
         *,
         v_clamp_init__V: Tensor | None,
-    ) -> tuple[Tensor, Tensor]:
+    ) -> VoltageDriverDcop:
         """Solve the Thevenin clamp at the present port current.
 
         Args:
@@ -229,11 +242,13 @@ class VoltageDriver(AnalogBase[VoltageDriverConfig, VoltageDriverPolicy]):
                 the clamp is closed-form.
 
         Returns:
-            Tuple `(v_clamp__V, dVclamp_dI__MOhm)`, where `v_clamp__V =
-            snap.v_ref__V + snap.v_perturb__V - i_port__uA * snap.r_out__MOhm`
-            and `dVclamp_dI__MOhm = snap.r_out__MOhm` broadcast to
-            `i_port__uA`.
+            Clamp state, where `v_clamp__V = snap.v_ref__V +
+            snap.v_perturb__V - i_port__uA * snap.r_out__MOhm` and
+            `dvclamp_di__MOhm = -snap.r_out__MOhm` broadcast to `i_port__uA`
+            — the derivative of that map, which the series drop makes
+            non-positive.
         """
-        v_clamp__V = snap.v_ref__V + snap.v_perturb__V - i_port__uA * snap.r_out__MOhm
-        dVclamp_dI__MOhm = snap.r_out__MOhm.expand_as(i_port__uA)
-        return v_clamp__V, dVclamp_dI__MOhm
+        return VoltageDriverDcop(
+            v_clamp__V=snap.v_ref__V + snap.v_perturb__V - i_port__uA * snap.r_out__MOhm,
+            dvclamp_di__MOhm=-snap.r_out__MOhm.expand_as(i_port__uA),
+        )

@@ -58,19 +58,19 @@ def _build_cell(inst_shape: tuple[int, ...]) -> XbarCell1t1rDetail:
 
 
 def _grids() -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    v_bl = torch.full((2, 2), 0.3, dtype=torch.float64)
-    v_sl = torch.zeros((2, 2), dtype=torch.float64)
-    v_wl = torch.full((2, 2), 0.9, dtype=torch.float64)
-    return v_bl, v_sl, v_wl
+    v_bl__V = torch.full((2, 2), 0.3, dtype=torch.float64)
+    v_sl__V = torch.zeros((2, 2), dtype=torch.float64)
+    v_wl__V = torch.full((2, 2), 0.9, dtype=torch.float64)
+    return v_bl__V, v_sl__V, v_wl__V
 
 
 def test_solve_dc_emits_one_residual_record() -> None:
     cell = _build_cell((2, 2))
-    v_bl, v_sl, v_wl = _grids()
-    snap = cell.snapshot(control=v_wl, shape=(2, 2), t_elapsed=0.0)
+    v_bl__V, v_sl__V, v_wl__V = _grids()
+    snap = cell.snapshot(control=v_wl__V, shape=(2, 2), t_elapsed=0.0)
 
     with XbarCell1t1rDetailProber() as prober:
-        cell.solve_dc(v_bl, v_sl, snap)
+        cell.solve_dc(v_bl__V, v_sl__V, snap)
     records = prober.records
 
     assert len(records) == 1
@@ -83,17 +83,17 @@ def test_solve_dc_emits_one_residual_record() -> None:
 def test_solve_branch_emits_nothing() -> None:
     """Only `solve_dc` emits; the lean hot path stays off the side channel."""
     cell = _build_cell((2, 2))
-    v_bl, v_sl, v_wl = _grids()
-    snap = cell.snapshot(control=v_wl, shape=(2, 2), t_elapsed=0.0)
+    v_bl__V, v_sl__V, v_wl__V = _grids()
+    snap = cell.snapshot(control=v_wl__V, shape=(2, 2), t_elapsed=0.0)
 
     with XbarCell1t1rDetailProber() as prober:
-        cell.solve_branch(v_bl, v_sl, snap)
+        cell.solve_branch(v_bl__V, v_sl__V, snap)
     assert prober.records == ()
 
 
 def test_solve_dc_without_prober_is_silent() -> None:
     """The emit hook is a no-op when no prober is active (no error)."""
     cell = _build_cell((2, 2))
-    v_bl, v_sl, v_wl = _grids()
-    snap = cell.snapshot(control=v_wl, shape=(2, 2), t_elapsed=0.0)
-    cell.solve_dc(v_bl, v_sl, snap)
+    v_bl__V, v_sl__V, v_wl__V = _grids()
+    snap = cell.snapshot(control=v_wl__V, shape=(2, 2), t_elapsed=0.0)
+    cell.solve_dc(v_bl__V, v_sl__V, snap)

@@ -15,7 +15,7 @@ import pytest
 import torch
 
 from neurox.primitive.xbar.cell import XbarCell1t1rDcop
-from neurox.primitive.xbar.solver import SolverDcop, SolverRecord
+from neurox.primitive.xbar.solver import ColBlColSlDcop, ColBlColSlRecord
 from neurox.tools.calibrate_solver._common import (
     load_macro_config_dict,
     resolve_macro_files,
@@ -24,7 +24,7 @@ from neurox.tools.calibrate_solver._common import (
     step_delta_over_streams,
     unroll_sub_phase,
 )
-from neurox.tools.calibrate_solver.nested import CalibrateSolverNestedConfig
+from neurox.tools.calibrate_solver.col_bl_col_sl import CalibrateSolverColBlColSlConfig
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SHIPPED_RUN_TOML = _REPO_ROOT / "validations/xue2020jssc/tools/calibrate_solver.toml"
@@ -88,7 +88,7 @@ def _macro_dict() -> dict:
         "array_config": {
             "leakage_per_inst__uW": 1.0,
             "solver_config": {
-                "_neurox_class": "NestedParallelRailSolverConfig",
+                "_neurox_class": "ColBlColSlSolverConfig",
                 "n_outer": 20,
                 "n_inner": 4,
             },
@@ -125,7 +125,7 @@ class TestResolveSolverTableLaw:
     def test_wrong_discriminator_raises(self) -> None:
         d = _macro_dict()
         d["array_config"]["solver_config"]["_neurox_class"] = "SomeOtherSolverConfig"
-        with pytest.raises(TypeError, match="not NestedParallelRailSolverConfig"):
+        with pytest.raises(TypeError, match="not ColBlColSlSolverConfig"):
             resolve_solver_table(d, "array_config.solver_config")
 
     def test_no_discriminator_requires_swept_keys(self) -> None:
@@ -148,71 +148,122 @@ class TestResolveSolverTableLaw:
 # ---------------------------------------------------------------------------
 
 
-def _record(*, v_bl_node: float, v_x: float, wire_bl: float, clamp_bl: float) -> SolverRecord:
-    """One synthetic SolverRecord with scalar-broadcast tensor fields."""
-    ones = torch.ones((2, 3))
+_GRID = (2, 3)
+_COL = (2,)
+
+
+def _terminal(*, outer: int = 2, v_bl_node__V: float, v_x__V: float) -> ColBlColSlRecord:
+    """The record one synthetic solve closes with: the converged DCOP."""
+    ones = torch.ones(_GRID)
     cell = XbarCell1t1rDcop(
         i__uA=ones * 7.0,
         di_dvbl__uS=ones,
         di_dvsl__uS=-ones,
-        v_x__V=ones * v_x,
+        v_x__V=ones * v_x__V,
     )
-    dcop: SolverDcop = SolverDcop(
-        i_bl_driver=torch.ones((2,)),
-        i_sl_driver=torch.ones((2,)),
-        v_bl_node=ones * v_bl_node,
-        v_sl_node=ones * 0.0,
+    dcop: ColBlColSlDcop = ColBlColSlDcop(
+        i_bl_driver__uA=torch.ones(_COL),
+        i_sl_driver__uA=torch.ones(_COL),
+        v_bl_node__V=ones * v_bl_node__V,
+        v_sl_node__V=ones * 0.0,
         cell=cell,
-        v_bl_clamp=torch.ones((2,)) * 0.3,
-        v_sl_drive=torch.zeros((2,)),
+        v_bl_clamp__V=torch.ones(_COL) * 0.3,
+        v_sl_drive__V=torch.zeros(_COL),
     )
-    return SolverRecord(
-        emitter="synthetic",
-        dcop=dcop,
-        wire_bl__uA=ones * wire_bl,
-        wire_sl__uA=ones * 0.0,
-        clamp_bl__V=torch.ones((2,)) * clamp_bl,
-        clamp_sl__V=torch.zeros((2,)),
+    return ColBlColSlRecord(outer=outer, inner=0, dcop=dcop)
+
+
+def _clamp_event(*, outer: int, clamp_bl: float) -> ColBlColSlRecord:
+    """One outer clamp event carrying its own clamp residuals."""
+    return ColBlColSlRecord(
+        outer=outer,
+        inner=0,
+        f_bl_clamp__V=torch.ones(_COL) * clamp_bl,
+        f_sl_clamp__V=torch.zeros(_COL),
     )
+
+
+def _inner_step(*, outer: int, inner: int, wire_bl: float) -> ColBlColSlRecord:
+    """One inner Newton step carrying its own wire residuals."""
+    ones = torch.ones(_GRID)
+    return ColBlColSlRecord(
+        outer=outer,
+        inner=inner,
+        f_bl_kcl__uA=ones * wire_bl,
+        f_sl_kcl__uA=ones * 0.0,
+    )
+
+
+def _solve(*, clamp_bl: tuple[float, ...], wire_bl: tuple[float, ...]) -> list[ColBlColSlRecord]:
+    """One whole synthetic solve: its trajectory then its terminal record.
+
+    The two residual sequences are laid out so the LAST entry of each is the
+    iterate the solve stopped on, which is the only one the guard reads.
+    """
+    trajectory: list[ColBlColSlRecord] = []
+    for outer, clamp in enumerate(clamp_bl):
+        trajectory.append(_clamp_event(outer=outer, clamp_bl=clamp))
+    for inner, wire in enumerate(wire_bl):
+        trajectory.append(_inner_step(outer=len(clamp_bl) - 1, inner=inner + 1, wire_bl=wire))
+    trajectory.append(_terminal(outer=len(clamp_bl), v_bl_node__V=0.0, v_x__V=0.0))
+    return trajectory
 
 
 class TestRecordAggregationLaw:
     def test_step_delta_is_max_abs_field_difference(self) -> None:
         prev = [
-            _record(v_bl_node=0.0, v_x=0.0, wire_bl=0.0, clamp_bl=0.0),
-            _record(v_bl_node=1.0, v_x=1.0, wire_bl=0.0, clamp_bl=0.0),
+            _terminal(v_bl_node__V=0.0, v_x__V=0.0),
+            _terminal(v_bl_node__V=1.0, v_x__V=1.0),
         ]
         curr = [
-            _record(v_bl_node=0.5, v_x=0.2, wire_bl=0.0, clamp_bl=0.0),
-            _record(v_bl_node=1.0, v_x=3.0, wire_bl=0.0, clamp_bl=0.0),
+            _terminal(v_bl_node__V=0.5, v_x__V=0.2),
+            _terminal(v_bl_node__V=1.0, v_x__V=3.0),
         ]
         step = step_delta_over_streams(prev, curr)
-        # v_bl_node: max(|0.5-0|, |1-1|) = 0.5
-        assert step["v_bl_node"] == pytest.approx(0.5)
-        # v_x: max(|0.2-0|, |3-1|) = 2.0
-        assert step["v_x"] == pytest.approx(2.0)
-        # v_sl_node / clamps unchanged -> 0
-        assert step["v_sl_node"] == pytest.approx(0.0)
+        # v_bl_node__V: max(|0.5-0|, |1-1|) = 0.5
+        assert step["v_bl_node__V"] == pytest.approx(0.5)
+        # v_x__V: max(|0.2-0|, |3-1|) = 2.0
+        assert step["v_x__V"] == pytest.approx(2.0)
+        # v_sl_node__V / clamps unchanged -> 0
+        assert step["v_sl_node__V"] == pytest.approx(0.0)
 
     def test_identical_streams_give_zero_step(self) -> None:
-        stream = [_record(v_bl_node=1.0, v_x=1.0, wire_bl=0.0, clamp_bl=0.0)]
+        stream = [_terminal(v_bl_node__V=1.0, v_x__V=1.0)]
         step = step_delta_over_streams(stream, [copy.copy(stream[0])])
         assert max(step.values()) == 0.0
 
     def test_misaligned_streams_raise(self) -> None:
-        one = [_record(v_bl_node=1.0, v_x=1.0, wire_bl=0.0, clamp_bl=0.0)]
+        one = [_terminal(v_bl_node__V=1.0, v_x__V=1.0)]
         with pytest.raises(ValueError, match="misaligned"):
             step_delta_over_streams(one, one + one)
 
-    def test_residual_max_is_per_field_max_abs(self) -> None:
+    def test_step_delta_refuses_an_iteration_record(self) -> None:
+        """A step delta compares converged iterates, so it demands a DCOP."""
+        stream = [_inner_step(outer=0, inner=1, wire_bl=0.0)]
+        with pytest.raises(ValueError, match="terminal record"):
+            step_delta_over_streams(stream, stream)
+
+    def test_residual_max_is_per_field_max_abs_over_solves(self) -> None:
+        """Each solve contributes its last iterate; the max is over solves."""
         records = [
-            _record(v_bl_node=0.0, v_x=0.0, wire_bl=2.0, clamp_bl=0.1),
-            _record(v_bl_node=0.0, v_x=0.0, wire_bl=5.0, clamp_bl=0.05),
+            *_solve(clamp_bl=(0.1,), wire_bl=(2.0,)),
+            *_solve(clamp_bl=(0.05,), wire_bl=(5.0,)),
         ]
         residual = solver_residual_max(records)
-        assert residual["wire_bl__uA"] == pytest.approx(5.0)
-        assert residual["clamp_bl__V"] == pytest.approx(0.1)
-        assert residual["wire_sl__uA"] == pytest.approx(0.0)
+        assert residual["f_bl_kcl__uA"] == pytest.approx(5.0)
+        assert residual["f_bl_clamp__V"] == pytest.approx(0.1)
+        assert residual["f_sl_kcl__uA"] == pytest.approx(0.0)
+
+    def test_only_the_last_iterate_of_a_solve_is_read(self) -> None:
+        """DESCENT LAW: the residuals a solve passed through never enter the max.
+
+        A converging solve's early iterates are large by construction, so
+        counting them would report divergence for every well-behaved solve.
+        """
+        records = _solve(clamp_bl=(9.0, 8.0, 0.02), wire_bl=(7.0, 6.0, 0.5))
+        residual = solver_residual_max(records)
+        assert residual["f_bl_kcl__uA"] == pytest.approx(0.5)
+        assert residual["f_bl_clamp__V"] == pytest.approx(0.02)
 
 
 # ---------------------------------------------------------------------------
@@ -228,14 +279,14 @@ class TestRecordAggregationLaw:
 )
 class TestShippedRunConfig:
     def test_parses_and_validates(self) -> None:
-        cfg = CalibrateSolverNestedConfig.from_file(_SHIPPED_RUN_TOML)
+        cfg = CalibrateSolverColBlColSlConfig.from_file(_SHIPPED_RUN_TOML)
         # inst_shape is bound to [batch_w] and active_rows is in range.
         assert list(cfg.workload.inst_shape) == [cfg.workload.batch_w]
         assert cfg.workload.active_rows >= 1
         assert cfg.macro.solver_section
 
     def test_solver_section_resolves_in_macro_config(self) -> None:
-        cfg = CalibrateSolverNestedConfig.from_file(_SHIPPED_RUN_TOML)
+        cfg = CalibrateSolverColBlColSlConfig.from_file(_SHIPPED_RUN_TOML)
         config_paths, _policy_path = resolve_macro_files(cfg.macro, base=_SHIPPED_RUN_TOML)
         macro_dict = load_macro_config_dict(config_paths, config_section=cfg.macro.config_section)
         table = resolve_solver_table(macro_dict, cfg.macro.solver_section)
@@ -243,7 +294,7 @@ class TestShippedRunConfig:
 
     def test_active_rows_matches_max_active_num(self) -> None:
         """active_rows is the production-faithful max_active_num (= active_row_num)."""
-        cfg = CalibrateSolverNestedConfig.from_file(_SHIPPED_RUN_TOML)
+        cfg = CalibrateSolverColBlColSlConfig.from_file(_SHIPPED_RUN_TOML)
         config_paths, _policy_path = resolve_macro_files(cfg.macro, base=_SHIPPED_RUN_TOML)
         macro_dict = load_macro_config_dict(config_paths, config_section=cfg.macro.config_section)
         assert cfg.workload.active_rows == macro_dict["max_active_num"]

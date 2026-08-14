@@ -211,21 +211,21 @@ class XbarCell1t1rDetail(XbarCell1t1r[XbarCell1t1rDetailConfig, XbarCell1t1rDeta
 
     def _solve_vx(
         self,
-        v_bl: Tensor,
-        v_sl: Tensor,
+        v_bl__V: Tensor,
+        v_sl__V: Tensor,
         snap: XbarCell1t1rDetailSnap,
     ) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
         """Condense the access node V_X.
 
         Args:
-            v_bl: Bit-line node voltage [V].
-            v_sl: Source-line node voltage [V].
+            v_bl__V: Bit-line node voltage.
+            v_sl__V: Source-line node voltage.
             snap: Per-call detailed-cell snapshot.
 
         Returns:
-            `(i_rram, i_nmos, di_dvbl, di_dvsl, v_x)`.
+            `(i_rram__uA, i_nmos__uA, di_dvbl__uS, di_dvsl__uS, v_x__V)`.
         """
-        v_wl = snap.v_wl__V
+        v_wl__V = snap.v_wl__V
         rram_snap = snap.rram
         nmos_snap = snap.nmos
 
@@ -234,58 +234,61 @@ class XbarCell1t1rDetail(XbarCell1t1r[XbarCell1t1rDetailConfig, XbarCell1t1rDeta
         # First-order split of the BL-to-SL drop across the NMOS output
         # conductance and the programmed RRAM conductance, evaluated at the
         # terminal operating point.
-        v_cell_bl_to_sl = v_bl - v_sl
-        g_rram_seed = rram_snap.g__uS
-        dc_nmos_seed = self.nmos.solve_dc(v_wl, v_bl, v_sl, nmos_snap)
-        v_rram_drop_init = dc_nmos_seed.did_dvd__uS * v_cell_bl_to_sl / (dc_nmos_seed.did_dvd__uS + g_rram_seed)
-        v_x = v_bl - v_rram_drop_init
+        v_cell_bl_to_sl__V = v_bl__V - v_sl__V
+        g_rram_seed__uS = rram_snap.g__uS
+        dc_nmos_seed = self.nmos.solve_dc(v_wl__V, v_bl__V, v_sl__V, nmos_snap)
+        v_rram_drop_init__V = (
+            dc_nmos_seed.did_dvd__uS * v_cell_bl_to_sl__V / (dc_nmos_seed.did_dvd__uS + g_rram_seed__uS)
+        )
+        v_x__V = v_bl__V - v_rram_drop_init__V
 
         # --- 2: solve F_X = I_NMOS - I_RRAM with Newton iterations ---
 
         for _ in range(self._newton_iter_num):
-            dc_nmos = self.nmos.solve_dc(v_wl, v_x, v_sl, nmos_snap)
-            dc_rram = self.rram.solve_dc(v_bl - v_x, rram_snap)
-            f_cell = dc_nmos.ids__uA - dc_rram.i__uA
-            df_dvx = dc_nmos.did_dvd__uS + dc_rram.di_dv__uS
-            v_x = v_x - f_cell / df_dvx
+            dc_nmos = self.nmos.solve_dc(v_wl__V, v_x__V, v_sl__V, nmos_snap)
+            dc_rram = self.rram.solve_dc(v_bl__V - v_x__V, rram_snap)
+            f_cell__uA = dc_nmos.ids__uA - dc_rram.i__uA
+            df_dvx__uS = dc_nmos.did_dvd__uS + dc_rram.di_dv__uS
+            v_x__V = v_x__V - f_cell__uA / df_dvx__uS
 
         # --- 3: evaluate the final current and terminal derivatives ---
 
-        dc_nmos = self.nmos.solve_dc(v_wl, v_x, v_sl, nmos_snap)
-        dc_rram = self.rram.solve_dc(v_bl - v_x, rram_snap)
-        i_n = dc_nmos.ids__uA
-        i_r = dc_rram.i__uA
+        dc_nmos = self.nmos.solve_dc(v_wl__V, v_x__V, v_sl__V, nmos_snap)
+        dc_rram = self.rram.solve_dc(v_bl__V - v_x__V, rram_snap)
+        i_n__uA = dc_nmos.ids__uA
+        i_r__uA = dc_rram.i__uA
         # Series condensation of the NMOS (V_X = drain) and RRAM
-        # conductances at the eliminated access node. `did_dvd >= 0` and
-        # `di_dv >= 0` so `di_dvbl >= 0`; `did_dvs <= 0` so `di_dvsl <= 0`.
-        denom = dc_nmos.did_dvd__uS + dc_rram.di_dv__uS
-        di_dvbl__uS = dc_nmos.did_dvd__uS * dc_rram.di_dv__uS / denom
-        di_dvsl__uS = dc_nmos.did_dvs__uS * dc_rram.di_dv__uS / denom
-        return i_r, i_n, di_dvbl__uS, di_dvsl__uS, v_x
+        # conductances at the eliminated access node. `did_dvd__uS >= 0` and
+        # `di_dv__uS >= 0` so `di_dvbl__uS >= 0`; `did_dvs__uS <= 0` so
+        # `di_dvsl__uS <= 0`.
+        denom__uS = dc_nmos.did_dvd__uS + dc_rram.di_dv__uS
+        di_dvbl__uS = dc_nmos.did_dvd__uS * dc_rram.di_dv__uS / denom__uS
+        di_dvsl__uS = dc_nmos.did_dvs__uS * dc_rram.di_dv__uS / denom__uS
+        return i_r__uA, i_n__uA, di_dvbl__uS, di_dvsl__uS, v_x__V
 
     def solve_branch(
         self,
-        v_bl: Tensor,
-        v_sl: Tensor,
+        v_bl__V: Tensor,
+        v_sl__V: Tensor,
         snap: XbarCell1t1rDetailSnap,
     ) -> tuple[Tensor, Tensor, Tensor]:
         """Condensed branch solve: `(i__uA, di_dvbl__uS, di_dvsl__uS)`."""
-        i_r, _i_n, di_dvbl__uS, di_dvsl__uS, _v_x = self._solve_vx(v_bl, v_sl, snap)
-        return i_r, di_dvbl__uS, di_dvsl__uS
+        i_r__uA, _i_n__uA, di_dvbl__uS, di_dvsl__uS, _v_x__V = self._solve_vx(v_bl__V, v_sl__V, snap)
+        return i_r__uA, di_dvbl__uS, di_dvsl__uS
 
     def solve_dc(
         self,
-        v_bl: Tensor,
-        v_sl: Tensor,
+        v_bl__V: Tensor,
+        v_sl__V: Tensor,
         snap: XbarCell1t1rDetailSnap,
     ) -> XbarCell1t1rDcop:
         """Return the branch working point including the condensed V_X."""
-        i_r, i_n, di_dvbl__uS, di_dvsl__uS, v_x = self._solve_vx(v_bl, v_sl, snap)
+        i_r__uA, i_n__uA, di_dvbl__uS, di_dvsl__uS, v_x__V = self._solve_vx(v_bl__V, v_sl__V, snap)
         if XbarCell1t1rDetailProber.active():
-            XbarCell1t1rDetailProber.submit(XbarCell1t1rDetailRecord(cell__uA=(i_n - i_r).abs()))
+            XbarCell1t1rDetailProber.submit(XbarCell1t1rDetailRecord(cell__uA=(i_n__uA - i_r__uA).abs()))
         return XbarCell1t1rDcop(
-            i__uA=i_r,
+            i__uA=i_r__uA,
             di_dvbl__uS=di_dvbl__uS,
             di_dvsl__uS=di_dvsl__uS,
-            v_x__V=v_x,
+            v_x__V=v_x__V,
         )

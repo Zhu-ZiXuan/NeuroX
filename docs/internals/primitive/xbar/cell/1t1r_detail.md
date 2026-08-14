@@ -29,4 +29,4 @@ The cell's per-call working set is the device snaps plus a handful of node-volta
 
 - **Reference**: [Detail cell](../../../../reference/primitive/xbar/cell/1t1r_detail.md)
 - **Implementation**: `neurox/primitive/xbar/cell/_1t1r_detail.py`
-- **Tests**: `tests/primitive/xbar/test_cell_detail.py`, `tests/primitive/xbar/test_nested_solver.py`, `tests/primitive/device/test_mosfet.py`
+- **Tests**: `tests/primitive/xbar/test_cell_detail.py`, `tests/primitive/xbar/test_col_bl_col_sl.py`, `tests/primitive/device/test_mosfet.py`

@@ -197,18 +197,18 @@ v_wl_on_threshold__V = 0.45
 
 
 # ---------------------------------------------------------------------------
-# Array DC solver (NestedParallelRailSolver) -- outer V_clamp / inner wire Newton
+# Array DC solver (ColBlColSlSolver) -- outer V_clamp / inner wire Newton
 # ---------------------------------------------------------------------------
 # The Linear cell + wire R is a linear system, so the solve is fast + near-exact;
 # the nested iteration counts are genuinely used all the same (the wire IR drop
-# couples BL/SL). [calibrated] calibrate_solver.nested (step-ratio plateau +
+# couples BL/SL). [calibrated] calibrate_solver.col_bl_col_sl (step-ratio plateau +
 # residual guard, all-off, active_rows=9, this wire ladder): plateau at
 # (n_outer=3, n_inner=3), recommended with +1 outer margin. Drive the tool at
 # inst_shape=(): its CLI forces inst_shape=[batch_w], which collides with this
 # macro's ADC per-instance layout at batch_w>1 and mis-shapes program() at
 # batch_w=1, while its sweep engine drives cleanly at inst_shape=().
 [cim_macro.array_config.solver_config]
-_neurox_class = "NestedParallelRailSolverConfig"
+_neurox_class = "ColBlColSlSolverConfig"
 n_outer = 4                       # [calibrated] outer clamp-voltage Newton steps (plateau 3 + margin 1)
 n_inner = 3                       # [calibrated] inner wire/cell coupled Newton steps (plateau 3)
 

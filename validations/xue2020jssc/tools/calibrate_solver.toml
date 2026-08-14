@@ -1,8 +1,8 @@
-# Run-config for neurox.tools.calibrate_solver.nested on the xue2020jssc array solver.
+# Run-config for neurox.tools.calibrate_solver.col_bl_col_sl on the xue2020jssc array solver.
 #
 # GENUINE: the runtime macro (../params.toml) composes the kernel XbarArray1t1r directly --
 # no scheme-local array class -- in wl_in_bl_scan over the full physical column grid, one
-# solve per plane, with a NestedParallelRailSolver over a positive wire ladder (BL/SL first
+# solve per plane, with a ColBlColSlSolver over a positive wire ladder (BL/SL first
 # 20 Ohm, segment 5 Ohm). The solver iteration counts (n_outer, n_inner) are therefore really
 # used: the wire IR drop couples BL/SL and the DC solve is non-trivial. This run-config
 # targets the Detail SOURCE model (params_detail.toml), a config-complete xbar whose wire
@@ -14,7 +14,7 @@
 #   - documents the solver knobs for the physical Detail model calibrate_cell extracts from.
 #
 # Run (on the Detail source model):
-#   python -m neurox.tools.calibrate_solver.nested \
+#   python -m neurox.tools.calibrate_solver.col_bl_col_sl \
 #       --config validations/xue2020jssc/tools/calibrate_solver.toml --device cpu
 
 [macro]
@@ -24,7 +24,7 @@ config_files = ["../params.toml"]            # the shipped Linear-cell macro (th
 config_section = "cim_macro"
 policy_file = "../policy.toml"                # all-off (loaded only by an actual sweep, not the tests)
 policy_section = "policy"
-solver_section = "array_config.solver_config" # dotted path to the NestedParallelRailSolverConfig table
+solver_section = "array_config.solver_config" # dotted path to the ColBlColSlSolverConfig table
 
 [workload]
 inst_shape = [4]                  # bound to [batch_w]; the parallel weight-program axis

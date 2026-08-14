@@ -4,7 +4,7 @@ NeuroX is a static-PPA + functional-accuracy co-simulation framework for memrist
 
 ## Public surface
 
-The core library's public surface stops at `neurox.architecture`. Above that line — training loops, observer calibration, model rewriting — lives in `example/` and is not a stable API. Below it, every polymorphic family (`CimMacro`, `Solver`, `DiffVadc`, …) follows the same family-base + concrete-config + `from_config` registry pattern documented in [`docs/internals/config_and_policy.md`](docs/internals/config_and_policy.md).
+The core library's public surface stops at `neurox.architecture`. Above that line — training loops, observer calibration, model rewriting — lives in `example/` and is not a stable API. Below it, every polymorphic family (`CimMacro`, `XbarCell`, `DiffVadc`, …) follows the same family-base + concrete-config + `from_config` registry pattern documented in [`docs/internals/config_and_policy.md`](docs/internals/config_and_policy.md).
 
 ## Layout
 

@@ -320,9 +320,9 @@ def test_probe_preserves_output_and_captures_call(device: torch.device) -> None:
     i_in = torch.tensor([0.5, 4.5, 35.0], dtype=torch.float64, device=device)
 
     expected = adc.convert(i_in, refs, bits=3)
-    # device=None: the record is compared against the call's own tensors, which
-    # live on the tested device; a default cpu finalize would park it elsewhere.
-    with IadcProber(device=None) as prober:
+    # The record stays where it was recorded, which is where the call's own
+    # tensors it is compared against live.
+    with IadcProber() as prober:
         code = adc.convert(i_in, refs, bits=3)
 
     assert torch.equal(code, expected)

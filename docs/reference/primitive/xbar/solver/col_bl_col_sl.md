@@ -1,6 +1,6 @@
 # Parallel BL/SL DC solver
 
-The DC operating point of a crossbar array with **parallel BL/SL rails** is found by damped Newton iteration over the two wire ladders and the two clamp boundaries. Every array site condenses to a single signed two-terminal branch and every column boundary has a clamp driver, so the formulation holds for any parallel-rail topology whose site condenses to one branch.
+The DC operating point of a crossbar array with **parallel BL/SL rails** — each column's cells share one BL and one SL, and columns do not interact — is found by damped Newton iteration over the two wire ladders and the two clamp boundaries. Every array site condenses to a single signed two-terminal branch and every column boundary has a clamp driver, so the formulation holds for any parallel-rail topology whose site condenses to one branch.
 
 ## Structural assumptions
 
@@ -66,7 +66,7 @@ The outer step is a per-column $2\times2$ Newton on the clamp pair with residual
 
 $$V_{\mathrm{BL,target}} = \operatorname{driver}_{\mathrm{BL}}\!\big(G^{\mathrm{BL}}_{\mathrm{seg}}\,(V_{\mathrm{BL,CL}} - V_{\mathrm{BL},0}(V_{\mathrm{clamp}}))\big), \qquad V_{\mathrm{SL,target}} = \operatorname{driver}_{\mathrm{SL}}\!\big(G^{\mathrm{SL}}_{\mathrm{seg}}\,(V_{\mathrm{SL,CL}} - V_{\mathrm{SL},0}(V_{\mathrm{clamp}}))\big).$$
 
-Writing $g_{\mathrm{BL}} \equiv G^{\mathrm{BL}}_{\mathrm{seg}}$ and the driver small-signal slope $r_{\mathrm{BL}} \equiv \partial V_{\mathrm{BL,target}}/\partial I_{\mathrm{BL,port}}$ (likewise for SL), $\partial V_{\mathrm{target}}/\partial V_{\mathrm{clamp}}$ expands as the driver slope times the port-current sensitivity, with $K$ carrying the node-0 response,
+Writing $g_{\mathrm{BL}} \equiv G^{\mathrm{BL}}_{\mathrm{seg}}$ and the driver small-signal slope $r_{\mathrm{BL}} \equiv \partial V_{\mathrm{BL,target}}/\partial I_{\mathrm{BL,port}}$ (likewise for SL) — the driver's own SIGNED derivative, which a Thevenin clamp of series resistance $R_{\mathrm{out}} \ge 0$ makes $-R_{\mathrm{out}} \le 0$ — $\partial V_{\mathrm{target}}/\partial V_{\mathrm{clamp}}$ expands as the driver slope times the port-current sensitivity, with $K$ carrying the node-0 response,
 
 $$\frac{\partial F_{\mathrm{outer}}}{\partial V_{\mathrm{clamp}}} = \begin{bmatrix} r_{\mathrm{BL}}\,g_{\mathrm{BL}}\,(1 - K_{00}) - 1 & -\,r_{\mathrm{BL}}\,g_{\mathrm{BL}}\,K_{01} \\ -\,r_{\mathrm{SL}}\,g_{\mathrm{SL}}\,K_{10} & r_{\mathrm{SL}}\,g_{\mathrm{SL}}\,(1 - K_{11}) - 1 \end{bmatrix}.$$
 
@@ -84,15 +84,15 @@ Shared electrical symbols are pinned in [notation_conventions](../../../../conve
 
 | Symbol | Meaning | Unit | Code field |
 |---|---|---|---|
-| $V_{\mathrm{BL}}$ | BL wire node voltage | V | `v_bl_node` |
-| $V_{\mathrm{SL}}$ | SL wire node voltage | V | `v_sl_node` |
-| $V_{\mathrm{BL,CL}}$ | BL clamp voltage | V | `v_bl_clamp` |
-| $V_{\mathrm{SL,CL}}$ | SL clamp voltage | V | `v_sl_drive` |
+| $V_{\mathrm{BL}}$ | BL wire node voltage | V | `v_bl_node__V` |
+| $V_{\mathrm{SL}}$ | SL wire node voltage | V | `v_sl_node__V` |
+| $V_{\mathrm{BL,CL}}$ | BL clamp voltage | V | `v_bl_clamp__V` |
+| $V_{\mathrm{SL,CL}}$ | SL clamp voltage | V | `v_sl_drive__V` |
 | $I_{\mathrm{cell}}$ | condensed cell branch current (BL $\to$ SL) | uA | `cell.solve_branch` |
 | $\partial I_{\mathrm{cell}}/\partial V_{\mathrm{BL}}$ | BL-side branch conductance ($\ge 0$) | uS | `cell.solve_branch` |
 | $\partial I_{\mathrm{cell}}/\partial V_{\mathrm{SL}}$ | SL-side branch conductance ($\le 0$) | uS | `cell.solve_branch` |
-| $I_{\mathrm{BL,port}}$ | BL boundary port current | uA | derived from node voltages |
-| $I_{\mathrm{SL,port}}$ | SL boundary port current | uA | derived from node voltages |
+| $I_{\mathrm{BL,port}}$ | BL boundary port current | uA | `i_bl_port__uA` |
+| $I_{\mathrm{SL,port}}$ | SL boundary port current | uA | `i_sl_port__uA` |
 | $G^{\mathrm{BL}}_{\mathrm{seg}}, G^{\mathrm{SL}}_{\mathrm{seg}}$ | BL / SL rail link conductance | uS | reciprocal of `bl_segment_r__MOhm`, `sl_segment_r__MOhm` |
 
 ## Validation
@@ -105,6 +105,6 @@ TODO: cite the Newton / block-tridiagonal solution methods.
 
 ---
 
-- **Internals**: [solver internals](../../../../internals/primitive/xbar/solver/nested.md)
+- **Internals**: [solver internals](../../../../internals/primitive/xbar/solver/col_bl_col_sl.md)
 - **Validation**: TODO — `validation/xbar` (not yet written)
 - **Configuration**: [config reference](../../../../api/README.md) (`[cim_macro.array_config.solver_config]`)

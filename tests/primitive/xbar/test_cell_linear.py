@@ -70,34 +70,34 @@ def test_solve_branch_matches_table_conductance() -> None:
 
     # A word line runs along a row and is shared by every column, so the array
     # gates every cell of a row at the same voltage on the per-cell grid.
-    v_wl = torch.tensor([0.0, 0.9], dtype=torch.float64).expand(2, 2)
-    snap = cell.snapshot(control=v_wl, shape=(2, 2), t_elapsed=0.0)
+    v_wl__V = torch.tensor([0.0, 0.9], dtype=torch.float64).expand(2, 2)
+    snap = cell.snapshot(control=v_wl__V, shape=(2, 2), t_elapsed=0.0)
 
     g_cell_off = torch.tensor(_G_CELL_OFF_TABLE__uS, dtype=torch.float64)[w_state]
     g_cell_on = torch.tensor(_G_CELL_ON_TABLE__uS, dtype=torch.float64)[w_state]
-    on = v_wl > _V_WL_ON_THRESHOLD__V
-    g_cell = torch.where(on, g_cell_on, g_cell_off)
+    on = v_wl__V > _V_WL_ON_THRESHOLD__V
+    g_cell__uS = torch.where(on, g_cell_on, g_cell_off)
 
-    v_bl = torch.full((2, 2), 0.3, dtype=torch.float64)
-    v_sl = torch.full((2, 2), 0.05, dtype=torch.float64)
-    i__uA, di_dvbl__uS, di_dvsl__uS = cell.solve_branch(v_bl, v_sl, snap)
+    v_bl__V = torch.full((2, 2), 0.3, dtype=torch.float64)
+    v_sl__V = torch.full((2, 2), 0.05, dtype=torch.float64)
+    i__uA, di_dvbl__uS, di_dvsl__uS = cell.solve_branch(v_bl__V, v_sl__V, snap)
 
-    torch.testing.assert_close(i__uA, g_cell * (v_bl - v_sl))
-    torch.testing.assert_close(di_dvbl__uS, g_cell)
-    torch.testing.assert_close(di_dvsl__uS, -g_cell)
+    torch.testing.assert_close(i__uA, g_cell__uS * (v_bl__V - v_sl__V))
+    torch.testing.assert_close(di_dvbl__uS, g_cell__uS)
+    torch.testing.assert_close(di_dvsl__uS, -g_cell__uS)
 
 
 def test_wl_threshold_switches_off_at_and_below() -> None:
     cell = _build_cell((1, 1))
     cell.program(torch.tensor([[1]], dtype=torch.long))
-    v_bl = torch.full((1, 1), 0.3, dtype=torch.float64)
-    v_sl = torch.zeros((1, 1), dtype=torch.float64)
+    v_bl__V = torch.full((1, 1), 0.3, dtype=torch.float64)
+    v_sl__V = torch.zeros((1, 1), dtype=torch.float64)
 
     i_levels = []
     for v_wl__V in (_V_WL_ON_THRESHOLD__V, _V_WL_ON_THRESHOLD__V + 0.01):
-        v_wl = torch.full((1, 1), v_wl__V, dtype=torch.float64)
-        snap = cell.snapshot(control=v_wl, shape=(1, 1), t_elapsed=0.0)
-        i_levels.append(float(cell.solve_branch(v_bl, v_sl, snap)[0]))
+        v_wl_grid__V = torch.full((1, 1), v_wl__V, dtype=torch.float64)
+        snap = cell.snapshot(control=v_wl_grid__V, shape=(1, 1), t_elapsed=0.0)
+        i_levels.append(float(cell.solve_branch(v_bl__V, v_sl__V, snap)[0]))
     i_at_threshold, i_above = i_levels
 
     g_off = _G_CELL_OFF_TABLE__uS[1]
@@ -108,12 +108,12 @@ def test_wl_threshold_switches_off_at_and_below() -> None:
 def test_solve_dc_vx_multiplication_form() -> None:
     cell = _build_cell((1, 1))
     cell.program(torch.tensor([[0]], dtype=torch.long))
-    v_bl = torch.full((1, 1), 0.3, dtype=torch.float64)
-    v_sl = torch.zeros((1, 1), dtype=torch.float64)
-    v_wl = torch.full((1, 1), 0.9, dtype=torch.float64)
-    snap = cell.snapshot(control=v_wl, shape=(1, 1), t_elapsed=0.0)
+    v_bl__V = torch.full((1, 1), 0.3, dtype=torch.float64)
+    v_sl__V = torch.zeros((1, 1), dtype=torch.float64)
+    v_wl__V = torch.full((1, 1), 0.9, dtype=torch.float64)
+    snap = cell.snapshot(control=v_wl__V, shape=(1, 1), t_elapsed=0.0)
 
-    dcop = cell.solve_dc(v_bl, v_sl, snap)
+    dcop = cell.solve_dc(v_bl__V, v_sl__V, snap)
 
     g_cell_on = _G_CELL_ON_TABLE__uS[0]
     vx_ratio_on = _VX_RATIO_ON_TABLE[0]

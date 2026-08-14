@@ -3,7 +3,7 @@
 Builds a fully hand-written, fully linear tiny tile: an
 `XbarCell1t1rLinear` cell grid (table-driven chord conductance,
 empty policy), two IDEAL `VoltageDriver` rail clamps
-(`r_out = 0`, so `solve_clamp` returns the reference voltage
+(`r_out = 0`, so `solve_dc` returns the reference voltage
 exactly), and one dedicated single-tap `Vref` per clamp. Every
 config value is an explicit in-code witness; no config file is read and
 no nonideality toggle is enabled, so the assembled system is an exactly
@@ -42,7 +42,7 @@ from neurox.primitive.xbar.cell import (
     XbarCell1t1rLinearPolicy,
     XbarCell1t1rLinearSnap,
 )
-from neurox.primitive.xbar.solver import NestedParallelRailSolver, NestedParallelRailSolverConfig
+from neurox.primitive.xbar.solver import ColBlColSlSolver, ColBlColSlSolverConfig
 
 # --- Hand-written harness constants (arbitrary small witnesses) ---
 
@@ -108,14 +108,14 @@ def _single_tap_vref(v_ref__V: float, *, dtype: torch.dtype) -> Vref:
 
 @dataclass(frozen=True)
 class SolverHarness:
-    """All inputs required to call `Solver.solve_dc` directly.
+    """All inputs required to call `ColBlColSlSolver.solve_dc` directly.
 
     Also carries the dense-oracle inputs: the hand-written linear cell
     config, the programmed state-index grid, and the resolved rail
     reference taps (exact clamp targets, since both drivers are ideal).
     """
 
-    solver: NestedParallelRailSolver
+    solver: ColBlColSlSolver
     cell: XbarCell1t1rLinear
     cell_config: XbarCell1t1rLinearConfig
     w_state_idx: Tensor
@@ -162,7 +162,7 @@ class SolverHarness:
 
 def build_solver_harness(
     *,
-    solver_config: NestedParallelRailSolverConfig,
+    solver_config: ColBlColSlSolverConfig,
     device: torch.device,
     dtype: torch.dtype = torch.float64,
     v_wl_drive__V: float = 0.9,
@@ -179,7 +179,7 @@ def build_solver_harness(
     are exact Dirichlet values and the whole system is linear.
 
     Args:
-        solver_config: Nested parallel-rail solver parameters.
+        solver_config: Parallel BL/SL solver parameters.
         device: Device the harness buffers are allocated on.
         dtype: Float dtype for device buffers.
         v_wl_drive__V: Uniform WL drive voltage for the harness call
@@ -256,7 +256,7 @@ def build_solver_harness(
 
     # --- Solver (stateless: cell + drivers supplied per call) ---
 
-    solver = NestedParallelRailSolver(config=solver_config)
+    solver = ColBlColSlSolver(config=solver_config)
 
     return SolverHarness(
         solver=solver,

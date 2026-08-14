@@ -127,7 +127,7 @@ nav:
           - Detail: reference/primitive/xbar/cell/1t1r_detail.md
           - Linear: reference/primitive/xbar/cell/1t1r_linear.md
       - Solver:
-        - Parallel BL/SL: reference/primitive/xbar/solver/nested.md
+        - Parallel BL/SL: reference/primitive/xbar/solver/col_bl_col_sl.md
 - Validation:
   - Overview: validation/README.md
   - Campaigns: validation/campaigns.md
@@ -219,10 +219,8 @@ nav:
           - Linear: internals/primitive/xbar/cell/1t1r_linear.md
       - Scan organizations: internals/primitive/xbar/scan_organization.md
       - Solver:
-        - Base: internals/primitive/xbar/solver/base.md
-        - Parallel BL/SL: internals/primitive/xbar/solver/nested.md
+        - Parallel BL/SL: internals/primitive/xbar/solver/col_bl_col_sl.md
         - Clamp driver: internals/primitive/xbar/solver/clamp.md
-        - Chunked solver: internals/primitive/xbar/solver/chunked.md
         - Chunking: internals/primitive/xbar/solver/chunking.md
 - Works:
   - Overview: works/README.md

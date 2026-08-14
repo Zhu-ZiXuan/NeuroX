@@ -1,4 +1,4 @@
-# Run-config for neurox.tools.calibrate_solver.nested on the ye2023jssc step1 solver.
+# Run-config for neurox.tools.calibrate_solver.col_bl_col_sl on the ye2023jssc step1 solver.
 # What it pins and how to run it: see README.md.
 
 [macro]
@@ -8,7 +8,7 @@ config_files = ["../params.toml"]             # the shipped WH-2T1R macro (the c
 config_section = "cim_macro"
 policy_file = "../policy.toml"                 # all-off (noiseless, mismatch-free reference)
 policy_section = "policy"
-solver_section = "array_config.solver_config"  # dotted path to the NestedParallelRailSolverConfig table
+solver_section = "array_config.solver_config"  # dotted path to the ColBlColSlSolverConfig table
 
 [workload]
 inst_shape = [4]                  # bound to [batch_w]; the parallel weight-program axis

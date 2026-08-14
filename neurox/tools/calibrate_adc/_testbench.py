@@ -392,7 +392,9 @@ def run_paired_stimulus(
         max_active_num=physical.max_active_num,
         inst_rank=len(physical.inst_shape),
     )
-    with IadcProber() as prober, torch.no_grad():
+    # The whole paired stream is reduced on the host below, so the book parks
+    # there on exit and the drive's device holds nothing past the call.
+    with IadcProber(sync_device=torch.device("cpu")) as prober, torch.no_grad():
         physical.vec_mat_mul(x, quantization_mode=quantization_mode, adc_bits=adc_bits)
         # The ideal twin is reachable data: its return is the lossless view,
         # positionally paired with the physical convert records.

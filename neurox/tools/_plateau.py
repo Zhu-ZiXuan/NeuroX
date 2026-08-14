@@ -137,10 +137,10 @@ def pick_iter_by_step_ratio(
 # is measured against. The names are the field keys in CandidateRow.residual_max.
 _RESIDUAL_DENOMINATOR_KIND: dict[str, str] = {
     "cell__uA": "current",
-    "wire_bl__uA": "current",
-    "wire_sl__uA": "current",
-    "clamp_bl__V": "voltage",
-    "clamp_sl__V": "voltage",
+    "f_bl_kcl__uA": "current",
+    "f_sl_kcl__uA": "current",
+    "f_bl_clamp__V": "voltage",
+    "f_sl_clamp__V": "voltage",
 }
 
 

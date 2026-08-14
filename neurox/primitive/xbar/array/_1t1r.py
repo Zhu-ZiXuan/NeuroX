@@ -21,11 +21,12 @@ from neurox.primitive.xbar.cell import (
 )
 from neurox.primitive.xbar.solver import (
     ChunkedSolver,
+    ClampDcop,
     ClampDriver,
     ClampSnap,
-    NestedParallelRailSolver,
-    NestedParallelRailSolverConfig,
-    SolverDcop,
+    ColBlColSlDcop,
+    ColBlColSlSolver,
+    ColBlColSlSolverConfig,
 )
 
 
@@ -72,7 +73,7 @@ class XbarArray1t1rConfig(ConfigBase):
 
     cell_config: XbarCell1t1rConfig
     """Its concrete subclass selects the cell model."""
-    solver_config: NestedParallelRailSolverConfig
+    solver_config: ColBlColSlSolverConfig
 
     def validate(self) -> None:
         super().validate()
@@ -203,7 +204,7 @@ class XbarArray1t1r(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
             T__K=T__K,
         )
         self._solver: ChunkedSolver[XbarArray1t1rChunkMeasure] = ChunkedSolver(
-            NestedParallelRailSolver(config=self.config.solver_config),
+            ColBlColSlSolver(config=self.config.solver_config).solve_dc,
             chunk_size=self.policy.solve_chunk_size,
         )
 
@@ -235,13 +236,13 @@ class XbarArray1t1r(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
             )
         self.cell.program(w_state_idx)
 
-    def solve_array[BLSnapT: ClampSnap, SLSnapT: ClampSnap](
+    def solve_array[BLSnapT: ClampSnap, BLDcopT: ClampDcop, SLSnapT: ClampSnap, SLDcopT: ClampDcop](
         self,
-        v_wl: Tensor,
+        v_wl__V: Tensor,
         *,
-        bl_driver: ClampDriver[BLSnapT],
+        bl_driver: ClampDriver[BLSnapT, BLDcopT],
         bl_driver_snap: BLSnapT,
-        sl_driver: ClampDriver[SLSnapT],
+        sl_driver: ClampDriver[SLSnapT, SLDcopT],
         sl_driver_snap: SLSnapT,
     ) -> XbarArray1t1rSteadyState:
         """Settle the 1T1R array to DC under an analog WL drive.
@@ -253,7 +254,7 @@ class XbarArray1t1r(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
         a full cell grid, a row-uniform drive being an expanded row vector.
 
         Args:
-            v_wl: Analog WL drive [V], one value per cell gate.
+            v_wl__V: Analog WL drive, one value per cell gate.
                 Shape: `[..., col_num, row_num]`.
             bl_driver: BL boundary clamp.
             bl_driver_snap: Per-solve BL clamp snap at the full per-call
@@ -263,21 +264,21 @@ class XbarArray1t1r(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
                 shape; its `v_ref__V` is also the ideal SL rest level.
 
         Returns:
-            Both boundaries' per-column port current [uA] and clamp voltage
-            [V] at the full leading, the column axis being each clamp's own
-            instance axis.
+            Both boundaries' per-column port current and clamp voltage at the
+            full leading, the column axis being each clamp's own instance
+            axis.
         """
         # --- 1: read the call's broadcast leading ---
 
         col_num, row_num = self._col_num, self._row_num
-        leading = tuple(torch.broadcast_shapes(self.weight_grid_shape[:-2], v_wl.shape[:-2]))
+        leading = tuple(torch.broadcast_shapes(self.weight_grid_shape[:-2], v_wl__V.shape[:-2]))
 
         # --- 2: snapshot the cell and fold the solve chunk by chunk ---
 
         # A cell's control is the voltage at its own gate, so the drive
         # travels to the cell exactly as it arrives, on the cell grid.
         cell_snap = self.cell.snapshot(
-            control=v_wl,
+            control=v_wl__V,
             shape=(*leading, col_num, row_num),
             t_elapsed=0.0,
         )
@@ -324,7 +325,7 @@ class XbarArray1t1r(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
     def _measure_chunk(
         self,
         *,
-        dcop: SolverDcop[XbarCell1t1rDcop],
+        dcop: ColBlColSlDcop[XbarCell1t1rDcop],
         cell_snap: XbarCell1t1rSnap,
         bl_driver_snap: ClampSnap,
         sl_driver_snap: ClampSnap,
@@ -357,17 +358,17 @@ class XbarArray1t1r(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
                     sl_driver_snap=sl_driver_snap,
                 )
         return XbarArray1t1rChunkMeasure(
-            i_bl_port__uA=dcop.i_bl_driver,
-            v_bl_clamp__V=dcop.v_bl_clamp,
-            i_sl_port__uA=dcop.i_sl_driver,
-            v_sl_drive__V=dcop.v_sl_drive,
+            i_bl_port__uA=dcop.i_bl_driver__uA,
+            v_bl_clamp__V=dcop.v_bl_clamp__V,
+            i_sl_port__uA=dcop.i_sl_driver__uA,
+            v_sl_drive__V=dcop.v_sl_drive__V,
             energy__fJ=energy__fJ,
         )
 
     def _energy_wl_in_bl_scan__fJ(
         self,
         *,
-        solver_dcop: SolverDcop[XbarCell1t1rDcop],
+        solver_dcop: ColBlColSlDcop[XbarCell1t1rDcop],
         cell_snap: XbarCell1t1rSnap,
     ) -> Tensor:
         """Cap energy of one solve under a scanned bit-line boundary.
@@ -389,16 +390,16 @@ class XbarArray1t1r(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
         # rides the word-line driver's.
         # Shape: [..., col_num, row_num] -> [...]
         return (
-            e_cap_excursion__fJ(self._v_dd_bl__V, config.bl_node_c__fF, solver_dcop.v_bl_node)
+            e_cap_excursion__fJ(self._v_dd_bl__V, config.bl_node_c__fF, solver_dcop.v_bl_node__V)
             + e_cap_excursion__fJ(self._v_dd_bl__V, config.x_node_c__fF, solver_dcop.cell.v_x__V)
-            + e_cap_excursion__fJ(self._v_dd_bl__V, config.sl_node_c__fF, solver_dcop.v_sl_node)
+            + e_cap_excursion__fJ(self._v_dd_bl__V, config.sl_node_c__fF, solver_dcop.v_sl_node__V)
             + e_cap_excursion__fJ(self._v_dd_wl__V, config.wl_node_c__fF, cell_snap.v_wl__V)
         ).sum(dim=(-2, -1))
 
     def _energy_bl_in_wl_scan__fJ(
         self,
         *,
-        solver_dcop: SolverDcop[XbarCell1t1rDcop],
+        solver_dcop: ColBlColSlDcop[XbarCell1t1rDcop],
         cell_snap: XbarCell1t1rSnap,
         bl_driver_snap: ClampSnap,
         sl_driver_snap: ClampSnap,
@@ -423,8 +424,8 @@ class XbarArray1t1r(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
             Shape: `[...]`.
         """
         config = self.config
-        v_bl__V = solver_dcop.v_bl_node
-        v_sl__V = solver_dcop.v_sl_node
+        v_bl__V = solver_dcop.v_bl_node__V
+        v_sl__V = solver_dcop.v_sl_node__V
         # Shape: [..., col_num] -> [..., col_num, 1]
         v_bl_rest__V = bl_driver_snap.v_ref__V.unsqueeze(-1)
         # Shape: [..., col_num] -> [..., col_num, 1]

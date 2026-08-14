@@ -10,6 +10,7 @@ from .unmodeled import UnmodeledBlock, UnmodeledBlockConfig, UnmodeledBlockPolic
 from .voltage_driver import (
     VoltageDriver,
     VoltageDriverConfig,
+    VoltageDriverDcop,
     VoltageDriverPolicy,
     VoltageDriverSnap,
 )
@@ -39,6 +40,7 @@ __all__ = [
     "UnmodeledBlockPolicy",
     "VoltageDriver",
     "VoltageDriverConfig",
+    "VoltageDriverDcop",
     "VoltageDriverPolicy",
     "VoltageDriverSnap",
     "Vmux",
