@@ -14,8 +14,6 @@ from .base import AnalogBase, AnalogConfig, AnalogPolicy
 
 
 class VrefConfig(AnalogConfig):
-    """Immutable configuration for `Vref`."""
-
     v_refs__V: tuple[tuple[float, ...], ...]
     """Nominal reference-voltage taps, 2-D `[mode][tap]`. Modes have equal
     length and non-negative values; ordering within a mode is not enforced,
@@ -63,8 +61,6 @@ class VrefConfig(AnalogConfig):
 
 
 class VrefPolicy(AnalogPolicy):
-    """Per-source toggle selecting whether the Vref tolerance is active."""
-
     tolerance: bool
     """Apply the per-instance initial-accuracy spread
     `tolerance_sigma_relative` at fabricate time."""
@@ -75,8 +71,7 @@ class Vref(AnalogBase[VrefConfig, VrefPolicy]):
 
     A pure identity source: one static `[mode][tap]` bank per physical
     instance, sampled once at fabricate time and read back through `v_out__V`.
-    No forward path and no per-call noise — dynamic per-access variation is a
-    consuming driver's own law, not this source's; the source's identity is
+    The source has no forward path and no per-call noise; its identity is
     shared and never resampled.
     """
 
@@ -138,10 +133,8 @@ class Vref(AnalogBase[VrefConfig, VrefPolicy]):
         """Fabricated reference-voltage bank, post static tolerance.
 
         Read-only view over the fabricated buffer, valid after `fabricate()`:
-        one physical identity per instance. A consumer selects its mode and
-        broadcasts the result onto its own call shape by view; that broadcast,
-        and any per-access dynamic noise on top of it, is the consuming
-        driver's concern.
+        one physical identity per instance. Mode selection, call-shape
+        broadcasting, and per-access dynamic noise lie outside this source.
         Shape: `[*inst_shape, mode_num, tap_num]`.
         """
         return self._v_refs__V

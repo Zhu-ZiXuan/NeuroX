@@ -81,15 +81,11 @@ _CPU = torch.device("cpu")
 
 @dataclass(frozen=True)
 class _DeviceSnap:
-    """Nested device snap on the same cell grid."""
-
     g__uS: Tensor
 
 
 @dataclass(frozen=True)
 class _GridSnap:
-    """Cell-grid snap holding one field per row of the broadcast table."""
-
     buffer: Tensor
     wl_drive: Tensor
     partial: Tensor
@@ -100,31 +96,23 @@ class _GridSnap:
 
 @dataclass(frozen=True)
 class _ColumnSnap:
-    """Per-column clamp snap with a constant field expanded over the call."""
-
     v_ref__V: Tensor
     r_out__MOhm: Tensor
 
 
 @dataclass(frozen=True)
 class _CellSnap:
-    """Cell-grid snap: a stride-0 word-line drive plus a programmed buffer."""
-
     v_wl__V: Tensor
     g__uS: Tensor
 
 
 @dataclass(frozen=True)
 class _CellDcop:
-    """Nested per-chunk cell result."""
-
     i__uA: Tensor
 
 
 @dataclass(frozen=True)
 class _Dcop:
-    """Per-chunk solver result with one nested dataclass field."""
-
     i_bl_driver__uA: Tensor
     v_bl_node__V: Tensor
     cell: _CellDcop

@@ -15,15 +15,11 @@ from neurox.common import TensorGroupMixin, walk_tensor_fields
 
 @dataclass(frozen=True)
 class _DeviceSnap(TensorGroupMixin):
-    """Nested per-device snap."""
-
     g__uS: Tensor
 
 
 @dataclass(frozen=True)
 class _CellSnap(TensorGroupMixin):
-    """Cell-grid snap with one nested dataclass field and one plain field."""
-
     v_wl__V: Tensor
     device: _DeviceSnap
     label: str
@@ -31,15 +27,11 @@ class _CellSnap(TensorGroupMixin):
 
 @dataclass(frozen=True)
 class _LinearCellSnap(_CellSnap):
-    """A leaf subtype, to pin type-preservation through the mixin."""
-
     g_chord__uS: Tensor
 
 
 @dataclass(frozen=True)
 class _OptionalSnap(TensorGroupMixin):
-    """Snap with one absent-capable field."""
-
     v_wl__V: Tensor
     bias__V: Tensor | None
 

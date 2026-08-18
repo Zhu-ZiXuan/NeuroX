@@ -17,8 +17,6 @@ from .base import DiffVadc, DiffVadcConfig, DiffVadcPolicy
 
 
 class GeneralDiffVadcConfig(DiffVadcConfig):
-    """Immutable configuration for `GeneralDiffVadc`."""
-
     code_num: int
     """Number of output codes `[0, code_num - 1]`, one more than the
     comparator count."""
@@ -47,8 +45,6 @@ class GeneralDiffVadcConfig(DiffVadcConfig):
 
 
 class GeneralDiffVadcPolicy(DiffVadcPolicy):
-    """Per-source toggles selecting which GeneralDiffVadc nonidealities are active."""
-
     sampling_noise: bool
     """Apply `sampling_noise__V` at convert time."""
     comparator_noise: bool

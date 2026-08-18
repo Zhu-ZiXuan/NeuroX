@@ -58,8 +58,6 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class _StimulusCfg:
-    """`[stimulus]` section: the random calibration workload."""
-
     seed: int
     """RNG seed for weights and drives."""
     w_densities: tuple[float, ...]
@@ -84,8 +82,6 @@ class _StimulusCfg:
 
 
 class RescaleFitToolConfig(ConfigBase):
-    """Top-level config for `neurox.tools.calibrate_adc.rescale_fit`."""
-
     macro: MacroSection
     stimulus: _StimulusCfg
     modes_file: Path

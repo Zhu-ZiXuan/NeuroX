@@ -13,8 +13,6 @@ from .base import AnalogBase, AnalogConfig, AnalogPolicy
 
 
 class ImuxConfig(AnalogConfig):
-    """Immutable configuration for `Imux`."""
-
     mux_ratio: int
     """N in the N:1 ratio of inputs to each output lane."""
     mux_gain: float
@@ -26,7 +24,7 @@ class ImuxConfig(AnalogConfig):
 
 
 class ImuxPolicy(AnalogPolicy):
-    """Abstract marker for Imux nonideality policy — no sources."""
+    pass
 
 
 class Imux(AnalogBase[ImuxConfig, ImuxPolicy]):

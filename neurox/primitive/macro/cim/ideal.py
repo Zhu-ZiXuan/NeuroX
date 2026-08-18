@@ -19,8 +19,6 @@ from .base import (
 
 
 class IdealCimMacroConfig(CimMacroConfig):
-    """Configuration for `IdealCimMacro`."""
-
     x_value_range: tuple[int, int]
     """Inclusive single-cycle integer input range; `(0, 0)` is rejected."""
     w_value_range: tuple[int, int]
@@ -54,7 +52,7 @@ class IdealCimMacroConfig(CimMacroConfig):
 
 
 class IdealCimMacroPolicy(CimMacroPolicy):
-    """Empty nonideality policy for the ideal CIM macro."""
+    pass
 
 
 @CimMacro.register_neurox_module(config_type=IdealCimMacroConfig, policy_type=IdealCimMacroPolicy)

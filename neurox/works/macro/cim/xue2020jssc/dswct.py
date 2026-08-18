@@ -15,8 +15,6 @@ from neurox.common import ConfigBase, ModuleBase, PolicyBase
 
 
 class DswctConfig(ConfigBase):
-    """Physical knobs and static PPA seat of one DSWCT mirror bank."""
-
     area_per_inst__um2: float
     leakage_per_inst__uW: float
     c_load__fF: float
@@ -29,7 +27,7 @@ class DswctConfig(ConfigBase):
 
 
 class DswctPolicy(PolicyBase):
-    """Source-free DSWCT policy — no nonideality toggles."""
+    pass
 
 
 class Dswct(ModuleBase[DswctConfig, DswctPolicy]):

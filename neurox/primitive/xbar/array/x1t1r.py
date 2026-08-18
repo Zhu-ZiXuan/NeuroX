@@ -47,12 +47,6 @@ class XbarArray1t1rOperationMode(StrEnum):
 
 
 class XbarArray1t1rConfig(ConfigBase):
-    """Shape-independent physical knobs for a 1T1R pure-array core.
-
-    The tile is a uniform lattice of identical cell seats: one pitch per axis,
-    one resistance per rail link, and one capacitance per node of each line.
-    """
-
     row_cell_space__um: float
     col_cell_space__um: float
 
@@ -95,8 +89,6 @@ class XbarArray1t1rConfig(ConfigBase):
 
 
 class XbarArray1t1rPolicy(PolicyBase):
-    """Composite nonideality policy for a 1T1R pure-array core."""
-
     cell_policy: XbarCell1t1rPolicy
     """Its concrete subclass matches the configured cell model."""
     solve_chunk_size: int
@@ -142,10 +134,9 @@ class XbarArray1t1r(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
     """Shape-independent 1T1R array with wire parasitics and a DC solver.
 
     Geometry arrives whole at construction: the standard `inst_shape`
-    replication prefix plus the two scalar counts, all three stated by the
-    macro that places the tile. `weight_grid_shape` concatenates them into the
-    per-cell grid the cell sub-module is built at, so geometry is never
-    recovered from lifecycle-produced state.
+    replication prefix plus the two scalar counts. `weight_grid_shape`
+    concatenates them into the per-cell grid the cell sub-module is built at,
+    so geometry is never recovered from lifecycle-produced state.
 
     The measurement pair is the extension seam. A scheme whose measurement
     carries more than the two boundaries subclasses both measurement records
@@ -192,8 +183,7 @@ class XbarArray1t1r(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
     @property
     def _leakage_per_inst__uW(self) -> float:
         # Both organizations rest at zero cell bias, so the tile holds no
-        # static conduction path; conduction under drive is the DC solve's,
-        # billed by the macro.
+        # static conduction path.
         return 0.0
 
     def _init_children(self, *, dtype: torch.dtype, T__K: float) -> None:
@@ -223,8 +213,8 @@ class XbarArray1t1r(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
         """Write the cells from one state-index tensor.
 
         The index grid is PHYSICAL: entry `(col, row)` is the state of the
-        cell at that intersection. Any placement of digits, polarities, or
-        serial slots onto physical columns belongs to the caller.
+        cell at that intersection. Placement of digits, polarities, or serial
+        slots onto physical columns lies outside this array.
 
         Args:
             w_state_idx: State-index tensor in `[0, w_state_num - 1]` at
@@ -249,8 +239,8 @@ class XbarArray1t1r(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
         """Settle the 1T1R array to DC under an analog WL drive.
 
         The call's leading is the weight-grid prefix `(*inst_shape,)`
-        broadcast against the WL drive, so a caller's own batch axes stay in
-        front of this array's instance axes. No boundary shape is normalized
+        broadcast against the WL drive; arbitrary batch axes stay in front of
+        this array's instance axes. No boundary shape is normalized
         here: the snaps arrive at the full per-call shape and the WL drive as
         a full cell grid, a row-uniform drive being an expanded row vector.
 
@@ -302,7 +292,7 @@ class XbarArray1t1r(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
         if measured.energy__fJ is not None:
             # The cell's finer (column, row) axes are already folded by the
             # mode's energy function; the collector sums this array's own work
-            # and instance axes past the caller's leading dims.
+            # and instance axes past the call's leading dims.
             # Shape: [*leading]
             self._record_dynamic_energy(measured.energy__fJ)
         return self._assemble_steady_state(measured)
@@ -314,7 +304,7 @@ class XbarArray1t1r(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
             measured: Folded measurement at the call's full leading.
 
         Returns:
-            The steady state the caller reads the boundaries off.
+            Steady state exposing the assembled boundaries.
         """
         return XbarArray1t1rSteadyState(
             i_bl_port__uA=measured.i_bl_port__uA,

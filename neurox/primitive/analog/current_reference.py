@@ -14,8 +14,6 @@ from .base import AnalogBase, AnalogConfig, AnalogPolicy
 
 
 class IrefConfig(AnalogConfig):
-    """Immutable configuration for `Iref`."""
-
     i_refs__uA: tuple[tuple[float, ...], ...]
     """Nominal reference-current taps, 2-D `[mode][tap]`. Modes have equal
     length and non-negative values; ordering within a mode is not enforced,
@@ -64,8 +62,6 @@ class IrefConfig(AnalogConfig):
 
 
 class IrefPolicy(AnalogPolicy):
-    """Per-source toggle selecting whether the Iref tolerance is active."""
-
     tolerance: bool
     """Apply the per-instance initial-accuracy spread
     `tolerance_sigma_relative` at fabricate time."""
@@ -76,8 +72,7 @@ class Iref(AnalogBase[IrefConfig, IrefPolicy]):
 
     A pure identity source: one static `[mode][tap]` bank per physical
     instance, sampled once at fabricate time and read back through
-    `i_out__uA`. No forward path and no per-call noise — dynamic per-access
-    variation is a consuming driver's own law, not this source's; the source's
+    `i_out__uA`. The source has no forward path and no per-call noise; its
     identity is shared and never resampled.
     """
 
@@ -139,10 +134,8 @@ class Iref(AnalogBase[IrefConfig, IrefPolicy]):
         """Fabricated reference-current bank, post static tolerance.
 
         Read-only view over the fabricated buffer, valid after `fabricate()`:
-        one physical identity per instance. A consumer selects its mode and
-        broadcasts the result onto its own call shape by view; that broadcast,
-        and any per-access dynamic noise on top of it, is the consuming
-        driver's concern.
+        one physical identity per instance. Mode selection, call-shape
+        broadcasting, and per-access dynamic noise lie outside this source.
         Shape: `[*inst_shape, mode_num, tap_num]`.
         """
         return self._i_refs__uA

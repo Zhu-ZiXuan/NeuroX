@@ -17,8 +17,6 @@ _POLARITY_NUM = 2  # P (PWG), N (NWG) lane per CIM-IO
 
 
 class SinwpScConfig(ConfigBase):
-    """Physical knobs and static PPA seat of one SINWP-SC combine unit."""
-
     c_hold__fF: float
     """Sample-and-hold capacitance per combine leg, cycled once per instance per (slot, bit) event."""
     area_per_inst__um2: float
@@ -31,7 +29,7 @@ class SinwpScConfig(ConfigBase):
 
 
 class SinwpScPolicy(PolicyBase):
-    """Source-free nonideality policy for the deterministic SINWP-SC combine."""
+    pass
 
 
 class SinwpSc(ModuleBase[SinwpScConfig, SinwpScPolicy]):

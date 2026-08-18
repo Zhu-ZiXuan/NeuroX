@@ -13,26 +13,17 @@ from typing import dataclass_transform
 @dataclass_transform(eq_default=False, frozen_default=True, kw_only_default=True)
 @dataclass(eq=False, frozen=True, kw_only=True)
 class TensorDataClassBase:
-    """Base for a data class that carries tensors.
+    """Supply identity equality and immutable construction to tensor data.
 
     A tensor compares elementwise, so a field holding one leaves value `==`
     ill-defined: the comparison returns a tensor rather than a verdict. Every
-    class here therefore equals only itself, and `==` and `hash()` are identity
-    throughout the hierarchy. Value equality stays with the configuration and
-    policy value objects, which carry no tensors and are compared by what they
-    hold.
+    class here therefore equals only itself, and `==` and `hash()` use identity
+    throughout the hierarchy.
 
     A subclass declares its fields as annotations without initial values, and
     must not apply `@dataclass`, define `__init__`, or define `__post_init__`;
     this base supplies a frozen, keyword-only dataclass to every descendant,
-    however deep. Such a class carries data and nothing else, so a reader knows
-    what it holds from its fields alone.
-
-    Being a dataclass is also what `TensorGroupMixin` requires of its host, but
-    the two are orthogonal: this base settles equality, freezing, and the
-    keyword-only call, while the mixin adds per-tensor-field shape operations.
-    `SnapBase` composes both because every snap is transformed as one tensor
-    group; another role opts into the mixin only when it has that invariant.
+    however deep.
     """
 
     def __init_subclass__(cls) -> None:

@@ -15,8 +15,6 @@ from .base import Idac, IdacConfig, IdacPolicy
 
 
 class GeneralIdacConfig(IdacConfig):
-    """Immutable configuration for `GeneralIdac`."""
-
     code_to_signal: tuple[float, ...]
     """Current lookup table indexed by integer code: entry `i` is the nominal
     analog output [uA] for digital code `i`, and the length fixes the code
@@ -36,8 +34,6 @@ class GeneralIdacConfig(IdacConfig):
 
 
 class GeneralIdacPolicy(IdacPolicy):
-    """Per-source toggles selecting which GeneralIdac nonidealities are active."""
-
     drive_thermal: bool
     """Apply `drive_thermal__uA` at convert time."""
 

@@ -43,8 +43,6 @@ from ._sampling import load_distribution, make_generator, sample_w, sample_x_bat
 
 @dataclass(frozen=True)
 class MacroSection:
-    """`[macro]` section: which tile to build + where its solver table lives."""
-
     input_num: int
     """Logical input-vector length passed to the macro constructor."""
     output_num: int

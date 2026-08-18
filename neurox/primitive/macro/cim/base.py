@@ -105,8 +105,6 @@ class CimMacroMode(ValidateMixin):
 
 
 class CimMacroConfig(ConfigBase, ABC):
-    """PPA and activation limit shared by every CIM macro."""
-
     area_per_inst__um2: float
     leakage_per_inst__uW: float
     max_active_num: int
@@ -126,7 +124,7 @@ class CimMacroConfig(ConfigBase, ABC):
 
 
 class CimMacroPolicy(PolicyBase, ABC):
-    """Abstract marker base for CimMacro-family nonideality policies."""
+    pass
 
 
 class CimMacro[ConfigT: CimMacroConfig, PolicyT: CimMacroPolicy](
@@ -141,8 +139,8 @@ class CimMacro[ConfigT: CimMacroConfig, PolicyT: CimMacroPolicy](
     interface carries is integer codes and physical configuration.
 
     Args:
-        input_num: Logical input-vector length selected by the owner.
-        output_num: Logical output-vector length selected by the owner.
+        input_num: Logical input-vector length.
+        output_num: Logical output-vector length.
         inst_shape: Per-instance multiplicity prefix.
     """
 

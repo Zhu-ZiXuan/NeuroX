@@ -11,8 +11,6 @@ from .base import DigitalBase, DigitalConfig, DigitalPolicy
 
 
 class SubtractorConfig(DigitalConfig):
-    """Immutable configuration for a Subtractor instance."""
-
     bit_width: int
     """Nominal output bit width; sizes the PPA, no wrap is applied."""
 

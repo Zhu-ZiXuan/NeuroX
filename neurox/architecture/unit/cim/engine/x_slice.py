@@ -1,4 +1,4 @@
-"""Input-slice serialization and inverse digital aggregation for CIM engines.
+"""Input-slice serialization and inverse digital aggregation.
 
 See Also:
     docs/reference/architecture/unit/cim/engine/x_slice.md
@@ -17,11 +17,11 @@ from neurox.primitive.digital import DigitalPolicy, ShiftAdder, ShiftAdderConfig
 
 
 class XSliceStageConfig(ConfigBase, ABC):
-    """Abstract configuration root for input-slice serialization."""
+    pass
 
 
 class XSliceStagePolicy(PolicyBase, ABC):
-    """Abstract policy root for input-slice serialization."""
+    pass
 
 
 class XSliceStage[ConfigT: XSliceStageConfig, PolicyT: XSliceStagePolicy](
@@ -92,11 +92,11 @@ class XSliceStage[ConfigT: XSliceStageConfig, PolicyT: XSliceStagePolicy](
 
 
 class DirectXSliceStageConfig(XSliceStageConfig):
-    """Configuration for `DirectXSliceStage`."""
+    pass
 
 
 class DirectXSliceStagePolicy(XSliceStagePolicy):
-    """Policy for `DirectXSliceStage`."""
+    pass
 
 
 @XSliceStage.register_neurox_module(
@@ -119,8 +119,6 @@ class DirectXSliceStage(XSliceStage[DirectXSliceStageConfig, DirectXSliceStagePo
 
 
 class SerialXSliceStageConfig(XSliceStageConfig):
-    """Configuration for `SerialXSliceStage`."""
-
     x_slice_num: int
     """Serial cycles one logical input is split into — the Sx axis."""
     shift_adder_config: ShiftAdderConfig
@@ -131,7 +129,7 @@ class SerialXSliceStageConfig(XSliceStageConfig):
 
 
 class SerialXSliceStagePolicy(XSliceStagePolicy):
-    """Policy for `SerialXSliceStage`."""
+    pass
 
 
 @XSliceStage.register_neurox_module(

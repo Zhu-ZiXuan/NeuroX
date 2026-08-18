@@ -19,8 +19,6 @@ from .engine import CimEngine, CimEngineConfig, CimEnginePolicy
 
 
 class CimUnitConfig(ConfigBase, ABC):
-    """Abstract config root for the `CimUnit` registry."""
-
     area_per_inst__um2: float
     """Unit-local peripheral silicon area, excluding every child module."""
     leakage_per_inst__uW: float
@@ -32,7 +30,7 @@ class CimUnitConfig(ConfigBase, ABC):
 
 
 class CimUnitPolicy(PolicyBase, ABC):
-    """Abstract marker base for CimUnit-family nonideality policies."""
+    pass
 
 
 class CimUnit[ConfigT: CimUnitConfig, PolicyT: CimUnitPolicy](
@@ -94,10 +92,9 @@ class CimUnit[ConfigT: CimUnitConfig, PolicyT: CimUnitPolicy](
         """Duration of one operator call.
 
         The unit is the boundary where a runtime shape enters the timing line:
-        every extent below it is fixed by the placement plan, and the one that
-        is not — a convolution's output-position count `M = H_out * W_out` —
-        follows from the input resolution alone. A unit that lowers to a
-        single plane reads nothing out of the shape.
+        implementations derive any runtime-dependent output-plane extent from
+        `input_shape`, while construction fixes every other scheduled extent.
+        An implementation whose schedule is fully fixed may ignore the shape.
 
         Args:
             input_shape: Layout of the operand the unit's operator receives.
@@ -107,14 +104,10 @@ class CimUnit[ConfigT: CimUnitConfig, PolicyT: CimUnitPolicy](
 
 
 class EngineBackedCimUnitConfig(CimUnitConfig, ABC):
-    """Abstract config base for engine-backed CIM units."""
-
     engine: CimEngineConfig
 
 
 class EngineBackedCimUnitPolicy(CimUnitPolicy, ABC):
-    """Abstract policy base for engine-backed CIM units."""
-
     engine: CimEnginePolicy
     """Engine policy matching `config.engine`."""
 

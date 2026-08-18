@@ -21,8 +21,6 @@ from .base import (
 
 
 class Conv2dCimUnitConfig(EngineBackedCimUnitConfig):
-    """Configuration for `Conv2dCimUnit`."""
-
     stride: tuple[int, int]
     """Output step `(s_h, s_w)`."""
     padding: tuple[int, int]
@@ -42,7 +40,7 @@ class Conv2dCimUnitConfig(EngineBackedCimUnitConfig):
 
 
 class Conv2dCimUnitPolicy(EngineBackedCimUnitPolicy):
-    """Composite policy for `Conv2dCimUnit`."""
+    pass
 
 
 @CimUnit.register_neurox_module(config_type=Conv2dCimUnitConfig, policy_type=Conv2dCimUnitPolicy)

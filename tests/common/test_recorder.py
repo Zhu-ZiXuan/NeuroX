@@ -18,8 +18,6 @@ _ELSEWHERE = torch.device("meta")  # a second device every host has
 
 
 class _Record(RecordBase):
-    """Minimal record: one carried tensor, moved by the base's field walk."""
-
     value: Tensor
 
 
@@ -31,8 +29,6 @@ class _Pair(RecordBase):
 
 
 class _SpyRecord(_Record):
-    """A record logging the moves it is asked for, on top of making them."""
-
     moves: list[torch.device]
     """Every device `to` was called with, in call order."""
 

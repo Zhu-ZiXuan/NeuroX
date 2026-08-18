@@ -11,8 +11,6 @@ from .base import DigitalBase, DigitalConfig, DigitalPolicy
 
 
 class AdderConfig(DigitalConfig):
-    """Immutable configuration for an Adder instance."""
-
     bit_width: int
     """Nominal output bit width; sizes the PPA, no wrap is applied."""
 

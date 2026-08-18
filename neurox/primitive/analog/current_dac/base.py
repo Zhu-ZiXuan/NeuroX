@@ -16,8 +16,6 @@ from neurox.primitive.analog.base import AnalogBase, AnalogConfig, AnalogPolicy
 
 
 class IdacConfig(AnalogConfig, ABC):
-    """Base config for current-domain DAC implementations."""
-
     area_per_inst__um2: float
     leakage_per_inst__uW: float
 
@@ -27,7 +25,7 @@ class IdacConfig(AnalogConfig, ABC):
 
 
 class IdacPolicy(AnalogPolicy, ABC):
-    """Abstract marker base for current-DAC-family nonideality policies."""
+    pass
 
 
 class Idac[ConfigT: IdacConfig, PolicyT: IdacPolicy](
@@ -37,8 +35,8 @@ class Idac[ConfigT: IdacConfig, PolicyT: IdacPolicy](
 ):
     """Base class for current-domain DAC implementations.
 
-    A converter reports no duration: it settles inside the window the owner
-    scheduling its conversions already spans, and that owner times it.
+    A converter reports no duration; conversion settles within an externally
+    scheduled window.
     """
 
     def __init__(

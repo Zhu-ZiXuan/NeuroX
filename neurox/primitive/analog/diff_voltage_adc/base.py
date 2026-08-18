@@ -16,14 +16,6 @@ from neurox.primitive.analog.base import AnalogBase, AnalogConfig, AnalogPolicy
 
 
 class DiffVadcRecord(RecordBase):
-    """One `DiffVadc.convert` call, captured for calibration/diagnostics.
-
-    The record covers the conversion event alone — the signal path, the output
-    code, and the active bit width. References are calibrated constants rather
-    than measured quantities, so they stay out of it, and which instance
-    converted is the collecting caller's own knowledge.
-    """
-
     v_pos__V: Tensor
     """Positive-side input voltage the call was handed.
     Shape: `[...]`."""
@@ -42,8 +34,6 @@ class DiffVadcProber(RecorderBase[DiffVadcRecord]):
 
 
 class DiffVadcConfig(AnalogConfig, ABC):
-    """Base config for differential voltage-domain ADC implementations."""
-
     area_per_inst__um2: float
     leakage_per_inst__uW: float
 
@@ -53,7 +43,7 @@ class DiffVadcConfig(AnalogConfig, ABC):
 
 
 class DiffVadcPolicy(AnalogPolicy, ABC):
-    """Abstract marker base for differential-voltage-ADC nonideality policies."""
+    pass
 
 
 class DiffVadc[ConfigT: DiffVadcConfig, PolicyT: DiffVadcPolicy](
@@ -72,9 +62,9 @@ class DiffVadc[ConfigT: DiffVadcConfig, PolicyT: DiffVadcPolicy](
     concrete converter's own circuit property, so the base validates no tap
     count.
 
-    A converter is mode-blind: no operating mode reaches it. The owner picks
-    the references and the range its mode calls for, and hands the converter
-    only the electrical operating point and the bit width.
+    A converter is mode-blind: reference selection and mode ranges remain
+    outside it, while `convert` receives only the electrical operating point
+    and the bit width.
 
     A member that rounds stochastically gates the draw on `self.training`, the
     module's own train / eval state, rather than on a policy source or a

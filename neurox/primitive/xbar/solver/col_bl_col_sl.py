@@ -40,8 +40,6 @@ _WIRE_DIM: Final = -1
 
 
 class ColBlColSlDcop[CellDcopT: XbarCellDcop](DcopBase):
-    """Complete steady-state solution of one DC solve."""
-
     i_bl_driver__uA: Tensor
     """BL driver current. Shape: `[..., num_col]`."""
     i_sl_driver__uA: Tensor
@@ -60,20 +58,13 @@ class ColBlColSlDcop[CellDcopT: XbarCellDcop](DcopBase):
 
 
 class ColBlColSlRecord[CellDcopT: XbarCellDcop](RecordBase):
-    """The residuals of one point of a DC solve's iteration trajectory.
+    """One event in the nested DC-solve trajectory.
 
-    `(outer, inner)` locates the record in the nested loop and selects which
-    residual pair it fills; the pair the record's own kind does not fill is
-    `None`. `inner == 0` marks the outer clamp event of outer step `outer`,
-    `inner >= 1` the `inner`-th inner Newton step taken within that outer step,
-    and the one record at `outer == n_outer` is the TERMINAL record, carrying
-    `dcop` and nothing else. A non-terminal record's `outer` is always
-    `< n_outer`, so that coordinate names the terminal record unambiguously.
-
-    A residual is recorded AT the iterate it was evaluated at, before the step
-    it drives. A record's residuals therefore belong to that record's iterate
-    and not to its successor's, and the terminal record — the state the last
-    step produced — carries no paired residuals at all.
+    `inner == 0` identifies an outer clamp event; `inner >= 1` identifies an
+    inner Newton step. The sole event at `outer == n_outer` is terminal and
+    carries only `dcop`. Every residual belongs to the pre-step iterate at
+    which it was evaluated, while the terminal event carries the state the
+    final step produced and no residuals.
     """
 
     outer: int
@@ -98,10 +89,9 @@ class ColBlColSlRecord[CellDcopT: XbarCellDcop](RecordBase):
     # === Terminal ===
 
     dcop: ColBlColSlDcop[CellDcopT] | None
-    """Converged operating point, on the terminal record alone: the iterate a
-    consumer measures step deltas and relative guards against, never a state
-    a residual is recomputed from. Being a dataclass, the record's field walk
-    reaches its tensors, the nested cell working point included."""
+    """Converged operating point on the terminal record alone. Being a
+    dataclass, the record's field walk reaches its tensors, including the
+    nested cell working point."""
 
 
 class ColBlColSlProber(RecorderBase[ColBlColSlRecord[XbarCellDcop]]):
@@ -150,13 +140,6 @@ class ColBlColSlProber(RecorderBase[ColBlColSlRecord[XbarCellDcop]]):
 
 
 class ColBlColSlSolverConfig(ConfigBase):
-    """Workload-tuned numerical knobs for `ColBlColSlSolver`.
-
-    Both counts are calibration products of `neurox.tools.calibrate_solver`
-    and reach the solver from the chip configuration file, which is their
-    only home.
-    """
-
     n_outer: int
     """Outer Newton iterations on the per-column clamp voltage. Each step
     takes one implicit-Jacobian Newton step on V_clamp and then runs `n_inner`
@@ -175,18 +158,17 @@ class ColBlColSlSolver:
     """Block Gauss-Seidel + implicit-Newton DC solver for a parallel BL/SL tile.
 
     Every cell-grid tensor runs the wire ladder / IR-drop direction along the
-    last axis and indexes the independent columns along the second-to-last; a
-    consuming array holding another internal layout organizes its data into
-    this one, the solver taking no axis selector. A single row, a single
-    column, and a single block row are well-defined systems this same path
-    settles, so nothing rejects a one-position extent.
+    last axis and indexes the independent columns along the second-to-last;
+    the solver takes no axis selector. A single row, a single column, and a
+    single block row are well-defined systems this same path settles, so
+    nothing rejects a one-position extent.
 
     Args:
         config: Fixed outer / inner iteration counts.
     """
 
-    # Per-iteration |dV| damping bounds of the two Newtons: a property of the
-    # method rather than of a chip, so they stay off the calibrated config.
+    # Per-iteration |dV| damping bounds are fixed properties of the two Newton
+    # methods rather than configurable inputs.
     _MAX_OUTER_STEP__V: float = 0.10
     _MAX_INNER_STEP__V: float = 0.05
 

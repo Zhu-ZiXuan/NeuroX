@@ -15,14 +15,12 @@ from .base import CimUnit, EngineBackedCimUnit, EngineBackedCimUnitConfig, Engin
 
 
 class LinearCimUnitConfig(EngineBackedCimUnitConfig):
-    """Configuration for `LinearCimUnit`."""
-
     def validate(self) -> None:
         super().validate()
 
 
 class LinearCimUnitPolicy(EngineBackedCimUnitPolicy):
-    """Composite policy for `LinearCimUnit`."""
+    pass
 
 
 @CimUnit.register_neurox_module(config_type=LinearCimUnitConfig, policy_type=LinearCimUnitPolicy)

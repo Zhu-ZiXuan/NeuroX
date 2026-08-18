@@ -1,4 +1,4 @@
-"""Shared side-channel record collection for the profiler and the probers.
+"""Shared side-channel record collection primitives.
 
 Each recorder family shares one active slot, held as a plain class attribute.
 Collection is a pure side channel across every family: a run computes the same

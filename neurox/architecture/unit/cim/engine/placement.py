@@ -1,4 +1,4 @@
-"""Geometric placement and scheduling for CIM-engine matrix multiplication.
+"""Geometric weight placement, input routing, and contraction aggregation.
 
 See Also:
     docs/reference/architecture/unit/cim/engine/placement.md
@@ -45,14 +45,12 @@ def _chunk_pad_along(
 
 
 class PlacementStageConfig(ConfigBase):
-    """Configuration for `PlacementStage`."""
-
     contraction_accumulator_config: AccumulatorConfig
     """Accumulator folding the Tc axis."""
 
 
 class PlacementStagePolicy(PolicyBase):
-    """Policy for `PlacementStage`."""
+    pass
 
 
 class PlacementStage(ModuleBase[PlacementStageConfig, PlacementStagePolicy]):

@@ -2,7 +2,7 @@
 
 ## Physical model
 
-An ideal single-ended N:1 time-share current transport. Its owner supplies currents in an explicit access/lane layout and thereby defines which source reaches each physical lane during each access. The mux preserves that layout and applies an exact matched transport gain.
+An ideal single-ended N:1 time-share current transport. The input carries explicit access and lane axes; the mux preserves that layout and applies an exact matched transport gain.
 
 ## Governing equations
 
@@ -10,7 +10,7 @@ For an input with shape $[\ldots,A,L]$, where $A$ is the number of serial access
 
 $$I_{\mathrm{out}}[\ldots,a,l] = g\,I_{\mathrm{in}}[\ldots,a,l].$$
 
-The output has the same shape. Axis $a$ indexes time-serial accesses and axis $l$ indexes spatially parallel lanes. The primitive emits no energy and reports a zero window; the consuming readout owns those costs.
+The output has the same shape. Axis $a$ indexes time-serial accesses and axis $l$ indexes spatially parallel lanes. The primitive models no energy and reports a zero window.
 
 ## Numerical method
 

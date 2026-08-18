@@ -21,8 +21,6 @@ from .x1t1r import (
 
 
 class XbarCell1t1rLinearConfig(XbarCell1t1rConfig):
-    """Physical knobs for the linearized (table-driven) 1T1R cell."""
-
     g_cell_off_table__uS: tuple[float, ...]
     """Per-state BL-to-SL branch chord conductance `g_cell__uS = I / (v_bl_op__V
     - v_sl_op__V)` at the calibration operating point with the WL off, indexed by
@@ -63,12 +61,10 @@ class XbarCell1t1rLinearConfig(XbarCell1t1rConfig):
 
 
 class XbarCell1t1rLinearPolicy(XbarCell1t1rPolicy):
-    """Empty nonideality policy for the deterministic linear cell."""
+    pass
 
 
 class XbarCell1t1rLinearSnap(XbarCell1t1rSnap):
-    """Per-call snap of a linearized 1T1R cell's programmed state."""
-
     g_cell_on__uS: Tensor
     """Branch chord conductance with the WL on. Shape: `[..., col, row]`."""
     g_cell_off__uS: Tensor
@@ -150,8 +146,7 @@ class XbarCell1t1rLinear(XbarCell1t1r[XbarCell1t1rLinearConfig, XbarCell1t1rLine
         idx = w_state_idx.long()
         if bool((idx < 0).any()) or bool((idx >= self.w_state_num).any()):
             raise ValueError(f"program() expects state indices in [0, {self.w_state_num}); got out-of-range entries")
-        # Gather every table here so the branch solve, which runs inside the
-        # compiled solver leaf, holds no index lookup.
+        # Gather every table here so the branch solve holds no index lookup.
         self._g_cell_off__uS = self._g_cell_off_table__uS[idx]
         self._g_cell_on__uS = self._g_cell_on_table__uS[idx]
         self._vx_ratio_off = self._vx_ratio_off_table[idx]

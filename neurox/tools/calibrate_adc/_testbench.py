@@ -49,8 +49,6 @@ def add_file_logging(log_dir: Path, tool_name: str) -> Path:
 
 @dataclass(frozen=True)
 class MacroSection:
-    """`[macro]` section: which tile to build, by file reference."""
-
     input_num: int
     """Logical input-vector length passed to the macro constructor."""
     output_num: int

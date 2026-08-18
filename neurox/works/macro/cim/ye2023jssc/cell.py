@@ -22,8 +22,6 @@ from neurox.primitive.xbar.cell import (
 
 
 class Ye2023Jssc2t1rCellConfig(XbarCell1t1rLinearConfig):
-    """Physical knobs for the WH-2T1R lookup cell."""
-
     i_t2_table__uA: tuple[tuple[float, ...], ...]
     """Unit-scale (m = 1) T2 compute current indexed `[operating_point][weight_state]`.
 
@@ -52,12 +50,10 @@ class Ye2023Jssc2t1rCellConfig(XbarCell1t1rLinearConfig):
 
 
 class Ye2023Jssc2t1rCellPolicy(XbarCell1t1rLinearPolicy):
-    """Empty nonideality policy for the deterministic WH-2T1R lookup cell."""
+    pass
 
 
 class Ye2023Jssc2t1rCellSnap(XbarCell1t1rLinearSnap):
-    """Per-call snap of a WH-2T1R cell's programmed state."""
-
     i_t2_floor__uA: Tensor
     """Unit-scale (m = 1) T2 current at the floor operating point `V_X = 0`, pre-selected
     for the programmed state.

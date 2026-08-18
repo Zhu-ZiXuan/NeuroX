@@ -16,8 +16,6 @@ from neurox.primitive.analog.base import AnalogBase, AnalogConfig, AnalogPolicy
 
 
 class VdacConfig(AnalogConfig, ABC):
-    """Base config for voltage-domain DAC implementations."""
-
     area_per_inst__um2: float
     leakage_per_inst__uW: float
 
@@ -27,7 +25,7 @@ class VdacConfig(AnalogConfig, ABC):
 
 
 class VdacPolicy(AnalogPolicy, ABC):
-    """Abstract marker base for voltage-DAC-family nonideality policies."""
+    pass
 
 
 class Vdac[ConfigT: VdacConfig, PolicyT: VdacPolicy](
@@ -37,8 +35,8 @@ class Vdac[ConfigT: VdacConfig, PolicyT: VdacPolicy](
 ):
     """Base class for voltage-domain DAC implementations.
 
-    A converter reports no duration: it settles inside the window the owner
-    scheduling its conversions already spans, and that owner times it.
+    A converter reports no duration; conversion settles within an externally
+    scheduled window.
     """
 
     def __init__(

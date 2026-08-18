@@ -15,8 +15,6 @@ from .base import AnalogBase, AnalogConfig, AnalogPolicy
 
 
 class VoltageDriverConfig(AnalogConfig):
-    """Immutable configuration for `VoltageDriver`."""
-
     r_out__MOhm: float
     """Series output resistance — its NEGATIVE is the constant clamp slope
     ∂V_clamp/∂I; 0 recovers the ideal voltage-source limit."""
@@ -47,8 +45,6 @@ class VoltageDriverConfig(AnalogConfig):
 
 
 class VoltageDriverPolicy(AnalogPolicy):
-    """Per-source toggles selecting which clamp nonidealities are active."""
-
     offset: bool
     """Apply the static systematic per-instance offset `offset_sigma__V`."""
     thermal: bool
@@ -56,8 +52,6 @@ class VoltageDriverPolicy(AnalogPolicy):
 
 
 class VoltageDriverDcop(DcopBase):
-    """Clamp state at the solved port operating point."""
-
     v_clamp__V: Tensor
     """Clamp voltage held at the evaluated port current.
     Shape: `[..., *inst_shape]`."""
@@ -69,8 +63,6 @@ class VoltageDriverDcop(DcopBase):
 
 
 class VoltageDriverSnap(SnapBase):
-    """One sampled clamp snap."""
-
     v_ref__V: Tensor
     """NOMINAL reference clamp voltage — the ideal value, carrying no offset
     or thermal draw.
@@ -198,21 +190,21 @@ class VoltageDriver(AnalogBase[VoltageDriverConfig, VoltageDriverPolicy]):
         Thevenin drop `i_port * r_out` is already inside the clamp node, so the
         delivered voltage is that node itself and no snap is needed.
 
-        Call once per access, on the port state at the caller's full leading:
+        Call once per access, on the port state at the call's full leading:
         the drive is billed per driven position, and only that layout states
         which positions those are.
 
         Args:
             i_port__uA: Converged port current [uA] — one instance per column,
                 so the column axis is last.
-                Shape: `[*caller_leading, ...]`.
+                Shape: `[*leading, ...]`.
             v_clamp__V: Converged clamp voltage [V] at the same layout.
-                Shape: `[*caller_leading, ...]`.
+                Shape: `[*leading, ...]`.
 
         Returns:
             Delivered clamp voltage [V] — the terminal voltage this driver
             holds at `i_port__uA`.
-            Shape: `[*caller_leading, ...]`.
+            Shape: `[*leading, ...]`.
         """
         # A flat per-port-op lump: the expanded constant holds no storage, so no
         # energy tensor is materialized and the energy dtype is the constant's.

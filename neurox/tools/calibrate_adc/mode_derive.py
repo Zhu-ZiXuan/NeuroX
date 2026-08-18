@@ -40,15 +40,11 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class _ClusterCfg:
-    """`[cluster]` section: knobs of the per-shape-group 1-D clustering."""
-
     rel_tol: float
     max_modes_per_group: int
 
 
 class ModeDeriveToolConfig(ConfigBase):
-    """Top-level config for `neurox.tools.calibrate_adc.mode_derive`."""
-
     mapping_file: Path
     """Layer-range mapping TOML, relative to the tool TOML."""
     cluster: _ClusterCfg

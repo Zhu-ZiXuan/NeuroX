@@ -34,11 +34,6 @@ Shapes for every `nn.Linear` that `example/bert/macro_factory.py` swaps for a cr
 
 ## Notes
 
-- **FFN layers dominate**: one encoder block's two FFN linears contribute
-  512 tiles, twice as many as all four attention projections (256).
-- **Classifier is the shortest path**: only 8 tiles map the 512-dim
-  pooled `[CLS]` embedding to 2 logits, so its per-layer quantization
-  error directly drives final-accuracy sensitivity.
-- **Input side (K) is 512 for all layers except the FFN output**
-  (2048) — that is the only layer whose 32 row-tiles concatenate in
-  the shift-add stage rather than the per-tile ADC stage.
+- **FFN layers dominate**: one encoder block's two FFN linears contribute 512 tiles, twice as many as all four attention projections (256).
+- **Classifier is the shortest path**: only 8 tiles map the 512-dim pooled `[CLS]` embedding to 2 logits, so its per-layer quantization error directly drives final-accuracy sensitivity.
+- **Input side (K) is 512 for all layers except the FFN output** (2048) — that is the only layer whose 32 row-tiles concatenate in the shift-add stage rather than the per-tile ADC stage.

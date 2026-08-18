@@ -4,9 +4,9 @@
 
 A current ADC digitizes a single-ended, non-negative magnitude current $I_{\mathrm{in}}$ [uA] into one **unsigned** integer code. The converter commits to the current domain: the input, every reference level, and every noise term are expressed in microamperes.
 
-The reference values $I_{\mathrm{ref}}$ are a runtime input, ascending along a trailing tap axis. The resolution $b$ and the injected references fully determine one conversion; an operating-mode identity is not part of the transfer relation, because the owner names a mode to its reference source and receives the corresponding taps already selected.
+The reference values $I_{\mathrm{ref}}$ are a runtime input, ascending along a trailing tap axis. The resolution $b$ and the injected references fully determine one conversion; an operating-mode identity is not part of the transfer relation.
 
-How many reference values one conversion consumes is the concrete converter's circuit property, not a family law: a converter that takes one reference and multiplies it internally receives one, a converter wired to a bank of thresholds receives the bank.
+The number of reference values consumed by one conversion is topology-specific rather than a family law.
 
 The resolution $b$ sets the number of code levels; the maximum resolution $b_{\max}$ is fixed for a given ADC. The references describe physical wiring, not the requested resolution, so a conversion at $b < b_{\max}$ is realized inside the converter by running fewer decision cycles over the same taps.
 

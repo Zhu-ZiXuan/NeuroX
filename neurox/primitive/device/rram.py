@@ -22,8 +22,6 @@ from neurox.primitive.nonideality import (
 
 
 class RramConfig(ConfigBase):
-    """Static RRAM device configuration."""
-
     g_min__uS: float
     """Minimum programmable conductance; the maximum is supplied per instance."""
 
@@ -59,8 +57,6 @@ class RramConfig(ConfigBase):
 
 
 class RramPolicy(PolicyBase):
-    """Per-source toggles selecting which RRAM nonidealities are active."""
-
     prog_gamma: bool
     """Apply state-dependent programming Gamma at program time."""
     drift: bool
@@ -74,8 +70,6 @@ class RramPolicy(PolicyBase):
 
 
 class RramDcop(DcopBase):
-    """Device current and local differential conductance."""
-
     i__uA: Tensor
     """Current through the cell at the evaluated voltage. Shape: `[...]`."""
     di_dv__uS: Tensor
@@ -83,8 +77,6 @@ class RramDcop(DcopBase):
 
 
 class RramSnap(SnapBase):
-    """Per-call read conductance snap."""
-
     g__uS: Tensor
     """Sampled per-cell conductance, read noise included. Shape: `[...]`."""
 

@@ -14,8 +14,6 @@ from .base import AnalogBase, AnalogConfig, AnalogPolicy
 
 
 class SwitchCapConfig(AnalogConfig):
-    """Immutable physical configuration for `SwitchCap`."""
-
     c_unit__fF: float
     """Capacitance of the weight-1 cap the bank's weights multiply."""
     cap_mismatch_sigma_relative: float
@@ -40,8 +38,6 @@ class SwitchCapConfig(AnalogConfig):
 
 
 class SwitchCapPolicy(AnalogPolicy):
-    """Per-source toggles selecting which SwitchCap nonidealities are active."""
-
     cap_mismatch: bool
     """Apply `cap_mismatch_sigma_relative` at fabricate time."""
     sampling_thermal_noise: bool
@@ -143,6 +139,6 @@ class SwitchCap(AnalogBase[SwitchCapConfig, SwitchCapPolicy]):
             # Shape: [..., *inst_shape, cap_num] -> [..., *inst_shape]
             e_caps__fJ = 0.5 * torch.sum(c__fF * v_in__V * v_in__V, dim=-1)
             # The cap axis is already summed above; the collector sums the
-            # remaining work and instance axes past the caller's leading dims.
+            # remaining work and instance axes past the call's leading dims.
             self._record_dynamic_energy(e_caps__fJ + self.config.energy_per_sample_overhead__fJ)
         return v_out__V

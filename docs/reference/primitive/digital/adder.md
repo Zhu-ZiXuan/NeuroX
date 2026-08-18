@@ -24,7 +24,7 @@ N/A — exact digital function; no register wrap, no static mismatch, no per-cal
 
 ## PPA cost model
 
-The add is element-wise, so each output element is one adder evaluation. The operation runs at once across every fabricated instance, so the block owns no time axis and its duration is the flat combinational window $t = t_{\mathrm{op}}$; a caller that issues several rounds on it counts them itself. Dynamic energy is total work, independent of how the outputs distribute across instances,
+The add is element-wise, so each output element is one adder evaluation. The operation runs at once across every fabricated instance, so its duration is the flat combinational window $t = t_{\mathrm{op}}$. Dynamic energy is total work, independent of how the outputs distribute across instances,
 
 $$E = E_{\mathrm{op}}\, \operatorname{numel}(y).$$
 

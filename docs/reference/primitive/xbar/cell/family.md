@@ -1,6 +1,6 @@
 # Xbar cell family
 
-Every crossbar cell — whatever internal device topology it holds — is a two-terminal element bridging one bit-line node and one source-line node. It presents a single condensed branch current with two signed terminal conductances; the internal device topology is solved inside the cell and never exposed at its terminals. A concrete cell realizes this model for one device topology; the array-level wire ladder, boundaries, and array energy are outside the cell.
+Every crossbar cell — whatever internal device topology it holds — is a two-terminal element bridging one bit-line node and one source-line node. It presents a single condensed branch current with two signed terminal conductances; the internal device topology is solved inside the cell and never exposed at its terminals. Interconnect, boundary behavior, and grid-level energy are outside the cell model.
 
 ## Physical model
 
@@ -38,7 +38,7 @@ The cell itself owns no static mismatch. Non-idealities enter through the cell's
 
 ## Energy model
 
-What a cell contributes to the energy account is **levels**: the converged voltages its own condensation reports at the nodes of its site — the two terminals and every internal node — against the rest levels the boundary declares. The per-cell node-to-ground capacitances those levels are billed against are parameters of the array holding the cell grid, and the account itself is kept there too, under the law in [capacitive energy](../../physics.md), because the rails a draw is charged to and the grid each node's share of line follows are the array's. DC-conduction energy lies outside that account. The cell carries no PPA of its own: neither node capacitance, nor the silicon area and leakage of its device children, which roll up at the array level. Which nodes a site presents is topology-specific.
+The cell exposes the converged levels of its two terminals and every internal node. It assigns no node capacitance, energy, silicon area, or leakage of its own; DC-conduction energy is also outside the cell model. Which internal node levels a site presents is topology-specific.
 
 ## Assumptions, scope & validity
 

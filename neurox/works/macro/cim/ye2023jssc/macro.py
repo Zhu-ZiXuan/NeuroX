@@ -39,11 +39,6 @@ from .rscsa import RsCsaIadc, RsCsaIadcConfig, RsCsaIadcPolicy
 
 
 class Ye2023JsscCimMacroConfig(CimMacroConfig):
-    """Configuration for the Ye2023 JSSC WH-2T1R CIM macro.
-
-    The design is input-parallel, so `max_active_num` must equal the macro's row
-    count.
-    """
 
     # === Device-bearing sub-blocks ===
 
@@ -172,8 +167,6 @@ class Ye2023JsscCimMacroConfig(CimMacroConfig):
 
 
 class Ye2023JsscCimMacroPolicy(CimMacroPolicy):
-    """Composite nonideality policy — one child policy per owned block."""
-
     array_policy: Ye2023Jssc2t1rArrayPolicy
     adc_policy: RsCsaIadcPolicy
     reference_policy: IrefPolicy

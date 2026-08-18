@@ -15,6 +15,7 @@ Follow these public conventions unless a rule here is stricter or a deviation is
 - H1 and every nav label use sentence case (proper nouns, acronyms, and code identifiers stay capitalized).
 - Every fenced code block declares a language (stricter than GFM/CommonMark, which make the info string optional).
 - Link documents with relative `.md` paths; link sections with `#slug`.
+- Write each prose paragraph or list item on one source line; do not insert line breaks merely to limit source width. Keep a line break only when Markdown structure or the intended rendering requires it, such as between headings, list items, table rows, fenced-code lines, block-math lines, or explicit hard breaks.
 - Never hand-author an HTML anchor (`<a id="..."></a>`); heading anchors are auto-generated, so a `#slug` link needs no manual target, and a link resolves to a whole document.
 - README files are navigation only: short orientation plus links to children. Do not put templates, rules, philosophy, or detailed model prose in a README.
 - A subsystem directory under a documentation category may carry a README index where a reader needs an entry point into it. Do not create one merely because a directory exists; a nested group with no such need lives only in `mkdocs.yml`.

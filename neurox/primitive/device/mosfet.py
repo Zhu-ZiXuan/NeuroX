@@ -18,17 +18,6 @@ from neurox.primitive.physics import thermal_voltage__V
 
 
 class MosfetConfig(ConfigBase):
-    """Immutable PDK config for a MOSFET (polarity-agnostic).
-
-    The same field set describes n- and p-channel devices: `mu0` and `c_ox`
-    are positive magnitudes, and `vth0` is a signed threshold whose sign is
-    set by the device flavor (enhancement / depletion), not by channel
-    polarity. The fields are process quantities only: channel geometry is
-    chosen per placement and arrives as an `__init__` argument, and no
-    layout-dependent parasitic is held here, so one config describes every
-    device drawn on the process.
-    """
-
     T_nom__K: float
     """Reference temperature at which `mu0__cm2_per_V_s` and `vth0__V` are stated."""
     c_ox__fF_per_um2: float
@@ -68,8 +57,6 @@ class MosfetConfig(ConfigBase):
 
 
 class MosfetPolicy(PolicyBase):
-    """Per-source toggles selecting which MOSFET nonidealities are active."""
-
     A_vt_mismatch: bool
     """Apply Pelgrom V_th mismatch at fabricate time."""
     A_beta_mismatch: bool
@@ -77,8 +64,6 @@ class MosfetPolicy(PolicyBase):
 
 
 class MosfetDcop(DcopBase):
-    """Caller-facing working-point result for one MOSFET evaluation."""
-
     ids__uA: Tensor
     """Drain-source current, positive for drain → source flow; a p-channel
     device in normal conduction is typically negative. Shape: `[...]`."""
@@ -91,8 +76,6 @@ class MosfetDcop(DcopBase):
 
 
 class MosfetSnap(SnapBase):
-    """Per-call MOSFET state snap."""
-
     beta__uA_per_V2: Tensor
     """Per-cell transconductance-factor magnitude, polarity sign excluded.
     Shape: `[...]`."""

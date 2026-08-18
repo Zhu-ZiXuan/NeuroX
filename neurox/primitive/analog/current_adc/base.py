@@ -16,12 +16,6 @@ from neurox.primitive.analog.base import AnalogBase, AnalogConfig, AnalogPolicy
 
 
 class IadcRecord(RecordBase):
-    """One `Iadc.convert` call, captured for calibration/diagnostics.
-
-    The record covers the conversion event alone: which instance converted is
-    the collecting caller's own knowledge, not something the record carries.
-    """
-
     i_in__uA: Tensor
     """Input magnitude current the call was handed.
     Shape: `[...]`."""
@@ -37,8 +31,6 @@ class IadcProber(RecorderBase[IadcRecord]):
 
 
 class IadcConfig(AnalogConfig, ABC):
-    """Base config for single-ended current-domain ADC implementations."""
-
     area_per_inst__um2: float
     leakage_per_inst__uW: float
 
@@ -48,7 +40,7 @@ class IadcConfig(AnalogConfig, ABC):
 
 
 class IadcPolicy(AnalogPolicy, ABC):
-    """Abstract marker base for single-ended-current-ADC-family nonideality policies."""
+    pass
 
 
 class Iadc[ConfigT: IadcConfig, PolicyT: IadcPolicy](
@@ -67,9 +59,9 @@ class Iadc[ConfigT: IadcConfig, PolicyT: IadcPolicy](
     circuit property, so it is neither declared nor validated at this level; a
     ladder the leaf cannot use fails inside that leaf.
 
-    A converter is mode-blind: no operating mode reaches it. The owner picks
-    the references and the range its mode calls for, and hands the converter
-    only the electrical operating point and the bit width.
+    A converter is mode-blind: reference selection and mode ranges remain
+    outside it, while `convert` receives only the electrical operating point
+    and the bit width.
     """
 
     def __init__(

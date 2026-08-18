@@ -20,8 +20,6 @@ from .base import DiffVadc, DiffVadcConfig, DiffVadcPolicy
 
 
 class McsSarDiffVadcConfig(DiffVadcConfig):
-    """Immutable design-parameter config for `McsSarDiffVadc`."""
-
     max_bits: int
     """Physical bit width; the active array carries `max_bits - 1`
     binary-weighted caps plus a dummy cap (MSB-free design)."""
@@ -65,8 +63,6 @@ class McsSarDiffVadcConfig(DiffVadcConfig):
 
 
 class McsSarDiffVadcPolicy(DiffVadcPolicy):
-    """Per-source toggles selecting which McsSarDiffVadc nonidealities are active."""
-
     cap_mismatch: bool
     """Apply `cap_mismatch_sigma_relative` at fabricate time."""
     comparator_offset: bool
@@ -235,9 +231,9 @@ class McsSarDiffVadc(DiffVadc[McsSarDiffVadcConfig, McsSarDiffVadcPolicy]):
         Args:
             v_pos__V: Positive-side input voltage — one physical converter per
                 instance, so the instance block is last and nothing trails it.
-                Shape: `[*caller_leading, *middle, *inst_shape]`.
+                Shape: `[*leading, *middle, *inst_shape]`.
             v_neg__V: Negative-side input voltage, at the same shape.
-                Shape: `[*caller_leading, *middle, *inst_shape]`.
+                Shape: `[*leading, *middle, *inst_shape]`.
             v_refs__V: Injected reference taps; the CDAC swings against one
                 full-scale reference, so the single tap is read off the last
                 axis and the leading dims broadcast against the inputs.
@@ -247,7 +243,7 @@ class McsSarDiffVadc(DiffVadc[McsSarDiffVadcConfig, McsSarDiffVadcPolicy]):
         Returns:
             Raw offset-binary code tensor valued in `[0, 2 ** bits - 1]`, one
             code per `v_pos__V` element.
-            Shape: `[*caller_leading, *middle, *inst_shape]`.
+            Shape: `[*leading, *middle, *inst_shape]`.
 
         Raises:
             ValueError: `bits` is outside `[1, max_bits]`, or `v_refs__V` does

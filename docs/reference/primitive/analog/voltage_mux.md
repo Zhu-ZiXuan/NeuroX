@@ -1,31 +1,21 @@
 # Voltage mux
 
-The voltage mux is a single-ended N:1 time-share transport. Its owner supplies
-voltages in an explicit access/lane layout and thereby defines which source
-reaches each physical lane during each access. The mux preserves that layout.
+The voltage mux is a single-ended N:1 time-share transport. Its input carries explicit access and lane axes, which the mux preserves.
 
 ## Physical model
 
-Each fabricated lane has a static fractional gain error. Each access also sees
-additive voltage noise. The mux records one dynamic-energy item per transported
-voltage, and its duration is one transport window per access of the $N{:}1$
-ratio — the $N$ inputs of a lane reach it one at a time, while the lanes
-themselves are parallel.
+Each fabricated lane has a static fractional gain error. Each access also sees additive voltage noise. The mux records one dynamic-energy item per transported voltage, and its duration is one transport window per access of the $N{:}1$ ratio — the $N$ inputs of a lane reach it one at a time, while the lanes themselves are parallel.
 
 ## Governing equations
 
-For input shape $[\ldots,A,L]$, where $A$ is the number of serial accesses and
-$L$ is the number of parallel lanes, transport requires $A=N$, where $N$ is
-`mux_ratio`,
+For input shape $[\ldots,A,L]$, where $A$ is the number of serial accesses and $L$ is the number of parallel lanes, transport requires $A=N$, where $N$ is `mux_ratio`,
 
 $$
 V_{\mathrm{out}}[\ldots,a,l]
 = g(1+\varepsilon_{g,l})V_{\mathrm{in}}[\ldots,a,l] + n_{a,l},
 $$
 
-where $a$ is the serial access, $l$ is the lane, $g$ is the nominal
-transport gain, $\varepsilon_g$ is fabrication-fixed gain mismatch, and $n$ is
-per-access additive noise. The output shape is unchanged.
+where $a$ is the serial access, $l$ is the lane, $g$ is the nominal transport gain, $\varepsilon_g$ is fabrication-fixed gain mismatch, and $n$ is per-access additive noise. The output shape is unchanged.
 
 ## Numerical method
 
@@ -50,14 +40,11 @@ N/A — the transport is a closed-form per-call map; no iteration.
 | `area_per_inst__um2` | silicon area per physical lane | $\geq 0$ | Design |
 | `leakage_per_inst__uW` | leakage per physical lane | $\geq 0$ | Design |
 
-Provenance terms are defined in
-[module_parameter](../../../conventions/module_parameter.md).
+Provenance terms are defined in [module_parameter](../../../conventions/module_parameter.md).
 
 ## Assumptions, scope & validity
 
-The model is single-ended. It does not model a differential pair, common-mode
-rejection, signal-dependent on-resistance, finite settling, charge injection,
-clock feedthrough, off-isolation, or crosstalk.
+The model is single-ended. It does not model a differential pair, common-mode rejection, signal-dependent on-resistance, finite settling, charge injection, clock feedthrough, off-isolation, or crosstalk.
 
 ## Validation
 

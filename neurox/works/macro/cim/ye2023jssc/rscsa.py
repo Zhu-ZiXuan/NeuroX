@@ -17,8 +17,6 @@ from neurox.primitive.analog.current_adc import Iadc, IadcConfig, IadcPolicy
 
 
 class RsCsaIadcConfig(IadcConfig):
-    """Physical knobs for the Reference-Subtracting CSA readout."""
-
     bits: int
     """Physical resolution — one compare phase per bit, and the finest resolution a
     conversion may request. It also fixes the compare phases' binary reference weights:
@@ -79,7 +77,7 @@ class RsCsaIadcConfig(IadcConfig):
 
 
 class RsCsaIadcPolicy(IadcPolicy):
-    """Empty nonideality policy for the deterministic RS-CSA readout."""
+    pass
 
 
 class RsCsaIadc(Iadc[RsCsaIadcConfig, RsCsaIadcPolicy]):

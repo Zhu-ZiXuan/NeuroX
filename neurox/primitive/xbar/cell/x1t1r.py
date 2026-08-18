@@ -24,23 +24,19 @@ from .base import (
 
 
 class XbarCell1t1rConfig(XbarCellConfig, ABC):
-    """Config base of the 1T1R cell family, and its registry-dispatch anchor."""
+    pass
 
 
 class XbarCell1t1rPolicy(XbarCellPolicy, ABC):
-    """Base policy for 1T1R cell nonidealities."""
+    pass
 
 
 class XbarCell1t1rSnap(XbarCellSnap):
-    """Per-call snap base of a 1T1R cell's fabricated state."""
-
     v_wl__V: Tensor
     """Word-line drive voltage at each cell's own NMOS gate. Shape: `[..., col, row]`."""
 
 
 class XbarCell1t1rDcop(XbarCellDcop):
-    """1T1R branch working point with the condensed access-node voltage."""
-
     v_x__V: Tensor
     """Access-node voltage at the NMOS drain / RRAM bottom. Shape: `[..., col, row]`."""
 

@@ -43,7 +43,7 @@ TODO (domain author): physical derivation and citation for each noise sigma.
 | `latency_per_op__ns` | per-conversion latency | ns | $\geq 0$ | Design |
 | leakage / area | static PPA / spec fields | uW, um^2 | $\geq 0$ | Design |
 
-The comparator thresholds are not parameters of this ADC — they are the reference taps supplied per conversion (see [family](family.md)), calibrated against physical data by the owner via the ADC calibration procedure ([calibration guide](../../../../guides/calibration/README.md)). Provenance terms are defined in [module_parameter](../../../../conventions/module_parameter.md).
+The comparator thresholds are not parameters of this ADC; they are reference taps supplied per conversion (see [family](family.md)). Provenance terms are defined in [module_parameter](../../../../conventions/module_parameter.md).
 
 ## Symbols
 

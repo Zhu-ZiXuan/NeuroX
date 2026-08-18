@@ -150,14 +150,12 @@ class TestCimMacroMode:
 
 
 class _StubMacroConfig(CimMacroConfig):
-    """Hand-written config of the stub member."""
-
     modes: tuple[CimMacroMode, ...]
     adc_max_bits: int
 
 
 class _StubMacroPolicy(CimMacroPolicy):
-    """Empty policy of the stub member."""
+    pass
 
 
 class _StubMacro(CimMacro[_StubMacroConfig, _StubMacroPolicy]):

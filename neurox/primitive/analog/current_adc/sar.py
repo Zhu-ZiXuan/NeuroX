@@ -15,8 +15,6 @@ from .base import Iadc, IadcConfig, IadcPolicy
 
 
 class SarIadcConfig(IadcConfig):
-    """Physical knobs for the triple-margin current-mode SAR ADC."""
-
     bits: int
     """Physical (maximum) magnitude resolution [bits]; a `convert` call
     requests any resolution in `[1, bits]`."""
@@ -67,9 +65,8 @@ class SarIadcConfig(IadcConfig):
         for t in self.t_conduct_per_step__ns:
             self._require_non_neg(t, "t_conduct_per_step__ns")
 
-        # Exactly one entry per search step: an owner reads the whole tuple as
-        # the full-resolution sensing duration, so a trailing entry the search
-        # never executes would inflate every window derived from it.
+        # Exactly one entry per search step: a trailing entry the search never
+        # executes would inflate every window derived from the tuple.
         if len(self.step_latency__ns) != self.bits:
             raise ValueError(f"require: len(step_latency__ns) ({len(self.step_latency__ns)}) == bits ({self.bits})")
         for latency in self.step_latency__ns:
@@ -82,8 +79,6 @@ class SarIadcConfig(IadcConfig):
 
 
 class SarIadcPolicy(IadcPolicy):
-    """Per-source toggles selecting which SarIadc nonidealities are active."""
-
     comparator_offset: bool
     """Inject `comparator_offset_sigma__uA` at fabricate time."""
     coupling_mismatch: bool
@@ -105,8 +100,7 @@ class SarIadc(Iadc[SarIadcConfig, SarIadcPolicy]):
     Args:
         inst_shape: Fabricated shared-sense-lane shape.
         enable_energy_record: Whether conversions emit dynamic-energy events.
-            An owner that bills the conversion energy itself passes `False`;
-            the value conversion is unaffected either way.
+            The value conversion is unaffected when disabled.
     """
 
     # === Nominal buffers ===

@@ -1,8 +1,6 @@
-"""Pure math for the generic macro-ADC calibration tools.
+"""Deterministic tensor and scalar math for ADC calibration.
 
-Every function here is deterministic tensor / scalar math with no module
-building, no file IO, and no plotting — the unit-testable core the three CLI
-entries `rescale_fit`, `threshold_probe`, and `mode_derive` consume.
+The operations build no modules, perform no file IO, and produce no plots.
 """
 
 from __future__ import annotations

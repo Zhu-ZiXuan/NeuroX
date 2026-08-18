@@ -7,8 +7,6 @@ from .recorder import RecordBase, RecorderBase
 
 
 class EnergyRecord(RecordBase):
-    """One dynamic-energy record from a physical module's primary execution call."""
-
     qualified_name: str
     """Hierarchical name the emitter was stamped with."""
     dynamic_energy__fJ: Tensor
@@ -64,8 +62,8 @@ class Profiler(RecorderBase[EnergyRecord]):
         emitter put there — digit, phase, serial round, output, instance — and
         the leading dims are kept untouched. A record's tensor element is
         therefore one unit operation's energy rather than a figure already
-        collapsed across the batch: a linear unit called with
-        `[G, T, B, input_num]` under `leading_rank=3` yields `[G, T, B]`.
+        collapsed across the caller-owned leading axes. An input with shape
+        `[*caller_leading, ...]` yields `[*caller_leading]`.
 
         Args:
             qualified_name: The emitter's stamped hierarchical name.

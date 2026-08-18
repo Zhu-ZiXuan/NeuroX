@@ -1,4 +1,4 @@
-"""Weight-slice layout and inverse digital aggregation for CIM engines.
+"""Weight-slice layout and inverse digital aggregation.
 
 See Also:
     docs/reference/architecture/unit/cim/engine/weight_slice.md
@@ -19,8 +19,6 @@ from neurox.primitive.digital import DigitalPolicy, ShiftAdder, ShiftAdderConfig
 
 
 class WeightSliceStageConfig(ConfigBase, ABC):
-    """Abstract configuration root for weight-slice layouts."""
-
     @abstractmethod
     def layout_geometry(self, *, output_num: int) -> tuple[int, int]:
         """Return `(logical outputs per block, physical macro planes)`."""
@@ -28,7 +26,7 @@ class WeightSliceStageConfig(ConfigBase, ABC):
 
 
 class WeightSliceStagePolicy(PolicyBase, ABC):
-    """Abstract policy root for weight-slice layouts."""
+    pass
 
 
 class WeightSliceStage[ConfigT: WeightSliceStageConfig, PolicyT: WeightSliceStagePolicy](
@@ -116,14 +114,12 @@ class WeightSliceStage[ConfigT: WeightSliceStageConfig, PolicyT: WeightSliceStag
 
 
 class DirectWeightSliceStageConfig(WeightSliceStageConfig):
-    """Configuration for `DirectWeightSliceStage`."""
-
     def layout_geometry(self, *, output_num: int) -> tuple[int, int]:
         return output_num, 1
 
 
 class DirectWeightSliceStagePolicy(WeightSliceStagePolicy):
-    """Policy for `DirectWeightSliceStage`."""
+    pass
 
 
 @WeightSliceStage.register_neurox_module(
@@ -146,8 +142,6 @@ class DirectWeightSliceStage(WeightSliceStage[DirectWeightSliceStageConfig, Dire
 
 
 class InterWeightSliceStageConfig(WeightSliceStageConfig):
-    """Configuration for `InterWeightSliceStage`."""
-
     w_slice_num: int
     """Macro-level slices one logical weight is split into — the Sw axis."""
     w_encoding: Encoding
@@ -163,7 +157,7 @@ class InterWeightSliceStageConfig(WeightSliceStageConfig):
 
 
 class InterWeightSliceStagePolicy(WeightSliceStagePolicy):
-    """Policy for `InterWeightSliceStage`."""
+    pass
 
 
 @WeightSliceStage.register_neurox_module(
@@ -217,8 +211,6 @@ class InterWeightSliceStage(WeightSliceStage[InterWeightSliceStageConfig, InterW
 
 
 class IntraWeightSliceStageConfig(WeightSliceStageConfig):
-    """Configuration for `IntraWeightSliceStage`."""
-
     w_slice_num: int
     """Macro-level slices one logical weight is split into — the Sw axis."""
     w_encoding: Encoding
@@ -236,7 +228,7 @@ class IntraWeightSliceStageConfig(WeightSliceStageConfig):
 
 
 class IntraWeightSliceStagePolicy(WeightSliceStagePolicy):
-    """Policy for `IntraWeightSliceStage`."""
+    pass
 
 
 @WeightSliceStage.register_neurox_module(

@@ -11,8 +11,6 @@ from neurox.architecture.unit.conv2d import Conv2dUnit
 
 
 class IdealConv2dUnitConfig(CimUnitConfig):
-    """Configuration for `IdealConv2dUnit`."""
-
     x_value_range: tuple[int, int]
     """Inclusive integer activation range."""
     w_value_range: tuple[int, int]
@@ -36,7 +34,7 @@ class IdealConv2dUnitConfig(CimUnitConfig):
 
 
 class IdealConv2dUnitPolicy(CimUnitPolicy):
-    """Policy for `IdealConv2dUnit`."""
+    pass
 
 
 @CimUnit.register_neurox_module(config_type=IdealConv2dUnitConfig, policy_type=IdealConv2dUnitPolicy)

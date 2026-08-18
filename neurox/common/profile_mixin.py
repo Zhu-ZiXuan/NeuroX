@@ -46,8 +46,8 @@ class ProfileMixin:
     def qualified_name(self) -> str:
         """Hierarchical name the module's tree stamped onto it.
 
-        A module never names itself: assignment is the tree walk's move
-        (`stamp_names`), and stamping again overwrites.
+        A module never names itself: a tree traversal assigns the name, and a
+        later traversal overwrites it.
 
         Raises:
             RuntimeError: No tree has stamped this module yet.

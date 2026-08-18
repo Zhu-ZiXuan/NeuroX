@@ -11,8 +11,6 @@ from .base import DigitalBase, DigitalConfig, DigitalPolicy
 
 
 class ShiftAdderConfig(DigitalConfig):
-    """Immutable configuration for a ShiftAdder instance."""
-
     bit_width: int
     """Signed output bit width; the result wraps modulo `2^bit_width` into
     `[-2^(bit_width-1), 2^(bit_width-1) - 1]`."""

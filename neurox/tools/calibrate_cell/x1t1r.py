@@ -36,8 +36,6 @@ from neurox.tools._plateau import CandidateRow, WorkloadScale, pick_with_plateau
 
 @dataclass(frozen=True)
 class _GridCfg:
-    """`[grid]` section: terminal-voltage / word-line operating sweep."""
-
     v_terminal_min__V: float
     """Minimum bit-line / source-line node voltage of the read-voltage sweep."""
     v_terminal_max__V: float
@@ -59,8 +57,6 @@ class _GridCfg:
 
 @dataclass(frozen=True)
 class _SweepCfg:
-    """`[sweep]` section: candidate counts + plateau / guard knobs."""
-
     candidates: list[int]
     """Condensation counts swept, ascending."""
     ratio_threshold: float
@@ -73,19 +69,10 @@ class _SweepCfg:
 
 @dataclass(frozen=True)
 class _RuntimeCfg:
-    """`[runtime]` section: dtype reproducibility knob."""
-
     dtype: str
 
 
 class CalibrateCell1t1rConfig(ConfigBase):
-    """Top-level config for `neurox.tools.calibrate_cell.x1t1r`.
-
-    `cell_config` is the Detail cell fragment under calibration, pulled from
-    any scheme's chip params via `_neurox_use`; a dotted section name reaches
-    a nested `cell_config` table.
-    """
-
     cell_config: XbarCell1t1rDetailConfig
     grid: _GridCfg
     sweep: _SweepCfg

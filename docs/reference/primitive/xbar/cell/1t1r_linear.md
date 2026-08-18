@@ -46,7 +46,7 @@ Provenance terms are defined in [module_parameter](../../../../conventions/modul
 
 ## Energy model
 
-The Linear cell contributes the shared family node levels, with $V_{\mathrm{X}}$ taken from the drop fraction; the node capacitances and the account they feed belong to the array holding the grid.
+The Linear cell exposes the shared family node levels, with $V_{\mathrm{X}}$ taken from the drop fraction; it assigns them no capacitance or energy.
 
 ## Symbols
 

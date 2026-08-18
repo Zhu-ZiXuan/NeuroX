@@ -24,11 +24,9 @@ N/A — exact digital function; the only non-infinite-precision effect is the de
 
 ## PPA cost model
 
-Per operand element folded into the sum the block dissipates a fixed dynamic energy $E_{\mathrm{op}}$: the adder tree spends one evaluation per leg it consumes, so work scales with the input-element count and not with the number of results. The reduced axis is inserted by the caller, so the block owns no time axis and its duration is the flat reduction window
+Per operand element folded into the sum the block dissipates a fixed dynamic energy $E_{\mathrm{op}}$: the adder tree spends one evaluation per leg it consumes, so work scales with the input-element count and not with the number of results. The reduced axis is spatial, so the duration is the flat reduction window
 
-$$t = t_{\mathrm{op}};$$
-
-a caller that issues several rounds on it counts them itself.
+$$t = t_{\mathrm{op}}.$$
 
 Dynamic energy is total work, independent of how the operands distribute across instances,
 

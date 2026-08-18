@@ -32,8 +32,6 @@ from .cell import Ye2023Jssc2t1rCell, Ye2023Jssc2t1rCellConfig, Ye2023Jssc2t1rCe
 
 
 class Ye2023Jssc2t1rArrayConfig(XbarArray1t1rConfig):
-    """Physical knobs for the WH-2T1R dedicated array."""
-
     weight_radix: tuple[int, ...]
     """Per-plane place values of the weight-bearing planes, LSB-first. Non-empty; every
     entry a positive int."""
@@ -69,7 +67,7 @@ class Ye2023Jssc2t1rArrayConfig(XbarArray1t1rConfig):
 
 
 class Ye2023Jssc2t1rArrayPolicy(XbarArray1t1rPolicy):
-    """Nonideality policy for the WH-2T1R dedicated array; the scheme adds no fields."""
+    pass
 
 
 class Ye2023Jssc2t1rSteadyState(XbarArray1t1rSteadyState):

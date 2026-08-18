@@ -1,9 +1,8 @@
-"""Memory-bounded chunking of a broadcast leading, and the solve it wraps.
+"""Memory-bounded chunking of a broadcast leading.
 
 The leading-axis machinery partitions a broadcast leading into fixed-size
 chunks, selects one chunk's positions out of a tensor or a snap, and folds the
-per-chunk measurements back into one full-leading result. `ChunkedSolver`
-drives it, sitting between a crossbar array and one fixed-shape DC solve.
+per-chunk measurements back into one full-leading result.
 
 See Also:
     docs/system_design/xbar_solve.md
@@ -246,16 +245,14 @@ class MeasureFold[MeasureT]:
 class ChunkedSolver[MeasureT]:
     """Same-signature wrapper folding one leading chunk by chunk.
 
-    What it wraps is one fixed-shape DC solve callable, and its own call is
-    that callable's call plus the leading and the per-chunk measurement.
     Argument handling is signature-agnostic: a snap argument is chunk-sliced,
-    every other argument passes through untouched, and the caller states the
-    leading rather than any axis rank being inferred. Each chunk is measured
-    down to the small tensors that survive it and those alone are reassembled,
-    so a chunk's grid-shaped DCOP never reaches the caller.
+    every other argument passes through untouched, and the leading is supplied
+    explicitly rather than inferred from an axis rank. Each callable result is
+    reduced immediately to the small measurement tensors that survive the
+    chunk, and those alone are reassembled.
 
     Args:
-        solve: Wrapped DC solve, faithfully solving one fixed shape.
+        solve: Wrapped callable, faithfully evaluating one fixed shape.
         chunk_size: Leading instances per chunk. A positive value pads each
             chunk to exactly this size so the compiled solve body sees a
             single input shape; `0` solves the whole leading in one block.
@@ -359,7 +356,7 @@ def _check_leading(leading: tuple[int, ...], operands: Mapping[str, object]) -> 
     block gathered instead.
 
     Args:
-        leading: Broadcast-leading shape the caller states.
+        leading: Explicit broadcast-leading shape.
         operands: Snaps and bare tensors the chunk loop slices, keyed by the
             keyword each arrived under.
 

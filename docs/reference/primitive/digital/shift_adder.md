@@ -24,7 +24,7 @@ N/A — exact digital function; the only non-infinite-precision effect is the de
 
 ## PPA cost model
 
-Per operand element folded into the sum the block dissipates a fixed dynamic energy $E_{\mathrm{op}}$; one digit leg of one output is one shift-and-add evaluation, so work scales with the input-element count and not with the number of results. The digit legs are weighted and summed in one pass, so the digit axis is space, the block owns no time axis, and its duration is the flat positional-sum window $t = t_{\mathrm{op}}$; a caller that issues several rounds on it counts them itself. Dynamic energy is total work, independent of how the operands distribute across instances,
+Per operand element folded into the sum the block dissipates a fixed dynamic energy $E_{\mathrm{op}}$; one digit leg of one output is one shift-and-add evaluation, so work scales with the input-element count and not with the number of results. The digit legs are weighted and summed in one pass, so the digit axis is spatial and the duration is the flat positional-sum window $t = t_{\mathrm{op}}$. Dynamic energy is total work, independent of how the operands distribute across instances,
 
 $$E = E_{\mathrm{op}}\, \operatorname{numel}(x),$$
 

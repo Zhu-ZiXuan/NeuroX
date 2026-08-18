@@ -17,27 +17,19 @@ from neurox.common import ConfigBase, DcopBase, ModuleBase, PolicyBase, SnapBase
 
 
 class XbarCellConfig(ConfigBase, ABC):
-    """Base class for crossbar-cell configurations."""
-
     def validate(self) -> None:
         """Validate parameter ranges; the base accepts every value."""
 
 
 class XbarCellPolicy(PolicyBase, ABC):
-    """Base class for crossbar-cell nonideality policies."""
+    pass
 
 
 class XbarCellSnap(SnapBase):
-    """Base class for per-call cell snapshots."""
+    pass
 
 
 class XbarCellDcop(DcopBase):
-    """Condensed branch working point of one cell DC evaluation.
-
-    A model-specific convergence residual is no field here: it travels on the
-    probe record of the model that computes it.
-    """
-
     i__uA: Tensor
     """Branch current, positive bit-line into source-line. Shape: `[..., col, row]`."""
     di_dvbl__uS: Tensor
@@ -60,9 +52,8 @@ class XbarCell[ConfigT: XbarCellConfig, PolicyT: XbarCellPolicy, SnapT: XbarCell
     them, and a solve that assembles a Jacobian from the wrong sign corrupts
     its operating point silently instead of raising.
 
-    Both solve methods run inside the compiled solver leaf, so an
-    implementation stays traceable there — no in-place tensor write, and no
-    Python branch on a tensor value.
+    Both solve methods stay traceable: an implementation performs no in-place
+    tensor write and no Python branch on a tensor value.
 
     Args:
         inst_shape: Per-instance shape `(..., col, row)`.
@@ -157,7 +148,7 @@ class XbarCell[ConfigT: XbarCellConfig, PolicyT: XbarCellPolicy, SnapT: XbarCell
             snap: Per-call snap from `snapshot`.
 
         Returns:
-            Concrete `XbarCellDcop` subclass with the branch working point and
-            internal-node voltages.
+            Branch working point, including model-specific internal-node
+            state.
         """
         raise NotImplementedError

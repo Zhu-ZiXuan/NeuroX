@@ -8,8 +8,6 @@ from neurox.common import ConfigBase, ModuleBase, PolicyBase
 
 
 class DigitalConfig(ConfigBase, ABC):
-    """Static PPA fields shared by every digital, integer-exact block."""
-
     area_per_inst__um2: float
     """Silicon area of one fabricated instance."""
     leakage_per_inst__uW: float
@@ -21,7 +19,7 @@ class DigitalConfig(ConfigBase, ABC):
 
 
 class DigitalPolicy(PolicyBase):
-    """Empty policy marker — integer-exact blocks carry no nonidealities."""
+    pass
 
 
 class DigitalBase[ConfigT: DigitalConfig](ModuleBase[ConfigT, DigitalPolicy], ABC):
@@ -32,7 +30,7 @@ class DigitalBase[ConfigT: DigitalConfig](ModuleBase[ConfigT, DigitalPolicy], AB
     layout its operation evaluates once per element — the pre-reduction operand
     where the operation reduces. The constant, not the integer operand, fixes
     the energy dtype. The billed operand must span the block's instance
-    multiplicity together with the caller's leading dims at their true extents;
+    multiplicity together with the call's leading dims at their true extents;
     everything past those dims folds away, so a block bills what it was handed
     and positions no axis of its own.
     """

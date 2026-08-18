@@ -1,8 +1,4 @@
-"""Slicer ABC for value-domain decomposition.
-
-See Also:
-    docs/reference/architecture/unit/family.md
-"""
+"""Slicer ABC for value-domain decomposition."""
 
 from __future__ import annotations
 

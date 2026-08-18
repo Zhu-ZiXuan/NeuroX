@@ -42,7 +42,7 @@ Applies to analog and digital leaf circuits that own their own silicon and emit 
 
 Use the common checklist, then:
 
-- Use or extend the subsystem config and policy types — e.g. extend `AnalogConfig` when the leaf introduces its own `area_per_inst__um2` / `leakage_per_inst__uW`. Declare new role types only for new fields or a distinct dispatch identity, never merely to mirror the module class name; do not repeat dataclass decorators, and put new domain checks in `validate()`.
+- Use or extend the subsystem config and policy bases. Declare new role types only for new fields or a distinct dispatch identity, never merely to mirror the module class name; do not repeat dataclass decorators, and put new domain checks in `validate()`.
 - Use the `ModuleBase` construction contract and the `ProfileMixin` emitter contract: implement the per-instance PPA properties the mixin requires, which `area__um2` / `leakage__uW` scale by `inst_count`.
 - Implement the family or leaf primary method defined by its base class.
 - Emit dynamic energy only for quantities this leaf owns, as a tensor at the billed layout; the profiler owns the reduction.

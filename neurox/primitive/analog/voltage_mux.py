@@ -13,8 +13,6 @@ from .base import AnalogBase, AnalogConfig, AnalogPolicy
 
 
 class VmuxConfig(AnalogConfig):
-    """Immutable configuration for `Vmux`."""
-
     mux_ratio: int
     """N in the N:1 ratio of inputs to each output lane."""
     mux_gain: float
@@ -44,8 +42,6 @@ class VmuxConfig(AnalogConfig):
 
 
 class VmuxPolicy(AnalogPolicy):
-    """Per-source toggles selecting which Vmux nonidealities are active."""
-
     mux_gain_mismatch: bool
     """Apply `mux_gain_mismatch_sigma_relative` at fabricate time."""
     mux_noise: bool

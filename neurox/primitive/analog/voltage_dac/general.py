@@ -17,8 +17,6 @@ from .base import Vdac, VdacConfig, VdacPolicy
 
 
 class GeneralVdacConfig(VdacConfig):
-    """Immutable configuration for `GeneralVdac`."""
-
     code_to_signal: tuple[float, ...]
     """Voltage lookup table indexed by integer code: entry `i` is the nominal
     analog output [V] for digital code `i`, and the length fixes the code
@@ -49,8 +47,6 @@ class GeneralVdacConfig(VdacConfig):
 
 
 class GeneralVdacPolicy(VdacPolicy):
-    """Per-source toggles selecting which GeneralVdac nonidealities are active."""
-
     drive_thermal: bool
     """Apply `drive_thermal__V` at convert time."""
 

@@ -10,8 +10,6 @@ from neurox.architecture.unit.linear import LinearUnit
 
 
 class IdealLinearUnitConfig(CimUnitConfig):
-    """Configuration for `IdealLinearUnit`."""
-
     x_value_range: tuple[int, int]
     """Inclusive integer activation range."""
     w_value_range: tuple[int, int]
@@ -19,7 +17,7 @@ class IdealLinearUnitConfig(CimUnitConfig):
 
 
 class IdealLinearUnitPolicy(CimUnitPolicy):
-    """Policy for `IdealLinearUnit`."""
+    pass
 
 
 @CimUnit.register_neurox_module(config_type=IdealLinearUnitConfig, policy_type=IdealLinearUnitPolicy)

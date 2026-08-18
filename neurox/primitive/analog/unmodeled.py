@@ -10,8 +10,6 @@ from .base import AnalogBase, AnalogConfig, AnalogPolicy
 
 
 class UnmodeledBlockConfig(AnalogConfig):
-    """Immutable configuration for `UnmodeledBlock`."""
-
     area_per_inst__um2: float
     leakage_per_inst__uW: float
     """Carries the block's whole standing bias power."""
@@ -22,7 +20,7 @@ class UnmodeledBlockConfig(AnalogConfig):
 
 
 class UnmodeledBlockPolicy(AnalogPolicy):
-    """Abstract marker for UnmodeledBlock nonideality policy — no sources."""
+    pass
 
 
 class UnmodeledBlock(AnalogBase[UnmodeledBlockConfig, UnmodeledBlockPolicy]):

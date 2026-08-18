@@ -18,8 +18,6 @@ from neurox.common import ConfigBase, ModuleBase, PolicyBase
 
 
 class TmcsaConfig(ConfigBase):
-    """Phase windows, per-step constant and static PPA seat of one TMCSA."""
-
     t_ph2_per_step__ns: tuple[float, ...]
     """PH2 conduction window per binary-search step; its length is the conversion bit count B."""
     t_ph3_per_step__ns: tuple[float, ...]
@@ -47,7 +45,7 @@ class TmcsaConfig(ConfigBase):
 
 
 class TmcsaPolicy(PolicyBase):
-    """Source-free TMCSA policy — this scheme models no nonideality."""
+    pass
 
 
 class Tmcsa(ModuleBase[TmcsaConfig, TmcsaPolicy]):

@@ -15,8 +15,6 @@ from neurox.common import ConfigBase, ModuleBase, PolicyBase
 
 
 class PnIsubConfig(ConfigBase):
-    """Physical knobs and static PPA seat of one PN-ISUB subtractor."""
-
     e_per_op__fJ: float
     """Data-independent comparator energy, billed once per sign decision — per (slot, IO) entry."""
     area_per_inst__um2: float
@@ -29,7 +27,7 @@ class PnIsubConfig(ConfigBase):
 
 
 class PnIsubPolicy(PolicyBase):
-    """Source-free PN-ISUB policy — this scheme models no nonideality."""
+    pass
 
 
 class PnIsub(ModuleBase[PnIsubConfig, PnIsubPolicy]):

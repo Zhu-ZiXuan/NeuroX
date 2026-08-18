@@ -31,8 +31,6 @@ from .x1t1r import (
 
 
 class XbarCell1t1rDetailRecord(RecordBase):
-    """Per-cell access-node KCL residual of a detailed 1T1R branch solve."""
-
     cell__uA: Tensor
     """`|I_NMOS - I_RRAM|` per cell at the condensed V_X. Shape: `[..., col, row]`."""
 
@@ -42,8 +40,6 @@ class XbarCell1t1rDetailProber(RecorderBase[XbarCell1t1rDetailRecord]):
 
 
 class XbarCell1t1rDetailConfig(XbarCell1t1rConfig):
-    """Physical knobs for the detailed (nonlinear-device) 1T1R cell."""
-
     rram_config: RramConfig
     nmos_config: MosfetConfig
 
@@ -95,15 +91,11 @@ class XbarCell1t1rDetailConfig(XbarCell1t1rConfig):
 
 
 class XbarCell1t1rDetailPolicy(XbarCell1t1rPolicy):
-    """Composite nonideality policy for the detailed 1T1R cell."""
-
     rram_policy: RramPolicy
     nmos_policy: MosfetPolicy
 
 
 class XbarCell1t1rDetailSnap(XbarCell1t1rSnap):
-    """Per-call snap of a detailed 1T1R cell's fabricated state."""
-
     rram: RramSnap
     nmos: MosfetSnap
 
@@ -225,7 +217,7 @@ class XbarCell1t1rDetail(XbarCell1t1r[XbarCell1t1rDetailConfig, XbarCell1t1rDeta
         # --- 2: solve F_X = I_NMOS - I_RRAM with Newton iterations ---
 
         # A fixed trip count: a residual-driven stop would branch on a tensor
-        # value inside the compiled solver leaf.
+        # value and break traceability.
         for _ in range(self._newton_iter_num):
             dc_nmos = self.nmos.solve_dc(v_wl__V, v_x__V, v_sl__V, nmos_snap)
             dc_rram = self.rram.solve_dc(v_bl__V - v_x__V, rram_snap)

@@ -1,20 +1,16 @@
-"""File-format authority for the two calibration-exchange TOML formats.
+"""Parse, validate, and emit the calibration-exchange TOML formats.
 
 Emit, parse, and validation for both formats live only here.
 
-The layer-range mapping is the `mode_derive` input, keyed by quoted
-top-level layer names:
+The layer-range mapping is keyed by quoted top-level layer names:
 
     "layer.name" = { range = [-12.5, 12.5] }
 
 `range` is the layer's inclusive design range `[lo, hi]` in MAC units
 (finite floats, `lo <= hi`, `hi > 0`); `lo < 0` marks a layer whose
-quantization input is signed. Producing the file, e.g. by extracting learned
-range params from a training checkpoint, is a consumer-side step outside the
-tools.
+quantization input is signed.
 
-The mode set is the `mode_derive` output and the single mode source for
-`threshold_probe` and `rescale_fit`:
+The mode set groups those ranges under canonical quantization windows:
 
     [[modes]]
     quantization_mode = 0

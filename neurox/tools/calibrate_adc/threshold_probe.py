@@ -69,8 +69,6 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class _StimulusCfg:
-    """`[stimulus]` section: the probing battery."""
-
     seed: int
     """RNG seed for the random battery elements."""
     lsb_caps: tuple[int, ...]
@@ -123,8 +121,6 @@ class _StimulusCfg:
 
 @dataclass(frozen=True)
 class _ProbeCfg:
-    """`[probe]` section: capture operating point."""
-
     quantization_mode: int
     """Mode passed to the physical run while capturing, and the mode whose
     input-code map the pooled stream carries. The captured analog input is
@@ -134,8 +130,6 @@ class _ProbeCfg:
 
 
 class ThresholdProbeToolConfig(ConfigBase):
-    """Top-level config for `neurox.tools.calibrate_adc.threshold_probe`."""
-
     macro: MacroSection
     probe: _ProbeCfg
     stimulus: _StimulusCfg

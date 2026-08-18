@@ -94,8 +94,8 @@ def solve_block_tridiagonal(
     Solves `A x = rhs` where `A` is block-tridiagonal with `N` block rows of
     `B`×`B` blocks, any `B` running through the same path. The shape
     convention is fixed: the `N` axis is third-to-last for the block tensors
-    and second-to-last for `rhs`, so a caller whose layout differs transposes
-    at the call site — another axis order mis-indexes the sweep silently
+    and second-to-last for `rhs`; a different layout transposes before entry —
+    another axis order mis-indexes the sweep silently
     rather than raising. At `B = 1` the result agrees with `solve_tridiagonal`
     to round-off alone, the 1×1 solve differing arithmetically from a scalar
     division.

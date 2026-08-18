@@ -3,8 +3,8 @@
 Every kernel owns its own enable branch through a keyword-only `enabled` flag, a plain
 Python `bool` that resolves at trace time, so a disabled source is expressed by the flag
 alone and never by a `None` argument. A disabled kernel returns the input object itself
-rather than a clone — a wide broadcast view stays unmaterialized — so a caller treats
-every result as read-only. A kernel whose spread is a single scalar takes that scalar
+rather than a clone — a wide broadcast view stays unmaterialized — so every result is
+read-only. A kernel whose spread is a single scalar takes that scalar
 directly, while one with several coupled parameters takes a frozen config declared beside
 it, keeping that parameter set named and validated once.
 
@@ -20,8 +20,6 @@ from neurox.common import ConfigBase
 
 
 class StuckAtFaultConfig(ConfigBase):
-    """Stuck-at fault probabilities."""
-
     p_at_min: float
     p_at_max: float
 
@@ -69,8 +67,6 @@ def apply_relative_gaussian(x: Tensor, sigma_relative: float, *, enabled: bool) 
 
 
 class StateDependentGaussianConfig(ConfigBase):
-    """State-dependent Gaussian noise config."""
-
     sigma_slope: float
     """Linear growth of the noise σ per unit of `|x|`."""
     sigma_intercept: float
@@ -95,8 +91,6 @@ def apply_state_dependent_gaussian(
 
 
 class LognormalConfig(ConfigBase):
-    """Multiplicative log-normal noise config."""
-
     sigma: float
     """Standard deviation of the underlying normal, not of the multiplicative factor."""
 
@@ -112,8 +106,6 @@ def apply_lognormal(x: Tensor, config: LognormalConfig, *, enabled: bool) -> Ten
 
 
 class StateDependentLognormalConfig(ConfigBase):
-    """State-dependent log-normal noise config."""
-
     sigma_slope: float
     """Amount the noise σ falls as the normalised state rises from 0 to 1."""
     sigma_intercept: float
@@ -145,8 +137,6 @@ def apply_state_dependent_lognormal(
 
 
 class GammaConfig(ConfigBase):
-    """Multiplicative Gamma noise config (constant shape and scale)."""
-
     shape_k: float
     scale_theta: float
 
@@ -166,8 +156,6 @@ def apply_gamma_noise(x: Tensor, config: GammaConfig, *, enabled: bool) -> Tenso
 
 
 class StateDependentGammaConfig(ConfigBase):
-    """State-dependent Gamma noise config."""
-
     k_slope: float
     """Rate at which the Gamma shape k varies with normalised state."""
     k_intercept: float
@@ -225,8 +213,6 @@ def apply_state_dependent_gamma(
 
 
 class TelegraphConfig(ConfigBase):
-    """Random telegraph noise config."""
-
     amplitude_mean: float
     amplitude_std: float
     """Standard deviation of the Gaussian amplitude draw."""

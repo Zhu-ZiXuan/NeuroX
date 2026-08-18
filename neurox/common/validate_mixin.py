@@ -7,11 +7,7 @@ from itertools import pairwise
 
 
 class ValidateMixin:
-    """Provide reusable predicates for `validate` methods.
-
-    A host that inherits neither `ConfigBase` nor `PolicyBase` must invoke its
-    validation explicitly.
-    """
+    """Provide reusable predicates for host-defined `validate` methods."""
 
     @staticmethod
     def _require_gt(value: float, name: str, ref: float) -> None:

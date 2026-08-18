@@ -27,8 +27,6 @@ from .x_slice import XSliceStage, XSliceStageConfig, XSliceStagePolicy
 
 
 class CimEngineConfig(ConfigBase):
-    """Configuration for `CimEngine`."""
-
     input_num: int
     """Logical input ports of each CIM macro."""
     output_num: int
@@ -45,8 +43,6 @@ class CimEngineConfig(ConfigBase):
 
 
 class CimEnginePolicy(PolicyBase):
-    """Policy for `CimEngine`."""
-
     cim_macro_policy: CimMacroPolicy
     placement: PlacementStagePolicy
     input_activation: InputActivationStagePolicy
@@ -99,12 +95,11 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
     def latency__ns(self, *, output_plane_num: int, adc_bits: int | None) -> float:
         """Time one logical matrix multiplication — the schedule it unrolls.
 
-        Every serial axis below the unit is the engine's: the output planes `M`
-        its caller states, the input slices `Sx`, the CIM block slots `D` and
-        the input phases `P`. One macro access serves each `(M, Sx, D, P)`
-        point, so the engine multiplies the macro rather than summing it. The
-        weight slices, contraction partitions and block groups are all parallel
-        silicon and never multiply.
+        Serial work spans the output planes `M` supplied per call, the input
+        slices `Sx`, the CIM block slots `D`, and the input phases `P`. One
+        macro access serves each `(M, Sx, D, P)` point, so these extents
+        multiply the macro latency. Weight slices, contraction partitions, and
+        block groups are parallel silicon and do not.
 
         The digital blocks hold no output-port axis of their own, so each runs
         once per output element the operation it closes delivers: the macro's

@@ -52,8 +52,6 @@ from ._common import (
 
 @dataclass(frozen=True)
 class _WorkloadCfg:
-    """`[workload]` section: sampling sweep dimensions + row-block serialization."""
-
     inst_shape: list[int]
     """Fabricated per-instance shape — the rank-1 parallel weight-program axis,
     bound to equal `[batch_w]`."""
@@ -75,8 +73,6 @@ class _WorkloadCfg:
 
 @dataclass(frozen=True)
 class _SweepCfg:
-    """`[sweep]` section: 2-axis candidate iteration counts + criteria."""
-
     outer_candidates: list[int]
     """Outer iteration counts swept in Stage A, ascending."""
     inner_candidates: list[int]
@@ -96,25 +92,11 @@ class _SweepCfg:
 
 @dataclass(frozen=True)
 class _RuntimeCfg:
-    """`[runtime]` section: dtype + RNG seed.
-
-    Array solve chunking is no tool knob — it rides the macro policy verbatim,
-    so the real chunked forward path is exercised.
-    """
-
     dtype: str
     seed: int
 
 
 class CalibrateSolverColBlColSlConfig(ConfigBase):
-    """Top-level config for `neurox.tools.calibrate_solver.col_bl_col_sl`.
-
-    `[macro]` is abstract-typed: the referenced config / policy files select
-    the concrete scheme classes via `_neurox_class`, usually by
-    `_neurox_use`-ing a scheme's chip params and all-off policy preset, and
-    `solver_section` locates the nested-solver table the sweep patches.
-    """
-
     macro: MacroSection
     workload: _WorkloadCfg
     sweep: _SweepCfg

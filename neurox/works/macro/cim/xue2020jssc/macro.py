@@ -131,16 +131,6 @@ def _sample_reference_bank(
 
 
 class Xue2020JsscCimMacroConfig(CimMacroConfig):
-    """Configuration for the xue2020jssc SINWP 1T1R CIM sub-array.
-
-    The paper design point is ONE point of this config space, never a hardcoded
-    shape: any magnitude-digit count, digit radix and activation width is
-    expressible, and the vectorized readout degenerates cleanly wherever such an
-    axis is size 1.
-
-    `max_active_num` is the input-block size selected per conversion; the engine,
-    not the macro, serializes across row blocks.
-    """
 
     # === Weight / input geometry ===
 
@@ -403,12 +393,6 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
 
 
 class Xue2020JsscCimMacroPolicy(CimMacroPolicy):
-    """Composite nonideality policy — one child policy per owned block.
-
-    This scheme models no mismatch or noise, so the sanctioned `all_off` preset,
-    every child at its lossless baseline, is the only intended policy.
-    """
-
     array_policy: XbarArray1t1rPolicy
     wl_dac_policy: VdacPolicy
     cablc_policy: VoltageDriverPolicy

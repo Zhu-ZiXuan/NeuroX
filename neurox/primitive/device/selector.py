@@ -14,8 +14,6 @@ from neurox.primitive.nonideality import apply_gaussian
 
 
 class SelectorConfig(ConfigBase):
-    """Immutable configuration for an OTS threshold selector."""
-
     vth_nominal__V: float
     """Threshold voltage shared across all cells before mismatch."""
 
@@ -27,8 +25,6 @@ class SelectorConfig(ConfigBase):
 
 
 class SelectorPolicy(PolicyBase):
-    """Per-source toggles selecting which selector nonidealities are active."""
-
     vth_mismatch: bool
     """Draw a per-cell threshold offset at fabricate time."""
 

@@ -28,11 +28,9 @@ Each arriving operand is accumulated once, so the block dissipates a fixed dynam
 
 $$E = E_{\mathrm{op}}\, \operatorname{numel}(x),$$
 
-where $\operatorname{numel}(x)$ includes the reduced (time-serial) axis. The reduced axis is inserted by the caller, so the block owns no time axis and its duration is the flat reduction window
+where $\operatorname{numel}(x)$ includes the reduced time-serial axis. The reported duration is the per-arrival window
 
-$$t = t_{\mathrm{op}};$$
-
-a caller that issues several rounds on it counts them itself.
+$$t = t_{\mathrm{op}}.$$
 
 An empty call, $\operatorname{numel}(x) = 0$, costs zero energy. Static area and leakage are the per-instance terms $A_{\mathrm{inst}}$ and $P_{\mathrm{inst}}$ scaled by the instance count.
 
@@ -69,7 +67,7 @@ Provenance terms are defined in [module_parameter](../../../conventions/module_p
 
 - The output register wraps in two's-complement and does not saturate; a sum exceeding the range silently aliases.
 - The cost model is behavioural and per-op flat: energy scales only with the input-element count and the duration not at all, neither varying with operand magnitude, bit toggling, or carry depth.
-- The reduced axis is assumed genuinely time-serial on one register per instance. The assumption carries no energy consequence — a parallel adder tree spends the same one evaluation per leg — but it is what makes the caller multiply the per-op window by the arrival count when it accounts for latency.
+- The reduced axis is genuinely time-serial on one register per instance; the per-op window applies once per arrival. The realization carries no energy consequence relative to a parallel adder tree under the flat per-leg energy model.
 
 TODO (domain author): the validity range of the flat per-op cost (bit-width regimes, the point at which carry-tree depth makes $t_{\mathrm{op}}$ bit-width-dependent), and any conditions under which modular wrap is a modelling error rather than the intended hardware behaviour.
 

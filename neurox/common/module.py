@@ -77,11 +77,11 @@ class PolicyBase(SerializeMixin, ValidateMixin, ABC):
 
 
 class SnapBase(TensorDataClassBase, TensorGroupMixin):
-    """Base for the uniformly shaped per-call state returned by `snapshot()`."""
+    """Transform all tensor fields together under one per-call layout."""
 
 
 class DcopBase(TensorDataClassBase):
-    """Base for the DC operating point returned by `solve_dc()`."""
+    pass
 
 
 # ConfigT and PolicyT are covariant across every module family: a config or policy is

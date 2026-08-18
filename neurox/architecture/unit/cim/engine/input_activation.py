@@ -1,4 +1,4 @@
-"""Input-activation scheduling and aggregation for CIM engines.
+"""Input-phase scheduling and P-axis aggregation.
 
 See Also:
     docs/reference/architecture/unit/cim/engine/input_activation.md
@@ -17,14 +17,12 @@ from neurox.primitive.digital import AccumulatorConfig, DigitalPolicy, SerialAcc
 
 
 class InputActivationStageConfig(ConfigBase):
-    """Configuration for `InputActivationStage`."""
-
     phase_accumulator_config: AccumulatorConfig
     """Accumulator folding the P axis."""
 
 
 class InputActivationStagePolicy(PolicyBase):
-    """Policy for `InputActivationStage`."""
+    pass
 
 
 class InputActivationStage(ModuleBase[InputActivationStageConfig, InputActivationStagePolicy]):
@@ -78,10 +76,9 @@ class InputActivationStage(ModuleBase[InputActivationStageConfig, InputActivatio
     def unroll_input_phases(self, x: Tensor) -> Tensor:
         """Split one local input block into CIM input phases.
 
-        The engine owns the input-phase axis `P` and serializes the word-line
-        planes over it, one plane per macro access. The macro contract knows no
-        phase — planes in, codes out — so `P` reaches the macro as one more
-        broadcast leading axis.
+        The input-phase axis `P` serializes word-line planes, one plane per
+        macro access. The macro contract knows no phase — planes in, codes out
+        — so `P` reaches it as one more broadcast leading axis.
         """
         # Shape: [P, L] -> [..., P, L]
         mask = self._active_input_mask.reshape(
