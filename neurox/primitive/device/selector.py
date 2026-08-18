@@ -67,7 +67,7 @@ class Selector(ModuleBase[SelectorConfig, SelectorPolicy]):
             persistent=False,
         )
 
-    def _sample_fabricate_mismatch(self) -> None:
+    def _sample_fabrication_variation(self) -> None:
         self._vth__V = apply_gaussian(
             self._nominal_vth__V.clone().expand(self.inst_shape),
             self.config.vth_mismatch__V,

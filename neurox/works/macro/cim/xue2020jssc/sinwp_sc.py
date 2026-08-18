@@ -82,9 +82,6 @@ class SinwpSc(ModuleBase[SinwpScConfig, SinwpScPolicy]):
     def _leakage_per_inst__uW(self) -> float:
         return self.config.leakage_per_inst__uW
 
-    def _sample_fabricate_mismatch(self) -> None:
-        pass
-
     @property
     def input_bit_num(self) -> int:
         """Number of input bits K — the combine-ratio count."""

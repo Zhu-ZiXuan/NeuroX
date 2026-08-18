@@ -1,27 +1,26 @@
 # NeuroX
 
-NeuroX is a static-PPA + functional-accuracy co-simulation framework for memristor (1T1R RRAM) crossbar-based AI accelerators. It models the analog VMM signal chain — RRAM cell, access NMOS, BL/SL/WL wire parasitics, boundary drivers, sample-and-hold, mux, and ADC — and lifts the integer output through digital aggregation (shift-add, accumulators) up to a macro layer that exposes one `matmul` per fabricated tile.
+NeuroX is a PyTorch-based simulator for RRAM compute-in-memory accelerators. It connects device and circuit models to crossbar arrays, CIM macros, and neural-network operators so that one hardware configuration can be evaluated for functional accuracy and static PPA.
 
-## Public surface
+The supported library surface ends at `neurox.architecture.unit`. Model rewriting, training, and end-to-end evaluation pipelines live under `example/` as application code rather than stable API.
 
-The core library's public surface stops at `neurox.architecture.unit`. Everything above that line — training loops, observer calibration, model rewriting — lives in `example/` and is no stable API. Below it, every polymorphic family (`CimMacro`, `XbarCell`, `DiffVadc`, …) follows the same family-base + concrete-config + `from_config` registry pattern documented in [`docs/system_design/construction.md`](docs/system_design/construction.md).
+## Get started
 
-## Layout
+NeuroX requires Python 3.12 or later. To prepare a source checkout with the dependencies used by the bundled examples:
 
-- `neurox/primitive/device/` — RRAM, NMOS, Selector device-physics primitives.
-- `neurox/primitive/analog/` — VoltageDriver clamp, Vmux, Imux, SwitchCap, and the current-/voltage-domain converter families.
-- `neurox/primitive/digital/` — integer accumulators, shift-adders, subtractors.
-- `neurox/primitive/xbar/` — `cell/` (abstract `XbarCell` + the `x1t1r` concrete cell), `array/` (abstract `XbarArray` + the `x1t1r` concrete array with its DC solver), and `solver/` (the shared block-tridiagonal DC solver).
-- `neurox/primitive/macro/cim/` — abstract `CimMacro` and the `IdealCimMacro` reference twin; concrete tiles live in `works/`.
-- `neurox/architecture/unit/` — `UnitBase`/`LinearUnit`/`Conv2dUnit` operator bases with their ideal reference leaves, plus `cim/` (`CimUnit` family with `from_config` factory — the public entry point) and its `engine/` execution pipelines and `slicer/` value-domain slicing primitives.
-- `neurox/common/` — `ProfileMixin`/`FabricateMixin`/`RegistryMixin`/`ValidateMixin`, encoding transcoders, config serialization, the profiler side-channel, the recorder/reporter tree.
-- `neurox/tools/` — offline calibration / analysis CLIs for cell state maps, ADCs, and solvers.
-- `example/` — runnable LeNet and BERT pipelines (float training, QAT, evaluation) showing how a user assembles the above into a training/inference flow.
+```bash
+uv sync --extra demo
+```
 
-## Example pipelines
+Follow the [algorithm-engineer workflow](docs/guides/algorithm_engineer/workflow.md) to train and evaluate the LeNet or BERT pipeline.
 
-See [`docs/guides/algorithm_engineer/`](docs/guides/algorithm_engineer/README.md) for the LeNet and BERT walkthroughs.
+## Documentation
 
-## Developer docs
+- [Guides](docs/guides/README.md) — end-to-end workflows grouped by task.
+- [Scientific reference](docs/reference/README.md) — modeled components, equations, assumptions, and limitations.
+- [Validation](docs/validation/README.md) — evidence connecting implementations to published designs.
+- [API](docs/api/README.md) — the supported Python surface and configuration format.
+- [System design](docs/system_design/README.md) — contracts that span components.
+- [Contributing](docs/contributing/README.md) — development and documentation workflow.
 
-See [`docs/`](docs/README.md) — the scientific reference, the cross-component system design, and the contributing standards.
+NeuroX is released under the [MIT License](LICENSE).

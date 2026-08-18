@@ -70,9 +70,6 @@ class InputActivationStage(ModuleBase[InputActivationStageConfig, InputActivatio
             ),
         )
 
-    def _sample_fabricate_mismatch(self) -> None:
-        pass
-
     @property
     def input_phase_num(self) -> int:
         """Successive activations one input block is driven as — the P axis."""

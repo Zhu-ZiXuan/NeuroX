@@ -199,9 +199,6 @@ class CimMacro[ConfigT: CimMacroConfig, PolicyT: CimMacroPolicy](
             T__K=T__K,
         )
 
-    def _sample_fabricate_mismatch(self) -> None:
-        pass
-
     @staticmethod
     def _split_col_lanes(t: Tensor, *, col_per_lane: int) -> Tensor:
         """Split the trailing column axis into a lane grid.

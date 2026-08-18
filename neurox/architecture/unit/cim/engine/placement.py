@@ -83,9 +83,6 @@ class PlacementStage(ModuleBase[PlacementStageConfig, PlacementStagePolicy]):
         self._register_block_slot_routing_buffers()
         self._init_contraction_accumulator(macro_plane_num=macro_plane_num)
 
-    def _sample_fabricate_mismatch(self) -> None:
-        pass
-
     @property
     def block_step_num(self) -> int:
         """Sequential CIM block steps one call unrolls — the D axis."""

@@ -107,9 +107,6 @@ class GeneralDiffVadc(DiffVadc[GeneralDiffVadcConfig, GeneralDiffVadcPolicy]):
         del bits
         return self.config.latency_per_op__ns
 
-    def _sample_fabricate_mismatch(self) -> None:
-        pass
-
     @property
     def max_bits(self) -> int:
         """Code-count-implied bit width."""

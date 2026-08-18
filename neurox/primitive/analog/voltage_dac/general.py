@@ -96,9 +96,6 @@ class GeneralVdac(Vdac[GeneralVdacConfig, GeneralVdacPolicy]):
     def _leakage_per_inst__uW(self) -> float:
         return self.config.leakage_per_inst__uW
 
-    def _sample_fabricate_mismatch(self) -> None:
-        pass
-
     @property
     def code_max(self) -> int:
         return len(self.config.code_to_signal) - 1

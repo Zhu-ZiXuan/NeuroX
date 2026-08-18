@@ -236,9 +236,6 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
             ideal_macro=ideal_macro,
         )
 
-    def _sample_fabricate_mismatch(self) -> None:
-        pass
-
     @property
     def w_value_range(self) -> tuple[int, int]:
         return self.weight_slice.value_range

@@ -197,7 +197,7 @@ class McsSarDiffVadc(DiffVadc[McsSarDiffVadcConfig, McsSarDiffVadcPolicy]):
     def max_bits(self) -> int:
         return self.config.max_bits
 
-    def _sample_fabricate_mismatch(self) -> None:
+    def _sample_fabrication_variation(self) -> None:
         # Two independently-sampled cap arrays for the differential CDAC. The
         # floor keeps a Gaussian tail from sampling a non-positive cap, which
         # the step tables and the kT/C sigma both divide by.

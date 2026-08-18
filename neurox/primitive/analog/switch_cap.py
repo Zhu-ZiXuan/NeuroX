@@ -107,7 +107,7 @@ class SwitchCap(AnalogBase[SwitchCapConfig, SwitchCapPolicy]):
             persistent=False,
         )
 
-    def _sample_fabricate_mismatch(self) -> None:
+    def _sample_fabrication_variation(self) -> None:
         config = self.config
         # The floor keeps a Gaussian tail from sampling a non-positive cap: the
         # kT/C sigma takes a square root of its reciprocal and the charge-share

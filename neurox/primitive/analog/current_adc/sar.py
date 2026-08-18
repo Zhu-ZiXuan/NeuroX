@@ -169,7 +169,7 @@ class SarIadc(Iadc[SarIadcConfig, SarIadcPolicy]):
         self._check_bits(bits)
         return 0, (1 << bits) - 1
 
-    def _sample_fabricate_mismatch(self) -> None:
+    def _sample_fabrication_variation(self) -> None:
         self._comparator_offset__uA = apply_gaussian(
             self._nominal_comparator_offset__uA.clone().expand(self.inst_shape),
             self.config.comparator_offset_sigma__uA,

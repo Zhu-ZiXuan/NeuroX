@@ -1,5 +1,5 @@
 from . import encoding, serialize
-from .module import ConfigBase, DcopBase, ModuleBase, PolicyBase, SnapBase
+from .module import ConfigBase, DcopBase, ModuleBase, PolicyBase, SnapBase, fabricate
 from .profiler import EnergyRecord, Profiler
 from .recorder import RecordBase, RecorderBase
 from .registry_mixin import RegistryMixin
@@ -32,6 +32,7 @@ __all__ = [
     "TensorDataClassBase",
     "TensorGroupMixin",
     "ValidateMixin",
+    "fabricate",
     "neurox_roots",
     "stamp_names",
     "walk_tensor_fields",

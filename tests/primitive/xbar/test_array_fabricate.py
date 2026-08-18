@@ -7,12 +7,12 @@ sampling calls regardless of whether a perturbation is enabled.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 
 import pytest
 import torch
 
-from neurox.common.fabricate_mixin import FabricateMixin
+from neurox.common import ModuleBase
 from neurox.primitive.device import MosfetConfig, MosfetPolicy, Nmos, Rram, RramConfig, RramPolicy
 from neurox.primitive.xbar.array import (
     XbarArray1t1r,
@@ -88,13 +88,6 @@ def _array_policy(*, solve_chunk_size: int) -> XbarArray1t1rPolicy:
     )
 
 
-def _fabricable_tree(node: FabricateMixin) -> Iterator[FabricateMixin]:
-    """Yield `node` then every fabricable descendant in pre-order."""
-    yield node
-    for child in node._fabricable_children():
-        yield from _fabricable_tree(child)
-
-
 def test_xbar_array_policy_rejects_negative_chunk_size() -> None:
     with pytest.raises(ValueError, match="solve_chunk_size"):
         _array_policy(solve_chunk_size=-1)
@@ -107,7 +100,7 @@ def test_array_fabricate_resamples_each_node_once_preorder(
     array = _build_array(device=device)
 
     # Snapshot the true tree BEFORE patching so traversal is untouched.
-    nodes = list(_fabricable_tree(array))
+    nodes = [node for node in array.modules() if isinstance(node, ModuleBase)]
 
     # The cell/array split must still expose the cell + its RRAM / NMOS as
     # fabricable descendants of the array.
@@ -117,13 +110,13 @@ def test_array_fabricate_resamples_each_node_once_preorder(
     assert Rram in node_types
     assert Nmos in node_types
 
-    order: list[FabricateMixin] = []
+    order: list[ModuleBase] = []
     counts: dict[int, int] = {id(n): 0 for n in nodes}
 
     for node in nodes:
-        original: Callable[[], None] = node._sample_fabricate_mismatch
+        original: Callable[[], None] = node._sample_fabrication_variation
 
-        def make_spy(n: FabricateMixin, orig: Callable[[], None]) -> Callable[[], None]:
+        def make_spy(n: ModuleBase, orig: Callable[[], None]) -> Callable[[], None]:
             def spy() -> None:
                 order.append(n)
                 counts[id(n)] += 1
@@ -132,17 +125,11 @@ def test_array_fabricate_resamples_each_node_once_preorder(
             return spy
 
         # Instance-level shadow of the bound method; class methods untouched.
-        monkeypatch.setattr(node, "_sample_fabricate_mismatch", make_spy(node, original))
+        monkeypatch.setattr(node, "_sample_fabrication_variation", make_spy(node, original))
 
     array.fabricate()
 
     # Exactly once per node, and no node missed.
     assert order
-    assert len(order) == len(nodes)
+    assert order == nodes
     assert all(count == 1 for count in counts.values())
-
-    # Pre-order: every parent is sampled strictly before each of its children.
-    position = {id(n): i for i, n in enumerate(order)}
-    for parent in nodes:
-        for child in parent._fabricable_children():
-            assert position[id(parent)] < position[id(child)]

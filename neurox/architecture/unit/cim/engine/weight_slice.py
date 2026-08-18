@@ -81,9 +81,6 @@ class WeightSliceStage[ConfigT: WeightSliceStageConfig, PolicyT: WeightSliceStag
             macro_group_num=macro_group_num,
         )
 
-    def _sample_fabricate_mismatch(self) -> None:
-        pass
-
     @abstractmethod
     def _build_slicer(self, macro_w_value_range: tuple[int, int]) -> Slicer:
         """Construct the slicer defining this stage's logical weight domain."""

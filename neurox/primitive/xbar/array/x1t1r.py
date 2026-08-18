@@ -196,9 +196,6 @@ class XbarArray1t1r(ModuleBase[XbarArray1t1rConfig, XbarArray1t1rPolicy]):
         # billed by the macro.
         return 0.0
 
-    def _sample_fabricate_mismatch(self) -> None:
-        """No local static state; the cell fabricates via the traversal."""
-
     def _init_children(self, *, dtype: torch.dtype, T__K: float) -> None:
         self.cell = XbarCell1t1r.from_config(
             config=self.config.cell_config,

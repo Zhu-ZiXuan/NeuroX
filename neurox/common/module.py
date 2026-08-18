@@ -9,7 +9,6 @@ from typing import dataclass_transform, final
 
 import torch.nn as nn
 
-from .fabricate_mixin import FabricateMixin
 from .profile_mixin import ProfileMixin
 from .serialize_mixin import SerializeMixin
 from .tensor_dataclass import TensorDataClassBase
@@ -90,10 +89,15 @@ class DcopBase(TensorDataClassBase):
 # instance method. So no instance method here or in a family-level counterpart takes one as
 # a parameter; it takes the abstract base instead, `__init__` excepted. A PEP 695 type
 # parameter has its variance inferred rather than declared, so only this note enforces it.
-class ModuleBase[ConfigT: ConfigBase, PolicyT: PolicyBase](FabricateMixin, nn.Module, ProfileMixin, ABC):
+class ModuleBase[ConfigT: ConfigBase, PolicyT: PolicyBase](nn.Module, ProfileMixin, ABC):
     """Base for config- and policy-managed physical modules.
 
     A module whose PPA is owned elsewhere sets `is_profile_target = False`.
+    A subclass owning local fabricated state overrides
+    `_sample_fabrication_variation()` to rebuild that state from its nominal
+    buffers. The hook handles only that node; `fabricate()` traverses the
+    complete registered module tree. With no local fabricated state, retain
+    the inherited no-op implementation.
 
     Args:
         inst_shape: Multiplicity of parallel physical instances.
@@ -114,6 +118,14 @@ class ModuleBase[ConfigT: ConfigBase, PolicyT: PolicyBase](FabricateMixin, nn.Mo
         self.__inst_shape = inst_shape
         self.__inst_count = math.prod(inst_shape)
 
+    @final
+    def fabricate(self) -> None:
+        """Resample static manufacturing variation across this module subtree."""
+        fabricate(self)
+
+    def _sample_fabrication_variation(self) -> None:
+        pass
+
     @property
     @final
     def config(self) -> ConfigT:
@@ -133,3 +145,10 @@ class ModuleBase[ConfigT: ConfigBase, PolicyT: PolicyBase](FabricateMixin, nn.Mo
     @final
     def inst_count(self) -> int:
         return self.__inst_count
+
+
+def fabricate(root: nn.Module) -> None:
+    """Resample static manufacturing variation across a registered module tree."""
+    for module in root.modules():
+        if isinstance(module, ModuleBase):
+            module._sample_fabrication_variation()  # noqa: SLF001  the dispatcher owns this hook

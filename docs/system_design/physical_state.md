@@ -35,7 +35,7 @@ Placement and precision are settled once, at the module's own buffers. A module 
 
 ### Fabrication and programming
 
-`fabricate()` cascades on its own, so one call at the top realizes the whole subtree. It resamples from unchanged nominal buffers, which is why a repeated call replaces the previous realization instead of compounding onto it.
+`neurox.fabricate(model)` visits every NeuroX module registered anywhere in a user model; `module.fabricate()` applies the same operation to one NeuroX subtree. Both resample from unchanged nominal buffers in registered-module pre-order, which is why a repeated call replaces the previous realization instead of compounding onto it. A module with no local fabricated state inherits the empty sampling hook while its descendants still participate. Skipping fabrication leaves produced attributes absent and fails at their first use; zero manufacturing variation is selected by policy and still passes through this lifecycle stage.
 
 `program(...)` does not cascade, because each owner organizes a different logical value for its children — a weight grid becomes per-cell state indices, an index becomes a target conductance — and only the owner knows that mapping. Each owner therefore dispatches to its children explicitly. Programming input must already carry the intended device and dtype unless the receiving method defines a value-domain conversion, and a repeated call replaces the previous programmed state.
 

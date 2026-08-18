@@ -195,7 +195,7 @@ class Mosfet(ModuleBase[MosfetConfig, MosfetPolicy], ABC):
             persistent=False,
         )
 
-    def _sample_fabricate_mismatch(self) -> None:
+    def _sample_fabrication_variation(self) -> None:
         self._beta__uA_per_V2 = apply_gaussian(
             self._nominal_beta__uA_per_V2.clone().expand(self.inst_shape),
             self._sigma_beta__uA_per_V2,

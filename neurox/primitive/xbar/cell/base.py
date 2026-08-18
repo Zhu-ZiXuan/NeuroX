@@ -82,9 +82,6 @@ class XbarCell[ConfigT: XbarCellConfig, PolicyT: XbarCellPolicy, SnapT: XbarCell
         del dtype, T__K
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
 
-    def _sample_fabricate_mismatch(self) -> None:
-        pass
-
     @abstractmethod
     def snapshot(
         self,

@@ -72,9 +72,6 @@ class Dswct(ModuleBase[DswctConfig, DswctPolicy]):
     def _leakage_per_inst__uW(self) -> float:
         return self.config.leakage_per_inst__uW
 
-    def _sample_fabricate_mismatch(self) -> None:
-        pass
-
     @property
     def digit_num(self) -> int:
         """Number of place-value legs per bank — the digit-ratio buffer length."""

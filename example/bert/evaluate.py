@@ -18,13 +18,21 @@ from example.bert.model_float import create_bert_small
 from example.bert.model_quant import to_quant
 from example.bert.quant import QuantLinear
 from example.bert.train_quant import QAT_SCHEMA
-from neurox import Reporter, stamp_names
+from neurox import Reporter, fabricate, stamp_names
 from neurox.architecture.unit.cim import CimUnit
 from neurox.architecture.unit.cim.engine import CimEngine
 from neurox.common import Profiler, neurox_roots
 from neurox.primitive.macro.cim import CimMacro
 
 CONFIG_DIR = Path(__file__).parent
+
+
+def _initialize_physical_state(model: nn.Module) -> None:
+    """Fabricate and program every macro-backed layer after device migration."""
+    fabricate(model)
+    for layer in model.modules():
+        if isinstance(layer, QuantLinear):
+            layer.macro.program(layer.weight_int.to(torch.int32))
 
 
 def latency_per_token__ns(model: nn.Module) -> float:
@@ -102,6 +110,7 @@ def main() -> None:
     model = model.to(device)
     # The shipped ideal config declares a single conversion window: mode 0.
     n_replaced = to_quant(model, ckpt["layers"], macro_factory, mode_picker=0)
+    _initialize_physical_state(model)
     print(
         f"Quant-replaced {n_replaced} Linear layers; config={args.config} policy={args.policy} "
         f"(cim_macro={args.cim_macro})"

@@ -140,7 +140,7 @@ class VoltageDriver(AnalogBase[VoltageDriverConfig, VoltageDriverPolicy]):
             persistent=False,
         )
 
-    def _sample_fabricate_mismatch(self) -> None:
+    def _sample_fabrication_variation(self) -> None:
         self._offset__V = apply_gaussian(
             self._nominal_offset__V.clone().expand(self.inst_shape),
             self.config.offset_sigma__V,

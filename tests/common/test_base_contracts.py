@@ -8,6 +8,7 @@ from inspect import Parameter, signature
 import pytest
 import torch.nn as nn
 
+from neurox import fabricate
 from neurox.common import (
     ConfigBase,
     ModuleBase,
@@ -15,7 +16,6 @@ from neurox.common import (
     RegistryMixin,
     TensorDataClassBase,
 )
-from neurox.common.fabricate_mixin import FabricateMixin
 from neurox.common.profile_mixin import ProfileMixin
 from neurox.common.serialize import dataclass_from_dict
 
@@ -48,26 +48,6 @@ class _ValidatedConfig(ConfigBase):
             raise ValueError("value must be non-negative")
 
 
-class _FabricableModule(FabricateMixin, nn.Module):
-    def __init__(self) -> None:
-        nn.Module.__init__(self)
-        self.sample_count = 0
-
-    def _sample_fabricate_mismatch(self) -> None:
-        self.sample_count += 1
-
-
-class _FabricableContainerHost(FabricateMixin, nn.Module):
-    def __init__(self) -> None:
-        nn.Module.__init__(self)
-        self.sequential = nn.Sequential(_FabricableModule())
-        self.module_list = nn.ModuleList([nn.Sequential(_FabricableModule())])
-        self.module_dict = nn.ModuleDict({"child": nn.ModuleList([_FabricableModule()])})
-
-    def _sample_fabricate_mismatch(self) -> None:
-        pass
-
-
 class _ModuleConfig(ConfigBase):
     pass
 
@@ -80,8 +60,7 @@ class _ModuleRegistryRoot(
     RegistryMixin[_ModuleConfig, _ModulePolicy, "_ModuleRegistryRoot"],
     ModuleBase[_ModuleConfig, _ModulePolicy],
 ):
-    def _sample_fabricate_mismatch(self) -> None:
-        pass
+    pass
 
 
 @_ModuleRegistryRoot.register_neurox_module(config_type=_ModuleConfig, policy_type=_ModulePolicy)
@@ -90,8 +69,24 @@ class _RegisteredModule(_ModuleRegistryRoot):
 
 
 class _Module(ModuleBase[_ModuleConfig, _ModulePolicy]):
-    def _sample_fabricate_mismatch(self) -> None:
-        pass
+    pass
+
+
+class _FabricatingModule(ModuleBase[_ModuleConfig, _ModulePolicy]):
+    def __init__(self, name: str, events: list[str], *children: nn.Module) -> None:
+        super().__init__(config=_ModuleConfig(), policy=_ModulePolicy(), inst_shape=())
+        self.name = name
+        self.events = events
+        self.children_ = nn.ModuleList(children)
+
+    def _sample_fabrication_variation(self) -> None:
+        self.events.append(self.name)
+
+
+class _PlainWrapper(nn.Module):
+    def __init__(self, child: nn.Module) -> None:
+        super().__init__()
+        self.child = child
 
 
 def test_config_and_policy_subclasses_are_dataclasses() -> None:
@@ -153,29 +148,31 @@ def test_profile_mixin_rejects_non_module_subclass() -> None:
             pass
 
 
-def test_fabricate_mixin_rejects_non_module_subclass() -> None:
-    with pytest.raises(TypeError, match=r"must also inherit torch\.nn\.Module"):
-
-        class _InvalidFabricateHost(FabricateMixin):
-            def _sample_fabricate_mismatch(self) -> None:
-                pass
-
-
-def test_fabricate_mixin_accepts_module_subclass() -> None:
-    module = _FabricableModule()
+def test_module_base_default_fabrication_is_a_noop() -> None:
+    module = _Module(config=_ModuleConfig(), policy=_ModulePolicy(), inst_shape=())
     module.fabricate()
-    assert module.sample_count == 1
 
 
-def test_fabricate_mixin_walks_pytorch_standard_containers() -> None:
-    module = _FabricableContainerHost()
-    module.fabricate()
-    descendants = (
-        module.sequential[0],
-        module.module_list[0][0],
-        module.module_dict["child"][0],
-    )
-    assert all(isinstance(child, _FabricableModule) and child.sample_count == 1 for child in descendants)
+def test_fabricate_walks_through_plain_module_wrappers_in_preorder() -> None:
+    events: list[str] = []
+    child = _FabricatingModule("child", events)
+    parent = _FabricatingModule("parent", events, _PlainWrapper(child))
+    fabricate(_PlainWrapper(parent))
+    assert events == ["parent", "child"]
+
+
+def test_fabricate_samples_a_shared_module_once() -> None:
+    events: list[str] = []
+    shared = _FabricatingModule("shared", events)
+
+    class _SharedHost(nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.left = nn.Sequential(shared)
+            self.right = nn.Sequential(shared)
+
+    fabricate(_SharedHost())
+    assert events == ["shared"]
 
 
 def test_module_registry_resolves_config_and_policy_instances() -> None:
@@ -189,6 +186,7 @@ def test_module_registry_rejects_a_duplicate_config_policy_key() -> None:
         TypeError,
         match=r"config _ModuleConfig and policy _ModulePolicy already select _RegisteredModule",
     ):
+
         @_ModuleRegistryRoot.register_neurox_module(config_type=_ModuleConfig, policy_type=_ModulePolicy)
         class _DuplicateRegisteredModule(_ModuleRegistryRoot):
             pass
@@ -247,9 +245,6 @@ def test_a_module_counted_at_its_owner_needs_no_static_ppa() -> None:
     class _OwnedModule(ModuleBase[_ModuleConfig, _ModulePolicy]):
         is_profile_target = False
 
-        def _sample_fabricate_mismatch(self) -> None:
-            pass
-
     assert _OwnedModule(config=_ModuleConfig(), policy=_ModulePolicy(), inst_shape=()).inst_count == 1
 
 
@@ -257,9 +252,6 @@ def test_a_module_counted_at_its_owner_needs_no_static_ppa() -> None:
 def test_a_module_counted_at_its_owner_refuses_static_ppa_access(metric: str) -> None:
     class _OwnedModule(ModuleBase[_ModuleConfig, _ModulePolicy]):
         is_profile_target = False
-
-        def _sample_fabricate_mismatch(self) -> None:
-            pass
 
     module = _OwnedModule(config=_ModuleConfig(), policy=_ModulePolicy(), inst_shape=())
     with pytest.raises(RuntimeError, match=r"is not a profile target"):
@@ -271,9 +263,6 @@ def test_a_module_counted_at_its_owner_rejects_declared_static_ppa() -> None:
 
         class _InvalidOwnedModule(ModuleBase[_ModuleConfig, _ModulePolicy]):
             is_profile_target = False
-
-            def _sample_fabricate_mismatch(self) -> None:
-                pass
 
             @property
             def _area_per_inst__um2(self) -> float:

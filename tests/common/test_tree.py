@@ -28,9 +28,6 @@ class _Node(ModuleBase[_Config, _Policy]):
         super().__init__(config=_Config(), policy=_Policy(), inst_shape=())
         self.children_ = nn.ModuleList(children)
 
-    def _sample_fabricate_mismatch(self) -> None:
-        pass
-
     def run(self) -> None:
         """The emitting shape of a forward: bill one operation, profiled or not."""
         self._record_dynamic_energy(torch.tensor(1.0))

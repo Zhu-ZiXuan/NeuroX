@@ -113,9 +113,6 @@ class Tmcsa(ModuleBase[TmcsaConfig, TmcsaPolicy]):
             lut[:, step] = (prefix << shift) + (1 << (shift - 1)) - 1
         return lut
 
-    def _sample_fabricate_mismatch(self) -> None:
-        pass
-
     @property
     def max_bits(self) -> int:
         """Maximum conversion step count B — the phase-window list length."""

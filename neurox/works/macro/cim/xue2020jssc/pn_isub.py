@@ -64,9 +64,6 @@ class PnIsub(ModuleBase[PnIsubConfig, PnIsubPolicy]):
     def _leakage_per_inst__uW(self) -> float:
         return self.config.leakage_per_inst__uW
 
-    def _sample_fabricate_mismatch(self) -> None:
-        pass
-
     def forward(self, i_p__uA: Tensor, i_n__uA: Tensor, *, window__ns: float) -> tuple[Tensor, Tensor]:
         """Subtract the polarity lane currents into magnitude + sign.
 

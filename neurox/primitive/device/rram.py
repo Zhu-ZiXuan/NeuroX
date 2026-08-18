@@ -92,6 +92,9 @@ class RramSnap(SnapBase):
 class Rram(ModuleBase[RramConfig, RramPolicy]):
     """Stateful programmable-conductance RRAM model.
 
+    Programming variation is applied by `program()` and read variation by
+    `snapshot()`; fabrication therefore owns no RRAM state.
+
     Args:
         g_max__uS: Maximum programmable conductance; must exceed `g_min__uS`.
     """
@@ -119,11 +122,6 @@ class Rram(ModuleBase[RramConfig, RramPolicy]):
 
         self._g_min__uS = config.g_min__uS
         self._g_max__uS = g_max__uS
-
-    def _sample_fabricate_mismatch(self) -> None:
-        # Cell variation is written at program time and redrawn at read time, so nothing
-        # is left for the fabricate hook to sample.
-        pass
 
     def program(self, target_g__uS: Tensor, t_elapsed: float) -> None:
         """Program the stored conductance.

@@ -45,9 +45,6 @@ class Imux(AnalogBase[ImuxConfig, ImuxPolicy]):
     ) -> None:
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
 
-    def _sample_fabricate_mismatch(self) -> None:
-        pass
-
     def transport(self, i__uA: Tensor) -> Tensor:
         """Transport currents already scheduled across mux accesses and lanes.
 

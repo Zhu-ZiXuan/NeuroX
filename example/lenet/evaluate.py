@@ -23,7 +23,7 @@ from example.lenet.macro_factory import build_macro_factory
 from example.lenet.model_quant import QuantLeNet5
 from example.lenet.quant import QuantConv2d, QuantLinear
 from example.lenet.train_quant import QAT_SCHEMA
-from neurox import Reporter, stamp_names
+from neurox import Reporter, fabricate, stamp_names
 from neurox.architecture.unit.cim import CimUnit
 from neurox.architecture.unit.cim.engine import CimEngine
 from neurox.common import ModuleBase, Profiler, neurox_roots
@@ -34,6 +34,20 @@ CONFIG_DIR = Path(__file__).parent
 # The two operator interfaces a NeuroX root exposes (`linear.py`, `conv2d.py`);
 # a root has exactly one of these, never both.
 _ROOT_ENTRY_METHODS = ("linear", "conv2d")
+
+
+def _initialize_physical_state(model: nn.Module) -> None:
+    """Fabricate and program every macro-backed layer after device migration."""
+    fabricate(model)
+    for layer in model.modules():
+        if isinstance(layer, QuantConv2d):
+            weight = layer.weight_int.reshape(
+                layer.out_channels,
+                layer.in_channels * layer.kernel_size[0] * layer.kernel_size[1],
+            )
+            layer.macro.program(weight.to(torch.int32))
+        elif isinstance(layer, QuantLinear):
+            layer.macro.program(layer.weight_int.to(torch.int32))
 
 
 def _wrap_entry(root: ModuleBase, name: str, shapes: dict[ModuleBase, tuple[int, ...]]) -> Callable[[], None]:
@@ -159,6 +173,7 @@ def main() -> None:
         ideal_macro=(args.cim_macro == "ideal"),
     )
     model = QuantLeNet5(macro_factory, ckpt["layers"]).to(device).eval()
+    _initialize_physical_state(model)
     # A module never knows its own name: the assembled tree hands it one, and a
     # record carries that name. Bind the reporter before the run, so a missing
     # or stale stamp is caught here rather than at the first reported row.

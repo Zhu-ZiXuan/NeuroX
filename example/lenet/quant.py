@@ -563,11 +563,6 @@ class QuantConv2d(nn.Module):
         self.register_buffer("zp_x", zp_x.to(torch.int32).reshape(()))
         self.register_buffer("s_y", s_y.to(torch.float32).reshape(()))
         self.register_buffer("zp_y", zp_y.to(torch.int32).reshape(()))
-        # Reshape to the macro's logical weight shape.
-        # Shape: [out_channels, C, kH, kW] -> [out_channels, C*kH*kW]
-        w_for_macro = weight_int.reshape(out_channels, in_channels * kernel_size[0] * kernel_size[1])
-        macro.fabricate()
-        macro.program(w_for_macro.to(torch.int32))
 
     @torch.no_grad()
     def forward(self, x: Tensor) -> Tensor:
@@ -661,8 +656,6 @@ class QuantLinear(nn.Module):
         self.register_buffer("zp_x", zp_x.to(torch.int32).reshape(()))
         self.register_buffer("s_y", s_y.to(torch.float32).reshape(()))
         self.register_buffer("zp_y", zp_y.to(torch.int32).reshape(()))
-        macro.fabricate()
-        macro.program(weight_int.to(torch.int32))
 
     @torch.no_grad()
     def forward(self, x: Tensor) -> Tensor:

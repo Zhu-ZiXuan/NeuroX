@@ -123,7 +123,7 @@ class Vref(AnalogBase[VrefConfig, VrefPolicy]):
     def tap_num(self) -> int:
         return self.config.tap_num
 
-    def _sample_fabricate_mismatch(self) -> None:
+    def _sample_fabrication_variation(self) -> None:
         # Clone before expanding: with the tolerance off the fabricated state stays a
         # view of this tensor, which must not alias the registered nominal buffer.
         v_refs__V = self._nominal_v_refs__V.clone().expand(*self.inst_shape, self.mode_num, self.tap_num)

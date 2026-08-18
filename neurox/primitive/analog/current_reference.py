@@ -124,7 +124,7 @@ class Iref(AnalogBase[IrefConfig, IrefPolicy]):
     def tap_num(self) -> int:
         return self.config.tap_num
 
-    def _sample_fabricate_mismatch(self) -> None:
+    def _sample_fabrication_variation(self) -> None:
         # Clone before expanding: with the tolerance off the fabricated state stays a
         # view of this tensor, which must not alias the registered nominal buffer.
         i_refs__uA = self._nominal_i_refs__uA.clone().expand(*self.inst_shape, self.mode_num, self.tap_num)

@@ -87,7 +87,7 @@ class Vmux(AnalogBase[VmuxConfig, VmuxPolicy]):
     def _register_fabrication_buffers(self, *, dtype: torch.dtype) -> None:
         self.register_buffer("_nominal_eps_g", torch.zeros((), dtype=dtype), persistent=False)
 
-    def _sample_fabricate_mismatch(self) -> None:
+    def _sample_fabrication_variation(self) -> None:
         self._eps_g = apply_gaussian(
             self._nominal_eps_g.clone().expand(self.inst_shape),
             self._sigma_eps_g,

@@ -169,9 +169,6 @@ class RsCsaIadc(Iadc[RsCsaIadcConfig, RsCsaIadcPolicy]):
         self._check_bits(bits)
         return self._window__ns[bits - 1]
 
-    def _sample_fabricate_mismatch(self) -> None:
-        pass
-
     @property
     def max_bits(self) -> int:
         """Physical resolution — the largest `bits` a call may request."""

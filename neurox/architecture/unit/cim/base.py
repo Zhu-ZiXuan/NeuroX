@@ -105,9 +105,6 @@ class CimUnit[ConfigT: CimUnitConfig, PolicyT: CimUnitPolicy](
         """
         raise NotImplementedError
 
-    def _sample_fabricate_mismatch(self) -> None:
-        pass
-
 
 class EngineBackedCimUnitConfig(CimUnitConfig, ABC):
     """Abstract config base for engine-backed CIM units."""

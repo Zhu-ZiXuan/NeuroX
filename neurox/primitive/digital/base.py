@@ -36,8 +36,3 @@ class DigitalBase[ConfigT: DigitalConfig](ModuleBase[ConfigT, DigitalPolicy], AB
     everything past those dims folds away, so a block bills what it was handed
     and positions no axis of its own.
     """
-
-    def _sample_fabricate_mismatch(self) -> None:
-        # An integer-exact block holds no analog device state, so the whole family has no
-        # static manufacturing variation to draw.
-        pass

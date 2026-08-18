@@ -46,7 +46,3 @@ class UnmodeledBlock(AnalogBase[UnmodeledBlockConfig, UnmodeledBlockPolicy]):
     @property
     def _leakage_per_inst__uW(self) -> float:
         return self.config.leakage_per_inst__uW
-
-    def _sample_fabricate_mismatch(self) -> None:
-        # Nothing to draw: the model is a static seat, so it owns no fabricated state.
-        pass

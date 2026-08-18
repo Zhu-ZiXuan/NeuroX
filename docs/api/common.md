@@ -2,7 +2,7 @@
 
 `neurox.common` is the shared kernel every NeuroX module is built on, in six groups:
 
-- **Module root** — `ModuleBase`, with the immutable `ConfigBase` and `PolicyBase` value objects it is constructed from.
+- **Module root** — `ModuleBase`, with the immutable `ConfigBase` and `PolicyBase` value objects it is constructed from, plus `fabricate`, which realizes every NeuroX module registered below an arbitrary `nn.Module` root.
 - **Serialization** — `SerializeMixin` and the `serialize` subpackage, which turn a config or policy file into a dataclass tree, plus `ValidateMixin` for the checks that tree runs on construction.
 - **Family dispatch** — `RegistryMixin`, one table per implementation family keyed by the concrete config and policy types.
 - **Recording** — `RecorderBase` and `RecordBase`, the side-channel collection family; `Profiler` and `EnergyRecord`, its dynamic-energy specialization; and `Reporter` with the `StaticEntry`, `DynamicEntry`, and `StaticMetrics` rows it renders.
