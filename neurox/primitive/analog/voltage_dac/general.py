@@ -6,8 +6,6 @@ See Also:
 
 from __future__ import annotations
 
-import math
-
 import torch
 from torch import Tensor
 
@@ -32,18 +30,16 @@ class GeneralVdacConfig(VdacConfig):
     def validate(self) -> None:
         super().validate()
 
-        self._require_min_length(self.code_to_signal, 1, "code_to_signal")
+        self._require_non_empty(self.code_to_signal, "code_to_signal")
         self._require_non_neg(self.drive_thermal__V, "drive_thermal__V")
-        if len(self.code_to_per_op_energy__fJ) != len(self.code_to_signal):
-            raise ValueError(
-                f"require: len(code_to_per_op_energy__fJ) ({len(self.code_to_per_op_energy__fJ)}) "
-                f"== len(code_to_signal) ({len(self.code_to_signal)})"
-            )
+        self._require_same_len(
+            self.code_to_per_op_energy__fJ,
+            "code_to_per_op_energy__fJ",
+            self.code_to_signal,
+            "code_to_signal",
+        )
         for code, e_op__fJ in enumerate(self.code_to_per_op_energy__fJ):
-            if not (math.isfinite(e_op__fJ) and e_op__fJ >= 0.0):
-                raise ValueError(
-                    f"require: every code_to_per_op_energy__fJ entry finite and >= 0; got {e_op__fJ} at code {code}"
-                )
+            self._require_non_neg(e_op__fJ, f"code_to_per_op_energy__fJ[{code}]")
 
 
 class GeneralVdacPolicy(VdacPolicy):

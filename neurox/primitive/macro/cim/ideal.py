@@ -43,10 +43,8 @@ class IdealCimMacroConfig(CimMacroConfig):
 
         # --- Quantization ---
 
-        if not (self.adc_max_bits >= 1):
-            raise ValueError(f"require: adc_max_bits ({self.adc_max_bits}) >= 1")
-        if not self.quantization_input_ranges:
-            raise ValueError("require: quantization_input_ranges must declare at least one window")
+        self._require_ge(self.adc_max_bits, "adc_max_bits", 1)
+        self._require_non_empty(self.quantization_input_ranges, "quantization_input_ranges")
         for window in self.quantization_input_ranges:
             validate_quantization_input_range(window)
 

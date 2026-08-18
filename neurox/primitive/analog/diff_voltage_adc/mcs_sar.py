@@ -45,8 +45,7 @@ class McsSarDiffVadcConfig(DiffVadcConfig):
 
         # --- Topology and timing ---
 
-        if not (self.max_bits >= 2):
-            raise ValueError(f"require: max_bits ({self.max_bits}) >= 2")
+        self._require_ge(self.max_bits, "max_bits", 2)
         self._require_pos(self.clk_period__ns, "clk_period__ns")
 
         # --- CDAC and comparator ---

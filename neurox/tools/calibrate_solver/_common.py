@@ -26,6 +26,7 @@ from typing import Any
 import torch
 from torch import Tensor
 
+from neurox.common import ValidateMixin
 from neurox.common.serialize import load_config_dict
 from neurox.primitive import T_ROOM__K
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
@@ -42,7 +43,7 @@ from ._sampling import load_distribution, make_generator, sample_w, sample_x_bat
 
 
 @dataclass(frozen=True)
-class MacroSection:
+class MacroSection(ValidateMixin):
     input_num: int
     """Logical input-vector length passed to the macro constructor."""
     output_num: int
@@ -67,14 +68,10 @@ class MacroSection:
     raises."""
 
     def __post_init__(self) -> None:
-        if self.input_num < 1:
-            raise ValueError(f"require: [macro].input_num ({self.input_num}) >= 1")
-        if self.output_num < 1:
-            raise ValueError(f"require: [macro].output_num ({self.output_num}) >= 1")
-        if not self.config_files:
-            raise ValueError("require: [macro].config_files non-empty")
-        if not self.solver_section:
-            raise ValueError("require: [macro].solver_section non-empty")
+        self._require_pos(self.input_num, "[macro].input_num")
+        self._require_pos(self.output_num, "[macro].output_num")
+        self._require_non_empty(self.config_files, "[macro].config_files")
+        self._require_non_empty(self.solver_section, "[macro].solver_section")
 
 
 def resolve_macro_files(section: MacroSection, *, base: Path) -> tuple[list[Path], Path]:

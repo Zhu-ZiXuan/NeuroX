@@ -28,13 +28,13 @@ class TmcsaConfig(ConfigBase):
     leakage_per_inst__uW: float
 
     def validate(self) -> None:
-        if len(self.t_ph2_per_step__ns) < 1:
-            raise ValueError("require: len(t_ph2_per_step__ns) >= 1 — one entry per conversion step")
-        if len(self.t_ph3_per_step__ns) != len(self.t_ph2_per_step__ns):
-            raise ValueError(
-                f"require: len(t_ph3_per_step__ns) ({len(self.t_ph3_per_step__ns)}) == "
-                f"len(t_ph2_per_step__ns) ({len(self.t_ph2_per_step__ns)})"
-            )
+        self._require_non_empty(self.t_ph2_per_step__ns, "t_ph2_per_step__ns")
+        self._require_same_len(
+            self.t_ph3_per_step__ns,
+            "t_ph3_per_step__ns",
+            self.t_ph2_per_step__ns,
+            "t_ph2_per_step__ns",
+        )
         for s, t in enumerate(self.t_ph2_per_step__ns):
             self._require_non_neg(t, f"t_ph2_per_step__ns[{s}]")
         for s, t in enumerate(self.t_ph3_per_step__ns):

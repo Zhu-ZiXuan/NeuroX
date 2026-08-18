@@ -110,13 +110,13 @@ def test_config_rejects_bad_energy_knobs() -> None:
     """Negative rail / window entry and mis-sized window / latency lists are rejected."""
     for bad, match in (
         ({"v_rail__V": -0.1}, r"require: v_rail__V \(-0\.1\) >= 0"),
-        ({"t_conduct_per_step__ns": (0.1, -0.1, 0.1)}, r"require: t_conduct_per_step__ns \(-0\.1\) >= 0"),
+        ({"t_conduct_per_step__ns": (0.1, -0.1, 0.1)}, r"require: t_conduct_per_step__ns\[1\] \(-0\.1\) >= 0"),
         # Shorter than bits (3).
-        ({"t_conduct_per_step__ns": (0.1, 0.1)}, r"require: len\(t_conduct_per_step__ns\) \(2\) >= bits \(3\)"),
-        ({"step_latency__ns": (3.0, 3.0)}, r"require: len\(step_latency__ns\) \(2\) == bits \(3\)"),
+        ({"t_conduct_per_step__ns": (0.1, 0.1)}, r"require: len\(t_conduct_per_step__ns\) \(2\) >= 3"),
+        ({"step_latency__ns": (3.0, 3.0)}, r"require: len\(step_latency__ns\) \(2\) == 3"),
         # A step the search never runs still sums into the owner's sensing
         # duration, so the latency list carries no spare entry.
-        ({"step_latency__ns": (3.0, 3.0, 3.0, 3.0)}, r"require: len\(step_latency__ns\) \(4\) == bits \(3\)"),
+        ({"step_latency__ns": (3.0, 3.0, 3.0, 3.0)}, r"require: len\(step_latency__ns\) \(4\) == 3"),
     ):
         with pytest.raises(ValueError, match=match):
             _config(**bad)

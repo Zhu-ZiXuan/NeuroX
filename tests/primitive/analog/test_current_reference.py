@@ -89,7 +89,10 @@ def test_bank_2d_validation() -> None:
         # Negative tap.
         (((0.6, -1.0),), r"require: i_refs__uA\[0\]\[1\] \(-1\.0\) >= 0"),
         # Unequal tap lengths.
-        (((1.0, 2.0), (1.0, 2.0, 3.0)), "require: equal tap lengths in i_refs__uA"),
+        (
+            ((1.0, 2.0), (1.0, 2.0, 3.0)),
+            r"require: len\(i_refs__uA\[1\]\) \(3\) == len\(i_refs__uA\[0\]\) \(2\)",
+        ),
         # Empty mode.
         (((),), r"require: len\(i_refs__uA\[0\]\) \(0\) >= 1"),
     ):

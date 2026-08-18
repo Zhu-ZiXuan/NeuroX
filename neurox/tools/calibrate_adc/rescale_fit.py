@@ -37,7 +37,7 @@ from pathlib import Path
 
 import torch
 
-from neurox.common import ConfigBase, TensorDataClassBase
+from neurox.common import ConfigBase, TensorDataClassBase, ValidateMixin
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy, IdealCimMacro
 from neurox.tools._config import add_standard_args, load_tool_config, resolve_relative_path, setup_logging
 
@@ -57,7 +57,7 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
-class _StimulusCfg:
+class _StimulusCfg(ValidateMixin):
     seed: int
     """RNG seed for weights and drives."""
     w_densities: tuple[float, ...]
@@ -71,14 +71,14 @@ class _StimulusCfg:
     single VMM call."""
 
     def __post_init__(self) -> None:
-        if not self.w_densities or not self.x_densities:
-            raise ValueError("require: [stimulus].w_densities and x_densities non-empty")
-        for name in ("patterns_per_density", "x_batch"):
-            if getattr(self, name) < 1:
-                raise ValueError(f"require: [stimulus].{name} ({getattr(self, name)}) >= 1")
-        for d in (*self.w_densities, *self.x_densities):
-            if not (0.0 <= d <= 1.0):
-                raise ValueError(f"require: densities in [0, 1]; got {d}")
+        self._require_non_empty(self.w_densities, "[stimulus].w_densities")
+        self._require_non_empty(self.x_densities, "[stimulus].x_densities")
+        self._require_pos(self.patterns_per_density, "[stimulus].patterns_per_density")
+        self._require_pos(self.x_batch, "[stimulus].x_batch")
+        for index, density in enumerate(self.w_densities):
+            self._require_in_closed_interval(density, f"w_densities[{index}]", 0.0, 1.0)
+        for index, density in enumerate(self.x_densities):
+            self._require_in_closed_interval(density, f"x_densities[{index}]", 0.0, 1.0)
 
 
 class RescaleFitToolConfig(ConfigBase):

@@ -40,7 +40,7 @@ from pathlib import Path
 
 import torch
 
-from neurox.common import ConfigBase
+from neurox.common import ConfigBase, ValidateMixin
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy, IdealCimMacro
 from neurox.tools._config import add_standard_args, load_tool_config, resolve_relative_path, setup_logging
 
@@ -68,7 +68,7 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
-class _StimulusCfg:
+class _StimulusCfg(ValidateMixin):
     seed: int
     """RNG seed for the random battery elements."""
     lsb_caps: tuple[int, ...]
@@ -102,21 +102,16 @@ class _StimulusCfg:
     invalid and the pattern must stay off."""
 
     def __post_init__(self) -> None:
-        if not self.lsb_caps:
-            raise ValueError("require: [stimulus].lsb_caps non-empty")
+        self._require_non_empty(self.lsb_caps, "[stimulus].lsb_caps")
         if not set(self.full_drive_caps) <= set(self.lsb_caps):
             raise ValueError(
                 f"require: full_drive_caps ({self.full_drive_caps}) is a subset of lsb_caps ({self.lsb_caps})"
             )
-        if self.patterns_per_cap < 1:
-            raise ValueError(f"require: [stimulus].patterns_per_cap ({self.patterns_per_cap}) >= 1")
-        if self.x_batch < 1:
-            raise ValueError(f"require: [stimulus].x_batch ({self.x_batch}) >= 1")
-        if self.grid_col_stride < 1:
-            raise ValueError(f"require: [stimulus].grid_col_stride ({self.grid_col_stride}) >= 1")
-        for d in self.x_densities:
-            if not (0.0 <= d <= 1.0):
-                raise ValueError(f"require: x_densities in [0, 1]; got {d}")
+        self._require_pos(self.patterns_per_cap, "[stimulus].patterns_per_cap")
+        self._require_pos(self.x_batch, "[stimulus].x_batch")
+        self._require_pos(self.grid_col_stride, "[stimulus].grid_col_stride")
+        for index, density in enumerate(self.x_densities):
+            self._require_in_closed_interval(density, f"x_densities[{index}]", 0.0, 1.0)
 
 
 @dataclass(frozen=True)

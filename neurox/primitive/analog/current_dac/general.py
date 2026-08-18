@@ -28,7 +28,7 @@ class GeneralIdacConfig(IdacConfig):
     def validate(self) -> None:
         super().validate()
 
-        self._require_min_length(self.code_to_signal, 1, "code_to_signal")
+        self._require_non_empty(self.code_to_signal, "code_to_signal")
         self._require_non_neg(self.drive_thermal__uA, "drive_thermal__uA")
         self._require_non_neg(self.energy_per_op__fJ, "energy_per_op__fJ")
 

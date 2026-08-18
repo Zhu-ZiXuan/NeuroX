@@ -21,7 +21,7 @@ from pathlib import Path
 import torch
 from torch import Tensor
 
-from neurox.common import TensorDataClassBase
+from neurox.common import TensorDataClassBase, ValidateMixin
 from neurox.primitive import T_ROOM__K
 from neurox.primitive.analog.current_adc import IadcProber
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy, IdealCimMacro
@@ -48,7 +48,7 @@ def add_file_logging(log_dir: Path, tool_name: str) -> Path:
 
 
 @dataclass(frozen=True)
-class MacroSection:
+class MacroSection(ValidateMixin):
     input_num: int
     """Logical input-vector length passed to the macro constructor."""
     output_num: int
@@ -67,12 +67,9 @@ class MacroSection:
     """Section name inside `policy_file`."""
 
     def __post_init__(self) -> None:
-        if self.input_num < 1:
-            raise ValueError(f"require: [macro].input_num ({self.input_num}) >= 1")
-        if self.output_num < 1:
-            raise ValueError(f"require: [macro].output_num ({self.output_num}) >= 1")
-        if not self.config_files:
-            raise ValueError("require: [macro].config_files non-empty")
+        self._require_pos(self.input_num, "[macro].input_num")
+        self._require_pos(self.output_num, "[macro].output_num")
+        self._require_non_empty(self.config_files, "[macro].config_files")
 
 
 def build_physical_macro(

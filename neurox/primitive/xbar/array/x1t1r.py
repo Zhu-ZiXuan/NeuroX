@@ -74,18 +74,20 @@ class XbarArray1t1rConfig(ConfigBase):
 
         # --- Layout pitch ---
 
-        for field in ("row_cell_space__um", "col_cell_space__um"):
-            self._require_pos(getattr(self, field), field)
+        self._require_pos(self.row_cell_space__um, "row_cell_space__um")
+        self._require_pos(self.col_cell_space__um, "col_cell_space__um")
 
         # --- Rail links ---
 
-        for field in ("bl_segment_r__MOhm", "sl_segment_r__MOhm"):
-            self._require_pos(getattr(self, field), field)
+        self._require_pos(self.bl_segment_r__MOhm, "bl_segment_r__MOhm")
+        self._require_pos(self.sl_segment_r__MOhm, "sl_segment_r__MOhm")
 
         # --- Node capacitance ---
 
-        for field in ("bl_node_c__fF", "x_node_c__fF", "sl_node_c__fF", "wl_node_c__fF"):
-            self._require_non_neg(getattr(self, field), field)
+        self._require_non_neg(self.bl_node_c__fF, "bl_node_c__fF")
+        self._require_non_neg(self.x_node_c__fF, "x_node_c__fF")
+        self._require_non_neg(self.sl_node_c__fF, "sl_node_c__fF")
+        self._require_non_neg(self.wl_node_c__fF, "wl_node_c__fF")
 
 
 class XbarArray1t1rPolicy(PolicyBase):

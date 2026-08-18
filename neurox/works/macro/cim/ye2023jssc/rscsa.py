@@ -47,27 +47,18 @@ class RsCsaIadcConfig(IadcConfig):
 
         # --- Timing ---
 
-        if len(self.t_phase__ns) != self.bits + 1:
-            raise ValueError(
-                f"require: len(t_phase__ns) ({len(self.t_phase__ns)}) == bits + 1 ({self.bits + 1}) "
-                f"(PH0 + one compare phase per bit)"
-            )
-        for t in self.t_phase__ns:
-            self._require_non_neg(t, "t_phase__ns")
-        if len(self.t_intrinsic__ns) != self.bits:
-            raise ValueError(
-                f"require: len(t_intrinsic__ns) ({len(self.t_intrinsic__ns)}) == bits ({self.bits}) "
-                f"(one latch delay per compare phase)"
-            )
+        self._require_len(self.t_phase__ns, "t_phase__ns", self.bits + 1)
+        for phase, t in enumerate(self.t_phase__ns):
+            self._require_non_neg(t, f"t_phase__ns[{phase}]")
+        self._require_len(self.t_intrinsic__ns, "t_intrinsic__ns", self.bits)
         # A latch offset closes the compare phase it belongs to, so it must fit
         # inside THAT phase.
         for p, t in enumerate(self.t_intrinsic__ns):
-            if not (0.0 <= t <= self.t_phase__ns[p + 1]):
-                raise ValueError(
-                    f"require: t_intrinsic__ns[{p}] ({t}) in [0, its compare phase ({self.t_phase__ns[p + 1]})]"
-                )
-        if not (sum(self.t_phase__ns[:-1]) + self.t_intrinsic__ns[-1] > 0.0):
-            raise ValueError("require: the full-resolution conversion window (t_phase + t_intrinsic) > 0")
+            self._require_in_closed_interval(t, f"t_intrinsic__ns[{p}]", 0.0, self.t_phase__ns[p + 1])
+        self._require_pos(
+            sum(self.t_phase__ns[:-1]) + self.t_intrinsic__ns[-1],
+            "full-resolution conversion window",
+        )
 
         # --- Energy ---
 

@@ -39,7 +39,6 @@ from .rscsa import RsCsaIadc, RsCsaIadcConfig, RsCsaIadcPolicy
 
 
 class Ye2023JsscCimMacroConfig(CimMacroConfig):
-
     # === Device-bearing sub-blocks ===
 
     array_config: Ye2023Jssc2t1rArrayConfig
@@ -149,21 +148,17 @@ class Ye2023JsscCimMacroConfig(CimMacroConfig):
         # The RS-CSA takes ONE reference current and derives its whole ladder
         # from it, so the source is single-tap; the row set is the mode set,
         # because the macro names a mode and the source returns that row.
-        if self.reference_config.tap_num != 1:
-            raise ValueError(
-                f"require: reference_config.tap_num ({self.reference_config.tap_num}) == 1 "
-                "— the RS-CSA takes a single reference current"
-            )
+        self._require_len(self.reference_config.i_refs__uA[0], "reference_config.i_refs__uA[0]", 1)
 
         # --- Quantization modes ---
 
-        if len(self.modes) == 0:
-            raise ValueError("require: modes must declare at least one quantization operating point")
-        if len(self.modes) != self.reference_config.mode_num:
-            raise ValueError(
-                f"require: len(modes) ({len(self.modes)}) == reference_config.mode_num "
-                f"({self.reference_config.mode_num}) — one reference row per quantization mode"
-            )
+        self._require_non_empty(self.modes, "modes")
+        self._require_same_len(
+            self.modes,
+            "modes",
+            self.reference_config.i_refs__uA,
+            "reference_config.i_refs__uA",
+        )
 
 
 class Ye2023JsscCimMacroPolicy(CimMacroPolicy):

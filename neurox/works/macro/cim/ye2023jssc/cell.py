@@ -6,8 +6,6 @@ See Also:
 
 from __future__ import annotations
 
-import math
-
 import torch
 from torch import Tensor
 
@@ -33,20 +31,16 @@ class Ye2023Jssc2t1rCellConfig(XbarCell1t1rLinearConfig):
     def validate(self) -> None:
         super().validate()
 
-        w_state_num = len(self.g_cell_off_table__uS)
-        if len(self.i_t2_table__uA) != 2:
-            raise ValueError(
-                f"require: len(i_t2_table__uA) ({len(self.i_t2_table__uA)}) == 2 (floor / drive operating point)"
-            )
+        self._require_len(self.i_t2_table__uA, "i_t2_table__uA", 2)
         for point, row in enumerate(self.i_t2_table__uA):
-            if len(row) != w_state_num:
-                raise ValueError(f"require: len(i_t2_table__uA[{point}]) ({len(row)}) == w_state_num ({w_state_num})")
+            self._require_same_len(
+                row,
+                f"i_t2_table__uA[{point}]",
+                self.g_cell_off_table__uS,
+                "g_cell_off_table__uS",
+            )
             for state_idx, entry in enumerate(row):
-                if not (math.isfinite(entry) and entry >= 0):
-                    raise ValueError(
-                        f"require: every i_t2_table__uA entry finite and >= 0; "
-                        f"got {entry} at (operating point {point}, state {state_idx})"
-                    )
+                self._require_non_neg(entry, f"i_t2_table__uA[{point}][{state_idx}]")
 
 
 class Ye2023Jssc2t1rCellPolicy(XbarCell1t1rLinearPolicy):

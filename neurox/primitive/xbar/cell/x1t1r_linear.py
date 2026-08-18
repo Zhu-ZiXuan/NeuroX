@@ -6,8 +6,6 @@ See Also:
 
 from __future__ import annotations
 
-import math
-
 import torch
 from torch import Tensor
 
@@ -41,23 +39,34 @@ class XbarCell1t1rLinearConfig(XbarCell1t1rConfig):
     def validate(self) -> None:
         super().validate()
 
-        w_state_num = len(self.g_cell_off_table__uS)
-        if w_state_num < 1:
-            raise ValueError(f"require: len(g_cell_off_table__uS) ({w_state_num}) >= 1")
-        for name in ("g_cell_on_table__uS", "vx_ratio_off_table", "vx_ratio_on_table"):
-            table: tuple[float, ...] = getattr(self, name)
-            if len(table) != w_state_num:
-                raise ValueError(f"require: len({name}) ({len(table)}) == len(g_cell_off_table__uS) ({w_state_num})")
-        for name in ("g_cell_off_table__uS", "g_cell_on_table__uS"):
-            for state_idx, entry in enumerate(getattr(self, name)):
-                if not (math.isfinite(entry) and entry >= 0):
-                    raise ValueError(f"require: every {name} entry finite and >= 0; got {entry} at state {state_idx}")
-        for name in ("vx_ratio_off_table", "vx_ratio_on_table"):
-            for state_idx, entry in enumerate(getattr(self, name)):
-                if not (math.isfinite(entry) and 0.0 <= entry <= 1.0):
-                    raise ValueError(
-                        f"require: every {name} entry finite and in [0, 1]; got {entry} at state {state_idx}"
-                    )
+        self._require_non_empty(self.g_cell_off_table__uS, "g_cell_off_table__uS")
+        self._require_same_len(
+            self.g_cell_on_table__uS,
+            "g_cell_on_table__uS",
+            self.g_cell_off_table__uS,
+            "g_cell_off_table__uS",
+        )
+        self._require_same_len(
+            self.vx_ratio_off_table,
+            "vx_ratio_off_table",
+            self.g_cell_off_table__uS,
+            "g_cell_off_table__uS",
+        )
+        self._require_same_len(
+            self.vx_ratio_on_table,
+            "vx_ratio_on_table",
+            self.g_cell_off_table__uS,
+            "g_cell_off_table__uS",
+        )
+
+        for state_idx, entry in enumerate(self.g_cell_off_table__uS):
+            self._require_non_neg(entry, f"g_cell_off_table__uS[{state_idx}]")
+        for state_idx, entry in enumerate(self.g_cell_on_table__uS):
+            self._require_non_neg(entry, f"g_cell_on_table__uS[{state_idx}]")
+        for state_idx, entry in enumerate(self.vx_ratio_off_table):
+            self._require_in_closed_interval(entry, f"vx_ratio_off_table[{state_idx}]", 0.0, 1.0)
+        for state_idx, entry in enumerate(self.vx_ratio_on_table):
+            self._require_in_closed_interval(entry, f"vx_ratio_on_table[{state_idx}]", 0.0, 1.0)
 
 
 class XbarCell1t1rLinearPolicy(XbarCell1t1rPolicy):

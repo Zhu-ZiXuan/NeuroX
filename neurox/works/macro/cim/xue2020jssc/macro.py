@@ -131,7 +131,6 @@ def _sample_reference_bank(
 
 
 class Xue2020JsscCimMacroConfig(CimMacroConfig):
-
     # === Weight / input geometry ===
 
     w_digit_num: int
@@ -292,8 +291,7 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
         # General sign-magnitude weight: >= 1 magnitude digit, radix >= 2 so a
         # digit carries at least the {0, 1} magnitude the polarity pair encodes.
         self._require_pos(self.w_digit_num, "w_digit_num")
-        if not (self.w_digit_radix >= 2):
-            raise ValueError(f"require: w_digit_radix ({self.w_digit_radix}) >= 2")
+        self._require_ge(self.w_digit_radix, "w_digit_radix", 2)
 
         self._require_pos(self.input_bit_num, "input_bit_num")
         self._require_pos(self.mux_factor, "mux_factor")
@@ -304,21 +302,14 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
         self._require_pos(self.sc_ratio_msb, "sc_ratio_msb")
 
         # One sample window per SAMPLED bit; the live bit (K-1) has none.
-        if len(self.t_sample__ns) != self.input_bit_num - 1:
-            raise ValueError(
-                f"require: len(t_sample__ns) ({len(self.t_sample__ns)}) == input_bit_num - 1 "
-                f"({self.input_bit_num - 1}) — one window per sampled bit; the live bit uses t_other"
-            )
+        self._require_len(self.t_sample__ns, "t_sample__ns", self.input_bit_num - 1)
         for k, t in enumerate(self.t_sample__ns):
             self._require_non_neg(t, f"t_sample__ns[{k}]")
         self._require_non_neg(self.t_settle__ns, "t_settle__ns")
         self._require_pos(self.t_cycle__ns, "t_cycle__ns")
         # The static time base must contain the whole conduction span (the read
         # path idles for the remainder of the period).
-        if self.t_cycle__ns < self.conduction_span__ns:
-            raise ValueError(
-                f"require: t_cycle__ns ({self.t_cycle__ns}) >= sum of conduction windows ({self.conduction_span__ns})"
-            )
+        self._require_ge(self.t_cycle__ns, "t_cycle__ns", self.conduction_span__ns)
         self._require_non_neg(self.e_control_per_op__fJ, "e_control_per_op__fJ")
 
         self._require_non_neg(self.v_dd__V, "v_dd__V")
@@ -327,41 +318,30 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
         # mode, so its dedicated source is the degenerate single-row single-tap
         # bank. The clamp reference is a BL node between the SL ground and the
         # V_DD supply, so it must not exceed the rail.
-        if self.cablc_vref_config.mode_num != 1:
-            raise ValueError(
-                f"require: cablc_vref_config.mode_num ({self.cablc_vref_config.mode_num}) == 1 "
-                "— the CABLC clamp reference does not follow the quantization mode"
-            )
-        if self.cablc_vref_config.tap_num != 1:
-            raise ValueError(
-                f"require: cablc_vref_config.tap_num ({self.cablc_vref_config.tap_num}) == 1 "
-                "— the CABLC clamp consumes a single reference tap"
-            )
+        self._require_len(self.cablc_vref_config.v_refs__V, "cablc_vref_config.v_refs__V", 1)
+        self._require_len(self.cablc_vref_config.v_refs__V[0], "cablc_vref_config.v_refs__V[0]", 1)
         v_bl_clamp__V = self.cablc_vref_config.v_refs__V[0][0]
-        if not (v_bl_clamp__V <= self.v_dd__V):
-            raise ValueError(
-                f"require: cablc_vref_config.v_refs__V[0][0] ({v_bl_clamp__V}) <= v_dd__V ({self.v_dd__V})"
-            )
+        self._require_le(v_bl_clamp__V, "cablc_vref_config.v_refs__V[0][0]", self.v_dd__V)
 
         # --- TMCSA phase windows against the ADC step timing ---
 
         # The billing module resolves each of the ADC's binary-search steps
         # into PH2/PH3 conduction phases: one window pair per step, and the
         # phases must fit inside that step's latency (PH1/PH4 fill the rest).
-        if len(self.tmcsa_config.t_ph2_per_step__ns) != self.adc_config.bits:
-            raise ValueError(
-                f"require: len(tmcsa_config.t_ph2_per_step__ns) ({len(self.tmcsa_config.t_ph2_per_step__ns)}) == "
-                f"adc_config.bits ({self.adc_config.bits}) — one PH2/PH3 window pair per conversion step"
-            )
+        self._require_len(
+            self.tmcsa_config.t_ph2_per_step__ns,
+            "tmcsa_config.t_ph2_per_step__ns",
+            self.adc_config.bits,
+        )
         for s, (t_ph2, t_ph3) in enumerate(
             zip(self.tmcsa_config.t_ph2_per_step__ns, self.tmcsa_config.t_ph3_per_step__ns, strict=True)
         ):
             step = self.adc_config.step_latency__ns[s]
-            if t_ph2 + t_ph3 > step:
-                raise ValueError(
-                    f"require: tmcsa_config t_ph2[{s}] + t_ph3[{s}] ({t_ph2 + t_ph3}) <= "
-                    f"adc_config.step_latency__ns[{s}] ({step}) — PH1/PH4 occupy the rest of the step"
-                )
+            self._require_le(
+                t_ph2 + t_ph3,
+                f"tmcsa_config.t_ph2_per_step__ns[{s}] + t_ph3_per_step__ns[{s}]",
+                step,
+            )
 
         # --- ADC reference and quantization modes ---
 
@@ -369,11 +349,7 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
         # count must match the binary-search depth exactly. Lower bit widths
         # ride this one max-bits ladder; they need no taps of their own.
         want_taps = (1 << self.adc_config.bits) - 1
-        if self.reference_config.tap_num != want_taps:
-            raise ValueError(
-                f"require: reference_config.tap_num ({self.reference_config.tap_num}) == "
-                f"2**adc_config.bits - 1 ({want_taps})"
-            )
+        self._require_len(self.reference_config.i_refs__uA[0], "reference_config.i_refs__uA[0]", want_taps)
 
         # What a reference row MEANS is the consumer's knowledge, so the source
         # does not order its taps: the TMCSA reads each row as a binary-search
@@ -384,12 +360,12 @@ class Xue2020JsscCimMacroConfig(CimMacroConfig):
         # Each CimMacroMode validates its own canonical window and positive
         # rescale factor on construction; the macro pins the mode count against
         # the reference bank, since a mode IS one ladder row.
-        mode_num = self.reference_config.mode_num
-        if len(self.modes) != mode_num:
-            raise ValueError(
-                f"require: len(modes) ({len(self.modes)}) == reference_config.mode_num ({mode_num}) "
-                "— one declared quantization mode per threshold ladder row"
-            )
+        self._require_same_len(
+            self.modes,
+            "modes",
+            self.reference_config.i_refs__uA,
+            "reference_config.i_refs__uA",
+        )
 
 
 class Xue2020JsscCimMacroPolicy(CimMacroPolicy):

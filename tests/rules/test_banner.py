@@ -1,8 +1,9 @@
 """Class banners use `===`, function banners use `---`, and modules use neither.
 
-A banner occupies its own line, with a blank line below and normally one above. When a function banner
-follows that function's docstring, no blank line intervenes. A padded two-sided candidate uses exactly
-three matching markers; one-sided or incompletely padded comments remain prose. Unnamed runs are refused.
+A banner occupies its own line, with a blank line below and normally one above. No blank line follows a
+class header when its undocumented body opens directly with a banner, nor a function docstring when its
+next item is a banner. A padded two-sided candidate uses exactly three matching markers; one-sided or
+incompletely padded comments remain prose. Unnamed runs are refused.
 """
 
 from __future__ import annotations
@@ -33,6 +34,7 @@ class BannerSite(NamedTuple):
     own_line: bool
     blank_before: bool
     blank_after: bool
+    after_definition: bool
     after_docstring: bool
 
     def where(self) -> str:
@@ -87,6 +89,31 @@ def _docstring_end_lines(tree: ast.Module) -> set[int]:
     return ends
 
 
+def _definition_header_end_lines(source: str, tree: ast.Module) -> set[int]:
+    starts = {
+        (node.lineno, node.col_offset)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef)
+    }
+    tokens = list(tokenize.generate_tokens(io.StringIO(source).readline))
+    ends: set[int] = set()
+    for index, token in enumerate(tokens):
+        if token.start not in starts:
+            continue
+        depth = 0
+        for header_token in tokens[index:]:
+            if header_token.type != tokenize.OP:
+                continue
+            if header_token.string in "([{":
+                depth += 1
+            elif header_token.string in ")]}":
+                depth -= 1
+            elif header_token.string == ":" and depth == 0:
+                ends.add(header_token.end[0])
+                break
+    return ends
+
+
 def _previous_nonblank_line(lines: list[str], lineno: int) -> int | None:
     for index in range(lineno - 2, -1, -1):
         if lines[index].strip():
@@ -121,6 +148,7 @@ def _collect() -> tuple[list[BannerSite], int]:
         lines = source.splitlines()
         tree = ast.parse(source, filename=str(path))
         spans = _definition_spans(source, tree)
+        definition_header_ends = _definition_header_end_lines(source, tree)
         docstring_ends = _docstring_end_lines(tree)
         comments = _comment_tokens(source)
         visited += len(comments)
@@ -136,6 +164,7 @@ def _collect() -> tuple[list[BannerSite], int]:
                     own_line=own_line,
                     blank_before=lineno > 1 and not lines[lineno - 2].strip(),
                     blank_after=lineno < len(lines) and not lines[lineno].strip(),
+                    after_definition=_previous_nonblank_line(lines, lineno) in definition_header_ends,
                     after_docstring=_previous_nonblank_line(lines, lineno) in docstring_ends,
                 )
             )
@@ -187,6 +216,25 @@ def test_the_scan_reads_comments_not_string_contents() -> None:
     ]
 
 
+def test_definition_header_reader_handles_multiline_headers() -> None:
+    source = (
+        "class Example(\n"
+        "    object,\n"
+        "):\n"
+        "    # === Fields ===\n"
+        "\n"
+        "    value: int\n"
+        "\n"
+        "async def run(\n"
+        "    value: int,\n"
+        ") -> None:\n"
+        "    # --- Work ---\n"
+        "\n"
+        "    pass\n"
+    )
+    assert _definition_header_end_lines(source, ast.parse(source)) == {3, 10}
+
+
 def test_the_scan_reaches_the_tree(sites: list[BannerSite]) -> None:
     assert _iter_python_files(), f"No `.py` file found under {SCAN_ROOTS}; the scan roots are stale."
 
@@ -233,9 +281,13 @@ def test_each_banner_occupies_an_isolated_line(sites: list[BannerSite]) -> None:
         if not site.own_line:
             faults.append("shares a line with code")
         else:
-            if site.scope == "function" and site.after_docstring and site.blank_before:
-                faults.append("has a blank line after the preceding docstring")
-            elif not (site.scope == "function" and site.after_docstring) and not site.blank_before:
+            after_class_header = site.scope == "class" and site.after_definition
+            after_function_docstring = site.scope == "function" and site.after_docstring
+            touches_upper_boundary = after_class_header or after_function_docstring
+            if touches_upper_boundary and site.blank_before:
+                boundary = "class header" if after_class_header else "function docstring"
+                faults.append(f"has a blank line after the preceding {boundary}")
+            elif not touches_upper_boundary and not site.blank_before:
                 faults.append("has no blank line immediately above")
             if not site.blank_after:
                 faults.append("has no blank line immediately below")
@@ -244,8 +296,8 @@ def test_each_banner_occupies_an_isolated_line(sites: list[BannerSite]) -> None:
     if offenders:
         pytest.fail(
             "Rule: a banner occupies its own line with a blank line immediately below. It also has a "
-            "blank line above unless a function banner follows that function's docstring, in which "
-            "case no blank line intervenes.\n"
+            "blank line above unless it directly opens an undocumented class body or follows a "
+            "function docstring, in which cases no blank line intervenes.\n"
             "Fix: move an inline banner onto its own line, keep the lower blank line, and use the "
             "correct upper boundary for its position.\n  " + "\n  ".join(offenders)
         )

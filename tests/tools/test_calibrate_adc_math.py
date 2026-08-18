@@ -268,11 +268,11 @@ class TestLayerRangeMapping:
             load_layer_ranges(self._write(tmp_path, ""))
 
     def test_non_positive_upper_raises(self, tmp_path: Path) -> None:
-        with pytest.raises(ValueError, match=r"hi \(0.0\) > 0"):
+        with pytest.raises(ValueError, match=r"range upper \(0.0\) > 0"):
             load_layer_ranges(self._write(tmp_path, '"a" = { range = [-1.0, 0.0] }\n'))
 
     def test_inverted_range_raises(self, tmp_path: Path) -> None:
-        with pytest.raises(ValueError, match=r"lo .* <= hi"):
+        with pytest.raises(ValueError, match=r"range lower \(4.0\) <= 1.0"):
             load_layer_ranges(self._write(tmp_path, '"a" = { range = [4.0, 1.0] }\n'))
 
     def test_non_finite_range_raises(self, tmp_path: Path) -> None:

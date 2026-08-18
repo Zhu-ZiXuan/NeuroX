@@ -33,6 +33,7 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
+from neurox.common import ValidateMixin
 from neurox.primitive.macro.cim import validate_quantization_input_range
 
 
@@ -61,7 +62,7 @@ def _check_pair(value: object, *, where: str, key: str) -> tuple[object, object]
 
 
 @dataclass(frozen=True)
-class LayerRange:
+class LayerRange(ValidateMixin):
     """One layer's inclusive quantization design range."""
 
     range: tuple[float, float]
@@ -70,12 +71,8 @@ class LayerRange:
 
     def __post_init__(self) -> None:
         lo, hi = self.range
-        if not (math.isfinite(lo) and math.isfinite(hi)):
-            raise ValueError(f"require: LayerRange range finite; got {self.range!r}")
-        if lo > hi:
-            raise ValueError(f"require: LayerRange lo ({lo}) <= hi ({hi})")
-        if hi <= 0.0:
-            raise ValueError(f"require: LayerRange hi ({hi}) > 0 — a range with no positive side carries no signal")
+        self._require_le(lo, "LayerRange range lower", hi)
+        self._require_pos(hi, "LayerRange range upper")
 
     @property
     def signed(self) -> bool:
@@ -139,7 +136,7 @@ def load_layer_ranges(path: Path) -> dict[str, LayerRange]:
 
 
 @dataclass(frozen=True)
-class AdcMode:
+class AdcMode(ValidateMixin):
     """One quantization operating mode of the mode set."""
 
     quantization_mode: int
@@ -151,15 +148,13 @@ class AdcMode:
     """Layers assigned to the mode, at least one."""
 
     def __post_init__(self) -> None:
-        if self.quantization_mode < 0:
-            raise ValueError(f"require: quantization_mode ({self.quantization_mode}) >= 0")
+        self._require_non_neg(self.quantization_mode, "quantization_mode")
         validate_quantization_input_range(self.quantization_input_range)
-        if self.layer_num < 1:
-            raise ValueError(f"require: mode {self.quantization_mode} layer_num ({self.layer_num}) >= 1")
+        self._require_pos(self.layer_num, f"mode {self.quantization_mode} layer_num")
 
 
 @dataclass(frozen=True)
-class ModeSet:
+class ModeSet(ValidateMixin):
     """Validated mode set: the mode tables plus the layer -> mode mapping."""
 
     modes: tuple[AdcMode, ...]
@@ -169,8 +164,7 @@ class ModeSet:
     assignment count equals its `layer_num`."""
 
     def __post_init__(self) -> None:
-        if not self.modes:
-            raise ValueError("require: at least one mode")
+        self._require_non_empty(self.modes, "modes")
         if [m.quantization_mode for m in self.modes] != list(range(len(self.modes))):
             raise ValueError(
                 f"require: quantization_mode contiguous from 0; got {[m.quantization_mode for m in self.modes]}"

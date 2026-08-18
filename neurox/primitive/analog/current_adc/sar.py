@@ -58,19 +58,15 @@ class SarIadcConfig(IadcConfig):
 
         self._require_non_neg(self.e_fixed_per_op__fJ, "e_fixed_per_op__fJ")
         self._require_non_neg(self.v_rail__V, "v_rail__V")
-        if len(self.t_conduct_per_step__ns) < self.bits:
-            raise ValueError(
-                f"require: len(t_conduct_per_step__ns) ({len(self.t_conduct_per_step__ns)}) >= bits ({self.bits})"
-            )
-        for t in self.t_conduct_per_step__ns:
-            self._require_non_neg(t, "t_conduct_per_step__ns")
+        self._require_min_len(self.t_conduct_per_step__ns, "t_conduct_per_step__ns", self.bits)
+        for step, t in enumerate(self.t_conduct_per_step__ns):
+            self._require_non_neg(t, f"t_conduct_per_step__ns[{step}]")
 
         # Exactly one entry per search step: a trailing entry the search never
         # executes would inflate every window derived from the tuple.
-        if len(self.step_latency__ns) != self.bits:
-            raise ValueError(f"require: len(step_latency__ns) ({len(self.step_latency__ns)}) == bits ({self.bits})")
-        for latency in self.step_latency__ns:
-            self._require_non_neg(latency, "step_latency__ns")
+        self._require_len(self.step_latency__ns, "step_latency__ns", self.bits)
+        for step, latency in enumerate(self.step_latency__ns):
+            self._require_non_neg(latency, f"step_latency__ns[{step}]")
 
         # --- Nonidealities ---
 

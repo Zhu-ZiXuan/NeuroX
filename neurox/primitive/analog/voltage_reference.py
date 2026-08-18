@@ -42,14 +42,11 @@ class VrefConfig(AnalogConfig):
 
         # --- Reference bank ---
 
-        self._require_min_length(self.v_refs__V, 1, "v_refs__V")
-        tap_num = self.tap_num
+        self._require_non_empty(self.v_refs__V, "v_refs__V")
+        first_taps = self.v_refs__V[0]
         for mode, taps in enumerate(self.v_refs__V):
-            self._require_min_length(taps, 1, f"v_refs__V[{mode}]")
-            if len(taps) != tap_num:
-                raise ValueError(
-                    f"require: equal tap lengths in v_refs__V; mode {mode} has {len(taps)} tap(s), mode 0 has {tap_num}"
-                )
+            self._require_non_empty(taps, f"v_refs__V[{mode}]")
+            self._require_same_len(taps, f"v_refs__V[{mode}]", first_taps, "v_refs__V[0]")
             for tap, value in enumerate(taps):
                 self._require_non_neg(value, f"v_refs__V[{mode}][{tap}]")
 

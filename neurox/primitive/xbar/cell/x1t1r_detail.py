@@ -64,26 +64,14 @@ class XbarCell1t1rDetailConfig(XbarCell1t1rConfig):
 
         self._require_pos(self.access_nmos_W__um, "access_nmos_W__um")
         self._require_pos(self.access_nmos_L__um, "access_nmos_L__um")
-        if not (self.rram_g_max__uS > self.rram_config.g_min__uS):
-            raise ValueError(
-                f"require: rram_g_max__uS ({self.rram_g_max__uS}) > "
-                f"rram_config.g_min__uS ({self.rram_config.g_min__uS})"
-            )
+        self._require_gt(self.rram_g_max__uS, "rram_g_max__uS", self.rram_config.g_min__uS)
 
         # --- State map ---
 
-        self._require_min_length(self.state_to_g_map__uS, 2, "state_to_g_map__uS")
+        self._require_min_len(self.state_to_g_map__uS, "state_to_g_map__uS", 2)
         self._require_increasing(self.state_to_g_map__uS, "state_to_g_map__uS")
-        if self.state_to_g_map__uS[0] < self.rram_config.g_min__uS:
-            raise ValueError(
-                f"require: state_to_g_map__uS[0] ({self.state_to_g_map__uS[0]}) >= "
-                f"rram_config.g_min__uS ({self.rram_config.g_min__uS})"
-            )
-        if self.state_to_g_map__uS[-1] > self.rram_g_max__uS:
-            raise ValueError(
-                f"require: state_to_g_map__uS[-1] ({self.state_to_g_map__uS[-1]}) <= "
-                f"rram_g_max__uS ({self.rram_g_max__uS})"
-            )
+        self._require_ge(self.state_to_g_map__uS[0], "state_to_g_map__uS[0]", self.rram_config.g_min__uS)
+        self._require_le(self.state_to_g_map__uS[-1], "state_to_g_map__uS[-1]", self.rram_g_max__uS)
 
         # --- Solver ---
 

@@ -42,15 +42,11 @@ class IrefConfig(AnalogConfig):
 
         # --- Reference bank ---
 
-        self._require_min_length(self.i_refs__uA, 1, "i_refs__uA")
-        tap_num = self.tap_num
+        self._require_non_empty(self.i_refs__uA, "i_refs__uA")
+        first_taps = self.i_refs__uA[0]
         for mode, taps in enumerate(self.i_refs__uA):
-            self._require_min_length(taps, 1, f"i_refs__uA[{mode}]")
-            if len(taps) != tap_num:
-                raise ValueError(
-                    f"require: equal tap lengths in i_refs__uA; mode {mode} has {len(taps)} tap(s), "
-                    f"mode 0 has {tap_num}"
-                )
+            self._require_non_empty(taps, f"i_refs__uA[{mode}]")
+            self._require_same_len(taps, f"i_refs__uA[{mode}]", first_taps, "i_refs__uA[0]")
             for tap, value in enumerate(taps):
                 self._require_non_neg(value, f"i_refs__uA[{mode}][{tap}]")
 

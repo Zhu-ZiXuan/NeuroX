@@ -26,8 +26,7 @@ class StuckAtFaultConfig(ConfigBase):
     def validate(self) -> None:
         self._require_non_neg(self.p_at_min, "p_at_min")
         self._require_non_neg(self.p_at_max, "p_at_max")
-        if not (self.p_at_min + self.p_at_max < 1.0):
-            raise ValueError(f"require: p_at_min ({self.p_at_min}) + p_at_max ({self.p_at_max}) < 1")
+        self._require_lt(self.p_at_min + self.p_at_max, "p_at_min + p_at_max", 1.0)
 
 
 def apply_stuck_at_fault(
@@ -118,8 +117,7 @@ class StateDependentLognormalConfig(ConfigBase):
     def validate(self) -> None:
         self._require_non_neg(self.sigma_slope, "sigma_slope")
         self._require_non_neg(self.sigma_intercept, "sigma_intercept")
-        if not (self.max_val > self.min_val):
-            raise ValueError(f"require: max_val ({self.max_val}) > min_val ({self.min_val})")
+        self._require_gt(self.max_val, "max_val", self.min_val)
 
 
 def apply_state_dependent_lognormal(
@@ -170,8 +168,7 @@ class StateDependentGammaConfig(ConfigBase):
     def validate(self) -> None:
         self._require_pos(self.k_intercept, "k_intercept")
         self._require_pos(self.theta, "theta")
-        if not (self.max_val > self.min_val):
-            raise ValueError(f"require: max_val ({self.max_val}) > min_val ({self.min_val})")
+        self._require_gt(self.max_val, "max_val", self.min_val)
 
 
 def apply_state_dependent_gamma(
@@ -221,8 +218,7 @@ class TelegraphConfig(ConfigBase):
 
     def validate(self) -> None:
         self._require_non_neg(self.amplitude_std, "amplitude_std")
-        if not (0.0 <= self.p_high_state <= 1.0):
-            raise ValueError(f"require: 0 <= p_high_state ({self.p_high_state}) <= 1")
+        self._require_in_closed_interval(self.p_high_state, "p_high_state", 0.0, 1.0)
 
 
 def apply_telegraph_noise(x: Tensor, config: TelegraphConfig, *, enabled: bool) -> Tensor:

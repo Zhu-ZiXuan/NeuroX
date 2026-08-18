@@ -50,18 +50,11 @@ class Ye2023Jssc2t1rArrayConfig(XbarArray1t1rConfig):
     def validate(self) -> None:
         super().validate()
 
-        if len(self.weight_radix) == 0:
-            raise ValueError("require: weight_radix must be non-empty")
+        self._require_non_empty(self.weight_radix, "weight_radix")
         for plane, m in enumerate(self.weight_radix):
-            if not isinstance(m, int):
-                raise TypeError(f"weight_radix entry at plane {plane} must be an int; got {type(m).__name__}")
-            if m <= 0:
-                raise ValueError(f"require: every weight_radix entry a positive int; got {m} at plane {plane}")
+            self._require_pos(m, f"weight_radix[{plane}]")
         for plane, m in enumerate(self.redundant_radix):
-            if not isinstance(m, int):
-                raise TypeError(f"redundant_radix entry at plane {plane} must be an int; got {type(m).__name__}")
-            if m <= 0:
-                raise ValueError(f"require: every redundant_radix entry a positive int; got {m} at plane {plane}")
+            self._require_pos(m, f"redundant_radix[{plane}]")
 
         self._require_pos(self.v_bl_in1__V, "v_bl_in1__V")
 
