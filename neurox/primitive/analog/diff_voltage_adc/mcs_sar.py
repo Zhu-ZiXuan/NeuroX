@@ -2,7 +2,6 @@
 
 See Also:
     docs/reference/primitive/analog/diff_voltage_adc/mcs_sar.md
-    docs/internals/primitive/analog/diff_voltage_adc/mcs_sar.md
 """
 
 import math
@@ -89,12 +88,9 @@ class McsSarDiffVadc(DiffVadc[McsSarDiffVadcConfig, McsSarDiffVadcPolicy]):
     injected bank is single-tap: the sole tap sets `V_cm = V_ref / 2` and the
     per-step switching energy.
 
-    Args:
-        config: Concrete configuration dataclass.
-        policy: Per-source nonideality enable flags.
-        inst_shape: Per-instance fabrication shape.
-        dtype: Tensor dtype for internal buffers.
-        T__K: Operating temperature.
+    A Bernoulli(0.5) 0/+1 LSB jitter rides on the emitted code in training
+    mode. `self.training` alone gates it, no policy source, so `eval()` is
+    what makes a conversion deterministic given the fabricated state.
     """
 
     # === Nominal buffers ===
@@ -134,7 +130,9 @@ class McsSarDiffVadc(DiffVadc[McsSarDiffVadcConfig, McsSarDiffVadcPolicy]):
         self._cap_num = config.max_bits
         self._register_fabrication_buffers(dtype=dtype)
 
-        # Precompute integer tables to avoid symbolic left shifts at runtime.
+        # `bits` is a runtime argument, so `1 << bits` under dynamo lowers to a
+        # shift on a SymInt, which it miscompiles; the tables keep both bounds
+        # plain Python ints indexed by the requested resolution.
         self._unsigned_max_table = tuple(((1 << b) - 1) if b >= 1 else 0 for b in range(config.max_bits + 1))
         self._zero_offset_table = tuple((1 << (b - 1)) if b >= 1 else 0 for b in range(config.max_bits + 1))
 
@@ -160,7 +158,6 @@ class McsSarDiffVadc(DiffVadc[McsSarDiffVadcConfig, McsSarDiffVadcPolicy]):
         return self.config.clk_period__ns * (bits + 1)
 
     def _register_fabrication_buffers(self, *, dtype: torch.dtype) -> None:
-        """Register immutable tensors used as fabrication sources."""
         config = self.config
         c_unit = config.c_unit__fF
         nominal_c__fF = torch.tensor(
@@ -201,7 +198,9 @@ class McsSarDiffVadc(DiffVadc[McsSarDiffVadcConfig, McsSarDiffVadcPolicy]):
         return self.config.max_bits
 
     def _sample_fabricate_mismatch(self) -> None:
-        # Two independently-sampled cap arrays for the differential CDAC.
+        # Two independently-sampled cap arrays for the differential CDAC. The
+        # floor keeps a Gaussian tail from sampling a non-positive cap, which
+        # the step tables and the kT/C sigma both divide by.
         policy = self.policy
         self._c_p__fF = apply_pelgrom_mismatch(
             self._nominal_c__fF.clone().expand(*self.inst_shape, self._cap_num),
@@ -352,12 +351,8 @@ class McsSarDiffVadc(DiffVadc[McsSarDiffVadcConfig, McsSarDiffVadcPolicy]):
     def _compare(self, v_pos__V: Tensor, v_neg__V: Tensor) -> Tensor:
         """Strobe the differential comparator.
 
-        Adds per-cycle thermal noise to the differential voltage and compares
-        against the fabricated comparator offset.
-
-        Args:
-            v_pos__V: Positive-side top-plate voltage.
-            v_neg__V: Negative-side top-plate voltage.
+        Adds per-cycle thermal noise to the differential top-plate voltage and
+        compares against the fabricated comparator offset.
 
         Returns:
             Bool tensor; `True` means the positive leg won.

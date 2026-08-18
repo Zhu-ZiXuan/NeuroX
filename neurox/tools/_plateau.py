@@ -18,10 +18,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-# ---------------------------------------------------------------------------
-# Result containers
-# ---------------------------------------------------------------------------
-
 
 @dataclass(frozen=True)
 class CandidateRow:
@@ -69,11 +65,6 @@ class PickResult:
     """Human-readable explanation of the pick or the rejection."""
     residual_guard_ratios: dict[str, float]
     """Per-residual-class ratio `residual / scale` at the picked candidate."""
-
-
-# ---------------------------------------------------------------------------
-# Plateau detection
-# ---------------------------------------------------------------------------
 
 
 def pick_iter_by_step_ratio(
@@ -128,11 +119,6 @@ def pick_iter_by_step_ratio(
     return None
 
 
-# ---------------------------------------------------------------------------
-# Relative residual guard
-# ---------------------------------------------------------------------------
-
-
 # Per-residual-class denominator selector: which workload scale this residual
 # is measured against. The names are the field keys in CandidateRow.residual_max.
 _RESIDUAL_DENOMINATOR_KIND: dict[str, str] = {
@@ -184,11 +170,6 @@ def check_residual_relative_guard(
         if ratio >= reltol:
             passed = False
     return passed, ratios
-
-
-# ---------------------------------------------------------------------------
-# Combined pick
-# ---------------------------------------------------------------------------
 
 
 def pick_with_plateau_and_guard(

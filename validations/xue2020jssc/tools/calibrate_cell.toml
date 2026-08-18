@@ -1,4 +1,4 @@
-# Run-config for neurox.tools.calibrate_cell._1t1r on the xue2020jssc Detail cell.
+# Run-config for neurox.tools.calibrate_cell.x1t1r on the xue2020jssc Detail cell.
 #
 # Calibrates the XbarCell1t1rDetail access-node condensation count (newton_iter_num) via
 # step-ratio plateau, and in the SAME run extracts the linearized-cell fragment
@@ -23,7 +23,7 @@
 # off/on levels matching the runtime WL DAC (0.0 / 0.9 V).
 #
 # Run:
-#   python -m neurox.tools.calibrate_cell._1t1r \
+#   python -m neurox.tools.calibrate_cell.x1t1r \
 #       --config validations/xue2020jssc/tools/calibrate_cell.toml \
 #       --device cpu --output-dir log/calibration/xue2020jssc
 

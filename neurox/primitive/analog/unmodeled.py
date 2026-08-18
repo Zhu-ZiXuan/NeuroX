@@ -2,7 +2,6 @@
 
 See Also:
     docs/reference/primitive/analog/unmodeled.md
-    docs/internals/primitive/analog/unmodeled.md
 """
 
 import torch
@@ -27,15 +26,7 @@ class UnmodeledBlockPolicy(AnalogPolicy):
 
 
 class UnmodeledBlock(AnalogBase[UnmodeledBlockConfig, UnmodeledBlockPolicy]):
-    """Circuit block represented only by static area and leakage.
-
-    Args:
-        config: Concrete configuration dataclass.
-        policy: Per-source nonideality enable flags.
-        inst_shape: Per-instance fabrication shape.
-        dtype: Tensor dtype for internal buffers.
-        T__K: Operating temperature.
-    """
+    """Circuit block represented only by static area and leakage."""
 
     def __init__(
         self,
@@ -57,4 +48,5 @@ class UnmodeledBlock(AnalogBase[UnmodeledBlockConfig, UnmodeledBlockPolicy]):
         return self.config.leakage_per_inst__uW
 
     def _sample_fabricate_mismatch(self) -> None:
+        # Nothing to draw: the model is a static seat, so it owns no fabricated state.
         pass

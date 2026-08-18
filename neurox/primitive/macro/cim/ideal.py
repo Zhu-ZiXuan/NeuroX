@@ -2,7 +2,6 @@
 
 See Also:
     docs/reference/primitive/macro/cim/ideal.md
-    docs/internals/primitive/macro/cim/ideal.md
 """
 
 from __future__ import annotations
@@ -69,18 +68,7 @@ class IdealCimMacro(CimMacro[IdealCimMacroConfig, IdealCimMacroPolicy]):
     `0` unsigned, `2^(b-1)` mid-zero, always computed, never configured. A
     window with `W > 2^b` is a legal lossy operating point, and the whole
     conversion evaluates in integers without ever forming the fractional step.
-
-    Args:
-        config: Value domains, conversion windows and bit-width bound.
-        policy: Empty policy marker.
-        input_num: Logical input-vector length.
-        output_num: Logical output-vector length.
-        inst_shape: Per-instance multiplicity prefix.
-        dtype: Tensor dtype for internal buffers.
-        T__K: Operating temperature.
     """
-
-    # === Programmed state ===
 
     _w: Tensor  # Shape: [*inst_shape, input_num, output_num]
 

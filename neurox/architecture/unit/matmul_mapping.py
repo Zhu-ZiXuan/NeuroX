@@ -1,7 +1,7 @@
 """Substrate-independent planning for fixed-capacity matrix multiplication.
 
 See Also:
-    docs/internals/architecture/unit/matmul_mapping.md
+    docs/reference/architecture/unit/family.md
 """
 
 from __future__ import annotations
@@ -68,6 +68,8 @@ def make_matmul_placement_plan(
     contraction_partition_num = -(-logical_contraction_num // contraction_block_size)
     output_block_num = -(-logical_output_num // output_block_size)
     block_group_capacity = tile_input_capacity // contraction_block_size
+    # Fewest groups the capacity allows, then the blocks spread evenly over the
+    # slots of every group, so no group carries a longer slot sequence.
     block_group_num = -(-output_block_num // block_group_capacity)
     block_slot_num = -(-output_block_num // block_group_num)
     return MatmulPlacementPlan(

@@ -77,9 +77,3 @@ TODO (domain author): evidence that the modular-wrap function and the PPA accoun
 ## References
 
 TODO (domain author): cite the adder-tree architecture and the PPA basis.
-
----
-
-- **Internals**: [accumulator internals](../../../internals/primitive/digital/accumulator.md)
-- **Validation**: TODO - validation artefact not yet written
-- **Configuration**: `neurox/primitive/digital/accumulator.py` (`AccumulatorConfig`)

@@ -1,6 +1,6 @@
 # Notation & conventions
 
-The single home of the notation policy — the character whitelist, where a formula lives, and the shared symbol vocabulary. Reference, Internals, and in-code docstrings and comments all follow it.
+The single home of the notation policy — the character whitelist, where a formula lives, and the shared symbol vocabulary. Every document and every in-code docstring and comment follows it.
 
 Symbols **reused across subsystems** are pinned so one physical quantity keeps one symbol everywhere. Introduce a symbol only when it appears in an equation; a quantity that only labels a structure or count is written by its code field, not a symbol.
 
@@ -39,8 +39,6 @@ Use a symbol only when the count enters an equation; otherwise refer to it by co
 These names pin the symbols for the three value-domain levels — digit, slice, value — whose semantics are defined in [glossary §Value domain and slicing](glossary.md#value-domain-and-slicing). Precision slicing ($S_w$, $S_x$) cuts a value into slices; matrix tiling ($T_r$, $T_c$) is the orthogonal, application-neutral axis that splits any matmul. The per-slice value range is computed from $D$ and $r$ and published by the xbar interface (the authority).
 
 The slice radix $R$ is dimensionless and lives in this value-domain table; it is distinct from the resistance $R$ (MOhm) of the electrical table — context (radix fold vs circuit equation) keeps them apart.
-
-Pure structure counts (e.g. slices per group) have no symbol; write the code field (`slice_num`).
 
 ## Mathematical notation
 
@@ -98,32 +96,37 @@ A docstring is class 2. Its primary readers see it raw — `help()`, an IDE tool
 
 ## Placement — where a formula lives
 
-A complex, multi-term formula lives **only** in a Markdown Reference or Internals doc, written as LaTeX. A docstring or comment carries at most simple inline notation — a lone symbol (σ), a power of a variable (σ²), a short inline expression, an inline derivative (∂I/∂V) — and otherwise points to the md spec. A superscript power is for a math variable (σ², V_BL²); a physical unit raised to a power stays ASCII (`cm^2`, `um^2`). A docstring never hosts a multi-term derivation; it names the quantity and links the equation to its md home.
+A complex, multi-term formula lives **only** in a Markdown document, written as LaTeX. A docstring or comment carries at most simple inline notation — a lone symbol (σ), a power of a variable (σ²), a short inline expression, an inline derivative (∂I/∂V) — and otherwise points to the md spec. A superscript power is for a math variable (σ², V_BL²); a physical unit raised to a power stays ASCII (`cm^2`, `um^2`). A docstring never hosts a multi-term derivation; it names the quantity and links the equation to its md home.
 
 ## Units and naming
 
 This section defines the unit set and naming grammar.
 
-### Runtime units (ASCII)
+### Standard unit atoms and expressions (ASCII)
 
-`V`, `uA`, `uS`, `MOhm`, `fF`, `ns`, `K`, `fJ`, `uW`, `um`, `um^2` — matching the code `__` suffixes. The set is closed and self-consistent under the products that appear in circuit math, so no intermediate needs rescaling. No unit conversion is permitted on any tensor-computation path; every runtime tensor is already in these units.
+The standard atoms are `V`, `uA`, `uS`, `MOhm`, `fF`, `ns`, `K`, `fJ`, `uW`, and `um`. A suffix composed solely from these atoms is standard too: `_` joins a product, `_per_` introduces one denominator, a leading `per_` means a reciprocal, and a trailing integer is a power. Thus `fF_per_um2`, `uA_per_V2`, and `per_V` need no special ruling.
 
-### Config units
+The spelling is not algebraically normalized. An author may retain the expression that best exposes the calculation, so `V_per_uA` need not be rewritten as `MOhm`, and `V_uA_ns` need not be rewritten as `fJ`. The standard atoms still fix the numerical scales: no unit conversion is permitted on a tensor-computation path.
 
-Config fields are the human-interaction surface and follow established industrial conventions, even when those differ from the runtime units above (e.g. PDK mobility in $\mathrm{cm}^2/\mathrm{V}/\mathrm{s}$, SI constants in $\mathrm{J}/\mathrm{K}$ or $\mathrm{C}$). Each field carries its unit suffix in the name.
+### Nonstandard unit expressions
+
+Config fields may follow an established industrial convention, while physical constants and validation reports may retain an external source's unit. Examples include PDK mobility in $\mathrm{cm}^2/\mathrm{V}/\mathrm{s}$ and SI constants in $\mathrm{J}/\mathrm{K}$ or $\mathrm{C}$. Each code binding carries its unit suffix in the name; a nonstandard expression is admitted only for that exact binding.
 
 ### Name-suffix grammar
 
 Every identifier naming a physical quantity uses `<name>__<unit>`, even when the surrounding text already states the unit — a parameter, a dataclass or config field, and a local alike. A function or property whose return value is one physical quantity is named like the variable that would hold it, the quantity first and the unit suffix last (`a__V()`); a call returning several quantities keeps a bare name and its elements take their suffixes at the unpack (`a__V, b__uA = ab()`). A dimensionless quantity has no suffix.
 
-- Separator: a double underscore `__` joins the name to the unit.
+- Separator: exactly one interior double underscore `__` joins the name to the unit. Leading or trailing dunders keep their Python meaning; another interior `__` is invalid.
 - Unit case follows the physical standard.
 - Multiplication is implicit, joining adjacent unit tokens with `_`, e.g. `A_vt__mV_um`.
-- Division uses `_per_`, e.g. `mu0__cm2_per_V_s`.
+- Division uses one `_per_`, e.g. `mu0__cm2_per_V_s`; `per_V` denotes a reciprocal.
+- A trailing integer denotes a power, e.g. `V2` or `um2`.
+
+The rules test reads Python definitions and bindings. It does not infer physical meaning, inspect prose, or treat an identifier-looking comment, docstring, or string as code.
 
 ### Derivative identifiers
 
-A quantity that is a derivative is named `d<y>_d<x>__<unit>`, all lowercase. Each of `<y>` and `<x>` is the quantity's own name with its internal underscores removed, so the run-together name leaves `_d` as the one separator in the identifier. The unit is unit(y) per unit(x), reduced through the runtime unit set above rather than written as a quotient.
+A quantity that is a derivative is named `d<y>_d<x>__<unit>`, all lowercase. Each of `<y>` and `<x>` is the quantity's own name with its internal underscores removed, so the run-together name leaves `_d` as the one separator in the identifier. Its suffix follows the same expression grammar as every other unit; the table uses the compact standard atom where one is convenient.
 
 | Derivative | Identifier | Unit |
 |---|---|---|
@@ -133,9 +136,9 @@ A quantity that is a derivative is named `d<y>_d<x>__<unit>`, all lowercase. Eac
 
 This is the identifier register only; a docstring or comment naming the same quantity in prose writes it as ∂a/∂b under the whitelist above, and a Markdown formula writes `\partial`.
 
-### Canonical unit per dimension
+### Runtime scales
 
-Each dimension has one canonical unit, and a quantity is stored in it — never in a scaled variant — so no use site converts. Energy is fJ throughout code, config, and validation data: every energy-valued identifier and config key carries the `__fJ` suffix. A source stating a quantity in another unit is quoted in a comment only, and the code beside it carries the canonical-unit value.
+The standard atoms establish the runtime scales, not one mandatory algebraic spelling for each dimension. Energy, for example, uses the fJ scale; `fJ` and the unreduced standard expression `V_uA_ns` have the same numerical scale. A differently scaled atom such as `pJ` is nonstandard and requires an exact code-binding ruling. An external source may state another scale in prose without turning that prose into a code identifier.
 
 ## Energy accounting basis
 

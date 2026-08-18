@@ -2,7 +2,6 @@
 
 See Also:
     docs/reference/primitive/analog/current_mux.md
-    docs/internals/primitive/analog/current_mux.md
 """
 
 from typing import ClassVar
@@ -31,15 +30,7 @@ class ImuxPolicy(AnalogPolicy):
 
 
 class Imux(AnalogBase[ImuxConfig, ImuxPolicy]):
-    """Ideal N:1 time-share current mux — identity·gain transport.
-
-    Args:
-        config: Concrete configuration dataclass.
-        policy: Per-source nonideality enable flags.
-        inst_shape: Per-instance fabrication shape.
-        dtype: Tensor dtype for internal buffers.
-        T__K: Operating temperature.
-    """
+    """Ideal N:1 time-share current mux — identity·gain transport."""
 
     is_profile_target: ClassVar[bool] = False
 

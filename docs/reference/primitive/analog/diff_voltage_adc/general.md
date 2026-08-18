@@ -18,7 +18,7 @@ The topology has one code-count-implied resolution $b$.
 
 ## Numerical method
 
-N/A - the conversion is a single floor-bucketize evaluation per call; no iteration.
+N/A — the conversion is a single floor-bucketize evaluation per call; no iteration.
 
 ## Noise & non-idealities
 
@@ -72,9 +72,3 @@ TODO - link validation evidence once written.
 ## References
 
 TODO.
-
----
-
-- **Internals**: [general internals](../../../../internals/primitive/analog/diff_voltage_adc/general.md)
-- **Validation**: TODO - validation evidence not yet written
-- **Configuration**: `GeneralDiffVadcConfig`, `GeneralDiffVadcPolicy` (see `api`)

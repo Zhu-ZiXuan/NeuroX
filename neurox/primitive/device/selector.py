@@ -2,7 +2,6 @@
 
 See Also:
     docs/reference/primitive/device/selector.md
-    docs/internals/primitive/device/selector.md
 """
 
 from typing import ClassVar
@@ -56,11 +55,12 @@ class Selector(ModuleBase[SelectorConfig, SelectorPolicy]):
         dtype: torch.dtype,
         T__K: float,
     ) -> None:
+        # `T__K` completes the uniform device-construction signature; this threshold model
+        # has no temperature dependence to apply it to.
         super().__init__(config=config, policy=policy, inst_shape=inst_shape)
         self._register_fabrication_buffers(dtype=dtype)
 
     def _register_fabrication_buffers(self, *, dtype: torch.dtype) -> None:
-        """Register immutable tensors used as fabrication sources."""
         self.register_buffer(
             "_nominal_vth__V",
             torch.tensor(self.config.vth_nominal__V, dtype=dtype),
@@ -76,10 +76,6 @@ class Selector(ModuleBase[SelectorConfig, SelectorPolicy]):
 
     def sample_vth_like(self, reference: Tensor) -> Tensor:
         """Broadcast the fabricated threshold to the shape of `reference`.
-
-        Args:
-            reference: Tensor whose shape the threshold is broadcast to,
-                typically the cell-voltage tensor.
 
         Returns:
             Per-cell threshold voltage [V].

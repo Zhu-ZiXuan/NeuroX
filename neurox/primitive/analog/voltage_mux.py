@@ -2,7 +2,6 @@
 
 See Also:
     docs/reference/primitive/analog/voltage_mux.md
-    docs/internals/primitive/analog/voltage_mux.md
 """
 
 import torch
@@ -54,15 +53,7 @@ class VmuxPolicy(AnalogPolicy):
 
 
 class Vmux(AnalogBase[VmuxConfig, VmuxPolicy]):
-    """Single-ended N:1 voltage transport with gain, noise, and PPA.
-
-    Args:
-        config: Concrete configuration dataclass.
-        policy: Per-source nonideality enable flags.
-        inst_shape: Per-instance fabrication shape.
-        dtype: Tensor dtype for internal buffers.
-        T__K: Operating temperature.
-    """
+    """Single-ended N:1 voltage transport with gain, noise, and PPA."""
 
     # === Nominal buffers ===
 
@@ -94,7 +85,6 @@ class Vmux(AnalogBase[VmuxConfig, VmuxPolicy]):
         return self.config.leakage_per_inst__uW
 
     def _register_fabrication_buffers(self, *, dtype: torch.dtype) -> None:
-        """Register immutable tensors used as fabrication sources."""
         self.register_buffer("_nominal_eps_g", torch.zeros((), dtype=dtype), persistent=False)
 
     def _sample_fabricate_mismatch(self) -> None:

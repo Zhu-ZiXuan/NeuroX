@@ -7,9 +7,6 @@ current, the raw unsigned codes and the reference ladder after `convert` returns
 resolving each binary-search step into the paper's PH2/PH3 conduction phases. The
 per-step reference path is recovered from the final code through a structural tap
 LUT built at init; the ladder itself is passed per call.
-
-See Also:
-    docs/works/macro/cim/xue2020jssc/model.md
 """
 
 from __future__ import annotations
@@ -61,11 +58,8 @@ class Tmcsa(ModuleBase[TmcsaConfig, TmcsaPolicy]):
     slot axis rides them).
 
     Args:
-        config: Phase windows, per-step constant and static PPA seat.
-        policy: Nonideality toggles; this scheme declares none.
         inst_shape: Fabrication shape `(*inst_shape, gn)` — one billing unit per CIM-IO.
         v_dd__V: Supply rail the phase branches conduct across.
-        dtype: Tensor dtype for the phase-window buffers.
     """
 
     # === Functional buffers ===

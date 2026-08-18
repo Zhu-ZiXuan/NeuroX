@@ -1,8 +1,4 @@
-"""Shared base for digital, integer-exact circuit modules.
-
-See Also:
-    docs/internals/primitive/digital/base.md
-"""
+"""Shared base for digital, integer-exact circuit modules."""
 
 from __future__ import annotations
 
@@ -29,7 +25,19 @@ class DigitalPolicy(PolicyBase):
 
 
 class DigitalBase[ConfigT: DigitalConfig](ModuleBase[ConfigT, DigitalPolicy], ABC):
-    """Base for digital, integer-exact circuit blocks."""
+    """Base for digital, integer-exact circuit blocks.
+
+    A block bills dynamic energy as a flat per-op lump: the config's per-op
+    energy in a 0-dim constant, expanded rather than materialized onto the
+    layout its operation evaluates once per element — the pre-reduction operand
+    where the operation reduces. The constant, not the integer operand, fixes
+    the energy dtype. The billed operand must span the block's instance
+    multiplicity together with the caller's leading dims at their true extents;
+    everything past those dims folds away, so a block bills what it was handed
+    and positions no axis of its own.
+    """
 
     def _sample_fabricate_mismatch(self) -> None:
+        # An integer-exact block holds no analog device state, so the whole family has no
+        # static manufacturing variation to draw.
         pass

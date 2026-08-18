@@ -26,12 +26,6 @@ class TensorGroupMixin:
 
         The operation every other method here composes: type-preserving via
         `dataclasses.replace`, recursing into nested dataclass fields.
-
-        Args:
-            fn: Per-tensor-field transform.
-
-        Returns:
-            A new instance of the same type with every tensor field replaced.
         """
         return walk_tensor_fields(self, fn)
 

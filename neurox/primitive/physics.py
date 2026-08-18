@@ -1,8 +1,12 @@
 """Physical axioms: SI constants (CODATA 2018) and the closed-form laws over them.
 
+A device- or circuit-level physical parameter comes from configuration; these constants are
+the sole exception, fixed because they vary with neither device, process, nor chip. A law
+that takes plain numbers, owns no configuration, and holds for every scheme is an axiom of
+the same kind, so it lives here beside them rather than in a module of its own.
+
 See Also:
     docs/reference/primitive/physics.md
-    docs/internals/primitive/physics.md
 """
 
 from __future__ import annotations
@@ -24,12 +28,6 @@ T_ROOM__K: float = 300.0
 
 def thermal_voltage__V(temperature__K: float) -> float:
     """Thermal voltage `V_T = k_B · T / q`.
-
-    Args:
-        temperature__K: Absolute temperature; must be > 0.
-
-    Returns:
-        Thermal voltage [V].
 
     Raises:
         ValueError: Temperature is not positive.
@@ -53,9 +51,6 @@ def e_cap_excursion__fJ(v_rail__V: float, c__fF: Tensor | float, delta_v__V: Ten
             `delta_v__V`.
         delta_v__V: Signed displacement of the node between its rest level
             and its working level; only the magnitude is billed.
-
-    Returns:
-        Energy drawn from the rail [fJ].
     """
     return v_rail__V * c__fF * delta_v__V.abs()
 

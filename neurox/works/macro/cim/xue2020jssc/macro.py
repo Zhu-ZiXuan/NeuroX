@@ -20,7 +20,7 @@ returns, and bills the whole input branch plus the control per-op constant on it
 own two channels.
 
 See Also:
-    docs/works/macro/cim/xue2020jssc/model.md
+    docs/system_design/cim_execution.md
 """
 
 from __future__ import annotations
@@ -132,6 +132,11 @@ def _sample_reference_bank(
 
 class Xue2020JsscCimMacroConfig(CimMacroConfig):
     """Configuration for the xue2020jssc SINWP 1T1R CIM sub-array.
+
+    The paper design point is ONE point of this config space, never a hardcoded
+    shape: any magnitude-digit count, digit radix and activation width is
+    expressible, and the vectorized readout degenerates cleanly wherever such an
+    axis is size 1.
 
     `max_active_num` is the input-block size selected per conversion; the engine,
     not the macro, serializes across row blocks.
@@ -442,13 +447,8 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
     turns into the other.
 
     Args:
-        config: Sub-block configs, ratio anchors, conduction windows and rails.
-        policy: One nonideality policy per owned block.
         input_num: Logical input length, bound to `row_num` during construction.
         output_num: Logical output length, bound to `col_num` during construction.
-        inst_shape: Per-instance multiplicity prefix.
-        dtype: Tensor dtype for internal buffers.
-        T__K: Operating temperature.
     """
 
     # === Functional buffers ===
@@ -527,7 +527,6 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         return chain__ns * config.mux_factor
 
     def _init_children(self, *, dtype: torch.dtype, T__K: float) -> None:
-        """Construct the array, readout chain, and static PPA seats."""
         config = self.config
         policy = self.policy
         gn = self.col_num // config.mux_factor
@@ -669,7 +668,6 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         )
 
     def _register_model_buffers(self, *, dtype: torch.dtype) -> None:
-        """Register fixed tensors consumed by the readout path."""
         config = self.config
         # Column-MUX placement: phys_col = ((slot * gn + io) * polarity + pol) *
         # w_digit + digit, the bijection (slot, io, polarity, digit) -> physical
@@ -994,10 +992,9 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         v_sl_seat__V = self._phys_to_seat(steady.v_sl_drive__V, dim=-1)
         # Deliver both boundary clamps at the converged port state, on the seat
         # layout: the lane trailing (gn, polarity, w_digit) is each clamp bank's
-        # instance block, and a per-op lump is seated by POSITION, so the drives
-        # are billed here, ahead of every axis move below. The drive is
-        # layout-blind (a flat per-op lump over the driven tensor), so a fabrication
-        # prefix ahead of the sweep axis does not disturb it.
+        # instance block, and the drive is a layout-blind per-op lump seated by
+        # POSITION — so it is billed here, ahead of every axis move below, and a
+        # fabrication prefix ahead of the sweep axis does not disturb it.
         # Shape: [..., x_bits, *inst_shape, gs, gn, polarity, wd]
         self.cablc.drive(i_bl_seat__uA, v_bl_seat__V)
         self.sl_driver.drive(i_sl_seat__uA, v_sl_seat__V)
@@ -1091,11 +1088,10 @@ class Xue2020JsscCimMacro(CimMacro[Xue2020JsscCimMacroConfig, Xue2020JsscCimMacr
         # in parallel, so the lane axis is neither billed per lane nor serialized.
         # Shape: [..., gs, gn] -> [..., gs]
         accesses = signed[..., 0]
-        # The control fires once per conversion cycle, shared across the CIM-IOs —
-        # a flat per-op lump, so the expanded constant holds no storage and no
-        # energy tensor is materialized; the energy dtype is the constant's rather
-        # than the integer code's. Outside a profiler the call is already a
-        # no-op, hence no activity guard.
+        # The control fires once per conversion cycle, shared across the CIM-IOs.
+        # The expanded constant holds no storage, so no energy tensor is
+        # materialized and the energy dtype is the constant's, not the code's.
+        # Outside a profiler the call is already a no-op, hence no activity guard.
         # Shape: [] -> [..., *inst_shape, gs]
         e_control__fJ = torch.full((), config.e_control_per_op__fJ, dtype=torch.float32, device=accesses.device)
         self._record_dynamic_energy(e_control__fJ.expand(accesses.shape), channel="control")

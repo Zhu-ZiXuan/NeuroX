@@ -120,9 +120,6 @@ class Reporter:
     def dynamic_entries(self, profiler: Profiler) -> tuple[DynamicEntry, ...]:
         """Merge the profiler's records into one row per path.
 
-        Args:
-            profiler: The ledger holding the records to report.
-
         Returns:
             One row per distinct path, ordered by descending energy.
 
@@ -147,9 +144,6 @@ class Reporter:
         instead of the bare module name, so a composite's distinct billed
         branches appear as separate rows.
 
-        Args:
-            profiler: The ledger holding the records to report.
-
         Returns:
             Row name to its energy total, in first-emission order.
 
@@ -169,13 +163,10 @@ class Reporter:
         """Group the profiler's dynamic energy by a caller-supplied label [fJ].
 
         The grouping is stated over row names — the very vocabulary `by_name`
-        returns, virtual channel rows included. A mapped row that no record used
-        contributes nothing and is not reported, so one grouping policy may
-        cover more rows than a given measurement exercises.
-
-        Args:
-            profiler: The ledger holding the records to report.
-            groups: Qualified row name to the label it contributes to.
+        returns, virtual channel rows included — each mapped to the label it
+        contributes to. A mapped row that no record used contributes nothing and
+        is not reported, so one grouping policy may cover more rows than a given
+        measurement exercises.
 
         Returns:
             Label to its energy total, in first-contribution order.
@@ -199,14 +190,7 @@ class Reporter:
         return by_group
 
     def total_dynamic_energy__fJ(self, profiler: Profiler) -> float:
-        """Sum the profiler's dynamic energy over every record and unit operation.
-
-        Args:
-            profiler: The ledger holding the records to report.
-
-        Returns:
-            The measurement's whole dynamic energy.
-        """
+        """Sum the profiler's dynamic energy over every record and unit operation."""
         return sum(self._scalars__fJ(profiler.records), 0.0)
 
     def render(self, profiler: Profiler | None = None) -> str:
@@ -215,10 +199,6 @@ class Reporter:
         Units are fixed — fJ, um2, uW — and never auto-scaled, so two dumps are
         comparable line by line. With no profiler the dump is the static table
         alone.
-
-        Args:
-            profiler: The ledger holding the records to report, or `None` for a
-                static-only dump.
 
         Returns:
             Aligned plain-text tables, one blank line between them.
@@ -242,14 +222,7 @@ class Reporter:
 
     @staticmethod
     def _scalars__fJ(records: Sequence[EnergyRecord]) -> list[float]:
-        """Total each record's energy tensor to a host float in one device sync.
-
-        Args:
-            records: Records to reduce.
-
-        Returns:
-            One total per record, positionally aligned with `records`.
-        """
+        """Total each record's energy tensor to a host float in one device sync."""
         if not records:
             return []
         return torch.stack([record.dynamic_energy__fJ.sum() for record in records]).cpu().tolist()
@@ -259,9 +232,9 @@ class Reporter:
 
         A channel is a virtual submodule: a branch its parent bills without a
         module instance of its own. Its row name is the emitter's name with the
-        channel appended — `f"{module_name}.{channel}"` — and it must be able to
-        be one segment: no dot inside it, no name a real child of the bound
-        model already holds. The bound model's own name is empty, so its virtual
+        channel appended — `f"{module_name}.{channel}"` — and it must be exactly
+        one segment: no dot inside it, no name a real child of the bound model
+        already holds. The bound model's own name is empty, so its virtual
         children carry a leading empty segment (`".cablc"`).
 
         Returns:
@@ -293,15 +266,8 @@ class Reporter:
 def _aligned_table(header: Sequence[str], rows: Sequence[Sequence[str]], *, text_columns: int) -> list[str]:
     """Lay one table out as column-aligned lines, its header line first.
 
-    Args:
-        header: Column titles.
-        rows: Pre-formatted cells, one sequence per row, each as long as
-            `header`.
-        text_columns: Number of leading columns to left-align; the rest are
-            right-aligned as numbers.
-
-    Returns:
-        The header line followed by one line per row.
+    Each row holds one pre-formatted cell per header column; the first
+    `text_columns` columns are left-aligned, the rest right-aligned as numbers.
     """
     widths = [max(len(cell) for cell in column) for column in zip(header, *rows, strict=True)]
     lines: list[str] = []

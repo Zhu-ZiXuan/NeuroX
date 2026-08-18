@@ -40,10 +40,6 @@ from neurox.tools._plateau import CandidateRow, WorkloadScale
 
 from ._sampling import load_distribution, make_generator, sample_w, sample_x_batches
 
-# ---------------------------------------------------------------------------
-# Macro section (TOML schema fragment)
-# ---------------------------------------------------------------------------
-
 
 @dataclass(frozen=True)
 class MacroSection:
@@ -112,7 +108,6 @@ def _fabricated_macro(
     inst_shape: tuple[int, ...],
     dtype: torch.dtype,
 ) -> CimMacro[CimMacroConfig, CimMacroPolicy]:
-    """Build, move, eval-freeze, and fabricate a macro through the registry."""
     macro = CimMacro.from_config(
         config=config,
         policy=policy,
@@ -232,11 +227,6 @@ def build_candidate_macro(
     )
 
 
-# ---------------------------------------------------------------------------
-# Row-block serialized drive (engine sub-phase mirror)
-# ---------------------------------------------------------------------------
-
-
 def unroll_sub_phase(x: Tensor, *, row_num: int, active_rows: int, inst_rank: int) -> Tensor:
     """Serialize dense WL planes over the sub-phase axis, mirroring the engine.
 
@@ -277,10 +267,6 @@ def unroll_sub_phase(x: Tensor, *, row_num: int, active_rows: int, inst_rank: in
     # Shape: [..., P, *inst_shape=1, row_num]
     return torch.where(mask, x_expanded, x.new_zeros(()))
 
-
-# ---------------------------------------------------------------------------
-# Step-delta / residual classes (plateau picker)
-# ---------------------------------------------------------------------------
 
 # `v_x__V` is the condensed access-node voltage carried on the cell DCOP
 # (`ColBlColSlDcop.cell.v_x__V`); the rest are solver-owned wire / clamp
@@ -415,11 +401,6 @@ def solver_residual_max(records: list[ColBlColSlRecord[Any]]) -> dict[str, float
     fold(last_inner, _WIRE_RESIDUAL_FIELDS)
     fold(last_outer, _CLAMP_RESIDUAL_FIELDS)
     return residual
-
-
-# ---------------------------------------------------------------------------
-# Candidate sweep aggregator
-# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)

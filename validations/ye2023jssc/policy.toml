@@ -1,6 +1,8 @@
 # Nonideality-free ("all-off") policy for the ye2023jssc WH-2T1R CIM macro.
-# What this scheme does and does not model: see the Scope section of
-# docs/works/macro/cim/ye2023jssc/model.md.
+# What each block does and does not model: see the module and class docstrings of
+# neurox/works/macro/cim/ye2023jssc/. No module of the scheme declares a sigma or a
+# stochastic source, so this is the only intended policy; every intrinsic circuit
+# non-linearity is still computed under it.
 #
 # Pull with:
 #   [policy]

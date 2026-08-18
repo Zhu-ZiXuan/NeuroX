@@ -27,5 +27,5 @@ _neurox_class = "SerialXSliceStagePolicy"
 # COMPILED solve, whose graph intermediates are co-allocated rather than freed
 # step by step, so the budget is smaller than an eager run would need. One value
 # gives a uniform chunk shape across layers -> one dynamic=False solve compile
-# signature. See docs/internals/compile/scheme_a_regional.md.
+# signature. See docs/system_design/compile.md.
 solve_chunk_size = 16384

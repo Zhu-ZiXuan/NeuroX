@@ -16,10 +16,6 @@ from torch import Tensor
 
 from neurox.common import TensorDataClassBase
 
-# ---------------------------------------------------------------------------
-# Zero-through-origin rescale fit
-# ---------------------------------------------------------------------------
-
 
 @dataclass(frozen=True)
 class RescaleFit:
@@ -77,11 +73,6 @@ def fit_rescale_through_origin(code: Tensor, ideal: Tensor) -> RescaleFit:
         rmse=float(torch.sqrt(residual.square().mean())),
         max_abs_residual=float(residual.abs().max()),
     )
-
-
-# ---------------------------------------------------------------------------
-# Input-code band statistics + threshold placement
-# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -255,11 +246,6 @@ def fit_linear(x: Tensor, y: Tensor) -> LinearFit:
     return LinearFit(slope=slope, intercept=intercept, r2=r2)
 
 
-# ---------------------------------------------------------------------------
-# 1-D value clustering (mode derivation)
-# ---------------------------------------------------------------------------
-
-
 @dataclass(frozen=True)
 class ValueCluster:
     """One cluster of scalar range values."""
@@ -334,11 +320,6 @@ def cluster_values(
         )
         for g in groups
     )
-
-
-# ---------------------------------------------------------------------------
-# Calibration-pair sample filter (rescale fit)
-# ---------------------------------------------------------------------------
 
 
 class FitSampleFilter(TensorDataClassBase):

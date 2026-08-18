@@ -110,9 +110,3 @@ TODO: link `validation/device` evidence — I-V and node-partial agreement again
 ## References
 
 TODO: cite the EKV transistor model and the Pelgrom mismatch law.
-
----
-
-- **Internals**: [mosfet internals](../../../internals/primitive/device/mosfet.md)
-- **Validation**: TODO — `validation/device` (not yet written)
-- **Configuration**: `api` (`MosfetConfig`, `MosfetPolicy`)

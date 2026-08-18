@@ -2,7 +2,7 @@
 
 ## Physical model
 
-The clamp is modelled as a Thevenin equivalent: a reference voltage source $V_{\mathrm{ref}}$ (the open-circuit clamp voltage) in series with a constant output resistance $R_{\mathrm{out}}$. The source sets the held voltage at zero current; the series resistance is the lumped output impedance through which the port current flows, so the clamp voltage droops linearly with the current the clamp sources or sinks. The model lumps the small-signal output impedance of a bounded-impedance drive or sense node, over the operating range, into the single constant $R_{\mathrm{out}}$; setting $R_{\mathrm{out}} = 0$ recovers the ideal voltage source whose held voltage never droops. The reference voltage $V_{\mathrm{ref}}$ is a supplied input, not an internal constant of the clamp, and it is the nominal level: the two modelled non-idealities — a systematic per-instance offset and thermal noise — are the clamp's own and are carried as a separate additive perturbation $V_{\mathrm{pert}}$ on top of it, so the ideal level the clamp was asked to hold stays legible beside the level it actually holds.
+The clamp is modelled as a Thevenin equivalent: a reference voltage source $V_{\mathrm{ref}}$ (the open-circuit clamp voltage) in series with a constant output resistance $R_{\mathrm{out}}$. The source sets the held voltage at zero current; the series resistance is the lumped output impedance through which the port current flows, so the clamp voltage droops linearly with the current the clamp sources or sinks. The model lumps the small-signal output impedance of a bounded-impedance drive or sense node, over the operating range, into the single constant $R_{\mathrm{out}}$; setting $R_{\mathrm{out}} = 0$ recovers the ideal voltage source whose held voltage never droops. The reference voltage $V_{\mathrm{ref}}$ is a supplied input, not an internal constant of the clamp, and it is the nominal level: the two modelled non-idealities — a systematic per-instance offset and thermal noise — are the clamp's own and are carried as a separate additive perturbation $V_{\mathrm{pert}}$ on top of it.
 
 The clamp's dissipation splits by time base. Delivering the clamp once at a settled port state cycles the interface node, a fixed switching quantum $E_{\mathrm{op}}$ — one full $C V^2$ interface-node precharge cycle at the modelled design point — that the model tallies per port operation; a physical zero is a legitimate value for it, and the quantum is flat, independent of the port state it is delivered at. The timed conduction that holds the clamp under load is the other term: the rail-to-GND branch sustaining the port current dissipates $I_{\mathrm{port}}^{2} R_{\mathrm{out}}$ inside the lumped series resistance whenever $R_{\mathrm{out}} > 0$, plus whatever the rest of that branch drops. That term carries the conduction window of the access, which the clamp does not own — the clamp sees a settled operating point and no duration — so the whole branch draw is accounted where the conduction window lives, and the clamp itself splits none of it out. Static power (leakage, including any internal amplifier or bias network) is the remaining term.
 
@@ -78,9 +78,3 @@ TODO — link validation evidence once written: that $R_{\mathrm{out}} \to 0$ re
 ## References
 
 TODO: cite the Thevenin-equivalent clamp model.
-
----
-
-- **Internals**: [voltage_driver internals](../../../internals/primitive/analog/voltage_driver.md)
-- **Validation**: TODO — validation evidence not yet written
-- **Configuration**: `VoltageDriverConfig`, `VoltageDriverPolicy` (see `api`)

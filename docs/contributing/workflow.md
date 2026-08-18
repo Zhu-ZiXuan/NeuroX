@@ -25,7 +25,7 @@ Do not commit directly to `main`. Do not bundle unrelated changes into one PR.
 
 Run `make format` before staging final code changes because it edits files.
 
-Ruff `E` and `W` rules (pycodestyle errors and warnings) are enforced; fix every `E` and `W` finding the branch produces. mypy is a helper: per project policy not every warning must be zero, so use `mypy_report.log` to triage findings relevant to the change rather than to chase a fully clean run.
+Ruff `E` and `W` rules (pycodestyle errors and warnings) are enforced; fix every `E` and `W` finding the branch produces. mypy is a helper, not a gate: use `mypy_report.log` to triage the findings relevant to the change rather than to chase a clean run.
 
 Run `make docs-build` for documentation changes and for code changes that update doc links or API surfaces. Use `make docs-serve` only for local preview.
 
@@ -44,4 +44,4 @@ Example training / evaluation Make targets are local end-to-end resources, not r
 
 ## Routing
 
-Use [recipes](recipes.md) to decide which code, tests, Reference documents, Internals documents, and package-surface documents must change with the branch.
+Use [recipes](recipes.md) to decide which code, tests, docstrings, and documents must change with the branch.

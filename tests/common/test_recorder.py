@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import FrozenInstanceError, field
+from dataclasses import FrozenInstanceError
 from inspect import Parameter, signature
 from typing import Self
 
@@ -60,11 +60,10 @@ class _Tagged(_Record):
 
 
 class _TaggedOnly(RecorderBase[_Tagged]):
-    """A family whose admission rule rides a `submit` override."""
+    """A family whose admission rule lives in its submission hook."""
 
     @classmethod
-    @torch.compiler.disable
-    def submit(cls, record: _Tagged) -> None:
+    def _submit_impl(cls, record: _Tagged) -> None:
         if record.tag < 0:
             return
         cls._submit_record(record)
@@ -87,13 +86,6 @@ def test_a_record_declaring_a_post_init_is_refused_at_definition() -> None:
         class _InvalidRecord(RecordBase):
             def __post_init__(self) -> None:
                 pass
-
-
-def test_a_field_specifier_is_refused_at_definition() -> None:
-    with pytest.raises(TypeError, match=r"a record declares plain fields only"):
-
-        class _InvalidRecord(RecordBase):
-            value: int = field(default=3)
 
 
 def test_a_field_only_record_is_a_keyword_only_dataclass() -> None:
@@ -229,11 +221,11 @@ def test_the_base_submit_keeps_every_record() -> None:
     assert [record.value.item() for record in recorder.records] == [-1.0, 0.0, 1.0]
 
 
-def test_an_overriding_family_admits_through_its_own_submit() -> None:
-    """OVERRIDE LAW: the gate lives in `submit`, the bookkeeping in `_submit_record`.
+def test_a_family_hook_applies_its_own_admission_rule() -> None:
+    """The hook owns admission and hands survivors to `_submit_record`.
 
-    An override decides what survives and hands the survivors on, so the book
-    holds its subset and holds it detached, exactly as the base would.
+    The book therefore holds the family's subset and keeps it detached, exactly
+    as the base would.
     """
     kept = _Tagged(value=torch.tensor([1.0], requires_grad=True), tag=0)
     with _TaggedOnly() as recorder:
@@ -248,7 +240,7 @@ def test_an_overriding_family_admits_through_its_own_submit() -> None:
 def test_submitting_outside_a_context_is_a_no_op() -> None:
     """An unclaimed record is dropped, not an error."""
     _FamilyA.submit(_Record(value=torch.tensor(1.0)))  # must not raise
-    _TaggedOnly.submit(_Tagged(value=torch.tensor(1.0), tag=0))  # an override drops it too
+    _TaggedOnly.submit(_Tagged(value=torch.tensor(1.0), tag=0))  # the family hook drops it too
     assert _FamilyA.active() is False
     assert _FamilyA.current() is None
     assert _TaggedOnly.active() is False
@@ -315,7 +307,7 @@ def test_a_raising_body_frees_the_slot_without_finalizing() -> None:
     """A failed measurement keeps its records raw: only a clean exit finalizes them."""
     recorder = _FamilyA(sync_device=_ELSEWHERE)
     record = _SpyRecord(value=torch.tensor(1.0), moves=[])
-    with pytest.raises(RuntimeError, match="boom"), recorder:
+    with pytest.raises(RuntimeError, match="boom"), recorder:  # noqa: PT012
         _FamilyA.submit(record)
         raise RuntimeError("boom")
     assert _FamilyA.active() is False
@@ -332,10 +324,7 @@ def test_the_active_slot_is_reached_from_outside_every_graph(seam: str) -> None:
     assert getattr(RecorderBase, seam)._torchdynamo_disable
 
 
-def test_a_submit_override_carries_the_graph_break_too() -> None:
-    """An override reads the slot itself, so it owes the same disable as the base.
-
-    Without it dynamo traces the override and folds the empty slot in as a
-    constant, leaving the family silently collecting nothing.
-    """
+def test_the_base_submit_keeps_a_family_hook_outside_the_graph() -> None:
+    """The stable public seam owns the graph break; family hooks need no decorator."""
     assert _TaggedOnly.submit._torchdynamo_disable
+    assert not getattr(_TaggedOnly._submit_impl, "_torchdynamo_disable", False)

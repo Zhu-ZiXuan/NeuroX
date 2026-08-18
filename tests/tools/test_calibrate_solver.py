@@ -170,7 +170,15 @@ def _terminal(*, outer: int = 2, v_bl_node__V: float, v_x__V: float) -> ColBlCol
         v_bl_clamp__V=torch.ones(_COL) * 0.3,
         v_sl_drive__V=torch.zeros(_COL),
     )
-    return ColBlColSlRecord(outer=outer, inner=0, dcop=dcop)
+    return ColBlColSlRecord(
+        outer=outer,
+        inner=0,
+        f_bl_clamp__V=None,
+        f_sl_clamp__V=None,
+        f_bl_kcl__uA=None,
+        f_sl_kcl__uA=None,
+        dcop=dcop,
+    )
 
 
 def _clamp_event(*, outer: int, clamp_bl: float) -> ColBlColSlRecord:
@@ -180,6 +188,9 @@ def _clamp_event(*, outer: int, clamp_bl: float) -> ColBlColSlRecord:
         inner=0,
         f_bl_clamp__V=torch.ones(_COL) * clamp_bl,
         f_sl_clamp__V=torch.zeros(_COL),
+        f_bl_kcl__uA=None,
+        f_sl_kcl__uA=None,
+        dcop=None,
     )
 
 
@@ -189,8 +200,11 @@ def _inner_step(*, outer: int, inner: int, wire_bl: float) -> ColBlColSlRecord:
     return ColBlColSlRecord(
         outer=outer,
         inner=inner,
+        f_bl_clamp__V=None,
+        f_sl_clamp__V=None,
         f_bl_kcl__uA=ones * wire_bl,
         f_sl_kcl__uA=ones * 0.0,
+        dcop=None,
     )
 
 

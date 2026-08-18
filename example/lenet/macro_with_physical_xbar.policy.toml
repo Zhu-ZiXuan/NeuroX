@@ -28,5 +28,5 @@ _neurox_class = "SerialXSliceStagePolicy"
 # intermediates co-resident (no per-step release), so the budget is smaller than
 # an eager run would need. One value gives a uniform chunk shape across layers ->
 # one dynamic=False solve compile signature.
-# See docs/internals/compile/scheme-a-regional.md.
+# See docs/system_design/compile.md.
 solve_chunk_size = 16384

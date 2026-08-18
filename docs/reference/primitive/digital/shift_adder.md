@@ -16,11 +16,11 @@ The offset $p$ is added after the wrap, so $y$ need not lie in the register's si
 
 ## Numerical method
 
-N/A - exact integer arithmetic; no iterative or approximate solve.
+N/A — exact integer arithmetic; no iterative or approximate solve.
 
 ## Noise & non-idealities
 
-N/A - exact digital function; the only non-infinite-precision effect is the deterministic modular wrap of the register, captured in §Governing equations. No static mismatch, no per-call randomness.
+N/A — exact digital function; the only non-infinite-precision effect is the deterministic modular wrap of the register, captured in §Governing equations. No static mismatch, no per-call randomness.
 
 ## PPA cost model
 
@@ -77,9 +77,3 @@ TODO (domain author): evidence that the radix-fold function and the PPA accounti
 ## References
 
 TODO (domain author): cite the shift-and-add recombination architecture and the PPA basis.
-
----
-
-- **Internals**: [shift_adder internals](../../../internals/primitive/digital/shift_adder.md)
-- **Validation**: TODO - validation artefact not yet written
-- **Configuration**: `neurox/primitive/digital/shift_adder.py` (`ShiftAdderConfig`)

@@ -2,7 +2,7 @@
 
 See Also:
     docs/reference/primitive/analog/current_reference.md
-    docs/internals/primitive/analog/current_reference.md
+    docs/system_design/physical_state.md
 """
 
 import torch
@@ -79,13 +79,6 @@ class Iref(AnalogBase[IrefConfig, IrefPolicy]):
     `i_out__uA`. No forward path and no per-call noise — dynamic per-access
     variation is a consuming driver's own law, not this source's; the source's
     identity is shared and never resampled.
-
-    Args:
-        config: Concrete configuration dataclass.
-        policy: Per-source nonideality enable flags.
-        inst_shape: Per-instance fabrication shape.
-        dtype: Tensor dtype for internal buffers.
-        T__K: Operating temperature.
     """
 
     # === Nominal buffers ===
@@ -117,7 +110,6 @@ class Iref(AnalogBase[IrefConfig, IrefPolicy]):
         return self.config.leakage_per_inst__uW
 
     def _register_fabrication_buffers(self, *, dtype: torch.dtype) -> None:
-        """Register immutable tensors used as fabrication sources."""
         self.register_buffer(
             "_nominal_i_refs__uA",
             torch.tensor(self.config.i_refs__uA, dtype=dtype),
@@ -126,15 +118,15 @@ class Iref(AnalogBase[IrefConfig, IrefPolicy]):
 
     @property
     def mode_num(self) -> int:
-        """Number of quasi-statically selectable tap modes."""
         return self.config.mode_num
 
     @property
     def tap_num(self) -> int:
-        """Number of taps per mode."""
         return self.config.tap_num
 
     def _sample_fabricate_mismatch(self) -> None:
+        # Clone before expanding: with the tolerance off the fabricated state stays a
+        # view of this tensor, which must not alias the registered nominal buffer.
         i_refs__uA = self._nominal_i_refs__uA.clone().expand(*self.inst_shape, self.mode_num, self.tap_num)
         self._i_refs__uA = apply_relative_gaussian(
             i_refs__uA,
@@ -146,10 +138,11 @@ class Iref(AnalogBase[IrefConfig, IrefPolicy]):
     def i_out__uA(self) -> Tensor:
         """Fabricated reference-current bank, post static tolerance.
 
-        Read-only view over the fabricated buffer: one physical identity per
-        instance. A consumer selects its mode and broadcasts the result onto
-        its own call shape by view; that broadcast, and any per-access
-        dynamic noise on top of it, is the consuming driver's concern.
+        Read-only view over the fabricated buffer, valid after `fabricate()`:
+        one physical identity per instance. A consumer selects its mode and
+        broadcasts the result onto its own call shape by view; that broadcast,
+        and any per-access dynamic noise on top of it, is the consuming
+        driver's concern.
         Shape: `[*inst_shape, mode_num, tap_num]`.
         """
         return self._i_refs__uA

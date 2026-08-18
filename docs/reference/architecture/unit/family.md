@@ -53,7 +53,7 @@ Over its accepted value domain a unit computes an integer dot product matching e
 
 $$\mathbf{Y} = \mathbf{X}\,\mathbf{W}^{\!\top}, \qquad Y_{m,n} = \sum_{k} X_{m,k}\,W_{n,k},$$
 
-returned as a pre-requantize integer tensor. This integer $\mathbf{Y}$ is the pre-ADC ideal the decomposition reconstructs exactly; the realized result carries only the ADC quantization and analog behavior of each constituent macro read.
+returned as a pre-requantize integer tensor. This integer $\mathbf{Y}$ is the pre-ADC ideal the decomposition reconstructs exactly.
 
 **Matrix placement.** A logical matrix is divided into contraction partitions
 and output blocks. If several contraction-width blocks fit the tile input
@@ -121,9 +121,3 @@ regime where the value-domain-exact assumption breaks.
 ## References
 
 TODO.
-
----
-
-- **Internals**: [unit base internals](../../../internals/architecture/unit/base.md)
-- **Validation**: TODO — `validation/macro` (not yet written)
-- **Configuration**: [config reference](../../../api/README.md)

@@ -1,4 +1,4 @@
-from ._1t1r import (
+from .x1t1r import (
     XbarArray1t1r,
     XbarArray1t1rChunkMeasure,
     XbarArray1t1rConfig,

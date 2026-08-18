@@ -12,7 +12,7 @@ The output is the element-wise difference of the two operands, broadcast to a co
 
 $$y = a - b,$$
 
-over the full-precision integers, with no modular wrap and no clamp. Here $a$ is the minuend and $b$ the subtrahend.
+over the full-precision integers, with no modular wrap and no clamp.
 
 ## Numerical method
 
@@ -71,9 +71,3 @@ TODO (domain author): evidence that the PPA accounting matches the intended hard
 ## References
 
 TODO (domain author): cite the subtractor architecture and the PPA basis.
-
----
-
-- **Internals**: [subtractor internals](../../../internals/primitive/digital/subtractor.md)
-- **Validation**: TODO — validation artefact not yet written
-- **Configuration**: `neurox/primitive/digital/subtractor.py` (`SubtractorConfig`)

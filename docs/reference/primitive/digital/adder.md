@@ -16,11 +16,11 @@ over the full-precision integers, with no modular wrap and no clamp.
 
 ## Numerical method
 
-N/A - exact integer arithmetic; no iterative or approximate solve.
+N/A — exact integer arithmetic; no iterative or approximate solve.
 
 ## Noise & non-idealities
 
-N/A - exact digital function; no register wrap, no static mismatch, no per-call randomness.
+N/A — exact digital function; no register wrap, no static mismatch, no per-call randomness.
 
 ## PPA cost model
 
@@ -71,9 +71,3 @@ TODO (domain author): evidence that the PPA accounting matches the intended hard
 ## References
 
 TODO (domain author): cite the adder architecture and the PPA basis.
-
----
-
-- **Internals**: [adder internals](../../../internals/primitive/digital/adder.md)
-- **Validation**: TODO - validation artefact not yet written
-- **Configuration**: `neurox/primitive/digital/adder.py` (`AdderConfig`)

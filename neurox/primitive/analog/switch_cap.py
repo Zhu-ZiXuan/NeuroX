@@ -2,7 +2,6 @@
 
 See Also:
     docs/reference/primitive/analog/switch_cap.md
-    docs/internals/primitive/analog/switch_cap.md
 """
 
 import torch
@@ -53,11 +52,6 @@ class SwitchCap(AnalogBase[SwitchCapConfig, SwitchCapPolicy]):
     """Bottom-plate-sampled cap bank with passive charge-share averaging.
 
     Args:
-        config: Concrete configuration dataclass.
-        policy: Per-source nonideality enable flags.
-        inst_shape: Per-instance fabrication shape.
-        dtype: Tensor dtype for internal buffers.
-        T__K: Operating temperature.
         cap_weights: Per-cap multipliers on `config.c_unit__fF`; the length
             fixes the bank's cap count.
     """
@@ -107,7 +101,6 @@ class SwitchCap(AnalogBase[SwitchCapConfig, SwitchCapPolicy]):
         dtype: torch.dtype,
         cap_weights: tuple[float, ...],
     ) -> None:
-        """Register immutable tensors used as fabrication sources."""
         self.register_buffer(
             "_nominal_c__fF",
             self.config.c_unit__fF * torch.tensor(cap_weights, dtype=dtype),
@@ -116,6 +109,9 @@ class SwitchCap(AnalogBase[SwitchCapConfig, SwitchCapPolicy]):
 
     def _sample_fabricate_mismatch(self) -> None:
         config = self.config
+        # The floor keeps a Gaussian tail from sampling a non-positive cap: the
+        # kT/C sigma takes a square root of its reciprocal and the charge-share
+        # denominator sums it.
         self._c__fF = apply_pelgrom_mismatch(
             self._nominal_c__fF.clone().expand(*self.inst_shape, self._cap_num),
             config.cap_mismatch_sigma_relative,
@@ -140,16 +136,13 @@ class SwitchCap(AnalogBase[SwitchCapConfig, SwitchCapPolicy]):
         kt__fJ = K_BOLTZMANN__J_per_K * self._T__K * 1e15
         sigma__V = torch.sqrt(kt__fJ / c__fF)
         v_hold__V = apply_gaussian(v_in__V, sigma__V, enabled=self.policy.sampling_thermal_noise)
-        # Passive charge-share: node settles to the charge-weighted mean of the
-        # held voltages.
         c_total__fF = c__fF.sum(dim=-1)
         v_out__V = torch.sum(c__fF * v_hold__V, dim=-1) / c_total__fF
 
         if self._is_dynamic_energy_profile_active():
             # Shape: [..., *inst_shape, cap_num] -> [..., *inst_shape]
             e_caps__fJ = 0.5 * torch.sum(c__fF * v_in__V * v_in__V, dim=-1)
-            # The cap axis is already summed by the line above; the collector
-            # sums the bank's remaining work and instance axes past the caller's
-            # leading dims.
+            # The cap axis is already summed above; the collector sums the
+            # remaining work and instance axes past the caller's leading dims.
             self._record_dynamic_energy(e_caps__fJ + self.config.energy_per_sample_overhead__fJ)
         return v_out__V

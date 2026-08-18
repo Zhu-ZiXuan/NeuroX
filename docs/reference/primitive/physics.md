@@ -1,6 +1,6 @@
 # Physics
 
-The physical axioms beneath every model: the canonical SI constants (CODATA 2018), and the closed-form laws over them — the thermal voltage $V_T = k_B T / q$, and the capacitive supply-draw billing law the rest of this document specifies. The constants are fixed by definition and carry no modelling content of their own. The billing law is single: every grounded node capacitance is billed by what its supply spends moving it. This document holds that law — the atom, the rail each term is charged to, the access timing that fixes how many excursions one access contains, and how a level held across many accesses is spread over them. Each subsystem applies the law to the nodes it owns and cites it instead of restating it.
+The physical axioms beneath every model: the canonical SI constants (CODATA 2018), and the closed-form laws over them — the thermal voltage $V_T = k_B T / q$, and the capacitive supply-draw billing law this document specifies. The constants are fixed by definition and carry no modelling content of their own. The billing law is single: every grounded node capacitance is billed by what its supply spends moving it — the atom, the rail each term is charged to, the access timing that fixes how many excursions one access contains, and how a level held across many accesses is spread over them. Each subsystem applies the law to the nodes it owns and cites it instead of restating it.
 
 ## Supply-draw atom
 
@@ -63,7 +63,3 @@ The establishment is charged by amortization rather than to one access of the sc
 - Rest levels are ideal declared levels, so the displacement an access bills is independent of the conduction that access carries.
 - Stored and dissipated energy are not separated; the whole supply draw is charged to the access that caused it.
 - The law covers capacitive draw alone. Conduction energy — a branch current over its conduction window — is the separate accounting basis in [notation_conventions](../../conventions/notation_conventions.md#energy-accounting-basis).
-
----
-
-- **Internals**: [physics](../../internals/primitive/physics.md)

@@ -2,7 +2,6 @@
 
 See Also:
     docs/reference/architecture/unit/conv2d.md
-    docs/internals/architecture/unit/conv2d.md
 """
 
 from __future__ import annotations
@@ -114,14 +113,7 @@ class Conv2dUnit(UnitBase, ABC):
         padding: tuple[int, int],
         dilation: tuple[int, int],
     ) -> None:
-        """Store the convolution geometry.
-
-        Args:
-            kernel_size: Kernel map extent `(kh, kw)`.
-            stride: Output step `(s_h, s_w)`.
-            padding: Zero-pad extent `(p_h, p_w)` on each side.
-            dilation: Kernel tap spacing `(d_h, d_w)`.
-        """
+        """Store the convolution geometry, each extent ordered `(h, w)`."""
         self._conv2d_kernel_size = (int(kernel_size[0]), int(kernel_size[1]))
         self._conv2d_stride = (int(stride[0]), int(stride[1]))
         self._conv2d_padding = (int(padding[0]), int(padding[1]))

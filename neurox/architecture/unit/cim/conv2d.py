@@ -1,7 +1,7 @@
 """Conv2dCimUnit — engine-backed `F.conv2d` replacement.
 
 See Also:
-    docs/internals/architecture/unit/cim/conv2d.md
+    docs/reference/architecture/unit/conv2d.md
 """
 
 from __future__ import annotations
@@ -144,6 +144,8 @@ class Conv2dCimUnit(Conv2dUnit, EngineBackedCimUnit[Conv2dCimUnitConfig, Conv2dC
             x = F.pad(x, (p_w, p_w, p_h, p_h))
         device = x.device
 
+        # Index-grid gather rather than `F.unfold`: pure data movement, so a
+        # window plane stays exact in whatever integer dtype it arrives in.
         # Shape: [H_out, kh]
         h_idx = (torch.arange(h_out, device=device) * s_h).view(-1, 1) + (torch.arange(kh, device=device) * d_h).view(
             1, -1

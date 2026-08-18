@@ -1,7 +1,7 @@
 """WH-2T1R lookup cell — the linear 1T1R divider plus a per-state I_T2 table.
 
 See Also:
-    docs/works/macro/cim/ye2023jssc/model.md
+    docs/reference/primitive/xbar/cell/1t1r_linear.md
 """
 
 from __future__ import annotations
@@ -80,12 +80,16 @@ class Ye2023Jssc2t1rCell(XbarCell1t1rLinear):
     The T2 compute current is selected at `program` time and read back by
     `i_t2__uA` at unit slice scale.
 
+    The cell has two transistors on separate paths. T1, an I/O device held half-on
+    as a resistor, sits in series with the RRAM, and the divider they form puts the
+    programmed state on the internal node `V_X` — that path is the inherited linear
+    1T1R branch. T2, a core device in sub-threshold saturation, converts `V_X` into
+    the compute current a transpose bit line collects, and only that conversion is
+    tabulated. Two operating points suffice because the composing design drives the
+    bit line at exactly two levels, one per input bit.
+
     Args:
-        config: Divider knobs plus the per-state I_T2 table.
-        policy: Nonideality toggles; this scheme declares none.
         inst_shape: Per-instance cell-grid shape `(..., col, row)`.
-        dtype: Tensor dtype for internal buffers.
-        T__K: Operating temperature.
     """
 
     # === Functional buffers ===

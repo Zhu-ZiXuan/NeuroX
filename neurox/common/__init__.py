@@ -1,5 +1,5 @@
 from . import encoding, serialize
-from .module import ConfigBase, ModuleBase, PolicyBase
+from .module import ConfigBase, DcopBase, ModuleBase, PolicyBase, SnapBase
 from .profiler import EnergyRecord, Profiler
 from .recorder import RecordBase, RecorderBase
 from .registry_mixin import RegistryMixin
@@ -15,8 +15,10 @@ __all__ = [
     "encoding",
     "serialize",
     "ConfigBase",
+    "DcopBase",
     "ModuleBase",
     "PolicyBase",
+    "SnapBase",
     "DynamicEntry",
     "EnergyRecord",
     "Profiler",

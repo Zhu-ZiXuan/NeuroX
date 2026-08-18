@@ -152,11 +152,6 @@ ROW_NUM = 256
 COL_NUM = 128
 
 
-# ---------------------------------------------------------------------------
-# Build / draw
-# ---------------------------------------------------------------------------
-
-
 def build_macro(
     params_path: Path,
     policy_path: Path,
@@ -256,11 +251,6 @@ def _draw_input(
     return x
 
 
-# ---------------------------------------------------------------------------
-# Measure
-# ---------------------------------------------------------------------------
-
-
 @dataclass(frozen=True)
 class SliceEnergy:
     """One Fig.18 slice: dynamic + static energy per access [fJ] vs its informational target.
@@ -306,46 +296,41 @@ def paired_slices(slices: tuple[SliceEnergy, ...], shares: dict, target_total: f
 
 @dataclass(frozen=True)
 class Measurement:
-    """Energy-per-access measurement: the gated total plus the informational breakdown.
-
-    Attributes:
-        total__fJ: The gated total energy per access.
-        dynamic__fJ: Dynamic share of the total.
-        static__fJ: Static (leakage) share of the total.
-        slices: The informational Fig.18 slice breakdown.
-        unmapped_static__fJ: Static residual belonging to no slice.
-        access_latency__ns: The macro's modelled access time, per output
-            access. Reported beside the energies; the static term integrates
-            over :func:`leakage_window__ns`, never over this.
-        window__ns: The declared leakage integration window.
-        n_w: Weight programs drawn per round.
-        n_x: Input vectors drawn per weight program.
-        accesses: Output accesses read over every pooled round.
-        p_zero: Input-sparsity point the round(s) ran at.
-        seed: Generator seed of the first round.
-        repeat: Pooled rounds, each redrawing the weights AND the inputs.
-        rel_std: Relative standard deviation of the round totals.
-        dyn_by_name: Every profiler dynamic-energy row in fJ PER ACCESS, keyed
-            by qualified name. The gate reads only the slice aggregation above;
-            this raw row view is what the calibration campaign
-            (``tools/calibrate.py``) reduces its per-block residuals from.
-    """
+    """Energy-per-access measurement: the gated total plus the informational breakdown."""
 
     total__fJ: float
+    """The gated total energy per access."""
     dynamic__fJ: float
+    """Dynamic share of the total."""
     static__fJ: float
+    """Static (leakage) share of the total."""
     slices: tuple[SliceEnergy, ...]
+    """The informational Fig.18 slice breakdown."""
     unmapped_static__fJ: float
+    """Static residual belonging to no slice."""
     access_latency__ns: float
+    """The macro's modelled access time, per output access. Reported beside the
+    energies; the static term integrates over `leakage_window__ns`, never over this."""
     window__ns: float
+    """The declared leakage integration window."""
     n_w: int
+    """Weight programs drawn per round."""
     n_x: int
+    """Input vectors drawn per weight program."""
     accesses: int
+    """Output accesses read over every pooled round."""
     p_zero: float
+    """Input-sparsity point the round(s) ran at."""
     seed: int
+    """Generator seed of the first round."""
     repeat: int = 1
+    """Pooled rounds, each redrawing the weights AND the inputs."""
     rel_std: float = 0.0
+    """Relative standard deviation of the round totals."""
     dyn_by_name: dict[str, float] = field(default_factory=dict)
+    """Every profiler dynamic-energy row in fJ PER ACCESS, keyed by qualified name.
+    The gate reads only the slice aggregation above; this raw row view is what the
+    calibration campaign (`tools/calibrate.py`) reduces its per-block residuals from."""
 
     @property
     def draws(self) -> int:
@@ -400,10 +385,7 @@ def measure(
     caller's ``batch`` axis indexes independent unit operations, so each energy
     event resolves to ``[batch]`` and the dynamic energy rows are accumulated
     across the draws by hand. ``reporter`` is the one bound to ``macro``: it
-    names every context's rows and carries the static rows. The two sides
-    normalize differently: dynamic energy divides by the full ``accesses``
-    count, while static energy is the fabrication-fixed ``leakage_power *
-    window`` of ONE access.
+    names every context's rows and carries the static rows.
     """
     cfg = macro.config
     device = next(macro.buffers()).device
@@ -493,11 +475,6 @@ def measure(
     )
 
 
-# ---------------------------------------------------------------------------
-# Round pooling
-# ---------------------------------------------------------------------------
-
-
 def _pool_rounds(rounds: list[Measurement], *, p_zero: float, seed: int) -> Measurement:
     """Access-weighted mean of per-round measurements + the round-total relative std.
 
@@ -578,11 +555,6 @@ def measure_rounds(
     return _pool_rounds(rounds, p_zero=p_zero, seed=seed)
 
 
-# ---------------------------------------------------------------------------
-# Gate + tables
-# ---------------------------------------------------------------------------
-
-
 def gate(m: Measurement, anchors: dict) -> tuple[bool, float]:
     """Hard gate: total energy per access within +-tol of the target. Return ``(pass, rel_error)``."""
     target = anchors["target"]["per_access__fJ"]
@@ -631,11 +603,6 @@ def energy_table(m: Measurement, anchors: dict) -> str:
         f"(+-{tol * 100:.0f}%, err {rel * 100:+.1f}%) |"
     )
     return "\n".join(lines)
-
-
-# ---------------------------------------------------------------------------
-# Report
-# ---------------------------------------------------------------------------
 
 
 def render_report(m: Measurement, anchors: dict, *, device: torch.device) -> str:
@@ -722,11 +689,6 @@ def render_report(m: Measurement, anchors: dict, *, device: torch.device) -> str
     )
     lines.append("")
     return "\n".join(lines)
-
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
 
 
 def resolve_device(name: str) -> torch.device:

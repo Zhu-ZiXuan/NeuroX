@@ -17,8 +17,3 @@ owns the corresponding `Sx` shift-adder configuration.
 `Sx` is purely a time axis: it increases macro reads but not the programmed
 macro instance count. The stage publishes the resulting logical
 `x_value_range`.
-
----
-
-- **Internals**: [input-slice internals](../../../../../internals/architecture/unit/cim/engine/x_slice.md)
-- **Engine**: [CIM engine](family.md)

@@ -49,9 +49,6 @@ def neurox_roots(model: nn.Module) -> list[ModuleBase[ConfigBase, PolicyBase]]:
     a module bound under two parents — a tied or shared layer — is reported
     once, at its first appearance.
 
-    Args:
-        model: Tree to walk — a NeuroX module, or any `nn.Module` holding some.
-
     Returns:
         The outermost NeuroX modules, in child order.
     """

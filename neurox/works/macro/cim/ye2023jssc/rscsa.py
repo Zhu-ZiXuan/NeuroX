@@ -5,7 +5,7 @@ it internally by its compare phases' binary weights, and quantizes uniformly ove
 the resulting decision ladder after subtracting a static compensation current.
 
 See Also:
-    docs/works/macro/cim/ye2023jssc/model.md
+    docs/reference/primitive/analog/current_adc/family.md
 """
 
 from __future__ import annotations
@@ -98,11 +98,6 @@ class RsCsaIadc(Iadc[RsCsaIadcConfig, RsCsaIadcPolicy]):
     built directly rather than through the `Iadc` config-policy registry.
 
     Args:
-        config: Quantizer resolution, phase timing and energy knobs.
-        policy: Per-source nonideality flags; this scheme declares none.
-        inst_shape: Per-instance fabrication shape.
-        dtype: Tensor dtype for internal buffers.
-        T__K: Operating temperature.
         i_ph0_comp__uA: Static PH0 compensation current the readout subtracts once
             per conversion; non-negative.
     """
@@ -175,7 +170,7 @@ class RsCsaIadc(Iadc[RsCsaIadcConfig, RsCsaIadcPolicy]):
         return self._window__ns[bits - 1]
 
     def _sample_fabricate_mismatch(self) -> None:
-        """No local static state — the RS-CSA model is deterministic."""
+        pass
 
     @property
     def max_bits(self) -> int:
@@ -283,15 +278,17 @@ class RsCsaIadc(Iadc[RsCsaIadcConfig, RsCsaIadcPolicy]):
         if self._is_dynamic_energy_profile_active():
             # The baseline holds for the executed window alone.
             e__fJ = torch.full_like(i_in__uA, config.e_fixed_per_op__fJ * self._e_fixed_scale[bits - 1])
-            # Compare phase p draws min(residue, reference) scaled by
-            # `mirror_scale` across the rail for that phase's whole duration.
-            # Only the first `bits` phases run; the residue recursion truncates
-            # with them.
+            # Only the first `bits` compare phases run, and the residue recursion
+            # truncates with them. Each is billed over its full nominal duration even
+            # when the window closes at its latch: the branch conducts to the reset.
             i_residue__uA = i_comp__uA
             for phase in range(1, bits + 1):
                 # Phase p resolves bit max_bits - p, so it weighs the residue
                 # against that bit's place value on the ONE reference.
                 i_phase_ref__uA = (1 << (max_bits - phase)) * i_ref__uA
+                # The mirror draw is the whole bill: the latched subtraction branch
+                # sources exactly the current the mirror input stops drawing, so that
+                # swap is rail-energy-neutral.
                 e__fJ = e__fJ + (config.mirror_scale * config.v_rail__V * config.t_phase__ns[phase]) * (
                     i_residue__uA.clamp(max=i_phase_ref__uA)
                 )

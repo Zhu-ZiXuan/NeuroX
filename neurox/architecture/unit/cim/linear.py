@@ -1,7 +1,7 @@
 """LinearCimUnit — engine-backed `F.linear` replacement.
 
 See Also:
-    docs/internals/architecture/unit/cim/linear.md
+    docs/reference/architecture/unit/family.md
 """
 
 from __future__ import annotations

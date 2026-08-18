@@ -33,9 +33,7 @@ def _deep_fill_defaults(override: ConfigDict, default: ConfigDict, strict_type: 
 def merge_dicts(*dicts: ConfigDict, strict_type: bool = True) -> ConfigDict:
     """Deep-merge dicts from left (highest priority) to right.
 
-    Args:
-        dicts: Dicts ordered by descending priority.
-        strict_type: Reject a dict / non-dict conflict instead of resolving it.
+    `strict_type` rejects a dict / non-dict conflict instead of resolving it.
 
     Returns:
         New merged dict; inputs are not modified.
@@ -287,10 +285,6 @@ def resolve_uses(data: ConfigDict, base_dir: Path) -> ConfigDict:
     tables); inline keys override the fragment. `_neurox_use_preset` follows the
     same merge semantics but resolves paths from `neurox/presets/` and forbids
     `_neurox_use` inside the preset subtree.
-
-    Args:
-        data: Loaded dict from a config file (TOML or YAML).
-        base_dir: Directory for resolving relative `_neurox_use` paths.
 
     Returns:
         New dict with every directive expanded.

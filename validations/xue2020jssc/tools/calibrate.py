@@ -73,7 +73,7 @@ from pathlib import Path
 import torch
 
 from neurox import stamp_names
-from neurox.primitive.analog.current_adc.base import IadcProber
+from neurox.primitive.analog.current_adc import IadcProber
 from neurox.primitive.macro.cim import CimMacro, CimMacroConfig, CimMacroPolicy
 from neurox.primitive.xbar.cell import XbarCell1t1rLinearConfig
 from neurox.works.macro.cim.xue2020jssc import (
@@ -120,11 +120,6 @@ _ARRAY_ROW = "array"
 _ROW_KEYS = (_CONTROL_CHANNEL, _CABLC_CHANNEL, _ARRAY_ROW, "dswct", "sinwp_sc", "pn_isub", "tmcsa")
 
 
-# ---------------------------------------------------------------------------
-# Per-access event counts (the leading-dim normalization of each per-op seat)
-# ---------------------------------------------------------------------------
-
-
 def cap_events_per_access(cfg: Xue2020JsscCimMacroConfig, *, col_num: int) -> int:
     """SINWP-SC hold-cap ``c_hold * v_dd**2`` events per ACCESS.
 
@@ -143,11 +138,6 @@ def tmcsa_steps_per_access(cfg: Xue2020JsscCimMacroConfig, *, col_num: int) -> i
     converted elements of one access are the ``gn`` CIM-IO lanes.
     """
     return (col_num // cfg.mux_factor) * cfg.adc_config.bits
-
-
-# ---------------------------------------------------------------------------
-# Build
-# ---------------------------------------------------------------------------
 
 
 def rebuild(cfg: CimMacroConfig, policy: CimMacroPolicy, device: torch.device) -> Xue2020JsscCimMacro:
@@ -199,11 +189,6 @@ def declared_cap_structure() -> dict[str, float]:
     with _DETAIL_PATH.open("rb") as fh:
         detail = tomllib.load(fh)["cim_macro"]["array_config"]
     return {name: float(detail[name]) for name in _NODE_CAP_FIELDS}
-
-
-# ---------------------------------------------------------------------------
-# Stage 1: reference-ladder re-derivation at this geometry
-# ---------------------------------------------------------------------------
 
 
 def _staircase_drive(macro: Xue2020JsscCimMacro) -> torch.Tensor:
@@ -279,11 +264,6 @@ def verify_ladder(macro: Xue2020JsscCimMacro) -> tuple[bool, list[int]]:
         codes = macro.vec_mat_mul(x.float(), quantization_mode=_QUANTIZATION_MODE, adc_bits=_ADC_BITS)
     got = [int(codes[m, 0]) for m in range(x.shape[0])]
     return got == list(range(x.shape[0])), got
-
-
-# ---------------------------------------------------------------------------
-# Measurement + per-access rows
-# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -362,11 +342,6 @@ def measure_rows(
     return m, rows
 
 
-# ---------------------------------------------------------------------------
-# Seat-solves (each returns the CORRECTION factor / value from measured rows)
-# ---------------------------------------------------------------------------
-
-
 def cap_scale_correction(rows: Rows, *, pair1_target__fJ: float) -> float:
     """Factor the array cap row must scale by to close the ``cablc+dswct`` pair.
 
@@ -407,11 +382,6 @@ def phase_scale_solution(
     return scale_now * (tmcsa_target__fJ - fixed__fJ) / conduction__fJ
 
 
-# ---------------------------------------------------------------------------
-# p_zero LOCK to the read-path physics
-# ---------------------------------------------------------------------------
-
-
 def read_path__fJ(m: V.Measurement, read_path: tuple[str, ...]) -> float:
     """Total per-access energy of the pure-physics read-path slices [fJ]."""
     return sum(m.slice(s).total__fJ for s in read_path)
@@ -448,11 +418,6 @@ def lock_p_zero(
     return None, points
 
 
-# ---------------------------------------------------------------------------
-# Leading-dimension invariance harness
-# ---------------------------------------------------------------------------
-
-
 def invariance_points(
     macro: Xue2020JsscCimMacro,
     anchors: dict,
@@ -474,11 +439,6 @@ def invariance_points(
         _m, rows = measure_rows(macro, anchors, n_w=w, n_x=x, repeat=1, p_zero=p_zero, seed=seed)
         out.append((label, rows))
     return out
-
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
 
 
 def main() -> None:
@@ -583,7 +543,6 @@ def main() -> None:
             + " | (scales with the leading count) |"
         )
 
-    # =====================================================================
     emit("# xue2020jssc calibration campaign")
     emit()
     emit(
@@ -608,9 +567,8 @@ def main() -> None:
     )
     emit()
 
-    # =====================================================================
-    # Stage 1 -- CURRENTS
-    # =====================================================================
+    # --- Stage 1 -- CURRENTS ---
+
     emit("## Stage 1 -- currents")
     emit()
     cell = cfg.array_config.cell_config
@@ -661,9 +619,8 @@ def main() -> None:
     )
     emit()
 
-    # =====================================================================
-    # Stage 2 -- CAPACITANCES
-    # =====================================================================
+    # --- Stage 2 -- CAPACITANCES ---
+
     emit("## Stage 2 -- capacitances")
     emit()
     cap_events = cap_events_per_access(cfg, col_num=V.COL_NUM)
@@ -812,9 +769,8 @@ def main() -> None:
     )
     emit("")
 
-    # =====================================================================
-    # Stage 3 -- CONSTANTS
-    # =====================================================================
+    # --- Stage 3 -- CONSTANTS ---
+
     emit("## Stage 3 -- constants")
     emit()
     steps_per_access = tmcsa_steps_per_access(cfg, col_num=V.COL_NUM)
@@ -902,9 +858,8 @@ def main() -> None:
         emit(f"| {label} | {sc:.5f} | {r.row__fJ[_CONTROL_CHANNEL]:.4f} |")
     emit("")
 
-    # =====================================================================
-    # p_zero lock + closing breakdown
-    # =====================================================================
+    # --- p_zero lock + closing breakdown ---
+
     emit("## p_zero LOCK to the read-path physics share")
     emit()
     n_grid = max(2, round(1.0 / args.lock_step))
@@ -963,7 +918,6 @@ def main() -> None:
     emit(V.energy_table(gate_m, anchors))
     emit()
 
-    # =====================================================================
     emit("## Values to write back into params.toml (print only; nothing is mutated)")
     emit()
     emit(f"- `reference_config.i_refs__uA = [[{', '.join(f'{v:.6f}' for v in mids)}]]`  # stage 1, calibrated ladder")

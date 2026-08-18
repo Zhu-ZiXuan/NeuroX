@@ -1,4 +1,14 @@
-"""Numerical linear-algebra helpers for crossbar IR-drop simulation."""
+"""Numerical linear-algebra helpers for crossbar IR-drop simulation.
+
+Three properties hold across every routine here. A sweep accumulates its
+intermediates into Python lists and stacks once instead of writing in place,
+so the unrolled loop traces cleanly and its per-step elementwise work fuses.
+Every 2×2 block product and block solve runs in closed form, a batched GEMM or
+LU kernel costing far more per launch on tens of millions of tiny blocks than
+the arithmetic it performs. And no sweep pivots: each assumes its modified
+diagonal block stays non-singular, well-posedness belonging to the Newton
+formulation that builds the system.
+"""
 
 from __future__ import annotations
 
@@ -82,8 +92,13 @@ def solve_block_tridiagonal(
     """Solve batched block-tridiagonal systems via the block Thomas algorithm.
 
     Solves `A x = rhs` where `A` is block-tridiagonal with `N` block rows of
-    `B`×`B` blocks. The shape convention is fixed: the `N` axis is
-    third-to-last for the block tensors and second-to-last for `rhs`.
+    `B`×`B` blocks, any `B` running through the same path. The shape
+    convention is fixed: the `N` axis is third-to-last for the block tensors
+    and second-to-last for `rhs`, so a caller whose layout differs transposes
+    at the call site — another axis order mis-indexes the sweep silently
+    rather than raising. At `B = 1` the result agrees with `solve_tridiagonal`
+    to round-off alone, the 1×1 solve differing arithmetically from a scalar
+    division.
 
     Args:
         sub: Sub-diagonal blocks coupling row `k` to row `k-1`; the entry at
@@ -111,7 +126,7 @@ def solve_block_tridiagonal(
     # Forward sweep: C_k = M_k⁻¹ · sup_k, d_k = M_k⁻¹ · (rhs - sub · d_{k-1}).
     m_0 = diag[..., 0, :, :]
     rhs_0 = rhs[..., 0, :].unsqueeze(-1)
-    # Stack [sup, rhs] as RHS columns so we do one solve per step instead of two.
+    # Stack [sup, rhs] as RHS columns so each step runs one solve instead of two.
     sol_0 = block_solve(m_0, torch.cat((sup[..., 0, :, :], rhs_0), dim=-1))
     c_list: list[Tensor] = [sol_0[..., :-1]]
     d_list: list[Tensor] = [sol_0[..., -1:]]
@@ -254,8 +269,8 @@ def solve_block_tridiagonal_dense(
     device = diag.device
     dtype = diag.dtype
 
-    # Zero out the un-used boundary blocks so they don't pollute the
-    # assembled dense matrix.
+    # Zero the unused boundary blocks so they do not pollute the assembled
+    # dense matrix.
     sub_clean = torch.cat([torch.zeros_like(sub[..., :1, :, :]), sub[..., 1:, :, :]], dim=-3)
     sup_clean = torch.cat([sup[..., :-1, :, :], torch.zeros_like(sup[..., -1:, :, :])], dim=-3)
 

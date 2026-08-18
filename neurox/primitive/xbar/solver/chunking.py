@@ -1,13 +1,12 @@
 """Memory-bounded chunking of a broadcast leading, and the solve it wraps.
 
-The lower half is the leading-axis machinery: partition a broadcast leading
-into fixed-size chunks, select one chunk's positions out of a tensor or a
-snap, and fold the per-chunk measurements back into one full-leading result.
-`ChunkedSolver` is the layer that drives it, sitting between a crossbar array
-and one fixed-shape DC solve.
+The leading-axis machinery partitions a broadcast leading into fixed-size
+chunks, selects one chunk's positions out of a tensor or a snap, and folds the
+per-chunk measurements back into one full-leading result. `ChunkedSolver`
+drives it, sitting between a crossbar array and one fixed-shape DC solve.
 
 See Also:
-    docs/internals/primitive/xbar/solver/chunking.md
+    docs/system_design/xbar_solve.md
 """
 
 from __future__ import annotations

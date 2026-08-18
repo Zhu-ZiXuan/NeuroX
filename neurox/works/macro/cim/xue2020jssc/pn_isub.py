@@ -5,9 +5,6 @@ magnitude `I_SUB = |I_P - I_N|` plus a sign decision (`N > P`), recovering the
 polarity of the sign-magnitude weight encoding for the TMCSA magnitude
 quantization. A reporter leaf: it self-bills the three ISUB internal replica legs
 and the comparator decision constant.
-
-See Also:
-    docs/works/macro/cim/xue2020jssc/model.md
 """
 
 from __future__ import annotations
@@ -24,7 +21,6 @@ class PnIsubConfig(ConfigBase):
     """Data-independent comparator energy, billed once per sign decision — per (slot, IO) entry."""
     area_per_inst__um2: float
     leakage_per_inst__uW: float
-    """Static leakage per instance, the standing bias power seat."""
 
     def validate(self) -> None:
         self._require_non_neg(self.e_per_op__fJ, "e_per_op__fJ")
@@ -43,8 +39,6 @@ class PnIsub(ModuleBase[PnIsubConfig, PnIsubPolicy]):
     broadcast batch (the serial slot axis rides them).
 
     Args:
-        config: Physical knobs and static PPA seat of one subtractor.
-        policy: Nonideality toggles; this scheme declares none.
         inst_shape: Fabrication shape `(*inst_shape, gn)` — one subtractor per CIM-IO.
         v_dd__V: Supply rail the three replica legs conduct across.
     """

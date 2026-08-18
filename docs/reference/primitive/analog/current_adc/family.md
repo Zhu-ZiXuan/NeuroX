@@ -1,7 +1,5 @@
 # Single-ended current ADC family
 
-Every concrete current ADC digitizes a single-ended magnitude current into an unsigned integer code under one shared set of conventions.
-
 ## Shared conventions
 
 A current ADC digitizes a single-ended, non-negative magnitude current $I_{\mathrm{in}}$ [uA] into one **unsigned** integer code. The converter commits to the current domain: the input, every reference level, and every noise term are expressed in microamperes.
@@ -49,8 +47,3 @@ TODO (domain author): the value-range and operating-envelope limits across which
 ## References
 
 TODO.
-
----
-
-- **Internals**: [single-ended current ADC base](../../../../internals/primitive/analog/current_adc/base.md)
-- **Configuration**: `IadcConfig` (see `api`)

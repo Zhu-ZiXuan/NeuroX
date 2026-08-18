@@ -1,8 +1,4 @@
-"""DirectSlicer — identity value decomposition.
-
-See Also:
-    docs/internals/architecture/unit/cim/slicer/direct.md
-"""
+"""DirectSlicer — identity value decomposition."""
 
 from __future__ import annotations
 

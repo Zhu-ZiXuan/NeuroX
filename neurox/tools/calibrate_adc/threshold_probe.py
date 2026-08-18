@@ -1,4 +1,4 @@
-"""CLI: probe the analog I(M) grid of a CIM macro and place ADC thresholds.
+"""Probe the analog I(M) grid of a CIM macro and place ADC thresholds.
 
 CLI: `python -m neurox.tools.calibrate_adc.threshold_probe --config <run.toml>
 [--device cuda:N] [--output <fragment.toml>] [--plot-dir <dir>]
@@ -65,9 +65,6 @@ from ._testbench import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-# --- config schema ----------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -140,17 +137,11 @@ class ThresholdProbeToolConfig(ConfigBase):
     """Top-level config for `neurox.tools.calibrate_adc.threshold_probe`."""
 
     macro: MacroSection
-    """The tile to build."""
     probe: _ProbeCfg
-    """Capture operating point."""
     stimulus: _StimulusCfg
-    """The probing battery."""
     modes_file: Path
     """Mode-set TOML, relative to the tool TOML; one ladder is placed per mode
     over the macro's published ADC input code range."""
-
-
-# --- probing ----------------------------------------------------------------
 
 
 def _mode_input_code_range(macro: CimMacro[CimMacroConfig, CimMacroPolicy], quantization_mode: int) -> tuple[int, int]:
@@ -266,9 +257,6 @@ def _probe_grid(
     return torch.cat(m_parts), torch.cat(i_parts)
 
 
-# --- output -----------------------------------------------------------------
-
-
 @dataclass(frozen=True)
 class ModePlacement:
     """Placement + diagnostics for one `[[modes]]` entry."""
@@ -381,9 +369,6 @@ def _plot_margins(placements: list[ModePlacement], output_path: Path) -> None:
     fig.savefig(output_path, dpi=110)
     plt.close(fig)
     logger.info("wrote margin plot to %s", output_path)
-
-
-# --- CLI --------------------------------------------------------------------
 
 
 def _build_parser() -> argparse.ArgumentParser:

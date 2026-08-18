@@ -2,7 +2,6 @@
 
 See Also:
     docs/reference/architecture/unit/cim/engine/input_activation.md
-    docs/internals/architecture/unit/cim/engine/input_activation.md
 """
 
 from __future__ import annotations
@@ -80,7 +79,13 @@ class InputActivationStage(ModuleBase[InputActivationStageConfig, InputActivatio
         return self._input_phase_num
 
     def unroll_input_phases(self, x: Tensor) -> Tensor:
-        """Split one local input block into CIM input phases."""
+        """Split one local input block into CIM input phases.
+
+        The engine owns the input-phase axis `P` and serializes the word-line
+        planes over it, one plane per macro access. The macro contract knows no
+        phase — planes in, codes out — so `P` reaches the macro as one more
+        broadcast leading axis.
+        """
         # Shape: [P, L] -> [..., P, L]
         mask = self._active_input_mask.reshape(
             *(1,) * (x.ndim - 1),

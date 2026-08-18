@@ -46,7 +46,7 @@ Provenance terms are defined in [module_parameter](../../../conventions/module_p
 
 ## Assumptions, scope & validity
 
-Stated assumption: the taps are ideal high-impedance nodes (no load-dependent droop, no signal current), so the block's cost is purely static; the initial accuracy is a per-die constant relative to the nominal tap, and the sourced value is time-invariant between fabrications. Each tap is non-negative; a `0` V tap is valid and denotes a ground/rail reference (relative tolerance scales it to exactly `0`, so it stays stable and correct). Mode selection is quasi-static: switching the active mode is far slower than a read, so no per-read switching energy is modelled. Any departure belonging to the circuit that reads the tap — a comparator offset, a driver offset, a per-access thermal draw — is a property of that circuit and is modelled there, so the reference carries no second spread per reading site; counting it in both places would double the same physical deviation. The model is valid where the reference distribution load is negligible and the bias power is well-approximated as a constant.
+Stated assumption: the taps are ideal high-impedance nodes (no load-dependent droop, no signal current), so the block's cost is purely static; the initial accuracy is a per-die constant relative to the nominal tap, and the sourced value is time-invariant between fabrications. Each tap is non-negative; a `0` V tap is valid and denotes a ground/rail reference (relative tolerance scales it to exactly `0`, so it stays stable and correct). Mode selection is quasi-static: switching the active mode is far slower than a read, so no per-read switching energy is modelled. Any departure belonging to the circuit that reads the tap — a comparator offset, a driver offset, a per-access thermal draw — is modelled there, so the reference carries no second spread per reading site. The model is valid where the reference distribution load is negligible and the bias power is well-approximated as a constant.
 
 TODO (domain author): the validity boundary of the load-free idealisation, and whether slow temperature drift within an inference must be modelled as a correlated term on the source.
 
@@ -57,9 +57,3 @@ TODO — link validation evidence once written.
 ## References
 
 TODO: cite the reference-accuracy and drift models.
-
----
-
-- **Internals**: [voltage_reference internals](../../../internals/primitive/analog/voltage_reference.md)
-- **Validation**: TODO — validation evidence not yet written
-- **Configuration**: `VrefConfig`, `VrefPolicy` (see `api`)

@@ -85,12 +85,12 @@ an integer, at every supported bit width. A window with
 $N_{\mathrm{q}} > 2^{b}$ is a legal lossy operating point; a dot outside the
 window clips to the nearest end code.
 
+The ideal counterpart of a sign-magnitude member is not bit-exact against it
+at any finite resolution: a mid-zero window carries one phantom bottom level
+and a single zero, whereas a sign-magnitude encoding has no bottom level and a
+double zero. That code-grid difference is part of what an ideal comparison
+measures, not an artifact to be corrected for.
+
 External tiled-ADC formulations often record a half-range full-scale bound; a
 window here is the full inclusive range, so an external full-scale $F$
 corresponds to the mid-zero window $[-F, F-1]$.
-
----
-
-- **Internals**: [ideal CIM macro](../../../../internals/primitive/macro/cim/ideal.md)
-- **Validation**: TODO — validation evidence not yet written
-- **Configuration**: `IdealCimMacroConfig` (see `api`)

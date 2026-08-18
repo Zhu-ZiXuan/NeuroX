@@ -49,9 +49,3 @@ TODO - link validation evidence once written.
 ## References
 
 TODO: cite the time-share current transport model.
-
----
-
-- **Internals**: [current_mux internals](../../../internals/primitive/analog/current_mux.md)
-- **Validation**: TODO - validation evidence not yet written
-- **Configuration**: `ImuxConfig`, `ImuxPolicy` (see `api`)

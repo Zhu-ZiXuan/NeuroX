@@ -69,7 +69,9 @@ then reorders `(D,G,Q)`, flattens it in logical block order, and trims to `N`.
 
 The policy has the same five owned-child fields. The engine's public
 `w_value_range` and `x_value_range` come from the two slice stages; ADC
-metadata and `max_active_num` delegate to the constructed macro.
+metadata and `max_active_num` delegate to the constructed macro. The
+file-level form of these tables is specified in
+[configuration](../../../../../api/configuration.md).
 
 ## Symbols
 
@@ -94,8 +96,3 @@ Bit-exact stage combinations, non-divisible dimensions, coprime dimensions,
 short-vector packing, and input phases are covered by
 `tests/architecture/unit/test_cim_unit.py` and
 `tests/architecture/unit/test_engine_input_packing.py`.
-
----
-
-- **Internals**: [engine internals](../../../../../internals/architecture/unit/cim/engine/base.md)
-- **Configuration**: [config reference](../../../../../api/README.md)

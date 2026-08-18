@@ -1,6 +1,6 @@
 # Paper-design params for the Xue et al. (JSSC 2020) SINWP 1T1R CIM sub-array —
-# ONE 256x512 sub-array of the 1-Mb macro. Spec:
-# docs/works/macro/cim/xue2020jssc/model.md; measured outcomes: results.md.
+# ONE 256x512 sub-array of the 1-Mb macro. Scheme:
+# neurox/works/macro/cim/xue2020jssc; measured outcomes: results.md.
 #
 # 3-bit sign-magnitude weights (sign + 2 radix-2 magnitude digits) on polarity cell
 # pairs, 2-bit input (K=2, two serial single-bit WL sub-phases LSB first), 3-bit

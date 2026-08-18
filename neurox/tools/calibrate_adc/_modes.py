@@ -41,7 +41,6 @@ from neurox.primitive.macro.cim import validate_quantization_input_range
 
 
 def _check_float(value: object, *, where: str, key: str) -> float:
-    """Validate one finite float entry."""
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise TypeError(f"{where}: {key} must be a number; got {value!r}")
     v = float(value)
@@ -51,24 +50,18 @@ def _check_float(value: object, *, where: str, key: str) -> float:
 
 
 def _check_int(value: object, *, where: str, key: str) -> int:
-    """Validate one integer entry (TOML booleans are not integers here)."""
+    # A TOML boolean is a Python int; it is not an integer entry here.
     if isinstance(value, bool) or not isinstance(value, int):
         raise TypeError(f"{where}: {key} must be an int; got {value!r}")
     return value
 
 
 def _check_pair(value: object, *, where: str, key: str) -> tuple[object, object]:
-    """Validate one two-element array entry."""
     if not isinstance(value, list):
         raise TypeError(f"{where}: {key} must be an array [lower, upper]; got {value!r}")
     if len(value) != 2:
         raise ValueError(f"{where}: {key} must have exactly 2 elements; got {len(value)}")
     return value[0], value[1]
-
-
-# ---------------------------------------------------------------------------
-# Layer-range mapping (mode_derive input)
-# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -147,11 +140,6 @@ def load_layer_ranges(path: Path) -> dict[str, LayerRange]:
             )
         )
     return out
-
-
-# ---------------------------------------------------------------------------
-# Mode set (mode_derive output; threshold_probe / rescale_fit input)
-# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)

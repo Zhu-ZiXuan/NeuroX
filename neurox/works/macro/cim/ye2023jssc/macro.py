@@ -5,7 +5,7 @@ transposed, digit-folded physical array read by one time-shared RS-CSA.
 The macro bills every energy branch its children do not.
 
 See Also:
-    docs/works/macro/cim/ye2023jssc/model.md
+    docs/reference/primitive/macro/cim/family.md
 """
 
 from __future__ import annotations
@@ -77,7 +77,12 @@ class Ye2023JsscCimMacroConfig(CimMacroConfig):
 
     i_ph0_comp__uA: float
     """PH0 compensation current the readout subtracts once per conversion — a calibration
-    product, measured as the array's all-off row leakage; non-negative."""
+    product, measured as the array's all-off row leakage; non-negative.
+
+    The compensation is static by design: the circuit carries no replica, dummy, or
+    tracking branch, so the activity-dependent part of the row leakage it over-subtracts
+    is a prediction of this model rather than a defect in it.
+    """
 
     # === Biases ===
 
@@ -193,13 +198,8 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
     configured static compensation current at construction.
 
     Args:
-        config: Sub-block configs, biases, rails and quantization modes.
-        policy: One nonideality policy per owned block.
         input_num: Logical input length, bound to `row_num` during construction.
         output_num: Logical output length, bound to `col_num` during construction.
-        inst_shape: Per-instance multiplicity prefix.
-        dtype: Tensor dtype for internal buffers.
-        T__K: Operating temperature.
     """
 
     # === Functional buffers ===
@@ -265,7 +265,6 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
         return self.col_num * self.rscsa.latency__ns(bits=adc_bits)
 
     def _init_children(self, *, dtype: torch.dtype, T__K: float) -> None:
-        """Construct the array, readout, clamps, and flat peripheral seats."""
         config = self.config
         policy = self.policy
         plane_num = config.w_digit_num + len(config.array_config.redundant_radix)
@@ -374,13 +373,15 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
         )
 
     def _register_model_buffers(self, *, dtype: torch.dtype) -> None:
-        """Register the one-hot WL code grid, the SL drive, and the weight-encode LUT."""
         config = self.config
         # The scan pattern is DIGITAL: output o raises word line o and holds every
         # other line at its off code, and the WL converter turns that into levels.
         self.register_buffer("_wl_onehot_code", torch.eye(self.col_num, dtype=torch.long), persistent=False)
         self.register_buffer("_sl_v_ref__V", torch.tensor(config.v_sl__V, dtype=dtype), persistent=False)
 
+        # An unrepresentable logical value keeps this table's all-zero row: an
+        # arbitrary radix list may leave holes inside `w_value_range`, and config
+        # validation deliberately imposes no dense positional-radix pattern.
         digit_num = config.w_digit_num
         patterns = torch.arange(1 << digit_num, dtype=torch.long)
         digits = (patterns.unsqueeze(-1) >> torch.arange(digit_num)) & 1
@@ -522,9 +523,9 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
         v_dd_core = config.v_dd_core__V
         record = self._is_dynamic_energy_profile_active()
         x_long = x.long()
-        # The EXECUTED access window: the readout holds its DC biases for the
-        # phases this resolution runs, so every conduction branch and the
-        # per-access latency ride it.
+        # The EXECUTED access window: no sample-and-hold stands between the array
+        # and the readout, so the DC biases are held for the phases this resolution
+        # runs and every conduction branch and the per-access latency ride it.
         t_ac__ns = self.rscsa.t_conversion__ns(adc_bits)
 
         n_inst = len(self.inst_shape)
@@ -642,6 +643,10 @@ class Ye2023JsscCimMacro(CimMacro[Ye2023JsscCimMacroConfig, Ye2023JsscCimMacroPo
             self._record_dynamic_energy(e_dl_cond, channel="dl_cond")
 
         # --- 5: RS-CSA quantize against its single reference current ---
+
+        # The DL summing node ends the per-column layout: every readout bill
+        # below is per access with no column axis — the collector sums past the
+        # caller block, counting a column-shaped bill once per column.
 
         # The macro only NAMES the mode; the fabricated bank is a single static
         # identity per instance (fabricate-only, no per-call noise of its own),

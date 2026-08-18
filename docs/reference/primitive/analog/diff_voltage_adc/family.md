@@ -73,9 +73,3 @@ $\{0,1\}$ with symmetric zero point $z=1$ and signed range $[-1,0]$.
 
 TODO (domain author): state the operating envelope over which the monotone
 boundary model remains valid.
-
----
-
-- **Internals**: [differential voltage ADC base](../../../../internals/primitive/analog/diff_voltage_adc/base.md)
-- **Validation**: TODO — validation evidence not yet written
-- **Configuration**: `DiffVadcConfig` (see `api`)

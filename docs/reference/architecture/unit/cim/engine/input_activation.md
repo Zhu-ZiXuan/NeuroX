@@ -8,8 +8,3 @@ each macro read, and accumulates the resulting `P` output codes.
 The stage owns the `P`-axis serial accumulator through
 `InputActivationStageConfig`. Geometric block routing, weight slicing, and
 input-value slicing remain independent.
-
----
-
-- **Internals**: [input-activation internals](../../../../../internals/architecture/unit/cim/engine/input_activation.md)
-- **Engine**: [CIM engine](family.md)

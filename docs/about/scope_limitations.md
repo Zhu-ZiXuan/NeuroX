@@ -1,14 +1,14 @@
 # Scope and limitations
 
-This document is the global fidelity envelope of the NeuroX simulator: a single place that states what NeuroX does and does not model, the validity ranges it operates within, and the simplifying assumptions it makes across all subsystems.
+The global fidelity envelope of the NeuroX simulator: what it does and does not model, the validity ranges it operates within, and the simplifying assumptions it makes across all subsystems.
 
-It is an aggregate, not the source of truth. Every subsystem's own boundary lives in the Assumptions, scope and validity section of its [Reference](../reference/README.md) document; this page collects those per-model statements into one envelope so a reader can judge, end to end, whether a given experiment is inside the simulator's intended regime. When a subsystem entry and its Reference document disagree, the Reference document wins and this page is the one to correct.
+It is an aggregate, not the source of truth. Every subsystem's own boundary lives in the Assumptions, scope and validity section of its [Reference](../reference/README.md) document; this page collects those per-model statements into one envelope, so a reader can judge end to end whether an experiment is inside the simulator's intended regime. When a subsystem entry and its Reference document disagree, the Reference document wins and this page is the one to correct.
 
-Read an entry here as a claim about the whole pipeline: a limitation that is local to one device (say, a retention model that is not implemented) becomes a limitation of every macro built on that device, and that propagation is what this page is meant to make visible.
+Read an entry here as a claim about the whole pipeline: a limitation local to one device, such as an unimplemented retention model, becomes a limitation of every macro built on that device, and this page exists to make that propagation visible.
 
 ## Per-area envelope
 
-The entries below are owned by each area's domain author and must be kept in sync with the corresponding Reference Assumptions section. Each entry should state what is modeled, what is deliberately not modeled, the validity range, and the simplifying assumptions taken.
+Each area's domain author owns its entry and keeps it in sync with the corresponding Reference Assumptions section. An entry states what is modeled, what is deliberately not modeled, the validity range, and the simplifying assumptions taken.
 
 ### Devices
 

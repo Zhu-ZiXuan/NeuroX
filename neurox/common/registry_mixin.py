@@ -40,10 +40,6 @@ class RegistryMixin[ConfigT: ConfigBase, PolicyT: PolicyBase, ModuleT: ModuleBas
     ) -> Callable[[type[ModuleT]], type[ModuleT]]:
         """Bind one concrete config-policy pair to a module class.
 
-        Args:
-            config_type: Concrete configuration type selecting the class.
-            policy_type: Concrete policy type selecting the class.
-
         Returns:
             Class decorator recording the binding and returning the decorated
             class unchanged. Re-decorating the same class with the same pair is
@@ -72,12 +68,7 @@ class RegistryMixin[ConfigT: ConfigBase, PolicyT: PolicyBase, ModuleT: ModuleBas
     def _lookup_neurox_module(cls, *, config: ConfigT, policy: PolicyT) -> type[ModuleT]:
         """Return the module class selected by concrete config and policy types.
 
-        Args:
-            config: Configuration instance; only its type selects the class.
-            policy: Policy instance; only its type selects the class.
-
-        Returns:
-            Module class registered for the pair.
+        Only the types select; the instances are never read.
 
         Raises:
             TypeError: No module is registered for the pair; the message lists

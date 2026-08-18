@@ -53,8 +53,9 @@ Stated assumptions:
 - The output is a pure LUT lookup plus additive Gaussian noise; no code-dependent nonlinearity beyond the LUT entries.
 - The output noise is signal-independent: one constant sigma applies at every code. The dominant output noise of a real steered current source instead grows with the steered current — $\sigma_{\mathrm{drive}} \propto \sqrt{I_{\mathrm{out}}}$ in the shot-noise limit — so a single fitted sigma over-states the noise near zero code and under-states it at full scale.
 - The steering is ideal: the tabulated current is delivered in full whatever voltage the driven node settles to, so neither finite output impedance nor the compliance-voltage headroom real steering needs bounds the transfer.
+- The LUT is exact at every fabricated instance: the unit-current-source mismatch that sets a real current-steering DAC's integral and differential nonlinearity is not expressed, so every instance realizes the same nominal transfer.
 
-TODO (domain author): the validity range of the ideal-LUT abstraction (settling, output impedance under load).
+TODO (domain author): the validity range of the ideal-LUT abstraction (settling, output impedance under load), and the unit-source mismatch model with its integral / differential nonlinearity consequence.
 
 ## Validation
 
@@ -63,9 +64,3 @@ TODO - link validation evidence once written.
 ## References
 
 TODO.
-
----
-
-- **Internals**: [general internals](../../../../internals/primitive/analog/current_dac/general.md)
-- **Validation**: TODO - validation evidence not yet written
-- **Configuration**: `GeneralIdacConfig`, `GeneralIdacPolicy` (see `api`)

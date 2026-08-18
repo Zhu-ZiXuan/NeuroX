@@ -48,9 +48,3 @@ TODO - link validation evidence once written.
 ## References
 
 N/A.
-
----
-
-- **Internals**: [unmodeled internals](../../../internals/primitive/analog/unmodeled.md)
-- **Validation**: TODO - validation evidence not yet written
-- **Configuration**: `UnmodeledBlockConfig`, `UnmodeledBlockPolicy` (see `api`)

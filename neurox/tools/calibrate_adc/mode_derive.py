@@ -1,4 +1,4 @@
-"""CLI: derive the quantization mode set from a per-layer range mapping file.
+"""Derive the quantization mode set from a per-layer range mapping file.
 
 CLI: `python -m neurox.tools.calibrate_adc.mode_derive --config <run.toml>
 [--output <modes.toml>] [--plot-dir <dir>] [--log-dir <dir>]
@@ -38,9 +38,6 @@ from ._testbench import add_file_logging
 logger = logging.getLogger(__name__)
 
 
-# --- config schema ----------------------------------------------------------
-
-
 @dataclass(frozen=True)
 class _ClusterCfg:
     """`[cluster]` section: knobs of the per-shape-group 1-D clustering."""
@@ -55,10 +52,6 @@ class ModeDeriveToolConfig(ConfigBase):
     mapping_file: Path
     """Layer-range mapping TOML, relative to the tool TOML."""
     cluster: _ClusterCfg
-    """Clustering knobs, applied per window-shape group."""
-
-
-# --- derivation -------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -152,9 +145,6 @@ def _build_mode_set(modes: list[DerivedMode], layer_to_mode: dict[str, int]) -> 
     )
 
 
-# --- output -----------------------------------------------------------------
-
-
 def _plot_clusters(
     modes: list[DerivedMode],
     layer_to_mode: dict[str, int],
@@ -198,9 +188,6 @@ def _plot_clusters(
     fig.savefig(output_path, dpi=110)
     plt.close(fig)
     logger.info("wrote cluster plot to %s", output_path)
-
-
-# --- CLI --------------------------------------------------------------------
 
 
 def _build_parser() -> argparse.ArgumentParser:

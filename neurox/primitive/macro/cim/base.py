@@ -1,7 +1,7 @@
 """Abstract CIM-macro primitive.
 
 See Also:
-    docs/internals/primitive/macro/cim/base.md
+    docs/reference/primitive/macro/cim/family.md
 """
 
 from __future__ import annotations
@@ -108,9 +108,7 @@ class CimMacroConfig(ConfigBase, ABC):
     """PPA and activation limit shared by every CIM macro."""
 
     area_per_inst__um2: float
-    """Silicon area of one fabricated instance."""
     leakage_per_inst__uW: float
-    """Static leakage power of one fabricated instance."""
     max_active_num: int
     """Maximum number of input positions one conversion may select; positions
     outside the selected set must be zero."""
@@ -138,14 +136,14 @@ class CimMacro[ConfigT: CimMacroConfig, PolicyT: CimMacroPolicy](
 ):
     """Abstract base class for a CIM macro.
 
+    The macro closes the analog domain: analog signals and analog
+    non-idealities live inside it and never cross above it, so what its
+    interface carries is integer codes and physical configuration.
+
     Args:
-        config: PPA, activation limit and scheme-specific parameters.
-        policy: Composite nonideality policy of the scheme's parts.
         input_num: Logical input-vector length selected by the owner.
         output_num: Logical output-vector length selected by the owner.
         inst_shape: Per-instance multiplicity prefix.
-        dtype: Tensor dtype for internal buffers.
-        T__K: Operating temperature.
     """
 
     def __init__(
@@ -187,15 +185,6 @@ class CimMacro[ConfigT: CimMacroConfig, PolicyT: CimMacroPolicy](
     ) -> CimMacro[CimMacroConfig, CimMacroPolicy]:
         """Build the implementation registered for the config-policy pair.
 
-        Args:
-            config: Config whose type selects the implementation.
-            policy: Policy whose type selects the implementation.
-            input_num: Logical input-vector length selected by the owner.
-            output_num: Logical output-vector length selected by the owner.
-            inst_shape: Per-instance multiplicity prefix.
-            dtype: Tensor dtype for internal buffers.
-            T__K: Operating temperature.
-
         Returns:
             Registered CIM macro implementation.
         """
@@ -217,7 +206,9 @@ class CimMacro[ConfigT: CimMacroConfig, PolicyT: CimMacroPolicy](
     def _split_col_lanes(t: Tensor, *, col_per_lane: int) -> Tensor:
         """Split the trailing column axis into a lane grid.
 
-        Requires exact divisibility.
+        The lane axis aligns with a fabricated instance axis — parallel circuit
+        copies — while the in-lane position is time-serial on its lane. Requires
+        exact divisibility.
 
         Args:
             t: Tensor whose trailing axis enumerates columns.

@@ -81,8 +81,3 @@ substrate, per the [unit family contract](family.md#noise-non-idealities).
   the output takes the rank of the input.
 - Non-zero padding requires the activation value range to contain zero.
 - Grouped convolution is out of scope.
-
----
-
-- **Internals**: [conv2d operator internals](../../../internals/architecture/unit/conv2d.md), [Conv2dCimUnit internals](../../../internals/architecture/unit/cim/conv2d.md)
-- **Configuration**: [config reference](../../../api/README.md)

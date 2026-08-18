@@ -6,8 +6,7 @@ line is a driven boundary, so the columns are independent and batched.
 
 Each rail is a UNIFORM ladder — one link resistance joins every pair of
 adjacent nodes and the same link joins the clamp driver to the node at index
-0 — so a whole rail enters the solve as one scalar. The single distinguished
-node is the ladder's open end at the last row, which has no link onward.
+0 — so a whole rail enters the solve as one scalar.
 
 Probing is per-iteration: an active `ColBlColSlProber` makes the solve emit the
 residual pair of every outer clamp event and of every inner Newton step, on top
@@ -18,7 +17,7 @@ unprobed graph stays break-free.
 
 See Also:
     docs/reference/primitive/xbar/solver/col_bl_col_sl.md
-    docs/internals/primitive/xbar/solver/col_bl_col_sl.md
+    docs/system_design/xbar_solve.md
 """
 
 from __future__ import annotations
@@ -29,7 +28,7 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor
 
-from neurox.common import ConfigBase, RecordBase, RecorderBase, TensorDataClassBase
+from neurox.common import ConfigBase, DcopBase, RecordBase, RecorderBase
 from neurox.primitive.xbar.cell import XbarCell, XbarCellDcop, XbarCellSnap
 
 from ._linalg import block_solve, solve_block_tridiagonal_2x2_uniform
@@ -40,7 +39,7 @@ from .clamp import ClampDcop, ClampDriver, ClampSnap
 _WIRE_DIM: Final = -1
 
 
-class ColBlColSlDcop[CellDcopT: XbarCellDcop](TensorDataClassBase):
+class ColBlColSlDcop[CellDcopT: XbarCellDcop](DcopBase):
     """Complete steady-state solution of one DC solve."""
 
     i_bl_driver__uA: Tensor
@@ -82,23 +81,23 @@ class ColBlColSlRecord[CellDcopT: XbarCellDcop](RecordBase):
     inner: int
     """`0` for that outer step's clamp event, `j + 1` for its `j`-th inner step."""
 
-    # --- Outer clamp event ---
+    # === Outer clamp event ===
 
-    f_bl_clamp__V: Tensor | None = None
+    f_bl_clamp__V: Tensor | None
     """BL outer residual, target minus clamp. Shape: `[..., num_col]`."""
-    f_sl_clamp__V: Tensor | None = None
+    f_sl_clamp__V: Tensor | None
     """SL outer residual, target minus drive. Shape: `[..., num_col]`."""
 
-    # --- Inner Newton step ---
+    # === Inner Newton step ===
 
-    f_bl_kcl__uA: Tensor | None = None
+    f_bl_kcl__uA: Tensor | None
     """BL wire KCL residual per node. Shape: `[..., num_col, num_row]`."""
-    f_sl_kcl__uA: Tensor | None = None
+    f_sl_kcl__uA: Tensor | None
     """SL wire KCL residual per node. Shape: `[..., num_col, num_row]`."""
 
-    # --- Terminal ---
+    # === Terminal ===
 
-    dcop: ColBlColSlDcop[CellDcopT] | None = None
+    dcop: ColBlColSlDcop[CellDcopT] | None
     """Converged operating point, on the terminal record alone: the iterate a
     consumer measures step deltas and relative guards against, never a state
     a residual is recomputed from. Being a dataclass, the record's field walk
@@ -134,8 +133,7 @@ class ColBlColSlProber(RecorderBase[ColBlColSlRecord[XbarCellDcop]]):
         return self.__min_outer
 
     @classmethod
-    @torch.compiler.disable
-    def submit(cls, record: ColBlColSlRecord[XbarCellDcop]) -> None:
+    def _submit_impl(cls, record: ColBlColSlRecord[XbarCellDcop]) -> None:
         """Collect one trajectory record unless its outer step is below `min_outer`.
 
         The gate sits here rather than at the emit site: the solve emits its
@@ -152,7 +150,12 @@ class ColBlColSlProber(RecorderBase[ColBlColSlRecord[XbarCellDcop]]):
 
 
 class ColBlColSlSolverConfig(ConfigBase):
-    """Workload-tuned numerical knobs for `ColBlColSlSolver`."""
+    """Workload-tuned numerical knobs for `ColBlColSlSolver`.
+
+    Both counts are calibration products of `neurox.tools.calibrate_solver`
+    and reach the solver from the chip configuration file, which is their
+    only home.
+    """
 
     n_outer: int
     """Outer Newton iterations on the per-column clamp voltage. Each step
@@ -172,12 +175,18 @@ class ColBlColSlSolver:
     """Block Gauss-Seidel + implicit-Newton DC solver for a parallel BL/SL tile.
 
     Every cell-grid tensor runs the wire ladder / IR-drop direction along the
-    last axis and indexes the independent columns along the second-to-last.
+    last axis and indexes the independent columns along the second-to-last; a
+    consuming array holding another internal layout organizes its data into
+    this one, the solver taking no axis selector. A single row, a single
+    column, and a single block row are well-defined systems this same path
+    settles, so nothing rejects a one-position extent.
 
     Args:
         config: Fixed outer / inner iteration counts.
     """
 
+    # Per-iteration |dV| damping bounds of the two Newtons: a property of the
+    # method rather than of a chip, so they stay off the calibrated config.
     _MAX_OUTER_STEP__V: float = 0.10
     _MAX_INNER_STEP__V: float = 0.05
 
@@ -232,9 +241,22 @@ class ColBlColSlSolver:
             record=record,
         )
         if record:
-            ColBlColSlProber.submit(ColBlColSlRecord(outer=self._config.n_outer, inner=0, dcop=dcop))
+            ColBlColSlProber.submit(
+                ColBlColSlRecord(
+                    outer=self._config.n_outer,
+                    inner=0,
+                    f_bl_clamp__V=None,
+                    f_sl_clamp__V=None,
+                    f_bl_kcl__uA=None,
+                    f_sl_kcl__uA=None,
+                    dcop=dcop,
+                )
+            )
         return dcop
 
+    # A Python-typed argument is part of the cache key by value, so each distinct
+    # segment resistance compiles its own graph: sweeping one exhausts the
+    # recompile budget and drops the leaf back to eager without raising.
     @torch.compile(dynamic=False)
     def _solve_dc_impl[
         CellSnapT: XbarCellSnap,
@@ -357,6 +379,9 @@ class ColBlColSlSolver:
                         inner=0,
                         f_bl_clamp__V=f_bl_clamp__V,
                         f_sl_clamp__V=f_sl_clamp__V,
+                        f_bl_kcl__uA=None,
+                        f_sl_kcl__uA=None,
+                        dcop=None,
                     )
                 )
 
@@ -406,8 +431,11 @@ class ColBlColSlSolver:
                         ColBlColSlRecord(
                             outer=outer_step,
                             inner=inner_step + 1,
+                            f_bl_clamp__V=None,
+                            f_sl_clamp__V=None,
                             f_bl_kcl__uA=f_bl_kcl__uA,
                             f_sl_kcl__uA=f_sl_kcl__uA,
+                            dcop=None,
                         )
                     )
 
@@ -426,6 +454,9 @@ class ColBlColSlSolver:
 
         # --- 7: refresh the cell and boundary currents ---
 
+        # The last inner step moved the nodes after the cell was last
+        # evaluated, so the returned working point is re-solved at the final
+        # node voltages rather than carried over from inside the loop.
         cell_dcop = cell.solve_dc(v_bl_node__V, v_sl_node__V, cell_snap)
 
         i_bl_driver__uA = i_drive__uA(v_bl_node__V, v_bl_clamp_grid__V, bl_g__uS, dim=_WIRE_DIM)
@@ -551,7 +582,6 @@ class ColBlColSlSolver:
         diag_blocks__uS = ColBlColSlSolver._g_diag_blocks__uS(
             g_cell_bl_eff__uS, g_cell_sl_eff__uS, bl_segment_g__uS, sl_segment_g__uS
         )
-        # RHS = [-F_BL, -F_SL] stacked.
         # Shape: [..., num_col, num_row, 2]
         rhs__uA = torch.stack((-f_bl_kcl__uA, -f_sl_kcl__uA), dim=-1)
 
@@ -565,7 +595,6 @@ class ColBlColSlSolver:
             rhs__uA,
             off_block=(-bl_segment_g__uS, -sl_segment_g__uS),
         )
-        # Unpack into (dv_bl_node__V, dv_sl_node__V).
         return delta__V[..., 0], delta__V[..., 1]
 
     @staticmethod
@@ -623,5 +652,4 @@ class ColBlColSlSolver:
         # Shape: [..., num_col, 2]
         k_col_bl = u_bl.select(-2, 0) * bl_segment_g__uS
         k_col_sl = u_sl.select(-2, 0) * sl_segment_g__uS
-        # Stack into [..., num_col, 2, 2] with K[:, j] as columns.
         return torch.stack((k_col_bl, k_col_sl), dim=-1)

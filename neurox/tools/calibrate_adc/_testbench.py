@@ -47,11 +47,6 @@ def add_file_logging(log_dir: Path, tool_name: str) -> Path:
     return log_path
 
 
-# ---------------------------------------------------------------------------
-# Macro section (shared TOML schema fragment)
-# ---------------------------------------------------------------------------
-
-
 @dataclass(frozen=True)
 class MacroSection:
     """`[macro]` section: which tile to build, by file reference."""
@@ -128,11 +123,6 @@ def build_ideal_twin(macro: CimMacro[CimMacroConfig, CimMacroPolicy], *, device:
     return ideal
 
 
-# ---------------------------------------------------------------------------
-# Stimulus generation (CPU generator for determinism; moved by the runner)
-# ---------------------------------------------------------------------------
-
-
 def sample_ternary_w(gen: torch.Generator, *, col_num: int, row_num: int, density: float) -> Tensor:
     """Random ternary digit tensor at `density`.
 
@@ -171,9 +161,6 @@ def sample_capped_block_w(
     """
     if not (0 <= cap <= active_row_num):
         raise ValueError(f"require: 0 <= cap ({cap}) <= active_row_num ({active_row_num})")
-    # Ceil so a non-divisible geometry still covers every row; the padded tail
-    # is dropped after the reshape (short final block == the engine's partial
-    # last sub-phase). When active_row_num divides row_num this is exact.
     phase_num = -(-row_num // active_row_num)
     counts = torch.randint(0, cap + 1, (col_num, phase_num), generator=gen)
     signs = torch.where(torch.rand((col_num, phase_num), generator=gen) < 0.5, -1, 1)
@@ -217,9 +204,6 @@ def grid_block_w(
         raise ValueError(f"require: 1 <= m_max ({m_max}) <= active_row_num ({active_row_num})")
     if not (1 <= col_stride <= col_num):
         raise ValueError(f"require: 1 <= col_stride ({col_stride}) <= col_num ({col_num})")
-    # Ceil so a non-divisible geometry still covers every row; the padded tail
-    # is dropped after the reshape (short final block == the engine's partial
-    # last sub-phase). When active_row_num divides row_num this is exact.
     phase_num = -(-row_num // active_row_num)
     # Shape: [col_num]
     col = torch.arange(col_num)
@@ -250,9 +234,6 @@ def saturating_w(*, col_num: int, row_num: int, active_row_num: int) -> Tensor:
         Digit tensor.
         Shape: `[col_num, 1, row_num]`.
     """
-    # Ceil so a non-divisible geometry still covers every row; the padded tail
-    # is dropped after the reshape (short final block == the engine's partial
-    # last sub-phase). When active_row_num divides row_num this is exact.
     phase_num = -(-row_num // active_row_num)
     kind = torch.arange(col_num) % 3
     # Shape: [phase_num]
@@ -272,11 +253,6 @@ def sample_binary_x(gen: torch.Generator, *, batch: int, row_num: int, density: 
         Shape: `[batch, row_num]`.
     """
     return (torch.rand((batch, row_num), generator=gen) < density).to(torch.long)
-
-
-# ---------------------------------------------------------------------------
-# Dual probed run
-# ---------------------------------------------------------------------------
 
 
 def _unroll_sub_phase(x: Tensor, *, row_num: int, max_active_num: int, inst_rank: int) -> Tensor:

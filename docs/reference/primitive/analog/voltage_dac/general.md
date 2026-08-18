@@ -62,9 +62,3 @@ TODO - link validation evidence once written.
 ## References
 
 TODO.
-
----
-
-- **Internals**: [general internals](../../../../internals/primitive/analog/voltage_dac/general.md)
-- **Validation**: TODO - validation evidence not yet written
-- **Configuration**: `GeneralVdacConfig`, `GeneralVdacPolicy` (see `api`)

@@ -2,7 +2,6 @@
 
 See Also:
     docs/reference/primitive/analog/current_dac/general.md
-    docs/internals/primitive/analog/current_dac/general.md
 """
 
 from __future__ import annotations
@@ -45,17 +44,7 @@ class GeneralIdacPolicy(IdacPolicy):
 
 @Idac.register_neurox_module(config_type=GeneralIdacConfig, policy_type=GeneralIdacPolicy)
 class GeneralIdac(Idac[GeneralIdacConfig, GeneralIdacPolicy]):
-    """General current DAC model — code-to-current LUT plus signal-independent output noise.
-
-    Args:
-        config: Concrete configuration dataclass.
-        policy: Per-source nonideality flags.
-        inst_shape: Per-instance fabrication shape.
-        dtype: Tensor dtype for internal buffers.
-        T__K: Operating temperature.
-    """
-
-    # === Functional buffers ===
+    """General current DAC model — code-to-current LUT plus signal-independent output noise."""
 
     _code_to_signal: Tensor  # Shape: [code_num]
 
@@ -94,16 +83,6 @@ class GeneralIdac(Idac[GeneralIdacConfig, GeneralIdacPolicy]):
         return len(self.config.code_to_signal) - 1
 
     def convert(self, code: Tensor) -> Tensor:
-        """Convert integer digital codes to analog output currents.
-
-        Args:
-            code: Integer input codes in `[0, code_max]`.
-                Shape: `[...]`.
-
-        Returns:
-            Analog output current [uA], one value per `code` element.
-            Shape: `[...]`.
-        """
         signal = apply_gaussian(
             self._code_to_signal[code],
             self.config.drive_thermal__uA,

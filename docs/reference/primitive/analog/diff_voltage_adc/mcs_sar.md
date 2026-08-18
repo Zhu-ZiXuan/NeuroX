@@ -150,9 +150,3 @@ TODO - link validation evidence once written.
 ## References
 
 TODO: cite the merged-capacitor-switching SAR topology and its energy model.
-
----
-
-- **Internals**: [mcs_sar internals](../../../../internals/primitive/analog/diff_voltage_adc/mcs_sar.md)
-- **Validation**: TODO - validation evidence not yet written
-- **Configuration**: `McsSarDiffVadcConfig`, `McsSarDiffVadcPolicy` (see `api`)

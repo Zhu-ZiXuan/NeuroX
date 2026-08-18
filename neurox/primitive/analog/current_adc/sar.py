@@ -2,7 +2,6 @@
 
 See Also:
     docs/reference/primitive/analog/current_adc/sar.md
-    docs/internals/primitive/analog/current_adc/sar.md
 """
 
 from __future__ import annotations
@@ -104,11 +103,7 @@ class SarIadc(Iadc[SarIadcConfig, SarIadcPolicy]):
     front, it fails in the tap gather.
 
     Args:
-        config: Concrete configuration dataclass.
-        policy: Per-source nonideality flags.
         inst_shape: Fabricated shared-sense-lane shape.
-        dtype: Tensor dtype for internal buffers.
-        T__K: Operating temperature.
         enable_energy_record: Whether conversions emit dynamic-energy events.
             An owner that bills the conversion energy itself passes `False`;
             the value conversion is unaffected either way.
@@ -162,7 +157,6 @@ class SarIadc(Iadc[SarIadcConfig, SarIadcPolicy]):
         return sum(self.config.step_latency__ns[:bits])
 
     def _register_fabrication_buffers(self, *, dtype: torch.dtype) -> None:
-        """Register immutable tensors used as fabrication sources."""
         self.register_buffer("_nominal_comparator_offset__uA", torch.zeros((), dtype=dtype), persistent=False)
         self.register_buffer("_nominal_coupling_offset__uA", torch.zeros((), dtype=dtype), persistent=False)
 

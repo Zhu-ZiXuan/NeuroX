@@ -1,7 +1,8 @@
 """Pluggable crossbar-cell abstraction.
 
 See Also:
-    docs/internals/primitive/xbar/cell/base.md
+    docs/reference/primitive/xbar/cell/family.md
+    docs/system_design/xbar_solve.md
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ from typing import ClassVar
 import torch
 from torch import Tensor
 
-from neurox.common import ConfigBase, ModuleBase, PolicyBase, TensorDataClassBase, TensorGroupMixin
+from neurox.common import ConfigBase, DcopBase, ModuleBase, PolicyBase, SnapBase
 
 
 class XbarCellConfig(ConfigBase, ABC):
@@ -26,12 +27,16 @@ class XbarCellPolicy(PolicyBase, ABC):
     """Base class for crossbar-cell nonideality policies."""
 
 
-class XbarCellSnap(TensorDataClassBase, TensorGroupMixin):
+class XbarCellSnap(SnapBase):
     """Base class for per-call cell snapshots."""
 
 
-class XbarCellDcop(TensorDataClassBase):
-    """Condensed branch working point of one cell DC evaluation."""
+class XbarCellDcop(DcopBase):
+    """Condensed branch working point of one cell DC evaluation.
+
+    A model-specific convergence residual is no field here: it travels on the
+    probe record of the model that computes it.
+    """
 
     i__uA: Tensor
     """Branch current, positive bit-line into source-line. Shape: `[..., col, row]`."""
@@ -51,12 +56,16 @@ class XbarCell[ConfigT: XbarCellConfig, PolicyT: XbarCellPolicy, SnapT: XbarCell
     and `solve_dc` for identical inputs and snap, and must read every per-call
     control from the snap rather than from `self`.
 
+    The two conductance signs are an unchecked contract: nothing validates
+    them, and a solve that assembles a Jacobian from the wrong sign corrupts
+    its operating point silently instead of raising.
+
+    Both solve methods run inside the compiled solver leaf, so an
+    implementation stays traceable there — no in-place tensor write, and no
+    Python branch on a tensor value.
+
     Args:
-        config: Concrete configuration dataclass.
-        policy: Composite per-device nonideality policy.
         inst_shape: Per-instance shape `(..., col, row)`.
-        dtype: Tensor dtype for internal buffers.
-        T__K: Operating temperature.
     """
 
     is_profile_target: ClassVar[bool] = False

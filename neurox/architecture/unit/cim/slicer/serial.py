@@ -1,8 +1,4 @@
-"""SerialSlicer — true-form radix-`r` positional decomposition.
-
-See Also:
-    docs/internals/architecture/unit/cim/slicer/serial.md
-"""
+"""SerialSlicer — true-form radix-`r` positional decomposition."""
 
 from __future__ import annotations
 

@@ -4,9 +4,6 @@ The K per-input-bit DSWCT output currents are weighted by the LSB-first
 input-radix combine ratios `s_k` and summed over the bit axis into the per-lane
 pre-subtraction current `I_DL_PN`. A reporter leaf: it self-bills its held/live
 mirror-leg conduction and hold-cap cycling.
-
-See Also:
-    docs/works/macro/cim/xue2020jssc/model.md
 """
 
 from __future__ import annotations
@@ -41,8 +38,6 @@ class SinwpSc(ModuleBase[SinwpScConfig, SinwpScPolicy]):
     """SINWP-SC switched-capacitor input-radix combine — one unit per (IO, polarity) lane.
 
     Args:
-        config: Physical knobs and static PPA seat of one combine unit.
-        policy: Nonideality toggles; this scheme declares none.
         inst_shape: Fabrication shape `(*inst_shape, gn, polarity)` — one combine
             unit per (CIM-IO, polarity) lane.
         bit_ratios: LSB-first per-input-bit combine ratios `s_k`, in the module's

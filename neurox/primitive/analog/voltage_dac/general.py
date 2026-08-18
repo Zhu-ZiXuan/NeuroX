@@ -2,7 +2,6 @@
 
 See Also:
     docs/reference/primitive/analog/voltage_dac/general.md
-    docs/internals/primitive/analog/voltage_dac/general.md
 """
 
 from __future__ import annotations
@@ -58,15 +57,7 @@ class GeneralVdacPolicy(VdacPolicy):
 
 @Vdac.register_neurox_module(config_type=GeneralVdacConfig, policy_type=GeneralVdacPolicy)
 class GeneralVdac(Vdac[GeneralVdacConfig, GeneralVdacPolicy]):
-    """General voltage DAC model with a code-to-voltage LUT.
-
-    Args:
-        config: Concrete configuration dataclass.
-        policy: Per-source nonideality flags.
-        inst_shape: Per-instance fabrication shape.
-        dtype: Tensor dtype for internal buffers.
-        T__K: Operating temperature.
-    """
+    """General voltage DAC model with a code-to-voltage LUT."""
 
     # === Functional buffers ===
 
@@ -113,16 +104,6 @@ class GeneralVdac(Vdac[GeneralVdacConfig, GeneralVdacPolicy]):
         return len(self.config.code_to_signal) - 1
 
     def convert(self, code: Tensor) -> Tensor:
-        """Convert integer digital codes to analog output voltages.
-
-        Args:
-            code: Integer input codes in `[0, code_max]`.
-                Shape: `[...]`.
-
-        Returns:
-            Analog output voltage [V], one value per `code` element.
-            Shape: `[...]`.
-        """
         nominal__V = self._code_to_signal[code]
         signal = apply_gaussian(
             nominal__V,

@@ -17,7 +17,7 @@ Follow these public conventions unless a rule here is stricter or a deviation is
 - Link documents with relative `.md` paths; link sections with `#slug`.
 - Never hand-author an HTML anchor (`<a id="..."></a>`); heading anchors are auto-generated, so a `#slug` link needs no manual target, and a link resolves to a whole document.
 - README files are navigation only: short orientation plus links to children. Do not put templates, rules, philosophy, or detailed model prose in a README.
-- Under `reference/` and `internals/`, only the pillar root has a README. Nested groups exist only in `mkdocs.yml`; do not create a README merely because a directory exists.
+- A subsystem directory under a documentation category may carry a README index where a reader needs an entry point into it. Do not create one merely because a directory exists; a nested group with no such need lives only in `mkdocs.yml`.
 - Do not write easy-to-stale counts such as "this family has N members".
 
 ## Symbols and math

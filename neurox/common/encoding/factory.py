@@ -13,11 +13,6 @@ from .true_form import TrueFormTranscoder
 def create_transcoder(*, encoding: Encoding, radix: int, digit_count: int) -> Transcoder:
     """Construct the transcoder one encoding identifier selects.
 
-    Args:
-        encoding: Signed-digit encoding to instantiate.
-        radix: Positional base `r` of the digit representation, `r >= 2`.
-        digit_count: Number of digits `D` produced by `encode`, `D >= 1`.
-
     Returns:
         Transcoder realizing `encoding` over `(radix, digit_count)`.
 

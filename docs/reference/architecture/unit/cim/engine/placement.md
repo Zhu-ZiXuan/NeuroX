@@ -17,8 +17,3 @@ The geometric mapping and accumulator are configured together through
 
 Uniform control is intentional: zero-padded groups in the final `D` step
 still execute. The simulator does not assume fine-grained per-group enables.
-
----
-
-- **Internals**: [placement internals](../../../../../internals/architecture/unit/cim/engine/placement.md)
-- **Engine**: [CIM engine](family.md)

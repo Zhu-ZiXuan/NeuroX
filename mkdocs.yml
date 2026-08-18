@@ -7,8 +7,10 @@ edit_uri: edit/main/docs/
 
 # Under --strict, a dead cross-reference fragment (#anchor) aborts the build, not just a missing file.
 validation:
-  links:
-    anchors: warn
+  omitted_files: warn
+  anchors: warn
+  absolute_links: warn
+  unrecognized_links: warn
 
 theme:
   name: material
@@ -47,8 +49,8 @@ plugins:
             show_root_heading: false
             show_category_heading: true
 
-# Top-level pillars follow the documentation taxonomy. Below each pillar, the
-# navigation mirrors docs/: README/family/base first, then stable path order.
+# Top-level sections follow the reader journey in docs/README.md; within a
+# section, the README comes first and a family precedes its members.
 nav:
 - Home: README.md
 - Get started:
@@ -60,9 +62,8 @@ nav:
     - Workflow: guides/algorithm_engineer/workflow.md
   - Calibration:
     - Overview: guides/calibration/README.md
-    - Generic ADC calibration: guides/calibration/calibrate_adc.md
+    - ADC calibration: guides/calibration/calibrate_adc.md
     - Solver iteration counts: guides/calibration/solver_iteration_counts.md
-    - State map: guides/calibration/state_map.md
     - Tool conventions: guides/calibration/tool_conventions.md
 - Reference:
   - Overview: reference/README.md
@@ -136,102 +137,15 @@ nav:
   - Configuration: api/configuration.md
   - Python: api/python.md
   - Common: api/common.md
-- Internals:
-  - Overview: internals/README.md
-  - Architecture:
-    - Unit:
-      - Base: internals/architecture/unit/base.md
-      - CIM:
-        - Base: internals/architecture/unit/cim/base.md
-        - Conv2d: internals/architecture/unit/cim/conv2d.md
-        - Engine:
-          - Base: internals/architecture/unit/cim/engine/base.md
-          - Input activation: internals/architecture/unit/cim/engine/input_activation.md
-          - Placement: internals/architecture/unit/cim/engine/placement.md
-          - Weight slicing: internals/architecture/unit/cim/engine/weight_slice.md
-          - Input slicing: internals/architecture/unit/cim/engine/x_slice.md
-        - Linear: internals/architecture/unit/cim/linear.md
-        - Slicer:
-          - Base: internals/architecture/unit/cim/slicer/base.md
-          - Direct: internals/architecture/unit/cim/slicer/direct.md
-          - Serial: internals/architecture/unit/cim/slicer/serial.md
-          - Simple: internals/architecture/unit/cim/slicer/simple.md
-      - Conv2d: internals/architecture/unit/conv2d.md
-      - Linear: internals/architecture/unit/linear.md
-      - Matrix-multiplication mapping: internals/architecture/unit/matmul_mapping.md
-  - Compile:
-    - Contracts: internals/compile/contracts.md
-    - Scheme A regional: internals/compile/scheme_a_regional.md
-    - Scheme B deobjectified: internals/compile/scheme_b_deobjectified.md
-    - Scheme C custom op: internals/compile/scheme_c_custom_op.md
-  - Config and policy: internals/config_and_policy.md
-  - Package surface: internals/package_surface.md
-  - Physical state: internals/physical_state.md
-  - Primitive:
-    - Analog:
-      - Base: internals/primitive/analog/base.md
-      - Single-ended current ADC:
-        - Base: internals/primitive/analog/current_adc/base.md
-        - SAR: internals/primitive/analog/current_adc/sar.md
-      - Current DAC:
-        - Base: internals/primitive/analog/current_dac/base.md
-        - General: internals/primitive/analog/current_dac/general.md
-      - Current mux: internals/primitive/analog/current_mux.md
-      - Current reference: internals/primitive/analog/current_reference.md
-      - Differential voltage ADC:
-        - Base: internals/primitive/analog/diff_voltage_adc/base.md
-        - General: internals/primitive/analog/diff_voltage_adc/general.md
-        - MCS SAR: internals/primitive/analog/diff_voltage_adc/mcs_sar.md
-      - Switch cap: internals/primitive/analog/switch_cap.md
-      - Unmodeled block: internals/primitive/analog/unmodeled.md
-      - Voltage DAC:
-        - Base: internals/primitive/analog/voltage_dac/base.md
-        - General: internals/primitive/analog/voltage_dac/general.md
-      - Voltage driver: internals/primitive/analog/voltage_driver.md
-      - Voltage mux: internals/primitive/analog/voltage_mux.md
-      - Voltage reference: internals/primitive/analog/voltage_reference.md
-    - Device:
-      - MOSFET: internals/primitive/device/mosfet.md
-      - RRAM: internals/primitive/device/rram.md
-      - Selector: internals/primitive/device/selector.md
-    - Digital:
-      - Base: internals/primitive/digital/base.md
-      - Accumulator: internals/primitive/digital/accumulator.md
-      - Adder: internals/primitive/digital/adder.md
-      - Serial accumulator: internals/primitive/digital/serial_accumulator.md
-      - Shift adder: internals/primitive/digital/shift_adder.md
-      - Subtractor: internals/primitive/digital/subtractor.md
-    - Macro:
-      - CIM:
-        - Base: internals/primitive/macro/cim/base.md
-        - Ideal: internals/primitive/macro/cim/ideal.md
-    - Nonideality: internals/primitive/nonideality.md
-    - Physics: internals/primitive/physics.md
-    - Xbar:
-      - Array:
-        - 1T1R:
-          - Array: internals/primitive/xbar/array/1t1r.md
-      - Cell:
-        - Base: internals/primitive/xbar/cell/base.md
-        - 1T1R:
-          - Base: internals/primitive/xbar/cell/1t1r.md
-          - Detail: internals/primitive/xbar/cell/1t1r_detail.md
-          - Linear: internals/primitive/xbar/cell/1t1r_linear.md
-      - Scan organizations: internals/primitive/xbar/scan_organization.md
-      - Solver:
-        - Parallel BL/SL: internals/primitive/xbar/solver/col_bl_col_sl.md
-        - Clamp driver: internals/primitive/xbar/solver/clamp.md
-        - Chunking: internals/primitive/xbar/solver/chunking.md
-- Works:
-  - Overview: works/README.md
-  - Macro:
-    - CIM:
-      - Xue 2020 JSSC:
-        - Overview: works/macro/cim/xue2020jssc/README.md
-        - Model: works/macro/cim/xue2020jssc/model.md
-      - Ye 2023 JSSC:
-        - Overview: works/macro/cim/ye2023jssc/README.md
-        - Model: works/macro/cim/ye2023jssc/model.md
+- System design:
+  - Overview: system_design/README.md
+  - Construction: system_design/construction.md
+  - Physical state: system_design/physical_state.md
+  - PPA accounting: system_design/ppa_accounting.md
+  - Compile boundary: system_design/compile.md
+  - CIM execution: system_design/cim_execution.md
+  - Crossbar DC solve: system_design/xbar_solve.md
+  - Non-ideality kernels: system_design/nonideality_kernels.md
 - Conventions:
   - Overview: conventions/README.md
   - Code style: conventions/code_style.md
@@ -246,10 +160,9 @@ nav:
   - Overview: contributing/README.md
   - Recipes: contributing/recipes.md
   - Workflow: contributing/workflow.md
-  - Writing base docs: contributing/writing_base_docs.md
   - Writing family docs: contributing/writing_family_docs.md
-  - Writing leaf docs: contributing/writing_leaf_docs.md
   - Writing module docs: contributing/writing_module_docs.md
+  - Writing system design: contributing/writing_system_design.md
 - About:
   - Overview: about/README.md
   - Citation: about/citation.md

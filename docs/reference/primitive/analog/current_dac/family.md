@@ -21,9 +21,3 @@ TODO (domain author): the validity range of the code-to-current abstraction (set
 ## References
 
 TODO.
-
----
-
-- **Internals**: [current DAC base internals](../../../../internals/primitive/analog/current_dac/base.md)
-- **Validation**: TODO - validation evidence not yet written
-- **Configuration**: `IdacConfig` (see `api`)

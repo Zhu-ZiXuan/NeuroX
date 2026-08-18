@@ -22,8 +22,3 @@ the direct layout performs no digital operation.
 The stage publishes the complete logical `w_value_range` computed by its
 slicer. The macro remains responsible only for the value range accepted by
 one slice.
-
----
-
-- **Internals**: [weight-slice internals](../../../../../internals/architecture/unit/cim/engine/weight_slice.md)
-- **Engine**: [CIM engine](family.md)

@@ -49,10 +49,6 @@ from ._common import (
     resolve_macro_files,
 )
 
-# ---------------------------------------------------------------------------
-# TOML config schema
-# ---------------------------------------------------------------------------
-
 
 @dataclass(frozen=True)
 class _WorkloadCfg:
@@ -358,12 +354,10 @@ def main(argv: list[str] | None = None) -> int:
         reltol=cfg.sweep.reltol,
     )
     if inner_pick.iter_count is None:
-        # n_inner can plausibly plateau at the smallest candidate — every iter
-        # changes u so geometrically that the sweep's 2-point ratio test
-        # cannot resolve the descent. Fall back to the smallest candidate but
-        # re-verify the residual guard AT THAT candidate (Stage A's guard
-        # was at n_inner_ref, which is generous; the smallest n_inner might
-        # not meet residuals on its own).
+        # n_inner can plateau at the smallest candidate, the descent too steep
+        # for the sweep's 2-point ratio test to resolve. Fall back to it, but
+        # re-verify the residual guard THERE: Stage A verified it at the
+        # generous inner_ref, which the smallest n_inner need not match.
         from neurox.tools._plateau import check_residual_relative_guard
 
         fallback = cfg.sweep.inner_candidates[0]

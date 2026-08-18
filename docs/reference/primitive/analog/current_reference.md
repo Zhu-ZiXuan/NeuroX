@@ -46,7 +46,7 @@ Provenance terms are defined in [module_parameter](../../../conventions/module_p
 
 ## Assumptions, scope & validity
 
-Stated assumption: the bias power that generates the reference currents is a constant static draw, not derived from the tap values; the initial accuracy is a per-die constant relative to the nominal tap, and the sourced value is time-invariant between fabrications. Each tap is non-negative; a `0` uA tap is valid and denotes a ground/rail reference (relative tolerance scales it to exactly `0`, so it stays stable and correct). Mode selection is quasi-static: switching the active mode is far slower than a conversion, so no per-conversion switching energy is modelled. Any departure belonging to the circuit that reads the tap — a comparator offset, a per-branch coupling, a per-access thermal draw — is a property of that circuit and is modelled there, so the reference carries no second spread per reading site; counting it in both places would double the same physical deviation. The model is valid where the bias power is well-approximated as constant over the operating range.
+Stated assumption: the bias power that generates the reference currents is a constant static draw, not derived from the tap values; the initial accuracy is a per-die constant relative to the nominal tap, and the sourced value is time-invariant between fabrications. Each tap is non-negative; a `0` uA tap is valid and denotes a ground/rail reference (relative tolerance scales it to exactly `0`, so it stays stable and correct). Mode selection is quasi-static: switching the active mode is far slower than a conversion, so no per-conversion switching energy is modelled. Any departure belonging to the circuit that reads the tap — a comparator offset, a per-branch coupling, a per-access thermal draw — is modelled there, so the reference carries no second spread per reading site. The model is valid where the bias power is well-approximated as constant over the operating range.
 
 TODO (domain author): whether slow temperature drift within an inference must be modelled as a correlated term on the source, and whether a tap-current-dependent bias-power term is needed for designs where the sourced currents dominate the static draw.
 
@@ -57,9 +57,3 @@ TODO — link validation evidence once written.
 ## References
 
 TODO: cite the reference-accuracy and drift models.
-
----
-
-- **Internals**: [current_reference internals](../../../internals/primitive/analog/current_reference.md)
-- **Validation**: TODO — validation evidence not yet written
-- **Configuration**: `IrefConfig`, `IrefPolicy` (see `api`)

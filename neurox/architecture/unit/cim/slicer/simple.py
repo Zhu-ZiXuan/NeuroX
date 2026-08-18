@@ -1,8 +1,4 @@
-"""SimpleSlicer — positional decomposition into macro-level slices.
-
-See Also:
-    docs/internals/architecture/unit/cim/slicer/simple.md
-"""
+"""SimpleSlicer — positional decomposition into macro-level slices."""
 
 from __future__ import annotations
 
@@ -41,6 +37,8 @@ class SimpleSlicer(Slicer):
                 raise ValueError(f"require: slice_value_range upper bound ({hi}) >= 1")
             value_range = (0, radix**slice_num - 1)
         elif lo == -hi and hi >= 1:
+            # A signed-digit carrier spans [-(R - 1), R - 1], so its radix is
+            # one past the bound rather than the alphabet size 2 * hi + 1.
             radix = hi + 1
             value_range = create_transcoder(
                 encoding=encoding,

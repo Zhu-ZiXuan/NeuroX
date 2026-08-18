@@ -1,7 +1,7 @@
 """The rail boundary clamp of one DC solve: the driver role and its snapshot.
 
 See Also:
-    docs/internals/primitive/xbar/solver/clamp.md
+    docs/system_design/xbar_solve.md
 """
 
 from __future__ import annotations
@@ -16,9 +16,10 @@ class ClampSnap(Protocol):
 
     @property
     def v_ref__V(self) -> Tensor:
-        """NOMINAL reference or zero-current clamp voltage, carrying no driver-owned perturbation.
+        """NOMINAL reference or zero-current clamp voltage, free of driver-owned perturbation.
 
-        A concrete snap keeps any offset or noise draw in its own dedicated field(s), folded in by `solve_dc`.
+        A concrete snap keeps any offset or noise draw in dedicated fields of
+        its own, folded in by `solve_dc`.
         """
         ...
 
@@ -37,7 +38,12 @@ class ClampDcop(Protocol):
 
     @property
     def dvclamp_di__MOhm(self) -> Tensor:
-        """∂V_clamp/∂I, the clamp voltage's derivative against the port current."""
+        """∂V_clamp/∂I, the clamp voltage's derivative against the port current.
+
+        Derivative-defined: a clamp whose slope is not a stored constant
+        evaluates it at the operating point rather than reporting an
+        output-resistance config field.
+        """
         ...
 
 
@@ -61,7 +67,8 @@ class ClampDriver[SnapT: ClampSnap, DcopT: ClampDcop](Protocol):
 
         Args:
             i_port__uA: Port-output current the solve enters through.
-            snap: Per-call snap, sampled by the concrete driver's own snapshot method.
+            snap: Per-call snap, sampled by the concrete driver's own snapshot
+                method.
             v_clamp_init__V: Optional warm-start hint.
 
         Returns:

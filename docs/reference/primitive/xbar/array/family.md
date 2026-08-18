@@ -71,8 +71,3 @@ TODO: add validation evidence for solver fixed points, converged residuals, per-
 ## References
 
 TODO: cite the wire-ladder formulation and the Tellegen energy-accounting basis.
-
----
-
-- **Internals**: [1T1R array](../../../../internals/primitive/xbar/array/1t1r.md)
-- **Configuration**: [config reference](../../../../api/README.md)

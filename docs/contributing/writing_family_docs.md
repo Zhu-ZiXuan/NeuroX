@@ -30,12 +30,6 @@ A family document uses the sections below in order. The document file is `family
 ## Assumptions, scope & validity
 
 ## References
-
----
-
-- **Internals**: [<base doc>](<relative .md path>)
-- **Validation**: [<doc>](<relative .md path>) or TODO — <what is missing>
-- **Configuration**: [<doc>](<relative .md path>) or TODO — <what is missing>
 ```
 
 ## Filling each section
@@ -49,17 +43,13 @@ A family document uses the sections below in order. The document file is `family
 
 Insert an optional `Noise & non-idealities` section, after Governing laws, only for a statement genuinely shared by every member — for example, that quantization is intrinsic to the whole family. Shared cross-device sources belong in [nonideality](../reference/primitive/nonideality.md).
 
-The footer is traceability: Internals points to the base document that owns the family's software contract, Validation to the family-level evidence, and Configuration to the family's shared config and policy schema.
-
 ## Content rules
 
 ### Stay at the family layer
 
-A family document states shared science, never a software contract and never one member's specifics. An interface obligation, an ownership boundary, or a single topology's transfer characteristic belongs in the base document or that member's document.
+A family document states shared science, never a software contract and never one member's specifics. An interface obligation or an ownership boundary belongs to the code that enforces it, and a single topology's transfer characteristic belongs to that member's document.
 
-Do not name a concrete member anywhere in the body, including as an example,
-counterexample, current default, or deferred alternative. The site navigation
-is the sole member inventory.
+Do not name a concrete member anywhere in the body, including as an example, counterexample, current default, or deferred alternative. The site navigation is the sole member inventory.
 
 **Bad:** "The member does not source or store its reference taps; the owning module injects them each call."
 

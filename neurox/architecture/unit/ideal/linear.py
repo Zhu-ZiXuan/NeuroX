@@ -27,11 +27,8 @@ class IdealLinearUnit(LinearUnit, CimUnit[IdealLinearUnitConfig, IdealLinearUnit
     """Exact integer linear unit without output quantization.
 
     Args:
-        config: Configuration selecting the concrete implementation.
-        policy: Runtime policy.
         w_logical_shape: Logical weight shape `(N, K)` bound to `program(...)`.
         dtype: Requested tensor dtype; it does not affect exact integer execution.
-        T__K: Operating temperature.
         ideal_macro: Accepted without changing this already ideal unit.
     """
 

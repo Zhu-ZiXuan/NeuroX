@@ -2,7 +2,7 @@
 
 ## Physical model
 
-A bank of $N$ capacitors shares one common plate. Cap $k$ has nominal capacitance $C_k = C_{\mathrm{unit}}\,a_k$, where $a_k$ is a positive per-cap weight and $C_{\mathrm{unit}}$ the unit-cell capacitance. On a sample each cap is charged to its input voltage on its bottom plate; on release the common plate settles to the charge-weighted average of the sampled voltages. The two physical non-idealities are static per-unit-cell capacitance mismatch (Pelgrom) and per-cap kT/C settling noise sampled onto each held input ($\sigma_k = \sqrt{k_B T / C_k}$).
+A bank of $N$ capacitors shares one common plate. Cap $k$ has nominal capacitance $C_k = C_{\mathrm{unit}}\,a_k$, where $a_k$ is a positive per-cap weight and $C_{\mathrm{unit}}$ the unit-cell capacitance. On a sample each cap is charged to its input voltage on its bottom plate; on release the common plate settles to the charge-weighted average of the sampled voltages. The two modelled non-idealities are static per-unit-cell capacitance mismatch (Pelgrom) and per-cap kT/C settling noise on each held input.
 
 ## Governing equations
 
@@ -35,7 +35,7 @@ In the consistent unit set $\mathrm{fF}\times\mathrm{V}^2 = \mathrm{fJ}$.
 | cap mismatch | per-unit-cell area/oxide variation | static per-unit-cell Pelgrom-scaled Gaussian on $C_k$, sampled at fabricate | $\sigma_u$ |
 | sampling thermal noise | per-cap kT/C settling noise | additive zero-mean Gaussian on each held input $V_k$, sigma $\sigma_k = \sqrt{k_B T / C_k}$ per cap | $\sigma_k$ (derived from $T$, $C_k$) |
 
-Cap mismatch is static — a fixed offset frozen at fabrication; kT/C noise is dynamic — an independent fresh draw per cap on each sampling event. Pelgrom area scaling sets the mismatch magnitude: the relative capacitance-matching sigma falls as the inverse square root of capacitor area, so a cap of weight $a_k$ (occupying $a_k$ unit cells) has relative mismatch sigma $\sigma_u / \sqrt{a_k}$ and absolute sigma $\sigma_u\,C_{\mathrm{unit}}\sqrt{a_k}$, where $\sigma_u$ is the per-unit-cell relative sigma. The kT/C sigma $\sigma_k = \sqrt{k_B T / C_k}$ rises with temperature $T$ and falls with per-cap capacitance $C_k$.
+Cap mismatch is static — a fixed offset frozen at fabrication; kT/C noise is dynamic — an independent fresh draw per cap on each sampling event. Pelgrom area scaling sets the mismatch magnitude: the relative capacitance-matching sigma falls as the inverse square root of capacitor area, so a cap of weight $a_k$ (occupying $a_k$ unit cells) has relative mismatch sigma $\sigma_u / \sqrt{a_k}$ and absolute sigma $\sigma_u\,C_{\mathrm{unit}}\sqrt{a_k}$, where $\sigma_u$ is the per-unit-cell relative sigma.
 
 ## Parameters
 
@@ -84,9 +84,3 @@ TODO - link validation evidence once written.
 ## References
 
 TODO: cite the bottom-plate-sampling charge-share and the Pelgrom mismatch model.
-
----
-
-- **Internals**: [switch_cap internals](../../../internals/primitive/analog/switch_cap.md)
-- **Validation**: TODO - validation evidence not yet written
-- **Configuration**: `SwitchCapConfig`, `SwitchCapPolicy` (see `api`)

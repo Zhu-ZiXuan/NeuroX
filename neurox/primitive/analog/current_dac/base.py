@@ -1,7 +1,7 @@
 """Abstract base class for current-domain DAC models.
 
 See Also:
-    docs/internals/primitive/analog/current_dac/base.md
+    docs/reference/primitive/analog/current_dac/family.md
 """
 
 from __future__ import annotations
@@ -37,12 +37,8 @@ class Idac[ConfigT: IdacConfig, PolicyT: IdacPolicy](
 ):
     """Base class for current-domain DAC implementations.
 
-    Args:
-        config: Concrete configuration dataclass.
-        policy: Per-source nonideality flags.
-        inst_shape: Per-instance fabrication shape.
-        dtype: Tensor dtype for internal buffers.
-        T__K: Operating temperature.
+    A converter reports no duration: it settles inside the window the owner
+    scheduling its conversions already spans, and that owner times it.
     """
 
     def __init__(
@@ -68,13 +64,6 @@ class Idac[ConfigT: IdacConfig, PolicyT: IdacPolicy](
         T__K: float,
     ) -> Idac[IdacConfig, IdacPolicy]:
         """Build the implementation registered for the config-policy pair.
-
-        Args:
-            config: Concrete configuration dataclass.
-            policy: Per-source nonideality flags.
-            inst_shape: Per-instance fabrication shape.
-            dtype: Tensor dtype for internal buffers.
-            T__K: Operating temperature.
 
         Returns:
             Registered current-DAC implementation.

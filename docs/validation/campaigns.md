@@ -4,13 +4,18 @@ Evidence that each model in [Reference](../reference/README.md) is both physical
 
 ## Calibration campaigns
 
-The repository's `validations/` directory holds one calibration campaign per published design point, each in its own `validations/<paper>/` directory. A campaign anchors a scheme's PPA model to that paper's reported numbers and is the citable evidence for that scheme. Each per-paper directory carries a fixed file set:
+The repository's `validations/` directory holds one calibration campaign per published design point, each under its own `validations/<paper>/`. A campaign anchors a scheme's PPA model to that paper's reported numbers and is the citable evidence for that scheme. Each per-paper directory carries a fixed file set:
 
 - `params.toml` — the paper design point (geometry, anchors, window and seat knobs).
 - `policy.toml` — the policy the campaign runs under (all-off when the scheme models no non-idealities).
 - `anchors.toml` — the reported targets: the hard total, the adopted block shares, and the declared dyn/static and data conventions the calibration assumes.
 - `validate.py` and `tools/` — the campaign itself: build from `params.toml`, draw inputs per the declared data conventions, average the profiler per-op energies and read the static report, convert to per-block power, and gate.
 - `results.md` — the gate table, the informational per-block breakdown, and every documented miss.
+
+The campaigns that ship today, one per bundled scheme, run as `make validate_<paper>`. They live outside `docs/`, so this page names their paths instead of linking them:
+
+- `validations/xue2020jssc/` — the SINWP 1T1R CIM sub-array of `neurox.works.macro.cim.xue2020jssc`; `README.md` carries the run instructions and the campaign's contradiction table, `results.md` the recorded outcome.
+- `validations/ye2023jssc/` — the WH-2T1R CIM macro of `neurox.works.macro.cim.ye2023jssc`; the `validate.py` module docstring carries the run instructions and the gate list, `results.md` the recorded outcome.
 
 Four conventions govern every campaign:
 

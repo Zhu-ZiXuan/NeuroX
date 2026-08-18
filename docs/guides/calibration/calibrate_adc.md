@@ -1,47 +1,61 @@
-# Generic ADC calibration tools
+# ADC calibration
 
-Goal: calibrate the ADC operating points of any registered CIM macro without scheme-specific tool code. The package `neurox/tools/calibrate_adc/` holds three config-driven CLIs built on two generic seams: the `CimMacro` registry (the tool TOML names a macro config/policy file pair; `CimMacroConfig.from_file` + `CimMacro.from_config` resolve the concrete tile) and the physical tile's `current_adc.convert` record-emitting link, captured under an `IadcProber`. The ideal side needs no probe: the `to_ideal()` twin's `vec_mat_mul` is reachable data, so its return value IS the ideal view. Both drives serialize every WL plane over the macro's sub-phase axis (at most `max_active_num` live rows per conversion, rows outside the window zeroed) before running, so calibration samples are captured under the same per-conversion masked drive the runtime engine layer applies. The tools reference no scheme-specific symbols — importing `neurox` loads `neurox.works`, so every bundled macro is registered before dispatch — and a scheme provides only run-config TOMLs beside its params.
+Goal: seat the ADC operating points of a CIM macro — the quantization mode set, the analog threshold ladder, and the per-mode rescale factor — so a run's output codes carry the MAC values the model expects.
 
-All three follow the [tool conventions](tool_conventions.md) (`--config`, `--device`, `--plot-dir`, `--log-level`), and additionally take `--log-dir` (per-run log file, default `log/calibration/`) with figures defaulting to `log/calibration/figures/`.
+The commands live in `neurox.tools.calibrate_adc` and are scheme-independent. They resolve the tile through the macro registry, so a scheme contributes run-config TOMLs and nothing else; importing `neurox` registers every bundled macro before dispatch.
 
-## `calibrate_adc.rescale_fit` — per-mode rescale
+The two probing steps build the configured tile alongside its lossless `to_ideal()` twin. The physical tile's ADC input is captured through a probe while the twin's return value is the ideal view directly, and both tiles are driven over the macro's sub-phase axis — at most `max_active_num` live rows per conversion, the rest zeroed — so a calibration sample is taken under the same masked drive the engine applies at run time. Run them under the all-off policy: a nonideality left on turns a placement into a sample of one random draw.
 
-Fits the per-mode `max_bits_rescale_factor`, the coefficient $s$ of the rescale currency $\mathrm{code}_{\mathrm{ideal}} \approx s \cdot \mathrm{code}$:
+All three follow the [tool conventions](tool_conventions.md) and add `--log-dir` for the per-run log file. Each command's own mechanism — the stimulus battery, the pairing rule, the fit target — is in its module docstring, reachable with `--help`.
 
-1. Build the physical tile from the tool TOML's `[macro]` file references (all-off policy) and its lossless `to_ideal()` twin.
-2. For each `[stimulus]` combo, program the same random ternary weights into both tiles and drive the same random binary WL batches; the physical VMM runs at the mode under fit, the ideal at the lossless `adc_bits = None` oracle.
-3. Pair the physical tile's `current_adc.convert` probe records against the ideal tile's `vec_mat_mul` return values, positionally and element-wise (the macro layout contract preserves logical-column order through its readout reshapes).
-4. Per mode, map the ideal dots onto the macro's own ADC input code axis through `map_quantization_input_code`, keep only the samples inside the mode's inclusive input code range, drop top-code-saturated pairs (both dropped counts are logged), then solve the zero-through-origin least squares in float64.
+## Step 1 — derive the mode set
 
-The fit target is the twin's real-valued ideal code scale — the unquantized position a dot occupies on the ideal macro's code grid — so the fitted slope is exactly the rescale currency. It is fitted at the macro's `adc_max_bits` only; every lower width follows the family bit-width law and needs no fit of its own.
+`mode_derive` turns a per-layer range mapping into the global quantization mode set. Its input is neutral: one entry per layer, `"layer.name" = { range = [lo, hi] }`, giving the layer's inclusive design range in MAC units. Extracting those ranges from a training checkpoint is a consumer-side step; the tool reads only the mapping.
 
-The mode set comes from the mode-set TOML the run config points at, and its mode count is checked against the macro's published windows. Output: a `[[modes]]` TOML fragment (one table per mode, carrying the canonical window, the ADC input code range, and the fitted factor; pasted nested under the macro section) plus a per-mode fit plot (code vs ideal code + fitted line).
+```bash
+python -m neurox.tools.calibrate_adc.mode_derive \
+    --config validations/<paper>/tools/<mode_derive_run>.toml \
+    --output validations/<paper>/tools/modes.toml
+```
 
-`--modes m[,m...]` narrows a run to a subset of the mode set: each mode re-runs the full stimulus battery, so per-mode runs bound single-command runtime; the emitted fragments concatenate.
+Each layer maps onto the canonical integer window covering its range — unsigned for a non-negative range, the smallest mid-zero window otherwise — and the windows are clustered within their shape group, one mode per cluster sized to its largest member. The emitted TOML carries a `[[modes]]` record per mode (`quantization_mode`, `quantization_input_range`, `layer_num`) plus a `[layers]` map from layer to mode, and a cluster plot lands under `--plot-dir`.
 
-## `calibrate_adc.threshold_probe` — analog grid sweep + threshold placement
+That TOML is the single source the next two steps read, so write it where their run configs point (`modes_file`). The tool is CPU-only and takes no `--device`.
 
-Probes the analog band the ADC input sees at every integer ADC input code and places the mid-point threshold ladder:
+A scheme with one fixed operating mode writes its mode-set TOML by hand instead and skips this step.
 
-1. Build the same physical/ideal pair.
-2. Run the controlled-stimulus battery: a deterministic single-cell-LSB count grid realizing every $|M| \in [0, m_{\max}]$ under full WL drive (walked over column-offset patterns on narrow tiles; `grid_col_stride` dilutes the programmed columns on wide tiles), count-capped random single-sign block patterns crossed with random drive densities (`full_drive_caps` selects which caps also run a full-drive exact-count element), and optional dense saturating columns. The battery must stay inside the workload envelope the macro's DC solve converges on — the dilution/full-drive knobs exist because a fully-dense full-drive extreme outside a tile's convergent envelope would contaminate the observed bands with a KCL-violating iteration fixed point (verify the envelope with the solver-iteration sweep before enabling the extremes).
-3. Pair each conversion's captured analog input (the physical tile's `current_adc.convert` probe record) with its realized ideal MAC (the ideal tile's `vec_mat_mul` return value) mapped onto the macro's ADC input code axis through `map_quantization_input_code`; pool into per-code bands $[\mathrm{lo}(k), \mathrm{hi}(k)]$. A pair whose input code falls outside the mode's range is masked out of both streams — the converter resolves no tap there, so folding it into the top band would bias that band.
-4. Per mode in the mode set (the macro publishes each mode's inclusive ADC input code range, and the ladder covers exactly that grid), place $t_k = \tfrac{1}{2}(\mathrm{hi}(k) + \mathrm{lo}(k+1))$ and report the band margins $\mathrm{lo}(k+1) - \mathrm{hi}(k)$ — the minimum margin is the headline; a negative margin means adjacent bands overlap and the placement is invalid at that boundary. A pooled linear fit of the analog input against the input code and a strict band-mean monotonicity check accompany the report.
+## Step 2 — place the threshold ladder
 
-Output: a single `i_refs__uA` reference-config mode fragment (mode index = `quantization_mode`) — the reference block is the single ladder source the ADC reads per call, at the macro's maximum resolution, and every lower width runs against that same full ladder — plus figures (grid curve with bands and thresholds per mode; per-mode margin bars).
+`threshold_probe` sweeps a controlled stimulus battery, pools the analog input observed at every integer ADC input code into a band, and places the mid-point ladder between adjacent bands.
 
-Capture staging bounds single-command runtime on large batteries: the element list is deterministic for a given config, so `--element-range a:b` probes a contiguous slice, `--capture-out part.pt` saves that slice's pooled streams and defers placement, and a final run merges every `--capture-in` part ahead of its own slice before placing the ladder (the log records the merged provenance).
+```bash
+python -m neurox.tools.calibrate_adc.threshold_probe \
+    --config validations/<paper>/tools/calibrate_threshold.toml --device cuda:0
+```
 
-## `calibrate_adc.mode_derive` — mode set from per-layer ranges
+Read the margins first. The headline is the minimum band margin; a negative margin means two adjacent bands overlap and the placement is invalid at that boundary, which no later stage can repair. A pooled linear fit and a band-mean monotonicity check accompany the report as sanity signals.
 
-Derives the quantization mode set for a deployment from a neutral per-layer range TOML: one entry per layer, `"layer.name" = { range = [lo, hi] }`, the layer's inclusive design range in MAC units. Extracting the ranges from a training checkpoint is a consumer-side step; the tool reads only this mapping.
+Keep the battery inside the workload envelope the macro's DC solve converges on. A fully dense, fully driven extreme outside that envelope contaminates the observed bands with a KCL-violating iteration fixed point rather than a physical current, so `grid_col_stride` dilutes the programmed columns on a wide tile, `full_drive_caps` selects which count caps also run a full-drive element, and `include_saturating` gates the dense saturating columns. Confirm the envelope with the [solver iteration sweep](solver_iteration_counts.md) before enabling the extremes.
 
-1. Map every layer onto the canonical integer window covering its range: a non-negative range onto the unsigned window, a range reaching below zero onto the smallest mid-zero window whose inclusive bounds cover both sides.
-2. Partition the layers by window shape (unsigned / mid-zero) and cluster the window extents within each group (deterministic 1-D relative-gap agglomeration, capped per group); each cluster's window is its largest member's, so it covers every member. Enumerate the clusters as global modes, unsigned group first, ascending by extent within a group.
-3. Emit the mode-set TOML: `[[modes]]` records (`quantization_mode`, `quantization_input_range`, `layer_num`) plus a `[layers]` `layer -> quantization_mode` map.
+The output is a single `i_refs__uA` bank, one row per mode with the row index as `quantization_mode`, pasted into the macro's `reference_config`. That reference block is the whole ladder source the ADC reads per call, at the macro's maximum resolution; every lower bit width runs against the same full ladder. Figures per mode — the grid curve with its bands and thresholds, and the margin bars — land under `--plot-dir`.
 
-The mode-set TOML is the single source consumed downstream — both `threshold_probe` and `rescale_fit` read their mode list from it. A cluster plot accompanies the output. CPU-only; the tool opts out of `--device`.
+## Step 3 — fit the rescale factor
 
-## Run configs
+`rescale_fit` fits the per-mode `max_bits_rescale_factor`, the coefficient carrying a macro output code back into ideal-macro codes. Run it after the ladder is in the config, since it measures the codes that ladder produces.
 
-A scheme keeps its run configs beside its params (e.g. `calibrate_rescale.toml` / `calibrate_threshold.toml` / `calibrate_modes.toml` in the scheme's `params/` directory). The `[macro].config_files` list merges first-wins, so a geometry overlay can precede the scheme default.
+```bash
+python -m neurox.tools.calibrate_adc.rescale_fit \
+    --config validations/<paper>/tools/calibrate_rescale.toml --device cuda:0
+```
+
+The fit runs at the macro's `adc_max_bits` only; every lower width follows the family bit-width law from that one factor and needs no fit of its own. Watch the two logged drop counts per mode — pairs outside the mode's input code range and top-code-saturated pairs — since a mode that drops most of its battery was fitted on a thin sample.
+
+The output is a `[[modes]]` fragment, one table per mode carrying the canonical window, the ADC input code range, and the fitted factor, to be pasted nested under the macro's own section. `--modes m[,m...]` narrows a run to a subset of the mode set; each mode re-runs the full stimulus battery, so per-mode runs bound single-command runtime and the emitted fragments concatenate.
+
+## Staging a long capture
+
+A large battery can outlast a single command. The battery's element list is deterministic for a given config, so `threshold_probe` splits: `--element-range a:b` probes a contiguous slice, `--capture-out part.pt` saves that slice's pooled streams and skips placement, and a final run merges every `--capture-in` part ahead of its own slice before placing the ladder over the union. The log records the merged provenance.
+
+## Naming the tile
+
+A probing run config names its tile in `[macro]`: the config files, the section inside them, the policy file, and its section, all by path relative to the run config ([tool conventions](tool_conventions.md)). The `config_files` list merges first-wins, so a geometry overlay can precede the scheme default without editing it.

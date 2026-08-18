@@ -2,7 +2,6 @@
 
 See Also:
     docs/reference/primitive/digital/accumulator.md
-    docs/internals/primitive/digital/accumulator.md
 """
 
 import torch
@@ -37,13 +36,7 @@ class AccumulatorConfig(DigitalConfig):
 
 
 class Accumulator(DigitalBase[AccumulatorConfig]):
-    """Modular adder-tree that sums an integer tensor along one axis.
-
-    Args:
-        config: Arithmetic width and per-op PPA.
-        policy: Empty digital policy marker.
-        inst_shape: Per-instance fabrication multiplicity.
-    """
+    """Modular adder-tree that sums an integer tensor along one axis."""
 
     def __init__(
         self,
@@ -65,13 +58,7 @@ class Accumulator(DigitalBase[AccumulatorConfig]):
     def accumulate(self, x: Tensor, dim: int) -> Tensor:
         """Sum `x` along `dim` and wrap into the signed `bit_width` range.
 
-        Dynamic energy is billed against the pre-reduction operand: one adder
-        evaluation per operand folded in, an extent the result no longer
-        carries.
-
-        Args:
-            x: Integer-valued input tensor.
-            dim: Axis along which to reduce.
+        One operation is one adder evaluation per operand element folded in.
 
         Returns:
             Modular-wrapped sum with `dim` reduced.
@@ -82,13 +69,6 @@ class Accumulator(DigitalBase[AccumulatorConfig]):
         y = (x.sum(dim) + half) % full - half
 
         if self._is_dynamic_energy_profile_active():
-            # The engine positions this block's own inst_shape space axes
-            # inside x, split from the batch by the reduced axis and any
-            # further engine axes rather than held as one leading block;
-            # billing the full pre-reduction operand covers them along with
-            # the rest. A flat per-op lump: the expanded constant holds no
-            # storage, and the energy dtype is the constant's rather than the
-            # integer operand's.
             # Shape: [] -> [*x.shape]
             e_op__fJ = torch.full((), self.config.energy_per_op__fJ, dtype=torch.float32, device=x.device)
             self._record_dynamic_energy(e_op__fJ.expand(x.shape))

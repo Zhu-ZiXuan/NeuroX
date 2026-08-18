@@ -1,7 +1,7 @@
 """Slicer ABC for value-domain decomposition.
 
 See Also:
-    docs/internals/architecture/unit/cim/slicer/base.md
+    docs/reference/architecture/unit/family.md
 """
 
 from __future__ import annotations
@@ -17,7 +17,11 @@ class Slicer(ABC):
     @property
     @abstractmethod
     def value_range(self) -> tuple[int, int]:
-        """Inclusive algorithm-side integer range this slicer can encode."""
+        """Inclusive algorithm-side integer range this slicer can encode.
+
+        A caller contract: `slice` neither clamps nor rejects a value outside
+        it.
+        """
         raise NotImplementedError
 
     @property
@@ -29,7 +33,11 @@ class Slicer(ABC):
     @property
     @abstractmethod
     def slice_weights(self) -> tuple[int, ...]:
-        """LSB-first positional weight of each slice."""
+        """LSB-first positional weight of each slice.
+
+        Plain Python integers: a slicer owns no device and no dtype, so a
+        consumer materializes the tensor at its own boundary.
+        """
         raise NotImplementedError
 
     @abstractmethod

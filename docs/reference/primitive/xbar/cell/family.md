@@ -56,9 +56,3 @@ TODO: add family-level validation evidence for branch-current and signed-conduct
 ## References
 
 TODO.
-
----
-
-- **Internals**: [cell base](../../../../internals/primitive/xbar/cell/base.md)
-- **Validation**: TODO — `validation/xbar` (not yet written)
-- **Configuration**: [config reference](../../../../api/README.md)

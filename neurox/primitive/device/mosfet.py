@@ -2,7 +2,6 @@
 
 See Also:
     docs/reference/primitive/device/mosfet.md
-    docs/internals/primitive/device/mosfet.md
 """
 
 import math
@@ -13,7 +12,7 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor
 
-from neurox.common import ConfigBase, ModuleBase, PolicyBase, TensorDataClassBase, TensorGroupMixin
+from neurox.common import ConfigBase, DcopBase, ModuleBase, PolicyBase, SnapBase
 from neurox.primitive.nonideality import apply_gaussian
 from neurox.primitive.physics import thermal_voltage__V
 
@@ -24,7 +23,10 @@ class MosfetConfig(ConfigBase):
     The same field set describes n- and p-channel devices: `mu0` and `c_ox`
     are positive magnitudes, and `vth0` is a signed threshold whose sign is
     set by the device flavor (enhancement / depletion), not by channel
-    polarity.
+    polarity. The fields are process quantities only: channel geometry is
+    chosen per placement and arrives as an `__init__` argument, and no
+    layout-dependent parasitic is held here, so one config describes every
+    device drawn on the process.
     """
 
     T_nom__K: float
@@ -74,7 +76,7 @@ class MosfetPolicy(PolicyBase):
     """Apply Pelgrom β mismatch at fabricate time."""
 
 
-class MosfetDcop(TensorDataClassBase):
+class MosfetDcop(DcopBase):
     """Caller-facing working-point result for one MOSFET evaluation."""
 
     ids__uA: Tensor
@@ -88,7 +90,7 @@ class MosfetDcop(TensorDataClassBase):
     """`∂I_ds/∂V_s`, non-positive for both polarities. Shape: `[...]`."""
 
 
-class MosfetSnap(TensorDataClassBase, TensorGroupMixin):
+class MosfetSnap(SnapBase):
     """Per-call MOSFET state snap."""
 
     beta__uA_per_V2: Tensor
@@ -102,11 +104,6 @@ class Mosfet(ModuleBase[MosfetConfig, MosfetPolicy], ABC):
     """Polarity-parameterized EKV-softplus MOSFET.
 
     Args:
-        config: PDK parameters and matching coefficients.
-        policy: Per-source nonideality enable flags.
-        inst_shape: Per-instance fabrication multiplicity.
-        dtype: Tensor dtype for internal buffers.
-        T__K: Operating temperature.
         W__um: Channel width.
         L__um: Channel length.
     """
@@ -150,9 +147,12 @@ class Mosfet(ModuleBase[MosfetConfig, MosfetPolicy], ABC):
         # Smoothing scale used by softplus and sigmoid.
         self._inv_smooth_scale__per_V = 1.0 / (2.0 * config.n_factor * thermal_voltage__V(T__K))
 
-        # Nominal parameter — β is a positive magnitude; the polarity sign
-        # is applied in the I-V law, not baked into β.
+        # β stays a positive magnitude; the polarity sign is applied in the
+        # I-V law, not baked into β.
         nominal_mu__cm2_per_V_s = config.mu0__cm2_per_V_s * mu_scale
+        # 0.1 reconciles the mixed unit systems of the product: mobility is in
+        # cm^2 while c_ox and W/L are per um^2, and β must come out in uA/V^2 —
+        # 1e8 (cm^2 -> um^2) · 1e-15 (fF -> F) · 1e6 (A -> uA) = 0.1.
         nominal_beta__uA_per_V2 = nominal_mu__cm2_per_V_s * config.c_ox__fF_per_um2 * 0.1 * (W__um / L__um)
         nominal_vth__V = config.vth0__V + vth_shift__V
 
@@ -170,7 +170,11 @@ class Mosfet(ModuleBase[MosfetConfig, MosfetPolicy], ABC):
     @property
     @abstractmethod
     def polarity(self) -> int:
-        """Channel polarity sign: `+1` (n-channel) or `-1` (p-channel)."""
+        """Channel polarity sign: `+1` (n-channel) or `-1` (p-channel).
+
+        The concrete class fixes it, so config, policy, snap, and result stay
+        polarity-free and one model core serves both channel types.
+        """
         raise NotImplementedError
 
     def _register_fabrication_buffers(
@@ -180,7 +184,6 @@ class Mosfet(ModuleBase[MosfetConfig, MosfetPolicy], ABC):
         nominal_beta__uA_per_V2: float,
         nominal_vth__V: float,
     ) -> None:
-        """Register immutable tensors used as fabrication sources."""
         self.register_buffer(
             "_nominal_beta__uA_per_V2",
             torch.tensor(nominal_beta__uA_per_V2, dtype=dtype),
@@ -228,17 +231,7 @@ class Mosfet(ModuleBase[MosfetConfig, MosfetPolicy], ABC):
         vs__V: Tensor | float,
         snap: MosfetSnap,
     ) -> MosfetDcop:
-        """Evaluate `I_ds` and its three node partials at one op point.
-
-        Args:
-            vg__V: Gate voltage.
-            vd__V: Drain voltage.
-            vs__V: Source voltage.
-            snap: Per-call MOSFET snap carrying β and V_th.
-
-        Returns:
-            Drain-source current and its three node partials.
-        """
+        """Evaluate `I_ds` and its three node partials at one op point."""
         p = self.polarity
         beta__uA_per_V2 = snap.beta__uA_per_V2
         vth__V = snap.vth__V
@@ -247,6 +240,7 @@ class Mosfet(ModuleBase[MosfetConfig, MosfetPolicy], ABC):
         # --- 1: evaluate source-side smoothed voltage ---
 
         v_ov_s__V = p * (vg__V - vs__V - vth__V)
+        # `beta=` is softplus's own sharpness keyword, unrelated to the device β.
         v_eff_s__V = F.softplus(v_ov_s__V, beta=inv_smooth_scale__per_V)
         sigma_s = F.sigmoid(v_ov_s__V * inv_smooth_scale__per_V)
 

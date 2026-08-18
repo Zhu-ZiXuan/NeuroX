@@ -2,13 +2,13 @@
 
 See Also:
     docs/reference/primitive/analog/voltage_driver.md
-    docs/internals/primitive/analog/voltage_driver.md
+    docs/system_design/ppa_accounting.md
 """
 
 import torch
 from torch import Tensor
 
-from neurox.common import TensorDataClassBase, TensorGroupMixin
+from neurox.common import DcopBase, SnapBase
 from neurox.primitive.nonideality import apply_gaussian
 
 from .base import AnalogBase, AnalogConfig, AnalogPolicy
@@ -55,7 +55,7 @@ class VoltageDriverPolicy(AnalogPolicy):
     """Apply the per-solve thermal noise `thermal_sigma__V`."""
 
 
-class VoltageDriverDcop(TensorDataClassBase):
+class VoltageDriverDcop(DcopBase):
     """Clamp state at the solved port operating point."""
 
     v_clamp__V: Tensor
@@ -68,7 +68,7 @@ class VoltageDriverDcop(TensorDataClassBase):
     Shape: `[..., *inst_shape]`."""
 
 
-class VoltageDriverSnap(TensorDataClassBase, TensorGroupMixin):
+class VoltageDriverSnap(SnapBase):
     """One sampled clamp snap."""
 
     v_ref__V: Tensor
@@ -93,13 +93,6 @@ class VoltageDriver(AnalogBase[VoltageDriverConfig, VoltageDriverPolicy]):
     `v_perturb` is this driver's own offset / thermal perturbation on top of
     the nominal reference it is handed. A zero output resistance represents an
     ideal voltage source.
-
-    Args:
-        config: Concrete configuration dataclass.
-        policy: Per-source nonideality enable flags.
-        inst_shape: Per-instance fabrication shape.
-        dtype: Tensor dtype for internal buffers.
-        T__K: Operating temperature.
     """
 
     # === Circuit constant buffers ===
@@ -141,7 +134,6 @@ class VoltageDriver(AnalogBase[VoltageDriverConfig, VoltageDriverPolicy]):
         return self.config.leakage_per_inst__uW
 
     def _register_fabrication_buffers(self, *, dtype: torch.dtype) -> None:
-        """Register immutable tensors used as fabrication sources."""
         self.register_buffer(
             "_nominal_offset__V",
             torch.zeros((), dtype=dtype),
@@ -172,6 +164,10 @@ class VoltageDriver(AnalogBase[VoltageDriverConfig, VoltageDriverPolicy]):
 
         Sampling only: no energy is billed here, because the drive is billed
         at the converged port state a snapshot cannot see.
+
+        `shape` also fixes the noise extent: the thermal draw covers exactly
+        the positions it spans, so a shape short of the real access count
+        shares one sample across accesses that are physically distinct.
 
         Args:
             v_ref__V: Injected reference / zero-current clamp voltage — the
@@ -219,8 +215,7 @@ class VoltageDriver(AnalogBase[VoltageDriverConfig, VoltageDriverPolicy]):
             Shape: `[*caller_leading, ...]`.
         """
         # A flat per-port-op lump: the expanded constant holds no storage, so no
-        # energy tensor is materialized, and the energy dtype comes from the constant
-        # rather than from the port current.
+        # energy tensor is materialized and the energy dtype is the constant's.
         # Shape: [] -> [*i_port__uA.shape]
         e_op__fJ = torch.full((), self.config.energy_per_op__fJ, dtype=torch.float32, device=i_port__uA.device)
         self._record_dynamic_energy(e_op__fJ.expand(i_port__uA.shape))

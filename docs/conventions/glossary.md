@@ -13,6 +13,14 @@ The canonical term, symbol, and code name for each concept used across NeuroX su
 - **record** — the per-call frozen container an emitter submits to a recorder family's side channel, holding that call's collected tensors; `*Record` suffix. The item a side channel collects, never a row of the report built from it.
 - **entry** — one aggregated row a reporting surface yields, holding the figures accumulated over the records collected under a reported name; never the per-call item itself, which is a `record`.
 
+## Signal, code, and data
+
+- **signal** — a real analog quantity a circuit carries or produces: a voltage, a current, a charge. Its name carries the physical unit suffix of that quantity.
+- **code** — a real digital integer a circuit carries or produces: a converter input or output, a programmed digit, a shifted-and-added partial sum. Dimensionless, so its name carries no unit suffix.
+- **data** — the abstract numeric content a signal or a code represents, independent of how it is carried; the word to use when neither realization is meant.
+
+`digit`, `slice`, and `value` below name data, so each stays valid whichever domain realizes it.
+
 ## Value domain and slicing
 
 - **value domain** — the integer grid a tile can physically carry: the input grid $\mathcal{X}$, the digit count $D$, and the radix $r$, all published by the xbar interface (the authority) for algorithm-side ranges to map onto. The algorithm-side `value_range` (the complete value an input scalar can take) is distinct from the primitive single-cell `digit_range`.

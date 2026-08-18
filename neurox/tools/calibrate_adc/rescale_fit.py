@@ -1,4 +1,4 @@
-"""CLI: LS-fit the per-mode rescale factor of a CIM macro via dual probed runs.
+"""LS-fit the per-mode rescale factor of a CIM macro via dual probed runs.
 
 CLI: `python -m neurox.tools.calibrate_adc.rescale_fit --config <run.toml>
 [--device cuda:N] [--output <fragment.toml>] [--plot-dir <dir>]
@@ -56,9 +56,6 @@ from ._testbench import (
 logger = logging.getLogger(__name__)
 
 
-# --- config schema ----------------------------------------------------------
-
-
 @dataclass(frozen=True)
 class _StimulusCfg:
     """`[stimulus]` section: the random calibration workload."""
@@ -90,15 +87,10 @@ class RescaleFitToolConfig(ConfigBase):
     """Top-level config for `neurox.tools.calibrate_adc.rescale_fit`."""
 
     macro: MacroSection
-    """The tile to build."""
     stimulus: _StimulusCfg
-    """The random calibration workload."""
     modes_file: Path
     """Mode-set TOML, relative to the tool TOML; every mode is fitted unless
     `--modes` selects a subset."""
-
-
-# --- fit --------------------------------------------------------------------
 
 
 class ModeFitResult(TensorDataClassBase):
@@ -201,9 +193,6 @@ def _fit_one_mode(
     )
 
 
-# --- output -----------------------------------------------------------------
-
-
 def _fragment_lines(results: list[ModeFitResult]) -> list[str]:
     """The `[[modes]]` macro-config TOML fragment, nested under the macro section.
 
@@ -265,9 +254,6 @@ def _plot_mode_fit(result: ModeFitResult, output_path: Path) -> None:
     fig.savefig(output_path, dpi=110)
     plt.close(fig)
     logger.info("wrote fit plot to %s", output_path)
-
-
-# --- CLI --------------------------------------------------------------------
 
 
 def _build_parser() -> argparse.ArgumentParser:

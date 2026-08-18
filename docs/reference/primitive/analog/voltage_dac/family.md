@@ -21,9 +21,3 @@ TODO (domain author): the validity range of the code-to-voltage abstraction (set
 ## References
 
 TODO.
-
----
-
-- **Internals**: [voltage DAC base internals](../../../../internals/primitive/analog/voltage_dac/base.md)
-- **Validation**: TODO - validation evidence not yet written
-- **Configuration**: `VdacConfig` (see `api`)

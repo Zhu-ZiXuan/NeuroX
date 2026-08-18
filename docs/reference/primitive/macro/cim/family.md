@@ -85,9 +85,3 @@ encoding, and every conversion selects at most $A$ input positions.
 
 TODO (domain author): state the calibrated validity range of the output-rescale
 relation.
-
----
-
-- **Internals**: [CIM macro base](../../../../internals/primitive/macro/cim/base.md)
-- **Validation**: TODO — validation evidence not yet written
-- **Configuration**: `CimMacroConfig` (see `api`)

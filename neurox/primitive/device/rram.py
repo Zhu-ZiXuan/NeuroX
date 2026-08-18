@@ -2,7 +2,6 @@
 
 See Also:
     docs/reference/primitive/device/rram.md
-    docs/internals/primitive/device/rram.md
 """
 
 from typing import ClassVar
@@ -10,7 +9,7 @@ from typing import ClassVar
 import torch
 from torch import Tensor
 
-from neurox.common import ConfigBase, ModuleBase, PolicyBase, TensorDataClassBase, TensorGroupMixin
+from neurox.common import ConfigBase, DcopBase, ModuleBase, PolicyBase, SnapBase
 from neurox.primitive.nonideality import (
     StateDependentGammaConfig,
     StuckAtFaultConfig,
@@ -74,7 +73,7 @@ class RramPolicy(PolicyBase):
     """Apply Gaussian read noise at snapshot time."""
 
 
-class RramDcop(TensorDataClassBase):
+class RramDcop(DcopBase):
     """Device current and local differential conductance."""
 
     i__uA: Tensor
@@ -83,7 +82,7 @@ class RramDcop(TensorDataClassBase):
     """Slope of the I-V law at the evaluated voltage. Shape: `[...]`."""
 
 
-class RramSnap(TensorDataClassBase, TensorGroupMixin):
+class RramSnap(SnapBase):
     """Per-call read conductance snap."""
 
     g__uS: Tensor
@@ -94,11 +93,6 @@ class Rram(ModuleBase[RramConfig, RramPolicy]):
     """Stateful programmable-conductance RRAM model.
 
     Args:
-        config: Device parameters and nonideality model parameters.
-        policy: Per-source nonideality enable flags.
-        inst_shape: Per-instance fabrication multiplicity.
-        dtype: Tensor dtype for internal buffers.
-        T__K: Operating temperature.
         g_max__uS: Maximum programmable conductance; must exceed `g_min__uS`.
     """
 
@@ -127,6 +121,8 @@ class Rram(ModuleBase[RramConfig, RramPolicy]):
         self._g_max__uS = g_max__uS
 
     def _sample_fabricate_mismatch(self) -> None:
+        # Cell variation is written at program time and redrawn at read time, so nothing
+        # is left for the fabricate hook to sample.
         pass
 
     def program(self, target_g__uS: Tensor, t_elapsed: float) -> None:
@@ -175,19 +171,11 @@ class Rram(ModuleBase[RramConfig, RramPolicy]):
         return RramSnap(g__uS=g)
 
     def solve_dc(self, v__V: Tensor, snap: RramSnap) -> RramDcop:
-        """Evaluate current and differential conductance.
-
-        Args:
-            v__V: Device voltage.
-                Shape: `[...]`.
-            snap: Per-call conductance snap.
-
-        Returns:
-            Current and local differential conductance at the requested
-            voltage.
-        """
+        """Evaluate current and differential conductance at the device voltage `v__V`."""
         g__uS = snap.g__uS
         alpha = self.config.nonlinearity_alpha
+        # Branching on a config float, constant per instance and resolved at trace time:
+        # the ohmic limit has no sinh form to take.
         if alpha == 0.0:
             i__uA = g__uS * v__V
             di_dv__uS = g__uS.expand_as(i__uA)

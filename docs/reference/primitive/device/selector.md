@@ -4,7 +4,7 @@ An Ovonic Threshold Switch (OTS) selector is modeled as a static per-cell thresh
 
 ## Physical model
 
-The selector is abstracted to a single static per-cell state variable, the threshold voltage $V_{\mathrm{th}}$, shared across all cells at a nominal value before mismatch is applied. Device-to-device variation is modeled as additive Gaussian mismatch sampled once at fabricate time. The model carries no current-voltage relation.
+The selector is abstracted to a single static per-cell state variable, the threshold voltage $V_{\mathrm{th}}$, shared across all cells at a nominal value before mismatch is applied. Device-to-device variation is modeled as additive Gaussian mismatch sampled once at fabricate time.
 
 ## Governing equations
 
@@ -56,9 +56,3 @@ TODO: link `validation/device` evidence — threshold mismatch-statistics checks
 ## References
 
 TODO: cite the OTS selector device and its threshold-mismatch characterization.
-
----
-
-- **Internals**: [selector internals](../../../internals/primitive/device/selector.md)
-- **Validation**: TODO — `validation/device` (not yet written)
-- **Configuration**: `api` (`SelectorConfig`, `SelectorPolicy`)

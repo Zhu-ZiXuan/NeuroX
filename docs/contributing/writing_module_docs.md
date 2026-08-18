@@ -17,7 +17,7 @@ A module document owns science only — not the software that realizes it, its d
 
 ## Document template
 
-A module document mirrors a single code module. Its file mirrors the code module basename and its title is the science name; see [naming_conventions](../conventions/naming_conventions.md). Length follows model content: a section appears only when it carries model content and is omitted when it does not — never padded and never given an invented rationale. A section that is conventionally expected but genuinely empty may be left as a bare `N/A`, or `N/A — <note>` when the note states a real fact about the model (not a description of a consumer), or `TODO — <missing item>` when applicable but unwritten. Sections keep the order below when present.
+A module document's title is the science name of the scheme it specifies; see [naming_conventions](../conventions/naming_conventions.md). Length follows model content: a section appears only when it carries model content, never padded and never given an invented rationale. A section that is conventionally expected but genuinely empty may be left as a bare `N/A`, or `N/A — <note>` when the note states a real fact about the model (not a description of a consumer), or `TODO — <missing item>` when applicable but unwritten. Sections keep the order below when present.
 
 ```markdown
 # <Model name>
@@ -39,12 +39,6 @@ A module document mirrors a single code module. Its file mirrors the code module
 ## Validation
 
 ## References
-
----
-
-- **Internals**: [<doc>](<relative .md path>)
-- **Validation**: [<doc>](<relative .md path>) or TODO — <what is missing>
-- **Configuration**: [<doc>](<relative .md path>) or TODO — <what is missing>
 ```
 
 ## Filling each section
@@ -63,8 +57,6 @@ An optional lead paragraph directly under the H1 stands in for a Summary section
 
 Do not invent physical claims, numbers, equations, validation results, or citations — leave `TODO`.
 
-The footer is traceability only: Reference points to Internals, Validation, and Configuration — it lists no source files or tests, because Internals points to code and tests.
-
 ## Content rules
 
 ### Spec the model, not the physical realization
@@ -73,7 +65,7 @@ Document what the model computes — its equations, parameters, and modeled non-
 
 ### Stay in the science layer
 
-A module document states electrical and physical fact only. It carries no software or object-oriented structure, no class or type names in prose, and no architecture or consumer language — no naming of a consuming block, a consuming solve, or an inheritance relation. A plain electrical term, such as a channel-polarity name, is a physical fact and stays as prose without code styling. Code identifiers appear only in the symbol-table Code-field column and in the footer, nowhere else in the body.
+A module document states electrical and physical fact only. It carries no software or object-oriented structure, no class or type names in prose, and no architecture or consumer language — no naming of a consuming block, a consuming solve, or an inheritance relation. A plain electrical term, such as a channel-polarity name, is a physical fact and stays as prose without code styling. Code identifiers appear only in the symbol-table Code-field column, nowhere else in the document.
 
 ### Equations
 
@@ -91,7 +83,7 @@ Every module document includes a Symbols table listing every symbol it uses, inc
 
 ### Parameters
 
-Use the five-column table below. Give every parameter a Constraint — its physical valid domain — and a Source from [module_parameter](../conventions/module_parameter.md). Physical validity is model content and belongs in Reference; the Constraint states the physical domain only, whereas what the code raises when a value is out of range is runtime-validation behavior and belongs to Internals. Write `—` when the parameter is physically unconstrained and `TODO (domain author)` for a non-obvious bound; never fabricate one. For calibrated parameters, state whether calibration targets physical data or numerical convergence. Runtime inputs such as activations, weights, temperature, and operating points are inputs, not parameters; define important inputs in the lead paragraph, Governing equations, or Symbols.
+Use the five-column table below. Give every parameter a Constraint and a Source; [module_parameter](../conventions/module_parameter.md) defines both columns and what each admits. Runtime inputs such as activations, weights, temperature, and operating points earn no row — define the important ones in the lead paragraph, Governing equations, or Symbols instead.
 
 ```markdown
 | Parameter | Meaning | Unit | Constraint | Source |

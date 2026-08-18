@@ -1,7 +1,7 @@
 """Abstract base class for differential voltage-domain ADC models.
 
 See Also:
-    docs/internals/primitive/analog/diff_voltage_adc/base.md
+    docs/reference/primitive/analog/diff_voltage_adc/family.md
 """
 
 from __future__ import annotations
@@ -72,12 +72,13 @@ class DiffVadc[ConfigT: DiffVadcConfig, PolicyT: DiffVadcPolicy](
     concrete converter's own circuit property, so the base validates no tap
     count.
 
-    Args:
-        config: Concrete configuration dataclass.
-        policy: Per-source nonideality flags.
-        inst_shape: Per-instance fabrication shape.
-        dtype: Tensor dtype for internal buffers.
-        T__K: Operating temperature.
+    A converter is mode-blind: no operating mode reaches it. The owner picks
+    the references and the range its mode calls for, and hands the converter
+    only the electrical operating point and the bit width.
+
+    A member that rounds stochastically gates the draw on `self.training`, the
+    module's own train / eval state, rather than on a policy source or a
+    constructor flag, so `eval()` is what makes any member deterministic.
     """
 
     def __init__(
@@ -104,13 +105,6 @@ class DiffVadc[ConfigT: DiffVadcConfig, PolicyT: DiffVadcPolicy](
     ) -> DiffVadc[DiffVadcConfig, DiffVadcPolicy]:
         """Build the implementation registered for the config-policy pair.
 
-        Args:
-            config: Concrete configuration dataclass.
-            policy: Per-source nonideality flags.
-            inst_shape: Per-instance fabrication shape.
-            dtype: Tensor dtype for internal buffers.
-            T__K: Operating temperature.
-
         Returns:
             Registered voltage-ADC implementation.
         """
@@ -135,9 +129,6 @@ class DiffVadc[ConfigT: DiffVadcConfig, PolicyT: DiffVadcPolicy](
 
         Args:
             bits: Active conversion resolution [bits].
-
-        Returns:
-            Duration of one conversion at `bits`.
         """
         raise NotImplementedError
 

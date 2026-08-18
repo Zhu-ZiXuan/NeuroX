@@ -42,7 +42,7 @@ In addition to the [shared family parameters](1t1r.md):
 | `vx_ratio_on_table` | per-state BL-side drop fraction at WL on | — | length = `g_cell_off_table__uS` length; entries finite, in $[0, 1]$ | Calibrated (linearization) |
 | `v_wl_on_threshold__V` | analog WL level above which the access slot is on | V | — | Calibrated (linearization) |
 
-Provenance terms are defined in [module_parameter](../../../../conventions/module_parameter.md); how to obtain values for a new chip: [calibration guide](../../../../guides/calibration/README.md).
+Provenance terms are defined in [module_parameter](../../../../conventions/module_parameter.md); how to obtain values for a new chip: [calibration guide](../../../../guides/calibration/README.md). A config file selects this model with `_neurox_class = "XbarCell1t1rLinearConfig"` in the cell table and its policy file with `XbarCell1t1rLinearPolicy`; the `_neurox_class` directive and the file-level schema are specified in [configuration](../../../../api/configuration.md).
 
 ## Energy model
 
@@ -73,9 +73,3 @@ TODO: add validation evidence for closed-form branch checks and agreement with t
 ## References
 
 TODO.
-
----
-
-- **Internals**: [Linear cell internals](../../../../internals/primitive/xbar/cell/1t1r_linear.md)
-- **Validation**: TODO — `validation/xbar` (not yet written)
-- **Configuration**: [config reference](../../../../api/README.md) (`[cim_macro.array_config.cell_config]`, `_neurox_class = "XbarCell1t1rLinearConfig"`)

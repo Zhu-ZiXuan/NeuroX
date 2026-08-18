@@ -42,12 +42,10 @@ class Transcoder(ABC):
 
     @property
     def radix(self) -> int:
-        """Positional base `r` of the digit representation."""
         return self._radix
 
     @property
     def digit_count(self) -> int:
-        """Number of digits `D` one encoded string carries."""
         return self._digit_count
 
     @abstractmethod

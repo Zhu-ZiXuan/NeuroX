@@ -2,7 +2,6 @@
 
 See Also:
     docs/reference/primitive/digital/shift_adder.md
-    docs/internals/primitive/digital/shift_adder.md
 """
 
 import torch
@@ -40,9 +39,6 @@ class ShiftAdder(DigitalBase[ShiftAdderConfig]):
     """Weighted positional-sum unit for digit recombination.
 
     Args:
-        config: Arithmetic width and per-op PPA.
-        policy: Empty digital policy marker.
-        inst_shape: Per-instance fabrication multiplicity.
         scale: Positional radix; at least 2.
         digit_count: Number of positional digits reduced per operation.
     """
@@ -82,17 +78,15 @@ class ShiftAdder(DigitalBase[ShiftAdderConfig]):
     def shift_add(self, x: Tensor, dim: int, init_val: Tensor | None) -> Tensor:
         """Compute the radix-weighted digit sum and wrap to `bit_width` bits.
 
-        Dynamic energy is billed against the pre-reduction operand: one
-        shift-and-add cell per digit leg folded in, an extent the result no
-        longer carries. A preload of the destination register adds no
-        evaluation of its own.
+        One operation is one shift-and-add cell per digit leg folded in; a
+        preload of the destination register adds no evaluation of its own.
 
         Args:
             x: Integer digit tensor.
                 Shape: `[..., digit_count, ...]`.
             dim: Axis indexing the digit positions.
             init_val: Optional partial sum added after the modular wrap,
-                broadcastable to the output shape.
+                broadcastable to the reduced output shape.
 
         Returns:
             Recombined sum with `dim` reduced.
@@ -106,16 +100,11 @@ class ShiftAdder(DigitalBase[ShiftAdderConfig]):
         y = ((x * self._scales.view(*shape)).sum(dim=dim) + half) % full - half
 
         if init_val is not None:
+            # Added after the wrap so a chained running total survives past one call's
+            # register range; folded in before it, the total would be clipped each call.
             y = y + init_val
 
         if self._is_dynamic_energy_profile_active():
-            # The engine positions this block's own inst_shape space axes
-            # inside x, split from the batch by the reduced digit axis and any
-            # further engine axes rather than held as one leading block;
-            # billing the full pre-reduction operand covers them along with
-            # the rest. A flat per-op lump: the expanded constant holds no
-            # storage, and the energy dtype is the constant's rather than the
-            # integer operand's.
             # Shape: [] -> [*x.shape]
             e_op__fJ = torch.full((), self.config.energy_per_op__fJ, dtype=torch.float32, device=x.device)
             self._record_dynamic_energy(e_op__fJ.expand(x.shape))

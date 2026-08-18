@@ -80,9 +80,3 @@ TODO (domain author): evidence that the modular-wrap function and the PPA accoun
 ## References
 
 TODO (domain author): cite the serial accumulate-register architecture and the PPA basis.
-
----
-
-- **Internals**: [serial_accumulator internals](../../../internals/primitive/digital/serial_accumulator.md)
-- **Validation**: TODO - validation artefact not yet written
-- **Configuration**: `neurox/primitive/digital/accumulator.py` (`AccumulatorConfig`, reused)

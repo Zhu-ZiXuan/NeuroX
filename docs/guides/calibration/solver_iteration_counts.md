@@ -1,104 +1,72 @@
-# Calibrating solver iteration counts
+# Solver iteration counts
 
-Goal: pick a fixed iteration count for every fixed-trip-count Newton in the 1T1R DC path — the array solver $\operatorname{ColBlColSlSolver}$ ($n_{\mathrm{outer}}$, $n_{\mathrm{inner}}$) and the per-cell access-node condensation $\operatorname{XbarCell1t1rDetail}$ ($n_{\mathrm{newton}}$) — so the runtime path executes a `torch.compile`-friendly fixed-trip-count graph. Calibration is a one-shot offline job: the chip preset stores the picked counts and the production solver never monitors anything at runtime. The calibrator packages are `neurox.tools.calibrate_solver` (array solver) and `neurox.tools.calibrate_cell` (per-cell condensation).
+Goal: pick the fixed iteration counts the 1T1R DC path runs at — the array solver's `n_outer` and `n_inner`, and the per-cell access-node condensation's `newton_iter_num` — so the runtime executes a fixed-trip-count graph the compiler can specialize. This is a one-shot offline job: the chip config stores the picked counts and the production path monitors nothing.
 
-The framework is **chip-parameter-free** by design. It never references ADC bits, ADC range, model output, or any other downstream concern. The picked count guarantees the solver has converged within the numerical floor of its own iterate sequence.
+Run the two commands in this order, since the array solve consumes the branch the cell condenses:
 
-## Step-ratio plateau detection (primary)
+- `neurox.tools.calibrate_cell.x1t1r` — the per-cell condensation count, plus the linearized-cell fragment extracted from the same Detail model.
+- `neurox.tools.calibrate_solver.col_bl_col_sl` — the nested array solver's iteration pair.
 
-For each candidate iteration count $n$, the tool measures $u_n$ (the solver output) over the full workload. Then for each adjacent pair, taking the maximum over batch / col / row / unknown class:
+Both are chip-parameter-free by design. Neither criterion references ADC bits, ADC range, model output, or any other downstream concern; a picked count guarantees only that the solve has converged within the numerical floor of its own iterate sequence.
 
-```text
-step_n  = max |u_n - u_{n-1}|
-ratio_n = step_n / step_{n-1}
-```
+## How a count is picked
 
-In LaTeX:
+Every sweep applies the same two criteria, both in the run config's `[sweep]` section beside the candidate lists.
+
+**Step-ratio plateau — the primary criterion.** For each candidate count $n$ the tool measures the solve output $u_n$ over the whole workload and reduces adjacent candidates to one number each:
 
 $$
 \operatorname{step}_n = \max \lvert u_n - u_{n-1} \rvert,
 \qquad
-\operatorname{ratio}_n = \frac{\operatorname{step}_n}{\operatorname{step}_{n-1}} .
+\operatorname{ratio}_n = \frac{\operatorname{step}_n}{\operatorname{step}_{n-1}},
 $$
 
-Newton's method gives geometrically decreasing steps during the convergent phase ($\operatorname{ratio} \ll 1$) and $\operatorname{ratio} \to 1$ once round-off dominates. The picked $n^*$ is the smallest $n$ where
+the maximum running over every unknown class and every position. Newton's steps fall geometrically while it converges and $\operatorname{ratio} \to 1$ once round-off dominates, so the pick is the smallest $n$ whose successor's ratio exceeds `ratio_threshold` — the point past which an extra iteration buys nothing but noise. Only the iterate sequence's self-comparison enters: there is no reference solution and no chip-tuned absolute threshold, so a chip's own floating-point behaviour is baked into the floor the detector finds.
 
-$$
-\operatorname{ratio}_{n^*+1} > \operatorname{ratio\_threshold}
-\qquad (\text{default } 0.5),
-$$
+**Relative-residual guard — the sanity check.** At the picked candidate every residual is measured against a scale the same workload supplies — the cell and wire KCL currents against $\max \lvert I_{\mathrm{cell}} \rvert$, the clamp residuals against $\max \lvert V_{\mathrm{BL\,node}} \rvert$ — and each ratio must stay under `reltol`. The tolerance is methodological rather than chip-tuned: it sits safely above the accumulated fp32 round-off floor, so the guard does not false-fire under fp32 while still catching a genuinely unconverged solve. Raise it only for a chip whose wire ladders are far longer or whose signal scale is far smaller; a failing guard otherwise means the candidate range is too narrow, not that the threshold is wrong.
 
-meaning iteration $n^*+1$'s step is at least half as large as $n^*$'s step, signalling the floor.
+## Step 1 — the per-cell condensation count
 
-The criterion uses only the iterate sequence's self-comparison. There is no reference solution and no chip-tuned absolute threshold: chip-dependent floating-point behaviour is baked into the floor itself, so the picker adapts naturally.
-
-## Relative-residual guard (sanity)
-
-After the plateau pick, the residuals are verified against workload-derived signal scales:
-
-$$
-\frac{\max \lvert F_{\mathrm{cell}} \rvert}{\max \lvert I_{\mathrm{cell}} \rvert} < \operatorname{reltol},
-\qquad
-\frac{\max \lvert F_{\mathrm{wire}} \rvert}{\max \lvert I_{\mathrm{cell}} \rvert} < \operatorname{reltol},
-\qquad
-\frac{\max \lvert F_{\mathrm{clamp}} \rvert}{\max \lvert V_{\mathrm{BL\,node}} \rvert} < \operatorname{reltol},
-$$
-
-with default $\operatorname{reltol} = 10^{-2}$ (1%).
-
-$\operatorname{reltol}$ is a methodological constant, **not** chip-tuned. It is set safely above the fp32 accumulated round-off floor
-
-$$
-\operatorname{reltol} \gtrsim \varepsilon_{\mathrm{fp32}} \cdot \sqrt{N_{\mathrm{ops}}} \cdot \operatorname{signal\_scale}
-$$
-
-so the guard does not false-fire under fp32 while still catching genuine divergence: a 1% residual ratio means wire KCL is off by 1% of cell current, which is clearly broken. fp64 workloads land $8+$ orders of magnitude below this threshold.
-
-If a chip's workload pushes wire ladders much longer or its signal scale much smaller, the operator may need to raise `reltol` further. The run config's `[sweep]` section carries `reltol`, `ratio_threshold`, and the per-axis margins for that.
-
-## Why not absolute residual / ADC-relative / huge-iteration reference?
-
-- **Absolute residual ($< 1$ nA)** changes meaning per chip. A chip with 10 uA operating current sees 1 nA as 100 ppm, while a chip with 100 uA sees it as 10 ppm. The same threshold is too tight for some chips and too loose for others.
-- **ADC-relative ($\Delta v$ vs $V_{\mathrm{LSB}}$)** conflates solver accuracy with ADC quantization. A solver that is intrinsically wrong but lucky enough that the error rounds to the same ADC code would pass; tightening the ADC then exposes the masked solver error. We calibrate the solver alone here, and the ADC has its own calibration.
-- **Huge-iteration reference ($u_n$ vs $u_{\mathrm{huge}}$)** has a chicken-and-egg problem. To declare the reference trusted, one must check it does not change at $u_{\mathrm{huge}} + \delta$, which is itself a plateau check. The reference adds expense for no extra signal.
-
-The plateau detector resolves this cleanly: convergence is defined by the iterate sequence's own behaviour, not by any external comparison.
-
-## Default dtype: fp32
-
-All three CLI tools default to **fp32** (`--dtype float32`). Rationale:
-
-- Production simulation (LeNet / BERT inference, training, throughput evaluations) runs in fp32 for speed and memory, so the chip preset's calibrated iteration counts must match the production dtype.
-- The fp32 plateau is reached in fewer iterations than fp64 because the round-off floor is higher, so further iterations bring no benefit. fp32-calibrated counts are correct and sufficient for fp32 simulation.
-- The same counts also work in fp64: extra Newton iterations beyond the fp32 floor cost almost nothing once the solver is at any floor, and the residuals only get tighter.
-- fp64 is available via `--dtype float64` for accuracy verification or debug.
-
-The chip-preset comments record the production dtype explicitly so calibration runs can be cross-checked.
-
-## From plateau to stored count
-
-Each picked count is the raw plateau $n^*$ plus a fixed $+1$ safety margin — the nested solver takes the margin on its outer axis ($n_{\mathrm{outer}}$, inner left at its plateau), and the cell takes it on its single axis ($n_{\mathrm{newton}}$). The margined values are written into the chip config, never into this guide: the array-solver counts live in `[cim_macro.array_config.solver_config]` (`n_outer`, `n_inner`) and the per-cell count in `[cim_macro.array_config.cell_config]` (`newton_iter_num`). To read a chip's counts, open its config; to re-pick them for a chip, re-run the tools below. This guide states the method and the margin rule, not any chip's numbers, because those go stale against the config.
-
-## Array-solver workload driving
-
-`calibrate_solver` is host-agnostic: it binds only to the nested solver family, the 1T1R cell record it consumes, and the abstract `CimMacro` surface. The run config names the macro by file (`[macro].config_files` / `config_section` / `policy_file` / `policy_section`) and locates the nested-solver table inside that config with a dotted `[macro].solver_section` (e.g. `array_config.solver_config`). Each candidate rebuilds a fresh macro from the config with the swept iteration count patched onto that table — no object mutation, no reach-through into a concrete host topology.
-
-Every candidate is driven by the identical workload (sampled once, seeded) through the macro's public `vec_mat_mul`. Dense sampled activation planes are serialized over the hardware sub-phase axis exactly as the runtime engine drives the macro: `[workload].active_rows` sets how many word lines are simultaneously live per plane, and the rest arrive zeroed. Set `active_rows` to the macro's `max_active_num` for the production-faithful operating point, or to `row_num` for the conservative single-plane envelope; any in-range value is legal and the choice is never defaulted in code. The step-delta and residual data ride the solver / cell probe channels *upstream* of ADC conversion, so the discarded ADC codes — and any code clipping at a conservative operating point — are irrelevant to the pick. Calibration presumes an all-off policy so the per-candidate macro rebuilds are comparable.
-
-The solver probe emits one record per solver iteration, and the two criteria read different points of that trajectory. The step delta compares the CONVERGED iterate of adjacent candidates, so it reads each solve's terminal record — the one carrying the operating point. The residual guard asks where a solve stopped, so per solve it reads the wire residuals of the last inner Newton step and the clamp residuals of the last outer clamp event, and nothing from the descent leading up to them: a converging solve passes through large residuals by construction, and counting those would report divergence for every well-behaved solve.
-
-## Per-cell condensation count
-
-The per-cell access-node condensation in $\operatorname{XbarCell1t1rDetail}$ runs its own fixed Newton on the internal-node KCL $F_{\mathrm{X}} = I_{\mathrm{N}} - I_{\mathrm{R}}$ after a Pade current-divider seed; its `newton_iter_num` is a separate calibrated knob owned by the Detail cell config (`[cim_macro.array_config.cell_config].newton_iter_num`), not by the array-solver config. It is picked with the **same** step-ratio-plateau criterion as above, applied to the per-cell internal node $V_{\mathrm{X}}$ and the per-cell internal-KCL residual $\lvert F_{\mathrm{X}} \rvert$ rather than to the wire / clamp unknowns. It is calibrated by `neurox.tools.calibrate_cell`, a scheme-agnostic package separate from the array-solver calibrator (`neurox.tools.calibrate_solver`): the per-cell condensation is the cell's responsibility, and a new cell type with a different internal topology calibrates its own count without touching the other calibrators. The run config carries the Detail cell fragment directly (a `cell_config` table, typically pulled from a scheme's chip params via `_neurox_use`) plus the grid / sweep / runtime sections. The tool sweeps `newton_iter_num` over a representative operating grid — $v_{\mathrm{BL}}$ / $v_{\mathrm{SL}}$ across the read-voltage range, the word line off and on, and every programmed RRAM state — and reads the plateau at the worst point of that grid. The seed lands inside the Newton basin, so the per-cell plateau is reached in very few steps and $V_{\mathrm{X}}$ reaches its round-off floor quickly; the margined count it emits is written to `[cim_macro.array_config.cell_config].newton_iter_num`.
-
-One run emits **two TOML fragments** into `--output-dir`, in addition to the log:
-
-- `cell_detail_newton_iter_num.toml` — the margined `newton_iter_num` pick to merge into the scheme's Detail cell fragment;
-- `cell_linear.toml` — a complete linearized-cell (`XbarCell1t1rLinearConfig`) fragment: the shared physical fields copied from the input Detail config, and per-(state, WL-level) chord conductance / BL-side drop fraction of the Detail cell extracted at the nominal operating point given by the grid's `v_bl_op__V` / `v_sl_op__V`, with the WL on/off threshold at the midpoint of the grid's two WL levels. Both quantities put the fixed read span `v_bl_op__V - v_sl_op__V` in the denominator, so cut-off entries stay well-conditioned (their chord conductance is the honest leakage value). Selecting the Linear cell is a pure config choice — point the array's `cell_config` table at the fragment via `_neurox_use`.
+The Detail cell runs its own fixed Newton on the internal-node KCL after a Pade current-divider seed. The same criteria apply, read on the per-cell internal node $V_{\mathrm{X}}$ and the per-cell KCL residual rather than on the wire and clamp unknowns. The seed lands inside the Newton basin, so this plateau arrives in very few steps.
 
 ```bash
-python -m neurox.tools.calibrate_cell._1t1r \
-    --config <scheme_run_config>.toml \
-    --device cpu \
-    --output-dir <output_dir>
+python -m neurox.tools.calibrate_cell.x1t1r \
+    --config validations/<paper>/tools/calibrate_cell.toml \
+    --device cpu --output-dir log/calibration/<paper>
 ```
+
+The run config carries the Detail cell fragment directly — a `cell_config` table, typically pulled from the campaign params by `_neurox_use` — plus `[grid]`, `[sweep]`, and `[runtime]`. `[grid]` is the operating grid the worst point is read at: the bit-line and source-line terminal sweep, the two word-line levels, and the nominal read point `v_bl_op__V` / `v_sl_op__V` the linearization is extracted at. The sweep walks every programmed RRAM state on that grid.
+
+One run writes two fragments into `--output-dir`:
+
+- `cell_detail_newton_iter_num.toml` — the margined `newton_iter_num` to merge into the Detail cell fragment.
+- `cell_linear.toml` — a complete linearized-cell config: the shared physical fields copied from the Detail source, plus the per-(state, word-line level) chord conductance and bit-line-side drop fraction extracted at the nominal point, with the word-line threshold at the midpoint of the grid's two levels. Selecting the linear cell afterwards is a pure config choice — point the array's `cell_config` at this fragment with `_neurox_use`. What the extraction guarantees is specified in [1T1R linear cell](../../reference/primitive/xbar/cell/1t1r_linear.md).
+
+A cell type with a different internal topology calibrates its own count through its own tool; this one binds to the Detail 1T1R cell.
+
+## Step 2 — the array solver pair
+
+The nested solver is swept on two axes in sequence: Stage A pins `n_inner` at the generous `inner_ref` and sweeps `n_outer`; Stage B pins `n_outer` at the Stage A pick and sweeps `n_inner`.
+
+```bash
+python -m neurox.tools.calibrate_solver.col_bl_col_sl \
+    --config validations/<paper>/tools/calibrate_solver.toml --device cpu
+```
+
+`--plot-dir` writes one step-and-residual plot per stage. The run names the macro by file in `[macro]` — `config_files`, `config_section`, `policy_file`, `policy_section` — and locates the solver table inside that config with a dotted `[macro].solver_section` such as `array_config.solver_config`. Each candidate rebuilds a fresh macro with the swept count patched onto that table, so the tool reaches through to no concrete host topology and mutates no object. Calibrate under an all-off policy: the per-candidate rebuilds are only comparable if nothing random varies between them.
+
+Every candidate is driven by one identical seeded workload through the macro's public `vec_mat_mul`, with the activation planes serialized over the hardware sub-phase axis exactly as the engine drives the macro. `[workload].active_rows` sets how many word lines are live per plane, the rest arriving zeroed: the macro's `max_active_num` is the production-faithful operating point and `row_num` the conservative single-plane envelope. Any in-range value is legal and none is defaulted in code, so the run config states the choice. `[workload].inst_shape` is bound to `[batch_w]`, the parallel weight-program axis.
+
+Both criteria read the solver and cell probe channels upstream of the ADC, so the discarded output codes — and any code clipping at a conservative operating point — cannot influence the pick. The probe emits one record per solver iteration, and the two criteria read different points of that trajectory: the step delta compares the converged iterate of adjacent candidates, while the guard reads where each solve stopped — the wire residuals of its last inner step and the clamp residuals of its last outer clamp event, and nothing from the descent leading up to them. A converging solve passes through large residuals by construction, and counting those would report divergence for every well-behaved solve.
+
+Stage B can legitimately find no plateau when even the smallest inner count already sits at the floor. The tool then falls back to that smallest candidate and re-verifies the residual guard there, since Stage A's guard ran at the generous `inner_ref`; a fallback that fails the guard aborts the run rather than emitting a count.
+
+## From the pick to the config
+
+The recommended value is the plateau pick plus the margin the run config declares — `margin` for the cell, `outer_margin` and `inner_margin` for the two solver axes, each added after its own pick. Write the recommended values into the chip config: the array pair into `[cim_macro.array_config.solver_config]`, the cell count into `[cim_macro.array_config.cell_config]`. The array solver logs the fragment ready to paste; the cell tool logs its result and, given `--output-dir`, writes both fragments there as files.
+
+A chip's counts belong to that chip's config and are read there, never restated here. The nested formulation the pair indexes is specified in [column BL / column SL solver](../../reference/primitive/xbar/solver/col_bl_col_sl.md), and the ownership split across one solve in [crossbar DC solve](../../system_design/xbar_solve.md).
+
+## Working dtype
+
+`[runtime].dtype` selects `float32` or `float64` for the whole run; there is no CLI override, so the dtype is part of the reproducible record. Calibrate at the dtype production runs at. The fp32 plateau is reached in fewer iterations than the fp64 one because its round-off floor is higher, and counts picked under fp32 remain valid in fp64, where the extra headroom only tightens the residuals. Run float64 to verify a suspicious pick.

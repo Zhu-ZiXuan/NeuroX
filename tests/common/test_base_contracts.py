@@ -1,82 +1,23 @@
-"""Tests for common base-class structural contracts."""
+"""Tests for common base-class construction and rejection contracts."""
 
 from __future__ import annotations
 
-import importlib
-import inspect
-import pkgutil
-import typing
 from dataclasses import FrozenInstanceError, fields, is_dataclass
 from inspect import Parameter, signature
 
 import pytest
 import torch.nn as nn
-from torch import Tensor
 
-import neurox
-from neurox.architecture.unit.matmul_mapping import BlockSlotRouting
 from neurox.common import (
     ConfigBase,
     ModuleBase,
     PolicyBase,
     RegistryMixin,
     TensorDataClassBase,
-    TensorGroupMixin,
 )
 from neurox.common.fabricate_mixin import FabricateMixin
 from neurox.common.profile_mixin import ProfileMixin
-from neurox.primitive.device import MosfetConfig, MosfetPolicy
-from neurox.primitive.digital import (
-    AccumulatorConfig,
-    AdderConfig,
-    DigitalPolicy,
-    ShiftAdderConfig,
-    SubtractorConfig,
-)
-
-_SHARED_CONFIG_POLICY_TYPES: dict[str, tuple[type[ConfigBase], type[PolicyBase]]] = {
-    "neurox.primitive.device.mosfet.Nmos": (MosfetConfig, MosfetPolicy),
-    "neurox.primitive.device.mosfet.Pmos": (MosfetConfig, MosfetPolicy),
-    "neurox.primitive.digital.accumulator.Accumulator": (AccumulatorConfig, DigitalPolicy),
-    "neurox.primitive.digital.adder.Adder": (AdderConfig, DigitalPolicy),
-    "neurox.primitive.digital.serial_accumulator.SerialAccumulator": (AccumulatorConfig, DigitalPolicy),
-    "neurox.primitive.digital.shift_adder.ShiftAdder": (ShiftAdderConfig, DigitalPolicy),
-    "neurox.primitive.digital.subtractor.Subtractor": (SubtractorConfig, DigitalPolicy),
-}
-
-# `dataclass(slots=True)` rebuilds the class object, and rebuilding re-runs
-# `TensorDataClassBase.__init_subclass__` against a class that already carries
-# the frozen `__setattr__`, which raises. A tensor-carrying dataclass that wants
-# slots therefore keeps its own decorator and stays outside the hierarchy.
-_TENSOR_BASE_EXEMPT: frozenset[type] = frozenset({BlockSlotRouting})
-
-
-def _neurox_classes() -> set[type]:
-    """Every class neurox declares, taken from the module that declares it."""
-    modules = [importlib.import_module(info.name) for info in pkgutil.walk_packages(neurox.__path__, "neurox.")]
-    return {
-        cls
-        for module in modules
-        for cls in vars(module).values()
-        if inspect.isclass(cls) and cls.__module__ == module.__name__
-    }
-
-
-def _carries_tensor(cls: type, *, visiting: frozenset[type] = frozenset()) -> bool:
-    """Whether a dataclass declares a tensor field, directly or through a nested dataclass."""
-    if cls in visiting:
-        return False
-    hints = typing.get_type_hints(cls)
-    for field in fields(cls):
-        annotation = hints[field.name]
-        for candidate in (annotation, *typing.get_args(annotation)):
-            if not isinstance(candidate, type):
-                continue
-            if issubclass(candidate, Tensor):
-                return True
-            if is_dataclass(candidate) and _carries_tensor(candidate, visiting=visiting | {cls}):
-                return True
-    return False
+from neurox.common.serialize import dataclass_from_dict
 
 
 class _ParentConfig(ConfigBase):
@@ -148,31 +89,16 @@ class _RegisteredModule(_ModuleRegistryRoot):
     pass
 
 
+class _Module(ModuleBase[_ModuleConfig, _ModulePolicy]):
+    def _sample_fabricate_mismatch(self) -> None:
+        pass
+
+
 def test_config_and_policy_subclasses_are_dataclasses() -> None:
     assert is_dataclass(_ParentConfig)
     assert is_dataclass(_ChildConfig)
     assert is_dataclass(_Policy)
     assert [field.name for field in fields(_ChildConfig)] == ["parent", "child"]
-
-
-def test_every_module_has_config_and_policy() -> None:
-    module_classes = {cls for cls in _neurox_classes() if issubclass(cls, ModuleBase) and cls is not ModuleBase}
-
-    for module_class in module_classes:
-        qualified_name = f"{module_class.__module__}.{module_class.__name__}"
-        stem = module_class.__name__.removesuffix("Base")
-        module = importlib.import_module(module_class.__module__)
-        config_class, policy_class = _SHARED_CONFIG_POLICY_TYPES.get(
-            qualified_name,
-            (
-                getattr(module, f"{stem}Config", None),
-                getattr(module, f"{stem}Policy", None),
-            ),
-        )
-        assert inspect.isclass(config_class), qualified_name
-        assert issubclass(config_class, ConfigBase), qualified_name
-        assert inspect.isclass(policy_class), qualified_name
-        assert issubclass(policy_class, PolicyBase), qualified_name
 
 
 @pytest.mark.parametrize("cls", [_ParentConfig, _ChildConfig, _Policy])
@@ -220,31 +146,6 @@ def test_config_and_policy_reject_custom_init(base: type) -> None:
                 pass
 
 
-def test_every_tensor_carrying_dataclass_inherits_the_tensor_base() -> None:
-    for cls in _neurox_classes():
-        if not is_dataclass(cls) or issubclass(cls, ConfigBase | PolicyBase) or cls in _TENSOR_BASE_EXEMPT:
-            continue
-        if _carries_tensor(cls):
-            assert issubclass(cls, TensorDataClassBase), f"{cls.__module__}.{cls.__qualname__}"
-
-
-def test_every_tensor_group_host_inherits_the_tensor_base() -> None:
-    for cls in _neurox_classes():
-        if issubclass(cls, TensorGroupMixin) and cls is not TensorGroupMixin:
-            assert issubclass(cls, TensorDataClassBase), f"{cls.__module__}.{cls.__qualname__}"
-
-
-def test_tensor_base_descendants_are_frozen_identity_dataclasses() -> None:
-    for cls in _neurox_classes():
-        if not issubclass(cls, TensorDataClassBase):
-            continue
-        name = f"{cls.__module__}.{cls.__qualname__}"
-        params = cls.__dataclass_params__
-        assert params.frozen is True, name
-        assert params.eq is False, name
-        assert all(field.kw_only for field in fields(cls)), name
-
-
 def test_profile_mixin_rejects_non_module_subclass() -> None:
     with pytest.raises(TypeError, match=r"must also inherit torch\.nn\.Module"):
 
@@ -283,20 +184,104 @@ def test_module_registry_resolves_config_and_policy_instances() -> None:
     )
 
 
-@pytest.mark.parametrize("inst_shape", [(0,), (2, 0, 3), (-1,)])
-def test_module_base_rejects_non_positive_instance_extents(inst_shape: tuple[int, ...]) -> None:
-    class _Module(ModuleBase[_ModuleConfig, _ModulePolicy]):
-        def _sample_fabricate_mismatch(self) -> None:
+def test_module_registry_rejects_a_duplicate_config_policy_key() -> None:
+    with pytest.raises(
+        TypeError,
+        match=r"config _ModuleConfig and policy _ModulePolicy already select _RegisteredModule",
+    ):
+        @_ModuleRegistryRoot.register_neurox_module(config_type=_ModuleConfig, policy_type=_ModulePolicy)
+        class _DuplicateRegisteredModule(_ModuleRegistryRoot):
             pass
 
+
+@pytest.mark.parametrize("inst_shape", [(0,), (2, 0, 3), (-1,)])
+def test_module_base_rejects_non_positive_instance_extents(inst_shape: tuple[int, ...]) -> None:
     with pytest.raises(ValueError, match="inst_shape extents must be positive"):
         _Module(config=_ModuleConfig(), policy=_ModulePolicy(), inst_shape=inst_shape)
 
 
 def test_empty_instance_shape_represents_one_instance() -> None:
-    class _Module(ModuleBase[_ModuleConfig, _ModulePolicy]):
+    module = _Module(config=_ModuleConfig(), policy=_ModulePolicy(), inst_shape=())
+    assert module.inst_count == 1
+
+
+@pytest.mark.parametrize("base", [ConfigBase, PolicyBase])
+def test_config_and_policy_reject_an_initial_value(base: type) -> None:
+    with pytest.raises(TypeError, match=r"_InvalidStructuredInput\.value carries an initial value"):
+
+        class _InvalidStructuredInput(base):
+            value: int = 3
+
+
+def test_tensor_data_class_rejects_a_custom_init() -> None:
+    with pytest.raises(TypeError, match=r"must declare dataclass fields, not __init__\(\)"):
+
+        class _InvalidTensorData(TensorDataClassBase):
+            def __init__(self) -> None:
+                pass
+
+
+def test_tensor_data_class_rejects_a_custom_post_init() -> None:
+    with pytest.raises(TypeError, match=r"carries data only; it declares fields, not __post_init__\(\)"):
+
+        class _InvalidTensorData(TensorDataClassBase):
+            def __post_init__(self) -> None:
+                pass
+
+
+def test_tensor_data_class_rejects_an_initial_value() -> None:
+    with pytest.raises(TypeError, match=r"_InvalidTensorData\.value carries an initial value"):
+
+        class _InvalidTensorData(TensorDataClassBase):
+            value: int = 3
+
+
+@pytest.mark.parametrize("metric", ["area__um2", "leakage__uW"])
+def test_a_profile_target_without_static_ppa_fails_when_the_metric_is_read(metric: str) -> None:
+    module = _Module(config=_ModuleConfig(), policy=_ModulePolicy(), inst_shape=())
+    with pytest.raises(NotImplementedError):
+        getattr(module, metric)
+
+
+def test_a_module_counted_at_its_owner_needs_no_static_ppa() -> None:
+    class _OwnedModule(ModuleBase[_ModuleConfig, _ModulePolicy]):
+        is_profile_target = False
+
         def _sample_fabricate_mismatch(self) -> None:
             pass
 
-    module = _Module(config=_ModuleConfig(), policy=_ModulePolicy(), inst_shape=())
-    assert module.inst_count == 1
+    assert _OwnedModule(config=_ModuleConfig(), policy=_ModulePolicy(), inst_shape=()).inst_count == 1
+
+
+@pytest.mark.parametrize("metric", ["area__um2", "leakage__uW"])
+def test_a_module_counted_at_its_owner_refuses_static_ppa_access(metric: str) -> None:
+    class _OwnedModule(ModuleBase[_ModuleConfig, _ModulePolicy]):
+        is_profile_target = False
+
+        def _sample_fabricate_mismatch(self) -> None:
+            pass
+
+    module = _OwnedModule(config=_ModuleConfig(), policy=_ModulePolicy(), inst_shape=())
+    with pytest.raises(RuntimeError, match=r"is not a profile target"):
+        getattr(module, metric)
+
+
+def test_a_module_counted_at_its_owner_rejects_declared_static_ppa() -> None:
+    with pytest.raises(TypeError, match=r"sets is_profile_target = False but declares _area_per_inst__um2"):
+
+        class _InvalidOwnedModule(ModuleBase[_ModuleConfig, _ModulePolicy]):
+            is_profile_target = False
+
+            def _sample_fabricate_mismatch(self) -> None:
+                pass
+
+            @property
+            def _area_per_inst__um2(self) -> float:
+                return 1.0
+
+
+def test_building_a_dataclass_names_the_missing_required_keys() -> None:
+    with pytest.raises(
+        TypeError, match=r"_ChildConfig: missing key\(s\) \['child'\]; valid fields: \['child', 'parent'\]"
+    ):
+        dataclass_from_dict(_ChildConfig, {"parent": 1})

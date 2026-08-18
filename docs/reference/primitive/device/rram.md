@@ -101,9 +101,3 @@ TODO: link `validation/device` evidence — I-V and differential-conductance agr
 ## References
 
 TODO: cite the hyperbolic-sine RRAM I-V model, the power-law conductance-drift model, the state-dependent programming-variation model, and the random-telegraph-noise model.
-
----
-
-- **Internals**: [rram internals](../../../internals/primitive/device/rram.md)
-- **Validation**: TODO — `validation/device` (not yet written)
-- **Configuration**: `api` (`RramConfig`, `RramPolicy`)

@@ -1,7 +1,7 @@
 """Common interface for integer compute units.
 
 See Also:
-    docs/internals/architecture/unit/base.md
+    docs/reference/architecture/unit/family.md
 """
 
 from __future__ import annotations
@@ -13,21 +13,6 @@ from torch import Tensor
 
 
 def _validate_int_bias(bias: Tensor, *, channels: int) -> Tensor:
-    """Validate an integer per-channel bias vector and return it as int64.
-
-    Args:
-        bias: Bias values in any integer dtype.
-            Shape: `[channels]`.
-        channels: Output channels the vector must cover.
-
-    Returns:
-        `bias` cast to `torch.int64`, the accumulation domain.
-
-    Raises:
-        TypeError: `bias` has a non-integer dtype.
-        ValueError: `bias` has a shape other than the per-channel vector stated
-            above.
-    """
     if bias.dtype.is_floating_point or bias.dtype.is_complex or bias.dtype == torch.bool:
         raise TypeError(f"require: integer bias dtype; got {bias.dtype}")
     if tuple(bias.shape) != (channels,):
@@ -37,6 +22,12 @@ def _validate_int_bias(bias: Tensor, *, channels: int) -> Tensor:
 
 class UnitBase(ABC):
     """Base interface for programmed integer operators.
+
+    An operator specializes one lowering template through three seams: a
+    program-time weight-to-matrix map, a call-time activation-to-planes map,
+    and an aggregation-undo removing exactly the axes that plane map
+    introduced. All three default to the identity, so an operator overrides
+    only what its own lowering needs.
 
     Leading input dimensions pass through unchanged. Optional bias is
     accumulated in the `torch.int64` output domain.

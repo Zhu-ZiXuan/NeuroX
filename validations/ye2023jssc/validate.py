@@ -142,11 +142,6 @@ _TOPS_W_PER_OP_PER_FJ = 1.0e3
 _GOLDEN_SAMPLE_NUM = 64
 
 
-# ---------------------------------------------------------------------------
-# Build / draw
-# ---------------------------------------------------------------------------
-
-
 def build_macro(
     params_path: Path,
     policy_path: Path,
@@ -235,11 +230,6 @@ def _draw_input(gen: torch.Generator, *, shape: tuple[int, ...], p_zero: float) 
     return keep.long()
 
 
-# ---------------------------------------------------------------------------
-# Closed-form transfer oracle
-# ---------------------------------------------------------------------------
-
-
 def _golden_transfer(macro: Ye2023JsscCimMacro, w: Tensor, x: Tensor) -> tuple[Tensor, Tensor]:
     """Closed-form ``(code, distance to the nearest ladder tap)`` from the config tables.
 
@@ -294,11 +284,6 @@ def _golden_transfer(macro: Ye2023JsscCimMacro, w: Tensor, x: Tensor) -> tuple[T
     return code, tap_distance__uA
 
 
-# ---------------------------------------------------------------------------
-# Measure
-# ---------------------------------------------------------------------------
-
-
 @dataclass(frozen=True)
 class PointMeasurement:
     """Profiler reduction of the crossed ensemble workload at one sparsity point.
@@ -314,35 +299,32 @@ class PointMeasurement:
         ``accesses / die_num`` serial accesses, which is what
         :attr:`access_latency__ns` divides by. The reduction integrates NO energy
         over it: both power views ride the declared ``window__ns`` instead.
-
-    Attributes:
-        p_zero_input: Input-sparsity point.
-        die_num: Parallel instances (weight draws) per round.
-        repeat: Rounds, each a fresh weight ensemble and a fresh input batch.
-        dynamic__fJ: Per profiler row, the ENSEMBLE dynamic energy of the point.
-        static__uW: Per profiler row, the PER-DIE static leakage power.
-        total_dynamic__fJ: Ensemble dynamic energy of the point.
-        total_static__uW: Per-die static leakage power.
-        window__ns: Declared leakage integration window (see
-            :func:`leakage_window__ns`) — the duty period both power views use.
-        total_latency__ns: Modelled duration of the workload on ONE die: the
-            ``n_x`` VMMs the round drives, each serializing ``col_num`` output
-            accesses on the single time-shared readout.
-        accesses: Output accesses read, ``repeat * n_x * die_num * col_num``.
-        round_total__uW: Per-round model total power, one entry per round.
     """
 
     p_zero_input: float
+    """Input-sparsity point."""
     die_num: int
+    """Parallel instances (weight draws) per round."""
     repeat: int
+    """Rounds, each a fresh weight ensemble and a fresh input batch."""
     dynamic__fJ: dict[str, float]
+    """Per profiler row, the ENSEMBLE dynamic energy of the point."""
     static__uW: dict[str, float]
+    """Per profiler row, the PER-DIE static leakage power."""
     total_dynamic__fJ: float
+    """Ensemble dynamic energy of the point."""
     total_static__uW: float
+    """Per-die static leakage power."""
     window__ns: float
+    """Declared leakage integration window (see `leakage_window__ns`) — the duty
+    period both power views use."""
     total_latency__ns: float
+    """Modelled duration of the workload on ONE die: the `n_x` VMMs the round drives,
+    each serializing `col_num` output accesses on the single time-shared readout."""
     accesses: int
+    """Output accesses read, `repeat * n_x * die_num * col_num`."""
     round_total__uW: tuple[float, ...] = ()
+    """Per-round model total power, one entry per round."""
 
     @property
     def access_latency__ns(self) -> float:
@@ -380,7 +362,7 @@ class PointMeasurement:
         return statistics.stdev(self.round_total__uW) / math.sqrt(len(self.round_total__uW))
 
     @property
-    def ef__tops_w(self) -> float:
+    def ef__tops_per_w(self) -> float:
         """Model MAC energy efficiency [TOPS/W] = ``2 * row_num`` ops per access."""
         return _OPS_PER_MAC * _ROW_NUM * _TOPS_W_PER_OP_PER_FJ / self.per_output__fJ
 
@@ -489,8 +471,6 @@ def measure(
             # leading_rank=1 matches x's own caller leading: `x`'s instance slot
             # is a broadcast placeholder, not a caller dim, so the macro's own
             # leading (its `batch`, see vec_mat_mul step 2) is (n_x,) alone.
-            # Every energy record therefore resolves to [n_x], one element per
-            # input vector, with the die ensemble folded into each element.
             # `program` emits zero profiling records (AST-verified), so sharing
             # the context with it is safe. The records stay where they were
             # emitted, so the workload costs no per-round transfer.
@@ -519,24 +499,20 @@ def measure(
 
 @dataclass(frozen=True)
 class CaliberPooling:
-    """One sparsity point read under one mounting hypothesis.
-
-    Attributes:
-        caliber: Caliber key in ``_CALIBERS``.
-        blocks: The four measured power pins, in ``_BLOCKS`` order.
-        off_pin__uW: Power [uW] of the instrument-fed branch, on no pin.
-        model_total__uW: Total macro power [uW], every branch billed.
-        target_total__uW: Measured total macro power [uW] at this point.
-        window__ns: Declared leakage integration window [ns] the per-output
-            energy integrates over.
-    """
+    """One sparsity point read under one mounting hypothesis."""
 
     caliber: str
+    """Caliber key in `_CALIBERS`."""
     blocks: tuple[BlockPower, ...]
+    """The four measured power pins, in `_BLOCKS` order."""
     off_pin__uW: float
+    """Power of the instrument-fed branch, on no pin."""
     model_total__uW: float
+    """Total macro power, every branch billed."""
     target_total__uW: float
+    """Measured total macro power at this point."""
     window__ns: float
+    """Declared leakage integration window the per-output energy integrates over."""
 
     @property
     def array(self) -> BlockPower:
@@ -556,7 +532,7 @@ class CaliberPooling:
         return self.on_chip__uW * self.window__ns
 
     @property
-    def on_chip_ef__tops_w(self) -> float:
+    def on_chip_ef__tops_per_w(self) -> float:
         """Energy efficiency [TOPS/W] of the on-chip power alone, ``2 * row_num`` ops per access."""
         return _OPS_PER_MAC * _ROW_NUM * _TOPS_W_PER_OP_PER_FJ / self.on_chip_per_output__fJ
 
@@ -609,11 +585,6 @@ def _sparsity_index(anchors: dict, p_zero_input: float) -> int:
     """Index of ``p_zero_input`` in ``anchors[data].p_zero_input`` (nearest match)."""
     pts = anchors["data"]["p_zero_input"]
     return min(range(len(pts)), key=lambda i: abs(pts[i] - p_zero_input))
-
-
-# ---------------------------------------------------------------------------
-# Hard gates
-# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -825,11 +796,6 @@ def gate_t_ac(macro: Ye2023JsscCimMacro, anchors: dict, measurements: list[Point
     )
 
 
-# ---------------------------------------------------------------------------
-# Report
-# ---------------------------------------------------------------------------
-
-
 def _channel__uW(m: PointMeasurement, name: str) -> float:
     """Per-die dynamic power [uW] of one profiler row at one sparsity point."""
     return m.power__uW(m.dynamic__fJ.get(name, 0.0))
@@ -931,12 +897,12 @@ def _fmt_finding(macro: Ye2023JsscCimMacro, measurements: list[PointMeasurement]
         ),
         (
             f"Read through caliber {fit_s}, the {sp:.1%} point draws {fit.on_chip__uW:.2f} uW on chip = "
-            f"{fit.on_chip_per_output__fJ:.3f} fJ per output, i.e. EF {fit.on_chip_ef__tops_w:.2f} TOPS/W against "
-            f"the paper's {ef_anchor:.2f} TOPS/W headline ({fit.on_chip_ef__tops_w / ef_anchor:.2f}x). Reading the "
+            f"{fit.on_chip_per_output__fJ:.3f} fJ per output, i.e. EF {fit.on_chip_ef__tops_per_w:.2f} TOPS/W against "
+            f"the paper's {ef_anchor:.2f} TOPS/W headline ({fit.on_chip_ef__tops_per_w / ef_anchor:.2f}x). Reading the "
             "headline that way IMPLIES it excludes input-drive power, which this mounting hands to the instrument. "
             "The full model, which bills every branch at full rail for the whole window, reads "
-            f"{sparse.ef__tops_w:.2f} / {dense.ef__tops_w:.2f} TOPS/W at the two points; that is the physics view "
-            "of the macro as a self-contained circuit, and the number a system-level estimate should carry."
+            f"{sparse.ef__tops_per_w:.2f} / {dense.ef__tops_per_w:.2f} TOPS/W at the two points; that is the physics "
+            "view of the macro as a self-contained circuit, and the number a system-level estimate should carry."
         ),
     ]
     body = "\n\n".join(textwrap.fill(p, width=100) for p in paragraphs)
@@ -976,7 +942,7 @@ def _fmt_caliber(m: PointMeasurement, anchors: dict, *, caliber: str) -> str:
         "",
         (
             f"    on-chip {p.on_chip__uW:.3f} uW -> {p.on_chip_per_output__fJ:.3f} fJ/out, "
-            f"EF {p.on_chip_ef__tops_w:.2f} TOPS/W (paper headline {ef_anchor:.2f})"
+            f"EF {p.on_chip_ef__tops_per_w:.2f} TOPS/W (paper headline {ef_anchor:.2f})"
         ),
     ]
     return "\n".join(lines)
@@ -997,7 +963,7 @@ def _fmt_point(m: PointMeasurement, anchors: dict) -> str:
         ),
         (
             f"    full model, every branch billed: {m.total__uW:.3f} uW, {m.per_output__fJ:.3f} fJ/out "
-            f"(anchor {per_access_anchor__fJ:.2f}), EF {m.ef__tops_w:.2f} TOPS/W (paper headline {ef_anchor:.2f})"
+            f"(anchor {per_access_anchor__fJ:.2f}), EF {m.ef__tops_per_w:.2f} TOPS/W (paper headline {ef_anchor:.2f})"
         ),
         (
             f"    draw spread over {m.repeat} rounds: model total {m.round_mean__uW:.3f} +- "
@@ -1018,11 +984,6 @@ def _fmt_report(macro: Ye2023JsscCimMacro, measurements: list[PointMeasurement],
         parts += [_fmt_point(m, anchors), ""]
     parts.append(_fmt_finding(macro, measurements, anchors))
     return "\n".join(parts)
-
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
 
 
 def _resolve_device(name: str) -> torch.device:

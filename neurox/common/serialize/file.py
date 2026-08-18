@@ -71,12 +71,7 @@ supported_suffixes = toml_suffixes | yaml_suffixes
 def dict_from_file(file: Path, *, encoding: str | None = "utf-8") -> ConfigDict:
     """Load a dict from a TOML or YAML file (dispatched by suffix).
 
-    Args:
-        file: Config file path.
-        encoding: Text encoding for YAML (ignored for TOML).
-
-    Returns:
-        Loaded mapping.
+    `encoding` is the YAML text encoding and is ignored for TOML.
     """
     suffix = file.suffix.lower()
     if suffix in toml_suffixes:

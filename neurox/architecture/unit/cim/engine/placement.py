@@ -2,7 +2,6 @@
 
 See Also:
     docs/reference/architecture/unit/cim/engine/placement.md
-    docs/internals/architecture/unit/cim/engine/placement.md
 """
 
 from __future__ import annotations
@@ -28,7 +27,6 @@ def _chunk_pad_along(
     chunk_size: int,
     pad_value: int,
 ) -> Tensor:
-    """Right-pad and split one tensor axis into equal chunks."""
     if chunk_size < 1:
         raise ValueError(f"require: chunk_size ({chunk_size}) >= 1")
     if axis < 0:
@@ -94,7 +92,6 @@ class PlacementStage(ModuleBase[PlacementStageConfig, PlacementStagePolicy]):
         return self.plan.block_slot_num
 
     def _register_block_slot_routing_buffers(self) -> None:
-        """Register routing metadata for every CIM block step."""
         routing = make_block_slot_routing(placement=self.plan)
         self.register_buffer(
             "_input_source_index",

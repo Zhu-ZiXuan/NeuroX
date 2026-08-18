@@ -1,7 +1,7 @@
 # Paper-design params for the Ye et al. (JSSC 2023) WH-2T1R RRAM CIM macro — the
 # campaign's design point, every physical value provenance-tagged (legend in
-# docs/validation/campaigns.md). Spec: docs/works/macro/cim/ye2023jssc/model.md;
-# measured outcomes: results.md.
+# docs/validation/campaigns.md). Spec: this file plus the scheme package
+# neurox/works/macro/cim/ye2023jssc/; measured outcomes: results.md.
 #
 # The SANCTIONED free-parameter set is exactly four numbers: the RS-CSA
 # `mirror_scale` and `e_fixed_per_op__fJ`, and the two transcribed seat powers.

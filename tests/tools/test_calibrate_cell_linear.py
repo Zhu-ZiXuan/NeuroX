@@ -20,7 +20,7 @@ from neurox.primitive.xbar.cell import (
     XbarCell1t1rLinearConfig,
     XbarCell1t1rLinearPolicy,
 )
-from neurox.tools.calibrate_cell._1t1r import (
+from neurox.tools.calibrate_cell.x1t1r import (
     CalibrateCell1t1rConfig,
     _build_cell,
     extract_linear_cell_config,

@@ -1,7 +1,8 @@
 """Composable execution engine for CIM matrix multiplication.
 
 See Also:
-    docs/internals/architecture/unit/cim/engine/base.md
+    docs/reference/architecture/unit/cim/engine/family.md
+    docs/system_design/cim_execution.md
 """
 
 from __future__ import annotations
@@ -57,11 +58,7 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
     """Map one logical matrix multiplication onto CIM macros.
 
     Args:
-        config: Engine configuration.
-        policy: Composite engine policy.
         w_logical_shape: Weight shape `(N, K)` bound to `program`.
-        dtype: Tensor dtype used by the CIM macro.
-        T__K: Operating temperature.
         ideal_macro: Whether to replace the configured macro with its ideal
             counterpart.
     """
@@ -167,7 +164,6 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
         T__K: float,
         ideal_macro: bool,
     ) -> None:
-        """Construct the macro and the four paired execution stages."""
         input_tile_num = plan.contraction_partition_num
         macro_group_num = plan.block_group_num
         macro_inst_shape = (
@@ -353,7 +349,6 @@ class CimEngine(ModuleBase[CimEngineConfig, CimEnginePolicy]):
         T__K: float,
         ideal_macro: bool,
     ) -> CimMacro[CimMacroConfig, CimMacroPolicy]:
-        """Construct the configured physical or ideal CIM macro."""
         cim_macro = CimMacro.from_config(
             config=cim_macro_config,
             policy=cim_macro_policy,

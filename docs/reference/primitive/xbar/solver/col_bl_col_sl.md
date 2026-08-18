@@ -1,6 +1,6 @@
 # Parallel BL/SL DC solver
 
-The DC operating point of a crossbar array with **parallel BL/SL rails** — each column's cells share one BL and one SL, and columns do not interact — is found by damped Newton iteration over the two wire ladders and the two clamp boundaries. Every array site condenses to a single signed two-terminal branch and every column boundary has a clamp driver, so the formulation holds for any parallel-rail topology whose site condenses to one branch.
+The DC operating point of a crossbar array with **parallel BL/SL rails** — each column's cells share one BL and one SL, and columns do not interact — is found by damped Newton iteration over the two wire ladders and the two clamp boundaries. Every array site condenses to a single signed two-terminal branch and every column boundary has a clamp driver.
 
 ## Structural assumptions
 
@@ -42,7 +42,11 @@ so the SL sign is absorbed into a magnitude and the assembled Jacobians are sign
 
 ### Inner wire Jacobian
 
-The inner solve is a coupled block-$2\times2$ wire Newton on $(V_{\mathrm{BL}}, V_{\mathrm{SL}})$ along the row axis; its residuals are the per-node wire KCL with the shared cell branch entering both rails — the BL residual $F_{\mathrm{BL}}$ takes $+I_{\mathrm{cell}}$ (drained from BL), the SL residual $F_{\mathrm{SL}}$ takes $-I_{\mathrm{cell}}$ (injected into SL). The Jacobian $J_{\mathrm{inner}}$ is block-tridiagonal in the row index $k$, and its per-node diagonal block carries the cell's cross-coupling between the two rails,
+The inner residuals are the per-node wire KCL with the shared cell branch entering both rails — the BL residual $F_{\mathrm{BL}}$ takes $+I_{\mathrm{cell}}$ (drained from BL), the SL residual $F_{\mathrm{SL}}$ takes $-I_{\mathrm{cell}}$ (injected into SL). On the uniform ladder each residual is the injected branch current plus the current the node's own links carry away,
+
+$$F_{\mathrm{BL},k} = I_{\mathrm{cell},k} + G^{\mathrm{BL}}_{\mathrm{seg}}\Big[\left(V_{\mathrm{BL},k} - V_{\mathrm{BL},k-1}\right) + \left(V_{\mathrm{BL},k} - V_{\mathrm{BL},k+1}\right)\Big], \qquad F_{\mathrm{SL},k} = -I_{\mathrm{cell},k} + G^{\mathrm{SL}}_{\mathrm{seg}}\Big[\left(V_{\mathrm{SL},k} - V_{\mathrm{SL},k-1}\right) + \left(V_{\mathrm{SL},k} - V_{\mathrm{SL},k+1}\right)\Big],$$
+
+where the link back from $k = 0$ reaches the clamp, $V_{\mathrm{BL},-1} \equiv V_{\mathrm{BL,CL}}$ and $V_{\mathrm{SL},-1} \equiv V_{\mathrm{SL,CL}}$, and the onward term is absent at the open far end. The Jacobian $J_{\mathrm{inner}}$ is block-tridiagonal in the row index $k$, and its per-node diagonal block carries the cell's cross-coupling between the two rails,
 
 $$J^{\mathrm{diag}}_k = \begin{bmatrix} d^{\mathrm{BL}}_k + g_{\mathrm{BL,eff},k} & -\,g_{\mathrm{SL,eff},k} \\ -\,g_{\mathrm{BL,eff},k} & d^{\mathrm{SL}}_k + g_{\mathrm{SL,eff},k} \end{bmatrix},$$
 
@@ -74,7 +78,7 @@ Each outer step solves $\dfrac{\partial F_{\mathrm{outer}}}{\partial V_{\mathrm{
 
 ## Well-posedness
 
-The monotonicity directions follow from the cell's signed-conductance contract and the wire-ladder structure. The cell branch current is increasing in $V_{\mathrm{BL}}$ and decreasing in $V_{\mathrm{SL}}$ ($\partial I_{\mathrm{cell}}/\partial V_{\mathrm{BL}} \ge 0$, $\partial I_{\mathrm{cell}}/\partial V_{\mathrm{SL}} \le 0$), so the inner coupled wire system is a block-$2\times2$ tridiagonal M-matrix-flavour system with a unique fixed point at any frozen clamp pair. Because the cell branch currents are monotone in the node voltages, the boundary port currents $I_{\mathrm{BL,port}}$, $I_{\mathrm{SL,port}}$ are themselves monotone in the clamp voltages, so each boundary clamp-driver response is strictly monotone in a definite direction: raising $V_{\mathrm{BL,CL}}$ increases the cell read current and hence the BL port current it must absorb, while raising $V_{\mathrm{SL,CL}}$ lowers the cell drive and hence the SL port current. The outer map on $(V_{\mathrm{BL,CL}}, V_{\mathrm{SL,CL}})$ composes the strictly monotone driver responses (the BL clamp driver strictly monotone in $I_{\mathrm{BL,port}}$, the SL driver strictly monotone in $I_{\mathrm{SL,port}}$) with the strictly monotone array response, giving a unique fixed point; the damped $2\times2$ Newton converges quadratically near it. Rail pseudo-equilibria are excluded, because the outer Newton is a well-conditioned per-column $2\times2$ problem away from the rails; a rail is reached only when the port current is genuinely outside the driver's reachable range, where the rail is the correct physics.
+The monotonicity directions follow from the cell's signed-conductance contract and the wire-ladder structure. The cell branch current is increasing in $V_{\mathrm{BL}}$ and decreasing in $V_{\mathrm{SL}}$ ($\partial I_{\mathrm{cell}}/\partial V_{\mathrm{BL}} \ge 0$, $\partial I_{\mathrm{cell}}/\partial V_{\mathrm{SL}} \le 0$), so the inner coupled wire system is a block-$2\times2$ tridiagonal M-matrix-flavour system with a unique fixed point at any frozen clamp pair. Because the cell branch currents are monotone in the node voltages, the boundary port currents $I_{\mathrm{BL,port}}$, $I_{\mathrm{SL,port}}$ are themselves monotone in the clamp voltages, so each boundary clamp-driver response is strictly monotone in a definite direction: raising $V_{\mathrm{BL,CL}}$ increases the cell read current and hence the BL port current it must absorb, while raising $V_{\mathrm{SL,CL}}$ lowers the cell drive and hence the SL port current. The outer map on $(V_{\mathrm{BL,CL}}, V_{\mathrm{SL,CL}})$ composes the strictly monotone driver responses with the strictly monotone array response, giving a unique fixed point; the damped $2\times2$ Newton converges quadratically near it. Rail pseudo-equilibria are excluded, because the outer Newton is a well-conditioned per-column $2\times2$ problem away from the rails; a rail is reached only when the port current is genuinely outside the driver's reachable range, where the rail is the correct physics.
 
 The formulation carries IR drop through the interconnect resistance of the wire ladder: node voltages along the row axis differ from the clamp voltage by the resistive drop the link currents develop, and these drops enter the wire-ladder KCL residuals directly. One resistance per rail sets every drop, so the accumulated drop at a node is that resistance times the running sum of the currents the links below it carry.
 
@@ -102,9 +106,3 @@ TODO: add validation evidence for solver fixed points, converged residuals, and 
 ## References
 
 TODO: cite the Newton / block-tridiagonal solution methods.
-
----
-
-- **Internals**: [solver internals](../../../../internals/primitive/xbar/solver/col_bl_col_sl.md)
-- **Validation**: TODO — `validation/xbar` (not yet written)
-- **Configuration**: [config reference](../../../../api/README.md) (`[cim_macro.array_config.solver_config]`)

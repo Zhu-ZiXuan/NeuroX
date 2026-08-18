@@ -6,7 +6,7 @@ import inspect
 import typing
 from abc import ABC
 from collections.abc import Mapping
-from dataclasses import Field, is_dataclass
+from dataclasses import MISSING, Field, fields, is_dataclass
 from enum import Enum
 from pathlib import Path
 from types import NoneType, UnionType
@@ -39,14 +39,19 @@ def _is_primitive_type(tp: object) -> TypeGuard[_PrimitiveType]:
 
 
 def _dataclass_field_names(cls: type[object]) -> set[str]:
-    """Return the declared field names of a dataclass type."""
     if not _is_dataclass_type(cls):
         raise TypeError(f"{type(cls).__name__} is not a dataclass type")
     return set(cls.__dataclass_fields__)
 
 
+def _required_field_names(cls: type[object]) -> set[str]:
+    """Return the field names a caller must supply, i.e. those carrying no default."""
+    if not _is_dataclass_type(cls):
+        raise TypeError(f"{type(cls).__name__} is not a dataclass type")
+    return {f.name for f in fields(cls) if f.init and f.default is MISSING and f.default_factory is MISSING}
+
+
 def _recursive_dataclass_descendants(base: type[object]) -> list[str]:
-    """List every dataclass descendant of one base by `__name__`."""
     out: list[str] = []
     for sub in base.__subclasses__():
         if _is_dataclass_type(sub):
@@ -205,17 +210,14 @@ def dataclass_from_dict[T](cls: type[T], data: Mapping[str, ConfigValue]) -> T:
     base appears: as `cls` itself, as the class a discriminator names, or as a
     base-typed nested field.
 
-    Args:
-        cls: Target frozen dataclass type.
-        data: Source mapping.
-
     Returns:
         Instance of `cls`, or of its named subclass.
 
     Raises:
         TypeError: `cls` is not a dataclass, `data` names a `_neurox_class` that
             is neither `cls` nor a subclass of it, `data` carries a key that
-            matches no field of the resolved class, a value does not match its
+            matches no field of the resolved class, `data` omits a field the
+            resolved class declares without a default, a value does not match its
             field's declared primitive type (only an `int` widens to a `float`),
             or the resolved class is an abstract config base (declares `ABC` as
             a direct base or has unimplemented abstract methods) rather than a
@@ -248,6 +250,9 @@ def _dataclass_from_config_dict[T](cls: type[T], data: ConfigDict) -> T:
     unknown = [k for k in data if k != CLASS_DISCRIMINATOR and k not in names]
     if unknown:
         raise TypeError(f"{cls.__name__}: unknown key(s) {sorted(unknown)}; valid fields: {sorted(names)}")
+    missing = _required_field_names(cls) - set(data)
+    if missing:
+        raise TypeError(f"{cls.__name__}: missing key(s) {sorted(missing)}; valid fields: {sorted(names)}")
     kwargs: dict[str, object] = {}
     for name, raw in data.items():
         if name == CLASS_DISCRIMINATOR:
@@ -259,7 +264,6 @@ def _dataclass_from_config_dict[T](cls: type[T], data: ConfigDict) -> T:
 
 
 def _is_polymorphic_dataclass(tp: type[_DataclassInstance]) -> bool:
-    """Return whether a dataclass type participates in a polymorphic family."""
     if any(_is_dataclass_type(base) and base is not tp for base in tp.__mro__):
         return True
     return any(_is_dataclass_type(sub) for sub in tp.__subclasses__())
@@ -295,9 +299,6 @@ def _to_primitive(obj: object) -> ConfigValue:
 
 def dataclass_to_dict(obj: object) -> ConfigDict:
     """Convert a dataclass instance to a plain dict.
-
-    Args:
-        obj: Frozen dataclass instance.
 
     Returns:
         Nested dict ready for TOML / YAML dumping.

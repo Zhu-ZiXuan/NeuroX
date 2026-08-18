@@ -5,9 +5,6 @@ place-value ratio and sums the weighted legs into the output current `I_WDL`. Th
 `w_digit` legs are internal structure of one bank, not instances, so the fabricated
 `inst_shape` trailing is `(gn, polarity)`. A reporter leaf: it self-bills its rail
 conduction and cap events at the production site.
-
-See Also:
-    docs/works/macro/cim/xue2020jssc/model.md
 """
 
 from __future__ import annotations
@@ -39,8 +36,6 @@ class Dswct(ModuleBase[DswctConfig, DswctPolicy]):
     """Digit-weighted current-mirror bank: place-value combine of the BL leg currents.
 
     Args:
-        config: Physical knobs and static PPA seat of one bank.
-        policy: Nonideality toggles; this scheme declares none.
         inst_shape: Fabrication shape `(*inst_shape, gn, polarity)` — one bank per
             (CIM-IO, polarity).
         digit_ratios: LSB-first per-digit mirror ratios, in the module's working dtype.

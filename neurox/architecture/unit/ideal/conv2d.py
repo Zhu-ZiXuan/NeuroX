@@ -44,11 +44,8 @@ class IdealConv2dUnit(Conv2dUnit, CimUnit[IdealConv2dUnitConfig, IdealConv2dUnit
     """Exact integer convolution unit without output quantization.
 
     Args:
-        config: Configuration selecting the concrete implementation.
-        policy: Runtime policy.
         w_logical_shape: Logical kernel shape `(C_out, C_in, kh, kw)` bound to `program(...)`.
         dtype: Requested tensor dtype; it does not affect exact integer execution.
-        T__K: Operating temperature.
         ideal_macro: Accepted without changing this already ideal unit.
     """
 
@@ -140,6 +137,8 @@ class IdealConv2dUnit(Conv2dUnit, CimUnit[IdealConv2dUnitConfig, IdealConv2dUnit
             x = F.pad(x, (p_w, p_w, p_h, p_h))
 
         device = x.device
+        # Index-grid gather rather than `F.unfold`: pure data movement, so the
+        # oracle's window planes stay exact in int64.
         rows = (torch.arange(h_out, device=device) * s_h).view(h_out, 1, 1, 1) + (
             torch.arange(kh, device=device) * d_h
         ).view(1, 1, kh, 1)

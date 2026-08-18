@@ -2,7 +2,6 @@
 
 See Also:
     docs/reference/architecture/unit/cim/engine/x_slice.md
-    docs/internals/architecture/unit/cim/engine/x_slice.md
 """
 
 from __future__ import annotations

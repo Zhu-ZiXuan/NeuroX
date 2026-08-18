@@ -1,11 +1,18 @@
-from ._1t1r import (
+from .base import (
+    XbarCell,
+    XbarCellConfig,
+    XbarCellDcop,
+    XbarCellPolicy,
+    XbarCellSnap,
+)
+from .x1t1r import (
     XbarCell1t1r,
     XbarCell1t1rConfig,
     XbarCell1t1rDcop,
     XbarCell1t1rPolicy,
     XbarCell1t1rSnap,
 )
-from ._1t1r_detail import (
+from .x1t1r_detail import (
     XbarCell1t1rDetail,
     XbarCell1t1rDetailConfig,
     XbarCell1t1rDetailPolicy,
@@ -13,18 +20,11 @@ from ._1t1r_detail import (
     XbarCell1t1rDetailRecord,
     XbarCell1t1rDetailSnap,
 )
-from ._1t1r_linear import (
+from .x1t1r_linear import (
     XbarCell1t1rLinear,
     XbarCell1t1rLinearConfig,
     XbarCell1t1rLinearPolicy,
     XbarCell1t1rLinearSnap,
-)
-from .base import (
-    XbarCell,
-    XbarCellConfig,
-    XbarCellDcop,
-    XbarCellPolicy,
-    XbarCellSnap,
 )
 
 __all__ = [

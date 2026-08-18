@@ -29,8 +29,7 @@ per-access additive noise. The output shape is unchanged.
 
 ## Numerical method
 
-N/A - the implementation applies elementwise gain and noise without changing
-the value tensor's shape.
+N/A — the transport is a closed-form per-call map; no iteration.
 
 ## Noise & non-idealities
 
@@ -63,9 +62,3 @@ clock feedthrough, off-isolation, or crosstalk.
 ## Validation
 
 TODO - link validation evidence once written.
-
----
-
-- **Internals**: [voltage_mux internals](../../../internals/primitive/analog/voltage_mux.md)
-- **Validation**: TODO - validation evidence not yet written
-- **Configuration**: `VmuxConfig`, `VmuxPolicy` (see `api`)

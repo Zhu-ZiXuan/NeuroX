@@ -1,7 +1,7 @@
 """LinearUnit operator interface.
 
 See Also:
-    docs/internals/architecture/unit/linear.md
+    docs/reference/architecture/unit/family.md
 """
 
 from __future__ import annotations

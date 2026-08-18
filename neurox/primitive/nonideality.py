@@ -1,8 +1,16 @@
 """Reusable analog non-ideality kernels and their config dataclasses.
 
+Every kernel owns its own enable branch through a keyword-only `enabled` flag, a plain
+Python `bool` that resolves at trace time, so a disabled source is expressed by the flag
+alone and never by a `None` argument. A disabled kernel returns the input object itself
+rather than a clone — a wide broadcast view stays unmaterialized — so a caller treats
+every result as read-only. A kernel whose spread is a single scalar takes that scalar
+directly, while one with several coupled parameters takes a frozen config declared beside
+it, keeping that parameter set named and validated once.
+
 See Also:
     docs/reference/primitive/nonideality.md
-    docs/internals/primitive/nonideality.md
+    docs/system_design/nonideality_kernels.md
 """
 
 import torch
@@ -32,20 +40,7 @@ def apply_stuck_at_fault(
     *,
     enabled: bool,
 ) -> Tensor:
-    """Replace cells with stuck-at-min / stuck-at-max values.
-
-    Args:
-        x: Input conductance.
-            Shape: `[...]`.
-        config: Stuck-at fault probabilities.
-        min_val: Stuck-at-min replacement value.
-        max_val: Stuck-at-max replacement value.
-        enabled: Master toggle; `False` returns `x` unchanged.
-
-    Returns:
-        Conductance with stuck-at faults applied.
-        Shape: `[...]`.
-    """
+    """Replace cells with stuck-at-min / stuck-at-max values."""
     if not enabled:
         return x
     rand_mask = torch.rand_like(x)
@@ -57,17 +52,7 @@ def apply_stuck_at_fault(
 
 
 def apply_gaussian(x: Tensor, sigma: float | Tensor, *, enabled: bool) -> Tensor:
-    """Apply additive Gaussian noise.
-
-    Args:
-        x: Input tensor.
-        sigma: Standard deviation of the additive noise.
-        enabled: Master toggle; `False` returns `x` unchanged.
-
-    Returns:
-        Noisy tensor.
-        Shape: `[...]`.
-    """
+    """Apply additive Gaussian noise."""
     if not enabled:
         return x
     return x + torch.randn_like(x) * sigma
@@ -77,15 +62,6 @@ def apply_relative_gaussian(x: Tensor, sigma_relative: float, *, enabled: bool) 
     """Apply multiplicative Gaussian noise proportional to the signal.
 
     The multiplicative form keeps an exact zero exact.
-
-    Args:
-        x: Input tensor.
-        sigma_relative: Relative standard deviation [dimensionless].
-        enabled: Master toggle; `False` returns `x` unchanged.
-
-    Returns:
-        Noisy tensor.
-        Shape: `[...]`.
     """
     if not enabled:
         return x
@@ -111,18 +87,7 @@ def apply_state_dependent_gaussian(
     *,
     enabled: bool,
 ) -> Tensor:
-    """Apply Gaussian noise whose σ scales with the magnitude of `x`.
-
-    Args:
-        x: Input conductance.
-            Shape: `[...]`.
-        config: Slope and intercept of the per-element σ.
-        enabled: Master toggle; `False` returns `x` unchanged.
-
-    Returns:
-        Noisy tensor.
-        Shape: `[...]`.
-    """
+    """Apply Gaussian noise whose σ scales with the magnitude of `x`."""
     if not enabled:
         return x
     sigma = config.sigma_slope * x.abs() + config.sigma_intercept
@@ -140,18 +105,7 @@ class LognormalConfig(ConfigBase):
 
 
 def apply_lognormal(x: Tensor, config: LognormalConfig, *, enabled: bool) -> Tensor:
-    """Apply multiplicative log-normal noise.
-
-    Args:
-        x: Input conductance.
-            Shape: `[...]`.
-        config: Log-normal σ.
-        enabled: Master toggle; `False` returns `x` unchanged.
-
-    Returns:
-        Noisy tensor.
-        Shape: `[...]`.
-    """
+    """Apply multiplicative log-normal noise."""
     if not enabled:
         return x
     return x * torch.exp(torch.randn_like(x) * config.sigma)
@@ -182,18 +136,7 @@ def apply_state_dependent_lognormal(
     *,
     enabled: bool,
 ) -> Tensor:
-    """Apply log-normal noise whose σ depends on normalised state.
-
-    Args:
-        x: Input conductance.
-            Shape: `[...]`.
-        config: State-dependent σ config.
-        enabled: Master toggle; `False` returns `x` unchanged.
-
-    Returns:
-        Noisy tensor.
-        Shape: `[...]`.
-    """
+    """Apply log-normal noise whose σ depends on normalised state."""
     if not enabled:
         return x
     x_norm = (x - config.min_val) / (config.max_val - config.min_val + 1e-12)
@@ -213,18 +156,7 @@ class GammaConfig(ConfigBase):
 
 
 def apply_gamma_noise(x: Tensor, config: GammaConfig, *, enabled: bool) -> Tensor:
-    """Apply multiplicative Gamma noise normalised to unit mean.
-
-    Args:
-        x: Input tensor.
-            Shape: `[...]`.
-        config: Constant Gamma config.
-        enabled: Master toggle; `False` returns `x` unchanged.
-
-    Returns:
-        Noisy tensor.
-        Shape: `[...]`.
-    """
+    """Apply multiplicative Gamma noise normalised to unit mean."""
     if not enabled:
         return x
     gamma_dist = torch.distributions.Gamma(config.shape_k, 1.0 / config.scale_theta)
@@ -264,16 +196,6 @@ def apply_state_dependent_gamma(
 
     The Gamma sampler requires float32 or higher; a lower-precision input is
     cast for sampling and cast back on return.
-
-    Args:
-        x: Input conductance.
-            Shape: `[...]`.
-        config: State-dependent Gamma config.
-        enabled: Master toggle; `False` returns `x` unchanged.
-
-    Returns:
-        Noisy tensor.
-        Shape: `[...]`.
     """
     if not enabled:
         return x
@@ -318,18 +240,7 @@ class TelegraphConfig(ConfigBase):
 
 
 def apply_telegraph_noise(x: Tensor, config: TelegraphConfig, *, enabled: bool) -> Tensor:
-    """Apply random telegraph noise.
-
-    Args:
-        x: Input conductance.
-            Shape: `[...]`.
-        config: Random telegraph noise config.
-        enabled: Master toggle; `False` returns `x` unchanged.
-
-    Returns:
-        Noisy tensor.
-        Shape: `[...]`.
-    """
+    """Apply random telegraph noise."""
     if not enabled:
         return x
     amplitude = torch.randn_like(x) * config.amplitude_std + config.amplitude_mean
@@ -379,14 +290,6 @@ def apply_lsb_jitter(
     """Add a Bernoulli(0.5) 0/+1 LSB jitter to an integer code.
 
     Output is clamped to `[0, unsigned_max]`.
-
-    Args:
-        code: Integer code tensor.
-        unsigned_max: Maximum emitted code.
-        enabled: Master toggle; `False` returns `code` unchanged.
-
-    Returns:
-        Jittered code with the same dtype / device as `code`.
     """
     if not enabled:
         return code

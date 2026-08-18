@@ -1,7 +1,8 @@
 """Abstract bases for the CimUnit family.
 
 See Also:
-    docs/internals/architecture/unit/cim/base.md
+    docs/reference/architecture/unit/family.md
+    docs/system_design/cim_execution.md
 """
 
 from __future__ import annotations
@@ -42,12 +43,12 @@ class CimUnit[ConfigT: CimUnitConfig, PolicyT: CimUnitPolicy](
 ):
     """Config-dispatched base for CIM compute units.
 
+    A unit is an exact integer architecture specification: every quantity it
+    exchanges is an integer code, the analog domain staying closed below it
+    inside the macro.
+
     Args:
-        config: Configuration selecting the concrete implementation.
-        policy: Composite nonideality policy.
         w_logical_shape: Logical weight shape `(..., N, K)` bound to `program(...)`.
-        dtype: Tensor dtype for internal buffers.
-        T__K: Operating temperature.
         ideal_macro: Whether to replace the configured CIM macro with its ideal model.
     """
 
@@ -155,7 +156,6 @@ class EngineBackedCimUnit[ConfigT: EngineBackedCimUnitConfig, PolicyT: EngineBac
         return self.config.leakage_per_inst__uW
 
     def _init_engine_child(self, *, dtype: torch.dtype, T__K: float, ideal_macro: bool) -> None:
-        """Construct the configured execution engine."""
         self.engine = CimEngine.from_config(
             config=self.config.engine,
             policy=self.policy.engine,

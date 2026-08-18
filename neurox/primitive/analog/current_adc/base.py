@@ -1,7 +1,7 @@
 """Abstract base class for single-ended current-domain ADC models.
 
 See Also:
-    docs/internals/primitive/analog/current_adc/base.md
+    docs/reference/primitive/analog/current_adc/family.md
 """
 
 from __future__ import annotations
@@ -67,12 +67,9 @@ class Iadc[ConfigT: IadcConfig, PolicyT: IadcPolicy](
     circuit property, so it is neither declared nor validated at this level; a
     ladder the leaf cannot use fails inside that leaf.
 
-    Args:
-        config: Concrete configuration dataclass.
-        policy: Per-source nonideality flags.
-        inst_shape: Per-instance fabrication shape.
-        dtype: Tensor dtype for internal buffers.
-        T__K: Operating temperature.
+    A converter is mode-blind: no operating mode reaches it. The owner picks
+    the references and the range its mode calls for, and hands the converter
+    only the electrical operating point and the bit width.
     """
 
     def __init__(
@@ -99,13 +96,6 @@ class Iadc[ConfigT: IadcConfig, PolicyT: IadcPolicy](
     ) -> Iadc[IadcConfig, IadcPolicy]:
         """Build the implementation registered for the config-policy pair.
 
-        Args:
-            config: Concrete configuration dataclass.
-            policy: Per-source nonideality flags.
-            inst_shape: Per-instance fabrication shape.
-            dtype: Tensor dtype for internal buffers.
-            T__K: Operating temperature.
-
         Returns:
             Registered current-ADC implementation.
         """
@@ -127,9 +117,6 @@ class Iadc[ConfigT: IadcConfig, PolicyT: IadcPolicy](
     def _check_bits(self, bits: int) -> None:
         """Require a resolution this converter's own bit width supports.
 
-        Args:
-            bits: Requested conversion resolution [bits].
-
         Raises:
             ValueError: `bits` is outside `[1, max_bits]`.
         """
@@ -142,9 +129,6 @@ class Iadc[ConfigT: IadcConfig, PolicyT: IadcPolicy](
 
         Args:
             bits: Conversion resolution [bits] in `[1, max_bits]`.
-
-        Returns:
-            Duration of one conversion at `bits`.
         """
         raise NotImplementedError
 

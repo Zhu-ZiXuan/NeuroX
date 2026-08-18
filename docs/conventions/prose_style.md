@@ -1,6 +1,6 @@
 # Prose style
 
-Economy, terminology, and punctuation for explanatory text in every medium: markdown prose, docstrings, and inline comments. A docstring or inline comment follows them exactly as markdown prose does. The permitted character set, symbol meanings, the unit set, where a formula lives, and the one-quantity-one-symbol rule all live in [notation_conventions](notation_conventions.md).
+Economy, terminology, and punctuation for explanatory text in every medium: a docstring or an inline comment follows these rules exactly as markdown prose does. The permitted character set, symbol meanings, the unit set, where a formula lives, and the one-quantity-one-symbol rule all live in [notation_conventions](notation_conventions.md).
 
 ## Baseline references
 
@@ -17,6 +17,7 @@ Assume the reader is fluent in the relevant math, physics, circuits, and program
 - Match length to content; do not pad a thin point or inflate text to fill a template.
 - State each point once; do not restate it across sections.
 - When a name or signature already states a fact — a variable, method, class, or type — do not repeat it in prose.
+- Performance and resource prose states method and theory only: the mechanism, how it scales, and where the governing setting lives. It never quotes a configuration value, since the config file owns that number and prose copying it goes stale silently.
 
 ## Terms
 

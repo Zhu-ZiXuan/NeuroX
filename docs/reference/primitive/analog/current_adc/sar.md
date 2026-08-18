@@ -85,9 +85,3 @@ TODO - link validation evidence once written.
 ## References
 
 TODO: cite the triple-margin current-mode sense-amplifier SAR topology.
-
----
-
-- **Internals**: [sar internals](../../../../internals/primitive/analog/current_adc/sar.md)
-- **Validation**: TODO - validation evidence not yet written
-- **Configuration**: `SarIadcConfig`, `SarIadcPolicy` (see `api`)

@@ -2,7 +2,6 @@
 
 See Also:
     docs/reference/primitive/digital/adder.md
-    docs/internals/primitive/digital/adder.md
 """
 
 import torch
@@ -36,13 +35,7 @@ class AdderConfig(DigitalConfig):
 
 
 class Adder(DigitalBase[AdderConfig]):
-    """Element-wise integer adder without saturation or wrapping.
-
-    Args:
-        config: Arithmetic width and per-op PPA.
-        policy: Empty digital policy marker.
-        inst_shape: Per-instance fabrication multiplicity.
-    """
+    """Element-wise integer adder without saturation or wrapping."""
 
     def __init__(
         self,
@@ -64,20 +57,13 @@ class Adder(DigitalBase[AdderConfig]):
     def add(self, a: Tensor, b: Tensor) -> Tensor:
         """Add two integer tensors element-wise.
 
-        Args:
-            a: Left operand.
-            b: Right operand, broadcastable to `a`.
+        `b` broadcasts against `a`.
 
         Returns:
             `a + b`, unwrapped and unsaturated.
         """
         y = a + b
         if self._is_dynamic_energy_profile_active():
-            # Adder has no caller anywhere in the execution path, so no caller
-            # ever positions a space axis of this block's own inst_shape inside
-            # y; inst_shape only sizes the area/leakage totals. A flat per-op
-            # lump: the expanded constant holds no storage, and the energy dtype
-            # is the constant's rather than the integer operand's.
             # Shape: [] -> [*y.shape]
             e_op__fJ = torch.full((), self.config.energy_per_op__fJ, dtype=torch.float32, device=y.device)
             self._record_dynamic_energy(e_op__fJ.expand(y.shape))

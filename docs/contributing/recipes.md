@@ -8,14 +8,20 @@ Every core change starts here:
 
 1. Identify the task shape below and the owning base class, mixin, shared subsystem, or package surface.
 2. Update or create the [Reference](../reference/README.md) spec first when the physical, mathematical, numerical, or public semantic contract changes.
-3. Update or create the [Internals](../internals/README.md) document when implementation design, lifecycle, shape / dtype / state contracts, ownership, performance, compile behavior, or package surface changes. Update a base or mixin class docstring only when its direct subclass or host requirements change.
+3. Route the software record by the scope of what changed. A changed caller-facing or subclass-facing contract — shape, dtype, state, lifecycle, ownership, or the obligations a subclass must meet — is written in the docstring of the symbol that owns and enforces it. A changed contract that spans components, which no single symbol can hold, goes to its system design page, written per [writing_system_design](writing_system_design.md). A purely local refactor changes code, comments, and tests only, and creates no document.
 4. Apply content-placement, dependency, and single-source rules through [organizing_principles](../conventions/organizing_principles.md), code rules through [code_style](../conventions/code_style.md), and documentation text and format rules through [prose_style](../conventions/prose_style.md) and [markdown_style](../conventions/markdown_style.md).
 5. Implement through the relevant base-class or mixin contract. Do not re-state that contract in the leaf implementation.
-6. Update package exports and public API documentation when the import surface changes; follow [package_surface](../internals/package_surface.md).
+6. Update package exports and public API documentation when the import surface changes, and keep the new module inside the package imports dispatch depends on — see [construction](../system_design/construction.md).
 7. Add or update focused tests and validation evidence.
 8. Run the relevant [workflow](workflow.md) quality gates, including `make docs-build` for documentation or link changes.
 
-Small internal refactors that do not change behavior or contracts may skip Reference updates, but they still update Internals when they change design rationale or maintenance constraints.
+## Writing tests
+
+These hold for every test the checklist adds:
+
+- Write each test's config and policy by hand, stating in the test the values its assertions depend on; do not reach for a preset or a production TOML to obtain them.
+- Assert laws, not numbers — invariants, monotonicity, scaling and limiting relations, and boundary behavior — so that recalibrating a physical parameter does not rewrite the suite. A literal number belongs in an assertion only when it is itself the specification, such as an analytic closed form or an exact-integer result.
+- Keep one test file per module under test, so the guard for a symbol is found from that symbol's module path.
 
 ## Add a pure electrical primitive
 
@@ -23,9 +29,9 @@ Applies to foundational electrical models such as devices and other primitive I/
 
 Use the common checklist, then:
 
-- Define `*Config` and `*Policy` as undecorated descendants of their family roots, retaining an explicit empty class when one has no fields; the common bases supply their frozen, keyword-only dataclass representation. Declare no per-instance area / leakage fields, as the owner budgets them.
+- Use the family's config and policy role types. Add specialized descendants only when the primitive introduces fields or a distinct dispatch identity; do not create empty per-class types merely to match its name. The common bases supply their frozen, keyword-only dataclass representation. Declare no per-instance area / leakage fields, as the owner budgets them.
 - Implement the primitive as a `ModuleBase` leaf that stays a non-reporter: its area and leakage are counted once at the owner, and it emits no dynamic event of its own. Declare the profile-target class variable as [code_style](../conventions/code_style.md) prescribes.
-- Follow the physical-state and lifecycle contracts in [physical_state](../internals/physical_state.md).
+- Follow the physical-state and lifecycle contracts in [physical_state](../system_design/physical_state.md).
 - Provide `snapshot` and / or `solve_dc` only when the primitive owns that runtime concept.
 - Export the public class and role dataclasses from the owning package.
 - Test physical equations, validation failures, snapshot behavior, and DC solve behavior where applicable.
@@ -36,7 +42,7 @@ Applies to analog and digital leaf circuits that own their own silicon and emit 
 
 Use the common checklist, then:
 
-- Define `*Config` (extending the subsystem config base — e.g. `AnalogConfig` plus its own `area_per_inst__um2` / `leakage_per_inst__uW`, or `DigitalConfig`) and its `*Policy` without repeated dataclass decorators, plus their `validate()` checks.
+- Use or extend the subsystem config and policy types — e.g. extend `AnalogConfig` when the leaf introduces its own `area_per_inst__um2` / `leakage_per_inst__uW`. Declare new role types only for new fields or a distinct dispatch identity, never merely to mirror the module class name; do not repeat dataclass decorators, and put new domain checks in `validate()`.
 - Use the `ModuleBase` construction contract and the `ProfileMixin` emitter contract: implement the per-instance PPA properties the mixin requires, which `area__um2` / `leakage__uW` scale by `inst_count`.
 - Implement the family or leaf primary method defined by its base class.
 - Emit dynamic energy only for quantities this leaf owns, as a tensor at the billed layout; the profiler owns the reduction.
@@ -49,9 +55,9 @@ Applies when adding a dispatchable abstract family.
 
 Use the common checklist, then:
 
-- Define both base `*Config` and `*Policy` role types; retain either as an empty marker when the family has no shared fields on that side.
+- Define the config and policy role types that form the family dispatch key; an empty marker is appropriate when its type identity distinguishes the family even though it has no fields.
 - Define the abstract base surface and `from_config` dispatch through `RegistryMixin` or a documented equivalent.
-- Document the family contract in the family base Reference / Internals pages before adding concrete members.
+- State the family's extension contract in the abstract base's docstring before adding concrete members, and add the family Reference document when the shared science is substantial.
 - Keep shared method docstrings on the abstract declaration.
 - Add at least one concrete member or document why the base is introduced ahead of implementations.
 - Test dispatch, validation, abstract contract enforcement, and public exports.
@@ -76,9 +82,9 @@ Applies to modules that own child modules, nested config / policy, layout transf
 Use the common checklist, then:
 
 - Define ownership: which children are constructed directly, which are created through `from_config`, and which runtime context each receives.
-- Document shape / layout contracts in Reference when they are part of the model and in Internals when they are implementation layout; use [organizing_principles](../conventions/organizing_principles.md) for the cross-cutting convention.
-- Keep public construction and propagation rules in [config_and_policy](../internals/config_and_policy.md).
-- Put detailed lifecycle and state behavior in [physical_state](../internals/physical_state.md).
+- Document shape / layout contracts in Reference when they are part of the model and in the owning class docstring when they are implementation layout; use [organizing_principles](../conventions/organizing_principles.md) for the carrier rule.
+- Follow the owner-constructs-child and config-propagation protocol in [construction](../system_design/construction.md).
+- Follow the lifecycle and state-ownership contracts in [physical_state](../system_design/physical_state.md), and document this composite's own lifecycle behavior in its class docstring.
 - Test owned construction, `fabricate` cascade, `program`, primary execution, shape transforms, and profile aggregation.
 
 ## Add a numerical solver or compiled algorithm leaf
@@ -87,7 +93,7 @@ Applies to numerical algorithms, solver leaves, chunking helpers, and compile / 
 
 Use the common checklist, then:
 
-- Document the mathematical method in Reference and the implementation constraints in Internals.
+- Document the mathematical method in Reference; the implementation constraints belong to the docstrings of the symbols that impose them.
 - State shape, dtype, convergence, memory, and compile-safety contracts explicitly.
 - Do not force the implementation into a `ModuleBase` leaf or other hardware-module pattern unless it truly owns that role.
 - Keep hot paths free of Python-state mutation and dynamic behavior forbidden by the compile contract.

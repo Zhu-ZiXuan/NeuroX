@@ -2,7 +2,6 @@
 
 See Also:
     docs/reference/primitive/analog/diff_voltage_adc/general.md
-    docs/internals/primitive/analog/diff_voltage_adc/general.md
 """
 
 from __future__ import annotations
@@ -66,13 +65,6 @@ class GeneralDiffVadc(DiffVadc[GeneralDiffVadcConfig, GeneralDiffVadcPolicy]):
     A flat comparator bank: `code_num - 1` comparators, whose thresholds arrive
     per call as the injected `v_refs__V` ladder. The ladder is 1-D and
     ascending, because the bucketize runs one shared bank over the whole input.
-
-    Args:
-        config: Concrete configuration dataclass.
-        policy: Per-source nonideality flags.
-        inst_shape: Per-instance fabrication shape.
-        dtype: Tensor dtype for internal buffers.
-        T__K: Operating temperature.
     """
 
     def __init__(

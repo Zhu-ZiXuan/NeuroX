@@ -12,7 +12,6 @@ from __future__ import annotations
 
 from abc import ABC
 from collections.abc import Callable
-from dataclasses import Field
 from types import TracebackType
 from typing import Any, ClassVar, Self, cast, final
 
@@ -26,29 +25,11 @@ from .tensor_fields import walk_tensor_fields
 class RecordBase(TensorDataClassBase):
     """One item a side channel collects.
 
-    A record carries no value equality: it equals only itself, so `==` and
-    `hash()` are identity throughout the hierarchy.
-
-    A subclass declares its fields as annotated class attributes carrying at
-    most a plain default, and must not apply `@dataclass` or define `__init__`
-    or `__post_init__`; `TensorDataClassBase` supplies a frozen, keyword-only
-    dataclass. Override `detach` or `to` only for a record whose tensors need
-    what a walk of the declared fields cannot express.
+    `TensorDataClassBase` fixes how a subclass declares its fields and settles
+    identity equality for the whole hierarchy. Override `detach` or `to` only
+    for a record whose tensors need what a walk of the declared fields cannot
+    express.
     """
-
-    def __init_subclass__(cls) -> None:
-        if "__init__" in cls.__dict__:
-            raise TypeError(f"{cls.__qualname__} must declare dataclass fields, not __init__()")
-        if "__post_init__" in cls.__dict__:
-            raise TypeError(f"{cls.__qualname__} carries data only; it declares fields, not __post_init__()")
-        for name, value in cls.__dict__.items():
-            if isinstance(value, Field):
-                raise TypeError(
-                    f"{cls.__qualname__}.{name} is a field() specifier; a record declares plain fields only"
-                )
-        # After the guards: the base's decoration consumes every field()
-        # specifier a subclass declared, leaving nothing for the walk to find.
-        super().__init_subclass__()
 
     def detach(self) -> Self:
         """Return this record with every tensor field detached from autograd.
@@ -61,9 +42,6 @@ class RecordBase(TensorDataClassBase):
     def to(self, device: torch.device) -> Self:
         """Return this record with every tensor field parked on one device.
 
-        Args:
-            device: Destination device.
-
         Returns:
             `self` when no field would change, a copy otherwise.
         """
@@ -72,13 +50,8 @@ class RecordBase(TensorDataClassBase):
     def _map_tensors(self, transform: Callable[[Tensor], Tensor]) -> Self:
         """Rebuild through every tensor field, recursing into nested dataclasses.
 
-        Args:
-            transform: Per-tensor-field transform, returning its argument
-                itself for a field already holding what was asked for.
-
-        Returns:
-            `self` when every field came back unchanged, a rebuilt record
-            otherwise.
+        `transform` returns its argument itself where a field already holds what
+        was asked for, so an all-unchanged walk gives `self` back.
         """
         changed = False
 
@@ -98,7 +71,7 @@ class RecorderBase[RecordT: RecordBase](ABC):
     Subclass this base directly to open a family, binding the family's record
     type as `RecorderBase[SomeRecord]`; activation, accumulation, and
     finalization belong here, so the only collection logic such a subclass adds
-    is a `submit` override deciding which of the family's records it keeps. A
+    is a `_submit_impl` hook deciding which of the family's records it keeps. A
     family is that direct subclass together with everything below it, sharing
     the one active slot it owns: at most one recorder of a family collects at a
     time, and entering a second raises `RuntimeError`. An exception frees the
@@ -190,9 +163,10 @@ class RecorderBase[RecordT: RecordBase](ABC):
         return cls.current() is not None
 
     @classmethod
+    @final
     @torch.compiler.disable
     def submit(cls, record: RecordT) -> None:
-        """Hand one record to the family's active recorder, detached.
+        """Hand one record across the graph boundary to its family hook.
 
         Everything the emitter computes to build the record stays in the
         caller's graph; only the hand-over leaves it. Under CUDA-graph capture
@@ -200,18 +174,14 @@ class RecorderBase[RecordT: RecordBase](ABC):
         cudagraph-owned memory that a later replay overwrites, so an emitter
         inside such a region clones before it submits.
 
-        A family with an admission rule OVERRIDES this method: it applies its
-        gate and hands what survives to `cls._submit_record(record)`. Such an
-        override MUST carry `@torch.compiler.disable` exactly as this base does.
-        An undisabled override is traced by dynamo, which folds the active-slot
-        read into the graph as a constant and leaves the family silently
-        collecting nothing ever after — the failure `current` documents. The
-        same decorator on `_submit_record` is defense in depth against exactly
-        that omission, never a licence to leave it off the override.
-
         Args:
             record: Record to collect; dropped when no recorder is active.
         """
+        cls._submit_impl(record)
+
+    @classmethod
+    def _submit_impl(cls, record: RecordT) -> None:
+        """Apply the family's admission rule and submit what survives."""
         cls._submit_record(record)
 
     @classmethod
@@ -220,11 +190,8 @@ class RecorderBase[RecordT: RecordBase](ABC):
     def _submit_record(cls, record: RecordT) -> None:
         """Append one record to the family's active recorder, detached.
 
-        This is the whole of collection's invariant machinery, so no family
-        reimplements it: an override decides admission and calls this.
-
-        Args:
-            record: Record to collect; dropped when no recorder is active.
+        Collection's invariant machinery: a family hook decides admission and
+        calls this. The record is dropped when no recorder is active.
         """
         recorder = cls.current()
         if recorder is None:
@@ -234,12 +201,10 @@ class RecorderBase[RecordT: RecordBase](ABC):
     def _finalize(self) -> None:
         """Park every collected record on this recorder's `sync_device`.
 
-        Without one there is nothing to park: the records stay where they were
-        recorded. With one the sweep visits the whole book on every clean exit;
-        a record already on that device is returned unchanged, so re-sweeping
-        what an earlier activation collected moves nothing. Each record parks
-        itself, so a cross-device book of `N` records costs `N` transfers rather
-        than one batched copy.
+        Without one the records stay where they were recorded. The sweep visits
+        the whole book on every clean exit; a record already on that device is
+        returned unchanged, and each record parks itself, so a cross-device book
+        of `N` records costs `N` transfers.
         """
         if self._sync_device is None:
             return

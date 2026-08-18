@@ -28,7 +28,7 @@ A Reference §Parameters table carries a Constraint column giving each parameter
 
 - Write `—` when the parameter is physically unconstrained.
 - Write `TODO (domain author)` for a non-obvious bound; never fabricate one.
-- State the physical domain only. What the code raises when a value falls outside the domain is runtime-validation behavior and belongs to Internals, not this column.
+- State the physical domain only. What the code raises when a value falls outside the domain is runtime-validation behavior, owned by the `validate()` method that enforces it.
 
 ## Config layering
 

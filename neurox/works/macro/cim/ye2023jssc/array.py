@@ -7,7 +7,8 @@ solve, the wire ladders, the capacitive billing — is the kernel array's; this
 extension adds the transpose-bitline (TBL) current alone.
 
 See Also:
-    docs/works/macro/cim/ye2023jssc/model.md
+    docs/reference/primitive/xbar/array/1t1r.md
+    docs/system_design/xbar_solve.md
 """
 
 from __future__ import annotations
@@ -38,7 +39,13 @@ class Ye2023Jssc2t1rArrayConfig(XbarArray1t1rConfig):
     entry a positive int."""
     redundant_radix: tuple[int, ...]
     """Per-plane place values of the non-weight planes, laid out after the weight planes.
-    Every entry a positive int."""
+    Every entry a positive int.
+
+    A redundant plane is physically present but carries no weight: it is programmed
+    all-HRS and its columns are held at input 0, so it contributes its radix-weighted
+    share of the row leakage floor and nothing else. The paper's redundant-slice
+    mapping algorithm itself is not modeled.
+    """
     v_bl_in1__V: float
     """BL voltage driven for input bit 1; input bit 0 drives 0 V."""
 
@@ -96,23 +103,23 @@ class Ye2023Jssc2t1rArray(XbarArray1t1r):
     cell sits at are the CELL's own reading of its gate drive and its solved `V_X`,
     so this array carries no threshold of its own.
 
+    A place value is ANALOG and physically a device-width ratio: the radix-scaled
+    currents share one transpose bit line, so no digital shift-add of planes exists
+    anywhere in the scheme, and the multiplier scales the floor and leakage table
+    entries exactly as it scales the on-current. T2 in sub-threshold saturation is a
+    near-ideal current source, so what reaches the readout is that sum whatever the
+    line drops: the transpose bit line gets no solve, and no capacitance either — it
+    is co-driven with its word line and then held at the readout clamp's DC level.
+
     Args:
-        config: Array knobs, including the per-plane place values.
-        policy: Cell nonideality flags plus the solver chunk knob.
-        inst_shape: Per-instance replication shape (prefix only).
-        row_num: Number of word-line rows.
         col_num: Number of physical BL columns; divisible by
             `len(weight_radix) + len(redundant_radix)`, since the place values are
             laid out plane-major over equal column groups.
-        v_dd_wl__V: Word-line driver rail.
-        v_dd_bl__V: Bit-line driver rail.
-        dtype: Tensor dtype for internal buffers.
-        T__K: Operating temperature.
     """
 
     # === Functional buffers ===
 
-    _radix_per_col__unit: Tensor  # Shape: [col_num]
+    _radix_per_col: Tensor  # Shape: [col_num]
 
     def __init__(
         self,
@@ -155,7 +162,7 @@ class Ye2023Jssc2t1rArray(XbarArray1t1r):
 
         # Plane-major place values: each radix spans an equal group of columns.
         self.register_buffer(
-            "_radix_per_col__unit",
+            "_radix_per_col",
             torch.tensor(all_radix, dtype=dtype).repeat_interleave(col_num // len(all_radix)),
             persistent=False,
         )
@@ -247,7 +254,7 @@ class Ye2023Jssc2t1rArray(XbarArray1t1r):
         assert isinstance(cell, Ye2023Jssc2t1rCell)
         assert isinstance(cell_snap, Ye2023Jssc2t1rCellSnap)
         # Shape: [chunk, col_num, row_num] -> [chunk]
-        i_tbl__uA = (cell.i_t2__uA(dcop.cell, cell_snap) * self._radix_per_col__unit.view(-1, 1)).sum(dim=(-2, -1))
+        i_tbl__uA = (cell.i_t2__uA(dcop.cell, cell_snap) * self._radix_per_col.view(-1, 1)).sum(dim=(-2, -1))
 
         return Ye2023Jssc2t1rChunkMeasure(
             i_bl_port__uA=base.i_bl_port__uA,
